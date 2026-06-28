@@ -1,121 +1,101 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from './assets/vite.svg'
-import heroImg from './assets/hero.png'
 import './App.css'
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <>
-      <section id="center">
-        <div className="hero">
-          <img src={heroImg} className="base" width="170" height="179" alt="" />
-          <img src={reactLogo} className="framework" alt="React logo" />
-          <img src={viteLogo} className="vite" alt="Vite logo" />
+    <div className="app">
+      <aside className="sidebar">
+        <div className="brand">
+          <span className="logo">R</span>
+          <div>
+            <h1>Reativa One</h1>
+            <p>CRM Operacional</p>
+          </div>
         </div>
-        <div>
-          <h1>Get started</h1>
-          <p>
-            Edit <code>src/App.jsx</code> and save to test <code>HMR</code>
-          </p>
-        </div>
-        <button
-          type="button"
-          className="counter"
-          onClick={() => setCount((count) => count + 1)}
-        >
-          Count is {count}
-        </button>
-      </section>
 
-      <div className="ticks"></div>
+        <nav>
+          <a className="active">🏠 Dashboard</a>
+          <a>👥 Operadores</a>
+          <a>📂 Base Analítica</a>
+          <a>📞 Acionamentos</a>
+          <a>💰 Borderôs</a>
+          <a>💳 Pagamentos</a>
+          <a>📊 Financeiro</a>
+          <a>🔔 Alertas</a>
+          <a>⚙️ Administração</a>
+        </nav>
+      </aside>
 
-      <section id="next-steps">
-        <div id="docs">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#documentation-icon"></use>
-          </svg>
-          <h2>Documentation</h2>
-          <p>Your questions, answered</p>
-          <ul>
-            <li>
-              <a href="https://vite.dev/" target="_blank">
-                <img className="logo" src={viteLogo} alt="" />
-                Explore Vite
-              </a>
-            </li>
-            <li>
-              <a href="https://react.dev/" target="_blank">
-                <img className="button-icon" src={reactLogo} alt="" />
-                Learn more
-              </a>
-            </li>
-          </ul>
-        </div>
-        <div id="social">
-          <svg className="icon" role="presentation" aria-hidden="true">
-            <use href="/icons.svg#social-icon"></use>
-          </svg>
-          <h2>Connect with us</h2>
-          <p>Join the Vite community</p>
-          <ul>
-            <li>
-              <a href="https://github.com/vitejs/vite" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#github-icon"></use>
-                </svg>
-                GitHub
-              </a>
-            </li>
-            <li>
-              <a href="https://chat.vite.dev/" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#discord-icon"></use>
-                </svg>
-                Discord
-              </a>
-            </li>
-            <li>
-              <a href="https://x.com/vite_js" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#x-icon"></use>
-                </svg>
-                X.com
-              </a>
-            </li>
-            <li>
-              <a href="https://bsky.app/profile/vite.dev" target="_blank">
-                <svg
-                  className="button-icon"
-                  role="presentation"
-                  aria-hidden="true"
-                >
-                  <use href="/icons.svg#bluesky-icon"></use>
-                </svg>
-                Bluesky
-              </a>
-            </li>
-          </ul>
-        </div>
-      </section>
+      <main className="main">
+        <header className="topbar">
+          <div>
+            <h2>Dashboard Gerencial</h2>
+            <p>Visão operacional da carteira Reativa</p>
+          </div>
+          <div className="user">Amanda • Gerente</div>
+        </header>
 
-      <div className="ticks"></div>
-      <section id="spacer"></section>
-    </>
+        <section className="cards">
+          <div className="card">
+            <span>Casos na fila</span>
+            <strong>2.431</strong>
+            <p>Base ativa em cobrança</p>
+          </div>
+          <div className="card warning">
+            <span>Sem acionamento</span>
+            <strong>156</strong>
+            <p>Precisam de atenção hoje</p>
+          </div>
+          <div className="card danger">
+            <span>Casos críticos</span>
+            <strong>87</strong>
+            <p>Próximos ou acima de 10 dias</p>
+          </div>
+          <div className="card success">
+            <span>Honorários mês</span>
+            <strong>R$ 254.978</strong>
+            <p>92% da meta mensal</p>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-header">
+            <h3>Casos próximos dos 10 dias</h3>
+            <button>Ver todos</button>
+          </div>
+
+          <table>
+            <thead>
+              <tr>
+                <th>Aluno</th>
+                <th>Operador</th>
+                <th>Dias sem acionamento</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>João da Silva</td>
+                <td>Olga</td>
+                <td>9 dias</td>
+                <td><span className="badge orange">Atenção</span></td>
+              </tr>
+              <tr>
+                <td>Maria Oliveira</td>
+                <td>Luana</td>
+                <td>8 dias</td>
+                <td><span className="badge yellow">Monitorar</span></td>
+              </tr>
+              <tr>
+                <td>Carlos Pereira</td>
+                <td>Diego</td>
+                <td>10 dias</td>
+                <td><span className="badge red">Crítico</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+      </main>
+    </div>
   )
 }
 
