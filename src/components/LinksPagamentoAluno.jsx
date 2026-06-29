@@ -1,0 +1,700 @@
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../services/supabase";
+import { nomeOperadorPorEmail, podeVerTudo, podeBaixarPagamento } from "../utils/operadores";
+import ComprovantePagamento from "./ComprovantePagamento";
+
+const STATUS = {
+  SOLICITADO: "Solicitado",
+  LINK_GERADO: "Link gerado",
+  LINK_ENVIADO: "Link enviado",
+  PAGO_AGUARDANDO_BAIXA: "Pago - aguardando baixa",
+  BAIXADO: "Pagamento baixado",
+  CANCELADO: "Cancelado",
+  DIVERGENCIA: "Divergência",
+};
+
+function pegarNomeAluno(aluno) {
+  return (
+    aluno?.nome ||
+    aluno?.nome_aluno ||
+    aluno?.aluno ||
+    aluno?.nome_completo ||
+    aluno?.Nome ||
+    ""
+  );
+}
+
+function pegarCpfAluno(aluno) {
+  return aluno?.cpf || aluno?.CPF || aluno?.cpf_mascarado || "";
+}
+
+function pegarValorAluno(aluno) {
+  const valor =
+    aluno?.valor_em_aberto ??
+    aluno?.valor_aberto ??
+    aluno?.valor_total ??
+    aluno?.valor_divida ??
+    aluno?.saldo_devedor ??
+    aluno?.valor ??
+    "";
+
+  return valor ? String(valor).replace(".", ",") : "";
+}
+
+function dinheiro(valor) {
+  return Number(valor || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+function numeroMoeda(valor) {
+  const texto = String(valor || "")
+    .replace("R$", "")
+    .replace(/\./g, "")
+    .replace(",", ".")
+    .trim();
+
+  const numero = Number(texto);
+  return Number.isFinite(numero) ? numero : 0;
+}
+
+function dataHora(valor) {
+  if (!valor) return "-";
+  try {
+    return new Date(valor).toLocaleString("pt-BR");
+  } catch {
+    return "-";
+  }
+}
+
+function dataSimples(valor) {
+  if (!valor) return "-";
+
+  const partes = String(valor).split("T")[0].split("-");
+  if (partes.length === 3) return `${partes[2]}/${partes[1]}/${partes[0]}`;
+
+  try {
+    return new Date(valor).toLocaleDateString("pt-BR");
+  } catch {
+    return "-";
+  }
+}
+
+function corStatus(status) {
+  if (status === "BAIXADO") {
+    return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
+  }
+
+  if (status === "PAGO_AGUARDANDO_BAIXA") {
+    return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
+  }
+
+  if (status === "DIVERGENCIA") {
+    return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5" };
+  }
+
+  if (status === "CANCELADO") {
+    return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
+  }
+
+  if (status === "LINK_GERADO") {
+    return { background: "#e0f2fe", color: "#075985", border: "1px solid #bae6fd" };
+  }
+
+  if (status === "LINK_ENVIADO") {
+    return { background: "#ede9fe", color: "#5b21b6", border: "1px solid #ddd6fe" };
+  }
+
+  return { background: "#e5e7eb", color: "#374151", border: "1px solid #d1d5db" };
+}
+
+export default function LinksPagamentoAluno({ aluno }) {
+  const [usuario, setUsuario] = useState(null);
+  const [links, setLinks] = useState([]);
+  const [carregando, setCarregando] = useState(false);
+  const [linkEditado, setLinkEditado] = useState({});
+  const [observacoes, setObservacoes] = useState({});
+
+  const [novo, setNovo] = useState({
+    tipo_pagamento: "Cartão",
+    parcelas: "1",
+    valor: "",
+    vencimento: "",
+    observacao_operador: "",
+  });
+
+  const alunoId = aluno?.id ? String(aluno.id) : "";
+  const alunoNome = pegarNomeAluno(aluno);
+  const alunoCpf = pegarCpfAluno(aluno);
+
+  useEffect(() => {
+    carregarUsuario();
+  }, []);
+
+  useEffect(() => {
+    setNovo((atual) => ({
+      ...atual,
+      valor: atual.valor || pegarValorAluno(aluno),
+    }));
+
+    carregarLinks();
+  }, [alunoId]);
+
+  async function carregarUsuario() {
+    const { data } = await supabase.auth.getUser();
+    setUsuario(data?.user || null);
+  }
+
+  async function carregarLinks() {
+    if (!alunoId && !alunoCpf) return;
+
+    setCarregando(true);
+
+    let listaFinal = [];
+
+    if (alunoId) {
+      const { data, error } = await supabase
+        .from("links_pagamento")
+        .select("*")
+        .eq("aluno_id", alunoId)
+        .order("solicitado_em", { ascending: false });
+
+      if (!error && data) listaFinal = data;
+    }
+
+    if (listaFinal.length === 0 && alunoCpf) {
+      const { data, error } = await supabase
+        .from("links_pagamento")
+        .select("*")
+        .eq("aluno_cpf", alunoCpf)
+        .order("solicitado_em", { ascending: false });
+
+      if (!error && data) listaFinal = data;
+    }
+
+    setLinks(listaFinal);
+    setCarregando(false);
+  }
+
+  async function registrarHistorico(item, novoStatus, observacao = "") {
+    await supabase.from("historico_links_pagamento").insert({
+      link_pagamento_id: item.id,
+      status_anterior: item.status,
+      status_novo: novoStatus,
+      observacao,
+      usuario_email: usuario?.email || "",
+    });
+  }
+
+  async function solicitarLink() {
+    if (!alunoId) {
+      alert("Aluno não localizado.");
+      return;
+    }
+
+    if (!novo.valor) {
+      alert("Informe o valor do link.");
+      return;
+    }
+
+    const email = usuario?.email || "";
+    const operadorNome = nomeOperadorPorEmail(email);
+
+    const { error } = await supabase.from("links_pagamento").insert({
+      aluno_id: alunoId,
+      aluno_nome: alunoNome,
+      aluno_cpf: alunoCpf,
+      operador_nome: operadorNome,
+      operador_email: email,
+      tipo_pagamento: novo.tipo_pagamento,
+      parcelas: Number(novo.parcelas || 1),
+      valor: numeroMoeda(novo.valor),
+      vencimento: novo.vencimento || null,
+      status: "SOLICITADO",
+      observacao_operador: novo.observacao_operador,
+      solicitado_por: email,
+      solicitado_em: new Date().toISOString(),
+      atualizado_em: new Date().toISOString(),
+    });
+
+    if (error) {
+      alert("Erro ao solicitar link: " + error.message);
+      return;
+    }
+
+    alert("Link solicitado para ADM.");
+
+    setNovo({
+      tipo_pagamento: "Cartão",
+      parcelas: "1",
+      valor: pegarValorAluno(aluno),
+      vencimento: "",
+      observacao_operador: "",
+    });
+
+    carregarLinks();
+  }
+
+  async function salvarLink(item) {
+    const link = linkEditado[item.id];
+
+    if (!link || !link.trim()) {
+      alert("Cole o link de pagamento.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("links_pagamento")
+      .update({
+        link_url: link,
+        status: "LINK_GERADO",
+        gerado_por: usuario?.email || "",
+        gerado_em: new Date().toISOString(),
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("id", item.id);
+
+    if (error) {
+      alert("Erro ao salvar link: " + error.message);
+      return;
+    }
+
+    await registrarHistorico(item, "LINK_GERADO", "Link gerado/colado pela ADM na ficha do aluno.");
+    alert("Link salvo.");
+    carregarLinks();
+  }
+
+  async function marcarEnviado(item) {
+    const linkAtual = linkEditado[item.id] || item.link_url;
+
+    if (!linkAtual) {
+      alert("Antes de marcar como enviado, o link precisa estar salvo.");
+      return;
+    }
+
+    const obs = observacoes[item.id] || "";
+
+    const { error } = await supabase
+      .from("links_pagamento")
+      .update({
+        status: "LINK_ENVIADO",
+        enviado_em: new Date().toISOString(),
+        observacao_adm: obs || item.observacao_adm,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("id", item.id);
+
+    if (error) {
+      alert("Erro ao marcar enviado: " + error.message);
+      return;
+    }
+
+    await registrarHistorico(item, "LINK_ENVIADO", obs || "Link enviado ao aluno.");
+    alert("Link marcado como enviado.");
+    carregarLinks();
+  }
+
+  async function marcarPagamentoIdentificado(item) {
+    const obs = observacoes[item.id] || "";
+
+    const { error } = await supabase
+      .from("links_pagamento")
+      .update({
+        status: "PAGO_AGUARDANDO_BAIXA",
+        pagamento_identificado_por: usuario?.email || "",
+        pagamento_identificado_em: new Date().toISOString(),
+        observacao_adm: obs || item.observacao_adm,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("id", item.id);
+
+    if (error) {
+      alert("Erro ao enviar para fila de pagamentos: " + error.message);
+      return;
+    }
+
+    await registrarHistorico(item, "PAGO_AGUARDANDO_BAIXA", obs || "Pagamento identificado e enviado para baixa.");
+    alert("Pagamento enviado para Minha Fila de Pagamentos da Amanda.");
+    carregarLinks();
+  }
+
+  async function copiar(link) {
+    if (!link) {
+      alert("Este registro ainda não possui link.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(link);
+      alert("Link copiado.");
+    } catch {
+      alert("Não consegui copiar automaticamente. Abra o link e copie manualmente.");
+    }
+  }
+
+  const emailUsuario = usuario?.email || "";
+  const adm = podeVerTudo(emailUsuario) || podeBaixarPagamento(emailUsuario);
+
+  const totalAberto = useMemo(() => {
+    return links
+      .filter((item) => !["BAIXADO", "CANCELADO"].includes(item.status))
+      .reduce((soma, item) => soma + Number(item.valor || 0), 0);
+  }, [links]);
+
+  return (
+    <div style={styles.card}>
+      <div style={styles.header}>
+        <div>
+          <h2 style={styles.titulo}>Links de Pagamento</h2>
+          <p style={styles.texto}>
+            Solicitação e acompanhamento de links vinculados a este aluno.
+          </p>
+        </div>
+
+        <div style={styles.totalBox}>
+          <span>Valor em links ativos</span>
+          <strong>{dinheiro(totalAberto)}</strong>
+        </div>
+      </div>
+
+      <div style={styles.solicitacao}>
+        <h3 style={styles.subtitulo}>Solicitar novo link</h3>
+
+        <div style={styles.grid}>
+          <input style={styles.input} value={alunoNome} disabled placeholder="Aluno" />
+          <input style={styles.input} value={alunoCpf} disabled placeholder="CPF" />
+
+          <select
+            style={styles.input}
+            value={novo.tipo_pagamento}
+            onChange={(e) => setNovo({ ...novo, tipo_pagamento: e.target.value })}
+          >
+            <option value="Cartão">Cartão</option>
+            <option value="Pix">Pix</option>
+            <option value="Boleto">Boleto</option>
+            <option value="Outro">Outro</option>
+          </select>
+
+          <input
+            style={styles.input}
+            type="number"
+            min="1"
+            placeholder="Parcelas"
+            value={novo.parcelas}
+            onChange={(e) => setNovo({ ...novo, parcelas: e.target.value })}
+          />
+
+          <input
+            style={styles.input}
+            placeholder="Valor. Ex.: 1200,50"
+            value={novo.valor}
+            onChange={(e) => setNovo({ ...novo, valor: e.target.value })}
+          />
+
+          <input
+            style={styles.input}
+            type="date"
+            value={novo.vencimento}
+            onChange={(e) => setNovo({ ...novo, vencimento: e.target.value })}
+          />
+        </div>
+
+        <textarea
+          style={styles.textarea}
+          placeholder="Observação para o ADM gerar o link"
+          value={novo.observacao_operador}
+          onChange={(e) => setNovo({ ...novo, observacao_operador: e.target.value })}
+        />
+
+        <button style={styles.botaoAzul} onClick={solicitarLink}>
+          Solicitar link de pagamento
+        </button>
+      </div>
+
+      <div style={styles.historico}>
+        <h3 style={styles.subtitulo}>Histórico de links deste aluno</h3>
+
+        {carregando && <p style={styles.texto}>Carregando links...</p>}
+
+        {!carregando && links.length === 0 && (
+          <p style={styles.texto}>Nenhum link solicitado para este aluno ainda.</p>
+        )}
+
+        {!carregando &&
+          links.map((item) => {
+            const linkAtual = linkEditado[item.id] ?? item.link_url ?? "";
+            const podeEnviar =
+              adm ||
+              String(item.operador_email || "").toLowerCase() === emailUsuario.toLowerCase();
+
+            return (
+              <div key={item.id} style={styles.item}>
+                <div style={styles.itemTopo}>
+                  <div>
+                    <strong>{dinheiro(item.valor)}</strong>
+                    <p style={styles.info}>
+                      {item.tipo_pagamento || "-"} | {item.parcelas || "-"}x | vencimento:{" "}
+                      {dataSimples(item.vencimento)}
+                    </p>
+                    <p style={styles.info}>Solicitado em: {dataHora(item.solicitado_em)}</p>
+                    <p style={styles.info}>Operador: {item.operador_nome || "-"}</p>
+                  </div>
+
+                  <span style={{ ...styles.status, ...corStatus(item.status) }}>
+                    {STATUS[item.status] || item.status}
+                  </span>
+                </div>
+
+                {(item.observacao_operador || item.observacao_adm || item.divergencia_motivo) && (
+                  <div style={styles.obs}>
+                    {item.observacao_operador && (
+                      <p>
+                        <strong>Obs. operador:</strong> {item.observacao_operador}
+                      </p>
+                    )}
+
+                    {item.observacao_adm && (
+                      <p>
+                        <strong>Obs. ADM:</strong> {item.observacao_adm}
+                      </p>
+                    )}
+
+                    {item.divergencia_motivo && (
+                      <p>
+                        <strong>Divergência:</strong> {item.divergencia_motivo}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <ComprovantePagamento item={item} onAtualizar={carregarLinks} />
+
+                <div style={styles.gridLink}>
+                  <input
+                    style={styles.input}
+                    placeholder="Link de pagamento"
+                    value={linkAtual}
+                    disabled={!adm}
+                    onChange={(e) =>
+                      setLinkEditado({
+                        ...linkEditado,
+                        [item.id]: e.target.value,
+                      })
+                    }
+                  />
+
+                  {adm && (
+                    <button style={styles.botaoAzul} onClick={() => salvarLink(item)}>
+                      Salvar link
+                    </button>
+                  )}
+
+                  <button style={styles.botaoCinza} onClick={() => copiar(linkAtual)}>
+                    Copiar
+                  </button>
+
+                  <button
+                    style={styles.botaoCinza}
+                    onClick={() =>
+                      linkAtual
+                        ? window.open(linkAtual, "_blank", "noreferrer")
+                        : alert("Sem link.")
+                    }
+                  >
+                    Abrir
+                  </button>
+                </div>
+
+                <textarea
+                  style={styles.textarea}
+                  placeholder="Observação para movimentação"
+                  value={observacoes[item.id] || ""}
+                  onChange={(e) =>
+                    setObservacoes({
+                      ...observacoes,
+                      [item.id]: e.target.value,
+                    })
+                  }
+                />
+
+                <div style={styles.acoes}>
+                  {podeEnviar && (
+                    <button style={styles.botaoRoxo} onClick={() => marcarEnviado(item)}>
+                      Marcar enviado ao aluno
+                    </button>
+                  )}
+
+                  {adm && (
+                    <button
+                      style={styles.botaoAzul}
+                      onClick={() => marcarPagamentoIdentificado(item)}
+                    >
+                      Pagamento identificado
+                    </button>
+                  )}
+                </div>
+
+                <div style={styles.datas}>
+                  <span>Gerado: {dataHora(item.gerado_em)}</span>
+                  <span>Enviado: {dataHora(item.enviado_em)}</span>
+                  <span>Pagamento identificado: {dataHora(item.pagamento_identificado_em)}</span>
+                  <span>Baixado: {dataHora(item.baixado_em)}</span>
+                </div>
+              </div>
+            );
+          })}
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  card: {
+    background: "#fff",
+    borderRadius: "14px",
+    padding: "22px",
+    marginTop: "24px",
+    marginBottom: "24px",
+    boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
+    borderLeft: "6px solid #111827",
+  },
+  header: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "16px",
+    alignItems: "flex-start",
+    marginBottom: "16px",
+  },
+  titulo: {
+    margin: 0,
+    color: "#111827",
+  },
+  subtitulo: {
+    margin: "0 0 12px 0",
+    color: "#111827",
+  },
+  texto: {
+    color: "#555",
+    margin: "6px 0 0 0",
+  },
+  totalBox: {
+    background: "#111827",
+    color: "#fff",
+    borderRadius: "12px",
+    padding: "12px 16px",
+    minWidth: "180px",
+  },
+  solicitacao: {
+    background: "#f8fafc",
+    border: "1px solid #e5e7eb",
+    borderRadius: "12px",
+    padding: "16px",
+    marginBottom: "18px",
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
+    gap: "10px",
+  },
+  gridLink: {
+    display: "grid",
+    gridTemplateColumns: "minmax(230px, 1fr) repeat(3, auto)",
+    gap: "8px",
+    alignItems: "center",
+    marginTop: "12px",
+  },
+  input: {
+    padding: "11px",
+    borderRadius: "8px",
+    border: "1px solid #d1d5db",
+    fontSize: "14px",
+  },
+  textarea: {
+    width: "100%",
+    minHeight: "70px",
+    marginTop: "10px",
+    padding: "11px",
+    borderRadius: "8px",
+    border: "1px solid #d1d5db",
+    boxSizing: "border-box",
+    fontFamily: "Arial, sans-serif",
+  },
+  botaoAzul: {
+    background: "#0d6efd",
+    color: "#fff",
+    border: "none",
+    padding: "11px 14px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+    marginTop: "10px",
+  },
+  botaoRoxo: {
+    background: "#6f42c1",
+    color: "#fff",
+    border: "none",
+    padding: "11px 14px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+  },
+  botaoCinza: {
+    background: "#e5e7eb",
+    color: "#111827",
+    border: "none",
+    padding: "11px 14px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+  },
+  historico: {
+    marginTop: "18px",
+  },
+  item: {
+    background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "12px",
+    padding: "14px",
+    marginBottom: "12px",
+  },
+  itemTopo: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "12px",
+    alignItems: "flex-start",
+  },
+  info: {
+    margin: "4px 0",
+    color: "#555",
+  },
+  status: {
+    padding: "8px 12px",
+    borderRadius: "999px",
+    fontWeight: "bold",
+    fontSize: "13px",
+    whiteSpace: "nowrap",
+  },
+  obs: {
+    background: "#f8fafc",
+    border: "1px solid #e5e7eb",
+    borderRadius: "10px",
+    padding: "10px",
+    marginTop: "10px",
+    color: "#374151",
+  },
+  acoes: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+    marginTop: "12px",
+  },
+  datas: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "12px",
+    color: "#6b7280",
+    fontSize: "12px",
+    marginTop: "12px",
+  },
+};

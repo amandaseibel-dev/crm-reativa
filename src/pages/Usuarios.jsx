@@ -1,13 +1,18 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 
-const perfis = ["admin", "supervisor", "operador"];
+const perfis = ["gerencia", "supervisor", "administrativo", "operador"];
+
+const senhaPadrao = "Reativa@2026";
 
 export default function Usuarios() {
   const [usuarios, setUsuarios] = useState([]);
-  const [carregando, setCarregando] = useState(false);
+  const [busca, setBusca] = useState("");
+  const [filtroPerfil, setFiltroPerfil] = useState("todos");
+  const [filtroStatus, setFiltroStatus] = useState("todos");
   const [erro, setErro] = useState("");
   const [mensagem, setMensagem] = useState("");
+  const [carregando, setCarregando] = useState(false);
 
   const [form, setForm] = useState({
     nome: "",
@@ -16,6 +21,7 @@ export default function Usuarios() {
     operador_nome: "",
     operador: "",
     ativo: true,
+    foto_url: "",
   });
 
   useEffect(() => {
@@ -23,8 +29,6 @@ export default function Usuarios() {
   }, []);
 
   async function carregarUsuarios() {
-    setErro("");
-
     const { data, error } = await supabase
       .from("usuarios")
       .select("*")
@@ -38,14 +42,11 @@ export default function Usuarios() {
     setUsuarios(data || []);
   }
 
-  function atualizarCampo(campo, valor) {
-    setForm((atual) => ({
-      ...atual,
-      [campo]: valor,
-    }));
+  function atualizar(campo, valor) {
+    setForm((atual) => ({ ...atual, [campo]: valor }));
   }
 
-  function limparFormulario() {
+  function limpar() {
     setForm({
       nome: "",
       email: "",
@@ -53,12 +54,30 @@ export default function Usuarios() {
       operador_nome: "",
       operador: "",
       ativo: true,
+      foto_url: "",
     });
+    setErro("");
+    setMensagem("");
+  }
+
+  async function selecionarFoto(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      setErro("A foto precisa ter no máximo 2MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      atualizar("foto_url", reader.result);
+    };
+    reader.readAsDataURL(file);
   }
 
   async function salvarUsuario(e) {
     e.preventDefault();
-
     setErro("");
     setMensagem("");
     setCarregando(true);
@@ -82,6 +101,7 @@ export default function Usuarios() {
         ativo: form.ativo,
         operador_nome: operadorNome,
         operador,
+        foto_url: form.foto_url || null,
       },
       { onConflict: "email" }
     );
@@ -90,43 +110,51 @@ export default function Usuarios() {
 
     if (error) {
       console.error(error);
-      setErro("Falhou ao salvar usuário no CRM.");
+      setErro("Erro ao salvar usuário.");
       return;
     }
 
-    setMensagem("Usuário salvo no CRM com sucesso.");
-    limparFormulario();
+    setMensagem("Usuário salvo com sucesso.");
+    limpar();
     carregarUsuarios();
   }
 
-  async function alternarAtivo(usuario) {
-    setErro("");
-    setMensagem("");
+  function editarUsuario(u) {
+    setForm({
+      nome: u.nome || "",
+      email: u.email || "",
+      perfil: u.perfil || "operador",
+      operador_nome: u.operador_nome || u.nome || "",
+      operador: u.operador || "",
+      ativo: u.ativo ?? true,
+      foto_url: u.foto_url || "",
+    });
 
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function alternarAtivo(u) {
     const { error } = await supabase
       .from("usuarios")
-      .update({ ativo: !usuario.ativo })
-      .eq("email", usuario.email);
+      .update({ ativo: !u.ativo })
+      .eq("email", u.email);
 
     if (error) {
-      setErro("Erro ao alterar status do usuário.");
+      setErro("Erro ao alterar status.");
       return;
     }
 
     carregarUsuarios();
   }
 
-  async function excluirUsuario(usuario) {
-    const confirmar = window.confirm(
-      `Deseja remover ${usuario.nome} da tabela de usuários do CRM?`
-    );
-
+  async function removerUsuario(u) {
+    const confirmar = window.confirm(`Remover ${u.nome} do CRM?`);
     if (!confirmar) return;
 
     const { error } = await supabase
       .from("usuarios")
       .delete()
-      .eq("email", usuario.email);
+      .eq("email", u.email);
 
     if (error) {
       setErro("Erro ao remover usuário.");
@@ -136,61 +164,84 @@ export default function Usuarios() {
     carregarUsuarios();
   }
 
-  function editarUsuario(usuario) {
-    setMensagem("");
-    setErro("");
+  const usuariosFiltrados = useMemo(() => {
+    return usuarios.filter((u) => {
+      const texto = `${u.nome || ""} ${u.email || ""} ${u.operador || ""}`
+        .toLowerCase();
 
-    setForm({
-      nome: usuario.nome || "",
-      email: usuario.email || "",
-      perfil: usuario.perfil || "operador",
-      operador_nome: usuario.operador_nome || usuario.nome || "",
-      operador: usuario.operador || "",
-      ativo: usuario.ativo ?? true,
+      const bateBusca = texto.includes(busca.toLowerCase());
+      const batePerfil = filtroPerfil === "todos" || u.perfil === filtroPerfil;
+      const bateStatus =
+        filtroStatus === "todos" ||
+        (filtroStatus === "ativos" && u.ativo) ||
+        (filtroStatus === "inativos" && !u.ativo);
+
+      return bateBusca && batePerfil && bateStatus;
     });
+  }, [usuarios, busca, filtroPerfil, filtroStatus]);
 
-    window.scrollTo({ top: 0, behavior: "smooth" });
-  }
+  const total = usuarios.length;
+  const ativos = usuarios.filter((u) => u.ativo).length;
+  const inativos = usuarios.filter((u) => !u.ativo).length;
 
   return (
-    <div style={{ padding: 24, color: "#fff" }}>
-      <h1 style={{ marginBottom: 6, color: "#c084fc" }}>Usuários</h1>
+    <div style={page}>
+      <h1 style={title}>Usuários</h1>
+      <p style={subtitle}>Gerencie os acessos e permissões do ReATIVA One.</p>
 
-      <p style={{ color: "#ddd6fe", marginBottom: 22 }}>
-        Cadastro de perfis autorizados no ReATIVA One.
-      </p>
+      <div style={cards}>
+        <Card label="Total de usuários" value={total} />
+        <Card label="Usuários ativos" value={ativos} />
+        <Card label="Usuários inativos" value={inativos} />
+        <Card label="Senha padrão" value={senhaPadrao} />
+      </div>
 
-      <div
-        style={{
-          background: "#16002e",
-          border: "1px solid #7e22ce",
-          borderRadius: 16,
-          padding: 20,
-          marginBottom: 24,
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Cadastrar / atualizar usuário</h2>
+      <section style={panel}>
+        <h2 style={sectionTitle}>Novo usuário</h2>
 
         <form onSubmit={salvarUsuario}>
-          <div style={grid}>
+          <div style={formGrid}>
+            <div style={photoBox}>
+              <label style={label}>Foto do usuário</label>
+
+              <div style={avatarPreview}>
+                {form.foto_url ? (
+                  <img src={form.foto_url} alt="Foto" style={avatarImg} />
+                ) : (
+                  <span style={{ fontSize: 34 }}>📷</span>
+                )}
+              </div>
+
+              <label style={uploadBtn}>
+                Selecionar foto
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={selecionarFoto}
+                  style={{ display: "none" }}
+                />
+              </label>
+
+              <small style={{ color: "#c4b5fd" }}>JPG, PNG ou GIF até 2MB</small>
+            </div>
+
             <div>
-              <label style={label}>Nome</label>
+              <label style={label}>Nome completo</label>
               <input
                 style={input}
                 value={form.nome}
-                onChange={(e) => atualizarCampo("nome", e.target.value)}
-                placeholder="Ex: Olga"
+                onChange={(e) => atualizar("nome", e.target.value)}
+                placeholder="Digite o nome completo"
               />
             </div>
 
             <div>
-              <label style={label}>E-mail</label>
+              <label style={label}>E-mail corporativo</label>
               <input
                 style={input}
-                type="email"
                 value={form.email}
-                onChange={(e) => atualizarCampo("email", e.target.value)}
-                placeholder="cobranca03@aelbra.com.br"
+                onChange={(e) => atualizar("email", e.target.value)}
+                placeholder="exemplo@aelbra.com.br"
               />
             </div>
 
@@ -199,7 +250,7 @@ export default function Usuarios() {
               <select
                 style={input}
                 value={form.perfil}
-                onChange={(e) => atualizarCampo("perfil", e.target.value)}
+                onChange={(e) => atualizar("perfil", e.target.value)}
               >
                 {perfis.map((p) => (
                   <option key={p} value={p}>
@@ -210,74 +261,82 @@ export default function Usuarios() {
             </div>
 
             <div>
-              <label style={label}>Operador nome</label>
-              <input
-                style={input}
-                value={form.operador_nome}
-                onChange={(e) =>
-                  atualizarCampo("operador_nome", e.target.value)
-                }
-                placeholder="Ex: Olga"
-              />
-            </div>
-
-            <div>
               <label style={label}>Operador</label>
               <input
                 style={input}
                 value={form.operador}
-                onChange={(e) => atualizarCampo("operador", e.target.value)}
+                onChange={(e) => atualizar("operador", e.target.value)}
                 placeholder="Ex: OLGA"
               />
             </div>
+          </div>
 
-            <div>
-              <label style={label}>Status</label>
-              <select
-                style={input}
-                value={form.ativo ? "true" : "false"}
-                onChange={(e) =>
-                  atualizarCampo("ativo", e.target.value === "true")
-                }
-              >
-                <option value="true">Ativo</option>
-                <option value="false">Inativo</option>
-              </select>
+          <div style={actions}>
+            <label style={toggleLabel}>
+              <input
+                type="checkbox"
+                checked={form.ativo}
+                onChange={(e) => atualizar("ativo", e.target.checked)}
+              />
+              Usuário ativo
+            </label>
+
+            <div style={{ display: "flex", gap: 12 }}>
+              <button type="button" onClick={limpar} style={btnGhost}>
+                Limpar
+              </button>
+
+              <button type="submit" disabled={carregando} style={btnGreen}>
+                {carregando ? "Salvando..." : "Salvar usuário"}
+              </button>
             </div>
           </div>
 
-          {erro && <p style={{ color: "#f87171", fontWeight: 800 }}>{erro}</p>}
-          {mensagem && (
-            <p style={{ color: "#22c55e", fontWeight: 800 }}>{mensagem}</p>
-          )}
-
-          <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
-            <button type="submit" disabled={carregando} style={botaoVerde}>
-              {carregando ? "Salvando..." : "Salvar usuário"}
-            </button>
-
-            <button type="button" onClick={limparFormulario} style={botaoRoxo}>
-              Limpar
-            </button>
-          </div>
+          {erro && <p style={erroStyle}>{erro}</p>}
+          {mensagem && <p style={okStyle}>{mensagem}</p>}
         </form>
+      </section>
+
+      <div style={filters}>
+        <input
+          style={searchInput}
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar por nome, e-mail ou operador..."
+        />
+
+        <select
+          style={filterSelect}
+          value={filtroPerfil}
+          onChange={(e) => setFiltroPerfil(e.target.value)}
+        >
+          <option value="todos">Todos os perfis</option>
+          {perfis.map((p) => (
+            <option key={p} value={p}>
+              {p}
+            </option>
+          ))}
+        </select>
+
+        <select
+          style={filterSelect}
+          value={filtroStatus}
+          onChange={(e) => setFiltroStatus(e.target.value)}
+        >
+          <option value="todos">Todos os status</option>
+          <option value="ativos">Ativos</option>
+          <option value="inativos">Inativos</option>
+        </select>
       </div>
 
-      <div
-        style={{
-          background: "#0f172a",
-          border: "1px solid #334155",
-          borderRadius: 16,
-          padding: 20,
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Usuários cadastrados</h2>
+      <section style={tablePanel}>
+        <h2 style={sectionTitle}>Usuários cadastrados</h2>
 
         <div style={{ overflowX: "auto" }}>
-          <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <table style={table}>
             <thead>
-              <tr style={{ background: "#2e1065" }}>
-                <th style={th}>Nome</th>
+              <tr>
+                <th style={th}>Usuário</th>
                 <th style={th}>E-mail</th>
                 <th style={th}>Perfil</th>
                 <th style={th}>Operador</th>
@@ -287,29 +346,47 @@ export default function Usuarios() {
             </thead>
 
             <tbody>
-              {usuarios.map((u) => (
-                <tr key={u.email} style={{ borderBottom: "1px solid #334155" }}>
-                  <td style={td}>{u.nome}</td>
+              {usuariosFiltrados.map((u) => (
+                <tr key={u.email} style={tr}>
+                  <td style={td}>
+                    <div style={userCell}>
+                      <div style={smallAvatar}>
+                        {u.foto_url ? (
+                          <img src={u.foto_url} alt={u.nome} style={avatarImg} />
+                        ) : (
+                          (u.nome || "?").charAt(0)
+                        )}
+                      </div>
+                      <div>
+                        <strong>{u.nome}</strong>
+                        <div style={{ color: "#a78bfa", fontSize: 12 }}>
+                          {u.operador_nome}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+
                   <td style={td}>{u.email}</td>
-                  <td style={td}>{u.perfil}</td>
+                  <td style={td}>
+                    <span style={badge}>{u.perfil}</span>
+                  </td>
                   <td style={td}>{u.operador}</td>
-                  <td style={td}>{u.ativo ? "Ativo" : "Inativo"}</td>
+                  <td style={td}>
+                    <span style={u.ativo ? activeBadge : inactiveBadge}>
+                      {u.ativo ? "Ativo" : "Inativo"}
+                    </span>
+                  </td>
                   <td style={td}>
                     <div style={{ display: "flex", gap: 8 }}>
-                      <button onClick={() => editarUsuario(u)} style={miniBtn}>
+                      <button style={miniBtn} onClick={() => editarUsuario(u)}>
                         Editar
                       </button>
-
-                      <button
-                        onClick={() => alternarAtivo(u)}
-                        style={miniBtn}
-                      >
+                      <button style={miniBtn} onClick={() => alternarAtivo(u)}>
                         {u.ativo ? "Inativar" : "Ativar"}
                       </button>
-
                       <button
-                        onClick={() => excluirUsuario(u)}
-                        style={miniBtnVermelho}
+                        style={dangerBtn}
+                        onClick={() => removerUsuario(u)}
                       >
                         Remover
                       </button>
@@ -318,37 +395,153 @@ export default function Usuarios() {
                 </tr>
               ))}
 
-              {usuarios.length === 0 && (
+              {usuariosFiltrados.length === 0 && (
                 <tr>
                   <td style={td} colSpan="6">
-                    Nenhum usuário cadastrado.
+                    Nenhum usuário encontrado.
                   </td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
-      </div>
-
-      <p style={{ color: "#facc15", marginTop: 18, fontWeight: 700 }}>
-        Importante: esta tela libera o perfil no CRM. O login no Supabase
-        Authentication ainda precisa existir para o e-mail.
-      </p>
+      </section>
     </div>
   );
 }
 
-const grid = {
+function Card({ label, value }) {
+  return (
+    <div style={card}>
+      <div style={cardValue}>{value}</div>
+      <div style={cardLabel}>{label}</div>
+    </div>
+  );
+}
+
+const page = {
+  padding: 24,
+  background: "#0b1220",
+  color: "#fff",
+  minHeight: "100vh",
+};
+
+const title = {
+  color: "#c084fc",
+  margin: 0,
+  fontSize: 34,
+};
+
+const subtitle = {
+  color: "#ddd6fe",
+  marginTop: 8,
+};
+
+const cards = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: 14,
+  gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
+  gap: 16,
+  marginTop: 22,
+  marginBottom: 22,
+};
+
+const card = {
+  background: "#111827",
+  border: "1px solid #312e81",
+  borderRadius: 16,
+  padding: 20,
+};
+
+const cardValue = {
+  fontSize: 28,
+  fontWeight: 900,
+};
+
+const cardLabel = {
+  color: "#c4b5fd",
+  marginTop: 6,
+};
+
+const panel = {
+  background: "linear-gradient(135deg,#1e0038,#101827)",
+  border: "1px solid #7e22ce",
+  borderRadius: 18,
+  padding: 22,
+  marginBottom: 24,
+};
+
+const tablePanel = {
+  background: "#111827",
+  border: "1px solid #334155",
+  borderRadius: 18,
+  padding: 20,
+};
+
+const sectionTitle = {
+  marginTop: 0,
+  marginBottom: 18,
+};
+
+const formGrid = {
+  display: "grid",
+  gridTemplateColumns: "220px repeat(auto-fit, minmax(220px, 1fr))",
+  gap: 16,
+  alignItems: "end",
+};
+
+const photoBox = {
+  display: "flex",
+  flexDirection: "column",
+  gap: 8,
+  alignItems: "center",
+  borderRight: "1px solid #312e81",
+  paddingRight: 16,
+};
+
+const avatarPreview = {
+  width: 96,
+  height: 96,
+  borderRadius: "50%",
+  border: "2px dashed #9333ea",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  overflow: "hidden",
+  background: "#0f172a",
+};
+
+const avatarImg = {
+  width: "100%",
+  height: "100%",
+  objectFit: "cover",
+};
+
+const smallAvatar = {
+  width: 42,
+  height: 42,
+  borderRadius: "50%",
+  background: "#581c87",
+  color: "#fff",
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "center",
+  overflow: "hidden",
+  fontWeight: 900,
+};
+
+const uploadBtn = {
+  background: "#7e22ce",
+  padding: "8px 12px",
+  borderRadius: 10,
+  cursor: "pointer",
+  fontWeight: 800,
 };
 
 const label = {
   display: "block",
   marginBottom: 6,
-  fontWeight: 800,
   color: "#ddd6fe",
+  fontWeight: 800,
 };
 
 const input = {
@@ -356,10 +549,28 @@ const input = {
   padding: 12,
   borderRadius: 10,
   border: "1px solid #7e22ce",
+  background: "#0f172a",
+  color: "#fff",
   fontWeight: 700,
 };
 
-const botaoVerde = {
+const actions = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginTop: 18,
+  gap: 12,
+};
+
+const toggleLabel = {
+  display: "flex",
+  gap: 8,
+  alignItems: "center",
+  color: "#ddd6fe",
+  fontWeight: 800,
+};
+
+const btnGreen = {
   background: "#22c55e",
   color: "#020617",
   border: "none",
@@ -369,42 +580,109 @@ const botaoVerde = {
   cursor: "pointer",
 };
 
-const botaoRoxo = {
-  background: "#7e22ce",
+const btnGhost = {
+  background: "#1f2937",
   color: "#fff",
-  border: "none",
+  border: "1px solid #475569",
   borderRadius: 12,
   padding: "12px 18px",
   fontWeight: 900,
   cursor: "pointer",
 };
 
+const filters = {
+  display: "flex",
+  gap: 12,
+  marginBottom: 16,
+  flexWrap: "wrap",
+};
+
+const searchInput = {
+  ...input,
+  maxWidth: 420,
+};
+
+const filterSelect = {
+  ...input,
+  maxWidth: 220,
+};
+
+const table = {
+  width: "100%",
+  borderCollapse: "collapse",
+};
+
 const th = {
-  padding: 10,
+  background: "#3b0764",
+  padding: 12,
   textAlign: "left",
-  color: "#ddd6fe",
+};
+
+const tr = {
+  borderBottom: "1px solid #334155",
 };
 
 const td = {
-  padding: 10,
+  padding: 12,
+  verticalAlign: "middle",
+};
+
+const userCell = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+};
+
+const badge = {
+  border: "1px solid #7e22ce",
+  color: "#c084fc",
+  padding: "5px 10px",
+  borderRadius: 999,
+  fontWeight: 800,
+};
+
+const activeBadge = {
+  background: "#052e16",
+  color: "#22c55e",
+  padding: "5px 10px",
+  borderRadius: 999,
+  fontWeight: 800,
+};
+
+const inactiveBadge = {
+  background: "#450a0a",
+  color: "#f87171",
+  padding: "5px 10px",
+  borderRadius: 999,
+  fontWeight: 800,
 };
 
 const miniBtn = {
-  background: "#a855f7",
+  background: "#312e81",
   color: "#fff",
-  border: "none",
+  border: "1px solid #6366f1",
   borderRadius: 8,
-  padding: "7px 9px",
+  padding: "7px 10px",
   fontWeight: 800,
   cursor: "pointer",
 };
 
-const miniBtnVermelho = {
-  background: "#ef4444",
-  color: "#fff",
-  border: "none",
+const dangerBtn = {
+  background: "#450a0a",
+  color: "#f87171",
+  border: "1px solid #ef4444",
   borderRadius: 8,
-  padding: "7px 9px",
+  padding: "7px 10px",
   fontWeight: 800,
   cursor: "pointer",
+};
+
+const erroStyle = {
+  color: "#f87171",
+  fontWeight: 900,
+};
+
+const okStyle = {
+  color: "#22c55e",
+  fontWeight: 900,
 };

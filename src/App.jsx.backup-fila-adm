@@ -10,13 +10,6 @@ import Login from "./pages/Login";
 import Usuarios from "./pages/Usuarios";
 import MinhaFila from "./pages/MinhaFila";
 import FilaTermos from "./pages/FilaTermos";
-import FilaAdmTermos from "./pages/FilaAdmTermos";
-import BaseReceptiva from "./pages/BaseReceptiva";
-import FilaOperacional from "./pages/FilaOperacional";
-import ControleLinksPagamento from "./pages/ControleLinksPagamento";
-import MinhaFilaPagamentos from "./pages/MinhaFilaPagamentos";
-import AgendaOperacional from "./pages/AgendaOperacional";
-import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 
 function EmDesenvolvimento({ titulo }) {
   return (
@@ -344,14 +337,7 @@ export default function App() {
             />
 
             <Route path="*" element={<Navigate to="/" replace />} />
-                  <Route path="/fila-adm-termos" element={<FilaAdmTermos />} />
-              <Route path="/base-receptiva" element={<BaseReceptiva />} />
-              <Route path="/fila-operacional" element={<FilaOperacional />} />
-              <Route path="/controle-links-pagamento" element={<ControleLinksPagamento />} />
-              <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
-              <Route path="/agenda-operacional" element={<AgendaOperacional />} />
-              <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
-      </Routes>
+          </Routes>
         </main>
       </div>
     </BrowserRouter>

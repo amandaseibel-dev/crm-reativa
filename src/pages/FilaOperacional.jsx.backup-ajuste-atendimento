@@ -1,0 +1,467 @@
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "../services/supabase";
+import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
+
+function pegarNome(aluno) {
+  return aluno?.nome || aluno?.nome_aluno || aluno?.aluno || aluno?.nome_completo || aluno?.Nome || "-";
+}
+
+function pegarCpf(aluno) {
+  return aluno?.cpf || aluno?.CPF || aluno?.cpf_mascarado || "-";
+}
+
+function pegarValor(aluno) {
+  const valor =
+    aluno?.valor_em_aberto ??
+    aluno?.valor_aberto ??
+    aluno?.valor_total ??
+    aluno?.valor_divida ??
+    aluno?.saldo_devedor ??
+    aluno?.valor ??
+    0;
+
+  const numero = Number(String(valor).replace(",", "."));
+  return Number.isFinite(numero) ? numero : 0;
+}
+
+function formatarValor(valor) {
+  return Number(valor || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+function montarDataLocal(valor) {
+  if (!valor) return null;
+
+  if (typeof valor === "string" && valor.includes("-")) {
+    const partes = valor.split("T")[0].split("-");
+    if (partes.length === 3) {
+      return new Date(Number(partes[0]), Number(partes[1]) - 1, Number(partes[2]));
+    }
+  }
+
+  const data = new Date(valor);
+  return Number.isNaN(data.getTime()) ? null : data;
+}
+
+function formatarData(valor) {
+  const data = montarDataLocal(valor);
+  if (!data) return "-";
+  return data.toLocaleDateString("pt-BR");
+}
+
+function situacaoRetorno(aluno) {
+  const data = montarDataLocal(aluno?.data_retorno);
+  if (!data) return "SEM_RETORNO";
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  data.setHours(0, 0, 0, 0);
+
+  if (data.getTime() < hoje.getTime()) return "ATRASADO";
+  if (data.getTime() === hoje.getTime()) return "HOJE";
+  return "FUTURO";
+}
+
+function textoRetorno(aluno) {
+  if (!aluno?.data_retorno) return "Sem retorno";
+
+  const hora = aluno?.hora_retorno ? ` às ${aluno.hora_retorno}` : "";
+  const data = formatarData(aluno.data_retorno);
+  const situacao = situacaoRetorno(aluno);
+
+  if (situacao === "ATRASADO") return `Retorno atrasado: ${data}${hora}`;
+  if (situacao === "HOJE") return `Retorno hoje: ${data}${hora}`;
+  return `Retorno: ${data}${hora}`;
+}
+
+function estiloRetorno(aluno) {
+  const situacao = situacaoRetorno(aluno);
+
+  const base = {
+    display: "inline-block",
+    padding: "5px 9px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: "700",
+  };
+
+  if (situacao === "ATRASADO") {
+    return { ...base, background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
+  }
+
+  if (situacao === "HOJE") {
+    return { ...base, background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5" };
+  }
+
+  if (situacao === "FUTURO") {
+    return { ...base, background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
+  }
+
+  return { ...base, background: "#e5e7eb", color: "#374151", border: "1px solid #d1d5db" };
+}
+
+export default function FilaOperacional() {
+  const navigate = useNavigate();
+
+  const [usuario, setUsuario] = useState(null);
+  const [alunos, setAlunos] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+
+  const [busca, setBusca] = useState("");
+  const [filtroRetorno, setFiltroRetorno] = useState("TODOS");
+  const [filtroStatus, setFiltroStatus] = useState("TODOS");
+  const [ordenacao, setOrdenacao] = useState("RETORNO_ASC");
+  const [visao, setVisao] = useState("MINHA");
+
+  useEffect(() => {
+    carregarUsuario();
+    carregarAlunos();
+  }, []);
+
+  async function carregarUsuario() {
+    const { data } = await supabase.auth.getUser();
+    setUsuario(data?.user || null);
+  }
+
+  async function carregarAlunos() {
+    setCarregando(true);
+
+    const { data, error } = await supabase
+      .from("alunos")
+      .select("*")
+      .limit(1500);
+
+    if (error) {
+      alert("Erro ao carregar Fila Operacional: " + error.message);
+      setCarregando(false);
+      return;
+    }
+
+    setAlunos(data || []);
+    setCarregando(false);
+  }
+
+  function abrirAluno(aluno) {
+    localStorage.setItem("alunoSelecionado", JSON.stringify(aluno));
+    navigate("/aluno");
+  }
+
+  const emailUsuario = usuario?.email || "";
+  const operadorLogado = nomeOperadorPorEmail(emailUsuario);
+  const adm = podeVerTudo(emailUsuario);
+
+  const alunosFiltrados = useMemo(() => {
+    let lista = [...alunos];
+
+    if (visao === "MINHA" || !adm) {
+      lista = lista.filter((aluno) => {
+        const email = String(aluno.operador_email || "").toLowerCase().trim();
+        const nome = String(aluno.operador_nome || aluno.operador || "").toUpperCase().trim();
+
+        return (
+          email === emailUsuario.toLowerCase().trim() ||
+          nome === operadorLogado.toUpperCase().trim()
+        );
+      });
+    }
+
+    if (filtroRetorno !== "TODOS") {
+      lista = lista.filter((aluno) => situacaoRetorno(aluno) === filtroRetorno);
+    }
+
+    if (filtroStatus !== "TODOS") {
+      lista = lista.filter((aluno) => String(aluno.status_jornada || "").toUpperCase() === filtroStatus);
+    }
+
+    if (busca.trim()) {
+      const termo = busca.trim().toLowerCase();
+
+      lista = lista.filter((aluno) => {
+        const texto = [
+          pegarNome(aluno),
+          pegarCpf(aluno),
+          aluno?.matricula,
+          aluno?.email,
+          aluno?.telefone,
+          aluno?.curso,
+          aluno?.status_jornada,
+        ]
+          .join(" ")
+          .toLowerCase();
+
+        return texto.includes(termo);
+      });
+    }
+
+    lista.sort((a, b) => {
+      if (ordenacao === "VALOR_DESC") return pegarValor(b) - pegarValor(a);
+      if (ordenacao === "VALOR_ASC") return pegarValor(a) - pegarValor(b);
+
+      const da = montarDataLocal(a.data_retorno)?.getTime() || 9999999999999;
+      const db = montarDataLocal(b.data_retorno)?.getTime() || 9999999999999;
+
+      if (ordenacao === "RETORNO_ASC") return da - db;
+      if (ordenacao === "RETORNO_DESC") return db - da;
+
+      return pegarNome(a).localeCompare(pegarNome(b));
+    });
+
+    return lista;
+  }, [alunos, busca, filtroRetorno, filtroStatus, ordenacao, visao, emailUsuario, operadorLogado, adm]);
+
+  const contadores = useMemo(() => {
+    return {
+      atrasados: alunosFiltrados.filter((a) => situacaoRetorno(a) === "ATRASADO").length,
+      hoje: alunosFiltrados.filter((a) => situacaoRetorno(a) === "HOJE").length,
+      futuros: alunosFiltrados.filter((a) => situacaoRetorno(a) === "FUTURO").length,
+      semRetorno: alunosFiltrados.filter((a) => situacaoRetorno(a) === "SEM_RETORNO").length,
+    };
+  }, [alunosFiltrados]);
+
+  const statusDisponiveis = useMemo(() => {
+    const status = new Set();
+
+    alunos.forEach((aluno) => {
+      if (aluno.status_jornada) status.add(String(aluno.status_jornada).toUpperCase());
+    });
+
+    return Array.from(status).sort();
+  }, [alunos]);
+
+  if (carregando) {
+    return <div style={styles.container}>Carregando Fila Operacional...</div>;
+  }
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.cabecalho}>
+        <div>
+          <h1 style={styles.titulo}>Fila Operacional</h1>
+          <p style={styles.subtitulo}>
+            Retornos, prioridades e casos assumidos por operador.
+          </p>
+          <p style={styles.operador}>
+            Operador logado: <strong>{operadorLogado}</strong>
+          </p>
+        </div>
+
+        <div style={styles.nav}>
+          <button style={styles.botaoEscuro} onClick={() => navigate("/base-receptiva")}>
+            Base Receptiva
+          </button>
+          <button style={styles.botaoEscuro} onClick={() => navigate("/fila-adm-termos")}>
+            Validação ADM
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.indicadores}>
+        <div style={styles.indicador}>
+          <strong>{contadores.atrasados}</strong>
+          <span>Atrasados</span>
+        </div>
+        <div style={styles.indicador}>
+          <strong>{contadores.hoje}</strong>
+          <span>Hoje</span>
+        </div>
+        <div style={styles.indicador}>
+          <strong>{contadores.futuros}</strong>
+          <span>Futuros</span>
+        </div>
+        <div style={styles.indicador}>
+          <strong>{contadores.semRetorno}</strong>
+          <span>Sem retorno</span>
+        </div>
+      </div>
+
+      <div style={styles.card}>
+        <div style={styles.grid}>
+          <input
+            style={styles.input}
+            placeholder="Buscar por nome, CPF, matrícula, telefone, curso..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+
+          <select style={styles.input} value={filtroRetorno} onChange={(e) => setFiltroRetorno(e.target.value)}>
+            <option value="TODOS">Todos os retornos</option>
+            <option value="ATRASADO">Retornos atrasados</option>
+            <option value="HOJE">Retornos de hoje</option>
+            <option value="FUTURO">Retornos futuros</option>
+            <option value="SEM_RETORNO">Sem retorno</option>
+          </select>
+
+          <select style={styles.input} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
+            <option value="TODOS">Todos os status</option>
+            {statusDisponiveis.map((status) => (
+              <option key={status} value={status}>
+                {status}
+              </option>
+            ))}
+          </select>
+
+          <select style={styles.input} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
+            <option value="RETORNO_ASC">Retorno crescente</option>
+            <option value="RETORNO_DESC">Retorno decrescente</option>
+            <option value="VALOR_DESC">Maior valor primeiro</option>
+            <option value="VALOR_ASC">Menor valor primeiro</option>
+            <option value="NOME_ASC">Nome A-Z</option>
+          </select>
+
+          {adm && (
+            <select style={styles.input} value={visao} onChange={(e) => setVisao(e.target.value)}>
+              <option value="MINHA">Minha fila</option>
+              <option value="TODOS">Todos os operadores</option>
+            </select>
+          )}
+        </div>
+      </div>
+
+      <div style={styles.resultado}>
+        <strong>{alunosFiltrados.length}</strong> caso(s) na fila.
+      </div>
+
+      {alunosFiltrados.map((aluno) => (
+        <div key={aluno.id} style={styles.linha}>
+          <div>
+            <h3 style={styles.nome}>{pegarNome(aluno)}</h3>
+            <p style={styles.info}>CPF: {pegarCpf(aluno)}</p>
+            <p style={styles.info}>Curso: {aluno.curso || "-"}</p>
+            <p style={styles.info}>Status: {aluno.status_jornada || "-"}</p>
+            <p style={styles.info}>Operador: {aluno.operador_nome || aluno.operador || "-"}</p>
+            <span style={estiloRetorno(aluno)}>{textoRetorno(aluno)}</span>
+          </div>
+
+          <div style={styles.acoes}>
+            <div style={styles.valor}>{formatarValor(pegarValor(aluno))}</div>
+
+            <button style={styles.botaoAzul} onClick={() => abrirAluno(aluno)}>
+              Abrir ficha do aluno
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const styles = {
+  container: {
+    minHeight: "100vh",
+    background: "#f4f6f8",
+    padding: "24px",
+    fontFamily: "Arial, sans-serif",
+  },
+  cabecalho: {
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "16px",
+    alignItems: "flex-start",
+    marginBottom: "18px",
+  },
+  titulo: {
+    margin: 0,
+    color: "#111827",
+  },
+  subtitulo: {
+    margin: "6px 0 0 0",
+    color: "#555",
+  },
+  operador: {
+    margin: "8px 0 0 0",
+    color: "#374151",
+  },
+  nav: {
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
+  },
+  indicadores: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+    gap: "12px",
+    marginBottom: "16px",
+  },
+  indicador: {
+    background: "#fff",
+    borderRadius: "14px",
+    padding: "16px",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+  },
+  card: {
+    background: "#fff",
+    borderRadius: "14px",
+    padding: "18px",
+    marginBottom: "16px",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+  },
+  grid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: "10px",
+  },
+  input: {
+    padding: "11px",
+    borderRadius: "8px",
+    border: "1px solid #d1d5db",
+    fontSize: "14px",
+  },
+  resultado: {
+    margin: "14px 0",
+    color: "#374151",
+  },
+  linha: {
+    background: "#fff",
+    borderRadius: "14px",
+    padding: "16px",
+    marginBottom: "12px",
+    boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
+    display: "flex",
+    justifyContent: "space-between",
+    gap: "16px",
+    alignItems: "flex-start",
+  },
+  nome: {
+    margin: "0 0 6px 0",
+    color: "#111827",
+  },
+  info: {
+    margin: "4px 0",
+    color: "#555",
+  },
+  acoes: {
+    minWidth: "210px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    alignItems: "stretch",
+  },
+  valor: {
+    fontSize: "18px",
+    fontWeight: "bold",
+    color: "#111827",
+    textAlign: "right",
+    marginBottom: "4px",
+  },
+  botaoAzul: {
+    background: "#0d6efd",
+    color: "#fff",
+    border: "none",
+    padding: "11px 14px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+  },
+  botaoEscuro: {
+    background: "#111827",
+    color: "#fff",
+    border: "none",
+    padding: "10px 13px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+  },
+};

@@ -1,0 +1,569 @@
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "../services/supabase";
+import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
+
+const STATUS_LABEL = {
+  EM_COBRANCA: "Em cobrança",
+  RETORNO_AGENDADO: "Retorno agendado",
+  EM_NEGOCIACAO: "Em negociação",
+  AGUARDANDO_LINK: "Aguardando link",
+  AGUARDANDO_TERMO: "Aguardando termo",
+  PAGAMENTO_IDENTIFICADO: "Pagamento identificado",
+  REVISAR_UNIFICACAO: "Revisar unificação",
+  NAO_CONTATAR: "Não contatar",
+  QUITADO: "Quitado",
+};
+
+const PRIORIDADE_LABEL = {
+  NORMAL: "Normal",
+  ALTA: "Alta",
+  CRITICO: "Crítico",
+};
+
+function dinheiro(valor) {
+  return Number(valor || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+function dataBR(data) {
+  if (!data) return "-";
+
+  try {
+    const texto = String(data);
+    if (/^\d{4}-\d{2}-\d{2}/.test(texto)) {
+      const partes = texto.split("T")[0].split("-");
+      return `${partes[2]}/${partes[1]}/${partes[0]}`;
+    }
+
+    return new Date(data).toLocaleDateString("pt-BR");
+  } catch {
+    return "-";
+  }
+}
+
+function hojeISO() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function corStatus(status) {
+  if (status === "REVISAR_UNIFICACAO") {
+    return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5" };
+  }
+
+  if (status === "RETORNO_AGENDADO") {
+    return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
+  }
+
+  if (status === "AGUARDANDO_LINK" || status === "AGUARDANDO_TERMO") {
+    return { background: "#ede9fe", color: "#5b21b6", border: "1px solid #ddd6fe" };
+  }
+
+  if (status === "QUITADO") {
+    return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
+  }
+
+  if (status === "NAO_CONTATAR") {
+    return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
+  }
+
+  return { background: "#e5e7eb", color: "#374151", border: "1px solid #d1d5db" };
+}
+
+function corPrioridade(prioridade) {
+  if (prioridade === "CRITICO") return "#dc3545";
+  if (prioridade === "ALTA") return "#ffc107";
+  return "#111827";
+}
+
+export default function FilaOperacional() {
+  const navigate = useNavigate();
+
+  const [usuario, setUsuario] = useState(null);
+  const [alunos, setAlunos] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+
+  const [busca, setBusca] = useState("");
+  const [visao, setVisao] = useState("TODOS");
+  const [filtroStatus, setFiltroStatus] = useState("ATIVOS");
+  const [filtroRetorno, setFiltroRetorno] = useState("TODOS");
+  const [ordenacao, setOrdenacao] = useState("VALOR_DESC");
+
+  const [edicoes, setEdicoes] = useState({});
+
+  useEffect(() => {
+    carregarUsuario();
+    carregarFila();
+  }, []);
+
+  async function carregarUsuario() {
+    const { data } = await supabase.auth.getUser();
+    setUsuario(data?.user || null);
+  }
+
+  async function carregarFila() {
+    setCarregando(true);
+
+    const { data, error } = await supabase
+      .from("alunos_unificados")
+      .select("*")
+      .eq("ocultar_fila", false)
+      .order("valor_total_casos", { ascending: false })
+      .limit(1500);
+
+    if (error) {
+      alert("Erro ao carregar fila operacional: " + error.message);
+      setCarregando(false);
+      return;
+    }
+
+    setAlunos(data || []);
+    setCarregando(false);
+  }
+
+  function edicaoDoAluno(chave, campo, valorAtual = "") {
+    return edicoes[chave]?.[campo] ?? valorAtual ?? "";
+  }
+
+  function alterarEdicao(chave, campo, valor) {
+    setEdicoes((atual) => ({
+      ...atual,
+      [chave]: {
+        ...(atual[chave] || {}),
+        [campo]: valor,
+      },
+    }));
+  }
+
+  async function assumirAluno(item) {
+    const email = usuario?.email || "";
+    const nome = nomeOperadorPorEmail(email);
+
+    const { error } = await supabase
+      .from("alunos_unificados")
+      .update({
+        operador_nome: nome,
+        operador_email: email,
+        status_jornada: item.status_jornada === "REVISAR_UNIFICACAO" ? "REVISAR_UNIFICACAO" : "EM_COBRANCA",
+        ultima_interacao_em: new Date().toISOString(),
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("chave_unificacao", item.chave_unificacao);
+
+    if (error) {
+      alert("Erro ao assumir aluno: " + error.message);
+      return;
+    }
+
+    carregarFila();
+  }
+
+  async function salvarMovimentacao(item) {
+    const chave = item.chave_unificacao;
+    const editado = edicoes[chave] || {};
+
+    const atualizacao = {
+      status_jornada: editado.status_jornada || item.status_jornada || "EM_COBRANCA",
+      prioridade_operacional: editado.prioridade_operacional || item.prioridade_operacional || "NORMAL",
+      data_retorno: editado.data_retorno || item.data_retorno || null,
+      hora_retorno: editado.hora_retorno || item.hora_retorno || null,
+      observacao_operacional:
+        editado.observacao_operacional !== undefined
+          ? editado.observacao_operacional
+          : item.observacao_operacional,
+      ultima_interacao_em: new Date().toISOString(),
+      atualizado_em: new Date().toISOString(),
+    };
+
+    const { error } = await supabase
+      .from("alunos_unificados")
+      .update(atualizacao)
+      .eq("chave_unificacao", chave);
+
+    if (error) {
+      alert("Erro ao salvar movimentação: " + error.message);
+      return;
+    }
+
+    alert("Movimentação salva.");
+    setEdicoes((atual) => {
+      const copia = { ...atual };
+      delete copia[chave];
+      return copia;
+    });
+
+    carregarFila();
+  }
+
+  async function ocultarDaFila(item) {
+    const confirmar = window.confirm(
+      "Deseja ocultar este aluno da fila operacional? Ele continuará existindo na base unificada."
+    );
+
+    if (!confirmar) return;
+
+    const { error } = await supabase
+      .from("alunos_unificados")
+      .update({
+        ocultar_fila: true,
+        ultima_interacao_em: new Date().toISOString(),
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("chave_unificacao", item.chave_unificacao);
+
+    if (error) {
+      alert("Erro ao ocultar da fila: " + error.message);
+      return;
+    }
+
+    carregarFila();
+  }
+
+  const emailUsuario = usuario?.email || "";
+  const nomeUsuario = nomeOperadorPorEmail(emailUsuario);
+  const adm = podeVerTudo(emailUsuario);
+
+  const lista = useMemo(() => {
+    let filtrada = [...alunos];
+
+    if (!adm && visao !== "TODOS") {
+      filtrada = filtrada.filter(
+        (item) => String(item.operador_email || "").toLowerCase() === emailUsuario.toLowerCase()
+      );
+    }
+
+    if (visao === "MINHA") {
+      filtrada = filtrada.filter(
+        (item) => String(item.operador_email || "").toLowerCase() === emailUsuario.toLowerCase()
+      );
+    }
+
+    if (visao === "SEM_OPERADOR") {
+      filtrada = filtrada.filter((item) => !item.operador_email);
+    }
+
+    if (filtroStatus === "ATIVOS") {
+      filtrada = filtrada.filter(
+        (item) => !["QUITADO", "NAO_CONTATAR"].includes(item.status_jornada)
+      );
+    } else if (filtroStatus !== "TODOS") {
+      filtrada = filtrada.filter((item) => item.status_jornada === filtroStatus);
+    }
+
+    const hoje = hojeISO();
+
+    if (filtroRetorno === "HOJE") {
+      filtrada = filtrada.filter((item) => item.data_retorno === hoje);
+    }
+
+    if (filtroRetorno === "ATRASADOS") {
+      filtrada = filtrada.filter((item) => item.data_retorno && item.data_retorno < hoje);
+    }
+
+    if (filtroRetorno === "FUTUROS") {
+      filtrada = filtrada.filter((item) => item.data_retorno && item.data_retorno > hoje);
+    }
+
+    if (filtroRetorno === "SEM_RETORNO") {
+      filtrada = filtrada.filter((item) => !item.data_retorno);
+    }
+
+    if (busca.trim()) {
+      const termo = busca.toLowerCase().trim();
+
+      filtrada = filtrada.filter((item) =>
+        [
+          item.nome_aluno,
+          item.nome_referencia,
+          item.cpf_referencia,
+          item.chave_unificacao,
+          item.operador_nome,
+          item.operador_email,
+          item.status_jornada,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(termo)
+      );
+    }
+
+    filtrada.sort((a, b) => {
+      if (ordenacao === "VALOR_DESC") return Number(b.valor_total_casos || 0) - Number(a.valor_total_casos || 0);
+      if (ordenacao === "VALOR_ASC") return Number(a.valor_total_casos || 0) - Number(b.valor_total_casos || 0);
+      if (ordenacao === "CASOS_DESC") return Number(b.quantidade_casos || 0) - Number(a.quantidade_casos || 0);
+      if (ordenacao === "RETORNO_ASC") return String(a.data_retorno || "9999-12-31").localeCompare(String(b.data_retorno || "9999-12-31"));
+      if (ordenacao === "NOME") return String(a.nome_aluno || a.nome_referencia || "").localeCompare(String(b.nome_aluno || b.nome_referencia || ""));
+      return 0;
+    });
+
+    return filtrada;
+  }, [alunos, adm, visao, filtroStatus, filtroRetorno, busca, ordenacao, emailUsuario]);
+
+  const indicadores = useMemo(() => {
+    return {
+      total: lista.length,
+      semOperador: lista.filter((x) => !x.operador_email).length,
+      minha: lista.filter((x) => String(x.operador_email || "").toLowerCase() === emailUsuario.toLowerCase()).length,
+      revisar: lista.filter((x) => x.status_jornada === "REVISAR_UNIFICACAO").length,
+      retornoHoje: lista.filter((x) => x.data_retorno === hojeISO()).length,
+      atrasados: lista.filter((x) => x.data_retorno && x.data_retorno < hojeISO()).length,
+      valor: lista.reduce((soma, item) => soma + Number(item.valor_total_casos || 0), 0),
+    };
+  }, [lista, emailUsuario]);
+
+  if (carregando) {
+    return <div style={styles.container}>Carregando Fila Operacional Unificada...</div>;
+  }
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.cabecalho}>
+        <div>
+          <h1 style={styles.titulo}>Fila Operacional Unificada</h1>
+          <p style={styles.subtitulo}>
+            A operação agora trabalha por aluno unificado, com todos os casos financeiros dentro da ficha.
+          </p>
+          <p style={styles.usuario}>
+            Operador logado: <strong>{nomeUsuario}</strong>
+          </p>
+        </div>
+
+        <div style={styles.nav}>
+          <button style={styles.botaoEscuro} onClick={() => navigate("/alunos-unificados")}>
+            Alunos Unificados
+          </button>
+
+          <button style={styles.botaoEscuro} onClick={() => navigate("/agenda-operacional")}>
+            Agenda Operacional
+          </button>
+
+          <button style={styles.botaoEscuro} onClick={() => navigate("/controle-links-pagamento")}>
+            Links de Pagamento
+          </button>
+
+          <button style={styles.botaoEscuro} onClick={carregarFila}>
+            Atualizar
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.indicadores}>
+        <div style={styles.indicador}><strong>{indicadores.total}</strong><span>Na fila</span></div>
+        <div style={styles.indicador}><strong>{indicadores.semOperador}</strong><span>Sem operador</span></div>
+        <div style={styles.indicador}><strong>{indicadores.minha}</strong><span>Minha fila</span></div>
+        <div style={styles.indicador}><strong>{indicadores.revisar}</strong><span>Revisar</span></div>
+        <div style={styles.indicador}><strong>{indicadores.retornoHoje}</strong><span>Retornos hoje</span></div>
+        <div style={styles.indicador}><strong>{indicadores.atrasados}</strong><span>Atrasados</span></div>
+        <div style={styles.indicadorValor}><strong>{dinheiro(indicadores.valor)}</strong><span>Valor filtrado</span></div>
+      </div>
+
+      <div style={styles.card}>
+        <h2 style={styles.subtituloCard}>Filtros</h2>
+
+        <div style={styles.grid}>
+          <input
+            style={styles.input}
+            placeholder="Buscar por nome, CPF, operador ou chave..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+
+          <select style={styles.input} value={visao} onChange={(e) => setVisao(e.target.value)}>
+            <option value="TODOS">Todos</option>
+            <option value="MINHA">Minha fila</option>
+            <option value="SEM_OPERADOR">Sem operador</option>
+          </select>
+
+          <select style={styles.input} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
+            <option value="ATIVOS">Ativos da cobrança</option>
+            <option value="TODOS">Todos os status</option>
+            <option value="EM_COBRANCA">Em cobrança</option>
+            <option value="RETORNO_AGENDADO">Retorno agendado</option>
+            <option value="EM_NEGOCIACAO">Em negociação</option>
+            <option value="AGUARDANDO_LINK">Aguardando link</option>
+            <option value="AGUARDANDO_TERMO">Aguardando termo</option>
+            <option value="PAGAMENTO_IDENTIFICADO">Pagamento identificado</option>
+            <option value="REVISAR_UNIFICACAO">Revisar unificação</option>
+            <option value="NAO_CONTATAR">Não contatar</option>
+            <option value="QUITADO">Quitado</option>
+          </select>
+
+          <select style={styles.input} value={filtroRetorno} onChange={(e) => setFiltroRetorno(e.target.value)}>
+            <option value="TODOS">Todos os retornos</option>
+            <option value="HOJE">Retornos de hoje</option>
+            <option value="ATRASADOS">Retornos atrasados</option>
+            <option value="FUTUROS">Retornos futuros</option>
+            <option value="SEM_RETORNO">Sem retorno</option>
+          </select>
+
+          <select style={styles.input} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
+            <option value="VALOR_DESC">Maior valor primeiro</option>
+            <option value="VALOR_ASC">Menor valor primeiro</option>
+            <option value="CASOS_DESC">Mais casos primeiro</option>
+            <option value="RETORNO_ASC">Retorno mais próximo</option>
+            <option value="NOME">Nome A-Z</option>
+          </select>
+        </div>
+      </div>
+
+      {lista.length === 0 && <div style={styles.vazio}>Nenhum aluno encontrado neste filtro.</div>}
+
+      {lista.map((item) => {
+        const chave = item.chave_unificacao;
+        const statusAtual = edicaoDoAluno(chave, "status_jornada", item.status_jornada || "EM_COBRANCA");
+        const prioridadeAtual = edicaoDoAluno(chave, "prioridade_operacional", item.prioridade_operacional || "NORMAL");
+
+        return (
+          <div key={chave} style={{ ...styles.cardAluno, borderLeftColor: corPrioridade(prioridadeAtual) }}>
+            <div style={styles.topoCard}>
+              <div>
+                <h2 style={styles.nome}>{item.nome_aluno || item.nome_referencia || "Aluno sem nome"}</h2>
+                <p style={styles.info}><strong>CPF referência:</strong> {item.cpf_referencia || "-"}</p>
+                <p style={styles.info}><strong>Operador:</strong> {item.operador_nome || "Sem operador"}</p>
+                <p style={styles.info}>
+                  <strong>Casos:</strong> {item.quantidade_casos || 0} |{" "}
+                  <strong>CPFs encontrados:</strong> {item.quantidade_cpfs || 0}
+                </p>
+                <p style={styles.valor}><strong>Valor total:</strong> {dinheiro(item.valor_total_casos)}</p>
+                <p style={styles.info}>
+                  <strong>Retorno:</strong> {dataBR(item.data_retorno)} {item.hora_retorno ? `às ${String(item.hora_retorno).slice(0, 5)}` : ""}
+                </p>
+              </div>
+
+              <div style={styles.colunaStatus}>
+                <span style={{ ...styles.status, ...corStatus(statusAtual) }}>
+                  {STATUS_LABEL[statusAtual] || statusAtual}
+                </span>
+
+                <span style={styles.prioridade}>
+                  {PRIORIDADE_LABEL[prioridadeAtual] || prioridadeAtual}
+                </span>
+              </div>
+            </div>
+
+            {item.observacao_operacional && (
+              <div style={styles.obs}>
+                <strong>Última observação:</strong> {item.observacao_operacional}
+              </div>
+            )}
+
+            <div style={styles.gridEdicao}>
+              <select
+                style={styles.input}
+                value={statusAtual}
+                onChange={(e) => alterarEdicao(chave, "status_jornada", e.target.value)}
+              >
+                <option value="EM_COBRANCA">Em cobrança</option>
+                <option value="RETORNO_AGENDADO">Retorno agendado</option>
+                <option value="EM_NEGOCIACAO">Em negociação</option>
+                <option value="AGUARDANDO_LINK">Aguardando link</option>
+                <option value="AGUARDANDO_TERMO">Aguardando termo</option>
+                <option value="PAGAMENTO_IDENTIFICADO">Pagamento identificado</option>
+                <option value="REVISAR_UNIFICACAO">Revisar unificação</option>
+                <option value="NAO_CONTATAR">Não contatar</option>
+                <option value="QUITADO">Quitado</option>
+              </select>
+
+              <select
+                style={styles.input}
+                value={prioridadeAtual}
+                onChange={(e) => alterarEdicao(chave, "prioridade_operacional", e.target.value)}
+              >
+                <option value="NORMAL">Prioridade normal</option>
+                <option value="ALTA">Prioridade alta</option>
+                <option value="CRITICO">Crítico</option>
+              </select>
+
+              <input
+                style={styles.input}
+                type="date"
+                value={edicaoDoAluno(chave, "data_retorno", item.data_retorno || "")}
+                onChange={(e) => alterarEdicao(chave, "data_retorno", e.target.value)}
+              />
+
+              <input
+                style={styles.input}
+                type="time"
+                value={edicaoDoAluno(chave, "hora_retorno", item.hora_retorno ? String(item.hora_retorno).slice(0, 5) : "")}
+                onChange={(e) => alterarEdicao(chave, "hora_retorno", e.target.value)}
+              />
+            </div>
+
+            <textarea
+              style={styles.textarea}
+              placeholder="Observação operacional / próxima ação"
+              value={edicaoDoAluno(chave, "observacao_operacional", item.observacao_operacional || "")}
+              onChange={(e) => alterarEdicao(chave, "observacao_operacional", e.target.value)}
+            />
+
+            <div style={styles.acoes}>
+              {!item.operador_email && (
+                <button style={styles.botaoVerde} onClick={() => assumirAluno(item)}>
+                  Assumir aluno
+                </button>
+              )}
+
+              {item.operador_email && String(item.operador_email).toLowerCase() !== emailUsuario.toLowerCase() && adm && (
+                <button style={styles.botaoVerde} onClick={() => assumirAluno(item)}>
+                  Assumir / redirecionar para mim
+                </button>
+              )}
+
+              <button style={styles.botaoAzul} onClick={() => salvarMovimentacao(item)}>
+                Salvar movimentação
+              </button>
+
+              <button
+                style={styles.botaoEscuro}
+                onClick={() => navigate(`/aluno-unificado/${encodeURIComponent(chave)}`)}
+              >
+                Abrir ficha unificada
+              </button>
+
+              {adm && (
+                <button style={styles.botaoCinza} onClick={() => ocultarDaFila(item)}>
+                  Ocultar da fila
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+const styles = {
+  container: { minHeight: "100vh", background: "#f4f6f8", padding: "24px", fontFamily: "Arial, sans-serif" },
+  cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "18px" },
+  titulo: { margin: 0, color: "#111827" },
+  subtitulo: { margin: "6px 0 0 0", color: "#555" },
+  usuario: { margin: "8px 0 0 0", color: "#374151" },
+  nav: { display: "flex", gap: "8px", flexWrap: "wrap" },
+  indicadores: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "12px", marginBottom: "16px" },
+  indicador: { background: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  indicadorValor: { background: "#111827", color: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  card: { background: "#fff", borderRadius: "14px", padding: "18px", marginBottom: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  subtituloCard: { margin: "0 0 12px 0", color: "#111827" },
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "10px" },
+  gridEdicao: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: "10px", marginTop: "14px" },
+  input: { padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "14px" },
+  textarea: { width: "100%", minHeight: "72px", marginTop: "10px", padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
+  cardAluno: { background: "#fff", borderRadius: "16px", padding: "20px", marginBottom: "16px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", borderLeft: "6px solid #111827" },
+  topoCard: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start" },
+  nome: { margin: "0 0 8px 0", color: "#111827" },
+  info: { margin: "5px 0", color: "#555" },
+  valor: { margin: "8px 0", color: "#111827", fontSize: "16px" },
+  colunaStatus: { display: "flex", flexDirection: "column", gap: "8px", alignItems: "flex-end" },
+  status: { padding: "8px 12px", borderRadius: "999px", fontWeight: "bold", fontSize: "13px", whiteSpace: "nowrap" },
+  prioridade: { background: "#111827", color: "#fff", padding: "7px 10px", borderRadius: "999px", fontWeight: "bold", fontSize: "12px" },
+  obs: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "12px", color: "#374151" },
+  acoes: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "12px" },
+  botaoEscuro: { background: "#111827", color: "#fff", border: "none", padding: "10px 13px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  botaoAzul: { background: "#0d6efd", color: "#fff", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  botaoVerde: { background: "#198754", color: "#fff", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  botaoCinza: { background: "#e5e7eb", color: "#111827", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  vazio: { background: "#fff", padding: "18px", borderRadius: "10px" },
+};

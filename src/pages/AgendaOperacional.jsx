@@ -1,0 +1,491 @@
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "../services/supabase";
+import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
+
+function dinheiro(valor) {
+  return Number(valor || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+function hojeISO() {
+  return new Date().toISOString().split("T")[0];
+}
+
+function diasSemContato(valor) {
+  if (!valor) return null;
+
+  const hoje = new Date();
+  const data = new Date(valor);
+  const diff = hoje.getTime() - data.getTime();
+
+  return Math.max(0, Math.floor(diff / (1000 * 60 * 60 * 24)));
+}
+
+function dataBR(valor) {
+  if (!valor) return "-";
+
+  try {
+    const texto = String(valor);
+
+    if (/^\d{4}-\d{2}-\d{2}/.test(texto)) {
+      const partes = texto.split("T")[0].split("-");
+      return `${partes[2]}/${partes[1]}/${partes[0]}`;
+    }
+
+    return new Date(valor).toLocaleDateString("pt-BR");
+  } catch {
+    return "-";
+  }
+}
+
+function dataHoraBR(valor) {
+  if (!valor) return "Nunca";
+  try {
+    return new Date(valor).toLocaleString("pt-BR");
+  } catch {
+    return "Nunca";
+  }
+}
+
+function prioridadePeso(item) {
+  if (!item.ultima_interacao_em) return 1;
+  if (item.data_retorno && item.data_retorno < hojeISO()) return 2;
+  if (item.data_retorno === hojeISO()) return 3;
+  if (diasSemContato(item.ultima_interacao_em) >= 10) return 4;
+  return 5;
+}
+
+function corContato(item) {
+  if (!item.ultima_interacao_em) return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
+  if (item.data_retorno && item.data_retorno < hojeISO()) return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5" };
+  if (item.data_retorno === hojeISO()) return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
+  if (diasSemContato(item.ultima_interacao_em) >= 10) return { background: "#fde68a", color: "#78350f", border: "1px solid #fcd34d" };
+  return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
+}
+
+function textoContato(item) {
+  const dias = diasSemContato(item.ultima_interacao_em);
+
+  if (!item.ultima_interacao_em) return "Sem acionamento";
+  if (item.data_retorno && item.data_retorno < hojeISO()) return "Retorno atrasado";
+  if (item.data_retorno === hojeISO()) return "Retorno hoje";
+  if (dias >= 10) return `Há ${dias} dias sem contato`;
+  return `Último contato há ${dias} dia(s)`;
+}
+
+export default function AgendaOperacional() {
+  const navigate = useNavigate();
+
+  const [usuario, setUsuario] = useState(null);
+  const [alunos, setAlunos] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+
+  const [busca, setBusca] = useState("");
+  const [visao, setVisao] = useState("SEM_ACIONAMENTO");
+  const [ordenacao, setOrdenacao] = useState("PRIORIDADE");
+  const [edicoes, setEdicoes] = useState({});
+
+  useEffect(() => {
+    carregarUsuario();
+    carregarAgenda();
+  }, []);
+
+  async function carregarUsuario() {
+    const { data } = await supabase.auth.getUser();
+    setUsuario(data?.user || null);
+  }
+
+  async function carregarAgenda() {
+    setCarregando(true);
+
+    const { data, error } = await supabase
+      .from("alunos_unificados")
+      .select("*")
+      .eq("ocultar_fila", false)
+      .not("status_jornada", "eq", "QUITADO")
+      .not("status_jornada", "eq", "NAO_CONTATAR")
+      .limit(3000);
+
+    if (error) {
+      alert("Erro ao carregar Agenda Operacional: " + error.message);
+      setCarregando(false);
+      return;
+    }
+
+    setAlunos(data || []);
+    setCarregando(false);
+  }
+
+  function alterarEdicao(chave, campo, valor) {
+    setEdicoes((atual) => ({
+      ...atual,
+      [chave]: {
+        ...(atual[chave] || {}),
+        [campo]: valor,
+      },
+    }));
+  }
+
+  function valorEditado(item, campo, padrao = "") {
+    return edicoes[item.chave_unificacao]?.[campo] ?? item[campo] ?? padrao;
+  }
+
+  async function assumirAluno(item) {
+    const email = usuario?.email || "";
+    const nome = nomeOperadorPorEmail(email);
+
+    const { error } = await supabase
+      .from("alunos_unificados")
+      .update({
+        operador_email: email,
+        operador_nome: nome,
+        ultima_interacao_em: new Date().toISOString(),
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("chave_unificacao", item.chave_unificacao);
+
+    if (error) {
+      alert("Erro ao assumir aluno: " + error.message);
+      return;
+    }
+
+    carregarAgenda();
+  }
+
+  async function salvarAgenda(item) {
+    const editado = edicoes[item.chave_unificacao] || {};
+
+    const email = usuario?.email || "";
+    const nome = nomeOperadorPorEmail(email);
+
+    const { error } = await supabase
+      .from("alunos_unificados")
+      .update({
+        operador_email: item.operador_email || email,
+        operador_nome: item.operador_nome || nome,
+        status_jornada: editado.status_jornada || item.status_jornada || "EM_COBRANCA",
+        prioridade_operacional: editado.prioridade_operacional || item.prioridade_operacional || "NORMAL",
+        data_retorno: editado.data_retorno !== undefined ? editado.data_retorno || null : item.data_retorno || null,
+        hora_retorno: editado.hora_retorno !== undefined ? editado.hora_retorno || null : item.hora_retorno || null,
+        observacao_operacional:
+          editado.observacao_operacional !== undefined
+            ? editado.observacao_operacional
+            : item.observacao_operacional,
+        ultima_interacao_em: new Date().toISOString(),
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("chave_unificacao", item.chave_unificacao);
+
+    if (error) {
+      alert("Erro ao salvar agenda: " + error.message);
+      return;
+    }
+
+    alert("Agenda salva no cadastro do aluno.");
+
+    setEdicoes((atual) => {
+      const copia = { ...atual };
+      delete copia[item.chave_unificacao];
+      return copia;
+    });
+
+    carregarAgenda();
+  }
+
+  const emailUsuario = usuario?.email || "";
+  const adm = podeVerTudo(emailUsuario);
+
+  const lista = useMemo(() => {
+    let filtrada = [...alunos];
+
+    if (!adm) {
+      filtrada = filtrada.filter(
+        (item) =>
+          !item.operador_email ||
+          String(item.operador_email || "").toLowerCase() === emailUsuario.toLowerCase()
+      );
+    }
+
+    const hoje = hojeISO();
+
+    if (visao === "SEM_ACIONAMENTO") {
+      filtrada = filtrada.filter((item) => !item.ultima_interacao_em);
+    }
+
+    if (visao === "RETORNOS_HOJE") {
+      filtrada = filtrada.filter((item) => item.data_retorno === hoje);
+    }
+
+    if (visao === "RETORNOS_ATRASADOS") {
+      filtrada = filtrada.filter((item) => item.data_retorno && item.data_retorno < hoje);
+    }
+
+    if (visao === "RETORNOS_FUTUROS") {
+      filtrada = filtrada.filter((item) => item.data_retorno && item.data_retorno > hoje);
+    }
+
+    if (visao === "MAIS_10_DIAS") {
+      filtrada = filtrada.filter((item) => diasSemContato(item.ultima_interacao_em) >= 10);
+    }
+
+    if (visao === "SEM_OPERADOR") {
+      filtrada = filtrada.filter((item) => !item.operador_email);
+    }
+
+    if (busca.trim()) {
+      const termo = busca.toLowerCase().trim();
+
+      filtrada = filtrada.filter((item) =>
+        [
+          item.nome_aluno,
+          item.nome_referencia,
+          item.cpf_referencia,
+          item.operador_nome,
+          item.operador_email,
+          item.chave_unificacao,
+          item.status_jornada,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(termo)
+      );
+    }
+
+    filtrada.sort((a, b) => {
+      if (ordenacao === "PRIORIDADE") {
+        const peso = prioridadePeso(a) - prioridadePeso(b);
+        if (peso !== 0) return peso;
+
+        return Number(b.valor_total_casos || 0) - Number(a.valor_total_casos || 0);
+      }
+
+      if (ordenacao === "MAIS_ANTIGO") {
+        return String(a.ultima_interacao_em || "0000-01-01").localeCompare(String(b.ultima_interacao_em || "0000-01-01"));
+      }
+
+      if (ordenacao === "RETORNO") {
+        return String(a.data_retorno || "9999-12-31").localeCompare(String(b.data_retorno || "9999-12-31"));
+      }
+
+      if (ordenacao === "VALOR_DESC") {
+        return Number(b.valor_total_casos || 0) - Number(a.valor_total_casos || 0);
+      }
+
+      return String(a.nome_aluno || a.nome_referencia || "").localeCompare(String(b.nome_aluno || b.nome_referencia || ""));
+    });
+
+    return filtrada;
+  }, [alunos, adm, emailUsuario, visao, busca, ordenacao]);
+
+  const indicadores = useMemo(() => {
+    return {
+      semAcionamento: alunos.filter((x) => !x.ultima_interacao_em).length,
+      retornosHoje: alunos.filter((x) => x.data_retorno === hojeISO()).length,
+      atrasados: alunos.filter((x) => x.data_retorno && x.data_retorno < hojeISO()).length,
+      mais10: alunos.filter((x) => diasSemContato(x.ultima_interacao_em) >= 10).length,
+      semOperador: alunos.filter((x) => !x.operador_email).length,
+      valor: lista.reduce((soma, item) => soma + Number(item.valor_total_casos || 0), 0),
+    };
+  }, [alunos, lista]);
+
+  if (carregando) {
+    return <div style={styles.container}>Carregando Agenda Operacional...</div>;
+  }
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.cabecalho}>
+        <div>
+          <h1 style={styles.titulo}>Agenda Operacional</h1>
+          <p style={styles.subtitulo}>
+            Prioriza casos sem acionamento, retornos atrasados, retornos de hoje e alunos há mais tempo sem contato.
+          </p>
+        </div>
+
+        <div style={styles.nav}>
+          <button style={styles.botaoEscuro} onClick={() => navigate("/minha-fila")}>
+            Fila Operacional
+          </button>
+
+          <button style={styles.botaoEscuro} onClick={() => navigate("/alunos-unificados")}>
+            Alunos Unificados
+          </button>
+
+          <button style={styles.botaoEscuro} onClick={carregarAgenda}>
+            Atualizar
+          </button>
+        </div>
+      </div>
+
+      <div style={styles.indicadores}>
+        <div style={styles.indicador}><strong>{indicadores.semAcionamento}</strong><span>Sem acionamento</span></div>
+        <div style={styles.indicador}><strong>{indicadores.atrasados}</strong><span>Retornos atrasados</span></div>
+        <div style={styles.indicador}><strong>{indicadores.retornosHoje}</strong><span>Retornos hoje</span></div>
+        <div style={styles.indicador}><strong>{indicadores.mais10}</strong><span>+10 dias sem contato</span></div>
+        <div style={styles.indicador}><strong>{indicadores.semOperador}</strong><span>Sem operador</span></div>
+        <div style={styles.indicadorValor}><strong>{dinheiro(indicadores.valor)}</strong><span>Valor filtrado</span></div>
+      </div>
+
+      <div style={styles.card}>
+        <h2 style={styles.subtituloCard}>Filtros da agenda</h2>
+
+        <div style={styles.grid}>
+          <input
+            style={styles.input}
+            placeholder="Buscar por nome, CPF, operador ou chave..."
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+
+          <select style={styles.input} value={visao} onChange={(e) => setVisao(e.target.value)}>
+            <option value="SEM_ACIONAMENTO">Sem acionamento</option>
+            <option value="RETORNOS_ATRASADOS">Retornos atrasados</option>
+            <option value="RETORNOS_HOJE">Retornos de hoje</option>
+            <option value="RETORNOS_FUTUROS">Retornos futuros</option>
+            <option value="MAIS_10_DIAS">+10 dias sem contato</option>
+            <option value="SEM_OPERADOR">Sem operador</option>
+            <option value="TODOS">Todos</option>
+          </select>
+
+          <select style={styles.input} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
+            <option value="PRIORIDADE">Prioridade operacional</option>
+            <option value="MAIS_ANTIGO">Mais tempo sem contato</option>
+            <option value="RETORNO">Retorno mais próximo</option>
+            <option value="VALOR_DESC">Maior valor primeiro</option>
+            <option value="NOME">Nome A-Z</option>
+          </select>
+        </div>
+      </div>
+
+      {lista.length === 0 && <div style={styles.vazio}>Nenhum aluno encontrado neste filtro.</div>}
+
+      {lista.map((item) => (
+        <div key={item.chave_unificacao} style={styles.cardAluno}>
+          <div style={styles.topoCard}>
+            <div>
+              <h2 style={styles.nome}>{item.nome_aluno || item.nome_referencia || "Aluno sem nome"}</h2>
+              <p style={styles.info}><strong>CPF:</strong> {item.cpf_referencia || "-"}</p>
+              <p style={styles.info}><strong>Operador:</strong> {item.operador_nome || "Sem operador"}</p>
+              <p style={styles.info}><strong>Última interação:</strong> {dataHoraBR(item.ultima_interacao_em)}</p>
+              <p style={styles.info}>
+                <strong>Retorno:</strong> {dataBR(item.data_retorno)}{" "}
+                {item.hora_retorno ? `às ${String(item.hora_retorno).slice(0, 5)}` : ""}
+              </p>
+              <p style={styles.valor}><strong>Valor total:</strong> {dinheiro(item.valor_total_casos)}</p>
+            </div>
+
+            <span style={{ ...styles.status, ...corContato(item) }}>
+              {textoContato(item)}
+            </span>
+          </div>
+
+          {item.observacao_operacional && (
+            <div style={styles.obs}>
+              <strong>Observação atual:</strong> {item.observacao_operacional}
+            </div>
+          )}
+
+          <div style={styles.gridEdicao}>
+            <select
+              style={styles.input}
+              value={valorEditado(item, "status_jornada", "EM_COBRANCA")}
+              onChange={(e) => alterarEdicao(item.chave_unificacao, "status_jornada", e.target.value)}
+            >
+              <option value="EM_COBRANCA">Em cobrança</option>
+              <option value="RETORNO_AGENDADO">Retorno agendado</option>
+              <option value="EM_NEGOCIACAO">Em negociação</option>
+              <option value="AGUARDANDO_LINK">Aguardando link</option>
+              <option value="AGUARDANDO_TERMO">Aguardando termo</option>
+              <option value="PAGAMENTO_IDENTIFICADO">Pagamento identificado</option>
+              <option value="REVISAR_UNIFICACAO">Revisar unificação</option>
+              <option value="NAO_CONTATAR">Não contatar</option>
+              <option value="QUITADO">Quitado</option>
+            </select>
+
+            <select
+              style={styles.input}
+              value={valorEditado(item, "prioridade_operacional", "NORMAL")}
+              onChange={(e) => alterarEdicao(item.chave_unificacao, "prioridade_operacional", e.target.value)}
+            >
+              <option value="NORMAL">Normal</option>
+              <option value="ALTA">Alta</option>
+              <option value="CRITICO">Crítico</option>
+            </select>
+
+            <input
+              style={styles.input}
+              type="date"
+              value={valorEditado(item, "data_retorno", "") || ""}
+              onChange={(e) => alterarEdicao(item.chave_unificacao, "data_retorno", e.target.value)}
+            />
+
+            <input
+              style={styles.input}
+              type="time"
+              value={valorEditado(item, "hora_retorno", "") ? String(valorEditado(item, "hora_retorno", "")).slice(0, 5) : ""}
+              onChange={(e) => alterarEdicao(item.chave_unificacao, "hora_retorno", e.target.value)}
+            />
+          </div>
+
+          <textarea
+            style={styles.textarea}
+            placeholder="Registrar observação / próxima ação"
+            value={valorEditado(item, "observacao_operacional", "") || ""}
+            onChange={(e) => alterarEdicao(item.chave_unificacao, "observacao_operacional", e.target.value)}
+          />
+
+          <div style={styles.acoes}>
+            {!item.operador_email && (
+              <button style={styles.botaoVerde} onClick={() => assumirAluno(item)}>
+                Assumir aluno
+              </button>
+            )}
+
+            <button style={styles.botaoAzul} onClick={() => salvarAgenda(item)}>
+              Salvar agenda
+            </button>
+
+            <button
+              style={styles.botaoEscuro}
+              onClick={() => navigate(`/aluno-unificado/${encodeURIComponent(item.chave_unificacao)}`)}
+            >
+              Abrir ficha unificada
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const styles = {
+  container: { minHeight: "100vh", background: "#f4f6f8", padding: "24px", fontFamily: "Arial, sans-serif" },
+  cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "18px" },
+  titulo: { margin: 0, color: "#111827" },
+  subtitulo: { margin: "6px 0 0 0", color: "#555" },
+  nav: { display: "flex", gap: "8px", flexWrap: "wrap" },
+  indicadores: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(155px, 1fr))", gap: "12px", marginBottom: "16px" },
+  indicador: { background: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  indicadorValor: { background: "#111827", color: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  card: { background: "#fff", borderRadius: "14px", padding: "18px", marginBottom: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  subtituloCard: { margin: "0 0 12px 0", color: "#111827" },
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "10px" },
+  gridEdicao: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "10px", marginTop: "14px" },
+  input: { padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "14px" },
+  textarea: { width: "100%", minHeight: "72px", marginTop: "10px", padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
+  cardAluno: { background: "#fff", borderRadius: "16px", padding: "20px", marginBottom: "16px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", borderLeft: "6px solid #0d6efd" },
+  topoCard: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start" },
+  nome: { margin: "0 0 8px 0", color: "#111827" },
+  info: { margin: "5px 0", color: "#555" },
+  valor: { margin: "8px 0", color: "#111827", fontSize: "16px" },
+  status: { padding: "8px 12px", borderRadius: "999px", fontWeight: "bold", fontSize: "13px", whiteSpace: "nowrap" },
+  obs: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "12px", color: "#374151" },
+  acoes: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "12px" },
+  botaoEscuro: { background: "#111827", color: "#fff", border: "none", padding: "10px 13px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  botaoAzul: { background: "#0d6efd", color: "#fff", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  botaoVerde: { background: "#198754", color: "#fff", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  vazio: { background: "#fff", padding: "18px", borderRadius: "10px" },
+};

@@ -1,243 +1,229 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { supabase } from "../services/supabase";
 
-const SENHA_PADRAO = "Reativa@2026";
-
-export default function Usuarios() {
-  const [usuarios, setUsuarios] = useState([]);
-  const [nome, setNome] = useState("");
+export default function Login({ onLogin }) {
   const [email, setEmail] = useState("");
-  const [operador, setOperador] = useState("");
-  const [perfil, setPerfil] = useState("operador");
-  const [mensagem, setMensagem] = useState("");
+  const [senha, setSenha] = useState("");
   const [erro, setErro] = useState("");
   const [carregando, setCarregando] = useState(false);
 
-  async function carregarUsuarios() {
-    const { data, error } = await supabase
-      .from("usuarios")
-      .select("*")
-      .order("nome", { ascending: true });
-
-    if (error) {
-      setErro("Erro ao carregar usuários.");
-      return;
-    }
-
-    setUsuarios(data || []);
-  }
-
-  useEffect(() => {
-    carregarUsuarios();
-  }, []);
-
-  async function criarUsuario(e) {
+  async function entrar(e) {
     e.preventDefault();
 
     setErro("");
-    setMensagem("");
     setCarregando(true);
 
     const emailNormalizado = email.trim().toLowerCase();
-    const nomeNormalizado = nome.trim();
-    const operadorFinal = operador.trim().toUpperCase();
 
-    if (!nomeNormalizado || !emailNormalizado) {
-      setErro("Preencha nome e e-mail.");
-      setCarregando(false);
-      return;
-    }
-
-    const { data: authData, error: authError } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email: emailNormalizado,
-      password: SENHA_PADRAO,
+      password: senha,
     });
 
-    if (authError && !authError.message.includes("already registered")) {
-      setErro(authError.message);
+    if (error) {
       setCarregando(false);
+      setErro("E-mail ou senha inválidos.");
       return;
     }
 
-    const userId = authData?.user?.id;
-
-    const { error: perfilError } = await supabase.from("usuarios").upsert(
-      {
-        id: userId,
-        nome: nomeNormalizado,
-        email: emailNormalizado,
-        perfil,
-        ativo: true,
-        operador_nome: nomeNormalizado,
-        operador: operadorFinal || nomeNormalizado.toUpperCase(),
-      },
-      { onConflict: "email" }
-    );
+    const { data: perfil, error: erroPerfil } = await supabase
+      .from("usuarios")
+      .select("*")
+      .eq("email", emailNormalizado)
+      .eq("ativo", true)
+      .single();
 
     setCarregando(false);
 
-    if (perfilError) {
-      setErro("Usuário criado no Auth, mas falhou ao salvar perfil no CRM.");
+    if (erroPerfil || !perfil) {
+      await supabase.auth.signOut();
+      setErro("Usuário sem perfil ativo no ReATIVA One.");
       return;
     }
 
-    setMensagem(`Usuário criado/liberado. Senha padrão: ${SENHA_PADRAO}`);
-    setNome("");
-    setEmail("");
-    setOperador("");
-    setPerfil("operador");
-
-    carregarUsuarios();
-  }
-
-  async function alternarAtivo(usuario) {
-    const { error } = await supabase
-      .from("usuarios")
-      .update({ ativo: !usuario.ativo })
-      .eq("email", usuario.email);
-
-    if (error) {
-      setErro("Erro ao atualizar usuário.");
-      return;
-    }
-
-    carregarUsuarios();
+    onLogin({
+      auth: data.user,
+      perfil,
+    });
   }
 
   return (
-    <div style={{ padding: 24, color: "#fff" }}>
-      <h1 style={{ color: "#c084fc" }}>Usuários</h1>
+    <div style={page}>
+      <section style={brand}>
+        <div style={raio}>⚡</div>
 
-      <form
-        onSubmit={criarUsuario}
-        style={{
-          background: "#16002e",
-          border: "1px solid #7e22ce",
-          borderRadius: 16,
-          padding: 20,
-          maxWidth: 700,
-          marginBottom: 24,
-        }}
-      >
-        <h2>Novo usuário</h2>
+        <h1 style={titulo}>
+          Re<span style={{ color: "#a855f7" }}>ATIVA</span> One
+        </h1>
 
-        <input
-          value={nome}
-          onChange={(e) => setNome(e.target.value)}
-          placeholder="Nome do operador"
-          style={inputStyle}
-        />
+        <h2 style={slogan}>A energia que gera resultados.</h2>
 
-        <input
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          placeholder="E-mail"
-          type="email"
-          style={inputStyle}
-        />
+        <p style={texto}>
+          Plataforma oficial de gestão operacional da ReATIVA.
+          Organize a operação, acompanhe negociações e potencialize resultados.
+        </p>
 
-        <input
-          value={operador}
-          onChange={(e) => setOperador(e.target.value)}
-          placeholder="Código operador. Ex: OLGA"
-          style={inputStyle}
-        />
+        <div style={cards}>
+          <div style={card}>⚡ Energia</div>
+          <div style={card}>🎯 Foco</div>
+          <div style={card}>📈 Resultado</div>
+        </div>
+      </section>
 
-        <select
-          value={perfil}
-          onChange={(e) => setPerfil(e.target.value)}
-          style={inputStyle}
-        >
-          <option value="operador">Operador</option>
-          <option value="supervisor">Supervisor</option>
-          <option value="admin">Admin</option>
-        </select>
+      <section style={loginBox}>
+        <h2 style={loginTitulo}>Entrar no sistema</h2>
+        <p style={loginSub}>Acesso exclusivo da equipe ReATIVA</p>
 
-        {erro && <p style={{ color: "#f87171", fontWeight: 800 }}>{erro}</p>}
-        {mensagem && (
-          <p style={{ color: "#22c55e", fontWeight: 800 }}>{mensagem}</p>
-        )}
+        <form onSubmit={entrar}>
+          <label style={label}>E-mail</label>
+          <input
+            style={input}
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="seu.email@aelbra.com.br"
+            required
+          />
 
-        <button type="submit" disabled={carregando} style={buttonStyle}>
-          {carregando ? "Criando..." : "Criar usuário"}
-        </button>
-      </form>
+          <label style={label}>Senha</label>
+          <input
+            style={input}
+            type="password"
+            value={senha}
+            onChange={(e) => setSenha(e.target.value)}
+            placeholder="Digite sua senha"
+            required
+          />
 
-      <h2>Usuários cadastrados</h2>
+          {erro && <p style={erroStyle}>{erro}</p>}
 
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse" }}>
-          <thead>
-            <tr style={{ background: "#2e1065" }}>
-              <th style={th}>Nome</th>
-              <th style={th}>E-mail</th>
-              <th style={th}>Perfil</th>
-              <th style={th}>Operador</th>
-              <th style={th}>Status</th>
-              <th style={th}>Ação</th>
-            </tr>
-          </thead>
+          <button type="submit" disabled={carregando} style={botao}>
+            {carregando ? "Entrando..." : "⚡ Entrar"}
+          </button>
+        </form>
 
-          <tbody>
-            {usuarios.map((u) => (
-              <tr key={u.email} style={{ borderBottom: "1px solid #4c1d95" }}>
-                <td style={td}>{u.nome}</td>
-                <td style={td}>{u.email}</td>
-                <td style={td}>{u.perfil}</td>
-                <td style={td}>{u.operador}</td>
-                <td style={td}>{u.ativo ? "Ativo" : "Inativo"}</td>
-                <td style={td}>
-                  <button onClick={() => alternarAtivo(u)} style={smallButton}>
-                    {u.ativo ? "Inativar" : "Ativar"}
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      <p style={{ marginTop: 20, color: "#ddd6fe" }}>
-        Senha padrão inicial: <strong>{SENHA_PADRAO}</strong>
-      </p>
+        <p style={rodape}>ReATIVA One © 2026</p>
+      </section>
     </div>
   );
 }
 
-const inputStyle = {
-  width: "100%",
-  padding: 12,
-  marginBottom: 12,
-  borderRadius: 10,
-  border: "1px solid #7e22ce",
-  fontWeight: 700,
-};
-
-const buttonStyle = {
-  background: "#22c55e",
-  color: "#020617",
-  border: "none",
-  borderRadius: 12,
-  padding: 14,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const smallButton = {
-  background: "#a855f7",
+const page = {
+  minHeight: "100vh",
+  background:
+    "radial-gradient(circle at 20% 20%, rgba(168,85,247,.35), transparent 30%), linear-gradient(135deg,#020617,#120022,#020617)",
   color: "#fff",
-  border: "none",
-  borderRadius: 8,
-  padding: "8px 10px",
+  display: "grid",
+  gridTemplateColumns: "1.1fr .9fr",
+  alignItems: "center",
+  gap: 40,
+  padding: 60,
+  boxSizing: "border-box",
+};
+
+const brand = {
+  maxWidth: 650,
+};
+
+const raio = {
+  fontSize: 110,
+  textShadow: "0 0 40px #a855f7",
+  marginBottom: 20,
+};
+
+const titulo = {
+  fontSize: 64,
+  margin: 0,
+  fontWeight: 950,
+};
+
+const slogan = {
+  fontSize: 34,
+  color: "#ddd6fe",
+  marginTop: 14,
+};
+
+const texto = {
+  fontSize: 18,
+  lineHeight: 1.6,
+  color: "#e9d5ff",
+  maxWidth: 560,
+};
+
+const cards = {
+  display: "flex",
+  gap: 14,
+  marginTop: 28,
+  flexWrap: "wrap",
+};
+
+const card = {
+  border: "1px solid #7e22ce",
+  background: "rgba(15,23,42,.7)",
+  borderRadius: 16,
+  padding: "16px 20px",
+  fontWeight: 900,
+};
+
+const loginBox = {
+  background: "rgba(15,23,42,.86)",
+  border: "1px solid #7e22ce",
+  borderRadius: 26,
+  padding: 42,
+  boxShadow: "0 0 45px rgba(168,85,247,.25)",
+};
+
+const loginTitulo = {
+  fontSize: 34,
+  margin: 0,
+};
+
+const loginSub = {
+  color: "#c4b5fd",
+  marginBottom: 28,
+};
+
+const label = {
+  display: "block",
   fontWeight: 800,
+  marginBottom: 8,
+};
+
+const input = {
+  width: "100%",
+  padding: 15,
+  borderRadius: 12,
+  border: "1px solid #7e22ce",
+  background: "#020617",
+  color: "#fff",
+  marginBottom: 18,
+  fontWeight: 700,
+  boxSizing: "border-box",
+};
+
+const botao = {
+  width: "100%",
+  padding: 16,
+  border: "none",
+  borderRadius: 14,
+  background: "linear-gradient(90deg,#a855f7,#7e22ce)",
+  color: "#fff",
+  fontWeight: 950,
+  fontSize: 16,
   cursor: "pointer",
 };
 
-const th = {
-  padding: 10,
-  textAlign: "left",
+const erroStyle = {
+  color: "#fecaca",
+  background: "rgba(127,29,29,.45)",
+  border: "1px solid #ef4444",
+  padding: 12,
+  borderRadius: 12,
+  fontWeight: 800,
 };
 
-const td = {
-  padding: 10,
+const rodape = {
+  textAlign: "center",
+  color: "#a78bfa",
+  marginTop: 24,
 };

@@ -15,8 +15,6 @@ import BaseReceptiva from "./pages/BaseReceptiva";
 import FilaOperacional from "./pages/FilaOperacional";
 import ControleLinksPagamento from "./pages/ControleLinksPagamento";
 import MinhaFilaPagamentos from "./pages/MinhaFilaPagamentos";
-import AgendaOperacional from "./pages/AgendaOperacional";
-import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 
 function EmDesenvolvimento({ titulo }) {
   return (
@@ -349,8 +347,6 @@ export default function App() {
               <Route path="/fila-operacional" element={<FilaOperacional />} />
               <Route path="/controle-links-pagamento" element={<ControleLinksPagamento />} />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
-              <Route path="/agenda-operacional" element={<AgendaOperacional />} />
-              <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
       </Routes>
         </main>
       </div>

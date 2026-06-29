@@ -1,7 +1,5 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import FinalizacaoTermo from "../components/FinalizacaoTermo";
-import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 
 export default function Aluno() {
   const [aluno, setAluno] = useState(null);
@@ -489,12 +487,7 @@ export default function Aluno() {
           </section>
 
           <section style={cardGrande}>
-            
-              <LinksPagamentoAluno aluno={aluno} />
-
-              <FinalizacaoTermo aluno={aluno} />
-
-              <h2 style={secaoTitulo}>Histórico operacional</h2>
+            <h2 style={secaoTitulo}>Histórico operacional</h2>
 
             {historico.length === 0 ? (
               <p style={texto}>Nenhum histórico localizado para este aluno.</p>

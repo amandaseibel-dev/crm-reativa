@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
-import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 
 export default function Aluno() {
   const [aluno, setAluno] = useState(null);
@@ -490,8 +489,6 @@ export default function Aluno() {
 
           <section style={cardGrande}>
             
-              <LinksPagamentoAluno aluno={aluno} />
-
               <FinalizacaoTermo aluno={aluno} />
 
               <h2 style={secaoTitulo}>Histórico operacional</h2>

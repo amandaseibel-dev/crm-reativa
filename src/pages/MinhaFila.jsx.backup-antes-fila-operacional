@@ -1,0 +1,727 @@
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "../services/supabase";
+
+
+function pegarDataRetornoFila(caso) {
+  return (
+    caso?.data_retorno ||
+    caso?.dataRetorno ||
+    caso?.retorno ||
+    caso?.data_de_retorno ||
+    null
+  );
+}
+
+function pegarHoraRetornoFila(caso) {
+  return caso?.hora_retorno || caso?.horaRetorno || caso?.hora || "";
+}
+
+function montarDataLocal(valor) {
+  if (!valor) return null;
+
+  if (typeof valor === "string" && valor.includes("-")) {
+    const partes = valor.split("T")[0].split("-");
+    if (partes.length === 3) {
+      const ano = Number(partes[0]);
+      const mes = Number(partes[1]) - 1;
+      const dia = Number(partes[2]);
+      return new Date(ano, mes, dia);
+    }
+  }
+
+  const data = new Date(valor);
+  return isNaN(data.getTime()) ? null : data;
+}
+
+function formatarDataRetornoFila(valor) {
+  const data = montarDataLocal(valor);
+
+  if (!data) return "Sem retorno";
+
+  return data.toLocaleDateString("pt-BR");
+}
+
+function situacaoRetornoFila(caso) {
+  const valor = pegarDataRetornoFila(caso);
+  const data = montarDataLocal(valor);
+
+  if (!data) return "SEM_RETORNO";
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  data.setHours(0, 0, 0, 0);
+
+  if (data.getTime() < hoje.getTime()) return "ATRASADO";
+  if (data.getTime() === hoje.getTime()) return "HOJE";
+
+  return "FUTURO";
+}
+
+function textoRetornoFila(caso) {
+  const data = pegarDataRetornoFila(caso);
+  const hora = pegarHoraRetornoFila(caso);
+  const situacao = situacaoRetornoFila(caso);
+
+  if (!data) return "Sem data de retorno";
+
+  const dataFormatada = formatarDataRetornoFila(data);
+  const horaTexto = hora ? " às " + hora : "";
+
+  if (situacao === "ATRASADO") return "Retorno atrasado: " + dataFormatada + horaTexto;
+  if (situacao === "HOJE") return "Retorno hoje: " + dataFormatada + horaTexto;
+
+  return "Retorno: " + dataFormatada + horaTexto;
+}
+
+function estiloRetornoFila(caso) {
+  const situacao = situacaoRetornoFila(caso);
+
+  const base = {
+    display: "inline-block",
+    marginTop: "6px",
+    padding: "5px 9px",
+    borderRadius: "999px",
+    fontSize: "12px",
+    fontWeight: "700",
+  };
+
+  if (situacao === "ATRASADO") {
+    return {
+      ...base,
+      background: "#f8d7da",
+      color: "#842029",
+      border: "1px solid #f5c2c7",
+    };
+  }
+
+  if (situacao === "HOJE") {
+    return {
+      ...base,
+      background: "#fff3cd",
+      color: "#664d03",
+      border: "1px solid #ffecb5",
+    };
+  }
+
+  if (situacao === "FUTURO") {
+    return {
+      ...base,
+      background: "#d1e7dd",
+      color: "#0f5132",
+      border: "1px solid #badbcc",
+    };
+  }
+
+  return {
+    ...base,
+    background: "#e5e7eb",
+    color: "#374151",
+    border: "1px solid #d1d5db",
+  };
+}
+
+export default function MinhaFila() {
+  const navigate = useNavigate();
+
+  const [usuario, setUsuario] = useState(null);
+  const [casos, setCasos] = useState([]);
+  const [busca, setBusca] = useState("");
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    carregarFila();
+  }, []);
+
+  function normalizar(valor) {
+    return String(valor || "")
+      .trim()
+      .toUpperCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "");
+  }
+
+  function abrirCadastro(caso) {
+    localStorage.setItem("alunoSelecionado", JSON.stringify(caso));
+    navigate("/aluno");
+  }
+
+  async function buscarCasosEmPaginas() {
+    let todos = [];
+    let inicio = 0;
+    const tamanho = 1000;
+
+    while (true) {
+      const { data, error } = await supabase
+        .from("casos")
+        .select("*")
+        .range(inicio, inicio + tamanho - 1);
+
+      if (error) throw error;
+
+      const lote = data || [];
+      todos = [...todos, ...lote];
+
+      if (lote.length < tamanho) break;
+
+      inicio += tamanho;
+    }
+
+    return todos;
+  }
+
+  async function carregarFila() {
+    setCarregando(true);
+    setErro("");
+
+    const { data: sessao } = await supabase.auth.getSession();
+    const email = sessao?.session?.user?.email;
+
+    if (!email) {
+      setErro("Sessão não encontrada. Faça login novamente.");
+      setCarregando(false);
+      return;
+    }
+
+    const { data: perfil, error: erroPerfil } = await supabase
+      .from("usuarios")
+      .select("*")
+      .eq("email", email)
+      .eq("ativo", true)
+      .single();
+
+    if (erroPerfil || !perfil) {
+      setErro("Usuário não encontrado na tabela de perfis.");
+      setCarregando(false);
+      return;
+    }
+
+    setUsuario(perfil);
+
+    try {
+      const base = await buscarCasosEmPaginas();
+
+      const operadorUsuario = normalizar(
+        perfil.operador || perfil.operador_nome || perfil.nome
+      );
+
+      let baseFiltrada = base;
+
+      if (perfil.perfil === "operador") {
+        baseFiltrada = base.filter((caso) => {
+          const operadorCaso = normalizar(pegarOperador(caso));
+          return operadorCaso === operadorUsuario;
+        });
+      }
+
+      const ordenados = baseFiltrada.sort((a, b) => {
+        const prioridadeA = pesoPrioridade(a);
+        const prioridadeB = pesoPrioridade(b);
+
+        if (prioridadeA !== prioridadeB) {
+          return prioridadeA - prioridadeB;
+        }
+
+        return pegarNome(a).localeCompare(pegarNome(b));
+      });
+
+      setCasos(ordenados);
+    } catch (error) {
+      setErro("Erro ao carregar casos: " + error.message);
+    }
+
+    setCarregando(false);
+  }
+
+  function pegarNome(caso) {
+    return (
+      caso.nome ||
+      caso.nome_aluno ||
+      caso.aluno ||
+      caso.nome_completo ||
+      caso.cliente ||
+      "Nome não informado"
+    );
+  }
+
+  function pegarCpf(caso) {
+    return caso.cpf_mascarado || caso.cpf || caso.documento || "-";
+  }
+
+  function pegarMatricula(caso) {
+    return caso.matricula || caso.ra || "-";
+  }
+
+  function pegarOperador(caso) {
+    return (
+      caso.fila_responsavel ||
+      caso.operador_base ||
+      caso.operador_mensalidade ||
+      caso.operador_acordo ||
+      caso.operador_acordo_planilha ||
+      caso.operador ||
+      "-"
+    );
+  }
+
+  function pegarStatus(caso) {
+    return (
+      caso.status_atual ||
+      caso.status_acionamento ||
+      caso.status_financeiro ||
+      caso.status_jornada ||
+      "Sem status"
+    );
+  }
+
+  function pegarUltimoAcionamento(caso) {
+    return (
+      caso.data_ultimo_acionamento ||
+      caso.ultimo_acionamento ||
+      caso.ultimo_contato ||
+      null
+    );
+  }
+
+  function pegarRetorno(caso) {
+    return caso.data_retorno_nova || caso.data_retorno || null;
+  }
+
+  function pegarSla(caso) {
+    return caso.sla_operacional || "-";
+  }
+
+  function pegarValor(caso) {
+    const valor =
+      caso.valor_em_aberto ||
+      caso.valor_aberto ||
+      caso.valor_total ||
+      caso.valor_divida ||
+      caso.total_em_aberto ||
+      caso.saldo_devedor ||
+      caso.valor ||
+      0;
+
+    const numero = Number(
+      String(valor)
+        .replace("R$", "")
+        .replace(/\./g, "")
+        .replace(",", ".")
+        .trim()
+    );
+
+    if (!numero || Number.isNaN(numero)) return "R$ 0,00";
+
+    return numero.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+  }
+
+  function converterData(data) {
+    if (!data) return null;
+
+    const texto = String(data).trim();
+
+    if (!texto) return null;
+
+    if (/^\d{2}\/\d{2}\/\d{4}/.test(texto)) {
+      const [dia, mes, ano] = texto.split("/");
+      return new Date(Number(ano), Number(mes) - 1, Number(dia));
+    }
+
+    const d = new Date(texto);
+
+    if (Number.isNaN(d.getTime())) return null;
+
+    return d;
+  }
+
+  function formatarData(data) {
+    const d = converterData(data);
+
+    if (!d) return "-";
+
+    return d.toLocaleDateString("pt-BR");
+  }
+
+  function diasSemAcao(caso) {
+    const ultimo = converterData(pegarUltimoAcionamento(caso));
+
+    if (!ultimo) return null;
+
+    const hoje = new Date();
+    hoje.setHours(0, 0, 0, 0);
+    ultimo.setHours(0, 0, 0, 0);
+
+    return Math.floor((hoje - ultimo) / (1000 * 60 * 60 * 24));
+  }
+
+  function classificar(caso) {
+    const status = normalizar(pegarStatus(caso));
+    const retorno = converterData(pegarRetorno(caso));
+    const dias = diasSemAcao(caso);
+
+    if (status.includes("CRITICO") || status.includes("CRÍTICO")) {
+      return {
+        chave: "critico",
+        texto: "🔴 Crítico",
+        fundo: "#fee2e2",
+        cor: "#991b1b",
+      };
+    }
+
+    if (retorno) {
+      const hoje = new Date();
+      hoje.setHours(0, 0, 0, 0);
+      retorno.setHours(0, 0, 0, 0);
+
+      if (retorno < hoje) {
+        return {
+          chave: "vencido",
+          texto: "🟠 Retorno vencido",
+          fundo: "#ffedd5",
+          cor: "#9a3412",
+        };
+      }
+
+      if (retorno.getTime() === hoje.getTime()) {
+        return {
+          chave: "hoje",
+          texto: "🟡 Retorno hoje",
+          fundo: "#fef9c3",
+          cor: "#854d0e",
+        };
+      }
+    }
+
+    if (dias === null) {
+      return {
+        chave: "sem_acao",
+        texto: "🔵 Sem acionamento",
+        fundo: "#dbeafe",
+        cor: "#1e3a8a",
+      };
+    }
+
+    if (dias >= 10) {
+      return {
+        chave: "critico",
+        texto: "🔴 10+ dias sem ação",
+        fundo: "#fee2e2",
+        cor: "#991b1b",
+      };
+    }
+
+    return {
+      chave: "em_dia",
+      texto: "🟢 Em dia",
+      fundo: "#dcfce7",
+      cor: "#166534",
+    };
+  }
+
+  function pesoPrioridade(caso) {
+    const chave = classificar(caso).chave;
+
+    const peso = {
+      critico: 1,
+      vencido: 2,
+      hoje: 3,
+      sem_acao: 4,
+      em_dia: 5,
+    };
+
+    return peso[chave] || 99;
+  }
+
+  const casosFiltrados = casos.filter((caso) => {
+    const texto = normalizar(
+      `${pegarNome(caso)} ${pegarCpf(caso)} ${pegarMatricula(
+        caso
+      )} ${pegarOperador(caso)} ${pegarStatus(caso)}`
+    );
+
+    return texto.includes(normalizar(busca));
+  });
+
+  const resumo = {
+    total: casos.length,
+    criticos: casos.filter((c) => classificar(c).chave === "critico").length,
+    vencidos: casos.filter((c) => classificar(c).chave === "vencido").length,
+    hoje: casos.filter((c) => classificar(c).chave === "hoje").length,
+    semAcao: casos.filter((c) => classificar(c).chave === "sem_acao").length,
+  };
+
+  if (carregando) {
+    return (
+      <div style={pagina}>
+        <h1 style={titulo}>Minha Fila Operacional</h1>
+        <p style={texto}>Carregando histórico operacional...</p>
+      </div>
+    );
+  }
+
+  return (
+    <div style={pagina}>
+      <div style={topo}>
+        <div>
+          <h1 style={titulo}>Minha Fila Operacional</h1>
+          <p style={texto}>
+            Usuário: <strong>{usuario?.nome}</strong> | Perfil:{" "}
+            <strong>{usuario?.perfil}</strong> | Operador:{" "}
+            <strong>{usuario?.operador}</strong>
+          </p>
+        </div>
+
+        <button onClick={carregarFila} style={botaoAtualizar}>
+          Atualizar
+        </button>
+      </div>
+
+      {erro && <div style={erroBox}>{erro}</div>}
+
+      <div style={cards}>
+        <Card titulo="Total na fila" valor={resumo.total} />
+        <Card titulo="Críticos" valor={resumo.criticos} />
+        <Card titulo="Retornos vencidos" valor={resumo.vencidos} />
+        <Card titulo="Retornos hoje" valor={resumo.hoje} />
+        <Card titulo="Sem acionamento" valor={resumo.semAcao} />
+      </div>
+
+      <div style={barraBusca}>
+        <input
+          style={input}
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          placeholder="Buscar por nome, CPF, matrícula, operador ou status..."
+        />
+      </div>
+
+      <div style={tabelaBox}>
+        <table style={tabela}>
+          <thead>
+            <tr>
+              <th style={th}>Prioridade</th>
+              <th style={th}>Aluno / retorno</th>
+              <th style={th}>CPF</th>
+              <th style={th}>Matrícula</th>
+              <th style={th}>Operador</th>
+              <th style={th}>Status atual</th>
+              <th style={th}>Último acionamento</th>
+              <th style={th}>Retorno</th>
+              <th style={th}>SLA</th>
+              <th style={th}>Valor</th>
+              <th style={th}>Ação</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {casosFiltrados.length === 0 ? (
+              <tr>
+                <td style={td} colSpan="11">
+                  Nenhum caso encontrado.
+                </td>
+              </tr>
+            ) : (
+              casosFiltrados.map((caso, index) => {
+                const prioridade = classificar(caso);
+
+                return (
+                  <tr
+                    key={caso.id || caso.cpf || index}
+                    onDoubleClick={() => abrirCadastro(caso)}
+                    style={{ cursor: "pointer" }}
+                  >
+                    <td style={td}>
+                      <span
+                        style={{
+                          ...badge,
+                          background: prioridade.fundo,
+                          color: prioridade.cor,
+                        }}
+                      >
+                        {prioridade.texto}
+                      </span>
+                    </td>
+
+                    <td style={td}>
+                      <strong>{pegarNome(caso)}</strong>
+                    </td>
+
+                    <td style={td}>{pegarCpf(caso)}</td>
+                    <td style={td}>{pegarMatricula(caso)}</td>
+                    <td style={td}>{pegarOperador(caso)}</td>
+                    <td style={td}>{pegarStatus(caso)}</td>
+                    <td style={td}>{formatarData(pegarUltimoAcionamento(caso))}</td>
+                    <td style={td}>{formatarData(pegarRetorno(caso))}</td>
+                    <td style={td}>{pegarSla(caso)}</td>
+                    <td style={td}>{pegarValor(caso)}</td>
+
+                    <td style={td}>
+                      <button
+                        style={botaoAbrir}
+                        onClick={() => abrirCadastro(caso)}
+                      >
+                        Abrir
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function Card({ titulo, valor }) {
+  return (
+    <div style={card}>
+      <span style={cardTitulo}>{titulo}</span>
+      <strong style={cardValor}>{valor}</strong>
+    </div>
+  );
+}
+
+const pagina = {
+  padding: 30,
+  minHeight: "100vh",
+  background: "#f8fafc",
+  color: "#0f172a",
+};
+
+const topo = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  marginBottom: 24,
+};
+
+const titulo = {
+  margin: 0,
+  fontSize: 32,
+  fontWeight: 950,
+  color: "#0f172a",
+};
+
+const texto = {
+  color: "#475569",
+  fontWeight: 700,
+};
+
+const botaoAtualizar = {
+  border: "none",
+  background: "linear-gradient(90deg,#a855f7,#7e22ce)",
+  color: "#fff",
+  padding: "13px 20px",
+  borderRadius: 12,
+  fontWeight: 900,
+  cursor: "pointer",
+};
+
+const cards = {
+  display: "grid",
+  gridTemplateColumns: "repeat(5, minmax(160px, 1fr))",
+  gap: 16,
+  marginBottom: 22,
+};
+
+const card = {
+  background: "#fff",
+  borderRadius: 18,
+  padding: 20,
+  border: "1px solid #e5e7eb",
+  boxShadow: "0 10px 25px rgba(15,23,42,.08)",
+};
+
+const cardTitulo = {
+  display: "block",
+  color: "#64748b",
+  fontWeight: 900,
+};
+
+const cardValor = {
+  display: "block",
+  marginTop: 8,
+  fontSize: 34,
+  color: "#7e22ce",
+  fontWeight: 950,
+};
+
+const barraBusca = {
+  marginBottom: 20,
+};
+
+const input = {
+  width: "100%",
+  padding: 15,
+  borderRadius: 14,
+  border: "1px solid #cbd5e1",
+  fontSize: 15,
+  fontWeight: 700,
+  boxSizing: "border-box",
+};
+
+const tabelaBox = {
+  background: "#fff",
+  borderRadius: 18,
+  overflow: "auto",
+  border: "1px solid #e5e7eb",
+  boxShadow: "0 10px 25px rgba(15,23,42,.08)",
+};
+
+const tabela = {
+  width: "100%",
+  borderCollapse: "collapse",
+  minWidth: 1450,
+};
+
+const th = {
+  textAlign: "left",
+  padding: 14,
+  background: "#f1f5f9",
+  color: "#334155",
+  fontSize: 13,
+  borderBottom: "1px solid #e5e7eb",
+  whiteSpace: "nowrap",
+};
+
+const td = {
+  padding: 14,
+  borderBottom: "1px solid #f1f5f9",
+  fontSize: 14,
+  color: "#0f172a",
+};
+
+const badge = {
+  display: "inline-block",
+  padding: "6px 10px",
+  borderRadius: 999,
+  fontWeight: 900,
+  fontSize: 12,
+  whiteSpace: "nowrap",
+};
+
+const botaoAbrir = {
+  border: "none",
+  background: "#0f172a",
+  color: "#fff",
+  padding: "9px 12px",
+  borderRadius: 10,
+  cursor: "pointer",
+  fontWeight: 900,
+};
+
+const erroBox = {
+  background: "#fee2e2",
+  color: "#991b1b",
+  border: "1px solid #ef4444",
+  padding: 14,
+  borderRadius: 12,
+  marginBottom: 18,
+  fontWeight: 900,
+};
