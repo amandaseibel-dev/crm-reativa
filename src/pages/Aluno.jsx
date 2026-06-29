@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { supabase } from "../services/supabase";
 
-export default function CRM() {
+export default function Aluno() {
   const [cpf, setCpf] = useState("");
   const [aluno, setAluno] = useState(null);
   const [casos, setCasos] = useState([]);
 
-  async function buscar() {
+  async function buscarAluno() {
     const { data: alunoData } = await supabase
       .from("alunos")
       .select("*")
@@ -25,29 +25,37 @@ export default function CRM() {
 
   return (
     <div className="main">
-      <h1>🔎 CRM</h1>
+      <h1>🔎 Pesquisa de Aluno</h1>
 
       <input
-        placeholder="CPF"
+        placeholder="Digite o CPF"
         value={cpf}
         onChange={(e) => setCpf(e.target.value)}
       />
 
-      <button onClick={buscar}>Buscar</button>
+      <button onClick={buscarAluno}>Buscar</button>
 
       {aluno && (
-        <div>
+        <div style={{ marginTop: 20 }}>
           <h2>{aluno.nome}</h2>
-          <p>{aluno.cpf}</p>
+          <p>CPF: {aluno.cpf}</p>
+          <p>Matrícula: {aluno.matricula}</p>
         </div>
       )}
 
-      {casos.map((c, i) => (
-        <div key={i}>
-          <p>{c.operador}</p>
-          <p>{c.status_atual}</p>
+      {casos.length > 0 && (
+        <div style={{ marginTop: 20 }}>
+          <h2>Casos</h2>
+
+          {casos.map((c, i) => (
+            <div key={i} style={{ padding: 10, border: "1px solid #ccc" }}>
+              <p>Operador: {c.operador}</p>
+              <p>Status: {c.status_atual}</p>
+              <p>Ação: {c.proxima_acao}</p>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
     </div>
-  );
+  );s
 }
