@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail, podeVerTudo, podeBaixarPagamento } from "../utils/operadores";
-import BotaoManual from "../components/BotaoManual";
 
 const STATUS_LABEL = {
   EM_COBRANCA: "Em cobrança",
@@ -316,8 +315,7 @@ export default function FilaOperacional() {
   }, [lista, emailUsuario]);
 
   if (carregando) {
-    return <div style={styles.container}>
-      <BotaoManual />Carregando Fila Operacional Unificada...</div>;
+    return <div style={styles.container}>Carregando Fila Operacional Unificada...</div>;
   }
 
   return (

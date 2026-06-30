@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
-import BotaoManual from "../components/BotaoManual";
 
 function dinheiro(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -293,8 +292,7 @@ export default function AgendaOperacional() {
   }, [alunos, lista]);
 
   if (carregando) {
-    return <div style={styles.container}>
-      <BotaoManual />Carregando Agenda Operacional...</div>;
+    return <div style={styles.container}>Carregando Agenda Operacional...</div>;
   }
 
   return (

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "../utils/operadores";
-import BotaoManual from "../components/BotaoManual";
 
 function pegarNome(aluno) {
   return aluno?.nome || aluno?.nome_aluno || aluno?.aluno || aluno?.nome_completo || aluno?.Nome || "-";
@@ -277,8 +276,7 @@ export default function BaseReceptiva() {
   }, [alunos]);
 
   if (carregando) {
-    return <div style={styles.container}>
-      <BotaoManual />Carregando Base Receptiva...</div>;
+    return <div style={styles.container}>Carregando Base Receptiva...</div>;
   }
 
   return (
