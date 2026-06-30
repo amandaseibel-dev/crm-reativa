@@ -1,19 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 
-const EMAILS_ADM_SUPERVISAO = [
-  "amanda.seibel@aelbra.com.br",
-  "cobranca07@aelbra.com.br",
-  "cobranca08@aelbra.com.br"
-];
-
 export default function FluxoLinksRapido() {
-  const [usuarioAtual, setUsuarioAtual] = useState({
-    email: "",
-    nome: "",
-    podeVerAdm: false
-  });
-
   const [pendentesAdm, setPendentesAdm] = useState([]);
   const [prioridadesOperador, setPrioridadesOperador] = useState([]);
   const [linksDigitados, setLinksDigitados] = useState({});
@@ -22,121 +10,29 @@ export default function FluxoLinksRapido() {
   const [erro, setErro] = useState("");
 
   useEffect(() => {
-    iniciar();
+    carregarTudo();
 
     const intervalo = setInterval(() => {
-      carregarTudo(usuarioAtual);
+      carregarTudo();
     }, 10000);
 
     return () => clearInterval(intervalo);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usuarioAtual.email, usuarioAtual.nome, usuarioAtual.podeVerAdm]);
+  }, []);
 
-  async function iniciar() {
-    const usuario = await identificarUsuario();
-    setUsuarioAtual(usuario);
-    await carregarTudo(usuario);
-  }
-
-  async function identificarUsuario() {
-    let email = "";
-    let nome = "";
-
-    try {
-      const { data } = await supabase.auth.getUser();
-
-      if (data?.user?.email) {
-        email = data.user.email;
-      }
-
-      if (data?.user?.user_metadata?.nome) {
-        nome = data.user.user_metadata.nome;
-      }
-
-      if (data?.user?.user_metadata?.name) {
-        nome = data.user.user_metadata.name;
-      }
-    } catch (error) {
-      console.warn("Não foi possível ler usuário do Supabase Auth:", error);
-    }
-
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const chave = localStorage.key(i);
-        const valor = localStorage.getItem(chave);
-
-        if (!valor) continue;
-
-        if (!email) {
-          const emailEncontrado = valor.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-          if (emailEncontrado?.[0]) {
-            email = emailEncontrado[0];
-          }
-        }
-
-        if (!nome) {
-          try {
-            const json = JSON.parse(valor);
-
-            nome =
-              json?.nome ||
-              json?.name ||
-              json?.usuario_nome ||
-              json?.operador_nome ||
-              nome;
-          } catch {
-            // ignora valores que não são JSON
-          }
-        }
-      }
-    } catch (error) {
-      console.warn("Não foi possível ler usuário do localStorage:", error);
-    }
-
-    const emailLower = String(email || "").toLowerCase();
-    const nomeLower = String(nome || "").toLowerCase();
-
-    const podeVerAdm =
-      EMAILS_ADM_SUPERVISAO.includes(emailLower) ||
-      emailLower.includes("amanda.seibel") ||
-      emailLower.includes("cobranca07") ||
-      emailLower.includes("cobranca08") ||
-      emailLower.includes("fernanda") ||
-      nomeLower.includes("amanda") ||
-      nomeLower.includes("fernanda") ||
-      nomeLower.includes("supervisor") ||
-      nomeLower.includes("supervisora") ||
-      nomeLower.includes("adm");
-
-    return {
-      email,
-      nome,
-      podeVerAdm
-    };
-  }
-
-  async function carregarTudo(usuarioParametro = usuarioAtual) {
+  async function carregarTudo() {
     setCarregando(true);
     setErro("");
 
-    const podeVerAdm = Boolean(usuarioParametro?.podeVerAdm);
-
-    const consultaOperador = supabase
-      .from("vw_links_prioridade_operador")
-      .select("*")
-      .eq("status", "LINK_PRONTO_PARA_ENVIO")
-      .order("respondido_em", { ascending: true });
-
-    const consultaAdm = podeVerAdm
-      ? supabase
-          .from("vw_fila_links_adm")
-          .select("*")
-          .order("criado_em", { ascending: true })
-      : Promise.resolve({ data: [], error: null });
-
     const [resAdm, resOperador] = await Promise.all([
-      consultaAdm,
-      consultaOperador
+      supabase
+        .from("vw_fila_links_adm")
+        .select("*")
+        .order("criado_em", { ascending: true }),
+
+      supabase
+        .from("vw_links_prioridade_operador")
+        .select("*")
+        .order("respondido_em", { ascending: true })
     ]);
 
     setCarregando(false);
@@ -153,46 +49,8 @@ export default function FluxoLinksRapido() {
       return;
     }
 
-    const prioridadesSeguras = filtrarPrioridadesDoOperador(
-      resOperador.data || [],
-      usuarioParametro
-    );
-
-    setPendentesAdm(podeVerAdm ? resAdm.data || [] : []);
-    setPrioridadesOperador(prioridadesSeguras);
-  }
-
-  function filtrarPrioridadesDoOperador(lista, usuario) {
-    const email = String(usuario?.email || "").toLowerCase();
-    const nome = String(usuario?.nome || "").toLowerCase();
-
-    const listaSegura = (lista || []).filter((item) => {
-      const statusCorreto = item.status === "LINK_PRONTO_PARA_ENVIO";
-      const linkOk = linkCompleto(item.link_pagamento);
-      const mensagemOk =
-        item.mensagem_pronta &&
-        String(item.mensagem_pronta).trim() !== "";
-
-      if (!statusCorreto || !linkOk || !mensagemOk) {
-        return false;
-      }
-
-      if (!email && !nome) {
-        return true;
-      }
-
-      const solicitante = String(item.operador_solicitante || "").toLowerCase();
-      const operadorNome = String(item.operador_nome || "").toLowerCase();
-
-      return (
-        solicitante.includes(email) ||
-        operadorNome.includes(email) ||
-        solicitante.includes(nome) ||
-        operadorNome.includes(nome)
-      );
-    });
-
-    return listaSegura;
+    setPendentesAdm(resAdm.data || []);
+    setPrioridadesOperador(resOperador.data || []);
   }
 
   function linkCompleto(link) {
@@ -214,10 +72,7 @@ export default function FluxoLinksRapido() {
     const { error } = await supabase.rpc("responder_link_pagamento", {
       p_link_id: item.id,
       p_link_pagamento: link,
-      p_adm_responsavel:
-        usuarioAtual.email ||
-        usuarioAtual.nome ||
-        "ADM/Supervisão"
+      p_adm_responsavel: "ADM/Supervisão"
     });
 
     setSalvandoId(null);
@@ -234,7 +89,7 @@ export default function FluxoLinksRapido() {
       return novo;
     });
 
-    await carregarTudo(usuarioAtual);
+    await carregarTudo();
 
     alert("Link devolvido ao operador. Agora aparece como prioridade na fila operacional.");
   }
@@ -271,7 +126,7 @@ export default function FluxoLinksRapido() {
       return;
     }
 
-    await carregarTudo(usuarioAtual);
+    await carregarTudo();
     alert("Link marcado como enviado ao aluno.");
   }
 
@@ -316,7 +171,7 @@ export default function FluxoLinksRapido() {
         <div style={boxInfo}>Carregando fluxo de links...</div>
       )}
 
-      {usuarioAtual.podeVerAdm && pendentesAdm.length > 0 && (
+      {pendentesAdm.length > 0 && (
         <section style={boxAdm}>
           <div style={cabecalho}>
             <div>
@@ -326,7 +181,7 @@ export default function FluxoLinksRapido() {
               </p>
             </div>
 
-            <button type="button" onClick={() => carregarTudo(usuarioAtual)} style={botaoAtualizar}>
+            <button type="button" onClick={carregarTudo} style={botaoAtualizar}>
               Atualizar
             </button>
           </div>
@@ -389,7 +244,7 @@ export default function FluxoLinksRapido() {
               </p>
             </div>
 
-            <button type="button" onClick={() => carregarTudo(usuarioAtual)} style={botaoAtualizarEscuro}>
+            <button type="button" onClick={carregarTudo} style={botaoAtualizarEscuro}>
               Atualizar
             </button>
           </div>
