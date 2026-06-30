@@ -18,6 +18,7 @@ import MinhaFilaPagamentos from "./pages/MinhaFilaPagamentos";
 import AgendaOperacional from "./pages/AgendaOperacional";
 import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 import ManualOperacao from "./pages/ManualOperacao";
+import BotaoManual from "./components/BotaoManual";
 
 function EmDesenvolvimento({ titulo }) {
   return (
@@ -224,7 +225,8 @@ export default function App() {
         </aside>
 
         <main className="content">
-          <Routes>
+          <BotaoManual />
+      <Routes>
             <Route
               path="/"
               element={
@@ -339,7 +341,7 @@ export default function App() {
               path="/agenda"
               element={
                 <RotaProtegida usuario={usuario} rota="/agenda">
-                  <EmDesenvolvimento titulo="Agenda" />
+                  <AgendaOperacional />
                 </RotaProtegida>
               }
             />
