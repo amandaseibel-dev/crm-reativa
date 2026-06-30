@@ -1,0 +1,512 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+.reativa-login {
+  min-height: 100vh;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(34, 197, 94, 0.18), transparent 28%),
+    radial-gradient(circle at 70% 28%, rgba(20, 184, 166, 0.13), transparent 30%),
+    linear-gradient(135deg, #030712 0%, #07111a 45%, #0b1118 100%);
+  color: #f8fafc;
+  overflow: hidden;
+  font-family: Inter, Arial, Helvetica, sans-serif;
+}
+
+.reativa-login__hero {
+  position: relative;
+  padding: 56px 64px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+}
+
+.reativa-login__hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(115deg, transparent 0%, rgba(34, 197, 94, 0.04) 48%, transparent 70%),
+    radial-gradient(circle at 55% 50%, rgba(34, 197, 94, 0.18), transparent 12%);
+  opacity: 0.9;
+  pointer-events: none;
+}
+
+.reativa-login__hero::after {
+  content: "";
+  position: absolute;
+  left: -10%;
+  right: -10%;
+  top: 39%;
+  height: 210px;
+  background:
+    repeating-radial-gradient(ellipse at center, rgba(34, 197, 94, 0.22) 0 1px, transparent 1px 8px);
+  opacity: 0.18;
+  transform: rotate(-5deg);
+  pointer-events: none;
+}
+
+.reativa-login__brand {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  position: relative;
+  z-index: 2;
+}
+
+.reativa-login__logo {
+  font-size: 42px;
+  font-weight: 900;
+  letter-spacing: -2px;
+  color: #ffffff;
+  text-shadow: 0 14px 38px rgba(0, 0, 0, 0.35);
+}
+
+.reativa-login__logo span {
+  color: #22c55e;
+}
+
+.reativa-login__tag {
+  padding: 7px 16px;
+  border: 1px solid rgba(34, 197, 94, 0.62);
+  border-radius: 12px;
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.06);
+  font-weight: 900;
+  font-size: 18px;
+  box-shadow: 0 0 24px rgba(34, 197, 94, 0.14);
+}
+
+.reativa-login__content {
+  max-width: 760px;
+  position: relative;
+  z-index: 2;
+}
+
+.reativa-login__badge {
+  color: #cbd5e1;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 5px;
+  text-transform: uppercase;
+  margin-bottom: 26px;
+}
+
+.reativa-login h1 {
+  margin: 0;
+  max-width: 720px;
+  font-size: clamp(45px, 5.4vw, 76px);
+  line-height: 1.03;
+  letter-spacing: -3px;
+  font-weight: 900;
+}
+
+.reativa-login__content p {
+  max-width: 610px;
+  margin: 28px 0 0;
+  color: #cbd5e1;
+  font-size: 19px;
+  line-height: 1.55;
+}
+
+.reativa-login__flow {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 44px;
+}
+
+.flow-card {
+  min-width: 160px;
+  min-height: 132px;
+  padding: 20px;
+  border-radius: 20px;
+  background: rgba(8, 16, 26, 0.78);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(18px);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+}
+
+.flow-card strong {
+  display: block;
+  color: #ffffff;
+  font-size: 19px;
+  margin-bottom: 8px;
+}
+
+.flow-card span {
+  color: #cbd5e1;
+  font-size: 15px;
+  line-height: 1.25;
+}
+
+.flow-card.destaque {
+  border-color: rgba(34, 197, 94, 0.75);
+  background:
+    radial-gradient(circle at 50% 0%, rgba(34, 197, 94, 0.28), transparent 55%),
+    rgba(8, 16, 26, 0.82);
+  box-shadow:
+    0 0 0 1px rgba(34, 197, 94, 0.18),
+    0 24px 70px rgba(34, 197, 94, 0.16);
+}
+
+.flow-line {
+  width: 42px;
+  height: 3px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(34, 197, 94, 0.1), #22c55e, rgba(34, 197, 94, 0.15));
+  box-shadow: 0 0 22px rgba(34, 197, 94, 0.65);
+}
+
+.reativa-login__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  max-width: 700px;
+  margin-top: 34px;
+  padding: 22px 26px;
+  border-radius: 22px;
+  background: rgba(8, 16, 26, 0.74);
+  border: 1px solid rgba(148, 163, 184, 0.16);
+  backdrop-filter: blur(18px);
+}
+
+.reativa-login__metrics div {
+  padding: 0 24px;
+  border-right: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.reativa-login__metrics div:last-child {
+  border-right: none;
+}
+
+.reativa-login__metrics span {
+  display: block;
+  color: #22c55e;
+  font-size: 14px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.reativa-login__metrics strong {
+  display: block;
+  color: #ffffff;
+  font-size: 16px;
+  line-height: 1.35;
+}
+
+.reativa-login__glow {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(24px);
+  opacity: 0.55;
+}
+
+.glow-one {
+  width: 280px;
+  height: 280px;
+  left: -90px;
+  bottom: -80px;
+  background: rgba(34, 197, 94, 0.34);
+}
+
+.glow-two {
+  width: 240px;
+  height: 240px;
+  right: 70px;
+  top: 90px;
+  background: rgba(20, 184, 166, 0.2);
+}
+
+.reativa-login__access {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 56px;
+}
+
+.login-wrapper {
+  width: 100%;
+  max-width: 660px;
+}
+
+.login-card {
+  width: 100%;
+  position: relative;
+  z-index: 2;
+  padding: 44px;
+  border-radius: 28px;
+  background:
+    radial-gradient(circle at 82% 18%, rgba(34, 197, 94, 0.12), transparent 26%),
+    rgba(5, 12, 20, 0.86);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  box-shadow:
+    0 34px 100px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(24px);
+}
+
+.login-card__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.login-card__eyebrow {
+  display: block;
+  color: #4ade80;
+  font-size: 16px;
+  font-weight: 900;
+  margin-bottom: 12px;
+}
+
+.login-card h2 {
+  margin: 0;
+  font-size: 34px;
+  line-height: 1.15;
+  letter-spacing: -1.5px;
+}
+
+.login-card__icon {
+  width: 58px;
+  height: 58px;
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  color: #4ade80;
+  background:
+    radial-gradient(circle at 50% 70%, rgba(34, 197, 94, 0.32), transparent 64%),
+    rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.22);
+  font-size: 26px;
+  font-weight: 900;
+}
+
+.login-card__subtitle {
+  margin: 18px 0 36px;
+  color: #cbd5e1;
+  line-height: 1.55;
+  font-size: 17px;
+}
+
+.login-field {
+  display: block;
+  margin-bottom: 22px;
+}
+
+.login-field span {
+  display: block;
+  margin-bottom: 10px;
+  color: #ffffff;
+  font-size: 15px;
+  font-weight: 800;
+}
+
+.login-field input {
+  width: 100%;
+  height: 62px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.5);
+  color: #ffffff;
+  outline: none;
+  padding: 0 18px;
+  font-size: 16px;
+  transition: 0.2s ease;
+}
+
+.login-field input::placeholder {
+  color: #64748b;
+}
+
+.login-field input:focus {
+  border-color: rgba(34, 197, 94, 0.8);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.13);
+}
+
+.password-box {
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 14px;
+  background: rgba(2, 6, 23, 0.5);
+  overflow: hidden;
+  transition: 0.2s ease;
+}
+
+.password-box:focus-within {
+  border-color: rgba(34, 197, 94, 0.8);
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.13);
+}
+
+.password-box input {
+  border: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.password-box input:focus {
+  box-shadow: none;
+}
+
+.password-box button {
+  height: 62px;
+  padding: 0 18px;
+  border: none;
+  background: transparent;
+  color: #4ade80;
+  font-weight: 900;
+  cursor: pointer;
+}
+
+.login-error {
+  margin: 4px 0 18px;
+  padding: 13px 15px;
+  border-radius: 14px;
+  color: #fecaca;
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.24);
+  font-size: 14px;
+}
+
+.login-button {
+  width: 100%;
+  height: 64px;
+  border: none;
+  border-radius: 14px;
+  cursor: pointer;
+  color: #ffffff;
+  background: linear-gradient(135deg, #4ade80, #22c55e, #10b981);
+  font-size: 20px;
+  font-weight: 900;
+  box-shadow: 0 22px 48px rgba(34, 197, 94, 0.24);
+  transition: transform 0.18s ease, filter 0.18s ease;
+}
+
+.login-button:hover {
+  transform: translateY(-1px);
+  filter: brightness(1.06);
+}
+
+.login-button:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.login-card__footer {
+  margin-top: 26px;
+  display: flex;
+  justify-content: center;
+  gap: 9px;
+  color: #86efac;
+  font-size: 14px;
+}
+
+.login-side-panel {
+  margin-top: 30px;
+  width: 100%;
+  padding: 22px 24px;
+  border-radius: 18px;
+  background: rgba(2, 6, 23, 0.38);
+  border: 1px solid rgba(148, 163, 184, 0.14);
+}
+
+.side-panel__header,
+.side-panel__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.side-panel__item:last-child {
+  border-bottom: none;
+}
+
+.side-panel__grid {
+  display: grid;
+  gap: 0;
+}
+
+.side-panel__header span,
+.side-panel__item span {
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.side-panel__header strong {
+  color: #22c55e;
+}
+
+.side-panel__item strong {
+  color: #e2e8f0;
+  font-size: 14px;
+}
+
+@media (max-width: 1100px) {
+  .reativa-login {
+    grid-template-columns: 1fr;
+    overflow: auto;
+  }
+
+  .reativa-login__hero {
+    padding: 36px 24px;
+  }
+
+  .reativa-login__access {
+    padding: 24px;
+  }
+
+  .reativa-login h1 {
+    letter-spacing: -2px;
+  }
+
+  .reativa-login__flow,
+  .reativa-login__metrics {
+    display: none;
+  }
+
+  .login-card {
+    max-width: 560px;
+  }
+}
+
+@media (max-width: 560px) {
+  .login-card {
+    padding: 26px;
+    border-radius: 24px;
+  }
+
+  .login-card h2 {
+    font-size: 26px;
+  }
+
+  .reativa-login__logo {
+    font-size: 31px;
+  }
+
+  .reativa-login__tag {
+    font-size: 15px;
+  }
+}
