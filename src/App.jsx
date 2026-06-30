@@ -69,6 +69,7 @@ function podeAcessar(perfil, rota) {
       "/aluno",
       "/crm",
       "/agenda",
+      "/agenda-operacional",
     ],
   };
 
@@ -169,7 +170,8 @@ export default function App() {
     { rota: "/usuarios", label: "👥 Usuários" },
     { rota: "/relatorios", label: "📈 Relatórios" },
     { rota: "/configuracoes", label: "⚙️ Configurações" },
-    { rota: "/agenda", label: "📅 Agenda" },
+    { rota: "/agenda",
+      "/agenda-operacional", label: "📅 Agenda" },
   ];
 
   const menu = menuBase.filter((item) => {
