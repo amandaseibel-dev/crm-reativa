@@ -1,792 +1,1028 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import FinalizacaoTermo from "../components/FinalizacaoTermo";
-import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 
-export default function Aluno() {
-  const [aluno, setAluno] = useState(null);
-  const [historico, setHistorico] = useState([]);
+const OPERADORES_REATIVA = [
+  { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
+  { nome: "Luana", email: "cobranca05@aelbra.com.br" },
+  { nome: "Rafaella", email: "cobranca12@aelbra.com.br" },
+  { nome: "Amanda ADM", email: "cobranca07@aelbra.com.br" },
+  { nome: "Allan", email: "cobranca11@aelbra.com.br" },
+  { nome: "Maurício", email: "cobranca06@aelbra.com.br" },
+  { nome: "Olga", email: "cobranca03@aelbra.com.br" },
+  { nome: "João", email: "cobranca10@aelbra.com.br" },
+  { nome: "Diego", email: "cobranca13@aelbra.com.br" },
+  { nome: "Natali", email: "cobranca08@aelbra.com.br" },
+  { nome: "Amanda Seibel", email: "amanda.seibel@aelbra.com.br" },
+];
+
+const STATUS_FINALIZACAO = [
+  "EM_ATENDIMENTO",
+  "ALUNO_EM_NEGOCIACAO_24H",
+  "AGUARDANDO_LINK",
+  "SOLICITADO_LINK",
+  "TERMO_ENVIADO_ADM",
+  "TERMO_RECEBIDO_LIBERADO",
+  "TERMO_REJEITADO",
+  "ACORDO_FECHADO",
+  "SEM_RETORNO",
+  "NAO_LOCALIZADO",
+  "RETORNAR_DEPOIS",
+];
+
+function formatarDataHora(data) {
+  if (!data) return "-";
+
+  try {
+    return new Date(data).toLocaleString("pt-BR", {
+      dateStyle: "short",
+      timeStyle: "medium",
+    });
+  } catch {
+    return "-";
+  }
+}
+
+function pegarCampo(objeto, campos, padrao = "-") {
+  for (const campo of campos) {
+    if (
+      objeto?.[campo] !== undefined &&
+      objeto?.[campo] !== null &&
+      objeto?.[campo] !== ""
+    ) {
+      return objeto[campo];
+    }
+  }
+
+  return padrao;
+}
+
+function moeda(valor) {
+  if (valor === null || valor === undefined || valor === "") return "-";
+
+  const numero = Number(valor);
+
+  if (Number.isNaN(numero)) return valor;
+
+  return numero.toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
+}
+
+export default function Alunos() {
+  const [alunos, setAlunos] = useState([]);
+  const [alunoSelecionado, setAlunoSelecionado] = useState(null);
+  const [movimentacoes, setMovimentacoes] = useState([]);
   const [busca, setBusca] = useState("");
-  const [carregando, setCarregando] = useState(true);
-  const [erro, setErro] = useState("");
-  const [mensagem, setMensagem] = useState("");
-  const [salvando, setSalvando] = useState(false);
-
-  const [statusFinalizacao, setStatusFinalizacao] = useState("");
   const [observacao, setObservacao] = useState("");
-  const [dataRetorno, setDataRetorno] = useState("");
-  const [horaRetorno, setHoraRetorno] = useState("");
+  const [statusFinalizacao, setStatusFinalizacao] = useState("EM_ATENDIMENTO");
+  const [novoOperadorEmail, setNovoOperadorEmail] = useState("");
+  const [motivoAlteracaoOperador, setMotivoAlteracaoOperador] = useState("");
+  const [carregando, setCarregando] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
 
   useEffect(() => {
-    carregarAlunoSelecionado();
+    carregarAlunos();
   }, []);
 
-  function normalizarCpf(valor) {
-    return String(valor || "").replace(/\D/g, "");
+  async function pegarUsuarioLogado() {
+    const { data, error } = await supabase.auth.getUser();
+
+    if (error || !data?.user) {
+      return {
+        nome: "Usuário não identificado",
+        email: null,
+      };
+    }
+
+    const user = data.user;
+
+    const nome =
+      user.user_metadata?.nome ||
+      user.user_metadata?.name ||
+      user.email?.split("@")[0] ||
+      "Usuário";
+
+    return {
+      nome,
+      email: user.email,
+    };
   }
 
-  function pegarCpf(registro) {
-    return registro?.cpf || registro?.cpf_mascarado || registro?.documento || "";
-  }
-
-  function pegarNome(registro) {
-    return (
-      registro?.nome ||
-      registro?.nome_aluno ||
-      registro?.aluno ||
-      registro?.nome_completo ||
-      registro?.cliente ||
-      "Nome não informado"
-    );
-  }
-
-  function pegarMatricula(registro) {
-    return registro?.matricula || registro?.ra || "-";
-  }
-
-  function pegarOperador(registro) {
-    return (
-      registro?.fila_responsavel ||
-      registro?.operador_base ||
-      registro?.operador_mensalidade ||
-      registro?.operador_acordo ||
-      registro?.operador_acordo_planilha ||
-      registro?.operador ||
-      "-"
-    );
-  }
-
-  function pegarStatus(registro) {
-    return (
-      registro?.status_atual ||
-      registro?.status_acionamento ||
-      registro?.status_financeiro ||
-      registro?.status_jornada ||
-      "Sem status"
-    );
-  }
-
-  function pegarRetorno(registro) {
-    return registro?.data_retorno_nova || registro?.data_retorno || null;
-  }
-
-  function pegarUltimoAcionamento(registro) {
-    return (
-      registro?.data_ultimo_acionamento ||
-      registro?.ultimo_acionamento ||
-      registro?.ultimo_contato ||
-      null
-    );
-  }
-
-  function formatarData(data) {
-    if (!data) return "-";
-
-    const d = new Date(data);
-
-    if (Number.isNaN(d.getTime())) return "-";
-
-    return d.toLocaleDateString("pt-BR");
-  }
-
-  function formatarValor(valor) {
-    const numero = Number(
-      String(valor || 0)
-        .replace("R$", "")
-        .replace(/\./g, "")
-        .replace(",", ".")
-        .trim()
-    );
-
-    if (!numero || Number.isNaN(numero)) return "R$ 0,00";
-
-    return numero.toLocaleString("pt-BR", {
-      style: "currency",
-      currency: "BRL",
-    });
-  }
-
-  async function carregarAlunoSelecionado() {
+  async function carregarAlunos() {
     setCarregando(true);
     setErro("");
-    setMensagem("");
-
-    const salvo = localStorage.getItem("alunoSelecionado");
-
-    if (!salvo) {
-      setAluno(null);
-      setCarregando(false);
-      return;
-    }
 
     try {
-      const registro = JSON.parse(salvo);
+      const termo = busca.trim();
+      let query = supabase.from("alunos").select("*").limit(80);
 
-      setAluno(registro);
-      setBusca(pegarCpf(registro));
+      if (termo) {
+        const somenteNumeros = termo.replace(/\D/g, "");
 
-      await carregarHistorico(registro);
-    } catch (error) {
-      setErro("Erro ao carregar aluno selecionado.");
+        if (somenteNumeros.length >= 3) {
+          query = query.ilike("cpf", `%${somenteNumeros}%`);
+        } else {
+          query = query.ilike("nome", `%${termo}%`);
+        }
+      }
+
+      const { data, error } = await query;
+
+      if (error) {
+        console.error("Erro ao carregar alunos:", error);
+        setErro("Erro ao carregar alunos.");
+        setAlunos([]);
+        return;
+      }
+
+      setAlunos(data || []);
+    } catch (e) {
+      console.error("Erro inesperado ao carregar alunos:", e);
+      setErro("Erro inesperado ao carregar alunos.");
+      setAlunos([]);
+    } finally {
+      setCarregando(false);
     }
-
-    setCarregando(false);
   }
 
-  async function carregarHistorico(registro) {
-    const cpfLimpo = normalizarCpf(pegarCpf(registro));
+  async function abrirAluno(aluno) {
+    setAlunoSelecionado(aluno);
+    setObservacao("");
+    setNovoOperadorEmail("");
+    setMotivoAlteracaoOperador("");
+    setStatusFinalizacao(
+      pegarCampo(aluno, ["status_jornada", "status"], "EM_ATENDIMENTO")
+    );
+    await carregarMovimentacoes(aluno.id);
+  }
 
-    if (!cpfLimpo) {
-      setHistorico([]);
+  async function recarregarAlunoSelecionado(alunoId) {
+    const { data, error } = await supabase
+      .from("alunos")
+      .select("*")
+      .eq("id", alunoId)
+      .maybeSingle();
+
+    if (error) {
+      console.error("Erro ao recarregar aluno:", error);
       return;
     }
+
+    if (data) {
+      setAlunoSelecionado(data);
+    }
+  }
+
+  async function carregarMovimentacoes(alunoId) {
+    if (!alunoId) return;
 
     const { data, error } = await supabase
-      .from("historico_operacional")
+      .from("aluno_movimentacoes")
       .select("*")
-      .eq("cpf", cpfLimpo)
-      .order("created_at", { ascending: false })
-      .limit(100);
+      .eq("aluno_id", String(alunoId))
+      .order("registrado_em", { ascending: false });
 
     if (error) {
-      setHistorico([]);
+      console.error("Erro ao carregar movimentações:", error);
+      setMovimentacoes([]);
       return;
     }
 
-    setHistorico(data || []);
+    setMovimentacoes(data || []);
   }
 
-  async function buscarAlunoManual() {
-    setErro("");
-    setMensagem("");
-    setCarregando(true);
-
-    const termo = busca.trim();
-
-    if (!termo) {
-      setErro("Digite CPF, matrícula ou nome para buscar.");
-      setCarregando(false);
-      return;
+  async function registrarMovimentacaoAluno({
+    alunoId,
+    tipo,
+    descricao,
+    statusAnterior = null,
+    statusNovo = null,
+    atualizarResponsavel = false,
+  }) {
+    if (!alunoId) {
+      alert("Aluno sem ID. Não foi possível registrar.");
+      return null;
     }
 
-    const cpfLimpo = normalizarCpf(termo);
+    const usuario = await pegarUsuarioLogado();
+    const agora = new Date().toISOString();
 
-    let query = supabase.from("casos").select("*").limit(1);
+    const { error: insertError } = await supabase
+      .from("aluno_movimentacoes")
+      .insert({
+        aluno_id: String(alunoId),
+        tipo,
+        descricao,
+        status_anterior: statusAnterior,
+        status_novo: statusNovo,
+        registrado_por_nome: usuario.nome,
+        registrado_por_email: usuario.email,
+        registrado_em: agora,
+      });
 
-    if (cpfLimpo.length >= 5) {
-      query = query.or(`cpf.eq.${cpfLimpo},cpf_mascarado.ilike.%${termo}%`);
-    } else {
-      query = query.or(
-        `nome.ilike.%${termo}%,nome_aluno.ilike.%${termo}%,aluno.ilike.%${termo}%,matricula.ilike.%${termo}%`
-      );
+    if (insertError) {
+      console.error("Erro ao registrar movimentação:", insertError);
+      alert("Erro ao registrar movimentação.");
+      throw insertError;
     }
 
-    const { data, error } = await query;
+    const dadosAtualizacao = {
+      registrado_por_nome: usuario.nome,
+      registrado_por_email: usuario.email,
+      registrado_em: agora,
+    };
 
-    if (error) {
-      setErro("Erro ao buscar aluno: " + error.message);
-      setCarregando(false);
-      return;
+    if (statusNovo) {
+      dadosAtualizacao.status_jornada = statusNovo;
     }
 
-    if (!data || data.length === 0) {
-      setErro("Nenhum aluno encontrado.");
-      setAluno(null);
-      setHistorico([]);
-      setCarregando(false);
-      return;
+    if (atualizarResponsavel) {
+      dadosAtualizacao.responsavel_atual_nome = usuario.nome;
+      dadosAtualizacao.responsavel_atual_email = usuario.email;
+      dadosAtualizacao.responsavel_atual_em = agora;
     }
 
-    const encontrado = data[0];
+    const { error: updateError } = await supabase
+      .from("alunos")
+      .update(dadosAtualizacao)
+      .eq("id", alunoId);
 
-    localStorage.setItem("alunoSelecionado", JSON.stringify(encontrado));
+    if (updateError) {
+      console.error("Erro ao atualizar aluno:", updateError);
+      alert("Movimentação registrada, mas houve erro ao atualizar a ficha.");
+      throw updateError;
+    }
 
-    setAluno(encontrado);
-    await carregarHistorico(encontrado);
-
-    setCarregando(false);
+    return {
+      nome: usuario.nome,
+      email: usuario.email,
+      registrado_em: agora,
+    };
   }
 
-  function calcularSla(status, retorno) {
-    if (!retorno) {
-      if (status === "Sem sucesso") return "PENDENTE";
-      if (status === "Não localizado") return "PENDENTE";
-      return "SEM RETORNO";
+  async function assumirAtendimento() {
+    if (!alunoSelecionado?.id) return;
+
+    setSalvando(true);
+
+    try {
+      await registrarMovimentacaoAluno({
+        alunoId: alunoSelecionado.id,
+        tipo: "ASSUMIU_ATENDIMENTO",
+        descricao: "Usuário assumiu o atendimento do aluno.",
+        statusAnterior: pegarCampo(alunoSelecionado, ["status_jornada", "status"], null),
+        statusNovo: "EM_ATENDIMENTO",
+        atualizarResponsavel: true,
+      });
+
+      await recarregarAlunoSelecionado(alunoSelecionado.id);
+      await carregarMovimentacoes(alunoSelecionado.id);
+      await carregarAlunos();
+
+      alert("Atendimento assumido e registrado com sucesso.");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSalvando(false);
     }
-
-    const hoje = new Date();
-    hoje.setHours(0, 0, 0, 0);
-
-    const data = new Date(retorno);
-    data.setHours(0, 0, 0, 0);
-
-    if (data < hoje) return "RETORNO VENCIDO";
-    if (data.getTime() === hoje.getTime()) return "RETORNO HOJE";
-
-    return "RETORNO AGENDADO";
   }
 
-  async function salvarFinalizacao() {
-    setErro("");
-    setMensagem("");
-
-    if (!aluno) {
-      setErro("Nenhum aluno carregado.");
+  async function alterarOperadorResponsavel() {
+    if (!alunoSelecionado?.id) {
+      alert("Selecione um aluno antes de alterar o operador.");
       return;
     }
 
-    if (!statusFinalizacao) {
-      setErro("Selecione uma finalização.");
+    if (!novoOperadorEmail) {
+      alert("Selecione o novo operador responsável.");
       return;
     }
 
-    if (!observacao.trim()) {
-      setErro("Inclua uma observação da tratativa.");
+    const novoOperador = OPERADORES_REATIVA.find(
+      (op) => op.email === novoOperadorEmail
+    );
+
+    if (!novoOperador) {
+      alert("Operador selecionado não encontrado.");
+      return;
+    }
+
+    const motivo = motivoAlteracaoOperador.trim();
+
+    if (!motivo) {
+      alert("Informe o motivo da alteração do operador.");
       return;
     }
 
     setSalvando(true);
 
-    const cpfLimpo = normalizarCpf(pegarCpf(aluno));
-    const agora = new Date().toISOString();
-    const retorno = dataRetorno || null;
-    const sla = calcularSla(statusFinalizacao, retorno);
-
     try {
-      const atualizacaoCaso = {
-        status_atual: statusFinalizacao,
-        status_acionamento: statusFinalizacao,
-        data_ultimo_acionamento: agora,
-        data_retorno_nova: retorno,
-        hora_retorno: horaRetorno || null,
-        sla_operacional: sla,
-        observacao_operacional: observacao.trim(),
-      };
+      const usuario = await pegarUsuarioLogado();
+      const agora = new Date().toISOString();
 
-      const { error: erroUpdate } = await supabase
-        .from("casos")
-        .update(atualizacaoCaso)
-        .eq("id", aluno.id);
+      const operadorAnteriorNome =
+        alunoSelecionado.responsavel_atual_nome || "Sem responsável anterior";
 
-      if (erroUpdate) {
-        throw erroUpdate;
+      const operadorAnteriorEmail =
+        alunoSelecionado.responsavel_atual_email || null;
+
+      const { error: updateError } = await supabase
+        .from("alunos")
+        .update({
+          responsavel_atual_nome: novoOperador.nome,
+          responsavel_atual_email: novoOperador.email,
+          responsavel_atual_em: agora,
+          registrado_por_nome: usuario.nome,
+          registrado_por_email: usuario.email,
+          registrado_em: agora,
+        })
+        .eq("id", alunoSelecionado.id);
+
+      if (updateError) {
+        console.error("Erro ao alterar operador:", updateError);
+        alert("Erro ao alterar operador responsável.");
+        return;
       }
 
-      const historicoNovo = {
-        cpf: cpfLimpo,
-        nome: pegarNome(aluno),
-        matricula: pegarMatricula(aluno),
-        operador: pegarOperador(aluno),
-        status_atual: statusFinalizacao,
-        status_acionamento: statusFinalizacao,
-        ultimo_acionamento: agora,
-        data_retorno: retorno,
-        sla_operacional: sla,
-        observacao: observacao.trim(),
-      };
+      const { error: movError } = await supabase
+        .from("aluno_movimentacoes")
+        .insert({
+          aluno_id: String(alunoSelecionado.id),
+          tipo: "ALTERACAO_OPERADOR",
+          descricao: `Operador responsável alterado de ${operadorAnteriorNome} para ${novoOperador.nome}. Motivo: ${motivo}`,
+          status_anterior: alunoSelecionado.status_jornada || null,
+          status_novo: alunoSelecionado.status_jornada || null,
+          registrado_por_nome: usuario.nome,
+          registrado_por_email: usuario.email,
+          registrado_em: agora,
+          operador_anterior_nome: operadorAnteriorNome,
+          operador_anterior_email: operadorAnteriorEmail,
+          operador_novo_nome: novoOperador.nome,
+          operador_novo_email: novoOperador.email,
+        });
 
-      const { error: erroHistorico } = await supabase
-        .from("historico_operacional")
-        .insert(historicoNovo);
-
-      if (erroHistorico) {
-        throw erroHistorico;
+      if (movError) {
+        console.error("Erro ao registrar alteração de operador:", movError);
+        alert("Operador alterado, mas houve erro ao registrar movimentação.");
+        return;
       }
 
-      const alunoAtualizado = {
-        ...aluno,
-        ...atualizacaoCaso,
-      };
+      setNovoOperadorEmail("");
+      setMotivoAlteracaoOperador("");
 
-      localStorage.setItem("alunoSelecionado", JSON.stringify(alunoAtualizado));
+      await recarregarAlunoSelecionado(alunoSelecionado.id);
+      await carregarMovimentacoes(alunoSelecionado.id);
+      await carregarAlunos();
 
-      setAluno(alunoAtualizado);
-      setStatusFinalizacao("");
-      setObservacao("");
-      setDataRetorno("");
-      setHoraRetorno("");
-      setMensagem("Atendimento salvo com sucesso.");
-
-      await carregarHistorico(alunoAtualizado);
-    } catch (error) {
-      setErro("Erro ao salvar finalização: " + error.message);
+      alert("Operador responsável alterado e registrado com sucesso.");
+    } catch (e) {
+      console.error("Erro inesperado ao alterar operador:", e);
+      alert("Erro inesperado ao alterar operador.");
+    } finally {
+      setSalvando(false);
     }
-
-    setSalvando(false);
   }
 
-  if (carregando) {
-    return (
-      <div style={pagina}>
-        <h1 style={titulo}>Cadastro do Aluno</h1>
-        <p style={texto}>Carregando informações...</p>
-      </div>
-    );
+  async function salvarObservacao() {
+    if (!alunoSelecionado?.id) return;
+
+    const texto = observacao.trim();
+
+    if (!texto) {
+      alert("Digite uma observação antes de salvar.");
+      return;
+    }
+
+    setSalvando(true);
+
+    try {
+      const statusAtual = pegarCampo(alunoSelecionado, ["status_jornada", "status"], null);
+
+      await registrarMovimentacaoAluno({
+        alunoId: alunoSelecionado.id,
+        tipo: "OBSERVACAO",
+        descricao: texto,
+        statusAnterior: statusAtual,
+        statusNovo: statusAtual,
+        atualizarResponsavel: false,
+      });
+
+      setObservacao("");
+      await recarregarAlunoSelecionado(alunoSelecionado.id);
+      await carregarMovimentacoes(alunoSelecionado.id);
+      await carregarAlunos();
+
+      alert("Observação registrada com sucesso.");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function finalizarAtendimento() {
+    if (!alunoSelecionado?.id) return;
+
+    if (!statusFinalizacao) {
+      alert("Selecione um status de finalização.");
+      return;
+    }
+
+    setSalvando(true);
+
+    try {
+      await registrarMovimentacaoAluno({
+        alunoId: alunoSelecionado.id,
+        tipo: "FINALIZACAO",
+        descricao: `Atendimento finalizado com status: ${statusFinalizacao}.`,
+        statusAnterior: pegarCampo(alunoSelecionado, ["status_jornada", "status"], null),
+        statusNovo: statusFinalizacao,
+        atualizarResponsavel: false,
+      });
+
+      await recarregarAlunoSelecionado(alunoSelecionado.id);
+      await carregarMovimentacoes(alunoSelecionado.id);
+      await carregarAlunos();
+
+      alert("Finalização registrada com sucesso.");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function solicitarLinkPagamento() {
+    if (!alunoSelecionado?.id) return;
+
+    setSalvando(true);
+
+    try {
+      await registrarMovimentacaoAluno({
+        alunoId: alunoSelecionado.id,
+        tipo: "SOLICITACAO_LINK_PAGAMENTO",
+        descricao: "Operador solicitou geração de link de pagamento para o aluno.",
+        statusAnterior: pegarCampo(alunoSelecionado, ["status_jornada", "status"], null),
+        statusNovo: "SOLICITADO_LINK",
+        atualizarResponsavel: false,
+      });
+
+      await recarregarAlunoSelecionado(alunoSelecionado.id);
+      await carregarMovimentacoes(alunoSelecionado.id);
+      await carregarAlunos();
+
+      alert("Solicitação de link registrada com sucesso.");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  async function enviarTermoAdm() {
+    if (!alunoSelecionado?.id) return;
+
+    setSalvando(true);
+
+    try {
+      await registrarMovimentacaoAluno({
+        alunoId: alunoSelecionado.id,
+        tipo: "TERMO_ENVIADO_ADM",
+        descricao: "Termo enviado para validação administrativa.",
+        statusAnterior: pegarCampo(alunoSelecionado, ["status_jornada", "status"], null),
+        statusNovo: "TERMO_ENVIADO_ADM",
+        atualizarResponsavel: false,
+      });
+
+      await recarregarAlunoSelecionado(alunoSelecionado.id);
+      await carregarMovimentacoes(alunoSelecionado.id);
+      await carregarAlunos();
+
+      alert("Termo enviado para ADM e registrado com sucesso.");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSalvando(false);
+    }
   }
 
   return (
-    <div style={pagina}>
-      <div style={topo}>
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "#020617",
+        color: "#ffffff",
+        padding: "24px",
+        fontFamily: "Arial, sans-serif",
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          gap: "16px",
+          alignItems: "center",
+          marginBottom: "24px",
+          flexWrap: "wrap",
+        }}
+      >
         <div>
-          <h1 style={titulo}>Cadastro do Aluno</h1>
-          <p style={texto}>
-            Consulta operacional, financeiro e histórico de atendimento.
+          <h1 style={{ margin: 0, color: "#22c55e" }}>Alunos</h1>
+          <p style={{ margin: "6px 0 0", color: "#cbd5e1" }}>
+            Pesquisa, ficha, responsável atual e movimentações do aluno.
           </p>
         </div>
 
         <button
-          style={botaoVoltar}
-          onClick={() => {
-            window.location.href = "/";
-          }}
+          onClick={carregarAlunos}
+          disabled={carregando}
+          style={botaoPrincipal}
         >
-          Voltar para fila
+          {carregando ? "Carregando..." : "Atualizar"}
         </button>
       </div>
 
-      <div style={buscaBox}>
-        <input
-          style={input}
-          value={busca}
-          onChange={(e) => setBusca(e.target.value)}
-          placeholder="Buscar por CPF, matrícula ou nome..."
-        />
+      <div style={caixa}>
+        <label style={{ display: "block", marginBottom: "8px", color: "#d1d5db" }}>
+          Buscar aluno por nome ou CPF
+        </label>
 
-        <button style={botaoBuscar} onClick={buscarAlunoManual}>
-          Buscar
-        </button>
-      </div>
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <input
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") carregarAlunos();
+            }}
+            placeholder="Digite nome ou CPF"
+            style={input}
+          />
 
-      {erro && <div style={erroBox}>{erro}</div>}
-      {mensagem && <div style={sucessoBox}>{mensagem}</div>}
-
-      {!aluno ? (
-        <div style={vazioBox}>
-          Nenhum aluno selecionado. Volte para a fila e clique em{" "}
-          <strong>Abrir</strong>, ou pesquise acima.
+          <button
+            onClick={carregarAlunos}
+            disabled={carregando}
+            style={botaoPrincipal}
+          >
+            Pesquisar
+          </button>
         </div>
-      ) : (
-        <>
-          <div style={grid}>
-            <section style={cardGrande}>
-              <h2 style={secaoTitulo}>Dados do aluno</h2>
 
-              <div style={dadosGrid}>
-                <Info label="Nome" value={pegarNome(aluno)} />
-                <Info label="CPF" value={aluno.cpf_mascarado || aluno.cpf || "-"} />
-                <Info label="Matrícula" value={pegarMatricula(aluno)} />
-                <Info label="E-mail" value={aluno.email || "-"} />
-                <Info label="Telefone" value={aluno.telefone || "-"} />
-                <Info label="Curso" value={aluno.curso || "-"} />
-                <Info label="Unidade" value={aluno.unidade || "-"} />
-                <Info label="Semestre" value={aluno.semestre || "-"} />
-              </div>
-            </section>
+        {erro && <p style={{ color: "#f87171", marginTop: "10px" }}>{erro}</p>}
+      </div>
 
-            <section style={cardGrande}>
-              <h2 style={secaoTitulo}>Situação operacional</h2>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "minmax(280px, 420px) 1fr",
+          gap: "20px",
+          alignItems: "start",
+        }}
+      >
+        <div style={caixa}>
+          <h2 style={{ color: "#22c55e", marginTop: 0 }}>Lista de alunos</h2>
 
-              <div style={dadosGrid}>
-                <Info label="Operador" value={pegarOperador(aluno)} />
-                <Info label="Status atual" value={pegarStatus(aluno)} />
-                <Info
-                  label="Último acionamento"
-                  value={formatarData(pegarUltimoAcionamento(aluno))}
-                />
-                <Info label="Data de retorno" value={formatarData(pegarRetorno(aluno))} />
-                <Info label="Hora retorno" value={aluno.hora_retorno || "-"} />
-                <Info label="SLA operacional" value={aluno.sla_operacional || "-"} />
-              </div>
-            </section>
-          </div>
+          {carregando ? (
+            <p>Carregando alunos...</p>
+          ) : alunos.length === 0 ? (
+            <p style={{ color: "#cbd5e1" }}>Nenhum aluno encontrado.</p>
+          ) : (
+            <div style={{ display: "grid", gap: "10px" }}>
+              {alunos.map((aluno) => {
+                const nome = pegarCampo(aluno, ["nome", "nome_aluno", "aluno"], "Aluno sem nome");
+                const cpf = pegarCampo(aluno, ["cpf", "CPF"], "-");
+                const status = pegarCampo(aluno, ["status_jornada", "status"], "Sem status");
+                const selecionado = alunoSelecionado?.id === aluno.id;
 
-          <section style={cardGrande}>
-            <h2 style={secaoTitulo}>Finalizar atendimento</h2>
-
-            <div style={finalizacaoGrid}>
-              <div>
-                <label style={label}>Finalização</label>
-                <select
-                  style={input}
-                  value={statusFinalizacao}
-                  onChange={(e) => setStatusFinalizacao(e.target.value)}
-                >
-                  <option value="">Selecione...</option>
-                  <option value="Em tratativa">Em tratativa</option>
-                  <option value="WhatsApp enviado">WhatsApp enviado</option>
-                  <option value="Sem sucesso">Sem sucesso</option>
-                  <option value="Não localizado">Não localizado</option>
-                  <option value="Proposta enviada">Proposta enviada</option>
-                  <option value="Aguardando retorno">Aguardando retorno</option>
-                  <option value="Retorno agendado">Retorno agendado</option>
-                  <option value="Acordo em andamento">Acordo em andamento</option>
-                  <option value="Acordo fechado">Acordo fechado</option>
-                  <option value="Sem interesse">Sem interesse</option>
-                  <option value="Crítico">Crítico</option>
-                </select>
-              </div>
-
-              <div>
-                <label style={label}>Data de retorno</label>
-                <input
-                  style={input}
-                  type="date"
-                  value={dataRetorno}
-                  onChange={(e) => setDataRetorno(e.target.value)}
-                />
-              </div>
-
-              <div>
-                <label style={label}>Hora de retorno</label>
-                <input
-                  style={input}
-                  type="time"
-                  value={horaRetorno}
-                  onChange={(e) => setHoraRetorno(e.target.value)}
-                />
-              </div>
+                return (
+                  <button
+                    key={aluno.id}
+                    onClick={() => abrirAluno(aluno)}
+                    style={{
+                      textAlign: "left",
+                      background: selecionado ? "#064e3b" : "#1f2937",
+                      color: "#ffffff",
+                      border: selecionado ? "1px solid #22c55e" : "1px solid #374151",
+                      borderRadius: "12px",
+                      padding: "12px",
+                      cursor: "pointer",
+                    }}
+                  >
+                    <strong>{nome}</strong>
+                    <div style={{ color: "#d1d5db", fontSize: "13px", marginTop: "4px" }}>
+                      CPF: {cpf}
+                    </div>
+                    <div style={{ color: "#86efac", fontSize: "13px", marginTop: "4px" }}>
+                      Status: {status}
+                    </div>
+                    <div style={{ color: "#cbd5e1", fontSize: "12px", marginTop: "4px" }}>
+                      Responsável: {aluno.responsavel_atual_nome || "Sem responsável"}
+                    </div>
+                  </button>
+                );
+              })}
             </div>
+          )}
+        </div>
 
-            <div style={{ marginTop: 14 }}>
-              <label style={label}>Observação da tratativa</label>
-              <textarea
-                style={textarea}
-                value={observacao}
-                onChange={(e) => setObservacao(e.target.value)}
-                placeholder="Ex.: Aluno acionado via WhatsApp. Informado valor em aberto e opções de negociação. Retorno combinado para..."
-              />
+        <div style={caixa}>
+          {!alunoSelecionado ? (
+            <div style={{ color: "#cbd5e1" }}>
+              <h2 style={{ color: "#22c55e", marginTop: 0 }}>Ficha do aluno</h2>
+              <p>Selecione um aluno na lista para abrir a ficha.</p>
             </div>
+          ) : (
+            <>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "space-between",
+                  gap: "16px",
+                  alignItems: "start",
+                  flexWrap: "wrap",
+                  marginBottom: "18px",
+                }}
+              >
+                <div>
+                  <h2 style={{ color: "#22c55e", margin: 0 }}>
+                    {pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "Aluno sem nome")}
+                  </h2>
 
-            <button
-              style={botaoSalvar}
-              onClick={salvarFinalizacao}
-              disabled={salvando}
-            >
-              {salvando ? "Salvando..." : "Salvar finalização"}
-            </button>
+                  <p style={{ color: "#cbd5e1", margin: "8px 0 0" }}>
+                    CPF: {pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-")}
+                  </p>
 
-            <div style={acoesAtendimentoBox}>
-              <h3 style={acoesAtendimentoTitulo}>Ações do atendimento</h3>
-
-              <p style={acoesAtendimentoSubtitulo}>
-                Use esta área para solicitar link de pagamento, anexar termo e acompanhar as movimentações do aluno.
-              </p>
-
-              <div style={acoesAtendimentoGrid}>
-                <LinksPagamentoAluno aluno={aluno} />
-
-                <FinalizacaoTermo aluno={aluno} />
-              </div>
-            </div>
-
-
-          </section>
-
-          <section style={cardGrande}>
-            <h2 style={secaoTitulo}>Visão financeira</h2>
-
-            <div style={dadosGrid}>
-              <Info
-                label="Valor em aberto"
-                value={formatarValor(
-                  aluno.valor_em_aberto ||
-                    aluno.valor_aberto ||
-                    aluno.valor_total ||
-                    aluno.valor_divida ||
-                    aluno.saldo_devedor ||
-                    aluno.valor
-                )}
-              />
-
-              <Info label="Status financeiro" value={aluno.status_financeiro || "-"} />
-              <Info label="Contrato / caso" value={aluno.id || "-"} />
-              <Info label="Origem" value={aluno.origem || "Base operacional"} />
-            </div>
-          </section>
-
-          <section style={cardGrande}>
-            
-              <h2 style={secaoTitulo}>Histórico operacional</h2>
-
-            {historico.length === 0 ? (
-              <p style={texto}>Nenhum histórico localizado para este aluno.</p>
-            ) : (
-              <div style={historicoBox}>
-                {historico.map((item, index) => (
-                  <div key={item.id || index} style={historicoItem}>
-                    <strong>
-                      {formatarData(
-                        item.created_at ||
-                          item.data ||
-                          item.ultimo_acionamento ||
-                          item.data_retorno
-                      )}
+                  <p style={{ color: "#cbd5e1", margin: "4px 0 0" }}>
+                    Status atual:{" "}
+                    <strong style={{ color: "#86efac" }}>
+                      {pegarCampo(alunoSelecionado, ["status_jornada", "status"], "Sem status")}
                     </strong>
+                  </p>
+                </div>
 
-                    <p style={{ margin: "6px 0" }}>
-                      <strong>Operador:</strong> {item.operador || "-"}
-                    </p>
-
-                    <p style={{ margin: "6px 0" }}>
-                      <strong>Status:</strong>{" "}
-                      {item.status_atual || item.status_acionamento || "-"}
-                    </p>
-
-                    <p style={{ margin: "6px 0" }}>
-                      <strong>Retorno:</strong> {formatarData(item.data_retorno)}
-                    </p>
-
-                    <p style={{ margin: "6px 0" }}>
-                      <strong>SLA:</strong> {item.sla_operacional || "-"}
-                    </p>
-
-                    <p style={{ margin: "6px 0" }}>
-                      <strong>Observação:</strong>{" "}
-                      {item.observacao ||
-                        item.descricao ||
-                        item.historico ||
-                        "-"}
-                    </p>
-                  </div>
-                ))}
+                <button
+                  onClick={assumirAtendimento}
+                  disabled={salvando}
+                  style={botaoPrincipal}
+                >
+                  {salvando ? "Salvando..." : "Assumir atendimento"}
+                </button>
               </div>
-            )}
-          </section>
-        </>
-      )}
+
+              <div style={gradeCards}>
+                <div style={cardInfo}>
+                  <strong>Curso</strong>
+                  <br />
+                  {pegarCampo(alunoSelecionado, ["curso", "nome_curso"], "-")}
+                </div>
+
+                <div style={cardInfo}>
+                  <strong>Unidade</strong>
+                  <br />
+                  {pegarCampo(alunoSelecionado, ["unidade", "campus"], "-")}
+                </div>
+
+                <div style={cardInfo}>
+                  <strong>Valor em aberto</strong>
+                  <br />
+                  {moeda(pegarCampo(alunoSelecionado, ["valor_em_aberto", "valor_total", "saldo_devedor"], ""))}
+                </div>
+
+                <div style={cardInfo}>
+                  <strong>Último status</strong>
+                  <br />
+                  {pegarCampo(alunoSelecionado, ["ultimo_status", "status_jornada", "status"], "-")}
+                </div>
+
+                <div style={cardInfo}>
+                  <strong>Data de retorno</strong>
+                  <br />
+                  {formatarDataHora(pegarCampo(alunoSelecionado, ["data_retorno", "retorno_em"], null))}
+                </div>
+
+                <div style={cardInfo}>
+                  <strong>Telefone</strong>
+                  <br />
+                  {pegarCampo(alunoSelecionado, ["telefone", "celular", "whatsapp"], "-")}
+                </div>
+              </div>
+
+              <div style={caixaDestaque}>
+                <h3 style={{ color: "#22c55e", marginTop: 0 }}>
+                  Informações de registro
+                </h3>
+
+                <div style={gradeCards}>
+                  <div>
+                    <strong>Último registro por:</strong>
+                    <br />
+                    {alunoSelecionado.registrado_por_nome || "Ainda não registrado"}
+                  </div>
+
+                  <div>
+                    <strong>E-mail do registro:</strong>
+                    <br />
+                    {alunoSelecionado.registrado_por_email || "-"}
+                  </div>
+
+                  <div>
+                    <strong>Data e horário da tabulação:</strong>
+                    <br />
+                    {formatarDataHora(alunoSelecionado.registrado_em)}
+                  </div>
+
+                  <div>
+                    <strong>Responsável atual:</strong>
+                    <br />
+                    {alunoSelecionado.responsavel_atual_nome || "Sem responsável definido"}
+                  </div>
+
+                  <div>
+                    <strong>E-mail do responsável:</strong>
+                    <br />
+                    {alunoSelecionado.responsavel_atual_email || "-"}
+                  </div>
+
+                  <div>
+                    <strong>Assumido/alterado em:</strong>
+                    <br />
+                    {formatarDataHora(alunoSelecionado.responsavel_atual_em)}
+                  </div>
+                </div>
+              </div>
+
+              <div style={caixaDestaque}>
+                <h3 style={{ color: "#22c55e", marginTop: 0 }}>
+                  Alterar operador responsável
+                </h3>
+
+                <p style={{ color: "#cbd5e1", marginTop: 0 }}>
+                  Use esta opção para corrigir casos antigos ou redirecionar atendimento com registro de auditoria.
+                </p>
+
+                <div style={gradeCards}>
+                  <div>
+                    <strong>Operador atual:</strong>
+                    <br />
+                    {alunoSelecionado.responsavel_atual_nome || "Sem responsável definido"}
+                  </div>
+
+                  <div>
+                    <strong>E-mail atual:</strong>
+                    <br />
+                    {alunoSelecionado.responsavel_atual_email || "-"}
+                  </div>
+                </div>
+
+                <label style={label}>Novo operador responsável</label>
+
+                <select
+                  value={novoOperadorEmail}
+                  onChange={(e) => setNovoOperadorEmail(e.target.value)}
+                  style={select}
+                >
+                  <option value="">Selecione o operador</option>
+                  {OPERADORES_REATIVA.map((operador) => (
+                    <option key={operador.email} value={operador.email}>
+                      {operador.nome} - {operador.email}
+                    </option>
+                  ))}
+                </select>
+
+                <label style={label}>Motivo da alteração</label>
+
+                <textarea
+                  value={motivoAlteracaoOperador}
+                  onChange={(e) => setMotivoAlteracaoOperador(e.target.value)}
+                  placeholder="Exemplo: operador já havia acionado antes da criação do botão Assumir atendimento."
+                  rows={3}
+                  style={textarea}
+                />
+
+                <button
+                  onClick={alterarOperadorResponsavel}
+                  disabled={salvando}
+                  style={botaoPrincipal}
+                >
+                  {salvando ? "Salvando..." : "Alterar responsável"}
+                </button>
+              </div>
+
+              <div style={caixaInterna}>
+                <h3 style={{ color: "#22c55e", marginTop: 0 }}>
+                  Ações do atendimento
+                </h3>
+
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "14px" }}>
+                  <button
+                    onClick={solicitarLinkPagamento}
+                    disabled={salvando}
+                    style={botaoSecundario}
+                  >
+                    Solicitar link de pagamento
+                  </button>
+
+                  <button
+                    onClick={enviarTermoAdm}
+                    disabled={salvando}
+                    style={botaoSecundario}
+                  >
+                    Enviar termo para ADM
+                  </button>
+                </div>
+
+                <label style={label}>Incluir observação</label>
+
+                <textarea
+                  value={observacao}
+                  onChange={(e) => setObservacao(e.target.value)}
+                  placeholder="Digite a observação do atendimento..."
+                  rows={4}
+                  style={textarea}
+                />
+
+                <button
+                  onClick={salvarObservacao}
+                  disabled={salvando}
+                  style={{ ...botaoPrincipal, marginBottom: "18px" }}
+                >
+                  Salvar observação
+                </button>
+
+                <div style={{ borderTop: "1px solid #374151", paddingTop: "14px" }}>
+                  <label style={label}>Finalizar / alterar status</label>
+
+                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                    <select
+                      value={statusFinalizacao}
+                      onChange={(e) => setStatusFinalizacao(e.target.value)}
+                      style={{ ...select, flex: "1 1 260px", marginBottom: 0 }}
+                    >
+                      {STATUS_FINALIZACAO.map((status) => (
+                        <option key={status} value={status}>
+                          {status}
+                        </option>
+                      ))}
+                    </select>
+
+                    <button
+                      onClick={finalizarAtendimento}
+                      disabled={salvando}
+                      style={botaoPrincipal}
+                    >
+                      Registrar finalização
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <div style={caixaInterna}>
+                <h3 style={{ color: "#22c55e", marginTop: 0 }}>
+                  Movimentações do aluno
+                </h3>
+
+                {movimentacoes.length === 0 ? (
+                  <p style={{ color: "#cbd5e1" }}>
+                    Nenhuma movimentação registrada ainda.
+                  </p>
+                ) : (
+                  <div style={{ display: "grid", gap: "10px" }}>
+                    {movimentacoes.map((mov) => (
+                      <div
+                        key={mov.id}
+                        style={{
+                          background: "#111827",
+                          borderRadius: "12px",
+                          padding: "12px",
+                          borderLeft: "4px solid #22c55e",
+                        }}
+                      >
+                        <strong>{mov.tipo}</strong>
+
+                        <p style={{ margin: "6px 0", color: "#e5e7eb" }}>
+                          {mov.descricao || "-"}
+                        </p>
+
+                        {(mov.status_anterior || mov.status_novo) && (
+                          <p style={{ margin: "6px 0", color: "#cbd5e1", fontSize: "13px" }}>
+                            Status: {mov.status_anterior || "-"} → {mov.status_novo || "-"}
+                          </p>
+                        )}
+
+                        <small style={{ color: "#cbd5e1" }}>
+                          Registrado por:{" "}
+                          <strong>{mov.registrado_por_nome || "Não identificado"}</strong>
+                          {mov.registrado_por_email ? ` - ${mov.registrado_por_email}` : ""}
+                          <br />
+                          Data/hora: {formatarDataHora(mov.registrado_em)}
+                        </small>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
 
-function Info({ label, value }) {
-  return (
-    <div style={infoBox}>
-      <span style={infoLabel}>{label}</span>
-      <strong style={infoValue}>{value || "-"}</strong>
-    </div>
-  );
-}
-
-const pagina = {
-  padding: 30,
-  minHeight: "100vh",
-  background: "#f8fafc",
-  color: "#0f172a",
+const caixa = {
+  background: "#111827",
+  border: "1px solid #1f2937",
+  borderRadius: "14px",
+  padding: "16px",
+  marginBottom: "20px",
 };
 
-const topo = {
-  display: "flex",
-  justifyContent: "space-between",
-  alignItems: "center",
-  marginBottom: 24,
+const caixaInterna = {
+  background: "#020617",
+  border: "1px solid #374151",
+  borderRadius: "14px",
+  padding: "16px",
+  marginBottom: "18px",
 };
 
-const titulo = {
-  margin: 0,
-  fontSize: 32,
-  fontWeight: 950,
-  color: "#0f172a",
+const caixaDestaque = {
+  background: "#020617",
+  border: "1px solid #22c55e",
+  borderRadius: "14px",
+  padding: "16px",
+  marginBottom: "18px",
 };
 
-const texto = {
-  color: "#475569",
-  fontWeight: 700,
-};
-
-const buscaBox = {
+const gradeCards = {
   display: "grid",
-  gridTemplateColumns: "1fr 140px",
-  gap: 12,
-  marginBottom: 20,
+  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+  gap: "12px",
+  marginBottom: "18px",
+};
+
+const cardInfo = {
+  background: "#020617",
+  border: "1px solid #374151",
+  borderRadius: "12px",
+  padding: "12px",
+  color: "#e5e7eb",
 };
 
 const input = {
+  flex: "1 1 280px",
+  background: "#020617",
+  color: "#ffffff",
+  border: "1px solid #374151",
+  borderRadius: "10px",
+  padding: "12px",
+  outline: "none",
+};
+
+const select = {
   width: "100%",
-  padding: 15,
-  borderRadius: 14,
-  border: "1px solid #cbd5e1",
-  fontSize: 15,
-  fontWeight: 700,
-  boxSizing: "border-box",
-  background: "#fff",
-  color: "#0f172a",
+  background: "#111827",
+  color: "#ffffff",
+  border: "1px solid #374151",
+  borderRadius: "10px",
+  padding: "12px",
+  marginBottom: "10px",
 };
 
 const textarea = {
   width: "100%",
-  minHeight: 120,
-  padding: 15,
-  borderRadius: 14,
-  border: "1px solid #cbd5e1",
-  fontSize: 15,
-  fontWeight: 700,
-  boxSizing: "border-box",
+  background: "#111827",
+  color: "#ffffff",
+  border: "1px solid #374151",
+  borderRadius: "10px",
+  padding: "12px",
   resize: "vertical",
-  fontFamily: "inherit",
+  outline: "none",
+  marginBottom: "10px",
 };
 
 const label = {
   display: "block",
-  marginBottom: 8,
-  color: "#334155",
-  fontWeight: 900,
+  marginBottom: "8px",
+  color: "#d1d5db",
 };
 
-const botaoBuscar = {
+const botaoPrincipal = {
+  background: "#22c55e",
+  color: "#020617",
   border: "none",
-  background: "linear-gradient(90deg,#a855f7,#7e22ce)",
-  color: "#fff",
-  padding: "13px 20px",
-  borderRadius: 12,
-  fontWeight: 900,
+  borderRadius: "10px",
+  padding: "12px 16px",
+  fontWeight: "bold",
   cursor: "pointer",
 };
 
-const botaoSalvar = {
-  marginTop: 16,
-  border: "none",
-  background: "linear-gradient(90deg,#16a34a,#15803d)",
-  color: "#fff",
-  padding: "14px 22px",
-  borderRadius: 12,
-  fontWeight: 950,
-  cursor: "pointer",
-};
-
-const botaoVoltar = {
-  border: "none",
-  background: "#0f172a",
-  color: "#fff",
-  padding: "13px 18px",
-  borderRadius: 12,
-  fontWeight: 900,
-  cursor: "pointer",
-};
-
-const grid = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 18,
-  marginBottom: 18,
-};
-
-const cardGrande = {
-  background: "#fff",
-  borderRadius: 18,
-  padding: 22,
-  border: "1px solid #e5e7eb",
-  boxShadow: "0 10px 25px rgba(15,23,42,.08)",
-  marginBottom: 18,
-};
-
-const secaoTitulo = {
-  marginTop: 0,
-  marginBottom: 18,
-  fontSize: 22,
-  fontWeight: 950,
-  color: "#0f172a",
-};
-
-const dadosGrid = {
-  display: "grid",
-  gridTemplateColumns: "repeat(2, minmax(180px, 1fr))",
-  gap: 14,
-};
-
-const finalizacaoGrid = {
-  display: "grid",
-  gridTemplateColumns: "2fr 1fr 1fr",
-  gap: 14,
-};
-
-const infoBox = {
-  background: "#f8fafc",
-  border: "1px solid #e5e7eb",
-  borderRadius: 14,
-  padding: 14,
-};
-
-const infoLabel = {
-  display: "block",
-  color: "#64748b",
-  fontSize: 12,
-  fontWeight: 900,
-  marginBottom: 6,
-  textTransform: "uppercase",
-};
-
-const infoValue = {
-  color: "#0f172a",
-  fontSize: 15,
-};
-
-const acoesAtendimentoBox = {
-  marginTop: 26,
-  paddingTop: 24,
-  borderTop: "2px solid #e5e7eb",
-};
-
-const acoesAtendimentoTitulo = {
-  margin: "0 0 6px 0",
-  fontSize: 22,
-  fontWeight: 950,
-  color: "#0f172a",
-};
-
-const acoesAtendimentoSubtitulo = {
-  margin: "0 0 18px 0",
-  color: "#475569",
-  fontWeight: 800,
-};
-
-const acoesAtendimentoGrid = {
-  display: "grid",
-  gridTemplateColumns: "1fr 1fr",
-  gap: 18,
-  alignItems: "start",
-};
-
-const acaoOperacionalCard = {
-  minWidth: 0,
-};
-
-const historicoBox = {
-  display: "grid",
-  gap: 12,
-};
-
-const historicoItem = {
-  background: "#f8fafc",
-  border: "1px solid #e5e7eb",
-  borderRadius: 14,
-  padding: 14,
-};
-
-const vazioBox = {
-  background: "#fff",
-  border: "1px solid #e5e7eb",
-  borderRadius: 18,
-  padding: 22,
-  color: "#475569",
-  fontWeight: 800,
-};
-
-const erroBox = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  border: "1px solid #ef4444",
-  padding: 14,
-  borderRadius: 12,
-  marginBottom: 18,
-  fontWeight: 900,
-};
-
-const sucessoBox = {
-  background: "#dcfce7",
-  color: "#166534",
+const botaoSecundario = {
+  background: "#1f2937",
+  color: "#ffffff",
   border: "1px solid #22c55e",
-  padding: 14,
-  borderRadius: 12,
-  marginBottom: 18,
-  fontWeight: 900,
+  borderRadius: "10px",
+  padding: "12px 14px",
+  fontWeight: "bold",
+  cursor: "pointer",
 };
