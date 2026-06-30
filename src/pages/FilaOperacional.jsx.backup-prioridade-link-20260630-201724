@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
-import PrioridadeLinksOperador from "../components/PrioridadeLinksOperador";
 
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
@@ -769,7 +768,6 @@ export default function FilaOperador() {
 
   return (
     <div style={pagina}>
-      <PrioridadeLinksOperador />
       <div style={cabecalho}>
         <div>
           <h1 style={titulo}>Fila do operador</h1>
