@@ -25,6 +25,7 @@ const FILTROS = [
 
 const STATUS_FINALIZACAO = [
   "CONTATAR",
+  "MENSAGEM_ENVIADA",
   "EM_ATENDIMENTO",
   "ALUNO_EM_NEGOCIACAO_24H",
   "RETORNAR_DEPOIS",
@@ -104,6 +105,7 @@ function dataFimHojeISO() {
 }
 
 function definirProximaAcao(status) {
+  if (status === "MENSAGEM_ENVIADA") return "AGUARDAR_RETORNO";
   if (status === "RETORNAR_DEPOIS") return "RETORNAR";
   if (status === "ALUNO_EM_NEGOCIACAO_24H") return "RETORNAR";
   if (status === "ACORDO_FECHADO") return "ACOMPANHAR_PAGAMENTO";
