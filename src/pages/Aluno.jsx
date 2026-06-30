@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
 import { supabase } from "../services/supabase";
 
 const OPERADORES_REATIVA = [
@@ -85,8 +84,6 @@ function moeda(valor) {
 }
 
 export default function Alunos() {
-  const [searchParams] = useSearchParams();
-
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
@@ -100,26 +97,39 @@ export default function Alunos() {
   const [carregando, setCarregando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
+  const [origemAbertura, setOrigemAbertura] = useState("");
 
   useEffect(() => {
-    iniciarTela();
+    inicializarTelaAlunos();
   }, []);
 
-  useEffect(() => {
-    const alunoIdDaUrl = searchParams.get("alunoId");
-    const alunoIdSalvo = localStorage.getItem("reativa_aluno_abrir_id");
-
-    const alunoId = alunoIdDaUrl || alunoIdSalvo;
-
-    if (alunoId) {
-      abrirAlunoPorId(alunoId);
-      localStorage.removeItem("reativa_aluno_abrir_id");
-    }
-  }, [searchParams]);
-
-  async function iniciarTela() {
+  async function inicializarTelaAlunos() {
     const usuario = await pegarUsuarioLogado();
     setUsuarioLogado(usuario);
+
+    const parametros = new URLSearchParams(window.location.search);
+
+    const alunoIdDaUrl =
+      parametros.get("alunoId") ||
+      parametros.get("id") ||
+      parametros.get("aluno");
+
+    const alunoIdLocalStorage = localStorage.getItem("reativa_aluno_abrir_id");
+    const alunoIdSessionStorage = sessionStorage.getItem("reativa_aluno_abrir_id");
+
+    const alunoId =
+      alunoIdDaUrl || alunoIdLocalStorage || alunoIdSessionStorage;
+
+    if (alunoId) {
+      setOrigemAbertura(`Abrindo aluno recebido da fila: ${alunoId}`);
+
+      localStorage.removeItem("reativa_aluno_abrir_id");
+      sessionStorage.removeItem("reativa_aluno_abrir_id");
+
+      await abrirAlunoPorId(alunoId);
+      return;
+    }
+
     await carregarAlunos();
   }
 
@@ -185,7 +195,9 @@ export default function Alunos() {
     }
   }
 
-  async function abrirAlunoPorId(alunoId) {
+  async function abrirAlunoPorId(alunoIdRecebido) {
+    const alunoId = String(alunoIdRecebido || "").trim();
+
     if (!alunoId) return;
 
     setCarregando(true);
@@ -199,21 +211,32 @@ export default function Alunos() {
         .maybeSingle();
 
       if (error) {
-        console.error("Erro ao abrir aluno pela fila:", error);
+        console.error("Erro ao abrir aluno automaticamente:", error);
         setErro("Erro ao abrir aluno selecionado pela fila.");
+        await carregarAlunos();
         return;
       }
 
       if (!data) {
-        setErro("Aluno não encontrado.");
+        setErro("Aluno recebido da fila não foi encontrado na tabela alunos.");
+        await carregarAlunos();
         return;
       }
 
       prepararAlunoNaTela(data);
       await carregarMovimentacoes(data.id);
+
+      setAlunos([data]);
+
+      window.history.replaceState(
+        null,
+        "",
+        `/alunos?alunoId=${encodeURIComponent(data.id)}`
+      );
     } catch (e) {
-      console.error("Erro inesperado ao abrir aluno pela fila:", e);
+      console.error("Erro inesperado ao abrir aluno automaticamente:", e);
       setErro("Erro inesperado ao abrir aluno selecionado.");
+      await carregarAlunos();
     } finally {
       setCarregando(false);
     }
@@ -254,6 +277,7 @@ export default function Alunos() {
 
     if (data) {
       prepararAlunoNaTela(data);
+      setAlunos([data]);
     }
   }
 
@@ -388,7 +412,6 @@ export default function Alunos() {
 
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
-      await carregarAlunos();
 
       alert("Atendimento assumido com sucesso.");
     } catch (e) {
@@ -424,7 +447,9 @@ export default function Alunos() {
         null
       );
 
-      const retornoIso = dataRetorno ? new Date(dataRetorno).toISOString() : null;
+      const retornoIso = dataRetorno
+        ? new Date(dataRetorno).toISOString()
+        : null;
 
       await registrarMovimentacao({
         alunoId: alunoSelecionado.id,
@@ -442,7 +467,6 @@ export default function Alunos() {
 
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
-      await carregarAlunos();
 
       alert("Finalização registrada com sucesso.");
     } catch (e) {
@@ -577,7 +601,6 @@ export default function Alunos() {
 
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
-      await carregarAlunos();
 
       alert("Operador responsável alterado com sucesso.");
     } catch (e) {
@@ -601,6 +624,12 @@ export default function Alunos() {
             <p style={usuarioTexto}>
               Usuário logado: <strong>{usuarioLogado.nome}</strong>
               {usuarioLogado.email ? ` - ${usuarioLogado.email}` : ""}
+            </p>
+          )}
+
+          {origemAbertura && (
+            <p style={origemTexto}>
+              {origemAbertura}
             </p>
           )}
         </div>
@@ -949,6 +978,12 @@ const usuarioTexto = {
   margin: "8px 0 0",
   color: "#94a3b8",
   fontSize: "14px",
+};
+
+const origemTexto = {
+  margin: "8px 0 0",
+  color: "#86efac",
+  fontSize: "13px",
 };
 
 const tituloSecao = {
