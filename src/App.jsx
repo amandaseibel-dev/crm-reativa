@@ -46,7 +46,9 @@ function podeAcessar(perfil, rota) {
       "/usuarios",
       "/relatorios",
       "/configuracoes",
-    ],
+
+      "/controle-links-pagamento",
+      "/minha-fila-pagamentos",    ],
     supervisor: [
       "/",
       "/minha-fila",
@@ -58,7 +60,9 @@ function podeAcessar(perfil, rota) {
       "/base-analitica",
       "/termos-adm",
       "/relatorios",
-    ],
+
+      "/controle-links-pagamento",
+      "/minha-fila-pagamentos",    ],
     administrativo: [
       "/",
       "/minha-fila",
@@ -68,7 +72,9 @@ function podeAcessar(perfil, rota) {
       "/crm",
       "/financeiro",
       "/termos-adm",
-    ],
+
+      "/controle-links-pagamento",
+      "/minha-fila-pagamentos",    ],
     operador: [
       "/",
       "/minha-fila",
@@ -170,6 +176,8 @@ export default function App() {
     { rota: "/aluno", label: "👤 Aluno" },
     { rota: "/crm", label: "📞 CRM Operacional" },
     { rota: "/financeiro", label: "💰 Financeiro" },
+    { rota: "/controle-links-pagamento", label: "🔗 Fila de Links" },
+    { rota: "/minha-fila-pagamentos", label: "💳 Fila de Baixas" },
     { rota: "/base-analitica", label: "📊 Base Analítica" },
     { rota: "/termos-adm", label: "📎 Termos ADM" },
     { rota: "/borderos", label: "📑 Borderôs" },
