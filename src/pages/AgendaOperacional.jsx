@@ -75,6 +75,17 @@ function corStatus(status) {
   return "#64748b";
 }
 
+
+function podeVerAgendaGeral(email) {
+  const e = String(email || "").toLowerCase();
+
+  return [
+    "amanda.seibel@aelbra.com.br",
+    "cobranca07@aelbra.com.br",
+    "cobranca04@aelbra.com.br",
+  ].includes(e);
+}
+
 export default function AgendaOperacional() {
   const [usuario, setUsuario] = useState(null);
   const [alunos, setAlunos] = useState([]);
@@ -154,7 +165,7 @@ export default function AgendaOperacional() {
 
   const emailUsuario = usuario?.email || "";
   const nomeUsuario = nomeOperadorPorEmail(emailUsuario);
-  const adm = podeVerTudo(emailUsuario);
+  const adm = podeVerTudo(emailUsuario) || podeVerAgendaGeral(emailUsuario);
 
   const alunosFiltrados = useMemo(() => {
     let lista = [...alunos];

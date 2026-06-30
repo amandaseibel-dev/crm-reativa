@@ -34,6 +34,8 @@ function podeAcessar(perfil, rota) {
     gerencia: [
       "/",
       "/minha-fila",
+      "/agenda",
+      "/agenda-operacional",
       "/aluno",
       "/crm",
       "/financeiro",
@@ -48,6 +50,8 @@ function podeAcessar(perfil, rota) {
     supervisor: [
       "/",
       "/minha-fila",
+      "/agenda",
+      "/agenda-operacional",
       "/aluno",
       "/crm",
       "/financeiro",
@@ -58,6 +62,8 @@ function podeAcessar(perfil, rota) {
     administrativo: [
       "/",
       "/minha-fila",
+      "/agenda",
+      "/agenda-operacional",
       "/aluno",
       "/crm",
       "/financeiro",
@@ -160,6 +166,7 @@ export default function App() {
       label: "⚡ Fila Operacional",
       esconderParaOperador: true,
     },
+    { rota: "/agenda", label: "📅 Agenda Operacional" },
     { rota: "/aluno", label: "👤 Aluno" },
     { rota: "/crm", label: "📞 CRM Operacional" },
     { rota: "/financeiro", label: "💰 Financeiro" },
@@ -170,8 +177,6 @@ export default function App() {
     { rota: "/usuarios", label: "👥 Usuários" },
     { rota: "/relatorios", label: "📈 Relatórios" },
     { rota: "/configuracoes", label: "⚙️ Configurações" },
-    { rota: "/agenda",
-      "/agenda-operacional", label: "📅 Agenda" },
   ];
 
   const menu = menuBase.filter((item) => {
