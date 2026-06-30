@@ -19,15 +19,15 @@ export default function LinksPagamentoAluno({
   const [parcelas, setParcelas] = useState(1);
   const [dataVencimento, setDataVencimento] = useState("");
   const [observacao, setObservacao] = useState("");
-  const [linksAluno, setLinksAluno] = useState([]);
+  const [historico, setHistorico] = useState([]);
   const [carregando, setCarregando] = useState(false);
-  const [carregandoLista, setCarregandoLista] = useState(false);
   const [erro, setErro] = useState("");
 
   const nomeAluno =
     alunoAtual?.nome ||
     alunoAtual?.aluno_nome ||
     alunoAtual?.nome_aluno ||
+    alunoAtual?.nome_completo ||
     alunoAtual?.NOME ||
     alunoAtual?.Nome ||
     "";
@@ -35,9 +35,8 @@ export default function LinksPagamentoAluno({
   const cpfAluno =
     alunoAtual?.cpf ||
     alunoAtual?.aluno_cpf ||
-    alunoAtual?.CPF ||
     alunoAtual?.documento ||
-    alunoAtual?.Documento ||
+    alunoAtual?.CPF ||
     "";
 
   const alunoId =
@@ -49,14 +48,22 @@ export default function LinksPagamentoAluno({
     null;
 
   useEffect(() => {
-    carregarLinksAluno();
+    carregarHistorico();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [alunoId]);
+  }, [alunoId, cpfAluno, nomeAluno]);
 
-  async function carregarLinksAluno() {
+  function converterValor(valorDigitado) {
+    return Number(
+      String(valorDigitado || "")
+        .replace("R$", "")
+        .replace(/\s/g, "")
+        .replace(/\./g, "")
+        .replace(",", ".")
+    );
+  }
+
+  async function carregarHistorico() {
     if (!alunoId && !cpfAluno && !nomeAluno) return;
-
-    setCarregandoLista(true);
 
     let query = supabase
       .from("links_pagamento")
@@ -73,35 +80,22 @@ export default function LinksPagamentoAluno({
 
     const { data, error } = await query;
 
-    setCarregandoLista(false);
-
-    if (error) {
-      console.error("Erro ao carregar links do aluno:", error);
-      return;
+    if (!error) {
+      setHistorico(data || []);
     }
-
-    setLinksAluno(data || []);
-  }
-
-  function converterValor(valorDigitado) {
-    const texto = String(valorDigitado || "")
-      .replace("R$", "")
-      .replace(/\s/g, "")
-      .replace(/\./g, "")
-      .replace(",", ".");
-
-    return Number(texto);
   }
 
   async function solicitarLink() {
     setErro("");
 
     if (!nomeAluno) {
-      setErro("Nome do aluno não encontrado na ficha.");
+      setErro("Aluno não identificado na ficha.");
       return;
     }
 
-    if (!valor || converterValor(valor) <= 0) {
+    const valorNumerico = converterValor(valor);
+
+    if (!valorNumerico || valorNumerico <= 0) {
       setErro("Informe o valor do link.");
       return;
     }
@@ -113,36 +107,31 @@ export default function LinksPagamentoAluno({
 
     setCarregando(true);
 
-    const payload = {
-      aluno_id: alunoId ? String(alunoId) : null,
-      aluno_nome: nomeAluno,
-      aluno_cpf: cpfAluno || null,
-      operador_solicitante:
+    const { error } = await supabase.rpc("solicitar_link_pagamento", {
+      p_aluno_id: alunoId ? String(alunoId) : null,
+      p_aluno_nome: nomeAluno,
+      p_aluno_cpf: cpfAluno || null,
+      p_operador_solicitante:
         usuarioAtual?.email ||
         usuarioAtual?.nome ||
         usuarioAtual?.name ||
         "operador",
-      operador_nome:
+      p_operador_nome:
         usuarioAtual?.nome ||
         usuarioAtual?.name ||
         usuarioAtual?.email ||
         "Operador",
-      valor: converterValor(valor),
-      parcelas: Number(parcelas) || 1,
-      data_vencimento: dataVencimento,
-      observacao: observacao || null,
-      status: "SOLICITADO_LINK"
-    };
-
-    const { error } = await supabase
-      .from("links_pagamento")
-      .insert(payload);
+      p_valor: valorNumerico,
+      p_parcelas: Number(parcelas) || 1,
+      p_data_vencimento: dataVencimento,
+      p_observacao: observacao || null
+    });
 
     setCarregando(false);
 
     if (error) {
       console.error("Erro ao solicitar link:", error);
-      setErro("Não foi possível solicitar o link. Verifique os dados e tente novamente.");
+      setErro(error.message || "Não foi possível solicitar o link.");
       return;
     }
 
@@ -152,18 +141,17 @@ export default function LinksPagamentoAluno({
     setObservacao("");
     setAberto(false);
 
-    await carregarLinksAluno();
+    await carregarHistorico();
 
     if (onSucesso) onSucesso();
     if (onAtualizar) onAtualizar();
 
-    alert("Link solicitado com sucesso. Já foi enviado para a fila ADM/Supervisão.");
+    alert("Link solicitado com sucesso. Foi enviado para a fila ADM/Supervisão.");
   }
 
-  function formatarMoeda(valor) {
-    if (valor === null || valor === undefined || valor === "") return "-";
-
-    return Number(valor).toLocaleString("pt-BR", {
+  function formatarMoeda(numero) {
+    if (numero === null || numero === undefined || numero === "") return "-";
+    return Number(numero).toLocaleString("pt-BR", {
       style: "currency",
       currency: "BRL"
     });
@@ -171,26 +159,12 @@ export default function LinksPagamentoAluno({
 
   function formatarData(data) {
     if (!data) return "-";
-
-    const partes = String(data).split("-");
-    if (partes.length === 3) {
-      return `${partes[2]}/${partes[1]}/${partes[0]}`;
+    const texto = String(data);
+    const partes = texto.split("-");
+    if (partes.length >= 3) {
+      return `${partes[2].slice(0, 2)}/${partes[1]}/${partes[0]}`;
     }
-
-    return data;
-  }
-
-  function corStatus(status) {
-    if (status === "SOLICITADO_LINK") return "#f97316";
-    if (status === "LINK_EM_ATENDIMENTO") return "#eab308";
-    if (status === "LINK_GERADO") return "#2563eb";
-    if (status === "LINK_RESPONDIDO") return "#2563eb";
-    if (status === "LINK_PRONTO_PARA_ENVIO") return "#16a34a";
-    if (status === "LINK_ENVIADO_AO_ALUNO") return "#15803d";
-    if (status === "AGUARDANDO_BAIXA") return "#7c3aed";
-    if (status === "BAIXA_REALIZADA") return "#047857";
-    if (status === "BAIXA_DEVOLVIDA") return "#dc2626";
-    return "#475569";
+    return texto;
   }
 
   return (
@@ -199,15 +173,11 @@ export default function LinksPagamentoAluno({
         <div>
           <h3 style={titulo}>Links de pagamento</h3>
           <p style={subtitulo}>
-            Solicite link em poucos cliques. Nome e CPF já vêm da ficha do aluno.
+            Solicite o link com valor, parcelas e vencimento. Sem pop-up e sem envio vazio.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setAberto(!aberto)}
-          style={botaoPrincipal}
-        >
+        <button type="button" onClick={() => setAberto(!aberto)} style={botaoPrincipal}>
           {aberto ? "Fechar" : "Solicitar link"}
         </button>
       </div>
@@ -215,19 +185,19 @@ export default function LinksPagamentoAluno({
       {aberto && (
         <div style={formulario}>
           <div style={linha}>
-            <div style={campoMetade}>
+            <div style={campo}>
               <label style={label}>Aluno</label>
               <input value={nomeAluno} readOnly style={inputBloqueado} />
             </div>
 
-            <div style={campoMetade}>
+            <div style={campo}>
               <label style={label}>CPF</label>
               <input value={cpfAluno} readOnly style={inputBloqueado} />
             </div>
           </div>
 
           <div style={linha}>
-            <div style={campoMetade}>
+            <div style={campo}>
               <label style={label}>Valor do link</label>
               <input
                 value={valor}
@@ -237,7 +207,7 @@ export default function LinksPagamentoAluno({
               />
             </div>
 
-            <div style={campoMetade}>
+            <div style={campo}>
               <label style={label}>Parcelas</label>
               <input
                 type="number"
@@ -247,15 +217,17 @@ export default function LinksPagamentoAluno({
                 style={input}
               />
             </div>
-          </div>
 
-          <label style={label}>Data de vencimento do link</label>
-          <input
-            type="date"
-            value={dataVencimento}
-            onChange={(e) => setDataVencimento(e.target.value)}
-            style={input}
-          />
+            <div style={campo}>
+              <label style={label}>Vencimento</label>
+              <input
+                type="date"
+                value={dataVencimento}
+                onChange={(e) => setDataVencimento(e.target.value)}
+                style={input}
+              />
+            </div>
+          </div>
 
           <label style={label}>Observação, se necessário</label>
           <textarea
@@ -273,73 +245,29 @@ export default function LinksPagamentoAluno({
             disabled={carregando}
             style={{
               ...botaoConfirmar,
-              background: carregando ? "#94a3b8" : "#0f172a",
+              opacity: carregando ? 0.6 : 1,
               cursor: carregando ? "not-allowed" : "pointer"
             }}
           >
-            {carregando ? "Enviando para fila ADM..." : "Confirmar solicitação"}
+            {carregando ? "Enviando..." : "Confirmar solicitação"}
           </button>
         </div>
       )}
 
-      <div style={historico}>
-        <h4 style={tituloHistorico}>Histórico de links deste aluno</h4>
+      {historico.length > 0 && (
+        <div style={historicoBox}>
+          <h4 style={tituloHistorico}>Histórico de links</h4>
 
-        {carregandoLista && (
-          <p style={textoVazio}>Carregando links...</p>
-        )}
-
-        {!carregandoLista && linksAluno.length === 0 && (
-          <p style={textoVazio}>Nenhum link solicitado para este aluno ainda.</p>
-        )}
-
-        {!carregandoLista && linksAluno.map((link) => (
-          <div key={link.id} style={itemHistorico}>
-            <div style={linhaStatus}>
-              <strong>{formatarMoeda(link.valor)}</strong>
-
-              <span
-                style={{
-                  ...badge,
-                  background: corStatus(link.status)
-                }}
-              >
-                {link.status}
-              </span>
+          {historico.map((item) => (
+            <div key={item.id} style={historicoItem}>
+              <strong>{item.status}</strong>
+              <span>{formatarMoeda(item.valor)}</span>
+              <span>Parcelas: {item.parcelas || 1}</span>
+              <span>Vencimento: {formatarData(item.data_vencimento)}</span>
             </div>
-
-            <div style={detalhes}>
-              <span>Parcelas: {link.parcelas || 1}</span>
-              <span>Vencimento: {formatarData(link.data_vencimento)}</span>
-            </div>
-
-            {link.link_pagamento && (
-              <div style={linkBox}>
-                <input
-                  value={link.link_pagamento}
-                  readOnly
-                  style={inputLink}
-                />
-                <button
-                  type="button"
-                  onClick={() => navigator.clipboard.writeText(link.link_pagamento)}
-                  style={botaoCopiar}
-                >
-                  Copiar
-                </button>
-              </div>
-            )}
-
-            {link.mensagem_pronta && (
-              <textarea
-                value={link.mensagem_pronta}
-                readOnly
-                style={mensagemPronta}
-              />
-            )}
-          </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -349,7 +277,7 @@ const container = {
   padding: "16px",
   border: "1px solid #d1d5db",
   borderRadius: "12px",
-  background: "#ffffff"
+  background: "#fff"
 };
 
 const cabecalho = {
@@ -362,8 +290,8 @@ const cabecalho = {
 const titulo = {
   margin: 0,
   fontSize: "18px",
-  fontWeight: "800",
-  color: "#0f172a"
+  color: "#0f172a",
+  fontWeight: "900"
 };
 
 const subtitulo = {
@@ -376,11 +304,10 @@ const botaoPrincipal = {
   background: "#16a34a",
   color: "#fff",
   border: "none",
-  padding: "10px 14px",
   borderRadius: "8px",
-  fontWeight: "800",
-  cursor: "pointer",
-  whiteSpace: "nowrap"
+  padding: "10px 14px",
+  fontWeight: "900",
+  cursor: "pointer"
 };
 
 const formulario = {
@@ -397,25 +324,24 @@ const linha = {
   flexWrap: "wrap"
 };
 
-const campoMetade = {
-  flex: "1 1 220px"
+const campo = {
+  flex: "1 1 180px"
 };
 
 const label = {
   display: "block",
-  fontSize: "13px",
-  fontWeight: "700",
+  marginBottom: "5px",
   color: "#334155",
-  marginBottom: "5px"
+  fontWeight: "800",
+  fontSize: "13px"
 };
 
 const input = {
   width: "100%",
   padding: "10px",
-  marginBottom: "12px",
   border: "1px solid #cbd5e1",
   borderRadius: "8px",
-  fontSize: "14px",
+  marginBottom: "12px",
   boxSizing: "border-box"
 };
 
@@ -427,7 +353,7 @@ const inputBloqueado = {
 
 const textarea = {
   ...input,
-  minHeight: "78px",
+  minHeight: "80px",
   resize: "vertical"
 };
 
@@ -437,95 +363,36 @@ const erroBox = {
   padding: "10px",
   borderRadius: "8px",
   marginBottom: "10px",
-  fontWeight: "700"
-};
-
-const botaoConfirmar = {
-  color: "#fff",
-  border: "none",
-  padding: "11px 16px",
-  borderRadius: "8px",
-  fontWeight: "800",
-  width: "100%"
-};
-
-const historico = {
-  marginTop: "16px"
-};
-
-const tituloHistorico = {
-  margin: "0 0 10px",
-  color: "#0f172a"
-};
-
-const textoVazio = {
-  color: "#64748b",
-  fontSize: "14px",
-  margin: 0
-};
-
-const itemHistorico = {
-  border: "1px solid #e2e8f0",
-  borderRadius: "10px",
-  padding: "12px",
-  marginBottom: "10px",
-  background: "#ffffff"
-};
-
-const linhaStatus = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: "10px",
-  alignItems: "center"
-};
-
-const badge = {
-  color: "#fff",
-  borderRadius: "999px",
-  padding: "4px 9px",
-  fontSize: "11px",
   fontWeight: "800"
 };
 
-const detalhes = {
-  display: "flex",
-  gap: "12px",
-  flexWrap: "wrap",
-  color: "#64748b",
-  fontSize: "13px",
-  marginTop: "8px"
-};
-
-const linkBox = {
-  display: "flex",
-  gap: "8px",
-  marginTop: "10px"
-};
-
-const inputLink = {
-  flex: 1,
-  padding: "9px",
-  border: "1px solid #cbd5e1",
-  borderRadius: "8px"
-};
-
-const botaoCopiar = {
+const botaoConfirmar = {
   background: "#0f172a",
   color: "#fff",
   border: "none",
   borderRadius: "8px",
-  padding: "0 12px",
-  fontWeight: "800",
-  cursor: "pointer"
+  padding: "11px 16px",
+  fontWeight: "900",
+  width: "100%"
 };
 
-const mensagemPronta = {
-  width: "100%",
-  marginTop: "10px",
-  minHeight: "120px",
+const historicoBox = {
+  marginTop: "14px"
+};
+
+const tituloHistorico = {
+  margin: "0 0 8px",
+  color: "#0f172a"
+};
+
+const historicoItem = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "10px",
   padding: "10px",
-  border: "1px solid #cbd5e1",
+  border: "1px solid #e2e8f0",
   borderRadius: "8px",
-  resize: "vertical",
-  boxSizing: "border-box"
+  marginBottom: "8px",
+  color: "#334155",
+  fontSize: "13px"
 };
