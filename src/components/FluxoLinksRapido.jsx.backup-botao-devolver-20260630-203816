@@ -3,10 +3,8 @@ import { supabase } from "../services/supabase";
 
 const EMAILS_ADM_SUPERVISAO = [
   "amanda.seibel@aelbra.com.br",
-  "amandaseibel1706@gmail.com",
   "cobranca07@aelbra.com.br",
-  "cobranca08@aelbra.com.br",
-  "fernanda@aelbra.com.br"
+  "cobranca08@aelbra.com.br"
 ];
 
 export default function FluxoLinksRapido() {
@@ -51,13 +49,15 @@ export default function FluxoLinksRapido() {
         email = data.user.email;
       }
 
-      nome =
-        data?.user?.user_metadata?.nome ||
-        data?.user?.user_metadata?.name ||
-        data?.user?.user_metadata?.full_name ||
-        "";
+      if (data?.user?.user_metadata?.nome) {
+        nome = data.user.user_metadata.nome;
+      }
+
+      if (data?.user?.user_metadata?.name) {
+        nome = data.user.user_metadata.name;
+      }
     } catch (error) {
-      console.warn("Não foi possível ler usuário autenticado:", error);
+      console.warn("Não foi possível ler usuário do Supabase Auth:", error);
     }
 
     try {
@@ -77,20 +77,20 @@ export default function FluxoLinksRapido() {
         if (!nome) {
           try {
             const json = JSON.parse(valor);
+
             nome =
               json?.nome ||
               json?.name ||
               json?.usuario_nome ||
               json?.operador_nome ||
-              json?.full_name ||
-              "";
+              nome;
           } catch {
-            // ignora
+            // ignora valores que não são JSON
           }
         }
       }
     } catch (error) {
-      console.warn("Não foi possível ler localStorage:", error);
+      console.warn("Não foi possível ler usuário do localStorage:", error);
     }
 
     const emailLower = String(email || "").toLowerCase();
@@ -98,7 +98,7 @@ export default function FluxoLinksRapido() {
 
     const podeVerAdm =
       EMAILS_ADM_SUPERVISAO.includes(emailLower) ||
-      emailLower.includes("amanda") ||
+      emailLower.includes("amanda.seibel") ||
       emailLower.includes("cobranca07") ||
       emailLower.includes("cobranca08") ||
       emailLower.includes("fernanda") ||
@@ -121,7 +121,7 @@ export default function FluxoLinksRapido() {
 
     const podeVerAdm = Boolean(usuarioParametro?.podeVerAdm);
 
-    const consultaPrioridade = supabase
+    const consultaOperador = supabase
       .from("vw_links_prioridade_operador")
       .select("*")
       .eq("status", "LINK_PRONTO_PARA_ENVIO")
@@ -134,43 +134,52 @@ export default function FluxoLinksRapido() {
           .order("criado_em", { ascending: true })
       : Promise.resolve({ data: [], error: null });
 
-    const [resAdm, resPrioridade] = await Promise.all([
+    const [resAdm, resOperador] = await Promise.all([
       consultaAdm,
-      consultaPrioridade
+      consultaOperador
     ]);
 
     setCarregando(false);
 
     if (resAdm.error) {
-      console.error("Erro ao carregar fila ADM:", resAdm.error);
-      setErro("Não foi possível carregar a fila ADM/Supervisão.");
+      console.error("Erro fila ADM links:", resAdm.error);
+      setErro("Não foi possível carregar a fila ADM de links.");
       return;
     }
 
-    if (resPrioridade.error) {
-      console.error("Erro ao carregar prioridade do operador:", resPrioridade.error);
-      setErro("Não foi possível carregar os links prontos para envio.");
+    if (resOperador.error) {
+      console.error("Erro prioridade operador links:", resOperador.error);
+      setErro("Não foi possível carregar os retornos prioritários de links.");
       return;
     }
+
+    const prioridadesSeguras = filtrarPrioridadesDoOperador(
+      resOperador.data || [],
+      usuarioParametro
+    );
 
     setPendentesAdm(podeVerAdm ? resAdm.data || [] : []);
-    setPrioridadesOperador(filtrarPrioridadesSeguras(resPrioridade.data || [], usuarioParametro));
+    setPrioridadesOperador(prioridadesSeguras);
   }
 
-  function filtrarPrioridadesSeguras(lista, usuario) {
+  function filtrarPrioridadesDoOperador(lista, usuario) {
     const email = String(usuario?.email || "").toLowerCase();
     const nome = String(usuario?.nome || "").toLowerCase();
 
-    return (lista || []).filter((item) => {
-      const statusOk = item.status === "LINK_PRONTO_PARA_ENVIO";
+    const listaSegura = (lista || []).filter((item) => {
+      const statusCorreto = item.status === "LINK_PRONTO_PARA_ENVIO";
       const linkOk = linkCompleto(item.link_pagamento);
       const mensagemOk =
         item.mensagem_pronta &&
         String(item.mensagem_pronta).trim() !== "";
 
-      if (!statusOk || !linkOk || !mensagemOk) return false;
+      if (!statusCorreto || !linkOk || !mensagemOk) {
+        return false;
+      }
 
-      if (!email && !nome) return true;
+      if (!email && !nome) {
+        return true;
+      }
 
       const solicitante = String(item.operador_solicitante || "").toLowerCase();
       const operadorNome = String(item.operador_nome || "").toLowerCase();
@@ -182,27 +191,20 @@ export default function FluxoLinksRapido() {
         operadorNome.includes(nome)
       );
     });
+
+    return listaSegura;
   }
 
   function linkCompleto(link) {
     const texto = String(link || "").trim();
-
-    if (!texto.startsWith("http://") && !texto.startsWith("https://")) {
-      return false;
-    }
-
-    if (texto === "https://" || texto === "http://" || texto === "https://..." || texto === "http://...") {
-      return false;
-    }
-
-    return texto.length >= 12;
+    return texto.startsWith("http://") || texto.startsWith("https://");
   }
 
   async function devolverLinkAoOperador(item) {
     const link = String(linksDigitados[item.id] || "").trim();
 
     if (!linkCompleto(link)) {
-      alert("Cole o link completo. Não pode ser apenas https://... O link precisa começar com http:// ou https://.");
+      alert("Cole o link completo, começando com http:// ou https://");
       return;
     }
 
@@ -234,7 +236,7 @@ export default function FluxoLinksRapido() {
 
     await carregarTudo(usuarioAtual);
 
-    alert("Link devolvido ao operador. Ele agora deve aparecer no topo da fila operacional.");
+    alert("Link devolvido ao operador. Agora aparece como prioridade na fila operacional.");
   }
 
   async function copiarTexto(texto) {
@@ -264,7 +266,7 @@ export default function FluxoLinksRapido() {
       .eq("id", item.id);
 
     if (error) {
-      console.error("Erro ao marcar como enviado:", error);
+      console.error("Erro ao marcar enviado:", error);
       alert("Não foi possível marcar como enviado.");
       return;
     }
@@ -302,7 +304,7 @@ export default function FluxoLinksRapido() {
         {`
           @keyframes piscarLinkReativa {
             0% { box-shadow: 0 0 0 rgba(239, 68, 68, 0.2); }
-            50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.85); }
+            50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.9); }
             100% { box-shadow: 0 0 0 rgba(239, 68, 68, 0.2); }
           }
         `}
@@ -324,11 +326,7 @@ export default function FluxoLinksRapido() {
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => carregarTudo(usuarioAtual)}
-              style={botaoAtualizar}
-            >
+            <button type="button" onClick={() => carregarTudo(usuarioAtual)} style={botaoAtualizar}>
               Atualizar
             </button>
           </div>
@@ -350,7 +348,6 @@ export default function FluxoLinksRapido() {
               </div>
 
               <label style={label}>Colar link completo</label>
-
               <div style={linhaLink}>
                 <input
                   value={linksDigitados[item.id] || ""}
@@ -360,7 +357,7 @@ export default function FluxoLinksRapido() {
                       [item.id]: e.target.value
                     }))
                   }
-                  placeholder="Cole aqui o link completo: https://..."
+                  placeholder="https://..."
                   style={input}
                 />
 
@@ -392,11 +389,7 @@ export default function FluxoLinksRapido() {
               </p>
             </div>
 
-            <button
-              type="button"
-              onClick={() => carregarTudo(usuarioAtual)}
-              style={botaoAtualizarEscuro}
-            >
+            <button type="button" onClick={() => carregarTudo(usuarioAtual)} style={botaoAtualizarEscuro}>
               Atualizar
             </button>
           </div>
@@ -418,7 +411,6 @@ export default function FluxoLinksRapido() {
               </div>
 
               <label style={label}>Link de pagamento</label>
-
               <div style={linhaLink}>
                 <input value={item.link_pagamento || ""} readOnly style={input} />
 
@@ -432,7 +424,6 @@ export default function FluxoLinksRapido() {
               </div>
 
               <label style={label}>Mensagem pronta para enviar ao aluno</label>
-
               <textarea
                 value={item.mensagem_pronta || ""}
                 readOnly
