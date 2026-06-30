@@ -634,7 +634,9 @@ export default function FilaOperador() {
       return;
     }
 
-    const valorDigitado = "";
+    const valorDigitado = window.prompt(
+      "Informe o valor do link de pagamento. Se não souber, deixe em branco e clique em OK."
+    );
 
     if (valorDigitado === null) {
       return;
@@ -654,7 +656,10 @@ export default function FilaOperador() {
       return;
     }
 
-    const observacaoLink = "";
+    const observacaoLink = window.prompt(
+      "Observação para Fernanda / Amanda ADM:",
+      observacao || "Solicitação de link de pagamento."
+    );
 
     if (observacaoLink === null) {
       return;
