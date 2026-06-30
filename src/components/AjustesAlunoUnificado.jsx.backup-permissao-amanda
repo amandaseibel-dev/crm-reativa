@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import { podeBaixarPagamento } from "../utils/operadores";
 
 function dinheiro(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", {
@@ -227,20 +226,6 @@ export default function AjustesAlunoUnificado({ aluno, casos = [], onAtualizar }
     setCasoAberto(null);
 
     if (onAtualizar) onAtualizar();
-  }
-
-  const emailUsuario = usuario?.email || "";
-  const podeAjustar = podeBaixarPagamento(emailUsuario);
-
-  if (usuario && !podeAjustar) {
-    return (
-      <div style={styles.card}>
-        <h2 style={styles.titulo}>Ajustes de Cadastro e Valores</h2>
-        <p style={styles.texto}>
-          Ajustes disponíveis somente para Amanda gestora.
-        </p>
-      </div>
-    );
   }
 
   return (

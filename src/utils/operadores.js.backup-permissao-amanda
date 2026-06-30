@@ -31,8 +31,3 @@ export function podeBaixarPagamento(email) {
   const chave = String(email || "").toLowerCase().trim();
   return chave === "amanda.seibel@aelbra.com.br";
 }
-
-
-export function podeAcessoRestritoAmanda(email) {
-  return podeBaixarPagamento(email);
-}

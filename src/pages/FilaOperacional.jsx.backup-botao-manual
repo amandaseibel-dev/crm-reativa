@@ -344,10 +344,6 @@ export default function FilaOperacional() {
             Links de Pagamento
           </button>
 
-          <button style={styles.botaoEscuro} onClick={() => navigate("/manual-operacao")}>
-            Manual da Operação
-          </button>
-
           <button style={styles.botaoEscuro} onClick={carregarFila}>
             Atualizar
           </button>

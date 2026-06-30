@@ -314,10 +314,6 @@ export default function AgendaOperacional() {
             Alunos Unificados
           </button>
 
-          <button style={styles.botaoEscuro} onClick={() => navigate("/manual-operacao")}>
-            Manual da Operação
-          </button>
-
           <button style={styles.botaoEscuro} onClick={carregarAgenda}>
             Atualizar
           </button>

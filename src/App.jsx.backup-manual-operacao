@@ -17,7 +17,6 @@ import ControleLinksPagamento from "./pages/ControleLinksPagamento";
 import MinhaFilaPagamentos from "./pages/MinhaFilaPagamentos";
 import AgendaOperacional from "./pages/AgendaOperacional";
 import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
-import ManualOperacao from "./pages/ManualOperacao";
 
 function EmDesenvolvimento({ titulo }) {
   return (
@@ -352,7 +351,6 @@ export default function App() {
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
-              <Route path="/manual-operacao" element={<ManualOperacao />} />
       </Routes>
         </main>
       </div>

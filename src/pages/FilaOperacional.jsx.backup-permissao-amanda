@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
-import { nomeOperadorPorEmail, podeVerTudo, podeBaixarPagamento } from "../utils/operadores";
+import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
 
 const STATUS_LABEL = {
   EM_COBRANCA: "Em cobrança",
@@ -224,7 +224,6 @@ export default function FilaOperacional() {
   const emailUsuario = usuario?.email || "";
   const nomeUsuario = nomeOperadorPorEmail(emailUsuario);
   const adm = podeVerTudo(emailUsuario);
-  const amandaGestora = podeBaixarPagamento(emailUsuario);
 
   const lista = useMemo(() => {
     let filtrada = [...alunos];
@@ -342,10 +341,6 @@ export default function FilaOperacional() {
 
           <button style={styles.botaoEscuro} onClick={() => navigate("/controle-links-pagamento")}>
             Links de Pagamento
-          </button>
-
-          <button style={styles.botaoEscuro} onClick={() => navigate("/manual-operacao")}>
-            Manual da Operação
           </button>
 
           <button style={styles.botaoEscuro} onClick={carregarFila}>
@@ -527,7 +522,7 @@ export default function FilaOperacional() {
                 Abrir ficha unificada
               </button>
 
-              {amandaGestora && (
+              {adm && (
                 <button style={styles.botaoCinza} onClick={() => ocultarDaFila(item)}>
                   Ocultar da fila
                 </button>
