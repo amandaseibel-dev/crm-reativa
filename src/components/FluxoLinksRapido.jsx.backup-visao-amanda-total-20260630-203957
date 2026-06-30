@@ -4,7 +4,6 @@ import { supabase } from "../services/supabase";
 const EMAILS_ADM_SUPERVISAO = [
   "amanda.seibel@aelbra.com.br",
   "amandaseibel1706@gmail.com",
-  "amandapradoseibel@gmail.com",
   "cobranca07@aelbra.com.br",
   "cobranca08@aelbra.com.br",
   "fernanda@aelbra.com.br"
@@ -161,7 +160,6 @@ export default function FluxoLinksRapido() {
   function filtrarPrioridadesSeguras(lista, usuario) {
     const email = String(usuario?.email || "").toLowerCase();
     const nome = String(usuario?.nome || "").toLowerCase();
-    const podeVerTudo = Boolean(usuario?.podeVerAdm);
 
     return (lista || []).filter((item) => {
       const statusOk = item.status === "LINK_PRONTO_PARA_ENVIO";
@@ -172,12 +170,7 @@ export default function FluxoLinksRapido() {
 
       if (!statusOk || !linkOk || !mensagemOk) return false;
 
-      // Amanda/ADM/Supervisão vê todos os retornos de link,
-      // mesmo que o operador responsável seja outra pessoa.
-      if (podeVerTudo) return true;
-
-      // Operador comum vê somente o que voltou para ele.
-      if (!email && !nome) return false;
+      if (!email && !nome) return true;
 
       const solicitante = String(item.operador_solicitante || "").toLowerCase();
       const operadorNome = String(item.operador_nome || "").toLowerCase();
