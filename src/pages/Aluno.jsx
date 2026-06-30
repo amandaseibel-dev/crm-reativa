@@ -16,17 +16,18 @@ const OPERADORES_REATIVA = [
 ];
 
 const STATUS_FINALIZACAO = [
+  "CONTATAR",
   "EM_ATENDIMENTO",
   "ALUNO_EM_NEGOCIACAO_24H",
+  "RETORNAR_DEPOIS",
+  "SEM_RETORNO",
+  "NAO_LOCALIZADO",
   "AGUARDANDO_LINK",
   "SOLICITADO_LINK",
   "TERMO_ENVIADO_ADM",
   "TERMO_RECEBIDO_LIBERADO",
   "TERMO_REJEITADO",
   "ACORDO_FECHADO",
-  "SEM_RETORNO",
-  "NAO_LOCALIZADO",
-  "RETORNAR_DEPOIS",
 ];
 
 function formatarDataHora(data) {
@@ -35,10 +36,23 @@ function formatarDataHora(data) {
   try {
     return new Date(data).toLocaleString("pt-BR", {
       dateStyle: "short",
-      timeStyle: "medium",
+      timeStyle: "short",
     });
   } catch {
     return "-";
+  }
+}
+
+function paraInputDateTime(data) {
+  if (!data) return "";
+
+  try {
+    const d = new Date(data);
+    const offset = d.getTimezoneOffset();
+    const local = new Date(d.getTime() - offset * 60000);
+    return local.toISOString().slice(0, 16);
+  } catch {
+    return "";
   }
 }
 
@@ -70,12 +84,15 @@ function moeda(valor) {
 }
 
 export default function Alunos() {
+  const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
   const [movimentacoes, setMovimentacoes] = useState([]);
   const [busca, setBusca] = useState("");
+  const [filtroFila, setFiltroFila] = useState("TODOS");
   const [observacao, setObservacao] = useState("");
-  const [statusFinalizacao, setStatusFinalizacao] = useState("EM_ATENDIMENTO");
+  const [statusFinalizacao, setStatusFinalizacao] = useState("CONTATAR");
+  const [dataRetorno, setDataRetorno] = useState("");
   const [novoOperadorEmail, setNovoOperadorEmail] = useState("");
   const [motivoAlteracaoOperador, setMotivoAlteracaoOperador] = useState("");
   const [carregando, setCarregando] = useState(false);
@@ -83,8 +100,18 @@ export default function Alunos() {
   const [erro, setErro] = useState("");
 
   useEffect(() => {
-    carregarAlunos();
+    iniciarTela();
   }, []);
+
+  useEffect(() => {
+    carregarAlunos();
+  }, [filtroFila]);
+
+  async function iniciarTela() {
+    const usuario = await pegarUsuarioLogado();
+    setUsuarioLogado(usuario);
+    await carregarAlunos(usuario);
+  }
 
   async function pegarUsuarioLogado() {
     const { data, error } = await supabase.auth.getUser();
@@ -110,13 +137,13 @@ export default function Alunos() {
     };
   }
 
-  async function carregarAlunos() {
+  async function carregarAlunos(usuarioParam = usuarioLogado) {
     setCarregando(true);
     setErro("");
 
     try {
       const termo = busca.trim();
-      let query = supabase.from("alunos").select("*").limit(80);
+      let query = supabase.from("alunos").select("*").limit(300);
 
       if (termo) {
         const somenteNumeros = termo.replace(/\D/g, "");
@@ -128,11 +155,19 @@ export default function Alunos() {
         }
       }
 
+      if (filtroFila === "MINHA_FILA" && usuarioParam?.email) {
+        query = query.eq("responsavel_atual_email", usuarioParam.email);
+      }
+
+      if (filtroFila === "SEM_RESPONSAVEL") {
+        query = query.is("responsavel_atual_email", null);
+      }
+
       const { data, error } = await query;
 
       if (error) {
         console.error("Erro ao carregar alunos:", error);
-        setErro("Erro ao carregar alunos.");
+        setErro("Erro ao carregar alunos. Verifique a tabela alunos.");
         setAlunos([]);
         return;
       }
@@ -152,9 +187,16 @@ export default function Alunos() {
     setObservacao("");
     setNovoOperadorEmail("");
     setMotivoAlteracaoOperador("");
-    setStatusFinalizacao(
-      pegarCampo(aluno, ["status_jornada", "status"], "EM_ATENDIMENTO")
+
+    const statusAtual = pegarCampo(
+      aluno,
+      ["status_jornada", "status_atual", "status"],
+      "CONTATAR"
     );
+
+    setStatusFinalizacao(statusAtual);
+    setDataRetorno(paraInputDateTime(aluno.data_retorno));
+
     await carregarMovimentacoes(aluno.id);
   }
 
@@ -172,6 +214,7 @@ export default function Alunos() {
 
     if (data) {
       setAlunoSelecionado(data);
+      setDataRetorno(paraInputDateTime(data.data_retorno));
     }
   }
 
@@ -193,60 +236,81 @@ export default function Alunos() {
     setMovimentacoes(data || []);
   }
 
-  async function registrarMovimentacaoAluno({
+  async function registrarMovimentacao({
     alunoId,
     tipo,
     descricao,
     statusAnterior = null,
     statusNovo = null,
+    retorno = null,
     atualizarResponsavel = false,
+    extra = {},
   }) {
     if (!alunoId) {
       alert("Aluno sem ID. Não foi possível registrar.");
-      return null;
+      return;
     }
 
     const usuario = await pegarUsuarioLogado();
     const agora = new Date().toISOString();
 
-    const { error: insertError } = await supabase
-      .from("aluno_movimentacoes")
-      .insert({
-        aluno_id: String(alunoId),
-        tipo,
-        descricao,
-        status_anterior: statusAnterior,
-        status_novo: statusNovo,
-        registrado_por_nome: usuario.nome,
-        registrado_por_email: usuario.email,
-        registrado_em: agora,
-      });
-
-    if (insertError) {
-      console.error("Erro ao registrar movimentação:", insertError);
-      alert("Erro ao registrar movimentação.");
-      throw insertError;
-    }
-
-    const dadosAtualizacao = {
+    const movimento = {
+      aluno_id: String(alunoId),
+      tipo,
+      descricao,
+      status_anterior: statusAnterior,
+      status_novo: statusNovo,
       registrado_por_nome: usuario.nome,
       registrado_por_email: usuario.email,
       registrado_em: agora,
+      data_retorno: retorno,
+      ...extra,
+    };
+
+    const { error: movError } = await supabase
+      .from("aluno_movimentacoes")
+      .insert(movimento);
+
+    if (movError) {
+      console.error("Erro ao registrar movimentação:", movError);
+      alert("Erro ao registrar movimentação.");
+      throw movError;
+    }
+
+    const atualizacaoAluno = {
+      registrado_por_nome: usuario.nome,
+      registrado_por_email: usuario.email,
+      registrado_em: agora,
+      data_ultimo_acionamento: agora,
     };
 
     if (statusNovo) {
-      dadosAtualizacao.status_jornada = statusNovo;
+      atualizacaoAluno.status_jornada = statusNovo;
+      atualizacaoAluno.status_atual = statusNovo;
+      atualizacaoAluno.status_acionamento = statusNovo;
+      atualizacaoAluno.proxima_acao =
+        statusNovo === "RETORNAR_DEPOIS" || statusNovo === "ALUNO_EM_NEGOCIACAO_24H"
+          ? "RETORNAR"
+          : statusNovo === "ACORDO_FECHADO"
+          ? "ACOMPANHAR_PAGAMENTO"
+          : statusNovo === "NAO_LOCALIZADO"
+          ? "TENTAR_NOVO_CONTATO"
+          : "CONTATAR";
+    }
+
+    if (retorno) {
+      atualizacaoAluno.data_retorno = retorno;
     }
 
     if (atualizarResponsavel) {
-      dadosAtualizacao.responsavel_atual_nome = usuario.nome;
-      dadosAtualizacao.responsavel_atual_email = usuario.email;
-      dadosAtualizacao.responsavel_atual_em = agora;
+      atualizacaoAluno.responsavel_atual_nome = usuario.nome;
+      atualizacaoAluno.responsavel_atual_email = usuario.email;
+      atualizacaoAluno.responsavel_atual_em = agora;
     }
 
     const { error: updateError } = await supabase
       .from("alunos")
-      .update(dadosAtualizacao)
+      .update(atualizacaoAluno)
       .eq("id", alunoId);
 
     if (updateError) {
@@ -254,12 +318,6 @@ export default function Alunos() {
       alert("Movimentação registrada, mas houve erro ao atualizar a ficha.");
       throw updateError;
     }
-
-    return {
-      nome: usuario.nome,
-      email: usuario.email,
-      registrado_em: agora,
-    };
   }
 
   async function assumirAtendimento() {
@@ -268,12 +326,19 @@ export default function Alunos() {
     setSalvando(true);
 
     try {
-      await registrarMovimentacaoAluno({
+      const statusAnterior = pegarCampo(
+        alunoSelecionado,
+        ["status_jornada", "status_atual", "status"],
+        null
+      );
+
+      await registrarMovimentacao({
         alunoId: alunoSelecionado.id,
         tipo: "ASSUMIU_ATENDIMENTO",
-        descricao: "Usuário assumiu o atendimento do aluno.",
-        statusAnterior: pegarCampo(alunoSelecionado, ["status_jornada", "status"], null),
+        descricao: "Operador assumiu o atendimento do aluno.",
+        statusAnterior,
         statusNovo: "EM_ATENDIMENTO",
+        retorno: null,
         atualizarResponsavel: true,
       });
 
@@ -281,7 +346,7 @@ export default function Alunos() {
       await carregarMovimentacoes(alunoSelecionado.id);
       await carregarAlunos();
 
-      alert("Atendimento assumido e registrado com sucesso.");
+      alert("Atendimento assumido com sucesso.");
     } catch (e) {
       console.error(e);
     } finally {
@@ -289,97 +354,54 @@ export default function Alunos() {
     }
   }
 
-  async function alterarOperadorResponsavel() {
-    if (!alunoSelecionado?.id) {
-      alert("Selecione um aluno antes de alterar o operador.");
+  async function finalizarAtendimento() {
+    if (!alunoSelecionado?.id) return;
+
+    if (!statusFinalizacao) {
+      alert("Selecione o status da finalização.");
       return;
     }
 
-    if (!novoOperadorEmail) {
-      alert("Selecione o novo operador responsável.");
-      return;
-    }
+    const precisaRetorno =
+      statusFinalizacao === "RETORNAR_DEPOIS" ||
+      statusFinalizacao === "ALUNO_EM_NEGOCIACAO_24H";
 
-    const novoOperador = OPERADORES_REATIVA.find(
-      (op) => op.email === novoOperadorEmail
-    );
-
-    if (!novoOperador) {
-      alert("Operador selecionado não encontrado.");
-      return;
-    }
-
-    const motivo = motivoAlteracaoOperador.trim();
-
-    if (!motivo) {
-      alert("Informe o motivo da alteração do operador.");
+    if (precisaRetorno && !dataRetorno) {
+      alert("Informe a data de retorno para esse status.");
       return;
     }
 
     setSalvando(true);
 
     try {
-      const usuario = await pegarUsuarioLogado();
-      const agora = new Date().toISOString();
+      const statusAnterior = pegarCampo(
+        alunoSelecionado,
+        ["status_jornada", "status_atual", "status"],
+        null
+      );
 
-      const operadorAnteriorNome =
-        alunoSelecionado.responsavel_atual_nome || "Sem responsável anterior";
+      const retornoIso = dataRetorno ? new Date(dataRetorno).toISOString() : null;
 
-      const operadorAnteriorEmail =
-        alunoSelecionado.responsavel_atual_email || null;
+      await registrarMovimentacao({
+        alunoId: alunoSelecionado.id,
+        tipo: "FINALIZACAO_ATENDIMENTO",
+        descricao:
+          observacao.trim() ||
+          `Atendimento finalizado com status: ${statusFinalizacao}.`,
+        statusAnterior,
+        statusNovo: statusFinalizacao,
+        retorno: retornoIso,
+        atualizarResponsavel: false,
+      });
 
-      const { error: updateError } = await supabase
-        .from("alunos")
-        .update({
-          responsavel_atual_nome: novoOperador.nome,
-          responsavel_atual_email: novoOperador.email,
-          responsavel_atual_em: agora,
-          registrado_por_nome: usuario.nome,
-          registrado_por_email: usuario.email,
-          registrado_em: agora,
-        })
-        .eq("id", alunoSelecionado.id);
-
-      if (updateError) {
-        console.error("Erro ao alterar operador:", updateError);
-        alert("Erro ao alterar operador responsável.");
-        return;
-      }
-
-      const { error: movError } = await supabase
-        .from("aluno_movimentacoes")
-        .insert({
-          aluno_id: String(alunoSelecionado.id),
-          tipo: "ALTERACAO_OPERADOR",
-          descricao: `Operador responsável alterado de ${operadorAnteriorNome} para ${novoOperador.nome}. Motivo: ${motivo}`,
-          status_anterior: alunoSelecionado.status_jornada || null,
-          status_novo: alunoSelecionado.status_jornada || null,
-          registrado_por_nome: usuario.nome,
-          registrado_por_email: usuario.email,
-          registrado_em: agora,
-          operador_anterior_nome: operadorAnteriorNome,
-          operador_anterior_email: operadorAnteriorEmail,
-          operador_novo_nome: novoOperador.nome,
-          operador_novo_email: novoOperador.email,
-        });
-
-      if (movError) {
-        console.error("Erro ao registrar alteração de operador:", movError);
-        alert("Operador alterado, mas houve erro ao registrar movimentação.");
-        return;
-      }
-
-      setNovoOperadorEmail("");
-      setMotivoAlteracaoOperador("");
-
+      setObservacao("");
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
       await carregarAlunos();
 
-      alert("Operador responsável alterado e registrado com sucesso.");
+      alert("Finalização registrada com sucesso.");
     } catch (e) {
-      console.error("Erro inesperado ao alterar operador:", e);
-      alert("Erro inesperado ao alterar operador.");
+      console.error(e);
     } finally {
       setSalvando(false);
     }
@@ -398,23 +420,27 @@ export default function Alunos() {
     setSalvando(true);
 
     try {
-      const statusAtual = pegarCampo(alunoSelecionado, ["status_jornada", "status"], null);
+      const statusAtual = pegarCampo(
+        alunoSelecionado,
+        ["status_jornada", "status_atual", "status"],
+        null
+      );
 
-      await registrarMovimentacaoAluno({
+      await registrarMovimentacao({
         alunoId: alunoSelecionado.id,
         tipo: "OBSERVACAO",
         descricao: texto,
         statusAnterior: statusAtual,
         statusNovo: statusAtual,
+        retorno: alunoSelecionado.data_retorno || null,
         atualizarResponsavel: false,
       });
 
       setObservacao("");
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
-      await carregarAlunos();
 
-      alert("Observação registrada com sucesso.");
+      alert("Observação salva com sucesso.");
     } catch (e) {
       console.error(e);
     } finally {
@@ -422,132 +448,117 @@ export default function Alunos() {
     }
   }
 
-  async function finalizarAtendimento() {
-    if (!alunoSelecionado?.id) return;
+  async function alterarOperadorResponsavel() {
+    if (!alunoSelecionado?.id) {
+      alert("Selecione um aluno antes de alterar o operador.");
+      return;
+    }
 
-    if (!statusFinalizacao) {
-      alert("Selecione um status de finalização.");
+    if (!novoOperadorEmail) {
+      alert("Selecione o novo operador responsável.");
+      return;
+    }
+
+    const motivo = motivoAlteracaoOperador.trim();
+
+    if (!motivo) {
+      alert("Informe o motivo da alteração.");
+      return;
+    }
+
+    const novoOperador = OPERADORES_REATIVA.find(
+      (op) => op.email === novoOperadorEmail
+    );
+
+    if (!novoOperador) {
+      alert("Operador não encontrado.");
       return;
     }
 
     setSalvando(true);
 
     try {
-      await registrarMovimentacaoAluno({
-        alunoId: alunoSelecionado.id,
-        tipo: "FINALIZACAO",
-        descricao: `Atendimento finalizado com status: ${statusFinalizacao}.`,
-        statusAnterior: pegarCampo(alunoSelecionado, ["status_jornada", "status"], null),
-        statusNovo: statusFinalizacao,
-        atualizarResponsavel: false,
-      });
+      const usuario = await pegarUsuarioLogado();
+      const agora = new Date().toISOString();
+
+      const anteriorNome =
+        alunoSelecionado.responsavel_atual_nome || "Sem responsável anterior";
+      const anteriorEmail = alunoSelecionado.responsavel_atual_email || null;
+
+      const { error: updateError } = await supabase
+        .from("alunos")
+        .update({
+          responsavel_atual_nome: novoOperador.nome,
+          responsavel_atual_email: novoOperador.email,
+          responsavel_atual_em: agora,
+          registrado_por_nome: usuario.nome,
+          registrado_por_email: usuario.email,
+          registrado_em: agora,
+        })
+        .eq("id", alunoSelecionado.id);
+
+      if (updateError) {
+        console.error("Erro ao alterar operador:", updateError);
+        alert("Erro ao alterar operador.");
+        return;
+      }
+
+      const { error: movError } = await supabase
+        .from("aluno_movimentacoes")
+        .insert({
+          aluno_id: String(alunoSelecionado.id),
+          tipo: "ALTERACAO_OPERADOR",
+          descricao: `Operador responsável alterado de ${anteriorNome} para ${novoOperador.nome}. Motivo: ${motivo}`,
+          status_anterior: alunoSelecionado.status_jornada || null,
+          status_novo: alunoSelecionado.status_jornada || null,
+          registrado_por_nome: usuario.nome,
+          registrado_por_email: usuario.email,
+          registrado_em: agora,
+          operador_anterior_nome: anteriorNome,
+          operador_anterior_email: anteriorEmail,
+          operador_novo_nome: novoOperador.nome,
+          operador_novo_email: novoOperador.email,
+        });
+
+      if (movError) {
+        console.error("Erro ao registrar movimentação:", movError);
+        alert("Operador alterado, mas não registrou movimentação.");
+        return;
+      }
+
+      setNovoOperadorEmail("");
+      setMotivoAlteracaoOperador("");
 
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
       await carregarAlunos();
 
-      alert("Finalização registrada com sucesso.");
+      alert("Operador responsável alterado com sucesso.");
     } catch (e) {
       console.error(e);
-    } finally {
-      setSalvando(false);
-    }
-  }
-
-  async function solicitarLinkPagamento() {
-    if (!alunoSelecionado?.id) return;
-
-    setSalvando(true);
-
-    try {
-      await registrarMovimentacaoAluno({
-        alunoId: alunoSelecionado.id,
-        tipo: "SOLICITACAO_LINK_PAGAMENTO",
-        descricao: "Operador solicitou geração de link de pagamento para o aluno.",
-        statusAnterior: pegarCampo(alunoSelecionado, ["status_jornada", "status"], null),
-        statusNovo: "SOLICITADO_LINK",
-        atualizarResponsavel: false,
-      });
-
-      await recarregarAlunoSelecionado(alunoSelecionado.id);
-      await carregarMovimentacoes(alunoSelecionado.id);
-      await carregarAlunos();
-
-      alert("Solicitação de link registrada com sucesso.");
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSalvando(false);
-    }
-  }
-
-  async function enviarTermoAdm() {
-    if (!alunoSelecionado?.id) return;
-
-    setSalvando(true);
-
-    try {
-      await registrarMovimentacaoAluno({
-        alunoId: alunoSelecionado.id,
-        tipo: "TERMO_ENVIADO_ADM",
-        descricao: "Termo enviado para validação administrativa.",
-        statusAnterior: pegarCampo(alunoSelecionado, ["status_jornada", "status"], null),
-        statusNovo: "TERMO_ENVIADO_ADM",
-        atualizarResponsavel: false,
-      });
-
-      await recarregarAlunoSelecionado(alunoSelecionado.id);
-      await carregarMovimentacoes(alunoSelecionado.id);
-      await carregarAlunos();
-
-      alert("Termo enviado para ADM e registrado com sucesso.");
-    } catch (e) {
-      console.error(e);
+      alert("Erro inesperado ao alterar operador.");
     } finally {
       setSalvando(false);
     }
   }
 
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#020617",
-        color: "#ffffff",
-        padding: "24px",
-        fontFamily: "Arial, sans-serif",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: "16px",
-          alignItems: "center",
-          marginBottom: "24px",
-          flexWrap: "wrap",
-        }}
-      >
+    <div style={pagina}>
+      <div style={cabecalho}>
         <div>
-          <h1 style={{ margin: 0, color: "#22c55e" }}>Alunos</h1>
-          <p style={{ margin: "6px 0 0", color: "#cbd5e1" }}>
-            Pesquisa, ficha, responsável atual e movimentações do aluno.
+          <h1 style={titulo}>Fila de alunos</h1>
+          <p style={subtitulo}>
+            Clique no aluno para abrir a ficha, finalizar atendimento e registrar data de retorno.
           </p>
         </div>
 
-        <button
-          onClick={carregarAlunos}
-          disabled={carregando}
-          style={botaoPrincipal}
-        >
-          {carregando ? "Carregando..." : "Atualizar"}
+        <button onClick={() => carregarAlunos()} disabled={carregando} style={botaoPrincipal}>
+          {carregando ? "Carregando..." : "Atualizar fila"}
         </button>
       </div>
 
       <div style={caixa}>
-        <label style={{ display: "block", marginBottom: "8px", color: "#d1d5db" }}>
-          Buscar aluno por nome ou CPF
-        </label>
+        <label style={label}>Buscar aluno por nome ou CPF</label>
 
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           <input
@@ -560,39 +571,46 @@ export default function Alunos() {
             style={input}
           />
 
-          <button
-            onClick={carregarAlunos}
-            disabled={carregando}
-            style={botaoPrincipal}
+          <select
+            value={filtroFila}
+            onChange={(e) => setFiltroFila(e.target.value)}
+            style={{ ...select, width: "220px", marginBottom: 0 }}
           >
+            <option value="TODOS">Todos</option>
+            <option value="MINHA_FILA">Minha fila</option>
+            <option value="SEM_RESPONSAVEL">Sem responsável</option>
+          </select>
+
+          <button onClick={() => carregarAlunos()} disabled={carregando} style={botaoPrincipal}>
             Pesquisar
           </button>
         </div>
 
-        {erro && <p style={{ color: "#f87171", marginTop: "10px" }}>{erro}</p>}
+        {erro && <p style={{ color: "#f87171" }}>{erro}</p>}
       </div>
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "minmax(280px, 420px) 1fr",
-          gap: "20px",
-          alignItems: "start",
-        }}
-      >
+      <div style={layout}>
         <div style={caixa}>
-          <h2 style={{ color: "#22c55e", marginTop: 0 }}>Lista de alunos</h2>
+          <h2 style={tituloSecao}>Alunos encontrados</h2>
 
           {carregando ? (
-            <p>Carregando alunos...</p>
+            <p>Carregando...</p>
           ) : alunos.length === 0 ? (
-            <p style={{ color: "#cbd5e1" }}>Nenhum aluno encontrado.</p>
+            <p style={{ color: "#cbd5e1" }}>Nenhum aluno encontrado na fila.</p>
           ) : (
             <div style={{ display: "grid", gap: "10px" }}>
               {alunos.map((aluno) => {
-                const nome = pegarCampo(aluno, ["nome", "nome_aluno", "aluno"], "Aluno sem nome");
+                const nome = pegarCampo(
+                  aluno,
+                  ["nome", "nome_aluno", "aluno"],
+                  "Aluno sem nome"
+                );
                 const cpf = pegarCampo(aluno, ["cpf", "CPF"], "-");
-                const status = pegarCampo(aluno, ["status_jornada", "status"], "Sem status");
+                const status = pegarCampo(
+                  aluno,
+                  ["status_jornada", "status_atual", "status"],
+                  "CONTATAR"
+                );
                 const selecionado = alunoSelecionado?.id === aluno.id;
 
                 return (
@@ -600,25 +618,23 @@ export default function Alunos() {
                     key={aluno.id}
                     onClick={() => abrirAluno(aluno)}
                     style={{
-                      textAlign: "left",
+                      ...cardAluno,
                       background: selecionado ? "#064e3b" : "#1f2937",
-                      color: "#ffffff",
-                      border: selecionado ? "1px solid #22c55e" : "1px solid #374151",
-                      borderRadius: "12px",
-                      padding: "12px",
-                      cursor: "pointer",
+                      border: selecionado
+                        ? "1px solid #22c55e"
+                        : "1px solid #374151",
                     }}
                   >
                     <strong>{nome}</strong>
-                    <div style={{ color: "#d1d5db", fontSize: "13px", marginTop: "4px" }}>
-                      CPF: {cpf}
-                    </div>
-                    <div style={{ color: "#86efac", fontSize: "13px", marginTop: "4px" }}>
-                      Status: {status}
-                    </div>
-                    <div style={{ color: "#cbd5e1", fontSize: "12px", marginTop: "4px" }}>
-                      Responsável: {aluno.responsavel_atual_nome || "Sem responsável"}
-                    </div>
+                    <span>CPF: {cpf}</span>
+                    <span>Status: {status}</span>
+                    <span>
+                      Responsável:{" "}
+                      {aluno.responsavel_atual_nome || "Sem responsável"}
+                    </span>
+                    <span>
+                      Retorno: {formatarDataHora(aluno.data_retorno)}
+                    </span>
                   </button>
                 );
               })}
@@ -628,35 +644,34 @@ export default function Alunos() {
 
         <div style={caixa}>
           {!alunoSelecionado ? (
-            <div style={{ color: "#cbd5e1" }}>
-              <h2 style={{ color: "#22c55e", marginTop: 0 }}>Ficha do aluno</h2>
-              <p>Selecione um aluno na lista para abrir a ficha.</p>
+            <div>
+              <h2 style={tituloSecao}>Atendimento</h2>
+              <p style={{ color: "#cbd5e1" }}>
+                Selecione um aluno na fila para abrir a tela de atendimento.
+              </p>
             </div>
           ) : (
             <>
-              <div
-                style={{
-                  display: "flex",
-                  justifyContent: "space-between",
-                  gap: "16px",
-                  alignItems: "start",
-                  flexWrap: "wrap",
-                  marginBottom: "18px",
-                }}
-              >
+              <div style={topoFicha}>
                 <div>
-                  <h2 style={{ color: "#22c55e", margin: 0 }}>
-                    {pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "Aluno sem nome")}
+                  <h2 style={tituloSecao}>
+                    {pegarCampo(
+                      alunoSelecionado,
+                      ["nome", "nome_aluno", "aluno"],
+                      "Aluno sem nome"
+                    )}
                   </h2>
-
-                  <p style={{ color: "#cbd5e1", margin: "8px 0 0" }}>
+                  <p style={textoInfo}>
                     CPF: {pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-")}
                   </p>
-
-                  <p style={{ color: "#cbd5e1", margin: "4px 0 0" }}>
+                  <p style={textoInfo}>
                     Status atual:{" "}
                     <strong style={{ color: "#86efac" }}>
-                      {pegarCampo(alunoSelecionado, ["status_jornada", "status"], "Sem status")}
+                      {pegarCampo(
+                        alunoSelecionado,
+                        ["status_jornada", "status_atual", "status"],
+                        "CONTATAR"
+                      )}
                     </strong>
                   </p>
                 </div>
@@ -672,117 +687,105 @@ export default function Alunos() {
 
               <div style={gradeCards}>
                 <div style={cardInfo}>
-                  <strong>Curso</strong>
+                  <strong>Responsável atual</strong>
                   <br />
-                  {pegarCampo(alunoSelecionado, ["curso", "nome_curso"], "-")}
+                  {alunoSelecionado.responsavel_atual_nome ||
+                    "Sem responsável"}
                 </div>
 
                 <div style={cardInfo}>
-                  <strong>Unidade</strong>
+                  <strong>Última tabulação</strong>
                   <br />
-                  {pegarCampo(alunoSelecionado, ["unidade", "campus"], "-")}
+                  {formatarDataHora(alunoSelecionado.registrado_em)}
                 </div>
 
                 <div style={cardInfo}>
-                  <strong>Valor em aberto</strong>
+                  <strong>Último acionamento</strong>
                   <br />
-                  {moeda(pegarCampo(alunoSelecionado, ["valor_em_aberto", "valor_total", "saldo_devedor"], ""))}
+                  {formatarDataHora(alunoSelecionado.data_ultimo_acionamento)}
                 </div>
 
                 <div style={cardInfo}>
-                  <strong>Último status</strong>
+                  <strong>Próxima ação</strong>
                   <br />
-                  {pegarCampo(alunoSelecionado, ["ultimo_status", "status_jornada", "status"], "-")}
+                  {alunoSelecionado.proxima_acao || "CONTATAR"}
                 </div>
 
                 <div style={cardInfo}>
                   <strong>Data de retorno</strong>
                   <br />
-                  {formatarDataHora(pegarCampo(alunoSelecionado, ["data_retorno", "retorno_em"], null))}
+                  {formatarDataHora(alunoSelecionado.data_retorno)}
                 </div>
 
                 <div style={cardInfo}>
-                  <strong>Telefone</strong>
+                  <strong>Valor em aberto</strong>
                   <br />
-                  {pegarCampo(alunoSelecionado, ["telefone", "celular", "whatsapp"], "-")}
+                  {moeda(alunoSelecionado.valor_em_aberto)}
                 </div>
               </div>
 
               <div style={caixaDestaque}>
-                <h3 style={{ color: "#22c55e", marginTop: 0 }}>
-                  Informações de registro
-                </h3>
+                <h3 style={tituloSecao}>Finalização do atendimento</h3>
 
-                <div style={gradeCards}>
-                  <div>
-                    <strong>Último registro por:</strong>
-                    <br />
-                    {alunoSelecionado.registrado_por_nome || "Ainda não registrado"}
-                  </div>
+                <label style={label}>Status da finalização</label>
+                <select
+                  value={statusFinalizacao}
+                  onChange={(e) => setStatusFinalizacao(e.target.value)}
+                  style={select}
+                >
+                  {STATUS_FINALIZACAO.map((status) => (
+                    <option key={status} value={status}>
+                      {status}
+                    </option>
+                  ))}
+                </select>
 
-                  <div>
-                    <strong>E-mail do registro:</strong>
-                    <br />
-                    {alunoSelecionado.registrado_por_email || "-"}
-                  </div>
+                <label style={label}>Data e horário de retorno</label>
+                <input
+                  type="datetime-local"
+                  value={dataRetorno}
+                  onChange={(e) => setDataRetorno(e.target.value)}
+                  style={inputCheio}
+                />
 
-                  <div>
-                    <strong>Data e horário da tabulação:</strong>
-                    <br />
-                    {formatarDataHora(alunoSelecionado.registrado_em)}
-                  </div>
+                <label style={label}>Observação da finalização</label>
+                <textarea
+                  value={observacao}
+                  onChange={(e) => setObservacao(e.target.value)}
+                  placeholder="Digite a observação do atendimento..."
+                  rows={4}
+                  style={textarea}
+                />
 
-                  <div>
-                    <strong>Responsável atual:</strong>
-                    <br />
-                    {alunoSelecionado.responsavel_atual_nome || "Sem responsável definido"}
-                  </div>
+                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                  <button
+                    onClick={finalizarAtendimento}
+                    disabled={salvando}
+                    style={botaoPrincipal}
+                  >
+                    {salvando ? "Salvando..." : "Finalizar atendimento"}
+                  </button>
 
-                  <div>
-                    <strong>E-mail do responsável:</strong>
-                    <br />
-                    {alunoSelecionado.responsavel_atual_email || "-"}
-                  </div>
-
-                  <div>
-                    <strong>Assumido/alterado em:</strong>
-                    <br />
-                    {formatarDataHora(alunoSelecionado.responsavel_atual_em)}
-                  </div>
+                  <button
+                    onClick={salvarObservacao}
+                    disabled={salvando}
+                    style={botaoSecundario}
+                  >
+                    Salvar só observação
+                  </button>
                 </div>
               </div>
 
-              <div style={caixaDestaque}>
-                <h3 style={{ color: "#22c55e", marginTop: 0 }}>
-                  Alterar operador responsável
-                </h3>
+              <div style={caixaInterna}>
+                <h3 style={tituloSecao}>Alterar operador responsável</h3>
 
-                <p style={{ color: "#cbd5e1", marginTop: 0 }}>
-                  Use esta opção para corrigir casos antigos ou redirecionar atendimento com registro de auditoria.
-                </p>
-
-                <div style={gradeCards}>
-                  <div>
-                    <strong>Operador atual:</strong>
-                    <br />
-                    {alunoSelecionado.responsavel_atual_nome || "Sem responsável definido"}
-                  </div>
-
-                  <div>
-                    <strong>E-mail atual:</strong>
-                    <br />
-                    {alunoSelecionado.responsavel_atual_email || "-"}
-                  </div>
-                </div>
-
-                <label style={label}>Novo operador responsável</label>
-
+                <label style={label}>Novo operador</label>
                 <select
                   value={novoOperadorEmail}
                   onChange={(e) => setNovoOperadorEmail(e.target.value)}
                   style={select}
                 >
-                  <option value="">Selecione o operador</option>
+                  <option value="">Selecione</option>
                   {OPERADORES_REATIVA.map((operador) => (
                     <option key={operador.email} value={operador.email}>
                       {operador.nome} - {operador.email}
@@ -790,12 +793,13 @@ export default function Alunos() {
                   ))}
                 </select>
 
-                <label style={label}>Motivo da alteração</label>
-
+                <label style={label}>Motivo</label>
                 <textarea
                   value={motivoAlteracaoOperador}
-                  onChange={(e) => setMotivoAlteracaoOperador(e.target.value)}
-                  placeholder="Exemplo: operador já havia acionado antes da criação do botão Assumir atendimento."
+                  onChange={(e) =>
+                    setMotivoAlteracaoOperador(e.target.value)
+                  }
+                  placeholder="Exemplo: operador acionou antes da criação do botão assumir atendimento."
                   rows={3}
                   style={textarea}
                 />
@@ -805,115 +809,34 @@ export default function Alunos() {
                   disabled={salvando}
                   style={botaoPrincipal}
                 >
-                  {salvando ? "Salvando..." : "Alterar responsável"}
+                  Alterar responsável
                 </button>
               </div>
 
               <div style={caixaInterna}>
-                <h3 style={{ color: "#22c55e", marginTop: 0 }}>
-                  Ações do atendimento
-                </h3>
-
-                <div style={{ display: "flex", gap: "10px", flexWrap: "wrap", marginBottom: "14px" }}>
-                  <button
-                    onClick={solicitarLinkPagamento}
-                    disabled={salvando}
-                    style={botaoSecundario}
-                  >
-                    Solicitar link de pagamento
-                  </button>
-
-                  <button
-                    onClick={enviarTermoAdm}
-                    disabled={salvando}
-                    style={botaoSecundario}
-                  >
-                    Enviar termo para ADM
-                  </button>
-                </div>
-
-                <label style={label}>Incluir observação</label>
-
-                <textarea
-                  value={observacao}
-                  onChange={(e) => setObservacao(e.target.value)}
-                  placeholder="Digite a observação do atendimento..."
-                  rows={4}
-                  style={textarea}
-                />
-
-                <button
-                  onClick={salvarObservacao}
-                  disabled={salvando}
-                  style={{ ...botaoPrincipal, marginBottom: "18px" }}
-                >
-                  Salvar observação
-                </button>
-
-                <div style={{ borderTop: "1px solid #374151", paddingTop: "14px" }}>
-                  <label style={label}>Finalizar / alterar status</label>
-
-                  <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                    <select
-                      value={statusFinalizacao}
-                      onChange={(e) => setStatusFinalizacao(e.target.value)}
-                      style={{ ...select, flex: "1 1 260px", marginBottom: 0 }}
-                    >
-                      {STATUS_FINALIZACAO.map((status) => (
-                        <option key={status} value={status}>
-                          {status}
-                        </option>
-                      ))}
-                    </select>
-
-                    <button
-                      onClick={finalizarAtendimento}
-                      disabled={salvando}
-                      style={botaoPrincipal}
-                    >
-                      Registrar finalização
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-              <div style={caixaInterna}>
-                <h3 style={{ color: "#22c55e", marginTop: 0 }}>
-                  Movimentações do aluno
-                </h3>
+                <h3 style={tituloSecao}>Movimentações</h3>
 
                 {movimentacoes.length === 0 ? (
                   <p style={{ color: "#cbd5e1" }}>
-                    Nenhuma movimentação registrada ainda.
+                    Nenhuma movimentação registrada.
                   </p>
                 ) : (
                   <div style={{ display: "grid", gap: "10px" }}>
                     {movimentacoes.map((mov) => (
-                      <div
-                        key={mov.id}
-                        style={{
-                          background: "#111827",
-                          borderRadius: "12px",
-                          padding: "12px",
-                          borderLeft: "4px solid #22c55e",
-                        }}
-                      >
+                      <div key={mov.id} style={cardMov}>
                         <strong>{mov.tipo}</strong>
-
-                        <p style={{ margin: "6px 0", color: "#e5e7eb" }}>
-                          {mov.descricao || "-"}
-                        </p>
-
-                        {(mov.status_anterior || mov.status_novo) && (
-                          <p style={{ margin: "6px 0", color: "#cbd5e1", fontSize: "13px" }}>
-                            Status: {mov.status_anterior || "-"} → {mov.status_novo || "-"}
-                          </p>
-                        )}
-
-                        <small style={{ color: "#cbd5e1" }}>
+                        <p>{mov.descricao || "-"}</p>
+                        <small>
+                          Status: {mov.status_anterior || "-"} →{" "}
+                          {mov.status_novo || "-"}
+                          <br />
+                          Retorno: {formatarDataHora(mov.data_retorno)}
+                          <br />
                           Registrado por:{" "}
-                          <strong>{mov.registrado_por_nome || "Não identificado"}</strong>
-                          {mov.registrado_por_email ? ` - ${mov.registrado_por_email}` : ""}
+                          {mov.registrado_por_nome || "Não identificado"}
+                          {mov.registrado_por_email
+                            ? ` - ${mov.registrado_por_email}`
+                            : ""}
                           <br />
                           Data/hora: {formatarDataHora(mov.registrado_em)}
                         </small>
@@ -930,12 +853,52 @@ export default function Alunos() {
   );
 }
 
+const pagina = {
+  minHeight: "100vh",
+  background: "#020617",
+  color: "#ffffff",
+  padding: "24px",
+  fontFamily: "Arial, sans-serif",
+};
+
+const cabecalho = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "16px",
+  alignItems: "center",
+  marginBottom: "24px",
+  flexWrap: "wrap",
+};
+
+const titulo = {
+  margin: 0,
+  color: "#22c55e",
+};
+
+const subtitulo = {
+  margin: "6px 0 0",
+  color: "#cbd5e1",
+};
+
+const tituloSecao = {
+  color: "#22c55e",
+  marginTop: 0,
+};
+
 const caixa = {
   background: "#111827",
   border: "1px solid #1f2937",
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "20px",
+};
+
+const caixaDestaque = {
+  background: "#020617",
+  border: "1px solid #22c55e",
+  borderRadius: "14px",
+  padding: "16px",
+  marginBottom: "18px",
 };
 
 const caixaInterna = {
@@ -946,11 +909,29 @@ const caixaInterna = {
   marginBottom: "18px",
 };
 
-const caixaDestaque = {
-  background: "#020617",
-  border: "1px solid #22c55e",
-  borderRadius: "14px",
-  padding: "16px",
+const layout = {
+  display: "grid",
+  gridTemplateColumns: "minmax(300px, 420px) 1fr",
+  gap: "20px",
+  alignItems: "start",
+};
+
+const cardAluno = {
+  textAlign: "left",
+  color: "#ffffff",
+  borderRadius: "12px",
+  padding: "12px",
+  cursor: "pointer",
+  display: "grid",
+  gap: "4px",
+};
+
+const topoFicha = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "16px",
+  alignItems: "start",
+  flexWrap: "wrap",
   marginBottom: "18px",
 };
 
@@ -969,6 +950,25 @@ const cardInfo = {
   color: "#e5e7eb",
 };
 
+const cardMov = {
+  background: "#111827",
+  borderRadius: "12px",
+  padding: "12px",
+  borderLeft: "4px solid #22c55e",
+  color: "#e5e7eb",
+};
+
+const textoInfo = {
+  color: "#cbd5e1",
+  margin: "6px 0",
+};
+
+const label = {
+  display: "block",
+  marginBottom: "8px",
+  color: "#d1d5db",
+};
+
 const input = {
   flex: "1 1 280px",
   background: "#020617",
@@ -977,6 +977,17 @@ const input = {
   borderRadius: "10px",
   padding: "12px",
   outline: "none",
+};
+
+const inputCheio = {
+  width: "100%",
+  background: "#111827",
+  color: "#ffffff",
+  border: "1px solid #374151",
+  borderRadius: "10px",
+  padding: "12px",
+  outline: "none",
+  marginBottom: "10px",
 };
 
 const select = {
@@ -999,12 +1010,6 @@ const textarea = {
   resize: "vertical",
   outline: "none",
   marginBottom: "10px",
-};
-
-const label = {
-  display: "block",
-  marginBottom: "8px",
-  color: "#d1d5db",
 };
 
 const botaoPrincipal = {
