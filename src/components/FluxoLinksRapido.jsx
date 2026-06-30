@@ -1,0 +1,538 @@
+import { useEffect, useState } from "react";
+import { supabase } from "../services/supabase";
+
+export default function FluxoLinksRapido() {
+  const [pendentesAdm, setPendentesAdm] = useState([]);
+  const [prioridadesOperador, setPrioridadesOperador] = useState([]);
+  const [linksDigitados, setLinksDigitados] = useState({});
+  const [carregando, setCarregando] = useState(false);
+  const [salvandoId, setSalvandoId] = useState(null);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    carregarTudo();
+
+    const intervalo = setInterval(() => {
+      carregarTudo();
+    }, 10000);
+
+    return () => clearInterval(intervalo);
+  }, []);
+
+  async function carregarTudo() {
+    setCarregando(true);
+    setErro("");
+
+    const [resAdm, resOperador] = await Promise.all([
+      supabase
+        .from("vw_fila_links_adm")
+        .select("*")
+        .order("criado_em", { ascending: true }),
+
+      supabase
+        .from("vw_links_prioridade_operador")
+        .select("*")
+        .order("respondido_em", { ascending: true })
+    ]);
+
+    setCarregando(false);
+
+    if (resAdm.error) {
+      console.error("Erro fila ADM links:", resAdm.error);
+      setErro("Não foi possível carregar a fila ADM de links.");
+      return;
+    }
+
+    if (resOperador.error) {
+      console.error("Erro prioridade operador links:", resOperador.error);
+      setErro("Não foi possível carregar os retornos prioritários de links.");
+      return;
+    }
+
+    setPendentesAdm(resAdm.data || []);
+    setPrioridadesOperador(resOperador.data || []);
+  }
+
+  function linkCompleto(link) {
+    const texto = String(link || "").trim();
+    return texto.startsWith("http://") || texto.startsWith("https://");
+  }
+
+  async function devolverLinkAoOperador(item) {
+    const link = String(linksDigitados[item.id] || "").trim();
+
+    if (!linkCompleto(link)) {
+      alert("Cole o link completo, começando com http:// ou https://");
+      return;
+    }
+
+    setSalvandoId(item.id);
+    setErro("");
+
+    const { error } = await supabase.rpc("responder_link_pagamento", {
+      p_link_id: item.id,
+      p_link_pagamento: link,
+      p_adm_responsavel: "ADM/Supervisão"
+    });
+
+    setSalvandoId(null);
+
+    if (error) {
+      console.error("Erro ao devolver link:", error);
+      alert(error.message || "Não foi possível devolver o link ao operador.");
+      return;
+    }
+
+    setLinksDigitados((prev) => {
+      const novo = { ...prev };
+      delete novo[item.id];
+      return novo;
+    });
+
+    await carregarTudo();
+
+    alert("Link devolvido ao operador. Agora aparece como prioridade na fila operacional.");
+  }
+
+  async function copiarTexto(texto) {
+    try {
+      await navigator.clipboard.writeText(texto || "");
+      alert("Copiado com sucesso.");
+    } catch (error) {
+      console.error(error);
+      alert("Não foi possível copiar automaticamente. Copie manualmente.");
+    }
+  }
+
+  async function marcarComoEnviado(item) {
+    const confirmar = window.confirm(
+      `Confirmar que o link foi enviado ao aluno ${item.aluno_nome}?`
+    );
+
+    if (!confirmar) return;
+
+    const { error } = await supabase
+      .from("links_pagamento")
+      .update({
+        status: "LINK_ENVIADO_AO_ALUNO",
+        enviado_operador_em: new Date().toISOString(),
+        atualizado_em: new Date().toISOString()
+      })
+      .eq("id", item.id);
+
+    if (error) {
+      console.error("Erro ao marcar enviado:", error);
+      alert("Não foi possível marcar como enviado.");
+      return;
+    }
+
+    await carregarTudo();
+    alert("Link marcado como enviado ao aluno.");
+  }
+
+  function formatarMoeda(valor) {
+    if (valor === null || valor === undefined || valor === "") return "-";
+
+    return Number(valor).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL"
+    });
+  }
+
+  function formatarDataHora(data) {
+    if (!data) return "-";
+
+    const d = new Date(data);
+
+    if (Number.isNaN(d.getTime())) return "-";
+
+    return d.toLocaleString("pt-BR");
+  }
+
+  if (!carregando && pendentesAdm.length === 0 && prioridadesOperador.length === 0) {
+    return null;
+  }
+
+  return (
+    <div style={wrapper}>
+      <style>
+        {`
+          @keyframes piscarLinkReativa {
+            0% { box-shadow: 0 0 0 rgba(239, 68, 68, 0.2); }
+            50% { box-shadow: 0 0 20px rgba(239, 68, 68, 0.9); }
+            100% { box-shadow: 0 0 0 rgba(239, 68, 68, 0.2); }
+          }
+        `}
+      </style>
+
+      {erro && <div style={erroBox}>{erro}</div>}
+
+      {carregando && (
+        <div style={boxInfo}>Carregando fluxo de links...</div>
+      )}
+
+      {pendentesAdm.length > 0 && (
+        <section style={boxAdm}>
+          <div style={cabecalho}>
+            <div>
+              <h2 style={tituloAdm}>🔴 Fila ADM/Supervisão — Links pendentes</h2>
+              <p style={subtitulo}>
+                Cole somente o link completo. O sistema devolve para o operador com a mensagem pronta.
+              </p>
+            </div>
+
+            <button type="button" onClick={carregarTudo} style={botaoAtualizar}>
+              Atualizar
+            </button>
+          </div>
+
+          {pendentesAdm.map((item) => (
+            <div key={item.id} style={cardAdm}>
+              <div style={linhaTopo}>
+                <div>
+                  <h3 style={nomeAluno}>{item.aluno_nome}</h3>
+                  <p style={detalhe}>
+                    CPF: {item.aluno_cpf || "-"} | Valor: {formatarMoeda(item.valor)} | Parcelas: {item.parcelas || 1}
+                  </p>
+                  <p style={detalhe}>
+                    Solicitado por: {item.operador_nome || item.operador_solicitante || "-"} | Tempo: {Number(item.minutos_pendente || 0).toFixed(1)} min
+                  </p>
+                </div>
+
+                <span style={badgePendente}>AGUARDANDO LINK</span>
+              </div>
+
+              <label style={label}>Colar link completo</label>
+              <div style={linhaLink}>
+                <input
+                  value={linksDigitados[item.id] || ""}
+                  onChange={(e) =>
+                    setLinksDigitados((prev) => ({
+                      ...prev,
+                      [item.id]: e.target.value
+                    }))
+                  }
+                  placeholder="https://..."
+                  style={input}
+                />
+
+                <button
+                  type="button"
+                  onClick={() => devolverLinkAoOperador(item)}
+                  disabled={salvandoId === item.id}
+                  style={{
+                    ...botaoDevolver,
+                    opacity: salvandoId === item.id ? 0.6 : 1,
+                    cursor: salvandoId === item.id ? "not-allowed" : "pointer"
+                  }}
+                >
+                  {salvandoId === item.id ? "Devolvendo..." : "Devolver ao operador"}
+                </button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {prioridadesOperador.length > 0 && (
+        <section style={boxOperador}>
+          <div style={cabecalho}>
+            <div>
+              <h2 style={tituloOperador}>⚠️ Topo da fila operacional — Link pronto</h2>
+              <p style={subtitulo}>
+                O link voltou do ADM/Supervisão. Copie a mensagem pronta e envie ao aluno.
+              </p>
+            </div>
+
+            <button type="button" onClick={carregarTudo} style={botaoAtualizarEscuro}>
+              Atualizar
+            </button>
+          </div>
+
+          {prioridadesOperador.map((item) => (
+            <div key={item.id} style={cardOperador}>
+              <div style={linhaTopo}>
+                <div>
+                  <h3 style={nomeAluno}>{item.aluno_nome}</h3>
+                  <p style={detalhe}>
+                    CPF: {item.aluno_cpf || "-"} | Valor: {formatarMoeda(item.valor)} | Parcelas: {item.parcelas || 1}
+                  </p>
+                  <p style={detalhe}>
+                    Respondido em: {formatarDataHora(item.respondido_em || item.atualizado_em)}
+                  </p>
+                </div>
+
+                <span style={badgePrioridade}>PRIORIDADE</span>
+              </div>
+
+              <label style={label}>Link de pagamento</label>
+              <div style={linhaLink}>
+                <input value={item.link_pagamento || ""} readOnly style={input} />
+
+                <button
+                  type="button"
+                  onClick={() => copiarTexto(item.link_pagamento)}
+                  style={botaoCopiar}
+                >
+                  Copiar link
+                </button>
+              </div>
+
+              <label style={label}>Mensagem pronta para enviar ao aluno</label>
+              <textarea
+                value={item.mensagem_pronta || ""}
+                readOnly
+                style={textarea}
+              />
+
+              <div style={linhaBotoes}>
+                <button
+                  type="button"
+                  onClick={() => copiarTexto(item.mensagem_pronta)}
+                  style={botaoPrincipal}
+                >
+                  Copiar mensagem pronta
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => marcarComoEnviado(item)}
+                  style={botaoConfirmar}
+                >
+                  Marcar como enviado ao aluno
+                </button>
+              </div>
+            </div>
+          ))}
+        </section>
+      )}
+    </div>
+  );
+}
+
+const wrapper = {
+  marginBottom: "18px"
+};
+
+const boxInfo = {
+  background: "#e0f2fe",
+  color: "#075985",
+  padding: "12px",
+  borderRadius: "10px",
+  marginBottom: "12px",
+  fontWeight: "700"
+};
+
+const erroBox = {
+  background: "#fee2e2",
+  color: "#991b1b",
+  padding: "10px",
+  borderRadius: "8px",
+  fontWeight: "800",
+  marginBottom: "10px"
+};
+
+const boxAdm = {
+  padding: "16px",
+  borderRadius: "14px",
+  border: "2px solid #f97316",
+  background: "#fff7ed",
+  marginBottom: "16px",
+  animation: "piscarLinkReativa 1.4s infinite"
+};
+
+const boxOperador = {
+  padding: "16px",
+  borderRadius: "14px",
+  border: "2px solid #ef4444",
+  background: "#fef2f2",
+  marginBottom: "16px",
+  animation: "piscarLinkReativa 1.4s infinite"
+};
+
+const cabecalho = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px",
+  marginBottom: "12px"
+};
+
+const tituloAdm = {
+  margin: 0,
+  color: "#9a3412",
+  fontSize: "20px",
+  fontWeight: "900"
+};
+
+const tituloOperador = {
+  margin: 0,
+  color: "#991b1b",
+  fontSize: "20px",
+  fontWeight: "900"
+};
+
+const subtitulo = {
+  margin: "4px 0 0",
+  color: "#475569",
+  fontSize: "14px"
+};
+
+const botaoAtualizar = {
+  background: "#9a3412",
+  color: "#fff",
+  border: "none",
+  borderRadius: "8px",
+  padding: "9px 12px",
+  fontWeight: "800",
+  cursor: "pointer"
+};
+
+const botaoAtualizarEscuro = {
+  background: "#991b1b",
+  color: "#fff",
+  border: "none",
+  borderRadius: "8px",
+  padding: "9px 12px",
+  fontWeight: "800",
+  cursor: "pointer"
+};
+
+const cardAdm = {
+  background: "#ffffff",
+  border: "1px solid #fdba74",
+  borderRadius: "12px",
+  padding: "14px",
+  marginTop: "12px"
+};
+
+const cardOperador = {
+  background: "#ffffff",
+  border: "1px solid #fca5a5",
+  borderRadius: "12px",
+  padding: "14px",
+  marginTop: "12px"
+};
+
+const linhaTopo = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "12px",
+  alignItems: "flex-start"
+};
+
+const nomeAluno = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: "18px",
+  fontWeight: "900"
+};
+
+const detalhe = {
+  margin: "4px 0",
+  color: "#475569",
+  fontSize: "13px"
+};
+
+const badgePendente = {
+  background: "#f97316",
+  color: "#fff",
+  borderRadius: "999px",
+  padding: "6px 10px",
+  fontSize: "12px",
+  fontWeight: "900",
+  whiteSpace: "nowrap"
+};
+
+const badgePrioridade = {
+  background: "#dc2626",
+  color: "#fff",
+  borderRadius: "999px",
+  padding: "6px 10px",
+  fontSize: "12px",
+  fontWeight: "900",
+  whiteSpace: "nowrap"
+};
+
+const label = {
+  display: "block",
+  marginTop: "12px",
+  marginBottom: "5px",
+  color: "#334155",
+  fontWeight: "800",
+  fontSize: "13px"
+};
+
+const linhaLink = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap"
+};
+
+const input = {
+  flex: "1 1 280px",
+  width: "100%",
+  padding: "10px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+  boxSizing: "border-box"
+};
+
+const botaoDevolver = {
+  background: "#16a34a",
+  color: "#fff",
+  border: "none",
+  borderRadius: "8px",
+  padding: "10px 14px",
+  fontWeight: "900"
+};
+
+const botaoCopiar = {
+  background: "#0f172a",
+  color: "#fff",
+  border: "none",
+  borderRadius: "8px",
+  padding: "10px 14px",
+  fontWeight: "800",
+  cursor: "pointer"
+};
+
+const textarea = {
+  width: "100%",
+  minHeight: "150px",
+  padding: "10px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+  resize: "vertical",
+  boxSizing: "border-box",
+  whiteSpace: "pre-wrap"
+};
+
+const linhaBotoes = {
+  display: "flex",
+  gap: "10px",
+  flexWrap: "wrap",
+  marginTop: "12px"
+};
+
+const botaoPrincipal = {
+  background: "#0f172a",
+  color: "#fff",
+  border: "none",
+  borderRadius: "8px",
+  padding: "10px 14px",
+  fontWeight: "800",
+  cursor: "pointer"
+};
+
+const botaoConfirmar = {
+  background: "#16a34a",
+  color: "#fff",
+  border: "none",
+  borderRadius: "8px",
+  padding: "10px 14px",
+  fontWeight: "800",
+  cursor: "pointer"
+};
