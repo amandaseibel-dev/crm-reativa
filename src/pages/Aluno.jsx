@@ -464,6 +464,22 @@ export default function Aluno() {
             >
               {salvando ? "Salvando..." : "Salvar finalização"}
             </button>
+
+            <div style={acoesAtendimentoBox}>
+              <h3 style={acoesAtendimentoTitulo}>Ações do atendimento</h3>
+
+              <p style={acoesAtendimentoSubtitulo}>
+                Use esta área para solicitar link de pagamento, anexar termo e acompanhar as movimentações do aluno.
+              </p>
+
+              <div style={acoesAtendimentoGrid}>
+                <LinksPagamentoAluno aluno={aluno} />
+
+                <FinalizacaoTermo aluno={aluno} />
+              </div>
+            </div>
+
+
           </section>
 
           <section style={cardGrande}>
@@ -490,10 +506,6 @@ export default function Aluno() {
 
           <section style={cardGrande}>
             
-              <LinksPagamentoAluno aluno={aluno} />
-
-              <FinalizacaoTermo aluno={aluno} />
-
               <h2 style={secaoTitulo}>Histórico operacional</h2>
 
             {historico.length === 0 ? (
@@ -706,6 +718,36 @@ const infoLabel = {
 const infoValue = {
   color: "#0f172a",
   fontSize: 15,
+};
+
+const acoesAtendimentoBox = {
+  marginTop: 26,
+  paddingTop: 24,
+  borderTop: "2px solid #e5e7eb",
+};
+
+const acoesAtendimentoTitulo = {
+  margin: "0 0 6px 0",
+  fontSize: 22,
+  fontWeight: 950,
+  color: "#0f172a",
+};
+
+const acoesAtendimentoSubtitulo = {
+  margin: "0 0 18px 0",
+  color: "#475569",
+  fontWeight: 800,
+};
+
+const acoesAtendimentoGrid = {
+  display: "grid",
+  gridTemplateColumns: "1fr 1fr",
+  gap: 18,
+  alignItems: "start",
+};
+
+const acaoOperacionalCard = {
+  minWidth: 0,
 };
 
 const historicoBox = {

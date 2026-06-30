@@ -597,6 +597,30 @@ export default function CRM() {
     buscar();
   }
 
+
+  function abrirAcoesAluno(c, acao) {
+    const alunoSelecionado = {
+      id: c.id,
+      nome: c.nome,
+      nome_aluno: c.nome,
+      cpf: c.cpf,
+      cpf_mascarado: c.cpfMascarado,
+      matricula: c.matricula,
+      valor_em_aberto: c.totalEmAberto,
+      valor_total: c.totalEmAberto,
+      status_financeiro: c.statusFinanceiro,
+      operador: c.operador,
+      data_retorno: c.dataRetorno,
+      hora_retorno: c.horaRetorno,
+      status_atual: c.statusAtual,
+      observacao_operacional: c.observacoesBase,
+    };
+
+    localStorage.setItem("alunoSelecionado", JSON.stringify(alunoSelecionado));
+    localStorage.setItem("acaoInicialAluno", acao);
+    window.location.href = "/aluno";
+  }
+
   async function transferirCaso(caso) {
     setErro("");
     setSucesso("");
@@ -1203,6 +1227,29 @@ export default function CRM() {
                     <button style={estiloBotao} onClick={() => salvarAcao(c, "QUITADO")}>
                       Quitado
                     </button>
+
+                    <button
+                      style={{
+                        ...estiloBotaoSecundario,
+                        background: "#22c55e",
+                        color: "#020617",
+                      }}
+                      onClick={() => abrirAcoesAluno(c, "LINK_PAGAMENTO")}
+                    >
+                      Solicitar link de pagamento
+                    </button>
+
+                    <button
+                      style={{
+                        ...estiloBotaoSecundario,
+                        background: "#38bdf8",
+                        color: "#020617",
+                      }}
+                      onClick={() => abrirAcoesAluno(c, "TERMO_ANEXO")}
+                    >
+                      Enviar termo/anexo
+                    </button>
+
                   </div>
                 </div>
 
