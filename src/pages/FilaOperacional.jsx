@@ -627,40 +627,79 @@ export default function FilaOperador() {
   }
 
   async function solicitarLinkPagamento() {
-    if (!alunoSelecionado?.id) return;
+    if (!alunoSelecionado?.id) {
+      alert("Selecione um aluno antes de solicitar o link.");
+      return;
+    }
+
+    const valorDigitado = window.prompt(
+      "Informe o valor do link de pagamento. Se não souber, deixe em branco e clique em OK."
+    );
+
+    if (valorDigitado === null) {
+      return;
+    }
+
+    const valorLimpo = valorDigitado
+      .replace(/R\$/gi, "")
+      .replace(/\s/g, "")
+      .replace(/\./g, "")
+      .replace(",", ".")
+      .replace(/[^0-9.]/g, "");
+
+    const valorSolicitado = valorLimpo ? Number(valorLimpo) : null;
+
+    if (valorSolicitado !== null && Number.isNaN(valorSolicitado)) {
+      alert("Valor inválido. Tente novamente.");
+      return;
+    }
+
+    const observacaoLink = window.prompt(
+      "Observação para Fernanda / Amanda ADM:",
+      observacao || "Solicitação de link de pagamento."
+    );
+
+    if (observacaoLink === null) {
+      return;
+    }
 
     setSalvando(true);
 
     try {
-      const statusAnterior = pegarCampo(
-        alunoSelecionado,
-        ["status_jornada", "status_atual", "status"],
-        null
+      const usuario = await pegarUsuarioLogado();
+
+      const { data, error } = await supabase.rpc(
+        "criar_solicitacao_link_pagamento",
+        {
+          p_aluno_id: String(alunoSelecionado.id),
+          p_valor_solicitado: valorSolicitado,
+          p_observacao_operador:
+            observacaoLink || "Solicitação de link de pagamento.",
+          p_operador_nome: usuario.nome,
+          p_operador_email: usuario.email,
+        }
       );
 
-      await registrarMovimentacao({
-        alunoId: alunoSelecionado.id,
-        tipo: "SOLICITACAO_LINK_PAGAMENTO",
-        descricao: "Operador solicitou geração de link de pagamento.",
-        statusAnterior,
-        statusNovo: "SOLICITADO_LINK",
-        retorno: null,
-        atualizarResponsavel: false,
-      });
+      if (error) {
+        console.error("Erro ao solicitar link:", error);
+        alert("Erro ao solicitar link de pagamento.");
+        return;
+      }
 
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
       await carregarFila();
 
-      alert("Solicitação de link registrada com sucesso.");
+      alert("Link solicitado com sucesso. Fernanda / Amanda ADM foram notificadas.");
+
+      console.log("Solicitação criada:", data);
     } catch (e) {
-      console.error(e);
+      console.error("Erro inesperado ao solicitar link:", e);
+      alert("Erro inesperado ao solicitar link.");
     } finally {
       setSalvando(false);
     }
-  }
-
-  async function enviarTermoAdm() {
+  }\n\n  async function enviarTermoAdm() {
     if (!alunoSelecionado?.id) return;
 
     setSalvando(true);
