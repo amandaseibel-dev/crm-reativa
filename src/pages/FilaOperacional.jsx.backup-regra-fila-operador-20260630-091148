@@ -90,25 +90,9 @@ export default function FilaOperacional() {
   const [visao, setVisao] = useState("TODOS");
   const [filtroStatus, setFiltroStatus] = useState("ATIVOS");
   const [filtroRetorno, setFiltroRetorno] = useState("TODOS");
-  const [filtroOperador, setFiltroOperador] = useState("TODOS");
   const [ordenacao, setOrdenacao] = useState("VALOR_DESC");
 
   const [edicoes, setEdicoes] = useState({});
-
-  const [notificacoesLinks, setNotificacoesLinks] = useState({
-    solicitadoLink: 0,
-    linkPronto: 0,
-    aguardandoBaixa: 0,
-    baixaConcluida: 0,
-    divergencia: 0,
-  });
-
-  const [alertasLinks, setAlertasLinks] = useState({
-    linkPronto: 0,
-    aguardandoBaixa: 0,
-    baixaConcluida: 0,
-    divergencia: 0,
-  });
 
   useEffect(() => {
     carregarUsuario();
@@ -117,86 +101,7 @@ export default function FilaOperacional() {
 
   async function carregarUsuario() {
     const { data } = await supabase.auth.getUser();
-    const user = data?.user || null;
-    const email = user?.email || "";
-
-    setUsuario(user);
-
-    if (podeVerTudo(email)) {
-      setVisao("TODOS");
-      setFiltroOperador("TODOS");
-    } else {
-      setVisao("MINHA");
-      setFiltroOperador("TODOS");
-    }
-  }
-
-  async function carregarAlertasLinks(emailAtual) {
-    if (!emailAtual) return;
-
-    const { data, error } = await supabase
-      .from("links_pagamento")
-      .select("status")
-      .eq("operador_email", emailAtual)
-      .in("status", [
-        "LINK_GERADO",
-        "AGUARDANDO_BAIXA",
-        "BAIXA_CONCLUIDA",
-        "DIVERGENCIA",
-      ]);
-
-    if (error) {
-      console.error("Erro ao carregar alertas de links:", error.message);
-      return;
-    }
-
-    const lista = data || [];
-
-    setAlertasLinks({
-      linkPronto: lista.filter((x) => x.status === "LINK_GERADO").length,
-      aguardandoBaixa: lista.filter((x) => x.status === "AGUARDANDO_BAIXA").length,
-      baixaConcluida: lista.filter((x) => x.status === "BAIXA_CONCLUIDA").length,
-      divergencia: lista.filter((x) => x.status === "DIVERGENCIA").length,
-    });
-  }
-
-  async function carregarNotificacoesLinks(emailAtual) {
-    if (!emailAtual) return;
-
-    const email = String(emailAtual || "").toLowerCase();
-    const visaoGeral = podeVerTudo(email) || podeBaixarPagamento(email);
-
-    let query = supabase
-      .from("links_pagamento")
-      .select("status, operador_email")
-      .in("status", [
-        "SOLICITADO_LINK",
-        "LINK_GERADO",
-        "AGUARDANDO_BAIXA",
-        "BAIXA_CONCLUIDA",
-        "DIVERGENCIA",
-      ]);
-
-    if (!visaoGeral) {
-      query = query.eq("operador_email", email);
-    }
-
-    const { data, error } = await query.limit(1000);
-
-    if (error) {
-      console.error("Erro ao carregar notificações de links:", error.message);
-      return;
-    }
-
-    const lista = data || [];
-
-    setNotificacoesLinks({
-      solicitadoLink: lista.filter((x) => x.status === "SOLICITADO_LINK").length,
-      linkPronto: lista.filter((x) => x.status === "LINK_GERADO").length,
-      aguardandoBaixa: lista.filter((x) => x.status === "AGUARDANDO_BAIXA").length,
-      baixaConcluida: lista.filter((x) => x.status === "BAIXA_CONCLUIDA").length,
-      divergencia: lista.filter((x) => x.status === "DIVERGENCIA").length,
-    });
+    setUsuario(data?.user || null);
   }
 
   async function carregarFila() {
@@ -219,72 +124,15 @@ export default function FilaOperacional() {
     setCarregando(false);
   }
 
-
-  async function assumirAtendimento(item) {
-    if (!item?.chave_unificacao) {
-      alert("Aluno sem chave de unificação. Não foi possível assumir.");
-      return;
-    }
-
-    const confirmar = window.confirm(
-      "Deseja assumir este atendimento? O aluno ficará registrado para você."
-    );
-
-    if (!confirmar) return;
-
-    const { data, error } = await supabase.rpc("assumir_atendimento_aluno", {
-      p_chave_unificacao: item.chave_unificacao,
-      p_observacao: "Atendimento assumido pela Fila Operacional",
-    });
-
-    if (error) {
-      console.error("Erro ao assumir atendimento:", error);
-      alert("Erro ao assumir atendimento: " + error.message);
-      return;
-    }
-
-    const retorno = Array.isArray(data) ? data[0] : data;
-
-    alert(retorno?.mensagem || "Atendimento assumido.");
-
-    if (typeof carregarFila === "function") {
-      carregarFila();
-    }
-  }
-
   function abrirFichaAluno(item) {
-    if (!item) {
-      alert("Aluno não encontrado para abrir o cadastro.");
+    const chave = item?.chave_unificacao;
+
+    if (!chave) {
+      alert("Este aluno ainda não possui chave de unificação para abrir a ficha.");
       return;
     }
 
-    const alunoSelecionado = {
-      id: item.id,
-      chave_unificacao: item.chave_unificacao || "",
-      nome: item.nome_aluno || item.nome_referencia || "Aluno sem nome",
-      nome_aluno: item.nome_aluno || item.nome_referencia || "Aluno sem nome",
-      cpf: item.cpf_referencia || "",
-      cpf_mascarado: item.cpf_referencia || "",
-      matricula: item.matricula || "-",
-      valor_em_aberto: item.valor_total_casos || 0,
-      valor_total: item.valor_total_casos || 0,
-      status_financeiro: item.status_financeiro || "-",
-      operador: item.operador_nome || "",
-      operador_nome: item.operador_nome || "",
-      operador_email: item.operador_email || "",
-      data_retorno: item.data_retorno || null,
-      hora_retorno: item.hora_retorno || null,
-      status_atual: item.status_jornada || "EM_COBRANCA",
-      status_jornada: item.status_jornada || "EM_COBRANCA",
-      prioridade_operacional: item.prioridade_operacional || "NORMAL",
-      observacao_operacional: item.observacao_operacional || "",
-      quantidade_casos: item.quantidade_casos || 0,
-      quantidade_cpfs: item.quantidade_cpfs || 0,
-      valor_total_casos: item.valor_total_casos || 0,
-    };
-
-    localStorage.setItem("alunoSelecionado", JSON.stringify(alunoSelecionado));
-    window.location.href = "/aluno";
+    navigate(`/aluno-unificado/${encodeURIComponent(chave)}`);
   }
 
   function edicaoDoAluno(chave, campo, valorAtual = "") {
@@ -390,31 +238,13 @@ export default function FilaOperacional() {
   const adm = podeVerTudo(emailUsuario);
   const amandaGestora = podeBaixarPagamento(emailUsuario);
 
-  const operadoresFiltro = useMemo(() => {
-    return [
-      "OLGA",
-      "ALLAN",
-      "DIEGO",
-      "RAFAELLA",
-      "MAURICIO",
-      "LUANA",
-      "NATALY",
-      "JOÃO",
-      "AMANDA",
-    ];
-  }, []);
-
   const lista = useMemo(() => {
     let filtrada = [...alunos];
 
-    if (!adm) {
-      if (visao === "SEM_OPERADOR") {
-        filtrada = filtrada.filter((item) => !item.operador_email);
-      } else {
-        filtrada = filtrada.filter(
-          (item) => String(item.operador_email || "").toLowerCase() === emailUsuario.toLowerCase()
-        );
-      }
+    if (!adm && visao !== "TODOS") {
+      filtrada = filtrada.filter(
+        (item) => String(item.operador_email || "").toLowerCase() === emailUsuario.toLowerCase()
+      );
     }
 
     if (visao === "MINHA") {
@@ -425,16 +255,6 @@ export default function FilaOperacional() {
 
     if (visao === "SEM_OPERADOR") {
       filtrada = filtrada.filter((item) => !item.operador_email);
-    }
-
-    if (adm) {
-      if (filtroOperador === "SEM_OPERADOR") {
-        filtrada = filtrada.filter((item) => !item.operador_email);
-      } else if (filtroOperador !== "TODOS") {
-        filtrada = filtrada.filter(
-          (item) => String(item.operador_nome || "").toUpperCase() === filtroOperador
-        );
-      }
     }
 
     if (filtroStatus === "ATIVOS") {
@@ -492,7 +312,7 @@ export default function FilaOperacional() {
     });
 
     return filtrada;
-  }, [alunos, adm, visao, filtroOperador, filtroStatus, filtroRetorno, busca, ordenacao, emailUsuario]);
+  }, [alunos, adm, visao, filtroStatus, filtroRetorno, busca, ordenacao, emailUsuario]);
 
   const indicadores = useMemo(() => {
     return {
@@ -547,95 +367,9 @@ export default function FilaOperacional() {
             Manual da Operação
           </button>
 
-          <button
-            style={styles.botaoEscuro}
-            onClick={() => {
-              carregarFila();
-              carregarAlertasLinks(emailUsuario);
-            }}
-          >
+          <button style={styles.botaoEscuro} onClick={carregarFila}>
             Atualizar
           </button>
-        </div>
-      </div>
-
-      <div style={styles.alertasOperador}>
-        <div style={styles.alertaCard}>
-          <strong>🔔 {alertasLinks.linkPronto}</strong>
-          <span>Links prontos para envio</span>
-        </div>
-
-        <div style={styles.alertaCard}>
-          <strong>💳 {alertasLinks.aguardandoBaixa}</strong>
-          <span>Comprovantes aguardando baixa</span>
-        </div>
-
-        <div style={styles.alertaCard}>
-          <strong>✅ {alertasLinks.baixaConcluida}</strong>
-          <span>Baixas concluídas</span>
-        </div>
-
-        <div style={styles.alertaCard}>
-          <strong>⚠️ {alertasLinks.divergencia}</strong>
-          <span>Divergências</span>
-        </div>
-      </div>
-
-      <div style={styles.notificacaoPrincipal}>
-        <div>
-          <h2 style={styles.notificacaoTitulo}>
-            {notificacoesLinks.solicitadoLink +
-              notificacoesLinks.linkPronto +
-              notificacoesLinks.aguardandoBaixa +
-              notificacoesLinks.baixaConcluida +
-              notificacoesLinks.divergencia +
-              indicadores.retornoHoje +
-              indicadores.atrasados >
-            0
-              ? "🔔 Você tem nova notificação"
-              : "🔕 Sem novas notificações"}
-          </h2>
-
-          <p style={styles.notificacaoTexto}>
-            Aqui aparecem links, baixas, divergências e retornos que precisam de atenção.
-          </p>
-        </div>
-      </div>
-
-      <div style={styles.alertasOperador}>
-        <div style={styles.alertaCard}>
-          <strong>🔗 {notificacoesLinks.solicitadoLink}</strong>
-          <span>Links solicitados</span>
-        </div>
-
-        <div style={styles.alertaCard}>
-          <strong>🔔 {notificacoesLinks.linkPronto}</strong>
-          <span>Links prontos para envio</span>
-        </div>
-
-        <div style={styles.alertaCard}>
-          <strong>💳 {notificacoesLinks.aguardandoBaixa}</strong>
-          <span>Comprovantes aguardando baixa</span>
-        </div>
-
-        <div style={styles.alertaCard}>
-          <strong>✅ {notificacoesLinks.baixaConcluida}</strong>
-          <span>Baixas concluídas</span>
-        </div>
-
-        <div style={styles.alertaCard}>
-          <strong>⚠️ {notificacoesLinks.divergencia}</strong>
-          <span>Divergências</span>
-        </div>
-
-        <div style={styles.alertaCard}>
-          <strong>📅 {indicadores.retornoHoje}</strong>
-          <span>Retornos hoje</span>
-        </div>
-
-        <div style={styles.alertaCard}>
-          <strong>⏰ {indicadores.atrasados}</strong>
-          <span>Retornos atrasados</span>
         </div>
       </div>
 
@@ -661,26 +395,10 @@ export default function FilaOperacional() {
           />
 
           <select style={styles.input} value={visao} onChange={(e) => setVisao(e.target.value)}>
-            {adm && <option value="TODOS">Todos</option>}
+            <option value="TODOS">Todos</option>
             <option value="MINHA">Minha fila</option>
             <option value="SEM_OPERADOR">Sem operador</option>
           </select>
-
-          {adm && (
-            <select
-              style={styles.input}
-              value={filtroOperador}
-              onChange={(e) => setFiltroOperador(e.target.value)}
-            >
-              <option value="TODOS">Todos os operadores</option>
-              {operadoresFiltro.map((op) => (
-                <option key={op} value={op}>
-                  Fila de {op}
-                </option>
-              ))}
-              <option value="SEM_OPERADOR">Sem operador</option>
-            </select>
-          )}
 
           <select style={styles.input} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
             <option value="ATIVOS">Ativos da cobrança</option>
@@ -744,7 +462,7 @@ export default function FilaOperacional() {
                 <p style={styles.info}>
                   <strong>Retorno:</strong> {dataBR(item.data_retorno)} {item.hora_retorno ? `às ${String(item.hora_retorno).slice(0, 5)}` : ""}
                 </p>
-                <p style={styles.cliqueFicha}>Clique no card para abrir o cadastro do aluno</p>
+                <p style={styles.cliqueFicha}>Clique no card para abrir o cadastro completo do aluno</p>
               </div>
 
               <div style={styles.colunaStatus}>
@@ -831,17 +549,7 @@ export default function FilaOperacional() {
                   Salvar movimentação
                 </button>
 
-                
-                      <button
-                        style={styles.botaoVerde || styles.botaoEscuro}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          assumirAtendimento(item);
-                        }}
-                      >
-                        🙋 Assumir atendimento
-                      </button>
-<button
+                <button
                   style={styles.botaoEscuro}
                   onClick={() => abrirFichaAluno(item)}
                 >
@@ -869,50 +577,6 @@ const styles = {
   subtitulo: { margin: "6px 0 0 0", color: "#555" },
   usuario: { margin: "8px 0 0 0", color: "#374151" },
   nav: { display: "flex", gap: "8px", flexWrap: "wrap" },
-  alertasOperador: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))",
-    gap: "12px",
-    marginBottom: "16px",
-  },
-  alertaCard: {
-    background: "#111827",
-    color: "#fff",
-    borderRadius: "14px",
-    padding: "16px",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.12)",
-    border: "1px solid #22c55e",
-  },
-  notificacaoPrincipal: {
-    background: "#111827",
-    color: "#fff",
-    borderRadius: "16px",
-    padding: "18px",
-    marginBottom: "14px",
-    boxShadow: "0 2px 10px rgba(0,0,0,0.15)",
-    border: "1px solid #22c55e",
-  },
-  notificacaoTitulo: {
-    margin: 0,
-    fontSize: "22px",
-  },
-  notificacaoTexto: {
-    margin: "6px 0 0 0",
-    color: "#d1d5db",
-  },
-  alertasOperador: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-    gap: "12px",
-    marginBottom: "16px",
-  },
-  alertaCard: {
-    background: "#fff",
-    borderRadius: "14px",
-    padding: "15px",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
-    border: "1px solid #d1d5db",
-  },
   indicadores: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(145px, 1fr))", gap: "12px", marginBottom: "16px" },
   indicador: { background: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
   indicadorValor: { background: "#111827", color: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },

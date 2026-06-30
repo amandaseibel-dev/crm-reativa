@@ -46,64 +46,6 @@ const STATUS_ATENDIMENTO = [
 /* ================= COMPONENTE ================= */
 
 export default function CRM() {
-
-  // BLOQUEIO_FINAL_CRM_OPERADOR
-  const [bloqueadoCRM, setBloqueadoCRM] = useState(false);
-  const [verificandoCRM, setVerificandoCRM] = useState(true);
-
-  useEffect(() => {
-    async function bloquearOperadorNoCRM() {
-      const { data } = await supabase.auth.getUser();
-      const email = String(data?.user?.email || "").toLowerCase();
-
-      const liberados = [
-        "amanda.seibel@aelbra.com.br",
-        "cobranca04@aelbra.com.br",
-        "cobranca07@aelbra.com.br",
-      ];
-
-      if (!liberados.includes(email)) {
-        setBloqueadoCRM(true);
-      }
-
-      setVerificandoCRM(false);
-    }
-
-    bloquearOperadorNoCRM();
-  }, []);
-
-  if (verificandoCRM) {
-    return (
-      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100vh" }}>
-        Verificando acesso...
-      </div>
-    );
-  }
-
-  if (bloqueadoCRM) {
-    return (
-      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100vh" }}>
-        <h1>🔒 CRM Operacional bloqueado para operador</h1>
-        <p>Use a Fila Operacional / Minha Fila para atender seus alunos.</p>
-        <button
-          onClick={() => window.location.href = "/"}
-          style={{
-            background: "#22c55e",
-            color: "#111827",
-            border: "none",
-            borderRadius: 12,
-            padding: "12px 18px",
-            fontWeight: 800,
-            cursor: "pointer"
-          }}
-        >
-          Ir para Minha Fila
-        </button>
-      </div>
-    );
-  }
-
-
   const [operador, setOperador] = useState("OLGA");
   const [usuario, setUsuario] = useState(null);
   const [perfilCarregado, setPerfilCarregado] = useState(false);

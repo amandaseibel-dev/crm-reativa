@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
 
 /* ================= BASE ================= */
 
@@ -46,67 +45,7 @@ const STATUS_ATENDIMENTO = [
 /* ================= COMPONENTE ================= */
 
 export default function CRM() {
-
-  // BLOQUEIO_FINAL_CRM_OPERADOR
-  const [bloqueadoCRM, setBloqueadoCRM] = useState(false);
-  const [verificandoCRM, setVerificandoCRM] = useState(true);
-
-  useEffect(() => {
-    async function bloquearOperadorNoCRM() {
-      const { data } = await supabase.auth.getUser();
-      const email = String(data?.user?.email || "").toLowerCase();
-
-      const liberados = [
-        "amanda.seibel@aelbra.com.br",
-        "cobranca04@aelbra.com.br",
-        "cobranca07@aelbra.com.br",
-      ];
-
-      if (!liberados.includes(email)) {
-        setBloqueadoCRM(true);
-      }
-
-      setVerificandoCRM(false);
-    }
-
-    bloquearOperadorNoCRM();
-  }, []);
-
-  if (verificandoCRM) {
-    return (
-      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100vh" }}>
-        Verificando acesso...
-      </div>
-    );
-  }
-
-  if (bloqueadoCRM) {
-    return (
-      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100vh" }}>
-        <h1>🔒 CRM Operacional bloqueado para operador</h1>
-        <p>Use a Fila Operacional / Minha Fila para atender seus alunos.</p>
-        <button
-          onClick={() => window.location.href = "/"}
-          style={{
-            background: "#22c55e",
-            color: "#111827",
-            border: "none",
-            borderRadius: 12,
-            padding: "12px 18px",
-            fontWeight: 800,
-            cursor: "pointer"
-          }}
-        >
-          Ir para Minha Fila
-        </button>
-      </div>
-    );
-  }
-
-
   const [operador, setOperador] = useState("OLGA");
-  const [usuario, setUsuario] = useState(null);
-  const [perfilCarregado, setPerfilCarregado] = useState(false);
   const [busca, setBusca] = useState("");
   const [todosCasos, setTodosCasos] = useState([]);
   const [grupos, setGrupos] = useState([]);
@@ -153,36 +92,6 @@ export default function CRM() {
     cursor: "pointer",
     fontSize: 14,
   };
-
-
-  async function carregarUsuarioLogado() {
-    const { data } = await supabase.auth.getUser();
-    const user = data?.user || null;
-    const email = user?.email || "";
-
-    setUsuario(user);
-
-    const ehAdm = podeVerTudo(email);
-
-    if (!ehAdm) {
-      const nomeOperador = nomeOperadorPorEmail(email);
-
-      if (nomeOperador) {
-        setOperador(nomeOperador);
-      }
-    }
-
-    setPerfilCarregado(true);
-  }
-
-  function usuarioPodeVerTudo() {
-    return podeVerTudo(usuario?.email || "");
-  }
-
-  function operadorDaSessao() {
-    if (usuarioPodeVerTudo()) return operador;
-    return nomeOperadorPorEmail(usuario?.email || "") || operador;
-  }
 
   function normalizarTexto(t) {
     return String(t || "")
@@ -352,71 +261,7 @@ export default function CRM() {
     }
 
     if (filtro === "FINALIZADOS") {
-      
-  // CRM_OPERADOR_BLOQUEADO_REATIVA
-  const [usuarioBloqueadoCRM, setUsuarioBloqueadoCRM] = useState(false);
-
-  useEffect(() => {
-    async function verificarAcessoCRM() {
-      const { data } = await supabase.auth.getUser();
-      const email = String(data?.user?.email || "").toLowerCase();
-
-      const podeVerCRM = [
-        "amanda.seibel@aelbra.com.br",
-        "cobranca04@aelbra.com.br",
-        "cobranca07@aelbra.com.br",
-      ].includes(email);
-
-      setUsuarioBloqueadoCRM(!podeVerCRM);
-    }
-
-    verificarAcessoCRM();
-  }, []);
-
-  if (usuarioBloqueadoCRM) {
-    return (
-      <div style={{
-        minHeight: "100vh",
-        padding: "40px",
-        background: "#0f172a",
-        color: "#fff",
-        fontFamily: "Inter, Arial, sans-serif"
-      }}>
-        <div style={{
-          maxWidth: "760px",
-          margin: "0 auto",
-          background: "#111827",
-          border: "1px solid #22c55e",
-          borderRadius: "18px",
-          padding: "28px"
-        }}>
-          <h1>🔒 CRM Operacional bloqueado para operador</h1>
-          <p>
-            A operação agora deve trabalhar pela Fila Operacional / Minha Fila.
-            Esta tela fica disponível apenas para Amanda, Supervisão e Administrativo.
-          </p>
-
-          <button
-            onClick={() => window.location.href = "/"}
-            style={{
-              marginTop: "18px",
-              background: "#22c55e",
-              color: "#0f172a",
-              border: "none",
-              borderRadius: "12px",
-              padding: "12px 18px",
-              fontWeight: 800,
-              cursor: "pointer"
-            }}
-          >
-            Ir para Minha Fila
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-return (
+      return (
         st.includes("QUITADO") ||
         st.includes("ACORDO") ||
         st.includes("ARQUIVAR") ||
@@ -520,7 +365,7 @@ return (
     const { data, error } = await supabase
       .from("casos")
       .select("*")
-      .eq("operador_base", operadorDaSessao())
+      .eq("operador_base", operador)
       .range(0, 5000);
 
     setCarregando(false);
@@ -637,7 +482,7 @@ return (
   async function registrarHistorico(caso, statusNovo, observacao, dataRetorno) {
     const { error } = await supabase.from("historico_casos").insert({
       caso_id: caso.id,
-      operador: operadorDaSessao(),
+      operador: operador,
       status_anterior: caso.statusAtual,
       status_novo: statusNovo,
       observacao: observacao,
@@ -752,30 +597,6 @@ return (
     buscar();
   }
 
-
-  function abrirAcoesAluno(c, acao) {
-    const alunoSelecionado = {
-      id: c.id,
-      nome: c.nome,
-      nome_aluno: c.nome,
-      cpf: c.cpf,
-      cpf_mascarado: c.cpfMascarado,
-      matricula: c.matricula,
-      valor_em_aberto: c.totalEmAberto,
-      valor_total: c.totalEmAberto,
-      status_financeiro: c.statusFinanceiro,
-      operador: c.operador,
-      data_retorno: c.dataRetorno,
-      hora_retorno: c.horaRetorno,
-      status_atual: c.statusAtual,
-      observacao_operacional: c.observacoesBase,
-    };
-
-    localStorage.setItem("alunoSelecionado", JSON.stringify(alunoSelecionado));
-    localStorage.setItem("acaoInicialAluno", acao);
-    window.location.href = "/aluno";
-  }
-
   async function transferirCaso(caso) {
     setErro("");
     setSucesso("");
@@ -832,14 +653,8 @@ return (
   }
 
   useEffect(() => {
-    carregarUsuarioLogado();
+    buscar();
   }, []);
-
-  useEffect(() => {
-    if (perfilCarregado) {
-      buscar();
-    }
-  }, [perfilCarregado, operador]);
 
   const listaRetornosHoje = retornosHoje();
 
@@ -932,18 +747,9 @@ return (
         }}
       >
         <select
-          value={operadorDaSessao()}
-          disabled={!usuarioPodeVerTudo()}
-          onChange={(e) => {
-            if (usuarioPodeVerTudo()) {
-              setOperador(e.target.value);
-            }
-          }}
-          style={{
-            ...estiloCampo,
-            opacity: usuarioPodeVerTudo() ? 1 : 0.75,
-            cursor: usuarioPodeVerTudo() ? "pointer" : "not-allowed",
-          }}
+          value={operador}
+          onChange={(e) => setOperador(e.target.value)}
+          style={estiloCampo}
         >
           {OPERADORES.map((o) => (
             <option key={o.nome} value={o.nome}>
@@ -975,22 +781,6 @@ return (
           Buscar
         </button>
       </div>
-
-      {!usuarioPodeVerTudo() && (
-        <div
-          style={{
-            background: "#240044",
-            border: "1px solid #7e22ce",
-            borderRadius: 12,
-            padding: 12,
-            marginBottom: 16,
-            color: "#ddd6fe",
-            fontWeight: 800,
-          }}
-        >
-          Você está visualizando sua fila de acionamentos. A pesquisa geral da base continua disponível nas telas de consulta/cadastro, mas a carteira ativa dos colegas não aparece aqui.
-        </div>
-      )}
 
       {carregando && <p>Carregando casos...</p>}
       {erro && <p style={{ color: "#f87171", fontWeight: 800 }}>{erro}</p>}
@@ -1413,29 +1203,6 @@ return (
                     <button style={estiloBotao} onClick={() => salvarAcao(c, "QUITADO")}>
                       Quitado
                     </button>
-
-                    <button
-                      style={{
-                        ...estiloBotaoSecundario,
-                        background: "#22c55e",
-                        color: "#020617",
-                      }}
-                      onClick={() => abrirAcoesAluno(c, "LINK_PAGAMENTO")}
-                    >
-                      Solicitar link de pagamento
-                    </button>
-
-                    <button
-                      style={{
-                        ...estiloBotaoSecundario,
-                        background: "#38bdf8",
-                        color: "#020617",
-                      }}
-                      onClick={() => abrirAcoesAluno(c, "TERMO_ANEXO")}
-                    >
-                      Enviar termo/anexo
-                    </button>
-
                   </div>
                 </div>
 

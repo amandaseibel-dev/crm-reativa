@@ -681,13 +681,6 @@ export default function LinksPagamentoAluno({ aluno }) {
                   }
                 />
 
-                <div style={styles.blocoComprovante}>
-                  <h4 style={styles.tituloComprovante}>Área do comprovante do aluno</h4>
-                  <p style={styles.textoComprovante}>
-                    Após o aluno pagar, anexe aqui o comprovante. Ele será enviado para a fila de baixa da Amanda ADM.
-                  </p>
-                </div>
-
                 <div style={styles.uploadBox}>
                   <input
                     style={styles.input}
@@ -903,22 +896,6 @@ const styles = {
     padding: "10px",
     marginTop: "10px",
     color: "#374151",
-  },
-  blocoComprovante: {
-    background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
-    borderRadius: "12px",
-    padding: "12px",
-    marginTop: "14px",
-  },
-  tituloComprovante: {
-    margin: "0 0 6px 0",
-    color: "#166534",
-  },
-  textoComprovante: {
-    margin: "0 0 10px 0",
-    color: "#166534",
-    fontSize: "14px",
   },
   uploadBox: {
     display: "grid",

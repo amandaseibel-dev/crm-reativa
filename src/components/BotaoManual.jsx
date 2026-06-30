@@ -1,20 +1,22 @@
 export default function BotaoManual() {
   return (
     <button
-      onClick={() => window.open("/manual-operacao", "_blank")}
+      type="button"
+      onClick={() => window.open("/manual-operacao", "_blank", "noreferrer")}
       style={{
         position: "fixed",
-        right: "18px",
-        bottom: "18px",
-        zIndex: 9999,
+        right: "22px",
+        bottom: "22px",
+        zIndex: 999999,
         background: "#19c37d",
         color: "#071526",
-        border: "none",
+        border: "2px solid #ffffff",
         borderRadius: "999px",
-        padding: "13px 18px",
+        padding: "14px 20px",
         fontWeight: "bold",
+        fontSize: "14px",
         cursor: "pointer",
-        boxShadow: "0 8px 20px rgba(0,0,0,0.25)",
+        boxShadow: "0 10px 25px rgba(0,0,0,0.35)",
       }}
     >
       Manual da Operação

@@ -96,7 +96,7 @@ export default function ControleLinksPagamento() {
   const [carregando, setCarregando] = useState(true);
 
   const [busca, setBusca] = useState("");
-  const [filtroStatus, setFiltroStatus] = useState("TODOS");
+  const [filtroStatus, setFiltroStatus] = useState("SOLICITADO_LINK");
   const [ordenacao, setOrdenacao] = useState("RECENTE");
 
   const [linksEditados, setLinksEditados] = useState({});
@@ -304,9 +304,7 @@ export default function ControleLinksPagamento() {
       lista = lista.filter((item) =>
         [
           item.nome_aluno,
-          item.aluno_nome,
           item.cpf_referencia,
-          item.aluno_cpf,
           item.operador_nome,
           item.operador_email,
           item.status,
@@ -421,15 +419,15 @@ export default function ControleLinksPagamento() {
           <div key={item.id} style={styles.cardLink}>
             <div style={styles.topoCard}>
               <div>
-                <h2 style={styles.nome}>{item.nome_aluno || item.aluno_nome || "Aluno sem nome"}</h2>
-                <p style={styles.info}><strong>CPF:</strong> {item.cpf_referencia || item.aluno_cpf || "-"}</p>
+                <h2 style={styles.nome}>{item.nome_aluno || "Aluno sem nome"}</h2>
+                <p style={styles.info}><strong>CPF:</strong> {item.cpf_referencia || "-"}</p>
                 <p style={styles.info}><strong>Operador solicitante:</strong> {item.operador_nome || "-"} | {item.operador_email || "-"}</p>
                 <p style={styles.info}>
                   <strong>Valor:</strong> {dinheiro(item.valor)} |{" "}
                   <strong>Parcelas:</strong> {item.parcelas || "-"} |{" "}
-                  <strong>Forma:</strong> {item.forma_pagamento || item.tipo_pagamento || "-"}
+                  <strong>Forma:</strong> {item.forma_pagamento || "-"}
                 </p>
-                <p style={styles.info}><strong>Solicitado em:</strong> {dataHora(item.criado_em || item.solicitado_em)}</p>
+                <p style={styles.info}><strong>Solicitado em:</strong> {dataHora(item.criado_em)}</p>
               </div>
 
               <span style={{ ...styles.status, ...corStatus(item.status) }}>

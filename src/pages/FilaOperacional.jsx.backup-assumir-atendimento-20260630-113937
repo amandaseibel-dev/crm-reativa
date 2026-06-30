@@ -219,39 +219,6 @@ export default function FilaOperacional() {
     setCarregando(false);
   }
 
-
-  async function assumirAtendimento(item) {
-    if (!item?.chave_unificacao) {
-      alert("Aluno sem chave de unificação. Não foi possível assumir.");
-      return;
-    }
-
-    const confirmar = window.confirm(
-      "Deseja assumir este atendimento? O aluno ficará registrado para você."
-    );
-
-    if (!confirmar) return;
-
-    const { data, error } = await supabase.rpc("assumir_atendimento_aluno", {
-      p_chave_unificacao: item.chave_unificacao,
-      p_observacao: "Atendimento assumido pela Fila Operacional",
-    });
-
-    if (error) {
-      console.error("Erro ao assumir atendimento:", error);
-      alert("Erro ao assumir atendimento: " + error.message);
-      return;
-    }
-
-    const retorno = Array.isArray(data) ? data[0] : data;
-
-    alert(retorno?.mensagem || "Atendimento assumido.");
-
-    if (typeof carregarFila === "function") {
-      carregarFila();
-    }
-  }
-
   function abrirFichaAluno(item) {
     if (!item) {
       alert("Aluno não encontrado para abrir o cadastro.");
@@ -831,17 +798,7 @@ export default function FilaOperacional() {
                   Salvar movimentação
                 </button>
 
-                
-                      <button
-                        style={styles.botaoVerde || styles.botaoEscuro}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          assumirAtendimento(item);
-                        }}
-                      >
-                        🙋 Assumir atendimento
-                      </button>
-<button
+                <button
                   style={styles.botaoEscuro}
                   onClick={() => abrirFichaAluno(item)}
                 >
