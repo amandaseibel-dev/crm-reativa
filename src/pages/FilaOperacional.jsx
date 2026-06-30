@@ -699,7 +699,9 @@ export default function FilaOperador() {
     } finally {
       setSalvando(false);
     }
-  }\n\n  async function enviarTermoAdm() {
+  }
+
+  async function enviarTermoAdm() {
     if (!alunoSelecionado?.id) return;
 
     setSalvando(true);

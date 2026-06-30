@@ -1,956 +1,531 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import { nomeOperadorPorEmail, podeVerTudo, podeBaixarPagamento } from "../utils/operadores";
 
-const STATUS = {
-  SOLICITADO_LINK: "Solicitado link",
-  LINK_GERADO: "Link gerado",
-  LINK_ENVIADO_ALUNO: "Link enviado ao aluno",
-  COMPROVANTE_ANEXADO: "Comprovante anexado",
-  AGUARDANDO_BAIXA: "Aguardando baixa",
-  BAIXA_CONCLUIDA: "Baixa concluída",
-  DIVERGENCIA: "Divergência",
-  CANCELADO: "Cancelado",
+export default function LinksPagamentoAluno({
+  aluno,
+  alunoSelecionado,
+  estudante,
+  usuarioLogado,
+  usuario,
+  user,
+  onSucesso,
+  onAtualizar
+}) {
+  const alunoAtual = aluno || alunoSelecionado || estudante || {};
+  const usuarioAtual = usuarioLogado || usuario || user || {};
 
-  SOLICITADO: "Solicitado link",
-  LINK_ENVIADO: "Link enviado ao aluno",
-  PAGO_AGUARDANDO_BAIXA: "Aguardando baixa",
-  BAIXADO: "Baixa concluída",
-};
+  const [aberto, setAberto] = useState(false);
+  const [valor, setValor] = useState("");
+  const [parcelas, setParcelas] = useState(1);
+  const [dataVencimento, setDataVencimento] = useState("");
+  const [observacao, setObservacao] = useState("");
+  const [linksAluno, setLinksAluno] = useState([]);
+  const [carregando, setCarregando] = useState(false);
+  const [carregandoLista, setCarregandoLista] = useState(false);
+  const [erro, setErro] = useState("");
 
-function dinheiro(valor) {
-  return Number(valor || 0).toLocaleString("pt-BR", {
-    style: "currency",
-    currency: "BRL",
-  });
-}
-
-function numeroMoeda(valor) {
-  const texto = String(valor || "")
-    .replace("R$", "")
-    .replace(/\./g, "")
-    .replace(",", ".")
-    .trim();
-
-  const numero = Number(texto);
-  return Number.isFinite(numero) ? numero : 0;
-}
-
-function dataHora(valor) {
-  if (!valor) return "-";
-
-  try {
-    return new Date(valor).toLocaleString("pt-BR");
-  } catch {
-    return "-";
-  }
-}
-
-function pegarNomeAluno(aluno) {
-  return (
-    aluno?.nome_aluno ||
-    aluno?.nome ||
-    aluno?.nome_referencia ||
-    aluno?.nome_aluno_editado ||
-    "Aluno sem nome"
-  );
-}
-
-function pegarCpfAluno(aluno) {
-  return (
-    aluno?.cpf_referencia ||
-    aluno?.cpf ||
-    aluno?.cpf_mascarado ||
-    aluno?.cpf_referencia_editado ||
-    ""
-  );
-}
-
-function pegarChaveAluno(aluno) {
-  return aluno?.chave_unificacao || aluno?.chave || "";
-}
-
-function pegarValorAluno(aluno) {
-  const valor =
-    aluno?.valor_total_casos ||
-    aluno?.valor_total ||
-    aluno?.valor_em_aberto ||
-    aluno?.valor ||
+  const nomeAluno =
+    alunoAtual?.nome ||
+    alunoAtual?.aluno_nome ||
+    alunoAtual?.nome_aluno ||
+    alunoAtual?.NOME ||
+    alunoAtual?.Nome ||
     "";
 
-  return valor ? String(valor).replace(".", ",") : "";
-}
+  const cpfAluno =
+    alunoAtual?.cpf ||
+    alunoAtual?.aluno_cpf ||
+    alunoAtual?.CPF ||
+    alunoAtual?.documento ||
+    alunoAtual?.Documento ||
+    "";
 
-function ehUuid(valor) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    String(valor || "")
-  );
-}
-
-function corStatus(status) {
-  if (status === "BAIXA_CONCLUIDA" || status === "BAIXADO") {
-    return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
-  }
-
-  if (status === "AGUARDANDO_BAIXA" || status === "PAGO_AGUARDANDO_BAIXA") {
-    return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
-  }
-
-  if (status === "DIVERGENCIA") {
-    return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5" };
-  }
-
-  if (status === "CANCELADO") {
-    return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
-  }
-
-  if (status === "LINK_GERADO") {
-    return { background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0" };
-  }
-
-  if (status === "LINK_ENVIADO_ALUNO" || status === "LINK_ENVIADO") {
-    return { background: "#ede9fe", color: "#5b21b6", border: "1px solid #ddd6fe" };
-  }
-
-  if (status === "SOLICITADO_LINK" || status === "SOLICITADO") {
-    return { background: "#e0f2fe", color: "#075985", border: "1px solid #bae6fd" };
-  }
-
-  return { background: "#e5e7eb", color: "#374151", border: "1px solid #d1d5db" };
-}
-
-function podeGerarLink(email) {
-  const e = String(email || "").toLowerCase();
-
-  return (
-    podeVerTudo(e) ||
-    e === "cobranca04@aelbra.com.br" ||
-    e === "amanda.seibel@aelbra.com.br" ||
-    e === "cobranca07@aelbra.com.br"
-  );
-}
-
-function podeFazerBaixa(email) {
-  const e = String(email || "").toLowerCase();
-
-  return (
-    podeBaixarPagamento(e) ||
-    e === "amanda.seibel@aelbra.com.br" ||
-    e === "cobranca07@aelbra.com.br"
-  );
-}
-
-export default function LinksPagamentoAluno({ aluno }) {
-  const [usuario, setUsuario] = useState(null);
-  const [links, setLinks] = useState([]);
-  const [carregando, setCarregando] = useState(false);
-  const [linkEditado, setLinkEditado] = useState({});
-  const [observacoes, setObservacoes] = useState({});
-  const [arquivos, setArquivos] = useState({});
-  const [enviando, setEnviando] = useState(false);
-
-  const [novo, setNovo] = useState({
-    forma_pagamento: "Cartão",
-    parcelas: "1",
-    valor: "",
-    observacao_solicitacao: "",
-  });
-
-  const alunoId = aluno?.id && ehUuid(aluno.id) ? String(aluno.id) : null;
-  const alunoNome = pegarNomeAluno(aluno);
-  const alunoCpf = pegarCpfAluno(aluno);
-  const chaveUnificacao = pegarChaveAluno(aluno);
-
-  const emailUsuario = usuario?.email || "";
-  const nomeUsuario = nomeOperadorPorEmail(emailUsuario);
-
-  const usuarioGeraLink = podeGerarLink(emailUsuario);
-  const usuarioBaixa = podeFazerBaixa(emailUsuario);
+  const alunoId =
+    alunoAtual?.id ||
+    alunoAtual?.aluno_id ||
+    alunoAtual?.ID ||
+    cpfAluno ||
+    nomeAluno ||
+    null;
 
   useEffect(() => {
-    carregarUsuario();
-  }, []);
+    carregarLinksAluno();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [alunoId]);
 
-  useEffect(() => {
-    setNovo((atual) => ({
-      ...atual,
-      valor: atual.valor || pegarValorAluno(aluno),
-    }));
+  async function carregarLinksAluno() {
+    if (!alunoId && !cpfAluno && !nomeAluno) return;
 
-    carregarLinks();
-  }, [aluno?.id, alunoCpf, chaveUnificacao]);
+    setCarregandoLista(true);
 
-  async function carregarUsuario() {
-    const { data } = await supabase.auth.getUser();
-    setUsuario(data?.user || null);
-  }
-
-  async function carregarLinks() {
-    if (!alunoId && !alunoCpf && !chaveUnificacao) return;
-
-    setCarregando(true);
-
-    const filtros = [];
-
-    if (alunoId) filtros.push(`aluno_id.eq.${alunoId}`);
-    if (chaveUnificacao) filtros.push(`chave_unificacao.eq.${chaveUnificacao}`);
-    if (alunoCpf) filtros.push(`cpf_referencia.eq.${alunoCpf}`);
-
-    const query = supabase
+    let query = supabase
       .from("links_pagamento")
       .select("*")
       .order("criado_em", { ascending: false });
 
-    const { data, error } =
-      filtros.length > 0 ? await query.or(filtros.join(",")) : await query;
+    if (alunoId) {
+      query = query.eq("aluno_id", String(alunoId));
+    } else if (cpfAluno) {
+      query = query.eq("aluno_cpf", cpfAluno);
+    } else {
+      query = query.eq("aluno_nome", nomeAluno);
+    }
+
+    const { data, error } = await query;
+
+    setCarregandoLista(false);
 
     if (error) {
-      alert("Erro ao carregar links: " + error.message);
-      setCarregando(false);
+      console.error("Erro ao carregar links do aluno:", error);
       return;
     }
 
-    setLinks(data || []);
-    setCarregando(false);
+    setLinksAluno(data || []);
   }
 
-  async function atualizarStatusAluno(status) {
-    if (!chaveUnificacao) return;
+  function converterValor(valorDigitado) {
+    const texto = String(valorDigitado || "")
+      .replace("R$", "")
+      .replace(/\s/g, "")
+      .replace(/\./g, "")
+      .replace(",", ".");
 
-    await supabase
-      .from("alunos_unificados")
-      .update({
-        status_jornada: status,
-        atualizado_em: new Date().toISOString(),
-      })
-      .eq("chave_unificacao", chaveUnificacao);
-  }
-
-  async function registrarHistorico(item, novoStatus, observacao = "") {
-    await supabase.from("historico_links_pagamento").insert({
-      link_pagamento_id: item.id,
-      chave_unificacao: item.chave_unificacao || chaveUnificacao,
-      nome_aluno: item.nome_aluno || alunoNome,
-      cpf_referencia: item.cpf_referencia || alunoCpf,
-      status_anterior: item.status,
-      status_novo: novoStatus,
-      usuario_nome: nomeUsuario,
-      usuario_email: emailUsuario,
-      observacao,
-    });
+    return Number(texto);
   }
 
   async function solicitarLink() {
-    if (!alunoNome || alunoNome === "Aluno sem nome") {
-      alert("Aluno não localizado.");
+    setErro("");
+
+    if (!nomeAluno) {
+      setErro("Nome do aluno não encontrado na ficha.");
       return;
     }
 
-    if (!novo.valor) {
-      alert("Informe o valor do link.");
+    if (!valor || converterValor(valor) <= 0) {
+      setErro("Informe o valor do link.");
       return;
     }
+
+    if (!dataVencimento) {
+      setErro("Informe a data de vencimento do link.");
+      return;
+    }
+
+    setCarregando(true);
 
     const payload = {
-      aluno_id: alunoId,
-      chave_unificacao: chaveUnificacao || null,
-      nome_aluno: alunoNome,
-      cpf_referencia: alunoCpf || null,
-      operador_nome: nomeUsuario,
-      operador_email: emailUsuario,
-      valor: numeroMoeda(novo.valor),
-      forma_pagamento: novo.forma_pagamento,
-      parcelas: Number(novo.parcelas || 1),
-      observacao_solicitacao: novo.observacao_solicitacao,
-      status: "SOLICITADO_LINK",
-      criado_em: new Date().toISOString(),
-      atualizado_em: new Date().toISOString(),
+      aluno_id: alunoId ? String(alunoId) : null,
+      aluno_nome: nomeAluno,
+      aluno_cpf: cpfAluno || null,
+      operador_solicitante:
+        usuarioAtual?.email ||
+        usuarioAtual?.nome ||
+        usuarioAtual?.name ||
+        "operador",
+      operador_nome:
+        usuarioAtual?.nome ||
+        usuarioAtual?.name ||
+        usuarioAtual?.email ||
+        "Operador",
+      valor: converterValor(valor),
+      parcelas: Number(parcelas) || 1,
+      data_vencimento: dataVencimento,
+      observacao: observacao || null,
+      status: "SOLICITADO_LINK"
     };
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from("links_pagamento")
-      .insert(payload)
-      .select()
-      .single();
+      .insert(payload);
+
+    setCarregando(false);
 
     if (error) {
-      alert("Erro ao solicitar link: " + error.message);
+      console.error("Erro ao solicitar link:", error);
+      setErro("Não foi possível solicitar o link. Verifique os dados e tente novamente.");
       return;
     }
 
-    await registrarHistorico(data, "SOLICITADO_LINK", "Link solicitado pelo operador.");
-    await atualizarStatusAluno("AGUARDANDO_LINK");
+    setValor("");
+    setParcelas(1);
+    setDataVencimento("");
+    setObservacao("");
+    setAberto(false);
 
-    alert("Link solicitado. A solicitação foi enviada para a fila da Fernanda.");
+    await carregarLinksAluno();
 
-    setNovo({
-      forma_pagamento: "Cartão",
-      parcelas: "1",
-      valor: pegarValorAluno(aluno),
-      observacao_solicitacao: "",
+    if (onSucesso) onSucesso();
+    if (onAtualizar) onAtualizar();
+
+    alert("Link solicitado com sucesso. Já foi enviado para a fila ADM/Supervisão.");
+  }
+
+  function formatarMoeda(valor) {
+    if (valor === null || valor === undefined || valor === "") return "-";
+
+    return Number(valor).toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL"
     });
-
-    carregarLinks();
   }
 
-  async function salvarLink(item) {
-    const link = linkEditado[item.id] ?? item.link_gerado ?? "";
+  function formatarData(data) {
+    if (!data) return "-";
 
-    if (!link || !link.trim()) {
-      alert("Cole o link de pagamento.");
-      return;
+    const partes = String(data).split("-");
+    if (partes.length === 3) {
+      return `${partes[2]}/${partes[1]}/${partes[0]}`;
     }
 
-    const { error } = await supabase
-      .from("links_pagamento")
-      .update({
-        link_gerado: link.trim(),
-        status: "LINK_GERADO",
-        link_gerado_por: emailUsuario,
-        link_gerado_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString(),
-      })
-      .eq("id", item.id);
-
-    if (error) {
-      alert("Erro ao salvar link: " + error.message);
-      return;
-    }
-
-    await registrarHistorico(item, "LINK_GERADO", "Link gerado/colado pela Fernanda/ADM.");
-    await atualizarStatusAluno("AGUARDANDO_LINK");
-
-    alert("Link salvo. O operador será sinalizado como link pronto.");
-    carregarLinks();
+    return data;
   }
 
-  async function marcarEnviadoAoAluno(item) {
-    const linkAtual = item.link_gerado || linkEditado[item.id];
-
-    if (!linkAtual) {
-      alert("Antes de marcar como enviado, a Fernanda precisa salvar o link.");
-      return;
-    }
-
-    const obs = observacoes[item.id] || "";
-
-    const { error } = await supabase
-      .from("links_pagamento")
-      .update({
-        status: "LINK_ENVIADO_ALUNO",
-        enviado_ao_aluno_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString(),
-      })
-      .eq("id", item.id);
-
-    if (error) {
-      alert("Erro ao marcar link enviado: " + error.message);
-      return;
-    }
-
-    await registrarHistorico(item, "LINK_ENVIADO_ALUNO", obs || "Link enviado ao aluno.");
-    alert("Link marcado como enviado ao aluno.");
-    carregarLinks();
+  function corStatus(status) {
+    if (status === "SOLICITADO_LINK") return "#f97316";
+    if (status === "LINK_EM_ATENDIMENTO") return "#eab308";
+    if (status === "LINK_GERADO") return "#2563eb";
+    if (status === "LINK_RESPONDIDO") return "#2563eb";
+    if (status === "LINK_PRONTO_PARA_ENVIO") return "#16a34a";
+    if (status === "LINK_ENVIADO_AO_ALUNO") return "#15803d";
+    if (status === "AGUARDANDO_BAIXA") return "#7c3aed";
+    if (status === "BAIXA_REALIZADA") return "#047857";
+    if (status === "BAIXA_DEVOLVIDA") return "#dc2626";
+    return "#475569";
   }
-
-  async function anexarComprovante(item) {
-    const arquivo = arquivos[item.id];
-
-    if (!arquivo) {
-      alert("Selecione o comprovante antes de enviar.");
-      return;
-    }
-
-    setEnviando(true);
-
-    const extensao = arquivo.name.split(".").pop() || "pdf";
-    const caminho = `${item.id}/${Date.now()}-${arquivo.name.replace(/[^a-zA-Z0-9_.-]/g, "_")}`;
-
-    const { error: erroUpload } = await supabase.storage
-      .from("comprovantes-pagamento")
-      .upload(caminho, arquivo, {
-        cacheControl: "3600",
-        upsert: true,
-        contentType: arquivo.type || undefined,
-      });
-
-    if (erroUpload) {
-      setEnviando(false);
-      alert("Erro ao anexar comprovante: " + erroUpload.message);
-      return;
-    }
-
-    const { data: publicUrl } = supabase.storage
-      .from("comprovantes-pagamento")
-      .getPublicUrl(caminho);
-
-    const comprovanteUrl = publicUrl?.publicUrl || "";
-
-    const { error } = await supabase
-      .from("links_pagamento")
-      .update({
-        status: "AGUARDANDO_BAIXA",
-        comprovante_url: comprovanteUrl,
-        comprovante_nome: arquivo.name,
-        comprovante_anexado_por: emailUsuario,
-        comprovante_anexado_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString(),
-      })
-      .eq("id", item.id);
-
-    if (error) {
-      setEnviando(false);
-      alert("Erro ao enviar para baixa: " + error.message);
-      return;
-    }
-
-    await registrarHistorico(item, "AGUARDANDO_BAIXA", "Comprovante anexado pelo operador e enviado para baixa.");
-    await atualizarStatusAluno("PAGAMENTO_IDENTIFICADO");
-
-    setArquivos((atual) => ({ ...atual, [item.id]: null }));
-    setEnviando(false);
-
-    alert("Comprovante enviado para a fila de baixa da Amanda ADM.");
-    carregarLinks();
-  }
-
-  async function concluirBaixa(item) {
-    const obs = observacoes[item.id] || "";
-
-    const { error } = await supabase
-      .from("links_pagamento")
-      .update({
-        status: "BAIXA_CONCLUIDA",
-        baixa_realizada_por: emailUsuario,
-        baixa_realizada_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString(),
-      })
-      .eq("id", item.id);
-
-    if (error) {
-      alert("Erro ao concluir baixa: " + error.message);
-      return;
-    }
-
-    await registrarHistorico(item, "BAIXA_CONCLUIDA", obs || "Baixa concluída pela Amanda ADM.");
-    await atualizarStatusAluno("PAGAMENTO_IDENTIFICADO");
-
-    alert("Baixa concluída. O operador será sinalizado.");
-    carregarLinks();
-  }
-
-  async function marcarDivergencia(item) {
-    const motivo = observacoes[item.id] || "";
-
-    if (!motivo.trim()) {
-      alert("Informe o motivo da divergência no campo de observação.");
-      return;
-    }
-
-    const { error } = await supabase
-      .from("links_pagamento")
-      .update({
-        status: "DIVERGENCIA",
-        motivo_divergencia: motivo,
-        atualizado_em: new Date().toISOString(),
-      })
-      .eq("id", item.id);
-
-    if (error) {
-      alert("Erro ao marcar divergência: " + error.message);
-      return;
-    }
-
-    await registrarHistorico(item, "DIVERGENCIA", motivo);
-    alert("Divergência registrada. O operador será sinalizado.");
-    carregarLinks();
-  }
-
-  async function cancelarLink(item) {
-    const confirmar = window.confirm("Deseja cancelar esta solicitação de link?");
-    if (!confirmar) return;
-
-    const { error } = await supabase
-      .from("links_pagamento")
-      .update({
-        status: "CANCELADO",
-        atualizado_em: new Date().toISOString(),
-      })
-      .eq("id", item.id);
-
-    if (error) {
-      alert("Erro ao cancelar link: " + error.message);
-      return;
-    }
-
-    await registrarHistorico(item, "CANCELADO", "Solicitação cancelada.");
-    carregarLinks();
-  }
-
-  async function copiar(link) {
-    if (!link) {
-      alert("Este registro ainda não possui link.");
-      return;
-    }
-
-    try {
-      await navigator.clipboard.writeText(link);
-      alert("Link copiado.");
-    } catch {
-      alert("Não consegui copiar automaticamente. Abra o link e copie manualmente.");
-    }
-  }
-
-  const totalAberto = useMemo(() => {
-    return links
-      .filter((item) => !["BAIXA_CONCLUIDA", "BAIXADO", "CANCELADO"].includes(item.status))
-      .reduce((soma, item) => soma + Number(item.valor || 0), 0);
-  }, [links]);
 
   return (
-    <div style={styles.card}>
-      <div style={styles.header}>
+    <div style={container}>
+      <div style={cabecalho}>
         <div>
-          <h2 style={styles.titulo}>Links de Pagamento</h2>
-          <p style={styles.texto}>
-            Fluxo oficial: operador solicita, Fernanda gera o link, operador envia, anexa comprovante e Amanda ADM baixa.
+          <h3 style={titulo}>Links de pagamento</h3>
+          <p style={subtitulo}>
+            Solicite link em poucos cliques. Nome e CPF já vêm da ficha do aluno.
           </p>
         </div>
 
-        <div style={styles.totalBox}>
-          <span>Valor em links ativos</span>
-          <strong>{dinheiro(totalAberto)}</strong>
-        </div>
-      </div>
-
-      <div style={styles.solicitacao}>
-        <h3 style={styles.subtitulo}>Solicitar novo link</h3>
-
-        <div style={styles.grid}>
-          <input style={styles.input} value={alunoNome} disabled placeholder="Aluno" />
-          <input style={styles.input} value={alunoCpf} disabled placeholder="CPF" />
-
-          <select
-            style={styles.input}
-            value={novo.forma_pagamento}
-            onChange={(e) => setNovo({ ...novo, forma_pagamento: e.target.value })}
-          >
-            <option value="Cartão">Cartão</option>
-            <option value="Pix">Pix</option>
-            <option value="Boleto">Boleto</option>
-            <option value="Outro">Outro</option>
-          </select>
-
-          <input
-            style={styles.input}
-            type="number"
-            min="1"
-            placeholder="Parcelas"
-            value={novo.parcelas}
-            onChange={(e) => setNovo({ ...novo, parcelas: e.target.value })}
-          />
-
-          <input
-            style={styles.input}
-            placeholder="Valor. Ex.: 1200,50"
-            value={novo.valor}
-            onChange={(e) => setNovo({ ...novo, valor: e.target.value })}
-          />
-        </div>
-
-        <textarea
-          style={styles.textarea}
-          placeholder="Observação para a Fernanda gerar o link"
-          value={novo.observacao_solicitacao}
-          onChange={(e) => setNovo({ ...novo, observacao_solicitacao: e.target.value })}
-        />
-
-        <button style={styles.botaoAzul} onClick={solicitarLink}>
-          Solicitar link de pagamento
+        <button
+          type="button"
+          onClick={() => setAberto(!aberto)}
+          style={botaoPrincipal}
+        >
+          {aberto ? "Fechar" : "Solicitar link"}
         </button>
       </div>
 
-      <div style={styles.historico}>
-        <h3 style={styles.subtitulo}>Histórico de links deste aluno</h3>
+      {aberto && (
+        <div style={formulario}>
+          <div style={linha}>
+            <div style={campoMetade}>
+              <label style={label}>Aluno</label>
+              <input value={nomeAluno} readOnly style={inputBloqueado} />
+            </div>
 
-        {carregando && <p style={styles.texto}>Carregando links...</p>}
+            <div style={campoMetade}>
+              <label style={label}>CPF</label>
+              <input value={cpfAluno} readOnly style={inputBloqueado} />
+            </div>
+          </div>
 
-        {!carregando && links.length === 0 && (
-          <p style={styles.texto}>Nenhum link solicitado para este aluno ainda.</p>
+          <div style={linha}>
+            <div style={campoMetade}>
+              <label style={label}>Valor do link</label>
+              <input
+                value={valor}
+                onChange={(e) => setValor(e.target.value)}
+                placeholder="Ex: 350,00"
+                style={input}
+              />
+            </div>
+
+            <div style={campoMetade}>
+              <label style={label}>Parcelas</label>
+              <input
+                type="number"
+                min="1"
+                value={parcelas}
+                onChange={(e) => setParcelas(e.target.value)}
+                style={input}
+              />
+            </div>
+          </div>
+
+          <label style={label}>Data de vencimento do link</label>
+          <input
+            type="date"
+            value={dataVencimento}
+            onChange={(e) => setDataVencimento(e.target.value)}
+            style={input}
+          />
+
+          <label style={label}>Observação, se necessário</label>
+          <textarea
+            value={observacao}
+            onChange={(e) => setObservacao(e.target.value)}
+            placeholder="Ex: acordo referente às mensalidades em aberto"
+            style={textarea}
+          />
+
+          {erro && <div style={erroBox}>{erro}</div>}
+
+          <button
+            type="button"
+            onClick={solicitarLink}
+            disabled={carregando}
+            style={{
+              ...botaoConfirmar,
+              background: carregando ? "#94a3b8" : "#0f172a",
+              cursor: carregando ? "not-allowed" : "pointer"
+            }}
+          >
+            {carregando ? "Enviando para fila ADM..." : "Confirmar solicitação"}
+          </button>
+        </div>
+      )}
+
+      <div style={historico}>
+        <h4 style={tituloHistorico}>Histórico de links deste aluno</h4>
+
+        {carregandoLista && (
+          <p style={textoVazio}>Carregando links...</p>
         )}
 
-        {!carregando &&
-          links.map((item) => {
-            const linkAtual = linkEditado[item.id] ?? item.link_gerado ?? "";
-            const operadorDoItem =
-              String(item.operador_email || "").toLowerCase() === emailUsuario.toLowerCase();
+        {!carregandoLista && linksAluno.length === 0 && (
+          <p style={textoVazio}>Nenhum link solicitado para este aluno ainda.</p>
+        )}
 
-            return (
-              <div key={item.id} style={styles.item}>
-                <div style={styles.itemTopo}>
-                  <div>
-                    <strong>{dinheiro(item.valor)}</strong>
-                    <p style={styles.info}>
-                      {item.forma_pagamento || "-"} | {item.parcelas || "-"}x
-                    </p>
-                    <p style={styles.info}>Aluno: {item.nome_aluno || alunoNome}</p>
-                    <p style={styles.info}>CPF: {item.cpf_referencia || alunoCpf || "-"}</p>
-                    <p style={styles.info}>Solicitado em: {dataHora(item.criado_em)}</p>
-                    <p style={styles.info}>Operador: {item.operador_nome || "-"}</p>
-                  </div>
+        {!carregandoLista && linksAluno.map((link) => (
+          <div key={link.id} style={itemHistorico}>
+            <div style={linhaStatus}>
+              <strong>{formatarMoeda(link.valor)}</strong>
 
-                  <span style={{ ...styles.status, ...corStatus(item.status) }}>
-                    {STATUS[item.status] || item.status}
-                  </span>
-                </div>
+              <span
+                style={{
+                  ...badge,
+                  background: corStatus(link.status)
+                }}
+              >
+                {link.status}
+              </span>
+            </div>
 
-                {(item.observacao_solicitacao || item.motivo_divergencia) && (
-                  <div style={styles.obs}>
-                    {item.observacao_solicitacao && (
-                      <p>
-                        <strong>Obs. solicitação:</strong> {item.observacao_solicitacao}
-                      </p>
-                    )}
+            <div style={detalhes}>
+              <span>Parcelas: {link.parcelas || 1}</span>
+              <span>Vencimento: {formatarData(link.data_vencimento)}</span>
+            </div>
 
-                    {item.motivo_divergencia && (
-                      <p>
-                        <strong>Divergência:</strong> {item.motivo_divergencia}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                <div style={styles.gridLink}>
-                  <input
-                    style={styles.input}
-                    placeholder="Campo da Fernanda: cole aqui o link gerado"
-                    value={linkAtual}
-                    disabled={!usuarioGeraLink}
-                    onChange={(e) =>
-                      setLinkEditado({
-                        ...linkEditado,
-                        [item.id]: e.target.value,
-                      })
-                    }
-                  />
-
-                  {usuarioGeraLink && (
-                    <button style={styles.botaoAzul} onClick={() => salvarLink(item)}>
-                      Salvar link
-                    </button>
-                  )}
-
-                  <button style={styles.botaoCinza} onClick={() => copiar(linkAtual)}>
-                    Copiar
-                  </button>
-
-                  <button
-                    style={styles.botaoCinza}
-                    onClick={() =>
-                      linkAtual
-                        ? window.open(linkAtual, "_blank", "noreferrer")
-                        : alert("Sem link.")
-                    }
-                  >
-                    Abrir link
-                  </button>
-                </div>
-
-                {item.comprovante_url && (
-                  <div style={styles.comprovanteBox}>
-                    <strong>Comprovante anexado:</strong>{" "}
-                    {item.comprovante_nome || "Arquivo"}
-                    <button
-                      style={styles.botaoCinza}
-                      onClick={() => window.open(item.comprovante_url, "_blank", "noreferrer")}
-                    >
-                      Abrir comprovante
-                    </button>
-                  </div>
-                )}
-
-                <textarea
-                  style={styles.textarea}
-                  placeholder="Observação para movimentação, baixa ou divergência"
-                  value={observacoes[item.id] || ""}
-                  onChange={(e) =>
-                    setObservacoes({
-                      ...observacoes,
-                      [item.id]: e.target.value,
-                    })
-                  }
+            {link.link_pagamento && (
+              <div style={linkBox}>
+                <input
+                  value={link.link_pagamento}
+                  readOnly
+                  style={inputLink}
                 />
-
-                <div style={styles.blocoComprovante}>
-                  <h4 style={styles.tituloComprovante}>Área do comprovante do aluno</h4>
-                  <p style={styles.textoComprovante}>
-                    Após o aluno pagar, anexe aqui o comprovante. Ele será enviado para a fila de baixa da Amanda ADM.
-                  </p>
-                </div>
-
-                <div style={styles.uploadBox}>
-                  <input
-                    style={styles.input}
-                    type="file"
-                    accept="image/*,.pdf"
-                    onChange={(e) =>
-                      setArquivos({
-                        ...arquivos,
-                        [item.id]: e.target.files?.[0] || null,
-                      })
-                    }
-                  />
-
-                  {(operadorDoItem || usuarioGeraLink || usuarioBaixa) && (
-                    <button
-                      style={styles.botaoVerde}
-                      onClick={() => anexarComprovante(item)}
-                      disabled={enviando}
-                    >
-                      Anexar comprovante e enviar para baixa
-                    </button>
-                  )}
-                </div>
-
-                <div style={styles.acoes}>
-                  {(operadorDoItem || usuarioGeraLink) && (
-                    <button style={styles.botaoRoxo} onClick={() => marcarEnviadoAoAluno(item)}>
-                      Marcar link enviado ao aluno
-                    </button>
-                  )}
-
-                  {usuarioBaixa && (
-                    <>
-                      <button style={styles.botaoAzul} onClick={() => concluirBaixa(item)}>
-                        Baixa concluída
-                      </button>
-
-                      <button style={styles.botaoAmarelo} onClick={() => marcarDivergencia(item)}>
-                        Divergência
-                      </button>
-                    </>
-                  )}
-
-                  {usuarioGeraLink && (
-                    <button style={styles.botaoCinza} onClick={() => cancelarLink(item)}>
-                      Cancelar
-                    </button>
-                  )}
-                </div>
-
-                <div style={styles.datas}>
-                  <span>Link gerado: {dataHora(item.link_gerado_em)}</span>
-                  <span>Enviado ao aluno: {dataHora(item.enviado_ao_aluno_em)}</span>
-                  <span>Comprovante: {dataHora(item.comprovante_anexado_em)}</span>
-                  <span>Baixa: {dataHora(item.baixa_realizada_em)}</span>
-                </div>
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard.writeText(link.link_pagamento)}
+                  style={botaoCopiar}
+                >
+                  Copiar
+                </button>
               </div>
-            );
-          })}
+            )}
+
+            {link.mensagem_pronta && (
+              <textarea
+                value={link.mensagem_pronta}
+                readOnly
+                style={mensagemPronta}
+              />
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-const styles = {
-  card: {
-    background: "#fff",
-    borderRadius: "14px",
-    padding: "22px",
-    marginTop: "24px",
-    marginBottom: "24px",
-    boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
-    borderLeft: "6px solid #111827",
-  },
-  header: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "16px",
-    alignItems: "flex-start",
-    marginBottom: "16px",
-  },
-  titulo: {
-    margin: 0,
-    color: "#111827",
-  },
-  subtitulo: {
-    margin: "0 0 12px 0",
-    color: "#111827",
-  },
-  texto: {
-    color: "#555",
-    margin: "6px 0 0 0",
-  },
-  totalBox: {
-    background: "#111827",
-    color: "#fff",
-    borderRadius: "12px",
-    padding: "12px 16px",
-    minWidth: "180px",
-  },
-  solicitacao: {
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
-    borderRadius: "12px",
-    padding: "16px",
-    marginBottom: "18px",
-  },
-  grid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))",
-    gap: "10px",
-  },
-  gridLink: {
-    display: "grid",
-    gridTemplateColumns: "minmax(230px, 1fr) repeat(3, auto)",
-    gap: "8px",
-    alignItems: "center",
-    marginTop: "12px",
-  },
-  input: {
-    padding: "11px",
-    borderRadius: "8px",
-    border: "1px solid #d1d5db",
-    fontSize: "14px",
-  },
-  textarea: {
-    width: "100%",
-    minHeight: "70px",
-    marginTop: "10px",
-    padding: "11px",
-    borderRadius: "8px",
-    border: "1px solid #d1d5db",
-    boxSizing: "border-box",
-    fontFamily: "Arial, sans-serif",
-  },
-  botaoAzul: {
-    background: "#0d6efd",
-    color: "#fff",
-    border: "none",
-    padding: "11px 14px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "bold",
-    marginTop: "10px",
-  },
-  botaoRoxo: {
-    background: "#6f42c1",
-    color: "#fff",
-    border: "none",
-    padding: "11px 14px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "bold",
-  },
-  botaoVerde: {
-    background: "#198754",
-    color: "#fff",
-    border: "none",
-    padding: "11px 14px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "bold",
-  },
-  botaoAmarelo: {
-    background: "#ffc107",
-    color: "#111827",
-    border: "none",
-    padding: "11px 14px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "bold",
-  },
-  botaoCinza: {
-    background: "#e5e7eb",
-    color: "#111827",
-    border: "none",
-    padding: "11px 14px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "bold",
-  },
-  historico: {
-    marginTop: "18px",
-  },
-  item: {
-    background: "#fff",
-    border: "1px solid #e5e7eb",
-    borderRadius: "12px",
-    padding: "14px",
-    marginBottom: "12px",
-  },
-  itemTopo: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "12px",
-    alignItems: "flex-start",
-  },
-  info: {
-    margin: "4px 0",
-    color: "#555",
-  },
-  status: {
-    padding: "8px 12px",
-    borderRadius: "999px",
-    fontWeight: "bold",
-    fontSize: "13px",
-    whiteSpace: "nowrap",
-  },
-  obs: {
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
-    borderRadius: "10px",
-    padding: "10px",
-    marginTop: "10px",
-    color: "#374151",
-  },
-  blocoComprovante: {
-    background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
-    borderRadius: "12px",
-    padding: "12px",
-    marginTop: "14px",
-  },
-  tituloComprovante: {
-    margin: "0 0 6px 0",
-    color: "#166534",
-  },
-  textoComprovante: {
-    margin: "0 0 10px 0",
-    color: "#166534",
-    fontSize: "14px",
-  },
-  uploadBox: {
-    display: "grid",
-    gridTemplateColumns: "minmax(220px, 1fr) auto",
-    gap: "8px",
-    alignItems: "center",
-    marginTop: "12px",
-  },
-  comprovanteBox: {
-    background: "#ecfdf5",
-    border: "1px solid #bbf7d0",
-    borderRadius: "10px",
-    padding: "10px",
-    marginTop: "12px",
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "8px",
-    alignItems: "center",
-    flexWrap: "wrap",
-  },
-  acoes: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "8px",
-    marginTop: "12px",
-  },
-  datas: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: "12px",
-    color: "#6b7280",
-    fontSize: "12px",
-    marginTop: "12px",
-  },
+const container = {
+  marginTop: "16px",
+  padding: "16px",
+  border: "1px solid #d1d5db",
+  borderRadius: "12px",
+  background: "#ffffff"
+};
+
+const cabecalho = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "center",
+  gap: "12px"
+};
+
+const titulo = {
+  margin: 0,
+  fontSize: "18px",
+  fontWeight: "800",
+  color: "#0f172a"
+};
+
+const subtitulo = {
+  margin: "4px 0 0",
+  color: "#64748b",
+  fontSize: "13px"
+};
+
+const botaoPrincipal = {
+  background: "#16a34a",
+  color: "#fff",
+  border: "none",
+  padding: "10px 14px",
+  borderRadius: "8px",
+  fontWeight: "800",
+  cursor: "pointer",
+  whiteSpace: "nowrap"
+};
+
+const formulario = {
+  marginTop: "14px",
+  padding: "14px",
+  border: "1px solid #e2e8f0",
+  borderRadius: "10px",
+  background: "#f8fafc"
+};
+
+const linha = {
+  display: "flex",
+  gap: "12px",
+  flexWrap: "wrap"
+};
+
+const campoMetade = {
+  flex: "1 1 220px"
+};
+
+const label = {
+  display: "block",
+  fontSize: "13px",
+  fontWeight: "700",
+  color: "#334155",
+  marginBottom: "5px"
+};
+
+const input = {
+  width: "100%",
+  padding: "10px",
+  marginBottom: "12px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+  boxSizing: "border-box"
+};
+
+const inputBloqueado = {
+  ...input,
+  background: "#e5e7eb",
+  color: "#475569"
+};
+
+const textarea = {
+  ...input,
+  minHeight: "78px",
+  resize: "vertical"
+};
+
+const erroBox = {
+  background: "#fee2e2",
+  color: "#991b1b",
+  padding: "10px",
+  borderRadius: "8px",
+  marginBottom: "10px",
+  fontWeight: "700"
+};
+
+const botaoConfirmar = {
+  color: "#fff",
+  border: "none",
+  padding: "11px 16px",
+  borderRadius: "8px",
+  fontWeight: "800",
+  width: "100%"
+};
+
+const historico = {
+  marginTop: "16px"
+};
+
+const tituloHistorico = {
+  margin: "0 0 10px",
+  color: "#0f172a"
+};
+
+const textoVazio = {
+  color: "#64748b",
+  fontSize: "14px",
+  margin: 0
+};
+
+const itemHistorico = {
+  border: "1px solid #e2e8f0",
+  borderRadius: "10px",
+  padding: "12px",
+  marginBottom: "10px",
+  background: "#ffffff"
+};
+
+const linhaStatus = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "10px",
+  alignItems: "center"
+};
+
+const badge = {
+  color: "#fff",
+  borderRadius: "999px",
+  padding: "4px 9px",
+  fontSize: "11px",
+  fontWeight: "800"
+};
+
+const detalhes = {
+  display: "flex",
+  gap: "12px",
+  flexWrap: "wrap",
+  color: "#64748b",
+  fontSize: "13px",
+  marginTop: "8px"
+};
+
+const linkBox = {
+  display: "flex",
+  gap: "8px",
+  marginTop: "10px"
+};
+
+const inputLink = {
+  flex: 1,
+  padding: "9px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px"
+};
+
+const botaoCopiar = {
+  background: "#0f172a",
+  color: "#fff",
+  border: "none",
+  borderRadius: "8px",
+  padding: "0 12px",
+  fontWeight: "800",
+  cursor: "pointer"
+};
+
+const mensagemPronta = {
+  width: "100%",
+  marginTop: "10px",
+  minHeight: "120px",
+  padding: "10px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  resize: "vertical",
+  boxSizing: "border-box"
 };
