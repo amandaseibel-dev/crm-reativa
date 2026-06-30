@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { supabase } from "../services/supabase";
 
 const OPERADORES_REATIVA = [
@@ -84,12 +85,13 @@ function moeda(valor) {
 }
 
 export default function Alunos() {
+  const [searchParams] = useSearchParams();
+
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
   const [movimentacoes, setMovimentacoes] = useState([]);
   const [busca, setBusca] = useState("");
-  const [filtroFila, setFiltroFila] = useState("TODOS");
   const [observacao, setObservacao] = useState("");
   const [statusFinalizacao, setStatusFinalizacao] = useState("CONTATAR");
   const [dataRetorno, setDataRetorno] = useState("");
@@ -104,13 +106,21 @@ export default function Alunos() {
   }, []);
 
   useEffect(() => {
-    carregarAlunos();
-  }, [filtroFila]);
+    const alunoIdDaUrl = searchParams.get("alunoId");
+    const alunoIdSalvo = localStorage.getItem("reativa_aluno_abrir_id");
+
+    const alunoId = alunoIdDaUrl || alunoIdSalvo;
+
+    if (alunoId) {
+      abrirAlunoPorId(alunoId);
+      localStorage.removeItem("reativa_aluno_abrir_id");
+    }
+  }, [searchParams]);
 
   async function iniciarTela() {
     const usuario = await pegarUsuarioLogado();
     setUsuarioLogado(usuario);
-    await carregarAlunos(usuario);
+    await carregarAlunos();
   }
 
   async function pegarUsuarioLogado() {
@@ -137,13 +147,14 @@ export default function Alunos() {
     };
   }
 
-  async function carregarAlunos(usuarioParam = usuarioLogado) {
+  async function carregarAlunos() {
     setCarregando(true);
     setErro("");
 
     try {
       const termo = busca.trim();
-      let query = supabase.from("alunos").select("*").limit(300);
+
+      let query = supabase.from("alunos").select("*").limit(150);
 
       if (termo) {
         const somenteNumeros = termo.replace(/\D/g, "");
@@ -155,19 +166,11 @@ export default function Alunos() {
         }
       }
 
-      if (filtroFila === "MINHA_FILA" && usuarioParam?.email) {
-        query = query.eq("responsavel_atual_email", usuarioParam.email);
-      }
-
-      if (filtroFila === "SEM_RESPONSAVEL") {
-        query = query.is("responsavel_atual_email", null);
-      }
-
       const { data, error } = await query;
 
       if (error) {
         console.error("Erro ao carregar alunos:", error);
-        setErro("Erro ao carregar alunos. Verifique a tabela alunos.");
+        setErro("Erro ao carregar alunos.");
         setAlunos([]);
         return;
       }
@@ -182,7 +185,46 @@ export default function Alunos() {
     }
   }
 
+  async function abrirAlunoPorId(alunoId) {
+    if (!alunoId) return;
+
+    setCarregando(true);
+    setErro("");
+
+    try {
+      const { data, error } = await supabase
+        .from("alunos")
+        .select("*")
+        .eq("id", alunoId)
+        .maybeSingle();
+
+      if (error) {
+        console.error("Erro ao abrir aluno pela fila:", error);
+        setErro("Erro ao abrir aluno selecionado pela fila.");
+        return;
+      }
+
+      if (!data) {
+        setErro("Aluno não encontrado.");
+        return;
+      }
+
+      prepararAlunoNaTela(data);
+      await carregarMovimentacoes(data.id);
+    } catch (e) {
+      console.error("Erro inesperado ao abrir aluno pela fila:", e);
+      setErro("Erro inesperado ao abrir aluno selecionado.");
+    } finally {
+      setCarregando(false);
+    }
+  }
+
   async function abrirAluno(aluno) {
+    prepararAlunoNaTela(aluno);
+    await carregarMovimentacoes(aluno.id);
+  }
+
+  function prepararAlunoNaTela(aluno) {
     setAlunoSelecionado(aluno);
     setObservacao("");
     setNovoOperadorEmail("");
@@ -196,8 +238,6 @@ export default function Alunos() {
 
     setStatusFinalizacao(statusAtual);
     setDataRetorno(paraInputDateTime(aluno.data_retorno));
-
-    await carregarMovimentacoes(aluno.id);
   }
 
   async function recarregarAlunoSelecionado(alunoId) {
@@ -213,8 +253,7 @@ export default function Alunos() {
     }
 
     if (data) {
-      setAlunoSelecionado(data);
-      setDataRetorno(paraInputDateTime(data.data_retorno));
+      prepararAlunoNaTela(data);
     }
   }
 
@@ -288,14 +327,19 @@ export default function Alunos() {
       atualizacaoAluno.status_jornada = statusNovo;
       atualizacaoAluno.status_atual = statusNovo;
       atualizacaoAluno.status_acionamento = statusNovo;
-      atualizacaoAluno.proxima_acao =
-        statusNovo === "RETORNAR_DEPOIS" || statusNovo === "ALUNO_EM_NEGOCIACAO_24H"
-          ? "RETORNAR"
-          : statusNovo === "ACORDO_FECHADO"
-          ? "ACOMPANHAR_PAGAMENTO"
-          : statusNovo === "NAO_LOCALIZADO"
-          ? "TENTAR_NOVO_CONTATO"
-          : "CONTATAR";
+
+      if (
+        statusNovo === "RETORNAR_DEPOIS" ||
+        statusNovo === "ALUNO_EM_NEGOCIACAO_24H"
+      ) {
+        atualizacaoAluno.proxima_acao = "RETORNAR";
+      } else if (statusNovo === "ACORDO_FECHADO") {
+        atualizacaoAluno.proxima_acao = "ACOMPANHAR_PAGAMENTO";
+      } else if (statusNovo === "NAO_LOCALIZADO") {
+        atualizacaoAluno.proxima_acao = "TENTAR_NOVO_CONTATO";
+      } else {
+        atualizacaoAluno.proxima_acao = "CONTATAR";
+      }
     }
 
     if (retorno) {
@@ -395,6 +439,7 @@ export default function Alunos() {
       });
 
       setObservacao("");
+
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
       await carregarAlunos();
@@ -437,6 +482,7 @@ export default function Alunos() {
       });
 
       setObservacao("");
+
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
 
@@ -546,14 +592,26 @@ export default function Alunos() {
     <div style={pagina}>
       <div style={cabecalho}>
         <div>
-          <h1 style={titulo}>Fila de alunos</h1>
+          <h1 style={titulo}>Atendimento do aluno</h1>
           <p style={subtitulo}>
-            Clique no aluno para abrir a ficha, finalizar atendimento e registrar data de retorno.
+            Ficha do aluno, finalização do atendimento, data de retorno e movimentações.
           </p>
+
+          {usuarioLogado && (
+            <p style={usuarioTexto}>
+              Usuário logado: <strong>{usuarioLogado.nome}</strong>
+              {usuarioLogado.email ? ` - ${usuarioLogado.email}` : ""}
+            </p>
+          )}
         </div>
 
-        <button onClick={() => carregarAlunos()} disabled={carregando} style={botaoPrincipal}>
-          {carregando ? "Carregando..." : "Atualizar fila"}
+        <button
+          type="button"
+          onClick={carregarAlunos}
+          disabled={carregando}
+          style={botaoPrincipal}
+        >
+          {carregando ? "Carregando..." : "Atualizar"}
         </button>
       </div>
 
@@ -571,17 +629,12 @@ export default function Alunos() {
             style={input}
           />
 
-          <select
-            value={filtroFila}
-            onChange={(e) => setFiltroFila(e.target.value)}
-            style={{ ...select, width: "220px", marginBottom: 0 }}
+          <button
+            type="button"
+            onClick={carregarAlunos}
+            disabled={carregando}
+            style={botaoPrincipal}
           >
-            <option value="TODOS">Todos</option>
-            <option value="MINHA_FILA">Minha fila</option>
-            <option value="SEM_RESPONSAVEL">Sem responsável</option>
-          </select>
-
-          <button onClick={() => carregarAlunos()} disabled={carregando} style={botaoPrincipal}>
             Pesquisar
           </button>
         </div>
@@ -591,12 +644,12 @@ export default function Alunos() {
 
       <div style={layout}>
         <div style={caixa}>
-          <h2 style={tituloSecao}>Alunos encontrados</h2>
+          <h2 style={tituloSecao}>Alunos</h2>
 
           {carregando ? (
-            <p>Carregando...</p>
+            <p style={textoCinza}>Carregando...</p>
           ) : alunos.length === 0 ? (
-            <p style={{ color: "#cbd5e1" }}>Nenhum aluno encontrado na fila.</p>
+            <p style={textoCinza}>Nenhum aluno encontrado.</p>
           ) : (
             <div style={{ display: "grid", gap: "10px" }}>
               {alunos.map((aluno) => {
@@ -605,20 +658,24 @@ export default function Alunos() {
                   ["nome", "nome_aluno", "aluno"],
                   "Aluno sem nome"
                 );
+
                 const cpf = pegarCampo(aluno, ["cpf", "CPF"], "-");
+
                 const status = pegarCampo(
                   aluno,
                   ["status_jornada", "status_atual", "status"],
                   "CONTATAR"
                 );
+
                 const selecionado = alunoSelecionado?.id === aluno.id;
 
                 return (
                   <button
+                    type="button"
                     key={aluno.id}
                     onClick={() => abrirAluno(aluno)}
                     style={{
-                      ...cardAluno,
+                      ...cardAlunoLista,
                       background: selecionado ? "#064e3b" : "#1f2937",
                       border: selecionado
                         ? "1px solid #22c55e"
@@ -632,9 +689,6 @@ export default function Alunos() {
                       Responsável:{" "}
                       {aluno.responsavel_atual_nome || "Sem responsável"}
                     </span>
-                    <span>
-                      Retorno: {formatarDataHora(aluno.data_retorno)}
-                    </span>
                   </button>
                 );
               })}
@@ -645,9 +699,9 @@ export default function Alunos() {
         <div style={caixa}>
           {!alunoSelecionado ? (
             <div>
-              <h2 style={tituloSecao}>Atendimento</h2>
-              <p style={{ color: "#cbd5e1" }}>
-                Selecione um aluno na fila para abrir a tela de atendimento.
+              <h2 style={tituloSecao}>Ficha do aluno</h2>
+              <p style={textoCinza}>
+                Selecione um aluno na lista ou abra pela fila do operador.
               </p>
             </div>
           ) : (
@@ -661,9 +715,11 @@ export default function Alunos() {
                       "Aluno sem nome"
                     )}
                   </h2>
+
                   <p style={textoInfo}>
                     CPF: {pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-")}
                   </p>
+
                   <p style={textoInfo}>
                     Status atual:{" "}
                     <strong style={{ color: "#86efac" }}>
@@ -677,6 +733,7 @@ export default function Alunos() {
                 </div>
 
                 <button
+                  type="button"
                   onClick={assumirAtendimento}
                   disabled={salvando}
                   style={botaoPrincipal}
@@ -728,6 +785,7 @@ export default function Alunos() {
                 <h3 style={tituloSecao}>Finalização do atendimento</h3>
 
                 <label style={label}>Status da finalização</label>
+
                 <select
                   value={statusFinalizacao}
                   onChange={(e) => setStatusFinalizacao(e.target.value)}
@@ -741,6 +799,7 @@ export default function Alunos() {
                 </select>
 
                 <label style={label}>Data e horário de retorno</label>
+
                 <input
                   type="datetime-local"
                   value={dataRetorno}
@@ -749,6 +808,7 @@ export default function Alunos() {
                 />
 
                 <label style={label}>Observação da finalização</label>
+
                 <textarea
                   value={observacao}
                   onChange={(e) => setObservacao(e.target.value)}
@@ -759,6 +819,7 @@ export default function Alunos() {
 
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
+                    type="button"
                     onClick={finalizarAtendimento}
                     disabled={salvando}
                     style={botaoPrincipal}
@@ -767,6 +828,7 @@ export default function Alunos() {
                   </button>
 
                   <button
+                    type="button"
                     onClick={salvarObservacao}
                     disabled={salvando}
                     style={botaoSecundario}
@@ -780,6 +842,7 @@ export default function Alunos() {
                 <h3 style={tituloSecao}>Alterar operador responsável</h3>
 
                 <label style={label}>Novo operador</label>
+
                 <select
                   value={novoOperadorEmail}
                   onChange={(e) => setNovoOperadorEmail(e.target.value)}
@@ -794,6 +857,7 @@ export default function Alunos() {
                 </select>
 
                 <label style={label}>Motivo</label>
+
                 <textarea
                   value={motivoAlteracaoOperador}
                   onChange={(e) =>
@@ -805,6 +869,7 @@ export default function Alunos() {
                 />
 
                 <button
+                  type="button"
                   onClick={alterarOperadorResponsavel}
                   disabled={salvando}
                   style={botaoPrincipal}
@@ -817,15 +882,15 @@ export default function Alunos() {
                 <h3 style={tituloSecao}>Movimentações</h3>
 
                 {movimentacoes.length === 0 ? (
-                  <p style={{ color: "#cbd5e1" }}>
-                    Nenhuma movimentação registrada.
-                  </p>
+                  <p style={textoCinza}>Nenhuma movimentação registrada.</p>
                 ) : (
                   <div style={{ display: "grid", gap: "10px" }}>
                     {movimentacoes.map((mov) => (
                       <div key={mov.id} style={cardMov}>
                         <strong>{mov.tipo}</strong>
+
                         <p>{mov.descricao || "-"}</p>
+
                         <small>
                           Status: {mov.status_anterior || "-"} →{" "}
                           {mov.status_novo || "-"}
@@ -880,6 +945,12 @@ const subtitulo = {
   color: "#cbd5e1",
 };
 
+const usuarioTexto = {
+  margin: "8px 0 0",
+  color: "#94a3b8",
+  fontSize: "14px",
+};
+
 const tituloSecao = {
   color: "#22c55e",
   marginTop: 0,
@@ -916,16 +987,6 @@ const layout = {
   alignItems: "start",
 };
 
-const cardAluno = {
-  textAlign: "left",
-  color: "#ffffff",
-  borderRadius: "12px",
-  padding: "12px",
-  cursor: "pointer",
-  display: "grid",
-  gap: "4px",
-};
-
 const topoFicha = {
   display: "flex",
   justifyContent: "space-between",
@@ -950,6 +1011,16 @@ const cardInfo = {
   color: "#e5e7eb",
 };
 
+const cardAlunoLista = {
+  textAlign: "left",
+  color: "#ffffff",
+  borderRadius: "12px",
+  padding: "12px",
+  cursor: "pointer",
+  display: "grid",
+  gap: "4px",
+};
+
 const cardMov = {
   background: "#111827",
   borderRadius: "12px",
@@ -961,6 +1032,10 @@ const cardMov = {
 const textoInfo = {
   color: "#cbd5e1",
   margin: "6px 0",
+};
+
+const textoCinza = {
+  color: "#cbd5e1",
 };
 
 const label = {

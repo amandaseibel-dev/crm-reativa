@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 
 const FILTROS = [
@@ -63,8 +62,6 @@ function dataFimHojeISO() {
 }
 
 export default function FilaOperador() {
-  const navigate = useNavigate();
-
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [alunos, setAlunos] = useState([]);
   const [busca, setBusca] = useState("");
@@ -117,10 +114,8 @@ export default function FilaOperador() {
 
     try {
       const termo = busca.trim();
-      let query = supabase
-        .from("alunos")
-        .select("*")
-        .limit(500);
+
+      let query = supabase.from("alunos").select("*").limit(500);
 
       if (termo) {
         const somenteNumeros = termo.replace(/\D/g, "");
@@ -170,14 +165,18 @@ export default function FilaOperador() {
   }
 
   function abrirAlunoDaFila(aluno) {
+    console.log("CLICOU NO ALUNO DA FILA:", aluno);
+
     if (!aluno?.id) {
       alert("Aluno sem ID. Não foi possível abrir a ficha.");
       return;
     }
 
-    localStorage.setItem("reativa_aluno_abrir_id", aluno.id);
+    const alunoId = String(aluno.id);
 
-    navigate(`/alunos?alunoId=${aluno.id}`);
+    localStorage.setItem("reativa_aluno_abrir_id", alunoId);
+
+    window.location.href = `/alunos?alunoId=${encodeURIComponent(alunoId)}`;
   }
 
   const resumo = useMemo(() => {
@@ -216,8 +215,9 @@ export default function FilaOperador() {
       <div style={cabecalho}>
         <div>
           <h1 style={titulo}>Fila do operador</h1>
+
           <p style={subtitulo}>
-            Clique no aluno para abrir a ficha diretamente, sem precisar pesquisar novamente.
+            Clique no aluno para abrir a ficha diretamente e finalizar o atendimento.
           </p>
 
           <p style={usuarioTexto}>
@@ -228,6 +228,7 @@ export default function FilaOperador() {
         </div>
 
         <button
+          type="button"
           onClick={carregarFila}
           disabled={carregando}
           style={botaoPrincipal}
@@ -285,6 +286,7 @@ export default function FilaOperador() {
           </select>
 
           <button
+            type="button"
             onClick={carregarFila}
             disabled={carregando}
             style={botaoPrincipal}
@@ -331,12 +333,20 @@ export default function FilaOperador() {
                 "CONTATAR"
               );
 
-              const responsavel = aluno.responsavel_atual_nome || "Sem responsável";
+              const responsavel =
+                aluno.responsavel_atual_nome || "Sem responsável";
 
               return (
-                <button
+                <div
                   key={aluno.id}
+                  role="button"
+                  tabIndex={0}
                   onClick={() => abrirAlunoDaFila(aluno)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      abrirAlunoDaFila(aluno);
+                    }
+                  }}
                   style={cardAluno}
                 >
                   <div style={linhaTopoCard}>
@@ -389,7 +399,7 @@ export default function FilaOperador() {
                   <div style={rodapeCard}>
                     Clique para abrir a ficha e finalizar atendimento
                   </div>
-                </button>
+                </div>
               );
             })}
           </div>
