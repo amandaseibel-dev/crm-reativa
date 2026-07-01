@@ -6,10 +6,13 @@ import { nomeOperadorPorEmail, podeVerTudo, podeBaixarPagamento } from "../utils
 const STATUS = {
   SOLICITADO_LINK: "Solicitado link",
   LINK_GERADO: "Link gerado",
+  LINK_PRONTO_PARA_ENVIO: "Link gerado",
   LINK_ENVIADO_ALUNO: "Link enviado ao aluno",
+  LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno",
   COMPROVANTE_ANEXADO: "Comprovante anexado",
   AGUARDANDO_BAIXA: "Aguardando baixa",
   BAIXA_CONCLUIDA: "Baixa concluída",
+  BAIXA_REALIZADA: "Baixa concluída",
   DIVERGENCIA: "Divergência",
   CANCELADO: "Cancelado",
 
@@ -36,7 +39,7 @@ function dataHora(valor) {
 }
 
 function corStatus(status) {
-  if (status === "BAIXA_CONCLUIDA" || status === "BAIXADO") {
+  if (status === "BAIXA_CONCLUIDA" || status === "BAIXA_REALIZADA" || status === "BAIXADO") {
     return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
   }
 
@@ -52,11 +55,11 @@ function corStatus(status) {
     return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
   }
 
-  if (status === "LINK_GERADO") {
+  if (status === "LINK_GERADO" || status === "LINK_PRONTO_PARA_ENVIO") {
     return { background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0" };
   }
 
-  if (status === "LINK_ENVIADO_ALUNO" || status === "LINK_ENVIADO") {
+  if (status === "LINK_ENVIADO_ALUNO" || status === "LINK_ENVIADO_AO_ALUNO" || status === "LINK_ENVIADO") {
     return { background: "#ede9fe", color: "#5b21b6", border: "1px solid #ddd6fe" };
   }
 
@@ -156,7 +159,7 @@ export default function ControleLinksPagamento() {
       .from("links_pagamento")
       .update({
         link_gerado: link.trim(),
-        status: "LINK_GERADO",
+        status: "LINK_PRONTO_PARA_ENVIO",
         link_gerado_por: emailUsuario,
         link_gerado_em: new Date().toISOString(),
         atualizado_em: new Date().toISOString(),
@@ -168,7 +171,7 @@ export default function ControleLinksPagamento() {
       return;
     }
 
-    await historico(item, "LINK_GERADO", "Link gerado/colado pela Fernanda/ADM.");
+    await historico(item, "LINK_PRONTO_PARA_ENVIO", "Link gerado/colado pela Fernanda/ADM.");
     alert("Link salvo. O operador será sinalizado como link pronto.");
     carregarLinks();
   }
@@ -179,7 +182,7 @@ export default function ControleLinksPagamento() {
     const { error } = await supabase
       .from("links_pagamento")
       .update({
-        status: "BAIXA_CONCLUIDA",
+        status: "BAIXA_REALIZADA",
         baixa_realizada_por: emailUsuario,
         baixa_realizada_em: new Date().toISOString(),
         atualizado_em: new Date().toISOString(),
@@ -191,7 +194,7 @@ export default function ControleLinksPagamento() {
       return;
     }
 
-    await historico(item, "BAIXA_CONCLUIDA", obs || "Baixa concluída pela Amanda ADM.");
+    await historico(item, "BAIXA_REALIZADA", obs || "Baixa concluída pela Amanda ADM.");
     alert("Baixa concluída. O operador será sinalizado.");
     carregarLinks();
   }
@@ -334,9 +337,9 @@ export default function ControleLinksPagamento() {
     return {
       total: listaFiltrada.length,
       solicitados: listaFiltrada.filter((x) => x.status === "SOLICITADO_LINK").length,
-      gerados: listaFiltrada.filter((x) => x.status === "LINK_GERADO").length,
+      gerados: listaFiltrada.filter((x) => x.status === "LINK_GERADO" || x.status === "LINK_PRONTO_PARA_ENVIO").length,
       aguardandoBaixa: listaFiltrada.filter((x) => x.status === "AGUARDANDO_BAIXA").length,
-      concluidas: listaFiltrada.filter((x) => x.status === "BAIXA_CONCLUIDA").length,
+      concluidas: listaFiltrada.filter((x) => x.status === "BAIXA_CONCLUIDA" || x.status === "BAIXA_REALIZADA").length,
       divergencias: listaFiltrada.filter((x) => x.status === "DIVERGENCIA").length,
       valor: listaFiltrada.reduce((soma, item) => soma + Number(item.valor || 0), 0),
     };
@@ -393,10 +396,10 @@ export default function ControleLinksPagamento() {
           <select style={styles.input} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
             <option value="TODOS">Todos os status</option>
             <option value="SOLICITADO_LINK">Solicitados para gerar link</option>
-            <option value="LINK_GERADO">Link gerado</option>
-            <option value="LINK_ENVIADO_ALUNO">Link enviado ao aluno</option>
+            <option value="LINK_PRONTO_PARA_ENVIO">Link gerado</option>
+            <option value="LINK_ENVIADO_AO_ALUNO">Link enviado ao aluno</option>
             <option value="AGUARDANDO_BAIXA">Aguardando baixa</option>
-            <option value="BAIXA_CONCLUIDA">Baixa concluída</option>
+            <option value="BAIXA_REALIZADA">Baixa concluída</option>
             <option value="DIVERGENCIA">Divergência</option>
             <option value="CANCELADO">Cancelado</option>
           </select>

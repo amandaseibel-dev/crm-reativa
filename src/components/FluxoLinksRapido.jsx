@@ -48,6 +48,10 @@ export default function FluxoLinksRapido() {
   }
 
   async function identificarUsuario() {
+    // Identidade vem exclusivamente da sessão autenticada no Supabase.
+    // Antes havia um fallback que varria todo o localStorage do navegador
+    // atrás de qualquer e-mail/nome já salvo, o que podia pegar dados de
+    // outra sessão/usuário e vazar prioridades de um operador para outro.
     let email = "";
     let nome = "";
 
@@ -60,40 +64,10 @@ export default function FluxoLinksRapido() {
         data?.user?.user_metadata?.nome ||
         data?.user?.user_metadata?.name ||
         data?.user?.user_metadata?.full_name ||
-        "";
+        (email ? email.split("@")[0] : "");
     } catch {
-      // ignora
-    }
-
-    try {
-      for (let i = 0; i < localStorage.length; i++) {
-        const chave = localStorage.key(i);
-        const valor = localStorage.getItem(chave);
-
-        if (!valor) continue;
-
-        if (!email) {
-          const encontrado = valor.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
-          if (encontrado?.[0]) email = encontrado[0];
-        }
-
-        if (!nome) {
-          try {
-            const json = JSON.parse(valor);
-            nome =
-              json?.nome ||
-              json?.name ||
-              json?.usuario_nome ||
-              json?.operador_nome ||
-              json?.full_name ||
-              "";
-          } catch {
-            // ignora
-          }
-        }
-      }
-    } catch {
-      // ignora
+      // ignora - sem sessão válida, email/nome ficam vazios
+      // e filtrarPrioridades() não mostra nada para esse usuário.
     }
 
     const emailLower = String(email || "").toLowerCase();
@@ -180,17 +154,16 @@ export default function FluxoLinksRapido() {
   function filtrarPrioridades(lista, usuario) {
     if (usuario.master) return lista;
 
-    const email = String(usuario.email || "").toLowerCase();
-    const nome = String(usuario.nome || "").toLowerCase();
+    const email = String(usuario.email || "").trim().toLowerCase();
+
+    // Sem e-mail confirmado da sessão, não mostra nada (evita vazar
+    // prioridades de outro operador). O filtro é por e-mail exato,
+    // não mais por "includes", para não casar nomes/e-mails parecidos.
+    if (!email) return [];
 
     return lista.filter((item) => {
-      const solicitante = String(item.operador_solicitante || "").toLowerCase();
-      const operadorNome = String(item.operador_nome || "").toLowerCase();
-
-      return (
-        (email && (solicitante.includes(email) || operadorNome.includes(email))) ||
-        (nome && (solicitante.includes(nome) || operadorNome.includes(nome)))
-      );
+      const solicitante = String(item.operador_solicitante || "").trim().toLowerCase();
+      return solicitante === email;
     });
   }
 
@@ -263,7 +236,7 @@ export default function FluxoLinksRapido() {
     const { error } = await supabase
       .from("links_pagamento")
       .update({
-        status: "LINK_ENVIADO_ALUNO",
+        status: "LINK_ENVIADO_AO_ALUNO",
         enviado_operador_em: agora,
         atualizado_em: agora,
       })
@@ -307,7 +280,7 @@ export default function FluxoLinksRapido() {
       aluno_id: item?.aluno_id || null,
       aluno_nome: item?.aluno_nome || null,
       aluno_cpf: item?.aluno_cpf || null,
-      status_novo: "LINK_ENVIADO_ALUNO",
+      status_novo: "LINK_ENVIADO_AO_ALUNO",
       status_anterior: item.status || null,
       descricao: "Operador marcou o link como enviado ao aluno.",
       usuario_email: usuarioEmail || null,

@@ -743,7 +743,7 @@ export default function FilaOperador() {
         await supabase
           .from("links_pagamento")
           .update({
-            status: "LINK_ENVIADO_ALUNO",
+            status: "LINK_ENVIADO_AO_ALUNO",
             enviado_operador_em: agora,
             atualizado_em: agora,
           })
@@ -752,6 +752,7 @@ export default function FilaOperador() {
             "LINK_GERADO",
             "LINK_PRONTO_PARA_ENVIO",
             "LINK_ENVIADO_ALUNO",
+            "LINK_ENVIADO_AO_ALUNO",
           ]);
       } catch (erroLink) {
         console.warn("Não foi possível atualizar links_pagamento:", erroLink);

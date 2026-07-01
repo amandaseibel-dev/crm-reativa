@@ -428,7 +428,7 @@ export default function LinksPagamentoAluno({
     const { error } = await supabase
       .from("links_pagamento")
       .update({
-        status: "LINK_ENVIADO_ALUNO",
+        status: "LINK_ENVIADO_AO_ALUNO",
         enviado_operador_em: agora,
         atualizado_em: agora,
       })
@@ -467,7 +467,7 @@ export default function LinksPagamentoAluno({
       });
     }
 
-    await registrarHistorico(item, "LINK_ENVIADO_ALUNO", "Operador marcou o link como enviado ao aluno.");
+    await registrarHistorico(item, "LINK_ENVIADO_AO_ALUNO", "Operador marcou o link como enviado ao aluno.");
 
     await carregarHistorico();
 
