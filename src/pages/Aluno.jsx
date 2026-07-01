@@ -938,23 +938,21 @@ export default function Alunos() {
 
                       <p style={textoInfo}>
                         CPF: {pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-")}
-                        {podeVerTudo(usuarioLogado?.email) && (
-                          <button
-                            type="button"
-                            onClick={abrirEdicaoCadastro}
-                            style={{
-                              marginLeft: 10,
-                              background: "none",
-                              border: "none",
-                              color: "#93c5fd",
-                              cursor: "pointer",
-                              textDecoration: "underline",
-                              fontSize: 13,
-                            }}
-                          >
-                            Corrigir nome/CPF
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={abrirEdicaoCadastro}
+                          style={{
+                            marginLeft: 10,
+                            background: "none",
+                            border: "none",
+                            color: "#93c5fd",
+                            cursor: "pointer",
+                            textDecoration: "underline",
+                            fontSize: 13,
+                          }}
+                        >
+                          Corrigir nome/CPF
+                        </button>
                       </p>
 
                       <p style={textoInfo}>
