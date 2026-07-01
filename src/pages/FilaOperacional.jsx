@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
-import PrioridadeLinksOperador from "../components/PrioridadeLinksOperador";
 import FluxoLinksRapido from "../components/FluxoLinksRapido";
 import ModuloLinkPagamentoGlobal from "../components/ModuloLinkPagamentoGlobal";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
@@ -795,7 +794,6 @@ export default function FilaOperador() {
     <div style={pagina}>
       <ModuloLinkPagamentoGlobal />
       <FluxoLinksRapido />
-      <PrioridadeLinksOperador />
       <div style={cabecalho}>
         <div>
           <h1 style={titulo}>Fila do operador</h1>

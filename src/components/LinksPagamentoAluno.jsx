@@ -8,6 +8,7 @@ const STATUS_LABELS = {
   LINK_PRONTO_PARA_ENVIO: "Link pronto para envio",
   AGUARDANDO_COMPROVANTE: "Aguardando comprovante",
   LINK_ENVIADO_ALUNO: "Link enviado ao aluno",
+  LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno",
   AGUARDANDO_BAIXA: "Aguardando baixa",
   PAGO_AGUARDANDO_BAIXA: "Aguardando baixa",
   BAIXA_REALIZADA: "Baixa realizada",
@@ -102,7 +103,7 @@ function corStatus(status) {
   if (status === "SOLICITADO_LINK" || status === "SOLICITADO") return "#f97316";
   if (status === "LINK_GERADO" || status === "LINK_PRONTO_PARA_ENVIO") return "#2563eb";
   if (status === "AGUARDANDO_COMPROVANTE") return "#0891b2";
-  if (status === "LINK_ENVIADO_ALUNO") return "#0891b2";
+  if (status === "LINK_ENVIADO_ALUNO" || status === "LINK_ENVIADO_AO_ALUNO") return "#0891b2";
   if (status === "AGUARDANDO_BAIXA" || status === "PAGO_AGUARDANDO_BAIXA") return "#7c3aed";
   if (status === "BAIXA_REALIZADA") return "#16a34a";
   if (status === "BAIXA_DEVOLVIDA") return "#dc2626";
@@ -700,7 +701,7 @@ export default function LinksPagamentoAluno({
             const linkPagamento = obterLinkPagamento(item);
             const operadorDoItem = itemPertenceAoUsuario(item);
             const podeAcionarComprovante =
-              ["LINK_GERADO", "LINK_PRONTO_PARA_ENVIO", "LINK_ENVIADO_ALUNO", "AGUARDANDO_COMPROVANTE", "BAIXA_DEVOLVIDA"].includes(item.status);
+              ["LINK_GERADO", "LINK_PRONTO_PARA_ENVIO", "LINK_ENVIADO_ALUNO", "LINK_ENVIADO_AO_ALUNO", "AGUARDANDO_COMPROVANTE", "BAIXA_DEVOLVIDA"].includes(item.status);
 
             return (
               <div key={item.id} style={historicoItem}>
