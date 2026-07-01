@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { podeVerTudo } from "../utils/operadores";
 
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
@@ -28,7 +29,18 @@ const STATUS_FINALIZACAO = [
   "TERMO_RECEBIDO_LIBERADO",
   "TERMO_REJEITADO",
   "ACORDO_FECHADO",
+  "CANCELAMENTO_COBRANCA",
+  "JURIDICO",
 ];
+
+// Só gestão/supervisão (podeVerTudo) pode definir estes dois. Uma vez
+// finalizado assim, o caso fica travado e destacado em vermelho.
+const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "JURIDICO"];
+
+const STATUS_BLOQUEADOS_LABEL = {
+  CANCELAMENTO_COBRANCA: "Cancelamento de cobrança",
+  JURIDICO: "Jurídico",
+};
 
 function formatarDataHora(data) {
   if (!data) return "-";
@@ -87,6 +99,10 @@ export default function Alunos() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
+  const [editandoCadastro, setEditandoCadastro] = useState(false);
+  const [nomeEditado, setNomeEditado] = useState("");
+  const [cpfEditado, setCpfEditado] = useState("");
+  const [salvandoCadastro, setSalvandoCadastro] = useState(false);
   const [movimentacoes, setMovimentacoes] = useState([]);
   const [busca, setBusca] = useState("");
   const [observacao, setObservacao] = useState("");
@@ -263,6 +279,80 @@ export default function Alunos() {
     setDataRetorno(paraInputDateTime(aluno.data_retorno));
   }
 
+  function abrirEdicaoCadastro() {
+    if (!alunoSelecionado) return;
+
+    setNomeEditado(
+      pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "")
+    );
+    setCpfEditado(pegarCampo(alunoSelecionado, ["cpf", "CPF"], ""));
+    setEditandoCadastro(true);
+  }
+
+  async function salvarCadastroAluno() {
+    if (!alunoSelecionado?.id) return;
+
+    if (!nomeEditado.trim()) {
+      alert("Informe o nome do aluno.");
+      return;
+    }
+
+    if (!cpfEditado.trim()) {
+      alert("Informe o CPF do aluno.");
+      return;
+    }
+
+    setSalvandoCadastro(true);
+
+    const nomeAnterior = pegarCampo(
+      alunoSelecionado,
+      ["nome", "nome_aluno", "aluno"],
+      ""
+    );
+    const cpfAnterior = pegarCampo(alunoSelecionado, ["cpf", "CPF"], "");
+
+    const { error } = await supabase
+      .from("alunos")
+      .update({
+        nome: nomeEditado.trim(),
+        cpf: cpfEditado.trim(),
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("id", alunoSelecionado.id);
+
+    setSalvandoCadastro(false);
+
+    if (error) {
+      console.error("Erro ao atualizar cadastro:", error);
+      alert("Erro ao salvar cadastro: " + error.message);
+      return;
+    }
+
+    await supabase.from("aluno_movimentacoes").insert({
+      aluno_id: String(alunoSelecionado.id),
+      tipo: "CORRECAO_CADASTRO",
+      descricao: `Cadastro corrigido. Nome: "${nomeAnterior}" -> "${nomeEditado.trim()}". CPF: "${cpfAnterior}" -> "${cpfEditado.trim()}".`,
+      status_anterior: pegarCampo(
+        alunoSelecionado,
+        ["status_jornada", "status_atual", "status"],
+        null
+      ),
+      status_novo: pegarCampo(
+        alunoSelecionado,
+        ["status_jornada", "status_atual", "status"],
+        null
+      ),
+      registrado_por_nome: usuarioLogado?.nome,
+      registrado_por_email: usuarioLogado?.email,
+      registrado_em: new Date().toISOString(),
+    });
+
+    setEditandoCadastro(false);
+    await recarregarAlunoSelecionado(alunoSelecionado.id);
+    await carregarMovimentacoes(alunoSelecionado.id);
+    alert("Cadastro atualizado com sucesso.");
+  }
+
   async function recarregarAlunoSelecionado(alunoId) {
     const { data, error } = await supabase
       .from("alunos")
@@ -307,6 +397,7 @@ export default function Alunos() {
     statusNovo = null,
     retorno = null,
     atualizarResponsavel = false,
+    observacaoAluno = null,
     extra = {},
   }) {
     if (!alunoId) {
@@ -368,6 +459,10 @@ export default function Alunos() {
 
     if (retorno) {
       atualizacaoAluno.data_retorno = retorno;
+    }
+
+    if (observacaoAluno !== null) {
+      atualizacaoAluno.observacao = observacaoAluno;
     }
 
     if (atualizarResponsavel) {
@@ -438,6 +533,20 @@ export default function Alunos() {
       return;
     }
 
+    const ehStatusRestrito = STATUS_BLOQUEADOS_ACIONAMENTO.includes(statusFinalizacao);
+
+    if (ehStatusRestrito && !podeVerTudo(usuarioLogado?.email)) {
+      alert("Apenas gestão/supervisão pode definir esse status.");
+      return;
+    }
+
+    if (ehStatusRestrito && !observacao.trim()) {
+      alert(
+        `Informe a observação em destaque antes de marcar como "${STATUS_BLOQUEADOS_LABEL[statusFinalizacao]}".`
+      );
+      return;
+    }
+
     setSalvando(true);
 
     try {
@@ -461,6 +570,7 @@ export default function Alunos() {
         statusNovo: statusFinalizacao,
         retorno: retornoIso,
         atualizarResponsavel: false,
+        observacaoAluno: ehStatusRestrito ? observacao.trim() : null,
       });
 
       setObservacao("");
@@ -698,6 +808,8 @@ export default function Alunos() {
 
                 const selecionado = alunoSelecionado?.id === aluno.id;
 
+                const bloqueado = STATUS_BLOQUEADOS_ACIONAMENTO.includes(status);
+
                 return (
                   <button
                     type="button"
@@ -705,19 +817,32 @@ export default function Alunos() {
                     onClick={() => abrirAluno(aluno)}
                     style={{
                       ...cardAlunoLista,
-                      background: selecionado ? "#064e3b" : "#1f2937",
-                      border: selecionado
+                      background: bloqueado
+                        ? "#450a0a"
+                        : selecionado
+                        ? "#064e3b"
+                        : "#1f2937",
+                      border: bloqueado
+                        ? "1px solid #ef4444"
+                        : selecionado
                         ? "1px solid #22c55e"
                         : "1px solid #374151",
                     }}
                   >
                     <strong>{nome}</strong>
                     <span>CPF: {cpf}</span>
-                    <span>Status: {status}</span>
+                    <span>
+                      Status: {STATUS_BLOQUEADOS_LABEL[status] || status}
+                    </span>
                     <span>
                       Responsável:{" "}
                       {aluno.responsavel_atual_nome || "Sem responsável"}
                     </span>
+                    {bloqueado && (
+                      <span style={{ color: "#fecaca", fontWeight: 700 }}>
+                        ⚠️ Não acionar
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -735,36 +860,131 @@ export default function Alunos() {
             </div>
           ) : (
             <>
+              {(() => {
+                const statusFicha = pegarCampo(
+                  alunoSelecionado,
+                  ["status_jornada", "status_atual", "status"],
+                  "CONTATAR"
+                );
+                const fichaRestrita =
+                  STATUS_BLOQUEADOS_ACIONAMENTO.includes(statusFicha);
+                const fichaBloqueadaParaMim =
+                  fichaRestrita && !podeVerTudo(usuarioLogado?.email);
+
+                return fichaRestrita ? (
+                  <div
+                    style={{
+                      background: "#7f1d1d",
+                      color: "#fecaca",
+                      borderRadius: 10,
+                      padding: "12px 14px",
+                      marginBottom: 14,
+                      fontWeight: 700,
+                    }}
+                  >
+                    ⚠️ {STATUS_BLOQUEADOS_LABEL[statusFicha]} — este caso não pode
+                    ser acionado{fichaBloqueadaParaMim ? " por operadores" : ""}.
+                    {alunoSelecionado.observacao
+                      ? ` ${alunoSelecionado.observacao}`
+                      : ""}
+                  </div>
+                ) : null;
+              })()}
+
               <div style={topoFicha}>
                 <div>
-                  <h2 style={tituloSecao}>
-                    {pegarCampo(
-                      alunoSelecionado,
-                      ["nome", "nome_aluno", "aluno"],
-                      "Aluno sem nome"
-                    )}
-                  </h2>
+                  {editandoCadastro ? (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 340 }}>
+                      <input
+                        value={nomeEditado}
+                        onChange={(e) => setNomeEditado(e.target.value)}
+                        placeholder="Nome do aluno"
+                        style={inputCheio}
+                      />
+                      <input
+                        value={cpfEditado}
+                        onChange={(e) => setCpfEditado(e.target.value)}
+                        placeholder="CPF do aluno"
+                        style={inputCheio}
+                      />
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          type="button"
+                          onClick={salvarCadastroAluno}
+                          disabled={salvandoCadastro}
+                          style={botaoPrincipal}
+                        >
+                          {salvandoCadastro ? "Salvando..." : "Salvar"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setEditandoCadastro(false)}
+                          disabled={salvandoCadastro}
+                          style={botaoSecundario}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <h2 style={tituloSecao}>
+                        {pegarCampo(
+                          alunoSelecionado,
+                          ["nome", "nome_aluno", "aluno"],
+                          "Aluno sem nome"
+                        )}
+                      </h2>
 
-                  <p style={textoInfo}>
-                    CPF: {pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-")}
-                  </p>
+                      <p style={textoInfo}>
+                        CPF: {pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-")}
+                        {podeVerTudo(usuarioLogado?.email) && (
+                          <button
+                            type="button"
+                            onClick={abrirEdicaoCadastro}
+                            style={{
+                              marginLeft: 10,
+                              background: "none",
+                              border: "none",
+                              color: "#93c5fd",
+                              cursor: "pointer",
+                              textDecoration: "underline",
+                              fontSize: 13,
+                            }}
+                          >
+                            Corrigir nome/CPF
+                          </button>
+                        )}
+                      </p>
 
-                  <p style={textoInfo}>
-                    Status atual:{" "}
-                    <strong style={{ color: "#86efac" }}>
-                      {pegarCampo(
-                        alunoSelecionado,
-                        ["status_jornada", "status_atual", "status"],
-                        "CONTATAR"
-                      )}
-                    </strong>
-                  </p>
+                      <p style={textoInfo}>
+                        Status atual:{" "}
+                        <strong style={{ color: "#86efac" }}>
+                          {pegarCampo(
+                            alunoSelecionado,
+                            ["status_jornada", "status_atual", "status"],
+                            "CONTATAR"
+                          )}
+                        </strong>
+                      </p>
+                    </>
+                  )}
                 </div>
 
                 <button
                   type="button"
                   onClick={assumirAtendimento}
-                  disabled={salvando}
+                  disabled={
+                    salvando ||
+                    (STATUS_BLOQUEADOS_ACIONAMENTO.includes(
+                      pegarCampo(
+                        alunoSelecionado,
+                        ["status_jornada", "status_atual", "status"],
+                        "CONTATAR"
+                      )
+                    ) &&
+                      !podeVerTudo(usuarioLogado?.email))
+                  }
                   style={botaoPrincipal}
                 >
                   {salvando ? "Salvando..." : "Assumir atendimento"}
@@ -820,9 +1040,13 @@ export default function Alunos() {
                   onChange={(e) => setStatusFinalizacao(e.target.value)}
                   style={select}
                 >
-                  {STATUS_FINALIZACAO.map((status) => (
+                  {STATUS_FINALIZACAO.filter(
+                    (status) =>
+                      !STATUS_BLOQUEADOS_ACIONAMENTO.includes(status) ||
+                      podeVerTudo(usuarioLogado?.email)
+                  ).map((status) => (
                     <option key={status} value={status}>
-                      {status}
+                      {STATUS_BLOQUEADOS_LABEL[status] || status}
                     </option>
                   ))}
                 </select>
@@ -850,7 +1074,17 @@ export default function Alunos() {
                   <button
                     type="button"
                     onClick={finalizarAtendimento}
-                    disabled={salvando}
+                    disabled={
+                      salvando ||
+                      (STATUS_BLOQUEADOS_ACIONAMENTO.includes(
+                        pegarCampo(
+                          alunoSelecionado,
+                          ["status_jornada", "status_atual", "status"],
+                          "CONTATAR"
+                        )
+                      ) &&
+                        !podeVerTudo(usuarioLogado?.email))
+                    }
                     style={botaoPrincipal}
                   >
                     {salvando ? "Salvando..." : "Finalizar atendimento"}
