@@ -113,6 +113,32 @@ function dataFimHojeISO() {
   return agora.toISOString();
 }
 
+function saudacaoDoDia() {
+  const hora = new Date().getHours();
+  if (hora < 12) return "Bom dia";
+  if (hora < 18) return "Boa tarde";
+  return "Boa noite";
+}
+
+function primeiroNome(nomeCompleto) {
+  const nome = String(nomeCompleto || "").trim();
+  if (!nome) return "";
+  return nome.split(" ")[0];
+}
+
+function mensagemIncentivo(qtdFinalizados) {
+  if (qtdFinalizados <= 0) {
+    return { texto: "Vamos começar o dia. Você consegue!", cor: "#94a3b8", bg: "#111827" };
+  }
+  if (qtdFinalizados < 5) {
+    return { texto: `Você já finalizou ${qtdFinalizados} caso${qtdFinalizados > 1 ? "s" : ""} hoje. Bom ritmo!`, cor: "#22c55e", bg: "#052e16" };
+  }
+  if (qtdFinalizados < 10) {
+    return { texto: `${qtdFinalizados} casos finalizados hoje. Ótimo trabalho!`, cor: "#22c55e", bg: "#052e16" };
+  }
+  return { texto: `${qtdFinalizados} casos finalizados hoje. Você está arrasando!`, cor: "#facc15", bg: "#1c1917" };
+}
+
 function definirProximaAcao(status) {
   if (status === "MENSAGEM_ENVIADA") return "AGUARDAR_RETORNO";
   if (status === "RETORNAR_DEPOIS") return "RETORNAR";
@@ -880,60 +906,69 @@ export default function FilaOperador() {
     <div style={pagina}>
       <ModuloLinkPagamentoGlobal />
       <FluxoLinksRapido />
-      <div style={cabecalho}>
-        <div>
-          <h1 style={titulo}>Fila do operador</h1>
-          <p style={subtitulo}>
-            Clique no aluno para abrir a ficha nesta mesma tela.
-          </p>
+      {(() => {
+        const incentivo = mensagemIncentivo(casosFinalizados);
+        return (
+          <div style={cabecalhoModerno}>
+            <div style={linhaSaudacao}>
+              <div>
+                <h1 style={tituloSaudacao}>
+                  {saudacaoDoDia()}
+                  {usuarioLogado?.nome ? `, ${primeiroNome(usuarioLogado.nome)}` : ""}
+                </h1>
+                <p style={subtituloSaudacao}>
+                  Aqui está o resumo do seu dia.{" "}
+                  {usuarioLogado?.email ? `Conectado como ${usuarioLogado.email}.` : ""}
+                </p>
+              </div>
 
-          <p style={usuarioTexto}>
-            Usuário logado:{" "}
-            <strong>{usuarioLogado?.nome || "Carregando..."}</strong>
-            {usuarioLogado?.email ? ` - ${usuarioLogado.email}` : ""}
-          </p>
-        </div>
+              <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+                <CadastroNovoAluno />
 
-        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-          <CadastroNovoAluno />
+                <button
+                  type="button"
+                  onClick={carregarFila}
+                  disabled={carregando}
+                  style={botaoPrincipal}
+                >
+                  {carregando ? "Carregando..." : "Atualizar fila"}
+                </button>
+              </div>
+            </div>
 
-          <button
-            type="button"
-            onClick={carregarFila}
-            disabled={carregando}
-            style={botaoPrincipal}
-          >
-            {carregando ? "Carregando..." : "Atualizar fila"}
-          </button>
-        </div>
-      </div>
+            <div style={{ ...bannerIncentivo, background: incentivo.bg, borderColor: incentivo.cor }}>
+              <span style={{ color: incentivo.cor }}>{incentivo.texto}</span>
+            </div>
 
-      <div style={cardsResumo}>
-        <div style={cardResumo}>
-          <strong>Total na visão</strong>
-          <span>{resumo.total}</span>
-        </div>
+            <div style={gridResumoModerno}>
+              <div style={cardResumoModerno}>
+                <strong style={rotuloCardModerno}>Na fila hoje</strong>
+                <span style={valorCardModerno}>{resumo.total}</span>
+              </div>
 
-        <div style={cardResumo}>
-          <strong>Sem responsável</strong>
-          <span>{resumo.semResponsavel}</span>
-        </div>
+              <div style={{ ...cardResumoModerno, borderLeft: "3px solid #facc15" }}>
+                <strong style={rotuloCardModerno}>Retornos para hoje</strong>
+                <span style={{ ...valorCardModerno, color: "#facc15" }}>{resumo.retornosHoje}</span>
+              </div>
 
-        <div style={cardResumo}>
-          <strong>Retornos hoje</strong>
-          <span>{resumo.retornosHoje}</span>
-        </div>
+              <div style={{ ...cardResumoModerno, borderLeft: "3px solid #22c55e" }}>
+                <strong style={rotuloCardModerno}>Finalizados hoje</strong>
+                <span style={{ ...valorCardModerno, color: "#22c55e" }}>{casosFinalizados}</span>
+              </div>
 
-        <div style={cardResumo}>
-          <strong>Negociação 24h</strong>
-          <span>{resumo.negociacao24h}</span>
-        </div>
+              <div style={{ ...cardResumoModerno, borderLeft: "3px solid #94a3b8" }}>
+                <strong style={rotuloCardModerno}>Sem responsável</strong>
+                <span style={valorCardModerno}>{resumo.semResponsavel}</span>
+              </div>
 
-        <div style={{ ...cardResumo, borderLeft: "4px solid #16a34a" }}>
-          <strong>Casos finalizados (meus)</strong>
-          <span>{casosFinalizados}</span>
-        </div>
-      </div>
+              <div style={{ ...cardResumoModerno, borderLeft: "3px solid #f472b6" }}>
+                <strong style={rotuloCardModerno}>Negociação 24h</strong>
+                <span style={valorCardModerno}>{resumo.negociacao24h}</span>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       <div style={caixa}>
         <label style={label}>Buscar na fila por nome ou CPF</label>
@@ -1403,6 +1438,70 @@ const usuarioTexto = {
   margin: "8px 0 0",
   color: "#94a3b8",
   fontSize: "14px",
+};
+
+const cabecalhoModerno = {
+  background: "#0b1220",
+  border: "1px solid #1f2937",
+  borderRadius: "16px",
+  padding: "20px",
+  marginBottom: "20px",
+};
+
+const linhaSaudacao = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "16px",
+  alignItems: "flex-start",
+  flexWrap: "wrap",
+  marginBottom: "14px",
+};
+
+const tituloSaudacao = {
+  margin: 0,
+  color: "#f8fafc",
+  fontSize: "22px",
+};
+
+const subtituloSaudacao = {
+  margin: "6px 0 0",
+  color: "#94a3b8",
+  fontSize: "13px",
+};
+
+const bannerIncentivo = {
+  border: "1px solid",
+  borderRadius: "10px",
+  padding: "10px 14px",
+  fontSize: "14px",
+  fontWeight: "700",
+  marginBottom: "16px",
+};
+
+const gridResumoModerno = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gap: "10px",
+};
+
+const cardResumoModerno = {
+  background: "#111827",
+  borderRadius: "10px",
+  padding: "12px 14px",
+  display: "grid",
+  gap: "6px",
+};
+
+const rotuloCardModerno = {
+  fontSize: "12px",
+  color: "#94a3b8",
+  fontWeight: "600",
+};
+
+const valorCardModerno = {
+  fontSize: "22px",
+  fontWeight: "800",
+  color: "#f8fafc",
 };
 
 const caixa = {
