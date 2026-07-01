@@ -11,6 +11,7 @@ const STATUS_LABEL = {
   TERMO_ENVIADO_ADM: "Termo enviado ADM",
   TERMO_RECEBIDO_LIBERADO: "Termo recebido - liberado",
   TERMO_REJEITADO: "Termo rejeitado",
+  TERMO_LIBERADO_AUTOMATICO_GOV: "Liberado automático (gov.br)",
 };
 
 function traduzStatus(status) {
@@ -41,6 +42,14 @@ function corStatus(status) {
       background: "#f8d7da",
       color: "#842029",
       border: "1px solid #f5c2c7",
+    };
+  }
+
+  if (status === "TERMO_LIBERADO_AUTOMATICO_GOV") {
+    return {
+      background: "#e0cffc",
+      color: "#4b1e8f",
+      border: "1px solid #d0bcf5",
     };
   }
 
@@ -166,6 +175,7 @@ export default function FilaAdmTermos() {
       pendentes: termos.filter((t) => t.status === "TERMO_ENVIADO_ADM").length,
       liberados: termos.filter((t) => t.status === "TERMO_RECEBIDO_LIBERADO").length,
       rejeitados: termos.filter((t) => t.status === "TERMO_REJEITADO").length,
+      auditoria: termos.filter((t) => t.status === "TERMO_LIBERADO_AUTOMATICO_GOV").length,
       todos: termos.length,
     };
   }, [termos]);
@@ -181,6 +191,10 @@ export default function FilaAdmTermos() {
 
     if (filtro === "REJEITADOS") {
       return termos.filter((t) => t.status === "TERMO_REJEITADO");
+    }
+
+    if (filtro === "AUDITORIA") {
+      return termos.filter((t) => t.status === "TERMO_LIBERADO_AUTOMATICO_GOV");
     }
 
     return termos;
@@ -242,6 +256,11 @@ export default function FilaAdmTermos() {
         </div>
 
         <div style={styles.indicador}>
+          <span style={styles.numero}>{contadores.auditoria}</span>
+          <span style={styles.descricao}>Auditoria (gov.br)</span>
+        </div>
+
+        <div style={styles.indicador}>
           <span style={styles.numero}>{contadores.todos}</span>
           <span style={styles.descricao}>Total</span>
         </div>
@@ -267,6 +286,13 @@ export default function FilaAdmTermos() {
           onClick={() => setFiltro("REJEITADOS")}
         >
           Rejeitados
+        </button>
+
+        <button
+          style={filtro === "AUDITORIA" ? styles.filtroAtivo : styles.filtro}
+          onClick={() => setFiltro("AUDITORIA")}
+        >
+          Auditoria (gov.br)
         </button>
 
         <button
@@ -301,6 +327,13 @@ export default function FilaAdmTermos() {
 
                 <p style={styles.info}>
                   <strong>Enviado em:</strong> {formatarData(termo.criado_em)}
+                </p>
+
+                <p style={styles.info}>
+                  <strong>Assinatura:</strong>{" "}
+                  {termo.tipo_assinatura === "GOV_BR"
+                    ? "Gov.br (validada eletronicamente)"
+                    : "Manual + RG"}
                 </p>
               </div>
 

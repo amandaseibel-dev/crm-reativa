@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
+import FinalizacaoTermo from "../components/FinalizacaoTermo";
 
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
@@ -1098,6 +1099,8 @@ export default function Alunos() {
                   </button>
                 </div>
               </div>
+
+              <FinalizacaoTermo aluno={alunoSelecionado} />
 
               <div style={caixaInterna}>
                 <h3 style={tituloSecao}>Alterar operador responsável</h3>

@@ -4,6 +4,7 @@ import FluxoLinksRapido from "../components/FluxoLinksRapido";
 import ModuloLinkPagamentoGlobal from "../components/ModuloLinkPagamentoGlobal";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import CadastroNovoAluno from "../components/CadastroNovoAluno";
+import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import { podeVerTudo } from "../utils/operadores";
 
 const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "JURIDICO"];
@@ -868,40 +869,6 @@ export default function FilaOperador() {
     }
   }
 
-  async function enviarTermoAdm() {
-    if (!alunoSelecionado?.id) return;
-
-    setSalvando(true);
-
-    try {
-      const statusAnterior = pegarCampo(
-        alunoSelecionado,
-        ["status_jornada", "status_atual", "status"],
-        null
-      );
-
-      await registrarMovimentacao({
-        alunoId: alunoSelecionado.id,
-        tipo: "TERMO_ENVIADO_ADM",
-        descricao: "Termo enviado para validação administrativa.",
-        statusAnterior,
-        statusNovo: "TERMO_ENVIADO_ADM",
-        retorno: null,
-        atualizarResponsavel: false,
-      });
-
-      await recarregarAlunoSelecionado(alunoSelecionado.id);
-      await carregarMovimentacoes(alunoSelecionado.id);
-      await carregarFila();
-
-      alert("Termo enviado para ADM com sucesso.");
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSalvando(false);
-    }
-  }
-
   const resumo = useMemo(() => {
     const total = alunos.length;
 
@@ -1435,17 +1402,10 @@ export default function FilaOperador() {
                   >
                     Solicitar link
                   </button>
-
-                  <button
-                    type="button"
-                    onClick={enviarTermoAdm}
-                    disabled={salvando}
-                    style={botaoSecundario}
-                  >
-                    Enviar termo ADM
-                  </button>
                 </div>
               </div>
+
+              <FinalizacaoTermo aluno={alunoSelecionado} />
 
               <div style={caixaInterna}>
                 <h3 style={tituloSecao}>Alterar operador responsável</h3>

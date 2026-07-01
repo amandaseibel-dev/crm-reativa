@@ -106,6 +106,7 @@ export default function App() {
   const [usuario, setUsuario] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [linksAguardando, setLinksAguardando] = useState(0);
+  const [termosRejeitados, setTermosRejeitados] = useState(0);
 
   useEffect(() => {
     verificarSessao();
@@ -133,6 +134,51 @@ export default function App() {
 
     carregarPendentes();
     const intervalo = setInterval(carregarPendentes, 15000);
+
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+    };
+  }, [usuario]);
+
+  useEffect(() => {
+    const email = usuario?.auth?.email || usuario?.perfil?.email;
+
+    if (!usuario || !email) {
+      setTermosRejeitados(0);
+      return;
+    }
+
+    let ativo = true;
+
+    async function carregarTermosRejeitados() {
+      const { data, error } = await supabase
+        .from("termos_acordo")
+        .select("aluno_id, status, criado_em")
+        .eq("operador_email", email)
+        .order("criado_em", { ascending: false });
+
+      if (!ativo || error || !data) return;
+
+      // Para cada aluno, olha só o termo mais recente enviado por mim.
+      // Se o mais recente foi rejeitado, ainda precisa de correção.
+      const maisRecentePorAluno = new Map();
+      for (const termo of data) {
+        if (!maisRecentePorAluno.has(termo.aluno_id)) {
+          maisRecentePorAluno.set(termo.aluno_id, termo.status);
+        }
+      }
+
+      let total = 0;
+      for (const status of maisRecentePorAluno.values()) {
+        if (status === "TERMO_REJEITADO") total += 1;
+      }
+
+      setTermosRejeitados(total);
+    }
+
+    carregarTermosRejeitados();
+    const intervalo = setInterval(carregarTermosRejeitados, 15000);
 
     return () => {
       ativo = false;
@@ -272,6 +318,14 @@ export default function App() {
                 {item.rota === "/painel-adm" && linksAguardando > 0 && (
                   <span className="badge-pendente" title="Solicitações de link aguardando resposta">
                     {linksAguardando}
+                  </span>
+                )}
+                {item.rota === "/aluno" && termosRejeitados > 0 && (
+                  <span
+                    className="badge-alerta"
+                    title="Termos de acordo rejeitados aguardando correção"
+                  >
+                    {termosRejeitados}
                   </span>
                 )}
               </NavLink>

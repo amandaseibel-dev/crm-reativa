@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { nomeOperadorPorEmail } from "../utils/operadores";
 
 const STATUS_LABEL = {
   TERMO_ENVIADO_ADM: "Termo enviado ADM",
   TERMO_RECEBIDO_LIBERADO: "Termo recebido - liberado",
   TERMO_REJEITADO: "Termo rejeitado",
+  TERMO_LIBERADO_AUTOMATICO_GOV: "Liberado automático (gov.br)",
 };
 
 function formatarData(data) {
@@ -53,6 +55,14 @@ function corStatus(status) {
     };
   }
 
+  if (status === "TERMO_LIBERADO_AUTOMATICO_GOV") {
+    return {
+      background: "#e0cffc",
+      color: "#4b1e8f",
+      border: "1px solid #d0bcf5",
+    };
+  }
+
   return {
     background: "#cff4fc",
     color: "#055160",
@@ -64,6 +74,7 @@ export default function FinalizacaoTermo({ aluno }) {
   const [usuario, setUsuario] = useState(null);
   const [observacao, setObservacao] = useState("");
   const [arquivo, setArquivo] = useState(null);
+  const [tipoAssinatura, setTipoAssinatura] = useState("MANUAL_RG");
   const [enviando, setEnviando] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [termos, setTermos] = useState([]);
@@ -157,6 +168,8 @@ export default function FinalizacaoTermo({ aluno }) {
 
     const { data: userData } = await supabase.auth.getUser();
     const usuarioLogado = userData?.user;
+    const emailOperador = usuarioLogado?.email || "";
+    const nomeOperador = nomeOperadorPorEmail(emailOperador);
 
     let arquivoUrl = null;
     let arquivoNome = arquivo.name;
@@ -187,16 +200,29 @@ export default function FinalizacaoTermo({ aluno }) {
 
     arquivoUrl = publicUrlData?.publicUrl || null;
 
+    // Assinatura via gov.br já vem validada eletronicamente pelo governo,
+    // então libera na hora (não passa pela fila de conferencia do ADM) e
+    // fica so registrada para auditoria por amostragem depois. Assinatura
+    // manual + RG precisa de conferencia humana antes de liberar.
+    const ehGovBr = tipoAssinatura === "GOV_BR";
+    const statusInicial = ehGovBr
+      ? "TERMO_LIBERADO_AUTOMATICO_GOV"
+      : "TERMO_ENVIADO_ADM";
+
     const { error } = await supabase.from("termos_acordo").insert({
       aluno_id: String(aluno.id),
       aluno_nome: pegarNomeAluno(aluno),
       aluno_cpf: pegarCpfAluno(aluno),
-      operador_email: usuarioLogado?.email || "",
-      operador_nome: usuarioLogado?.email || "",
+      operador_email: emailOperador,
+      operador_nome: nomeOperador,
       observacao_operador: observacao,
       arquivo_nome: arquivoNome,
       arquivo_url: arquivoUrl,
-      status: "TERMO_ENVIADO_ADM",
+      tipo_assinatura: tipoAssinatura,
+      status: statusInicial,
+      ...(ehGovBr
+        ? { validado_por: "AUTOMATICO_GOV_BR", validado_em: new Date().toISOString() }
+        : {}),
     });
 
     if (error) {
@@ -205,12 +231,19 @@ export default function FinalizacaoTermo({ aluno }) {
       return;
     }
 
-    await atualizarStatusAluno("Termo enviado ADM");
+    await atualizarStatusAluno(
+      ehGovBr ? "Termo recebido - liberado" : "Termo enviado ADM"
+    );
 
-    alert("Termo enviado para fila ADM da Fernanda/Amanda.");
+    alert(
+      ehGovBr
+        ? "Termo com assinatura gov.br liberado automaticamente. Vai para a fila de auditoria do ADM."
+        : "Termo enviado para fila ADM da Fernanda/Amanda."
+    );
 
     setObservacao("");
     setArquivo(null);
+    setTipoAssinatura("MANUAL_RG");
     setEnviando(false);
     carregarTermosDoAluno();
   }
@@ -300,6 +333,23 @@ export default function FinalizacaoTermo({ aluno }) {
           </div>
 
           <div style={styles.bloco}>
+            <label style={styles.label}>Tipo de assinatura</label>
+            <select
+              style={styles.select}
+              value={tipoAssinatura}
+              onChange={(e) => setTipoAssinatura(e.target.value)}
+            >
+              <option value="MANUAL_RG">Assinatura manual + RG</option>
+              <option value="GOV_BR">Assinatura via gov.br</option>
+            </select>
+            <p style={styles.dicaTipo}>
+              {tipoAssinatura === "GOV_BR"
+                ? "Assinatura gov.br já é validada eletronicamente: o termo é liberado na hora e só entra na fila de auditoria do ADM."
+                : "Assinatura manual + RG precisa de conferência da Fernanda/Amanda ADM antes de liberar."}
+            </p>
+          </div>
+
+          <div style={styles.bloco}>
             <label style={styles.label}>Anexar termo de acordo</label>
             <input
               type="file"
@@ -323,7 +373,11 @@ export default function FinalizacaoTermo({ aluno }) {
             onClick={enviarTermoAdm}
             disabled={enviando}
           >
-            {enviando ? "Enviando para ADM..." : "Enviar termo para ADM"}
+            {enviando
+              ? "Enviando..."
+              : tipoAssinatura === "GOV_BR"
+              ? "Anexar e liberar (gov.br)"
+              : "Enviar termo para ADM"}
           </button>
         </>
       )}
@@ -474,6 +528,21 @@ const styles = {
     resize: "vertical",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
+  },
+  select: {
+    width: "100%",
+    padding: "10px",
+    borderRadius: "8px",
+    border: "1px solid #ccc",
+    boxSizing: "border-box",
+    fontFamily: "Arial, sans-serif",
+    fontSize: "14px",
+  },
+  dicaTipo: {
+    marginTop: "8px",
+    color: "#6b7280",
+    fontSize: "13px",
+    lineHeight: 1.4,
   },
   arquivoSelecionado: {
     marginTop: "8px",
