@@ -100,6 +100,23 @@ export default function MinhaFilaPagamentos() {
       return;
     }
 
+    // Reflete a baixa também na ficha do aluno, para que o contador de
+    // "casos finalizados" do operador na fila fique correto.
+    if (item?.aluno_id) {
+      const agora = new Date().toISOString();
+
+      await supabase
+        .from("alunos")
+        .update({
+          status_jornada: "BAIXA_REALIZADA",
+          status_atual: "BAIXA_REALIZADA",
+          status_acionamento: "BAIXA_REALIZADA",
+          registrado_em: agora,
+          data_ultimo_acionamento: agora,
+        })
+        .eq("id", item.aluno_id);
+    }
+
     await registrarHistorico(item, "BAIXA_REALIZADA", observacao);
     alert("Pagamento baixado.");
     carregarPagamentos();

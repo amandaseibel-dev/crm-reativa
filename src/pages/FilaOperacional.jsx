@@ -151,6 +151,7 @@ export default function FilaOperador() {
   const [carregando, setCarregando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
+  const [casosFinalizados, setCasosFinalizados] = useState(0);
 
   useEffect(() => {
     iniciar();
@@ -159,8 +160,28 @@ export default function FilaOperador() {
   useEffect(() => {
     if (usuarioLogado) {
       carregarFila();
+      carregarCasosFinalizados();
     }
   }, [filtro, usuarioLogado]);
+
+  async function carregarCasosFinalizados() {
+    if (!usuarioLogado?.email) return;
+
+    // Conta quantos casos esse operador já finalizou com baixa realizada
+    // (pagamento confirmado), independente do filtro selecionado na tela.
+    const { count, error } = await supabase
+      .from("alunos")
+      .select("id", { count: "exact", head: true })
+      .eq("responsavel_atual_email", usuarioLogado.email)
+      .eq("status_jornada", "BAIXA_REALIZADA");
+
+    if (error) {
+      console.error("Erro ao carregar casos finalizados:", error);
+      return;
+    }
+
+    setCasosFinalizados(count || 0);
+  }
 
   async function iniciar() {
     const usuario = await pegarUsuarioLogado();
@@ -227,6 +248,10 @@ export default function FilaOperador() {
       if (filtro === "NEGOCIACAO_24H") {
         query = query.eq("status_jornada", "ALUNO_EM_NEGOCIACAO_24H");
       }
+
+      // Prioriza quem tem retorno mais próximo/vencido primeiro.
+      // Quem não tem data de retorno marcada fica no final da lista.
+      query = query.order("data_retorno", { ascending: true, nullsFirst: false });
 
       const { data, error } = await query;
 
@@ -413,6 +438,37 @@ export default function FilaOperador() {
       console.error("Erro ao atualizar aluno:", updateError);
       alert("Movimentação registrada, mas houve erro ao atualizar a ficha.");
       throw updateError;
+    }
+
+    // Sincroniza o retorno com a Agenda Operacional (tabela alunos_unificados),
+    // que é uma base separada da fila. Isso é best-effort: se não achar o CPF
+    // por lá (ex.: aluno cadastrado manualmente e ainda não importado na base
+    // financeira), simplesmente não aparece na agenda, sem travar a fila.
+    if (retorno && statusNovo) {
+      try {
+        const cpfAluno = alunoSelecionado?.cpf || null;
+
+        if (cpfAluno) {
+          const dataRetornoObj = new Date(retorno);
+          const horaRetorno = Number.isNaN(dataRetornoObj.getTime())
+            ? null
+            : dataRetornoObj.toLocaleTimeString("pt-BR", {
+                hour: "2-digit",
+                minute: "2-digit",
+              });
+
+          await supabase
+            .from("alunos_unificados")
+            .update({
+              data_retorno: retorno,
+              hora_retorno: horaRetorno,
+              status_jornada: statusNovo,
+            })
+            .eq("cpf_referencia", cpfAluno);
+        }
+      } catch (syncError) {
+        console.warn("Não foi possível sincronizar retorno com a Agenda:", syncError);
+      }
     }
   }
 
@@ -841,6 +897,11 @@ export default function FilaOperador() {
         <div style={cardResumo}>
           <strong>Negociação 24h</strong>
           <span>{resumo.negociacao24h}</span>
+        </div>
+
+        <div style={{ ...cardResumo, borderLeft: "4px solid #16a34a" }}>
+          <strong>Casos finalizados (meus)</strong>
+          <span>{casosFinalizados}</span>
         </div>
       </div>
 
