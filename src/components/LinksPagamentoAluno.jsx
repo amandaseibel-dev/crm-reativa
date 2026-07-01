@@ -352,6 +352,15 @@ export default function LinksPagamentoAluno({
       return;
     }
 
+    const confirmouValor = window.confirm(
+      `Confirma o valor do link?\n\nVocê digitou: "${valor}"\nSerá enviado como: ${formatarMoeda(valorNumerico)}\n\nSe estiver errado, clique em Cancelar e corrija (use vírgula para os centavos, ex: 350,00).`
+    );
+
+    if (!confirmouValor) {
+      setErro("Confirme o valor antes de enviar. Use vírgula para os centavos, ex: 350,00.");
+      return;
+    }
+
     setCarregando(true);
 
     const { error } = await supabase.rpc("solicitar_link_pagamento", {
@@ -635,9 +644,16 @@ export default function LinksPagamentoAluno({
               <input
                 value={valor}
                 onChange={(e) => setValor(e.target.value)}
-                placeholder="Ex: 350,00"
+                placeholder="Ex: 350,00 (use vírgula para os centavos)"
                 style={input}
               />
+              {valor.trim() !== "" && (
+                <p style={previewValor}>
+                  {Number.isFinite(converterValor(valor)) && converterValor(valor) > 0
+                    ? `Será enviado como: ${formatarMoeda(converterValor(valor))}`
+                    : "Valor inválido — use vírgula para os centavos, ex: 350,00"}
+                </p>
+              )}
             </div>
 
             <div style={campo}>
@@ -944,6 +960,13 @@ const inputBloqueado = {
   ...input,
   background: "#e5e7eb",
   color: "#475569",
+};
+
+const previewValor = {
+  margin: "-6px 0 12px",
+  fontSize: "13px",
+  fontWeight: "700",
+  color: "#0f172a",
 };
 
 const textarea = {

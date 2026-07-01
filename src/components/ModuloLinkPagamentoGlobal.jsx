@@ -170,6 +170,20 @@ export default function ModuloLinkPagamentoGlobal() {
       return;
     }
 
+    const valorFormatado = valorNumerico.toLocaleString("pt-BR", {
+      style: "currency",
+      currency: "BRL",
+    });
+
+    const confirmouValor = window.confirm(
+      `Confirma o valor do link?\n\nVocê digitou: "${valor}"\nSerá enviado como: ${valorFormatado}\n\nSe estiver errado, clique em Cancelar e corrija (use vírgula para os centavos, ex: 350,00).`
+    );
+
+    if (!confirmouValor) {
+      setErro("Confirme o valor antes de enviar. Use vírgula para os centavos, ex: 350,00.");
+      return;
+    }
+
     setCarregando(true);
 
     const usuario = await identificarUsuario();
@@ -235,10 +249,20 @@ export default function ModuloLinkPagamentoGlobal() {
             <input
               value={valor}
               onChange={(e) => setValor(e.target.value)}
-              placeholder="Ex: 350,00"
+              placeholder="Ex: 350,00 (use vírgula para os centavos)"
               style={input}
               autoFocus
             />
+            {valor.trim() !== "" && (
+              <p style={previewValor}>
+                {Number.isFinite(converterValor(valor)) && converterValor(valor) > 0
+                  ? `Será enviado como: ${converterValor(valor).toLocaleString("pt-BR", {
+                      style: "currency",
+                      currency: "BRL",
+                    })}`
+                  : "Valor inválido — use vírgula para os centavos, ex: 350,00"}
+              </p>
+            )}
           </div>
 
           <div style={campoMenor}>
@@ -367,6 +391,13 @@ const inputBloqueado = {
   ...input,
   background: "#e5e7eb",
   color: "#475569"
+};
+
+const previewValor = {
+  margin: "-6px 0 12px",
+  fontSize: "13px",
+  fontWeight: "700",
+  color: "#0f172a"
 };
 
 const textarea = {
