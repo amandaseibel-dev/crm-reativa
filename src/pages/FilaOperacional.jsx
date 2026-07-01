@@ -7,6 +7,7 @@ import CadastroNovoAluno from "../components/CadastroNovoAluno";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import EnvioFinanceiro from "../components/EnvioFinanceiro";
 import { podeVerTudo } from "../utils/operadores";
+import FilaReceptivo from "../components/FilaReceptivo";
 
 const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "JURIDICO"];
 
@@ -905,6 +906,7 @@ export default function FilaOperador() {
     <div style={pagina}>
       <ModuloLinkPagamentoGlobal />
       <FluxoLinksRapido />
+      <FilaReceptivo usuarioLogado={usuarioLogado} />
       {(() => {
         const incentivo = mensagemIncentivo(casosFinalizados);
         return (

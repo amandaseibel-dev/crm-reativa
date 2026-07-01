@@ -45,5 +45,6 @@ export function podeGerirFinanceiro(email) {
   return [
     "cobranca07@aelbra.com.br",
     "amanda.seibel@aelbra.com.br",
+    "cobranca04@aelbra.com.br",
   ].includes(chave);
 }

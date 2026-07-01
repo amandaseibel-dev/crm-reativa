@@ -67,7 +67,8 @@ function podeAcessar(perfil, rota) {
 
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
-      "/painel-adm",    ],
+      "/painel-adm",
+      "/fila-financeiro",    ],
     administrativo: [
       "/",
       "/minha-fila",
