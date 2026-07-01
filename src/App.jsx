@@ -19,6 +19,7 @@ import AgendaOperacional from "./pages/AgendaOperacional";
 import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 import ManualOperacao from "./pages/ManualOperacao";
 import BotaoManual from "./components/BotaoManual";
+import FilaFinanceiro from "./pages/FilaFinanceiro";
 import PainelAdm from "./pages/PainelAdm";
 
 function EmDesenvolvimento({ titulo }) {
@@ -50,7 +51,8 @@ function podeAcessar(perfil, rota) {
 
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
-      "/painel-adm",    ],
+      "/painel-adm",
+      "/fila-financeiro",    ],
     supervisor: [
       "/",
       "/minha-fila",
@@ -78,7 +80,8 @@ function podeAcessar(perfil, rota) {
 
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
-      "/painel-adm",    ],
+      "/painel-adm",
+      "/fila-financeiro",    ],
     operador: [
       "/",
       "/minha-fila",
@@ -258,6 +261,7 @@ export default function App() {
     { rota: "/financeiro", label: "💰 Financeiro" },
     { rota: "/controle-links-pagamento", label: "🔗 Fila de Links" },
     { rota: "/painel-adm", label: "📊 Painel ADM" },
+    { rota: "/fila-financeiro", label: "🏦 Fila Financeiro" },
     { rota: "/minha-fila-pagamentos", label: "💳 Fila de Baixas" },
     { rota: "/base-analitica", label: "📊 Base Analítica" },
     { rota: "/termos-adm", label: "📎 Termos ADM" },
@@ -461,6 +465,7 @@ export default function App() {
               <Route path="/fila-operacional" element={<FilaOperacional />} />
               <Route path="/controle-links-pagamento" element={<ControleLinksPagamento />} />
               <Route path="/painel-adm" element={<PainelAdm />} />
+              <Route path="/fila-financeiro" element={<FilaFinanceiro />} />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />

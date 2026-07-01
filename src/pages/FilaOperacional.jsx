@@ -5,6 +5,7 @@ import ModuloLinkPagamentoGlobal from "../components/ModuloLinkPagamentoGlobal";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import CadastroNovoAluno from "../components/CadastroNovoAluno";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
+import EnvioFinanceiro from "../components/EnvioFinanceiro";
 import { podeVerTudo } from "../utils/operadores";
 
 const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "JURIDICO"];
@@ -1326,9 +1327,9 @@ export default function FilaOperador() {
               />
 
               <div style={caixaDestaque}>
-                <h3 style={tituloSecao}>Finalização do atendimento</h3>
+                <h3 style={tituloSecao}>Tabulações</h3>
 
-                <label style={label}>Status da finalização</label>
+                <label style={label}>Tabulação</label>
 
                 <select
                   value={statusFinalizacao}
@@ -1406,6 +1407,8 @@ export default function FilaOperador() {
               </div>
 
               <FinalizacaoTermo aluno={alunoSelecionado} />
+
+              <EnvioFinanceiro aluno={alunoSelecionado} />
 
               <div style={caixaInterna}>
                 <h3 style={tituloSecao}>Alterar operador responsável</h3>

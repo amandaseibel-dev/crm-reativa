@@ -36,3 +36,14 @@ export function podeBaixarPagamento(email) {
 export function podeAcessoRestritoAmanda(email) {
   return podeBaixarPagamento(email);
 }
+
+// Fila de envio ao financeiro: so a Amanda ADM mexe nisso no dia a dia,
+// mas a Amanda gestora tambem enxerga para acompanhar.
+export function podeGerirFinanceiro(email) {
+  const chave = String(email || "").toLowerCase().trim();
+
+  return [
+    "cobranca07@aelbra.com.br",
+    "amanda.seibel@aelbra.com.br",
+  ].includes(chave);
+}

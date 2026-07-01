@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
+import EnvioFinanceiro from "../components/EnvioFinanceiro";
 
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
@@ -1030,9 +1031,9 @@ export default function Alunos() {
               </div>
 
               <div style={caixaDestaque}>
-                <h3 style={tituloSecao}>Finalização do atendimento</h3>
+                <h3 style={tituloSecao}>Tabulações</h3>
 
-                <label style={label}>Status da finalização</label>
+                <label style={label}>Tabulação</label>
 
                 <select
                   value={statusFinalizacao}
@@ -1101,6 +1102,8 @@ export default function Alunos() {
               </div>
 
               <FinalizacaoTermo aluno={alunoSelecionado} />
+
+              <EnvioFinanceiro aluno={alunoSelecionado} />
 
               <div style={caixaInterna}>
                 <h3 style={tituloSecao}>Alterar operador responsável</h3>
