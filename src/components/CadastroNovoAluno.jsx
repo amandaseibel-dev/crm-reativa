@@ -129,7 +129,6 @@ export default function CadastroNovoAluno() {
         registrado_por_email: usuario.email,
         registrado_em: agora,
         data_ultimo_acionamento: agora,
-        criado_em: agora,
       })
       .select()
       .maybeSingle();
