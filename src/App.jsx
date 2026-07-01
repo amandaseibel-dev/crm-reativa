@@ -105,10 +105,40 @@ function RotaProtegida({ usuario, rota, children }) {
 export default function App() {
   const [usuario, setUsuario] = useState(null);
   const [carregando, setCarregando] = useState(true);
+  const [linksAguardando, setLinksAguardando] = useState(0);
 
   useEffect(() => {
     verificarSessao();
   }, []);
+
+  useEffect(() => {
+    const perfilAtual = usuario?.perfil?.perfil;
+    if (!usuario || !podeAcessar(perfilAtual, "/painel-adm")) {
+      setLinksAguardando(0);
+      return;
+    }
+
+    let ativo = true;
+
+    async function carregarPendentes() {
+      const { count, error } = await supabase
+        .from("links_pagamento")
+        .select("id", { count: "exact", head: true })
+        .in("status", ["SOLICITADO_LINK", "LINK_EM_ATENDIMENTO"]);
+
+      if (ativo && !error) {
+        setLinksAguardando(count || 0);
+      }
+    }
+
+    carregarPendentes();
+    const intervalo = setInterval(carregarPendentes, 15000);
+
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+    };
+  }, [usuario]);
 
   async function verificarSessao() {
     const { data } = await supabase.auth.getSession();
@@ -239,6 +269,11 @@ export default function App() {
             {menu.map((item) => (
               <NavLink key={item.rota} to={item.rota} end={item.rota === "/"}>
                 {item.label}
+                {item.rota === "/painel-adm" && linksAguardando > 0 && (
+                  <span className="badge-pendente" title="Solicitações de link aguardando resposta">
+                    {linksAguardando}
+                  </span>
+                )}
               </NavLink>
             ))}
           </nav>
