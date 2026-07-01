@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import PrioridadeLinksOperador from "../components/PrioridadeLinksOperador";
 import FluxoLinksRapido from "../components/FluxoLinksRapido";
-import ModuloLinkPagamentoGlobal from "../components/ModuloLinkPagamentoGlobal";
 
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
@@ -630,27 +629,73 @@ export default function FilaOperador() {
   }
 
   async function solicitarLinkPagamento() {
-    const alunoParaLink =
-      (typeof alunoSelecionado !== "undefined" && alunoSelecionado) ||
-      (typeof alunoAtual !== "undefined" && alunoAtual) ||
-      (typeof alunoAtivo !== "undefined" && alunoAtivo) ||
-      (typeof selectedAluno !== "undefined" && selectedAluno) ||
-      (typeof estudanteSelecionado !== "undefined" && estudanteSelecionado) ||
-      (typeof aluno !== "undefined" && aluno) ||
-      null;
-
-    if (!alunoParaLink) {
+    if (!alunoSelecionado?.id) {
       alert("Selecione um aluno antes de solicitar o link.");
       return;
     }
 
-    window.dispatchEvent(
-      new CustomEvent("REATIVA_ABRIR_LINK_PAGAMENTO", {
-        detail: {
-          aluno: alunoParaLink
+    const valorDigitado = "";
+
+    if (valorDigitado === null) {
+      return;
+    }
+
+    const valorLimpo = valorDigitado
+      .replace(/R\$/gi, "")
+      .replace(/\s/g, "")
+      .replace(/\./g, "")
+      .replace(",", ".")
+      .replace(/[^0-9.]/g, "");
+
+    const valorSolicitado = valorLimpo ? Number(valorLimpo) : null;
+
+    if (valorSolicitado !== null && Number.isNaN(valorSolicitado)) {
+      alert("Valor inválido. Tente novamente.");
+      return;
+    }
+
+    const observacaoLink = "";
+
+    if (observacaoLink === null) {
+      return;
+    }
+
+    setSalvando(true);
+
+    try {
+      const usuario = await pegarUsuarioLogado();
+
+      const { data, error } = await supabase.rpc(
+        "criar_solicitacao_link_pagamento",
+        {
+          p_aluno_id: String(alunoSelecionado.id),
+          p_valor_solicitado: valorSolicitado,
+          p_observacao_operador:
+            observacaoLink || "Solicitação de link de pagamento.",
+          p_operador_nome: usuario.nome,
+          p_operador_email: usuario.email,
         }
-      })
-    );
+      );
+
+      if (error) {
+        console.error("Erro ao solicitar link:", error);
+        alert("Erro ao solicitar link de pagamento.");
+        return;
+      }
+
+      await recarregarAlunoSelecionado(alunoSelecionado.id);
+      await carregarMovimentacoes(alunoSelecionado.id);
+      await carregarFila();
+
+      alert("Link solicitado com sucesso. Fernanda / Amanda ADM foram notificadas.");
+
+      console.log("Solicitação criada:", data);
+    } catch (e) {
+      console.error("Erro inesperado ao solicitar link:", e);
+      alert("Erro inesperado ao solicitar link.");
+    } finally {
+      setSalvando(false);
+    }
   }
 
   async function enviarTermoAdm() {
@@ -720,7 +765,6 @@ export default function FilaOperador() {
 
   return (
     <div style={pagina}>
-      <ModuloLinkPagamentoGlobal />
       <FluxoLinksRapido />
       <PrioridadeLinksOperador />
       <div style={cabecalho}>
