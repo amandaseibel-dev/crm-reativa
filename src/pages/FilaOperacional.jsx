@@ -545,7 +545,10 @@ export default function FilaOperador() {
         statusAnterior,
         statusNovo: statusFinalizacao,
         retorno: retornoIso,
-        atualizarResponsavel: false,
+        // Corrigido: ao finalizar, o caso passa a ficar vinculado a quem
+        // finalizou (antes ficava só com quem clicou "Assumir atendimento",
+        // e se ninguém tivesse assumido, a finalização não contava pra ninguém).
+        atualizarResponsavel: true,
       });
 
       setObservacao("");
