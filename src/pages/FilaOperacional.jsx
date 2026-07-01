@@ -4,6 +4,14 @@ import FluxoLinksRapido from "../components/FluxoLinksRapido";
 import ModuloLinkPagamentoGlobal from "../components/ModuloLinkPagamentoGlobal";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import CadastroNovoAluno from "../components/CadastroNovoAluno";
+import { podeVerTudo } from "../utils/operadores";
+
+const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "JURIDICO"];
+
+const STATUS_BLOQUEADOS_LABEL = {
+  CANCELAMENTO_COBRANCA: "Cancelamento de cobrança",
+  JURIDICO: "Jurídico",
+};
 
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
@@ -46,7 +54,10 @@ const STATUS_FINALIZACAO = [
   "TERMO_RECEBIDO_LIBERADO",
   "TERMO_REJEITADO",
   "ACORDO_FECHADO",
+  "CANCELAMENTO_COBRANCA",
+  "JURIDICO",
 ];
+
 
 function formatarDataHora(data) {
   if (!data) return "-";
@@ -406,6 +417,7 @@ export default function FilaOperador() {
     statusNovo = null,
     retorno = null,
     atualizarResponsavel = false,
+    observacaoAluno = null,
     extra = {},
   }) {
     if (!alunoId) {
@@ -452,6 +464,10 @@ export default function FilaOperador() {
       atualizacaoAluno.status_acionamento = statusNovo;
       atualizacaoAluno.proxima_acao = definirProximaAcao(statusNovo);
       atualizacaoAluno.data_retorno = retorno;
+    }
+
+    if (observacaoAluno !== null) {
+      atualizacaoAluno.observacao = observacaoAluno;
     }
 
     if (atualizarResponsavel) {
@@ -575,6 +591,20 @@ export default function FilaOperador() {
       return;
     }
 
+    const ehStatusRestrito = STATUS_BLOQUEADOS_ACIONAMENTO.includes(statusFinalizacao);
+
+    if (ehStatusRestrito && !podeVerTudo(usuarioLogado?.email)) {
+      alert("Apenas gestão/supervisão pode definir esse status.");
+      return;
+    }
+
+    if (ehStatusRestrito && !observacao.trim()) {
+      alert(
+        `Informe a observação em destaque antes de marcar como "${STATUS_BLOQUEADOS_LABEL[statusFinalizacao]}".`
+      );
+      return;
+    }
+
     setSalvando(true);
 
     try {
@@ -601,6 +631,7 @@ export default function FilaOperador() {
         // finalizou (antes ficava só com quem clicou "Assumir atendimento",
         // e se ninguém tivesse assumido, a finalização não contava pra ninguém).
         atualizarResponsavel: true,
+        observacaoAluno: ehStatusRestrito ? observacao.trim() : null,
       });
 
       setObservacao("");
@@ -1050,6 +1081,8 @@ export default function FilaOperador() {
 
                 const selecionado = alunoSelecionado?.id === aluno.id;
 
+                const bloqueado = STATUS_BLOQUEADOS_ACIONAMENTO.includes(status);
+
                 return (
                   <button
                     type="button"
@@ -1057,8 +1090,14 @@ export default function FilaOperador() {
                     onClick={() => abrirAlunoNaFila(aluno)}
                     style={{
                       ...cardAluno,
-                      background: selecionado ? "#064e3b" : "#1f2937",
-                      border: selecionado
+                      background: bloqueado
+                        ? "#450a0a"
+                        : selecionado
+                        ? "#064e3b"
+                        : "#1f2937",
+                      border: bloqueado
+                        ? "1px solid #ef4444"
+                        : selecionado
                         ? "1px solid #22c55e"
                         : "1px solid #374151",
                     }}
@@ -1069,8 +1108,34 @@ export default function FilaOperador() {
                         <div style={textoCard}>CPF: {cpf}</div>
                       </div>
 
-                      <span style={badgeStatus}>{status}</span>
+                      <span
+                        style={{
+                          ...badgeStatus,
+                          ...(bloqueado
+                            ? { background: "#ef4444", color: "#fff" }
+                            : {}),
+                        }}
+                      >
+                        {STATUS_BLOQUEADOS_LABEL[status] || status}
+                      </span>
                     </div>
+
+                    {bloqueado && (
+                      <div
+                        style={{
+                          background: "#7f1d1d",
+                          color: "#fecaca",
+                          borderRadius: 8,
+                          padding: "8px 10px",
+                          margin: "8px 0",
+                          fontWeight: 700,
+                          fontSize: 13,
+                        }}
+                      >
+                        ⚠️ {STATUS_BLOQUEADOS_LABEL[status]} — não acionar.
+                        {aluno.observacao ? ` ${aluno.observacao}` : ""}
+                      </div>
+                    )}
 
                     <div style={gradeInfo}>
                       <div>
@@ -1130,6 +1195,37 @@ export default function FilaOperador() {
             </div>
           ) : (
             <>
+              {(() => {
+                const statusFicha = pegarCampo(
+                  alunoSelecionado,
+                  ["status_jornada", "status_atual", "status"],
+                  "CONTATAR"
+                );
+                const fichaRestrita =
+                  STATUS_BLOQUEADOS_ACIONAMENTO.includes(statusFicha);
+                const fichaBloqueadaParaMim =
+                  fichaRestrita && !podeVerTudo(usuarioLogado?.email);
+
+                return fichaRestrita ? (
+                  <div
+                    style={{
+                      background: "#7f1d1d",
+                      color: "#fecaca",
+                      borderRadius: 10,
+                      padding: "12px 14px",
+                      marginBottom: 14,
+                      fontWeight: 700,
+                    }}
+                  >
+                    ⚠️ {STATUS_BLOQUEADOS_LABEL[statusFicha]} — este caso não pode
+                    ser acionado{fichaBloqueadaParaMim ? " por operadores" : ""}.
+                    {alunoSelecionado.observacao
+                      ? ` ${alunoSelecionado.observacao}`
+                      : ""}
+                  </div>
+                ) : null;
+              })()}
+
               <div style={topoFicha}>
                 <div>
                   <h2 style={tituloSecao}>
@@ -1159,7 +1255,17 @@ export default function FilaOperador() {
                 <button
                   type="button"
                   onClick={assumirAtendimento}
-                  disabled={salvando}
+                  disabled={
+                    salvando ||
+                    (STATUS_BLOQUEADOS_ACIONAMENTO.includes(
+                      pegarCampo(
+                        alunoSelecionado,
+                        ["status_jornada", "status_atual", "status"],
+                        "CONTATAR"
+                      )
+                    ) &&
+                      !podeVerTudo(usuarioLogado?.email))
+                  }
                   style={botaoPrincipal}
                 >
                   {salvando ? "Salvando..." : "Assumir atendimento"}
@@ -1262,9 +1368,13 @@ export default function FilaOperador() {
                   onChange={(e) => setStatusFinalizacao(e.target.value)}
                   style={select}
                 >
-                  {STATUS_FINALIZACAO.map((status) => (
+                  {STATUS_FINALIZACAO.filter(
+                    (status) =>
+                      !STATUS_BLOQUEADOS_ACIONAMENTO.includes(status) ||
+                      podeVerTudo(usuarioLogado?.email)
+                  ).map((status) => (
                     <option key={status} value={status}>
-                      {status}
+                      {STATUS_BLOQUEADOS_LABEL[status] || status}
                     </option>
                   ))}
                 </select>
@@ -1292,7 +1402,17 @@ export default function FilaOperador() {
                   <button
                     type="button"
                     onClick={finalizarAtendimento}
-                    disabled={salvando}
+                    disabled={
+                      salvando ||
+                      (STATUS_BLOQUEADOS_ACIONAMENTO.includes(
+                        pegarCampo(
+                          alunoSelecionado,
+                          ["status_jornada", "status_atual", "status"],
+                          "CONTATAR"
+                        )
+                      ) &&
+                        !podeVerTudo(usuarioLogado?.email))
+                    }
                     style={botaoPrincipal}
                   >
                     {salvando ? "Salvando..." : "Finalizar atendimento"}
