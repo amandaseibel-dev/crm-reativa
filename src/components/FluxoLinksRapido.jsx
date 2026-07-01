@@ -410,98 +410,9 @@ export default function FluxoLinksRapido() {
         <div style={boxInfo}>Carregando fluxo oficial de links...</div>
       )}
 
-      {(usuarioAtual.master || usuarioAtual.adm) &&
-        (pendentesAdm.length > 0 || historico.length > 0) && (
-          <section style={boxIndicadores}>
-            <div style={linhaIndicadores}>
-              <div style={indicadorCard}>
-                <strong>{indicadores.pendentes}</strong>
-                <span>Pendentes agora</span>
-              </div>
-
-              <div style={indicadorCard}>
-                <strong>{formatarMoeda(indicadores.valorPendente)}</strong>
-                <span>Valor pendente</span>
-              </div>
-
-              <div style={indicadorCard}>
-                <strong>{indicadores.respondidosHoje}</strong>
-                <span>Respondidos hoje</span>
-              </div>
-            </div>
-
-            <input
-              value={busca}
-              onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar por aluno, CPF ou operador..."
-              style={inputBusca}
-            />
-          </section>
-        )}
-
-      {(usuarioAtual.master || usuarioAtual.adm) && pendentesFiltrados.length > 0 && (
-        <section style={boxAdm}>
-          <div style={cabecalho}>
-            <div>
-              <h2 style={tituloAdm}>🔴 Fila ADM/Supervisão — Links pendentes</h2>
-              <p style={subtitulo}>
-                Amanda Master vê tudo. ADM cola apenas o link completo e devolve ao operador.
-              </p>
-            </div>
-
-            <button type="button" onClick={() => carregarTudo(usuarioAtual)} style={botaoAtualizar}>
-              Atualizar
-            </button>
-          </div>
-
-          {pendentesFiltrados.map((item) => (
-            <div key={item.id} style={cardAdm}>
-              <div style={linhaTopo}>
-                <div>
-                  <h3 style={nomeAluno}>{item.aluno_nome}</h3>
-                  <p style={detalhe}>
-                    CPF: {item.aluno_cpf || "-"} | Valor: {formatarMoeda(item.valor)} | Parcelas: {item.parcelas || 1}
-                  </p>
-                  <p style={detalhe}>
-                    Solicitado por: {item.operador_nome || item.operador_solicitante || "-"} | Tempo: {Number(item.minutos_pendente || 0).toFixed(1)} min
-                  </p>
-                </div>
-
-                <span style={badgePendente}>AGUARDANDO LINK</span>
-              </div>
-
-              <label style={label}>Colar link completo</label>
-
-              <div style={linhaLink}>
-                <input
-                  value={linksDigitados[item.id] || ""}
-                  onChange={(e) =>
-                    setLinksDigitados((prev) => ({
-                      ...prev,
-                      [item.id]: e.target.value
-                    }))
-                  }
-                  placeholder="Cole aqui o link completo: https://..."
-                  style={input}
-                />
-
-                <button
-                  type="button"
-                  onClick={() => devolverLinkAoOperador(item)}
-                  disabled={salvandoId === item.id}
-                  style={{
-                    ...botaoDevolver,
-                    opacity: salvandoId === item.id ? 0.6 : 1,
-                    cursor: salvandoId === item.id ? "not-allowed" : "pointer"
-                  }}
-                >
-                  {salvandoId === item.id ? "Devolvendo..." : "Devolver ao operador"}
-                </button>
-              </div>
-            </div>
-          ))}
-        </section>
-      )}
+      {/* Indicadores/fila ADM e historico foram removidos daqui: agora
+          essa parte fica so no Painel ADM e na Fila de Links, para nao
+          poluir a tela operacional do dia a dia do operador. */}
 
       {prioridades.length > 0 && (
         <section style={boxOperador}>
@@ -566,48 +477,6 @@ export default function FluxoLinksRapido() {
         </section>
       )}
 
-      {(usuarioAtual.master || usuarioAtual.adm) && historicoFiltrado.length > 0 && (
-        <section style={boxHistorico}>
-          <div style={cabecalho}>
-            <div>
-              <h2 style={tituloHistorico}>📋 Histórico de links respondidos</h2>
-              <p style={subtitulo}>
-                Últimos links já respondidos, com o status atual de cada um.
-              </p>
-            </div>
-
-            <button type="button" onClick={() => carregarTudo(usuarioAtual)} style={botaoAtualizar}>
-              Atualizar
-            </button>
-          </div>
-
-          {historicoFiltrado.map((item) => (
-            <div key={item.id} style={linhaHistorico}>
-              <div style={colunaHistorico}>
-                <strong style={nomeAlunoHistorico}>{item.aluno_nome || "-"}</strong>
-                <span style={detalheHistorico}>
-                  CPF: {item.aluno_cpf || "-"} | Valor: {formatarMoeda(item.valor)}
-                </span>
-                <span style={detalheHistorico}>
-                  Operador: {item.operador_nome || item.operador_solicitante || "-"}
-                </span>
-                <span style={detalheHistorico}>
-                  Atualizado em: {formatarDataHora(item.atualizado_em)}
-                </span>
-              </div>
-
-              <span
-                style={{
-                  ...badgeHistorico,
-                  background: corHistorico(item.status)
-                }}
-              >
-                {labelHistorico(item.status)}
-              </span>
-            </div>
-          ))}
-        </section>
-      )}
     </div>
   );
 }
