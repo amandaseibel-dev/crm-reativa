@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 
 const EMAILS_MASTER = [
@@ -23,10 +23,12 @@ export default function FluxoLinksRapido() {
 
   const [pendentesAdm, setPendentesAdm] = useState([]);
   const [prioridades, setPrioridades] = useState([]);
+  const [historico, setHistorico] = useState([]);
   const [linksDigitados, setLinksDigitados] = useState({});
   const [carregando, setCarregando] = useState(false);
   const [salvandoId, setSalvandoId] = useState(null);
   const [erro, setErro] = useState("");
+  const [busca, setBusca] = useState("");
 
   useEffect(() => {
     iniciar();
@@ -137,9 +139,19 @@ export default function FluxoLinksRapido() {
       .select("*")
       .order("respondido_em", { ascending: true });
 
-    const [resAdm, resPrioridade] = await Promise.all([
+    const consultaHistorico = podeVerAdm
+      ? supabase
+          .from("links_pagamento")
+          .select("*")
+          .neq("status", "SOLICITADO_LINK")
+          .order("atualizado_em", { ascending: false })
+          .limit(30)
+      : Promise.resolve({ data: [], error: null });
+
+    const [resAdm, resPrioridade, resHistorico] = await Promise.all([
       consultaAdm,
-      consultaPrioridade
+      consultaPrioridade,
+      consultaHistorico
     ]);
 
     setCarregando(false);
@@ -156,8 +168,13 @@ export default function FluxoLinksRapido() {
       return;
     }
 
+    if (resHistorico.error) {
+      console.error("Erro ao carregar histórico de links:", resHistorico.error);
+    }
+
     setPendentesAdm(podeVerAdm ? resAdm.data || [] : []);
     setPrioridades(filtrarPrioridades(resPrioridade.data || [], usuario));
+    setHistorico(podeVerAdm ? resHistorico.data || [] : []);
   }
 
   function filtrarPrioridades(lista, usuario) {
@@ -237,19 +254,66 @@ export default function FluxoLinksRapido() {
 
     if (!confirmar) return;
 
-    const { error } = await supabase.rpc("marcar_link_enviado_aluno", {
-      p_link_id: item.id,
-      p_usuario:
-        usuarioAtual.email ||
-        usuarioAtual.nome ||
-        "Operador"
-    });
+    const agora = new Date().toISOString();
+    const usuarioEmail = usuarioAtual.email || "";
+    const usuarioNome = usuarioAtual.nome || usuarioAtual.email || "Operador";
+
+    // Mesma lógica já usada (e confirmada correta) dentro da ficha do aluno,
+    // em vez de depender da função marcar_link_enviado_aluno do Supabase.
+    const { error } = await supabase
+      .from("links_pagamento")
+      .update({
+        status: "LINK_ENVIADO_ALUNO",
+        enviado_operador_em: agora,
+        atualizado_em: agora,
+      })
+      .eq("id", item.id);
 
     if (error) {
       console.error("Erro ao marcar enviado:", error);
       alert(error.message || "Não foi possível marcar como enviado.");
       return;
     }
+
+    if (item?.aluno_id) {
+      await supabase
+        .from("alunos")
+        .update({
+          status_jornada: "AGUARDANDO_COMPROVANTE",
+          status_atual: "AGUARDANDO_COMPROVANTE",
+          status_acionamento: "AGUARDANDO_COMPROVANTE",
+          proxima_acao: "AGUARDAR_COMPROVANTE",
+          registrado_por_nome: usuarioNome,
+          registrado_por_email: usuarioEmail,
+          registrado_em: agora,
+          data_ultimo_acionamento: agora,
+        })
+        .eq("id", item.aluno_id);
+
+      await supabase.from("aluno_movimentacoes").insert({
+        aluno_id: String(item.aluno_id),
+        tipo: "LINK_ENVIADO_AO_ALUNO",
+        descricao: "Operador marcou o link como enviado ao aluno. Próximo passo: aguardar comprovante.",
+        status_anterior: item.status || null,
+        status_novo: "AGUARDANDO_COMPROVANTE",
+        registrado_por_nome: usuarioNome,
+        registrado_por_email: usuarioEmail,
+        registrado_em: agora,
+      });
+    }
+
+    await supabase.from("historico_links_pagamento").insert({
+      link_id: item.id,
+      aluno_id: item?.aluno_id || null,
+      aluno_nome: item?.aluno_nome || null,
+      aluno_cpf: item?.aluno_cpf || null,
+      status_novo: "LINK_ENVIADO_ALUNO",
+      status_anterior: item.status || null,
+      descricao: "Operador marcou o link como enviado ao aluno.",
+      usuario_email: usuarioEmail || null,
+      usuario_nome: usuarioNome || null,
+      criado_em: agora,
+    });
 
     await carregarTudo(usuarioAtual);
     alert("Link marcado como enviado ao aluno.");
@@ -273,7 +337,85 @@ export default function FluxoLinksRapido() {
     return d.toLocaleString("pt-BR");
   }
 
-  if (!carregando && pendentesAdm.length === 0 && prioridades.length === 0) {
+  const STATUS_LABELS_HISTORICO = {
+    LINK_GERADO: "Link gerado",
+    LINK_PRONTO_PARA_ENVIO: "Link pronto para envio",
+    LINK_ENVIADO_ALUNO: "Link enviado ao aluno",
+    AGUARDANDO_COMPROVANTE: "Aguardando comprovante",
+    AGUARDANDO_BAIXA: "Aguardando baixa",
+    BAIXA_REALIZADA: "Baixa realizada",
+    BAIXA_DEVOLVIDA: "Baixa devolvida",
+    CANCELADO: "Cancelado",
+  };
+
+  function labelHistorico(status) {
+    return STATUS_LABELS_HISTORICO[status] || status || "-";
+  }
+
+  function corHistorico(status) {
+    if (status === "BAIXA_REALIZADA") return "#16a34a";
+    if (status === "BAIXA_DEVOLVIDA") return "#dc2626";
+    if (status === "AGUARDANDO_BAIXA") return "#7c3aed";
+    if (status === "AGUARDANDO_COMPROVANTE" || status === "LINK_ENVIADO_ALUNO") return "#0891b2";
+    return "#2563eb";
+  }
+
+  function correspondeABusca(item, termo) {
+    if (!termo) return true;
+
+    const alvo = [
+      item.aluno_nome,
+      item.aluno_cpf,
+      item.operador_nome,
+      item.operador_solicitante
+    ]
+      .join(" ")
+      .toLowerCase();
+
+    return alvo.includes(termo);
+  }
+
+  const termoBusca = busca.trim().toLowerCase();
+
+  const pendentesFiltrados = useMemo(
+    () => pendentesAdm.filter((item) => correspondeABusca(item, termoBusca)),
+    [pendentesAdm, termoBusca]
+  );
+
+  const historicoFiltrado = useMemo(
+    () => historico.filter((item) => correspondeABusca(item, termoBusca)),
+    [historico, termoBusca]
+  );
+
+  const indicadores = useMemo(() => {
+    const hojeInicio = new Date();
+    hojeInicio.setHours(0, 0, 0, 0);
+
+    const valorPendente = pendentesAdm.reduce(
+      (soma, item) => soma + Number(item.valor || 0),
+      0
+    );
+
+    const respondidosHoje = historico.filter((item) => {
+      const dataRef = item.respondido_em || item.link_gerado_em || item.atualizado_em;
+      if (!dataRef) return false;
+      const data = new Date(dataRef);
+      return !Number.isNaN(data.getTime()) && data >= hojeInicio;
+    }).length;
+
+    return {
+      pendentes: pendentesAdm.length,
+      valorPendente,
+      respondidosHoje,
+    };
+  }, [pendentesAdm, historico]);
+
+  if (
+    !carregando &&
+    pendentesAdm.length === 0 &&
+    prioridades.length === 0 &&
+    historico.length === 0
+  ) {
     return null;
   }
 
@@ -295,7 +437,36 @@ export default function FluxoLinksRapido() {
         <div style={boxInfo}>Carregando fluxo oficial de links...</div>
       )}
 
-      {(usuarioAtual.master || usuarioAtual.adm) && pendentesAdm.length > 0 && (
+      {(usuarioAtual.master || usuarioAtual.adm) &&
+        (pendentesAdm.length > 0 || historico.length > 0) && (
+          <section style={boxIndicadores}>
+            <div style={linhaIndicadores}>
+              <div style={indicadorCard}>
+                <strong>{indicadores.pendentes}</strong>
+                <span>Pendentes agora</span>
+              </div>
+
+              <div style={indicadorCard}>
+                <strong>{formatarMoeda(indicadores.valorPendente)}</strong>
+                <span>Valor pendente</span>
+              </div>
+
+              <div style={indicadorCard}>
+                <strong>{indicadores.respondidosHoje}</strong>
+                <span>Respondidos hoje</span>
+              </div>
+            </div>
+
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar por aluno, CPF ou operador..."
+              style={inputBusca}
+            />
+          </section>
+        )}
+
+      {(usuarioAtual.master || usuarioAtual.adm) && pendentesFiltrados.length > 0 && (
         <section style={boxAdm}>
           <div style={cabecalho}>
             <div>
@@ -310,7 +481,7 @@ export default function FluxoLinksRapido() {
             </button>
           </div>
 
-          {pendentesAdm.map((item) => (
+          {pendentesFiltrados.map((item) => (
             <div key={item.id} style={cardAdm}>
               <div style={linhaTopo}>
                 <div>
@@ -417,6 +588,49 @@ export default function FluxoLinksRapido() {
                   Marcar como enviado ao aluno
                 </button>
               </div>
+            </div>
+          ))}
+        </section>
+      )}
+
+      {(usuarioAtual.master || usuarioAtual.adm) && historicoFiltrado.length > 0 && (
+        <section style={boxHistorico}>
+          <div style={cabecalho}>
+            <div>
+              <h2 style={tituloHistorico}>📋 Histórico de links respondidos</h2>
+              <p style={subtitulo}>
+                Últimos links já respondidos, com o status atual de cada um.
+              </p>
+            </div>
+
+            <button type="button" onClick={() => carregarTudo(usuarioAtual)} style={botaoAtualizar}>
+              Atualizar
+            </button>
+          </div>
+
+          {historicoFiltrado.map((item) => (
+            <div key={item.id} style={linhaHistorico}>
+              <div style={colunaHistorico}>
+                <strong style={nomeAlunoHistorico}>{item.aluno_nome || "-"}</strong>
+                <span style={detalheHistorico}>
+                  CPF: {item.aluno_cpf || "-"} | Valor: {formatarMoeda(item.valor)}
+                </span>
+                <span style={detalheHistorico}>
+                  Operador: {item.operador_nome || item.operador_solicitante || "-"}
+                </span>
+                <span style={detalheHistorico}>
+                  Atualizado em: {formatarDataHora(item.atualizado_em)}
+                </span>
+              </div>
+
+              <span
+                style={{
+                  ...badgeHistorico,
+                  background: corHistorico(item.status)
+                }}
+              >
+                {labelHistorico(item.status)}
+              </span>
             </div>
           ))}
         </section>
@@ -648,4 +862,88 @@ const botaoConfirmar = {
   padding: "10px 14px",
   fontWeight: "800",
   cursor: "pointer"
+};
+
+const boxIndicadores = {
+  padding: "14px",
+  borderRadius: "14px",
+  border: "1px solid #e2e8f0",
+  background: "#f8fafc",
+  marginBottom: "16px"
+};
+
+const linhaIndicadores = {
+  display: "flex",
+  gap: "12px",
+  flexWrap: "wrap",
+  marginBottom: "12px"
+};
+
+const indicadorCard = {
+  flex: "1 1 140px",
+  background: "#ffffff",
+  border: "1px solid #e2e8f0",
+  borderRadius: "10px",
+  padding: "12px",
+  display: "flex",
+  flexDirection: "column",
+  gap: "4px"
+};
+
+const inputBusca = {
+  width: "100%",
+  padding: "10px",
+  border: "1px solid #cbd5e1",
+  borderRadius: "8px",
+  fontSize: "14px",
+  boxSizing: "border-box"
+};
+
+const boxHistorico = {
+  padding: "16px",
+  borderRadius: "14px",
+  border: "1px solid #e2e8f0",
+  background: "#ffffff",
+  marginBottom: "16px"
+};
+
+const tituloHistorico = {
+  margin: 0,
+  color: "#0f172a",
+  fontSize: "20px",
+  fontWeight: "900"
+};
+
+const linhaHistorico = {
+  display: "flex",
+  justifyContent: "space-between",
+  alignItems: "flex-start",
+  gap: "12px",
+  padding: "10px 0",
+  borderTop: "1px solid #f1f5f9"
+};
+
+const colunaHistorico = {
+  display: "flex",
+  flexDirection: "column",
+  gap: "2px"
+};
+
+const nomeAlunoHistorico = {
+  color: "#0f172a",
+  fontSize: "14px"
+};
+
+const detalheHistorico = {
+  color: "#64748b",
+  fontSize: "12px"
+};
+
+const badgeHistorico = {
+  color: "#fff",
+  borderRadius: "999px",
+  padding: "5px 10px",
+  fontSize: "11px",
+  fontWeight: "900",
+  whiteSpace: "nowrap"
 };

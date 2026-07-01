@@ -3,6 +3,8 @@ import { supabase } from "../services/supabase";
 import PrioridadeLinksOperador from "../components/PrioridadeLinksOperador";
 import FluxoLinksRapido from "../components/FluxoLinksRapido";
 import ModuloLinkPagamentoGlobal from "../components/ModuloLinkPagamentoGlobal";
+import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
+import CadastroNovoAluno from "../components/CadastroNovoAluno";
 
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
@@ -36,6 +38,11 @@ const STATUS_FINALIZACAO = [
   "NAO_LOCALIZADO",
   "AGUARDANDO_LINK",
   "SOLICITADO_LINK",
+  "LINK_PRONTO_PARA_ENVIO",
+  "AGUARDANDO_COMPROVANTE",
+  "AGUARDANDO_BAIXA",
+  "BAIXA_REALIZADA",
+  "BAIXA_DEVOLVIDA",
   "TERMO_ENVIADO_ADM",
   "TERMO_RECEBIDO_LIBERADO",
   "TERMO_REJEITADO",
@@ -115,6 +122,13 @@ function definirProximaAcao(status) {
   if (status === "NAO_LOCALIZADO") return "TENTAR_NOVO_CONTATO";
   if (status === "SOLICITADO_LINK") return "AGUARDAR_LINK";
   if (status === "AGUARDANDO_LINK") return "AGUARDAR_LINK";
+  if (status === "LINK_GERADO") return "ENVIAR_LINK_AO_ALUNO";
+  if (status === "LINK_PRONTO_PARA_ENVIO") return "ENVIAR_LINK_AO_ALUNO";
+  if (status === "LINK_ENVIADO_ALUNO") return "AGUARDAR_COMPROVANTE";
+  if (status === "AGUARDANDO_COMPROVANTE") return "AGUARDAR_COMPROVANTE";
+  if (status === "AGUARDANDO_BAIXA") return "AGUARDAR_BAIXA";
+  if (status === "BAIXA_REALIZADA") return "BAIXA_REALIZADA";
+  if (status === "BAIXA_DEVOLVIDA") return "CORRIGIR_COMPROVANTE";
   if (status === "TERMO_ENVIADO_ADM") return "AGUARDAR_ADM";
   return "CONTATAR";
 }
@@ -653,6 +667,65 @@ export default function FilaOperador() {
     );
   }
 
+  async function marcarLinkEnviadoAoAluno() {
+    if (!alunoSelecionado?.id) {
+      alert("Selecione um aluno antes de marcar o link como enviado.");
+      return;
+    }
+
+    setSalvando(true);
+
+    try {
+      const statusAnterior = pegarCampo(
+        alunoSelecionado,
+        ["status_jornada", "status_atual", "status"],
+        null
+      );
+
+      const agora = new Date().toISOString();
+
+      try {
+        await supabase
+          .from("links_pagamento")
+          .update({
+            status: "LINK_ENVIADO_ALUNO",
+            enviado_operador_em: agora,
+            atualizado_em: agora,
+          })
+          .eq("aluno_id", String(alunoSelecionado.id))
+          .in("status", [
+            "LINK_GERADO",
+            "LINK_PRONTO_PARA_ENVIO",
+            "LINK_ENVIADO_ALUNO",
+          ]);
+      } catch (erroLink) {
+        console.warn("Não foi possível atualizar links_pagamento:", erroLink);
+      }
+
+      await registrarMovimentacao({
+        alunoId: alunoSelecionado.id,
+        tipo: "LINK_ENVIADO_AO_ALUNO",
+        descricao:
+          "Operador informou que o link foi enviado ao aluno. Próximo passo: aguardar comprovante de pagamento.",
+        statusAnterior,
+        statusNovo: "AGUARDANDO_COMPROVANTE",
+        retorno: null,
+        atualizarResponsavel: false,
+      });
+
+      await recarregarAlunoSelecionado(alunoSelecionado.id);
+      await carregarMovimentacoes(alunoSelecionado.id);
+      await carregarFila();
+
+      alert("Link marcado como enviado. Agora o caso ficará aguardando comprovante.");
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao marcar link como enviado ao aluno.");
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   async function enviarTermoAdm() {
     if (!alunoSelecionado?.id) return;
 
@@ -737,14 +810,18 @@ export default function FilaOperador() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={carregarFila}
-          disabled={carregando}
-          style={botaoPrincipal}
-        >
-          {carregando ? "Carregando..." : "Atualizar fila"}
-        </button>
+        <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
+          <CadastroNovoAluno />
+
+          <button
+            type="button"
+            onClick={carregarFila}
+            disabled={carregando}
+            style={botaoPrincipal}
+          >
+            {carregando ? "Carregando..." : "Atualizar fila"}
+          </button>
+        </div>
       </div>
 
       <div style={cardsResumo}>
@@ -1004,6 +1081,53 @@ export default function FilaOperador() {
                 </div>
               </div>
 
+              {[
+                "LINK_PRONTO_PARA_ENVIO",
+                "LINK_GERADO",
+              ].includes(
+                pegarCampo(
+                  alunoSelecionado,
+                  ["status_jornada", "status_atual", "status"],
+                  "CONTATAR"
+                )
+              ) ||
+              alunoSelecionado.proxima_acao === "ENVIAR_LINK_AO_ALUNO" ? (
+                <div style={caixaLinkPronto}>
+                  <h3 style={tituloSecao}>Link pronto para envio</h3>
+
+                  <p style={textoInfo}>
+                    Este aluno está com link pronto. Depois de enviar o link ao aluno,
+                    clique abaixo para mudar o caso para aguardando comprovante.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={marcarLinkEnviadoAoAluno}
+                    disabled={salvando}
+                    style={botaoPrincipal}
+                  >
+                    {salvando
+                      ? "Salvando..."
+                      : "Link enviado ao aluno / Aguardar comprovante"}
+                  </button>
+                </div>
+              ) : null}
+
+              <LinksPagamentoAluno
+                aluno={alunoSelecionado}
+                usuarioLogado={usuarioLogado}
+                onAtualizar={async () => {
+                  await recarregarAlunoSelecionado(alunoSelecionado.id);
+                  await carregarMovimentacoes(alunoSelecionado.id);
+                  await carregarFila();
+                }}
+                onSucesso={async () => {
+                  await recarregarAlunoSelecionado(alunoSelecionado.id);
+                  await carregarMovimentacoes(alunoSelecionado.id);
+                  await carregarFila();
+                }}
+              />
+
               <div style={caixaDestaque}>
                 <h3 style={tituloSecao}>Finalização do atendimento</h3>
 
@@ -1202,6 +1326,14 @@ const caixa = {
 
 const caixaDestaque = {
   background: "#020617",
+  border: "1px solid #22c55e",
+  borderRadius: "14px",
+  padding: "16px",
+  marginBottom: "18px",
+};
+
+const caixaLinkPronto = {
+  background: "#052e16",
   border: "1px solid #22c55e",
   borderRadius: "14px",
   padding: "16px",

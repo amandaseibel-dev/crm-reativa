@@ -27,8 +27,8 @@ function dataHora(valor) {
 }
 
 function corStatus(status) {
-  if (status === "BAIXADO") return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
-  if (status === "DIVERGENCIA") return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5" };
+  if (status === "BAIXA_REALIZADA") return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
+  if (status === "BAIXA_DEVOLVIDA") return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5" };
   return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
 }
 
@@ -39,7 +39,7 @@ export default function MinhaFilaPagamentos() {
   const [links, setLinks] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState("");
-  const [filtro, setFiltro] = useState("PAGO_AGUARDANDO_BAIXA");
+  const [filtro, setFiltro] = useState("AGUARDANDO_BAIXA");
   const [observacoes, setObservacoes] = useState({});
 
   useEffect(() => {
@@ -58,7 +58,7 @@ export default function MinhaFilaPagamentos() {
     const { data, error } = await supabase
       .from("links_pagamento")
       .select("*")
-      .in("status", ["PAGO_AGUARDANDO_BAIXA", "BAIXADO", "DIVERGENCIA"])
+      .in("status", ["AGUARDANDO_BAIXA", "BAIXA_REALIZADA", "BAIXA_DEVOLVIDA"])
       .order("pagamento_identificado_em", { ascending: false });
 
     if (error) {
@@ -87,7 +87,7 @@ export default function MinhaFilaPagamentos() {
     const { error } = await supabase
       .from("links_pagamento")
       .update({
-        status: "BAIXADO",
+        status: "BAIXA_REALIZADA",
         baixado_por: usuario?.email || "",
         baixado_em: new Date().toISOString(),
         observacao_adm: observacao,
@@ -100,7 +100,7 @@ export default function MinhaFilaPagamentos() {
       return;
     }
 
-    await registrarHistorico(item, "BAIXADO", observacao);
+    await registrarHistorico(item, "BAIXA_REALIZADA", observacao);
     alert("Pagamento baixado.");
     carregarPagamentos();
   }
@@ -116,7 +116,7 @@ export default function MinhaFilaPagamentos() {
     const { error } = await supabase
       .from("links_pagamento")
       .update({
-        status: "DIVERGENCIA",
+        status: "BAIXA_DEVOLVIDA",
         divergencia_motivo: motivo,
         divergencia_em: new Date().toISOString(),
         observacao_adm: motivo,
@@ -129,7 +129,7 @@ export default function MinhaFilaPagamentos() {
       return;
     }
 
-    await registrarHistorico(item, "DIVERGENCIA", motivo);
+    await registrarHistorico(item, "BAIXA_DEVOLVIDA", motivo);
     alert("Divergência registrada.");
     carregarPagamentos();
   }
@@ -166,9 +166,9 @@ export default function MinhaFilaPagamentos() {
 
   const indicadores = useMemo(() => {
     return {
-      aguardando: links.filter((x) => x.status === "PAGO_AGUARDANDO_BAIXA").length,
-      baixados: links.filter((x) => x.status === "BAIXADO").length,
-      divergencias: links.filter((x) => x.status === "DIVERGENCIA").length,
+      aguardando: links.filter((x) => x.status === "AGUARDANDO_BAIXA").length,
+      baixados: links.filter((x) => x.status === "BAIXA_REALIZADA").length,
+      divergencias: links.filter((x) => x.status === "BAIXA_DEVOLVIDA").length,
       valor: lista.reduce((soma, item) => soma + Number(item.valor || 0), 0),
     };
   }, [links, lista]);
@@ -213,9 +213,9 @@ export default function MinhaFilaPagamentos() {
           <input style={styles.input} placeholder="Buscar por aluno, CPF ou operador..." value={busca} onChange={(e) => setBusca(e.target.value)} />
 
           <select style={styles.input} value={filtro} onChange={(e) => setFiltro(e.target.value)}>
-            <option value="PAGO_AGUARDANDO_BAIXA">Aguardando baixa</option>
-            <option value="BAIXADO">Baixados</option>
-            <option value="DIVERGENCIA">Divergências</option>
+            <option value="AGUARDANDO_BAIXA">Aguardando baixa</option>
+            <option value="BAIXA_REALIZADA">Baixados</option>
+            <option value="BAIXA_DEVOLVIDA">Divergências</option>
             <option value="TODOS">Todos</option>
           </select>
         </div>

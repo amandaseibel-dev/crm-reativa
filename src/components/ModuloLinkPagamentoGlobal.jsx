@@ -65,13 +65,33 @@ export default function ModuloLinkPagamentoGlobal() {
   }
 
   function converterValor(valorDigitado) {
-    return Number(
-      String(valorDigitado || "")
-        .replace("R$", "")
-        .replace(/\s/g, "")
-        .replace(/\./g, "")
-        .replace(",", ".")
-    );
+    let texto = String(valorDigitado || "")
+      .replace("R$", "")
+      .replace(/\s/g, "")
+      .trim();
+
+    const temVirgula = texto.includes(",");
+    const temPonto = texto.includes(".");
+
+    if (temVirgula && temPonto) {
+      // formato "1.500,00": ponto é milhar, vírgula é decimal
+      texto = texto.replace(/\./g, "").replace(",", ".");
+    } else if (temVirgula) {
+      // só vírgula: ela é o separador decimal
+      texto = texto.replace(",", ".");
+    } else if (temPonto) {
+      const partes = texto.split(".");
+      const ultimaParte = partes[partes.length - 1];
+
+      if (partes.length === 2 && ultimaParte.length === 2) {
+        // ponto decimal, ex: "300.00" -> mantém como está
+      } else {
+        // ponto de milhar, ex: "1.500" -> remove os pontos
+        texto = texto.replace(/\./g, "");
+      }
+    }
+
+    return Number(texto);
   }
 
   async function identificarUsuario() {
@@ -158,7 +178,7 @@ export default function ModuloLinkPagamentoGlobal() {
       p_aluno_id: id ? String(id) : null,
       p_aluno_nome: nome,
       p_aluno_cpf: cpf || null,
-      p_operador_solicitante: usuario.email || usuario.nome || "operador",
+      p_operador_solicitante: usuario.email || "",
       p_operador_nome: usuario.nome || usuario.email || "Operador",
       p_valor: valorNumerico,
       p_parcelas: Number(parcelas) || 1,
