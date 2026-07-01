@@ -19,6 +19,7 @@ import AgendaOperacional from "./pages/AgendaOperacional";
 import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 import ManualOperacao from "./pages/ManualOperacao";
 import BotaoManual from "./components/BotaoManual";
+import PainelAdm from "./pages/PainelAdm";
 
 function EmDesenvolvimento({ titulo }) {
   return (
@@ -48,7 +49,8 @@ function podeAcessar(perfil, rota) {
       "/configuracoes",
 
       "/controle-links-pagamento",
-      "/minha-fila-pagamentos",    ],
+      "/minha-fila-pagamentos",
+      "/painel-adm",    ],
     supervisor: [
       "/",
       "/minha-fila",
@@ -62,7 +64,8 @@ function podeAcessar(perfil, rota) {
       "/relatorios",
 
       "/controle-links-pagamento",
-      "/minha-fila-pagamentos",    ],
+      "/minha-fila-pagamentos",
+      "/painel-adm",    ],
     administrativo: [
       "/",
       "/minha-fila",
@@ -74,7 +77,8 @@ function podeAcessar(perfil, rota) {
       "/termos-adm",
 
       "/controle-links-pagamento",
-      "/minha-fila-pagamentos",    ],
+      "/minha-fila-pagamentos",
+      "/painel-adm",    ],
     operador: [
       "/",
       "/minha-fila",
@@ -177,6 +181,7 @@ export default function App() {
     { rota: "/crm", label: "📞 CRM Operacional" },
     { rota: "/financeiro", label: "💰 Financeiro" },
     { rota: "/controle-links-pagamento", label: "🔗 Fila de Links" },
+    { rota: "/painel-adm", label: "📊 Painel ADM" },
     { rota: "/minha-fila-pagamentos", label: "💳 Fila de Baixas" },
     { rota: "/base-analitica", label: "📊 Base Analítica" },
     { rota: "/termos-adm", label: "📎 Termos ADM" },
@@ -366,6 +371,7 @@ export default function App() {
               <Route path="/base-receptiva" element={<BaseReceptiva />} />
               <Route path="/fila-operacional" element={<FilaOperacional />} />
               <Route path="/controle-links-pagamento" element={<ControleLinksPagamento />} />
+              <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
