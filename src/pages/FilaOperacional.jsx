@@ -424,9 +424,30 @@ export default function FilaOperador() {
     }
 
     if (atualizarResponsavel) {
-      atualizacaoAluno.responsavel_atual_nome = usuario.nome;
-      atualizacaoAluno.responsavel_atual_email = usuario.email;
-      atualizacaoAluno.responsavel_atual_em = agora;
+      // Trava de 10 dias: uma vez vinculado, o caso so muda de operador
+      // responsavel se ja tiver passado 10 dias desde o ultimo vinculo
+      // (ou se nunca teve responsavel). O operador continua conseguindo
+      // atender/finalizar o caso normalmente, so nao muda quem e o dono dele.
+      const { data: alunoAtual } = await supabase
+        .from("alunos")
+        .select("responsavel_atual_email, responsavel_atual_em")
+        .eq("id", alunoId)
+        .maybeSingle();
+
+      const DEZ_DIAS_MS = 10 * 24 * 60 * 60 * 1000;
+      const vinculadoEm = alunoAtual?.responsavel_atual_em
+        ? new Date(alunoAtual.responsavel_atual_em).getTime()
+        : null;
+      const dentroDaTrava =
+        Boolean(alunoAtual?.responsavel_atual_email) &&
+        vinculadoEm !== null &&
+        Date.now() - vinculadoEm < DEZ_DIAS_MS;
+
+      if (!dentroDaTrava) {
+        atualizacaoAluno.responsavel_atual_nome = usuario.nome;
+        atualizacaoAluno.responsavel_atual_email = usuario.email;
+        atualizacaoAluno.responsavel_atual_em = agora;
+      }
     }
 
     const { error: updateError } = await supabase
