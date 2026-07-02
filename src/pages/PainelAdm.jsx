@@ -74,6 +74,14 @@ function corBadge(status) {
   return { bg: "#e0f2fe", texto: "#075985" };
 }
 
+function formatarTabulacao(valor) {
+  if (!valor) return null;
+  return String(valor)
+    .split("_")
+    .map((parte) => parte.charAt(0) + parte.slice(1).toLowerCase())
+    .join(" ");
+}
+
 function inicioPeriodo(periodo) {
   const agora = new Date();
 
@@ -228,7 +236,30 @@ export default function PainelAdm() {
         return;
       }
 
-      setLinks(data || []);
+      let linksComTabulacao = data || [];
+
+      const idsAlunos = [...new Set(linksComTabulacao.map((l) => l.aluno_id).filter(Boolean))];
+
+      if (idsAlunos.length > 0) {
+        const { data: alunosData, error: erroAlunos } = await supabase
+          .from("alunos")
+          .select("id, status_jornada")
+          .in("id", idsAlunos);
+
+        if (!erroAlunos && alunosData) {
+          const tabulacaoPorAluno = {};
+          alunosData.forEach((a) => {
+            tabulacaoPorAluno[a.id] = a.status_jornada;
+          });
+
+          linksComTabulacao = linksComTabulacao.map((l) => ({
+            ...l,
+            tabulacao_operador: l.aluno_id ? tabulacaoPorAluno[l.aluno_id] : null,
+          }));
+        }
+      }
+
+      setLinks(linksComTabulacao);
 
       const { count, error: erroAguardando } = await supabase
         .from("links_pagamento")
@@ -843,7 +874,8 @@ export default function PainelAdm() {
                 </thead>
                 <tbody>
                   {linksFiltrados.map((item) => {
-                    const cores = corBadge(item.status);
+                    const labelTabulacao = formatarTabulacao(item.tabulacao_operador);
+                    const cores = corBadge(item.tabulacao_operador || item.status);
                     const aguardando = STATUS_AGUARDANDO_LINKS.includes(item.status);
                     const minutosResposta = item.respondido_em
                       ? diffMinutos(item.criado_em, item.respondido_em)
@@ -867,7 +899,7 @@ export default function PainelAdm() {
                         <td style={estilos.td}>{formatarMoeda(item.valor)}</td>
                         <td style={estilos.td}>
                           <span style={{ ...estilos.badge, background: cores.bg, color: cores.texto }}>
-                            {STATUS_LABELS_LINKS[item.status] || item.status}
+                            {labelTabulacao || STATUS_LABELS_LINKS[item.status] || item.status}
                           </span>
                           <div style={{ fontSize: "11px", color: atrasado ? "#b91c1c" : "#94a3b8", marginTop: "4px" }}>
                             {minutosResposta === null
