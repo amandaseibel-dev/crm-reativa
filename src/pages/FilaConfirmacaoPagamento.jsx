@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
-import { podeGerirFinanceiro } from "../utils/operadores";
+import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
 
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
@@ -90,13 +90,104 @@ export default function FilaConfirmacaoPagamento() {
 
     const observacaoAdm = observacoes[solicitacao.id] || "";
     const agora = new Date().toISOString();
+    const emailConfirmando = usuario?.email || "";
+
+    // Se a solicitação já referencia uma parcela existente, essa parcela é
+    // que recebe a baixa. Se não, e ainda não tem acordo vinculado, é um
+    // acordo novo -- cria o acordo + parcelas agora, com só a entrada (ou a
+    // 1ª parcela, se não tiver entrada) já nascendo baixada.
+    if (solicitacao.parcela_id) {
+      const { error: erroParcela } = await supabase
+        .from("parcelas")
+        .update({
+          status: "PAGO",
+          pago_em: agora,
+          confirmado_por_email: emailConfirmando,
+          solicitacao_confirmacao_id: solicitacao.id,
+          atualizado_em: agora,
+        })
+        .eq("id", solicitacao.parcela_id);
+
+      if (erroParcela) {
+        alert("Erro ao dar baixa na parcela: " + erroParcela.message);
+        return;
+      }
+    } else if (!solicitacao.acordo_id) {
+      const valorTotal = Number(solicitacao.valor_informado) || 0;
+      const formaPagamento = solicitacao.forma_pagamento || "A_VISTA";
+      const valorEntrada = Number(solicitacao.valor_entrada) || 0;
+      const entradaPaga = Boolean(solicitacao.entrada_paga) && valorEntrada > 0;
+      const qtdParcelas =
+        formaPagamento === "PARCELADO" ? Math.max(1, Number(solicitacao.qtd_parcelas) || 1) : 1;
+
+      const { data: acordoCriado, error: erroAcordo } = await supabase
+        .from("acordos")
+        .insert({
+          aluno_id: solicitacao.aluno_id,
+          cpf: solicitacao.aluno_cpf,
+          tipo: "ACORDO",
+          forma_pagamento: formaPagamento,
+          valor_total: valorTotal,
+          qtd_parcelas: qtdParcelas,
+          valor_entrada: valorEntrada || null,
+          entrada_paga: entradaPaga,
+          data_entrada: entradaPaga ? agora.slice(0, 10) : null,
+          status: "ATIVO",
+          observacao: solicitacao.motivo || null,
+          criado_por_nome: nomeOperadorPorEmail(solicitacao.operador_email),
+          criado_por_email: solicitacao.operador_email,
+          confirmado_por_email: emailConfirmando,
+          confirmado_em: agora,
+        })
+        .select()
+        .single();
+
+      if (erroAcordo) {
+        alert("Erro ao criar acordo: " + erroAcordo.message);
+        return;
+      }
+
+      const valorRestante = Math.max(0, valorTotal - (entradaPaga ? valorEntrada : 0));
+      const valorParcela =
+        formaPagamento === "PARCELADO" ? valorRestante / qtdParcelas : valorRestante;
+
+      // Se não tinha entrada paga, a 1ª parcela é o próprio pagamento que
+      // está sendo confirmado agora, então já nasce PAGA. As demais entram
+      // em aberto, vencendo mensalmente a partir de hoje.
+      const primeiraJaPaga = !entradaPaga;
+      const parcelasParaCriar = [];
+
+      for (let numero = 1; numero <= qtdParcelas; numero++) {
+        const vencimento = new Date(agora);
+        vencimento.setMonth(vencimento.getMonth() + (numero - 1));
+
+        const ehPrimeira = numero === 1;
+        parcelasParaCriar.push({
+          acordo_id: acordoCriado.id,
+          numero,
+          valor: valorParcela,
+          vencimento: vencimento.toISOString().slice(0, 10),
+          status: ehPrimeira && primeiraJaPaga ? "PAGO" : "A_VENCER",
+          pago_em: ehPrimeira && primeiraJaPaga ? agora : null,
+          confirmado_por_email: ehPrimeira && primeiraJaPaga ? emailConfirmando : null,
+          solicitacao_confirmacao_id: ehPrimeira && primeiraJaPaga ? solicitacao.id : null,
+        });
+      }
+
+      const { error: erroParcelas } = await supabase.from("parcelas").insert(parcelasParaCriar);
+
+      if (erroParcelas) {
+        alert("Acordo criado, mas houve erro ao gerar as parcelas: " + erroParcelas.message);
+        return;
+      }
+    }
 
     const { error } = await supabase
       .from("solicitacoes_confirmacao_pagamento")
       .update({
         status: "PAGAMENTO_CONFIRMADO",
         observacao_adm: observacaoAdm,
-        confirmado_por: usuario?.email || "",
+        confirmado_por: emailConfirmando,
         confirmado_em: agora,
         atualizado_em: agora,
       })
@@ -296,6 +387,27 @@ export default function FilaConfirmacaoPagamento() {
                       style: "currency",
                       currency: "BRL",
                     })}
+                  </p>
+                )}
+
+                {s.parcela_id && (
+                  <p style={styles.info}>
+                    <strong>Referente a:</strong> parcela existente de um acordo já cadastrado
+                  </p>
+                )}
+
+                {!s.parcela_id && !s.acordo_id && s.forma_pagamento && (
+                  <p style={styles.info}>
+                    <strong>Acordo novo:</strong>{" "}
+                    {s.forma_pagamento === "PARCELADO"
+                      ? `Parcelado em ${s.qtd_parcelas || 1}x` +
+                        (s.valor_entrada
+                          ? ` + entrada de ${Number(s.valor_entrada).toLocaleString("pt-BR", {
+                              style: "currency",
+                              currency: "BRL",
+                            })}${s.entrada_paga ? " (já paga)" : ""}`
+                          : "")
+                      : "À vista"}
                   </p>
                 )}
 

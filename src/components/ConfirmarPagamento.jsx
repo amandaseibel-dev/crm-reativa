@@ -51,6 +51,25 @@ function pegarCpfAluno(aluno) {
   return aluno?.cpf || aluno?.CPF || aluno?.cpf_mascarado || "-";
 }
 
+function formatarDataSimples(data) {
+  if (!data) return "-";
+  try {
+    const partes = String(data).slice(0, 10).split("-");
+    if (partes.length === 3) {
+      const [ano, mes, dia] = partes;
+      return `${dia}/${mes}/${ano}`;
+    }
+    return new Date(data).toLocaleDateString("pt-BR");
+  } catch {
+    return "-";
+  }
+}
+
+function formatarMoeda(valor) {
+  if (valor == null || valor === "") return "-";
+  return Number(valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 const OPCAO_NOVO_ACORDO = "NOVO";
 
 export default function ConfirmarPagamento({ aluno }) {
@@ -274,6 +293,94 @@ export default function ConfirmarPagamento({ aluno }) {
               onChange={(e) => setValorInformado(e.target.value)}
             />
           </div>
+
+          {parcelasAbertas.length > 0 && (
+            <div style={styles.bloco}>
+              <label style={styles.label}>Isso é pagamento de qual parcela?</label>
+              <select
+                style={styles.input}
+                value={parcelaEscolhida}
+                onChange={(e) => setParcelaEscolhida(e.target.value)}
+              >
+                <option value="">Selecione</option>
+                {parcelasAbertas.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    Parcela {p.numero} — venc. {formatarDataSimples(p.vencimento)} —{" "}
+                    {formatarMoeda(p.valor)}
+                  </option>
+                ))}
+                <option value={OPCAO_NOVO_ACORDO}>
+                  Novo acordo (aluno negociou algo novo)
+                </option>
+              </select>
+            </div>
+          )}
+
+          {(parcelasAbertas.length === 0 || parcelaEscolhida === OPCAO_NOVO_ACORDO) && (
+            <div style={styles.bloco}>
+              <strong style={{ color: "#111827" }}>Dados do acordo novo</strong>
+
+              <label style={{ ...styles.label, marginTop: "10px" }}>
+                Forma de pagamento
+              </label>
+              <select
+                style={styles.input}
+                value={formaPagamento}
+                onChange={(e) => setFormaPagamento(e.target.value)}
+              >
+                <option value="A_VISTA">À vista</option>
+                <option value="PARCELADO">Parcelado</option>
+              </select>
+
+              {formaPagamento === "PARCELADO" && (
+                <>
+                  <label style={styles.label}>
+                    Em quantas vezes (parcelas restantes, sem contar a entrada)
+                  </label>
+                  <input
+                    style={styles.input}
+                    type="number"
+                    min="1"
+                    value={qtdParcelas}
+                    onChange={(e) => setQtdParcelas(e.target.value)}
+                  />
+
+                  <label style={styles.label}>Valor de entrada (opcional)</label>
+                  <input
+                    style={styles.input}
+                    placeholder="Ex: 100,00"
+                    value={valorEntrada}
+                    onChange={(e) => setValorEntrada(e.target.value)}
+                  />
+
+                  {valorEntrada && (
+                    <label
+                      style={{
+                        ...styles.label,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: "8px",
+                        fontWeight: "normal",
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={entradaPaga}
+                        onChange={(e) => setEntradaPaga(e.target.checked)}
+                      />
+                      O valor informado acima (campo "Valor informado pelo aluno") é a
+                      entrada, e já foi pago agora
+                    </label>
+                  )}
+
+                  <p style={{ fontSize: "12px", color: "#6b7280", marginTop: "4px" }}>
+                    Ao confirmar, só a entrada (ou a 1ª parcela, se não tiver entrada)
+                    já nasce baixada. As demais entram em aberto na Fila de Baixas.
+                  </p>
+                </>
+              )}
+            </div>
+          )}
 
           <div style={styles.bloco}>
             <label style={styles.label}>Observação</label>
