@@ -92,7 +92,7 @@ export default function PrioridadeLinksOperador() {
   }
 
   if (!carregando && links.length === 0) {
-    return null;
+    return <div style={{ height: 52, marginBottom: 14 }} />;
   }
 
   return (

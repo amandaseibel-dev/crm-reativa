@@ -389,7 +389,7 @@ export default function FluxoLinksRapido() {
     prioridades.length === 0 &&
     historico.length === 0
   ) {
-    return null;
+    return <div style={{ height: 52, marginBottom: 14 }} />;
   }
 
   return (

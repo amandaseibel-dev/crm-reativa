@@ -97,7 +97,9 @@ export default function FilaReceptivo({ usuarioLogado }) {
     }
   }
 
-  if (ordem.length === 0) return null;
+  // Reserva o espaço mesmo sem ninguém na fila do receptivo, pra essa
+  // caixa não ficar aparecendo/sumindo e empurrando o resto da tela.
+  if (ordem.length === 0) return <div style={estilos.espacoReservado} />;
 
   function nomeExibicao(linha) {
     return perfis[linha.email]?.apelido || primeiroNome(linha.nome);
@@ -167,6 +169,10 @@ export default function FilaReceptivo({ usuarioLogado }) {
 }
 
 const estilos = {
+  espacoReservado: {
+    height: 52,
+    marginBottom: 14,
+  },
   caixa: (destaque) => ({
     display: "flex",
     padding: "10px 16px",

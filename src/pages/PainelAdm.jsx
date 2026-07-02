@@ -127,7 +127,7 @@ export default function PainelAdm() {
       let query = supabase
         .from("links_pagamento")
         .select(
-          "id, aluno_nome, operador_nome, operador_solicitante, operador_email, valor, status, criado_em, respondido_em"
+          "id, aluno_id, aluno_nome, aluno_cpf, operador_nome, operador_solicitante, operador_email, valor, status, criado_em, respondido_em, link_gerado"
         )
         .order("criado_em", { ascending: false })
         .limit(2000);
