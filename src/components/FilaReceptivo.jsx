@@ -41,7 +41,7 @@ export default function FilaReceptivo({ usuarioLogado }) {
 
     const { data } = await supabase
       .from("fila_receptivo")
-      .select("email, nome, atendimentos_hoje, ultimo_atendimento, online_em")
+      .select("email, nome, atendimentos_hoje, ultimo_atendimento, online_em, em_pausa")
       .in("email", emails);
     setLinhas(data || []);
   }
@@ -68,11 +68,27 @@ export default function FilaReceptivo({ usuarioLogado }) {
     return () => clearInterval(intervaloHeartbeat);
   }, [email, ehParticipante]);
 
+  async function alternarPausa(pausar) {
+    if (!ehParticipante || marcando) return;
+    setMarcando(true);
+    try {
+      await supabase.rpc("fila_receptivo_heartbeat", {
+        p_email: email,
+        p_nome: nomeOperadorPorEmail(email),
+        p_em_pausa: pausar,
+      });
+      await buscarFila();
+    } finally {
+      setMarcando(false);
+    }
+  }
+
   const ordem = useMemo(() => {
     const agora = Date.now();
 
     return linhas
       .filter((linha) => operadoresReceptivo.includes(linha.email))
+      .filter((linha) => !linha.em_pausa)
       .filter((linha) => {
         const online = linha.online_em ? new Date(linha.online_em).getTime() : 0;
         return agora - online <= LIMITE_ONLINE_MS;
@@ -98,9 +114,42 @@ export default function FilaReceptivo({ usuarioLogado }) {
     }
   }
 
+  const minhaLinha = linhas.find((linha) => linha.email === email);
+  const euEstouEmPausa = Boolean(minhaLinha?.em_pausa);
+
+  const botaoPausa = ehParticipante && (
+    <button
+      type="button"
+      onClick={() => alternarPausa(!euEstouEmPausa)}
+      disabled={marcando}
+      style={euEstouEmPausa ? estilos.botaoPausaAtiva : estilos.botaoPausa}
+    >
+      {marcando ? "..." : euEstouEmPausa ? "▶️ Voltar da pausa" : "⏸️ Pausar"}
+    </button>
+  );
+
   // Reserva o espaço mesmo sem ninguém na fila do receptivo, pra essa
-  // caixa não ficar aparecendo/sumindo e empurrando o resto da tela.
-  if (ordem.length === 0) return <div style={estilos.espacoReservado} />;
+  // caixa não ficar aparecendo/sumindo e empurrando o resto da tela --
+  // mas se eu sou participante, mantém o botão de pausa visível mesmo
+  // com a fila vazia (senão, uma vez pausado, eu não conseguia voltar).
+  if (ordem.length === 0) {
+    if (!ehParticipante) return <div style={estilos.espacoReservado} />;
+
+    return (
+      <div style={estilos.caixa(false)}>
+        <div style={estilos.linhaTopo}>
+          <div>
+            <strong style={estilos.destaque}>
+              {euEstouEmPausa
+                ? "⏸️ Você está em pausa no receptivo."
+                : "📞 Fila do receptivo: ninguém online agora."}
+            </strong>
+          </div>
+          {botaoPausa}
+        </div>
+      </div>
+    );
+  }
 
   function nomeExibicao(linha) {
     return perfis[linha.email]?.apelido || primeiroNome(linha.nome);
@@ -155,14 +204,17 @@ export default function FilaReceptivo({ usuarioLogado }) {
         </div>
 
         {ehParticipante && (
-          <button
-            type="button"
-            onClick={marcarAtendido}
-            disabled={marcando}
-            style={estilos.botao}
-          >
-            {marcando ? "Marcando..." : "✅ Marquei atendimento"}
-          </button>
+          <div style={{ display: "flex", gap: "8px" }}>
+            <button
+              type="button"
+              onClick={marcarAtendido}
+              disabled={marcando}
+              style={estilos.botao}
+            >
+              {marcando ? "Marcando..." : "✅ Marquei atendimento"}
+            </button>
+            {botaoPausa}
+          </div>
         )}
       </div>
     </div>
@@ -208,6 +260,26 @@ const estilos = {
     border: "1px solid rgba(34, 197, 94, 0.6)",
     background: "rgba(34, 197, 94, 0.18)",
     color: "#dcfce7",
+    fontWeight: 600,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  botaoPausa: {
+    padding: "6px 14px",
+    borderRadius: 8,
+    border: "1px solid rgba(148, 163, 184, 0.6)",
+    background: "rgba(148, 163, 184, 0.18)",
+    color: "#e2e8f0",
+    fontWeight: 600,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+  },
+  botaoPausaAtiva: {
+    padding: "6px 14px",
+    borderRadius: 8,
+    border: "1px solid rgba(251, 191, 36, 0.6)",
+    background: "rgba(251, 191, 36, 0.18)",
+    color: "#fef3c7",
     fontWeight: 600,
     cursor: "pointer",
     whiteSpace: "nowrap",
