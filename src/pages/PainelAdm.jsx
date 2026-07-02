@@ -129,6 +129,33 @@ function formatarMoeda(valor) {
   return numero.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function converterValor(valorDigitado) {
+  let texto = String(valorDigitado || "")
+    .replace("R$", "")
+    .replace(/\s/g, "")
+    .trim();
+
+  const temVirgula = texto.includes(",");
+  const temPonto = texto.includes(".");
+
+  if (temVirgula && temPonto) {
+    texto = texto.replace(/\./g, "").replace(",", ".");
+  } else if (temVirgula) {
+    texto = texto.replace(",", ".");
+  } else if (temPonto) {
+    const partes = texto.split(".");
+    const ultimaParte = partes[partes.length - 1];
+
+    if (partes.length === 2 && ultimaParte.length === 2) {
+      // mantém, já é decimal
+    } else {
+      texto = texto.replace(/\./g, "");
+    }
+  }
+
+  return Number(texto);
+}
+
 function formatarData(data) {
   if (!data) return "-";
 
@@ -180,6 +207,7 @@ export default function PainelAdm() {
   const [operadorFiltro, setOperadorFiltro] = useState("TODOS");
   const [statusFiltroLinks, setStatusFiltroLinks] = useState("TODOS");
   const [linksEditados, setLinksEditados] = useState({});
+  const [valoresEditados, setValoresEditados] = useState({});
   const [linhaAbertaLink, setLinhaAbertaLink] = useState(null);
   const [obsLinks, setObsLinks] = useState({});
 
@@ -389,6 +417,52 @@ export default function PainelAdm() {
 
     await historicoLink(item, "LINK_PRONTO_PARA_ENVIO", "Link gerado/colado pela ADM.");
     alert("Link salvo. O operador será sinalizado como link pronto e o caso vai pro topo da fila dele.");
+    carregarLinks();
+  }
+
+  async function corrigirValorPainel(item) {
+    await garantirSessaoValida();
+
+    const digitado = valoresEditados[item.id];
+
+    if (digitado === undefined || digitado.trim() === "") {
+      alert("Digite o valor correto antes de salvar.");
+      return;
+    }
+
+    const valorNovo = converterValor(digitado);
+
+    if (!valorNovo || Number.isNaN(valorNovo) || valorNovo <= 0) {
+      alert("Valor inválido.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("links_pagamento")
+      .update({
+        valor: valorNovo,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("id", item.id);
+
+    if (error) {
+      alert("Erro ao corrigir valor: " + error.message);
+      return;
+    }
+
+    await historicoLink(
+      item,
+      item.status,
+      `Valor corrigido pela ADM: de ${formatarMoeda(item.valor)} para ${formatarMoeda(valorNovo)}.`
+    );
+
+    setValoresEditados((atual) => {
+      const copia = { ...atual };
+      delete copia[item.id];
+      return copia;
+    });
+
+    alert("Valor corrigido.");
     carregarLinks();
   }
 
@@ -978,7 +1052,22 @@ export default function PainelAdm() {
                               </div>
                               <div>
                                 <p style={estilos.detalheRotulo}>Valor</p>
-                                <p style={estilos.detalheValor}>{formatarMoeda(item.valor)}</p>
+                                <div style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                                  <input
+                                    style={{ ...estilos.inputAcao, maxWidth: "140px" }}
+                                    placeholder={formatarMoeda(item.valor)}
+                                    value={valoresEditados[item.id] ?? ""}
+                                    onChange={(e) =>
+                                      setValoresEditados({ ...valoresEditados, [item.id]: e.target.value })
+                                    }
+                                  />
+                                  <button
+                                    style={estilos.botaoCinza}
+                                    onClick={() => corrigirValorPainel(item)}
+                                  >
+                                    Corrigir
+                                  </button>
+                                </div>
                               </div>
                               <div>
                                 <p style={estilos.detalheRotulo}>Quantidade de vezes</p>
