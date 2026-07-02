@@ -319,14 +319,12 @@ export default function FilaOperador() {
         query = query.eq("status_jornada", "ALUNO_EM_NEGOCIACAO_24H");
       }
 
-      // Prioriza quem tem retorno mais próximo/vencido primeiro.
-      // Quem não tem data de retorno marcada fica no final da lista.
-      // Dentro de quem tem a mesma data de retorno (ou nenhuma), quem foi
-      // acionado ha mais tempo (ou nunca) vem primeiro; quem acabou de ser
-      // acionado cai pro final da fila, ao inves de continuar aparecendo.
+      // Prioriza sempre quem está a mais tempo sem acionamento (ou nunca
+      // foi acionado) no topo da fila. Data de retorno só desempata entre
+      // quem tem o mesmo tempo sem acionamento.
       query = query
-        .order("data_retorno", { ascending: true, nullsFirst: false })
-        .order("data_ultimo_acionamento", { ascending: true, nullsFirst: true });
+        .order("data_ultimo_acionamento", { ascending: true, nullsFirst: true })
+        .order("data_retorno", { ascending: true, nullsFirst: false });
 
       const { data, error } = await query;
 
