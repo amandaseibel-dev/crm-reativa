@@ -129,6 +129,7 @@ export default function App() {
   const [carregando, setCarregando] = useState(true);
   const [linksAguardando, setLinksAguardando] = useState(0);
   const [termosRejeitados, setTermosRejeitados] = useState(0);
+  const [baixasAguardando, setBaixasAguardando] = useState(0);
   const [tema, setTema] = useState(
     () => localStorage.getItem("reativa_tema") || "escuro"
   );
@@ -165,6 +166,36 @@ export default function App() {
 
     carregarPendentes();
     const intervalo = setInterval(carregarPendentes, 15000);
+
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+    };
+  }, [usuario]);
+
+  // Comprovantes anexados esperando a Amanda dar baixa (Fila de Baixas).
+  useEffect(() => {
+    const perfilAtual = usuario?.perfil?.perfil;
+    if (!usuario || !podeAcessar(perfilAtual, "/minha-fila-pagamentos")) {
+      setBaixasAguardando(0);
+      return;
+    }
+
+    let ativo = true;
+
+    async function carregarBaixasPendentes() {
+      const { count, error } = await supabase
+        .from("links_pagamento")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "AGUARDANDO_BAIXA");
+
+      if (ativo && !error) {
+        setBaixasAguardando(count || 0);
+      }
+    }
+
+    carregarBaixasPendentes();
+    const intervalo = setInterval(carregarBaixasPendentes, 15000);
 
     return () => {
       ativo = false;
@@ -379,6 +410,14 @@ export default function App() {
                     title="Termos de acordo rejeitados aguardando correção"
                   >
                     {termosRejeitados}
+                  </span>
+                )}
+                {item.rota === "/minha-fila-pagamentos" && baixasAguardando > 0 && (
+                  <span
+                    className="badge-pendente"
+                    title="Comprovantes aguardando baixa"
+                  >
+                    {baixasAguardando}
                   </span>
                 )}
               </NavLink>
