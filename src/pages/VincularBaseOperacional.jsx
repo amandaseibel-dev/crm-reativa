@@ -76,7 +76,22 @@ export default function VincularBaseOperacional() {
     try {
       const buffer = await arquivo.arrayBuffer();
       const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
-      const primeiraAba = workbook.SheetNames[0];
+      // A planilha "Reativa_base" completa tem várias abas (Controle de
+      // Pagamentos, Dashboard, Regras etc.). A que interessa aqui é
+      // "Operação Sintética" -- procura por nome (aceitando variações de
+      // acento/maiúscula) e só usa a primeira aba como último recurso, se
+      // não achar nenhuma parecida.
+      const nomeAbaAlvo = "operacao sintetica";
+      const normalizarNomeAba = (s) =>
+        String(s || "")
+          .normalize("NFD")
+          .replace(/[̀-ͯ]/g, "")
+          .toLowerCase()
+          .trim();
+      const abaEncontrada = workbook.SheetNames.find(
+        (nome) => normalizarNomeAba(nome) === nomeAbaAlvo
+      );
+      const primeiraAba = abaEncontrada || workbook.SheetNames[0];
       const linhasBrutas = XLSX.utils.sheet_to_json(workbook.Sheets[primeiraAba], {
         raw: true,
         defval: null,
@@ -206,6 +221,7 @@ export default function VincularBaseOperacional() {
 
       setPreview({
         linhas: linhasComStatus,
+        abaUsada: primeiraAba,
         totais: {
           total: linhasComStatus.length,
           encontrados,
@@ -345,6 +361,9 @@ export default function VincularBaseOperacional() {
 
       {preview && (
         <div style={{ marginTop: 20 }}>
+          <p style={{ fontSize: 13, opacity: 0.75, marginBottom: 10 }}>
+            Lendo a aba: <strong>{preview.abaUsada}</strong>
+          </p>
           <div style={estilos.grade}>
             <div style={estilos.cartao}>
               <div style={estilos.numero}>{preview.totais.total}</div>
