@@ -212,62 +212,78 @@ export default function Borderos() {
         return;
       }
 
-      let inseridos = 0;
-      let atualizados = 0;
       let ignorados = 0;
-      let alunosCriados = 0;
       const nomesNaoEncontrados = [];
       const nomesCriados = [];
 
-      for (const linha of preview.linhas) {
-        let aluno = linha.aluno;
+      // 1) Cria em lote (uma chamada só) os alunos que não bateram nem por
+      // CPF nem por nome, em vez de um insert por linha.
+      const linhasSemAluno = preview.linhas.filter((l) => !l.aluno);
+      let alunosNovosPorCpf = {};
 
-        if (!aluno) {
-          const { data: novoAluno, error: erroNovoAluno } = await supabase
-            .from("alunos")
-            .insert({
-              nome: linha.nome,
-              cpf: linha.cpfLimpo,
-              email: linha.email,
-              telefone: linha.telefone,
-              curso: linha.curso,
-              unidade: linha.unidade,
+      if (linhasSemAluno.length > 0) {
+        const { data: novosAlunos, error: erroNovos } = await supabase
+          .from("alunos")
+          .insert(
+            linhasSemAluno.map((l) => ({
+              nome: l.nome,
+              cpf: l.cpfLimpo,
+              email: l.email,
+              telefone: l.telefone,
+              curso: l.curso,
+              unidade: l.unidade,
               status_jornada: "CONTATAR",
               status_atual: "CONTATAR",
-            })
-            .select()
-            .single();
+            }))
+          )
+          .select();
 
-          if (erroNovoAluno || !novoAluno) {
-            ignorados += 1;
-            nomesNaoEncontrados.push(linha.nome);
-            continue;
-          }
-
-          aluno = novoAluno;
-          alunosCriados += 1;
-          nomesCriados.push(linha.nome);
+        if (erroNovos) {
+          nomesNaoEncontrados.push(...linhasSemAluno.map((l) => l.nome));
+          ignorados += linhasSemAluno.length;
         } else {
-          // Completa telefone/email/curso/unidade só quando estiver vazio,
-          // sem sobrescrever o que já tinha na ficha.
-          const camposParaCompletar = {};
-          if (!aluno.email && linha.email) camposParaCompletar.email = linha.email;
-          if (!aluno.telefone && linha.telefone) camposParaCompletar.telefone = linha.telefone;
-          if (!aluno.curso && linha.curso) camposParaCompletar.curso = linha.curso;
-          if (!aluno.unidade && linha.unidade) camposParaCompletar.unidade = linha.unidade;
-
-          if (Object.keys(camposParaCompletar).length > 0) {
-            await supabase.from("alunos").update(camposParaCompletar).eq("id", aluno.id);
+          for (const aluno of novosAlunos || []) {
+            alunosNovosPorCpf[aluno.cpf] = aluno;
           }
+          nomesCriados.push(...linhasSemAluno.map((l) => l.nome));
         }
+      }
 
-        // Não sobrescreve títulos que já foram marcados como pagos.
+      const alunosCriados = Object.keys(alunosNovosPorCpf).length;
+
+      // 2) Completa telefone/email/curso/unidade só de quem já existia e
+      // estava com algum desses campos vazio — em paralelo, não em fila.
+      const completar = preview.linhas.filter((l) => l.aluno).map((l) => {
+        const aluno = l.aluno;
+        const camposParaCompletar = {};
+        if (!aluno.email && l.email) camposParaCompletar.email = l.email;
+        if (!aluno.telefone && l.telefone) camposParaCompletar.telefone = l.telefone;
+        if (!aluno.curso && l.curso) camposParaCompletar.curso = l.curso;
+        if (!aluno.unidade && l.unidade) camposParaCompletar.unidade = l.unidade;
+
+        if (Object.keys(camposParaCompletar).length === 0) return null;
+        return supabase.from("alunos").update(camposParaCompletar).eq("id", aluno.id);
+      }).filter(Boolean);
+
+      await Promise.all(completar);
+
+      // 3) Grava todos os títulos em uma única chamada (upsert por
+      // "documento"), em vez de um insert/update por linha.
+      const registrosTitulos = [];
+
+      for (const linha of preview.linhas) {
         if (linha.jaExiste && linha.situacaoAtual === "PAGO") {
           ignorados += 1;
           continue;
         }
 
-        const registro = {
+        const aluno = linha.aluno || alunosNovosPorCpf[linha.cpfLimpo];
+        if (!aluno) {
+          ignorados += 1;
+          continue;
+        }
+
+        registrosTitulos.push({
           aluno_id: aluno.id,
           cpf: linha.cpfLimpo,
           documento: linha.numTitulo,
@@ -277,17 +293,25 @@ export default function Borderos() {
           situacao: "ABERTO",
           tipo_boleto: linha.curso,
           importacao_id: importacao.id,
-        };
+        });
+      }
 
-        if (linha.jaExiste) {
-          const { error } = await supabase
-            .from("acordos_titulos")
-            .update(registro)
-            .eq("documento", linha.numTitulo);
-          if (!error) atualizados += 1;
+      let inseridos = 0;
+      let atualizados = 0;
+
+      if (registrosTitulos.length > 0) {
+        const { error: erroTitulos } = await supabase
+          .from("acordos_titulos")
+          .upsert(registrosTitulos, { onConflict: "documento" });
+
+        if (erroTitulos) {
+          setErro("Erro ao gravar os títulos: " + erroTitulos.message);
         } else {
-          const { error } = await supabase.from("acordos_titulos").insert(registro);
-          if (!error) inseridos += 1;
+          const existentesSet = new Set(
+            preview.linhas.filter((l) => l.jaExiste).map((l) => l.numTitulo)
+          );
+          inseridos = registrosTitulos.filter((r) => !existentesSet.has(r.documento)).length;
+          atualizados = registrosTitulos.filter((r) => existentesSet.has(r.documento)).length;
         }
       }
 
