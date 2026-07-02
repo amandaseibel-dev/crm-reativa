@@ -322,14 +322,14 @@ export default function App() {
     { rota: "/aluno", label: "👤 Aluno" },
     { rota: "/crm", label: "📞 CRM Operacional" },
     { rota: "/financeiro", label: "💰 Financeiro" },
-    { rota: "/controle-links-pagamento", label: "🔗 Fila de Links" },
+    // Fila de Links, Fila Financeiro e Termos ADM foram unificados dentro
+    // do Painel ADM (abas com filtro). As rotas continuam existindo, só
+    // não aparecem mais separadas no menu.
     { rota: "/painel-adm", label: "📊 Painel ADM" },
-    { rota: "/fila-financeiro", label: "🏦 Fila Financeiro" },
     { rota: "/painel-operadores", label: "🕒 Painel Operadores" },
     { rota: "/minha-fila-pagamentos", label: "💳 Fila de Baixas" },
     { rota: "/fila-confirmacao-pagamento", label: "✅ Confirmação de Pagamento" },
     { rota: "/base-analitica", label: "📊 Base Analítica" },
-    { rota: "/termos-adm", label: "📎 Termos ADM" },
     { rota: "/borderos", label: "📑 Borderôs" },
     { rota: "/vincular-operadores", label: "🔗 Vincular Operadores" },
     { rota: "/importacoes", label: "📥 Importações" },
