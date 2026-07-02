@@ -321,7 +321,7 @@ export default function VincularBaseOperacional() {
             </div>
             <div style={estilos.cartao}>
               <div style={estilos.numero}>{preview.totais.comAtualizacao}</div>
-              <div style={estilos.label}>Vão ser atualizados</div>
+              <div style={estilos.label}>Vão ser atualizados (ainda não foram)</div>
             </div>
           </div>
 
@@ -332,6 +332,22 @@ export default function VincularBaseOperacional() {
               {preview.operadoresNaoReconhecidos.join(", ")}
             </p>
           )}
+
+          <div
+            style={{
+              marginTop: 16,
+              padding: "12px 14px",
+              borderRadius: 8,
+              background: "rgba(251,191,36,0.12)",
+              border: "1px solid rgba(251,191,36,0.4)",
+              color: "#fcd34d",
+              fontWeight: 600,
+              fontSize: 14,
+            }}
+          >
+            ⚠️ Isso ainda é só a prévia. Nada foi gravado no sistema. Clique no botão abaixo
+            para confirmar e salvar de verdade.
+          </div>
 
           <button
             type="button"
