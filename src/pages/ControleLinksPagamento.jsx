@@ -148,6 +148,15 @@ export default function ControleLinksPagamento() {
   }
 
   async function salvarLink(item) {
+    // Se a aba ficou muito tempo parada, o token pode ter expirado sem o
+    // refresh automático rodar a tempo -- isso gerava "row-level security
+    // policy" em vez do erro real. Forçar checagem antes de escrever.
+    try {
+      await supabase.auth.getSession();
+    } catch {
+      // Segue e deixa o erro real aparecer, se houver.
+    }
+
     const link = linksEditados[item.id] ?? item.link_gerado ?? "";
 
     if (!link || !link.trim()) {

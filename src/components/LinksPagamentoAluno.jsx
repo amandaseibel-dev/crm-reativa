@@ -121,6 +121,14 @@ function obterLinkPagamento(item) {
   );
 }
 
+async function garantirSessaoValida() {
+  try {
+    await supabase.auth.getSession();
+  } catch {
+    // Se falhar, deixa a chamada seguinte estourar o erro real.
+  }
+}
+
 export default function LinksPagamentoAluno({
   aluno,
   alunoSelecionado,
@@ -338,6 +346,7 @@ export default function LinksPagamentoAluno({
 
   async function solicitarLink() {
     setErro("");
+    await garantirSessaoValida();
 
     if (!nomeAluno) {
       setErro("Aluno não identificado na ficha.");
@@ -415,6 +424,7 @@ export default function LinksPagamentoAluno({
 
   async function anexarLinkRetroativo() {
     setErro("");
+    await garantirSessaoValida();
 
     if (!nomeAluno) {
       setErro("Aluno não identificado na ficha.");
@@ -550,6 +560,8 @@ export default function LinksPagamentoAluno({
   }
 
   async function marcarLinkEnviadoAoAluno(item) {
+    await garantirSessaoValida();
+
     const link = obterLinkPagamento(item);
 
     if (!link) {
@@ -611,6 +623,7 @@ export default function LinksPagamentoAluno({
 
   async function anexarComprovante(item) {
     setErro("");
+    await garantirSessaoValida();
 
     if (!itemPertenceAoUsuario(item) && !usuarioVeTudo) {
       setErro("Somente o operador que solicitou este link pode anexar o comprovante.");
@@ -643,7 +656,15 @@ export default function LinksPagamentoAluno({
     if (erroUpload) {
       console.error("Erro ao anexar comprovante:", erroUpload);
       setEnviandoComprovanteId(null);
-      setErro("Erro ao anexar comprovante: " + erroUpload.message);
+
+      if (String(erroUpload.message || "").toLowerCase().includes("row-level security")) {
+        setErro(
+          "Sua sessão expirou (a tela ficou muito tempo parada). Atualize a página (F5) e tente anexar o comprovante de novo."
+        );
+      } else {
+        setErro("Erro ao anexar comprovante: " + erroUpload.message);
+      }
+
       return;
     }
 
