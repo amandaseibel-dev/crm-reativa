@@ -3,6 +3,7 @@ import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import EnvioFinanceiro from "../components/EnvioFinanceiro";
+import FinanceiroAluno from "../components/FinanceiroAluno";
 
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
@@ -1117,6 +1118,7 @@ export default function Alunos() {
                 </div>
               </div>
 
+              <FinanceiroAluno aluno={alunoSelecionado} />
               <FinalizacaoTermo aluno={alunoSelecionado} />
 
               <EnvioFinanceiro aluno={alunoSelecionado} />

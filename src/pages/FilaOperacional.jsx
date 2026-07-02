@@ -6,6 +6,7 @@ import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import CadastroNovoAluno from "../components/CadastroNovoAluno";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import EnvioFinanceiro from "../components/EnvioFinanceiro";
+import FinanceiroAluno from "../components/FinanceiroAluno";
 import { podeVerTudo } from "../utils/operadores";
 import FilaReceptivo from "../components/FilaReceptivo";
 import PontoOperador from "../components/PontoOperador";
@@ -1438,6 +1439,7 @@ export default function FilaOperador() {
                 </div>
               </div>
 
+              <FinanceiroAluno aluno={alunoSelecionado} />
               <FinalizacaoTermo aluno={alunoSelecionado} />
 
               <EnvioFinanceiro aluno={alunoSelecionado} />

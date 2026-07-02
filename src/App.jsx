@@ -22,6 +22,7 @@ import BotaoManual from "./components/BotaoManual";
 import FilaFinanceiro from "./pages/FilaFinanceiro";
 import PainelOperadores from "./pages/PainelOperadores";
 import MeuPerfil from "./pages/MeuPerfil";
+import Borderos from "./pages/Borderos";
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 import PainelAdm from "./pages/PainelAdm";
 
@@ -88,7 +89,8 @@ function podeAcessar(perfil, rota) {
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
       "/painel-adm",
-      "/fila-financeiro",    
+      "/fila-financeiro",
+      "/borderos",
       "/meu-perfil",],
     operador: [
       "/",
@@ -446,7 +448,7 @@ export default function App() {
               path="/borderos"
               element={
                 <RotaProtegida usuario={usuario} rota="/borderos">
-                  <EmDesenvolvimento titulo="Borderôs" />
+                  <Borderos />
                 </RotaProtegida>
               }
             />
