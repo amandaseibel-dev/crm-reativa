@@ -11,7 +11,7 @@ export default function PrioridadeLinksOperador() {
 
     const intervalo = setInterval(() => {
       carregarPrioridades();
-    }, 15000);
+    }, 25000);
 
     return () => clearInterval(intervalo);
   }, []);

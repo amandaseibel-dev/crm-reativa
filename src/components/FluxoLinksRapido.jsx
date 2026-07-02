@@ -35,7 +35,7 @@ export default function FluxoLinksRapido() {
 
     const intervalo = setInterval(() => {
       carregarTudo(usuarioAtual);
-    }, 10000);
+    }, 25000);
 
     return () => clearInterval(intervalo);
     // eslint-disable-next-line react-hooks/exhaustive-deps

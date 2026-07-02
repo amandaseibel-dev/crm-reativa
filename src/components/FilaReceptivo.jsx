@@ -47,7 +47,7 @@ export default function FilaReceptivo({ usuarioLogado }) {
 
   useEffect(() => {
     buscarFila();
-    const intervaloBusca = setInterval(buscarFila, 8000);
+    const intervaloBusca = setInterval(buscarFila, 20000);
     return () => clearInterval(intervaloBusca);
   }, []);
 
