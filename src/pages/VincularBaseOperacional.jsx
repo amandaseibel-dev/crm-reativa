@@ -44,7 +44,7 @@ async function buscarTodosAlunos() {
     const { data, error } = await supabase
       .from("alunos")
       .select(
-        "id, nome, cpf, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em, status_acionamento, data_ultimo_acionamento"
+        "id, nome, cpf, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em, status_acionamento, data_ultimo_acionamento, nivel_criticidade"
       )
       .range(pagina * TAMANHO_PAGINA, pagina * TAMANHO_PAGINA + TAMANHO_PAGINA - 1);
     if (error) throw error;
@@ -91,11 +91,13 @@ export default function VincularBaseOperacional() {
       // Colunas identificadas pela posição, já que o cabeçalho original
       // vem com algumas células erradas/mescladas na planilha de origem:
       // 3 = Aluno, 7 = Data do último acionamento, 8 = Status Acionamento,
-      // 13 = Operador Mensalidade.
+      // 9 = Criticidade (emoji, sem cabeçalho de texto), 13 = Operador
+      // Mensalidade.
       const cabecalho = Object.keys(linhasBrutas[0]);
       const colNome = cabecalho[3];
       const colDataAcionamento = cabecalho[7];
       const colStatusAcionamento = cabecalho[8];
+      const colCriticidade = cabecalho[9];
       const colOperadorMensalidade = cabecalho[13];
 
       const linhas = linhasBrutas
@@ -105,6 +107,9 @@ export default function VincularBaseOperacional() {
           dataAcionamento: paraDataISO(linha[colDataAcionamento]),
           statusAcionamento: linha[colStatusAcionamento]
             ? String(linha[colStatusAcionamento]).trim()
+            : null,
+          criticidade: linha[colCriticidade]
+            ? String(linha[colCriticidade]).trim()
             : null,
           operadorArquivo: linha[colOperadorMensalidade]
             ? String(linha[colOperadorMensalidade]).trim()
@@ -165,9 +170,15 @@ export default function VincularBaseOperacional() {
         const vaiPreencherData = Boolean(
           linha.dataAcionamento && aluno && !aluno.data_ultimo_acionamento
         );
+        const vaiPreencherCriticidade = Boolean(
+          linha.criticidade && aluno && !aluno.nivel_criticidade
+        );
 
         const temAlgumDado =
-          vaiPreencherResponsavel || vaiPreencherStatus || vaiPreencherData;
+          vaiPreencherResponsavel ||
+          vaiPreencherStatus ||
+          vaiPreencherData ||
+          vaiPreencherCriticidade;
 
         return {
           ...linha,
@@ -178,6 +189,7 @@ export default function VincularBaseOperacional() {
           vaiPreencherResponsavel,
           vaiPreencherStatus,
           vaiPreencherData,
+          vaiPreencherCriticidade,
           temAlgumDado,
         };
       });
@@ -252,6 +264,9 @@ export default function VincularBaseOperacional() {
           data_ultimo_acionamento: l.vaiPreencherData
             ? l.dataAcionamento
             : l.aluno.data_ultimo_acionamento ?? null,
+          nivel_criticidade: l.vaiPreencherCriticidade
+            ? l.criticidade
+            : l.aluno.nivel_criticidade ?? null,
         }));
 
       // A planilha pode ter mais de uma linha pro mesmo aluno (ex: vários
@@ -308,8 +323,8 @@ export default function VincularBaseOperacional() {
       <h1>Vincular base operacional</h1>
       <p style={{ opacity: 0.75, marginBottom: 20 }}>
         Sobe a planilha da base operacional. Casa por nome do aluno, e carrega operador da
-        mensalidade (vira responsável), status do acionamento e data do último acionamento.
-        Nada é gravado até confirmar.
+        mensalidade (vira responsável), status do acionamento, data do último acionamento e
+        nível de criticidade. Nada é gravado até confirmar.
       </p>
 
       <div style={estilos.caixaUpload}>
