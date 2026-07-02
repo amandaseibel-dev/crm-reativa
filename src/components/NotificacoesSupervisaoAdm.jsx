@@ -109,9 +109,23 @@ export default function NotificacoesSupervisaoAdm({ usuario }) {
     verificar();
     const intervalo = setInterval(verificar, INTERVALO_MS);
 
+    // O navegador atrasa (throttle) o setInterval quando a aba fica em
+    // segundo plano (pessoa em outra aba/janela) -- sem isso, quem tava
+    // com o CRM aberto mas não em foco podia não ver o aviso por vários
+    // minutos, dando a impressão de que a notificação simplesmente não
+    // funcionou. Roda uma checagem na hora assim que a aba volta a ficar
+    // visível/em foco, em vez de esperar o próximo tick atrasado.
+    function aoVoltarFoco() {
+      if (document.visibilityState === "visible") verificar();
+    }
+    document.addEventListener("visibilitychange", aoVoltarFoco);
+    window.addEventListener("focus", aoVoltarFoco);
+
     return () => {
       cancelado = true;
       clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", aoVoltarFoco);
+      window.removeEventListener("focus", aoVoltarFoco);
     };
   }, [habilitado, email]);
 
