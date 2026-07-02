@@ -16,10 +16,11 @@ import ResumoDoDia from "../components/ResumoDoDia";
 import ReceberLeads from "../components/ReceberLeads";
 import MinhaCarteira from "../components/MinhaCarteira";
 
-const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "JURIDICO"];
+const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "JURIDICO"];
 
 const STATUS_BLOQUEADOS_LABEL = {
-  CANCELAMENTO_COBRANCA: "Cancelamento de cobrança",
+  CANCELAMENTO_COBRANCA: "Cancelamento definitivo de cobrança",
+  SUSPENSAO_COBRANCA: "Suspensão de cobrança",
   JURIDICO: "Jurídico",
 };
 
@@ -43,6 +44,7 @@ const FILTROS = [
   { valor: "SEM_RESPONSAVEL", label: "Sem responsável" },
   { valor: "RETORNOS_HOJE", label: "Retornos de hoje" },
   { valor: "NEGOCIACAO_24H", label: "Negociação 24h" },
+  { valor: "JURIDICO_INDETERMINADO", label: "⚖️ Jurídico - prazo indeterminado", somenteGestao: true },
 ];
 
 const STATUS_FINALIZACAO = [
@@ -66,14 +68,29 @@ const STATUS_FINALIZACAO = [
   "TERMO_REJEITADO",
   "ACORDO_FECHADO",
   "CANCELAMENTO_COBRANCA",
+  "SUSPENSAO_COBRANCA",
   "JURIDICO",
 ];
+
+// Cancelamento definitivo e suspensão de cobrança exigem número do
+// processo + prazo (data específica ou indeterminado). Prazo indeterminado
+// entra na lista "Jurídico - prazo indeterminado" pra Amanda cobrar retorno.
+const STATUS_COM_PROCESSO = ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"];
 
 
 function formatarDataHora(data) {
   if (!data) return "-";
 
   try {
+    // Datas "só data" (ex.: alunos.data_retorno, coluna date do Postgres,
+    // sem horário) não podem passar por new Date() direto -- o parser
+    // trata como UTC meia-noite e, ao converter pro fuso local (Brasil,
+    // UTC-3), o dia "volta" um (ex.: 02/07 vira 01/07 21h).
+    if (/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+      const [ano, mes, dia] = data.split("-");
+      return `${dia}/${mes}/${ano}`;
+    }
+
     return new Date(data).toLocaleString("pt-BR", {
       dateStyle: "short",
       timeStyle: "short",
@@ -87,6 +104,14 @@ function paraInputDateTime(data) {
   if (!data) return "";
 
   try {
+    // Datas "só data" (ex.: alunos.data_retorno, coluna date sem horário)
+    // não podem passar pelo new Date() genérico -- é tratado como UTC
+    // meia-noite e o ajuste de fuso abaixo "volta" um dia (mesmo bug do
+    // formatarDataHora, aqui no input de edição).
+    if (/^\d{4}-\d{2}-\d{2}$/.test(data)) {
+      return `${data}T00:00`;
+    }
+
     const d = new Date(data);
     const offset = d.getTimezoneOffset();
     const local = new Date(d.getTime() - offset * 60000);
@@ -210,6 +235,9 @@ export default function FilaOperador() {
   const [observacao, setObservacao] = useState("");
   const [statusFinalizacao, setStatusFinalizacao] = useState("CONTATAR");
   const [dataRetorno, setDataRetorno] = useState("");
+  const [numeroProcesso, setNumeroProcesso] = useState("");
+  const [prazoTipo, setPrazoTipo] = useState("DATA");
+  const [prazoData, setPrazoData] = useState("");
 
   const [novoOperadorEmail, setNovoOperadorEmail] = useState("");
   const [motivoAlteracaoOperador, setMotivoAlteracaoOperador] = useState("");
@@ -321,6 +349,12 @@ export default function FilaOperador() {
 
       if (filtro === "NEGOCIACAO_24H") {
         query = query.eq("status_jornada", "ALUNO_EM_NEGOCIACAO_24H");
+      }
+
+      if (filtro === "JURIDICO_INDETERMINADO") {
+        query = query
+          .eq("processo_prazo_tipo", "INDETERMINADO")
+          .in("status_jornada", ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"]);
       }
 
       // Prioriza sempre quem está a mais tempo sem acionamento (ou nunca
@@ -476,6 +510,7 @@ export default function FilaOperador() {
     atualizarResponsavel = false,
     observacaoAluno = null,
     extra = {},
+    extraAluno = {},
   }) {
     if (!alunoId) {
       alert("Aluno sem ID. Não foi possível registrar.");
@@ -526,6 +561,8 @@ export default function FilaOperador() {
     if (observacaoAluno !== null) {
       atualizacaoAluno.observacao = observacaoAluno;
     }
+
+    Object.assign(atualizacaoAluno, extraAluno);
 
     if (atualizarResponsavel) {
       // Trava de 10 dias: uma vez vinculado, o caso so muda de operador
@@ -662,6 +699,22 @@ export default function FilaOperador() {
       return;
     }
 
+    const ehStatusComProcesso = STATUS_COM_PROCESSO.includes(statusFinalizacao);
+
+    if (ehStatusComProcesso) {
+      if (!numeroProcesso.trim()) {
+        alert(
+          `Informe o número do processo antes de marcar como "${STATUS_BLOQUEADOS_LABEL[statusFinalizacao]}".`
+        );
+        return;
+      }
+
+      if (prazoTipo === "DATA" && !prazoData) {
+        alert("Informe a data do prazo, ou marque como indeterminado.");
+        return;
+      }
+    }
+
     setSalvando(true);
 
     try {
@@ -674,6 +727,14 @@ export default function FilaOperador() {
       const retornoIso = dataRetorno
         ? new Date(dataRetorno).toISOString()
         : null;
+
+      const extraAluno = ehStatusComProcesso
+        ? {
+            processo_numero: numeroProcesso.trim(),
+            processo_prazo_tipo: prazoTipo,
+            processo_prazo_data: prazoTipo === "DATA" ? prazoData : null,
+          }
+        : {};
 
       await registrarMovimentacao({
         alunoId: alunoSelecionado.id,
@@ -689,9 +750,13 @@ export default function FilaOperador() {
         // e se ninguém tivesse assumido, a finalização não contava pra ninguém).
         atualizarResponsavel: true,
         observacaoAluno: ehStatusRestrito ? observacao.trim() : null,
+        extraAluno,
       });
 
       setObservacao("");
+      setNumeroProcesso("");
+      setPrazoTipo("DATA");
+      setPrazoData("");
 
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
@@ -1066,7 +1131,9 @@ export default function FilaOperador() {
             onChange={(e) => setFiltro(e.target.value)}
             style={selectFiltro}
           >
-            {FILTROS.map((item) => (
+            {FILTROS.filter(
+              (item) => !item.somenteGestao || podeVerTudo(usuarioLogado?.email)
+            ).map((item) => (
               <option key={item.valor} value={item.valor}>
                 {item.label}
               </option>
@@ -1469,6 +1536,56 @@ export default function FilaOperador() {
                     </option>
                   ))}
                 </select>
+
+                {STATUS_COM_PROCESSO.includes(statusFinalizacao) && (
+                  <div style={{ ...caixaInterna, marginTop: "10px", marginBottom: "10px" }}>
+                    <label style={label}>Número do processo</label>
+
+                    <input
+                      type="text"
+                      value={numeroProcesso}
+                      onChange={(e) => setNumeroProcesso(e.target.value)}
+                      placeholder="Número do processo"
+                      style={inputCheio}
+                    />
+
+                    <label style={label}>Prazo</label>
+
+                    <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px" }}>
+                      <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
+                        <input
+                          type="radio"
+                          checked={prazoTipo === "DATA"}
+                          onChange={() => setPrazoTipo("DATA")}
+                        />
+                        Data específica
+                      </label>
+
+                      <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
+                        <input
+                          type="radio"
+                          checked={prazoTipo === "INDETERMINADO"}
+                          onChange={() => setPrazoTipo("INDETERMINADO")}
+                        />
+                        Indeterminado
+                      </label>
+                    </div>
+
+                    {prazoTipo === "DATA" ? (
+                      <input
+                        type="date"
+                        value={prazoData}
+                        onChange={(e) => setPrazoData(e.target.value)}
+                        style={inputCheio}
+                      />
+                    ) : (
+                      <p style={{ fontSize: "12px", color: "#f59e0b", margin: 0 }}>
+                        Prazo indeterminado: esse caso vai entrar na lista "⚖️ Jurídico - prazo
+                        indeterminado" pra Amanda cobrar retorno do jurídico.
+                      </p>
+                    )}
+                  </div>
+                )}
 
                 <label style={label}>Data e horário de retorno</label>
 

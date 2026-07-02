@@ -224,6 +224,16 @@ export default function CRM() {
 
   function formatarData(valor) {
     if (!valor) return "-";
+
+    // Datas "só data" (ex.: casos.data_retorno, coluna date do Postgres,
+    // sem horário) não podem passar por new Date() direto -- o parser
+    // trata como UTC meia-noite e, ao converter pro fuso local (Brasil,
+    // UTC-3), o dia "volta" um (ex.: 02/07 vira 01/07 21h).
+    if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+      const [ano, mes, dia] = valor.split("-");
+      return `${dia}/${mes}/${ano}`;
+    }
+
     const data = new Date(valor);
     if (isNaN(data.getTime())) return valor;
     return data.toLocaleDateString("pt-BR");
@@ -231,6 +241,12 @@ export default function CRM() {
 
   function formatarDataHora(valor) {
     if (!valor) return "-";
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) {
+      const [ano, mes, dia] = valor.split("-");
+      return `${dia}/${mes}/${ano}`;
+    }
+
     const data = new Date(valor);
     if (isNaN(data.getTime())) return valor;
 
