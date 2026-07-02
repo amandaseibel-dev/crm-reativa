@@ -5,7 +5,6 @@ import { registrarEventoPonto } from "../utils/ponto";
 const PAUSAS = [
   { chave: "PAUSA_INTERVALO_1", label: "Pausa intervalo 1" },
   { chave: "PAUSA_INTERVALO_2", label: "Pausa intervalo 2" },
-  { chave: "PAUSA_ALMOCO", label: "Pausa almoço" },
 ];
 
 function inicioDoDia() {
