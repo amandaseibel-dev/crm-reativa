@@ -62,8 +62,29 @@ export default function RelatorioTabulacoes() {
   }, [usuario, periodo]);
 
   async function carregarUsuario() {
-    const { data } = await supabase.auth.getUser();
-    setUsuario(data?.user || null);
+    try {
+      try {
+        await supabase.auth.getSession();
+      } catch {}
+
+      const { data, error } = await supabase.auth.getUser();
+
+      if (error || !data?.user) {
+        setErro(
+          "Sua sessão expirou (a tela ficou muito tempo parada). Atualize a página (F5) para continuar."
+        );
+        setCarregando(false);
+        return;
+      }
+
+      setUsuario(data.user);
+    } catch (e) {
+      console.error("Erro ao carregar usuário:", e);
+      setErro(
+        "Sua sessão expirou (a tela ficou muito tempo parada). Atualize a página (F5) para continuar."
+      );
+      setCarregando(false);
+    }
   }
 
   async function carregarMovimentacoes() {

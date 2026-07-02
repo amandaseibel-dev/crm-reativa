@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
+import { emailPorNomeOperador, nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
 
 /* ================= BASE ================= */
 
@@ -815,6 +815,41 @@ return (
       console.error(erroUpdate);
       setErro("Erro ao transferir o caso.");
       return;
+    }
+
+    // Sincroniza com a tabela "alunos" (é o que a Fila Operacional / Minha
+    // Fila realmente usa pra filtrar). Sem isso o caso "transferido" aqui
+    // no CRM continua aparecendo na fila do operador antigo.
+    if (caso.cpfNumeros) {
+      const agora = new Date().toISOString();
+      const vaiPraReceptivo = novoOperador === "RECEPTIVO";
+      const emailNovoOperador = vaiPraReceptivo ? null : emailPorNomeOperador(novoOperador);
+
+      if (vaiPraReceptivo || emailNovoOperador) {
+        const nomeNovoOperador = vaiPraReceptivo
+          ? "RECEPTIVO"
+          : nomeOperadorPorEmail(emailNovoOperador);
+
+        const { error: erroAluno } = await supabase
+          .from("alunos")
+          .update({
+            responsavel_atual_nome: vaiPraReceptivo ? null : nomeNovoOperador,
+            responsavel_atual_email: emailNovoOperador,
+            responsavel_atual_em: agora,
+            operador: novoOperador,
+            operador_nome: vaiPraReceptivo ? null : nomeNovoOperador,
+            operador_email: emailNovoOperador,
+          })
+          .eq("cpf", caso.cpfNumeros);
+
+        if (erroAluno) {
+          console.error("Erro ao sincronizar transferência com a fila do aluno:", erroAluno);
+        }
+      } else {
+        console.warn(
+          `Transferência pro operador "${novoOperador}" não sincronizada com a fila -- e-mail não encontrado no mapeamento canônico.`
+        );
+      }
     }
 
     const historicoOk = await registrarHistorico(
