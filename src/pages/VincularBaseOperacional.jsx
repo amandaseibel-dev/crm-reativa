@@ -12,6 +12,19 @@ function normalizarNome(nome) {
     .replace(/\s+/g, " ");
 }
 
+// Casos marcados na planilha como cancelamento de cobrança ou jurídico
+// precisam sair da cobrança ativa -- a ficha do aluno já bloqueia
+// acionamento pra quem não é Amanda/Fernanda/Amanda ADM quando o status
+// é um desses dois (ver STATUS_BLOQUEADOS_ACIONAMENTO em FilaOperacional).
+// Aqui só detecta a partir do texto bruto da coluna de operador.
+function detectarBloqueioCobranca(textoOperadorBruto) {
+  const normalizado = normalizarNome(textoOperadorBruto);
+  if (!normalizado) return null;
+  if (normalizado.includes("CANCELAMENTO")) return "CANCELAMENTO_COBRANCA";
+  if (normalizado.includes("JURIDIC")) return "JURIDICO";
+  return null;
+}
+
 // Datas podem vir como objeto Date (quando o Excel já formata a célula como
 // data) ou como número serial do Excel (quando a célula é texto/genérico).
 // Trata os dois casos pra não perder a data.
@@ -44,7 +57,7 @@ async function buscarTodosAlunos() {
     const { data, error } = await supabase
       .from("alunos")
       .select(
-        "id, nome, cpf, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em, status_acionamento, data_ultimo_acionamento, nivel_criticidade"
+        "id, nome, cpf, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em, status_acionamento, data_ultimo_acionamento, nivel_criticidade, status_jornada, status_atual, observacao"
       )
       .range(pagina * TAMANHO_PAGINA, pagina * TAMANHO_PAGINA + TAMANHO_PAGINA - 1);
     if (error) throw error;
@@ -121,7 +134,13 @@ export default function VincularBaseOperacional() {
       const colOperadorMensalidade = cabecalho[13];
 
       const linhas = linhasBrutas
-        .map((linha) => ({
+        .map((linha) => {
+          const operadorBruto =
+            (linha[colOperadorResponsavel] && String(linha[colOperadorResponsavel]).trim()) ||
+            (linha[colOperadorMensalidade] && String(linha[colOperadorMensalidade]).trim()) ||
+            null;
+
+          return {
           nomeOriginal: linha[colNome],
           nomeNormalizado: normalizarNome(linha[colNome]),
           dataAcionamento: paraDataISO(linha[colDataAcionamento]),
@@ -131,11 +150,10 @@ export default function VincularBaseOperacional() {
           criticidade: linha[colCriticidade]
             ? String(linha[colCriticidade]).trim()
             : null,
-          operadorArquivo:
-            (linha[colOperadorResponsavel] && String(linha[colOperadorResponsavel]).trim()) ||
-            (linha[colOperadorMensalidade] && String(linha[colOperadorMensalidade]).trim()) ||
-            null,
-        }))
+          operadorArquivo: operadorBruto,
+          bloqueioCobranca: detectarBloqueioCobranca(operadorBruto),
+          };
+        })
         .filter((linha) => linha.nomeNormalizado);
 
       // Busca todos os alunos (paginado) pra casar em memória, em vez de
@@ -195,22 +213,30 @@ export default function VincularBaseOperacional() {
           linha.criticidade && aluno && !aluno.nivel_criticidade
         );
 
+        // Cancelamento de cobrança e jurídico sempre valem, mesmo que o
+        // aluno já tenha outro status -- é uma sinalização de segurança
+        // (não cobrar), não um preenchimento de campo em branco comum.
+        const vaiBloquearCobranca = Boolean(linha.bloqueioCobranca && aluno);
+
         const temAlgumDado =
           vaiPreencherResponsavel ||
           vaiPreencherStatus ||
           vaiPreencherData ||
-          vaiPreencherCriticidade;
+          vaiPreencherCriticidade ||
+          vaiBloquearCobranca;
 
         return {
           ...linha,
           aluno,
           ambiguo,
           emailOperador,
-          operadorNaoReconhecido: Boolean(linha.operadorArquivo) && !emailOperador,
+          operadorNaoReconhecido:
+            Boolean(linha.operadorArquivo) && !emailOperador && !linha.bloqueioCobranca,
           vaiPreencherResponsavel,
           vaiPreencherStatus,
           vaiPreencherData,
           vaiPreencherCriticidade,
+          vaiBloquearCobranca,
           temAlgumDado,
         };
       });
@@ -219,11 +245,24 @@ export default function VincularBaseOperacional() {
       const naoEncontrados = linhasComStatus.filter((l) => !l.aluno && !l.ambiguo).length;
       const ambiguos = linhasComStatus.filter((l) => l.ambiguo).length;
       const comAtualizacao = linhasComStatus.filter((l) => l.aluno && l.temAlgumDado).length;
+      const bloqueiosCobranca = linhasComStatus.filter((l) => l.vaiBloquearCobranca).length;
       const operadoresNaoReconhecidos = [
         ...new Set(
           linhasComStatus.filter((l) => l.operadorNaoReconhecido).map((l) => l.operadorArquivo)
         ),
       ];
+
+      // Quantos alunos (encontrados no CRM) cada operador tem na planilha,
+      // pra dar pra revisar inconsistência antes de confirmar o vínculo.
+      const contagemPorOperadorMapa = new Map();
+      for (const l of linhasComStatus) {
+        if (!l.aluno || !l.emailOperador) continue;
+        const nomeOp = nomeOperadorPorEmail(l.emailOperador);
+        contagemPorOperadorMapa.set(nomeOp, (contagemPorOperadorMapa.get(nomeOp) || 0) + 1);
+      }
+      const contagemPorOperador = [...contagemPorOperadorMapa.entries()]
+        .map(([nome, qtd]) => ({ nome, qtd }))
+        .sort((a, b) => b.qtd - a.qtd);
 
       setPreview({
         linhas: linhasComStatus,
@@ -234,8 +273,10 @@ export default function VincularBaseOperacional() {
           naoEncontrados,
           ambiguos,
           comAtualizacao,
+          bloqueiosCobranca,
         },
         operadoresNaoReconhecidos,
+        contagemPorOperador,
       });
     } catch (err) {
       console.error(err);
@@ -289,6 +330,20 @@ export default function VincularBaseOperacional() {
           nivel_criticidade: l.vaiPreencherCriticidade
             ? l.criticidade
             : l.aluno.nivel_criticidade ?? null,
+          // Cancelamento/jurídico SEMPRE sobrescreve (é sinalização de
+          // segurança pra não cobrar, não um preenchimento comum de
+          // campo em branco). Isso ativa o card vermelho e o bloqueio de
+          // acionamento que já existem na ficha pra quem não é
+          // Amanda/Fernanda/Amanda ADM.
+          status_jornada: l.vaiBloquearCobranca
+            ? l.bloqueioCobranca
+            : l.aluno.status_jornada ?? null,
+          status_atual: l.vaiBloquearCobranca
+            ? l.bloqueioCobranca
+            : l.aluno.status_atual ?? null,
+          observacao: l.vaiBloquearCobranca
+            ? `Marcado como "${l.operadorArquivo}" na planilha (Vincular Base Operacional) — só reativa quem tem acesso: Amanda, Fernanda ou Amanda ADM.`
+            : l.aluno.observacao ?? null,
         }));
 
       // A planilha pode ter mais de uma linha pro mesmo aluno (ex: vários
@@ -397,6 +452,12 @@ export default function VincularBaseOperacional() {
               <div style={estilos.numero}>{preview.totais.comAtualizacao}</div>
               <div style={estilos.label}>Vão ser atualizados (ainda não foram)</div>
             </div>
+            <div style={{ ...estilos.cartao, background: "rgba(239,68,68,0.12)" }}>
+              <div style={{ ...estilos.numero, color: "#fca5a5" }}>
+                {preview.totais.bloqueiosCobranca}
+              </div>
+              <div style={estilos.label}>Cancelamento/Jurídico (sai da cobrança)</div>
+            </div>
           </div>
 
           {preview.operadoresNaoReconhecidos.length > 0 && (
@@ -405,6 +466,39 @@ export default function VincularBaseOperacional() {
               virar responsável, só ignorados nesse campo):{" "}
               {preview.operadoresNaoReconhecidos.join(", ")}
             </p>
+          )}
+
+          {preview.contagemPorOperador.length > 0 && (
+            <div style={{ marginTop: 16 }}>
+              <p style={{ fontSize: 14, fontWeight: 700, marginBottom: 8 }}>
+                Alunos por operador (na planilha, já cadastrados no CRM)
+              </p>
+              <div
+                style={{
+                  display: "grid",
+                  gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))",
+                  gap: 8,
+                }}
+              >
+                {preview.contagemPorOperador.map((op) => (
+                  <div
+                    key={op.nome}
+                    style={{
+                      padding: "8px 12px",
+                      borderRadius: 8,
+                      background: "rgba(255,255,255,0.04)",
+                      border: "1px solid rgba(255,255,255,0.08)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      fontSize: 13,
+                    }}
+                  >
+                    <span>{op.nome}</span>
+                    <strong>{op.qtd}</strong>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           <div

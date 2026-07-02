@@ -337,7 +337,23 @@ export default function FilaOperador() {
         return;
       }
 
-      setAlunos(data || []);
+      // Cancelamento de cobrança e jurídico não devem ficar no topo da
+      // fila (não são pra acionar) -- manda pro final, mantendo a ordem
+      // de prioridade normal entre os dois grupos.
+      const dados = data || [];
+      const emCobranca = dados.filter(
+        (a) =>
+          !STATUS_BLOQUEADOS_ACIONAMENTO.includes(
+            pegarCampo(a, ["status_jornada", "status_atual", "status"], "CONTATAR")
+          )
+      );
+      const foraDaCobranca = dados.filter((a) =>
+        STATUS_BLOQUEADOS_ACIONAMENTO.includes(
+          pegarCampo(a, ["status_jornada", "status_atual", "status"], "CONTATAR")
+        )
+      );
+
+      setAlunos([...emCobranca, ...foraDaCobranca]);
     } catch (e) {
       console.error("Erro inesperado ao carregar fila:", e);
       setErro("Erro inesperado ao carregar a fila.");
