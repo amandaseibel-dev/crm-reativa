@@ -227,7 +227,7 @@ export default function VincularBaseOperacional() {
       // linhas — se uma linha não tivesse uma chave que outra linha do
       // mesmo lote tem, essa coluna seria gravada como NULL nela (testado
       // e confirmado). Repetir o valor atual evita esse risco.
-      const registros = preview.linhas
+      const registrosBrutos = preview.linhas
         .filter((l) => l.aluno && l.temAlgumDado)
         .map((l) => ({
           id: l.aluno.id,
@@ -248,22 +248,50 @@ export default function VincularBaseOperacional() {
             : l.aluno.data_ultimo_acionamento ?? null,
         }));
 
+      // A planilha pode ter mais de uma linha pro mesmo aluno (ex: vários
+      // acionamentos ao longo do tempo pra mesma pessoa). Se o mesmo id de
+      // aluno aparecer duas vezes num mesmo lote do upsert, o Postgres
+      // rejeita o lote inteiro ("ON CONFLICT DO UPDATE command cannot
+      // affect row a second time") — e como o erro não estava sendo
+      // mostrado, parecia que "não tinha dado nada". Por isso: remove
+      // duplicidade por id antes de gravar, mantendo a última ocorrência
+      // (a com o dado mais completo/recente na planilha).
+      const registrosPorId = new Map();
+      for (const registro of registrosBrutos) {
+        registrosPorId.set(registro.id, registro);
+      }
+      const registros = Array.from(registrosPorId.values());
+
       let atualizados = 0;
+      const erros = [];
 
       for (let i = 0; i < registros.length; i += TAMANHO_LOTE) {
         const lote = registros.slice(i, i + TAMANHO_LOTE);
         setProgresso({ feito: i, total: registros.length });
 
         const { error } = await supabase.from("alunos").upsert(lote, { onConflict: "id" });
-        if (!error) atualizados += lote.length;
+
+        if (error) {
+          console.error("Erro no lote do Vincular Base Operacional:", error);
+          erros.push(error.message || String(error));
+        } else {
+          atualizados += lote.length;
+        }
       }
 
       setProgresso(null);
       setResultado({ atualizados, total: registros.length });
-      setPreview(null);
+
+      if (erros.length > 0) {
+        setErro(
+          `Atenção: ${atualizados} de ${registros.length} foram gravados. Alguns lotes falharam: ${erros[0]}`
+        );
+      } else {
+        setPreview(null);
+      }
     } catch (err) {
       console.error(err);
-      setErro("Erro ao vincular. Tente novamente.");
+      setErro("Erro ao vincular: " + (err?.message || String(err)));
     } finally {
       setImportando(false);
     }
