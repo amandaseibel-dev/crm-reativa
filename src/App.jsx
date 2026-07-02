@@ -21,6 +21,7 @@ import ManualOperacao from "./pages/ManualOperacao";
 import BotaoManual from "./components/BotaoManual";
 import FilaFinanceiro from "./pages/FilaFinanceiro";
 import PainelOperadores from "./pages/PainelOperadores";
+import MeuPerfil from "./pages/MeuPerfil";
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 import PainelAdm from "./pages/PainelAdm";
 
@@ -55,7 +56,8 @@ function podeAcessar(perfil, rota) {
       "/minha-fila-pagamentos",
       "/painel-adm",
       "/fila-financeiro",
-      "/painel-operadores",    ],
+      "/painel-operadores",    
+      "/meu-perfil",],
     supervisor: [
       "/",
       "/minha-fila",
@@ -71,7 +73,8 @@ function podeAcessar(perfil, rota) {
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
       "/painel-adm",
-      "/fila-financeiro",    ],
+      "/fila-financeiro",    
+      "/meu-perfil",],
     administrativo: [
       "/",
       "/minha-fila",
@@ -85,7 +88,8 @@ function podeAcessar(perfil, rota) {
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
       "/painel-adm",
-      "/fila-financeiro",    ],
+      "/fila-financeiro",    
+      "/meu-perfil",],
     operador: [
       "/",
       "/minha-fila",
@@ -93,7 +97,8 @@ function podeAcessar(perfil, rota) {
       "/crm",
       "/agenda",
       "/agenda-operacional",
-    ],
+    
+      "/meu-perfil",],
   };
 
   return permissoes[perfil]?.includes(rota);
@@ -279,6 +284,7 @@ export default function App() {
     { rota: "/usuarios", label: "👥 Usuários" },
     { rota: "/relatorios", label: "📈 Relatórios" },
     { rota: "/configuracoes", label: "⚙️ Configurações" },
+    { rota: "/meu-perfil", label: "👤 Meu Perfil" },
   ];
 
   const menu = menuBase.filter((item) => {
@@ -293,7 +299,16 @@ export default function App() {
           <div className="logo">
             <h2>ReATIVA One</h2>
 
-            <span>{usuario.perfil?.nome}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
+              {usuario.perfil?.foto_url ? (
+                <img
+                  src={usuario.perfil.foto_url}
+                  alt="Foto"
+                  style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }}
+                />
+              ) : null}
+              <span>{usuario.perfil?.apelido || usuario.perfil?.nome}</span>
+            </div>
 
             <small
               style={{
@@ -476,6 +491,7 @@ export default function App() {
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/fila-financeiro" element={<FilaFinanceiro />} />
               <Route path="/painel-operadores" element={<PainelOperadores />} />
+              <Route path="/meu-perfil" element={<MeuPerfil />} />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />

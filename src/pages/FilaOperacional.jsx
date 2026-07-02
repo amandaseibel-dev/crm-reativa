@@ -247,9 +247,17 @@ export default function FilaOperador() {
       user.email?.split("@")[0] ||
       "Usuário";
 
+    const { data: perfilUsuario } = await supabase
+      .from("usuarios")
+      .select("apelido, foto_url")
+      .eq("email", user.email)
+      .maybeSingle();
+
     return {
       nome,
       email: user.email,
+      apelido: perfilUsuario?.apelido || null,
+      fotoUrl: perfilUsuario?.foto_url || null,
     };
   }
 
@@ -917,7 +925,9 @@ export default function FilaOperador() {
               <div>
                 <h1 style={tituloSaudacao}>
                   {saudacaoDoDia()}
-                  {usuarioLogado?.nome ? `, ${primeiroNome(usuarioLogado.nome)}` : ""}
+                  {usuarioLogado?.apelido || usuarioLogado?.nome
+                    ? `, ${primeiroNome(usuarioLogado.apelido || usuarioLogado.nome)}`
+                    : ""}
                 </h1>
                 <p style={subtituloSaudacao}>
                   Aqui está o resumo do seu dia.{" "}
