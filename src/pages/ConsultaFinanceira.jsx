@@ -39,32 +39,9 @@ export default function ConsultaFinanceira() {
   const [totalLinhas, setTotalLinhas] = useState(0);
   const [carregando, setCarregando] = useState(true);
 
-  useEffect(() => {
-    async function carregarResumo() {
-      const { data } = await supabase.rpc("resumo_financeiro");
-      setResumo(data?.[0] || null);
-    }
-    carregarResumo();
-  }, []);
-
-  useEffect(() => {
-    carregarLinhas(pagina);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtro, pagina]);
-
-  async function buscar() {
-    setPagina(0);
-    await carregarLinhas(0);
-  }
-
-  async function carregarLinhas(paginaAtual) {
-    setCarregando(true);
+  function aplicarFiltros(query) {
     const buscaLimpa = busca.trim();
     const ehCpf = /^\d{3,}$/.test(buscaLimpa.replace(/\D/g, ""));
-
-    let query = supabase
-      .from("consulta_financeira_por_aluno")
-      .select("*", { count: "exact" });
 
     if (filtro === "EM_ABERTO") query = query.in("situacao_geral", ["EM_ABERTO", "PARCIAL"]);
     if (filtro === "EM_ATRASO") query = query.eq("tem_atraso", true);
@@ -88,6 +65,55 @@ export default function ConsultaFinanceira() {
     } else if (operador) {
       query = query.eq("responsavel_atual_email", operador);
     }
+
+    return query;
+  }
+
+  useEffect(() => {
+    carregarLinhas(pagina);
+    carregarResumoFiltrado();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtro, pagina, operador]);
+
+  async function buscar() {
+    setPagina(0);
+    await carregarLinhas(0);
+    await carregarResumoFiltrado();
+  }
+
+  // Quando tem operador (ou qualquer filtro) selecionado, os cards passam a
+  // mostrar o total daquele recorte, não o total geral da base.
+  async function carregarResumoFiltrado() {
+    let query = supabase
+      .from("consulta_financeira_por_aluno")
+      .select("valor_em_aberto, tem_atraso, situacao_geral");
+
+    query = aplicarFiltros(query);
+
+    const { data } = await query;
+    const linhasFiltro = data || [];
+
+    setResumo({
+      total_alunos: linhasFiltro.length,
+      total_em_aberto: linhasFiltro.filter((l) => l.situacao_geral !== "PAGO").length,
+      total_em_atraso: linhasFiltro.filter((l) => l.tem_atraso).length,
+      total_pagos: linhasFiltro.filter((l) => l.situacao_geral === "PAGO").length,
+      total_parcial: linhasFiltro.filter((l) => l.situacao_geral === "PARCIAL").length,
+      valor_em_aberto: linhasFiltro.reduce((soma, l) => soma + Number(l.valor_em_aberto || 0), 0),
+      valor_em_atraso: linhasFiltro
+        .filter((l) => l.tem_atraso)
+        .reduce((soma, l) => soma + Number(l.valor_em_aberto || 0), 0),
+    });
+  }
+
+  async function carregarLinhas(paginaAtual) {
+    setCarregando(true);
+
+    let query = supabase
+      .from("consulta_financeira_por_aluno")
+      .select("*", { count: "exact" });
+
+    query = aplicarFiltros(query);
 
     query = query
       .order("valor_em_aberto", { ascending: false })
