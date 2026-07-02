@@ -231,6 +231,12 @@ export default function VincularBaseOperacional() {
         .filter((l) => l.aluno && l.temAlgumDado)
         .map((l) => ({
           id: l.aluno.id,
+          // "nome" e obrigatorio na tabela (NOT NULL sem default). O
+          // Postgres valida essa constraint no upsert mesmo quando a acao
+          // final e so um UPDATE (a linha "proposta" pro INSERT precisa
+          // ser valida antes do ON CONFLICT decidir), entao precisa vir
+          // preenchido mesmo sem mudar o nome do aluno.
+          nome: l.aluno.nome,
           responsavel_atual_email: l.vaiPreencherResponsavel
             ? l.emailOperador
             : l.aluno.responsavel_atual_email ?? null,
