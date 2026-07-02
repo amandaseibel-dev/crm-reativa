@@ -82,6 +82,12 @@ export default function FilaConfirmacaoPagamento() {
   }
 
   async function confirmarPagamento(solicitacao) {
+    try {
+      await supabase.auth.getSession();
+    } catch {
+      // Segue e deixa o erro real da próxima chamada aparecer.
+    }
+
     const observacaoAdm = observacoes[solicitacao.id] || "";
     const agora = new Date().toISOString();
 
@@ -118,6 +124,12 @@ export default function FilaConfirmacaoPagamento() {
   }
 
   async function rejeitarPagamento(solicitacao) {
+    try {
+      await supabase.auth.getSession();
+    } catch {
+      // Segue e deixa o erro real da próxima chamada aparecer.
+    }
+
     const motivo = observacoes[solicitacao.id] || "";
 
     if (!motivo.trim()) {

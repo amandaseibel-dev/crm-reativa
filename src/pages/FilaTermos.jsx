@@ -365,6 +365,27 @@ export default function FilaAdmTermos() {
                 >
                   Abrir termo de acordo
                 </a>
+
+                {termo.arquivo_rg_url && (
+                  <>
+                    {" "}
+                    <a
+                      href={termo.arquivo_rg_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      style={styles.link}
+                    >
+                      Abrir RG anexado
+                    </a>
+                  </>
+                )}
+
+                {termo.tipo_assinatura === "MANUAL_RG" && !termo.arquivo_rg_url && (
+                  <p style={{ color: "#b45309", fontSize: 13, marginTop: 6 }}>
+                    Termo antigo, enviado antes do RG virar anexo separado -- confira o RG
+                    dentro do próprio arquivo do termo, se estiver junto.
+                  </p>
+                )}
               </div>
             ) : (
               <div style={styles.alerta}>

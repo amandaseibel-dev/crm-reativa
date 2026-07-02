@@ -74,6 +74,7 @@ export default function FinalizacaoTermo({ aluno }) {
   const [usuario, setUsuario] = useState(null);
   const [observacao, setObservacao] = useState("");
   const [arquivo, setArquivo] = useState(null);
+  const [arquivoRg, setArquivoRg] = useState(null);
   const [tipoAssinatura, setTipoAssinatura] = useState("MANUAL_RG");
   const [enviando, setEnviando] = useState(false);
   const [carregando, setCarregando] = useState(false);
@@ -164,6 +165,13 @@ export default function FinalizacaoTermo({ aluno }) {
       return;
     }
 
+    // RG só é obrigatório na assinatura manual -- gov.br já valida a
+    // identidade eletronicamente, não precisa do documento em foto.
+    if (tipoAssinatura === "MANUAL_RG" && !arquivoRg) {
+      alert("Anexe o RG (documento de identidade) junto com o termo assinado.");
+      return;
+    }
+
     setEnviando(true);
 
     const { data: userData } = await supabase.auth.getUser();
@@ -200,6 +208,41 @@ export default function FinalizacaoTermo({ aluno }) {
 
     arquivoUrl = publicUrlData?.publicUrl || null;
 
+    // RG vai como um segundo arquivo, no mesmo bucket, numa subpasta
+    // separada pra não misturar com o termo assinado.
+    let arquivoRgUrl = null;
+    let arquivoRgNome = null;
+
+    if (arquivoRg) {
+      arquivoRgNome = arquivoRg.name;
+
+      const nomeSeguroRg = arquivoRg.name
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9.\-_]/g, "_");
+
+      const caminhoRg = `${aluno.id}/rg-${Date.now()}-${nomeSeguroRg}`;
+
+      const { error: uploadRgError } = await supabase.storage
+        .from("termos-acordo")
+        .upload(caminhoRg, arquivoRg, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      if (uploadRgError) {
+        alert("Erro ao anexar o RG: " + uploadRgError.message);
+        setEnviando(false);
+        return;
+      }
+
+      const { data: publicUrlRgData } = supabase.storage
+        .from("termos-acordo")
+        .getPublicUrl(caminhoRg);
+
+      arquivoRgUrl = publicUrlRgData?.publicUrl || null;
+    }
+
     // Assinatura via gov.br já vem validada eletronicamente pelo governo,
     // então libera na hora (não passa pela fila de conferencia do ADM) e
     // fica so registrada para auditoria por amostragem depois. Assinatura
@@ -218,6 +261,8 @@ export default function FinalizacaoTermo({ aluno }) {
       observacao_operador: observacao,
       arquivo_nome: arquivoNome,
       arquivo_url: arquivoUrl,
+      arquivo_rg_nome: arquivoRgNome,
+      arquivo_rg_url: arquivoRgUrl,
       tipo_assinatura: tipoAssinatura,
       status: statusInicial,
       ...(ehGovBr
@@ -243,6 +288,7 @@ export default function FinalizacaoTermo({ aluno }) {
 
     setObservacao("");
     setArquivo(null);
+    setArquivoRg(null);
     setTipoAssinatura("MANUAL_RG");
     setEnviando(false);
     carregarTermosDoAluno();
@@ -310,6 +356,17 @@ export default function FinalizacaoTermo({ aluno }) {
               Abrir último termo anexado
             </a>
           )}
+
+          {ultimoTermo.arquivo_rg_url && (
+            <a
+              href={ultimoTermo.arquivo_rg_url}
+              target="_blank"
+              rel="noreferrer"
+              style={{ ...styles.linkArquivo, marginLeft: 12 }}
+            >
+              Abrir RG anexado
+            </a>
+          )}
         </div>
       )}
 
@@ -350,7 +407,7 @@ export default function FinalizacaoTermo({ aluno }) {
           </div>
 
           <div style={styles.bloco}>
-            <label style={styles.label}>Anexar termo de acordo</label>
+            <label style={styles.label}>Anexar termo assinado</label>
             <input
               type="file"
               accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
@@ -363,6 +420,23 @@ export default function FinalizacaoTermo({ aluno }) {
               </p>
             )}
           </div>
+
+          {tipoAssinatura === "MANUAL_RG" && (
+            <div style={styles.bloco}>
+              <label style={styles.label}>Anexar RG (documento de identidade)</label>
+              <input
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg"
+                onChange={(e) => setArquivoRg(e.target.files?.[0] || null)}
+              />
+
+              {arquivoRg && (
+                <p style={styles.arquivoSelecionado}>
+                  Arquivo selecionado: <strong>{arquivoRg.name}</strong>
+                </p>
+              )}
+            </div>
+          )}
 
           <button
             style={{
