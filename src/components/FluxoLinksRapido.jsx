@@ -152,8 +152,15 @@ export default function FluxoLinksRapido() {
   }
 
   function filtrarPrioridades(lista, usuario) {
-    if (usuario.master) return lista;
-
+    // Esse "topo da fila" é uma ação pessoal (copiar/enviar mensagem pro
+    // ALUNO daquele operador) -- não é um painel de supervisão. Por isso
+    // NUNCA deve pular o filtro por e-mail, nem pra quem é master/ADM:
+    // "master" aqui é detectado também por nome (ex.: "Amanda ADM" tem
+    // "amanda" no apelido "Amandoca" e batia como master por engano),
+    // o que fazia ela ver e poder "enviar" o link pronto de outros
+    // operadores (Maurício, Diego etc.) como se fosse dela. Quem
+    // realmente precisa de visão geral de todos os links tem isso no
+    // Painel ADM / Fila de Links, que são telas de supervisão de verdade.
     const email = String(usuario.email || "").trim().toLowerCase();
 
     // Sem e-mail confirmado da sessão, não mostra nada (evita vazar
