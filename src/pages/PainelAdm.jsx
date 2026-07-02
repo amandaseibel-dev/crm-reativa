@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
 
@@ -164,6 +165,7 @@ async function garantirSessaoValida() {
 }
 
 export default function PainelAdm() {
+  const navigate = useNavigate();
   const [usuario, setUsuario] = useState(null);
   const [aba, setAba] = useState("LINKS");
 
@@ -329,6 +331,11 @@ export default function PainelAdm() {
   }
 
   // ===================== AÇÕES: LINKS =====================
+
+  function abrirFichaAluno(alunoId) {
+    if (!alunoId) return;
+    navigate(`/aluno?alunoId=${encodeURIComponent(alunoId)}`);
+  }
 
   async function historicoLink(item, statusNovo, observacao) {
     await supabase.from("historico_links_pagamento").insert({
@@ -892,7 +899,15 @@ export default function PainelAdm() {
                     return (
                       <Fragment key={item.id}>
                       <tr style={estilos.tr}>
-                        <td style={estilos.td}>{item.aluno_nome || item.nome_aluno || "-"}</td>
+                        <td style={estilos.td}>
+                          <button
+                            type="button"
+                            style={estilos.nomeClicavel}
+                            onClick={() => abrirFichaAluno(item.aluno_id)}
+                          >
+                            {item.aluno_nome || item.nome_aluno || "-"}
+                          </button>
+                        </td>
                         <td style={{ ...estilos.td, color: "#475569" }}>
                           {item.operador_nome || item.operador_solicitante || "-"}
                         </td>
@@ -1043,7 +1058,15 @@ export default function PainelAdm() {
                 <div key={s.id} style={estilos.card}>
                   <div style={estilos.topoCard}>
                     <div>
-                      <h3 style={estilos.nomeCard}>{s.aluno_nome || "Aluno sem nome"}</h3>
+                      <h3 style={estilos.nomeCard}>
+                        <button
+                          type="button"
+                          style={estilos.nomeClicavelCard}
+                          onClick={() => abrirFichaAluno(s.aluno_id)}
+                        >
+                          {s.aluno_nome || "Aluno sem nome"}
+                        </button>
+                      </h3>
                       <p style={estilos.infoCard}><strong>CPF:</strong> {s.aluno_cpf || "Não informado"}</p>
                       <p style={estilos.infoCard}>
                         <strong>Operador:</strong> {s.operador_nome || s.operador_email || "Não informado"}
@@ -1129,7 +1152,15 @@ export default function PainelAdm() {
                 <div key={termo.id} style={estilos.card}>
                   <div style={estilos.topoCard}>
                     <div>
-                      <h3 style={estilos.nomeCard}>{termo.aluno_nome || "Aluno sem nome"}</h3>
+                      <h3 style={estilos.nomeCard}>
+                        <button
+                          type="button"
+                          style={estilos.nomeClicavelCard}
+                          onClick={() => abrirFichaAluno(termo.aluno_id)}
+                        >
+                          {termo.aluno_nome || "Aluno sem nome"}
+                        </button>
+                      </h3>
                       <p style={estilos.infoCard}><strong>CPF:</strong> {termo.aluno_cpf || "Não informado"}</p>
                       <p style={estilos.infoCard}>
                         <strong>Operador:</strong> {termo.operador_nome || termo.operador_email || "Não informado"}
@@ -1375,6 +1406,32 @@ const estilos = {
     padding: "24px",
     textAlign: "center",
     color: "#64748b",
+  },
+  nomeClicavel: {
+    background: "none",
+    border: "none",
+    padding: 0,
+    margin: 0,
+    color: "#0d6efd",
+    fontWeight: "700",
+    fontSize: "inherit",
+    fontFamily: "inherit",
+    cursor: "pointer",
+    textAlign: "left",
+    textDecoration: "underline",
+    textDecorationColor: "transparent",
+  },
+  nomeClicavelCard: {
+    background: "none",
+    border: "none",
+    padding: 0,
+    margin: 0,
+    color: "#0d6efd",
+    fontWeight: "700",
+    fontSize: "inherit",
+    fontFamily: "inherit",
+    cursor: "pointer",
+    textAlign: "left",
   },
   acaoColuna: {
     display: "flex",
