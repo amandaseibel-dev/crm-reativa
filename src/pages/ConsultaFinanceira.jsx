@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { OPERADORES_POR_EMAIL } from "../utils/operadores";
 
 const POR_PAGINA = 30;
 
@@ -7,8 +8,8 @@ const FILTROS = [
   { valor: "TODOS", label: "Todos" },
   { valor: "EM_ABERTO", label: "Em aberto" },
   { valor: "EM_ATRASO", label: "Em atraso" },
-  { valor: "EM_DIA", label: "Em dia" },
   { valor: "PAGO", label: "Pagos" },
+  { valor: "PARCIAL", label: "Parciais" },
 ];
 
 function formatarData(data) {
@@ -21,10 +22,18 @@ function moeda(valor) {
   return Number(valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+const SITUACAO_LABEL = {
+  EM_ABERTO: "Em aberto",
+  PARCIAL: "Parcial",
+  PAGO: "Pago",
+};
+
 export default function ConsultaFinanceira() {
   const [resumo, setResumo] = useState(null);
   const [filtro, setFiltro] = useState("TODOS");
   const [busca, setBusca] = useState("");
+  const [valorMinimo, setValorMinimo] = useState("");
+  const [operador, setOperador] = useState("");
   const [pagina, setPagina] = useState(0);
   const [linhas, setLinhas] = useState([]);
   const [totalLinhas, setTotalLinhas] = useState(0);
@@ -39,7 +48,7 @@ export default function ConsultaFinanceira() {
   }, []);
 
   useEffect(() => {
-    carregarLinhas();
+    carregarLinhas(pagina);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtro, pagina]);
 
@@ -48,36 +57,40 @@ export default function ConsultaFinanceira() {
     await carregarLinhas(0);
   }
 
-  async function carregarLinhas(paginaForcada) {
+  async function carregarLinhas(paginaAtual) {
     setCarregando(true);
-    const paginaAtual = paginaForcada ?? pagina;
-    const hoje = new Date().toISOString().slice(0, 10);
-
     const buscaLimpa = busca.trim();
     const ehCpf = /^\d{3,}$/.test(buscaLimpa.replace(/\D/g, ""));
 
     let query = supabase
-      .from("acordos_titulos")
-      .select(
-        "documento, vencimento, valor_original, saldo_corrigido, situacao, tipo_boleto, cpf, alunos!inner(nome, cpf, telefone)",
-        { count: "exact" }
-      );
+      .from("consulta_financeira_por_aluno")
+      .select("*", { count: "exact" });
 
-    if (filtro === "EM_ABERTO") query = query.neq("situacao", "PAGO");
-    if (filtro === "EM_ATRASO") query = query.neq("situacao", "PAGO").lt("vencimento", hoje);
-    if (filtro === "EM_DIA") query = query.neq("situacao", "PAGO").gte("vencimento", hoje);
-    if (filtro === "PAGO") query = query.eq("situacao", "PAGO");
+    if (filtro === "EM_ABERTO") query = query.in("situacao_geral", ["EM_ABERTO", "PARCIAL"]);
+    if (filtro === "EM_ATRASO") query = query.eq("tem_atraso", true);
+    if (filtro === "PAGO") query = query.eq("situacao_geral", "PAGO");
+    if (filtro === "PARCIAL") query = query.eq("situacao_geral", "PARCIAL");
 
     if (buscaLimpa) {
       if (ehCpf) {
         query = query.ilike("cpf", `%${buscaLimpa.replace(/\D/g, "")}%`);
       } else {
-        query = query.ilike("alunos.nome", `%${buscaLimpa}%`);
+        query = query.ilike("nome", `%${buscaLimpa}%`);
       }
     }
 
+    if (valorMinimo) {
+      query = query.gte("valor_em_aberto", Number(valorMinimo));
+    }
+
+    if (operador === "__SEM__") {
+      query = query.is("responsavel_atual_email", null);
+    } else if (operador) {
+      query = query.eq("responsavel_atual_email", operador);
+    }
+
     query = query
-      .order("vencimento", { ascending: true })
+      .order("valor_em_aberto", { ascending: false })
       .range(paginaAtual * POR_PAGINA, paginaAtual * POR_PAGINA + POR_PAGINA - 1);
 
     const { data, count } = await query;
@@ -90,30 +103,31 @@ export default function ConsultaFinanceira() {
     <div className="main">
       <h1>Financeiro</h1>
       <p style={{ opacity: 0.75, marginBottom: 20 }}>
-        Consulta dos títulos importados pelos borderôs — mensalidades e acordos em aberto.
+        Consulta agrupada por aluno, somando o valor em aberto de todos os títulos
+        importados pelos borderôs.
       </p>
 
       {resumo && (
         <div style={estilos.grade}>
           <div style={estilos.cartao}>
-            <div style={estilos.numero}>{resumo.total_titulos}</div>
-            <div style={estilos.label}>Total de títulos</div>
+            <div style={estilos.numero}>{resumo.total_alunos}</div>
+            <div style={estilos.label}>Alunos com título</div>
           </div>
           <div style={{ ...estilos.cartao, background: "rgba(251,191,36,0.1)" }}>
             <div style={{ ...estilos.numero, color: "#fcd34d" }}>
               {moeda(resumo.valor_em_aberto)}
             </div>
-            <div style={estilos.label}>Em aberto ({resumo.total_em_aberto})</div>
+            <div style={estilos.label}>Em aberto ({resumo.total_em_aberto} alunos)</div>
           </div>
           <div style={{ ...estilos.cartao, background: "rgba(239,68,68,0.1)" }}>
             <div style={{ ...estilos.numero, color: "#fca5a5" }}>
               {moeda(resumo.valor_em_atraso)}
             </div>
-            <div style={estilos.label}>Em atraso ({resumo.total_em_atraso})</div>
+            <div style={estilos.label}>Em atraso ({resumo.total_em_atraso} alunos)</div>
           </div>
           <div style={{ ...estilos.cartao, background: "rgba(56,189,248,0.1)" }}>
-            <div style={{ ...estilos.numero, color: "#7dd3fc" }}>{resumo.total_em_dia}</div>
-            <div style={estilos.label}>Em dia</div>
+            <div style={{ ...estilos.numero, color: "#7dd3fc" }}>{resumo.total_parcial}</div>
+            <div style={estilos.label}>Parciais</div>
           </div>
           <div style={{ ...estilos.cartao, background: "rgba(34,197,94,0.1)" }}>
             <div style={{ ...estilos.numero, color: "#86efac" }}>{resumo.total_pagos}</div>
@@ -146,26 +160,47 @@ export default function ConsultaFinanceira() {
             {f.label}
           </button>
         ))}
+      </div>
 
-        <div style={{ display: "flex", gap: 6, marginLeft: "auto" }}>
-          <input
-            type="text"
-            placeholder="Nome ou CPF do aluno"
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && buscar()}
-            style={{ padding: "6px 10px", borderRadius: 8, minWidth: 220 }}
-          />
-          <button type="button" onClick={buscar} style={{ padding: "6px 14px" }}>
-            Buscar
-          </button>
-        </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" }}>
+        <input
+          type="text"
+          placeholder="Nome ou CPF do aluno"
+          value={busca}
+          onChange={(e) => setBusca(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && buscar()}
+          style={{ padding: "6px 10px", borderRadius: 8, minWidth: 200 }}
+        />
+        <input
+          type="number"
+          placeholder="Valor mínimo (R$)"
+          value={valorMinimo}
+          onChange={(e) => setValorMinimo(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && buscar()}
+          style={{ padding: "6px 10px", borderRadius: 8, width: 150 }}
+        />
+        <select
+          value={operador}
+          onChange={(e) => setOperador(e.target.value)}
+          style={{ padding: "6px 10px", borderRadius: 8 }}
+        >
+          <option value="">Todos os operadores</option>
+          <option value="__SEM__">Sem responsável</option>
+          {Object.entries(OPERADORES_POR_EMAIL).map(([email, nome]) => (
+            <option key={email} value={email}>
+              {nome}
+            </option>
+          ))}
+        </select>
+        <button type="button" onClick={buscar}>
+          Filtrar
+        </button>
       </div>
 
       {carregando ? (
         <p>Carregando...</p>
       ) : linhas.length === 0 ? (
-        <p>Nenhum título encontrado com esse filtro.</p>
+        <p>Nenhum aluno encontrado com esse filtro.</p>
       ) : (
         <>
           <div style={{ overflowX: "auto" }}>
@@ -173,25 +208,41 @@ export default function ConsultaFinanceira() {
               <thead>
                 <tr style={{ textAlign: "left", borderBottom: "1px solid rgba(148,163,184,0.3)" }}>
                   <th style={{ padding: "8px 10px" }}>Aluno</th>
-                  <th style={{ padding: "8px 10px" }}>Título</th>
-                  <th style={{ padding: "8px 10px" }}>Vencimento</th>
-                  <th style={{ padding: "8px 10px" }}>Valor</th>
+                  <th style={{ padding: "8px 10px" }}>Operador</th>
+                  <th style={{ padding: "8px 10px" }}>Títulos</th>
+                  <th style={{ padding: "8px 10px" }}>Próx. vencimento</th>
+                  <th style={{ padding: "8px 10px" }}>Valor em aberto</th>
                   <th style={{ padding: "8px 10px" }}>Situação</th>
                 </tr>
               </thead>
               <tbody>
                 {linhas.map((linha) => (
                   <tr
-                    key={linha.documento}
+                    key={linha.aluno_id}
                     style={{ borderBottom: "1px solid rgba(148,163,184,0.12)" }}
                   >
-                    <td style={{ padding: "8px 10px" }}>{linha.alunos?.nome}</td>
-                    <td style={{ padding: "8px 10px", opacity: 0.7 }}>{linha.documento}</td>
-                    <td style={{ padding: "8px 10px" }}>{formatarData(linha.vencimento)}</td>
-                    <td style={{ padding: "8px 10px" }}>
-                      {moeda(linha.saldo_corrigido ?? linha.valor_original)}
+                    <td style={{ padding: "8px 10px" }}>{linha.nome}</td>
+                    <td style={{ padding: "8px 10px", opacity: 0.8 }}>
+                      {linha.responsavel_atual_nome || "-"}
                     </td>
-                    <td style={{ padding: "8px 10px" }}>{linha.situacao}</td>
+                    <td style={{ padding: "8px 10px" }}>
+                      {linha.qtd_em_aberto}
+                      {linha.qtd_pagos > 0 ? ` (+${linha.qtd_pagos} pagos)` : ""}
+                    </td>
+                    <td style={{ padding: "8px 10px" }}>
+                      {formatarData(linha.proximo_vencimento)}
+                      {linha.tem_atraso && (
+                        <span style={{ color: "#fca5a5", marginLeft: 6, fontSize: 11 }}>
+                          atrasado
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ padding: "8px 10px", fontWeight: 700 }}>
+                      {moeda(linha.valor_em_aberto)}
+                    </td>
+                    <td style={{ padding: "8px 10px" }}>
+                      {SITUACAO_LABEL[linha.situacao_geral] || linha.situacao_geral}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -208,7 +259,7 @@ export default function ConsultaFinanceira() {
             </button>
             <span style={{ fontSize: 13, opacity: 0.75 }}>
               Página {pagina + 1} de {Math.max(1, Math.ceil(totalLinhas / POR_PAGINA))} (
-              {totalLinhas} títulos)
+              {totalLinhas} alunos)
             </span>
             <button
               type="button"

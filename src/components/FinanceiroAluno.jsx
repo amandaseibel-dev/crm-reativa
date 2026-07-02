@@ -37,7 +37,20 @@ export default function FinanceiroAluno({ aluno }) {
     carregar();
   }, [aluno?.cpf]);
 
-  if (carregando || titulos.length === 0) return null;
+  if (carregando) return null;
+
+  if (titulos.length === 0) {
+    return (
+      <div style={estilos.caixa}>
+        <strong>💰 Financeiro</strong>
+        <p style={{ fontSize: 12, opacity: 0.7, margin: "6px 0 0" }}>
+          {aluno?.cpf
+            ? `Nenhum título importado pelos borderôs para o CPF ${aluno.cpf}.`
+            : "Este aluno não tem CPF cadastrado, então não dá pra casar com os borderôs."}
+        </p>
+      </div>
+    );
+  }
 
   const emAberto = titulos.filter((t) => t.situacao !== "PAGO");
   const totalEmAberto = emAberto.reduce((soma, t) => soma + Number(t.saldo_corrigido || 0), 0);
