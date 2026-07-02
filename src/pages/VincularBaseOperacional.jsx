@@ -12,10 +12,45 @@ function normalizarNome(nome) {
     .replace(/\s+/g, " ");
 }
 
+// Datas podem vir como objeto Date (quando o Excel já formata a célula como
+// data) ou como número serial do Excel (quando a célula é texto/genérico).
+// Trata os dois casos pra não perder a data.
 function paraDataISO(valor) {
-  if (!valor) return null;
+  if (!valor && valor !== 0) return null;
   if (valor instanceof Date) return valor.toISOString();
+  if (typeof valor === "number") {
+    const data = XLSX.SSF.parse_date_code(valor);
+    if (!data) return null;
+    return new Date(Date.UTC(data.y, data.m - 1, data.d)).toISOString();
+  }
+  if (typeof valor === "string") {
+    const partes = valor.trim().match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+    if (partes) {
+      const [, dia, mes, ano] = partes;
+      const anoCompleto = ano.length === 2 ? Number(ano) + 2000 : Number(ano);
+      return new Date(Date.UTC(anoCompleto, Number(mes) - 1, Number(dia))).toISOString();
+    }
+  }
   return null;
+}
+
+// Busca TODOS os alunos, paginando (o Supabase limita a 1000 linhas por
+// request por padrão) — essencial pra base ter ~16 mil alunos.
+async function buscarTodosAlunos() {
+  const TAMANHO_PAGINA = 1000;
+  let todos = [];
+  let pagina = 0;
+  while (true) {
+    const { data, error } = await supabase
+      .from("alunos")
+      .select("id, nome, cpf")
+      .range(pagina * TAMANHO_PAGINA, pagina * TAMANHO_PAGINA + TAMANHO_PAGINA - 1);
+    if (error) throw error;
+    todos = todos.concat(data || []);
+    if (!data || data.length < TAMANHO_PAGINA) break;
+    pagina += 1;
+  }
+  return todos;
 }
 
 const TAMANHO_LOTE = 500;
@@ -38,7 +73,7 @@ export default function VincularBaseOperacional() {
 
     try {
       const buffer = await arquivo.arrayBuffer();
-      const workbook = XLSX.read(buffer, { type: "array" });
+      const workbook = XLSX.read(buffer, { type: "array", cellDates: true });
       const primeiraAba = workbook.SheetNames[0];
       const linhasBrutas = XLSX.utils.sheet_to_json(workbook.Sheets[primeiraAba], {
         raw: true,
@@ -75,9 +110,9 @@ export default function VincularBaseOperacional() {
         }))
         .filter((linha) => linha.nomeNormalizado);
 
-      // Busca todos os alunos de uma vez (nome + cpf) pra casar em memória,
-      // em vez de uma consulta por linha.
-      const { data: todosAlunos } = await supabase.from("alunos").select("id, nome, cpf");
+      // Busca todos os alunos (paginado) pra casar em memória, em vez de
+      // uma consulta por linha.
+      const todosAlunos = await buscarTodosAlunos();
 
       const mapaAlunosPorNome = new Map();
       for (const aluno of todosAlunos || []) {
