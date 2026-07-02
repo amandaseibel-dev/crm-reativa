@@ -105,11 +105,16 @@ export default function VincularBaseOperacional() {
 
       // Colunas identificadas pela posição, já que o cabeçalho original
       // vem com algumas células erradas/mescladas na planilha de origem:
-      // 3 = Aluno, 7 = Data do último acionamento, 8 = Status Acionamento,
+      // 3 = Aluno, 4 = Operador responsável (quem está de fato acionando o
+      // caso hoje -- pode vir com o nome do operador ou com "RECEPTIVO"
+      // quando ainda não tem dono; sem cabeçalho de texto na planilha),
+      // 7 = Data do último acionamento, 8 = Status Acionamento,
       // 9 = Criticidade (emoji, sem cabeçalho de texto), 13 = Operador
-      // Mensalidade.
+      // Mensalidade (campo mais antigo, usado como reserva quando a
+      // coluna 4 vem em branco).
       const cabecalho = Object.keys(linhasBrutas[0]);
       const colNome = cabecalho[3];
+      const colOperadorResponsavel = cabecalho[4];
       const colDataAcionamento = cabecalho[7];
       const colStatusAcionamento = cabecalho[8];
       const colCriticidade = cabecalho[9];
@@ -126,9 +131,10 @@ export default function VincularBaseOperacional() {
           criticidade: linha[colCriticidade]
             ? String(linha[colCriticidade]).trim()
             : null,
-          operadorArquivo: linha[colOperadorMensalidade]
-            ? String(linha[colOperadorMensalidade]).trim()
-            : null,
+          operadorArquivo:
+            (linha[colOperadorResponsavel] && String(linha[colOperadorResponsavel]).trim()) ||
+            (linha[colOperadorMensalidade] && String(linha[colOperadorMensalidade]).trim()) ||
+            null,
         }))
         .filter((linha) => linha.nomeNormalizado);
 
