@@ -910,12 +910,7 @@ export default function FilaOperador() {
 
     const retornosHoje = alunos.filter((aluno) => {
       if (!aluno.data_retorno) return false;
-
-      const data = new Date(aluno.data_retorno);
-      const inicio = new Date(dataInicioHojeISO());
-      const fim = new Date(dataFimHojeISO());
-
-      return data >= inicio && data <= fim;
+      return paraDataLocalBR(aluno.data_retorno) === hojeLocalBR();
     }).length;
 
     const negociacao24h = alunos.filter(
