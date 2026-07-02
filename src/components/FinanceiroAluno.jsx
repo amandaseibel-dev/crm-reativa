@@ -99,61 +99,73 @@ export default function FinanceiroAluno({ aluno }) {
 
   if (carregando) return null;
 
-  if (titulos.length === 0) {
-    return (
-      <>
-        <div style={estilos.caixa}>
-          <strong>💰 Financeiro</strong>
-          <p style={{ fontSize: 12, opacity: 0.7, margin: "6px 0 0" }}>
-            {aluno?.cpf
-              ? `Nenhum título importado pelos borderôs para o CPF ${aluno.cpf}.`
-              : "Este aluno não tem CPF cadastrado, então não dá pra casar com os borderôs."}
-          </p>
-        </div>
-        <SecaoAcordos acordos={acordos} parcelasPorAcordo={parcelasPorAcordo} />
-      </>
-    );
-  }
-
   const emAberto = titulos.filter((t) => t.situacao !== "PAGO");
-  const totalEmAberto = emAberto.reduce((soma, t) => soma + Number(t.saldo_corrigido || 0), 0);
+  const totalTitulosAberto = emAberto.reduce(
+    (soma, t) => soma + Number(t.saldo_corrigido ?? t.valor_original ?? 0),
+    0
+  );
+
+  const todasParcelas = Object.values(parcelasPorAcordo).flat();
+  const parcelasEmAberto = todasParcelas.filter((p) => p.status !== "PAGO");
+  const totalParcelasAberto = parcelasEmAberto.reduce((soma, p) => soma + Number(p.valor || 0), 0);
+
+  const totalGeralAberto = totalTitulosAberto + totalParcelasAberto;
+  const temAlgumValor = titulos.length > 0 || acordos.length > 0;
 
   return (
     <>
-    <div style={estilos.caixa}>
-      <div style={estilos.cabecalho}>
-        <strong>💰 Financeiro</strong>
-        {emAberto.length > 0 && (
-          <span style={estilos.totalAberto}>{moeda(totalEmAberto)} em aberto</span>
-        )}
+    {temAlgumValor && (
+      <div style={estilos.caixaResumo}>
+        <strong>💰 Total em aberto do aluno</strong>
+        <span style={estilos.totalGeral}>{moeda(totalGeralAberto)}</span>
       </div>
+    )}
 
-      <div style={{ marginTop: 10 }}>
-        {titulos.map((titulo) => (
-          <div key={titulo.documento} style={estilos.linha}>
-            <div>
-              <div style={{ fontSize: 13 }}>
-                Título {titulo.documento}
-                {titulo.tipo_boleto ? ` · ${titulo.tipo_boleto}` : ""}
-              </div>
-              <div style={estilos.subLinha}>Vencimento: {formatarData(titulo.vencimento)}</div>
-            </div>
-            <div style={{ textAlign: "right" }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>
-                {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
-              </div>
-              <span
-                style={
-                  titulo.situacao === "PAGO" ? estilos.tagVerde : estilos.tagAmarela
-                }
-              >
-                {titulo.situacao === "PAGO" ? "Pago" : "Em aberto"}
-              </span>
-            </div>
-          </div>
-        ))}
+    {titulos.length === 0 ? (
+      <div style={estilos.caixa}>
+        <strong>💰 Financeiro</strong>
+        <p style={{ fontSize: 12, opacity: 0.7, margin: "6px 0 0" }}>
+          {aluno?.cpf
+            ? `Nenhum título importado pelos borderôs para o CPF ${aluno.cpf}.`
+            : "Este aluno não tem CPF cadastrado, então não dá pra casar com os borderôs."}
+        </p>
       </div>
-    </div>
+    ) : (
+      <div style={estilos.caixa}>
+        <div style={estilos.cabecalho}>
+          <strong>💰 Financeiro (borderôs)</strong>
+          {emAberto.length > 0 && (
+            <span style={estilos.totalAberto}>{moeda(totalTitulosAberto)} em aberto</span>
+          )}
+        </div>
+
+        <div style={{ marginTop: 10 }}>
+          {titulos.map((titulo) => (
+            <div key={titulo.documento} style={estilos.linha}>
+              <div>
+                <div style={{ fontSize: 13 }}>
+                  Título {titulo.documento}
+                  {titulo.tipo_boleto ? ` · ${titulo.tipo_boleto}` : ""}
+                </div>
+                <div style={estilos.subLinha}>Vencimento: {formatarData(titulo.vencimento)}</div>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>
+                  {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
+                </div>
+                <span
+                  style={
+                    titulo.situacao === "PAGO" ? estilos.tagVerde : estilos.tagAmarela
+                  }
+                >
+                  {titulo.situacao === "PAGO" ? "Pago" : "Em aberto"}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    )}
     <SecaoAcordos acordos={acordos} parcelasPorAcordo={parcelasPorAcordo} />
     </>
   );
@@ -169,14 +181,22 @@ function SecaoAcordos({ acordos, parcelasPorAcordo }) {
       <div style={{ marginTop: 10 }}>
         {acordos.map((acordo) => {
           const parcelas = parcelasPorAcordo[acordo.id] || [];
+          const totalAcordoAberto = parcelas
+            .filter((p) => p.status !== "PAGO")
+            .reduce((soma, p) => soma + Number(p.valor || 0), 0);
 
           return (
             <div key={acordo.id} style={{ marginBottom: 14 }}>
-              <div style={{ fontSize: 13, fontWeight: 700 }}>
-                {acordo.forma_pagamento === "PARCELADO"
-                  ? `Parcelado em ${acordo.qtd_parcelas}x`
-                  : "À vista"}{" "}
-                — {moeda(acordo.valor_total)}
+              <div style={estilos.cabecalho}>
+                <div style={{ fontSize: 13, fontWeight: 700 }}>
+                  {acordo.forma_pagamento === "PARCELADO"
+                    ? `Parcelado em ${acordo.qtd_parcelas}x`
+                    : "À vista"}{" "}
+                  — {moeda(acordo.valor_total)}
+                </div>
+                {totalAcordoAberto > 0 && (
+                  <span style={estilos.totalAberto}>{moeda(totalAcordoAberto)} em aberto</span>
+                )}
               </div>
 
               {acordo.valor_entrada ? (
@@ -228,6 +248,22 @@ const estilos = {
     fontSize: 13,
     color: "#fcd34d",
     fontWeight: 700,
+  },
+  caixaResumo: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "14px 16px",
+    marginTop: 14,
+    marginBottom: 4,
+    borderRadius: 10,
+    background: "rgba(34,197,94,0.08)",
+    border: "1px solid rgba(34,197,94,0.3)",
+  },
+  totalGeral: {
+    fontSize: 16,
+    fontWeight: 800,
+    color: "#4ade80",
   },
   linha: {
     display: "flex",
