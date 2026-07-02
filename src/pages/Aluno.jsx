@@ -837,7 +837,12 @@ export default function Alunos() {
       };
 
       if (novaDataRetornoAlteracao) {
-        atualizacaoOperador.data_retorno = new Date(novaDataRetornoAlteracao).toISOString();
+        // Mesma correcao do bug de fuso: grava a data-civil em horario de
+        // Brasilia (nao em UTC), senao um retorno marcado a noite (21h-23h59)
+        // pode salvar o dia seguinte na coluna "date" do banco.
+        atualizacaoOperador.data_retorno = paraDataLocalBR(
+          new Date(novaDataRetornoAlteracao).toISOString()
+        );
       }
 
       if (novaTabulacaoAlteracao) {
