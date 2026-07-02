@@ -1329,6 +1329,12 @@ export default function FilaOperador() {
                   <br />
                   {moeda(alunoSelecionado.valor_em_aberto)}
                 </div>
+
+                <div style={cardInfo}>
+                  <strong>Status acionamento</strong>
+                  <br />
+                  {alunoSelecionado.status_acionamento || "-"}
+                </div>
               </div>
 
               {[

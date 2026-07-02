@@ -825,6 +825,15 @@ export default function Alunos() {
                   "CONTATAR"
                 );
 
+                const proximaAcao = pegarCampo(
+                  aluno,
+                  ["proxima_acao"],
+                  "CONTATAR"
+                );
+
+                const responsavel =
+                  aluno.responsavel_atual_nome || "Sem responsável";
+
                 const selecionado = alunoSelecionado?.id === aluno.id;
 
                 const bloqueado = STATUS_BLOQUEADOS_ACIONAMENTO.includes(status);
@@ -853,9 +862,16 @@ export default function Alunos() {
                     <span>
                       Status: {STATUS_BLOQUEADOS_LABEL[status] || status}
                     </span>
+                    <span>Responsável: {responsavel}</span>
+                    <span>Próxima ação: {proximaAcao}</span>
                     <span>
-                      Responsável:{" "}
-                      {aluno.responsavel_atual_nome || "Sem responsável"}
+                      Último acionamento:{" "}
+                      {formatarDataHora(aluno.data_ultimo_acionamento)}
+                    </span>
+                    <span>Retorno: {formatarDataHora(aluno.data_retorno)}</span>
+                    <span>Valor em aberto: {moeda(aluno.valor_em_aberto)}</span>
+                    <span>
+                      Status acionamento: {aluno.status_acionamento || "-"}
                     </span>
                     {bloqueado && (
                       <span style={{ color: "#fecaca", fontWeight: 700 }}>
@@ -1059,6 +1075,12 @@ export default function Alunos() {
                   <strong>Valor em aberto</strong>
                   <br />
                   {moeda(alunoSelecionado.valor_em_aberto)}
+                </div>
+
+                <div style={cardInfo}>
+                  <strong>Status acionamento</strong>
+                  <br />
+                  {alunoSelecionado.status_acionamento || "-"}
                 </div>
               </div>
 
