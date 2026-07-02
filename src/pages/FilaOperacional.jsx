@@ -770,48 +770,6 @@ export default function FilaOperador() {
     }
   }
 
-  async function salvarObservacao() {
-    if (!alunoSelecionado?.id) return;
-
-    const texto = observacao.trim();
-
-    if (!texto) {
-      alert("Digite uma observação antes de salvar.");
-      return;
-    }
-
-    setSalvando(true);
-
-    try {
-      const statusAtual = pegarCampo(
-        alunoSelecionado,
-        ["status_jornada", "status_atual", "status"],
-        null
-      );
-
-      await registrarMovimentacao({
-        alunoId: alunoSelecionado.id,
-        tipo: "OBSERVACAO",
-        descricao: texto,
-        statusAnterior: statusAtual,
-        statusNovo: statusAtual,
-        retorno: alunoSelecionado.data_retorno || null,
-        atualizarResponsavel: false,
-      });
-
-      setObservacao("");
-
-      await recarregarAlunoSelecionado(alunoSelecionado.id);
-      await carregarMovimentacoes(alunoSelecionado.id);
-
-      alert("Observação salva com sucesso.");
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setSalvando(false);
-    }
-  }
-
   async function alterarOperadorResponsavel() {
     if (!alunoSelecionado?.id) {
       alert("Selecione um aluno antes de alterar o operador.");
@@ -1630,16 +1588,7 @@ export default function FilaOperador() {
                     }
                     style={botaoPrincipal}
                   >
-                    {salvando ? "Salvando..." : "Finalizar atendimento"}
-                  </button>
-
-                  <button
-                    type="button"
-                    onClick={salvarObservacao}
-                    disabled={salvando}
-                    style={botaoSecundario}
-                  >
-                    Salvar só observação
+                    {salvando ? "Salvando..." : "Atualizar"}
                   </button>
 
                   <button
