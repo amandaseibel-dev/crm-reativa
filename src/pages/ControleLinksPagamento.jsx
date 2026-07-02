@@ -171,8 +171,21 @@ export default function ControleLinksPagamento() {
       return;
     }
 
+    // Link pronto volta pro operador com prioridade máxima -- a Fila
+    // Operacional bota nivel_criticidade "URGENTE" sempre no topo, na
+    // frente até da ordenação normal por tempo sem acionamento.
+    if (item.aluno_id) {
+      await supabase
+        .from("alunos")
+        .update({
+          nivel_criticidade: "URGENTE",
+          status_acionamento: "Link pronto para envio",
+        })
+        .eq("id", item.aluno_id);
+    }
+
     await historico(item, "LINK_PRONTO_PARA_ENVIO", "Link gerado/colado pela Fernanda/ADM.");
-    alert("Link salvo. O operador será sinalizado como link pronto.");
+    alert("Link salvo. O operador será sinalizado como link pronto e o caso vai pro topo da fila dele.");
     carregarLinks();
   }
 

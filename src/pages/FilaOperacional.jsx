@@ -353,7 +353,12 @@ export default function FilaOperador() {
         )
       );
 
-      setAlunos([...emCobranca, ...foraDaCobranca]);
+      // Link respondido (nivel_criticidade "URGENTE") sempre no topo de
+      // tudo, na frente até da ordenação normal por tempo sem acionamento.
+      const urgentes = emCobranca.filter((a) => a.nivel_criticidade === "URGENTE");
+      const resto = emCobranca.filter((a) => a.nivel_criticidade !== "URGENTE");
+
+      setAlunos([...urgentes, ...resto, ...foraDaCobranca]);
     } catch (e) {
       console.error("Erro inesperado ao carregar fila:", e);
       setErro("Erro inesperado ao carregar a fila.");
