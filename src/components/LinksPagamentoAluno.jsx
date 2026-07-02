@@ -142,6 +142,15 @@ export default function LinksPagamentoAluno({
   const [dataVencimento, setDataVencimento] = useState("");
   const [observacao, setObservacao] = useState("");
 
+  // Caso retroativo: operador já tem o link de cartão gerado fora do
+  // fluxo normal (fora do CRM) e só precisa anexar. Cai direto na fila
+  // de baixas da Amanda, sem passar pela fila da ADM.
+  const [abertoRetroativo, setAbertoRetroativo] = useState(false);
+  const [valorRetroativo, setValorRetroativo] = useState("");
+  const [linkRetroativo, setLinkRetroativo] = useState("");
+  const [observacaoRetroativo, setObservacaoRetroativo] = useState("");
+  const [carregandoRetroativo, setCarregandoRetroativo] = useState(false);
+
   const [historico, setHistorico] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
@@ -404,6 +413,122 @@ export default function LinksPagamentoAluno({
     alert("Link solicitado com sucesso. Foi enviado para a fila ADM/Supervisão.");
   }
 
+  async function anexarLinkRetroativo() {
+    setErro("");
+
+    if (!nomeAluno) {
+      setErro("Aluno não identificado na ficha.");
+      return;
+    }
+
+    if (!emailUsuario) {
+      setErro("Não consegui identificar o e-mail do operador logado. Saia e entre novamente no CRM.");
+      return;
+    }
+
+    const valorNumerico = converterValor(valorRetroativo);
+
+    if (!valorNumerico || valorNumerico <= 0) {
+      setErro("Informe o valor pago no link retroativo.");
+      return;
+    }
+
+    const link = (linkRetroativo || "").trim();
+
+    if (!link || (!link.toLowerCase().startsWith("http://") && !link.toLowerCase().startsWith("https://"))) {
+      setErro("Cole o link completo do cartão, começando com http:// ou https://.");
+      return;
+    }
+
+    setCarregandoRetroativo(true);
+
+    const agora = new Date().toISOString();
+
+    const { data: novoLink, error } = await supabase
+      .from("links_pagamento")
+      .insert({
+        aluno_id: alunoId ? String(alunoId) : null,
+        aluno_nome: nomeAluno,
+        aluno_cpf: cpfAluno || null,
+        nome_aluno: nomeAluno,
+        cpf_referencia: cpfAluno || null,
+        operador_solicitante: emailUsuario,
+        operador_email: emailUsuario,
+        operador_nome: nomeUsuario || emailUsuario || "Operador",
+        tipo_pagamento: "Cartão",
+        forma_pagamento: "Cartão",
+        valor: valorNumerico,
+        link_gerado: link,
+        link_pagamento: link,
+        link_gerado_por: emailUsuario,
+        link_gerado_em: agora,
+        status: "AGUARDANDO_BAIXA",
+        observacao_solicitacao: "Caso retroativo — link de cartão anexado diretamente pelo operador.",
+        observacao_comprovante: observacaoRetroativo || null,
+        criado_em: agora,
+        atualizado_em: agora,
+      })
+      .select()
+      .single();
+
+    setCarregandoRetroativo(false);
+
+    if (error) {
+      console.error("Erro ao anexar link retroativo:", error);
+      setErro(error.message || "Não foi possível anexar o link retroativo.");
+      return;
+    }
+
+    if (alunoId) {
+      await supabase
+        .from("alunos")
+        .update({
+          status_jornada: "AGUARDANDO_BAIXA",
+          status_atual: "AGUARDANDO_BAIXA",
+          status_acionamento: "AGUARDANDO_BAIXA",
+          proxima_acao: "AGUARDAR_BAIXA",
+          registrado_por_nome: nomeUsuario,
+          registrado_por_email: emailUsuario,
+          registrado_em: agora,
+          data_ultimo_acionamento: agora,
+        })
+        .eq("id", alunoId);
+
+      await supabase.from("aluno_movimentacoes").insert({
+        aluno_id: String(alunoId),
+        tipo: "LINK_CARTAO_RETROATIVO_ANEXADO",
+        descricao:
+          observacaoRetroativo ||
+          "Operador anexou link de cartão de um caso retroativo. Caso foi direto pra fila de baixa da Amanda.",
+        status_anterior: null,
+        status_novo: "AGUARDANDO_BAIXA",
+        registrado_por_nome: nomeUsuario,
+        registrado_por_email: emailUsuario,
+        registrado_em: agora,
+      });
+    }
+
+    if (novoLink) {
+      await registrarHistorico(
+        novoLink,
+        "AGUARDANDO_BAIXA",
+        observacaoRetroativo || "Link de cartão retroativo anexado pelo operador."
+      );
+    }
+
+    setValorRetroativo("");
+    setLinkRetroativo("");
+    setObservacaoRetroativo("");
+    setAbertoRetroativo(false);
+
+    await carregarHistorico();
+
+    if (onSucesso) onSucesso();
+    if (onAtualizar) onAtualizar();
+
+    alert("Link de cartão retroativo anexado. O caso foi direto pra fila de baixa da Amanda.");
+  }
+
   async function copiarLink(item) {
     const link = obterLinkPagamento(item);
 
@@ -619,9 +744,19 @@ export default function LinksPagamentoAluno({
           </p>
         </div>
 
-        <button type="button" onClick={() => setAberto(!aberto)} style={botaoPrincipal}>
-          {aberto ? "Fechar" : "Solicitar link"}
-        </button>
+        <div style={{ display: "flex", gap: 10 }}>
+          <button type="button" onClick={() => setAberto(!aberto)} style={botaoPrincipal}>
+            {aberto ? "Fechar" : "Solicitar link"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setAbertoRetroativo(!abertoRetroativo)}
+            style={botaoSecundario}
+          >
+            {abertoRetroativo ? "Fechar" : "Anexar link de cartão (caso retroativo)"}
+          </button>
+        </div>
       </div>
 
       {aberto && (
@@ -703,7 +838,81 @@ export default function LinksPagamentoAluno({
         </div>
       )}
 
-      {erro && !aberto && <div style={erroBox}>{erro}</div>}
+      {abertoRetroativo && (
+        <div style={formulario}>
+          <p style={subtitulo}>
+            Use isso só para casos retroativos, em que o link de cartão já foi gerado e o
+            pagamento já foi tratado fora do fluxo normal. O caso vai direto pra fila de
+            baixa da Amanda, sem passar pela fila da ADM.
+          </p>
+
+          <div style={linha}>
+            <div style={campo}>
+              <label style={label}>Aluno</label>
+              <input value={nomeAluno} readOnly style={inputBloqueado} />
+            </div>
+
+            <div style={campo}>
+              <label style={label}>CPF</label>
+              <input value={cpfAluno} readOnly style={inputBloqueado} />
+            </div>
+          </div>
+
+          <div style={linha}>
+            <div style={campo}>
+              <label style={label}>Valor pago</label>
+              <input
+                value={valorRetroativo}
+                onChange={(e) => setValorRetroativo(e.target.value)}
+                placeholder="Ex: 350,00 (use vírgula para os centavos)"
+                style={input}
+              />
+              {valorRetroativo.trim() !== "" && (
+                <p style={previewValor}>
+                  {Number.isFinite(converterValor(valorRetroativo)) && converterValor(valorRetroativo) > 0
+                    ? `Será enviado como: ${formatarMoeda(converterValor(valorRetroativo))}`
+                    : "Valor inválido — use vírgula para os centavos, ex: 350,00"}
+                </p>
+              )}
+            </div>
+
+            <div style={campo}>
+              <label style={label}>Link completo do cartão</label>
+              <input
+                value={linkRetroativo}
+                onChange={(e) => setLinkRetroativo(e.target.value)}
+                placeholder="https://..."
+                style={input}
+              />
+            </div>
+          </div>
+
+          <label style={label}>Observação, se necessário</label>
+          <textarea
+            value={observacaoRetroativo}
+            onChange={(e) => setObservacaoRetroativo(e.target.value)}
+            placeholder="Ex: caso antigo, pagamento feito por fora antes de entrar no CRM"
+            style={textarea}
+          />
+
+          {erro && <div style={erroBox}>{erro}</div>}
+
+          <button
+            type="button"
+            onClick={anexarLinkRetroativo}
+            disabled={carregandoRetroativo}
+            style={{
+              ...botaoConfirmar,
+              opacity: carregandoRetroativo ? 0.6 : 1,
+              cursor: carregandoRetroativo ? "not-allowed" : "pointer",
+            }}
+          >
+            {carregandoRetroativo ? "Enviando..." : "Anexar e enviar pra fila de baixa"}
+          </button>
+        </div>
+      )}
+
+      {erro && !aberto && !abertoRetroativo && <div style={erroBox}>{erro}</div>}
 
       {carregandoHistorico && (
         <div style={avisoBox}>Carregando histórico de links...</div>

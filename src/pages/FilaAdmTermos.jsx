@@ -52,13 +52,17 @@ export default function FilaAdmTermos() {
     setCarregando(false);
   }
 
-  async function atualizarStatusAluno(alunoId, novoStatus) {
+  async function atualizarStatusAluno(alunoId, novoStatus, statusAcionamento) {
     if (!alunoId) return;
 
+    // Mesma lógica do link de pagamento: ao concluir a ação da ADM, o caso
+    // volta pro topo da fila do operador com prioridade máxima.
     await supabase
       .from("alunos")
       .update({
         status_jornada: novoStatus,
+        nivel_criticidade: "URGENTE",
+        status_acionamento: statusAcionamento || novoStatus,
       })
       .eq("id", alunoId);
   }
@@ -82,9 +86,9 @@ export default function FilaAdmTermos() {
       return;
     }
 
-    await atualizarStatusAluno(termo.aluno_id, "Termo recebido - liberado");
+    await atualizarStatusAluno(termo.aluno_id, "Termo recebido - liberado", "Termo aprovado pela ADM");
 
-    alert("Termo aprovado e liberado para operação.");
+    alert("Termo aprovado e liberado para operação. O caso vai pro topo da fila do operador.");
     carregarTermos();
   }
 
@@ -112,9 +116,9 @@ export default function FilaAdmTermos() {
       return;
     }
 
-    await atualizarStatusAluno(termo.aluno_id, "Termo rejeitado");
+    await atualizarStatusAluno(termo.aluno_id, "Termo rejeitado", "Termo rejeitado pela ADM");
 
-    alert("Termo rejeitado e devolvido para operação.");
+    alert("Termo rejeitado e devolvido para operação. O caso vai pro topo da fila do operador.");
     carregarTermos();
   }
 
