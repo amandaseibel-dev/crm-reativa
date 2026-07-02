@@ -25,6 +25,21 @@ const STATUS_BLOQUEADOS_LABEL = {
   JURIDICO: "Jurídico",
 };
 
+// Caso já quitado não deve aparecer na Fila Operacional (nem pro operador,
+// nem pra gestão) -- não é mais um caso a acionar. Detecta pelo texto do
+// status_acionamento/status_jornada/status_atual, igual o import já faz
+// em VincularBaseOperacional.jsx.
+function ehQuitado(aluno) {
+  const texto = [aluno?.status_acionamento, aluno?.status_jornada, aluno?.status_atual]
+    .filter(Boolean)
+    .join(" ")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase();
+
+  return texto.includes("QUITAD") || texto.includes("QUITACAO");
+}
+
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
   { nome: "Luana", email: "cobranca05@aelbra.com.br" },
@@ -377,8 +392,9 @@ export default function FilaOperador() {
 
       // Cancelamento de cobrança e jurídico não devem ficar no topo da
       // fila (não são pra acionar) -- manda pro final, mantendo a ordem
-      // de prioridade normal entre os dois grupos.
-      const dados = data || [];
+      // de prioridade normal entre os dois grupos. Quitado nem isso --
+      // sai completamente da Fila Operacional.
+      const dados = (data || []).filter((a) => !ehQuitado(a));
       const emCobranca = dados.filter(
         (a) =>
           !STATUS_BLOQUEADOS_ACIONAMENTO.includes(

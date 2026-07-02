@@ -41,6 +41,9 @@ export default function MinhaFilaPagamentos() {
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState("AGUARDANDO_BAIXA");
   const [observacoes, setObservacoes] = useState({});
+  const [valoresPagos, setValoresPagos] = useState({});
+  const [qtdParcelasAcordo, setQtdParcelasAcordo] = useState({});
+  const [parcelasAcordo, setParcelasAcordo] = useState({});
 
   useEffect(() => {
     carregarUsuario();
@@ -81,8 +84,51 @@ export default function MinhaFilaPagamentos() {
     });
   }
 
+  function parcelasDoItem(item) {
+    return parcelasAcordo[item.id] || [];
+  }
+
+  function qtdParcelasDoItem(item) {
+    return qtdParcelasAcordo[item.id] ?? 1;
+  }
+
+  function gerarParcelas(item, qtd, valorTotal) {
+    const quantidade = Math.max(1, Number(qtd) || 1);
+    const valor = Number(valorTotal) || 0;
+    const valorParcela = quantidade > 0 ? Math.round((valor / quantidade) * 100) / 100 : valor;
+
+    const hoje = new Date();
+    const novas = Array.from({ length: quantidade }, (_, i) => {
+      const vencimento = new Date(hoje);
+      vencimento.setMonth(vencimento.getMonth() + i);
+      return {
+        valor: valorParcela,
+        vencimento: vencimento.toISOString().slice(0, 10),
+      };
+    });
+
+    setParcelasAcordo({ ...parcelasAcordo, [item.id]: novas });
+  }
+
+  function atualizarQtdParcelas(item, qtd) {
+    setQtdParcelasAcordo({ ...qtdParcelasAcordo, [item.id]: qtd });
+    gerarParcelas(item, qtd, valoresPagos[item.id] ?? item.valor);
+  }
+
+  function atualizarParcela(item, index, campo, valor) {
+    const atuais = [...(parcelasAcordo[item.id] || [])];
+    atuais[index] = { ...atuais[index], [campo]: valor };
+    setParcelasAcordo({ ...parcelasAcordo, [item.id]: atuais });
+  }
+
   async function baixarPagamento(item) {
     const observacao = observacoes[item.id] || "Pagamento conferido e baixado.";
+    const valorPago = Number(valoresPagos[item.id] ?? item.valor ?? 0);
+
+    if (!valorPago || valorPago <= 0) {
+      alert("Informe o valor pago para confirmar a baixa.");
+      return;
+    }
 
     const { error } = await supabase
       .from("links_pagamento")
@@ -91,6 +137,7 @@ export default function MinhaFilaPagamentos() {
         baixado_por: usuario?.email || "",
         baixado_em: new Date().toISOString(),
         observacao_adm: observacao,
+        valor_pago: valorPago,
         atualizado_em: new Date().toISOString(),
       })
       .eq("id", item.id);
@@ -115,6 +162,53 @@ export default function MinhaFilaPagamentos() {
           data_ultimo_acionamento: agora,
         })
         .eq("id", item.aluno_id);
+    }
+
+    // Registra o acordo/parcelamento (vencimentos digitados manualmente),
+    // pra ficar rastreável mesmo quando o pagamento veio parcelado.
+    const parcelasDigitadas = parcelasDoItem(item);
+
+    if (item?.aluno_id && parcelasDigitadas.length > 0) {
+      const qtd = parcelasDigitadas.length;
+
+      const { data: acordoCriado, error: erroAcordo } = await supabase
+        .from("acordos")
+        .insert({
+          aluno_id: item.aluno_id,
+          cpf: item.aluno_cpf || null,
+          tipo: "ACORDO",
+          forma_pagamento: qtd > 1 ? "PARCELADO" : "AVISTA",
+          valor_total: valorPago,
+          qtd_parcelas: qtd,
+          status: "ATIVO",
+          observacao,
+          criado_por_nome: usuario?.email || "",
+          criado_por_email: usuario?.email || "",
+          confirmado_por_email: usuario?.email || "",
+          confirmado_em: new Date().toISOString(),
+        })
+        .select()
+        .single();
+
+      if (erroAcordo) {
+        console.error("Erro ao registrar acordo:", erroAcordo);
+      } else if (acordoCriado) {
+        const linhasParcelas = parcelasDigitadas.map((p, i) => ({
+          acordo_id: acordoCriado.id,
+          numero: i + 1,
+          valor: Number(p.valor) || 0,
+          vencimento: p.vencimento || null,
+          status: i === 0 ? "PAGO" : "A_VENCER",
+          pago_em: i === 0 ? new Date().toISOString() : null,
+          confirmado_por_email: i === 0 ? usuario?.email || "" : null,
+        }));
+
+        const { error: erroParcelas } = await supabase.from("parcelas").insert(linhasParcelas);
+
+        if (erroParcelas) {
+          console.error("Erro ao registrar parcelas do acordo:", erroParcelas);
+        }
+      }
     }
 
     await registrarHistorico(item, "BAIXA_REALIZADA", observacao);
@@ -271,6 +365,59 @@ export default function MinhaFilaPagamentos() {
 
           <ComprovantePagamento item={item} onAtualizar={carregarPagamentos} />
 
+          {item.status === "AGUARDANDO_BAIXA" && (
+            <div style={styles.boxAcordo}>
+              <div style={styles.grid}>
+                <label style={styles.label}>
+                  Valor pago
+                  <input
+                    type="number"
+                    step="0.01"
+                    style={styles.input}
+                    placeholder="Valor efetivamente pago"
+                    value={valoresPagos[item.id] ?? item.valor ?? ""}
+                    onChange={(e) => setValoresPagos({ ...valoresPagos, [item.id]: e.target.value })}
+                  />
+                </label>
+
+                <label style={styles.label}>
+                  Quantidade de parcelas do acordo
+                  <input
+                    type="number"
+                    min="1"
+                    style={styles.input}
+                    value={qtdParcelasDoItem(item)}
+                    onChange={(e) => atualizarQtdParcelas(item, e.target.value)}
+                  />
+                </label>
+              </div>
+
+              {parcelasDoItem(item).length > 0 && (
+                <div style={styles.tabelaParcelas}>
+                  <p style={styles.legendaParcelas}>Vencimentos e valores do acordo (edite se precisar):</p>
+                  {parcelasDoItem(item).map((p, i) => (
+                    <div key={i} style={styles.linhaParcela}>
+                      <span style={styles.numeroParcela}>{i + 1}ª</span>
+                      <input
+                        type="date"
+                        style={styles.inputParcela}
+                        value={p.vencimento}
+                        onChange={(e) => atualizarParcela(item, i, "vencimento", e.target.value)}
+                      />
+                      <input
+                        type="number"
+                        step="0.01"
+                        style={styles.inputParcela}
+                        value={p.valor}
+                        onChange={(e) => atualizarParcela(item, i, "valor", e.target.value)}
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           <textarea
             style={styles.textarea}
             placeholder="Observação da baixa ou motivo da divergência"
@@ -308,6 +455,13 @@ const styles = {
   linkBox: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px" },
   obs: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px", color: "#374151" },
   textarea: { width: "100%", minHeight: "70px", marginTop: "10px", padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
+  boxAcordo: { background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px", marginTop: "14px" },
+  label: { display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px", fontWeight: "bold", color: "#374151" },
+  tabelaParcelas: { marginTop: "12px" },
+  legendaParcelas: { fontSize: "12px", color: "#64748b", margin: "0 0 8px 0" },
+  linhaParcela: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" },
+  numeroParcela: { fontSize: "12px", fontWeight: "bold", color: "#374151", minWidth: "26px" },
+  inputParcela: { padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "13px", flex: 1 },
   acoes: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "12px" },
   botaoEscuro: { background: "#111827", color: "#fff", border: "none", padding: "10px 13px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
   botaoVerde: { background: "#198754", color: "#fff", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
