@@ -13,6 +13,7 @@ import PontoOperador from "../components/PontoOperador";
 import MuralAniversariantes from "../components/MuralAniversariantes";
 import ResumoDoDia from "../components/ResumoDoDia";
 import ReceberLeads from "../components/ReceberLeads";
+import MinhaCarteira from "../components/MinhaCarteira";
 
 const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "JURIDICO"];
 
@@ -933,6 +934,7 @@ export default function FilaOperador() {
     <div style={pagina}>
       <ModuloLinkPagamentoGlobal />
       <MuralAniversariantes />
+      <MinhaCarteira usuarioLogado={usuarioLogado} />
       <ResumoDoDia usuarioLogado={usuarioLogado} />
       <ReceberLeads usuarioLogado={usuarioLogado} aoReceber={carregarFila} />
       <PontoOperador usuarioLogado={usuarioLogado} />
