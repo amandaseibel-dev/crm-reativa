@@ -466,6 +466,53 @@ export default function PainelAdm() {
     carregarLinks();
   }
 
+  async function devolverLinkPainel(item) {
+    await garantirSessaoValida();
+
+    const motivo = (obsLinks[item.id] || "").trim();
+
+    if (!motivo) {
+      alert("Escreva o motivo antes de devolver pro operador.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("links_pagamento")
+      .update({
+        status: "SOLICITADO_LINK",
+        observacao_adm: motivo,
+        atualizado_em: new Date().toISOString(),
+      })
+      .eq("id", item.id);
+
+    if (error) {
+      alert("Erro ao devolver link pro operador: " + error.message);
+      return;
+    }
+
+    if (item.aluno_id) {
+      await supabase
+        .from("alunos")
+        .update({
+          nivel_criticidade: "URGENTE",
+          status_acionamento: "Link devolvido pela ADM: revisar",
+        })
+        .eq("id", item.aluno_id);
+    }
+
+    await historicoLink(item, "SOLICITADO_LINK", `Devolvido pela ADM para o operador: ${motivo}`);
+
+    setObsLinks((atual) => {
+      const copia = { ...atual };
+      delete copia[item.id];
+      return copia;
+    });
+    setLinhaAbertaLink(null);
+
+    alert("Link devolvido pro operador. O caso volta URGENTE na fila dele.");
+    carregarLinks();
+  }
+
   async function concluirBaixaPainel(item) {
     const obs = obsLinks[item.id] || "";
 
@@ -1102,6 +1149,21 @@ export default function PainelAdm() {
                                 }}
                               >
                                 Salvar link
+                              </button>
+                            </div>
+
+                            <div style={{ ...estilos.detalheAcao, marginTop: "8px" }}>
+                              <input
+                                style={{ ...estilos.inputAcao, minWidth: "280px" }}
+                                placeholder="Motivo pra devolver pro operador"
+                                value={obsLinks[item.id] || ""}
+                                onChange={(e) => setObsLinks({ ...obsLinks, [item.id]: e.target.value })}
+                              />
+                              <button
+                                style={estilos.botaoAmarelo}
+                                onClick={() => devolverLinkPainel(item)}
+                              >
+                                Devolver pro operador
                               </button>
                             </div>
                           </td>
