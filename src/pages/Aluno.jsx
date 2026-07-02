@@ -1002,6 +1002,7 @@ export default function Alunos() {
                 const selecionado = alunoSelecionado?.id === aluno.id;
 
                 const bloqueado = STATUS_BLOQUEADOS_ACIONAMENTO.includes(status);
+                const temProcesso = STATUS_COM_PROCESSO.includes(status);
 
                 return (
                   <button
@@ -1028,11 +1029,30 @@ export default function Alunos() {
                       Status: {STATUS_BLOQUEADOS_LABEL[status] || status}
                     </span>
                     <span>Responsável: {responsavel}</span>
-                    <span>Próxima ação: {proximaAcao}</span>
-                    <span>
-                      Último acionamento:{" "}
-                      {formatarDataHora(aluno.data_ultimo_acionamento)}
-                    </span>
+
+                    {temProcesso ? (
+                      <>
+                        <span>Motivo: {aluno.observacao || "-"}</span>
+                        <span>
+                          Prazo:{" "}
+                          {aluno.processo_prazo_tipo === "INDETERMINADO"
+                            ? "Indeterminado"
+                            : formatarDataHora(aluno.processo_prazo_data)}
+                        </span>
+                        <span>
+                          Número do processo: {aluno.processo_numero || "-"}
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Próxima ação: {proximaAcao}</span>
+                        <span>
+                          Último acionamento:{" "}
+                          {formatarDataHora(aluno.data_ultimo_acionamento)}
+                        </span>
+                      </>
+                    )}
+
                     <span>Retorno: {formatarDataHora(aluno.data_retorno)}</span>
                     <span>Valor em aberto: {moeda(aluno.valor_em_aberto)}</span>
                     <span>
