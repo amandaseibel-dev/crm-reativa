@@ -2,10 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { registrarEventoPonto } from "../utils/ponto";
 
-const PAUSAS = [
-  { chave: "PAUSA_INTERVALO_1", label: "Pausa intervalo 1" },
-  { chave: "PAUSA_INTERVALO_2", label: "Pausa intervalo 2" },
-];
+const PAUSAS = [{ chave: "PAUSA", label: "Pausa" }];
 
 function inicioDoDia() {
   const agora = new Date();
