@@ -43,7 +43,9 @@ async function buscarTodosAlunos() {
   while (true) {
     const { data, error } = await supabase
       .from("alunos")
-      .select("id, nome, cpf")
+      .select(
+        "id, nome, cpf, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em, status_acionamento, data_ultimo_acionamento"
+      )
       .range(pagina * TAMANHO_PAGINA, pagina * TAMANHO_PAGINA + TAMANHO_PAGINA - 1);
     if (error) throw error;
     todos = todos.concat(data || []);
@@ -132,9 +134,21 @@ export default function VincularBaseOperacional() {
           ? emailPorNomeOperador(linha.operadorArquivo)
           : null;
 
-        const temAlgumDado = Boolean(
-          emailOperador || linha.statusAcionamento || linha.dataAcionamento
+        // Só preenche o que estiver em branco no cadastro. Nunca sobrescreve
+        // responsável/status/data que já existem — isso evita desfazer
+        // trabalho que os operadores já fizeram no CRM depois da planilha.
+        const vaiPreencherResponsavel = Boolean(
+          emailOperador && aluno && !aluno.responsavel_atual_email
         );
+        const vaiPreencherStatus = Boolean(
+          linha.statusAcionamento && aluno && !aluno.status_acionamento
+        );
+        const vaiPreencherData = Boolean(
+          linha.dataAcionamento && aluno && !aluno.data_ultimo_acionamento
+        );
+
+        const temAlgumDado =
+          vaiPreencherResponsavel || vaiPreencherStatus || vaiPreencherData;
 
         return {
           ...linha,
@@ -142,6 +156,9 @@ export default function VincularBaseOperacional() {
           ambiguo,
           emailOperador,
           operadorNaoReconhecido: Boolean(linha.operadorArquivo) && !emailOperador,
+          vaiPreencherResponsavel,
+          vaiPreencherStatus,
+          vaiPreencherData,
           temAlgumDado,
         };
       });
@@ -182,27 +199,35 @@ export default function VincularBaseOperacional() {
     setErro("");
 
     try {
+      // Só entram no upsert linhas com pelo menos um campo em branco no
+      // cadastro. Dentro de cada linha, só o(s) campo(s) que estavam vazios
+      // recebem valor novo — o resto mantém exatamente o valor atual do
+      // aluno. Importante: TODA linha do lote leva as MESMAS chaves (com o
+      // valor novo ou o valor atual repetido), porque o upsert em lote do
+      // Supabase grava um único INSERT com a união das colunas de todas as
+      // linhas — se uma linha não tivesse uma chave que outra linha do
+      // mesmo lote tem, essa coluna seria gravada como NULL nela (testado
+      // e confirmado). Repetir o valor atual evita esse risco.
       const registros = preview.linhas
         .filter((l) => l.aluno && l.temAlgumDado)
-        .map((l) => {
-          const registro = { id: l.aluno.id };
-
-          if (l.emailOperador) {
-            registro.responsavel_atual_email = l.emailOperador;
-            registro.responsavel_atual_nome = nomeOperadorPorEmail(l.emailOperador);
-            registro.responsavel_atual_em = new Date().toISOString();
-          }
-
-          if (l.statusAcionamento) {
-            registro.status_acionamento = l.statusAcionamento;
-          }
-
-          if (l.dataAcionamento) {
-            registro.data_ultimo_acionamento = l.dataAcionamento;
-          }
-
-          return registro;
-        });
+        .map((l) => ({
+          id: l.aluno.id,
+          responsavel_atual_email: l.vaiPreencherResponsavel
+            ? l.emailOperador
+            : l.aluno.responsavel_atual_email ?? null,
+          responsavel_atual_nome: l.vaiPreencherResponsavel
+            ? nomeOperadorPorEmail(l.emailOperador)
+            : l.aluno.responsavel_atual_nome ?? null,
+          responsavel_atual_em: l.vaiPreencherResponsavel
+            ? new Date().toISOString()
+            : l.aluno.responsavel_atual_em ?? null,
+          status_acionamento: l.vaiPreencherStatus
+            ? l.statusAcionamento
+            : l.aluno.status_acionamento ?? null,
+          data_ultimo_acionamento: l.vaiPreencherData
+            ? l.dataAcionamento
+            : l.aluno.data_ultimo_acionamento ?? null,
+        }));
 
       let atualizados = 0;
 
