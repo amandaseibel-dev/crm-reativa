@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "../utils/operadores";
 
-const LIMITE_ONLINE_MS = 90 * 1000;
+// 90s era curto demais: navegadores atrasam o setInterval de abas em
+// segundo plano (operador com o CRM minimizado/atrás do WhatsApp), o que
+// fazia o operador cair como offline e sumir da fila mesmo logado.
+const LIMITE_ONLINE_MS = 3 * 60 * 1000;
 
 function primeiroNome(nome) {
   return String(nome || "").split(" ")[0];

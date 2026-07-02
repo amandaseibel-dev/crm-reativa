@@ -19,6 +19,13 @@ export default function HeartbeatReceptivo({ usuario }) {
 
     async function bater() {
       try {
+        // Refresh proativo: se a aba ficou muito tempo parada/em segundo
+        // plano, o token pode ter expirado e o RPC falharia silenciosamente,
+        // parando de atualizar online_em sem nunca lançar erro visível.
+        try {
+          await supabase.auth.getSession();
+        } catch {}
+
         await supabase.rpc("fila_receptivo_heartbeat", {
           p_email: email,
           p_nome: nomeOperadorPorEmail(email),
@@ -31,9 +38,20 @@ export default function HeartbeatReceptivo({ usuario }) {
     bater();
     const intervalo = setInterval(bater, 20000);
 
+    // Se o navegador atrasou o setInterval (aba em segundo plano) e o
+    // operador volta pra aba, bate na hora em vez de esperar o próximo
+    // tick atrasado.
+    function aoVoltarFoco() {
+      if (document.visibilityState === "visible") bater();
+    }
+    document.addEventListener("visibilitychange", aoVoltarFoco);
+    window.addEventListener("focus", aoVoltarFoco);
+
     return () => {
       cancelado = true;
       clearInterval(intervalo);
+      document.removeEventListener("visibilitychange", aoVoltarFoco);
+      window.removeEventListener("focus", aoVoltarFoco);
     };
   }, [ehReceptivo, email]);
 
