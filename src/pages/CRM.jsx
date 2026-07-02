@@ -749,6 +749,46 @@ return (
       return;
     }
 
+    // "Quitado" precisa cair na Fila de Confirmação de Pagamento da Amanda
+    // (solicitacoes_confirmacao_pagamento), que é o único lugar que ela
+    // realmente usa pra confirmar/baixar pagamento -- o fila_responsavel
+    // "VALIDACAO_QUITACAO" acima nunca é lido em nenhuma tela, então sem
+    // isso o caso quitado ficava sem cair em lugar nenhum.
+    if (tipo === "QUITADO" && caso.cpfNumeros) {
+      const { data: alunoEncontrado, error: erroAluno } = await supabase
+        .from("alunos")
+        .select("id, nome")
+        .eq("cpf", caso.cpfNumeros)
+        .maybeSingle();
+
+      if (erroAluno) {
+        console.error("Erro ao localizar aluno pra enviar pra confirmação de pagamento:", erroAluno);
+      } else if (alunoEncontrado?.id) {
+        const emailOperador = usuario?.email || "";
+        const nomeOperador = nomeOperadorPorEmail(emailOperador) || caso.operador || "";
+
+        const { error: erroSolicitacao } = await supabase
+          .from("solicitacoes_confirmacao_pagamento")
+          .insert({
+            aluno_id: String(alunoEncontrado.id),
+            aluno_nome: alunoEncontrado.nome || caso.nome,
+            aluno_cpf: caso.cpfNumeros,
+            operador_email: emailOperador,
+            operador_nome: nomeOperador,
+            valor_informado: caso.totalEmAberto || null,
+            motivo: observacao.trim() || "Caso marcado como quitado no CRM.",
+            status: "AGUARDANDO_CONFIRMACAO",
+          });
+
+        if (erroSolicitacao) {
+          console.error("Erro ao enviar caso quitado pra fila de confirmação de pagamento:", erroSolicitacao);
+          setErro("Caso salvo, mas houve erro ao enviar pra fila de confirmação de pagamento.");
+        }
+      } else {
+        console.warn("Caso marcado como quitado, mas não achei o aluno correspondente pelo CPF pra enviar pra fila de confirmação.");
+      }
+    }
+
     const historicoOk = await registrarHistorico(
       caso,
       updateData.status_acionamento,
