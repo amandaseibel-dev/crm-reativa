@@ -4,6 +4,7 @@ import { podeVerTudo } from "../utils/operadores";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import EnvioFinanceiro from "../components/EnvioFinanceiro";
 import FinanceiroAluno from "../components/FinanceiroAluno";
+import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
@@ -118,6 +119,7 @@ export default function Alunos() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
+  const [abaFicha, setAbaFicha] = useState("dados");
   const [editandoCadastro, setEditandoCadastro] = useState(false);
   const [nomeEditado, setNomeEditado] = useState("");
   const [cpfEditado, setCpfEditado] = useState("");
@@ -278,6 +280,7 @@ export default function Alunos() {
   }
 
   async function abrirAluno(aluno) {
+    setAbaFicha("dados");
     prepararAlunoNaTela(aluno);
     await carregarMovimentacoes(aluno.id);
   }
@@ -387,6 +390,81 @@ export default function Alunos() {
     if (data) {
       prepararAlunoNaTela(data);
       setAlunos([data]);
+    }
+  }
+
+  async function solicitarLinkPagamento() {
+    if (!alunoSelecionado) {
+      alert("Selecione um aluno antes de solicitar o link.");
+      return;
+    }
+
+    window.dispatchEvent(
+      new CustomEvent("REATIVA_ABRIR_LINK_PAGAMENTO", {
+        detail: {
+          aluno: alunoSelecionado
+        }
+      })
+    );
+  }
+
+  async function marcarLinkEnviadoAoAluno() {
+    if (!alunoSelecionado?.id) {
+      alert("Selecione um aluno antes de marcar o link como enviado.");
+      return;
+    }
+
+    setSalvando(true);
+
+    try {
+      const statusAnterior = pegarCampo(
+        alunoSelecionado,
+        ["status_jornada", "status_atual", "status"],
+        null
+      );
+
+      const agora = new Date().toISOString();
+
+      try {
+        await supabase
+          .from("links_pagamento")
+          .update({
+            status: "LINK_ENVIADO_AO_ALUNO",
+            enviado_operador_em: agora,
+            atualizado_em: agora,
+          })
+          .eq("aluno_id", String(alunoSelecionado.id))
+          .in("status", [
+            "LINK_GERADO",
+            "LINK_PRONTO_PARA_ENVIO",
+            "LINK_ENVIADO_ALUNO",
+            "LINK_ENVIADO_AO_ALUNO",
+          ]);
+      } catch (erroLink) {
+        console.warn("Não foi possível atualizar links_pagamento:", erroLink);
+      }
+
+      await registrarMovimentacao({
+        alunoId: alunoSelecionado.id,
+        tipo: "LINK_ENVIADO_AO_ALUNO",
+        descricao:
+          "Operador informou que o link foi enviado ao aluno. Próximo passo: aguardar comprovante de pagamento.",
+        statusAnterior,
+        statusNovo: "AGUARDANDO_COMPROVANTE",
+        retorno: null,
+        atualizarResponsavel: false,
+      });
+
+      await recarregarAlunoSelecionado(alunoSelecionado.id);
+      await carregarMovimentacoes(alunoSelecionado.id);
+      await carregarAlunos();
+
+      alert("Link marcado como enviado. Agora o caso ficará aguardando comprovante.");
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao marcar link como enviado ao aluno.");
+    } finally {
+      setSalvando(false);
     }
   }
 
@@ -1039,6 +1117,27 @@ export default function Alunos() {
                 </button>
               </div>
 
+              <div style={barraAbasFicha}>
+                {[
+                  ["dados", "Dados do aluno"],
+                  ["tabulacoes", "Tabulações"],
+                  ["financeiro", "Financeiro"],
+                  ["adm", "ADM"],
+                ].map(([chave, rotulo]) => (
+                  <button
+                    key={chave}
+                    type="button"
+                    onClick={() => setAbaFicha(chave)}
+                    style={
+                      abaFicha === chave ? abaFichaAtiva : abaFichaInativa
+                    }
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              </div>
+
+              {abaFicha === "dados" && (
               <div style={gradeCards}>
                 <div style={cardInfo}>
                   <strong>Responsável atual</strong>
@@ -1083,6 +1182,56 @@ export default function Alunos() {
                   {alunoSelecionado.status_acionamento || "-"}
                 </div>
               </div>
+              )}
+
+              {abaFicha === "tabulacoes" && (
+              <>
+              {[
+                "LINK_PRONTO_PARA_ENVIO",
+                "LINK_GERADO",
+              ].includes(
+                pegarCampo(
+                  alunoSelecionado,
+                  ["status_jornada", "status_atual", "status"],
+                  "CONTATAR"
+                )
+              ) ||
+              alunoSelecionado.proxima_acao === "ENVIAR_LINK_AO_ALUNO" ? (
+                <div style={caixaLinkPronto}>
+                  <h3 style={tituloSecao}>Link pronto para envio</h3>
+
+                  <p style={textoInfo}>
+                    Este aluno está com link pronto. Depois de enviar o link ao aluno,
+                    clique abaixo para mudar o caso para aguardando comprovante.
+                  </p>
+
+                  <button
+                    type="button"
+                    onClick={marcarLinkEnviadoAoAluno}
+                    disabled={salvando}
+                    style={botaoPrincipal}
+                  >
+                    {salvando
+                      ? "Salvando..."
+                      : "Link enviado ao aluno / Aguardar comprovante"}
+                  </button>
+                </div>
+              ) : null}
+
+              <LinksPagamentoAluno
+                aluno={alunoSelecionado}
+                usuarioLogado={usuarioLogado}
+                onAtualizar={async () => {
+                  await recarregarAlunoSelecionado(alunoSelecionado.id);
+                  await carregarMovimentacoes(alunoSelecionado.id);
+                  await carregarAlunos();
+                }}
+                onSucesso={async () => {
+                  await recarregarAlunoSelecionado(alunoSelecionado.id);
+                  await carregarMovimentacoes(alunoSelecionado.id);
+                  await carregarAlunos();
+                }}
+              />
 
               <div style={caixaDestaque}>
                 <h3 style={tituloSecao}>Tabulações</h3>
@@ -1152,14 +1301,30 @@ export default function Alunos() {
                   >
                     Salvar só observação
                   </button>
+
+                  <button
+                    type="button"
+                    onClick={solicitarLinkPagamento}
+                    disabled={salvando}
+                    style={botaoSecundario}
+                  >
+                    Solicitar link
+                  </button>
                 </div>
               </div>
 
-              <FinanceiroAluno aluno={alunoSelecionado} />
               <FinalizacaoTermo aluno={alunoSelecionado} />
 
               <EnvioFinanceiro aluno={alunoSelecionado} />
+              </>
+              )}
 
+              {abaFicha === "financeiro" && (
+                <FinanceiroAluno aluno={alunoSelecionado} />
+              )}
+
+              {abaFicha === "adm" && (
+              <>
               <div style={caixaInterna}>
                 <h3 style={tituloSecao}>Alterar operador responsável</h3>
 
@@ -1232,6 +1397,8 @@ export default function Alunos() {
                   </div>
                 )}
               </div>
+              </>
+              )}
             </>
           )}
         </div>
@@ -1300,6 +1467,14 @@ const caixaDestaque = {
   marginBottom: "18px",
 };
 
+const caixaLinkPronto = {
+  background: "#052e16",
+  border: "1px solid #22c55e",
+  borderRadius: "14px",
+  padding: "16px",
+  marginBottom: "18px",
+};
+
 const caixaInterna = {
   background: "#020617",
   border: "1px solid #374151",
@@ -1322,6 +1497,36 @@ const topoFicha = {
   alignItems: "start",
   flexWrap: "wrap",
   marginBottom: "18px",
+};
+
+const barraAbasFicha = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+  marginBottom: "18px",
+  borderBottom: "1px solid #374151",
+  paddingBottom: "10px",
+};
+
+const abaFichaBase = {
+  border: "none",
+  borderRadius: "8px",
+  padding: "8px 14px",
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const abaFichaAtiva = {
+  ...abaFichaBase,
+  background: "#22c55e",
+  color: "#052e16",
+};
+
+const abaFichaInativa = {
+  ...abaFichaBase,
+  background: "#1f2937",
+  color: "#d1d5db",
 };
 
 const gradeCards = {

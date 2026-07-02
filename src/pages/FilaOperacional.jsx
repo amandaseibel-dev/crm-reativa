@@ -198,6 +198,7 @@ export default function FilaOperador() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
+  const [abaFicha, setAbaFicha] = useState("dados");
   const [movimentacoes, setMovimentacoes] = useState([]);
 
   const [busca, setBusca] = useState("");
@@ -346,6 +347,7 @@ export default function FilaOperador() {
   }
 
   async function abrirAlunoNaFila(aluno) {
+    setAbaFicha("dados");
     if (!aluno?.id) {
       alert("Aluno sem ID. Não foi possível abrir a ficha.");
       return;
@@ -1292,6 +1294,27 @@ export default function FilaOperador() {
                 </button>
               </div>
 
+              <div style={barraAbasFicha}>
+                {[
+                  ["dados", "Dados do aluno"],
+                  ["tabulacoes", "Tabulações"],
+                  ["financeiro", "Financeiro"],
+                  ["adm", "ADM"],
+                ].map(([chave, rotulo]) => (
+                  <button
+                    key={chave}
+                    type="button"
+                    onClick={() => setAbaFicha(chave)}
+                    style={
+                      abaFicha === chave ? abaFichaAtiva : abaFichaInativa
+                    }
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              </div>
+
+              {abaFicha === "dados" && (
               <div style={gradeCards}>
                 <div style={cardInfo}>
                   <strong>Responsável atual</strong>
@@ -1336,7 +1359,10 @@ export default function FilaOperador() {
                   {alunoSelecionado.status_acionamento || "-"}
                 </div>
               </div>
+              )}
 
+              {abaFicha === "tabulacoes" && (
+              <>
               {[
                 "LINK_PRONTO_PARA_ENVIO",
                 "LINK_GERADO",
@@ -1464,11 +1490,18 @@ export default function FilaOperador() {
                 </div>
               </div>
 
-              <FinanceiroAluno aluno={alunoSelecionado} />
               <FinalizacaoTermo aluno={alunoSelecionado} />
 
               <EnvioFinanceiro aluno={alunoSelecionado} />
+              </>
+              )}
 
+              {abaFicha === "financeiro" && (
+                <FinanceiroAluno aluno={alunoSelecionado} />
+              )}
+
+              {abaFicha === "adm" && (
+              <>
               <div style={caixaInterna}>
                 <h3 style={tituloSecao}>Alterar operador responsável</h3>
 
@@ -1541,6 +1574,8 @@ export default function FilaOperador() {
                   </div>
                 )}
               </div>
+              </>
+              )}
             </>
           )}
         </div>
@@ -1876,6 +1911,36 @@ const topoFicha = {
   alignItems: "start",
   flexWrap: "wrap",
   marginBottom: "18px",
+};
+
+const barraAbasFicha = {
+  display: "flex",
+  gap: "8px",
+  flexWrap: "wrap",
+  marginBottom: "18px",
+  borderBottom: "1px solid #374151",
+  paddingBottom: "10px",
+};
+
+const abaFichaBase = {
+  border: "none",
+  borderRadius: "8px",
+  padding: "8px 14px",
+  fontSize: "13px",
+  fontWeight: 700,
+  cursor: "pointer",
+};
+
+const abaFichaAtiva = {
+  ...abaFichaBase,
+  background: "#22c55e",
+  color: "#052e16",
+};
+
+const abaFichaInativa = {
+  ...abaFichaBase,
+  background: "#1f2937",
+  color: "#d1d5db",
 };
 
 const gradeCards = {
