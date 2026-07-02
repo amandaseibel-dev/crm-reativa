@@ -242,6 +242,7 @@ export default function FilaOperador() {
   const navigate = useNavigate();
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [alunos, setAlunos] = useState([]);
+  const [saldosPorCpf, setSaldosPorCpf] = useState({});
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
   const [abaFicha, setAbaFicha] = useState("dados");
   const [movimentacoes, setMovimentacoes] = useState([]);
@@ -276,6 +277,39 @@ export default function FilaOperador() {
       carregarCasosFinalizados();
     }
   }, [filtro, usuarioLogado]);
+
+  // Soma o saldo em aberto dos títulos (borderôs) de cada aluno pelo CPF,
+  // pra mostrar no card da fila sem precisar abrir a ficha. Feito em lote
+  // (uma query só pra todos os CPFs carregados) em vez de uma consulta por
+  // aluno. Mais pra frente entra também a soma das parcelas de acordo em
+  // aberto (ainda não incluída aqui).
+  async function carregarSaldosPorCpf(cpfs) {
+    const cpfsUnicos = [...new Set(cpfs.filter(Boolean))];
+
+    if (cpfsUnicos.length === 0) {
+      setSaldosPorCpf({});
+      return;
+    }
+
+    const { data, error } = await supabase
+      .from("acordos_titulos")
+      .select("cpf, saldo_corrigido, valor_original, situacao")
+      .in("cpf", cpfsUnicos);
+
+    if (error) {
+      console.error("Erro ao carregar saldos financeiros:", error);
+      return;
+    }
+
+    const mapa = {};
+    (data || []).forEach((titulo) => {
+      if (titulo.situacao === "PAGO") return;
+      const valor = Number(titulo.saldo_corrigido ?? titulo.valor_original ?? 0);
+      mapa[titulo.cpf] = (mapa[titulo.cpf] || 0) + valor;
+    });
+
+    setSaldosPorCpf(mapa);
+  }
 
   async function carregarCasosFinalizados() {
     if (!usuarioLogado?.email) return;
@@ -413,6 +447,7 @@ export default function FilaOperador() {
       const resto = emCobranca.filter((a) => a.nivel_criticidade !== "URGENTE");
 
       setAlunos([...urgentes, ...resto, ...foraDaCobranca]);
+      carregarSaldosPorCpf(dados.map((a) => a.cpf));
     } catch (e) {
       console.error("Erro inesperado ao carregar fila:", e);
       setErro("Erro inesperado ao carregar a fila.");
@@ -1259,7 +1294,9 @@ export default function FilaOperador() {
                       <div>
                         <strong>Valor em aberto</strong>
                         <br />
-                        {moeda(aluno.valor_em_aberto)}
+                        {aluno.cpf && saldosPorCpf[aluno.cpf] !== undefined
+                          ? moeda(saldosPorCpf[aluno.cpf])
+                          : moeda(aluno.valor_em_aberto)}
                       </div>
 
                       <div>
