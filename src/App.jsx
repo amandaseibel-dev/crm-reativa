@@ -296,7 +296,7 @@ export default function App() {
     <BrowserRouter>
       <div className="app">
         <aside className="sidebar">
-          <div className="logo">
+          <div className="cabecalho-usuario">
             <h2>ReATIVA One</h2>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>

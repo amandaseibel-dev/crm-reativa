@@ -116,16 +116,32 @@ function moeda(valor) {
   });
 }
 
-function dataInicioHojeISO() {
-  const agora = new Date();
-  agora.setHours(0, 0, 0, 0);
-  return agora.toISOString();
+function paraDataLocalBR(valor) {
+  if (!valor) return null;
+
+  // Se já vier só a data (YYYY-MM-DD), não precisa converter.
+  if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) return valor;
+
+  const data = new Date(valor);
+  if (Number.isNaN(data.getTime())) return null;
+
+  // Usa o dia civil em horário de Brasília (não em UTC), pra não gravar
+  // o dia seguinte quando o retorno é marcado à noite (21h-23h59).
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(data);
 }
 
-function dataFimHojeISO() {
-  const agora = new Date();
-  agora.setHours(23, 59, 59, 999);
-  return agora.toISOString();
+function hojeLocalBR() {
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 function saudacaoDoDia() {
@@ -289,9 +305,7 @@ export default function FilaOperador() {
       }
 
       if (filtro === "RETORNOS_HOJE") {
-        query = query
-          .gte("data_retorno", dataInicioHojeISO())
-          .lte("data_retorno", dataFimHojeISO());
+        query = query.eq("data_retorno", hojeLocalBR());
       }
 
       if (filtro === "NEGOCIACAO_24H") {
@@ -475,7 +489,7 @@ export default function FilaOperador() {
       atualizacaoAluno.status_atual = statusNovo;
       atualizacaoAluno.status_acionamento = statusNovo;
       atualizacaoAluno.proxima_acao = definirProximaAcao(statusNovo);
-      atualizacaoAluno.data_retorno = retorno;
+      atualizacaoAluno.data_retorno = paraDataLocalBR(retorno);
     }
 
     if (observacaoAluno !== null) {
@@ -540,7 +554,7 @@ export default function FilaOperador() {
           await supabase
             .from("alunos_unificados")
             .update({
-              data_retorno: retorno,
+              data_retorno: paraDataLocalBR(retorno),
               hora_retorno: horaRetorno,
               status_jornada: statusNovo,
             })
