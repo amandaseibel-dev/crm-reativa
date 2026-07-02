@@ -21,6 +21,7 @@ function primeiroNome(nome) {
 
 export default function FilaReceptivo({ usuarioLogado }) {
   const [linhas, setLinhas] = useState([]);
+  const [perfis, setPerfis] = useState({});
   const [marcando, setMarcando] = useState(false);
 
   const email = usuarioLogado?.email || "";
@@ -31,6 +32,17 @@ export default function FilaReceptivo({ usuarioLogado }) {
       .from("fila_receptivo")
       .select("email, nome, atendimentos_hoje, ultimo_atendimento, online_em");
     setLinhas(data || []);
+
+    const { data: usuarios } = await supabase
+      .from("usuarios")
+      .select("email, apelido, foto_url")
+      .in("email", OPERADORES_RECEPTIVO);
+
+    const mapa = {};
+    for (const usuario of usuarios || []) {
+      mapa[usuario.email] = usuario;
+    }
+    setPerfis(mapa);
   }
 
   useEffect(() => {
@@ -87,6 +99,29 @@ export default function FilaReceptivo({ usuarioLogado }) {
 
   if (ordem.length === 0) return null;
 
+  function nomeExibicao(linha) {
+    return perfis[linha.email]?.apelido || primeiroNome(linha.nome);
+  }
+
+  function Avatar({ linha, tamanho = 22 }) {
+    const foto = perfis[linha.email]?.foto_url;
+    if (!foto) return null;
+    return (
+      <img
+        src={foto}
+        alt={nomeExibicao(linha)}
+        style={{
+          width: tamanho,
+          height: tamanho,
+          borderRadius: "50%",
+          objectFit: "cover",
+          verticalAlign: "middle",
+          marginRight: 6,
+        }}
+      />
+    );
+  }
+
   const proximo = ordem[0];
   const souOProximo = proximo.email === email;
 
@@ -98,16 +133,20 @@ export default function FilaReceptivo({ usuarioLogado }) {
             <strong style={estilos.destaqueMim}>🔔 Você é o próximo do receptivo!</strong>
           ) : (
             <strong style={estilos.destaque}>
-              📞 Próximo do receptivo: {primeiroNome(proximo.nome)}
+              <Avatar linha={proximo} tamanho={24} />
+              📞 Próximo do receptivo: {nomeExibicao(proximo)}
             </strong>
           )}
           {ordem.length > 1 && (
             <div style={estilos.fila}>
               Depois:{" "}
-              {ordem
-                .slice(1)
-                .map((linha) => `${primeiroNome(linha.nome)} (${linha.atendimentos_hoje} hoje)`)
-                .join(", ")}
+              {ordem.slice(1).map((linha, indice) => (
+                <span key={linha.email} style={{ marginRight: 10, whiteSpace: "nowrap" }}>
+                  <Avatar linha={linha} />
+                  {nomeExibicao(linha)} ({linha.atendimentos_hoje} hoje)
+                  {indice < ordem.length - 2 ? "," : ""}
+                </span>
+              ))}
             </div>
           )}
         </div>

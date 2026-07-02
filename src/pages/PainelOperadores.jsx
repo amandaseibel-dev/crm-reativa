@@ -99,6 +99,7 @@ function agruparPorDiaEOperador(eventos) {
 export default function PainelOperadores() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [eventos, setEventos] = useState([]);
+  const [perfis, setPerfis] = useState({});
   const [carregando, setCarregando] = useState(true);
   const [periodo, setPeriodo] = useState("7_DIAS");
 
@@ -140,6 +141,14 @@ export default function PainelOperadores() {
 
     const { data } = await query;
     setEventos(data || []);
+
+    const { data: usuarios } = await supabase.from("usuarios").select("email, apelido, foto_url");
+    const mapa = {};
+    for (const usuario of usuarios || []) {
+      mapa[usuario.email] = usuario;
+    }
+    setPerfis(mapa);
+
     setCarregando(false);
   }
 
@@ -212,7 +221,16 @@ export default function PainelOperadores() {
                   style={{ borderBottom: "1px solid rgba(148,163,184,0.12)" }}
                 >
                   <td style={{ padding: "8px 10px" }}>{formatarData(linha.data)}</td>
-                  <td style={{ padding: "8px 10px" }}>{linha.nome}</td>
+                  <td style={{ padding: "8px 10px", display: "flex", alignItems: "center", gap: 8 }}>
+                    {perfis[linha.email]?.foto_url ? (
+                      <img
+                        src={perfis[linha.email].foto_url}
+                        alt={linha.nome}
+                        style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }}
+                      />
+                    ) : null}
+                    {perfis[linha.email]?.apelido || linha.nome}
+                  </td>
                   <td style={{ padding: "8px 10px" }}>{formatarHora(linha.login)}</td>
                   <td style={{ padding: "8px 10px" }}>{formatarHora(linha.logout)}</td>
                   {linha.pausas.map((pausa) => (

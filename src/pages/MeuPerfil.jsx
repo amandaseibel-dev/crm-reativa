@@ -5,6 +5,7 @@ export default function MeuPerfil() {
   const [usuarioAuth, setUsuarioAuth] = useState(null);
   const [perfil, setPerfil] = useState(null);
   const [apelido, setApelido] = useState("");
+  const [aniversario, setAniversario] = useState("");
   const [fotoPreview, setFotoPreview] = useState("");
   const [arquivoFoto, setArquivoFoto] = useState(null);
   const [salvando, setSalvando] = useState(false);
@@ -27,6 +28,7 @@ export default function MeuPerfil() {
       if (dadosPerfil) {
         setPerfil(dadosPerfil);
         setApelido(dadosPerfil.apelido || "");
+        setAniversario(dadosPerfil.aniversario || "");
         setFotoPreview(dadosPerfil.foto_url || "");
       }
     }
@@ -74,7 +76,11 @@ export default function MeuPerfil() {
 
       const { error: updateError } = await supabase
         .from("usuarios")
-        .update({ apelido: apelido.trim() || null, foto_url: fotoUrl })
+        .update({
+          apelido: apelido.trim() || null,
+          foto_url: fotoUrl,
+          aniversario: aniversario || null,
+        })
         .eq("email", perfil.email);
 
       if (updateError) {
@@ -163,6 +169,16 @@ export default function MeuPerfil() {
         onChange={(e) => setApelido(e.target.value)}
         placeholder="Ex: Fê, Dieguinho, Ju..."
         maxLength={30}
+        style={{ width: "100%", padding: 10, borderRadius: 8, marginBottom: 20 }}
+      />
+
+      <label style={{ display: "block", marginBottom: 6, fontSize: 13, opacity: 0.85 }}>
+        Aniversário
+      </label>
+      <input
+        type="date"
+        value={aniversario}
+        onChange={(e) => setAniversario(e.target.value)}
         style={{ width: "100%", padding: 10, borderRadius: 8, marginBottom: 20 }}
       />
 

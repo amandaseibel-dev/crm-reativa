@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import Topbar from "../layout/Topbar";
 import { supabase } from "../services/supabase";
+import MuralAniversariantes from "../components/MuralAniversariantes";
 
 export default function Dashboard() {
   useEffect(() => {
@@ -19,6 +20,8 @@ export default function Dashboard() {
   return (
     <main className="content">
       <Topbar />
+
+      <MuralAniversariantes />
 
       <h1>Dashboard ReATIVA One</h1>
     </main>
