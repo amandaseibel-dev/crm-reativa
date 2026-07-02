@@ -1165,7 +1165,7 @@ export default function FilaOperador() {
                   <button
                     type="button"
                     key={aluno.id}
-                    onClick={() => navigate(`/aluno?alunoId=${encodeURIComponent(aluno.id)}`)}
+                    onClick={() => navigate(`/aluno?alunoId=${encodeURIComponent(aluno.id)}&origem=fila`)}
                     style={{
                       ...cardAluno,
                       background: bloqueado

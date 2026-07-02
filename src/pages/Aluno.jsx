@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
@@ -145,6 +146,8 @@ function moeda(valor) {
 }
 
 export default function Alunos() {
+  const navigate = useNavigate();
+  const [vindoDaFila, setVindoDaFila] = useState(false);
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
@@ -190,6 +193,10 @@ export default function Alunos() {
 
     const alunoId =
       alunoIdDaUrl || alunoIdLocalStorage || alunoIdSessionStorage;
+
+    if (parametros.get("origem") === "fila") {
+      setVindoDaFila(true);
+    }
 
     if (alunoId) {
       setOrigemAbertura(`Abrindo aluno recebido da fila: ${alunoId}`);
@@ -741,6 +748,10 @@ export default function Alunos() {
       await carregarMovimentacoes(alunoSelecionado.id);
 
       alert("Finalização registrada com sucesso.");
+
+      if (vindoDaFila) {
+        navigate("/minha-fila");
+      }
     } catch (e) {
       console.error(e);
     } finally {
@@ -1067,6 +1078,25 @@ export default function Alunos() {
                   </div>
                 ) : null;
               })()}
+
+              {vindoDaFila && (
+                <button
+                  type="button"
+                  onClick={() => navigate("/minha-fila")}
+                  style={{
+                    background: "transparent",
+                    border: "1px solid #374151",
+                    color: "#d1d5db",
+                    borderRadius: 8,
+                    padding: "8px 14px",
+                    marginBottom: 14,
+                    cursor: "pointer",
+                    fontWeight: 700,
+                  }}
+                >
+                  ← Voltar para a fila
+                </button>
+              )}
 
               <div style={topoFicha}>
                 <div>
