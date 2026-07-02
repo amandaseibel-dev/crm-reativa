@@ -98,7 +98,10 @@ export default function RelatorioTabulacoes() {
     let query = supabase
       .from("aluno_movimentacoes")
       .select("registrado_por_nome, registrado_por_email, registrado_em, status_novo")
-      .eq("tipo", "FINALIZACAO_ATENDIMENTO")
+      // Conta finalizações de atendimento (tabulação em si) e também o
+      // "marcar link como enviado", que é um acionamento real do operador
+      // mas é registrado com um tipo separado.
+      .in("tipo", ["FINALIZACAO_ATENDIMENTO", "LINK_ENVIADO_AO_ALUNO"])
       .order("registrado_em", { ascending: false })
       .limit(20000);
 

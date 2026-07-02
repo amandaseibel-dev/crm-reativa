@@ -1203,24 +1203,26 @@ export default function Alunos() {
                   )}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={assumirAtendimento}
-                  disabled={
-                    salvando ||
-                    (STATUS_BLOQUEADOS_ACIONAMENTO.includes(
-                      pegarCampo(
-                        alunoSelecionado,
-                        ["status_jornada", "status_atual", "status"],
-                        "CONTATAR"
-                      )
-                    ) &&
-                      !podeVerTudo(usuarioLogado?.email))
-                  }
-                  style={botaoPrincipal}
-                >
-                  {salvando ? "Salvando..." : "Assumir atendimento"}
-                </button>
+                {!alunoSelecionado.responsavel_atual_email && (
+                  <button
+                    type="button"
+                    onClick={assumirAtendimento}
+                    disabled={
+                      salvando ||
+                      (STATUS_BLOQUEADOS_ACIONAMENTO.includes(
+                        pegarCampo(
+                          alunoSelecionado,
+                          ["status_jornada", "status_atual", "status"],
+                          "CONTATAR"
+                        )
+                      ) &&
+                        !podeVerTudo(usuarioLogado?.email))
+                    }
+                    style={botaoPrincipal}
+                  >
+                    {salvando ? "Salvando..." : "Assumir atendimento"}
+                  </button>
+                )}
               </div>
 
               <div style={barraAbasFicha}>
