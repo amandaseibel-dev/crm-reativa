@@ -119,6 +119,15 @@ export default function App() {
   const [carregando, setCarregando] = useState(true);
   const [linksAguardando, setLinksAguardando] = useState(0);
   const [termosRejeitados, setTermosRejeitados] = useState(0);
+  const [tema, setTema] = useState(
+    () => localStorage.getItem("reativa_tema") || "escuro"
+  );
+
+  function alternarTema() {
+    const novoTema = tema === "escuro" ? "claro" : "escuro";
+    setTema(novoTema);
+    localStorage.setItem("reativa_tema", novoTema);
+  }
 
   useEffect(() => {
     verificarSessao();
@@ -294,7 +303,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="app">
+      <div className="app" data-tema={tema}>
         <aside className="sidebar">
           <div className="cabecalho-usuario">
             <h2>ReATIVA One</h2>
@@ -336,6 +345,10 @@ export default function App() {
               onClick={sair}
             >
               Sair
+            </button>
+
+            <button type="button" className="botao-tema" onClick={alternarTema}>
+              {tema === "escuro" ? "☀️ Modo claro" : "🌙 Modo escuro"}
             </button>
           </div>
 

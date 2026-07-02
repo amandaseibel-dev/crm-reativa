@@ -56,6 +56,45 @@ body {
   color: #4ade80;
 }
 
+.app[data-tema="claro"] .sidebar {
+  background: rgba(248, 250, 252, 0.98);
+  border-right: 1px solid rgba(15, 23, 42, 0.1);
+}
+
+.app[data-tema="claro"] .cabecalho-usuario {
+  border-bottom-color: rgba(15, 23, 42, 0.12);
+}
+
+.app[data-tema="claro"] .cabecalho-usuario h2 {
+  color: #16a34a;
+}
+
+.app[data-tema="claro"] .cabecalho-usuario span {
+  color: #0f172a;
+}
+
+.app[data-tema="claro"] nav a {
+  color: #334155;
+}
+
+.app[data-tema="claro"] nav a:hover,
+.app[data-tema="claro"] nav a.active {
+  background: rgba(34, 197, 94, 0.16);
+  color: #15803d;
+}
+
+.botao-tema {
+  width: 100%;
+  margin-top: 10px;
+  padding: 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 13px;
+}
+
 .brand h1 {
   margin: 0;
   font-size: 21px;
