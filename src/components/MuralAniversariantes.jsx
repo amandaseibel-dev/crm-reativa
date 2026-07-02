@@ -34,16 +34,18 @@ export default function MuralAniversariantes() {
 
       const hoje = new Date();
       hoje.setHours(0, 0, 0, 0);
+      const mesAtual = hoje.getMonth() + 1;
 
-      const comDistancia = data
+      const doMes = data
+        .filter((usuario) => Number(usuario.aniversario.split("-")[1]) === mesAtual)
         .map((usuario) => ({
           ...usuario,
           diasAte: diasAteProximoAniversario(usuario.aniversario, hoje),
+          dia: Number(usuario.aniversario.split("-")[2]),
         }))
-        .sort((a, b) => a.diasAte - b.diasAte)
-        .slice(0, 6);
+        .sort((a, b) => a.dia - b.dia);
 
-      setAniversariantes(comDistancia);
+      setAniversariantes(doMes);
     }
 
     carregar();
@@ -53,7 +55,7 @@ export default function MuralAniversariantes() {
 
   return (
     <div style={estilos.caixa}>
-      <strong style={estilos.titulo}>🎂 Próximos aniversários</strong>
+      <strong style={estilos.titulo}>🎂 Aniversariantes do mês</strong>
       <div style={estilos.lista}>
         {aniversariantes.map((pessoa) => (
           <div key={pessoa.nome} style={estilos.item}>
