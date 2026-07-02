@@ -149,6 +149,20 @@ export default function Borderos() {
       const novosAlunos = linhasComStatus.filter((l) => l.origemMatch === "novo").length;
       const existentes = linhasComStatus.filter((l) => l.jaExiste).length;
 
+      const numeroBordero = extrairNumeroBordero(arquivoSelecionado.name);
+
+      // Avisa se esse mesmo bordero (mesmo numero) ja foi importado antes,
+      // pra evitar reenvio sem perceber. Nao bloqueia (pode ser reforço de
+      // dados de propósito), so deixa bem visivel antes de confirmar.
+      const { data: importacoesAnteriores } = await supabase
+        .from("importacoes")
+        .select("id, created_at, usuario, qtd_registros")
+        .eq("tipo", "BORDERO")
+        .eq("referencia", numeroBordero)
+        .eq("status", "CONCLUIDO")
+        .order("created_at", { ascending: false })
+        .limit(1);
+
       setPreview({
         linhas: linhasComStatus,
         totais: {
@@ -158,7 +172,8 @@ export default function Borderos() {
           novosAlunos,
           existentes,
         },
-        numeroBordero: extrairNumeroBordero(arquivoSelecionado.name),
+        numeroBordero,
+        jaImportadoAntes: importacoesAnteriores?.[0] || null,
       });
     } catch (err) {
       console.error(err);
@@ -346,6 +361,18 @@ export default function Borderos() {
 
       {preview && (
         <div style={{ marginTop: 20 }}>
+          {preview.jaImportadoAntes && (
+            <div style={estilos.avisoDuplicado}>
+              <strong>⚠️ Este borderô (nº {preview.numeroBordero}) já foi importado antes</strong>
+              <p style={{ margin: "4px 0 0", fontSize: 13 }}>
+                Em {new Date(preview.jaImportadoAntes.created_at).toLocaleString("pt-BR")}, por{" "}
+                {preview.jaImportadoAntes.usuario} ({preview.jaImportadoAntes.qtd_registros}{" "}
+                registros). Confirmar de novo não duplica os títulos, só atualiza os valores —
+                mas confira se é isso mesmo que você quer antes de continuar.
+              </p>
+            </div>
+          )}
+
           <div style={estilos.grade}>
             <div style={estilos.cartao}>
               <div style={estilos.numero}>{preview.totais.total}</div>
@@ -445,6 +472,13 @@ const estilos = {
     borderRadius: 10,
     border: "1px dashed rgba(148,163,184,0.4)",
     background: "rgba(148,163,184,0.05)",
+  },
+  avisoDuplicado: {
+    padding: "12px 16px",
+    marginBottom: 16,
+    borderRadius: 10,
+    background: "rgba(251,191,36,0.1)",
+    border: "1px solid rgba(251,191,36,0.4)",
   },
   caixaSucesso: {
     marginTop: 16,
