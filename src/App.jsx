@@ -20,6 +20,7 @@ import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 import ManualOperacao from "./pages/ManualOperacao";
 import BotaoManual from "./components/BotaoManual";
 import FilaFinanceiro from "./pages/FilaFinanceiro";
+import FilaConfirmacaoPagamento from "./pages/FilaConfirmacaoPagamento";
 import PainelOperadores from "./pages/PainelOperadores";
 import MeuPerfil from "./pages/MeuPerfil";
 import Borderos from "./pages/Borderos";
@@ -58,6 +59,7 @@ function podeAcessar(perfil, rota) {
 
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
+      "/fila-confirmacao-pagamento",
       "/painel-adm",
       "/fila-financeiro",
       "/painel-operadores",    
@@ -76,6 +78,7 @@ function podeAcessar(perfil, rota) {
 
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
+      "/fila-confirmacao-pagamento",
       "/painel-adm",
       "/fila-financeiro",    
       "/meu-perfil",],
@@ -91,6 +94,7 @@ function podeAcessar(perfil, rota) {
 
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
+      "/fila-confirmacao-pagamento",
       "/painel-adm",
       "/fila-financeiro",
       "/borderos",
@@ -292,6 +296,7 @@ export default function App() {
     { rota: "/fila-financeiro", label: "🏦 Fila Financeiro" },
     { rota: "/painel-operadores", label: "🕒 Painel Operadores" },
     { rota: "/minha-fila-pagamentos", label: "💳 Fila de Baixas" },
+    { rota: "/fila-confirmacao-pagamento", label: "✅ Confirmação de Pagamento" },
     { rota: "/base-analitica", label: "📊 Base Analítica" },
     { rota: "/termos-adm", label: "📎 Termos ADM" },
     { rota: "/borderos", label: "📑 Borderôs" },
@@ -519,6 +524,7 @@ export default function App() {
               <Route path="/controle-links-pagamento" element={<ControleLinksPagamento />} />
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/fila-financeiro" element={<FilaFinanceiro />} />
+              <Route path="/fila-confirmacao-pagamento" element={<FilaConfirmacaoPagamento />} />
               <Route path="/painel-operadores" element={<PainelOperadores />} />
               <Route path="/meu-perfil" element={<MeuPerfil />} />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />

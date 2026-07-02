@@ -4,6 +4,7 @@ import { podeVerTudo } from "../utils/operadores";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import EnvioFinanceiro from "../components/EnvioFinanceiro";
 import FinanceiroAluno from "../components/FinanceiroAluno";
+import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 
 const OPERADORES_REATIVA = [
@@ -1316,6 +1317,7 @@ export default function Alunos() {
               <FinalizacaoTermo aluno={alunoSelecionado} />
 
               <EnvioFinanceiro aluno={alunoSelecionado} />
+              <ConfirmarPagamento aluno={alunoSelecionado} />
               </>
               )}
 

@@ -127,8 +127,27 @@ export default function VincularBaseOperacional() {
 
       const linhasComStatus = linhas.map((linha) => {
         const candidatos = mapaAlunosPorNome.get(linha.nomeNormalizado) || [];
-        const ambiguo = candidatos.length > 1;
-        const aluno = candidatos.length === 1 ? candidatos[0] : null;
+
+        // Quando o nome bate em mais de um aluno, tenta desempatar: se só
+        // um dos candidatos já tem responsável (operador) cadastrado, é
+        // bem provável que seja o cadastro "de verdade" (o outro costuma
+        // ser um registro duplicado sem dono). Só resolve sozinho quando
+        // dá pra ter certeza (exatamente 1 com responsável); se mais de um
+        // já tiver responsável, ou nenhum tiver, continua ambíguo.
+        let aluno = null;
+        let ambiguo = false;
+
+        if (candidatos.length === 1) {
+          aluno = candidatos[0];
+        } else if (candidatos.length > 1) {
+          const comResponsavel = candidatos.filter((c) => c.responsavel_atual_email);
+
+          if (comResponsavel.length === 1) {
+            aluno = comResponsavel[0];
+          } else {
+            ambiguo = true;
+          }
+        }
 
         const emailOperador = linha.operadorArquivo
           ? emailPorNomeOperador(linha.operadorArquivo)
