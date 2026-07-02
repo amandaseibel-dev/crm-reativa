@@ -101,7 +101,7 @@ export default function RelatorioTabulacoes() {
       // Conta finalizações de atendimento (tabulação em si) e também o
       // "marcar link como enviado", que é um acionamento real do operador
       // mas é registrado com um tipo separado.
-      .in("tipo", ["FINALIZACAO_ATENDIMENTO", "LINK_ENVIADO_AO_ALUNO"])
+      .in("tipo", ["FINALIZACAO_ATENDIMENTO", "LINK_ENVIADO_AO_ALUNO", "COMPROVANTE_ENVIADO_BAIXA"])
       .order("registrado_em", { ascending: false })
       .limit(20000);
 
