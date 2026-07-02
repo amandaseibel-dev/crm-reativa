@@ -60,6 +60,7 @@ const STATUS_FINALIZACAO = [
   "AGUARDANDO_BAIXA",
   "BAIXA_REALIZADA",
   "BAIXA_DEVOLVIDA",
+  "TERMO_ENVIADO_ALUNO",
   "TERMO_ENVIADO_ADM",
   "TERMO_RECEBIDO_LIBERADO",
   "TERMO_REJEITADO",
@@ -191,6 +192,7 @@ function definirProximaAcao(status) {
   if (status === "AGUARDANDO_BAIXA") return "AGUARDAR_BAIXA";
   if (status === "BAIXA_REALIZADA") return "BAIXA_REALIZADA";
   if (status === "BAIXA_DEVOLVIDA") return "CORRIGIR_COMPROVANTE";
+  if (status === "TERMO_ENVIADO_ALUNO") return "AGUARDAR_ASSINATURA_ALUNO";
   if (status === "TERMO_ENVIADO_ADM") return "AGUARDAR_ADM";
   return "CONTATAR";
 }
