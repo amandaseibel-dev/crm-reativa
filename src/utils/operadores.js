@@ -12,6 +12,30 @@ export const OPERADORES_POR_EMAIL = {
   "amanda.seibel@aelbra.com.br": "AMANDA GESTORA",
 };
 
+const ALIAS_NOME_OPERADOR = {
+  NATALY: "NATALI",
+};
+
+function normalizarNomeOperador(nome) {
+  const semAcento = String(nome || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toUpperCase()
+    .trim();
+  return ALIAS_NOME_OPERADOR[semAcento] || semAcento;
+}
+
+export function emailPorNomeOperador(nomeArquivo) {
+  const alvo = normalizarNomeOperador(nomeArquivo);
+  if (!alvo) return null;
+
+  for (const [email, nome] of Object.entries(OPERADORES_POR_EMAIL)) {
+    if (normalizarNomeOperador(nome) === alvo) return email;
+  }
+
+  return null;
+}
+
 export function nomeOperadorPorEmail(email) {
   const chave = String(email || "").toLowerCase().trim();
   return OPERADORES_POR_EMAIL[chave] || email || "OPERADOR";

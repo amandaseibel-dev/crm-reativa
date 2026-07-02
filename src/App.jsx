@@ -24,6 +24,7 @@ import PainelOperadores from "./pages/PainelOperadores";
 import MeuPerfil from "./pages/MeuPerfil";
 import Borderos from "./pages/Borderos";
 import ConsultaFinanceira from "./pages/ConsultaFinanceira";
+import VincularBaseOperacional from "./pages/VincularBaseOperacional";
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 import PainelAdm from "./pages/PainelAdm";
 
@@ -49,6 +50,7 @@ function podeAcessar(perfil, rota) {
       "/base-analitica",
       "/termos-adm",
       "/borderos",
+      "/vincular-operadores",
       "/importacoes",
       "/usuarios",
       "/relatorios",
@@ -92,6 +94,7 @@ function podeAcessar(perfil, rota) {
       "/painel-adm",
       "/fila-financeiro",
       "/borderos",
+      "/vincular-operadores",
       "/meu-perfil",],
     operador: [
       "/",
@@ -292,6 +295,7 @@ export default function App() {
     { rota: "/base-analitica", label: "📊 Base Analítica" },
     { rota: "/termos-adm", label: "📎 Termos ADM" },
     { rota: "/borderos", label: "📑 Borderôs" },
+    { rota: "/vincular-operadores", label: "🔗 Vincular Operadores" },
     { rota: "/importacoes", label: "📥 Importações" },
     { rota: "/usuarios", label: "👥 Usuários" },
     { rota: "/relatorios", label: "📈 Relatórios" },
@@ -450,6 +454,15 @@ export default function App() {
               element={
                 <RotaProtegida usuario={usuario} rota="/borderos">
                   <Borderos />
+                </RotaProtegida>
+              }
+            />
+
+            <Route
+              path="/vincular-operadores"
+              element={
+                <RotaProtegida usuario={usuario} rota="/vincular-operadores">
+                  <VincularBaseOperacional />
                 </RotaProtegida>
               }
             />

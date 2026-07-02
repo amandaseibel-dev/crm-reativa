@@ -974,6 +974,21 @@ export default function Alunos() {
                         </button>
                       </p>
 
+                      {(alunoSelecionado.telefone || alunoSelecionado.email) && (
+                        <p style={textoInfo}>
+                          {alunoSelecionado.telefone ? `Tel: ${alunoSelecionado.telefone}` : ""}
+                          {alunoSelecionado.telefone && alunoSelecionado.email ? " · " : ""}
+                          {alunoSelecionado.email ? `E-mail: ${alunoSelecionado.email}` : ""}
+                        </p>
+                      )}
+
+                      {(alunoSelecionado.curso || alunoSelecionado.unidade) && (
+                        <p style={textoInfo}>
+                          {alunoSelecionado.curso || "-"}
+                          {alunoSelecionado.unidade ? ` · ${alunoSelecionado.unidade}` : ""}
+                        </p>
+                      )}
+
                       <p style={textoInfo}>
                         Status atual:{" "}
                         <strong style={{ color: "#86efac" }}>
