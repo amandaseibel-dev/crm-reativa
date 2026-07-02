@@ -25,6 +25,17 @@ function detectarBloqueioCobranca(textoOperadorBruto) {
   return null;
 }
 
+// Caso "quitado" na planilha: sai da fila do operador (reassina o
+// responsável pra Amanda gestora revisar) em vez de continuar aparecendo
+// pra quem estava cobrando.
+function detectarQuitado(textoOperadorBruto) {
+  const normalizado = normalizarNome(textoOperadorBruto);
+  if (!normalizado) return false;
+  return normalizado.includes("QUITAD") || normalizado.includes("QUITACAO");
+}
+
+const EMAIL_AMANDA_GESTORA = "amanda.seibel@aelbra.com.br";
+
 // Datas podem vir como objeto Date (quando o Excel já formata a célula como
 // data) ou como número serial do Excel (quando a célula é texto/genérico).
 // Trata os dois casos pra não perder a data.
@@ -152,6 +163,7 @@ export default function VincularBaseOperacional() {
             : null,
           operadorArquivo: operadorBruto,
           bloqueioCobranca: detectarBloqueioCobranca(operadorBruto),
+          quitado: detectarQuitado(operadorBruto),
           };
         })
         .filter((linha) => linha.nomeNormalizado);
@@ -218,12 +230,17 @@ export default function VincularBaseOperacional() {
         // (não cobrar), não um preenchimento de campo em branco comum.
         const vaiBloquearCobranca = Boolean(linha.bloqueioCobranca && aluno);
 
+        // Quitado sai da fila de quem estava cobrando e vai pra fila da
+        // Amanda gestora revisar -- também sobrescreve o responsável atual.
+        const vaiQuitar = Boolean(linha.quitado && aluno);
+
         const temAlgumDado =
           vaiPreencherResponsavel ||
           vaiPreencherStatus ||
           vaiPreencherData ||
           vaiPreencherCriticidade ||
-          vaiBloquearCobranca;
+          vaiBloquearCobranca ||
+          vaiQuitar;
 
         return {
           ...linha,
@@ -231,12 +248,16 @@ export default function VincularBaseOperacional() {
           ambiguo,
           emailOperador,
           operadorNaoReconhecido:
-            Boolean(linha.operadorArquivo) && !emailOperador && !linha.bloqueioCobranca,
+            Boolean(linha.operadorArquivo) &&
+            !emailOperador &&
+            !linha.bloqueioCobranca &&
+            !linha.quitado,
           vaiPreencherResponsavel,
           vaiPreencherStatus,
           vaiPreencherData,
           vaiPreencherCriticidade,
           vaiBloquearCobranca,
+          vaiQuitar,
           temAlgumDado,
         };
       });
@@ -246,6 +267,7 @@ export default function VincularBaseOperacional() {
       const ambiguos = linhasComStatus.filter((l) => l.ambiguo).length;
       const comAtualizacao = linhasComStatus.filter((l) => l.aluno && l.temAlgumDado).length;
       const bloqueiosCobranca = linhasComStatus.filter((l) => l.vaiBloquearCobranca).length;
+      const quitados = linhasComStatus.filter((l) => l.vaiQuitar).length;
       const operadoresNaoReconhecidos = [
         ...new Set(
           linhasComStatus.filter((l) => l.operadorNaoReconhecido).map((l) => l.operadorArquivo)
@@ -274,6 +296,7 @@ export default function VincularBaseOperacional() {
           ambiguos,
           comAtualizacao,
           bloqueiosCobranca,
+          quitados,
         },
         operadoresNaoReconhecidos,
         contagemPorOperador,
@@ -312,13 +335,20 @@ export default function VincularBaseOperacional() {
           // ser valida antes do ON CONFLICT decidir), entao precisa vir
           // preenchido mesmo sem mudar o nome do aluno.
           nome: l.aluno.nome,
-          responsavel_atual_email: l.vaiPreencherResponsavel
+          // Quitado sobrescreve o responsável pra Amanda gestora (sai da
+          // fila de quem tava cobrando); fora isso só preenche se estava
+          // em branco, igual o resto dos campos.
+          responsavel_atual_email: l.vaiQuitar
+            ? EMAIL_AMANDA_GESTORA
+            : l.vaiPreencherResponsavel
             ? l.emailOperador
             : l.aluno.responsavel_atual_email ?? null,
-          responsavel_atual_nome: l.vaiPreencherResponsavel
+          responsavel_atual_nome: l.vaiQuitar
+            ? "AMANDA GESTORA"
+            : l.vaiPreencherResponsavel
             ? nomeOperadorPorEmail(l.emailOperador)
             : l.aluno.responsavel_atual_nome ?? null,
-          responsavel_atual_em: l.vaiPreencherResponsavel
+          responsavel_atual_em: l.vaiQuitar || l.vaiPreencherResponsavel
             ? new Date().toISOString()
             : l.aluno.responsavel_atual_em ?? null,
           status_acionamento: l.vaiPreencherStatus
@@ -343,6 +373,8 @@ export default function VincularBaseOperacional() {
             : l.aluno.status_atual ?? null,
           observacao: l.vaiBloquearCobranca
             ? `Marcado como "${l.operadorArquivo}" na planilha (Vincular Base Operacional) — só reativa quem tem acesso: Amanda, Fernanda ou Amanda ADM.`
+            : l.vaiQuitar
+            ? `Marcado como "${l.operadorArquivo}" na planilha (Vincular Base Operacional) — reatribuído pra Amanda gestora revisar.`
             : l.aluno.observacao ?? null,
         }));
 
@@ -457,6 +489,12 @@ export default function VincularBaseOperacional() {
                 {preview.totais.bloqueiosCobranca}
               </div>
               <div style={estilos.label}>Cancelamento/Jurídico (sai da cobrança)</div>
+            </div>
+            <div style={{ ...estilos.cartao, background: "rgba(34,197,94,0.1)" }}>
+              <div style={{ ...estilos.numero, color: "#86efac" }}>
+                {preview.totais.quitados}
+              </div>
+              <div style={estilos.label}>Quitados (vão pra sua fila)</div>
             </div>
           </div>
 
