@@ -28,6 +28,7 @@ import ConsultaFinanceira from "./pages/ConsultaFinanceira";
 import VincularBaseOperacional from "./pages/VincularBaseOperacional";
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 import PainelAdm from "./pages/PainelAdm";
+import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
 
 function EmDesenvolvimento({ titulo }) {
   return (
@@ -107,7 +108,7 @@ function podeAcessar(perfil, rota) {
       "/crm",
       "/agenda",
       "/agenda-operacional",
-    
+      "/relatorios",
       "/meu-perfil",],
   };
 
@@ -533,7 +534,7 @@ export default function App() {
               path="/relatorios"
               element={
                 <RotaProtegida usuario={usuario} rota="/relatorios">
-                  <EmDesenvolvimento titulo="Relatórios" />
+                  <RelatorioTabulacoes />
                 </RotaProtegida>
               }
             />
