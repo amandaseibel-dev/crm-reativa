@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
-import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
+import { nomeOperadorPorEmail } from "../utils/operadores";
 import BotaoManual from "../components/BotaoManual";
 
 const OPERADORES = [
@@ -76,12 +76,14 @@ function corStatus(status) {
 }
 
 
+// Quem enxerga a agenda geral (de todo mundo). A Amanda ADM
+// (cobranca07) faz acionamento como os demais operadores, então a agenda
+// dela mostra só os casos que ela mesma atendeu -- não entra nessa lista.
 function podeVerAgendaGeral(email) {
   const e = String(email || "").toLowerCase();
 
   return [
     "amanda.seibel@aelbra.com.br",
-    "cobranca07@aelbra.com.br",
     "cobranca04@aelbra.com.br",
   ].includes(e);
 }
@@ -165,7 +167,7 @@ export default function AgendaOperacional() {
 
   const emailUsuario = usuario?.email || "";
   const nomeUsuario = nomeOperadorPorEmail(emailUsuario);
-  const adm = podeVerTudo(emailUsuario) || podeVerAgendaGeral(emailUsuario);
+  const adm = podeVerAgendaGeral(emailUsuario);
 
   const alunosFiltrados = useMemo(() => {
     let lista = [...alunos];
