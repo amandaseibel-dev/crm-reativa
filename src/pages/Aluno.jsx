@@ -1054,7 +1054,6 @@ export default function Alunos() {
                     )}
 
                     <span>Retorno: {formatarDataHora(aluno.data_retorno)}</span>
-                    <span>Valor em aberto: {moeda(aluno.valor_em_aberto)}</span>
                     <span>
                       Status acionamento: {aluno.status_acionamento || "-"}
                     </span>
