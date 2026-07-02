@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
-import { podeBaixarPagamento } from "../utils/operadores";
+import { podeGerirFinanceiro } from "../utils/operadores";
 
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
@@ -109,7 +109,9 @@ export default function FilaConfirmacaoPagamento() {
   }
 
   const emailUsuario = usuario?.email || "";
-  const podeUsar = podeBaixarPagamento(emailUsuario);
+  // Amanda ADM e Fernanda (supervisão) também precisam confirmar pagamento,
+  // não só a Amanda gestora -- mesma regra de quem já mexe no financeiro.
+  const podeUsar = podeGerirFinanceiro(emailUsuario);
 
   const contadores = useMemo(() => {
     return {
