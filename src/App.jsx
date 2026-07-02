@@ -29,6 +29,7 @@ import VincularBaseOperacional from "./pages/VincularBaseOperacional";
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 import PainelAdm from "./pages/PainelAdm";
 import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
+import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 
 function EmDesenvolvimento({ titulo }) {
   return (
@@ -348,6 +349,7 @@ export default function App() {
   return (
     <BrowserRouter>
       <div className="app" data-tema={tema}>
+        <HeartbeatReceptivo usuario={usuario} />
         <aside className="sidebar">
           <div className="cabecalho-usuario">
             <h2>ReATIVA One</h2>
