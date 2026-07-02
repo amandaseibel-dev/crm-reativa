@@ -175,17 +175,27 @@ export default function BaseReceptiva() {
       return;
     }
 
+    const agora = new Date().toISOString();
+
     const atualizacao = {
       operador_nome: operadorNome,
       operador_email: email,
       operador: operadorNome,
+      // Sem isso o caso não aparecia na "Minha Fila" (Fila Operacional) de
+      // quem assumiu -- ela filtra por responsavel_atual_email, que esse
+      // update não tocava antes.
+      responsavel_atual_nome: operadorNome,
+      responsavel_atual_email: email,
+      responsavel_atual_em: agora,
       status_jornada: statusAtendimento,
+      status_atual: statusAtendimento,
+      status_acionamento: statusAtendimento,
       data_retorno: dataRetorno || null,
       hora_retorno: horaRetorno || null,
       observacao,
       origem: "Base receptiva",
       tipo_base: "RECEPTIVA",
-      atualizado_em: new Date().toISOString(),
+      atualizado_em: agora,
     };
 
     const { error } = await supabase

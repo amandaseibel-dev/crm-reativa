@@ -34,6 +34,21 @@ function detectarQuitado(textoOperadorBruto) {
   return normalizado.includes("QUITAD") || normalizado.includes("QUITACAO");
 }
 
+// Caso "receptivo" na planilha: não tem operador de cobrança dono. Fica
+// sem responsável fixo e vai pro pool de redistribuição (Base Receptiva),
+// de onde qualquer operador marcado como "receptivo" (aba Usuários) pode
+// assumir pra atender por ligação ou WhatsApp.
+function detectarReceptivo(textoOperadorBruto) {
+  const normalizado = normalizarNome(textoOperadorBruto);
+  if (!normalizado) return false;
+  return (
+    normalizado === "RECEPTIVO" ||
+    normalizado === "RECEEPTIVO" ||
+    normalizado === "BASE RECEPTIVA" ||
+    normalizado.includes("RECEPTIVO")
+  );
+}
+
 const EMAIL_AMANDA_GESTORA = "amanda.seibel@aelbra.com.br";
 
 // Datas podem vir como objeto Date (quando o Excel já formata a célula como
@@ -168,6 +183,12 @@ export default function VincularBaseOperacional() {
           // "Quitado" pode aparecer tanto na coluna de operador quanto na
           // coluna de Status Acionamento -- qualquer uma das duas conta.
           quitado: detectarQuitado(operadorBruto) || detectarQuitado(statusAcionamentoBruto),
+          // "Receptivo" (sem operador de cobrança dono) vai pro pool de
+          // redistribuição -- só conta quando não é nenhum dos outros dois.
+          receptivo:
+            detectarReceptivo(operadorBruto) &&
+            !detectarBloqueioCobranca(operadorBruto) &&
+            !detectarQuitado(operadorBruto),
           // Coluna "Data Retorno" na planilha vem misturada -- às vezes é
           // uma data de verdade, às vezes é uma anotação em texto tipo
           // "Novo caso do Borderos - 05/05/2026". paraDataISO só resolve
@@ -248,6 +269,14 @@ export default function VincularBaseOperacional() {
         // Amanda gestora revisar -- também sobrescreve o responsável atual.
         const vaiQuitar = Boolean(linha.quitado && aluno);
 
+        // Receptivo fica sem responsável fixo -- vai pro pool de
+        // redistribuição (Base Receptiva). Só sobrescreve se o aluno ainda
+        // não tem um responsável de verdade (não desfaz cobrança já em
+        // andamento).
+        const vaiMarcarReceptivo = Boolean(
+          linha.receptivo && aluno && !aluno.responsavel_atual_email
+        );
+
         const temAlgumDado =
           vaiPreencherResponsavel ||
           vaiPreencherStatus ||
@@ -255,7 +284,8 @@ export default function VincularBaseOperacional() {
           vaiPreencherCriticidade ||
           vaiPreencherRetorno ||
           vaiBloquearCobranca ||
-          vaiQuitar;
+          vaiQuitar ||
+          vaiMarcarReceptivo;
 
         return {
           ...linha,
@@ -266,7 +296,8 @@ export default function VincularBaseOperacional() {
             Boolean(linha.operadorArquivo) &&
             !emailOperador &&
             !linha.bloqueioCobranca &&
-            !linha.quitado,
+            !linha.quitado &&
+            !linha.receptivo,
           vaiPreencherResponsavel,
           vaiPreencherStatus,
           vaiPreencherData,
@@ -274,6 +305,7 @@ export default function VincularBaseOperacional() {
           vaiPreencherRetorno,
           vaiBloquearCobranca,
           vaiQuitar,
+          vaiMarcarReceptivo,
           temAlgumDado,
         };
       });
@@ -285,6 +317,7 @@ export default function VincularBaseOperacional() {
       const bloqueiosCobranca = linhasComStatus.filter((l) => l.vaiBloquearCobranca).length;
       const quitados = linhasComStatus.filter((l) => l.vaiQuitar).length;
       const retornosPreenchidos = linhasComStatus.filter((l) => l.vaiPreencherRetorno).length;
+      const receptivos = linhasComStatus.filter((l) => l.vaiMarcarReceptivo).length;
       const operadoresNaoReconhecidos = [
         ...new Set(
           linhasComStatus.filter((l) => l.operadorNaoReconhecido).map((l) => l.operadorArquivo)
@@ -315,6 +348,7 @@ export default function VincularBaseOperacional() {
           bloqueiosCobranca,
           quitados,
           retornosPreenchidos,
+          receptivos,
         },
         operadoresNaoReconhecidos,
         contagemPorOperador,
@@ -358,17 +392,28 @@ export default function VincularBaseOperacional() {
           // em branco, igual o resto dos campos.
           responsavel_atual_email: l.vaiQuitar
             ? EMAIL_AMANDA_GESTORA
+            : l.vaiMarcarReceptivo
+            ? null
             : l.vaiPreencherResponsavel
             ? l.emailOperador
             : l.aluno.responsavel_atual_email ?? null,
           responsavel_atual_nome: l.vaiQuitar
             ? "AMANDA GESTORA"
+            : l.vaiMarcarReceptivo
+            ? "RECEPTIVO"
             : l.vaiPreencherResponsavel
             ? nomeOperadorPorEmail(l.emailOperador)
             : l.aluno.responsavel_atual_nome ?? null,
-          responsavel_atual_em: l.vaiQuitar || l.vaiPreencherResponsavel
+          responsavel_atual_em: l.vaiQuitar || l.vaiPreencherResponsavel || l.vaiMarcarReceptivo
             ? new Date().toISOString()
             : l.aluno.responsavel_atual_em ?? null,
+          // Campos legados que a Base Receptiva usa pra identificar casos
+          // sem dono elegíveis pra redistribuição (ver casoReceptivo() em
+          // BaseReceptiva.jsx).
+          operador: l.vaiMarcarReceptivo ? "RECEPTIVO" : l.aluno.operador ?? null,
+          operador_nome: l.vaiMarcarReceptivo ? "RECEPTIVO" : l.aluno.operador_nome ?? null,
+          operador_email: l.vaiMarcarReceptivo ? null : l.aluno.operador_email ?? null,
+          tipo_base: l.vaiMarcarReceptivo ? "RECEPTIVA" : l.aluno.tipo_base ?? null,
           status_acionamento: l.vaiPreencherStatus
             ? l.statusAcionamento
             : l.aluno.status_acionamento ?? null,
@@ -396,6 +441,8 @@ export default function VincularBaseOperacional() {
             ? `Marcado como "${l.operadorArquivo}" na planilha (Vincular Base Operacional) — só reativa quem tem acesso: Amanda, Fernanda ou Amanda ADM.`
             : l.vaiQuitar
             ? `Marcado como "${l.operadorArquivo}" na planilha (Vincular Base Operacional) — reatribuído pra Amanda gestora revisar.`
+            : l.vaiMarcarReceptivo
+            ? `Marcado como "${l.operadorArquivo}" na planilha (Vincular Base Operacional) — sem operador dono, foi pro pool de redistribuição (Base Receptiva).`
             : l.aluno.observacao ?? null,
         }));
 
@@ -522,6 +569,12 @@ export default function VincularBaseOperacional() {
                 {preview.totais.retornosPreenchidos}
               </div>
               <div style={estilos.label}>Data de retorno (vai pra Agenda)</div>
+            </div>
+            <div style={{ ...estilos.cartao, background: "rgba(168,85,247,0.12)" }}>
+              <div style={{ ...estilos.numero, color: "#d8b4fe" }}>
+                {preview.totais.receptivos}
+              </div>
+              <div style={estilos.label}>Receptivo (vai pra redistribuição)</div>
             </div>
           </div>
 

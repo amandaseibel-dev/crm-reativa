@@ -21,6 +21,7 @@ export default function Usuarios() {
     operador_nome: "",
     operador: "",
     ativo: true,
+    receptivo: false,
     foto_url: "",
   });
 
@@ -54,6 +55,7 @@ export default function Usuarios() {
       operador_nome: "",
       operador: "",
       ativo: true,
+      receptivo: false,
       foto_url: "",
     });
     setErro("");
@@ -99,6 +101,7 @@ export default function Usuarios() {
         email,
         perfil: form.perfil,
         ativo: form.ativo,
+        receptivo: form.receptivo,
         operador_nome: operadorNome,
         operador,
         foto_url: form.foto_url || null,
@@ -127,6 +130,7 @@ export default function Usuarios() {
       operador_nome: u.operador_nome || u.nome || "",
       operador: u.operador || "",
       ativo: u.ativo ?? true,
+      receptivo: u.receptivo ?? false,
       foto_url: u.foto_url || "",
     });
 
@@ -141,6 +145,20 @@ export default function Usuarios() {
 
     if (error) {
       setErro("Erro ao alterar status.");
+      return;
+    }
+
+    carregarUsuarios();
+  }
+
+  async function alternarReceptivo(u) {
+    const { error } = await supabase
+      .from("usuarios")
+      .update({ receptivo: !u.receptivo })
+      .eq("email", u.email);
+
+    if (error) {
+      setErro("Erro ao alterar operador receptivo.");
       return;
     }
 
@@ -281,6 +299,15 @@ export default function Usuarios() {
               Usuário ativo
             </label>
 
+            <label style={toggleLabel}>
+              <input
+                type="checkbox"
+                checked={form.receptivo}
+                onChange={(e) => atualizar("receptivo", e.target.checked)}
+              />
+              Operador receptivo (entra na fila de ligação/whatsapp)
+            </label>
+
             <div style={{ display: "flex", gap: 12 }}>
               <button type="button" onClick={limpar} style={btnGhost}>
                 Limpar
@@ -341,6 +368,7 @@ export default function Usuarios() {
                 <th style={th}>Perfil</th>
                 <th style={th}>Operador</th>
                 <th style={th}>Status</th>
+                <th style={th}>Receptivo</th>
                 <th style={th}>Ações</th>
               </tr>
             </thead>
@@ -377,12 +405,20 @@ export default function Usuarios() {
                     </span>
                   </td>
                   <td style={td}>
+                    <span style={u.receptivo ? activeBadge : inactiveBadge}>
+                      {u.receptivo ? "Receptivo" : "-"}
+                    </span>
+                  </td>
+                  <td style={td}>
                     <div style={{ display: "flex", gap: 8 }}>
                       <button style={miniBtn} onClick={() => editarUsuario(u)}>
                         Editar
                       </button>
                       <button style={miniBtn} onClick={() => alternarAtivo(u)}>
                         {u.ativo ? "Inativar" : "Ativar"}
+                      </button>
+                      <button style={miniBtn} onClick={() => alternarReceptivo(u)}>
+                        {u.receptivo ? "Tirar receptivo" : "Marcar receptivo"}
                       </button>
                       <button
                         style={dangerBtn}
@@ -397,7 +433,7 @@ export default function Usuarios() {
 
               {usuariosFiltrados.length === 0 && (
                 <tr>
-                  <td style={td} colSpan="6">
+                  <td style={td} colSpan="7">
                     Nenhum usuário encontrado.
                   </td>
                 </tr>

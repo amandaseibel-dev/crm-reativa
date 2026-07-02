@@ -5,6 +5,7 @@ import { podeGerirFinanceiro } from "../utils/operadores";
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
   PAGAMENTO_CONFIRMADO: "Pagamento confirmado (baixado)",
+  PAGAMENTO_REJEITADO: "Pagamento rejeitado (não identificado)",
 };
 
 function traduzStatus(status) {
@@ -27,6 +28,14 @@ function corStatus(status) {
       background: "#d1e7dd",
       color: "#0f5132",
       border: "1px solid #badbcc",
+    };
+  }
+
+  if (status === "PAGAMENTO_REJEITADO") {
+    return {
+      background: "#f8d7da",
+      color: "#842029",
+      border: "1px solid #f5c2c7",
     };
   }
 
@@ -105,6 +114,48 @@ export default function FilaConfirmacaoPagamento() {
     }
 
     alert("Pagamento confirmado e baixado no sistema.");
+    carregarSolicitacoes();
+  }
+
+  async function rejeitarPagamento(solicitacao) {
+    const motivo = observacoes[solicitacao.id] || "";
+
+    if (!motivo.trim()) {
+      alert("Escreva o motivo da rejeição no campo de observação antes de rejeitar (ex: não identificado no extrato).");
+      return;
+    }
+
+    const agora = new Date().toISOString();
+
+    const { error } = await supabase
+      .from("solicitacoes_confirmacao_pagamento")
+      .update({
+        status: "PAGAMENTO_REJEITADO",
+        observacao_adm: motivo,
+        confirmado_por: usuario?.email || "",
+        confirmado_em: agora,
+        atualizado_em: agora,
+      })
+      .eq("id", solicitacao.id);
+
+    if (error) {
+      alert("Erro ao rejeitar: " + error.message);
+      return;
+    }
+
+    // Volta pro operador com prioridade máxima, igual link/termo, com o
+    // motivo da rejeição explicado no status.
+    if (solicitacao.aluno_id) {
+      await supabase
+        .from("alunos")
+        .update({
+          nivel_criticidade: "URGENTE",
+          status_acionamento: "Pagamento não confirmado: " + motivo,
+        })
+        .eq("id", solicitacao.aluno_id);
+    }
+
+    alert("Pagamento rejeitado. O caso volta pro topo da fila do operador com o motivo.");
     carregarSolicitacoes();
   }
 
@@ -272,7 +323,7 @@ export default function FilaConfirmacaoPagamento() {
                   <label style={styles.label}>Observação (opcional)</label>
                   <textarea
                     style={styles.textarea}
-                    placeholder="Exemplo: comprovante conferido no extrato do dia 01/07."
+                    placeholder="Exemplo: comprovante conferido no extrato do dia 01/07. Obrigatório se for rejeitar (ex: não identificado no extrato)."
                     value={observacoes[s.id] || ""}
                     onChange={(e) =>
                       setObservacoes({ ...observacoes, [s.id]: e.target.value })
@@ -286,6 +337,13 @@ export default function FilaConfirmacaoPagamento() {
                     onClick={() => confirmarPagamento(s)}
                   >
                     Confirmar pagamento e dar baixa
+                  </button>
+
+                  <button
+                    style={styles.botaoRejeitar}
+                    onClick={() => rejeitarPagamento(s)}
+                  >
+                    Rejeitar (não está pago)
                   </button>
                 </div>
               </>
@@ -451,9 +509,21 @@ const styles = {
   },
   acoes: {
     marginTop: "12px",
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
   },
   botaoConfirmar: {
     background: "#198754",
+    color: "#fff",
+    border: "none",
+    padding: "12px 18px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+  },
+  botaoRejeitar: {
+    background: "#dc3545",
     color: "#fff",
     border: "none",
     padding: "12px 18px",

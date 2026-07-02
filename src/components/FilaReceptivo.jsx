@@ -2,17 +2,6 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "../utils/operadores";
 
-const OPERADORES_RECEPTIVO = [
-  "cobranca03@aelbra.com.br",
-  "cobranca05@aelbra.com.br",
-  "cobranca06@aelbra.com.br",
-  "cobranca08@aelbra.com.br",
-  "cobranca10@aelbra.com.br",
-  "cobranca11@aelbra.com.br",
-  "cobranca12@aelbra.com.br",
-  "cobranca13@aelbra.com.br",
-];
-
 const LIMITE_ONLINE_MS = 90 * 1000;
 
 function primeiroNome(nome) {
@@ -23,26 +12,38 @@ export default function FilaReceptivo({ usuarioLogado }) {
   const [linhas, setLinhas] = useState([]);
   const [perfis, setPerfis] = useState({});
   const [marcando, setMarcando] = useState(false);
+  const [operadoresReceptivo, setOperadoresReceptivo] = useState([]);
 
   const email = usuarioLogado?.email || "";
-  const ehParticipante = OPERADORES_RECEPTIVO.includes(email);
+  const ehParticipante = operadoresReceptivo.includes(email);
 
   async function buscarFila() {
-    const { data } = await supabase
-      .from("fila_receptivo")
-      .select("email, nome, atendimentos_hoje, ultimo_atendimento, online_em");
-    setLinhas(data || []);
-
-    const { data: usuarios } = await supabase
+    // Quem é receptivo agora vem do cadastro de usuários (aba Usuários,
+    // checkbox "Operador receptivo"), não é mais uma lista fixa no código.
+    const { data: usuariosReceptivos } = await supabase
       .from("usuarios")
       .select("email, apelido, foto_url")
-      .in("email", OPERADORES_RECEPTIVO);
+      .eq("receptivo", true);
+
+    const emails = (usuariosReceptivos || []).map((u) => u.email);
+    setOperadoresReceptivo(emails);
 
     const mapa = {};
-    for (const usuario of usuarios || []) {
+    for (const usuario of usuariosReceptivos || []) {
       mapa[usuario.email] = usuario;
     }
     setPerfis(mapa);
+
+    if (emails.length === 0) {
+      setLinhas([]);
+      return;
+    }
+
+    const { data } = await supabase
+      .from("fila_receptivo")
+      .select("email, nome, atendimentos_hoje, ultimo_atendimento, online_em")
+      .in("email", emails);
+    setLinhas(data || []);
   }
 
   useEffect(() => {
@@ -71,7 +72,7 @@ export default function FilaReceptivo({ usuarioLogado }) {
     const agora = Date.now();
 
     return linhas
-      .filter((linha) => OPERADORES_RECEPTIVO.includes(linha.email))
+      .filter((linha) => operadoresReceptivo.includes(linha.email))
       .filter((linha) => {
         const online = linha.online_em ? new Date(linha.online_em).getTime() : 0;
         return agora - online <= LIMITE_ONLINE_MS;
@@ -84,7 +85,7 @@ export default function FilaReceptivo({ usuarioLogado }) {
         const ub = b.ultimo_atendimento ? new Date(b.ultimo_atendimento).getTime() : 0;
         return ua - ub;
       });
-  }, [linhas]);
+  }, [linhas, operadoresReceptivo]);
 
   async function marcarAtendido() {
     if (!ehParticipante || marcando) return;
