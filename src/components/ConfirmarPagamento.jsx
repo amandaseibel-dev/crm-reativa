@@ -51,20 +51,47 @@ function pegarCpfAluno(aluno) {
   return aluno?.cpf || aluno?.CPF || aluno?.cpf_mascarado || "-";
 }
 
+const OPCAO_NOVO_ACORDO = "NOVO";
+
 export default function ConfirmarPagamento({ aluno }) {
   const [motivo, setMotivo] = useState("");
   const [valorInformado, setValorInformado] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [solicitacoes, setSolicitacoes] = useState([]);
+  const [parcelasAbertas, setParcelasAbertas] = useState([]);
+  const [parcelaEscolhida, setParcelaEscolhida] = useState("");
+  const [formaPagamento, setFormaPagamento] = useState("A_VISTA");
+  const [qtdParcelas, setQtdParcelas] = useState("1");
+  const [valorEntrada, setValorEntrada] = useState("");
+  const [entradaPaga, setEntradaPaga] = useState(false);
 
   const alunoId = aluno?.id ? String(aluno.id) : "";
 
   useEffect(() => {
     if (alunoId) {
       carregarSolicitacoes();
+      carregarParcelasAbertas();
     }
   }, [alunoId]);
+
+  async function carregarParcelasAbertas() {
+    if (!alunoId) return;
+
+    const { data, error } = await supabase
+      .from("parcelas")
+      .select("id, numero, valor, vencimento, status, acordos!inner(id, aluno_id, tipo)")
+      .eq("acordos.aluno_id", alunoId)
+      .in("status", ["A_VENCER", "VENCIDA"])
+      .order("vencimento", { ascending: true });
+
+    if (error) {
+      console.error("Erro ao carregar parcelas em aberto:", error);
+      return;
+    }
+
+    setParcelasAbertas(data || []);
+  }
 
   async function carregarSolicitacoes() {
     if (!alunoId) return;
@@ -107,12 +134,23 @@ export default function ConfirmarPagamento({ aluno }) {
       return;
     }
 
+    const usandoParcelaExistente = parcelaEscolhida && parcelaEscolhida !== OPCAO_NOVO_ACORDO;
+
+    if (!usandoParcelaExistente && formaPagamento === "PARCELADO" && !qtdParcelas) {
+      alert("Informe em quantas vezes vai ser parcelado.");
+      return;
+    }
+
     setEnviando(true);
 
     const { data: userData } = await supabase.auth.getUser();
     const usuarioLogado = userData?.user;
     const emailOperador = usuarioLogado?.email || "";
     const nomeOperador = nomeOperadorPorEmail(emailOperador);
+
+    const parcelaSelecionada = usandoParcelaExistente
+      ? parcelasAbertas.find((p) => p.id === parcelaEscolhida)
+      : null;
 
     const { error } = await supabase
       .from("solicitacoes_confirmacao_pagamento")
@@ -125,6 +163,12 @@ export default function ConfirmarPagamento({ aluno }) {
         valor_informado: valorInformado ? Number(valorInformado.replace(",", ".")) : null,
         motivo: motivo.trim(),
         status: "AGUARDANDO_CONFIRMACAO",
+        parcela_id: parcelaSelecionada ? parcelaSelecionada.id : null,
+        acordo_id: parcelaSelecionada ? parcelaSelecionada.acordos.id : null,
+        forma_pagamento: usandoParcelaExistente ? null : formaPagamento,
+        qtd_parcelas: !usandoParcelaExistente && formaPagamento === "PARCELADO" ? Number(qtdParcelas) : null,
+        valor_entrada: !usandoParcelaExistente && valorEntrada ? Number(valorEntrada.replace(",", ".")) : null,
+        entrada_paga: !usandoParcelaExistente ? entradaPaga : null,
       });
 
     if (error) {

@@ -211,6 +211,8 @@ export default function FilaOperador() {
 
   const [novoOperadorEmail, setNovoOperadorEmail] = useState("");
   const [motivoAlteracaoOperador, setMotivoAlteracaoOperador] = useState("");
+  const [novaDataRetornoAlteracao, setNovaDataRetornoAlteracao] = useState("");
+  const [novaTabulacaoAlteracao, setNovaTabulacaoAlteracao] = useState("");
 
   const [carregando, setCarregando] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -775,16 +777,30 @@ export default function FilaOperador() {
         alunoSelecionado.responsavel_atual_nome || "Sem responsável anterior";
       const anteriorEmail = alunoSelecionado.responsavel_atual_email || null;
 
+      // Opcional: junto da troca de operador, já deixa o caso pronto pro
+      // novo operador (nova tabulação + data de retorno) sem ele precisar
+      // mexer em nada -- só abrir o caso já vai estar tudo lá.
+      const atualizacaoOperador = {
+        responsavel_atual_nome: novoOperador.nome,
+        responsavel_atual_email: novoOperador.email,
+        responsavel_atual_em: agora,
+        registrado_por_nome: usuario.nome,
+        registrado_por_email: usuario.email,
+        registrado_em: agora,
+      };
+
+      if (novaDataRetornoAlteracao) {
+        atualizacaoOperador.data_retorno = new Date(novaDataRetornoAlteracao).toISOString();
+      }
+
+      if (novaTabulacaoAlteracao) {
+        atualizacaoOperador.status_jornada = novaTabulacaoAlteracao;
+        atualizacaoOperador.status_atual = novaTabulacaoAlteracao;
+      }
+
       const { error: updateError } = await supabase
         .from("alunos")
-        .update({
-          responsavel_atual_nome: novoOperador.nome,
-          responsavel_atual_email: novoOperador.email,
-          responsavel_atual_em: agora,
-          registrado_por_nome: usuario.nome,
-          registrado_por_email: usuario.email,
-          registrado_em: agora,
-        })
+        .update(atualizacaoOperador)
         .eq("id", alunoSelecionado.id);
 
       if (updateError) {
@@ -798,7 +814,11 @@ export default function FilaOperador() {
         .insert({
           aluno_id: String(alunoSelecionado.id),
           tipo: "ALTERACAO_OPERADOR",
-          descricao: `Operador responsável alterado de ${anteriorNome} para ${novoOperador.nome}. Motivo: ${motivo}`,
+          descricao: `Operador responsável alterado de ${anteriorNome} para ${novoOperador.nome}. Motivo: ${motivo}` +
+            (novaDataRetornoAlteracao
+              ? ` Nova data de retorno definida: ${new Date(novaDataRetornoAlteracao).toLocaleString("pt-BR")}.`
+              : "") +
+            (novaTabulacaoAlteracao ? ` Nova tabulação: ${novaTabulacaoAlteracao}.` : ""),
           status_anterior: alunoSelecionado.status_jornada || null,
           status_novo: alunoSelecionado.status_jornada || null,
           registrado_por_nome: usuario.nome,
@@ -818,6 +838,8 @@ export default function FilaOperador() {
 
       setNovoOperadorEmail("");
       setMotivoAlteracaoOperador("");
+      setNovaDataRetornoAlteracao("");
+      setNovaTabulacaoAlteracao("");
 
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
@@ -1541,6 +1563,32 @@ export default function FilaOperador() {
                   placeholder="Exemplo: operador acionou antes da criação do botão assumir atendimento."
                   rows={3}
                   style={textarea}
+                />
+
+                <label style={label}>
+                  Nova tabulação (opcional — deixa o caso já pronto pro novo operador)
+                </label>
+
+                <select
+                  value={novaTabulacaoAlteracao}
+                  onChange={(e) => setNovaTabulacaoAlteracao(e.target.value)}
+                  style={select}
+                >
+                  <option value="">Não alterar tabulação</option>
+                  {STATUS_FINALIZACAO.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+
+                <label style={label}>Nova data de retorno (opcional)</label>
+
+                <input
+                  type="datetime-local"
+                  value={novaDataRetornoAlteracao}
+                  onChange={(e) => setNovaDataRetornoAlteracao(e.target.value)}
+                  style={select}
                 />
 
                 <button

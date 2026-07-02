@@ -68,7 +68,7 @@ async function buscarTodosAlunos() {
     const { data, error } = await supabase
       .from("alunos")
       .select(
-        "id, nome, cpf, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em, status_acionamento, data_ultimo_acionamento, nivel_criticidade, status_jornada, status_atual, observacao"
+        "id, nome, cpf, responsavel_atual_email, responsavel_atual_nome, responsavel_atual_em, status_acionamento, data_ultimo_acionamento, nivel_criticidade, status_jornada, status_atual, observacao, data_retorno"
       )
       .range(pagina * TAMANHO_PAGINA, pagina * TAMANHO_PAGINA + TAMANHO_PAGINA - 1);
     if (error) throw error;
@@ -143,6 +143,7 @@ export default function VincularBaseOperacional() {
       const colStatusAcionamento = cabecalho[8];
       const colCriticidade = cabecalho[9];
       const colOperadorMensalidade = cabecalho[13];
+      const colDataRetorno = cabecalho[12];
 
       const linhas = linhasBrutas
         .map((linha) => {
@@ -150,20 +151,30 @@ export default function VincularBaseOperacional() {
             (linha[colOperadorResponsavel] && String(linha[colOperadorResponsavel]).trim()) ||
             (linha[colOperadorMensalidade] && String(linha[colOperadorMensalidade]).trim()) ||
             null;
+          const statusAcionamentoBruto = linha[colStatusAcionamento]
+            ? String(linha[colStatusAcionamento]).trim()
+            : null;
 
           return {
           nomeOriginal: linha[colNome],
           nomeNormalizado: normalizarNome(linha[colNome]),
           dataAcionamento: paraDataISO(linha[colDataAcionamento]),
-          statusAcionamento: linha[colStatusAcionamento]
-            ? String(linha[colStatusAcionamento]).trim()
-            : null,
+          statusAcionamento: statusAcionamentoBruto,
           criticidade: linha[colCriticidade]
             ? String(linha[colCriticidade]).trim()
             : null,
           operadorArquivo: operadorBruto,
           bloqueioCobranca: detectarBloqueioCobranca(operadorBruto),
-          quitado: detectarQuitado(operadorBruto),
+          // "Quitado" pode aparecer tanto na coluna de operador quanto na
+          // coluna de Status Acionamento -- qualquer uma das duas conta.
+          quitado: detectarQuitado(operadorBruto) || detectarQuitado(statusAcionamentoBruto),
+          // Coluna "Data Retorno" na planilha vem misturada -- às vezes é
+          // uma data de verdade, às vezes é uma anotação em texto tipo
+          // "Novo caso do Borderos - 05/05/2026". paraDataISO só resolve
+          // quando é realmente uma data (Date, serial do Excel, ou string
+          // no formato dd/mm/aaaa isolado), então texto solto vira null
+          // sozinho -- não precisa filtrar aqui.
+          dataRetorno: paraDataISO(linha[colDataRetorno]),
           };
         })
         .filter((linha) => linha.nomeNormalizado);
@@ -224,6 +235,9 @@ export default function VincularBaseOperacional() {
         const vaiPreencherCriticidade = Boolean(
           linha.criticidade && aluno && !aluno.nivel_criticidade
         );
+        const vaiPreencherRetorno = Boolean(
+          linha.dataRetorno && aluno && !aluno.data_retorno
+        );
 
         // Cancelamento de cobrança e jurídico sempre valem, mesmo que o
         // aluno já tenha outro status -- é uma sinalização de segurança
@@ -239,6 +253,7 @@ export default function VincularBaseOperacional() {
           vaiPreencherStatus ||
           vaiPreencherData ||
           vaiPreencherCriticidade ||
+          vaiPreencherRetorno ||
           vaiBloquearCobranca ||
           vaiQuitar;
 
@@ -256,6 +271,7 @@ export default function VincularBaseOperacional() {
           vaiPreencherStatus,
           vaiPreencherData,
           vaiPreencherCriticidade,
+          vaiPreencherRetorno,
           vaiBloquearCobranca,
           vaiQuitar,
           temAlgumDado,
@@ -268,6 +284,7 @@ export default function VincularBaseOperacional() {
       const comAtualizacao = linhasComStatus.filter((l) => l.aluno && l.temAlgumDado).length;
       const bloqueiosCobranca = linhasComStatus.filter((l) => l.vaiBloquearCobranca).length;
       const quitados = linhasComStatus.filter((l) => l.vaiQuitar).length;
+      const retornosPreenchidos = linhasComStatus.filter((l) => l.vaiPreencherRetorno).length;
       const operadoresNaoReconhecidos = [
         ...new Set(
           linhasComStatus.filter((l) => l.operadorNaoReconhecido).map((l) => l.operadorArquivo)
@@ -297,6 +314,7 @@ export default function VincularBaseOperacional() {
           comAtualizacao,
           bloqueiosCobranca,
           quitados,
+          retornosPreenchidos,
         },
         operadoresNaoReconhecidos,
         contagemPorOperador,
@@ -360,6 +378,9 @@ export default function VincularBaseOperacional() {
           nivel_criticidade: l.vaiPreencherCriticidade
             ? l.criticidade
             : l.aluno.nivel_criticidade ?? null,
+          data_retorno: l.vaiPreencherRetorno
+            ? l.dataRetorno
+            : l.aluno.data_retorno ?? null,
           // Cancelamento/jurídico SEMPRE sobrescreve (é sinalização de
           // segurança pra não cobrar, não um preenchimento comum de
           // campo em branco). Isso ativa o card vermelho e o bloqueio de
@@ -495,6 +516,12 @@ export default function VincularBaseOperacional() {
                 {preview.totais.quitados}
               </div>
               <div style={estilos.label}>Quitados (vão pra sua fila)</div>
+            </div>
+            <div style={{ ...estilos.cartao, background: "rgba(56,189,248,0.1)" }}>
+              <div style={{ ...estilos.numero, color: "#7dd3fc" }}>
+                {preview.totais.retornosPreenchidos}
+              </div>
+              <div style={estilos.label}>Data de retorno (vai pra Agenda)</div>
             </div>
           </div>
 
