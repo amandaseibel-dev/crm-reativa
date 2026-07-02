@@ -31,6 +31,7 @@ import PainelAdm from "./pages/PainelAdm";
 import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
+import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
 
 function EmDesenvolvimento({ titulo }) {
   return (
@@ -66,6 +67,7 @@ function podeAcessar(perfil, rota) {
       "/painel-adm",
       "/fila-financeiro",
       "/painel-operadores",    
+      "/financeiro-operadores",
       "/meu-perfil",],
     supervisor: [
       "/",
@@ -340,6 +342,7 @@ export default function App() {
     { rota: "/relatorios", label: "📈 Relatórios" },
     { rota: "/configuracoes", label: "⚙️ Configurações" },
     { rota: "/meu-perfil", label: "👤 Meu Perfil" },
+    { rota: "/financeiro-operadores", label: "🔒 Financeiro Operadores" },
   ];
 
   const menu = menuBase.filter((item) => {
@@ -571,6 +574,14 @@ export default function App() {
               <Route path="/fila-confirmacao-pagamento" element={<FilaConfirmacaoPagamento />} />
               <Route path="/painel-operadores" element={<PainelOperadores />} />
               <Route path="/meu-perfil" element={<MeuPerfil />} />
+            <Route
+              path="/financeiro-operadores"
+              element={
+                <RotaProtegida usuario={usuario} rota="/financeiro-operadores">
+                  <GestaoFinanceiraOperadores />
+                </RotaProtegida>
+              }
+            />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />

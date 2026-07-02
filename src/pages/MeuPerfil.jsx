@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import MinhaFolhaPagamento from "../components/MinhaFolhaPagamento";
 
 export default function MeuPerfil() {
   const [usuarioAuth, setUsuarioAuth] = useState(null);
@@ -200,6 +201,8 @@ export default function MeuPerfil() {
       </button>
 
       {mensagem && <p style={{ marginTop: 12, fontSize: 13 }}>{mensagem}</p>}
+
+      <MinhaFolhaPagamento email={usuarioAuth?.email} />
     </div>
   );
 }
