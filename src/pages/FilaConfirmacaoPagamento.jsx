@@ -22,6 +22,58 @@ function formatarData(data) {
   }
 }
 
+function hojeISO() {
+  const d = new Date();
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+function somarMeses(dataISO, meses) {
+  const [ano, mes, dia] = dataISO.split("-").map(Number);
+  const totalMeses = mes - 1 + meses;
+  const anoFinal = ano + Math.floor(totalMeses / 12);
+  const mesFinal = (totalMeses % 12) + 1;
+  const ultimoDiaMes = new Date(anoFinal, mesFinal, 0).getDate();
+  const diaFinal = Math.min(dia, ultimoDiaMes);
+  return `${anoFinal}-${String(mesFinal).padStart(2, "0")}-${String(diaFinal).padStart(2, "0")}`;
+}
+
+function converterValor(valorDigitado) {
+  let texto = String(valorDigitado || "")
+    .replace("R$", "")
+    .replace(/\s/g, "")
+    .trim();
+
+  const temVirgula = texto.includes(",");
+  const temPonto = texto.includes(".");
+
+  if (temVirgula && temPonto) {
+    texto = texto.replace(/\./g, "").replace(",", ".");
+  } else if (temVirgula) {
+    texto = texto.replace(",", ".");
+  } else if (temPonto) {
+    const partes = texto.split(".");
+    const ultimaParte = partes[partes.length - 1];
+
+    if (partes.length === 2 && ultimaParte.length === 2) {
+      // mantém, já é decimal
+    } else {
+      texto = texto.replace(/\./g, "");
+    }
+  }
+
+  return Number(texto);
+}
+
+function formatarMoeda(valor) {
+  if (valor === null || valor === undefined || valor === "") return "-";
+  const numero = Number(valor);
+  if (Number.isNaN(numero)) return "-";
+  return numero.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 function corStatus(status) {
   if (status === "PAGAMENTO_CONFIRMADO") {
     return {
@@ -52,6 +104,8 @@ export default function FilaConfirmacaoPagamento() {
   const [carregando, setCarregando] = useState(true);
   const [observacoes, setObservacoes] = useState({});
   const [filtro, setFiltro] = useState("PENDENTES");
+  const [construtor, setConstrutor] = useState({});
+  const [parcelasAbertasPorAluno, setParcelasAbertasPorAluno] = useState({});
 
   useEffect(() => {
     carregarUsuario();
@@ -81,124 +135,132 @@ export default function FilaConfirmacaoPagamento() {
     setCarregando(false);
   }
 
-  async function confirmarPagamento(solicitacao) {
-    try {
-      await supabase.auth.getSession();
-    } catch {
-      // Segue e deixa o erro real da próxima chamada aparecer.
+  async function carregarParcelasAbertas(alunoId) {
+    if (!alunoId) return;
+
+    const { data, error } = await supabase
+      .from("parcelas")
+      .select("id, numero, valor, vencimento, status, acordos!inner(id, aluno_id)")
+      .eq("acordos.aluno_id", String(alunoId))
+      .in("status", ["A_VENCER", "VENCIDA"])
+      .order("vencimento", { ascending: true });
+
+    if (error) {
+      console.error("Erro ao carregar parcelas em aberto:", error);
+      return;
     }
 
-    const observacaoAdm = observacoes[solicitacao.id] || "";
-    const agora = new Date().toISOString();
+    setParcelasAbertasPorAluno((atual) => ({ ...atual, [alunoId]: data || [] }));
+  }
+
+  function abrirConstrutor(s) {
+    setConstrutor((atual) => ({
+      ...atual,
+      [s.id]: atual[s.id] || {
+        tipo: "PARCELADO",
+        valorTotal: s.valor_informado != null ? String(s.valor_informado) : "",
+        qtdParcelas: "1",
+        temEntrada: false,
+        valorEntrada: "",
+        entradaPaga: true,
+        parcelas: [],
+      },
+    }));
+
+    carregarParcelasAbertas(s.aluno_id);
+  }
+
+  function fecharConstrutor(sId) {
+    setConstrutor((atual) => {
+      const copia = { ...atual };
+      delete copia[sId];
+      return copia;
+    });
+  }
+
+  function atualizarCampoConstrutor(sId, campo, valor) {
+    setConstrutor((atual) => ({
+      ...atual,
+      [sId]: { ...atual[sId], [campo]: valor },
+    }));
+  }
+
+  function gerarParcelas(sId) {
+    const cfg = construtor[sId];
+    if (!cfg) return;
+
+    const valorTotal = converterValor(cfg.valorTotal);
+
+    if (!valorTotal || valorTotal <= 0) {
+      alert("Informe o valor total do acordo.");
+      return;
+    }
+
+    if (cfg.tipo === "QUITACAO") {
+      setConstrutor((atual) => ({
+        ...atual,
+        [sId]: {
+          ...atual[sId],
+          parcelas: [
+            { numero: 1, vencimento: hojeISO(), valor: valorTotal.toFixed(2), status: "PAGO" },
+          ],
+        },
+      }));
+      return;
+    }
+
+    const qtd = Math.max(1, Number(cfg.qtdParcelas) || 1);
+    const valorEntrada = cfg.temEntrada ? converterValor(cfg.valorEntrada) || 0 : 0;
+    const valorRestante = Math.max(0, valorTotal - valorEntrada);
+    const valorCada = qtd > 0 ? valorRestante / qtd : valorRestante;
+
+    const novasParcelas = [];
+    for (let numero = 1; numero <= qtd; numero++) {
+      novasParcelas.push({
+        numero,
+        vencimento: somarMeses(hojeISO(), numero - 1),
+        valor: valorCada.toFixed(2),
+        status: "A_VENCER",
+      });
+    }
+
+    setConstrutor((atual) => ({
+      ...atual,
+      [sId]: { ...atual[sId], parcelas: novasParcelas },
+    }));
+  }
+
+  function atualizarParcela(sId, index, campo, valor) {
+    setConstrutor((atual) => {
+      const cfg = atual[sId];
+      if (!cfg) return atual;
+      const parcelas = cfg.parcelas.map((p, i) => (i === index ? { ...p, [campo]: valor } : p));
+      return { ...atual, [sId]: { ...cfg, parcelas } };
+    });
+  }
+
+  async function finalizarSolicitacao(s, observacaoExtra) {
     const emailConfirmando = usuario?.email || "";
-
-    // Se a solicitação já referencia uma parcela existente, essa parcela é
-    // que recebe a baixa. Se não, e ainda não tem acordo vinculado, é um
-    // acordo novo -- cria o acordo + parcelas agora, com só a entrada (ou a
-    // 1ª parcela, se não tiver entrada) já nascendo baixada.
-    if (solicitacao.parcela_id) {
-      const { error: erroParcela } = await supabase
-        .from("parcelas")
-        .update({
-          status: "PAGO",
-          pago_em: agora,
-          confirmado_por_email: emailConfirmando,
-          solicitacao_confirmacao_id: solicitacao.id,
-          atualizado_em: agora,
-        })
-        .eq("id", solicitacao.parcela_id);
-
-      if (erroParcela) {
-        alert("Erro ao dar baixa na parcela: " + erroParcela.message);
-        return;
-      }
-    } else if (!solicitacao.acordo_id) {
-      const valorTotal = Number(solicitacao.valor_informado) || 0;
-      const formaPagamento = solicitacao.forma_pagamento || "A_VISTA";
-      const valorEntrada = Number(solicitacao.valor_entrada) || 0;
-      const entradaPaga = Boolean(solicitacao.entrada_paga) && valorEntrada > 0;
-      const qtdParcelas =
-        formaPagamento === "PARCELADO" ? Math.max(1, Number(solicitacao.qtd_parcelas) || 1) : 1;
-
-      const { data: acordoCriado, error: erroAcordo } = await supabase
-        .from("acordos")
-        .insert({
-          aluno_id: solicitacao.aluno_id,
-          cpf: solicitacao.aluno_cpf,
-          tipo: "ACORDO",
-          forma_pagamento: formaPagamento,
-          valor_total: valorTotal,
-          qtd_parcelas: qtdParcelas,
-          valor_entrada: valorEntrada || null,
-          entrada_paga: entradaPaga,
-          data_entrada: entradaPaga ? agora.slice(0, 10) : null,
-          status: "ATIVO",
-          observacao: solicitacao.motivo || null,
-          criado_por_nome: nomeOperadorPorEmail(solicitacao.operador_email),
-          criado_por_email: solicitacao.operador_email,
-          confirmado_por_email: emailConfirmando,
-          confirmado_em: agora,
-        })
-        .select()
-        .single();
-
-      if (erroAcordo) {
-        alert("Erro ao criar acordo: " + erroAcordo.message);
-        return;
-      }
-
-      const valorRestante = Math.max(0, valorTotal - (entradaPaga ? valorEntrada : 0));
-      const valorParcela =
-        formaPagamento === "PARCELADO" ? valorRestante / qtdParcelas : valorRestante;
-
-      // Se não tinha entrada paga, a 1ª parcela é o próprio pagamento que
-      // está sendo confirmado agora, então já nasce PAGA. As demais entram
-      // em aberto, vencendo mensalmente a partir de hoje.
-      const primeiraJaPaga = !entradaPaga;
-      const parcelasParaCriar = [];
-
-      for (let numero = 1; numero <= qtdParcelas; numero++) {
-        const vencimento = new Date(agora);
-        vencimento.setMonth(vencimento.getMonth() + (numero - 1));
-
-        const ehPrimeira = numero === 1;
-        parcelasParaCriar.push({
-          acordo_id: acordoCriado.id,
-          numero,
-          valor: valorParcela,
-          vencimento: vencimento.toISOString().slice(0, 10),
-          status: ehPrimeira && primeiraJaPaga ? "PAGO" : "A_VENCER",
-          pago_em: ehPrimeira && primeiraJaPaga ? agora : null,
-          confirmado_por_email: ehPrimeira && primeiraJaPaga ? emailConfirmando : null,
-          solicitacao_confirmacao_id: ehPrimeira && primeiraJaPaga ? solicitacao.id : null,
-        });
-      }
-
-      const { error: erroParcelas } = await supabase.from("parcelas").insert(parcelasParaCriar);
-
-      if (erroParcelas) {
-        alert("Acordo criado, mas houve erro ao gerar as parcelas: " + erroParcelas.message);
-        return;
-      }
-    }
+    const agora = new Date().toISOString();
+    const observacaoAdm = [observacoes[s.id], observacaoExtra].filter(Boolean).join(" — ");
 
     const { error } = await supabase
       .from("solicitacoes_confirmacao_pagamento")
       .update({
         status: "PAGAMENTO_CONFIRMADO",
-        observacao_adm: observacaoAdm,
+        observacao_adm: observacaoAdm || null,
         confirmado_por: emailConfirmando,
         confirmado_em: agora,
         atualizado_em: agora,
       })
-      .eq("id", solicitacao.id);
+      .eq("id", s.id);
 
     if (error) {
       alert("Erro ao confirmar pagamento: " + error.message);
       return;
     }
 
-    if (solicitacao.aluno_id) {
+    if (s.aluno_id) {
       await supabase
         .from("alunos")
         .update({
@@ -207,11 +269,115 @@ export default function FilaConfirmacaoPagamento() {
           status_acionamento: "BAIXA_REALIZADA",
           data_ultimo_acionamento: agora,
         })
-        .eq("id", solicitacao.aluno_id);
+        .eq("id", s.aluno_id);
     }
 
+    fecharConstrutor(s.id);
     alert("Pagamento confirmado e baixado no sistema.");
     carregarSolicitacoes();
+  }
+
+  async function baixarParcelaExistente(s, parcela) {
+    try {
+      await supabase.auth.getSession();
+    } catch {
+      // Segue e deixa o erro real da próxima chamada aparecer.
+    }
+
+    const emailConfirmando = usuario?.email || "";
+    const agora = new Date().toISOString();
+
+    const { error: erroParcela } = await supabase
+      .from("parcelas")
+      .update({
+        status: "PAGO",
+        pago_em: agora,
+        confirmado_por_email: emailConfirmando,
+        solicitacao_confirmacao_id: s.id,
+        atualizado_em: agora,
+      })
+      .eq("id", parcela.id);
+
+    if (erroParcela) {
+      alert("Erro ao dar baixa na parcela: " + erroParcela.message);
+      return;
+    }
+
+    await finalizarSolicitacao(s, `Baixa na parcela ${parcela.numero} do acordo já existente.`);
+  }
+
+  async function salvarAcordoMontado(s) {
+    const cfg = construtor[s.id];
+    if (!cfg) return;
+
+    if (!cfg.parcelas || cfg.parcelas.length === 0) {
+      alert('Clique em "Gerar parcelas" antes de salvar.');
+      return;
+    }
+
+    const valorTotal = converterValor(cfg.valorTotal);
+
+    if (!valorTotal || valorTotal <= 0) {
+      alert("Informe o valor total do acordo.");
+      return;
+    }
+
+    try {
+      await supabase.auth.getSession();
+    } catch {
+      // Segue e deixa o erro real da próxima chamada aparecer.
+    }
+
+    const valorEntrada = cfg.temEntrada ? converterValor(cfg.valorEntrada) || 0 : 0;
+    const emailConfirmando = usuario?.email || "";
+    const agora = new Date().toISOString();
+
+    const { data: acordoCriado, error: erroAcordo } = await supabase
+      .from("acordos")
+      .insert({
+        aluno_id: s.aluno_id,
+        cpf: s.aluno_cpf,
+        tipo: "ACORDO",
+        forma_pagamento: cfg.tipo === "QUITACAO" ? "A_VISTA" : "PARCELADO",
+        valor_total: valorTotal,
+        qtd_parcelas: cfg.parcelas.length,
+        valor_entrada: cfg.temEntrada ? valorEntrada : null,
+        entrada_paga: cfg.temEntrada ? Boolean(cfg.entradaPaga) : null,
+        data_entrada: cfg.temEntrada && cfg.entradaPaga ? hojeISO() : null,
+        status: "ATIVO",
+        observacao: s.motivo || null,
+        criado_por_nome: nomeOperadorPorEmail(s.operador_email),
+        criado_por_email: s.operador_email,
+        confirmado_por_email: emailConfirmando,
+        confirmado_em: agora,
+      })
+      .select()
+      .single();
+
+    if (erroAcordo) {
+      alert("Erro ao criar acordo: " + erroAcordo.message);
+      return;
+    }
+
+    const parcelasParaCriar = cfg.parcelas.map((p) => ({
+      acordo_id: acordoCriado.id,
+      numero: p.numero,
+      valor: converterValor(p.valor),
+      vencimento: p.vencimento,
+      status: p.status,
+      pago_em: p.status === "PAGO" ? agora : null,
+      confirmado_por_email: p.status === "PAGO" ? emailConfirmando : null,
+      solicitacao_confirmacao_id: p.status === "PAGO" ? s.id : null,
+    }));
+
+    const { error: erroParcelas } = await supabase.from("parcelas").insert(parcelasParaCriar);
+
+    if (erroParcelas) {
+      alert("Acordo criado, mas houve erro ao gerar as parcelas: " + erroParcelas.message);
+      return;
+    }
+
+    await finalizarSolicitacao(s, "Acordo criado pela ADM ao confirmar.");
   }
 
   async function rejeitarPagamento(solicitacao) {
@@ -390,27 +556,6 @@ export default function FilaConfirmacaoPagamento() {
                   </p>
                 )}
 
-                {s.parcela_id && (
-                  <p style={styles.info}>
-                    <strong>Referente a:</strong> parcela existente de um acordo já cadastrado
-                  </p>
-                )}
-
-                {!s.parcela_id && !s.acordo_id && s.forma_pagamento && (
-                  <p style={styles.info}>
-                    <strong>Acordo novo:</strong>{" "}
-                    {s.forma_pagamento === "PARCELADO"
-                      ? `Parcelado em ${s.qtd_parcelas || 1}x` +
-                        (s.valor_entrada
-                          ? ` + entrada de ${Number(s.valor_entrada).toLocaleString("pt-BR", {
-                              style: "currency",
-                              currency: "BRL",
-                            })}${s.entrada_paga ? " (já paga)" : ""}`
-                          : "")
-                      : "À vista"}
-                  </p>
-                )}
-
                 <p style={styles.info}>
                   <strong>Enviado em:</strong> {formatarData(s.criado_em)}
                 </p>
@@ -455,21 +600,181 @@ export default function FilaConfirmacaoPagamento() {
                   />
                 </div>
 
-                <div style={styles.acoes}>
-                  <button
-                    style={styles.botaoConfirmar}
-                    onClick={() => confirmarPagamento(s)}
-                  >
-                    Confirmar pagamento e dar baixa
-                  </button>
+                {!construtor[s.id] && (
+                  <div style={styles.acoes}>
+                    <button style={styles.botaoConfirmar} onClick={() => abrirConstrutor(s)}>
+                      Montar acordo / dar baixa
+                    </button>
 
-                  <button
-                    style={styles.botaoRejeitar}
-                    onClick={() => rejeitarPagamento(s)}
-                  >
-                    Rejeitar (não está pago)
-                  </button>
-                </div>
+                    <button style={styles.botaoRejeitar} onClick={() => rejeitarPagamento(s)}>
+                      Rejeitar (não está pago)
+                    </button>
+                  </div>
+                )}
+
+                {construtor[s.id] && (
+                  <div style={styles.construtor}>
+                    {(parcelasAbertasPorAluno[s.aluno_id] || []).length > 0 && (
+                      <div style={styles.blocoConstrutor}>
+                        <strong>Parcelas em aberto deste aluno</strong>
+                        <p style={{ ...styles.paragrafo, fontSize: "13px" }}>
+                          Se esse pagamento é de uma dessas parcelas, dê baixa direto nela em vez
+                          de montar um acordo novo.
+                        </p>
+
+                        {(parcelasAbertasPorAluno[s.aluno_id] || []).map((p) => (
+                          <div key={p.id} style={styles.linhaParcelaExistente}>
+                            <span>
+                              Parcela {p.numero} — venc. {p.vencimento?.slice(0, 10).split("-").reverse().join("/")} —{" "}
+                              {formatarMoeda(p.valor)} ({p.status === "VENCIDA" ? "vencida" : "a vencer"})
+                            </span>
+                            <button
+                              style={styles.botaoPequenoVerde}
+                              onClick={() => baixarParcelaExistente(s, p)}
+                            >
+                              Marcar como paga
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div style={styles.blocoConstrutor}>
+                      <strong>Montar acordo novo</strong>
+
+                      <label style={styles.label}>Tipo</label>
+                      <select
+                        style={styles.input}
+                        value={construtor[s.id].tipo}
+                        onChange={(e) => atualizarCampoConstrutor(s.id, "tipo", e.target.value)}
+                      >
+                        <option value="PARCELADO">Parcelado</option>
+                        <option value="QUITACAO">Quitação à vista (tudo pago agora)</option>
+                      </select>
+
+                      <label style={styles.label}>Valor total do acordo</label>
+                      <input
+                        style={styles.input}
+                        placeholder="Ex: 1500,00"
+                        value={construtor[s.id].valorTotal}
+                        onChange={(e) => atualizarCampoConstrutor(s.id, "valorTotal", e.target.value)}
+                      />
+
+                      {construtor[s.id].tipo === "PARCELADO" && (
+                        <>
+                          <label style={styles.label}>Quantidade de parcelas</label>
+                          <input
+                            style={styles.input}
+                            type="number"
+                            min="1"
+                            value={construtor[s.id].qtdParcelas}
+                            onChange={(e) => atualizarCampoConstrutor(s.id, "qtdParcelas", e.target.value)}
+                          />
+
+                          <label
+                            style={{ ...styles.label, display: "flex", alignItems: "center", gap: "8px" }}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={construtor[s.id].temEntrada}
+                              onChange={(e) =>
+                                atualizarCampoConstrutor(s.id, "temEntrada", e.target.checked)
+                              }
+                            />
+                            Tem entrada
+                          </label>
+
+                          {construtor[s.id].temEntrada && (
+                            <>
+                              <label style={styles.label}>Valor da entrada</label>
+                              <input
+                                style={styles.input}
+                                placeholder="Ex: 200,00"
+                                value={construtor[s.id].valorEntrada}
+                                onChange={(e) =>
+                                  atualizarCampoConstrutor(s.id, "valorEntrada", e.target.value)
+                                }
+                              />
+
+                              <label
+                                style={{ ...styles.label, display: "flex", alignItems: "center", gap: "8px" }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={construtor[s.id].entradaPaga}
+                                  onChange={(e) =>
+                                    atualizarCampoConstrutor(s.id, "entradaPaga", e.target.checked)
+                                  }
+                                />
+                                Entrada já paga
+                              </label>
+                            </>
+                          )}
+                        </>
+                      )}
+
+                      <button
+                        style={{ ...styles.botaoPequeno, marginTop: "10px" }}
+                        onClick={() => gerarParcelas(s.id)}
+                      >
+                        Gerar parcelas
+                      </button>
+
+                      {construtor[s.id].parcelas.length > 0 && (
+                        <div style={styles.tabelaParcelas}>
+                          <div style={styles.linhaTabelaCabecalho}>
+                            <span>Nº</span>
+                            <span>Vencimento</span>
+                            <span>Valor</span>
+                            <span>Status</span>
+                          </div>
+
+                          {construtor[s.id].parcelas.map((p, index) => (
+                            <div key={index} style={styles.linhaTabelaParcela}>
+                              <span>{p.numero}</span>
+                              <input
+                                style={styles.inputTabela}
+                                type="date"
+                                value={p.vencimento}
+                                onChange={(e) =>
+                                  atualizarParcela(s.id, index, "vencimento", e.target.value)
+                                }
+                              />
+                              <input
+                                style={styles.inputTabela}
+                                value={p.valor}
+                                onChange={(e) => atualizarParcela(s.id, index, "valor", e.target.value)}
+                              />
+                              <select
+                                style={styles.inputTabela}
+                                value={p.status}
+                                onChange={(e) =>
+                                  atualizarParcela(s.id, index, "status", e.target.value)
+                                }
+                              >
+                                <option value="A_VENCER">A vencer</option>
+                                <option value="PAGO">Paga</option>
+                              </select>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      <div style={{ ...styles.acoes, marginTop: "14px" }}>
+                        <button style={styles.botaoConfirmar} onClick={() => salvarAcordoMontado(s)}>
+                          Salvar acordo e dar baixa
+                        </button>
+
+                        <button
+                          style={styles.botaoCancelar}
+                          onClick={() => fecharConstrutor(s.id)}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
@@ -654,6 +959,100 @@ const styles = {
     borderRadius: "8px",
     cursor: "pointer",
     fontWeight: "bold",
+  },
+  botaoCancelar: {
+    background: "#e5e7eb",
+    color: "#374151",
+    border: "none",
+    padding: "12px 18px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+  },
+  input: {
+    width: "100%",
+    padding: "10px",
+    borderRadius: "8px",
+    border: "1px solid #ccc",
+    boxSizing: "border-box",
+    fontFamily: "Arial, sans-serif",
+    marginBottom: "10px",
+  },
+  construtor: {
+    marginTop: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "12px",
+  },
+  blocoConstrutor: {
+    background: "#f8fafc",
+    border: "1px solid #e5e7eb",
+    borderRadius: "10px",
+    padding: "14px",
+  },
+  linhaParcelaExistente: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: "10px",
+    padding: "8px 0",
+    borderTop: "1px solid #e5e7eb",
+    fontSize: "13px",
+    flexWrap: "wrap",
+  },
+  botaoPequeno: {
+    background: "#0ea5e9",
+    color: "#fff",
+    border: "none",
+    padding: "8px 14px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+    fontSize: "13px",
+  },
+  botaoPequenoVerde: {
+    background: "#198754",
+    color: "#fff",
+    border: "none",
+    padding: "6px 12px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+    fontSize: "12px",
+    whiteSpace: "nowrap",
+  },
+  tabelaParcelas: {
+    marginTop: "12px",
+    border: "1px solid #e5e7eb",
+    borderRadius: "8px",
+    overflow: "hidden",
+  },
+  linhaTabelaCabecalho: {
+    display: "grid",
+    gridTemplateColumns: "40px 1fr 1fr 1fr",
+    gap: "8px",
+    background: "#f1f5f9",
+    padding: "8px 10px",
+    fontSize: "12px",
+    fontWeight: "bold",
+    color: "#475569",
+  },
+  linhaTabelaParcela: {
+    display: "grid",
+    gridTemplateColumns: "40px 1fr 1fr 1fr",
+    gap: "8px",
+    padding: "6px 10px",
+    alignItems: "center",
+    borderTop: "1px solid #e5e7eb",
+    fontSize: "13px",
+  },
+  inputTabela: {
+    width: "100%",
+    padding: "6px",
+    borderRadius: "6px",
+    border: "1px solid #ccc",
+    boxSizing: "border-box",
+    fontSize: "12px",
   },
   alerta: {
     background: "#fff3cd",
