@@ -8,6 +8,7 @@ import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import EnvioFinanceiro from "../components/EnvioFinanceiro";
 import { podeVerTudo } from "../utils/operadores";
 import FilaReceptivo from "../components/FilaReceptivo";
+import PontoOperador from "../components/PontoOperador";
 
 const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "JURIDICO"];
 
@@ -905,6 +906,7 @@ export default function FilaOperador() {
   return (
     <div style={pagina}>
       <ModuloLinkPagamentoGlobal />
+      <PontoOperador usuarioLogado={usuarioLogado} />
       <FluxoLinksRapido />
       <FilaReceptivo usuarioLogado={usuarioLogado} />
       {(() => {

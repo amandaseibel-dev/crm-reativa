@@ -20,6 +20,8 @@ import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 import ManualOperacao from "./pages/ManualOperacao";
 import BotaoManual from "./components/BotaoManual";
 import FilaFinanceiro from "./pages/FilaFinanceiro";
+import PainelOperadores from "./pages/PainelOperadores";
+import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 import PainelAdm from "./pages/PainelAdm";
 
 function EmDesenvolvimento({ titulo }) {
@@ -52,7 +54,8 @@ function podeAcessar(perfil, rota) {
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
       "/painel-adm",
-      "/fila-financeiro",    ],
+      "/fila-financeiro",
+      "/painel-operadores",    ],
     supervisor: [
       "/",
       "/minha-fila",
@@ -208,6 +211,7 @@ export default function App() {
           auth: data.session.user,
           perfil,
         });
+        registrarLoginSeNecessario(perfil.email, perfil.nome);
       } else {
         await supabase.auth.signOut();
         setUsuario(null);
@@ -218,6 +222,9 @@ export default function App() {
   }
 
   async function sair() {
+    const email = usuario?.perfil?.email || usuario?.auth?.email;
+    const nome = usuario?.perfil?.nome;
+    await registrarLogout(email, nome);
     await supabase.auth.signOut();
     window.location.href = "/";
   }
@@ -263,6 +270,7 @@ export default function App() {
     { rota: "/controle-links-pagamento", label: "🔗 Fila de Links" },
     { rota: "/painel-adm", label: "📊 Painel ADM" },
     { rota: "/fila-financeiro", label: "🏦 Fila Financeiro" },
+    { rota: "/painel-operadores", label: "🕒 Painel Operadores" },
     { rota: "/minha-fila-pagamentos", label: "💳 Fila de Baixas" },
     { rota: "/base-analitica", label: "📊 Base Analítica" },
     { rota: "/termos-adm", label: "📎 Termos ADM" },
@@ -467,6 +475,7 @@ export default function App() {
               <Route path="/controle-links-pagamento" element={<ControleLinksPagamento />} />
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/fila-financeiro" element={<FilaFinanceiro />} />
+              <Route path="/painel-operadores" element={<PainelOperadores />} />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
