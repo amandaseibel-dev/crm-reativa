@@ -1003,6 +1003,7 @@ export default function FilaOperador() {
 
   return (
     <div style={pagina}>
+      <FilaReceptivo usuarioLogado={usuarioLogado} />
       <ModuloLinkPagamentoGlobal />
       <MuralAniversariantes />
       <MinhaCarteira usuarioLogado={usuarioLogado} />
@@ -1010,7 +1011,6 @@ export default function FilaOperador() {
       <ReceberLeads usuarioLogado={usuarioLogado} aoReceber={carregarFila} />
       <PontoOperador usuarioLogado={usuarioLogado} />
       <FluxoLinksRapido />
-      <FilaReceptivo usuarioLogado={usuarioLogado} />
       {(() => {
         const incentivo = mensagemIncentivo(casosFinalizados);
         return (
