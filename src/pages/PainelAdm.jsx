@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
 
@@ -130,6 +130,23 @@ function formatarData(data) {
   }
 }
 
+function formatarDataSimples(data) {
+  if (!data) return "-";
+
+  try {
+    // Datas tipo "date" (só dia, sem hora) -- monta local pra não voltar
+    // um dia por causa de fuso.
+    const partes = String(data).slice(0, 10).split("-");
+    if (partes.length === 3) {
+      const [ano, mes, dia] = partes;
+      return `${dia}/${mes}/${ano}`;
+    }
+    return new Date(data).toLocaleDateString("pt-BR");
+  } catch {
+    return "-";
+  }
+}
+
 async function garantirSessaoValida() {
   try {
     await supabase.auth.getSession();
@@ -153,6 +170,7 @@ export default function PainelAdm() {
   const [operadorFiltro, setOperadorFiltro] = useState("TODOS");
   const [statusFiltroLinks, setStatusFiltroLinks] = useState("TODOS");
   const [linksEditados, setLinksEditados] = useState({});
+  const [linhaAbertaLink, setLinhaAbertaLink] = useState(null);
   const [obsLinks, setObsLinks] = useState({});
 
   // ---- Financeiro ----
@@ -836,8 +854,12 @@ export default function PainelAdm() {
                     const atrasado = aguardando && minutosResposta !== null && minutosResposta > LIMITE_ATRASO_MIN;
                     const linkAtual = linksEditados[item.id] ?? item.link_gerado ?? "";
 
+                    const podeResponder = item.status === "SOLICITADO_LINK" || item.status === "LINK_EM_ATENDIMENTO";
+                    const aberta = linhaAbertaLink === item.id;
+
                     return (
-                      <tr key={item.id} style={estilos.tr}>
+                      <Fragment key={item.id}>
+                      <tr style={estilos.tr}>
                         <td style={estilos.td}>{item.aluno_nome || item.nome_aluno || "-"}</td>
                         <td style={{ ...estilos.td, color: "#475569" }}>
                           {item.operador_nome || item.operador_solicitante || "-"}
@@ -856,20 +878,13 @@ export default function PainelAdm() {
                           </div>
                         </td>
                         <td style={estilos.td}>
-                          {(item.status === "SOLICITADO_LINK" || item.status === "LINK_EM_ATENDIMENTO") && (
-                            <div style={estilos.acaoColuna}>
-                              <input
-                                style={estilos.inputAcao}
-                                placeholder="Colar link completo"
-                                value={linkAtual}
-                                onChange={(e) =>
-                                  setLinksEditados({ ...linksEditados, [item.id]: e.target.value })
-                                }
-                              />
-                              <button style={estilos.botaoAzul} onClick={() => salvarLinkPainel(item)}>
-                                Salvar link
-                              </button>
-                            </div>
+                          {podeResponder && (
+                            <button
+                              style={estilos.botaoAzul}
+                              onClick={() => setLinhaAbertaLink(aberta ? null : item.id)}
+                            >
+                              {aberta ? "Fechar" : "Abrir"}
+                            </button>
                           )}
 
                           {(item.status === "LINK_PRONTO_PARA_ENVIO" || item.status === "LINK_ENVIADO_AO_ALUNO") && (
@@ -905,6 +920,58 @@ export default function PainelAdm() {
                           )}
                         </td>
                       </tr>
+
+                      {podeResponder && aberta && (
+                        <tr key={item.id + "-detalhe"} style={estilos.trDetalhe}>
+                          <td style={estilos.tdDetalhe} colSpan={5}>
+                            <div style={estilos.detalheGrid}>
+                              <div>
+                                <p style={estilos.detalheRotulo}>Vencimento</p>
+                                <p style={estilos.detalheValor}>{formatarDataSimples(item.data_vencimento)}</p>
+                              </div>
+                              <div>
+                                <p style={estilos.detalheRotulo}>Valor</p>
+                                <p style={estilos.detalheValor}>{formatarMoeda(item.valor)}</p>
+                              </div>
+                              <div>
+                                <p style={estilos.detalheRotulo}>Quantidade de vezes</p>
+                                <p style={estilos.detalheValor}>{item.parcelas || 1}x</p>
+                              </div>
+                              <div>
+                                <p style={estilos.detalheRotulo}>Forma de pagamento</p>
+                                <p style={estilos.detalheValor}>{item.forma_pagamento || item.tipo_pagamento || "-"}</p>
+                              </div>
+                            </div>
+
+                            {item.observacao_solicitacao && (
+                              <p style={estilos.detalheObs}>
+                                <strong>Observação do operador:</strong> {item.observacao_solicitacao}
+                              </p>
+                            )}
+
+                            <div style={estilos.detalheAcao}>
+                              <input
+                                style={{ ...estilos.inputAcao, minWidth: "280px" }}
+                                placeholder="Colar link completo"
+                                value={linkAtual}
+                                onChange={(e) =>
+                                  setLinksEditados({ ...linksEditados, [item.id]: e.target.value })
+                                }
+                              />
+                              <button
+                                style={estilos.botaoAzul}
+                                onClick={async () => {
+                                  await salvarLinkPainel(item);
+                                  setLinhaAbertaLink(null);
+                                }}
+                              >
+                                Salvar link
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                      </Fragment>
                     );
                   })}
                 </tbody>
@@ -1282,6 +1349,48 @@ const estilos = {
     flexDirection: "column",
     gap: "6px",
     minWidth: "200px",
+  },
+  trDetalhe: {
+    background: "#f8fafc",
+  },
+  tdDetalhe: {
+    padding: "16px 14px",
+    borderBottom: "1px solid #e2e8f0",
+    borderTop: "1px dashed #cbd5e1",
+  },
+  detalheGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(140px, 1fr))",
+    gap: "12px",
+    marginBottom: "12px",
+  },
+  detalheRotulo: {
+    fontSize: "11px",
+    fontWeight: "700",
+    color: "#64748b",
+    textTransform: "uppercase",
+    margin: "0 0 4px 0",
+  },
+  detalheValor: {
+    fontSize: "14px",
+    fontWeight: "700",
+    color: "#0f172a",
+    margin: 0,
+  },
+  detalheObs: {
+    fontSize: "13px",
+    color: "#334155",
+    background: "#fff",
+    border: "1px solid #e2e8f0",
+    borderRadius: "6px",
+    padding: "8px 10px",
+    marginBottom: "12px",
+  },
+  detalheAcao: {
+    display: "flex",
+    gap: "8px",
+    flexWrap: "wrap",
+    alignItems: "center",
   },
   inputAcao: {
     padding: "7px 9px",
