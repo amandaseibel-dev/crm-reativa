@@ -544,6 +544,18 @@ export default function Alunos() {
       return;
     }
 
+    // Se a ficha ficou muito tempo aberta/parada, o token pode ter
+    // expirado sem o refresh automático rodar a tempo -- isso fazia o
+    // insert cair como "anon" (sem policy de insert) e dar um "Erro ao
+    // registrar movimentação" genérico, mesmo com tudo preenchido certo.
+    // Forçar checagem de sessão antes de escrever, igual já feito em
+    // outras telas que bateram nesse mesmo problema.
+    try {
+      await supabase.auth.getSession();
+    } catch {
+      // Segue e deixa o erro real aparecer, se houver.
+    }
+
     const usuario = await pegarUsuarioLogado();
     const agora = new Date().toISOString();
 
@@ -566,7 +578,7 @@ export default function Alunos() {
 
     if (movError) {
       console.error("Erro ao registrar movimentação:", movError);
-      alert("Erro ao registrar movimentação.");
+      alert("Erro ao registrar movimentação: " + movError.message);
       throw movError;
     }
 
