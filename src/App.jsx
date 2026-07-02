@@ -23,6 +23,7 @@ import FilaFinanceiro from "./pages/FilaFinanceiro";
 import PainelOperadores from "./pages/PainelOperadores";
 import MeuPerfil from "./pages/MeuPerfil";
 import Borderos from "./pages/Borderos";
+import ConsultaFinanceira from "./pages/ConsultaFinanceira";
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 import PainelAdm from "./pages/PainelAdm";
 
@@ -421,7 +422,7 @@ export default function App() {
               path="/financeiro"
               element={
                 <RotaProtegida usuario={usuario} rota="/financeiro">
-                  <EmDesenvolvimento titulo="Financeiro" />
+                  <ConsultaFinanceira />
                 </RotaProtegida>
               }
             />
