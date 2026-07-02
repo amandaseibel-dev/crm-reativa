@@ -10,6 +10,7 @@ import { podeVerTudo } from "../utils/operadores";
 import FilaReceptivo from "../components/FilaReceptivo";
 import PontoOperador from "../components/PontoOperador";
 import MuralAniversariantes from "../components/MuralAniversariantes";
+import ResumoDoDia from "../components/ResumoDoDia";
 
 const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "JURIDICO"];
 
@@ -930,6 +931,7 @@ export default function FilaOperador() {
     <div style={pagina}>
       <ModuloLinkPagamentoGlobal />
       <MuralAniversariantes />
+      <ResumoDoDia usuarioLogado={usuarioLogado} />
       <PontoOperador usuarioLogado={usuarioLogado} />
       <FluxoLinksRapido />
       <FilaReceptivo usuarioLogado={usuarioLogado} />
