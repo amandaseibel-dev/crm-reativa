@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import { supabase } from "./services/supabase";
+import AutoLogout from "./components/AutoLogout";
 
 import Dashboard from "./pages/Dashboard";
 import BaseAnalitica from "./pages/BaseAnalitica";
@@ -285,6 +286,7 @@ export default function App() {
     const email = usuario?.perfil?.email || usuario?.auth?.email;
     const nome = usuario?.perfil?.nome;
     await registrarLogout(email, nome);
+    if (email) await supabase.rpc("fila_receptivo_sair", { p_email: email });
     await supabase.auth.signOut();
     window.location.href = "/";
   }
@@ -354,6 +356,7 @@ export default function App() {
     <BrowserRouter>
       <div className="app" data-tema={tema}>
         <HeartbeatReceptivo usuario={usuario} />
+        <AutoLogout usuario={usuario} />
         <NotificacoesSupervisaoAdm usuario={usuario} />
         <aside className="sidebar">
           <div className="cabecalho-usuario">
