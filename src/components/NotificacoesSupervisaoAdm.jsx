@@ -99,7 +99,7 @@ export default function NotificacoesSupervisaoAdm({ usuario }) {
           vistosRef.current.add(n.chave);
           const idUnico = `${n.chave}:${Date.now()}`;
           setAvisos((atual) => [{ ...n, id: idUnico }, ...atual].slice(0, 6));
-          setTimeout(() => dispensar(idUnico), 15000);
+          setTimeout(() => dispensar(idUnico), 40000);
         });
       } catch (e) {
         console.error("Erro ao verificar notificações de supervisão/ADM:", e);
