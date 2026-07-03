@@ -11,7 +11,6 @@ const STATUS_FECHAMENTO = [
   "NOTA_ANEXADA",
   "PAGO",
 ];
-
 const STATUS_LABEL = {
   RASCUNHO: "Rascunho (só você vê)",
   ENVIADO_FINANCEIRO: "Enviado ao financeiro",
@@ -921,7 +920,7 @@ export default function GestaoFinanceiraOperadores() {
 }
 
 const estilos = {
-  container: { minHeight: "100vh", padding: "24px", fontFamily: "Arial, sans-serif" },
+  container: { minHeight: "100vh", padding: "24px", color: "#e5e7eb", fontFamily: "Arial, sans-serif" },
   cabecalhoRestrito: {
     background: "#7f1d1d",
     color: "#fecaca",
@@ -939,7 +938,7 @@ const estilos = {
     fontWeight: 700,
   },
   titulo: { margin: "0 0 16px 0" },
-  subtitulo: { margin: 0, fontSize: 16 },
+  subtitulo: { margin: 0, fontSize: 16, color: "#e5e7eb" },
   abas: { display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" },
   botaoAba: {
     padding: "8px 14px",
@@ -982,6 +981,8 @@ const estilos = {
     borderRadius: 6,
     border: "1px solid #cbd5e1",
     fontSize: 13,
+        color: "#111827",
+        background: "#ffffff",
   },
   inputPequeno: {
     width: "100%",
@@ -991,9 +992,11 @@ const estilos = {
     fontSize: 12,
     marginBottom: 6,
     boxSizing: "border-box",
+        color: "#111827",
+        background: "#ffffff",
   },
   labelPequeno: { fontSize: 10, opacity: 0.7, display: "block", marginTop: 4 },
-  checkboxLabel: { display: "flex", alignItems: "center", gap: 6, fontSize: 13 },
+  checkboxLabel: { display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#e5e7eb" },
   botaoAzul: {
     background: "#0d6efd",
     color: "#fff",
@@ -1031,8 +1034,9 @@ const estilos = {
     borderBottom: "1px solid #374151",
     fontSize: 12,
     opacity: 0.8,
+        color: "#e5e7eb",
   },
-  td: { padding: "8px", borderBottom: "1px solid #1f2937", fontSize: 13 },
+  td: { padding: "8px", borderBottom: "1px solid #1f2937", fontSize: 13, color: "#e5e7eb" },
   textoAuxiliar: { fontSize: 13, opacity: 0.75 },
   seletorMes: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 },
   linhaFechamento: {
