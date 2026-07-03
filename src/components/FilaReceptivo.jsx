@@ -105,11 +105,15 @@ export default function FilaReceptivo({ usuarioLogado }) {
       });
   }, [linhas, operadoresReceptivo]);
 
-  async function marcarAtendido() {
-    if (!ehParticipante || marcando) return;
+  // Marca um atendimento. Sem argumento, marca o próprio operador logado.
+  // Com um e-mail (botão na linha), marca aquele operador — útil quando quem
+  // atendeu não foi quem estava na vez, ou pra a gestão registrar por eles.
+  async function marcarAtendido(alvoEmail) {
+    const alvo = alvoEmail || email;
+    if (!alvo || marcando) return;
     setMarcando(true);
     try {
-      await supabase.rpc("fila_receptivo_marcar_atendido", { p_email: email });
+      await supabase.rpc("fila_receptivo_marcar_atendido", { p_email: alvo });
       await buscarFila();
     } finally {
       setMarcando(false);
@@ -192,7 +196,7 @@ export default function FilaReceptivo({ usuarioLogado }) {
           </div>
           <button
             type="button"
-            onClick={marcarAtendido}
+            onClick={() => marcarAtendido(email)}
             disabled={marcando}
             style={estilos.botaoAtendi}
           >
@@ -225,6 +229,15 @@ export default function FilaReceptivo({ usuarioLogado }) {
                 {eu ? " (você)" : ""}
               </span>
               <span style={estilos.contador}>{linha.atendimentos_hoje} hoje</span>
+              <button
+                type="button"
+                onClick={() => marcarAtendido(linha.email)}
+                disabled={marcando}
+                style={estilos.botaoMarcarLinha}
+                title={`Marcar um atendimento para ${nomeExibicao(linha)}`}
+              >
+                ✅ Marcar
+              </button>
             </div>
           );
         })}
@@ -363,6 +376,18 @@ const estilos = {
     fontSize: 12,
     color: "#94a3b8",
     whiteSpace: "nowrap",
+  },
+  botaoMarcarLinha: {
+    padding: "5px 10px",
+    borderRadius: 8,
+    border: "1px solid rgba(34, 197, 94, 0.5)",
+    background: "rgba(34, 197, 94, 0.14)",
+    color: "#86efac",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+    whiteSpace: "nowrap",
+    flexShrink: 0,
   },
   rodape: {
     marginTop: 12,
