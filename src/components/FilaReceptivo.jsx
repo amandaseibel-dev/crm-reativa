@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "../utils/operadores";
 
-// 90s era curto demais: navegadores atrasam o setInterval de abas em
-// segundo plano (operador com o CRM minimizado/atrás do WhatsApp), o que
-// fazia o operador cair como offline e sumir da fila mesmo logado.
-const LIMITE_ONLINE_MS = 3 * 60 * 1000;
+// A fila só mostra quem está realmente logado agora. O "heartbeat" bate a
+// cada 20s enquanto o operador está com o sistema aberto; se ele desloga
+// ou fecha, para de bater e sai da fila sozinho. 90s dá folga pra abas em
+// segundo plano sem deixar gente offline "presa" na fila.
+const LIMITE_ONLINE_MS = 90 * 1000;
 
 function primeiroNome(nome) {
   return String(nome || "").split(" ")[0];
@@ -21,8 +22,6 @@ export default function FilaReceptivo({ usuarioLogado }) {
   const ehParticipante = operadoresReceptivo.includes(email);
 
   async function buscarFila() {
-    // Quem é receptivo agora vem do cadastro de usuários (aba Usuários,
-    // checkbox "Operador receptivo"), não é mais uma lista fixa no código.
     const { data: usuariosReceptivos } = await supabase
       .from("usuarios")
       .select("email, apelido, foto_url")
@@ -120,6 +119,29 @@ export default function FilaReceptivo({ usuarioLogado }) {
   const minhaLinha = linhas.find((linha) => linha.email === email);
   const euEstouEmPausa = Boolean(minhaLinha?.em_pausa);
 
+  function nomeExibicao(linha) {
+    return perfis[linha.email]?.apelido || primeiroNome(linha.nome);
+  }
+
+  function Avatar({ linha, tamanho = 30 }) {
+    const foto = perfis[linha.email]?.foto_url;
+    const inicial = (nomeExibicao(linha) || "?").charAt(0).toUpperCase();
+    if (!foto) {
+      return (
+        <span style={{ ...estilos.avatarFallback, width: tamanho, height: tamanho }}>
+          {inicial}
+        </span>
+      );
+    }
+    return (
+      <img
+        src={foto}
+        alt={nomeExibicao(linha)}
+        style={{ width: tamanho, height: tamanho, borderRadius: "50%", objectFit: "cover" }}
+      />
+    );
+  }
+
   const botaoPausa = ehParticipante && (
     <button
       type="button"
@@ -131,49 +153,22 @@ export default function FilaReceptivo({ usuarioLogado }) {
     </button>
   );
 
-  // Reserva o espaço mesmo sem ninguém na fila do receptivo, pra essa
-  // caixa não ficar aparecendo/sumindo e empurrando o resto da tela --
-  // mas se eu sou participante, mantém o botão de pausa visível mesmo
-  // com a fila vazia (senão, uma vez pausado, eu não conseguia voltar).
+  // Sem ninguém online: mantém a caixa (pra não empurrar a tela) e, se eu
+  // sou participante, o botão de pausa continua acessível.
   if (ordem.length === 0) {
     if (!ehParticipante) return <div style={estilos.espacoReservado} />;
-
     return (
-      <div style={estilos.caixa(false)}>
-        <div style={estilos.linhaTopo}>
-          <div>
-            <strong style={estilos.destaque}>
-              {euEstouEmPausa
-                ? "⏸️ Você está em pausa no receptivo."
-                : "📞 Fila do receptivo: ninguém online agora."}
-            </strong>
-          </div>
+      <div style={estilos.caixa}>
+        <div style={estilos.cabecalho}>
+          <strong style={estilos.titulo}>📞 Fila do receptivo</strong>
           {botaoPausa}
         </div>
+        <p style={estilos.vazio}>
+          {euEstouEmPausa
+            ? "Você está em pausa. Volte quando quiser entrar na vez."
+            : "Ninguém online no receptivo agora."}
+        </p>
       </div>
-    );
-  }
-
-  function nomeExibicao(linha) {
-    return perfis[linha.email]?.apelido || primeiroNome(linha.nome);
-  }
-
-  function Avatar({ linha, tamanho = 22 }) {
-    const foto = perfis[linha.email]?.foto_url;
-    if (!foto) return null;
-    return (
-      <img
-        src={foto}
-        alt={nomeExibicao(linha)}
-        style={{
-          width: tamanho,
-          height: tamanho,
-          borderRadius: "50%",
-          objectFit: "cover",
-          verticalAlign: "middle",
-          marginRight: 6,
-        }}
-      />
     );
   }
 
@@ -181,94 +176,206 @@ export default function FilaReceptivo({ usuarioLogado }) {
   const souOProximo = proximo.email === email;
 
   return (
-    <div style={estilos.caixa(souOProximo)}>
-      <div style={estilos.linhaTopo}>
-        <div>
-          {souOProximo ? (
-            <strong style={estilos.destaqueMim}>🔔 Você é o próximo do receptivo!</strong>
-          ) : (
-            <strong style={estilos.destaque}>
-              <Avatar linha={proximo} tamanho={24} />
-              📞 Próximo do receptivo: {nomeExibicao(proximo)}
-            </strong>
-          )}
-          {ordem.length > 1 && (
-            <div style={estilos.fila}>
-              Depois:{" "}
-              {ordem.slice(1).map((linha, indice) => (
-                <span key={linha.email} style={{ marginRight: 10, whiteSpace: "nowrap" }}>
-                  <Avatar linha={linha} />
-                  {nomeExibicao(linha)} ({linha.atendimentos_hoje} hoje)
-                  {indice < ordem.length - 2 ? "," : ""}
-                </span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {ehParticipante && (
-          <div style={{ display: "flex", gap: "8px" }}>
-            <button
-              type="button"
-              onClick={marcarAtendido}
-              disabled={marcando}
-              style={estilos.botao}
-            >
-              {marcando ? "Marcando..." : "✅ Marquei atendimento"}
-            </button>
-            {botaoPausa}
-          </div>
-        )}
+    <div style={estilos.caixa}>
+      <div style={estilos.cabecalho}>
+        <strong style={estilos.titulo}>📞 Fila do receptivo</strong>
+        <span style={estilos.online}>{ordem.length} online agora</span>
       </div>
+
+      {ehParticipante && (
+        <div style={{ ...estilos.destaque, ...(souOProximo ? estilos.destaqueVez : {}) }}>
+          <div>
+            <div style={estilos.destaqueRotulo}>
+              {souOProximo ? "É a sua vez de atender" : "Próximo a atender"}
+            </div>
+            <div style={estilos.destaqueNome}>{nomeExibicao(proximo)}</div>
+          </div>
+          <button
+            type="button"
+            onClick={marcarAtendido}
+            disabled={marcando}
+            style={estilos.botaoAtendi}
+          >
+            {marcando ? "Registrando..." : "✅ Atendi uma ligação"}
+          </button>
+        </div>
+      )}
+
+      <div style={estilos.rotuloLista}>Ordem de atendimento — quem atende vai para o fim</div>
+
+      <div style={estilos.lista}>
+        {ordem.map((linha, indice) => {
+          const eu = linha.email === email;
+          const primeiro = indice === 0;
+          return (
+            <div
+              key={linha.email}
+              style={{
+                ...estilos.item,
+                ...(primeiro ? estilos.itemPrimeiro : {}),
+                ...(eu ? estilos.itemEu : {}),
+              }}
+            >
+              <span style={{ ...estilos.posicao, ...(primeiro ? estilos.posicaoPrimeiro : {}) }}>
+                {indice + 1}
+              </span>
+              <Avatar linha={linha} />
+              <span style={estilos.nomeItem}>
+                {nomeExibicao(linha)}
+                {eu ? " (você)" : ""}
+              </span>
+              <span style={estilos.contador}>{linha.atendimentos_hoje} hoje</span>
+            </div>
+          );
+        })}
+      </div>
+
+      {ehParticipante && <div style={estilos.rodape}>{botaoPausa}</div>}
     </div>
   );
 }
 
 const estilos = {
   espacoReservado: {
-    height: 52,
-    marginBottom: 14,
+    height: 60,
+    marginBottom: 16,
   },
-  caixa: (destaque) => ({
-    display: "flex",
-    padding: "10px 16px",
-    marginBottom: 14,
-    borderRadius: 10,
-    background: destaque ? "rgba(34, 197, 94, 0.14)" : "rgba(148, 163, 184, 0.12)",
-    border: destaque ? "1px solid rgba(34, 197, 94, 0.5)" : "1px solid rgba(148, 163, 184, 0.35)",
-  }),
-  linhaTopo: {
+  caixa: {
+    background: "#0b1220",
+    border: "1px solid #1f2937",
+    borderRadius: 16,
+    padding: "16px 18px",
+    marginBottom: 16,
+  },
+  cabecalho: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    width: "100%",
     gap: 12,
+    marginBottom: 12,
     flexWrap: "wrap",
   },
-  destaque: {
-    fontSize: 14,
+  titulo: {
+    fontSize: 15,
+    color: "#e5e7eb",
   },
-  destaqueMim: {
-    fontSize: 14,
+  online: {
+    fontSize: 12,
+    color: "#94a3b8",
+  },
+  destaque: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    padding: "12px 14px",
+    borderRadius: 12,
+    background: "rgba(148, 163, 184, 0.12)",
+    border: "1px solid rgba(148, 163, 184, 0.28)",
+    marginBottom: 14,
+    flexWrap: "wrap",
+  },
+  destaqueVez: {
+    background: "rgba(34, 197, 94, 0.14)",
+    border: "1px solid rgba(34, 197, 94, 0.5)",
+  },
+  destaqueRotulo: {
+    fontSize: 12,
     color: "#86efac",
   },
-  fila: {
-    fontSize: 12,
-    opacity: 0.75,
-    marginTop: 2,
+  destaqueNome: {
+    fontSize: 18,
+    fontWeight: 700,
+    color: "#f8fafc",
   },
-  botao: {
-    padding: "6px 14px",
-    borderRadius: 8,
-    border: "1px solid rgba(34, 197, 94, 0.6)",
-    background: "rgba(34, 197, 94, 0.18)",
-    color: "#dcfce7",
-    fontWeight: 600,
+  botaoAtendi: {
+    background: "#22c55e",
+    color: "#052e16",
+    border: "none",
+    borderRadius: 10,
+    padding: "12px 18px",
+    fontSize: 15,
+    fontWeight: 800,
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
+  rotuloLista: {
+    fontSize: 12,
+    color: "#94a3b8",
+    marginBottom: 8,
+  },
+  lista: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 6,
+  },
+  item: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    padding: "8px 10px",
+    borderRadius: 10,
+    background: "#111827",
+    border: "1px solid #1f2937",
+  },
+  itemPrimeiro: {
+    border: "1px solid rgba(34, 197, 94, 0.5)",
+    background: "rgba(34, 197, 94, 0.08)",
+  },
+  itemEu: {
+    boxShadow: "inset 0 0 0 1px rgba(148, 163, 184, 0.35)",
+  },
+  posicao: {
+    width: 24,
+    height: 24,
+    borderRadius: "50%",
+    background: "#1f2937",
+    color: "#cbd5e1",
+    fontSize: 12,
+    fontWeight: 700,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  posicaoPrimeiro: {
+    background: "rgba(34, 197, 94, 0.25)",
+    color: "#86efac",
+  },
+  avatarFallback: {
+    borderRadius: "50%",
+    background: "#1f2937",
+    color: "#e5e7eb",
+    fontSize: 13,
+    fontWeight: 700,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  nomeItem: {
+    flex: 1,
+    color: "#f1f5f9",
+    fontWeight: 600,
+    fontSize: 14,
+  },
+  contador: {
+    fontSize: 12,
+    color: "#94a3b8",
+    whiteSpace: "nowrap",
+  },
+  rodape: {
+    marginTop: 12,
+    display: "flex",
+    justifyContent: "flex-end",
+  },
+  vazio: {
+    fontSize: 13,
+    color: "#94a3b8",
+    margin: 0,
+  },
   botaoPausa: {
-    padding: "6px 14px",
+    padding: "8px 14px",
     borderRadius: 8,
     border: "1px solid rgba(148, 163, 184, 0.6)",
     background: "rgba(148, 163, 184, 0.18)",
@@ -278,7 +385,7 @@ const estilos = {
     whiteSpace: "nowrap",
   },
   botaoPausaAtiva: {
-    padding: "6px 14px",
+    padding: "8px 14px",
     borderRadius: 8,
     border: "1px solid rgba(251, 191, 36, 0.6)",
     background: "rgba(251, 191, 36, 0.18)",
