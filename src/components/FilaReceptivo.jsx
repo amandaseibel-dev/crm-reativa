@@ -101,7 +101,7 @@ export default function FilaReceptivo({ usuarioLogado }) {
         }
         const ua = a.ultimo_atendimento ? new Date(a.ultimo_atendimento).getTime() : 0;
         const ub = b.ultimo_atendimento ? new Date(b.ultimo_atendimento).getTime() : 0;
-        return ua - ub;
+        return ua - ub || a.email.localeCompare(b.email);
       });
   }, [linhas, operadoresReceptivo]);
 
