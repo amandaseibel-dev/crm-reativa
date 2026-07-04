@@ -19,6 +19,7 @@ body {
 
 .sidebar {
   width: 280px;
+  flex-shrink: 0;
   padding: 24px;
   background: rgba(15, 23, 42, 0.92);
   border-right: 1px solid rgba(148, 163, 184, 0.18);
@@ -129,6 +130,12 @@ nav a.active {
 
 .main {
   flex: 1;
+  padding: 28px;
+}
+
+.content {
+  flex: 1;
+  min-width: 0;
   padding: 28px;
 }
 
