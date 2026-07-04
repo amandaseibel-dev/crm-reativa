@@ -19,6 +19,7 @@ body {
 /* SIDEBAR PROFISSIONAL */
 .sidebar {
   width: 260px;
+  flex-shrink: 0;
   background: #0f172a;
   border-right: 1px solid rgba(255,255,255,0.06);
   padding: 24px 16px;
@@ -70,6 +71,7 @@ body {
 /* CONTEÚDO */
 .content {
   flex: 1;
+  min-width: 0;
   padding: 28px;
   overflow: auto;
 }
@@ -159,13 +161,14 @@ button:hover {
   }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 1024px) {
   .app {
     flex-direction: column;
   }
 
   .sidebar {
     width: 100%;
+    flex-shrink: 0;
   }
 
   .cards {
