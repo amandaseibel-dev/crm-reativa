@@ -165,7 +165,7 @@ export default function FilaConfirmacaoPagamento() {
       .eq("status", "em_aberto")
       .order("vencimento", { ascending: true });
 
-    query = cpf ? query.eq("cpf", cpf) : query.eq("aluno_id", String(alunoId));
+    query = alunoId ? query.eq("aluno_id", String(alunoId)) : query.eq("cpf", cpf);
 
     const { data, error } = await query;
 
@@ -769,40 +769,47 @@ export default function FilaConfirmacaoPagamento() {
                     <div style={styles.blocoConstrutor}>
                       <strong>Montar acordo novo</strong>
 
-                      {(titulosAbertosPorAluno[s.aluno_id] || []).length > 0 && (
-                        <div style={styles.blocoTitulos}>
-                          <label style={styles.label}>
-                            Títulos em aberto — marque os que entram neste acordo
-                          </label>
+                      <div style={styles.blocoTitulos}>
+                        <label style={styles.label}>
+                          Títulos em aberto — marque os que entram neste acordo
+                        </label>
 
-                          {(titulosAbertosPorAluno[s.aluno_id] || []).map((t) => {
-                            const marcado = construtor[s.id].titulosSelecionados.includes(t.id);
-                            return (
-                              <label key={t.id} style={styles.linhaTitulo}>
-                                <input
-                                  type="checkbox"
-                                  checked={marcado}
-                                  onChange={() => alternarTitulo(s.id, t.id)}
-                                />
-                                <span style={{ flex: 1 }}>
-                                  Título {t.documento || "-"} — venc.{" "}
-                                  {t.vencimento?.slice(0, 10).split("-").reverse().join("/") || "-"}
-                                </span>
-                                <span style={{ fontWeight: "bold" }}>
-                                  {formatarMoeda(valorTitulo(t))}
-                                </span>
-                              </label>
-                            );
-                          })}
+                        {(titulosAbertosPorAluno[s.aluno_id] || []).length === 0 ? (
+                          <p style={{ ...styles.paragrafo, fontSize: "12px", margin: 0 }}>
+                            Nenhum título em aberto encontrado para este aluno (ou ainda carregando). Você
+                            pode montar o acordo sem vincular títulos.
+                          </p>
+                        ) : (
+                          <>
+                            {(titulosAbertosPorAluno[s.aluno_id] || []).map((t) => {
+                              const marcado = construtor[s.id].titulosSelecionados.includes(t.id);
+                              return (
+                                <label key={t.id} style={styles.linhaTitulo}>
+                                  <input
+                                    type="checkbox"
+                                    checked={marcado}
+                                    onChange={() => alternarTitulo(s.id, t.id)}
+                                  />
+                                  <span style={{ flex: 1 }}>
+                                    Título {t.documento || "-"} — venc.{" "}
+                                    {t.vencimento?.slice(0, 10).split("-").reverse().join("/") || "-"}
+                                  </span>
+                                  <span style={{ fontWeight: "bold" }}>
+                                    {formatarMoeda(valorTitulo(t))}
+                                  </span>
+                                </label>
+                              );
+                            })}
 
-                          <button
-                            style={{ ...styles.botaoPequeno, marginTop: "8px" }}
-                            onClick={() => usarSomaTitulos(s.id, s.aluno_id)}
-                          >
-                            Usar soma dos títulos marcados como valor total
-                          </button>
-                        </div>
-                      )}
+                            <button
+                              style={{ ...styles.botaoPequeno, marginTop: "8px" }}
+                              onClick={() => usarSomaTitulos(s.id, s.aluno_id)}
+                            >
+                              Usar soma dos títulos marcados como valor total
+                            </button>
+                          </>
+                        )}
+                      </div>
 
                       <label style={styles.label}>Tipo</label>
                       <select
