@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { emailPorNomeOperador, nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
 
@@ -111,6 +111,7 @@ export default function CRM() {
   const [todosCasos, setTodosCasos] = useState([]);
   const [grupos, setGrupos] = useState([]);
   const [aberto, setAberto] = useState(null);
+  const cardRefs = useRef({});
   const [filtro, setFiltro] = useState("TODOS");
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
@@ -577,6 +578,13 @@ return (
     setAberto(novoAberto);
 
     if (novoAberto) {
+      setTimeout(() => {
+        cardRefs.current[caso.id]?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      }, 80);
+
       setRetornos((atual) => ({
         ...atual,
         [caso.id]: dataParaInput(caso.dataRetorno),
@@ -616,6 +624,13 @@ return (
     setFiltro("TODOS");
     setGrupos(todosCasos);
     setAberto(caso.id);
+
+    setTimeout(() => {
+      cardRefs.current[caso.id]?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    }, 120);
 
     setRetornos((atual) => ({
       ...atual,
@@ -1094,6 +1109,9 @@ return (
       {grupos.map((c) => (
         <div
           key={c.id}
+          ref={(el) => {
+            cardRefs.current[c.id] = el;
+          }}
           style={{
             background: "#1d0038",
             marginBottom: 14,
