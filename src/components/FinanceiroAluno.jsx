@@ -419,7 +419,7 @@ export default function FinanceiroAluno({ aluno }) {
         qtd_parcelas: novo.parcelas.length,
         valor_entrada: novo.temEntrada ? entrada : null,
         entrada_percentual: pct,
-        entrada_paga: novo.temEntrada ? Boolean(novo.entradaPaga) : null,
+        entrada_paga: novo.temEntrada ? Boolean(novo.entradaPaga) : false,
         data_entrada: novo.temEntrada && novo.entradaPaga ? hojeISO() : null,
         honorarios_valor: honTotal || null,
         saldo: saldo,
