@@ -106,6 +106,7 @@ export default function FilaConfirmacaoPagamento() {
   const [filtro, setFiltro] = useState("PENDENTES");
   const [construtor, setConstrutor] = useState({});
   const [parcelasAbertasPorAluno, setParcelasAbertasPorAluno] = useState({});
+  const [titulosAbertosPorAluno, setTitulosAbertosPorAluno] = useState({});
 
   useEffect(() => {
     carregarUsuario();
@@ -153,6 +154,33 @@ export default function FilaConfirmacaoPagamento() {
     setParcelasAbertasPorAluno((atual) => ({ ...atual, [alunoId]: data || [] }));
   }
 
+  // Titulos/mensalidades em aberto do aluno (borderos) que ainda nao estao
+  // vinculados a nenhum acordo, para escolher quais entram neste acordo.
+  async function carregarTitulosAbertos(alunoId, cpf) {
+    if (!alunoId && !cpf) return;
+
+    let query = supabase
+      .from("acordos_titulos")
+      .select("id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, status")
+      .eq("status", "em_aberto")
+      .order("vencimento", { ascending: true });
+
+    query = cpf ? query.eq("cpf", cpf) : query.eq("aluno_id", String(alunoId));
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("Erro ao carregar titulos em aberto:", error);
+      return;
+    }
+
+    setTitulosAbertosPorAluno((atual) => ({ ...atual, [alunoId]: data || [] }));
+  }
+
+  function valorTitulo(t) {
+    return Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+  }
+
   function abrirConstrutor(s) {
     setConstrutor((atual) => ({
       ...atual,
@@ -162,12 +190,16 @@ export default function FilaConfirmacaoPagamento() {
         qtdParcelas: "1",
         temEntrada: false,
         valorEntrada: "",
+        entradaPercentual: "",
         entradaPaga: true,
+        honorarios: "",
+        titulosSelecionados: [],
         parcelas: [],
       },
     }));
 
     carregarParcelasAbertas(s.aluno_id);
+    carregarTitulosAbertos(s.aluno_id, s.aluno_cpf);
   }
 
   function fecharConstrutor(sId) {
@@ -185,6 +217,54 @@ export default function FilaConfirmacaoPagamento() {
     }));
   }
 
+  // Entrada em R$ preenche o % automaticamente
+  function atualizarEntradaRs(sId, valor) {
+    setConstrutor((atual) => {
+      const cfg = atual[sId];
+      if (!cfg) return atual;
+      const total = converterValor(cfg.valorTotal);
+      const rs = converterValor(valor);
+      const pct = total > 0 ? ((rs / total) * 100).toFixed(1) : "";
+      return { ...atual, [sId]: { ...cfg, valorEntrada: valor, entradaPercentual: pct } };
+    });
+  }
+
+  // Entrada em % preenche o R$ automaticamente
+  function atualizarEntradaPct(sId, valor) {
+    setConstrutor((atual) => {
+      const cfg = atual[sId];
+      if (!cfg) return atual;
+      const total = converterValor(cfg.valorTotal);
+      const pct = Number(String(valor).replace(",", ".")) || 0;
+      const rs = total > 0 ? ((total * pct) / 100).toFixed(2) : "";
+      return { ...atual, [sId]: { ...cfg, entradaPercentual: valor, valorEntrada: rs } };
+    });
+  }
+
+  function alternarTitulo(sId, tituloId) {
+    setConstrutor((atual) => {
+      const cfg = atual[sId];
+      if (!cfg) return atual;
+      const jaTem = cfg.titulosSelecionados.includes(tituloId);
+      const titulosSelecionados = jaTem
+        ? cfg.titulosSelecionados.filter((id) => id !== tituloId)
+        : [...cfg.titulosSelecionados, tituloId];
+      return { ...atual, [sId]: { ...cfg, titulosSelecionados } };
+    });
+  }
+
+  function usarSomaTitulos(sId, alunoId) {
+    setConstrutor((atual) => {
+      const cfg = atual[sId];
+      if (!cfg) return atual;
+      const titulos = titulosAbertosPorAluno[alunoId] || [];
+      const soma = titulos
+        .filter((t) => cfg.titulosSelecionados.includes(t.id))
+        .reduce((acc, t) => acc + valorTitulo(t), 0);
+      return { ...atual, [sId]: { ...cfg, valorTotal: soma.toFixed(2) } };
+    });
+  }
+
   function gerarParcelas(sId) {
     const cfg = construtor[sId];
     if (!cfg) return;
@@ -196,13 +276,21 @@ export default function FilaConfirmacaoPagamento() {
       return;
     }
 
+    const honorariosTotal = converterValor(cfg.honorarios) || 0;
+
     if (cfg.tipo === "QUITACAO") {
       setConstrutor((atual) => ({
         ...atual,
         [sId]: {
           ...atual[sId],
           parcelas: [
-            { numero: 1, vencimento: hojeISO(), valor: valorTotal.toFixed(2), status: "PAGO" },
+            {
+              numero: 1,
+              vencimento: hojeISO(),
+              valor: valorTotal.toFixed(2),
+              honorarios: honorariosTotal.toFixed(2),
+              status: "PAGO",
+            },
           ],
         },
       }));
@@ -214,12 +302,18 @@ export default function FilaConfirmacaoPagamento() {
     const valorRestante = Math.max(0, valorTotal - valorEntrada);
     const valorCada = qtd > 0 ? valorRestante / qtd : valorRestante;
 
+    // Honorarios: parte proporcional na entrada, restante rateado nas parcelas
+    const honEntrada = valorTotal > 0 ? honorariosTotal * (valorEntrada / valorTotal) : 0;
+    const honSaldo = Math.max(0, honorariosTotal - honEntrada);
+    const honCada = qtd > 0 ? honSaldo / qtd : honSaldo;
+
     const novasParcelas = [];
     for (let numero = 1; numero <= qtd; numero++) {
       novasParcelas.push({
         numero,
         vencimento: somarMeses(hojeISO(), numero - 1),
         valor: valorCada.toFixed(2),
+        honorarios: honCada.toFixed(2),
         status: "A_VENCER",
       });
     }
@@ -329,6 +423,10 @@ export default function FilaConfirmacaoPagamento() {
     }
 
     const valorEntrada = cfg.temEntrada ? converterValor(cfg.valorEntrada) || 0 : 0;
+    const entradaPercentual =
+      valorTotal > 0 && cfg.temEntrada ? Number(((valorEntrada / valorTotal) * 100).toFixed(2)) : null;
+    const honorariosTotal = converterValor(cfg.honorarios) || 0;
+    const saldo = Math.max(0, valorTotal - valorEntrada);
     const emailConfirmando = usuario?.email || "";
     const agora = new Date().toISOString();
 
@@ -342,8 +440,11 @@ export default function FilaConfirmacaoPagamento() {
         valor_total: valorTotal,
         qtd_parcelas: cfg.parcelas.length,
         valor_entrada: cfg.temEntrada ? valorEntrada : null,
+        entrada_percentual: entradaPercentual,
         entrada_paga: cfg.temEntrada ? Boolean(cfg.entradaPaga) : null,
         data_entrada: cfg.temEntrada && cfg.entradaPaga ? hojeISO() : null,
+        honorarios_valor: honorariosTotal || null,
+        saldo: saldo,
         status: "ATIVO",
         observacao: s.motivo || null,
         criado_por_nome: nomeOperadorPorEmail(s.operador_email),
@@ -363,6 +464,7 @@ export default function FilaConfirmacaoPagamento() {
       acordo_id: acordoCriado.id,
       numero: p.numero,
       valor: converterValor(p.valor),
+      honorarios: p.honorarios != null ? converterValor(p.honorarios) : null,
       vencimento: p.vencimento,
       status: p.status,
       pago_em: p.status === "PAGO" ? agora : null,
@@ -375,6 +477,31 @@ export default function FilaConfirmacaoPagamento() {
     if (erroParcelas) {
       alert("Acordo criado, mas houve erro ao gerar as parcelas: " + erroParcelas.message);
       return;
+    }
+
+    // Vincula os titulos selecionados ao acordo e marca como vinculados.
+    const titulosSelecionados = cfg.titulosSelecionados || [];
+    if (titulosSelecionados.length > 0) {
+      const vinculos = titulosSelecionados.map((tituloId) => ({
+        acordo_id: acordoCriado.id,
+        titulo_id: tituloId,
+        ativo: true,
+        vinculado_por: emailConfirmando,
+      }));
+
+      const { error: erroVinculo } = await supabase
+        .from("acordo_titulo_vinculo")
+        .insert(vinculos);
+
+      if (erroVinculo) {
+        console.error("Erro ao vincular titulos:", erroVinculo);
+        alert("Acordo criado, mas houve erro ao vincular os títulos: " + erroVinculo.message);
+      } else {
+        await supabase
+          .from("acordos_titulos")
+          .update({ status: "vinculada", atualizado_em: agora })
+          .in("id", titulosSelecionados);
+      }
     }
 
     await finalizarSolicitacao(s, "Acordo criado pela ADM ao confirmar.");
@@ -642,6 +769,41 @@ export default function FilaConfirmacaoPagamento() {
                     <div style={styles.blocoConstrutor}>
                       <strong>Montar acordo novo</strong>
 
+                      {(titulosAbertosPorAluno[s.aluno_id] || []).length > 0 && (
+                        <div style={styles.blocoTitulos}>
+                          <label style={styles.label}>
+                            Títulos em aberto — marque os que entram neste acordo
+                          </label>
+
+                          {(titulosAbertosPorAluno[s.aluno_id] || []).map((t) => {
+                            const marcado = construtor[s.id].titulosSelecionados.includes(t.id);
+                            return (
+                              <label key={t.id} style={styles.linhaTitulo}>
+                                <input
+                                  type="checkbox"
+                                  checked={marcado}
+                                  onChange={() => alternarTitulo(s.id, t.id)}
+                                />
+                                <span style={{ flex: 1 }}>
+                                  Título {t.documento || "-"} — venc.{" "}
+                                  {t.vencimento?.slice(0, 10).split("-").reverse().join("/") || "-"}
+                                </span>
+                                <span style={{ fontWeight: "bold" }}>
+                                  {formatarMoeda(valorTitulo(t))}
+                                </span>
+                              </label>
+                            );
+                          })}
+
+                          <button
+                            style={{ ...styles.botaoPequeno, marginTop: "8px" }}
+                            onClick={() => usarSomaTitulos(s.id, s.aluno_id)}
+                          >
+                            Usar soma dos títulos marcados como valor total
+                          </button>
+                        </div>
+                      )}
+
                       <label style={styles.label}>Tipo</label>
                       <select
                         style={styles.input}
@@ -658,6 +820,14 @@ export default function FilaConfirmacaoPagamento() {
                         placeholder="Ex: 1500,00"
                         value={construtor[s.id].valorTotal}
                         onChange={(e) => atualizarCampoConstrutor(s.id, "valorTotal", e.target.value)}
+                      />
+
+                      <label style={styles.label}>Honorários (R$)</label>
+                      <input
+                        style={styles.input}
+                        placeholder="Ex: 300,00"
+                        value={construtor[s.id].honorarios}
+                        onChange={(e) => atualizarCampoConstrutor(s.id, "honorarios", e.target.value)}
                       />
 
                       {construtor[s.id].tipo === "PARCELADO" && (
@@ -686,15 +856,26 @@ export default function FilaConfirmacaoPagamento() {
 
                           {construtor[s.id].temEntrada && (
                             <>
-                              <label style={styles.label}>Valor da entrada</label>
-                              <input
-                                style={styles.input}
-                                placeholder="Ex: 200,00"
-                                value={construtor[s.id].valorEntrada}
-                                onChange={(e) =>
-                                  atualizarCampoConstrutor(s.id, "valorEntrada", e.target.value)
-                                }
-                              />
+                              <div style={styles.linhaEntrada}>
+                                <div style={{ flex: 1 }}>
+                                  <label style={styles.label}>Valor da entrada (R$)</label>
+                                  <input
+                                    style={styles.input}
+                                    placeholder="Ex: 200,00"
+                                    value={construtor[s.id].valorEntrada}
+                                    onChange={(e) => atualizarEntradaRs(s.id, e.target.value)}
+                                  />
+                                </div>
+                                <div style={{ flex: 1 }}>
+                                  <label style={styles.label}>Entrada (%)</label>
+                                  <input
+                                    style={styles.input}
+                                    placeholder="Ex: 30"
+                                    value={construtor[s.id].entradaPercentual}
+                                    onChange={(e) => atualizarEntradaPct(s.id, e.target.value)}
+                                  />
+                                </div>
+                              </div>
 
                               <label
                                 style={{ ...styles.label, display: "flex", alignItems: "center", gap: "8px" }}
@@ -726,6 +907,7 @@ export default function FilaConfirmacaoPagamento() {
                             <span>Nº</span>
                             <span>Vencimento</span>
                             <span>Valor</span>
+                            <span>Honor.</span>
                             <span>Status</span>
                           </div>
 
@@ -744,6 +926,11 @@ export default function FilaConfirmacaoPagamento() {
                                 style={styles.inputTabela}
                                 value={p.valor}
                                 onChange={(e) => atualizarParcela(s.id, index, "valor", e.target.value)}
+                              />
+                              <input
+                                style={styles.inputTabela}
+                                value={p.honorarios != null ? p.honorarios : ""}
+                                onChange={(e) => atualizarParcela(s.id, index, "honorarios", e.target.value)}
                               />
                               <select
                                 style={styles.inputTabela}
@@ -990,6 +1177,27 @@ const styles = {
     borderRadius: "10px",
     padding: "14px",
   },
+  blocoTitulos: {
+    background: "#eef6ff",
+    border: "1px solid #cfe0f5",
+    borderRadius: "10px",
+    padding: "12px",
+    marginBottom: "12px",
+  },
+  linhaTitulo: {
+    display: "flex",
+    alignItems: "center",
+    gap: "10px",
+    padding: "6px 0",
+    borderTop: "1px solid #dbeafe",
+    fontSize: "13px",
+    color: "#1e3a5f",
+  },
+  linhaEntrada: {
+    display: "flex",
+    gap: "10px",
+    flexWrap: "wrap",
+  },
   linhaParcelaExistente: {
     display: "flex",
     justifyContent: "space-between",
@@ -1029,7 +1237,7 @@ const styles = {
   },
   linhaTabelaCabecalho: {
     display: "grid",
-    gridTemplateColumns: "40px 1fr 1fr 1fr",
+    gridTemplateColumns: "40px 1fr 1fr 1fr 1fr",
     gap: "8px",
     background: "#f1f5f9",
     padding: "8px 10px",
@@ -1039,7 +1247,7 @@ const styles = {
   },
   linhaTabelaParcela: {
     display: "grid",
-    gridTemplateColumns: "40px 1fr 1fr 1fr",
+    gridTemplateColumns: "40px 1fr 1fr 1fr 1fr",
     gap: "8px",
     padding: "6px 10px",
     alignItems: "center",
