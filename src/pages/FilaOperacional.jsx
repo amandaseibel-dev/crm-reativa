@@ -314,20 +314,25 @@ export default function FilaOperador() {
   async function carregarCasosFinalizados() {
     if (!usuarioLogado?.email) return;
 
-    // Conta quantos casos esse operador já finalizou com baixa realizada
-    // (pagamento confirmado), independente do filtro selecionado na tela.
-    const { count, error } = await supabase
-      .from("alunos")
-      .select("id", { count: "exact", head: true })
-      .eq("responsavel_atual_email", usuarioLogado.email)
-      .eq("status_jornada", "BAIXA_REALIZADA");
+    // Tabulacoes de hoje do operador logado, contando uma por CPF (aluno).
+    // Considera as finalizacoes de atendimento registradas hoje.
+    const inicioHoje = new Date();
+    inicioHoje.setHours(0, 0, 0, 0);
+
+    const { data, error } = await supabase
+      .from("aluno_movimentacoes")
+      .select("aluno_id, registrado_em, tipo")
+      .eq("registrado_por_email", usuarioLogado.email)
+      .eq("tipo", "FINALIZACAO_ATENDIMENTO")
+      .gte("registrado_em", inicioHoje.toISOString());
 
     if (error) {
-      console.error("Erro ao carregar casos finalizados:", error);
+      console.error("Erro ao carregar tabulacoes do dia:", error);
       return;
     }
 
-    setCasosFinalizados(count || 0);
+    const cpfsUnicos = new Set((data || []).map((m) => m.aluno_id).filter(Boolean));
+    setCasosFinalizados(cpfsUnicos.size);
   }
 
   async function iniciar() {
@@ -1110,7 +1115,7 @@ export default function FilaOperador() {
               </div>
 
               <div style={{ ...cardResumoModerno, borderLeft: "3px solid #22c55e" }}>
-                <strong style={rotuloCardModerno}>Finalizados hoje</strong>
+                <strong style={rotuloCardModerno}>Tabulações hoje</strong>
                 <span style={{ ...valorCardModerno, color: "#22c55e" }}>{casosFinalizados}</span>
               </div>
 
