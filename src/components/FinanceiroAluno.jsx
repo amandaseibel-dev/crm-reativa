@@ -122,7 +122,7 @@ export default function FinanceiroAluno({ aluno }) {
   const [usuario, setUsuario] = useState(null);
   const [recarga, setRecarga] = useState(0);
   const [titulosSelecionaveis, setTitulosSelecionaveis] = useState([]);
-  const [novoAberto, setNovoAberto] = useState(false);
+  const [novoAberto, setNovoAberto] = useState(true);
   const [novo, setNovo] = useState(novoAcordoInicial());
 
   useEffect(() => {
@@ -499,59 +499,6 @@ export default function FinanceiroAluno({ aluno }) {
         </div>
       )}
 
-      {titulos.length === 0 ? (
-        <div style={estilos.caixa}>
-          <strong>💰 Financeiro</strong>
-          <p style={{ fontSize: 12, opacity: 0.7, margin: "6px 0 0" }}>
-            {aluno?.cpf
-              ? `Nenhum título importado pelos borderôs para o CPF ${aluno.cpf}.`
-              : "Este aluno não tem CPF cadastrado, então não dá pra casar com os borderôs."}
-          </p>
-        </div>
-      ) : (
-        <div style={estilos.caixa}>
-          <div style={estilos.cabecalho}>
-            <strong>💰 Financeiro (borderôs)</strong>
-            {emAberto.length > 0 && (
-              <span style={estilos.totalAberto}>{moeda(totalTitulosAberto)} em aberto</span>
-            )}
-          </div>
-
-          <div style={{ marginTop: 10 }}>
-            {titulos.map((titulo) => {
-              const pago = titulo.situacao === "PAGO";
-              const vencida = !pago && diasAtraso(titulo.vencimento) > 0;
-              const cor = pago ? CORES_STATUS.quitado : CORES_STATUS.em_aberto;
-              return (
-                <div
-                  key={titulo.documento}
-                  style={{ ...estilos.linha, borderLeft: `3px solid ${cor.barra}`, paddingLeft: 8 }}
-                >
-                  <div>
-                    <div style={{ fontSize: 13 }}>
-                      Título {titulo.documento}
-                      {titulo.tipo_boleto ? ` · ${titulo.tipo_boleto}` : ""}
-                    </div>
-                    <div style={estilos.subLinha}>
-                      Vencimento: {formatarData(titulo.vencimento)}
-                      {vencida ? <span style={estilos.marcaVencida}>• vencida</span> : null}
-                    </div>
-                  </div>
-                  <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>
-                      {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
-                    </div>
-                    <span style={{ ...estilos.tagBase, background: cor.bg, color: cor.texto }}>
-                      {pago ? "Quitada" : "Em aberto"}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
       {podeBaixar && aluno?.id && (
         <div style={estilos.caixa}>
           <div style={estilos.cabecalho}>
@@ -680,6 +627,60 @@ export default function FinanceiroAluno({ aluno }) {
           )}
         </div>
       )}
+
+      {titulos.length === 0 ? (
+        <div style={estilos.caixa}>
+          <strong>💰 Financeiro</strong>
+          <p style={{ fontSize: 12, opacity: 0.7, margin: "6px 0 0" }}>
+            {aluno?.cpf
+              ? `Nenhum título importado pelos borderôs para o CPF ${aluno.cpf}.`
+              : "Este aluno não tem CPF cadastrado, então não dá pra casar com os borderôs."}
+          </p>
+        </div>
+      ) : (
+        <div style={estilos.caixa}>
+          <div style={estilos.cabecalho}>
+            <strong>💰 Financeiro (borderôs)</strong>
+            {emAberto.length > 0 && (
+              <span style={estilos.totalAberto}>{moeda(totalTitulosAberto)} em aberto</span>
+            )}
+          </div>
+
+          <div style={{ marginTop: 10 }}>
+            {titulos.map((titulo) => {
+              const pago = titulo.situacao === "PAGO";
+              const vencida = !pago && diasAtraso(titulo.vencimento) > 0;
+              const cor = pago ? CORES_STATUS.quitado : CORES_STATUS.em_aberto;
+              return (
+                <div
+                  key={titulo.documento}
+                  style={{ ...estilos.linha, borderLeft: `3px solid ${cor.barra}`, paddingLeft: 8 }}
+                >
+                  <div>
+                    <div style={{ fontSize: 13 }}>
+                      Título {titulo.documento}
+                      {titulo.tipo_boleto ? ` · ${titulo.tipo_boleto}` : ""}
+                    </div>
+                    <div style={estilos.subLinha}>
+                      Vencimento: {formatarData(titulo.vencimento)}
+                      {vencida ? <span style={estilos.marcaVencida}>• vencida</span> : null}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>
+                      {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
+                    </div>
+                    <span style={{ ...estilos.tagBase, background: cor.bg, color: cor.texto }}>
+                      {pago ? "Quitada" : "Em aberto"}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
 
       <SecaoAcordos
         acordos={acordos}
