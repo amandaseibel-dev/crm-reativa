@@ -6,6 +6,7 @@ import AutoLogout from "./components/AutoLogout";
 import Dashboard from "./pages/Dashboard";
 import BaseAnalitica from "./pages/BaseAnalitica";
 import Aluno from "./pages/Aluno";
+import PainelCarteira from "./components/PainelCarteira";
 import CRM from "./pages/CRM";
 import Login from "./pages/Login";
 import Usuarios from "./pages/Usuarios";
@@ -69,7 +70,8 @@ function podeAcessar(perfil, rota) {
       "/fila-financeiro",
       "/painel-operadores",    
       "/financeiro-operadores",
-      "/meu-perfil",],
+      "/meu-perfil",
+      "/painel-carteira",],
     supervisor: [
       "/",
       "/minha-fila",
@@ -87,7 +89,8 @@ function podeAcessar(perfil, rota) {
       "/fila-confirmacao-pagamento",
       "/painel-adm",
       "/fila-financeiro",    
-      "/meu-perfil",],
+      "/meu-perfil",
+      "/painel-carteira",],
     administrativo: [
       "/",
       "/minha-fila",
@@ -105,7 +108,8 @@ function podeAcessar(perfil, rota) {
       "/fila-financeiro",
       "/borderos",
       "/vincular-operadores",
-      "/meu-perfil",],
+      "/meu-perfil",
+      "/painel-carteira",],
     operador: [
       "/",
       "/minha-fila",
@@ -114,7 +118,8 @@ function podeAcessar(perfil, rota) {
       "/agenda",
       "/agenda-operacional",
       "/relatorios",
-      "/meu-perfil",],
+      "/meu-perfil",
+      "/painel-carteira",],
   };
 
   return permissoes[perfil]?.includes(rota);
@@ -320,6 +325,7 @@ export default function App() {
       rota: "/",
       label: perfil === "operador" ? "⚡ Minha Fila" : "🏠 Dashboard",
     },
+    { rota: "/painel-carteira", label: "🗂️ Minha Carteira" },
     {
       rota: "/minha-fila",
       label: "⚡ Fila Operacional",
@@ -586,6 +592,7 @@ export default function App() {
               }
             />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
+              <Route path="/painel-carteira" element={<PainelCarteira />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
               <Route path="/manual-operacao" element={<ManualOperacao />} />
