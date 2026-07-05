@@ -180,6 +180,11 @@ const KPIS_FILTRAVEIS = new Set([
   "termosAgPgto",
 ]);
 
+const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
+
+const COLUNAS_ALUNO =
+  "id,nome,nome_aluno,cpf,telefone,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao";
+
 export default function PainelCarteira({ embedded = false }) {
   const navigate = useNavigate();
   const [email, setEmail] = useState(null);
@@ -205,6 +210,10 @@ export default function PainelCarteira({ embedded = false }) {
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("TODOS");
   const [filtroKpi, setFiltroKpi] = useState(null);
+  const [casosEspeciais, setCasosEspeciais] = useState(null);
+  const [carregandoEspecial, setCarregandoEspecial] = useState(false);
+  const [quebradosCpfs, setQuebradosCpfs] = useState([]);
+  const [recebidosCpfs, setRecebidosCpfs] = useState([]);
   const [selecionado, setSelecionado] = useState(null);
   const [historico, setHistorico] = useState([]);
   const [honorarios, setHonorarios] = useState(null);
@@ -249,8 +258,7 @@ export default function PainelCarteira({ embedded = false }) {
       };
 
       // Tabela de casos (limite de exibicao)
-      const colunas =
-        "id,nome,nome_aluno,cpf,telefone,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao";
+      const colunas = COLUNAS_ALUNO;
       // Carrega a carteira inteira, paginando (Supabase limita 1000 por
       // requisicao). Para um operador (ou gestao filtrando um operador)
       // puxa tudo; para "todos os operadores" da gestao aplica um teto
@@ -310,7 +318,7 @@ export default function PainelCarteira({ embedded = false }) {
 
       // Acordos quebrados e recebidos no mes: a base de acordos e pequena,
       // entao carregamos e calculamos no cliente.
-      let qAcordos = supabase.from("acordos").select("id,operador_responsavel_email,status,honorarios_valor");
+      let qAcordos = supabase.from("acordos").select("id,cpf,aluno_id,operador_responsavel_email,status,honorarios_valor");
       const alvo = emailEscopo();
       if (alvo) qAcordos = qAcordos.eq("operador_responsavel_email", alvo);
       const { data: acordos } = await qAcordos;
@@ -337,6 +345,25 @@ export default function PainelCarteira({ embedded = false }) {
       );
       const acordosAtivos = new Set((acordos || []).filter((a) => a.status === "ATIVO").map((a) => a.id));
       const acordosQuebrados = [...acordosComAtraso].filter((id) => acordosAtivos.has(id)).length;
+      const acordoById = new Map((acordos || []).map((a) => [a.id, a]));
+      const quebCpfs = [
+        ...new Set(
+          [...acordosComAtraso]
+            .filter((id) => acordosAtivos.has(id))
+            .map((id) => acordoById.get(id)?.cpf)
+            .filter(Boolean)
+        ),
+      ];
+      const recCpfs = [
+        ...new Set(
+          parcelas
+            .filter((pp) => pp.status === "PAGO" && pp.pago_em && pp.pago_em >= inicioMes)
+            .map((pp) => acordoById.get(pp.acordo_id)?.cpf)
+            .filter(Boolean)
+        ),
+      ];
+      setQuebradosCpfs(quebCpfs);
+      setRecebidosCpfs(recCpfs);
 
       // Produtividade (calculada sobre a carteira inteira ja carregada,
       // pelo status do caso -- assim fica escopada por operador).
@@ -399,9 +426,52 @@ export default function PainelCarteira({ embedded = false }) {
     navigate(`/aluno?alunoId=${encodeURIComponent(a.id)}&origem=painel`);
   }
 
+  async function abrirEspecial(kpi) {
+    if (filtroKpi === kpi) {
+      setFiltroKpi(null);
+      setCasosEspeciais(null);
+      return;
+    }
+    setFiltroKpi(kpi);
+    setSelecionado(null);
+    setCarregandoEspecial(true);
+    try {
+      let dados = [];
+      if (kpi === "quitados") {
+        let q = aplicarEscopo(supabase.from("alunos").select(COLUNAS_ALUNO))
+          .or("status_atual.ilike.%QUITAD%,status_jornada.ilike.%QUITAD%,status_acionamento.ilike.%QUITAD%")
+          .limit(1000);
+        const { data } = await q;
+        dados = data || [];
+      } else {
+        const cpfs = kpi === "acordosQuebrados" ? quebradosCpfs : recebidosCpfs;
+        if (cpfs.length) {
+          const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).in("cpf", cpfs).limit(1000);
+          dados = data || [];
+        }
+      }
+      setCasosEspeciais(dados);
+    } catch (e) {
+      console.error("Erro ao carregar lista especial:", e);
+      setCasosEspeciais([]);
+    } finally {
+      setCarregandoEspecial(false);
+    }
+  }
+
+  function onKpiClick(id) {
+    if (KPIS_ESPECIAIS.has(id)) {
+      abrirEspecial(id);
+      return;
+    }
+    setCasosEspeciais(null);
+    setFiltroKpi(filtroKpi === id ? null : id);
+  }
+
   const listaFiltrada = useMemo(() => {
-    let l = casos;
-    if (filtroKpi) {
+    const especialAtivo = filtroKpi && KPIS_ESPECIAIS.has(filtroKpi);
+    let l = especialAtivo ? casosEspeciais || [] : casos;
+    if (filtroKpi && !especialAtivo) {
       l = l.filter((a) => casoNoKpi(a, filtroKpi));
     }
     if (filtroStatus !== "TODOS") {
@@ -416,7 +486,7 @@ export default function PainelCarteira({ embedded = false }) {
       );
     }
     return l;
-  }, [casos, filtroStatus, busca, filtroKpi]);
+  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi]);
 
   const kpiCards = [
     { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
@@ -472,12 +542,12 @@ export default function PainelCarteira({ embedded = false }) {
         {/* KPIs */}
         <div style={S.kpiGrid}>
           {kpiCards.map((k) => {
-            const filtravel = KPIS_FILTRAVEIS.has(k.id);
+            const filtravel = KPIS_FILTRAVEIS.has(k.id) || KPIS_ESPECIAIS.has(k.id);
             const ativoK = filtroKpi === k.id;
             return (
               <div
                 key={k.id}
-                onClick={filtravel ? () => setFiltroKpi(ativoK ? null : k.id) : undefined}
+                onClick={filtravel ? () => onKpiClick(k.id) : undefined}
                 style={{
                   ...S.kpiCard,
                   borderTop: `3px solid ${k.cor}`,
@@ -517,7 +587,7 @@ export default function PainelCarteira({ embedded = false }) {
             <h2 style={S.tituloSecao}>Casos da carteira</h2>
 
             {filtroKpi && (
-              <div style={S.chipFiltro} onClick={() => setFiltroKpi(null)}>
+              <div style={S.chipFiltro} onClick={() => { setFiltroKpi(null); setCasosEspeciais(null); }}>
                 Mostrando: {kpiCards.find((k) => k.id === filtroKpi)?.rot} ✕
               </div>
             )}
@@ -569,7 +639,7 @@ export default function PainelCarteira({ embedded = false }) {
                   {listaFiltrada.length === 0 && (
                     <tr>
                       <td style={S.vazio} colSpan={7}>
-                        {carregando ? "Carregando..." : "Nenhum caso neste filtro."}
+                        {carregando || carregandoEspecial ? "Carregando..." : "Nenhum caso neste filtro."}
                       </td>
                     </tr>
                   )}
