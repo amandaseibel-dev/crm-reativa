@@ -144,6 +144,42 @@ function statusPrazo(a) {
   return { label: "Perdendo o caso", cor: "#991b1b" };
 }
 
+
+// Predicado: o caso pertence ao KPI clicado? (filtros aplicaveis sobre a
+// lista ja carregada). Alguns KPIs -- quitados, recebidos, quebrados --
+// nao sao isolaveis da lista, entao nao filtram.
+function casoNoKpi(a, kpi) {
+  if (!kpi || kpi === "ativos") return true;
+  const t = `${a.status_atual || ""} ${a.status_jornada || ""} ${a.status_acionamento || ""}`.toUpperCase();
+  const dias = diasSemContato(a);
+  switch (kpi) {
+    case "semContato":
+      return dias !== null && dias >= 10;
+    case "criticos":
+      return statusPrazo(a).label === "Critico";
+    case "retornosHoje":
+      return a.data_retorno === hojeLocalBR();
+    case "acordosFechados":
+      return t.includes("ACORDO_FECHADO");
+    case "linksPagos":
+      return t.includes("BAIXA_REALIZADA");
+    case "termosAgPgto":
+      return t.includes("TERMO") && (t.includes("RECEBIDO") || t.includes("LIBERADO") || t.includes("ADM"));
+    default:
+      return true;
+  }
+}
+
+const KPIS_FILTRAVEIS = new Set([
+  "ativos",
+  "semContato",
+  "criticos",
+  "retornosHoje",
+  "acordosFechados",
+  "linksPagos",
+  "termosAgPgto",
+]);
+
 export default function PainelCarteira({ embedded = false }) {
   const navigate = useNavigate();
   const [email, setEmail] = useState(null);
@@ -168,6 +204,7 @@ export default function PainelCarteira({ embedded = false }) {
 
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("TODOS");
+  const [filtroKpi, setFiltroKpi] = useState(null);
   const [selecionado, setSelecionado] = useState(null);
   const [historico, setHistorico] = useState([]);
   const [honorarios, setHonorarios] = useState(null);
@@ -364,6 +401,9 @@ export default function PainelCarteira({ embedded = false }) {
 
   const listaFiltrada = useMemo(() => {
     let l = casos;
+    if (filtroKpi) {
+      l = l.filter((a) => casoNoKpi(a, filtroKpi));
+    }
     if (filtroStatus !== "TODOS") {
       l = l.filter((a) => statusPrazo(a).label === filtroStatus);
     }
@@ -376,19 +416,19 @@ export default function PainelCarteira({ embedded = false }) {
       );
     }
     return l;
-  }, [casos, filtroStatus, busca]);
+  }, [casos, filtroStatus, busca, filtroKpi]);
 
   const kpiCards = [
-    { rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
-    { rot: "Sem contato +10 dias", val: kpis.semContato, cor: "#f59e0b", icone: "📵" },
-    { rot: "Criticos (9-10 dias)", val: kpis.criticos, cor: "#dc2626", icone: "⚠️" },
-    { rot: "Retornos hoje", val: kpis.retornosHoje, cor: "#0ea5e9", icone: "📅" },
-    { rot: "Acordos quebrados", val: kpis.acordosQuebrados, cor: "#e11d48", icone: "💔" },
-    { rot: "Recebidos este mes", val: kpis.recebidosMes, cor: "#16a34a", icone: "💰" },
-    { rot: "Quitados", val: kpis.quitados, cor: "#16a34a", icone: "✅" },
-    { rot: "Acordos fechados", val: kpis.acordosFechados, cor: "#0891b2", icone: "🤝" },
-    { rot: "Links pagos", val: kpis.linksPagos, cor: "#16a34a", icone: "🔗" },
-    { rot: "Termos aguard. pgto", val: kpis.termosAgPgto, cor: "#7c3aed", icone: "📄" },
+    { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
+    { id: "semContato", rot: "Sem contato +10 dias", val: kpis.semContato, cor: "#f59e0b", icone: "📵" },
+    { id: "criticos", rot: "Criticos (9-10 dias)", val: kpis.criticos, cor: "#dc2626", icone: "⚠️" },
+    { id: "retornosHoje", rot: "Retornos hoje", val: kpis.retornosHoje, cor: "#0ea5e9", icone: "📅" },
+    { id: "acordosQuebrados", rot: "Acordos quebrados", val: kpis.acordosQuebrados, cor: "#e11d48", icone: "💔" },
+    { id: "recebidosMes", rot: "Recebidos este mes", val: kpis.recebidosMes, cor: "#16a34a", icone: "💰" },
+    { id: "quitados", rot: "Quitados", val: kpis.quitados, cor: "#16a34a", icone: "✅" },
+    { id: "acordosFechados", rot: "Acordos fechados", val: kpis.acordosFechados, cor: "#0891b2", icone: "🤝" },
+    { id: "linksPagos", rot: "Links pagos", val: kpis.linksPagos, cor: "#16a34a", icone: "🔗" },
+    { id: "termosAgPgto", rot: "Termos aguard. pgto", val: kpis.termosAgPgto, cor: "#7c3aed", icone: "📄" },
   ];
 
   const conteudo = (
@@ -431,13 +471,26 @@ export default function PainelCarteira({ embedded = false }) {
 
         {/* KPIs */}
         <div style={S.kpiGrid}>
-          {kpiCards.map((k) => (
-            <div key={k.rot} style={{ ...S.kpiCard, borderTop: `3px solid ${k.cor}` }}>
-              <span style={S.kpiIcone}>{k.icone}</span>
-              <p style={S.kpiRot}>{k.rot}</p>
-              <p style={{ ...S.kpiVal, color: k.cor }}>{k.val}</p>
-            </div>
-          ))}
+          {kpiCards.map((k) => {
+            const filtravel = KPIS_FILTRAVEIS.has(k.id);
+            const ativoK = filtroKpi === k.id;
+            return (
+              <div
+                key={k.id}
+                onClick={filtravel ? () => setFiltroKpi(ativoK ? null : k.id) : undefined}
+                style={{
+                  ...S.kpiCard,
+                  borderTop: `3px solid ${k.cor}`,
+                  cursor: filtravel ? "pointer" : "default",
+                  boxShadow: ativoK ? `0 0 0 2px ${k.cor}` : S.kpiCard.boxShadow,
+                }}
+              >
+                <span style={S.kpiIcone}>{k.icone}</span>
+                <p style={S.kpiRot}>{k.rot}</p>
+                <p style={{ ...S.kpiVal, color: k.cor }}>{k.val}</p>
+              </div>
+            );
+          })}
         </div>
 
         {/* Corpo: tabela + painel do aluno */}
@@ -462,6 +515,12 @@ export default function PainelCarteira({ embedded = false }) {
             </div>
 
             <h2 style={S.tituloSecao}>Casos da carteira</h2>
+
+            {filtroKpi && (
+              <div style={S.chipFiltro} onClick={() => setFiltroKpi(null)}>
+                Mostrando: {kpiCards.find((k) => k.id === filtroKpi)?.rot} ✕
+              </div>
+            )}
 
             <div style={S.tabelaWrap}>
               <table style={S.tabela}>
@@ -640,6 +699,7 @@ const S = {
   painelTabela: { background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" },
   filtros: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 },
   inputBusca: { flex: 1, minWidth: 220, padding: "10px 12px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 14 },
+  chipFiltro: { display: "inline-block", cursor: "pointer", background: "#0f172a", color: "#fff", borderRadius: 999, padding: "4px 12px", fontSize: 12, fontWeight: 600, marginBottom: 10 },
   tituloSecao: { margin: "4px 0 12px 0", color: "#0f172a", fontSize: 16 },
   tabelaWrap: { overflowX: "auto" },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13.5 },
