@@ -210,6 +210,7 @@ export default function PainelCarteira({ embedded = false }) {
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("TODOS");
   const [filtroKpi, setFiltroKpi] = useState(null);
+  const [ordenacao, setOrdenacao] = useState("sem_contato_desc");
   const [casosEspeciais, setCasosEspeciais] = useState(null);
   const [carregandoEspecial, setCarregandoEspecial] = useState(false);
   const [quebradosCpfs, setQuebradosCpfs] = useState([]);
@@ -485,8 +486,16 @@ export default function PainelCarteira({ embedded = false }) {
           .some((c) => String(c).toLowerCase().includes(t))
       );
     }
-    return l;
-  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi]);
+    const keyDias = (a) => {
+      const d = diasSemContato(a);
+      return d === null ? Infinity : d;
+    };
+    const arr = [...l];
+    if (ordenacao === "sem_contato_desc") arr.sort((a, b) => keyDias(b) - keyDias(a));
+    else if (ordenacao === "sem_contato_asc") arr.sort((a, b) => keyDias(a) - keyDias(b));
+    else if (ordenacao === "valor_desc") arr.sort((a, b) => (Number(b.valor_em_aberto) || 0) - (Number(a.valor_em_aberto) || 0));
+    return arr;
+  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao]);
 
   const kpiCards = [
     { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
@@ -581,6 +590,11 @@ export default function PainelCarteira({ embedded = false }) {
                 <option value="Perdendo o caso">Perdendo o caso</option>
                 <option value="Aguardando pgto">Aguardando pgto</option>
                 <option value="Juridico">Juridico</option>
+              </select>
+              <select style={S.select} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
+                <option value="sem_contato_desc">Mais antigo sem contato</option>
+                <option value="sem_contato_asc">Mais recente sem contato</option>
+                <option value="valor_desc">Maior valor em aberto</option>
               </select>
             </div>
 
