@@ -161,6 +161,9 @@ export default function PainelCarteira({ embedded = false }) {
     acordosQuebrados: 0,
     recebidosMes: 0,
     quitados: 0,
+    acordosFechados: 0,
+    linksPagos: 0,
+    termosAgPgto: 0,
   });
 
   const [busca, setBusca] = useState("");
@@ -298,6 +301,17 @@ export default function PainelCarteira({ embedded = false }) {
       const acordosAtivos = new Set((acordos || []).filter((a) => a.status === "ATIVO").map((a) => a.id));
       const acordosQuebrados = [...acordosComAtraso].filter((id) => acordosAtivos.has(id)).length;
 
+      // Produtividade (calculada sobre a carteira inteira ja carregada,
+      // pelo status do caso -- assim fica escopada por operador).
+      const up = (a) =>
+        `${a.status_atual || ""} ${a.status_jornada || ""} ${a.status_acionamento || ""}`.toUpperCase();
+      const acordosFechados = listaAtiva.filter((a) => up(a).includes("ACORDO_FECHADO")).length;
+      const linksPagos = listaAtiva.filter((a) => up(a).includes("BAIXA_REALIZADA")).length;
+      const termosAgPgto = listaAtiva.filter((a) => {
+        const t = up(a);
+        return t.includes("TERMO") && (t.includes("RECEBIDO") || t.includes("LIBERADO") || t.includes("ADM"));
+      }).length;
+
       setKpis({
         ativos: rAtivos.count || 0,
         semContato: rSemContato.count || 0,
@@ -306,6 +320,9 @@ export default function PainelCarteira({ embedded = false }) {
         acordosQuebrados,
         recebidosMes,
         quitados: rQuitados.count || 0,
+        acordosFechados,
+        linksPagos,
+        termosAgPgto,
       });
     } catch (e) {
       console.error("Erro no PainelCarteira:", e);
@@ -369,6 +386,9 @@ export default function PainelCarteira({ embedded = false }) {
     { rot: "Acordos quebrados", val: kpis.acordosQuebrados, cor: "#e11d48", icone: "💔" },
     { rot: "Recebidos este mes", val: kpis.recebidosMes, cor: "#16a34a", icone: "💰" },
     { rot: "Quitados", val: kpis.quitados, cor: "#16a34a", icone: "✅" },
+    { rot: "Acordos fechados", val: kpis.acordosFechados, cor: "#0891b2", icone: "🤝" },
+    { rot: "Links pagos", val: kpis.linksPagos, cor: "#16a34a", icone: "🔗" },
+    { rot: "Termos aguard. pgto", val: kpis.termosAgPgto, cor: "#7c3aed", icone: "📄" },
   ];
 
   const conteudo = (
