@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import Topbar from "../layout/Topbar";
 import { supabase } from "../services/supabase";
 import MuralAniversariantes from "../components/MuralAniversariantes";
+import PainelCarteira from "../components/PainelCarteira";
 
 function formatarMoeda(valor) {
   const numero = Number(valor) || 0;
@@ -204,6 +205,7 @@ export default function Dashboard() {
             <p style={estilos.valorCartao}>{indicadores.termosAguardandoAdm}</p>
           </div>
         </div>
+        <PainelCarteira embedded />
       </div>
 
       <MuralAniversariantes />
