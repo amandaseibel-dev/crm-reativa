@@ -7,7 +7,6 @@ import Dashboard from "./pages/Dashboard";
 import BaseAnalitica from "./pages/BaseAnalitica";
 import Aluno from "./pages/Aluno";
 import PainelCarteira from "./components/PainelCarteira";
-import PainelOperadorHome from "./pages/PainelOperadorHome";
 import CRM from "./pages/CRM";
 import Login from "./pages/Login";
 import Usuarios from "./pages/Usuarios";
@@ -450,7 +449,7 @@ export default function App() {
               path="/"
               element={
                 perfil === "operador" ? (
-                  <PainelOperadorHome />
+                  <MinhaFila />
                 ) : (
                   <Dashboard />
                 )
