@@ -16,6 +16,7 @@ import MuralAniversariantes from "../components/MuralAniversariantes";
 import ResumoDoDia from "../components/ResumoDoDia";
 import ReceberLeads from "../components/ReceberLeads";
 import MinhaCarteira from "../components/MinhaCarteira";
+import PainelCarteira from "../components/PainelCarteira";
 
 const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "JURIDICO"];
 
@@ -1066,6 +1067,7 @@ export default function FilaOperador() {
       <ResumoDoDia usuarioLogado={usuarioLogado} />
       <ReceberLeads usuarioLogado={usuarioLogado} aoReceber={carregarFila} />
       <PontoOperador usuarioLogado={usuarioLogado} />
+      <PainelCarteira embedded />
       <FluxoLinksRapido />
       {(() => {
         const incentivo = mensagemIncentivo(casosFinalizados);
