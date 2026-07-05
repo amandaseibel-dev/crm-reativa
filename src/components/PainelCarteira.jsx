@@ -144,7 +144,7 @@ function statusPrazo(a) {
   return { label: "Perdendo o caso", cor: "#991b1b" };
 }
 
-export default function PainelCarteira() {
+export default function PainelCarteira({ embedded = false }) {
   const navigate = useNavigate();
   const [email, setEmail] = useState(null);
   const [veTudo, setVeTudo] = useState(false);
@@ -211,15 +211,29 @@ export default function PainelCarteira() {
       // Tabela de casos (limite de exibicao)
       const colunas =
         "id,nome,nome_aluno,cpf,telefone,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao";
-      let qLista = supabase
-        .from("alunos")
-        .select(colunas)
-        .order("data_ultimo_acionamento", { ascending: true, nullsFirst: false })
-        .limit(400);
-      qLista = aplicarEscopo(qLista);
-      const { data: lista, error: erroLista } = await qLista;
-      if (erroLista) throw erroLista;
-      const listaAtiva = (lista || []).filter((a) => !ehQuitado(a));
+      // Carrega a carteira inteira, paginando (Supabase limita 1000 por
+      // requisicao). Para um operador (ou gestao filtrando um operador)
+      // puxa tudo; para "todos os operadores" da gestao aplica um teto
+      // pra nao travar o navegador com a base inteira.
+      const alvoEscopo = emailEscopo();
+      const TETO = alvoEscopo ? 50000 : 3000;
+      const PAGINA = 1000;
+      let todas = [];
+      let inicio = 0;
+      while (true) {
+        let q = supabase
+          .from("alunos")
+          .select(colunas)
+          .order("data_ultimo_acionamento", { ascending: true, nullsFirst: false })
+          .range(inicio, inicio + PAGINA - 1);
+        q = aplicarEscopo(q);
+        const { data: parte, error: erroParte } = await q;
+        if (erroParte) throw erroParte;
+        todas = todas.concat(parte || []);
+        if (!parte || parte.length < PAGINA || todas.length >= TETO) break;
+        inicio += PAGINA;
+      }
+      const listaAtiva = todas.filter((a) => !ehQuitado(a));
       setCasos(listaAtiva);
 
       // KPIs por contagem (head:true), escopados
@@ -357,8 +371,7 @@ export default function PainelCarteira() {
     { rot: "Quitados", val: kpis.quitados, cor: "#16a34a", icone: "✅" },
   ];
 
-  return (
-    <main className="content">
+  const conteudo = (
       <div style={S.pagina}>
         <div style={S.cabecalho}>
           <div>
@@ -370,6 +383,10 @@ export default function PainelCarteira() {
             </p>
           </div>
           <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={S.userChip}>
+              <span style={S.userNome}>{nomeOperadorPorEmail(email)}</span>
+              <span style={S.userRole}>{veTudo ? "Gestao" : "Operador"}</span>
+            </div>
             {veTudo && (
               <select
                 style={S.select}
@@ -539,12 +556,23 @@ export default function PainelCarteira() {
                   <button style={{ ...S.btnAcao, ...S.acaoVerde }} onClick={() => abrirFicha(selecionado)}>
                     ✔️ Fechar acordo
                   </button>
-                  <button style={{ ...S.btnAcao, ...S.acaoRoxo }} onClick={() => abrirFicha(selecionado)}>
-                    ⚖️ Juridico
-                  </button>
-                  <button style={{ ...S.btnAcao, ...S.acaoVermelho }} onClick={() => abrirFicha(selecionado)}>
-                    ✖️ Cancelado
-                  </button>
+                  {veTudo ? (
+                    <>
+                      <button style={{ ...S.btnAcao, ...S.acaoRoxo }} onClick={() => abrirFicha(selecionado)}>
+                        ⚖️ Juridico
+                      </button>
+                      <button style={{ ...S.btnAcao, ...S.acaoVermelho }} onClick={() => abrirFicha(selecionado)}>
+                        ✖️ Cancelado
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      style={{ ...S.btnAcao, ...S.acaoRoxo, gridColumn: "1 / -1" }}
+                      onClick={() => abrirFicha(selecionado)}
+                    >
+                      ↗️ Encaminhar p/ Amanda
+                    </button>
+                  )}
                 </div>
                 <button style={S.btnFicha} onClick={() => abrirFicha(selecionado)}>
                   Abrir ficha completa do aluno →
@@ -566,8 +594,8 @@ export default function PainelCarteira() {
           </aside>
         </div>
       </div>
-    </main>
   );
+  return embedded ? conteudo : <main className="content">{conteudo}</main>;
 }
 
 const S = {
@@ -575,6 +603,9 @@ const S = {
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 16, flexWrap: "wrap" },
   titulo: { margin: 0, marginBottom: 4, color: "#0f172a", fontSize: 26 },
   subtitulo: { margin: 0, color: "#64748b", fontSize: 14 },
+  userChip: { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.1 },
+  userNome: { fontWeight: 700, color: "#0f172a", fontSize: 14 },
+  userRole: { fontSize: 11, color: "#7c3aed", fontWeight: 600 },
   select: { padding: "9px 12px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", fontSize: 14 },
   btnAtualizar: { background: "#0f172a", color: "#fff", border: "none", padding: "10px 16px", borderRadius: 8, cursor: "pointer", fontWeight: "bold" },
   erro: { color: "#b91c1c", fontWeight: "bold" },
