@@ -334,9 +334,86 @@ export default function FinanceiroAluno({ aluno }) {
     alert("Acordo quitado no cartão.");
   }
 
+  // Exclui um acordo criado por engano -- bloqueia se já tiver parcela paga
+  // ou baixa registrada (protege histórico financeiro real) e devolve os
+  // títulos vinculados pro status "em_aberto", pra poderem entrar em outro
+  // acordo depois.
+  async function excluirAcordo(acordo) {
+    const parcelas = parcelasPorAcordo[acordo.id] || [];
+
+    if (parcelas.some((p) => p.status === "PAGO")) {
+      alert(
+        "Esse acordo já tem parcela paga -- não dá pra excluir (protege o histórico financeiro). Se foi um erro, fale com quem confirmou o pagamento antes de mexer."
+      );
+      return;
+    }
+
+    const { data: baixasExistentes } = await supabase
+      .from("baixas_pagamento")
+      .select("id")
+      .eq("acordo_id", acordo.id)
+      .limit(1);
+
+    if (baixasExistentes && baixasExistentes.length > 0) {
+      alert("Esse acordo já tem alguma baixa/pagamento registrado -- não dá pra excluir por aqui.");
+      return;
+    }
+
+    const confirmado = window.confirm(
+      `Excluir esse acordo de ${moeda(acordo.valor_total)} em ${acordo.qtd_parcelas}x? Essa ação não pode ser desfeita. Os títulos vinculados a ele voltam a ficar em aberto.`
+    );
+    if (!confirmado) return;
+
+    const { data: vinculos } = await supabase
+      .from("acordo_titulo_vinculo")
+      .select("titulo_id")
+      .eq("acordo_id", acordo.id);
+
+    const idsTitulos = (vinculos || []).map((v) => v.titulo_id);
+
+    if (idsTitulos.length > 0) {
+      const { error: erroReverter } = await supabase
+        .from("acordos_titulos")
+        .update({ status: "em_aberto", atualizado_em: new Date().toISOString() })
+        .in("id", idsTitulos);
+      if (erroReverter) {
+        alert("Erro ao devolver os títulos pro status em aberto: " + erroReverter.message);
+        return;
+      }
+    }
+
+    await supabase.from("acordo_titulo_vinculo").delete().eq("acordo_id", acordo.id);
+    await supabase.from("parcelas").delete().eq("acordo_id", acordo.id);
+
+    const { error: erroExcluir } = await supabase.from("acordos").delete().eq("id", acordo.id);
+    if (erroExcluir) {
+      alert("Erro ao excluir o acordo: " + erroExcluir.message);
+      return;
+    }
+
+    setRecarga((r) => r + 1);
+    alert("Acordo excluído.");
+  }
+
   // ---- Montar novo acordo (direto na ficha) ----
   function atualizarNovo(campo, valor) {
     setNovo((atual) => ({ ...atual, [campo]: valor }));
+  }
+
+  function atualizarValorTotal(valor) {
+    setNovo((atual) => {
+      // Quando o valor total muda (digitado à mão ou via "usar soma dos
+      // títulos"), a entrada em R$ ficava travada no valor antigo -- o
+      // saldo das parcelas saía errado porque a entrada não acompanhava.
+      // Aqui a % da entrada fica fixa e o valor em R$ é recalculado.
+      if (!atual.temEntrada || !atual.entradaPct) {
+        return { ...atual, valorTotal: valor };
+      }
+      const total = paraNumero(valor);
+      const pct = Number(String(atual.entradaPct).replace(",", ".")) || 0;
+      const rs = total > 0 ? ((total * pct) / 100).toFixed(2) : atual.entradaRs;
+      return { ...atual, valorTotal: valor, entradaRs: rs };
+    });
   }
 
   function atualizarEntradaRs(valor) {
@@ -370,7 +447,13 @@ export default function FinanceiroAluno({ aluno }) {
       const soma = titulosSelecionaveis
         .filter((t) => atual.titulosSel.includes(t.id))
         .reduce((acc, t) => acc + valorTitulo(t), 0);
-      return { ...atual, valorTotal: soma.toFixed(2) };
+
+      if (!atual.temEntrada || !atual.entradaPct) {
+        return { ...atual, valorTotal: soma.toFixed(2) };
+      }
+      const pct = Number(String(atual.entradaPct).replace(",", ".")) || 0;
+      const rs = soma > 0 ? ((soma * pct) / 100).toFixed(2) : atual.entradaRs;
+      return { ...atual, valorTotal: soma.toFixed(2), entradaRs: rs };
     });
   }
 
@@ -634,7 +717,7 @@ export default function FinanceiroAluno({ aluno }) {
                 <label style={estilos.campo}>
                   Valor total (R$)
                   <input style={estilos.input} value={novo.valorTotal} placeholder="Ex: 1500,00"
-                    onChange={(e) => atualizarNovo("valorTotal", e.target.value)} />
+                    onChange={(e) => atualizarValorTotal(e.target.value)} />
                 </label>
                 <label style={estilos.campo}>
                   Nº de parcelas
@@ -808,6 +891,7 @@ export default function FinanceiroAluno({ aluno }) {
         podeBaixar={podeBaixar}
         onBaixarParcela={baixarParcela}
         onQuitarCartao={quitarCartao}
+        onExcluirAcordo={excluirAcordo}
       />
     </>
   );
@@ -898,7 +982,7 @@ function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, 
   );
 }
 
-function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao }) {
+function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo }) {
   const [formParcela, setFormParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
   const [campos, setCampos] = useState({});
@@ -942,9 +1026,20 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                   </div>
                   <span style={{ ...estilos.tagBase, background: cor.bg, color: cor.texto }}>{cor.label}</span>
                 </div>
-                {totalAcordoAberto > 0 && (
-                  <span style={estilos.totalAberto}>{moeda(totalAcordoAberto)} em aberto</span>
-                )}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  {totalAcordoAberto > 0 && (
+                    <span style={estilos.totalAberto}>{moeda(totalAcordoAberto)} em aberto</span>
+                  )}
+                  {podeBaixar && (
+                    <button
+                      style={estilos.botaoExcluir}
+                      onClick={() => onExcluirAcordo(acordo)}
+                      title="Excluir acordo (só funciona se não tiver parcela paga)"
+                    >
+                      Excluir
+                    </button>
+                  )}
+                </div>
               </div>
 
               {acordo.valor_entrada ? (
@@ -1074,6 +1169,7 @@ const estilos = {
   botaoCartao: { background: "#7c3aed", color: "#fff", border: "none", padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12 },
   botaoConfirmar: { background: "#198754", color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 },
   botaoCancelar: { background: "rgba(148,163,184,0.25)", color: "#e2e8f0", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 },
+  botaoExcluir: { background: "rgba(239,68,68,0.14)", color: "#f0999a", border: "1px solid rgba(239,68,68,0.4)", padding: "4px 10px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12 },
   formBaixa: { background: "rgba(15,23,42,0.35)", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 8, padding: 10, margin: "6px 0 10px" },
   formLinha: { display: "flex", gap: 10, flexWrap: "wrap" },
   formLabel: { display: "flex", flexDirection: "column", gap: 4, fontSize: 11, opacity: 0.85, flex: 1, minWidth: 120 },
