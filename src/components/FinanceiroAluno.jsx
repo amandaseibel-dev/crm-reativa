@@ -339,6 +339,73 @@ export default function FinanceiroAluno({ aluno }) {
     alert("Acordo quitado no cartão.");
   }
 
+  // Reverte uma baixa feita errada -- volta a parcela pra "a vencer" e some
+  // com o registro de pagamento. Se essa baixa tinha sido a que quitou o
+  // acordo inteiro, desfaz também os efeitos colaterais da quitação
+  // (título voltando pra "vinculada", aluno voltando ativo na carteira).
+  async function desfazerBaixa(acordo, parcela) {
+    if (parcela.status !== "PAGO") return;
+
+    const confirmado = window.confirm(
+      `Desfazer a baixa da parcela ${parcela.numero} (${moeda(parcela.valor)})? Ela volta pra "a vencer" e sai do valor baixado do mês.`
+    );
+    if (!confirmado) return;
+
+    const agora = new Date().toISOString();
+
+    await supabase.from("baixas_pagamento").delete().eq("parcela_id", parcela.id);
+
+    const { error: erroParcela } = await supabase
+      .from("parcelas")
+      .update({ status: "A_VENCER", pago_em: null, confirmado_por_email: null, atualizado_em: agora })
+      .eq("id", parcela.id);
+
+    if (erroParcela) {
+      alert("Erro ao desfazer a baixa: " + erroParcela.message);
+      return;
+    }
+
+    if (acordo.status === "QUITADO") {
+      const { data: parcelasAtuais } = await supabase
+        .from("parcelas")
+        .select("status, valor")
+        .eq("acordo_id", acordo.id);
+
+      const novoSaldo = (parcelasAtuais || [])
+        .filter((p) => p.status !== "PAGO")
+        .reduce((soma, p) => soma + Number(p.valor || 0), 0);
+
+      await supabase
+        .from("acordos")
+        .update({ status: "ATIVO", saldo: novoSaldo, atualizado_em: agora })
+        .eq("id", acordo.id);
+
+      const { data: vinculos } = await supabase
+        .from("acordo_titulo_vinculo")
+        .select("titulo_id")
+        .eq("acordo_id", acordo.id)
+        .eq("ativo", true);
+      const idsTitulos = (vinculos || []).map((v) => v.titulo_id);
+      if (idsTitulos.length > 0) {
+        await supabase
+          .from("acordos_titulos")
+          .update({ status: "vinculada", atualizado_em: agora })
+          .in("id", idsTitulos);
+      }
+
+      if (aluno?.id) {
+        await supabase
+          .from("carteira_operador")
+          .update({ status: "ativo", saiu_em: null })
+          .eq("aluno_id", String(aluno.id))
+          .eq("status", "quitado_saiu");
+      }
+    }
+
+    setRecarga((r) => r + 1);
+    alert("Baixa desfeita.");
+  }
+
   // Exclui um acordo criado por engano -- bloqueia se já tiver parcela paga
   // ou baixa registrada (protege histórico financeiro real) e devolve os
   // títulos vinculados pro status "em_aberto", pra poderem entrar em outro
@@ -646,6 +713,23 @@ export default function FinanceiroAluno({ aluno }) {
         String(a.vencimento || "").localeCompare(String(b.vencimento || ""))
       )
     );
+    // Sem isso, a mensalidade criada na mão não aparecia na lista de
+    // "títulos em aberto" do Montar novo acordo -- essa lista vem de uma
+    // busca separada, filtrada por aluno_id + status em_aberto.
+    setTitulosSelecionaveis((anteriores) =>
+      [
+        ...anteriores,
+        {
+          id: criado.id,
+          documento: criado.documento,
+          vencimento: criado.vencimento,
+          valor_original: criado.valor_original,
+          saldo_corrigido: criado.saldo_corrigido,
+          valor_em_aberto: criado.valor_em_aberto,
+          status: criado.status,
+        },
+      ].sort((a, b) => String(a.vencimento || "").localeCompare(String(b.vencimento || "")))
+    );
     setNovaMensalidade(mensalidadeManualInicial());
     setFormMensalidadeAberto(false);
   }
@@ -770,6 +854,24 @@ export default function FinanceiroAluno({ aluno }) {
                   </label>
                 </div>
               )}
+
+              {(() => {
+                // Resumo visível de total / entrada / saldo -- sem isso,
+                // parecia que a entrada não estava sendo descontada (ela
+                // era, só que só aparecia embutida no valor de cada
+                // parcela, sem nenhum total explícito pra conferir).
+                const totalPrev = paraNumero(novo.valorTotal);
+                if (totalPrev <= 0) return null;
+                const entradaPrev = novo.temEntrada ? Math.min(paraNumero(novo.entradaRs), totalPrev) : 0;
+                const saldoPrev = Math.max(0, totalPrev - entradaPrev);
+                return (
+                  <div style={estilos.resumoAcordo}>
+                    <span>Valor total: <strong>{moeda(totalPrev)}</strong></span>
+                    {novo.temEntrada && <span>Entrada: <strong>-{moeda(entradaPrev)}</strong></span>}
+                    <span>Saldo a parcelar: <strong>{moeda(saldoPrev)}</strong></span>
+                  </div>
+                );
+              })()}
 
               <button style={{ ...estilos.botaoPequeno, marginTop: 10 }} onClick={gerarParcelasNovo}>
                 Gerar parcelas
@@ -901,6 +1003,7 @@ export default function FinanceiroAluno({ aluno }) {
         onBaixarParcela={baixarParcela}
         onQuitarCartao={quitarCartao}
         onExcluirAcordo={excluirAcordo}
+        onDesfazerBaixa={desfazerBaixa}
       />
     </>
   );
@@ -991,7 +1094,7 @@ function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, 
   );
 }
 
-function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo }) {
+function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa }) {
   const [formParcela, setFormParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
   const [campos, setCampos] = useState({});
@@ -1116,6 +1219,11 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                         {podeBaixar && !pago && (
                           <button style={estilos.botaoPequeno} onClick={() => abrirParcela(p)}>Baixar</button>
                         )}
+                        {podeBaixar && pago && (
+                          <button style={estilos.botaoExcluir} onClick={() => onDesfazerBaixa(acordo, p)}>
+                            Desfazer
+                          </button>
+                        )}
                       </div>
                     </div>
 
@@ -1179,6 +1287,7 @@ const estilos = {
   botaoConfirmar: { background: "#198754", color: "#fff", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 },
   botaoCancelar: { background: "rgba(148,163,184,0.25)", color: "#e2e8f0", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 },
   botaoExcluir: { background: "rgba(239,68,68,0.14)", color: "#f0999a", border: "1px solid rgba(239,68,68,0.4)", padding: "4px 10px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12 },
+  resumoAcordo: { display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13, marginTop: 10, padding: "8px 12px", background: "rgba(148,163,184,0.08)", borderRadius: 8 },
   formBaixa: { background: "rgba(15,23,42,0.35)", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 8, padding: 10, margin: "6px 0 10px" },
   formLinha: { display: "flex", gap: 10, flexWrap: "wrap" },
   formLabel: { display: "flex", flexDirection: "column", gap: 4, fontSize: 11, opacity: 0.85, flex: 1, minWidth: 120 },
