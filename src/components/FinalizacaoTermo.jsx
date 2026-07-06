@@ -75,6 +75,7 @@ export default function FinalizacaoTermo({ aluno }) {
   const [observacao, setObservacao] = useState("");
   const [arquivo, setArquivo] = useState(null);
   const [arquivoRg, setArquivoRg] = useState(null);
+  const [arquivoVerso, setArquivoVerso] = useState(null);
   const [tipoAssinatura, setTipoAssinatura] = useState("MANUAL_RG");
   const [enviando, setEnviando] = useState(false);
   const [carregando, setCarregando] = useState(false);
@@ -243,6 +244,41 @@ export default function FinalizacaoTermo({ aluno }) {
       arquivoRgUrl = publicUrlRgData?.publicUrl || null;
     }
 
+    // Verso do termo -- mesma lógica do RG, arquivo opcional numa
+    // subpasta própria pra não misturar com a frente do termo.
+    let arquivoVersoUrl = null;
+    let arquivoVersoNome = null;
+
+    if (arquivoVerso) {
+      arquivoVersoNome = arquivoVerso.name;
+
+      const nomeSeguroVerso = arquivoVerso.name
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9.\-_]/g, "_");
+
+      const caminhoVerso = `${aluno.id}/verso-${Date.now()}-${nomeSeguroVerso}`;
+
+      const { error: uploadVersoError } = await supabase.storage
+        .from("termos-acordo")
+        .upload(caminhoVerso, arquivoVerso, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      if (uploadVersoError) {
+        alert("Erro ao anexar o verso do termo: " + uploadVersoError.message);
+        setEnviando(false);
+        return;
+      }
+
+      const { data: publicUrlVersoData } = supabase.storage
+        .from("termos-acordo")
+        .getPublicUrl(caminhoVerso);
+
+      arquivoVersoUrl = publicUrlVersoData?.publicUrl || null;
+    }
+
     // Assinatura via gov.br já vem validada eletronicamente pelo governo,
     // então libera na hora (não passa pela fila de conferencia do ADM) e
     // fica so registrada para auditoria por amostragem depois. Assinatura
@@ -263,6 +299,8 @@ export default function FinalizacaoTermo({ aluno }) {
       arquivo_url: arquivoUrl,
       arquivo_rg_nome: arquivoRgNome,
       arquivo_rg_url: arquivoRgUrl,
+      arquivo_verso_nome: arquivoVersoNome,
+      arquivo_verso_url: arquivoVersoUrl,
       tipo_assinatura: tipoAssinatura,
       status: statusInicial,
       ...(ehGovBr
@@ -289,6 +327,7 @@ export default function FinalizacaoTermo({ aluno }) {
     setObservacao("");
     setArquivo(null);
     setArquivoRg(null);
+    setArquivoVerso(null);
     setTipoAssinatura("MANUAL_RG");
     setEnviando(false);
     carregarTermosDoAluno();
@@ -367,6 +406,17 @@ export default function FinalizacaoTermo({ aluno }) {
               Abrir RG anexado
             </a>
           )}
+
+          {ultimoTermo.arquivo_verso_url && (
+            <a
+              href={ultimoTermo.arquivo_verso_url}
+              target="_blank"
+              rel="noreferrer"
+              style={{ ...styles.linkArquivo, marginLeft: 12 }}
+            >
+              Abrir verso do termo
+            </a>
+          )}
         </div>
       )}
 
@@ -417,6 +467,21 @@ export default function FinalizacaoTermo({ aluno }) {
             {arquivo && (
               <p style={styles.arquivoSelecionado}>
                 Arquivo selecionado: <strong>{arquivo.name}</strong>
+              </p>
+            )}
+          </div>
+
+          <div style={styles.bloco}>
+            <label style={styles.label}>Anexar verso do termo (opcional)</label>
+            <input
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
+              onChange={(e) => setArquivoVerso(e.target.files?.[0] || null)}
+            />
+
+            {arquivoVerso && (
+              <p style={styles.arquivoSelecionado}>
+                Arquivo selecionado: <strong>{arquivoVerso.name}</strong>
               </p>
             )}
           </div>
