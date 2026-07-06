@@ -49,14 +49,38 @@ const STATUS_FINALIZACAO = [
 
 const STATUS_COM_PROCESSO = ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"];
 
+// Reaproveita toda a trava/renderização de "ficha bloqueada" que já existe
+// pra Jurídico/Cancelamento -- só que este aqui é diferente dos outros
+// dois: se subir um título novo desse aluno num bordero, ele volta a
+// entrar na fila sozinho (os outros dois nunca voltam automaticamente).
+const STATUS_QUITADO_MANUAL = "QUITADO_MANUAL";
+
+// Emails que podem usar o botão de "Quitar tudo" -- deliberadamente mais
+// restrito que podeVerTudo (que também inclui supervisão): só a Amanda.
+const EMAILS_PODE_QUITAR_MANUAL = [
+  "amanda.seibel@aelbra.com.br",
+  "amandaseibel1706@gmail.com",
+  "amandapradoseibel@gmail.com",
+];
+
+function podeQuitarManual(email) {
+  return EMAILS_PODE_QUITAR_MANUAL.includes(String(email || "").toLowerCase().trim());
+}
+
 // Só gestão/supervisão (podeVerTudo) pode definir estes dois. Uma vez
 // finalizado assim, o caso fica travado e destacado em vermelho.
-const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "JURIDICO"];
+const STATUS_BLOQUEADOS_ACIONAMENTO = [
+  "CANCELAMENTO_COBRANCA",
+  "SUSPENSAO_COBRANCA",
+  "JURIDICO",
+  STATUS_QUITADO_MANUAL,
+];
 
 const STATUS_BLOQUEADOS_LABEL = {
   CANCELAMENTO_COBRANCA: "Cancelamento definitivo de cobrança",
   SUSPENSAO_COBRANCA: "Suspensão de cobrança",
   JURIDICO: "Jurídico",
+  QUITADO_MANUAL: "Quitado (caso antigo)",
 };
 
 function formatarDataHora(data) {
@@ -669,6 +693,104 @@ export default function Alunos() {
     }
   }
 
+  // Botão restrito só pra Amanda: fecha de vez casos antigos que já estão
+  // pagos na prática mas continuam pendurados na fila. Diferente de
+  // Jurídico/Cancelamento, este volta sozinho pra fila se aparecer um
+  // título novo desse aluno num bordero (ver Borderos.jsx).
+  async function quitarManual() {
+    if (!alunoSelecionado?.id) return;
+    if (!podeQuitarManual(usuarioLogado?.email)) return;
+
+    const confirmado = window.confirm(
+      "Marcar esse caso como quitado (caso antigo)? Ele sai da fila ativa. Só volta se subir um título novo dele em algum bordero."
+    );
+    if (!confirmado) return;
+
+    setSalvando(true);
+
+    try {
+      const statusAnterior = pegarCampo(
+        alunoSelecionado,
+        ["status_jornada", "status_atual", "status"],
+        null
+      );
+
+      await registrarMovimentacao({
+        alunoId: alunoSelecionado.id,
+        tipo: "QUITADO_MANUAL",
+        descricao: "Caso antigo marcado como quitado manualmente (fora da fila ativa).",
+        statusAnterior,
+        statusNovo: STATUS_QUITADO_MANUAL,
+        retorno: null,
+        atualizarResponsavel: false,
+        extraAluno: {
+          status_jornada: STATUS_QUITADO_MANUAL,
+          status_atual: STATUS_QUITADO_MANUAL,
+          status_acionamento: STATUS_QUITADO_MANUAL,
+          proxima_acao: "NENHUMA",
+          valor_em_aberto: 0,
+        },
+      });
+
+      const agoraIso = new Date().toISOString();
+
+      // Zera os títulos soltos (que nunca entraram num acordo).
+      await supabase
+        .from("acordos_titulos")
+        .update({
+          situacao: "PAGO",
+          status: "quitada",
+          saldo_corrigido: 0,
+          valor_em_aberto: 0,
+          motivo_ajuste: "Quitado manualmente (caso antigo) por " + (usuarioLogado?.email || "Amanda"),
+          atualizado_em: agoraIso,
+        })
+        .eq("aluno_id", String(alunoSelecionado.id))
+        .neq("situacao", "PAGO");
+
+      // Zera os acordos ativos e as parcelas que ainda estavam em aberto.
+      const { data: acordosAtivos } = await supabase
+        .from("acordos")
+        .select("id")
+        .eq("aluno_id", String(alunoSelecionado.id))
+        .eq("status", "ATIVO");
+
+      const idsAcordos = (acordosAtivos || []).map((a) => a.id);
+
+      if (idsAcordos.length > 0) {
+        await supabase
+          .from("acordos")
+          .update({ status: "QUITADO", saldo: 0, atualizado_em: agoraIso })
+          .in("id", idsAcordos);
+
+        // pago_em fica null de propósito -- não é um recebimento de
+        // verdade neste mês, é só regularização de um caso antigo. Deixar
+        // null impede que isso conte como "recebido este mês" em qualquer
+        // KPI que filtre por data de pagamento.
+        await supabase
+          .from("parcelas")
+          .update({ status: "PAGO", pago_em: null, atualizado_em: agoraIso })
+          .in("acordo_id", idsAcordos)
+          .neq("status", "PAGO");
+      }
+
+      await supabase
+        .from("carteira_operador")
+        .update({ status: "quitado_saiu", saiu_em: agoraIso })
+        .eq("aluno_id", String(alunoSelecionado.id))
+        .eq("status", "ativo");
+
+      await recarregarAlunoSelecionado(alunoSelecionado.id);
+      await carregarMovimentacoes(alunoSelecionado.id);
+
+      alert("Caso marcado como quitado -- valores zerados e removido da fila ativa.");
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
   async function finalizarAtendimento() {
     if (!alunoSelecionado?.id) return;
 
@@ -687,9 +809,17 @@ export default function Alunos() {
     }
 
     const ehStatusRestrito = STATUS_BLOQUEADOS_ACIONAMENTO.includes(statusFinalizacao);
+    const permitidoNesseStatus =
+      statusFinalizacao === STATUS_QUITADO_MANUAL
+        ? podeQuitarManual(usuarioLogado?.email)
+        : podeVerTudo(usuarioLogado?.email);
 
-    if (ehStatusRestrito && !podeVerTudo(usuarioLogado?.email)) {
-      alert("Apenas gestão/supervisão pode definir esse status.");
+    if (ehStatusRestrito && !permitidoNesseStatus) {
+      alert(
+        statusFinalizacao === STATUS_QUITADO_MANUAL
+          ? "Apenas a Amanda pode marcar um caso como quitado manualmente."
+          : "Apenas gestão/supervisão pode definir esse status."
+      );
       return;
     }
 
@@ -1223,6 +1353,23 @@ export default function Alunos() {
                     {salvando ? "Salvando..." : "Assumir atendimento"}
                   </button>
                 )}
+
+                {podeQuitarManual(usuarioLogado?.email) &&
+                  pegarCampo(
+                    alunoSelecionado,
+                    ["status_jornada", "status_atual", "status"],
+                    "CONTATAR"
+                  ) !== STATUS_QUITADO_MANUAL && (
+                    <button
+                      type="button"
+                      onClick={quitarManual}
+                      disabled={salvando}
+                      title="Fecha o caso pra sempre, a menos que suba um título novo dele em bordero"
+                      style={{ ...botaoPrincipal, background: "#6b21a8", marginLeft: 8 }}
+                    >
+                      💰 Quitar tudo (caso antigo)
+                    </button>
+                  )}
               </div>
 
               <div style={barraAbasFicha}>
