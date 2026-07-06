@@ -3,6 +3,7 @@ import Topbar from "../layout/Topbar";
 import { supabase } from "../services/supabase";
 import MuralAniversariantes from "../components/MuralAniversariantes";
 import PainelCarteira from "../components/PainelCarteira";
+import CadastroNovoAluno from "../components/CadastroNovoAluno";
 
 function formatarMoeda(valor) {
   const numero = Number(valor) || 0;
@@ -141,6 +142,10 @@ export default function Dashboard() {
           <button style={estilos.botaoAtualizar} onClick={carregarIndicadores} disabled={carregando}>
             {carregando ? "Atualizando..." : "Atualizar"}
           </button>
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <CadastroNovoAluno onSucesso={carregarIndicadores} />
         </div>
 
         {erro && <p style={estilos.erro}>{erro}</p>}
