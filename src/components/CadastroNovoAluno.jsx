@@ -44,7 +44,7 @@ const vazio = {
   observacao: "",
 };
 
-export default function CadastroNovoAluno() {
+export default function CadastroNovoAluno({ onSucesso }) {
   const [aberto, setAberto] = useState(false);
   const [campos, setCampos] = useState(vazio);
   const [carregando, setCarregando] = useState(false);
@@ -161,6 +161,10 @@ export default function CadastroNovoAluno() {
     setCarregando(false);
     setCampos(vazio);
     setAberto(false);
+
+    if (novoAluno?.id && onSucesso) {
+      onSucesso(novoAluno);
+    }
 
     alert("Aluno cadastrado com sucesso. Ele já entrou na sua fila.");
   }
