@@ -195,6 +195,26 @@ export default function FilaAdmTermos() {
             </div>
           )}
 
+          {termo.arquivo_verso_url && (
+            <div style={styles.bloco}>
+              <strong>Verso do termo:</strong>
+              <br />
+              <a href={termo.arquivo_verso_url} target="_blank" rel="noreferrer">
+                Abrir verso do termo
+              </a>
+            </div>
+          )}
+
+          {termo.arquivo_rg_url && (
+            <div style={styles.bloco}>
+              <strong>RG anexado:</strong>
+              <br />
+              <a href={termo.arquivo_rg_url} target="_blank" rel="noreferrer">
+                Abrir RG
+              </a>
+            </div>
+          )}
+
           <div style={styles.bloco}>
             <label style={styles.label}>Observação ADM para aprovação:</label>
             <textarea
