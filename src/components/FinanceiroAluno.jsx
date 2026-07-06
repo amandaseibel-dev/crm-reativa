@@ -509,6 +509,10 @@ export default function FinanceiroAluno({ aluno }) {
     }
     const email = usuario?.email || "";
     const agora = new Date().toISOString();
+    // Quem cria o acordo (normalmente a Amanda) nem sempre é o operador
+    // responsável pelo caso -- o "dono" do caso pra fins de carteira/KPI é
+    // sempre o responsável atual do aluno, não quem apertou salvar.
+    const operadorResponsavel = aluno.responsavel_atual_email || email;
     const entrada = novo.temEntrada ? Math.min(paraNumero(novo.entradaRs), total) : 0;
     const pct = total > 0 && novo.temEntrada ? Number(((entrada / total) * 100).toFixed(2)) : null;
     const honTotal = paraNumero(novo.honorarios);
@@ -530,7 +534,7 @@ export default function FinanceiroAluno({ aluno }) {
         honorarios_valor: honTotal || null,
         saldo: saldo,
         status: "ATIVO",
-        operador_responsavel_email: email,
+        operador_responsavel_email: operadorResponsavel,
         criado_por_nome: nomeOperadorPorEmail(email),
         criado_por_email: email,
         confirmado_por_email: email,
