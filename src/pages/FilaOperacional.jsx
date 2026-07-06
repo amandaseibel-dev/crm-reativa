@@ -1088,7 +1088,7 @@ export default function FilaOperador() {
               </div>
 
               <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
-                <CadastroNovoAluno />
+                <CadastroNovoAluno onSucesso={carregarFila} />
 
                 <button
                   type="button"
