@@ -33,6 +33,75 @@ function extrairNumeroBordero(nomeArquivo) {
   return match ? match[1] : nomeArquivo;
 }
 
+// Borderôs grandes (2-3 mil linhas) geram listas de CPF/título enormes.
+// Um único .in() com milhares de valores vira uma URL de dezenas de KB e
+// o gateway do Supabase rejeita ou trunca a requisição -- nesse caso
+// `alunosEncontrados`/`titulosExistentes` voltam vazios (ou incompletos)
+// e QUASE TUDO aparece como "novo" na prévia, mesmo quem já está
+// cadastrado. Por isso as buscas por CPF, nome e título são feitas em
+// lotes menores e depois unidas.
+const TAMANHO_LOTE_CONSULTA = 200;
+
+function dividirEmLotes(lista, tamanho) {
+  const lotes = [];
+  for (let i = 0; i < lista.length; i += tamanho) {
+    lotes.push(lista.slice(i, i + tamanho));
+  }
+  return lotes;
+}
+
+async function buscarEmLotes(tabela, coluna, valores, colunasSelect) {
+  if (valores.length === 0) return [];
+  const lotes = dividirEmLotes(valores, TAMANHO_LOTE_CONSULTA);
+  const resultados = await Promise.all(
+    lotes.map((lote) =>
+      supabase.from(tabela).select(colunasSelect).in(coluna, lote)
+    )
+  );
+
+  const registros = [];
+  for (const { data, error } of resultados) {
+    if (error) {
+      // Não interrompe a prévia inteira por causa de um lote -- melhor
+      // avisar e seguir só com o que deu certo do que travar a tela.
+      console.error(`Erro ao consultar ${tabela}.${coluna} em lote:`, error);
+      continue;
+    }
+    registros.push(...(data || []));
+  }
+  return registros;
+}
+
+// Gravação também vai em lote: além do corpo da requisição poder ficar
+// grande demais com milhares de linhas de uma vez, o Supabase por padrão
+// só devolve as primeiras 1000 linhas de um .select() após insert/upsert
+// -- com um bordero de 5-10 mil linhas isso faria a metade "sumir" da
+// resposta mesmo tendo sido gravada. Vai em série (não em paralelo) pra
+// não sobrecarregar o banco com um monte de upserts simultâneos.
+const TAMANHO_LOTE_GRAVACAO = 500;
+
+async function inserirEmLotes(tabela, registros) {
+  if (registros.length === 0) return { dados: [], erro: null };
+  const lotes = dividirEmLotes(registros, TAMANHO_LOTE_GRAVACAO);
+  const dados = [];
+  for (const lote of lotes) {
+    const { data, error } = await supabase.from(tabela).insert(lote).select();
+    if (error) return { dados, erro: error };
+    dados.push(...(data || []));
+  }
+  return { dados, erro: null };
+}
+
+async function upsertEmLotes(tabela, registros, onConflict) {
+  if (registros.length === 0) return { erro: null };
+  const lotes = dividirEmLotes(registros, TAMANHO_LOTE_GRAVACAO);
+  for (const lote of lotes) {
+    const { error } = await supabase.from(tabela).upsert(lote, { onConflict });
+    if (error) return { erro: error };
+  }
+  return { erro: null };
+}
+
 export default function Borderos() {
   const [arquivo, setArquivo] = useState(null);
   const [processando, setProcessando] = useState(false);
@@ -85,23 +154,27 @@ export default function Borderos() {
       const cpfs = [...new Set(linhas.map((l) => l.cpfLimpo).filter(Boolean))];
       const titulos = [...new Set(linhas.map((l) => l.numTitulo))];
 
-      const { data: alunosEncontrados } = await supabase
-        .from("alunos")
-        .select("id, nome, cpf, email, telefone, curso, unidade")
-        .in("cpf", cpfs);
+      const alunosEncontrados = await buscarEmLotes(
+        "alunos",
+        "cpf",
+        cpfs,
+        "id, nome, cpf, email, telefone, curso, unidade"
+      );
 
-      const { data: titulosExistentes } = await supabase
-        .from("acordos_titulos")
-        .select("documento, situacao")
-        .in("documento", titulos);
+      const titulosExistentes = await buscarEmLotes(
+        "acordos_titulos",
+        "documento",
+        titulos,
+        "documento, situacao"
+      );
 
       const mapaAlunosPorCpf = {};
-      for (const aluno of alunosEncontrados || []) {
+      for (const aluno of alunosEncontrados) {
         mapaAlunosPorCpf[aluno.cpf] = aluno;
       }
 
       const mapaTitulos = {};
-      for (const titulo of titulosExistentes || []) {
+      for (const titulo of titulosExistentes) {
         mapaTitulos[titulo.documento] = titulo;
       }
 
@@ -118,12 +191,14 @@ export default function Borderos() {
 
       const mapaAlunosPorNome = {};
       if (nomesParaTentar.length > 0) {
-        const { data: porNome } = await supabase
-          .from("alunos")
-          .select("id, nome, cpf, email, telefone, curso, unidade")
-          .in("nome", nomesParaTentar);
+        const porNome = await buscarEmLotes(
+          "alunos",
+          "nome",
+          nomesParaTentar,
+          "id, nome, cpf, email, telefone, curso, unidade"
+        );
 
-        for (const aluno of porNome || []) {
+        for (const aluno of porNome) {
           mapaAlunosPorNome[aluno.nome.trim().toLowerCase()] = aluno;
         }
       }
@@ -222,27 +297,25 @@ export default function Borderos() {
       let alunosNovosPorCpf = {};
 
       if (linhasSemAluno.length > 0) {
-        const { data: novosAlunos, error: erroNovos } = await supabase
-          .from("alunos")
-          .insert(
-            linhasSemAluno.map((l) => ({
-              nome: l.nome,
-              cpf: l.cpfLimpo,
-              email: l.email,
-              telefone: l.telefone,
-              curso: l.curso,
-              unidade: l.unidade,
-              status_jornada: "CONTATAR",
-              status_atual: "CONTATAR",
-            }))
-          )
-          .select();
+        const { dados: novosAlunos, erro: erroNovos } = await inserirEmLotes(
+          "alunos",
+          linhasSemAluno.map((l) => ({
+            nome: l.nome,
+            cpf: l.cpfLimpo,
+            email: l.email,
+            telefone: l.telefone,
+            curso: l.curso,
+            unidade: l.unidade,
+            status_jornada: "CONTATAR",
+            status_atual: "CONTATAR",
+          }))
+        );
 
         if (erroNovos) {
           nomesNaoEncontrados.push(...linhasSemAluno.map((l) => l.nome));
           ignorados += linhasSemAluno.length;
         } else {
-          for (const aluno of novosAlunos || []) {
+          for (const aluno of novosAlunos) {
             alunosNovosPorCpf[aluno.cpf] = aluno;
           }
           nomesCriados.push(...linhasSemAluno.map((l) => l.nome));
@@ -300,9 +373,11 @@ export default function Borderos() {
       let atualizados = 0;
 
       if (registrosTitulos.length > 0) {
-        const { error: erroTitulos } = await supabase
-          .from("acordos_titulos")
-          .upsert(registrosTitulos, { onConflict: "documento" });
+        const { erro: erroTitulos } = await upsertEmLotes(
+          "acordos_titulos",
+          registrosTitulos,
+          "documento"
+        );
 
         if (erroTitulos) {
           setErro("Erro ao gravar os títulos: " + erroTitulos.message);
