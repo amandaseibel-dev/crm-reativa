@@ -41,6 +41,19 @@ function somarMeses(dataISO, meses) {
   return `${anoFinal}-${String(mesFinal).padStart(2, "0")}-${String(diaFinal).padStart(2, "0")}`;
 }
 
+// Campo de data dentro de um <label> às vezes não repassa o clique certo
+// pro seletor nativo do navegador (foca o campo, mas não abre o
+// calendário). Forçando o showPicker() no clique, garante que abre
+// sempre -- em navegadores sem suporte a essa API, cai pro comportamento
+// padrão sem quebrar nada.
+function abrirCalendario(evento) {
+  try {
+    evento.target.showPicker?.();
+  } catch {
+    // Sem suporte a showPicker() nesse navegador -- segue o clique normal.
+  }
+}
+
 function paraNumero(v) {
   let t = String(v || "").replace("R$", "").replace(/\s/g, "").trim();
   const temVirgula = t.includes(",");
@@ -110,6 +123,8 @@ function novoAcordoInicial() {
     entradaRs: "",
     entradaPct: "",
     entradaPaga: true,
+    dataEntrada: hojeISO(),
+    honorariosEntrada: "0",
     honorarios: "",
     primeiroVenc: somarMeses(hojeISO(), 1),
     titulosSel: [],
@@ -161,7 +176,7 @@ export default function FinanceiroAluno({ aluno }) {
       setCarregando(true);
       const { data } = await supabase
         .from("acordos_titulos")
-        .select("documento, vencimento, valor_original, saldo_corrigido, situacao, tipo_boleto")
+        .select("documento, vencimento, valor_original, saldo_corrigido, situacao, tipo_boleto, status")
         .eq("cpf", aluno.cpf)
         .order("vencimento", { ascending: true });
 
@@ -588,7 +603,7 @@ export default function FinanceiroAluno({ aluno }) {
         status: "A_VENCER",
       });
     }
-    setNovo((atual) => ({ ...atual, parcelas }));
+    setNovo((atual) => ({ ...atual, parcelas, honorariosEntrada: honEnt.toFixed(2) }));
   }
 
   function atualizarParcelaNovo(index, campo, valor) {
@@ -631,7 +646,7 @@ export default function FinanceiroAluno({ aluno }) {
         valor_entrada: novo.temEntrada ? entrada : null,
         entrada_percentual: pct,
         entrada_paga: novo.temEntrada ? Boolean(novo.entradaPaga) : false,
-        data_entrada: novo.temEntrada && novo.entradaPaga ? hojeISO() : null,
+        data_entrada: novo.temEntrada && novo.entradaPaga ? (novo.dataEntrada || hojeISO()) : null,
         honorarios_valor: honTotal || null,
         saldo: saldo,
         status: "ATIVO",
@@ -662,6 +677,50 @@ export default function FinanceiroAluno({ aluno }) {
     if (e2) {
       alert("Acordo criado, mas houve erro ao gerar as parcelas: " + e2.message);
       return;
+    }
+
+    // Entrada já paga vira um registro de pagamento de verdade (parcela
+    // número 0 + baixa), não só uma marcação no acordo -- sem isso, o
+    // valor da entrada nunca aparecia em nenhum KPI de "valor baixado" ou
+    // "honorários", porque esses somam de baixas/parcelas reais.
+    if (novo.temEntrada && novo.entradaPaga && entrada > 0) {
+      const dataEntradaEscolhida = novo.dataEntrada || hojeISO();
+      const honEntrada = paraNumero(novo.honorariosEntrada);
+
+      const { data: parcelaEntrada, error: erroEntrada } = await supabase
+        .from("parcelas")
+        .insert({
+          acordo_id: acordo.id,
+          numero: 0,
+          valor: entrada,
+          honorarios: honEntrada || 0,
+          vencimento: dataEntradaEscolhida,
+          status: "PAGO",
+          pago_em: dataEntradaEscolhida,
+          confirmado_por_email: email,
+        })
+        .select()
+        .single();
+
+      if (erroEntrada) {
+        console.error("Erro ao registrar a entrada como paga:", erroEntrada);
+        alert("Acordo criado, mas houve erro ao registrar a entrada como paga: " + erroEntrada.message);
+      } else {
+        await supabase.from("baixas_pagamento").insert({
+          aluno_id: String(aluno.id),
+          aluno_nome: aluno.nome || null,
+          aluno_cpf: aluno.cpf || null,
+          valor_pago: entrada,
+          honorarios_recebidos: honEntrada || 0,
+          status_baixa: "REALIZADA",
+          responsavel_baixa_nome: nomeOperadorPorEmail(operadorResponsavel),
+          responsavel_baixa_email: operadorResponsavel,
+          baixado_por_email: email,
+          data_pagamento: dataEntradaEscolhida,
+          parcela_id: parcelaEntrada?.id || null,
+          acordo_id: acordo.id,
+        });
+      }
     }
 
     if (novo.titulosSel.length > 0) {
@@ -770,7 +829,7 @@ export default function FinanceiroAluno({ aluno }) {
 
   if (carregando) return null;
 
-  const emAberto = titulos.filter((t) => t.situacao !== "PAGO");
+  const emAberto = titulos.filter((t) => t.situacao !== "PAGO" && t.status !== "vinculada" && t.status !== "quitada");
   const totalTitulosAberto = emAberto.reduce(
     (soma, t) => soma + Number(t.saldo_corrigido ?? t.valor_original ?? 0),
     0
@@ -859,6 +918,7 @@ export default function FinanceiroAluno({ aluno }) {
                 <label style={estilos.campo}>
                   1º vencimento
                   <input style={estilos.input} type="date" value={novo.primeiroVenc}
+                    onClick={abrirCalendario}
                     onChange={(e) => atualizarNovo("primeiroVenc", e.target.value)} />
                 </label>
               </div>
@@ -886,6 +946,14 @@ export default function FinanceiroAluno({ aluno }) {
                       onChange={(e) => atualizarNovo("entradaPaga", e.target.checked)} />
                     Entrada já paga
                   </label>
+                  {novo.entradaPaga && (
+                    <label style={estilos.campo}>
+                      Data em que a entrada foi paga
+                      <input type="date" style={estilos.input} value={novo.dataEntrada}
+                        onClick={abrirCalendario}
+                        onChange={(e) => atualizarNovo("dataEntrada", e.target.value)} />
+                    </label>
+                  )}
                 </div>
               )}
 
@@ -920,6 +988,7 @@ export default function FinanceiroAluno({ aluno }) {
                     <div key={index} style={estilos.parcRow}>
                       <span>{p.numero}</span>
                       <input style={estilos.inputTabela} type="date" value={p.vencimento}
+                        onClick={abrirCalendario}
                         onChange={(e) => atualizarParcelaNovo(index, "vencimento", e.target.value)} />
                       <input style={estilos.inputTabela} value={p.valor}
                         onChange={(e) => atualizarParcelaNovo(index, "valor", e.target.value)} />
@@ -1072,6 +1141,7 @@ function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, 
             type="date"
             style={estilos.formInput}
             value={novaMensalidade.vencimento}
+            onClick={abrirCalendario}
             onChange={(e) => setCampo("vencimento", e.target.value)}
           />
         </label>
@@ -1231,6 +1301,7 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                     <label style={estilos.formLabel}>
                       Data
                       <input type="date" style={estilos.formInput} value={campos.data || ""}
+                        onClick={abrirCalendario}
                         onChange={(e) => setCampos({ ...campos, data: e.target.value })} />
                     </label>
                     <label style={estilos.formLabel}>
@@ -1289,6 +1360,7 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                           <label style={estilos.formLabel}>
                             Data
                             <input type="date" style={estilos.formInput} value={campos.data || ""}
+                              onClick={abrirCalendario}
                               onChange={(e) => setCampos({ ...campos, data: e.target.value })} />
                           </label>
                           <label style={estilos.formLabel}>
@@ -1341,7 +1413,15 @@ const estilos = {
   botaoCancelar: { background: "rgba(148,163,184,0.25)", color: "#e2e8f0", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 },
   botaoExcluir: { background: "rgba(239,68,68,0.14)", color: "#f0999a", border: "1px solid rgba(239,68,68,0.4)", padding: "4px 10px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12 },
   resumoAcordo: { display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13, marginTop: 10, padding: "8px 12px", background: "rgba(148,163,184,0.08)", borderRadius: 8 },
-  seletorResponsavel: { background: "rgba(148,163,184,0.12)", color: "#e2e8f0", border: "1px solid rgba(148,163,184,0.3)", borderRadius: 6, padding: "2px 6px", fontSize: 12 },
+  seletorResponsavel: {
+    background: "#1e293b",
+    color: "#f1f5f9",
+    border: "1px solid rgba(148,163,184,0.4)",
+    borderRadius: 6,
+    padding: "4px 8px",
+    fontSize: 12,
+    colorScheme: "dark",
+  },
   formBaixa: { background: "rgba(15,23,42,0.35)", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 8, padding: 10, margin: "6px 0 10px" },
   formLinha: { display: "flex", gap: 10, flexWrap: "wrap" },
   formLabel: { display: "flex", flexDirection: "column", gap: 4, fontSize: 11, opacity: 0.85, flex: 1, minWidth: 120 },
