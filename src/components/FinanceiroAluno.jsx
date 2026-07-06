@@ -246,10 +246,14 @@ export default function FinanceiroAluno({ aluno }) {
     const agora = new Date().toISOString();
     const email = usuario?.email || "";
     const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
+    // pago_em usa a data real informada no formulário (não a data em que a
+    // baixa foi processada no sistema) -- isso importa pra lançamentos
+    // retroativos não entrarem na visão "deste mês" do operador.
+    const dataPagamento = dados.data ? new Date(dados.data + "T00:00:00").toISOString() : agora;
 
     const { error: erroParcela } = await supabase
       .from("parcelas")
-      .update({ status: "PAGO", pago_em: agora, confirmado_por_email: email, atualizado_em: agora })
+      .update({ status: "PAGO", pago_em: dataPagamento, confirmado_por_email: email, atualizado_em: agora })
       .eq("id", parcela.id);
 
     if (erroParcela) {
@@ -292,10 +296,11 @@ export default function FinanceiroAluno({ aluno }) {
     const agora = new Date().toISOString();
     const email = usuario?.email || "";
     const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
+    const dataPagamento = dados.data ? new Date(dados.data + "T00:00:00").toISOString() : agora;
 
     const { error: erroParcelas } = await supabase
       .from("parcelas")
-      .update({ status: "PAGO", pago_em: agora, confirmado_por_email: email, atualizado_em: agora })
+      .update({ status: "PAGO", pago_em: dataPagamento, confirmado_por_email: email, atualizado_em: agora })
       .eq("acordo_id", acordo.id)
       .neq("status", "PAGO");
 
