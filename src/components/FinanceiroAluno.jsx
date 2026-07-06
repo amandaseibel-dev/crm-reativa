@@ -114,6 +114,19 @@ function novoAcordoInicial() {
   };
 }
 
+// Cadastro manual de mensalidade -- pra corrigir caso que ficou de fora
+// de algum bordero (não é o fluxo normal, que é a importação em lote).
+function mensalidadeManualInicial() {
+  return {
+    documento: "",
+    vencimento: hojeISO(),
+    valor: "",
+    tipoBoleto: "",
+    competencia: "",
+    motivo: "",
+  };
+}
+
 export default function FinanceiroAluno({ aluno }) {
   const [titulos, setTitulos] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -124,6 +137,11 @@ export default function FinanceiroAluno({ aluno }) {
   const [titulosSelecionaveis, setTitulosSelecionaveis] = useState([]);
   const [novoAberto, setNovoAberto] = useState(true);
   const [novo, setNovo] = useState(novoAcordoInicial());
+
+  const [formMensalidadeAberto, setFormMensalidadeAberto] = useState(false);
+  const [novaMensalidade, setNovaMensalidade] = useState(mensalidadeManualInicial());
+  const [salvandoMensalidade, setSalvandoMensalidade] = useState(false);
+  const [erroMensalidade, setErroMensalidade] = useState("");
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUsuario(data?.user || null));
@@ -471,6 +489,75 @@ export default function FinanceiroAluno({ aluno }) {
     alert("Acordo criado com sucesso!");
   }
 
+  async function salvarMensalidadeManual() {
+    setErroMensalidade("");
+
+    if (!aluno?.id) {
+      setErroMensalidade("Este aluno não tem cadastro (id) — não dá pra vincular o título.");
+      return;
+    }
+
+    const documento = novaMensalidade.documento.trim();
+    if (!documento) {
+      setErroMensalidade("Informe o número do documento/título (o mesmo do bordero).");
+      return;
+    }
+    if (!novaMensalidade.vencimento) {
+      setErroMensalidade("Informe o vencimento.");
+      return;
+    }
+    const valor = paraNumero(novaMensalidade.valor);
+    if (!valor) {
+      setErroMensalidade("Informe um valor válido.");
+      return;
+    }
+
+    setSalvandoMensalidade(true);
+
+    const { data: criado, error } = await supabase
+      .from("acordos_titulos")
+      .insert({
+        aluno_id: String(aluno.id),
+        cpf: aluno.cpf || null,
+        documento,
+        vencimento: novaMensalidade.vencimento,
+        valor_original: valor,
+        saldo_corrigido: valor,
+        situacao: "ABERTO",
+        status: "em_aberto",
+        tipo_boleto: novaMensalidade.tipoBoleto || null,
+        competencia: novaMensalidade.competencia || null,
+        motivo_ajuste: `Inclusão manual na ficha do aluno${
+          usuario?.email ? " por " + usuario.email : ""
+        }${novaMensalidade.motivo ? " — " + novaMensalidade.motivo : ""}`,
+      })
+      .select()
+      .single();
+
+    setSalvandoMensalidade(false);
+
+    if (error) {
+      // Código 23505 = violação de UNIQUE -- já existe um título com esse
+      // número de documento (provavelmente já veio de algum bordero).
+      if (error.code === "23505") {
+        setErroMensalidade(
+          `Já existe um título com o documento "${documento}" no sistema. Confira se não é esse mesmo que você está procurando.`
+        );
+      } else {
+        setErroMensalidade("Erro ao salvar: " + error.message);
+      }
+      return;
+    }
+
+    setTitulos((anteriores) =>
+      [...anteriores, criado].sort((a, b) =>
+        String(a.vencimento || "").localeCompare(String(b.vencimento || ""))
+      )
+    );
+    setNovaMensalidade(mensalidadeManualInicial());
+    setFormMensalidadeAberto(false);
+  }
+
   if (carregando) return null;
 
   const emAberto = titulos.filter((t) => t.situacao !== "PAGO");
@@ -630,21 +717,54 @@ export default function FinanceiroAluno({ aluno }) {
 
       {titulos.length === 0 ? (
         <div style={estilos.caixa}>
-          <strong>💰 Financeiro</strong>
+          <div style={estilos.cabecalho}>
+            <strong>💰 Financeiro</strong>
+            <button
+              style={estilos.botaoPequeno}
+              onClick={() => setFormMensalidadeAberto((v) => !v)}
+            >
+              {formMensalidadeAberto ? "Cancelar" : "+ Adicionar mensalidade manual"}
+            </button>
+          </div>
           <p style={{ fontSize: 12, opacity: 0.7, margin: "6px 0 0" }}>
             {aluno?.cpf
               ? `Nenhum título importado pelos borderôs para o CPF ${aluno.cpf}.`
               : "Este aluno não tem CPF cadastrado, então não dá pra casar com os borderôs."}
           </p>
+          {formMensalidadeAberto && <FormMensalidadeManual
+            novaMensalidade={novaMensalidade}
+            setNovaMensalidade={setNovaMensalidade}
+            salvando={salvandoMensalidade}
+            erro={erroMensalidade}
+            onSalvar={salvarMensalidadeManual}
+            onCancelar={() => { setFormMensalidadeAberto(false); setErroMensalidade(""); }}
+          />}
         </div>
       ) : (
         <div style={estilos.caixa}>
           <div style={estilos.cabecalho}>
             <strong>💰 Financeiro (borderôs)</strong>
-            {emAberto.length > 0 && (
-              <span style={estilos.totalAberto}>{moeda(totalTitulosAberto)} em aberto</span>
-            )}
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              {emAberto.length > 0 && (
+                <span style={estilos.totalAberto}>{moeda(totalTitulosAberto)} em aberto</span>
+              )}
+              <button
+                style={estilos.botaoPequeno}
+                onClick={() => setFormMensalidadeAberto((v) => !v)}
+              >
+                {formMensalidadeAberto ? "Cancelar" : "+ Mensalidade manual"}
+              </button>
+            </div>
           </div>
+
+          {formMensalidadeAberto && <FormMensalidadeManual
+            novaMensalidade={novaMensalidade}
+            setNovaMensalidade={setNovaMensalidade}
+            salvando={salvandoMensalidade}
+            erro={erroMensalidade}
+            onSalvar={salvarMensalidadeManual}
+            onCancelar={() => { setFormMensalidadeAberto(false); setErroMensalidade(""); }}
+          />}
 
           <div style={{ marginTop: 10 }}>
             {titulos.map((titulo) => {
@@ -690,6 +810,91 @@ export default function FinanceiroAluno({ aluno }) {
         onQuitarCartao={quitarCartao}
       />
     </>
+  );
+}
+
+function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, erro, onSalvar, onCancelar }) {
+  function setCampo(campo, valor) {
+    setNovaMensalidade((anterior) => ({ ...anterior, [campo]: valor }));
+  }
+
+  return (
+    <div style={estilos.formBaixa}>
+      <p style={{ fontSize: 12, opacity: 0.8, margin: "0 0 8px" }}>
+        Uso pontual — pra corrigir um caso que ficou de fora de algum bordero. Use o mesmo
+        número de documento/título que estaria na planilha, pra não duplicar depois se o
+        bordero certo for reimportado.
+      </p>
+      <div style={estilos.formLinha}>
+        <label style={estilos.formLabel}>
+          Documento/título *
+          <input
+            style={estilos.formInput}
+            value={novaMensalidade.documento}
+            onChange={(e) => setCampo("documento", e.target.value)}
+            placeholder="Ex: 4192123"
+          />
+        </label>
+        <label style={estilos.formLabel}>
+          Vencimento *
+          <input
+            type="date"
+            style={estilos.formInput}
+            value={novaMensalidade.vencimento}
+            onChange={(e) => setCampo("vencimento", e.target.value)}
+          />
+        </label>
+        <label style={estilos.formLabel}>
+          Valor *
+          <input
+            style={estilos.formInput}
+            value={novaMensalidade.valor}
+            onChange={(e) => setCampo("valor", e.target.value)}
+            placeholder="Ex: 850,00"
+          />
+        </label>
+      </div>
+      <div style={{ ...estilos.formLinha, marginTop: 8 }}>
+        <label style={estilos.formLabel}>
+          Curso/tipo de boleto
+          <input
+            style={estilos.formInput}
+            value={novaMensalidade.tipoBoleto}
+            onChange={(e) => setCampo("tipoBoleto", e.target.value)}
+            placeholder="Opcional"
+          />
+        </label>
+        <label style={estilos.formLabel}>
+          Competência
+          <input
+            style={estilos.formInput}
+            value={novaMensalidade.competencia}
+            onChange={(e) => setCampo("competencia", e.target.value)}
+            placeholder="Opcional, ex: 05/2026"
+          />
+        </label>
+        <label style={{ ...estilos.formLabel, flex: 2 }}>
+          Motivo (fica registrado no histórico)
+          <input
+            style={estilos.formInput}
+            value={novaMensalidade.motivo}
+            onChange={(e) => setCampo("motivo", e.target.value)}
+            placeholder="Ex: não veio no bordero 624"
+          />
+        </label>
+      </div>
+
+      {erro && <p style={{ color: "#f0999a", fontSize: 12, marginTop: 8 }}>{erro}</p>}
+
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button style={estilos.botaoConfirmar} onClick={onSalvar} disabled={salvando}>
+          {salvando ? "Salvando..." : "Salvar mensalidade"}
+        </button>
+        <button style={estilos.botaoCancelar} onClick={onCancelar} disabled={salvando}>
+          Cancelar
+        </button>
+      </div>
+    </div>
   );
 }
 
