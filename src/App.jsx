@@ -5,6 +5,7 @@ import AutoLogout from "./components/AutoLogout";
 
 import Dashboard from "./pages/Dashboard";
 import BaseAnalitica from "./pages/BaseAnalitica";
+import Importacoes from "./pages/Importacoes";
 import Aluno from "./pages/Aluno";
 import PainelCarteira from "./components/PainelCarteira";
 import CRM from "./pages/CRM";
@@ -125,11 +126,27 @@ function podeAcessar(perfil, rota) {
   return permissoes[perfil]?.includes(rota);
 }
 
+// Gerenciar usuários é mais sensível que o resto do que "gerencia" acessa
+// -- fica restrito só a essas pessoas, nem todo mundo com perfil gerencia.
+const EMAILS_PODE_GERIR_USUARIOS = [
+  "amanda.seibel@aelbra.com.br",
+  "amandaseibel1706@gmail.com",
+  "amandapradoseibel@gmail.com",
+  "cobranca04@aelbra.com.br", // Fernanda (supervisora)
+];
+
 function RotaProtegida({ usuario, rota, children }) {
   const perfil = usuario?.perfil?.perfil;
 
   if (!podeAcessar(perfil, rota)) {
     return <Navigate to="/" replace />;
+  }
+
+  if (rota === "/usuarios") {
+    const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+    if (!EMAILS_PODE_GERIR_USUARIOS.includes(email)) {
+      return <Navigate to="/" replace />;
+    }
   }
 
   return children;
@@ -355,6 +372,10 @@ export default function App() {
 
   const menu = menuBase.filter((item) => {
     if (perfil === "operador" && item.esconderParaOperador) return false;
+    if (item.rota === "/usuarios") {
+      const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      if (!EMAILS_PODE_GERIR_USUARIOS.includes(email)) return false;
+    }
     return podeAcessar(perfil, item.rota);
   });
 
@@ -532,7 +553,7 @@ export default function App() {
               path="/importacoes"
               element={
                 <RotaProtegida usuario={usuario} rota="/importacoes">
-                  <BaseAnalitica />
+                  <Importacoes />
                 </RotaProtegida>
               }
             />
