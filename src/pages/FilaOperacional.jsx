@@ -382,6 +382,12 @@ export default function FilaOperador() {
 
       let query = supabase.from("alunos").select("*").limit(500);
 
+      // "Quitado (caso antigo)" sai de vez da fila -- diferente de
+      // Jurídico/Cancelamento, que ficam listados só travados pra edição,
+      // este some da lista mesmo (só reaparece se um bordero novo reverter
+      // o status, ver Borderos.jsx).
+      query = query.neq("status_jornada", "QUITADO_MANUAL");
+
       if (termo) {
         const somenteNumeros = termo.replace(/\D/g, "");
 
