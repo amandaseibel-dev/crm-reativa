@@ -61,6 +61,7 @@ const FILTROS = [
   { valor: "SEM_RESPONSAVEL", label: "Sem responsável" },
   { valor: "RETORNOS_HOJE", label: "Retornos de hoje" },
   { valor: "NEGOCIACAO_24H", label: "Negociação 24h" },
+  { valor: "QUITADOS", label: "✅ Quitados" },
   { valor: "JURIDICO_INDETERMINADO", label: "⚖️ Jurídico - prazo indeterminado", somenteGestao: true },
 ];
 
@@ -382,11 +383,16 @@ export default function FilaOperador() {
 
       let query = supabase.from("alunos").select("*").limit(500);
 
-      // "Quitado (caso antigo)" sai de vez da fila -- diferente de
-      // Jurídico/Cancelamento, que ficam listados só travados pra edição,
-      // este some da lista mesmo (só reaparece se um bordero novo reverter
-      // o status, ver Borderos.jsx).
-      query = query.neq("status_jornada", "QUITADO_MANUAL");
+      // Casos quitados saem de vez da fila -- tanto o "Quitado (caso
+      // antigo)" manual quanto a quitação normal (parcela por parcela até
+      // fechar tudo). Diferente de Jurídico/Cancelamento, que ficam
+      // listados só travados pra edição, estes somem da lista mesmo --
+      // a menos que a pessoa peça especificamente pra ver os quitados.
+      if (filtro === "QUITADOS") {
+        query = query.in("status_jornada", ["QUITADO_MANUAL", "QUITADO"]);
+      } else {
+        query = query.not("status_jornada", "in", '("QUITADO_MANUAL","QUITADO")');
+      }
 
       if (termo) {
         const somenteNumeros = termo.replace(/\D/g, "");
@@ -1264,7 +1270,7 @@ export default function FilaOperador() {
                     }}
                   >
                     <div style={linhaTopoCard}>
-                      <div>
+                      <div style={{ minWidth: 0, flex: "1 1 200px" }}>
                         <strong style={nomeAluno}>{nome}</strong>
                         <div style={textoCard}>CPF: {cpf}</div>
                       </div>
@@ -1301,40 +1307,31 @@ export default function FilaOperador() {
                     <div style={gradeInfo}>
                       <div>
                         <strong>Responsável</strong>
-                        <br />
-                        {responsavel}
+                        <span style={valorGrade}>{responsavel}</span>
                       </div>
 
                       <div>
                         <strong>Próxima ação</strong>
-                        <br />
-                        {proximaAcao}
+                        <span style={valorGrade}>{proximaAcao}</span>
                       </div>
 
                       <div>
                         <strong>Último acionamento</strong>
-                        <br />
-                        {formatarDataHora(aluno.data_ultimo_acionamento)}
+                        <span style={valorGrade}>{formatarDataHora(aluno.data_ultimo_acionamento)}</span>
                       </div>
 
                       <div>
                         <strong>Retorno</strong>
-                        <br />
-                        {formatarDataHora(aluno.data_retorno)}
+                        <span style={valorGrade}>{formatarDataHora(aluno.data_retorno)}</span>
                       </div>
 
                       <div>
                         <strong>Valor em aberto</strong>
-                        <br />
-                        {aluno.cpf && saldosPorCpf[aluno.cpf] !== undefined
-                          ? moeda(saldosPorCpf[aluno.cpf])
-                          : moeda(aluno.valor_em_aberto)}
-                      </div>
-
-                      <div>
-                        <strong>Status acionamento</strong>
-                        <br />
-                        {aluno.status_acionamento || "-"}
+                        <span style={valorGrade}>
+                          {aluno.cpf && saldosPorCpf[aluno.cpf] !== undefined
+                            ? moeda(saldosPorCpf[aluno.cpf])
+                            : moeda(aluno.valor_em_aberto)}
+                        </span>
                       </div>
                     </div>
 
@@ -1608,6 +1605,8 @@ const cardAluno = {
   borderRadius: "14px",
   padding: "14px",
   cursor: "pointer",
+  overflow: "hidden",
+  boxSizing: "border-box",
 };
 
 const linhaTopoCard = {
@@ -1622,12 +1621,15 @@ const linhaTopoCard = {
 const nomeAluno = {
   fontSize: "16px",
   color: "#ffffff",
+  overflowWrap: "anywhere",
+  wordBreak: "break-word",
 };
 
 const textoCard = {
   color: "#cbd5e1",
   fontSize: "13px",
   marginTop: "4px",
+  overflowWrap: "anywhere",
 };
 
 const badgeStatus = {
@@ -1638,14 +1640,26 @@ const badgeStatus = {
   padding: "6px 10px",
   fontSize: "12px",
   fontWeight: "bold",
+  whiteSpace: "normal",
+  overflowWrap: "anywhere",
+  textAlign: "center",
+  lineHeight: 1.3,
+  maxWidth: "220px",
 };
 
 const gradeInfo = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
+  gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
   gap: "10px",
   color: "#d1d5db",
   fontSize: "13px",
+};
+
+const valorGrade = {
+  overflowWrap: "anywhere",
+  wordBreak: "break-word",
+  display: "block",
+  marginTop: "2px",
 };
 
 const rodapeCard = {
