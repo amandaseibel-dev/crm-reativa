@@ -35,6 +35,7 @@ import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
+import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
 
 function EmDesenvolvimento({ titulo }) {
   return (
@@ -72,7 +73,8 @@ function podeAcessar(perfil, rota) {
       "/painel-operadores",    
       "/financeiro-operadores",
       "/meu-perfil",
-      "/painel-carteira",],
+      "/painel-carteira",
+      "/projecao-hora-a-hora",],
     supervisor: [
       "/",
       "/minha-fila",
@@ -91,7 +93,8 @@ function podeAcessar(perfil, rota) {
       "/painel-adm",
       "/fila-financeiro",    
       "/meu-perfil",
-      "/painel-carteira",],
+      "/painel-carteira",
+      "/projecao-hora-a-hora",],
     administrativo: [
       "/",
       "/minha-fila",
@@ -110,7 +113,8 @@ function podeAcessar(perfil, rota) {
       "/borderos",
       "/vincular-operadores",
       "/meu-perfil",
-      "/painel-carteira",],
+      "/painel-carteira",
+      "/projecao-hora-a-hora",],
     operador: [
       "/",
       "/minha-fila",
@@ -120,7 +124,8 @@ function podeAcessar(perfil, rota) {
       "/agenda-operacional",
       "/relatorios",
       "/meu-perfil",
-      "/painel-carteira",],
+      "/painel-carteira",
+      "/projecao-hora-a-hora",],
   };
 
   return permissoes[perfil]?.includes(rota);
@@ -343,6 +348,7 @@ export default function App() {
       label: perfil === "operador" ? "⚡ Minha Fila" : "🏠 Dashboard",
     },
     { rota: "/painel-carteira", label: "🗂️ Minha Carteira" },
+    { rota: "/projecao-hora-a-hora", label: "⏱️ Projeção Hora a Hora" },
     {
       rota: "/minha-fila",
       label: "⚡ Fila Operacional",
@@ -614,6 +620,7 @@ export default function App() {
             />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
               <Route path="/painel-carteira" element={<PainelCarteira />} />
+              <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
               <Route path="/manual-operacao" element={<ManualOperacao />} />
