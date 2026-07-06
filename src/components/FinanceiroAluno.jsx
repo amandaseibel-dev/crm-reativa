@@ -352,8 +352,21 @@ export default function FinanceiroAluno({ aluno }) {
     if (!confirmado) return;
 
     const agora = new Date().toISOString();
+    const email = usuario?.email || "";
 
-    await supabase.from("baixas_pagamento").delete().eq("parcela_id", parcela.id);
+    // baixas_pagamento não tem política de DELETE no banco -- um .delete()
+    // aqui falha silenciosamente (sem erro, sem apagar nada) e deixa o
+    // registro "fantasma", travando a exclusão do acordo depois. Em vez
+    // de apagar, marca como devolvida (a tabela já tem campo pra isso).
+    await supabase
+      .from("baixas_pagamento")
+      .update({
+        status_baixa: "DEVOLVIDA",
+        devolvido_por_email: email,
+        devolvido_em: agora,
+        motivo_devolucao: "Baixa desfeita na ficha do aluno (correção)",
+      })
+      .eq("parcela_id", parcela.id);
 
     const { error: erroParcela } = await supabase
       .from("parcelas")
@@ -424,6 +437,7 @@ export default function FinanceiroAluno({ aluno }) {
       .from("baixas_pagamento")
       .select("id")
       .eq("acordo_id", acordo.id)
+      .is("devolvido_em", null)
       .limit(1);
 
     if (baixasExistentes && baixasExistentes.length > 0) {
