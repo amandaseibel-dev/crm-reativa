@@ -399,7 +399,26 @@ export default function FilaOperador() {
       }
 
       if (filtro === "MINHA_FILA" && usuarioLogado?.email) {
-        query = query.eq("responsavel_atual_email", usuarioLogado.email);
+        // Além de quem é responsável atual do aluno, traz também quem tem
+        // pelo menos um acordo ativo sob o próprio nome -- pra dar pra
+        // acompanhar e mandar lembrete mesmo sem ser o "dono" do caso.
+        const { data: acordosDoOperador } = await supabase
+          .from("acordos")
+          .select("aluno_id")
+          .eq("operador_responsavel_email", usuarioLogado.email)
+          .eq("status", "ATIVO");
+
+        const idsPorAcordo = [
+          ...new Set((acordosDoOperador || []).map((a) => a.aluno_id).filter(Boolean)),
+        ];
+
+        if (idsPorAcordo.length > 0) {
+          query = query.or(
+            `responsavel_atual_email.eq.${usuarioLogado.email},id.in.(${idsPorAcordo.join(",")})`
+          );
+        } else {
+          query = query.eq("responsavel_atual_email", usuarioLogado.email);
+        }
       }
 
       if (filtro === "SEM_RESPONSAVEL") {
