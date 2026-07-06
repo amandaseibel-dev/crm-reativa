@@ -96,17 +96,31 @@ export default function FilaAdmTermos() {
     setCarregando(false);
   }
 
-  async function atualizarStatusAluno(alunoId, novoStatus, statusAcionamento) {
+  async function atualizarStatusAluno(alunoId, novoStatus, statusAcionamento, termo) {
     if (!alunoId) return;
 
     // Mesma lógica do link de pagamento: ao concluir a ação da ADM, o caso
-    // volta pro topo da fila do operador com prioridade máxima.
+    // volta pro topo da fila do operador com prioridade máxima. Os campos
+    // de status precisam do código padrão (maiúsculo, sem espaço) --
+    // senão nada no resto do sistema reconhece esse valor. E o
+    // responsável atual precisa voltar a ser o operador que enviou o
+    // termo -- sem isso, o caso muda de status mas nunca aparece na fila
+    // de quem deveria receber de volta.
     const { error } = await supabase
       .from("alunos")
       .update({
         status_jornada: novoStatus,
+        status_atual: novoStatus,
         nivel_criticidade: "URGENTE",
         status_acionamento: statusAcionamento || novoStatus,
+        data_ultimo_acionamento: new Date().toISOString(),
+        ...(termo?.operador_email
+          ? {
+              responsavel_atual_email: termo.operador_email,
+              responsavel_atual_nome: termo.operador_nome || termo.operador_email,
+              responsavel_atual_em: new Date().toISOString(),
+            }
+          : {}),
       })
       .eq("id", alunoId);
 
@@ -135,7 +149,7 @@ export default function FilaAdmTermos() {
       return;
     }
 
-    await atualizarStatusAluno(termo.aluno_id, "Termo recebido - liberado", "Termo aprovado pela ADM");
+    await atualizarStatusAluno(termo.aluno_id, "TERMO_RECEBIDO_LIBERADO", "TERMO_RECEBIDO_LIBERADO", termo);
 
     alert("Termo aprovado e liberado para operação.");
     carregarTermos();
@@ -165,7 +179,7 @@ export default function FilaAdmTermos() {
       return;
     }
 
-    await atualizarStatusAluno(termo.aluno_id, "Termo rejeitado", "Termo rejeitado pela ADM");
+    await atualizarStatusAluno(termo.aluno_id, "TERMO_REJEITADO", "TERMO_REJEITADO", termo);
 
     alert("Termo rejeitado e devolvido para operação.");
     carregarTermos();
