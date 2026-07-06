@@ -201,6 +201,8 @@ export default function PainelCarteira({ embedded = false }) {
     retornosHoje: 0,
     acordosQuebrados: 0,
     recebidosMes: 0,
+    valorBaixadoMes: 0,
+    honorariosBaixadoMes: 0,
     quitados: 0,
     acordosFechados: 0,
     linksPagos: 0,
@@ -329,15 +331,18 @@ export default function PainelCarteira({ embedded = false }) {
       if (acordoIds.length) {
         const { data: parc } = await supabase
           .from("parcelas")
-          .select("acordo_id,status,vencimento,pago_em,valor")
+          .select("acordo_id,status,vencimento,pago_em,valor,honorarios")
           .in("acordo_id", acordoIds);
         parcelas = parc || [];
       }
 
       const inicioMes = `${hoje.slice(0, 7)}-01`;
-      const recebidosMes = parcelas.filter(
+      const parcelasPagasMes = parcelas.filter(
         (p) => p.status === "PAGO" && p.pago_em && p.pago_em >= inicioMes
-      ).length;
+      );
+      const recebidosMes = parcelasPagasMes.length;
+      const valorBaixadoMes = parcelasPagasMes.reduce((soma, p) => soma + Number(p.valor || 0), 0);
+      const honorariosBaixadoMes = parcelasPagasMes.reduce((soma, p) => soma + Number(p.honorarios || 0), 0);
 
       const acordosComAtraso = new Set(
         parcelas
@@ -384,6 +389,8 @@ export default function PainelCarteira({ embedded = false }) {
         retornosHoje: rRetHoje.count || 0,
         acordosQuebrados,
         recebidosMes,
+        valorBaixadoMes,
+        honorariosBaixadoMes,
         quitados: rQuitados.count || 0,
         acordosFechados,
         linksPagos,
@@ -504,6 +511,8 @@ export default function PainelCarteira({ embedded = false }) {
     { id: "retornosHoje", rot: "Retornos hoje", val: kpis.retornosHoje, cor: "#0ea5e9", icone: "📅" },
     { id: "acordosQuebrados", rot: "Acordos quebrados", val: kpis.acordosQuebrados, cor: "#e11d48", icone: "💔" },
     { id: "recebidosMes", rot: "Recebidos este mes", val: kpis.recebidosMes, cor: "#16a34a", icone: "💰" },
+    { id: "valorBaixadoMes", rot: "Valor baixado este mes", val: formatarMoeda(kpis.valorBaixadoMes), cor: "#16a34a", icone: "💵" },
+    { id: "honorariosBaixadoMes", rot: "Honorarios este mes", val: formatarMoeda(kpis.honorariosBaixadoMes), cor: "#0d9488", icone: "🏷️" },
     { id: "quitados", rot: "Quitados", val: kpis.quitados, cor: "#16a34a", icone: "✅" },
     { id: "acordosFechados", rot: "Acordos fechados", val: kpis.acordosFechados, cor: "#0891b2", icone: "🤝" },
     { id: "linksPagos", rot: "Links pagos", val: kpis.linksPagos, cor: "#16a34a", icone: "🔗" },
