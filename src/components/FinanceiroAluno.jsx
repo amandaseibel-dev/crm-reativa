@@ -67,6 +67,7 @@ const STATUS_PARCELA_LABEL = {
   A_VENCER: "A vencer",
   VENCIDA: "Vencida",
   PAGO: "Paga",
+  CANCELADA: "Cancelada",
 };
 
 const CORES_STATUS = {
@@ -75,6 +76,7 @@ const CORES_STATUS = {
   atraso: { barra: "#EF9F27", bg: "rgba(239,159,39,0.18)", texto: "#f2c67a", label: "Em atraso" },
   quebrado: { barra: "#E24B4A", bg: "rgba(226,75,74,0.18)", texto: "#f0999a", label: "Quebrado" },
   quitado: { barra: "#1D9E75", bg: "rgba(29,158,117,0.18)", texto: "#6fd7b6", label: "Quitado" },
+  cancelado: { barra: "#64748b", bg: "rgba(100,116,139,0.18)", texto: "#94a3b8", label: "Cancelado" },
 };
 
 function diasAtraso(venc) {
@@ -85,6 +87,9 @@ function diasAtraso(venc) {
 }
 
 function statusAcordo(acordo, parcelas) {
+  if (acordo?.status === "CANCELADO") {
+    return "cancelado";
+  }
   if (acordo?.status === "QUITADO" || (parcelas.length > 0 && parcelas.every((p) => p.status === "PAGO"))) {
     return "quitado";
   }
@@ -256,6 +261,30 @@ export default function FinanceiroAluno({ aluno }) {
           .update({ status: "quitado_saiu", saiu_em: agora })
           .eq("aluno_id", String(aluno.id))
           .eq("status", "ativo");
+
+        // Isso aqui faltava: o acordo e a carteira ficavam quitados, mas
+        // o status do próprio aluno nunca mudava -- por isso ele
+        // continuava aparecendo normal na fila, sem nenhuma marca visual
+        // de que já está pago. Só mexe no status do aluno se não sobrar
+        // nenhum outro acordo ativo dele (pode ter mais de um).
+        const { data: outrosAtivos } = await supabase
+          .from("acordos")
+          .select("id")
+          .eq("aluno_id", String(aluno.id))
+          .eq("status", "ATIVO")
+          .neq("id", acordoId);
+
+        if (!outrosAtivos || outrosAtivos.length === 0) {
+          await supabase
+            .from("alunos")
+            .update({
+              status_jornada: "QUITADO",
+              status_atual: "QUITADO",
+              status_acionamento: "QUITADO",
+              proxima_acao: "NENHUMA",
+            })
+            .eq("id", String(aluno.id));
+        }
       }
     }
   }
@@ -430,6 +459,21 @@ export default function FinanceiroAluno({ aluno }) {
           .update({ status: "ativo", saiu_em: null })
           .eq("aluno_id", String(aluno.id))
           .eq("status", "quitado_saiu");
+
+        // Espelha o que checarQuitacao faz -- se o aluno tinha sido
+        // marcado como QUITADO por causa desse acordo, volta a ficar
+        // ativo na fila (só reverte se ainda estiver como QUITADO; se já
+        // foi mudado por outro motivo, não mexe).
+        await supabase
+          .from("alunos")
+          .update({
+            status_jornada: "EM_ATENDIMENTO",
+            status_atual: "EM_ATENDIMENTO",
+            status_acionamento: "EM_ATENDIMENTO",
+            proxima_acao: "CONTATAR",
+          })
+          .eq("id", String(aluno.id))
+          .eq("status_jornada", "QUITADO");
       }
     }
 
@@ -463,7 +507,7 @@ export default function FinanceiroAluno({ aluno }) {
 
     if (parcelas.some((p) => p.status === "PAGO")) {
       alert(
-        "Esse acordo já tem parcela paga -- não dá pra excluir (protege o histórico financeiro). Se foi um erro, fale com quem confirmou o pagamento antes de mexer."
+        "Esse acordo já tem parcela paga -- não dá pra cancelar (protege o histórico financeiro). Se foi um erro, fale com quem confirmou o pagamento antes de mexer."
       );
       return;
     }
@@ -476,14 +520,16 @@ export default function FinanceiroAluno({ aluno }) {
       .limit(1);
 
     if (baixasExistentes && baixasExistentes.length > 0) {
-      alert("Esse acordo já tem alguma baixa/pagamento registrado -- não dá pra excluir por aqui.");
+      alert("Esse acordo já tem alguma baixa/pagamento registrado -- não dá pra cancelar por aqui.");
       return;
     }
 
     const confirmado = window.confirm(
-      `Excluir esse acordo de ${moeda(acordo.valor_total)} em ${acordo.qtd_parcelas}x? Essa ação não pode ser desfeita. Os títulos vinculados a ele voltam a ficar em aberto.`
+      `Cancelar esse acordo de ${moeda(acordo.valor_total)} em ${acordo.qtd_parcelas}x? Os títulos vinculados a ele voltam a ficar em aberto, pra poderem entrar num acordo novo.`
     );
     if (!confirmado) return;
+
+    const agora = new Date().toISOString();
 
     const { data: vinculos } = await supabase
       .from("acordo_titulo_vinculo")
@@ -495,7 +541,7 @@ export default function FinanceiroAluno({ aluno }) {
     if (idsTitulos.length > 0) {
       const { error: erroReverter } = await supabase
         .from("acordos_titulos")
-        .update({ status: "em_aberto", atualizado_em: new Date().toISOString() })
+        .update({ status: "em_aberto", atualizado_em: agora })
         .in("id", idsTitulos);
       if (erroReverter) {
         alert("Erro ao devolver os títulos pro status em aberto: " + erroReverter.message);
@@ -503,17 +549,30 @@ export default function FinanceiroAluno({ aluno }) {
       }
     }
 
+    // acordos e parcelas não têm permissão de exclusão (DELETE) no banco
+    // -- tentar apagar falha silenciosamente, sem erro, e o registro
+    // continua lá do mesmo jeito. Por isso cancela (marca status) em vez
+    // de apagar -- o que também é melhor pra manter histórico/auditoria.
     await supabase.from("acordo_titulo_vinculo").delete().eq("acordo_id", acordo.id);
-    await supabase.from("parcelas").delete().eq("acordo_id", acordo.id);
 
-    const { error: erroExcluir } = await supabase.from("acordos").delete().eq("id", acordo.id);
-    if (erroExcluir) {
-      alert("Erro ao excluir o acordo: " + erroExcluir.message);
+    await supabase
+      .from("parcelas")
+      .update({ status: "CANCELADA", atualizado_em: agora })
+      .eq("acordo_id", acordo.id)
+      .neq("status", "PAGO");
+
+    const { error: erroCancelar } = await supabase
+      .from("acordos")
+      .update({ status: "CANCELADO", saldo: 0, atualizado_em: agora })
+      .eq("id", acordo.id);
+
+    if (erroCancelar) {
+      alert("Erro ao cancelar o acordo: " + erroCancelar.message);
       return;
     }
 
     setRecarga((r) => r + 1);
-    alert("Acordo excluído.");
+    alert("Acordo cancelado.");
   }
 
   // ---- Montar novo acordo (direto na ficha) ----
@@ -1225,7 +1284,7 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
       <div style={{ marginTop: 10 }}>
         {acordos.map((acordo) => {
           const parcelas = parcelasPorAcordo[acordo.id] || [];
-          const parcelasAbertas = parcelas.filter((p) => p.status !== "PAGO");
+          const parcelasAbertas = parcelas.filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA");
           const totalAcordoAberto = parcelasAbertas.reduce((soma, p) => soma + Number(p.valor || 0), 0);
           const chave = statusAcordo(acordo, parcelas);
           const cor = CORES_STATUS[chave];
@@ -1247,13 +1306,13 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                   {totalAcordoAberto > 0 && (
                     <span style={estilos.totalAberto}>{moeda(totalAcordoAberto)} em aberto</span>
                   )}
-                  {podeBaixar && (
+                  {podeBaixar && acordo.status !== "CANCELADO" && (
                     <button
                       style={estilos.botaoExcluir}
                       onClick={() => onExcluirAcordo(acordo)}
-                      title="Excluir acordo (só funciona se não tiver parcela paga)"
+                      title="Cancelar acordo (só funciona se não tiver parcela paga)"
                     >
-                      Excluir
+                      Cancelar
                     </button>
                   )}
                 </div>
@@ -1321,8 +1380,17 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
 
               {parcelas.map((p) => {
                 const pago = p.status === "PAGO";
-                const vencida = !pago && diasAtraso(p.vencimento) > 0;
-                const corP = pago ? CORES_STATUS.quitado : vencida ? CORES_STATUS.atraso : CORES_STATUS.em_aberto;
+                const cancelada = p.status === "CANCELADA";
+                const diasP = diasAtraso(p.vencimento);
+                const vencida = !pago && !cancelada && diasP > 0;
+                const venceAmanha = !pago && !cancelada && diasP === -1;
+                const corP = pago
+                  ? CORES_STATUS.quitado
+                  : cancelada
+                  ? CORES_STATUS.cancelado
+                  : vencida
+                  ? CORES_STATUS.atraso
+                  : CORES_STATUS.em_aberto;
                 return (
                   <div key={p.id}>
                     <div style={estilos.linha}>
@@ -1331,6 +1399,9 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                         <div style={estilos.subLinha}>
                           Vencimento: {formatarDataSimples(p.vencimento)}
                           {vencida ? <span style={estilos.marcaVencida}>• vencida</span> : null}
+                          {venceAmanha ? (
+                            <span style={estilos.marcaLembrete}>• vence amanhã — envie um lembrete ao aluno</span>
+                          ) : null}
                         </div>
                       </div>
                       <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 10 }}>
@@ -1406,6 +1477,7 @@ const estilos = {
   linha: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid rgba(148,163,184,0.12)" },
   subLinha: { fontSize: 11, opacity: 0.7, marginTop: 2 },
   marcaVencida: { color: "#f0999a", fontWeight: 700, marginLeft: 6 },
+  marcaLembrete: { color: "#fcd34d", fontWeight: 700, marginLeft: 6 },
   tagBase: { fontSize: 11, padding: "2px 8px", borderRadius: 999, fontWeight: 700 },
   botaoPequeno: { background: "#0ea5e9", color: "#fff", border: "none", padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12 },
   botaoCartao: { background: "#7c3aed", color: "#fff", border: "none", padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12 },
