@@ -190,13 +190,17 @@ export default function FluxoLinksRapido() {
     setSalvandoId(item.id);
     setErro("");
 
+    // Existem duas versões dessa função no banco: uma antiga (3 params,
+    // só atualiza o link) e uma nova (5 params, que também atualiza a
+    // ficha do aluno pra ele aparecer no topo da fila do operador). O
+    // parâmetro nomeado precisa bater com a versão nova, senão o Postgres
+    // silenciosamente chama a antiga e o aluno nunca reaparece pro operador.
     const { error } = await supabase.rpc("responder_link_pagamento", {
       p_link_id: item.id,
       p_link_pagamento: link,
-      p_adm_responsavel:
-        usuarioAtual.email ||
-        usuarioAtual.nome ||
-        "ADM/Supervisão"
+      p_usuario_email: usuarioAtual.email || null,
+      p_usuario_nome: usuarioAtual.nome || usuarioAtual.email || "ADM/Supervisão",
+      p_observacao_adm: null
     });
 
     setSalvandoId(null);
