@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
+import { podeGerirFinanceiro, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
 
 function formatarData(data) {
   if (!data) return "-";
@@ -91,8 +91,11 @@ function statusAcordo(acordo, parcelas) {
   });
   if (maiorAtraso > 30) return "quebrado";
   if (algumaVencida) return "atraso";
-  if (algumaPaga) return "em_dia";
-  return "em_aberto";
+  // Um acordo novo, sem nenhuma parcela vencida (mesmo que ainda nenhuma
+  // tenha sido paga), já está "em dia" -- antes só virava "em dia" depois
+  // da primeira baixa, e até lá aparecia como "em aberto", o que passava
+  // a ideia errada de que já tinha algo pendurado.
+  return "em_dia";
 }
 
 function valorTitulo(t) {
@@ -423,6 +426,23 @@ export default function FinanceiroAluno({ aluno }) {
   // ou baixa registrada (protege histórico financeiro real) e devolve os
   // títulos vinculados pro status "em_aberto", pra poderem entrar em outro
   // acordo depois.
+  // Um aluno pode ter mais de um acordo, cada um tocado por um operador
+  // diferente (ex: um da Amanda ADM, outro da Olga) -- puxar sempre do
+  // responsável atual do aluno (1 valor só) não dá conta disso, por isso
+  // dá pra trocar o responsável de cada acordo individualmente aqui.
+  async function alterarResponsavelAcordo(acordo, novoEmail) {
+    const { error } = await supabase
+      .from("acordos")
+      .update({ operador_responsavel_email: novoEmail || null, atualizado_em: new Date().toISOString() })
+      .eq("id", acordo.id);
+
+    if (error) {
+      alert("Erro ao trocar o responsável do acordo: " + error.message);
+      return;
+    }
+    setRecarga((r) => r + 1);
+  }
+
   async function excluirAcordo(acordo) {
     const parcelas = parcelasPorAcordo[acordo.id] || [];
 
@@ -1018,6 +1038,7 @@ export default function FinanceiroAluno({ aluno }) {
         onQuitarCartao={quitarCartao}
         onExcluirAcordo={excluirAcordo}
         onDesfazerBaixa={desfazerBaixa}
+        onAlterarResponsavel={alterarResponsavelAcordo}
       />
     </>
   );
@@ -1108,7 +1129,7 @@ function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, 
   );
 }
 
-function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa }) {
+function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel }) {
   const [formParcela, setFormParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
   const [campos, setCampos] = useState({});
@@ -1174,6 +1195,24 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                   {acordo.entrada_paga ? " (paga)" : " (pendente)"}
                 </div>
               ) : null}
+
+              <div style={{ ...estilos.subLinha, display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
+                Responsável:
+                {podeBaixar ? (
+                  <select
+                    style={estilos.seletorResponsavel}
+                    value={acordo.operador_responsavel_email || ""}
+                    onChange={(e) => onAlterarResponsavel(acordo, e.target.value)}
+                  >
+                    <option value="">Sem responsável</option>
+                    {Object.entries(OPERADORES_POR_EMAIL).map(([email, nome]) => (
+                      <option key={email} value={email}>{nome}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <strong>{OPERADORES_POR_EMAIL[acordo.operador_responsavel_email] || acordo.operador_responsavel_email || "-"}</strong>
+                )}
+              </div>
 
               {podeBaixar && parcelasAbertas.length > 0 && (
                 <div style={{ margin: "8px 0" }}>
@@ -1302,6 +1341,7 @@ const estilos = {
   botaoCancelar: { background: "rgba(148,163,184,0.25)", color: "#e2e8f0", border: "none", padding: "8px 14px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 13 },
   botaoExcluir: { background: "rgba(239,68,68,0.14)", color: "#f0999a", border: "1px solid rgba(239,68,68,0.4)", padding: "4px 10px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12 },
   resumoAcordo: { display: "flex", gap: 16, flexWrap: "wrap", fontSize: 13, marginTop: 10, padding: "8px 12px", background: "rgba(148,163,184,0.08)", borderRadius: 8 },
+  seletorResponsavel: { background: "rgba(148,163,184,0.12)", color: "#e2e8f0", border: "1px solid rgba(148,163,184,0.3)", borderRadius: 6, padding: "2px 6px", fontSize: 12 },
   formBaixa: { background: "rgba(15,23,42,0.35)", border: "1px solid rgba(148,163,184,0.25)", borderRadius: 8, padding: 10, margin: "6px 0 10px" },
   formLinha: { display: "flex", gap: 10, flexWrap: "wrap" },
   formLabel: { display: "flex", flexDirection: "column", gap: 4, fontSize: 11, opacity: 0.85, flex: 1, minWidth: 120 },
