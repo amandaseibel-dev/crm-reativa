@@ -233,22 +233,31 @@ export default function ProjecaoHoraHora() {
         defval: "",
         raw: true,
       });
-      // Antes checava só aluno/valor/honorário -- ainda perdia alguma linha
-      // legítima que só tivesse, por exemplo, título ou operador
-      // preenchidos. Agora considera "linha com dado" qualquer linha que
-      // tenha QUALQUER uma das colunas relevantes (aluno, título,
-      // operador, honorário, data de pagamento, valor pago) preenchida --
-      // só descarta linhas de fato totalmente vazias.
+      // Antes sempre pulava a linha 0 (slice(1)) assumindo que era o
+      // título "Data de Pagamento: ...". Só que ALGUNS arquivos vêm SEM
+      // essa linha de título -- a 1ª linha já é um pagamento de verdade,
+      // e ela estava sendo descartada (perdendo pagamento real, ex.:
+      // 2 pagamentos no arquivo, só 1 carregado). Agora não se assume
+      // mais nada sobre a linha 0: qualquer linha (incluindo a 1ª) que
+      // tenha um valor pago numérico válido (coluna K) é considerada um
+      // pagamento de verdade. Isso identifica e descarta a linha de
+      // título (que não tem número em "valor pago") sem depender de
+      // posição fixa.
       const linhaTemDado = (linha) => {
-        const indicesRelevantes = [1, 2, 3, 8, 9, 10]; // aluno, titulo, operador, honorario, data, valor
-        return indicesRelevantes.some((i) => {
-          const v = linha?.[i];
-          if (typeof v === "string") return v.trim() !== "";
-          if (typeof v === "number") return v !== 0;
-          return v instanceof Date;
-        });
+        const valorPago = linha?.[10];
+        const temValorPago = typeof valorPago === "number" && valorPago !== 0;
+        if (temValorPago) return true;
+
+        // Rede de segurança: se por algum motivo a coluna K não veio
+        // numérica mas a linha claramente tem outros dados de pagamento
+        // (aluno + data de pagamento), ainda considera válida.
+        const aluno = linha?.[1];
+        const dataPagamento = linha?.[9];
+        const temAluno = typeof aluno === "string" && aluno.trim() !== "";
+        const temData = dataPagamento instanceof Date || typeof dataPagamento === "number";
+        return temAluno && temData;
       };
-      const linhasDeDados = linhasBrutas.slice(1).filter(linhaTemDado);
+      const linhasDeDados = linhasBrutas.filter(linhaTemDado);
       setLinhasPreview(linhasDeDados.map(normalizarLinhaSantander));
     };
     leitor.readAsArrayBuffer(arquivoSelecionado);
