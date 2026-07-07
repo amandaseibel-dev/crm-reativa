@@ -85,6 +85,9 @@ export default function ProjecaoHoraHora() {
   const [mesReferencia, setMesReferencia] = useState(mesAtualISO());
 
   const [dashboard, setDashboard] = useState(null);
+  const [diaSelecionado, setDiaSelecionado] = useState(null);
+  const [pagamentosDoDia, setPagamentosDoDia] = useState([]);
+  const [carregandoPagamentosDia, setCarregandoPagamentosDia] = useState(false);
   const [carregandoDashboard, setCarregandoDashboard] = useState(true);
   const [erro, setErro] = useState("");
 
@@ -143,6 +146,38 @@ export default function ProjecaoHoraHora() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aba]);
 
+  async function abrirDiaSelecionado(dia) {
+    if (diaSelecionado === dia) {
+      setDiaSelecionado(null);
+      setPagamentosDoDia([]);
+      return;
+    }
+    setDiaSelecionado(dia);
+    setCarregandoPagamentosDia(true);
+    // RLS garante operador só vendo o próprio; mas Amanda ADM tem RLS de
+    // gestão (por causa de outras telas), então aqui filtramos na mão
+    // pra ela também só ver os próprios pagamentos, igual um operador.
+    let consultaDia = supabase
+      .from("pagamentos")
+      .select("aluno_nome, valor_pago, valor_honorario, operador_nome, titulo_numero")
+      .eq("data_pagamento", dia)
+      .order("valor_pago", { ascending: false });
+
+    if (usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br") {
+      consultaDia = consultaDia.eq("operador_email", "cobranca07@aelbra.com.br");
+    }
+
+    const { data, error } = await consultaDia;
+
+    if (error) {
+      console.error("Erro ao carregar pagamentos do dia:", error);
+      setPagamentosDoDia([]);
+    } else {
+      setPagamentosDoDia(data || []);
+    }
+    setCarregandoPagamentosDia(false);
+  }
+
   async function carregarDashboard() {
     setErro("");
     const { data, error } = await supabase.rpc("projecao_dashboard", { p_mes: mesReferencia });
@@ -176,10 +211,9 @@ export default function ProjecaoHoraHora() {
       .eq("data_pagamento", hojeISO)
       .order("valor_pago", { ascending: false });
 
-    // Quem não é gestão só pode ver os próprios lançamentos -- cada
-    // operador enxerga só o que é dele, nunca a projeção/lançamento de
-    // outro colega.
-    if (!usuario?.podeGerir && usuario?.email) {
+    // Quem não é gestão (ou é Amanda ADM, que aqui vê só o dela) só pode
+    // ver os próprios lançamentos.
+    if ((!usuario?.podeGerir || usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br") && usuario?.email) {
       consulta = consulta.eq("operador_email", usuario.email);
     }
 
@@ -423,6 +457,11 @@ export default function ProjecaoHoraHora() {
 
   const ranking = useMemo(() => dashboard?.ranking_equipe || [], [dashboard]);
   const historicoDia = useMemo(() => dashboard?.historico_dia_a_dia || [], [dashboard]);
+  // Amanda ADM (cobranca07) tem permissão de gestão pra outras telas
+  // (financeiro, importação), mas na Projeção/Hora a Hora ela deve ver
+  // só o que é dela -- não o painel gerencial do time inteiro.
+  const vePainelGestao =
+    usuario?.podeGerir && usuario?.email?.toLowerCase() !== "cobranca07@aelbra.com.br";
   const maiorValorGrafico = useMemo(
     () => Math.max(1, ...historicoDia.map((d) => Number(d.valor_recuperado) || 0)),
     [historicoDia]
@@ -471,7 +510,7 @@ export default function ProjecaoHoraHora() {
                   gerencial -- só aparece pra quem gerencia (Amanda/Fernanda).
                   Operador vê só o que é dele: honorário hoje/mês e a
                   projeção individual mais abaixo. */}
-              {usuario?.podeGerir && (
+              {vePainelGestao && (
                 <>
                   <div style={estilos.blocoFilial}>
                     <h3 style={{ marginBottom: 10 }}>🏢 Meta geral — Projeção da filial ({mesReferencia})</h3>
@@ -517,6 +556,24 @@ export default function ProjecaoHoraHora() {
                     <Cartao label="Honorário médio diário necessário" valor={moeda(dashboard?.media_diaria_necessaria)} />
                     <Cartao label="Dias úteis restantes" valor={dashboard?.dias_uteis_restantes ?? "-"} />
                   </div>
+                </>
+              )}
+
+              {usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br" && (
+                <>
+                  <h3 style={{ margin: "20px 0 10px" }}>💼 Meu painel (Amanda ADM)</h3>
+                  <div style={estilos.grade}>
+                    <Cartao label="Recuperado por mim no mês" valor={moeda(dashboard?.recuperado_mes_amanda_adm)} />
+                    <Cartao
+                      label="Minha comissão (8% flat sobre o recuperado)"
+                      valor={moeda(dashboard?.comissao_amanda_adm)}
+                      destaque
+                    />
+                  </div>
+                  <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
+                    Sem meta e sem faixa — comissão fixa de 8% sobre o valor que você mesma recuperou
+                    fechando acordos no mês.
+                  </p>
                 </>
               )}
 
@@ -578,7 +635,7 @@ export default function ProjecaoHoraHora() {
                 </>
               )}
 
-              {usuario?.podeGerir && (
+              {vePainelGestao && (
                 <div style={estilos.blocoMeta}>
                   <h3 style={{ marginBottom: 4 }}>🎯 Configuração de metas da competência ({mesReferencia})</h3>
                   <p style={{ opacity: 0.65, fontSize: 12, marginBottom: 14 }}>
@@ -654,16 +711,25 @@ export default function ProjecaoHoraHora() {
 
               <div style={estilos.blocoGrafico}>
                 <h3 style={{ marginBottom: 12 }}>📈 Evolução do mês (recuperado por dia)</h3>
+                <p style={{ opacity: 0.6, fontSize: 12, marginTop: -6, marginBottom: 10 }}>
+                  Clique numa barra pra ver quem pagou naquele dia.
+                </p>
                 {historicoDia.length === 0 ? (
                   <p style={{ opacity: 0.7 }}>Nenhum pagamento importado neste mês ainda.</p>
                 ) : (
                   <div style={estilos.barras}>
                     {historicoDia.map((d) => (
-                      <div key={d.dia} style={estilos.colunaBarra} title={moeda(d.valor_recuperado)}>
+                      <div
+                        key={d.dia}
+                        style={{ ...estilos.colunaBarra, cursor: "pointer" }}
+                        title={moeda(d.valor_recuperado)}
+                        onClick={() => abrirDiaSelecionado(d.dia)}
+                      >
                         <div
                           style={{
                             ...estilos.barra,
                             height: `${Math.max(4, (Number(d.valor_recuperado) / maiorValorGrafico) * 140)}px`,
+                            outline: diaSelecionado === d.dia ? "2px solid #7dd3fc" : "none",
                           }}
                         />
                         <span style={estilos.legendaBarra}>{formatarDataCurta(d.dia)}</span>
@@ -671,82 +737,120 @@ export default function ProjecaoHoraHora() {
                     ))}
                   </div>
                 )}
+
+                {diaSelecionado && (
+                  <div style={estilos.blocoPagamentosDia}>
+                    <h4 style={{ margin: "14px 0 8px" }}>
+                      💳 Pagamentos de {formatarDataCurta(diaSelecionado)}
+                    </h4>
+                    {carregandoPagamentosDia ? (
+                      <p style={{ opacity: 0.7 }}>Carregando...</p>
+                    ) : pagamentosDoDia.length === 0 ? (
+                      <p style={{ opacity: 0.7 }}>Nenhum pagamento encontrado nesse dia.</p>
+                    ) : (
+                      <table style={estilos.tabela}>
+                        <thead>
+                          <tr>
+                            <th style={estilos.th}>Aluno</th>
+                            {usuario?.podeGerir && <th style={estilos.th}>Operador</th>}
+                            <th style={estilos.th}>Valor pago</th>
+                            <th style={estilos.th}>Honorário</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pagamentosDoDia.map((p, i) => (
+                            <tr key={i} style={estilos.tr}>
+                              <td style={estilos.td}>{p.aluno_nome || "-"}</td>
+                              {usuario?.podeGerir && <td style={estilos.td}>{p.operador_nome || "-"}</td>}
+                              <td style={estilos.td}>{moeda(p.valor_pago)}</td>
+                              <td style={estilos.td}>{moeda(p.valor_honorario)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
               </div>
 
-              <div style={estilos.blocoRanking}>
-                <h3 style={{ marginBottom: 10 }}>
-                  {usuario?.podeGerir ? "🏆 Ranking da equipe (mês)" : "🏆 Meu desempenho (mês)"}
-                </h3>
-                {ranking.length === 0 ? (
-                  <p style={{ opacity: 0.7 }}>Sem dados no período.</p>
-                ) : (
-                  <table style={estilos.tabela}>
-                    <thead>
-                      <tr>
-                        {usuario?.podeGerir && <th style={estilos.th}>#</th>}
-                        <th style={estilos.th}>Operador</th>
-                        <th style={estilos.th}>Recuperado</th>
-                        <th style={estilos.th}>Honorário</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {ranking.map((r, i) => (
-                        <tr key={r.operador_email} style={estilos.tr}>
-                          {usuario?.podeGerir && <td style={estilos.td}>{i + 1}º</td>}
-                          <td style={{ ...estilos.td, fontWeight: 700 }}>{r.operador_nome || r.operador_email}</td>
-                          <td style={estilos.td}>{moeda(r.valor_recuperado)}</td>
-                          <td style={estilos.td}>{moeda(r.valor_honorario)}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
+              {usuario?.email?.toLowerCase() !== "cobranca07@aelbra.com.br" && (
+                <>
+                  <div style={estilos.blocoRanking}>
+                    <h3 style={{ marginBottom: 10 }}>
+                      {usuario?.podeGerir ? "🏆 Ranking da equipe (mês)" : "🏆 Meu desempenho (mês)"}
+                    </h3>
+                    {ranking.length === 0 ? (
+                      <p style={{ opacity: 0.7 }}>Sem dados no período.</p>
+                    ) : (
+                      <table style={estilos.tabela}>
+                        <thead>
+                          <tr>
+                            {usuario?.podeGerir && <th style={estilos.th}>#</th>}
+                            <th style={estilos.th}>Operador</th>
+                            <th style={estilos.th}>Recuperado</th>
+                            <th style={estilos.th}>Honorário</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {ranking.map((r, i) => (
+                            <tr key={r.operador_email} style={estilos.tr}>
+                              {usuario?.podeGerir && <td style={estilos.td}>{i + 1}º</td>}
+                              <td style={{ ...estilos.td, fontWeight: 700 }}>{r.operador_nome || r.operador_email}</td>
+                              <td style={estilos.td}>{moeda(r.valor_recuperado)}</td>
+                              <td style={estilos.td}>{moeda(r.valor_honorario)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
 
-              <div style={estilos.blocoRanking}>
-                <h3 style={{ marginBottom: 10 }}>
-                  {usuario?.podeGerir ? "🧾 Lançamentos de hoje" : "🧾 Meus lançamentos de hoje"}
-                </h3>
-                {lancamentosHoje.length === 0 ? (
-                  <p style={{ opacity: 0.7 }}>Nenhum pagamento lançado hoje ainda.</p>
-                ) : (
-                  <table style={estilos.tabela}>
-                    <thead>
-                      <tr>
-                        <th style={estilos.th}>Aluno</th>
-                        {usuario?.podeGerir && <th style={estilos.th}>Operador</th>}
-                        <th style={estilos.th}>Valor pago</th>
-                        <th style={estilos.th}>Honorário</th>
-                        {usuario?.podeGerir && <th style={estilos.th}>Ação</th>}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {lancamentosHoje.map((l) => (
-                        <tr key={l.id} style={estilos.tr}>
-                          <td style={estilos.td}>{l.aluno_nome || "-"}</td>
-                          {usuario?.podeGerir && (
-                            <td style={estilos.td}>{l.operador_nome || l.operador_email || "-"}</td>
-                          )}
-                          <td style={estilos.td}>{moeda(l.valor_pago)}</td>
-                          <td style={estilos.td}>{moeda(l.valor_honorario)}</td>
-                          {usuario?.podeGerir && (
-                            <td style={estilos.td}>
-                              <button style={estilos.botaoLink} onClick={() => alterarOperador(l.id, l.operador_email)}>
-                                Alterar operador
-                              </button>
-                            </td>
-                          )}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-                {usuario?.podeGerir && (
-                  <p style={{ opacity: 0.6, fontSize: 12, marginTop: 8 }}>
-                    Toda troca de operador responsável fica registrada em auditoria (quem alterou, de/para e motivo).
-                  </p>
-                )}
-              </div>
+                  <div style={estilos.blocoRanking}>
+                    <h3 style={{ marginBottom: 10 }}>
+                      {usuario?.podeGerir ? "🧾 Lançamentos de hoje" : "🧾 Meus lançamentos de hoje"}
+                    </h3>
+                    {lancamentosHoje.length === 0 ? (
+                      <p style={{ opacity: 0.7 }}>Nenhum pagamento lançado hoje ainda.</p>
+                    ) : (
+                      <table style={estilos.tabela}>
+                        <thead>
+                          <tr>
+                            <th style={estilos.th}>Aluno</th>
+                            {usuario?.podeGerir && <th style={estilos.th}>Operador</th>}
+                            <th style={estilos.th}>Valor pago</th>
+                            <th style={estilos.th}>Honorário</th>
+                            {usuario?.podeGerir && <th style={estilos.th}>Ação</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lancamentosHoje.map((l) => (
+                            <tr key={l.id} style={estilos.tr}>
+                              <td style={estilos.td}>{l.aluno_nome || "-"}</td>
+                              {usuario?.podeGerir && (
+                                <td style={estilos.td}>{l.operador_nome || l.operador_email || "-"}</td>
+                              )}
+                              <td style={estilos.td}>{moeda(l.valor_pago)}</td>
+                              <td style={estilos.td}>{moeda(l.valor_honorario)}</td>
+                              {usuario?.podeGerir && (
+                                <td style={estilos.td}>
+                                  <button style={estilos.botaoLink} onClick={() => alterarOperador(l.id, l.operador_email)}>
+                                    Alterar operador
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                    {usuario?.podeGerir && (
+                      <p style={{ opacity: 0.6, fontSize: 12, marginTop: 8 }}>
+                        Toda troca de operador responsável fica registrada em auditoria (quem alterou, de/para e motivo).
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
             </>
           )}
         </>
@@ -1068,6 +1172,7 @@ const estilos = {
     border: "1px solid rgba(148,163,184,0.15)",
   },
   blocoGrafico: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.06)", marginBottom: 20 },
+  blocoPagamentosDia: { marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(148,163,184,0.15)" },
   blocoRanking: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.06)", marginBottom: 20 },
   blocoImportar: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.06)" },
   checkboxRetroativo: {
