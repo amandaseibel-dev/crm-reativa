@@ -14,6 +14,8 @@ export const OPERADORES_POR_EMAIL = {
 
 const ALIAS_NOME_OPERADOR = {
   NATALY: "NATALI",
+  RAFAELA: "RAFAELLA",
+  "RAFAELA COIMBRA": "RAFAELLA",
 };
 
 function normalizarNomeOperador(nome) {
@@ -61,6 +63,8 @@ export function podeAcessoRestritoAmanda(email) {
   return podeBaixarPagamento(email);
 }
 
+// Fila de envio ao financeiro: so a Amanda ADM mexe nisso no dia a dia,
+// mas a Amanda gestora tambem enxerga para acompanhar.
 // Os 8 operadores com acesso ao ranking "Operadores x Direto". Qualquer
 // pagamento cujo operador não esteja nessa lista (ou sem operador/tabulação)
 // entra agregado como "Direto" nos rankings e relatórios.
