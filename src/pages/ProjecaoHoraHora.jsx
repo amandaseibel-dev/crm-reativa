@@ -233,7 +233,23 @@ export default function ProjecaoHoraHora() {
         defval: "",
         raw: true,
       });
-      const linhasDeDados = linhasBrutas.slice(1).filter((linha) => linha[0]);
+      // Antes filtrava só por linha[0] (coluna "instituição"), mas essa
+      // coluna vem em branco em várias linhas válidas do extrato e isso
+      // descartava registros reais da importação (ex.: relatório de 152
+      // linhas carregando só uma parte). Agora considera "linha com dado"
+      // qualquer linha que tenha nome do aluno (coluna B) OU valor pago
+      // (coluna K) preenchidos -- só descarta linhas de fato vazias.
+      const linhaTemDado = (linha) => {
+        const aluno = linha?.[1];
+        const valorPago = linha?.[10];
+        const honorario = linha?.[8];
+        return (
+          (typeof aluno === "string" && aluno.trim() !== "") ||
+          (typeof valorPago === "number" && valorPago !== 0) ||
+          (typeof honorario === "number" && honorario !== 0)
+        );
+      };
+      const linhasDeDados = linhasBrutas.slice(1).filter(linhaTemDado);
       setLinhasPreview(linhasDeDados.map(normalizarLinhaSantander));
     };
     leitor.readAsArrayBuffer(arquivoSelecionado);
