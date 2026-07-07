@@ -469,12 +469,12 @@ export default function ProjecaoHoraHora() {
                     <div style={estilos.label}>Recuperado hoje (filial)</div>
                   </div>
                   <div style={estilos.cartaoFilial}>
-                    <div style={estilos.numeroFilial}>{moeda(dashboard?.recuperado_reativa_mes ?? dashboard?.acumulado_mes_filial)}</div>
-                    <div style={estilos.label}>Recuperado pela ReATIVA (mês)</div>
+                    <div style={estilos.numeroFilial}>{moeda(dashboard?.honorario_mes_filial ?? dashboard?.recuperado_reativa_mes)}</div>
+                    <div style={estilos.label}>Honorário da ReATIVA (mês)</div>
                   </div>
                   <div style={estilos.cartaoFilial}>
-                    <div style={estilos.numeroFilial}>{moeda(dashboard?.meta_recuperacao)}</div>
-                    <div style={estilos.label}>Meta do mês</div>
+                    <div style={estilos.numeroFilial}>{moeda(dashboard?.meta_honorario)}</div>
+                    <div style={estilos.label}>Meta de honorário do mês</div>
                   </div>
                   <div style={estilos.cartaoFilial}>
                     <div
@@ -485,7 +485,7 @@ export default function ProjecaoHoraHora() {
                     >
                       {dashboard?.percentual_meta_filial ?? 0}%
                     </div>
-                    <div style={estilos.label}>% da meta atingido (filial)</div>
+                    <div style={estilos.label}>% da meta de honorário atingido (filial)</div>
                   </div>
                 </div>
               </div>
@@ -496,15 +496,15 @@ export default function ProjecaoHoraHora() {
               <div style={estilos.grade}>
                 <Cartao label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
                 <Cartao label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
-                <Cartao label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} destaque />
-                <Cartao label="Honorários do mês" valor={moeda(dashboard?.honorario_mes)} />
+                <Cartao label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
+                <Cartao label="Honorários do mês" valor={moeda(dashboard?.honorario_mes)} destaque />
                 <Cartao
-                  label="% da meta"
+                  label="% da meta (honorário)"
                   valor={`${dashboard?.percentual_meta ?? 0}%`}
                   cor={(dashboard?.percentual_meta ?? 0) >= 100 ? "#86efac" : "#7dd3fc"}
                 />
-                <Cartao label="Restante para a meta" valor={moeda(dashboard?.valor_restante_meta)} />
-                <Cartao label="Média diária necessária" valor={moeda(dashboard?.media_diaria_necessaria)} />
+                <Cartao label="Honorário restante p/ meta" valor={moeda(dashboard?.valor_restante_meta)} />
+                <Cartao label="Honorário médio diário necessário" valor={moeda(dashboard?.media_diaria_necessaria)} />
                 <Cartao label="Dias úteis restantes" valor={dashboard?.dias_uteis_restantes ?? "-"} />
               </div>
 
