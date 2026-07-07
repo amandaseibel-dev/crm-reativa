@@ -33,7 +33,7 @@ function normalizarLinhaSantander(linhaArray) {
     alunoBruto,
     tituloNumero,
     operadorBruto,
-    ,
+    numeroParcelaCompleto,
     ,
     ,
     ,
@@ -72,6 +72,11 @@ function normalizarLinhaSantander(linhaArray) {
     valor_honorario: Number(honorario) || 0,
     tipo_pagamento: "SANTANDER",
     titulo_numero: tituloNumero ? String(tituloNumero) : null,
+    // Identificador ÚNICO de cada parcela (ex: 50640510001). Um mesmo
+    // titulo_numero pode ter várias parcelas de um parcelamento, então
+    // NUNCA usar titulo_numero como chave de dedup -- só esta coluna é
+    // de fato única por parcela/boleto.
+    numero_parcela_completo: numeroParcelaCompleto ? String(numeroParcelaCompleto) : null,
     operador_email: emailOperador,
     operador_nome: emailOperador ? nomeOperadorPorEmail(emailOperador) : (operadorBruto || null),
     aluno_nome: aluno || null,
