@@ -508,6 +508,33 @@ export default function ProjecaoHoraHora() {
                 <Cartao label="Dias úteis restantes" valor={dashboard?.dias_uteis_restantes ?? "-"} />
               </div>
 
+              {!usuario?.podeGerir && (
+                <>
+                  <h3 style={{ margin: "20px 0 10px" }}>🔮 Minha projeção de fechamento</h3>
+                  <div style={estilos.grade}>
+                    <Cartao label="Minha meta de honorário (individual)" valor={moeda(dashboard?.meta_honorario_individual)} />
+                    <Cartao
+                      label="Projeção de honorário no fechamento"
+                      valor={moeda(dashboard?.projecao_honorario_individual)}
+                      destaque
+                    />
+                    <Cartao
+                      label="% da minha meta (projetado)"
+                      valor={`${dashboard?.percentual_projecao_individual ?? 0}%`}
+                      cor={(dashboard?.percentual_projecao_individual ?? 0) >= 100 ? "#86efac" : "#7dd3fc"}
+                    />
+                    <Cartao
+                      label="Ritmo (dias úteis já passados / total do mês)"
+                      valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`}
+                    />
+                  </div>
+                  <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
+                    Projeção calculada com base no seu ritmo médio de honorário por dia útil, multiplicado
+                    pelos dias úteis totais do mês. Não é garantia, é uma estimativa.
+                  </p>
+                </>
+              )}
+
               {usuario?.podeGerir && (
                 <div style={estilos.blocoMeta}>
                   <h3 style={{ marginBottom: 4 }}>🎯 Configuração de metas da competência ({mesReferencia})</h3>
