@@ -467,58 +467,69 @@ export default function ProjecaoHoraHora() {
             <p style={{ opacity: 0.7 }}>Carregando indicadores...</p>
           ) : (
             <>
-              {/* Bloco da filial -- visão geral da operação inteira, sem
-                  detalhar por operador. Aparece pra todo mundo, gestão ou
-                  não, como contexto do todo. */}
-              <div style={estilos.blocoFilial}>
-                <h3 style={{ marginBottom: 10 }}>🏢 Meta geral — Projeção da filial ({mesReferencia})</h3>
-                <div style={estilos.gradeFilial}>
-                  <div style={estilos.cartaoFilial}>
-                    <div style={estilos.numeroFilial}>{moeda(dashboard?.recuperado_hoje_filial)}</div>
-                    <div style={estilos.label}>Recuperado hoje (filial)</div>
-                  </div>
-                  <div style={estilos.cartaoFilial}>
-                    <div style={estilos.numeroFilial}>{moeda(dashboard?.honorario_mes_filial ?? dashboard?.recuperado_reativa_mes)}</div>
-                    <div style={estilos.label}>Honorário da ReATIVA (mês)</div>
-                  </div>
-                  <div style={estilos.cartaoFilial}>
-                    <div style={estilos.numeroFilial}>{moeda(dashboard?.meta_honorario)}</div>
-                    <div style={estilos.label}>Meta de honorário do mês</div>
-                  </div>
-                  <div style={estilos.cartaoFilial}>
-                    <div
-                      style={{
-                        ...estilos.numeroFilial,
-                        color: (dashboard?.percentual_meta_filial ?? 0) >= 100 ? "#86efac" : "#7dd3fc",
-                      }}
-                    >
-                      {dashboard?.percentual_meta_filial ?? 0}%
+              {/* Bloco da filial (meta geral, % geral etc.) é informação
+                  gerencial -- só aparece pra quem gerencia (Amanda/Fernanda).
+                  Operador vê só o que é dele: honorário hoje/mês e a
+                  projeção individual mais abaixo. */}
+              {usuario?.podeGerir && (
+                <>
+                  <div style={estilos.blocoFilial}>
+                    <h3 style={{ marginBottom: 10 }}>🏢 Meta geral — Projeção da filial ({mesReferencia})</h3>
+                    <div style={estilos.gradeFilial}>
+                      <div style={estilos.cartaoFilial}>
+                        <div style={estilos.numeroFilial}>{moeda(dashboard?.recuperado_hoje_filial)}</div>
+                        <div style={estilos.label}>Recuperado hoje (filial)</div>
+                      </div>
+                      <div style={estilos.cartaoFilial}>
+                        <div style={estilos.numeroFilial}>{moeda(dashboard?.honorario_mes_filial ?? dashboard?.recuperado_reativa_mes)}</div>
+                        <div style={estilos.label}>Honorário da ReATIVA (mês)</div>
+                      </div>
+                      <div style={estilos.cartaoFilial}>
+                        <div style={estilos.numeroFilial}>{moeda(dashboard?.meta_honorario)}</div>
+                        <div style={estilos.label}>Meta de honorário do mês</div>
+                      </div>
+                      <div style={estilos.cartaoFilial}>
+                        <div
+                          style={{
+                            ...estilos.numeroFilial,
+                            color: (dashboard?.percentual_meta_filial ?? 0) >= 100 ? "#86efac" : "#7dd3fc",
+                          }}
+                        >
+                          {dashboard?.percentual_meta_filial ?? 0}%
+                        </div>
+                        <div style={estilos.label}>% da meta de honorário atingido (filial)</div>
+                      </div>
                     </div>
-                    <div style={estilos.label}>% da meta de honorário atingido (filial)</div>
                   </div>
-                </div>
-              </div>
 
-              <h3 style={{ margin: "20px 0 10px" }}>
-                {usuario?.podeGerir ? "📊 Visão geral" : "👤 Minha projeção"}
-              </h3>
-              <div style={estilos.grade}>
-                <Cartao label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
-                <Cartao label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
-                <Cartao label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
-                <Cartao label="Honorários do mês" valor={moeda(dashboard?.honorario_mes)} destaque />
-                <Cartao
-                  label="% da meta (honorário)"
-                  valor={`${dashboard?.percentual_meta ?? 0}%`}
-                  cor={(dashboard?.percentual_meta ?? 0) >= 100 ? "#86efac" : "#7dd3fc"}
-                />
-                <Cartao label="Honorário restante p/ meta" valor={moeda(dashboard?.valor_restante_meta)} />
-                <Cartao label="Honorário médio diário necessário" valor={moeda(dashboard?.media_diaria_necessaria)} />
-                <Cartao label="Dias úteis restantes" valor={dashboard?.dias_uteis_restantes ?? "-"} />
-              </div>
+                  <h3 style={{ margin: "20px 0 10px" }}>📊 Visão geral</h3>
+                  <div style={estilos.grade}>
+                    <Cartao label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
+                    <Cartao label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
+                    <Cartao label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
+                    <Cartao label="Honorários do mês" valor={moeda(dashboard?.honorario_mes)} destaque />
+                    <Cartao
+                      label="% da meta (honorário)"
+                      valor={`${dashboard?.percentual_meta ?? 0}%`}
+                      cor={(dashboard?.percentual_meta ?? 0) >= 100 ? "#86efac" : "#7dd3fc"}
+                    />
+                    <Cartao label="Honorário restante p/ meta" valor={moeda(dashboard?.valor_restante_meta)} />
+                    <Cartao label="Honorário médio diário necessário" valor={moeda(dashboard?.media_diaria_necessaria)} />
+                    <Cartao label="Dias úteis restantes" valor={dashboard?.dias_uteis_restantes ?? "-"} />
+                  </div>
+                </>
+              )}
 
               {!usuario?.podeGerir && (
                 <>
+                  <h3 style={{ margin: "20px 0 10px" }}>👤 Meus números</h3>
+                  <div style={estilos.grade}>
+                    <Cartao label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
+                    <Cartao label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
+                    <Cartao label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
+                    <Cartao label="Honorários do mês" valor={moeda(dashboard?.honorario_mes)} destaque />
+                  </div>
+
                   <h3 style={{ margin: "20px 0 10px" }}>🔮 Minha projeção de fechamento</h3>
                   <div style={estilos.grade}>
                     <Cartao label="Minha meta de honorário (individual)" valor={moeda(dashboard?.meta_honorario_individual)} />
@@ -537,6 +548,20 @@ export default function ProjecaoHoraHora() {
                       valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`}
                     />
                   </div>
+
+                  <h3 style={{ margin: "20px 0 10px" }}>💰 Comissão sobre honorário (mês)</h3>
+                  <div style={estilos.grade}>
+                    <Cartao
+                      label="Comissão estimada até agora"
+                      valor={moeda(dashboard?.comissao_estimada_mes)}
+                      destaque
+                    />
+                    <Cartao label="Faixa atual" valor={dashboard?.faixa_atual || "-"} />
+                  </div>
+                  <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
+                    Cálculo progressivo (igual imposto de renda): cada faixa de honorário é comissionada só na
+                    fatia que cai dentro dela, e a comissão sobe conforme o honorário do mês avança de faixa.
+                  </p>
                   <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
                     Projeção calculada com base no seu ritmo médio de honorário por dia útil, multiplicado
                     pelos dias úteis totais do mês. Não é garantia, é uma estimativa.
