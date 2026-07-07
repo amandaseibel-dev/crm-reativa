@@ -95,7 +95,10 @@ export default function ProjecaoHoraHora() {
   const [mensagemImportacao, setMensagemImportacao] = useState("");
 
   const [historicoImportacoes, setHistoricoImportacoes] = useState([]);
+  const [auditoriaAcoes, setAuditoriaAcoes] = useState([]);
   const [lancamentosHoje, setLancamentosHoje] = useState([]);
+  const [substituindoImportacaoId, setSubstituindoImportacaoId] = useState(null);
+  const [processandoAcaoId, setProcessandoAcaoId] = useState(null);
 
   const [formMeta, setFormMeta] = useState({
     meta_operacional: "",
@@ -190,8 +193,25 @@ export default function ProjecaoHoraHora() {
       .select("*")
       .in("tipo", ["PROJECAO_DIARIA", "PROJECAO_RETROATIVA"])
       .order("created_at", { ascending: false })
-      .limit(50);
+      .limit(100);
     if (!error) setHistoricoImportacoes(data || []);
+
+    if (usuario?.podeGerir) {
+      const { data: auditoria, error: erroAuditoria } = await supabase
+        .from("auditoria")
+        .select("id, usuario, acao, tabela_afetada, registro_id, detalhes, created_at")
+        .in("acao", [
+          "IMPORTOU",
+          "SUBSTITUIU_IMPORTACAO",
+          "EXCLUIU_IMPORTACAO",
+          "REPROCESSOU_IMPORTACAO",
+          "ALTEROU_OPERADOR",
+          "CONFIGUROU_METAS",
+        ])
+        .order("created_at", { ascending: false })
+        .limit(100);
+      if (!erroAuditoria) setAuditoriaAcoes(auditoria || []);
+    }
   }
 
   function selecionarArquivo(evento) {
@@ -224,11 +244,51 @@ export default function ProjecaoHoraHora() {
     setImportando(true);
     setMensagemImportacao("");
 
+    const nomeArquivo = arquivo?.name || "planilha_diaria";
+    let idParaSubstituir = substituindoImportacaoId;
+    let motivoSubstituicao = null;
+
+    // Antes de gravar, checa se esse arquivo já foi importado nessa
+    // competência. Se já foi, pergunta se é pra substituir a importação
+    // existente ou cancelar -- evita duplicar Projeção/Hora a Hora.
+    if (!idParaSubstituir) {
+      const { data: existentes, error: erroChecagem } = await supabase.rpc("projecao_checar_importacao_existente", {
+        p_mes_referencia: mesReferencia,
+        p_arquivo_nome: nomeArquivo,
+      });
+      if (erroChecagem) {
+        setMensagemImportacao("Erro ao checar duplicidade: " + erroChecagem.message);
+        setImportando(false);
+        return;
+      }
+      if (existentes && existentes.length > 0) {
+        const jaImportado = existentes[0];
+        const confirmar = window.confirm(
+          `O arquivo "${nomeArquivo}" já foi importado nesta competência em ` +
+            `${new Date(jaImportado.created_at).toLocaleString("pt-BR")} por ${jaImportado.usuario} ` +
+            `(${jaImportado.qtd_registros} registros).\n\n` +
+            `Clique OK para SUBSTITUIR essa importação pela nova, ou Cancelar para não importar.`
+        );
+        if (!confirmar) {
+          setMensagemImportacao("Importação cancelada — arquivo já existia nesta competência.");
+          setImportando(false);
+          return;
+        }
+        idParaSubstituir = jaImportado.id;
+        motivoSubstituicao = prompt("Motivo da substituição (fica registrado na auditoria):") || "Reenvio do mesmo arquivo";
+      }
+    } else {
+      motivoSubstituicao = prompt("Motivo da substituição (fica registrado na auditoria):") || "Substituição manual";
+    }
+
     const { data, error } = await supabase.rpc("projecao_importar_pagamentos", {
-      p_arquivo_nome: arquivo?.name || "planilha_diaria",
+      p_arquivo_nome: nomeArquivo,
       p_usuario: usuario?.email || "",
       p_linhas: linhasPreview,
+      p_mes_referencia: mesReferencia,
       p_retroativo: ehRetroativo,
+      p_substituir_importacao_id: idParaSubstituir,
+      p_motivo_substituicao: motivoSubstituicao,
     });
 
     if (error) {
@@ -236,17 +296,60 @@ export default function ProjecaoHoraHora() {
     } else {
       const resultado = data?.[0];
       setMensagemImportacao(
-        `Importação concluída: ${resultado?.linhas_gravadas ?? linhasPreview.length} pagamentos gravados` +
+        `Importação ${idParaSubstituir ? "(substituindo a anterior) " : ""}concluída: ` +
+          `${resultado?.linhas_gravadas ?? linhasPreview.length} pagamentos gravados` +
           (ehRetroativo ? " (retroativo — só entra na visão macro, não afeta comissão/ranking do mês)." : ".")
       );
       setArquivo(null);
       setLinhasPreview([]);
       setEhRetroativo(false);
+      setSubstituindoImportacaoId(null);
       carregarDashboard();
       carregarLancamentosHoje();
       carregarHistorico();
     }
     setImportando(false);
+  }
+
+  function iniciarSubstituicaoImportacao(importacaoAlvo) {
+    setSubstituindoImportacaoId(importacaoAlvo.id);
+    setAba("IMPORTAR");
+    setMensagemImportacao(
+      `Selecione o novo arquivo pra substituir "${importacaoAlvo.arquivo_nome}" ` +
+        `(${new Date(importacaoAlvo.created_at).toLocaleString("pt-BR")}).`
+    );
+  }
+
+  async function reprocessarImportacao(importacaoId) {
+    if (!window.confirm("Reprocessar essa importação e recalcular os indicadores dela?")) return;
+    setProcessandoAcaoId(importacaoId);
+    const { error } = await supabase.rpc("projecao_reprocessar_importacao", { p_importacao_id: importacaoId });
+    if (error) {
+      alert("Erro ao reprocessar: " + error.message);
+    } else {
+      carregarDashboard();
+      carregarHistorico();
+    }
+    setProcessandoAcaoId(null);
+  }
+
+  async function excluirImportacao(importacaoId) {
+    const motivo = prompt("Motivo da exclusão (fica registrado na auditoria):");
+    if (!motivo) return;
+    if (!window.confirm("Excluir essa importação? Os pagamentos dela saem da Projeção, do Hora a Hora e dos indicadores.")) return;
+    setProcessandoAcaoId(importacaoId);
+    const { error } = await supabase.rpc("projecao_excluir_importacao", {
+      p_importacao_id: importacaoId,
+      p_motivo: motivo,
+    });
+    if (error) {
+      alert("Erro ao excluir: " + error.message);
+    } else {
+      carregarDashboard();
+      carregarLancamentosHoje();
+      carregarHistorico();
+    }
+    setProcessandoAcaoId(null);
   }
 
   async function salvarMeta() {
@@ -351,8 +454,8 @@ export default function ProjecaoHoraHora() {
                     <div style={estilos.label}>Recuperado hoje (filial)</div>
                   </div>
                   <div style={estilos.cartaoFilial}>
-                    <div style={estilos.numeroFilial}>{moeda(dashboard?.acumulado_mes_filial)}</div>
-                    <div style={estilos.label}>Acumulado do mês (filial)</div>
+                    <div style={estilos.numeroFilial}>{moeda(dashboard?.recuperado_reativa_mes ?? dashboard?.acumulado_mes_filial)}</div>
+                    <div style={estilos.label}>Recuperado pela ReATIVA (mês)</div>
                   </div>
                   <div style={estilos.cartaoFilial}>
                     <div style={estilos.numeroFilial}>{moeda(dashboard?.meta_recuperacao)}</div>
@@ -566,9 +669,26 @@ export default function ProjecaoHoraHora() {
 
       {aba === "IMPORTAR" && usuario?.podeGerir && (
         <div style={estilos.blocoImportar}>
+          {substituindoImportacaoId && (
+            <div style={{ ...estilos.avisoSubstituicao }}>
+              🔁 Modo substituição: o arquivo selecionado vai substituir uma importação existente.
+              <button
+                style={{ ...estilos.botaoLink, marginLeft: 10 }}
+                onClick={() => {
+                  setSubstituindoImportacaoId(null);
+                  setMensagemImportacao("");
+                }}
+              >
+                cancelar substituição
+              </button>
+            </div>
+          )}
           <p style={{ opacity: 0.8, marginBottom: 12 }}>
             Selecione o arquivo com os pagamentos do dia. Colunas esperadas: Data, Aluno, CPF, Operador,
             Valor Pago, Honorário, Tipo. O sistema tenta reconhecer variações comuns dos nomes das colunas.
+            <br />
+            Você pode importar quantos arquivos precisar na mesma competência — os valores de todas as
+            importações válidas são somados automaticamente na Projeção e no Hora a Hora.
           </p>
           <input type="file" accept=".xls,.xlsx" onChange={selecionarArquivo} />
 
@@ -636,49 +756,148 @@ export default function ProjecaoHoraHora() {
       )}
 
       {aba === "HISTORICO" && (
-        <div style={{ overflowX: "auto" }}>
-          <table style={estilos.tabela}>
-            <thead>
-              <tr>
-                <th style={estilos.th}>Arquivo</th>
-                <th style={estilos.th}>Tipo</th>
-                <th style={estilos.th}>Usuário</th>
-                <th style={estilos.th}>Data</th>
-                <th style={estilos.th}>Registros</th>
-                <th style={estilos.th}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {historicoImportacoes.length === 0 ? (
+        <div>
+          <div style={{ overflowX: "auto" }}>
+            <table style={estilos.tabela}>
+              <thead>
                 <tr>
-                  <td style={estilos.td} colSpan={6}>
-                    Nenhuma importação registrada ainda.
-                  </td>
+                  <th style={estilos.th}>Arquivo</th>
+                  <th style={estilos.th}>Competência</th>
+                  <th style={estilos.th}>Dia de pagamento</th>
+                  <th style={estilos.th}>Tipo</th>
+                  <th style={estilos.th}>Usuário</th>
+                  <th style={estilos.th}>Importado em</th>
+                  <th style={estilos.th}>Registros</th>
+                  <th style={estilos.th}>Status</th>
+                  {usuario?.podeGerir && <th style={estilos.th}>Ações</th>}
                 </tr>
-              ) : (
-                historicoImportacoes.map((imp) => (
-                  <tr key={imp.id} style={estilos.tr}>
-                    <td style={estilos.td}>{imp.arquivo_nome}</td>
-                    <td style={estilos.td}>
-                      {imp.retroativo ? (
-                        <span style={estilos.tagAmarela}>Retroativo</span>
-                      ) : (
-                        <span style={estilos.tagVerde}>Operacional</span>
-                      )}
-                    </td>
-                    <td style={estilos.td}>{imp.usuario}</td>
-                    <td style={estilos.td}>{new Date(imp.created_at).toLocaleString("pt-BR")}</td>
-                    <td style={estilos.td}>{imp.qtd_registros}</td>
-                    <td style={estilos.td}>
-                      <span style={imp.status === "CONCLUIDO" ? estilos.tagVerde : estilos.tagAmarela}>
-                        {imp.status}
-                      </span>
+              </thead>
+              <tbody>
+                {historicoImportacoes.length === 0 ? (
+                  <tr>
+                    <td style={estilos.td} colSpan={usuario?.podeGerir ? 9 : 8}>
+                      Nenhuma importação registrada ainda.
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  historicoImportacoes.map((imp) => (
+                    <tr key={imp.id} style={estilos.tr}>
+                      <td style={estilos.td}>{imp.arquivo_nome}</td>
+                      <td style={estilos.td}>{imp.mes_referencia || "-"}</td>
+                      <td style={estilos.td}>{imp.dia_pagamento ? formatarDataCurta(imp.dia_pagamento) : "-"}</td>
+                      <td style={estilos.td}>
+                        {imp.retroativo ? (
+                          <span style={estilos.tagAmarela}>Retroativo</span>
+                        ) : (
+                          <span style={estilos.tagVerde}>Operacional</span>
+                        )}
+                      </td>
+                      <td style={estilos.td}>{imp.usuario}</td>
+                      <td style={estilos.td}>{new Date(imp.created_at).toLocaleString("pt-BR")}</td>
+                      <td style={estilos.td}>{imp.qtd_registros}</td>
+                      <td style={estilos.td}>
+                        <span
+                          style={
+                            imp.status === "CONCLUIDO"
+                              ? estilos.tagVerde
+                              : imp.status === "EXCLUIDA"
+                              ? estilos.tagVermelha
+                              : estilos.tagAmarela
+                          }
+                          title={
+                            imp.status === "SUBSTITUIDA"
+                              ? `Substituída por ${imp.substituido_por || "-"} em ${imp.substituido_em ? new Date(imp.substituido_em).toLocaleString("pt-BR") : "-"}`
+                              : imp.status === "EXCLUIDA"
+                              ? `Excluída por ${imp.excluido_por || "-"} em ${imp.excluido_em ? new Date(imp.excluido_em).toLocaleString("pt-BR") : "-"} — ${imp.motivo_exclusao || ""}`
+                              : undefined
+                          }
+                        >
+                          {imp.status}
+                        </span>
+                      </td>
+                      {usuario?.podeGerir && (
+                        <td style={estilos.td}>
+                          {imp.status === "CONCLUIDO" ? (
+                            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                              <button
+                                style={estilos.botaoLink}
+                                onClick={() => iniciarSubstituicaoImportacao(imp)}
+                                disabled={processandoAcaoId === imp.id}
+                              >
+                                Substituir
+                              </button>
+                              <button
+                                style={estilos.botaoLink}
+                                onClick={() => reprocessarImportacao(imp.id)}
+                                disabled={processandoAcaoId === imp.id}
+                              >
+                                Reprocessar
+                              </button>
+                              <button
+                                style={{ ...estilos.botaoLink, color: "#f87171" }}
+                                onClick={() => excluirImportacao(imp.id)}
+                                disabled={processandoAcaoId === imp.id}
+                              >
+                                Excluir
+                              </button>
+                            </div>
+                          ) : (
+                            <span style={{ opacity: 0.5, fontSize: 12 }}>—</span>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {usuario?.podeGerir && (
+            <div style={{ marginTop: 28 }}>
+              <h3 style={{ marginBottom: 4 }}>🕵️ Auditoria de ações</h3>
+              <p style={{ opacity: 0.6, fontSize: 12, marginBottom: 10 }}>
+                Importações, substituições, exclusões, reprocessamentos, trocas de operador e configuração de metas.
+              </p>
+              <div style={{ overflowX: "auto" }}>
+                <table style={estilos.tabela}>
+                  <thead>
+                    <tr>
+                      <th style={estilos.th}>Ação</th>
+                      <th style={estilos.th}>Usuário</th>
+                      <th style={estilos.th}>Detalhes</th>
+                      <th style={estilos.th}>Data/hora</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {auditoriaAcoes.length === 0 ? (
+                      <tr>
+                        <td style={estilos.td} colSpan={4}>
+                          Nenhuma ação registrada ainda.
+                        </td>
+                      </tr>
+                    ) : (
+                      auditoriaAcoes.map((a) => (
+                        <tr key={a.id} style={estilos.tr}>
+                          <td style={estilos.td}>{a.acao}</td>
+                          <td style={estilos.td}>{a.usuario}</td>
+                          <td style={estilos.td}>
+                            <span style={{ fontSize: 12, opacity: 0.8 }}>
+                              {Object.entries(a.detalhes || {})
+                                .filter(([, v]) => v !== null && v !== undefined && v !== "")
+                                .map(([k, v]) => `${k}: ${typeof v === "object" ? JSON.stringify(v) : v}`)
+                                .join(" · ")}
+                            </span>
+                          </td>
+                          <td style={estilos.td}>{new Date(a.created_at).toLocaleString("pt-BR")}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -811,4 +1030,13 @@ const estilos = {
   tr: {},
   tagVerde: { background: "rgba(34,197,94,0.16)", color: "#86efac", fontSize: 12, padding: "3px 10px", borderRadius: 999 },
   tagAmarela: { background: "rgba(251,191,36,0.16)", color: "#fcd34d", fontSize: 12, padding: "3px 10px", borderRadius: 999 },
+  tagVermelha: { background: "rgba(248,113,113,0.16)", color: "#f87171", fontSize: 12, padding: "3px 10px", borderRadius: 999 },
+  avisoSubstituicao: {
+    padding: "10px 14px",
+    borderRadius: 8,
+    background: "rgba(56,189,248,0.12)",
+    border: "1px solid rgba(56,189,248,0.35)",
+    fontSize: 13,
+    marginBottom: 14,
+  },
 };
