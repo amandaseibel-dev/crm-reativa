@@ -7,8 +7,8 @@ import { emailPorNomeOperador, nomeOperadorPorEmail, podeVerTudo } from "../util
 const OPERADORES = [
   { nome: "OLGA", email: "cobranca03@aelbra.com.br" },
   { nome: "ALLAN", email: "cobranca11@aelbra.com.br" },
-  { nome: "DIEGO", email: "cobranca12@aelbra.com.br" },
-  { nome: "RAFAELLA", email: "cobranca13@aelbra.com.br" },
+  { nome: "DIEGO", email: "cobranca13@aelbra.com.br" },
+  { nome: "RAFAELLA", email: "cobranca12@aelbra.com.br" },
   { nome: "MAURICIO", email: "cobranca06@aelbra.com.br" },
   { nome: "LUANA", email: "cobranca05@aelbra.com.br" },
   { nome: "NATALY", email: "cobranca08@aelbra.com.br" },
