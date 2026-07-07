@@ -61,8 +61,25 @@ export function podeAcessoRestritoAmanda(email) {
   return podeBaixarPagamento(email);
 }
 
-// Fila de envio ao financeiro: so a Amanda ADM mexe nisso no dia a dia,
-// mas a Amanda gestora tambem enxerga para acompanhar.
+// Os 8 operadores com acesso ao ranking "Operadores x Direto". Qualquer
+// pagamento cujo operador não esteja nessa lista (ou sem operador/tabulação)
+// entra agregado como "Direto" nos rankings e relatórios.
+export const EMAILS_RANKING_OPERADORES = [
+  "cobranca03@aelbra.com.br", // Olga
+  "cobranca05@aelbra.com.br", // Luana
+  "cobranca06@aelbra.com.br", // Mauricio
+  "cobranca08@aelbra.com.br", // Nataly
+  "cobranca10@aelbra.com.br", // João
+  "cobranca11@aelbra.com.br", // Allan
+  "cobranca13@aelbra.com.br", // Diego
+  "cobranca12@aelbra.com.br", // Rafaela
+];
+
+export function ehOperadorDeRanking(email) {
+  const chave = String(email || "").toLowerCase().trim();
+  return EMAILS_RANKING_OPERADORES.includes(chave);
+}
+
 export function podeGerirFinanceiro(email) {
   const chave = String(email || "").toLowerCase().trim();
 
