@@ -233,21 +233,20 @@ export default function ProjecaoHoraHora() {
         defval: "",
         raw: true,
       });
-      // Antes filtrava só por linha[0] (coluna "instituição"), mas essa
-      // coluna vem em branco em várias linhas válidas do extrato e isso
-      // descartava registros reais da importação (ex.: relatório de 152
-      // linhas carregando só uma parte). Agora considera "linha com dado"
-      // qualquer linha que tenha nome do aluno (coluna B) OU valor pago
-      // (coluna K) preenchidos -- só descarta linhas de fato vazias.
+      // Antes checava só aluno/valor/honorário -- ainda perdia alguma linha
+      // legítima que só tivesse, por exemplo, título ou operador
+      // preenchidos. Agora considera "linha com dado" qualquer linha que
+      // tenha QUALQUER uma das colunas relevantes (aluno, título,
+      // operador, honorário, data de pagamento, valor pago) preenchida --
+      // só descarta linhas de fato totalmente vazias.
       const linhaTemDado = (linha) => {
-        const aluno = linha?.[1];
-        const valorPago = linha?.[10];
-        const honorario = linha?.[8];
-        return (
-          (typeof aluno === "string" && aluno.trim() !== "") ||
-          (typeof valorPago === "number" && valorPago !== 0) ||
-          (typeof honorario === "number" && honorario !== 0)
-        );
+        const indicesRelevantes = [1, 2, 3, 8, 9, 10]; // aluno, titulo, operador, honorario, data, valor
+        return indicesRelevantes.some((i) => {
+          const v = linha?.[i];
+          if (typeof v === "string") return v.trim() !== "";
+          if (typeof v === "number") return v !== 0;
+          return v instanceof Date;
+        });
       };
       const linhasDeDados = linhasBrutas.slice(1).filter(linhaTemDado);
       setLinhasPreview(linhasDeDados.map(normalizarLinhaSantander));
