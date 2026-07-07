@@ -97,7 +97,19 @@ export default function ProjecaoHoraHora() {
   const [historicoImportacoes, setHistoricoImportacoes] = useState([]);
   const [lancamentosHoje, setLancamentosHoje] = useState([]);
 
-  const [formMeta, setFormMeta] = useState({ meta_recuperacao: "", meta_honorario: "" });
+  const [formMeta, setFormMeta] = useState({
+    meta_operacional: "",
+    meta_unidades: "",
+    meta_honorario: "",
+    m1_valor: "",
+    m1_percentual: "",
+    m2_valor: "",
+    m2_percentual: "",
+    m3_valor: "",
+    m3_percentual: "",
+    m4_valor: "",
+    m4_percentual: "",
+  });
   const [salvandoMeta, setSalvandoMeta] = useState(false);
 
   useEffect(() => {
@@ -135,9 +147,19 @@ export default function ProjecaoHoraHora() {
       setErro("Erro ao carregar indicadores: " + error.message);
     } else {
       setDashboard(data);
+      const cfg = data?.config_metas || {};
       setFormMeta({
-        meta_recuperacao: data?.meta_recuperacao || "",
-        meta_honorario: data?.meta_honorario || "",
+        meta_operacional: cfg?.meta_operacional ?? data?.meta_recuperacao ?? "",
+        meta_unidades: cfg?.meta_unidades || "",
+        meta_honorario: cfg?.meta_honorario ?? data?.meta_honorario ?? "",
+        m1_valor: cfg?.m1_valor || "",
+        m1_percentual: cfg?.m1_percentual || "",
+        m2_valor: cfg?.m2_valor || "",
+        m2_percentual: cfg?.m2_percentual || "",
+        m3_valor: cfg?.m3_valor || "",
+        m3_percentual: cfg?.m3_percentual || "",
+        m4_valor: cfg?.m4_valor || "",
+        m4_percentual: cfg?.m4_percentual || "",
       });
     }
     setCarregandoDashboard(false);
@@ -231,8 +253,17 @@ export default function ProjecaoHoraHora() {
     setSalvandoMeta(true);
     const { error } = await supabase.rpc("projecao_definir_meta", {
       p_mes_referencia: mesReferencia,
-      p_meta_recuperacao: Number(formMeta.meta_recuperacao) || 0,
+      p_meta_operacional: Number(formMeta.meta_operacional) || 0,
+      p_meta_unidades: Number(formMeta.meta_unidades) || 0,
       p_meta_honorario: Number(formMeta.meta_honorario) || 0,
+      p_m1_valor: Number(formMeta.m1_valor) || 0,
+      p_m1_percentual: Number(formMeta.m1_percentual) || 0,
+      p_m2_valor: Number(formMeta.m2_valor) || 0,
+      p_m2_percentual: Number(formMeta.m2_percentual) || 0,
+      p_m3_valor: Number(formMeta.m3_valor) || 0,
+      p_m3_percentual: Number(formMeta.m3_percentual) || 0,
+      p_m4_valor: Number(formMeta.m4_valor) || 0,
+      p_m4_percentual: Number(formMeta.m4_percentual) || 0,
     });
     if (error) {
       alert("Erro ao salvar meta: " + error.message);
@@ -361,13 +392,29 @@ export default function ProjecaoHoraHora() {
 
               {usuario?.podeGerir && (
                 <div style={estilos.blocoMeta}>
-                  <h3 style={{ marginBottom: 10 }}>🎯 Meta do mês ({mesReferencia})</h3>
-                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end" }}>
-                    <Campo label="Meta de recuperação (R$)">
+                  <h3 style={{ marginBottom: 4 }}>🎯 Configuração de metas da competência ({mesReferencia})</h3>
+                  <p style={{ opacity: 0.65, fontSize: 12, marginBottom: 14 }}>
+                    Cadastrada pelo Gerente/Supervisor. É usada automaticamente no Dashboard, Hora a Hora,
+                    Projeção e Card de Desempenho do Operador — sem precisar mexer em código.
+                    <br />
+                    Representa apenas a <strong>meta operacional da equipe</strong> (M1–M4 são faixas dessa meta).
+                    Não é usada no cálculo da comissão individual do operador — essa regra continua separada.
+                  </p>
+
+                  <div style={{ display: "flex", gap: 12, flexWrap: "wrap", alignItems: "flex-end", marginBottom: 16 }}>
+                    <Campo label="Meta Operacional (R$)">
                       <input
                         type="number"
-                        value={formMeta.meta_recuperacao}
-                        onChange={(e) => setFormMeta((f) => ({ ...f, meta_recuperacao: e.target.value }))}
+                        value={formMeta.meta_operacional}
+                        onChange={(e) => setFormMeta((f) => ({ ...f, meta_operacional: e.target.value }))}
+                        style={estilos.input}
+                      />
+                    </Campo>
+                    <Campo label="Meta prevista das Unidades (R$)">
+                      <input
+                        type="number"
+                        value={formMeta.meta_unidades}
+                        onChange={(e) => setFormMeta((f) => ({ ...f, meta_unidades: e.target.value }))}
                         style={estilos.input}
                       />
                     </Campo>
@@ -379,10 +426,41 @@ export default function ProjecaoHoraHora() {
                         style={estilos.input}
                       />
                     </Campo>
-                    <button style={estilos.botaoPrimario} onClick={salvarMeta} disabled={salvandoMeta}>
-                      {salvandoMeta ? "Salvando..." : "Salvar meta"}
-                    </button>
                   </div>
+
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 16 }}>
+                    {["m1", "m2", "m3", "m4"].map((marco, i) => (
+                      <div key={marco} style={estilos.cartaoMarco}>
+                        <div style={{ fontWeight: 700, marginBottom: 8 }}>{`M${i + 1}`}</div>
+                        <div style={{ display: "flex", gap: 8 }}>
+                          <Campo label="Valor (R$)">
+                            <input
+                              type="number"
+                              value={formMeta[`${marco}_valor`]}
+                              onChange={(e) =>
+                                setFormMeta((f) => ({ ...f, [`${marco}_valor`]: e.target.value }))
+                              }
+                              style={{ ...estilos.input, width: 110 }}
+                            />
+                          </Campo>
+                          <Campo label="%">
+                            <input
+                              type="number"
+                              value={formMeta[`${marco}_percentual`]}
+                              onChange={(e) =>
+                                setFormMeta((f) => ({ ...f, [`${marco}_percentual`]: e.target.value }))
+                              }
+                              style={{ ...estilos.input, width: 80 }}
+                            />
+                          </Campo>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button style={estilos.botaoPrimario} onClick={salvarMeta} disabled={salvandoMeta}>
+                    {salvandoMeta ? "Salvando..." : "Salvar configuração de metas"}
+                  </button>
                 </div>
               )}
 
@@ -679,6 +757,12 @@ const estilos = {
   numero: { fontSize: 22, fontWeight: 800 },
   label: { fontSize: 12, opacity: 0.75, marginTop: 4 },
   blocoMeta: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.06)", marginBottom: 20 },
+  cartaoMarco: {
+    padding: 12,
+    borderRadius: 10,
+    background: "rgba(148,163,184,0.08)",
+    border: "1px solid rgba(148,163,184,0.15)",
+  },
   blocoGrafico: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.06)", marginBottom: 20 },
   blocoRanking: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.06)", marginBottom: 20 },
   blocoImportar: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.06)" },
