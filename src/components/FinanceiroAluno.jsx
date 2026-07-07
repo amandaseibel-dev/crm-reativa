@@ -907,8 +907,13 @@ export default function FinanceiroAluno({ aluno }) {
     .filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA");
   const valorAcordos = parcelasEmAberto.reduce((soma, p) => soma + Number(p.valor || 0), 0);
 
-  // Valor total do aluno = mensalidades em aberto + acordos em aberto.
-  const valorTotalAluno = valorMensalidades + valorAcordos;
+  // Valor de honorários: soma dos honorários das parcelas em aberto (mesmo
+  // filtro de parcelasEmAberto acima) -- fica separado do valor de acordos
+  // pra bater com o card de resumo, mas some junto no total do aluno.
+  const valorHonorarios = parcelasEmAberto.reduce((soma, p) => soma + Number(p.honorarios || 0), 0);
+
+  // Valor total do aluno = mensalidades em aberto + honorários em aberto + acordos em aberto.
+  const valorTotalAluno = valorMensalidades + valorHonorarios + valorAcordos;
   const temAlgumValor = titulos.length > 0 || acordos.length > 0;
 
   const somaTitulosMarcados = titulosSelecionaveis
@@ -922,6 +927,10 @@ export default function FinanceiroAluno({ aluno }) {
           <div style={estilos.resumoFinanceiroItem}>
             <span style={estilos.resumoFinanceiroLabel}>Mensalidades em aberto</span>
             <span style={estilos.resumoFinanceiroValor}>{moeda(valorMensalidades)}</span>
+          </div>
+          <div style={estilos.resumoFinanceiroItem}>
+            <span style={estilos.resumoFinanceiroLabel}>Honorários em aberto</span>
+            <span style={estilos.resumoFinanceiroValor}>{moeda(valorHonorarios)}</span>
           </div>
           <div style={estilos.resumoFinanceiroItem}>
             <span style={estilos.resumoFinanceiroLabel}>Acordos em aberto</span>
