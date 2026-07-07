@@ -530,16 +530,25 @@ export default function ProjecaoHoraHora() {
                     <Cartao label="Honorários do mês" valor={moeda(dashboard?.honorario_mes)} destaque />
                   </div>
 
-                  <h3 style={{ margin: "20px 0 10px" }}>🔮 Minha projeção de fechamento</h3>
+                  <h3 style={{ margin: "20px 0 10px" }}>🎯 Minha meta do mês (individual)</h3>
                   <div style={estilos.grade}>
-                    <Cartao label="Minha meta de honorário (individual)" valor={moeda(dashboard?.meta_honorario_individual)} />
+                    <Cartao label="Minha meta de honorário (mês, fixa)" valor={moeda(dashboard?.meta_honorario_individual)} />
+                    <Cartao label="Honorário já realizado no mês" valor={moeda(dashboard?.honorario_mes)} destaque />
                     <Cartao
-                      label="Projeção de honorário no fechamento"
+                      label="% da minha meta já atingido"
+                      valor={`${dashboard?.percentual_meta_individual_realizado ?? 0}%`}
+                      cor={(dashboard?.percentual_meta_individual_realizado ?? 0) >= 100 ? "#86efac" : "#7dd3fc"}
+                    />
+                  </div>
+
+                  <h3 style={{ margin: "20px 0 10px" }}>🔮 Projeção de fechamento (estimativa, não é a meta)</h3>
+                  <div style={estilos.grade}>
+                    <Cartao
+                      label="Se continuar nesse ritmo, deve fechar em"
                       valor={moeda(dashboard?.projecao_honorario_individual)}
-                      destaque
                     />
                     <Cartao
-                      label="% da minha meta (projetado)"
+                      label="% da meta que essa projeção bateria"
                       valor={`${dashboard?.percentual_projecao_individual ?? 0}%`}
                       cor={(dashboard?.percentual_projecao_individual ?? 0) >= 100 ? "#86efac" : "#7dd3fc"}
                     />
@@ -549,18 +558,18 @@ export default function ProjecaoHoraHora() {
                     />
                   </div>
 
-                  <h3 style={{ margin: "20px 0 10px" }}>💰 Comissão sobre honorário (mês)</h3>
+                  <h3 style={{ margin: "20px 0 10px" }}>💰 Comissão sobre meu honorário (mês)</h3>
                   <div style={estilos.grade}>
                     <Cartao
                       label="Comissão estimada até agora"
-                      valor={moeda(dashboard?.comissao_estimada_mes)}
+                      valor={moeda(dashboard?.comissao_estimada_individual)}
                       destaque
                     />
-                    <Cartao label="Faixa atual" valor={dashboard?.faixa_atual || "-"} />
+                    <Cartao label="Minha faixa atual" valor={dashboard?.faixa_atual || "-"} />
                   </div>
                   <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
-                    Cálculo progressivo (igual imposto de renda): cada faixa de honorário é comissionada só na
-                    fatia que cai dentro dela, e a comissão sobe conforme o honorário do mês avança de faixa.
+                    Cálculo progressivo (igual imposto de renda) sobre o SEU honorário do mês: cada faixa
+                    comissiona só a fatia que cai dentro dela.
                   </p>
                   <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
                     Projeção calculada com base no seu ritmo médio de honorário por dia útil, multiplicado
