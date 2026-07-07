@@ -1166,48 +1166,12 @@ export default function FilaOperador() {
         );
       })()}
 
-      <div style={caixa}>
-        <label style={label}>Buscar na fila por nome ou CPF</label>
+      {erro && <p style={erroTexto}>{erro}</p>}
 
-        <div style={barraBusca}>
-          <input
-            value={busca}
-            onChange={(e) => setBusca(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") carregarFila();
-            }}
-            placeholder="Digite nome ou CPF"
-            style={input}
-          />
-
-          <select
-            value={filtro}
-            onChange={(e) => setFiltro(e.target.value)}
-            style={selectFiltro}
-          >
-            {FILTROS.filter(
-              (item) => !item.somenteGestao || podeVerTudo(usuarioLogado?.email)
-            ).map((item) => (
-              <option key={item.valor} value={item.valor}>
-                {item.label}
-              </option>
-            ))}
-          </select>
-
-          <button
-            type="button"
-            onClick={carregarFila}
-            disabled={carregando}
-            style={botaoPrincipal}
-          >
-            Pesquisar
-          </button>
-        </div>
-
-        {erro && <p style={erroTexto}>{erro}</p>}
-      </div>
-
-      <div style={layout}>
+      {/* Versão antiga da fila operacional (lista "Alunos da fila") foi
+          ocultada — a PainelCarteira embedded no topo já cobre busca,
+          filtro e listagem dos casos, evitando telas duplicadas. */}
+      <div style={{ ...layout, display: "none" }}>
         <div style={caixa}>
           <h2 style={tituloSecao}>Alunos da fila</h2>
 
