@@ -111,6 +111,7 @@ export default function ProjecaoHoraHora() {
   }, []);
 
   useEffect(() => {
+    if (!usuario) return;
     carregarDashboard();
     carregarLancamentosHoje();
     // Atualiza os indicadores em tempo real a cada 30s.
@@ -120,7 +121,7 @@ export default function ProjecaoHoraHora() {
     }, 30000);
     return () => clearInterval(intervalo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mesReferencia]);
+  }, [mesReferencia, usuario]);
 
   useEffect(() => {
     if (aba === "HISTORICO") carregarHistorico();
@@ -144,11 +145,20 @@ export default function ProjecaoHoraHora() {
 
   async function carregarLancamentosHoje() {
     const hojeISO = new Date().toISOString().slice(0, 10);
-    const { data, error } = await supabase
+    let consulta = supabase
       .from("pagamentos")
       .select("id, data_pagamento, aluno_nome, operador_email, operador_nome, valor_pago, valor_honorario")
       .eq("data_pagamento", hojeISO)
       .order("valor_pago", { ascending: false });
+
+    // Quem não é gestão só pode ver os próprios lançamentos -- cada
+    // operador enxerga só o que é dele, nunca a projeção/lançamento de
+    // outro colega.
+    if (!usuario?.podeGerir && usuario?.email) {
+      consulta = consulta.eq("operador_email", usuario.email);
+    }
+
+    const { data, error } = await consulta;
     if (!error) setLancamentosHoje(data || []);
   }
 
@@ -299,6 +309,41 @@ export default function ProjecaoHoraHora() {
             <p style={{ opacity: 0.7 }}>Carregando indicadores...</p>
           ) : (
             <>
+              {/* Bloco da filial -- visão geral da operação inteira, sem
+                  detalhar por operador. Aparece pra todo mundo, gestão ou
+                  não, como contexto do todo. */}
+              <div style={estilos.blocoFilial}>
+                <h3 style={{ marginBottom: 10 }}>🏢 Meta geral — Projeção da filial ({mesReferencia})</h3>
+                <div style={estilos.gradeFilial}>
+                  <div style={estilos.cartaoFilial}>
+                    <div style={estilos.numeroFilial}>{moeda(dashboard?.recuperado_hoje_filial)}</div>
+                    <div style={estilos.label}>Recuperado hoje (filial)</div>
+                  </div>
+                  <div style={estilos.cartaoFilial}>
+                    <div style={estilos.numeroFilial}>{moeda(dashboard?.acumulado_mes_filial)}</div>
+                    <div style={estilos.label}>Acumulado do mês (filial)</div>
+                  </div>
+                  <div style={estilos.cartaoFilial}>
+                    <div style={estilos.numeroFilial}>{moeda(dashboard?.meta_recuperacao)}</div>
+                    <div style={estilos.label}>Meta do mês</div>
+                  </div>
+                  <div style={estilos.cartaoFilial}>
+                    <div
+                      style={{
+                        ...estilos.numeroFilial,
+                        color: (dashboard?.percentual_meta_filial ?? 0) >= 100 ? "#86efac" : "#7dd3fc",
+                      }}
+                    >
+                      {dashboard?.percentual_meta_filial ?? 0}%
+                    </div>
+                    <div style={estilos.label}>% da meta atingido (filial)</div>
+                  </div>
+                </div>
+              </div>
+
+              <h3 style={{ margin: "20px 0 10px" }}>
+                {usuario?.podeGerir ? "📊 Visão geral" : "👤 Minha projeção"}
+              </h3>
               <div style={estilos.grade}>
                 <Cartao label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
                 <Cartao label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
@@ -363,14 +408,16 @@ export default function ProjecaoHoraHora() {
               </div>
 
               <div style={estilos.blocoRanking}>
-                <h3 style={{ marginBottom: 10 }}>🏆 Ranking da equipe (mês)</h3>
+                <h3 style={{ marginBottom: 10 }}>
+                  {usuario?.podeGerir ? "🏆 Ranking da equipe (mês)" : "🏆 Meu desempenho (mês)"}
+                </h3>
                 {ranking.length === 0 ? (
                   <p style={{ opacity: 0.7 }}>Sem dados no período.</p>
                 ) : (
                   <table style={estilos.tabela}>
                     <thead>
                       <tr>
-                        <th style={estilos.th}>#</th>
+                        {usuario?.podeGerir && <th style={estilos.th}>#</th>}
                         <th style={estilos.th}>Operador</th>
                         <th style={estilos.th}>Recuperado</th>
                         <th style={estilos.th}>Honorário</th>
@@ -379,7 +426,7 @@ export default function ProjecaoHoraHora() {
                     <tbody>
                       {ranking.map((r, i) => (
                         <tr key={r.operador_email} style={estilos.tr}>
-                          <td style={estilos.td}>{i + 1}º</td>
+                          {usuario?.podeGerir && <td style={estilos.td}>{i + 1}º</td>}
                           <td style={{ ...estilos.td, fontWeight: 700 }}>{r.operador_nome || r.operador_email}</td>
                           <td style={estilos.td}>{moeda(r.valor_recuperado)}</td>
                           <td style={estilos.td}>{moeda(r.valor_honorario)}</td>
@@ -391,7 +438,9 @@ export default function ProjecaoHoraHora() {
               </div>
 
               <div style={estilos.blocoRanking}>
-                <h3 style={{ marginBottom: 10 }}>🧾 Lançamentos de hoje</h3>
+                <h3 style={{ marginBottom: 10 }}>
+                  {usuario?.podeGerir ? "🧾 Lançamentos de hoje" : "🧾 Meus lançamentos de hoje"}
+                </h3>
                 {lancamentosHoje.length === 0 ? (
                   <p style={{ opacity: 0.7 }}>Nenhum pagamento lançado hoje ainda.</p>
                 ) : (
@@ -399,7 +448,7 @@ export default function ProjecaoHoraHora() {
                     <thead>
                       <tr>
                         <th style={estilos.th}>Aluno</th>
-                        <th style={estilos.th}>Operador</th>
+                        {usuario?.podeGerir && <th style={estilos.th}>Operador</th>}
                         <th style={estilos.th}>Valor pago</th>
                         <th style={estilos.th}>Honorário</th>
                         {usuario?.podeGerir && <th style={estilos.th}>Ação</th>}
@@ -409,7 +458,9 @@ export default function ProjecaoHoraHora() {
                       {lancamentosHoje.map((l) => (
                         <tr key={l.id} style={estilos.tr}>
                           <td style={estilos.td}>{l.aluno_nome || "-"}</td>
-                          <td style={estilos.td}>{l.operador_nome || l.operador_email || "-"}</td>
+                          {usuario?.podeGerir && (
+                            <td style={estilos.td}>{l.operador_nome || l.operador_email || "-"}</td>
+                          )}
                           <td style={estilos.td}>{moeda(l.valor_pago)}</td>
                           <td style={estilos.td}>{moeda(l.valor_honorario)}</td>
                           {usuario?.podeGerir && (
@@ -603,6 +654,20 @@ const estilos = {
     fontSize: 13,
     fontWeight: 700,
   },
+  blocoFilial: {
+    padding: 16,
+    borderRadius: 10,
+    background: "rgba(34,197,94,0.06)",
+    border: "1px solid rgba(34,197,94,0.25)",
+    marginBottom: 20,
+  },
+  gradeFilial: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: 12,
+  },
+  cartaoFilial: { padding: 14, borderRadius: 10, background: "rgba(34,197,94,0.08)" },
+  numeroFilial: { fontSize: 20, fontWeight: 800 },
   grade: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
