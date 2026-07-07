@@ -888,17 +888,27 @@ export default function FinanceiroAluno({ aluno }) {
 
   if (carregando) return null;
 
+  // Valor de mensalidades: títulos (acordos_titulos) que ainda não foram
+  // pagos nem entraram em nenhum acordo -- "vinculada"/"quitada" já saíram
+  // daqui pra não duplicar com o valor de acordos abaixo.
   const emAberto = titulos.filter((t) => t.situacao !== "PAGO" && t.status !== "vinculada" && t.status !== "quitada");
-  const totalTitulosAberto = emAberto.reduce(
+  const valorMensalidades = emAberto.reduce(
     (soma, t) => soma + Number(t.saldo_corrigido ?? t.valor_original ?? 0),
     0
   );
 
-  const todasParcelas = Object.values(parcelasPorAcordo).flat();
-  const parcelasEmAberto = todasParcelas.filter((p) => p.status !== "PAGO");
-  const totalParcelasAberto = parcelasEmAberto.reduce((soma, p) => soma + Number(p.valor || 0), 0);
+  // Valor de acordos: soma das parcelas em aberto, só de acordos que ainda
+  // estão ativos -- acordo CANCELADO fica de fora inteiro, e dentro de um
+  // acordo ativo as parcelas PAGO/CANCELADA também não entram (senão o
+  // total sobe indevidamente).
+  const acordosNaoCancelados = acordos.filter((a) => a.status !== "CANCELADO");
+  const parcelasEmAberto = acordosNaoCancelados
+    .flatMap((a) => parcelasPorAcordo[a.id] || [])
+    .filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA");
+  const valorAcordos = parcelasEmAberto.reduce((soma, p) => soma + Number(p.valor || 0), 0);
 
-  const totalGeralAberto = totalTitulosAberto + totalParcelasAberto;
+  // Valor total do aluno = mensalidades em aberto + acordos em aberto.
+  const valorTotalAluno = valorMensalidades + valorAcordos;
   const temAlgumValor = titulos.length > 0 || acordos.length > 0;
 
   const somaTitulosMarcados = titulosSelecionaveis
@@ -908,9 +918,19 @@ export default function FinanceiroAluno({ aluno }) {
   return (
     <>
       {temAlgumValor && (
-        <div style={estilos.caixaResumo}>
-          <strong>💰 Total em aberto do aluno</strong>
-          <span style={estilos.totalGeral}>{moeda(totalGeralAberto)}</span>
+        <div style={estilos.resumoFinanceiroTopo}>
+          <div style={estilos.resumoFinanceiroItem}>
+            <span style={estilos.resumoFinanceiroLabel}>Mensalidades em aberto</span>
+            <span style={estilos.resumoFinanceiroValor}>{moeda(valorMensalidades)}</span>
+          </div>
+          <div style={estilos.resumoFinanceiroItem}>
+            <span style={estilos.resumoFinanceiroLabel}>Acordos em aberto</span>
+            <span style={estilos.resumoFinanceiroValor}>{moeda(valorAcordos)}</span>
+          </div>
+          <div style={{ ...estilos.resumoFinanceiroItem, ...estilos.resumoFinanceiroItemTotal }}>
+            <span style={estilos.resumoFinanceiroLabel}>💰 Total em aberto do aluno</span>
+            <span style={estilos.totalGeral}>{moeda(valorTotalAluno)}</span>
+          </div>
         </div>
       )}
 
@@ -1102,7 +1122,7 @@ export default function FinanceiroAluno({ aluno }) {
             <strong>💰 Financeiro (borderôs)</strong>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               {emAberto.length > 0 && (
-                <span style={estilos.totalAberto}>{moeda(totalTitulosAberto)} em aberto</span>
+                <span style={estilos.totalAberto}>{moeda(valorMensalidades)} em aberto</span>
               )}
               <button
                 style={estilos.botaoPequeno}
@@ -1474,6 +1494,11 @@ const estilos = {
   totalAberto: { fontSize: 13, color: "#fcd34d", fontWeight: 700 },
   caixaResumo: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", marginTop: 14, marginBottom: 4, borderRadius: 10, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" },
   totalGeral: { fontSize: 16, fontWeight: 800, color: "#4ade80" },
+  resumoFinanceiroTopo: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14, marginBottom: 4 },
+  resumoFinanceiroItem: { flex: "1 1 180px", display: "flex", flexDirection: "column", gap: 4, padding: "12px 16px", borderRadius: 10, background: "rgba(148,163,184,0.08)", border: "1px solid rgba(148,163,184,0.2)" },
+  resumoFinanceiroItemTotal: { background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" },
+  resumoFinanceiroLabel: { fontSize: 12, opacity: 0.8, fontWeight: 600 },
+  resumoFinanceiroValor: { fontSize: 16, fontWeight: 800, color: "#e2e8f0" },
   linha: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid rgba(148,163,184,0.12)" },
   subLinha: { fontSize: 11, opacity: 0.7, marginTop: 2 },
   marcaVencida: { color: "#f0999a", fontWeight: 700, marginLeft: 6 },
