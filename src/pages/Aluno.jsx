@@ -55,12 +55,19 @@ const STATUS_COM_PROCESSO = ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"];
 // entrar na fila sozinho (os outros dois nunca voltam automaticamente).
 const STATUS_QUITADO_MANUAL = "QUITADO_MANUAL";
 
+// Casos já quitados (sem parcelas em aberto). A ficha desses fica em amarelo
+// -- diferente do vermelho de Jurídico/Cancelamento -- porque não é um caso
+// travado: se subir um título novo dele num bordero, ele volta pra fila.
+const STATUS_QUITADOS = [STATUS_QUITADO_MANUAL, "QUITADO"];
+
 // Emails que podem usar o botão de "Quitar tudo" -- deliberadamente mais
 // restrito que podeVerTudo (que também inclui supervisão): só a Amanda.
 const EMAILS_PODE_QUITAR_MANUAL = [
   "amanda.seibel@aelbra.com.br",
   "amandaseibel1706@gmail.com",
   "amandapradoseibel@gmail.com",
+  "cobranca07@aelbra.com.br", // Amanda ADM
+  "cobranca04@aelbra.com.br", // Fernanda (supervisão)
 ];
 
 function podeQuitarManual(email) {
@@ -1113,6 +1120,7 @@ export default function Alunos() {
                 const selecionado = alunoSelecionado?.id === aluno.id;
 
                 const bloqueado = STATUS_BLOQUEADOS_ACIONAMENTO.includes(status);
+                const quitado = STATUS_QUITADOS.includes(status);
                 const temProcesso = STATUS_COM_PROCESSO.includes(status);
 
                 return (
@@ -1122,15 +1130,19 @@ export default function Alunos() {
                     onClick={() => abrirAluno(aluno)}
                     style={{
                       ...cardAlunoLista,
-                      background: bloqueado
-                        ? "#450a0a"
-                        : selecionado
+                      background: selecionado
                         ? "#064e3b"
+                        : quitado
+                        ? "#78350f"
+                        : bloqueado
+                        ? "#450a0a"
                         : "#1f2937",
-                      border: bloqueado
-                        ? "1px solid #ef4444"
-                        : selecionado
+                      border: selecionado
                         ? "1px solid #22c55e"
+                        : quitado
+                        ? "1px solid #facc15"
+                        : bloqueado
+                        ? "1px solid #ef4444"
                         : "1px solid #374151",
                     }}
                   >
@@ -1168,11 +1180,15 @@ export default function Alunos() {
                     <span>
                       Status acionamento: {aluno.status_acionamento || "-"}
                     </span>
-                    {bloqueado && (
+                    {quitado ? (
+                      <span style={{ color: "#fde68a", fontWeight: 700 }}>
+                        ✓ Quitado — volta se entrar título novo
+                      </span>
+                    ) : bloqueado ? (
                       <span style={{ color: "#fecaca", fontWeight: 700 }}>
                         ⚠️ Não acionar
                       </span>
-                    )}
+                    ) : null}
                   </button>
                 );
               })}
@@ -1196,10 +1212,31 @@ export default function Alunos() {
                   ["status_jornada", "status_atual", "status"],
                   "CONTATAR"
                 );
+                const fichaQuitada = STATUS_QUITADOS.includes(statusFicha);
                 const fichaRestrita =
                   STATUS_BLOQUEADOS_ACIONAMENTO.includes(statusFicha);
                 const fichaBloqueadaParaMim =
                   fichaRestrita && !podeVerTudo(usuarioLogado?.email);
+
+                if (fichaQuitada) {
+                  return (
+                    <div
+                      style={{
+                        background: "#78350f",
+                        color: "#fde68a",
+                        border: "1px solid #facc15",
+                        borderRadius: 10,
+                        padding: "12px 14px",
+                        marginBottom: 14,
+                        fontWeight: 700,
+                      }}
+                    >
+                      ✓ {STATUS_BLOQUEADOS_LABEL[statusFicha] || "Quitado"} — sem
+                      parcelas em aberto. Volta pra fila automaticamente se subir
+                      um título novo dele num bordero.
+                    </div>
+                  );
+                }
 
                 return fichaRestrita ? (
                   <div
