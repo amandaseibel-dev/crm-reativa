@@ -389,27 +389,107 @@ export default function Borderos() {
           atualizados = registrosTitulos.filter((r) => existentesSet.has(r.documento)).length;
 
           // Reativa alunos que estavam quitados (ficha amarela) e voltaram a
-          // ter título em aberto neste bordero -- eles saem do "quitado" e
-          // retornam pra fila ativa (CONTATAR). O filtro por status_jornada
-          // garante que só mexe em quem estava quitado, sem atropelar
-          // atendimentos em andamento nem os casos travados (jurídico etc.).
+          // ter título em aberto neste bordero -- eles saem do "quitado",
+          // retornam pra fila ativa (CONTATAR) E têm o saldo restaurado (a
+          // quitação manual havia zerado títulos, parcelas e acordo).
           const idsAlunosComTitulo = [
             ...new Set(registrosTitulos.map((r) => r.aluno_id)),
           ];
           if (idsAlunosComTitulo.length > 0) {
-            const { error: erroReativar } = await supabase
+            // Descobre quais desses alunos estavam quitados -- só esses são
+            // reativados/restaurados (não mexe em atendimento em andamento
+            // nem em casos travados tipo jurídico).
+            const { data: quitados } = await supabase
               .from("alunos")
-              .update({
-                status_jornada: "CONTATAR",
-                status_atual: "CONTATAR",
-                status_acionamento: "CONTATAR",
-                proxima_acao: "CONTATAR",
-              })
+              .select("id")
               .in("id", idsAlunosComTitulo)
               .in("status_jornada", ["QUITADO", "QUITADO_MANUAL"]);
 
-            if (erroReativar) {
-              console.error("Erro ao reativar alunos quitados:", erroReativar);
+            const idsQuitados = (quitados || []).map((a) => String(a.id));
+
+            if (idsQuitados.length > 0) {
+              const agora = new Date().toISOString();
+
+              // 1) Volta pra fila ativa.
+              await supabase
+                .from("alunos")
+                .update({
+                  status_jornada: "CONTATAR",
+                  status_atual: "CONTATAR",
+                  status_acionamento: "CONTATAR",
+                  proxima_acao: "CONTATAR",
+                })
+                .in("id", idsQuitados);
+
+              // 2) Restaura o saldo dos títulos que a quitação manual zerou
+              // (reconhecidos pelo motivo_ajuste). Não toca em títulos pagos
+              // de verdade nem em vinculados a acordo ativo.
+              const { data: titsZerados } = await supabase
+                .from("acordos_titulos")
+                .select("id, valor_original")
+                .in("aluno_id", idsQuitados)
+                .eq("status", "quitada")
+                .ilike("motivo_ajuste", "%quitado manualmente%");
+
+              for (const t of titsZerados || []) {
+                await supabase
+                  .from("acordos_titulos")
+                  .update({
+                    situacao: "ABERTO",
+                    status: "em_aberto",
+                    saldo_corrigido: t.valor_original,
+                    valor_em_aberto: t.valor_original,
+                    motivo_ajuste: "Saldo restaurado por nova importação",
+                    atualizado_em: agora,
+                  })
+                  .eq("id", t.id);
+              }
+
+              // 3) Reabre as parcelas que a quitação manual "pagou" sem data
+              // (PAGO + pago_em nulo é a assinatura da quitação manual;
+              // pagamento de verdade sempre tem data) e reativa esses acordos,
+              // recalculando o saldo pela soma das parcelas em aberto.
+              const { data: acordosQuit } = await supabase
+                .from("acordos")
+                .select("id")
+                .in("aluno_id", idsQuitados)
+                .eq("status", "QUITADO");
+
+              const idsAcordos = (acordosQuit || []).map((a) => a.id);
+
+              if (idsAcordos.length > 0) {
+                await supabase
+                  .from("parcelas")
+                  .update({ status: "A_VENCER", atualizado_em: agora })
+                  .in("acordo_id", idsAcordos)
+                  .eq("status", "PAGO")
+                  .is("pago_em", null);
+
+                // Recalcula o saldo de cada acordo e só reativa os que
+                // voltaram a ter parcela em aberto.
+                const { data: parcelasAcordos } = await supabase
+                  .from("parcelas")
+                  .select("acordo_id, valor, status")
+                  .in("acordo_id", idsAcordos);
+
+                const saldoPorAcordo = {};
+                (parcelasAcordos || []).forEach((p) => {
+                  if (p.status !== "PAGO" && p.status !== "CANCELADA") {
+                    saldoPorAcordo[p.acordo_id] =
+                      (saldoPorAcordo[p.acordo_id] || 0) + Number(p.valor || 0);
+                  }
+                });
+
+                for (const acordoId of idsAcordos) {
+                  const saldo = saldoPorAcordo[acordoId] || 0;
+                  if (saldo > 0) {
+                    await supabase
+                      .from("acordos")
+                      .update({ status: "ATIVO", saldo, atualizado_em: agora })
+                      .eq("id", acordoId);
+                  }
+                }
+              }
             }
           }
         }
