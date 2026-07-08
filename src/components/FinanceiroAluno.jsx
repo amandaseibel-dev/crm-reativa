@@ -190,7 +190,10 @@ export default function FinanceiroAluno({ aluno }) {
     }
 
     carregar();
-  }, [aluno?.cpf]);
+    // recarga entra aqui pra lista de "Total em aberto"/títulos recarregar
+    // depois de criar um acordo -- sem isso, as mensalidades recém-vinculadas
+    // continuavam aparecendo como em aberto até dar refresh na página.
+  }, [aluno?.cpf, recarga]);
 
   useEffect(() => {
     if (!aluno?.id) {
