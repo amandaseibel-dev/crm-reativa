@@ -387,6 +387,31 @@ export default function Borderos() {
           );
           inseridos = registrosTitulos.filter((r) => !existentesSet.has(r.documento)).length;
           atualizados = registrosTitulos.filter((r) => existentesSet.has(r.documento)).length;
+
+          // Reativa alunos que estavam quitados (ficha amarela) e voltaram a
+          // ter título em aberto neste bordero -- eles saem do "quitado" e
+          // retornam pra fila ativa (CONTATAR). O filtro por status_jornada
+          // garante que só mexe em quem estava quitado, sem atropelar
+          // atendimentos em andamento nem os casos travados (jurídico etc.).
+          const idsAlunosComTitulo = [
+            ...new Set(registrosTitulos.map((r) => r.aluno_id)),
+          ];
+          if (idsAlunosComTitulo.length > 0) {
+            const { error: erroReativar } = await supabase
+              .from("alunos")
+              .update({
+                status_jornada: "CONTATAR",
+                status_atual: "CONTATAR",
+                status_acionamento: "CONTATAR",
+                proxima_acao: "CONTATAR",
+              })
+              .in("id", idsAlunosComTitulo)
+              .in("status_jornada", ["QUITADO", "QUITADO_MANUAL"]);
+
+            if (erroReativar) {
+              console.error("Erro ao reativar alunos quitados:", erroReativar);
+            }
+          }
         }
       }
 
