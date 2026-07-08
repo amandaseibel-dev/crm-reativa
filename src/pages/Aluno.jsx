@@ -87,7 +87,7 @@ const STATUS_BLOQUEADOS_LABEL = {
   CANCELAMENTO_COBRANCA: "Cancelamento definitivo de cobrança",
   SUSPENSAO_COBRANCA: "Suspensão de cobrança",
   JURIDICO: "Jurídico",
-  QUITADO_MANUAL: "Quitado (caso antigo)",
+  QUITADO_MANUAL: "Quitado",
 };
 
 function formatarDataHora(data) {
@@ -700,8 +700,8 @@ export default function Alunos() {
     }
   }
 
-  // Botão restrito só pra Amanda: fecha de vez casos antigos que já estão
-  // pagos na prática mas continuam pendurados na fila. Diferente de
+  // Botão liberado para Amanda (gestora/ADM) e Fernanda: tira o aluno da fila
+  // (novo ou antigo), deixando a ficha amarela. Diferente de
   // Jurídico/Cancelamento, este volta sozinho pra fila se aparecer um
   // título novo desse aluno num bordero (ver Borderos.jsx).
   async function quitarManual() {
@@ -709,7 +709,7 @@ export default function Alunos() {
     if (!podeQuitarManual(usuarioLogado?.email)) return;
 
     const confirmado = window.confirm(
-      "Marcar esse caso como quitado (caso antigo)? Ele sai da fila ativa. Só volta se subir um título novo dele em algum bordero."
+      "Marcar como quitado e tirar da fila? A ficha fica amarela e sai da fila ativa. Só volta se subir um título novo dele em algum bordero."
     );
     if (!confirmado) return;
 
@@ -725,7 +725,7 @@ export default function Alunos() {
       await registrarMovimentacao({
         alunoId: alunoSelecionado.id,
         tipo: "QUITADO_MANUAL",
-        descricao: "Caso antigo marcado como quitado manualmente (fora da fila ativa).",
+        descricao: "Caso marcado como quitado manualmente para sair da fila ativa.",
         statusAnterior,
         statusNovo: STATUS_QUITADO_MANUAL,
         retorno: null,
@@ -749,7 +749,7 @@ export default function Alunos() {
           status: "quitada",
           saldo_corrigido: 0,
           valor_em_aberto: 0,
-          motivo_ajuste: "Quitado manualmente (caso antigo) por " + (usuarioLogado?.email || "Amanda"),
+          motivo_ajuste: "Quitado manualmente (saiu da fila) por " + (usuarioLogado?.email || "Amanda"),
           atualizado_em: agoraIso,
         })
         .eq("aluno_id", String(alunoSelecionado.id))
@@ -1401,10 +1401,10 @@ export default function Alunos() {
                       type="button"
                       onClick={quitarManual}
                       disabled={salvando}
-                      title="Fecha o caso pra sempre, a menos que suba um título novo dele em bordero"
+                      title="Tira o aluno da fila (ficha fica amarela). Volta sozinho se subir um título novo dele em bordero."
                       style={{ ...botaoPrincipal, background: "#6b21a8", marginLeft: 8 }}
                     >
-                      💰 Quitar tudo (caso antigo)
+                      💰 Quitar tudo (sai da fila)
                     </button>
                   )}
               </div>
