@@ -753,26 +753,49 @@ export default function ProjecaoHoraHora() {
                     ) : pagamentosDoDia.length === 0 ? (
                       <p style={{ opacity: 0.7 }}>Nenhum pagamento encontrado nesse dia.</p>
                     ) : (
-                      <table style={estilos.tabela}>
-                        <thead>
-                          <tr>
-                            <th style={estilos.th}>Aluno</th>
-                            {usuario?.podeGerir && <th style={estilos.th}>Operador</th>}
-                            <th style={estilos.th}>Valor pago</th>
-                            <th style={estilos.th}>Honorário</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {pagamentosDoDia.map((p, i) => (
-                            <tr key={i} style={estilos.tr}>
-                              <td style={estilos.td}>{p.aluno_nome || "-"}</td>
-                              {usuario?.podeGerir && <td style={estilos.td}>{p.operador_nome || "-"}</td>}
-                              <td style={estilos.td}>{moeda(p.valor_pago)}</td>
-                              <td style={estilos.td}>{moeda(p.valor_honorario)}</td>
+                      <>
+                        {(() => {
+                          const totalPago = pagamentosDoDia.reduce((soma, p) => soma + (Number(p.valor_pago) || 0), 0);
+                          const totalHonorario = pagamentosDoDia.reduce((soma, p) => soma + (Number(p.valor_honorario) || 0), 0);
+                          return (
+                            <div
+                              style={{
+                                display: "flex",
+                                gap: 24,
+                                padding: "8px 12px",
+                                marginBottom: 10,
+                                background: "rgba(125, 211, 252, 0.08)",
+                                borderRadius: 8,
+                                fontWeight: 600,
+                              }}
+                            >
+                              <span>Total do dia ({pagamentosDoDia.length} pagamentos):</span>
+                              <span>Recuperado: {moeda(totalPago)}</span>
+                              <span>Honorário: {moeda(totalHonorario)}</span>
+                            </div>
+                          );
+                        })()}
+                        <table style={estilos.tabela}>
+                          <thead>
+                            <tr>
+                              <th style={estilos.th}>Aluno</th>
+                              {usuario?.podeGerir && <th style={estilos.th}>Operador</th>}
+                              <th style={estilos.th}>Valor pago</th>
+                              <th style={estilos.th}>Honorário</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {pagamentosDoDia.map((p, i) => (
+                              <tr key={i} style={estilos.tr}>
+                                <td style={estilos.td}>{p.aluno_nome || "-"}</td>
+                                {usuario?.podeGerir && <td style={estilos.td}>{p.operador_nome || "-"}</td>}
+                                <td style={estilos.td}>{moeda(p.valor_pago)}</td>
+                                <td style={estilos.td}>{moeda(p.valor_honorario)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </>
                     )}
                   </div>
                 )}
