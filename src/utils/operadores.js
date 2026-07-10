@@ -14,12 +14,19 @@ export const OPERADORES_POR_EMAIL = {
 
 const ALIAS_NOME_OPERADOR = {
   NATALY: "NATALI",
+  // A planilha do Santander as vezes traz "Rafaela" (um L) para a mesma
+  // operadora oficial "RAFAELLA" (cobranca12). Sem este alias, o nome com
+  // um L nao casava com nenhum operador e o pagamento entrava sem
+  // operador_email -> ficava fora do ranking/projecao da Rafaella. O alias
+  // consolida a variacao no operador oficial ja no momento da importacao
+  // (caixa e espacos ja sao tratados por normalizarNomeOperador).
+  RAFAELA: "RAFAELLA",
 };
 
 function normalizarNomeOperador(nome) {
   const semAcento = String(nome || "")
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .toUpperCase()
     .trim();
   return ALIAS_NOME_OPERADOR[semAcento] || semAcento;
