@@ -51,13 +51,13 @@ export default function CRM() {
   // BLOQUEIO_FINAL_CRM_OPERADOR
   const navigate = useNavigate();
   async function abrirFichaAluno(caso) {
-    const { data } = await supabase.from("alunos").select("*").eq("cpf", caso.cpf).limit(1).maybeSingle();
-    if (data) {
-      localStorage.setItem("alunoSelecionado", JSON.stringify(data));
-      navigate("/aluno?id=" + data.id);
-    } else {
-      navigate("/aluno");
+    // Abre a ficha diretamente pelo vínculo já gravado em casos.aluno_id.
+    // Sem busca por CPF e sem busca por nome.
+    if (!caso?.aluno_id) {
+      alert("Este caso ainda não possui vínculo com aluno.");
+      return;
     }
+    navigate("/aluno?id=" + caso.aluno_id);
   }
   const [bloqueadoCRM, setBloqueadoCRM] = useState(false);
   const [verificandoCRM, setVerificandoCRM] = useState(true);
@@ -200,7 +200,7 @@ export default function CRM() {
     return String(t || "")
       .toUpperCase()
       .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[̀-ͯ]/g, "")
       .trim();
   }
 
@@ -314,6 +314,7 @@ export default function CRM() {
   function normalizar(c) {
     return {
       id: c.id,
+      aluno_id: c.aluno_id || null,
       casoCodigo: c.caso_codigo || "-",
       nome: c.nome || c.Nome || c.ALUNO || c.aluno || c.nome_aluno || "-",
       cpf: c.cpf_limpo || c.cpf || c.CPF || "-",
@@ -380,7 +381,7 @@ export default function CRM() {
     }
 
     if (filtro === "FINALIZADOS") {
-      
+
   // CRM_OPERADOR_BLOQUEADO_REATIVA
   const [usuarioBloqueadoCRM, setUsuarioBloqueadoCRM] = useState(false);
 
