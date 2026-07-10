@@ -92,7 +92,7 @@ function ehQuitado(a) {
     .filter(Boolean)
     .join(" ")
     .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[̀-ͯ]/g, "")
     .toUpperCase();
   return texto.includes("QUITAD") || texto.includes("QUITACAO");
 }
@@ -1017,3 +1017,133 @@ export default function PainelCarteira({ embedded = false }) {
           </>
         )}
       </div>
+  );
+  return embedded ? conteudo : <main className="content">{conteudo}</main>;
+}
+
+// CSS somente para responsividade (media queries nao existem em estilo
+// inline). Nao altera comportamento -- so reflui o grid em telas menores.
+const CSS_RESPONSIVO = `
+  .pc-root { --pc-borda: #eef2f6; }
+  @media (max-width: 1024px) {
+    .pc-corpo { grid-template-columns: 1fr !important; }
+    .pc-root aside { position: static !important; }
+  }
+  @media (max-width: 640px) {
+    .pc-kpis { grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)) !important; }
+    .pc-root { padding: 16px !important; }
+  }
+`;
+
+// Paleta clara e neutra: fundo levemente cinza, cartoes brancos, bordas
+// finas (#eef2f6/#e6eaf0), sombras discretas e badges pequenos. Nenhuma
+// mudanca de estrutura -- so aparencia.
+const COR_BORDA = "#e6eaf0";
+const COR_BORDA_SUAVE = "#eef2f6";
+
+const S = {
+  pagina: { padding: "24px", fontFamily: "Inter, Arial, sans-serif", background: "#f6f8fb", minHeight: "100%", color: "#334155" },
+  cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 14, flexWrap: "wrap" },
+  titulo: { margin: 0, marginBottom: 2, color: "#1e293b", fontSize: 22, fontWeight: 700, letterSpacing: "-0.01em" },
+  subtitulo: { margin: 0, color: "#94a3b8", fontSize: 13 },
+  userChip: { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.15, padding: "4px 12px", background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 10 },
+  userNome: { fontWeight: 600, color: "#1e293b", fontSize: 13 },
+  userRole: { fontSize: 10.5, color: "#8b5cf6", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" },
+  select: { padding: "8px 11px", borderRadius: 8, border: `1px solid ${COR_BORDA}`, background: "#fff", fontSize: 13, color: "#334155" },
+  btnAtualizar: { background: "#fff", color: "#475569", border: `1px solid ${COR_BORDA}`, padding: "8px 15px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 },
+  erro: { color: "#b91c1c", fontWeight: 600, fontSize: 13 },
+
+  // Abas: destaque discreto, linha inferior suave.
+  abas: { display: "flex", gap: 4, marginBottom: 18, borderBottom: `1px solid ${COR_BORDA}` },
+  aba: {
+    background: "transparent",
+    border: "1px solid transparent",
+    borderBottom: "none",
+    borderTopLeftRadius: 8,
+    borderTopRightRadius: 8,
+    padding: "8px 16px",
+    fontSize: 13.5,
+    fontWeight: 600,
+    color: "#94a3b8",
+    cursor: "pointer",
+    marginBottom: -1,
+  },
+  abaAtiva: {
+    background: "#fff",
+    color: "#1e293b",
+    border: `1px solid ${COR_BORDA}`,
+    borderBottom: "1px solid #fff",
+  },
+
+  // Aba Receptivo
+  receptivoWrap: { display: "flex", flexDirection: "column", gap: 12, maxWidth: 720 },
+  receptivoInfo: {
+    background: "#fff",
+    border: `1px solid ${COR_BORDA}`,
+    borderRadius: 12,
+    padding: "10px 14px",
+    fontSize: 12.5,
+    color: "#94a3b8",
+    lineHeight: 1.5,
+  },
+
+  kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(134px, 1fr))", gap: 10, marginBottom: 18 },
+  kpiCard: { background: "#fff", borderRadius: 12, padding: "11px 13px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: "0 1px 2px rgba(15,23,42,0.04)" },
+  kpiIcone: { fontSize: 15, opacity: 0.9 },
+  kpiRot: { margin: "5px 0 3px 0", fontSize: 11.5, color: "#94a3b8", fontWeight: 500 },
+  kpiVal: { margin: 0, fontSize: 21, fontWeight: 700, letterSpacing: "-0.01em" },
+
+  corpo: { display: "grid", gridTemplateColumns: "minmax(0, 1fr) 340px", gap: 16, alignItems: "start" },
+  painelTabela: { background: "#fff", borderRadius: 14, padding: 16, border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: "0 1px 2px rgba(15,23,42,0.04)" },
+  filtros: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 },
+  inputBusca: { flex: 1, minWidth: 200, padding: "9px 12px", borderRadius: 8, border: `1px solid ${COR_BORDA}`, fontSize: 13, color: "#334155" },
+  chipFiltro: { display: "inline-block", cursor: "pointer", background: "#f1f5f9", color: "#475569", border: `1px solid ${COR_BORDA}`, borderRadius: 999, padding: "3px 11px", fontSize: 11.5, fontWeight: 600, marginBottom: 10 },
+  tituloSecao: { margin: "2px 0 12px 0", color: "#1e293b", fontSize: 14, fontWeight: 600 },
+  tabelaWrap: { overflowX: "auto" },
+  tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
+  th: { textAlign: "left", padding: "9px 8px", color: "#94a3b8", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
+  thNum: { textAlign: "right", padding: "9px 8px", color: "#94a3b8", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
+  tr: { cursor: "pointer", borderBottom: `1px solid ${COR_BORDA_SUAVE}` },
+  trAtivo: { background: "#f5f8ff", boxShadow: "inset 2px 0 0 #6366f1" },
+  td: { padding: "10px 8px", color: "#475569", verticalAlign: "middle" },
+  tdNum: { padding: "10px 8px", color: "#1e293b", textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 },
+  nomeCel: { fontWeight: 600, color: "#1e293b" },
+  subCel: { fontSize: 11.5, color: "#a3adba" },
+  badgeSituacao: { display: "inline-block", padding: "2px 8px", borderRadius: 6, background: "#eef2ff", color: "#4f46e5", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" },
+  badgeStatus: { display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap" },
+  bolinha: { width: 7, height: 7, borderRadius: "50%", display: "inline-block" },
+  vazio: { padding: 24, textAlign: "center", color: "#a3adba" },
+  rodapeTabela: { margin: "10px 0 0 0", fontSize: 11.5, color: "#a3adba" },
+
+  painelAluno: { background: "#fff", borderRadius: 14, padding: 16, border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: "0 1px 2px rgba(15,23,42,0.04)", position: "sticky", top: 16 },
+  semSelecao: { color: "#a3adba", fontSize: 13, padding: "20px 4px", textAlign: "center" },
+  alunoTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 14, borderBottom: `1px solid ${COR_BORDA_SUAVE}`, paddingBottom: 12 },
+  alunoNome: { margin: 0, fontSize: 16, color: "#1e293b", fontWeight: 600 },
+  alunoContato: { fontSize: 12, color: "#94a3b8", marginTop: 3 },
+  linhaInfo: { display: "flex", justifyContent: "space-between", gap: 10, padding: "5px 0", fontSize: 13 },
+  rotInfo: { color: "#94a3b8" },
+  valInfo: { color: "#1e293b", fontWeight: 600, textAlign: "right" },
+  acoesGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, margin: "14px 0 10px 0" },
+  btnAcao: { border: "none", borderRadius: 8, padding: "9px 8px", fontSize: 12, fontWeight: 600, cursor: "pointer" },
+  acaoAzul: { background: "#eff4ff", color: "#2563eb" },
+  acaoRoxoClaro: { background: "#f4f0ff", color: "#7c3aed" },
+  acaoLaranja: { background: "#fff5eb", color: "#d97706" },
+  acaoVerde: { background: "#eefbf3", color: "#16a34a" },
+  acaoRoxo: { background: "#f2effe", color: "#6d28d9" },
+  acaoVermelho: { background: "#fef2f2", color: "#dc2626" },
+  btnFicha: { width: "100%", background: "#1e293b", color: "#fff", border: "none", borderRadius: 8, padding: "10px", fontWeight: 600, fontSize: 13, cursor: "pointer", marginBottom: 14 },
+
+  formInline: { background: "#f9fafc", border: `1px solid ${COR_BORDA}`, borderRadius: 10, padding: 12, margin: "0 0 12px 0", display: "flex", flexDirection: "column", gap: 8 },
+  formTitulo: { fontSize: 12.5, fontWeight: 600, color: "#1e293b" },
+  formInput: { padding: "8px 10px", borderRadius: 8, border: `1px solid ${COR_BORDA}`, fontSize: 13, background: "#fff", color: "#334155" },
+  formTextarea: { padding: "8px 10px", borderRadius: 8, border: `1px solid ${COR_BORDA}`, fontSize: 13, minHeight: 58, resize: "vertical", fontFamily: "inherit", background: "#fff", color: "#334155" },
+  formBotoes: { display: "flex", justifyContent: "flex-end", gap: 8 },
+  formCancelar: { background: "#eef2f6", color: "#475569", border: "none", borderRadius: 8, padding: "8px 12px", fontSize: 12, fontWeight: 600, cursor: "pointer" },
+  formSalvar: { background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12, fontWeight: 600, cursor: "pointer" },
+  tituloHist: { margin: "6px 0 8px 0", fontSize: 13, color: "#1e293b", fontWeight: 600 },
+  historico: { display: "flex", flexDirection: "column", gap: 8, maxHeight: 260, overflowY: "auto" },
+  itemHist: { borderLeft: `2px solid ${COR_BORDA}`, paddingLeft: 10 },
+  histData: { fontSize: 11, color: "#a3adba" },
+  histDesc: { fontSize: 12.5, color: "#475569" },
+  histAutor: { fontSize: 11, color: "#a3adba" },
+};
