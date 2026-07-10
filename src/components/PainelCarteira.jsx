@@ -439,4 +439,581 @@ export default function PainelCarteira({ embedded = false }) {
     setSelecionado(a);
     setHistorico([]);
     setHonorarios(null);
-    // Ao trocar de aluno, fecha qualquer formulario
+    // Ao trocar de aluno, fecha qualquer formulario inline aberto.
+    setMostrarContato(false);
+    setMostrarRetorno(false);
+    if (!a?.id) return;
+    const { data: mov } = await supabase
+      .from("aluno_movimentacoes")
+      .select("id,tipo,descricao,status_novo,registrado_por_nome,registrado_em")
+      .eq("aluno_id", String(a.id))
+      .order("registrado_em", { ascending: false })
+      .limit(8);
+    setHistorico(mov || []);
+
+    const cpf = a.cpf;
+    if (cpf) {
+      const { data: acs } = await supabase
+        .from("acordos")
+        .select("honorarios_valor")
+        .eq("cpf", cpf);
+      const total = (acs || []).reduce((s, x) => s + (Number(x.honorarios_valor) || 0), 0);
+      setHonorarios(total || 0);
+    }
+  }
+
+  // Recarrega o aluno selecionado (campos + historico) depois de salvar uma
+  // acao inline, mantendo o mesmo aluno selecionado na tela.
+  async function recarregarSelecionado(id) {
+    if (!id) return;
+    const { data: row } = await supabase
+      .from("alunos")
+      .select(COLUNAS_ALUNO)
+      .eq("id", id)
+      .single();
+    if (row) setSelecionado(row);
+    const { data: mov } = await supabase
+      .from("aluno_movimentacoes")
+      .select("id,tipo,descricao,status_novo,registrado_por_nome,registrado_em")
+      .eq("aluno_id", String(id))
+      .order("registrado_em", { ascending: false })
+      .limit(8);
+    setHistorico(mov || []);
+  }
+
+  // Registrar contato: grava movimentacao + marca acionamento no aluno, sem
+  // abrir a ficha. Reaproveita as MESMAS tabelas ja usadas pela ficha
+  // (aluno_movimentacoes e alunos); nao toca em RPC, fidelizacao ou vinculo.
+  async function salvarContato() {
+    const a = selecionado;
+    if (!a?.id || salvandoAcao) return;
+    setSalvandoAcao(true);
+    try {
+      const agora = new Date().toISOString();
+      const statusAtual = a.status_atual || a.status_jornada || null;
+      await supabase
+        .from("alunos")
+        .update({ data_ultimo_acionamento: agora, ultimo_contato: agora })
+        .eq("id", a.id);
+      await supabase.from("aluno_movimentacoes").insert({
+        aluno_id: String(a.id),
+        tipo: "CONTATO",
+        descricao: contatoTexto.trim() || "Contato registrado pela Carteira.",
+        status_anterior: statusAtual,
+        status_novo: statusAtual,
+        registrado_por_nome: nomeOperadorPorEmail(email),
+        registrado_em: agora,
+      });
+      setContatoTexto("");
+      setMostrarContato(false);
+      await carregar();
+      await recarregarSelecionado(a.id);
+    } catch (e) {
+      console.error("Erro ao registrar contato:", e);
+      setErro("Nao foi possivel registrar o contato. " + (e?.message || ""));
+    } finally {
+      setSalvandoAcao(false);
+    }
+  }
+
+  // Agendar retorno: grava data/hora de retorno no aluno + movimentacao,
+  // tambem sem abrir a ficha.
+  async function salvarRetorno() {
+    const a = selecionado;
+    if (!a?.id || salvandoAcao || !retornoData) return;
+    setSalvandoAcao(true);
+    try {
+      const agora = new Date().toISOString();
+      const statusAtual = a.status_atual || a.status_jornada || null;
+      await supabase
+        .from("alunos")
+        .update({
+          data_retorno: retornoData,
+          hora_retorno: retornoHora || null,
+          data_ultimo_acionamento: agora,
+          ultimo_contato: agora,
+        })
+        .eq("id", a.id);
+      await supabase.from("aluno_movimentacoes").insert({
+        aluno_id: String(a.id),
+        tipo: "AGENDAMENTO",
+        descricao:
+          (retornoTexto.trim() ? retornoTexto.trim() + " " : "") +
+          `Retorno agendado para ${formatarData(retornoData)}${retornoHora ? " " + retornoHora : ""}.`,
+        status_anterior: statusAtual,
+        status_novo: statusAtual,
+        registrado_por_nome: nomeOperadorPorEmail(email),
+        registrado_em: agora,
+      });
+      setRetornoData("");
+      setRetornoHora("");
+      setRetornoTexto("");
+      setMostrarRetorno(false);
+      await carregar();
+      await recarregarSelecionado(a.id);
+    } catch (e) {
+      console.error("Erro ao agendar retorno:", e);
+      setErro("Nao foi possivel agendar o retorno. " + (e?.message || ""));
+    } finally {
+      setSalvandoAcao(false);
+    }
+  }
+
+  function abrirFicha(a) {
+    if (!a?.id) return;
+    navigate(`/aluno?alunoId=${encodeURIComponent(a.id)}&origem=painel`);
+  }
+
+  async function abrirEspecial(kpi) {
+    if (filtroKpi === kpi) {
+      setFiltroKpi(null);
+      setCasosEspeciais(null);
+      return;
+    }
+    setFiltroKpi(kpi);
+    setSelecionado(null);
+    setCarregandoEspecial(true);
+    try {
+      let dados = [];
+      if (kpi === "quitados") {
+        let q = aplicarEscopo(supabase.from("alunos").select(COLUNAS_ALUNO))
+          .or("status_atual.ilike.%QUITAD%,status_jornada.ilike.%QUITAD%,status_acionamento.ilike.%QUITAD%")
+          .limit(1000);
+        const { data } = await q;
+        dados = data || [];
+      } else {
+        const cpfs = kpi === "acordosQuebrados" ? quebradosCpfs : recebidosCpfs;
+        if (cpfs.length) {
+          const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).in("cpf", cpfs).limit(1000);
+          dados = data || [];
+        }
+      }
+      setCasosEspeciais(dados);
+    } catch (e) {
+      console.error("Erro ao carregar lista especial:", e);
+      setCasosEspeciais([]);
+    } finally {
+      setCarregandoEspecial(false);
+    }
+  }
+
+  function onKpiClick(id) {
+    if (KPIS_ESPECIAIS.has(id)) {
+      abrirEspecial(id);
+      return;
+    }
+    setCasosEspeciais(null);
+    setFiltroKpi(filtroKpi === id ? null : id);
+  }
+
+  const listaFiltrada = useMemo(() => {
+    const especialAtivo = filtroKpi && KPIS_ESPECIAIS.has(filtroKpi);
+    let l = especialAtivo ? casosEspeciais || [] : casos;
+    if (filtroKpi && !especialAtivo) {
+      l = l.filter((a) => casoNoKpi(a, filtroKpi));
+    }
+    if (filtroStatus !== "TODOS") {
+      l = l.filter((a) => statusPrazo(a).label === filtroStatus);
+    }
+    if (busca.trim()) {
+      const t = busca.toLowerCase().trim();
+      l = l.filter((a) =>
+        [nomeAluno(a), a.cpf, a.telefone, a.responsavel_atual_nome, situacaoLabel(a)]
+          .filter(Boolean)
+          .some((c) => String(c).toLowerCase().includes(t))
+      );
+    }
+    const keyDias = (a) => {
+      const d = diasSemContato(a);
+      return d === null ? Infinity : d;
+    };
+    const arr = [...l];
+    if (ordenacao === "sem_contato_desc") arr.sort((a, b) => keyDias(b) - keyDias(a));
+    else if (ordenacao === "sem_contato_asc") arr.sort((a, b) => keyDias(a) - keyDias(b));
+    else if (ordenacao === "valor_desc") arr.sort((a, b) => (Number(b.valor_em_aberto) || 0) - (Number(a.valor_em_aberto) || 0));
+    return arr;
+  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao]);
+
+  const kpiCards = [
+    { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
+    { id: "semContato", rot: "Sem contato +10 dias", val: kpis.semContato, cor: "#f59e0b", icone: "📵" },
+    { id: "criticos", rot: "Criticos (9-10 dias)", val: kpis.criticos, cor: "#dc2626", icone: "⚠️" },
+    { id: "retornosHoje", rot: "Retornos hoje", val: kpis.retornosHoje, cor: "#0ea5e9", icone: "📅" },
+    { id: "acordosQuebrados", rot: "Acordos quebrados", val: kpis.acordosQuebrados, cor: "#e11d48", icone: "💔" },
+    { id: "recebidosMes", rot: "Recebidos este mes", val: kpis.recebidosMes, cor: "#16a34a", icone: "💰" },
+    { id: "valorBaixadoMes", rot: "Valor baixado este mes", val: formatarMoeda(kpis.valorBaixadoMes), cor: "#16a34a", icone: "💵" },
+    { id: "honorariosBaixadoMes", rot: "Honorarios este mes", val: formatarMoeda(kpis.honorariosBaixadoMes), cor: "#0d9488", icone: "🏷️" },
+    { id: "quitados", rot: "Quitados", val: kpis.quitados, cor: "#16a34a", icone: "✅" },
+    { id: "acordosFechados", rot: "Acordos fechados", val: kpis.acordosFechados, cor: "#0891b2", icone: "🤝" },
+    { id: "linksPagos", rot: "Links pagos", val: kpis.linksPagos, cor: "#16a34a", icone: "🔗" },
+    { id: "termosAgPgto", rot: "Termos aguard. pgto", val: kpis.termosAgPgto, cor: "#7c3aed", icone: "📄" },
+  ];
+
+  // Aba Receptivo: apenas reaproveita os componentes existentes. Container
+  // claro e neutro; os widgets mantem seu proprio estilo interno. Ao receber
+  // leads, recarrega a carteira para exibir os novos casos (aoReceber).
+  const painelReceptivo = (
+    <div style={S.receptivoWrap}>
+      <div style={S.receptivoInfo}>
+        Rodizio de operadores online, pausa, atendimento e recebimento de leads.
+        A distribuicao continua so para casos sem responsavel e a fidelizacao
+        de 10 dias e mantida integralmente pelo servidor.
+      </div>
+      <ReceberLeads usuarioLogado={usuarioLogado} aoReceber={carregar} />
+      <FilaReceptivo usuarioLogado={usuarioLogado} />
+    </div>
+  );
+
+  const conteudo = (
+      <div style={S.pagina} className="pc-root">
+        <style>{CSS_RESPONSIVO}</style>
+        <div style={S.cabecalho}>
+          <div>
+            <h1 style={S.titulo}>Minha Carteira</h1>
+            <p style={S.subtitulo}>
+              {veTudo
+                ? "Visao completa da base de casos."
+                : `Carteira de ${nomeOperadorPorEmail(email)}.`}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+            <div style={S.userChip}>
+              <span style={S.userNome}>{nomeOperadorPorEmail(email)}</span>
+              <span style={S.userRole}>{veTudo ? "Gestao" : "Operador"}</span>
+            </div>
+            {veTudo && aba === "carteira" && (
+              <select
+                style={S.select}
+                value={operadorFiltro}
+                onChange={(e) => setOperadorFiltro(e.target.value)}
+              >
+                <option value="TODOS">Todos os operadores</option>
+                {OPERADORES.map((o) => (
+                  <option key={o.email} value={o.email}>
+                    {o.nome}
+                  </option>
+                ))}
+              </select>
+            )}
+            {aba === "carteira" && (
+              <button style={S.btnAtualizar} onClick={carregar} disabled={carregando}>
+                {carregando ? "Atualizando..." : "Atualizar"}
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Abas: Carteira (padrao) e Receptivo (widgets existentes) */}
+        <div style={S.abas} role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={aba === "carteira"}
+            onClick={() => setAba("carteira")}
+            style={{ ...S.aba, ...(aba === "carteira" ? S.abaAtiva : {}) }}
+          >
+            🗂️ Carteira
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={aba === "receptivo"}
+            onClick={() => setAba("receptivo")}
+            style={{ ...S.aba, ...(aba === "receptivo" ? S.abaAtiva : {}) }}
+          >
+            📞 Receptivo
+          </button>
+        </div>
+
+        {erro && <p style={S.erro}>{erro}</p>}
+
+        {aba === "receptivo" ? (
+          painelReceptivo
+        ) : (
+          <>
+        {/* KPIs */}
+        <div style={S.kpiGrid} className="pc-kpis">
+          {kpiCards.map((k) => {
+            const filtravel = KPIS_FILTRAVEIS.has(k.id) || KPIS_ESPECIAIS.has(k.id);
+            const ativoK = filtroKpi === k.id;
+            return (
+              <div
+                key={k.id}
+                onClick={filtravel ? () => onKpiClick(k.id) : undefined}
+                style={{
+                  ...S.kpiCard,
+                  borderTop: `3px solid ${k.cor}`,
+                  cursor: filtravel ? "pointer" : "default",
+                  boxShadow: ativoK ? `0 0 0 2px ${k.cor}` : S.kpiCard.boxShadow,
+                }}
+              >
+                <span style={S.kpiIcone}>{k.icone}</span>
+                <p style={S.kpiRot}>{k.rot}</p>
+                <p style={{ ...S.kpiVal, color: k.cor }}>{k.val}</p>
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Corpo: tabela + painel do aluno */}
+        <div style={S.corpo} className="pc-corpo">
+          <div style={S.painelTabela}>
+            <div style={S.filtros}>
+              <input
+                style={S.inputBusca}
+                placeholder="Pesquisar por CPF, nome ou telefone..."
+                value={busca}
+                onChange={(e) => setBusca(e.target.value)}
+              />
+              <select style={S.select} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
+                <option value="TODOS">Todos os status</option>
+                <option value="Dentro do prazo">Dentro do prazo</option>
+                <option value="Atencao">Atencao</option>
+                <option value="Critico">Critico</option>
+                <option value="Perdendo o caso">Perdendo o caso</option>
+                <option value="Aguardando pgto">Aguardando pgto</option>
+                <option value="Juridico">Juridico</option>
+              </select>
+              <select style={S.select} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
+                <option value="sem_contato_desc">Mais antigo sem contato</option>
+                <option value="sem_contato_asc">Mais recente sem contato</option>
+                <option value="valor_desc">Maior valor em aberto</option>
+              </select>
+            </div>
+
+            <h2 style={S.tituloSecao}>Casos da carteira</h2>
+
+            {filtroKpi && (
+              <div style={S.chipFiltro} onClick={() => { setFiltroKpi(null); setCasosEspeciais(null); }}>
+                Mostrando: {kpiCards.find((k) => k.id === filtroKpi)?.rot} ✕
+              </div>
+            )}
+
+            <div style={S.tabelaWrap}>
+              <table style={S.tabela}>
+                <thead>
+                  <tr>
+                    <th style={S.th}>Nome</th>
+                    <th style={S.th}>CPF</th>
+                    <th style={S.th}>Situacao</th>
+                    <th style={S.th}>Ult. contato</th>
+                    <th style={S.th}>Prox. contato</th>
+                    <th style={S.thNum}>Valor aberto</th>
+                    <th style={S.th}>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {listaFiltrada.map((a) => {
+                    const sp = statusPrazo(a);
+                    const ativo = selecionado?.id === a.id;
+                    return (
+                      <tr
+                        key={a.id}
+                        style={{ ...S.tr, ...(ativo ? S.trAtivo : {}) }}
+                        onClick={() => abrirFicha(a)}
+                        onMouseEnter={() => selecionar(a)}
+                      >
+                        <td style={S.td}>
+                          <div style={S.nomeCel}>{nomeAluno(a)}</div>
+                          <div style={S.subCel}>{a.telefone || "-"}</div>
+                        </td>
+                        <td style={S.td}>{a.cpf || "-"}</td>
+                        <td style={S.td}>
+                          <span style={S.badgeSituacao}>{situacaoLabel(a)}</span>
+                        </td>
+                        <td style={S.td}>{formatarData(a.data_ultimo_acionamento || a.ultimo_contato)}</td>
+                        <td style={S.td}>{formatarData(a.data_retorno)}</td>
+                        <td style={S.tdNum}>{formatarMoeda(a.valor_em_aberto)}</td>
+                        <td style={S.td}>
+                          <span style={{ ...S.badgeStatus, color: sp.cor }}>
+                            <span style={{ ...S.bolinha, background: sp.cor }} />
+                            {sp.label}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {listaFiltrada.length === 0 && (
+                    <tr>
+                      <td style={S.vazio} colSpan={7}>
+                        {carregando || carregandoEspecial ? "Carregando..." : "Nenhum caso neste filtro."}
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+            <p style={S.rodapeTabela}>
+              Mostrando {listaFiltrada.length} de {casos.length} casos carregados.
+            </p>
+          </div>
+
+          {/* Painel do aluno */}
+          <aside style={S.painelAluno}>
+            {!selecionado ? (
+              <div style={S.semSelecao}>Selecione um caso para ver os detalhes e agir.</div>
+            ) : (
+              <>
+                <div style={S.alunoTopo}>
+                  <div style={{ minWidth: 0 }}>
+                    <h3 style={S.alunoNome}>{nomeAluno(selecionado)}</h3>
+                    {selecionado.telefone && (
+                      <div style={S.alunoContato}>📞 {selecionado.telefone}</div>
+                    )}
+                  </div>
+                  <span style={S.badgeSituacao}>{situacaoLabel(selecionado)}</span>
+                </div>
+
+                <div style={S.linhaInfo}>
+                  <span style={S.rotInfo}>Operador responsavel</span>
+                  <span style={S.valInfo}>{selecionado.responsavel_atual_nome || "-"}</span>
+                </div>
+                <div style={S.linhaInfo}>
+                  <span style={S.rotInfo}>Ultimo contato</span>
+                  <span style={S.valInfo}>{formatarData(selecionado.data_ultimo_acionamento || selecionado.ultimo_contato)}</span>
+                </div>
+                <div style={S.linhaInfo}>
+                  <span style={S.rotInfo}>Proximo contato</span>
+                  <span style={S.valInfo}>
+                    {formatarData(selecionado.data_retorno)}
+                    {selecionado.hora_retorno ? ` ${selecionado.hora_retorno}` : ""}
+                  </span>
+                </div>
+                <div style={S.linhaInfo}>
+                  <span style={S.rotInfo}>Valor em aberto</span>
+                  <span style={S.valInfo}>{formatarMoeda(selecionado.valor_em_aberto)}</span>
+                </div>
+                <div style={S.linhaInfo}>
+                  <span style={S.rotInfo}>Honorarios</span>
+                  <span style={S.valInfo}>{honorarios === null ? "..." : formatarMoeda(honorarios)}</span>
+                </div>
+                <div style={S.linhaInfo}>
+                  <span style={S.rotInfo}>Status</span>
+                  <span style={{ ...S.valInfo, color: statusPrazo(selecionado).cor, fontWeight: "bold" }}>
+                    {statusPrazo(selecionado).label}
+                  </span>
+                </div>
+
+                <div style={S.acoesGrid}>
+                  <button
+                    style={{ ...S.btnAcao, ...S.acaoAzul }}
+                    onClick={() => {
+                      setMostrarRetorno(false);
+                      setMostrarContato((v) => !v);
+                    }}
+                  >
+                    📞 Registrar contato
+                  </button>
+                  <button
+                    style={{ ...S.btnAcao, ...S.acaoRoxoClaro }}
+                    onClick={() => {
+                      setMostrarContato(false);
+                      setMostrarRetorno((v) => !v);
+                    }}
+                  >
+                    📅 Agendar retorno
+                  </button>
+                  <button style={{ ...S.btnAcao, ...S.acaoLaranja }} onClick={() => abrirFicha(selecionado)}>
+                    💵 Registrar proposta
+                  </button>
+                  <button style={{ ...S.btnAcao, ...S.acaoVerde }} onClick={() => abrirFicha(selecionado)}>
+                    ✔️ Fechar acordo
+                  </button>
+                  {veTudo ? (
+                    <>
+                      <button style={{ ...S.btnAcao, ...S.acaoRoxo }} onClick={() => abrirFicha(selecionado)}>
+                        ⚖️ Juridico
+                      </button>
+                      <button style={{ ...S.btnAcao, ...S.acaoVermelho }} onClick={() => abrirFicha(selecionado)}>
+                        ✖️ Cancelado
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      style={{ ...S.btnAcao, ...S.acaoRoxo, gridColumn: "1 / -1" }}
+                      onClick={() => abrirFicha(selecionado)}
+                    >
+                      ↗️ Encaminhar p/ Amanda
+                    </button>
+                  )}
+                </div>
+                {mostrarContato && (
+                  <div style={S.formInline}>
+                    <div style={S.formTitulo}>📞 Registrar contato</div>
+                    <textarea
+                      style={S.formTextarea}
+                      placeholder="O que foi tratado no contato? (opcional)"
+                      value={contatoTexto}
+                      onChange={(e) => setContatoTexto(e.target.value)}
+                    />
+                    <div style={S.formBotoes}>
+                      <button style={S.formCancelar} onClick={() => setMostrarContato(false)} disabled={salvandoAcao}>
+                        Cancelar
+                      </button>
+                      <button style={S.formSalvar} onClick={salvarContato} disabled={salvandoAcao}>
+                        {salvandoAcao ? "Salvando..." : "Salvar contato"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {mostrarRetorno && (
+                  <div style={S.formInline}>
+                    <div style={S.formTitulo}>📅 Agendar retorno</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <input
+                        type="date"
+                        style={{ ...S.formInput, flex: 1 }}
+                        value={retornoData}
+                        onChange={(e) => setRetornoData(e.target.value)}
+                      />
+                      <input
+                        type="time"
+                        style={{ ...S.formInput, width: 110 }}
+                        value={retornoHora}
+                        onChange={(e) => setRetornoHora(e.target.value)}
+                      />
+                    </div>
+                    <textarea
+                      style={S.formTextarea}
+                      placeholder="Observacao do retorno (opcional)"
+                      value={retornoTexto}
+                      onChange={(e) => setRetornoTexto(e.target.value)}
+                    />
+                    <div style={S.formBotoes}>
+                      <button style={S.formCancelar} onClick={() => setMostrarRetorno(false)} disabled={salvandoAcao}>
+                        Cancelar
+                      </button>
+                      <button
+                        style={{ ...S.formSalvar, opacity: retornoData ? 1 : 0.6 }}
+                        onClick={salvarRetorno}
+                        disabled={salvandoAcao || !retornoData}
+                      >
+                        {salvandoAcao ? "Salvando..." : "Salvar retorno"}
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <button style={S.btnFicha} onClick={() => abrirFicha(selecionado)}>
+                  Abrir ficha completa do aluno →
+                </button>
+
+                <h4 style={S.tituloHist}>Historico de contatos</h4>
+                <div style={S.historico}>
+                  {historico.length === 0 && <p style={S.subCel}>Sem movimentacoes registradas.</p>}
+                  {historico.map((h) => (
+                    <div key={h.id} style={S.itemHist}>
+                      <div style={S.histData}>{formatarDataHora(h.registrado_em)}</div>
+                      <div style={S.histDesc}>{h.descricao || h.tipo || h.status_novo || "Movimentacao"}</div>
+                      {h.registrado_por_nome && <div style={S.histAutor}>por {h.registrado_por_nome}</div>}
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
+          </aside>
+        </div>
+          </>
+        )}
+      </div>
