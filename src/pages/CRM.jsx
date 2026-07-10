@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { emailPorNomeOperador, nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
 
@@ -48,6 +49,16 @@ const STATUS_ATENDIMENTO = [
 export default function CRM() {
 
   // BLOQUEIO_FINAL_CRM_OPERADOR
+  const navigate = useNavigate();
+  async function abrirFichaAluno(caso) {
+    const { data } = await supabase.from("alunos").select("*").eq("cpf", caso.cpf).limit(1).maybeSingle();
+    if (data) {
+      localStorage.setItem("alunoSelecionado", JSON.stringify(data));
+      navigate("/aluno?id=" + data.id);
+    } else {
+      navigate("/aluno");
+    }
+  }
   const [bloqueadoCRM, setBloqueadoCRM] = useState(false);
   const [verificandoCRM, setVerificandoCRM] = useState(true);
 
@@ -999,7 +1010,7 @@ return (
                 </strong>
 
                 <div>
-                  <strong>{c.nome}</strong>
+                  <strong style={{ cursor: "pointer", textDecoration: "underline" }} onClick={(e) => { e.stopPropagation(); abrirFichaAluno(c); }}>{c.nome}</strong>
                   <p style={{ margin: "4px 0 0", color: "#c4b5fd", fontSize: 12 }}>
                     CPF: {c.cpfMascarado} | Matrícula: {c.matricula}
                   </p>
