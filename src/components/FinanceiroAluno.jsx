@@ -74,6 +74,7 @@ const CORES_STATUS = {
   em_aberto: { barra: "#185FA5", bg: "rgba(24,95,165,0.16)", texto: "#7cb5f0", label: "Em aberto" },
   em_dia: { barra: "#639922", bg: "rgba(99,153,34,0.18)", texto: "#a3d15f", label: "Em dia" },
   atraso: { barra: "#EF9F27", bg: "rgba(239,159,39,0.18)", texto: "#f2c67a", label: "Em atraso" },
+  vencida: { barra: "#E24B4A", bg: "rgba(226,75,74,0.18)", texto: "#f0999a", label: "Vencida" },
   quebrado: { barra: "#E24B4A", bg: "rgba(226,75,74,0.18)", texto: "#f0999a", label: "Quebrado" },
   quitado: { barra: "#1D9E75", bg: "rgba(29,158,117,0.18)", texto: "#6fd7b6", label: "Quitado" },
   cancelado: { barra: "#64748b", bg: "rgba(100,116,139,0.18)", texto: "#94a3b8", label: "Cancelado" },
@@ -1421,7 +1422,7 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                   : cancelada
                   ? CORES_STATUS.cancelado
                   : vencida
-                  ? CORES_STATUS.atraso
+                  ? CORES_STATUS.vencida
                   : CORES_STATUS.em_aberto;
                 return (
                   <div key={p.id}>
