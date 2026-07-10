@@ -183,7 +183,10 @@ export default function FilaReceptivo({ usuarioLogado }) {
     <div style={estilos.caixa}>
       <div style={estilos.cabecalho}>
         <strong style={estilos.titulo}>📞 Fila do receptivo</strong>
-        <span style={estilos.online}>{ordem.length} online agora</span>
+        <span style={estilos.online}>
+          <span style={estilos.pontoOnline} />
+          {ordem.length} online agora
+        </span>
       </div>
 
       {ehParticipante && (
@@ -248,17 +251,24 @@ export default function FilaReceptivo({ usuarioLogado }) {
   );
 }
 
+// Paleta clara e neutra, alinhada ao PainelCarteira (fundo branco, bordas
+// finas #e6eaf0, verde discreto para o destaque da vez, azul para a acao
+// principal). Somente aparencia -- nenhuma mudanca de logica.
+const BORDA = "#e6eaf0";
+const BORDA_SUAVE = "#eef2f6";
+
 const estilos = {
   espacoReservado: {
     height: 60,
     marginBottom: 16,
   },
   caixa: {
-    background: "#0b1220",
-    border: "1px solid #1f2937",
-    borderRadius: 16,
+    background: "#fff",
+    border: `1px solid ${BORDA_SUAVE}`,
+    borderRadius: 14,
     padding: "16px 18px",
     marginBottom: 16,
+    boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
   },
   cabecalho: {
     display: "flex",
@@ -269,12 +279,28 @@ const estilos = {
     flexWrap: "wrap",
   },
   titulo: {
-    fontSize: 15,
-    color: "#e5e7eb",
+    fontSize: 14,
+    fontWeight: 600,
+    color: "#1e293b",
   },
   online: {
-    fontSize: 12,
-    color: "#94a3b8",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    fontSize: 11.5,
+    fontWeight: 600,
+    color: "#16a34a",
+    background: "#eefbf3",
+    border: "1px solid #d6f2e0",
+    borderRadius: 999,
+    padding: "2px 9px",
+  },
+  pontoOnline: {
+    width: 7,
+    height: 7,
+    borderRadius: "50%",
+    background: "#16a34a",
+    display: "inline-block",
   },
   destaque: {
     display: "flex",
@@ -283,37 +309,38 @@ const estilos = {
     gap: 12,
     padding: "12px 14px",
     borderRadius: 12,
-    background: "rgba(148, 163, 184, 0.12)",
-    border: "1px solid rgba(148, 163, 184, 0.28)",
+    background: "#f9fafc",
+    border: `1px solid ${BORDA}`,
     marginBottom: 14,
     flexWrap: "wrap",
   },
   destaqueVez: {
-    background: "rgba(34, 197, 94, 0.14)",
-    border: "1px solid rgba(34, 197, 94, 0.5)",
+    background: "#eefbf3",
+    border: "1px solid #bbe9cb",
   },
   destaqueRotulo: {
-    fontSize: 12,
-    color: "#86efac",
+    fontSize: 11.5,
+    fontWeight: 600,
+    color: "#16a34a",
   },
   destaqueNome: {
-    fontSize: 18,
+    fontSize: 17,
     fontWeight: 700,
-    color: "#f8fafc",
+    color: "#1e293b",
   },
   botaoAtendi: {
-    background: "#22c55e",
-    color: "#052e16",
+    background: "#16a34a",
+    color: "#fff",
     border: "none",
     borderRadius: 10,
-    padding: "12px 18px",
-    fontSize: 15,
-    fontWeight: 800,
+    padding: "10px 16px",
+    fontSize: 13.5,
+    fontWeight: 700,
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
   rotuloLista: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: "#94a3b8",
     marginBottom: 8,
   },
@@ -328,23 +355,23 @@ const estilos = {
     gap: 10,
     padding: "8px 10px",
     borderRadius: 10,
-    background: "#111827",
-    border: "1px solid #1f2937",
+    background: "#fff",
+    border: `1px solid ${BORDA_SUAVE}`,
   },
   itemPrimeiro: {
-    border: "1px solid rgba(34, 197, 94, 0.5)",
-    background: "rgba(34, 197, 94, 0.08)",
+    border: "1px solid #bbe9cb",
+    background: "#f4fcf7",
   },
   itemEu: {
-    boxShadow: "inset 0 0 0 1px rgba(148, 163, 184, 0.35)",
+    boxShadow: "inset 0 0 0 1px #dbe3ec",
   },
   posicao: {
-    width: 24,
-    height: 24,
+    width: 22,
+    height: 22,
     borderRadius: "50%",
-    background: "#1f2937",
-    color: "#cbd5e1",
-    fontSize: 12,
+    background: "#f1f5f9",
+    color: "#64748b",
+    fontSize: 11.5,
     fontWeight: 700,
     display: "flex",
     alignItems: "center",
@@ -352,14 +379,14 @@ const estilos = {
     flexShrink: 0,
   },
   posicaoPrimeiro: {
-    background: "rgba(34, 197, 94, 0.25)",
-    color: "#86efac",
+    background: "#dcf5e5",
+    color: "#15803d",
   },
   avatarFallback: {
     borderRadius: "50%",
-    background: "#1f2937",
-    color: "#e5e7eb",
-    fontSize: 13,
+    background: "#eef2f6",
+    color: "#475569",
+    fontSize: 12.5,
     fontWeight: 700,
     display: "inline-flex",
     alignItems: "center",
@@ -368,23 +395,23 @@ const estilos = {
   },
   nomeItem: {
     flex: 1,
-    color: "#f1f5f9",
+    color: "#1e293b",
     fontWeight: 600,
-    fontSize: 14,
+    fontSize: 13.5,
   },
   contador: {
-    fontSize: 12,
+    fontSize: 11.5,
     color: "#94a3b8",
     whiteSpace: "nowrap",
   },
   botaoMarcarLinha: {
     padding: "5px 10px",
     borderRadius: 8,
-    border: "1px solid rgba(34, 197, 94, 0.5)",
-    background: "rgba(34, 197, 94, 0.14)",
-    color: "#86efac",
-    fontSize: 12,
-    fontWeight: 700,
+    border: "1px solid #bbe9cb",
+    background: "#eefbf3",
+    color: "#15803d",
+    fontSize: 11.5,
+    fontWeight: 600,
     cursor: "pointer",
     whiteSpace: "nowrap",
     flexShrink: 0,
@@ -395,16 +422,16 @@ const estilos = {
     justifyContent: "flex-end",
   },
   vazio: {
-    fontSize: 13,
+    fontSize: 12.5,
     color: "#94a3b8",
     margin: 0,
   },
   botaoPausa: {
     padding: "8px 14px",
     borderRadius: 8,
-    border: "1px solid rgba(148, 163, 184, 0.6)",
-    background: "rgba(148, 163, 184, 0.18)",
-    color: "#e2e8f0",
+    border: `1px solid ${BORDA}`,
+    background: "#fff",
+    color: "#475569",
     fontWeight: 600,
     cursor: "pointer",
     whiteSpace: "nowrap",
@@ -412,11 +439,12 @@ const estilos = {
   botaoPausaAtiva: {
     padding: "8px 14px",
     borderRadius: 8,
-    border: "1px solid rgba(251, 191, 36, 0.6)",
-    background: "rgba(251, 191, 36, 0.18)",
-    color: "#fef3c7",
+    border: "1px solid #f6d99a",
+    background: "#fff8ec",
+    color: "#b45309",
     fontWeight: 600,
     cursor: "pointer",
     whiteSpace: "nowrap",
   },
 };
+
