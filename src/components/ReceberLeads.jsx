@@ -42,10 +42,10 @@ export default function ReceberLeads({ usuarioLogado, aoReceber }) {
 
   return (
     <div style={estilos.caixa}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
         <div>
-          <strong style={{ fontSize: 14 }}>🎯 Receber leads</strong>
-          <p style={{ fontSize: 12, opacity: 0.75, margin: "2px 0 0" }}>
+          <strong style={estilos.titulo}>🎯 Receber leads</strong>
+          <p style={estilos.subtitulo}>
             Puxa casos sem responsável até você ficar com o mesmo nível de valor em
             cobrança dos colegas.
           </p>
@@ -56,7 +56,7 @@ export default function ReceberLeads({ usuarioLogado, aoReceber }) {
       </div>
 
       {resultado && (
-        <p style={{ marginTop: 8, fontSize: 13 }}>
+        <p style={estilos.mensagem}>
           {resultado.erro
             ? resultado.erro
             : resultado.qtd === 0
@@ -68,22 +68,42 @@ export default function ReceberLeads({ usuarioLogado, aoReceber }) {
   );
 }
 
+// Paleta clara e neutra, alinhada ao PainelCarteira. Somente aparencia.
 const estilos = {
   caixa: {
-    padding: "12px 16px",
+    padding: "14px 16px",
     marginBottom: 14,
-    borderRadius: 10,
-    background: "rgba(168,85,247,0.06)",
-    border: "1px solid rgba(168,85,247,0.25)",
+    borderRadius: 12,
+    background: "#fff",
+    border: "1px solid #eef2f6",
+    boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
+  },
+  titulo: {
+    fontSize: 14,
+    fontWeight: 600,
+    color: "#1e293b",
+  },
+  subtitulo: {
+    fontSize: 12,
+    color: "#94a3b8",
+    margin: "3px 0 0",
+    maxWidth: 420,
+    lineHeight: 1.5,
   },
   botao: {
-    padding: "8px 16px",
+    padding: "9px 16px",
     borderRadius: 8,
-    border: "1px solid rgba(168,85,247,0.6)",
-    background: "rgba(168,85,247,0.16)",
-    color: "#d8b4fe",
+    border: "none",
+    background: "#2563eb",
+    color: "#fff",
     fontWeight: 600,
+    fontSize: 13,
     cursor: "pointer",
     whiteSpace: "nowrap",
+  },
+  mensagem: {
+    marginTop: 10,
+    fontSize: 12.5,
+    color: "#475569",
   },
 };
