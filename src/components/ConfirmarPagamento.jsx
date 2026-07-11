@@ -64,6 +64,12 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
   const [dataPagamento, setDataPagamento] = useState("");
   const [alvo, setAlvo] = useState(""); // "PARCELA:<id>" | "TITULO:<id>" | "ACORDO:<id>"
   const [comprovanteLinkId, setComprovanteLinkId] = useState("");
+  // Composicao financeira (principal vem da divida; encargos informados por
+  // Amanda/Fernanda). total_negociado = principal + juros + multa + honorarios.
+  const [juros, setJuros] = useState("");
+  const [multa, setMulta] = useState("");
+  const [honorarios, setHonorarios] = useState("");
+  const [composicaoConferida, setComposicaoConferida] = useState(false);
 
   const [enviando, setEnviando] = useState(false);
   const [carregando, setCarregando] = useState(false);
@@ -165,21 +171,31 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
     if (alvoTipo === "ACORDO") return somaParcelasAcordo(alvoId);
     return 0;
   };
-  // Sugestao: quitacao total -> consolidado; senao -> valor da divida selecionada.
-  const sugestao = tipo === "QUITACAO_TOTAL" ? consolidado : valorDaDivida();
-  const difQuitacao = valorNum - consolidado;
-  const quitacaoDivergente = tipo === "QUITACAO_TOTAL" && Math.abs(difQuitacao) > 0.005;
-  const valorDivergeSugestao = sugestao > 0 && Math.abs(valorNum - sugestao) > 0.005;
+  // Composicao financeira. Principal = da divida (item ou consolidado p/ quitacao
+  // total). NAO representa o valor final: o aluno paga principal + encargos.
+  const num = (v) => Number(String(v).replace(",", ".")) || 0;
+  const jurosNum = num(juros);
+  const multaNum = num(multa);
+  const honorariosNum = num(honorarios);
+  const principalNum = tipo === "QUITACAO_TOTAL" ? consolidado : valorDaDivida();
+  const totalNegociado = principalNum + jurosNum + multaNum + honorariosNum;
+  const diferenca = valorNum - totalNegociado; // valor pago - total negociado
 
-  // Preenche o valor com a sugestao ao trocar tipo/divida (continua editavel).
+  // Bloqueio SOMENTE quando o valor pago diverge do total NEGOCIADO (nao do
+  // principal). Para quitacao total exige tambem conferencia manual.
+  const totalDivergente = totalNegociado > 0 && Math.abs(diferenca) > 0.005;
+  const quitacaoBloqueada =
+    tipo === "QUITACAO_TOTAL" && (!composicaoConferida || totalNegociado <= 0 || totalDivergente);
+
+  // Sugere o valor pago = total negociado ao mudar principal/encargos (editavel).
   useEffect(() => {
-    if (sugestao > 0) setValorInformado(sugestao.toFixed(2));
+    if (totalNegociado > 0) setValorInformado(totalNegociado.toFixed(2));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tipo, alvo, parcelasAbertas, titulosAbertos]);
+  }, [tipo, alvo, juros, multa, honorarios, parcelasAbertas, titulosAbertos]);
 
   const podeEnviar =
     !!tipo && valorNum > 0 && !!dataPagamento && !!alvoTipo && !!alvoId &&
-    motivo.trim().length > 0 && !quitacaoDivergente;
+    motivo.trim().length > 0 && !quitacaoBloqueada;
 
   async function enviarParaConfirmacao() {
     if (!aluno?.id) return alert("Aluno não localizado.");
@@ -191,8 +207,14 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
     if (!dataPagamento) return alert("Informe a data do pagamento.");
     if (!alvoTipo || !alvoId) return alert("Selecione a dívida correspondente (parcela, título ou acordo).");
     if (!motivo.trim()) return alert("Escreva uma observação sobre o pagamento.");
-    if (quitacaoDivergente)
-      return alert("O valor informado não corresponde à quitação total. Corrija o valor ou mude o tipo do pagamento.");
+    if (tipo === "QUITACAO_TOTAL") {
+      if (totalNegociado <= 0)
+        return alert("Preencha a composição (principal + encargos) da quitação total.");
+      if (!composicaoConferida)
+        return alert("Confira a composição financeira (marque a conferência) antes de enviar a quitação total.");
+      if (totalDivergente)
+        return alert("O valor pago não corresponde ao total negociado (principal + juros + multa + honorários).");
+    }
 
     setEnviando(true);
 
@@ -217,6 +239,11 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
       titulo_id: alvoTipo === "TITULO" ? alvoId : null,
       acordo_id: alvoTipo === "ACORDO" ? alvoId : null,
       comprovante_link_id: comprovanteLinkId || null,
+      principal_informado: principalNum || null,
+      juros: jurosNum || null,
+      multa: multaNum || null,
+      honorarios: honorariosNum || null,
+      total_negociado: totalNegociado || null,
       motivo: motivo.trim(),
       status: "AGUARDANDO_CONFIRMACAO",
     });
@@ -247,6 +274,10 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
     setDataPagamento("");
     setAlvo("");
     setComprovanteLinkId("");
+    setJuros("");
+    setMulta("");
+    setHonorarios("");
+    setComposicaoConferida(false);
     setEnviando(false);
     carregarSolicitacoes();
     if (onSucesso) onSucesso();
@@ -300,21 +331,41 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
             </div>
           </div>
 
-          {valorDivergeSugestao && tipo !== "QUITACAO_TOTAL" && (
-            <p style={styles.aviso}>
-              Valor difere da sugestão da dívida selecionada ({formatarMoeda(sugestao)}). Confirme se está correto.
-            </p>
-          )}
-
-          {tipo === "QUITACAO_TOTAL" && (
+          {(alvoTipo || tipo === "QUITACAO_TOTAL") && (
             <div style={styles.consol}>
-              <div style={styles.consolLinha}><span>Mensalidades/títulos abertos</span><span>{formatarMoeda(sumTitulos)}</span></div>
-              <div style={styles.consolLinha}><span>Parcelas abertas</span><span>{formatarMoeda(sumParcelas)}</span></div>
-              <div style={styles.consolLinha}><strong>Total consolidado</strong><strong>{formatarMoeda(consolidado)}</strong></div>
-              <div style={styles.consolLinha}><span>Valor informado</span><span>{formatarMoeda(valorNum)}</span></div>
-              <div style={styles.consolLinha}><span>Diferença</span><span>{formatarMoeda(difQuitacao)}</span></div>
-              {quitacaoDivergente && (
-                <div style={styles.erroConsol}>O valor informado não corresponde à quitação total</div>
+              <div style={styles.consolTitulo}>Composição financeira</div>
+              <div style={styles.consolLinha}>
+                <span>Principal em aberto</span>
+                <span>{formatarMoeda(principalNum)}</span>
+              </div>
+              <p style={styles.avisoLeve}>O principal não é o valor final: o aluno paga principal + juros + multa + honorários.</p>
+              <div style={styles.linha3}>
+                <div style={{ flex: 1 }}>
+                  <label style={styles.labelPeq}>Juros</label>
+                  <input style={styles.input} placeholder="0,00" value={juros} onChange={(e) => setJuros(e.target.value)} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={styles.labelPeq}>Multa</label>
+                  <input style={styles.input} placeholder="0,00" value={multa} onChange={(e) => setMulta(e.target.value)} />
+                </div>
+                <div style={{ flex: 1 }}>
+                  <label style={styles.labelPeq}>Honorários</label>
+                  <input style={styles.input} placeholder="0,00" value={honorarios} onChange={(e) => setHonorarios(e.target.value)} />
+                </div>
+              </div>
+              <div style={styles.consolLinha}><strong>Total negociado</strong><strong>{formatarMoeda(totalNegociado)}</strong></div>
+              <div style={styles.consolLinha}><span>Valor pago</span><span>{formatarMoeda(valorNum)}</span></div>
+              <div style={styles.consolLinha}><span>Diferença</span><span>{formatarMoeda(diferenca)}</span></div>
+              {tipo === "QUITACAO_TOTAL" && (
+                <>
+                  {totalDivergente && (
+                    <div style={styles.erroConsol}>O valor pago não corresponde ao total negociado</div>
+                  )}
+                  <label style={styles.conferir}>
+                    <input type="checkbox" checked={composicaoConferida} onChange={(e) => setComposicaoConferida(e.target.checked)} />
+                    <span>&nbsp;Conferi a composição (principal + juros + multa + honorários) para a quitação total.</span>
+                  </label>
+                </>
               )}
             </div>
           )}
@@ -445,7 +496,12 @@ const styles = {
   textarea: { width: "100%", minHeight: "80px", padding: "10px", borderRadius: "8px", border: "1px solid #ccc", resize: "vertical", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
   aviso: { marginTop: "8px", color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "8px 10px", fontSize: "12px" },
   consol: { marginTop: "10px", background: "#eef6ff", border: "1px solid #cfe0f5", borderRadius: "8px", padding: "10px 12px" },
+  consolTitulo: { fontWeight: "bold", color: "#1e3a5f", marginBottom: "4px" },
   consolLinha: { display: "flex", justifyContent: "space-between", gap: "12px", fontSize: "13px", color: "#1e3a5f", padding: "3px 0" },
+  avisoLeve: { margin: "2px 0 8px", fontSize: "11.5px", color: "#64748b" },
+  linha3: { display: "flex", gap: "8px", flexWrap: "wrap", margin: "6px 0" },
+  labelPeq: { display: "block", fontSize: "12px", color: "#475569", marginBottom: "3px" },
+  conferir: { display: "flex", alignItems: "flex-start", gap: "6px", marginTop: "8px", fontSize: "12.5px", color: "#1e3a5f", cursor: "pointer" },
   erroConsol: { marginTop: "6px", color: "#842029", background: "#f8d7da", border: "1px solid #f5c2c7", borderRadius: "6px", padding: "6px 8px", fontSize: "12px", fontWeight: "bold" },
   botao: { marginTop: "16px", background: "#0ea5e9", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
   botaoDesabilitado: { background: "#cbd5e1", color: "#64748b", cursor: "not-allowed" },
