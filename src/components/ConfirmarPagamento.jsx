@@ -55,10 +55,10 @@ function pegarCpfAluno(aluno) {
   return aluno?.cpf || aluno?.CPF || aluno?.cpf_mascarado || "-";
 }
 
-export default function ConfirmarPagamento({ aluno }) {
+export default function ConfirmarPagamento({ aluno, tipoInicial = "", valorInicial = null, onSucesso }) {
   const [motivo, setMotivo] = useState("");
-  const [valorInformado, setValorInformado] = useState("");
-  const [tipo, setTipo] = useState("");
+  const [valorInformado, setValorInformado] = useState(valorInicial != null ? String(valorInicial) : "");
+  const [tipo, setTipo] = useState(tipoInicial || "");
   const [dataPagamento, setDataPagamento] = useState("");
   const [alvo, setAlvo] = useState(""); // "PARCELA:<id>" | "TITULO:<id>" | "ACORDO:<id>"
   const [comprovanteLinkId, setComprovanteLinkId] = useState("");
@@ -219,6 +219,7 @@ export default function ConfirmarPagamento({ aluno }) {
     setComprovanteLinkId("");
     setEnviando(false);
     carregarSolicitacoes();
+    if (onSucesso) onSucesso();
   }
 
   return (
