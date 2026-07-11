@@ -70,7 +70,7 @@ function podeAcessar(perfil, rota) {
       "/fila-confirmacao-pagamento",
       "/painel-adm",
       "/fila-financeiro",
-      "/painel-operadores",    
+      "/painel-operadores",
       "/financeiro-operadores",
       "/meu-perfil",
       "/painel-carteira",
@@ -91,7 +91,7 @@ function podeAcessar(perfil, rota) {
       "/minha-fila-pagamentos",
       "/fila-confirmacao-pagamento",
       "/painel-adm",
-      "/fila-financeiro",    
+      "/fila-financeiro",
       "/meu-perfil",
       "/painel-carteira",
       "/projecao-hora-a-hora",],
@@ -603,7 +603,18 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
                   <Route path="/fila-adm-termos" element={<FilaAdmTermos />} />
               <Route path="/base-receptiva" element={<BaseReceptiva />} />
-              <Route path="/fila-operacional" element={<FilaOperacional />} />
+              {/* Fila Operacional (rota antiga): operador e redirecionado para
+                  a Minha Carteira; demais perfis mantem o acesso atual. */}
+              <Route
+                path="/fila-operacional"
+                element={
+                  perfil === "operador" ? (
+                    <Navigate to="/painel-carteira" replace />
+                  ) : (
+                    <FilaOperacional />
+                  )
+                }
+              />
               <Route path="/controle-links-pagamento" element={<ControleLinksPagamento />} />
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/fila-financeiro" element={<FilaFinanceiro />} />
