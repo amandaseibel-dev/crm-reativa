@@ -280,20 +280,25 @@ export default function CRM() {
   function formatarMoeda(valor) {
     if (valor === null || valor === undefined || valor === "") return "-";
 
-    const numero = Number(
-      String(valor)
-        .replace("R$", "")
-        .replace(/\./g, "")
-        .replace(",", ".")
-        .trim()
-    );
+    let numero;
+    if (typeof valor === "number") {
+      // Numero decimal em reais: usar direto (NAO remover o ponto decimal).
+      numero = valor;
+    } else {
+      const txt = String(valor).replace("R$", "").trim();
+      // String formatada em BRL ("1.234,56") -> remove milhar e troca virgula.
+      // String numerica ("746.01") -> Number direto (preserva o decimal).
+      numero = txt.includes(",")
+        ? Number(txt.replace(/\./g, "").replace(",", "."))
+        : Number(txt);
+    }
 
-    if (isNaN(numero)) return String(valor);
+    if (Number.isNaN(numero)) return "-";
 
-    return numero.toLocaleString("pt-BR", {
+    return new Intl.NumberFormat("pt-BR", {
       style: "currency",
       currency: "BRL",
-    });
+    }).format(numero);
   }
 
   function valorTexto(valor) {
@@ -467,6 +472,52 @@ export default function CRM() {
       });
   }
 
+  // Valor consolidado em aberto por aluno (fonte oficial: divida detalhada,
+  // NUNCA casos.total_em_aberto). Em lote, sem N+1, so p/ os casos exibidos.
+  // Parcelas A_VENCER/VENCIDA de acordos ATIVO + titulos em_aberto (vinculada/
+  // quitada ja ficam de fora). Sem duplicidade entre titulo e parcela.
+  function labelValorAberto(c) {
+    return c && c.temDetalhe ? formatarMoeda(c.valorConsolidado) : "Valor não informado";
+  }
+
+  async function enriquecerValorAberto(casos) {
+    const ids = [...new Set(casos.map((c) => c.aluno_id).filter(Boolean))].map(String);
+    if (!ids.length) return casos.map((c) => ({ ...c, temDetalhe: false, valorConsolidado: 0 }));
+
+    const LOTE = 200;
+    const parcPorAluno = {};
+    const titPorAluno = {};
+    for (let i = 0; i < ids.length; i += LOTE) {
+      const lote = ids.slice(i, i + LOTE);
+      const { data: parc } = await supabase
+        .from("parcelas")
+        .select("valor,status,acordos!inner(aluno_id,status)")
+        .in("acordos.aluno_id", lote)
+        .eq("acordos.status", "ATIVO")
+        .in("status", ["A_VENCER", "VENCIDA"]);
+      for (const p of parc || []) {
+        const aid = String(p.acordos?.aluno_id || "");
+        if (!aid) continue;
+        parcPorAluno[aid] = (parcPorAluno[aid] || 0) + Number(p.valor || 0);
+      }
+      const { data: tit } = await supabase
+        .from("acordos_titulos")
+        .select("aluno_id,valor_em_aberto,saldo_corrigido,valor_original")
+        .in("aluno_id", lote)
+        .eq("status", "em_aberto");
+      for (const t of tit || []) {
+        const aid = String(t.aluno_id);
+        titPorAluno[aid] = (titPorAluno[aid] || 0) + Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+      }
+    }
+
+    return casos.map((c) => {
+      const aid = c.aluno_id ? String(c.aluno_id) : "";
+      const temDetalhe = aid in parcPorAluno || aid in titPorAluno;
+      return { ...c, temDetalhe, valorConsolidado: (parcPorAluno[aid] || 0) + (titPorAluno[aid] || 0) };
+    });
+  }
+
   async function buscar() {
     setErro("");
     setSucesso("");
@@ -478,18 +529,19 @@ export default function CRM() {
       .eq("operador_base", operadorDaSessao())
       .range(0, 5000);
 
-    setCarregando(false);
-
     if (error) {
+      setCarregando(false);
       console.error(error);
       setErro("Erro ao carregar dados do CRM operacional.");
       return;
     }
 
     const resultadoNormalizado = (data || []).map(normalizar);
+    const enriquecidos = await enriquecerValorAberto(resultadoNormalizado);
+    setCarregando(false);
 
-    setTodosCasos(resultadoNormalizado);
-    setGrupos(aplicarFiltros(resultadoNormalizado));
+    setTodosCasos(enriquecidos);
+    setGrupos(aplicarFiltros(enriquecidos));
   }
 
   async function carregarHistorico(casoId) {
@@ -1151,7 +1203,7 @@ export default function CRM() {
             <CardInfo titulo="Status atual" valor={c.statusAtual} />
             <CardInfo
               titulo="Valor em aberto"
-              valor={formatarMoeda(c.totalEmAberto)}
+              valor={labelValorAberto(c)}
               destaque
             />
             <CardInfo
@@ -1292,7 +1344,7 @@ export default function CRM() {
                       marginBottom: 22,
                     }}
                   >
-                    <CardInfo titulo="Total em aberto" valor={formatarMoeda(c.totalEmAberto)} destaque />
+                    <CardInfo titulo="Total em aberto" valor={labelValorAberto(c)} destaque />
                     <CardInfo titulo="Honorário" valor={formatarMoeda(c.honorario)} />
                     <CardInfo titulo="Valor pago" valor={formatarMoeda(c.valorPago)} />
                     <CardInfo titulo="Mensalidades em aberto" valor={valorTexto(c.mensalidadesEmAberto)} />
