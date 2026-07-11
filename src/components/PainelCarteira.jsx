@@ -259,6 +259,11 @@ const LOTE_IN = 200;
 // abertura/visualizacao da ficha, correcao de cadastro, observacao etc.
 const TIPOS_ACIONAMENTO = ["FINALIZACAO_ATENDIMENTO", "FINALIZACAO"];
 
+// CPF normalizado: so digitos (remove pontos, tracos e espacos).
+function normalizarCpf(cpf) {
+  return String(cpf || "").replace(/\D/g, "");
+}
+
 // Dias uteis (seg-sex) transcorridos no mes ate a data informada (inclusive).
 function diasUteisTranscorridos(hojeISO) {
   const h = new Date(String(hojeISO).slice(0, 10) + "T00:00:00");
@@ -619,7 +624,8 @@ export default function PainelCarteira({ embedded = false }) {
 
       // ---- Meu desempenho operacional (do operador logado) ----
       // Acionamento valido = tabulacao real (FINALIZACAO_ATENDIMENTO) feita
-      // pelo operador. Conta CPFs/alunos unicos por dia. Sem consulta por aluno.
+      // pelo operador. Conta por CPF NORMALIZADO unico (fallback aluno_id
+      // quando nao ha CPF). Duas fichas com o mesmo CPF contam uma vez por dia.
       try {
         const inicioMesTS = `${hoje.slice(0, 7)}-01T00:00:00`;
         const { data: movMes } = await supabase
@@ -628,13 +634,32 @@ export default function PainelCarteira({ embedded = false }) {
           .eq("registrado_por_email", email)
           .in("tipo", TIPOS_ACIONAMENTO)
           .gte("registrado_em", inicioMesTS);
-        const setHoje = new Set();
-        const setMes = new Set();
+
+        // Mapa aluno_id -> cpf para deduplicar por CPF (em lote, sem N+1).
+        const movAlunoIds = [...new Set((movMes || []).map((m) => String(m.aluno_id)).filter(Boolean))];
+        const cpfPorAluno = {};
+        for (let i = 0; i < movAlunoIds.length; i += LOTE_IN) {
+          const lote = movAlunoIds.slice(i, i + LOTE_IN);
+          const { data } = await supabase.from("alunos").select("id,cpf").in("id", lote);
+          for (const a of data || []) cpfPorAluno[String(a.id)] = a.cpf;
+        }
+        // Chave unica: CPF normalizado quando existir; senao o proprio aluno_id.
+        const chaveCpf = (alunoId) => {
+          const c = normalizarCpf(cpfPorAluno[String(alunoId)]);
+          return c ? "C:" + c : "A:" + String(alunoId);
+        };
+
+        const setHoje = new Set(); // chaves de CPF acionadas hoje
+        const setMes = new Set(); // chaves de CPF acionadas no mes
+        const acionadosHojeAlunos = new Set(); // ids de ficha p/ a listagem clicavel
         for (const m of movMes || []) {
           if (!m.aluno_id) continue;
-          const id = String(m.aluno_id);
-          setMes.add(id);
-          if (String(m.registrado_em).slice(0, 10) === hoje) setHoje.add(id);
+          const k = chaveCpf(m.aluno_id);
+          setMes.add(k);
+          if (String(m.registrado_em).slice(0, 10) === hoje) {
+            setHoje.add(k);
+            acionadosHojeAlunos.add(String(m.aluno_id));
+          }
         }
 
         // Casos ativos/acionaveis sem NENHUMA tabulacao valida (de qualquer
@@ -657,7 +682,7 @@ export default function PainelCarteira({ embedded = false }) {
         const mediaDia = diasUteis > 0 ? totalMes / diasUteis : 0;
         const estimativaDias = mediaDia > 0 ? Math.ceil(listaAtiva.length / mediaDia) : null;
 
-        setAcionadosHojeIds([...setHoje]);
+        setAcionadosHojeIds([...acionadosHojeAlunos]);
         setSemPrimeiroIds(semPrimeiroLista);
         setDesempenho({
           ativos: listaAtiva.length,
@@ -1163,7 +1188,7 @@ export default function PainelCarteira({ embedded = false }) {
                 </div>
                 <div style={S.desItemInfo}>
                   <span style={S.desNum}>{desempenho.estimativaDias ?? "-"}</span>
-                  <span style={S.desRot}>Dias uteis estimados</span>
+                  <span style={S.desRot}>Dias úteis estimados</span>
                 </div>
               </div>
             </div>
