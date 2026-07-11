@@ -229,6 +229,27 @@ const COLUNAS_ALUNO =
 // Aba "Solicitacoes" foi removida: Solicitar link / termo / financeiro /
 // informar pagamento / anexar comprovante ficam INLINE dentro da Tabulacao
 // (aba Negociacao), que e o centro unico do operador.
+// Casos nao acionaveis: nao aparecem na lista operacional (continuam
+// disponiveis para consulta/historico). Somente status ja existentes.
+const STATUS_NAO_ACIONAVEIS = ["JURIDICO", "CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "AGUARDANDO_BAIXA"];
+
+function ehNaoAcionavel(a) {
+  const s = String(a?.status_atual || "").toUpperCase();
+  if (s.startsWith("QUITAD")) return true; // QUITADO / QUITADO_MANUAL / QUITACAO...
+  return STATUS_NAO_ACIONAVEIS.includes(a?.status_atual);
+}
+
+// Dias de atraso de uma parcela (hoje - vencimento), em dias inteiros.
+function diasAtraso(vencimentoISO, hojeISO) {
+  if (!vencimentoISO) return null;
+  const v = new Date(String(vencimentoISO).slice(0, 10) + "T00:00:00");
+  const h = new Date(String(hojeISO).slice(0, 10) + "T00:00:00");
+  if (Number.isNaN(v.getTime()) || Number.isNaN(h.getTime())) return null;
+  return Math.round((h.getTime() - v.getTime()) / (1000 * 60 * 60 * 24));
+}
+
+const CARDS_FINANCEIROS = new Set(["valorBaixadoMes", "recebidosMes", "honorariosBaixadoMes"]);
+
 const ABAS_MODAL = [
   { id: "resumo", label: "Resumo" },
   { id: "negociacao", label: "Tabulacao" },
@@ -260,17 +281,16 @@ export default function PainelCarteira({ embedded = false }) {
   const [casos, setCasos] = useState([]);
   const [kpis, setKpis] = useState({
     ativos: 0,
-    semContato: 0,
-    criticos: 0,
+    semAcionamento10: 0,
+    proximosPerder: 0,
     retornosHoje: 0,
-    acordosQuebrados: 0,
+    retornosAdm: 0,
+    acordoAVencer: 0,
+    acordoAtrasado: 0,
+    acordoQuebrado: 0,
     recebidosMes: 0,
     valorBaixadoMes: 0,
     honorariosBaixadoMes: 0,
-    quitados: 0,
-    acordosFechados: 0,
-    linksPagos: 0,
-    termosAgPgto: 0,
   });
 
   const [busca, setBusca] = useState("");
@@ -279,8 +299,11 @@ export default function PainelCarteira({ embedded = false }) {
   const [ordenacao, setOrdenacao] = useState("sem_contato_desc");
   const [casosEspeciais, setCasosEspeciais] = useState(null);
   const [carregandoEspecial, setCarregandoEspecial] = useState(false);
-  const [quebradosCpfs, setQuebradosCpfs] = useState([]);
-  const [recebidosCpfs, setRecebidosCpfs] = useState([]);
+  // Ids de alunos por estado de acordo (para clique dos cards operacionais).
+  const [acordoBuckets, setAcordoBuckets] = useState({ aVencer: [], atrasado: [], quebrado: [] });
+  // Detalhamento de parcelas baixadas no mes (cards financeiros).
+  const [detalheParcelas, setDetalheParcelas] = useState([]);
+  const [detalheFinanceiro, setDetalheFinanceiro] = useState(null); // { tipo, titulo }
 
   // ---- Modal operacional ----
   const [modalAberto, setModalAberto] = useState(false);
@@ -380,16 +403,16 @@ export default function PainelCarteira({ embedded = false }) {
         if (!parte || parte.length < PAGINA || todas.length >= TETO) break;
         inicio += PAGINA;
       }
-      const listaAtiva = todas.filter((a) => !ehQuitado(a));
+      // Lista operacional: fora quitados e demais nao-acionaveis (status
+      // existentes). Casos continuam no banco para consulta/historico.
+      const listaAtiva = todas.filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a));
       setCasos(listaAtiva);
 
-      const cAtivos = aplicarEscopo(
-        supabase.from("alunos").select("id", { count: "exact", head: true })
-      ).not("status_atual", "ilike", "%QUITAD%");
+      // Contagens por data (usam a mesma base escopada).
       const cRetHoje = aplicarEscopo(
         supabase.from("alunos").select("id", { count: "exact", head: true }).eq("data_retorno", hoje)
       );
-      const cSemContato = aplicarEscopo(
+      const cSemAcion10 = aplicarEscopo(
         supabase.from("alunos").select("id", { count: "exact", head: true }).lte("data_ultimo_acionamento", corte(10))
       );
       const c9 = aplicarEscopo(
@@ -398,33 +421,22 @@ export default function PainelCarteira({ embedded = false }) {
       const c11 = aplicarEscopo(
         supabase.from("alunos").select("id", { count: "exact", head: true }).lte("data_ultimo_acionamento", corte(11))
       );
-      const cQuitados = aplicarEscopo(
-        supabase
-          .from("alunos")
-          .select("id", { count: "exact", head: true })
-          .or("status_atual.ilike.%QUITAD%,status_jornada.ilike.%QUITAD%,status_acionamento.ilike.%QUITAD%")
-      );
 
-      const [rAtivos, rRetHoje, rSemContato, r9, r11, rQuitados] = await Promise.all([
-        cAtivos,
-        cRetHoje,
-        cSemContato,
-        c9,
-        c11,
-        cQuitados,
-      ]);
+      const [rRetHoje, rSemAcion10, r9, r11] = await Promise.all([cRetHoje, cSemAcion10, c9, c11]);
 
-      let qAcordos = supabase.from("acordos").select("id,cpf,aluno_id,operador_responsavel_email,status,honorarios_valor");
+      // Acordos do operador -> parcelas -> classificacao por vencimento.
+      let qAcordos = supabase.from("acordos").select("id,cpf,aluno_id,operador_responsavel_email,status");
       const alvo = emailEscopo();
       if (alvo) qAcordos = qAcordos.eq("operador_responsavel_email", alvo);
       const { data: acordos } = await qAcordos;
       const acordoIds = (acordos || []).map((a) => a.id);
+      const acordoById = new Map((acordos || []).map((a) => [a.id, a]));
 
       let parcelas = [];
       if (acordoIds.length) {
         const { data: parc } = await supabase
           .from("parcelas")
-          .select("acordo_id,status,vencimento,pago_em,valor,honorarios")
+          .select("acordo_id,numero,status,vencimento,pago_em,valor,honorarios")
           .in("acordo_id", acordoIds);
         parcelas = parc || [];
       }
@@ -437,55 +449,60 @@ export default function PainelCarteira({ embedded = false }) {
       const valorBaixadoMes = parcelasPagasMes.reduce((soma, p) => soma + Number(p.valor || 0), 0);
       const honorariosBaixadoMes = parcelasPagasMes.reduce((soma, p) => soma + Number(p.honorarios || 0), 0);
 
-      const acordosComAtraso = new Set(
-        parcelas
-          .filter((p) => p.status !== "PAGO" && p.vencimento && p.vencimento < hoje)
-          .map((p) => p.acordo_id)
-      );
-      const acordosAtivos = new Set((acordos || []).filter((a) => a.status === "ATIVO").map((a) => a.id));
-      const acordosQuebrados = [...acordosComAtraso].filter((id) => acordosAtivos.has(id)).length;
-      const acordoById = new Map((acordos || []).map((a) => [a.id, a]));
-      const quebCpfs = [
-        ...new Set(
-          [...acordosComAtraso]
-            .filter((id) => acordosAtivos.has(id))
-            .map((id) => acordoById.get(id)?.cpf)
-            .filter(Boolean)
-        ),
-      ];
-      const recCpfs = [
-        ...new Set(
-          parcelas
-            .filter((pp) => pp.status === "PAGO" && pp.pago_em && pp.pago_em >= inicioMes)
-            .map((pp) => acordoById.get(pp.acordo_id)?.cpf)
-            .filter(Boolean)
-        ),
-      ];
-      setQuebradosCpfs(quebCpfs);
-      setRecebidosCpfs(recCpfs);
+      // Mapa aluno_id -> {nome, cpf} para o detalhamento financeiro.
+      const alunoInfo = new Map(todas.map((a) => [String(a.id), a]));
 
-      const up = (a) =>
-        `${a.status_atual || ""} ${a.status_jornada || ""} ${a.status_acionamento || ""}`.toUpperCase();
-      const acordosFechados = listaAtiva.filter((a) => up(a).includes("ACORDO_FECHADO")).length;
-      const linksPagos = listaAtiva.filter((a) => up(a).includes("BAIXA_REALIZADA")).length;
-      const termosAgPgto = listaAtiva.filter((a) => {
-        const t = up(a);
-        return t.includes("TERMO") && (t.includes("RECEBIDO") || t.includes("LIBERADO") || t.includes("ADM"));
-      }).length;
+      // Detalhamento das parcelas baixadas no mes (soma bate com os cards).
+      const detalhe = parcelasPagasMes.map((p) => {
+        const ac = acordoById.get(p.acordo_id) || {};
+        const al = alunoInfo.get(String(ac.aluno_id)) || {};
+        return {
+          aluno_id: ac.aluno_id || null,
+          aluno_nome: nomeAluno(al) !== "Aluno sem nome" ? nomeAluno(al) : (al.nome || "-"),
+          cpf: al.cpf || ac.cpf || "-",
+          acordo_id: p.acordo_id,
+          parcela: p.numero,
+          data_baixa: p.pago_em,
+          valor: Number(p.valor || 0),
+          honorarios: Number(p.honorarios || 0),
+          operador: ac.operador_responsavel_email || "-",
+        };
+      });
+      setDetalheParcelas(detalhe);
+
+      // Estados de acordo (parcelas nao pagas de acordos ATIVOS), por aluno unico.
+      const setAVencer = new Set();
+      const setAtrasado = new Set();
+      const setQuebrado = new Set();
+      for (const p of parcelas) {
+        if (p.status === "PAGO") continue;
+        const ac = acordoById.get(p.acordo_id);
+        if (!ac || ac.status !== "ATIVO" || !ac.aluno_id) continue;
+        const d = diasAtraso(p.vencimento, hoje);
+        if (d === null) continue;
+        const aid = String(ac.aluno_id);
+        if (d <= 0) setAVencer.add(aid); // vencimento futuro
+        else if (d >= 1 && d <= 30) setAtrasado.add(aid);
+        else if (d >= 31) setQuebrado.add(aid);
+      }
+      setAcordoBuckets({
+        aVencer: [...setAVencer],
+        atrasado: [...setAtrasado],
+        quebrado: [...setQuebrado],
+      });
 
       setKpis({
-        ativos: rAtivos.count || 0,
-        semContato: rSemContato.count || 0,
-        criticos: Math.max(0, (r9.count || 0) - (r11.count || 0)),
+        ativos: listaAtiva.length,
+        semAcionamento10: rSemAcion10.count || 0,
+        proximosPerder: Math.max(0, (r9.count || 0) - (r11.count || 0)),
         retornosHoje: rRetHoje.count || 0,
-        acordosQuebrados,
+        retornosAdm: retornosPendentes.length,
+        acordoAVencer: setAVencer.size,
+        acordoAtrasado: setAtrasado.size,
+        acordoQuebrado: setQuebrado.size,
         recebidosMes,
         valorBaixadoMes,
         honorariosBaixadoMes,
-        quitados: rQuitados.count || 0,
-        acordosFechados,
-        linksPagos,
-        termosAgPgto,
       });
     } catch (e) {
       console.error("Erro no PainelCarteira:", e);
@@ -729,10 +746,9 @@ export default function PainelCarteira({ embedded = false }) {
     return d.toISOString();
   }
 
-  // Carrega EXATAMENTE os registros que compoem o indicador clicado, com a
-  // mesma definicao usada na contagem e respeitando a permissao/escopo do
-  // usuario (aplicarEscopo). Assim a listagem existente da carteira sempre
-  // reflete o numero do card. Clicar de novo no mesmo card limpa o filtro.
+  // Carrega os registros (alunos unicos) que compoem o indicador OPERACIONAL
+  // clicado, com a mesma definicao da contagem e respeitando o escopo/permissao
+  // do usuario. Cards financeiros nao passam por aqui (abrem o detalhamento).
   async function abrirKpi(kpi) {
     if (filtroKpi === kpi) {
       setFiltroKpi(null);
@@ -744,52 +760,35 @@ export default function PainelCarteira({ embedded = false }) {
     try {
       const hoje = hojeLocalBR();
       const base = () => aplicarEscopo(supabase.from("alunos").select(COLUNAS_ALUNO));
-      const naoQuitado = (q) => q.not("status_atual", "ilike", "%QUITAD%");
-      const orStatus = (termo) =>
-        `status_atual.ilike.%${termo}%,status_jornada.ilike.%${termo}%,status_acionamento.ilike.%${termo}%`;
-
       let dados = [];
 
       if (kpi === "ativos") {
-        const { data } = await naoQuitado(base()).limit(5000);
-        dados = data || [];
-      } else if (kpi === "semContato") {
+        // Lista operacional ja carregada (exclui quitados/nao-acionaveis).
+        dados = casos;
+      } else if (kpi === "retornosHoje") {
+        const { data } = await base().eq("data_retorno", hoje).limit(5000);
+        dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a));
+      } else if (kpi === "semAcionamento10") {
         const { data } = await base().lte("data_ultimo_acionamento", corteDias(10)).limit(5000);
-        dados = data || [];
-      } else if (kpi === "criticos") {
+        dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a));
+      } else if (kpi === "proximosPerder") {
+        // 9 ou 10 dias sem acionamento (no 11o dia ficam elegiveis ao Receptivo).
         const { data } = await base()
           .lte("data_ultimo_acionamento", corteDias(9))
           .gt("data_ultimo_acionamento", corteDias(11))
           .limit(5000);
-        dados = data || [];
-      } else if (kpi === "retornosHoje") {
-        const { data } = await base().eq("data_retorno", hoje).limit(5000);
-        dados = data || [];
-      } else if (kpi === "acordosFechados") {
-        const { data } = await naoQuitado(base()).or(orStatus("ACORDO_FECHADO")).limit(5000);
-        dados = data || [];
-      } else if (kpi === "linksPagos") {
-        const { data } = await naoQuitado(base()).or(orStatus("BAIXA_REALIZADA")).limit(5000);
-        dados = data || [];
-      } else if (kpi === "termosAgPgto") {
-        const { data } = await naoQuitado(base()).or(orStatus("TERMO")).limit(5000);
-        // Mesma regra da contagem: TERMO + (RECEBIDO | LIBERADO | ADM).
-        dados = (data || []).filter((a) => {
-          const t = `${a.status_atual || ""} ${a.status_jornada || ""} ${a.status_acionamento || ""}`.toUpperCase();
-          return t.includes("TERMO") && (t.includes("RECEBIDO") || t.includes("LIBERADO") || t.includes("ADM"));
-        });
-      } else if (kpi === "quitados") {
-        const { data } = await base().or(orStatus("QUITAD")).limit(5000);
-        dados = data || [];
-      } else if (kpi === "recebidosMes" || kpi === "valorBaixadoMes" || kpi === "honorariosBaixadoMes") {
-        // Cards financeiros do mes = alunos com parcela baixada no mes.
-        if (recebidosCpfs.length) {
-          const { data } = await base().in("cpf", recebidosCpfs).limit(5000);
+        dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a));
+      } else if (kpi === "retornosAdm") {
+        const ids = [...new Set(retornosPendentes.map((r) => r.aluno_id).filter(Boolean))];
+        if (ids.length) {
+          const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).in("id", ids).limit(5000);
           dados = data || [];
         }
-      } else if (kpi === "acordosQuebrados") {
-        if (quebradosCpfs.length) {
-          const { data } = await base().in("cpf", quebradosCpfs).limit(5000);
+      } else if (kpi === "acordoAVencer" || kpi === "acordoAtrasado" || kpi === "acordoQuebrado") {
+        const chave = kpi === "acordoAVencer" ? "aVencer" : kpi === "acordoAtrasado" ? "atrasado" : "quebrado";
+        const ids = acordoBuckets[chave] || [];
+        if (ids.length) {
+          const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).in("id", ids).limit(5000);
           dados = data || [];
         }
       }
@@ -804,6 +803,17 @@ export default function PainelCarteira({ embedded = false }) {
   }
 
   function onKpiClick(id) {
+    if (CARDS_FINANCEIROS.has(id)) {
+      // Cards financeiros abrem o detalhamento das parcelas baixadas.
+      const titulo =
+        id === "valorBaixadoMes"
+          ? "Valor baixado no mes"
+          : id === "honorariosBaixadoMes"
+          ? "Honorarios no mes"
+          : "Recebidos no mes";
+      setDetalheFinanceiro({ tipo: id, titulo });
+      return;
+    }
     abrirKpi(id);
   }
 
@@ -834,19 +844,20 @@ export default function PainelCarteira({ embedded = false }) {
     return arr;
   }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao]);
 
+  // Cards operacionais (abrem a tabela) + financeiros (abrem detalhamento).
+  // Todos permanecem visiveis mesmo zerados.
   const kpiCards = [
     { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb" },
-    { id: "semContato", rot: "Sem contato +10 dias", val: kpis.semContato, cor: "#f59e0b" },
-    { id: "criticos", rot: "Criticos (9-10 dias)", val: kpis.criticos, cor: "#dc2626" },
-    { id: "retornosHoje", rot: "Retornos hoje", val: kpis.retornosHoje, cor: "#0ea5e9" },
-    { id: "acordosQuebrados", rot: "Acordos quebrados", val: kpis.acordosQuebrados, cor: "#e11d48" },
-    { id: "recebidosMes", rot: "Recebidos este mes", val: kpis.recebidosMes, cor: "#16a34a" },
-    { id: "valorBaixadoMes", rot: "Valor baixado este mes", val: formatarMoeda(kpis.valorBaixadoMes), cor: "#16a34a" },
-    { id: "honorariosBaixadoMes", rot: "Honorarios este mes", val: formatarMoeda(kpis.honorariosBaixadoMes), cor: "#0d9488" },
-    { id: "quitados", rot: "Quitados", val: kpis.quitados, cor: "#16a34a" },
-    { id: "acordosFechados", rot: "Acordos fechados", val: kpis.acordosFechados, cor: "#0891b2" },
-    { id: "linksPagos", rot: "Links pagos", val: kpis.linksPagos, cor: "#16a34a" },
-    { id: "termosAgPgto", rot: "Termos aguard. pgto", val: kpis.termosAgPgto, cor: "#7c3aed" },
+    { id: "retornosHoje", rot: "Retornos de hoje", val: kpis.retornosHoje, cor: "#0ea5e9" },
+    { id: "semAcionamento10", rot: "Sem acionamento ha 10 dias", val: kpis.semAcionamento10, cor: "#f59e0b" },
+    { id: "proximosPerder", rot: "Proximos de perder a carteira", val: kpis.proximosPerder, cor: "#dc2626" },
+    { id: "acordoAVencer", rot: "Acordos a vencer", val: kpis.acordoAVencer, cor: "#0891b2" },
+    { id: "acordoAtrasado", rot: "Acordos atrasados", val: kpis.acordoAtrasado, cor: "#f97316" },
+    { id: "acordoQuebrado", rot: "Acordos quebrados", val: kpis.acordoQuebrado, cor: "#e11d48" },
+    { id: "retornosAdm", rot: "Retornos do ADM", val: retornosPendentes.length, cor: "#c2410c" },
+    { id: "valorBaixadoMes", rot: "Valor baixado no mes", val: formatarMoeda(kpis.valorBaixadoMes), cor: "#16a34a", financeiro: true },
+    { id: "recebidosMes", rot: "Recebidos no mes", val: kpis.recebidosMes, cor: "#16a34a", financeiro: true },
+    { id: "honorariosBaixadoMes", rot: "Honorarios no mes", val: formatarMoeda(kpis.honorariosBaixadoMes), cor: "#0d9488", financeiro: true },
   ];
 
   const painelReceptivo = (
@@ -1235,6 +1246,73 @@ export default function PainelCarteira({ embedded = false }) {
           </div>
         </div>
       )}
+
+      {/* Detalhamento financeiro (parcelas baixadas no mes) — soma bate com o card */}
+      {detalheFinanceiro && (
+        <div style={S.overlay} onClick={() => setDetalheFinanceiro(null)}>
+          <div style={{ ...S.modal, maxWidth: 980 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div style={S.modalHeader}>
+              <div style={{ minWidth: 0 }}>
+                <h2 style={S.modalNome}>{detalheFinanceiro.titulo}</h2>
+                <div style={S.modalSub}>
+                  {detalheParcelas.length} baixa(s) no mes ·{" "}
+                  {detalheFinanceiro.tipo === "recebidosMes"
+                    ? `${detalheParcelas.length} parcela(s)`
+                    : detalheFinanceiro.tipo === "honorariosBaixadoMes"
+                    ? `Total honorarios: ${formatarMoeda(detalheParcelas.reduce((s, r) => s + r.honorarios, 0))}`
+                    : `Total baixado: ${formatarMoeda(detalheParcelas.reduce((s, r) => s + r.valor, 0))}`}
+                </div>
+              </div>
+              <button style={S.btnFechar} onClick={() => setDetalheFinanceiro(null)} aria-label="Fechar">✕</button>
+            </div>
+            <div style={S.modalBody}>
+              <div style={S.tabelaWrap}>
+                <table style={S.tabela}>
+                  <thead>
+                    <tr>
+                      <th style={S.th}>Aluno</th>
+                      <th style={S.th}>CPF</th>
+                      <th style={S.th}>Acordo</th>
+                      <th style={S.th}>Parcela</th>
+                      <th style={S.th}>Data da baixa</th>
+                      <th style={S.thNum}>Valor baixado</th>
+                      <th style={S.thNum}>Honorarios</th>
+                      <th style={S.th}>Operador</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {detalheParcelas.map((r, i) => (
+                      <tr key={`${r.acordo_id}-${r.parcela}-${i}`} style={S.tr}>
+                        <td style={S.td}>{r.aluno_nome || "-"}</td>
+                        <td style={S.td}>{r.cpf || "-"}</td>
+                        <td style={S.td}>{String(r.acordo_id || "-").slice(0, 8)}</td>
+                        <td style={S.td}>{r.parcela ?? "-"}</td>
+                        <td style={S.td}>{formatarData(r.data_baixa)}</td>
+                        <td style={S.tdNum}>{formatarMoeda(r.valor)}</td>
+                        <td style={S.tdNum}>{formatarMoeda(r.honorarios)}</td>
+                        <td style={S.td}>{nomeOperadorPorEmail(r.operador)}</td>
+                      </tr>
+                    ))}
+                    {detalheParcelas.length === 0 && (
+                      <tr><td style={S.vazio} colSpan={8}>Nenhuma baixa no mes.</td></tr>
+                    )}
+                  </tbody>
+                  {detalheParcelas.length > 0 && (
+                    <tfoot>
+                      <tr>
+                        <td style={S.tdTotal} colSpan={5}>Total</td>
+                        <td style={S.tdNumTotal}>{formatarMoeda(detalheParcelas.reduce((s, r) => s + r.valor, 0))}</td>
+                        <td style={S.tdNumTotal}>{formatarMoeda(detalheParcelas.reduce((s, r) => s + r.honorarios, 0))}</td>
+                        <td style={S.td}></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
   return embedded ? conteudo : <main className="content">{conteudo}</main>;
@@ -1294,6 +1372,8 @@ const S = {
   tr: { cursor: "pointer", borderBottom: `1px solid ${COR_BORDA_SUAVE}` },
   td: { padding: "10px 8px", color: "#475569", verticalAlign: "middle" },
   tdNum: { padding: "10px 8px", color: "#1e293b", textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 },
+  tdTotal: { padding: "10px 8px", color: "#1e293b", fontWeight: 700, borderTop: `2px solid ${COR_BORDA}`, textAlign: "right" },
+  tdNumTotal: { padding: "10px 8px", color: "#16a34a", textAlign: "right", whiteSpace: "nowrap", fontWeight: 800, borderTop: `2px solid ${COR_BORDA}` },
   nomeCel: { fontWeight: 600, color: "#1e293b" },
   subCel: { fontSize: 11.5, color: "#a3adba" },
   badgeSituacao: { display: "inline-block", padding: "2px 8px", borderRadius: 6, background: "#eef2ff", color: "#4f46e5", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" },
