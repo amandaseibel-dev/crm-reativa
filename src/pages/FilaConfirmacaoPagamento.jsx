@@ -200,6 +200,17 @@ export default function FilaConfirmacaoPagamento() {
     return temValor && temData && temTipo && temAlvo && temOperador;
   }
 
+  // Confirmacao definitiva exige composicao VALIDADA (auditoria) e valor pago
+  // igual ao total negociado. Sem baixa/quitacao nesta etapa.
+  function composicaoValidadaOk(s) {
+    if (!s) return false;
+    const validada = !!s.composicao_validada_em && !!s.composicao_validada_por_email;
+    const bate =
+      s.total_negociado != null &&
+      Math.abs(Number(s.valor_informado || 0) - Number(s.total_negociado || 0)) < 0.005;
+    return validada && bate;
+  }
+
   const saldoAtual = totalAbertoParcelas + totalAbertoTitulos;
   const valorVinc = vinc ? Number(String(vinc.valor).replace(",", ".")) || 0 : 0;
   const saldoApos = Math.max(0, saldoAtual - valorVinc);
@@ -251,6 +262,11 @@ export default function FilaConfirmacaoPagamento() {
 
   // ---- Confirmar (fluxo atual preservado) ----
   async function finalizarSolicitacao(s, observacaoExtra) {
+    if (!dadosMinimosOk(s) || !composicaoValidadaOk(s)) {
+      return alert(
+        "Confirmação bloqueada: exige composição validada (data e e-mail do financeiro) e valor pago igual ao total negociado."
+      );
+    }
     const emailConfirmando = usuario?.email || "";
     const agora = new Date().toISOString();
     const observacaoAdm = [observacoes[s.id], observacaoExtra].filter(Boolean).join(" — ");
@@ -594,6 +610,8 @@ export default function FilaConfirmacaoPagamento() {
 
             {detalhe.status === "AGUARDANDO_CONFIRMACAO" && (() => {
               const completos = dadosMinimosOk(detalhe);
+              const composValidada = composicaoValidadaOk(detalhe);
+              const confirmavel = completos && composValidada;
               const acordoOptions = [
                 ...new Map(parcelasAbertas.map((p) => [p.acordos?.id, p.acordos?.id])).keys(),
               ].filter(Boolean);
@@ -708,12 +726,18 @@ export default function FilaConfirmacaoPagamento() {
                           }}
                         />
                       </div>
+                      {completos && !composValidada && (
+                        <div style={styles.incompleto}>
+                          Confirmação definitiva bloqueada: exige composição validada (data e e-mail
+                          do financeiro) e valor pago igual ao total negociado. Use "Vincular dados".
+                        </div>
+                      )}
                       <div style={styles.acoes}>
                         <button
-                          style={completos ? styles.botaoConfirmar : styles.botaoDesabilitado}
-                          disabled={!completos}
-                          title={completos ? "" : "Dados financeiros incompletos"}
-                          onClick={() => completos && finalizarSolicitacao(detalhe)}
+                          style={confirmavel ? styles.botaoConfirmar : styles.botaoDesabilitado}
+                          disabled={!confirmavel}
+                          title={confirmavel ? "" : "Composição não validada ou valor ≠ total negociado"}
+                          onClick={() => confirmavel && finalizarSolicitacao(detalhe)}
                         >
                           Confirmar pagamento
                         </button>
