@@ -71,8 +71,14 @@ export default function FilaConfirmacaoPagamento() {
   const [parcelasAbertas, setParcelasAbertas] = useState([]);
   const [titulosAbertos, setTitulosAbertos] = useState([]);
   const [comprovante, setComprovante] = useState(null);
+  const [comprovantesDisponiveis, setComprovantesDisponiveis] = useState([]);
   const [carregandoFicha, setCarregandoFicha] = useState(false);
   const [motivoRejeicao, setMotivoRejeicao] = useState("");
+
+  // "Vincular dados" (so identificacao financeira; nao baixa/quita/altera saldo).
+  const [vinculando, setVinculando] = useState(false);
+  const [salvandoVinc, setSalvandoVinc] = useState(false);
+  const [vinc, setVinc] = useState(null); // { tipo, valor, data, alvoTipo, alvoId, comprovanteLinkId }
 
   useEffect(() => {
     carregarUsuario();
@@ -109,6 +115,16 @@ export default function FilaConfirmacaoPagamento() {
     setParcelasAbertas([]);
     setTitulosAbertos([]);
     setComprovante(null);
+    setComprovantesDisponiveis([]);
+    setVinculando(false);
+    setVinc({
+      tipo: s.tipo_pagamento || "",
+      valor: s.valor_informado != null ? String(s.valor_informado) : "",
+      data: s.data_pagamento || "",
+      alvoTipo: s.parcela_id ? "PARCELA" : s.titulo_id ? "TITULO" : s.acordo_id ? "ACORDO" : "",
+      alvoId: s.parcela_id || s.titulo_id || s.acordo_id || "",
+      comprovanteLinkId: s.comprovante_link_id || "",
+    });
     setCarregandoFicha(true);
     try {
       // Historico do aluno.
@@ -144,12 +160,14 @@ export default function FilaConfirmacaoPagamento() {
         // links/baixas). So exibe se existir; nao cria nada.
         const { data: linksComp } = await supabase
           .from("links_pagamento")
-          .select("comprovante_url, comprovante_nome, comprovante_anexado_em, observacao_comprovante, status")
+          .select("id, comprovante_url, comprovante_nome, comprovante_anexado_em, observacao_comprovante, status")
           .eq("aluno_id", String(s.aluno_id))
           .not("comprovante_url", "is", null)
-          .order("comprovante_anexado_em", { ascending: false })
-          .limit(1);
-        if (linksComp && linksComp.length) setComprovante(linksComp[0]);
+          .order("comprovante_anexado_em", { ascending: false });
+        if (linksComp && linksComp.length) {
+          setComprovante(linksComp[0]);
+          setComprovantesDisponiveis(linksComp);
+        }
       }
     } catch (e) {
       console.error("Erro ao carregar ficha:", e);
@@ -170,6 +188,66 @@ export default function FilaConfirmacaoPagamento() {
     () => titulosAbertos.reduce((s, t) => s + valorTitulo(t), 0),
     [titulosAbertos]
   );
+
+  // Dados minimos para permitir a confirmacao definitiva.
+  function dadosMinimosOk(s) {
+    if (!s) return false;
+    const temValor = Number(s.valor_informado) > 0;
+    const temData = !!s.data_pagamento;
+    const temTipo = !!s.tipo_pagamento;
+    const temAlvo = !!(s.parcela_id || s.acordo_id || s.titulo_id);
+    const temOperador = !!s.operador_email;
+    return temValor && temData && temTipo && temAlvo && temOperador;
+  }
+
+  const saldoAtual = totalAbertoParcelas + totalAbertoTitulos;
+  const valorVinc = vinc ? Number(String(vinc.valor).replace(",", ".")) || 0 : 0;
+  const saldoApos = Math.max(0, saldoAtual - valorVinc);
+
+  // ---- Vincular dados (SOMENTE identificacao financeira) ----
+  // Nao baixa parcela, nao quita titulo, nao altera saldo, nao muda o aluno
+  // para BAIXA_REALIZADA e nao remove a solicitacao da fila.
+  async function salvarVinculo() {
+    const s = detalhe;
+    if (!s) return;
+    if (!vinc.tipo) return alert("Selecione o tipo do pagamento.");
+    if (valorVinc <= 0) return alert("Informe o valor pago (maior que zero).");
+    if (!vinc.data) return alert("Informe a data do pagamento.");
+    if (!vinc.alvoTipo || !vinc.alvoId) return alert("Selecione a dívida correspondente (parcela, título ou acordo).");
+
+    setSalvandoVinc(true);
+    try {
+      const agora = new Date().toISOString();
+      const upd = {
+        tipo_pagamento: vinc.tipo,
+        valor_informado: valorVinc,
+        data_pagamento: vinc.data,
+        parcela_id: vinc.alvoTipo === "PARCELA" ? vinc.alvoId : null,
+        titulo_id: vinc.alvoTipo === "TITULO" ? vinc.alvoId : null,
+        acordo_id: vinc.alvoTipo === "ACORDO" ? vinc.alvoId : null,
+        comprovante_link_id: vinc.comprovanteLinkId || null,
+        dados_vinculados_em: agora,
+        dados_vinculados_por_email: usuario?.email || "",
+        atualizado_em: agora,
+        // NAO altera status, aluno, saldo, parcelas nem tira da fila.
+      };
+      const { error } = await supabase
+        .from("solicitacoes_confirmacao_pagamento")
+        .update(upd)
+        .eq("id", s.id);
+      if (error) {
+        alert("Erro ao vincular dados: " + error.message);
+        return;
+      }
+      alert("Dados financeiros vinculados. (Isso não confirma o pagamento nem baixa a dívida.)");
+      const atualizado = { ...s, ...upd };
+      setDetalhe(atualizado);
+      setVinculando(false);
+      setSolicitacoes((prev) => prev.map((x) => (x.id === s.id ? { ...x, ...upd } : x)));
+    } finally {
+      setSalvandoVinc(false);
+    }
+  }
 
   // ---- Confirmar (fluxo atual preservado) ----
   async function finalizarSolicitacao(s, observacaoExtra) {
@@ -514,34 +592,143 @@ export default function FilaConfirmacaoPagamento() {
               )}
             </div>
 
-            {detalhe.status === "AGUARDANDO_CONFIRMACAO" && (
-              <div style={styles.modalAcoes}>
-                <div style={styles.bloco}>
-                  <label style={styles.label}>Motivo (obrigatório para rejeitar/devolver)</label>
-                  <textarea
-                    style={styles.textarea}
-                    placeholder="Ex.: comprovante ilegível, valor divergente, CPF divergente, pagamento não localizado, parcela incorreta, documento incompleto."
-                    value={motivoRejeicao}
-                    onChange={(e) => {
-                      setMotivoRejeicao(e.target.value);
-                      setObservacoes({ ...observacoes, [detalhe.id]: e.target.value });
-                    }}
-                  />
+            {detalhe.status === "AGUARDANDO_CONFIRMACAO" && (() => {
+              const completos = dadosMinimosOk(detalhe);
+              const acordoOptions = [
+                ...new Map(parcelasAbertas.map((p) => [p.acordos?.id, p.acordos?.id])).keys(),
+              ].filter(Boolean);
+              return (
+                <div style={styles.modalAcoes}>
+                  {!completos && (
+                    <div style={styles.incompleto}>
+                      Dados financeiros incompletos — falta valor, data, tipo e/ou a
+                      identificação da dívida (parcela, título ou acordo). A confirmação
+                      definitiva fica bloqueada até vincular os dados.
+                    </div>
+                  )}
+
+                  {/* Vincular dados (só identificação; não confirma, não baixa) */}
+                  {vinculando ? (
+                    <div style={styles.vincBox}>
+                      <strong>Vincular dados do pagamento</strong>
+                      <p style={styles.avisoLeve}>Vincular ≠ confirmar. Isto só salva a identificação financeira.</p>
+
+                      <label style={styles.label}>Tipo do pagamento</label>
+                      <select style={styles.input} value={vinc.tipo} onChange={(e) => setVinc({ ...vinc, tipo: e.target.value })}>
+                        <option value="">Selecione…</option>
+                        <option value="PARCELA">Parcela</option>
+                        <option value="ENTRADA">Entrada</option>
+                        <option value="ACORDO">Acordo</option>
+                        <option value="MENSALIDADE">Mensalidade/título</option>
+                        <option value="QUITACAO_TOTAL">Possível quitação total</option>
+                      </select>
+
+                      <div style={styles.linha2}>
+                        <div style={{ flex: 1 }}>
+                          <label style={styles.label}>Valor pago</label>
+                          <input style={styles.input} placeholder="Ex.: 350,00" value={vinc.valor} onChange={(e) => setVinc({ ...vinc, valor: e.target.value })} />
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <label style={styles.label}>Data do pagamento</label>
+                          <input type="date" style={styles.input} value={vinc.data} onChange={(e) => setVinc({ ...vinc, data: e.target.value })} />
+                        </div>
+                      </div>
+
+                      <label style={styles.label}>Dívida correspondente</label>
+                      <select
+                        style={styles.input}
+                        value={vinc.alvoTipo && vinc.alvoId ? `${vinc.alvoTipo}:${vinc.alvoId}` : ""}
+                        onChange={(e) => {
+                          const [t, id] = e.target.value.split(":");
+                          setVinc({ ...vinc, alvoTipo: t || "", alvoId: id || "" });
+                        }}
+                      >
+                        <option value="">Selecione parcela, título ou acordo…</option>
+                        {parcelasAbertas.length > 0 && (
+                          <optgroup label="Parcelas em aberto">
+                            {parcelasAbertas.map((p) => (
+                              <option key={p.id} value={`PARCELA:${p.id}`}>
+                                Parcela {p.numero} · venc. {p.vencimento} · {formatarMoeda(p.valor)}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {titulosAbertos.length > 0 && (
+                          <optgroup label="Títulos/mensalidades em aberto">
+                            {titulosAbertos.map((t) => (
+                              <option key={t.id} value={`TITULO:${t.id}`}>
+                                {t.documento || "Título"} · venc. {t.vencimento} · {formatarMoeda(valorTitulo(t))}
+                              </option>
+                            ))}
+                          </optgroup>
+                        )}
+                        {acordoOptions.length > 0 && (
+                          <optgroup label="Acordos ativos">
+                            {acordoOptions.map((id) => (
+                              <option key={id} value={`ACORDO:${id}`}>Acordo {String(id).slice(0, 8)}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+
+                      <label style={styles.label}>Comprovante (opcional, reaproveita o já anexado)</label>
+                      <select style={styles.input} value={vinc.comprovanteLinkId} onChange={(e) => setVinc({ ...vinc, comprovanteLinkId: e.target.value })}>
+                        <option value="">Sem comprovante vinculado</option>
+                        {comprovantesDisponiveis.map((c) => (
+                          <option key={c.id} value={c.id}>{c.comprovante_nome || "comprovante"} · {formatarData(c.comprovante_anexado_em)}</option>
+                        ))}
+                      </select>
+
+                      <div style={styles.preview}>
+                        <strong>Prévia</strong>
+                        <p style={styles.info}>{detalhe.aluno_nome} · CPF {detalhe.aluno_cpf || "-"}</p>
+                        <p style={styles.info}>Valor selecionado: {formatarMoeda(valorVinc)}</p>
+                        <p style={styles.info}>Saldo atual (parcelas + títulos): {formatarMoeda(saldoAtual)}</p>
+                        <p style={styles.info}>Saldo estimado após (referência): {formatarMoeda(saldoApos)}</p>
+                      </div>
+
+                      <div style={styles.acoes}>
+                        <button style={styles.botaoConfirmar} disabled={salvandoVinc} onClick={salvarVinculo}>
+                          {salvandoVinc ? "Salvando…" : "Salvar vínculo (não confirma)"}
+                        </button>
+                        <button style={styles.botaoCancelar} onClick={() => setVinculando(false)}>Cancelar</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div style={styles.bloco}>
+                        <label style={styles.label}>Motivo (obrigatório para rejeitar/devolver)</label>
+                        <textarea
+                          style={styles.textarea}
+                          placeholder="Ex.: comprovante ilegível, valor divergente, CPF divergente, pagamento não localizado, parcela incorreta, documento incompleto."
+                          value={motivoRejeicao}
+                          onChange={(e) => {
+                            setMotivoRejeicao(e.target.value);
+                            setObservacoes({ ...observacoes, [detalhe.id]: e.target.value });
+                          }}
+                        />
+                      </div>
+                      <div style={styles.acoes}>
+                        <button
+                          style={completos ? styles.botaoConfirmar : styles.botaoDesabilitado}
+                          disabled={!completos}
+                          title={completos ? "" : "Dados financeiros incompletos"}
+                          onClick={() => completos && finalizarSolicitacao(detalhe)}
+                        >
+                          Confirmar pagamento
+                        </button>
+                        <button style={styles.botaoVincular} onClick={() => setVinculando(true)}>
+                          Vincular dados
+                        </button>
+                        <button style={styles.botaoRejeitar} onClick={() => rejeitarPagamento(detalhe, motivoRejeicao)}>
+                          Rejeitar / devolver
+                        </button>
+                      </div>
+                    </>
+                  )}
                 </div>
-                <div style={styles.acoes}>
-                  <button style={styles.botaoConfirmar} onClick={() => finalizarSolicitacao(detalhe)}>
-                    Confirmar (baixa já feita na ficha financeira)
-                  </button>
-                  <button style={styles.botaoRejeitar} onClick={() => rejeitarPagamento(detalhe, motivoRejeicao)}>
-                    Rejeitar / devolver para correção
-                  </button>
-                </div>
-                <p style={styles.aviso}>
-                  Quitação total automática ("Quitar tudo") ainda não habilitada nesta fila: os
-                  itens não trazem parcela/acordo/valor/comprovante vinculados. Ver pendências no chat.
-                </p>
-              </div>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}
@@ -597,6 +784,14 @@ const styles = {
   acoes: { marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" },
   botaoConfirmar: { background: "#198754", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
   botaoRejeitar: { background: "#dc3545", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  botaoDesabilitado: { background: "#cbd5e1", color: "#64748b", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "not-allowed", fontWeight: "bold" },
+  botaoVincular: { background: "#0ea5e9", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  botaoCancelar: { background: "#e5e7eb", color: "#374151", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  incompleto: { background: "#fff7ed", color: "#9a3412", border: "1px solid #fed7aa", borderRadius: "8px", padding: "10px 12px", fontSize: "13px", marginBottom: "12px" },
+  vincBox: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "14px" },
+  avisoLeve: { color: "#64748b", fontSize: "12px", margin: "4px 0 10px" },
+  linha2: { display: "flex", gap: "10px", flexWrap: "wrap" },
+  preview: { background: "#eef6ff", border: "1px solid #cfe0f5", borderRadius: "8px", padding: "10px 12px", marginTop: "10px", marginBottom: "6px" },
   botaoPequeno: { display: "inline-block", marginTop: "8px", background: "#0ea5e9", color: "#fff", textDecoration: "none", padding: "8px 14px", borderRadius: "8px", fontWeight: "bold", fontSize: "13px" },
   aviso: { marginTop: "10px", color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "8px 10px", fontSize: "12px" },
   alerta: { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5", borderRadius: "10px", padding: "16px" },
