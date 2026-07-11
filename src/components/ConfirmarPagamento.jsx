@@ -70,6 +70,26 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
   const [multa, setMulta] = useState("");
   const [honorarios, setHonorarios] = useState("");
   const [composicaoConferida, setComposicaoConferida] = useState(false);
+  // Somente usuarios financeiros (pode_gerir_confirmacao_pagamento) compoem e
+  // validam juros/multa/honorarios. O operador informa apenas o basico.
+  const [podeCompor, setPodeCompor] = useState(false);
+
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const email = data?.user?.email;
+      if (!email) return;
+      const { data: u } = await supabase
+        .from("usuarios")
+        .select("pode_gerir_confirmacao_pagamento")
+        .eq("email", email)
+        .eq("ativo", true)
+        .maybeSingle();
+      if (ativo) setPodeCompor(!!u?.pode_gerir_confirmacao_pagamento);
+    })();
+    return () => { ativo = false; };
+  }, []);
 
   const [enviando, setEnviando] = useState(false);
   const [carregando, setCarregando] = useState(false);
@@ -181,17 +201,18 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
   const totalNegociado = principalNum + jurosNum + multaNum + honorariosNum;
   const diferenca = valorNum - totalNegociado; // valor pago - total negociado
 
-  // Bloqueio SOMENTE quando o valor pago diverge do total NEGOCIADO (nao do
-  // principal). Para quitacao total exige tambem conferencia manual.
+  // Bloqueio da composicao SO se aplica ao financeiro (podeCompor). O operador
+  // cria a solicitacao sem composicao (fica p/ o financeiro validar depois).
   const totalDivergente = totalNegociado > 0 && Math.abs(diferenca) > 0.005;
   const quitacaoBloqueada =
-    tipo === "QUITACAO_TOTAL" && (!composicaoConferida || totalNegociado <= 0 || totalDivergente);
+    podeCompor && tipo === "QUITACAO_TOTAL" && (!composicaoConferida || totalNegociado <= 0 || totalDivergente);
 
-  // Sugere o valor pago = total negociado ao mudar principal/encargos (editavel).
+  // Sugere valor pago = total negociado ao compor (so financeiro). No fluxo do
+  // operador, o valor pago e o que ele informa (nao e sobrescrito).
   useEffect(() => {
-    if (totalNegociado > 0) setValorInformado(totalNegociado.toFixed(2));
+    if (podeCompor && totalNegociado > 0) setValorInformado(totalNegociado.toFixed(2));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tipo, alvo, juros, multa, honorarios, parcelasAbertas, titulosAbertos]);
+  }, [podeCompor, tipo, alvo, juros, multa, honorarios, parcelasAbertas, titulosAbertos]);
 
   const podeEnviar =
     !!tipo && valorNum > 0 && !!dataPagamento && !!alvoTipo && !!alvoId &&
@@ -207,7 +228,7 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
     if (!dataPagamento) return alert("Informe a data do pagamento.");
     if (!alvoTipo || !alvoId) return alert("Selecione a dívida correspondente (parcela, título ou acordo).");
     if (!motivo.trim()) return alert("Escreva uma observação sobre o pagamento.");
-    if (tipo === "QUITACAO_TOTAL") {
+    if (podeCompor && tipo === "QUITACAO_TOTAL") {
       if (totalNegociado <= 0)
         return alert("Preencha a composição (principal + encargos) da quitação total.");
       if (!composicaoConferida)
@@ -239,11 +260,13 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
       titulo_id: alvoTipo === "TITULO" ? alvoId : null,
       acordo_id: alvoTipo === "ACORDO" ? alvoId : null,
       comprovante_link_id: comprovanteLinkId || null,
-      principal_informado: principalNum || null,
-      juros: jurosNum || null,
-      multa: multaNum || null,
-      honorarios: honorariosNum || null,
-      total_negociado: totalNegociado || null,
+      principal_referencia: podeCompor ? principalNum || null : null,
+      juros: podeCompor ? jurosNum || null : null,
+      multa: podeCompor ? multaNum || null : null,
+      honorarios: podeCompor ? honorariosNum || null : null,
+      total_negociado: podeCompor ? totalNegociado || null : null,
+      composicao_validada_em: podeCompor && composicaoConferida ? new Date().toISOString() : null,
+      composicao_validada_por_email: podeCompor && composicaoConferida ? emailOperador : null,
       motivo: motivo.trim(),
       status: "AGUARDANDO_CONFIRMACAO",
     });
@@ -331,7 +354,13 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
             </div>
           </div>
 
-          {(alvoTipo || tipo === "QUITACAO_TOTAL") && (
+          {!podeCompor && (alvoTipo || tipo === "QUITACAO_TOTAL") && (
+            <p style={styles.aviso}>
+              A composição de juros, multa e honorários será validada pelo financeiro.
+            </p>
+          )}
+
+          {podeCompor && (alvoTipo || tipo === "QUITACAO_TOTAL") && (
             <div style={styles.consol}>
               <div style={styles.consolTitulo}>Composição financeira</div>
               <div style={styles.consolLinha}>
