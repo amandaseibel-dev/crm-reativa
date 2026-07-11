@@ -253,6 +253,24 @@ const CARDS_FINANCEIROS = new Set(["valorBaixadoMes", "recebidosMes", "honorario
 // Tamanho do lote para consultas .in() consolidadas (evita URL longa e N+1).
 const LOTE_IN = 200;
 
+// Tipos de movimentacao que representam uma TABULACAO real do operador.
+// Somente a finalizacao de atendimento (o operador tabulou o resultado).
+// Nao contam: cargas automaticas, retorno do ADM, alteracao de operador,
+// abertura/visualizacao da ficha, correcao de cadastro, observacao etc.
+const TIPOS_ACIONAMENTO = ["FINALIZACAO_ATENDIMENTO", "FINALIZACAO"];
+
+// Dias uteis (seg-sex) transcorridos no mes ate a data informada (inclusive).
+function diasUteisTranscorridos(hojeISO) {
+  const h = new Date(String(hojeISO).slice(0, 10) + "T00:00:00");
+  if (Number.isNaN(h.getTime())) return 0;
+  let count = 0;
+  for (let d = 1; d <= h.getDate(); d++) {
+    const wd = new Date(h.getFullYear(), h.getMonth(), d).getDay();
+    if (wd !== 0 && wd !== 6) count++;
+  }
+  return count;
+}
+
 const ABAS_MODAL = [
   { id: "resumo", label: "Resumo" },
   { id: "negociacao", label: "Tabulacao" },
@@ -310,6 +328,10 @@ export default function PainelCarteira({ embedded = false }) {
   // Financeiro consolidado por aluno (valor em aberto sem duplicidade).
   // { [aluno_id]: { mensalidades, acordos, total, temDetalhe, temAtraso, acordoResponsavel } }
   const [finAlunos, setFinAlunos] = useState({});
+  // Meu desempenho operacional (indicadores pessoais do operador logado).
+  const [desempenho, setDesempenho] = useState(null);
+  const [acionadosHojeIds, setAcionadosHojeIds] = useState([]);
+  const [semPrimeiroIds, setSemPrimeiroIds] = useState([]);
 
   // ---- Modal operacional ----
   const [modalAberto, setModalAberto] = useState(false);
@@ -594,6 +616,61 @@ export default function PainelCarteira({ embedded = false }) {
       } catch (eFin) {
         console.error("Erro ao consolidar valor em aberto:", eFin);
       }
+
+      // ---- Meu desempenho operacional (do operador logado) ----
+      // Acionamento valido = tabulacao real (FINALIZACAO_ATENDIMENTO) feita
+      // pelo operador. Conta CPFs/alunos unicos por dia. Sem consulta por aluno.
+      try {
+        const inicioMesTS = `${hoje.slice(0, 7)}-01T00:00:00`;
+        const { data: movMes } = await supabase
+          .from("aluno_movimentacoes")
+          .select("aluno_id,registrado_em")
+          .eq("registrado_por_email", email)
+          .in("tipo", TIPOS_ACIONAMENTO)
+          .gte("registrado_em", inicioMesTS);
+        const setHoje = new Set();
+        const setMes = new Set();
+        for (const m of movMes || []) {
+          if (!m.aluno_id) continue;
+          const id = String(m.aluno_id);
+          setMes.add(id);
+          if (String(m.registrado_em).slice(0, 10) === hoje) setHoje.add(id);
+        }
+
+        // Casos ativos/acionaveis sem NENHUMA tabulacao valida (de qualquer
+        // operador). Em lote sobre os alunos da carteira, sem N+1.
+        const idsCarteira = listaAtiva.map((a) => String(a.id));
+        const acionadosSet = new Set();
+        for (let i = 0; i < idsCarteira.length; i += LOTE_IN) {
+          const lote = idsCarteira.slice(i, i + LOTE_IN);
+          const { data } = await supabase
+            .from("aluno_movimentacoes")
+            .select("aluno_id")
+            .in("aluno_id", lote)
+            .in("tipo", TIPOS_ACIONAMENTO);
+          for (const m of data || []) if (m.aluno_id) acionadosSet.add(String(m.aluno_id));
+        }
+        const semPrimeiroLista = idsCarteira.filter((id) => !acionadosSet.has(id));
+
+        const diasUteis = diasUteisTranscorridos(hoje);
+        const totalMes = setMes.size;
+        const mediaDia = diasUteis > 0 ? totalMes / diasUteis : 0;
+        const estimativaDias = mediaDia > 0 ? Math.ceil(listaAtiva.length / mediaDia) : null;
+
+        setAcionadosHojeIds([...setHoje]);
+        setSemPrimeiroIds(semPrimeiroLista);
+        setDesempenho({
+          ativos: listaAtiva.length,
+          acionadosHoje: setHoje.size,
+          acionadosMes: totalMes,
+          semPrimeiro: semPrimeiroLista.length,
+          diasUteis,
+          mediaDia,
+          estimativaDias,
+        });
+      } catch (eDes) {
+        console.error("Erro ao calcular desempenho operacional:", eDes);
+      }
     } catch (e) {
       console.error("Erro no PainelCarteira:", e);
       setErro("Nao foi possivel carregar todos os dados. " + (e?.message || ""));
@@ -855,6 +932,17 @@ export default function PainelCarteira({ embedded = false }) {
       if (kpi === "ativos") {
         // Lista operacional ja carregada (exclui quitados/nao-acionaveis).
         dados = casos;
+      } else if (kpi === "acionadosHoje") {
+        // Alunos que EU tabulei hoje (ids ja calculados no desempenho).
+        const ids = acionadosHojeIds;
+        if (ids.length) {
+          const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).in("id", ids).limit(5000);
+          dados = data || [];
+        }
+      } else if (kpi === "semPrimeiroAcionamento") {
+        // Casos ativos/acionaveis da carteira sem tabulacao valida (ja na lista).
+        const idset = new Set(semPrimeiroIds);
+        dados = casos.filter((a) => idset.has(String(a.id)));
       } else if (kpi === "retornosHoje") {
         const { data } = await base().eq("data_retorno", hoje).limit(5000);
         dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a));
@@ -1048,6 +1136,34 @@ export default function PainelCarteira({ embedded = false }) {
                     </div>
                   );
                 })}
+              </div>
+            </div>
+          )}
+
+          {desempenho && (
+            <div style={S.desWrap}>
+              <div style={S.desHeader}>Meu desempenho operacional</div>
+              <div style={S.desRow}>
+                <button type="button" style={{ ...S.desItem, ...(filtroKpi === "ativos" ? S.desItemAtivo : {}) }} onClick={() => onKpiClick("ativos")} title="Ver casos ativos">
+                  <span style={S.desNum}>{desempenho.ativos}</span>
+                  <span style={S.desRot}>Casos ativos</span>
+                </button>
+                <button type="button" style={{ ...S.desItem, ...(filtroKpi === "acionadosHoje" ? S.desItemAtivo : {}) }} onClick={() => onKpiClick("acionadosHoje")} title="CPFs que voce tabulou hoje">
+                  <span style={S.desNum}>{desempenho.acionadosHoje}</span>
+                  <span style={S.desRot}>CPFs acionados hoje</span>
+                </button>
+                <button type="button" style={{ ...S.desItem, ...(filtroKpi === "semPrimeiroAcionamento" ? S.desItemAtivo : {}) }} onClick={() => onKpiClick("semPrimeiroAcionamento")} title="Casos ativos sem primeira tabulacao">
+                  <span style={S.desNum}>{desempenho.semPrimeiro}</span>
+                  <span style={S.desRot}>Sem 1o acionamento</span>
+                </button>
+                <div style={S.desItemInfo}>
+                  <span style={S.desNum}>{desempenho.mediaDia.toFixed(1)}</span>
+                  <span style={S.desRot}>Media/dia · {desempenho.acionadosMes} no mes / {desempenho.diasUteis} dias uteis</span>
+                </div>
+                <div style={S.desItemInfo}>
+                  <span style={S.desNum}>{desempenho.estimativaDias ?? "-"}</span>
+                  <span style={S.desRot}>Dias p/ percorrer a carteira</span>
+                </div>
               </div>
             </div>
           )}
@@ -1482,6 +1598,14 @@ const S = {
   receptivoWrap: { display: "flex", flexDirection: "column", gap: 12, maxWidth: 720 },
   receptivoInfo: { background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 12, padding: "10px 14px", fontSize: 12.5, color: "#94a3b8", lineHeight: 1.5 },
 
+  desWrap: { background: "#f8fafc", border: `1px solid ${COR_BORDA}`, borderRadius: 12, padding: "10px 14px", marginBottom: 14 },
+  desHeader: { fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 },
+  desRow: { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "stretch" },
+  desItem: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 10, padding: "8px 14px", cursor: "pointer", minWidth: 120, textAlign: "left" },
+  desItemAtivo: { borderColor: "#2563eb", boxShadow: "0 0 0 2px rgba(37,99,235,0.15)" },
+  desItemInfo: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, background: "transparent", borderRadius: 10, padding: "8px 14px", minWidth: 120 },
+  desNum: { fontSize: 20, fontWeight: 800, color: "#1e293b", lineHeight: 1 },
+  desRot: { fontSize: 11, color: "#94a3b8", fontWeight: 600 },
   kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 18 },
   kpiCard: { background: "#fff", borderRadius: 12, padding: "11px 14px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: "0 1px 2px rgba(15,23,42,0.04)" },
   kpiRot: { margin: "0 0 4px 0", fontSize: 11.5, color: "#94a3b8", fontWeight: 500 },
