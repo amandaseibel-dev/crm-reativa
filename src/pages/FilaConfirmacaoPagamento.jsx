@@ -8,63 +8,31 @@ const STATUS_LABEL = {
   PAGAMENTO_REJEITADO: "Pagamento rejeitado (não identificado)",
 };
 
+// Tipos de pagamento informado (forma_pagamento) -> rotulo curto na fila.
+const TIPO_LABEL = {
+  A_VISTA: "Quitação/à vista",
+  QUITACAO: "Quitação",
+  PARCELADO: "Acordo parcelado",
+  ENTRADA: "Entrada",
+  PARCELA: "Parcela",
+};
+
 function traduzStatus(status) {
   return STATUS_LABEL[status] || status || "-";
 }
 
+function traduzTipo(forma) {
+  if (!forma) return "Não informado";
+  return TIPO_LABEL[forma] || forma;
+}
+
 function formatarData(data) {
   if (!data) return "-";
-
   try {
     return new Date(data).toLocaleString("pt-BR");
   } catch {
     return "-";
   }
-}
-
-function hojeISO() {
-  const d = new Date();
-  const ano = d.getFullYear();
-  const mes = String(d.getMonth() + 1).padStart(2, "0");
-  const dia = String(d.getDate()).padStart(2, "0");
-  return `${ano}-${mes}-${dia}`;
-}
-
-function somarMeses(dataISO, meses) {
-  const [ano, mes, dia] = dataISO.split("-").map(Number);
-  const totalMeses = mes - 1 + meses;
-  const anoFinal = ano + Math.floor(totalMeses / 12);
-  const mesFinal = (totalMeses % 12) + 1;
-  const ultimoDiaMes = new Date(anoFinal, mesFinal, 0).getDate();
-  const diaFinal = Math.min(dia, ultimoDiaMes);
-  return `${anoFinal}-${String(mesFinal).padStart(2, "0")}-${String(diaFinal).padStart(2, "0")}`;
-}
-
-function converterValor(valorDigitado) {
-  let texto = String(valorDigitado || "")
-    .replace("R$", "")
-    .replace(/\s/g, "")
-    .trim();
-
-  const temVirgula = texto.includes(",");
-  const temPonto = texto.includes(".");
-
-  if (temVirgula && temPonto) {
-    texto = texto.replace(/\./g, "").replace(",", ".");
-  } else if (temVirgula) {
-    texto = texto.replace(",", ".");
-  } else if (temPonto) {
-    const partes = texto.split(".");
-    const ultimaParte = partes[partes.length - 1];
-
-    if (partes.length === 2 && ultimaParte.length === 2) {
-      // mantém, já é decimal
-    } else {
-      texto = texto.replace(/\./g, "");
-    }
-  }
-
-  return Number(texto);
 }
 
 function formatarMoeda(valor) {
@@ -74,28 +42,18 @@ function formatarMoeda(valor) {
   return numero.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function valorTitulo(t) {
+  return Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+}
+
 function corStatus(status) {
   if (status === "PAGAMENTO_CONFIRMADO") {
-    return {
-      background: "#d1e7dd",
-      color: "#0f5132",
-      border: "1px solid #badbcc",
-    };
+    return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
   }
-
   if (status === "PAGAMENTO_REJEITADO") {
-    return {
-      background: "#f8d7da",
-      color: "#842029",
-      border: "1px solid #f5c2c7",
-    };
+    return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
   }
-
-  return {
-    background: "#fff3cd",
-    color: "#664d03",
-    border: "1px solid #ffe69c",
-  };
+  return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c" };
 }
 
 export default function FilaConfirmacaoPagamento() {
@@ -104,9 +62,17 @@ export default function FilaConfirmacaoPagamento() {
   const [carregando, setCarregando] = useState(true);
   const [observacoes, setObservacoes] = useState({});
   const [filtro, setFiltro] = useState("PENDENTES");
-  const [construtor, setConstrutor] = useState({});
-  const [parcelasAbertasPorAluno, setParcelasAbertasPorAluno] = useState({});
-  const [titulosAbertosPorAluno, setTitulosAbertosPorAluno] = useState({});
+
+  // Ficha do aluno (modal leve reaproveitando as pecas ja existentes:
+  // financeiro em aberto, historico de movimentacoes e comprovante).
+  const [detalhe, setDetalhe] = useState(null); // solicitacao selecionada
+  const [abaFicha, setAbaFicha] = useState("resumo");
+  const [historico, setHistorico] = useState([]);
+  const [parcelasAbertas, setParcelasAbertas] = useState([]);
+  const [titulosAbertos, setTitulosAbertos] = useState([]);
+  const [comprovante, setComprovante] = useState(null);
+  const [carregandoFicha, setCarregandoFicha] = useState(false);
+  const [motivoRejeicao, setMotivoRejeicao] = useState("");
 
   useEffect(() => {
     carregarUsuario();
@@ -120,7 +86,6 @@ export default function FilaConfirmacaoPagamento() {
 
   async function carregarSolicitacoes() {
     setCarregando(true);
-
     const { data, error } = await supabase
       .from("solicitacoes_confirmacao_pagamento")
       .select("*")
@@ -131,208 +96,82 @@ export default function FilaConfirmacaoPagamento() {
       setCarregando(false);
       return;
     }
-
     setSolicitacoes(data || []);
     setCarregando(false);
   }
 
-  async function carregarParcelasAbertas(alunoId) {
-    if (!alunoId) return;
+  // ---- Ficha do aluno (abre no clique, sem sair da pagina) ----
+  async function abrirFicha(s) {
+    setDetalhe(s);
+    setAbaFicha("resumo");
+    setMotivoRejeicao(observacoes[s.id] || "");
+    setHistorico([]);
+    setParcelasAbertas([]);
+    setTitulosAbertos([]);
+    setComprovante(null);
+    setCarregandoFicha(true);
+    try {
+      // Historico do aluno.
+      if (s.aluno_id) {
+        const { data: mov } = await supabase
+          .from("aluno_movimentacoes")
+          .select("id,tipo,descricao,status_anterior,status_novo,registrado_por_nome,registrado_em,valor_movimentacao")
+          .eq("aluno_id", String(s.aluno_id))
+          .order("registrado_em", { ascending: false })
+          .limit(40);
+        setHistorico(mov || []);
 
-    const { data, error } = await supabase
-      .from("parcelas")
-      .select("id, numero, valor, vencimento, status, acordos!inner(id, aluno_id)")
-      .eq("acordos.aluno_id", String(alunoId))
-      .in("status", ["A_VENCER", "VENCIDA"])
-      .order("vencimento", { ascending: true });
+        // Parcelas em aberto (mesma consulta ja usada nesta tela).
+        const { data: parc } = await supabase
+          .from("parcelas")
+          .select("id, numero, valor, honorarios, vencimento, status, acordos!inner(id, aluno_id)")
+          .eq("acordos.aluno_id", String(s.aluno_id))
+          .in("status", ["A_VENCER", "VENCIDA"])
+          .order("vencimento", { ascending: true });
+        setParcelasAbertas(parc || []);
 
-    if (error) {
-      console.error("Erro ao carregar parcelas em aberto:", error);
-      return;
+        // Titulos/mensalidades importados em aberto.
+        let qTit = supabase
+          .from("acordos_titulos")
+          .select("id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, status")
+          .eq("status", "em_aberto")
+          .order("vencimento", { ascending: true });
+        qTit = s.aluno_id ? qTit.eq("aluno_id", String(s.aluno_id)) : qTit.eq("cpf", s.aluno_cpf);
+        const { data: tit } = await qTit;
+        setTitulosAbertos(tit || []);
+
+        // Comprovante: procura o mais recente vinculado ao aluno (fluxo de
+        // links/baixas). So exibe se existir; nao cria nada.
+        const { data: linksComp } = await supabase
+          .from("links_pagamento")
+          .select("comprovante_url, comprovante_nome, comprovante_anexado_em, observacao_comprovante, status")
+          .eq("aluno_id", String(s.aluno_id))
+          .not("comprovante_url", "is", null)
+          .order("comprovante_anexado_em", { ascending: false })
+          .limit(1);
+        if (linksComp && linksComp.length) setComprovante(linksComp[0]);
+      }
+    } catch (e) {
+      console.error("Erro ao carregar ficha:", e);
+    } finally {
+      setCarregandoFicha(false);
     }
-
-    setParcelasAbertasPorAluno((atual) => ({ ...atual, [alunoId]: data || [] }));
   }
 
-  // Titulos/mensalidades em aberto do aluno (borderos) que ainda nao estao
-  // vinculados a nenhum acordo, para escolher quais entram neste acordo.
-  async function carregarTitulosAbertos(alunoId, cpf) {
-    if (!alunoId && !cpf) return;
-
-    let query = supabase
-      .from("acordos_titulos")
-      .select("id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, status")
-      .eq("status", "em_aberto")
-      .order("vencimento", { ascending: true });
-
-    query = alunoId ? query.eq("aluno_id", String(alunoId)) : query.eq("cpf", cpf);
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error("Erro ao carregar titulos em aberto:", error);
-      return;
-    }
-
-    setTitulosAbertosPorAluno((atual) => ({ ...atual, [alunoId]: data || [] }));
+  function fecharFicha() {
+    setDetalhe(null);
   }
 
-  function valorTitulo(t) {
-    return Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
-  }
+  const totalAbertoParcelas = useMemo(
+    () => parcelasAbertas.reduce((s, p) => s + Number(p.valor || 0), 0),
+    [parcelasAbertas]
+  );
+  const totalAbertoTitulos = useMemo(
+    () => titulosAbertos.reduce((s, t) => s + valorTitulo(t), 0),
+    [titulosAbertos]
+  );
 
-  function abrirConstrutor(s) {
-    setConstrutor((atual) => ({
-      ...atual,
-      [s.id]: atual[s.id] || {
-        tipo: "PARCELADO",
-        valorTotal: s.valor_informado != null ? String(s.valor_informado) : "",
-        qtdParcelas: "1",
-        temEntrada: false,
-        valorEntrada: "",
-        entradaPercentual: "",
-        entradaPaga: true,
-        honorarios: "",
-        titulosSelecionados: [],
-        parcelas: [],
-      },
-    }));
-
-    carregarParcelasAbertas(s.aluno_id);
-    carregarTitulosAbertos(s.aluno_id, s.aluno_cpf);
-  }
-
-  function fecharConstrutor(sId) {
-    setConstrutor((atual) => {
-      const copia = { ...atual };
-      delete copia[sId];
-      return copia;
-    });
-  }
-
-  function atualizarCampoConstrutor(sId, campo, valor) {
-    setConstrutor((atual) => ({
-      ...atual,
-      [sId]: { ...atual[sId], [campo]: valor },
-    }));
-  }
-
-  // Entrada em R$ preenche o % automaticamente
-  function atualizarEntradaRs(sId, valor) {
-    setConstrutor((atual) => {
-      const cfg = atual[sId];
-      if (!cfg) return atual;
-      const total = converterValor(cfg.valorTotal);
-      const rs = converterValor(valor);
-      const pct = total > 0 ? ((rs / total) * 100).toFixed(1) : "";
-      return { ...atual, [sId]: { ...cfg, valorEntrada: valor, entradaPercentual: pct } };
-    });
-  }
-
-  // Entrada em % preenche o R$ automaticamente
-  function atualizarEntradaPct(sId, valor) {
-    setConstrutor((atual) => {
-      const cfg = atual[sId];
-      if (!cfg) return atual;
-      const total = converterValor(cfg.valorTotal);
-      const pct = Number(String(valor).replace(",", ".")) || 0;
-      const rs = total > 0 ? ((total * pct) / 100).toFixed(2) : "";
-      return { ...atual, [sId]: { ...cfg, entradaPercentual: valor, valorEntrada: rs } };
-    });
-  }
-
-  function alternarTitulo(sId, tituloId) {
-    setConstrutor((atual) => {
-      const cfg = atual[sId];
-      if (!cfg) return atual;
-      const jaTem = cfg.titulosSelecionados.includes(tituloId);
-      const titulosSelecionados = jaTem
-        ? cfg.titulosSelecionados.filter((id) => id !== tituloId)
-        : [...cfg.titulosSelecionados, tituloId];
-      return { ...atual, [sId]: { ...cfg, titulosSelecionados } };
-    });
-  }
-
-  function usarSomaTitulos(sId, alunoId) {
-    setConstrutor((atual) => {
-      const cfg = atual[sId];
-      if (!cfg) return atual;
-      const titulos = titulosAbertosPorAluno[alunoId] || [];
-      const soma = titulos
-        .filter((t) => cfg.titulosSelecionados.includes(t.id))
-        .reduce((acc, t) => acc + valorTitulo(t), 0);
-      return { ...atual, [sId]: { ...cfg, valorTotal: soma.toFixed(2) } };
-    });
-  }
-
-  function gerarParcelas(sId) {
-    const cfg = construtor[sId];
-    if (!cfg) return;
-
-    const valorTotal = converterValor(cfg.valorTotal);
-
-    if (!valorTotal || valorTotal <= 0) {
-      alert("Informe o valor total do acordo.");
-      return;
-    }
-
-    const honorariosTotal = converterValor(cfg.honorarios) || 0;
-
-    if (cfg.tipo === "QUITACAO") {
-      setConstrutor((atual) => ({
-        ...atual,
-        [sId]: {
-          ...atual[sId],
-          parcelas: [
-            {
-              numero: 1,
-              vencimento: hojeISO(),
-              valor: valorTotal.toFixed(2),
-              honorarios: honorariosTotal.toFixed(2),
-              status: "PAGO",
-            },
-          ],
-        },
-      }));
-      return;
-    }
-
-    const qtd = Math.max(1, Number(cfg.qtdParcelas) || 1);
-    const valorEntrada = cfg.temEntrada ? converterValor(cfg.valorEntrada) || 0 : 0;
-    const valorRestante = Math.max(0, valorTotal - valorEntrada);
-    const valorCada = qtd > 0 ? valorRestante / qtd : valorRestante;
-
-    // Honorarios: parte proporcional na entrada, restante rateado nas parcelas
-    const honEntrada = valorTotal > 0 ? honorariosTotal * (valorEntrada / valorTotal) : 0;
-    const honSaldo = Math.max(0, honorariosTotal - honEntrada);
-    const honCada = qtd > 0 ? honSaldo / qtd : honSaldo;
-
-    const novasParcelas = [];
-    for (let numero = 1; numero <= qtd; numero++) {
-      novasParcelas.push({
-        numero,
-        vencimento: somarMeses(hojeISO(), numero - 1),
-        valor: valorCada.toFixed(2),
-        honorarios: honCada.toFixed(2),
-        status: "A_VENCER",
-      });
-    }
-
-    setConstrutor((atual) => ({
-      ...atual,
-      [sId]: { ...atual[sId], parcelas: novasParcelas },
-    }));
-  }
-
-  function atualizarParcela(sId, index, campo, valor) {
-    setConstrutor((atual) => {
-      const cfg = atual[sId];
-      if (!cfg) return atual;
-      const parcelas = cfg.parcelas.map((p, i) => (i === index ? { ...p, [campo]: valor } : p));
-      return { ...atual, [sId]: { ...cfg, parcelas } };
-    });
-  }
-
+  // ---- Confirmar (fluxo atual preservado) ----
   async function finalizarSolicitacao(s, observacaoExtra) {
     const emailConfirmando = usuario?.email || "";
     const agora = new Date().toISOString();
@@ -366,198 +205,71 @@ export default function FilaConfirmacaoPagamento() {
         .eq("id", s.aluno_id);
     }
 
-    fecharConstrutor(s.id);
     alert("Pagamento confirmado e baixado no sistema.");
+    fecharFicha();
     carregarSolicitacoes();
   }
 
-  async function baixarParcelaExistente(s, parcela) {
+  // ---- Rejeitar / devolver para correcao (motivo obrigatorio) ----
+  async function rejeitarPagamento(s, motivoTexto) {
     try {
       await supabase.auth.getSession();
     } catch {
-      // Segue e deixa o erro real da próxima chamada aparecer.
+      // Segue e deixa o erro real aparecer.
     }
 
+    const motivo = (motivoTexto ?? observacoes[s.id] ?? "").trim();
+    if (!motivo) {
+      alert("Escreva o motivo da rejeição antes de devolver (ex: comprovante ilegível, valor divergente, CPF divergente, pagamento não localizado).");
+      return;
+    }
+
+    const agora = new Date().toISOString();
     const emailConfirmando = usuario?.email || "";
-    const agora = new Date().toISOString();
-
-    const { error: erroParcela } = await supabase
-      .from("parcelas")
-      .update({
-        status: "PAGO",
-        pago_em: agora,
-        confirmado_por_email: emailConfirmando,
-        solicitacao_confirmacao_id: s.id,
-        atualizado_em: agora,
-      })
-      .eq("id", parcela.id);
-
-    if (erroParcela) {
-      alert("Erro ao dar baixa na parcela: " + erroParcela.message);
-      return;
-    }
-
-    await finalizarSolicitacao(s, `Baixa na parcela ${parcela.numero} do acordo já existente.`);
-  }
-
-  async function salvarAcordoMontado(s) {
-    const cfg = construtor[s.id];
-    if (!cfg) return;
-
-    if (!cfg.parcelas || cfg.parcelas.length === 0) {
-      alert('Clique em "Gerar parcelas" antes de salvar.');
-      return;
-    }
-
-    const valorTotal = converterValor(cfg.valorTotal);
-
-    if (!valorTotal || valorTotal <= 0) {
-      alert("Informe o valor total do acordo.");
-      return;
-    }
-
-    try {
-      await supabase.auth.getSession();
-    } catch {
-      // Segue e deixa o erro real da próxima chamada aparecer.
-    }
-
-    const valorEntrada = cfg.temEntrada ? converterValor(cfg.valorEntrada) || 0 : 0;
-    const entradaPercentual =
-      valorTotal > 0 && cfg.temEntrada ? Number(((valorEntrada / valorTotal) * 100).toFixed(2)) : null;
-    const honorariosTotal = converterValor(cfg.honorarios) || 0;
-    const saldo = Math.max(0, valorTotal - valorEntrada);
-    const emailConfirmando = usuario?.email || "";
-    const agora = new Date().toISOString();
-
-    const { data: acordoCriado, error: erroAcordo } = await supabase
-      .from("acordos")
-      .insert({
-        aluno_id: s.aluno_id,
-        cpf: s.aluno_cpf,
-        tipo: "ACORDO",
-        forma_pagamento: cfg.tipo === "QUITACAO" ? "A_VISTA" : "PARCELADO",
-        valor_total: valorTotal,
-        qtd_parcelas: cfg.parcelas.length,
-        valor_entrada: cfg.temEntrada ? valorEntrada : null,
-        entrada_percentual: entradaPercentual,
-        entrada_paga: cfg.temEntrada ? Boolean(cfg.entradaPaga) : null,
-        data_entrada: cfg.temEntrada && cfg.entradaPaga ? hojeISO() : null,
-        honorarios_valor: honorariosTotal || null,
-        saldo: saldo,
-        status: "ATIVO",
-        observacao: s.motivo || null,
-        criado_por_nome: nomeOperadorPorEmail(s.operador_email),
-        criado_por_email: s.operador_email,
-        confirmado_por_email: emailConfirmando,
-        confirmado_em: agora,
-      })
-      .select()
-      .single();
-
-    if (erroAcordo) {
-      alert("Erro ao criar acordo: " + erroAcordo.message);
-      return;
-    }
-
-    const parcelasParaCriar = cfg.parcelas.map((p) => ({
-      acordo_id: acordoCriado.id,
-      numero: p.numero,
-      valor: converterValor(p.valor),
-      honorarios: p.honorarios != null ? converterValor(p.honorarios) : null,
-      vencimento: p.vencimento,
-      status: p.status,
-      pago_em: p.status === "PAGO" ? agora : null,
-      confirmado_por_email: p.status === "PAGO" ? emailConfirmando : null,
-      solicitacao_confirmacao_id: p.status === "PAGO" ? s.id : null,
-    }));
-
-    const { error: erroParcelas } = await supabase.from("parcelas").insert(parcelasParaCriar);
-
-    if (erroParcelas) {
-      alert("Acordo criado, mas houve erro ao gerar as parcelas: " + erroParcelas.message);
-      return;
-    }
-
-    // Vincula os titulos selecionados ao acordo e marca como vinculados.
-    const titulosSelecionados = cfg.titulosSelecionados || [];
-    if (titulosSelecionados.length > 0) {
-      const vinculos = titulosSelecionados.map((tituloId) => ({
-        acordo_id: acordoCriado.id,
-        titulo_id: tituloId,
-        ativo: true,
-        vinculado_por: emailConfirmando,
-      }));
-
-      const { error: erroVinculo } = await supabase
-        .from("acordo_titulo_vinculo")
-        .insert(vinculos);
-
-      if (erroVinculo) {
-        console.error("Erro ao vincular titulos:", erroVinculo);
-        alert("Acordo criado, mas houve erro ao vincular os títulos: " + erroVinculo.message);
-      } else {
-        await supabase
-          .from("acordos_titulos")
-          .update({ status: "vinculada", atualizado_em: agora })
-          .in("id", titulosSelecionados);
-      }
-    }
-
-    await finalizarSolicitacao(s, "Acordo criado pela ADM ao confirmar.");
-  }
-
-  async function rejeitarPagamento(solicitacao) {
-    try {
-      await supabase.auth.getSession();
-    } catch {
-      // Segue e deixa o erro real da próxima chamada aparecer.
-    }
-
-    const motivo = observacoes[solicitacao.id] || "";
-
-    if (!motivo.trim()) {
-      alert("Escreva o motivo da rejeição no campo de observação antes de rejeitar (ex: não identificado no extrato).");
-      return;
-    }
-
-    const agora = new Date().toISOString();
 
     const { error } = await supabase
       .from("solicitacoes_confirmacao_pagamento")
       .update({
         status: "PAGAMENTO_REJEITADO",
         observacao_adm: motivo,
-        confirmado_por: usuario?.email || "",
+        confirmado_por: emailConfirmando,
         confirmado_em: agora,
         atualizado_em: agora,
       })
-      .eq("id", solicitacao.id);
+      .eq("id", s.id);
 
     if (error) {
       alert("Erro ao rejeitar: " + error.message);
       return;
     }
 
-    // Volta pro operador com prioridade máxima, igual link/termo, com o
-    // motivo da rejeição explicado no status.
-    if (solicitacao.aluno_id) {
+    // Volta pro operador com prioridade e alerta visivel na Minha Carteira.
+    if (s.aluno_id) {
       await supabase
         .from("alunos")
         .update({
           nivel_criticidade: "URGENTE",
           status_acionamento: "Pagamento não confirmado: " + motivo,
         })
-        .eq("id", solicitacao.aluno_id);
+        .eq("id", s.aluno_id);
+
+      // Registra o motivo no historico do aluno (nao conta como acionamento).
+      await supabase.from("aluno_movimentacoes").insert({
+        aluno_id: String(s.aluno_id),
+        tipo: "PAGAMENTO_REJEITADO",
+        descricao: "Confirmação de pagamento rejeitada/devolvida. Motivo: " + motivo,
+        registrado_por_nome: nomeOperadorPorEmail(emailConfirmando),
+        registrado_por_email: emailConfirmando,
+        registrado_em: agora,
+      });
     }
 
-    alert("Pagamento rejeitado. O caso volta pro topo da fila do operador com o motivo.");
+    alert("Pagamento devolvido ao operador com o motivo. O caso volta pro topo da fila dele.");
+    fecharFicha();
     carregarSolicitacoes();
   }
 
   const emailUsuario = usuario?.email || "";
-  // Amanda ADM e Fernanda (supervisão) também precisam confirmar pagamento,
-  // não só a Amanda gestora -- mesma regra de quem já mexe no financeiro.
   const podeUsar = podeGerirFinanceiro(emailUsuario);
 
   const contadores = useMemo(() => {
@@ -568,16 +280,25 @@ export default function FilaConfirmacaoPagamento() {
     };
   }, [solicitacoes]);
 
+  // Ordenacao: (1) data/hora do envio (criado_em) mais recente primeiro;
+  // (2) desempate por ultima atualizacao; (3) desempate por nome do aluno.
   const solicitacoesFiltradas = useMemo(() => {
-    if (filtro === "PENDENTES") {
-      return solicitacoes.filter((s) => s.status === "AGUARDANDO_CONFIRMACAO");
-    }
+    let base;
+    if (filtro === "PENDENTES") base = solicitacoes.filter((s) => s.status === "AGUARDANDO_CONFIRMACAO");
+    else if (filtro === "CONFIRMADOS") base = solicitacoes.filter((s) => s.status === "PAGAMENTO_CONFIRMADO");
+    else base = solicitacoes;
 
-    if (filtro === "CONFIRMADOS") {
-      return solicitacoes.filter((s) => s.status === "PAGAMENTO_CONFIRMADO");
-    }
-
-    return solicitacoes;
+    const ts = (v) => {
+      const t = v ? new Date(v).getTime() : 0;
+      return Number.isNaN(t) ? 0 : t;
+    };
+    return [...base].sort((a, b) => {
+      const d = ts(b.criado_em) - ts(a.criado_em);
+      if (d !== 0) return d;
+      const u = ts(b.atualizado_em) - ts(a.atualizado_em);
+      if (u !== 0) return u;
+      return String(a.aluno_nome || "").localeCompare(String(b.aluno_nome || ""), "pt-BR");
+    });
   }, [solicitacoes, filtro]);
 
   if (carregando) {
@@ -588,10 +309,7 @@ export default function FilaConfirmacaoPagamento() {
     return (
       <div style={styles.container}>
         <h1 style={styles.titulo}>Fila de Confirmação de Pagamento</h1>
-
-        <div style={styles.alerta}>
-          Seu usuário não tem permissão para acessar esta fila.
-        </div>
+        <div style={styles.alerta}>Seu usuário não tem permissão para acessar esta fila.</div>
       </div>
     );
   }
@@ -602,10 +320,10 @@ export default function FilaConfirmacaoPagamento() {
         <div>
           <h1 style={styles.titulo}>Fila de Confirmação de Pagamento</h1>
           <p style={styles.subtitulo}>
-            Casos enviados pela operação (tabulação "Confirmar pagamento") aguardando baixa.
+            Casos enviados pela operação (tabulação "Confirmar pagamento"), do mais recente para o mais antigo.
+            Clique numa linha para abrir a ficha do aluno.
           </p>
         </div>
-
         <button style={styles.botaoAtualizar} onClick={carregarSolicitacoes}>
           Atualizar
         </button>
@@ -616,12 +334,10 @@ export default function FilaConfirmacaoPagamento() {
           <span style={styles.numero}>{contadores.pendentes}</span>
           <span style={styles.descricao}>Aguardando confirmação</span>
         </div>
-
         <div style={styles.indicador}>
           <span style={styles.numero}>{contadores.confirmados}</span>
           <span style={styles.descricao}>Confirmados</span>
         </div>
-
         <div style={styles.indicador}>
           <span style={styles.numero}>{contadores.todos}</span>
           <span style={styles.descricao}>Total</span>
@@ -629,24 +345,13 @@ export default function FilaConfirmacaoPagamento() {
       </div>
 
       <div style={styles.filtros}>
-        <button
-          style={filtro === "PENDENTES" ? styles.filtroAtivo : styles.filtro}
-          onClick={() => setFiltro("PENDENTES")}
-        >
+        <button style={filtro === "PENDENTES" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("PENDENTES")}>
           Aguardando confirmação
         </button>
-
-        <button
-          style={filtro === "CONFIRMADOS" ? styles.filtroAtivo : styles.filtro}
-          onClick={() => setFiltro("CONFIRMADOS")}
-        >
+        <button style={filtro === "CONFIRMADOS" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("CONFIRMADOS")}>
           Confirmados
         </button>
-
-        <button
-          style={filtro === "TODOS" ? styles.filtroAtivo : styles.filtro}
-          onClick={() => setFiltro("TODOS")}
-        >
+        <button style={filtro === "TODOS" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("TODOS")}>
           Todos
         </button>
       </div>
@@ -655,392 +360,244 @@ export default function FilaConfirmacaoPagamento() {
         <div style={styles.vazio}>Nenhuma solicitação neste filtro.</div>
       )}
 
-      {solicitacoesFiltradas.map((s) => {
-        const pendente = s.status === "AGUARDANDO_CONFIRMACAO";
+      {solicitacoesFiltradas.length > 0 && (
+        <div style={styles.tabelaWrap}>
+          <table style={styles.tabela}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Aluno</th>
+                <th style={styles.th}>CPF</th>
+                <th style={styles.th}>Operador que informou</th>
+                <th style={styles.th}>Enviado em</th>
+                <th style={styles.th}>Tipo informado</th>
+                <th style={styles.thNum}>Valor informado</th>
+                <th style={styles.th}>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {solicitacoesFiltradas.map((s) => (
+                <tr key={s.id} style={styles.tr} onClick={() => abrirFicha(s)} title="Abrir ficha do aluno">
+                  <td style={styles.td}>{s.aluno_nome || "Aluno sem nome"}</td>
+                  <td style={styles.td}>{s.aluno_cpf || "-"}</td>
+                  <td style={styles.td}>{s.operador_nome || s.operador_email || "-"}</td>
+                  <td style={styles.td}>{formatarData(s.criado_em)}</td>
+                  <td style={styles.td}>{traduzTipo(s.forma_pagamento)}</td>
+                  <td style={styles.tdNum}>{formatarMoeda(s.valor_informado)}</td>
+                  <td style={styles.td}>
+                    <span style={{ ...styles.status, ...corStatus(s.status) }}>{traduzStatus(s.status)}</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-        return (
-          <div key={s.id} style={styles.card}>
-            <div style={styles.topoCard}>
+      {/* ---- Ficha do aluno (modal) ---- */}
+      {detalhe && (
+        <div style={styles.overlay} onClick={fecharFicha}>
+          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalTopo}>
               <div>
-                <h2 style={styles.nome}>{s.aluno_nome || "Aluno sem nome"}</h2>
+                <h2 style={styles.modalNome}>{detalhe.aluno_nome || "Aluno sem nome"}</h2>
+                <span style={styles.modalCpf}>CPF: {detalhe.aluno_cpf || "-"}</span>
+              </div>
+              <span style={{ ...styles.status, ...corStatus(detalhe.status) }}>{traduzStatus(detalhe.status)}</span>
+              <button style={styles.fechar} onClick={fecharFicha}>✕</button>
+            </div>
 
-                <p style={styles.info}>
-                  <strong>CPF:</strong> {s.aluno_cpf || "Não informado"}
-                </p>
+            <div style={styles.abas}>
+              {["resumo", "financeiro", "historico", "comprovante"].map((a) => (
+                <button
+                  key={a}
+                  style={abaFicha === a ? styles.abaAtiva : styles.aba}
+                  onClick={() => setAbaFicha(a)}
+                >
+                  {a === "resumo" ? "Resumo" : a === "financeiro" ? "Financeiro" : a === "historico" ? "Histórico" : "Comprovante"}
+                </button>
+              ))}
+            </div>
 
-                <p style={styles.info}>
-                  <strong>Operador:</strong>{" "}
-                  {s.operador_nome || s.operador_email || "Não informado"}
-                </p>
+            <div style={styles.modalCorpo}>
+              {carregandoFicha && <p style={styles.info}>Carregando ficha...</p>}
 
-                {s.valor_informado != null && (
+              {abaFicha === "resumo" && (
+                <div>
+                  <p style={styles.info}><strong>Operador que informou:</strong> {detalhe.operador_nome || detalhe.operador_email || "-"}</p>
+                  <p style={styles.info}><strong>Enviado em:</strong> {formatarData(detalhe.criado_em)}</p>
+                  <p style={styles.info}><strong>Última atualização:</strong> {formatarData(detalhe.atualizado_em)}</p>
+                  <p style={styles.info}><strong>Tipo informado:</strong> {traduzTipo(detalhe.forma_pagamento)}</p>
+                  <p style={styles.info}><strong>Valor informado:</strong> {formatarMoeda(detalhe.valor_informado)}</p>
+                  <div style={styles.bloco}>
+                    <strong>Observação do operador:</strong>
+                    <p style={styles.paragrafo}>{detalhe.motivo || "Sem observação."}</p>
+                  </div>
+                  {detalhe.observacao_adm && (
+                    <div style={styles.blocoRetorno}>
+                      <strong>Observação de quem confirmou:</strong>
+                      <p style={styles.paragrafo}>{detalhe.observacao_adm}</p>
+                      <p style={styles.info}><strong>Por:</strong> {detalhe.confirmado_por || "-"} · {formatarData(detalhe.confirmado_em)}</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {abaFicha === "financeiro" && (
+                <div>
                   <p style={styles.info}>
-                    <strong>Valor informado:</strong>{" "}
-                    {Number(s.valor_informado).toLocaleString("pt-BR", {
-                      style: "currency",
-                      currency: "BRL",
-                    })}
+                    <strong>Saldo em aberto (parcelas + títulos):</strong>{" "}
+                    {formatarMoeda(totalAbertoParcelas + totalAbertoTitulos)}
                   </p>
-                )}
+                  <h4 style={styles.subttl}>Parcelas em aberto ({parcelasAbertas.length})</h4>
+                  {parcelasAbertas.length === 0 ? (
+                    <p style={styles.info}>Nenhuma parcela A_VENCER/VENCIDA.</p>
+                  ) : (
+                    parcelasAbertas.map((p) => (
+                      <div key={p.id} style={styles.linhaFin}>
+                        <span>Parcela {p.numero} · venc. {p.vencimento}</span>
+                        <span>{p.status}</span>
+                        <span>{formatarMoeda(p.valor)}</span>
+                      </div>
+                    ))
+                  )}
+                  <h4 style={styles.subttl}>Títulos/mensalidades em aberto ({titulosAbertos.length})</h4>
+                  {titulosAbertos.length === 0 ? (
+                    <p style={styles.info}>Nenhum título em aberto.</p>
+                  ) : (
+                    titulosAbertos.map((t) => (
+                      <div key={t.id} style={styles.linhaFin}>
+                        <span>{t.documento || "Título"} · venc. {t.vencimento}</span>
+                        <span>{t.status}</span>
+                        <span>{formatarMoeda(valorTitulo(t))}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
 
-                <p style={styles.info}>
-                  <strong>Enviado em:</strong> {formatarData(s.criado_em)}
-                </p>
-              </div>
+              {abaFicha === "historico" && (
+                <div>
+                  {historico.length === 0 ? (
+                    <p style={styles.info}>Sem histórico.</p>
+                  ) : (
+                    historico.map((h) => (
+                      <div key={h.id} style={styles.linhaHist}>
+                        <div style={styles.histTopo}>
+                          <strong>{h.tipo}</strong>
+                          <span style={styles.histData}>{formatarData(h.registrado_em)}</span>
+                        </div>
+                        {h.descricao && <p style={styles.paragrafo}>{h.descricao}</p>}
+                        <span style={styles.histQuem}>{h.registrado_por_nome || "-"}</span>
+                      </div>
+                    ))
+                  )}
+                </div>
+              )}
 
-              <span style={{ ...styles.status, ...corStatus(s.status) }}>
-                {traduzStatus(s.status)}
-              </span>
+              {abaFicha === "comprovante" && (
+                <div>
+                  {comprovante ? (
+                    <div>
+                      <p style={styles.info}><strong>Arquivo:</strong> {comprovante.comprovante_nome || "comprovante"}</p>
+                      <p style={styles.info}><strong>Anexado em:</strong> {formatarData(comprovante.comprovante_anexado_em)}</p>
+                      {comprovante.observacao_comprovante && (
+                        <p style={styles.info}><strong>Observação:</strong> {comprovante.observacao_comprovante}</p>
+                      )}
+                      <a href={comprovante.comprovante_url} target="_blank" rel="noreferrer" style={styles.botaoPequeno}>
+                        Abrir comprovante
+                      </a>
+                    </div>
+                  ) : (
+                    <p style={styles.info}>Nenhum comprovante anexado a este aluno.</p>
+                  )}
+                </div>
+              )}
             </div>
 
-            <div style={styles.bloco}>
-              <strong>Observação do operador:</strong>
-              <p style={styles.paragrafo}>{s.motivo || "Sem observação."}</p>
-            </div>
-
-            {s.observacao_adm && (
-              <div style={styles.blocoRetorno}>
-                <strong>Observação de quem confirmou:</strong>
-                <p style={styles.paragrafo}>{s.observacao_adm}</p>
-
-                <p style={styles.info}>
-                  <strong>Confirmado por:</strong> {s.confirmado_por || "-"}
-                </p>
-
-                <p style={styles.info}>
-                  <strong>Confirmado em:</strong> {formatarData(s.confirmado_em)}
-                </p>
-              </div>
-            )}
-
-            {pendente && (
-              <>
+            {detalhe.status === "AGUARDANDO_CONFIRMACAO" && (
+              <div style={styles.modalAcoes}>
                 <div style={styles.bloco}>
-                  <label style={styles.label}>Observação (opcional)</label>
+                  <label style={styles.label}>Motivo (obrigatório para rejeitar/devolver)</label>
                   <textarea
                     style={styles.textarea}
-                    placeholder="Exemplo: comprovante conferido no extrato do dia 01/07. Obrigatório se for rejeitar (ex: não identificado no extrato)."
-                    value={observacoes[s.id] || ""}
-                    onChange={(e) =>
-                      setObservacoes({ ...observacoes, [s.id]: e.target.value })
-                    }
+                    placeholder="Ex.: comprovante ilegível, valor divergente, CPF divergente, pagamento não localizado, parcela incorreta, documento incompleto."
+                    value={motivoRejeicao}
+                    onChange={(e) => {
+                      setMotivoRejeicao(e.target.value);
+                      setObservacoes({ ...observacoes, [detalhe.id]: e.target.value });
+                    }}
                   />
                 </div>
-
                 <div style={styles.acoes}>
-                  <button style={styles.botaoConfirmar} onClick={() => finalizarSolicitacao(s)}>
-                    Confirmar (baixa já feita na ficha financeira do aluno)
+                  <button style={styles.botaoConfirmar} onClick={() => finalizarSolicitacao(detalhe)}>
+                    Confirmar (baixa já feita na ficha financeira)
                   </button>
-
-                  <button style={styles.botaoRejeitar} onClick={() => rejeitarPagamento(s)}>
-                    Rejeitar (não está pago)
+                  <button style={styles.botaoRejeitar} onClick={() => rejeitarPagamento(detalhe, motivoRejeicao)}>
+                    Rejeitar / devolver para correção
                   </button>
                 </div>
-              </>
+                <p style={styles.aviso}>
+                  Quitação total automática ("Quitar tudo") ainda não habilitada nesta fila: os
+                  itens não trazem parcela/acordo/valor/comprovante vinculados. Ver pendências no chat.
+                </p>
+              </div>
             )}
           </div>
-        );
-      })}
+        </div>
+      )}
     </div>
   );
 }
 
 const styles = {
-  container: {
-    padding: "24px",
-    fontFamily: "Arial, sans-serif",
-    background: "#f4f6f8",
-    minHeight: "100vh",
-  },
-  cabecalho: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "16px",
-    alignItems: "flex-start",
-    marginBottom: "18px",
-  },
-  titulo: {
-    margin: 0,
-    marginBottom: "6px",
-    color: "#111827",
-  },
-  subtitulo: {
-    margin: 0,
-    color: "#4b5563",
-  },
-  botaoAtualizar: {
-    background: "#111827",
-    color: "#fff",
-    border: "none",
-    padding: "10px 16px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "bold",
-    height: "fit-content",
-  },
-  cardsIndicadores: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))",
-    gap: "12px",
-    marginBottom: "18px",
-  },
-  indicador: {
-    background: "#fff",
-    borderRadius: "12px",
-    padding: "16px",
-    boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-  },
-  numero: {
-    fontSize: "26px",
-    fontWeight: "bold",
-    color: "#111827",
-  },
-  descricao: {
-    fontSize: "13px",
-    color: "#6b7280",
-  },
-  filtros: {
-    display: "flex",
-    gap: "10px",
-    marginBottom: "18px",
-    flexWrap: "wrap",
-  },
-  filtro: {
-    background: "#fff",
-    border: "1px solid #d1d5db",
-    color: "#374151",
-    padding: "8px 14px",
-    borderRadius: "999px",
-    cursor: "pointer",
-    fontSize: "13px",
-  },
-  filtroAtivo: {
-    background: "#0ea5e9",
-    border: "1px solid #0ea5e9",
-    color: "#fff",
-    padding: "8px 14px",
-    borderRadius: "999px",
-    cursor: "pointer",
-    fontSize: "13px",
-    fontWeight: "bold",
-  },
-  vazio: {
-    background: "#fff",
-    borderRadius: "12px",
-    padding: "20px",
-    textAlign: "center",
-    color: "#6b7280",
-  },
-  card: {
-    background: "#fff",
-    borderRadius: "14px",
-    padding: "20px",
-    marginBottom: "14px",
-    boxShadow: "0 2px 10px rgba(0,0,0,0.06)",
-  },
-  topoCard: {
-    display: "flex",
-    justifyContent: "space-between",
-    gap: "16px",
-    alignItems: "flex-start",
-    marginBottom: "10px",
-  },
-  nome: {
-    margin: 0,
-    marginBottom: "6px",
-    color: "#111827",
-  },
-  info: {
-    margin: "4px 0",
-    color: "#374151",
-    fontSize: "14px",
-  },
-  status: {
-    padding: "8px 12px",
-    borderRadius: "999px",
-    fontWeight: "bold",
-    fontSize: "13px",
-    whiteSpace: "nowrap",
-  },
-  bloco: {
-    marginTop: "12px",
-  },
-  blocoRetorno: {
-    marginTop: "12px",
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
-    borderRadius: "10px",
-    padding: "12px",
-  },
-  paragrafo: {
-    margin: "6px 0",
-    color: "#374151",
-    lineHeight: 1.4,
-  },
-  label: {
-    display: "block",
-    fontWeight: "bold",
-    marginBottom: "6px",
-    color: "#111827",
-    fontSize: "13px",
-  },
-  textarea: {
-    width: "100%",
-    minHeight: "70px",
-    padding: "10px",
-    borderRadius: "8px",
-    border: "1px solid #ccc",
-    resize: "vertical",
-    boxSizing: "border-box",
-    fontFamily: "Arial, sans-serif",
-  },
-  acoes: {
-    marginTop: "12px",
-    display: "flex",
-    gap: "10px",
-    flexWrap: "wrap",
-  },
-  botaoConfirmar: {
-    background: "#198754",
-    color: "#fff",
-    border: "none",
-    padding: "12px 18px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "bold",
-  },
-  botaoRejeitar: {
-    background: "#dc3545",
-    color: "#fff",
-    border: "none",
-    padding: "12px 18px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "bold",
-  },
-  botaoCancelar: {
-    background: "#e5e7eb",
-    color: "#374151",
-    border: "none",
-    padding: "12px 18px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "bold",
-  },
-  input: {
-    width: "100%",
-    padding: "10px",
-    borderRadius: "8px",
-    border: "1px solid #ccc",
-    boxSizing: "border-box",
-    fontFamily: "Arial, sans-serif",
-    marginBottom: "10px",
-  },
-  construtor: {
-    marginTop: "14px",
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px",
-  },
-  blocoConstrutor: {
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
-    borderRadius: "10px",
-    padding: "14px",
-  },
-  blocoTitulos: {
-    background: "#eef6ff",
-    border: "1px solid #cfe0f5",
-    borderRadius: "10px",
-    padding: "12px",
-    marginBottom: "12px",
-  },
-  linhaTitulo: {
-    display: "flex",
-    alignItems: "center",
-    gap: "10px",
-    padding: "6px 0",
-    borderTop: "1px solid #dbeafe",
-    fontSize: "13px",
-    color: "#1e3a5f",
-  },
-  linhaEntrada: {
-    display: "flex",
-    gap: "10px",
-    flexWrap: "wrap",
-  },
-  linhaParcelaExistente: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    gap: "10px",
-    padding: "8px 0",
-    borderTop: "1px solid #e5e7eb",
-    fontSize: "13px",
-    flexWrap: "wrap",
-  },
-  botaoPequeno: {
-    background: "#0ea5e9",
-    color: "#fff",
-    border: "none",
-    padding: "8px 14px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "bold",
-    fontSize: "13px",
-  },
-  botaoPequenoVerde: {
-    background: "#198754",
-    color: "#fff",
-    border: "none",
-    padding: "6px 12px",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "bold",
-    fontSize: "12px",
-    whiteSpace: "nowrap",
-  },
-  tabelaParcelas: {
-    marginTop: "12px",
-    border: "1px solid #e5e7eb",
-    borderRadius: "8px",
-    overflow: "hidden",
-  },
-  linhaTabelaCabecalho: {
-    display: "grid",
-    gridTemplateColumns: "40px 1fr 1fr 1fr 1fr",
-    gap: "8px",
-    background: "#f1f5f9",
-    padding: "8px 10px",
-    fontSize: "12px",
-    fontWeight: "bold",
-    color: "#475569",
-  },
-  linhaTabelaParcela: {
-    display: "grid",
-    gridTemplateColumns: "40px 1fr 1fr 1fr 1fr",
-    gap: "8px",
-    padding: "6px 10px",
-    alignItems: "center",
-    borderTop: "1px solid #e5e7eb",
-    fontSize: "13px",
-  },
-  inputTabela: {
-    width: "100%",
-    padding: "6px",
-    borderRadius: "6px",
-    border: "1px solid #ccc",
-    boxSizing: "border-box",
-    fontSize: "12px",
-  },
-  alerta: {
-    background: "#fff3cd",
-    color: "#664d03",
-    border: "1px solid #ffecb5",
-    borderRadius: "10px",
-    padding: "16px",
-  },
+  container: { padding: "24px", fontFamily: "Arial, sans-serif", background: "#f4f6f8", minHeight: "100vh" },
+  cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "18px" },
+  titulo: { margin: 0, marginBottom: "6px", color: "#111827" },
+  subtitulo: { margin: 0, color: "#4b5563" },
+  botaoAtualizar: { background: "#111827", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold", height: "fit-content" },
+  cardsIndicadores: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "12px", marginBottom: "18px" },
+  indicador: { background: "#fff", borderRadius: "12px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", gap: "4px" },
+  numero: { fontSize: "26px", fontWeight: "bold", color: "#111827" },
+  descricao: { fontSize: "13px", color: "#6b7280" },
+  filtros: { display: "flex", gap: "10px", marginBottom: "18px", flexWrap: "wrap" },
+  filtro: { background: "#fff", border: "1px solid #d1d5db", color: "#374151", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontSize: "13px" },
+  filtroAtivo: { background: "#0ea5e9", border: "1px solid #0ea5e9", color: "#fff", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontSize: "13px", fontWeight: "bold" },
+  vazio: { background: "#fff", borderRadius: "12px", padding: "20px", textAlign: "center", color: "#6b7280" },
+  tabelaWrap: { background: "#fff", borderRadius: "14px", overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.06)" },
+  tabela: { width: "100%", borderCollapse: "collapse", fontSize: "14px" },
+  th: { textAlign: "left", padding: "12px 10px", background: "#f1f5f9", color: "#475569", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.3px" },
+  thNum: { textAlign: "right", padding: "12px 10px", background: "#f1f5f9", color: "#475569", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.3px" },
+  tr: { cursor: "pointer", borderTop: "1px solid #eef2f7" },
+  td: { padding: "12px 10px", color: "#374151" },
+  tdNum: { padding: "12px 10px", color: "#111827", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" },
+  status: { padding: "6px 10px", borderRadius: "999px", fontWeight: "bold", fontSize: "12px", whiteSpace: "nowrap" },
+  overlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex", justifyContent: "center", alignItems: "flex-start", padding: "40px 16px", zIndex: 50, overflowY: "auto" },
+  modal: { background: "#fff", borderRadius: "16px", width: "100%", maxWidth: "760px", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" },
+  modalTopo: { display: "flex", alignItems: "center", gap: "14px", padding: "18px 20px", borderBottom: "1px solid #eef2f7" },
+  modalNome: { margin: 0, color: "#111827", fontSize: "20px" },
+  modalCpf: { color: "#6b7280", fontSize: "13px" },
+  fechar: { marginLeft: "auto", background: "transparent", border: "none", fontSize: "18px", cursor: "pointer", color: "#6b7280" },
+  abas: { display: "flex", gap: "8px", padding: "12px 20px 0", flexWrap: "wrap" },
+  aba: { background: "#f1f5f9", border: "none", color: "#475569", padding: "8px 14px", borderRadius: "8px 8px 0 0", cursor: "pointer", fontSize: "13px" },
+  abaAtiva: { background: "#0ea5e9", border: "none", color: "#fff", padding: "8px 14px", borderRadius: "8px 8px 0 0", cursor: "pointer", fontSize: "13px", fontWeight: "bold" },
+  modalCorpo: { padding: "18px 20px", maxHeight: "50vh", overflowY: "auto" },
+  subttl: { margin: "14px 0 6px", color: "#111827", fontSize: "14px" },
+  info: { margin: "4px 0", color: "#374151", fontSize: "14px" },
+  bloco: { marginTop: "12px" },
+  blocoRetorno: { marginTop: "12px", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px" },
+  paragrafo: { margin: "6px 0", color: "#374151", lineHeight: 1.4 },
+  linhaFin: { display: "flex", justifyContent: "space-between", gap: "10px", padding: "8px 0", borderTop: "1px solid #eef2f7", fontSize: "13px", color: "#374151" },
+  linhaHist: { padding: "10px 0", borderTop: "1px solid #eef2f7" },
+  histTopo: { display: "flex", justifyContent: "space-between", gap: "10px" },
+  histData: { color: "#94a3b8", fontSize: "12px" },
+  histQuem: { color: "#94a3b8", fontSize: "12px" },
+  modalAcoes: { padding: "16px 20px", borderTop: "1px solid #eef2f7" },
+  label: { display: "block", fontWeight: "bold", marginBottom: "6px", color: "#111827", fontSize: "13px" },
+  textarea: { width: "100%", minHeight: "70px", padding: "10px", borderRadius: "8px", border: "1px solid #ccc", resize: "vertical", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
+  acoes: { marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" },
+  botaoConfirmar: { background: "#198754", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  botaoRejeitar: { background: "#dc3545", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  botaoPequeno: { display: "inline-block", marginTop: "8px", background: "#0ea5e9", color: "#fff", textDecoration: "none", padding: "8px 14px", borderRadius: "8px", fontWeight: "bold", fontSize: "13px" },
+  aviso: { marginTop: "10px", color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "8px 10px", fontSize: "12px" },
+  alerta: { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5", borderRadius: "10px", padding: "16px" },
 };
