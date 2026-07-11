@@ -1632,7 +1632,6 @@ export default function CRM() {
             <ConfirmarPagamento
               aluno={quitacaoModal.aluno}
               tipoInicial="QUITACAO_TOTAL"
-              valorInicial={quitacaoModal.caso?.totalEmAberto}
               onSucesso={async () => {
                 // Registra apenas a informacao no historico; NAO marca quitado.
                 await registrarHistorico(
