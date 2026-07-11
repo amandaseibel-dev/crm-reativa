@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { emailPorNomeOperador, nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
+import ConfirmarPagamento from "../components/ConfirmarPagamento";
 
 /* ================= BASE ================= */
 
@@ -61,6 +62,9 @@ export default function CRM() {
   }
   const [bloqueadoCRM, setBloqueadoCRM] = useState(false);
   const [verificandoCRM, setVerificandoCRM] = useState(true);
+  // Modal da tabulacao "Quitado": abre ConfirmarPagamento (vinculo financeiro
+  // obrigatorio). Nada e gravado ate a solicitacao valida ser criada la.
+  const [quitacaoModal, setQuitacaoModal] = useState(null); // { caso, aluno }
 
   useEffect(() => {
     async function bloquearOperadorNoCRM() {
@@ -749,6 +753,28 @@ return (
     const dataRetorno = retornos[caso.id] || dataParaInput(caso.dataRetorno) || null;
     const horaRetorno = horasRetorno[caso.id] || null;
 
+    // "Quitado": intercepta ANTES de qualquer gravacao. Nao atualiza casos,
+    // nao insere solicitacao, nao marca quitado, nao mexe em saldo/parcela.
+    // Abre a tabulacao "Confirmar pagamento" (ConfirmarPagamento), que exige
+    // e valida o vinculo financeiro. Se o operador cancelar, nada e gravado.
+    if (tipo === "QUITADO") {
+      if (!caso.cpfNumeros) {
+        setErro("Sem CPF para localizar o aluno. Use a tabulação 'Confirmar pagamento' na ficha do aluno.");
+        return;
+      }
+      const { data: alunoQ, error: erroAlunoQ } = await supabase
+        .from("alunos")
+        .select("id, nome, cpf")
+        .eq("cpf", caso.cpfNumeros)
+        .maybeSingle();
+      if (erroAlunoQ || !alunoQ?.id) {
+        setErro("Aluno não localizado pelo CPF para confirmar pagamento.");
+        return;
+      }
+      setQuitacaoModal({ caso, aluno: alunoQ });
+      return;
+    }
+
     const updateData = {
       status_acionamento: tipo,
       ultimo_status: caso.statusAtual,
@@ -759,11 +785,6 @@ return (
       ultima_tabulacao_em: new Date().toISOString(),
       data_ultimo_acionamento: new Date().toISOString(),
     };
-
-    if (tipo === "QUITADO") {
-      updateData.status_acionamento = "PENDENTE_VALIDACAO";
-      updateData.fila_responsavel = "VALIDACAO_QUITACAO";
-    }
 
     const { error: erroUpdate } = await supabase
       .from("casos")
@@ -776,45 +797,8 @@ return (
       return;
     }
 
-    // "Quitado" precisa cair na Fila de Confirmação de Pagamento da Amanda
-    // (solicitacoes_confirmacao_pagamento), que é o único lugar que ela
-    // realmente usa pra confirmar/baixar pagamento -- o fila_responsavel
-    // "VALIDACAO_QUITACAO" acima nunca é lido em nenhuma tela, então sem
-    // isso o caso quitado ficava sem cair em lugar nenhum.
-    if (tipo === "QUITADO" && caso.cpfNumeros) {
-      const { data: alunoEncontrado, error: erroAluno } = await supabase
-        .from("alunos")
-        .select("id, nome")
-        .eq("cpf", caso.cpfNumeros)
-        .maybeSingle();
-
-      if (erroAluno) {
-        console.error("Erro ao localizar aluno pra enviar pra confirmação de pagamento:", erroAluno);
-      } else if (alunoEncontrado?.id) {
-        const emailOperador = usuario?.email || "";
-        const nomeOperador = nomeOperadorPorEmail(emailOperador) || caso.operador || "";
-
-        const { error: erroSolicitacao } = await supabase
-          .from("solicitacoes_confirmacao_pagamento")
-          .insert({
-            aluno_id: String(alunoEncontrado.id),
-            aluno_nome: alunoEncontrado.nome || caso.nome,
-            aluno_cpf: caso.cpfNumeros,
-            operador_email: emailOperador,
-            operador_nome: nomeOperador,
-            valor_informado: caso.totalEmAberto || null,
-            motivo: observacao.trim() || "Caso marcado como quitado no CRM.",
-            status: "AGUARDANDO_CONFIRMACAO",
-          });
-
-        if (erroSolicitacao) {
-          console.error("Erro ao enviar caso quitado pra fila de confirmação de pagamento:", erroSolicitacao);
-          setErro("Caso salvo, mas houve erro ao enviar pra fila de confirmação de pagamento.");
-        }
-      } else {
-        console.warn("Caso marcado como quitado, mas não achei o aluno correspondente pelo CPF pra enviar pra fila de confirmação.");
-      }
-    }
+    // (Fluxo "Quitado" foi movido para o modal ConfirmarPagamento, interceptado
+    // no inicio desta funcao -- nao ha mais insert automatico sem vinculo aqui.)
 
     const historicoOk = await registrarHistorico(
       caso,
@@ -1624,6 +1608,50 @@ return (
         <p style={{ color: "#ddd6fe" }}>
           Nenhum caso encontrado para esse operador/filtro.
         </p>
+      )}
+
+      {quitacaoModal && (
+        <div
+          style={{
+            position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)",
+            display: "flex", justifyContent: "center", alignItems: "flex-start",
+            padding: "32px 16px", zIndex: 60, overflowY: "auto",
+          }}
+          onClick={() => setQuitacaoModal(null)}
+        >
+          <div
+            style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 620 }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid #eef2f7" }}>
+              <strong style={{ color: "#111827" }}>Confirmar pagamento — {quitacaoModal.caso?.nome || "aluno"}</strong>
+              <button
+                style={{ marginLeft: "auto", background: "transparent", border: "none", fontSize: 18, cursor: "pointer", color: "#6b7280" }}
+                onClick={() => setQuitacaoModal(null)}
+                title="Cancelar (não grava nada)"
+              >
+                ✕
+              </button>
+            </div>
+            <ConfirmarPagamento
+              aluno={quitacaoModal.aluno}
+              tipoInicial="QUITACAO_TOTAL"
+              valorInicial={quitacaoModal.caso?.totalEmAberto}
+              onSucesso={async () => {
+                // Registra apenas a informacao no historico; NAO marca quitado.
+                await registrarHistorico(
+                  quitacaoModal.caso,
+                  quitacaoModal.caso?.statusAtual,
+                  "Quitação informada, aguardando confirmação financeira",
+                  null
+                );
+                setQuitacaoModal(null);
+                setSucesso("Enviado para confirmação de pagamento (aguardando confirmação financeira).");
+                buscar();
+              }}
+            />
+          </div>
+        </div>
       )}
     </div>
   );
