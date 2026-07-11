@@ -55,9 +55,11 @@ function pegarCpfAluno(aluno) {
   return aluno?.cpf || aluno?.CPF || aluno?.cpf_mascarado || "-";
 }
 
-export default function ConfirmarPagamento({ aluno, tipoInicial = "", valorInicial = null, onSucesso }) {
+export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso }) {
   const [motivo, setMotivo] = useState("");
-  const [valorInformado, setValorInformado] = useState(valorInicial != null ? String(valorInicial) : "");
+  // Valor NAO e mais pre-preenchido por uma fonte externa (casos.total_em_aberto
+  // era stale/incorreto). A sugestao passa a vir da divida selecionada.
+  const [valorInformado, setValorInformado] = useState("");
   const [tipo, setTipo] = useState(tipoInicial || "");
   const [dataPagamento, setDataPagamento] = useState("");
   const [alvo, setAlvo] = useState(""); // "PARCELA:<id>" | "TITULO:<id>" | "ACORDO:<id>"
@@ -150,8 +152,34 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", valorInici
 
   const valorNum = Number(String(valorInformado).replace(",", ".")) || 0;
   const [alvoTipo, alvoId] = alvo ? alvo.split(":") : ["", ""];
+
+  // Fonte oficial da sugestao: sempre a divida detalhada (nunca casos.total_em_aberto).
+  const sumParcelas = parcelasAbertas.reduce((s, p) => s + Number(p.valor || 0), 0);
+  const sumTitulos = titulosAbertos.reduce((s, t) => s + valorTitulo(t), 0);
+  const consolidado = sumParcelas + sumTitulos; // sem duplicidade (titulos vinculada ja excluidos)
+  const somaParcelasAcordo = (acordoId) =>
+    parcelasAbertas.filter((p) => p.acordos?.id === acordoId).reduce((s, p) => s + Number(p.valor || 0), 0);
+  const valorDaDivida = () => {
+    if (alvoTipo === "PARCELA") { const p = parcelasAbertas.find((x) => x.id === alvoId); return p ? Number(p.valor || 0) : 0; }
+    if (alvoTipo === "TITULO") { const t = titulosAbertos.find((x) => x.id === alvoId); return t ? valorTitulo(t) : 0; }
+    if (alvoTipo === "ACORDO") return somaParcelasAcordo(alvoId);
+    return 0;
+  };
+  // Sugestao: quitacao total -> consolidado; senao -> valor da divida selecionada.
+  const sugestao = tipo === "QUITACAO_TOTAL" ? consolidado : valorDaDivida();
+  const difQuitacao = valorNum - consolidado;
+  const quitacaoDivergente = tipo === "QUITACAO_TOTAL" && Math.abs(difQuitacao) > 0.005;
+  const valorDivergeSugestao = sugestao > 0 && Math.abs(valorNum - sugestao) > 0.005;
+
+  // Preenche o valor com a sugestao ao trocar tipo/divida (continua editavel).
+  useEffect(() => {
+    if (sugestao > 0) setValorInformado(sugestao.toFixed(2));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tipo, alvo, parcelasAbertas, titulosAbertos]);
+
   const podeEnviar =
-    !!tipo && valorNum > 0 && !!dataPagamento && !!alvoTipo && !!alvoId && motivo.trim().length > 0;
+    !!tipo && valorNum > 0 && !!dataPagamento && !!alvoTipo && !!alvoId &&
+    motivo.trim().length > 0 && !quitacaoDivergente;
 
   async function enviarParaConfirmacao() {
     if (!aluno?.id) return alert("Aluno não localizado.");
@@ -163,6 +191,8 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", valorInici
     if (!dataPagamento) return alert("Informe a data do pagamento.");
     if (!alvoTipo || !alvoId) return alert("Selecione a dívida correspondente (parcela, título ou acordo).");
     if (!motivo.trim()) return alert("Escreva uma observação sobre o pagamento.");
+    if (quitacaoDivergente)
+      return alert("O valor informado não corresponde à quitação total. Corrija o valor ou mude o tipo do pagamento.");
 
     setEnviando(true);
 
@@ -269,6 +299,25 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", valorInici
               <input type="date" style={styles.input} value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)} />
             </div>
           </div>
+
+          {valorDivergeSugestao && tipo !== "QUITACAO_TOTAL" && (
+            <p style={styles.aviso}>
+              Valor difere da sugestão da dívida selecionada ({formatarMoeda(sugestao)}). Confirme se está correto.
+            </p>
+          )}
+
+          {tipo === "QUITACAO_TOTAL" && (
+            <div style={styles.consol}>
+              <div style={styles.consolLinha}><span>Mensalidades/títulos abertos</span><span>{formatarMoeda(sumTitulos)}</span></div>
+              <div style={styles.consolLinha}><span>Parcelas abertas</span><span>{formatarMoeda(sumParcelas)}</span></div>
+              <div style={styles.consolLinha}><strong>Total consolidado</strong><strong>{formatarMoeda(consolidado)}</strong></div>
+              <div style={styles.consolLinha}><span>Valor informado</span><span>{formatarMoeda(valorNum)}</span></div>
+              <div style={styles.consolLinha}><span>Diferença</span><span>{formatarMoeda(difQuitacao)}</span></div>
+              {quitacaoDivergente && (
+                <div style={styles.erroConsol}>O valor informado não corresponde à quitação total</div>
+              )}
+            </div>
+          )}
 
           <div style={styles.bloco}>
             <label style={styles.label}>Dívida correspondente *</label>
@@ -395,6 +444,9 @@ const styles = {
   input: { width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #ccc", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
   textarea: { width: "100%", minHeight: "80px", padding: "10px", borderRadius: "8px", border: "1px solid #ccc", resize: "vertical", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
   aviso: { marginTop: "8px", color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "8px 10px", fontSize: "12px" },
+  consol: { marginTop: "10px", background: "#eef6ff", border: "1px solid #cfe0f5", borderRadius: "8px", padding: "10px 12px" },
+  consolLinha: { display: "flex", justifyContent: "space-between", gap: "12px", fontSize: "13px", color: "#1e3a5f", padding: "3px 0" },
+  erroConsol: { marginTop: "6px", color: "#842029", background: "#f8d7da", border: "1px solid #f5c2c7", borderRadius: "6px", padding: "6px 8px", fontSize: "12px", fontWeight: "bold" },
   botao: { marginTop: "16px", background: "#0ea5e9", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
   botaoDesabilitado: { background: "#cbd5e1", color: "#64748b", cursor: "not-allowed" },
   historico: { marginTop: "24px", borderTop: "1px solid #e5e7eb", paddingTop: "18px" },
