@@ -346,6 +346,9 @@ export default function App() {
     {
       rota: "/",
       label: perfil === "operador" ? "⚡ Minha Fila" : "🏠 Dashboard",
+      // Operador entra direto na Minha Carteira; a "/" redireciona para la e
+      // nao aparece no menu (nenhuma opcao de Fila Operacional para operador).
+      esconderParaOperador: true,
     },
     { rota: "/painel-carteira", label: "🗂️ Minha Carteira" },
     { rota: "/projecao-hora-a-hora", label: "⏱️ Projeção Hora a Hora" },
@@ -476,7 +479,7 @@ export default function App() {
               path="/"
               element={
                 perfil === "operador" ? (
-                  <MinhaFila />
+                  <Navigate to="/painel-carteira" replace />
                 ) : (
                   <Dashboard />
                 )
@@ -486,9 +489,13 @@ export default function App() {
             <Route
               path="/minha-fila"
               element={
-                <RotaProtegida usuario={usuario} rota="/minha-fila">
-                  <MinhaFila />
-                </RotaProtegida>
+                perfil === "operador" ? (
+                  <Navigate to="/painel-carteira" replace />
+                ) : (
+                  <RotaProtegida usuario={usuario} rota="/minha-fila">
+                    <MinhaFila />
+                  </RotaProtegida>
+                )
               }
             />
 
