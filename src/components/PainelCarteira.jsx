@@ -225,13 +225,26 @@ const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"])
 const COLUNAS_ALUNO =
   "id,nome,nome_aluno,cpf,telefone,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao";
 
+// Aba "Solicitacoes" foi removida: Solicitar link / termo / financeiro /
+// informar pagamento / anexar comprovante ficam INLINE dentro da Tabulacao
+// (aba Negociacao), que e o centro unico do operador.
 const ABAS_MODAL = [
   { id: "resumo", label: "Resumo" },
-  { id: "negociacao", label: "Negociacao" },
+  { id: "negociacao", label: "Tabulacao" },
   { id: "financeiro", label: "Financeiro" },
   { id: "historico", label: "Historico" },
-  { id: "solicitacoes", label: "Solicitacoes" },
 ];
+
+// Mapeia o resultado do retorno ADM -> acao inline que deve abrir
+// automaticamente dentro da Tabulacao.
+const RETORNO_ABRE_ACAO = {
+  LINK_PRONTO_PARA_ENVIO: "link",
+  BAIXA_DEVOLVIDA: "link",
+  TERMO_RECEBIDO_LIBERADO: "termo",
+  TERMO_REJEITADO: "termo",
+  FINANCEIRO_DEVOLVIDO: "financeiro",
+  PAGAMENTO_REJEITADO: "pagamento",
+};
 
 export default function PainelCarteira({ embedded = false }) {
   const [email, setEmail] = useState(null);
@@ -285,6 +298,12 @@ export default function PainelCarteira({ embedded = false }) {
   const [retornoHora, setRetornoHora] = useState("");
   const [observacao, setObservacao] = useState("");
 
+  // Acoes inline dentro da Tabulacao (link/termo/financeiro/pagamento).
+  const [acaoInline, setAcaoInline] = useState(null);
+  // Retorno ADM acionavel do aluno aberto + contador da carteira.
+  const [retornoAluno, setRetornoAluno] = useState(null);
+  const [retornosPendentes, setRetornosPendentes] = useState([]);
+
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
@@ -305,6 +324,7 @@ export default function PainelCarteira({ embedded = false }) {
   useEffect(() => {
     if (email === null) return;
     carregar();
+    carregarRetornosPendentes();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email, veTudo, operadorFiltro]);
 
@@ -493,25 +513,72 @@ export default function PainelCarteira({ embedded = false }) {
     }
   }
 
+  // Carrega retornos ADM pendentes/em tratamento do operador (contador +
+  // bloco no topo da carteira). RLS ja limita ao proprio operador.
+  async function carregarRetornosPendentes() {
+    const { data } = await supabase
+      .from("retornos_adm")
+      .select("id, aluno_id, resultado_adm, motivo, proximo_passo, status_tratamento, criado_em, operador_destino_nome")
+      .in("status_tratamento", ["PENDENTE", "EM_TRATAMENTO"])
+      .order("status_tratamento", { ascending: true })
+      .order("criado_em", { ascending: true });
+    setRetornosPendentes(data || []);
+  }
+
   // Abre o modal (nao navega). Preserva a lista/filtros/paginacao atras.
-  function abrirModal(a) {
+  async function abrirModal(a) {
     if (!a?.id) return;
     setAlunoModal(a);
     setModalAberto(true);
     setAbaModal("resumo");
     setFeedback(null);
+    setAcaoInline(null);
+    setRetornoAluno(null);
     setStatusNovo(a.status_atual || "");
     setResumoConversa("");
     setRetornoData(a.data_retorno || "");
     setRetornoHora(a.hora_retorno || "");
     setObservacao(a.observacao || "");
     carregarDadosModal(a.id, a.cpf);
+
+    // Retorno ADM acionavel deste aluno: abre a Tabulacao na acao certa.
+    const { data: rets } = await supabase
+      .from("retornos_adm")
+      .select("*")
+      .eq("aluno_id", a.id)
+      .in("status_tratamento", ["PENDENTE", "EM_TRATAMENTO"])
+      .order("criado_em", { ascending: true })
+      .limit(1);
+    const ret = rets && rets[0];
+    if (ret) {
+      setRetornoAluno(ret);
+      setAbaModal("negociacao");
+      const acao = RETORNO_ABRE_ACAO[ret.resultado_adm] || null;
+      if (acao) setAcaoInline(acao);
+      // Abrir o aluno = apenas marca visualizado (nao conclui).
+      try { await supabase.rpc("retorno_adm_visualizar", { p_id: ret.id }); } catch (e) { /* silencioso */ }
+    }
+  }
+
+  // Inicia o tratamento do retorno (PENDENTE -> EM_TRATAMENTO) ao abrir a acao.
+  async function iniciarRetorno() {
+    if (!retornoAluno || retornoAluno.status_tratamento !== "PENDENTE") return;
+    try {
+      await supabase.rpc("retorno_adm_iniciar", { p_id: retornoAluno.id });
+      setRetornoAluno((r) => (r ? { ...r, status_tratamento: "EM_TRATAMENTO" } : r));
+      carregarRetornosPendentes();
+    } catch (e) { /* silencioso */ }
   }
 
   function fecharModal() {
     setModalAberto(false);
     setAlunoModal(null);
     setFeedback(null);
+    setAcaoInline(null);
+    setRetornoAluno(null);
+    // A conclusao do retorno e feita pelo gatilho quando a acao real ocorre;
+    // atualiza contador ao fechar.
+    carregarRetornosPendentes();
   }
 
   // Recarrega o aluno atual (linha da carteira + modal) apos uma acao.
@@ -804,6 +871,32 @@ export default function PainelCarteira({ embedded = false }) {
         painelReceptivo
       ) : (
         <>
+          {retornosPendentes.length > 0 && (
+            <div style={S.retornoCarteira}>
+              <div style={S.retornoCarteiraTopo}>
+                <span style={S.retornoCarteiraBadge}>📌 Retornos do ADM</span>
+                <span style={S.retornoCarteiraCont}>{retornosPendentes.length} pendente(s)</span>
+              </div>
+              <div style={S.retornoCarteiraLista}>
+                {retornosPendentes.slice(0, 6).map((r) => {
+                  const caso = casos.find((c) => c.id === r.aluno_id);
+                  return (
+                    <div
+                      key={r.id}
+                      style={S.retornoCarteiraItem}
+                      onClick={() => caso && abrirModal(caso)}
+                      title="Abrir atendimento"
+                    >
+                      <span style={S.retornoCarteiraNome}>{caso ? nomeAluno(caso) : "Aluno"}</span>
+                      <span style={S.retornoCarteiraTag}>{labelStatus(r.resultado_adm)}</span>
+                      <span style={S.retornoCarteiraStatus}>{r.status_tratamento}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           <div style={S.kpiGrid} className="pc-kpis">
             {kpiCards.map((k) => {
               const filtravel = KPIS_FILTRAVEIS.has(k.id) || KPIS_ESPECIAIS.has(k.id);
@@ -974,6 +1067,21 @@ export default function PainelCarteira({ embedded = false }) {
 
               {abaModal === "negociacao" && (
                 <div style={S.secao}>
+                  {/* Retorno do ADM (acionavel) aberto dentro da propria Tabulacao */}
+                  {retornoAluno && (
+                    <div style={S.retornoBox}>
+                      <div style={S.retornoTop}>
+                        <span style={S.retornoBadge}>📌 Retorno do ADM</span>
+                        <span style={S.retornoStatus}>{retornoAluno.status_tratamento}</span>
+                      </div>
+                      <div style={S.retornoLinha}><strong>Resultado:</strong> {labelStatus(retornoAluno.resultado_adm)}</div>
+                      {retornoAluno.motivo && <div style={S.retornoLinha}><strong>Motivo:</strong> {retornoAluno.motivo}</div>}
+                      <div style={S.retornoLinha}><strong>Proximo passo:</strong> {retornoAluno.proximo_passo || "-"}</div>
+                      <div style={S.retornoLinha}><strong>Recebido em:</strong> {formatarDataHora(retornoAluno.criado_em)}</div>
+                      <div style={S.retornoDica}>Trate a acao abaixo. O alerta so encerra quando a acao real for executada.</div>
+                    </div>
+                  )}
+
                   <label style={S.label}>Tabular atendimento (status)</label>
                   <select style={S.select} value={statusNovo} onChange={(e) => setStatusNovo(e.target.value)}>
                     <option value="">Selecione o status...</option>
@@ -1008,13 +1116,42 @@ export default function PainelCarteira({ embedded = false }) {
                       {salvando ? "Salvando..." : "Finalizar atendimento"}
                     </button>
                   </div>
+
+                  {/* Acoes operacionais INLINE (nao ha aba Solicitacoes) */}
+                  <div style={S.acoesInlineTitulo}>Acoes</div>
+                  <div style={S.acoesInlineBotoes}>
+                    <button style={S.btnAcaoInline} onClick={() => { setAcaoInline(acaoInline === "link" ? null : "link"); iniciarRetorno(); }}>🔗 Solicitar link</button>
+                    <button style={S.btnAcaoInline} onClick={() => { setAcaoInline(acaoInline === "termo" ? null : "termo"); iniciarRetorno(); }}>📄 Solicitar termo</button>
+                    <button style={S.btnAcaoInline} onClick={() => { setAcaoInline(acaoInline === "financeiro" ? null : "financeiro"); iniciarRetorno(); }}>💰 Enviar ao financeiro</button>
+                    <button style={S.btnAcaoInline} onClick={() => { setAcaoInline(acaoInline === "pagamento" ? null : "pagamento"); iniciarRetorno(); }}>🧾 Informar pagamento</button>
+                  </div>
+
+                  {acaoInline === "link" && (
+                    <div style={S.blocoInline}>
+                      <LinksPagamentoAluno aluno={alunoModal} usuarioLogado={usuarioLogado} onAtualizar={() => atualizarTudo(alunoModal.id)} />
+                    </div>
+                  )}
+                  {acaoInline === "termo" && (
+                    <div style={S.blocoInline}>
+                      <FinalizacaoTermo aluno={alunoModal} />
+                    </div>
+                  )}
+                  {acaoInline === "financeiro" && (
+                    <div style={S.blocoInline}>
+                      <EnvioFinanceiro aluno={alunoModal} />
+                    </div>
+                  )}
+                  {acaoInline === "pagamento" && (
+                    <div style={S.blocoInline}>
+                      <ConfirmarPagamento aluno={alunoModal} />
+                    </div>
+                  )}
                 </div>
               )}
 
               {abaModal === "financeiro" && (
                 <div style={S.secao}>
                   <FinanceiroAluno aluno={alunoModal} />
-                  <ConfirmarPagamento aluno={alunoModal} />
                 </div>
               )}
 
@@ -1039,13 +1176,6 @@ export default function PainelCarteira({ embedded = false }) {
                 </div>
               )}
 
-              {abaModal === "solicitacoes" && (
-                <div style={S.secao}>
-                  <LinksPagamentoAluno aluno={alunoModal} usuarioLogado={usuarioLogado} onAtualizar={() => atualizarTudo(alunoModal.id)} />
-                  <FinalizacaoTermo aluno={alunoModal} />
-                  <EnvioFinanceiro aluno={alunoModal} />
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -1148,4 +1278,27 @@ const S = {
   histDesc: { fontSize: 13, color: "#334155" },
   histStatus: { fontSize: 11.5, color: "#6366f1", fontWeight: 600 },
   histAutor: { fontSize: 11, color: "#a3adba" },
+
+  // Retorno do ADM — bloco na Tabulacao
+  retornoBox: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 4 },
+  retornoTop: { display: "flex", justifyContent: "space-between", alignItems: "center" },
+  retornoBadge: { fontSize: 12.5, fontWeight: 700, color: "#c2410c" },
+  retornoStatus: { fontSize: 11, fontWeight: 700, color: "#9a3412", background: "#ffedd5", borderRadius: 999, padding: "2px 8px" },
+  retornoLinha: { fontSize: 12.5, color: "#7c2d12" },
+  retornoDica: { fontSize: 11.5, color: "#9a3412", marginTop: 2, fontStyle: "italic" },
+  acoesInlineTitulo: { fontSize: 12, fontWeight: 700, color: "#475569", marginTop: 6 },
+  acoesInlineBotoes: { display: "flex", flexWrap: "wrap", gap: 8 },
+  btnAcaoInline: { background: "#eef2f6", color: "#334155", border: `1px solid ${COR_BORDA}`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" },
+  blocoInline: { border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: 4, background: "#fbfcfe" },
+
+  // Retorno do ADM — bloco na Carteira
+  retornoCarteira: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 12, padding: "10px 14px", marginBottom: 14 },
+  retornoCarteiraTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  retornoCarteiraBadge: { fontSize: 13, fontWeight: 700, color: "#c2410c" },
+  retornoCarteiraCont: { fontSize: 12, fontWeight: 700, color: "#9a3412", background: "#ffedd5", borderRadius: 999, padding: "2px 10px" },
+  retornoCarteiraLista: { display: "flex", flexDirection: "column", gap: 6 },
+  retornoCarteiraItem: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", background: "#fff", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 8, padding: "7px 10px" },
+  retornoCarteiraNome: { flex: 1, fontWeight: 600, color: "#1e293b", fontSize: 13 },
+  retornoCarteiraTag: { fontSize: 11, fontWeight: 600, color: "#c2410c", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 6, padding: "2px 8px" },
+  retornoCarteiraStatus: { fontSize: 11, color: "#94a3b8" },
 };
