@@ -1202,7 +1202,7 @@ export default function CRM() {
 
             <CardInfo titulo="Status atual" valor={c.statusAtual} />
             <CardInfo
-              titulo="Valor em aberto"
+              titulo="Principal em aberto"
               valor={labelValorAberto(c)}
               destaque
             />
@@ -1344,7 +1344,7 @@ export default function CRM() {
                       marginBottom: 22,
                     }}
                   >
-                    <CardInfo titulo="Total em aberto" valor={labelValorAberto(c)} destaque />
+                    <CardInfo titulo="Principal em aberto" valor={labelValorAberto(c)} destaque />
                     <CardInfo titulo="Honorário" valor={formatarMoeda(c.honorario)} />
                     <CardInfo titulo="Valor pago" valor={formatarMoeda(c.valorPago)} />
                     <CardInfo titulo="Mensalidades em aberto" valor={valorTexto(c.mensalidadesEmAberto)} />
