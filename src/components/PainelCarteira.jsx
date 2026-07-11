@@ -300,6 +300,10 @@ export default function PainelCarteira({ embedded = false }) {
 
   // Acoes inline dentro da Tabulacao (link/termo/financeiro/pagamento).
   const [acaoInline, setAcaoInline] = useState(null);
+  // Quando o operador clica na acao (ex.: "Solicitar link"), abre o formulario
+  // ja de cara. Quando a acao abre por retorno do ADM, fica false (mostra o
+  // estado atual do link, sem novo pedido).
+  const [abrirFormInicial, setAbrirFormInicial] = useState(false);
   // Retorno ADM acionavel do aluno aberto + contador da carteira.
   const [retornoAluno, setRetornoAluno] = useState(null);
   const [retornosPendentes, setRetornosPendentes] = useState([]);
@@ -533,6 +537,7 @@ export default function PainelCarteira({ embedded = false }) {
     setAbaModal("resumo");
     setFeedback(null);
     setAcaoInline(null);
+    setAbrirFormInicial(false);
     setRetornoAluno(null);
     setStatusNovo(a.status_atual || "");
     setResumoConversa("");
@@ -1120,15 +1125,15 @@ export default function PainelCarteira({ embedded = false }) {
                   {/* Acoes operacionais INLINE (nao ha aba Solicitacoes) */}
                   <div style={S.acoesInlineTitulo}>Acoes</div>
                   <div style={S.acoesInlineBotoes}>
-                    <button style={S.btnAcaoInline} onClick={() => { setAcaoInline(acaoInline === "link" ? null : "link"); iniciarRetorno(); }}>🔗 Solicitar link</button>
-                    <button style={S.btnAcaoInline} onClick={() => { setAcaoInline(acaoInline === "termo" ? null : "termo"); iniciarRetorno(); }}>📄 Solicitar termo</button>
-                    <button style={S.btnAcaoInline} onClick={() => { setAcaoInline(acaoInline === "financeiro" ? null : "financeiro"); iniciarRetorno(); }}>💰 Enviar ao financeiro</button>
-                    <button style={S.btnAcaoInline} onClick={() => { setAcaoInline(acaoInline === "pagamento" ? null : "pagamento"); iniciarRetorno(); }}>🧾 Informar pagamento</button>
+                    <button style={S.btnAcaoInline} onClick={() => { const abrir = acaoInline !== "link"; setAcaoInline(abrir ? "link" : null); setAbrirFormInicial(abrir); iniciarRetorno(); }}>🔗 Solicitar link</button>
+                    <button style={S.btnAcaoInline} onClick={() => { const abrir = acaoInline !== "termo"; setAcaoInline(abrir ? "termo" : null); setAbrirFormInicial(abrir); iniciarRetorno(); }}>📄 Solicitar termo</button>
+                    <button style={S.btnAcaoInline} onClick={() => { const abrir = acaoInline !== "financeiro"; setAcaoInline(abrir ? "financeiro" : null); setAbrirFormInicial(false); iniciarRetorno(); }}>💰 Enviar ao financeiro</button>
+                    <button style={S.btnAcaoInline} onClick={() => { const abrir = acaoInline !== "pagamento"; setAcaoInline(abrir ? "pagamento" : null); setAbrirFormInicial(false); iniciarRetorno(); }}>🧾 Informar pagamento</button>
                   </div>
 
                   {acaoInline === "link" && (
                     <div style={S.blocoInline}>
-                      <LinksPagamentoAluno aluno={alunoModal} usuarioLogado={usuarioLogado} onAtualizar={() => atualizarTudo(alunoModal.id)} />
+                      <LinksPagamentoAluno aluno={alunoModal} usuarioLogado={usuarioLogado} onAtualizar={() => atualizarTudo(alunoModal.id)} abrirFormularioInicial={abrirFormInicial} />
                     </div>
                   )}
                   {acaoInline === "termo" && (

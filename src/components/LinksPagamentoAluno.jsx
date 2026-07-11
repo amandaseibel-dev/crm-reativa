@@ -138,12 +138,17 @@ export default function LinksPagamentoAluno({
   user,
   onSucesso,
   onAtualizar,
+  // Quando true (operador clicou "Solicitar link" na Tabulacao), abre o
+  // formulario de solicitacao ja de cara -- sem exigir um segundo clique no
+  // botao interno. Quando false (ex.: aberto por retorno do ADM), mantem o
+  // estado atual do link (historico/acoes), sem abrir novo pedido.
+  abrirFormularioInicial = false,
 }) {
   const alunoAtual = aluno || alunoSelecionado || estudante || {};
   const usuarioProp = usuarioLogado || usuario || user || {};
 
   const [usuarioAtual, setUsuarioAtual] = useState(usuarioProp || {});
-  const [aberto, setAberto] = useState(false);
+  const [aberto, setAberto] = useState(Boolean(abrirFormularioInicial));
 
   const [valor, setValor] = useState("");
   const [parcelas, setParcelas] = useState(1);
