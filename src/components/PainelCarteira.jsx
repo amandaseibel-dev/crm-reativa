@@ -250,6 +250,9 @@ function diasAtraso(vencimentoISO, hojeISO) {
 
 const CARDS_FINANCEIROS = new Set(["valorBaixadoMes", "recebidosMes", "honorariosBaixadoMes"]);
 
+// Tamanho do lote para consultas .in() consolidadas (evita URL longa e N+1).
+const LOTE_IN = 200;
+
 const ABAS_MODAL = [
   { id: "resumo", label: "Resumo" },
   { id: "negociacao", label: "Tabulacao" },
@@ -304,6 +307,9 @@ export default function PainelCarteira({ embedded = false }) {
   // Detalhamento de parcelas baixadas no mes (cards financeiros).
   const [detalheParcelas, setDetalheParcelas] = useState([]);
   const [detalheFinanceiro, setDetalheFinanceiro] = useState(null); // { tipo, titulo }
+  // Financeiro consolidado por aluno (valor em aberto sem duplicidade).
+  // { [aluno_id]: { mensalidades, acordos, total, temDetalhe, temAtraso, acordoResponsavel } }
+  const [finAlunos, setFinAlunos] = useState({});
 
   // ---- Modal operacional ----
   const [modalAberto, setModalAberto] = useState(false);
@@ -504,6 +510,90 @@ export default function PainelCarteira({ embedded = false }) {
         valorBaixadoMes,
         honorariosBaixadoMes,
       });
+
+      // ---- Valor em aberto consolidado por aluno (sem duplicidade) ----
+      // Regra: (1) parcelas A_VENCER/VENCIDA de acordos ATIVO +
+      // (2) titulos/mensalidades importados em_aberto (nao vinculados a acordo;
+      // status 'vinculada'/'quitada' ficam de fora, ja representados nas parcelas).
+      // Sem N+1: consultas consolidadas em lote sobre os alunos da carteira.
+      try {
+        const idsCarteira = listaAtiva.map((a) => String(a.id));
+        const fin = {};
+        for (const id of idsCarteira) {
+          fin[id] = {
+            mensalidades: 0,
+            acordos: 0,
+            total: 0,
+            temDetalhe: false,
+            temAtraso: false,
+            temAVencer: false,
+            acordoResponsavel: null,
+          };
+        }
+
+        // 1) Acordos ATIVO dos alunos da carteira (qualquer responsavel do acordo).
+        const acAluno = [];
+        for (let i = 0; i < idsCarteira.length; i += LOTE_IN) {
+          const lote = idsCarteira.slice(i, i + LOTE_IN);
+          const { data } = await supabase
+            .from("acordos")
+            .select("id,aluno_id,operador_responsavel_email,status")
+            .in("aluno_id", lote)
+            .eq("status", "ATIVO");
+          if (data) acAluno.push(...data);
+        }
+        const acAlunoById = new Map(acAluno.map((a) => [a.id, a]));
+        const acAlunoIds = acAluno.map((a) => a.id);
+
+        // Parcelas em aberto desses acordos.
+        for (let i = 0; i < acAlunoIds.length; i += LOTE_IN) {
+          const lote = acAlunoIds.slice(i, i + LOTE_IN);
+          if (!lote.length) continue;
+          const { data } = await supabase
+            .from("parcelas")
+            .select("acordo_id,status,valor,vencimento")
+            .in("acordo_id", lote)
+            .in("status", ["A_VENCER", "VENCIDA"]);
+          for (const p of data || []) {
+            const ac = acAlunoById.get(p.acordo_id);
+            if (!ac || !ac.aluno_id) continue;
+            const id = String(ac.aluno_id);
+            if (!fin[id]) continue;
+            fin[id].acordos += Number(p.valor || 0);
+            fin[id].temDetalhe = true;
+            fin[id].acordoResponsavel = ac.operador_responsavel_email || fin[id].acordoResponsavel;
+            if (p.status === "VENCIDA") fin[id].temAtraso = true;
+            else fin[id].temAVencer = true;
+          }
+        }
+
+        // 2) Titulos/mensalidades importados em aberto (borderos ja normalizados aqui).
+        for (let i = 0; i < idsCarteira.length; i += LOTE_IN) {
+          const lote = idsCarteira.slice(i, i + LOTE_IN);
+          const { data } = await supabase
+            .from("acordos_titulos")
+            .select("aluno_id,status,valor_em_aberto,saldo_corrigido,valor_original,vencimento")
+            .in("aluno_id", lote)
+            .eq("status", "em_aberto");
+          for (const t of data || []) {
+            const id = String(t.aluno_id);
+            if (!fin[id]) continue;
+            const v = Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+            fin[id].mensalidades += v;
+            fin[id].temDetalhe = true;
+            const d = diasAtraso(t.vencimento, hoje);
+            if (d !== null && d > 0) fin[id].temAtraso = true;
+            else if (d !== null) fin[id].temAVencer = true;
+          }
+        }
+
+        for (const id of idsCarteira) {
+          fin[id].total = fin[id].mensalidades + fin[id].acordos;
+        }
+        setFinAlunos(fin);
+      } catch (eFin) {
+        console.error("Erro ao consolidar valor em aberto:", eFin);
+      }
     } catch (e) {
       console.error("Erro no PainelCarteira:", e);
       setErro("Nao foi possivel carregar todos os dados. " + (e?.message || ""));
@@ -1030,6 +1120,14 @@ export default function PainelCarteira({ embedded = false }) {
                 <tbody>
                   {listaFiltrada.map((a) => {
                     const sp = statusPrazo(a);
+                    const fa = finAlunos[String(a.id)];
+                    const temDet = !!(fa && fa.temDetalhe);
+                    const fallback = Number(a.valor_em_aberto || 0);
+                    const respCaso = a.responsavel_atual_nome || nomeOperadorPorEmail(a.responsavel_atual_email);
+                    const respAcordo = fa && fa.acordoResponsavel ? nomeOperadorPorEmail(fa.acordoResponsavel) : null;
+                    const corTotal = temDet
+                      ? (fa.temAtraso ? "#b42318" : fa.temAVencer ? "#b54708" : "#101828")
+                      : "#101828";
                     return (
                       <tr key={a.id} style={S.tr} onClick={() => abrirModal(a)}>
                         <td style={S.td}>
@@ -1042,7 +1140,35 @@ export default function PainelCarteira({ embedded = false }) {
                         </td>
                         <td style={S.td}>{formatarData(a.data_ultimo_acionamento || a.ultimo_contato)}</td>
                         <td style={S.td}>{formatarData(a.data_retorno)}</td>
-                        <td style={S.tdNum}>{formatarMoeda(a.valor_em_aberto)}</td>
+                        <td style={S.tdValor}>
+                          {temDet ? (
+                            <div style={S.emAbertoBox}>
+                              <div style={{ ...S.emAbertoTotal, color: corTotal }}>
+                                Em aberto: {formatarMoeda(fa.total)}
+                              </div>
+                              <div style={S.emAbertoSub}>Mensalidades: {formatarMoeda(fa.mensalidades)}</div>
+                              <div style={S.emAbertoSub}>Acordos: {formatarMoeda(fa.acordos)}</div>
+                              <div style={S.emAbertoSub}>Responsavel: {respCaso || "-"}</div>
+                              {respAcordo && respAcordo !== respCaso && (
+                                <div style={S.emAbertoSub}>Acordo: {respAcordo}</div>
+                              )}
+                            </div>
+                          ) : fallback > 0 ? (
+                            <div style={S.emAbertoBox}>
+                              <div style={{ ...S.emAbertoTotal, color: "#101828" }}>
+                                Em aberto: {formatarMoeda(fallback)}
+                              </div>
+                              <div style={S.emAbertoSub}>estimado (sem detalhamento)</div>
+                              <div style={S.emAbertoSub}>Responsavel: {respCaso || "-"}</div>
+                            </div>
+                          ) : (
+                            <div style={S.emAbertoBox}>
+                              <div style={{ ...S.emAbertoTotal, color: "#98a2b3" }}>Valor nao informado</div>
+                              <div style={S.tagRevisar}>Revisar valor</div>
+                              <div style={S.emAbertoSub}>Responsavel: {respCaso || "-"}</div>
+                            </div>
+                          )}
+                        </td>
                         <td style={S.td}>
                           <span style={{ ...S.badgeStatus, color: sp.cor }}>
                             <span style={{ ...S.bolinha, background: sp.cor }} />
@@ -1376,6 +1502,11 @@ const S = {
   tdNumTotal: { padding: "10px 8px", color: "#16a34a", textAlign: "right", whiteSpace: "nowrap", fontWeight: 800, borderTop: `2px solid ${COR_BORDA}` },
   nomeCel: { fontWeight: 600, color: "#1e293b" },
   subCel: { fontSize: 11.5, color: "#a3adba" },
+  tdValor: { padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "middle" },
+  emAbertoBox: { display: "inline-flex", flexDirection: "column", alignItems: "flex-end", gap: 1 },
+  emAbertoTotal: { fontWeight: 700, fontSize: 13 },
+  emAbertoSub: { fontSize: 11, color: "#94a3b8" },
+  tagRevisar: { fontSize: 10.5, fontWeight: 600, color: "#b54708", background: "#fff4e6", border: "1px solid #f5c98a", borderRadius: 5, padding: "0px 6px", marginTop: 1 },
   badgeSituacao: { display: "inline-block", padding: "2px 8px", borderRadius: 6, background: "#eef2ff", color: "#4f46e5", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" },
   badgeStatus: { display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap" },
   bolinha: { width: 7, height: 7, borderRadius: "50%", display: "inline-block" },
