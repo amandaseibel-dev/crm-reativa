@@ -832,6 +832,7 @@ export default function PainelCarteira({ embedded = false }) {
         status_anterior: statusAntigo,
         status_novo: statusNovo,
         registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
+        registrado_por_email: email,
         registrado_em: agora,
       });
       if (erroMov) throw erroMov;
@@ -1162,7 +1163,7 @@ export default function PainelCarteira({ embedded = false }) {
                 </div>
                 <div style={S.desItemInfo}>
                   <span style={S.desNum}>{desempenho.estimativaDias ?? "-"}</span>
-                  <span style={S.desRot}>Dias p/ percorrer a carteira</span>
+                  <span style={S.desRot}>Dias uteis estimados</span>
                 </div>
               </div>
             </div>
