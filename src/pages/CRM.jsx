@@ -87,37 +87,6 @@ export default function CRM() {
     bloquearOperadorNoCRM();
   }, []);
 
-  if (verificandoCRM) {
-    return (
-      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100vh" }}>
-        Verificando acesso...
-      </div>
-    );
-  }
-
-  if (bloqueadoCRM) {
-    return (
-      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100vh" }}>
-        <h1>🔒 CRM Operacional bloqueado para operador</h1>
-        <p>Use a Fila Operacional / Minha Fila para atender seus alunos.</p>
-        <button
-          onClick={() => window.location.href = "/"}
-          style={{
-            background: "#22c55e",
-            color: "#111827",
-            border: "none",
-            borderRadius: 12,
-            padding: "12px 18px",
-            fontWeight: 800,
-            cursor: "pointer"
-          }}
-        >
-          Ir para Minha Fila
-        </button>
-      </div>
-    );
-  }
-
 
   const [operador, setOperador] = useState("OLGA");
   const [usuario, setUsuario] = useState(null);
@@ -405,49 +374,6 @@ export default function CRM() {
 
     verificarAcessoCRM();
   }, []);
-
-  if (usuarioBloqueadoCRM) {
-    return (
-      <div style={{
-        minHeight: "100vh",
-        padding: "40px",
-        background: "#0f172a",
-        color: "#fff",
-        fontFamily: "Inter, Arial, sans-serif"
-      }}>
-        <div style={{
-          maxWidth: "760px",
-          margin: "0 auto",
-          background: "#111827",
-          border: "1px solid #22c55e",
-          borderRadius: "18px",
-          padding: "28px"
-        }}>
-          <h1>🔒 CRM Operacional bloqueado para operador</h1>
-          <p>
-            A operação agora deve trabalhar pela Fila Operacional / Minha Fila.
-            Esta tela fica disponível apenas para Amanda, Supervisão e Administrativo.
-          </p>
-
-          <button
-            onClick={() => window.location.href = "/"}
-            style={{
-              marginTop: "18px",
-              background: "#22c55e",
-              color: "#0f172a",
-              border: "none",
-              borderRadius: "12px",
-              padding: "12px 18px",
-              fontWeight: 800,
-              cursor: "pointer"
-            }}
-          >
-            Ir para Minha Fila
-          </button>
-        </div>
-      </div>
-    );
-  }
 
 return (
         st.includes("QUITADO") ||
@@ -938,12 +864,86 @@ return (
   }, []);
 
   useEffect(() => {
+    if (verificandoCRM || bloqueadoCRM || usuarioBloqueadoCRM) return;
     if (perfilCarregado) {
       buscar();
     }
-  }, [perfilCarregado, operador]);
+  }, [perfilCarregado, operador, verificandoCRM, bloqueadoCRM, usuarioBloqueadoCRM]);
 
   const listaRetornosHoje = retornosHoje();
+
+  // Retornos condicionais de render DEPOIS de todos os hooks (corrige React #310):
+  if (verificandoCRM) {
+    return (
+      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100vh" }}>
+        Verificando acesso...
+      </div>
+    );
+  }
+  if (bloqueadoCRM) {
+    return (
+      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100vh" }}>
+        <h1>🔒 CRM Operacional bloqueado para operador</h1>
+        <p>Use a Fila Operacional / Minha Fila para atender seus alunos.</p>
+        <button
+          onClick={() => window.location.href = "/"}
+          style={{
+            background: "#22c55e",
+            color: "#111827",
+            border: "none",
+            borderRadius: 12,
+            padding: "12px 18px",
+            fontWeight: 800,
+            cursor: "pointer"
+          }}
+        >
+          Ir para Minha Fila
+        </button>
+      </div>
+    );
+  }
+  if (usuarioBloqueadoCRM) {
+    return (
+      <div style={{
+        minHeight: "100vh",
+        padding: "40px",
+        background: "#0f172a",
+        color: "#fff",
+        fontFamily: "Inter, Arial, sans-serif"
+      }}>
+        <div style={{
+          maxWidth: "760px",
+          margin: "0 auto",
+          background: "#111827",
+          border: "1px solid #22c55e",
+          borderRadius: "18px",
+          padding: "28px"
+        }}>
+          <h1>🔒 CRM Operacional bloqueado para operador</h1>
+          <p>
+            A operação agora deve trabalhar pela Fila Operacional / Minha Fila.
+            Esta tela fica disponível apenas para Amanda, Supervisão e Administrativo.
+          </p>
+
+          <button
+            onClick={() => window.location.href = "/"}
+            style={{
+              marginTop: "18px",
+              background: "#22c55e",
+              color: "#0f172a",
+              border: "none",
+              borderRadius: "12px",
+              padding: "12px 18px",
+              fontWeight: 800,
+              cursor: "pointer"
+            }}
+          >
+            Ir para Minha Fila
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
