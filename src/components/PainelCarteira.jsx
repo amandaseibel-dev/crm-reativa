@@ -721,7 +721,19 @@ export default function PainelCarteira({ embedded = false }) {
     }
   }
 
-  async function abrirEspecial(kpi) {
+  // Data de corte (agora - n dias), mesma logica usada nas contagens dos KPIs.
+  function corteDias(n) {
+    const d = new Date();
+    d.setHours(23, 59, 59, 999);
+    d.setDate(d.getDate() - n);
+    return d.toISOString();
+  }
+
+  // Carrega EXATAMENTE os registros que compoem o indicador clicado, com a
+  // mesma definicao usada na contagem e respeitando a permissao/escopo do
+  // usuario (aplicarEscopo). Assim a listagem existente da carteira sempre
+  // reflete o numero do card. Clicar de novo no mesmo card limpa o filtro.
+  async function abrirKpi(kpi) {
     if (filtroKpi === kpi) {
       setFiltroKpi(null);
       setCasosEspeciais(null);
@@ -730,23 +742,61 @@ export default function PainelCarteira({ embedded = false }) {
     setFiltroKpi(kpi);
     setCarregandoEspecial(true);
     try {
+      const hoje = hojeLocalBR();
+      const base = () => aplicarEscopo(supabase.from("alunos").select(COLUNAS_ALUNO));
+      const naoQuitado = (q) => q.not("status_atual", "ilike", "%QUITAD%");
+      const orStatus = (termo) =>
+        `status_atual.ilike.%${termo}%,status_jornada.ilike.%${termo}%,status_acionamento.ilike.%${termo}%`;
+
       let dados = [];
-      if (kpi === "quitados") {
-        let q = aplicarEscopo(supabase.from("alunos").select(COLUNAS_ALUNO))
-          .or("status_atual.ilike.%QUITAD%,status_jornada.ilike.%QUITAD%,status_acionamento.ilike.%QUITAD%")
-          .limit(1000);
-        const { data } = await q;
+
+      if (kpi === "ativos") {
+        const { data } = await naoQuitado(base()).limit(5000);
         dados = data || [];
-      } else {
-        const cpfs = kpi === "acordosQuebrados" ? quebradosCpfs : recebidosCpfs;
-        if (cpfs.length) {
-          const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).in("cpf", cpfs).limit(1000);
+      } else if (kpi === "semContato") {
+        const { data } = await base().lte("data_ultimo_acionamento", corteDias(10)).limit(5000);
+        dados = data || [];
+      } else if (kpi === "criticos") {
+        const { data } = await base()
+          .lte("data_ultimo_acionamento", corteDias(9))
+          .gt("data_ultimo_acionamento", corteDias(11))
+          .limit(5000);
+        dados = data || [];
+      } else if (kpi === "retornosHoje") {
+        const { data } = await base().eq("data_retorno", hoje).limit(5000);
+        dados = data || [];
+      } else if (kpi === "acordosFechados") {
+        const { data } = await naoQuitado(base()).or(orStatus("ACORDO_FECHADO")).limit(5000);
+        dados = data || [];
+      } else if (kpi === "linksPagos") {
+        const { data } = await naoQuitado(base()).or(orStatus("BAIXA_REALIZADA")).limit(5000);
+        dados = data || [];
+      } else if (kpi === "termosAgPgto") {
+        const { data } = await naoQuitado(base()).or(orStatus("TERMO")).limit(5000);
+        // Mesma regra da contagem: TERMO + (RECEBIDO | LIBERADO | ADM).
+        dados = (data || []).filter((a) => {
+          const t = `${a.status_atual || ""} ${a.status_jornada || ""} ${a.status_acionamento || ""}`.toUpperCase();
+          return t.includes("TERMO") && (t.includes("RECEBIDO") || t.includes("LIBERADO") || t.includes("ADM"));
+        });
+      } else if (kpi === "quitados") {
+        const { data } = await base().or(orStatus("QUITAD")).limit(5000);
+        dados = data || [];
+      } else if (kpi === "recebidosMes" || kpi === "valorBaixadoMes" || kpi === "honorariosBaixadoMes") {
+        // Cards financeiros do mes = alunos com parcela baixada no mes.
+        if (recebidosCpfs.length) {
+          const { data } = await base().in("cpf", recebidosCpfs).limit(5000);
+          dados = data || [];
+        }
+      } else if (kpi === "acordosQuebrados") {
+        if (quebradosCpfs.length) {
+          const { data } = await base().in("cpf", quebradosCpfs).limit(5000);
           dados = data || [];
         }
       }
+
       setCasosEspeciais(dados);
     } catch (e) {
-      console.error("Erro ao carregar lista especial:", e);
+      console.error("Erro ao carregar registros do indicador:", e);
       setCasosEspeciais([]);
     } finally {
       setCarregandoEspecial(false);
@@ -754,20 +804,14 @@ export default function PainelCarteira({ embedded = false }) {
   }
 
   function onKpiClick(id) {
-    if (KPIS_ESPECIAIS.has(id)) {
-      abrirEspecial(id);
-      return;
-    }
-    setCasosEspeciais(null);
-    setFiltroKpi(filtroKpi === id ? null : id);
+    abrirKpi(id);
   }
 
   const listaFiltrada = useMemo(() => {
-    const especialAtivo = filtroKpi && KPIS_ESPECIAIS.has(filtroKpi);
-    let l = especialAtivo ? casosEspeciais || [] : casos;
-    if (filtroKpi && !especialAtivo) {
-      l = l.filter((a) => casoNoKpi(a, filtroKpi));
-    }
+    // Com um card selecionado, a lista vem dos registros carregados do
+    // indicador; sem card, mostra a carteira normal. Busca/status/ordenacao
+    // continuam aplicando por cima.
+    let l = filtroKpi ? casosEspeciais || [] : casos;
     if (filtroStatus !== "TODOS") {
       l = l.filter((a) => statusPrazo(a).label === filtroStatus);
     }
@@ -909,7 +953,8 @@ export default function PainelCarteira({ embedded = false }) {
 
           <div style={S.kpiGrid} className="pc-kpis">
             {kpiCards.map((k) => {
-              const filtravel = KPIS_FILTRAVEIS.has(k.id) || KPIS_ESPECIAIS.has(k.id);
+              // Todos os cards sao clicaveis e abrem a listagem filtrada.
+              const filtravel = true;
               const ativoK = filtroKpi === k.id;
               return (
                 <div
@@ -999,7 +1044,7 @@ export default function PainelCarteira({ embedded = false }) {
                   {listaFiltrada.length === 0 && (
                     <tr>
                       <td style={S.vazio} colSpan={7}>
-                        {carregando || carregandoEspecial ? "Carregando..." : "Nenhum caso neste filtro."}
+                        {carregando || carregandoEspecial ? "Carregando..." : "Nenhum caso encontrado"}
                       </td>
                     </tr>
                   )}
