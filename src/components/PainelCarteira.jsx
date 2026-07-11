@@ -8,6 +8,7 @@ import FinalizacaoTermo from "./FinalizacaoTermo";
 import EnvioFinanceiro from "./EnvioFinanceiro";
 import FinanceiroAluno from "./FinanceiroAluno";
 import ConfirmarPagamento from "./ConfirmarPagamento";
+import CadastroNovoAluno from "./CadastroNovoAluno";
 
 /*
   PainelCarteira
@@ -846,6 +847,10 @@ export default function PainelCarteira({ embedded = false }) {
               {carregando ? "Atualizando..." : "Atualizar"}
             </button>
           )}
+          {/* Reutiliza o fluxo existente de inclusao de aluno (mesmo componente
+              do Dashboard/Fila Operacional). Ao concluir, recarrega a carteira
+              e os indicadores. */}
+          {aba === "carteira" && <CadastroNovoAluno onSucesso={() => carregar()} />}
         </div>
       </div>
 
