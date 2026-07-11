@@ -66,6 +66,23 @@ export default function CRM() {
   // obrigatorio). Nada e gravado ate a solicitacao valida ser criada la.
   const [quitacaoModal, setQuitacaoModal] = useState(null); // { caso, aluno }
 
+  // CRM_OPERADOR_BLOQUEADO_REATIVA -- hook no TOPO do componente (antes estava
+  // erroneamente dentro da funcao passaFiltro, causando o React #310).
+  const [usuarioBloqueadoCRM, setUsuarioBloqueadoCRM] = useState(false);
+  useEffect(() => {
+    async function verificarAcessoCRM() {
+      const { data } = await supabase.auth.getUser();
+      const email = String(data?.user?.email || "").toLowerCase();
+      const podeVerCRM = [
+        "amanda.seibel@aelbra.com.br",
+        "cobranca04@aelbra.com.br",
+        "cobranca07@aelbra.com.br",
+      ].includes(email);
+      setUsuarioBloqueadoCRM(!podeVerCRM);
+    }
+    verificarAcessoCRM();
+  }, []);
+
   useEffect(() => {
     async function bloquearOperadorNoCRM() {
       const { data } = await supabase.auth.getUser();
@@ -354,28 +371,7 @@ export default function CRM() {
     }
 
     if (filtro === "FINALIZADOS") {
-
-  // CRM_OPERADOR_BLOQUEADO_REATIVA
-  const [usuarioBloqueadoCRM, setUsuarioBloqueadoCRM] = useState(false);
-
-  useEffect(() => {
-    async function verificarAcessoCRM() {
-      const { data } = await supabase.auth.getUser();
-      const email = String(data?.user?.email || "").toLowerCase();
-
-      const podeVerCRM = [
-        "amanda.seibel@aelbra.com.br",
-        "cobranca04@aelbra.com.br",
-        "cobranca07@aelbra.com.br",
-      ].includes(email);
-
-      setUsuarioBloqueadoCRM(!podeVerCRM);
-    }
-
-    verificarAcessoCRM();
-  }, []);
-
-return (
+      return (
         st.includes("QUITADO") ||
         st.includes("ACORDO") ||
         st.includes("ARQUIVAR") ||
