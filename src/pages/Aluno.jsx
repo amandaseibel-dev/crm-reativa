@@ -47,7 +47,7 @@ const STATUS_FINALIZACAO = [
   "JURIDICO",
 ];
 
-const STATUS_COM_PROCESSO = ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"];
+const STATUS_COM_PROCESSO = ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "JURIDICO"];
 
 // Reaproveita toda a trava/renderização de "ficha bloqueada" que já existe
 // pra Jurídico/Cancelamento -- só que este aqui é diferente dos outros
@@ -1349,10 +1349,9 @@ export default function Alunos() {
                         </p>
                       )}
 
-                      {(alunoSelecionado.curso || alunoSelecionado.unidade) && (
+                      {(alunoSelecionado.unidade || alunoSelecionado.curso) && (
                         <p style={textoInfo}>
-                          {alunoSelecionado.curso || "-"}
-                          {alunoSelecionado.unidade ? ` · ${alunoSelecionado.unidade}` : ""}
+                          {[alunoSelecionado.unidade, alunoSelecionado.curso].filter(Boolean).join(" · ")}
                         </p>
                       )}
 
