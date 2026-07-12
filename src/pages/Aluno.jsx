@@ -1123,7 +1123,7 @@ export default function Alunos() {
           type="button"
           onClick={carregarAlunos}
           disabled={carregando}
-          style={botaoPrincipal}
+          style={botaoSecundario}
         >
           {carregando ? "Carregando..." : "Atualizar"}
         </button>
@@ -1147,7 +1147,7 @@ export default function Alunos() {
             type="button"
             onClick={carregarAlunos}
             disabled={carregando}
-            style={botaoPrincipal}
+            style={botaoSecundario}
           >
             Pesquisar
           </button>
@@ -1165,7 +1165,7 @@ export default function Alunos() {
           ) : alunos.length === 0 ? (
             <p style={textoCinza}>Nenhum aluno encontrado.</p>
           ) : (
-            <div style={{ display: "grid", gap: "10px" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
               {alunos.map((aluno) => {
                 const nome = pegarCampo(
                   aluno,
@@ -1214,75 +1214,77 @@ export default function Alunos() {
                         : bloqueado
                         ? "#fef2f2"
                         : "#fff",
-                      border: selecionado
-                        ? "1px solid #22c55e"
+                      borderColor: selecionado
+                        ? "#86efac"
                         : quitado
-                        ? "1px solid #f5c98a"
+                        ? "#f5c98a"
                         : bloqueado
-                        ? "1px solid #fca5a5"
-                        : "1px solid #eef2f6",
+                        ? "#fca5a5"
+                        : "#eef2f6",
                     }}
                   >
-                    <strong style={{ color: "#1e293b", fontSize: 13 }}>{nome}</strong>
-                    {aluno.telefone && <span>Tel: {aluno.telefone}</span>}
-                    {(aluno.unidade || aluno.curso) && (
-                      <span>{[aluno.unidade, aluno.curso].filter(Boolean).join(" · ")}</span>
-                    )}
-                    <span>CPF: {cpf}</span>
-                    <span>
-                      Status: {STATUS_BLOQUEADOS_LABEL[status] || status}
-                    </span>
-                    {temDetFin ? (
-                      <>
-                        <span style={{ fontWeight: 700 }}>
-                          Total em aberto: {moeda(fa.total)}
-                        </span>
-                        <span>Mensalidades: {moeda(fa.mensalidades)}</span>
-                        <span>Acordos: {moeda(fa.acordos)}</span>
-                      </>
-                    ) : fallbackFin > 0 ? (
-                      <span style={{ fontWeight: 700 }}>
-                        Total em aberto: {moeda(fallbackFin)}
-                      </span>
-                    ) : null}
-                    <span>Responsável: {responsavel}</span>
+                    <div style={colId}>
+                      <div style={nomeCelA}>{nome}</div>
+                      {aluno.telefone && <div style={subCelA}>{aluno.telefone}</div>}
+                      {(aluno.unidade || aluno.curso) && (
+                        <div style={subCelA}>
+                          {[aluno.unidade, aluno.curso].filter(Boolean).join(" · ")}
+                        </div>
+                      )}
+                      <div style={subCelA}>CPF: {cpf}</div>
+                    </div>
 
-                    {temProcesso ? (
-                      <>
-                        <span>Motivo: {aluno.observacao || "-"}</span>
-                        <span>
-                          Prazo:{" "}
-                          {aluno.processo_prazo_tipo === "INDETERMINADO"
-                            ? "Indeterminado"
-                            : formatarDataHora(aluno.processo_prazo_data)}
-                        </span>
-                        <span>
-                          Número do processo: {aluno.processo_numero || "-"}
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Próxima ação: {proximaAcao}</span>
-                        <span>
-                          Último acionamento:{" "}
-                          {formatarDataHora(aluno.data_ultimo_acionamento)}
-                        </span>
-                      </>
-                    )}
+                    <div style={colStatus}>
+                      <span style={badgeSituacaoA}>
+                        {STATUS_BLOQUEADOS_LABEL[status] || status}
+                      </span>
+                      <div style={subCelA}>
+                        Últ. contato: {formatarDataHora(aluno.data_ultimo_acionamento)}
+                      </div>
+                      <div style={subCelA}>
+                        Próx. contato: {formatarDataHora(aluno.data_retorno)}
+                      </div>
+                      {quitado ? (
+                        <div style={{ ...subCelA, color: "#b45309", fontWeight: 700 }}>
+                          ✓ Quitado
+                        </div>
+                      ) : bloqueado ? (
+                        <div style={{ ...subCelA, color: "#b42318", fontWeight: 700 }}>
+                          ⚠️ Não acionar
+                        </div>
+                      ) : null}
+                    </div>
 
-                    <span>Retorno: {formatarDataHora(aluno.data_retorno)}</span>
-                    <span>
-                      Status acionamento: {aluno.status_acionamento || "-"}
-                    </span>
-                    {quitado ? (
-                      <span style={{ color: "#b45309", fontWeight: 700 }}>
-                        ✓ Quitado — volta se entrar título novo
-                      </span>
-                    ) : bloqueado ? (
-                      <span style={{ color: "#b42318", fontWeight: 700 }}>
-                        ⚠️ Não acionar
-                      </span>
-                    ) : null}
+                    <div style={colFin}>
+                      {temDetFin ? (
+                        <>
+                          <div style={emAbertoTotalA}>Total em aberto: {moeda(fa.total)}</div>
+                          <div style={emAbertoSubA}>Mensalidades: {moeda(fa.mensalidades)}</div>
+                          <div style={emAbertoSubA}>Acordos: {moeda(fa.acordos)}</div>
+                        </>
+                      ) : fallbackFin > 0 ? (
+                        <div style={emAbertoTotalA}>Total em aberto: {moeda(fallbackFin)}</div>
+                      ) : (
+                        <div style={emAbertoSubA}>Sem valor em aberto</div>
+                      )}
+                    </div>
+
+                    <div style={colOp}>
+                      <div style={subCelA}>Resp.: {responsavel}</div>
+                      {temProcesso ? (
+                        <>
+                          <div style={subCelA}>Processo: {aluno.processo_numero || "-"}</div>
+                          <div style={subCelA}>
+                            Prazo:{" "}
+                            {aluno.processo_prazo_tipo === "INDETERMINADO"
+                              ? "Indeterminado"
+                              : formatarDataHora(aluno.processo_prazo_data)}
+                          </div>
+                        </>
+                      ) : (
+                        <div style={subCelA}>Próx. ação: {proximaAcao}</div>
+                      )}
+                    </div>
                   </button>
                 );
               })}
@@ -1861,11 +1863,11 @@ export default function Alunos() {
 }
 
 const pagina = {
-  minHeight: "100vh",
-  background: "#020617",
-  color: "#ffffff",
-  padding: "24px",
-  fontFamily: "Arial, sans-serif",
+  minHeight: "100%",
+  background: "#f4f6fa",
+  color: "#334155",
+  padding: "28px 28px 40px",
+  fontFamily: "Inter, Arial, sans-serif",
 };
 
 const cabecalho = {
@@ -1879,58 +1881,66 @@ const cabecalho = {
 
 const titulo = {
   margin: 0,
-  color: "#22c55e",
+  marginBottom: 2,
+  color: "#0f172a",
+  fontSize: 24,
+  fontWeight: 800,
+  letterSpacing: "-0.02em",
 };
 
 const subtitulo = {
   margin: "6px 0 0",
-  color: "#cbd5e1",
+  color: "#94a3b8",
+  fontSize: 13,
 };
 
 const usuarioTexto = {
   margin: "8px 0 0",
-  color: "#94a3b8",
-  fontSize: "14px",
+  color: "#64748b",
+  fontSize: "13px",
 };
 
 const origemTexto = {
   margin: "8px 0 0",
-  color: "#86efac",
+  color: "#2563eb",
   fontSize: "13px",
 };
 
 const tituloSecao = {
-  color: "#22c55e",
+  color: "#0f172a",
   marginTop: 0,
+  fontSize: 16,
+  fontWeight: 700,
 };
 
 const caixa = {
-  background: "#111827",
-  border: "1px solid #1f2937",
-  borderRadius: "14px",
-  padding: "16px",
-  marginBottom: "20px",
+  background: "#fff",
+  border: "1px solid #eef2f6",
+  borderRadius: "16px",
+  padding: "18px",
+  marginBottom: "18px",
+  boxShadow: "0 1px 3px rgba(15,23,42,0.05)",
 };
 
 const caixaDestaque = {
-  background: "#020617",
-  border: "1px solid #22c55e",
+  background: "#f0fdf4",
+  border: "1px solid #86efac",
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "18px",
 };
 
 const caixaLinkPronto = {
-  background: "#052e16",
-  border: "1px solid #22c55e",
+  background: "#f0fdf4",
+  border: "1px solid #86efac",
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "18px",
 };
 
 const caixaInterna = {
-  background: "#020617",
-  border: "1px solid #374151",
+  background: "#f8fafc",
+  border: "1px solid #e6eaf0",
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "18px",
@@ -1938,8 +1948,8 @@ const caixaInterna = {
 
 const layout = {
   display: "grid",
-  gridTemplateColumns: "minmax(300px, 420px) 1fr",
-  gap: "20px",
+  gridTemplateColumns: "1fr",
+  gap: "18px",
   alignItems: "start",
 };
 
@@ -1957,7 +1967,7 @@ const barraAbasFicha = {
   gap: "8px",
   flexWrap: "wrap",
   marginBottom: "18px",
-  borderBottom: "1px solid #374151",
+  borderBottom: "1px solid #e6eaf0",
   paddingBottom: "10px",
 };
 
@@ -1972,14 +1982,14 @@ const abaFichaBase = {
 
 const abaFichaAtiva = {
   ...abaFichaBase,
-  background: "#22c55e",
-  color: "#052e16",
+  background: "#eef2ff",
+  color: "#2563eb",
 };
 
 const abaFichaInativa = {
   ...abaFichaBase,
-  background: "#1f2937",
-  color: "#d1d5db",
+  background: "#f1f5f9",
+  color: "#64748b",
 };
 
 const gradeCards = {
@@ -1990,11 +2000,11 @@ const gradeCards = {
 };
 
 const cardInfo = {
-  background: "#020617",
-  border: "1px solid #374151",
+  background: "#f8fafc",
+  border: "1px solid #e6eaf0",
   borderRadius: "12px",
   padding: "12px",
-  color: "#e5e7eb",
+  color: "#475569",
 };
 
 const cardAlunoLista = {
@@ -2003,52 +2013,66 @@ const cardAlunoLista = {
   background: "#fff",
   border: "1px solid #eef2f6",
   borderRadius: "12px",
-  padding: "12px 14px",
+  padding: "12px 16px",
   cursor: "pointer",
-  display: "grid",
-  gap: "3px",
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "flex-start",
+  gap: "18px",
   fontSize: "12.5px",
   boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
 };
 
+const colId = { flex: "2 1 220px", minWidth: 0, display: "flex", flexDirection: "column", gap: 2 };
+const colStatus = { flex: "1 1 150px", display: "flex", flexDirection: "column", gap: 3 };
+const colFin = { flex: "1 1 150px", display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-start" };
+const colOp = { flex: "1 1 160px", display: "flex", flexDirection: "column", gap: 2 };
+const nomeCelA = { fontWeight: 600, color: "#1e293b", fontSize: 13 };
+const subCelA = { fontSize: 11.5, color: "#94a3b8" };
+const badgeSituacaoA = { display: "inline-block", padding: "3px 9px", borderRadius: 999, background: "#eef2ff", color: "#4f46e5", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", alignSelf: "flex-start" };
+const emAbertoTotalA = { fontWeight: 700, fontSize: 13, color: "#101828" };
+const emAbertoSubA = { fontSize: 11, color: "#94a3b8" };
+
 const cardMov = {
-  background: "#111827",
+  background: "#f8fafc",
+  border: "1px solid #eef2f6",
   borderRadius: "12px",
   padding: "12px",
-  borderLeft: "4px solid #22c55e",
-  color: "#e5e7eb",
+  borderLeft: "4px solid #2563eb",
+  color: "#475569",
 };
 
 const textoInfo = {
-  color: "#cbd5e1",
+  color: "#475569",
   margin: "6px 0",
 };
 
 const textoCinza = {
-  color: "#cbd5e1",
+  color: "#94a3b8",
 };
 
 const label = {
   display: "block",
   marginBottom: "8px",
-  color: "#d1d5db",
+  color: "#475569",
+  fontSize: 12.5,
 };
 
 const input = {
   flex: "1 1 280px",
-  background: "#020617",
-  color: "#ffffff",
-  border: "1px solid #374151",
+  background: "#f8fafc",
+  color: "#334155",
+  border: "1px solid #e6eaf0",
   borderRadius: "10px",
-  padding: "12px",
+  padding: "11px 13px",
   outline: "none",
 };
 
 const inputCheio = {
   width: "100%",
-  background: "#111827",
-  color: "#ffffff",
-  border: "1px solid #374151",
+  background: "#f8fafc",
+  color: "#334155",
+  border: "1px solid #e6eaf0",
   borderRadius: "10px",
   padding: "12px",
   outline: "none",
@@ -2057,9 +2081,9 @@ const inputCheio = {
 
 const select = {
   width: "100%",
-  background: "#111827",
-  color: "#ffffff",
-  border: "1px solid #374151",
+  background: "#f8fafc",
+  color: "#334155",
+  border: "1px solid #e6eaf0",
   borderRadius: "10px",
   padding: "12px",
   marginBottom: "10px",
@@ -2067,9 +2091,9 @@ const select = {
 
 const textarea = {
   width: "100%",
-  background: "#111827",
-  color: "#ffffff",
-  border: "1px solid #374151",
+  background: "#f8fafc",
+  color: "#334155",
+  border: "1px solid #e6eaf0",
   borderRadius: "10px",
   padding: "12px",
   resize: "vertical",
@@ -2078,21 +2102,23 @@ const textarea = {
 };
 
 const botaoPrincipal = {
-  background: "#22c55e",
-  color: "#020617",
+  background: "#2563eb",
+  color: "#fff",
   border: "none",
-  borderRadius: "10px",
-  padding: "12px 16px",
-  fontWeight: "bold",
+  borderRadius: "8px",
+  padding: "10px 16px",
+  fontWeight: 600,
+  fontSize: 13,
   cursor: "pointer",
 };
 
 const botaoSecundario = {
-  background: "#1f2937",
-  color: "#ffffff",
-  border: "1px solid #22c55e",
-  borderRadius: "10px",
-  padding: "12px 14px",
-  fontWeight: "bold",
+  background: "#fff",
+  color: "#475569",
+  border: "1px solid #e6eaf0",
+  borderRadius: "8px",
+  padding: "9px 15px",
+  fontWeight: 600,
+  fontSize: 13,
   cursor: "pointer",
 };
