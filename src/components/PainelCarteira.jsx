@@ -224,7 +224,7 @@ const KPIS_FILTRAVEIS = new Set([
 const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
 
 const COLUNAS_ALUNO =
-  "id,nome,nome_aluno,cpf,telefone,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao";
+  "id,nome,nome_aluno,cpf,telefone,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
 
 // Aba "Solicitacoes" foi removida: Solicitar link / termo / financeiro /
 // informar pagamento / anexar comprovante ficam INLINE dentro da Tabulacao
@@ -1274,7 +1274,16 @@ export default function PainelCarteira({ embedded = false }) {
                       <tr key={a.id} style={S.tr} onClick={() => abrirModal(a)}>
                         <td style={S.td}>
                           <div style={S.nomeCel}>{nomeAluno(a)}</div>
-                          <div style={S.subCel}>{a.telefone || "-"}</div>
+                          <div style={S.subCel}>
+                            {[a.telefone, a.unidade, a.curso].filter(Boolean).join(" · ") || "-"}
+                          </div>
+                          {String(a.status_atual) === "JURIDICO" && (
+                            <div style={{ ...S.subCel, color: "#7c3aed", fontWeight: 600 }}>
+                              {a.processo_numero && String(a.processo_numero).trim()
+                                ? `Jurídico · Processo nº ${a.processo_numero}`
+                                : "Jurídico · Processo não informado"}
+                            </div>
+                          )}
                         </td>
                         <td style={S.td}>{a.cpf || "-"}</td>
                         <td style={S.td}>
