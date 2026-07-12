@@ -1596,6 +1596,10 @@ function Info({ rot, val }) {
 }
 
 const CSS_RESPONSIVO = `
+  .pc-root tbody tr { transition: background 0.12s ease; }
+  .pc-root tbody tr:hover { background: #f7f9fc; }
+  .pc-root .pc-kpis > div { transition: box-shadow 0.14s ease, transform 0.14s ease; }
+  .pc-root .pc-kpis > div:hover { box-shadow: 0 4px 14px rgba(15,23,42,0.07); transform: translateY(-1px); }
   @media (max-width: 640px) {
     .pc-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) !important; }
     .pc-root { padding: 16px !important; }
@@ -1606,9 +1610,9 @@ const COR_BORDA = "#e6eaf0";
 const COR_BORDA_SUAVE = "#eef2f6";
 
 const S = {
-  pagina: { padding: "24px", fontFamily: "Inter, Arial, sans-serif", background: "#f6f8fb", minHeight: "100%", color: "#334155" },
-  cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 14, flexWrap: "wrap" },
-  titulo: { margin: 0, marginBottom: 2, color: "#1e293b", fontSize: 22, fontWeight: 700, letterSpacing: "-0.01em" },
+  pagina: { padding: "28px 28px 40px", fontFamily: "Inter, Arial, sans-serif", background: "#f4f6fa", minHeight: "100%", color: "#334155" },
+  cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18, flexWrap: "wrap" },
+  titulo: { margin: 0, marginBottom: 2, color: "#0f172a", fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em" },
   subtitulo: { margin: 0, color: "#94a3b8", fontSize: 13 },
   userChip: { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.15, padding: "4px 12px", background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 10 },
   userNome: { fontWeight: 600, color: "#1e293b", fontSize: 13 },
@@ -1624,29 +1628,29 @@ const S = {
   receptivoWrap: { display: "flex", flexDirection: "column", gap: 12, maxWidth: 720 },
   receptivoInfo: { background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 12, padding: "10px 14px", fontSize: 12.5, color: "#94a3b8", lineHeight: 1.5 },
 
-  desWrap: { background: "#f8fafc", border: `1px solid ${COR_BORDA}`, borderRadius: 12, padding: "10px 14px", marginBottom: 14 },
-  desHeader: { fontSize: 12, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 8 },
+  desWrap: { background: "#fff", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 14, padding: "14px 16px", marginBottom: 16, boxShadow: "0 1px 2px rgba(15,23,42,0.04)" },
+  desHeader: { fontSize: 11.5, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
   desRow: { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "stretch" },
-  desItem: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 10, padding: "8px 14px", cursor: "pointer", minWidth: 120, textAlign: "left" },
-  desItemAtivo: { borderColor: "#2563eb", boxShadow: "0 0 0 2px rgba(37,99,235,0.15)" },
-  desItemInfo: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 2, background: "transparent", borderRadius: 10, padding: "8px 14px", minWidth: 120 },
-  desNum: { fontSize: 20, fontWeight: 800, color: "#1e293b", lineHeight: 1 },
+  desItem: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "#f8fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: "10px 16px", cursor: "pointer", minWidth: 128, textAlign: "left", transition: "border-color 0.12s ease" },
+  desItemAtivo: { borderColor: "#2563eb", background: "#eff4ff", boxShadow: "0 0 0 2px rgba(37,99,235,0.12)" },
+  desItemInfo: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "transparent", borderRadius: 12, padding: "10px 16px", minWidth: 128 },
+  desNum: { fontSize: 21, fontWeight: 800, color: "#0f172a", lineHeight: 1 },
   desRot: { fontSize: 11, color: "#94a3b8", fontWeight: 600 },
-  kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 18 },
-  kpiCard: { background: "#fff", borderRadius: 12, padding: "11px 14px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: "0 1px 2px rgba(15,23,42,0.04)" },
-  kpiRot: { margin: "0 0 4px 0", fontSize: 11.5, color: "#94a3b8", fontWeight: 500 },
-  kpiVal: { margin: 0, fontSize: 21, fontWeight: 700, letterSpacing: "-0.01em" },
+  kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(158px, 1fr))", gap: 12, marginBottom: 20 },
+  kpiCard: { background: "#fff", borderRadius: 14, padding: "14px 16px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: "0 1px 2px rgba(15,23,42,0.04)", cursor: "pointer" },
+  kpiRot: { margin: "0 0 5px 0", fontSize: 11.5, color: "#94a3b8", fontWeight: 600 },
+  kpiVal: { margin: 0, fontSize: 23, fontWeight: 800, letterSpacing: "-0.02em" },
 
-  painelTabela: { background: "#fff", borderRadius: 14, padding: 16, border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: "0 1px 2px rgba(15,23,42,0.04)" },
-  filtros: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, alignItems: "center" },
-  inputBusca: { flex: 1, minWidth: 200, padding: "9px 12px", borderRadius: 8, border: `1px solid ${COR_BORDA}`, fontSize: 13, color: "#334155" },
-  chipFiltro: { display: "inline-block", cursor: "pointer", background: "#f1f5f9", color: "#475569", border: `1px solid ${COR_BORDA}`, borderRadius: 999, padding: "5px 11px", fontSize: 11.5, fontWeight: 600 },
+  painelTabela: { background: "#fff", borderRadius: 16, padding: 18, border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
+  filtros: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" },
+  inputBusca: { flex: 1, minWidth: 220, padding: "10px 13px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, color: "#334155", background: "#f8fafc" },
+  chipFiltro: { display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", background: "#eef4ff", color: "#2563eb", border: "1px solid #d8e4ff", borderRadius: 999, padding: "5px 12px", fontSize: 11.5, fontWeight: 700 },
   tabelaWrap: { overflowX: "auto" },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "9px 8px", color: "#94a3b8", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
-  thNum: { textAlign: "right", padding: "9px 8px", color: "#94a3b8", fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.03em", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
+  th: { textAlign: "left", padding: "10px 10px", color: "#64748b", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", background: "#f8fafc", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
+  thNum: { textAlign: "right", padding: "10px 10px", color: "#64748b", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", background: "#f8fafc", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
   tr: { cursor: "pointer", borderBottom: `1px solid ${COR_BORDA_SUAVE}` },
-  td: { padding: "10px 8px", color: "#475569", verticalAlign: "middle" },
+  td: { padding: "11px 10px", color: "#475569", verticalAlign: "middle" },
   tdNum: { padding: "10px 8px", color: "#1e293b", textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 },
   tdTotal: { padding: "10px 8px", color: "#1e293b", fontWeight: 700, borderTop: `2px solid ${COR_BORDA}`, textAlign: "right" },
   tdNumTotal: { padding: "10px 8px", color: "#16a34a", textAlign: "right", whiteSpace: "nowrap", fontWeight: 800, borderTop: `2px solid ${COR_BORDA}` },
@@ -1657,7 +1661,7 @@ const S = {
   emAbertoTotal: { fontWeight: 700, fontSize: 13 },
   emAbertoSub: { fontSize: 11, color: "#94a3b8" },
   tagRevisar: { fontSize: 10.5, fontWeight: 600, color: "#b54708", background: "#fff4e6", border: "1px solid #f5c98a", borderRadius: 5, padding: "0px 6px", marginTop: 1 },
-  badgeSituacao: { display: "inline-block", padding: "2px 8px", borderRadius: 6, background: "#eef2ff", color: "#4f46e5", fontSize: 11, fontWeight: 600, whiteSpace: "nowrap" },
+  badgeSituacao: { display: "inline-block", padding: "3px 9px", borderRadius: 999, background: "#eef2ff", color: "#4f46e5", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", letterSpacing: "0.01em" },
   badgeStatus: { display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap" },
   bolinha: { width: 7, height: 7, borderRadius: "50%", display: "inline-block" },
   vazio: { padding: 24, textAlign: "center", color: "#a3adba" },
@@ -1665,8 +1669,8 @@ const S = {
 
   // Modal
   overlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", zIndex: 1000, overflowY: "auto" },
-  modal: { width: "100%", maxWidth: 860, background: "#fff", borderRadius: 16, boxShadow: "0 20px 50px rgba(15,23,42,0.25)", overflow: "hidden" },
-  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "18px 20px", borderBottom: `1px solid ${COR_BORDA_SUAVE}` },
+  modal: { width: "100%", maxWidth: 880, background: "#fff", borderRadius: 18, boxShadow: "0 24px 60px rgba(15,23,42,0.28)", overflow: "hidden" },
+  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "20px 22px", borderBottom: `1px solid ${COR_BORDA_SUAVE}`, background: "#fbfcfe" },
   modalNome: { margin: 0, fontSize: 18, fontWeight: 700, color: "#1e293b" },
   modalSub: { fontSize: 12.5, color: "#94a3b8", marginTop: 4 },
   btnFechar: { background: "#f1f5f9", border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", color: "#475569", fontSize: 14, flexShrink: 0 },
