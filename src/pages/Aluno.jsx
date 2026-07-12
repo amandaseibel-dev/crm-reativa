@@ -182,6 +182,7 @@ export default function Alunos() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
+  const [finAlunos, setFinAlunos] = useState({});
   const [abaFicha, setAbaFicha] = useState("dados");
   const [editandoCadastro, setEditandoCadastro] = useState(false);
   const [nomeEditado, setNomeEditado] = useState("");
@@ -203,6 +204,78 @@ export default function Alunos() {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [origemAbertura, setOrigemAbertura] = useState("");
+
+  // Valor em aberto consolidado por aluno da LISTA -- reutiliza EXATAMENTE a
+  // mesma fonte da Minha Carteira (acordos ATIVO -> parcelas A_VENCER/VENCIDA +
+  // acordos_titulos em_aberto). total = mensalidades + acordos. Sem calculo novo.
+  useEffect(() => {
+    let cancelado = false;
+    async function calcularFinLista() {
+      const ids = (alunos || []).map((a) => String(a.id));
+      if (!ids.length) {
+        setFinAlunos({});
+        return;
+      }
+      const LOTE = 200;
+      const fin = {};
+      ids.forEach((id) => {
+        fin[id] = { mensalidades: 0, acordos: 0, total: 0, temDetalhe: false };
+      });
+      const acAluno = [];
+      for (let i = 0; i < ids.length; i += LOTE) {
+        const lote = ids.slice(i, i + LOTE);
+        const { data } = await supabase
+          .from("acordos")
+          .select("id,aluno_id,status")
+          .in("aluno_id", lote)
+          .eq("status", "ATIVO");
+        if (data) acAluno.push(...data);
+      }
+      const acById = new Map(acAluno.map((a) => [a.id, a]));
+      const acIds = acAluno.map((a) => a.id);
+      for (let i = 0; i < acIds.length; i += LOTE) {
+        const lote = acIds.slice(i, i + LOTE);
+        if (!lote.length) continue;
+        const { data } = await supabase
+          .from("parcelas")
+          .select("acordo_id,status,valor")
+          .in("acordo_id", lote)
+          .in("status", ["A_VENCER", "VENCIDA"]);
+        for (const pp of data || []) {
+          const ac = acById.get(pp.acordo_id);
+          if (!ac || !ac.aluno_id) continue;
+          const id = String(ac.aluno_id);
+          if (!fin[id]) continue;
+          fin[id].acordos += Number(pp.valor || 0);
+          fin[id].temDetalhe = true;
+        }
+      }
+      for (let i = 0; i < ids.length; i += LOTE) {
+        const lote = ids.slice(i, i + LOTE);
+        const { data } = await supabase
+          .from("acordos_titulos")
+          .select("aluno_id,status,valor_em_aberto,saldo_corrigido,valor_original")
+          .in("aluno_id", lote)
+          .eq("status", "em_aberto");
+        for (const t of data || []) {
+          const id = String(t.aluno_id);
+          if (!fin[id]) continue;
+          fin[id].mensalidades += Number(
+            t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0
+          );
+          fin[id].temDetalhe = true;
+        }
+      }
+      ids.forEach((id) => {
+        fin[id].total = fin[id].mensalidades + fin[id].acordos;
+      });
+      if (!cancelado) setFinAlunos(fin);
+    }
+    calcularFinLista();
+    return () => {
+      cancelado = true;
+    };
+  }, [alunos]);
 
   useEffect(() => {
     inicializarTelaAlunos();
@@ -1123,6 +1196,10 @@ export default function Alunos() {
                 const quitado = STATUS_QUITADOS.includes(status);
                 const temProcesso = STATUS_COM_PROCESSO.includes(status);
 
+                const fa = finAlunos[String(aluno.id)];
+                const temDetFin = !!(fa && fa.temDetalhe);
+                const fallbackFin = Number(aluno.valor_em_aberto || 0);
+
                 return (
                   <button
                     type="button"
@@ -1131,26 +1208,43 @@ export default function Alunos() {
                     style={{
                       ...cardAlunoLista,
                       background: selecionado
-                        ? "#064e3b"
+                        ? "#ecfdf5"
                         : quitado
-                        ? "#78350f"
+                        ? "#fffbeb"
                         : bloqueado
-                        ? "#450a0a"
-                        : "#1f2937",
+                        ? "#fef2f2"
+                        : "#fff",
                       border: selecionado
                         ? "1px solid #22c55e"
                         : quitado
-                        ? "1px solid #facc15"
+                        ? "1px solid #f5c98a"
                         : bloqueado
-                        ? "1px solid #ef4444"
-                        : "1px solid #374151",
+                        ? "1px solid #fca5a5"
+                        : "1px solid #eef2f6",
                     }}
                   >
-                    <strong>{nome}</strong>
+                    <strong style={{ color: "#1e293b", fontSize: 13 }}>{nome}</strong>
+                    {aluno.telefone && <span>Tel: {aluno.telefone}</span>}
+                    {(aluno.unidade || aluno.curso) && (
+                      <span>{[aluno.unidade, aluno.curso].filter(Boolean).join(" · ")}</span>
+                    )}
                     <span>CPF: {cpf}</span>
                     <span>
                       Status: {STATUS_BLOQUEADOS_LABEL[status] || status}
                     </span>
+                    {temDetFin ? (
+                      <>
+                        <span style={{ fontWeight: 700 }}>
+                          Total em aberto: {moeda(fa.total)}
+                        </span>
+                        <span>Mensalidades: {moeda(fa.mensalidades)}</span>
+                        <span>Acordos: {moeda(fa.acordos)}</span>
+                      </>
+                    ) : fallbackFin > 0 ? (
+                      <span style={{ fontWeight: 700 }}>
+                        Total em aberto: {moeda(fallbackFin)}
+                      </span>
+                    ) : null}
                     <span>Responsável: {responsavel}</span>
 
                     {temProcesso ? (
@@ -1181,11 +1275,11 @@ export default function Alunos() {
                       Status acionamento: {aluno.status_acionamento || "-"}
                     </span>
                     {quitado ? (
-                      <span style={{ color: "#fde68a", fontWeight: 700 }}>
+                      <span style={{ color: "#b45309", fontWeight: 700 }}>
                         ✓ Quitado — volta se entrar título novo
                       </span>
                     ) : bloqueado ? (
-                      <span style={{ color: "#fecaca", fontWeight: 700 }}>
+                      <span style={{ color: "#b42318", fontWeight: 700 }}>
                         ⚠️ Não acionar
                       </span>
                     ) : null}
@@ -1905,12 +1999,16 @@ const cardInfo = {
 
 const cardAlunoLista = {
   textAlign: "left",
-  color: "#ffffff",
+  color: "#475569",
+  background: "#fff",
+  border: "1px solid #eef2f6",
   borderRadius: "12px",
-  padding: "12px",
+  padding: "12px 14px",
   cursor: "pointer",
   display: "grid",
-  gap: "4px",
+  gap: "3px",
+  fontSize: "12.5px",
+  boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
 };
 
 const cardMov = {
