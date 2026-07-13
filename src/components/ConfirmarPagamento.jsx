@@ -214,9 +214,7 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [podeCompor, tipo, alvo, juros, multa, honorarios, parcelasAbertas, titulosAbertos]);
 
-  const podeEnviar =
-    !!tipo && valorNum > 0 && !!dataPagamento && !!alvoTipo && !!alvoId &&
-    motivo.trim().length > 0 && !quitacaoBloqueada;
+  const podeEnviar = !!aluno?.id && !temPendente && !quitacaoBloqueada;
 
   async function enviarParaConfirmacao() {
     if (!aluno?.id) return alert("Aluno não localizado.");
@@ -253,9 +251,9 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
       aluno_cpf: pegarCpfAluno(aluno),
       operador_email: emailOperador,
       operador_nome: nomeOperador,
-      tipo_pagamento: tipo,
-      valor_informado: valorNum,
-      data_pagamento: dataPagamento,
+      tipo_pagamento: tipo || null,
+      valor_informado: valorNum > 0 ? valorNum : null,
+      data_pagamento: dataPagamento || null,
       parcela_id: alvoTipo === "PARCELA" ? alvoId : null,
       titulo_id: alvoTipo === "TITULO" ? alvoId : null,
       acordo_id: alvoTipo === "ACORDO" ? alvoId : null,
@@ -327,147 +325,6 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
         <div style={styles.alertaPendente}>Este aluno já está na fila de confirmação de pagamento.</div>
       ) : (
         <>
-          <div style={styles.bloco}>
-            <label style={styles.label}>Tipo do pagamento *</label>
-            <select style={styles.input} value={tipo} onChange={(e) => setTipo(e.target.value)}>
-              <option value="">Selecione…</option>
-              {TIPOS_PAGAMENTO.map((t) => (
-                <option key={t.v} value={t.v}>{t.label}</option>
-              ))}
-            </select>
-            {tipo === "QUITACAO_TOTAL" && (
-              <p style={styles.aviso}>
-                "Possível quitação total" apenas informa a intenção. Não baixa parcelas, não
-                quita títulos e não altera saldo — a confirmação financeira é feita depois pela Amanda/Fernanda.
-              </p>
-            )}
-          </div>
-
-          <div style={styles.linha2}>
-            <div style={{ flex: 1 }}>
-              <label style={styles.label}>Valor pago *</label>
-              <input style={styles.input} placeholder="Ex: 350,00" value={valorInformado} onChange={(e) => setValorInformado(e.target.value)} />
-            </div>
-            <div style={{ flex: 1 }}>
-              <label style={styles.label}>Data do pagamento *</label>
-              <input type="date" style={styles.input} value={dataPagamento} onChange={(e) => setDataPagamento(e.target.value)} />
-            </div>
-          </div>
-
-          {!podeCompor && (alvoTipo || tipo === "QUITACAO_TOTAL") && (
-            <p style={styles.aviso}>
-              A composição de juros, multa e honorários será validada pelo financeiro.
-            </p>
-          )}
-
-          {podeCompor && (alvoTipo || tipo === "QUITACAO_TOTAL") && (
-            <div style={styles.consol}>
-              <div style={styles.consolTitulo}>Composição financeira</div>
-              <div style={styles.consolLinha}>
-                <span>Principal em aberto</span>
-                <span>{formatarMoeda(principalNum)}</span>
-              </div>
-              <p style={styles.avisoLeve}>O principal não é o valor final: o aluno paga principal + juros + multa + honorários.</p>
-              <div style={styles.linha3}>
-                <div style={{ flex: 1 }}>
-                  <label style={styles.labelPeq}>Juros</label>
-                  <input style={styles.input} placeholder="0,00" value={juros} onChange={(e) => setJuros(e.target.value)} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={styles.labelPeq}>Multa</label>
-                  <input style={styles.input} placeholder="0,00" value={multa} onChange={(e) => setMulta(e.target.value)} />
-                </div>
-                <div style={{ flex: 1 }}>
-                  <label style={styles.labelPeq}>Honorários</label>
-                  <input style={styles.input} placeholder="0,00" value={honorarios} onChange={(e) => setHonorarios(e.target.value)} />
-                </div>
-              </div>
-              <div style={styles.consolLinha}><strong>Total negociado</strong><strong>{formatarMoeda(totalNegociado)}</strong></div>
-              <div style={styles.consolLinha}><span>Valor pago</span><span>{formatarMoeda(valorNum)}</span></div>
-              <div style={styles.consolLinha}><span>Diferença</span><span>{formatarMoeda(diferenca)}</span></div>
-              {tipo === "QUITACAO_TOTAL" && (
-                <>
-                  {totalDivergente && (
-                    <div style={styles.erroConsol}>O valor pago não corresponde ao total negociado</div>
-                  )}
-                  <label style={styles.conferir}>
-                    <input type="checkbox" checked={composicaoConferida} onChange={(e) => setComposicaoConferida(e.target.checked)} />
-                    <span>&nbsp;Conferi a composição (principal + juros + multa + honorários) para a quitação total.</span>
-                  </label>
-                </>
-              )}
-            </div>
-          )}
-
-          <div style={styles.bloco}>
-            <label style={styles.label}>Dívida correspondente *</label>
-            {carregandoDividas ? (
-              <p style={styles.texto}>Carregando dívidas abertas…</p>
-            ) : (
-              <select style={styles.input} value={alvo} onChange={(e) => setAlvo(e.target.value)}>
-                <option value="">Selecione parcela, título ou acordo…</option>
-                {parcelasAbertas.length > 0 && (
-                  <optgroup label="Parcelas em aberto">
-                    {parcelasAbertas.map((p) => (
-                      <option key={p.id} value={`PARCELA:${p.id}`}>
-                        Parcela {p.numero} · venc. {p.vencimento} · {formatarMoeda(p.valor)}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {titulosAbertos.length > 0 && (
-                  <optgroup label="Títulos/mensalidades em aberto">
-                    {titulosAbertos.map((t) => (
-                      <option key={t.id} value={`TITULO:${t.id}`}>
-                        {t.documento || "Título"} · venc. {t.vencimento} · {formatarMoeda(valorTitulo(t))}
-                      </option>
-                    ))}
-                  </optgroup>
-                )}
-                {acordosAtivos.length > 0 && (
-                  <optgroup label="Acordos ativos">
-                    {acordosAtivos.map((a) => (
-                      <option key={a.id} value={`ACORDO:${a.id}`}>Acordo {String(a.id).slice(0, 8)}</option>
-                    ))}
-                  </optgroup>
-                )}
-              </select>
-            )}
-            {!carregandoDividas &&
-              parcelasAbertas.length === 0 &&
-              titulosAbertos.length === 0 &&
-              acordosAtivos.length === 0 && (
-                <p style={styles.aviso}>
-                  Nenhuma dívida aberta localizada para este aluno. Sem identificação da dívida
-                  não é possível enviar para confirmação.
-                </p>
-              )}
-          </div>
-
-          {comprovantesDisponiveis.length > 0 && (
-            <div style={styles.bloco}>
-              <label style={styles.label}>Comprovante (opcional)</label>
-              <select style={styles.input} value={comprovanteLinkId} onChange={(e) => setComprovanteLinkId(e.target.value)}>
-                <option value="">Sem comprovante vinculado</option>
-                {comprovantesDisponiveis.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.comprovante_nome || "comprovante"} · {formatarData(c.comprovante_anexado_em)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div style={styles.bloco}>
-            <label style={styles.label}>Observação *</label>
-            <textarea
-              style={styles.textarea}
-              placeholder="Exemplo: aluno mandou comprovante por WhatsApp, pagou via Pix."
-              value={motivo}
-              onChange={(e) => setMotivo(e.target.value)}
-            />
-          </div>
-
           <button
             style={{
               ...styles.botao,
@@ -475,7 +332,7 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
             }}
             onClick={enviarParaConfirmacao}
             disabled={enviando || !podeEnviar}
-            title={podeEnviar ? "" : "Preencha tipo, valor, data, dívida e observação."}
+            title={podeEnviar ? "" : (temPendente ? "Já está na fila de confirmação." : "Aluno não localizado.")}
           >
             {enviando ? "Enviando..." : "Enviar para confirmação de pagamento"}
           </button>
