@@ -454,19 +454,20 @@ export default function PainelCarteira({ embedded = false }) {
 
       // Contagens por data (usam a mesma base escopada).
       const cRetHoje = aplicarEscopo(
-        supabase.from("alunos").select("id", { count: "exact", head: true }).eq("data_retorno", hoje)
+        supabase.from("alunos").select("id,status_atual,status_jornada,status_acionamento").eq("data_retorno", hoje).limit(5000)
       );
       const cSemAcion10 = aplicarEscopo(
-        supabase.from("alunos").select("id", { count: "exact", head: true }).lte("data_ultimo_acionamento", corte(10))
+        supabase.from("alunos").select("id,status_atual,status_jornada,status_acionamento").lte("data_ultimo_acionamento", corte(10)).limit(5000)
       );
-      const c9 = aplicarEscopo(
-        supabase.from("alunos").select("id", { count: "exact", head: true }).lte("data_ultimo_acionamento", corte(9))
-      );
-      const c11 = aplicarEscopo(
-        supabase.from("alunos").select("id", { count: "exact", head: true }).lte("data_ultimo_acionamento", corte(11))
+      const cProx = aplicarEscopo(
+        supabase.from("alunos").select("id,status_atual,status_jornada,status_acionamento").lte("data_ultimo_acionamento", corte(9)).gt("data_ultimo_acionamento", corte(11)).limit(5000)
       );
 
-      const [rRetHoje, rSemAcion10, r9, r11] = await Promise.all([cRetHoje, cSemAcion10, c9, c11]);
+      const [rRetHoje, rSemAcion10, rProx] = await Promise.all([cRetHoje, cSemAcion10, cProx]);
+      const soAcionaveis = (r) => (r?.data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a));
+      const nRetHoje = soAcionaveis(rRetHoje).length;
+      const nSemAcion10 = soAcionaveis(rSemAcion10).length;
+      const nProx = soAcionaveis(rProx).length;
 
       // Acordos do operador -> parcelas -> classificacao por vencimento.
       let qAcordos = supabase.from("acordos").select("id,cpf,aluno_id,operador_responsavel_email,status");
@@ -537,9 +538,9 @@ export default function PainelCarteira({ embedded = false }) {
 
       setKpis({
         ativos: ativosCanonico ?? listaAtiva.length,
-        semAcionamento10: rSemAcion10.count || 0,
-        proximosPerder: Math.max(0, (r9.count || 0) - (r11.count || 0)),
-        retornosHoje: rRetHoje.count || 0,
+        semAcionamento10: nSemAcion10,
+        proximosPerder: nProx,
+        retornosHoje: nRetHoje,
         retornosAdm: retornosPendentes.length,
         acordoAVencer: setAVencer.size,
         acordoAtrasado: setAtrasado.size,
