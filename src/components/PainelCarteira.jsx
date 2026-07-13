@@ -419,6 +419,13 @@ export default function PainelCarteira({ embedded = false }) {
 
       const colunas = COLUNAS_ALUNO;
       const alvoEscopo = emailEscopo();
+      let ativosCanonico = null;
+      try {
+        let __qCanon = supabase.from("casos").select("id", { count: "exact", head: true });
+        if (alvoEscopo) __qCanon = __qCanon.eq("operador_email", alvoEscopo);
+        const { count: __cc } = await __qCanon;
+        ativosCanonico = __cc;
+      } catch (e) { ativosCanonico = null; }
       const TETO = alvoEscopo ? 50000 : 3000;
       const PAGINA = 1000;
       let todas = [];
@@ -525,7 +532,7 @@ export default function PainelCarteira({ embedded = false }) {
       });
 
       setKpis({
-        ativos: listaAtiva.length,
+        ativos: ativosCanonico ?? listaAtiva.length,
         semAcionamento10: rSemAcion10.count || 0,
         proximosPerder: Math.max(0, (r9.count || 0) - (r11.count || 0)),
         retornosHoje: rRetHoje.count || 0,
@@ -685,7 +692,7 @@ export default function PainelCarteira({ embedded = false }) {
         setAcionadosHojeIds([...acionadosHojeAlunos]);
         setSemPrimeiroIds(semPrimeiroLista);
         setDesempenho({
-          ativos: listaAtiva.length,
+          ativos: ativosCanonico ?? listaAtiva.length,
           acionadosHoje: setHoje.size,
           acionadosMes: totalMes,
           semPrimeiro: semPrimeiroLista.length,
