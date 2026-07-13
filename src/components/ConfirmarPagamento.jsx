@@ -227,7 +227,7 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
     if (valorNum <= 0) return alert("Informe o valor pago (maior que zero).");
     if (!dataPagamento) return alert("Informe a data do pagamento.");
     if (!alvoTipo || !alvoId) return alert("Selecione a dívida correspondente (parcela, título ou acordo).");
-    if (!motivo.trim()) return alert("Escreva uma observação sobre o pagamento.");
+    // observacao nao e obrigatoria na confirmacao de pagamento
     if (podeCompor && tipo === "QUITACAO_TOTAL") {
       if (totalNegociado <= 0)
         return alert("Preencha a composição (principal + encargos) da quitação total.");
