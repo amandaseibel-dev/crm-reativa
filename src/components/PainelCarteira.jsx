@@ -1021,6 +1021,24 @@ export default function PainelCarteira({ embedded = false }) {
     abrirKpi(id);
   }
 
+  const [saldoView, setSaldoView] = useState({});
+  const normCpf = (c) => String(c || "").replace(/\D/g, "").padStart(11, "0");
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      const alvo = operadorFiltro && operadorFiltro !== "TODOS" ? operadorFiltro : (veTudo ? null : email);
+      let query = supabase.from("vw_carteira_operador").select("cpf_limpo, saldo_mensalidades_aberto, qtd_titulos_abertos");
+      if (alvo) query = query.eq("operador_email", alvo);
+      const { data } = await query;
+      if (!ativo) return;
+      const m = {};
+      (data || []).forEach((r) => { m[normCpf(r.cpf_limpo)] = { saldo: Number(r.saldo_mensalidades_aberto) || 0, qtd: Number(r.qtd_titulos_abertos) || 0 }; });
+      setSaldoView(m);
+    })();
+    return () => { ativo = false; };
+  }, [casos, email, veTudo, operadorFiltro]);
+  const saldoDe = (a) => (saldoView[normCpf(a && a.cpf)] ? saldoView[normCpf(a && a.cpf)].saldo : 0);
+  const qtdTitulosDe = (a) => (saldoView[normCpf(a && a.cpf)] ? saldoView[normCpf(a && a.cpf)].qtd : 0);
   const listaFiltrada = useMemo(() => {
     // Com um card selecionado, a lista vem dos registros carregados do
     // indicador; sem card, mostra a carteira normal. Busca/status/ordenacao
@@ -1044,9 +1062,10 @@ export default function PainelCarteira({ embedded = false }) {
     const arr = [...l];
     if (ordenacao === "sem_contato_desc") arr.sort((a, b) => keyDias(b) - keyDias(a));
     else if (ordenacao === "sem_contato_asc") arr.sort((a, b) => keyDias(a) - keyDias(b));
-    else if (ordenacao === "valor_desc") arr.sort((a, b) => (Number(b.valor_em_aberto) || 0) - (Number(a.valor_em_aberto) || 0));
+    else if (ordenacao === "valor_desc") arr.sort((a, b) => saldoDe(b) - saldoDe(a));
+    else if (ordenacao === "valor_asc") arr.sort((a, b) => saldoDe(a) - saldoDe(b));
     return arr;
-  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao]);
+  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView]);
 
   // Cards operacionais (abrem a tabela) + financeiros (abrem detalhamento).
   // Todos permanecem visiveis mesmo zerados.
@@ -1237,7 +1256,8 @@ export default function PainelCarteira({ embedded = false }) {
               <select style={S.select} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
                 <option value="sem_contato_desc">Mais antigo sem contato</option>
                 <option value="sem_contato_asc">Mais recente sem contato</option>
-                <option value="valor_desc">Maior valor em aberto</option>
+                <option value="valor_desc">Maior valor primeiro</option>
+                <option value="valor_asc">Menor valor primeiro</option>
               </select>
               {filtroKpi && (
                 <div style={S.chipFiltro} onClick={() => { setFiltroKpi(null); setCasosEspeciais(null); }}>
@@ -1298,6 +1318,8 @@ export default function PainelCarteira({ embedded = false }) {
                                 Em aberto: {formatarMoeda(fa.total)}
                               </div>
                               <div style={S.emAbertoSub}>Mensalidades: {formatarMoeda(fa.mensalidades)}</div>
+                            <div style={S.emAbertoSub}>Mensalidades (originais): {formatarMoeda(saldoDe(a))}</div>
+                            <div style={S.emAbertoSub}>Titulos em aberto: {qtdTitulosDe(a)}</div>
                               <div style={S.emAbertoSub}>Acordos: {formatarMoeda(fa.acordos)}</div>
                               <div style={S.emAbertoSub}>Responsavel: {respCaso || "-"}</div>
                               {respAcordo && respAcordo !== respCaso && (
