@@ -952,7 +952,7 @@ export default function LinksPagamentoAluno({
             const linkPagamento = obterLinkPagamento(item);
             const operadorDoItem = itemPertenceAoUsuario(item);
             const podeAcionarComprovante =
-              ["LINK_GERADO", "LINK_PRONTO_PARA_ENVIO", "LINK_ENVIADO_ALUNO", "LINK_ENVIADO_AO_ALUNO", "AGUARDANDO_COMPROVANTE", "BAIXA_DEVOLVIDA"].includes(item.status);
+              item.status !== "BAIXA_REALIZADA"; // anexar comprovante sempre, exceto quando ja baixado
 
             return (
               <div key={item.id} style={historicoItem}>
