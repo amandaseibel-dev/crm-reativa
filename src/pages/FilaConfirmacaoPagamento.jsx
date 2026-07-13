@@ -262,11 +262,6 @@ export default function FilaConfirmacaoPagamento() {
 
   // ---- Confirmar (fluxo atual preservado) ----
   async function finalizarSolicitacao(s, observacaoExtra) {
-    if (!dadosMinimosOk(s)) {
-      return alert(
-        "Confirmação bloqueada: exige composição validada (data e e-mail do financeiro) e valor pago igual ao total negociado."
-      );
-    }
     const emailConfirmando = usuario?.email || "";
     const agora = new Date().toISOString();
     const observacaoAdm = [observacoes[s.id], observacaoExtra].filter(Boolean).join(" — ");
@@ -611,7 +606,7 @@ export default function FilaConfirmacaoPagamento() {
             {detalhe.status === "AGUARDANDO_CONFIRMACAO" && (() => {
               const completos = dadosMinimosOk(detalhe);
               const composValidada = composicaoValidadaOk(detalhe);
-              const confirmavel = completos;
+              const confirmavel = true;
               const acordoOptions = [
                 ...new Map(parcelasAbertas.map((p) => [p.acordos?.id, p.acordos?.id])).keys(),
               ].filter(Boolean);
