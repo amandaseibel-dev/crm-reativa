@@ -862,29 +862,23 @@ export default function CRM() {
     // Fila realmente usa pra filtrar). Sem isso o caso "transferido" aqui
     // no CRM continua aparecendo na fila do operador antigo.
     if (caso.cpfNumeros) {
-      const agora = new Date().toISOString();
       const vaiPraReceptivo = novoOperador === "RECEPTIVO";
       const emailNovoOperador = vaiPraReceptivo ? null : emailPorNomeOperador(novoOperador);
 
       if (vaiPraReceptivo || emailNovoOperador) {
-        const nomeNovoOperador = vaiPraReceptivo
-          ? "RECEPTIVO"
-          : nomeOperadorPorEmail(emailNovoOperador);
-
-        const { error: erroAluno } = await supabase
-          .from("alunos")
-          .update({
-            responsavel_atual_nome: vaiPraReceptivo ? null : nomeNovoOperador,
-            responsavel_atual_email: emailNovoOperador,
-            responsavel_atual_em: agora,
-            operador: novoOperador,
-            operador_nome: vaiPraReceptivo ? null : nomeNovoOperador,
-            operador_email: emailNovoOperador,
-          })
-          .eq("cpf", caso.cpfNumeros);
-
-        if (erroAluno) {
-          console.error("Erro ao sincronizar transferência com a fila do aluno:", erroAluno);
+        // Transferencia do responsavel via RPC manual segura (so Amanda/Fernanda).
+        const { data: rTransf, error: erroAluno } = await supabase.rpc("transferir_responsavel_crm", {
+          p_cpf: caso.cpfNumeros,
+          p_novo_email: emailNovoOperador,
+          p_operador_base: novoOperador,
+          p_motivo: motivo,
+          p_receptivo: vaiPraReceptivo,
+          p_origem: "crm",
+        });
+        if (erroAluno || !rTransf?.ok) {
+          console.error("Transferência (RPC) falhou:", erroAluno || rTransf?.erro);
+          setErro("Não foi possível transferir: " + (rTransf?.erro || erroAluno?.message || "erro"));
+          return;
         }
       } else {
         console.warn(

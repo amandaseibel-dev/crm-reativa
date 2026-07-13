@@ -57,21 +57,26 @@ export async function registrarMovimentacaoAluno({
     throw insertError;
   }
 
+  // registrado_por (nao sensivel) direto; responsavel via RPC segura (self, so
+  // se o caso estiver sem responsavel -- nao rouba caso de outro).
   const { error: updateError } = await supabase
     .from("alunos")
     .update({
       registrado_por_nome: usuario.nome,
       registrado_por_email: usuario.email,
       registrado_em: agora,
-      responsavel_atual_nome: usuario.nome,
-      responsavel_atual_email: usuario.email,
-      responsavel_atual_em: agora,
     })
     .eq("id", alunoId);
-
   if (updateError) {
-    console.error("Erro ao atualizar responsável no aluno:", updateError);
+    console.error("Erro ao atualizar registro no aluno:", updateError);
     throw updateError;
+  }
+  const { error: assumirError } = await supabase.rpc("sistema_assumir_atendimento", {
+    p_aluno_id: alunoId,
+  });
+  if (assumirError) {
+    console.error("Erro ao assumir (responsavel):", assumirError);
+    // nao interrompe a tabulacao; ok:false (ex.: JA_TEM_RESPONSAVEL) e ignorado
   }
 
   return {

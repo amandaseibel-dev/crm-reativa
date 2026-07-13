@@ -106,26 +106,16 @@ export default function FilaAdmTermos() {
     // responsável atual precisa voltar a ser o operador que enviou o
     // termo -- sem isso, o caso muda de status mas nunca aparece na fila
     // de quem deveria receber de volta.
-    const { error } = await supabase
-      .from("alunos")
-      .update({
-        status_jornada: novoStatus,
-        status_atual: novoStatus,
-        nivel_criticidade: "URGENTE",
-        status_acionamento: statusAcionamento || novoStatus,
-        data_ultimo_acionamento: new Date().toISOString(),
-        ...(termo?.operador_email
-          ? {
-              responsavel_atual_email: termo.operador_email,
-              responsavel_atual_nome: termo.operador_nome || termo.operador_email,
-              responsavel_atual_em: new Date().toISOString(),
-            }
-          : {}),
-      })
-      .eq("id", alunoId);
-
-    if (error) {
-      console.error("Erro ao atualizar status do aluno:", error);
+    // Devolucao via RPC segura (executor): status direto + responsavel roteado.
+    const { data: rTermo, error } = await supabase.rpc("sistema_retorno_termo", {
+      p_aluno_id: alunoId,
+      p_status: novoStatus,
+      p_status_acionamento: statusAcionamento || novoStatus,
+      p_operador_email: termo?.operador_email || null,
+      p_operador_nome: termo?.operador_nome || termo?.operador_email || null,
+    });
+    if (error || !rTermo?.ok) {
+      console.error("Erro ao atualizar status do aluno:", rTermo?.erro || error?.message);
     }
   }
 

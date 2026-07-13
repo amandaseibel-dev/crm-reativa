@@ -198,13 +198,18 @@ export default function BaseReceptiva() {
       atualizado_em: agora,
     };
 
-    const { error } = await supabase
-      .from("alunos")
-      .update(atualizacao)
-      .eq("id", aluno.id);
-
-    if (error) {
-      alert("Erro ao assumir atendimento: " + error.message);
+    // Roteia responsavel + campos correlatos pela RPC segura (executor); sem
+    // UPDATE direto do responsavel no frontend.
+    void atualizacao;
+    const { data: rAssumir, error } = await supabase.rpc("sistema_assumir_receptivo", {
+      p_aluno_id: aluno.id,
+      p_status: statusAtendimento,
+      p_observacao: observacao,
+      p_data_retorno: dataRetorno || null,
+      p_hora_retorno: horaRetorno || null,
+    });
+    if (error || !rAssumir?.ok) {
+      alert("Erro ao assumir atendimento: " + (rAssumir?.erro || error?.message || "erro"));
       return;
     }
 

@@ -1018,66 +1018,23 @@ export default function Alunos() {
         alunoSelecionado.responsavel_atual_nome || "Sem responsável anterior";
       const anteriorEmail = alunoSelecionado.responsavel_atual_email || null;
 
-      const atualizacaoOperador = {
-        responsavel_atual_nome: novoOperador.nome,
-        responsavel_atual_email: novoOperador.email,
-        responsavel_atual_em: agora,
-        registrado_por_nome: usuario.nome,
-        registrado_por_email: usuario.email,
-        registrado_em: agora,
-      };
-
-      if (novaDataRetornoAlteracao) {
-        // Mesma correcao do bug de fuso: grava a data-civil em horario de
-        // Brasilia (nao em UTC), senao um retorno marcado a noite (21h-23h59)
-        // pode salvar o dia seguinte na coluna "date" do banco.
-        atualizacaoOperador.data_retorno = paraDataLocalBR(
-          new Date(novaDataRetornoAlteracao).toISOString()
-        );
-      }
-
-      if (novaTabulacaoAlteracao) {
-        atualizacaoOperador.status_jornada = novaTabulacaoAlteracao;
-        atualizacaoOperador.status_atual = novaTabulacaoAlteracao;
-      }
-
-      const { error: updateError } = await supabase
-        .from("alunos")
-        .update(atualizacaoOperador)
-        .eq("id", alunoSelecionado.id);
-
-      if (updateError) {
-        console.error("Erro ao alterar operador:", updateError);
-        alert("Erro ao alterar operador.");
+      // Troca de responsavel via RPC manual segura (executor; so Amanda/Fernanda).
+      void usuario; void agora; void anteriorNome; void anteriorEmail;
+      const { data: rResp, error: updateError } = await supabase.rpc("alterar_responsavel_aluno", {
+        p_aluno_id: alunoSelecionado.id,
+        p_novo_email: novoOperador.email,
+        p_motivo: motivo,
+        p_origem: "ficha_aluno",
+        p_modo: "ALTERAR_SOMENTE_ALUNO",
+      });
+      if (updateError || !rResp?.ok) {
+        alert("Nao foi possivel alterar o responsavel: " + (rResp?.erro || updateError?.message || "erro"));
         return;
       }
-
-      const { error: movError } = await supabase
-        .from("aluno_movimentacoes")
-        .insert({
-          aluno_id: String(alunoSelecionado.id),
-          tipo: "ALTERACAO_OPERADOR",
-          descricao: `Operador responsável alterado de ${anteriorNome} para ${novoOperador.nome}. Motivo: ${motivo}` +
-            (novaDataRetornoAlteracao
-              ? ` Nova data de retorno definida: ${new Date(novaDataRetornoAlteracao).toLocaleString("pt-BR")}.`
-              : "") +
-            (novaTabulacaoAlteracao ? ` Nova tabulação: ${novaTabulacaoAlteracao}.` : ""),
-          status_anterior: alunoSelecionado.status_jornada || null,
-          status_novo: alunoSelecionado.status_jornada || null,
-          registrado_por_nome: usuario.nome,
-          registrado_por_email: usuario.email,
-          registrado_em: agora,
-          operador_anterior_nome: anteriorNome,
-          operador_anterior_email: anteriorEmail,
-          operador_novo_nome: novoOperador.nome,
-          operador_novo_email: novoOperador.email,
-        });
-
-      if (movError) {
-        console.error("Erro ao registrar movimentação:", movError);
-        alert("Operador alterado, mas não registrou movimentação.");
-        return;
-      }
+      const extraAluno = {};
+      if (novaDataRetornoAlteracao) { extraAluno.data_retorno = paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()); }
+      if (novaTabulacaoAlteracao) { extraAluno.status_jornada = novaTabulacaoAlteracao; extraAluno.status_atual = novaTabulacaoAlteracao; }
+      if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
 
       setNovoOperadorEmail("");
       setMotivoAlteracaoOperador("");

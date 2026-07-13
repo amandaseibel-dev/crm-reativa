@@ -493,17 +493,19 @@ export default function FinanceiroAluno({ aluno }) {
   // diferente (ex: um da Amanda ADM, outro da Olga) -- puxar sempre do
   // responsável atual do aluno (1 valor só) não dá conta disso, por isso
   // dá pra trocar o responsável de cada acordo individualmente aqui.
-  async function alterarResponsavelAcordo(acordo, novoEmail) {
-    const { error } = await supabase
-      .from("acordos")
-      .update({ operador_responsavel_email: novoEmail || null, atualizado_em: new Date().toISOString() })
-      .eq("id", acordo.id);
-
-    if (error) {
-      alert("Erro ao trocar o responsável do acordo: " + error.message);
+  async function alterarResponsavelAcordo(acordo, novoEmail, motivo) {
+    if (!novoEmail) { alert("Selecione o novo responsável do acordo."); return; }
+    const m = String(motivo || "").trim();
+    if (!m) { alert("Motivo obrigatório para alterar o responsável do acordo."); return; }
+    // RPC manual segura (executor; so Amanda/Fernanda). Sem UPDATE direto.
+    const { data: r, error } = await supabase.rpc("alterar_responsavel_acordo", {
+      p_acordo_id: acordo.id, p_novo_email: novoEmail, p_motivo: m, p_origem: "financeiro_aluno",
+    });
+    if (error || !r?.ok) {
+      alert("Nao foi possivel alterar o responsavel do acordo: " + (r?.erro || error?.message || "erro"));
       return;
     }
-    setRecarga((r) => r + 1);
+    setRecarga((x) => x + 1);
   }
 
   async function excluirAcordo(acordo) {
@@ -1291,6 +1293,21 @@ function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, 
   );
 }
 
+function SeletorResponsavelAcordo({ acordo, operadoresAtivos, onAplicar }) {
+  const [email, setEmail] = useState(acordo.operador_responsavel_email || "");
+  const [motivo, setMotivo] = useState("");
+  return (
+    <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+      <select value={email} onChange={(e) => setEmail(e.target.value)} style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #e6eaf0", fontSize: 12 }}>
+        <option value="">Selecione</option>
+        {operadoresAtivos.map((op) => (<option key={op.email} value={op.email}>{op.nome}</option>))}
+      </select>
+      <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (obrigatório)" style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #e6eaf0", fontSize: 12 }} />
+      <button type="button" onClick={() => onAplicar(email, motivo)} style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>Aplicar</button>
+    </span>
+  );
+}
+
 function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel }) {
   const [formParcela, setFormParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
@@ -1361,16 +1378,11 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
               <div style={{ ...estilos.subLinha, display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
                 Responsável:
                 {podeBaixar ? (
-                  <select
-                    style={estilos.seletorResponsavel}
-                    value={acordo.operador_responsavel_email || ""}
-                    onChange={(e) => onAlterarResponsavel(acordo, e.target.value)}
-                  >
-                    <option value="">Sem responsável</option>
-                    {Object.entries(OPERADORES_POR_EMAIL).map(([email, nome]) => (
-                      <option key={email} value={email}>{nome}</option>
-                    ))}
-                  </select>
+                  <SeletorResponsavelAcordo
+                    acordo={acordo}
+                    operadoresAtivos={Object.entries(OPERADORES_POR_EMAIL).map(([email, nome]) => ({ email, nome }))}
+                    onAplicar={(email, motivo) => onAlterarResponsavel(acordo, email, motivo)}
+                  />
                 ) : (
                   <strong>{OPERADORES_POR_EMAIL[acordo.operador_responsavel_email] || acordo.operador_responsavel_email || "-"}</strong>
                 )}
