@@ -426,6 +426,10 @@ export default function PainelCarteira({ embedded = false }) {
         const { count: __cc } = await __qCanon;
         ativosCanonico = __cc;
       } catch (e) { ativosCanonico = null; }
+      try {
+        const { data: __vv } = await supabase.rpc("valor_carteira_operador", { p_email: alvoEscopo });
+        setValorCarteira(Number(__vv) || 0);
+      } catch (e) { ativosCanonico = null; }
       const TETO = alvoEscopo ? 50000 : 3000;
       const PAGINA = 1000;
       let todas = [];
@@ -1029,6 +1033,7 @@ export default function PainelCarteira({ embedded = false }) {
   }
 
   const [saldoView, setSaldoView] = useState({});
+  const [valorCarteira, setValorCarteira] = useState(0);
   const normCpf = (c) => String(c || "").replace(/\D/g, "").padStart(11, "0");
   useEffect(() => {
     let ativo = true;
@@ -1077,7 +1082,7 @@ export default function PainelCarteira({ embedded = false }) {
   // Cards operacionais (abrem a tabela) + financeiros (abrem detalhamento).
   // Todos permanecem visiveis mesmo zerados.
   const kpiCards = [
-    { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb" },
+    { id: "ativos", rot: "Casos ativos • " + formatarMoeda(valorCarteira) + " em aberto", val: kpis.ativos, cor: "#2563eb" },
     { id: "retornosHoje", rot: "Retornos de hoje", val: kpis.retornosHoje, cor: "#0ea5e9" },
     { id: "semAcionamento10", rot: "Sem acionamento ha 10 dias", val: kpis.semAcionamento10, cor: "#f59e0b" },
     { id: "proximosPerder", rot: "Proximos de perder a carteira", val: kpis.proximosPerder, cor: "#dc2626" },
