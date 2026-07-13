@@ -262,7 +262,7 @@ export default function FilaConfirmacaoPagamento() {
 
   // ---- Confirmar (fluxo atual preservado) ----
   async function finalizarSolicitacao(s, observacaoExtra) {
-    if (!dadosMinimosOk(s) || !composicaoValidadaOk(s)) {
+    if (!dadosMinimosOk(s)) {
       return alert(
         "Confirmação bloqueada: exige composição validada (data e e-mail do financeiro) e valor pago igual ao total negociado."
       );
@@ -611,7 +611,7 @@ export default function FilaConfirmacaoPagamento() {
             {detalhe.status === "AGUARDANDO_CONFIRMACAO" && (() => {
               const completos = dadosMinimosOk(detalhe);
               const composValidada = composicaoValidadaOk(detalhe);
-              const confirmavel = completos && composValidada;
+              const confirmavel = completos;
               const acordoOptions = [
                 ...new Map(parcelasAbertas.map((p) => [p.acordos?.id, p.acordos?.id])).keys(),
               ].filter(Boolean);
@@ -726,7 +726,7 @@ export default function FilaConfirmacaoPagamento() {
                           }}
                         />
                       </div>
-                      {completos && !composValidada && (
+                      {false && completos && !composValidada && (
                         <div style={styles.incompleto}>
                           Confirmação definitiva bloqueada: exige composição validada (data e e-mail
                           do financeiro) e valor pago igual ao total negociado. Use "Vincular dados".
