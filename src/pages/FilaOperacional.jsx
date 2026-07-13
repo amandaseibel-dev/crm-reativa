@@ -448,6 +448,12 @@ export default function FilaOperador() {
       // Prioriza sempre quem está a mais tempo sem acionamento (ou nunca
       // foi acionado) no topo da fila. Data de retorno só desempata entre
       // quem tem o mesmo tempo sem acionamento.
+      // Minha fila: casos com data_retorno FUTURA somem ate o dia do retorno.
+      // (acionou + agendou retorno -> so reaparece no dia; sem retorno -> segue ciclando no fim da fila)
+      if (filtro === "MINHA_FILA") {
+        query = query.or(`data_retorno.is.null,data_retorno.lte.${hojeLocalBR()}`);
+      }
+
       query = query
         .order("data_ultimo_acionamento", { ascending: true, nullsFirst: true })
         .order("data_retorno", { ascending: true, nullsFirst: false });
