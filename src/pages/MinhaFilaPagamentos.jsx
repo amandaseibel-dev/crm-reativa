@@ -313,10 +313,10 @@ export default function MinhaFilaPagamentos() {
       </div>
 
       <div style={styles.indicadores}>
-        <div style={styles.indicador}><strong>{indicadores.aguardando}</strong><span>Aguardando baixa</span></div>
-        <div style={styles.indicador}><strong>{indicadores.baixados}</strong><span>Baixados</span></div>
-        <div style={styles.indicador}><strong>{indicadores.divergencias}</strong><span>Divergências</span></div>
-        <div style={styles.indicadorValor}><strong>{dinheiro(indicadores.valor)}</strong><span>Valor filtrado</span></div>
+        <div style={styles.indicador}><span style={styles.indNum}>{indicadores.aguardando}</span><span style={styles.indLbl}>Aguardando baixa</span></div>
+        <div style={styles.indicador}><span style={styles.indNum}>{indicadores.baixados}</span><span style={styles.indLbl}>Baixados</span></div>
+        <div style={styles.indicador}><span style={styles.indNum}>{indicadores.divergencias}</span><span style={styles.indLbl}>Divergências</span></div>
+        <div style={styles.indicadorValor}><span style={styles.indNumV}>{dinheiro(indicadores.valor)}</span><span style={styles.indLblV}>Valor filtrado</span></div>
       </div>
 
       <div style={styles.card}>
@@ -436,21 +436,25 @@ export default function MinhaFilaPagamentos() {
 }
 
 const styles = {
+  indNum: { fontSize: "26px", fontWeight: 800, color: "#111827", lineHeight: 1 },
+  indLbl: { fontSize: "13px", color: "#64748b", fontWeight: 600 },
+  indNumV: { fontSize: "22px", fontWeight: 800, color: "#fff", lineHeight: 1.1 },
+  indLblV: { fontSize: "13px", color: "#cbd5e1", fontWeight: 600 },
   container: { minHeight: "100vh", background: "#f4f6f8", padding: "24px", fontFamily: "Arial, sans-serif" },
   cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "18px" },
   titulo: { margin: 0, color: "#111827" },
   subtitulo: { margin: "6px 0 0 0", color: "#555" },
   nav: { display: "flex", gap: "8px", flexWrap: "wrap" },
   indicadores: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "12px", marginBottom: "16px" },
-  indicador: { background: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
-  indicadorValor: { background: "#111827", color: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  indicador: { display: "flex", flexDirection: "column", gap: "4px", background: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  indicadorValor: { display: "flex", flexDirection: "column", gap: "4px", background: "#111827", color: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
   card: { background: "#fff", borderRadius: "14px", padding: "18px", marginBottom: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" },
   input: { padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "14px" },
   cardPagamento: { background: "#fff", borderRadius: "16px", padding: "20px", marginBottom: "16px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", borderLeft: "6px solid #198754" },
   topoCard: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start" },
-  nome: { margin: "0 0 8px 0", color: "#111827" },
-  info: { margin: "5px 0", color: "#555" },
+  nome: { fontSize: "19px", fontWeight: 800, margin: "0 0 8px 0", color: "#111827" },
+  info: { fontSize: "14px", lineHeight: 1.5, margin: "5px 0", color: "#555" },
   status: { padding: "8px 12px", borderRadius: "999px", fontWeight: "bold", fontSize: "13px", whiteSpace: "nowrap" },
   linkBox: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px" },
   obs: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px", color: "#374151" },
