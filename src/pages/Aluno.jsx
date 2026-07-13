@@ -24,6 +24,7 @@ const OPERADORES_REATIVA = [
 
 const STATUS_FINALIZACAO = [
   "CONTATAR",
+  "ELOGIO_ATENDIMENTO",
   "MENSAGEM_ENVIADA",
   "EM_ATENDIMENTO",
   "ALUNO_EM_NEGOCIACAO_24H",
@@ -84,6 +85,7 @@ const STATUS_BLOQUEADOS_ACIONAMENTO = [
 ];
 
 const STATUS_BLOQUEADOS_LABEL = {
+  ELOGIO_ATENDIMENTO: "Elogio de atendimento",
   CANCELAMENTO_COBRANCA: "Cancelamento definitivo de cobrança",
   SUSPENSAO_COBRANCA: "Suspensão de cobrança",
   JURIDICO: "Jurídico",
