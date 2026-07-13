@@ -1564,6 +1564,8 @@ export default function Alunos() {
                 </div>
               ) : null}
 
+              <details style={{ marginBottom: 12, border: "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff" }}>
+                <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Link de pagamento</summary>
               <LinksPagamentoAluno
                 aluno={alunoSelecionado}
                 usuarioLogado={usuarioLogado}
@@ -1578,6 +1580,7 @@ export default function Alunos() {
                   await carregarAlunos();
                 }}
               />
+              </details>
 
               <div style={caixaDestaque}>
                 <h3 style={tituloSecao}>Tabulações</h3>
