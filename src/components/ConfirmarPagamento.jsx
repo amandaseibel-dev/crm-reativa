@@ -223,10 +223,10 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
     if (temPendente) return alert("Este aluno já está na fila aguardando confirmação de pagamento.");
 
     // Identificacao minima obrigatoria (nao permite envio sem valor/dívida).
-    if (!tipo) return alert("Selecione o tipo do pagamento.");
-    if (valorNum <= 0) return alert("Informe o valor pago (maior que zero).");
-    if (!dataPagamento) return alert("Informe a data do pagamento.");
-    if (!alvoTipo || !alvoId) return alert("Selecione a dívida correspondente (parcela, título ou acordo).");
+    // tipo opcional - validacao no sistema do cliente
+    // valor opcional - validacao no sistema do cliente
+    // data opcional - validacao no sistema do cliente
+    // divida opcional - validacao no sistema do cliente
     // observacao nao e obrigatoria na confirmacao de pagamento
     if (podeCompor && tipo === "QUITACAO_TOTAL") {
       if (totalNegociado <= 0)
