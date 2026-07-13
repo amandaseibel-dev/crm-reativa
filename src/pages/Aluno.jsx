@@ -1700,10 +1700,19 @@ export default function Alunos() {
                 </div>
               </div>
 
-              <FinalizacaoTermo aluno={alunoSelecionado} />
+              <details style={{ marginBottom: 12, border: "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff" }}>
+                <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Termo de acordo</summary>
+                <FinalizacaoTermo aluno={alunoSelecionado} />
+              </details>
 
-              <EnvioFinanceiro aluno={alunoSelecionado} />
-              <ConfirmarPagamento aluno={alunoSelecionado} />
+              <details style={{ marginBottom: 12, border: "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff" }}>
+                <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Enviar ao financeiro</summary>
+                <EnvioFinanceiro aluno={alunoSelecionado} />
+              </details>
+              <details style={{ marginBottom: 12, border: "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff" }}>
+                <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Confirmar pagamento</summary>
+                <ConfirmarPagamento aluno={alunoSelecionado} />
+              </details>
               </>
               )}
 
