@@ -163,9 +163,7 @@ export default function App() {
   const [linksAguardando, setLinksAguardando] = useState(0);
   const [termosRejeitados, setTermosRejeitados] = useState(0);
   const [baixasAguardando, setBaixasAguardando] = useState(0);
-  const [tema, setTema] = useState(
-    () => localStorage.getItem("reativa_tema") || "escuro"
-  );
+  const [tema, setTema] = useState("claro"); // tema fixo claro
 
   function alternarTema() {
     const novoTema = tema === "escuro" ? "claro" : "escuro";
@@ -437,9 +435,6 @@ export default function App() {
               Sair
             </button>
 
-            <button type="button" className="botao-tema" onClick={alternarTema}>
-              {tema === "escuro" ? "☀️ Modo claro" : "🌙 Modo escuro"}
-            </button>
           </div>
 
           <nav>
