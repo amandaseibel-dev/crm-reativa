@@ -1822,7 +1822,7 @@ export default function Alunos() {
 }
 
 const pagina = {
-  minHeight: "100%",
+  minHeight: "calc(100vh - 56px)",
   background: "#f4f6fa",
   color: "#334155",
   padding: "28px 28px 40px",
