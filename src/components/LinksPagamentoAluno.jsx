@@ -672,11 +672,6 @@ export default function LinksPagamentoAluno({
     setErro("");
     await garantirSessaoValida();
 
-    if (!itemPertenceAoUsuario(item) && !usuarioVeTudo) {
-      setErro("Somente o operador que solicitou este link pode anexar o comprovante.");
-      return;
-    }
-
     const arquivo = arquivos[item.id];
 
     if (!arquivo) {
