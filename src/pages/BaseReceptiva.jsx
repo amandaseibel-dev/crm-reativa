@@ -105,15 +105,13 @@ function estiloRetorno(aluno) {
 }
 
 function casoReceptivo(aluno) {
-  const operador = String(aluno?.operador_nome || aluno?.operador || aluno?.operador_email || "").trim().toUpperCase();
+  // Antes essa funcao lia as colunas antigas (operador/operador_nome), que
+  // foram limpas por estarem desatualizadas. Agora usa responsavel_atual_*,
+  // que e a fonte de verdade: sem responsavel = disponivel pro receptivo.
+  const temResponsavel = !!(aluno?.responsavel_atual_email || aluno?.responsavel_atual_nome);
   const origem = String(aluno?.origem || aluno?.tipo_base || "").trim().toUpperCase();
 
-  return (
-    !operador ||
-    operador === "RECEPTIVO" ||
-    operador === "BASE RECEPTIVA" ||
-    origem.includes("RECEPT")
-  );
+  return !temResponsavel || origem.includes("RECEPT");
 }
 
 export default function BaseReceptiva() {
@@ -401,7 +399,7 @@ export default function BaseReceptiva() {
             <p style={styles.info}>CPF: {pegarCpf(aluno)}</p>
             <p style={styles.info}>Curso: {aluno.curso || "-"}</p>
             <p style={styles.info}>Status: {aluno.status_jornada || "-"}</p>
-            <p style={styles.info}>Operador atual: {aluno.operador_nome || aluno.operador || "RECEPTIVO"}</p>
+            <p style={styles.info}>Operador atual: {aluno.responsavel_atual_nome || "Sem responsável"}</p>
             <span style={estiloRetorno(aluno)}>{textoRetorno(aluno)}</span>
           </div>
 
