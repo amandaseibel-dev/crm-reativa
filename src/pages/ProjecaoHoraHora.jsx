@@ -579,20 +579,45 @@ export default function ProjecaoHoraHora() {
                     </div>
                   </div>
 
-                  <h3 style={{ margin: "20px 0 10px" }}>📊 Visão geral</h3>
-                  <div style={estilos.grade}>
-                    <Cartao label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
-                    <Cartao label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
-                    <Cartao label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
-                    <Cartao label="Honorários do mês" valor={moeda(dashboard?.honorario_mes)} destaque />
-                    <Cartao
-                      label="% da meta (honorário)"
-                      valor={`${dashboard?.percentual_meta ?? 0}%`}
-                      cor={(dashboard?.percentual_meta ?? 0) >= 100 ? "#86efac" : "#7dd3fc"}
-                    />
-                    <Cartao label="Honorário restante p/ meta" valor={moeda(dashboard?.valor_restante_meta)} />
-                    <Cartao label="Honorário médio diário necessário" valor={moeda(dashboard?.media_diaria_necessaria)} />
-                    <Cartao label="Dias úteis restantes" valor={dashboard?.dias_uteis_restantes ?? "-"} />
+                  <div style={estilos.blocoMeta}>
+                    <h3 style={{ marginBottom: 10 }}>📊 Visão geral</h3>
+                    <div style={estilos.grade}>
+                      <Cartao label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
+                      <Cartao label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
+                      <Cartao label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
+                      <Cartao label="Honorários do mês" valor={moeda(dashboard?.honorario_mes)} destaque />
+                      <Cartao
+                        label="% da meta (honorário)"
+                        valor={`${dashboard?.percentual_meta ?? 0}%`}
+                        cor={(dashboard?.percentual_meta ?? 0) >= 100 ? "#0f9d6b" : "#2563eb"}
+                      />
+                      <Cartao label="Honorário restante p/ meta" valor={moeda(dashboard?.valor_restante_meta)} />
+                      <Cartao label="Honorário médio diário necessário" valor={moeda(dashboard?.media_diaria_necessaria)} />
+                      <Cartao label="Dias úteis restantes" valor={dashboard?.dias_uteis_restantes ?? "-"} />
+                    </div>
+                  </div>
+
+                  <div style={estilos.blocoMeta}>
+                    <h3 style={{ marginBottom: 4 }}>🔮 Projeção de fechamento</h3>
+                    <p style={{ opacity: 0.6, fontSize: 12.5, margin: "0 0 12px" }}>
+                      Estimativa com base no ritmo atual — não é a meta, é "se continuar assim".
+                    </p>
+                    <div style={estilos.grade}>
+                      <Cartao
+                        label="Se continuar nesse ritmo, a filial deve fechar em"
+                        valor={moeda(dashboard?.projecao_honorario_filial)}
+                        destaque
+                      />
+                      <Cartao
+                        label="% da meta que essa projeção bateria"
+                        valor={`${dashboard?.percentual_projecao_filial ?? 0}%`}
+                        cor={(dashboard?.percentual_projecao_filial ?? 0) >= 100 ? "#0f9d6b" : "#d97706"}
+                      />
+                      <Cartao
+                        label="Ritmo (dias úteis já passados / total do mês)"
+                        valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`}
+                      />
+                    </div>
                   </div>
                 </>
               )}
