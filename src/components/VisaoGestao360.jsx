@@ -8,6 +8,27 @@ function num(v) {
   return Number(v || 0).toLocaleString("pt-BR");
 }
 
+function ufDaUnidade(u) {
+  const t = String(u || "").toUpperCase();
+  if (/\/TO\b|PALMAS/.test(t)) return "TO";
+  if (/\/AM\b|MANAUS/.test(t)) return "AM";
+  if (/\/PA\b|SANTAR/.test(t)) return "PA";
+  if (/\/GO\b|ITUMBIARA/.test(t)) return "GO";
+  if (/CANOAS|TORRES|SANTA MARIA|CACHOEIRA|JERONIMO|JER\u00d4NIMO|GUAIBA|GUA\u00cdBA|CARAZINHO|GRAVATA|\bSAJ\b|POA|CAMPUS/.test(t)) return "RS";
+  return null;
+}
+
+const UF_POS = {
+  RR: [3, 1], AP: [5, 1],
+  AM: [2, 2], PA: [4, 2], MA: [5, 2], CE: [6, 2], RN: [7, 2],
+  AC: [1, 3], RO: [2, 3], TO: [4, 3], PI: [5, 3], PE: [6, 3], PB: [7, 3],
+  MT: [3, 4], GO: [4, 4], BA: [5, 4], AL: [7, 4],
+  MS: [3, 5], DF: [4, 5], MG: [5, 5], ES: [6, 5], SE: [7, 5],
+  SP: [4, 6], RJ: [5, 6],
+  PR: [4, 7], SC: [5, 7],
+  RS: [4, 8],
+};
+
 export default function VisaoGestao360({ dias = 30 }) {
   const [d, setD] = useState(null);
   const [carregando, setCarregando] = useState(true);
@@ -58,6 +79,17 @@ export default function VisaoGestao360({ dias = 30 }) {
   const maxAtraso = Math.max(1, ...atraso.map((x) => Number(x.valor) || 0));
   const maxAno = Math.max(1, ...anos.map((x) => Number(x.valor) || 0));
   const maxUni = Math.max(1, ...unis.map((x) => Number(x.valor) || 0));
+  const porUF = {};
+  let semUF = 0;
+  (unis || []).forEach((x) => {
+    const uf = ufDaUnidade(x.unidade);
+    if (!uf) { semUF += Number(x.valor) || 0; return; }
+    if (!porUF[uf]) porUF[uf] = { uf, valor: 0, recuperado: 0 };
+    porUF[uf].valor += Number(x.valor) || 0;
+    porUF[uf].recuperado += Number(x.recuperado) || 0;
+  });
+  const maxUF = Math.max(1, ...Object.values(porUF).map((u) => u.valor));
+  const ufOrdenado = Object.values(porUF).sort((a, b) => b.valor - a.valor);
 
   return (
     <div style={s.wrap}>
@@ -137,6 +169,36 @@ export default function VisaoGestao360({ dias = 30 }) {
           </div>
         ))}
       </div>
+      <div style={s.bloco}>
+        <h3 style={s.h3}>Distribuicao por estado (UF)</h3>
+        <div style={s.mapaRow}>
+          <div style={s.mapaGrid}>
+            {Object.keys(UF_POS).map((uf) => {
+              const info = porUF[uf];
+              const inten = info ? 0.28 + 0.72 * (info.valor / maxUF) : 0;
+              return (
+                <div key={uf} title={uf + (info ? ": " + moeda(info.valor) : " (sem carteira)")}
+                  style={{ ...s.uf, gridColumn: UF_POS[uf][0], gridRow: UF_POS[uf][1],
+                    background: info ? "rgba(37,99,235," + inten.toFixed(2) + ")" : "#eef2f6",
+                    color: info && inten > 0.55 ? "#fff" : "#94a3b8" }}>
+                  {uf}
+                </div>
+              );
+            })}
+          </div>
+          <div style={s.ufList}>
+            {ufOrdenado.map((u) => (
+              <div key={u.uf} style={s.ufItem}>
+                <span style={s.ufTag}>{u.uf}</span>
+                <span style={s.ufVal}><strong>{moeda(u.valor)}</strong>{u.recuperado > 0 ? " - rec. " + moeda(u.recuperado) : ""}</span>
+              </div>
+            ))}
+            {semUF > 0 && (
+              <div style={s.ufItem}><span style={s.ufTag}>Online</span><span style={s.ufVal}>{moeda(semUF)} <em style={s.em}>(EAD/POP)</em></span></div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -193,6 +255,13 @@ const s = {
   barTrack: { background: "#f1f5f9", borderRadius: 999, height: 10, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: 999 },
   recU: { fontSize: 11, color: "#16a34a", fontWeight: 600 },
+  mapaRow: { display: "flex", gap: 22, flexWrap: "wrap", alignItems: "flex-start" },
+  mapaGrid: { display: "grid", gridTemplateColumns: "repeat(7, 34px)", gridTemplateRows: "repeat(8, 34px)", gap: 5 },
+  uf: { display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, fontSize: 11, fontWeight: 700, boxShadow: "0 1px 2px rgba(15,23,42,0.06)" },
+  ufList: { flex: 1, minWidth: 240 },
+  ufItem: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, fontSize: 13, color: "#334155", padding: "6px 0", borderBottom: "1px solid #f1f5f9" },
+  ufTag: { display: "inline-flex", minWidth: 34, justifyContent: "center", background: "#eff6ff", color: "#2563eb", borderRadius: 6, padding: "2px 6px", fontWeight: 800, fontSize: 12 },
+  ufVal: { textAlign: "right" },
   muted: { color: "#64748b", margin: 0 },
   card: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 16, padding: 18, marginBottom: 16 },
 };
