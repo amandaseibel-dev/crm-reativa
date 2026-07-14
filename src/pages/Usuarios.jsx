@@ -76,19 +76,33 @@ export default function Usuarios() {
     reader.readAsDataURL(file);
   }
 
+  const [enviandoSenhaPara, setEnviandoSenhaPara] = useState("");
+
   // Envia um e-mail de redefinicao de senha pro proprio operador -- ele
   // define a senha dele mesmo, sem ninguem digitar/ver a senha de outra
   // pessoa. Nao precisa de chave admin (funciona com a chave publica).
+  // Pode ser reenviado quantas vezes precisar -- o unico limite e o do
+  // proprio Supabase (nao deixa reenviar pro mesmo e-mail em menos de
+  // ~60 segundos, por seguranca contra spam).
   async function enviarRedefinicaoSenha(email) {
     setErro("");
     setMensagem("");
+    setEnviandoSenhaPara(email);
 
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
       redirectTo: `${window.location.origin}/redefinir-senha`,
     });
 
+    setEnviandoSenhaPara("");
+
     if (error) {
-      setErro("Erro ao enviar redefinição de senha: " + error.message);
+      if (String(error.message || "").toLowerCase().includes("rate limit")) {
+        setErro(
+          `Já foi enviado um link pra ${email} há pouco tempo. Espera cerca de 1 minuto e tenta de novo.`
+        );
+      } else {
+        setErro("Erro ao enviar redefinição de senha: " + error.message);
+      }
       return;
     }
 
@@ -436,8 +450,12 @@ export default function Usuarios() {
                       <button style={miniBtn} onClick={() => editarUsuario(u)}>
                         Editar
                       </button>
-                      <button style={miniBtn} onClick={() => enviarRedefinicaoSenha(u.email)}>
-                        🔒 Enviar redefinição de senha
+                      <button
+                        style={miniBtn}
+                        onClick={() => enviarRedefinicaoSenha(u.email)}
+                        disabled={enviandoSenhaPara === u.email}
+                      >
+                        {enviandoSenhaPara === u.email ? "Enviando..." : "🔒 Enviar redefinição de senha"}
                       </button>
                       <button style={miniBtn} onClick={() => alternarAtivo(u)}>
                         {u.ativo ? "Inativar" : "Ativar"}
