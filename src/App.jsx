@@ -493,10 +493,17 @@ export default function App() {
 
             <small
               style={{
-                color: "#c084fc",
-                marginTop: 6,
-                display: "block",
-                textTransform: "capitalize",
+                display: "inline-block",
+                marginTop: 8,
+                padding: "3px 10px",
+                borderRadius: 999,
+                background: "rgba(34,197,94,0.12)",
+                border: "1px solid rgba(34,197,94,0.3)",
+                color: "#4ade80",
+                fontSize: 11,
+                fontWeight: 700,
+                textTransform: "uppercase",
+                letterSpacing: "0.04em",
               }}
             >
               {usuario.perfil?.perfil}
@@ -504,15 +511,16 @@ export default function App() {
 
             <button
               style={{
-                marginTop: 20,
+                marginTop: 18,
                 width: "100%",
-                padding: 10,
+                padding: "9px 10px",
                 borderRadius: 10,
-                border: "none",
-                background: "#ef4444",
-                color: "#fff",
+                border: "1px solid rgba(239,68,68,0.35)",
+                background: "rgba(239,68,68,0.08)",
+                color: "#f87171",
                 cursor: "pointer",
-                fontWeight: 800,
+                fontWeight: 700,
+                fontSize: 13,
               }}
               onClick={sair}
             >
