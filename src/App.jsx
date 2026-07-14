@@ -402,6 +402,10 @@ export default function App() {
     return <Login onLogin={setUsuario} />;
   }
 
+  if (usuario.perfil?.deve_trocar_senha) {
+    return <RedefinirSenha forcado email={usuario.perfil.email} />;
+  }
+
   const perfil = usuario.perfil?.perfil;
 
   const menuBase = [

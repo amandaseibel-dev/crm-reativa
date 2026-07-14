@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { supabase } from "../services/supabase";
 
-export default function RedefinirSenha() {
+export default function RedefinirSenha({ forcado, email }) {
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmarSenha, setConfirmarSenha] = useState("");
   const [salvando, setSalvando] = useState(false);
@@ -26,13 +26,19 @@ export default function RedefinirSenha() {
 
     const { error } = await supabase.auth.updateUser({ password: novaSenha });
 
-    setSalvando(false);
-
     if (error) {
+      setSalvando(false);
       setErro("Erro ao definir a senha: " + error.message);
       return;
     }
 
+    // Tira a marca de "precisa trocar senha" pra não pedir de novo no
+    // próximo login.
+    if (email) {
+      await supabase.from("usuarios").update({ deve_trocar_senha: false }).eq("email", email);
+    }
+
+    setSalvando(false);
     setSucesso(true);
     setTimeout(() => {
       window.location.href = "/";
@@ -53,8 +59,12 @@ export default function RedefinirSenha() {
   return (
     <div style={estilos.container}>
       <form style={estilos.card} onSubmit={salvar}>
-        <h1 style={estilos.titulo}>Defina sua nova senha</h1>
-        <p style={estilos.texto}>Escolha uma senha só sua, com pelo menos 8 caracteres.</p>
+        <h1 style={estilos.titulo}>{forcado ? "🔒 Troca de senha obrigatória" : "Defina sua nova senha"}</h1>
+        <p style={estilos.texto}>
+          {forcado
+            ? "Por segurança, você precisa definir uma senha nova sua (a senha antiga não vale mais depois disso). Pelo menos 8 caracteres."
+            : "Escolha uma senha só sua, com pelo menos 8 caracteres."}
+        </p>
 
         <label style={estilos.label}>Nova senha</label>
         <input
