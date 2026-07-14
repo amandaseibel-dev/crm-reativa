@@ -71,6 +71,7 @@ export default function VisaoGestao360({ dias = 30 }) {
   }
 
   const rec = d.recuperacao || {};
+  const base = d.base || {};
   const ac = d.acordos_ativos || {};
   const ops = d.por_operador || [];
   const atraso = d.faixa_atraso || [];
@@ -103,10 +104,17 @@ export default function VisaoGestao360({ dias = 30 }) {
       </div>
 
       <div style={s.statsRow}>
+        <Stat rot="Base total de alunos" val={num(base.total)} cor="#111827" />
+        <Stat rot="Sem responsavel" val={num(base.sem_responsavel)} cor="#f59e0b" />
+        <Stat rot="Com operacao" val={num(base.com_operador)} cor="#2563eb" />
+        <Stat rot="Valor total em aberto" val={moeda(base.valor_total)} cor="#16a34a" />
+      </div>
+
+      <div style={s.statsRow}>
         <Stat rot="Recuperado" val={moeda(rec.recuperado)} cor="#16a34a" />
         <Stat rot="Honorarios" val={moeda(rec.honorarios)} cor="#0ea5e9" />
         <Stat rot="Acordos ativos" val={num(ac.qtd)} cor="#7c3aed" />
-        <Stat rot="Parcelas pagas" val={num(rec.parcelas)} cor="#f59e0b" />
+        <Stat rot="Lancamentos" val={num(rec.lancamentos)} cor="#f59e0b" />
       </div>
 
       <div style={s.bloco}>
