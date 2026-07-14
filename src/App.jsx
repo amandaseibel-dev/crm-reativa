@@ -1,5 +1,18 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
+import {
+  LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
+  DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
+  BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
+  Upload, Users, Settings, UserCircle,
+} from "lucide-react";
+
+const ICONES_MENU = {
+  LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
+  DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
+  BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
+  Upload, Users, Settings, UserCircle,
+};
 import { supabase } from "./services/supabase";
 import AutoLogout from "./components/AutoLogout";
 
@@ -416,41 +429,46 @@ export default function App() {
   const menuBase = [
     {
       rota: "/",
-      label: perfil === "operador" ? "⚡ Minha Fila" : "🏠 Dashboard",
-      // Operador entra direto na Minha Carteira; a "/" redireciona para la e
-      // nao aparece no menu (nenhuma opcao de Fila Operacional para operador).
+      label: perfil === "operador" ? "Minha Fila" : "Dashboard",
+      icone: perfil === "operador" ? "Zap" : "LayoutDashboard",
+      secao: "Operação",
       esconderParaOperador: true,
     },
-    { rota: "/painel-carteira", label: "🗂️ Minha Carteira" },
-    { rota: "/meu-dashboard", label: "📊 Meu Dashboard" },
-    { rota: "/elogios-atendimento", label: "💚 Elogios de Atendimento" },
-    { rota: "/exportar-contatos", label: "📇 Exportar Contatos" },
-    { rota: "/projecao-hora-a-hora", label: "⏱️ Projeção Hora a Hora" },
+    { rota: "/painel-carteira", label: "Minha Carteira", icone: "Folder", secao: "Operação" },
     {
       rota: "/minha-fila",
-      label: "⚡ Fila Operacional",
+      label: "Fila Operacional",
+      icone: "Zap",
+      secao: "Operação",
       esconderParaOperador: true,
     },
-    { rota: "/agenda", label: "📅 Agenda Operacional" },
-    { rota: "/aluno", label: "👤 Aluno" },
-    { rota: "/crm", label: "📞 CRM Operacional" },
-    { rota: "/financeiro", label: "💰 Financeiro" },
+    { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" },
+    { rota: "/aluno", label: "Aluno", icone: "User", secao: "Operação" },
+    { rota: "/crm", label: "CRM Operacional", icone: "Phone", secao: "Operação" },
+    { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
+
+    { rota: "/financeiro", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
+    { rota: "/minha-fila-pagamentos", label: "Fila de Baixas", icone: "CreditCard", secao: "Financeiro" },
+    { rota: "/fila-confirmacao-pagamento", label: "Confirmação de Pagamento", icone: "CheckCircle2", secao: "Financeiro" },
+    { rota: "/borderos", label: "Borderôs", icone: "FileStack", secao: "Financeiro" },
+    { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Financeiro" },
+
+    { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
+    { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
+    { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
     // Fila de Links, Fila Financeiro e Termos ADM foram unificados dentro
     // do Painel ADM (abas com filtro). As rotas continuam existindo, só
     // não aparecem mais separadas no menu.
-    { rota: "/painel-adm", label: "📊 Painel ADM" },
-    { rota: "/painel-operadores", label: "🕒 Painel Operadores" },
-    { rota: "/minha-fila-pagamentos", label: "💳 Fila de Baixas" },
-    { rota: "/fila-confirmacao-pagamento", label: "✅ Confirmação de Pagamento" },
-    { rota: "/base-analitica", label: "📊 Base Analítica" },
-    { rota: "/borderos", label: "📑 Borderôs" },
-    { rota: "/vincular-operadores", label: "🔗 Vincular Operadores" },
-    { rota: "/importacoes", label: "📥 Importações" },
-    { rota: "/usuarios", label: "👥 Usuários" },
-    { rota: "/relatorios", label: "📈 Relatórios" },
-    { rota: "/configuracoes", label: "⚙️ Configurações" },
-    { rota: "/meu-perfil", label: "👤 Meu Perfil" },
-    { rota: "/financeiro-operadores", label: "🔒 Financeiro Operadores" },
+    { rota: "/painel-adm", label: "Painel ADM", icone: "LayoutPanelTop", secao: "Gestão" },
+    { rota: "/painel-operadores", label: "Painel Operadores", icone: "Clock3", secao: "Gestão" },
+    { rota: "/base-analitica", label: "Base Analítica", icone: "Database", secao: "Gestão" },
+    { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
+    { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
+
+    { rota: "/importacoes", label: "Importações", icone: "Upload", secao: "Configurações" },
+    { rota: "/usuarios", label: "Usuários", icone: "Users", secao: "Configurações" },
+    { rota: "/configuracoes", label: "Configurações", icone: "Settings", secao: "Configurações" },
+    { rota: "/meu-perfil", label: "Meu Perfil", icone: "UserCircle", secao: "Configurações" },
   ];
 
   const menu = menuBase.filter((item) => {
@@ -530,17 +548,23 @@ export default function App() {
           </div>
 
           <nav>
-            {menu.map((item) => {
-              const icone = item.label.split(" ")[0];
+            {menu.map((item, indice) => {
+              const IconeComponente = ICONES_MENU[item.icone] || Zap;
+              const secaoAnterior = indice > 0 ? menu[indice - 1].secao : null;
+              const mostrarTituloSecao = item.secao && item.secao !== secaoAnterior && !sidebarRecolhida;
 
               return (
-                <NavLink
-                  key={item.rota}
-                  to={item.rota}
-                  end={item.rota === "/"}
-                  title={sidebarRecolhida ? item.label : undefined}
-                >
-                  {sidebarRecolhida ? icone : item.label}
+                <div key={item.rota}>
+                  {mostrarTituloSecao && (
+                    <div className="sidebar-secao-titulo">{item.secao}</div>
+                  )}
+                  <NavLink
+                    to={item.rota}
+                    end={item.rota === "/"}
+                    title={sidebarRecolhida ? item.label : undefined}
+                  >
+                    <IconeComponente size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
+                    {!sidebarRecolhida && <span>{item.label}</span>}
                 {item.rota === "/painel-adm" && linksAguardando > 0 && (
                   <span className="badge-pendente" title="Solicitações de link aguardando resposta">
                     {linksAguardando}
@@ -570,7 +594,8 @@ export default function App() {
                     {elogiosPendentes}
                   </span>
                 )}
-              </NavLink>
+                  </NavLink>
+                </div>
               );
             })}
           </nav>
