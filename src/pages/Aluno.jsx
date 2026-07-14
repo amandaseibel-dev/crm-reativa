@@ -369,7 +369,13 @@ export default function Alunos() {
         if (somenteNumeros.length >= 3) {
           query = query.ilike("cpf", `%${somenteNumeros}%`);
         } else {
-          query = query.ilike("nome", `%${termo}%`);
+          // Busca sem acento: "Joao" precisa achar "João". Normaliza o termo
+          // igual a coluna nome_normalizado (minusculo, sem acento).
+          const termoNormalizado = termo
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .toLowerCase();
+          query = query.ilike("nome_normalizado", `%${termoNormalizado}%`);
         }
       }
 

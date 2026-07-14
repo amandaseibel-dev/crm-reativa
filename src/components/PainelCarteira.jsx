@@ -84,6 +84,15 @@ function formatarMoeda(valor) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// Remove acentos pra busca funcionar independente de como a pessoa digitou
+// (ex: "Joao" precisa achar "João").
+function semAcento(texto) {
+  return String(texto || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase();
+}
+
 function nomeAluno(a) {
   return a?.nome || a?.nome_aluno || a?.aluno || "Aluno sem nome";
 }
@@ -1153,11 +1162,11 @@ export default function PainelCarteira({ embedded = false }) {
       l = l.filter((a) => statusPrazo(a).label === filtroStatus);
     }
     if (busca.trim()) {
-      const t = busca.toLowerCase().trim();
+      const t = semAcento(busca);
       l = l.filter((a) =>
         [nomeAluno(a), a.cpf, a.telefone, a.responsavel_atual_nome, situacaoLabel(a)]
           .filter(Boolean)
-          .some((c) => String(c).toLowerCase().includes(t))
+          .some((c) => semAcento(c).includes(t))
       );
     }
     const keyDias = (a) => {
