@@ -400,8 +400,35 @@ export default function PainelCarteira({ embedded = false }) {
     if (email === null) return;
     carregar();
     carregarRetornosPendentes();
+    carregarNovosCasosAutomaticos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email, veTudo, operadorFiltro]);
+
+  const [novosCasosAutomaticos, setNovosCasosAutomaticos] = useState([]);
+  const [avisoNovosCasosFechado, setAvisoNovosCasosFechado] = useState(false);
+
+  // Avisa o operador quando ele recebeu caso(s) novo(s) pela reposicao
+  // automatica (quando outro caso dele foi quitado/fechado e o sistema
+  // repos sozinho, sem ele pedir). So mostra as ultimas 24h, sem repetir
+  // depois que ele ve/fecha o aviso na sessao atual.
+  async function carregarNovosCasosAutomaticos() {
+    if (!email) return;
+
+    const desde = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    const { data, error } = await supabase
+      .from("historico_operadores_alunos")
+      .select("nome_aluno, criado_em")
+      .eq("acao", "REPOSICAO_AUTOMATICA_VAGA")
+      .eq("operador_email", email)
+      .gte("criado_em", desde)
+      .order("criado_em", { ascending: false })
+      .limit(20);
+
+    if (!error) {
+      setNovosCasosAutomaticos(data || []);
+    }
+  }
 
   const usuarioLogado = useMemo(
     () => usuarioPerfil || (email ? { email, nome: nomeOperadorPorEmail(email) } : null),
@@ -1223,6 +1250,42 @@ export default function PainelCarteira({ embedded = false }) {
   const conteudo = (
     <div style={S.pagina} className="pc-root">
       <style>{CSS_RESPONSIVO}</style>
+
+      {!avisoNovosCasosFechado && novosCasosAutomaticos.length > 0 && (
+        <div
+          style={{
+            background: "#ecfaf3",
+            border: "1px solid #bdeed4",
+            borderRadius: 14,
+            padding: "13px 16px",
+            marginBottom: 16,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 12,
+          }}
+        >
+          <div>
+            <strong style={{ color: "#0f7a4f" }}>
+              🔄 Você recebeu {novosCasosAutomaticos.length} caso{novosCasosAutomaticos.length > 1 ? "s" : ""} novo
+              {novosCasosAutomaticos.length > 1 ? "s" : ""} automaticamente nas últimas 24h
+            </strong>
+            <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "#0f7a4f" }}>
+              Reposição automática (outro caso seu foi confirmado/fechado): {" "}
+              {novosCasosAutomaticos.slice(0, 5).map((c) => c.nome_aluno).join(", ")}
+              {novosCasosAutomaticos.length > 5 ? ` e mais ${novosCasosAutomaticos.length - 5}` : ""}.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAvisoNovosCasosFechado(true)}
+            style={{ border: "none", background: "transparent", color: "#0f7a4f", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
+          >
+            Fechar
+          </button>
+        </div>
+      )}
+
       <div style={S.cabecalho}>
         <div>
           <h1 style={S.titulo}>Minha Carteira</h1>
