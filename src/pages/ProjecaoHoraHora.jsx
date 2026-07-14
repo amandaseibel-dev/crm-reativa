@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
-import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail } from "../utils/operadores";
+import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
 
 function moeda(valor) {
   const n = Number(valor);
@@ -87,6 +87,8 @@ function normalizarLinhaSantander(linhaArray) {
 export default function ProjecaoHoraHora() {
   const [usuario, setUsuario] = useState(null);
   const [aba, setAba] = useState("DASHBOARD");
+  const [subAbaDashboard, setSubAbaDashboard] = useState("VISAO_GERAL");
+  const [operadorSelecionado, setOperadorSelecionado] = useState("");
   const [mesReferencia, setMesReferencia] = useState(mesAtualISO());
 
   const [dashboard, setDashboard] = useState(null);
@@ -161,7 +163,7 @@ export default function ProjecaoHoraHora() {
     }, 30000);
     return () => clearInterval(intervalo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mesReferencia, usuario]);
+  }, [mesReferencia, usuario, operadorSelecionado]);
 
   useEffect(() => {
     if (aba === "HISTORICO") carregarHistorico();
@@ -209,7 +211,10 @@ export default function ProjecaoHoraHora() {
 
   async function carregarDashboard() {
     setErro("");
-    const { data, error } = await supabase.rpc("projecao_dashboard", { p_mes: mesReferencia });
+    const { data, error } = await supabase.rpc("projecao_dashboard", {
+      p_mes: mesReferencia,
+      p_operador_email: operadorSelecionado || null,
+    });
     if (error) {
       setErro("Erro ao carregar indicadores: " + error.message);
     } else {
@@ -544,11 +549,34 @@ export default function ProjecaoHoraHora() {
             <p style={{ opacity: 0.7 }}>Carregando indicadores...</p>
           ) : (
             <>
+              {vePainelGestao && (
+                <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
+                  {[
+                    ["VISAO_GERAL", "📊 Visão Geral"],
+                    ["POR_OPERADOR", "👤 Por Operador"],
+                    ["EVOLUCAO", "📈 Evolução & Ranking"],
+                    ["CONFIGURACOES", "🎯 Configurações"],
+                  ].map(([chave, rotulo]) => (
+                    <button
+                      key={chave}
+                      onClick={() => setSubAbaDashboard(chave)}
+                      style={
+                        subAbaDashboard === chave
+                          ? { ...estilos.botaoPrimario, marginTop: 0, padding: "8px 16px", fontSize: 13 }
+                          : { ...estilos.botaoPrimario, marginTop: 0, padding: "8px 16px", fontSize: 13, background: "#fff", color: "#475569", border: `1px solid ${PH_BORDA}` }
+                      }
+                    >
+                      {rotulo}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {/* Bloco da filial (meta geral, % geral etc.) é informação
                   gerencial -- só aparece pra quem gerencia (Amanda/Fernanda).
                   Operador vê só o que é dele: honorário hoje/mês e a
                   projeção individual mais abaixo. */}
-              {vePainelGestao && (
+              {vePainelGestao && subAbaDashboard === "VISAO_GERAL" && (
                 <>
                   <div style={estilos.blocoFilial}>
                     <h3 style={{ marginBottom: 10 }}>🏢 Meta geral — Projeção da filial ({mesReferencia})</h3>
@@ -622,6 +650,27 @@ export default function ProjecaoHoraHora() {
                 </>
               )}
 
+              {vePainelGestao && subAbaDashboard === "POR_OPERADOR" && (
+                <div style={estilos.blocoMeta}>
+                  <h3 style={{ marginBottom: 10 }}>👤 Selecione um operador</h3>
+                  <select
+                    value={operadorSelecionado}
+                    onChange={(e) => setOperadorSelecionado(e.target.value)}
+                    style={{ ...estilos.input, maxWidth: 260 }}
+                  >
+                    <option value="">Selecione...</option>
+                    {Object.entries(OPERADORES_POR_EMAIL).map(([email, nome]) => (
+                      <option key={email} value={email}>{nome}</option>
+                    ))}
+                  </select>
+                  {!operadorSelecionado && (
+                    <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: 10 }}>
+                      Escolha um operador acima pra ver a meta, projeção e comissão dele.
+                    </p>
+                  )}
+                </div>
+              )}
+
               {usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br" && (
                 <>
                   <h3 style={{ margin: "20px 0 10px" }}>💼 Meu painel (Amanda ADM)</h3>
@@ -640,9 +689,14 @@ export default function ProjecaoHoraHora() {
                 </>
               )}
 
-              {!usuario?.podeGerir && (
+              {(!usuario?.podeGerir || (vePainelGestao && subAbaDashboard === "POR_OPERADOR" && operadorSelecionado)) && (
                 <>
-                  <h3 style={{ margin: "20px 0 10px" }}>👤 Meus números</h3>
+                  {vePainelGestao && (
+                    <h3 style={{ margin: "0 0 10px" }}>
+                      Números de {OPERADORES_POR_EMAIL[operadorSelecionado] || operadorSelecionado}
+                    </h3>
+                  )}
+                  <h3 style={{ margin: "20px 0 10px" }}>👤 {vePainelGestao ? "Números do mês" : "Meus números"}</h3>
                   <div style={estilos.grade}>
                     <Cartao label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
                     <Cartao label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
@@ -650,12 +704,12 @@ export default function ProjecaoHoraHora() {
                     <Cartao label="Honorários do mês" valor={moeda(dashboard?.honorario_mes)} destaque />
                   </div>
 
-                  <h3 style={{ margin: "20px 0 10px" }}>🎯 Minha meta do mês (individual)</h3>
+                  <h3 style={{ margin: "20px 0 10px" }}>🎯 Meta do mês (individual)</h3>
                   <div style={estilos.grade}>
-                    <Cartao label="Minha meta de honorário (mês, fixa)" valor={moeda(dashboard?.meta_honorario_individual)} />
+                    <Cartao label="Meta de honorário (mês, fixa)" valor={moeda(dashboard?.meta_honorario_individual)} />
                     <Cartao label="Honorário já realizado no mês" valor={moeda(dashboard?.honorario_mes)} destaque />
                     <Cartao
-                      label="% da minha meta já atingido"
+                      label="% da meta já atingido"
                       valor={`${dashboard?.percentual_meta_individual_realizado ?? 0}%`}
                       cor={(dashboard?.percentual_meta_individual_realizado ?? 0) >= 100 ? "#86efac" : "#7dd3fc"}
                     />
@@ -678,27 +732,27 @@ export default function ProjecaoHoraHora() {
                     />
                   </div>
 
-                  <h3 style={{ margin: "20px 0 10px" }}>💰 Comissão sobre meu honorário (mês)</h3>
+                  <h3 style={{ margin: "20px 0 10px" }}>💰 Comissão sobre o honorário (mês)</h3>
                   <div style={estilos.grade}>
                     <Cartao
                       label="Comissão estimada até agora"
                       valor={moeda(dashboard?.comissao_estimada_individual)}
                       destaque
                     />
-                    <Cartao label="Minha faixa atual" valor={dashboard?.faixa_atual || "-"} />
+                    <Cartao label="Faixa atual" valor={dashboard?.faixa_atual || "-"} />
                   </div>
                   <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
-                    Cálculo progressivo (igual imposto de renda) sobre o SEU honorário do mês: cada faixa
+                    Cálculo progressivo (igual imposto de renda) sobre o honorário do mês: cada faixa
                     comissiona só a fatia que cai dentro dela.
                   </p>
                   <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
-                    Projeção calculada com base no seu ritmo médio de honorário por dia útil, multiplicado
+                    Projeção calculada com base no ritmo médio de honorário por dia útil, multiplicado
                     pelos dias úteis totais do mês. Não é garantia, é uma estimativa.
                   </p>
                 </>
               )}
 
-              {vePainelGestao && (
+              {vePainelGestao && subAbaDashboard === "CONFIGURACOES" && (
                 <div style={estilos.blocoMeta}>
                   <h3 style={{ marginBottom: 4 }}>🎯 Configuração de metas da competência ({mesReferencia})</h3>
                   <p style={{ opacity: 0.65, fontSize: 12, marginBottom: 14 }}>
@@ -772,6 +826,7 @@ export default function ProjecaoHoraHora() {
                 </div>
               )}
 
+              {(!vePainelGestao || subAbaDashboard === "EVOLUCAO") && (
               <div style={estilos.blocoGrafico}>
                 <h3 style={{ marginBottom: 12 }}>📈 Evolução do mês (recuperado por dia)</h3>
                 <p style={{ opacity: 0.6, fontSize: 12, marginTop: -6, marginBottom: 10 }}>
@@ -868,8 +923,9 @@ export default function ProjecaoHoraHora() {
                   </div>
                 )}
               </div>
+              )}
 
-              {usuario?.email?.toLowerCase() !== "cobranca07@aelbra.com.br" && (
+              {(!vePainelGestao || subAbaDashboard === "EVOLUCAO") && usuario?.email?.toLowerCase() !== "cobranca07@aelbra.com.br" && (
                 <>
                   <div style={estilos.blocoRanking}>
                     <h3 style={{ marginBottom: 10 }}>
