@@ -4,15 +4,16 @@ import FilaConfirmacaoPagamento from "./FilaConfirmacaoPagamento";
 import Borderos from "./Borderos";
 import PainelAdm from "./PainelAdm";
 import GestaoFinanceiraOperadores from "./GestaoFinanceiraOperadores";
+import MinhaFilaPagamentos from "./MinhaFilaPagamentos";
 
-// Reune as 5 telas financeiras num lugar so, com abas. Cada aba carrega o
+// Reune as telas financeiras num lugar so, com abas. Cada aba carrega o
 // componente ORIGINAL sem nenhuma alteracao interna -- nenhuma logica,
-// permissao ou referencia foi tocada, so a navegacao mudou (era 5 itens de
-// menu separados, agora e 1 item com 5 abas).
+// permissao ou referencia foi tocada, so a navegacao mudou.
 const ABAS = [
   { chave: "PAINEL_ADM", rotulo: "Painel ADM" },
   { chave: "FINANCEIRO", rotulo: "Financeiro" },
   { chave: "CONFIRMACAO", rotulo: "Confirmação de Pagamento" },
+  { chave: "FILA_BAIXAS", rotulo: "Fila de Baixas" },
   { chave: "BORDEROS", rotulo: "Borderôs" },
   { chave: "OPERADORES", rotulo: "Financeiro Operadores" },
 ];
@@ -45,6 +46,7 @@ export default function FinanceiroHub() {
         {aba === "PAINEL_ADM" && <PainelAdm />}
         {aba === "FINANCEIRO" && <ConsultaFinanceira />}
         {aba === "CONFIRMACAO" && <FilaConfirmacaoPagamento />}
+        {aba === "FILA_BAIXAS" && <MinhaFilaPagamentos />}
         {aba === "BORDEROS" && <Borderos />}
         {aba === "OPERADORES" && <GestaoFinanceiraOperadores />}
       </div>
