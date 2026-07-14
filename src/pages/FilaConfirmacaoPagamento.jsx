@@ -422,8 +422,6 @@ export default function FilaConfirmacaoPagamento() {
         </button>
       </div>
 
-      <PagamentosNaoIdentificados />
-
       <div style={styles.cardsIndicadores}>
         <div style={styles.indicador}>
           <span style={styles.numero}>{contadores.pendentes}</span>
@@ -449,8 +447,15 @@ export default function FilaConfirmacaoPagamento() {
         <button style={filtro === "TODOS" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("TODOS")}>
           Todos
         </button>
+        <button style={filtro === "NAO_IDENTIFICADOS" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("NAO_IDENTIFICADOS")}>
+          Não identificados
+        </button>
       </div>
 
+      {filtro === "NAO_IDENTIFICADOS" ? (
+        <PagamentosNaoIdentificados />
+      ) : (
+        <>
       {solicitacoesFiltradas.length === 0 && (
         <div style={styles.vazio}>Nenhuma solicitação neste filtro.</div>
       )}
@@ -486,6 +491,8 @@ export default function FilaConfirmacaoPagamento() {
             </tbody>
           </table>
         </div>
+      )}
+        </>
       )}
 
       {/* ---- Ficha do aluno (modal) ---- */}
