@@ -95,7 +95,8 @@ export default function FilaConfirmacaoPagamento() {
     const { data, error } = await supabase
       .from("solicitacoes_confirmacao_pagamento")
       .select("*")
-      .order("criado_em", { ascending: false });
+      .order("criado_em", { ascending: false })
+      .limit(5000);
 
     if (error) {
       alert("Erro ao carregar fila de confirmação de pagamento: " + error.message);
