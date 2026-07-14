@@ -33,6 +33,7 @@ export default function VisaoGestao360({ dias = 30 }) {
   const [d, setD] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
+  const [ufSel, setUfSel] = useState(null);
 
   useEffect(() => {
     let ativo = true;
@@ -84,9 +85,10 @@ export default function VisaoGestao360({ dias = 30 }) {
   (unis || []).forEach((x) => {
     const uf = ufDaUnidade(x.unidade);
     if (!uf) { semUF += Number(x.valor) || 0; return; }
-    if (!porUF[uf]) porUF[uf] = { uf, valor: 0, recuperado: 0 };
+    if (!porUF[uf]) porUF[uf] = { uf, valor: 0, recuperado: 0, titulos: 0 };
     porUF[uf].valor += Number(x.valor) || 0;
     porUF[uf].recuperado += Number(x.recuperado) || 0;
+    porUF[uf].titulos += Number(x.titulos) || 0;
   });
   const maxUF = Math.max(1, ...Object.values(porUF).map((u) => u.valor));
   const ufOrdenado = Object.values(porUF).sort((a, b) => b.valor - a.valor);
@@ -178,7 +180,10 @@ export default function VisaoGestao360({ dias = 30 }) {
               const inten = info ? 0.28 + 0.72 * (info.valor / maxUF) : 0;
               return (
                 <div key={uf} title={uf + (info ? ": " + moeda(info.valor) : " (sem carteira)")}
+                  onClick={() => info && setUfSel(uf === ufSel ? null : uf)}
                   style={{ ...s.uf, gridColumn: UF_POS[uf][0], gridRow: UF_POS[uf][1],
+                    cursor: info ? "pointer" : "default",
+                    outline: uf === ufSel ? "3px solid #1d4ed8" : "none", outlineOffset: 1,
                     background: info ? "rgba(37,99,235," + inten.toFixed(2) + ")" : "#eef2f6",
                     color: info && inten > 0.55 ? "#fff" : "#94a3b8" }}>
                   {uf}
@@ -198,6 +203,23 @@ export default function VisaoGestao360({ dias = 30 }) {
             )}
           </div>
         </div>
+        {(() => {
+          const sel = ufSel || (ufOrdenado[0] && ufOrdenado[0].uf);
+          const info = sel && porUF[sel];
+          if (!info) return null;
+          const pctRec = info.valor > 0 ? (info.recuperado / info.valor) * 100 : 0;
+          return (
+            <div style={s.ufDetalhe}>
+              <div style={s.ufDetHead}>{sel} - detalhe do estado{ufSel ? "" : " (maior carteira)"}</div>
+              <div style={s.ufDetGrid}>
+                <Stat rot="Titulos em aberto" val={num(info.titulos)} cor="#0ea5e9" />
+                <Stat rot="Valor em aberto" val={moeda(info.valor)} cor="#111827" />
+                <Stat rot="Recuperado" val={moeda(info.recuperado)} cor="#16a34a" />
+                <Stat rot="% recuperado" val={pctRec.toFixed(1) + "%"} cor="#7c3aed" />
+              </div>
+            </div>
+          );
+        })()}
       </div>
     </div>
   );
@@ -255,6 +277,9 @@ const s = {
   barTrack: { background: "#f1f5f9", borderRadius: 999, height: 10, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: 999 },
   recU: { fontSize: 11, color: "#16a34a", fontWeight: 600 },
+  ufDetalhe: { marginTop: 16, borderTop: "1px dashed #e2e8f0", paddingTop: 14 },
+  ufDetHead: { fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 10 },
+  ufDetGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 },
   mapaRow: { display: "flex", gap: 22, flexWrap: "wrap", alignItems: "flex-start" },
   mapaGrid: { display: "grid", gridTemplateColumns: "repeat(7, 34px)", gridTemplateRows: "repeat(8, 34px)", gap: 5 },
   uf: { display: "flex", alignItems: "center", justifyContent: "center", borderRadius: 8, fontSize: 11, fontWeight: 700, boxShadow: "0 1px 2px rgba(15,23,42,0.06)" },
