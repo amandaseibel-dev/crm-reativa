@@ -38,7 +38,7 @@ export default function ElogiosAtendimento() {
 
     const { data, error } = await supabase
       .from("aluno_movimentacoes")
-      .select("id, aluno_id, descricao, registrado_por_nome, registrado_por_email, registrado_em, elogio_print_path, elogio_print_nome, elogio_aprovado_tv, elogio_aprovado_por, elogio_aprovado_em")
+      .select("id, aluno_id, descricao, registrado_por_nome, registrado_por_email, registrado_em, elogio_print_path, elogio_print_nome, elogio_aprovado_tv, elogio_aprovado_por, elogio_aprovado_em, elogio_rejeitado_tv, elogio_rejeitado_por, elogio_rejeitado_em")
       .eq("tipo", "FINALIZACAO_ATENDIMENTO")
       .eq("status_novo", "ELOGIO_ATENDIMENTO")
       .order("registrado_em", { ascending: false })
@@ -90,6 +90,11 @@ export default function ElogiosAtendimento() {
         elogio_aprovado_tv: aprovarAgora,
         elogio_aprovado_por: aprovarAgora ? email : null,
         elogio_aprovado_em: aprovarAgora ? new Date().toISOString() : null,
+        // Aprovar sempre limpa uma rejeição anterior, pra não ficar com os
+        // dois estados marcados ao mesmo tempo.
+        elogio_rejeitado_tv: false,
+        elogio_rejeitado_por: null,
+        elogio_rejeitado_em: null,
       })
       .eq("id", elogio.id);
 
@@ -101,7 +106,50 @@ export default function ElogiosAtendimento() {
     setElogios((atual) =>
       atual.map((e) =>
         e.id === elogio.id
-          ? { ...e, elogio_aprovado_tv: aprovarAgora, elogio_aprovado_por: aprovarAgora ? email : null }
+          ? {
+              ...e,
+              elogio_aprovado_tv: aprovarAgora,
+              elogio_aprovado_por: aprovarAgora ? email : null,
+              elogio_rejeitado_tv: false,
+            }
+          : e
+      )
+    );
+  }
+
+  async function alternarRejeicao(elogio) {
+    const { data: userData } = await supabase.auth.getUser();
+    const email = userData?.user?.email || "";
+    const rejeitarAgora = !elogio.elogio_rejeitado_tv;
+
+    const { error } = await supabase
+      .from("aluno_movimentacoes")
+      .update({
+        elogio_rejeitado_tv: rejeitarAgora,
+        elogio_rejeitado_por: rejeitarAgora ? email : null,
+        elogio_rejeitado_em: rejeitarAgora ? new Date().toISOString() : null,
+        // Rejeitar sempre tira da TV, pra não ficar aprovado e rejeitado
+        // ao mesmo tempo.
+        elogio_aprovado_tv: false,
+        elogio_aprovado_por: null,
+        elogio_aprovado_em: null,
+      })
+      .eq("id", elogio.id);
+
+    if (error) {
+      alert("Erro ao rejeitar elogio: " + error.message);
+      return;
+    }
+
+    setElogios((atual) =>
+      atual.map((e) =>
+        e.id === elogio.id
+          ? {
+              ...e,
+              elogio_rejeitado_tv: rejeitarAgora,
+              elogio_rejeitado_por: rejeitarAgora ? email : null,
+              elogio_aprovado_tv: false,
+            }
           : e
       )
     );
@@ -186,8 +234,16 @@ export default function ElogiosAtendimento() {
             key={e.id}
             style={{
               ...estilos.card2,
-              borderColor: e.elogio_aprovado_tv ? "#bbf7d0" : "#edf0f5",
-              background: e.elogio_aprovado_tv ? "#f7fdf9" : "#fff",
+              borderColor: e.elogio_aprovado_tv
+                ? "#bbf7d0"
+                : e.elogio_rejeitado_tv
+                ? "#fecaca"
+                : "#edf0f5",
+              background: e.elogio_aprovado_tv
+                ? "#f7fdf9"
+                : e.elogio_rejeitado_tv
+                ? "#fef7f7"
+                : "#fff",
             }}
           >
             <div style={estilos.topoCard}>
@@ -195,6 +251,7 @@ export default function ElogiosAtendimento() {
                 <p style={estilos.nomeAluno}>
                   {e.aluno_nome}
                   {e.elogio_aprovado_tv && <span style={estilos.badgeAprovado}>✅ Na TV</span>}
+                  {e.elogio_rejeitado_tv && <span style={estilos.badgeRejeitado}>✖ Rejeitado</span>}
                 </p>
                 <p style={estilos.meta}>
                   Registrado por <strong>{e.registrado_por_nome || e.registrado_por_email}</strong> em{" "}
@@ -213,6 +270,12 @@ export default function ElogiosAtendimento() {
                   onClick={() => alternarAprovacao(e)}
                 >
                   {e.elogio_aprovado_tv ? "Remover da TV" : "✅ Aprovar para TV"}
+                </button>
+                <button
+                  style={e.elogio_rejeitado_tv ? estilos.botaoDesaprovar : estilos.botaoRejeitar}
+                  onClick={() => alternarRejeicao(e)}
+                >
+                  {e.elogio_rejeitado_tv ? "Desfazer rejeição" : "✖ Rejeitar"}
                 </button>
               </div>
             </div>
@@ -369,10 +432,30 @@ const estilos = {
     borderRadius: 999,
     padding: "2px 9px",
   },
+  badgeRejeitado: {
+    marginLeft: 8,
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#b91c1c",
+    background: "#fef2f2",
+    border: "1px solid #fecaca",
+    borderRadius: 999,
+    padding: "2px 9px",
+  },
   botaoAprovar: {
     background: "#0f9d6b",
     color: "#fff",
     border: "none",
+    borderRadius: 8,
+    padding: "6px 10px",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  botaoRejeitar: {
+    background: "#fff",
+    color: "#475569",
+    border: "1px solid #cbd5e1",
     borderRadius: 8,
     padding: "6px 10px",
     fontSize: 12,
