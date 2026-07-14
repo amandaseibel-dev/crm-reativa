@@ -348,6 +348,9 @@ export default function PainelCarteira({ embedded = false }) {
   const [honorarios, setHonorarios] = useState(null);
   const [carregandoModal, setCarregandoModal] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [editandoOperador, setEditandoOperador] = useState(false);
+  const [novoOperadorEmailModal, setNovoOperadorEmailModal] = useState("");
+  const [salvandoOperador, setSalvandoOperador] = useState(false);
   const [feedback, setFeedback] = useState(null); // { tipo: "ok"|"erro", texto }
 
   // Formulario de tabulacao/finalizacao (Negociacao)
@@ -808,6 +811,57 @@ export default function PainelCarteira({ embedded = false }) {
     // A conclusao do retorno e feita pelo gatilho quando a acao real ocorre;
     // atualiza contador ao fechar.
     carregarRetornosPendentes();
+  }
+
+  // Troca rapida do operador responsavel direto no modal, sem sair da
+  // Minha Carteira. So quem ve tudo (Amanda e Fernanda) tem esse controle.
+  async function salvarOperadorModal() {
+    if (!alunoModal?.id || !novoOperadorEmailModal) return;
+
+    const novoOperador = OPERADORES.find((op) => op.email === novoOperadorEmailModal);
+    if (!novoOperador) return;
+
+    setSalvandoOperador(true);
+
+    const anteriorNome = alunoModal.responsavel_atual_nome || "Sem responsável anterior";
+    const anteriorEmail = alunoModal.responsavel_atual_email || null;
+    const agora = new Date().toISOString();
+
+    const { error } = await supabase
+      .from("alunos")
+      .update({
+        responsavel_atual_nome: novoOperador.nome,
+        responsavel_atual_email: novoOperador.email,
+        responsavel_atual_em: agora,
+        registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
+        registrado_por_email: email,
+        registrado_em: agora,
+      })
+      .eq("id", alunoModal.id);
+
+    if (error) {
+      alert("Erro ao alterar operador responsável: " + error.message);
+      setSalvandoOperador(false);
+      return;
+    }
+
+    await supabase.from("aluno_movimentacoes").insert({
+      aluno_id: String(alunoModal.id),
+      tipo: "ALTERACAO_OPERADOR",
+      descricao: `Operador responsável alterado de ${anteriorNome} para ${novoOperador.nome} direto na Minha Carteira.`,
+      registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
+      registrado_por_email: email,
+      registrado_em: agora,
+      operador_anterior_nome: anteriorNome,
+      operador_anterior_email: anteriorEmail,
+      operador_novo_nome: novoOperador.nome,
+      operador_novo_email: novoOperador.email,
+    });
+
+    setEditandoOperador(false);
+    setNovoOperadorEmailModal("");
+    setSalvandoOperador(false);
+    atualizarTudo(alunoModal.id);
   }
 
   // Recarrega o aluno atual (linha da carteira + modal) apos uma acao.
@@ -1429,7 +1483,62 @@ export default function PainelCarteira({ embedded = false }) {
               {abaModal === "resumo" && (
                 <div style={S.secao}>
                   <div style={S.gridInfo}>
-                    <Info rot="Operador responsavel" val={alunoModal.responsavel_atual_nome || "-"} />
+                    {!editandoOperador ? (
+                      <div style={S.infoBox}>
+                        <div style={S.infoRot}>Operador responsavel</div>
+                        <div style={S.infoVal}>
+                          {alunoModal.responsavel_atual_nome || "-"}
+                          {veTudo && (
+                            <button
+                              type="button"
+                              style={S.btnEditarOperador}
+                              onClick={() => {
+                                setNovoOperadorEmailModal(alunoModal.responsavel_atual_email || "");
+                                setEditandoOperador(true);
+                              }}
+                            >
+                              ✏️
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={S.infoBox}>
+                        <div style={S.infoRot}>Operador responsavel</div>
+                        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                          <select
+                            style={S.selectOperadorFicha}
+                            value={novoOperadorEmailModal}
+                            onChange={(e) => setNovoOperadorEmailModal(e.target.value)}
+                          >
+                            <option value="">Selecione</option>
+                            {OPERADORES.map((op) => (
+                              <option key={op.email} value={op.email}>
+                                {op.nome}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            style={S.btnSalvarOperador}
+                            disabled={salvandoOperador || !novoOperadorEmailModal}
+                            onClick={salvarOperadorModal}
+                          >
+                            {salvandoOperador ? "..." : "Salvar"}
+                          </button>
+                          <button
+                            type="button"
+                            style={S.btnCancelarOperador}
+                            onClick={() => {
+                              setEditandoOperador(false);
+                              setNovoOperadorEmailModal("");
+                            }}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )}
                     <Info rot="Situacao" val={situacaoLabel(alunoModal)} />
                     <Info rot="Ultimo contato" val={formatarData(alunoModal.data_ultimo_acionamento || alunoModal.ultimo_contato)} />
                     <Info rot="Proximo contato" val={`${formatarData(alunoModal.data_retorno)}${alunoModal.hora_retorno ? " " + alunoModal.hora_retorno : ""}`} />
@@ -1737,6 +1846,10 @@ const S = {
   infoBox: { background: "#f9fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: "8px 12px" },
   infoRot: { fontSize: 11, color: "#94a3b8", marginBottom: 2 },
   infoVal: { fontSize: 13.5, color: "#1e293b", fontWeight: 600 },
+  btnEditarOperador: { marginLeft: 6, border: "none", background: "transparent", cursor: "pointer", fontSize: 13 },
+  selectOperadorFicha: { padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12, maxWidth: 160 },
+  btnSalvarOperador: { border: "none", background: "#16a34a", color: "#fff", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  btnCancelarOperador: { border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" },
   label: { fontSize: 12, fontWeight: 600, color: "#475569", marginTop: 4 },
   input: { padding: "9px 11px", borderRadius: 8, border: `1px solid ${COR_BORDA}`, fontSize: 13, background: "#fff", color: "#334155" },
   textarea: { padding: "9px 11px", borderRadius: 8, border: `1px solid ${COR_BORDA}`, fontSize: 13, minHeight: 70, resize: "vertical", fontFamily: "inherit", background: "#fff", color: "#334155" },
