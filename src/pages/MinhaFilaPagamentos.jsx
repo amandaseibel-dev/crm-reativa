@@ -162,6 +162,19 @@ export default function MinhaFilaPagamentos() {
           data_ultimo_acionamento: agora,
         })
         .eq("id", item.aluno_id);
+
+      // Sinaliza que o caso saiu da carteira ativa -- dispara a reposicao
+      // automatica (mesmo mecanismo da confirmacao de pagamento).
+      const { error: erroLiberar } = await supabase.rpc("liberar_caso_por_evento", {
+        p_aluno_id: item.aluno_id,
+        p_evento: "LINK_PAGO",
+        p_valor_pago: valorPago,
+        p_data_pagamento: agora.slice(0, 10),
+      });
+
+      if (erroLiberar) {
+        console.error("Erro ao liberar caso (reposição automática):", erroLiberar);
+      }
     }
 
     // Registra o acordo/parcelamento (vencimentos digitados manualmente),

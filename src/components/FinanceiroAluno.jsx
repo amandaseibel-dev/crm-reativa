@@ -573,6 +573,19 @@ export default function FinanceiroAluno({ aluno }) {
       return;
     }
 
+    // Sinaliza que o caso saiu da carteira ativa -- dispara a reposicao
+    // automatica (mesmo mecanismo da confirmacao de pagamento).
+    if (aluno?.id) {
+      const { error: erroLiberar } = await supabase.rpc("liberar_caso_por_evento", {
+        p_aluno_id: aluno.id,
+        p_evento: "CANCELADO",
+      });
+
+      if (erroLiberar) {
+        console.error("Erro ao liberar caso (reposição automática):", erroLiberar);
+      }
+    }
+
     setRecarga((r) => r + 1);
     alert("Acordo cancelado.");
   }

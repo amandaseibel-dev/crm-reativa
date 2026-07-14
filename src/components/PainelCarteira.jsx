@@ -1002,6 +1002,18 @@ export default function PainelCarteira({ embedded = false }) {
         }
       }
 
+      // Foi pra juridico -- sinaliza que o caso saiu da carteira ativa,
+      // dispara a reposicao automatica.
+      if (statusNovo === "JURIDICO") {
+        const { error: erroLiberar } = await supabase.rpc("liberar_caso_por_evento", {
+          p_aluno_id: a.id,
+          p_evento: "JURIDICO",
+        });
+        if (erroLiberar) {
+          console.error("Erro ao liberar caso (reposição automática):", erroLiberar);
+        }
+      }
+
       setResumoConversa("");
       setFeedback({ tipo: "ok", texto: "Atendimento salvo com sucesso." });
       await atualizarTudo(a.id);

@@ -894,6 +894,18 @@ export default function FilaOperador() {
         }
       }
 
+      // Foi pra juridico -- sinaliza que o caso saiu da carteira ativa,
+      // dispara a reposicao automatica.
+      if (statusFinalizacao === "JURIDICO") {
+        const { error: erroLiberar } = await supabase.rpc("liberar_caso_por_evento", {
+          p_aluno_id: alunoSelecionado.id,
+          p_evento: "JURIDICO",
+        });
+        if (erroLiberar) {
+          console.error("Erro ao liberar caso (reposição automática):", erroLiberar);
+        }
+      }
+
       setObservacao("");
       setNumeroProcesso("");
       setPrazoTipo("DATA");
