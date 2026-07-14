@@ -38,7 +38,7 @@ export default function ElogiosAtendimento() {
 
     const { data, error } = await supabase
       .from("aluno_movimentacoes")
-      .select("id, aluno_id, descricao, registrado_por_nome, registrado_por_email, registrado_em, elogio_print_path, elogio_print_nome")
+      .select("id, aluno_id, descricao, registrado_por_nome, registrado_por_email, registrado_em, elogio_print_path, elogio_print_nome, elogio_aprovado_tv, elogio_aprovado_por, elogio_aprovado_em")
       .eq("tipo", "FINALIZACAO_ATENDIMENTO")
       .eq("status_novo", "ELOGIO_ATENDIMENTO")
       .order("registrado_em", { ascending: false })
@@ -77,6 +77,34 @@ export default function ElogiosAtendimento() {
     }
 
     window.open(data.signedUrl, "_blank");
+  }
+
+  async function alternarAprovacao(elogio) {
+    const { data: userData } = await supabase.auth.getUser();
+    const email = userData?.user?.email || "";
+    const aprovarAgora = !elogio.elogio_aprovado_tv;
+
+    const { error } = await supabase
+      .from("aluno_movimentacoes")
+      .update({
+        elogio_aprovado_tv: aprovarAgora,
+        elogio_aprovado_por: aprovarAgora ? email : null,
+        elogio_aprovado_em: aprovarAgora ? new Date().toISOString() : null,
+      })
+      .eq("id", elogio.id);
+
+    if (error) {
+      alert("Erro ao aprovar elogio: " + error.message);
+      return;
+    }
+
+    setElogios((atual) =>
+      atual.map((e) =>
+        e.id === elogio.id
+          ? { ...e, elogio_aprovado_tv: aprovarAgora, elogio_aprovado_por: aprovarAgora ? email : null }
+          : e
+      )
+    );
   }
 
   const filtrados = elogios.filter((e) => {
@@ -123,6 +151,10 @@ export default function ElogiosAtendimento() {
           <span style={estilos.numero}>{comAnexo}</span>
           <span style={estilos.descricao}>Com print anexado</span>
         </div>
+        <div style={estilos.card}>
+          <span style={estilos.numero}>{filtrados.filter((e) => e.elogio_aprovado_tv).length}</span>
+          <span style={estilos.descricao}>Aprovados para a TV</span>
+        </div>
       </div>
 
       <div style={estilos.filtros}>
@@ -150,21 +182,39 @@ export default function ElogiosAtendimento() {
 
       <div style={estilos.lista}>
         {filtrados.map((e) => (
-          <div key={e.id} style={estilos.card2}>
+          <div
+            key={e.id}
+            style={{
+              ...estilos.card2,
+              borderColor: e.elogio_aprovado_tv ? "#bbf7d0" : "#edf0f5",
+              background: e.elogio_aprovado_tv ? "#f7fdf9" : "#fff",
+            }}
+          >
             <div style={estilos.topoCard}>
               <div>
-                <p style={estilos.nomeAluno}>{e.aluno_nome}</p>
+                <p style={estilos.nomeAluno}>
+                  {e.aluno_nome}
+                  {e.elogio_aprovado_tv && <span style={estilos.badgeAprovado}>✅ Na TV</span>}
+                </p>
                 <p style={estilos.meta}>
                   Registrado por <strong>{e.registrado_por_nome || e.registrado_por_email}</strong> em{" "}
                   {formatarDataHora(e.registrado_em)}
                 </p>
               </div>
 
-              {e.elogio_print_path && (
-                <button style={estilos.botaoAnexo} onClick={() => abrirAnexo(e.elogio_print_path)}>
-                  📎 Ver anexo{e.elogio_print_nome ? `: ${e.elogio_print_nome}` : ""}
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                {e.elogio_print_path && (
+                  <button style={estilos.botaoAnexo} onClick={() => abrirAnexo(e.elogio_print_path)}>
+                    📎 Ver anexo{e.elogio_print_nome ? `: ${e.elogio_print_nome}` : ""}
+                  </button>
+                )}
+                <button
+                  style={e.elogio_aprovado_tv ? estilos.botaoDesaprovar : estilos.botaoAprovar}
+                  onClick={() => alternarAprovacao(e)}
+                >
+                  {e.elogio_aprovado_tv ? "Remover da TV" : "✅ Aprovar para TV"}
                 </button>
-              )}
+              </div>
             </div>
 
             {e.descricao && <p style={estilos.descricaoTexto}>{e.descricao}</p>}
@@ -303,6 +353,36 @@ const estilos = {
     background: "#f0fdf4",
     border: "1px solid #bbf7d0",
     color: "#15803d",
+    borderRadius: 8,
+    padding: "6px 10px",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  badgeAprovado: {
+    marginLeft: 8,
+    fontSize: 11,
+    fontWeight: 700,
+    color: "#0f7a4f",
+    background: "#e9f9f1",
+    border: "1px solid #bdeed4",
+    borderRadius: 999,
+    padding: "2px 9px",
+  },
+  botaoAprovar: {
+    background: "#0f9d6b",
+    color: "#fff",
+    border: "none",
+    borderRadius: 8,
+    padding: "6px 10px",
+    fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  botaoDesaprovar: {
+    background: "#fff",
+    color: "#b91c1c",
+    border: "1px solid #fca5a5",
     borderRadius: 8,
     padding: "6px 10px",
     fontSize: 12,
