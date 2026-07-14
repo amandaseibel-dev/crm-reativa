@@ -483,11 +483,17 @@ export default function ProjecaoHoraHora() {
   );
 
   return (
-    <div className="main">
+    <div className="main ph-root" style={{ background: "#f4f6fa", padding: "6px 4px 28px", fontFamily: "'Inter', system-ui, sans-serif" }}>
+      <style>{`
+        .ph-root h3 { font-family: ${PH_FONTE_TITULO}; font-size: 15px; font-weight: 700; color: #0d1321; }
+        .ph-root table tbody tr:hover { background: #f6fbf9; }
+      `}</style>
       <div style={estilos.cabecalho}>
         <div>
-          <h1>⏱️ Projeção Hora a Hora</h1>
-          <p style={{ opacity: 0.75, marginTop: 4 }}>
+          <h1 style={{ fontFamily: PH_FONTE_TITULO, fontSize: 26, fontWeight: 800, color: "#0d1321", letterSpacing: "-0.03em" }}>
+            ⏱️ Projeção Hora a Hora
+          </h1>
+          <p style={{ color: "#8a93a3", marginTop: 4, fontSize: 13.5 }}>
             Acompanhamento em tempo real da operação e projeção automática do fechamento do mês.
           </p>
         </div>
@@ -1159,122 +1165,140 @@ function Campo({ label, children }) {
   );
 }
 
+const PH_BORDA = "#e3e7ee";
+const PH_BORDA_SUAVE = "#edf0f5";
+const PH_SOMBRA = "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)";
+const PH_FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
+const PH_VERDE = "#0f9d6b";
+
 const estilos = {
-  cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12 },
+  cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 4 },
   inputMes: {
-    padding: "8px 12px",
-    borderRadius: 8,
-    border: "1px solid rgba(148,163,184,0.3)",
-    background: "transparent",
-    color: "inherit",
-  },
-  abas: { display: "flex", gap: 8, margin: "20px 0" },
-  aba: {
-    padding: "8px 16px",
-    borderRadius: 8,
-    border: "1px solid rgba(148,163,184,0.3)",
-    background: "transparent",
-    color: "inherit",
-    cursor: "pointer",
+    padding: "9px 13px",
+    borderRadius: 10,
+    border: `1px solid ${PH_BORDA}`,
+    background: "#fff",
+    color: "#344054",
     fontSize: 13,
+    boxShadow: PH_SOMBRA,
+  },
+  abas: { display: "flex", gap: 4, margin: "20px 0 24px", borderBottom: `1px solid ${PH_BORDA}` },
+  aba: {
+    padding: "9px 18px",
+    borderRadius: "10px 10px 0 0",
+    border: "1px solid transparent",
+    borderBottom: "none",
+    background: "transparent",
+    color: "#98a2b3",
+    cursor: "pointer",
+    fontSize: 13.5,
+    fontWeight: 700,
+    marginBottom: -1,
   },
   abaAtiva: {
-    padding: "8px 16px",
-    borderRadius: 8,
-    border: "1px solid rgba(56,189,248,0.6)",
-    background: "rgba(56,189,248,0.16)",
-    color: "#7dd3fc",
+    padding: "9px 18px",
+    borderRadius: "10px 10px 0 0",
+    border: `1px solid ${PH_BORDA}`,
+    borderBottom: "1px solid #fff",
+    background: "#fff",
+    color: "#0d1321",
     cursor: "pointer",
-    fontSize: 13,
+    fontSize: 13.5,
     fontWeight: 700,
+    marginBottom: -1,
   },
   blocoFilial: {
-    padding: 16,
-    borderRadius: 10,
-    background: "rgba(34,197,94,0.06)",
-    border: "1px solid rgba(34,197,94,0.25)",
-    marginBottom: 20,
+    padding: "18px 20px",
+    borderRadius: 16,
+    background: "linear-gradient(135deg, #eafaf1 0%, #ffffff 100%)",
+    border: "1px solid #bdeed4",
+    marginBottom: 22,
+    boxShadow: PH_SOMBRA,
   },
   gradeFilial: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: 12,
+    gap: 14,
   },
-  cartaoFilial: { padding: 14, borderRadius: 10, background: "rgba(34,197,94,0.08)" },
-  numeroFilial: { fontSize: 20, fontWeight: 800 },
+  cartaoFilial: { padding: "14px 16px", borderRadius: 12, background: "#fff", border: "1px solid #d7f3e3" },
+  numeroFilial: { fontSize: 21, fontWeight: 800, color: "#0d1321", fontFamily: PH_FONTE_TITULO },
   grade: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
-    gap: 12,
-    marginBottom: 20,
+    gap: 14,
+    marginBottom: 22,
   },
-  cartao: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.08)" },
-  cartaoDestaque: { background: "rgba(56,189,248,0.12)", border: "1px solid rgba(56,189,248,0.3)" },
-  numero: { fontSize: 22, fontWeight: 800 },
-  label: { fontSize: 12, opacity: 0.75, marginTop: 4 },
-  blocoMeta: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.06)", marginBottom: 20 },
+  cartao: { padding: "16px 18px", borderRadius: 14, background: "#fff", border: `1px solid ${PH_BORDA_SUAVE}`, boxShadow: PH_SOMBRA },
+  cartaoDestaque: { background: "#eef6ff", border: "1px solid #cfe6ff" },
+  numero: { fontSize: 23, fontWeight: 800, color: "#0d1321", fontFamily: PH_FONTE_TITULO },
+  label: { fontSize: 11.5, color: "#8a93a3", fontWeight: 600, marginTop: 5 },
+  blocoMeta: { padding: "18px 20px", borderRadius: 16, background: "#fff", border: `1px solid ${PH_BORDA_SUAVE}`, marginBottom: 22, boxShadow: PH_SOMBRA },
   cartaoMarco: {
-    padding: 12,
-    borderRadius: 10,
-    background: "rgba(148,163,184,0.08)",
-    border: "1px solid rgba(148,163,184,0.15)",
+    padding: 14,
+    borderRadius: 12,
+    background: "#f8fafc",
+    border: `1px solid ${PH_BORDA_SUAVE}`,
   },
-  blocoGrafico: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.06)", marginBottom: 20 },
-  blocoPagamentosDia: { marginTop: 14, paddingTop: 14, borderTop: "1px solid rgba(148,163,184,0.15)" },
-  blocoRanking: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.06)", marginBottom: 20 },
-  blocoImportar: { padding: 16, borderRadius: 10, background: "rgba(148,163,184,0.06)" },
+  blocoGrafico: { padding: "18px 20px", borderRadius: 16, background: "#fff", border: `1px solid ${PH_BORDA_SUAVE}`, marginBottom: 22, boxShadow: PH_SOMBRA },
+  blocoPagamentosDia: { marginTop: 16, paddingTop: 16, borderTop: `1px solid ${PH_BORDA_SUAVE}` },
+  blocoRanking: { padding: "18px 20px", borderRadius: 16, background: "#fff", border: `1px solid ${PH_BORDA_SUAVE}`, marginBottom: 22, boxShadow: PH_SOMBRA },
+  blocoImportar: { padding: "18px 20px", borderRadius: 16, background: "#fff", border: `1px solid ${PH_BORDA_SUAVE}`, boxShadow: PH_SOMBRA },
   checkboxRetroativo: {
     display: "flex",
     alignItems: "center",
     gap: 8,
     fontSize: 13,
-    opacity: 0.9,
+    color: "#475569",
     marginTop: 14,
     maxWidth: 520,
   },
   barras: { display: "flex", gap: 10, alignItems: "flex-end", height: 170, overflowX: "auto", padding: "0 4px" },
   colunaBarra: { display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 28 },
-  barra: { width: 20, background: "linear-gradient(180deg,#38bdf8,#0ea5e9)", borderRadius: "4px 4px 0 0" },
-  legendaBarra: { fontSize: 10, opacity: 0.65 },
+  barra: { width: 20, background: `linear-gradient(180deg, ${PH_VERDE}, #0a7a51)`, borderRadius: "6px 6px 0 0" },
+  legendaBarra: { fontSize: 10, color: "#98a2b3" },
   input: {
-    padding: "8px 10px",
-    borderRadius: 8,
-    border: "1px solid rgba(148,163,184,0.3)",
-    background: "transparent",
-    color: "inherit",
+    padding: "9px 12px",
+    borderRadius: 10,
+    border: `1px solid ${PH_BORDA}`,
+    background: "#fff",
+    color: "#344054",
     width: 160,
+    fontSize: 13,
   },
   botaoPrimario: {
-    padding: "10px 18px",
-    borderRadius: 8,
+    padding: "11px 20px",
+    borderRadius: 10,
     border: "none",
-    background: "#0ea5e9",
+    background: PH_VERDE,
     color: "#fff",
     fontWeight: 700,
     cursor: "pointer",
     marginTop: 12,
+    fontSize: 13.5,
   },
   botaoLink: {
     background: "transparent",
     border: "none",
-    color: "#7dd3fc",
+    color: PH_VERDE,
     cursor: "pointer",
     fontSize: 12,
+    fontWeight: 600,
     textDecoration: "underline",
   },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.3)" },
-  td: { padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.12)" },
+  th: { textAlign: "left", padding: "10px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: `1px solid ${PH_BORDA}` },
+  td: { padding: "11px 12px", borderBottom: `1px solid ${PH_BORDA_SUAVE}`, color: "#475569" },
   tr: {},
-  tagVerde: { background: "rgba(34,197,94,0.16)", color: "#86efac", fontSize: 12, padding: "3px 10px", borderRadius: 999 },
-  tagAmarela: { background: "rgba(251,191,36,0.16)", color: "#fcd34d", fontSize: 12, padding: "3px 10px", borderRadius: 999 },
-  tagVermelha: { background: "rgba(248,113,113,0.16)", color: "#f87171", fontSize: 12, padding: "3px 10px", borderRadius: 999 },
+  tagVerde: { background: "#e9f9f1", color: "#0f7a4f", fontSize: 11.5, fontWeight: 700, padding: "3px 11px", borderRadius: 999 },
+  tagAmarela: { background: "#fff7e6", color: "#b45309", fontSize: 11.5, fontWeight: 700, padding: "3px 11px", borderRadius: 999 },
+  tagVermelha: { background: "#fef2f2", color: "#b91c1c", fontSize: 11.5, fontWeight: 700, padding: "3px 11px", borderRadius: 999 },
   avisoSubstituicao: {
-    padding: "10px 14px",
-    borderRadius: 8,
-    background: "rgba(56,189,248,0.12)",
-    border: "1px solid rgba(56,189,248,0.35)",
+    padding: "11px 15px",
+    borderRadius: 12,
+    background: "#eef6ff",
+    border: "1px solid #cfe6ff",
+    color: "#1d4ed8",
     fontSize: 13,
-    marginBottom: 14,
+    marginBottom: 16,
   },
 };
