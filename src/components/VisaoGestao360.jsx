@@ -76,10 +76,12 @@ export default function VisaoGestao360({ dias = 30 }) {
   const atraso = d.faixa_atraso || [];
   const anos = d.por_ano || [];
   const unis = d.por_unidade || [];
+  const aging = d.aging_acionamento || [];
 
   const maxAtraso = Math.max(1, ...atraso.map((x) => Number(x.valor) || 0));
   const maxAno = Math.max(1, ...anos.map((x) => Number(x.valor) || 0));
   const maxUni = Math.max(1, ...unis.map((x) => Number(x.valor) || 0));
+  const maxAging = Math.max(1, ...aging.map((x) => Number(x.alunos) || 0));
   const porUF = {};
   let semUF = 0;
   (unis || []).forEach((x) => {
@@ -139,6 +141,19 @@ export default function VisaoGestao360({ dias = 30 }) {
             </div>
           ))}
         </div>
+      </div>
+
+      <div style={s.bloco}>
+        <h3 style={s.h3}>Aging - dias sem acionamento</h3>
+        {aging.map((x) => {
+          const cor = x.faixa === "0-3 dias" ? "#22c55e" : x.faixa === "4-10 dias" ? "#f59e0b" : x.faixa === "11+ dias" ? "#ef4444" : "#94a3b8";
+          return (
+            <div key={x.faixa} style={s.linha}>
+              <div style={s.linhaTopo}><span>{x.faixa}</span><strong>{num(x.alunos)} alunos</strong></div>
+              <div style={s.barTrack}><div style={{ ...s.barFill, width: Math.max(2, (Number(x.alunos) / maxAging) * 100) + "%", background: cor }} /></div>
+            </div>
+          );
+        })}
       </div>
 
       <div style={s.grid2}>
