@@ -345,6 +345,17 @@ export default function Alunos() {
     setCarregando(true);
     setErro("");
 
+    // Importante: toda pesquisa/atualização da lista precisa soltar o aluno
+    // que estava aberto (ex: vindo da fila). Sem isso, quem pesquisa outro
+    // nome mas não clica no resultado continua com a ficha antiga aberta e
+    // corre o risco de tabular/agir no aluno errado.
+    setAlunoSelecionado(null);
+    setAbaFicha("dados");
+    setEditandoCadastro(false);
+    setOrigemAbertura("");
+    setMovimentacoes([]);
+    setVindoDaFila(false);
+
     try {
       const termo = busca.trim();
 
