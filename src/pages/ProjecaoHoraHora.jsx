@@ -123,6 +123,23 @@ export default function ProjecaoHoraHora() {
   });
   const [salvandoMeta, setSalvandoMeta] = useState(false);
 
+  // Linhas onde o valor pago veio zerado mas o honorário veio preenchido --
+  // sinal forte de que a celula de valor pago veio vazia so nessa linha na
+  // planilha original (nao e mudanca de layout do arquivo inteiro).
+  const linhasSuspeitas = linhasPreview.filter(
+    (l) => Number(l.valor_pago) === 0 && Number(l.valor_honorario) > 0
+  );
+
+  // Sempre mostra as linhas suspeitas na previa, mesmo que estejam alem das
+  // primeiras 20 -- senao ficam escondidas e passam despercebidas.
+  const linhasParaMostrar = (() => {
+    const primeiras20 = linhasPreview.slice(0, 20);
+    if (linhasSuspeitas.length === 0) return primeiras20;
+    const jaIncluidas = new Set(primeiras20);
+    const suspeitasFaltando = linhasSuspeitas.filter((l) => !jaIncluidas.has(l));
+    return [...primeiras20, ...suspeitasFaltando];
+  })();
+
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
@@ -950,6 +967,15 @@ export default function ProjecaoHoraHora() {
               <p style={{ marginTop: 16, marginBottom: 8 }}>
                 <strong>{linhasPreview.length}</strong> linhas encontradas. Confira a prévia antes de confirmar:
               </p>
+
+              {linhasSuspeitas.length > 0 && (
+                <div style={estilos.avisoSubstituicao} className="linhas-suspeitas-aviso">
+                  ⚠️ <strong>{linhasSuspeitas.length} linha(s) suspeita(s)</strong>: valor pago veio zerado, mas o
+                  honorário veio preenchido — provavelmente a célula de valor pago veio vazia na planilha
+                  original pra essas linhas. Confira o arquivo antes de confirmar (marcadas em vermelho abaixo).
+                </div>
+              )}
+
               <div style={{ overflowX: "auto", maxHeight: 300 }}>
                 <table style={estilos.tabela}>
                   <thead>
@@ -962,30 +988,42 @@ export default function ProjecaoHoraHora() {
                     </tr>
                   </thead>
                   <tbody>
-                    {linhasPreview.slice(0, 20).map((l, i) => (
-                      <tr key={i} style={estilos.tr}>
-                        <td style={estilos.td}>{l.data_pagamento || "⚠️ sem data"}</td>
-                        <td style={estilos.td}>{l.aluno_nome || "-"}</td>
-                        <td style={estilos.td}>
-                          {l.operador_email ? (
-                            l.operador_nome
-                          ) : l.operador_nome ? (
-                            <span style={{ color: "#fcd34d" }} title="Nome não bate com nenhum operador cadastrado no sistema">
-                              ⚠️ {l.operador_nome} (fora da equipe)
-                            </span>
-                          ) : (
-                            <span style={{ color: "#fcd34d" }}>⚠️ sem operador</span>
-                          )}
-                        </td>
-                        <td style={estilos.td}>{moeda(l.valor_pago)}</td>
-                        <td style={estilos.td}>{moeda(l.valor_honorario)}</td>
-                      </tr>
-                    ))}
+                    {linhasParaMostrar.map((l, i) => {
+                      const suspeita = Number(l.valor_pago) === 0 && Number(l.valor_honorario) > 0;
+                      return (
+                        <tr
+                          key={i}
+                          style={{
+                            ...estilos.tr,
+                            background: suspeita ? "#fef2f2" : undefined,
+                          }}
+                        >
+                          <td style={estilos.td}>{l.data_pagamento || "⚠️ sem data"}</td>
+                          <td style={estilos.td}>{l.aluno_nome || "-"}</td>
+                          <td style={estilos.td}>
+                            {l.operador_email ? (
+                              l.operador_nome
+                            ) : l.operador_nome ? (
+                              <span style={{ color: "#fcd34d" }} title="Nome não bate com nenhum operador cadastrado no sistema">
+                                ⚠️ {l.operador_nome} (fora da equipe)
+                              </span>
+                            ) : (
+                              <span style={{ color: "#fcd34d" }}>⚠️ sem operador</span>
+                            )}
+                          </td>
+                          <td style={{ ...estilos.td, color: suspeita ? "#b91c1c" : undefined, fontWeight: suspeita ? "bold" : undefined }}>
+                            {suspeita ? "⚠️ " : ""}{moeda(l.valor_pago)}
+                          </td>
+                          <td style={estilos.td}>{moeda(l.valor_honorario)}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
-                {linhasPreview.length > 20 && (
+                {linhasPreview.length > linhasParaMostrar.length && (
                   <p style={{ opacity: 0.6, fontSize: 12, marginTop: 6 }}>
-                    Mostrando 20 de {linhasPreview.length} linhas.
+                    Mostrando {linhasParaMostrar.length} de {linhasPreview.length} linhas
+                    {linhasSuspeitas.length > 0 ? " (todas as suspeitas estão incluídas acima)." : "."}
                   </p>
                 )}
               </div>
