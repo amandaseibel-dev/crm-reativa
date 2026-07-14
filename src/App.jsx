@@ -175,6 +175,17 @@ export default function App() {
   const [baixasAguardando, setBaixasAguardando] = useState(0);
   const [elogiosPendentes, setElogiosPendentes] = useState(0);
   const [tema, setTema] = useState("claro"); // tema fixo claro
+  const [sidebarRecolhida, setSidebarRecolhida] = useState(() => {
+    return localStorage.getItem("reativa_sidebar_recolhida") === "1";
+  });
+
+  function alternarSidebar() {
+    setSidebarRecolhida((atual) => {
+      const novo = !atual;
+      localStorage.setItem("reativa_sidebar_recolhida", novo ? "1" : "0");
+      return novo;
+    });
+  }
 
   function alternarTema() {
     const novoTema = tema === "escuro" ? "claro" : "escuro";
@@ -439,9 +450,17 @@ export default function App() {
         <HeartbeatReceptivo usuario={usuario} />
         <AutoLogout usuario={usuario} />
         <NotificacoesSupervisaoAdm usuario={usuario} />
-        <aside className="sidebar">
+        <aside className={sidebarRecolhida ? "sidebar sidebar-recolhida" : "sidebar"}>
+          <button
+            type="button"
+            className="botao-recolher-sidebar"
+            onClick={alternarSidebar}
+            title={sidebarRecolhida ? "Expandir menu" : "Recolher menu (útil pra usar em tela dividida)"}
+          >
+            {sidebarRecolhida ? "»" : "«"}
+          </button>
           <div className="cabecalho-usuario">
-            <h2>ReATIVA One</h2>
+            <h2>{sidebarRecolhida ? "RA" : "ReATIVA One"}</h2>
 
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
               {usuario.perfil?.foto_url ? (
@@ -485,9 +504,17 @@ export default function App() {
           </div>
 
           <nav>
-            {menu.map((item) => (
-              <NavLink key={item.rota} to={item.rota} end={item.rota === "/"}>
-                {item.label}
+            {menu.map((item) => {
+              const icone = item.label.split(" ")[0];
+
+              return (
+                <NavLink
+                  key={item.rota}
+                  to={item.rota}
+                  end={item.rota === "/"}
+                  title={sidebarRecolhida ? item.label : undefined}
+                >
+                  {sidebarRecolhida ? icone : item.label}
                 {item.rota === "/painel-adm" && linksAguardando > 0 && (
                   <span className="badge-pendente" title="Solicitações de link aguardando resposta">
                     {linksAguardando}
@@ -518,7 +545,8 @@ export default function App() {
                   </span>
                 )}
               </NavLink>
-            ))}
+              );
+            })}
           </nav>
         </aside>
 

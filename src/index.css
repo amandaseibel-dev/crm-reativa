@@ -28,6 +28,54 @@ body {
   padding: 24px 16px;
   display: flex;
   flex-direction: column;
+  position: relative;
+  transition: width 0.18s ease, padding 0.18s ease;
+  overflow-x: hidden;
+}
+
+/* Sidebar recolhida -- pensada pra quem usa tela dividida (split screen),
+   sobra mais espaco horizontal pro conteudo. Fica so com os icones. */
+.sidebar-recolhida {
+  width: 64px;
+  padding: 24px 8px;
+}
+
+.sidebar-recolhida .cabecalho-usuario h2 {
+  font-size: 15px;
+}
+
+.sidebar-recolhida a {
+  justify-content: center;
+  padding: 12px 6px;
+  font-size: 18px;
+}
+
+.botao-recolher-sidebar {
+  position: absolute;
+  top: 12px;
+  right: -12px;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  border: 1px solid rgba(255,255,255,0.15);
+  background: #1e293b;
+  color: #cbd5e1;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 5;
+}
+
+.botao-recolher-sidebar:hover {
+  background: #22c55e;
+  color: #0b1220;
+}
+
+.sidebar-recolhida .botao-recolher-sidebar {
+  right: -12px;
 }
 
 .logo h2 {
