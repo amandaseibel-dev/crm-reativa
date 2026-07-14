@@ -456,6 +456,7 @@ export default function App() {
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
+    { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Gestão" },
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
 
     { rota: "/importacoes", label: "Importações", icone: "Upload", secao: "Configurações" },

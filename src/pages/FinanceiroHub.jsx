@@ -3,7 +3,6 @@ import ConsultaFinanceira from "./ConsultaFinanceira";
 import FilaConfirmacaoPagamento from "./FilaConfirmacaoPagamento";
 import Borderos from "./Borderos";
 import PainelAdm from "./PainelAdm";
-import GestaoFinanceiraOperadores from "./GestaoFinanceiraOperadores";
 import MinhaFilaPagamentos from "./MinhaFilaPagamentos";
 
 // Reune as telas financeiras num lugar so, com abas. Cada aba carrega o
@@ -15,7 +14,6 @@ const ABAS = [
   { chave: "CONFIRMACAO", rotulo: "Confirmação de Pagamento" },
   { chave: "FILA_BAIXAS", rotulo: "Fila de Baixas" },
   { chave: "BORDEROS", rotulo: "Borderôs" },
-  { chave: "OPERADORES", rotulo: "Financeiro Operadores" },
 ];
 
 export default function FinanceiroHub() {
@@ -48,7 +46,6 @@ export default function FinanceiroHub() {
         {aba === "CONFIRMACAO" && <FilaConfirmacaoPagamento />}
         {aba === "FILA_BAIXAS" && <MinhaFilaPagamentos />}
         {aba === "BORDEROS" && <Borderos />}
-        {aba === "OPERADORES" && <GestaoFinanceiraOperadores />}
       </div>
     </div>
   );
