@@ -173,6 +173,7 @@ export default function App() {
   const [linksAguardando, setLinksAguardando] = useState(0);
   const [termosRejeitados, setTermosRejeitados] = useState(0);
   const [baixasAguardando, setBaixasAguardando] = useState(0);
+  const [elogiosPendentes, setElogiosPendentes] = useState(0);
   const [tema, setTema] = useState("claro"); // tema fixo claro
 
   function alternarTema() {
@@ -237,6 +238,40 @@ export default function App() {
 
     carregarBaixasPendentes();
     const intervalo = setInterval(carregarBaixasPendentes, 15000);
+
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+    };
+  }, [usuario]);
+
+  // Elogios de atendimento ainda sem decisão (nem aprovados, nem rejeitados
+  // pra TV) -- avisa na aba pra não depender de ninguém sinalizar.
+  useEffect(() => {
+    const perfilAtual = usuario?.perfil?.perfil;
+    if (!usuario || !podeAcessar(perfilAtual, "/elogios-atendimento")) {
+      setElogiosPendentes(0);
+      return;
+    }
+
+    let ativo = true;
+
+    async function carregarElogiosPendentes() {
+      const { count, error } = await supabase
+        .from("aluno_movimentacoes")
+        .select("id", { count: "exact", head: true })
+        .eq("tipo", "FINALIZACAO_ATENDIMENTO")
+        .eq("status_novo", "ELOGIO_ATENDIMENTO")
+        .eq("elogio_aprovado_tv", false)
+        .eq("elogio_rejeitado_tv", false);
+
+      if (ativo && !error) {
+        setElogiosPendentes(count || 0);
+      }
+    }
+
+    carregarElogiosPendentes();
+    const intervalo = setInterval(carregarElogiosPendentes, 15000);
 
     return () => {
       ativo = false;
@@ -472,6 +507,14 @@ export default function App() {
                     title="Comprovantes aguardando baixa"
                   >
                     {baixasAguardando}
+                  </span>
+                )}
+                {item.rota === "/elogios-atendimento" && elogiosPendentes > 0 && (
+                  <span
+                    className="badge-pendente"
+                    title="Elogios aguardando aprovação para a TV"
+                  >
+                    {elogiosPendentes}
                   </span>
                 )}
               </NavLink>
