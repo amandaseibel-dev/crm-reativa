@@ -202,6 +202,8 @@ export default function Alunos() {
   const [motivoAlteracaoOperador, setMotivoAlteracaoOperador] = useState("");
   const [novaDataRetornoAlteracao, setNovaDataRetornoAlteracao] = useState("");
   const [novaTabulacaoAlteracao, setNovaTabulacaoAlteracao] = useState("");
+  const [elogioArquivo, setElogioArquivo] = useState(null);
+  const [enviandoElogio, setEnviandoElogio] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
@@ -644,6 +646,20 @@ export default function Alunos() {
     setMovimentacoes(data || []);
   }
 
+  async function abrirAnexoElogio(caminho) {
+    if (!caminho) return;
+    const { data, error } = await supabase.storage
+      .from("elogios-prints")
+      .createSignedUrl(caminho, 3600);
+
+    if (error || !data?.signedUrl) {
+      alert("Erro ao abrir o anexo: " + (error?.message || "não encontrado"));
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank");
+  }
+
   async function registrarMovimentacao({
     alunoId,
     tipo,
@@ -960,6 +976,31 @@ export default function Alunos() {
           }
         : {};
 
+      // Print do elogio de atendimento (opcional) -- sobe pro bucket
+      // privado antes de registrar a movimentação, pra já salvar o
+      // caminho junto com a tabulação.
+      let extraElogio = {};
+      if (statusFinalizacao === "ELOGIO_ATENDIMENTO" && elogioArquivo) {
+        setEnviandoElogio(true);
+        const nomeSeguro = elogioArquivo.name
+          .normalize("NFD")
+          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[^a-zA-Z0-9.\-_]/g, "_");
+        const caminho = `${alunoSelecionado.id}/${Date.now()}-${nomeSeguro}`;
+
+        const { error: erroUpload } = await supabase.storage
+          .from("elogios-prints")
+          .upload(caminho, elogioArquivo, { cacheControl: "3600", upsert: false });
+
+        setEnviandoElogio(false);
+
+        if (erroUpload) {
+          alert("Erro ao anexar o print do elogio: " + erroUpload.message);
+        } else {
+          extraElogio = { elogio_print_path: caminho, elogio_print_nome: elogioArquivo.name };
+        }
+      }
+
       await registrarMovimentacao({
         alunoId: alunoSelecionado.id,
         tipo: "FINALIZACAO_ATENDIMENTO",
@@ -971,6 +1012,7 @@ export default function Alunos() {
         retorno: retornoIso,
         atualizarResponsavel: false,
         observacaoAluno: ehStatusRestrito ? observacao.trim() : null,
+        extra: extraElogio,
         extraAluno,
       });
 
@@ -1014,6 +1056,7 @@ export default function Alunos() {
       setNumeroProcesso("");
       setPrazoTipo("DATA");
       setPrazoData("");
+      setElogioArquivo(null);
 
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
@@ -1650,6 +1693,25 @@ export default function Alunos() {
                   ))}
                 </select>
 
+                {statusFinalizacao === "ELOGIO_ATENDIMENTO" && (
+                  <div style={{ ...caixaInterna, marginTop: "10px", marginBottom: "10px" }}>
+                    <label style={label}>Anexar print do elogio (opcional)</label>
+
+                    <input
+                      type="file"
+                      accept="image/*,.pdf"
+                      onChange={(e) => setElogioArquivo(e.target.files?.[0] || null)}
+                      style={inputCheio}
+                    />
+
+                    {elogioArquivo && (
+                      <p style={{ fontSize: "12px", color: "#16a34a", margin: "6px 0 0" }}>
+                        Selecionado: {elogioArquivo.name}
+                      </p>
+                    )}
+                  </div>
+                )}
+
                 {STATUS_COM_PROCESSO.includes(statusFinalizacao) && (
                   <div style={{ ...caixaInterna, marginTop: "10px", marginBottom: "10px" }}>
                     <label style={label}>Número do processo</label>
@@ -1865,6 +1927,16 @@ export default function Alunos() {
                           <br />
                           Data/hora: {formatarDataHora(mov.registrado_em)}
                         </small>
+
+                        {mov.elogio_print_path && (
+                          <button
+                            type="button"
+                            onClick={() => abrirAnexoElogio(mov.elogio_print_path)}
+                            style={{ ...botaoSecundario, marginTop: "8px", fontSize: "12px", padding: "6px 10px" }}
+                          >
+                            📎 Ver anexo{mov.elogio_print_nome ? `: ${mov.elogio_print_nome}` : ""}
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
