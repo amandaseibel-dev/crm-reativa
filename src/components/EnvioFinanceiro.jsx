@@ -57,6 +57,7 @@ export default function EnvioFinanceiro({ aluno }) {
   const [enviando, setEnviando] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [solicitacoes, setSolicitacoes] = useState([]);
+  const [anexos, setAnexos] = useState([null, null, null]);
 
   const alunoId = aluno?.id ? String(aluno.id) : "";
 
@@ -132,6 +133,31 @@ export default function EnvioFinanceiro({ aluno }) {
     const emailOperador = usuarioLogado?.email || "";
     const nomeOperador = nomeOperadorPorEmail(emailOperador);
 
+    // Sobe ate 3 anexos (opcional) pro bucket privado antes de gravar a
+    // solicitacao, guardando path + nome de cada um.
+    const anexosSelecionados = anexos.filter(Boolean);
+    const anexosSalvos = [];
+
+    for (const arquivo of anexosSelecionados) {
+      const nomeSeguro = arquivo.name
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9.\-_]/g, "_");
+      const caminho = `${aluno.id}/${Date.now()}-${nomeSeguro}`;
+
+      const { error: erroUpload } = await supabase.storage
+        .from("envios-financeiro")
+        .upload(caminho, arquivo, { cacheControl: "3600", upsert: false });
+
+      if (erroUpload) {
+        alert("Erro ao anexar " + arquivo.name + ": " + erroUpload.message);
+        setEnviando(false);
+        return;
+      }
+
+      anexosSalvos.push({ path: caminho, nome: arquivo.name });
+    }
+
     const { error } = await supabase.from("solicitacoes_financeiro").insert({
       aluno_id: String(aluno.id),
       aluno_nome: pegarNomeAluno(aluno),
@@ -140,6 +166,7 @@ export default function EnvioFinanceiro({ aluno }) {
       operador_nome: nomeOperador,
       motivo: motivo.trim(),
       status: "AGUARDANDO_ENVIO_FINANCEIRO",
+      anexos: anexosSalvos.length > 0 ? anexosSalvos : null,
     });
 
     if (error) {
@@ -161,8 +188,22 @@ export default function EnvioFinanceiro({ aluno }) {
     alert("Solicitação enviada para a fila da Amanda ADM.");
 
     setMotivo("");
+    setAnexos([null, null, null]);
     setEnviando(false);
     carregarSolicitacoes();
+  }
+
+  async function abrirAnexo(path) {
+    const { data, error } = await supabase.storage
+      .from("envios-financeiro")
+      .createSignedUrl(path, 3600);
+
+    if (error || !data?.signedUrl) {
+      alert("Erro ao abrir o anexo: " + (error?.message || "não encontrado"));
+      return;
+    }
+
+    window.open(data.signedUrl, "_blank");
   }
 
   return (
@@ -255,6 +296,27 @@ export default function EnvioFinanceiro({ aluno }) {
             />
           </div>
 
+          <div style={styles.bloco}>
+            <label style={styles.label}>Anexos (opcional, até 3 arquivos)</label>
+            {[0, 1, 2].map((i) => (
+              <div key={i} style={{ marginBottom: "8px" }}>
+                <input
+                  type="file"
+                  accept="image/*,.pdf"
+                  onChange={(e) => {
+                    const novo = [...anexos];
+                    novo[i] = e.target.files?.[0] || null;
+                    setAnexos(novo);
+                  }}
+                  style={styles.inputArquivo}
+                />
+                {anexos[i] && (
+                  <span style={styles.nomeArquivoSelecionado}>{anexos[i].name}</span>
+                )}
+              </div>
+            ))}
+          </div>
+
           <button
             style={{
               ...styles.botao,
@@ -293,6 +355,21 @@ export default function EnvioFinanceiro({ aluno }) {
               <p style={styles.paragrafo}>
                 <strong>Motivo:</strong> {s.motivo || "-"}
               </p>
+
+              {Array.isArray(s.anexos) && s.anexos.length > 0 && (
+                <div style={styles.linhaAnexos}>
+                  {s.anexos.map((a, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      onClick={() => abrirAnexo(a.path)}
+                      style={styles.botaoAnexo}
+                    >
+                      📎 {a.nome || `Anexo ${i + 1}`}
+                    </button>
+                  ))}
+                </div>
+              )}
 
               {s.observacao_adm && (
                 <p style={styles.paragrafo}>
@@ -402,6 +479,31 @@ const styles = {
     resize: "vertical",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
+  },
+  inputArquivo: {
+    fontSize: "13px",
+  },
+  nomeArquivoSelecionado: {
+    marginLeft: "10px",
+    fontSize: "12px",
+    color: "#198754",
+    fontWeight: "bold",
+  },
+  linhaAnexos: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+    margin: "6px 0",
+  },
+  botaoAnexo: {
+    background: "#f0fdf4",
+    border: "1px solid #bbf7d0",
+    color: "#15803d",
+    borderRadius: "8px",
+    padding: "6px 10px",
+    fontSize: "12px",
+    fontWeight: "bold",
+    cursor: "pointer",
   },
   botao: {
     marginTop: "16px",
