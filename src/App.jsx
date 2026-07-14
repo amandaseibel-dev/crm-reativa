@@ -444,7 +444,6 @@ export default function App() {
     },
     { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" },
     { rota: "/aluno", label: "Aluno", icone: "User", secao: "Operação" },
-    { rota: "/crm", label: "CRM Operacional", icone: "Phone", secao: "Operação" },
     { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
 
     { rota: "/financeiro", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
