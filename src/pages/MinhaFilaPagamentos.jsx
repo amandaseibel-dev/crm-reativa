@@ -365,6 +365,8 @@ export default function MinhaFilaPagamentos() {
             </div>
           )}
 
+          <details style={styles.detalhe}>
+            <summary style={styles.detalheSum}>Abrir aluno - conferir comprovante e lancar baixa</summary>
           <ComprovantePagamento item={item} onAtualizar={carregarPagamentos} />
 
           {item.status === "AGUARDANDO_BAIXA" && (
@@ -431,6 +433,7 @@ export default function MinhaFilaPagamentos() {
             <button style={styles.botaoVerde} onClick={() => baixarPagamento(item)}>Baixar pagamento</button>
             <button style={styles.botaoAmarelo} onClick={() => marcarDivergencia(item)}>Marcar divergência</button>
           </div>
+          </details>
         </div>
       ))}
     </div>
@@ -454,6 +457,8 @@ const styles = {
   card: { background: "#fff", borderRadius: "14px", padding: "18px", marginBottom: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" },
   input: { padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "14px" },
+  detalhe: { marginTop: 10, borderTop: "1px solid #eef2f6", paddingTop: 8 },
+  detalheSum: { cursor: "pointer", fontWeight: 700, color: "#198754", padding: "9px 4px", fontSize: 14 },
   cardPagamento: { background: "#fff", borderRadius: "16px", padding: "20px", marginBottom: "16px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", borderLeft: "6px solid #198754" },
   topoCard: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start" },
   nome: { fontSize: "19px", fontWeight: 800, margin: "0 0 8px 0", color: "#111827" },
