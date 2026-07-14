@@ -199,6 +199,7 @@ export default function Alunos() {
   const [prazoTipo, setPrazoTipo] = useState("DATA");
   const [prazoData, setPrazoData] = useState("");
   const [novoOperadorEmail, setNovoOperadorEmail] = useState("");
+  const [editandoOperadorRapido, setEditandoOperadorRapido] = useState(false);
   const [motivoAlteracaoOperador, setMotivoAlteracaoOperador] = useState("");
   const [novaDataRetornoAlteracao, setNovaDataRetornoAlteracao] = useState("");
   const [novaTabulacaoAlteracao, setNovaTabulacaoAlteracao] = useState("");
@@ -1584,8 +1585,67 @@ export default function Alunos() {
                 <div style={cardInfo}>
                   <strong>Responsável atual</strong>
                   <br />
-                  {alunoSelecionado.responsavel_atual_nome ||
-                    "Sem responsável"}
+                  {!editandoOperadorRapido ? (
+                    <>
+                      {alunoSelecionado.responsavel_atual_nome || "Sem responsável"}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setNovoOperadorEmail(alunoSelecionado.responsavel_atual_email || "");
+                          setEditandoOperadorRapido(true);
+                        }}
+                        style={{ marginLeft: 8, border: "none", background: "transparent", cursor: "pointer", fontSize: 13 }}
+                        title="Alterar operador responsável"
+                      >
+                        ✏️
+                      </button>
+                    </>
+                  ) : (
+                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4, maxWidth: 220 }}>
+                      <select
+                        value={novoOperadorEmail}
+                        onChange={(e) => setNovoOperadorEmail(e.target.value)}
+                        style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12 }}
+                      >
+                        <option value="">Selecione</option>
+                        {OPERADORES_REATIVA.map((op) => (
+                          <option key={op.email} value={op.email}>
+                            {op.nome}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        type="text"
+                        placeholder="Motivo da troca (obrigatório)"
+                        value={motivoAlteracaoOperador}
+                        onChange={(e) => setMotivoAlteracaoOperador(e.target.value)}
+                        style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12 }}
+                      />
+                      <div style={{ display: "flex", gap: 6 }}>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            await alterarOperadorResponsavel();
+                            setEditandoOperadorRapido(false);
+                          }}
+                          disabled={salvando || !novoOperadorEmail || !motivoAlteracaoOperador.trim()}
+                          style={{ border: "none", background: "#16a34a", color: "#fff", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                        >
+                          {salvando ? "..." : "Salvar"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setEditandoOperadorRapido(false);
+                            setMotivoAlteracaoOperador("");
+                          }}
+                          style={{ border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div style={cardInfo}>
