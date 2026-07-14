@@ -102,9 +102,24 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
 
       {/* previewComprovante */}
       {item?.comprovante_url && (/(\.png|\.jpe?g)$/i.test(String(item.comprovante_nome || item.comprovante_url)) ? (
-        <img src={item.comprovante_url} alt="comprovante" style={{ maxWidth: "100%", maxHeight: 360, borderRadius: 8, border: "1px solid #e5e7eb", marginTop: 10, display: "block" }} />
+        <img
+          src={item.comprovante_url}
+          alt="comprovante"
+          onClick={() => window.open(item.comprovante_url, "_blank", "noreferrer")}
+          title="Clique para abrir em tamanho grande, em outra aba"
+          style={{
+            maxWidth: "100%",
+            maxHeight: 720,
+            width: "auto",
+            borderRadius: 8,
+            border: "1px solid #e5e7eb",
+            marginTop: 10,
+            display: "block",
+            cursor: "zoom-in",
+          }}
+        />
       ) : /\.pdf$/i.test(String(item.comprovante_nome || item.comprovante_url)) ? (
-        <iframe src={item.comprovante_url} title="comprovante" style={{ width: "100%", height: 380, border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 10 }} />
+        <iframe src={item.comprovante_url} title="comprovante" style={{ width: "100%", height: 640, border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 10 }} />
       ) : null)}
 
       {item?.comprovante_nome && (

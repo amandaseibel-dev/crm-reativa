@@ -619,8 +619,33 @@ export default function FilaConfirmacaoPagamento() {
                         <p style={styles.info}><strong>Observação:</strong> {comprovante.observacao_comprovante}</p>
                       )}
                       <a href={comprovante.comprovante_url} target="_blank" rel="noreferrer" style={styles.botaoPequeno}>
-                        Abrir comprovante
+                        Abrir comprovante em nova aba
                       </a>
+
+                      {comprovante.comprovante_url &&
+                        (/(\.png|\.jpe?g)$/i.test(String(comprovante.comprovante_nome || comprovante.comprovante_url)) ? (
+                          <img
+                            src={comprovante.comprovante_url}
+                            alt="comprovante"
+                            onClick={() => window.open(comprovante.comprovante_url, "_blank", "noreferrer")}
+                            title="Clique para abrir em tamanho grande, em outra aba"
+                            style={{
+                              maxWidth: "100%",
+                              maxHeight: 720,
+                              borderRadius: 8,
+                              border: "1px solid #e5e7eb",
+                              marginTop: 12,
+                              display: "block",
+                              cursor: "zoom-in",
+                            }}
+                          />
+                        ) : /\.pdf$/i.test(String(comprovante.comprovante_nome || comprovante.comprovante_url)) ? (
+                          <iframe
+                            src={comprovante.comprovante_url}
+                            title="comprovante"
+                            style={{ width: "100%", height: 640, border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 12 }}
+                          />
+                        ) : null)}
                     </div>
                   ) : (
                     <p style={styles.info}>Nenhum comprovante anexado a este aluno.</p>
