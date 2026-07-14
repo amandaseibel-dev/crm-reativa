@@ -338,6 +338,8 @@ export default function FilaConfirmacaoPagamento() {
       await supabase
         .from("alunos")
         .update({
+          status_jornada: "CONTATAR",
+          status_atual: "CONTATAR",
           nivel_criticidade: "URGENTE",
           status_acionamento: "Pagamento não confirmado: " + motivo,
         })

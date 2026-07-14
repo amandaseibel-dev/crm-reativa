@@ -391,7 +391,15 @@ export default function FilaOperador() {
       if (filtro === "QUITADOS") {
         query = query.in("status_jornada", ["QUITADO_MANUAL", "QUITADO"]);
       } else {
-        query = query.not("status_jornada", "in", '("QUITADO_MANUAL","QUITADO")');
+        // Além de quitados, casos aguardando confirmação de pagamento (já
+        // mandados pra fila de baixa) e já baixados saem da fila operacional
+        // -- não tem cobrança a fazer neles enquanto isso. Se a confirmação
+        // for rejeitada, o caso volta pro status normal e reaparece aqui.
+        query = query.not(
+          "status_jornada",
+          "in",
+          '("QUITADO_MANUAL","QUITADO","AGUARDANDO_BAIXA","BAIXA_REALIZADA")'
+        );
       }
 
       if (termo) {
