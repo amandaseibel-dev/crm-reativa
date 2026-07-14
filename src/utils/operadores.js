@@ -63,6 +63,13 @@ export function podeBaixarPagamento(email) {
   return chave === "amanda.seibel@aelbra.com.br";
 }
 
+// Fila de Baixas (comprovantes) -- Amanda continua podendo lançar baixa;
+// Fernanda ganhou acesso pra visualizar/acompanhar a fila também.
+export function podeVerFilaDeBaixas(email) {
+  const chave = String(email || "").toLowerCase().trim();
+  return chave === "amanda.seibel@aelbra.com.br" || chave === "cobranca04@aelbra.com.br";
+}
+
 
 export function podeAcessoRestritoAmanda(email) {
   return podeBaixarPagamento(email);

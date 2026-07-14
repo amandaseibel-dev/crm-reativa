@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
-import { podeBaixarPagamento } from "../utils/operadores";
+import { podeBaixarPagamento, podeVerFilaDeBaixas } from "../utils/operadores";
 import ComprovantePagamento from "../components/ComprovantePagamento";
 
 const STATUS = {
@@ -260,6 +260,7 @@ export default function MinhaFilaPagamentos() {
 
   const email = usuario?.email || "";
   const podeBaixar = podeBaixarPagamento(email);
+  const podeVer = podeVerFilaDeBaixas(email);
 
   const lista = useMemo(() => {
     let filtrada = [...links];
@@ -301,11 +302,11 @@ export default function MinhaFilaPagamentos() {
     return <div style={styles.container}>Carregando Minha Fila de Pagamentos...</div>;
   }
 
-  if (!podeBaixar) {
+  if (!podeVer) {
     return (
       <div style={styles.container}>
         <h1 style={styles.titulo}>Minha Fila de Pagamentos</h1>
-        <div style={styles.alerta}>Somente Amanda gestora pode baixar pagamentos nesta fila.</div>
+        <div style={styles.alerta}>Somente Amanda gestora pode ver esta fila.</div>
         <p>Usuário logado: <strong>{email || "não identificado"}</strong></p>
       </div>
     );
@@ -442,10 +443,16 @@ export default function MinhaFilaPagamentos() {
             onChange={(e) => setObservacoes({ ...observacoes, [item.id]: e.target.value })}
           />
 
-          <div style={styles.acoes}>
-            <button style={styles.botaoVerde} onClick={() => baixarPagamento(item)}>Baixar pagamento</button>
-            <button style={styles.botaoAmarelo} onClick={() => marcarDivergencia(item)}>Marcar divergência</button>
-          </div>
+          {podeBaixar ? (
+            <div style={styles.acoes}>
+              <button style={styles.botaoVerde} onClick={() => baixarPagamento(item)}>Baixar pagamento</button>
+              <button style={styles.botaoAmarelo} onClick={() => marcarDivergencia(item)}>Marcar divergência</button>
+            </div>
+          ) : (
+            <p style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic" }}>
+              Modo visualização — só a Amanda gestora pode baixar ou marcar divergência.
+            </p>
+          )}
           </details>
         </div>
       ))}
