@@ -340,10 +340,6 @@ export default function FinanceiroAluno({ aluno }) {
   }
 
   async function quitarCartao(acordo, parcelasAbertas, dados) {
-    if (!dados.comprovante || !dados.comprovante.trim()) {
-      alert("No cartão o comprovante é obrigatório.");
-      return;
-    }
     const agora = new Date().toISOString();
     const email = usuario?.email || "";
     const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
@@ -1410,7 +1406,7 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                     </label>
                     <label style={estilos.formLabel}>
                       Comprovante (link/nº)
-                      <input type="text" style={estilos.formInput} placeholder="obrigatório no cartão" value={campos.comprovante || ""}
+                      <input type="text" style={estilos.formInput} placeholder="opcional" value={campos.comprovante || ""}
                         onChange={(e) => setCampos({ ...campos, comprovante: e.target.value })} />
                     </label>
                   </div>
