@@ -3,8 +3,6 @@ import { supabase } from "../services/supabase";
 
 const perfis = ["gerencia", "supervisor", "administrativo", "operador"];
 
-const senhaPadrao = "Reativa@2026";
-
 export default function Usuarios() {
   const [usuarios, setUsuarios] = useState([]);
   const [busca, setBusca] = useState("");
@@ -76,6 +74,25 @@ export default function Usuarios() {
       atualizar("foto_url", reader.result);
     };
     reader.readAsDataURL(file);
+  }
+
+  // Envia um e-mail de redefinicao de senha pro proprio operador -- ele
+  // define a senha dele mesmo, sem ninguem digitar/ver a senha de outra
+  // pessoa. Nao precisa de chave admin (funciona com a chave publica).
+  async function enviarRedefinicaoSenha(email) {
+    setErro("");
+    setMensagem("");
+
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${window.location.origin}/redefinir-senha`,
+    });
+
+    if (error) {
+      setErro("Erro ao enviar redefinição de senha: " + error.message);
+      return;
+    }
+
+    setMensagem(`Link de redefinição de senha enviado para ${email}.`);
   }
 
   async function salvarUsuario(e) {
@@ -211,7 +228,12 @@ export default function Usuarios() {
         <Card label="Total de usuários" value={total} />
         <Card label="Usuários ativos" value={ativos} />
         <Card label="Usuários inativos" value={inativos} />
-        <Card label="Senha padrão" value={senhaPadrao} />
+      </div>
+
+      <div style={avisoSeguranca}>
+        🔒 Por segurança, não existe mais senha padrão visível aqui. Pra dar acesso a um operador
+        novo ou trocar a senha de alguém, use o botão <strong>"Enviar redefinição de senha"</strong> na
+        lista abaixo — ele manda um e-mail pro próprio operador criar a senha dele.
       </div>
 
       <section style={panel}>
@@ -414,6 +436,9 @@ export default function Usuarios() {
                       <button style={miniBtn} onClick={() => editarUsuario(u)}>
                         Editar
                       </button>
+                      <button style={miniBtn} onClick={() => enviarRedefinicaoSenha(u.email)}>
+                        🔒 Enviar redefinição de senha
+                      </button>
                       <button style={miniBtn} onClick={() => alternarAtivo(u)}>
                         {u.ativo ? "Inativar" : "Ativar"}
                       </button>
@@ -471,6 +496,15 @@ const title = {
 const subtitle = {
   color: "#ddd6fe",
   marginTop: 8,
+};
+
+const avisoSeguranca = {
+  background: "rgba(34,197,94,0.08)",
+  border: "1px solid rgba(34,197,94,0.35)",
+  borderRadius: 10,
+  padding: "12px 16px",
+  fontSize: 13,
+  marginBottom: 20,
 };
 
 const cards = {

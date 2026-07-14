@@ -10,6 +10,7 @@ import Aluno from "./pages/Aluno";
 import PainelCarteira from "./components/PainelCarteira";
 import CRM from "./pages/CRM";
 import Login from "./pages/Login";
+import RedefinirSenha from "./pages/RedefinirSenha";
 import Usuarios from "./pages/Usuarios";
 import MinhaFila from "./pages/MinhaFila";
 import FilaTermos from "./pages/FilaTermos";
@@ -391,6 +392,10 @@ export default function App() {
         Carregando ReATIVA One...
       </div>
     );
+  }
+
+  if (window.location.pathname === "/redefinir-senha") {
+    return <RedefinirSenha />;
   }
 
   if (!usuario) {
