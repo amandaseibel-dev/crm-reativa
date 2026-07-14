@@ -36,6 +36,7 @@ import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
 import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
+import MeuDashboard from "./pages/MeuDashboard";
 
 function EmDesenvolvimento({ titulo }) {
   return (
@@ -74,6 +75,7 @@ function podeAcessar(perfil, rota) {
       "/financeiro-operadores",
       "/meu-perfil",
       "/painel-carteira",
+      "/meu-dashboard",
       "/projecao-hora-a-hora",],
     supervisor: [
       "/",
@@ -94,6 +96,7 @@ function podeAcessar(perfil, rota) {
       "/fila-financeiro",
       "/meu-perfil",
       "/painel-carteira",
+      "/meu-dashboard",
       "/projecao-hora-a-hora",],
     administrativo: [
       "/",
@@ -114,6 +117,7 @@ function podeAcessar(perfil, rota) {
       "/vincular-operadores",
       "/meu-perfil",
       "/painel-carteira",
+      "/meu-dashboard",
       "/projecao-hora-a-hora",],
     operador: [
       "/",
@@ -125,6 +129,7 @@ function podeAcessar(perfil, rota) {
       "/relatorios",
       "/meu-perfil",
       "/painel-carteira",
+      "/meu-dashboard",
       "/projecao-hora-a-hora",],
   };
 
@@ -349,6 +354,7 @@ export default function App() {
       esconderParaOperador: true,
     },
     { rota: "/painel-carteira", label: "🗂️ Minha Carteira" },
+    { rota: "/meu-dashboard", label: "📊 Meu Dashboard" },
     { rota: "/projecao-hora-a-hora", label: "⏱️ Projeção Hora a Hora" },
     {
       rota: "/minha-fila",
@@ -633,6 +639,7 @@ export default function App() {
             />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
               <Route path="/painel-carteira" element={<PainelCarteira />} />
+              <Route path="/meu-dashboard" element={<MeuDashboard />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
