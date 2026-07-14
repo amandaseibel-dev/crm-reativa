@@ -339,11 +339,13 @@ export default function MinhaFilaPagamentos() {
           <div style={styles.topoCard}>
             <div>
               <h2 style={styles.nome}>{item.aluno_nome || "Aluno sem nome"}</h2>
+            <div style={styles.infoGrid}>
               <p style={styles.info}><strong>CPF:</strong> {item.aluno_cpf || "-"}</p>
               <p style={styles.info}><strong>Operador:</strong> {item.operador_nome || "-"}</p>
               <p style={styles.info}><strong>Valor:</strong> {dinheiro(item.valor)} | <strong>Parcelas:</strong> {item.parcelas || "-"}</p>
               <p style={styles.info}><strong>Pagamento identificado em:</strong> {dataHora(item.pagamento_identificado_em)}</p>
               <p style={styles.info}><strong>Baixado em:</strong> {dataHora(item.baixado_em)}</p>
+            </div>
             </div>
 
             <span style={{ ...styles.status, ...corStatus(item.status) }}>{STATUS[item.status] || item.status}</span>
@@ -436,7 +438,8 @@ export default function MinhaFilaPagamentos() {
 }
 
 const styles = {
-  indNum: { fontSize: "26px", fontWeight: 800, color: "#111827", lineHeight: 1 },
+  infoGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", columnGap: "18px", rowGap: "2px", marginTop: "4px" },
+  indNum: { fontSize: "28px", fontWeight: 800, color: "#111827", lineHeight: 1 },
   indLbl: { fontSize: "13px", color: "#64748b", fontWeight: 600 },
   indNumV: { fontSize: "22px", fontWeight: 800, color: "#fff", lineHeight: 1.1 },
   indLblV: { fontSize: "13px", color: "#cbd5e1", fontWeight: 600 },
