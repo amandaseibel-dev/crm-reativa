@@ -3,6 +3,9 @@ import Topbar from "../layout/Topbar";
 import { supabase } from "../services/supabase";
 import MuralAniversariantes from "../components/MuralAniversariantes";
 import CadastroNovoAluno from "../components/CadastroNovoAluno";
+import VisaoGeralCarteira from "../components/VisaoGeralCarteira";
+import VisaoGestao360 from "../components/VisaoGestao360";
+import { podeVerTudo } from "../utils/operadores";
 
 function formatarMoeda(valor) {
   const numero = Number(valor) || 0;
@@ -20,6 +23,7 @@ function hojeLocalBR() {
 export default function Dashboard() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
+  const [email, setEmail] = useState("");
   const [indicadores, setIndicadores] = useState({
     baseTotal: 0,
     semResponsavel: 0,
@@ -155,6 +159,11 @@ export default function Dashboard() {
     },
   ];
 
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => setEmail(data?.user?.email || ""));
+  }, []);
+  const veTudo = podeVerTudo(email);
+
   return (
     <main className="content">
       <Topbar />
@@ -173,6 +182,13 @@ export default function Dashboard() {
             </button>
           </div>
         </div>
+
+        {veTudo && (
+          <>
+            <VisaoGeralCarteira email={null} />
+            <VisaoGestao360 />
+          </>
+        )}
 
         {erro && <p style={estilos.erro}>{erro}</p>}
 
