@@ -1382,7 +1382,7 @@ export default function PainelCarteira({ embedded = false }) {
             </div>
 
             <div style={S.tabelaWrap}>
-              <table style={S.tabela}>
+              <table style={S.tabela} className="pc-tabela">
                 <thead>
                   <tr>
                     <th style={S.th}>Nome</th>
@@ -1407,7 +1407,7 @@ export default function PainelCarteira({ embedded = false }) {
                       : "#101828";
                     return (
                       <tr key={a.id} style={S.tr} onClick={() => abrirModal(a)}>
-                        <td style={S.td}>
+                        <td style={S.td} data-label="Nome">
                           <div style={S.nomeCel}>{nomeAluno(a)}</div>
                           <div style={S.subCel}>
                             {[a.telefone, a.unidade, a.curso].filter(Boolean).join(" · ") || "-"}
@@ -1420,13 +1420,13 @@ export default function PainelCarteira({ embedded = false }) {
                             </div>
                           )}
                         </td>
-                        <td style={S.td}>{a.cpf || "-"}</td>
-                        <td style={S.td}>
+                        <td style={S.td} data-label="CPF">{a.cpf || "-"}</td>
+                        <td style={S.td} data-label="Situação">
                           <span style={S.badgeSituacao}>{situacaoLabel(a)}</span>
                         </td>
-                        <td style={S.td}>{formatarData(a.data_ultimo_acionamento || a.ultimo_contato)}</td>
-                        <td style={S.td}>{formatarData(a.data_retorno)}</td>
-                        <td style={S.tdValor}>
+                        <td style={S.td} data-label="Últ. contato">{formatarData(a.data_ultimo_acionamento || a.ultimo_contato)}</td>
+                        <td style={S.td} data-label="Próx. contato">{formatarData(a.data_retorno)}</td>
+                        <td style={S.tdValor} data-label="Valor aberto">
                           {temDet ? (
                             <div style={S.emAbertoBox}>
                               <div style={{ ...S.emAbertoTotal, color: corTotal }}>
@@ -1457,7 +1457,7 @@ export default function PainelCarteira({ embedded = false }) {
                             </div>
                           )}
                         </td>
-                        <td style={S.td}>
+                        <td style={S.td} data-label="Status">
                           <span style={{ ...S.badgeStatus, color: sp.cor }}>
                             <span style={{ ...S.bolinha, background: sp.cor }} />
                             {sp.label}
@@ -1811,6 +1811,44 @@ const CSS_RESPONSIVO = `
   @media (max-width: 640px) {
     .pc-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) !important; }
     .pc-root { padding: 16px !important; }
+
+    /* Tabela vira lista de cards no celular -- linha inteira (nome, CPF,
+       situacao, valor, status) fica visivel de uma vez, sem precisar
+       rolar pra lados nem apertar em cima de texto cortado. Resolve
+       nomes repetidos (ex: 3 "Vitoria da Silva") ficarem indistinguiveis
+       e dificeis de tocar certo. */
+    .pc-tabela thead { display: none; }
+    .pc-tabela, .pc-tabela tbody, .pc-tabela tr, .pc-tabela td { display: block; width: 100%; }
+    .pc-tabela tr {
+      background: #fff;
+      border: 1px solid #edf0f5;
+      border-radius: 14px;
+      margin-bottom: 10px;
+      padding: 12px 14px;
+      box-shadow: 0 1px 2px rgba(16,24,40,0.04);
+    }
+    .pc-tabela td {
+      padding: 6px 0 !important;
+      border: none !important;
+      text-align: left !important;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    .pc-tabela td[data-label="Nome"] { flex-direction: column; align-items: flex-start; padding-bottom: 8px !important; border-bottom: 1px solid #f2f4f7 !important; margin-bottom: 4px; }
+    .pc-tabela td[data-label]::before {
+      content: attr(data-label);
+      font-size: 10.5px;
+      font-weight: 700;
+      color: #98a2b3;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      flex-shrink: 0;
+      padding-top: 2px;
+    }
+    .pc-tabela td[data-label="Nome"]::before { display: none; }
+    .pc-tabela td[data-label="Valor aberto"] > div { align-items: flex-end; text-align: right; }
   }
 `;
 
