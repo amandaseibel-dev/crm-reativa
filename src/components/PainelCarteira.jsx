@@ -10,6 +10,7 @@ import FinanceiroAluno from "./FinanceiroAluno";
 import ConfirmarPagamento from "./ConfirmarPagamento";
 import CadastroNovoAluno from "./CadastroNovoAluno";
 import VisaoGeralCarteira from "./VisaoGeralCarteira";
+import VisaoGestao360 from "./VisaoGestao360";
 
 /*
   PainelCarteira
@@ -1227,7 +1228,12 @@ export default function PainelCarteira({ embedded = false }) {
             </div>
           )}
 
-          {veTudo && <VisaoGeralCarteira email={emailEscopo()} />}
+          {veTudo && (
+            <>
+              <VisaoGeralCarteira email={emailEscopo()} />
+              <VisaoGestao360 />
+            </>
+          )}
           <div style={S.kpiGrid} className="pc-kpis">
             {kpiCards.map((k) => {
               // Todos os cards sao clicaveis e abrem a listagem filtrada.
