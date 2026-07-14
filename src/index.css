@@ -225,6 +225,17 @@ button:hover {
   .cards {
     grid-template-columns: 1fr;
   }
+
+  /* Quando o menu esta recolhido (util pra tela dividida/janela estreita),
+     ignora a regra acima -- fica estreito e do lado do conteudo, nao
+     empilhado em cima dele. */
+  .app:has(.sidebar-recolhida) {
+    flex-direction: row;
+  }
+
+  .sidebar-recolhida {
+    width: 64px !important;
+  }
 }
 
 /* ===== Badges de notificacao no menu (pendentes / alertas) ===== */
