@@ -294,6 +294,19 @@ export default function FilaConfirmacaoPagamento() {
           data_ultimo_acionamento: agora,
         })
         .eq("id", s.aluno_id);
+
+      // Marca o caso como quitado em public.casos -- isso dispara a
+      // reposição automática (solta o operador e repõe com um caso de
+      // valor parecido), mantendo o teto de 500 por operador.
+      const { error: erroBaixaCaso } = await supabase.rpc("confirmar_baixa_caso", {
+        p_aluno_id: s.aluno_id,
+        p_valor_pago: s.valor_informado || 0,
+        p_data_pagamento: s.data_pagamento || agora.slice(0, 10),
+      });
+
+      if (erroBaixaCaso) {
+        console.error("Erro ao dar baixa no caso (reposição automática):", erroBaixaCaso);
+      }
     }
 
     alert("Pagamento confirmado e baixado no sistema.");
