@@ -5,9 +5,12 @@
   font-family: Inter, Arial, sans-serif;
 }
 
+html, body, #root {
+  min-height: 100vh;
+}
 body {
-  background: #0b1220;
-  color: #e5e7eb;
+  background: #f1f5f9;
+  color: #0f172a;
 }
 
 /* LAYOUT PRINCIPAL */
