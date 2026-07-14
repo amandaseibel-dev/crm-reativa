@@ -1139,17 +1139,17 @@ export default function PainelCarteira({ embedded = false }) {
   // Cards operacionais (abrem a tabela) + financeiros (abrem detalhamento).
   // Todos permanecem visiveis mesmo zerados.
   const kpiCards = [
-    { id: "ativos", rot: "Casos ativos • " + formatarMoeda(valorCarteira) + " em aberto", val: kpis.ativos, cor: "#2563eb" },
-    { id: "retornosHoje", rot: "Retornos de hoje", val: kpis.retornosHoje, cor: "#0ea5e9" },
-    { id: "semAcionamento10", rot: "Sem acionamento ha 10 dias", val: kpis.semAcionamento10, cor: "#f59e0b" },
-    { id: "proximosPerder", rot: "Proximos de perder a carteira", val: kpis.proximosPerder, cor: "#dc2626" },
-    { id: "acordoAVencer", rot: "Acordos a vencer", val: kpis.acordoAVencer, cor: "#0891b2" },
-    { id: "acordoAtrasado", rot: "Acordos atrasados", val: kpis.acordoAtrasado, cor: "#f97316" },
-    { id: "acordoQuebrado", rot: "Acordos quebrados", val: kpis.acordoQuebrado, cor: "#e11d48" },
-    { id: "retornosAdm", rot: "Retornos do ADM", val: retornosPendentes.length, cor: "#c2410c" },
-    { id: "valorBaixadoMes", rot: "Valor baixado no mes", val: formatarMoeda(kpis.valorBaixadoMes), cor: "#16a34a", financeiro: true },
-    { id: "recebidosMes", rot: "Recebidos no mes", val: kpis.recebidosMes, cor: "#16a34a", financeiro: true },
-    { id: "honorariosBaixadoMes", rot: "Honorarios no mes", val: formatarMoeda(kpis.honorariosBaixadoMes), cor: "#0d9488", financeiro: true },
+    { id: "ativos", rot: "Casos ativos • " + formatarMoeda(valorCarteira) + " em aberto", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
+    { id: "retornosHoje", rot: "Retornos de hoje", val: kpis.retornosHoje, cor: "#0ea5e9", icone: "🔁" },
+    { id: "semAcionamento10", rot: "Sem acionamento ha 10 dias", val: kpis.semAcionamento10, cor: "#f59e0b", icone: "⏳" },
+    { id: "proximosPerder", rot: "Proximos de perder a carteira", val: kpis.proximosPerder, cor: "#dc2626", icone: "⚠️", urgente: true },
+    { id: "acordoAVencer", rot: "Acordos a vencer", val: kpis.acordoAVencer, cor: "#0891b2", icone: "📄" },
+    { id: "acordoAtrasado", rot: "Acordos atrasados", val: kpis.acordoAtrasado, cor: "#f97316", icone: "⏰" },
+    { id: "acordoQuebrado", rot: "Acordos quebrados", val: kpis.acordoQuebrado, cor: "#e11d48", icone: "💥" },
+    { id: "retornosAdm", rot: "Retornos do ADM", val: retornosPendentes.length, cor: "#c2410c", icone: "📌" },
+    { id: "valorBaixadoMes", rot: "Valor baixado no mes", val: formatarMoeda(kpis.valorBaixadoMes), cor: "#16a34a", financeiro: true, icone: "✅" },
+    { id: "recebidosMes", rot: "Recebidos no mes", val: kpis.recebidosMes, cor: "#16a34a", financeiro: true, icone: "💰" },
+    { id: "honorariosBaixadoMes", rot: "Honorarios no mes", val: formatarMoeda(kpis.honorariosBaixadoMes), cor: "#0d9488", financeiro: true, icone: "🧾" },
   ];
 
   const painelReceptivo = (
@@ -1299,11 +1299,15 @@ export default function PainelCarteira({ embedded = false }) {
                   onClick={filtravel ? () => onKpiClick(k.id) : undefined}
                   style={{
                     ...S.kpiCard,
-                    borderLeft: `3px solid ${k.cor}`,
                     cursor: filtravel ? "pointer" : "default",
-                    boxShadow: ativoK ? `0 0 0 2px ${k.cor}` : S.kpiCard.boxShadow,
+                    boxShadow: ativoK ? `0 0 0 2px ${k.cor}, ${S.kpiCard.boxShadow}` : S.kpiCard.boxShadow,
+                    borderColor: ativoK ? k.cor : S.kpiCard.border,
                   }}
                 >
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                    <span style={{ ...S.kpiIconChip, background: k.cor + "1a", color: k.cor }}>{k.icone}</span>
+                    {k.urgente && k.val > 0 && <span style={S.kpiPulso} />}
+                  </div>
                   <p style={S.kpiRot}>{k.rot}</p>
                   <p style={{ ...S.kpiVal, color: k.cor }}>{k.val}</p>
                 </div>
@@ -1757,115 +1761,128 @@ function Info({ rot, val }) {
 }
 
 const CSS_RESPONSIVO = `
-  .pc-root tbody tr { transition: background 0.12s ease; }
-  .pc-root tbody tr:hover { background: #f7f9fc; }
-  .pc-root .pc-kpis > div { transition: box-shadow 0.14s ease, transform 0.14s ease; }
-  .pc-root .pc-kpis > div:hover { box-shadow: 0 4px 14px rgba(15,23,42,0.07); transform: translateY(-1px); }
+  .pc-root { --pc-brand: #0f9d6b; --pc-ink: #101828; }
+  .pc-root tbody tr { transition: background 0.15s ease; }
+  .pc-root tbody tr:hover { background: #f6fbf9; }
+  .pc-root .pc-kpis > div { transition: box-shadow 0.16s ease, transform 0.16s ease, border-color 0.16s ease; }
+  .pc-root .pc-kpis > div:hover { box-shadow: 0 10px 24px rgba(16,24,40,0.10); transform: translateY(-2px); }
+  .pc-root ::placeholder { color: #a6adba; }
+  @keyframes pc-pulso {
+    0% { box-shadow: 0 0 0 0 rgba(220,38,38,0.45); }
+    70% { box-shadow: 0 0 0 7px rgba(220,38,38,0); }
+    100% { box-shadow: 0 0 0 0 rgba(220,38,38,0); }
+  }
   @media (max-width: 640px) {
     .pc-kpis { grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) !important; }
     .pc-root { padding: 16px !important; }
   }
 `;
 
-const COR_BORDA = "#e6eaf0";
-const COR_BORDA_SUAVE = "#eef2f6";
+const COR_BORDA = "#e3e7ee";
+const COR_BORDA_SUAVE = "#edf0f5";
+const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
+const FONTE_BASE = "'Inter', system-ui, -apple-system, sans-serif";
+const SOMBRA_CARD = "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)";
+const SOMBRA_ELEVADA = "0 20px 48px rgba(16,24,40,0.16), 0 4px 12px rgba(16,24,40,0.06)";
 
 const S = {
-  pagina: { padding: "28px 28px 40px", fontFamily: "Inter, Arial, sans-serif", background: "#f4f6fa", minHeight: "100%", color: "#334155" },
-  cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18, flexWrap: "wrap" },
-  titulo: { margin: 0, marginBottom: 2, color: "#0f172a", fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em" },
-  subtitulo: { margin: 0, color: "#94a3b8", fontSize: 13 },
-  userChip: { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.15, padding: "4px 12px", background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 10 },
-  userNome: { fontWeight: 600, color: "#1e293b", fontSize: 13 },
-  userRole: { fontSize: 10.5, color: "#8b5cf6", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.04em" },
-  select: { padding: "8px 11px", borderRadius: 8, border: `1px solid ${COR_BORDA}`, background: "#fff", fontSize: 13, color: "#334155" },
-  btnAtualizar: { background: "#fff", color: "#475569", border: `1px solid ${COR_BORDA}`, padding: "8px 15px", borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 13 },
+  pagina: { padding: "30px 32px 44px", fontFamily: FONTE_BASE, background: "#f4f6fa", minHeight: "100%", color: "#344054" },
+  cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 22, flexWrap: "wrap" },
+  titulo: { margin: 0, marginBottom: 3, color: "#0d1321", fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em", fontFamily: FONTE_TITULO },
+  subtitulo: { margin: 0, color: "#8a93a3", fontSize: 13.5 },
+  userChip: { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.2, padding: "6px 14px", background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 12, boxShadow: SOMBRA_CARD },
+  userNome: { fontWeight: 700, color: "#101828", fontSize: 13 },
+  userRole: { fontSize: 10, color: "#0f9d6b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" },
+  select: { padding: "9px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, background: "#fff", fontSize: 13, color: "#344054", fontWeight: 500 },
+  btnAtualizar: { background: "#fff", color: "#475569", border: `1px solid ${COR_BORDA}`, padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: 13 },
   erro: { color: "#b91c1c", fontWeight: 600, fontSize: 13 },
 
-  abas: { display: "flex", gap: 4, marginBottom: 18, borderBottom: `1px solid ${COR_BORDA}` },
-  aba: { background: "transparent", border: "1px solid transparent", borderBottom: "none", borderTopLeftRadius: 8, borderTopRightRadius: 8, padding: "8px 16px", fontSize: 13.5, fontWeight: 600, color: "#94a3b8", cursor: "pointer", marginBottom: -1 },
-  abaAtiva: { background: "#fff", color: "#1e293b", border: `1px solid ${COR_BORDA}`, borderBottom: "1px solid #fff" },
+  abas: { display: "flex", gap: 4, marginBottom: 20, borderBottom: `1px solid ${COR_BORDA}` },
+  aba: { background: "transparent", border: "1px solid transparent", borderBottom: "none", borderTopLeftRadius: 10, borderTopRightRadius: 10, padding: "9px 18px", fontSize: 13.5, fontWeight: 700, color: "#98a2b3", cursor: "pointer", marginBottom: -1 },
+  abaAtiva: { background: "#fff", color: "#0d1321", border: `1px solid ${COR_BORDA}`, borderBottom: "1px solid #fff" },
 
   receptivoWrap: { display: "flex", flexDirection: "column", gap: 12, maxWidth: 720 },
-  receptivoInfo: { background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 12, padding: "10px 14px", fontSize: 12.5, color: "#94a3b8", lineHeight: 1.5 },
+  receptivoInfo: { background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 14, padding: "12px 16px", fontSize: 12.5, color: "#8a93a3", lineHeight: 1.55 },
 
-  desWrap: { background: "#fff", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 14, padding: "14px 16px", marginBottom: 16, boxShadow: "0 1px 2px rgba(15,23,42,0.04)" },
-  desHeader: { fontSize: 11.5, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 10 },
+  desWrap: { background: "linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%)", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 16, padding: "16px 18px", marginBottom: 18, boxShadow: SOMBRA_CARD },
+  desHeader: { fontSize: 11.5, fontWeight: 800, color: "#667085", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 },
   desRow: { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "stretch" },
-  desItem: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "#f8fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: "10px 16px", cursor: "pointer", minWidth: 128, textAlign: "left", transition: "border-color 0.12s ease" },
-  desItemAtivo: { borderColor: "#2563eb", background: "#eff4ff", boxShadow: "0 0 0 2px rgba(37,99,235,0.12)" },
-  desItemInfo: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "transparent", borderRadius: 12, padding: "10px 16px", minWidth: 128 },
-  desNum: { fontSize: 21, fontWeight: 800, color: "#0f172a", lineHeight: 1 },
-  desRot: { fontSize: 11, color: "#94a3b8", fontWeight: 600 },
-  kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(158px, 1fr))", gap: 12, marginBottom: 20 },
-  kpiCard: { background: "#fff", borderRadius: 14, padding: "14px 16px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: "0 1px 2px rgba(15,23,42,0.04)", cursor: "pointer" },
-  kpiRot: { margin: "0 0 5px 0", fontSize: 11.5, color: "#94a3b8", fontWeight: 600 },
-  kpiVal: { margin: 0, fontSize: 23, fontWeight: 800, letterSpacing: "-0.02em" },
+  desItem: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "#f8faf9", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: "11px 16px", cursor: "pointer", minWidth: 128, textAlign: "left", transition: "border-color 0.14s ease, background 0.14s ease" },
+  desItemAtivo: { borderColor: "#0f9d6b", background: "#ecfaf3", boxShadow: "0 0 0 2px rgba(15,157,107,0.14)" },
+  desItemInfo: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "transparent", borderRadius: 12, padding: "11px 16px", minWidth: 128 },
+  desNum: { fontSize: 22, fontWeight: 800, color: "#0d1321", lineHeight: 1, fontFamily: FONTE_TITULO },
+  desRot: { fontSize: 11, color: "#98a2b3", fontWeight: 600 },
+  kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(172px, 1fr))", gap: 14, marginBottom: 22 },
+  kpiCard: { background: "#fff", borderRadius: 16, padding: "16px 18px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD, cursor: "pointer" },
+  kpiIconChip: { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 10, fontSize: 15, marginBottom: 12 },
+  kpiPulso: { width: 9, height: 9, borderRadius: "50%", background: "#dc2626", animation: "pc-pulso 1.8s ease-in-out infinite", marginTop: 2 },
+  kpiRot: { margin: "0 0 6px 0", fontSize: 11.5, color: "#8a93a3", fontWeight: 600, lineHeight: 1.35 },
+  kpiVal: { margin: 0, fontSize: 25, fontWeight: 800, letterSpacing: "-0.02em", fontFamily: FONTE_TITULO },
 
-  painelTabela: { background: "#fff", borderRadius: 16, padding: 18, border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
-  filtros: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 16, alignItems: "center" },
-  inputBusca: { flex: 1, minWidth: 220, padding: "10px 13px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, color: "#334155", background: "#f8fafc" },
-  chipFiltro: { display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", background: "#eef4ff", color: "#2563eb", border: "1px solid #d8e4ff", borderRadius: 999, padding: "5px 12px", fontSize: 11.5, fontWeight: 700 },
-  tabelaWrap: { overflowX: "auto" },
-  tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "10px 10px", color: "#64748b", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", background: "#f8fafc", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
-  thNum: { textAlign: "right", padding: "10px 10px", color: "#64748b", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em", background: "#f8fafc", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
+  painelTabela: { background: "#fff", borderRadius: 18, padding: 20, border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD },
+  filtros: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" },
+  inputBusca: { flex: 1, minWidth: 220, padding: "11px 14px", borderRadius: 12, border: `1px solid ${COR_BORDA}`, fontSize: 13, color: "#344054", background: "#f8fafc" },
+  chipFiltro: { display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", background: "#e9f9f1", color: "#0f9d6b", border: "1px solid #bdeed4", borderRadius: 999, padding: "6px 13px", fontSize: 11.5, fontWeight: 700 },
+  tabelaWrap: { overflowX: "auto", borderRadius: 12 },
+  tabela: { width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 13 },
+  th: { textAlign: "left", padding: "11px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
+  thNum: { textAlign: "right", padding: "11px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
   tr: { cursor: "pointer", borderBottom: `1px solid ${COR_BORDA_SUAVE}` },
-  td: { padding: "11px 10px", color: "#475569", verticalAlign: "middle" },
-  tdNum: { padding: "10px 8px", color: "#1e293b", textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 },
-  tdTotal: { padding: "10px 8px", color: "#1e293b", fontWeight: 700, borderTop: `2px solid ${COR_BORDA}`, textAlign: "right" },
-  tdNumTotal: { padding: "10px 8px", color: "#16a34a", textAlign: "right", whiteSpace: "nowrap", fontWeight: 800, borderTop: `2px solid ${COR_BORDA}` },
-  nomeCel: { fontWeight: 600, color: "#1e293b" },
-  subCel: { fontSize: 11.5, color: "#a3adba" },
-  tdValor: { padding: "10px 8px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "middle" },
+  td: { padding: "13px 12px", color: "#475569", verticalAlign: "middle" },
+  tdNum: { padding: "11px 10px", color: "#1e293b", textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 },
+  tdTotal: { padding: "11px 10px", color: "#1e293b", fontWeight: 700, borderTop: `2px solid ${COR_BORDA}`, textAlign: "right" },
+  tdNumTotal: { padding: "11px 10px", color: "#0f9d6b", textAlign: "right", whiteSpace: "nowrap", fontWeight: 800, borderTop: `2px solid ${COR_BORDA}` },
+  nomeCel: { fontWeight: 700, color: "#101828", fontSize: 13.5 },
+  subCel: { fontSize: 11.5, color: "#98a2b3", marginTop: 2 },
+  tdValor: { padding: "11px 10px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "middle" },
   emAbertoBox: { display: "inline-flex", flexDirection: "column", alignItems: "flex-end", gap: 1 },
-  emAbertoTotal: { fontWeight: 700, fontSize: 13 },
-  emAbertoSub: { fontSize: 11, color: "#94a3b8" },
-  tagRevisar: { fontSize: 10.5, fontWeight: 600, color: "#b54708", background: "#fff4e6", border: "1px solid #f5c98a", borderRadius: 5, padding: "0px 6px", marginTop: 1 },
-  badgeSituacao: { display: "inline-block", padding: "3px 9px", borderRadius: 999, background: "#eef2ff", color: "#4f46e5", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", letterSpacing: "0.01em" },
-  badgeStatus: { display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, fontWeight: 600, whiteSpace: "nowrap" },
+  emAbertoTotal: { fontWeight: 800, fontSize: 13.5, fontFamily: FONTE_TITULO },
+  emAbertoSub: { fontSize: 11, color: "#98a2b3" },
+  tagRevisar: { fontSize: 10.5, fontWeight: 700, color: "#b54708", background: "#fff4e6", border: "1px solid #f5c98a", borderRadius: 6, padding: "1px 7px", marginTop: 2 },
+  badgeSituacao: { display: "inline-block", padding: "4px 10px", borderRadius: 999, background: "#eef1ff", color: "#4f46e5", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", letterSpacing: "0.01em" },
+  badgeStatus: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap" },
   bolinha: { width: 7, height: 7, borderRadius: "50%", display: "inline-block" },
-  vazio: { padding: 24, textAlign: "center", color: "#a3adba" },
-  rodapeTabela: { margin: "10px 0 0 0", fontSize: 11.5, color: "#a3adba" },
+  vazio: { padding: 28, textAlign: "center", color: "#98a2b3" },
+  rodapeTabela: { margin: "12px 0 0 0", fontSize: 11.5, color: "#98a2b3" },
 
   // Modal
-  overlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", zIndex: 1000, overflowY: "auto" },
-  modal: { width: "100%", maxWidth: 880, background: "#fff", borderRadius: 18, boxShadow: "0 24px 60px rgba(15,23,42,0.28)", overflow: "hidden" },
-  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "20px 22px", borderBottom: `1px solid ${COR_BORDA_SUAVE}`, background: "#fbfcfe" },
-  modalNome: { margin: 0, fontSize: 18, fontWeight: 700, color: "#1e293b" },
-  modalSub: { fontSize: 12.5, color: "#94a3b8", marginTop: 4 },
-  btnFechar: { background: "#f1f5f9", border: "none", borderRadius: 8, width: 32, height: 32, cursor: "pointer", color: "#475569", fontSize: 14, flexShrink: 0 },
-  modalAbas: { display: "flex", gap: 2, padding: "0 20px", borderBottom: `1px solid ${COR_BORDA_SUAVE}`, flexWrap: "wrap" },
-  modalAba: { background: "transparent", border: "none", borderBottom: "2px solid transparent", padding: "10px 12px", fontSize: 13, fontWeight: 600, color: "#94a3b8", cursor: "pointer" },
-  modalAbaAtiva: { color: "#2563eb", borderBottom: "2px solid #2563eb" },
-  feedbackOk: { margin: "12px 20px 0", padding: "8px 12px", borderRadius: 8, background: "#eefbf3", color: "#15803d", fontSize: 12.5, fontWeight: 600 },
-  feedbackErro: { margin: "12px 20px 0", padding: "8px 12px", borderRadius: 8, background: "#fef2f2", color: "#b91c1c", fontSize: 12.5, fontWeight: 600 },
-  modalBody: { padding: 20, maxHeight: "62vh", overflowY: "auto" },
+  overlay: { position: "fixed", inset: 0, background: "rgba(13,19,33,0.55)", backdropFilter: "blur(2px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", zIndex: 1000, overflowY: "auto" },
+  modal: { width: "100%", maxWidth: 880, background: "#fff", borderRadius: 20, boxShadow: SOMBRA_ELEVADA, overflow: "hidden" },
+  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "22px 24px", borderBottom: `1px solid ${COR_BORDA_SUAVE}`, background: "linear-gradient(180deg, #fbfdfc 0%, #ffffff 100%)" },
+  modalNome: { margin: 0, fontSize: 19, fontWeight: 800, color: "#101828", fontFamily: FONTE_TITULO },
+  modalSub: { fontSize: 12.5, color: "#8a93a3", marginTop: 5 },
+  btnFechar: { background: "#f1f5f9", border: "none", borderRadius: 10, width: 34, height: 34, cursor: "pointer", color: "#475569", fontSize: 14, flexShrink: 0 },
+  modalAbas: { display: "flex", gap: 4, padding: "0 22px", borderBottom: `1px solid ${COR_BORDA_SUAVE}`, flexWrap: "wrap" },
+  modalAba: { background: "transparent", border: "none", borderBottom: "2px solid transparent", padding: "11px 13px", fontSize: 13, fontWeight: 700, color: "#98a2b3", cursor: "pointer" },
+  modalAbaAtiva: { color: "#0f9d6b", borderBottom: "2px solid #0f9d6b" },
+  feedbackOk: { margin: "14px 22px 0", padding: "9px 13px", borderRadius: 10, background: "#eafaf1", color: "#0f7a4f", fontSize: 12.5, fontWeight: 700 },
+  feedbackErro: { margin: "14px 22px 0", padding: "9px 13px", borderRadius: 10, background: "#fef2f2", color: "#b91c1c", fontSize: 12.5, fontWeight: 700 },
+  modalBody: { padding: 22, maxHeight: "62vh", overflowY: "auto" },
   secao: { display: "flex", flexDirection: "column", gap: 12 },
   gridInfo: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 },
-  infoBox: { background: "#f9fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: "8px 12px" },
-  infoRot: { fontSize: 11, color: "#94a3b8", marginBottom: 2 },
-  infoVal: { fontSize: 13.5, color: "#1e293b", fontWeight: 600 },
+  infoBox: { background: "#f9fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: "9px 13px" },
+  infoRot: { fontSize: 11, color: "#98a2b3", marginBottom: 3, fontWeight: 600 },
+  infoVal: { fontSize: 13.5, color: "#101828", fontWeight: 700 },
   btnEditarOperador: { marginLeft: 6, border: "none", background: "transparent", cursor: "pointer", fontSize: 13 },
-  selectOperadorFicha: { padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12, maxWidth: 160 },
-  btnSalvarOperador: { border: "none", background: "#16a34a", color: "#fff", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  btnCancelarOperador: { border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" },
-  label: { fontSize: 12, fontWeight: 600, color: "#475569", marginTop: 4 },
-  input: { padding: "9px 11px", borderRadius: 8, border: `1px solid ${COR_BORDA}`, fontSize: 13, background: "#fff", color: "#334155" },
-  textarea: { padding: "9px 11px", borderRadius: 8, border: `1px solid ${COR_BORDA}`, fontSize: 13, minHeight: 70, resize: "vertical", fontFamily: "inherit", background: "#fff", color: "#334155" },
-  proximaAcao: { fontSize: 12.5, color: "#64748b", background: "#f9fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 8, padding: "8px 12px" },
+  selectOperadorFicha: { padding: "5px 7px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, maxWidth: 160 },
+  btnSalvarOperador: { border: "none", background: "#0f9d6b", color: "#fff", borderRadius: 8, padding: "5px 9px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  btnCancelarOperador: { border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 8, padding: "5px 9px", fontSize: 12, cursor: "pointer" },
+  label: { fontSize: 12, fontWeight: 700, color: "#475569", marginTop: 4 },
+  input: { padding: "10px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, background: "#fff", color: "#344054" },
+  textarea: { padding: "10px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, minHeight: 70, resize: "vertical", fontFamily: "inherit", background: "#fff", color: "#344054" },
+  proximaAcao: { fontSize: 12.5, color: "#667085", background: "#f9fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: "9px 13px" },
   acoesLinha: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 },
-  btnPrimario: { background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
-  btnSecundario: { background: "#eef2f6", color: "#475569", border: "none", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer" },
-  timeline: { display: "flex", flexDirection: "column", gap: 10 },
-  itemHist: { borderLeft: `2px solid ${COR_BORDA}`, paddingLeft: 12 },
-  histData: { fontSize: 11, color: "#a3adba" },
-  histDesc: { fontSize: 13, color: "#334155" },
-  histStatus: { fontSize: 11.5, color: "#6366f1", fontWeight: 600 },
-  histAutor: { fontSize: 11, color: "#a3adba" },
+  btnPrimario: { background: "#0f9d6b", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
+  btnSecundario: { background: "#eef2f6", color: "#475569", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
+  timeline: { display: "flex", flexDirection: "column", gap: 11 },
+  itemHist: { borderLeft: `2px solid ${COR_BORDA}`, paddingLeft: 13 },
+  histData: { fontSize: 11, color: "#98a2b3" },
+  histDesc: { fontSize: 13, color: "#344054" },
+  histStatus: { fontSize: 11.5, color: "#6366f1", fontWeight: 700 },
+  histAutor: { fontSize: 11, color: "#98a2b3" },
 
   // Retorno do ADM — bloco na Tabulacao
-  retornoBox: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 12, padding: 12, display: "flex", flexDirection: "column", gap: 4 },
+  retornoBox: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 14, padding: 13, display: "flex", flexDirection: "column", gap: 4 },
   retornoTop: { display: "flex", justifyContent: "space-between", alignItems: "center" },
   retornoBadge: { fontSize: 12.5, fontWeight: 700, color: "#c2410c" },
   retornoStatus: { fontSize: 11, fontWeight: 700, color: "#9a3412", background: "#ffedd5", borderRadius: 999, padding: "2px 8px" },
@@ -1873,17 +1890,17 @@ const S = {
   retornoDica: { fontSize: 11.5, color: "#9a3412", marginTop: 2, fontStyle: "italic" },
   acoesInlineTitulo: { fontSize: 12, fontWeight: 700, color: "#475569", marginTop: 6 },
   acoesInlineBotoes: { display: "flex", flexWrap: "wrap", gap: 8 },
-  btnAcaoInline: { background: "#eef2f6", color: "#334155", border: `1px solid ${COR_BORDA}`, borderRadius: 8, padding: "8px 12px", fontSize: 12.5, fontWeight: 600, cursor: "pointer" },
-  blocoInline: { border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: 4, background: "#fbfcfe" },
+  btnAcaoInline: { background: "#eef2f6", color: "#344054", border: `1px solid ${COR_BORDA}`, borderRadius: 10, padding: "8px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
+  blocoInline: { border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: 4, background: "#fbfcfe" },
 
   // Retorno do ADM — bloco na Carteira
-  retornoCarteira: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 12, padding: "10px 14px", marginBottom: 14 },
-  retornoCarteiraTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  retornoCarteira: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 14, padding: "11px 15px", marginBottom: 16 },
+  retornoCarteiraTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 9 },
   retornoCarteiraBadge: { fontSize: 13, fontWeight: 700, color: "#c2410c" },
   retornoCarteiraCont: { fontSize: 12, fontWeight: 700, color: "#9a3412", background: "#ffedd5", borderRadius: 999, padding: "2px 10px" },
   retornoCarteiraLista: { display: "flex", flexDirection: "column", gap: 6 },
-  retornoCarteiraItem: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", background: "#fff", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 8, padding: "7px 10px" },
-  retornoCarteiraNome: { flex: 1, fontWeight: 600, color: "#1e293b", fontSize: 13 },
-  retornoCarteiraTag: { fontSize: 11, fontWeight: 600, color: "#c2410c", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 6, padding: "2px 8px" },
-  retornoCarteiraStatus: { fontSize: 11, color: "#94a3b8" },
+  retornoCarteiraItem: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", background: "#fff", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: "8px 11px" },
+  retornoCarteiraNome: { flex: 1, fontWeight: 700, color: "#101828", fontSize: 13 },
+  retornoCarteiraTag: { fontSize: 11, fontWeight: 700, color: "#c2410c", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 6, padding: "2px 8px" },
+  retornoCarteiraStatus: { fontSize: 11, color: "#98a2b3" },
 };
