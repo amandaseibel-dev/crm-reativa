@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800;900&display=swap');
+
 * {
   box-sizing: border-box;
 }
@@ -7,6 +9,11 @@ body,
 #root {
   margin: 0;
   min-height: 100%;
+}
+
+@keyframes reativaPulso {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45), 0 14px 38px rgba(0,0,0,0.35); }
+  50% { box-shadow: 0 0 40px 10px rgba(34, 197, 94, 0.35), 0 14px 38px rgba(0,0,0,0.35); }
 }
 
 .reativa-login {
@@ -66,11 +73,15 @@ body,
 }
 
 .reativa-login__logo {
+  font-family: 'Sora', Inter, sans-serif;
   font-size: 42px;
   font-weight: 900;
   letter-spacing: -2px;
   color: #ffffff;
   text-shadow: 0 14px 38px rgba(0, 0, 0, 0.35);
+  border-radius: 16px;
+  padding: 6px 14px;
+  animation: reativaPulso 3.2s ease-in-out infinite;
 }
 
 .reativa-login__logo span {
@@ -106,6 +117,7 @@ body,
 .reativa-login h1 {
   margin: 0;
   max-width: 720px;
+  font-family: 'Sora', Inter, sans-serif;
   font-size: clamp(45px, 5.4vw, 76px);
   line-height: 1.03;
   letter-spacing: -3px;
@@ -147,6 +159,7 @@ body,
 .flow-card strong {
   display: block;
   color: #ffffff;
+  font-family: 'Sora', Inter, sans-serif;
   font-size: 19px;
   margin-bottom: 8px;
 }
@@ -281,6 +294,7 @@ body,
 
 .login-card h2 {
   margin: 0;
+  font-family: 'Sora', Inter, sans-serif;
   font-size: 34px;
   line-height: 1.15;
   letter-spacing: -1.5px;
@@ -395,9 +409,10 @@ body,
   border-radius: 14px;
   cursor: pointer;
   color: #ffffff;
+  font-family: 'Sora', Inter, sans-serif;
   background: linear-gradient(135deg, #4ade80, #22c55e, #10b981);
   font-size: 20px;
-  font-weight: 900;
+  font-weight: 800;
   box-shadow: 0 22px 48px rgba(34, 197, 94, 0.24);
   transition: transform 0.18s ease, filter 0.18s ease;
 }
