@@ -45,6 +45,7 @@ import ConsultaFinanceira from "./pages/ConsultaFinanceira";
 import VincularBaseOperacional from "./pages/VincularBaseOperacional";
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 import PainelAdm from "./pages/PainelAdm";
+import FinanceiroHub from "./pages/FinanceiroHub";
 import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
@@ -74,6 +75,7 @@ function podeAcessar(perfil, rota) {
       "/aluno",
       "/crm",
       "/financeiro",
+      "/financeiro-hub",
       "/base-analitica",
       "/termos-adm",
       "/borderos",
@@ -104,6 +106,7 @@ function podeAcessar(perfil, rota) {
       "/aluno",
       "/crm",
       "/financeiro",
+      "/financeiro-hub",
       "/base-analitica",
       "/termos-adm",
       "/relatorios",
@@ -127,6 +130,7 @@ function podeAcessar(perfil, rota) {
       "/aluno",
       "/crm",
       "/financeiro",
+      "/financeiro-hub",
       "/termos-adm",
 
       "/controle-links-pagamento",
@@ -446,21 +450,12 @@ export default function App() {
     { rota: "/aluno", label: "Aluno", icone: "User", secao: "Operação" },
     { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
 
-    { rota: "/financeiro", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
+    { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
     { rota: "/minha-fila-pagamentos", label: "Fila de Baixas", icone: "CreditCard", secao: "Financeiro" },
-    { rota: "/fila-confirmacao-pagamento", label: "Confirmação de Pagamento", icone: "CheckCircle2", secao: "Financeiro" },
-    { rota: "/borderos", label: "Borderôs", icone: "FileStack", secao: "Financeiro" },
-    { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Financeiro" },
 
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
-    // Fila de Links, Fila Financeiro e Termos ADM foram unificados dentro
-    // do Painel ADM (abas com filtro). As rotas continuam existindo, só
-    // não aparecem mais separadas no menu.
-    { rota: "/painel-adm", label: "Painel ADM", icone: "LayoutPanelTop", secao: "Gestão" },
-    { rota: "/painel-operadores", label: "Painel Operadores", icone: "Clock3", secao: "Gestão" },
-    { rota: "/base-analitica", label: "Base Analítica", icone: "Database", secao: "Gestão" },
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
 
@@ -752,6 +747,7 @@ export default function App() {
               />
               <Route path="/controle-links-pagamento" element={<ControleLinksPagamento />} />
               <Route path="/painel-adm" element={<PainelAdm />} />
+              <Route path="/financeiro-hub" element={<FinanceiroHub />} />
               <Route path="/fila-financeiro" element={<FilaFinanceiro />} />
               <Route path="/fila-confirmacao-pagamento" element={<FilaConfirmacaoPagamento />} />
               <Route path="/painel-operadores" element={<PainelOperadores />} />
