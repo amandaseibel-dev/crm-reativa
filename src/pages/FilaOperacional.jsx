@@ -857,6 +857,43 @@ export default function FilaOperador() {
         extraAluno,
       });
 
+      // Tabulou como "aguardando baixa" (pago) direto na fila, sem passar
+      // pelo card dedicado "Confirmar pagamento" -- sem isso o aluno ficava
+      // com o status de pago mas nunca aparecia na fila de Confirmação de
+      // Pagamento (nem em lugar nenhum). Criamos a solicitação aqui pra
+      // garantir que todo "pago" realmente cai na fila de confirmação.
+      if (statusFinalizacao === "AGUARDANDO_BAIXA") {
+        const usuario = await pegarUsuarioLogado();
+        const { data: pendenteExistente } = await supabase
+          .from("solicitacoes_confirmacao_pagamento")
+          .select("id")
+          .eq("aluno_id", String(alunoSelecionado.id))
+          .eq("status", "AGUARDANDO_CONFIRMACAO")
+          .maybeSingle();
+
+        if (!pendenteExistente) {
+          const { error: erroSolicitacao } = await supabase
+            .from("solicitacoes_confirmacao_pagamento")
+            .insert({
+              aluno_id: String(alunoSelecionado.id),
+              aluno_nome: pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "Aluno sem nome"),
+              aluno_cpf: pegarCampo(alunoSelecionado, ["cpf", "CPF"], null),
+              operador_email: usuario.email,
+              operador_nome: usuario.nome,
+              motivo: observacao.trim() || "Tabulado como aguardando baixa direto na fila operacional.",
+              status: "AGUARDANDO_CONFIRMACAO",
+            });
+
+          if (erroSolicitacao) {
+            console.error("Erro ao criar solicitação de confirmação de pagamento:", erroSolicitacao);
+            alert(
+              "Atenção: o status foi salvo, mas houve um erro ao mandar o caso pra fila de Confirmação de Pagamento: " +
+                erroSolicitacao.message
+            );
+          }
+        }
+      }
+
       setObservacao("");
       setNumeroProcesso("");
       setPrazoTipo("DATA");

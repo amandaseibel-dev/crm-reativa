@@ -930,6 +930,42 @@ export default function PainelCarteira({ embedded = false }) {
       });
       if (erroMov) throw erroMov;
 
+      // Tabulou como "aguardando baixa" (pago) direto no modal da carteira,
+      // sem passar pelo card dedicado "Confirmar pagamento" -- sem isso o
+      // aluno ficava com o status de pago mas nunca aparecia na fila de
+      // Confirmação de Pagamento. Criamos a solicitação aqui pra garantir
+      // que todo "pago" realmente cai na fila de confirmação.
+      if (statusNovo === "AGUARDANDO_BAIXA") {
+        const { data: pendenteExistente } = await supabase
+          .from("solicitacoes_confirmacao_pagamento")
+          .select("id")
+          .eq("aluno_id", String(a.id))
+          .eq("status", "AGUARDANDO_CONFIRMACAO")
+          .maybeSingle();
+
+        if (!pendenteExistente) {
+          const { error: erroSolicitacao } = await supabase
+            .from("solicitacoes_confirmacao_pagamento")
+            .insert({
+              aluno_id: String(a.id),
+              aluno_nome: nomeAluno(a),
+              aluno_cpf: a.cpf || null,
+              operador_email: email,
+              operador_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
+              motivo: resumoConversa.trim() || "Tabulado como aguardando baixa direto na Minha Carteira.",
+              status: "AGUARDANDO_CONFIRMACAO",
+            });
+
+          if (erroSolicitacao) {
+            console.error("Erro ao criar solicitação de confirmação de pagamento:", erroSolicitacao);
+            setFeedback({
+              tipo: "erro",
+              texto: "Status salvo, mas houve erro ao mandar pra fila de Confirmação de Pagamento: " + erroSolicitacao.message,
+            });
+          }
+        }
+      }
+
       setResumoConversa("");
       setFeedback({ tipo: "ok", texto: "Atendimento salvo com sucesso." });
       await atualizarTudo(a.id);
