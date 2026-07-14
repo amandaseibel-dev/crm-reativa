@@ -161,6 +161,7 @@ export default function LinksPagamentoAluno({
   const [abertoRetroativo, setAbertoRetroativo] = useState(false);
   const [valorRetroativo, setValorRetroativo] = useState("");
   const [linkRetroativo, setLinkRetroativo] = useState("");
+  const [arquivoRetroativo, setArquivoRetroativo] = useState(null);
   const [observacaoRetroativo, setObservacaoRetroativo] = useState("");
   const [carregandoRetroativo, setCarregandoRetroativo] = useState(false);
 
@@ -449,15 +450,51 @@ export default function LinksPagamentoAluno({
     }
 
     const link = (linkRetroativo || "").trim();
+    const temLink = link.length > 0;
+    const temArquivo = !!arquivoRetroativo;
 
-    if (!link || (!link.toLowerCase().startsWith("http://") && !link.toLowerCase().startsWith("https://"))) {
-      setErro("Cole o link completo do cartão, começando com http:// ou https://.");
+    if (!temLink && !temArquivo) {
+      setErro("Cole o link do cartão ou anexe o comprovante (arquivo).");
+      return;
+    }
+
+    if (temLink && !link.toLowerCase().startsWith("http://") && !link.toLowerCase().startsWith("https://")) {
+      setErro("O link precisa começar com http:// ou https://. Se não tiver link, anexe o comprovante como arquivo.");
       return;
     }
 
     setCarregandoRetroativo(true);
 
     const agora = new Date().toISOString();
+
+    // Se tiver arquivo, sobe pro bucket de comprovantes antes de gravar.
+    let comprovanteUrl = null;
+    let comprovanteNome = null;
+
+    if (temArquivo) {
+      const nomeSeguro = arquivoRetroativo.name
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9.\-_]/g, "_");
+      const caminho = `${alunoId || "sem-id"}/${Date.now()}-${nomeSeguro}`;
+
+      const { error: erroUpload } = await supabase.storage
+        .from("comprovantes-pagamento")
+        .upload(caminho, arquivoRetroativo, { cacheControl: "3600", upsert: false });
+
+      if (erroUpload) {
+        setErro("Erro ao anexar o comprovante: " + erroUpload.message);
+        setCarregandoRetroativo(false);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from("comprovantes-pagamento")
+        .getPublicUrl(caminho);
+
+      comprovanteUrl = publicUrlData?.publicUrl || null;
+      comprovanteNome = arquivoRetroativo.name;
+    }
 
     const { data: novoLink, error } = await supabase
       .from("links_pagamento")
@@ -473,12 +510,16 @@ export default function LinksPagamentoAluno({
         tipo_pagamento: "Cartão",
         forma_pagamento: "Cartão",
         valor: valorNumerico,
-        link_gerado: link,
-        link_pagamento: link,
+        link_gerado: temLink ? link : null,
+        link_pagamento: temLink ? link : null,
         link_gerado_por: emailUsuario,
         link_gerado_em: agora,
+        comprovante_url: comprovanteUrl,
+        comprovante_nome: comprovanteNome,
+        comprovante_anexado_por: temArquivo ? emailUsuario : null,
+        comprovante_anexado_em: temArquivo ? agora : null,
         status: "AGUARDANDO_BAIXA",
-        observacao_solicitacao: "Caso retroativo — link de cartão anexado diretamente pelo operador.",
+        observacao_solicitacao: "Caso retroativo — comprovante anexado diretamente pelo operador.",
         observacao_comprovante: observacaoRetroativo || null,
         criado_em: agora,
         atualizado_em: agora,
@@ -514,7 +555,7 @@ export default function LinksPagamentoAluno({
         tipo: "LINK_CARTAO_RETROATIVO_ANEXADO",
         descricao:
           observacaoRetroativo ||
-          "Operador anexou link de cartão de um caso retroativo. Caso foi direto pra fila de baixa da Amanda.",
+          "Operador anexou comprovante de um caso retroativo. Caso foi direto pra fila de baixa da Amanda.",
         status_anterior: null,
         status_novo: "AGUARDANDO_BAIXA",
         registrado_por_nome: nomeUsuario,
@@ -527,12 +568,13 @@ export default function LinksPagamentoAluno({
       await registrarHistorico(
         novoLink,
         "AGUARDANDO_BAIXA",
-        observacaoRetroativo || "Link de cartão retroativo anexado pelo operador."
+        observacaoRetroativo || "Comprovante de caso retroativo anexado pelo operador."
       );
     }
 
     setValorRetroativo("");
     setLinkRetroativo("");
+    setArquivoRetroativo(null);
     setObservacaoRetroativo("");
     setAbertoRetroativo(false);
 
@@ -780,7 +822,7 @@ export default function LinksPagamentoAluno({
             onClick={() => setAbertoRetroativo(!abertoRetroativo)}
             style={botaoSecundario}
           >
-            {abertoRetroativo ? "Fechar" : "Anexar link de cartão (caso retroativo)"}
+            {abertoRetroativo ? "Fechar" : "Anexar comprovante (caso retroativo)"}
           </button>
         </div>
       </div>
@@ -867,9 +909,10 @@ export default function LinksPagamentoAluno({
       {abertoRetroativo && (
         <div style={formulario}>
           <p style={subtitulo}>
-            Use isso só para casos retroativos, em que o link de cartão já foi gerado e o
-            pagamento já foi tratado fora do fluxo normal. O caso vai direto pra fila de
-            baixa da Amanda, sem passar pela fila da ADM.
+            Use isso só para casos retroativos, em que o pagamento já foi tratado fora do
+            fluxo normal. Anexe o comprovante (arquivo) ou cole o link do cartão — um dos
+            dois é obrigatório. O caso vai direto pra fila de baixa da Amanda, sem passar
+            pela fila da ADM.
           </p>
 
           <div style={linha}>
@@ -901,13 +944,28 @@ export default function LinksPagamentoAluno({
                 </p>
               )}
             </div>
+          </div>
+
+          <div style={linha}>
+            <div style={campo}>
+              <label style={label}>Anexar comprovante (arquivo)</label>
+              <input
+                type="file"
+                accept="image/*,.pdf"
+                onChange={(e) => setArquivoRetroativo(e.target.files?.[0] || null)}
+                style={input}
+              />
+              {arquivoRetroativo && (
+                <p style={previewValor}>Selecionado: {arquivoRetroativo.name}</p>
+              )}
+            </div>
 
             <div style={campo}>
-              <label style={label}>Link completo do cartão</label>
+              <label style={label}>Ou cole o link completo do cartão</label>
               <input
                 value={linkRetroativo}
                 onChange={(e) => setLinkRetroativo(e.target.value)}
-                placeholder="https://..."
+                placeholder="https://... (opcional se anexar arquivo)"
                 style={input}
               />
             </div>
