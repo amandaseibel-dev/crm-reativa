@@ -100,6 +100,13 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
         )}
       </div>
 
+      {/* previewComprovante */}
+      {item?.comprovante_url && (/(\.png|\.jpe?g)$/i.test(String(item.comprovante_nome || item.comprovante_url)) ? (
+        <img src={item.comprovante_url} alt="comprovante" style={{ maxWidth: "100%", maxHeight: 360, borderRadius: 8, border: "1px solid #e5e7eb", marginTop: 10, display: "block" }} />
+      ) : /\.pdf$/i.test(String(item.comprovante_nome || item.comprovante_url)) ? (
+        <iframe src={item.comprovante_url} title="comprovante" style={{ width: "100%", height: 380, border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 10 }} />
+      ) : null)}
+
       {item?.comprovante_nome && (
         <p style={styles.arquivoAtual}>
           Arquivo atual: <strong>{item.comprovante_nome}</strong>
