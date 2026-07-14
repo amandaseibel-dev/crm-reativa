@@ -33,9 +33,15 @@ export default function RedefinirSenha({ forcado, email }) {
     }
 
     // Tira a marca de "precisa trocar senha" pra não pedir de novo no
-    // próximo login.
-    if (email) {
-      await supabase.from("usuarios").update({ deve_trocar_senha: false }).eq("email", email);
+    // próximo login. Usa o e-mail passado por prop (fluxo obrigatório) ou,
+    // se não tiver, pega da sessão atual (fluxo do link por e-mail).
+    let emailParaLimpar = email;
+    if (!emailParaLimpar) {
+      const { data: sessao } = await supabase.auth.getUser();
+      emailParaLimpar = sessao?.user?.email;
+    }
+    if (emailParaLimpar) {
+      await supabase.from("usuarios").update({ deve_trocar_senha: false }).eq("email", emailParaLimpar);
     }
 
     setSalvando(false);
