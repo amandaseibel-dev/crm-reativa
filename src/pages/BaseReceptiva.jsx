@@ -424,7 +424,7 @@ export default function BaseReceptiva() {
 
 const styles = {
   container: {
-    minHeight: "100vh",
+    minHeight: "100%",
     background: "#f4f6f8",
     padding: "24px",
     fontFamily: "Arial, sans-serif",

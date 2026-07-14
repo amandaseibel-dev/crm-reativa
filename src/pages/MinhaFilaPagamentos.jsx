@@ -446,7 +446,7 @@ const styles = {
   indLbl: { fontSize: "13px", color: "#64748b", fontWeight: 600 },
   indNumV: { fontSize: "22px", fontWeight: 800, color: "#fff", lineHeight: 1.1 },
   indLblV: { fontSize: "13px", color: "#cbd5e1", fontWeight: 600 },
-  container: { minHeight: "100vh", background: "#f4f6f8", padding: "24px", fontFamily: "Arial, sans-serif" },
+  container: { minHeight: "100%", background: "#f4f6f8", padding: "24px", fontFamily: "Arial, sans-serif" },
   cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "18px" },
   titulo: { margin: 0, color: "#111827" },
   subtitulo: { margin: "6px 0 0 0", color: "#555" },

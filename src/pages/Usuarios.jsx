@@ -459,7 +459,7 @@ const page = {
   padding: 24,
   background: "#0b1220",
   color: "#fff",
-  minHeight: "100vh",
+  minHeight: "100%",
 };
 
 const title = {

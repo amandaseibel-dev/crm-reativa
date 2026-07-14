@@ -161,7 +161,7 @@ async function moverFila(casoId, destino) {
 /* ================= UI ================= */
 
 return (
-  <div style={{ padding: 24, background: "#0b001a", minHeight: "100vh", color: "#fff" }}>
+  <div style={{ padding: 24, background: "#0b001a", minHeight: "100%", color: "#fff" }}>
 
     <h2 style={{ color: "#a855f7" }}>📞 CRM Operacional</h2>
 

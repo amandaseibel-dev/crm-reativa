@@ -920,7 +920,7 @@ export default function GestaoFinanceiraOperadores() {
 }
 
 const estilos = {
-  container: { minHeight: "100vh", padding: "24px", color: "#e5e7eb", fontFamily: "Arial, sans-serif" },
+  container: { minHeight: "100%", padding: "24px", color: "#e5e7eb", fontFamily: "Arial, sans-serif" },
   cabecalhoRestrito: {
     background: "#7f1d1d",
     color: "#fecaca",

@@ -273,7 +273,7 @@ const styles = {
     padding: "24px",
     fontFamily: "Arial, sans-serif",
     background: "#f4f6f8",
-    minHeight: "100vh",
+    minHeight: "100%",
   },
   subtitulo: {
     color: "#555",

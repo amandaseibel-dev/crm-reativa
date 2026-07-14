@@ -917,14 +917,14 @@ export default function CRM() {
   // Retornos condicionais de render DEPOIS de todos os hooks (corrige React #310):
   if (verificandoCRM) {
     return (
-      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100vh" }}>
+      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100%" }}>
         Verificando acesso...
       </div>
     );
   }
   if (bloqueadoCRM) {
     return (
-      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100vh" }}>
+      <div style={{ padding: 40, color: "#fff", background: "#0f172a", minHeight: "100%" }}>
         <h1>🔒 CRM Operacional bloqueado para operador</h1>
         <p>Use a Fila Operacional / Minha Fila para atender seus alunos.</p>
         <button
@@ -947,7 +947,7 @@ export default function CRM() {
   if (usuarioBloqueadoCRM) {
     return (
       <div style={{
-        minHeight: "100vh",
+        minHeight: "100%",
         padding: "40px",
         background: "#0f172a",
         color: "#fff",
@@ -992,7 +992,7 @@ export default function CRM() {
       style={{
         padding: 24,
         background: "linear-gradient(180deg,#090014,#17002b)",
-        minHeight: "100vh",
+        minHeight: "100%",
         color: "#fff",
       }}
     >

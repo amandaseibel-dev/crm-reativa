@@ -1258,7 +1258,7 @@ export default function FilaOperador() {
 }
 
 const pagina = {
-  minHeight: "100vh",
+  minHeight: "100%",
   background: "#020617",
   color: "#ffffff",
   padding: "24px",

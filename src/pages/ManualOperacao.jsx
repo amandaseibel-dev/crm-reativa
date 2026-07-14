@@ -165,7 +165,7 @@ export default function ManualOperacao() {
 
 const styles = {
   container: {
-    minHeight: "100vh",
+    minHeight: "100%",
     background: "linear-gradient(135deg, #071526 0%, #0b1f3a 50%, #102a4c 100%)",
     padding: "28px",
     fontFamily: "Arial, sans-serif",

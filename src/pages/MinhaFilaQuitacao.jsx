@@ -297,7 +297,7 @@ export default function MinhaFilaQuitacao() {
 }
 
 const styles = {
-  container: { minHeight: "100vh", background: "#f4f6f8", padding: "24px", fontFamily: "Arial, sans-serif" },
+  container: { minHeight: "100%", background: "#f4f6f8", padding: "24px", fontFamily: "Arial, sans-serif" },
   cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "18px" },
   titulo: { margin: 0, color: "#111827" },
   subtitulo: { margin: "6px 0 0 0", color: "#555" },

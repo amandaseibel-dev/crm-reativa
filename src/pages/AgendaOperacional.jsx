@@ -475,7 +475,7 @@ export default function AgendaOperacional() {
 
 const styles = {
   container: {
-    minHeight: "100vh",
+    minHeight: "100%",
     background: "#0f172a",
     padding: "24px",
     fontFamily: "Arial, sans-serif",

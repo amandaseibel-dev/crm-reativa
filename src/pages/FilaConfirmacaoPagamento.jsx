@@ -807,7 +807,7 @@ export default function FilaConfirmacaoPagamento() {
 }
 
 const styles = {
-  container: { padding: "24px", fontFamily: "Arial, sans-serif", background: "#f4f6f8", minHeight: "100vh" },
+  container: { padding: "24px", fontFamily: "Arial, sans-serif", background: "#f4f6f8", minHeight: "100%" },
   cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "18px" },
   titulo: { margin: 0, marginBottom: "6px", color: "#111827" },
   subtitulo: { margin: 0, color: "#4b5563" },
