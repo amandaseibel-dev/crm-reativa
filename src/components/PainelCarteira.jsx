@@ -1169,9 +1169,20 @@ export default function PainelCarteira({ embedded = false }) {
           .some((c) => semAcento(c).includes(t))
       );
     }
+    // Chave de ordenacao precisa (milissegundos), nao em dias inteiros --
+    // com dias inteiros, varios casos tabulados no mesmo dia empatavam e a
+    // ordem entre eles ficava embaralhada (o que acabou de ser tabulado
+    // nem sempre ia pro fim de verdade). Aqui o mais recente sempre fica
+    // por ultimo, sem empate.
+    const chaveOrdenacao = (a) => {
+      const base = a?.data_ultimo_acionamento || a?.ultimo_contato || a?.responsavel_atual_em || null;
+      if (!base) return null;
+      const t = new Date(base).getTime();
+      return Number.isNaN(t) ? null : t;
+    };
     const keyDias = (a) => {
-      const d = diasSemContato(a);
-      return d === null ? Infinity : d;
+      const t = chaveOrdenacao(a);
+      return t === null ? Infinity : -t;
     };
     const arr = [...l];
     if (ordenacao === "sem_contato_desc") arr.sort((a, b) => keyDias(b) - keyDias(a));
