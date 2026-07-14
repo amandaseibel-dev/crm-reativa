@@ -5,7 +5,6 @@ import MuralAniversariantes from "../components/MuralAniversariantes";
 import CadastroNovoAluno from "../components/CadastroNovoAluno";
 import VisaoGeralCarteira from "../components/VisaoGeralCarteira";
 import VisaoGestao360 from "../components/VisaoGestao360";
-import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados";
 import { podeVerTudo } from "../utils/operadores";
 
 function formatarMoeda(valor) {
@@ -188,7 +187,6 @@ export default function Dashboard() {
           <>
             <VisaoGeralCarteira email={null} />
             <VisaoGestao360 />
-            <PagamentosNaoIdentificados />
           </>
         )}
 

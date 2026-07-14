@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
+import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados";
 
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
@@ -420,6 +421,8 @@ export default function FilaConfirmacaoPagamento() {
           Atualizar
         </button>
       </div>
+
+      <PagamentosNaoIdentificados />
 
       <div style={styles.cardsIndicadores}>
         <div style={styles.indicador}>
