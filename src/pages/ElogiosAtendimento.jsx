@@ -188,6 +188,12 @@ export default function ElogiosAtendimento() {
         <button style={estilos.botaoAtualizar} onClick={carregar}>
           Atualizar
         </button>
+        <button
+          style={{ ...estilos.botaoAtualizar, background: "#0d1321" }}
+          onClick={() => window.open("/tv-elogios", "_blank")}
+        >
+          📺 Abrir modo TV
+        </button>
       </div>
 
       <div style={estilos.grid}>

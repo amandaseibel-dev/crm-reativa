@@ -40,6 +40,7 @@ import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
 import MeuDashboard from "./pages/MeuDashboard";
 import ElogiosAtendimento from "./pages/ElogiosAtendimento";
 import ExportarContatos from "./pages/ExportarContatos";
+import TvElogios from "./pages/TvElogios";
 
 function EmDesenvolvimento({ titulo }) {
   return (
@@ -400,6 +401,10 @@ export default function App() {
 
   if (!usuario) {
     return <Login onLogin={setUsuario} />;
+  }
+
+  if (window.location.pathname === "/tv-elogios") {
+    return <TvElogios />;
   }
 
   if (usuario.perfil?.deve_trocar_senha) {
