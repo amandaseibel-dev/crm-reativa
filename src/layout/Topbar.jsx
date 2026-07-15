@@ -8,7 +8,6 @@ export default function Topbar() {
 
       <div className="top-actions">
         <input placeholder="Pesquisar aluno, CPF ou operador..." />
-        <button>🔔 12</button>
         <div className="user">Amanda Seibel</div>
       </div>
     </header>
