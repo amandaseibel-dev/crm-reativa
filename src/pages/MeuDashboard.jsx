@@ -22,6 +22,15 @@ function diaLabel(iso) {
   return `${d}/${m}`;
 }
 
+function moeda(valor) {
+  return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function mesAtualISO() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 export default function MeuDashboard() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
@@ -34,10 +43,17 @@ export default function MeuDashboard() {
     mediaPorDia: 0,
   });
   const [evolucao, setEvolucao] = useState([]); // [{dia, qtd}]
+  const [financeiro, setFinanceiro] = useState(null);
 
   useEffect(() => {
     carregar();
+    carregarFinanceiro();
   }, []);
+
+  async function carregarFinanceiro() {
+    const { data, error } = await supabase.rpc("projecao_dashboard", { p_mes: mesAtualISO() });
+    if (!error) setFinanceiro(data);
+  }
 
   async function carregar() {
     setCarregando(true);
@@ -146,6 +162,42 @@ export default function MeuDashboard() {
 
       {erro && <div style={estilos.alerta}>{erro}</div>}
 
+      {financeiro && (
+        <div style={estilos.blocoFinanceiro}>
+          <h3 style={estilos.tituloBloco}>💰 Recuperado e projeção (mês, todos os pagamentos)</h3>
+          <p style={estilos.subtituloBloco}>
+            Total recuperado esse mês, incluindo todos os tipos de pagamento (não só os principais).
+          </p>
+          <div style={estilos.gridFinanceiro}>
+            <div style={estilos.cartaoFinanceiro}>
+              <span style={estilos.numeroFinanceiro}>{moeda(financeiro.acumulado_mes)}</span>
+              <span style={estilos.labelFinanceiro}>Recuperado no mês (total)</span>
+            </div>
+            <div style={estilos.cartaoFinanceiro}>
+              <span style={estilos.numeroFinanceiro}>{moeda(financeiro.honorario_mes)}</span>
+              <span style={estilos.labelFinanceiro}>Honorário no mês</span>
+            </div>
+            <div style={{ ...estilos.cartaoFinanceiro, background: "#ecfaf3", borderColor: "#bdeed4" }}>
+              <span style={{ ...estilos.numeroFinanceiro, color: "#0f7a4f" }}>
+                {moeda(financeiro.projecao_honorario_individual)}
+              </span>
+              <span style={estilos.labelFinanceiro}>Projeção de fechamento (se continuar nesse ritmo)</span>
+            </div>
+            <div style={estilos.cartaoFinanceiro}>
+              <span
+                style={{
+                  ...estilos.numeroFinanceiro,
+                  color: (financeiro.percentual_projecao_individual ?? 0) >= 100 ? "#0f9d6b" : "#d97706",
+                }}
+              >
+                {financeiro.percentual_projecao_individual ?? 0}%
+              </span>
+              <span style={estilos.labelFinanceiro}>% da meta que essa projeção bateria</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div style={estilos.grid}>
         <div style={estilos.card}>
           <span style={estilos.numero}>{dados.totalCasos}</span>
@@ -204,6 +256,32 @@ export default function MeuDashboard() {
 }
 
 const estilos = {
+  blocoFinanceiro: {
+    background: "#fff",
+    borderRadius: 16,
+    padding: "20px 22px",
+    boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)",
+    border: "1px solid #edf0f5",
+    marginBottom: 18,
+  },
+  tituloBloco: { margin: 0, fontFamily: FONTE_TITULO, fontSize: 16, fontWeight: 800, color: "#0d1321" },
+  subtituloBloco: { margin: "4px 0 14px", fontSize: 12.5, color: "#8a93a3" },
+  gridFinanceiro: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: 12,
+  },
+  cartaoFinanceiro: {
+    background: "#f8fafc",
+    border: "1px solid #edf0f5",
+    borderRadius: 12,
+    padding: "14px 16px",
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+  },
+  numeroFinanceiro: { fontFamily: FONTE_TITULO, fontSize: 20, fontWeight: 800, color: "#0d1321" },
+  labelFinanceiro: { fontSize: 11.5, color: "#8a93a3", fontWeight: 600 },
   container: {
     padding: "28px 30px 40px",
     fontFamily: "'Inter', system-ui, sans-serif",
