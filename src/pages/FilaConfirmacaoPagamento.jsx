@@ -3,6 +3,7 @@ import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
 import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados";
 import CasosSemValor from "../components/CasosSemValor";
+import CasosSemTelefone from "../components/CasosSemTelefone";
 
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
@@ -467,12 +468,17 @@ export default function FilaConfirmacaoPagamento() {
         <button style={filtro === "SEM_VALOR" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("SEM_VALOR")}>
           Sem valor calculado
         </button>
+        <button style={filtro === "SEM_TELEFONE" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("SEM_TELEFONE")}>
+          Sem telefone
+        </button>
       </div>
 
       {filtro === "NAO_IDENTIFICADOS" ? (
         <PagamentosNaoIdentificados />
       ) : filtro === "SEM_VALOR" ? (
         <CasosSemValor />
+      ) : filtro === "SEM_TELEFONE" ? (
+        <CasosSemTelefone />
       ) : (
         <>
       {solicitacoesFiltradas.length === 0 && (
