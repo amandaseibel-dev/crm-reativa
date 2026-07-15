@@ -35,36 +35,27 @@ export default function HistoricoRecuperacao() {
   async function carregar() {
     setCarregando(true);
 
-    // Funil por status_jornada.
-    const { data: statusData } = await supabase
-      .from("alunos")
-      .select("status_jornada")
-      .limit(20000);
+    const { data: funilData, error } = await supabase.rpc("funil_historico_recuperacao");
 
-    const contagem = { ativo: 0, recuperado: 0, suspenso: 0, termos: 0, total: 0 };
-    for (const a of statusData || []) {
-      contagem.total += 1;
-      contagem[grupoDoStatus(a.status_jornada)] += 1;
+    if (!error && funilData) {
+      setFunil({
+        ativo: funilData.ativo || 0,
+        recuperado: funilData.recuperado || 0,
+        suspenso: funilData.suspenso || 0,
+        termos: funilData.termos || 0,
+        total: funilData.total || 0,
+      });
+      setValorAberto(funilData.valor_aberto || 0);
+      setValorRecuperadoTotal(funilData.valor_recuperado_total || 0);
     }
-    setFunil(contagem);
 
-    // Valor ainda em aberto (base ativa hoje).
-    const { data: casosAbertos } = await supabase
-      .from("casos")
-      .select("total_em_aberto")
-      .not("total_em_aberto", "is", null)
-      .gt("total_em_aberto", 0)
-      .limit(20000);
-    setValorAberto((casosAbertos || []).reduce((s, c) => s + Number(c.total_em_aberto || 0), 0));
-
-    // Valor total ja recuperado (historico completo de pagamentos).
+    // Recuperacao por mes -- ainda precisa vir linha a linha pra agrupar
+    // por mes/ano, mas o funil e os totais principais ja vem exatos do
+    // banco (sem risco de corte por limite de linhas).
     const { data: pagamentos } = await supabase
       .from("pagamentos")
       .select("valor_pago, data_pagamento")
       .eq("retroativo", false);
-
-    const total = (pagamentos || []).reduce((s, p) => s + Number(p.valor_pago || 0), 0);
-    setValorRecuperadoTotal(total);
 
     const porMesMap = {};
     for (const p of pagamentos || []) {
