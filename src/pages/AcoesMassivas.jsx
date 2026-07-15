@@ -68,10 +68,17 @@ export default function AcoesMassivas() {
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
   const [progresso, setProgresso] = useState(null);
+  const [porDia, setPorDia] = useState([]);
 
   useEffect(() => {
     carregarProgresso();
+    carregarPorDia();
   }, [canal]);
+
+  async function carregarPorDia() {
+    const { data } = await supabase.rpc("acoes_massivas_por_dia");
+    setPorDia(data || []);
+  }
 
   async function carregarProgresso() {
     const { data } = await supabase.rpc("total_elegiveis_acoes_massivas", { p_canal: canal });
@@ -210,6 +217,7 @@ export default function AcoesMassivas() {
         setSucesso(`Planilha gerada e ${resultados.length} aluno(s) registrados com retorno agendado para ${retorno.toLocaleDateString("pt-BR")}.`);
       }
       carregarProgresso();
+      carregarPorDia();
     } catch (e) {
       console.error("Erro ao gerar/registrar ação massiva:", e);
       setErro("Erro ao gerar/registrar: " + (e.message || "tente novamente"));
@@ -288,6 +296,36 @@ export default function AcoesMassivas() {
               </>
             );
           })()}
+        </div>
+      )}
+
+      {porDia.length > 0 && (
+        <div style={estilos.card}>
+          <h3 style={{ margin: "0 0 12px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800 }}>
+            Ações enviadas por dia
+          </h3>
+          <div style={{ overflowX: "auto", maxHeight: 260, overflowY: "auto" }}>
+            <table style={estilos.tabela}>
+              <thead>
+                <tr>
+                  <th style={estilos.th}>Dia</th>
+                  <th style={estilos.thNum}>📱 WhatsApp</th>
+                  <th style={estilos.thNum}>📧 E-mail</th>
+                  <th style={estilos.thNum}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {porDia.map((d) => (
+                  <tr key={d.dia}>
+                    <td style={estilos.td}>{new Date(d.dia + "T00:00:00").toLocaleDateString("pt-BR")}</td>
+                    <td style={estilos.tdNum}>{d.whatsapp}</td>
+                    <td style={estilos.tdNum}>{d.email}</td>
+                    <td style={{ ...estilos.tdNum, fontWeight: 800 }}>{d.whatsapp + d.email}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
