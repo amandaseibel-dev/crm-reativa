@@ -92,6 +92,32 @@ export default function AcoesMassivas() {
     setResultados(null);
 
     try {
+      // Se tiver filtro de ano de vencimento, busca primeiro quem tem
+      // título nesse ano (SEM limite pequeno) -- senao o filtro de ano
+      // acabava rodando só em cima de uma amostra pequena (a busca por
+      // tempo sem contato já limitada), cortando quase tudo por engano.
+      let idsComAnoVencimento = null;
+      if (anoVencimento) {
+        const inicioAno = `${anoVencimento}-01-01`;
+        const fimAno = `${anoVencimento}-12-31`;
+        const { data: titulosNoAno, error: erroTitulos } = await supabase
+          .from("acordos_titulos")
+          .select("aluno_id")
+          .eq("situacao", "ABERTO")
+          .gte("vencimento", inicioAno)
+          .lte("vencimento", fimAno)
+          .limit(20000);
+
+        if (erroTitulos) throw erroTitulos;
+        idsComAnoVencimento = [...new Set((titulosNoAno || []).map((t) => t.aluno_id))];
+
+        if (idsComAnoVencimento.length === 0) {
+          setResultados([]);
+          setCarregando(false);
+          return;
+        }
+      }
+
       // Prioriza por tempo sem contato (quem nunca foi acionado, ou faz
       // mais tempo, vem primeiro) -- mais saudavel pra base do que só
       // olhar valor. O valor continua disponível como filtro, só não é
@@ -100,8 +126,15 @@ export default function AcoesMassivas() {
         .from("alunos")
         .select("id, nome, telefone, email, data_ultimo_acionamento, responsavel_atual_email")
         .is("responsavel_atual_email", null)
-        .order("data_ultimo_acionamento", { ascending: true, nullsFirst: true })
-        .limit(Math.min(qtd * 3, 6000));
+        .order("data_ultimo_acionamento", { ascending: true, nullsFirst: true });
+
+      // Se tem filtro de ano, já restringe pelos ids encontrados (evita
+      // trazer um monte de gente fora do ano e cortar sem querer depois).
+      if (idsComAnoVencimento) {
+        query = query.in("id", idsComAnoVencimento.slice(0, 6000));
+      }
+
+      query = query.limit(Math.min(qtd * 3, 6000));
 
       const { data: alunosBrutos, error: erroAlunos } = await query;
       if (erroAlunos) throw erroAlunos;
@@ -131,24 +164,6 @@ export default function AcoesMassivas() {
         if (novo > atual) valorPorAluno.set(c.aluno_id, novo);
       }
 
-      // Filtro opcional por ano de vencimento das parcelas -- só entra
-      // quem tem pelo menos um título em aberto vencendo naquele ano.
-      let alunosNoAno = null;
-      if (anoVencimento) {
-        const inicioAno = `${anoVencimento}-01-01`;
-        const fimAno = `${anoVencimento}-12-31`;
-        const { data: titulosNoAno, error: erroTitulos } = await supabase
-          .from("acordos_titulos")
-          .select("aluno_id")
-          .in("aluno_id", idsAlunos)
-          .eq("situacao", "ABERTO")
-          .gte("vencimento", inicioAno)
-          .lte("vencimento", fimAno);
-
-        if (erroTitulos) throw erroTitulos;
-        alunosNoAno = new Set((titulosNoAno || []).map((t) => t.aluno_id));
-      }
-
       const lista = (alunosBrutos || [])
         .map((a) => ({
           alunoId: a.id,
@@ -164,7 +179,6 @@ export default function AcoesMassivas() {
         .filter((l) => (canal === "WHATSAPP" ? !!l.telefoneFormatado : !!l.email)) // precisa do contato certo pro canal escolhido
         .filter((l) => l.valor >= minEfetivo)
         .filter((l) => (max === null ? true : l.valor <= max))
-        .filter((l) => (alunosNoAno === null ? true : alunosNoAno.has(l.alunoId)))
         .slice(0, qtd);
 
       setResultados(lista);
