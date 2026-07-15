@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
 import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados";
+import CasosSemValor from "../components/CasosSemValor";
 
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
@@ -463,10 +464,15 @@ export default function FilaConfirmacaoPagamento() {
         <button style={filtro === "NAO_IDENTIFICADOS" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("NAO_IDENTIFICADOS")}>
           Não identificados
         </button>
+        <button style={filtro === "SEM_VALOR" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("SEM_VALOR")}>
+          Sem valor calculado
+        </button>
       </div>
 
       {filtro === "NAO_IDENTIFICADOS" ? (
         <PagamentosNaoIdentificados />
+      ) : filtro === "SEM_VALOR" ? (
+        <CasosSemValor />
       ) : (
         <>
       {solicitacoesFiltradas.length === 0 && (
