@@ -54,6 +54,7 @@ import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
 import MeuDashboard from "./pages/MeuDashboard";
 import ElogiosAtendimento from "./pages/ElogiosAtendimento";
 import ExportarContatos from "./pages/ExportarContatos";
+import AcoesMassivas from "./pages/AcoesMassivas";
 import TvElogios from "./pages/TvElogios";
 
 function EmDesenvolvimento({ titulo }) {
@@ -97,7 +98,8 @@ function podeAcessar(perfil, rota) {
       "/meu-dashboard",
       "/elogios-atendimento",
       "/projecao-hora-a-hora",
-      "/exportar-contatos",],
+      "/exportar-contatos",
+      "/acoes-massivas",],
     supervisor: [
       "/",
       "/minha-fila",
@@ -121,7 +123,8 @@ function podeAcessar(perfil, rota) {
       "/meu-dashboard",
       "/elogios-atendimento",
       "/projecao-hora-a-hora",
-      "/exportar-contatos",],
+      "/exportar-contatos",
+      "/acoes-massivas",],
     administrativo: [
       "/",
       "/minha-fila",
@@ -455,6 +458,7 @@ export default function App() {
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
+    { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
     { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Gestão" },
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
@@ -765,6 +769,7 @@ export default function App() {
               <Route path="/meu-dashboard" element={<MeuDashboard />} />
               <Route path="/elogios-atendimento" element={<ElogiosAtendimento />} />
               <Route path="/exportar-contatos" element={<ExportarContatos />} />
+              <Route path="/acoes-massivas" element={<AcoesMassivas />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
