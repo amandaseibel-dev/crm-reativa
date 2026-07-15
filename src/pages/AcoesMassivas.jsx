@@ -92,51 +92,14 @@ export default function AcoesMassivas() {
     setResultados(null);
 
     try {
-      // Se tiver filtro de ano de vencimento, busca primeiro quem tem
-      // título nesse ano (SEM limite pequeno) -- senao o filtro de ano
-      // acabava rodando só em cima de uma amostra pequena (a busca por
-      // tempo sem contato já limitada), cortando quase tudo por engano.
-      let idsComAnoVencimento = null;
-      if (anoVencimento) {
-        const inicioAno = `${anoVencimento}-01-01`;
-        const fimAno = `${anoVencimento}-12-31`;
-        const { data: titulosNoAno, error: erroTitulos } = await supabase
-          .from("acordos_titulos")
-          .select("aluno_id")
-          .eq("situacao", "ABERTO")
-          .gte("vencimento", inicioAno)
-          .lte("vencimento", fimAno)
-          .limit(20000);
-
-        if (erroTitulos) throw erroTitulos;
-        idsComAnoVencimento = [...new Set((titulosNoAno || []).map((t) => t.aluno_id))];
-
-        if (idsComAnoVencimento.length === 0) {
-          setResultados([]);
-          setCarregando(false);
-          return;
-        }
-      }
-
-      // Prioriza por tempo sem contato (quem nunca foi acionado, ou faz
-      // mais tempo, vem primeiro) -- mais saudavel pra base do que só
-      // olhar valor. O valor continua disponível como filtro, só não é
-      // mais o critério de ordenação.
-      let query = supabase
-        .from("alunos")
-        .select("id, nome, telefone, email, data_ultimo_acionamento, responsavel_atual_email")
-        .is("responsavel_atual_email", null)
-        .order("data_ultimo_acionamento", { ascending: true, nullsFirst: true });
-
-      // Se tem filtro de ano, já restringe pelos ids encontrados (evita
-      // trazer um monte de gente fora do ano e cortar sem querer depois).
-      if (idsComAnoVencimento) {
-        query = query.in("id", idsComAnoVencimento.slice(0, 6000));
-      }
-
-      query = query.limit(Math.min(qtd * 3, 6000));
-
-      const { data: alunosBrutos, error: erroAlunos } = await query;
+      // Busca os candidatos direto no banco (funcao SQL), evitando montar
+      // uma lista gigante de IDs na URL da requisicao (que estourava o
+      // limite e dava "bad request" quando o filtro de ano trazia
+      // milhares de titulos).
+      const { data: alunosBrutos, error: erroAlunos } = await supabase.rpc(
+        "buscar_candidatos_acoes_massivas",
+        { p_ano_vencimento: anoVencimento || null, p_limite: Math.min(qtd * 3, 6000) }
+      );
       if (erroAlunos) throw erroAlunos;
 
       const idsAlunos = (alunosBrutos || []).map((a) => a.id);
