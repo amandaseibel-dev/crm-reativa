@@ -78,21 +78,34 @@ export default function AcoesMassivas() {
     try {
       // So casos SEM operador (livres) -- o objetivo aqui e estimular
       // quem ninguem esta trabalhando ainda, sem precisar de operador.
+      // Busca um lote maior que o pedido, porque um aluno pode aparecer
+      // duplicado em `casos` (titulos diferentes) -- sem isso, a
+      // quantidade final ficava menor do que o pedido depois de tirar
+      // duplicata e quem nao tem telefone.
       let query = supabase
         .from("casos")
         .select("aluno_id, total_em_aberto")
         .not("aluno_id", "is", null)
         .is("operador_email", null)
         .order("total_em_aberto", { ascending: false })
-        .limit(qtd);
+        .limit(Math.min(qtd * 3, 6000));
 
       if (min !== null) query = query.gte("total_em_aberto", min);
       if (max !== null) query = query.lte("total_em_aberto", max);
 
-      const { data: casos, error: erroCasos } = await query;
+      const { data: casosBrutos, error: erroCasos } = await query;
       if (erroCasos) throw erroCasos;
 
-      const idsAlunos = [...new Set((casos || []).map((c) => c.aluno_id))];
+      // Dedup por aluno_id, mantendo a linha de maior valor (ordenacao ja
+      // veio decrescente, entao a primeira ocorrencia de cada aluno_id ja
+      // e a de maior valor).
+      const casosPorAluno = new Map();
+      for (const c of casosBrutos || []) {
+        if (!casosPorAluno.has(c.aluno_id)) casosPorAluno.set(c.aluno_id, c);
+      }
+      const casos = [...casosPorAluno.values()].slice(0, qtd);
+
+      const idsAlunos = [...new Set(casos.map((c) => c.aluno_id))];
       if (idsAlunos.length === 0) {
         setResultados([]);
         setCarregando(false);
