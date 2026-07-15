@@ -56,6 +56,7 @@ import ElogiosAtendimento from "./pages/ElogiosAtendimento";
 import ExportarContatos from "./pages/ExportarContatos";
 import AcoesMassivas from "./pages/AcoesMassivas";
 import HistoricoRecuperacao from "./pages/HistoricoRecuperacao";
+import SaudeDaBase from "./pages/SaudeDaBase";
 import TvElogios from "./pages/TvElogios";
 
 function EmDesenvolvimento({ titulo }) {
@@ -101,7 +102,8 @@ function podeAcessar(perfil, rota) {
       "/projecao-hora-a-hora",
       "/exportar-contatos",
       "/acoes-massivas",
-      "/historico-recuperacao",],
+      "/historico-recuperacao",
+      "/saude-da-base",],
     supervisor: [
       "/",
       "/minha-fila",
@@ -127,7 +129,8 @@ function podeAcessar(perfil, rota) {
       "/projecao-hora-a-hora",
       "/exportar-contatos",
       "/acoes-massivas",
-      "/historico-recuperacao",],
+      "/historico-recuperacao",
+      "/saude-da-base",],
     administrativo: [
       "/",
       "/minha-fila",
@@ -463,6 +466,7 @@ export default function App() {
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
+    { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
     { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Gestão" },
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
@@ -783,6 +787,7 @@ export default function App() {
               <Route path="/exportar-contatos" element={<ExportarContatos />} />
               <Route path="/acoes-massivas" element={<AcoesMassivas />} />
               <Route path="/historico-recuperacao" element={<HistoricoRecuperacao />} />
+              <Route path="/saude-da-base" element={<SaudeDaBase />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
