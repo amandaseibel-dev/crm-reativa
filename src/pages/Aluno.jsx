@@ -404,11 +404,8 @@ export default function Alunos() {
     setErro("");
 
     try {
-      const { data, error } = await supabase
-        .from("alunos")
-        .select("*")
-        .eq("id", alunoId)
-        .maybeSingle();
+      const { data: linhas, error } = await supabase.rpc("buscar_aluno_por_id", { p_id: alunoId });
+      const data = linhas?.[0] || null;
 
       if (error) {
         console.error("Erro ao abrir aluno automaticamente:", error);
