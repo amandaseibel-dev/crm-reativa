@@ -167,6 +167,7 @@ export default function LinksPagamentoAluno({
 
   const [historico, setHistorico] = useState([]);
   const [carregando, setCarregando] = useState(false);
+  const [confirmandoValorLink, setConfirmandoValorLink] = useState(false);
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
   const [erro, setErro] = useState("");
 
@@ -376,15 +377,15 @@ export default function LinksPagamentoAluno({
       return;
     }
 
-    const confirmouValor = window.confirm(
-      `Confirma o valor do link?\n\nVocê digitou: "${valor}"\nSerá enviado como: ${formatarMoeda(valorNumerico)}\n\nSe estiver errado, clique em Cancelar e corrija (use vírgula para os centavos, ex: 350,00).`
-    );
+    // Confirmação dentro da própria tela (não usa popup nativo do
+    // navegador) -- em acesso remoto, o popup nativo às vezes não aparece
+    // ou fica bloqueado, e parecia que o botão "não fazia nada".
+    setConfirmandoValorLink(true);
+  }
 
-    if (!confirmouValor) {
-      setErro("Confirme o valor antes de enviar. Use vírgula para os centavos, ex: 350,00.");
-      return;
-    }
-
+  async function confirmarEEnviarLink() {
+    setConfirmandoValorLink(false);
+    const valorNumerico = converterValor(valor);
     setCarregando(true);
 
     const { error } = await supabase.rpc("solicitar_link_pagamento", {
@@ -885,6 +886,43 @@ export default function LinksPagamentoAluno({
           />
 
           {erro && <div style={erroBox}>{erro}</div>}
+
+          {confirmandoValorLink && (
+            <div
+              style={{
+                background: "#fff7e6",
+                border: "1px solid #f5c542",
+                borderRadius: 10,
+                padding: "12px 14px",
+                marginBottom: 10,
+              }}
+            >
+              <p style={{ margin: "0 0 10px", fontWeight: 700 }}>
+                Confirma o valor do link?
+              </p>
+              <p style={{ margin: "0 0 12px", fontSize: 13 }}>
+                Você digitou "{valor}" — será enviado como{" "}
+                <strong>{formatarMoeda(converterValor(valor))}</strong>. Se estiver errado, clique em
+                "Corrigir" e ajuste (use vírgula para os centavos, ex: 350,00).
+              </p>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={confirmarEEnviarLink}
+                  style={{ ...botaoConfirmar, padding: "8px 16px" }}
+                >
+                  Confirmar e enviar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setConfirmandoValorLink(false)}
+                  style={{ background: "#fff", border: "1px solid #ccc", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}
+                >
+                  Corrigir
+                </button>
+              </div>
+            </div>
+          )}
 
           <button
             type="button"
