@@ -475,6 +475,10 @@ export default function App() {
 
   const menu = menuBase.filter((item) => {
     if (perfil === "operador" && item.esconderParaOperador) return false;
+    if (item.rota === "/") {
+      const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      if (["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(email)) return false;
+    }
     if (item.rota === "/usuarios") {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       if (!EMAILS_PODE_GERIR_USUARIOS.includes(email)) return false;
@@ -611,6 +615,10 @@ export default function App() {
               element={
                 perfil === "operador" ? (
                   <Navigate to="/painel-carteira" replace />
+                ) : ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(
+                    (usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase()
+                  ) ? (
+                  <Navigate to="/projecao-hora-a-hora" replace />
                 ) : (
                   <Dashboard />
                 )
