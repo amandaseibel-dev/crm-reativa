@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import FunilRecuperacao from "../components/FunilRecuperacao";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 
@@ -23,9 +24,6 @@ function grupoDoStatus(status) {
 
 export default function HistoricoRecuperacao() {
   const [carregando, setCarregando] = useState(true);
-  const [funil, setFunil] = useState({ ativo: 0, recuperado: 0, suspenso: 0, termos: 0, total: 0 });
-  const [valorAberto, setValorAberto] = useState(0);
-  const [valorRecuperadoTotal, setValorRecuperadoTotal] = useState(0);
   const [porMes, setPorMes] = useState([]);
 
   useEffect(() => {
@@ -35,23 +33,6 @@ export default function HistoricoRecuperacao() {
   async function carregar() {
     setCarregando(true);
 
-    const { data: funilData, error } = await supabase.rpc("funil_historico_recuperacao");
-
-    if (!error && funilData) {
-      setFunil({
-        ativo: funilData.ativo || 0,
-        recuperado: funilData.recuperado || 0,
-        suspenso: funilData.suspenso || 0,
-        termos: funilData.termos || 0,
-        total: funilData.total || 0,
-      });
-      setValorAberto(funilData.valor_aberto || 0);
-      setValorRecuperadoTotal(funilData.valor_recuperado_total || 0);
-    }
-
-    // Recuperacao por mes -- ainda precisa vir linha a linha pra agrupar
-    // por mes/ano, mas o funil e os totais principais ja vem exatos do
-    // banco (sem risco de corte por limite de linhas).
     const { data: pagamentos } = await supabase
       .from("pagamentos")
       .select("valor_pago, data_pagamento")
@@ -70,8 +51,6 @@ export default function HistoricoRecuperacao() {
     setCarregando(false);
   }
 
-  const percentualRecuperado = funil.total > 0 ? ((funil.recuperado / funil.total) * 100).toFixed(1) : 0;
-
   if (carregando) {
     return <div style={estilos.container}>Carregando histórico...</div>;
   }
@@ -83,49 +62,7 @@ export default function HistoricoRecuperacao() {
         <p style={estilos.subtitulo}>Visão de funil — o que já passou pela base e o que já foi recuperado.</p>
       </div>
 
-      <div style={estilos.card}>
-        <h3 style={estilos.tituloBloco}>Funil da base ({funil.total.toLocaleString("pt-BR")} alunos)</h3>
-        <div style={estilos.funil}>
-          <div style={{ ...estilos.barraFunil, background: "#2563eb", flex: funil.ativo || 1 }} title={`Ativo/em tratativa: ${funil.ativo}`} />
-          <div style={{ ...estilos.barraFunil, background: "#0f9d6b", flex: funil.recuperado || 1 }} title={`Recuperado: ${funil.recuperado}`} />
-          <div style={{ ...estilos.barraFunil, background: "#94a3b8", flex: funil.suspenso || 1 }} title={`Cancelado/Jurídico: ${funil.suspenso}`} />
-          <div style={{ ...estilos.barraFunil, background: "#d97706", flex: funil.termos || 1 }} title={`Termos: ${funil.termos}`} />
-        </div>
-
-        <div style={estilos.gridFunil}>
-          <div style={estilos.itemFunil}>
-            <span style={{ ...estilos.pontoLegenda, background: "#2563eb" }} />
-            <span><strong>{funil.ativo.toLocaleString("pt-BR")}</strong> Ativo / em tratativa</span>
-          </div>
-          <div style={estilos.itemFunil}>
-            <span style={{ ...estilos.pontoLegenda, background: "#0f9d6b" }} />
-            <span><strong>{funil.recuperado.toLocaleString("pt-BR")}</strong> Recuperado / quitado / acordo</span>
-          </div>
-          <div style={estilos.itemFunil}>
-            <span style={{ ...estilos.pontoLegenda, background: "#94a3b8" }} />
-            <span><strong>{funil.suspenso.toLocaleString("pt-BR")}</strong> Cancelado / jurídico / suspenso</span>
-          </div>
-          <div style={estilos.itemFunil}>
-            <span style={{ ...estilos.pontoLegenda, background: "#d97706" }} />
-            <span><strong>{funil.termos.toLocaleString("pt-BR")}</strong> Fluxo de termos</span>
-          </div>
-        </div>
-
-        <p style={estilos.destaque}>
-          <strong>{percentualRecuperado}%</strong> da base já passou por recuperação/quitação/acordo em algum momento.
-        </p>
-      </div>
-
-      <div style={estilos.gridValores}>
-        <div style={estilos.cardValor}>
-          <span style={estilos.numeroValor}>{moeda(valorAberto)}</span>
-          <span style={estilos.labelValor}>Ainda em aberto (base ativa hoje)</span>
-        </div>
-        <div style={{ ...estilos.cardValor, background: "#ecfaf3", borderColor: "#bdeed4" }}>
-          <span style={{ ...estilos.numeroValor, color: "#0f7a4f" }}>{moeda(valorRecuperadoTotal)}</span>
-          <span style={estilos.labelValor}>Já recuperado (histórico completo)</span>
-        </div>
-      </div>
+      <FunilRecuperacao />
 
       <div style={estilos.card}>
         <h3 style={estilos.tituloBloco}>Recuperação por mês</h3>

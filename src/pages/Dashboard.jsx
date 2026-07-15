@@ -5,6 +5,7 @@ import MuralAniversariantes from "../components/MuralAniversariantes";
 import CadastroNovoAluno from "../components/CadastroNovoAluno";
 import VisaoGeralCarteira from "../components/VisaoGeralCarteira";
 import VisaoGestao360 from "../components/VisaoGestao360";
+import FunilRecuperacao from "../components/FunilRecuperacao";
 import { podeVerTudo } from "../utils/operadores";
 
 function formatarMoeda(valor) {
@@ -185,6 +186,7 @@ export default function Dashboard() {
 
         {veTudo && (
           <>
+            <FunilRecuperacao />
             <VisaoGeralCarteira email={null} />
             <VisaoGestao360 />
           </>
