@@ -60,6 +60,7 @@ export default function AcoesMassivas() {
   const [valorMin, setValorMin] = useState("100,00");
   const [valorMax, setValorMax] = useState("");
   const [quantidade, setQuantidade] = useState("100");
+  const [anoVencimento, setAnoVencimento] = useState("");
   const [carregando, setCarregando] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [resultados, setResultados] = useState(null);
@@ -129,6 +130,24 @@ export default function AcoesMassivas() {
         if (novo > atual) valorPorAluno.set(c.aluno_id, novo);
       }
 
+      // Filtro opcional por ano de vencimento das parcelas -- só entra
+      // quem tem pelo menos um título em aberto vencendo naquele ano.
+      let alunosNoAno = null;
+      if (anoVencimento) {
+        const inicioAno = `${anoVencimento}-01-01`;
+        const fimAno = `${anoVencimento}-12-31`;
+        const { data: titulosNoAno, error: erroTitulos } = await supabase
+          .from("acordos_titulos")
+          .select("aluno_id")
+          .in("aluno_id", idsAlunos)
+          .eq("situacao", "ABERTO")
+          .gte("vencimento", inicioAno)
+          .lte("vencimento", fimAno);
+
+        if (erroTitulos) throw erroTitulos;
+        alunosNoAno = new Set((titulosNoAno || []).map((t) => t.aluno_id));
+      }
+
       const lista = (alunosBrutos || [])
         .map((a) => ({
           alunoId: a.id,
@@ -143,6 +162,7 @@ export default function AcoesMassivas() {
         .filter((l) => l.telefoneFormatado) // sem telefone nao entra, nao da pra acionar
         .filter((l) => l.valor >= minEfetivo)
         .filter((l) => (max === null ? true : l.valor <= max))
+        .filter((l) => (alunosNoAno === null ? true : alunosNoAno.has(l.alunoId)))
         .slice(0, qtd);
 
       setResultados(lista);
@@ -272,6 +292,20 @@ export default function AcoesMassivas() {
               value={quantidade}
               onChange={(e) => setQuantidade(e.target.value)}
             />
+          </div>
+          <div style={estilos.campo}>
+            <label style={estilos.label}>Ano de vencimento da parcela</label>
+            <select
+              style={estilos.input}
+              value={anoVencimento}
+              onChange={(e) => setAnoVencimento(e.target.value)}
+            >
+              <option value="">Todos os anos</option>
+              <option value="2023">2023</option>
+              <option value="2024">2024</option>
+              <option value="2025">2025</option>
+              <option value="2026">2026</option>
+            </select>
           </div>
         </div>
 
