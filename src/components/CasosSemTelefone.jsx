@@ -31,13 +31,13 @@ export default function CasosSemTelefone({ aoAtualizarContagem }) {
     const [semTelefoneNull, semTelefoneVazio] = await Promise.all([
       supabase
         .from("alunos")
-        .select("id, nome, cpf, email, status_jornada, responsavel_atual_nome")
+        .select("id, nome, cpf, email, status_jornada, responsavel_atual_nome, matricula, curso, unidade")
         .is("telefone", null)
         .order("nome", { ascending: true })
         .limit(6000),
       supabase
         .from("alunos")
-        .select("id, nome, cpf, email, status_jornada, responsavel_atual_nome")
+        .select("id, nome, cpf, email, status_jornada, responsavel_atual_nome, matricula, curso, unidade")
         .eq("telefone", "")
         .order("nome", { ascending: true })
         .limit(6000),
@@ -145,6 +145,8 @@ export default function CasosSemTelefone({ aoAtualizarContagem }) {
             <tr>
               <th style={th}>Nome</th>
               <th style={th}>CPF</th>
+              <th style={th}>Matrícula</th>
+              <th style={th}>Curso / Unidade</th>
               <th style={th}>E-mail</th>
               <th style={th}>Valor em aberto</th>
               <th style={th}>Telefone encontrado</th>
@@ -156,6 +158,11 @@ export default function CasosSemTelefone({ aoAtualizarContagem }) {
               <tr key={a.id}>
                 <td style={td}>{a.nome}</td>
                 <td style={td}>{a.cpf}</td>
+                <td style={td}>{a.matricula || "-"}</td>
+                <td style={td}>
+                  {a.curso || "-"}
+                  {a.unidade ? ` · ${a.unidade}` : ""}
+                </td>
                 <td style={td}>{a.email || "-"}</td>
                 <td style={td}>
                   {a.valor > 0
@@ -171,22 +178,41 @@ export default function CasosSemTelefone({ aoAtualizarContagem }) {
                   />
                 </td>
                 <td style={td}>
-                  <button
-                    onClick={() => salvarTelefone(a)}
-                    disabled={salvando[a.id]}
-                    style={{
-                      background: "#0f9d6b",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: 8,
-                      padding: "6px 12px",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {salvando[a.id] ? "Salvando..." : "Salvar"}
-                  </button>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <button
+                      onClick={() => salvarTelefone(a)}
+                      disabled={salvando[a.id]}
+                      style={{
+                        background: "#0f9d6b",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 8,
+                        padding: "6px 12px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {salvando[a.id] ? "Salvando..." : "Salvar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.open(`/aluno?alunoId=${a.id}`, "_blank")}
+                      title="Abrir ficha completa do aluno (histórico, movimentações)"
+                      style={{
+                        background: "#fff",
+                        color: "#475569",
+                        border: "1px solid #e3e7ee",
+                        borderRadius: 8,
+                        padding: "6px 10px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Ver ficha
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}

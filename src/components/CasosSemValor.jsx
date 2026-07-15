@@ -129,7 +129,10 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
             <tr>
               <th style={th}>Nome</th>
               <th style={th}>CPF</th>
+              <th style={th}>Matrícula</th>
+              <th style={th}>Curso / Unidade</th>
               <th style={th}>Telefone</th>
+              <th style={th}>Já teve contato?</th>
               <th style={th}>Status</th>
               <th style={th}>Valor correto</th>
               <th style={th}></th>
@@ -140,7 +143,19 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
               <tr key={a.id}>
                 <td style={td}>{a.nome}</td>
                 <td style={td}>{a.cpf}</td>
+                <td style={td}>{a.matricula || "-"}</td>
+                <td style={td}>
+                  {a.curso || "-"}
+                  {a.unidade ? ` · ${a.unidade}` : ""}
+                </td>
                 <td style={td}>{a.telefone || "-"}</td>
+                <td style={td}>
+                  {a.ultima_movimentacao ? (
+                    new Date(a.ultima_movimentacao).toLocaleDateString("pt-BR")
+                  ) : (
+                    <span style={{ color: "#b91c1c", fontWeight: 700 }}>Nunca</span>
+                  )}
+                </td>
                 <td style={td}>{a.status_jornada}</td>
                 <td style={td}>
                   <input
@@ -151,22 +166,41 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
                   />
                 </td>
                 <td style={td}>
-                  <button
-                    onClick={() => salvarValor(a)}
-                    disabled={salvando[a.id]}
-                    style={{
-                      background: "#0f9d6b",
-                      color: "#fff",
-                      border: "none",
-                      borderRadius: 8,
-                      padding: "6px 12px",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      cursor: "pointer",
-                    }}
-                  >
-                    {salvando[a.id] ? "Salvando..." : "Salvar"}
-                  </button>
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <button
+                      onClick={() => salvarValor(a)}
+                      disabled={salvando[a.id]}
+                      style={{
+                        background: "#0f9d6b",
+                        color: "#fff",
+                        border: "none",
+                        borderRadius: 8,
+                        padding: "6px 12px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      {salvando[a.id] ? "Salvando..." : "Salvar"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => window.open(`/aluno?alunoId=${a.id}`, "_blank")}
+                      title="Abrir ficha completa do aluno (histórico, movimentações)"
+                      style={{
+                        background: "#fff",
+                        color: "#475569",
+                        border: "1px solid #e3e7ee",
+                        borderRadius: 8,
+                        padding: "6px 10px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Ver ficha
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
