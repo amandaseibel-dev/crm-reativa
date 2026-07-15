@@ -198,30 +198,34 @@ export default function MeuDashboard() {
         </div>
       )}
 
-      <div style={estilos.grid}>
-        <div style={estilos.card}>
-          <span style={estilos.numero}>{dados.totalCasos}</span>
-          <span style={estilos.descricao}>Casos sob sua responsabilidade</span>
-        </div>
+      <div style={estilos.blocoFinanceiro}>
+        <h3 style={estilos.tituloBloco}>📈 Sua atividade no mês</h3>
+        <p style={estilos.subtituloBloco}>Casos, acionamentos e médias de ritmo de trabalho.</p>
+        <div style={estilos.grid}>
+          <div style={estilos.card}>
+            <span style={estilos.numero}>{dados.totalCasos}</span>
+            <span style={estilos.descricao}>Casos sob sua responsabilidade</span>
+          </div>
 
-        <div style={estilos.card}>
-          <span style={estilos.numero}>{dados.totalAcionamentos}</span>
-          <span style={estilos.descricao}>Acionamentos no mês</span>
-        </div>
+          <div style={estilos.card}>
+            <span style={estilos.numero}>{dados.totalAcionamentos}</span>
+            <span style={estilos.descricao}>Acionamentos no mês</span>
+          </div>
 
-        <div style={estilos.card}>
-          <span style={estilos.numero}>{dados.mediaPorCaso.toFixed(1)}</span>
-          <span style={estilos.descricao}>Média de acionamentos por caso</span>
-        </div>
+          <div style={estilos.card}>
+            <span style={estilos.numero}>{dados.mediaPorCaso.toFixed(1)}</span>
+            <span style={estilos.descricao}>Média de acionamentos por caso</span>
+          </div>
 
-        <div style={estilos.card}>
-          <span style={estilos.numero}>{dados.mediaPorDia.toFixed(1)}</span>
-          <span style={estilos.descricao}>Média por dia trabalhado</span>
+          <div style={estilos.card}>
+            <span style={estilos.numero}>{dados.mediaPorDia.toFixed(1)}</span>
+            <span style={estilos.descricao}>Média por dia trabalhado</span>
+          </div>
         </div>
       </div>
 
       <div style={estilos.blocoEvolucao}>
-        <h3 style={estilos.tituloEvolucao}>Sua evolução no mês</h3>
+        <h3 style={estilos.tituloEvolucao}>📅 Sua evolução no mês</h3>
         <p style={estilos.legendaEvolucao}>
           Acionamentos por dia — {dados.diasComAcionamento} dia(s) com pelo menos 1 acionamento.
         </p>
@@ -245,12 +249,12 @@ export default function MeuDashboard() {
             ))}
           </div>
         )}
-      </div>
 
-      <p style={estilos.rodape}>
-        Cálculo: acionamentos ÷ casos sob sua responsabilidade (por caso) e acionamentos ÷{" "}
-        {dados.diasComAcionamento} dia(s) em que você registrou pelo menos 1 acionamento (por dia).
-      </p>
+        <p style={estilos.rodape}>
+          Cálculo: acionamentos ÷ casos sob sua responsabilidade (por caso) e acionamentos ÷{" "}
+          {dados.diasComAcionamento} dia(s) em que você registrou pelo menos 1 acionamento (por dia).
+        </p>
+      </div>
     </div>
   );
 }
@@ -321,19 +325,17 @@ const estilos = {
   },
   grid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-    gap: "14px",
-    marginBottom: "22px",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: "12px",
   },
   card: {
-    background: "#fff",
-    borderRadius: 16,
-    padding: "18px 20px",
-    boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)",
+    background: "#f8fafc",
+    borderRadius: 12,
+    padding: "14px 16px",
     border: "1px solid #edf0f5",
     display: "flex",
     flexDirection: "column",
-    gap: "6px",
+    gap: "4px",
   },
   numero: {
     fontSize: 26,
