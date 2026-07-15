@@ -23,10 +23,8 @@ export default function CasosSemValor() {
       .from("alunos")
       .select("id, nome, cpf, telefone, status_jornada")
       .is("responsavel_atual_email", null)
-      .in("status_jornada", ["Em cobrança", "CONTATAR"])
-      .eq("registrado_por_email", "sistema@reativaone")
       .order("nome", { ascending: true })
-      .limit(2000);
+      .limit(6000);
 
     if (error) {
       console.error("Erro ao carregar casos sem valor:", error);
@@ -67,12 +65,14 @@ export default function CasosSemValor() {
     const { data: userData } = await supabase.auth.getUser();
     const email = userData?.user?.email || "";
 
-    // Ja existe caso pra esse aluno? Atualiza; senao, cria.
-    const { data: casoExistente } = await supabase
+    // Ja existe caso pra esse aluno? Atualiza; senao, cria. (limit(1) pra
+    // nunca quebrar se por algum motivo tiver mais de uma linha)
+    const { data: casosExistentes } = await supabase
       .from("casos")
       .select("id")
       .eq("aluno_id", aluno.id)
-      .maybeSingle();
+      .limit(1);
+    const casoExistente = casosExistentes?.[0] || null;
 
     let erro = null;
     if (casoExistente) {
