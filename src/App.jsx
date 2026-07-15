@@ -331,12 +331,9 @@ export default function App() {
 
     async function carregarElogiosPendentes() {
       const { count, error } = await supabase
-        .from("aluno_movimentacoes")
+        .from("elogios_atendimento")
         .select("id", { count: "exact", head: true })
-        .eq("tipo", "FINALIZACAO_ATENDIMENTO")
-        .eq("status_novo", "ELOGIO_ATENDIMENTO")
-        .eq("elogio_aprovado_tv", false)
-        .eq("elogio_rejeitado_tv", false);
+        .eq("status", "PENDENTE_ANALISE");
 
       if (ativo && !error) {
         setElogiosPendentes(count || 0);

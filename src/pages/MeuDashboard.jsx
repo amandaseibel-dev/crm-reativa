@@ -179,16 +179,18 @@ export default function MeuDashboard() {
             Total recuperado esse mês, incluindo todos os tipos de pagamento (não só os principais).
           </p>
           <div style={estilos.gridFinanceiro}>
+            <div style={{ ...estilos.cartaoFinanceiro, background: "#ecfaf3", borderColor: "#bdeed4" }}>
+              <span style={{ ...estilos.numeroFinanceiro, color: "#0f7a4f", fontSize: 30 }}>
+                {moeda(financeiro.honorario_mes)}
+              </span>
+              <span style={estilos.labelFinanceiro}>Honorário no mês</span>
+            </div>
             <div style={estilos.cartaoFinanceiro}>
               <span style={estilos.numeroFinanceiro}>{moeda(financeiro.acumulado_mes)}</span>
               <span style={estilos.labelFinanceiro}>Recuperado no mês (total)</span>
             </div>
             <div style={estilos.cartaoFinanceiro}>
-              <span style={estilos.numeroFinanceiro}>{moeda(financeiro.honorario_mes)}</span>
-              <span style={estilos.labelFinanceiro}>Honorário no mês</span>
-            </div>
-            <div style={{ ...estilos.cartaoFinanceiro, background: "#ecfaf3", borderColor: "#bdeed4" }}>
-              <span style={{ ...estilos.numeroFinanceiro, color: "#0f7a4f" }}>
+              <span style={estilos.numeroFinanceiro}>
                 {moeda(financeiro.projecao_honorario_individual)}
               </span>
               <span style={estilos.labelFinanceiro}>Projeção de fechamento (se continuar nesse ritmo)</span>
