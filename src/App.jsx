@@ -55,6 +55,7 @@ import MeuDashboard from "./pages/MeuDashboard";
 import ElogiosAtendimento from "./pages/ElogiosAtendimento";
 import ExportarContatos from "./pages/ExportarContatos";
 import AcoesMassivas from "./pages/AcoesMassivas";
+import HistoricoRecuperacao from "./pages/HistoricoRecuperacao";
 import TvElogios from "./pages/TvElogios";
 
 function EmDesenvolvimento({ titulo }) {
@@ -99,7 +100,8 @@ function podeAcessar(perfil, rota) {
       "/elogios-atendimento",
       "/projecao-hora-a-hora",
       "/exportar-contatos",
-      "/acoes-massivas",],
+      "/acoes-massivas",
+      "/historico-recuperacao",],
     supervisor: [
       "/",
       "/minha-fila",
@@ -124,7 +126,8 @@ function podeAcessar(perfil, rota) {
       "/elogios-atendimento",
       "/projecao-hora-a-hora",
       "/exportar-contatos",
-      "/acoes-massivas",],
+      "/acoes-massivas",
+      "/historico-recuperacao",],
     administrativo: [
       "/",
       "/minha-fila",
@@ -459,6 +462,7 @@ export default function App() {
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
+    { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
     { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Gestão" },
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
@@ -770,6 +774,7 @@ export default function App() {
               <Route path="/elogios-atendimento" element={<ElogiosAtendimento />} />
               <Route path="/exportar-contatos" element={<ExportarContatos />} />
               <Route path="/acoes-massivas" element={<AcoesMassivas />} />
+              <Route path="/historico-recuperacao" element={<HistoricoRecuperacao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
