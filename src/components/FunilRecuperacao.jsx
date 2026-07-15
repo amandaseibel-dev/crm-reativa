@@ -10,6 +10,7 @@ function moeda(valor) {
 export default function FunilRecuperacao() {
   const [carregando, setCarregando] = useState(true);
   const [funil, setFunil] = useState(null);
+  const [acordos, setAcordos] = useState(null);
 
   useEffect(() => {
     carregar();
@@ -17,8 +18,12 @@ export default function FunilRecuperacao() {
 
   async function carregar() {
     setCarregando(true);
-    const { data, error } = await supabase.rpc("funil_historico_recuperacao");
-    if (!error) setFunil(data);
+    const [{ data: funilData, error: erroFunil }, { data: acordosData }] = await Promise.all([
+      supabase.rpc("funil_historico_recuperacao"),
+      supabase.rpc("metricas_acordos"),
+    ]);
+    if (!erroFunil) setFunil(funilData);
+    setAcordos(acordosData);
     setCarregando(false);
   }
 
@@ -73,6 +78,25 @@ export default function FunilRecuperacao() {
         <strong>{percentualRecuperado}%</strong> da base já passou por recuperação/quitação/acordo em algum momento.{" "}
         <a href="/historico-recuperacao" style={estilos.link}>Ver detalhes mês a mês →</a>
       </p>
+
+      {acordos && (
+        <div style={estilos.gridValores}>
+          <div style={estilos.cardValor}>
+            <span style={estilos.numeroValor}>{acordos.novos_no_mes}</span>
+            <span style={estilos.labelValor}>Novos acordos este mês ({moeda(acordos.valor_novos_no_mes)})</span>
+          </div>
+          <div style={{ ...estilos.cardValor, background: acordos.em_atraso > 0 ? "#fef7f0" : undefined, borderColor: acordos.em_atraso > 0 ? "#fde3cc" : undefined }}>
+            <span style={{ ...estilos.numeroValor, color: acordos.em_atraso > 0 ? "#c2410c" : undefined }}>
+              {acordos.em_atraso}
+            </span>
+            <span style={estilos.labelValor}>Acordos com parcela em atraso ({moeda(acordos.valor_em_atraso)})</span>
+          </div>
+          <div style={estilos.cardValor}>
+            <span style={estilos.numeroValor}>{acordos.ativos_total}</span>
+            <span style={estilos.labelValor}>Total de acordos ativos</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
