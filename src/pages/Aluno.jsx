@@ -189,6 +189,8 @@ export default function Alunos() {
   const [editandoCadastro, setEditandoCadastro] = useState(false);
   const [nomeEditado, setNomeEditado] = useState("");
   const [cpfEditado, setCpfEditado] = useState("");
+  const [telefoneEditado, setTelefoneEditado] = useState("");
+  const [emailEditado, setEmailEditado] = useState("");
   const [salvandoCadastro, setSalvandoCadastro] = useState(false);
   const [movimentacoes, setMovimentacoes] = useState([]);
   const [busca, setBusca] = useState("");
@@ -475,6 +477,8 @@ export default function Alunos() {
       pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "")
     );
     setCpfEditado(pegarCampo(alunoSelecionado, ["cpf", "CPF"], ""));
+    setTelefoneEditado(pegarCampo(alunoSelecionado, ["telefone", "Telefone"], ""));
+    setEmailEditado(pegarCampo(alunoSelecionado, ["email", "Email", "e_mail"], ""));
     setEditandoCadastro(true);
   }
 
@@ -499,12 +503,16 @@ export default function Alunos() {
       ""
     );
     const cpfAnterior = pegarCampo(alunoSelecionado, ["cpf", "CPF"], "");
+    const telefoneAnterior = pegarCampo(alunoSelecionado, ["telefone", "Telefone"], "");
+    const emailAnterior = pegarCampo(alunoSelecionado, ["email", "Email", "e_mail"], "");
 
     const { error } = await supabase
       .from("alunos")
       .update({
         nome: nomeEditado.trim(),
         cpf: cpfEditado.trim(),
+        telefone: telefoneEditado.trim() || null,
+        email: emailEditado.trim() || null,
         atualizado_em: new Date().toISOString(),
       })
       .eq("id", alunoSelecionado.id);
@@ -520,7 +528,7 @@ export default function Alunos() {
     await supabase.from("aluno_movimentacoes").insert({
       aluno_id: String(alunoSelecionado.id),
       tipo: "CORRECAO_CADASTRO",
-      descricao: `Cadastro corrigido. Nome: "${nomeAnterior}" -> "${nomeEditado.trim()}". CPF: "${cpfAnterior}" -> "${cpfEditado.trim()}".`,
+      descricao: `Cadastro corrigido. Nome: "${nomeAnterior}" -> "${nomeEditado.trim()}". CPF: "${cpfAnterior}" -> "${cpfEditado.trim()}". Telefone: "${telefoneAnterior}" -> "${telefoneEditado.trim()}". E-mail: "${emailAnterior}" -> "${emailEditado.trim()}".`,
       status_anterior: pegarCampo(
         alunoSelecionado,
         ["status_jornada", "status_atual", "status"],
@@ -1455,6 +1463,18 @@ export default function Alunos() {
                         value={cpfEditado}
                         onChange={(e) => setCpfEditado(e.target.value)}
                         placeholder="CPF do aluno"
+                        style={inputCheio}
+                      />
+                      <input
+                        value={telefoneEditado}
+                        onChange={(e) => setTelefoneEditado(e.target.value)}
+                        placeholder="Telefone (com DDD)"
+                        style={inputCheio}
+                      />
+                      <input
+                        value={emailEditado}
+                        onChange={(e) => setEmailEditado(e.target.value)}
+                        placeholder="E-mail"
                         style={inputCheio}
                       />
                       <div style={{ display: "flex", gap: 8 }}>
