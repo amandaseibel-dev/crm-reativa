@@ -245,6 +245,7 @@ export default function ConsultaFinanceira() {
                   <th style={{ padding: "8px 10px" }}>Próx. vencimento</th>
                   <th style={{ padding: "8px 10px" }}>Valor em aberto</th>
                   <th style={{ padding: "8px 10px" }}>Situação</th>
+                  <th style={{ padding: "8px 10px" }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -278,6 +279,28 @@ export default function ConsultaFinanceira() {
                     </td>
                     <td style={{ padding: "8px 10px" }}>
                       {SITUACAO_LABEL[linha.situacao_geral] || linha.situacao_geral}
+                    </td>
+                    <td style={{ padding: "8px 10px" }}>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          window.open(`/aluno?alunoId=${linha.aluno_id}`, "_blank");
+                        }}
+                        style={{
+                          background: "#0f9d6b",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: 8,
+                          padding: "5px 12px",
+                          fontSize: 12,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                          whiteSpace: "nowrap",
+                        }}
+                      >
+                        Abrir ficha
+                      </button>
                     </td>
                   </tr>
                 ))}
