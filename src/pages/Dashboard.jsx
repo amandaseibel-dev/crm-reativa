@@ -59,7 +59,6 @@ export default function Dashboard() {
         linksAguardando,
         baixasAguardando,
         termosAguardandoAdm,
-        parcelasPagas,
       ] = await Promise.all([
         supabase.from("alunos").select("id", { count: "exact", head: true }),
         supabase
@@ -94,23 +93,11 @@ export default function Dashboard() {
           .from("termos_acordo")
           .select("id", { count: "exact", head: true })
           .eq("status", "TERMO_ENVIADO_ADM"),
-        supabase.from("parcelas").select("valor").eq("status", "PAGO"),
       ]);
 
-      const valorParcelasPagas = (parcelasPagas.data || []).reduce(
-        (soma, p) => soma + (Number(p.valor) || 0),
-        0
-      );
-
-      const { data: acordosComEntradaPaga } = await supabase
-        .from("acordos")
-        .select("valor_entrada")
-        .eq("entrada_paga", true);
-
-      const valorEntradasPagas = (acordosComEntradaPaga || []).reduce(
-        (soma, a) => soma + (Number(a.valor_entrada) || 0),
-        0
-      );
+      const { data: somas } = await supabase.rpc("somas_dashboard_principal");
+      const valorParcelasPagas = Number(somas?.valor_parcelas_pagas || 0);
+      const valorEntradasPagas = Number(somas?.valor_entradas_pagas || 0);
 
       setIndicadores({
         baseTotal: baseTotal.count || 0,

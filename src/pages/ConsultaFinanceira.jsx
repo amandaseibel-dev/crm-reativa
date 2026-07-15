@@ -82,27 +82,33 @@ export default function ConsultaFinanceira() {
   }
 
   // Quando tem operador (ou qualquer filtro) selecionado, os cards passam a
-  // mostrar o total daquele recorte, não o total geral da base.
+  // mostrar o total daquele recorte, não o total geral da base. Usa RPC
+  // (agregacao exata no banco) em vez de buscar todas as linhas no
+  // navegador, que cortava em ~100-1000 linhas e distorcia os totais.
   async function carregarResumoFiltrado() {
-    let query = supabase
-      .from("consulta_financeira_por_aluno")
-      .select("valor_em_aberto, tem_atraso, situacao_geral");
+    const buscaLimpa = busca.trim();
+    const ehCpf = /^\d{3,}$/.test(buscaLimpa.replace(/\D/g, ""));
 
-    query = aplicarFiltros(query);
-
-    const { data } = await query;
-    const linhasFiltro = data || [];
+    const { data } = await supabase.rpc("resumo_financeiro_filtrado", {
+      p_filtro: filtro === "TODOS" ? null : filtro,
+      p_busca: buscaLimpa
+        ? ehCpf
+          ? buscaLimpa.replace(/\D/g, "")
+          : buscaLimpa
+        : null,
+      p_eh_cpf: ehCpf,
+      p_valor_minimo: valorMinimo ? Number(valorMinimo) : null,
+      p_operador: operador || null,
+    });
 
     setResumo({
-      total_alunos: linhasFiltro.length,
-      total_em_aberto: linhasFiltro.filter((l) => l.situacao_geral !== "PAGO").length,
-      total_em_atraso: linhasFiltro.filter((l) => l.tem_atraso).length,
-      total_pagos: linhasFiltro.filter((l) => l.situacao_geral === "PAGO").length,
-      total_parcial: linhasFiltro.filter((l) => l.situacao_geral === "PARCIAL").length,
-      valor_em_aberto: linhasFiltro.reduce((soma, l) => soma + Number(l.valor_em_aberto || 0), 0),
-      valor_em_atraso: linhasFiltro
-        .filter((l) => l.tem_atraso)
-        .reduce((soma, l) => soma + Number(l.valor_em_aberto || 0), 0),
+      total_alunos: data?.total_alunos || 0,
+      total_em_aberto: data?.total_em_aberto || 0,
+      total_em_atraso: data?.total_em_atraso || 0,
+      total_pagos: data?.total_pagos || 0,
+      total_parcial: data?.total_parcial || 0,
+      valor_em_aberto: data?.valor_em_aberto || 0,
+      valor_em_atraso: data?.valor_em_atraso || 0,
     });
   }
 
