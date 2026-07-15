@@ -79,12 +79,20 @@ export default function SaudeDaBase() {
           <span style={estilos.labelValor}>Total de alunos na base</span>
         </div>
         <div style={estilos.cardValor}>
-          <span style={estilos.numeroValor}>{(dados.alunos_sem_casos || 0).toLocaleString("pt-BR")}</span>
+          <span style={estilos.numeroValor}>
+            {(dados.alunos_sem_casos || 0).toLocaleString("pt-BR")}
+            {dados.total_alunos > 0 && (
+              <span style={estilos.percentual}> ({((dados.alunos_sem_casos / dados.total_alunos) * 100).toFixed(1)}%)</span>
+            )}
+          </span>
           <span style={estilos.labelValor}>Sem nenhum registro em casos</span>
         </div>
         <div style={{ ...estilos.cardValor, background: dados.sem_valor > 0 ? "#fef7f0" : undefined, borderColor: dados.sem_valor > 0 ? "#fde3cc" : undefined }}>
           <span style={{ ...estilos.numeroValor, color: dados.sem_valor > 0 ? "#c2410c" : undefined }}>
             {(dados.sem_valor || 0).toLocaleString("pt-BR")}
+            {dados.total_alunos > 0 && (
+              <span style={estilos.percentual}> ({((dados.sem_valor / dados.total_alunos) * 100).toFixed(1)}%)</span>
+            )}
           </span>
           <span style={estilos.labelValor}>
             Livres sem valor calculado — <a href="/painel-adm" style={estilos.link}>ir pra Confirmação de Pagamento</a>
@@ -93,6 +101,9 @@ export default function SaudeDaBase() {
         <div style={{ ...estilos.cardValor, background: "#ecfaf3", borderColor: "#bdeed4" }}>
           <span style={{ ...estilos.numeroValor, color: "#0f7a4f" }}>
             {(dados.livre_com_valor || 0).toLocaleString("pt-BR")}
+            {dados.total_alunos > 0 && (
+              <span style={{ ...estilos.percentual, color: "#0f7a4f" }}> ({((dados.livre_com_valor / dados.total_alunos) * 100).toFixed(1)}%)</span>
+            )}
           </span>
           <span style={estilos.labelValor}>
             Livres com valor (elegíveis) — <a href="/acoes-massivas" style={estilos.link}>ir pra Ações Massivas</a>
@@ -152,6 +163,7 @@ const estilos = {
   cardValor: { background: "#fff", border: "1px solid #edf0f5", borderRadius: 16, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
   numeroValor: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "#0d1321" },
   labelValor: { fontSize: 12.5, color: "#8a93a3", fontWeight: 600 },
+  percentual: { fontSize: 14, fontWeight: 700, color: "#8a93a3" },
   link: { color: "#0f9d6b", fontWeight: 700 },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
   th: { textAlign: "left", padding: "8px 10px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
