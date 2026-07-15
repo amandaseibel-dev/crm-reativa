@@ -57,7 +57,7 @@ function normalizarTelefone(bruto) {
 }
 
 export default function AcoesMassivas() {
-  const [valorMin, setValorMin] = useState("");
+  const [valorMin, setValorMin] = useState("100,00");
   const [valorMax, setValorMax] = useState("");
   const [quantidade, setQuantidade] = useState("100");
   const [carregando, setCarregando] = useState(false);
@@ -81,6 +81,10 @@ export default function AcoesMassivas() {
       setErro("Valor máximo inválido.");
       return;
     }
+
+    // Regra fixa: nunca gera ação pra caso com valor em aberto abaixo de
+    // R$100 -- mesmo que o campo fique em branco ou alguém digite menos.
+    const minEfetivo = Math.max(min ?? 0, 100);
 
     setCarregando(true);
     setResultados(null);
@@ -137,7 +141,7 @@ export default function AcoesMassivas() {
             : null,
         }))
         .filter((l) => l.telefoneFormatado) // sem telefone nao entra, nao da pra acionar
-        .filter((l) => (min === null ? true : l.valor >= min))
+        .filter((l) => l.valor >= minEfetivo)
         .filter((l) => (max === null ? true : l.valor <= max))
         .slice(0, qtd);
 
@@ -241,7 +245,7 @@ export default function AcoesMassivas() {
       <div style={estilos.card}>
         <div style={estilos.linhaFiltros}>
           <div style={estilos.campo}>
-            <label style={estilos.label}>Valor mínimo</label>
+            <label style={estilos.label}>Valor mínimo (nunca abaixo de R$ 100,00)</label>
             <input
               style={estilos.input}
               placeholder="Ex: 500,00"
