@@ -203,6 +203,7 @@ export default function App() {
   const [carregando, setCarregando] = useState(true);
   const [linksAguardando, setLinksAguardando] = useState(0);
   const [termosRejeitados, setTermosRejeitados] = useState(0);
+  const [termosAguardandoValidacao, setTermosAguardandoValidacao] = useState(0);
   const [baixasAguardando, setBaixasAguardando] = useState(0);
   const [elogiosPendentes, setElogiosPendentes] = useState(0);
   const [tema, setTema] = useState("claro"); // tema fixo claro
@@ -250,6 +251,36 @@ export default function App() {
 
     carregarPendentes();
     const intervalo = setInterval(carregarPendentes, 15000);
+
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+    };
+  }, [usuario]);
+
+  useEffect(() => {
+    const email = (usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase();
+    const ehGestao = ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(email);
+    if (!usuario || !ehGestao) {
+      setTermosAguardandoValidacao(0);
+      return;
+    }
+
+    let ativo = true;
+
+    async function carregarTermosAguardando() {
+      const { count, error } = await supabase
+        .from("termos_acordo")
+        .select("id", { count: "exact", head: true })
+        .eq("status", "TERMO_ENVIADO_ADM");
+
+      if (ativo && !error) {
+        setTermosAguardandoValidacao(count || 0);
+      }
+    }
+
+    carregarTermosAguardando();
+    const intervalo = setInterval(carregarTermosAguardando, 15000);
 
     return () => {
       ativo = false;
@@ -575,9 +606,12 @@ export default function App() {
                   >
                     <IconeComponente size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
                     {!sidebarRecolhida && <span>{item.label}</span>}
-                {item.rota === "/painel-adm" && linksAguardando > 0 && (
-                  <span className="badge-pendente" title="Solicitações de link aguardando resposta">
-                    {linksAguardando}
+                {item.rota === "/financeiro-hub" && (linksAguardando + termosAguardandoValidacao) > 0 && (
+                  <span
+                    className="badge-pendente"
+                    title={`${linksAguardando} link(s) aguardando resposta · ${termosAguardandoValidacao} termo(s) aguardando validação`}
+                  >
+                    {linksAguardando + termosAguardandoValidacao}
                   </span>
                 )}
                 {item.rota === "/aluno" && termosRejeitados > 0 && (
