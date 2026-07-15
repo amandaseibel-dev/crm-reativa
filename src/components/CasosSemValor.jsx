@@ -4,7 +4,7 @@ import { supabase } from "../services/supabase";
 // Casos sem valor em aberto calculado -- normalmente da carga retroativa
 // antiga, que nunca teve o titulo processado direito. Aparecem aqui pra
 // alguem conferir manualmente e preencher o valor certo.
-export default function CasosSemValor() {
+export default function CasosSemValor({ aoAtualizarContagem }) {
   const [carregando, setCarregando] = useState(true);
   const [lista, setLista] = useState([]);
   const [busca, setBusca] = useState("");
@@ -15,6 +15,10 @@ export default function CasosSemValor() {
   useEffect(() => {
     carregar();
   }, []);
+
+  useEffect(() => {
+    if (aoAtualizarContagem) aoAtualizarContagem(lista.length);
+  }, [lista, aoAtualizarContagem]);
 
   async function carregar() {
     setCarregando(true);

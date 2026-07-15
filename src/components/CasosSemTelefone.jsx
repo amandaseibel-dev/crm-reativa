@@ -4,7 +4,7 @@ import { supabase } from "../services/supabase";
 // Casos sem telefone cadastrado -- precisam de tratativa diferenciada
 // (pesquisa de telefone, contato por e-mail, correspondência, etc), ja que
 // nao dao pra entrar em Acoes Massivas nem em nenhum fluxo de WhatsApp.
-export default function CasosSemTelefone() {
+export default function CasosSemTelefone({ aoAtualizarContagem }) {
   const [carregando, setCarregando] = useState(true);
   const [lista, setLista] = useState([]);
   const [busca, setBusca] = useState("");
@@ -17,6 +17,10 @@ export default function CasosSemTelefone() {
   useEffect(() => {
     carregar();
   }, []);
+
+  useEffect(() => {
+    if (aoAtualizarContagem) aoAtualizarContagem(lista.length);
+  }, [lista, aoAtualizarContagem]);
 
   async function carregar() {
     setCarregando(true);

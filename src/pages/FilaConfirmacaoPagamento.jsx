@@ -65,6 +65,8 @@ export default function FilaConfirmacaoPagamento() {
   const [carregando, setCarregando] = useState(true);
   const [observacoes, setObservacoes] = useState({});
   const [filtro, setFiltro] = useState("PENDENTES");
+  const [qtdSemValor, setQtdSemValor] = useState(null);
+  const [qtdSemTelefone, setQtdSemTelefone] = useState(null);
 
   // Ficha do aluno (modal leve reaproveitando as pecas ja existentes:
   // financeiro em aberto, historico de movimentacoes e comprovante).
@@ -466,20 +468,26 @@ export default function FilaConfirmacaoPagamento() {
           Não identificados
         </button>
         <button style={filtro === "SEM_VALOR" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("SEM_VALOR")}>
-          Sem valor calculado
+          Sem valor calculado{qtdSemValor !== null ? ` (${qtdSemValor})` : ""}
         </button>
         <button style={filtro === "SEM_TELEFONE" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("SEM_TELEFONE")}>
-          Sem telefone
+          Sem telefone{qtdSemTelefone !== null ? ` (${qtdSemTelefone})` : ""}
         </button>
+      </div>
+
+      {/* Mantem os dois sempre "vivos" (carregando em segundo plano), so
+          escondidos visualmente quando nao e a aba ativa -- assim o numero
+          na aba fica sempre atualizado, mesmo sem abrir a aba. */}
+      <div style={{ display: filtro === "SEM_VALOR" ? "block" : "none" }}>
+        <CasosSemValor aoAtualizarContagem={setQtdSemValor} />
+      </div>
+      <div style={{ display: filtro === "SEM_TELEFONE" ? "block" : "none" }}>
+        <CasosSemTelefone aoAtualizarContagem={setQtdSemTelefone} />
       </div>
 
       {filtro === "NAO_IDENTIFICADOS" ? (
         <PagamentosNaoIdentificados />
-      ) : filtro === "SEM_VALOR" ? (
-        <CasosSemValor />
-      ) : filtro === "SEM_TELEFONE" ? (
-        <CasosSemTelefone />
-      ) : (
+      ) : filtro === "SEM_VALOR" || filtro === "SEM_TELEFONE" ? null : (
         <>
       {solicitacoesFiltradas.length === 0 && (
         <div style={styles.vazio}>Nenhuma solicitação neste filtro.</div>
