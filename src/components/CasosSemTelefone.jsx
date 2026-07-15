@@ -12,6 +12,7 @@ export default function CasosSemTelefone() {
   const [telefones, setTelefones] = useState({});
   const [salvando, setSalvando] = useState({});
   const [mensagem, setMensagem] = useState("");
+  const [erro, setErro] = useState("");
 
   useEffect(() => {
     carregar();
@@ -19,19 +20,39 @@ export default function CasosSemTelefone() {
 
   async function carregar() {
     setCarregando(true);
+    setErro("");
 
-    const { data: alunos, error } = await supabase
-      .from("alunos")
-      .select("id, nome, cpf, email, status_jornada, responsavel_atual_nome")
-      .or("telefone.is.null,telefone.eq.")
-      .order("nome", { ascending: true })
-      .limit(6000);
+    // Busca separada (mais confiável que .or() com string) -- telefone
+    // nulo de um lado, telefone vazio ("") do outro, e junta os dois.
+    const [semTelefoneNull, semTelefoneVazio] = await Promise.all([
+      supabase
+        .from("alunos")
+        .select("id, nome, cpf, email, status_jornada, responsavel_atual_nome")
+        .is("telefone", null)
+        .order("nome", { ascending: true })
+        .limit(6000),
+      supabase
+        .from("alunos")
+        .select("id, nome, cpf, email, status_jornada, responsavel_atual_nome")
+        .eq("telefone", "")
+        .order("nome", { ascending: true })
+        .limit(6000),
+    ]);
 
-    if (error) {
-      console.error("Erro ao carregar casos sem telefone:", error);
-      setCarregando(false);
-      return;
+    if (semTelefoneNull.error) {
+      console.error("Erro ao carregar (telefone nulo):", semTelefoneNull.error);
+      setErro("Erro ao carregar: " + semTelefoneNull.error.message);
     }
+    if (semTelefoneVazio.error) {
+      console.error("Erro ao carregar (telefone vazio):", semTelefoneVazio.error);
+    }
+
+    const vistos = new Set();
+    const alunos = [...(semTelefoneNull.data || []), ...(semTelefoneVazio.data || [])].filter((a) => {
+      if (vistos.has(a.id)) return false;
+      vistos.add(a.id);
+      return true;
+    });
 
     const ids = (alunos || []).map((a) => a.id);
     let valorPorAluno = {};
@@ -105,6 +126,10 @@ export default function CasosSemTelefone() {
       <p style={{ fontSize: 12.5, color: "#8a93a3", marginBottom: 10 }}>
         <strong>{filtrada.length}</strong> de {lista.length} caso(s) sem telefone
       </p>
+
+      {erro && (
+        <p style={{ color: "#b91c1c", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>{erro}</p>
+      )}
 
       {mensagem && (
         <p style={{ color: "#0f7a4f", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>{mensagem}</p>
