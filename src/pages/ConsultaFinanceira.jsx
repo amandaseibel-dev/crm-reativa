@@ -251,7 +251,11 @@ export default function ConsultaFinanceira() {
                 {linhas.map((linha) => (
                   <tr
                     key={linha.aluno_id}
-                    style={{ borderBottom: "1px solid rgba(148,163,184,0.12)" }}
+                    onClick={() => window.open(`/aluno?alunoId=${linha.aluno_id}`, "_blank")}
+                    title="Clique para abrir a ficha do aluno"
+                    style={{ borderBottom: "1px solid rgba(148,163,184,0.12)", cursor: "pointer" }}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "rgba(15,157,107,0.06)")}
+                    onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                   >
                     <td style={{ padding: "8px 10px" }}>{linha.nome}</td>
                     <td style={{ padding: "8px 10px", opacity: 0.8 }}>
