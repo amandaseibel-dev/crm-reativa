@@ -363,26 +363,20 @@ export default function Alunos() {
 
     try {
       const termo = busca.trim();
-
-      let query = supabase.from("alunos").select("*").limit(150);
+      let data, error;
 
       if (termo) {
-        const somenteNumeros = termo.replace(/\D/g, "");
-
-        if (somenteNumeros.length >= 3) {
-          query = query.ilike("cpf", `%${somenteNumeros}%`);
-        } else {
-          // Busca sem acento: "Joao" precisa achar "João". Normaliza o termo
-          // igual a coluna nome_normalizado (minusculo, sem acento).
-          const termoNormalizado = termo
-            .normalize("NFD")
-            .replace(/[\u0300-\u036f]/g, "")
-            .toLowerCase();
-          query = query.ilike("nome_normalizado", `%${termoNormalizado}%`);
-        }
+        // Usa a funcao de busca (RPC) -- CPF acha qualquer aluno, nome
+        // continua restrito a proprio + livre, evitando reabrir a
+        // brecha de "listar carteira de colega" que corrigimos hoje.
+        const resultado = await supabase.rpc("buscar_aluno", { p_termo: termo });
+        data = resultado.data;
+        error = resultado.error;
+      } else {
+        const resultado = await supabase.from("alunos").select("*").limit(150);
+        data = resultado.data;
+        error = resultado.error;
       }
-
-      const { data, error } = await query;
 
       if (error) {
         console.error("Erro ao carregar alunos:", error);
