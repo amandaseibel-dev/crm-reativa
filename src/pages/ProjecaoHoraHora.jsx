@@ -89,6 +89,8 @@ export default function ProjecaoHoraHora() {
   const [aba, setAba] = useState("DASHBOARD");
   const [subAbaDashboard, setSubAbaDashboard] = useState("VISAO_GERAL");
   const [operadorSelecionado, setOperadorSelecionado] = useState("");
+  const [projecaoTodos, setProjecaoTodos] = useState(null);
+  const [carregandoTodos, setCarregandoTodos] = useState(false);
   const [mesReferencia, setMesReferencia] = useState(mesAtualISO());
 
   const [dashboard, setDashboard] = useState(null);
@@ -208,6 +210,21 @@ export default function ProjecaoHoraHora() {
     setDiaSelecionado(dia);
     await carregarPagamentosDia(dia);
   }
+
+  async function carregarProjecaoTodos() {
+    setCarregandoTodos(true);
+    const { data, error } = await supabase.rpc("projecao_todos_operadores", { p_mes: mesReferencia });
+    if (!error) setProjecaoTodos(data);
+    setCarregandoTodos(false);
+  }
+
+  useEffect(() => {
+    const podeVerTodos = usuario?.podeGerir && usuario?.email?.toLowerCase() !== "cobranca07@aelbra.com.br";
+    if (podeVerTodos && subAbaDashboard === "POR_OPERADOR") {
+      carregarProjecaoTodos();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subAbaDashboard, mesReferencia, usuario]);
 
   async function carregarDashboard() {
     setErro("");
@@ -652,7 +669,61 @@ export default function ProjecaoHoraHora() {
 
               {vePainelGestao && subAbaDashboard === "POR_OPERADOR" && (
                 <div style={estilos.blocoMeta}>
-                  <h3 style={{ marginBottom: 10 }}>👤 Selecione um operador</h3>
+                  <h3 style={{ marginBottom: 4 }}>🏆 Projeção de fechamento — todos os operadores</h3>
+                  <p style={{ opacity: 0.6, fontSize: 12.5, margin: "0 0 12px" }}>
+                    Total da empresa, com cada operador lado a lado. Estimativa com base no ritmo atual de cada um.
+                  </p>
+
+                  {carregandoTodos ? (
+                    <p style={{ opacity: 0.7 }}>Carregando...</p>
+                  ) : (
+                    <div style={{ overflowX: "auto" }}>
+                      <table style={estilos.tabela}>
+                        <thead>
+                          <tr>
+                            <th style={estilos.th}>Operador</th>
+                            <th style={estilos.th}>Honorário no mês</th>
+                            <th style={estilos.th}>Projeção de fechamento</th>
+                            <th style={estilos.th}>% da meta (projetado)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {(projecaoTodos?.operadores || []).map((op) => (
+                            <tr key={op.operador_email} style={estilos.tr}>
+                              <td style={{ ...estilos.td, fontWeight: 700 }}>{op.operador_nome || op.operador_email}</td>
+                              <td style={estilos.td}>{moeda(op.honorario_mes)}</td>
+                              <td style={{ ...estilos.td, fontWeight: 700 }}>{moeda(op.projecao)}</td>
+                              <td
+                                style={{
+                                  ...estilos.td,
+                                  color: (op.percentual_projecao ?? 0) >= 100 ? "#0f9d6b" : "#d97706",
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {op.percentual_projecao ?? 0}%
+                              </td>
+                            </tr>
+                          ))}
+                          <tr style={{ borderTop: `2px solid ${PH_BORDA}` }}>
+                            <td style={{ ...estilos.td, fontWeight: 800 }}>TOTAL EMPRESA</td>
+                            <td style={{ ...estilos.td, fontWeight: 800 }}>
+                              {moeda((projecaoTodos?.operadores || []).reduce((s, o) => s + Number(o.honorario_mes || 0), 0))}
+                            </td>
+                            <td style={{ ...estilos.td, fontWeight: 800 }}>
+                              {moeda((projecaoTodos?.operadores || []).reduce((s, o) => s + Number(o.projecao || 0), 0))}
+                            </td>
+                            <td style={estilos.td}></td>
+                          </tr>
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {vePainelGestao && subAbaDashboard === "POR_OPERADOR" && (
+                <div style={estilos.blocoMeta}>
+                  <h3 style={{ marginBottom: 10 }}>👤 Ver detalhes de um operador específico</h3>
                   <select
                     value={operadorSelecionado}
                     onChange={(e) => setOperadorSelecionado(e.target.value)}
@@ -665,7 +736,7 @@ export default function ProjecaoHoraHora() {
                   </select>
                   {!operadorSelecionado && (
                     <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: 10 }}>
-                      Escolha um operador acima pra ver a meta, projeção e comissão dele.
+                      Escolha um operador acima pra ver a meta, projeção e comissão detalhada dele.
                     </p>
                   )}
                 </div>
