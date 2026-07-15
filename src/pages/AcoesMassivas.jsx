@@ -18,7 +18,7 @@ function converterValor(texto) {
 // Normaliza telefone pro formato 55DDDNUMERO (padrão internacional, sem
 // espaço/símbolo, pronto pra ferramentas de disparo em massa). Trata os
 // casos mais comuns de bagunça no cadastro: DDD duplicado, já ter o 55,
-// número sem o 9º dígito etc.
+// e número de celular antigo sem o 9º dígito (completa automaticamente).
 function normalizarTelefone(bruto) {
   let digitos = String(bruto || "").replace(/\D/g, "");
   if (!digitos) return null;
@@ -31,19 +31,29 @@ function normalizarTelefone(bruto) {
     digitos = digitos.slice(2);
   }
 
-  // Já vem com 55 na frente e tamanho de sobra (12 ou 13 dígitos após o 55).
+  // Separa o "55" (codigo do Brasil) do resto, se ja tiver.
+  let temCodigoPais = false;
+  let core = digitos;
   if (digitos.startsWith("55") && (digitos.length === 12 || digitos.length === 13)) {
-    return digitos;
+    temCodigoPais = true;
+    core = digitos.slice(2);
   }
 
-  // DDD + numero (10 ou 11 digitos) -> adiciona 55.
-  if (digitos.length === 10 || digitos.length === 11) {
-    return "55" + digitos;
+  // Numero com 10 digitos (DDD + 8) esta sem o 9º dígito obrigatório do
+  // celular -- completa. (Fixo teria os mesmos 10 dígitos, mas não recebe
+  // WhatsApp mesmo, então não tem problema em "corrigir" ele também.)
+  if (core.length === 10) {
+    core = core.slice(0, 2) + "9" + core.slice(2);
   }
 
-  // Nao bateu em nenhum padrao conhecido -- devolve como veio, com 55 na
-  // frente se ainda nao tiver, pra pelo menos nao quebrar o arquivo.
-  return digitos.startsWith("55") ? digitos : "55" + digitos;
+  if (core.length !== 11) {
+    // Nao bateu em nenhum padrao esperado -- devolve mesmo assim, com 55
+    // na frente, pra pelo menos nao quebrar o arquivo (mas pode precisar
+    // de conferencia manual).
+    return "55" + core;
+  }
+
+  return "55" + core;
 }
 
 export default function AcoesMassivas() {
