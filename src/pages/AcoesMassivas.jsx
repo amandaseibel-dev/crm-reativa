@@ -86,66 +86,60 @@ export default function AcoesMassivas() {
     setResultados(null);
 
     try {
-      // So casos SEM operador (livres) -- o objetivo aqui e estimular
-      // quem ninguem esta trabalhando ainda, sem precisar de operador.
-      // Busca um lote maior que o pedido, porque um aluno pode aparecer
-      // duplicado em `casos` (titulos diferentes) -- sem isso, a
-      // quantidade final ficava menor do que o pedido depois de tirar
-      // duplicata e quem nao tem telefone.
+      // Prioriza por tempo sem contato (quem nunca foi acionado, ou faz
+      // mais tempo, vem primeiro) -- mais saudavel pra base do que só
+      // olhar valor. O valor continua disponível como filtro, só não é
+      // mais o critério de ordenação.
       let query = supabase
-        .from("casos")
-        .select("aluno_id, total_em_aberto")
-        .not("aluno_id", "is", null)
-        .is("operador_email", null)
-        .order("total_em_aberto", { ascending: false })
+        .from("alunos")
+        .select("id, nome, telefone, data_ultimo_acionamento, responsavel_atual_email")
+        .is("responsavel_atual_email", null)
+        .order("data_ultimo_acionamento", { ascending: true, nullsFirst: true })
         .limit(Math.min(qtd * 3, 6000));
 
-      if (min !== null) query = query.gte("total_em_aberto", min);
-      if (max !== null) query = query.lte("total_em_aberto", max);
+      const { data: alunosBrutos, error: erroAlunos } = await query;
+      if (erroAlunos) throw erroAlunos;
 
-      const { data: casosBrutos, error: erroCasos } = await query;
-      if (erroCasos) throw erroCasos;
-
-      // Dedup por aluno_id, mantendo a linha de maior valor (ordenacao ja
-      // veio decrescente, entao a primeira ocorrencia de cada aluno_id ja
-      // e a de maior valor).
-      const casosPorAluno = new Map();
-      for (const c of casosBrutos || []) {
-        if (!casosPorAluno.has(c.aluno_id)) casosPorAluno.set(c.aluno_id, c);
-      }
-      const casos = [...casosPorAluno.values()].slice(0, qtd);
-
-      const idsAlunos = [...new Set(casos.map((c) => c.aluno_id))];
+      const idsAlunos = (alunosBrutos || []).map((a) => a.id);
       if (idsAlunos.length === 0) {
         setResultados([]);
         setCarregando(false);
         return;
       }
 
-      const { data: alunos, error: erroAlunos } = await supabase
-        .from("alunos")
-        .select("id, nome, telefone, responsavel_atual_email")
-        .in("id", idsAlunos)
-        .is("responsavel_atual_email", null); // dupla checagem -- livre de verdade
+      // Busca o valor em aberto (casos, sem operador) só pra quem entrou
+      // no lote acima, pra aplicar o filtro de valor min/max.
+      const { data: casosBrutos, error: erroCasos } = await supabase
+        .from("casos")
+        .select("aluno_id, total_em_aberto")
+        .in("aluno_id", idsAlunos)
+        .is("operador_email", null);
 
-      if (erroAlunos) throw erroAlunos;
+      if (erroCasos) throw erroCasos;
 
-      const alunosPorId = Object.fromEntries((alunos || []).map((a) => [String(a.id), a]));
+      // Dedup por aluno_id, mantendo o maior valor quando houver duplicata.
+      const valorPorAluno = new Map();
+      for (const c of casosBrutos || []) {
+        const atual = valorPorAluno.get(c.aluno_id) || 0;
+        const novo = Number(c.total_em_aberto || 0);
+        if (novo > atual) valorPorAluno.set(c.aluno_id, novo);
+      }
 
-      const lista = (casos || [])
-        .filter((c) => alunosPorId[String(c.aluno_id)])
-        .map((c) => {
-          const a = alunosPorId[String(c.aluno_id)];
-          const telefoneFormatado = normalizarTelefone(a.telefone);
-          return {
-            alunoId: a.id,
-            nome: a.nome || "-",
-            telefoneBruto: a.telefone || "",
-            telefoneFormatado,
-            valor: Number(c.total_em_aberto || 0),
-          };
-        })
-        .filter((l) => l.telefoneFormatado); // sem telefone nao entra, nao da pra acionar
+      const lista = (alunosBrutos || [])
+        .map((a) => ({
+          alunoId: a.id,
+          nome: a.nome || "-",
+          telefoneBruto: a.telefone || "",
+          telefoneFormatado: normalizarTelefone(a.telefone),
+          valor: valorPorAluno.get(a.id) || 0,
+          diasSemContato: a.data_ultimo_acionamento
+            ? Math.floor((Date.now() - new Date(a.data_ultimo_acionamento).getTime()) / 86400000)
+            : null,
+        }))
+        .filter((l) => l.telefoneFormatado) // sem telefone nao entra, nao da pra acionar
+        .filter((l) => (min === null ? true : l.valor >= min))
+        .filter((l) => (max === null ? true : l.valor <= max))
+        .slice(0, qtd);
 
       setResultados(lista);
     } catch (e) {
@@ -237,8 +231,9 @@ export default function AcoesMassivas() {
         <div>
           <h1 style={estilos.titulo}>⚡ Ações Massivas</h1>
           <p style={estilos.subtitulo}>
-            Estimula por fora (fora do CRM) casos livres, sem operador vinculado — sem depender de
-            operador pra fazer o acionamento manual.
+            Estimula por fora (fora do CRM) casos livres, sem operador vinculado — priorizado por
+            tempo sem contato (quem nunca foi acionado, ou faz mais tempo, vem primeiro), sem depender
+            de operador pra fazer o acionamento manual.
           </p>
         </div>
       </div>
@@ -310,6 +305,7 @@ export default function AcoesMassivas() {
                   <tr>
                     <th style={estilos.th}>Nome do aluno</th>
                     <th style={estilos.th}>Telefone (formatado)</th>
+                    <th style={estilos.thNum}>Sem contato há</th>
                     <th style={estilos.thNum}>Valor em aberto</th>
                   </tr>
                 </thead>
@@ -318,6 +314,13 @@ export default function AcoesMassivas() {
                     <tr key={r.alunoId}>
                       <td style={estilos.td}>{r.nome}</td>
                       <td style={estilos.td}>{r.telefoneFormatado}</td>
+                      <td style={estilos.tdNum}>
+                        {r.diasSemContato === null ? (
+                          <span style={{ color: "#b91c1c", fontWeight: 800 }}>Nunca acionado</span>
+                        ) : (
+                          `${r.diasSemContato} dia(s)`
+                        )}
+                      </td>
                       <td style={estilos.tdNum}>{formatarMoeda(r.valor)}</td>
                     </tr>
                   ))}
