@@ -1923,6 +1923,49 @@ export default function Alunos() {
                 <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Confirmar pagamento</summary>
                 <ConfirmarPagamento aluno={alunoSelecionado} />
               </details>
+
+              <div style={caixaInterna}>
+                <h3 style={tituloSecao}>Movimentações</h3>
+
+                {movimentacoes.length === 0 ? (
+                  <p style={textoCinza}>Nenhuma movimentação registrada.</p>
+                ) : (
+                  <div style={{ display: "grid", gap: "10px" }}>
+                    {movimentacoes.map((mov) => (
+                      <div key={mov.id} style={cardMov}>
+                        <strong>{mov.tipo}</strong>
+
+                        <p>{mov.descricao || "-"}</p>
+
+                        <small>
+                          Status: {mov.status_anterior || "-"} →{" "}
+                          {mov.status_novo || "-"}
+                          <br />
+                          Retorno: {formatarDataHora(mov.data_retorno)}
+                          <br />
+                          Registrado por:{" "}
+                          {mov.registrado_por_nome || "Não identificado"}
+                          {mov.registrado_por_email
+                            ? ` - ${mov.registrado_por_email}`
+                            : ""}
+                          <br />
+                          Data/hora: {formatarDataHora(mov.registrado_em)}
+                        </small>
+
+                        {mov.elogio_print_path && (
+                          <button
+                            type="button"
+                            onClick={() => abrirAnexoElogio(mov.elogio_print_path)}
+                            style={{ ...botaoSecundario, marginTop: "8px", fontSize: "12px", padding: "6px 10px" }}
+                          >
+                            📎 Ver anexo{mov.elogio_print_nome ? `: ${mov.elogio_print_nome}` : ""}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
               </>
               )}
 
@@ -1996,49 +2039,6 @@ export default function Alunos() {
                 >
                   Alterar responsável
                 </button>
-              </div>
-
-              <div style={caixaInterna}>
-                <h3 style={tituloSecao}>Movimentações</h3>
-
-                {movimentacoes.length === 0 ? (
-                  <p style={textoCinza}>Nenhuma movimentação registrada.</p>
-                ) : (
-                  <div style={{ display: "grid", gap: "10px" }}>
-                    {movimentacoes.map((mov) => (
-                      <div key={mov.id} style={cardMov}>
-                        <strong>{mov.tipo}</strong>
-
-                        <p>{mov.descricao || "-"}</p>
-
-                        <small>
-                          Status: {mov.status_anterior || "-"} →{" "}
-                          {mov.status_novo || "-"}
-                          <br />
-                          Retorno: {formatarDataHora(mov.data_retorno)}
-                          <br />
-                          Registrado por:{" "}
-                          {mov.registrado_por_nome || "Não identificado"}
-                          {mov.registrado_por_email
-                            ? ` - ${mov.registrado_por_email}`
-                            : ""}
-                          <br />
-                          Data/hora: {formatarDataHora(mov.registrado_em)}
-                        </small>
-
-                        {mov.elogio_print_path && (
-                          <button
-                            type="button"
-                            onClick={() => abrirAnexoElogio(mov.elogio_print_path)}
-                            style={{ ...botaoSecundario, marginTop: "8px", fontSize: "12px", padding: "6px 10px" }}
-                          >
-                            📎 Ver anexo{mov.elogio_print_nome ? `: ${mov.elogio_print_nome}` : ""}
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
               </>
               )}
