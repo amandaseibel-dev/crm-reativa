@@ -33,20 +33,8 @@ export default function HistoricoRecuperacao() {
   async function carregar() {
     setCarregando(true);
 
-    const { data: pagamentos } = await supabase
-      .from("pagamentos")
-      .select("valor_pago, data_pagamento")
-      .eq("retroativo", false);
-
-    const porMesMap = {};
-    for (const p of pagamentos || []) {
-      const mes = String(p.data_pagamento || "").slice(0, 7);
-      if (!mes) continue;
-      if (!porMesMap[mes]) porMesMap[mes] = { mes, qtd: 0, valor: 0 };
-      porMesMap[mes].qtd += 1;
-      porMesMap[mes].valor += Number(p.valor_pago || 0);
-    }
-    setPorMes(Object.values(porMesMap).sort((a, b) => b.mes.localeCompare(a.mes)).slice(0, 12));
+    const { data, error } = await supabase.rpc("recuperacao_por_mes");
+    if (!error) setPorMes(data || []);
 
     setCarregando(false);
   }
