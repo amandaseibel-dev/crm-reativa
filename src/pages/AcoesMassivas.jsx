@@ -57,6 +57,7 @@ function normalizarTelefone(bruto) {
 }
 
 export default function AcoesMassivas() {
+  const [canal, setCanal] = useState("WHATSAPP"); // WHATSAPP | EMAIL
   const [valorMin, setValorMin] = useState("100,00");
   const [valorMax, setValorMax] = useState("");
   const [quantidade, setQuantidade] = useState("100");
@@ -97,7 +98,7 @@ export default function AcoesMassivas() {
       // mais o critério de ordenação.
       let query = supabase
         .from("alunos")
-        .select("id, nome, telefone, data_ultimo_acionamento, responsavel_atual_email")
+        .select("id, nome, telefone, email, data_ultimo_acionamento, responsavel_atual_email")
         .is("responsavel_atual_email", null)
         .order("data_ultimo_acionamento", { ascending: true, nullsFirst: true })
         .limit(Math.min(qtd * 3, 6000));
@@ -154,12 +155,13 @@ export default function AcoesMassivas() {
           nome: a.nome || "-",
           telefoneBruto: a.telefone || "",
           telefoneFormatado: normalizarTelefone(a.telefone),
+          email: (a.email || "").trim(),
           valor: valorPorAluno.get(a.id) || 0,
           diasSemContato: a.data_ultimo_acionamento
             ? Math.floor((Date.now() - new Date(a.data_ultimo_acionamento).getTime()) / 86400000)
             : null,
         }))
-        .filter((l) => l.telefoneFormatado) // sem telefone nao entra, nao da pra acionar
+        .filter((l) => (canal === "WHATSAPP" ? !!l.telefoneFormatado : !!l.email)) // precisa do contato certo pro canal escolhido
         .filter((l) => l.valor >= minEfetivo)
         .filter((l) => (max === null ? true : l.valor <= max))
         .filter((l) => (alunosNoAno === null ? true : alunosNoAno.has(l.alunoId)))
@@ -182,15 +184,16 @@ export default function AcoesMassivas() {
     setSucesso("");
 
     try {
-      // 1) Gera o Excel com so as duas colunas pedidas.
-      const linhas = resultados.map((r) => ({
-        "Nome do aluno": r.nome,
-        Telefone: r.telefoneFormatado,
-      }));
+      // 1) Gera o Excel com as colunas certas pro canal escolhido.
+      const linhas = resultados.map((r) =>
+        canal === "WHATSAPP"
+          ? { "Nome do aluno": r.nome, Telefone: r.telefoneFormatado }
+          : { "Nome do aluno": r.nome, "E-mail": r.email }
+      );
       const planilha = XLSX.utils.json_to_sheet(linhas);
       const livro = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(livro, planilha, "Ação Massiva");
-      const nomeArquivo = `acao-massiva-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const nomeArquivo = `acao-massiva-${canal.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`;
       XLSX.writeFile(livro, nomeArquivo);
 
       // 2) Registra a acao no sistema pra cada aluno: fica marcado que foi
@@ -222,8 +225,8 @@ export default function AcoesMassivas() {
 
         const { error: erroMov } = await supabase.from("aluno_movimentacoes").insert({
           aluno_id: String(r.alunoId),
-          tipo: "ACAO_MASSIVA_EXTERNA",
-          descricao: `Ação de estímulo enviada por fora do CRM (planilha ${nomeArquivo}), sem operador vinculado. Retorno agendado para ${retorno.toLocaleDateString("pt-BR")}.`,
+          tipo: canal === "WHATSAPP" ? "ACAO_MASSIVA_EXTERNA" : "ACAO_MASSIVA_EXTERNA_EMAIL",
+          descricao: `Ação de estímulo enviada por fora do CRM via ${canal === "WHATSAPP" ? "WhatsApp" : "e-mail"} (planilha ${nomeArquivo}), sem operador vinculado. Retorno agendado para ${retorno.toLocaleDateString("pt-BR")}.`,
           registrado_por_nome: nomeUsuario,
           registrado_por_email: email,
           registrado_em: agora.toISOString(),
@@ -261,6 +264,32 @@ export default function AcoesMassivas() {
           </p>
         </div>
       </div>
+
+      <div style={estilos.abas}>
+        <button
+          style={canal === "WHATSAPP" ? estilos.abaAtiva : estilos.aba}
+          onClick={() => {
+            setCanal("WHATSAPP");
+            setResultados(null);
+          }}
+        >
+          📱 WhatsApp
+        </button>
+        <button
+          style={canal === "EMAIL" ? estilos.abaAtiva : estilos.aba}
+          onClick={() => {
+            setCanal("EMAIL");
+            setResultados(null);
+          }}
+        >
+          📧 E-mail
+        </button>
+      </div>
+      {canal === "EMAIL" && (
+        <p style={{ ...estilos.subtitulo, marginBottom: 14, marginTop: -8 }}>
+          Pra tratar quem não tem telefone cadastrado, mas tem e-mail.
+        </p>
+      )}
 
       <div style={estilos.card}>
         <div style={estilos.linhaFiltros}>
@@ -322,7 +351,9 @@ export default function AcoesMassivas() {
           <div style={estilos.resumoTopo}>
             <div>
               <strong style={{ fontFamily: FONTE_TITULO, fontSize: 18 }}>{resultados.length}</strong>{" "}
-              <span style={{ color: "#8a93a3" }}>caso(s) livre(s) com telefone, prontos pra ação</span>
+              <span style={{ color: "#8a93a3" }}>
+                caso(s) livre(s) com {canal === "WHATSAPP" ? "telefone" : "e-mail"}, prontos pra ação
+              </span>
               {resultados.length > 0 && (
                 <span style={{ color: "#8a93a3" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
               )}
@@ -335,14 +366,16 @@ export default function AcoesMassivas() {
           </div>
 
           {resultados.length === 0 ? (
-            <p style={{ color: "#8a93a3" }}>Nenhum caso livre com esses filtros (ou sem telefone cadastrado).</p>
+            <p style={{ color: "#8a93a3" }}>
+              Nenhum caso livre com esses filtros (ou sem {canal === "WHATSAPP" ? "telefone" : "e-mail"} cadastrado).
+            </p>
           ) : (
             <div style={{ overflowX: "auto", maxHeight: 420, overflowY: "auto" }}>
               <table style={estilos.tabela}>
                 <thead>
                   <tr>
                     <th style={estilos.th}>Nome do aluno</th>
-                    <th style={estilos.th}>Telefone (formatado)</th>
+                    <th style={estilos.th}>{canal === "WHATSAPP" ? "Telefone (formatado)" : "E-mail"}</th>
                     <th style={estilos.thNum}>Sem contato há</th>
                     <th style={estilos.thNum}>Valor em aberto</th>
                   </tr>
@@ -351,7 +384,7 @@ export default function AcoesMassivas() {
                   {resultados.map((r) => (
                     <tr key={r.alunoId}>
                       <td style={estilos.td}>{r.nome}</td>
-                      <td style={estilos.td}>{r.telefoneFormatado}</td>
+                      <td style={estilos.td}>{canal === "WHATSAPP" ? r.telefoneFormatado : r.email}</td>
                       <td style={estilos.tdNum}>
                         {r.diasSemContato === null ? (
                           <span style={{ color: "#b91c1c", fontWeight: 800 }}>Nunca acionado</span>
@@ -389,6 +422,28 @@ const estilos = {
     letterSpacing: "-0.03em",
   },
   subtitulo: { margin: "5px 0 0", color: "#8a93a3", fontSize: 13.5, maxWidth: 640 },
+  abas: { display: "flex", gap: 8, marginBottom: 6 },
+  aba: {
+    background: "#fff",
+    border: "1px solid #e3e7ee",
+    borderRadius: 10,
+    padding: "9px 16px",
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#475569",
+    cursor: "pointer",
+  },
+  abaAtiva: {
+    background: "#0f9d6b",
+    border: "1px solid #0f9d6b",
+    borderRadius: 10,
+    padding: "9px 16px",
+    fontSize: 13,
+    fontWeight: 800,
+    color: "#fff",
+    cursor: "pointer",
+    boxShadow: "0 4px 14px rgba(15,157,107,0.35)",
+  },
   card: {
     background: "#fff",
     borderRadius: 16,
