@@ -1002,29 +1002,38 @@ export default function ProjecaoHoraHora() {
                     <h3 style={{ marginBottom: 10 }}>
                       {usuario?.podeGerir ? "🏆 Ranking da equipe (mês)" : "🏆 Meu desempenho (mês)"}
                     </h3>
-                    {ranking.length === 0 ? (
-                      <p style={{ opacity: 0.7 }}>Sem dados no período.</p>
-                    ) : (
-                      <table style={estilos.tabela}>
-                        <thead>
-                          <tr>
-                            {usuario?.podeGerir && <th style={estilos.th}>#</th>}
-                            <th style={estilos.th}>Operador</th>
-                            <th style={estilos.th}>Recuperado</th>
-                            <th style={estilos.th}>Honorário</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {ranking.map((r, i) => (
-                            <tr key={r.operador_email} style={estilos.tr}>
-                              {usuario?.podeGerir && <td style={estilos.td}>{i + 1}º</td>}
-                              <td style={{ ...estilos.td, fontWeight: 700 }}>{r.operador_nome || r.operador_email}</td>
-                              <td style={estilos.td}>{moeda(r.valor_recuperado)}</td>
-                              <td style={estilos.td}>{moeda(r.valor_honorario)}</td>
+                    {usuario?.podeGerir ? (
+                      ranking.length === 0 ? (
+                        <p style={{ opacity: 0.7 }}>Sem dados no período.</p>
+                      ) : (
+                        <table style={estilos.tabela}>
+                          <thead>
+                            <tr>
+                              <th style={estilos.th}>#</th>
+                              <th style={estilos.th}>Operador</th>
+                              <th style={estilos.th}>Recuperado</th>
+                              <th style={estilos.th}>Honorário</th>
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {ranking.map((r, i) => (
+                              <tr key={r.operador_email} style={estilos.tr}>
+                                <td style={estilos.td}>{i + 1}º</td>
+                                <td style={{ ...estilos.td, fontWeight: 700 }}>{r.operador_nome || r.operador_email}</td>
+                                <td style={estilos.td}>{moeda(r.valor_recuperado)}</td>
+                                <td style={estilos.td}>{moeda(r.valor_honorario)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )
+                    ) : (
+                      // Cada operador ve so o proprio desempenho -- ranking
+                      // com nome/valor dos colegas fica so pra gestao.
+                      <div style={estilos.grade}>
+                        <Cartao label="Recuperado no mês" valor={moeda(dashboard?.acumulado_mes)} />
+                        <Cartao label="Honorário no mês" valor={moeda(dashboard?.honorario_mes)} destaque />
+                      </div>
                     )}
                   </div>
 
