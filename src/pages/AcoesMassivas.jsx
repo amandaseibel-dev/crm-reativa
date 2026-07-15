@@ -92,39 +92,19 @@ export default function AcoesMassivas() {
     setResultados(null);
 
     try {
-      // Busca os candidatos direto no banco (funcao SQL), evitando montar
-      // uma lista gigante de IDs na URL da requisicao (que estourava o
-      // limite e dava "bad request" quando o filtro de ano trazia
-      // milhares de titulos).
+      // Busca os candidatos direto no banco (funcao SQL, ja traz o valor
+      // junto), evitando montar uma lista gigante de IDs na URL da
+      // requisicao (que estourava o limite e dava "bad request").
       const { data: alunosBrutos, error: erroAlunos } = await supabase.rpc(
         "buscar_candidatos_acoes_massivas",
         { p_ano_vencimento: anoVencimento || null, p_limite: Math.min(qtd * 3, 6000) }
       );
       if (erroAlunos) throw erroAlunos;
 
-      const idsAlunos = (alunosBrutos || []).map((a) => a.id);
-      if (idsAlunos.length === 0) {
+      if (!alunosBrutos || alunosBrutos.length === 0) {
         setResultados([]);
         setCarregando(false);
         return;
-      }
-
-      // Busca o valor em aberto (casos, sem operador) só pra quem entrou
-      // no lote acima, pra aplicar o filtro de valor min/max.
-      const { data: casosBrutos, error: erroCasos } = await supabase
-        .from("casos")
-        .select("aluno_id, total_em_aberto")
-        .in("aluno_id", idsAlunos)
-        .is("operador_email", null);
-
-      if (erroCasos) throw erroCasos;
-
-      // Dedup por aluno_id, mantendo o maior valor quando houver duplicata.
-      const valorPorAluno = new Map();
-      for (const c of casosBrutos || []) {
-        const atual = valorPorAluno.get(c.aluno_id) || 0;
-        const novo = Number(c.total_em_aberto || 0);
-        if (novo > atual) valorPorAluno.set(c.aluno_id, novo);
       }
 
       const lista = (alunosBrutos || [])
@@ -134,7 +114,7 @@ export default function AcoesMassivas() {
           telefoneBruto: a.telefone || "",
           telefoneFormatado: normalizarTelefone(a.telefone),
           email: (a.email || "").trim(),
-          valor: valorPorAluno.get(a.id) || 0,
+          valor: Number(a.valor || 0),
           diasSemContato: a.data_ultimo_acionamento
             ? Math.floor((Date.now() - new Date(a.data_ultimo_acionamento).getTime()) / 86400000)
             : null,
