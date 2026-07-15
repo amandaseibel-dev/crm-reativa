@@ -44,6 +44,7 @@ export default function MeuDashboard() {
   });
   const [evolucao, setEvolucao] = useState([]); // [{dia, qtd}]
   const [financeiro, setFinanceiro] = useState(null);
+  const [aba, setAba] = useState("FINANCEIRO");
 
   useEffect(() => {
     carregar();
@@ -162,7 +163,16 @@ export default function MeuDashboard() {
 
       {erro && <div style={estilos.alerta}>{erro}</div>}
 
-      {financeiro && (
+      <div style={estilos.abas}>
+        <button style={aba === "FINANCEIRO" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("FINANCEIRO")}>
+          💰 Financeiro
+        </button>
+        <button style={aba === "OPERACIONAL" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("OPERACIONAL")}>
+          📈 Operacional
+        </button>
+      </div>
+
+      {aba === "FINANCEIRO" && financeiro && (
         <div style={estilos.blocoFinanceiro}>
           <h3 style={estilos.tituloBloco}>💰 Recuperado e projeção (mês, todos os pagamentos)</h3>
           <p style={estilos.subtituloBloco}>
@@ -198,6 +208,8 @@ export default function MeuDashboard() {
         </div>
       )}
 
+      {aba === "OPERACIONAL" && (
+      <>
       <div style={estilos.blocoFinanceiro}>
         <h3 style={estilos.tituloBloco}>📈 Sua atividade no mês</h3>
         <p style={estilos.subtituloBloco}>Casos, acionamentos e médias de ritmo de trabalho.</p>
@@ -255,11 +267,35 @@ export default function MeuDashboard() {
           {dados.diasComAcionamento} dia(s) em que você registrou pelo menos 1 acionamento (por dia).
         </p>
       </div>
+      </>
+      )}
     </div>
   );
 }
 
 const estilos = {
+  abas: { display: "flex", gap: 8, marginBottom: 18 },
+  aba: {
+    background: "#fff",
+    border: "1px solid #e3e7ee",
+    borderRadius: 10,
+    padding: "9px 16px",
+    fontSize: 13,
+    fontWeight: 700,
+    color: "#475569",
+    cursor: "pointer",
+  },
+  abaAtiva: {
+    background: "#0f9d6b",
+    border: "1px solid #0f9d6b",
+    borderRadius: 10,
+    padding: "9px 16px",
+    fontSize: 13,
+    fontWeight: 800,
+    color: "#fff",
+    cursor: "pointer",
+    boxShadow: "0 4px 14px rgba(15,157,107,0.35)",
+  },
   blocoFinanceiro: {
     background: "#fff",
     borderRadius: 16,
