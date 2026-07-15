@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 
@@ -67,6 +67,16 @@ export default function AcoesMassivas() {
   const [resultados, setResultados] = useState(null);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
+  const [progresso, setProgresso] = useState(null);
+
+  useEffect(() => {
+    carregarProgresso();
+  }, [canal]);
+
+  async function carregarProgresso() {
+    const { data } = await supabase.rpc("total_elegiveis_acoes_massivas", { p_canal: canal });
+    setProgresso(data);
+  }
 
   async function buscar() {
     setErro("");
@@ -199,6 +209,7 @@ export default function AcoesMassivas() {
       } else {
         setSucesso(`Planilha gerada e ${resultados.length} aluno(s) registrados com retorno agendado para ${retorno.toLocaleDateString("pt-BR")}.`);
       }
+      carregarProgresso();
     } catch (e) {
       console.error("Erro ao gerar/registrar ação massiva:", e);
       setErro("Erro ao gerar/registrar: " + (e.message || "tente novamente"));
@@ -246,6 +257,38 @@ export default function AcoesMassivas() {
         <p style={{ ...estilos.subtitulo, marginBottom: 14, marginTop: -8 }}>
           Pra tratar quem não tem telefone cadastrado, mas tem e-mail.
         </p>
+      )}
+
+      {progresso && progresso.total_elegivel > 0 && (
+        <div style={estilos.card}>
+          {(() => {
+            const restante = Math.max(progresso.total_elegivel - progresso.ja_acionado, 0);
+            const percentualAcionado = ((progresso.ja_acionado / progresso.total_elegivel) * 100).toFixed(1);
+            return (
+              <>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+                  <strong style={{ fontFamily: FONTE_TITULO, fontSize: 14 }}>
+                    {percentualAcionado}% da base já acionada (aguardando retorno)
+                  </strong>
+                  <span style={{ color: "#8a93a3", fontSize: 12.5 }}>
+                    {progresso.ja_acionado} enviados · {restante} restantes de {progresso.total_elegivel}
+                  </span>
+                </div>
+                <div style={{ background: "#f1f5f9", borderRadius: 999, height: 10, overflow: "hidden" }}>
+                  <div
+                    style={{
+                      width: `${percentualAcionado}%`,
+                      background: VERDE,
+                      height: "100%",
+                      borderRadius: 999,
+                      transition: "width 0.3s ease",
+                    }}
+                  />
+                </div>
+              </>
+            );
+          })()}
+        </div>
       )}
 
       <div style={estilos.card}>
