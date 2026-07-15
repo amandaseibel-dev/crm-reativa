@@ -19,12 +19,7 @@ export default function CasosSemValor() {
   async function carregar() {
     setCarregando(true);
 
-    const { data: alunos, error } = await supabase
-      .from("alunos")
-      .select("id, nome, cpf, telefone, status_jornada")
-      .is("responsavel_atual_email", null)
-      .order("nome", { ascending: true })
-      .limit(6000);
+    const { data, error } = await supabase.rpc("listar_casos_sem_valor");
 
     if (error) {
       console.error("Erro ao carregar casos sem valor:", error);
@@ -32,22 +27,7 @@ export default function CasosSemValor() {
       return;
     }
 
-    const ids = (alunos || []).map((a) => a.id);
-    let casosPorAluno = {};
-    if (ids.length > 0) {
-      const { data: casos } = await supabase
-        .from("casos")
-        .select("aluno_id, total_em_aberto")
-        .in("aluno_id", ids);
-      for (const c of casos || []) {
-        const atual = casosPorAluno[c.aluno_id];
-        const novo = Number(c.total_em_aberto || 0);
-        if (atual === undefined || novo > atual) casosPorAluno[c.aluno_id] = novo;
-      }
-    }
-
-    const semValor = (alunos || []).filter((a) => !(casosPorAluno[a.id] > 0));
-    setLista(semValor);
+    setLista(data || []);
     setCarregando(false);
   }
 
