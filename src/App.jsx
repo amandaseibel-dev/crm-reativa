@@ -6,7 +6,6 @@ import {
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
   Upload, Users, Settings, UserCircle,
 } from "lucide-react";
-
 const ICONES_MENU = {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
@@ -15,7 +14,6 @@ const ICONES_MENU = {
 };
 import { supabase } from "./services/supabase";
 import AutoLogout from "./components/AutoLogout";
-
 import Dashboard from "./pages/Dashboard";
 import BaseAnalitica from "./pages/BaseAnalitica";
 import Importacoes from "./pages/Importacoes";
@@ -59,7 +57,7 @@ import HistoricoRecuperacao from "./pages/HistoricoRecuperacao";
 import SaudeDaBase from "./pages/SaudeDaBase";
 import TvElogios from "./pages/TvElogios";
 import TaxaConversao from "./pages/TaxaConversao";
-
+import PainelGeral from "./pages/PainelGeral";
 function EmDesenvolvimento({ titulo }) {
   return (
     <div className="main">
@@ -68,7 +66,6 @@ function EmDesenvolvimento({ titulo }) {
     </div>
   );
 }
-
 function podeAcessar(perfil, rota) {
   const permissoes = {
     gerencia: [
@@ -88,11 +85,11 @@ function podeAcessar(perfil, rota) {
       "/usuarios",
       "/relatorios",
       "/configuracoes",
-
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
       "/fila-confirmacao-pagamento",
       "/painel-adm",
+      "/painel-geral",
       "/fila-financeiro",
       "/painel-operadores",
       "/financeiro-operadores",
@@ -117,11 +114,11 @@ function podeAcessar(perfil, rota) {
       "/base-analitica",
       "/termos-adm",
       "/relatorios",
-
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
       "/fila-confirmacao-pagamento",
       "/painel-adm",
+      "/painel-geral",
       "/fila-financeiro",
       "/meu-perfil",
       "/painel-carteira",
@@ -142,7 +139,6 @@ function podeAcessar(perfil, rota) {
       "/financeiro",
       "/financeiro-hub",
       "/termos-adm",
-
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
       "/fila-confirmacao-pagamento",
@@ -169,10 +165,8 @@ function podeAcessar(perfil, rota) {
       "/elogios-atendimento",
       "/projecao-hora-a-hora",],
   };
-
   return permissoes[perfil]?.includes(rota);
 }
-
 // Gerenciar usuários é mais sensível que o resto do que "gerencia" acessa
 // -- fica restrito só a essas pessoas, nem todo mundo com perfil gerencia.
 const EMAILS_PODE_GERIR_USUARIOS = [
@@ -181,24 +175,19 @@ const EMAILS_PODE_GERIR_USUARIOS = [
   "amandapradoseibel@gmail.com",
   "cobranca04@aelbra.com.br", // Fernanda (supervisora)
 ];
-
 function RotaProtegida({ usuario, rota, children }) {
   const perfil = usuario?.perfil?.perfil;
-
   if (!podeAcessar(perfil, rota)) {
     return <Navigate to="/" replace />;
   }
-
   if (rota === "/usuarios") {
     const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
     if (!EMAILS_PODE_GERIR_USUARIOS.includes(email)) {
       return <Navigate to="/" replace />;
     }
   }
-
   return children;
 }
-
 export default function App() {
   const [usuario, setUsuario] = useState(null);
   const [carregando, setCarregando] = useState(true);
@@ -211,7 +200,6 @@ export default function App() {
   const [sidebarRecolhida, setSidebarRecolhida] = useState(() => {
     return localStorage.getItem("reativa_sidebar_recolhida") === "1";
   });
-
   function alternarSidebar() {
     setSidebarRecolhida((atual) => {
       const novo = !atual;
@@ -219,46 +207,37 @@ export default function App() {
       return novo;
     });
   }
-
   function alternarTema() {
     const novoTema = tema === "escuro" ? "claro" : "escuro";
     setTema(novoTema);
     localStorage.setItem("reativa_tema", novoTema);
   }
-
   useEffect(() => {
     verificarSessao();
   }, []);
-
   useEffect(() => {
     const perfilAtual = usuario?.perfil?.perfil;
     if (!usuario || !podeAcessar(perfilAtual, "/painel-adm")) {
       setLinksAguardando(0);
       return;
     }
-
     let ativo = true;
-
     async function carregarPendentes() {
       const { count, error } = await supabase
         .from("links_pagamento")
         .select("id", { count: "exact", head: true })
         .in("status", ["SOLICITADO_LINK", "LINK_EM_ATENDIMENTO"]);
-
       if (ativo && !error) {
         setLinksAguardando(count || 0);
       }
     }
-
     carregarPendentes();
     const intervalo = setInterval(carregarPendentes, 15000);
-
     return () => {
       ativo = false;
       clearInterval(intervalo);
     };
   }, [usuario]);
-
   useEffect(() => {
     const email = (usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase();
     const ehGestao = ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(email);
@@ -266,29 +245,23 @@ export default function App() {
       setTermosAguardandoValidacao(0);
       return;
     }
-
     let ativo = true;
-
     async function carregarTermosAguardando() {
       const { count, error } = await supabase
         .from("termos_acordo")
         .select("id", { count: "exact", head: true })
         .eq("status", "TERMO_ENVIADO_ADM");
-
       if (ativo && !error) {
         setTermosAguardandoValidacao(count || 0);
       }
     }
-
     carregarTermosAguardando();
     const intervalo = setInterval(carregarTermosAguardando, 15000);
-
     return () => {
       ativo = false;
       clearInterval(intervalo);
     };
   }, [usuario]);
-
   // Comprovantes anexados esperando a Amanda dar baixa (Fila de Baixas).
   useEffect(() => {
     const perfilAtual = usuario?.perfil?.perfil;
@@ -296,29 +269,23 @@ export default function App() {
       setBaixasAguardando(0);
       return;
     }
-
     let ativo = true;
-
     async function carregarBaixasPendentes() {
       const { count, error } = await supabase
         .from("links_pagamento")
         .select("id", { count: "exact", head: true })
         .eq("status", "AGUARDANDO_BAIXA");
-
       if (ativo && !error) {
         setBaixasAguardando(count || 0);
       }
     }
-
     carregarBaixasPendentes();
     const intervalo = setInterval(carregarBaixasPendentes, 15000);
-
     return () => {
       ativo = false;
       clearInterval(intervalo);
     };
   }, [usuario]);
-
   // Elogios de atendimento ainda sem decisão (nem aprovados, nem rejeitados
   // pra TV) -- avisa na aba pra não depender de ninguém sinalizar.
   useEffect(() => {
@@ -327,48 +294,37 @@ export default function App() {
       setElogiosPendentes(0);
       return;
     }
-
     let ativo = true;
-
     async function carregarElogiosPendentes() {
       const { count, error } = await supabase
         .from("elogios_atendimento")
         .select("id", { count: "exact", head: true })
         .eq("status", "PENDENTE_ANALISE");
-
       if (ativo && !error) {
         setElogiosPendentes(count || 0);
       }
     }
-
     carregarElogiosPendentes();
     const intervalo = setInterval(carregarElogiosPendentes, 15000);
-
     return () => {
       ativo = false;
       clearInterval(intervalo);
     };
   }, [usuario]);
-
   useEffect(() => {
     const email = usuario?.auth?.email || usuario?.perfil?.email;
-
     if (!usuario || !email) {
       setTermosRejeitados(0);
       return;
     }
-
     let ativo = true;
-
     async function carregarTermosRejeitados() {
       const { data, error } = await supabase
         .from("termos_acordo")
         .select("aluno_id, status, criado_em")
         .eq("operador_email", email)
         .order("criado_em", { ascending: false });
-
       if (!ativo || error || !data) return;
-
       // Para cada aluno, olha só o termo mais recente enviado por mim.
       // Se o mais recente foi rejeitado, ainda precisa de correção.
       const maisRecentePorAluno = new Map();
@@ -377,37 +333,29 @@ export default function App() {
           maisRecentePorAluno.set(termo.aluno_id, termo.status);
         }
       }
-
       let total = 0;
       for (const status of maisRecentePorAluno.values()) {
         if (status === "TERMO_REJEITADO") total += 1;
       }
-
       setTermosRejeitados(total);
     }
-
     carregarTermosRejeitados();
     const intervalo = setInterval(carregarTermosRejeitados, 15000);
-
     return () => {
       ativo = false;
       clearInterval(intervalo);
     };
   }, [usuario]);
-
   async function verificarSessao() {
     const { data } = await supabase.auth.getSession();
-
     if (data.session) {
       const email = data.session.user.email;
-
       const { data: perfil } = await supabase
         .from("usuarios")
         .select("*")
         .eq("email", email)
         .eq("ativo", true)
         .single();
-
       if (perfil) {
         setUsuario({
           auth: data.session.user,
@@ -419,10 +367,8 @@ export default function App() {
         setUsuario(null);
       }
     }
-
     setCarregando(false);
   }
-
   async function sair() {
     const email = usuario?.perfil?.email || usuario?.auth?.email;
     const nome = usuario?.perfil?.nome;
@@ -431,7 +377,6 @@ export default function App() {
     await supabase.auth.signOut();
     window.location.href = "/";
   }
-
   if (carregando) {
     return (
       <div
@@ -449,25 +394,19 @@ export default function App() {
       </div>
     );
   }
-
   if (window.location.pathname === "/redefinir-senha") {
     return <RedefinirSenha />;
   }
-
   if (!usuario) {
     return <Login onLogin={setUsuario} />;
   }
-
   if (window.location.pathname === "/tv-elogios") {
     return <TvElogios />;
   }
-
   if (usuario.perfil?.deve_trocar_senha) {
     return <RedefinirSenha forcado email={usuario.perfil.email} />;
   }
-
   const perfil = usuario.perfil?.perfil;
-
   const menuBase = [
     {
       rota: "/",
@@ -487,9 +426,8 @@ export default function App() {
     { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" },
     { rota: "/aluno", label: "Aluno", icone: "User", secao: "Operação" },
     { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
-
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
-
+    { rota: "/painel-geral", label: "Painel Geral", icone: "LayoutPanelTop", secao: "Gestão" },
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
@@ -500,13 +438,11 @@ export default function App() {
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
     { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Gestão" },
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
-
     { rota: "/importacoes", label: "Importações", icone: "Upload", secao: "Configurações" },
     { rota: "/usuarios", label: "Usuários", icone: "Users", secao: "Configurações" },
     { rota: "/configuracoes", label: "Configurações", icone: "Settings", secao: "Configurações" },
     { rota: "/meu-perfil", label: "Meu Perfil", icone: "UserCircle", secao: "Configurações" },
   ];
-
   const menu = menuBase.filter((item) => {
     if (perfil === "operador" && item.esconderParaOperador) return false;
     if (item.rota === "/") {
@@ -519,7 +455,6 @@ export default function App() {
     }
     return podeAcessar(perfil, item.rota);
   });
-
   return (
     <BrowserRouter>
       <div className="app" data-tema={tema}>
@@ -537,7 +472,6 @@ export default function App() {
           </button>
           <div className="cabecalho-usuario">
             <h2>{sidebarRecolhida ? "RA" : "ReATIVA One"}</h2>
-
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
               {usuario.perfil?.foto_url ? (
                 <img
@@ -548,7 +482,6 @@ export default function App() {
               ) : null}
               <span>{usuario.perfil?.apelido || usuario.perfil?.nome}</span>
             </div>
-
             <small
               style={{
                 display: "inline-block",
@@ -566,7 +499,6 @@ export default function App() {
             >
               {usuario.perfil?.perfil}
             </small>
-
             <button
               style={{
                 marginTop: 18,
@@ -584,15 +516,12 @@ export default function App() {
             >
               Sair
             </button>
-
           </div>
-
           <nav>
             {menu.map((item, indice) => {
               const IconeComponente = ICONES_MENU[item.icone] || Zap;
               const secaoAnterior = indice > 0 ? menu[indice - 1].secao : null;
               const mostrarTituloSecao = item.secao && item.secao !== secaoAnterior && !sidebarRecolhida;
-
               return (
                 <div key={item.rota}>
                   {mostrarTituloSecao && (
@@ -643,7 +572,6 @@ export default function App() {
             })}
           </nav>
         </aside>
-
         <main className="content">
           <BotaoManual />
       <Routes>
@@ -661,7 +589,6 @@ export default function App() {
                 )
               }
             />
-
             <Route
               path="/minha-fila"
               element={
@@ -674,7 +601,6 @@ export default function App() {
                 )
               }
             />
-
             <Route
               path="/aluno"
               element={
@@ -683,7 +609,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/crm"
               element={
@@ -692,7 +617,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/financeiro"
               element={
@@ -701,7 +625,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/base-analitica"
               element={
@@ -710,7 +633,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/termos-adm"
               element={
@@ -719,7 +641,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/borderos"
               element={
@@ -728,7 +649,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/vincular-operadores"
               element={
@@ -737,7 +657,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/importacoes"
               element={
@@ -746,7 +665,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/usuarios"
               element={
@@ -755,7 +673,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/relatorios"
               element={
@@ -764,7 +681,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/configuracoes"
               element={
@@ -773,7 +689,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/agenda"
               element={
@@ -782,7 +697,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route path="*" element={<Navigate to="/" replace />} />
                   <Route path="/fila-adm-termos" element={<FilaAdmTermos />} />
               <Route path="/base-receptiva" element={<BaseReceptiva />} />
@@ -800,6 +714,7 @@ export default function App() {
               />
               <Route path="/controle-links-pagamento" element={<ControleLinksPagamento />} />
               <Route path="/painel-adm" element={<PainelAdm />} />
+              <Route path="/painel-geral" element={<PainelGeral />} />
               <Route path="/financeiro-hub" element={<FinanceiroHub />} />
               <Route path="/fila-financeiro" element={<FilaFinanceiro />} />
               <Route path="/fila-confirmacao-pagamento" element={<FilaConfirmacaoPagamento />} />
