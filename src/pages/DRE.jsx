@@ -219,9 +219,9 @@ function FuncionariosTab({ funcionarios, onSalvo }) {
       <table style={s.tbl}>
         <thead><tr><th style={s.th}>Nome</th><th style={s.th}>Função</th><th style={s.thR}>Salário base</th><th style={s.th}>Situação</th></tr></thead>
         <tbody>
-          {funcionarios.map((f) => (
+          {funcMes.map((f) => (
             <tr key={f.id} style={f.ativo ? null : { opacity: 0.6 }}>
-              <td style={s.td}>{f.nome}</td>
+              <td style={s.td}>{f.nome}{f.ativo ? "" : " (desligado)"}</td>
               <td style={s.td}>{f.funcao || "-"}</td>
               <td style={s.tdR}>
                 <input style={{ ...s.input, width: 110 }} defaultValue={f.salario_base} onBlur={(e) => atualizar(f, "salario_base", e.target.value)} />
@@ -242,9 +242,10 @@ function FuncionariosTab({ funcionarios, onSalvo }) {
 function FolhaTab({ ano, mesSel, setMesSel, funcionarios, folhaDet, onSalvo }) {
   const mesStr = `${ano}-${String(mesSel).padStart(2, "0")}`;
   const [linhas, setLinhas] = useState({});
+  const funcMes = funcionarios.filter((f) => f.ativo || folhaDet.some((x) => x.funcionario_id === f.id && x.mes === mesStr));
   useEffect(() => {
     const init = {};
-    funcionarios.forEach((f) => {
+    funcMes.forEach((f) => {
       const d = folhaDet.find((x) => x.funcionario_id === f.id && x.mes === mesStr);
       init[f.id] = { remuneracao: d ? d.remuneracao : f.salario_base, premiacao: d ? d.premiacao : 0 };
     });
