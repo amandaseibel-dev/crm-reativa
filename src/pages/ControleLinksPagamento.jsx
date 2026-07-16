@@ -102,6 +102,9 @@ export default function ControleLinksPagamento() {
   const [filtroStatus, setFiltroStatus] = useState("TODOS");
   const [ordenacao, setOrdenacao] = useState("RECENTE");
 
+  const [dataDe, setDataDe] = useState("");
+  const [dataAte, setDataAte] = useState("");
+
   const [linksEditados, setLinksEditados] = useState({});
   const [observacoes, setObservacoes] = useState({});
 
@@ -323,6 +326,16 @@ export default function ControleLinksPagamento() {
       lista = lista.filter((item) => item.status === filtroStatus);
     }
 
+    if (dataDe || dataAte) {
+      lista = lista.filter((item) => {
+        const d = String(item.criado_em || item.solicitado_em || "").slice(0, 10);
+        if (!d) return false;
+        if (dataDe && d < dataDe) return false;
+        if (dataAte && d > dataAte) return false;
+        return true;
+      });
+    }
+
     if (busca.trim()) {
       const termo = busca.toLowerCase().trim();
 
@@ -353,7 +366,7 @@ export default function ControleLinksPagamento() {
     });
 
     return lista;
-  }, [links, adm, usuarioGeraLink, usuarioBaixa, emailUsuario, filtroStatus, busca, ordenacao]);
+  }, [links, adm, usuarioGeraLink, usuarioBaixa, emailUsuario, filtroStatus, busca, ordenacao, dataDe, dataAte]);
 
   const indicadores = useMemo(() => {
     return {
@@ -432,6 +445,18 @@ export default function ControleLinksPagamento() {
             <option value="VALOR_ASC">Menor valor primeiro</option>
             <option value="ALUNO">Aluno A-Z</option>
           </select>
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#374151", fontWeight: "bold" }}>
+            De (solicitação)
+            <input type="date" style={styles.input} value={dataDe} onChange={(e) => setDataDe(e.target.value)} />
+          </label>
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#374151", fontWeight: "bold" }}>
+            Até (solicitação)
+            <input type="date" style={styles.input} value={dataAte} onChange={(e) => setDataAte(e.target.value)} />
+          </label>
+
+          <button style={styles.botaoCinza} onClick={() => { setDataDe(""); setDataAte(""); }}>Limpar período</button>
         </div>
       </div>
 
