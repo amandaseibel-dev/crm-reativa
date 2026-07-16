@@ -63,6 +63,20 @@ function paraNumero(v) {
   return Number(t) || 0;
 }
 
+function paraDataISO(v) {
+  const t = String(v || "").trim();
+  if (!t) return "";
+  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let d = m[1], mo = m[2], ano = m[3];
+    if (ano.length === 2) ano = "20" + ano;
+    return `${ano}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return null;
+}
+
 const STATUS_PARCELA_LABEL = {
   A_VENCER: "A vencer",
   VENCIDA: "Vencida",
@@ -143,7 +157,7 @@ function novoAcordoInicial() {
 function mensalidadeManualInicial() {
   return {
     documento: "",
-    vencimento: hojeISO(),
+    vencimento: "",
     valor: "",
     tipoBoleto: "",
     competencia: "",
@@ -823,13 +837,10 @@ export default function FinanceiroAluno({ aluno }) {
       return;
     }
 
-    const documento = novaMensalidade.documento.trim();
-    if (!documento) {
-      setErroMensalidade("Informe o número do documento/título (o mesmo do bordero).");
-      return;
-    }
-    if (!novaMensalidade.vencimento) {
-      setErroMensalidade("Informe o vencimento.");
+    const documento = novaMensalidade.documento.trim() || ("MANUAL-" + Date.now());
+    const vencimentoISO = paraDataISO(novaMensalidade.vencimento);
+    if (!vencimentoISO) {
+      setErroMensalidade("Informe o vencimento no formato dd/mm/aaaa.");
       return;
     }
     const valor = paraNumero(novaMensalidade.valor);
@@ -846,7 +857,7 @@ export default function FinanceiroAluno({ aluno }) {
         aluno_id: String(aluno.id),
         cpf: aluno.cpf || null,
         documento,
-        vencimento: novaMensalidade.vencimento,
+        vencimento: vencimentoISO,
         valor_original: valor,
         saldo_corrigido: valor,
         situacao: "ABERTO",
@@ -1224,28 +1235,28 @@ function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, 
   return (
     <div style={estilos.formBaixa}>
       <p style={{ fontSize: 12, opacity: 0.8, margin: "0 0 8px" }}>
-        Uso pontual — pra corrigir um caso que ficou de fora de algum bordero. Use o mesmo
-        número de documento/título que estaria na planilha, pra não duplicar depois se o
-        bordero certo for reimportado.
+        Uso pontual — pra incluir um título/parcela na ficha. O número de documento/borderô é
+        opcional; se tiver o mesmo número da planilha, use pra não duplicar quando o borderô for reimportado.
       </p>
       <div style={estilos.formLinha}>
         <label style={estilos.formLabel}>
-          Documento/título *
+          Documento/borderô (opcional)
           <input
             style={estilos.formInput}
             value={novaMensalidade.documento}
             onChange={(e) => setCampo("documento", e.target.value)}
-            placeholder="Ex: 4192123"
+            placeholder="Deixe em branco se não tiver"
           />
         </label>
         <label style={estilos.formLabel}>
-          Vencimento *
+          Vencimento * (dd/mm/aaaa)
           <input
-            type="date"
+            type="text"
+            inputMode="numeric"
             style={estilos.formInput}
             value={novaMensalidade.vencimento}
-            onClick={abrirCalendario}
             onChange={(e) => setCampo("vencimento", e.target.value)}
+            placeholder="dd/mm/aaaa"
           />
         </label>
         <label style={estilos.formLabel}>
