@@ -940,6 +940,18 @@ export default function FinanceiroAluno({ aluno }) {
 
   // Valor total do aluno = mensalidades em aberto + honorários em aberto + acordos em aberto.
   const valorTotalAluno = valorMensalidades + valorHonorarios + valorAcordos;
+
+  const pagoMensalidades = titulos
+    .filter((t) => t.situacao === "PAGO" || t.status === "quitada")
+    .reduce((soma, t) => soma + Number(t.valor_original ?? t.saldo_corrigido ?? 0), 0);
+  const parcelasPagas = acordos
+    .flatMap((a) => parcelasPorAcordo[a.id] || [])
+    .filter((p) => p.status === "PAGO");
+  const pagoAcordos = parcelasPagas.reduce((soma, p) => soma + Number(p.valor || 0), 0);
+  const pagoHonorarios = parcelasPagas.reduce((soma, p) => soma + Number(p.honorarios || 0), 0);
+  const pagoTotal = pagoMensalidades + pagoHonorarios + pagoAcordos;
+  const estiloPago = { fontSize: 11, color: "#16a34a", fontWeight: 700, marginTop: 2 };
+
   const temAlgumValor = titulos.length > 0 || acordos.length > 0;
 
   const somaTitulosMarcados = titulosSelecionaveis
@@ -953,18 +965,22 @@ export default function FinanceiroAluno({ aluno }) {
           <div style={estilos.resumoFinanceiroItem}>
             <span style={estilos.resumoFinanceiroLabel}>Mensalidades em aberto</span>
             <span style={estilos.resumoFinanceiroValor}>{moeda(valorMensalidades)}</span>
+            <span style={estiloPago}>já pago: {moeda(pagoMensalidades)}</span>
           </div>
           <div style={estilos.resumoFinanceiroItem}>
             <span style={estilos.resumoFinanceiroLabel}>Honorários em aberto</span>
             <span style={estilos.resumoFinanceiroValor}>{moeda(valorHonorarios)}</span>
+            <span style={estiloPago}>já pago: {moeda(pagoHonorarios)}</span>
           </div>
           <div style={estilos.resumoFinanceiroItem}>
             <span style={estilos.resumoFinanceiroLabel}>Acordos em aberto</span>
             <span style={estilos.resumoFinanceiroValor}>{moeda(valorAcordos)}</span>
+            <span style={estiloPago}>já pago: {moeda(pagoAcordos)}</span>
           </div>
           <div style={{ ...estilos.resumoFinanceiroItem, ...estilos.resumoFinanceiroItemTotal }}>
             <span style={estilos.resumoFinanceiroLabel}>💰 Total em aberto do aluno</span>
             <span style={estilos.totalGeral}>{moeda(valorTotalAluno)}</span>
+            <span style={estiloPago}>já pago: {moeda(pagoTotal)}</span>
           </div>
         </div>
       )}
