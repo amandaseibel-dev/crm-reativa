@@ -32,6 +32,15 @@ function corStatus(status) {
   return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
 }
 
+const EMAILS_PODE_QUITAR = [
+  "amanda.seibel@aelbra.com.br",
+  "cobranca04@aelbra.com.br", // Fernanda
+  "cobranca07@aelbra.com.br", // Amanda ADM
+];
+function podeQuitar(email) {
+  return EMAILS_PODE_QUITAR.includes(String(email || "").toLowerCase().trim());
+}
+
 export default function MinhaFilaPagamentos() {
   const navigate = useNavigate();
 
@@ -53,6 +62,24 @@ export default function MinhaFilaPagamentos() {
   async function carregarUsuario() {
     const { data } = await supabase.auth.getUser();
     setUsuario(data?.user || null);
+  }
+
+  async function quitarEEncerrar(item) {
+    if (!item?.aluno_id) return;
+    const ok = window.confirm(
+      "Quitar e encerrar este caso? Ele e quitado, zerado, sai das filas e NAO volta pro operador."
+    );
+    if (!ok) return;
+    const { error } = await supabase.rpc("quitar_e_encerrar_caso", {
+      p_aluno_id: item.aluno_id,
+      p_valor: item.valor || null,
+    });
+    if (error) {
+      alert("Erro ao quitar: " + error.message);
+      return;
+    }
+    alert("Caso quitado e encerrado.");
+    carregarPagamentos();
   }
 
   async function carregarPagamentos() {
@@ -452,6 +479,17 @@ export default function MinhaFilaPagamentos() {
             <p style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic" }}>
               Modo visualização — só a Amanda gestora pode baixar ou marcar divergência.
             </p>
+          )}
+          {podeQuitar(email) && (
+            <div style={styles.acoes}>
+              <button
+                style={{ background: "#6b21a8", color: "#fff", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" }}
+                onClick={() => quitarEEncerrar(item)}
+                title="Quita, zera e tira das filas. Nao volta pro operador."
+              >
+                💰 Quitar e encerrar
+              </button>
+            </div>
           )}
           </details>
         </div>
