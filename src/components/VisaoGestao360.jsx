@@ -106,11 +106,11 @@ export default function VisaoGestao360({ dias = 30 }) {
       </div>
 
       <div style={s.statsRow}>
-        <Stat rot="Base ativa (a cobrar)" val={num(base.ativos)} cor="#111827" />
-        <Stat rot="Ja quitados" val={num(base.quitados)} cor="#16a34a" />
-        <Stat rot="Sem responsavel" val={num(base.sem_responsavel)} cor="#f59e0b" />
-        <Stat rot="Com operacao" val={num(base.com_operador)} cor="#2563eb" />
-        <Stat rot="Valor total em aberto" val={moeda(base.valor_total)} cor="#16a34a" />
+        <Stat rot="Base histórica (CPFs)" val={num(base.total)} cor="#94a3b8" />
+        <Stat rot="Carteira a cobrar" val={num(base.com_divida)} cor="#111827" />
+        <Stat rot="Já recuperados" val={num(base.quitados)} cor="#16a34a" />
+        <Stat rot="Sem dívida em aberto" val={num((base.ativos || 0) - (base.com_divida || 0))} cor="#f59e0b" />
+        <Stat rot="Valor a cobrar" val={moeda(base.valor_total)} cor="#16a34a" />
       </div>
 
       <div style={s.statsRow}>
