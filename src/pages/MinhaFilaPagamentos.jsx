@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { podeBaixarPagamento, podeVerFilaDeBaixas } from "../utils/operadores";
 import ComprovantePagamento from "../components/ComprovantePagamento";
+import Alunos from "./Aluno";
 
 const STATUS = {
   PAGO_AGUARDANDO_BAIXA: "Pago - aguardando baixa",
@@ -53,6 +54,7 @@ export default function MinhaFilaPagamentos() {
   const [valoresPagos, setValoresPagos] = useState({});
   const [qtdParcelasAcordo, setQtdParcelasAcordo] = useState({});
   const [parcelasAcordo, setParcelasAcordo] = useState({});
+  const [fichaAberta, setFichaAberta] = useState({});
 
   useEffect(() => {
     carregarUsuario();
@@ -392,6 +394,26 @@ export default function MinhaFilaPagamentos() {
             <span style={{ ...styles.status, ...corStatus(item.status) }}>{STATUS[item.status] || item.status}</span>
           </div>
 
+          {item.aluno_id && (
+            <div style={styles.fichaWrap}>
+              <button
+                type="button"
+                style={styles.botaoFicha}
+                onClick={() => setFichaAberta((s) => ({ ...s, [item.id]: !s[item.id] }))}
+              >
+                {fichaAberta[item.id]
+                  ? "▲ Fechar ficha do aluno"
+                  : "▼ Abrir ficha do aluno (tabulação, financeiro, ADM)"}
+              </button>
+
+              {fichaAberta[item.id] && (
+                <div style={styles.fichaEmbed}>
+                  <Alunos fichaEmbedId={item.aluno_id} />
+                </div>
+              )}
+            </div>
+          )}
+
           {item.link_url && (
             <div style={styles.linkBox}>
               <a href={item.link_url} target="_blank" rel="noreferrer">Abrir link de pagamento</a>
@@ -522,6 +544,9 @@ const styles = {
   nome: { fontSize: "19px", fontWeight: 800, margin: "0 0 8px 0", color: "#111827" },
   info: { fontSize: "14px", lineHeight: 1.5, margin: "5px 0", color: "#555" },
   status: { padding: "8px 12px", borderRadius: "999px", fontWeight: "bold", fontSize: "13px", whiteSpace: "nowrap" },
+  fichaWrap: { marginTop: "14px" },
+  botaoFicha: { width: "100%", textAlign: "left", background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", padding: "12px 14px", borderRadius: "10px", cursor: "pointer", fontWeight: "bold", fontSize: "14px" },
+  fichaEmbed: { marginTop: "10px", border: "1px solid #e5e7eb", borderRadius: "12px", overflow: "hidden", background: "#fff" },
   linkBox: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px" },
   obs: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px", color: "#374151" },
   textarea: { width: "100%", minHeight: "70px", marginTop: "10px", padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
