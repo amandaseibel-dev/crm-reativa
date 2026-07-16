@@ -167,7 +167,11 @@ export default function FinalizacaoTermo({ aluno }) {
       return;
     }
 
-    if (!arquivo) {
+    // gov.br já é validado eletronicamente pelo governo: libera na hora,
+    // não exige anexo do termo nem envio para conferência do ADM.
+    const ehGovBr = tipoAssinatura === "GOV_BR";
+
+    if (!ehGovBr && !arquivo) {
       alert("Anexe o termo de acordo antes de enviar para ADM.");
       return;
     }
@@ -187,33 +191,39 @@ export default function FinalizacaoTermo({ aluno }) {
     const nomeOperador = nomeOperadorPorEmail(emailOperador);
 
     let arquivoUrl = null;
-    let arquivoNome = arquivo.name;
+    let arquivoNome = null;
 
-    const nomeSeguro = arquivo.name
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9.\-_]/g, "_");
+    // Só faz upload do termo quando há anexo (assinatura manual). No gov.br
+    // o anexo é opcional e normalmente não vem.
+    if (arquivo) {
+      arquivoNome = arquivo.name;
 
-    const caminho = `${aluno.id}/${Date.now()}-${nomeSeguro}`;
+      const nomeSeguro = arquivo.name
+        .normalize("NFD")
+        .replace(/[̀-ͯ]/g, "")
+        .replace(/[^a-zA-Z0-9.\-_]/g, "_");
 
-    const { error: uploadError } = await supabase.storage
-      .from("termos-acordo")
-      .upload(caminho, arquivo, {
-        cacheControl: "3600",
-        upsert: false,
-      });
+      const caminho = `${aluno.id}/${Date.now()}-${nomeSeguro}`;
 
-    if (uploadError) {
-      alert("Erro ao anexar termo: " + uploadError.message);
-      setEnviando(false);
-      return;
+      const { error: uploadError } = await supabase.storage
+        .from("termos-acordo")
+        .upload(caminho, arquivo, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      if (uploadError) {
+        alert("Erro ao anexar termo: " + uploadError.message);
+        setEnviando(false);
+        return;
+      }
+
+      const { data: publicUrlData } = supabase.storage
+        .from("termos-acordo")
+        .getPublicUrl(caminho);
+
+      arquivoUrl = publicUrlData?.publicUrl || null;
     }
-
-    const { data: publicUrlData } = supabase.storage
-      .from("termos-acordo")
-      .getPublicUrl(caminho);
-
-    arquivoUrl = publicUrlData?.publicUrl || null;
 
     // RG vai como um segundo arquivo, no mesmo bucket, numa subpasta
     // separada pra não misturar com o termo assinado.
@@ -225,7 +235,7 @@ export default function FinalizacaoTermo({ aluno }) {
 
       const nomeSeguroRg = arquivoRg.name
         .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[̀-ͯ]/g, "")
         .replace(/[^a-zA-Z0-9.\-_]/g, "_");
 
       const caminhoRg = `${aluno.id}/rg-${Date.now()}-${nomeSeguroRg}`;
@@ -260,7 +270,7 @@ export default function FinalizacaoTermo({ aluno }) {
 
       const nomeSeguroVerso = arquivoVerso.name
         .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[̀-ͯ]/g, "")
         .replace(/[^a-zA-Z0-9.\-_]/g, "_");
 
       const caminhoVerso = `${aluno.id}/verso-${Date.now()}-${nomeSeguroVerso}`;
@@ -289,7 +299,6 @@ export default function FinalizacaoTermo({ aluno }) {
     // então libera na hora (não passa pela fila de conferencia do ADM) e
     // fica so registrada para auditoria por amostragem depois. Assinatura
     // manual + RG precisa de conferencia humana antes de liberar.
-    const ehGovBr = tipoAssinatura === "GOV_BR";
     const statusInicial = ehGovBr
       ? "TERMO_LIBERADO_AUTOMATICO_GOV"
       : "TERMO_ENVIADO_ADM";
@@ -461,7 +470,9 @@ export default function FinalizacaoTermo({ aluno }) {
           </div>
 
           <div style={styles.bloco}>
-            <label style={styles.label}>Anexar termo assinado</label>
+            <label style={styles.label}>
+              Anexar termo assinado{tipoAssinatura === "GOV_BR" ? " (opcional)" : ""}
+            </label>
             <input
               type="file"
               accept=".pdf,.png,.jpg,.jpeg,.doc,.docx"
@@ -519,7 +530,7 @@ export default function FinalizacaoTermo({ aluno }) {
             {enviando
               ? "Enviando..."
               : tipoAssinatura === "GOV_BR"
-              ? "Anexar e liberar (gov.br)"
+              ? "Liberar (gov.br)"
               : "Enviar termo para ADM"}
           </button>
         </>
