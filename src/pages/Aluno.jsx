@@ -168,7 +168,7 @@ function moeda(valor) {
     currency: "BRL",
   });
 }
-export default function Alunos() {
+export default function Alunos({ fichaEmbedId = null } = {}) {
   const navigate = useNavigate();
   const [vindoDaFila, setVindoDaFila] = useState(false);
   const [usuarioLogado, setUsuarioLogado] = useState(null);
@@ -286,9 +286,9 @@ export default function Alunos() {
     const alunoIdLocalStorage = localStorage.getItem("reativa_aluno_abrir_id");
     const alunoIdSessionStorage = sessionStorage.getItem("reativa_aluno_abrir_id");
     const alunoId =
-      alunoIdDaUrl || alunoIdLocalStorage || alunoIdSessionStorage;
+      fichaEmbedId || alunoIdDaUrl || alunoIdLocalStorage || alunoIdSessionStorage;
     if (parametros.get("origem") === "fila") {
-      setVindoDaFila(true);
+      setVindoDaFila(!fichaEmbedId);
     }
     if (alunoId) {
       setOrigemAbertura(`Abrindo aluno recebido da fila: ${alunoId}`);
