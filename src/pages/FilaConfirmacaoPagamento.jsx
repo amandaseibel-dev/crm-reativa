@@ -59,6 +59,16 @@ function corStatus(status) {
   return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c" };
 }
 
+// Quem pode quitar e encerrar direto da fila (espelha crm_usuario_pode_quitar_baixar no banco)
+const EMAILS_PODE_QUITAR = [
+  "amanda.seibel@aelbra.com.br",
+  "cobranca04@aelbra.com.br", // Fernanda
+  "cobranca07@aelbra.com.br", // Amanda ADM
+];
+function podeQuitar(email) {
+  return EMAILS_PODE_QUITAR.includes(String(email || "").toLowerCase().trim());
+}
+
 export default function FilaConfirmacaoPagamento() {
   const [usuario, setUsuario] = useState(null);
   const [solicitacoes, setSolicitacoes] = useState([]);
@@ -267,6 +277,25 @@ export default function FilaConfirmacaoPagamento() {
   }
 
   // ---- Confirmar (fluxo atual preservado) ----
+  async function quitarEEncerrar(s) {
+    if (!s?.aluno_id) return;
+    const ok = window.confirm(
+      "Quitar e encerrar este caso? Ele e quitado, zerado, sai das filas e NAO volta pro operador."
+    );
+    if (!ok) return;
+    const { error } = await supabase.rpc("quitar_e_encerrar_caso", {
+      p_aluno_id: s.aluno_id,
+      p_valor: s.valor_informado || null,
+    });
+    if (error) {
+      alert("Erro ao quitar: " + error.message);
+      return;
+    }
+    alert("Caso quitado e encerrado.");
+    fecharFicha();
+    carregarSolicitacoes();
+  }
+
   async function finalizarSolicitacao(s, observacaoExtra) {
     const emailConfirmando = usuario?.email || "";
     const agora = new Date().toISOString();
@@ -807,6 +836,15 @@ export default function FilaConfirmacaoPagamento() {
                         >
                           Confirmar pagamento
                         </button>
+                        {podeQuitar(usuario?.email) && (
+                          <button
+                            style={{ background: "#6b21a8", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontWeight: 600, cursor: "pointer" }}
+                            onClick={() => quitarEEncerrar(detalhe)}
+                            title="Quita, zera e tira das filas. Nao volta pro operador."
+                          >
+                            💰 Quitar e encerrar
+                          </button>
+                        )}
                         <button style={styles.botaoVincular} onClick={() => setVinculando(true)}>
                           Vincular dados
                         </button>
