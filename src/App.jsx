@@ -50,6 +50,7 @@ import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
 import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
 import DRE from "./pages/DRE";
+import ImportarRecuperacao from "./pages/ImportarRecuperacao";
 import MeuDashboard from "./pages/MeuDashboard";
 import ElogiosAtendimento from "./pages/ElogiosAtendimento";
 import ExportarContatos from "./pages/ExportarContatos";
@@ -410,6 +411,7 @@ export default function App() {
   const perfil = usuario.perfil?.perfil;
   const menuBase = [
     { rota: "/dre", label: "DRE (gerencia)" },
+    { rota: "/importar-recuperacao", label: "📥 Importar Recuperação" },
     {
       rota: "/",
       label: perfil === "operador" ? "Minha Fila" : "Dashboard",
@@ -450,6 +452,10 @@ export default function App() {
     if (item.rota === "/dre") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return em === "amanda.seibel@aelbra.com.br";
+    }
+    if (item.rota === "/importar-recuperacao") {
+      const em2 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em2);
     }
     if (item.rota === "/") {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -747,6 +753,7 @@ export default function App() {
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
               <Route path="/dre" element={<DRE />} />
+              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} />
               <Route path="/manual-operacao" element={<ManualOperacao />} />
       </Routes>
         </main>
