@@ -49,6 +49,7 @@ import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
 import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
+import DRE from "./pages/DRE";
 import MeuDashboard from "./pages/MeuDashboard";
 import ElogiosAtendimento from "./pages/ElogiosAtendimento";
 import ExportarContatos from "./pages/ExportarContatos";
@@ -408,6 +409,7 @@ export default function App() {
   }
   const perfil = usuario.perfil?.perfil;
   const menuBase = [
+    { rota: "/dre", label: "DRE (gerencia)" },
     {
       rota: "/",
       label: perfil === "operador" ? "Minha Fila" : "Dashboard",
@@ -445,6 +447,10 @@ export default function App() {
   ];
   const menu = menuBase.filter((item) => {
     if (perfil === "operador" && item.esconderParaOperador) return false;
+    if (item.rota === "/dre") {
+      const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return em === "amanda.seibel@aelbra.com.br";
+    }
     if (item.rota === "/") {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       if (["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(email)) return false;
@@ -740,6 +746,7 @@ export default function App() {
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
+              <Route path="/dre" element={<DRE />} />
               <Route path="/manual-operacao" element={<ManualOperacao />} />
       </Routes>
         </main>
