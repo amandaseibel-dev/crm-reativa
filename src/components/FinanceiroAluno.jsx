@@ -77,6 +77,13 @@ function paraDataISO(v) {
   return null;
 }
 
+function paraDataBR(v) {
+  const t = String(v || "").trim();
+  const m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return t;
+}
+
 const STATUS_PARCELA_LABEL = {
   A_VENCER: "A vencer",
   VENCIDA: "Vencida",
@@ -143,10 +150,10 @@ function novoAcordoInicial() {
     entradaRs: "",
     entradaPct: "",
     entradaPaga: true,
-    dataEntrada: hojeISO(),
+    dataEntrada: paraDataBR(hojeISO()),
     honorariosEntrada: "0",
     honorarios: "",
-    primeiroVenc: somarMeses(hojeISO(), 1),
+    primeiroVenc: paraDataBR(somarMeses(hojeISO(), 1)),
     titulosSel: [],
     parcelas: [],
   };
@@ -680,12 +687,12 @@ export default function FinanceiroAluno({ aluno }) {
     const honEnt = total > 0 ? honTotal * (entrada / total) : 0;
     const honSaldo = Math.max(0, honTotal - honEnt);
     const honCada = honSaldo / qtd;
-    const base = novo.primeiroVenc || hojeISO();
+    const base = paraDataISO(novo.primeiroVenc) || hojeISO();
     const parcelas = [];
     for (let i = 1; i <= qtd; i++) {
       parcelas.push({
         numero: i,
-        vencimento: somarMeses(base, i - 1),
+        vencimento: paraDataBR(somarMeses(base, i - 1)),
         valor: vParc.toFixed(2),
         honorarios: honCada.toFixed(2),
         status: "A_VENCER",
@@ -734,7 +741,7 @@ export default function FinanceiroAluno({ aluno }) {
         valor_entrada: novo.temEntrada ? entrada : null,
         entrada_percentual: pct,
         entrada_paga: novo.temEntrada ? Boolean(novo.entradaPaga) : false,
-        data_entrada: novo.temEntrada && novo.entradaPaga ? (novo.dataEntrada || hojeISO()) : null,
+        data_entrada: novo.temEntrada && novo.entradaPaga ? (paraDataISO(novo.dataEntrada) || hojeISO()) : null,
         honorarios_valor: honTotal || null,
         saldo: saldo,
         status: "ATIVO",
@@ -757,7 +764,7 @@ export default function FinanceiroAluno({ aluno }) {
       numero: p.numero,
       valor: paraNumero(p.valor),
       honorarios: p.honorarios != null ? paraNumero(p.honorarios) : null,
-      vencimento: p.vencimento,
+      vencimento: paraDataISO(p.vencimento) || p.vencimento,
       status: p.status,
     }));
 
@@ -772,7 +779,7 @@ export default function FinanceiroAluno({ aluno }) {
     // valor da entrada nunca aparecia em nenhum KPI de "valor baixado" ou
     // "honorários", porque esses somam de baixas/parcelas reais.
     if (novo.temEntrada && novo.entradaPaga && entrada > 0) {
-      const dataEntradaEscolhida = novo.dataEntrada || hojeISO();
+      const dataEntradaEscolhida = paraDataISO(novo.dataEntrada) || hojeISO();
       const honEntrada = paraNumero(novo.honorariosEntrada);
 
       const { data: parcelaEntrada, error: erroEntrada } = await supabase
@@ -1047,8 +1054,7 @@ export default function FinanceiroAluno({ aluno }) {
                 </label>
                 <label style={estilos.campo}>
                   1º vencimento
-                  <input style={estilos.input} type="date" value={novo.primeiroVenc}
-                    onClick={abrirCalendario}
+                  <input style={estilos.input} type="text" placeholder="dd/mm/aaaa" value={novo.primeiroVenc}
                     onChange={(e) => atualizarNovo("primeiroVenc", e.target.value)} />
                 </label>
               </div>
@@ -1079,8 +1085,7 @@ export default function FinanceiroAluno({ aluno }) {
                   {novo.entradaPaga && (
                     <label style={estilos.campo}>
                       Data em que a entrada foi paga
-                      <input type="date" style={estilos.input} value={novo.dataEntrada}
-                        onClick={abrirCalendario}
+                      <input type="text" placeholder="dd/mm/aaaa" style={estilos.input} value={novo.dataEntrada}
                         onChange={(e) => atualizarNovo("dataEntrada", e.target.value)} />
                     </label>
                   )}
@@ -1117,8 +1122,7 @@ export default function FinanceiroAluno({ aluno }) {
                   {novo.parcelas.map((p, index) => (
                     <div key={index} style={estilos.parcRow}>
                       <span>{p.numero}</span>
-                      <input style={estilos.inputTabela} type="date" value={p.vencimento}
-                        onClick={abrirCalendario}
+                      <input style={estilos.inputTabela} type="text" placeholder="dd/mm/aaaa" value={p.vencimento}
                         onChange={(e) => atualizarParcelaNovo(index, "vencimento", e.target.value)} />
                       <input style={estilos.inputTabela} value={p.valor}
                         onChange={(e) => atualizarParcelaNovo(index, "valor", e.target.value)} />
