@@ -78,11 +78,13 @@ export default function VisaoGestao360({ dias = 30 }) {
   const anos = d.por_ano || [];
   const unis = d.por_unidade || [];
   const aging = d.aging_acionamento || [];
+  const carteira = d.situacao_carteira || [];
 
   const maxAtraso = Math.max(1, ...atraso.map((x) => Number(x.valor) || 0));
   const maxAno = Math.max(1, ...anos.map((x) => Number(x.valor) || 0));
   const maxUni = Math.max(1, ...unis.map((x) => Number(x.valor) || 0));
   const maxAging = Math.max(1, ...aging.map((x) => Number(x.alunos) || 0));
+  const maxCarteira = Math.max(1, ...carteira.map((x) => Number(x.qtd) || 0));
   const porUF = {};
   let semUF = 0;
   (unis || []).forEach((x) => {
@@ -104,7 +106,8 @@ export default function VisaoGestao360({ dias = 30 }) {
       </div>
 
       <div style={s.statsRow}>
-        <Stat rot="Base total de alunos" val={num(base.total)} cor="#111827" />
+        <Stat rot="Base ativa (a cobrar)" val={num(base.ativos)} cor="#111827" />
+        <Stat rot="Ja quitados" val={num(base.quitados)} cor="#16a34a" />
         <Stat rot="Sem responsavel" val={num(base.sem_responsavel)} cor="#f59e0b" />
         <Stat rot="Com operacao" val={num(base.com_operador)} cor="#2563eb" />
         <Stat rot="Valor total em aberto" val={moeda(base.valor_total)} cor="#16a34a" />
@@ -115,6 +118,19 @@ export default function VisaoGestao360({ dias = 30 }) {
         <Stat rot="Honorarios" val={moeda(rec.honorarios)} cor="#0ea5e9" />
         <Stat rot="Acordos ativos" val={num(ac.qtd)} cor="#7c3aed" />
         <Stat rot="Lancamentos" val={num(rec.lancamentos)} cor="#f59e0b" />
+      </div>
+
+      <div style={s.bloco}>
+        <h3 style={s.h3}>Situacao da carteira (apta para cobranca hoje)</h3>
+        {carteira.map((x) => {
+          const cor = x.categoria === "Acordo em dia" ? "#22c55e" : x.categoria === "Acordo em atraso ate 30d" ? "#f59e0b" : x.categoria === "Acordo quebrado" ? "#ef4444" : "#2563eb";
+          return (
+            <div key={x.categoria} style={s.linha}>
+              <div style={s.linhaTopo}><span>{x.categoria}</span><strong>{num(x.qtd)} <em style={s.em}>({Number(x.pct).toFixed(1)}%)</em></strong></div>
+              <div style={s.barTrack}><div style={{ ...s.barFill, width: Math.max(2, (Number(x.qtd) / maxCarteira) * 100) + "%", background: cor }} /></div>
+            </div>
+          );
+        })}
       </div>
 
       <div style={s.bloco}>
