@@ -46,12 +46,11 @@ export default function Login() {
           <div className="reativa-login__logo">
             <span>Re</span>ATIVA
           </div>
-          <span className="reativa-login__tag">One</span>
         </div>
 
         <div className="reativa-login__content">
           <div className="reativa-login__badge">
-            CRM INTELIGENTE
+            RECUPERAÇÃO DE CRÉDITO
           </div>
 
           <h1>Gestão operacional com foco em resultado.</h1>
