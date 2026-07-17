@@ -247,6 +247,6 @@ const S = {
   btnZap: { background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "11px 18px", fontWeight: 700, cursor: "pointer" },
   btnPrim: { background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, padding: "11px 18px", fontWeight: 700, cursor: "pointer" },
   btnSec: { background: "#fff", color: "#1d4ed8", border: "1px solid #1d4ed8", borderRadius: 8, padding: "11px 16px", fontWeight: 700, cursor: "pointer" },
-  msg: { marginTop: 12, background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534", padding: 10, borderRadius: 8, fontSize: 13, fontWeight: 600 },
+  msg: { marginTop: 12, background: "#dcfce7", border: "1px solid #bfdbfe", color: "#166534", padding: 10, borderRadius: 8, fontSize: 13, fontWeight: 600 },
   rodape: { color: "#8a93a3", fontSize: 12, marginTop: 10, lineHeight: 1.5 },
 };

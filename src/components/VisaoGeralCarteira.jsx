@@ -12,7 +12,7 @@ const CORES_FAIXA = {
   Alto: "#dc2626",
   Medio: "#f59e0b",
   Intermediario: "#0ea5e9",
-  Baixo: "#22c55e",
+  Baixo: "#3b82f6",
 };
 
 export default function VisaoGeralCarteira({ email = null }) {

@@ -862,7 +862,7 @@ export default function FilaOperador() {
                       ...cardAluno,
                       background: selecionado ? "#064e3b" : "#1f2937",
                       border: selecionado
-                        ? "1px solid #22c55e"
+                        ? "1px solid #3b82f6"
                         : "1px solid #374151",
                     }}
                   >
@@ -949,7 +949,7 @@ export default function FilaOperador() {
 
                   <p style={textoInfo}>
                     Status atual:{" "}
-                    <strong style={{ color: "#86efac" }}>
+                    <strong style={{ color: "#93c5fd" }}>
                       {pegarCampo(
                         alunoSelecionado,
                         ["status_jornada", "status_atual", "status"],
@@ -1182,7 +1182,7 @@ const cabecalho = {
 
 const titulo = {
   margin: 0,
-  color: "#22c55e",
+  color: "#3b82f6",
 };
 
 const subtitulo = {
@@ -1206,7 +1206,7 @@ const caixa = {
 
 const caixaDestaque = {
   background: "#020617",
-  border: "1px solid #22c55e",
+  border: "1px solid #3b82f6",
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "18px",
@@ -1221,7 +1221,7 @@ const caixaInterna = {
 };
 
 const tituloSecao = {
-  color: "#22c55e",
+  color: "#3b82f6",
   marginTop: 0,
 };
 
@@ -1234,7 +1234,7 @@ const cardsResumo = {
 
 const cardResumo = {
   background: "#111827",
-  border: "1px solid #22c55e",
+  border: "1px solid #3b82f6",
   borderRadius: "14px",
   padding: "14px",
   display: "grid",
@@ -1307,7 +1307,7 @@ const textarea = {
 };
 
 const botaoPrincipal = {
-  background: "#22c55e",
+  background: "#3b82f6",
   color: "#020617",
   border: "none",
   borderRadius: "10px",
@@ -1319,7 +1319,7 @@ const botaoPrincipal = {
 const botaoSecundario = {
   background: "#1f2937",
   color: "#ffffff",
-  border: "1px solid #22c55e",
+  border: "1px solid #3b82f6",
   borderRadius: "10px",
   padding: "12px 14px",
   fontWeight: "bold",
@@ -1369,8 +1369,8 @@ const textoCard = {
 
 const badgeStatus = {
   background: "#064e3b",
-  color: "#86efac",
-  border: "1px solid #22c55e",
+  color: "#93c5fd",
+  border: "1px solid #3b82f6",
   borderRadius: "999px",
   padding: "6px 10px",
   fontSize: "12px",
@@ -1389,7 +1389,7 @@ const rodapeCard = {
   marginTop: "12px",
   paddingTop: "10px",
   borderTop: "1px solid #374151",
-  color: "#86efac",
+  color: "#93c5fd",
   fontSize: "13px",
   fontWeight: "bold",
 };
@@ -1444,6 +1444,6 @@ const cardMov = {
   background: "#111827",
   borderRadius: "12px",
   padding: "12px",
-  borderLeft: "4px solid #22c55e",
+  borderLeft: "4px solid #3b82f6",
   color: "#e5e7eb",
 };

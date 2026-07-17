@@ -156,7 +156,7 @@ const estilos = {
     alignItems: "center",
     marginBottom: 30,
   },
-  logo: { fontFamily: FONTE_TITULO, fontSize: 22, fontWeight: 800, color: "#22c55e" },
+  logo: { fontFamily: FONTE_TITULO, fontSize: 22, fontWeight: 800, color: "#3b82f6" },
   titulo: { fontFamily: FONTE_TITULO, fontSize: 28, fontWeight: 800 },
   corpo: {
     flex: 1,
@@ -191,7 +191,7 @@ const estilos = {
   meta: { fontSize: 18, color: "#9ca3af", margin: "6px 0 0" },
   pontos: { display: "flex", gap: 8 },
   ponto: { width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.2)" },
-  pontoAtivo: { width: 24, height: 8, borderRadius: 999, background: "#22c55e", transition: "width 0.2s ease" },
+  pontoAtivo: { width: 24, height: 8, borderRadius: 999, background: "#3b82f6", transition: "width 0.2s ease" },
   vazio: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" },
   vazioEmoji: { fontSize: 60, margin: 0 },
   vazioTexto: { fontSize: 22, color: "#9ca3af" },

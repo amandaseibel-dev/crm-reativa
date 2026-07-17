@@ -56,7 +56,7 @@ function corStatus(status) {
   }
 
   if (status === "LINK_GERADO" || status === "LINK_PRONTO_PARA_ENVIO") {
-    return { background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0" };
+    return { background: "#dcfce7", color: "#166534", border: "1px solid #bfdbfe" };
   }
 
   if (status === "LINK_ENVIADO_ALUNO" || status === "LINK_ENVIADO_AO_ALUNO" || status === "LINK_ENVIADO") {
@@ -612,7 +612,7 @@ const styles = {
   info: { margin: "5px 0", color: "#555" },
   status: { padding: "8px 12px", borderRadius: "999px", fontWeight: "bold", fontSize: "13px", whiteSpace: "nowrap" },
   obs: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px", color: "#374151" },
-  comprovanteBox: { background: "#ecfdf5", border: "1px solid #bbf7d0", borderRadius: "10px", padding: "12px", marginTop: "14px", display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" },
+  comprovanteBox: { background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "10px", padding: "12px", marginTop: "14px", display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" },
   acoes: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "12px" },
   datas: { display: "flex", flexWrap: "wrap", gap: "12px", color: "#6b7280", fontSize: "12px", marginTop: "12px" },
   botaoEscuro: { background: "#111827", color: "#fff", border: "none", padding: "10px 13px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },

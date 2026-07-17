@@ -3,7 +3,7 @@ import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const VERDE = "#0f9d6b";
+const VERDE = "#1e40af";
 
 function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -472,8 +472,8 @@ const estilos = {
     cursor: "pointer",
   },
   abaAtiva: {
-    background: "#0f9d6b",
-    border: "1px solid #0f9d6b",
+    background: "#1e40af",
+    border: "1px solid #1e40af",
     borderRadius: 10,
     padding: "9px 16px",
     fontSize: 13,

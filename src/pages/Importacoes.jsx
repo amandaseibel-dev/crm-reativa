@@ -93,7 +93,7 @@ export default function Importacoes() {
           <div style={estilos.label}>Borderôs importados</div>
         </div>
         <div style={{ ...estilos.cartao, background: totalProblemas > 0 ? "rgba(239,68,68,0.1)" : "rgba(34,197,94,0.1)" }}>
-          <div style={{ ...estilos.numero, color: totalProblemas > 0 ? "#f87171" : "#86efac" }}>
+          <div style={{ ...estilos.numero, color: totalProblemas > 0 ? "#f87171" : "#93c5fd" }}>
             {totalProblemas}
           </div>
           <div style={estilos.label}>Com problema</div>
@@ -221,7 +221,7 @@ const estilos = {
   },
   tagVerde: {
     background: "rgba(34,197,94,0.16)",
-    color: "#86efac",
+    color: "#93c5fd",
     fontSize: 12,
     padding: "3px 10px",
     borderRadius: 999,

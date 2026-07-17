@@ -70,7 +70,7 @@ function corStatus(status) {
   if (status === "EM_NEGOCIACAO") return "#8b5cf6";
   if (status === "AGUARDANDO_LINK") return "#f59e0b";
   if (status === "AGUARDANDO_TERMO") return "#ec4899";
-  if (status === "PAGAMENTO_IDENTIFICADO") return "#22c55e";
+  if (status === "PAGAMENTO_IDENTIFICADO") return "#3b82f6";
   if (status === "REVISAR_UNIFICACAO") return "#ef4444";
   return "#64748b";
 }
@@ -535,9 +535,9 @@ const styles = {
   avisoAgendaOperador: {
     padding: "12px",
     borderRadius: "10px",
-    border: "1px solid #22c55e",
+    border: "1px solid #3b82f6",
     background: "#052e16",
-    color: "#bbf7d0",
+    color: "#bfdbfe",
     fontSize: "14px",
     fontWeight: "bold",
   },
@@ -600,7 +600,7 @@ const styles = {
     cursor: "pointer",
   },
   diaSelecionado: {
-    border: "2px solid #22c55e",
+    border: "2px solid #3b82f6",
     boxShadow: "0 0 0 2px rgba(34,197,94,0.15)",
   },
   diaHoje: {
@@ -614,7 +614,7 @@ const styles = {
   },
   badgeAgenda: {
     display: "inline-block",
-    background: "#22c55e",
+    background: "#3b82f6",
     color: "#020617",
     borderRadius: "999px",
     padding: "4px 8px",
@@ -697,7 +697,7 @@ const styles = {
     fontWeight: "bold",
   },
   botaoVerde: {
-    background: "#22c55e",
+    background: "#3b82f6",
     color: "#020617",
     border: "none",
     padding: "10px 13px",

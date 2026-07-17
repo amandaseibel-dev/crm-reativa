@@ -50,7 +50,7 @@ export default function MinhaCarteira({ usuarioLogado }) {
           <div style={estilos.label}>Vencido</div>
         </div>
         <div style={estilos.item}>
-          <div style={{ ...estilos.numero, color: "#86efac" }}>{resumo.qtd_negociados}</div>
+          <div style={{ ...estilos.numero, color: "#93c5fd" }}>{resumo.qtd_negociados}</div>
           <div style={estilos.label}>Negociados (acordo fechado)</div>
         </div>
       </div>

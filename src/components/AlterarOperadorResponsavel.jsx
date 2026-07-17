@@ -157,7 +157,7 @@ const botaoPrincipal = {
   padding: "10px 18px",
   borderRadius: "8px",
   border: "none",
-  background: "#22c55e",
+  background: "#3b82f6",
   color: "#052e16",
   fontWeight: 700,
   cursor: "pointer",

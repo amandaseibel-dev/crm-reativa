@@ -510,7 +510,7 @@ export default function App() {
                 borderRadius: 999,
                 background: "rgba(34,197,94,0.12)",
                 border: "1px solid rgba(34,197,94,0.3)",
-                color: "#4ade80",
+                color: "#60a5fa",
                 fontSize: 11,
                 fontWeight: 700,
                 textTransform: "uppercase",

@@ -217,7 +217,7 @@ const s = {
   botao: { marginTop: 14, background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, padding: "11px 16px", cursor: "pointer", fontWeight: 700 },
   muted: { color: "#64748b", fontSize: 13 },
   erro: { background: "#fee2e2", border: "1px solid #fecaca", color: "#991b1b", padding: 12, borderRadius: 10, marginBottom: 16, fontSize: 13 },
-  ok: { background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534", padding: 12, borderRadius: 10, marginBottom: 16, fontSize: 13, fontWeight: 600 },
+  ok: { background: "#dcfce7", border: "1px solid #bfdbfe", color: "#166534", padding: 12, borderRadius: 10, marginBottom: 16, fontSize: 13, fontWeight: 600 },
   aviso: { background: "#fff3cd", border: "1px solid #ffe69c", color: "#664d03", padding: 16, borderRadius: 10 },
   avisoInline: { background: "#fff3cd", border: "1px solid #ffe69c", color: "#664d03", padding: 10, borderRadius: 8, marginTop: 12, fontSize: 12.5 },
 };

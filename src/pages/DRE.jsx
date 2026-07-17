@@ -369,5 +369,5 @@ const s = {
   mesAtivo: { background: "#0f172a", border: "1px solid #0f172a", color: "#fff", padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 },
   muted: { color: "#64748b", fontSize: 12.5, margin: "10px 0 0" },
   aviso: { background: "#fff3cd", border: "1px solid #ffe69c", color: "#664d03", padding: 16, borderRadius: 10 },
-  msg: { background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534", padding: "10px 14px", borderRadius: 10, marginBottom: 12, fontSize: 13, fontWeight: 600 },
+  msg: { background: "#dcfce7", border: "1px solid #bfdbfe", color: "#166534", padding: "10px 14px", borderRadius: 10, marginBottom: 12, fontSize: 13, fontWeight: 600 },
 };

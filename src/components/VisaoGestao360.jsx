@@ -329,7 +329,7 @@ export default function VisaoGestao360({ dias = 30 }) {
       <div style={s.bloco}>
         <h3 style={s.h3}>Situacao da carteira (apta para cobranca hoje)</h3>
         {carteira.map((x) => {
-          const cor = x.categoria === "Acordo em dia" ? "#22c55e" : x.categoria === "Acordo em atraso ate 30d" ? "#f59e0b" : x.categoria === "Acordo quebrado" ? "#ef4444" : "#2563eb";
+          const cor = x.categoria === "Acordo em dia" ? "#3b82f6" : x.categoria === "Acordo em atraso ate 30d" ? "#f59e0b" : x.categoria === "Acordo quebrado" ? "#ef4444" : "#2563eb";
           return (
             <div key={x.categoria} style={s.linha}>
               <div style={s.linhaTopo}><span>{x.categoria}</span><strong>{num(x.qtd)} <em style={s.em}>({Number(x.pct).toFixed(1)}%)</em></strong></div>
@@ -376,7 +376,7 @@ export default function VisaoGestao360({ dias = 30 }) {
       <div style={s.bloco}>
         <h3 style={s.h3}>Aging - dias sem acionamento</h3>
         {aging.map((x) => {
-          const cor = x.faixa === "0-3 dias" ? "#22c55e" : x.faixa === "4-10 dias" ? "#f59e0b" : x.faixa === "11+ dias" ? "#ef4444" : "#94a3b8";
+          const cor = x.faixa === "0-3 dias" ? "#3b82f6" : x.faixa === "4-10 dias" ? "#f59e0b" : x.faixa === "11+ dias" ? "#ef4444" : "#94a3b8";
           return (
             <div key={x.faixa} style={s.linha}>
               <div style={s.linhaTopo}><span>{x.faixa}</span><strong>{num(x.alunos)} alunos</strong></div>
@@ -513,7 +513,7 @@ const s = {
   opName: { fontWeight: 700, color: "#0f172a" },
   pctCell: { display: "flex", alignItems: "center", gap: 8 },
   miniTrack: { flex: 1, background: "#f1f5f9", borderRadius: 999, height: 8, overflow: "hidden", maxWidth: 90 },
-  miniFill: { display: "block", height: "100%", background: "#22c55e", borderRadius: 999 },
+  miniFill: { display: "block", height: "100%", background: "#3b82f6", borderRadius: 999 },
   em: { color: "#94a3b8", fontStyle: "normal", fontSize: 12 },
   recCell: { display: "flex", flexDirection: "column" },
   hon: { fontSize: 11, color: "#94a3b8" },

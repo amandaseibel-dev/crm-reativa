@@ -39,7 +39,7 @@ export default function FunilRecuperacao() {
 
       <div style={estilos.funilBarra}>
         <div style={{ ...estilos.barraFunil, background: "#2563eb", flex: funil.ativo || 1 }} title={`Ativo/em tratativa: ${funil.ativo}`} />
-        <div style={{ ...estilos.barraFunil, background: "#0f9d6b", flex: funil.recuperado || 1 }} title={`Recuperado: ${funil.recuperado}`} />
+        <div style={{ ...estilos.barraFunil, background: "#1e40af", flex: funil.recuperado || 1 }} title={`Recuperado: ${funil.recuperado}`} />
         <div style={{ ...estilos.barraFunil, background: "#94a3b8", flex: funil.suspenso || 1 }} title={`Cancelado/Jurídico: ${funil.suspenso}`} />
         <div style={{ ...estilos.barraFunil, background: "#d97706", flex: funil.termos || 1 }} title={`Termos: ${funil.termos}`} />
       </div>
@@ -50,7 +50,7 @@ export default function FunilRecuperacao() {
           <span><strong>{(funil.ativo || 0).toLocaleString("pt-BR")}</strong> Ativo / em tratativa</span>
         </div>
         <div style={estilos.itemFunil}>
-          <span style={{ ...estilos.pontoLegenda, background: "#0f9d6b" }} />
+          <span style={{ ...estilos.pontoLegenda, background: "#1e40af" }} />
           <span><strong>{(funil.recuperado || 0).toLocaleString("pt-BR")}</strong> Recuperado / quitado / acordo</span>
         </div>
         <div style={estilos.itemFunil}>
@@ -68,7 +68,7 @@ export default function FunilRecuperacao() {
           <span style={estilos.numeroValor}>{moeda(funil.valor_aberto)}</span>
           <span style={estilos.labelValor}>Ainda em aberto (base ativa hoje)</span>
         </div>
-        <div style={{ ...estilos.cardValor, background: "#ecfaf3", borderColor: "#bdeed4" }}>
+        <div style={{ ...estilos.cardValor, background: "#eff6ff", borderColor: "#c7d7fe" }}>
           <span style={{ ...estilos.numeroValor, color: "#0f7a4f" }}>{moeda(funil.valor_recuperado_total)}</span>
           <span style={estilos.labelValor}>Já recuperado (histórico completo)</span>
         </div>
@@ -121,5 +121,5 @@ const estilos = {
   numeroValor: { fontFamily: FONTE_TITULO, fontSize: 20, fontWeight: 800, color: "#0d1321" },
   labelValor: { fontSize: 11.5, color: "#8a93a3", fontWeight: 600 },
   destaque: { fontSize: 13, color: "#475569", margin: 0 },
-  link: { color: "#0f9d6b", fontWeight: 700, textDecoration: "none" },
+  link: { color: "#1e40af", fontWeight: 700, textDecoration: "none" },
 };

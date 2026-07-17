@@ -117,7 +117,7 @@ const s = {
   h3: { margin: 0, fontSize: 15, fontWeight: 700, color: "#0f172a" },
   sub: { fontSize: 13, color: "#64748b" },
   muted: { color: "#64748b", margin: 0 },
-  msg: { background: "#ecfdf5", border: "1px solid #a7f3d0", color: "#065f46", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 12 },
+  msg: { background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e3a8a", borderRadius: 8, padding: "8px 12px", fontSize: 13, marginBottom: 12 },
   item: { border: "1px solid #f1f5f9", borderRadius: 12, padding: 12, marginBottom: 10 },
   itemTopo: { display: "flex", justifyContent: "space-between", gap: 10, fontSize: 14, color: "#0f172a", marginBottom: 3 },
   itemSub: { fontSize: 12, color: "#94a3b8", marginBottom: 8 },

@@ -171,7 +171,7 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
                       onClick={() => salvarValor(a)}
                       disabled={salvando[a.id]}
                       style={{
-                        background: "#0f9d6b",
+                        background: "#1e40af",
                         color: "#fff",
                         border: "none",
                         borderRadius: 8,

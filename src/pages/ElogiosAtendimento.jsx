@@ -22,7 +22,7 @@ function maisDias(dataISO, dias) {
 
 const STATUS_LABEL = {
   PENDENTE_ANALISE: { texto: "Aguardando análise", cor: "#b45309", bg: "#fffbeb", borda: "#fde68a" },
-  APROVADO_TV: { texto: "Aprovado (na fila da TV)", cor: "#0f7a4f", bg: "#f0fdf4", borda: "#bbf7d0" },
+  APROVADO_TV: { texto: "Aprovado (na fila da TV)", cor: "#0f7a4f", bg: "#f0fdf4", borda: "#bfdbfe" },
   PUBLICADO_TV: { texto: "Publicado na TV", cor: "#1d4ed8", bg: "#eff6ff", borda: "#bfdbfe" },
   REJEITADO: { texto: "Rejeitado", cor: "#b91c1c", bg: "#fef2f2", borda: "#fecaca" },
   ARQUIVADO: { texto: "Arquivado", cor: "#475569", bg: "#f8fafc", borda: "#e2e8f0" },
@@ -420,7 +420,7 @@ const estilos = {
     maxWidth: 520,
   },
   botaoAtualizar: {
-    background: "#0f9d6b",
+    background: "#1e40af",
     color: "#fff",
     border: "none",
     borderRadius: 10,
@@ -522,7 +522,7 @@ const estilos = {
   },
   botaoAnexo: {
     background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
+    border: "1px solid #bfdbfe",
     color: "#15803d",
     borderRadius: 8,
     padding: "6px 10px",
@@ -539,7 +539,7 @@ const estilos = {
     border: "1px solid",
   },
   botaoAprovar: {
-    background: "#0f9d6b",
+    background: "#1e40af",
     color: "#fff",
     border: "none",
     borderRadius: 8,
