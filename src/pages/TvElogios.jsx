@@ -46,6 +46,7 @@ function Podio({ titulo, rank }) {
 
 export default function TvElogios() {
   const [dados, setDados] = useState(null);
+  const [proj, setProj] = useState(null);
   const [elogios, setElogios] = useState([]);
   const [urlElogio, setUrlElogio] = useState("");
   const [indice, setIndice] = useState(0);
@@ -61,6 +62,8 @@ export default function TvElogios() {
   async function carregarDados() {
     const { data } = await supabase.rpc("dashboard_tv");
     setDados(data || null);
+    const r = await supabase.rpc("dashboard_tv_projecao");
+    setProj(r.data || null);
   }
 
   async function carregarElogios() {
@@ -75,7 +78,7 @@ export default function TvElogios() {
   }
 
   const telas = useMemo(() => {
-    const base = ["semana", "mes", "alunos", "maior"];
+    const base = ["semana", "mes", "resultado", "alunos", "maior"];
     const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
     return [...base.map((t) => ({ tipo: t })), ...els];
   }, [elogios]);
@@ -97,6 +100,13 @@ export default function TvElogios() {
   }, [atual]);
 
   const d = dados || {};
+  const p = proj || {};
+  const dpr = p.delta_proj_recuperado;
+  const deltaCor = dpr == null ? "#93c5fd" : dpr > 0 ? "#4ade80" : dpr < 0 ? "#f87171" : "#93c5fd";
+  const deltaTxt = dpr == null ? "comparativo com ontem comeca amanha"
+    : dpr > 0 ? "▲ subiu " + moeda(dpr) + " vs ontem"
+    : dpr < 0 ? "▼ caiu " + moeda(Math.abs(dpr)) + " vs ontem"
+    : "= igual a ontem";
 
   return (
     <div style={S.tv}>
@@ -107,6 +117,20 @@ export default function TvElogios() {
 
       {atual.tipo === "semana" && <Podio titulo="Melhores da semana" rank={d.ranking_semana || []} />}
       {atual.tipo === "mes" && <Podio titulo="Melhores do mes" rank={d.ranking_mes || []} />}
+
+      {atual.tipo === "resultado" && (
+        <div style={S.tela}>
+          <div style={S.rot}>Resultado do mes</div>
+          <div style={S.linhaCartoes}>
+            <Cartao rot="Recuperado" val={moeda(p.recuperado_mes)} />
+            <Cartao rot="Honorarios" val={moeda(p.honorarios_mes)} />
+          </div>
+          <div style={{ ...S.rot, marginTop: "3vh" }}>Projecao do mes</div>
+          <div style={S.numGigante}>{moeda(p.proj_recuperado)}</div>
+          <div style={{ ...S.projDelta, color: deltaCor }}>{deltaTxt}</div>
+          <div style={S.ultimaMeta}>Honorarios projetados: {moeda(p.proj_honorarios)}</div>
+        </div>
+      )}
 
       {atual.tipo === "alunos" && (
         <div style={S.tela}>
@@ -180,6 +204,7 @@ const S = {
   podioPos: { fontSize: "6vw", fontWeight: 900, color: "rgba(2,6,23,0.5)" },
   rankResto: { display: "flex", flexWrap: "wrap", gap: "1vh 3vw", justifyContent: "center", marginTop: "3vh", width: "72%" },
   rankRestoItem: { display: "flex", gap: "1vw", fontSize: "1.5vw", color: "#cbd5e1", fontWeight: 600 },
+  projDelta: { fontSize: "2vw", fontWeight: 800, marginTop: "0.5vh" },
   ultimaAluno: { fontSize: "3.2vw", fontWeight: 800 },
   ultimaMeta: { fontSize: "1.7vw", color: "#93c5fd", fontWeight: 600 },
   imagem: { maxWidth: "70vw", maxHeight: "58vh", borderRadius: 16, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" },
