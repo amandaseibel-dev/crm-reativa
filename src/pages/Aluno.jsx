@@ -1106,14 +1106,14 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     style={{
                       ...cardAlunoLista,
                       background: selecionado
-                        ? "#ecfdf5"
+                        ? "#eff6ff"
                         : quitado
                         ? "#fffbeb"
                         : bloqueado
                         ? "#fef2f2"
                         : "#fff",
                       borderColor: selecionado
-                        ? "#86efac"
+                        ? "#93c5fd"
                         : quitado
                         ? "#f5c98a"
                         : bloqueado
@@ -1351,7 +1351,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       )}
                       <p style={textoInfo}>
                         Status atual:{" "}
-                        <strong style={{ color: "#86efac" }}>
+                        <strong style={{ color: "#93c5fd" }}>
                           {pegarCampo(
                             alunoSelecionado,
                             ["status_jornada", "status_atual", "status"],
@@ -1863,14 +1863,14 @@ const caixa = {
 };
 const caixaDestaque = {
   background: "#f0fdf4",
-  border: "1px solid #86efac",
+  border: "1px solid #93c5fd",
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "18px",
 };
 const caixaLinkPronto = {
   background: "#f0fdf4",
-  border: "1px solid #86efac",
+  border: "1px solid #93c5fd",
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "18px",
