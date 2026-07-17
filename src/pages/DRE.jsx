@@ -219,7 +219,7 @@ function FuncionariosTab({ funcionarios, onSalvo }) {
       <table style={s.tbl}>
         <thead><tr><th style={s.th}>Nome</th><th style={s.th}>Função</th><th style={s.thR}>Salário base</th><th style={s.th}>Situação</th></tr></thead>
         <tbody>
-          {funcMes.map((f) => (
+          {funcionarios.map((f) => (
             <tr key={f.id} style={f.ativo ? null : { opacity: 0.6 }}>
               <td style={s.td}>{f.nome}{f.ativo ? "" : " (desligado)"}</td>
               <td style={s.td}>{f.funcao || "-"}</td>
@@ -268,7 +268,7 @@ function FolhaTab({ ano, mesSel, setMesSel, funcionarios, folhaDet, onSalvo }) {
       <table style={s.tbl}>
         <thead><tr><th style={s.th}>Funcionário</th><th style={s.thR}>Remuneração</th><th style={s.thR}>Premiação</th><th style={s.th}></th></tr></thead>
         <tbody>
-          {funcionarios.map((f) => (
+          {funcMes.map((f) => (
             <tr key={f.id} style={f.ativo ? null : { opacity: 0.6 }}>
               <td style={s.td}>{f.nome}</td>
               <td style={s.tdR}><input style={{ ...s.input, width: 110 }} value={linhas[f.id]?.remuneracao ?? ""} onChange={(e) => setLinhas((v) => ({ ...v, [f.id]: { ...v[f.id], remuneracao: e.target.value } }))} /></td>
