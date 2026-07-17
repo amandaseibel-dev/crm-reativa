@@ -78,7 +78,7 @@ export default function TvElogios() {
   }
 
   const telas = useMemo(() => {
-    const base = ["semana", "mes", "resultado", "alunos", "maior"];
+    const base = ["semana", "mes", "resultado", "projecao", "alunos", "maior"];
     const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
     return [...base.map((t) => ({ tipo: t })), ...els];
   }, [elogios]);
@@ -121,11 +121,24 @@ export default function TvElogios() {
       {atual.tipo === "resultado" && (
         <div style={S.tela}>
           <div style={S.rot}>Resultado do mes</div>
+          <div style={S.numGigante}>{moeda(p.recuperado_mes)}</div>
+          {p.pct_meta != null ? (
+            <div style={S.metaLinha}>
+              <div style={S.barraFundo}><div style={{ ...S.barra, width: Math.min(100, p.pct_meta) + "%" }} /></div>
+              <div style={S.metaTexto}>{p.pct_meta}% da meta ({moeda(p.meta)})</div>
+            </div>
+          ) : <div style={S.ultimaMeta}>Meta nao cadastrada</div>}
           <div style={S.linhaCartoes}>
-            <Cartao rot="Recuperado" val={moeda(p.recuperado_mes)} />
             <Cartao rot="Honorarios" val={moeda(p.honorarios_mes)} />
+            <Cartao rot="Falta p/ meta" val={p.falta != null ? moeda(p.falta) : "-"} />
+            <Cartao rot={"Precisa/dia (" + (p.dias_restantes || "-") + "d)"} val={p.precisa_por_dia != null ? moeda(p.precisa_por_dia) : "-"} />
           </div>
-          <div style={{ ...S.rot, marginTop: "3vh" }}>Projecao do mes</div>
+        </div>
+      )}
+
+      {atual.tipo === "projecao" && (
+        <div style={S.tela}>
+          <div style={S.rot}>Projecao do mes</div>
           <div style={S.numGigante}>{moeda(p.proj_recuperado)}</div>
           <div style={{ ...S.projDelta, color: deltaCor }}>{deltaTxt}</div>
           <div style={S.ultimaMeta}>Honorarios projetados: {moeda(p.proj_honorarios)}</div>
@@ -191,7 +204,11 @@ const S = {
   rot: { fontSize: "2.2vw", color: "#7dd3fc", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.14em", textShadow: "0 0 20px rgba(59,130,246,0.5)" },
   rotBig: { fontSize: "3.6vw", color: "#fbbf24", fontWeight: 900, letterSpacing: "0.04em", textShadow: "0 0 34px rgba(251,191,36,0.55)" },
   numGigante: { fontSize: "11vw", fontWeight: 900, lineHeight: 1, color: "#4ade80", textShadow: "0 0 45px rgba(34,197,94,0.65), 0 0 12px rgba(34,197,94,0.9)" },
-  linhaCartoes: { display: "flex", gap: "2vw", marginTop: "2vh" },
+  metaLinha: { width: "68%" },
+  barraFundo: { background: "#1e293b", borderRadius: 999, height: "2.4vh", overflow: "hidden", boxShadow: "inset 0 0 12px rgba(0,0,0,0.4)" },
+  barra: { height: "100%", background: "linear-gradient(90deg, #3b82f6, #22c55e)", borderRadius: 999 },
+  metaTexto: { fontSize: "1.7vw", color: "#e2e8f0", marginTop: "1vh", fontWeight: 700 },
+  linhaCartoes: { display: "flex", gap: "2vw", marginTop: "2vh", flexWrap: "wrap", justifyContent: "center" },
   cartao: { background: "rgba(59,130,246,0.12)", border: "1px solid rgba(59,130,246,0.35)", borderRadius: 18, padding: "2vh 3vw", minWidth: "16vw" },
   cartaoVal: { fontSize: "3.4vw", fontWeight: 900, color: "#fff" },
   cartaoRot: { fontSize: "1.3vw", color: "#93c5fd", marginTop: "0.5vh", fontWeight: 600 },
