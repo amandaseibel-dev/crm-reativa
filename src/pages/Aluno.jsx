@@ -7,6 +7,7 @@ import EnvioFinanceiro from "../components/EnvioFinanceiro";
 import FinanceiroAluno from "../components/FinanceiroAluno";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
+import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
   { nome: "Luana", email: "cobranca05@aelbra.com.br" },
@@ -172,6 +173,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const navigate = useNavigate();
   const [vindoDaFila, setVindoDaFila] = useState(false);
   const [usuarioLogado, setUsuarioLogado] = useState(null);
+  const emailLiberadoAluno = ["amanda.seibel@aelbra.com.br"].includes(String(usuarioLogado?.email||"").toLowerCase().trim());
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
   const [finAlunos, setFinAlunos] = useState({});
@@ -1405,6 +1407,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   ["tabulacoes", "Tabulações"],
                   ["financeiro", "Financeiro"],
                   ["adm", "ADM"],
+                  ...(emailLiberadoAluno ? [["email", "E-mail"]] : []),
                 ].map(([chave, rotulo]) => (
                   <button
                     key={chave}
@@ -1741,6 +1744,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               )}
               {abaFicha === "financeiro" && (
                 <FinanceiroAluno aluno={alunoSelecionado} />
+              )}
+              {abaFicha === "email" && emailLiberadoAluno && (
+                <div style={caixaInterna}>
+                  <EmailAlunoUnificado aluno={alunoSelecionado} />
+                </div>
               )}
               {abaFicha === "adm" && (
               <>
