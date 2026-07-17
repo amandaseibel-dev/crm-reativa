@@ -37,6 +37,7 @@ export default function VisaoGestao360({ dias = 30 }) {
   const [saude, setSaude] = useState(null);
   const [fatur, setFatur] = useState(null);
   const [proj, setProj] = useState(null);
+  const [mensal, setMensal] = useState(null);
 
   useEffect(() => {
     let ativo = true;
@@ -63,6 +64,7 @@ export default function VisaoGestao360({ dias = 30 }) {
     supabase.rpc("dashboard_saude_base_acionamento").then(({ data }) => { if (ativo) setSaude(data); });
     supabase.rpc("dashboard_faturamento_anual").then(({ data }) => { if (ativo) setFatur(data); });
     supabase.rpc("dashboard_projecao_semestre").then(({ data }) => { if (ativo) setProj(data); });
+    supabase.rpc("dashboard_faturamento_mensal_yoy").then(({ data }) => { if (ativo) setMensal(data); });
     return () => { ativo = false; };
   }, []);
 
@@ -217,6 +219,28 @@ export default function VisaoGestao360({ dias = 30 }) {
             </div>
           </div>
           <p style={s.muted}>Projeção linear pelo ritmo diário do mês atual. Recalcula sozinho conforme entram pagamentos e novos meses.</p>
+        </div>
+      )}
+
+      {mensal && (mensal.meses || []).length > 0 && (
+        <div style={s.bloco}>
+          <h3 style={s.h3}>Comparativo mensal ano a ano (sazonalidade)</h3>
+          <div style={s.tblScroll}>
+            <div style={{ ...s.tblRow, ...s.tblHead, gridTemplateColumns: "0.6fr repeat(" + mensal.anos.length + ", 1fr)", minWidth: 120 + mensal.anos.length * 150 }}>
+              <span>Mês</span>
+              {mensal.anos.map((y) => (<span key={y}>{y}</span>))}
+            </div>
+            {mensal.meses.map((m) => (
+              <div key={m.mes_num} style={{ ...s.tblRow, gridTemplateColumns: "0.6fr repeat(" + mensal.anos.length + ", 1fr)", minWidth: 120 + mensal.anos.length * 150 }}>
+                <span style={s.opName}>{m.mes_label}</span>
+                {mensal.anos.map((y) => {
+                  const sy = (m.series || []).find((x) => x.ano === y);
+                  return <span key={y}>{sy ? moeda(sy.recuperado) : "—"}</span>;
+                })}
+              </div>
+            ))}
+          </div>
+          <p style={s.muted}>Recuperado por mês, anos lado a lado. Conforme você importa os meses retroativos, dá pra comparar o mesmo mês entre anos e enxergar picos sazonais (ex.: matrícula).</p>
         </div>
       )}
 
