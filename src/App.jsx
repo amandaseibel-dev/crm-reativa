@@ -404,7 +404,7 @@ export default function App() {
   if (!usuario) {
     return <Login onLogin={setUsuario} />;
   }
-  if (window.location.pathname === "/tv-elogios") {
+  if (["/tv-elogios", "/tv"].includes(window.location.pathname)) {
     return <TvElogios />;
   }
   if (usuario.perfil?.deve_trocar_senha) {
