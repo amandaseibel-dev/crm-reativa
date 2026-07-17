@@ -103,7 +103,7 @@ export default function TvElogios() {
   return (
     <div style={estilos.container}>
       <div style={estilos.cabecalho}>
-        <span style={estilos.logo}>ReATIVA One</span>
+        <span style={estilos.logo}>ReATIVA</span>
         <span style={estilos.titulo}>💚 Elogios de Atendimento</span>
       </div>
 
