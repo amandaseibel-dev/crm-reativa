@@ -859,40 +859,21 @@ export default function PainelCarteira({ embedded = false }) {
 
     setSalvandoOperador(true);
 
-    const anteriorNome = alunoModal.responsavel_atual_nome || "Sem responsável anterior";
-    const anteriorEmail = alunoModal.responsavel_atual_email || null;
-    const agora = new Date().toISOString();
+    // Usa a RPC segura (executor) -- update direto bate na trava _guard_resp_aluno
+    // e retorna SEM_PERMISSAO mesmo para quem tem permissao (Amanda/Fernanda).
+    const { data: r, error } = await supabase.rpc("alterar_responsavel_aluno", {
+      p_aluno_id: alunoModal.id,
+      p_novo_email: novoOperador.email,
+      p_motivo: "Alteracao de responsavel pela carteira",
+      p_origem: "minha_carteira",
+      p_modo: "ALTERAR_SOMENTE_ALUNO",
+    });
 
-    const { error } = await supabase
-      .from("alunos")
-      .update({
-        responsavel_atual_nome: novoOperador.nome,
-        responsavel_atual_email: novoOperador.email,
-        responsavel_atual_em: agora,
-        registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
-        registrado_por_email: email,
-        registrado_em: agora,
-      })
-      .eq("id", alunoModal.id);
-
-    if (error) {
-      alert("Erro ao alterar operador responsável: " + error.message);
+    if (error || !r?.ok) {
+      alert("Erro ao alterar operador responsavel: " + (r?.erro || error?.message || "erro"));
       setSalvandoOperador(false);
       return;
     }
-
-    await supabase.from("aluno_movimentacoes").insert({
-      aluno_id: String(alunoModal.id),
-      tipo: "ALTERACAO_OPERADOR",
-      descricao: `Operador responsável alterado de ${anteriorNome} para ${novoOperador.nome} direto na Minha Carteira.`,
-      registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
-      registrado_por_email: email,
-      registrado_em: agora,
-      operador_anterior_nome: anteriorNome,
-      operador_anterior_email: anteriorEmail,
-      operador_novo_nome: novoOperador.nome,
-      operador_novo_email: novoOperador.email,
-    });
 
     setEditandoOperador(false);
     setNovoOperadorEmailModal("");
