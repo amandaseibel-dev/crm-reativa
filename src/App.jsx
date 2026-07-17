@@ -66,7 +66,7 @@ function EmDesenvolvimento({ titulo }) {
   return (
     <div className="main">
       <h1>{titulo}</h1>
-      <p>Esta funcionalidade está em desenvolvimento no ReATIVA One.</p>
+      <p>Esta funcionalidade está em desenvolvimento no ReATIVA.</p>
     </div>
   );
 }
@@ -394,7 +394,7 @@ export default function App() {
           fontSize: 22,
         }}
       >
-        Carregando ReATIVA One...
+        Carregando ReATIVA...
       </div>
     );
   }
@@ -491,7 +491,7 @@ export default function App() {
             {sidebarRecolhida ? "»" : "«"}
           </button>
           <div className="cabecalho-usuario">
-            <h2>{sidebarRecolhida ? "RA" : "ReATIVA One"}</h2>
+            <h2>{sidebarRecolhida ? "RA" : "ReATIVA"}</h2>
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
               {usuario.perfil?.foto_url ? (
                 <img
