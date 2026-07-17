@@ -593,7 +593,6 @@ export default function App() {
           </nav>
         </aside>
         <main className="content">
-          <BotaoManual />
       <Routes>
             <Route
               path="/"
