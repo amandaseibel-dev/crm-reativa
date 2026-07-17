@@ -94,15 +94,29 @@ export default function TvElogios() {
 
       {atual.tipo === "ranking" && (
         <div style={S.tela}>
-          <div style={S.rot}>Ranking da semana</div>
-          <div style={S.rankWrap}>
-            {rank.map((o, i) => (
-              <div key={o.operador} style={S.rankLinha}>
-                <span style={S.rankPos}>{i + 1}</span>
-                <span style={S.rankNome}>{o.operador}</span>
-                <div style={S.rankBarraFundo}><div style={{ ...S.rankBarra, width: Math.max(4, (Number(o.recuperado) / maxRank) * 100) + "%" }} /></div>
-                <span style={S.rankValor}>{moeda(o.recuperado)}</span>
-              </div>
+          <div style={S.rotBig}>🏆 Melhores da semana</div>
+          <div style={S.podio}>
+            {[{ o: rank[1], pos: 2 }, { o: rank[0], pos: 1 }, { o: rank[2], pos: 3 }].map((item, idx) => {
+              const o = item.o;
+              if (!o) return <div key={idx} style={{ flex: 1, maxWidth: "22vw" }} />;
+              const alturas = { 1: "32vh", 2: "23vh", 3: "18vh" };
+              const cores = { 1: "linear-gradient(180deg, #fde68a, #f59e0b)", 2: "linear-gradient(180deg, #e2e8f0, #94a3b8)", 3: "linear-gradient(180deg, #fdba74, #c2843f)" };
+              const medalha = { 1: "🥇", 2: "🥈", 3: "🥉" };
+              return (
+                <div key={idx} style={S.podioCol}>
+                  <div style={{ ...S.podioMedalha, fontSize: item.pos === 1 ? "5vw" : "3.6vw" }}>{medalha[item.pos]}</div>
+                  <div style={{ ...S.podioNome, fontSize: item.pos === 1 ? "2.4vw" : "1.9vw" }}>{o.operador}</div>
+                  <div style={{ ...S.podioValor, fontSize: item.pos === 1 ? "2.8vw" : "2.2vw" }}>{moeda(o.recuperado)}</div>
+                  <div style={{ ...S.podioBase, height: alturas[item.pos], background: cores[item.pos] }}>
+                    <span style={S.podioPos}>{item.pos}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <div style={S.rankResto}>
+            {rank.slice(3).map((o, i) => (
+              <div key={o.operador} style={S.rankRestoItem}><span>{i + 4}. {o.operador}</span><strong style={{ color: "#22c55e" }}>{moeda(o.recuperado)}</strong></div>
             ))}
           </div>
         </div>
@@ -148,13 +162,14 @@ function Cartao({ rot, val }) {
 }
 
 const S = {
-  tv: { minHeight: "100vh", background: "linear-gradient(135deg, #020617, #0f172a)", color: "#fff", fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column", padding: "3vh 4vw", boxSizing: "border-box" },
+  tv: { minHeight: "100vh", background: "radial-gradient(circle at 20% 15%, rgba(37,99,235,0.28), transparent 40%), radial-gradient(circle at 85% 80%, rgba(34,197,94,0.18), transparent 42%), linear-gradient(135deg, #020617, #0b1224 55%, #0f172a)", color: "#fff", fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column", padding: "3vh 4vw", boxSizing: "border-box" },
   topo: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "2vh" },
-  marca: { fontSize: "3.2vw", fontWeight: 800, letterSpacing: "0.06em" },
-  topoSub: { fontSize: "1.3vw", color: "#94a3b8" },
+  marca: { fontSize: "3.2vw", fontWeight: 800, letterSpacing: "0.06em", textShadow: "0 0 30px rgba(59,130,246,0.6)" },
+  topoSub: { fontSize: "1.3vw", color: "#7dd3fc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.15em" },
   tela: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: "2vh" },
-  rot: { fontSize: "2vw", color: "#93c5fd", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" },
-  numGigante: { fontSize: "9vw", fontWeight: 800, lineHeight: 1, color: "#22c55e" },
+  rot: { fontSize: "2.2vw", color: "#7dd3fc", fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.14em", textShadow: "0 0 20px rgba(59,130,246,0.5)" },
+  rotBig: { fontSize: "3.4vw", color: "#fbbf24", fontWeight: 900, letterSpacing: "0.04em", textShadow: "0 0 34px rgba(251,191,36,0.55)" },
+  numGigante: { fontSize: "10vw", fontWeight: 900, lineHeight: 1, color: "#4ade80", textShadow: "0 0 45px rgba(34,197,94,0.65), 0 0 12px rgba(34,197,94,0.9)" },
   metaLinha: { width: "70%" },
   barraFundo: { background: "#1e293b", borderRadius: 999, height: "2.2vh", overflow: "hidden" },
   barra: { height: "100%", background: "linear-gradient(90deg, #3b82f6, #2563eb)", borderRadius: 999 },
@@ -163,13 +178,15 @@ const S = {
   cartao: { background: "rgba(255,255,255,0.05)", borderRadius: 16, padding: "2vh 2.5vw", minWidth: "14vw" },
   cartaoVal: { fontSize: "3vw", fontWeight: 800 },
   cartaoRot: { fontSize: "1.2vw", color: "#94a3b8", marginTop: "0.5vh" },
-  rankWrap: { width: "80%", display: "flex", flexDirection: "column", gap: "1.4vh" },
-  rankLinha: { display: "flex", alignItems: "center", gap: "1.5vw" },
-  rankPos: { fontSize: "2.2vw", fontWeight: 800, color: "#3b82f6", width: "3vw" },
-  rankNome: { fontSize: "1.9vw", fontWeight: 700, width: "16vw", textAlign: "left" },
-  rankBarraFundo: { flex: 1, background: "#1e293b", borderRadius: 999, height: "2vh", overflow: "hidden" },
-  rankBarra: { height: "100%", background: "linear-gradient(90deg, #3b82f6, #60a5fa)", borderRadius: 999 },
-  rankValor: { fontSize: "1.8vw", fontWeight: 800, color: "#22c55e", width: "12vw", textAlign: "right" },
+  podio: { display: "flex", alignItems: "flex-end", justifyContent: "center", gap: "3vw", width: "88%", marginTop: "1vh" },
+  podioCol: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", maxWidth: "24vw" },
+  podioMedalha: { lineHeight: 1, filter: "drop-shadow(0 0 18px rgba(251,191,36,0.5))" },
+  podioNome: { fontWeight: 900, marginTop: "0.6vh" },
+  podioValor: { fontWeight: 900, color: "#4ade80", margin: "0.4vh 0 1vh", textShadow: "0 0 24px rgba(34,197,94,0.6)" },
+  podioBase: { width: "100%", borderRadius: "16px 16px 0 0", display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "1.2vh", boxShadow: "0 -10px 50px rgba(59,130,246,0.5)" },
+  podioPos: { fontSize: "6vw", fontWeight: 900, color: "rgba(2,6,23,0.5)" },
+  rankResto: { display: "flex", flexWrap: "wrap", gap: "1vh 3vw", justifyContent: "center", marginTop: "3vh", width: "72%" },
+  rankRestoItem: { display: "flex", gap: "1vw", fontSize: "1.5vw", color: "#cbd5e1", fontWeight: 600 },
   ultimaAluno: { fontSize: "3vw", fontWeight: 700 },
   ultimaMeta: { fontSize: "1.6vw", color: "#94a3b8" },
   imagem: { maxWidth: "70vw", maxHeight: "58vh", borderRadius: 16, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" },
