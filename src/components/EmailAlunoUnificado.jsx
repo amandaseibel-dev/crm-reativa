@@ -111,7 +111,13 @@ export default function EmailAlunoUnificado({ aluno }) {
     } catch (e) { /* silencioso */ }
   }
 
-  function abrirGmail() {
+  async function abrirGmail() {
+    // Copia a arte formatada ANTES de abrir, pro operador so colar (Ctrl+V).
+    try {
+      const b1 = new Blob([html], { type: "text/html" });
+      const b2 = new Blob([texto], { type: "text/plain" });
+      await navigator.clipboard.write([new window.ClipboardItem({ "text/html": b1, "text/plain": b2 })]);
+    } catch (e) { /* se falhar, o corpo em texto ja vai preenchido */ }
     const to = encodeURIComponent(emailDest || "");
     const su = encodeURIComponent(assunto);
     const body = encodeURIComponent(texto);
@@ -120,7 +126,7 @@ export default function EmailAlunoUnificado({ aluno }) {
       "_blank"
     );
     registrarAcionamento();
-    setMsg("Gmail aberto na sua conta. Cole a arte (Ctrl+V), anexe o termo se precisar e envie.");
+    setMsg("Gmail aberto e arte copiada! No corpo, apague o texto e cole a arte (Ctrl+V)" + (tpl?.permite_anexo ? ", anexe o termo" : "") + " e envie.");
   }
 
   async function registrarContato(canal) {
@@ -212,7 +218,7 @@ export default function EmailAlunoUnificado({ aluno }) {
 
       <div style={S.acoes}>
         <button style={S.btnZap} onClick={abrirWhatsapp}>Enviar no WhatsApp</button>
-        <button style={{ ...S.btnPrim, opacity: emailDest ? 1 : 0.5 }} onClick={abrirGmail} disabled={!emailDest}>Abrir no Gmail</button>
+        <button style={{ ...S.btnPrim, opacity: emailDest ? 1 : 0.5 }} onClick={abrirGmail} disabled={!emailDest}>Abrir no Gmail (arte copiada)</button>
         <button style={S.btnSec} onClick={copiarArte}>Copiar arte</button>
         <button style={S.btnSec} onClick={() => { navigator.clipboard.writeText(texto); setMsg("Texto copiado."); }}>
           Copiar texto
