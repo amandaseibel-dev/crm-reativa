@@ -1,198 +1,178 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 
-const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const SEGUNDOS_POR_ELOGIO = 12;
-const SEGUNDOS_ATUALIZAR_LISTA = 60;
+const SEG_POR_TELA = 12;
+const ATUALIZAR_DADOS = 60;
 
-function formatarDataHora(iso) {
-  if (!iso) return "";
-  try {
-    return new Date(iso).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
-  } catch {
-    return "";
-  }
+function moeda(v) {
+  return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
+}
+function num(v) {
+  return Number(v || 0).toLocaleString("pt-BR");
 }
 
 export default function TvElogios() {
+  const [dados, setDados] = useState(null);
   const [elogios, setElogios] = useState([]);
+  const [urlElogio, setUrlElogio] = useState("");
   const [indice, setIndice] = useState(0);
-  const [urlAtual, setUrlAtual] = useState(null);
-  const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
-    carregar();
-    const intervaloLista = setInterval(carregar, SEGUNDOS_ATUALIZAR_LISTA * 1000);
-    return () => clearInterval(intervaloLista);
+    carregarDados();
+    carregarElogios();
+    const t1 = setInterval(carregarDados, ATUALIZAR_DADOS * 1000);
+    const t2 = setInterval(carregarElogios, ATUALIZAR_DADOS * 1000);
+    return () => { clearInterval(t1); clearInterval(t2); };
   }, []);
 
-  useEffect(() => {
-    if (elogios.length === 0) return;
-    const intervaloTroca = setInterval(() => {
-      setIndice((atual) => (atual + 1) % elogios.length);
-    }, SEGUNDOS_POR_ELOGIO * 1000);
-    return () => clearInterval(intervaloTroca);
-  }, [elogios]);
+  async function carregarDados() {
+    const { data } = await supabase.rpc("dashboard_tv");
+    setDados(data || null);
+  }
 
-  useEffect(() => {
-    const atual = elogios[indice];
-    if (!atual?.elogio_print_path) {
-      setUrlAtual(null);
-      return;
-    }
-
-    let ativo = true;
-    supabase.storage
-      .from("elogios-prints")
-      .createSignedUrl(atual.elogio_print_path, 3600)
-      .then(({ data }) => {
-        if (ativo) setUrlAtual(data?.signedUrl || null);
-      });
-
-    return () => {
-      ativo = false;
-    };
-  }, [indice, elogios]);
-
-  async function carregar() {
-    const { data, error } = await supabase
+  async function carregarElogios() {
+    const { data } = await supabase
       .from("aluno_movimentacoes")
       .select("id, aluno_id, descricao, registrado_por_nome, registrado_em, elogio_print_path")
-      .eq("tipo", "FINALIZACAO_ATENDIMENTO")
       .eq("status_novo", "ELOGIO_ATENDIMENTO")
       .eq("elogio_aprovado_tv", true)
       .order("registrado_em", { ascending: false })
-      .limit(50);
-
-    if (error) {
-      console.error("Erro ao carregar elogios pra TV:", error);
-      setCarregando(false);
-      return;
-    }
-
-    const lista = data || [];
-    const idsAlunos = [...new Set(lista.map((m) => m.aluno_id).filter(Boolean))];
-    let nomesPorId = {};
-    if (idsAlunos.length > 0) {
-      const { data: alunos } = await supabase.from("alunos").select("id, nome").in("id", idsAlunos);
-      nomesPorId = Object.fromEntries((alunos || []).map((a) => [String(a.id), a.nome]));
-    }
-
-    setElogios(lista.map((m) => ({ ...m, aluno_nome: nomesPorId[String(m.aluno_id)] || "Aluno" })));
-    setCarregando(false);
-    setIndice(0);
+      .limit(20);
+    setElogios(Array.isArray(data) ? data : []);
   }
 
-  const atual = elogios[indice];
+  const telas = useMemo(() => {
+    const base = ["meta", "ranking", "ultima"];
+    const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
+    return [...base.map((t) => ({ tipo: t })), ...els];
+  }, [elogios]);
 
-  if (carregando) {
-    return <div style={estilos.container}><p style={estilos.vazioTexto}>Carregando...</p></div>;
-  }
+  useEffect(() => {
+    if (telas.length === 0) return;
+    const t = setInterval(() => setIndice((i) => (i + 1) % telas.length), SEG_POR_TELA * 1000);
+    return () => clearInterval(t);
+  }, [telas]);
 
-  if (elogios.length === 0) {
-    return (
-      <div style={estilos.container}>
-        <div style={estilos.vazio}>
-          <p style={estilos.vazioEmoji}>💚</p>
-          <p style={estilos.vazioTexto}>Nenhum elogio aprovado pra TV ainda.</p>
-        </div>
-      </div>
-    );
-  }
+  const atual = telas[indice % (telas.length || 1)] || { tipo: "meta" };
+
+  useEffect(() => {
+    if (atual.tipo !== "elogio" || !atual.elogio?.elogio_print_path) { setUrlElogio(""); return; }
+    let ativo = true;
+    supabase.storage.from("elogios-prints").createSignedUrl(atual.elogio.elogio_print_path, 3600)
+      .then(({ data }) => { if (ativo) setUrlElogio(data?.signedUrl || ""); });
+    return () => { ativo = false; };
+  }, [atual]);
+
+  const d = dados || {};
+  const meta = Number(d.meta_mes) || 0;
+  const pctMeta = meta > 0 ? Math.min(100, Math.round((Number(d.recuperado_mes) / meta) * 100)) : 0;
+  const rank = d.ranking_semana || [];
+  const maxRank = Math.max(1, ...rank.map((x) => Number(x.recuperado) || 0));
 
   return (
-    <div style={estilos.container}>
-      <div style={estilos.cabecalho}>
-        <span style={estilos.logo}>ReATIVA</span>
-        <span style={estilos.titulo}>💚 Elogios de Atendimento</span>
+    <div style={S.tv}>
+      <div style={S.topo}>
+        <span style={S.marca}>Re<span style={{ color: "#3b82f6" }}>A</span>TIVA</span>
+        <span style={S.topoSub}>Recuperacao ULBRA · ao vivo</span>
       </div>
 
-      <div style={estilos.corpo}>
-        <div style={estilos.cardPrincipal}>
-          {urlAtual ? (
-            <img src={urlAtual} alt="Elogio" style={estilos.imagem} />
-          ) : (
-            <div style={estilos.semImagem}>
-              <p style={{ fontSize: 60 }}>💬</p>
-              <p style={{ fontSize: 22, opacity: 0.7 }}>{atual?.descricao || "Elogio registrado"}</p>
-            </div>
-          )}
-        </div>
-
-        <div style={estilos.infoInferior}>
-          <div>
-            <p style={estilos.nomeAluno}>{atual?.aluno_nome}</p>
-            <p style={estilos.meta}>
-              Atendido por <strong>{atual?.registrado_por_nome}</strong> · {formatarDataHora(atual?.registrado_em)}
-            </p>
+      {atual.tipo === "meta" && (
+        <div style={S.tela}>
+          <div style={S.rot}>Recuperado no mes</div>
+          <div style={S.numGigante}>{moeda(d.recuperado_mes)}</div>
+          <div style={S.metaLinha}>
+            <div style={S.barraFundo}><div style={{ ...S.barra, width: pctMeta + "%" }} /></div>
+            <div style={S.metaTexto}>{meta ? pctMeta + "% da meta (" + moeda(meta) + ")" : "Meta nao cadastrada"}</div>
           </div>
+          <div style={S.linhaCartoes}>
+            <Cartao rot="Hoje" val={moeda(d.recuperado_dia)} />
+            <Cartao rot="Alunos pagos (mes)" val={num(d.alunos_pagos_mes)} />
+            <Cartao rot="Alunos pagos (hoje)" val={num(d.alunos_pagos_dia)} />
+          </div>
+        </div>
+      )}
 
-          <div style={estilos.pontos}>
-            {elogios.map((_, i) => (
-              <span key={i} style={i === indice ? estilos.pontoAtivo : estilos.ponto} />
+      {atual.tipo === "ranking" && (
+        <div style={S.tela}>
+          <div style={S.rot}>Ranking da semana</div>
+          <div style={S.rankWrap}>
+            {rank.map((o, i) => (
+              <div key={o.operador} style={S.rankLinha}>
+                <span style={S.rankPos}>{i + 1}</span>
+                <span style={S.rankNome}>{o.operador}</span>
+                <div style={S.rankBarraFundo}><div style={{ ...S.rankBarra, width: Math.max(4, (Number(o.recuperado) / maxRank) * 100) + "%" }} /></div>
+                <span style={S.rankValor}>{moeda(o.recuperado)}</span>
+              </div>
             ))}
           </div>
         </div>
+      )}
+
+      {atual.tipo === "ultima" && (
+        <div style={S.tela}>
+          <div style={S.rot}>Ultima recuperacao</div>
+          {d.ultima_recuperacao ? (
+            <>
+              <div style={S.numGigante}>{moeda(d.ultima_recuperacao.valor)}</div>
+              <div style={S.ultimaAluno}>{d.ultima_recuperacao.aluno}</div>
+              <div style={S.ultimaMeta}>por {d.ultima_recuperacao.operador} · {d.ultima_recuperacao.quando}</div>
+            </>
+          ) : <div style={S.ultimaMeta}>Nenhuma recuperacao ainda.</div>}
+        </div>
+      )}
+
+      {atual.tipo === "elogio" && (
+        <div style={S.tela}>
+          <div style={S.rot}>Elogio de atendimento</div>
+          {urlElogio ? <img src={urlElogio} alt="Elogio" style={S.imagem} /> : null}
+          <div style={S.ultimaMeta}>{atual.elogio?.registrado_por_nome || ""}</div>
+        </div>
+      )}
+
+      <div style={S.pontos}>
+        {telas.map((_, i) => (
+          <span key={i} style={{ ...S.ponto, background: i === (indice % telas.length) ? "#3b82f6" : "#334155" }} />
+        ))}
       </div>
     </div>
   );
 }
 
-const estilos = {
-  container: {
-    position: "fixed",
-    inset: 0,
-    background: "linear-gradient(160deg, #06110c 0%, #0d1f16 50%, #06110c 100%)",
-    color: "#fff",
-    fontFamily: "'Inter', system-ui, sans-serif",
-    display: "flex",
-    flexDirection: "column",
-    padding: "40px 60px",
-    boxSizing: "border-box",
-  },
-  cabecalho: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 30,
-  },
-  logo: { fontFamily: FONTE_TITULO, fontSize: 22, fontWeight: 800, color: "#3b82f6" },
-  titulo: { fontFamily: FONTE_TITULO, fontSize: 28, fontWeight: 800 },
-  corpo: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 30,
-  },
-  cardPrincipal: {
-    background: "rgba(255,255,255,0.04)",
-    border: "1px solid rgba(34,197,94,0.25)",
-    borderRadius: 24,
-    padding: 24,
-    maxWidth: "80vw",
-    maxHeight: "62vh",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    boxShadow: "0 30px 90px rgba(0,0,0,0.4)",
-  },
-  imagem: { maxWidth: "100%", maxHeight: "58vh", borderRadius: 14, objectFit: "contain" },
-  semImagem: { textAlign: "center", padding: 60 },
-  infoInferior: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "center",
-    gap: 16,
-    textAlign: "center",
-  },
-  nomeAluno: { fontFamily: FONTE_TITULO, fontSize: 34, fontWeight: 800, margin: 0 },
-  meta: { fontSize: 18, color: "#9ca3af", margin: "6px 0 0" },
-  pontos: { display: "flex", gap: 8 },
-  ponto: { width: 8, height: 8, borderRadius: "50%", background: "rgba(255,255,255,0.2)" },
-  pontoAtivo: { width: 24, height: 8, borderRadius: 999, background: "#3b82f6", transition: "width 0.2s ease" },
-  vazio: { flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" },
-  vazioEmoji: { fontSize: 60, margin: 0 },
-  vazioTexto: { fontSize: 22, color: "#9ca3af" },
+function Cartao({ rot, val }) {
+  return (
+    <div style={S.cartao}>
+      <div style={S.cartaoVal}>{val}</div>
+      <div style={S.cartaoRot}>{rot}</div>
+    </div>
+  );
+}
+
+const S = {
+  tv: { minHeight: "100vh", background: "linear-gradient(135deg, #020617, #0f172a)", color: "#fff", fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column", padding: "3vh 4vw", boxSizing: "border-box" },
+  topo: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "2vh" },
+  marca: { fontSize: "3.2vw", fontWeight: 800, letterSpacing: "0.06em" },
+  topoSub: { fontSize: "1.3vw", color: "#94a3b8" },
+  tela: { flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: "2vh" },
+  rot: { fontSize: "2vw", color: "#93c5fd", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.1em" },
+  numGigante: { fontSize: "9vw", fontWeight: 800, lineHeight: 1, color: "#22c55e" },
+  metaLinha: { width: "70%" },
+  barraFundo: { background: "#1e293b", borderRadius: 999, height: "2.2vh", overflow: "hidden" },
+  barra: { height: "100%", background: "linear-gradient(90deg, #3b82f6, #2563eb)", borderRadius: 999 },
+  metaTexto: { fontSize: "1.6vw", color: "#cbd5e1", marginTop: "1vh" },
+  linhaCartoes: { display: "flex", gap: "2vw", marginTop: "2vh" },
+  cartao: { background: "rgba(255,255,255,0.05)", borderRadius: 16, padding: "2vh 2.5vw", minWidth: "14vw" },
+  cartaoVal: { fontSize: "3vw", fontWeight: 800 },
+  cartaoRot: { fontSize: "1.2vw", color: "#94a3b8", marginTop: "0.5vh" },
+  rankWrap: { width: "80%", display: "flex", flexDirection: "column", gap: "1.4vh" },
+  rankLinha: { display: "flex", alignItems: "center", gap: "1.5vw" },
+  rankPos: { fontSize: "2.2vw", fontWeight: 800, color: "#3b82f6", width: "3vw" },
+  rankNome: { fontSize: "1.9vw", fontWeight: 700, width: "16vw", textAlign: "left" },
+  rankBarraFundo: { flex: 1, background: "#1e293b", borderRadius: 999, height: "2vh", overflow: "hidden" },
+  rankBarra: { height: "100%", background: "linear-gradient(90deg, #3b82f6, #60a5fa)", borderRadius: 999 },
+  rankValor: { fontSize: "1.8vw", fontWeight: 800, color: "#22c55e", width: "12vw", textAlign: "right" },
+  ultimaAluno: { fontSize: "3vw", fontWeight: 700 },
+  ultimaMeta: { fontSize: "1.6vw", color: "#94a3b8" },
+  imagem: { maxWidth: "70vw", maxHeight: "58vh", borderRadius: 16, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" },
+  pontos: { display: "flex", gap: "0.8vw", justifyContent: "center", marginTop: "2vh" },
+  ponto: { width: "1vw", height: "1vw", borderRadius: "50%", display: "inline-block" },
 };
