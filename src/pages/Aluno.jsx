@@ -173,7 +173,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const navigate = useNavigate();
   const [vindoDaFila, setVindoDaFila] = useState(false);
   const [usuarioLogado, setUsuarioLogado] = useState(null);
-  const emailLiberadoAluno = ["amanda.seibel@aelbra.com.br"].includes(String(usuarioLogado?.email||"").toLowerCase().trim());
+  const emailLiberadoAluno = true; // liberado para todos os operadores
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
   const [finAlunos, setFinAlunos] = useState({});
