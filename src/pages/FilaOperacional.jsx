@@ -212,10 +212,10 @@ function mensagemIncentivo(qtdFinalizados) {
     return { texto: "Vamos começar o dia. Você consegue!", cor: "#94a3b8", bg: "#111827" };
   }
   if (qtdFinalizados < 5) {
-    return { texto: `Você já finalizou ${qtdFinalizados} caso${qtdFinalizados > 1 ? "s" : ""} hoje. Bom ritmo!`, cor: "#22c55e", bg: "#052e16" };
+    return { texto: `Você já finalizou ${qtdFinalizados} caso${qtdFinalizados > 1 ? "s" : ""} hoje. Bom ritmo!`, cor: "#3b82f6", bg: "#052e16" };
   }
   if (qtdFinalizados < 10) {
-    return { texto: `${qtdFinalizados} casos finalizados hoje. Ótimo trabalho!`, cor: "#22c55e", bg: "#052e16" };
+    return { texto: `${qtdFinalizados} casos finalizados hoje. Ótimo trabalho!`, cor: "#3b82f6", bg: "#052e16" };
   }
   return { texto: `${qtdFinalizados} casos finalizados hoje. Você está arrasando!`, cor: "#facc15", bg: "#1c1917" };
 }
@@ -1184,7 +1184,7 @@ export default function FilaOperador() {
                       border: bloqueado
                         ? "1px solid #ef4444"
                         : selecionado
-                        ? "1px solid #22c55e"
+                        ? "1px solid #3b82f6"
                         : "1px solid #374151",
                     }}
                   >
@@ -1288,7 +1288,7 @@ const cabecalho = {
 
 const titulo = {
   margin: 0,
-  color: "#22c55e",
+  color: "#3b82f6",
 };
 
 const subtitulo = {
@@ -1376,7 +1376,7 @@ const caixa = {
 
 const caixaDestaque = {
   background: "#020617",
-  border: "1px solid #22c55e",
+  border: "1px solid #3b82f6",
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "18px",
@@ -1384,7 +1384,7 @@ const caixaDestaque = {
 
 const caixaLinkPronto = {
   background: "#052e16",
-  border: "1px solid #22c55e",
+  border: "1px solid #3b82f6",
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "18px",
@@ -1399,7 +1399,7 @@ const caixaInterna = {
 };
 
 const tituloSecao = {
-  color: "#22c55e",
+  color: "#3b82f6",
   marginTop: 0,
 };
 
@@ -1412,7 +1412,7 @@ const cardsResumo = {
 
 const cardResumo = {
   background: "#111827",
-  border: "1px solid #22c55e",
+  border: "1px solid #3b82f6",
   borderRadius: "14px",
   padding: "14px",
   display: "grid",
@@ -1485,7 +1485,7 @@ const textarea = {
 };
 
 const botaoPrincipal = {
-  background: "#22c55e",
+  background: "#3b82f6",
   color: "#020617",
   border: "none",
   borderRadius: "10px",
@@ -1497,7 +1497,7 @@ const botaoPrincipal = {
 const botaoSecundario = {
   background: "#1f2937",
   color: "#ffffff",
-  border: "1px solid #22c55e",
+  border: "1px solid #3b82f6",
   borderRadius: "10px",
   padding: "12px 14px",
   fontWeight: "bold",
@@ -1553,8 +1553,8 @@ const textoCard = {
 
 const badgeStatus = {
   background: "#064e3b",
-  color: "#86efac",
-  border: "1px solid #22c55e",
+  color: "#93c5fd",
+  border: "1px solid #3b82f6",
   borderRadius: "999px",
   padding: "6px 10px",
   fontSize: "12px",
@@ -1585,7 +1585,7 @@ const rodapeCard = {
   marginTop: "12px",
   paddingTop: "10px",
   borderTop: "1px solid #374151",
-  color: "#86efac",
+  color: "#93c5fd",
   fontSize: "13px",
   fontWeight: "bold",
 };
@@ -1636,7 +1636,7 @@ const abaFichaBase = {
 
 const abaFichaAtiva = {
   ...abaFichaBase,
-  background: "#22c55e",
+  background: "#3b82f6",
   color: "#052e16",
 };
 
@@ -1670,6 +1670,6 @@ const cardMov = {
   background: "#111827",
   borderRadius: "12px",
   padding: "12px",
-  borderLeft: "4px solid #22c55e",
+  borderLeft: "4px solid #3b82f6",
   color: "#e5e7eb",
 };
