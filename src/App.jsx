@@ -510,7 +510,6 @@ export default function App() {
           </button>
           <div className="cabecalho-usuario">
             <h2 className="marca-reativa">{sidebarRecolhida ? (<><span style={{ color: "#3b82f6" }}>R</span>A</>) : (<><span style={{ color: "#3b82f6" }}>Re</span>ATIVA</>)}</h2>
-            <AvisosBadge />
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
               {usuario.perfil?.foto_url ? (
                 <img
@@ -610,6 +609,7 @@ export default function App() {
               );
             })}
           </nav>
+          <AvisosBadge />
         </aside>
         <main className="content">
       <Routes>

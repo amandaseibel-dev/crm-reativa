@@ -29,6 +29,6 @@ export default function AvisosBadge() {
 }
 
 const S = {
-  btn: { position: "relative", background: "rgba(59,130,246,0.15)", border: "1px solid rgba(59,130,246,0.35)", color: "#dbeafe", borderRadius: 999, padding: "6px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginTop: 10 },
-  badge: { position: "absolute", top: -6, right: -6, background: "#ef4444", color: "#fff", borderRadius: 999, minWidth: 18, height: 18, fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px" },
+  btn: { position: "relative", background: "transparent", border: "1px solid rgba(148,163,184,0.3)", color: "#93c5fd", borderRadius: 999, padding: "6px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", marginTop: 10 },
+  badge: { position: "absolute", top: -6, right: -6, background: "#1d4ed8", color: "#fff", borderRadius: 999, minWidth: 18, height: 18, fontSize: 11, fontWeight: 800, display: "inline-flex", alignItems: "center", justifyContent: "center", padding: "0 5px" },
 };
