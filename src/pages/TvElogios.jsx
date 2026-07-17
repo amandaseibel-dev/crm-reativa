@@ -90,7 +90,7 @@ export default function TvElogios() {
   }
 
   const telas = useMemo(() => {
-    const base = ["semana", "mes", "acionamentos", "resultado", "projecao", "hoje", "porDia", "alunos", "maior"];
+    const base = ["semana", "mes", "acionamentos", "resultado", "honorarios", "projecao", "hoje", "porDia", "alunos", "maior"];
     const dcs = (dicas || []).map((x) => ({ tipo: "dica", dica: x }));
     const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
     return [...base.map((t) => ({ tipo: t })), ...dcs, ...els];
@@ -123,6 +123,15 @@ export default function TvElogios() {
 
   return (
     <div style={S.tv}>
+      <button
+        style={S.btnFull}
+        onClick={() => {
+          const el = document.documentElement;
+          if (!document.fullscreenElement) { (el.requestFullscreen || el.webkitRequestFullscreen || (()=>{})).call(el); }
+          else { (document.exitFullscreen || document.webkitExitFullscreen || (()=>{})).call(document); }
+        }}
+        title="Tela cheia"
+      >⛶ Tela cheia</button>
       <div style={S.topo}>
         <span style={S.marca}>Re<span style={{ color: "#3b82f6" }}>A</span>TIVA</span>
         <span style={S.topoSub}>Recuperacao ULBRA · ao vivo</span>
@@ -146,6 +155,16 @@ export default function TvElogios() {
             <Cartao rot="Honorarios" val={moeda(p.honorarios_mes)} />
             <Cartao rot="Falta p/ meta" val={p.falta != null ? moeda(p.falta) : "-"} />
             <Cartao rot={"Precisa/dia (" + (p.dias_restantes || "-") + "d)"} val={p.precisa_por_dia != null ? moeda(p.precisa_por_dia) : "-"} />
+          </div>
+        </div>
+      )}
+
+      {atual.tipo === "honorarios" && (
+        <div style={S.tela}>
+          <div style={S.rot}>Honorários do mês</div>
+          <div style={S.numGigante}>{moeda(p.honorarios_mes)}</div>
+          <div style={S.linhaCartoes}>
+            <Cartao rot="Projetado no fechamento" val={moeda(p.proj_honorarios)} />
           </div>
         </div>
       )}
@@ -246,6 +265,7 @@ function Cartao({ rot, val }) {
 
 const S = {
   tv: { minHeight: "100vh", background: "radial-gradient(circle at 20% 15%, rgba(37,99,235,0.28), transparent 40%), radial-gradient(circle at 85% 80%, rgba(34,197,94,0.16), transparent 42%), linear-gradient(135deg, #020617, #0b1224 55%, #0f172a)", color: "#fff", fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column", padding: "3vh 4vw", boxSizing: "border-box" },
+  btnFull: { position: "absolute", top: "2vh", right: "2vw", zIndex: 20, background: "rgba(59,130,246,0.18)", border: "1px solid rgba(59,130,246,0.4)", color: "#dbeafe", borderRadius: 10, padding: "0.8vh 1.2vw", fontSize: "1.1vw", fontWeight: 700, cursor: "pointer" },
   topo: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "2vh" },
   marca: { fontSize: "3.2vw", fontWeight: 800, letterSpacing: "0.06em", textShadow: "0 0 30px rgba(59,130,246,0.6)" },
   topoSub: { fontSize: "1.3vw", color: "#7dd3fc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.15em" },
