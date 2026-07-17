@@ -3,6 +3,7 @@ import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
 import AlterarOperadorResponsavel from "./AlterarOperadorResponsavel";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
+import TelefonesAluno from "./TelefonesAluno";
 
 /*
   FichaAlunoUnificada
@@ -232,7 +233,9 @@ export default function FichaAlunoUnificada({
           {acoesContexto ? <div style={S.contexto}>{acoesContexto}</div> : null}
 
           {/* Troca de responsável — só master; entrar em fila NÃO transfere. */}
-          {master && aluno?.id ? (
+          <TelefonesAluno aluno={aluno} />
+
+        {master && aluno?.id ? (
             <AlterarOperadorResponsavel
               aluno={aluno}
               origem="ficha_unificada"
