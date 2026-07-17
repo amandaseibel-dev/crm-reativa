@@ -11,7 +11,7 @@ function num(v) {
   return Number(v || 0).toLocaleString("pt-BR");
 }
 
-function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCurto = "pgtos" }) {
+function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCurto = "pgtos", so3 = false }) {
   const trio = [{ o: rank[1], pos: 2 }, { o: rank[0], pos: 1 }, { o: rank[2], pos: 3 }];
   const alturas = { 1: "32vh", 2: "23vh", 3: "18vh" };
   const cores = { 1: "linear-gradient(180deg, #fde68a, #f59e0b)", 2: "linear-gradient(180deg, #e2e8f0, #94a3b8)", 3: "linear-gradient(180deg, #fdba74, #c2843f)" };
@@ -36,7 +36,7 @@ function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCur
         })}
       </div>
       <div style={S.rankResto}>
-        {rank.slice(3).map((o, i) => (
+        {(so3 ? [] : rank.slice(3)).map((o, i) => (
           <div key={o.operador} style={S.rankRestoItem}><span>{i + 4}. {o.operador}</span><strong style={{ color: "#7dd3fc" }}>{num(o[campo])} {sufixoCurto}</strong></div>
         ))}
       </div>
@@ -139,7 +139,7 @@ export default function TvElogios() {
 
       {atual.tipo === "semana" && <Podio titulo="Melhores da semana" rank={d.ranking_semana || []} />}
       {atual.tipo === "mes" && <Podio titulo="Melhores do mes" rank={d.ranking_mes || []} />}
-      {atual.tipo === "acionamentos" && <Podio titulo="Top acionamentos" rank={d.ranking_acionamentos || []} campo="acionamentos" sufixo="acionamentos" sufixoCurto="acion." />}
+      {atual.tipo === "acionamentos" && <Podio titulo="Top acionamentos da semana" rank={d.ranking_acionamentos || []} campo="acionamentos" sufixo="acionamentos" sufixoCurto="acion." so3 />}
 
       {atual.tipo === "resultado" && (
         <div style={S.tela}>
