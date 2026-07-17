@@ -60,6 +60,7 @@ import AcoesMassivas from "./pages/AcoesMassivas";
 import HistoricoRecuperacao from "./pages/HistoricoRecuperacao";
 import SaudeDaBase from "./pages/SaudeDaBase";
 import TvElogios from "./pages/TvElogios";
+import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
 import TaxaConversao from "./pages/TaxaConversao";
 import PainelGeral from "./pages/PainelGeral";
 function EmDesenvolvimento({ titulo }) {
@@ -481,6 +482,7 @@ export default function App() {
         <HeartbeatReceptivo usuario={usuario} />
         <AutoLogout usuario={usuario} />
         <NotificacoesSupervisaoAdm usuario={usuario} />
+        <AvisoTemplateNovo />
         <aside className={sidebarRecolhida ? "sidebar sidebar-recolhida" : "sidebar"}>
           <button
             type="button"

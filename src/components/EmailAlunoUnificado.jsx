@@ -60,7 +60,7 @@ export default function EmailAlunoUnificado({ aluno }) {
       const nome = u?.user?.user_metadata?.nome || (email ? email.split("@")[0] : "");
       const { data } = await supabase
         .from("email_templates")
-        .select("chave, situacao, assunto, corpo_html, corpo_texto, permite_anexo, ordem")
+        .select("chave, situacao, assunto, corpo_html, corpo_texto, permite_anexo, ordem, dias_retorno, novo")
         .eq("ativo", true)
         .order("ordem");
       if (!ativo) return;
@@ -98,6 +98,31 @@ export default function EmailAlunoUnificado({ aluno }) {
   const html = tpl ? merge(tpl.corpo_html) : "";
   const texto = tpl ? merge(tpl.corpo_texto) : "";
 
+  function proximoDiaUtil(dias) {
+    const d = new Date();
+    let add = 0;
+    while (add < (dias || 2)) {
+      d.setDate(d.getDate() + 1);
+      const w = d.getDay();
+      if (w !== 0 && w !== 6) add += 1;
+    }
+    return d.toISOString().slice(0, 10);
+  }
+
+  async function tabularEnvioEmail() {
+    if (!aluno?.id) return;
+    try {
+      await supabase.from("alunos").update({
+        status_jornada: "RETORNAR_DEPOIS",
+        status_atual: "RETORNAR_DEPOIS",
+        status_acionamento: "E-mail enviado - " + (tpl?.situacao || chave),
+        proxima_acao: "RETORNAR",
+        data_retorno: proximoDiaUtil(tpl?.dias_retorno),
+        data_ultimo_acionamento: new Date().toISOString(),
+      }).eq("id", aluno.id);
+    } catch (e) { /* silencioso */ }
+  }
+
   async function registrarAcionamento() {
     if (!aluno?.id) return;
     try {
@@ -133,6 +158,7 @@ export default function EmailAlunoUnificado({ aluno }) {
       "_blank"
     );
     registrarAcionamento();
+    tabularEnvioEmail();
     setMsg(
       arteCopiada
         ? "Gmail aberto! Clique no corpo do e-mail e cole a arte com Ctrl+V" + (tpl?.permite_anexo ? ", anexe o termo" : "") + " e envie."
