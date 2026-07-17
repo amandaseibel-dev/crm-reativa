@@ -4,6 +4,7 @@ import { podeVerTudo } from "../utils/operadores";
 import AlterarOperadorResponsavel from "./AlterarOperadorResponsavel";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import TelefonesAluno from "./TelefonesAluno";
+import RelatorioAcionamentosBtn from "./RelatorioAcionamentosBtn";
 
 /*
   FichaAlunoUnificada
@@ -234,6 +235,7 @@ export default function FichaAlunoUnificada({
 
           {/* Troca de responsável — só master; entrar em fila NÃO transfere. */}
           <TelefonesAluno aluno={aluno} />
+        <RelatorioAcionamentosBtn aluno={aluno} />
 
         {master && aluno?.id ? (
             <AlterarOperadorResponsavel
