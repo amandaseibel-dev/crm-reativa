@@ -217,7 +217,6 @@ export default function EmailAlunoUnificado({ aluno }) {
       ) : null}
 
       <div style={S.acoes}>
-        <button style={S.btnZap} onClick={abrirWhatsapp}>Enviar no WhatsApp</button>
         <button style={{ ...S.btnPrim, opacity: emailDest ? 1 : 0.5 }} onClick={abrirGmail} disabled={!emailDest}>Abrir no Gmail (arte copiada)</button>
         <button style={S.btnSec} onClick={copiarArte}>Copiar arte</button>
         <button style={S.btnSec} onClick={() => { navigator.clipboard.writeText(texto); setMsg("Texto copiado."); }}>
