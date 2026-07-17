@@ -8,6 +8,7 @@ import FinanceiroAluno from "../components/FinanceiroAluno";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
+import TelefonesAluno from "../components/TelefonesAluno";
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
   { nome: "Luana", email: "cobranca05@aelbra.com.br" },
@@ -1422,6 +1423,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 ))}
               </div>
               {abaFicha === "dados" && (
+              <>
               <div style={gradeCards}>
                 <div style={cardInfo}>
                   <strong>Responsável atual</strong>
@@ -1519,6 +1521,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   {alunoSelecionado.status_acionamento || "-"}
                 </div>
               </div>
+              <TelefonesAluno aluno={alunoSelecionado} />
+              </>
               )}
               {abaFicha === "tabulacoes" && (
               <>

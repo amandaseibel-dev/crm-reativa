@@ -179,13 +179,13 @@ export default function EmailAlunoUnificado({ aluno }) {
     <div>
       <div style={S.linhaTop}>
         <div style={{ flex: 1 }}>
-          <div style={S.rot}>E-mail do aluno (editavel)</div>
+          <div style={S.rot}>E-mails do aluno (separe por vírgula)</div>
           <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
             <input
               type="email"
               value={emailDest}
               onChange={(e) => setEmailDest(e.target.value)}
-              placeholder="email@dominio.com"
+              placeholder="email1@dominio.com, email2@dominio.com"
               style={S.inputEmail}
             />
             <button style={S.btnSalvar} onClick={salvarEmail} disabled={salvandoEmail}>
