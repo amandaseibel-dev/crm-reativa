@@ -39,6 +39,7 @@ export default function VisaoGestao360({ dias = 30 }) {
   const [proj, setProj] = useState(null);
   const [mensal, setMensal] = useState(null);
   const [funil, setFunil] = useState(null);
+  const [volume, setVolume] = useState(null);
 
   useEffect(() => {
     let ativo = true;
@@ -67,6 +68,7 @@ export default function VisaoGestao360({ dias = 30 }) {
     supabase.rpc("dashboard_projecao_semestre").then(({ data }) => { if (ativo) setProj(data); });
     supabase.rpc("dashboard_faturamento_mensal_yoy").then(({ data }) => { if (ativo) setMensal(data); });
     supabase.rpc("dashboard_funil_conversao").then(({ data }) => { if (ativo) setFunil(data); });
+    supabase.rpc("dashboard_volume_envios", { p_dias: 14 }).then(({ data }) => { if (ativo) setVolume(data); });
     return () => { ativo = false; };
   }, []);
 
@@ -262,6 +264,31 @@ export default function VisaoGestao360({ dias = 30 }) {
             ))}
           </div>
           <p style={s.muted}>Onde a operação converte (ou vaza): link enviado → pago, acordo fechado → quitado, confirmação solicitada → confirmada.</p>
+        </div>
+      )}
+
+      {volume && (
+        <div style={s.bloco}>
+          <h3 style={s.h3}>Volume de acionamentos por operador (últ. {volume.dias} dias)</h3>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ background: "#dcfce7", borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 700, color: "#166534" }}>WhatsApp/Contato: {num(volume.por_canal?.whatsapp)}</div>
+            <div style={{ background: "#dbeafe", borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 700, color: "#1e40af" }}>E-mail: {num(volume.por_canal?.email)}</div>
+            <div style={{ background: "#f1f5f9", borderRadius: 10, padding: "8px 14px", fontSize: 13, fontWeight: 700, color: "#475569" }}>Outros: {num(volume.por_canal?.outros)}</div>
+          </div>
+          <div style={s.tblScroll}>
+            <div style={{ ...s.tblRow, ...s.tblHead, gridTemplateColumns: "1.6fr 0.8fr 1fr 0.8fr", minWidth: 480 }}>
+              <span>Operador</span><span>Total</span><span>WhatsApp</span><span>E-mail</span>
+            </div>
+            {(volume.por_operador || []).slice(0, 15).map((o) => (
+              <div key={o.operador} style={{ ...s.tblRow, gridTemplateColumns: "1.6fr 0.8fr 1fr 0.8fr", minWidth: 480 }}>
+                <span style={s.opName}>{o.operador}</span>
+                <span><strong>{num(o.total)}</strong></span>
+                <span>{num(o.whatsapp)}</span>
+                <span>{num(o.email)}</span>
+              </div>
+            ))}
+          </div>
+          <p style={s.muted}>Cada envio (WhatsApp, e-mail ou contato) conta como acionamento. Útil para acompanhar produtividade e o limite diário do Gmail.</p>
         </div>
       )}
 
