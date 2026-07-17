@@ -102,6 +102,18 @@ export default function TvElogios() {
     return () => clearInterval(t);
   }, [telas]);
 
+  useEffect(() => {
+    function onKey(e) {
+      if (!telas.length) return;
+      if (e.key === "ArrowRight" || e.key === " ") setIndice((i) => (i + 1) % telas.length);
+      else if (e.key === "ArrowLeft") setIndice((i) => (i - 1 + telas.length) % telas.length);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [telas]);
+
+  function irPara(n) { setIndice((n + telas.length) % telas.length); }
+
   const atual = telas[indice % (telas.length || 1)] || { tipo: "semana" };
 
   useEffect(() => {
@@ -132,6 +144,8 @@ export default function TvElogios() {
         }}
         title="Tela cheia"
       >⛶ Tela cheia</button>
+      <button style={S.setaEsq} onClick={() => irPara(indice - 1)} aria-label="Anterior">‹</button>
+      <button style={S.setaDir} onClick={() => irPara(indice + 1)} aria-label="Proximo">›</button>
       <div style={S.topo}>
         <span style={S.marca}>Re<span style={{ color: "#3b82f6" }}>A</span>TIVA</span>
         <span style={S.topoSub}>Recuperacao ULBRA · ao vivo</span>
@@ -247,7 +261,7 @@ export default function TvElogios() {
 
       <div style={S.pontos}>
         {telas.map((_, i) => (
-          <span key={i} style={{ ...S.ponto, background: i === (indice % telas.length) ? "#3b82f6" : "#334155" }} />
+          <span key={i} onClick={() => irPara(i)} style={{ ...S.ponto, cursor: "pointer", background: i === (indice % telas.length) ? "#3b82f6" : "#334155" }} />
         ))}
       </div>
     </div>
@@ -265,6 +279,8 @@ function Cartao({ rot, val }) {
 
 const S = {
   tv: { minHeight: "100vh", background: "radial-gradient(circle at 20% 15%, rgba(37,99,235,0.28), transparent 40%), radial-gradient(circle at 85% 80%, rgba(34,197,94,0.16), transparent 42%), linear-gradient(135deg, #020617, #0b1224 55%, #0f172a)", color: "#fff", fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column", padding: "3vh 4vw", boxSizing: "border-box" },
+  setaEsq: { position: "absolute", left: "1.5vw", top: "50%", transform: "translateY(-50%)", zIndex: 20, background: "rgba(15,23,42,0.35)", border: "1px solid rgba(59,130,246,0.35)", color: "#dbeafe", borderRadius: "50%", width: "4vw", height: "4vw", fontSize: "2.4vw", cursor: "pointer", lineHeight: 1 },
+  setaDir: { position: "absolute", right: "1.5vw", top: "50%", transform: "translateY(-50%)", zIndex: 20, background: "rgba(15,23,42,0.35)", border: "1px solid rgba(59,130,246,0.35)", color: "#dbeafe", borderRadius: "50%", width: "4vw", height: "4vw", fontSize: "2.4vw", cursor: "pointer", lineHeight: 1 },
   btnFull: { position: "absolute", top: "2vh", right: "2vw", zIndex: 20, background: "rgba(59,130,246,0.18)", border: "1px solid rgba(59,130,246,0.4)", color: "#dbeafe", borderRadius: 10, padding: "0.8vh 1.2vw", fontSize: "1.1vw", fontWeight: 700, cursor: "pointer" },
   topo: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "2vh" },
   marca: { fontSize: "3.2vw", fontWeight: 800, letterSpacing: "0.06em", textShadow: "0 0 30px rgba(59,130,246,0.6)" },
