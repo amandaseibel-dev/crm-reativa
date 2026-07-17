@@ -3,6 +3,7 @@ import { supabase } from "../services/supabase";
 import ControleLinksPagamento from "../pages/ControleLinksPagamento";
 import FilaFinanceiro from "../pages/FilaFinanceiro";
 import FilaConfirmacaoPagamento from "../pages/FilaConfirmacaoPagamento";
+import FilaAdmTermos from "../pages/FilaAdmTermos";
 
 function num(v) {
   return Number(v || 0).toLocaleString("pt-BR");
@@ -22,6 +23,7 @@ export default function CentralPagamentos() {
     { chave: "links", rot: "Links", cont: c ? num(c.links_pendentes) : null },
     { chave: "baixas", rot: "Baixas", cont: null },
     { chave: "confirmacao", rot: "Confirmação", cont: c ? num(c.confirmacao_aguardando) : null },
+    { chave: "termos", rot: "Termos", cont: null },
   ];
 
   return (
@@ -56,6 +58,7 @@ export default function CentralPagamentos() {
         {aba === "links" && <ControleLinksPagamento />}
         {aba === "baixas" && <FilaFinanceiro />}
         {aba === "confirmacao" && <FilaConfirmacaoPagamento />}
+        {aba === "termos" && <FilaAdmTermos />}
       </div>
     </div>
   );
