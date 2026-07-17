@@ -11,7 +11,7 @@ function num(v) {
   return Number(v || 0).toLocaleString("pt-BR");
 }
 
-function Podio({ titulo, rank }) {
+function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCurto = "pgtos" }) {
   const trio = [{ o: rank[1], pos: 2 }, { o: rank[0], pos: 1 }, { o: rank[2], pos: 3 }];
   const alturas = { 1: "32vh", 2: "23vh", 3: "18vh" };
   const cores = { 1: "linear-gradient(180deg, #fde68a, #f59e0b)", 2: "linear-gradient(180deg, #e2e8f0, #94a3b8)", 3: "linear-gradient(180deg, #fdba74, #c2843f)" };
@@ -27,7 +27,7 @@ function Podio({ titulo, rank }) {
             <div key={idx} style={S.podioCol}>
               <div style={{ ...S.podioMedalha, fontSize: item.pos === 1 ? "5vw" : "3.6vw" }}>{medalha[item.pos]}</div>
               <div style={{ ...S.podioNome, fontSize: item.pos === 1 ? "2.4vw" : "1.9vw" }}>{o.operador}</div>
-              <div style={{ ...S.podioValor, fontSize: item.pos === 1 ? "2.6vw" : "2vw" }}>{num(o.pagos)} pagamentos</div>
+              <div style={{ ...S.podioValor, fontSize: item.pos === 1 ? "2.6vw" : "2vw" }}>{num(o[campo])} {sufixo}</div>
               <div style={{ ...S.podioBase, height: alturas[item.pos], background: cores[item.pos] }}>
                 <span style={S.podioPos}>{item.pos}</span>
               </div>
@@ -37,7 +37,7 @@ function Podio({ titulo, rank }) {
       </div>
       <div style={S.rankResto}>
         {rank.slice(3).map((o, i) => (
-          <div key={o.operador} style={S.rankRestoItem}><span>{i + 4}. {o.operador}</span><strong style={{ color: "#7dd3fc" }}>{num(o.pagos)} pgtos</strong></div>
+          <div key={o.operador} style={S.rankRestoItem}><span>{i + 4}. {o.operador}</span><strong style={{ color: "#7dd3fc" }}>{num(o[campo])} {sufixoCurto}</strong></div>
         ))}
       </div>
     </div>
@@ -90,7 +90,7 @@ export default function TvElogios() {
   }
 
   const telas = useMemo(() => {
-    const base = ["semana", "mes", "resultado", "projecao", "alunos", "maior"];
+    const base = ["semana", "mes", "acionamentos", "resultado", "projecao", "hoje", "porDia", "alunos", "maior"];
     const dcs = (dicas || []).map((x) => ({ tipo: "dica", dica: x }));
     const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
     return [...base.map((t) => ({ tipo: t })), ...dcs, ...els];
@@ -130,6 +130,7 @@ export default function TvElogios() {
 
       {atual.tipo === "semana" && <Podio titulo="Melhores da semana" rank={d.ranking_semana || []} />}
       {atual.tipo === "mes" && <Podio titulo="Melhores do mes" rank={d.ranking_mes || []} />}
+      {atual.tipo === "acionamentos" && <Podio titulo="Top acionamentos" rank={d.ranking_acionamentos || []} campo="acionamentos" sufixo="acionamentos" sufixoCurto="acion." />}
 
       {atual.tipo === "resultado" && (
         <div style={S.tela}>
@@ -151,10 +152,38 @@ export default function TvElogios() {
 
       {atual.tipo === "projecao" && (
         <div style={S.tela}>
-          <div style={S.rot}>Projecao do mes</div>
+          <div style={S.rot}>Projecao de fechamento</div>
           <div style={S.numGigante}>{moeda(p.proj_recuperado)}</div>
           <div style={{ ...S.projDelta, color: deltaCor }}>{deltaTxt}</div>
           <div style={S.ultimaMeta}>Honorarios projetados: {moeda(p.proj_honorarios)}</div>
+        </div>
+      )}
+
+      {atual.tipo === "hoje" && (
+        <div style={S.tela}>
+          <div style={S.rot}>Recuperado hoje</div>
+          <div style={S.numGigante}>{moeda(d.recuperado_dia)}</div>
+          <div style={S.linhaCartoes}>
+            <Cartao rot="Alunos pagos hoje" val={num(d.alunos_pagos_dia)} />
+          </div>
+        </div>
+      )}
+
+      {atual.tipo === "porDia" && (
+        <div style={S.tela}>
+          <div style={S.rot}>Pagamentos por dia</div>
+          <div style={S.barrasDia}>
+            {(d.pagamentos_por_dia || []).map((x) => {
+              const maxq = Math.max(1, ...(d.pagamentos_por_dia || []).map((y) => Number(y.qtd) || 0));
+              return (
+                <div key={x.dia} style={S.barCol}>
+                  <div style={S.barValor}>{num(x.qtd)}</div>
+                  <div style={{ ...S.barra2, height: Math.max(1.5, (Number(x.qtd) / maxq) * 32) + "vh" }} />
+                  <div style={S.barDia}>{x.dia}</div>
+                </div>
+              );
+            })}
+          </div>
         </div>
       )}
 
@@ -175,7 +204,6 @@ export default function TvElogios() {
           {d.maior_pagamento ? (
             <>
               <div style={S.numGigante}>{moeda(d.maior_pagamento.valor)}</div>
-              <div style={S.ultimaAluno}>{d.maior_pagamento.aluno}</div>
               <div style={S.ultimaMeta}>por {d.maior_pagamento.operador} · {d.maior_pagamento.quando}</div>
             </>
           ) : <div style={S.ultimaMeta}>Sem pagamentos ainda.</div>}
@@ -243,6 +271,11 @@ const S = {
   rankResto: { display: "flex", flexWrap: "wrap", gap: "1vh 3vw", justifyContent: "center", marginTop: "3vh", width: "72%" },
   rankRestoItem: { display: "flex", gap: "1vw", fontSize: "1.5vw", color: "#cbd5e1", fontWeight: 600 },
   projDelta: { fontSize: "2vw", fontWeight: 800, marginTop: "0.5vh" },
+  barrasDia: { display: "flex", alignItems: "flex-end", justifyContent: "center", gap: "1.4vw", height: "44vh", width: "88%", marginTop: "2vh" },
+  barCol: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", flex: 1, maxWidth: "7vw" },
+  barValor: { fontSize: "1.4vw", fontWeight: 900, color: "#fff", marginBottom: "0.4vh" },
+  barra2: { width: "70%", borderRadius: "8px 8px 0 0", background: "linear-gradient(180deg, #4ade80, #16a34a)", boxShadow: "0 0 20px rgba(34,197,94,0.5)" },
+  barDia: { fontSize: "1.1vw", color: "#93c5fd", marginTop: "0.6vh", fontWeight: 600 },
   ultimaAluno: { fontSize: "3.2vw", fontWeight: 800 },
   ultimaMeta: { fontSize: "1.7vw", color: "#93c5fd", fontWeight: 600 },
   imagem: { maxWidth: "70vw", maxHeight: "58vh", borderRadius: 16, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" },
