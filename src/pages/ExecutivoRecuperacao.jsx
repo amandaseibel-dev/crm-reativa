@@ -91,7 +91,7 @@ export default function ExecutivoRecuperacao() {
         ))}
       </div>
 
-      <p style={S.rodape}>Numeros consolidados em tempo real a partir da base do ReATIVA One.</p>
+      <p style={S.rodape}>Numeros consolidados em tempo real a partir da base do ReATIVA.</p>
     </div>
   );
 }
