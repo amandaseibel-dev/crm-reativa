@@ -228,3 +228,4 @@ const S = {
   pontos: { display: "flex", gap: "0.8vw", justifyContent: "center", marginTop: "2vh" },
   ponto: { width: "1vw", height: "1vw", borderRadius: "50%", display: "inline-block" },
 };
+
