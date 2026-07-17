@@ -48,16 +48,28 @@ export default function TvElogios() {
   const [dados, setDados] = useState(null);
   const [proj, setProj] = useState(null);
   const [elogios, setElogios] = useState([]);
+  const [dicas, setDicas] = useState([]);
   const [urlElogio, setUrlElogio] = useState("");
   const [indice, setIndice] = useState(0);
 
   useEffect(() => {
     carregarDados();
     carregarElogios();
+    carregarDicas();
     const t1 = setInterval(carregarDados, ATUALIZAR_DADOS * 1000);
     const t2 = setInterval(carregarElogios, ATUALIZAR_DADOS * 1000);
-    return () => { clearInterval(t1); clearInterval(t2); };
+    const t3 = setInterval(carregarDicas, ATUALIZAR_DADOS * 1000);
+    return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3); };
   }, []);
+
+  async function carregarDicas() {
+    const { data } = await supabase
+      .from("tv_dicas")
+      .select("id, categoria, titulo, texto, ordem")
+      .eq("ativo", true)
+      .order("ordem", { ascending: true });
+    setDicas(Array.isArray(data) ? data : []);
+  }
 
   async function carregarDados() {
     const { data } = await supabase.rpc("dashboard_tv");
@@ -79,9 +91,10 @@ export default function TvElogios() {
 
   const telas = useMemo(() => {
     const base = ["semana", "mes", "resultado", "projecao", "alunos", "maior"];
+    const dcs = (dicas || []).map((x) => ({ tipo: "dica", dica: x }));
     const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
-    return [...base.map((t) => ({ tipo: t })), ...els];
-  }, [elogios]);
+    return [...base.map((t) => ({ tipo: t })), ...dcs, ...els];
+  }, [elogios, dicas]);
 
   useEffect(() => {
     if (telas.length === 0) return;
@@ -169,6 +182,14 @@ export default function TvElogios() {
         </div>
       )}
 
+      {atual.tipo === "dica" && (
+        <div style={S.tela}>
+          <div style={S.dicaBadge}>{atual.dica?.categoria}</div>
+          <div style={S.dicaTitulo}>{atual.dica?.titulo}</div>
+          <div style={S.dicaTexto}>{atual.dica?.texto}</div>
+        </div>
+      )}
+
       {atual.tipo === "elogio" && (
         <div style={S.tela}>
           <div style={S.rot}>Elogio de atendimento</div>
@@ -225,7 +246,9 @@ const S = {
   ultimaAluno: { fontSize: "3.2vw", fontWeight: 800 },
   ultimaMeta: { fontSize: "1.7vw", color: "#93c5fd", fontWeight: 600 },
   imagem: { maxWidth: "70vw", maxHeight: "58vh", borderRadius: 16, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" },
+  dicaBadge: { fontSize: "1.5vw", fontWeight: 800, color: "#0b1224", background: "linear-gradient(90deg, #60a5fa, #22c55e)", padding: "0.8vh 2.2vw", borderRadius: 999, textTransform: "uppercase", letterSpacing: "0.14em", boxShadow: "0 0 30px rgba(59,130,246,0.5)" },
+  dicaTitulo: { fontSize: "4.4vw", fontWeight: 900, color: "#fff", textShadow: "0 0 30px rgba(59,130,246,0.5)", lineHeight: 1.05 },
+  dicaTexto: { fontSize: "2.4vw", fontWeight: 600, color: "#dbeafe", maxWidth: "78vw", lineHeight: 1.4 },
   pontos: { display: "flex", gap: "0.8vw", justifyContent: "center", marginTop: "2vh" },
   ponto: { width: "1vw", height: "1vw", borderRadius: "50%", display: "inline-block" },
 };
-
