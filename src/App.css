@@ -58,12 +58,9 @@ body {
   font-size: 26px;
   font-weight: 900;
   letter-spacing: -1px;
-  color: #ffffff;
-  background: #050b18;
-  padding: 8px 18px;
-  border-radius: 14px;
-  border: 1px solid rgba(59, 130, 246, 0.25);
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  color: #0f172a;
+  background: transparent;
+  padding: 4px 0;
 }
 
 .app[data-tema="claro"] .sidebar {
@@ -76,7 +73,7 @@ body {
 }
 
 .app[data-tema="claro"] .cabecalho-usuario h2.marca-reativa {
-  color: #ffffff;
+  color: #0f172a;
 }
 
 .app[data-tema="claro"] .cabecalho-usuario span {
