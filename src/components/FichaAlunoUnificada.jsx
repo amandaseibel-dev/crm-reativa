@@ -80,6 +80,10 @@ const ABAS = [
   ["historico", "Histórico"],
 ];
 
+// Rollout do e-mail: por ora liberado so pra Amanda (aprovacao dos templates).
+// Pra liberar pra todos, deixe a lista vazia ([]) ou remova o filtro no map.
+const EMAILS_EMAIL_LIBERADO = ["amanda.seibel@aelbra.com.br"];
+
 export default function FichaAlunoUnificada({
   alunoId,
   aluno: alunoProp = null,
@@ -155,6 +159,8 @@ export default function FichaAlunoUnificada({
   }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const master = podeVerTudo(emailUsuario);
+  const emailLiberado = EMAILS_EMAIL_LIBERADO.map((e)=>e.toLowerCase()).includes((emailUsuario||"").toLowerCase());
+  const abasVisiveis = ABAS.filter(([chave]) => chave !== "email" || emailLiberado);
 
   // Responsável do acordo = do acordo mais recente que tenha responsável.
   const respAcordo = useMemo(() => {
@@ -200,7 +206,7 @@ export default function FichaAlunoUnificada({
       </div>
 
       <div style={S.abas}>
-        {ABAS.map(([chave, rot]) => (
+        {abasVisiveis.map(([chave, rot]) => (
           <button
             key={chave}
             onClick={() => setAba(chave)}
@@ -303,7 +309,7 @@ export default function FichaAlunoUnificada({
         </div>
       )}
 
-      {aba === "email" && (
+      {aba === "email" && emailLiberado && (
         <div style={{ paddingTop: 4 }}>
           <EmailAlunoUnificado aluno={aluno} />
         </div>
