@@ -27,7 +27,6 @@ function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCur
             <div key={idx} style={S.podioCol}>
               <div style={{ ...S.podioMedalha, fontSize: item.pos === 1 ? "5vw" : "3.6vw" }}>{medalha[item.pos]}</div>
               <div style={{ ...S.podioNome, fontSize: item.pos === 1 ? "2.4vw" : "1.9vw" }}>{o.operador}</div>
-              <div style={{ ...S.podioValor, fontSize: item.pos === 1 ? "2.6vw" : "2vw" }}>{num(o[campo])} {sufixo}</div>
               <div style={{ ...S.podioBase, height: alturas[item.pos], background: cores[item.pos] }}>
                 <span style={S.podioPos}>{item.pos}</span>
               </div>
@@ -118,6 +117,7 @@ export default function TvElogios() {
 
   useEffect(() => {
     if (atual.tipo !== "elogio" || !atual.elogio?.elogio_print_path) { setUrlElogio(""); return; }
+    setUrlElogio("");
     let ativo = true;
     supabase.storage.from("elogios-prints").createSignedUrl(atual.elogio.elogio_print_path, 3600)
       .then(({ data }) => { if (ativo) setUrlElogio(data?.signedUrl || ""); });
@@ -196,6 +196,7 @@ export default function TvElogios() {
         <div style={S.tela}>
           <div style={S.rot}>Recuperado hoje</div>
           <div style={S.numGigante}>{moeda(d.recuperado_dia)}</div>
+          <div style={{ ...S.ultimaAluno, color: "#4ade80" }}>Honorários: {moeda(d.honorarios_dia)}</div>
           <div style={S.linhaCartoes}>
             <Cartao rot="Alunos pagos hoje" val={num(d.alunos_pagos_dia)} />
           </div>
