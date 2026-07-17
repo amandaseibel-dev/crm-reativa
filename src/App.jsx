@@ -491,7 +491,7 @@ export default function App() {
             {sidebarRecolhida ? "»" : "«"}
           </button>
           <div className="cabecalho-usuario">
-            <h2>{sidebarRecolhida ? (<>R<span style={{ color: "#2563eb" }}>A</span></>) : (<>Re<span style={{ color: "#2563eb" }}>A</span>TIVA</>)}</h2>
+            <h2>{sidebarRecolhida ? (<>R<span style={{ color: "#0f9d6b" }}>A</span></>) : (<>Re<span style={{ color: "#0f9d6b" }}>A</span>TIVA</>)}</h2>
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
               {usuario.perfil?.foto_url ? (
                 <img
