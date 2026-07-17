@@ -40,6 +40,7 @@ export default function VisaoGestao360({ dias = 30 }) {
   const [mensal, setMensal] = useState(null);
   const [funil, setFunil] = useState(null);
   const [volume, setVolume] = useState(null);
+  const [metaProj, setMetaProj] = useState(null);
 
   useEffect(() => {
     let ativo = true;
@@ -69,6 +70,7 @@ export default function VisaoGestao360({ dias = 30 }) {
     supabase.rpc("dashboard_faturamento_mensal_yoy").then(({ data }) => { if (ativo) setMensal(data); });
     supabase.rpc("dashboard_funil_conversao").then(({ data }) => { if (ativo) setFunil(data); });
     supabase.rpc("dashboard_volume_envios", { p_dias: 14 }).then(({ data }) => { if (ativo) setVolume(data); });
+    supabase.rpc("dashboard_projecao_semestre").then(({ data }) => { if (ativo) setMetaProj(data); });
     return () => { ativo = false; };
   }, []);
 
@@ -289,6 +291,31 @@ export default function VisaoGestao360({ dias = 30 }) {
             ))}
           </div>
           <p style={s.muted}>Cada envio (WhatsApp, e-mail ou contato) conta como acionamento. Útil para acompanhar produtividade e o limite diário do Gmail.</p>
+        </div>
+      )}
+
+      {metaProj && (metaProj.meta_recuperacao || metaProj.meta_honorario) && (
+        <div style={s.bloco}>
+          <h3 style={s.h3}>Meta × realizado do mês ({metaProj.mes_atual}) — {metaProj.dias_decorridos}/{metaProj.dias_mes} dias</h3>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {[{ rot: "Recuperado", meta: metaProj.meta_recuperacao, real: metaProj.recuperado_mtd, proj: metaProj.proj_mes_recuperado }, { rot: "Honorários", meta: metaProj.meta_honorario, real: metaProj.honorarios_mtd, proj: metaProj.proj_mes_honorarios }].filter((x) => x.meta).map((x) => {
+              const pct = x.meta ? Math.round((x.real / x.meta) * 100) : 0;
+              const pctProj = x.meta ? Math.round((x.proj / x.meta) * 100) : 0;
+              const noRitmo = x.proj >= x.meta;
+              return (
+                <div key={x.rot} style={{ flex: 1, minWidth: 240, background: "#f8fafc", borderRadius: 12, padding: 14 }}>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                    <span style={{ fontSize: 13, color: "#64748b", fontWeight: 700 }}>{x.rot}</span>
+                    <span style={{ fontSize: 12, fontWeight: 700, color: noRitmo ? "#16a34a" : "#dc2626", background: noRitmo ? "#dcfce7" : "#fee2e2", borderRadius: 999, padding: "2px 10px" }}>{noRitmo ? "No ritmo" : "Abaixo da meta"}</span>
+                  </div>
+                  <div style={{ fontSize: 22, fontWeight: 800, color: "#111827" }}>{moeda(x.real)} <span style={{ fontSize: 13, color: "#64748b", fontWeight: 600 }}>/ {moeda(x.meta)}</span></div>
+                  <div style={{ fontSize: 12, color: "#334155", margin: "4px 0 8px" }}>{pct}% da meta · projeção do mês: {moeda(x.proj)} ({pctProj}%)</div>
+                  <div style={s.barTrack}><div style={{ ...s.barFill, width: Math.min(100, Math.max(2, pct)) + "%", background: noRitmo ? "#16a34a" : "#f59e0b" }} /></div>
+                </div>
+              );
+            })}
+          </div>
+          <p style={s.muted}>Meta do mês (cadastrada em Metas) vs realizado até hoje e projeção pelo ritmo atual. Alerta automático quando a projeção fica abaixo da meta.</p>
         </div>
       )}
 
