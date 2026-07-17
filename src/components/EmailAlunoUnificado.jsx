@@ -124,8 +124,12 @@ export default function EmailAlunoUnificado({ aluno }) {
     const to = encodeURIComponent(emailDest || "");
     const su = encodeURIComponent(assunto);
     const body = arteCopiada ? "" : encodeURIComponent(texto);
+    // Envio de termo de acordo vai com copia (CC) fixa: Fernanda, Amanda ADM e Amanda
+    // (a operacao valida os recebimentos).
+    const CC_TERMO = "cobranca04@aelbra.com.br,cobranca07@aelbra.com.br,amanda.seibel@aelbra.com.br";
+    const cc = tpl?.chave === "envio_acordo" ? "&cc=" + encodeURIComponent(CC_TERMO) : "";
     window.open(
-      `https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${su}&body=${body}`,
+      `https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${su}${cc}&body=${body}`,
       "_blank"
     );
     registrarAcionamento();
