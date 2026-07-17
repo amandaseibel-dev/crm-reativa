@@ -51,6 +51,7 @@ import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
 import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
 import DRE from "./pages/DRE";
 import ImportarRecuperacao from "./pages/ImportarRecuperacao";
+import ExecutivoRecuperacao from "./pages/ExecutivoRecuperacao";
 import MeuDashboard from "./pages/MeuDashboard";
 import ElogiosAtendimento from "./pages/ElogiosAtendimento";
 import ExportarContatos from "./pages/ExportarContatos";
@@ -412,6 +413,7 @@ export default function App() {
   const menuBase = [
     { rota: "/dre", label: "DRE (gerencia)" },
     { rota: "/importar-recuperacao", label: "📥 Importar Recuperação" },
+  { rota: "/executivo", label: "📊 Visão Executiva" },
     {
       rota: "/",
       label: perfil === "operador" ? "Minha Fila" : "Dashboard",
@@ -456,6 +458,10 @@ export default function App() {
     if (item.rota === "/importar-recuperacao") {
       const em2 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em2);
+    }
+    if (item.rota === "/executivo") {
+      const em3 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em3);
     }
     if (item.rota === "/") {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -747,6 +753,7 @@ export default function App() {
               <Route path="/exportar-contatos" element={<ExportarContatos />} />
               <Route path="/acoes-massivas" element={<AcoesMassivas />} />
               <Route path="/historico-recuperacao" element={<HistoricoRecuperacao />} />
+        <Route path="/executivo" element={<ExecutivoRecuperacao />} />
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
