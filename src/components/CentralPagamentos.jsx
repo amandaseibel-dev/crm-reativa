@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import ControleLinksPagamento from "./ControleLinksPagamento";
-import FilaFinanceiro from "./FilaFinanceiro";
-import FilaConfirmacaoPagamento from "./FilaConfirmacaoPagamento";
+import ControleLinksPagamento from "../pages/ControleLinksPagamento";
+import FilaFinanceiro from "../pages/FilaFinanceiro";
+import FilaConfirmacaoPagamento from "../pages/FilaConfirmacaoPagamento";
 
 function num(v) {
   return Number(v || 0).toLocaleString("pt-BR");
