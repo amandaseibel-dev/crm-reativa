@@ -25,6 +25,13 @@ function sugerir(aluno) {
   return "lembrete_pagamento";
 }
 
+function soDigitos(t) {
+  let d = String(t || "").replace(/\D/g, "");
+  if (!d) return "";
+  if (d.length <= 11 && !d.startsWith("55")) d = "55" + d;
+  return d;
+}
+
 export default function EmailAlunoUnificado({ aluno }) {
   const [templates, setTemplates] = useState([]);
   const [chave, setChave] = useState("");
@@ -116,6 +123,27 @@ export default function EmailAlunoUnificado({ aluno }) {
     setMsg("Gmail aberto na sua conta. Cole a arte (Ctrl+V), anexe o termo se precisar e envie.");
   }
 
+  async function registrarContato(canal) {
+    if (!aluno?.id) return;
+    try {
+      await supabase.from("aluno_movimentacoes").insert({
+        aluno_id: aluno.id,
+        tipo: "CONTATO",
+        descricao: `WhatsApp (${tpl?.situacao || chave}) enviado por ${operador.email}`,
+        registrado_por_email: operador.email,
+        registrado_por_nome: operador.nome,
+      });
+    } catch (e) { /* silencioso */ }
+  }
+
+  function abrirWhatsapp() {
+    const tel = soDigitos(aluno?.telefone);
+    if (!tel) { setMsg("Este aluno nao tem telefone cadastrado."); return; }
+    window.open("https://wa.me/" + tel + "?text=" + encodeURIComponent(texto), "_blank");
+    registrarContato();
+    setMsg("WhatsApp aberto com a mensagem do template. Revise e envie.");
+  }
+
   async function copiarArte() {
     try {
       const b1 = new Blob([html], { type: "text/html" });
@@ -183,6 +211,7 @@ export default function EmailAlunoUnificado({ aluno }) {
       ) : null}
 
       <div style={S.acoes}>
+        <button style={S.btnZap} onClick={abrirWhatsapp}>Enviar no WhatsApp</button>
         <button style={{ ...S.btnPrim, opacity: emailDest ? 1 : 0.5 }} onClick={abrirGmail} disabled={!emailDest}>Abrir no Gmail</button>
         <button style={S.btnSec} onClick={copiarArte}>Copiar arte</button>
         <button style={S.btnSec} onClick={() => { navigator.clipboard.writeText(texto); setMsg("Texto copiado."); }}>
@@ -215,6 +244,7 @@ const S = {
   preview: { marginTop: 6, border: "1px solid #eef2f6", borderRadius: 10, padding: 14, background: "#fafafa", maxHeight: 360, overflowY: "auto" },
   anexoNota: { background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e40af", padding: 10, borderRadius: 8, fontSize: 13, marginBottom: 12 },
   acoes: { display: "flex", gap: 10, flexWrap: "wrap" },
+  btnZap: { background: "#25D366", color: "#fff", border: "none", borderRadius: 8, padding: "11px 18px", fontWeight: 700, cursor: "pointer" },
   btnPrim: { background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, padding: "11px 18px", fontWeight: 700, cursor: "pointer" },
   btnSec: { background: "#fff", color: "#1d4ed8", border: "1px solid #1d4ed8", borderRadius: 8, padding: "11px 16px", fontWeight: 700, cursor: "pointer" },
   msg: { marginTop: 12, background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534", padding: 10, borderRadius: 8, fontSize: 13, fontWeight: 600 },
