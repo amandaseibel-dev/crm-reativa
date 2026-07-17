@@ -51,10 +51,14 @@ body {
   border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 }
 
-.cabecalho-usuario h2 {
+.cabecalho-usuario h2.marca-reativa {
   margin: 0 0 14px;
-  font-size: 19px;
-  color: #60a5fa;
+  font-family: 'Sora', Inter, Arial, sans-serif;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -1px;
+  color: #ffffff;
+  text-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
 }
 
 .app[data-tema="claro"] .sidebar {
@@ -66,8 +70,9 @@ body {
   border-bottom-color: rgba(15, 23, 42, 0.12);
 }
 
-.app[data-tema="claro"] .cabecalho-usuario h2 {
-  color: #2563eb;
+.app[data-tema="claro"] .cabecalho-usuario h2.marca-reativa {
+  color: #0f172a;
+  text-shadow: none;
 }
 
 .app[data-tema="claro"] .cabecalho-usuario span {
