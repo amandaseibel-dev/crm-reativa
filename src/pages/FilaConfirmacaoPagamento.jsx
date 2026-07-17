@@ -75,6 +75,7 @@ export default function FilaConfirmacaoPagamento() {
   const [carregando, setCarregando] = useState(true);
   const [observacoes, setObservacoes] = useState({});
   const [filtro, setFiltro] = useState("PENDENTES");
+  const [tipoFiltro, setTipoFiltro] = useState("TODOS");
   const [qtdSemValor, setQtdSemValor] = useState(null);
   const [qtdSemTelefone, setQtdSemTelefone] = useState(null);
 
@@ -427,6 +428,8 @@ export default function FilaConfirmacaoPagamento() {
     else if (filtro === "CONFIRMADOS") base = solicitacoes.filter((s) => s.status === "PAGAMENTO_CONFIRMADO");
     else base = solicitacoes;
 
+    if (tipoFiltro !== "TODOS") base = (base || []).filter((s) => (s.tipo_pagamento || "SEM_TIPO") === tipoFiltro);
+
     const ts = (v) => {
       const t = v ? new Date(v).getTime() : 0;
       return Number.isNaN(t) ? 0 : t;
@@ -438,7 +441,7 @@ export default function FilaConfirmacaoPagamento() {
       if (u !== 0) return u;
       return String(a.aluno_nome || "").localeCompare(String(b.aluno_nome || ""), "pt-BR");
     });
-  }, [solicitacoes, filtro]);
+  }, [solicitacoes, filtro, tipoFiltro]);
 
   if (carregando) {
     return <div style={styles.container}>Carregando fila de confirmação de pagamento...</div>;
@@ -502,6 +505,14 @@ export default function FilaConfirmacaoPagamento() {
         <button style={filtro === "SEM_TELEFONE" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("SEM_TELEFONE")}>
           Sem telefone{qtdSemTelefone !== null ? ` (${qtdSemTelefone})` : ""}
         </button>
+        <select value={tipoFiltro} onChange={(e) => setTipoFiltro(e.target.value)} style={{ border: "1px solid #d1d5db", borderRadius: 999, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}>
+          <option value="TODOS">Todos os tipos</option>
+          <option value="QUITACAO_TOTAL">Quitação total</option>
+          <option value="PARCELA">Parcela</option>
+          <option value="MENSALIDADE">Mensalidade</option>
+          <option value="ACORDO">Acordo</option>
+          <option value="SEM_TIPO">Sem tipo</option>
+        </select>
       </div>
 
       {/* Mantem os dois sempre "vivos" (carregando em segundo plano), so
