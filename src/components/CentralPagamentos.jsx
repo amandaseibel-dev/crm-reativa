@@ -12,19 +12,36 @@ function num(v) {
 export default function CentralPagamentos() {
   const [aba, setAba] = useState("links");
   const [c, setC] = useState(null);
+  const [email, setEmail] = useState("");
 
   useEffect(() => {
     let ativo = true;
     supabase.rpc("dashboard_central_contadores").then(({ data }) => { if (ativo) setC(data); });
+    supabase.auth.getUser().then(({ data }) => { if (ativo) setEmail((data?.user?.email || "").toLowerCase()); });
     return () => { ativo = false; };
   }, []);
 
+  const GESTAO = ["amanda.seibel@aelbra.com.br", "cobranca07@aelbra.com.br", "cobranca04@aelbra.com.br"];
+  const podeVer = {
+    links: GESTAO.includes(email),
+    termos: GESTAO.includes(email),
+    confirmacao: GESTAO.includes(email),
+    baixas: email === "amanda.seibel@aelbra.com.br",
+  };
   const abas = [
     { chave: "links", rot: "Links", cont: c ? num(c.links_pendentes) : null },
     { chave: "baixas", rot: "Baixas", cont: c ? num(c.baixas_aguardando) : null },
     { chave: "confirmacao", rot: "Confirmação", cont: c ? num(c.confirmacao_aguardando) : null },
     { chave: "termos", rot: "Termos", cont: null },
-  ];
+  ].filter((a) => email === "" || podeVer[a.chave]);
+
+  useEffect(() => {
+    if (email && !podeVer[aba]) {
+      const primeira = abas[0];
+      if (primeira) setAba(primeira.chave);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [email]);
 
   return (
     <div style={S.wrap}>
