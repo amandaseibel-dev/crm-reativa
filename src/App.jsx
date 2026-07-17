@@ -61,6 +61,9 @@ import HistoricoRecuperacao from "./pages/HistoricoRecuperacao";
 import SaudeDaBase from "./pages/SaudeDaBase";
 import TvElogios from "./pages/TvElogios";
 import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
+import AvisosPopup from "./components/AvisosPopup";
+import AvisosBadge from "./components/AvisosBadge";
+import CentralAvisos from "./pages/CentralAvisos";
 import TaxaConversao from "./pages/TaxaConversao";
 import PainelGeral from "./pages/PainelGeral";
 function EmDesenvolvimento({ titulo }) {
@@ -72,6 +75,7 @@ function EmDesenvolvimento({ titulo }) {
   );
 }
 function podeAcessar(perfil, rota) {
+  if (rota === "/avisos") return true;
   const permissoes = {
     gerencia: [
       "/",
@@ -188,6 +192,12 @@ function RotaProtegida({ usuario, rota, children }) {
   if (rota === "/usuarios") {
     const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
     if (!EMAILS_PODE_GERIR_USUARIOS.includes(email)) {
+      return <Navigate to="/" replace />;
+    }
+  }
+  if (rota === "/avisos") {
+    const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+    if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
       return <Navigate to="/" replace />;
     }
   }
@@ -448,6 +458,7 @@ export default function App() {
     { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Gestão" },
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/importacoes", label: "Importações", icone: "Upload", secao: "Configurações" },
+    { rota: "/avisos", label: "Central de Avisos", icone: "Bell", secao: "Configurações" },
     { rota: "/usuarios", label: "Usuários", icone: "Users", secao: "Configurações" },
     { rota: "/configuracoes", label: "Configurações", icone: "Settings", secao: "Configurações" },
     { rota: "/meu-perfil", label: "Meu Perfil", icone: "UserCircle", secao: "Configurações" },
@@ -470,6 +481,10 @@ export default function App() {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       if (["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(email)) return false;
     }
+    if (item.rota === "/avisos") {
+      const emA = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emA);
+    }
     if (item.rota === "/usuarios") {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       if (!EMAILS_PODE_GERIR_USUARIOS.includes(email)) return false;
@@ -483,6 +498,7 @@ export default function App() {
         <AutoLogout usuario={usuario} />
         <NotificacoesSupervisaoAdm usuario={usuario} />
         <AvisoTemplateNovo />
+        <AvisosPopup />
         <aside className={sidebarRecolhida ? "sidebar sidebar-recolhida" : "sidebar"}>
           <button
             type="button"
@@ -494,6 +510,7 @@ export default function App() {
           </button>
           <div className="cabecalho-usuario">
             <h2 className="marca-reativa">{sidebarRecolhida ? (<><span style={{ color: "#3b82f6" }}>R</span>A</>) : (<><span style={{ color: "#3b82f6" }}>Re</span>ATIVA</>)}</h2>
+            <AvisosBadge />
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
               {usuario.perfil?.foto_url ? (
                 <img
@@ -620,6 +637,14 @@ export default function App() {
                     <MinhaFila />
                   </RotaProtegida>
                 )
+              }
+            />
+            <Route
+              path="/avisos"
+              element={
+                <RotaProtegida usuario={usuario} rota="/avisos">
+                  <CentralAvisos />
+                </RotaProtegida>
               }
             />
             <Route
