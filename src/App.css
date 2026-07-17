@@ -81,7 +81,7 @@ body {
 .app[data-tema="claro"] nav a:hover,
 .app[data-tema="claro"] nav a.active {
   background: rgba(37, 99, 235, 0.16);
-  color: #15803d;
+  color: #1e40af;
 }
 
 .botao-tema {
