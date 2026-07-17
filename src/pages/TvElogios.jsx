@@ -175,10 +175,10 @@ export default function TvElogios() {
 
       {atual.tipo === "honorarios" && (
         <div style={S.tela}>
-          <div style={S.rot}>Honorários do mês</div>
-          <div style={S.numGigante}>{moeda(p.honorarios_mes)}</div>
+          <div style={S.rot}>Projeção de honorários (fechamento)</div>
+          <div style={S.numGigante}>{moeda(p.proj_honorarios)}</div>
           <div style={S.linhaCartoes}>
-            <Cartao rot="Projetado no fechamento" val={moeda(p.proj_honorarios)} />
+            <Cartao rot="Honorários realizados no mês" val={moeda(p.honorarios_mes)} />
           </div>
         </div>
       )}
