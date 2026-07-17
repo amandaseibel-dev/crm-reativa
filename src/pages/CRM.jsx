@@ -135,7 +135,7 @@ export default function CRM() {
   };
 
   const estiloBotao = {
-    background: "#22c55e",
+    background: "#3b82f6",
     color: "#020617",
     border: "none",
     borderRadius: 12,
@@ -394,7 +394,7 @@ export default function CRM() {
     if (cr.includes("URG")) return "#f97316";
     if (cr.includes("ATEN")) return "#eab308";
 
-    return "#22c55e";
+    return "#3b82f6";
   }
 
   function CardInfo({ titulo, valor, destaque }) {
@@ -429,7 +429,7 @@ export default function CRM() {
             margin: "7px 0 0",
             fontSize: destaque ? 18 : 15,
             fontWeight: 900,
-            color: destaque ? "#22c55e" : vazio ? "#e9d5ff" : "#ffffff",
+            color: destaque ? "#3b82f6" : vazio ? "#e9d5ff" : "#ffffff",
           }}
         >
           {valor || "-"}
@@ -930,7 +930,7 @@ export default function CRM() {
         <button
           onClick={() => window.location.href = "/"}
           style={{
-            background: "#22c55e",
+            background: "#3b82f6",
             color: "#111827",
             border: "none",
             borderRadius: 12,
@@ -957,7 +957,7 @@ export default function CRM() {
           maxWidth: "760px",
           margin: "0 auto",
           background: "#111827",
-          border: "1px solid #22c55e",
+          border: "1px solid #3b82f6",
           borderRadius: "18px",
           padding: "28px"
         }}>
@@ -971,7 +971,7 @@ export default function CRM() {
             onClick={() => window.location.href = "/"}
             style={{
               marginTop: "18px",
-              background: "#22c55e",
+              background: "#3b82f6",
               color: "#0f172a",
               border: "none",
               borderRadius: "12px",
@@ -1032,7 +1032,7 @@ export default function CRM() {
                   cursor: "pointer",
                 }}
               >
-                <strong style={{ color: "#22c55e", fontSize: 16 }}>
+                <strong style={{ color: "#3b82f6", fontSize: 16 }}>
                   {formatarHora(c.horaRetorno)}
                 </strong>
 
@@ -1138,7 +1138,7 @@ export default function CRM() {
 
       {carregando && <p>Carregando casos...</p>}
       {erro && <p style={{ color: "#f87171", fontWeight: 800 }}>{erro}</p>}
-      {sucesso && <p style={{ color: "#22c55e", fontWeight: 800 }}>{sucesso}</p>}
+      {sucesso && <p style={{ color: "#3b82f6", fontWeight: 800 }}>{sucesso}</p>}
 
       <p style={{ fontSize: 14, color: "#e9d5ff" }}>
         Total de casos encontrados: <strong>{grupos.length}</strong>
@@ -1564,7 +1564,7 @@ export default function CRM() {
                     <button
                       style={{
                         ...estiloBotaoSecundario,
-                        background: "#22c55e",
+                        background: "#3b82f6",
                         color: "#020617",
                       }}
                       onClick={() => abrirAcoesAluno(c, "LINK_PAGAMENTO")}
