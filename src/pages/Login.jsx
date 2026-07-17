@@ -108,8 +108,8 @@ export default function Login() {
           <form className="login-card" onSubmit={entrar}>
             <div className="login-card__top">
               <div>
-                <span className="login-card__eyebrow">Acesso interno</span>
-                <h2>Entrar no ReATIVA One</h2>
+                
+                <h2>Entrar no ReATIVA</h2>
               </div>
 
               <div className="login-card__icon">🔒</div>
