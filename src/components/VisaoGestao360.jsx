@@ -34,6 +34,7 @@ export default function VisaoGestao360({ dias = 30 }) {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [ufSel, setUfSel] = useState(null);
+  const [saude, setSaude] = useState(null);
 
   useEffect(() => {
     let ativo = true;
@@ -54,6 +55,12 @@ export default function VisaoGestao360({ dias = 30 }) {
       ativo = false;
     };
   }, [dias]);
+
+  useEffect(() => {
+    let ativo = true;
+    supabase.rpc("dashboard_saude_base_acionamento").then(({ data }) => { if (ativo) setSaude(data); });
+    return () => { ativo = false; };
+  }, []);
 
   if (carregando) {
     return (
@@ -131,6 +138,38 @@ export default function VisaoGestao360({ dias = 30 }) {
         </div>
         <p style={s.muted}>Base histórica = CPFs importados. Carteira a cobrar = quem tem título em aberto hoje. O restante está sem dívida em aberto ou já quitado.</p>
       </div>
+
+      {saude && (
+        <div style={s.bloco}>
+          <h3 style={s.h3}>Saúde da base — nunca acionados por faixa</h3>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ flex: 1, minWidth: 180, background: "#eff6ff", borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#1d4ed8" }}>{num(saude.na_operacao_total)}</div>
+              <div style={{ fontSize: 12, color: "#1e40af", fontWeight: 600 }}>Na operação, nunca tocados · {moeda(saude.na_operacao_valor)}</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 180, background: "#fef3c7", borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#b45309" }}>{num(saude.fora_operacao_total)}</div>
+              <div style={{ fontSize: 12, color: "#92400e", fontWeight: 600 }}>Fora da operação (candidatos a ação massiva) · {moeda(saude.fora_operacao_valor)}</div>
+            </div>
+          </div>
+          {(() => { const maxF = Math.max(1, ...(saude.faixas || []).map((y) => (Number(y.na_operacao) || 0) + (Number(y.fora_operacao) || 0))); return (saude.faixas || []).map((f) => {
+            const tot = (Number(f.na_operacao) || 0) + (Number(f.fora_operacao) || 0);
+            return (
+              <div key={f.faixa} style={s.linha}>
+                <div style={s.linhaTopo}><span>{f.faixa}</span><strong>{num(tot)} alunos</strong></div>
+                <div style={{ ...s.barTrack, display: "flex" }}>
+                  <div style={{ height: "100%", width: ((Number(f.na_operacao) / maxF) * 100) + "%", background: "#2563eb" }} />
+                  <div style={{ height: "100%", width: ((Number(f.fora_operacao) / maxF) * 100) + "%", background: "#eda100" }} />
+                </div>
+              </div>
+            );
+          }); })()}
+          <div style={{ display: "flex", gap: 16, marginTop: 8, fontSize: 12, color: "#64748b" }}>
+            <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#2563eb", marginRight: 4 }} />Na operação (fila de operador)</span>
+            <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#eda100", marginRight: 4 }} />Fora da operação (ação massiva)</span>
+          </div>
+        </div>
+      )}
 
       <div style={s.statsRow}>
         <Stat rot="Recuperado" val={moeda(rec.recuperado)} cor="#16a34a" />
