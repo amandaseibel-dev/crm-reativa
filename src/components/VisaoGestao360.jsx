@@ -35,6 +35,8 @@ export default function VisaoGestao360({ dias = 30 }) {
   const [erro, setErro] = useState("");
   const [ufSel, setUfSel] = useState(null);
   const [saude, setSaude] = useState(null);
+  const [fatur, setFatur] = useState(null);
+  const [proj, setProj] = useState(null);
 
   useEffect(() => {
     let ativo = true;
@@ -59,6 +61,8 @@ export default function VisaoGestao360({ dias = 30 }) {
   useEffect(() => {
     let ativo = true;
     supabase.rpc("dashboard_saude_base_acionamento").then(({ data }) => { if (ativo) setSaude(data); });
+    supabase.rpc("dashboard_faturamento_anual").then(({ data }) => { if (ativo) setFatur(data); });
+    supabase.rpc("dashboard_projecao_semestre").then(({ data }) => { if (ativo) setProj(data); });
     return () => { ativo = false; };
   }, []);
 
@@ -168,6 +172,51 @@ export default function VisaoGestao360({ dias = 30 }) {
             <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#2563eb", marginRight: 4 }} />Na operação (fila de operador)</span>
             <span><span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: "#eda100", marginRight: 4 }} />Fora da operação (ação massiva)</span>
           </div>
+        </div>
+      )}
+
+      {fatur && (
+        <div style={s.bloco}>
+          <h3 style={s.h3}>Faturamento ano a ano</h3>
+          <div style={s.tblScroll}>
+            <div style={{ ...s.tblRow, ...s.tblHead, gridTemplateColumns: "0.7fr 1.4fr 1.4fr 1.1fr", minWidth: 520 }}>
+              <span>Ano</span><span>Recuperado</span><span>Honorários</span><span>Alunos pagos</span>
+            </div>
+            {(fatur.anos || []).map((a) => (
+              <div key={a.ano} style={{ ...s.tblRow, gridTemplateColumns: "0.7fr 1.4fr 1.4fr 1.1fr", minWidth: 520 }}>
+                <span style={s.opName}>{a.ano}</span>
+                <span>{moeda(a.recuperado)} {a.var_recuperado_pct != null && <em style={{ ...s.em, color: a.var_recuperado_pct >= 0 ? "#16a34a" : "#ef4444" }}>({a.var_recuperado_pct >= 0 ? "+" : ""}{a.var_recuperado_pct}%)</em>}</span>
+                <span>{moeda(a.honorarios)} {a.var_honorarios_pct != null && <em style={{ ...s.em, color: a.var_honorarios_pct >= 0 ? "#16a34a" : "#ef4444" }}>({a.var_honorarios_pct >= 0 ? "+" : ""}{a.var_honorarios_pct}%)</em>}</span>
+                <span>{num(a.alunos_pagos)} {a.var_alunos_pct != null && <em style={{ ...s.em, color: a.var_alunos_pct >= 0 ? "#16a34a" : "#ef4444" }}>({a.var_alunos_pct >= 0 ? "+" : ""}{a.var_alunos_pct}%)</em>}</span>
+              </div>
+            ))}
+          </div>
+          <p style={s.muted}>Unifica pagamentos operacionais + histórico retroativo. Variação % vs ano anterior.</p>
+        </div>
+      )}
+
+      {proj && (
+        <div style={s.bloco}>
+          <h3 style={s.h3}>Projeção de semestre (ritmo atual)</h3>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 12 }}>
+            <div style={{ flex: 1, minWidth: 160, background: "#f1f5f9", borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#475569" }}>{moeda(proj.recuperado_mtd)}</div>
+              <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>Realizado no mês ({proj.dias_decorridos}/{proj.dias_mes} dias)</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 160, background: "#dbeafe", borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#1d4ed8" }}>{moeda(proj.proj_mes_recuperado)}</div>
+              <div style={{ fontSize: 12, color: "#1e40af", fontWeight: 600 }}>Projeção do mês fechado</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 160, background: "#dcfce7", borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#15803d" }}>{moeda(proj.semestre_total_recuperado)}</div>
+              <div style={{ fontSize: 12, color: "#166534", fontWeight: 600 }}>Projeção 6 meses — recuperado</div>
+            </div>
+            <div style={{ flex: 1, minWidth: 160, background: "#dcfce7", borderRadius: 10, padding: 12 }}>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#15803d" }}>{moeda(proj.semestre_total_honorarios)}</div>
+              <div style={{ fontSize: 12, color: "#166534", fontWeight: 600 }}>Projeção 6 meses — honorários</div>
+            </div>
+          </div>
+          <p style={s.muted}>Projeção linear pelo ritmo diário do mês atual. Recalcula sozinho conforme entram pagamentos e novos meses.</p>
         </div>
       )}
 
