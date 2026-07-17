@@ -44,6 +44,7 @@ import VincularBaseOperacional from "./pages/VincularBaseOperacional";
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 import PainelAdm from "./pages/PainelAdm";
 import FinanceiroHub from "./pages/FinanceiroHub";
+import CentralPagamentos from "./components/CentralPagamentos";
 import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
@@ -433,6 +434,7 @@ export default function App() {
     { rota: "/aluno", label: "Aluno", icone: "User", secao: "Operação" },
     { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
+    { rota: "/central-pagamentos", label: "Central de Pagamentos", icone: "Wallet", secao: "Financeiro" },
     { rota: "/painel-geral", label: "Painel Geral", icone: "LayoutPanelTop", secao: "Gestão" },
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
@@ -734,6 +736,7 @@ export default function App() {
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/painel-geral" element={<PainelGeral />} />
               <Route path="/financeiro-hub" element={<FinanceiroHub />} />
+        <Route path="/central-pagamentos" element={<CentralPagamentos />} />
               <Route path="/fila-financeiro" element={<FilaFinanceiro />} />
               <Route path="/fila-confirmacao-pagamento" element={<FilaConfirmacaoPagamento />} />
               <Route path="/painel-operadores" element={<PainelOperadores />} />
