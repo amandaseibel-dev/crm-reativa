@@ -38,6 +38,7 @@ export default function VisaoGestao360({ dias = 30 }) {
   const [fatur, setFatur] = useState(null);
   const [proj, setProj] = useState(null);
   const [mensal, setMensal] = useState(null);
+  const [funil, setFunil] = useState(null);
 
   useEffect(() => {
     let ativo = true;
@@ -65,6 +66,7 @@ export default function VisaoGestao360({ dias = 30 }) {
     supabase.rpc("dashboard_faturamento_anual").then(({ data }) => { if (ativo) setFatur(data); });
     supabase.rpc("dashboard_projecao_semestre").then(({ data }) => { if (ativo) setProj(data); });
     supabase.rpc("dashboard_faturamento_mensal_yoy").then(({ data }) => { if (ativo) setMensal(data); });
+    supabase.rpc("dashboard_funil_conversao").then(({ data }) => { if (ativo) setFunil(data); });
     return () => { ativo = false; };
   }, []);
 
@@ -241,6 +243,25 @@ export default function VisaoGestao360({ dias = 30 }) {
             ))}
           </div>
           <p style={s.muted}>Recuperado por mês, anos lado a lado. Conforme você importa os meses retroativos, dá pra comparar o mesmo mês entre anos e enxergar picos sazonais (ex.: matrícula).</p>
+        </div>
+      )}
+
+      {funil && (
+        <div style={s.bloco}>
+          <h3 style={s.h3}>Funil de conversão operacional</h3>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+            {[funil.links, funil.acordos, funil.confirmacoes].filter(Boolean).map((f) => (
+              <div key={f.label} style={{ flex: 1, minWidth: 200, background: "#f8fafc", borderRadius: 12, padding: 14 }}>
+                <div style={{ fontSize: 13, color: "#64748b", fontWeight: 600, marginBottom: 6 }}>{f.label}</div>
+                <div style={{ fontSize: 26, fontWeight: 800, color: f.pct >= 60 ? "#16a34a" : f.pct >= 35 ? "#f59e0b" : "#ef4444" }}>{f.pct}%</div>
+                <div style={{ fontSize: 12, color: "#334155", marginTop: 4 }}>{num(f.para)} {f.para_label} de {num(f.de)} {f.de_label}</div>
+                <div style={{ ...s.barTrack, marginTop: 8 }}>
+                  <div style={{ ...s.barFill, width: Math.max(2, Number(f.pct)) + "%", background: f.pct >= 60 ? "#16a34a" : f.pct >= 35 ? "#f59e0b" : "#ef4444" }} />
+                </div>
+              </div>
+            ))}
+          </div>
+          <p style={s.muted}>Onde a operação converte (ou vaza): link enviado → pago, acordo fechado → quitado, confirmação solicitada → confirmada.</p>
         </div>
       )}
 
