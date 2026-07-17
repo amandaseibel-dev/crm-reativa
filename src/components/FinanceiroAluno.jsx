@@ -207,7 +207,15 @@ export default function FinanceiroAluno({ aluno }) {
         .eq("cpf", aluno.cpf)
         .order("vencimento", { ascending: true });
 
-      setTitulos(data || []);
+      // Em aberto no topo; depois por vencimento (mantido da query).
+      const emAbertoPrimeiro = (data || []).slice().sort((a, b) => {
+        const aAberto = String(a.status || "").toLowerCase() === "em_aberto" && a.situacao !== "PAGO" ? 0 : 1;
+        const bAberto = String(b.status || "").toLowerCase() === "em_aberto" && b.situacao !== "PAGO" ? 0 : 1;
+        if (aAberto !== bAberto) return aAberto - bAberto;
+        return String(a.vencimento || "").localeCompare(String(b.vencimento || ""));
+      });
+
+      setTitulos(emAbertoPrimeiro);
       setCarregando(false);
     }
 
