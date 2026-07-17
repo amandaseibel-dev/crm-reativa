@@ -381,6 +381,9 @@ export default function App() {
     await supabase.auth.signOut();
     window.location.href = "/";
   }
+  if (["/tv-elogios", "/tv"].includes(window.location.pathname)) {
+    return <TvElogios />;
+  }
   if (carregando) {
     return (
       <div
@@ -403,9 +406,6 @@ export default function App() {
   }
   if (!usuario) {
     return <Login onLogin={setUsuario} />;
-  }
-  if (["/tv-elogios", "/tv"].includes(window.location.pathname)) {
-    return <TvElogios />;
   }
   if (usuario.perfil?.deve_trocar_senha) {
     return <RedefinirSenha forcado email={usuario.perfil.email} />;
