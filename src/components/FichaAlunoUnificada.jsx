@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
 import AlterarOperadorResponsavel from "./AlterarOperadorResponsavel";
+import EmailAlunoUnificado from "./EmailAlunoUnificado";
 
 /*
   FichaAlunoUnificada
@@ -73,6 +74,7 @@ const ABAS = [
   ["resumo", "Resumo"],
   ["negociacao", "Negociação"],
   ["financeiro", "Financeiro"],
+  ["email", "E-mail"],
   ["historico", "Histórico"],
 ];
 
@@ -293,6 +295,12 @@ export default function FichaAlunoUnificada({
             Dados financeiros somente leitura aqui. As baixas e a montagem de acordo
             continuam nas ações da fila (não há formulário paralelo).
           </p>
+        </div>
+      )}
+
+      {aba === "email" && (
+        <div style={{ paddingTop: 4 }}>
+          <EmailAlunoUnificado aluno={aluno} />
         </div>
       )}
 
