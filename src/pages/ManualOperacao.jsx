@@ -7,7 +7,7 @@ export default function ManualOperacao() {
     <div style={styles.container}>
       <div style={styles.header}>
         <div>
-          <p style={styles.selo}>ReATIVA One</p>
+          <p style={styles.selo}>ReATIVA</p>
           <h1 style={styles.titulo}>Manual Básico da Operação</h1>
           <p style={styles.subtitulo}>
             Guia rápido para teste controlado da Fila Operacional, Agenda e Ficha Unificada.
