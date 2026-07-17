@@ -11,7 +11,7 @@ function num(v) {
   return Number(v || 0).toLocaleString("pt-BR");
 }
 
-function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCurto = "pgtos", so3 = false }) {
+function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCurto = "pgtos", so3 = true }) {
   const trio = [{ o: rank[1], pos: 2 }, { o: rank[0], pos: 1 }, { o: rank[2], pos: 3 }];
   const alturas = { 1: "32vh", 2: "23vh", 3: "18vh" };
   const cores = { 1: "linear-gradient(180deg, #fde68a, #f59e0b)", 2: "linear-gradient(180deg, #e2e8f0, #94a3b8)", 3: "linear-gradient(180deg, #fdba74, #c2843f)" };
