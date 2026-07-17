@@ -236,7 +236,7 @@ export default function Usuarios() {
   return (
     <div style={page}>
       <h1 style={title}>Usuários</h1>
-      <p style={subtitle}>Gerencie os acessos e permissões do ReATIVA One.</p>
+      <p style={subtitle}>Gerencie os acessos e permissões do ReATIVA.</p>
 
       <div style={cards}>
         <Card label="Total de usuários" value={total} />
