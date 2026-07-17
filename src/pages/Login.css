@@ -12,8 +12,8 @@ body,
 }
 
 @keyframes reativaPulso {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.45), 0 14px 38px rgba(0,0,0,0.35); }
-  50% { box-shadow: 0 0 40px 10px rgba(34, 197, 94, 0.35), 0 14px 38px rgba(0,0,0,0.35); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(37, 99, 235, 0.45), 0 14px 38px rgba(0,0,0,0.35); }
+  50% { box-shadow: 0 0 40px 10px rgba(37, 99, 235, 0.35), 0 14px 38px rgba(0,0,0,0.35); }
 }
 
 .reativa-login {
@@ -22,7 +22,7 @@ body,
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
   background:
-    radial-gradient(circle at 18% 18%, rgba(34, 197, 94, 0.18), transparent 28%),
+    radial-gradient(circle at 18% 18%, rgba(37, 99, 235, 0.18), transparent 28%),
     radial-gradient(circle at 70% 28%, rgba(20, 184, 166, 0.13), transparent 30%),
     linear-gradient(135deg, #030712 0%, #07111a 45%, #0b1118 100%);
   color: #f8fafc;
@@ -44,8 +44,8 @@ body,
   position: absolute;
   inset: 0;
   background:
-    linear-gradient(115deg, transparent 0%, rgba(34, 197, 94, 0.04) 48%, transparent 70%),
-    radial-gradient(circle at 55% 50%, rgba(34, 197, 94, 0.18), transparent 12%);
+    linear-gradient(115deg, transparent 0%, rgba(37, 99, 235, 0.04) 48%, transparent 70%),
+    radial-gradient(circle at 55% 50%, rgba(37, 99, 235, 0.18), transparent 12%);
   opacity: 0.9;
   pointer-events: none;
 }
@@ -58,7 +58,7 @@ body,
   top: 39%;
   height: 210px;
   background:
-    repeating-radial-gradient(ellipse at center, rgba(34, 197, 94, 0.22) 0 1px, transparent 1px 8px);
+    repeating-radial-gradient(ellipse at center, rgba(37, 99, 235, 0.22) 0 1px, transparent 1px 8px);
   opacity: 0.18;
   transform: rotate(-5deg);
   pointer-events: none;
@@ -85,18 +85,18 @@ body,
 }
 
 .reativa-login__logo span {
-  color: #22c55e;
+  color: #3b82f6;
 }
 
 .reativa-login__tag {
   padding: 7px 16px;
-  border: 1px solid rgba(34, 197, 94, 0.62);
+  border: 1px solid rgba(37, 99, 235, 0.62);
   border-radius: 12px;
-  color: #4ade80;
-  background: rgba(34, 197, 94, 0.06);
+  color: #60a5fa;
+  background: rgba(37, 99, 235, 0.06);
   font-weight: 900;
   font-size: 18px;
-  box-shadow: 0 0 24px rgba(34, 197, 94, 0.14);
+  box-shadow: 0 0 24px rgba(37, 99, 235, 0.14);
 }
 
 .reativa-login__content {
@@ -171,21 +171,21 @@ body,
 }
 
 .flow-card.destaque {
-  border-color: rgba(34, 197, 94, 0.75);
+  border-color: rgba(37, 99, 235, 0.75);
   background:
-    radial-gradient(circle at 50% 0%, rgba(34, 197, 94, 0.28), transparent 55%),
+    radial-gradient(circle at 50% 0%, rgba(37, 99, 235, 0.28), transparent 55%),
     rgba(8, 16, 26, 0.82);
   box-shadow:
-    0 0 0 1px rgba(34, 197, 94, 0.18),
-    0 24px 70px rgba(34, 197, 94, 0.16);
+    0 0 0 1px rgba(37, 99, 235, 0.18),
+    0 24px 70px rgba(37, 99, 235, 0.16);
 }
 
 .flow-line {
   width: 42px;
   height: 3px;
   border-radius: 999px;
-  background: linear-gradient(90deg, rgba(34, 197, 94, 0.1), #22c55e, rgba(34, 197, 94, 0.15));
-  box-shadow: 0 0 22px rgba(34, 197, 94, 0.65);
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.1), #3b82f6, rgba(37, 99, 235, 0.15));
+  box-shadow: 0 0 22px rgba(37, 99, 235, 0.65);
 }
 
 .reativa-login__metrics {
@@ -212,7 +212,7 @@ body,
 
 .reativa-login__metrics span {
   display: block;
-  color: #22c55e;
+  color: #3b82f6;
   font-size: 14px;
   font-weight: 800;
   margin-bottom: 8px;
@@ -237,7 +237,7 @@ body,
   height: 280px;
   left: -90px;
   bottom: -80px;
-  background: rgba(34, 197, 94, 0.34);
+  background: rgba(37, 99, 235, 0.34);
 }
 
 .glow-two {
@@ -268,7 +268,7 @@ body,
   padding: 44px;
   border-radius: 28px;
   background:
-    radial-gradient(circle at 82% 18%, rgba(34, 197, 94, 0.12), transparent 26%),
+    radial-gradient(circle at 82% 18%, rgba(37, 99, 235, 0.12), transparent 26%),
     rgba(5, 12, 20, 0.86);
   border: 1px solid rgba(148, 163, 184, 0.2);
   box-shadow:
@@ -286,7 +286,7 @@ body,
 
 .login-card__eyebrow {
   display: block;
-  color: #4ade80;
+  color: #60a5fa;
   font-size: 16px;
   font-weight: 900;
   margin-bottom: 12px;
@@ -306,11 +306,11 @@ body,
   border-radius: 16px;
   display: grid;
   place-items: center;
-  color: #4ade80;
+  color: #60a5fa;
   background:
-    radial-gradient(circle at 50% 70%, rgba(34, 197, 94, 0.32), transparent 64%),
-    rgba(34, 197, 94, 0.1);
-  border: 1px solid rgba(34, 197, 94, 0.22);
+    radial-gradient(circle at 50% 70%, rgba(37, 99, 235, 0.32), transparent 64%),
+    rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(37, 99, 235, 0.22);
   font-size: 26px;
   font-weight: 900;
 }
@@ -353,8 +353,8 @@ body,
 }
 
 .login-field input:focus {
-  border-color: rgba(34, 197, 94, 0.8);
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.13);
+  border-color: rgba(37, 99, 235, 0.8);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.13);
 }
 
 .password-box {
@@ -368,8 +368,8 @@ body,
 }
 
 .password-box:focus-within {
-  border-color: rgba(34, 197, 94, 0.8);
-  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.13);
+  border-color: rgba(37, 99, 235, 0.8);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.13);
 }
 
 .password-box input {
@@ -387,7 +387,7 @@ body,
   padding: 0 18px;
   border: none;
   background: transparent;
-  color: #4ade80;
+  color: #60a5fa;
   font-weight: 900;
   cursor: pointer;
 }
@@ -410,10 +410,10 @@ body,
   cursor: pointer;
   color: #ffffff;
   font-family: 'Sora', Inter, sans-serif;
-  background: linear-gradient(135deg, #4ade80, #22c55e, #10b981);
+  background: linear-gradient(135deg, #60a5fa, #3b82f6, #2563eb);
   font-size: 20px;
   font-weight: 800;
-  box-shadow: 0 22px 48px rgba(34, 197, 94, 0.24);
+  box-shadow: 0 22px 48px rgba(37, 99, 235, 0.24);
   transition: transform 0.18s ease, filter 0.18s ease;
 }
 
@@ -433,7 +433,7 @@ body,
   display: flex;
   justify-content: center;
   gap: 9px;
-  color: #86efac;
+  color: #93c5fd;
   font-size: 14px;
 }
 
@@ -471,7 +471,7 @@ body,
 }
 
 .side-panel__header strong {
-  color: #22c55e;
+  color: #3b82f6;
 }
 
 .side-panel__item strong {
