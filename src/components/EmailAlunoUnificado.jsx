@@ -112,21 +112,28 @@ export default function EmailAlunoUnificado({ aluno }) {
   }
 
   async function abrirGmail() {
-    // Copia a arte formatada ANTES de abrir, pro operador so colar (Ctrl+V).
+    // Copia a arte formatada ANTES de abrir. Se copiar, abre o corpo VAZIO
+    // pra colar limpo (Ctrl+V); se falhar, cai no texto pre-preenchido.
+    let arteCopiada = false;
     try {
       const b1 = new Blob([html], { type: "text/html" });
       const b2 = new Blob([texto], { type: "text/plain" });
       await navigator.clipboard.write([new window.ClipboardItem({ "text/html": b1, "text/plain": b2 })]);
-    } catch (e) { /* se falhar, o corpo em texto ja vai preenchido */ }
+      arteCopiada = true;
+    } catch (e) { arteCopiada = false; }
     const to = encodeURIComponent(emailDest || "");
     const su = encodeURIComponent(assunto);
-    const body = encodeURIComponent(texto);
+    const body = arteCopiada ? "" : encodeURIComponent(texto);
     window.open(
       `https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${su}&body=${body}`,
       "_blank"
     );
     registrarAcionamento();
-    setMsg("Gmail aberto e arte copiada! No corpo, apague o texto e cole a arte (Ctrl+V)" + (tpl?.permite_anexo ? ", anexe o termo" : "") + " e envie.");
+    setMsg(
+      arteCopiada
+        ? "Gmail aberto! Clique no corpo do e-mail e cole a arte com Ctrl+V" + (tpl?.permite_anexo ? ", anexe o termo" : "") + " e envie."
+        : "Gmail aberto com o texto pronto. Revise e envie."
+    );
   }
 
   async function registrarContato(canal) {
