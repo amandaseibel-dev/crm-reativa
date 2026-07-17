@@ -21,7 +21,7 @@ export default function CentralPagamentos() {
 
   const abas = [
     { chave: "links", rot: "Links", cont: c ? num(c.links_pendentes) : null },
-    { chave: "baixas", rot: "Baixas", cont: null },
+    { chave: "baixas", rot: "Baixas", cont: c ? num(c.baixas_aguardando) : null },
     { chave: "confirmacao", rot: "Confirmação", cont: c ? num(c.confirmacao_aguardando) : null },
     { chave: "termos", rot: "Termos", cont: null },
   ];
@@ -35,10 +35,11 @@ export default function CentralPagamentos() {
 
       <div style={S.cards}>
         <Card rot="Links pendentes" val={c ? num(c.links_pendentes) : "-"} cor="#1d4ed8" />
-        <Card rot="Links pagos" val={c ? num(c.links_pagos) : "-"} cor="#16a34a" />
+        <Card rot="Links pagos" val={c ? num(c.links_pagos) : "-"} cor="#2563eb" />
         <Card rot="Aguardando confirmação" val={c ? num(c.confirmacao_aguardando) : "-"} cor="#b45309" />
+        <Card rot="Fila de baixa" val={c ? num(c.baixas_aguardando) : "-"} cor="#2563eb" />
         <Card rot="Sem valor informado" val={c ? num(c.confirmacao_sem_valor) : "-"} cor="#dc2626" />
-        <Card rot="Confirmados no mês" val={c ? num(c.confirmadas_mes) : "-"} cor="#16a34a" />
+        <Card rot="Confirmados no mês" val={c ? num(c.confirmadas_mes) : "-"} cor="#2563eb" />
       </div>
 
       <div style={S.tabs}>
