@@ -3,7 +3,7 @@ import { supabase } from "../services/supabase";
 
 const TIPOS_ACIONAMENTO = ["FINALIZACAO_ATENDIMENTO", "FINALIZACAO"];
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const VERDE = "#0f9d6b";
+const VERDE = "#1e40af";
 
 function diasEntre(dataInicioISO, dataFimISO) {
   const inicio = new Date(dataInicioISO);
@@ -179,7 +179,7 @@ export default function MeuDashboard() {
             Total recuperado esse mês, incluindo todos os tipos de pagamento (não só os principais).
           </p>
           <div style={estilos.gridFinanceiro}>
-            <div style={{ ...estilos.cartaoFinanceiro, background: "#ecfaf3", borderColor: "#bdeed4" }}>
+            <div style={{ ...estilos.cartaoFinanceiro, background: "#eff6ff", borderColor: "#c7d7fe" }}>
               <span style={{ ...estilos.numeroFinanceiro, color: "#0f7a4f", fontSize: 30 }}>
                 {moeda(financeiro.honorario_mes)}
               </span>
@@ -199,7 +199,7 @@ export default function MeuDashboard() {
               <span
                 style={{
                   ...estilos.numeroFinanceiro,
-                  color: (financeiro.percentual_projecao_individual ?? 0) >= 100 ? "#0f9d6b" : "#d97706",
+                  color: (financeiro.percentual_projecao_individual ?? 0) >= 100 ? "#1e40af" : "#d97706",
                 }}
               >
                 {financeiro.percentual_projecao_individual ?? 0}%
@@ -288,8 +288,8 @@ const estilos = {
     cursor: "pointer",
   },
   abaAtiva: {
-    background: "#0f9d6b",
-    border: "1px solid #0f9d6b",
+    background: "#1e40af",
+    border: "1px solid #1e40af",
     borderRadius: 10,
     padding: "9px 16px",
     fontSize: 13,
