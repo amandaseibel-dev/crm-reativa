@@ -572,12 +572,12 @@ export default function App() {
                   >
                     <IconeComponente size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
                     {!sidebarRecolhida && <span>{item.label}</span>}
-                {item.rota === "/financeiro-hub" && (linksAguardando + termosAguardandoValidacao) > 0 && (
+                {item.rota === "/financeiro-hub" && (linksAguardando + termosAguardandoValidacao + baixasAguardando) > 0 && (
                   <span
                     className="badge-pendente"
-                    title={`${linksAguardando} link(s) aguardando resposta · ${termosAguardandoValidacao} termo(s) aguardando validação`}
+                    title={`${linksAguardando} link(s) aguardando resposta · ${termosAguardandoValidacao} termo(s) aguardando validação · ${baixasAguardando} baixa(s) aguardando`}
                   >
-                    {linksAguardando + termosAguardandoValidacao}
+                    {linksAguardando + termosAguardandoValidacao + baixasAguardando}
                   </span>
                 )}
                 {item.rota === "/aluno" && termosRejeitados > 0 && (
