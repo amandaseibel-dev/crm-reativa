@@ -71,11 +71,18 @@ export default function AcoesMassivas() {
   const [sucesso, setSucesso] = useState("");
   const [progresso, setProgresso] = useState(null);
   const [porDia, setPorDia] = useState([]);
+  const [saude, setSaude] = useState(null);
 
   useEffect(() => {
     carregarProgresso();
     carregarPorDia();
+    carregarSaude();
   }, [canal]);
+
+  async function carregarSaude() {
+    const { data } = await supabase.rpc("saude_da_base");
+    setSaude(data);
+  }
 
   async function carregarPorDia() {
     const { data } = await supabase.rpc("acoes_massivas_por_dia");
@@ -272,6 +279,20 @@ export default function AcoesMassivas() {
         <p style={{ ...estilos.subtitulo, marginBottom: 14, marginTop: -8 }}>
           Pra tratar quem não tem telefone cadastrado, mas tem e-mail.
         </p>
+      )}
+
+      {saude && (saude.sem_valor > 0 || saude.sem_telefone > 0) && (
+        <div style={{ ...estilos.card, background: "#fef7f0", borderColor: "#fde3cc" }}>
+          <strong style={{ fontFamily: FONTE_TITULO, fontSize: 14, display: "block", marginBottom: 6 }}>
+            ⚠️ Casos fora do alcance das Ações Massivas
+          </strong>
+          <p style={{ margin: 0, fontSize: 13, color: "#7c4a1e" }}>
+            <strong>{saude.sem_valor}</strong> livres sem valor calculado e{" "}
+            <strong>{saude.sem_telefone}</strong> sem telefone cadastrado — esses não entram em nenhuma
+            remessa automática. Precisam de conferência manual em{" "}
+            <a href="/financeiro-hub" style={{ color: "#c2410c", fontWeight: 700 }}>Confirmação de Pagamento</a>.
+          </p>
+        </div>
       )}
 
       {progresso && progresso.total_elegivel > 0 && (

@@ -95,7 +95,18 @@ export default function SaudeDaBase() {
             )}
           </span>
           <span style={estilos.labelValor}>
-            Livres sem valor calculado — <a href="/painel-adm" style={estilos.link}>ir pra Confirmação de Pagamento</a>
+            Livres sem valor calculado — <a href="/financeiro-hub" style={estilos.link}>ir pra Confirmação de Pagamento</a>
+          </span>
+        </div>
+        <div style={{ ...estilos.cardValor, background: dados.sem_telefone > 0 ? "#fef7f0" : undefined, borderColor: dados.sem_telefone > 0 ? "#fde3cc" : undefined }}>
+          <span style={{ ...estilos.numeroValor, color: dados.sem_telefone > 0 ? "#c2410c" : undefined }}>
+            {(dados.sem_telefone || 0).toLocaleString("pt-BR")}
+            {dados.total_alunos > 0 && (
+              <span style={estilos.percentual}> ({((dados.sem_telefone / dados.total_alunos) * 100).toFixed(1)}%)</span>
+            )}
+          </span>
+          <span style={estilos.labelValor}>
+            Sem telefone cadastrado — <a href="/financeiro-hub" style={estilos.link}>ir pra Confirmação de Pagamento</a>
           </span>
         </div>
         <div style={{ ...estilos.cardValor, background: "#eff6ff", borderColor: "#c7d7fe" }}>
