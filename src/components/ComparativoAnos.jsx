@@ -9,6 +9,20 @@ function num(v) {
 }
 const MESES = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 
+function Variacao({ a, b }) {
+  const va = Number(a) || 0;
+  const vb = Number(b) || 0;
+  if (!va && !vb) return <span style={{ color: "#cbd5e1" }}>—</span>;
+  if (!va) return <span style={{ color: "#16a34a", fontWeight: 700 }}>novo</span>;
+  if (!vb) return <span style={{ color: "#cbd5e1" }}>—</span>;
+  const p = ((vb - va) / va) * 100;
+  return (
+    <span style={{ color: p >= 0 ? "#16a34a" : "#dc2626", fontWeight: 700 }}>
+      {(p >= 0 ? "+" : "") + p.toFixed(0) + "%"}
+    </span>
+  );
+}
+
 export default function ComparativoAnos() {
   const [d, setD] = useState(null);
   const [carregando, setCarregando] = useState(true);
@@ -28,7 +42,6 @@ export default function ComparativoAnos() {
   if (!d) return null;
 
   const meses = d.por_mes || [];
-  const maxMes = Math.max(1, ...meses.map((m) => Math.max(Number(m.rec_2025) || 0, Number(m.rec_2026) || 0)));
   const proj = d.projecao_2026 || {};
   const tg = d.totais_gerais || {};
   const varTotal = d.total_2025 > 0 ? ((d.total_2026 - d.total_2025) / d.total_2025) * 100 : 0;
@@ -55,29 +68,49 @@ export default function ComparativoAnos() {
       </div>
 
       <div style={S.card}>
-        <div style={S.legend}>
-          <span><span style={{ ...S.dot, background: "#cbd5e1" }} />2025</span>
-          <span><span style={{ ...S.dot, background: "#16a34a" }} />2026</span>
+        <h3 style={S.h3}>Mês a mês — pagamento e honorário</h3>
+        <div style={S.tabelaWrap}>
+          <table style={S.tabela}>
+            <thead>
+              <tr>
+                <th style={S.th}>Mês</th>
+                <th style={S.thNum}>Pago 2025</th>
+                <th style={S.thNum}>Pago 2026</th>
+                <th style={S.thNum}>Δ pago</th>
+                <th style={S.thNum}>Honorário 2025</th>
+                <th style={S.thNum}>Honorário 2026</th>
+                <th style={S.thNum}>Δ honorário</th>
+              </tr>
+            </thead>
+            <tbody>
+              {meses.map((m) => (
+                <tr key={m.mes}>
+                  <td style={S.tdMes}>{MESES[m.mes]}</td>
+                  <td style={S.td}>{m.rec_2025 ? moeda(m.rec_2025) : "—"}</td>
+                  <td style={S.tdForte}>{m.rec_2026 ? moeda(m.rec_2026) : "—"}</td>
+                  <td style={S.tdNum}><Variacao a={m.rec_2025} b={m.rec_2026} /></td>
+                  <td style={S.td}>{m.hon_2025 ? moeda(m.hon_2025) : "—"}</td>
+                  <td style={S.tdForte}>{m.hon_2026 ? moeda(m.hon_2026) : "—"}</td>
+                  <td style={S.tdNum}><Variacao a={m.hon_2025} b={m.hon_2026} /></td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td style={S.tdTotal}>Total</td>
+                <td style={S.tdTotal}>{moeda(d.total_2025)}</td>
+                <td style={S.tdTotal}>{moeda(d.total_2026)}</td>
+                <td style={S.tdTotalNum}><Variacao a={d.total_2025} b={d.total_2026} /></td>
+                <td style={S.tdTotal}>{moeda(d.honorarios_2025)}</td>
+                <td style={S.tdTotal}>{moeda(d.honorarios_2026)}</td>
+                <td style={S.tdTotalNum}><Variacao a={d.honorarios_2025} b={d.honorarios_2026} /></td>
+              </tr>
+            </tfoot>
+          </table>
         </div>
-        {meses.map((m) => (
-          <div key={m.mes} style={S.linha}>
-            <div style={S.linhaTopo}>
-              <span style={{ width: 34, display: "inline-block", fontWeight: 600 }}>{MESES[m.mes]}</span>
-              <span style={S.vals}>
-                <span style={{ color: "#64748b" }}>{moeda(m.rec_2025)}</span>
-                <strong style={{ color: "#16a34a" }}>{moeda(m.rec_2026)}</strong>
-              </span>
-            </div>
-            <div style={S.par}>
-              <div style={S.track}>
-                <div style={{ ...S.fill, width: Math.max(1, (Number(m.rec_2025) / maxMes) * 100) + "%", background: "#cbd5e1" }} />
-              </div>
-              <div style={S.track}>
-                <div style={{ ...S.fill, width: Math.max(1, (Number(m.rec_2026) / maxMes) * 100) + "%", background: "#16a34a" }} />
-              </div>
-            </div>
-          </div>
-        ))}
+        <p style={S.rodape}>
+          Δ compara o mesmo mês de 2026 contra 2025. "novo" indica mês sem operação em 2025.
+        </p>
       </div>
 
       <div style={S.card}>
@@ -146,14 +179,16 @@ const S = {
   statRot: { fontSize: 12, color: "#64748b", fontWeight: 600 },
   card: { background: "#fff", border: "1px solid #eef2f7", borderRadius: 14, padding: 18, marginBottom: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" },
   h3: { margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0f172a" },
-  linha: { marginBottom: 12 },
-  linhaTopo: { display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, color: "#334155", marginBottom: 5, alignItems: "center" },
-  vals: { display: "flex", gap: 14 },
-  par: { display: "flex", flexDirection: "column", gap: 3 },
-  track: { background: "#f1f5f9", borderRadius: 999, height: 9, overflow: "hidden" },
-  fill: { height: "100%", borderRadius: 999 },
-  legend: { display: "flex", gap: 16, fontSize: 12, color: "#64748b", marginBottom: 10 },
-  dot: { display: "inline-block", width: 10, height: 10, borderRadius: 2, marginRight: 4 },
+  tabelaWrap: { overflowX: "auto" },
+  tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
+  th: { textAlign: "left", padding: "8px 10px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" },
+  thNum: { textAlign: "right", padding: "8px 10px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" },
+  tdMes: { padding: "8px 10px", fontWeight: 700, color: "#334155", borderBottom: "1px solid #f1f5f9" },
+  td: { padding: "8px 10px", textAlign: "right", color: "#64748b", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  tdForte: { padding: "8px 10px", textAlign: "right", color: "#111827", fontWeight: 700, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  tdNum: { padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  tdTotal: { padding: "10px", textAlign: "right", fontWeight: 800, color: "#0f172a", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
+  tdTotalNum: { padding: "10px", textAlign: "right", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
   muted: { color: "#64748b" },
-  rodape: { color: "#8a93a3", fontSize: 12, marginTop: 8 },
+  rodape: { color: "#8a93a3", fontSize: 12, marginTop: 10 },
 };
