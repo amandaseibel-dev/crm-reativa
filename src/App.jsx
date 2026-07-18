@@ -468,7 +468,6 @@ export default function App() {
     { rota: "/aluno", label: "Aluno", icone: "User", secao: "Operação" },
     { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
-    { rota: "/painel-geral", label: "Painel Geral", icone: "LayoutPanelTop", secao: "Gestão" },
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
@@ -775,7 +774,6 @@ export default function App() {
             />
             <Route path="*" element={<Navigate to="/" replace />} />
                   <Route path="/fila-adm-termos" element={<FilaAdmTermos />} />
-              <Route path="/base-receptiva" element={<BaseReceptiva />} />
               {/* Fila Operacional (rota antiga): operador e redirecionado para
                   a Minha Carteira; demais perfis mantem o acesso atual. */}
               <Route
@@ -817,7 +815,6 @@ export default function App() {
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
-              <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
               <Route path="/dre" element={<DRE />} />
               <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} />
               <Route path="/manual-operacao" element={<ManualOperacao />} />
