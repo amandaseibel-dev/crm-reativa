@@ -24,7 +24,7 @@ export default function Sidebar({ active, setActive }) {
       }}
     >
       <h2 style={{ color: "#a855f7", marginBottom: 20 }}>
-        ReATIVA One
+        ReATIVA
       </h2>
 
       {menu.map((item) => {

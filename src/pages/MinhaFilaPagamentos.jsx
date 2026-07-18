@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { podeBaixarPagamento, podeVerFilaDeBaixas } from "../utils/operadores";
 import ComprovantePagamento from "../components/ComprovantePagamento";
+import Alunos from "./Aluno";
 
 const STATUS = {
   PAGO_AGUARDANDO_BAIXA: "Pago - aguardando baixa",
@@ -32,6 +33,15 @@ function corStatus(status) {
   return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
 }
 
+const EMAILS_PODE_QUITAR = [
+  "amanda.seibel@aelbra.com.br",
+  "cobranca04@aelbra.com.br", // Fernanda
+  "cobranca07@aelbra.com.br", // Amanda ADM
+];
+function podeQuitar(email) {
+  return EMAILS_PODE_QUITAR.includes(String(email || "").toLowerCase().trim());
+}
+
 export default function MinhaFilaPagamentos() {
   const navigate = useNavigate();
 
@@ -44,6 +54,7 @@ export default function MinhaFilaPagamentos() {
   const [valoresPagos, setValoresPagos] = useState({});
   const [qtdParcelasAcordo, setQtdParcelasAcordo] = useState({});
   const [parcelasAcordo, setParcelasAcordo] = useState({});
+  const [fichaAberta, setFichaAberta] = useState({});
 
   useEffect(() => {
     carregarUsuario();
@@ -53,6 +64,24 @@ export default function MinhaFilaPagamentos() {
   async function carregarUsuario() {
     const { data } = await supabase.auth.getUser();
     setUsuario(data?.user || null);
+  }
+
+  async function quitarEEncerrar(item) {
+    if (!item?.aluno_id) return;
+    const ok = window.confirm(
+      "Quitar e encerrar este caso? Ele e quitado, zerado, sai das filas e NAO volta pro operador."
+    );
+    if (!ok) return;
+    const { error } = await supabase.rpc("quitar_e_encerrar_caso", {
+      p_aluno_id: item.aluno_id,
+      p_valor: item.valor || null,
+    });
+    if (error) {
+      alert("Erro ao quitar: " + error.message);
+      return;
+    }
+    alert("Caso quitado e encerrado.");
+    carregarPagamentos();
   }
 
   async function carregarPagamentos() {
@@ -374,6 +403,26 @@ export default function MinhaFilaPagamentos() {
             <span style={{ ...styles.status, ...corStatus(item.status) }}>{STATUS[item.status] || item.status}</span>
           </div>
 
+          {item.aluno_id && (
+            <div style={styles.fichaWrap}>
+              <button
+                type="button"
+                style={styles.botaoFicha}
+                onClick={() => setFichaAberta((s) => ({ ...s, [item.id]: !s[item.id] }))}
+              >
+                {fichaAberta[item.id]
+                  ? "▲ Fechar ficha do aluno"
+                  : "▼ Abrir ficha do aluno (tabulação, financeiro, ADM)"}
+              </button>
+
+              {fichaAberta[item.id] && (
+                <div style={styles.fichaEmbed}>
+                  <Alunos fichaEmbedId={item.aluno_id} />
+                </div>
+              )}
+            </div>
+          )}
+
           {item.link_url && (
             <div style={styles.linkBox}>
               <a href={item.link_url} target="_blank" rel="noreferrer">Abrir link de pagamento</a>
@@ -462,6 +511,17 @@ export default function MinhaFilaPagamentos() {
               Modo visualização — só a Amanda gestora pode baixar ou marcar divergência.
             </p>
           )}
+          {podeQuitar(email) && (
+            <div style={styles.acoes}>
+              <button
+                style={{ background: "#6b21a8", color: "#fff", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" }}
+                onClick={() => quitarEEncerrar(item)}
+                title="Quita, zera e tira das filas. Nao volta pro operador."
+              >
+                💰 Quitar e encerrar
+              </button>
+            </div>
+          )}
           </details>
         </div>
       ))}
@@ -493,6 +553,9 @@ const styles = {
   nome: { fontSize: "19px", fontWeight: 800, margin: "0 0 8px 0", color: "#111827" },
   info: { fontSize: "14px", lineHeight: 1.5, margin: "5px 0", color: "#555" },
   status: { padding: "8px 12px", borderRadius: "999px", fontWeight: "bold", fontSize: "13px", whiteSpace: "nowrap" },
+  fichaWrap: { marginTop: "14px" },
+  botaoFicha: { width: "100%", textAlign: "left", background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", padding: "12px 14px", borderRadius: "10px", cursor: "pointer", fontWeight: "bold", fontSize: "14px" },
+  fichaEmbed: { marginTop: "10px", border: "1px solid #e5e7eb", borderRadius: "12px", overflow: "hidden", background: "#fff" },
   linkBox: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px" },
   obs: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px", color: "#374151" },
   textarea: { width: "100%", minHeight: "70px", marginTop: "10px", padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },

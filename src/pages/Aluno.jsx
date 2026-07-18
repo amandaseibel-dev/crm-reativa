@@ -7,7 +7,8 @@ import EnvioFinanceiro from "../components/EnvioFinanceiro";
 import FinanceiroAluno from "../components/FinanceiroAluno";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
-
+import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
+import TelefonesAluno from "../components/TelefonesAluno";
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
   { nome: "Luana", email: "cobranca05@aelbra.com.br" },
@@ -21,7 +22,6 @@ const OPERADORES_REATIVA = [
   { nome: "Natali", email: "cobranca08@aelbra.com.br" },
   { nome: "Amanda Seibel", email: "amanda.seibel@aelbra.com.br" },
 ];
-
 const STATUS_FINALIZACAO = [
   "CONTATAR",
   "ELOGIO_ATENDIMENTO",
@@ -47,20 +47,16 @@ const STATUS_FINALIZACAO = [
   "SUSPENSAO_COBRANCA",
   "JURIDICO",
 ];
-
 const STATUS_COM_PROCESSO = ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "JURIDICO"];
-
 // Reaproveita toda a trava/renderização de "ficha bloqueada" que já existe
 // pra Jurídico/Cancelamento -- só que este aqui é diferente dos outros
 // dois: se subir um título novo desse aluno num bordero, ele volta a
 // entrar na fila sozinho (os outros dois nunca voltam automaticamente).
 const STATUS_QUITADO_MANUAL = "QUITADO_MANUAL";
-
 // Casos já quitados (sem parcelas em aberto). A ficha desses fica em amarelo
 // -- diferente do vermelho de Jurídico/Cancelamento -- porque não é um caso
 // travado: se subir um título novo dele num bordero, ele volta pra fila.
 const STATUS_QUITADOS = [STATUS_QUITADO_MANUAL, "QUITADO"];
-
 // Emails que podem usar o botão de "Quitar tudo" -- deliberadamente mais
 // restrito que podeVerTudo (que também inclui supervisão): só a Amanda.
 const EMAILS_PODE_QUITAR_MANUAL = [
@@ -70,11 +66,9 @@ const EMAILS_PODE_QUITAR_MANUAL = [
   "cobranca07@aelbra.com.br", // Amanda ADM
   "cobranca04@aelbra.com.br", // Fernanda (supervisão)
 ];
-
 function podeQuitarManual(email) {
   return EMAILS_PODE_QUITAR_MANUAL.includes(String(email || "").toLowerCase().trim());
 }
-
 // Só gestão/supervisão (podeVerTudo) pode definir estes dois. Uma vez
 // finalizado assim, o caso fica travado e destacado em vermelho.
 const STATUS_BLOQUEADOS_ACIONAMENTO = [
@@ -83,7 +77,6 @@ const STATUS_BLOQUEADOS_ACIONAMENTO = [
   "JURIDICO",
   STATUS_QUITADO_MANUAL,
 ];
-
 const STATUS_BLOQUEADOS_LABEL = {
   ELOGIO_ATENDIMENTO: "Elogio de atendimento",
   CANCELAMENTO_COBRANCA: "Cancelamento definitivo de cobrança",
@@ -91,10 +84,24 @@ const STATUS_BLOQUEADOS_LABEL = {
   JURIDICO: "Jurídico",
   QUITADO_MANUAL: "Quitado",
 };
-
+// Ordenação da lista de Alunos: ativos primeiro; QUITADOS, JURÍDICOS e
+// CANCELADOS/SUSPENSOS por último. Retorna 0 (ativo) ou 1 (final).
+function grupoFinalAluno(aluno) {
+  const texto = [aluno?.status_atual, aluno?.status_jornada, aluno?.status_acionamento]
+    .filter(Boolean)
+    .join(" ")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toUpperCase();
+  const ehFinal =
+    texto.includes("QUITAD") ||
+    texto.includes("QUITACAO") ||
+    texto.includes("JURIDICO") ||
+    texto.includes("CANCEL");
+  return ehFinal ? 1 : 0;
+}
 function formatarDataHora(data) {
   if (!data) return "-";
-
   try {
     // Datas "só data" (ex.: alunos.data_retorno, coluna date do Postgres,
     // sem horário) não podem passar por new Date() direto -- o parser
@@ -104,7 +111,6 @@ function formatarDataHora(data) {
       const [ano, mes, dia] = data.split("-");
       return `${dia}/${mes}/${ano}`;
     }
-
     return new Date(data).toLocaleString("pt-BR", {
       dateStyle: "short",
       timeStyle: "short",
@@ -113,15 +119,11 @@ function formatarDataHora(data) {
     return "-";
   }
 }
-
 function paraDataLocalBR(valor) {
   if (!valor) return null;
-
   if (/^\d{4}-\d{2}-\d{2}$/.test(valor)) return valor;
-
   const data = new Date(valor);
   if (Number.isNaN(data.getTime())) return null;
-
   return new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/Sao_Paulo",
     year: "numeric",
@@ -129,10 +131,8 @@ function paraDataLocalBR(valor) {
     day: "2-digit",
   }).format(data);
 }
-
 function paraInputDateTime(data) {
   if (!data) return "";
-
   try {
     // Datas "só data" (ex.: alunos.data_retorno, coluna date sem horário)
     // não podem passar pelo new Date() genérico -- é tratado como UTC
@@ -141,7 +141,6 @@ function paraInputDateTime(data) {
     if (/^\d{4}-\d{2}-\d{2}$/.test(data)) {
       return `${data}T00:00`;
     }
-
     const d = new Date(data);
     const offset = d.getTimezoneOffset();
     const local = new Date(d.getTime() - offset * 60000);
@@ -150,7 +149,6 @@ function paraInputDateTime(data) {
     return "";
   }
 }
-
 function pegarCampo(objeto, campos, padrao = "-") {
   for (const campo of campos) {
     if (
@@ -161,27 +159,22 @@ function pegarCampo(objeto, campos, padrao = "-") {
       return objeto[campo];
     }
   }
-
   return padrao;
 }
-
 function moeda(valor) {
   if (valor === null || valor === undefined || valor === "") return "-";
-
   const numero = Number(valor);
-
   if (Number.isNaN(numero)) return valor;
-
   return numero.toLocaleString("pt-BR", {
     style: "currency",
     currency: "BRL",
   });
 }
-
-export default function Alunos() {
+export default function Alunos({ fichaEmbedId = null } = {}) {
   const navigate = useNavigate();
   const [vindoDaFila, setVindoDaFila] = useState(false);
   const [usuarioLogado, setUsuarioLogado] = useState(null);
+  const emailLiberadoAluno = true; // liberado para todos os operadores
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
   const [finAlunos, setFinAlunos] = useState({});
@@ -211,7 +204,6 @@ export default function Alunos() {
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
   const [origemAbertura, setOrigemAbertura] = useState("");
-
   // Valor em aberto consolidado por aluno da LISTA -- reutiliza EXATAMENTE a
   // mesma fonte da Minha Carteira (acordos ATIVO -> parcelas A_VENCER/VENCIDA +
   // acordos_titulos em_aberto). total = mensalidades + acordos. Sem calculo novo.
@@ -283,73 +275,55 @@ export default function Alunos() {
       cancelado = true;
     };
   }, [alunos]);
-
   useEffect(() => {
     inicializarTelaAlunos();
   }, []);
-
   async function inicializarTelaAlunos() {
     const usuario = await pegarUsuarioLogado();
     setUsuarioLogado(usuario);
-
     const parametros = new URLSearchParams(window.location.search);
-
     const alunoIdDaUrl =
       parametros.get("alunoId") ||
       parametros.get("id") ||
       parametros.get("aluno");
-
     const alunoIdLocalStorage = localStorage.getItem("reativa_aluno_abrir_id");
     const alunoIdSessionStorage = sessionStorage.getItem("reativa_aluno_abrir_id");
-
     const alunoId =
-      alunoIdDaUrl || alunoIdLocalStorage || alunoIdSessionStorage;
-
+      fichaEmbedId || alunoIdDaUrl || alunoIdLocalStorage || alunoIdSessionStorage;
     if (parametros.get("origem") === "fila") {
-      setVindoDaFila(true);
+      setVindoDaFila(!fichaEmbedId);
     }
-
     if (alunoId) {
       setOrigemAbertura(`Abrindo aluno recebido da fila: ${alunoId}`);
-
       localStorage.removeItem("reativa_aluno_abrir_id");
       sessionStorage.removeItem("reativa_aluno_abrir_id");
-
       await abrirAlunoPorId(alunoId);
       return;
     }
-
     await carregarAlunos();
   }
-
   async function pegarUsuarioLogado() {
     const { data, error } = await supabase.auth.getUser();
-
     if (error || !data?.user) {
       return {
         nome: "Usuário não identificado",
         email: null,
       };
     }
-
     const user = data.user;
-
     const nome =
       user.user_metadata?.nome ||
       user.user_metadata?.name ||
       user.email?.split("@")[0] ||
       "Usuário";
-
     return {
       nome,
       email: user.email,
     };
   }
-
   async function carregarAlunos() {
     setCarregando(true);
     setErro("");
-
     // Importante: toda pesquisa/atualização da lista precisa soltar o aluno
     // que estava aberto (ex: vindo da fila). Sem isso, quem pesquisa outro
     // nome mas não clica no resultado continua com a ficha antiga aberta e
@@ -360,11 +334,9 @@ export default function Alunos() {
     setOrigemAbertura("");
     setMovimentacoes([]);
     setVindoDaFila(false);
-
     try {
       const termo = busca.trim();
       let data, error;
-
       if (termo) {
         // Usa a funcao de busca (RPC) -- CPF acha qualquer aluno, nome
         // continua restrito a proprio + livre, evitando reabrir a
@@ -377,14 +349,12 @@ export default function Alunos() {
         data = resultado.data;
         error = resultado.error;
       }
-
       if (error) {
         console.error("Erro ao carregar alunos:", error);
         setErro("Erro ao carregar alunos.");
         setAlunos([]);
         return;
       }
-
       setAlunos(data || []);
     } catch (e) {
       console.error("Erro inesperado ao carregar alunos:", e);
@@ -394,37 +364,28 @@ export default function Alunos() {
       setCarregando(false);
     }
   }
-
   async function abrirAlunoPorId(alunoIdRecebido) {
     const alunoId = String(alunoIdRecebido || "").trim();
-
     if (!alunoId) return;
-
     setCarregando(true);
     setErro("");
-
     try {
       const { data: linhas, error } = await supabase.rpc("buscar_aluno_por_id", { p_id: alunoId });
       const data = linhas?.[0] || null;
-
       if (error) {
         console.error("Erro ao abrir aluno automaticamente:", error);
         setErro("Erro ao abrir aluno selecionado pela fila.");
         await carregarAlunos();
         return;
       }
-
       if (!data) {
         setErro("Aluno recebido da fila não foi encontrado na tabela alunos.");
         await carregarAlunos();
         return;
       }
-
       prepararAlunoNaTela(data);
       await carregarMovimentacoes(data.id);
-
       setAlunos([data]);
-
       window.history.replaceState(
         null,
         "",
@@ -438,32 +399,26 @@ export default function Alunos() {
       setCarregando(false);
     }
   }
-
   async function abrirAluno(aluno) {
     setAbaFicha("dados");
     prepararAlunoNaTela(aluno);
     await carregarMovimentacoes(aluno.id);
   }
-
   function prepararAlunoNaTela(aluno) {
     setAlunoSelecionado(aluno);
     setObservacao("");
     setNovoOperadorEmail("");
     setMotivoAlteracaoOperador("");
-
     const statusAtual = pegarCampo(
       aluno,
       ["status_jornada", "status_atual", "status"],
       "CONTATAR"
     );
-
     setStatusFinalizacao(statusAtual);
     setDataRetorno(paraInputDateTime(aluno.data_retorno));
   }
-
   function abrirEdicaoCadastro() {
     if (!alunoSelecionado) return;
-
     setNomeEditado(
       pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "")
     );
@@ -472,22 +427,17 @@ export default function Alunos() {
     setEmailEditado(pegarCampo(alunoSelecionado, ["email", "Email", "e_mail"], ""));
     setEditandoCadastro(true);
   }
-
   async function salvarCadastroAluno() {
     if (!alunoSelecionado?.id) return;
-
     if (!nomeEditado.trim()) {
       alert("Informe o nome do aluno.");
       return;
     }
-
     if (!cpfEditado.trim()) {
       alert("Informe o CPF do aluno.");
       return;
     }
-
     setSalvandoCadastro(true);
-
     const nomeAnterior = pegarCampo(
       alunoSelecionado,
       ["nome", "nome_aluno", "aluno"],
@@ -496,7 +446,6 @@ export default function Alunos() {
     const cpfAnterior = pegarCampo(alunoSelecionado, ["cpf", "CPF"], "");
     const telefoneAnterior = pegarCampo(alunoSelecionado, ["telefone", "Telefone"], "");
     const emailAnterior = pegarCampo(alunoSelecionado, ["email", "Email", "e_mail"], "");
-
     const { error } = await supabase
       .from("alunos")
       .update({
@@ -507,15 +456,12 @@ export default function Alunos() {
         atualizado_em: new Date().toISOString(),
       })
       .eq("id", alunoSelecionado.id);
-
     setSalvandoCadastro(false);
-
     if (error) {
       console.error("Erro ao atualizar cadastro:", error);
       alert("Erro ao salvar cadastro: " + error.message);
       return;
     }
-
     await supabase.from("aluno_movimentacoes").insert({
       aluno_id: String(alunoSelecionado.id),
       tipo: "CORRECAO_CADASTRO",
@@ -534,37 +480,31 @@ export default function Alunos() {
       registrado_por_email: usuarioLogado?.email,
       registrado_em: new Date().toISOString(),
     });
-
     setEditandoCadastro(false);
     await recarregarAlunoSelecionado(alunoSelecionado.id);
     await carregarMovimentacoes(alunoSelecionado.id);
     alert("Cadastro atualizado com sucesso.");
   }
-
   async function recarregarAlunoSelecionado(alunoId) {
     const { data, error } = await supabase
       .from("alunos")
       .select("*")
       .eq("id", alunoId)
       .maybeSingle();
-
     if (error) {
       console.error("Erro ao recarregar aluno:", error);
       return;
     }
-
     if (data) {
       prepararAlunoNaTela(data);
       setAlunos([data]);
     }
   }
-
   async function solicitarLinkPagamento() {
     if (!alunoSelecionado) {
       alert("Selecione um aluno antes de solicitar o link.");
       return;
     }
-
     window.dispatchEvent(
       new CustomEvent("REATIVA_ABRIR_LINK_PAGAMENTO", {
         detail: {
@@ -573,24 +513,19 @@ export default function Alunos() {
       })
     );
   }
-
   async function marcarLinkEnviadoAoAluno() {
     if (!alunoSelecionado?.id) {
       alert("Selecione um aluno antes de marcar o link como enviado.");
       return;
     }
-
     setSalvando(true);
-
     try {
       const statusAnterior = pegarCampo(
         alunoSelecionado,
         ["status_jornada", "status_atual", "status"],
         null
       );
-
       const agora = new Date().toISOString();
-
       try {
         await supabase
           .from("links_pagamento")
@@ -609,7 +544,6 @@ export default function Alunos() {
       } catch (erroLink) {
         console.warn("Não foi possível atualizar links_pagamento:", erroLink);
       }
-
       await registrarMovimentacao({
         alunoId: alunoSelecionado.id,
         tipo: "LINK_ENVIADO_AO_ALUNO",
@@ -620,11 +554,9 @@ export default function Alunos() {
         retorno: null,
         atualizarResponsavel: false,
       });
-
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
       await carregarAlunos();
-
       alert("Link marcado como enviado. Agora o caso ficará aguardando comprovante.");
     } catch (e) {
       console.error(e);
@@ -633,39 +565,31 @@ export default function Alunos() {
       setSalvando(false);
     }
   }
-
   async function carregarMovimentacoes(alunoId) {
     if (!alunoId) return;
-
     const { data, error } = await supabase
       .from("aluno_movimentacoes")
       .select("*")
       .eq("aluno_id", String(alunoId))
       .order("registrado_em", { ascending: false });
-
     if (error) {
       console.error("Erro ao carregar movimentações:", error);
       setMovimentacoes([]);
       return;
     }
-
     setMovimentacoes(data || []);
   }
-
   async function abrirAnexoElogio(caminho) {
     if (!caminho) return;
     const { data, error } = await supabase.storage
       .from("elogios-prints")
       .createSignedUrl(caminho, 3600);
-
     if (error || !data?.signedUrl) {
       alert("Erro ao abrir o anexo: " + (error?.message || "não encontrado"));
       return;
     }
-
     window.open(data.signedUrl, "_blank");
   }
-
   async function registrarMovimentacao({
     alunoId,
     tipo,
@@ -682,7 +606,6 @@ export default function Alunos() {
       alert("Aluno sem ID. Não foi possível registrar.");
       return;
     }
-
     // Se a ficha ficou muito tempo aberta/parada, o token pode ter
     // expirado sem o refresh automático rodar a tempo -- isso fazia o
     // insert cair como "anon" (sem policy de insert) e dar um "Erro ao
@@ -694,10 +617,8 @@ export default function Alunos() {
     } catch {
       // Segue e deixa o erro real aparecer, se houver.
     }
-
     const usuario = await pegarUsuarioLogado();
     const agora = new Date().toISOString();
-
     const movimento = {
       aluno_id: String(alunoId),
       tipo,
@@ -710,29 +631,24 @@ export default function Alunos() {
       data_retorno: retorno,
       ...extra,
     };
-
     const { error: movError } = await supabase
       .from("aluno_movimentacoes")
       .insert(movimento);
-
     if (movError) {
       console.error("Erro ao registrar movimentação:", movError);
       alert("Erro ao registrar movimentação: " + movError.message);
       throw movError;
     }
-
     const atualizacaoAluno = {
       registrado_por_nome: usuario.nome,
       registrado_por_email: usuario.email,
       registrado_em: agora,
       data_ultimo_acionamento: agora,
     };
-
     if (statusNovo) {
       atualizacaoAluno.status_jornada = statusNovo;
       atualizacaoAluno.status_atual = statusNovo;
       atualizacaoAluno.status_acionamento = statusNovo;
-
       if (
         statusNovo === "RETORNAR_DEPOIS" ||
         statusNovo === "ALUNO_EM_NEGOCIACAO_24H"
@@ -746,47 +662,37 @@ export default function Alunos() {
         atualizacaoAluno.proxima_acao = "CONTATAR";
       }
     }
-
     if (retorno) {
       atualizacaoAluno.data_retorno = paraDataLocalBR(retorno);
     }
-
     if (observacaoAluno !== null) {
       atualizacaoAluno.observacao = observacaoAluno;
     }
-
     Object.assign(atualizacaoAluno, extraAluno);
-
     if (atualizarResponsavel) {
       atualizacaoAluno.responsavel_atual_nome = usuario.nome;
       atualizacaoAluno.responsavel_atual_email = usuario.email;
       atualizacaoAluno.responsavel_atual_em = agora;
     }
-
     const { error: updateError } = await supabase
       .from("alunos")
       .update(atualizacaoAluno)
       .eq("id", alunoId);
-
     if (updateError) {
       console.error("Erro ao atualizar aluno:", updateError);
       alert("Movimentação registrada, mas houve erro ao atualizar a ficha.");
       throw updateError;
     }
   }
-
   async function assumirAtendimento() {
     if (!alunoSelecionado?.id) return;
-
     setSalvando(true);
-
     try {
       const statusAnterior = pegarCampo(
         alunoSelecionado,
         ["status_jornada", "status_atual", "status"],
         null
       );
-
       await registrarMovimentacao({
         alunoId: alunoSelecionado.id,
         tipo: "ASSUMIU_ATENDIMENTO",
@@ -796,10 +702,8 @@ export default function Alunos() {
         retorno: null,
         atualizarResponsavel: true,
       });
-
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
-
       alert("Atendimento assumido com sucesso.");
     } catch (e) {
       console.error(e);
@@ -807,7 +711,6 @@ export default function Alunos() {
       setSalvando(false);
     }
   }
-
   // Botão liberado para Amanda (gestora/ADM) e Fernanda: tira o aluno da fila
   // (novo ou antigo), deixando a ficha amarela. Diferente de
   // Jurídico/Cancelamento, este volta sozinho pra fila se aparecer um
@@ -815,21 +718,17 @@ export default function Alunos() {
   async function quitarManual() {
     if (!alunoSelecionado?.id) return;
     if (!podeQuitarManual(usuarioLogado?.email)) return;
-
     const confirmado = window.confirm(
       "Marcar como quitado e tirar da fila? A ficha fica amarela e sai da fila ativa. Só volta se subir um título novo dele em algum bordero."
     );
     if (!confirmado) return;
-
     setSalvando(true);
-
     try {
       const statusAnterior = pegarCampo(
         alunoSelecionado,
         ["status_jornada", "status_atual", "status"],
         null
       );
-
       await registrarMovimentacao({
         alunoId: alunoSelecionado.id,
         tipo: "QUITADO_MANUAL",
@@ -846,9 +745,7 @@ export default function Alunos() {
           valor_em_aberto: 0,
         },
       });
-
       const agoraIso = new Date().toISOString();
-
       // Zera os títulos soltos (que nunca entraram num acordo).
       await supabase
         .from("acordos_titulos")
@@ -862,22 +759,18 @@ export default function Alunos() {
         })
         .eq("aluno_id", String(alunoSelecionado.id))
         .neq("situacao", "PAGO");
-
       // Zera os acordos ativos e as parcelas que ainda estavam em aberto.
       const { data: acordosAtivos } = await supabase
         .from("acordos")
         .select("id")
         .eq("aluno_id", String(alunoSelecionado.id))
         .eq("status", "ATIVO");
-
       const idsAcordos = (acordosAtivos || []).map((a) => a.id);
-
       if (idsAcordos.length > 0) {
         await supabase
           .from("acordos")
           .update({ status: "QUITADO", saldo: 0, atualizado_em: agoraIso })
           .in("id", idsAcordos);
-
         // pago_em fica null de propósito -- não é um recebimento de
         // verdade neste mês, é só regularização de um caso antigo. Deixar
         // null impede que isso conte como "recebido este mês" em qualquer
@@ -888,16 +781,13 @@ export default function Alunos() {
           .in("acordo_id", idsAcordos)
           .neq("status", "PAGO");
       }
-
       await supabase
         .from("carteira_operador")
         .update({ status: "quitado_saiu", saiu_em: agoraIso })
         .eq("aluno_id", String(alunoSelecionado.id))
         .eq("status", "ativo");
-
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
-
       alert("Caso marcado como quitado -- valores zerados e removido da fila ativa.");
     } catch (e) {
       console.error(e);
@@ -905,30 +795,24 @@ export default function Alunos() {
       setSalvando(false);
     }
   }
-
   async function finalizarAtendimento() {
     if (!alunoSelecionado?.id) return;
-
     if (!statusFinalizacao) {
       alert("Selecione o status da finalização.");
       return;
     }
-
     const precisaRetorno =
       statusFinalizacao === "RETORNAR_DEPOIS" ||
       statusFinalizacao === "ALUNO_EM_NEGOCIACAO_24H";
-
     if (precisaRetorno && !dataRetorno) {
       alert("Informe a data de retorno para esse status.");
       return;
     }
-
     const ehStatusRestrito = STATUS_BLOQUEADOS_ACIONAMENTO.includes(statusFinalizacao);
     const permitidoNesseStatus =
       statusFinalizacao === STATUS_QUITADO_MANUAL
         ? podeQuitarManual(usuarioLogado?.email)
         : podeVerTudo(usuarioLogado?.email);
-
     if (ehStatusRestrito && !permitidoNesseStatus) {
       alert(
         statusFinalizacao === STATUS_QUITADO_MANUAL
@@ -937,16 +821,13 @@ export default function Alunos() {
       );
       return;
     }
-
     if (ehStatusRestrito && !observacao.trim()) {
       alert(
         `Informe a observação em destaque antes de marcar como "${STATUS_BLOQUEADOS_LABEL[statusFinalizacao]}".`
       );
       return;
     }
-
     const ehStatusComProcesso = STATUS_COM_PROCESSO.includes(statusFinalizacao);
-
     if (ehStatusComProcesso) {
       if (!numeroProcesso.trim()) {
         alert(
@@ -954,26 +835,21 @@ export default function Alunos() {
         );
         return;
       }
-
       if (prazoTipo === "DATA" && !prazoData) {
         alert("Informe a data do prazo, ou marque como indeterminado.");
         return;
       }
     }
-
     setSalvando(true);
-
     try {
       const statusAnterior = pegarCampo(
         alunoSelecionado,
         ["status_jornada", "status_atual", "status"],
         null
       );
-
       const retornoIso = dataRetorno
         ? new Date(dataRetorno).toISOString()
         : null;
-
       const extraAluno = ehStatusComProcesso
         ? {
             processo_numero: numeroProcesso.trim(),
@@ -981,7 +857,6 @@ export default function Alunos() {
             processo_prazo_data: prazoTipo === "DATA" ? prazoData : null,
           }
         : {};
-
       // Print do elogio de atendimento (opcional) -- sobe pro bucket
       // privado antes de registrar a movimentação, pra já salvar o
       // caminho junto com a tabulação.
@@ -990,23 +865,19 @@ export default function Alunos() {
         setEnviandoElogio(true);
         const nomeSeguro = elogioArquivo.name
           .normalize("NFD")
-          .replace(/[\u0300-\u036f]/g, "")
+          .replace(/[̀-ͯ]/g, "")
           .replace(/[^a-zA-Z0-9.\-_]/g, "_");
         const caminho = `${alunoSelecionado.id}/${Date.now()}-${nomeSeguro}`;
-
         const { error: erroUpload } = await supabase.storage
           .from("elogios-prints")
           .upload(caminho, elogioArquivo, { cacheControl: "3600", upsert: false });
-
         setEnviandoElogio(false);
-
         if (erroUpload) {
           alert("Erro ao anexar o print do elogio: " + erroUpload.message);
         } else {
           extraElogio = { elogio_print_path: caminho, elogio_print_nome: elogioArquivo.name };
         }
       }
-
       await registrarMovimentacao({
         alunoId: alunoSelecionado.id,
         tipo: "FINALIZACAO_ATENDIMENTO",
@@ -1021,7 +892,6 @@ export default function Alunos() {
         extra: extraElogio,
         extraAluno,
       });
-
       // Tabulou como "aguardando baixa" (pago) direto na ficha, sem passar
       // pelo card dedicado "Confirmar pagamento" -- sem isso o aluno ficava
       // com o status de pago mas nunca aparecia na fila de Confirmação de
@@ -1034,7 +904,6 @@ export default function Alunos() {
           .eq("aluno_id", String(alunoSelecionado.id))
           .eq("status", "AGUARDANDO_CONFIRMACAO")
           .maybeSingle();
-
         if (!pendenteExistente) {
           const { error: erroSolicitacao } = await supabase
             .from("solicitacoes_confirmacao_pagamento")
@@ -1047,7 +916,6 @@ export default function Alunos() {
               motivo: observacao.trim() || "Tabulado como aguardando baixa direto na ficha do aluno.",
               status: "AGUARDANDO_CONFIRMACAO",
             });
-
           if (erroSolicitacao) {
             console.error("Erro ao criar solicitação de confirmação de pagamento:", erroSolicitacao);
             alert(
@@ -1057,7 +925,6 @@ export default function Alunos() {
           }
         }
       }
-
       // Foi pra juridico -- sinaliza que o caso saiu da carteira ativa,
       // dispara a reposicao automatica.
       if (statusFinalizacao === "JURIDICO") {
@@ -1069,18 +936,14 @@ export default function Alunos() {
           console.error("Erro ao liberar caso (reposição automática):", erroLiberar);
         }
       }
-
       setObservacao("");
       setNumeroProcesso("");
       setPrazoTipo("DATA");
       setPrazoData("");
       setElogioArquivo(null);
-
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
-
       alert("Finalização registrada com sucesso.");
-
       if (vindoDaFila) {
         navigate("/minha-fila");
       }
@@ -1090,44 +953,34 @@ export default function Alunos() {
       setSalvando(false);
     }
   }
-
   async function alterarOperadorResponsavel() {
     if (!alunoSelecionado?.id) {
       alert("Selecione um aluno antes de alterar o operador.");
       return;
     }
-
     if (!novoOperadorEmail) {
       alert("Selecione o novo operador responsável.");
       return;
     }
-
     const motivo = motivoAlteracaoOperador.trim();
-
     if (!motivo) {
       alert("Informe o motivo da alteração.");
       return;
     }
-
     const novoOperador = OPERADORES_REATIVA.find(
       (op) => op.email === novoOperadorEmail
     );
-
     if (!novoOperador) {
       alert("Operador não encontrado.");
       return;
     }
-
     setSalvando(true);
-
     try {
       const usuario = await pegarUsuarioLogado();
       const agora = new Date().toISOString();
-
       const anteriorNome =
         alunoSelecionado.responsavel_atual_nome || "Sem responsável anterior";
       const anteriorEmail = alunoSelecionado.responsavel_atual_email || null;
-
       // Troca de responsavel via RPC manual segura (executor; so Amanda/Fernanda).
       void usuario; void agora; void anteriorNome; void anteriorEmail;
       const { data: rResp, error: updateError } = await supabase.rpc("alterar_responsavel_aluno", {
@@ -1145,15 +998,12 @@ export default function Alunos() {
       if (novaDataRetornoAlteracao) { extraAluno.data_retorno = paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()); }
       if (novaTabulacaoAlteracao) { extraAluno.status_jornada = novaTabulacaoAlteracao; extraAluno.status_atual = novaTabulacaoAlteracao; }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
-
       setNovoOperadorEmail("");
       setMotivoAlteracaoOperador("");
       setNovaDataRetornoAlteracao("");
       setNovaTabulacaoAlteracao("");
-
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
-
       alert("Operador responsável alterado com sucesso.");
     } catch (e) {
       console.error(e);
@@ -1162,7 +1012,6 @@ export default function Alunos() {
       setSalvando(false);
     }
   }
-
   return (
     <div style={pagina}>
       <div style={cabecalho}>
@@ -1171,21 +1020,18 @@ export default function Alunos() {
           <p style={subtitulo}>
             Ficha do aluno, finalização do atendimento, data de retorno e movimentações.
           </p>
-
           {usuarioLogado && (
             <p style={usuarioTexto}>
               Usuário logado: <strong>{usuarioLogado.nome}</strong>
               {usuarioLogado.email ? ` - ${usuarioLogado.email}` : ""}
             </p>
           )}
-
           {origemAbertura && (
             <p style={origemTexto}>
               {origemAbertura}
             </p>
           )}
         </div>
-
         <button
           type="button"
           onClick={carregarAlunos}
@@ -1195,10 +1041,8 @@ export default function Alunos() {
           {carregando ? "Carregando..." : "Atualizar"}
         </button>
       </div>
-
       <div style={caixa}>
         <label style={label}>Buscar aluno por nome ou CPF</label>
-
         <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
           <input
             value={busca}
@@ -1209,7 +1053,6 @@ export default function Alunos() {
             placeholder="Digite nome ou CPF"
             style={input}
           />
-
           <button
             type="button"
             onClick={carregarAlunos}
@@ -1219,54 +1062,45 @@ export default function Alunos() {
             Pesquisar
           </button>
         </div>
-
         {erro && <p style={{ color: "#f87171" }}>{erro}</p>}
       </div>
-
       <div style={layout}>
         <div style={caixa}>
           <h2 style={tituloSecao}>Alunos</h2>
-
           {carregando ? (
             <p style={textoCinza}>Carregando...</p>
           ) : alunos.length === 0 ? (
             <p style={textoCinza}>Nenhum aluno encontrado.</p>
           ) : (
             <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
-              {alunos.map((aluno) => {
+              {[...alunos]
+                .sort((a, b) => grupoFinalAluno(a) - grupoFinalAluno(b))
+                .map((aluno) => {
                 const nome = pegarCampo(
                   aluno,
                   ["nome", "nome_aluno", "aluno"],
                   "Aluno sem nome"
                 );
-
                 const cpf = pegarCampo(aluno, ["cpf", "CPF"], "-");
-
                 const status = pegarCampo(
                   aluno,
                   ["status_jornada", "status_atual", "status"],
                   "CONTATAR"
                 );
-
                 const proximaAcao = pegarCampo(
                   aluno,
                   ["proxima_acao"],
                   "CONTATAR"
                 );
-
                 const responsavel =
                   aluno.responsavel_atual_nome || "Sem responsável";
-
                 const selecionado = alunoSelecionado?.id === aluno.id;
-
                 const bloqueado = STATUS_BLOQUEADOS_ACIONAMENTO.includes(status);
                 const quitado = STATUS_QUITADOS.includes(status);
                 const temProcesso = STATUS_COM_PROCESSO.includes(status);
-
                 const fa = finAlunos[String(aluno.id)];
                 const temDetFin = !!(fa && fa.temDetalhe);
                 const fallbackFin = Number(aluno.valor_em_aberto || 0);
-
                 return (
                   <button
                     type="button"
@@ -1275,14 +1109,14 @@ export default function Alunos() {
                     style={{
                       ...cardAlunoLista,
                       background: selecionado
-                        ? "#ecfdf5"
+                        ? "#eff6ff"
                         : quitado
                         ? "#fffbeb"
                         : bloqueado
                         ? "#fef2f2"
                         : "#fff",
                       borderColor: selecionado
-                        ? "#86efac"
+                        ? "#93c5fd"
                         : quitado
                         ? "#f5c98a"
                         : bloqueado
@@ -1300,7 +1134,6 @@ export default function Alunos() {
                       )}
                       <div style={subCelA}>CPF: {cpf}</div>
                     </div>
-
                     <div style={colStatus}>
                       <span style={badgeSituacaoA}>
                         {STATUS_BLOQUEADOS_LABEL[status] || status}
@@ -1321,7 +1154,6 @@ export default function Alunos() {
                         </div>
                       ) : null}
                     </div>
-
                     <div style={colFin}>
                       {temDetFin ? (
                         <>
@@ -1335,7 +1167,6 @@ export default function Alunos() {
                         <div style={emAbertoSubA}>Sem valor em aberto</div>
                       )}
                     </div>
-
                     <div style={colOp}>
                       <div style={subCelA}>Resp.: {responsavel}</div>
                       {temProcesso ? (
@@ -1358,7 +1189,6 @@ export default function Alunos() {
             </div>
           )}
         </div>
-
         <div style={caixa}>
           {!alunoSelecionado ? (
             <div>
@@ -1380,7 +1210,6 @@ export default function Alunos() {
                   STATUS_BLOQUEADOS_ACIONAMENTO.includes(statusFicha);
                 const fichaBloqueadaParaMim =
                   fichaRestrita && !podeVerTudo(usuarioLogado?.email);
-
                 if (fichaQuitada) {
                   return (
                     <div
@@ -1400,7 +1229,6 @@ export default function Alunos() {
                     </div>
                   );
                 }
-
                 return fichaRestrita ? (
                   <div
                     style={{
@@ -1420,7 +1248,6 @@ export default function Alunos() {
                   </div>
                 ) : null;
               })()}
-
               {vindoDaFila && (
                 <button
                   type="button"
@@ -1439,7 +1266,6 @@ export default function Alunos() {
                   ← Voltar para a fila
                 </button>
               )}
-
               <div style={topoFicha}>
                 <div>
                   {editandoCadastro ? (
@@ -1496,7 +1322,6 @@ export default function Alunos() {
                           "Aluno sem nome"
                         )}
                       </h2>
-
                       <p style={textoInfo}>
                         CPF: {pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-")}
                         <button
@@ -1515,7 +1340,6 @@ export default function Alunos() {
                           Corrigir nome/CPF
                         </button>
                       </p>
-
                       {(alunoSelecionado.telefone || alunoSelecionado.email) && (
                         <p style={textoInfo}>
                           {alunoSelecionado.telefone ? `Tel: ${alunoSelecionado.telefone}` : ""}
@@ -1523,16 +1347,14 @@ export default function Alunos() {
                           {alunoSelecionado.email ? `E-mail: ${alunoSelecionado.email}` : ""}
                         </p>
                       )}
-
                       {(alunoSelecionado.unidade || alunoSelecionado.curso) && (
                         <p style={textoInfo}>
                           {[alunoSelecionado.unidade, alunoSelecionado.curso].filter(Boolean).join(" · ")}
                         </p>
                       )}
-
                       <p style={textoInfo}>
                         Status atual:{" "}
-                        <strong style={{ color: "#86efac" }}>
+                        <strong style={{ color: "#93c5fd" }}>
                           {pegarCampo(
                             alunoSelecionado,
                             ["status_jornada", "status_atual", "status"],
@@ -1543,7 +1365,6 @@ export default function Alunos() {
                     </>
                   )}
                 </div>
-
                 {!alunoSelecionado.responsavel_atual_email && (
                   <button
                     type="button"
@@ -1564,7 +1385,6 @@ export default function Alunos() {
                     {salvando ? "Salvando..." : "Assumir atendimento"}
                   </button>
                 )}
-
                 {podeQuitarManual(usuarioLogado?.email) &&
                   pegarCampo(
                     alunoSelecionado,
@@ -1582,12 +1402,11 @@ export default function Alunos() {
                     </button>
                   )}
               </div>
-
               <div style={barraAbasFicha}>
                 {[
                   ["dados", "Resumo"],
                   ["tabulacoes", "Tabulação"],
-                  ["email", "📧 E-mail"],
+                  ...(emailLiberadoAluno ? [["email", "📧 E-mail"]] : []),
                   ["financeiro", "Financeiro"],
                   ["adm", "ADM"],
                 ].map(([chave, rotulo]) => (
@@ -1603,8 +1422,8 @@ export default function Alunos() {
                   </button>
                 ))}
               </div>
-
               {abaFicha === "dados" && (
+              <>
               <div style={gradeCards}>
                 <div style={cardInfo}>
                   <strong>Responsável atual</strong>
@@ -1671,45 +1490,40 @@ export default function Alunos() {
                     </div>
                   )}
                 </div>
-
                 <div style={cardInfo}>
                   <strong>Última tabulação</strong>
                   <br />
                   {formatarDataHora(alunoSelecionado.registrado_em)}
                 </div>
-
                 <div style={cardInfo}>
                   <strong>Último acionamento</strong>
                   <br />
                   {formatarDataHora(alunoSelecionado.data_ultimo_acionamento)}
                 </div>
-
                 <div style={cardInfo}>
                   <strong>Próxima ação</strong>
                   <br />
                   {alunoSelecionado.proxima_acao || "CONTATAR"}
                 </div>
-
                 <div style={cardInfo}>
                   <strong>Data de retorno</strong>
                   <br />
                   {formatarDataHora(alunoSelecionado.data_retorno)}
                 </div>
-
                 <div style={cardInfo}>
                   <strong>Valor em aberto</strong>
                   <br />
                   {moeda(alunoSelecionado.valor_em_aberto)}
                 </div>
-
                 <div style={cardInfo}>
                   <strong>Status acionamento</strong>
                   <br />
                   {alunoSelecionado.status_acionamento || "-"}
                 </div>
               </div>
+              <TelefonesAluno aluno={alunoSelecionado} />
+              </>
               )}
-
               {abaFicha === "tabulacoes" && (
               <>
               {[
@@ -1725,12 +1539,10 @@ export default function Alunos() {
               alunoSelecionado.proxima_acao === "ENVIAR_LINK_AO_ALUNO" ? (
                 <div style={caixaLinkPronto}>
                   <h3 style={tituloSecao}>Link pronto para envio</h3>
-
                   <p style={textoInfo}>
                     Este aluno está com link pronto. Depois de enviar o link ao aluno,
                     clique abaixo para mudar o caso para aguardando comprovante.
                   </p>
-
                   <button
                     type="button"
                     onClick={marcarLinkEnviadoAoAluno}
@@ -1743,7 +1555,6 @@ export default function Alunos() {
                   </button>
                 </div>
               ) : null}
-
               <details style={{ marginBottom: 12, border: "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff" }}>
                 <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Link de pagamento</summary>
               <LinksPagamentoAluno
@@ -1761,12 +1572,9 @@ export default function Alunos() {
                 }}
               />
               </details>
-
               <div style={caixaDestaque}>
                 <h3 style={tituloSecao}>Tabulações</h3>
-
                 <label style={label}>Tabulação</label>
-
                 <select
                   value={statusFinalizacao}
                   onChange={(e) => setStatusFinalizacao(e.target.value)}
@@ -1782,18 +1590,15 @@ export default function Alunos() {
                     </option>
                   ))}
                 </select>
-
                 {statusFinalizacao === "ELOGIO_ATENDIMENTO" && (
                   <div style={{ ...caixaInterna, marginTop: "10px", marginBottom: "10px" }}>
                     <label style={label}>Anexar print do elogio (opcional)</label>
-
                     <input
                       type="file"
                       accept="image/*,.pdf"
                       onChange={(e) => setElogioArquivo(e.target.files?.[0] || null)}
                       style={inputCheio}
                     />
-
                     {elogioArquivo && (
                       <p style={{ fontSize: "12px", color: "#16a34a", margin: "6px 0 0" }}>
                         Selecionado: {elogioArquivo.name}
@@ -1801,11 +1606,9 @@ export default function Alunos() {
                     )}
                   </div>
                 )}
-
                 {STATUS_COM_PROCESSO.includes(statusFinalizacao) && (
                   <div style={{ ...caixaInterna, marginTop: "10px", marginBottom: "10px" }}>
                     <label style={label}>Número do processo</label>
-
                     <input
                       type="text"
                       value={numeroProcesso}
@@ -1813,9 +1616,7 @@ export default function Alunos() {
                       placeholder="Número do processo"
                       style={inputCheio}
                     />
-
                     <label style={label}>Prazo</label>
-
                     <div style={{ display: "flex", gap: "16px", alignItems: "center", marginBottom: "8px" }}>
                       <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
                         <input
@@ -1825,7 +1626,6 @@ export default function Alunos() {
                         />
                         Data específica
                       </label>
-
                       <label style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px" }}>
                         <input
                           type="radio"
@@ -1835,7 +1635,6 @@ export default function Alunos() {
                         Indeterminado
                       </label>
                     </div>
-
                     {prazoTipo === "DATA" ? (
                       <input
                         type="date"
@@ -1851,18 +1650,14 @@ export default function Alunos() {
                     )}
                   </div>
                 )}
-
                 <label style={label}>Data e horário de retorno</label>
-
                 <input
                   type="datetime-local"
                   value={dataRetorno}
                   onChange={(e) => setDataRetorno(e.target.value)}
                   style={inputCheio}
                 />
-
                 <label style={label}>Observação da finalização</label>
-
                 <textarea
                   value={observacao}
                   onChange={(e) => setObservacao(e.target.value)}
@@ -1870,7 +1665,6 @@ export default function Alunos() {
                   rows={4}
                   style={textarea}
                 />
-
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
                   <button
                     type="button"
@@ -1890,7 +1684,6 @@ export default function Alunos() {
                   >
                     {salvando ? "Salvando..." : "Atualizar"}
                   </button>
-
                   <button
                     type="button"
                     onClick={solicitarLinkPagamento}
@@ -1901,12 +1694,10 @@ export default function Alunos() {
                   </button>
                 </div>
               </div>
-
               <details style={{ marginBottom: 12, border: "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff" }}>
                 <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Termo de acordo</summary>
                 <FinalizacaoTermo aluno={alunoSelecionado} />
               </details>
-
               <details style={{ marginBottom: 12, border: "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff" }}>
                 <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Enviar ao financeiro</summary>
                 <EnvioFinanceiro aluno={alunoSelecionado} />
@@ -1915,10 +1706,8 @@ export default function Alunos() {
                 <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Confirmar pagamento</summary>
                 <ConfirmarPagamento aluno={alunoSelecionado} />
               </details>
-
               <div style={caixaInterna}>
                 <h3 style={tituloSecao}>Movimentações</h3>
-
                 {movimentacoes.length === 0 ? (
                   <p style={textoCinza}>Nenhuma movimentação registrada.</p>
                 ) : (
@@ -1926,9 +1715,7 @@ export default function Alunos() {
                     {movimentacoes.map((mov) => (
                       <div key={mov.id} style={cardMov}>
                         <strong>{mov.tipo}</strong>
-
                         <p>{mov.descricao || "-"}</p>
-
                         <small>
                           Status: {mov.status_anterior || "-"} →{" "}
                           {mov.status_novo || "-"}
@@ -1943,7 +1730,6 @@ export default function Alunos() {
                           <br />
                           Data/hora: {formatarDataHora(mov.registrado_em)}
                         </small>
-
                         {mov.elogio_print_path && (
                           <button
                             type="button"
@@ -1961,78 +1747,19 @@ export default function Alunos() {
               </>
               )}
 
-              {abaFicha === "email" && (
-                <div style={caixaInterna}>
-                  <h3 style={tituloSecao}>E-mail</h3>
-                  {(() => {
-                    const emailAluno = pegarCampo(alunoSelecionado, ["email", "Email", "e_mail"], "");
-                    if (!emailAluno) {
-                      return <p style={textoCinza}>Esse aluno não tem e-mail cadastrado.</p>;
-                    }
-                    return (
-                      <>
-                        <p style={{ marginBottom: 10 }}>
-                          E-mail cadastrado: <strong>{emailAluno}</strong>
-                        </p>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const nome = pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "");
-                            const assunto = encodeURIComponent("ReATIVA — Regularização de mensalidades");
-                            const corpo = encodeURIComponent(
-                              `Olá, ${nome}.\n\nEstamos entrando em contato sobre a regularização das suas mensalidades em aberto.\n\nQualquer dúvida, estamos à disposição.`
-                            );
-                            window.open(`mailto:${emailAluno}?subject=${assunto}&body=${corpo}`, "_blank");
-
-                            const agora = new Date().toISOString();
-                            const statusAntigo =
-                              pegarCampo(alunoSelecionado, ["status_atual"], null) ||
-                              pegarCampo(alunoSelecionado, ["status_jornada"], null);
-
-                            await supabase
-                              .from("alunos")
-                              .update({
-                                status_jornada: "MENSAGEM_ENVIADA",
-                                status_atual: "MENSAGEM_ENVIADA",
-                                data_ultimo_acionamento: agora,
-                                ultimo_contato: agora,
-                              })
-                              .eq("id", alunoSelecionado.id);
-
-                            await supabase.from("aluno_movimentacoes").insert({
-                              aluno_id: String(alunoSelecionado.id),
-                              tipo: "FINALIZACAO_ATENDIMENTO",
-                              descricao: `E-mail enviado para ${emailAluno} direto na ficha do aluno.`,
-                              status_anterior: statusAntigo,
-                              status_novo: "MENSAGEM_ENVIADA",
-                              registrado_por_nome: usuarioLogado?.nome || "",
-                              registrado_por_email: usuarioLogado?.email || "",
-                              registrado_em: agora,
-                            });
-
-                            abrirAlunoPorId(alunoSelecionado.id);
-                          }}
-                          style={botaoPrincipal}
-                        >
-                          📧 Enviar e-mail
-                        </button>
-                      </>
-                    );
-                  })()}
-                </div>
-              )}
-
               {abaFicha === "financeiro" && (
                 <FinanceiroAluno aluno={alunoSelecionado} />
               )}
-
+              {abaFicha === "email" && emailLiberadoAluno && (
+                <div style={caixaInterna}>
+                  <EmailAlunoUnificado aluno={alunoSelecionado} />
+                </div>
+              )}
               {abaFicha === "adm" && (
               <>
               <div style={caixaInterna}>
                 <h3 style={tituloSecao}>Alterar operador responsável</h3>
-
                 <label style={label}>Novo operador</label>
-
                 <select
                   value={novoOperadorEmail}
                   onChange={(e) => setNovoOperadorEmail(e.target.value)}
@@ -2045,9 +1772,7 @@ export default function Alunos() {
                     </option>
                   ))}
                 </select>
-
                 <label style={label}>Motivo</label>
-
                 <textarea
                   value={motivoAlteracaoOperador}
                   onChange={(e) =>
@@ -2057,11 +1782,9 @@ export default function Alunos() {
                   rows={3}
                   style={textarea}
                 />
-
                 <label style={label}>
                   Nova tabulação (opcional — deixa o caso já pronto pro novo operador)
                 </label>
-
                 <select
                   value={novaTabulacaoAlteracao}
                   onChange={(e) => setNovaTabulacaoAlteracao(e.target.value)}
@@ -2074,16 +1797,13 @@ export default function Alunos() {
                     </option>
                   ))}
                 </select>
-
                 <label style={label}>Nova data de retorno (opcional)</label>
-
                 <input
                   type="datetime-local"
                   value={novaDataRetornoAlteracao}
                   onChange={(e) => setNovaDataRetornoAlteracao(e.target.value)}
                   style={select}
                 />
-
                 <button
                   type="button"
                   onClick={alterarOperadorResponsavel}
@@ -2102,7 +1822,6 @@ export default function Alunos() {
     </div>
   );
 }
-
 const pagina = {
   minHeight: "calc(100vh - 56px)",
   background: "#f4f6fa",
@@ -2110,7 +1829,6 @@ const pagina = {
   padding: "28px 28px 40px",
   fontFamily: "Inter, Arial, sans-serif",
 };
-
 const cabecalho = {
   display: "flex",
   justifyContent: "space-between",
@@ -2119,7 +1837,6 @@ const cabecalho = {
   marginBottom: "24px",
   flexWrap: "wrap",
 };
-
 const titulo = {
   margin: 0,
   marginBottom: 2,
@@ -2128,32 +1845,27 @@ const titulo = {
   fontWeight: 800,
   letterSpacing: "-0.02em",
 };
-
 const subtitulo = {
   margin: "6px 0 0",
   color: "#94a3b8",
   fontSize: 13,
 };
-
 const usuarioTexto = {
   margin: "8px 0 0",
   color: "#64748b",
   fontSize: "13px",
 };
-
 const origemTexto = {
   margin: "8px 0 0",
   color: "#2563eb",
   fontSize: "13px",
 };
-
 const tituloSecao = {
   color: "#0f172a",
   marginTop: 0,
   fontSize: 16,
   fontWeight: 700,
 };
-
 const caixa = {
   background: "#fff",
   border: "1px solid #eef2f6",
@@ -2162,23 +1874,20 @@ const caixa = {
   marginBottom: "18px",
   boxShadow: "0 1px 3px rgba(15,23,42,0.05)",
 };
-
 const caixaDestaque = {
   background: "#f0fdf4",
-  border: "1px solid #86efac",
+  border: "1px solid #93c5fd",
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "18px",
 };
-
 const caixaLinkPronto = {
   background: "#f0fdf4",
-  border: "1px solid #86efac",
+  border: "1px solid #93c5fd",
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "18px",
 };
-
 const caixaInterna = {
   background: "#f8fafc",
   border: "1px solid #e6eaf0",
@@ -2186,14 +1895,12 @@ const caixaInterna = {
   padding: "16px",
   marginBottom: "18px",
 };
-
 const layout = {
   display: "grid",
   gridTemplateColumns: "1fr",
   gap: "18px",
   alignItems: "start",
 };
-
 const topoFicha = {
   display: "flex",
   justifyContent: "space-between",
@@ -2202,7 +1909,6 @@ const topoFicha = {
   flexWrap: "wrap",
   marginBottom: "18px",
 };
-
 const barraAbasFicha = {
   display: "flex",
   gap: "8px",
@@ -2211,7 +1917,6 @@ const barraAbasFicha = {
   borderBottom: "1px solid #e6eaf0",
   paddingBottom: "10px",
 };
-
 const abaFichaBase = {
   border: "none",
   borderRadius: "8px",
@@ -2220,26 +1925,22 @@ const abaFichaBase = {
   fontWeight: 700,
   cursor: "pointer",
 };
-
 const abaFichaAtiva = {
   ...abaFichaBase,
   background: "#eef2ff",
   color: "#2563eb",
 };
-
 const abaFichaInativa = {
   ...abaFichaBase,
   background: "#f1f5f9",
   color: "#64748b",
 };
-
 const gradeCards = {
   display: "grid",
   gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
   gap: "12px",
   marginBottom: "18px",
 };
-
 const cardInfo = {
   background: "#f8fafc",
   border: "1px solid #e6eaf0",
@@ -2247,7 +1948,6 @@ const cardInfo = {
   padding: "12px",
   color: "#475569",
 };
-
 const cardAlunoLista = {
   textAlign: "left",
   color: "#475569",
@@ -2263,7 +1963,6 @@ const cardAlunoLista = {
   fontSize: "12.5px",
   boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
 };
-
 const colId = { flex: "2 1 220px", minWidth: 0, display: "flex", flexDirection: "column", gap: 2 };
 const colStatus = { flex: "1 1 150px", display: "flex", flexDirection: "column", gap: 3 };
 const colFin = { flex: "1 1 150px", display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-start" };
@@ -2273,7 +1972,6 @@ const subCelA = { fontSize: 11.5, color: "#94a3b8" };
 const badgeSituacaoA = { display: "inline-block", padding: "3px 9px", borderRadius: 999, background: "#eef2ff", color: "#4f46e5", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", alignSelf: "flex-start" };
 const emAbertoTotalA = { fontWeight: 700, fontSize: 13, color: "#101828" };
 const emAbertoSubA = { fontSize: 11, color: "#94a3b8" };
-
 const cardMov = {
   background: "#f8fafc",
   border: "1px solid #eef2f6",
@@ -2282,23 +1980,19 @@ const cardMov = {
   borderLeft: "4px solid #2563eb",
   color: "#475569",
 };
-
 const textoInfo = {
   color: "#475569",
   margin: "6px 0",
 };
-
 const textoCinza = {
   color: "#94a3b8",
 };
-
 const label = {
   display: "block",
   marginBottom: "8px",
   color: "#475569",
   fontSize: 12.5,
 };
-
 const input = {
   flex: "1 1 280px",
   background: "#f8fafc",
@@ -2308,7 +2002,6 @@ const input = {
   padding: "11px 13px",
   outline: "none",
 };
-
 const inputCheio = {
   width: "100%",
   background: "#f8fafc",
@@ -2319,7 +2012,6 @@ const inputCheio = {
   outline: "none",
   marginBottom: "10px",
 };
-
 const select = {
   width: "100%",
   background: "#f8fafc",
@@ -2329,7 +2021,6 @@ const select = {
   padding: "12px",
   marginBottom: "10px",
 };
-
 const textarea = {
   width: "100%",
   background: "#f8fafc",
@@ -2341,7 +2032,6 @@ const textarea = {
   outline: "none",
   marginBottom: "10px",
 };
-
 const botaoPrincipal = {
   background: "#2563eb",
   color: "#fff",
@@ -2352,7 +2042,6 @@ const botaoPrincipal = {
   fontSize: 13,
   cursor: "pointer",
 };
-
 const botaoSecundario = {
   background: "#fff",
   color: "#475569",

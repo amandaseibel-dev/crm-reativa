@@ -130,7 +130,7 @@ const estilos = {
   botao: {
     width: "100%",
     marginTop: 20,
-    background: "#0f9d6b",
+    background: "#1e40af",
     color: "#fff",
     border: "none",
     borderRadius: 10,

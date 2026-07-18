@@ -175,7 +175,7 @@ const estilos = {
   toast: {
     background: "#111827",
     border: "1px solid #374151",
-    borderLeft: "4px solid #22c55e",
+    borderLeft: "4px solid #3b82f6",
     borderRadius: "10px",
     padding: "12px 14px",
     boxShadow: "0 8px 24px rgba(0,0,0,0.35)",

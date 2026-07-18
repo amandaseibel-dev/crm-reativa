@@ -46,12 +46,11 @@ export default function Login() {
           <div className="reativa-login__logo">
             <span>Re</span>ATIVA
           </div>
-          <span className="reativa-login__tag">One</span>
         </div>
 
         <div className="reativa-login__content">
           <div className="reativa-login__badge">
-            CRM INTELIGENTE
+            RECUPERAÇÃO DE CRÉDITO
           </div>
 
           <h1>Gestão operacional com foco em resultado.</h1>
@@ -109,8 +108,8 @@ export default function Login() {
           <form className="login-card" onSubmit={entrar}>
             <div className="login-card__top">
               <div>
-                <span className="login-card__eyebrow">Acesso interno</span>
-                <h2>Entrar no ReATIVA One</h2>
+                
+                <h2>Entrar no ReATIVA</h2>
               </div>
 
               <div className="login-card__icon">🔒</div>

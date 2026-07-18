@@ -56,7 +56,7 @@ function corStatus(status) {
   }
 
   if (status === "LINK_GERADO" || status === "LINK_PRONTO_PARA_ENVIO") {
-    return { background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0" };
+    return { background: "#dcfce7", color: "#166534", border: "1px solid #bfdbfe" };
   }
 
   if (status === "LINK_ENVIADO_ALUNO" || status === "LINK_ENVIADO_AO_ALUNO" || status === "LINK_ENVIADO") {
@@ -101,6 +101,9 @@ export default function ControleLinksPagamento() {
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("TODOS");
   const [ordenacao, setOrdenacao] = useState("RECENTE");
+
+  const [dataDe, setDataDe] = useState("");
+  const [dataAte, setDataAte] = useState("");
 
   const [linksEditados, setLinksEditados] = useState({});
   const [observacoes, setObservacoes] = useState({});
@@ -323,6 +326,16 @@ export default function ControleLinksPagamento() {
       lista = lista.filter((item) => item.status === filtroStatus);
     }
 
+    if (dataDe || dataAte) {
+      lista = lista.filter((item) => {
+        const d = String(item.criado_em || item.solicitado_em || "").slice(0, 10);
+        if (!d) return false;
+        if (dataDe && d < dataDe) return false;
+        if (dataAte && d > dataAte) return false;
+        return true;
+      });
+    }
+
     if (busca.trim()) {
       const termo = busca.toLowerCase().trim();
 
@@ -353,7 +366,7 @@ export default function ControleLinksPagamento() {
     });
 
     return lista;
-  }, [links, adm, usuarioGeraLink, usuarioBaixa, emailUsuario, filtroStatus, busca, ordenacao]);
+  }, [links, adm, usuarioGeraLink, usuarioBaixa, emailUsuario, filtroStatus, busca, ordenacao, dataDe, dataAte]);
 
   const indicadores = useMemo(() => {
     return {
@@ -432,6 +445,18 @@ export default function ControleLinksPagamento() {
             <option value="VALOR_ASC">Menor valor primeiro</option>
             <option value="ALUNO">Aluno A-Z</option>
           </select>
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#374151", fontWeight: "bold" }}>
+            De (solicitação)
+            <input type="date" style={styles.input} value={dataDe} onChange={(e) => setDataDe(e.target.value)} />
+          </label>
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#374151", fontWeight: "bold" }}>
+            Até (solicitação)
+            <input type="date" style={styles.input} value={dataAte} onChange={(e) => setDataAte(e.target.value)} />
+          </label>
+
+          <button style={styles.botaoCinza} onClick={() => { setDataDe(""); setDataAte(""); }}>Limpar período</button>
         </div>
       </div>
 
@@ -587,7 +612,7 @@ const styles = {
   info: { margin: "5px 0", color: "#555" },
   status: { padding: "8px 12px", borderRadius: "999px", fontWeight: "bold", fontSize: "13px", whiteSpace: "nowrap" },
   obs: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px", color: "#374151" },
-  comprovanteBox: { background: "#ecfdf5", border: "1px solid #bbf7d0", borderRadius: "10px", padding: "12px", marginTop: "14px", display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" },
+  comprovanteBox: { background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "10px", padding: "12px", marginTop: "14px", display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" },
   acoes: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "12px" },
   datas: { display: "flex", flexWrap: "wrap", gap: "12px", color: "#6b7280", fontSize: "12px", marginTop: "12px" },
   botaoEscuro: { background: "#111827", color: "#fff", border: "none", padding: "10px 13px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },

@@ -509,7 +509,7 @@ export default function LinksPagamentoAluno({
         operador_email: emailUsuario,
         operador_nome: nomeUsuario || emailUsuario || "Operador",
         tipo_pagamento: "Cartão",
-        forma_pagamento: "Cartão",
+        forma_pagamento: "CARTAO",
         valor: valorNumerico,
         link_gerado: temLink ? link : null,
         link_pagamento: temLink ? link : null,

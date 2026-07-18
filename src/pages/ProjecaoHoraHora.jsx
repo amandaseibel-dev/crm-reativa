@@ -614,7 +614,7 @@ export default function ProjecaoHoraHora() {
                         <div
                           style={{
                             ...estilos.numeroFilial,
-                            color: (dashboard?.percentual_meta_filial ?? 0) >= 100 ? "#86efac" : "#7dd3fc",
+                            color: (dashboard?.percentual_meta_filial ?? 0) >= 100 ? "#93c5fd" : "#7dd3fc",
                           }}
                         >
                           {dashboard?.percentual_meta_filial ?? 0}%
@@ -634,7 +634,7 @@ export default function ProjecaoHoraHora() {
                       <Cartao
                         label="% da meta (honorário)"
                         valor={`${dashboard?.percentual_meta ?? 0}%`}
-                        cor={(dashboard?.percentual_meta ?? 0) >= 100 ? "#0f9d6b" : "#2563eb"}
+                        cor={(dashboard?.percentual_meta ?? 0) >= 100 ? "#1e40af" : "#2563eb"}
                       />
                       <Cartao label="Honorário restante p/ meta" valor={moeda(dashboard?.valor_restante_meta)} />
                       <Cartao label="Honorário médio diário necessário" valor={moeda(dashboard?.media_diaria_necessaria)} />
@@ -656,7 +656,7 @@ export default function ProjecaoHoraHora() {
                       <Cartao
                         label="% da meta que essa projeção bateria"
                         valor={`${dashboard?.percentual_projecao_filial ?? 0}%`}
-                        cor={(dashboard?.percentual_projecao_filial ?? 0) >= 100 ? "#0f9d6b" : "#d97706"}
+                        cor={(dashboard?.percentual_projecao_filial ?? 0) >= 100 ? "#1e40af" : "#d97706"}
                       />
                       <Cartao
                         label="Ritmo (dias úteis já passados / total do mês)"
@@ -696,7 +696,7 @@ export default function ProjecaoHoraHora() {
                               <td
                                 style={{
                                   ...estilos.td,
-                                  color: (op.percentual_projecao ?? 0) >= 100 ? "#0f9d6b" : "#d97706",
+                                  color: (op.percentual_projecao ?? 0) >= 100 ? "#1e40af" : "#d97706",
                                   fontWeight: 700,
                                 }}
                               >
@@ -782,7 +782,7 @@ export default function ProjecaoHoraHora() {
                     <Cartao
                       label="% da meta já atingido"
                       valor={`${dashboard?.percentual_meta_individual_realizado ?? 0}%`}
-                      cor={(dashboard?.percentual_meta_individual_realizado ?? 0) >= 100 ? "#86efac" : "#7dd3fc"}
+                      cor={(dashboard?.percentual_meta_individual_realizado ?? 0) >= 100 ? "#93c5fd" : "#7dd3fc"}
                     />
                   </div>
 
@@ -795,7 +795,7 @@ export default function ProjecaoHoraHora() {
                     <Cartao
                       label="% da meta que essa projeção bateria"
                       valor={`${dashboard?.percentual_projecao_individual ?? 0}%`}
-                      cor={(dashboard?.percentual_projecao_individual ?? 0) >= 100 ? "#86efac" : "#7dd3fc"}
+                      cor={(dashboard?.percentual_projecao_individual ?? 0) >= 100 ? "#93c5fd" : "#7dd3fc"}
                     />
                     <Cartao
                       label="Ritmo (dias úteis já passados / total do mês)"
@@ -1368,7 +1368,7 @@ const PH_BORDA = "#e3e7ee";
 const PH_BORDA_SUAVE = "#edf0f5";
 const PH_SOMBRA = "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)";
 const PH_FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const PH_VERDE = "#0f9d6b";
+const PH_VERDE = "#1e40af";
 
 const estilos = {
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 4 },
@@ -1408,7 +1408,7 @@ const estilos = {
     padding: "18px 20px",
     borderRadius: 16,
     background: "linear-gradient(135deg, #eafaf1 0%, #ffffff 100%)",
-    border: "1px solid #bdeed4",
+    border: "1px solid #c7d7fe",
     marginBottom: 22,
     boxShadow: PH_SOMBRA,
   },
@@ -1451,7 +1451,7 @@ const estilos = {
   },
   barras: { display: "flex", gap: 10, alignItems: "flex-end", height: 170, overflowX: "auto", padding: "0 4px" },
   colunaBarra: { display: "flex", flexDirection: "column", alignItems: "center", gap: 6, minWidth: 28 },
-  barra: { width: 20, background: `linear-gradient(180deg, ${PH_VERDE}, #0a7a51)`, borderRadius: "6px 6px 0 0" },
+  barra: { width: 20, background: `linear-gradient(180deg, ${PH_VERDE}, #1e3a8a)`, borderRadius: "6px 6px 0 0" },
   legendaBarra: { fontSize: 10, color: "#98a2b3" },
   input: {
     padding: "9px 12px",

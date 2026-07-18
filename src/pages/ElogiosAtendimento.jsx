@@ -1,19 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 
-const OPERADORES = [
-  { nome: "Olga", email: "cobranca03@aelbra.com.br" },
-  { nome: "Fernanda", email: "cobranca04@aelbra.com.br" },
-  { nome: "Luana", email: "cobranca05@aelbra.com.br" },
-  { nome: "Mauricio", email: "cobranca06@aelbra.com.br" },
-  { nome: "Amanda ADM", email: "cobranca07@aelbra.com.br" },
-  { nome: "Natali", email: "cobranca08@aelbra.com.br" },
-  { nome: "João", email: "cobranca10@aelbra.com.br" },
-  { nome: "Allan", email: "cobranca11@aelbra.com.br" },
-  { nome: "Rafaella", email: "cobranca12@aelbra.com.br" },
-  { nome: "Diego", email: "cobranca13@aelbra.com.br" },
-];
-
 function formatarDataHora(iso) {
   if (!iso) return "-";
   try {
@@ -23,11 +10,36 @@ function formatarDataHora(iso) {
   }
 }
 
+function hojeISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function maisDias(dataISO, dias) {
+  const d = new Date(dataISO + "T00:00:00");
+  d.setDate(d.getDate() + dias);
+  return d.toISOString().slice(0, 10);
+}
+
+const STATUS_LABEL = {
+  PENDENTE_ANALISE: { texto: "Aguardando análise", cor: "#b45309", bg: "#fffbeb", borda: "#fde68a" },
+  APROVADO_TV: { texto: "Aprovado (na fila da TV)", cor: "#0f7a4f", bg: "#f0fdf4", borda: "#bfdbfe" },
+  PUBLICADO_TV: { texto: "Publicado na TV", cor: "#1d4ed8", bg: "#eff6ff", borda: "#bfdbfe" },
+  REJEITADO: { texto: "Rejeitado", cor: "#b91c1c", bg: "#fef2f2", borda: "#fecaca" },
+  ARQUIVADO: { texto: "Arquivado", cor: "#475569", bg: "#f8fafc", borda: "#e2e8f0" },
+};
+
 export default function ElogiosAtendimento() {
   const [carregando, setCarregando] = useState(true);
   const [elogios, setElogios] = useState([]);
-  const [filtroOperador, setFiltroOperador] = useState("TODOS");
+  const [filtroStatus, setFiltroStatus] = useState("PENDENTE_ANALISE");
   const [busca, setBusca] = useState("");
+  const [modalAprovar, setModalAprovar] = useState(null);
+  const [modalRejeitar, setModalRejeitar] = useState(null);
+  const [textoFinal, setTextoFinal] = useState("");
+  const [exibirDe, setExibirDe] = useState(hojeISO());
+  const [exibirAte, setExibirAte] = useState(maisDias(hojeISO(), 30));
+  const [motivoRejeicao, setMotivoRejeicao] = useState("");
+  const [salvando, setSalvando] = useState(false);
 
   useEffect(() => {
     carregar();
@@ -37,10 +49,10 @@ export default function ElogiosAtendimento() {
     setCarregando(true);
 
     const { data, error } = await supabase
-      .from("aluno_movimentacoes")
-      .select("id, aluno_id, descricao, registrado_por_nome, registrado_por_email, registrado_em, elogio_print_path, elogio_print_nome, elogio_aprovado_tv, elogio_aprovado_por, elogio_aprovado_em, elogio_rejeitado_tv, elogio_rejeitado_por, elogio_rejeitado_em")
-      .eq("tipo", "FINALIZACAO_ATENDIMENTO")
-      .eq("status_novo", "ELOGIO_ATENDIMENTO")
+      .from("elogios_atendimento")
+      .select(
+        "id, aluno_id, operador_email, operador_nome, print_path, print_nome_arquivo, observacao_operador, texto_final_tv, status, motivo_rejeicao, analisado_por_nome, analisado_em, exibir_de, exibir_ate, publicado_em, registrado_por_nome, registrado_em"
+      )
       .order("registrado_em", { ascending: false })
       .limit(500);
 
@@ -51,7 +63,6 @@ export default function ElogiosAtendimento() {
     }
 
     const lista = data || [];
-
     const idsAlunos = [...new Set(lista.map((m) => m.aluno_id).filter(Boolean))];
     let nomesPorId = {};
     if (idsAlunos.length > 0) {
@@ -79,90 +90,87 @@ export default function ElogiosAtendimento() {
     window.open(data.signedUrl, "_blank");
   }
 
-  async function alternarAprovacao(elogio) {
-    const { data: userData } = await supabase.auth.getUser();
-    const email = userData?.user?.email || "";
-    const aprovarAgora = !elogio.elogio_aprovado_tv;
+  function abrirModalAprovar(elogio) {
+    setModalAprovar(elogio);
+    setTextoFinal(elogio.observacao_operador || "");
+    setExibirDe(hojeISO());
+    setExibirAte(maisDias(hojeISO(), 30));
+  }
 
-    const { error } = await supabase
-      .from("aluno_movimentacoes")
-      .update({
-        elogio_aprovado_tv: aprovarAgora,
-        elogio_aprovado_por: aprovarAgora ? email : null,
-        elogio_aprovado_em: aprovarAgora ? new Date().toISOString() : null,
-        // Aprovar sempre limpa uma rejeição anterior, pra não ficar com os
-        // dois estados marcados ao mesmo tempo.
-        elogio_rejeitado_tv: false,
-        elogio_rejeitado_por: null,
-        elogio_rejeitado_em: null,
-      })
-      .eq("id", elogio.id);
+  async function confirmarAprovacao() {
+    if (!modalAprovar) return;
+    if (!textoFinal.trim()) {
+      alert('Informe o "Texto final para TV" antes de aprovar.');
+      return;
+    }
+    setSalvando(true);
+    const { error } = await supabase.rpc("elogio_aprovar", {
+      p_id: modalAprovar.id,
+      p_texto_final: textoFinal.trim(),
+      p_exibir_de: exibirDe || null,
+      p_exibir_ate: exibirAte || null,
+    });
+    setSalvando(false);
 
     if (error) {
       alert("Erro ao aprovar elogio: " + error.message);
       return;
     }
 
-    setElogios((atual) =>
-      atual.map((e) =>
-        e.id === elogio.id
-          ? {
-              ...e,
-              elogio_aprovado_tv: aprovarAgora,
-              elogio_aprovado_por: aprovarAgora ? email : null,
-              elogio_rejeitado_tv: false,
-            }
-          : e
-      )
-    );
+    setModalAprovar(null);
+    carregar();
   }
 
-  async function alternarRejeicao(elogio) {
-    const { data: userData } = await supabase.auth.getUser();
-    const email = userData?.user?.email || "";
-    const rejeitarAgora = !elogio.elogio_rejeitado_tv;
+  function abrirModalRejeitar(elogio) {
+    setModalRejeitar(elogio);
+    setMotivoRejeicao("");
+  }
 
-    const { error } = await supabase
-      .from("aluno_movimentacoes")
-      .update({
-        elogio_rejeitado_tv: rejeitarAgora,
-        elogio_rejeitado_por: rejeitarAgora ? email : null,
-        elogio_rejeitado_em: rejeitarAgora ? new Date().toISOString() : null,
-        // Rejeitar sempre tira da TV, pra não ficar aprovado e rejeitado
-        // ao mesmo tempo.
-        elogio_aprovado_tv: false,
-        elogio_aprovado_por: null,
-        elogio_aprovado_em: null,
-      })
-      .eq("id", elogio.id);
+  async function confirmarRejeicao() {
+    if (!modalRejeitar) return;
+    setSalvando(true);
+    const { error } = await supabase.rpc("elogio_rejeitar", {
+      p_id: modalRejeitar.id,
+      p_motivo: motivoRejeicao.trim() || null,
+    });
+    setSalvando(false);
 
     if (error) {
       alert("Erro ao rejeitar elogio: " + error.message);
       return;
     }
 
-    setElogios((atual) =>
-      atual.map((e) =>
-        e.id === elogio.id
-          ? {
-              ...e,
-              elogio_rejeitado_tv: rejeitarAgora,
-              elogio_rejeitado_por: rejeitarAgora ? email : null,
-              elogio_aprovado_tv: false,
-            }
-          : e
-      )
-    );
+    setModalRejeitar(null);
+    carregar();
+  }
+
+  async function publicarNaTv(elogio) {
+    const { error } = await supabase.rpc("elogio_publicar", { p_id: elogio.id });
+    if (error) {
+      alert("Erro ao publicar elogio: " + error.message);
+      return;
+    }
+    carregar();
+  }
+
+  async function arquivar(elogio) {
+    if (!window.confirm("Arquivar este elogio? Ele deixa de aparecer na TV.")) return;
+    const { error } = await supabase.rpc("elogio_arquivar", { p_id: elogio.id });
+    if (error) {
+      alert("Erro ao arquivar elogio: " + error.message);
+      return;
+    }
+    carregar();
   }
 
   const filtrados = elogios.filter((e) => {
-    if (filtroOperador !== "TODOS" && e.registrado_por_email !== filtroOperador) return false;
+    if (filtroStatus !== "TODOS" && e.status !== filtroStatus) return false;
     if (busca.trim()) {
       const termo = busca.toLowerCase();
       if (
         !String(e.aluno_nome || "").toLowerCase().includes(termo) &&
-        !String(e.registrado_por_nome || "").toLowerCase().includes(termo) &&
-        !String(e.descricao || "").toLowerCase().includes(termo)
+        !String(e.operador_nome || "").toLowerCase().includes(termo) &&
+        !String(e.observacao_operador || "").toLowerCase().includes(termo)
       ) {
         return false;
       }
@@ -170,7 +178,7 @@ export default function ElogiosAtendimento() {
     return true;
   });
 
-  const comAnexo = filtrados.filter((e) => e.elogio_print_path).length;
+  const pendentesCount = elogios.filter((e) => e.status === "PENDENTE_ANALISE").length;
 
   if (carregando) {
     return <div style={estilos.container}>Carregando elogios de atendimento...</div>;
@@ -182,32 +190,26 @@ export default function ElogiosAtendimento() {
         <div>
           <h1 style={estilos.titulo}>💚 Elogios de Atendimento</h1>
           <p style={estilos.subtitulo}>
-            Todos os elogios registrados pela equipe, automaticamente — sem depender de ninguém avisar.
+            Aprovar aqui envia o elogio pra fila da TV ReATIVA. É preciso escrever o texto final antes de aprovar.
           </p>
         </div>
         <button style={estilos.botaoAtualizar} onClick={carregar}>
           Atualizar
         </button>
-        <button
-          style={{ ...estilos.botaoAtualizar, background: "#0d1321" }}
-          onClick={() => window.open("/tv-elogios", "_blank")}
-        >
-          📺 Abrir modo TV
-        </button>
       </div>
 
       <div style={estilos.grid}>
         <div style={estilos.card}>
-          <span style={estilos.numero}>{filtrados.length}</span>
-          <span style={estilos.descricao}>Elogios (com filtro atual)</span>
+          <span style={estilos.numero}>{pendentesCount}</span>
+          <span style={estilos.descricao}>Aguardando análise</span>
         </div>
         <div style={estilos.card}>
-          <span style={estilos.numero}>{comAnexo}</span>
-          <span style={estilos.descricao}>Com print anexado</span>
+          <span style={estilos.numero}>{elogios.filter((e) => e.status === "APROVADO_TV").length}</span>
+          <span style={estilos.descricao}>Aprovados (fila da TV)</span>
         </div>
         <div style={estilos.card}>
-          <span style={estilos.numero}>{filtrados.filter((e) => e.elogio_aprovado_tv).length}</span>
-          <span style={estilos.descricao}>Aprovados para a TV</span>
+          <span style={estilos.numero}>{elogios.filter((e) => e.status === "PUBLICADO_TV").length}</span>
+          <span style={estilos.descricao}>Publicados na TV</span>
         </div>
       </div>
 
@@ -218,78 +220,172 @@ export default function ElogiosAtendimento() {
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
         />
-        <select
-          style={estilos.select}
-          value={filtroOperador}
-          onChange={(e) => setFiltroOperador(e.target.value)}
-        >
-          <option value="TODOS">Todos os operadores</option>
-          {OPERADORES.map((op) => (
-            <option key={op.email} value={op.email}>
-              {op.nome}
-            </option>
-          ))}
+        <select style={estilos.select} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
+          <option value="TODOS">Todos os status</option>
+          <option value="PENDENTE_ANALISE">Aguardando análise</option>
+          <option value="APROVADO_TV">Aprovado (fila da TV)</option>
+          <option value="PUBLICADO_TV">Publicado na TV</option>
+          <option value="REJEITADO">Rejeitado</option>
+          <option value="ARQUIVADO">Arquivado</option>
         </select>
       </div>
 
       {filtrados.length === 0 && <p style={estilos.vazio}>Nenhum elogio encontrado com esse filtro.</p>}
 
       <div style={estilos.lista}>
-        {filtrados.map((e) => (
-          <div
-            key={e.id}
-            style={{
-              ...estilos.card2,
-              borderColor: e.elogio_aprovado_tv
-                ? "#bbf7d0"
-                : e.elogio_rejeitado_tv
-                ? "#fecaca"
-                : "#edf0f5",
-              background: e.elogio_aprovado_tv
-                ? "#f7fdf9"
-                : e.elogio_rejeitado_tv
-                ? "#fef7f7"
-                : "#fff",
-            }}
-          >
-            <div style={estilos.topoCard}>
-              <div>
-                <p style={estilos.nomeAluno}>
-                  {e.aluno_nome}
-                  {e.elogio_aprovado_tv && <span style={estilos.badgeAprovado}>✅ Na TV</span>}
-                  {e.elogio_rejeitado_tv && <span style={estilos.badgeRejeitado}>✖ Rejeitado</span>}
-                </p>
-                <p style={estilos.meta}>
-                  Registrado por <strong>{e.registrado_por_nome || e.registrado_por_email}</strong> em{" "}
-                  {formatarDataHora(e.registrado_em)}
-                </p>
-              </div>
+        {filtrados.map((e) => {
+          const s = STATUS_LABEL[e.status] || STATUS_LABEL.PENDENTE_ANALISE;
+          return (
+            <div key={e.id} style={{ ...estilos.card2, borderColor: s.borda, background: s.bg }}>
+              <div style={estilos.topoCard}>
+                <div>
+                  <p style={estilos.nomeAluno}>
+                    {e.aluno_nome}
+                    <span style={{ ...estilos.badge, color: s.cor, background: s.bg, borderColor: s.borda }}>
+                      {s.texto}
+                    </span>
+                  </p>
+                  <p style={estilos.meta}>
+                    Operador <strong>{e.operador_nome}</strong> · registrado em {formatarDataHora(e.registrado_em)}
+                    {e.analisado_por_nome && (
+                      <>
+                        {" "}
+                        · analisado por <strong>{e.analisado_por_nome}</strong> em {formatarDataHora(e.analisado_em)}
+                      </>
+                    )}
+                  </p>
+                  {e.observacao_operador && <p style={estilos.descricaoTexto}>{e.observacao_operador}</p>}
+                  {e.texto_final_tv && e.status !== "PENDENTE_ANALISE" && (
+                    <p style={estilos.textoFinalMostrado}>📺 "{e.texto_final_tv}"</p>
+                  )}
+                  {e.status === "APROVADO_TV" || e.status === "PUBLICADO_TV" ? (
+                    <p style={estilos.meta}>
+                      Exibindo de {e.exibir_de || "-"} até {e.exibir_ate || "sem limite"}
+                    </p>
+                  ) : null}
+                  {e.status === "REJEITADO" && e.motivo_rejeicao && (
+                    <p style={estilos.meta}>Motivo: {e.motivo_rejeicao}</p>
+                  )}
+                </div>
 
-              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                {e.elogio_print_path && (
-                  <button style={estilos.botaoAnexo} onClick={() => abrirAnexo(e.elogio_print_path)}>
-                    📎 Ver anexo{e.elogio_print_nome ? `: ${e.elogio_print_nome}` : ""}
-                  </button>
-                )}
-                <button
-                  style={e.elogio_aprovado_tv ? estilos.botaoDesaprovar : estilos.botaoAprovar}
-                  onClick={() => alternarAprovacao(e)}
-                >
-                  {e.elogio_aprovado_tv ? "Remover da TV" : "✅ Aprovar para TV"}
-                </button>
-                <button
-                  style={e.elogio_rejeitado_tv ? estilos.botaoDesaprovar : estilos.botaoRejeitar}
-                  onClick={() => alternarRejeicao(e)}
-                >
-                  {e.elogio_rejeitado_tv ? "Desfazer rejeição" : "✖ Rejeitar"}
-                </button>
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {e.print_path && (
+                    <button style={estilos.botaoAnexo} onClick={() => abrirAnexo(e.print_path)}>
+                      📎 Ver anexo{e.print_nome_arquivo ? `: ${e.print_nome_arquivo}` : ""}
+                    </button>
+                  )}
+
+                  {e.status === "PENDENTE_ANALISE" && (
+                    <>
+                      <button style={estilos.botaoAprovar} onClick={() => abrirModalAprovar(e)}>
+                        ✅ Aprovar para TV
+                      </button>
+                      <button style={estilos.botaoRejeitar} onClick={() => abrirModalRejeitar(e)}>
+                        ✖ Rejeitar
+                      </button>
+                    </>
+                  )}
+
+                  {e.status === "APROVADO_TV" && (
+                    <>
+                      <button style={estilos.botaoAprovar} onClick={() => publicarNaTv(e)}>
+                        📺 Publicar agora
+                      </button>
+                      <button style={estilos.botaoDesaprovar} onClick={() => arquivar(e)}>
+                        Arquivar
+                      </button>
+                    </>
+                  )}
+
+                  {e.status === "PUBLICADO_TV" && (
+                    <button style={estilos.botaoDesaprovar} onClick={() => arquivar(e)}>
+                      Arquivar
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {modalAprovar && (
+        <div style={estilos.overlay}>
+          <div style={estilos.modal}>
+            <h3 style={estilos.modalTitulo}>Aprovar elogio para a TV</h3>
+            <p style={estilos.meta}>
+              {modalAprovar.aluno_nome} · operador {modalAprovar.operador_nome}
+            </p>
+
+            <label style={estilos.label}>Texto final para TV *</label>
+            <textarea
+              style={estilos.textarea}
+              value={textoFinal}
+              onChange={(e) => setTextoFinal(e.target.value)}
+              placeholder="Como o texto vai aparecer na tela da TV..."
+              rows={4}
+            />
+
+            <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ flex: 1 }}>
+                <label style={estilos.label}>Exibir de</label>
+                <input
+                  type="date"
+                  style={estilos.inputData}
+                  value={exibirDe}
+                  onChange={(e) => setExibirDe(e.target.value)}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <label style={estilos.label}>Exibir até</label>
+                <input
+                  type="date"
+                  style={estilos.inputData}
+                  value={exibirAte}
+                  onChange={(e) => setExibirAte(e.target.value)}
+                />
               </div>
             </div>
 
-            {e.descricao && <p style={estilos.descricaoTexto}>{e.descricao}</p>}
+            <div style={estilos.modalBotoes}>
+              <button style={estilos.botaoCancelar} onClick={() => setModalAprovar(null)} disabled={salvando}>
+                Cancelar
+              </button>
+              <button style={estilos.botaoAprovar} onClick={confirmarAprovacao} disabled={salvando}>
+                {salvando ? "Salvando..." : "Confirmar aprovação"}
+              </button>
+            </div>
           </div>
-        ))}
-      </div>
+        </div>
+      )}
+
+      {modalRejeitar && (
+        <div style={estilos.overlay}>
+          <div style={estilos.modal}>
+            <h3 style={estilos.modalTitulo}>Rejeitar elogio</h3>
+            <p style={estilos.meta}>
+              {modalRejeitar.aluno_nome} · operador {modalRejeitar.operador_nome}
+            </p>
+
+            <label style={estilos.label}>Motivo (opcional)</label>
+            <textarea
+              style={estilos.textarea}
+              value={motivoRejeicao}
+              onChange={(e) => setMotivoRejeicao(e.target.value)}
+              rows={3}
+            />
+
+            <div style={estilos.modalBotoes}>
+              <button style={estilos.botaoCancelar} onClick={() => setModalRejeitar(null)} disabled={salvando}>
+                Cancelar
+              </button>
+              <button style={estilos.botaoRejeitar} onClick={confirmarRejeicao} disabled={salvando}>
+                {salvando ? "Salvando..." : "Confirmar rejeição"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -321,9 +417,10 @@ const estilos = {
     margin: "5px 0 0",
     color: "#8a93a3",
     fontSize: 13.5,
+    maxWidth: 520,
   },
   botaoAtualizar: {
-    background: "#0f9d6b",
+    background: "#1e40af",
     color: "#fff",
     border: "none",
     borderRadius: 10,
@@ -337,7 +434,7 @@ const estilos = {
     gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
     gap: "14px",
     marginBottom: "18px",
-    maxWidth: 420,
+    maxWidth: 620,
   },
   card: {
     background: "#fff",
@@ -389,7 +486,6 @@ const estilos = {
     gap: "10px",
   },
   card2: {
-    background: "#fff",
     borderRadius: 14,
     padding: "14px 18px",
     border: "1px solid #edf0f5",
@@ -418,9 +514,15 @@ const estilos = {
     fontSize: 13,
     color: "#475569",
   },
+  textoFinalMostrado: {
+    margin: "8px 0 0",
+    fontSize: 13,
+    color: "#0d1321",
+    fontStyle: "italic",
+  },
   botaoAnexo: {
     background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
+    border: "1px solid #bfdbfe",
     color: "#15803d",
     borderRadius: 8,
     padding: "6px 10px",
@@ -428,28 +530,16 @@ const estilos = {
     fontWeight: 700,
     cursor: "pointer",
   },
-  badgeAprovado: {
+  badge: {
     marginLeft: 8,
     fontSize: 11,
     fontWeight: 700,
-    color: "#0f7a4f",
-    background: "#e9f9f1",
-    border: "1px solid #bdeed4",
     borderRadius: 999,
     padding: "2px 9px",
-  },
-  badgeRejeitado: {
-    marginLeft: 8,
-    fontSize: 11,
-    fontWeight: 700,
-    color: "#b91c1c",
-    background: "#fef2f2",
-    border: "1px solid #fecaca",
-    borderRadius: 999,
-    padding: "2px 9px",
+    border: "1px solid",
   },
   botaoAprovar: {
-    background: "#0f9d6b",
+    background: "#1e40af",
     color: "#fff",
     border: "none",
     borderRadius: 8,
@@ -475,6 +565,70 @@ const estilos = {
     borderRadius: 8,
     padding: "6px 10px",
     fontSize: 12,
+    fontWeight: 700,
+    cursor: "pointer",
+  },
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(13,19,33,0.5)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1000,
+  },
+  modal: {
+    background: "#fff",
+    borderRadius: 16,
+    padding: "24px 26px",
+    width: "min(480px, 92vw)",
+    boxShadow: "0 20px 60px rgba(0,0,0,0.25)",
+  },
+  modalTitulo: {
+    margin: "0 0 4px",
+    fontSize: 18,
+    fontWeight: 800,
+    color: "#0d1321",
+    fontFamily: "'Sora', 'Inter', system-ui, sans-serif",
+  },
+  label: {
+    display: "block",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#475569",
+    margin: "14px 0 6px",
+  },
+  textarea: {
+    width: "100%",
+    padding: "10px 12px",
+    borderRadius: 10,
+    border: "1px solid #e3e7ee",
+    fontSize: 13.5,
+    fontFamily: "inherit",
+    resize: "vertical",
+    boxSizing: "border-box",
+  },
+  inputData: {
+    width: "100%",
+    padding: "9px 12px",
+    borderRadius: 10,
+    border: "1px solid #e3e7ee",
+    fontSize: 13,
+    boxSizing: "border-box",
+  },
+  modalBotoes: {
+    display: "flex",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 20,
+  },
+  botaoCancelar: {
+    background: "#fff",
+    color: "#475569",
+    border: "1px solid #cbd5e1",
+    borderRadius: 8,
+    padding: "8px 16px",
+    fontSize: 13,
     fontWeight: 700,
     cursor: "pointer",
   },

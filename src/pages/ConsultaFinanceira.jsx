@@ -162,7 +162,7 @@ export default function ConsultaFinanceira() {
             <div style={estilos.label}>Parciais</div>
           </div>
           <div style={{ ...estilos.cartao, background: "rgba(34,197,94,0.1)" }}>
-            <div style={{ ...estilos.numero, color: "#86efac" }}>{resumo.total_pagos}</div>
+            <div style={{ ...estilos.numero, color: "#93c5fd" }}>{resumo.total_pagos}</div>
             <div style={estilos.label}>Pagos</div>
           </div>
         </div>
@@ -288,7 +288,7 @@ export default function ConsultaFinanceira() {
                           window.open(`/aluno?alunoId=${linha.aluno_id}`, "_blank");
                         }}
                         style={{
-                          background: "#0f9d6b",
+                          background: "#1e40af",
                           color: "#fff",
                           border: "none",
                           borderRadius: 8,

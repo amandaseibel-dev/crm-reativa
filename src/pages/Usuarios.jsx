@@ -236,7 +236,7 @@ export default function Usuarios() {
   return (
     <div style={page}>
       <h1 style={title}>Usuários</h1>
-      <p style={subtitle}>Gerencie os acessos e permissões do ReATIVA One.</p>
+      <p style={subtitle}>Gerencie os acessos e permissões do ReATIVA.</p>
 
       <div style={cards}>
         <Card label="Total de usuários" value={total} />
@@ -659,7 +659,7 @@ const toggleLabel = {
 };
 
 const btnGreen = {
-  background: "#22c55e",
+  background: "#3b82f6",
   color: "#020617",
   border: "none",
   borderRadius: 12,
@@ -731,7 +731,7 @@ const badge = {
 
 const activeBadge = {
   background: "#052e16",
-  color: "#22c55e",
+  color: "#3b82f6",
   padding: "5px 10px",
   borderRadius: 999,
   fontWeight: 800,
@@ -771,6 +771,6 @@ const erroStyle = {
 };
 
 const okStyle = {
-  color: "#22c55e",
+  color: "#3b82f6",
   fontWeight: 900,
 };

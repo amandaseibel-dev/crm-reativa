@@ -6,7 +6,6 @@ import {
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
   Upload, Users, Settings, UserCircle,
 } from "lucide-react";
-
 const ICONES_MENU = {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
@@ -15,7 +14,6 @@ const ICONES_MENU = {
 };
 import { supabase } from "./services/supabase";
 import AutoLogout from "./components/AutoLogout";
-
 import Dashboard from "./pages/Dashboard";
 import BaseAnalitica from "./pages/BaseAnalitica";
 import Importacoes from "./pages/Importacoes";
@@ -46,11 +44,15 @@ import VincularBaseOperacional from "./pages/VincularBaseOperacional";
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
 import PainelAdm from "./pages/PainelAdm";
 import FinanceiroHub from "./pages/FinanceiroHub";
+import CentralPagamentos from "./components/CentralPagamentos";
 import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
 import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
+import DRE from "./pages/DRE";
+import ImportarRecuperacao from "./pages/ImportarRecuperacao";
+import ExecutivoRecuperacao from "./pages/ExecutivoRecuperacao";
 import MeuDashboard from "./pages/MeuDashboard";
 import ElogiosAtendimento from "./pages/ElogiosAtendimento";
 import ExportarContatos from "./pages/ExportarContatos";
@@ -58,17 +60,22 @@ import AcoesMassivas from "./pages/AcoesMassivas";
 import HistoricoRecuperacao from "./pages/HistoricoRecuperacao";
 import SaudeDaBase from "./pages/SaudeDaBase";
 import TvElogios from "./pages/TvElogios";
-
+import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
+import AvisosPopup from "./components/AvisosPopup";
+import AvisosBadge from "./components/AvisosBadge";
+import CentralAvisos from "./pages/CentralAvisos";
+import TaxaConversao from "./pages/TaxaConversao";
+import PainelGeral from "./pages/PainelGeral";
 function EmDesenvolvimento({ titulo }) {
   return (
     <div className="main">
       <h1>{titulo}</h1>
-      <p>Esta funcionalidade está em desenvolvimento no ReATIVA One.</p>
+      <p>Esta funcionalidade está em desenvolvimento no ReATIVA.</p>
     </div>
   );
 }
-
 function podeAcessar(perfil, rota) {
+  if (rota === "/avisos") return true;
   const permissoes = {
     gerencia: [
       "/",
@@ -87,23 +94,23 @@ function podeAcessar(perfil, rota) {
       "/usuarios",
       "/relatorios",
       "/configuracoes",
-
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
       "/fila-confirmacao-pagamento",
       "/painel-adm",
+      "/painel-geral",
       "/fila-financeiro",
       "/painel-operadores",
       "/financeiro-operadores",
       "/meu-perfil",
       "/painel-carteira",
-      "/meu-dashboard",
       "/elogios-atendimento",
       "/projecao-hora-a-hora",
       "/exportar-contatos",
       "/acoes-massivas",
       "/historico-recuperacao",
-      "/saude-da-base",],
+      "/saude-da-base",
+      "/taxa-conversao",],
     supervisor: [
       "/",
       "/minha-fila",
@@ -116,21 +123,21 @@ function podeAcessar(perfil, rota) {
       "/base-analitica",
       "/termos-adm",
       "/relatorios",
-
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
       "/fila-confirmacao-pagamento",
       "/painel-adm",
+      "/painel-geral",
       "/fila-financeiro",
       "/meu-perfil",
       "/painel-carteira",
-      "/meu-dashboard",
       "/elogios-atendimento",
       "/projecao-hora-a-hora",
       "/exportar-contatos",
       "/acoes-massivas",
       "/historico-recuperacao",
-      "/saude-da-base",],
+      "/saude-da-base",
+      "/taxa-conversao",],
     administrativo: [
       "/",
       "/minha-fila",
@@ -141,7 +148,6 @@ function podeAcessar(perfil, rota) {
       "/financeiro",
       "/financeiro-hub",
       "/termos-adm",
-
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
       "/fila-confirmacao-pagamento",
@@ -168,10 +174,8 @@ function podeAcessar(perfil, rota) {
       "/elogios-atendimento",
       "/projecao-hora-a-hora",],
   };
-
   return permissoes[perfil]?.includes(rota);
 }
-
 // Gerenciar usuários é mais sensível que o resto do que "gerencia" acessa
 // -- fica restrito só a essas pessoas, nem todo mundo com perfil gerencia.
 const EMAILS_PODE_GERIR_USUARIOS = [
@@ -180,24 +184,25 @@ const EMAILS_PODE_GERIR_USUARIOS = [
   "amandapradoseibel@gmail.com",
   "cobranca04@aelbra.com.br", // Fernanda (supervisora)
 ];
-
 function RotaProtegida({ usuario, rota, children }) {
   const perfil = usuario?.perfil?.perfil;
-
   if (!podeAcessar(perfil, rota)) {
     return <Navigate to="/" replace />;
   }
-
   if (rota === "/usuarios") {
     const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
     if (!EMAILS_PODE_GERIR_USUARIOS.includes(email)) {
       return <Navigate to="/" replace />;
     }
   }
-
+  if (rota === "/avisos") {
+    const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+    if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
+      return <Navigate to="/" replace />;
+    }
+  }
   return children;
 }
-
 export default function App() {
   const [usuario, setUsuario] = useState(null);
   const [carregando, setCarregando] = useState(true);
@@ -210,7 +215,6 @@ export default function App() {
   const [sidebarRecolhida, setSidebarRecolhida] = useState(() => {
     return localStorage.getItem("reativa_sidebar_recolhida") === "1";
   });
-
   function alternarSidebar() {
     setSidebarRecolhida((atual) => {
       const novo = !atual;
@@ -218,46 +222,37 @@ export default function App() {
       return novo;
     });
   }
-
   function alternarTema() {
     const novoTema = tema === "escuro" ? "claro" : "escuro";
     setTema(novoTema);
     localStorage.setItem("reativa_tema", novoTema);
   }
-
   useEffect(() => {
     verificarSessao();
   }, []);
-
   useEffect(() => {
     const perfilAtual = usuario?.perfil?.perfil;
     if (!usuario || !podeAcessar(perfilAtual, "/painel-adm")) {
       setLinksAguardando(0);
       return;
     }
-
     let ativo = true;
-
     async function carregarPendentes() {
       const { count, error } = await supabase
         .from("links_pagamento")
         .select("id", { count: "exact", head: true })
         .in("status", ["SOLICITADO_LINK", "LINK_EM_ATENDIMENTO"]);
-
       if (ativo && !error) {
         setLinksAguardando(count || 0);
       }
     }
-
     carregarPendentes();
     const intervalo = setInterval(carregarPendentes, 15000);
-
     return () => {
       ativo = false;
       clearInterval(intervalo);
     };
   }, [usuario]);
-
   useEffect(() => {
     const email = (usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase();
     const ehGestao = ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(email);
@@ -265,29 +260,23 @@ export default function App() {
       setTermosAguardandoValidacao(0);
       return;
     }
-
     let ativo = true;
-
     async function carregarTermosAguardando() {
       const { count, error } = await supabase
         .from("termos_acordo")
         .select("id", { count: "exact", head: true })
         .eq("status", "TERMO_ENVIADO_ADM");
-
       if (ativo && !error) {
         setTermosAguardandoValidacao(count || 0);
       }
     }
-
     carregarTermosAguardando();
     const intervalo = setInterval(carregarTermosAguardando, 15000);
-
     return () => {
       ativo = false;
       clearInterval(intervalo);
     };
   }, [usuario]);
-
   // Comprovantes anexados esperando a Amanda dar baixa (Fila de Baixas).
   useEffect(() => {
     const perfilAtual = usuario?.perfil?.perfil;
@@ -295,29 +284,23 @@ export default function App() {
       setBaixasAguardando(0);
       return;
     }
-
     let ativo = true;
-
     async function carregarBaixasPendentes() {
       const { count, error } = await supabase
         .from("links_pagamento")
         .select("id", { count: "exact", head: true })
         .eq("status", "AGUARDANDO_BAIXA");
-
       if (ativo && !error) {
         setBaixasAguardando(count || 0);
       }
     }
-
     carregarBaixasPendentes();
     const intervalo = setInterval(carregarBaixasPendentes, 15000);
-
     return () => {
       ativo = false;
       clearInterval(intervalo);
     };
   }, [usuario]);
-
   // Elogios de atendimento ainda sem decisão (nem aprovados, nem rejeitados
   // pra TV) -- avisa na aba pra não depender de ninguém sinalizar.
   useEffect(() => {
@@ -326,51 +309,37 @@ export default function App() {
       setElogiosPendentes(0);
       return;
     }
-
     let ativo = true;
-
     async function carregarElogiosPendentes() {
       const { count, error } = await supabase
-        .from("aluno_movimentacoes")
+        .from("elogios_atendimento")
         .select("id", { count: "exact", head: true })
-        .eq("tipo", "FINALIZACAO_ATENDIMENTO")
-        .eq("status_novo", "ELOGIO_ATENDIMENTO")
-        .eq("elogio_aprovado_tv", false)
-        .eq("elogio_rejeitado_tv", false);
-
+        .eq("status", "PENDENTE_ANALISE");
       if (ativo && !error) {
         setElogiosPendentes(count || 0);
       }
     }
-
     carregarElogiosPendentes();
     const intervalo = setInterval(carregarElogiosPendentes, 15000);
-
     return () => {
       ativo = false;
       clearInterval(intervalo);
     };
   }, [usuario]);
-
   useEffect(() => {
     const email = usuario?.auth?.email || usuario?.perfil?.email;
-
     if (!usuario || !email) {
       setTermosRejeitados(0);
       return;
     }
-
     let ativo = true;
-
     async function carregarTermosRejeitados() {
       const { data, error } = await supabase
         .from("termos_acordo")
         .select("aluno_id, status, criado_em")
         .eq("operador_email", email)
         .order("criado_em", { ascending: false });
-
       if (!ativo || error || !data) return;
-
       // Para cada aluno, olha só o termo mais recente enviado por mim.
       // Se o mais recente foi rejeitado, ainda precisa de correção.
       const maisRecentePorAluno = new Map();
@@ -379,37 +348,29 @@ export default function App() {
           maisRecentePorAluno.set(termo.aluno_id, termo.status);
         }
       }
-
       let total = 0;
       for (const status of maisRecentePorAluno.values()) {
         if (status === "TERMO_REJEITADO") total += 1;
       }
-
       setTermosRejeitados(total);
     }
-
     carregarTermosRejeitados();
     const intervalo = setInterval(carregarTermosRejeitados, 15000);
-
     return () => {
       ativo = false;
       clearInterval(intervalo);
     };
   }, [usuario]);
-
   async function verificarSessao() {
     const { data } = await supabase.auth.getSession();
-
     if (data.session) {
       const email = data.session.user.email;
-
       const { data: perfil } = await supabase
         .from("usuarios")
         .select("*")
         .eq("email", email)
         .eq("ativo", true)
         .single();
-
       if (perfil) {
         setUsuario({
           auth: data.session.user,
@@ -421,10 +382,8 @@ export default function App() {
         setUsuario(null);
       }
     }
-
     setCarregando(false);
   }
-
   async function sair() {
     const email = usuario?.perfil?.email || usuario?.auth?.email;
     const nome = usuario?.perfil?.nome;
@@ -433,7 +392,9 @@ export default function App() {
     await supabase.auth.signOut();
     window.location.href = "/";
   }
-
+  if (["/tv-elogios", "/tv"].includes(window.location.pathname)) {
+    return <TvElogios />;
+  }
   if (carregando) {
     return (
       <div
@@ -447,30 +408,24 @@ export default function App() {
           fontSize: 22,
         }}
       >
-        Carregando ReATIVA One...
+        Carregando ReATIVA...
       </div>
     );
   }
-
   if (window.location.pathname === "/redefinir-senha") {
     return <RedefinirSenha />;
   }
-
   if (!usuario) {
     return <Login onLogin={setUsuario} />;
   }
-
-  if (window.location.pathname === "/tv-elogios") {
-    return <TvElogios />;
-  }
-
   if (usuario.perfil?.deve_trocar_senha) {
     return <RedefinirSenha forcado email={usuario.perfil.email} />;
   }
-
   const perfil = usuario.perfil?.perfil;
-
   const menuBase = [
+    { rota: "/dre", label: "DRE (gerencia)" },
+    { rota: "/importar-recuperacao", label: "📥 Importar Recuperação" },
+  { rota: "/executivo", label: "📊 Visão Executiva" },
     {
       rota: "/",
       label: perfil === "operador" ? "Minha Fila" : "Dashboard",
@@ -489,30 +444,46 @@ export default function App() {
     { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" },
     { rota: "/aluno", label: "Aluno", icone: "User", secao: "Operação" },
     { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
-
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
-
+    { rota: "/central-pagamentos", label: "Central de Pagamentos", icone: "Wallet", secao: "Financeiro" },
+    { rota: "/painel-geral", label: "Painel Geral", icone: "LayoutPanelTop", secao: "Gestão" },
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
+    { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
     { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Gestão" },
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
-
     { rota: "/importacoes", label: "Importações", icone: "Upload", secao: "Configurações" },
+    { rota: "/avisos", label: "Central de Avisos", icone: "Bell", secao: "Configurações" },
     { rota: "/usuarios", label: "Usuários", icone: "Users", secao: "Configurações" },
     { rota: "/configuracoes", label: "Configurações", icone: "Settings", secao: "Configurações" },
     { rota: "/meu-perfil", label: "Meu Perfil", icone: "UserCircle", secao: "Configurações" },
   ];
-
   const menu = menuBase.filter((item) => {
     if (perfil === "operador" && item.esconderParaOperador) return false;
+    if (item.rota === "/dre") {
+      const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return em === "amanda.seibel@aelbra.com.br";
+    }
+    if (item.rota === "/importar-recuperacao") {
+      const em2 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em2);
+    }
+    if (item.rota === "/executivo") {
+      const em3 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em3);
+    }
     if (item.rota === "/") {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       if (["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(email)) return false;
+    }
+    if (item.rota === "/avisos") {
+      const emA = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emA);
     }
     if (item.rota === "/usuarios") {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -520,13 +491,14 @@ export default function App() {
     }
     return podeAcessar(perfil, item.rota);
   });
-
   return (
     <BrowserRouter>
       <div className="app" data-tema={tema}>
         <HeartbeatReceptivo usuario={usuario} />
         <AutoLogout usuario={usuario} />
         <NotificacoesSupervisaoAdm usuario={usuario} />
+        <AvisoTemplateNovo />
+        <AvisosPopup />
         <aside className={sidebarRecolhida ? "sidebar sidebar-recolhida" : "sidebar"}>
           <button
             type="button"
@@ -537,8 +509,7 @@ export default function App() {
             {sidebarRecolhida ? "»" : "«"}
           </button>
           <div className="cabecalho-usuario">
-            <h2>{sidebarRecolhida ? "RA" : "ReATIVA One"}</h2>
-
+            <h2 className="marca-reativa">{sidebarRecolhida ? (<><span style={{ color: "#3b82f6" }}>R</span>A</>) : (<><span style={{ color: "#3b82f6" }}>Re</span>ATIVA</>)}</h2>
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
               {usuario.perfil?.foto_url ? (
                 <img
@@ -549,16 +520,15 @@ export default function App() {
               ) : null}
               <span>{usuario.perfil?.apelido || usuario.perfil?.nome}</span>
             </div>
-
             <small
               style={{
                 display: "inline-block",
                 marginTop: 8,
                 padding: "3px 10px",
                 borderRadius: 999,
-                background: "rgba(34,197,94,0.12)",
-                border: "1px solid rgba(34,197,94,0.3)",
-                color: "#4ade80",
+                background: "rgba(37,99,235,0.12)",
+                border: "1px solid rgba(37,99,235,0.35)",
+                color: "#60a5fa",
                 fontSize: 11,
                 fontWeight: 700,
                 textTransform: "uppercase",
@@ -567,7 +537,6 @@ export default function App() {
             >
               {usuario.perfil?.perfil}
             </small>
-
             <button
               style={{
                 marginTop: 18,
@@ -585,15 +554,12 @@ export default function App() {
             >
               Sair
             </button>
-
           </div>
-
           <nav>
             {menu.map((item, indice) => {
               const IconeComponente = ICONES_MENU[item.icone] || Zap;
               const secaoAnterior = indice > 0 ? menu[indice - 1].secao : null;
               const mostrarTituloSecao = item.secao && item.secao !== secaoAnterior && !sidebarRecolhida;
-
               return (
                 <div key={item.rota}>
                   {mostrarTituloSecao && (
@@ -606,12 +572,12 @@ export default function App() {
                   >
                     <IconeComponente size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
                     {!sidebarRecolhida && <span>{item.label}</span>}
-                {item.rota === "/financeiro-hub" && (linksAguardando + termosAguardandoValidacao) > 0 && (
+                {item.rota === "/financeiro-hub" && (linksAguardando + termosAguardandoValidacao + baixasAguardando) > 0 && (
                   <span
                     className="badge-pendente"
-                    title={`${linksAguardando} link(s) aguardando resposta · ${termosAguardandoValidacao} termo(s) aguardando validação`}
+                    title={`${linksAguardando} link(s) aguardando resposta · ${termosAguardandoValidacao} termo(s) aguardando validação · ${baixasAguardando} baixa(s) aguardando`}
                   >
-                    {linksAguardando + termosAguardandoValidacao}
+                    {linksAguardando + termosAguardandoValidacao + baixasAguardando}
                   </span>
                 )}
                 {item.rota === "/aluno" && termosRejeitados > 0 && (
@@ -643,10 +609,9 @@ export default function App() {
               );
             })}
           </nav>
+          <AvisosBadge />
         </aside>
-
         <main className="content">
-          <BotaoManual />
       <Routes>
             <Route
               path="/"
@@ -662,7 +627,6 @@ export default function App() {
                 )
               }
             />
-
             <Route
               path="/minha-fila"
               element={
@@ -675,7 +639,14 @@ export default function App() {
                 )
               }
             />
-
+            <Route
+              path="/avisos"
+              element={
+                <RotaProtegida usuario={usuario} rota="/avisos">
+                  <CentralAvisos />
+                </RotaProtegida>
+              }
+            />
             <Route
               path="/aluno"
               element={
@@ -684,7 +655,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/crm"
               element={
@@ -693,7 +663,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/financeiro"
               element={
@@ -702,7 +671,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/base-analitica"
               element={
@@ -711,7 +679,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/termos-adm"
               element={
@@ -720,7 +687,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/borderos"
               element={
@@ -729,7 +695,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/vincular-operadores"
               element={
@@ -738,7 +703,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/importacoes"
               element={
@@ -747,7 +711,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/usuarios"
               element={
@@ -756,7 +719,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/relatorios"
               element={
@@ -765,7 +727,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/configuracoes"
               element={
@@ -774,7 +735,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route
               path="/agenda"
               element={
@@ -783,7 +743,6 @@ export default function App() {
                 </RotaProtegida>
               }
             />
-
             <Route path="*" element={<Navigate to="/" replace />} />
                   <Route path="/fila-adm-termos" element={<FilaAdmTermos />} />
               <Route path="/base-receptiva" element={<BaseReceptiva />} />
@@ -801,7 +760,9 @@ export default function App() {
               />
               <Route path="/controle-links-pagamento" element={<ControleLinksPagamento />} />
               <Route path="/painel-adm" element={<PainelAdm />} />
+              <Route path="/painel-geral" element={<PainelGeral />} />
               <Route path="/financeiro-hub" element={<FinanceiroHub />} />
+        <Route path="/central-pagamentos" element={<CentralPagamentos />} />
               <Route path="/fila-financeiro" element={<FilaFinanceiro />} />
               <Route path="/fila-confirmacao-pagamento" element={<FilaConfirmacaoPagamento />} />
               <Route path="/painel-operadores" element={<PainelOperadores />} />
@@ -821,10 +782,14 @@ export default function App() {
               <Route path="/exportar-contatos" element={<ExportarContatos />} />
               <Route path="/acoes-massivas" element={<AcoesMassivas />} />
               <Route path="/historico-recuperacao" element={<HistoricoRecuperacao />} />
+        <Route path="/executivo" element={<ExecutivoRecuperacao />} />
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
+              <Route path="/taxa-conversao" element={<TaxaConversao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
               <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/minha-fila-quitacao" element={<MinhaFilaQuitacao />} />
+              <Route path="/dre" element={<DRE />} />
+              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} />
               <Route path="/manual-operacao" element={<ManualOperacao />} />
       </Routes>
         </main>

@@ -509,7 +509,7 @@ const styles = {
   },
   botaoAnexo: {
     background: "#f0fdf4",
-    border: "1px solid #bbf7d0",
+    border: "1px solid #bfdbfe",
     color: "#15803d",
     borderRadius: "8px",
     padding: "6px 10px",

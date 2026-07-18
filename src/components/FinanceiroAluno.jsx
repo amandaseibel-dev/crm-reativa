@@ -63,6 +63,27 @@ function paraNumero(v) {
   return Number(t) || 0;
 }
 
+function paraDataISO(v) {
+  const t = String(v || "").trim();
+  if (!t) return "";
+  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = t.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/);
+  if (m) {
+    let d = m[1], mo = m[2], ano = m[3];
+    if (ano.length === 2) ano = "20" + ano;
+    return `${ano}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return null;
+}
+
+function paraDataBR(v) {
+  const t = String(v || "").trim();
+  const m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return t;
+}
+
 const STATUS_PARCELA_LABEL = {
   A_VENCER: "A vencer",
   VENCIDA: "Vencida",
@@ -129,10 +150,10 @@ function novoAcordoInicial() {
     entradaRs: "",
     entradaPct: "",
     entradaPaga: true,
-    dataEntrada: hojeISO(),
+    dataEntrada: paraDataBR(hojeISO()),
     honorariosEntrada: "0",
     honorarios: "",
-    primeiroVenc: somarMeses(hojeISO(), 1),
+    primeiroVenc: paraDataBR(somarMeses(hojeISO(), 1)),
     titulosSel: [],
     parcelas: [],
   };
@@ -143,7 +164,7 @@ function novoAcordoInicial() {
 function mensalidadeManualInicial() {
   return {
     documento: "",
-    vencimento: hojeISO(),
+    vencimento: "",
     valor: "",
     tipoBoleto: "",
     competencia: "",
@@ -186,7 +207,15 @@ export default function FinanceiroAluno({ aluno }) {
         .eq("cpf", aluno.cpf)
         .order("vencimento", { ascending: true });
 
-      setTitulos(data || []);
+      // Em aberto no topo; depois por vencimento (mantido da query).
+      const emAbertoPrimeiro = (data || []).slice().sort((a, b) => {
+        const aAberto = String(a.status || "").toLowerCase() === "em_aberto" && a.situacao !== "PAGO" ? 0 : 1;
+        const bAberto = String(b.status || "").toLowerCase() === "em_aberto" && b.situacao !== "PAGO" ? 0 : 1;
+        if (aAberto !== bAberto) return aAberto - bAberto;
+        return String(a.vencimento || "").localeCompare(String(b.vencimento || ""));
+      });
+
+      setTitulos(emAbertoPrimeiro);
       setCarregando(false);
     }
 
@@ -666,12 +695,12 @@ export default function FinanceiroAluno({ aluno }) {
     const honEnt = total > 0 ? honTotal * (entrada / total) : 0;
     const honSaldo = Math.max(0, honTotal - honEnt);
     const honCada = honSaldo / qtd;
-    const base = novo.primeiroVenc || hojeISO();
+    const base = paraDataISO(novo.primeiroVenc) || hojeISO();
     const parcelas = [];
     for (let i = 1; i <= qtd; i++) {
       parcelas.push({
         numero: i,
-        vencimento: somarMeses(base, i - 1),
+        vencimento: paraDataBR(somarMeses(base, i - 1)),
         valor: vParc.toFixed(2),
         honorarios: honCada.toFixed(2),
         status: "A_VENCER",
@@ -720,7 +749,7 @@ export default function FinanceiroAluno({ aluno }) {
         valor_entrada: novo.temEntrada ? entrada : null,
         entrada_percentual: pct,
         entrada_paga: novo.temEntrada ? Boolean(novo.entradaPaga) : false,
-        data_entrada: novo.temEntrada && novo.entradaPaga ? (novo.dataEntrada || hojeISO()) : null,
+        data_entrada: novo.temEntrada && novo.entradaPaga ? (paraDataISO(novo.dataEntrada) || hojeISO()) : null,
         honorarios_valor: honTotal || null,
         saldo: saldo,
         status: "ATIVO",
@@ -743,7 +772,7 @@ export default function FinanceiroAluno({ aluno }) {
       numero: p.numero,
       valor: paraNumero(p.valor),
       honorarios: p.honorarios != null ? paraNumero(p.honorarios) : null,
-      vencimento: p.vencimento,
+      vencimento: paraDataISO(p.vencimento) || p.vencimento,
       status: p.status,
     }));
 
@@ -758,7 +787,7 @@ export default function FinanceiroAluno({ aluno }) {
     // valor da entrada nunca aparecia em nenhum KPI de "valor baixado" ou
     // "honorários", porque esses somam de baixas/parcelas reais.
     if (novo.temEntrada && novo.entradaPaga && entrada > 0) {
-      const dataEntradaEscolhida = novo.dataEntrada || hojeISO();
+      const dataEntradaEscolhida = paraDataISO(novo.dataEntrada) || hojeISO();
       const honEntrada = paraNumero(novo.honorariosEntrada);
 
       const { data: parcelaEntrada, error: erroEntrada } = await supabase
@@ -823,13 +852,10 @@ export default function FinanceiroAluno({ aluno }) {
       return;
     }
 
-    const documento = novaMensalidade.documento.trim();
-    if (!documento) {
-      setErroMensalidade("Informe o número do documento/título (o mesmo do bordero).");
-      return;
-    }
-    if (!novaMensalidade.vencimento) {
-      setErroMensalidade("Informe o vencimento.");
+    const documento = novaMensalidade.documento.trim() || ("MANUAL-" + Date.now());
+    const vencimentoISO = paraDataISO(novaMensalidade.vencimento);
+    if (!vencimentoISO) {
+      setErroMensalidade("Informe o vencimento no formato dd/mm/aaaa.");
       return;
     }
     const valor = paraNumero(novaMensalidade.valor);
@@ -846,7 +872,7 @@ export default function FinanceiroAluno({ aluno }) {
         aluno_id: String(aluno.id),
         cpf: aluno.cpf || null,
         documento,
-        vencimento: novaMensalidade.vencimento,
+        vencimento: vencimentoISO,
         valor_original: valor,
         saldo_corrigido: valor,
         situacao: "ABERTO",
@@ -929,6 +955,18 @@ export default function FinanceiroAluno({ aluno }) {
 
   // Valor total do aluno = mensalidades em aberto + honorários em aberto + acordos em aberto.
   const valorTotalAluno = valorMensalidades + valorHonorarios + valorAcordos;
+
+  const pagoMensalidades = titulos
+    .filter((t) => t.situacao === "PAGO" || t.status === "quitada")
+    .reduce((soma, t) => soma + Number(t.valor_original ?? t.saldo_corrigido ?? 0), 0);
+  const parcelasPagas = acordos
+    .flatMap((a) => parcelasPorAcordo[a.id] || [])
+    .filter((p) => p.status === "PAGO");
+  const pagoAcordos = parcelasPagas.reduce((soma, p) => soma + Number(p.valor || 0), 0);
+  const pagoHonorarios = parcelasPagas.reduce((soma, p) => soma + Number(p.honorarios || 0), 0);
+  const pagoTotal = pagoMensalidades + pagoHonorarios + pagoAcordos;
+  const estiloPago = { fontSize: 11, color: "#16a34a", fontWeight: 700, marginTop: 2 };
+
   const temAlgumValor = titulos.length > 0 || acordos.length > 0;
 
   const somaTitulosMarcados = titulosSelecionaveis
@@ -942,18 +980,22 @@ export default function FinanceiroAluno({ aluno }) {
           <div style={estilos.resumoFinanceiroItem}>
             <span style={estilos.resumoFinanceiroLabel}>Mensalidades em aberto</span>
             <span style={estilos.resumoFinanceiroValor}>{moeda(valorMensalidades)}</span>
+            <span style={estiloPago}>já pago: {moeda(pagoMensalidades)}</span>
           </div>
           <div style={estilos.resumoFinanceiroItem}>
             <span style={estilos.resumoFinanceiroLabel}>Honorários em aberto</span>
             <span style={estilos.resumoFinanceiroValor}>{moeda(valorHonorarios)}</span>
+            <span style={estiloPago}>já pago: {moeda(pagoHonorarios)}</span>
           </div>
           <div style={estilos.resumoFinanceiroItem}>
             <span style={estilos.resumoFinanceiroLabel}>Acordos em aberto</span>
             <span style={estilos.resumoFinanceiroValor}>{moeda(valorAcordos)}</span>
+            <span style={estiloPago}>já pago: {moeda(pagoAcordos)}</span>
           </div>
           <div style={{ ...estilos.resumoFinanceiroItem, ...estilos.resumoFinanceiroItemTotal }}>
             <span style={estilos.resumoFinanceiroLabel}>💰 Total em aberto do aluno</span>
             <span style={estilos.totalGeral}>{moeda(valorTotalAluno)}</span>
+            <span style={estiloPago}>já pago: {moeda(pagoTotal)}</span>
           </div>
         </div>
       )}
@@ -1020,8 +1062,7 @@ export default function FinanceiroAluno({ aluno }) {
                 </label>
                 <label style={estilos.campo}>
                   1º vencimento
-                  <input style={estilos.input} type="date" value={novo.primeiroVenc}
-                    onClick={abrirCalendario}
+                  <input style={estilos.input} type="text" placeholder="dd/mm/aaaa" value={novo.primeiroVenc}
                     onChange={(e) => atualizarNovo("primeiroVenc", e.target.value)} />
                 </label>
               </div>
@@ -1052,8 +1093,7 @@ export default function FinanceiroAluno({ aluno }) {
                   {novo.entradaPaga && (
                     <label style={estilos.campo}>
                       Data em que a entrada foi paga
-                      <input type="date" style={estilos.input} value={novo.dataEntrada}
-                        onClick={abrirCalendario}
+                      <input type="text" placeholder="dd/mm/aaaa" style={estilos.input} value={novo.dataEntrada}
                         onChange={(e) => atualizarNovo("dataEntrada", e.target.value)} />
                     </label>
                   )}
@@ -1090,8 +1130,7 @@ export default function FinanceiroAluno({ aluno }) {
                   {novo.parcelas.map((p, index) => (
                     <div key={index} style={estilos.parcRow}>
                       <span>{p.numero}</span>
-                      <input style={estilos.inputTabela} type="date" value={p.vencimento}
-                        onClick={abrirCalendario}
+                      <input style={estilos.inputTabela} type="text" placeholder="dd/mm/aaaa" value={p.vencimento}
                         onChange={(e) => atualizarParcelaNovo(index, "vencimento", e.target.value)} />
                       <input style={estilos.inputTabela} value={p.valor}
                         onChange={(e) => atualizarParcelaNovo(index, "valor", e.target.value)} />
@@ -1224,28 +1263,28 @@ function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, 
   return (
     <div style={estilos.formBaixa}>
       <p style={{ fontSize: 12, opacity: 0.8, margin: "0 0 8px" }}>
-        Uso pontual — pra corrigir um caso que ficou de fora de algum bordero. Use o mesmo
-        número de documento/título que estaria na planilha, pra não duplicar depois se o
-        bordero certo for reimportado.
+        Uso pontual — pra incluir um título/parcela na ficha. O número de documento/borderô é
+        opcional; se tiver o mesmo número da planilha, use pra não duplicar quando o borderô for reimportado.
       </p>
       <div style={estilos.formLinha}>
         <label style={estilos.formLabel}>
-          Documento/título *
+          Documento/borderô (opcional)
           <input
             style={estilos.formInput}
             value={novaMensalidade.documento}
             onChange={(e) => setCampo("documento", e.target.value)}
-            placeholder="Ex: 4192123"
+            placeholder="Deixe em branco se não tiver"
           />
         </label>
         <label style={estilos.formLabel}>
-          Vencimento *
+          Vencimento * (dd/mm/aaaa)
           <input
-            type="date"
+            type="text"
+            inputMode="numeric"
             style={estilos.formInput}
             value={novaMensalidade.vencimento}
-            onClick={abrirCalendario}
             onChange={(e) => setCampo("vencimento", e.target.value)}
+            placeholder="dd/mm/aaaa"
           />
         </label>
         <label style={estilos.formLabel}>
@@ -1527,7 +1566,7 @@ const estilos = {
   cabecalho: { display: "flex", alignItems: "center", justifyContent: "space-between" },
   totalAberto: { fontSize: 13, color: "#fcd34d", fontWeight: 700 },
   caixaResumo: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", marginTop: 14, marginBottom: 4, borderRadius: 10, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" },
-  totalGeral: { fontSize: 16, fontWeight: 800, color: "#4ade80" },
+  totalGeral: { fontSize: 16, fontWeight: 800, color: "#60a5fa" },
   resumoFinanceiroTopo: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14, marginBottom: 4 },
   resumoFinanceiroItem: { flex: "1 1 180px", display: "flex", flexDirection: "column", gap: 4, padding: "12px 16px", borderRadius: 10, background: "rgba(148,163,184,0.08)", border: "1px solid rgba(148,163,184,0.2)" },
   resumoFinanceiroItemTotal: { background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" },

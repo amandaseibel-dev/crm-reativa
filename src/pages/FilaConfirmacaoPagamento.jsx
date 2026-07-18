@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import Alunos from "./Aluno";
 import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
 import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados";
 import CasosSemValor from "../components/CasosSemValor";
@@ -59,12 +60,23 @@ function corStatus(status) {
   return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c" };
 }
 
+// Quem pode quitar e encerrar direto da fila (espelha crm_usuario_pode_quitar_baixar no banco)
+const EMAILS_PODE_QUITAR = [
+  "amanda.seibel@aelbra.com.br",
+  "cobranca04@aelbra.com.br", // Fernanda
+  "cobranca07@aelbra.com.br", // Amanda ADM
+];
+function podeQuitar(email) {
+  return EMAILS_PODE_QUITAR.includes(String(email || "").toLowerCase().trim());
+}
+
 export default function FilaConfirmacaoPagamento() {
   const [usuario, setUsuario] = useState(null);
   const [solicitacoes, setSolicitacoes] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [observacoes, setObservacoes] = useState({});
   const [filtro, setFiltro] = useState("PENDENTES");
+  const [tipoFiltro, setTipoFiltro] = useState("TODOS");
   const [qtdSemValor, setQtdSemValor] = useState(null);
   const [qtdSemTelefone, setQtdSemTelefone] = useState(null);
 
@@ -267,6 +279,25 @@ export default function FilaConfirmacaoPagamento() {
   }
 
   // ---- Confirmar (fluxo atual preservado) ----
+  async function quitarEEncerrar(s) {
+    if (!s?.aluno_id) return;
+    const ok = window.confirm(
+      "Quitar e encerrar este caso? Ele e quitado, zerado, sai das filas e NAO volta pro operador."
+    );
+    if (!ok) return;
+    const { error } = await supabase.rpc("quitar_e_encerrar_caso", {
+      p_aluno_id: s.aluno_id,
+      p_valor: s.valor_informado || null,
+    });
+    if (error) {
+      alert("Erro ao quitar: " + error.message);
+      return;
+    }
+    alert("Caso quitado e encerrado.");
+    fecharFicha();
+    carregarSolicitacoes();
+  }
+
   async function finalizarSolicitacao(s, observacaoExtra) {
     const emailConfirmando = usuario?.email || "";
     const agora = new Date().toISOString();
@@ -398,6 +429,8 @@ export default function FilaConfirmacaoPagamento() {
     else if (filtro === "CONFIRMADOS") base = solicitacoes.filter((s) => s.status === "PAGAMENTO_CONFIRMADO");
     else base = solicitacoes;
 
+    if (tipoFiltro !== "TODOS") base = (base || []).filter((s) => (s.tipo_pagamento || "SEM_TIPO") === tipoFiltro);
+
     const ts = (v) => {
       const t = v ? new Date(v).getTime() : 0;
       return Number.isNaN(t) ? 0 : t;
@@ -409,7 +442,7 @@ export default function FilaConfirmacaoPagamento() {
       if (u !== 0) return u;
       return String(a.aluno_nome || "").localeCompare(String(b.aluno_nome || ""), "pt-BR");
     });
-  }, [solicitacoes, filtro]);
+  }, [solicitacoes, filtro, tipoFiltro]);
 
   if (carregando) {
     return <div style={styles.container}>Carregando fila de confirmação de pagamento...</div>;
@@ -473,6 +506,14 @@ export default function FilaConfirmacaoPagamento() {
         <button style={filtro === "SEM_TELEFONE" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("SEM_TELEFONE")}>
           Sem telefone{qtdSemTelefone !== null ? ` (${qtdSemTelefone})` : ""}
         </button>
+        <select value={tipoFiltro} onChange={(e) => setTipoFiltro(e.target.value)} style={{ border: "1px solid #d1d5db", borderRadius: 999, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}>
+          <option value="TODOS">Todos os tipos</option>
+          <option value="QUITACAO_TOTAL">Quitação total</option>
+          <option value="PARCELA">Parcela</option>
+          <option value="MENSALIDADE">Mensalidade</option>
+          <option value="ACORDO">Acordo</option>
+          <option value="SEM_TIPO">Sem tipo</option>
+        </select>
       </div>
 
       {/* Mantem os dois sempre "vivos" (carregando em segundo plano), so
@@ -551,13 +592,13 @@ export default function FilaConfirmacaoPagamento() {
             </div>
 
             <div style={styles.abas}>
-              {["resumo", "financeiro", "historico", "comprovante"].map((a) => (
+              {["resumo", "ficha", "financeiro", "historico", "comprovante"].map((a) => (
                 <button
                   key={a}
                   style={abaFicha === a ? styles.abaAtiva : styles.aba}
                   onClick={() => setAbaFicha(a)}
                 >
-                  {a === "resumo" ? "Resumo" : a === "financeiro" ? "Financeiro" : a === "historico" ? "Histórico" : "Comprovante"}
+                  {a === "resumo" ? "Resumo" : a === "ficha" ? "Ficha completa" : a === "financeiro" ? "Financeiro" : a === "historico" ? "Histórico" : "Comprovante"}
                 </button>
               ))}
             </div>
@@ -586,6 +627,11 @@ export default function FilaConfirmacaoPagamento() {
                 </div>
               )}
 
+              {abaFicha === "ficha" && detalhe?.aluno_id && (
+                <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+                  <Alunos fichaEmbedId={detalhe.aluno_id} />
+                </div>
+              )}
               {abaFicha === "financeiro" && (
                 <div>
                   <p style={styles.info}>
@@ -816,6 +862,15 @@ export default function FilaConfirmacaoPagamento() {
                         >
                           Confirmar pagamento
                         </button>
+                        {podeQuitar(usuario?.email) && (
+                          <button
+                            style={{ background: "#6b21a8", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontWeight: 600, cursor: "pointer" }}
+                            onClick={() => quitarEEncerrar(detalhe)}
+                            title="Quita, zera e tira das filas. Nao volta pro operador."
+                          >
+                            💰 Quitar e encerrar
+                          </button>
+                        )}
                         <button style={styles.botaoVincular} onClick={() => setVinculando(true)}>
                           Vincular dados
                         </button>

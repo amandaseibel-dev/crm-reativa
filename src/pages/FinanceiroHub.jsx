@@ -87,8 +87,8 @@ const estilos = {
     transition: "all 0.15s ease",
   },
   abaAtiva: {
-    background: "var(--rv-verde, #0f9d6b)",
-    border: "1px solid var(--rv-verde, #0f9d6b)",
+    background: "var(--rv-verde, #1e40af)",
+    border: "1px solid var(--rv-verde, #1e40af)",
     borderRadius: 10,
     padding: "10px 18px",
     fontSize: 13.5,

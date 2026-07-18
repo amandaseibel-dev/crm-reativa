@@ -179,7 +179,7 @@ return (
     </div>
 
     {erro && <p style={{ color: "red" }}>{erro}</p>}
-    {sucesso && <p style={{ color: "#22c55e" }}>{sucesso}</p>}
+    {sucesso && <p style={{ color: "#3b82f6" }}>{sucesso}</p>}
 
     {/* CARDS */}
     {grupos.map((c) => (

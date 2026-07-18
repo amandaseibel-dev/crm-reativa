@@ -583,7 +583,7 @@ export default function Borderos() {
               <div style={estilos.label}>Total no arquivo</div>
             </div>
             <div style={{ ...estilos.cartao, background: "rgba(34,197,94,0.1)" }}>
-              <div style={{ ...estilos.numero, color: "#86efac" }}>
+              <div style={{ ...estilos.numero, color: "#93c5fd" }}>
                 {preview.totais.encontradosCpf}
               </div>
               <div style={estilos.label}>Encontrados por CPF</div>
@@ -712,7 +712,7 @@ const estilos = {
   },
   tagVerde: {
     background: "rgba(34,197,94,0.16)",
-    color: "#86efac",
+    color: "#93c5fd",
     fontSize: 12,
     padding: "3px 10px",
     borderRadius: 999,
@@ -744,7 +744,7 @@ const estilos = {
     borderRadius: 8,
     border: "1px solid rgba(34,197,94,0.6)",
     background: "rgba(34,197,94,0.16)",
-    color: "#86efac",
+    color: "#93c5fd",
     fontWeight: 600,
     cursor: "pointer",
   },

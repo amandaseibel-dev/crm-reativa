@@ -20,8 +20,8 @@ function StatusChip({ ok, texto }) {
         padding: "3px 10px",
         borderRadius: 999,
         color: ok ? "#0f7a4f" : "#b91c1c",
-        background: ok ? "#ecfaf3" : "#fef2f2",
-        border: `1px solid ${ok ? "#bdeed4" : "#fecaca"}`,
+        background: ok ? "#eff6ff" : "#fef2f2",
+        border: `1px solid ${ok ? "#c7d7fe" : "#fecaca"}`,
       }}
     >
       {ok ? "✅" : "⚠️"} {texto}
@@ -98,7 +98,7 @@ export default function SaudeDaBase() {
             Livres sem valor calculado — <a href="/painel-adm" style={estilos.link}>ir pra Confirmação de Pagamento</a>
           </span>
         </div>
-        <div style={{ ...estilos.cardValor, background: "#ecfaf3", borderColor: "#bdeed4" }}>
+        <div style={{ ...estilos.cardValor, background: "#eff6ff", borderColor: "#c7d7fe" }}>
           <span style={{ ...estilos.numeroValor, color: "#0f7a4f" }}>
             {(dados.livre_com_valor || 0).toLocaleString("pt-BR")}
             {dados.total_alunos > 0 && (
@@ -154,7 +154,7 @@ const estilos = {
   titulo: { margin: 0, color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
   subtitulo: { margin: "5px 0 0", color: "#8a93a3", fontSize: 13.5 },
   geradoEm: { margin: "0 0 18px", color: "#98a2b3", fontSize: 12 },
-  botaoAtualizar: { background: "#0f9d6b", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
+  botaoAtualizar: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
   card: { background: "#fff", borderRadius: 16, padding: "20px 22px", boxShadow: "0 1px 2px rgba(16,24,40,0.04)", border: "1px solid #edf0f5", marginBottom: 18 },
   tituloBloco: { margin: "0 0 14px", fontFamily: FONTE_TITULO, fontSize: 16, fontWeight: 800, color: "#0d1321" },
   subtituloBloco: { margin: "0 0 14px", fontSize: 13, color: "#475569" },
@@ -164,7 +164,7 @@ const estilos = {
   numeroValor: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "#0d1321" },
   labelValor: { fontSize: 12.5, color: "#8a93a3", fontWeight: 600 },
   percentual: { fontSize: 14, fontWeight: 700, color: "#8a93a3" },
-  link: { color: "#0f9d6b", fontWeight: 700 },
+  link: { color: "#1e40af", fontWeight: 700 },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
   th: { textAlign: "left", padding: "8px 10px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
   thNum: { textAlign: "right", padding: "8px 10px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },

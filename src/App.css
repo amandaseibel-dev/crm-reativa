@@ -13,7 +13,7 @@ body {
   min-height: 100vh;
   display: flex;
   background:
-    radial-gradient(circle at top left, rgba(34, 197, 94, 0.18), transparent 30%),
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.18), transparent 30%),
     linear-gradient(135deg, #020617, #0f172a);
 }
 
@@ -38,8 +38,8 @@ body {
   display: grid;
   place-items: center;
   border-radius: 14px;
-  background: linear-gradient(135deg, #22c55e, #84cc16);
-  color: #052e16;
+  background: linear-gradient(135deg, #3b82f6, #1d4ed8);
+  color: #fff;
   font-weight: 900;
   font-size: 24px;
 }
@@ -51,10 +51,16 @@ body {
   border-bottom: 1px solid rgba(148, 163, 184, 0.18);
 }
 
-.cabecalho-usuario h2 {
+.cabecalho-usuario h2.marca-reativa {
+  display: inline-block;
   margin: 0 0 14px;
-  font-size: 19px;
-  color: #4ade80;
+  font-family: 'Sora', Inter, Arial, sans-serif;
+  font-size: 26px;
+  font-weight: 900;
+  letter-spacing: -1px;
+  color: #0f172a;
+  background: transparent;
+  padding: 4px 0;
 }
 
 .app[data-tema="claro"] .sidebar {
@@ -66,8 +72,8 @@ body {
   border-bottom-color: rgba(15, 23, 42, 0.12);
 }
 
-.app[data-tema="claro"] .cabecalho-usuario h2 {
-  color: #16a34a;
+.app[data-tema="claro"] .cabecalho-usuario h2.marca-reativa {
+  color: #0f172a;
 }
 
 .app[data-tema="claro"] .cabecalho-usuario span {
@@ -80,8 +86,8 @@ body {
 
 .app[data-tema="claro"] nav a:hover,
 .app[data-tema="claro"] nav a.active {
-  background: rgba(34, 197, 94, 0.16);
-  color: #15803d;
+  background: rgba(37, 99, 235, 0.16);
+  color: #1e40af;
 }
 
 .botao-tema {
@@ -124,8 +130,8 @@ nav a {
 
 nav a:hover,
 nav a.active {
-  background: rgba(34, 197, 94, 0.14);
-  color: #bbf7d0;
+  background: rgba(37, 99, 235, 0.14);
+  color: #bfdbfe;
 }
 
 .main {
@@ -161,7 +167,7 @@ nav a.active {
   border-radius: 999px;
   background: rgba(15, 23, 42, 0.8);
   border: 1px solid rgba(148, 163, 184, 0.2);
-  color: #bbf7d0;
+  color: #bfdbfe;
 }
 
 .cards {
@@ -205,7 +211,7 @@ nav a.active {
 }
 
 .success {
-  border-color: rgba(34, 197, 94, 0.45);
+  border-color: rgba(37, 99, 235, 0.45);
 }
 
 .panel {
@@ -231,8 +237,8 @@ button {
   border: 0;
   padding: 10px 14px;
   border-radius: 12px;
-  background: #22c55e;
-  color: #052e16;
+  background: #3b82f6;
+  color: #fff;
   font-weight: 800;
   cursor: pointer;
 }
@@ -306,15 +312,15 @@ th {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  min-width: 18px;
-  height: 18px;
-  padding: 0 6px;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 8px;
   margin-left: 8px;
   border-radius: 999px;
-  background: rgba(34, 197, 94, 0.16);
-  border: 1px solid rgba(34, 197, 94, 0.55);
-  color: #86efac;
-  font-size: 11px;
+  background: rgba(37, 99, 235, 0.16);
+  border: 1px solid rgba(37, 99, 235, 0.6);
+  color: #1d4ed8;
+  font-size: 13px;
   font-weight: 700;
   line-height: 1;
   animation: piscaBadgeSuave 2.2s ease-in-out infinite;

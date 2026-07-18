@@ -6,6 +6,7 @@ import CadastroNovoAluno from "../components/CadastroNovoAluno";
 import VisaoGeralCarteira from "../components/VisaoGeralCarteira";
 import VisaoGestao360 from "../components/VisaoGestao360";
 import FunilRecuperacao from "../components/FunilRecuperacao";
+import ComparativoAnos from "../components/ComparativoAnos";
 import { podeVerTudo } from "../utils/operadores";
 
 function formatarMoeda(valor) {
@@ -173,6 +174,7 @@ export default function Dashboard() {
 
         {veTudo && (
           <>
+            <ComparativoAnos />
             <FunilRecuperacao />
             <VisaoGeralCarteira email={null} />
             <VisaoGestao360 />

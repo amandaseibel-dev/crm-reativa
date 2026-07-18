@@ -126,7 +126,7 @@ const estilos = {
       status === "em_andamento"
         ? "#fdba74"
         : status === "concluida"
-        ? "#86efac"
+        ? "#93c5fd"
         : "inherit",
     opacity: status === "concluida" ? 0.8 : 1,
   }),

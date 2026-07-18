@@ -15,7 +15,7 @@ const STATUS_LABEL = {
 };
 
 function corStatus(status) {
-  if (status === "PAGO") return { bg: "rgba(34,197,94,0.16)", texto: "#86efac" };
+  if (status === "PAGO") return { bg: "rgba(34,197,94,0.16)", texto: "#93c5fd" };
   if (status === "NOTA_ANEXADA") return { bg: "rgba(56,189,248,0.16)", texto: "#7dd3fc" };
   if (status === "ENVIADO_FINANCEIRO" || status === "AGUARDANDO_NOTA")
     return { bg: "rgba(251,191,36,0.16)", texto: "#fcd34d" };

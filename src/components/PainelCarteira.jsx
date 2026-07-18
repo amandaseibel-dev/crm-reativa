@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import { podeVerTudo, nomeOperadorPorEmail } from "../utils/operadores";
 import FilaReceptivo from "./FilaReceptivo";
 import ReceberLeads from "./ReceberLeads";
@@ -860,40 +861,21 @@ export default function PainelCarteira({ embedded = false }) {
 
     setSalvandoOperador(true);
 
-    const anteriorNome = alunoModal.responsavel_atual_nome || "Sem responsável anterior";
-    const anteriorEmail = alunoModal.responsavel_atual_email || null;
-    const agora = new Date().toISOString();
+    // Usa a RPC segura (executor) -- update direto bate na trava _guard_resp_aluno
+    // e retorna SEM_PERMISSAO mesmo para quem tem permissao (Amanda/Fernanda).
+    const { data: r, error } = await supabase.rpc("alterar_responsavel_aluno", {
+      p_aluno_id: alunoModal.id,
+      p_novo_email: novoOperador.email,
+      p_motivo: "Alteracao de responsavel pela carteira",
+      p_origem: "minha_carteira",
+      p_modo: "ALTERAR_SOMENTE_ALUNO",
+    });
 
-    const { error } = await supabase
-      .from("alunos")
-      .update({
-        responsavel_atual_nome: novoOperador.nome,
-        responsavel_atual_email: novoOperador.email,
-        responsavel_atual_em: agora,
-        registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
-        registrado_por_email: email,
-        registrado_em: agora,
-      })
-      .eq("id", alunoModal.id);
-
-    if (error) {
-      alert("Erro ao alterar operador responsável: " + error.message);
+    if (error || !r?.ok) {
+      alert("Erro ao alterar operador responsavel: " + (r?.erro || error?.message || "erro"));
       setSalvandoOperador(false);
       return;
     }
-
-    await supabase.from("aluno_movimentacoes").insert({
-      aluno_id: String(alunoModal.id),
-      tipo: "ALTERACAO_OPERADOR",
-      descricao: `Operador responsável alterado de ${anteriorNome} para ${novoOperador.nome} direto na Minha Carteira.`,
-      registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
-      registrado_por_email: email,
-      registrado_em: agora,
-      operador_anterior_nome: anteriorNome,
-      operador_anterior_email: anteriorEmail,
-      operador_novo_nome: novoOperador.nome,
-      operador_novo_email: novoOperador.email,
-    });
 
     setEditandoOperador(false);
     setNovoOperadorEmailModal("");
@@ -1309,8 +1291,8 @@ export default function PainelCarteira({ embedded = false }) {
       {!avisoNovosCasosFechado && novosCasosAutomaticos.length > 0 && (
         <div
           style={{
-            background: "#ecfaf3",
-            border: "1px solid #bdeed4",
+            background: "#eff6ff",
+            border: "1px solid #c7d7fe",
             borderRadius: 14,
             padding: "13px 16px",
             marginBottom: 16,
@@ -1903,35 +1885,7 @@ export default function PainelCarteira({ embedded = false }) {
 
               {abaModal === "email" && (
                 <div style={S.secao}>
-                  {!alunoModal.email ? (
-                    <p style={S.subCel}>Esse aluno não tem e-mail cadastrado.</p>
-                  ) : (
-                    <>
-                      <p style={{ marginBottom: 10 }}>
-                        E-mail cadastrado: <strong>{alunoModal.email}</strong>
-                      </p>
-                      <p style={{ ...S.subCel, marginBottom: 14 }}>
-                        Clique abaixo pra abrir o seu e-mail padrão, já com um rascunho pronto pra esse
-                        aluno. Fica registrado no histórico assim que enviar.
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => enviarEmailAluno(alunoModal)}
-                        style={{
-                          background: "#0f9d6b",
-                          color: "#fff",
-                          border: "none",
-                          borderRadius: 8,
-                          padding: "10px 18px",
-                          fontSize: 13,
-                          fontWeight: 700,
-                          cursor: "pointer",
-                        }}
-                      >
-                        📧 Enviar e-mail
-                      </button>
-                    </>
-                  )}
+                  <EmailAlunoUnificado aluno={alunoModal} />
                 </div>
               )}
 
@@ -2027,7 +1981,7 @@ function Info({ rot, val }) {
 }
 
 const CSS_RESPONSIVO = `
-  .pc-root { --pc-brand: #0f9d6b; --pc-ink: #101828; }
+  .pc-root { --pc-brand: #1e40af; --pc-ink: #101828; }
   .pc-root tbody tr { transition: background 0.15s ease; }
   .pc-root tbody tr:hover { background: #f6fbf9; }
   .pc-root .pc-kpis > div { transition: box-shadow 0.16s ease, transform 0.16s ease, border-color 0.16s ease; }
@@ -2096,7 +2050,7 @@ const S = {
   subtitulo: { margin: 0, color: "#8a93a3", fontSize: 13.5 },
   userChip: { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.2, padding: "6px 14px", background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 12, boxShadow: SOMBRA_CARD },
   userNome: { fontWeight: 700, color: "#101828", fontSize: 13 },
-  userRole: { fontSize: 10, color: "#0f9d6b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" },
+  userRole: { fontSize: 10, color: "#1e40af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" },
   select: { padding: "9px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, background: "#fff", fontSize: 13, color: "#344054", fontWeight: 500 },
   btnAtualizar: { background: "#fff", color: "#475569", border: `1px solid ${COR_BORDA}`, padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: 13 },
   erro: { color: "#b91c1c", fontWeight: 600, fontSize: 13 },
@@ -2112,7 +2066,7 @@ const S = {
   desHeader: { fontSize: 11.5, fontWeight: 800, color: "#667085", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 },
   desRow: { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "stretch" },
   desItem: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "#f8faf9", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: "11px 16px", cursor: "pointer", minWidth: 128, textAlign: "left", transition: "border-color 0.14s ease, background 0.14s ease" },
-  desItemAtivo: { borderColor: "#0f9d6b", background: "#ecfaf3", boxShadow: "0 0 0 2px rgba(15,157,107,0.14)" },
+  desItemAtivo: { borderColor: "#1e40af", background: "#eff6ff", boxShadow: "0 0 0 2px rgba(15,157,107,0.14)" },
   desItemInfo: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "transparent", borderRadius: 12, padding: "11px 16px", minWidth: 128 },
   desNum: { fontSize: 22, fontWeight: 800, color: "#0d1321", lineHeight: 1, fontFamily: FONTE_TITULO },
   desRot: { fontSize: 11, color: "#98a2b3", fontWeight: 600 },
@@ -2126,7 +2080,7 @@ const S = {
   painelTabela: { background: "#fff", borderRadius: 18, padding: 20, border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD },
   filtros: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" },
   inputBusca: { flex: 1, minWidth: 220, padding: "11px 14px", borderRadius: 12, border: `1px solid ${COR_BORDA}`, fontSize: 13, color: "#344054", background: "#f8fafc" },
-  chipFiltro: { display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", background: "#e9f9f1", color: "#0f9d6b", border: "1px solid #bdeed4", borderRadius: 999, padding: "6px 13px", fontSize: 11.5, fontWeight: 700 },
+  chipFiltro: { display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", background: "#e9f9f1", color: "#1e40af", border: "1px solid #c7d7fe", borderRadius: 999, padding: "6px 13px", fontSize: 11.5, fontWeight: 700 },
   tabelaWrap: { overflowX: "auto", borderRadius: 12 },
   tabela: { width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 13 },
   th: { textAlign: "left", padding: "11px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
@@ -2135,7 +2089,7 @@ const S = {
   td: { padding: "13px 12px", color: "#475569", verticalAlign: "middle" },
   tdNum: { padding: "11px 10px", color: "#1e293b", textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 },
   tdTotal: { padding: "11px 10px", color: "#1e293b", fontWeight: 700, borderTop: `2px solid ${COR_BORDA}`, textAlign: "right" },
-  tdNumTotal: { padding: "11px 10px", color: "#0f9d6b", textAlign: "right", whiteSpace: "nowrap", fontWeight: 800, borderTop: `2px solid ${COR_BORDA}` },
+  tdNumTotal: { padding: "11px 10px", color: "#1e40af", textAlign: "right", whiteSpace: "nowrap", fontWeight: 800, borderTop: `2px solid ${COR_BORDA}` },
   nomeCel: { fontWeight: 700, color: "#101828", fontSize: 13.5 },
   subCel: { fontSize: 11.5, color: "#98a2b3", marginTop: 2 },
   tdValor: { padding: "11px 10px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "middle" },
@@ -2158,7 +2112,7 @@ const S = {
   btnFechar: { background: "#f1f5f9", border: "none", borderRadius: 10, width: 34, height: 34, cursor: "pointer", color: "#475569", fontSize: 14, flexShrink: 0 },
   modalAbas: { display: "flex", gap: 4, padding: "0 22px", borderBottom: `1px solid ${COR_BORDA_SUAVE}`, flexWrap: "wrap" },
   modalAba: { background: "transparent", border: "none", borderBottom: "2px solid transparent", padding: "11px 13px", fontSize: 13, fontWeight: 700, color: "#98a2b3", cursor: "pointer" },
-  modalAbaAtiva: { color: "#0f9d6b", borderBottom: "2px solid #0f9d6b" },
+  modalAbaAtiva: { color: "#1e40af", borderBottom: "2px solid #1e40af" },
   feedbackOk: { margin: "14px 22px 0", padding: "9px 13px", borderRadius: 10, background: "#eafaf1", color: "#0f7a4f", fontSize: 12.5, fontWeight: 700 },
   feedbackErro: { margin: "14px 22px 0", padding: "9px 13px", borderRadius: 10, background: "#fef2f2", color: "#b91c1c", fontSize: 12.5, fontWeight: 700 },
   modalBody: { padding: 22, maxHeight: "62vh", overflowY: "auto" },
@@ -2169,14 +2123,14 @@ const S = {
   infoVal: { fontSize: 13.5, color: "#101828", fontWeight: 700 },
   btnEditarOperador: { marginLeft: 6, border: "none", background: "transparent", cursor: "pointer", fontSize: 13 },
   selectOperadorFicha: { padding: "5px 7px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, maxWidth: 160 },
-  btnSalvarOperador: { border: "none", background: "#0f9d6b", color: "#fff", borderRadius: 8, padding: "5px 9px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  btnSalvarOperador: { border: "none", background: "#1e40af", color: "#fff", borderRadius: 8, padding: "5px 9px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
   btnCancelarOperador: { border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 8, padding: "5px 9px", fontSize: 12, cursor: "pointer" },
   label: { fontSize: 12, fontWeight: 700, color: "#475569", marginTop: 4 },
   input: { padding: "10px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, background: "#fff", color: "#344054" },
   textarea: { padding: "10px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, minHeight: 70, resize: "vertical", fontFamily: "inherit", background: "#fff", color: "#344054" },
   proximaAcao: { fontSize: 12.5, color: "#667085", background: "#f9fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: "9px 13px" },
   acoesLinha: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 },
-  btnPrimario: { background: "#0f9d6b", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
+  btnPrimario: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
   btnSecundario: { background: "#eef2f6", color: "#475569", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
   timeline: { display: "flex", flexDirection: "column", gap: 11 },
   itemHist: { borderLeft: `2px solid ${COR_BORDA}`, paddingLeft: 13 },

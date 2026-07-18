@@ -404,7 +404,7 @@ export default function Alunos() {
         }}
       >
         <div>
-          <h1 style={{ margin: 0, color: "#22c55e" }}>Alunos</h1>
+          <h1 style={{ margin: 0, color: "#3b82f6" }}>Alunos</h1>
           <p style={{ margin: "6px 0 0", color: "#cbd5e1" }}>
             Pesquisa, ficha, registro de responsável e movimentações do aluno.
           </p>
@@ -414,7 +414,7 @@ export default function Alunos() {
           onClick={carregarAlunos}
           disabled={carregando}
           style={{
-            background: "#22c55e",
+            background: "#3b82f6",
             color: "#020617",
             border: "none",
             borderRadius: "10px",
@@ -465,7 +465,7 @@ export default function Alunos() {
             onClick={carregarAlunos}
             disabled={carregando}
             style={{
-              background: "#22c55e",
+              background: "#3b82f6",
               color: "#020617",
               border: "none",
               borderRadius: "10px",
@@ -501,7 +501,7 @@ export default function Alunos() {
             padding: "16px",
           }}
         >
-          <h2 style={{ color: "#22c55e", marginTop: 0 }}>
+          <h2 style={{ color: "#3b82f6", marginTop: 0 }}>
             Lista de alunos
           </h2>
 
@@ -527,7 +527,7 @@ export default function Alunos() {
                       textAlign: "left",
                       background: selecionado ? "#064e3b" : "#1f2937",
                       color: "#ffffff",
-                      border: selecionado ? "1px solid #22c55e" : "1px solid #374151",
+                      border: selecionado ? "1px solid #3b82f6" : "1px solid #374151",
                       borderRadius: "12px",
                       padding: "12px",
                       cursor: "pointer",
@@ -539,7 +539,7 @@ export default function Alunos() {
                       CPF: {cpf}
                     </div>
 
-                    <div style={{ color: "#86efac", fontSize: "13px", marginTop: "4px" }}>
+                    <div style={{ color: "#93c5fd", fontSize: "13px", marginTop: "4px" }}>
                       Status: {status}
                     </div>
 
@@ -565,7 +565,7 @@ export default function Alunos() {
         >
           {!alunoSelecionado ? (
             <div style={{ color: "#cbd5e1" }}>
-              <h2 style={{ color: "#22c55e", marginTop: 0 }}>
+              <h2 style={{ color: "#3b82f6", marginTop: 0 }}>
                 Ficha do aluno
               </h2>
               <p>Selecione um aluno na lista para abrir a ficha.</p>
@@ -583,7 +583,7 @@ export default function Alunos() {
                 }}
               >
                 <div>
-                  <h2 style={{ color: "#22c55e", margin: 0 }}>
+                  <h2 style={{ color: "#3b82f6", margin: 0 }}>
                     {pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "Aluno sem nome")}
                   </h2>
 
@@ -593,7 +593,7 @@ export default function Alunos() {
 
                   <p style={{ color: "#cbd5e1", margin: "4px 0 0" }}>
                     Status atual:{" "}
-                    <strong style={{ color: "#86efac" }}>
+                    <strong style={{ color: "#93c5fd" }}>
                       {pegarCampo(alunoSelecionado, ["status_jornada", "status"], "Sem status")}
                     </strong>
                   </p>
@@ -603,7 +603,7 @@ export default function Alunos() {
                   onClick={assumirAtendimento}
                   disabled={salvando}
                   style={{
-                    background: "#22c55e",
+                    background: "#3b82f6",
                     color: "#020617",
                     border: "none",
                     borderRadius: "10px",
@@ -664,13 +664,13 @@ export default function Alunos() {
               <div
                 style={{
                   background: "#020617",
-                  border: "1px solid #22c55e",
+                  border: "1px solid #3b82f6",
                   borderRadius: "14px",
                   padding: "16px",
                   marginBottom: "18px",
                 }}
               >
-                <h3 style={{ color: "#22c55e", marginTop: 0 }}>
+                <h3 style={{ color: "#3b82f6", marginTop: 0 }}>
                   Informações de registro
                 </h3>
 
@@ -728,7 +728,7 @@ export default function Alunos() {
                   marginBottom: "18px",
                 }}
               >
-                <h3 style={{ color: "#22c55e", marginTop: 0 }}>
+                <h3 style={{ color: "#3b82f6", marginTop: 0 }}>
                   Ações do atendimento
                 </h3>
 
@@ -776,7 +776,7 @@ export default function Alunos() {
                   onClick={salvarObservacao}
                   disabled={salvando}
                   style={{
-                    background: "#22c55e",
+                    background: "#3b82f6",
                     color: "#020617",
                     border: "none",
                     borderRadius: "10px",
@@ -823,7 +823,7 @@ export default function Alunos() {
                       onClick={finalizarAtendimento}
                       disabled={salvando}
                       style={{
-                        background: "#22c55e",
+                        background: "#3b82f6",
                         color: "#020617",
                         border: "none",
                         borderRadius: "10px",
@@ -846,7 +846,7 @@ export default function Alunos() {
                   padding: "16px",
                 }}
               >
-                <h3 style={{ color: "#22c55e", marginTop: 0 }}>
+                <h3 style={{ color: "#3b82f6", marginTop: 0 }}>
                   Movimentações do aluno
                 </h3>
 
@@ -863,7 +863,7 @@ export default function Alunos() {
                           background: "#111827",
                           borderRadius: "12px",
                           padding: "12px",
-                          borderLeft: "4px solid #22c55e",
+                          borderLeft: "4px solid #3b82f6",
                         }}
                       >
                         <strong style={{ color: "#ffffff" }}>{mov.tipo}</strong>
@@ -909,7 +909,7 @@ const cardInfo = {
 const botaoSecundario = {
   background: "#1f2937",
   color: "#ffffff",
-  border: "1px solid #22c55e",
+  border: "1px solid #3b82f6",
   borderRadius: "10px",
   padding: "12px 14px",
   fontWeight: "bold",

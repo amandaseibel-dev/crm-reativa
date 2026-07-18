@@ -2,7 +2,7 @@ import { useState } from "react";
 import { supabase } from "../services/supabase";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const VERDE = "#0f9d6b";
+const VERDE = "#1e40af";
 
 function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });

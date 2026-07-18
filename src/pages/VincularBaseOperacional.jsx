@@ -140,7 +140,7 @@ const estilos = {
     borderRadius: 8,
     border: "1px solid rgba(34,197,94,0.6)",
     background: "rgba(34,197,94,0.16)",
-    color: "#86efac",
+    color: "#93c5fd",
     fontWeight: 600,
     cursor: "pointer",
     fontSize: 14,
