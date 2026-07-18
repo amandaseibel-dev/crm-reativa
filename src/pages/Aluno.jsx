@@ -1585,8 +1585,9 @@ export default function Alunos() {
 
               <div style={barraAbasFicha}>
                 {[
-                  ["dados", "Dados do aluno"],
-                  ["tabulacoes", "Tabulações"],
+                  ["dados", "Resumo"],
+                  ["tabulacoes", "Tabulação"],
+                  ["email", "📧 E-mail"],
                   ["financeiro", "Financeiro"],
                   ["adm", "ADM"],
                 ].map(([chave, rotulo]) => (
@@ -1958,6 +1959,47 @@ export default function Alunos() {
                 )}
               </div>
               </>
+              )}
+
+              {abaFicha === "email" && (
+                <div style={caixaInterna}>
+                  <h3 style={tituloSecao}>E-mail</h3>
+                  {(() => {
+                    const emailAluno = pegarCampo(alunoSelecionado, ["email", "Email", "e_mail"], "");
+                    if (!emailAluno) {
+                      return <p style={textoCinza}>Esse aluno não tem e-mail cadastrado.</p>;
+                    }
+                    return (
+                      <>
+                        <p style={{ marginBottom: 10 }}>
+                          E-mail cadastrado: <strong>{emailAluno}</strong>
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const nome = pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "");
+                            const assunto = encodeURIComponent("ReATIVA — Regularização de mensalidades");
+                            const corpo = encodeURIComponent(
+                              `Olá, ${nome}.\n\nEstamos entrando em contato sobre a regularização das suas mensalidades em aberto.\n\nQualquer dúvida, estamos à disposição.`
+                            );
+                            window.open(`mailto:${emailAluno}?subject=${assunto}&body=${corpo}`, "_blank");
+                            supabase.from("aluno_movimentacoes").insert({
+                              aluno_id: String(alunoSelecionado.id),
+                              tipo: "MENSAGEM_ENVIADA",
+                              descricao: `E-mail enviado para ${emailAluno} direto na ficha do aluno.`,
+                              registrado_por_nome: usuarioLogado?.nome || "",
+                              registrado_por_email: usuarioLogado?.email || "",
+                              registrado_em: new Date().toISOString(),
+                            });
+                          }}
+                          style={botaoPrincipal}
+                        >
+                          📧 Enviar e-mail
+                        </button>
+                      </>
+                    );
+                  })()}
+                </div>
               )}
 
               {abaFicha === "financeiro" && (

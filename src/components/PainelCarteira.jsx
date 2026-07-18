@@ -289,10 +289,10 @@ function diasUteisTranscorridos(hojeISO) {
 
 const ABAS_MODAL = [
   { id: "resumo", label: "Resumo" },
-  { id: "negociacao", label: "Tabulacao" },
+  { id: "negociacao", label: "Tabulação" },
   { id: "email", label: "📧 E-mail" },
   { id: "financeiro", label: "Financeiro" },
-  { id: "historico", label: "Historico" },
+  { id: "adm", label: "ADM" },
 ];
 
 // Mapeia o resultado do retorno ADM -> acao inline que deve abrir
@@ -1718,6 +1718,67 @@ export default function PainelCarteira({ embedded = false }) {
                 </div>
               )}
 
+              {abaModal === "adm" && (
+                <div style={S.secao}>
+                  <div style={S.infoBox}>
+                    <div style={S.infoRot}>Operador responsavel</div>
+                    {!editandoOperador ? (
+                      <div style={S.infoVal}>
+                        {alunoModal.responsavel_atual_nome || "-"}
+                        {veTudo && (
+                          <button
+                            type="button"
+                            style={S.btnEditarOperador}
+                            onClick={() => {
+                              setNovoOperadorEmailModal(alunoModal.responsavel_atual_email || "");
+                              setEditandoOperador(true);
+                            }}
+                          >
+                            ✏️
+                          </button>
+                        )}
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+                        <select
+                          style={S.selectOperadorFicha}
+                          value={novoOperadorEmailModal}
+                          onChange={(e) => setNovoOperadorEmailModal(e.target.value)}
+                        >
+                          <option value="">Selecione</option>
+                          {OPERADORES.map((op) => (
+                            <option key={op.email} value={op.email}>
+                              {op.nome}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          style={S.btnSalvarOperador}
+                          disabled={salvandoOperador || !novoOperadorEmailModal}
+                          onClick={salvarOperadorModal}
+                        >
+                          {salvandoOperador ? "..." : "Salvar"}
+                        </button>
+                        <button
+                          type="button"
+                          style={S.btnCancelarOperador}
+                          onClick={() => {
+                            setEditandoOperador(false);
+                            setNovoOperadorEmailModal("");
+                          }}
+                        >
+                          Cancelar
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                  {!veTudo && (
+                    <p style={S.subCel}>Só quem gerencia pode trocar o operador responsável.</p>
+                  )}
+                </div>
+              )}
+
               {abaModal === "negociacao" && (
                 <div style={S.secao}>
                   {/* Retorno do ADM (acionavel) aberto dentro da propria Tabulacao */}
@@ -1799,6 +1860,24 @@ export default function PainelCarteira({ embedded = false }) {
                       <ConfirmarPagamento aluno={alunoModal} />
                     </div>
                   )}
+
+                  <h3 style={{ margin: "20px 0 10px" }}>Histórico</h3>
+                  {carregandoModal && historico.length === 0 && <p style={S.subCel}>Carregando...</p>}
+                  {!carregandoModal && historico.length === 0 && <p style={S.subCel}>Sem movimentacoes registradas.</p>}
+                  <div style={S.timeline}>
+                    {historico.map((h) => (
+                      <div key={h.id} style={S.itemHist}>
+                        <div style={S.histData}>{formatarDataHora(h.registrado_em)}</div>
+                        <div style={S.histDesc}>{h.descricao || h.tipo || h.status_novo || "Movimentacao"}</div>
+                        {(h.status_anterior || h.status_novo) && (
+                          <div style={S.histStatus}>
+                            {labelStatus(h.status_anterior)} → {labelStatus(h.status_novo)}
+                          </div>
+                        )}
+                        {h.registrado_por_nome && <div style={S.histAutor}>por {h.registrado_por_nome}</div>}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -1839,27 +1918,6 @@ export default function PainelCarteira({ embedded = false }) {
               {abaModal === "financeiro" && (
                 <div style={S.secao}>
                   <FinanceiroAluno aluno={alunoModal} />
-                </div>
-              )}
-
-              {abaModal === "historico" && (
-                <div style={S.secao}>
-                  {carregandoModal && historico.length === 0 && <p style={S.subCel}>Carregando...</p>}
-                  {!carregandoModal && historico.length === 0 && <p style={S.subCel}>Sem movimentacoes registradas.</p>}
-                  <div style={S.timeline}>
-                    {historico.map((h) => (
-                      <div key={h.id} style={S.itemHist}>
-                        <div style={S.histData}>{formatarDataHora(h.registrado_em)}</div>
-                        <div style={S.histDesc}>{h.descricao || h.tipo || h.status_novo || "Movimentacao"}</div>
-                        {(h.status_anterior || h.status_novo) && (
-                          <div style={S.histStatus}>
-                            {labelStatus(h.status_anterior)} → {labelStatus(h.status_novo)}
-                          </div>
-                        )}
-                        {h.registrado_por_nome && <div style={S.histAutor}>por {h.registrado_por_nome}</div>}
-                      </div>
-                    ))}
-                  </div>
                 </div>
               )}
 
