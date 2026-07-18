@@ -62,6 +62,8 @@ export default function AcoesMassivas() {
   const [valorMax, setValorMax] = useState("");
   const [quantidade, setQuantidade] = useState("100");
   const [anoVencimento, setAnoVencimento] = useState("");
+  const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
+  const [apenasNuncaAcionado, setApenasNuncaAcionado] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [resultados, setResultados] = useState(null);
@@ -114,7 +116,12 @@ export default function AcoesMassivas() {
       // requisicao (que estourava o limite e dava "bad request").
       const { data: alunosBrutos, error: erroAlunos } = await supabase.rpc(
         "buscar_candidatos_acoes_massivas",
-        { p_ano_vencimento: anoVencimento || null, p_limite: Math.min(qtd * 3, 6000) }
+        {
+          p_ano_vencimento: anoVencimento || null,
+          p_limite: Math.min(qtd * 3, 6000),
+          p_dias_minimo_sem_contato: diasMinimoSemContato ? Number(diasMinimoSemContato) : null,
+          p_apenas_nunca_acionado: apenasNuncaAcionado,
+        }
       );
       if (erroAlunos) throw erroAlunos;
 
@@ -373,6 +380,27 @@ export default function AcoesMassivas() {
               <option value="2025">2025</option>
               <option value="2026">2026</option>
             </select>
+          </div>
+          <div style={estilos.campo}>
+            <label style={estilos.label}>Dias mínimo sem contato</label>
+            <input
+              style={estilos.input}
+              type="number"
+              min="0"
+              placeholder="Ex: 30"
+              value={diasMinimoSemContato}
+              onChange={(e) => setDiasMinimoSemContato(e.target.value)}
+            />
+          </div>
+          <div style={{ ...estilos.campo, justifyContent: "flex-end" }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: "#475569", marginBottom: 9 }}>
+              <input
+                type="checkbox"
+                checked={apenasNuncaAcionado}
+                onChange={(e) => setApenasNuncaAcionado(e.target.checked)}
+              />
+              Só nunca acionados
+            </label>
           </div>
         </div>
 
