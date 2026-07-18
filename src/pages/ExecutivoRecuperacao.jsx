@@ -117,7 +117,7 @@ function Stat({ rot, val }) {
 }
 
 const S = {
-  wrap: { padding: 24, fontFamily: "Arial, sans-serif", maxWidth: 1000, margin: "0 auto" },
+  wrap: { padding: 24, fontFamily: "Arial, sans-serif", maxWidth: 1440, margin: "0 auto" },
   head: { marginBottom: 18 },
   h1: { margin: 0, fontSize: 24, color: "#0f172a" },
   sub: { fontSize: 13, color: "#64748b" },
