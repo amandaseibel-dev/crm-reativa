@@ -290,6 +290,7 @@ function diasUteisTranscorridos(hojeISO) {
 const ABAS_MODAL = [
   { id: "resumo", label: "Resumo" },
   { id: "negociacao", label: "Tabulacao" },
+  { id: "email", label: "📧 E-mail" },
   { id: "financeiro", label: "Financeiro" },
   { id: "historico", label: "Historico" },
 ];
@@ -1613,25 +1614,6 @@ export default function PainelCarteira({ embedded = false }) {
                     {statusPrazo(alunoModal).label}
                   </span>
                 </div>
-                {alunoModal.email && (
-                  <button
-                    type="button"
-                    onClick={() => enviarEmailAluno(alunoModal)}
-                    style={{
-                      marginTop: 6,
-                      background: "#fff",
-                      border: "1px solid #cbd5e1",
-                      borderRadius: 8,
-                      padding: "5px 10px",
-                      fontSize: 12,
-                      fontWeight: 700,
-                      color: "#334155",
-                      cursor: "pointer",
-                    }}
-                  >
-                    📧 Enviar e-mail ({alunoModal.email})
-                  </button>
-                )}
               </div>
               <button style={S.btnFechar} onClick={fecharModal} aria-label="Fechar">✕</button>
             </div>
@@ -1816,6 +1798,40 @@ export default function PainelCarteira({ embedded = false }) {
                     <div style={S.blocoInline}>
                       <ConfirmarPagamento aluno={alunoModal} />
                     </div>
+                  )}
+                </div>
+              )}
+
+              {abaModal === "email" && (
+                <div style={S.secao}>
+                  {!alunoModal.email ? (
+                    <p style={S.subCel}>Esse aluno não tem e-mail cadastrado.</p>
+                  ) : (
+                    <>
+                      <p style={{ marginBottom: 10 }}>
+                        E-mail cadastrado: <strong>{alunoModal.email}</strong>
+                      </p>
+                      <p style={{ ...S.subCel, marginBottom: 14 }}>
+                        Clique abaixo pra abrir o seu e-mail padrão, já com um rascunho pronto pra esse
+                        aluno. Fica registrado no histórico assim que enviar.
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => enviarEmailAluno(alunoModal)}
+                        style={{
+                          background: "#0f9d6b",
+                          color: "#fff",
+                          border: "none",
+                          borderRadius: 8,
+                          padding: "10px 18px",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          cursor: "pointer",
+                        }}
+                      >
+                        📧 Enviar e-mail
+                      </button>
+                    </>
                   )}
                 </div>
               )}
