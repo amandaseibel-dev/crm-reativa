@@ -468,7 +468,6 @@ export default function App() {
     { rota: "/aluno", label: "Aluno", icone: "User", secao: "Operação" },
     { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
-    { rota: "/central-pagamentos", label: "Central de Pagamentos", icone: "Wallet", secao: "Financeiro" },
     { rota: "/painel-geral", label: "Painel Geral", icone: "LayoutPanelTop", secao: "Gestão" },
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
