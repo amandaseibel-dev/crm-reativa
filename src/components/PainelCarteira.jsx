@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import { podeVerTudo, nomeOperadorPorEmail } from "../utils/operadores";
 import FilaReceptivo from "./FilaReceptivo";
 import ReceberLeads from "./ReceberLeads";
@@ -291,6 +292,7 @@ const ABAS_MODAL = [
   { id: "resumo", label: "Resumo" },
   { id: "negociacao", label: "Tabulacao" },
   { id: "financeiro", label: "Financeiro" },
+  { id: "email", label: "E-mail" },
   { id: "historico", label: "Historico" },
 ];
 
@@ -1766,6 +1768,11 @@ export default function PainelCarteira({ embedded = false }) {
                 </div>
               )}
 
+              {abaModal === "email" && (
+                <div style={S.secao}>
+                  <EmailAlunoUnificado aluno={alunoModal} />
+                </div>
+              )}
               {abaModal === "historico" && (
                 <div style={S.secao}>
                   {carregandoModal && historico.length === 0 && <p style={S.subCel}>Carregando...</p>}
