@@ -538,6 +538,15 @@ export default function FilaConfirmacaoPagamento() {
                 <span style={styles.modalCpf}>CPF: {detalhe.aluno_cpf || "-"}</span>
               </div>
               <span style={{ ...styles.status, ...corStatus(detalhe.status) }}>{traduzStatus(detalhe.status)}</span>
+              {detalhe.aluno_id && (
+                <button
+                  type="button"
+                  onClick={() => window.open(`/aluno?alunoId=${detalhe.aluno_id}`, "_blank")}
+                  style={{ background: "#0f9d6b", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", marginLeft: 8 }}
+                >
+                  Abrir ficha completa
+                </button>
+              )}
               <button style={styles.fechar} onClick={fecharFicha}>✕</button>
             </div>
 

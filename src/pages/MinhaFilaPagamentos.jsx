@@ -353,6 +353,15 @@ export default function MinhaFilaPagamentos() {
           <div style={styles.topoCard}>
             <div>
               <h2 style={styles.nome}>{item.aluno_nome || "Aluno sem nome"}</h2>
+              {item.aluno_id && (
+                <button
+                  type="button"
+                  onClick={() => window.open(`/aluno?alunoId=${item.aluno_id}`, "_blank")}
+                  style={{ background: "#fff", border: "1px solid #cbd5e1", borderRadius: 8, padding: "4px 10px", fontSize: 12, fontWeight: 700, color: "#334155", cursor: "pointer", marginBottom: 6 }}
+                >
+                  Abrir ficha
+                </button>
+              )}
             <div style={styles.infoGrid}>
               <p style={styles.info}><strong>CPF:</strong> {item.aluno_cpf || "-"}</p>
               <p style={styles.info}><strong>Operador:</strong> {item.operador_nome || "-"}</p>
