@@ -3,6 +3,7 @@ import { supabase } from "../services/supabase";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import { podeVerTudo, nomeOperadorPorEmail } from "../utils/operadores";
 import FilaReceptivo from "./FilaReceptivo";
+import jsPDF from "jspdf";
 import ReceberLeads from "./ReceberLeads";
 import LinksPagamentoAluno from "./LinksPagamentoAluno";
 import FinalizacaoTermo from "./FinalizacaoTermo";
@@ -359,6 +360,87 @@ export default function PainelCarteira({ embedded = false }) {
   const [alunoModal, setAlunoModal] = useState(null);
   const [abaModal, setAbaModal] = useState("resumo");
   const [historico, setHistorico] = useState([]);
+
+  // Exporta o historico/tabulacoes do aluno em PDF -- pra registro,
+  // conferencia ou envio pra fora do sistema.
+  function exportarHistoricoPDF() {
+    if (!alunoModal) return;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const margem = 48;
+    let y = 56;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("ReATIVA — Histórico de Tabulações", margem, y);
+    y += 26;
+
+    doc.setFontSize(12);
+    doc.text(nomeAluno(alunoModal) || "-", margem, y);
+    y += 18;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(90);
+    doc.text(`CPF: ${alunoModal.cpf || "-"}`, margem, y);
+    y += 14;
+    doc.text(`Responsável atual: ${alunoModal.responsavel_atual_nome || "-"}`, margem, y);
+    y += 14;
+    doc.text(`Exportado em: ${new Date().toLocaleString("pt-BR")}`, margem, y);
+    y += 24;
+
+    doc.setDrawColor(210);
+    doc.line(margem, y, 548, y);
+    y += 20;
+
+    doc.setTextColor(20);
+
+    if (historico.length === 0) {
+      doc.text("Nenhuma movimentação registrada.", margem, y);
+    }
+
+    historico.forEach((h) => {
+      if (y > 760) {
+        doc.addPage();
+        y = 56;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text(formatarDataHora(h.registrado_em) + "  —  " + (h.tipo || "Movimentação"), margem, y);
+      y += 14;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9.5);
+      const descricao = h.descricao || h.status_novo || "-";
+      const linhas = doc.splitTextToSize(descricao, 500);
+      doc.text(linhas, margem, y);
+      y += linhas.length * 12 + 4;
+
+      if (h.status_anterior || h.status_novo) {
+        doc.setTextColor(110);
+        doc.text(
+          `Status: ${labelStatus(h.status_anterior) || "-"} → ${labelStatus(h.status_novo) || "-"}`,
+          margem,
+          y
+        );
+        doc.setTextColor(20);
+        y += 13;
+      }
+
+      if (h.registrado_por_nome) {
+        doc.setTextColor(110);
+        doc.text(`Registrado por: ${h.registrado_por_nome}`, margem, y);
+        doc.setTextColor(20);
+        y += 13;
+      }
+
+      y += 10;
+      doc.setDrawColor(235);
+      doc.line(margem, y - 4, 548, y - 4);
+    });
+
+    const nomeArquivo = `historico-${(nomeAluno(alunoModal) || "aluno").replace(/[^a-zA-Z0-9]/g, "-")}.pdf`;
+    doc.save(nomeArquivo);
+  }
   const [honorarios, setHonorarios] = useState(null);
   const [carregandoModal, setCarregandoModal] = useState(false);
   const [salvando, setSalvando] = useState(false);
@@ -1903,7 +1985,25 @@ export default function PainelCarteira({ embedded = false }) {
                     </div>
                   )}
 
-                  <h3 style={{ margin: "20px 0 10px" }}>Histórico</h3>
+                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", margin: "20px 0 10px" }}>
+                    <h3 style={{ margin: 0 }}>Histórico</h3>
+                    <button
+                      type="button"
+                      onClick={exportarHistoricoPDF}
+                      style={{
+                        background: "#fff",
+                        border: "1px solid #cbd5e1",
+                        borderRadius: 8,
+                        padding: "6px 12px",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        color: "#334155",
+                        cursor: "pointer",
+                      }}
+                    >
+                      📄 Exportar PDF
+                    </button>
+                  </div>
                   {carregandoModal && historico.length === 0 && <p style={S.subCel}>Carregando...</p>}
                   {!carregandoModal && historico.length === 0 && <p style={S.subCel}>Sem movimentacoes registradas.</p>}
                   <div style={S.timeline}>

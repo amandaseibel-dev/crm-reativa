@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
+import jsPDF from "jspdf";
 import EnvioFinanceiro from "../components/EnvioFinanceiro";
 import FinanceiroAluno from "../components/FinanceiroAluno";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
@@ -186,6 +187,80 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const [emailEditado, setEmailEditado] = useState("");
   const [salvandoCadastro, setSalvandoCadastro] = useState(false);
   const [movimentacoes, setMovimentacoes] = useState([]);
+
+  // Exporta o historico/tabulacoes do aluno em PDF -- mesma funcao da
+  // Minha Carteira, pra manter consistencia entre as duas telas.
+  function exportarHistoricoPDF() {
+    if (!alunoSelecionado) return;
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const margem = 48;
+    let y = 56;
+    const nome = pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "-");
+    const cpf = pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-");
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(16);
+    doc.text("ReATIVA — Histórico de Tabulações", margem, y);
+    y += 26;
+
+    doc.setFontSize(12);
+    doc.text(nome, margem, y);
+    y += 18;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10);
+    doc.setTextColor(90);
+    doc.text(`CPF: ${cpf}`, margem, y);
+    y += 14;
+    doc.text(`Exportado em: ${new Date().toLocaleString("pt-BR")}`, margem, y);
+    y += 24;
+
+    doc.setDrawColor(210);
+    doc.line(margem, y, 548, y);
+    y += 20;
+    doc.setTextColor(20);
+
+    if (movimentacoes.length === 0) {
+      doc.text("Nenhuma movimentação registrada.", margem, y);
+    }
+
+    movimentacoes.forEach((mov) => {
+      if (y > 760) {
+        doc.addPage();
+        y = 56;
+      }
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(10);
+      doc.text(formatarDataHora(mov.registrado_em) + "  —  " + (mov.tipo || "Movimentação"), margem, y);
+      y += 14;
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(9.5);
+      const linhas = doc.splitTextToSize(mov.descricao || "-", 500);
+      doc.text(linhas, margem, y);
+      y += linhas.length * 12 + 4;
+
+      if (mov.status_anterior || mov.status_novo) {
+        doc.setTextColor(110);
+        doc.text(`Status: ${mov.status_anterior || "-"} → ${mov.status_novo || "-"}`, margem, y);
+        doc.setTextColor(20);
+        y += 13;
+      }
+
+      if (mov.registrado_por_nome) {
+        doc.setTextColor(110);
+        doc.text(`Registrado por: ${mov.registrado_por_nome}`, margem, y);
+        doc.setTextColor(20);
+        y += 13;
+      }
+
+      y += 10;
+      doc.setDrawColor(235);
+      doc.line(margem, y - 4, 548, y - 4);
+    });
+
+    doc.save(`historico-${nome.replace(/[^a-zA-Z0-9]/g, "-")}.pdf`);
+  }
   const [busca, setBusca] = useState("");
   const [observacao, setObservacao] = useState("");
   const [statusFinalizacao, setStatusFinalizacao] = useState("CONTATAR");
@@ -1707,7 +1782,25 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 <ConfirmarPagamento aluno={alunoSelecionado} />
               </details>
               <div style={caixaInterna}>
-                <h3 style={tituloSecao}>Movimentações</h3>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                  <h3 style={tituloSecao}>Movimentações</h3>
+                  <button
+                    type="button"
+                    onClick={exportarHistoricoPDF}
+                    style={{
+                      background: "#fff",
+                      border: "1px solid #cbd5e1",
+                      borderRadius: 8,
+                      padding: "6px 12px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "#334155",
+                      cursor: "pointer",
+                    }}
+                  >
+                    📄 Exportar PDF
+                  </button>
+                </div>
                 {movimentacoes.length === 0 ? (
                   <p style={textoCinza}>Nenhuma movimentação registrada.</p>
                 ) : (
