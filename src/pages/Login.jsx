@@ -80,23 +80,11 @@ export default function Login() {
               <span>Acordos e baixas</span>
             </div>
           </div>
+        </div>
 
-          <div className="reativa-login__metrics">
-            <div>
-              <span>Operação 360°</span>
-              <strong>Visão completa do aluno e do processo</strong>
-            </div>
-
-            <div>
-              <span>Produtividade</span>
-              <strong>Indicadores em tempo real</strong>
-            </div>
-
-            <div>
-              <span>Gestão segura</span>
-              <strong>Permissões por perfil e trilhas de auditoria</strong>
-            </div>
-          </div>
+        <div className="reativa-login__foot">
+          <span className="reativa-login__foot-dot" />
+          Ambiente seguro · Uso exclusivo da operação
         </div>
 
         <div className="reativa-login__glow glow-one" />
@@ -104,90 +92,64 @@ export default function Login() {
       </section>
 
       <section className="reativa-login__access">
-        <div className="login-wrapper">
-          <form className="login-card" onSubmit={entrar}>
-            <div className="login-card__top">
-              <div>
-                
-                <h2>Entrar no ReATIVA</h2>
-              </div>
-
-              <div className="login-card__icon">🔒</div>
+        <form className="login-card" onSubmit={entrar}>
+          <div className="login-card__top">
+            <div>
+              <span className="login-card__eyebrow">Bem-vindo de volta</span>
+              <h2>Entrar no ReATIVA</h2>
             </div>
 
-            <p className="login-card__subtitle">
-              Informe seu usuário corporativo para acessar sua fila de atendimento.
-            </p>
-
-            <label className="login-field">
-              <span>Usuário / e-mail</span>
-              <input
-                type="email"
-                placeholder="exemplo@aelbra.com.br"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                autoComplete="email"
-              />
-            </label>
-
-            <label className="login-field">
-              <span>Senha</span>
-
-              <div className="password-box">
-                <input
-                  type={mostrarSenha ? "text" : "password"}
-                  placeholder="Digite sua senha"
-                  value={senha}
-                  onChange={(e) => setSenha(e.target.value)}
-                  autoComplete="current-password"
-                />
-
-                <button
-                  type="button"
-                  onClick={() => setMostrarSenha((atual) => !atual)}
-                >
-                  {mostrarSenha ? "Ocultar" : "Mostrar"}
-                </button>
-              </div>
-            </label>
-
-            {erro && <div className="login-error">{erro}</div>}
-
-            <button className="login-button" type="submit" disabled={carregando}>
-              {carregando ? "Acessando..." : "Acessar CRM"}
-            </button>
-
-            <div className="login-card__footer">
-              <span>Ambiente seguro</span>
-              <span>•</span>
-              <span>Uso exclusivo da operação</span>
-            </div>
-          </form>
-
-          <div className="login-side-panel">
-            <div className="side-panel__header">
-              <span>Status operacional</span>
-              <strong>Online</strong>
-            </div>
-
-            <div className="side-panel__grid">
-              <div className="side-panel__item">
-                <span>Atendimentos</span>
-                <strong>Fila ativa</strong>
-              </div>
-
-              <div className="side-panel__item">
-                <span>Pagamentos</span>
-                <strong>Em validação</strong>
-              </div>
-
-              <div className="side-panel__item">
-                <span>Termos</span>
-                <strong>Controle ADM</strong>
-              </div>
-            </div>
+            <div className="login-card__icon">🔒</div>
           </div>
-        </div>
+
+          <p className="login-card__subtitle">
+            Informe seu usuário corporativo para acessar sua fila de atendimento.
+          </p>
+
+          <label className="login-field">
+            <span>Usuário / e-mail</span>
+            <input
+              type="email"
+              placeholder="exemplo@aelbra.com.br"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="email"
+            />
+          </label>
+
+          <label className="login-field">
+            <span>Senha</span>
+
+            <div className="password-box">
+              <input
+                type={mostrarSenha ? "text" : "password"}
+                placeholder="Digite sua senha"
+                value={senha}
+                onChange={(e) => setSenha(e.target.value)}
+                autoComplete="current-password"
+              />
+
+              <button
+                type="button"
+                onClick={() => setMostrarSenha((atual) => !atual)}
+              >
+                {mostrarSenha ? "Ocultar" : "Mostrar"}
+              </button>
+            </div>
+          </label>
+
+          {erro && <div className="login-error">{erro}</div>}
+
+          <button className="login-button" type="submit" disabled={carregando}>
+            {carregando ? "Acessando..." : "Acessar CRM"}
+          </button>
+
+          <div className="login-card__footer">
+            <span>Ambiente seguro</span>
+            <span>•</span>
+            <span>Uso exclusivo da operação</span>
+          </div>
+        </form>
       </section>
     </main>
   );
