@@ -335,6 +335,9 @@ export default function PainelCarteira({ embedded = false }) {
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("TODOS");
   const [filtroKpi, setFiltroKpi] = useState(null);
+  const [filtroValorMin, setFiltroValorMin] = useState("");
+  const [filtroValorMax, setFiltroValorMax] = useState("");
+  const [filtroDiasMinSemContato, setFiltroDiasMinSemContato] = useState("");
   const [ordenacao, setOrdenacao] = useState("sem_contato_desc");
   const [casosEspeciais, setCasosEspeciais] = useState(null);
   const [carregandoEspecial, setCarregandoEspecial] = useState(false);
@@ -1225,6 +1228,23 @@ export default function PainelCarteira({ embedded = false }) {
     if (filtroStatus !== "TODOS") {
       l = l.filter((a) => statusPrazo(a).label === filtroStatus);
     }
+    const valorMinNum = filtroValorMin.trim() ? Number(filtroValorMin.replace(/\./g, "").replace(",", ".")) : null;
+    const valorMaxNum = filtroValorMax.trim() ? Number(filtroValorMax.replace(/\./g, "").replace(",", ".")) : null;
+    if (valorMinNum !== null && !Number.isNaN(valorMinNum)) {
+      l = l.filter((a) => saldoDe(a) >= valorMinNum);
+    }
+    if (valorMaxNum !== null && !Number.isNaN(valorMaxNum)) {
+      l = l.filter((a) => saldoDe(a) <= valorMaxNum);
+    }
+    if (filtroDiasMinSemContato.trim()) {
+      const diasMin = Number(filtroDiasMinSemContato);
+      if (!Number.isNaN(diasMin)) {
+        l = l.filter((a) => {
+          const d = diasSemContato(a);
+          return d === null ? true : d >= diasMin;
+        });
+      }
+    }
     if (busca.trim()) {
       const t = semAcento(busca);
       l = l.filter((a) =>
@@ -1254,7 +1274,7 @@ export default function PainelCarteira({ embedded = false }) {
     else if (ordenacao === "valor_desc") arr.sort((a, b) => saldoDe(b) - saldoDe(a));
     else if (ordenacao === "valor_asc") arr.sort((a, b) => saldoDe(a) - saldoDe(b));
     return arr;
-  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView]);
+  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato]);
 
   // Cards operacionais (abrem a tabela) + financeiros (abrem detalhamento).
   // Todos permanecem visiveis mesmo zerados.
@@ -1488,6 +1508,26 @@ export default function PainelCarteira({ embedded = false }) {
                 <option value="Aguardando pgto">Aguardando pgto</option>
                 <option value="Juridico">Juridico</option>
               </select>
+              <input
+                style={{ ...S.select, width: 110 }}
+                placeholder="Valor mín."
+                value={filtroValorMin}
+                onChange={(e) => setFiltroValorMin(e.target.value)}
+              />
+              <input
+                style={{ ...S.select, width: 110 }}
+                placeholder="Valor máx."
+                value={filtroValorMax}
+                onChange={(e) => setFiltroValorMax(e.target.value)}
+              />
+              <input
+                style={{ ...S.select, width: 140 }}
+                type="number"
+                min="0"
+                placeholder="Dias mín. sem contato"
+                value={filtroDiasMinSemContato}
+                onChange={(e) => setFiltroDiasMinSemContato(e.target.value)}
+              />
               <select style={S.select} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
                 <option value="sem_contato_desc">Mais antigo sem contato</option>
                 <option value="sem_contato_asc">Mais recente sem contato</option>
