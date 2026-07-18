@@ -1,7 +1,19 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 
-const TIPOS_ACIONAMENTO = ["FINALIZACAO_ATENDIMENTO", "FINALIZACAO"];
+// Todo tipo de movimentacao que representa um contato/acao real do
+// operador sobre o caso -- nao so "finalizar atendimento". Se um botao
+// novo de acao for criado no sistema, o tipo dele precisa entrar aqui
+// tambem, senao fica de fora da contagem (prioridade combinada com a
+// Amanda).
+const TIPOS_ACIONAMENTO = [
+  "FINALIZACAO_ATENDIMENTO",
+  "FINALIZACAO",
+  "CONTATO",
+  "LINK_ENVIADO_AO_ALUNO",
+  "ASSUMIU_ATENDIMENTO",
+  "ACORDO",
+];
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const VERDE = "#0f9d6b";
 
