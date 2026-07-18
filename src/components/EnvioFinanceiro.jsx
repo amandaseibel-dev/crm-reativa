@@ -185,6 +185,18 @@ export default function EnvioFinanceiro({ aluno }) {
       })
       .eq("id", aluno.id);
 
+    // Registra como tabulacao de verdade -- senao "Enviado ao financeiro"
+    // ficava fora da contagem de acionamentos do operador.
+    await supabase.from("aluno_movimentacoes").insert({
+      aluno_id: String(aluno.id),
+      tipo: "FINALIZACAO_ATENDIMENTO",
+      descricao: `Enviado ao financeiro. Motivo: ${motivo.trim()}.`,
+      status_novo: "Aguardando envio financeiro",
+      registrado_por_nome: nomeOperador,
+      registrado_por_email: emailOperador,
+      registrado_em: new Date().toISOString(),
+    });
+
     alert("Solicitação enviada para a fila da Amanda ADM.");
 
     setMotivo("");

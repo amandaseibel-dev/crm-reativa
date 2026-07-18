@@ -288,6 +288,18 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
       })
       .eq("id", aluno.id);
 
+    // Registra como tabulacao de verdade -- senao "enviado pra confirmacao
+    // de pagamento manualmente" ficava fora da contagem de acionamentos.
+    await supabase.from("aluno_movimentacoes").insert({
+      aluno_id: String(aluno.id),
+      tipo: "FINALIZACAO_ATENDIMENTO",
+      descricao: `Enviado para confirmação de pagamento manualmente. Motivo: ${motivo.trim()}.`,
+      status_novo: "Aguardando confirmação de pagamento",
+      registrado_por_nome: nomeOperador,
+      registrado_por_email: emailOperador,
+      registrado_em: agora,
+    });
+
     alert("Enviado para a fila de confirmação de pagamento.");
     setMotivo("");
     setValorInformado("");
