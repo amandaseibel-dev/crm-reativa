@@ -209,6 +209,7 @@ export default function App() {
   const [linksAguardando, setLinksAguardando] = useState(0);
   const [termosRejeitados, setTermosRejeitados] = useState(0);
   const [termosAguardandoValidacao, setTermosAguardandoValidacao] = useState(0);
+  const [parcelasVencendo, setParcelasVencendo] = useState([]);
   const [baixasAguardando, setBaixasAguardando] = useState(0);
   const [elogiosPendentes, setElogiosPendentes] = useState(0);
   const [tema, setTema] = useState("claro"); // tema fixo claro
@@ -272,6 +273,28 @@ export default function App() {
     }
     carregarTermosAguardando();
     const intervalo = setInterval(carregarTermosAguardando, 15000);
+    return () => {
+      ativo = false;
+      clearInterval(intervalo);
+    };
+  }, [usuario]);
+
+  // Boletos/parcelas de acordo vencendo em 2 dias -- avisa pra mandar
+  // lembrete de pagamento antes que vença.
+  useEffect(() => {
+    if (!usuario) {
+      setParcelasVencendo([]);
+      return;
+    }
+    let ativo = true;
+
+    async function carregarParcelasVencendo() {
+      const { data, error } = await supabase.rpc("parcelas_vencendo_2_dias");
+      if (ativo && !error) setParcelasVencendo(data || []);
+    }
+
+    carregarParcelasVencendo();
+    const intervalo = setInterval(carregarParcelasVencendo, 60000);
     return () => {
       ativo = false;
       clearInterval(intervalo);
@@ -578,6 +601,14 @@ export default function App() {
                     title={`${linksAguardando} link(s) aguardando resposta · ${termosAguardandoValidacao} termo(s) aguardando validação · ${baixasAguardando} baixa(s) aguardando`}
                   >
                     {linksAguardando + termosAguardandoValidacao + baixasAguardando}
+                  </span>
+                )}
+                {item.rota === "/painel-carteira" && parcelasVencendo.length > 0 && (
+                  <span
+                    className="badge-alerta"
+                    title={`Boleto(s) vencendo em 2 dias — mande lembrete de pagamento: ${parcelasVencendo.map((p) => p.aluno_nome).join(", ")}`}
+                  >
+                    {parcelasVencendo.length}
                   </span>
                 )}
                 {item.rota === "/aluno" && termosRejeitados > 0 && (
