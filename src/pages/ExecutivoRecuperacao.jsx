@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../services/supabase";
+import { supabase } from "../services/supabase"; import ComparativoAnos from "../components/ComparativoAnos";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -43,7 +43,7 @@ export default function ExecutivoRecuperacao() {
         <span style={S.sub}>Resultado consolidado da operacao ReATIVA</span>
       </div>
 
-      <div style={S.heroRow}>
+      <ComparativoAnos />      <div style={S.heroRow}>
         <Hero rot="Total recuperado" val={moeda(d.recuperado_total)} cor="#16a34a" />
         <Hero rot="Honorarios" val={moeda(d.honorarios_total)} cor="#0ea5e9" />
         <Hero rot="Alunos pagos" val={num(d.alunos_pagos)} cor="#7c3aed" />
