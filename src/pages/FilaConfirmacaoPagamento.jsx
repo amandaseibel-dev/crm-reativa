@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import Alunos from "./Aluno";
 import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
 import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados";
 import CasosSemValor from "../components/CasosSemValor";
@@ -582,13 +583,13 @@ export default function FilaConfirmacaoPagamento() {
             </div>
 
             <div style={styles.abas}>
-              {["resumo", "financeiro", "historico", "comprovante"].map((a) => (
+              {["resumo", "ficha", "financeiro", "historico", "comprovante"].map((a) => (
                 <button
                   key={a}
                   style={abaFicha === a ? styles.abaAtiva : styles.aba}
                   onClick={() => setAbaFicha(a)}
                 >
-                  {a === "resumo" ? "Resumo" : a === "financeiro" ? "Financeiro" : a === "historico" ? "Histórico" : "Comprovante"}
+                  {a === "resumo" ? "Resumo" : a === "ficha" ? "Ficha completa" : a === "financeiro" ? "Financeiro" : a === "historico" ? "Histórico" : "Comprovante"}
                 </button>
               ))}
             </div>
@@ -617,6 +618,11 @@ export default function FilaConfirmacaoPagamento() {
                 </div>
               )}
 
+              {abaFicha === "ficha" && detalhe?.aluno_id && (
+                <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+                  <Alunos fichaEmbedId={detalhe.aluno_id} />
+                </div>
+              )}
               {abaFicha === "financeiro" && (
                 <div>
                   <p style={styles.info}>
