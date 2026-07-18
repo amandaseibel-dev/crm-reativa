@@ -235,7 +235,7 @@ const KPIS_FILTRAVEIS = new Set([
 const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
 
 const COLUNAS_ALUNO =
-  "id,nome,nome_aluno,cpf,telefone,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
+  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
 
 // Aba "Solicitacoes" foi removida: Solicitar link / termo / financeiro /
 // informar pagamento / anexar comprovante ficam INLINE dentro da Tabulacao
@@ -898,6 +898,28 @@ export default function PainelCarteira({ embedded = false }) {
     setNovoOperadorEmailModal("");
     setSalvandoOperador(false);
     atualizarTudo(alunoModal.id);
+  }
+
+  // Abre o e-mail padrao do computador com um rascunho pronto, e registra
+  // no historico do aluno que o e-mail foi enviado (igual ja fazemos com
+  // outras acoes na carteira).
+  async function enviarEmailAluno(aluno) {
+    if (!aluno?.email) return;
+
+    const assunto = encodeURIComponent("ReATIVA — Regularização de mensalidades");
+    const corpo = encodeURIComponent(
+      `Olá, ${nomeAluno(aluno)}.\n\nEstamos entrando em contato sobre a regularização das suas mensalidades em aberto.\n\nQualquer dúvida, estamos à disposição.`
+    );
+    window.open(`mailto:${aluno.email}?subject=${assunto}&body=${corpo}`, "_blank");
+
+    await supabase.from("aluno_movimentacoes").insert({
+      aluno_id: String(aluno.id),
+      tipo: "MENSAGEM_ENVIADA",
+      descricao: `E-mail enviado para ${aluno.email} direto na Minha Carteira.`,
+      registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
+      registrado_por_email: email,
+      registrado_em: new Date().toISOString(),
+    });
   }
 
   // Recarrega o aluno atual (linha da carteira + modal) apos uma acao.
@@ -1591,6 +1613,25 @@ export default function PainelCarteira({ embedded = false }) {
                     {statusPrazo(alunoModal).label}
                   </span>
                 </div>
+                {alunoModal.email && (
+                  <button
+                    type="button"
+                    onClick={() => enviarEmailAluno(alunoModal)}
+                    style={{
+                      marginTop: 6,
+                      background: "#fff",
+                      border: "1px solid #cbd5e1",
+                      borderRadius: 8,
+                      padding: "5px 10px",
+                      fontSize: 12,
+                      fontWeight: 700,
+                      color: "#334155",
+                      cursor: "pointer",
+                    }}
+                  >
+                    📧 Enviar e-mail ({alunoModal.email})
+                  </button>
+                )}
               </div>
               <button style={S.btnFechar} onClick={fecharModal} aria-label="Fechar">✕</button>
             </div>
