@@ -26,13 +26,14 @@ body,
     radial-gradient(circle at 70% 28%, rgba(20, 184, 166, 0.13), transparent 30%),
     linear-gradient(135deg, #030712 0%, #07111a 45%, #0b1118 100%);
   color: #f8fafc;
-  overflow: hidden;
+  overflow-y: auto;
+  overflow-x: hidden;
   font-family: Inter, Arial, Helvetica, sans-serif;
 }
 
 .reativa-login__hero {
   position: relative;
-  padding: 56px 64px;
+  padding: 40px 56px;
   display: flex;
   flex-direction: column;
   justify-content: space-between;
@@ -118,7 +119,7 @@ body,
   margin: 0;
   max-width: 720px;
   font-family: 'Sora', Inter, sans-serif;
-  font-size: clamp(45px, 5.4vw, 76px);
+  font-size: clamp(38px, 4.4vw, 60px);
   line-height: 1.03;
   letter-spacing: -3px;
   font-weight: 900;
