@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../services/supabase"; import ComparativoAnos from "../components/ComparativoAnos";
+import { supabase } from "../services/supabase";
+import ComparativoAnos from "../components/ComparativoAnos";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -28,8 +29,8 @@ export default function ExecutivoRecuperacao() {
     return () => { ativo = false; };
   }, []);
 
-  if (carregando) return <div style={S.wrap}><p style={S.muted}>Carregando visao executiva...</p></div>;
-  if (!d) return <div style={S.wrap}><p style={S.muted}>Nao foi possivel carregar.</p></div>;
+  if (carregando) return <div style={S.wrap}><p style={S.muted}>Carregando visão executiva...</p></div>;
+  if (!d) return <div style={S.wrap}><p style={S.muted}>Não foi possível carregar.</p></div>;
 
   const ev = d.evolucao || [];
   const maxEv = Math.max(1, ...ev.map((x) => Number(x.recuperado) || 0));
@@ -39,13 +40,15 @@ export default function ExecutivoRecuperacao() {
   return (
     <div style={S.wrap}>
       <div style={S.head}>
-        <h1 style={S.h1}>Recuperacao ULBRA — Visao Executiva</h1>
-        <span style={S.sub}>Resultado consolidado da operacao ReATIVA</span>
+        <h1 style={S.h1}>Recuperação ULBRA — Visão Executiva</h1>
+        <span style={S.sub}>Resultado consolidado da operação ReATIVA</span>
       </div>
 
-      <ComparativoAnos />      <div style={S.heroRow}>
+      <ComparativoAnos />
+
+      <div style={S.heroRow}>
         <Hero rot="Total recuperado" val={moeda(d.recuperado_total)} cor="#16a34a" />
-        <Hero rot="Honorarios" val={moeda(d.honorarios_total)} cor="#0ea5e9" />
+        <Hero rot="Honorários" val={moeda(d.honorarios_total)} cor="#0ea5e9" />
         <Hero rot="Alunos pagos" val={num(d.alunos_pagos)} cor="#7c3aed" />
         <Hero rot="% da carteira recuperada" val={(d.pct_recuperado_valor || 0) + "%"} cor="#f59e0b" />
       </div>
@@ -57,7 +60,7 @@ export default function ExecutivoRecuperacao() {
       </div>
 
       <div style={S.card}>
-        <h3 style={S.h3}>Evolucao mensal do recuperado</h3>
+        <h3 style={S.h3}>Evolução mensal do recuperado</h3>
         {ev.map((x) => (
           <div key={x.mes} style={S.linha}>
             <div style={S.linhaTopo}>
@@ -91,7 +94,7 @@ export default function ExecutivoRecuperacao() {
         ))}
       </div>
 
-      <p style={S.rodape}>Numeros consolidados em tempo real a partir da base do ReATIVA.</p>
+      <p style={S.rodape}>Números consolidados em tempo real a partir da base do ReATIVA.</p>
     </div>
   );
 }
