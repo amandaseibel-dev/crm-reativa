@@ -1976,21 +1976,41 @@ export default function Alunos() {
                         </p>
                         <button
                           type="button"
-                          onClick={() => {
+                          onClick={async () => {
                             const nome = pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "");
                             const assunto = encodeURIComponent("ReATIVA — Regularização de mensalidades");
                             const corpo = encodeURIComponent(
                               `Olá, ${nome}.\n\nEstamos entrando em contato sobre a regularização das suas mensalidades em aberto.\n\nQualquer dúvida, estamos à disposição.`
                             );
                             window.open(`mailto:${emailAluno}?subject=${assunto}&body=${corpo}`, "_blank");
-                            supabase.from("aluno_movimentacoes").insert({
+
+                            const agora = new Date().toISOString();
+                            const statusAntigo =
+                              pegarCampo(alunoSelecionado, ["status_atual"], null) ||
+                              pegarCampo(alunoSelecionado, ["status_jornada"], null);
+
+                            await supabase
+                              .from("alunos")
+                              .update({
+                                status_jornada: "MENSAGEM_ENVIADA",
+                                status_atual: "MENSAGEM_ENVIADA",
+                                data_ultimo_acionamento: agora,
+                                ultimo_contato: agora,
+                              })
+                              .eq("id", alunoSelecionado.id);
+
+                            await supabase.from("aluno_movimentacoes").insert({
                               aluno_id: String(alunoSelecionado.id),
-                              tipo: "MENSAGEM_ENVIADA",
+                              tipo: "FINALIZACAO_ATENDIMENTO",
                               descricao: `E-mail enviado para ${emailAluno} direto na ficha do aluno.`,
+                              status_anterior: statusAntigo,
+                              status_novo: "MENSAGEM_ENVIADA",
                               registrado_por_nome: usuarioLogado?.nome || "",
                               registrado_por_email: usuarioLogado?.email || "",
-                              registrado_em: new Date().toISOString(),
+                              registrado_em: agora,
                             });
+
+                            abrirAlunoPorId(alunoSelecionado.id);
                           }}
                           style={botaoPrincipal}
                         >

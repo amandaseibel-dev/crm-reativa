@@ -904,6 +904,9 @@ export default function PainelCarteira({ embedded = false }) {
   // Abre o e-mail padrao do computador com um rascunho pronto, e registra
   // no historico do aluno que o e-mail foi enviado (igual ja fazemos com
   // outras acoes na carteira).
+  // Enviar e-mail conta como tabulacao de verdade -- atualiza o status do
+  // aluno (igual finalizarAtendimento) e usa o mesmo tipo que o Meu
+  // Dashboard conta como acionamento, senao o envio nao contava em nada.
   async function enviarEmailAluno(aluno) {
     if (!aluno?.email) return;
 
@@ -913,14 +916,31 @@ export default function PainelCarteira({ embedded = false }) {
     );
     window.open(`mailto:${aluno.email}?subject=${assunto}&body=${corpo}`, "_blank");
 
+    const agora = new Date().toISOString();
+    const statusAntigo = aluno.status_atual || aluno.status_jornada || null;
+
+    await supabase
+      .from("alunos")
+      .update({
+        status_jornada: "MENSAGEM_ENVIADA",
+        status_atual: "MENSAGEM_ENVIADA",
+        data_ultimo_acionamento: agora,
+        ultimo_contato: agora,
+      })
+      .eq("id", aluno.id);
+
     await supabase.from("aluno_movimentacoes").insert({
       aluno_id: String(aluno.id),
-      tipo: "MENSAGEM_ENVIADA",
+      tipo: "FINALIZACAO_ATENDIMENTO",
       descricao: `E-mail enviado para ${aluno.email} direto na Minha Carteira.`,
+      status_anterior: statusAntigo,
+      status_novo: "MENSAGEM_ENVIADA",
       registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
       registrado_por_email: email,
-      registrado_em: new Date().toISOString(),
+      registrado_em: agora,
     });
+
+    atualizarTudo(aluno.id);
   }
 
   // Recarrega o aluno atual (linha da carteira + modal) apos uma acao.
