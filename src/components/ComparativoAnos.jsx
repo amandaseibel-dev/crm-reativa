@@ -57,23 +57,23 @@ export default function ComparativoAnos() {
           <span style={S.fatRot}>Faturamento 2026 até {mp.dia_ref}/{mesRef}</span>
           <span style={S.fatVal}>{moeda(fat.hon_2026)}</span>
           {fat.ja_superou ? (
-            <span style={S.selo}>✓ já superamos todo o ano de 2025 — +{moeda(fat.superavit)} ({fat.pct}%)</span>
+            <span style={S.selo}>já superamos 2025 · +{moeda(fat.superavit)} ({fat.pct}%)</span>
           ) : null}
         </div>
 
-        <div style={S.fatLado}>
+        <>
           <div style={S.miniFat}>
             <span style={S.miniRot}>Faturamento 2025 (ano fechado)</span>
             <span style={S.miniVal}>{moeda(fat.hon_2025)}</span>
           </div>
           <div style={S.miniProj}>
-            <span style={S.miniRot}>Projeção de fechamento 2026</span>
+            <span style={S.miniRot}>Projeção de fechamento do ano</span>
             <span style={S.miniValProj}>{moeda(proj.projecao_hon_fim_ano)}</span>
             {fatFimPct !== null ? (
-              <span style={S.badgeFim}>vamos fechar o ano +{fatFimPct.toFixed(0)}% vs 2025</span>
+              <span style={S.badgeFim}>vamos fechar 2026 +{fatFimPct.toFixed(0)}% vs 2025</span>
             ) : null}
           </div>
-        </div>
+        </>
       </div>
 
       <div style={S.card}>
@@ -109,13 +109,31 @@ export default function ComparativoAnos() {
                       {rec26 ? moeda(rec26) : "—"}
                       {emCurso ? <div style={S.subProj}>projeção do mês: {moeda(m.rec_proj)}</div> : null}
                     </td>
-                    <td style={S.tdNum}><Delta a={m.rec_2025} b={rec26} /></td>
+                    <td style={S.tdNum}>
+                      {emCurso ? (
+                        <span style={S.deltaDia}>
+                          {mp.var_rec_dia_pct >= 0 ? "+" : ""}{mp.var_rec_dia_pct}%
+                          <span style={S.porDia}>por dia util</span>
+                        </span>
+                      ) : (
+                        <Delta a={m.rec_2025} b={rec26} />
+                      )}
+                    </td>
                     <td style={S.td}>{m.hon_2025 ? moeda(m.hon_2025) : "—"}</td>
                     <td style={futuro ? S.tdProjHon : S.tdHon}>
                       {hon26 ? moeda(hon26) : "—"}
                       {emCurso ? <div style={S.subProj}>projeção do mês: {moeda(m.hon_proj)}</div> : null}
                     </td>
-                    <td style={S.tdNum}><Delta a={m.hon_2025} b={hon26} /></td>
+                    <td style={S.tdNum}>
+                      {emCurso ? (
+                        <span style={S.deltaDia}>
+                          {mp.var_hon_dia_pct >= 0 ? "+" : ""}{mp.var_hon_dia_pct}%
+                          <span style={S.porDia}>por dia util</span>
+                        </span>
+                      ) : (
+                        <Delta a={m.hon_2025} b={hon26} />
+                      )}
+                    </td>
                   </tr>
                 );
               })}
@@ -146,14 +164,24 @@ export default function ComparativoAnos() {
             </tfoot>
           </table>
         </div>
-        <p style={S.rodape}>
-          {mesRef} está em curso (dia 1 a {mp.dia_ref}): R$ {Number(mp.rec_2026 || 0).toLocaleString("pt-BR")} recuperado
-          contra R$ {Number(mp.rec_2025 || 0).toLocaleString("pt-BR")} no mesmo período de 2025 ({mp.var_rec_pct >= 0 ? "+" : ""}{mp.var_rec_pct}%).
-          Por dia útil trabalhado o ritmo é {mp.var_rec_dia_pct >= 0 ? "+" : ""}{mp.var_rec_dia_pct}% em recuperado e{" "}
-          {mp.var_hon_dia_pct >= 0 ? "+" : ""}{mp.var_hon_dia_pct}% em faturamento — {mesRef}/2025 teve {mp.dias_uteis_2025} dias
-          úteis até o dia {mp.dia_ref} e {mesRef}/2026 tem {mp.dias_uteis_2026}.
-          Meses futuros usam o realizado de 2025 corrigido pelo crescimento atual (+{proj.crescimento_rec_pct}% recuperado / +{proj.crescimento_hon_pct}% honorário).
-        </p>
+        <div style={S.ritmoRow}>
+          <div style={S.ritmoItem}>
+            <span style={S.ritmoVal}>{moeda(mp.rec_dia_2026)}</span>
+            <span style={S.ritmoRot}>Recuperado / dia útil · 2025: {moeda(mp.rec_dia_2025)}</span>
+          </div>
+          <div style={S.ritmoItem}>
+            <span style={S.ritmoPct}>{mp.var_rec_dia_pct >= 0 ? "+" : ""}{mp.var_rec_dia_pct}%</span>
+            <span style={S.ritmoRot}>Ritmo recuperado</span>
+          </div>
+          <div style={S.ritmoItem}>
+            <span style={S.ritmoVal}>{moeda(mp.hon_dia_2026)}</span>
+            <span style={S.ritmoRot}>Honorário / dia útil · 2025: {moeda(mp.hon_dia_2025)}</span>
+          </div>
+          <div style={S.ritmoItem}>
+            <span style={S.ritmoPct}>{mp.var_hon_dia_pct >= 0 ? "+" : ""}{mp.var_hon_dia_pct}%</span>
+            <span style={S.ritmoRot}>Ritmo faturamento</span>
+          </div>
+        </div>
       </div>
     </section>
   );
@@ -163,40 +191,46 @@ const S = {
   wrap: { marginBottom: 26 },
   tituloSecao: { margin: "0 0 12px 0", color: "#334155", fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" },
 
-  fatBox: { display: "grid", gridTemplateColumns: "minmax(260px, 1.3fr) minmax(240px, 1fr)", gap: 14, marginBottom: 16 },
-  fatPrincipal: { background: "linear-gradient(135deg, #4338ca 0%, #6d28d9 100%)", borderRadius: 16, padding: "22px 24px", display: "flex", flexDirection: "column", gap: 8, color: "#fff", boxShadow: "0 4px 14px rgba(67,56,202,0.25)" },
-  fatRot: { fontSize: 13, fontWeight: 700, opacity: 0.85 },
-  fatVal: { fontSize: 40, fontWeight: 800, lineHeight: 1.05, letterSpacing: "-0.5px" },
-  selo: { marginTop: 4, background: "rgba(255,255,255,0.18)", border: "1px solid rgba(255,255,255,0.35)", borderRadius: 999, padding: "6px 12px", fontSize: 13, fontWeight: 700, alignSelf: "flex-start" },
+  fatBox: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12, marginBottom: 16 },
+  fatPrincipal: { background: "#fff", border: "1px solid #e5e7eb", borderLeft: "4px solid #4338ca", borderRadius: 14, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" },
+  fatRot: { fontSize: 12, fontWeight: 600, color: "#64748b" },
+  fatVal: { fontSize: 26, fontWeight: 800, lineHeight: 1.1, color: "#312e81" },
+  selo: { marginTop: 2, color: "#16a34a", fontSize: 12, fontWeight: 700 },
   fatLado: { display: "flex", flexDirection: "column", gap: 12 },
   miniFat: { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4, flex: 1, justifyContent: "center" },
-  miniProj: { background: "#fffbeb", border: "2px solid #fcd34d", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 5, flex: 1, justifyContent: "center" },
+  miniProj: { background: "#fff", border: "1px solid #e5e7eb", borderLeft: "4px solid #b45309", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4, flex: 1, justifyContent: "center" },
   miniRot: { fontSize: 12, color: "#64748b", fontWeight: 600 },
   miniVal: { fontSize: 22, fontWeight: 800, color: "#312e81" },
-  miniValProj: { fontSize: 26, fontWeight: 800, color: "#b45309", lineHeight: 1.1 },
-  badgeFim: { background: "#b45309", color: "#fff", borderRadius: 999, padding: "4px 10px", fontSize: 12, fontWeight: 800, alignSelf: "flex-start" },
+  miniValProj: { fontSize: 22, fontWeight: 800, color: "#b45309", lineHeight: 1.1 },
+  badgeFim: { color: "#b45309", fontSize: 12, fontWeight: 700 },
 
   card: { background: "#fff", border: "1px solid #eef2f7", borderRadius: 14, padding: 18, marginBottom: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" },
   h3: { margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0f172a" },
   tabelaWrap: { overflowX: "auto" },
-  tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "8px 10px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" },
-  thNum: { textAlign: "right", padding: "8px 10px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" },
+  tabela: { width: "100%", borderCollapse: "collapse", fontSize: 12.5, tableLayout: "auto" },
+  th: { textAlign: "left", padding: "7px 8px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" },
+  thNum: { textAlign: "right", padding: "7px 8px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" },
   trFuturo: { background: "#fcfcfd" },
-  tdMes: { padding: "8px 10px", fontWeight: 700, color: "#334155", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  tdMes: { padding: "7px 8px", fontWeight: 700, color: "#334155", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
   tagProj: { marginLeft: 6, background: "#fef3c7", color: "#92400e", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 800 },
   tagCurso: { marginLeft: 6, background: "#dbeafe", color: "#1d4ed8", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 800 },
-  td: { padding: "8px 10px", textAlign: "right", color: "#64748b", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdForte: { padding: "8px 10px", textAlign: "right", color: "#111827", fontWeight: 700, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdHon: { padding: "8px 10px", textAlign: "right", color: "#4338ca", fontWeight: 800, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdProj: { padding: "8px 10px", textAlign: "right", color: "#92400e", fontWeight: 700, fontStyle: "italic", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdProjHon: { padding: "8px 10px", textAlign: "right", color: "#b45309", fontWeight: 800, fontStyle: "italic", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  td: { padding: "7px 8px", textAlign: "right", color: "#64748b", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  tdForte: { padding: "7px 8px", textAlign: "right", color: "#111827", fontWeight: 700, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  tdHon: { padding: "7px 8px", textAlign: "right", color: "#4338ca", fontWeight: 800, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  tdProj: { padding: "7px 8px", textAlign: "right", color: "#92400e", fontWeight: 700, fontStyle: "italic", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  tdProjHon: { padding: "7px 8px", textAlign: "right", color: "#b45309", fontWeight: 800, fontStyle: "italic", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
   subProj: { fontSize: 11, color: "#b45309", fontWeight: 600, fontStyle: "italic", marginTop: 2 },
-  tdNum: { padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdTotal: { padding: "10px", textAlign: "right", fontWeight: 800, color: "#0f172a", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
-  tdTotalNum: { padding: "10px", textAlign: "right", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
-  tdFecha: { padding: "10px", textAlign: "right", fontWeight: 800, color: "#b45309", background: "#fffbeb", whiteSpace: "nowrap" },
+  tdNum: { padding: "7px 8px", textAlign: "right", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  tdTotal: { padding: "9px 8px", textAlign: "right", fontWeight: 800, color: "#0f172a", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
+  tdTotalNum: { padding: "9px 8px", textAlign: "right", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
+  tdFecha: { padding: "9px 8px", textAlign: "right", fontWeight: 800, color: "#b45309", background: "#fffbeb", whiteSpace: "nowrap" },
   pctFim: { background: "#b45309", color: "#fff", borderRadius: 999, padding: "2px 8px", fontSize: 12, fontWeight: 800 },
+  deltaDia: { display: "inline-flex", flexDirection: "column", alignItems: "flex-end", color: "#16a34a", fontWeight: 700 },
+  porDia: { fontSize: 10, color: "#94a3b8", fontWeight: 600 },
+  ritmoRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginTop: 14, paddingTop: 14, borderTop: "1px dashed #cbd5e1" },
+  ritmoItem: { display: "flex", flexDirection: "column", gap: 2 },
+  ritmoVal: { fontSize: 19, fontWeight: 800, color: "#111827" },
+  ritmoPct: { fontSize: 19, fontWeight: 800, color: "#16a34a" },
+  ritmoRot: { fontSize: 11.5, color: "#64748b", fontWeight: 600 },
   muted: { color: "#64748b" },
-  rodape: { color: "#64748b", fontSize: 12, marginTop: 12, lineHeight: 1.6 },
 };
