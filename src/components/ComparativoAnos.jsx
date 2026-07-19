@@ -82,6 +82,31 @@ export default function ComparativoAnos() {
         </>
       </div>
 
+      <div style={S.periodoCard}>
+        <div style={S.periodoTopo}>
+          <h3 style={S.periodoTitulo}>Agosto a Dezembro — cobrando em 2025 x projetando para 2026</h3>
+          {agoDezCrescimentoPct !== null && (
+            <span style={S.periodoBadge}>
+              {agoDezCrescimentoPct >= 0 ? "+" : ""}
+              {agoDezCrescimentoPct.toFixed(0)}% de crescimento projetado
+            </span>
+          )}
+        </div>
+        <div style={S.periodoGrid}>
+          <div style={S.periodoItem}>
+            <span style={S.periodoRot}>Valor cobrado (Ago–Dez 2025)</span>
+            <span style={S.periodoVal}>{moeda(agoDezRec2025)}</span>
+            <span style={S.periodoSub}>Honorário: {moeda(agoDezHon2025)}</span>
+          </div>
+          <div style={S.periodoSeta}>→</div>
+          <div style={{ ...S.periodoItem, ...S.periodoItemProj }}>
+            <span style={S.periodoRot}>Projetando entregar (Ago–Dez 2026)</span>
+            <span style={{ ...S.periodoVal, color: "#b45309" }}>{moeda(agoDezRecProj2026)}</span>
+            <span style={S.periodoSub}>Honorário projetado: {moeda(agoDezHonProj2026)}</span>
+          </div>
+        </div>
+      </div>
+
       <div style={S.card}>
         <h3 style={S.h3}>Mês a mês — realizado e projetado</h3>
         <div style={S.tabelaWrap}>
@@ -186,31 +211,6 @@ export default function ComparativoAnos() {
           <div style={S.ritmoItem}>
             <span style={S.ritmoPct}>{mp.var_hon_dia_pct >= 0 ? "+" : ""}{mp.var_hon_dia_pct}%</span>
             <span style={S.ritmoRot}>Ritmo faturamento</span>
-          </div>
-        </div>
-      </div>
-
-      <div style={S.periodoCard}>
-        <div style={S.periodoTopo}>
-          <h3 style={S.periodoTitulo}>Agosto a Dezembro — cobrando em 2025 x projetando para 2026</h3>
-          {agoDezCrescimentoPct !== null && (
-            <span style={S.periodoBadge}>
-              {agoDezCrescimentoPct >= 0 ? "+" : ""}
-              {agoDezCrescimentoPct.toFixed(0)}% de crescimento projetado
-            </span>
-          )}
-        </div>
-        <div style={S.periodoGrid}>
-          <div style={S.periodoItem}>
-            <span style={S.periodoRot}>Valor cobrado (Ago–Dez 2025)</span>
-            <span style={S.periodoVal}>{moeda(agoDezRec2025)}</span>
-            <span style={S.periodoSub}>Honorário: {moeda(agoDezHon2025)}</span>
-          </div>
-          <div style={S.periodoSeta}>→</div>
-          <div style={{ ...S.periodoItem, ...S.periodoItemProj }}>
-            <span style={S.periodoRot}>Projetando entregar (Ago–Dez 2026)</span>
-            <span style={{ ...S.periodoVal, color: "#b45309" }}>{moeda(agoDezRecProj2026)}</span>
-            <span style={S.periodoSub}>Honorário projetado: {moeda(agoDezHonProj2026)}</span>
           </div>
         </div>
       </div>
