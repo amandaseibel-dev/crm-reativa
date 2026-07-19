@@ -80,6 +80,8 @@ function podeAcessar(perfil, rota) {
   const permissoes = {
     gerencia: [
       "/",
+      "/portal-operacional",
+      "/tv",
       "/minha-fila",
       "/agenda",
       "/agenda-operacional",
@@ -114,6 +116,8 @@ function podeAcessar(perfil, rota) {
       "/taxa-conversao",],
     supervisor: [
       "/",
+      "/portal-operacional",
+      "/tv",
       "/minha-fila",
       "/agenda",
       "/agenda-operacional",
@@ -141,6 +145,8 @@ function podeAcessar(perfil, rota) {
       "/taxa-conversao",],
     administrativo: [
       "/",
+      "/portal-operacional",
+      "/tv",
       "/minha-fila",
       "/agenda",
       "/agenda-operacional",
@@ -163,6 +169,8 @@ function podeAcessar(perfil, rota) {
       "/projecao-hora-a-hora",],
     operador: [
       "/",
+      "/portal-operacional",
+      "/tv",
       "/minha-fila",
       "/aluno",
       "/crm",
