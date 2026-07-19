@@ -11,7 +11,7 @@ function num(v) {
   return Number(v || 0).toLocaleString("pt-BR");
 }
 
-function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCurto = "pgtos", so3 = true }) {
+function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCurto = "pgtos", so3 = true, formatador = num }) {
   const trio = [{ o: rank[1], pos: 2 }, { o: rank[0], pos: 1 }, { o: rank[2], pos: 3 }];
   const alturas = { 1: "32vh", 2: "23vh", 3: "18vh" };
   const cores = { 1: "linear-gradient(180deg, #fde68a, #f59e0b)", 2: "linear-gradient(180deg, #e2e8f0, #94a3b8)", 3: "linear-gradient(180deg, #fdba74, #c2843f)" };
@@ -36,7 +36,7 @@ function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCur
       </div>
       <div style={S.rankResto}>
         {(so3 ? [] : rank.slice(3)).map((o, i) => (
-          <div key={o.operador} style={S.rankRestoItem}><span>{i + 4}. {o.operador}</span><strong style={{ color: "#7dd3fc" }}>{num(o[campo])} {sufixoCurto}</strong></div>
+          <div key={o.operador} style={S.rankRestoItem}><span>{i + 4}. {o.operador}</span><strong style={{ color: "#7dd3fc" }}>{formatador(o[campo])} {sufixoCurto}</strong></div>
         ))}
       </div>
     </div>
@@ -89,7 +89,7 @@ export default function TvElogios() {
   }
 
   const telas = useMemo(() => {
-    const base = ["semana", "mes", "acionamentos", "resultado", "honorarios", "projecao", "hoje", "porDia", "alunos", "maior"];
+    const base = ["semana", "mes", "acionamentos", "acionamentosDia", "recuperadoDia", "resultado", "honorarios", "projecao", "hoje", "porDia", "alunos", "maior"];
     const dcs = (dicas || []).map((x) => ({ tipo: "dica", dica: x }));
     const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
     return [...base.map((t) => ({ tipo: t })), ...dcs, ...els];
@@ -154,6 +154,8 @@ export default function TvElogios() {
       {atual.tipo === "semana" && <Podio titulo="Melhores da semana" rank={d.ranking_semana || []} />}
       {atual.tipo === "mes" && <Podio titulo="Melhores do mês" rank={d.ranking_mes || []} />}
       {atual.tipo === "acionamentos" && <Podio titulo="Top acionamentos da semana" rank={d.ranking_acionamentos || []} campo="acionamentos" sufixo="acionamentos" sufixoCurto="acion." so3 />}
+      {atual.tipo === "acionamentosDia" && <Podio titulo="Top acionamentos do dia" rank={d.ranking_acionamentos_dia || []} campo="acionamentos" sufixo="acionamentos" sufixoCurto="acion." />}
+      {atual.tipo === "recuperadoDia" && <Podio titulo="Top recuperado do dia" rank={(d.ranking_recuperado_dia || []).map((x) => ({ operador: x.operador, valor: x.valor }))} campo="valor" sufixo="recuperado" sufixoCurto="" formatador={moeda} />}
 
       {atual.tipo === "resultado" && (
         <div style={S.tela}>
