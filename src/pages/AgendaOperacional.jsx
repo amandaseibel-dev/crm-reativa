@@ -584,8 +584,8 @@ const styles = {
     padding: "12px",
     borderRadius: "10px",
     border: "1px solid #bdeed4",
-    background: "#ecfdf5",
-    color: "#0b7d54",
+    background: "#eff6ff",
+    color: "#1e40af",
     fontSize: "14px",
     fontWeight: "bold",
   },
@@ -650,11 +650,11 @@ const styles = {
     cursor: "pointer",
   },
   diaSelecionado: {
-    border: "2px solid #0f9d6b",
+    border: "2px solid #2563eb",
     boxShadow: "0 0 0 2px rgba(15,157,107,0.15)",
   },
   diaHoje: {
-    background: "#ecfdf5",
+    background: "#eff6ff",
   },
   numeroDia: {
     display: "block",
@@ -664,7 +664,7 @@ const styles = {
   },
   badgeAgenda: {
     display: "inline-block",
-    background: "#0f9d6b",
+    background: "#2563eb",
     color: "#fff",
     borderRadius: "999px",
     padding: "4px 8px",
@@ -705,7 +705,7 @@ const styles = {
   },
   hora: {
     display: "inline-block",
-    background: "#0f9d6b",
+    background: "#2563eb",
     color: "#fff",
     borderRadius: "999px",
     padding: "5px 9px",
@@ -749,7 +749,7 @@ const styles = {
     fontWeight: "bold",
   },
   botaoVerde: {
-    background: "#0f9d6b",
+    background: "#2563eb",
     color: "#fff",
     border: "none",
     padding: "10px 13px",
