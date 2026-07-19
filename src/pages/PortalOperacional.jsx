@@ -321,6 +321,30 @@ function SecaoMensagens() {
         titulo="📎 Envio de comprovante"
         texto="Olá! Após realizar o pagamento, por gentileza encaminhe o comprovante para que possamos registrar e seguir com a baixa conforme o procedimento."
       />
+      <BlocoCopiar
+        titulo="⏳ Aguardando comprovante"
+        texto="Olá! Ainda estamos aguardando o envio do comprovante de pagamento para dar sequência à baixa. Assim que possível, encaminhe pra gente concluir o procedimento."
+      />
+      <BlocoCopiar
+        titulo="📄 Aguardando termo"
+        texto="Olá! Precisamos que o termo de acordo seja assinado e devolvido para darmos continuidade. Qualquer dúvida na assinatura, estamos à disposição pra ajudar."
+      />
+      <BlocoCopiar
+        titulo="🔗 Link de pagamento enviado"
+        texto="Olá! Encaminhamos o link de pagamento referente ao seu acordo. Qualquer dificuldade para acessar ou concluir o pagamento, é só nos avisar."
+      />
+      <BlocoCopiar
+        titulo="✅ Acordo fechado"
+        texto="Olá! Seu acordo foi registrado com sucesso. Fique atento às datas de vencimento das parcelas para manter tudo em dia."
+      />
+      <BlocoCopiar
+        titulo="🔁 Retomando contato"
+        texto="Olá! Estamos retomando o contato sobre a sua pendência. Vamos juntos encontrar a melhor forma de regularizar a situação."
+      />
+      <BlocoCopiar
+        titulo="⚠️ Boleto vencendo em breve"
+        texto="Olá! Passando pra lembrar que o seu boleto vence em breve. Fique atento pra evitar juros e manter o acordo em dia."
+      />
     </>
   );
 }
