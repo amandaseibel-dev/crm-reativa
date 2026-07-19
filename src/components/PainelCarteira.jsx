@@ -499,6 +499,7 @@ export default function PainelCarteira({ embedded = false }) {
     carregarNovosCasosAutomaticos();
     carregarFixados();
     carregarBoletosVencendo();
+    carregarMinhaMediaVsEquipe();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email, veTudo, operadorFiltro]);
 
@@ -519,6 +520,8 @@ export default function PainelCarteira({ embedded = false }) {
 
   const [novosCasosAutomaticos, setNovosCasosAutomaticos] = useState([]);
   const [avisoNovosCasosFechado, setAvisoNovosCasosFechado] = useState(false);
+  const [minhaMediaVsEquipe, setMinhaMediaVsEquipe] = useState(null);
+  const [avisoMediaFechado, setAvisoMediaFechado] = useState(false);
 
   // Avisa o operador quando ele recebeu caso(s) novo(s) pela reposicao
   // automatica (quando outro caso dele foi quitado/fechado e o sistema
@@ -897,6 +900,13 @@ export default function PainelCarteira({ embedded = false }) {
   async function carregarBoletosVencendo() {
     const { data } = await supabase.rpc("parcelas_vencendo_2_dias");
     setAlunosComBoletoVencendo(new Set((data || []).map((p) => p.aluno_id)));
+  }
+
+  // Compara a media da minha carteira com a media geral da equipe -- pra
+  // eu saber se fiquei pra tras depois de fechar/quitar algum caso.
+  async function carregarMinhaMediaVsEquipe() {
+    const { data } = await supabase.rpc("minha_media_vs_equipe");
+    setMinhaMediaVsEquipe(data || null);
   }
 
   // Fixar/desafixar caso -- pra voltar rapido sem procurar de novo.
@@ -1582,6 +1592,38 @@ export default function PainelCarteira({ embedded = false }) {
             type="button"
             onClick={() => setAvisoNovosCasosFechado(true)}
             style={{ border: "none", background: "transparent", color: "#0f7a4f", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
+          >
+            Fechar
+          </button>
+        </div>
+      )}
+
+      {!veTudo && !avisoMediaFechado && minhaMediaVsEquipe?.abaixo_da_media && (
+        <div
+          style={{
+            background: "#fff7e6",
+            border: "1px solid #f5c542",
+            borderRadius: 14,
+            padding: "13px 16px",
+            marginBottom: 16,
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "flex-start",
+            gap: 12,
+          }}
+        >
+          <div>
+            <strong style={{ color: "#7c4a1e" }}>⚖️ Sua carteira está abaixo da média da equipe</strong>
+            <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "#7c4a1e" }}>
+              Seu valor médio por caso: {formatarMoeda(minhaMediaVsEquipe.minha_media)} · Média da equipe:{" "}
+              {formatarMoeda(minhaMediaVsEquipe.media_geral)}. O nivelamento automático deve te aproximar da
+              média nos próximos dias.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAvisoMediaFechado(true)}
+            style={{ border: "none", background: "transparent", color: "#7c4a1e", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
           >
             Fechar
           </button>
