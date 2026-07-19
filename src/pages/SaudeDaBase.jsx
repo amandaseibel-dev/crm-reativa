@@ -38,6 +38,8 @@ export default function SaudeDaBase() {
   const [carregandoModal, setCarregandoModal] = useState(false);
   const [enviandoMassa, setEnviandoMassa] = useState(false);
   const [msg, setMsg] = useState("");
+  const [fidelizacaoVencida, setFidelizacaoVencida] = useState([]);
+  const [liberandoFidelizacao, setLiberandoFidelizacao] = useState(false);
 
   useEffect(() => {
     carregar();
@@ -49,7 +51,18 @@ export default function SaudeDaBase() {
     if (!error) setDados(data);
     const { data: t } = await supabase.rpc("saude_base_tendencia");
     setTendencia((t || []).slice().reverse());
+    const { data: f } = await supabase.rpc("casos_elegiveis_liberacao_fidelizacao");
+    setFidelizacaoVencida(f || []);
     setCarregando(false);
+  }
+
+  async function liberarFidelizacaoVencida() {
+    setLiberandoFidelizacao(true);
+    const { data, error } = await supabase.rpc("liberar_casos_fidelizacao_vencida");
+    setLiberandoFidelizacao(false);
+    setMsg(error ? "Erro: " + error.message : `${data} caso(s) liberado(s) pro receptivo por prazo de fidelização vencido.`);
+    setTimeout(() => setMsg(""), 6000);
+    carregar();
   }
 
   async function abrirCategoria(categoria, rotulo) {
@@ -239,6 +252,44 @@ export default function SaudeDaBase() {
           </p>
         )}
       </div>
+
+      {fidelizacaoVencida.length > 0 && (
+        <div style={{ ...estilos.card, borderColor: "#fde3cc", background: "#fffaf5" }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
+            <h3 style={{ ...estilos.tituloBloco, margin: 0 }}>
+              📅 Fidelização vencida — {fidelizacaoVencida.length} caso(s) sem primeiro acionamento no prazo
+            </h3>
+            <button style={estilos.botaoAcao} onClick={liberarFidelizacaoVencida} disabled={liberandoFidelizacao}>
+              {liberandoFidelizacao ? "Liberando..." : "🔓 Liberar todos pro receptivo"}
+            </button>
+          </div>
+          <p style={estilos.subtituloBloco}>
+            Casos que já estavam com o operador antes de 13/07 tinham até 23/07 pra ser acionados; quem foi assumido
+            depois de 13/07 tem 10 dias corridos desde a atribuição. Passou do prazo sem nenhum acionamento — pode liberar.
+          </p>
+          <table style={estilos.tabela}>
+            <thead>
+              <tr>
+                <th style={estilos.th}>Nome</th>
+                <th style={estilos.th}>Operador</th>
+                <th style={estilos.th}>Prazo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {fidelizacaoVencida.slice(0, 15).map((f) => (
+                <tr key={f.aluno_id}>
+                  <td style={estilos.td}>{f.nome || "-"}</td>
+                  <td style={estilos.td}>{f.responsavel_atual_nome || "-"}</td>
+                  <td style={estilos.tdNum}>{new Date(f.prazo_limite).toLocaleDateString("pt-BR")}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          {fidelizacaoVencida.length > 15 && (
+            <p style={{ fontSize: 12, color: "#8a93a3", marginTop: 8 }}>Mostrando os 15 primeiros de {fidelizacaoVencida.length}.</p>
+          )}
+        </div>
+      )}
 
       <div style={estilos.card}>
         <h3 style={estilos.tituloBloco}>Equilíbrio entre operadores</h3>
