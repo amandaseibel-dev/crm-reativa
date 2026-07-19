@@ -2,7 +2,7 @@ export const OPERADORES_POR_EMAIL = {
   "cobranca03@aelbra.com.br": "OLGA",
   "cobranca04@aelbra.com.br": "FERNANDA",
   "cobranca05@aelbra.com.br": "LUANA",
-  "cobranca06@aelbra.com.br": "MAURICIO",
+  "cobranca06@aelbra.com.br": "MAURÍCIO",
   "cobranca07@aelbra.com.br": "AMANDA ADM",
   "cobranca08@aelbra.com.br": "NATALI",
   "cobranca10@aelbra.com.br": "JOÃO",
