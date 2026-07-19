@@ -334,6 +334,14 @@ function SecaoObjecoes() {
     { pergunta: "\u201cDepois eu vejo isso\u201d", resposta: "Compreendo, mas quanto antes resolvermos, mais controle você terá sobre valores, prazos e regularização." },
     { pergunta: "\u201cAchei o valor alto\u201d", resposta: "Vamos revisar a composição do débito e verificar a condição disponível conforme a política vigente." },
     { pergunta: "\u201cQuero pensar\u201d", resposta: "Claro. Apenas reforço que a condição pode depender da política e do prazo vigente." },
+    { pergunta: "\u201cJá paguei, deve ser engano\u201d", resposta: "Sem problema, vou verificar o histórico no sistema. Pode me enviar o comprovante pra eu confirmar e regularizar rapidinho?" },
+    { pergunta: "\u201cNão fui eu quem fez o acordo\u201d", resposta: "Entendo a dúvida. Vou confirmar os dados cadastrais com você antes de seguir, pra garantir que estamos falando com a pessoa certa." },
+    { pergunta: "\u201cVou falar com meu advogado\u201d", resposta: "Sem problema, é um direito seu. Fico à disposição pra esclarecer qualquer ponto da negociação sempre que precisar." },
+    { pergunta: "\u201cA universidade não me atendeu direito\u201d", resposta: "Sinto muito por isso. Posso registrar essa observação e, enquanto isso, seguir te ajudando a resolver a pendência financeira." },
+    { pergunta: "\u201cNão reconheço essa dívida\u201d", resposta: "Entendo. Vou te passar os detalhes do débito (curso, período, valor) pra você conferir com calma antes de decidirmos o próximo passo." },
+    { pergunta: "\u201cQuero desconto maior do que o oferecido\u201d", resposta: "Consigo trabalhar dentro da política vigente. Se for um caso específico, posso encaminhar como proposta de exceção pra análise." },
+    { pergunta: "\u201cEstou desempregado(a)\u201d", resposta: "Sinto muito pela situação. Vamos ver juntos uma condição de prazo ou parcelamento que caiba no seu momento agora." },
+    { pergunta: "\u201cJá fiz acordo antes e não deu certo\u201d", resposta: "Entendo a desconfiança. Dessa vez posso te acompanhar de perto pra garantir que tudo seja registrado e cumprido corretamente." },
   ];
   return (
     <>
