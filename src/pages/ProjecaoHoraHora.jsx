@@ -1346,25 +1346,26 @@ const PH_BORDA = "#e3e7ee";
 const PH_BORDA_SUAVE = "#edf0f5";
 const PH_SOMBRA = "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)";
 const PH_FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const PH_VERDE = "#1e40af";
+const PH_VERDE = "#0f9d6b";
 
 const estilos = {
   hero: {
-    background: "linear-gradient(135deg, #0b1c3d 0%, #14295c 55%, #1e3a8a 100%)",
+    background: "#fff",
+    border: `1px solid ${PH_BORDA_SUAVE}`,
     borderRadius: 22,
     padding: "28px 32px",
     marginBottom: 16,
-    color: "#fff",
-    boxShadow: "0 24px 60px rgba(15,30,70,0.28)",
+    color: "#0d1321",
+    boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
   },
   heroTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  heroEyebrow: { fontSize: 11.5, fontWeight: 800, letterSpacing: "0.12em", color: "#93c5fd" },
+  heroEyebrow: { fontSize: 11.5, fontWeight: 800, letterSpacing: "0.12em", color: PH_VERDE },
   heroBadge: {
     fontSize: 11.5,
     fontWeight: 700,
-    color: "#dbeafe",
-    background: "rgba(255,255,255,0.1)",
-    border: "1px solid rgba(255,255,255,0.16)",
+    color: PH_VERDE,
+    background: "#ecfdf5",
+    border: "1px solid #bdeed4",
     borderRadius: 999,
     padding: "4px 12px",
   },
@@ -1374,19 +1375,20 @@ const estilos = {
     fontSize: "clamp(34px, 4vw, 48px)",
     fontWeight: 800,
     letterSpacing: "-0.02em",
+    color: "#0d1321",
   },
   heroMeta: {
     display: "flex",
     flexDirection: "column",
     gap: 2,
     paddingLeft: 18,
-    borderLeft: "1px solid rgba(255,255,255,0.2)",
+    borderLeft: `1px solid ${PH_BORDA}`,
   },
-  heroMetaLabel: { fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", color: "#93c5fd" },
-  heroMetaValor: { fontFamily: PH_FONTE_TITULO, fontSize: 22, fontWeight: 800, color: "#fff" },
-  heroBarraFundo: { height: 8, borderRadius: 999, background: "rgba(255,255,255,0.14)", overflow: "hidden", marginBottom: 14 },
-  heroBarraPreenchida: { height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #60a5fa, #93c5fd)", transition: "width 0.4s ease" },
-  heroRodape: { display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, fontSize: 13, color: "#cbd5e1" },
+  heroMetaLabel: { fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", color: PH_VERDE },
+  heroMetaValor: { fontFamily: PH_FONTE_TITULO, fontSize: 22, fontWeight: 800, color: "#0d1321" },
+  heroBarraFundo: { height: 8, borderRadius: 999, background: "#eef1f5", overflow: "hidden", marginBottom: 14 },
+  heroBarraPreenchida: { height: "100%", borderRadius: 999, background: `linear-gradient(90deg, ${PH_VERDE}, #34d399)`, transition: "width 0.4s ease" },
+  heroRodape: { display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, fontSize: 13, color: "#64748b" },
   faixaStats: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
