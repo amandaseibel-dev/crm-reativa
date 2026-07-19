@@ -469,6 +469,8 @@ export default function PainelCarteira({ embedded = false }) {
   const [somenteFixados, setSomenteFixados] = useState(false);
   const [somenteFocoDia, setSomenteFocoDia] = useState(false);
   const [visao, setVisao] = useState("lista");
+  const [arrastandoId, setArrastandoId] = useState(null);
+  const [colunaSobre, setColunaSobre] = useState(null);
   const [alunosComBoletoVencendo, setAlunosComBoletoVencendo] = useState(new Set());
 
   useEffect(() => {
@@ -1020,6 +1022,13 @@ export default function PainelCarteira({ embedded = false }) {
     });
 
     carregar();
+  }
+
+  // Move um caso de coluna arrastando -- reaproveita a mesma tabulacao
+  // rapida (atualiza status + registra movimentacao).
+  async function moverParaColuna(aluno, coluna) {
+    if (!coluna || coluna.chave === "SEM_ACIONAMENTO" || coluna.chave === "OUTROS") return;
+    await tabularRapido(aluno, coluna.chave, `Movido pra "${coluna.titulo}"`);
   }
 
   // Troca rapida do operador responsavel direto no modal, sem sair da
@@ -1828,7 +1837,29 @@ export default function PainelCarteira({ embedded = false }) {
             {visao === "kanban" ? (
               <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 10 }}>
                 {kanbanColunas.map((col) => (
-                  <div key={col.chave} style={{ background: "#eef1f6", borderRadius: 14, padding: 12, minWidth: 250, flexShrink: 0, maxHeight: 640, display: "flex", flexDirection: "column" }}>
+                  <div
+                    key={col.chave}
+                    onDragOver={(e) => {
+                      if (col.chave === "SEM_ACIONAMENTO" || col.chave === "OUTROS") return;
+                      e.preventDefault();
+                      setColunaSobre(col.chave);
+                    }}
+                    onDragLeave={() => setColunaSobre((c) => (c === col.chave ? null : c))}
+                    onDrop={async (e) => {
+                      e.preventDefault();
+                      setColunaSobre(null);
+                      if (!arrastandoId) return;
+                      const aluno = listaFiltrada.find((x) => x.id === arrastandoId);
+                      setArrastandoId(null);
+                      if (aluno) await moverParaColuna(aluno, col);
+                    }}
+                    style={{
+                      background: colunaSobre === col.chave ? "#dbeafe" : "#eef1f6",
+                      borderRadius: 14, padding: 12, minWidth: 250, flexShrink: 0, maxHeight: 640, display: "flex", flexDirection: "column",
+                      transition: "background 0.12s ease",
+                      border: colunaSobre === col.chave ? "2px dashed #2563eb" : "2px dashed transparent",
+                    }}
+                  >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, padding: "0 4px" }}>
                       <span style={{ fontWeight: 800, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.03em", color: "#334155" }}>{col.titulo}</span>
                       <span style={{ background: "#fff", borderRadius: 999, padding: "2px 9px", fontSize: 11, fontWeight: 800, color: "#2563eb" }}>{col.itens.length}</span>
@@ -1839,8 +1870,15 @@ export default function PainelCarteira({ embedded = false }) {
                         return (
                           <div
                             key={a.id}
+                            draggable
+                            onDragStart={() => setArrastandoId(a.id)}
+                            onDragEnd={() => { setArrastandoId(null); setColunaSobre(null); }}
                             onClick={() => abrirModal(a)}
-                            style={{ background: "#fff", borderRadius: 12, padding: "12px 13px", border: "1px solid #e6eaf0", borderLeft: `3px solid ${sp.cor}`, boxShadow: "0 1px 2px rgba(16,24,40,0.05)", cursor: "pointer" }}
+                            style={{
+                              background: "#fff", borderRadius: 12, padding: "12px 13px", border: "1px solid #e6eaf0",
+                              borderLeft: `3px solid ${sp.cor}`, boxShadow: "0 1px 2px rgba(16,24,40,0.05)", cursor: "grab",
+                              opacity: arrastandoId === a.id ? 0.4 : 1,
+                            }}
                           >
                             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{nomeAluno(a)}</div>
                             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, color: "#64748b" }}>
