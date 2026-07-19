@@ -467,6 +467,8 @@ export default function PainelCarteira({ embedded = false }) {
   const [retornosPendentes, setRetornosPendentes] = useState([]);
   const [fixados, setFixados] = useState(new Set());
   const [somenteFixados, setSomenteFixados] = useState(false);
+  const [somenteFocoDia, setSomenteFocoDia] = useState(false);
+  const [alunosComBoletoVencendo, setAlunosComBoletoVencendo] = useState(new Set());
 
   useEffect(() => {
     (async () => {
@@ -491,6 +493,7 @@ export default function PainelCarteira({ embedded = false }) {
     carregarRetornosPendentes();
     carregarNovosCasosAutomaticos();
     carregarFixados();
+    carregarBoletosVencendo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email, veTudo, operadorFiltro]);
 
@@ -868,6 +871,12 @@ export default function PainelCarteira({ embedded = false }) {
     } finally {
       setCarregandoModal(false);
     }
+  }
+
+  // Foco do Dia usa isso pra saber quem tem boleto vencendo em 2 dias.
+  async function carregarBoletosVencendo() {
+    const { data } = await supabase.rpc("parcelas_vencendo_2_dias");
+    setAlunosComBoletoVencendo(new Set((data || []).map((p) => p.aluno_id)));
   }
 
   // Fixar/desafixar caso -- pra voltar rapido sem procurar de novo.
@@ -1389,6 +1398,18 @@ export default function PainelCarteira({ embedded = false }) {
     if (somenteFixados) {
       l = l.filter((a) => fixados.has(a.id));
     }
+    if (somenteFocoDia) {
+      const hoje = hojeLocalBR();
+      l = l.filter((a) => {
+        const label = statusPrazo(a).label;
+        const critico = label === "Critico" || label === "Perdendo o caso";
+        const retornoHoje = a.data_retorno === hoje;
+        const retornoAtrasado = a.data_retorno && a.data_retorno < hoje;
+        const fixado = fixados.has(a.id);
+        const boletoVencendo = alunosComBoletoVencendo.has(a.id);
+        return critico || retornoHoje || retornoAtrasado || fixado || boletoVencendo;
+      });
+    }
     const valorMinNum = filtroValorMin.trim() ? Number(filtroValorMin.replace(/\./g, "").replace(",", ".")) : null;
     const valorMaxNum = filtroValorMax.trim() ? Number(filtroValorMax.replace(/\./g, "").replace(",", ".")) : null;
     if (valorMinNum !== null && !Number.isNaN(valorMinNum)) {
@@ -1435,7 +1456,7 @@ export default function PainelCarteira({ embedded = false }) {
     else if (ordenacao === "valor_desc") arr.sort((a, b) => saldoDe(b) - saldoDe(a));
     else if (ordenacao === "valor_asc") arr.sort((a, b) => saldoDe(a) - saldoDe(b));
     return arr;
-  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados]);
+  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo]);
 
   // Cards operacionais (abrem a tabela) + financeiros (abrem detalhamento).
   // Todos permanecem visiveis mesmo zerados.
@@ -1539,6 +1560,24 @@ export default function PainelCarteira({ embedded = false }) {
       </div>
 
       <div style={S.abas} role="tablist">
+        <button
+          type="button"
+          onClick={() => setSomenteFocoDia((atual) => !atual)}
+          style={{
+            border: "none",
+            borderRadius: 10,
+            padding: "9px 16px",
+            fontSize: 13,
+            fontWeight: 800,
+            cursor: "pointer",
+            marginRight: 10,
+            background: somenteFocoDia ? "#dc2626" : "#fef2f2",
+            color: somenteFocoDia ? "#fff" : "#dc2626",
+            boxShadow: somenteFocoDia ? "0 4px 14px rgba(220,38,38,0.35)" : "none",
+          }}
+        >
+          🎯 Foco do Dia
+        </button>
         <button
           type="button"
           role="tab"
