@@ -47,10 +47,10 @@ export default function ExecutivoRecuperacao() {
       <ComparativoAnos />
 
       <div style={S.heroRow}>
-        <Hero rot="Total recuperado" val={moeda(d.recuperado_total)} cor="#16a34a" />
-        <Hero rot="Honorários" val={moeda(d.honorarios_total)} cor="#0ea5e9" />
-        <Hero rot="Alunos pagos" val={num(d.alunos_pagos)} cor="#7c3aed" />
-        <Hero rot="% da carteira recuperada" val={(d.pct_recuperado_valor || 0) + "%"} cor="#f59e0b" />
+        <Hero rot="Total recuperado" val={moeda(d.recuperado_total)} cor="#0f172a" />
+        <Hero rot="Honorários" val={moeda(d.honorarios_total)} cor="#1e40af" />
+        <Hero rot="Alunos pagos" val={num(d.alunos_pagos)} cor="#0f172a" />
+        <Hero rot="% da carteira recuperada" val={(d.pct_recuperado_valor || 0) + "%"} cor="#16a34a" />
       </div>
 
       <div style={S.statsRow}>
