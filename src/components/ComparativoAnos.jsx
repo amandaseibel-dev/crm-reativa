@@ -41,6 +41,12 @@ export default function ComparativoAnos() {
   if (!d) return null;
 
   const meses = d.por_mes || [];
+  const agoDez = meses.filter((m) => m.mes >= 8 && m.mes <= 12);
+  const agoDezRec2025 = agoDez.reduce((s, m) => s + (Number(m.rec_2025) || 0), 0);
+  const agoDezHon2025 = agoDez.reduce((s, m) => s + (Number(m.hon_2025) || 0), 0);
+  const agoDezRecProj2026 = agoDez.reduce((s, m) => s + (Number(m.rec_proj) || 0), 0);
+  const agoDezHonProj2026 = agoDez.reduce((s, m) => s + (Number(m.hon_proj) || 0), 0);
+  const agoDezCrescimentoPct = pct(agoDezRec2025, agoDezRecProj2026);
   const proj = d.projecao_2026 || {};
   const fat = d.faturamento || {};
   const mp = d.mesmo_periodo || {};
@@ -74,6 +80,31 @@ export default function ComparativoAnos() {
             ) : null}
           </div>
         </>
+      </div>
+
+      <div style={S.periodoCard}>
+        <div style={S.periodoTopo}>
+          <h3 style={S.periodoTitulo}>Agosto a Dezembro — cobrando em 2025 x projetando para 2026</h3>
+          {agoDezCrescimentoPct !== null && (
+            <span style={S.periodoBadge}>
+              {agoDezCrescimentoPct >= 0 ? "+" : ""}
+              {agoDezCrescimentoPct.toFixed(0)}% de crescimento projetado
+            </span>
+          )}
+        </div>
+        <div style={S.periodoGrid}>
+          <div style={S.periodoItem}>
+            <span style={S.periodoRot}>Valor cobrado (Ago–Dez 2025)</span>
+            <span style={S.periodoVal}>{moeda(agoDezRec2025)}</span>
+            <span style={S.periodoSub}>Honorário: {moeda(agoDezHon2025)}</span>
+          </div>
+          <div style={S.periodoSeta}>→</div>
+          <div style={{ ...S.periodoItem, ...S.periodoItemProj }}>
+            <span style={S.periodoRot}>Projetando entregar (Ago–Dez 2026)</span>
+            <span style={{ ...S.periodoVal, color: "#b45309" }}>{moeda(agoDezRecProj2026)}</span>
+            <span style={S.periodoSub}>Honorário projetado: {moeda(agoDezHonProj2026)}</span>
+          </div>
+        </div>
       </div>
 
       <div style={S.card}>
@@ -188,6 +219,27 @@ export default function ComparativoAnos() {
 }
 
 const S = {
+  periodoCard: {
+    background: "linear-gradient(135deg, #0b1c3d 0%, #1e3a8a 100%)",
+    borderRadius: 16,
+    padding: "18px 20px",
+    marginBottom: 16,
+    boxShadow: "0 18px 40px rgba(15,30,70,0.22)",
+  },
+  periodoTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 14 },
+  periodoTitulo: { margin: 0, fontSize: 14.5, fontWeight: 700, color: "#fff" },
+  periodoBadge: {
+    fontSize: 11.5, fontWeight: 800, color: "#fde68a", background: "rgba(255,255,255,0.1)",
+    border: "1px solid rgba(255,255,255,0.16)", borderRadius: 999, padding: "4px 12px",
+  },
+  periodoGrid: { display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" },
+  periodoItem: { flex: 1, minWidth: 200, display: "flex", flexDirection: "column", gap: 3 },
+  periodoItemProj: {},
+  periodoSeta: { fontSize: 22, color: "rgba(255,255,255,0.4)", fontWeight: 700 },
+  periodoRot: { fontSize: 12, color: "#93c5fd", fontWeight: 600 },
+  periodoVal: { fontSize: 24, fontWeight: 800, color: "#fff", fontFamily: "'Sora', Inter, sans-serif" },
+  periodoSub: { fontSize: 12, color: "#cbd5e1" },
+
   wrap: { marginBottom: 26 },
   tituloSecao: { margin: "0 0 12px 0", color: "#334155", fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" },
 
