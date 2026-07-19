@@ -52,8 +52,6 @@ export default function ExecutivoRecuperacao() {
       </div>
 
       <div style={S.statsRow}>
-        <Stat rot="Carteira a cobrar (alunos)" val={num(d.carteira_alunos)} />
-        <Stat rot="Valor a cobrar" val={moeda(d.carteira_valor)} />
         <Stat rot="Pagamentos processados" val={num(d.pagamentos)} />
       </div>
 
