@@ -470,6 +470,8 @@ export default function PainelCarteira({ embedded = false }) {
   const [somenteFocoDia, setSomenteFocoDia] = useState(false);
   const [visao, setVisao] = useState("lista");
   const [arrastandoId, setArrastandoId] = useState(null);
+  const [filtroAnoVencimento, setFiltroAnoVencimento] = useState("");
+  const [alunosDoAnoVencimento, setAlunosDoAnoVencimento] = useState(null);
   const [colunaSobre, setColunaSobre] = useState(null);
   const [alunosComBoletoVencendo, setAlunosComBoletoVencendo] = useState(new Set());
 
@@ -499,6 +501,21 @@ export default function PainelCarteira({ embedded = false }) {
     carregarBoletosVencendo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email, veTudo, operadorFiltro]);
+
+  // Busca os alunos com titulo em aberto vencendo no ano selecionado --
+  // separado do resto pra nao recarregar a carteira toda a cada troca.
+  useEffect(() => {
+    if (!filtroAnoVencimento) {
+      setAlunosDoAnoVencimento(null);
+      return;
+    }
+    let ativo = true;
+    (async () => {
+      const { data } = await supabase.rpc("alunos_por_ano_vencimento", { p_ano: filtroAnoVencimento });
+      if (ativo) setAlunosDoAnoVencimento(new Set((data || []).map((d) => d.aluno_id)));
+    })();
+    return () => { ativo = false; };
+  }, [filtroAnoVencimento]);
 
   const [novosCasosAutomaticos, setNovosCasosAutomaticos] = useState([]);
   const [avisoNovosCasosFechado, setAvisoNovosCasosFechado] = useState(false);
@@ -1437,6 +1454,9 @@ export default function PainelCarteira({ embedded = false }) {
         });
       }
     }
+    if (alunosDoAnoVencimento) {
+      l = l.filter((a) => alunosDoAnoVencimento.has(a.id));
+    }
     if (busca.trim()) {
       const t = semAcento(busca);
       l = l.filter((a) =>
@@ -1466,7 +1486,7 @@ export default function PainelCarteira({ embedded = false }) {
     else if (ordenacao === "valor_desc") arr.sort((a, b) => saldoDe(b) - saldoDe(a));
     else if (ordenacao === "valor_asc") arr.sort((a, b) => saldoDe(a) - saldoDe(b));
     return arr;
-  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo]);
+  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento]);
 
   // Agrupamento pro Kanban: uma coluna fixa "Sem acionamento" (nunca
   // acionados) + as tabulacoes normais mais usadas no dia a dia, com o
@@ -1807,6 +1827,17 @@ export default function PainelCarteira({ embedded = false }) {
                 value={filtroDiasMinSemContato}
                 onChange={(e) => setFiltroDiasMinSemContato(e.target.value)}
               />
+              <select
+                style={S.select}
+                value={filtroAnoVencimento}
+                onChange={(e) => setFiltroAnoVencimento(e.target.value)}
+              >
+                <option value="">Todos os anos de vencimento</option>
+                <option value="2023">Vencimento 2023</option>
+                <option value="2024">Vencimento 2024</option>
+                <option value="2025">Vencimento 2025</option>
+                <option value="2026">Vencimento 2026</option>
+              </select>
               <button
                 type="button"
                 onClick={() => setSomenteFixados((atual) => !atual)}
