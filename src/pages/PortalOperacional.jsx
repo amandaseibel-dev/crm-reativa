@@ -400,6 +400,11 @@ function SecaoHonorarios() {
           <div style={S.labelNumero}>Multa</div>
           <p style={S.paragrafo}>Conforme regra vigente.</p>
         </Card>
+        <Card style={{ textAlign: "center" }}>
+          <div style={S.numeroGrande}>IGPM</div>
+          <div style={S.labelNumero}>Correção monetária</div>
+          <p style={S.paragrafo}>Aplicado conforme regra vigente do contrato.</p>
+        </Card>
       </div>
     </>
   );
