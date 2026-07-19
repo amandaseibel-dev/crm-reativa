@@ -247,7 +247,7 @@ function FolhaTab({ ano, mesSel, setMesSel, funcionarios, folhaDet, onSalvo }) {
     const init = {};
     funcMes.forEach((f) => {
       const d = folhaDet.find((x) => x.funcionario_id === f.id && x.mes === mesStr);
-      init[f.id] = { remuneracao: d ? d.remuneracao : f.salario_base, premiacao: d ? d.premiacao : 0 };
+      init[f.id] = { remuneracao: d ? d.remuneracao : f.salario_base, premiacao: d ? d.premiacao : 0, faixa_meta: d?.faixa_meta || "" };
     });
     setLinhas(init);
     // eslint-disable-next-line
@@ -258,21 +258,36 @@ function FolhaTab({ ano, mesSel, setMesSel, funcionarios, folhaDet, onSalvo }) {
     const { error } = await supabase.from("dre_folha").upsert({
       funcionario_id: f.id, competencia: comp(ano, mesSel),
       remuneracao: paraNumero(l.remuneracao), premiacao: paraNumero(l.premiacao),
+      faixa_meta: l.faixa_meta || null,
     }, { onConflict: "funcionario_id,competencia" });
     onSalvo(error ? "Erro: " + error.message : `Folha de ${f.nome} salva.`);
   }
   return (
     <div style={s.card}>
       <MesPicker ano={ano} mesSel={mesSel} setMesSel={setMesSel} />
-      <p style={s.muted}>A remuneração já vem do salário base — ajuste se precisar e lance a premiação.</p>
+      <p style={s.muted}>A remuneração já vem do salário base — ajuste se precisar, lance a premiação e a faixa de meta batida.</p>
       <table style={s.tbl}>
-        <thead><tr><th style={s.th}>Funcionário</th><th style={s.thR}>Remuneração</th><th style={s.thR}>Premiação</th><th style={s.th}></th></tr></thead>
+        <thead><tr><th style={s.th}>Funcionário</th><th style={s.thR}>Remuneração</th><th style={s.thR}>Premiação</th><th style={s.th}>Meta batida</th><th style={s.th}></th></tr></thead>
         <tbody>
           {funcMes.map((f) => (
             <tr key={f.id} style={f.ativo ? null : { opacity: 0.6 }}>
               <td style={s.td}>{f.nome}</td>
               <td style={s.tdR}><input style={{ ...s.input, width: 110 }} value={linhas[f.id]?.remuneracao ?? ""} onChange={(e) => setLinhas((v) => ({ ...v, [f.id]: { ...v[f.id], remuneracao: e.target.value } }))} /></td>
               <td style={s.tdR}><input style={{ ...s.input, width: 110 }} value={linhas[f.id]?.premiacao ?? ""} onChange={(e) => setLinhas((v) => ({ ...v, [f.id]: { ...v[f.id], premiacao: e.target.value } }))} /></td>
+              <td style={s.td}>
+                <select
+                  style={{ ...s.input, width: 90 }}
+                  value={linhas[f.id]?.faixa_meta ?? ""}
+                  onChange={(e) => setLinhas((v) => ({ ...v, [f.id]: { ...v[f.id], faixa_meta: e.target.value } }))}
+                >
+                  <option value="">-</option>
+                  <option value="M1">M1</option>
+                  <option value="M2">M2</option>
+                  <option value="M3">M3</option>
+                  <option value="M4">M4</option>
+                  <option value="NENHUMA">Nenhuma</option>
+                </select>
+              </td>
               <td style={s.td}><button style={s.botVerde} onClick={() => salvar(f)}>Salvar</button></td>
             </tr>
           ))}
