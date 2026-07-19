@@ -731,62 +731,51 @@ export default function ProjecaoHoraHora() {
               {(!usuario?.podeGerir || (vePainelGestao && subAbaDashboard === "POR_OPERADOR" && operadorSelecionado)) && (
                 <>
                   {vePainelGestao && (
-                    <h3 style={{ margin: "0 0 10px" }}>
+                    <h3 style={{ margin: "0 0 14px" }}>
                       Números de {OPERADORES_POR_EMAIL[operadorSelecionado] || operadorSelecionado}
                     </h3>
                   )}
-                  <h3 style={{ margin: "20px 0 10px" }}>👤 {vePainelGestao ? "Números do mês" : "Meus números"}</h3>
-                  <div style={estilos.grade}>
-                    <Cartao label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
-                    <Cartao label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
-                    <Cartao label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
-                    <Cartao label="Honorários do mês" valor={moeda(dashboard?.honorario_mes)} destaque />
+
+                  <div style={estilos.hero}>
+                    <div style={estilos.heroTopo}>
+                      <span style={estilos.heroEyebrow}>HONORÁRIO NO MÊS · META {moeda(dashboard?.meta_honorario_individual)}</span>
+                      <span style={estilos.heroBadge}>Faixa atual: {dashboard?.faixa_atual || "-"}</span>
+                    </div>
+
+                    <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes)}</div>
+
+                    <div style={estilos.heroBarraFundo}>
+                      <div
+                        style={{
+                          ...estilos.heroBarraPreenchida,
+                          width: `${Math.min(dashboard?.percentual_meta_individual_realizado ?? 0, 100)}%`,
+                        }}
+                      />
+                    </div>
+
+                    <div style={estilos.heroRodape}>
+                      <span>
+                        <strong>{dashboard?.percentual_meta_individual_realizado ?? 0}%</strong> da meta atingido
+                      </span>
+                      <span>
+                        No ritmo atual, fecha em <strong>{moeda(dashboard?.projecao_honorario_individual)}</strong>{" "}
+                        ({dashboard?.percentual_projecao_individual ?? 0}% da meta)
+                      </span>
+                    </div>
                   </div>
 
-                  <h3 style={{ margin: "20px 0 10px" }}>🎯 Meta do mês (individual)</h3>
-                  <div style={estilos.grade}>
-                    <Cartao label="Meta de honorário (mês, fixa)" valor={moeda(dashboard?.meta_honorario_individual)} />
-                    <Cartao label="Honorário já realizado no mês" valor={moeda(dashboard?.honorario_mes)} destaque />
-                    <Cartao
-                      label="% da meta já atingido"
-                      valor={`${dashboard?.percentual_meta_individual_realizado ?? 0}%`}
-                      cor={(dashboard?.percentual_meta_individual_realizado ?? 0) >= 100 ? "#93c5fd" : "#7dd3fc"}
-                    />
+                  <div style={estilos.faixaStats}>
+                    <FaixaItem label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
+                    <FaixaItem label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
+                    <FaixaItem label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
+                    <FaixaItem label="Comissão estimada" valor={moeda(dashboard?.comissao_estimada_individual)} />
+                    <FaixaItem label="Ritmo (dias úteis)" valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`} />
                   </div>
 
-                  <h3 style={{ margin: "20px 0 10px" }}>🔮 Projeção de fechamento (estimativa, não é a meta)</h3>
-                  <div style={estilos.grade}>
-                    <Cartao
-                      label="Se continuar nesse ritmo, deve fechar em"
-                      valor={moeda(dashboard?.projecao_honorario_individual)}
-                    />
-                    <Cartao
-                      label="% da meta que essa projeção bateria"
-                      valor={`${dashboard?.percentual_projecao_individual ?? 0}%`}
-                      cor={(dashboard?.percentual_projecao_individual ?? 0) >= 100 ? "#93c5fd" : "#7dd3fc"}
-                    />
-                    <Cartao
-                      label="Ritmo (dias úteis já passados / total do mês)"
-                      valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`}
-                    />
-                  </div>
-
-                  <h3 style={{ margin: "20px 0 10px" }}>💰 Comissão sobre o honorário (mês)</h3>
-                  <div style={estilos.grade}>
-                    <Cartao
-                      label="Comissão estimada até agora"
-                      valor={moeda(dashboard?.comissao_estimada_individual)}
-                      destaque
-                    />
-                    <Cartao label="Faixa atual" valor={dashboard?.faixa_atual || "-"} />
-                  </div>
-                  <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
-                    Cálculo progressivo (igual imposto de renda) sobre o honorário do mês: cada faixa
-                    comissiona só a fatia que cai dentro dela.
-                  </p>
-                  <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
-                    Projeção calculada com base no ritmo médio de honorário por dia útil, multiplicado
-                    pelos dias úteis totais do mês. Não é garantia, é uma estimativa.
+                  <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: 2 }}>
+                    Comissão calculada por faixa progressiva (igual imposto de renda) sobre o honorário do
+                    mês — cada faixa comissiona só a fatia que cai dentro dela. Projeção é uma estimativa
+                    com base no ritmo médio de honorário por dia útil, não é garantia.
                   </p>
                 </>
               )}
