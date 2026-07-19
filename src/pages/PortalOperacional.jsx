@@ -342,6 +342,7 @@ function SecaoObjecoes() {
     { pergunta: "\u201cQuero desconto maior do que o oferecido\u201d", resposta: "Consigo trabalhar dentro da política vigente. Se for um caso específico, posso encaminhar como proposta de exceção pra análise." },
     { pergunta: "\u201cEstou desempregado(a)\u201d", resposta: "Sinto muito pela situação. Vamos ver juntos uma condição de prazo ou parcelamento que caiba no seu momento agora." },
     { pergunta: "\u201cJá fiz acordo antes e não deu certo\u201d", resposta: "Entendo a desconfiança. Dessa vez posso te acompanhar de perto pra garantir que tudo seja registrado e cumprido corretamente." },
+    { pergunta: "\u201cPor que estou pagando 8% a mais?\u201d", resposta: "Esse valor é o honorário de cobrança, previsto em contrato quando o débito passa de 30 dias em atraso — não é uma cobrança extra criada agora, faz parte da condição já vigente." },
   ];
   return (
     <>
