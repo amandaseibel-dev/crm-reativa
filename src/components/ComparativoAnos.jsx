@@ -224,7 +224,7 @@ const S = {
   tdTotal: { padding: "9px 8px", textAlign: "right", fontWeight: 800, color: "#0f172a", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
   tdTotalNum: { padding: "9px 8px", textAlign: "right", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
   tdFecha: { padding: "9px 8px", textAlign: "right", fontWeight: 800, color: "#b45309", background: "#fffbeb", whiteSpace: "nowrap" },
-  pctFim: { background: "#b45309", color: "#fff", borderRadius: 999, padding: "2px 8px", fontSize: 12, fontWeight: 800 },
+  pctFim: { background: "#fef3c7", color: "#b45309", borderRadius: 999, padding: "2px 9px", fontSize: 12, fontWeight: 800 },
   deltaDia: { display: "inline-flex", flexDirection: "column", alignItems: "flex-end", color: "#16a34a", fontWeight: 700 },
   porDia: { fontSize: 10, color: "#94a3b8", fontWeight: 600 },
   ritmoRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: 12, marginTop: 14, paddingTop: 14, borderTop: "1px dashed #cbd5e1" },
