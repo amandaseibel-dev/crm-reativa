@@ -75,7 +75,7 @@ export default function DRE() {
       <div style={s.head}>
         <div>
           <h1 style={s.h1}>DRE — Demonstrativo mensal</h1>
-          <p style={s.sub}>Faturamento (honorários recuperados) − despesas = lucro. Privado.</p>
+          <p style={s.sub}>Faturamento (honorários recuperados) − despesas = resultado. Privado.</p>
         </div>
         <div style={s.anoBox}>
           <button style={s.botIcon} onClick={() => setAno((a) => a - 1)}>◀</button>
@@ -98,7 +98,7 @@ export default function DRE() {
             <Kpi rot="Faturamento (ano)" val={moeda(totais.fat)} cor="#16a34a" />
             <Kpi rot="Folha (ano)" val={moeda(totais.folha)} cor="#f59e0b" />
             <Kpi rot="Despesas (ano)" val={moeda(totais.desp)} cor="#ef4444" />
-            <Kpi rot="Lucro (ano)" val={moeda(totais.lucro)} cor={totais.lucro >= 0 ? "#0ea5e9" : "#ef4444"} />
+            <Kpi rot="Resultado (ano)" val={moeda(totais.lucro)} cor={totais.lucro >= 0 ? "#0ea5e9" : "#ef4444"} />
           </div>
           <div style={s.card}>
             <div style={s.tblScroll}>
@@ -109,7 +109,7 @@ export default function DRE() {
                     <th style={s.thR}>Faturamento</th>
                     <th style={s.thR}>Folha</th>
                     <th style={s.thR}>Despesas</th>
-                    <th style={s.thR}>Lucro</th>
+                    <th style={s.thR}>Resultado</th>
                     <th style={s.thR}>Margem</th>
                   </tr>
                 </thead>
