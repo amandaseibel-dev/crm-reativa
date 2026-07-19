@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { supabase } from "../services/supabase";
 
 const SECOES = [
   { grupo: "Início", itens: [{ id: "inicio", label: "🏠 Início" }] },
@@ -609,6 +610,47 @@ function SecaoContatos() {
 
 function SecaoSugestoes() {
   const [enviado, setEnviado] = useState(false);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [form, setForm] = useState({
+    nome: "",
+    area: "",
+    tipo: "",
+    prioridade: "",
+    tela: "",
+    descricao: "",
+  });
+
+  function atualizar(campo, valor) {
+    setForm((f) => ({ ...f, [campo]: valor }));
+  }
+
+  async function enviar(e) {
+    e.preventDefault();
+    if (!form.area || !form.tipo || !form.descricao.trim()) {
+      setErro("Preencha ao menos Área, Tipo e Descrição.");
+      return;
+    }
+    setErro("");
+    setEnviando(true);
+    const { data: userData } = await supabase.auth.getUser();
+    const { error } = await supabase.from("sugestoes").insert({
+      nome: form.nome.trim() || null,
+      autor_email: userData?.user?.email || null,
+      area: form.area,
+      tipo: form.tipo,
+      prioridade: form.prioridade || null,
+      tela: form.tela.trim() || null,
+      descricao: form.descricao.trim(),
+    });
+    setEnviando(false);
+    if (error) {
+      setErro("Não foi possível enviar agora. Tente novamente.");
+      return;
+    }
+    setEnviado(true);
+  }
+
   return (
     <>
       <TituloSecao emoji="💡" titulo="Painel de Sugestões" sub="Envie ideias, ajustes e melhorias para o Sistema ReATIVA ou para o Portal Reativa." />
@@ -616,25 +658,20 @@ function SecaoSugestoes() {
         {enviado ? (
           <p style={S.paragrafo}>✅ Sugestão enviada, obrigado!</p>
         ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setEnviado(true);
-            }}
-            style={{ display: "flex", flexDirection: "column", gap: 12 }}
-          >
+          <form onSubmit={enviar} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            {erro && <p style={{ ...S.paragrafo, color: "#dc2626" }}>{erro}</p>}
             <Campo label="Nome">
-              <input style={S.input} placeholder="Seu nome" />
+              <input style={S.input} placeholder="Seu nome" value={form.nome} onChange={(e) => atualizar("nome", e.target.value)} />
             </Campo>
             <Campo label="Área">
-              <select style={S.input}>
+              <select style={S.input} value={form.area} onChange={(e) => atualizar("area", e.target.value)}>
                 <option value="">Selecione</option>
                 <option>Sistema ReATIVA</option>
                 <option>Portal Reativa</option>
               </select>
             </Campo>
             <Campo label="Tipo">
-              <select style={S.input}>
+              <select style={S.input} value={form.tipo} onChange={(e) => atualizar("tipo", e.target.value)}>
                 <option value="">Selecione</option>
                 <option>Erro</option>
                 <option>Melhoria</option>
@@ -644,7 +681,7 @@ function SecaoSugestoes() {
               </select>
             </Campo>
             <Campo label="Prioridade">
-              <select style={S.input}>
+              <select style={S.input} value={form.prioridade} onChange={(e) => atualizar("prioridade", e.target.value)}>
                 <option value="">Selecione</option>
                 <option>Baixa</option>
                 <option>Média</option>
@@ -652,13 +689,13 @@ function SecaoSugestoes() {
               </select>
             </Campo>
             <Campo label="Tela ou seção relacionada">
-              <input style={S.input} placeholder="Ex: Minha Carteira" />
+              <input style={S.input} placeholder="Ex: Minha Carteira" value={form.tela} onChange={(e) => atualizar("tela", e.target.value)} />
             </Campo>
             <Campo label="Descrição da sugestão">
-              <textarea style={{ ...S.input, minHeight: 90 }} placeholder="Descreva sua sugestão..." />
+              <textarea style={{ ...S.input, minHeight: 90 }} placeholder="Descreva sua sugestão..." value={form.descricao} onChange={(e) => atualizar("descricao", e.target.value)} />
             </Campo>
-            <button type="submit" style={{ ...S.botaoPrimario, border: "none", cursor: "pointer" }}>
-              Enviar sugestão
+            <button type="submit" disabled={enviando} style={{ ...S.botaoPrimario, border: "none", cursor: "pointer" }}>
+              {enviando ? "Enviando..." : "Enviar sugestão"}
             </button>
           </form>
         )}

@@ -33,6 +33,7 @@ import MinhaFilaPagamentos from "./pages/MinhaFilaPagamentos";
 import AgendaOperacional from "./pages/AgendaOperacional";
 import PortalOperacional from "./pages/PortalOperacional";
 import LogNivelamento from "./pages/LogNivelamento";
+import SugestoesRecebidas from "./pages/SugestoesRecebidas";
 import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 import ManualOperacao from "./pages/ManualOperacao";
 import BotaoManual from "./components/BotaoManual";
@@ -114,6 +115,7 @@ function podeAcessar(perfil, rota) {
       "/historico-recuperacao",
       "/saude-da-base",
       "/log-nivelamento",
+      "/sugestoes-recebidas",
       "/taxa-conversao",],
     supervisor: [
       "/",
@@ -485,6 +487,7 @@ export default function App() {
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
     { rota: "/log-nivelamento", label: "Log do Job Noturno", icone: "Clock3", secao: "Gestão" },
+    { rota: "/sugestoes-recebidas", label: "Sugestões Recebidas", icone: "FileStack", secao: "Gestão" },
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
     { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Gestão" },
@@ -837,6 +840,7 @@ export default function App() {
         <Route path="/executivo" element={<ExecutivoRecuperacao />} />
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
               <Route path="/log-nivelamento" element={<LogNivelamento />} />
+              <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
               <Route path="/dre" element={<DRE />} />
