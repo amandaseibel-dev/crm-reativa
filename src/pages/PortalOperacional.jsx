@@ -295,6 +295,11 @@ function SecaoMensagens() {
       <Aviso>
         <strong>⚠️ Antes de enviar:</strong> nunca envie mensagem sem conferir se há tabulação, jurídico,
         cancelamento ou restrição de contato. A conferência no CRM vem antes do acionamento.
+        <br />
+        <strong>✍️ Escreva por completo</strong>, sem abreviações, e revise a ortografia antes de enviar.
+        <br />
+        <strong>🔐 A LGPD precisa ser sempre respeitada</strong> — confirme identificação antes de tratar
+        dados financeiros e não compartilhe informações do aluno fora dos canais autorizados.
       </Aviso>
 
       <Card>
@@ -370,6 +375,14 @@ function SecaoObjecoes() {
   return (
     <>
       <TituloSecao emoji="🔥" titulo="Objeções" sub="Respostas base para contornar dúvidas e objeções durante a negociação." />
+      <Aviso>
+        <strong>⚠️ Não responda de forma abreviada.</strong> Escreva as respostas por completo, com
+        atenção à ortografia — mensagens abreviadas ou com erros passam falta de profissionalismo.
+        <br />
+        <strong>🔐 A LGPD precisa ser sempre respeitada.</strong> Confirme identificação antes de tratar
+        dados financeiros, não compartilhe informações do aluno fora dos canais autorizados e siga essa
+        regra em toda e qualquer conversa, sem exceção.
+      </Aviso>
       {itens.map((it) => (
         <Card key={it.pergunta}>
           <h3 style={S.h3}>{it.pergunta}</h3>
