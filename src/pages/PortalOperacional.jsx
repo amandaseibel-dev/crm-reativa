@@ -155,7 +155,6 @@ function SecaoInicio({ ir }) {
           política, mensagens prontas, metas do mês e os sistemas usados no dia a dia.
         </p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
-          <BotaoPrimario href="https://crm-reativa.vercel.app/">🚀 Acessar Novo Sistema ReATIVA</BotaoPrimario>
           <BotaoSecundario onClick={() => ir("politica")}>📄 Ver Política</BotaoSecundario>
           <BotaoSecundario onClick={() => ir("sugestoes")}>💡 Enviar sugestão</BotaoSecundario>
         </div>
@@ -170,7 +169,7 @@ function SecaoInicio({ ir }) {
       </Aviso>
 
       <div style={S.grade4}>
-        <CardAtalho emoji="🚀" titulo="Novo Sistema ReATIVA" desc="Acesso rápido ao CRM operacional." onClick={() => window.open("https://crm-reativa.vercel.app/", "_blank")} />
+        <CardAtalho emoji="📁" titulo="Minha Carteira" desc="Ir direto pra sua carteira de casos." onClick={() => (window.location.href = "/painel-carteira")} />
         <CardAtalho emoji="🎯" titulo="Metas do mês" desc="Faixas de honorários e foco do mês." onClick={() => ir("meta")} />
         <CardAtalho emoji="💬" titulo="Mensagens Prontas" desc="Modelos de atendimento e orientações." onClick={() => ir("mensagens")} />
         <CardAtalho emoji="💡" titulo="Painel de Sugestões" desc="Melhorias para Sistema e Portal Reativa." onClick={() => ir("sugestoes")} />
@@ -506,14 +505,6 @@ function SecaoSistemas() {
   return (
     <>
       <TituloSecao emoji="🚀" titulo="Sistemas Utilizados" />
-      <Card>
-        <h3 style={S.h3}>🚀 Novo Sistema ReATIVA</h3>
-        <p style={S.paragrafo}>
-          CRM operacional da equipe Reativa para atendimentos, filas, links, termos, baixas e
-          acompanhamento da operação.
-        </p>
-        <BotaoPrimario href="https://crm-reativa.vercel.app/">Acessar sistema</BotaoPrimario>
-      </Card>
       <Card>
         <h3 style={S.h3}>📌 Prime</h3>
         <p style={S.paragrafo}>Utilizado para confirmação de acordos e procedimentos relacionados.</p>
