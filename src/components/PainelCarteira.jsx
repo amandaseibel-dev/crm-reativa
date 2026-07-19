@@ -468,6 +468,7 @@ export default function PainelCarteira({ embedded = false }) {
   const [fixados, setFixados] = useState(new Set());
   const [somenteFixados, setSomenteFixados] = useState(false);
   const [somenteFocoDia, setSomenteFocoDia] = useState(false);
+  const [visao, setVisao] = useState("lista");
   const [alunosComBoletoVencendo, setAlunosComBoletoVencendo] = useState(new Set());
 
   useEffect(() => {
@@ -1458,6 +1459,39 @@ export default function PainelCarteira({ embedded = false }) {
     return arr;
   }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo]);
 
+  // Agrupamento pro Kanban: uma coluna fixa "Sem acionamento" (nunca
+  // acionados) + as tabulacoes normais mais usadas no dia a dia, com o
+  // resto agrupado em "Outros status" pra nao poluir o board.
+  const COLUNAS_KANBAN_PRINCIPAIS = [
+    { chave: "CONTATAR", titulo: "Contatar" },
+    { chave: "EM_ATENDIMENTO", titulo: "Em Atendimento" },
+    { chave: "ALUNO_EM_NEGOCIACAO_24H", titulo: "Em Negociação" },
+    { chave: "AGUARDANDO_LINK", titulo: "Aguardando Link" },
+    { chave: "AGUARDANDO_BAIXA", titulo: "Aguardando Baixa" },
+    { chave: "ACORDO_FECHADO", titulo: "Acordo Fechado" },
+  ];
+  const kanbanColunas = useMemo(() => {
+    const semAcionamento = [];
+    const porStatus = {};
+    COLUNAS_KANBAN_PRINCIPAIS.forEach((c) => (porStatus[c.chave] = []));
+    const outros = [];
+
+    listaFiltrada.forEach((a) => {
+      if (!a.data_ultimo_acionamento) {
+        semAcionamento.push(a);
+        return;
+      }
+      const st = String(a.status_atual || a.status_jornada || "").toUpperCase();
+      if (porStatus[st]) porStatus[st].push(a);
+      else outros.push(a);
+    });
+
+    const colunas = [{ chave: "SEM_ACIONAMENTO", titulo: "Sem acionamento", itens: semAcionamento }];
+    COLUNAS_KANBAN_PRINCIPAIS.forEach((c) => colunas.push({ chave: c.chave, titulo: c.titulo, itens: porStatus[c.chave] }));
+    colunas.push({ chave: "OUTROS", titulo: "Outros status", itens: outros });
+    return colunas;
+  }, [listaFiltrada]);
+
   // Cards operacionais (abrem a tabela) + financeiros (abrem detalhamento).
   // Todos permanecem visiveis mesmo zerados.
   const kpiCards = [
@@ -1578,6 +1612,42 @@ export default function PainelCarteira({ embedded = false }) {
         >
           🎯 Foco do Dia
         </button>
+        <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 3, marginRight: 10 }}>
+          <button
+            type="button"
+            onClick={() => setVisao("lista")}
+            style={{
+              border: "none",
+              borderRadius: 8,
+              padding: "7px 14px",
+              fontSize: 12.5,
+              fontWeight: 800,
+              cursor: "pointer",
+              background: visao === "lista" ? "#fff" : "transparent",
+              color: visao === "lista" ? "#2563eb" : "#64748b",
+              boxShadow: visao === "lista" ? "0 1px 2px rgba(16,24,40,0.08)" : "none",
+            }}
+          >
+            📋 Lista
+          </button>
+          <button
+            type="button"
+            onClick={() => setVisao("kanban")}
+            style={{
+              border: "none",
+              borderRadius: 8,
+              padding: "7px 14px",
+              fontSize: 12.5,
+              fontWeight: 800,
+              cursor: "pointer",
+              background: visao === "kanban" ? "#fff" : "transparent",
+              color: visao === "kanban" ? "#2563eb" : "#64748b",
+              boxShadow: visao === "kanban" ? "0 1px 2px rgba(16,24,40,0.08)" : "none",
+            }}
+          >
+            🗂️ Kanban
+          </button>
+        </div>
         <button
           type="button"
           role="tab"
@@ -1755,6 +1825,40 @@ export default function PainelCarteira({ embedded = false }) {
               )}
             </div>
 
+            {visao === "kanban" ? (
+              <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 10 }}>
+                {kanbanColunas.map((col) => (
+                  <div key={col.chave} style={{ background: "#eef1f6", borderRadius: 14, padding: 12, minWidth: 250, flexShrink: 0, maxHeight: 640, display: "flex", flexDirection: "column" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, padding: "0 4px" }}>
+                      <span style={{ fontWeight: 800, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.03em", color: "#334155" }}>{col.titulo}</span>
+                      <span style={{ background: "#fff", borderRadius: 999, padding: "2px 9px", fontSize: 11, fontWeight: 800, color: "#2563eb" }}>{col.itens.length}</span>
+                    </div>
+                    <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
+                      {col.itens.map((a) => {
+                        const sp = statusPrazo(a);
+                        return (
+                          <div
+                            key={a.id}
+                            onClick={() => abrirModal(a)}
+                            style={{ background: "#fff", borderRadius: 12, padding: "12px 13px", border: "1px solid #e6eaf0", borderLeft: `3px solid ${sp.cor}`, boxShadow: "0 1px 2px rgba(16,24,40,0.05)", cursor: "pointer" }}
+                          >
+                            <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{nomeAluno(a)}</div>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, color: "#64748b" }}>
+                              <span style={{ fontWeight: 800, color: "#1e40af" }}>{formatarMoeda(saldoDe(a))}</span>
+                              <span>{formatarData(a.data_ultimo_acionamento) || "Nunca"}</span>
+                            </div>
+                          </div>
+                        );
+                      })}
+                      {col.itens.length === 0 && (
+                        <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "16px 0" }}>vazio</div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <>
             <div style={S.tabelaWrap}>
               <table style={S.tabela} className="pc-tabela">
                 <thead>
@@ -1897,6 +2001,8 @@ export default function PainelCarteira({ embedded = false }) {
             <p style={S.rodapeTabela}>
               Mostrando {listaFiltrada.length} de {casos.length} casos carregados. Clique numa linha para abrir o atendimento.
             </p>
+              </>
+            )}
           </div>
         </>
       )}
