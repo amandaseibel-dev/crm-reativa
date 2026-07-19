@@ -158,7 +158,7 @@ export default function TvElogios() {
       {atual.tipo === "resultado" && (
         <div style={S.tela}>
           <div style={S.rot}>Resultado do mes</div>
-          <div style={S.numGigante}>{moeda(p.recuperado_mes)}</div>
+          <div style={S.numGigante}>{moeda(p.honorarios_mes)}</div>
           {p.pct_meta != null ? (
             <div style={S.metaLinha}>
               <div style={S.barraFundo}><div style={{ ...S.barra, width: Math.min(100, p.pct_meta) + "%" }} /></div>
@@ -166,7 +166,7 @@ export default function TvElogios() {
             </div>
           ) : <div style={S.ultimaMeta}>Meta nao cadastrada</div>}
           <div style={S.linhaCartoes}>
-            <Cartao rot="Honorarios" val={moeda(p.honorarios_mes)} />
+            <Cartao rot="Recuperado" val={moeda(p.recuperado_mes)} />
             <Cartao rot="Falta p/ meta" val={p.falta != null ? moeda(p.falta) : "-"} />
             <Cartao rot={"Precisa/dia (" + (p.dias_restantes || "-") + "d)"} val={p.precisa_por_dia != null ? moeda(p.precisa_por_dia) : "-"} />
           </div>
