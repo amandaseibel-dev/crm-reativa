@@ -1784,6 +1784,8 @@ export default function PainelCarteira({ embedded = false }) {
                       <tr
                         key={a.id}
                         style={{ ...S.tr, borderLeft: `4px solid ${sp.cor}` }}
+                        onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
+                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                         onClick={() => abrirModal(a)}
                       >
                         <td style={S.td} data-label="Nome">
@@ -2399,8 +2401,8 @@ const S = {
   tabela: { width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 13 },
   th: { textAlign: "left", padding: "11px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
   thNum: { textAlign: "right", padding: "11px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
-  tr: { cursor: "pointer", borderBottom: `1px solid ${COR_BORDA_SUAVE}` },
-  td: { padding: "13px 12px", color: "#475569", verticalAlign: "middle" },
+  tr: { cursor: "pointer", borderBottom: `1px solid ${COR_BORDA_SUAVE}`, transition: "background 0.12s ease" },
+  td: { padding: "14px 14px", color: "#475569", verticalAlign: "middle" },
   tdNum: { padding: "11px 10px", color: "#1e293b", textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 },
   tdTotal: { padding: "11px 10px", color: "#1e293b", fontWeight: 700, borderTop: `2px solid ${COR_BORDA}`, textAlign: "right" },
   tdNumTotal: { padding: "11px 10px", color: "#1e40af", textAlign: "right", whiteSpace: "nowrap", fontWeight: 800, borderTop: `2px solid ${COR_BORDA}` },
