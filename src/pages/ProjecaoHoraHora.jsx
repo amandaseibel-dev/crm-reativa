@@ -603,7 +603,13 @@ export default function ProjecaoHoraHora() {
                       </span>
                     </div>
 
-                    <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes_filial ?? dashboard?.recuperado_reativa_mes)}</div>
+                    <div style={estilos.heroNumeroLinha}>
+                      <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes_filial ?? dashboard?.recuperado_reativa_mes)}</div>
+                      <div style={estilos.heroMeta}>
+                        <span style={estilos.heroMetaLabel}>META</span>
+                        <span style={estilos.heroMetaValor}>{moeda(dashboard?.meta_honorario)}</span>
+                      </div>
+                    </div>
 
                     <div style={estilos.heroBarraFundo}>
                       <div
@@ -616,7 +622,7 @@ export default function ProjecaoHoraHora() {
 
                     <div style={estilos.heroRodape}>
                       <span>
-                        <strong>{dashboard?.percentual_meta_filial ?? 0}%</strong> da meta ({moeda(dashboard?.meta_honorario)})
+                        <strong>{dashboard?.percentual_meta_filial ?? 0}%</strong> da meta atingido
                       </span>
                       <span>
                         No ritmo atual, fecha em <strong>{moeda(dashboard?.projecao_honorario_filial)}</strong>{" "}
@@ -738,11 +744,17 @@ export default function ProjecaoHoraHora() {
 
                   <div style={estilos.hero}>
                     <div style={estilos.heroTopo}>
-                      <span style={estilos.heroEyebrow}>HONORÁRIO NO MÊS · META {moeda(dashboard?.meta_honorario_individual)}</span>
+                      <span style={estilos.heroEyebrow}>HONORÁRIO NO MÊS</span>
                       <span style={estilos.heroBadge}>Faixa atual: {dashboard?.faixa_atual || "-"}</span>
                     </div>
 
-                    <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes)}</div>
+                    <div style={estilos.heroNumeroLinha}>
+                      <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes)}</div>
+                      <div style={estilos.heroMeta}>
+                        <span style={estilos.heroMetaLabel}>META</span>
+                        <span style={estilos.heroMetaValor}>{moeda(dashboard?.meta_honorario_individual)}</span>
+                      </div>
+                    </div>
 
                     <div style={estilos.heroBarraFundo}>
                       <div
@@ -1356,13 +1368,22 @@ const estilos = {
     borderRadius: 999,
     padding: "4px 12px",
   },
+  heroNumeroLinha: { display: "flex", alignItems: "flex-end", gap: 20, flexWrap: "wrap", marginBottom: 16 },
   heroNumero: {
     fontFamily: PH_FONTE_TITULO,
     fontSize: "clamp(34px, 4vw, 48px)",
     fontWeight: 800,
     letterSpacing: "-0.02em",
-    marginBottom: 16,
   },
+  heroMeta: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 2,
+    paddingLeft: 18,
+    borderLeft: "1px solid rgba(255,255,255,0.2)",
+  },
+  heroMetaLabel: { fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", color: "#93c5fd" },
+  heroMetaValor: { fontFamily: PH_FONTE_TITULO, fontSize: 22, fontWeight: 800, color: "#fff" },
   heroBarraFundo: { height: 8, borderRadius: 999, background: "rgba(255,255,255,0.14)", overflow: "hidden", marginBottom: 14 },
   heroBarraPreenchida: { height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #60a5fa, #93c5fd)", transition: "width 0.4s ease" },
   heroRodape: { display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, fontSize: 13, color: "#cbd5e1" },
