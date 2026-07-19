@@ -1372,7 +1372,7 @@ export default function PainelCarteira({ embedded = false }) {
     { id: "valorBaixadoMes", rot: "Valor baixado no mes", val: formatarMoeda(kpis.valorBaixadoMes), cor: "#16a34a", financeiro: true, icone: "✅" },
     { id: "recebidosMes", rot: "Recebidos no mes", val: kpis.recebidosMes, cor: "#16a34a", financeiro: true, icone: "💰" },
     { id: "honorariosBaixadoMes", rot: "Honorarios no mes", val: formatarMoeda(kpis.honorariosBaixadoMes), cor: "#0d9488", financeiro: true, icone: "🧾" },
-  ];
+  ].filter((c) => !veTudo || c.id !== "retornosAdm");
 
   const painelReceptivo = (
     <div style={S.receptivoWrap}>
@@ -1486,7 +1486,7 @@ export default function PainelCarteira({ embedded = false }) {
         painelReceptivo
       ) : (
         <>
-          {retornosPendentes.length > 0 && (
+          {!veTudo && retornosPendentes.length > 0 && (
             <div style={S.retornoCarteira}>
               <div style={S.retornoCarteiraTopo}>
                 <span style={S.retornoCarteiraBadge}>📌 Retornos do ADM</span>
