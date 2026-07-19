@@ -1742,7 +1742,11 @@ export default function PainelCarteira({ embedded = false }) {
                       ? (fa.temAtraso ? "#b42318" : fa.temAVencer ? "#b54708" : "#101828")
                       : "#101828";
                     return (
-                      <tr key={a.id} style={S.tr} onClick={() => abrirModal(a)}>
+                      <tr
+                        key={a.id}
+                        style={{ ...S.tr, borderLeft: `4px solid ${sp.cor}` }}
+                        onClick={() => abrirModal(a)}
+                      >
                         <td style={S.td} data-label="Nome">
                           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                             <button
