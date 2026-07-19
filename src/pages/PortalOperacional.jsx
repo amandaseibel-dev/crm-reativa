@@ -509,13 +509,6 @@ function SecaoSistemas() {
         <h3 style={S.h3}>📌 Prime</h3>
         <p style={S.paragrafo}>Utilizado para confirmação de acordos e procedimentos relacionados.</p>
       </Card>
-      <Card>
-        <h3 style={S.h3}>📺 TV ReATIVA</h3>
-        <p style={S.paragrafo}>
-          Painel de resultados e reconhecimento da equipe, pra exibir na TV do escritório.
-        </p>
-        <BotaoPrimario href="/tv">Abrir TV</BotaoPrimario>
-      </Card>
     </>
   );
 }
