@@ -773,7 +773,6 @@ export default function App() {
               }
             />
             <Route path="*" element={<Navigate to="/" replace />} />
-                  <Route path="/fila-adm-termos" element={<FilaAdmTermos />} />
               {/* Fila Operacional (rota antiga): operador e redirecionado para
                   a Minha Carteira; demais perfis mantem o acesso atual. */}
               <Route
@@ -786,14 +785,10 @@ export default function App() {
                   )
                 }
               />
-              <Route path="/controle-links-pagamento" element={<ControleLinksPagamento />} />
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/painel-geral" element={<PainelGeral />} />
               <Route path="/financeiro-hub" element={<FinanceiroHub />} />
         <Route path="/central-pagamentos" element={<CentralPagamentos />} />
-              <Route path="/fila-financeiro" element={<FilaFinanceiro />} />
-              <Route path="/fila-confirmacao-pagamento" element={<FilaConfirmacaoPagamento />} />
-              <Route path="/painel-operadores" element={<PainelOperadores />} />
               <Route path="/meu-perfil" element={<MeuPerfil />} />
             <Route
               path="/financeiro-operadores"
@@ -814,10 +809,8 @@ export default function App() {
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
-              <Route path="/agenda-operacional" element={<AgendaOperacional />} />
               <Route path="/dre" element={<DRE />} />
               <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} />
-              <Route path="/manual-operacao" element={<ManualOperacao />} />
       </Routes>
         </main>
       </div>
