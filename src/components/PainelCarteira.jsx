@@ -1526,7 +1526,7 @@ export default function PainelCarteira({ embedded = false }) {
   const kpiCards = [
     { id: "ativos", rot: "Casos ativos • " + formatarMoeda(valorCarteira) + " em aberto", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
     { id: "retornosHoje", rot: "Retornos de hoje", val: kpis.retornosHoje, cor: "#0ea5e9", icone: "🔁" },
-    { id: "semAcionamento10", rot: "Sem acionamento ha 10 dias", val: kpis.semAcionamento10, cor: "#f59e0b", icone: "⏳" },
+    { id: "semAcionamento10", rot: "Sem acionamento há 10 dias", val: kpis.semAcionamento10, cor: "#f59e0b", icone: "⏳" },
     { id: "proximosPerder", rot: "Proximos de perder a carteira", val: kpis.proximosPerder, cor: "#dc2626", icone: "⚠️", urgente: true },
     { id: "acordoAVencer", rot: "Acordos a vencer", val: kpis.acordoAVencer, cor: "#0891b2", icone: "📄" },
     { id: "acordoAtrasado", rot: "Acordos atrasados", val: kpis.acordoAtrasado, cor: "#f97316", icone: "⏰" },
@@ -1737,11 +1737,11 @@ export default function PainelCarteira({ embedded = false }) {
                   <span style={S.desNum}>{desempenho.ativos}</span>
                   <span style={S.desRot}>Casos ativos</span>
                 </button>
-                <button type="button" style={{ ...S.desItem, ...(filtroKpi === "acionadosHoje" ? S.desItemAtivo : {}) }} onClick={() => onKpiClick("acionadosHoje")} title="CPFs que voce tabulou hoje">
+                <button type="button" style={{ ...S.desItem, ...(filtroKpi === "acionadosHoje" ? S.desItemAtivo : {}) }} onClick={() => onKpiClick("acionadosHoje")} title="CPFs que você tabulou hoje">
                   <span style={S.desNum}>{desempenho.acionadosHoje}</span>
                   <span style={S.desRot}>CPFs acionados hoje</span>
                 </button>
-                <button type="button" style={{ ...S.desItem, ...(filtroKpi === "semPrimeiroAcionamento" ? S.desItemAtivo : {}) }} onClick={() => onKpiClick("semPrimeiroAcionamento")} title="Casos ativos sem primeira tabulacao">
+                <button type="button" style={{ ...S.desItem, ...(filtroKpi === "semPrimeiroAcionamento" ? S.desItemAtivo : {}) }} onClick={() => onKpiClick("semPrimeiroAcionamento")} title="Casos ativos sem primeira tabulação">
                   <span style={S.desNum}>{desempenho.semPrimeiro}</span>
                   <span style={S.desRot}>Sem 1o acionamento</span>
                 </button>

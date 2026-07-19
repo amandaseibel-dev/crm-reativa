@@ -61,7 +61,7 @@ export default function TelefonesAluno({ aluno }) {
           ) : null}
           <input
             style={S.inTel}
-            placeholder="(DDD) numero"
+            placeholder="(DDD) número"
             value={f[campoTel]}
             onChange={(e) => setF((v) => ({ ...v, [campoTel]: e.target.value }))}
           />

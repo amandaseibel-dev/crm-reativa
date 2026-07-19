@@ -329,7 +329,7 @@ export default function VisaoGestao360({ dias = 30 }) {
       <div style={s.bloco}>
         <h3 style={s.h3}>Situacao da carteira (apta para cobranca hoje)</h3>
         {carteira.map((x) => {
-          const cor = x.categoria === "Acordo em dia" ? "#3b82f6" : x.categoria === "Acordo em atraso ate 30d" ? "#f59e0b" : x.categoria === "Acordo quebrado" ? "#ef4444" : "#2563eb";
+          const cor = x.categoria === "Acordo em dia" ? "#3b82f6" : x.categoria === "Acordo em atraso até 30d" ? "#f59e0b" : x.categoria === "Acordo quebrado" ? "#ef4444" : "#2563eb";
           return (
             <div key={x.categoria} style={s.linha}>
               <div style={s.linhaTopo}><span>{x.categoria}</span><strong>{num(x.qtd)} <em style={s.em}>({Number(x.pct).toFixed(1)}%)</em></strong></div>

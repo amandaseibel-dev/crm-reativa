@@ -37,7 +37,7 @@ export default function PagamentosNaoIdentificados() {
   }
 
   async function vincular(nomeNorm, alunoId, alunoNome) {
-    if (!window.confirm("Vincular este pagamento a " + alunoNome + " e criar a confirmacao?")) return;
+    if (!window.confirm("Vincular este pagamento a " + alunoNome + " e criar a confirmação?")) return;
     const { data, error } = await supabase.rpc("vincular_pagamento_aluno", {
       p_nome_norm: nomeNorm,
       p_aluno_id: alunoId,
@@ -46,7 +46,7 @@ export default function PagamentosNaoIdentificados() {
       setMsg("Erro ao vincular: " + (error?.message || data?.erro || "desconhecido"));
       return;
     }
-    setMsg("Vinculado a " + alunoNome + (data.ja_tinha ? " (ja tinha confirmacao)." : " - confirmacao criada."));
+    setMsg("Vinculado a " + alunoNome + (data.ja_tinha ? " (já tinha confirmação)." : " - confirmação criada."));
     setItens((lista) => lista.filter((i) => i.nome_norm !== nomeNorm));
   }
 
@@ -72,7 +72,7 @@ export default function PagamentosNaoIdentificados() {
             <span>
               <strong>{it.aluno_nome}</strong>{" "}
               <em style={{ ...s.tag, ...(it.motivo === "AMBIGUO" ? s.tagAmb : s.tagNao) }}>
-                {it.motivo === "AMBIGUO" ? "nome ambiguo" : "nao encontrado"}
+                {it.motivo === "AMBIGUO" ? "nome ambíguo" : "não encontrado"}
               </em>
             </span>
             <strong>{moeda(it.valor)}</strong>

@@ -77,7 +77,7 @@ export default function VisaoGeralCarteira({ email = null }) {
       <div style={s.statsRow}>
         <Stat rot="Casos ativos" val={numero(total.casos)} cor="#111827" />
         <Stat rot="Valor em aberto" val={moeda(total.valor)} cor="#16a34a" />
-        <Stat rot="Titulos em aberto" val={numero(total.titulos)} cor="#0ea5e9" />
+        <Stat rot="Títulos em aberto" val={numero(total.titulos)} cor="#0ea5e9" />
         <Stat rot="Operadores" val={numero(total.operadores)} cor="#7c3aed" />
       </div>
 

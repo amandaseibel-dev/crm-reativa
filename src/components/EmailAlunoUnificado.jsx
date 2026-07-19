@@ -181,7 +181,7 @@ export default function EmailAlunoUnificado({ aluno }) {
 
   function abrirWhatsapp() {
     const tel = soDigitos(aluno?.telefone);
-    if (!tel) { setMsg("Este aluno nao tem telefone cadastrado."); return; }
+    if (!tel) { setMsg("Este aluno não tem telefone cadastrado."); return; }
     window.open("https://wa.me/" + tel + "?text=" + encodeURIComponent(texto), "_blank");
     registrarContato();
     setMsg("WhatsApp aberto com a mensagem do template. Revise e envie.");
