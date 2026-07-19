@@ -17,19 +17,21 @@ function pct(n) {
   return Number(n).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + "%";
 }
 
+const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
+
 function corTaxa(t) {
   const v = Number(t) || 0;
-  if (v >= 40) return "#0a7d3c";
-  if (v >= 20) return "#1d6fb8";
-  if (v >= 10) return "#b8860b";
-  return "#b42318";
+  if (v >= 40) return "#16a34a";
+  if (v >= 20) return "#2563eb";
+  if (v >= 10) return "#d97706";
+  return "#dc2626";
 }
 function corConversao(t) {
   const v = Number(t) || 0;
-  if (v >= 3) return "#0a7d3c";
-  if (v >= 2) return "#1d6fb8";
-  if (v >= 1) return "#b8860b";
-  return "#b42318";
+  if (v >= 3) return "#16a34a";
+  if (v >= 2) return "#2563eb";
+  if (v >= 1) return "#d97706";
+  return "#dc2626";
 }
 
 export default function TaxaConversao() {
@@ -146,30 +148,30 @@ export default function TaxaConversao() {
 }
 
 const s = {
-  container: { minHeight: "100%", background: "#f4f6f8", padding: "24px", fontFamily: "Arial, sans-serif" },
+  container: { minHeight: "100%", background: "#f4f6fa", padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif" },
   cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", flexWrap: "wrap", marginBottom: "18px" },
-  titulo: { margin: 0, color: "#111827" },
-  subtitulo: { margin: "6px 0 0 0", color: "#555", maxWidth: 620 },
+  titulo: { margin: 0, color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
+  subtitulo: { margin: "6px 0 0 0", color: "#8a93a3", maxWidth: 620, fontSize: 13.5 },
   periodos: { display: "flex", gap: "8px" },
-  periodo: { background: "#fff", color: "#374151", border: "1px solid #d1d5db", padding: "9px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: 600 },
-  periodoAtivo: { background: "#111827", color: "#fff", border: "1px solid #111827", padding: "9px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: 700 },
-  aviso: { background: "#fff", padding: "18px", borderRadius: "10px", color: "#555" },
-  erro: { background: "#fde8e8", border: "1px solid #f5c2c2", color: "#b42318", padding: "14px", borderRadius: "10px" },
-  card: { background: "#fff", borderRadius: "14px", padding: "20px", marginBottom: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
-  h2: { margin: "0 0 14px 0", fontSize: "18px", color: "#111827" },
+  periodo: { background: "#fff", color: "#334155", border: "1px solid #e2e8f0", padding: "9px 14px", borderRadius: "10px", cursor: "pointer", fontWeight: 700, fontSize: 13 },
+  periodoAtivo: { background: "#2563eb", color: "#fff", border: "1px solid #2563eb", padding: "9px 14px", borderRadius: "10px", cursor: "pointer", fontWeight: 700, fontSize: 13 },
+  aviso: { background: "#fff", padding: "18px", borderRadius: "14px", color: "#8a93a3" },
+  erro: { background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", padding: "14px", borderRadius: "10px" },
+  card: { background: "#fff", borderRadius: "16px", padding: "20px 22px", marginBottom: "16px", border: "1px solid #edf0f5", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
+  h2: { margin: "0 0 14px 0", fontSize: "16px", color: "#0d1321", fontFamily: FONTE_TITULO, fontWeight: 800 },
   funilLista: { display: "flex", flexDirection: "column", gap: "10px" },
   funilLinha: { display: "grid", gridTemplateColumns: "150px 1fr 70px", alignItems: "center", gap: "12px" },
-  funilNome: { fontSize: "14px", fontWeight: 700, color: "#374151" },
-  funilBarraFundo: { background: "#eef2f6", borderRadius: "8px", height: "30px", overflow: "hidden" },
-  funilBarra: { background: "linear-gradient(90deg,#1d6fb8,#0a7d3c)", height: "100%", display: "flex", alignItems: "center", paddingLeft: "10px", borderRadius: "8px", minWidth: "70px" },
+  funilNome: { fontSize: "14px", fontWeight: 700, color: "#334155" },
+  funilBarraFundo: { background: "#f1f5f9", borderRadius: "8px", height: "30px", overflow: "hidden" },
+  funilBarra: { background: "linear-gradient(90deg, #2563eb, #60a5fa)", height: "100%", display: "flex", alignItems: "center", paddingLeft: "10px", borderRadius: "8px", minWidth: "70px" },
   funilBarraTxt: { color: "#fff", fontSize: "12px", fontWeight: 700, whiteSpace: "nowrap" },
   funilTaxa: { fontSize: "16px", fontWeight: 800, textAlign: "right" },
-  legenda: { fontSize: "12px", color: "#64748b", margin: "12px 0 0 0" },
+  legenda: { fontSize: "12px", color: "#8a93a3", margin: "12px 0 0 0" },
   tabelaWrap: { overflowX: "auto", marginTop: "8px" },
-  tabela: { width: "100%", borderCollapse: "collapse", fontSize: "14px" },
-  th: { textAlign: "left", padding: "10px 12px", borderBottom: "2px solid #e5e7eb", color: "#374151", fontSize: "13px" },
-  thNum: { textAlign: "right", padding: "10px 12px", borderBottom: "2px solid #e5e7eb", color: "#374151", fontSize: "13px" },
-  td: { padding: "10px 12px", borderBottom: "1px solid #eef2f6", color: "#111827", fontWeight: 600 },
-  tdNum: { padding: "10px 12px", borderBottom: "1px solid #eef2f6", color: "#374151", textAlign: "right" },
-  trAlt: { background: "#fafbfc" },
+  tabela: { width: "100%", borderCollapse: "collapse", fontSize: "13.5px" },
+  th: { textAlign: "left", padding: "10px 12px", borderBottom: "1px solid #e3e7ee", color: "#8a93a3", fontSize: "10.5px", fontWeight: 700, textTransform: "uppercase", background: "#f8fafc" },
+  thNum: { textAlign: "right", padding: "10px 12px", borderBottom: "1px solid #e3e7ee", color: "#8a93a3", fontSize: "10.5px", fontWeight: 700, textTransform: "uppercase", background: "#f8fafc" },
+  td: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", color: "#0d1321", fontWeight: 700 },
+  tdNum: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", color: "#334155", textAlign: "right" },
+  trAlt: { background: "#f8fafc" },
 };
