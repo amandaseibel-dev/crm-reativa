@@ -465,6 +465,8 @@ export default function PainelCarteira({ embedded = false }) {
   // Retorno ADM acionavel do aluno aberto + contador da carteira.
   const [retornoAluno, setRetornoAluno] = useState(null);
   const [retornosPendentes, setRetornosPendentes] = useState([]);
+  const [fixados, setFixados] = useState(new Set());
+  const [somenteFixados, setSomenteFixados] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -488,6 +490,7 @@ export default function PainelCarteira({ embedded = false }) {
     carregar();
     carregarRetornosPendentes();
     carregarNovosCasosAutomaticos();
+    carregarFixados();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email, veTudo, operadorFiltro]);
 
@@ -864,6 +867,34 @@ export default function PainelCarteira({ embedded = false }) {
       }
     } finally {
       setCarregandoModal(false);
+    }
+  }
+
+  // Fixar/desafixar caso -- pra voltar rapido sem procurar de novo.
+  async function carregarFixados() {
+    if (!email) return;
+    const { data } = await supabase
+      .from("casos_fixados")
+      .select("aluno_id")
+      .eq("operador_email", email);
+    setFixados(new Set((data || []).map((f) => f.aluno_id)));
+  }
+
+  async function alternarFixado(alunoId, e) {
+    if (e) e.stopPropagation();
+    if (!email) return;
+    const jaFixado = fixados.has(alunoId);
+
+    if (jaFixado) {
+      await supabase.from("casos_fixados").delete().eq("operador_email", email).eq("aluno_id", alunoId);
+      setFixados((atual) => {
+        const novo = new Set(atual);
+        novo.delete(alunoId);
+        return novo;
+      });
+    } else {
+      await supabase.from("casos_fixados").insert({ operador_email: email, aluno_id: alunoId });
+      setFixados((atual) => new Set(atual).add(alunoId));
     }
   }
 
@@ -1322,6 +1353,9 @@ export default function PainelCarteira({ embedded = false }) {
     if (filtroStatus !== "TODOS") {
       l = l.filter((a) => statusPrazo(a).label === filtroStatus);
     }
+    if (somenteFixados) {
+      l = l.filter((a) => fixados.has(a.id));
+    }
     const valorMinNum = filtroValorMin.trim() ? Number(filtroValorMin.replace(/\./g, "").replace(",", ".")) : null;
     const valorMaxNum = filtroValorMax.trim() ? Number(filtroValorMax.replace(/\./g, "").replace(",", ".")) : null;
     if (valorMinNum !== null && !Number.isNaN(valorMinNum)) {
@@ -1368,7 +1402,7 @@ export default function PainelCarteira({ embedded = false }) {
     else if (ordenacao === "valor_desc") arr.sort((a, b) => saldoDe(b) - saldoDe(a));
     else if (ordenacao === "valor_asc") arr.sort((a, b) => saldoDe(a) - saldoDe(b));
     return arr;
-  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato]);
+  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados]);
 
   // Cards operacionais (abrem a tabela) + financeiros (abrem detalhamento).
   // Todos permanecem visiveis mesmo zerados.
@@ -1622,6 +1656,20 @@ export default function PainelCarteira({ embedded = false }) {
                 value={filtroDiasMinSemContato}
                 onChange={(e) => setFiltroDiasMinSemContato(e.target.value)}
               />
+              <button
+                type="button"
+                onClick={() => setSomenteFixados((atual) => !atual)}
+                style={{
+                  ...S.select,
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  background: somenteFixados ? "#fff7e6" : "#fff",
+                  borderColor: somenteFixados ? "#f5c542" : undefined,
+                  color: somenteFixados ? "#7c4a1e" : undefined,
+                }}
+              >
+                📌 Fixados {fixados.size > 0 ? `(${fixados.size})` : ""}
+              </button>
               <select style={S.select} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
                 <option value="sem_contato_desc">Mais antigo sem contato</option>
                 <option value="sem_contato_asc">Mais recente sem contato</option>
@@ -1662,7 +1710,25 @@ export default function PainelCarteira({ embedded = false }) {
                     return (
                       <tr key={a.id} style={S.tr} onClick={() => abrirModal(a)}>
                         <td style={S.td} data-label="Nome">
-                          <div style={S.nomeCel}>{nomeAluno(a)}</div>
+                          <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={(e) => alternarFixado(a.id, e)}
+                              title={fixados.has(a.id) ? "Desafixar" : "Fixar caso"}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                fontSize: 15,
+                                opacity: fixados.has(a.id) ? 1 : 0.25,
+                                lineHeight: 1,
+                                padding: 0,
+                              }}
+                            >
+                              📌
+                            </button>
+                            <div style={S.nomeCel}>{nomeAluno(a)}</div>
+                          </div>
                           <div style={S.subCel}>
                             {[a.telefone, a.unidade, a.curso].filter(Boolean).join(" · ") || "-"}
                           </div>
