@@ -3,6 +3,32 @@ import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "../utils/operadores";
 import BotaoManual from "../components/BotaoManual";
 
+const STATUS_FINALIZACAO = [
+  "CONTATAR",
+  "ELOGIO_ATENDIMENTO",
+  "MENSAGEM_ENVIADA",
+  "EM_ATENDIMENTO",
+  "ALUNO_EM_NEGOCIACAO_24H",
+  "RETORNAR_DEPOIS",
+  "SEM_RETORNO",
+  "NAO_LOCALIZADO",
+  "AGUARDANDO_LINK",
+  "SOLICITADO_LINK",
+  "LINK_PRONTO_PARA_ENVIO",
+  "AGUARDANDO_COMPROVANTE",
+  "AGUARDANDO_BAIXA",
+  "BAIXA_REALIZADA",
+  "BAIXA_DEVOLVIDA",
+  "TERMO_ENVIADO_ALUNO",
+  "TERMO_ENVIADO_ADM",
+  "TERMO_RECEBIDO_LIBERADO",
+  "TERMO_REJEITADO",
+  "ACORDO_FECHADO",
+  "CANCELAMENTO_COBRANCA",
+  "SUSPENSAO_COBRANCA",
+  "JURIDICO",
+];
+
 const OPERADORES = [
   "OLGA",
   "ALLAN",
@@ -96,6 +122,7 @@ export default function AgendaOperacional() {
   const [diaSelecionado, setDiaSelecionado] = useState(hojeISO());
   const [busca, setBusca] = useState("");
   const [filtroOperador, setFiltroOperador] = useState("TODOS");
+  const [filtroTipoFinalizacao, setFiltroTipoFinalizacao] = useState("TODOS");
 
   useEffect(() => {
     carregarUsuario();
@@ -196,6 +223,10 @@ export default function AgendaOperacional() {
       }
     }
 
+    if (filtroTipoFinalizacao !== "TODOS") {
+      lista = lista.filter((item) => item.status_jornada === filtroTipoFinalizacao);
+    }
+
     if (busca.trim()) {
       const termo = busca.toLowerCase().trim();
 
@@ -216,7 +247,7 @@ export default function AgendaOperacional() {
     }
 
     return lista;
-  }, [alunos, filtroOperador, busca, adm, emailUsuario, nomeUsuario]);
+  }, [alunos, filtroOperador, filtroTipoFinalizacao, busca, adm, emailUsuario, nomeUsuario]);
 
   const mapaPorDia = useMemo(() => {
     const mapa = {};
@@ -337,6 +368,19 @@ export default function AgendaOperacional() {
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
         />
+
+        <select
+          style={styles.input}
+          value={filtroTipoFinalizacao}
+          onChange={(e) => setFiltroTipoFinalizacao(e.target.value)}
+        >
+          <option value="TODOS">Todos os tipos de finalização</option>
+          {STATUS_FINALIZACAO.map((s) => (
+            <option key={s} value={s}>
+              {s.replaceAll("_", " ")}
+            </option>
+          ))}
+        </select>
 
         {adm ? (
           <select
