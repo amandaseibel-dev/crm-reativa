@@ -595,74 +595,42 @@ export default function ProjecaoHoraHora() {
                   projeção individual mais abaixo. */}
               {vePainelGestao && subAbaDashboard === "VISAO_GERAL" && (
                 <>
-                  <div style={estilos.blocoFilial}>
-                    <h3 style={{ marginBottom: 10 }}>🏢 Meta geral — Projeção da filial ({mesReferencia})</h3>
-                    <div style={estilos.gradeFilial}>
-                      <div style={estilos.cartaoFilial}>
-                        <div style={estilos.numeroFilial}>{moeda(dashboard?.recuperado_hoje_filial)}</div>
-                        <div style={estilos.label}>Recuperado hoje (filial)</div>
-                      </div>
-                      <div style={estilos.cartaoFilial}>
-                        <div style={estilos.numeroFilial}>{moeda(dashboard?.honorario_mes_filial ?? dashboard?.recuperado_reativa_mes)}</div>
-                        <div style={estilos.label}>Honorário da ReATIVA (mês)</div>
-                      </div>
-                      <div style={estilos.cartaoFilial}>
-                        <div style={estilos.numeroFilial}>{moeda(dashboard?.meta_honorario)}</div>
-                        <div style={estilos.label}>Meta de honorário do mês</div>
-                      </div>
-                      <div style={estilos.cartaoFilial}>
-                        <div
-                          style={{
-                            ...estilos.numeroFilial,
-                            color: (dashboard?.percentual_meta_filial ?? 0) >= 100 ? "#93c5fd" : "#7dd3fc",
-                          }}
-                        >
-                          {dashboard?.percentual_meta_filial ?? 0}%
-                        </div>
-                        <div style={estilos.label}>% da meta de honorário atingido (filial)</div>
-                      </div>
+                  <div style={estilos.hero}>
+                    <div style={estilos.heroTopo}>
+                      <span style={estilos.heroEyebrow}>HONORÁRIO DA FILIAL · {mesReferencia}</span>
+                      <span style={estilos.heroBadge}>
+                        {dashboard?.dias_uteis_restantes ?? 0} dias úteis restantes
+                      </span>
+                    </div>
+
+                    <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes_filial ?? dashboard?.recuperado_reativa_mes)}</div>
+
+                    <div style={estilos.heroBarraFundo}>
+                      <div
+                        style={{
+                          ...estilos.heroBarraPreenchida,
+                          width: `${Math.min(dashboard?.percentual_meta_filial ?? 0, 100)}%`,
+                        }}
+                      />
+                    </div>
+
+                    <div style={estilos.heroRodape}>
+                      <span>
+                        <strong>{dashboard?.percentual_meta_filial ?? 0}%</strong> da meta ({moeda(dashboard?.meta_honorario)})
+                      </span>
+                      <span>
+                        No ritmo atual, fecha em <strong>{moeda(dashboard?.projecao_honorario_filial)}</strong>{" "}
+                        ({dashboard?.percentual_projecao_filial ?? 0}% da meta)
+                      </span>
                     </div>
                   </div>
 
-                  <div style={estilos.blocoMeta}>
-                    <h3 style={{ marginBottom: 10 }}>📊 Visão geral</h3>
-                    <div style={estilos.grade}>
-                      <Cartao label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
-                      <Cartao label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
-                      <Cartao label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
-                      <Cartao label="Honorários do mês" valor={moeda(dashboard?.honorario_mes)} destaque />
-                      <Cartao
-                        label="% da meta (honorário)"
-                        valor={`${dashboard?.percentual_meta ?? 0}%`}
-                        cor={(dashboard?.percentual_meta ?? 0) >= 100 ? "#1e40af" : "#2563eb"}
-                      />
-                      <Cartao label="Honorário restante p/ meta" valor={moeda(dashboard?.valor_restante_meta)} />
-                      <Cartao label="Honorário médio diário necessário" valor={moeda(dashboard?.media_diaria_necessaria)} />
-                      <Cartao label="Dias úteis restantes" valor={dashboard?.dias_uteis_restantes ?? "-"} />
-                    </div>
-                  </div>
-
-                  <div style={estilos.blocoMeta}>
-                    <h3 style={{ marginBottom: 4 }}>🔮 Projeção de fechamento</h3>
-                    <p style={{ opacity: 0.6, fontSize: 12.5, margin: "0 0 12px" }}>
-                      Estimativa com base no ritmo atual — não é a meta, é "se continuar assim".
-                    </p>
-                    <div style={estilos.grade}>
-                      <Cartao
-                        label="Se continuar nesse ritmo, a filial deve fechar em"
-                        valor={moeda(dashboard?.projecao_honorario_filial)}
-                        destaque
-                      />
-                      <Cartao
-                        label="% da meta que essa projeção bateria"
-                        valor={`${dashboard?.percentual_projecao_filial ?? 0}%`}
-                        cor={(dashboard?.percentual_projecao_filial ?? 0) >= 100 ? "#1e40af" : "#d97706"}
-                      />
-                      <Cartao
-                        label="Ritmo (dias úteis já passados / total do mês)"
-                        valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`}
-                      />
-                    </div>
+                  <div style={estilos.faixaStats}>
+                    <FaixaItem label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje_filial)} />
+                    <FaixaItem label="Honorário hoje" valor={moeda(dashboard?.honorario_hoje)} />
+                    <FaixaItem label="Falta p/ meta" valor={moeda(dashboard?.valor_restante_meta)} />
+                    <FaixaItem label="Média diária necessária" valor={moeda(dashboard?.media_diaria_necessaria)} />
+                    <FaixaItem label="Ritmo (dias úteis)" valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`} />
                   </div>
                 </>
               )}
@@ -1346,6 +1314,15 @@ export default function ProjecaoHoraHora() {
   );
 }
 
+function FaixaItem({ label, valor }) {
+  return (
+    <div style={estilos.faixaItem}>
+      <div style={estilos.faixaValor}>{valor}</div>
+      <div style={estilos.faixaLabel}>{label}</div>
+    </div>
+  );
+}
+
 function Cartao({ label, valor, destaque, cor }) {
   return (
     <div style={{ ...estilos.cartao, ...(destaque ? estilos.cartaoDestaque : {}) }}>
@@ -1371,6 +1348,49 @@ const PH_FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const PH_VERDE = "#1e40af";
 
 const estilos = {
+  hero: {
+    background: "linear-gradient(135deg, #0b1c3d 0%, #14295c 55%, #1e3a8a 100%)",
+    borderRadius: 22,
+    padding: "28px 32px",
+    marginBottom: 16,
+    color: "#fff",
+    boxShadow: "0 24px 60px rgba(15,30,70,0.28)",
+  },
+  heroTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
+  heroEyebrow: { fontSize: 11.5, fontWeight: 800, letterSpacing: "0.12em", color: "#93c5fd" },
+  heroBadge: {
+    fontSize: 11.5,
+    fontWeight: 700,
+    color: "#dbeafe",
+    background: "rgba(255,255,255,0.1)",
+    border: "1px solid rgba(255,255,255,0.16)",
+    borderRadius: 999,
+    padding: "4px 12px",
+  },
+  heroNumero: {
+    fontFamily: PH_FONTE_TITULO,
+    fontSize: "clamp(34px, 4vw, 48px)",
+    fontWeight: 800,
+    letterSpacing: "-0.02em",
+    marginBottom: 16,
+  },
+  heroBarraFundo: { height: 8, borderRadius: 999, background: "rgba(255,255,255,0.14)", overflow: "hidden", marginBottom: 14 },
+  heroBarraPreenchida: { height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #60a5fa, #93c5fd)", transition: "width 0.4s ease" },
+  heroRodape: { display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, fontSize: 13, color: "#cbd5e1" },
+  faixaStats: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))",
+    gap: 1,
+    background: PH_BORDA_SUAVE,
+    borderRadius: 16,
+    overflow: "hidden",
+    marginBottom: 22,
+    border: `1px solid ${PH_BORDA_SUAVE}`,
+  },
+  faixaItem: { background: "#fff", padding: "16px 18px" },
+  faixaValor: { fontFamily: PH_FONTE_TITULO, fontSize: 19, fontWeight: 800, color: "#0d1321", marginBottom: 3 },
+  faixaLabel: { fontSize: 11.5, color: "#8a93a3", fontWeight: 600 },
+
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", flexWrap: "wrap", gap: 12, marginBottom: 4 },
   inputMes: {
     padding: "9px 13px",
