@@ -979,6 +979,39 @@ export default function PainelCarteira({ embedded = false }) {
     carregarRetornosPendentes();
   }
 
+  // Acao rapida direto na linha da carteira -- tabula sem precisar abrir
+  // o modal inteiro, pra casos simples do dia a dia.
+  async function tabularRapido(aluno, statusNovo, rotuloStatus, e) {
+    if (e) e.stopPropagation();
+    if (!aluno?.id) return;
+
+    const agora = new Date().toISOString();
+    const statusAntigo = aluno.status_atual || aluno.status_jornada || null;
+
+    await supabase
+      .from("alunos")
+      .update({
+        status_jornada: statusNovo,
+        status_atual: statusNovo,
+        data_ultimo_acionamento: agora,
+        ultimo_contato: agora,
+      })
+      .eq("id", aluno.id);
+
+    await supabase.from("aluno_movimentacoes").insert({
+      aluno_id: String(aluno.id),
+      tipo: "FINALIZACAO_ATENDIMENTO",
+      descricao: `${rotuloStatus} — ação rápida direto na Minha Carteira.`,
+      status_anterior: statusAntigo,
+      status_novo: statusNovo,
+      registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
+      registrado_por_email: email,
+      registrado_em: agora,
+    });
+
+    carregar();
+  }
+
   // Troca rapida do operador responsavel direto no modal, sem sair da
   // Minha Carteira. So quem ve tudo (Amanda e Fernanda) tem esse controle.
   async function salvarOperadorModal() {
@@ -1694,6 +1727,7 @@ export default function PainelCarteira({ embedded = false }) {
                     <th style={S.th}>Prox. contato</th>
                     <th style={S.thNum}>Valor aberto</th>
                     <th style={S.th}>Status</th>
+                    <th style={S.th}>Ação rápida</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1783,12 +1817,31 @@ export default function PainelCarteira({ embedded = false }) {
                             {sp.label}
                           </span>
                         </td>
+                        <td style={S.td} data-label="Ação rápida">
+                          <button
+                            type="button"
+                            onClick={(e) => tabularRapido(a, "MENSAGEM_ENVIADA", "Mensagem enviada", e)}
+                            style={{
+                              background: "#0f9d6b",
+                              color: "#fff",
+                              border: "none",
+                              borderRadius: 8,
+                              padding: "6px 10px",
+                              fontSize: 11.5,
+                              fontWeight: 700,
+                              cursor: "pointer",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            ✅ Mensagem enviada
+                          </button>
+                        </td>
                       </tr>
                     );
                   })}
                   {listaFiltrada.length === 0 && (
                     <tr>
-                      <td style={S.vazio} colSpan={7}>
+                      <td style={S.vazio} colSpan={8}>
                         {carregando || carregandoEspecial ? "Carregando..." : "Nenhum caso encontrado"}
                       </td>
                     </tr>
