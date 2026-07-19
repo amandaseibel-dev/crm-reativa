@@ -31,6 +31,7 @@ import FilaOperacional from "./pages/FilaOperacional";
 import ControleLinksPagamento from "./pages/ControleLinksPagamento";
 import MinhaFilaPagamentos from "./pages/MinhaFilaPagamentos";
 import AgendaOperacional from "./pages/AgendaOperacional";
+import PortalOperacional from "./pages/PortalOperacional";
 import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 import ManualOperacao from "./pages/ManualOperacao";
 import BotaoManual from "./components/BotaoManual";
@@ -465,6 +466,7 @@ export default function App() {
       esconderParaOperador: true,
     },
     { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" },
+    { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Operação" },
     { rota: "/aluno", label: "Aluno", icone: "User", secao: "Operação" },
     { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
@@ -772,6 +774,7 @@ export default function App() {
                 </RotaProtegida>
               }
             />
+            <Route path="/portal-operacional" element={<PortalOperacional />} />
             <Route path="*" element={<Navigate to="/" replace />} />
               {/* Fila Operacional (rota antiga): operador e redirecionado para
                   a Minha Carteira; demais perfis mantem o acesso atual. */}
