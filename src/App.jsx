@@ -457,6 +457,7 @@ export default function App() {
       secao: "Operação",
       esconderParaOperador: true,
     },
+    { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Operação" },
     { rota: "/painel-carteira", label: "Minha Carteira", icone: "Folder", secao: "Operação" },
     {
       rota: "/minha-fila",
@@ -466,7 +467,6 @@ export default function App() {
       esconderParaOperador: true,
     },
     { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" },
-    { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Operação" },
     { rota: "/aluno", label: "Aluno", icone: "User", secao: "Operação" },
     { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
