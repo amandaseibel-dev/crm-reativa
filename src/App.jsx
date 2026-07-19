@@ -32,6 +32,7 @@ import ControleLinksPagamento from "./pages/ControleLinksPagamento";
 import MinhaFilaPagamentos from "./pages/MinhaFilaPagamentos";
 import AgendaOperacional from "./pages/AgendaOperacional";
 import PortalOperacional from "./pages/PortalOperacional";
+import LogNivelamento from "./pages/LogNivelamento";
 import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 import ManualOperacao from "./pages/ManualOperacao";
 import BotaoManual from "./components/BotaoManual";
@@ -112,6 +113,7 @@ function podeAcessar(perfil, rota) {
       "/acoes-massivas",
       "/historico-recuperacao",
       "/saude-da-base",
+      "/log-nivelamento",
       "/taxa-conversao",],
     supervisor: [
       "/",
@@ -140,6 +142,7 @@ function podeAcessar(perfil, rota) {
       "/acoes-massivas",
       "/historico-recuperacao",
       "/saude-da-base",
+      "/log-nivelamento",
       "/taxa-conversao",],
     administrativo: [
       "/",
@@ -481,6 +484,7 @@ export default function App() {
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
+    { rota: "/log-nivelamento", label: "Log do Job Noturno", icone: "Clock3", secao: "Gestão" },
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
     { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Gestão" },
@@ -832,6 +836,7 @@ export default function App() {
               <Route path="/historico-recuperacao" element={<HistoricoRecuperacao />} />
         <Route path="/executivo" element={<ExecutivoRecuperacao />} />
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
+              <Route path="/log-nivelamento" element={<LogNivelamento />} />
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
               <Route path="/dre" element={<DRE />} />
