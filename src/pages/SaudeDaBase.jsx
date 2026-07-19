@@ -171,7 +171,7 @@ const estilos = {
   subtituloBloco: { margin: "0 0 14px", fontSize: 13, color: "#475569" },
   linhaChips: { display: "flex", gap: 10, flexWrap: "wrap" },
   gridResumo: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 18 },
-  cardValor: { background: "#fff", border: "1px solid #edf0f5", borderRadius: 16, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
+  cardValor: { background: "#fff", border: "1px solid #edf0f5", borderRadius: 16, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 2px rgba(16,24,40,0.04)", transition: "box-shadow 0.15s ease, transform 0.15s ease" },
   numeroValor: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "#0d1321" },
   labelValor: { fontSize: 12.5, color: "#8a93a3", fontWeight: 600 },
   percentual: { fontSize: 14, fontWeight: 700, color: "#8a93a3" },
