@@ -867,15 +867,27 @@ export default function PainelCarteira({ embedded = false }) {
     }
   }
 
-  // Carrega retornos ADM pendentes/em tratamento do operador (contador +
-  // bloco no topo da carteira). RLS ja limita ao proprio operador.
+  // Carrega retornos ADM pendentes/em tratamento. Se gestao selecionou um
+  // operador especifico no seletor, mostra os retornos dele (visao "como
+  // se fosse" aquele operador); se nao selecionou ninguem (TODOS), gestao
+  // nao ve nada aqui (evita mostrar o total de todo mundo misturado).
   async function carregarRetornosPendentes() {
-    const { data } = await supabase
+    let query = supabase
       .from("retornos_adm")
       .select("id, aluno_id, resultado_adm, motivo, proximo_passo, status_tratamento, criado_em, operador_destino_nome")
       .in("status_tratamento", ["PENDENTE", "EM_TRATAMENTO"])
       .order("status_tratamento", { ascending: true })
       .order("criado_em", { ascending: true });
+
+    if (veTudo) {
+      if (operadorFiltro === "TODOS") {
+        setRetornosPendentes([]);
+        return;
+      }
+      query = query.eq("operador_destino_email", operadorFiltro);
+    }
+
+    const { data } = await query;
     setRetornosPendentes(data || []);
   }
 
@@ -1372,7 +1384,7 @@ export default function PainelCarteira({ embedded = false }) {
     { id: "valorBaixadoMes", rot: "Valor baixado no mes", val: formatarMoeda(kpis.valorBaixadoMes), cor: "#16a34a", financeiro: true, icone: "✅" },
     { id: "recebidosMes", rot: "Recebidos no mes", val: kpis.recebidosMes, cor: "#16a34a", financeiro: true, icone: "💰" },
     { id: "honorariosBaixadoMes", rot: "Honorarios no mes", val: formatarMoeda(kpis.honorariosBaixadoMes), cor: "#0d9488", financeiro: true, icone: "🧾" },
-  ].filter((c) => !veTudo || c.id !== "retornosAdm");
+  ].filter((c) => (!veTudo || operadorFiltro !== "TODOS") || c.id !== "retornosAdm");
 
   const painelReceptivo = (
     <div style={S.receptivoWrap}>
@@ -1427,7 +1439,7 @@ export default function PainelCarteira({ embedded = false }) {
 
       <div style={S.cabecalho}>
         <div>
-          <h1 style={S.titulo}>Minha Carteira</h1>
+          <h1 style={S.titulo}>{veTudo ? "Base Operacional" : "Minha Carteira"}</h1>
           <p style={S.subtitulo}>
             {veTudo ? "Visao completa da base de casos." : `Carteira de ${nomeOperadorPorEmail(email)}.`}
           </p>
@@ -1486,7 +1498,7 @@ export default function PainelCarteira({ embedded = false }) {
         painelReceptivo
       ) : (
         <>
-          {!veTudo && retornosPendentes.length > 0 && (
+          {(!veTudo || operadorFiltro !== "TODOS") && retornosPendentes.length > 0 && (
             <div style={S.retornoCarteira}>
               <div style={S.retornoCarteiraTopo}>
                 <span style={S.retornoCarteiraBadge}>📌 Retornos do ADM</span>
