@@ -1346,7 +1346,7 @@ const PH_BORDA = "#e3e7ee";
 const PH_BORDA_SUAVE = "#edf0f5";
 const PH_SOMBRA = "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)";
 const PH_FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const PH_VERDE = "#0f9d6b";
+const PH_VERDE = "#2563eb";
 
 const estilos = {
   hero: {
@@ -1387,7 +1387,7 @@ const estilos = {
   heroMetaLabel: { fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", color: PH_VERDE },
   heroMetaValor: { fontFamily: PH_FONTE_TITULO, fontSize: 22, fontWeight: 800, color: "#0d1321" },
   heroBarraFundo: { height: 8, borderRadius: 999, background: "#eef1f5", overflow: "hidden", marginBottom: 14 },
-  heroBarraPreenchida: { height: "100%", borderRadius: 999, background: `linear-gradient(90deg, ${PH_VERDE}, #34d399)`, transition: "width 0.4s ease" },
+  heroBarraPreenchida: { height: "100%", borderRadius: 999, background: `linear-gradient(90deg, ${PH_VERDE}, #60a5fa)`, transition: "width 0.4s ease" },
   heroRodape: { display: "flex", justifyContent: "space-between", flexWrap: "wrap", gap: 10, fontSize: 13, color: "#64748b" },
   faixaStats: {
     display: "grid",

@@ -705,8 +705,8 @@ function SecaoHistoria() {
 /* ===================== Estilos ===================== */
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const VERDE = "#0f9d6b";
-const VERDE_ESCURO = "#0b7d54";
+const VERDE = "#2563eb";
+const VERDE_ESCURO = "#1e40af";
 const BORDA = "#e6eaf0";
 
 const S = {
@@ -745,7 +745,7 @@ const S = {
     cursor: "pointer",
     marginBottom: 2,
   },
-  navItemAtivo: { background: "#ecfdf5", color: VERDE_ESCURO },
+  navItemAtivo: { background: "#eff6ff", color: VERDE_ESCURO },
 
   sidebarRodape: { fontSize: 11.5, color: "#94a3b8", fontWeight: 600, paddingTop: 14, borderTop: "1px solid rgba(15,23,42,0.08)" },
 
@@ -848,7 +848,7 @@ const S = {
   labelCampo: { fontSize: 12.5, fontWeight: 700, color: "#475569" },
   input: { padding: "9px 12px", borderRadius: 10, border: `1px solid ${BORDA}`, fontSize: 13.5, fontFamily: "inherit" },
 
-  cardFrase: { background: "#f0fdf6", border: "1px solid #bdeed4" },
+  cardFrase: { background: "#eff6ff", border: "1px solid #bfdbfe" },
   frase: { fontFamily: FONTE_TITULO, fontSize: 14.5, color: VERDE_ESCURO, fontWeight: 700, margin: 0, lineHeight: 1.4 },
 
   cardHistoria: {

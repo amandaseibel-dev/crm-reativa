@@ -237,7 +237,7 @@ const S = {
   periodoItem: { flex: 1, minWidth: 200, display: "flex", flexDirection: "column", gap: 3 },
   periodoItemProj: {},
   periodoSeta: { fontSize: 22, color: "#cbd5e1", fontWeight: 700 },
-  periodoRot: { fontSize: 12, color: "#16a34a", fontWeight: 600 },
+  periodoRot: { fontSize: 12, color: "#2563eb", fontWeight: 600 },
   periodoVal: { fontSize: 24, fontWeight: 800, color: "#0f172a", fontFamily: "'Sora', Inter, sans-serif" },
   periodoSub: { fontSize: 12, color: "#64748b" },
 
