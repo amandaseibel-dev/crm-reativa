@@ -473,6 +473,7 @@ export default function App() {
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
+    { rota: "/tv", label: "📺 TV ReATIVA", icone: "LayoutPanelTop", secao: "Gestão", externo: true },
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
@@ -588,6 +589,18 @@ export default function App() {
                   {mostrarTituloSecao && (
                     <div className="sidebar-secao-titulo">{item.secao}</div>
                   )}
+                  {item.externo ? (
+                    <a
+                      href={item.rota}
+                      target="_blank"
+                      rel="noreferrer"
+                      title={sidebarRecolhida ? item.label : undefined}
+                      className="sidebar-link-externo"
+                    >
+                      <IconeComponente size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
+                      {!sidebarRecolhida && <span>{item.label}</span>}
+                    </a>
+                  ) : (
                   <NavLink
                     to={item.rota}
                     end={item.rota === "/"}
@@ -636,6 +649,7 @@ export default function App() {
                   </span>
                 )}
                   </NavLink>
+                  )}
                 </div>
               );
             })}
