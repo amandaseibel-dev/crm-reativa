@@ -597,7 +597,7 @@ export default function ProjecaoHoraHora() {
                 <>
                   <div style={estilos.hero}>
                     <div style={estilos.heroTopo}>
-                      <span style={estilos.heroEyebrow}>HONORÁRIO DA FILIAL · {mesReferencia}</span>
+                      <span style={estilos.heroEyebrow}>HONORÁRIO DA REATIVA · {mesReferencia}</span>
                       <span style={estilos.heroBadge}>
                         {dashboard?.dias_uteis_restantes ?? 0} dias úteis restantes
                       </span>
