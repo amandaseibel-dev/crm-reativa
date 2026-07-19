@@ -1867,7 +1867,7 @@ export default function PainelCarteira({ embedded = false }) {
                             type="button"
                             onClick={(e) => tabularRapido(a, "MENSAGEM_ENVIADA", "Mensagem enviada", e)}
                             style={{
-                              background: "#0f9d6b",
+                              background: "#2563eb",
                               color: "#fff",
                               border: "none",
                               borderRadius: 8,
