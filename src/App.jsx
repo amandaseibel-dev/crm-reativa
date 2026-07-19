@@ -81,7 +81,6 @@ function podeAcessar(perfil, rota) {
     gerencia: [
       "/",
       "/portal-operacional",
-      "/tv",
       "/minha-fila",
       "/agenda",
       "/agenda-operacional",
@@ -117,7 +116,6 @@ function podeAcessar(perfil, rota) {
     supervisor: [
       "/",
       "/portal-operacional",
-      "/tv",
       "/minha-fila",
       "/agenda",
       "/agenda-operacional",
@@ -146,7 +144,6 @@ function podeAcessar(perfil, rota) {
     administrativo: [
       "/",
       "/portal-operacional",
-      "/tv",
       "/minha-fila",
       "/agenda",
       "/agenda-operacional",
@@ -170,7 +167,6 @@ function podeAcessar(perfil, rota) {
     operador: [
       "/",
       "/portal-operacional",
-      "/tv",
       "/minha-fila",
       "/aluno",
       "/crm",
@@ -516,6 +512,10 @@ export default function App() {
     if (item.rota === "/avisos") {
       const emA = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emA);
+    }
+    if (item.rota === "/tv") {
+      const emTv = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(emTv);
     }
     if (item.rota === "/usuarios") {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
