@@ -44,11 +44,9 @@ export default function ExecutivoRecuperacao() {
         <span style={S.sub}>Resultado consolidado da operação ReATIVA</span>
       </div>
 
-      <ComparativoAnos />
-
       <div style={S.heroRow}>
         <Hero rot="Total recuperado" val={moeda(d.recuperado_total)} cor="#0f172a" />
-        <Hero rot="Honorários" val={moeda(d.honorarios_total)} cor="#1e40af" />
+        <Hero rot="Honorários" val={moeda(d.honorarios_total)} cor="#1e40af" destaque />
         <Hero rot="Alunos pagos" val={num(d.alunos_pagos)} cor="#0f172a" />
         <Hero rot="% da carteira recuperada" val={(d.pct_recuperado_valor || 0) + "%"} cor="#16a34a" />
       </div>
@@ -59,6 +57,8 @@ export default function ExecutivoRecuperacao() {
         <Stat rot="Pagamentos processados" val={num(d.pagamentos)} />
       </div>
 
+      <ComparativoAnos />
+
       <div style={S.card}>
         <h3 style={S.h3}>Evolução mensal do recuperado</h3>
         {ev.map((x) => (
@@ -68,7 +68,7 @@ export default function ExecutivoRecuperacao() {
               <strong>{moeda(x.recuperado)}</strong>
             </div>
             <div style={S.track}>
-              <div style={{ ...S.fill, width: Math.max(2, (Number(x.recuperado) / maxEv) * 100) + "%", background: "#16a34a" }} />
+              <div style={{ ...S.fill, width: Math.max(2, (Number(x.recuperado) / maxEv) * 100) + "%" }} />
             </div>
           </div>
         ))}
@@ -99,11 +99,11 @@ export default function ExecutivoRecuperacao() {
   );
 }
 
-function Hero({ rot, val, cor }) {
+function Hero({ rot, val, cor, destaque }) {
   return (
-    <div style={S.hero}>
-      <span style={{ ...S.heroVal, color: cor }}>{val}</span>
-      <span style={S.heroRot}>{rot}</span>
+    <div style={{ ...S.hero, ...(destaque ? S.heroDestaque : {}) }}>
+      <span style={{ ...S.heroVal, color: destaque ? "#fff" : cor }}>{val}</span>
+      <span style={{ ...S.heroRot, ...(destaque ? { color: "#93c5fd" } : {}) }}>{rot}</span>
     </div>
   );
 }
@@ -117,24 +117,25 @@ function Stat({ rot, val }) {
 }
 
 const S = {
-  wrap: { padding: 24, fontFamily: "Arial, sans-serif", maxWidth: 1440, margin: "0 auto" },
+  wrap: { padding: 24, fontFamily: "Inter, system-ui, sans-serif", maxWidth: 1440, margin: "0 auto" },
   head: { marginBottom: 18 },
-  h1: { margin: 0, fontSize: 24, color: "#0f172a" },
+  h1: { margin: 0, fontSize: 25, color: "#0f172a", fontFamily: "'Sora', Inter, sans-serif", fontWeight: 800, letterSpacing: "-0.02em" },
   sub: { fontSize: 13, color: "#64748b" },
   heroRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 16 },
   hero: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 16, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
-  heroVal: { fontSize: 28, fontWeight: 800, lineHeight: 1.1 },
+  heroDestaque: { background: "linear-gradient(135deg, #0b1c3d 0%, #1e3a8a 100%)", border: "none", boxShadow: "0 18px 40px rgba(15,30,70,0.25)" },
+  heroVal: { fontSize: 28, fontWeight: 800, lineHeight: 1.1, fontFamily: "'Sora', Inter, sans-serif", letterSpacing: "-0.01em" },
   heroRot: { fontSize: 13, color: "#64748b", fontWeight: 600 },
-  statsRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 18 },
+  statsRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 22 },
   stat: { background: "#f8fafc", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 },
-  statVal: { fontSize: 20, fontWeight: 800, color: "#111827" },
+  statVal: { fontSize: 20, fontWeight: 800, color: "#111827", fontFamily: "'Sora', Inter, sans-serif" },
   statRot: { fontSize: 12, color: "#64748b", fontWeight: 600 },
   card: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
-  h3: { margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0f172a" },
-  linha: { marginBottom: 12 },
-  linhaTopo: { display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, color: "#334155", marginBottom: 5 },
-  track: { background: "#f1f5f9", borderRadius: 999, height: 12, overflow: "hidden" },
-  fill: { height: "100%", borderRadius: 999 },
+  h3: { margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0f172a", fontFamily: "'Sora', Inter, sans-serif" },
+  linha: { marginBottom: 14 },
+  linhaTopo: { display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, color: "#334155", marginBottom: 6 },
+  track: { background: "#f1f5f9", borderRadius: 999, height: 14, overflow: "hidden" },
+  fill: { height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #16a34a, #22c55e)" },
   legend: { display: "flex", gap: 16, fontSize: 12, color: "#64748b", marginBottom: 10 },
   dot: { display: "inline-block", width: 10, height: 10, borderRadius: 2, marginRight: 4 },
   muted: { color: "#64748b" },
