@@ -52,7 +52,7 @@ import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
-import ProjecaoHoraHora from "./pages/ProjecaoHoraHora"; import RelatorioReceptivo from "./pages/RelatorioReceptivo"; import MinhaAgendaPessoal from "./pages/MinhaAgendaPessoal";
+import ProjecaoHoraHora from "./pages/ProjecaoHoraHora"; import RelatorioReceptivo from "./pages/RelatorioReceptivo"; import MinhaAgendaPessoal from "./pages/MinhaAgendaPessoal"; import EnvioGmailLote from "./pages/EnvioGmailLote";
 import DRE from "./pages/DRE";
 import ImportarRecuperacao from "./pages/ImportarRecuperacao";
 import ExecutivoRecuperacao from "./pages/ExecutivoRecuperacao";
@@ -78,7 +78,7 @@ function EmDesenvolvimento({ titulo }) {
   );
 }
 function podeAcessar(perfil, rota) {
-  if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true;
+  if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return true;
   const permissoes = {
     gerencia: [
       "/",
@@ -475,7 +475,7 @@ export default function App() {
       secao: "Operação",
       esconderParaOperador: true,
     },
-    { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" },
+    { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" }, { rota: "/envio-gmail", label: "Envio pelo meu Gmail", icone: "Contact", secao: "Gestão" },
     { rota: "/aluno", label: "Aluno", icone: "User", secao: "Operação" },
     { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
@@ -528,7 +528,7 @@ export default function App() {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       if (!EMAILS_PODE_GERIR_USUARIOS.includes(email)) return false;
     }
-    if (item.rota === "/minha-agenda") { const emMa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return emMa === "amanda.seibel@aelbra.com.br"; } return podeAcessar(perfil, item.rota);
+    if (item.rota === "/minha-agenda") { const emMa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return emMa === "amanda.seibel@aelbra.com.br"; } if (item.rota === "/envio-gmail") { const emEg = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emEg); } return podeAcessar(perfil, item.rota);
   });
   return (
     <BrowserRouter>
@@ -844,7 +844,7 @@ export default function App() {
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} />
               <Route path="/dre" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <DRE /> : <Navigate to="/" replace />} />
-              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} />
+              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} />
       </Routes>
         </main>
       </div>
