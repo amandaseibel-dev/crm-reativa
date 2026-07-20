@@ -1111,14 +1111,14 @@ export default function FilaOperador() {
 
   return (
     <div style={pagina}>
-      <FilaReceptivo usuarioLogado={usuarioLogado} />
+      <PainelCarteira embedded /><FilaReceptivo usuarioLogado={usuarioLogado} />
       <ModuloLinkPagamentoGlobal />
-      <MuralAniversariantes />
-      <MinhaCarteira usuarioLogado={usuarioLogado} />
-      <ResumoDoDia usuarioLogado={usuarioLogado} />
+      
+      
+      
       <ReceberLeads usuarioLogado={usuarioLogado} aoReceber={carregarFila} />
       <PontoOperador usuarioLogado={usuarioLogado} />
-      <PainelCarteira embedded />
+      
       <FluxoLinksRapido />
 
       {erro && <p style={erroTexto}>{erro}</p>}
@@ -1271,7 +1271,7 @@ export default function FilaOperador() {
 
 const pagina = {
   minHeight: "100%",
-  background: "#020617",
+  background: "#f4f6fa",
   color: "#ffffff",
   padding: "24px",
   fontFamily: "Arial, sans-serif",
