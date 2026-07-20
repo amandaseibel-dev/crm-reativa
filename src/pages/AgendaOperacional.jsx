@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "../utils/operadores";
-import BotaoManual from "../components/BotaoManual";
+import BotaoManual from "../components/BotaoManual";import Alunos from "./Aluno";
 
 const STATUS_FINALIZACAO = [
   "CONTATAR",
@@ -120,7 +120,7 @@ export default function AgendaOperacional() {
   const [carregando, setCarregando] = useState(true);
   const [mesAtual, setMesAtual] = useState(new Date());
   const [diaSelecionado, setDiaSelecionado] = useState(hojeISO());
-  const [busca, setBusca] = useState("");
+  const [busca, setBusca] = useState(""); const [fichaId, setFichaId] = useState(null);
   const [filtroOperador, setFiltroOperador] = useState("TODOS");
   const [filtroTipoFinalizacao, setFiltroTipoFinalizacao] = useState("TODOS");
 
@@ -185,7 +185,7 @@ export default function AgendaOperacional() {
     window.location.href = "/aluno";
   }
 
-  function mudarMes(delta) {
+  async function abrirFichaDireto(item) { const cpf = String(item.cpf_referencia || "").trim(); if (cpf) { const { data } = await supabase.from("alunos").select("id").eq("cpf", cpf).limit(1); if (data && data[0] && data[0].id) { setFichaId(data[0].id); return; } } abrirCadastroAluno(item); } function mudarMes(delta) {
     const novo = new Date(mesAtual);
     novo.setMonth(novo.getMonth() + delta);
     setMesAtual(novo);
@@ -320,7 +320,7 @@ export default function AgendaOperacional() {
     <div style={styles.container}>
       <BotaoManual />
 
-      <div style={styles.cabecalho}>
+      {fichaId && (<div style={styles.modalOverlay} onClick={() => setFichaId(null)}><div style={styles.modalBox} onClick={(e) => e.stopPropagation()}><div style={styles.modalTopo}><h3 style={{ margin: 0, color: "#0d1321" }}>Ficha do aluno</h3><button style={styles.modalFechar} onClick={() => setFichaId(null)}>Fechar</button></div><Alunos fichaEmbedId={fichaId} /></div></div>)} <div style={styles.cabecalho}>
         <div>
           <h1 style={styles.titulo}>Agenda Operacional</h1>
           <p style={styles.subtitulo}>
@@ -506,7 +506,7 @@ export default function AgendaOperacional() {
                 </div>
               )}
 
-              <button style={styles.botaoVerde} onClick={() => abrirCadastroAluno(item)}>
+              <button style={styles.botaoVerde} onClick={() => abrirFichaDireto(item)}>
                 Abrir cadastro do aluno
               </button>
             </div>
@@ -517,7 +517,7 @@ export default function AgendaOperacional() {
   );
 }
 
-const styles = {
+const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }, modalBox: { background: "#fff", borderRadius: 16, padding: 22, maxWidth: 1100, width: "100%", maxHeight: "88vh", overflowY: "auto" }, modalTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }, modalFechar: { background: "#f1f5f9", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13, fontWeight: 700 },
   container: {
     minHeight: "100%",
     background: "#f4f6fa",
