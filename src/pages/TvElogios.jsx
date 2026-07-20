@@ -58,7 +58,7 @@ export default function TvElogios() {
     const t1 = setInterval(carregarDados, ATUALIZAR_DADOS * 1000);
     const t2 = setInterval(carregarElogios, ATUALIZAR_DADOS * 1000);
     const t3 = setInterval(carregarDicas, ATUALIZAR_DADOS * 1000);
-    return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3); };
+    const canal = supabase.channel("tv-tempo-real").on("postgres_changes", { event: "INSERT", schema: "public", table: "aluno_movimentacoes" }, () => { carregarDados(); carregarElogios(); }).subscribe(); return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3); supabase.removeChannel(canal); };
   }, []);
 
   async function carregarDicas() {
