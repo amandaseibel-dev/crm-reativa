@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import Aluno from "./Aluno";
 
 // Fila de acordos importados para a operacao confirmar/acompanhar.
 // Lista 1 linha por acordo (agrupado por CPF + base do bloqueto).
@@ -12,6 +13,7 @@ export default function FilaAcordosConfirmar() {
   const [filtro, setFiltro] = useState("A_CONFIRMAR");
   const [busca, setBusca] = useState("");
   const [email, setEmail] = useState("");
+  const [fichaId, setFichaId] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -105,14 +107,31 @@ export default function FilaAcordosConfirmar() {
                   </span>
                 </td>
                 <td style={S.td}>
-                  {i.status_confirmacao === "CONFIRMADO"
-                    ? <button style={S.btnMini} onClick={() => reabrir(i)}>reabrir</button>
-                    : <button style={S.btnConf} onClick={() => confirmar(i)}>Confirmar</button>}
+                  <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end" }}>
+                    <button style={S.btnFicha} onClick={() => setFichaId(i.aluno_id)}>Abrir ficha</button>
+                    {i.status_confirmacao === "CONFIRMADO"
+                      ? <button style={S.btnMini} onClick={() => reabrir(i)}>reabrir</button>
+                      : <button style={S.btnConf} onClick={() => confirmar(i)}>Confirmar</button>}
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+      )}
+
+      {fichaId && (
+        <div style={S.modalOverlay} onClick={() => setFichaId(null)}>
+          <div style={S.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div style={S.modalTopo}>
+              <span style={S.modalTitulo}>Ficha do aluno</span>
+              <button style={S.modalFechar} onClick={() => setFichaId(null)}>Fechar ✕</button>
+            </div>
+            <div style={S.modalConteudo}>
+              <Aluno fichaEmbedId={fichaId} />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -140,4 +159,11 @@ const S = {
   chipOk: { background: "#f0fdf4", color: "#166534", border: "1px solid #86efac" },
   btnConf: { background: "#15803d", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
   btnMini: { background: "transparent", color: "#2563eb", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  btnFicha: { background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", borderRadius: 8, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
+  modalOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "3vh 2vw", zIndex: 1000 },
+  modalBox: { background: "#fff", borderRadius: 16, width: "min(1100px, 96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" },
+  modalTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #e6eaf0", background: "#f8fafc" },
+  modalTitulo: { fontFamily: "'Sora', Inter, sans-serif", fontSize: 15, fontWeight: 800, color: "#0d1321" },
+  modalFechar: { background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
+  modalConteudo: { overflow: "auto", flex: 1 },
 };
