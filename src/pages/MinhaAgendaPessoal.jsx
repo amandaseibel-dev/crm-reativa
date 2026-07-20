@@ -4,7 +4,7 @@ import { supabase } from "../services/supabase";
 // Agenda pessoal e privada de cada usuario (RLS por e-mail no banco: cada um
 // so ve o que e seu). Trilhas: Importante, Pendencia, A fazer + Notas com
 // status + plano de baixas + registros operacionais (faltas, trocas,
-// intercorrencias). Nada aqui altera a base operacional.
+// intercorrencias) editaveis. Nada aqui altera a base operacional.
 
 const TIPOS = [
   { id: "IMPORTANTE", label: "Importante", emoji: "⭐", cor: "#b45309", bg: "#fffbeb", borda: "#fde68a" },
@@ -15,7 +15,6 @@ const TIPOS = [
 const RECOR_LABEL = { NENHUMA: "", DIARIA: "Diária", SEMANAL: "Semanal", MENSAL: "Mensal" };
 const RECOR_OPCOES = ["NENHUMA", "DIARIA", "SEMANAL", "MENSAL"];
 
-// Plano de baixas: 6 casos por hora (10 min cada), das 9h as 18h.
 const BAIXA_INICIO = 9;
 const BAIXA_FIM = 18;
 const BAIXA_POR_HORA = 6;
@@ -65,6 +64,7 @@ export default function MinhaAgendaPessoal() {
   const [baixas, setBaixas] = useState(null);
   const [novoOp, setNovoOp] = useState(vazioOp());
   const [operadores, setOperadores] = useState([]);
+  const [editandoOpId, setEditandoOpId] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -90,16 +90,27 @@ export default function MinhaAgendaPessoal() {
     const texto = String(novoOp.texto || "").trim();
     if (!novoOp.operador || !texto) { alert("Informe o operador e a descrição."); return; }
     setSalvando(true);
-    const { error } = await supabase.from("agenda_pessoal").insert({
+    const dados = {
       tipo: novoOp.tipo,
       conteudo: texto,
       operador_ref: novoOp.operador,
       data: novoOp.data || null,
-    });
+      atualizado_em: new Date().toISOString(),
+    };
+    const q = editandoOpId
+      ? supabase.from("agenda_pessoal").update(dados).eq("id", editandoOpId)
+      : supabase.from("agenda_pessoal").insert(dados);
+    const { error } = await q;
     setSalvando(false);
     if (error) { alert("Erro ao salvar: " + error.message); return; }
     setNovoOp(vazioOp());
+    setEditandoOpId(null);
     carregar();
+  }
+
+  function editarOperacional(r) {
+    setEditandoOpId(r.id);
+    setNovoOp({ operador: r.operador_ref || "", tipo: r.tipo, data: r.data || "", texto: r.conteudo || "" });
   }
 
   async function carregarBaixas() {
@@ -227,7 +238,7 @@ export default function MinhaAgendaPessoal() {
       <div style={S.cabecalho}>
         <div>
           <h1 style={S.titulo}>Minha Agenda</h1>
-          <p style={S.subtitulo}>Seu espaço pessoal e privado — só você vê. Organize o importante, as pendências, o que tem a fazer, suas ideias, o plano de baixas e a gestão da operação (faltas, trocas e intercorrências).</p>
+          <p style={S.subtitulo}>Seu espaço pessoal e privado — só você vê. Importante, pendências, a fazer, ideias, plano de baixas e a gestão da operação (faltas, trocas, intercorrências).</p>
         </div>
         <button style={S.botaoAtualizar} onClick={() => { carregar(); carregarBaixas(); }}>Atualizar</button>
       </div>
@@ -386,7 +397,8 @@ export default function MinhaAgendaPessoal() {
                 onChange={(e) => setNovoOp((v) => ({ ...v, texto: e.target.value }))}
                 onKeyDown={(e) => { if (e.key === "Enter") adicionarOperacional(); }}
               />
-              <button style={S.opBtn} disabled={salvando} onClick={adicionarOperacional}>Registrar</button>
+              <button style={S.opBtn} disabled={salvando} onClick={adicionarOperacional}>{editandoOpId ? "Salvar" : "Registrar"}</button>
+              {editandoOpId && <button style={S.opCancelar} onClick={() => { setEditandoOpId(null); setNovoOp(vazioOp()); }}>Cancelar</button>}
             </div>
             <div style={S.itens}>
               {registrosOp.length === 0 && <div style={S.vazio}>Nenhum registro ainda.</div>}
@@ -399,6 +411,7 @@ export default function MinhaAgendaPessoal() {
                       <span style={S.itemTexto}><strong>{r.operador_ref || "-"}</strong> — {r.conteudo}</span>
                       {r.data && <div style={S.metaLinha}><span style={{ ...S.metaData, color: "#475569" }}>{dataBR(r.data)}</span></div>}
                     </div>
+                    <button style={S.opEditar} title="Editar" onClick={() => editarOperacional(r)}>editar</button>
                     <button style={S.excluir} title="Excluir" onClick={() => excluir(r)}>×</button>
                   </div>
                 );
@@ -462,4 +475,6 @@ const S = {
   opForm: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" },
   opInput: { border: "1px solid #cbd5e1", borderRadius: 8, padding: "8px 10px", fontSize: 13, background: "#fff", color: "#0f172a", outline: "none" },
   opBtn: { background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
+  opCancelar: { background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
+  opEditar: { background: "transparent", border: "none", color: "#2563eb", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: "0 4px", flexShrink: 0 },
 };
