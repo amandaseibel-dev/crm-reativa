@@ -1632,7 +1632,7 @@ export default function PainelCarteira({ embedded = false }) {
 
       <div style={S.cabecalho}>
         <div>
-          <h1 style={S.titulo}>{veTudo ? "Base Operacional" : "Minha Carteira"}</h1>
+          <h1 style={S.titulo}>{veTudo ? "Panorama 360" : "Minha Carteira"}</h1>
           <p style={S.subtitulo}>
             {veTudo ? "Visao completa da base de casos." : `Carteira de ${nomeOperadorPorEmail(email)}.`}
           </p>
