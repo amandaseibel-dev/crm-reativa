@@ -466,7 +466,7 @@ export default function App() {
       secao: "Operação",
       esconderParaOperador: true,
     },
-    { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Operação" },
+    
     { rota: "/painel-carteira", label: perfil === "operador" ? "Minha Carteira" : "Panorama 360", icone: "Folder", secao: "Operação" },
     {
       rota: "/minha-fila",
@@ -482,7 +482,7 @@ export default function App() {
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" }, { rota: "/relatorio-receptivo", label: "Relatório Receptivo", icone: "Phone", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
-    { rota: "/tv", label: "📺 TV ReATIVA", icone: "LayoutPanelTop", secao: "Gestão", externo: true },
+    { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Gestão" }, { rota: "/tv", label: "📺 TV ReATIVA", icone: "LayoutPanelTop", secao: "Gestão", externo: true },
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
