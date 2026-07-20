@@ -14,7 +14,7 @@ function ufDaUnidade(u) {
   if (/\/AM\b|MANAUS/.test(t)) return "AM";
   if (/\/PA\b|SANTAR/.test(t)) return "PA";
   if (/\/GO\b|ITUMBIARA/.test(t)) return "GO";
-  if (/CANOAS|TORRES|SANTA MARIA|CACHOEIRA|JERONIMO|JER\u00d4NIMO|GUAIBA|GUA\u00cdBA|CARAZINHO|GRAVATA|\bSAJ\b|POA|CAMPUS/.test(t)) return "RS";
+  if (/CANOAS|TORRES|SANTA MARIA|CACHOEIRA|JERONIMO|JERÔNIMO|GUAIBA|GUAÍBA|CARAZINHO|GRAVATA|\bSAJ\b|POA|CAMPUS/.test(t)) return "RS";
   return null;
 }
 
@@ -130,25 +130,6 @@ export default function VisaoGestao360({ dias = 30 }) {
         <Stat rot="Já recuperados" val={num(base.quitados)} cor="#16a34a" />
         <Stat rot="Sem dívida em aberto" val={num((base.ativos || 0) - (base.com_divida || 0))} cor="#f59e0b" />
         <Stat rot="Valor a cobrar" val={moeda(base.valor_total)} cor="#16a34a" />
-      </div>
-
-      <div style={s.bloco}>
-        <h3 style={s.h3}>Funil da base</h3>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <div style={{ flex: 1, minWidth: 170, background: "#f1f5f9", borderRadius: 10, padding: 14 }}>
-            <div style={{ fontSize: 24, fontWeight: 800, color: "#475569" }}>{num(base.total)}</div>
-            <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>Base histórica (CPFs)</div>
-          </div>
-          <div style={{ flex: 1, minWidth: 170, background: "#dbeafe", borderRadius: 10, padding: 14 }}>
-            <div style={{ fontSize: 24, fontWeight: 800, color: "#1d4ed8" }}>{num(base.com_divida)}</div>
-            <div style={{ fontSize: 12, color: "#1e40af", fontWeight: 600 }}>Carteira a cobrar · {moeda(base.valor_total)}</div>
-          </div>
-          <div style={{ flex: 1, minWidth: 170, background: "#dcfce7", borderRadius: 10, padding: 14 }}>
-            <div style={{ fontSize: 24, fontWeight: 800, color: "#15803d" }}>{num(base.quitados)}</div>
-            <div style={{ fontSize: 12, color: "#166534", fontWeight: 600 }}>Já recuperados (fichas)</div>
-          </div>
-        </div>
-        <p style={s.muted}>Base histórica = CPFs importados. Carteira a cobrar = quem tem título em aberto hoje. O restante está sem dívida em aberto ou já quitado.</p>
       </div>
 
       {saude && (
