@@ -59,7 +59,7 @@ export default function AlterarOperadorResponsavel({
       return;
     }
     const motivoLimpo = motivo.trim();
-    if (!motivoLimpo) {
+    if (false) {
       alert("Informe o motivo da alteração.");
       return;
     }
