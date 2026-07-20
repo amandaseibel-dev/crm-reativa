@@ -114,9 +114,9 @@ export default function MinhaAgendaPessoal() {
 
   async function carregarBaixas() {
     const { data, count } = await supabase
-      .from("solicitacoes_confirmacao_pagamento")
+      .from("links_pagamento")
       .select("aluno_nome, aluno_cpf", { count: "exact" })
-      .eq("status", "AGUARDANDO_CONFIRMACAO")
+      .eq("status", "AGUARDANDO_BAIXA")
       .order("aluno_nome", { ascending: true })
       .limit(60);
     setBaixas({ total: count || 0, casos: data || [] });
