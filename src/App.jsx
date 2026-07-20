@@ -467,7 +467,7 @@ export default function App() {
       esconderParaOperador: true,
     },
     { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Operação" },
-    { rota: "/painel-carteira", label: "Minha Carteira", icone: "Folder", secao: "Operação" },
+    { rota: "/painel-carteira", label: perfil === "operador" ? "Minha Carteira" : "Panorama 360", icone: "Folder", secao: "Operação" },
     {
       rota: "/minha-fila",
       label: "Fila Operacional",
