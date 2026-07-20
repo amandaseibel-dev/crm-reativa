@@ -36,7 +36,7 @@ function Podio({ titulo, rank }) {
         })}
       </div>
       <div style={S.rankResto}>
-        {rank.slice(3).map((o, i) => (
+        {rank.slice(3, 3).map((o, i) => (
           <div key={o.operador} style={S.rankRestoItem}><span>{i + 4}. {o.operador}</span><strong style={{ color: "#7dd3fc" }}>{num(o.pagos)} pgtos</strong></div>
         ))}
       </div>
