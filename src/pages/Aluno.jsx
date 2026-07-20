@@ -477,7 +477,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   async function abrirAluno(aluno) {
     setAbaFicha("dados");
     prepararAlunoNaTela(aluno);
-    await carregarMovimentacoes(aluno.id);
+    await carregarMovimentacoes(aluno.id); setTimeout(function(){ var el = document.getElementById("ficha-aluno"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 150);
   }
   function prepararAlunoNaTela(aluno) {
     setAlunoSelecionado(aluno);
@@ -1265,7 +1265,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
           )}
         </div>
         <div style={caixa}>
-          {!alunoSelecionado ? (
+          <span id="ficha-aluno" />{!alunoSelecionado ? (
             <div>
               <h2 style={tituloSecao}>Ficha do aluno</h2>
               <p style={textoCinza}>
