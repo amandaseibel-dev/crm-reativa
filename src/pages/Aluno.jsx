@@ -1038,7 +1038,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       return;
     }
     const motivo = motivoAlteracaoOperador.trim();
-    if (!motivo) {
+    if (false) {
       alert("Informe o motivo da alteração.");
       return;
     }
@@ -1534,7 +1534,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       </select>
                       <input
                         type="text"
-                        placeholder="Motivo da troca (obrigatório)"
+                        placeholder="Motivo da troca (opcional)"
                         value={motivoAlteracaoOperador}
                         onChange={(e) => setMotivoAlteracaoOperador(e.target.value)}
                         style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12 }}
@@ -1546,7 +1546,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                             await alterarOperadorResponsavel();
                             setEditandoOperadorRapido(false);
                           }}
-                          disabled={salvando || !novoOperadorEmail || !motivoAlteracaoOperador.trim()}
+                          disabled={salvando || !novoOperadorEmail}
                           style={{ border: "none", background: "#16a34a", color: "#fff", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
                         >
                           {salvando ? "..." : "Salvar"}
