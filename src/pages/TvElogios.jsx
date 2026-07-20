@@ -11,7 +11,7 @@ function num(v) {
   return Number(v || 0).toLocaleString("pt-BR");
 }
 
-function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCurto = "pgtos", so3 = true, formatador = num }) {
+function Podio({ titulo, rank }) {
   const trio = [{ o: rank[1], pos: 2 }, { o: rank[0], pos: 1 }, { o: rank[2], pos: 3 }];
   const alturas = { 1: "32vh", 2: "23vh", 3: "18vh" };
   const cores = { 1: "linear-gradient(180deg, #fde68a, #f59e0b)", 2: "linear-gradient(180deg, #e2e8f0, #94a3b8)", 3: "linear-gradient(180deg, #fdba74, #c2843f)" };
@@ -27,6 +27,7 @@ function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCur
             <div key={idx} style={S.podioCol}>
               <div style={{ ...S.podioMedalha, fontSize: item.pos === 1 ? "5vw" : "3.6vw" }}>{medalha[item.pos]}</div>
               <div style={{ ...S.podioNome, fontSize: item.pos === 1 ? "2.4vw" : "1.9vw" }}>{o.operador}</div>
+              <div style={{ ...S.podioValor, fontSize: item.pos === 1 ? "2.6vw" : "2vw" }}>{num(o.pagos)} pagamentos</div>
               <div style={{ ...S.podioBase, height: alturas[item.pos], background: cores[item.pos] }}>
                 <span style={S.podioPos}>{item.pos}</span>
               </div>
@@ -35,8 +36,8 @@ function Podio({ titulo, rank, campo = "pagos", sufixo = "pagamentos", sufixoCur
         })}
       </div>
       <div style={S.rankResto}>
-        {(so3 ? [] : rank.slice(3)).map((o, i) => (
-          <div key={o.operador} style={S.rankRestoItem}><span>{i + 4}. {o.operador}</span><strong style={{ color: "#7dd3fc" }}>{formatador(o[campo])} {sufixoCurto}</strong></div>
+        {rank.slice(3).map((o, i) => (
+          <div key={o.operador} style={S.rankRestoItem}><span>{i + 4}. {o.operador}</span><strong style={{ color: "#7dd3fc" }}>{num(o.pagos)} pgtos</strong></div>
         ))}
       </div>
     </div>
@@ -58,7 +59,10 @@ export default function TvElogios() {
     const t1 = setInterval(carregarDados, ATUALIZAR_DADOS * 1000);
     const t2 = setInterval(carregarElogios, ATUALIZAR_DADOS * 1000);
     const t3 = setInterval(carregarDicas, ATUALIZAR_DADOS * 1000);
-    const canal = supabase.channel("tv-tempo-real").on("postgres_changes", { event: "INSERT", schema: "public", table: "aluno_movimentacoes" }, () => { carregarDados(); carregarElogios(); }).subscribe(); return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3); supabase.removeChannel(canal); };
+    // Blindagem para TV 24h: recarrega a pagina inteira a cada 10 min, para
+    // se recuperar caso o navegador congele/perca o tempo real em segundo plano.
+    const t4 = setInterval(() => { try { window.location.reload(); } catch (e) {} }, 10 * 60 * 1000);
+    return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3); clearInterval(t4); };
   }, []);
 
   async function carregarDicas() {
@@ -89,7 +93,7 @@ export default function TvElogios() {
   }
 
   const telas = useMemo(() => {
-    const base = ["semana", "mes", "acionamentos", "acionamentosDia", "recuperadoDia", "resultado", "honorarios", "projecao", "hoje", "porDia", "alunos", "maior"];
+    const base = ["semana", "mes", "resultado", "projecao", "alunos", "maior"];
     const dcs = (dicas || []).map((x) => ({ tipo: "dica", dica: x }));
     const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
     return [...base.map((t) => ({ tipo: t })), ...dcs, ...els];
@@ -101,23 +105,10 @@ export default function TvElogios() {
     return () => clearInterval(t);
   }, [telas]);
 
-  useEffect(() => {
-    function onKey(e) {
-      if (!telas.length) return;
-      if (e.key === "ArrowRight" || e.key === " ") setIndice((i) => (i + 1) % telas.length);
-      else if (e.key === "ArrowLeft") setIndice((i) => (i - 1 + telas.length) % telas.length);
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [telas]);
-
-  function irPara(n) { setIndice((n + telas.length) % telas.length); }
-
   const atual = telas[indice % (telas.length || 1)] || { tipo: "semana" };
 
   useEffect(() => {
     if (atual.tipo !== "elogio" || !atual.elogio?.elogio_print_path) { setUrlElogio(""); return; }
-    setUrlElogio("");
     let ativo = true;
     supabase.storage.from("elogios-prints").createSignedUrl(atual.elogio.elogio_print_path, 3600)
       .then(({ data }) => { if (ativo) setUrlElogio(data?.signedUrl || ""); });
@@ -128,118 +119,66 @@ export default function TvElogios() {
   const p = proj || {};
   const dpr = p.delta_proj_recuperado;
   const deltaCor = dpr == null ? "#93c5fd" : dpr > 0 ? "#4ade80" : dpr < 0 ? "#f87171" : "#93c5fd";
-  const deltaTxt = dpr == null ? "comparativo com ontem começa amanhã"
+  const deltaTxt = dpr == null ? "comparativo com ontem comeca amanha"
     : dpr > 0 ? "▲ subiu " + moeda(dpr) + " vs ontem"
     : dpr < 0 ? "▼ caiu " + moeda(Math.abs(dpr)) + " vs ontem"
     : "= igual a ontem";
 
   return (
     <div style={S.tv}>
-      <button
-        style={S.btnFull}
-        onClick={() => {
-          const el = document.documentElement;
-          if (!document.fullscreenElement) { (el.requestFullscreen || el.webkitRequestFullscreen || (()=>{})).call(el); }
-          else { (document.exitFullscreen || document.webkitExitFullscreen || (()=>{})).call(document); }
-        }}
-        title="Tela cheia"
-      >⛶ Tela cheia</button>
-      <button style={S.setaEsq} onClick={() => irPara(indice - 1)} aria-label="Anterior">‹</button>
-      <button style={S.setaDir} onClick={() => irPara(indice + 1)} aria-label="Próximo">›</button>
       <div style={S.topo}>
         <span style={S.marca}>Re<span style={{ color: "#3b82f6" }}>A</span>TIVA</span>
-        <span style={S.topoSub}>Recuperação ULBRA · ao vivo</span>
+        <span style={S.topoSub}>Recuperacao ULBRA · ao vivo</span>
       </div>
 
       {atual.tipo === "semana" && <Podio titulo="Melhores da semana" rank={d.ranking_semana || []} />}
-      {atual.tipo === "mes" && <Podio titulo="Melhores do mês" rank={d.ranking_mes || []} />}
-      {atual.tipo === "acionamentos" && <Podio titulo="Top acionamentos da semana" rank={d.ranking_acionamentos || []} campo="acionamentos" sufixo="acionamentos" sufixoCurto="acion." so3 />}
-      {atual.tipo === "acionamentosDia" && <Podio titulo="Top acionamentos do dia" rank={d.ranking_acionamentos_dia || []} campo="acionamentos" sufixo="acionamentos" sufixoCurto="acion." />}
-      {atual.tipo === "recuperadoDia" && <Podio titulo="Top recuperado do dia" rank={(d.ranking_recuperado_dia || []).map((x) => ({ operador: x.operador, valor: x.valor }))} campo="valor" sufixo="recuperado" sufixoCurto="" formatador={moeda} />}
+      {atual.tipo === "mes" && <Podio titulo="Melhores do mes" rank={d.ranking_mes || []} />}
 
       {atual.tipo === "resultado" && (
         <div style={S.tela}>
-          <div style={S.rot}>Resultado do mês</div>
-          <div style={S.numGigante}>{moeda(p.honorarios_mes)}</div>
+          <div style={S.rot}>Resultado do mes</div>
+          <div style={S.numGigante}>{moeda(p.recuperado_mes)}</div>
           {p.pct_meta != null ? (
             <div style={S.metaLinha}>
               <div style={S.barraFundo}><div style={{ ...S.barra, width: Math.min(100, p.pct_meta) + "%" }} /></div>
               <div style={S.metaTexto}>{p.pct_meta}% da meta ({moeda(p.meta)})</div>
             </div>
-          ) : <div style={S.ultimaMeta}>Meta não cadastrada</div>}
+          ) : <div style={S.ultimaMeta}>Meta nao cadastrada</div>}
           <div style={S.linhaCartoes}>
-            <Cartao rot="Recuperado" val={moeda(p.recuperado_mes)} />
+            <Cartao rot="Honorarios" val={moeda(p.honorarios_mes)} />
             <Cartao rot="Falta p/ meta" val={p.falta != null ? moeda(p.falta) : "-"} />
             <Cartao rot={"Precisa/dia (" + (p.dias_restantes || "-") + "d)"} val={p.precisa_por_dia != null ? moeda(p.precisa_por_dia) : "-"} />
           </div>
         </div>
       )}
 
-      {atual.tipo === "honorarios" && (
-        <div style={S.tela}>
-          <div style={S.rot}>Projeção de honorários (fechamento)</div>
-          <div style={S.numGigante}>{moeda(p.proj_honorarios)}</div>
-          <div style={S.linhaCartoes}>
-            <Cartao rot="Honorários realizados no mês" val={moeda(p.honorarios_mes)} />
-          </div>
-        </div>
-      )}
-
       {atual.tipo === "projecao" && (
         <div style={S.tela}>
-          <div style={S.rot}>Projeção de fechamento</div>
+          <div style={S.rot}>Projecao do mes</div>
           <div style={S.numGigante}>{moeda(p.proj_recuperado)}</div>
           <div style={{ ...S.projDelta, color: deltaCor }}>{deltaTxt}</div>
-          <div style={S.ultimaMeta}>Honorários projetados: {moeda(p.proj_honorarios)}</div>
-        </div>
-      )}
-
-      {atual.tipo === "hoje" && (
-        <div style={S.tela}>
-          <div style={S.rot}>Recuperado hoje</div>
-          <div style={S.numGigante}>{moeda(d.recuperado_dia)}</div>
-          <div style={{ ...S.ultimaAluno, color: "#4ade80" }}>Honorários: {moeda(d.honorarios_dia)}</div>
-          <div style={S.linhaCartoes}>
-            <Cartao rot="Alunos pagos hoje" val={num(d.alunos_pagos_dia)} />
-          </div>
-        </div>
-      )}
-
-      {atual.tipo === "porDia" && (
-        <div style={S.tela}>
-          <div style={S.rot}>Pagamentos por dia</div>
-          <div style={S.barrasDia}>
-            {(d.pagamentos_por_dia || []).map((x) => {
-              const maxq = Math.max(1, ...(d.pagamentos_por_dia || []).map((y) => Number(y.qtd) || 0));
-              return (
-                <div key={x.dia} style={S.barCol}>
-                  <div style={S.barValor}>{num(x.qtd)}</div>
-                  <div style={{ ...S.barra2, height: Math.max(1.5, (Number(x.qtd) / maxq) * 32) + "vh" }} />
-                  <div style={S.barDia}>{x.dia}</div>
-                </div>
-              );
-            })}
-          </div>
+          <div style={S.ultimaMeta}>Honorarios projetados: {moeda(p.proj_honorarios)}</div>
         </div>
       )}
 
       {atual.tipo === "alunos" && (
         <div style={S.tela}>
-          <div style={S.rot}>Alunos recuperados no mês</div>
+          <div style={S.rot}>Alunos recuperados no mes</div>
           <div style={S.numGigante}>{num(d.alunos_pagos_mes)}</div>
           <div style={S.linhaCartoes}>
             <Cartao rot="Recuperados hoje" val={num(d.alunos_pagos_dia)} />
-            <Cartao rot="No mês" val={num(d.alunos_pagos_mes)} />
+            <Cartao rot="No mes" val={num(d.alunos_pagos_mes)} />
           </div>
         </div>
       )}
 
       {atual.tipo === "maior" && (
         <div style={S.tela}>
-          <div style={S.rotBig}>💰 Maior pagamento do mês</div>
+          <div style={S.rotBig}>💰 Maior pagamento do mes</div>
           {d.maior_pagamento ? (
             <>
               <div style={S.numGigante}>{moeda(d.maior_pagamento.valor)}</div>
+              <div style={S.ultimaAluno}>{d.maior_pagamento.aluno}</div>
               <div style={S.ultimaMeta}>por {d.maior_pagamento.operador} · {d.maior_pagamento.quando}</div>
             </>
           ) : <div style={S.ultimaMeta}>Sem pagamentos ainda.</div>}
@@ -264,7 +203,7 @@ export default function TvElogios() {
 
       <div style={S.pontos}>
         {telas.map((_, i) => (
-          <span key={i} onClick={() => irPara(i)} style={{ ...S.ponto, cursor: "pointer", background: i === (indice % telas.length) ? "#3b82f6" : "#334155" }} />
+          <span key={i} style={{ ...S.ponto, background: i === (indice % telas.length) ? "#3b82f6" : "#334155" }} />
         ))}
       </div>
     </div>
@@ -282,9 +221,6 @@ function Cartao({ rot, val }) {
 
 const S = {
   tv: { minHeight: "100vh", background: "radial-gradient(circle at 20% 15%, rgba(37,99,235,0.28), transparent 40%), radial-gradient(circle at 85% 80%, rgba(34,197,94,0.16), transparent 42%), linear-gradient(135deg, #020617, #0b1224 55%, #0f172a)", color: "#fff", fontFamily: "Inter, Arial, sans-serif", display: "flex", flexDirection: "column", padding: "3vh 4vw", boxSizing: "border-box" },
-  setaEsq: { position: "absolute", left: "1.5vw", top: "50%", transform: "translateY(-50%)", zIndex: 20, background: "rgba(15,23,42,0.35)", border: "1px solid rgba(59,130,246,0.35)", color: "#dbeafe", borderRadius: "50%", width: "4vw", height: "4vw", fontSize: "2.4vw", cursor: "pointer", lineHeight: 1 },
-  setaDir: { position: "absolute", right: "1.5vw", top: "50%", transform: "translateY(-50%)", zIndex: 20, background: "rgba(15,23,42,0.35)", border: "1px solid rgba(59,130,246,0.35)", color: "#dbeafe", borderRadius: "50%", width: "4vw", height: "4vw", fontSize: "2.4vw", cursor: "pointer", lineHeight: 1 },
-  btnFull: { position: "absolute", top: "2vh", right: "2vw", zIndex: 20, background: "rgba(59,130,246,0.18)", border: "1px solid rgba(59,130,246,0.4)", color: "#dbeafe", borderRadius: 10, padding: "0.8vh 1.2vw", fontSize: "1.1vw", fontWeight: 700, cursor: "pointer" },
   topo: { display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: "2vh" },
   marca: { fontSize: "3.2vw", fontWeight: 800, letterSpacing: "0.06em", textShadow: "0 0 30px rgba(59,130,246,0.6)" },
   topoSub: { fontSize: "1.3vw", color: "#7dd3fc", fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.15em" },
@@ -310,11 +246,6 @@ const S = {
   rankResto: { display: "flex", flexWrap: "wrap", gap: "1vh 3vw", justifyContent: "center", marginTop: "3vh", width: "72%" },
   rankRestoItem: { display: "flex", gap: "1vw", fontSize: "1.5vw", color: "#cbd5e1", fontWeight: 600 },
   projDelta: { fontSize: "2vw", fontWeight: 800, marginTop: "0.5vh" },
-  barrasDia: { display: "flex", alignItems: "flex-end", justifyContent: "center", gap: "1.4vw", height: "44vh", width: "88%", marginTop: "2vh" },
-  barCol: { display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", flex: 1, maxWidth: "7vw" },
-  barValor: { fontSize: "1.4vw", fontWeight: 900, color: "#fff", marginBottom: "0.4vh" },
-  barra2: { width: "70%", borderRadius: "8px 8px 0 0", background: "linear-gradient(180deg, #4ade80, #16a34a)", boxShadow: "0 0 20px rgba(34,197,94,0.5)" },
-  barDia: { fontSize: "1.1vw", color: "#93c5fd", marginTop: "0.6vh", fontWeight: 600 },
   ultimaAluno: { fontSize: "3.2vw", fontWeight: 800 },
   ultimaMeta: { fontSize: "1.7vw", color: "#93c5fd", fontWeight: 600 },
   imagem: { maxWidth: "70vw", maxHeight: "58vh", borderRadius: 16, objectFit: "contain", boxShadow: "0 20px 60px rgba(0,0,0,0.5)" },
