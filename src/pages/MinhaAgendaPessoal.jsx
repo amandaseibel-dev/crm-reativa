@@ -4,7 +4,8 @@ import { supabase } from "../services/supabase";
 // Agenda pessoal e privada de cada usuario (RLS por e-mail no banco: cada um
 // so ve o que e seu). Trilhas: Importante, Pendencia, A fazer -- cada item
 // pode ter data, horario e recorrencia. Alem disso, um espaco de Notas
-// (pensamentos e ideias) com status. Nada aqui toca a base operacional.
+// (pensamentos e ideias) com status, e um plano de baixas do dia. Nada aqui
+// toca a base operacional (so consulta a fila de baixa).
 
 const TIPOS = [
   { id: "IMPORTANTE", label: "Importante", emoji: "⭐", cor: "#b45309", bg: "#fffbeb", borda: "#fde68a" },
@@ -14,6 +15,11 @@ const TIPOS = [
 
 const RECOR_LABEL = { NENHUMA: "", DIARIA: "Diária", SEMANAL: "Semanal", MENSAL: "Mensal" };
 const RECOR_OPCOES = ["NENHUMA", "DIARIA", "SEMANAL", "MENSAL"];
+
+// Plano de baixas: 6 casos por hora (10 min cada), das 9h as 18h.
+const BAIXA_INICIO = 9;
+const BAIXA_FIM = 18;
+const BAIXA_POR_HORA = 6;
 
 const STATUS_NOTA = [
   { id: "NOVA", label: "Nova", cor: "#475569", bg: "#f1f5f9" },
@@ -44,14 +50,24 @@ export default function MinhaAgendaPessoal() {
   const [novo, setNovo] = useState({ IMPORTANTE: vazioForm(), PENDENCIA: vazioForm(), A_FAZER: vazioForm() });
   const [novaNota, setNovaNota] = useState("");
   const [salvando, setSalvando] = useState(false);
+  const [baixas, setBaixas] = useState(null);
 
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
       setEmail(data?.user?.email || "");
       await carregar();
+      await carregarBaixas();
     })();
   }, []);
+
+  async function carregarBaixas() {
+    const { count } = await supabase
+      .from("solicitacoes_confirmacao_pagamento")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "AGUARDANDO_CONFIRMACAO");
+    setBaixas(count || 0);
+  }
 
   async function carregar() {
     setCarregando(true);
@@ -132,6 +148,22 @@ export default function MinhaAgendaPessoal() {
   const hojeISO = new Date().toISOString().slice(0, 10);
   const notas = porTipo.NOTA;
 
+  const planoBaixas = useMemo(() => {
+    if (baixas == null || baixas <= 0) return null;
+    const maxBlocos = BAIXA_FIM - BAIXA_INICIO;
+    const nBlocos = Math.min(maxBlocos, Math.ceil(baixas / BAIXA_POR_HORA));
+    const blocos = [];
+    let restante = baixas;
+    for (let k = 0; k < nBlocos; k++) {
+      const q = Math.min(BAIXA_POR_HORA, restante);
+      blocos.push({ ini: BAIXA_INICIO + k, fim: BAIXA_INICIO + k + 1, qtd: q });
+      restante -= q;
+    }
+    return { total: baixas, blocos, restante };
+  }, [baixas]);
+
+  function h2(n) { return String(n).padStart(2, "0") + "h"; }
+
   function metaItem(i) {
     const partes = [];
     if (i.data) {
@@ -150,13 +182,33 @@ export default function MinhaAgendaPessoal() {
           <h1 style={S.titulo}>Minha Agenda</h1>
           <p style={S.subtitulo}>Seu espaço pessoal e privado — só você vê. Organize o importante, as pendências, o que tem a fazer (com dia, hora e recorrência) e guarde suas ideias com status.</p>
         </div>
-        <button style={S.botaoAtualizar} onClick={carregar}>Atualizar</button>
+        <button style={S.botaoAtualizar} onClick={() => { carregar(); carregarBaixas(); }}>Atualizar</button>
       </div>
 
       {carregando ? (
         <p style={S.muted}>Carregando sua agenda...</p>
       ) : (
         <>
+          {planoBaixas && (
+            <div style={S.baixaCard}>
+              <div style={S.colunaTopo}>
+                <span style={{ ...S.colunaTitulo, color: "#0f766e" }}>🧾 Plano de baixas de hoje</span>
+                <span style={S.contador}>{planoBaixas.total} na fila</span>
+              </div>
+              <div style={S.baixaSub}>Fila de confirmação/baixa · 6 casos por hora (10 min cada), das 9h às 18h. Calculado ao vivo.</div>
+              <div style={S.baixaBlocos}>
+                {planoBaixas.blocos.map((b) => (
+                  <div key={b.ini} style={S.baixaBloco}>
+                    <div style={S.baixaHora}>{h2(b.ini)}–{h2(b.fim)}</div>
+                    <div style={S.baixaQtd}>{b.qtd} casos</div>
+                  </div>
+                ))}
+              </div>
+              {planoBaixas.restante > 0 && (
+                <div style={S.baixaRestante}>Restam {planoBaixas.restante} para os próximos dias.</div>
+              )}
+            </div>
+          )}
           <div style={S.grid}>
             {TIPOS.map((t) => {
               const lista = porTipo[t.id] || [];
@@ -273,6 +325,13 @@ const S = {
   subtitulo: { margin: "6px 0 0", color: "#8a93a3", fontSize: 13.5, maxWidth: 700 },
   botaoAtualizar: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
   muted: { color: "#64748b", fontSize: 14 },
+  baixaCard: { background: "#f0fdfa", border: "1px solid #99f6e4", borderRadius: 16, padding: 16, marginBottom: 18, display: "flex", flexDirection: "column", gap: 10 },
+  baixaSub: { fontSize: 12.5, color: "#5b6b7a" },
+  baixaBlocos: { display: "flex", gap: 10, flexWrap: "wrap" },
+  baixaBloco: { background: "#fff", border: "1px solid #ccfbf1", borderRadius: 12, padding: "10px 14px", minWidth: 96, textAlign: "center" },
+  baixaHora: { fontSize: 13, fontWeight: 800, color: "#0f766e" },
+  baixaQtd: { fontSize: 12.5, color: "#334155", marginTop: 3, fontWeight: 600 },
+  baixaRestante: { fontSize: 12.5, color: "#b45309", fontWeight: 700 },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 18 },
   coluna: { border: "1px solid", borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", gap: 12 },
   colunaTopo: { display: "flex", justifyContent: "space-between", alignItems: "center" },
