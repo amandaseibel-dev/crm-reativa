@@ -2,10 +2,9 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 
 // Agenda pessoal e privada de cada usuario (RLS por e-mail no banco: cada um
-// so ve o que e seu). Trilhas: Importante, Pendencia, A fazer -- cada item
-// pode ter data, horario e recorrencia. Alem disso, um espaco de Notas
-// (pensamentos e ideias) com status, e um plano de baixas do dia. Nada aqui
-// toca a base operacional (so consulta a fila de baixa).
+// so ve o que e seu). Trilhas: Importante, Pendencia, A fazer + Notas com
+// status + plano de baixas + registros operacionais (faltas, trocas,
+// intercorrencias). Nada aqui altera a base operacional.
 
 const TIPOS = [
   { id: "IMPORTANTE", label: "Importante", emoji: "⭐", cor: "#b45309", bg: "#fffbeb", borda: "#fde68a" },
@@ -32,6 +31,19 @@ function statusNotaInfo(id) {
   return STATUS_NOTA.find((s) => s.id === id) || STATUS_NOTA[0];
 }
 
+const OPERACIONAL = [
+  { id: "FALTA", label: "Falta", cor: "#b91c1c", bg: "#fef2f2" },
+  { id: "TROCA", label: "Troca de turno", cor: "#1d4ed8", bg: "#eff6ff" },
+  { id: "INTERCORRENCIA", label: "Intercorrência", cor: "#b45309", bg: "#fffbeb" },
+];
+const OP_TIPOS = ["FALTA", "TROCA", "INTERCORRENCIA"];
+function opInfo(id) {
+  return OPERACIONAL.find((o) => o.id === id) || OPERACIONAL[0];
+}
+function vazioOp() {
+  return { operador: "", tipo: "FALTA", data: "", texto: "" };
+}
+
 function vazioForm() {
   return { texto: "", data: "", hora: "", recorrencia: "NENHUMA" };
 }
@@ -51,6 +63,8 @@ export default function MinhaAgendaPessoal() {
   const [novaNota, setNovaNota] = useState("");
   const [salvando, setSalvando] = useState(false);
   const [baixas, setBaixas] = useState(null);
+  const [novoOp, setNovoOp] = useState(vazioOp());
+  const [operadores, setOperadores] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -58,8 +72,35 @@ export default function MinhaAgendaPessoal() {
       setEmail(data?.user?.email || "");
       await carregar();
       await carregarBaixas();
+      await carregarOperadores();
     })();
   }, []);
+
+  async function carregarOperadores() {
+    const { data } = await supabase
+      .from("usuarios")
+      .select("nome, apelido, email")
+      .eq("perfil", "operador")
+      .eq("ativo", true)
+      .order("nome");
+    setOperadores(data || []);
+  }
+
+  async function adicionarOperacional() {
+    const texto = String(novoOp.texto || "").trim();
+    if (!novoOp.operador || !texto) { alert("Informe o operador e a descrição."); return; }
+    setSalvando(true);
+    const { error } = await supabase.from("agenda_pessoal").insert({
+      tipo: novoOp.tipo,
+      conteudo: texto,
+      operador_ref: novoOp.operador,
+      data: novoOp.data || null,
+    });
+    setSalvando(false);
+    if (error) { alert("Erro ao salvar: " + error.message); return; }
+    setNovoOp(vazioOp());
+    carregar();
+  }
 
   async function carregarBaixas() {
     const { count } = await supabase
@@ -148,6 +189,12 @@ export default function MinhaAgendaPessoal() {
   const hojeISO = new Date().toISOString().slice(0, 10);
   const notas = porTipo.NOTA;
 
+  const registrosOp = useMemo(() => {
+    return itens
+      .filter((i) => OP_TIPOS.includes(i.tipo))
+      .sort((a, b) => String(b.data || b.criado_em).localeCompare(String(a.data || a.criado_em)));
+  }, [itens]);
+
   const planoBaixas = useMemo(() => {
     if (baixas == null || baixas <= 0) return null;
     const maxBlocos = BAIXA_FIM - BAIXA_INICIO;
@@ -180,7 +227,7 @@ export default function MinhaAgendaPessoal() {
       <div style={S.cabecalho}>
         <div>
           <h1 style={S.titulo}>Minha Agenda</h1>
-          <p style={S.subtitulo}>Seu espaço pessoal e privado — só você vê. Organize o importante, as pendências, o que tem a fazer (com dia, hora e recorrência) e guarde suas ideias com status.</p>
+          <p style={S.subtitulo}>Seu espaço pessoal e privado — só você vê. Organize o importante, as pendências, o que tem a fazer, suas ideias, o plano de baixas e a gestão da operação (faltas, trocas e intercorrências).</p>
         </div>
         <button style={S.botaoAtualizar} onClick={() => { carregar(); carregarBaixas(); }}>Atualizar</button>
       </div>
@@ -312,6 +359,52 @@ export default function MinhaAgendaPessoal() {
               })}
             </div>
           </div>
+          <div style={S.opCard}>
+            <div style={S.colunaTopo}>
+              <span style={{ ...S.colunaTitulo, color: "#0f172a" }}>👥 Operação — faltas, trocas de turno e intercorrências</span>
+              <span style={S.contador}>{registrosOp.length}</span>
+            </div>
+            <div style={S.opForm}>
+              <input
+                style={{ ...S.opInput, minWidth: 150 }}
+                list="agenda-operadores"
+                placeholder="Operador"
+                value={novoOp.operador}
+                onChange={(e) => setNovoOp((v) => ({ ...v, operador: e.target.value }))}
+              />
+              <datalist id="agenda-operadores">
+                {operadores.map((o) => <option key={o.email} value={o.apelido || o.nome} />)}
+              </datalist>
+              <select style={S.opInput} value={novoOp.tipo} onChange={(e) => setNovoOp((v) => ({ ...v, tipo: e.target.value }))}>
+                {OPERACIONAL.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
+              </select>
+              <input style={S.opInput} type="date" value={novoOp.data} onChange={(e) => setNovoOp((v) => ({ ...v, data: e.target.value }))} title="Data" />
+              <input
+                style={{ ...S.opInput, flex: 1, minWidth: 200 }}
+                placeholder="Descrição (ex.: falta justificada, troca com Fulano, atestado...)"
+                value={novoOp.texto}
+                onChange={(e) => setNovoOp((v) => ({ ...v, texto: e.target.value }))}
+                onKeyDown={(e) => { if (e.key === "Enter") adicionarOperacional(); }}
+              />
+              <button style={S.opBtn} disabled={salvando} onClick={adicionarOperacional}>Registrar</button>
+            </div>
+            <div style={S.itens}>
+              {registrosOp.length === 0 && <div style={S.vazio}>Nenhum registro ainda.</div>}
+              {registrosOp.map((r) => {
+                const oi = opInfo(r.tipo);
+                return (
+                  <div key={r.id} style={S.item}>
+                    <span style={{ ...S.statusChip, color: oi.cor, background: oi.bg, borderColor: oi.cor, marginTop: 1 }}>{oi.label}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={S.itemTexto}><strong>{r.operador_ref || "-"}</strong> — {r.conteudo}</span>
+                      {r.data && <div style={S.metaLinha}><span style={{ ...S.metaData, color: "#475569" }}>{dataBR(r.data)}</span></div>}
+                    </div>
+                    <button style={S.excluir} title="Excluir" onClick={() => excluir(r)}>×</button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
         </>
       )}
     </div>
@@ -322,7 +415,7 @@ const S = {
   container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "#f4f6fa", minHeight: "100%", color: "#0f172a" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 20, flexWrap: "wrap" },
   titulo: { margin: 0, color: "#0d1321", fontFamily: "'Sora', Inter, sans-serif", fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
-  subtitulo: { margin: "6px 0 0", color: "#8a93a3", fontSize: 13.5, maxWidth: 700 },
+  subtitulo: { margin: "6px 0 0", color: "#8a93a3", fontSize: 13.5, maxWidth: 720 },
   botaoAtualizar: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
   muted: { color: "#64748b", fontSize: 14 },
   baixaCard: { background: "#f0fdfa", border: "1px solid #99f6e4", borderRadius: 16, padding: 16, marginBottom: 18, display: "flex", flexDirection: "column", gap: 10 },
@@ -365,4 +458,8 @@ const S = {
   statusSelect: { border: "1px solid #cbd5e1", borderRadius: 8, padding: "5px 7px", fontSize: 12, background: "#fff", color: "#0f172a", outline: "none" },
   notaData: { fontSize: 11, color: "#94a3b8" },
   excluirNota: { position: "absolute", top: 6, right: 8, background: "transparent", border: "none", color: "#c4c9d4", fontSize: 18, cursor: "pointer", lineHeight: 1 },
+  opCard: { background: "#fff", border: "1px solid #e6eaf0", borderRadius: 16, padding: 18, marginTop: 18, display: "flex", flexDirection: "column", gap: 12 },
+  opForm: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" },
+  opInput: { border: "1px solid #cbd5e1", borderRadius: 8, padding: "8px 10px", fontSize: 13, background: "#fff", color: "#0f172a", outline: "none" },
+  opBtn: { background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
 };
