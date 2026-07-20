@@ -52,7 +52,7 @@ import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
-import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
+import ProjecaoHoraHora from "./pages/ProjecaoHoraHora"; import RelatorioReceptivo from "./pages/RelatorioReceptivo";
 import DRE from "./pages/DRE";
 import ImportarRecuperacao from "./pages/ImportarRecuperacao";
 import ExecutivoRecuperacao from "./pages/ExecutivoRecuperacao";
@@ -113,7 +113,7 @@ function podeAcessar(perfil, rota) {
       "/exportar-contatos",
       "/acoes-massivas",
       "/historico-recuperacao",
-      "/saude-da-base",
+      "/saude-da-base", "/relatorio-receptivo",
       "/log-nivelamento",
       "/sugestoes-recebidas",
       "/taxa-conversao",],
@@ -143,7 +143,7 @@ function podeAcessar(perfil, rota) {
       "/exportar-contatos",
       "/acoes-massivas",
       "/historico-recuperacao",
-      "/saude-da-base",
+      "/saude-da-base", "/relatorio-receptivo",
       "/log-nivelamento",
       "/taxa-conversao",],
     administrativo: [
@@ -480,7 +480,7 @@ export default function App() {
     { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
-    { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
+    { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" }, { rota: "/relatorio-receptivo", label: "Relatório Receptivo", icone: "Phone", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
     { rota: "/tv", label: "📺 TV ReATIVA", icone: "LayoutPanelTop", secao: "Gestão", externo: true },
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
@@ -842,7 +842,7 @@ export default function App() {
               <Route path="/log-nivelamento" element={<LogNivelamento />} />
               <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
-              <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} />
+              <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} />
               <Route path="/dre" element={<DRE />} />
               <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} />
       </Routes>
