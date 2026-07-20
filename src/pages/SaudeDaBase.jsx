@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { supabase } from "../services/supabase";
+import { supabase } from "../services/supabase"; import Alunos from "./Aluno";
 import { OPERADORES_POR_EMAIL } from "../utils/operadores";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
@@ -39,7 +39,7 @@ export default function SaudeDaBase() {
   const [enviandoMassa, setEnviandoMassa] = useState(false);
   const [msg, setMsg] = useState("");
   const [fidelizacaoVencida, setFidelizacaoVencida] = useState([]);
-  const [liberandoFidelizacao, setLiberandoFidelizacao] = useState(false);
+  const [liberandoFidelizacao, setLiberandoFidelizacao] = useState(false); const [fichaId, setFichaId] = useState(null);
 
   useEffect(() => {
     carregar();
@@ -236,7 +236,7 @@ export default function SaudeDaBase() {
           </thead>
           <tbody>
             {(dados.criticos || []).slice(0, 15).map((c) => (
-              <tr key={c.id}>
+              <tr key={c.id} style={{ cursor: "pointer" }} onClick={() => setFichaId(c.id)}>
                 <td style={estilos.td}>{c.nome || "-"}</td>
                 <td style={estilos.td}>{c.cpf || "-"}</td>
                 <td style={estilos.tdNum}>
@@ -277,7 +277,7 @@ export default function SaudeDaBase() {
             </thead>
             <tbody>
               {fidelizacaoVencida.slice(0, 15).map((f) => (
-                <tr key={f.aluno_id}>
+                <tr key={f.aluno_id} style={{ cursor: "pointer" }} onClick={() => setFichaId(f.aluno_id)}>
                   <td style={estilos.td}>{f.nome || "-"}</td>
                   <td style={estilos.td}>{f.responsavel_atual_nome || "-"}</td>
                   <td style={estilos.tdNum}>{new Date(f.prazo_limite).toLocaleDateString("pt-BR")}</td>
@@ -325,7 +325,7 @@ export default function SaudeDaBase() {
         </table>
       </div>
 
-      {modalCategoria && (
+      {fichaId && (<div style={estilos.modalOverlay} onClick={() => setFichaId(null)}><div style={{ ...estilos.modalBox, maxWidth: 1100 }} onClick={(e) => e.stopPropagation()}><div style={estilos.modalTopo}><h3 style={{ ...estilos.tituloBloco, margin: 0 }}>Ficha do aluno</h3><button style={estilos.modalFechar} onClick={() => setFichaId(null)}>✕</button></div><Alunos fichaEmbedId={fichaId} /></div></div>)} {modalCategoria && (
         <div style={estilos.modalOverlay} onClick={() => setModalCategoria(null)}>
           <div style={estilos.modalBox} onClick={(e) => e.stopPropagation()}>
             <div style={estilos.modalTopo}>
@@ -345,7 +345,7 @@ export default function SaudeDaBase() {
                 </thead>
                 <tbody>
                   {modalLista.map((a) => (
-                    <tr key={a.id}>
+                    <tr key={a.id} style={{ cursor: "pointer" }} onClick={() => setFichaId(a.id)}>
                       <td style={estilos.td}>{a.nome || "-"}</td>
                       <td style={estilos.td}>{a.cpf || "-"}</td>
                       <td style={estilos.td}>{a.telefone || "-"}</td>
