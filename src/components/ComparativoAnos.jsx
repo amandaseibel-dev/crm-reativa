@@ -44,7 +44,6 @@ export default function ComparativoAnos() {
   const meses = d.por_mes || [];
   const proj = d.projecao_2026 || {};
   const tg = d.totais_gerais || {};
-  const varTotal = d.total_2025 > 0 ? ((d.total_2026 - d.total_2025) / d.total_2025) * 100 : 0;
   const projVs2025 = d.total_2025 > 0 ? ((proj.projecao_fim_ano - d.total_2025) / d.total_2025) * 100 : 0;
 
   return (
@@ -60,15 +59,19 @@ export default function ComparativoAnos() {
       <h2 style={{ ...S.tituloSecao, marginTop: 24 }}>Recuperação — 2025 x 2026</h2>
 
       <div style={S.heroRow}>
-        <Hero rot="Recuperado 2025" val={moeda(d.total_2025)} cor="#94a3b8" nota="abr–dez/2025" />
+        <Hero rot="Recuperado 2025 (fechado)" val={moeda(d.total_2025)} cor="#0f172a" destaque nota="abr–dez/2025 · realizado" />
         <Hero rot="Recuperado 2026 (até hoje)" val={moeda(d.total_2026)} cor="#16a34a"
-              nota={`jan–${MESES[proj.mes_ref]}/2026`} />
-        <Hero rot="Projeção fim de 2026" val={moeda(proj.projecao_fim_ano)} cor="#7c3aed"
+              nota={`jan–${MESES[proj.mes_ref]}/2026 · realizado`} />
+        <Hero rot="Projeção fim de 2026" val={moeda(proj.projecao_fim_ano)} cor="#7c3aed" projetado
               nota={projVs2025 >= 0 ? `+${projVs2025.toFixed(0)}% vs 2025` : `${projVs2025.toFixed(0)}% vs 2025`} />
       </div>
 
       <div style={S.card}>
-        <h3 style={S.h3}>Mês a mês — pagamento e honorário</h3>
+        <h3 style={S.h3}>Mês a mês — realizado e projeção dos próximos meses</h3>
+        <div style={S.legenda}>
+          <span><span style={{ ...S.dot, background: "#111827" }} /> realizado</span>
+          <span><span style={{ ...S.dot, background: "#7c3aed" }} /> projetado</span>
+        </div>
         <div style={S.tabelaWrap}>
           <table style={S.tabela}>
             <thead>
@@ -83,21 +86,37 @@ export default function ComparativoAnos() {
               </tr>
             </thead>
             <tbody>
-              {meses.map((m) => (
-                <tr key={m.mes}>
-                  <td style={S.tdMes}>{MESES[m.mes]}</td>
-                  <td style={S.td}>{m.rec_2025 ? moeda(m.rec_2025) : "—"}</td>
-                  <td style={S.tdForte}>{m.rec_2026 ? moeda(m.rec_2026) : "—"}</td>
-                  <td style={S.tdNum}><Variacao a={m.rec_2025} b={m.rec_2026} /></td>
-                  <td style={S.td}>{m.hon_2025 ? moeda(m.hon_2025) : "—"}</td>
-                  <td style={S.tdForte}>{m.hon_2026 ? moeda(m.hon_2026) : "—"}</td>
-                  <td style={S.tdNum}><Variacao a={m.hon_2025} b={m.hon_2026} /></td>
-                </tr>
-              ))}
+              {meses.map((m) => {
+                const futuro = m.futuro;
+                const emCurso = m.em_curso;
+                const rec26 = futuro ? m.rec_proj : m.rec_2026;
+                const hon26 = futuro ? m.hon_proj : m.hon_2026;
+                return (
+                  <tr key={m.mes} style={futuro ? S.trFuturo : null}>
+                    <td style={S.tdMes}>
+                      {MESES[m.mes]}
+                      {futuro ? <span style={S.tagProj}>projetado</span> : null}
+                      {emCurso ? <span style={S.tagCurso}>em curso</span> : null}
+                    </td>
+                    <td style={S.td}>{m.rec_2025 ? moeda(m.rec_2025) : "—"}</td>
+                    <td style={futuro ? S.tdProj : S.tdForte}>
+                      {rec26 ? moeda(rec26) : "—"}
+                      {emCurso ? <div style={S.subProj}>proj. do mês: {moeda(m.rec_proj)}</div> : null}
+                    </td>
+                    <td style={S.tdNum}><Variacao a={m.rec_2025} b={rec26} /></td>
+                    <td style={S.td}>{m.hon_2025 ? moeda(m.hon_2025) : "—"}</td>
+                    <td style={futuro ? S.tdProj : S.tdForte}>
+                      {hon26 ? moeda(hon26) : "—"}
+                      {emCurso ? <div style={S.subProj}>proj. do mês: {moeda(m.hon_proj)}</div> : null}
+                    </td>
+                    <td style={S.tdNum}><Variacao a={m.hon_2025} b={hon26} /></td>
+                  </tr>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr>
-                <td style={S.tdTotal}>Total</td>
+                <td style={S.tdTotal}>Realizado até hoje</td>
                 <td style={S.tdTotal}>{moeda(d.total_2025)}</td>
                 <td style={S.tdTotal}>{moeda(d.total_2026)}</td>
                 <td style={S.tdTotalNum}><Variacao a={d.total_2025} b={d.total_2026} /></td>
@@ -105,24 +124,20 @@ export default function ComparativoAnos() {
                 <td style={S.tdTotal}>{moeda(d.honorarios_2026)}</td>
                 <td style={S.tdTotalNum}><Variacao a={d.honorarios_2025} b={d.honorarios_2026} /></td>
               </tr>
+              <tr>
+                <td style={S.tdFecha}>Projeção fim de 2026</td>
+                <td style={S.tdFecha}>{moeda(d.total_2025)}</td>
+                <td style={S.tdFecha}>{moeda(proj.projecao_fim_ano)}</td>
+                <td style={S.tdFecha}>{projVs2025 >= 0 ? "+" : ""}{projVs2025.toFixed(0)}%</td>
+                <td style={S.tdFecha}>{moeda(d.honorarios_2025)}</td>
+                <td style={S.tdFecha}>{moeda(proj.projecao_hon_fim_ano)}</td>
+                <td style={S.tdFecha}>—</td>
+              </tr>
             </tfoot>
           </table>
         </div>
         <p style={S.rodape}>
-          Δ compara o mesmo mês de 2026 contra 2025. "novo" indica mês sem operação em 2025.
-        </p>
-      </div>
-
-      <div style={S.card}>
-        <h3 style={S.h3}>Como chegamos na projeção de {moeda(proj.projecao_fim_ano)}</h3>
-        <div style={S.statsRow}>
-          <Stat rot={`Realizado até ${proj.dia_ref}/${MESES[proj.mes_ref]}`} val={moeda(proj.realizado_ate_hoje)} />
-          <Stat rot="Média mensal (2026)" val={moeda(proj.media_mensal)} />
-          <Stat rot={`${MESES[proj.mes_ref]} projetado (mês cheio)`} val={moeda(proj.mes_atual_projetado)} />
-        </div>
-        <p style={S.rodape}>
-          Projeção = meses já fechados + mês atual estimado pelo ritmo diário + média mensal nos meses restantes.
-          No acumulado parcial, 2026 está {varTotal >= 0 ? "+" : ""}{varTotal.toFixed(0)}% vs o mesmo bloco de 2025.
+          Meses futuros (roxo) mostram a <strong>projeção</strong> pelo ritmo de 2026. Δ compara o mesmo mês contra 2025. "novo" = mês sem operação em 2025.
         </p>
       </div>
     </section>
@@ -141,20 +156,12 @@ function Kpi({ rot, val, cor, destaque }) {
   );
 }
 
-function Hero({ rot, val, cor, nota }) {
+function Hero({ rot, val, cor, nota, destaque, projetado }) {
   return (
-    <div style={S.hero}>
+    <div style={{ ...S.hero, ...(destaque ? S.heroDestaque : {}), ...(projetado ? S.heroProj : {}) }}>
       <span style={{ ...S.heroVal, color: cor }}>{val}</span>
       <span style={S.heroRot}>{rot}</span>
-      {nota ? <span style={S.heroNota}>{nota}</span> : null}
-    </div>
-  );
-}
-function Stat({ rot, val }) {
-  return (
-    <div style={S.stat}>
-      <span style={S.statVal}>{val}</span>
-      <span style={S.statRot}>{rot}</span>
+      {nota ? <span style={{ ...S.heroNota, ...(projetado ? { color: "#7c3aed" } : {}) }}>{nota}</span> : null}
     </div>
   );
 }
@@ -170,25 +177,31 @@ const S = {
   kpiVal: { fontWeight: 800, lineHeight: 1.1 },
   heroRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 14 },
   hero: { background: "#fff", border: "1px solid #eef2f7", borderRadius: 14, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 4, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" },
+  heroDestaque: { background: "#f8fafc", border: "1px solid #cbd5e1" },
+  heroProj: { background: "#faf5ff", border: "1px solid #e9d5ff" },
   heroVal: { fontSize: 26, fontWeight: 800, lineHeight: 1.1 },
   heroRot: { fontSize: 12.5, color: "#64748b", fontWeight: 600 },
   heroNota: { fontSize: 12, color: "#94a3b8", fontWeight: 600 },
-  statsRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 8 },
-  stat: { background: "#f8fafc", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 },
-  statVal: { fontSize: 20, fontWeight: 800, color: "#111827" },
-  statRot: { fontSize: 12, color: "#64748b", fontWeight: 600 },
   card: { background: "#fff", border: "1px solid #eef2f7", borderRadius: 14, padding: 18, marginBottom: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" },
-  h3: { margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0f172a" },
+  h3: { margin: "0 0 8px", fontSize: 15, fontWeight: 700, color: "#0f172a" },
+  legenda: { display: "flex", gap: 18, fontSize: 12, color: "#64748b", marginBottom: 12, fontWeight: 600 },
+  dot: { display: "inline-block", width: 10, height: 10, borderRadius: 3, marginRight: 5 },
   tabelaWrap: { overflowX: "auto" },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
   th: { textAlign: "left", padding: "8px 10px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" },
   thNum: { textAlign: "right", padding: "8px 10px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" },
-  tdMes: { padding: "8px 10px", fontWeight: 700, color: "#334155", borderBottom: "1px solid #f1f5f9" },
+  trFuturo: { background: "#faf5ff" },
+  tdMes: { padding: "8px 10px", fontWeight: 700, color: "#334155", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  tagProj: { marginLeft: 6, background: "#f3e8ff", color: "#7c3aed", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 800 },
+  tagCurso: { marginLeft: 6, background: "#dbeafe", color: "#1d4ed8", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 800 },
   td: { padding: "8px 10px", textAlign: "right", color: "#64748b", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
   tdForte: { padding: "8px 10px", textAlign: "right", color: "#111827", fontWeight: 700, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  tdProj: { padding: "8px 10px", textAlign: "right", color: "#7c3aed", fontWeight: 700, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
+  subProj: { fontSize: 11, color: "#7c3aed", fontWeight: 600, marginTop: 2 },
   tdNum: { padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
   tdTotal: { padding: "10px", textAlign: "right", fontWeight: 800, color: "#0f172a", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
   tdTotalNum: { padding: "10px", textAlign: "right", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
+  tdFecha: { padding: "10px", textAlign: "right", fontWeight: 800, color: "#7c3aed", background: "#faf5ff", whiteSpace: "nowrap" },
   muted: { color: "#64748b" },
   rodape: { color: "#8a93a3", fontSize: 12, marginTop: 10 },
 };
