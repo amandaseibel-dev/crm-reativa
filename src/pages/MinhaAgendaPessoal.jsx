@@ -1,10 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 
-// Agenda pessoal e privada de cada usuario (RLS por e-mail no banco: cada um
-// so ve o que e seu). Trilhas: Importante, Pendencia, A fazer + Notas com
-// status + plano de baixas + registros operacionais (faltas, trocas,
-// intercorrencias) editaveis. Nada aqui altera a base operacional.
+// Agenda pessoal e privada de cada usuario (RLS por e-mail). Trilhas +
+// notas com status + plano de baixas (com nomes por hora e aviso) +
+// registros operacionais (faltas/trocas/intercorrencias) editaveis.
 
 const TIPOS = [
   { id: "IMPORTANTE", label: "Importante", emoji: "⭐", cor: "#b45309", bg: "#fffbeb", borda: "#fde68a" },
@@ -114,11 +113,13 @@ export default function MinhaAgendaPessoal() {
   }
 
   async function carregarBaixas() {
-    const { count } = await supabase
+    const { data, count } = await supabase
       .from("solicitacoes_confirmacao_pagamento")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "AGUARDANDO_CONFIRMACAO");
-    setBaixas(count || 0);
+      .select("aluno_nome, aluno_cpf", { count: "exact" })
+      .eq("status", "AGUARDANDO_CONFIRMACAO")
+      .order("aluno_nome", { ascending: true })
+      .limit(60);
+    setBaixas({ total: count || 0, casos: data || [] });
   }
 
   async function carregar() {
@@ -207,17 +208,20 @@ export default function MinhaAgendaPessoal() {
   }, [itens]);
 
   const planoBaixas = useMemo(() => {
-    if (baixas == null || baixas <= 0) return null;
+    if (!baixas || baixas.total <= 0) return null;
+    const total = baixas.total;
+    const casos = baixas.casos || [];
     const maxBlocos = BAIXA_FIM - BAIXA_INICIO;
-    const nBlocos = Math.min(maxBlocos, Math.ceil(baixas / BAIXA_POR_HORA));
+    const nBlocos = Math.min(maxBlocos, Math.ceil(total / BAIXA_POR_HORA));
     const blocos = [];
-    let restante = baixas;
+    let restante = total;
     for (let k = 0; k < nBlocos; k++) {
       const q = Math.min(BAIXA_POR_HORA, restante);
-      blocos.push({ ini: BAIXA_INICIO + k, fim: BAIXA_INICIO + k + 1, qtd: q });
+      const nomes = casos.slice(k * BAIXA_POR_HORA, k * BAIXA_POR_HORA + q).map((c) => c.aluno_nome || "Aluno");
+      blocos.push({ ini: BAIXA_INICIO + k, fim: BAIXA_INICIO + k + 1, qtd: q, nomes });
       restante -= q;
     }
-    return { total: baixas, blocos, restante };
+    return { total, blocos, restante };
   }, [baixas]);
 
   function h2(n) { return String(n).padStart(2, "0") + "h"; }
@@ -238,7 +242,7 @@ export default function MinhaAgendaPessoal() {
       <div style={S.cabecalho}>
         <div>
           <h1 style={S.titulo}>Minha Agenda</h1>
-          <p style={S.subtitulo}>Seu espaço pessoal e privado — só você vê. Importante, pendências, a fazer, ideias, plano de baixas e a gestão da operação (faltas, trocas, intercorrências).</p>
+          <p style={S.subtitulo}>Seu espaço pessoal e privado — só você vê. Importante, pendências, a fazer, ideias, plano de baixas e gestão da operação.</p>
         </div>
         <button style={S.botaoAtualizar} onClick={() => { carregar(); carregarBaixas(); }}>Atualizar</button>
       </div>
@@ -247,6 +251,9 @@ export default function MinhaAgendaPessoal() {
         <p style={S.muted}>Carregando sua agenda...</p>
       ) : (
         <>
+          {planoBaixas && (
+            <div style={S.avisoBaixa}>⚠️ Você tem {planoBaixas.total} baixa(s) para confirmar hoje — veja o plano por hora abaixo.</div>
+          )}
           {planoBaixas && (
             <div style={S.baixaCard}>
               <div style={S.colunaTopo}>
@@ -257,8 +264,10 @@ export default function MinhaAgendaPessoal() {
               <div style={S.baixaBlocos}>
                 {planoBaixas.blocos.map((b) => (
                   <div key={b.ini} style={S.baixaBloco}>
-                    <div style={S.baixaHora}>{h2(b.ini)}–{h2(b.fim)}</div>
-                    <div style={S.baixaQtd}>{b.qtd} casos</div>
+                    <div style={S.baixaHora}>{h2(b.ini)}–{h2(b.fim)} · {b.qtd}</div>
+                    <div style={S.baixaNomes}>
+                      {b.nomes.map((n, i) => <div key={i} style={S.baixaNome} title={n}>{n}</div>)}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -434,9 +443,12 @@ const S = {
   baixaCard: { background: "#f0fdfa", border: "1px solid #99f6e4", borderRadius: 16, padding: 16, marginBottom: 18, display: "flex", flexDirection: "column", gap: 10 },
   baixaSub: { fontSize: 12.5, color: "#5b6b7a" },
   baixaBlocos: { display: "flex", gap: 10, flexWrap: "wrap" },
-  baixaBloco: { background: "#fff", border: "1px solid #ccfbf1", borderRadius: 12, padding: "10px 14px", minWidth: 96, textAlign: "center" },
+  baixaBloco: { background: "#fff", border: "1px solid #ccfbf1", borderRadius: 12, padding: "10px 12px", minWidth: 160, maxWidth: 220 },
   baixaHora: { fontSize: 13, fontWeight: 800, color: "#0f766e" },
   baixaQtd: { fontSize: 12.5, color: "#334155", marginTop: 3, fontWeight: 600 },
+  baixaNomes: { marginTop: 6, display: "flex", flexDirection: "column", gap: 2 },
+  baixaNome: { fontSize: 12, color: "#334155", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  avisoBaixa: { background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", borderRadius: 12, padding: "12px 16px", marginBottom: 12, fontSize: 13.5, fontWeight: 700 },
   baixaRestante: { fontSize: 12.5, color: "#b45309", fontWeight: 700 },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 18 },
   coluna: { border: "1px solid", borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", gap: 12 },
