@@ -456,7 +456,7 @@ export default function App() {
   }
   const perfil = usuario.perfil?.perfil;
   const menuBase = [
-    { rota: "/dre", label: "DRE (gerencia)" },
+    { rota: "/dre", label: "DRE (gerência)" },
     { rota: "/importar-recuperacao", label: "📥 Importar Recuperação" },
   { rota: "/executivo", label: "📊 Visão Executiva" },
     {
@@ -843,7 +843,7 @@ export default function App() {
               <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} />
-              <Route path="/dre" element={<DRE />} />
+              <Route path="/dre" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <DRE /> : <Navigate to="/" replace />} />
               <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} />
       </Routes>
         </main>
