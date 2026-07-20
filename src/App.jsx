@@ -54,7 +54,7 @@ import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
 import ProjecaoHoraHora from "./pages/ProjecaoHoraHora"; import RelatorioReceptivo from "./pages/RelatorioReceptivo"; import MinhaAgendaPessoal from "./pages/MinhaAgendaPessoal"; import EnvioGmailLote from "./pages/EnvioGmailLote";
 import DRE from "./pages/DRE";
-import ImportarRecuperacao from "./pages/ImportarRecuperacao";
+import ImportarRecuperacao from "./pages/ImportarRecuperacao"; import ImportacaoAcordos from "./pages/ImportacaoAcordos"; import FilaAcordosConfirmar from "./pages/FilaAcordosConfirmar";
 import ExecutivoRecuperacao from "./pages/ExecutivoRecuperacao";
 import MeuDashboard from "./pages/MeuDashboard";
 import ElogiosAtendimento from "./pages/ElogiosAtendimento";
@@ -78,7 +78,7 @@ function EmDesenvolvimento({ titulo }) {
   );
 }
 function podeAcessar(perfil, rota) {
-  if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return true;
+  if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return true; if (rota === "/importar-acordos") return true; if (rota === "/fila-acordos") return true;
   const permissoes = {
     gerencia: [
       "/",
@@ -492,7 +492,7 @@ export default function App() {
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
     { rota: "/financeiro-operadores", label: "Financeiro Operadores", icone: "Lock", secao: "Gestão" },
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
-    { rota: "/importacoes", label: "Importações", icone: "Upload", secao: "Configurações" },
+    { rota: "/importar-acordos", label: "Importar Acordos", icone: "Upload", secao: "Gestão" }, { rota: "/fila-acordos", label: "Fila de Acordos", icone: "CheckCircle2", secao: "Gestão" }, { rota: "/importacoes", label: "Importações", icone: "Upload", secao: "Configurações" },
     { rota: "/avisos", label: "Central de Avisos", icone: "Bell", secao: "Configurações" },
     { rota: "/usuarios", label: "Usuários", icone: "Users", secao: "Configurações" },
     { rota: "/configuracoes", label: "Configurações", icone: "Settings", secao: "Configurações" },
@@ -528,7 +528,7 @@ export default function App() {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       if (!EMAILS_PODE_GERIR_USUARIOS.includes(email)) return false;
     }
-    if (item.rota === "/minha-agenda") { const emMa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return emMa === "amanda.seibel@aelbra.com.br"; } if (item.rota === "/envio-gmail") { const emEg = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emEg); } return podeAcessar(perfil, item.rota);
+    if (item.rota === "/minha-agenda") { const emMa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return emMa === "amanda.seibel@aelbra.com.br"; } if (item.rota === "/envio-gmail") { const emEg = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emEg); } if (item.rota === "/importar-acordos") { const emIa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emIa); } return podeAcessar(perfil, item.rota);
   });
   return (
     <BrowserRouter>
@@ -844,7 +844,7 @@ export default function App() {
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} />
               <Route path="/dre" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <DRE /> : <Navigate to="/" replace />} />
-              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} />
+              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} />
       </Routes>
         </main>
       </div>
