@@ -79,7 +79,7 @@ function EmDesenvolvimento({ titulo }) {
   );
 }
 function podeAcessar(perfil, rota) {
-  if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return true; if (rota === "/importar-acordos") return true; if (rota === "/fila-acordos") return true; if (rota === "/ferramentas") return true;
+  if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
   const permissoes = {
     gerencia: [
       "/",
