@@ -456,9 +456,9 @@ export default function App() {
   }
   const perfil = usuario.perfil?.perfil;
   const menuBase = [
+  { rota: "/executivo", label: "📊 Visão Executiva" },
     { rota: "/dre", label: "DRE (gerência)" },
     { rota: "/importar-recuperacao", label: "📥 Importar Recuperação" },
-  { rota: "/executivo", label: "📊 Visão Executiva" },
     {
       rota: "/",
       label: perfil === "operador" ? "Minha Fila" : "Dashboard",
@@ -629,14 +629,6 @@ export default function App() {
                     title={`${linksAguardando} link(s) aguardando resposta · ${termosAguardandoValidacao} termo(s) aguardando validação · ${baixasAguardando} baixa(s) aguardando`}
                   >
                     {linksAguardando + termosAguardandoValidacao + baixasAguardando}
-                  </span>
-                )}
-                {item.rota === "/painel-carteira" && parcelasVencendo.length > 0 && (
-                  <span
-                    className="badge-alerta"
-                    title={`Boleto(s) vencendo em 2 dias — mande lembrete de pagamento: ${parcelasVencendo.map((p) => p.aluno_nome).join(", ")}`}
-                  >
-                    {parcelasVencendo.length}
                   </span>
                 )}
                 {item.rota === "/aluno" && termosRejeitados > 0 && (
