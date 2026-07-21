@@ -175,14 +175,10 @@ function podeAcessar(perfil, rota) {
       "/portal-operacional",
       "/minha-fila",
       "/aluno",
-      "/crm",
       "/agenda",
       "/agenda-operacional",
-      "/relatorios",
       "/meu-perfil",
       "/painel-carteira",
-      "/meu-dashboard",
-      "/elogios-atendimento",
       "/projecao-hora-a-hora",],
   };
   return permissoes[perfil]?.includes(rota);
