@@ -232,6 +232,53 @@ function SecaoPolitica() {
           <li>Não incluir matrícula quando houver regra de bloqueio vigente.</li>
         </ul>
       </Card>
+      <Card>
+        <h3 style={S.h3}>💳 Tabela de Negociação — Rematrícula 2026/2</h3>
+        <p style={S.observacao}>Condições para acordo novo de mensalidades. Parcela mínima de R$ 100,00. <strong>Vigente até 28/08/2026.</strong></p>
+        <h4 style={{ fontSize: 14, fontWeight: 700, color: "#0d1321", margin: "16px 0 6px" }}>Até 2022 <span style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", background: "#eff6ff", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>sem juros</span></h4>
+        <table style={S.tabela}>
+          <thead><tr><th style={S.th}>Parc.</th><th style={S.th}>Desconto</th><th style={S.th}>Boleto</th><th style={S.th}>Cartão</th></tr></thead>
+          <tbody>
+          <tr><td style={S.td}>À vista</td><td style={S.td}>100% encargos + 50% principal</td><td style={S.td}>À vista</td><td style={S.td}>À vista</td></tr>
+          <tr><td style={S.td}>6x</td><td style={S.td}>100% encargos + 40% principal</td><td style={S.td}>Parcelas iguais</td><td style={S.td}>Parcelas iguais</td></tr>
+          <tr><td style={S.td}>12x</td><td style={S.td}>100% encargos + 30% principal</td><td style={S.td}>Parcelas iguais</td><td style={S.td}>Parcelas iguais</td></tr>
+          <tr><td style={S.td}>18x</td><td style={S.td}>100% encargos</td><td style={S.td}>Parcelas iguais</td><td style={S.td}>Não se aplica</td></tr>
+          </tbody>
+        </table>
+        <h4 style={{ fontSize: 14, fontWeight: 700, color: "#0d1321", margin: "16px 0 6px" }}>2023 a 2024 <span style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", background: "#eff6ff", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>juros 1% a.m.</span></h4>
+        <table style={S.tabela}>
+          <thead><tr><th style={S.th}>Parc.</th><th style={S.th}>Desconto</th><th style={S.th}>Boleto</th><th style={S.th}>Cartão</th></tr></thead>
+          <tbody>
+          <tr><td style={S.td}>À vista</td><td style={S.td}>80% encargos</td><td style={S.td}>À vista</td><td style={S.td}>À vista</td></tr>
+          <tr><td style={S.td}>6x</td><td style={S.td}>50% encargos</td><td style={S.td}>Entrada 10% + 5x</td><td style={S.td}>Parcelas iguais</td></tr>
+          <tr><td style={S.td}>12x</td><td style={S.td}>30% encargos</td><td style={S.td}>Entrada 15% + 11x</td><td style={S.td}>Parcelas iguais</td></tr>
+          </tbody>
+        </table>
+        <h4 style={{ fontSize: 14, fontWeight: 700, color: "#0d1321", margin: "16px 0 6px" }}>2025 <span style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", background: "#eff6ff", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>juros 1% a.m.</span></h4>
+        <table style={S.tabela}>
+          <thead><tr><th style={S.th}>Parc.</th><th style={S.th}>Desconto</th><th style={S.th}>Boleto</th><th style={S.th}>Cartão</th></tr></thead>
+          <tbody>
+          <tr><td style={S.td}>À vista</td><td style={S.td}>50% encargos</td><td style={S.td}>À vista</td><td style={S.td}>À vista</td></tr>
+          <tr><td style={S.td}>6x</td><td style={S.td}>—</td><td style={S.td}>Entrada 20% + 5x</td><td style={S.td}>Até 12x (entrada 10% + 11x)</td></tr>
+          <tr><td style={S.td}>10x</td><td style={S.td}>—</td><td style={S.td}>Entrada 20% + 9x</td><td style={S.td}>Até 12x (entrada 10% + 11x)</td></tr>
+          </tbody>
+        </table>
+        <h4 style={{ fontSize: 14, fontWeight: 700, color: "#0d1321", margin: "16px 0 6px" }}>2026/1 <span style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", background: "#eff6ff", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>juros 1% a.m.</span></h4>
+        <table style={S.tabela}>
+          <thead><tr><th style={S.th}>Parc.</th><th style={S.th}>Desconto</th><th style={S.th}>Boleto</th><th style={S.th}>Cartão</th></tr></thead>
+          <tbody>
+          <tr><td style={S.td}>À vista</td><td style={S.td}>Sem desconto</td><td style={S.td}>À vista</td><td style={S.td}>À vista</td></tr>
+          <tr><td style={S.td}>7x</td><td style={S.td}>Sem desconto</td><td style={S.td}>Entrada 30% + 6x</td><td style={S.td}>Até 10x (entrada 10% + 9x)</td></tr>
+          </tbody>
+        </table>
+      </Card>
+      <Card>
+        <h3 style={S.h3}>Quitação de acordos/parcelamentos pendentes</h3>
+        <ul style={S.lista}>
+          <li><strong>À vista:</strong> valor corrigido/atualizado com juros e multa.</li>
+          <li><strong>Parcelado:</strong> somente cartão de crédito, com entrada mínima de 10% à vista e o saldo em até 9 parcelas, encargos de 1%.</li>
+        </ul>
+      </Card>
       <Aviso>
         <strong>⚠️ Casos que não podem ser acionados.</strong> Se constar jurídico, cancelamento,
         restrição de contato ou qualquer bloqueio registrado no CRM, o aluno não deve ser acionado. Siga a
