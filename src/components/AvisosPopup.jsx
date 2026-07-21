@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 
 export default function AvisosPopup() {
@@ -6,6 +6,7 @@ export default function AvisosPopup() {
   const [idx, setIdx] = useState(0);
   const [aberto, setAberto] = useState(false);
   const [user, setUser] = useState(null);
+  const abertoRef = useRef(false);
 
   async function carregar(forcarTodos) {
     const { data: u } = await supabase.auth.getUser();
@@ -23,11 +24,14 @@ export default function AvisosPopup() {
     setFila(lista); setIdx(0); setAberto(lista.length > 0);
   }
 
+  useEffect(() => { abertoRef.current = aberto; }, [aberto]);
+
   useEffect(() => {
     carregar(false);
     function reabrir() { carregar(true); }
     window.addEventListener("abrir-avisos", reabrir);
-    return () => window.removeEventListener("abrir-avisos", reabrir);
+    const t = setInterval(() => { if (!abertoRef.current) carregar(false); }, 20000);
+    return () => { window.removeEventListener("abrir-avisos", reabrir); clearInterval(t); };
   }, []);
 
   if (!aberto || idx >= fila.length) return null;
