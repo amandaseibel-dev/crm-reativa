@@ -1743,11 +1743,6 @@ export default function PainelCarteira({ embedded = false }) {
 
       {aba === "receptivo" ? (
         painelReceptivo
-      ) : veTudo ? (
-        <>
-          <VisaoGeralCarteira email={emailEscopo()} />
-          <VisaoGestao360 />
-        </>
       ) : (
         <>
           {(!veTudo || operadorFiltro !== "TODOS") && retornosPendentes.length > 0 && (
@@ -1804,12 +1799,6 @@ export default function PainelCarteira({ embedded = false }) {
             </div>
           )}
 
-          {veTudo && (
-            <>
-              <VisaoGeralCarteira email={emailEscopo()} />
-              <VisaoGestao360 />
-            </>
-          )}
           <div style={S.kpiGrid} className="pc-kpis">
             {kpiCards.map((k) => {
               // Todos os cards sao clicaveis e abrem a listagem filtrada.
