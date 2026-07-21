@@ -176,7 +176,7 @@ export default function AcoesMassivas() {
       const linhas = resultados.map((r) =>
         canal === "WHATSAPP"
           ? { "Nome do aluno": r.nome, Telefone: r.telefoneFormatado }
-          : { "Nome do aluno": r.nome, "E-mail": r.email }
+          : { "Nome do aluno": r.nome, "E-mail": r.email, Telefone: r.telefoneFormatado || r.telefoneBruto || "" }
       );
       const planilha = XLSX.utils.json_to_sheet(linhas);
       const livro = XLSX.utils.book_new();
