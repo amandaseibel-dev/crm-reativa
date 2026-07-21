@@ -175,6 +175,7 @@ function podeAcessar(perfil, rota) {
       "/portal-operacional",
       "/minha-fila",
       "/aluno",
+      "/crm",
       "/agenda",
       "/agenda-operacional",
       "/meu-perfil",
