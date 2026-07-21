@@ -308,7 +308,7 @@ const RETORNO_ABRE_ACAO = {
   PAGAMENTO_REJEITADO: "pagamento",
 };
 
-export default function PainelCarteira({ embedded = false }) {
+export default function PainelCarteira({ embedded = false, mostrar360 = false }) {
   const [email, setEmail] = useState(null);
   const [usuarioPerfil, setUsuarioPerfil] = useState(null);
   const [veTudo, setVeTudo] = useState(false);
@@ -1743,7 +1743,7 @@ export default function PainelCarteira({ embedded = false }) {
 
       {aba === "receptivo" ? (
         painelReceptivo
-      ) : veTudo ? (
+      ) : veTudo && mostrar360 ? (
         <>
           <VisaoGeralCarteira email={emailEscopo()} />
           <VisaoGestao360 />
