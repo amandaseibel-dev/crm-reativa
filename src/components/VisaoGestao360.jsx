@@ -148,30 +148,31 @@ export default function VisaoGestao360({ dias = 30 }) {
             <Bar key={x.faixa} label={x.faixa} sub={num(x.cpfs) + " CPFs"} val={moeda(x.valor)} pct={(Number(x.valor) / maxAtraso) * 100} cor="#ef4444" />
           ))}
         </div>
-        <div style={s.bloco}>
-          <h3 style={s.h3}>Dívida por período de vencimento</h3>
-          <p style={s.legendaPer}>
-            <span style={{ ...s.legDot, background: "#4338ca" }} /> Anos rentáveis na cobrança (2025/2 e 2026)
-            <span style={{ ...s.legDot, background: "#cbd5e1", marginLeft: 14 }} /> 2025/1 para trás
-          </p>
-          {periodos.map((x) => {
-            const rent = x.rentavel;
-            return (
-              <div key={x.ano + "/" + x.sem} style={s.linha}>
-                <div style={{ ...s.linhaTopo, opacity: rent ? 1 : 0.55 }}>
-                  <span>
-                    <strong style={{ color: rent ? "#0f172a" : "#94a3b8" }}>{x.ano}/{x.sem}</strong>
-                    {rent && <span style={s.tagRent}>foco cobrança</span>}
-                    <em style={s.em}> — {num(x.cpfs)} CPFs</em>
-                  </span>
-                  <strong style={{ color: rent ? "#0f172a" : "#94a3b8" }}>{moeda(x.valor)}</strong>
-                </div>
-                <div style={s.barTrack}>
-                  <div style={{ ...s.barFill, width: Math.max(2, (Number(x.valor) / maxPer) * 100) + "%", background: rent ? "#4338ca" : "#cbd5e1" }} />
-                </div>
-              </div>
-            );
-          })}
+      </div>
+
+      <div style={s.bloco}>
+        <h3 style={s.h3}>Dívida por período — operação e ação massiva</h3>
+        <div style={{ overflowX: "auto" }}>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <thead>
+              <tr>
+                <th style={{ textAlign: "left", padding: "9px 10px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>Período</th>
+                <th style={{ textAlign: "right", padding: "9px 10px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>% do total</th>
+                <th style={{ textAlign: "right", padding: "9px 10px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>Operação</th>
+                <th style={{ textAlign: "right", padding: "9px 10px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>Ação massiva</th>
+              </tr>
+            </thead>
+            <tbody>
+              {periodos.map((x) => (
+                <tr key={x.ano + "/" + x.sem}>
+                  <td style={{ padding: "9px 10px", fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" }}>{x.ano}/{x.sem}</td>
+                  <td style={{ padding: "9px 10px", textAlign: "right", fontWeight: 800, color: "#0f172a" }}>{Number(x.pct).toFixed(1)}%</td>
+                  <td style={{ padding: "9px 10px", textAlign: "right", color: "#1e40af", fontWeight: 700, whiteSpace: "nowrap" }}>{moeda(x.operacao)}</td>
+                  <td style={{ padding: "9px 10px", textAlign: "right", color: "#b45309", whiteSpace: "nowrap" }}>{moeda(x.massiva)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </div>
 
