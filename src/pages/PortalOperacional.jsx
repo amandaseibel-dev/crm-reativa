@@ -714,6 +714,7 @@ function SecaoSugestoes() {
               <select style={S.input} value={form.area} onChange={(e) => atualizar("area", e.target.value)}>
                 <option value="">Selecione</option>
                 <option>Sistema ReATIVA</option>
+                <option>CRM Mensageria</option>
                 <option>Portal Reativa</option>
               </select>
             </Campo>
