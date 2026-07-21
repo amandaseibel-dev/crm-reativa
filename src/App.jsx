@@ -823,7 +823,7 @@ export default function App() {
               }
             />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
-              <Route path="/painel-carteira" element={<PainelCarteira />} />
+              <Route path="/painel-carteira" element={<PainelCarteira mostrar360 />} />
               <Route path="/meu-dashboard" element={<MeuDashboard />} />
               <Route path="/elogios-atendimento" element={<ElogiosAtendimento />} />
               <Route path="/exportar-contatos" element={<ExportarContatos />} />
