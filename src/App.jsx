@@ -79,7 +79,7 @@ function EmDesenvolvimento({ titulo }) {
   );
 }
 function podeAcessar(perfil, rota) {
-  if (rota === "/avisos") return true; if (rota === "/base-receptiva") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
+  if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
   const permissoes = {
     gerencia: [
       "/",
@@ -475,7 +475,6 @@ export default function App() {
     },
     { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" },
     { rota: "/aluno", label: "Base", icone: "User", secao: "Operação" },
-    { rota: "/base-receptiva", label: "🎧 Base Receptiva", icone: "Phone", secao: "Operação" },
     { rota: "/relatorio-receptivo", label: "Relatório Receptivo", icone: "Phone", secao: "Operação" }, { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
@@ -825,7 +824,6 @@ export default function App() {
             />
               <Route path="/minha-fila-pagamentos" element={<MinhaFilaPagamentos />} />
               <Route path="/painel-carteira" element={<PainelCarteira mostrar360 />} />
-              <Route path="/base-receptiva" element={<BaseReceptiva />} />
               <Route path="/meu-dashboard" element={<MeuDashboard />} />
               <Route path="/elogios-atendimento" element={<ElogiosAtendimento />} />
               <Route path="/exportar-contatos" element={<ExportarContatos />} />
