@@ -1632,7 +1632,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
       <div style={S.cabecalho}>
         <div>
-          <h1 style={S.titulo}>{veTudo ? "Panorama 360" : "Minha Carteira"}</h1>
+          <h1 style={S.titulo}>{mostrar360 ? "Panorama 360" : (veTudo ? "Fila operacional" : "Minha Carteira")}</h1>
           <p style={S.subtitulo}>
             {veTudo ? "Visao completa da base de casos." : `Carteira de ${nomeOperadorPorEmail(email)}.`}
           </p>
@@ -1642,7 +1642,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             <span style={S.userNome}>{nomeOperadorPorEmail(email)}</span>
             <span style={S.userRole}>{veTudo ? "Gestao" : "Operador"}</span>
           </div>
-          {veTudo && aba === "carteira" && (
+          {veTudo && !mostrar360 && aba === "carteira" && (
             <select style={S.select} value={operadorFiltro} onChange={(e) => setOperadorFiltro(e.target.value)}>
               <option value="TODOS">Todos os operadores</option>
               {OPERADORES.map((o) => (
@@ -1664,7 +1664,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         </div>
       </div>
 
-      <div style={S.abas} role="tablist">
+      <div style={mostrar360 ? { display: "none" } : S.abas} role="tablist">
         <button
           type="button"
           onClick={() => setSomenteFocoDia((atual) => !atual)}
