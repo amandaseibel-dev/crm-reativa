@@ -64,6 +64,7 @@ export default function AcoesMassivas() {
   const [anoVencimento, setAnoVencimento] = useState("");
   const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
   const [apenasNuncaAcionado, setApenasNuncaAcionado] = useState(false);
+  const [soSemTelefone, setSoSemTelefone] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [resultados, setResultados] = useState(null);
@@ -138,23 +139,33 @@ export default function AcoesMassivas() {
         return;
       }
 
-      const lista = (alunosBrutos || [])
-        .map((a) => ({
-          alunoId: a.id,
-          nome: a.nome || "-",
-          telefoneBruto: a.telefone || "",
-          telefoneFormatado: normalizarTelefone(a.telefone),
-          email: (a.email || "").trim(),
-          valor: Number(a.valor || 0),
-          diasSemContato: a.data_ultimo_acionamento
-            ? Math.floor((Date.now() - new Date(a.data_ultimo_acionamento).getTime()) / 86400000)
-            : null,
-        }))
+      let lista = (alunosBrutos || [])
+        .map((a) => {
+          const telFmt = normalizarTelefone(a.telefone);
+          return {
+            alunoId: a.id,
+            nome: a.nome || "-",
+            telefoneBruto: a.telefone || "",
+            telefoneFormatado: telFmt,
+            semTelefone: !telFmt,
+            email: (a.email || "").trim(),
+            valor: Number(a.valor || 0),
+            diasSemContato: a.data_ultimo_acionamento
+              ? Math.floor((Date.now() - new Date(a.data_ultimo_acionamento).getTime()) / 86400000)
+              : null,
+          };
+        })
         .filter((l) => (canal === "WHATSAPP" ? !!l.telefoneFormatado : !!l.email)) // precisa do contato certo pro canal escolhido
         .filter((l) => l.valor >= minEfetivo)
-        .filter((l) => (max === null ? true : l.valor <= max))
-        .slice(0, qtd);
+        .filter((l) => (max === null ? true : l.valor <= max));
 
+      if (canal === "EMAIL") {
+        if (soSemTelefone) lista = lista.filter((l) => l.semTelefone);
+        // Sem telefone = prioridade no e-mail (nao da pra alcancar por WhatsApp)
+        lista = lista.slice().sort((a, b) => (b.semTelefone ? 1 : 0) - (a.semTelefone ? 1 : 0));
+      }
+
+      lista = lista.slice(0, qtd);
       setResultados(lista);
     } catch (e) {
       console.error("Erro ao buscar casos livres:", e);
@@ -423,6 +434,19 @@ export default function AcoesMassivas() {
               Só nunca acionados
             </label>
           </div>
+
+          {canal === "EMAIL" && (
+            <div style={{ ...estilos.campo, justifyContent: "flex-end" }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: "#475569", marginBottom: 9 }}>
+                <input
+                  type="checkbox"
+                  checked={soSemTelefone}
+                  onChange={(e) => setSoSemTelefone(e.target.checked)}
+                />
+                Só sem telefone (prioridade)
+              </label>
+            </div>
+          )}
         </div>
 
         {erro && <p style={estilos.erro}>{erro}</p>}
@@ -471,7 +495,7 @@ export default function AcoesMassivas() {
                   {resultados.map((r) => (
                     <tr key={r.alunoId}>
                       <td style={estilos.td}>{r.nome}</td>
-                      <td style={estilos.td}>{canal === "WHATSAPP" ? r.telefoneFormatado : r.email}</td>
+                      <td style={estilos.td}>{canal === "WHATSAPP" ? r.telefoneFormatado : (<>{r.email}{r.semTelefone && <span style={{ marginLeft: 6, background: "#fee2e2", color: "#b91c1c", borderRadius: 6, padding: "1px 6px", fontSize: 11, fontWeight: 800 }}>sem telefone</span>}</>)}</td>
                       <td style={estilos.tdNum}>
                         {r.diasSemContato === null ? (
                           <span style={{ color: "#b91c1c", fontWeight: 800 }}>Nunca acionado</span>
