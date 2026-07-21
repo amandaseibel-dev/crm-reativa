@@ -85,11 +85,6 @@ export default function VisaoGestao360({ dias = 30 }) {
 
   return (
     <div style={s.wrap}>
-      <div style={s.headerRow}>
-        <h2 style={s.h2}>Panorama 360 — visão da carteira</h2>
-        <span style={s.sub}>Foto da base a cobrar e projeção de fechamento</span>
-      </div>
-
       <div style={s.statsRow}>
         <Stat rot="Carteira a cobrar" val={num(base.com_divida)} cor="#111827" />
         <Stat rot="Já recuperados" val={num(base.quitados)} cor="#16a34a" />
