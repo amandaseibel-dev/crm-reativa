@@ -1771,7 +1771,7 @@ export default function PainelCarteira({ embedded = false }) {
             </div>
           )}
 
-          {desempenho && (
+          {!veTudo && desempenho && (
             <div style={S.desWrap}>
               <div style={S.desHeader}>Meu desempenho operacional</div>
               <div style={S.desRow}>
