@@ -1743,6 +1743,11 @@ export default function PainelCarteira({ embedded = false }) {
 
       {aba === "receptivo" ? (
         painelReceptivo
+      ) : veTudo ? (
+        <>
+          <VisaoGeralCarteira email={emailEscopo()} />
+          <VisaoGestao360 />
+        </>
       ) : (
         <>
           {(!veTudo || operadorFiltro !== "TODOS") && retornosPendentes.length > 0 && (
