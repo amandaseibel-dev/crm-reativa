@@ -37,6 +37,7 @@ import SugestoesRecebidas from "./pages/SugestoesRecebidas";
 import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 import ManualOperacao from "./pages/ManualOperacao";
 import BotaoManual from "./components/BotaoManual";
+import BotaoSugestao from "./components/BotaoSugestao";
 import FilaFinanceiro from "./pages/FilaFinanceiro";
 import FilaConfirmacaoPagamento from "./pages/FilaConfirmacaoPagamento";
 import PainelOperadores from "./pages/PainelOperadores";
@@ -537,6 +538,7 @@ export default function App() {
         <HeartbeatReceptivo usuario={usuario} />
         <AutoLogout usuario={usuario} />
         <NotificacoesSupervisaoAdm usuario={usuario} />
+        <BotaoSugestao />
         <AvisoTemplateNovo />
         <AvisosPopup />
         <aside className={sidebarRecolhida ? "sidebar sidebar-recolhida" : "sidebar"}>
