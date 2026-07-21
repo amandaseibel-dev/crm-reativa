@@ -27,7 +27,6 @@ function Podio({ titulo, rank }) {
             <div key={idx} style={S.podioCol}>
               <div style={{ ...S.podioMedalha, fontSize: item.pos === 1 ? "5vw" : "3.6vw" }}>{medalha[item.pos]}</div>
               <div style={{ ...S.podioNome, fontSize: item.pos === 1 ? "2.4vw" : "1.9vw" }}>{o.operador}</div>
-              <div style={{ ...S.podioValor, fontSize: item.pos === 1 ? "2.6vw" : "2vw" }}>{num(o.pagos)} pagamentos</div>
               <div style={{ ...S.podioBase, height: alturas[item.pos], background: cores[item.pos] }}>
                 <span style={S.podioPos}>{item.pos}</span>
               </div>
