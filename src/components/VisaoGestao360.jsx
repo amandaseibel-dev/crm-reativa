@@ -63,6 +63,7 @@ export default function VisaoGestao360({ dias = 30 }) {
   const unis = d.por_unidade || [];
 
   const maxAtraso = Math.max(1, ...atraso.map((x) => Number(x.valor) || 0));
+  const totalAtraso = atraso.reduce((a, x) => a + (Number(x.valor) || 0), 0);
   const maxPer = Math.max(1, ...periodos.map((x) => Number(x.valor) || 0));
   const maxUni = Math.max(1, ...unis.map((x) => Number(x.valor) || 0));
 
@@ -128,11 +129,12 @@ export default function VisaoGestao360({ dias = 30 }) {
           {(() => {
             const faixas = saude.faixas || [];
             const maxF = Math.max(1, ...faixas.map((y) => (Number(y.na_operacao) || 0) + (Number(y.fora_operacao) || 0)));
+            const totalF = faixas.reduce((a, y) => a + (Number(y.na_operacao) || 0) + (Number(y.fora_operacao) || 0), 0);
             return faixas.map((f) => {
               const tot = (Number(f.na_operacao) || 0) + (Number(f.fora_operacao) || 0);
               return (
                 <div key={f.faixa} style={s.linha}>
-                  <div style={s.linhaTopo}><span>{f.faixa}</span><strong>{num(tot)} alunos</strong></div>
+                  <div style={s.linhaTopo}><span>{f.faixa}</span><strong>{num(tot)} alunos · {totalF > 0 ? ((tot / totalF) * 100).toFixed(1) : "0"}%</strong></div>
                   <div style={s.barTrack}><div style={{ ...s.barFill, width: Math.max(2, (tot / maxF) * 100) + "%", background: "#2563eb" }} /></div>
                 </div>
               );
@@ -145,7 +147,7 @@ export default function VisaoGestao360({ dias = 30 }) {
         <div style={s.bloco}>
           <h3 style={s.h3}>Faixa de atraso das mensalidades</h3>
           {atraso.map((x) => (
-            <Bar key={x.faixa} label={x.faixa} sub={num(x.cpfs) + " CPFs"} val={moeda(x.valor)} pct={(Number(x.valor) / maxAtraso) * 100} cor="#ef4444" />
+            <Bar key={x.faixa} label={x.faixa} sub={(totalAtraso > 0 ? ((Number(x.valor) / totalAtraso) * 100).toFixed(1) : "0") + "% do total · " + num(x.cpfs) + " CPFs"} val={moeda(x.valor)} pct={(Number(x.valor) / maxAtraso) * 100} cor="#ef4444" />
           ))}
         </div>
       </div>
