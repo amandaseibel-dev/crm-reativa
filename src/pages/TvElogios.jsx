@@ -128,7 +128,7 @@ export default function TvElogios() {
   const p = proj || {};
   const dpr = p.delta_proj_recuperado;
   const deltaCor = dpr == null ? "#93c5fd" : dpr > 0 ? "#4ade80" : dpr < 0 ? "#f87171" : "#93c5fd";
-  const deltaTxt = dpr == null ? "comparativo com ontem comeca amanha"
+  const deltaTxt = dpr == null ? "comparativo com ontem começa amanhã"
     : dpr > 0 ? "▲ subiu " + moeda(dpr) + " vs ontem"
     : dpr < 0 ? "▼ caiu " + moeda(Math.abs(dpr)) + " vs ontem"
     : "= igual a ontem";
@@ -137,24 +137,24 @@ export default function TvElogios() {
     <div style={S.tv}>
       <div style={S.topo}>
         <span style={S.marca}>Re<span style={{ color: "#3b82f6" }}>A</span>TIVA</span>
-        <span style={S.topoSub}>Recuperacao ULBRA · ao vivo</span>
+        <span style={S.topoSub}>Recuperação ULBRA · ao vivo</span>
       </div>
 
       {atual.tipo === "semana" && <Podio titulo="Melhores da semana" rank={d.ranking_semana || []} />}
-      {atual.tipo === "mes" && <Podio titulo="Melhores do mes" rank={d.ranking_mes || []} />}
+      {atual.tipo === "mes" && <Podio titulo="Melhores do mês" rank={d.ranking_mes || []} />}
 
       {atual.tipo === "resultado" && (
         <div style={S.tela}>
-          <div style={S.rot}>Resultado do mes</div>
+          <div style={S.rot}>Resultado do mês</div>
           <div style={S.numGigante}>{moeda(p.recuperado_mes)}</div>
           {p.pct_meta != null ? (
             <div style={S.metaLinha}>
               <div style={S.barraFundo}><div style={{ ...S.barra, width: Math.min(100, p.pct_meta) + "%" }} /></div>
               <div style={S.metaTexto}>{p.pct_meta}% da meta ({moeda(p.meta)})</div>
             </div>
-          ) : <div style={S.ultimaMeta}>Meta nao cadastrada</div>}
+          ) : <div style={S.ultimaMeta}>Meta não cadastrada</div>}
           <div style={S.linhaCartoes}>
-            <Cartao rot="Honorarios" val={moeda(p.honorarios_mes)} />
+            <Cartao rot="Honorários" val={moeda(p.honorarios_mes)} />
             <Cartao rot="Falta p/ meta" val={p.falta != null ? moeda(p.falta) : "-"} />
             <Cartao rot={"Precisa/dia (" + (p.dias_restantes || "-") + "d)"} val={p.precisa_por_dia != null ? moeda(p.precisa_por_dia) : "-"} />
           </div>
@@ -163,27 +163,27 @@ export default function TvElogios() {
 
       {atual.tipo === "projecao" && (
         <div style={S.tela}>
-          <div style={S.rot}>Projecao do mes</div>
+          <div style={S.rot}>Projeção do mês</div>
           <div style={S.numGigante}>{moeda(p.proj_recuperado)}</div>
           <div style={{ ...S.projDelta, color: deltaCor }}>{deltaTxt}</div>
-          <div style={S.ultimaMeta}>Honorarios projetados: {moeda(p.proj_honorarios)}</div>
+          <div style={S.ultimaMeta}>Honorários projetados: {moeda(p.proj_honorarios)}</div>
         </div>
       )}
 
       {atual.tipo === "alunos" && (
         <div style={S.tela}>
-          <div style={S.rot}>Alunos recuperados no mes</div>
+          <div style={S.rot}>Alunos recuperados no mês</div>
           <div style={S.numGigante}>{num(d.alunos_pagos_mes)}</div>
           <div style={S.linhaCartoes}>
             <Cartao rot="Recuperados hoje" val={num(d.alunos_pagos_dia)} />
-            <Cartao rot="No mes" val={num(d.alunos_pagos_mes)} />
+            <Cartao rot="No mês" val={num(d.alunos_pagos_mes)} />
           </div>
         </div>
       )}
 
       {atual.tipo === "maior" && (
         <div style={S.tela}>
-          <div style={S.rotBig}>💰 Maior pagamento do mes</div>
+          <div style={S.rotBig}>💰 Maior pagamento do mês</div>
           {d.maior_pagamento ? (
             <>
               <div style={S.numGigante}>{moeda(d.maior_pagamento.valor)}</div>
