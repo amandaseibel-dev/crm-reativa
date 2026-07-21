@@ -104,6 +104,16 @@ export default function TvElogios() {
     return () => clearInterval(t);
   }, [telas]);
 
+  useEffect(() => {
+    function onKey(e) {
+      const n = telas.length || 1;
+      if (e.key === "ArrowRight") setIndice((i) => (i + 1) % n);
+      else if (e.key === "ArrowLeft") setIndice((i) => (i - 1 + n) % n);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [telas]);
+
   const atual = telas[indice % (telas.length || 1)] || { tipo: "semana" };
 
   useEffect(() => {
@@ -201,9 +211,11 @@ export default function TvElogios() {
       )}
 
       <div style={S.pontos}>
+        <button type="button" onClick={() => setIndice((i) => (i - 1 + (telas.length || 1)) % (telas.length || 1))} style={S.navBtn} aria-label="Slide anterior">‹</button>
         {telas.map((_, i) => (
-          <span key={i} style={{ ...S.ponto, background: i === (indice % telas.length) ? "#3b82f6" : "#334155" }} />
+          <span key={i} onClick={() => setIndice(i)} style={{ ...S.ponto, cursor: "pointer", background: i === (indice % telas.length) ? "#3b82f6" : "#334155" }} />
         ))}
+        <button type="button" onClick={() => setIndice((i) => (i + 1) % (telas.length || 1))} style={S.navBtn} aria-label="Próximo slide">›</button>
       </div>
     </div>
   );
@@ -253,4 +265,5 @@ const S = {
   dicaTexto: { fontSize: "2.4vw", fontWeight: 600, color: "#dbeafe", maxWidth: "78vw", lineHeight: 1.4 },
   pontos: { display: "flex", gap: "0.8vw", justifyContent: "center", marginTop: "2vh" },
   ponto: { width: "1vw", height: "1vw", borderRadius: "50%", display: "inline-block" },
+  navBtn: { background: "rgba(59,130,246,0.2)", color: "#fff", border: "1px solid rgba(59,130,246,0.45)", borderRadius: 10, width: "3.4vw", height: "3.4vw", fontSize: "2.2vw", cursor: "pointer", lineHeight: 1, display: "inline-flex", alignItems: "center", justifyContent: "center", margin: "0 1.5vw" },
 };
