@@ -124,7 +124,7 @@ export default function VisaoGestao360({ dias = 30 }) {
 
       {saude && (
         <div style={s.bloco}>
-          <h3 style={s.h3}>Saúde da base — nunca acionados por faixa</h3>
+          <h3 style={s.h3}>Saúde da base</h3>
           {(() => {
             const faixas = saude.faixas || [];
             const maxF = Math.max(1, ...faixas.map((y) => (Number(y.na_operacao) || 0) + (Number(y.fora_operacao) || 0)));
