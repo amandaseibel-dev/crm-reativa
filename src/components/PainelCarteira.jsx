@@ -1534,7 +1534,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Cards operacionais (abrem a tabela) + financeiros (abrem detalhamento).
   // Todos permanecem visiveis mesmo zerados.
   const kpiCards = [
-    { id: "ativos", rot: "Casos ativos • " + formatarMoeda(valorCarteira) + " em aberto", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
+    { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
     { id: "retornosHoje", rot: "Retornos de hoje", val: kpis.retornosHoje, cor: "#0ea5e9", icone: "🔁" },
     { id: "semAcionamento10", rot: "Sem acionamento há 10 dias", val: kpis.semAcionamento10, cor: "#f59e0b", icone: "⏳" },
     { id: "proximosPerder", rot: "Proximos de perder a carteira", val: kpis.proximosPerder, cor: "#dc2626", icone: "⚠️", urgente: true },
