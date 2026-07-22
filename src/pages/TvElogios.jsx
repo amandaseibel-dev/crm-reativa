@@ -103,7 +103,7 @@ export default function TvElogios() {
   }
 
   const telas = useMemo(() => {
-    const base = ["campanha", "semana", "mes", "resultado", "projecao", "alunos", "maior", "topdia", "tophondia", "topmes"];
+    const base = ["campanha", "meta3mi", "semana", "mes", "resultado", "projecao", "alunos", "maior", "topdia", "tophondia", "topmes"];
     const dcs = (dicas || []).map((x) => ({ tipo: "dica", dica: x }));
     const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
     return [...base.map((t) => ({ tipo: t })), ...dcs, ...els];
@@ -153,15 +153,36 @@ export default function TvElogios() {
       {atual.tipo === "mes" && <Podio titulo="Melhores do mês" rank={d.ranking_mes || []} />}
 
       {atual.tipo === "campanha" && (
-        <div style={{ ...S.tela, background: "linear-gradient(135deg,#7c3aed 0%,#2563eb 55%,#059669 100%)" }}>
-          <div style={{ fontSize: "5vw", fontWeight: 900, color: "#fff", textShadow: "0 0 30px rgba(0,0,0,0.45)" }}>🔥 BORA TIME! 🔥</div>
-          <div style={{ fontSize: "2.3vw", color: "#fde68a", fontWeight: 800, marginTop: "1vh" }}>Campanha especial — rumo aos R$ 500 mil em honorários</div>
-          <div style={{ margin: "5vh auto 2.5vh", width: "72%", height: "5.5vh", background: "rgba(255,255,255,0.22)", borderRadius: "4vh", overflow: "hidden", boxShadow: "inset 0 0 22px rgba(0,0,0,0.35)" }}>
-            <div style={{ height: "100%", width: Math.min(100, Math.round((Number(p?.honorarios_mes || 0) / 500000) * 100)) + "%", background: "linear-gradient(90deg,#fbbf24,#f59e0b)", borderRadius: "4vh", boxShadow: "0 0 25px rgba(251,191,36,0.8)" }} />
+        <div style={{ ...S.tela, background: "radial-gradient(circle at 30% 20%,#8b5cf6 0%,#6d28d9 35%,#1d4ed8 70%,#059669 100%)", position: "relative", overflow: "hidden" }}>
+          <style>{`@keyframes pulseGlow{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}@keyframes shine{0%{transform:translateX(-120%)}100%{transform:translateX(240%)}}`}</style>
+          <div style={{ fontSize: "1.9vw", color: "#fde68a", fontWeight: 800, letterSpacing: "0.3vw" }}>✨ CAMPANHA ESPECIAL ✨</div>
+          <div style={{ fontSize: "5.6vw", fontWeight: 900, color: "#fff", textShadow: "0 0 40px rgba(0,0,0,0.5)", animation: "pulseGlow 2s ease-in-out infinite" }}>🔥 BORA TIME! 🔥</div>
+          <div style={{ fontSize: "2.3vw", color: "#fff", fontWeight: 700, marginTop: "0.5vh" }}>Meta do mês: <b style={{ color: "#fde68a" }}>R$ 500 mil</b> em honorários</div>
+          <div style={{ margin: "4.5vh auto 2.5vh", width: "72%", height: "6vh", background: "rgba(255,255,255,0.18)", borderRadius: "4vh", overflow: "hidden", position: "relative", boxShadow: "inset 0 0 25px rgba(0,0,0,0.4)" }}>
+            <div style={{ height: "100%", width: Math.min(100, Math.round((Number(p?.honorarios_mes || 0) / 500000) * 100)) + "%", background: "linear-gradient(90deg,#fbbf24,#f59e0b,#fbbf24)", borderRadius: "4vh", boxShadow: "0 0 35px rgba(251,191,36,0.9)", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, width: "30%", height: "100%", background: "linear-gradient(90deg,transparent,rgba(255,255,255,0.75),transparent)", animation: "shine 2.2s linear infinite" }} />
+            </div>
           </div>
-          <div style={{ fontSize: "5vw", fontWeight: 900, color: "#fde68a", lineHeight: 1 }}>{Math.min(100, Math.round((Number(p?.honorarios_mes || 0) / 500000) * 100))}%</div>
-          <div style={{ fontSize: "2.6vw", fontWeight: 900, color: "#fff", marginTop: "1.5vh" }}>{moeda(p?.honorarios_mes)} <span style={{ fontSize: "1.7vw", color: "#e0e7ff" }}>de R$ 500.000</span></div>
-          <div style={{ fontSize: "2.2vw", color: "#fff", marginTop: "4.5vh", fontWeight: 700 }}>🎁 Prêmio especial ao bater a meta! <span style={{ color: "#fde68a" }}>(prêmio a definir)</span></div>
+          <div style={{ fontSize: "6.5vw", fontWeight: 900, color: "#fde68a", lineHeight: 1, textShadow: "0 0 30px rgba(251,191,36,0.6)" }}>{Math.min(100, Math.round((Number(p?.honorarios_mes || 0) / 500000) * 100))}%</div>
+          <div style={{ fontSize: "2.6vw", fontWeight: 900, color: "#fff", marginTop: "1vh" }}>{moeda(p?.honorarios_mes)} <span style={{ fontSize: "1.6vw", color: "#c7d2fe" }}>de R$ 500.000</span></div>
+          <div style={{ fontSize: "2.3vw", color: "#fff", marginTop: "3.5vh", fontWeight: 800 }}>🎁 Prêmio especial ao bater a meta! <span style={{ color: "#fde68a" }}>(a definir)</span></div>
+        </div>
+      )}
+
+      {atual.tipo === "meta3mi" && (
+        <div style={{ ...S.tela, background: "radial-gradient(circle at 70% 20%,#f59e0b 0%,#b45309 40%,#7c2d12 75%,#111827 100%)", position: "relative", overflow: "hidden" }}>
+          <style>{`@keyframes pg2{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}@keyframes sh2{0%{transform:translateX(-120%)}100%{transform:translateX(240%)}}`}</style>
+          <div style={{ fontSize: "1.9vw", color: "#fde68a", fontWeight: 800, letterSpacing: "0.3vw" }}>🏆 GRANDE META DA EMPRESA 🏆</div>
+          <div style={{ fontSize: "5vw", fontWeight: 900, color: "#fff", textShadow: "0 0 40px rgba(0,0,0,0.5)", animation: "pg2 2.2s ease-in-out infinite", marginTop: "0.5vh" }}>💰 RUMO AOS R$ 3 MILHÕES!</div>
+          <div style={{ fontSize: "2.1vw", color: "#fff", fontWeight: 700 }}>Honorários totais recuperados pela equipe</div>
+          <div style={{ margin: "4.5vh auto 2vh", width: "74%", height: "6vh", background: "rgba(255,255,255,0.18)", borderRadius: "4vh", overflow: "hidden", position: "relative", boxShadow: "inset 0 0 25px rgba(0,0,0,0.45)" }}>
+            <div style={{ height: "100%", width: Math.min(100, Math.round((Number(p?.honorarios_total || 0) / 3000000) * 100)) + "%", background: "linear-gradient(90deg,#34d399,#10b981,#34d399)", borderRadius: "4vh", boxShadow: "0 0 35px rgba(52,211,153,0.9)", position: "relative", overflow: "hidden" }}>
+              <div style={{ position: "absolute", top: 0, left: 0, width: "30%", height: "100%", background: "linear-gradient(90deg,transparent,rgba(255,255,255,0.75),transparent)", animation: "sh2 2.4s linear infinite" }} />
+            </div>
+          </div>
+          <div style={{ fontSize: "5.5vw", fontWeight: 900, color: "#fde68a", lineHeight: 1 }}>{Math.min(100, Math.round((Number(p?.honorarios_total || 0) / 3000000) * 100))}%</div>
+          <div style={{ fontSize: "2.6vw", fontWeight: 900, color: "#fff", marginTop: "1vh" }}>{moeda(p?.honorarios_total)} <span style={{ fontSize: "1.6vw", color: "#d1fae5" }}>de R$ 3.000.000</span></div>
+          <div style={{ fontSize: "3.4vw", fontWeight: 900, color: "#a7f3d0", marginTop: "2vh" }}>Faltam {moeda(Math.max(0, 3000000 - Number(p?.honorarios_total || 0)))} 🚀</div>
         </div>
       )}
 
