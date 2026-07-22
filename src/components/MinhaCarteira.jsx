@@ -66,6 +66,20 @@ export default function MinhaCarteira({ usuarioLogado }) {
           <div style={estilos.label}>Honorário no mês</div>
         </div>
       </div>
+      {!resumo.no_topo && resumo.proxima_meta_valor ? (
+        <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "rgba(96,165,250,0.12)", border: "1px solid rgba(96,165,250,0.35)" }}>
+          <div style={{ fontSize: 13, color: "#93c5fd", fontWeight: 700 }}>
+            🎯 Próxima meta: {moeda(resumo.proxima_meta_valor)} ({resumo.proxima_meta_pct}%)
+          </div>
+          <div style={{ fontSize: 12.5, marginTop: 4, lineHeight: 1.4 }}>
+            Faltam <b>{moeda(resumo.falta_proxima_meta)}</b> em honorário — precisa de <b>{moeda(resumo.precisa_por_dia)}/dia</b> nos {resumo.dias_uteis_restantes} dias úteis restantes.
+          </div>
+        </div>
+      ) : resumo.no_topo ? (
+        <div style={{ marginTop: 12, padding: "10px 12px", borderRadius: 10, background: "rgba(52,211,153,0.12)", border: "1px solid rgba(52,211,153,0.35)", fontSize: 13, color: "#6ee7b7", fontWeight: 700 }}>
+          🏆 Você já está na faixa máxima de comissão!
+        </div>
+      ) : null}
     </div>
   );
 }
