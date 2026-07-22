@@ -46,10 +46,21 @@ function Podio({ titulo, rank }) {
 export default function TvElogios() {
   const [dados, setDados] = useState(null);
   const [proj, setProj] = useState(null);
+  const [rank, setRank] = useState(null);
   const [elogios, setElogios] = useState([]);
   const [dicas, setDicas] = useState([]);
   const [urlElogio, setUrlElogio] = useState("");
   const [indice, setIndice] = useState(0);
+
+  useEffect(() => {
+    async function carregarRank() {
+      const { data } = await supabase.rpc("acionamentos_ranking");
+      setRank(data || null);
+    }
+    carregarRank();
+    const tr = setInterval(carregarRank, 60000);
+    return () => clearInterval(tr);
+  }, []);
 
   useEffect(() => {
     carregarDados();
@@ -92,7 +103,7 @@ export default function TvElogios() {
   }
 
   const telas = useMemo(() => {
-    const base = ["semana", "mes", "resultado", "projecao", "alunos", "maior"];
+    const base = ["semana", "mes", "resultado", "projecao", "alunos", "maior", "topdia", "topmes"];
     const dcs = (dicas || []).map((x) => ({ tipo: "dica", dica: x }));
     const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
     return [...base.map((t) => ({ tipo: t })), ...dcs, ...els];
@@ -191,6 +202,36 @@ export default function TvElogios() {
               <div style={S.ultimaMeta}>por {d.maior_pagamento.operador} · {d.maior_pagamento.quando}</div>
             </>
           ) : <div style={S.ultimaMeta}>Sem pagamentos ainda.</div>}
+        </div>
+      )}
+
+      {atual.tipo === "topdia" && (
+        <div style={S.tela}>
+          <div style={S.rotBig}>🏆 Top 3 acionamentos — Hoje</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "2.4vh", marginTop: "3vh" }}>
+            {(((rank && rank.top_dia) || []).length === 0) ? (
+              <div style={S.ultimaMeta}>Sem acionamentos hoje ainda.</div>
+            ) : (rank.top_dia).map((o, i) => (
+              <div key={i} style={{ fontSize: "3.4vw", fontWeight: 900, color: "#fff", textShadow: "0 0 22px rgba(59,130,246,0.5)" }}>
+                {(["🥇", "🥈", "🥉"][i] || "")} {o.nome}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {atual.tipo === "topmes" && (
+        <div style={S.tela}>
+          <div style={S.rotBig}>🏆 Top 3 acionamentos — Mês</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "2.4vh", marginTop: "3vh" }}>
+            {(((rank && rank.top_mes) || []).length === 0) ? (
+              <div style={S.ultimaMeta}>Sem dados ainda.</div>
+            ) : (rank.top_mes).map((o, i) => (
+              <div key={i} style={{ fontSize: "3.4vw", fontWeight: 900, color: "#fff", textShadow: "0 0 22px rgba(59,130,246,0.5)" }}>
+                {(["🥇", "🥈", "🥉"][i] || "")} {o.nome}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
