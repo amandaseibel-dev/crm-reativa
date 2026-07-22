@@ -35,6 +35,8 @@ export default function MeusAcionamentos() {
         <Card cor="#38bdf8" valor={d.semana} rot="Últimos 7 dias" />
         <Card cor="#4ade80" valor={d.mes} rot="No mês" />
         <Card cor="#fbbf24" valor={d.recorde_qtd} rot={recordeData ? "🏆 Recorde (" + recordeData + ")" : "🏆 Recorde"} />
+        {d.tempo_medio_min != null ? <Card cor="#a78bfa" valor={d.tempo_medio_min + " min"} rot="⏱️ Tempo médio/acion." /> : null}
+        {d.projecao_dia != null ? <Card cor="#f472b6" valor={d.projecao_dia} rot="🎯 Projeção do dia (ritmo)" /> : null}
       </div>
     </div>
   );
@@ -43,7 +45,7 @@ export default function MeusAcionamentos() {
 function Card({ cor, valor, rot }) {
   return (
     <div style={S.card}>
-      <span style={{ ...S.cardVal, color: cor }}>{Number(valor || 0).toLocaleString("pt-BR")}</span>
+      <span style={{ ...S.cardVal, color: cor }}>{typeof valor === "number" ? Number(valor || 0).toLocaleString("pt-BR") : valor}</span>
       <span style={S.cardRot}>{rot}</span>
     </div>
   );
