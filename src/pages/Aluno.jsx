@@ -1842,8 +1842,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               )}
 
               {abaFicha === "financeiro" && (
-                <VincularMensalidadesAcordo alunoId={alunoSelecionado?.id} />
-                <FinanceiroAluno aluno={alunoSelecionado} />
+                <>
+                  <VincularMensalidadesAcordo alunoId={alunoSelecionado?.id} />
+                  <FinanceiroAluno aluno={alunoSelecionado} />
+                </>
               )}
               {abaFicha === "email" && emailLiberadoAluno && (
                 <div style={caixaInterna}>
