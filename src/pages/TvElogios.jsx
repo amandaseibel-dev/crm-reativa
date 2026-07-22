@@ -129,10 +129,8 @@ export default function TvElogios() {
 
   useEffect(() => {
     if (atual.tipo !== "elogio" || !atual.elogio?.elogio_print_path) { setUrlElogio(""); return; }
-    let ativo = true;
-    supabase.storage.from("elogios-prints").createSignedUrl(atual.elogio.elogio_print_path, 3600)
-      .then(({ data }) => { if (ativo) setUrlElogio(data?.signedUrl || ""); });
-    return () => { ativo = false; };
+    const { data } = supabase.storage.from("elogios-prints").getPublicUrl(atual.elogio.elogio_print_path);
+    setUrlElogio(data?.publicUrl || "");
   }, [atual]);
 
   const d = dados || {};
