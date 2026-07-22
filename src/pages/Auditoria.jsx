@@ -6,12 +6,13 @@ const MEU_EMAIL = "amanda.seibel" + "@" + "aelbra.com.br";
 function fmtData(v) { if (!v) return "-"; const d = new Date(v); return d.toLocaleString("pt-BR"); }
 
 const CONTROLES = [
-  { icon: "🔒", titulo: "Acesso por perfil (RLS)", texto: "Todas as tabelas com dados tem trava por linha (Row Level Security). Cada usuario so ve o que o seu perfil permite." },
-  { icon: "🚫", titulo: "Acesso anonimo bloqueado", texto: "A chave publica nao le nenhum dado sensivel: alunos, pagamentos, acordos, usuarios e financeiro retornam zero para quem nao esta logado." },
-  { icon: "🗂️", titulo: "Documentos sensiveis privados", texto: "Comprovantes de pagamento e termos de acordo ficam em armazenamento privado, acessiveis so por link assinado a usuarios autorizados." },
-  { icon: "🧩", titulo: "Funcoes restritas", texto: "Consultas e relatorios que acessam dados so executam para usuarios autenticados; o acesso publico foi revogado." },
-  { icon: "📝", titulo: "Auditoria completa", texto: "Toda criacao, alteracao e exclusao de dado financeiro ou cadastral e registrada com autor, data/hora e valores antes/depois." },
-  { icon: "🔐", titulo: "Transporte criptografado", texto: "Todo o trafego entre o sistema e o banco usa conexao criptografada (HTTPS/TLS)." },
+  { icon: "🔒", titulo: "Acesso por perfil (RLS)", texto: "Todas as tabelas com dados têm trava por linha (Row Level Security). Cada usuário só vê o que o seu perfil permite." },
+  { icon: "🚫", titulo: "Acesso anônimo bloqueado", texto: "A chave pública não lê nenhum dado sensível: alunos, pagamentos, acordos, usuários e financeiro retornam zero para quem não está logado." },
+  { icon: "🗂️", titulo: "Documentos sensíveis privados", texto: "Comprovantes de pagamento e termos de acordo ficam em armazenamento privado, acessíveis só por link assinado a usuários autorizados." },
+  { icon: "🧩", titulo: "Funções restritas", texto: "Consultas e relatórios que acessam dados só executam para usuários autenticados; o acesso público foi revogado." },
+  { icon: "📝", titulo: "Auditoria completa", texto: "Toda criação, alteração e exclusão de dado financeiro ou cadastral é registrada com autor, data/hora e valores antes/depois." },
+  { icon: "🔐", titulo: "Transporte criptografado", texto: "Todo o tráfego entre o sistema e o banco usa conexão criptografada (HTTPS/TLS)." },
+  { icon: "⏰", titulo: "Controle de acesso por horário", texto: "O acesso é liberado por turno; fora do horário o sistema bloqueia e exige autorização da gestão. Toda tentativa fica registrada." },
 ];
 
 export default function Auditoria() {
@@ -44,7 +45,7 @@ export default function Auditoria() {
   useEffect(() => { if (email === MEU_EMAIL) carregar(); }, [email]);
 
   function exportarCSV() {
-    const linhas = [["Data", "Usuario", "Tabela", "Operacao", "Registro", "Antes", "Depois"]];
+    const linhas = [["Data", "Usuário", "Tabela", "Operação", "Registro", "Antes", "Depois"]];
     logs.forEach(function (l) { linhas.push([fmtData(l.criado_em), l.usuario, l.tabela, l.operacao, l.registro_id || "", JSON.stringify(l.dados_antes || ""), JSON.stringify(l.dados_depois || "")]); });
     const csv = linhas.map(function (r) { return r.map(function (c) { return chr(34) + String(c).split(chr(34)).join(chr(34) + chr(34)) + chr(34); }).join(";"); }).join(nl());
     const blob = new Blob([bom() + csv], { type: "text/csv;charset=utf-8;" });
@@ -57,13 +58,13 @@ export default function Auditoria() {
   const tabelas = useMemo(function () { return Array.from(new Set(logs.map(function (l) { return l.tabela; }))).sort(); }, [logs]);
 
   if (email && email !== MEU_EMAIL) {
-    return (<div style={S.wrap}><h1 style={S.h1}>Seguranca e Auditoria</h1><div style={S.negado}>Acesso restrito. Esta area e exclusiva da gestao de seguranca.</div></div>);
+    return (<div style={S.wrap}><h1 style={S.h1}>Segurança e Auditoria</h1><div style={S.negado}>Acesso restrito. Esta área é exclusiva da gestão de segurança.</div></div>);
   }
 
   return (
     <div style={S.wrap}>
-      <h1 style={S.h1}>🛡️ Seguranca e Auditoria</h1>
-      <p style={S.sub}>Controles de protecao de dados aplicados e registro completo de acessos e alteracoes.</p>
+      <h1 style={S.h1}>🛡️ Segurança e Auditoria</h1>
+      <p style={S.sub}>Controles de proteção de dados aplicados e registro completo de acessos e alterações.</p>
       <div style={S.grid}>
         {CONTROLES.map(function (c, i) { return (
           <div key={i} style={S.card}>
@@ -74,16 +75,16 @@ export default function Auditoria() {
       </div>
       <h2 style={S.h2}>Registro de auditoria</h2>
       <div style={S.filtros}>
-        <input style={S.inp} placeholder="Usuario" value={fUsuario} onChange={function (e) { setFUsuario(e.target.value); }} />
+        <input style={S.inp} placeholder="Usuário" value={fUsuario} onChange={function (e) { setFUsuario(e.target.value); }} />
         <select style={S.inp} value={fTabela} onChange={function (e) { setFTabela(e.target.value); }}>
           <option value="">Todas as tabelas</option>
           {tabelas.map(function (t) { return <option key={t} value={t}>{t}</option>; })}
         </select>
         <select style={S.inp} value={fOperacao} onChange={function (e) { setFOperacao(e.target.value); }}>
-          <option value="">Todas as acoes</option>
-          <option value="INSERT">Criacao</option>
-          <option value="UPDATE">Alteracao</option>
-          <option value="DELETE">Exclusao</option>
+          <option value="">Todas as ações</option>
+          <option value="INSERT">Criação</option>
+          <option value="UPDATE">Alteração</option>
+          <option value="DELETE">Exclusão</option>
         </select>
         <input style={S.inp} type="date" value={fDe} onChange={function (e) { setFDe(e.target.value); }} />
         <input style={S.inp} type="date" value={fAte} onChange={function (e) { setFAte(e.target.value); }} />
@@ -94,7 +95,7 @@ export default function Auditoria() {
         <div style={S.tabelaWrap}>
           <table style={S.tabela}>
             <thead><tr>
-              <th style={S.th}>Data/Hora</th><th style={S.th}>Usuario</th><th style={S.th}>Tabela</th><th style={S.th}>Acao</th><th style={S.th}>Registro</th>
+              <th style={S.th}>Data/Hora</th><th style={S.th}>Usuário</th><th style={S.th}>Tabela</th><th style={S.th}>Ação</th><th style={S.th}>Registro</th>
             </tr></thead>
             <tbody>
               {logs.length === 0 && <tr><td style={S.td} colSpan={5}>Nenhum registro no filtro atual.</td></tr>}
@@ -108,7 +109,7 @@ export default function Auditoria() {
                 </tr>); })}
             </tbody>
           </table>
-          <p style={S.rodape}>{logs.length} registro(s). Este log e somente-leitura e nao pode ser alterado ou apagado pela operacao.</p>
+          <p style={S.rodape}>{logs.length} registro(s). Este log é somente-leitura e não pode ser alterado ou apagado pela operação.</p>
         </div>
       )}
     </div>
