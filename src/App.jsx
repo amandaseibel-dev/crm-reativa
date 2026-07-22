@@ -70,6 +70,7 @@ import AvisosBadge from "./components/AvisosBadge";
 import CentralAvisos from "./pages/CentralAvisos";
 import TaxaConversao from "./pages/TaxaConversao";
 import PainelGeral from "./pages/PainelGeral";
+import NotificacoesPopup from "./components/NotificacoesPopup";
 function EmDesenvolvimento({ titulo }) {
   return (
     <div className="main">
@@ -539,6 +540,7 @@ export default function App() {
         <AutoLogout usuario={usuario} />
         <NotificacoesSupervisaoAdm usuario={usuario} />
         <BotaoSugestao />
+        <NotificacoesPopup />
         <AvisoTemplateNovo />
         <AvisosPopup />
         <aside className={sidebarRecolhida ? "sidebar sidebar-recolhida" : "sidebar"}>
