@@ -157,7 +157,7 @@ export default function TvElogios() {
       {atual.tipo === "resultado" && (
         <div style={S.tela}>
           <div style={S.rot}>Resultado do mês</div>
-          <div style={S.numGigante}>{moeda(p.recuperado_mes)}</div>
+          <div style={S.numGigante}>{moeda(p.honorarios_mes)}</div>
           {p.pct_meta != null ? (
             <div style={S.metaLinha}>
               <div style={S.barraFundo}><div style={{ ...S.barra, width: Math.min(100, p.pct_meta) + "%" }} /></div>
