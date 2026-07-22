@@ -232,6 +232,18 @@ function RotaProtegida({ usuario, rota, children }) {
   }
   return children;
 }
+function VisaoAuditor({ usuario, onSair }) {
+  return (
+    <div style={{ minHeight: "100vh", background: "#f8fafc" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", background: "#0f172a", color: "#fff" }}>
+        <strong>ReATIVA — Auditor (somente leitura)</strong>
+        <button onClick={onSair} style={{ background: "#ef4444", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 800, cursor: "pointer" }}>Sair</button>
+      </div>
+      <Auditoria forcarAcesso />
+    </div>
+  );
+}
+
 export default function App() {
   const [usuario, setUsuario] = useState(null);
   const [perfilVisao, setPerfilVisao] = useState(() => localStorage.getItem("reativa_perfil_visao") || "");
@@ -483,6 +495,10 @@ export default function App() {
     return <BloqueioAcesso info={usuario.acesso} email={usuario.perfil?.email || usuario.auth?.email} onSair={sair} />;
   }
 
+  if (perfil === "auditor") {
+    return <VisaoAuditor usuario={usuario} onSair={sair} />;
+  }
+
   const menuBase = [
   { rota: "/executivo", label: "📊 Visão Executiva" },
     { rota: "/dre", label: "DRE (gerência)" },
@@ -524,7 +540,7 @@ export default function App() {
     { rota: "/importar-acordos", label: "Importar Acordos", icone: "Upload", secao: "Gestão" }, { rota: "/fila-acordos", label: "Fila de Acordos", icone: "CheckCircle2", secao: "Gestão" }, { rota: "/ferramentas", label: "Ferramentas", icone: "FileStack", secao: "Gestão" }, { rota: "/importacoes", label: "Importações", icone: "Upload", secao: "Configurações" },
     { rota: "/avisos", label: "Central de Avisos", icone: "Bell", secao: "Configurações" },
     { rota: "/usuarios", label: "Usuários", icone: "Users", secao: "Configurações" },
-    { rota: "/configuracoes", label: "Configurações", icone: "Settings", secao: "Configurações" },
+    { rota: "/configuracoes", label: "🛡️ Auditoria e Segurança", icone: "Settings", secao: "Configurações" },
     { rota: "/meu-perfil", label: "Meu Perfil", icone: "UserCircle", secao: "Configurações" },
   ];
   const menu = menuBase.filter((item) => {
