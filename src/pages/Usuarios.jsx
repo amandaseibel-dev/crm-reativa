@@ -20,6 +20,7 @@ export default function Usuarios() {
     operador: "",
     ativo: true,
     receptivo: false,
+    turno: "livre",
     foto_url: "",
   });
 
@@ -54,7 +55,8 @@ export default function Usuarios() {
       operador: "",
       ativo: true,
       receptivo: false,
-      foto_url: "",
+      turno: "livre",
+    foto_url: "",
     });
     setErro("");
     setMensagem("");
@@ -135,6 +137,7 @@ export default function Usuarios() {
         receptivo: form.receptivo,
         operador_nome: operadorNome,
         operador,
+        turno: form.turno,
         foto_url: form.foto_url || null,
       },
       { onConflict: "email" }
@@ -162,6 +165,7 @@ export default function Usuarios() {
       operador: u.operador || "",
       ativo: u.ativo ?? true,
       receptivo: u.receptivo ?? false,
+      turno: u.turno || "livre",
       foto_url: u.foto_url || "",
     });
 
@@ -322,6 +326,19 @@ export default function Usuarios() {
                 onChange={(e) => atualizar("operador", e.target.value)}
                 placeholder="Ex: OLGA"
               />
+            </div>
+
+            <div>
+              <label style={label}>Turno de acesso</label>
+              <select
+                style={input}
+                value={form.turno}
+                onChange={(e) => atualizar("turno", e.target.value)}
+              >
+                <option value="livre">Livre (sem restrição)</option>
+                <option value="manha">Manhã</option>
+                <option value="tarde">Tarde</option>
+              </select>
             </div>
           </div>
 
