@@ -11,6 +11,7 @@ export default function Usuarios() {
   const [erro, setErro] = useState("");
   const [mensagem, setMensagem] = useState("");
   const [carregando, setCarregando] = useState(false);
+  const [modalAberto, setModalAberto] = useState(false);
 
   const [form, setForm] = useState({
     nome: "",
@@ -152,6 +153,7 @@ export default function Usuarios() {
     }
 
     setMensagem("Usuário salvo com sucesso.");
+    setModalAberto(false);
     limpar();
     carregarUsuarios();
   }
@@ -169,7 +171,7 @@ export default function Usuarios() {
       foto_url: u.foto_url || "",
     });
 
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    setModalAberto(true);
   }
 
   async function alternarAtivo(u) {
@@ -502,7 +504,52 @@ export default function Usuarios() {
           </table>
         </div>
       </section>
-    </div>
+{modalAberto && (
+        <div style={modalOverlay} onClick={() => setModalAberto(false)}>
+          <div style={modalBox} onClick={(e) => e.stopPropagation()}>
+            <h2 style={sectionTitle}>Editar usuário</h2>
+            <div style={{ display: "grid", gap: 12 }}>
+              <div>
+                <label style={label}>Nome completo</label>
+                <input style={input} value={form.nome} onChange={(e) => atualizar("nome", e.target.value)} />
+              </div>
+              <div>
+                <label style={label}>E-mail</label>
+                <input style={{ ...input, opacity: 0.6 }} value={form.email} readOnly />
+              </div>
+              <div>
+                <label style={label}>Perfil</label>
+                <select style={input} value={form.perfil} onChange={(e) => atualizar("perfil", e.target.value)}>
+                  {perfis.map((p) => (<option key={p} value={p}>{p}</option>))}
+                </select>
+              </div>
+              <div>
+                <label style={label}>Operador</label>
+                <input style={input} value={form.operador} onChange={(e) => atualizar("operador", e.target.value)} />
+              </div>
+              <div>
+                <label style={label}>Turno de acesso</label>
+                <select style={input} value={form.turno} onChange={(e) => atualizar("turno", e.target.value)}>
+                  <option value="livre">Livre (sem restrição)</option>
+                  <option value="manha">Manhã</option>
+                  <option value="tarde">Tarde</option>
+                </select>
+              </div>
+              <label style={toggleLabel}>
+                <input type="checkbox" checked={form.ativo} onChange={(e) => atualizar("ativo", e.target.checked)} /> Usuário ativo
+              </label>
+              <label style={toggleLabel}>
+                <input type="checkbox" checked={form.receptivo} onChange={(e) => atualizar("receptivo", e.target.checked)} /> Operador receptivo
+              </label>
+            </div>
+            <div style={{ display: "flex", gap: 12, marginTop: 16, justifyContent: "flex-end" }}>
+              <button type="button" onClick={() => { limpar(); setModalAberto(false); }} style={btnGhost}>Cancelar</button>
+              <button type="button" disabled={carregando} onClick={salvarUsuario} style={btnGreen}>{carregando ? "Salvando..." : "Salvar"}</button>
+            </div>
+          </div>
+        </div>
+      )}
+          </div>
   );
 }
 
@@ -781,6 +828,9 @@ const dangerBtn = {
   fontWeight: 800,
   cursor: "pointer",
 };
+
+const modalOverlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 };
+const modalBox = { background: "#111827", border: "1px solid #7e22ce", borderRadius: 16, padding: 24, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", color: "#fff" };
 
 const erroStyle = {
   color: "#f87171",
