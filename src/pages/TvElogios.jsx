@@ -103,7 +103,7 @@ export default function TvElogios() {
   }
 
   const telas = useMemo(() => {
-    const base = ["semana", "mes", "resultado", "projecao", "alunos", "maior", "topdia", "tophondia", "topmes"];
+    const base = ["campanha", "semana", "mes", "resultado", "projecao", "alunos", "maior", "topdia", "tophondia", "topmes"];
     const dcs = (dicas || []).map((x) => ({ tipo: "dica", dica: x }));
     const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
     return [...base.map((t) => ({ tipo: t })), ...dcs, ...els];
@@ -151,6 +151,19 @@ export default function TvElogios() {
 
       {atual.tipo === "semana" && <Podio titulo="Melhores da semana" rank={d.ranking_semana || []} />}
       {atual.tipo === "mes" && <Podio titulo="Melhores do mês" rank={d.ranking_mes || []} />}
+
+      {atual.tipo === "campanha" && (
+        <div style={{ ...S.tela, background: "linear-gradient(135deg,#7c3aed 0%,#2563eb 55%,#059669 100%)" }}>
+          <div style={{ fontSize: "5vw", fontWeight: 900, color: "#fff", textShadow: "0 0 30px rgba(0,0,0,0.45)" }}>🔥 BORA TIME! 🔥</div>
+          <div style={{ fontSize: "2.3vw", color: "#fde68a", fontWeight: 800, marginTop: "1vh" }}>Campanha especial — rumo aos R$ 500 mil em honorários</div>
+          <div style={{ margin: "5vh auto 2.5vh", width: "72%", height: "5.5vh", background: "rgba(255,255,255,0.22)", borderRadius: "4vh", overflow: "hidden", boxShadow: "inset 0 0 22px rgba(0,0,0,0.35)" }}>
+            <div style={{ height: "100%", width: Math.min(100, Math.round((Number(p?.honorarios_mes || 0) / 500000) * 100)) + "%", background: "linear-gradient(90deg,#fbbf24,#f59e0b)", borderRadius: "4vh", boxShadow: "0 0 25px rgba(251,191,36,0.8)" }} />
+          </div>
+          <div style={{ fontSize: "5vw", fontWeight: 900, color: "#fde68a", lineHeight: 1 }}>{Math.min(100, Math.round((Number(p?.honorarios_mes || 0) / 500000) * 100))}%</div>
+          <div style={{ fontSize: "2.6vw", fontWeight: 900, color: "#fff", marginTop: "1.5vh" }}>{moeda(p?.honorarios_mes)} <span style={{ fontSize: "1.7vw", color: "#e0e7ff" }}>de R$ 500.000</span></div>
+          <div style={{ fontSize: "2.2vw", color: "#fff", marginTop: "4.5vh", fontWeight: 700 }}>🎁 Prêmio especial ao bater a meta! <span style={{ color: "#fde68a" }}>(prêmio a definir)</span></div>
+        </div>
+      )}
 
       {atual.tipo === "resultado" && (
         <div style={S.tela}>
