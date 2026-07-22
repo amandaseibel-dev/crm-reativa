@@ -830,6 +830,8 @@ export default function FinanceiroAluno({ aluno }) {
       const { error: e3 } = await supabase
         .from("acordo_titulo_vinculo")
         .insert(novo.titulosSel.map((id) => ({ acordo_id: acordo.id, titulo_id: id, ativo: true, vinculado_por: email })));
+      // parcelas que entraram no acordo saem da carteira a cobrar (viram NEGOCIADO)
+      await supabase.from("acordos_titulos").update({ situacao: "NEGOCIADO" }).in("id", novo.titulosSel);
       if (e3) {
         console.error("Erro ao vincular titulos:", e3);
         alert("Acordo criado, mas houve erro ao vincular os títulos: " + e3.message);
