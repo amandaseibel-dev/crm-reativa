@@ -92,6 +92,7 @@ function BloqueioAcesso({ info, email, onSair }) {
         {info && info.janela ? <p style={{ color: "#0f172a", fontSize: 15 }}>Seu horario liberado: <strong>{info.janela}</strong></p> : null}
         <p style={{ color: "#64748b", fontSize: 13, marginTop: 12 }}>Para entrar fora do horario, peca liberacao para a Amanda, a Fernanda ou a Amanda ADM. Esta tentativa foi registrada.</p>
         <p style={{ color: "#94a3b8", fontSize: 12 }}>{email}</p>
+        <button onClick={async () => { try { await supabase.rpc("pedir_liberacao_acesso"); alert("Pedido de liberacao enviado. Aguarde a autorizacao da Amanda, Fernanda ou Amanda ADM."); } catch (e) { alert("Nao foi possivel enviar o pedido agora."); } }} style={{ marginTop: 16, marginRight: 8, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontWeight: 800, cursor: "pointer" }}>Pedir liberação</button>
         <button onClick={onSair} style={{ marginTop: 16, background: "#ef4444", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontWeight: 800, cursor: "pointer" }}>Sair</button>
       </div>
     </div>
