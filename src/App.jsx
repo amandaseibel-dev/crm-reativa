@@ -504,15 +504,15 @@ export default function App() {
     if (perfil === "operador" && item.esconderParaOperador) return false; if (["/exportar-contatos","/log-nivelamento","/vincular-operadores","/importar-acordos","/importar-recuperacao","/importacoes","/sugestoes-recebidas"].includes(item.rota)) return false;
     if (item.rota === "/dre") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
-      return em === "amanda.seibel@aelbra.com.br";
+      return em === "amanda.seibel@aelbra.com.br" && perfil !== "operador";
     }
     if (item.rota === "/importar-recuperacao") {
       const em2 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
-      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em2);
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em2) && perfil !== "operador";
     }
     if (item.rota === "/executivo") {
       const em3 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
-      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em3);
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em3) && perfil !== "operador";
     }
     if (item.rota === "/") {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
