@@ -721,8 +721,9 @@ export default function ProjecaoHoraHora() {
                   <h3 style={{ margin: "20px 0 10px" }}>💼 Meu painel (Amanda ADM)</h3>
                   <div style={estilos.grade}>
                     <Cartao label="Recuperado por mim no mês" valor={moeda(dashboard?.recuperado_mes_amanda_adm)} />
+                    <Cartao label="Honorários no mês" valor={moeda(dashboard?.honorario_mes)} />
                     <Cartao
-                      label="Minha comissão (8% flat sobre o recuperado)"
+                      label="Minha comissão (8% sobre honorários)"
                       valor={moeda(dashboard?.comissao_amanda_adm)}
                       destaque
                     />
