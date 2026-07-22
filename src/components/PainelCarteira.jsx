@@ -1664,7 +1664,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         </div>
       </div>
 
-      <div style={mostrar360 ? { display: "none" } : S.abas} role="tablist">
+      <div style={mostrar360 && veTudo ? { display: "none" } : S.abas} role="tablist">
         <button
           type="button"
           onClick={() => setSomenteFocoDia((atual) => !atual)}
