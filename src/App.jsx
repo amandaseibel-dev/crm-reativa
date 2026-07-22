@@ -52,6 +52,7 @@ import CentralPagamentos from "./components/CentralPagamentos";
 import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
+import LiberacoesAcesso from "./components/LiberacoesAcesso";
 import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
 import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
 import Auditoria from "./pages/Auditoria"; import RelatorioReceptivo from "./pages/RelatorioReceptivo"; import MinhaAgendaPessoal from "./pages/MinhaAgendaPessoal"; import EnvioGmailLote from "./pages/EnvioGmailLote";
@@ -564,6 +565,7 @@ export default function App() {
         <HeartbeatReceptivo usuario={usuario} />
         <AutoLogout usuario={usuario} />
         <NotificacoesSupervisaoAdm usuario={usuario} />
+        <LiberacoesAcesso />
         <BotaoSugestao />
         <NotificacoesPopup />
         <AvisoTemplateNovo />
