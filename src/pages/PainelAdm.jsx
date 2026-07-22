@@ -343,7 +343,7 @@ export default function PainelAdm() {
       .limit(2000);
 
     if (desde) {
-      query = query.gte("criado_em", desde.toISOString());
+      query = query.or(`status.eq.TERMO_ENVIADO_ADM,criado_em.gte.${desde.toISOString()}`);
     }
 
     const { data, error } = await query;
