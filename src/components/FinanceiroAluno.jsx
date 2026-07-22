@@ -932,7 +932,7 @@ export default function FinanceiroAluno({ aluno }) {
   // Valor de mensalidades: títulos (acordos_titulos) que ainda não foram
   // pagos nem entraram em nenhum acordo -- "vinculada"/"quitada" já saíram
   // daqui pra não duplicar com o valor de acordos abaixo.
-  const emAberto = titulos.filter((t) => t.situacao !== "PAGO" && t.status !== "vinculada" && t.status !== "quitada");
+  const emAberto = titulos.filter((t) => t.situacao !== "PAGO" && t.situacao !== "NEGOCIADO" && t.status !== "vinculada" && t.status !== "quitada");
   const valorMensalidades = emAberto.reduce(
     (soma, t) => soma + Number(t.saldo_corrigido ?? t.valor_original ?? 0),
     0
