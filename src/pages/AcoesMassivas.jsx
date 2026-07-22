@@ -73,16 +73,23 @@ export default function AcoesMassivas() {
   const [progresso, setProgresso] = useState(null);
   const [porDia, setPorDia] = useState([]);
   const [saude, setSaude] = useState(null);
+  const [retornos, setRetornos] = useState(null);
 
   useEffect(() => {
     carregarProgresso();
     carregarPorDia();
     carregarSaude();
+    carregarRetornos();
   }, [canal]);
 
   async function carregarSaude() {
     const { data } = await supabase.rpc("saude_da_base");
     setSaude(data);
+  }
+
+  async function carregarRetornos() {
+    const { data } = await supabase.rpc("acoes_massivas_retornos", { p_dias: 3 });
+    setRetornos(data || null);
   }
 
   async function carregarPorDia() {
@@ -335,6 +342,37 @@ export default function AcoesMassivas() {
               </>
             );
           })()}
+        </div>
+      )}
+
+      {retornos && retornos.envios_avaliados > 0 && (
+        <div style={estilos.card}>
+          <h3 style={{ margin: "0 0 4px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800 }}>
+            Retorno das ações — conversão em até {retornos.janela_dias} dias
+          </h3>
+          <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "#8a93a3" }}>
+            "Retorno" = houve tabulação operacional no aluno após o envio. Considera só envios cuja janela de {retornos.janela_dias} dias já fechou.
+          </p>
+          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
+            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(retornos.envios_avaliados || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Enviados (avaliados)</div></div>
+            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(retornos.com_retorno || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Com retorno</div></div>
+            <div style={{ ...estilos.miniCard, background: "#eef2ff", borderColor: "#c7d2fe" }}><div style={{ ...estilos.miniVal, color: "#1e40af" }}>{(retornos.taxa_conversao ?? 0)}%</div><div style={estilos.miniRot}>Taxa de conversão</div></div>
+          </div>
+          {(retornos.por_canal || []).length > 0 && (
+            <table style={{ ...estilos.tabela, marginTop: 14 }}>
+              <thead><tr><th style={estilos.th}>Canal</th><th style={estilos.thNum}>Avaliados</th><th style={estilos.thNum}>Com retorno</th><th style={estilos.thNum}>Taxa</th></tr></thead>
+              <tbody>
+                {retornos.por_canal.map((c) => (
+                  <tr key={c.canal}>
+                    <td style={estilos.td}>{c.canal}</td>
+                    <td style={estilos.tdNum}>{Number(c.avaliados || 0).toLocaleString("pt-BR")}</td>
+                    <td style={estilos.tdNum}>{Number(c.com_retorno || 0).toLocaleString("pt-BR")}</td>
+                    <td style={estilos.tdNum}>{(c.taxa ?? 0)}%</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       )}
 
@@ -632,4 +670,7 @@ const estilos = {
   },
   td: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", color: "#344054" },
   tdNum: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", textAlign: "right", fontWeight: 700, color: "#101828" },
+  miniCard: { background: "#f8fafc", border: "1px solid #edf0f5", borderRadius: 12, padding: "12px 16px", minWidth: 150 },
+  miniVal: { fontSize: 26, fontWeight: 800, color: "#101828" },
+  miniRot: { fontSize: 12, color: "#8a93a3", fontWeight: 600, marginTop: 2 },
 };
