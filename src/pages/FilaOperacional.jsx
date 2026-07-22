@@ -11,6 +11,7 @@ import FinanceiroAluno from "../components/FinanceiroAluno";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import { podeVerTudo } from "../utils/operadores";
 import FilaReceptivo from "../components/FilaReceptivo";
+import MeusAcionamentos from "../components/MeusAcionamentos";
 import PontoOperador from "../components/PontoOperador";
 import MuralAniversariantes from "../components/MuralAniversariantes";
 import ResumoDoDia from "../components/ResumoDoDia";
@@ -1111,7 +1112,7 @@ export default function FilaOperador() {
 
   return (
     <div style={pagina}>
-      <PainelCarteira embedded /><FilaReceptivo usuarioLogado={usuarioLogado} />
+      <MeusAcionamentos /><PainelCarteira embedded /><FilaReceptivo usuarioLogado={usuarioLogado} />
       <ModuloLinkPagamentoGlobal />
       
       
