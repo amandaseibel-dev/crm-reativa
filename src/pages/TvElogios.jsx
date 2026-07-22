@@ -183,6 +183,7 @@ export default function TvElogios() {
           <div style={{ fontSize: "5.5vw", fontWeight: 900, color: "#fde68a", lineHeight: 1 }}>{Math.min(100, Math.round((Number(p?.honorarios_total || 0) / 3000000) * 100))}%</div>
           <div style={{ fontSize: "2.6vw", fontWeight: 900, color: "#fff", marginTop: "1vh" }}>{moeda(p?.honorarios_total)} <span style={{ fontSize: "1.6vw", color: "#d1fae5" }}>de R$ 3.000.000</span></div>
           <div style={{ fontSize: "3.4vw", fontWeight: 900, color: "#a7f3d0", marginTop: "2vh" }}>Faltam {moeda(Math.max(0, 3000000 - Number(p?.honorarios_total || 0)))} 🚀</div>
+          <div style={{ fontSize: "2vw", color: "#fff", marginTop: "2.5vh", fontWeight: 700 }}>🎯 No ritmo atual, batemos em <b style={{ color: "#fde68a" }}>{p?.data_projecao_3mi || "—"}</b></div>
         </div>
       )}
 
