@@ -10,6 +10,7 @@ import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
 import TelefonesAluno from "../components/TelefonesAluno";
+import VincularMensalidadesAcordo from "../components/VincularMensalidadesAcordo";
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
   { nome: "Luana", email: "cobranca05@aelbra.com.br" },
@@ -1841,6 +1842,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               )}
 
               {abaFicha === "financeiro" && (
+                <VincularMensalidadesAcordo alunoId={alunoSelecionado?.id} />
                 <FinanceiroAluno aluno={alunoSelecionado} />
               )}
               {abaFicha === "email" && emailLiberadoAluno && (
