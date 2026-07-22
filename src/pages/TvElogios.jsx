@@ -103,7 +103,7 @@ export default function TvElogios() {
   }
 
   const telas = useMemo(() => {
-    const base = ["semana", "mes", "resultado", "projecao", "alunos", "maior", "topdia", "topmes"];
+    const base = ["semana", "mes", "resultado", "projecao", "alunos", "maior", "topdia", "tophondia", "topmes"];
     const dcs = (dicas || []).map((x) => ({ tipo: "dica", dica: x }));
     const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
     return [...base.map((t) => ({ tipo: t })), ...dcs, ...els];
@@ -213,6 +213,20 @@ export default function TvElogios() {
               <div style={S.ultimaMeta}>Sem acionamentos hoje ainda.</div>
             ) : (rank.top_dia).map((o, i) => (
               <div key={i} style={{ fontSize: "3.4vw", fontWeight: 900, color: "#fff", textShadow: "0 0 22px rgba(59,130,246,0.5)" }}>
+                {(["🥇", "🥈", "🥉"][i] || "")} {o.nome}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+      {atual.tipo === "tophondia" && (
+        <div style={S.tela}>
+          <div style={S.rotBig}>💰 Top 3 honorários — Hoje</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: "2.4vh", marginTop: "3vh" }}>
+            {(((rank && rank.top_hon_dia) || []).length === 0) ? (
+              <div style={S.ultimaMeta}>Sem honorários registrados hoje ainda.</div>
+            ) : (rank.top_hon_dia).map((o, i) => (
+              <div key={i} style={{ fontSize: "3.4vw", fontWeight: 900, color: "#fff", textShadow: "0 0 22px rgba(52,211,153,0.5)" }}>
                 {(["🥇", "🥈", "🥉"][i] || "")} {o.nome}
               </div>
             ))}
