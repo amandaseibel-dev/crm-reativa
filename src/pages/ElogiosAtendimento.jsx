@@ -99,10 +99,6 @@ export default function ElogiosAtendimento() {
 
   async function confirmarAprovacao() {
     if (!modalAprovar) return;
-    if (!textoFinal.trim()) {
-      alert('Informe o "Texto final para TV" antes de aprovar.');
-      return;
-    }
     setSalvando(true);
     const { error } = await supabase.rpc("elogio_aprovar", {
       p_id: modalAprovar.id,
