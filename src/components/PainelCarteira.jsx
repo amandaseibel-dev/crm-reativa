@@ -480,7 +480,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const { data } = await supabase.auth.getUser();
       const mail = data?.user?.email || null;
       setEmail(mail);
-      setVeTudo(podeVerTudo(mail));
+      setVeTudo(podeVerTudo(mail) && localStorage.getItem("reativa_perfil_visao") !== "operador");
       if (mail) {
         const { data: perfil } = await supabase
           .from("usuarios")
