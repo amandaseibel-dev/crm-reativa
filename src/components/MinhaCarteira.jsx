@@ -53,6 +53,18 @@ export default function MinhaCarteira({ usuarioLogado }) {
           <div style={{ ...estilos.numero, color: "#93c5fd" }}>{resumo.qtd_negociados}</div>
           <div style={estilos.label}>Negociados (acordo fechado)</div>
         </div>
+        <div style={estilos.item}>
+          <div style={{ ...estilos.numero, color: "#34d399" }}>
+            {moeda(resumo.valor_pago_mes)}
+          </div>
+          <div style={estilos.label}>Pago no mês (projeção)</div>
+        </div>
+        <div style={estilos.item}>
+          <div style={{ ...estilos.numero, color: "#60a5fa" }}>
+            {moeda(resumo.honorario_mes)}
+          </div>
+          <div style={estilos.label}>Honorário no mês</div>
+        </div>
       </div>
     </div>
   );
