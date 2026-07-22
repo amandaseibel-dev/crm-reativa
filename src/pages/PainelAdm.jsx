@@ -743,6 +743,17 @@ export default function PainelAdm() {
   const linksFiltrados = useMemo(() => {
     let lista = [...links];
 
+    // Esconde os links que OUTRA pessoa assumiu (ate 10 min) para nao duplicar o trabalho
+    const _meuEmail = (usuario?.email || "").toLowerCase();
+    lista = lista.filter((l) => {
+      if (l.status !== "LINK_EM_ATENDIMENTO") return true;
+      const _dono = (l.adm_responsavel || "").toLowerCase();
+      if (!_dono || _dono === _meuEmail) return true;
+      const _ms = l.assumido_em ? (Date.now() - new Date(l.assumido_em).getTime()) : Infinity;
+      return _ms > 10 * 60 * 1000;
+    });
+
+
     if (operadorFiltro !== "TODOS") {
       lista = lista.filter(
         (l) => String(l.operador_email || "").toLowerCase() === operadorFiltro.toLowerCase()
@@ -1049,9 +1060,9 @@ export default function PainelAdm() {
                           {podeResponder && (
                             <button
                               style={estilos.botaoAzul}
-                              onClick={() => setLinhaAbertaLink(aberta ? null : item.id)}
+                              onClick={async () => { if (aberta) { setLinhaAbertaLink(null); return; } const _c = await supabase.rpc("assumir_link_pagamento", { p_link_id: item.id }); if (_c.error || !_c.data || !_c.data.ok) { alert("Este link já está sendo tratado por outra pessoa. Se não concluir em 10 minutos, ele volta para a fila."); return; } setLinhaAbertaLink(item.id); }}
                             >
-                              {aberta ? "Fechar" : "Abrir"}
+                              {aberta ? "Fechar" : "Assumir"}
                             </button>
                           )}
 
