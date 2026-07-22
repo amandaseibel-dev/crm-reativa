@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 
 const SEG_POR_TELA = 12;
-const ATUALIZAR_DADOS = 60;
+const ATUALIZAR_DADOS = 30;
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
