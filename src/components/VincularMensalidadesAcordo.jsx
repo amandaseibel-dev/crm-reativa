@@ -22,7 +22,7 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
     setCarregando(true);
     const [{ data: acs }, { data: tits }] = await Promise.all([
       supabase.from("acordos").select("id, numero_acordo, valor_total, saldo, status, qtd_parcelas, criado_em").eq("aluno_id", alunoId).order("criado_em", { ascending: false }),
-      supabase.from("acordos_titulos").select("id, competencia, vencimento, valor_em_aberto, valor_original, saldo_corrigido, situacao, status, acordo_id").eq("aluno_id", alunoId).or("and(situacao.eq.ABERTO,status.eq.vinculada),acordo_id.not.is.null").order("vencimento", { ascending: true }),
+      supabase.from("acordos_titulos").select("id, competencia, vencimento, valor_em_aberto, valor_original, saldo_corrigido, situacao, status, acordo_id").eq("aluno_id", alunoId).or("and(situacao.eq.ABERTO,status.eq.em_aberto),acordo_id.not.is.null").order("vencimento", { ascending: true }),
     ]);
     const lista = acs || [];
     setAcordos(lista);
