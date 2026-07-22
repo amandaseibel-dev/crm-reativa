@@ -213,6 +213,7 @@ function RotaProtegida({ usuario, rota, children }) {
 }
 export default function App() {
   const [usuario, setUsuario] = useState(null);
+  const [perfilVisao, setPerfilVisao] = useState(() => localStorage.getItem("reativa_perfil_visao") || "");
   const [carregando, setCarregando] = useState(true);
   const [linksAguardando, setLinksAguardando] = useState(0);
   const [termosRejeitados, setTermosRejeitados] = useState(0);
@@ -452,7 +453,9 @@ export default function App() {
   if (usuario.perfil?.deve_trocar_senha) {
     return <RedefinirSenha forcado email={usuario.perfil.email} />;
   }
-  const perfil = usuario.perfil?.perfil;
+  const perfilReal = usuario.perfil?.perfil;
+  const podePreVisualizar = perfilReal !== "operador";
+  const perfil = (podePreVisualizar && perfilVisao === "operador") ? "operador" : perfilReal;
   const menuBase = [
   { rota: "/executivo", label: "📊 Visão Executiva" },
     { rota: "/dre", label: "DRE (gerência)" },
@@ -576,6 +579,23 @@ export default function App() {
             >
               {usuario.perfil?.perfil}
             </small>
+
+            {podePreVisualizar && (
+              <select
+                value={perfil === "operador" ? "operador" : "gerente"}
+                onChange={(e) => {
+                  const v = e.target.value === "operador" ? "operador" : "";
+                  setPerfilVisao(v);
+                  if (v) localStorage.setItem("reativa_perfil_visao", v);
+                  else localStorage.removeItem("reativa_perfil_visao");
+                }}
+                title="Pré-visualizar o menu como outro perfil"
+                style={{ marginTop: 10, width: "100%", padding: "7px 8px", borderRadius: 8, border: "1px solid rgba(148,163,184,0.4)", background: "rgba(148,163,184,0.12)", color: "#e2e8f0", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+              >
+                <option value="gerente">👁️ Ver como: Gerente</option>
+                <option value="operador">👁️ Ver como: Operador</option>
+              </select>
+            )}
             <button
               style={{
                 marginTop: 18,
