@@ -33,6 +33,7 @@ export default function MeusAcionamentos() {
       <div style={S.cards}>
         <Card cor="#60a5fa" valor={d.hoje} rot="Hoje" />
         <Card cor="#38bdf8" valor={d.semana} rot="Últimos 7 dias" />
+        <Card cor="#818cf8" valor={d.quinze} rot="Últimos 15 dias" />
         <Card cor="#4ade80" valor={d.mes} rot="No mês" />
         <Card cor="#fbbf24" valor={d.recorde_qtd} rot={recordeData ? "🏆 Recorde (" + recordeData + ")" : "🏆 Recorde"} />
         {d.tempo_medio_min != null ? <Card cor="#a78bfa" valor={d.tempo_medio_min + " min"} rot="⏱️ Tempo médio/acion." /> : null}
