@@ -80,6 +80,23 @@ function EmDesenvolvimento({ titulo }) {
     </div>
   );
 }
+
+function BloqueioAcesso({ info, email, onSair }) {
+  const domingo = info && info.motivo === "DOMINGO";
+  return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0f172a", padding: 20 }}>
+      <div style={{ background: "#fff", borderRadius: 16, padding: "32px 28px", maxWidth: 440, textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
+        <div style={{ fontSize: 44 }}>⛔</div>
+        <h1 style={{ fontSize: 22, fontWeight: 900, margin: "8px 0", color: "#0f172a" }}>Acesso fora do horario</h1>
+        <p style={{ color: "#475569", fontSize: 15 }}>{domingo ? "O sistema nao libera acesso aos domingos." : "Voce esta tentando acessar fora do horario do seu turno."}</p>
+        {info && info.janela ? <p style={{ color: "#0f172a", fontSize: 15 }}>Seu horario liberado: <strong>{info.janela}</strong></p> : null}
+        <p style={{ color: "#64748b", fontSize: 13, marginTop: 12 }}>Para entrar fora do horario, peca liberacao para a Amanda, a Fernanda ou a Amanda ADM. Esta tentativa foi registrada.</p>
+        <p style={{ color: "#94a3b8", fontSize: 12 }}>{email}</p>
+        <button onClick={onSair} style={{ marginTop: 16, background: "#ef4444", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontWeight: 800, cursor: "pointer" }}>Sair</button>
+      </div>
+    </div>
+  );
+}
 function podeAcessar(perfil, rota) {
   if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
   const permissoes = {
@@ -406,11 +423,13 @@ export default function App() {
         .eq("ativo", true)
         .single();
       if (perfil) {
-        setUsuario({
-          auth: data.session.user,
-          perfil,
-        });
-        registrarLoginSeNecessario(perfil.email, perfil.nome);
+        const { data: ac } = await supabase.rpc("acesso_permitido_agora");
+        setUsuario({ auth: data.session.user, perfil, acesso: ac });
+        if (ac && ac.permitido === false) {
+          try { await supabase.rpc("registrar_tentativa_bloqueada", { p_motivo: ac.motivo, p_turno: ac.turno || null }); } catch (e) {}
+        } else {
+          registrarLoginSeNecessario(perfil.email, perfil.nome);
+        }
       } else {
         await supabase.auth.signOut();
         setUsuario(null);
@@ -458,6 +477,10 @@ export default function App() {
   const perfilReal = usuario.perfil?.perfil;
   const podePreVisualizar = perfilReal !== "operador";
   const perfil = (podePreVisualizar && perfilVisao === "operador") ? "operador" : perfilReal;
+  if (usuario.acesso && usuario.acesso.permitido === false) {
+    return <BloqueioAcesso info={usuario.acesso} email={usuario.perfil?.email || usuario.auth?.email} onSair={sair} />;
+  }
+
   const menuBase = [
   { rota: "/executivo", label: "📊 Visão Executiva" },
     { rota: "/dre", label: "DRE (gerência)" },
