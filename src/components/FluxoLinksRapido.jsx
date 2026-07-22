@@ -180,6 +180,17 @@ export default function FluxoLinksRapido() {
   }
 
   async function devolverLinkAoOperador(item) {
+    // Trava exclusiva: assume o caso antes de gerar. Se outra pessoa ja
+    // assumiu (ate 10 min), bloqueia para nao duplicar o mesmo aluno.
+    try {
+      const _claim = await supabase.rpc("assumir_link_pagamento", { p_link_id: item.id });
+      if (_claim.error || !_claim.data || !_claim.data.ok) {
+        alert("Este link já está sendo tratado por outra pessoa. Se não for concluído em 10 minutos, ele volta para a fila.");
+        try { carregarTudo(usuarioAtual); } catch (e) {}
+        return;
+      }
+    } catch (e) {}
+
     const link = String(linksDigitados[item.id] || "").trim();
 
     if (!linkCompleto(link)) {
