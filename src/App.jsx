@@ -53,7 +53,8 @@ import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
-import ProjecaoHoraHora from "./pages/ProjecaoHoraHora"; import RelatorioReceptivo from "./pages/RelatorioReceptivo"; import MinhaAgendaPessoal from "./pages/MinhaAgendaPessoal"; import EnvioGmailLote from "./pages/EnvioGmailLote";
+import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
+import Auditoria from "./pages/Auditoria"; import RelatorioReceptivo from "./pages/RelatorioReceptivo"; import MinhaAgendaPessoal from "./pages/MinhaAgendaPessoal"; import EnvioGmailLote from "./pages/EnvioGmailLote";
 import DRE from "./pages/DRE";
 import ImportarRecuperacao from "./pages/ImportarRecuperacao"; import ImportacaoAcordos from "./pages/ImportacaoAcordos"; import FilaAcordosConfirmar from "./pages/FilaAcordosConfirmar"; import Ferramentas from "./pages/Ferramentas";
 import ExecutivoRecuperacao from "./pages/ExecutivoRecuperacao";
@@ -805,7 +806,7 @@ export default function App() {
               path="/configuracoes"
               element={
                 <RotaProtegida usuario={usuario} rota="/configuracoes">
-                  <EmDesenvolvimento titulo="Configurações" />
+                  <Auditoria />
                 </RotaProtegida>
               }
             />
