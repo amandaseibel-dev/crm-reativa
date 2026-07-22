@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 
-const perfis = ["gerencia", "supervisor", "administrativo", "operador"];
+const perfis = ["gerencia", "supervisor", "administrativo", "operador", "auditor"];
 
 export default function Usuarios() {
   const [usuarios, setUsuarios] = useState([]);
