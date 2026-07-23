@@ -443,6 +443,7 @@ export default function App() {
           try { await supabase.rpc("registrar_tentativa_bloqueada", { p_motivo: ac.motivo, p_turno: ac.turno || null }); } catch (e) {}
         } else {
           registrarLoginSeNecessario(perfil.email, perfil.nome);
+          try { await supabase.rpc("registrar_acesso_sistema"); } catch (e) {}
         }
       } else {
         await supabase.auth.signOut();
