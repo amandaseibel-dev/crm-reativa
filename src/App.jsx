@@ -273,6 +273,39 @@ export default function App() {
   useEffect(() => {
     verificarSessao();
   }, []);
+
+  // Seguranca: abre comprovantes/termos (buckets privados) via link assinado, em qualquer tela.
+  useEffect(() => {
+    const RE = /\/object\/public\/(comprovantes-pagamento|termos-acordo)\/(.+?)(?:\?|$)/;
+    async function assinada(bucket, path) {
+      try { const { data } = await supabase.storage.from(bucket).createSignedUrl(decodeURIComponent(path), 3600); return data && data.signedUrl; } catch (e) { return null; }
+    }
+    async function onClick(e) {
+      const a = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+      if (!a) return;
+      const m = String(a.getAttribute("href") || "").match(RE);
+      if (!m) return;
+      e.preventDefault();
+      const u = await assinada(m[1], m[2]);
+      if (u) window.open(u, "_blank");
+    }
+    async function fixImgs(root) {
+      const imgs = root && root.querySelectorAll ? root.querySelectorAll("img") : [];
+      for (const img of imgs) {
+        if (img.dataset.assinado) continue;
+        const m = String(img.getAttribute("src") || "").match(RE);
+        if (!m) continue;
+        img.dataset.assinado = "1";
+        const u = await assinada(m[1], m[2]);
+        if (u) img.src = u;
+      }
+    }
+    document.addEventListener("click", onClick, true);
+    fixImgs(document);
+    const obs = new MutationObserver((muts) => { muts.forEach((mu) => mu.addedNodes.forEach((n) => { if (n.nodeType === 1) fixImgs(n); })); });
+    try { obs.observe(document.body, { childList: true, subtree: true }); } catch (e) {}
+    return () => { document.removeEventListener("click", onClick, true); obs.disconnect(); };
+  }, []);
   useEffect(() => {
     const perfilAtual = usuario?.perfil?.perfil;
     if (!usuario || !podeAcessar(perfilAtual, "/painel-adm")) {
