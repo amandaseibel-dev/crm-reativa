@@ -180,6 +180,7 @@ export default function FinanceiroAluno({ aluno }) {
   const [usuario, setUsuario] = useState(null);
   const [recarga, setRecarga] = useState(0);
   const [titulosSelecionaveis, setTitulosSelecionaveis] = useState([]);
+  const [acordoAlvoId, setAcordoAlvoId] = useState("");
   const [novoAberto, setNovoAberto] = useState(true);
   const [novo, setNovo] = useState(novoAcordoInicial());
 
@@ -716,6 +717,27 @@ export default function FinanceiroAluno({ aluno }) {
     });
   }
 
+  async function vincularTitulosExistente() {
+    if (!novo.titulosSel.length) { alert("Marque ao menos um título para vincular."); return; }
+    if (!acordoAlvoId) { alert("Escolha o acordo que vai receber os títulos."); return; }
+    const email = usuario?.email || "";
+    const agora = new Date().toISOString();
+    const { error: e1 } = await supabase
+      .from("acordo_titulo_vinculo")
+      .insert(novo.titulosSel.map((id) => ({ acordo_id: acordoAlvoId, titulo_id: id, ativo: true, vinculado_por: email })));
+    if (e1) { alert("Erro ao vincular: " + e1.message); return; }
+    const { error: e2 } = await supabase
+      .from("acordos_titulos")
+      .update({ status: "vinculada", atualizado_em: agora })
+      .in("id", novo.titulosSel);
+    if (e2) { alert("Vinculado, mas houve erro ao atualizar o status: " + e2.message); }
+    setNovo(novoAcordoInicial());
+    setAcordoAlvoId("");
+    setNovoAberto(false);
+    setRecarga((r) => r + 1);
+    alert("Títulos vinculados ao acordo existente!");
+  }
+
   async function salvarNovoAcordo() {
     if (!novo.parcelas.length) {
       alert('Clique em "Gerar parcelas" antes de salvar.');
@@ -945,6 +967,7 @@ export default function FinanceiroAluno({ aluno }) {
   // acordo ativo as parcelas PAGO/CANCELADA também não entram (senão o
   // total sobe indevidamente).
   const acordosNaoCancelados = acordos.filter((a) => a.status !== "CANCELADO");
+  const acordosAtivos = acordos.filter((a) => a.status === "ATIVO");
   const parcelasEmAberto = acordosNaoCancelados
     .flatMap((a) => parcelasPorAcordo[a.id] || [])
     .filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA");
@@ -1042,6 +1065,18 @@ export default function FinanceiroAluno({ aluno }) {
                         Usar soma como valor total
                       </button>
                     </div>
+                    {acordosAtivos.length > 0 && novo.titulosSel.length > 0 && (
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, paddingTop: 8, borderTop: "1px solid #eef2f6", flexWrap: "wrap" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700 }}>Ou vincular a um acordo existente:</span>
+                        <select value={acordoAlvoId} onChange={(e) => setAcordoAlvoId(e.target.value)} style={estilos.input}>
+                          <option value="">Escolha o acordo…</option>
+                          {acordosAtivos.map((a) => (
+                            <option key={a.id} value={a.id}>{moeda(a.valor_total)} — {a.qtd_parcelas}x</option>
+                          ))}
+                        </select>
+                        <button style={estilos.botaoPequeno} onClick={vincularTitulosExistente}>Vincular a este acordo</button>
+                      </div>
+                    )}
                   </>
                 )}
               </div>
