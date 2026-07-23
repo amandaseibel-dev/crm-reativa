@@ -88,7 +88,6 @@ export default function Auditoria({ forcarAcesso = false }) {
         })}
       </div>
       <div style={S.faixa}>Teste externo (chave pública): alunos 0 · CPF 0 · pagamentos 0 · acordos 0</div>
-      <div style={S.credito}>Desenvolvido por Amanda Seibel</div>
       <h2 style={S.h2}>Registro de auditoria</h2>
       <div style={S.filtros}>
         <input style={S.inp} placeholder="Usuário" value={fUsuario} onChange={function (e) { setFUsuario(e.target.value); }} />
@@ -158,5 +157,4 @@ const S = {
   td: { padding: "9px 10px", borderBottom: "1px solid #f1f5f9", color: "#334155" },
   badge: { padding: "3px 8px", borderRadius: 999, fontSize: 11, fontWeight: 800, color: "#0f172a" },
   rodape: { padding: "10px", color: "#64748b", fontSize: 12 },
-  credito: { textAlign: "right", color: "#94a3b8", fontSize: 12, fontWeight: 600, marginBottom: 16, letterSpacing: "0.02em" },
 };
