@@ -727,6 +727,9 @@ export default function App() {
               );
             })}
           </nav>
+          <div style={{ marginTop: "auto", padding: "14px 10px 6px", textAlign: "center", color: "#94a3b8", fontSize: 11, fontWeight: 600, letterSpacing: "0.02em", borderTop: "1px solid rgba(148,163,184,0.15)" }}>
+            Desenvolvido por Amanda Seibel
+          </div>
           <AvisosBadge />
         </aside>
         <main className="content">
