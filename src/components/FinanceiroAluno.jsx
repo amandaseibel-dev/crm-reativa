@@ -1233,9 +1233,10 @@ export default function FinanceiroAluno({ aluno }) {
 
           <div style={{ marginTop: 10 }}>
             {titulos.map((titulo) => {
-              const pago = titulo.situacao === "PAGO";
-              const vencida = !pago && diasAtraso(titulo.vencimento) > 0;
-              const cor = pago ? CORES_STATUS.quitado : CORES_STATUS.em_aberto;
+              const pago = titulo.situacao === "PAGO" || titulo.status === "quitada";
+              const negociada = !pago && titulo.status === "vinculada";
+              const vencida = !pago && !negociada && diasAtraso(titulo.vencimento) > 0;
+              const cor = pago ? CORES_STATUS.quitado : negociada ? CORES_STATUS.em_dia : CORES_STATUS.em_aberto;
               return (
                 <div
                   key={titulo.documento}
@@ -1256,7 +1257,7 @@ export default function FinanceiroAluno({ aluno }) {
                       {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
                     </div>
                     <span style={{ ...estilos.tagBase, background: cor.bg, color: cor.texto }}>
-                      {pago ? "Quitada" : "Em aberto"}
+                      {pago ? "Quitada" : negociada ? "Negociado" : "Em aberto"}
                     </span>
                   </div>
                 </div>
