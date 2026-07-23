@@ -5,20 +5,20 @@ const MEU_EMAIL = "amanda.seibel" + "@" + "aelbra.com.br";
 
 function fmtData(v) { if (!v) return "-"; const d = new Date(v); return d.toLocaleString("pt-BR"); }
 
-const CONTROLES = [
-  { icon: "🔒", titulo: "Acesso por perfil (RLS)", texto: "Todas as tabelas com dados têm trava por linha (Row Level Security). Cada usuário só vê o que o seu perfil permite." },
-  { icon: "🚫", titulo: "Acesso anônimo bloqueado", texto: "A chave pública não lê nenhum dado sensível: alunos, pagamentos, acordos, usuários e financeiro retornam zero para quem não está logado." },
-  { icon: "🗂️", titulo: "Documentos sensíveis privados", texto: "Comprovantes de pagamento e termos de acordo ficam em armazenamento privado, acessíveis só por link assinado a usuários autorizados." },
-  { icon: "🧩", titulo: "Funções restritas", texto: "Consultas e relatórios que acessam dados só executam para usuários autenticados; o acesso público foi revogado." },
-  { icon: "📝", titulo: "Auditoria completa", texto: "Toda criação, alteração e exclusão de dado financeiro ou cadastral é registrada com autor, data/hora e valores antes/depois." },
-  { icon: "🔐", titulo: "Transporte criptografado", texto: "Todo o tráfego entre o sistema e o banco usa conexão criptografada (HTTPS/TLS)." },
-  { icon: "⏰", titulo: "Controle de acesso por horário", texto: "O acesso é liberado por turno; fora do horário o sistema bloqueia e exige autorização da gestão. Toda tentativa fica registrada." },
+const CAMADAS = [
+  { icon: "🔑", titulo: "Acesso", tem: "Login obrigatório, controle por turno e por horário.", fizemos: "Ativamos login com senha individual (guardada no cofre do Supabase), controle de acesso por turno (manhã/tarde/sábado), bloqueio fora do horário com liberação da gestão, e registro de toda tentativa de acesso indevido." },
+  { icon: "👥", titulo: "Permissões por perfil (RLS)", tem: "Cada usuário vê apenas o que o seu perfil permite.", fizemos: "Habilitamos Row Level Security em todas as tabelas. Operador acessa a base para cobrança e receptivo; gestão vê tudo; auditor vê somente a auditoria." },
+  { icon: "🚫", titulo: "Bloqueio externo", tem: "Sem login, ninguém acessa nenhum dado.", fizemos: "Testamos assumindo a chave pública do site: alunos, CPF, pagamentos e acordos retornam zero. Revogamos o acesso do público a views e funções que acessam dados." },
+  { icon: "🗂️", titulo: "Documentos privados", tem: "Comprovantes e termos com CPF em armazenamento privado.", fizemos: "Tornamos privados os arquivos de comprovantes de pagamento e termos de acordo; eles abrem apenas por link assinado, para usuário autorizado." },
+  { icon: "📝", titulo: "Auditoria", tem: "Registro de quem fez o quê e quando.", fizemos: "Criamos um log à prova de adulteração (não pode ser apagado) de criação, alteração e exclusão de dados, além dos acessos ao sistema e das tentativas bloqueadas." },
+  { icon: "🔐", titulo: "Criptografia", tem: "Dados protegidos no banco e na rede.", fizemos: "Os dados ficam criptografados em repouso (no banco) e em trânsito (HTTPS/TLS) entre o sistema e o servidor." },
 ];
 
 export default function Auditoria({ forcarAcesso = false }) {
   const [email, setEmail] = useState("");
   const [logs, setLogs] = useState([]);
   const [carregando, setCarregando] = useState(true);
+  const [aberta, setAberta] = useState(null);
   const [fUsuario, setFUsuario] = useState("");
   const [fTabela, setFTabela] = useState("");
   const [fOperacao, setFOperacao] = useState("");
@@ -64,15 +64,30 @@ export default function Auditoria({ forcarAcesso = false }) {
   return (
     <div style={S.wrap}>
       <h1 style={S.h1}>🛡️ Segurança e Auditoria</h1>
-      <p style={S.sub}>Controles de proteção de dados aplicados e registro completo de acessos e alterações.</p>
+      <p style={S.sub}>Clique em cada camada para ver o que ela protege e o que aplicamos.</p>
       <div style={S.grid}>
-        {CONTROLES.map(function (c, i) { return (
-          <div key={i} style={S.card}>
-            <div style={S.cardIcon}>{c.icon}</div>
-            <div style={S.cardTit}>{c.titulo}</div>
-            <div style={S.cardTxt}>{c.texto}</div>
-          </div>); })}
+        {CAMADAS.map(function (c, i) {
+          const open = aberta === i;
+          return (
+            <div key={i} style={Object.assign({}, S.card, open ? { borderColor: "#1d4ed8", boxShadow: "0 6px 20px rgba(29,78,216,0.15)" } : {})}>
+              <button style={S.cardBtn} onClick={function () { setAberta(open ? null : i); }}>
+                <span style={S.cardIcon}>{c.icon}</span>
+                <span style={S.cardTit}>{c.titulo}</span>
+                <span style={S.chev}>{open ? "▲" : "▼"}</span>
+              </button>
+              {open && (
+                <div style={S.detalhe}>
+                  <div style={S.blocoTit}>O que tem</div>
+                  <div style={S.blocoTxt}>{c.tem}</div>
+                  <div style={Object.assign({}, S.blocoTit, { color: "#16a34a", marginTop: 10 })}>O que fizemos</div>
+                  <div style={S.blocoTxt}>{c.fizemos}</div>
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
+      <div style={S.faixa}>Teste externo (chave pública): alunos 0 · CPF 0 · pagamentos 0 · acordos 0</div>
       <h2 style={S.h2}>Registro de auditoria</h2>
       <div style={S.filtros}>
         <input style={S.inp} placeholder="Usuário" value={fUsuario} onChange={function (e) { setFUsuario(e.target.value); }} />
@@ -122,11 +137,16 @@ const S = {
   h2: { fontSize: 18, fontWeight: 800, margin: "28px 0 12px" },
   sub: { color: "#64748b", margin: "0 0 18px" },
   negado: { background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", padding: 16, borderRadius: 12, fontWeight: 700 },
-  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 },
-  card: { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, padding: 16, boxShadow: "0 1px 4px rgba(0,0,0,0.05)" },
-  cardIcon: { fontSize: 26 },
-  cardTit: { fontWeight: 800, margin: "6px 0 4px", color: "#0f172a" },
-  cardTxt: { fontSize: 13, color: "#475569", lineHeight: 1.4 },
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 14, alignItems: "start" },
+  card: { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, overflow: "hidden" },
+  cardBtn: { width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" },
+  cardIcon: { fontSize: 22 },
+  cardTit: { fontWeight: 800, color: "#0f172a", fontSize: 15, flex: 1 },
+  chev: { color: "#94a3b8", fontSize: 12 },
+  detalhe: { padding: "0 16px 16px" },
+  blocoTit: { fontSize: 11, fontWeight: 800, color: "#1d4ed8", textTransform: "uppercase", letterSpacing: "0.04em" },
+  blocoTxt: { fontSize: 14, color: "#475569", lineHeight: 1.45, marginTop: 3 },
+  faixa: { background: "#0f172a", color: "#fff", borderRadius: 12, padding: "12px 16px", fontWeight: 700, fontSize: 14, textAlign: "center", marginBottom: 22 },
   filtros: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 },
   inp: { padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13 },
   btn: { background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 700, cursor: "pointer" },
