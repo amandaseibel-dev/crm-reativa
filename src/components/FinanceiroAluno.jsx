@@ -139,7 +139,7 @@ function statusAcordo(acordo, parcelas) {
 }
 
 function valorTitulo(t) {
-  return Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+  return Number(t.valor_em_aberto || t.saldo_corrigido || t.valor_original || 0);
 }
 
 function novoAcordoInicial() {
