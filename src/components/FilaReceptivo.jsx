@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import usePolling from "../utils/polling";
 import { nomeOperadorPorEmail } from "../utils/operadores";
 
 // A fila só mostra quem está realmente logado agora. O "heartbeat" bate a
@@ -48,27 +49,11 @@ export default function FilaReceptivo({ usuarioLogado }) {
     setLinhas(data || []);
   }
 
-  useEffect(() => {
-    buscarFila();
-    const intervaloBusca = setInterval(buscarFila, 20000);
-    return () => clearInterval(intervaloBusca);
-  }, []);
-
-  useEffect(() => {
-    if (!ehParticipante) return;
-
-    async function bater() {
-      await supabase.rpc("fila_receptivo_heartbeat", {
-        p_email: email,
-        p_nome: nomeOperadorPorEmail(email),
-      });
-      buscarFila();
-    }
-
-    bater();
-    const intervaloHeartbeat = setInterval(bater, 20000);
-    return () => clearInterval(intervaloHeartbeat);
-  }, [email, ehParticipante]);
+  // O heartbeat NAO roda mais aqui: o componente global HeartbeatReceptivo
+  // (montado no App.jsx) ja mantem o operador online em qualquer tela. Antes
+  // os dois batiam a cada 20s, dobrando as chamadas de fila_receptivo_heartbeat.
+  // Aqui ficou so a leitura da fila, pausada em aba oculta e sem sobreposicao.
+  usePolling(async () => { await buscarFila(); }, 30000, []);
 
   async function alternarPausa(pausar) {
     if (!ehParticipante || marcando) return;

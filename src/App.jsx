@@ -13,6 +13,7 @@ const ICONES_MENU = {
   Upload, Users, Settings, UserCircle,
 };
 import { supabase } from "./services/supabase";
+import usePolling from "./utils/polling";
 import AutoLogout from "./components/AutoLogout";
 import Dashboard from "./pages/Dashboard";
 import BaseAnalitica from "./pages/BaseAnalitica";
@@ -306,159 +307,52 @@ export default function App() {
     try { obs.observe(document.body, { childList: true, subtree: true }); } catch (e) {}
     return () => { document.removeEventListener("click", onClick, true); obs.disconnect(); };
   }, []);
+  // ANTES: 6 useEffect separados (5 a cada 15s + 1 a cada 60s) batendo em
+  // links_pagamento (2x), termos_acordo (2x), elogios_atendimento e
+  // parcelas_vencendo_2_dias. Eram ~6 requisicoes a cada 15s por aba aberta,
+  // sem pausa em aba oculta e sem trava de sobreposicao -- principal causa do
+  // consumo e dos travamentos. AGORA: uma unica RPC contadores_cabecalho(),
+  // com RLS invoker (mesmos numeros de antes), a cada 45s, pausada quando a
+  // aba esta oculta e com atualizacao imediata ao voltar o foco.
+  const atualizarContadores = usePolling(
+    async () => {
+      const { data, error } = await supabase.rpc("contadores_cabecalho");
+      if (error || !data) return;
+      const perfilAtual = usuario?.perfil?.perfil;
+      const email = (usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase();
+      const ehGestao = ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(email);
+      // Os mesmos gates de perfil de antes, so que aplicados sobre um unico
+      // retorno em vez de decidir se dispara ou nao cada requisicao.
+      setLinksAguardando(podeAcessar(perfilAtual, "/painel-adm") ? Number(data.links_aguardando || 0) : 0);
+      setBaixasAguardando(podeAcessar(perfilAtual, "/minha-fila-pagamentos") ? Number(data.baixas_aguardando || 0) : 0);
+      setElogiosPendentes(podeAcessar(perfilAtual, "/elogios-atendimento") ? Number(data.elogios_pendentes || 0) : 0);
+      setTermosAguardandoValidacao(ehGestao ? Number(data.termos_aguardando_adm || 0) : 0);
+      setTermosRejeitados(Number(data.termos_rejeitados || 0));
+      setParcelasVencendo(Array.isArray(data.parcelas_vencendo) ? data.parcelas_vencendo : []);
+    },
+    45000,
+    [usuario],
+    Boolean(usuario)
+  );
+
   useEffect(() => {
-    const perfilAtual = usuario?.perfil?.perfil;
-    if (!usuario || !podeAcessar(perfilAtual, "/painel-adm")) {
-      setLinksAguardando(0);
-      return;
-    }
-    let ativo = true;
-    async function carregarPendentes() {
-      const { count, error } = await supabase
-        .from("links_pagamento")
-        .select("id", { count: "exact", head: true })
-        .in("status", ["SOLICITADO_LINK", "LINK_EM_ATENDIMENTO"]);
-      if (ativo && !error) {
-        setLinksAguardando(count || 0);
-      }
-    }
-    carregarPendentes();
-    const intervalo = setInterval(carregarPendentes, 15000);
-    return () => {
-      ativo = false;
-      clearInterval(intervalo);
-    };
-  }, [usuario]);
-  useEffect(() => {
-    const email = (usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase();
-    const ehGestao = ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(email);
-    if (!usuario || !ehGestao) {
-      setTermosAguardandoValidacao(0);
-      return;
-    }
-    let ativo = true;
-    async function carregarTermosAguardando() {
-      const { count, error } = await supabase
-        .from("termos_acordo")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "TERMO_ENVIADO_ADM");
-      if (ativo && !error) {
-        setTermosAguardandoValidacao(count || 0);
-      }
-    }
-    carregarTermosAguardando();
-    const intervalo = setInterval(carregarTermosAguardando, 15000);
-    return () => {
-      ativo = false;
-      clearInterval(intervalo);
-    };
+    if (usuario) return;
+    setLinksAguardando(0);
+    setBaixasAguardando(0);
+    setElogiosPendentes(0);
+    setTermosAguardandoValidacao(0);
+    setTermosRejeitados(0);
+    setParcelasVencendo([]);
   }, [usuario]);
 
-  // Boletos/parcelas de acordo vencendo em 2 dias -- avisa pra mandar
-  // lembrete de pagamento antes que vença.
+  // Disponibiliza a atualizacao imediata pra qualquer tela que acabou de
+  // fazer uma acao que mexe nesses contadores (aprovar termo, dar baixa,
+  // confirmar pagamento), em vez de esperar o proximo intervalo.
   useEffect(() => {
-    if (!usuario) {
-      setParcelasVencendo([]);
-      return;
-    }
-    let ativo = true;
+    window.atualizarContadoresCrm = atualizarContadores;
+    return () => { delete window.atualizarContadoresCrm; };
+  }, [atualizarContadores]);
 
-    async function carregarParcelasVencendo() {
-      const { data, error } = await supabase.rpc("parcelas_vencendo_2_dias");
-      if (ativo && !error) setParcelasVencendo(data || []);
-    }
-
-    carregarParcelasVencendo();
-    const intervalo = setInterval(carregarParcelasVencendo, 60000);
-    return () => {
-      ativo = false;
-      clearInterval(intervalo);
-    };
-  }, [usuario]);
-  // Comprovantes anexados esperando a Amanda dar baixa (Fila de Baixas).
-  useEffect(() => {
-    const perfilAtual = usuario?.perfil?.perfil;
-    if (!usuario || !podeAcessar(perfilAtual, "/minha-fila-pagamentos")) {
-      setBaixasAguardando(0);
-      return;
-    }
-    let ativo = true;
-    async function carregarBaixasPendentes() {
-      const { count, error } = await supabase
-        .from("links_pagamento")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "AGUARDANDO_BAIXA");
-      if (ativo && !error) {
-        setBaixasAguardando(count || 0);
-      }
-    }
-    carregarBaixasPendentes();
-    const intervalo = setInterval(carregarBaixasPendentes, 15000);
-    return () => {
-      ativo = false;
-      clearInterval(intervalo);
-    };
-  }, [usuario]);
-  // Elogios de atendimento ainda sem decisão (nem aprovados, nem rejeitados
-  // pra TV) -- avisa na aba pra não depender de ninguém sinalizar.
-  useEffect(() => {
-    const perfilAtual = usuario?.perfil?.perfil;
-    if (!usuario || !podeAcessar(perfilAtual, "/elogios-atendimento")) {
-      setElogiosPendentes(0);
-      return;
-    }
-    let ativo = true;
-    async function carregarElogiosPendentes() {
-      const { count, error } = await supabase
-        .from("elogios_atendimento")
-        .select("id", { count: "exact", head: true })
-        .eq("status", "PENDENTE_ANALISE");
-      if (ativo && !error) {
-        setElogiosPendentes(count || 0);
-      }
-    }
-    carregarElogiosPendentes();
-    const intervalo = setInterval(carregarElogiosPendentes, 15000);
-    return () => {
-      ativo = false;
-      clearInterval(intervalo);
-    };
-  }, [usuario]);
-  useEffect(() => {
-    const email = usuario?.auth?.email || usuario?.perfil?.email;
-    if (!usuario || !email) {
-      setTermosRejeitados(0);
-      return;
-    }
-    let ativo = true;
-    async function carregarTermosRejeitados() {
-      const { data, error } = await supabase
-        .from("termos_acordo")
-        .select("aluno_id, status, criado_em")
-        .eq("operador_email", email)
-        .order("criado_em", { ascending: false });
-      if (!ativo || error || !data) return;
-      // Para cada aluno, olha só o termo mais recente enviado por mim.
-      // Se o mais recente foi rejeitado, ainda precisa de correção.
-      const maisRecentePorAluno = new Map();
-      for (const termo of data) {
-        if (!maisRecentePorAluno.has(termo.aluno_id)) {
-          maisRecentePorAluno.set(termo.aluno_id, termo.status);
-        }
-      }
-      let total = 0;
-      for (const status of maisRecentePorAluno.values()) {
-        if (status === "TERMO_REJEITADO") total += 1;
-      }
-      setTermosRejeitados(total);
-    }
-    carregarTermosRejeitados();
-    const intervalo = setInterval(carregarTermosRejeitados, 15000);
-    return () => {
-      ativo = false;
-      clearInterval(intervalo);
-    };
-  }, [usuario]);
   async function verificarSessao() {
     const { data } = await supabase.auth.getSession();
     if (data.session) {
