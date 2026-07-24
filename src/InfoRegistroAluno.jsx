@@ -239,13 +239,38 @@ export default function Alunos() {
     setSalvando(true);
 
     try {
+      // Claim atômico: só assume se a matrícula ainda estiver sem responsável.
+      // A RPC (sistema_assumir_atendimento + trigger _guard_resp_aluno no banco)
+      // impede que dois operadores assumam o mesmo caso, grava o histórico com
+      // responsável anterior/novo e origem ASSUMIU_ATENDIMENTO, e inicia a
+      // fidelização de 10 dias (responsavel_atual_em = agora).
+      const { data: rClaim, error: rpcError } = await supabase.rpc(
+        "sistema_assumir_atendimento",
+        { p_aluno_id: alunoSelecionado.id }
+      );
+      if (rpcError) {
+        alert("Erro ao assumir atendimento: " + rpcError.message);
+        return;
+      }
+      if (!rClaim?.ok) {
+        alert(
+          rClaim?.erro === "JA_TEM_RESPONSAVEL"
+            ? "Outro operador já assumiu este atendimento."
+            : "Não foi possível assumir o atendimento: " + (rClaim?.erro || "erro desconhecido")
+        );
+        await recarregarAlunoSelecionado(alunoSelecionado.id);
+        return;
+      }
+
+      // Claim confirmado → só agora muda para EM_ATENDIMENTO (sem tocar no
+      // responsável, que já foi definido atomicamente pela RPC).
       await registrarMovimentacaoAluno({
         alunoId: alunoSelecionado.id,
-        tipo: "ASSUMIU_ATENDIMENTO",
-        descricao: "Usuário assumiu o atendimento do aluno.",
+        tipo: "EM_ATENDIMENTO",
+        descricao: "Atendimento iniciado após assumir o caso.",
         statusAnterior: pegarCampo(alunoSelecionado, ["status_jornada", "status"], null),
         statusNovo: "EM_ATENDIMENTO",
-        atualizarResponsavel: true,
+        atualizarResponsavel: false,
       });
 
       await recarregarAlunoSelecionado(alunoSelecionado.id);
