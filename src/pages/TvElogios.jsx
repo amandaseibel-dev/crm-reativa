@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import usePolling from "../utils/polling";
 
 const SEG_POR_TELA = 12;
-const ATUALIZAR_DADOS = 30;
+const ATUALIZAR_DADOS = 60;
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -52,55 +53,45 @@ export default function TvElogios() {
   const [urlElogio, setUrlElogio] = useState("");
   const [indice, setIndice] = useState(0);
 
+  // ANTES: 4 pollings independentes (rank 60s + dados 30s + elogios 30s +
+  // dicas 30s), sem trava de sobreposicao e sem pausa em aba oculta -- eram
+  // ~5 RPCs a cada 30s por telao ligado. AGORA: um unico ciclo a 60s, sem
+  // sobreposicao, pausado se a aba ficar oculta e disparado na hora ao voltar.
+  usePolling(
+    async () => {
+      const [rk, dt, pj, el, dc] = await Promise.all([
+        supabase.rpc("acionamentos_ranking"),
+        supabase.rpc("dashboard_tv"),
+        supabase.rpc("dashboard_tv_projecao"),
+        supabase
+          .from("aluno_movimentacoes")
+          .select("id, aluno_id, descricao, registrado_por_nome, registrado_em, elogio_print_path")
+          .eq("status_novo", "ELOGIO_ATENDIMENTO")
+          .eq("elogio_aprovado_tv", true)
+          .order("registrado_em", { ascending: false })
+          .limit(20),
+        supabase
+          .from("tv_dicas")
+          .select("id, categoria, titulo, texto, ordem")
+          .eq("ativo", true)
+          .order("ordem", { ascending: true }),
+      ]);
+      setRank(rk.data || null);
+      setDados(dt.data || null);
+      setProj(pj.data || null);
+      setElogios(Array.isArray(el.data) ? el.data : []);
+      setDicas(Array.isArray(dc.data) ? dc.data : []);
+    },
+    ATUALIZAR_DADOS * 1000,
+    []
+  );
+
+  // Blindagem para TV 24h: recarrega a pagina inteira a cada 10 min, para
+  // se recuperar caso o navegador congele/perca o tempo real em segundo plano.
   useEffect(() => {
-    async function carregarRank() {
-      const { data } = await supabase.rpc("acionamentos_ranking");
-      setRank(data || null);
-    }
-    carregarRank();
-    const tr = setInterval(carregarRank, 60000);
-    return () => clearInterval(tr);
+    const t = setInterval(() => { try { window.location.reload(); } catch (e) {} }, 10 * 60 * 1000);
+    return () => clearInterval(t);
   }, []);
-
-  useEffect(() => {
-    carregarDados();
-    carregarElogios();
-    carregarDicas();
-    const t1 = setInterval(carregarDados, ATUALIZAR_DADOS * 1000);
-    const t2 = setInterval(carregarElogios, ATUALIZAR_DADOS * 1000);
-    const t3 = setInterval(carregarDicas, ATUALIZAR_DADOS * 1000);
-    // Blindagem para TV 24h: recarrega a pagina inteira a cada 10 min, para
-    // se recuperar caso o navegador congele/perca o tempo real em segundo plano.
-    const t4 = setInterval(() => { try { window.location.reload(); } catch (e) {} }, 10 * 60 * 1000);
-    return () => { clearInterval(t1); clearInterval(t2); clearInterval(t3); clearInterval(t4); };
-  }, []);
-
-  async function carregarDicas() {
-    const { data } = await supabase
-      .from("tv_dicas")
-      .select("id, categoria, titulo, texto, ordem")
-      .eq("ativo", true)
-      .order("ordem", { ascending: true });
-    setDicas(Array.isArray(data) ? data : []);
-  }
-
-  async function carregarDados() {
-    const { data } = await supabase.rpc("dashboard_tv");
-    setDados(data || null);
-    const r = await supabase.rpc("dashboard_tv_projecao");
-    setProj(r.data || null);
-  }
-
-  async function carregarElogios() {
-    const { data } = await supabase
-      .from("aluno_movimentacoes")
-      .select("id, aluno_id, descricao, registrado_por_nome, registrado_em, elogio_print_path")
-      .eq("status_novo", "ELOGIO_ATENDIMENTO")
-      .eq("elogio_aprovado_tv", true)
-      .order("registrado_em", { ascending: false })
-      .limit(20);
-    setElogios(Array.isArray(data) ? data : []);
-  }
 
   const telas = useMemo(() => {
     const base = ["campanha", "meta3mi", "semana", "mes", "resultado", "projecao", "alunos", "maior", "topdia", "tophondia", "topmes"];

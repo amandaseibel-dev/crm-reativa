@@ -9,7 +9,7 @@ import { podeVerTudo } from "../utils/operadores";
 // aguardando resposta, ou envio ao financeiro. Roda em segundo plano em
 // qualquer tela (montado uma vez no App.jsx), não renderiza nada pra quem
 // não é supervisão/ADM.
-const INTERVALO_MS = 25000;
+const INTERVALO_MS = 45000;
 
 const CONSULTAS = [
   {
@@ -59,7 +59,11 @@ export default function NotificacoesSupervisaoAdm({ usuario }) {
 
     let cancelado = false;
 
+    let rodando = false;
+
     async function verificar() {
+      if (rodando) return; // sem sobreposicao
+      rodando = true;
       try {
         const resultados = await Promise.all(
           CONSULTAS.map(async (config) => {
@@ -103,11 +107,14 @@ export default function NotificacoesSupervisaoAdm({ usuario }) {
         });
       } catch (e) {
         console.error("Erro ao verificar notificações de supervisão/ADM:", e);
+      } finally {
+        rodando = false;
       }
     }
 
     verificar();
-    const intervalo = setInterval(verificar, INTERVALO_MS);
+    // Pausa em aba oculta; aoVoltarFoco (abaixo) roda na hora ao retomar.
+    const intervalo = setInterval(() => { if (!document.hidden) verificar(); }, INTERVALO_MS);
 
     // O navegador atrasa (throttle) o setInterval quando a aba fica em
     // segundo plano (pessoa em outra aba/janela) -- sem isso, quem tava

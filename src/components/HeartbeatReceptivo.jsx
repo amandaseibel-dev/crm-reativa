@@ -16,27 +16,37 @@ export default function HeartbeatReceptivo({ usuario }) {
     if (!ehReceptivo || !email) return;
 
     let cancelado = false;
+    let batendo = false;
 
     async function bater() {
+      if (batendo) return; // sem sobreposicao
+      batendo = true;
       try {
+        const { data: sess } = await supabase.auth.getSession();
+        if (!sess?.session) { batendo = false; return; } // so autenticado
         // Refresh proativo: se a aba ficou muito tempo parada/em segundo
         // plano, o token pode ter expirado e o RPC falharia silenciosamente,
         // parando de atualizar online_em sem nunca lançar erro visível.
-        try {
-          await supabase.auth.getSession();
-        } catch {}
-
         await supabase.rpc("fila_receptivo_heartbeat", {
           p_email: email,
           p_nome: nomeOperadorPorEmail(email),
         });
       } catch (e) {
         if (!cancelado) console.warn("Erro no heartbeat do receptivo:", e);
+      } finally {
+        batendo = false;
       }
     }
 
     bater();
-    const intervalo = setInterval(bater, 20000);
+    // A fila considera o operador offline em 90s (LIMITE_ONLINE_MS). Com 40s
+    // ele bate 2x antes de expirar -- margem segura para nao perder a posicao
+    // mesmo se uma batida falhar -- pela metade das chamadas de antes.
+    // EXCECAO PROPOSITAL a regra de pausar em aba oculta: o operador costuma
+    // ficar com o CRM em segundo plano enquanto atende no WhatsApp. Pausar
+    // aqui o derrubaria da fila do receptivo. Este é o unico polling que
+    // continua rodando com a aba oculta.
+    const intervalo = setInterval(bater, 40000);
 
     // Se o navegador atrasou o setInterval (aba em segundo plano) e o
     // operador volta pra aba, bate na hora em vez de esperar o próximo
