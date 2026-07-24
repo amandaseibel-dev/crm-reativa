@@ -204,7 +204,7 @@ export default function FinanceiroAluno({ aluno }) {
       setCarregando(true);
       const { data } = await supabase
         .from("acordos_titulos")
-        .select("documento, vencimento, valor_original, saldo_corrigido, situacao, tipo_boleto, status")
+        .select("id, acordo_id, documento, vencimento, valor_original, saldo_corrigido, situacao, tipo_boleto, status")
         .eq("cpf", aluno.cpf)
         .order("vencimento", { ascending: true });
 
@@ -275,52 +275,36 @@ export default function FinanceiroAluno({ aluno }) {
 
   const podeBaixar = podeGerirFinanceiro(usuario?.email || "");
 
+  // HOTFIX quitacao parcial (24/07/2026)
+  //
+  // A versao anterior desta funcao decidia a quitacao olhando SOMENTE as
+  // parcelas do acordo. Ela nunca consultava acordos_titulos, entao um
+  // aluno com o acordo quitado mas com mensalidade avulsa em aberto era
+  // gravado como QUITADO e saia da carteira -- direto pelo frontend.
+  //
+  // Agora quem decide e o banco, em transacao unica, via a fonte unica de
+  // saldo (aluno_saldo_pendente_detalhe). O frontend nao faz mais nenhum
+  // UPDATE de status para QUITADO nem mexe em carteira_operador.
   async function checarQuitacao(acordoId) {
-    const agora = new Date().toISOString();
-    const { data: ps } = await supabase.from("parcelas").select("status").eq("acordo_id", acordoId);
-    if (ps && ps.length > 0 && ps.every((p) => p.status === "PAGO")) {
-      await supabase.from("acordos").update({ status: "QUITADO", saldo: 0, atualizado_em: agora }).eq("id", acordoId);
-      const { data: vinculos } = await supabase
-        .from("acordo_titulo_vinculo")
-        .select("titulo_id")
-        .eq("acordo_id", acordoId)
-        .eq("ativo", true);
-      const ids = (vinculos || []).map((v) => v.titulo_id);
-      if (ids.length > 0) {
-        await supabase.from("acordos_titulos").update({ status: "quitada", atualizado_em: agora }).in("id", ids);
-      }
-      if (aluno?.id) {
-        await supabase
-          .from("carteira_operador")
-          .update({ status: "quitado_saiu", saiu_em: agora })
-          .eq("aluno_id", String(aluno.id))
-          .eq("status", "ativo");
+    const { data, error } = await supabase.rpc("avaliar_quitacao_aluno", {
+      p_aluno_id: aluno?.id ? String(aluno.id) : null,
+      p_acordo_id: acordoId,
+      p_ignorar_confirmacao_id: null,
+    });
 
-        // Isso aqui faltava: o acordo e a carteira ficavam quitados, mas
-        // o status do próprio aluno nunca mudava -- por isso ele
-        // continuava aparecendo normal na fila, sem nenhuma marca visual
-        // de que já está pago. Só mexe no status do aluno se não sobrar
-        // nenhum outro acordo ativo dele (pode ter mais de um).
-        const { data: outrosAtivos } = await supabase
-          .from("acordos")
-          .select("id")
-          .eq("aluno_id", String(aluno.id))
-          .eq("status", "ATIVO")
-          .neq("id", acordoId);
-
-        if (!outrosAtivos || outrosAtivos.length === 0) {
-          await supabase
-            .from("alunos")
-            .update({
-              status_jornada: "QUITADO",
-              status_atual: "QUITADO",
-              status_acionamento: "QUITADO",
-              proxima_acao: "NENHUMA",
-            })
-            .eq("id", String(aluno.id));
-        }
-      }
+    if (error) {
+      console.error("Erro ao avaliar quitacao:", error);
+      alert("Pagamento registrado, mas nao foi possivel reavaliar a quitacao: " + error.message);
+      return null;
     }
+
+    // Quando sobra saldo, a RPC nao quita nada e devolve o detalhamento --
+    // serve pro operador entender por que o aluno continua na fila.
+    if (data && data.quitou_aluno === false) {
+      const d = data.detalhe || {};
+      console.info("Aluno segue com saldo pendente:", d);
+    }
+    return data;
   }
 
   async function baixarParcela(acordo, parcela, dados) {
@@ -364,9 +348,14 @@ export default function FinanceiroAluno({ aluno }) {
       alert("Parcela baixada, mas houve erro ao registrar a baixa: " + erroBaixa.message);
     }
 
-    await checarQuitacao(acordo.id);
+    const res = await checarQuitacao(acordo.id);
     setRecarga((r) => r + 1);
-    alert("Baixa registrada.");
+    alert(
+      res && res.quitou_aluno === false
+        ? "Baixa registrada. O aluno continua na carteira: ainda ha saldo em aberto de " +
+          moeda(Number(res.detalhe?.total || 0)) + "."
+        : "Baixa registrada."
+    );
   }
 
   async function quitarCartao(acordo, parcelasAbertas, dados) {
@@ -411,9 +400,14 @@ export default function FinanceiroAluno({ aluno }) {
       }
     }
 
-    await checarQuitacao(acordo.id);
+    const res = await checarQuitacao(acordo.id);
     setRecarga((r) => r + 1);
-    alert("Acordo quitado no cartão.");
+    alert(
+      res && res.quitou_aluno === false
+        ? "Acordo quitado no cartão. O aluno continua na carteira: ainda ha saldo em aberto de " +
+          moeda(Number(res.detalhe?.total || 0)) + "."
+        : "Acordo quitado no cartão."
+    );
   }
 
   // Reverte uma baixa feita errada -- volta a parcela pra "a vencer" e some
@@ -945,7 +939,18 @@ export default function FinanceiroAluno({ aluno }) {
   // Valor de mensalidades: títulos (acordos_titulos) que ainda não foram
   // pagos nem entraram em nenhum acordo -- "vinculada"/"quitada" já saíram
   // daqui pra não duplicar com o valor de acordos abaixo.
-  const emAberto = titulos.filter((t) => t.situacao !== "PAGO" && t.situacao !== "NEGOCIADO" && t.status !== "vinculada" && t.status !== "quitada");
+  // Titulo vinculado a acordo NAO entra aqui: a obrigacao dele ja esta
+  // representada pelas parcelas do acordo (evita dupla contagem). O
+  // acordo_id entra no filtro porque ha uma janela em que ele e o unico
+  // sinal do vinculo.
+  const emAberto = titulos.filter(
+    (t) =>
+      t.situacao !== "PAGO" &&
+      t.situacao !== "NEGOCIADO" &&
+      t.status !== "vinculada" &&
+      t.status !== "quitada" &&
+      !t.acordo_id
+  );
   const valorMensalidades = emAberto.reduce(
     (soma, t) => soma + Number(t.saldo_corrigido ?? t.valor_original ?? 0),
     0
@@ -1234,12 +1239,22 @@ export default function FinanceiroAluno({ aluno }) {
           <div style={{ marginTop: 10 }}>
             {titulos.map((titulo) => {
               const pago = titulo.situacao === "PAGO" || titulo.status === "quitada";
-              const negociada = !pago && titulo.status === "vinculada";
+              // Reconhece o vinculo por qualquer um dos tres sinais: o
+              // gatilho grava situacao=NEGOCIADO + status=vinculada, mas ha
+              // uma janela em que so o acordo_id esta preenchido.
+              const negociada =
+                !pago &&
+                (titulo.status === "vinculada" ||
+                  titulo.situacao === "NEGOCIADO" ||
+                  !!titulo.acordo_id);
+              const acordoDoTitulo = titulo.acordo_id
+                ? acordos.find((a) => String(a.id) === String(titulo.acordo_id))
+                : null;
               const vencida = !pago && !negociada && diasAtraso(titulo.vencimento) > 0;
               const cor = pago ? CORES_STATUS.quitado : negociada ? CORES_STATUS.em_dia : CORES_STATUS.em_aberto;
               return (
                 <div
-                  key={titulo.documento}
+                  key={titulo.id || titulo.documento}
                   style={{ ...estilos.linha, borderLeft: `3px solid ${cor.barra}`, paddingLeft: 8 }}
                 >
                   <div>
@@ -1251,6 +1266,17 @@ export default function FinanceiroAluno({ aluno }) {
                       Vencimento: {formatarData(titulo.vencimento)}
                       {vencida ? <span style={estilos.marcaVencida}>• vencida</span> : null}
                     </div>
+                    {negociada && (
+                      <div style={estilos.subLinha}>
+                        Vinculada ao acordo{" "}
+                        {acordoDoTitulo
+                          ? `${moeda(acordoDoTitulo.valor_total)} em ${acordoDoTitulo.qtd_parcelas || "?"}x`
+                          : titulo.acordo_id
+                          ? String(titulo.acordo_id).slice(0, 8)
+                          : "(vínculo sem acordo localizado)"}
+                        {" — não somada de novo no total"}
+                      </div>
+                    )}
                   </div>
                   <div style={{ textAlign: "right" }}>
                     <div style={{ fontSize: 13, fontWeight: 700 }}>

@@ -718,6 +718,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         for (const id of idsCarteira) {
           fin[id] = {
             mensalidades: 0,
+            negociadas: 0,
+            qtdNegociadas: 0,
             acordos: 0,
             total: 0,
             temDetalhe: false,
@@ -766,15 +768,27 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         // 2) Titulos/mensalidades importados em aberto (borderos ja normalizados aqui).
         for (let i = 0; i < idsCarteira.length; i += LOTE_IN) {
           const lote = idsCarteira.slice(i, i + LOTE_IN);
+          // HOTFIX parcela negociada: traz tambem as vinculadas, num balde
+          // separado. Elas NAO entram em "mensalidades" (que segue sendo so
+          // obrigacao avulsa) nem sao somadas junto com as parcelas do acordo
+          // -- a divida delas ja esta em fin[id].acordos. O total nao muda.
           const { data } = await supabase
             .from("acordos_titulos")
-            .select("aluno_id,status,valor_em_aberto,saldo_corrigido,valor_original,vencimento")
+            .select("aluno_id,status,situacao,acordo_id,valor_em_aberto,saldo_corrigido,valor_original,vencimento")
             .in("aluno_id", lote)
-            .eq("status", "em_aberto");
+            .in("status", ["em_aberto", "vinculada"]);
           for (const t of data || []) {
             const id = String(t.aluno_id);
             if (!fin[id]) continue;
             const v = Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+            const negociada =
+              t.status === "vinculada" || t.situacao === "NEGOCIADO" || !!t.acordo_id;
+            if (negociada) {
+              fin[id].negociadas += v;
+              fin[id].qtdNegociadas += 1;
+              fin[id].temDetalhe = true;
+              continue;
+            }
             fin[id].mensalidades += v;
             fin[id].temDetalhe = true;
             const d = diasAtraso(t.vencimento, hoje);
@@ -2049,6 +2063,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                             <div style={S.emAbertoSub}>Mensalidades (originais): {formatarMoeda(saldoDe(a))}</div>
                             <div style={S.emAbertoSub}>Titulos em aberto: {qtdTitulosDe(a)}</div>
                               <div style={S.emAbertoSub}>Acordos: {formatarMoeda(fa.acordos)}</div>
+                              {fa.qtdNegociadas > 0 && (
+                                <div style={S.emAbertoSub}>
+                                  Negociadas em acordo: {formatarMoeda(fa.negociadas)} ({fa.qtdNegociadas}) — já
+                                  contabilizadas em Acordos
+                                </div>
+                              )}
                               <div style={S.emAbertoSub}>Responsavel: {respCaso || "-"}</div>
                               {respAcordo && respAcordo !== respCaso && (
                                 <div style={S.emAbertoSub}>Acordo: {respAcordo}</div>
