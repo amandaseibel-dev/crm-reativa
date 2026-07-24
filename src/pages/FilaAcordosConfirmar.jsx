@@ -229,7 +229,7 @@ export default function FilaAcordosConfirmar() {
                                 </button>
                               </>
                             )}
-                            {(st === "CONFIRMADO" || st === "REJEITADO") && (
+                            {st === "REJEITADO" && (
                               <button style={{ ...S.btnMini, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => reabrir(a)}>
                                 {busy ? "..." : "reabrir"}
                               </button>
