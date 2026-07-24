@@ -296,7 +296,7 @@ export default function FilaOperador() {
 
     const { data, error } = await supabase
       .from("acordos_titulos")
-      .select("cpf, saldo_corrigido, valor_original, situacao")
+      .select("cpf, saldo_corrigido, valor_original, situacao, status, acordo_id")
       .in("cpf", cpfsUnicos);
 
     if (error) {
@@ -304,11 +304,29 @@ export default function FilaOperador() {
       return;
     }
 
+    // HOTFIX parcela negociada -- SO EXIBICAO.
+    //
+    // Esta tela NAO soma as parcelas de acordo (ver comentario acima: "ainda
+    // nao incluida aqui"). Entao aqui NAO existe dupla contagem: o titulo
+    // negociado e hoje a unica representacao dessa divida na fila. Por isso
+    // ele NAO e removido do total -- remove-lo faria o saldo da fila
+    // SUBESTIMAR a divida real.
+    //
+    // O que muda: o valor negociado passa a ser identificado separadamente,
+    // pra ficar visivel quanto do saldo ja esta dentro de um acordo. O total
+    // exibido continua exatamente o mesmo, e nada aqui toca regua de
+    // cobranca, prioridade, fase, responsavel ou fidelizacao.
     const mapa = {};
     (data || []).forEach((titulo) => {
       if (titulo.situacao === "PAGO") return;
+      if (String(titulo.status || "").toLowerCase() === "quitada") return;
       const valor = Number(titulo.saldo_corrigido ?? titulo.valor_original ?? 0);
-      mapa[titulo.cpf] = (mapa[titulo.cpf] || 0) + valor;
+      const negociada =
+        titulo.status === "vinculada" || titulo.situacao === "NEGOCIADO" || !!titulo.acordo_id;
+      const atual = mapa[titulo.cpf] || { total: 0, negociado: 0 };
+      atual.total += valor;
+      if (negociada) atual.negociado += valor;
+      mapa[titulo.cpf] = atual;
     });
 
     setSaldosPorCpf(mapa);
@@ -1249,7 +1267,10 @@ export default function FilaOperador() {
                         <strong>Valor em aberto</strong>
                         <span style={valorGrade}>
                           {aluno.cpf && saldosPorCpf[aluno.cpf] !== undefined
-                            ? moeda(saldosPorCpf[aluno.cpf])
+                            ? moeda(saldosPorCpf[aluno.cpf].total) +
+                              (saldosPorCpf[aluno.cpf].negociado > 0
+                                ? ` (${moeda(saldosPorCpf[aluno.cpf].negociado)} em acordo)`
+                                : "")
                             : moeda(aluno.valor_em_aberto)}
                         </span>
                       </div>

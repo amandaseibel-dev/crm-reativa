@@ -293,7 +293,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       const LOTE = 200;
       const fin = {};
       ids.forEach((id) => {
-        fin[id] = { mensalidades: 0, acordos: 0, total: 0, temDetalhe: false };
+        fin[id] = { mensalidades: 0, acordos: 0, negociadas: 0, qtdNegociadas: 0, total: 0, temDetalhe: false };
       });
       const acAluno = [];
       for (let i = 0; i < ids.length; i += LOTE) {
@@ -326,17 +326,29 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       }
       for (let i = 0; i < ids.length; i += LOTE) {
         const lote = ids.slice(i, i + LOTE);
+        // HOTFIX parcela negociada: o filtro .eq("status","em_aberto") fazia a
+        // mensalidade vinculada a acordo sumir da tela sem aparecer em lugar
+        // nenhum. Agora traz tambem as vinculadas e as contabiliza num balde
+        // SEPARADO ("negociadas") -- elas NAO entram no total em aberto, que
+        // segue sendo so obrigacao avulsa, e NAO sao somadas de novo junto
+        // com as parcelas do acordo. O total geral nao muda.
         const { data } = await supabase
           .from("acordos_titulos")
-          .select("aluno_id,status,valor_em_aberto,saldo_corrigido,valor_original")
+          .select("aluno_id,status,situacao,acordo_id,valor_em_aberto,saldo_corrigido,valor_original")
           .in("aluno_id", lote)
-          .eq("status", "em_aberto");
+          .in("status", ["em_aberto", "vinculada"]);
         for (const t of data || []) {
           const id = String(t.aluno_id);
           if (!fin[id]) continue;
-          fin[id].mensalidades += Number(
-            t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0
-          );
+          const v = Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+          const negociada =
+            t.status === "vinculada" || t.situacao === "NEGOCIADO" || !!t.acordo_id;
+          if (negociada) {
+            fin[id].negociadas += v;
+            fin[id].qtdNegociadas += 1;
+          } else {
+            fin[id].mensalidades += v;
+          }
           fin[id].temDetalhe = true;
         }
       }
@@ -1235,6 +1247,12 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           <div style={emAbertoTotalA}>Total em aberto: {moeda(fa.total)}</div>
                           <div style={emAbertoSubA}>Mensalidades: {moeda(fa.mensalidades)}</div>
                           <div style={emAbertoSubA}>Acordos: {moeda(fa.acordos)}</div>
+                          {fa.qtdNegociadas > 0 && (
+                            <div style={emAbertoSubA}>
+                              Negociadas em acordo: {moeda(fa.negociadas)} ({fa.qtdNegociadas}) — já
+                              contabilizadas em Acordos
+                            </div>
+                          )}
                         </>
                       ) : fallbackFin > 0 ? (
                         <div style={emAbertoTotalA}>Total em aberto: {moeda(fallbackFin)}</div>

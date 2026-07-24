@@ -333,14 +333,22 @@ export default function FilaConfirmacaoPagamento() {
       // Marca o caso como quitado em public.casos -- isso dispara a
       // reposição automática (solta o operador e repõe com um caso de
       // valor parecido), mantendo o teto de 500 por operador.
-      const { error: erroBaixaCaso } = await supabase.rpc("confirmar_baixa_caso", {
+      // HOTFIX quitacao parcial: p_confirmacao_id faz a RPC IGNORAR esta
+      // confirmacao (ja marcada como PAGAMENTO_CONFIRMADO logo acima) ao
+      // calcular o saldo -- senao o aluno que acabou de pagar a ultima
+      // obrigacao ficaria travado como ativo por causa de si mesmo.
+      // A RPC so quita se o saldo consolidado for zero.
+      const { data: resBaixa, error: erroBaixaCaso } = await supabase.rpc("confirmar_baixa_caso", {
         p_aluno_id: s.aluno_id,
         p_valor_pago: s.valor_informado || 0,
         p_data_pagamento: s.data_pagamento || agora.slice(0, 10),
+        p_confirmacao_id: s.id,
       });
 
       if (erroBaixaCaso) {
         console.error("Erro ao dar baixa no caso (reposição automática):", erroBaixaCaso);
+      } else if (resBaixa && resBaixa.quitou === false) {
+        console.info("Pagamento parcial: caso mantido na carteira.", resBaixa.detalhe);
       }
     }
 
