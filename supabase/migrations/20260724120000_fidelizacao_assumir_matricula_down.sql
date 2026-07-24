@@ -1,68 +1,10 @@
--- Fidelização de 10 dias ao assumir uma matrícula.
---
--- Regra: quando uma matrícula é assumida, alunos.responsavel_atual_em recebe
--- now(). Durante 10 dias corridos a partir dessa data a matrícula NÃO pode ser
--- movida por nivelamento, distribuição, redistribuição nem retirada pelo
--- gatilho de teto.
---
--- Identificação da matrícula (nesta ordem, SEM CPF):
---   1) aluno_id válido (casos.aluno_id = alunos.id, ambos uuid); ou
---   2) quando aluno_id é NULL, matrícula EXATA e ÚNICA (exatamente 1 aluno com
---      a mesma matrícula). Matrícula ausente, sem correspondência ou ambígua
---      (>1 aluno) NÃO é protegida e NÃO é vinculada.
--- Nunca mistura matrículas diferentes do mesmo aluno. Não faz backfill nem
--- altera dados históricos.
---
--- Ações massivas já respeitam a fidelização: buscar_candidatos_acoes_massivas e
--- total_elegiveis_acoes_massivas filtram alunos.responsavel_atual_email IS NULL.
---
--- Hygiene: idempotente (CREATE OR REPLACE); preserva SECURITY DEFINER,
--- search_path, owner e grants das funções (CREATE OR REPLACE não altera
--- owner nem revoga grants); não altera assinaturas usadas por frontend/jobs;
--- não altera dados/constraints/RLS. Rollback em
--- 20260724120000_fidelizacao_assumir_matricula_down.sql.
---
--- NÃO altera: quantidade limite da carteira, regra numérica do teto (500),
--- reposição, metas ou critérios gerais da carteira. No teto, apenas impede que
--- o caso ESCOLHIDO para sair seja uma matrícula fidelizada.
+-- ROLLBACK da migration 20260724120000_fidelizacao_assumir_matricula.sql
+-- Restaura as definições ORIGINAIS das 4 funções e remove o helper de
+-- fidelização. Idempotente e transacional. Não altera dados.
 
 BEGIN;
 
--- 1) Predicado central de fidelização.
---    Protege por aluno_id; na ausência dele, por matrícula EXATA e ÚNICA.
---    p_aluno_id NULL + matrícula ausente/ambígua/sem match -> false.
-CREATE OR REPLACE FUNCTION internal.matricula_em_fidelizacao(p_aluno_id uuid, p_matricula text DEFAULT NULL)
-RETURNS boolean
-LANGUAGE sql
-STABLE
-SECURITY DEFINER
-SET search_path TO 'public'
-AS $function$
-  WITH alvo AS (
-    -- vínculo principal: aluno_id
-    SELECT p_aluno_id AS aid
-    WHERE p_aluno_id IS NOT NULL
-    UNION ALL
-    -- alternativa: SOMENTE matrícula exata e única (quando não há aluno_id)
-    SELECT a.id
-    FROM public.alunos a
-    WHERE p_aluno_id IS NULL
-      AND nullif(btrim(p_matricula),'') IS NOT NULL
-      AND btrim(a.matricula) = btrim(p_matricula)
-      AND (SELECT count(*) FROM public.alunos a2
-           WHERE btrim(a2.matricula) = btrim(p_matricula)) = 1
-  )
-  SELECT EXISTS (
-    SELECT 1
-    FROM alvo
-    JOIN public.alunos a ON a.id = alvo.aid
-    WHERE a.responsavel_atual_email IS NOT NULL
-      AND a.responsavel_atual_em IS NOT NULL
-      AND a.responsavel_atual_em > now() - interval '10 days'
-  );
-$function$;
-
--- 2) Nivelamento diário: não solta nem puxa da pool matrículas fidelizadas.
+-- Restaura nivelar_medias_progressivo (original)
 CREATE OR REPLACE FUNCTION public.nivelar_medias_progressivo()
  RETURNS integer
  LANGUAGE plpgsql
@@ -95,7 +37,6 @@ BEGIN
           AND coalesce(status_acionamento,'') NOT ILIKE '%CANCEL%'
           AND coalesce(status_acionamento,'') NOT ILIKE '%JURIDIC%'
           AND coalesce(status_acionamento,'') NOT ILIKE '%ACORDO%'
-          AND NOT internal.matricula_em_fidelizacao(aluno_id, matricula)
         ORDER BY total_em_aberto DESC NULLS LAST
         LIMIT v_max_trocas_por_operador
       LOOP
@@ -103,7 +44,6 @@ BEGIN
         WHERE operador_email IS NULL AND aluno_id IS NOT NULL AND quitado_em IS NULL
           AND coalesce(status_acionamento,'') NOT ILIKE '%CANCEL%'
           AND coalesce(status_acionamento,'') NOT ILIKE '%JURIDIC%'
-          AND NOT internal.matricula_em_fidelizacao(aluno_id, matricula)
         ORDER BY abs(coalesce(total_em_aberto,0) - v_media_alvo) ASC LIMIT 1;
         IF v_pool_id IS NOT NULL THEN
           UPDATE public.casos SET operador_email = NULL, operador_nome = NULL, operador = NULL,
@@ -120,7 +60,6 @@ BEGIN
           AND coalesce(status_acionamento,'') NOT ILIKE '%CANCEL%'
           AND coalesce(status_acionamento,'') NOT ILIKE '%JURIDIC%'
           AND coalesce(status_acionamento,'') NOT ILIKE '%ACORDO%'
-          AND NOT internal.matricula_em_fidelizacao(aluno_id, matricula)
         ORDER BY total_em_aberto ASC NULLS FIRST
         LIMIT v_max_trocas_por_operador
       LOOP
@@ -128,7 +67,6 @@ BEGIN
         WHERE operador_email IS NULL AND aluno_id IS NOT NULL AND quitado_em IS NULL
           AND coalesce(status_acionamento,'') NOT ILIKE '%CANCEL%'
           AND coalesce(status_acionamento,'') NOT ILIKE '%JURIDIC%'
-          AND NOT internal.matricula_em_fidelizacao(aluno_id, matricula)
         ORDER BY abs(coalesce(total_em_aberto,0) - v_media_alvo) ASC LIMIT 1;
         IF v_pool_id IS NOT NULL THEN
           UPDATE public.casos SET operador_email = NULL, operador_nome = NULL, operador = NULL,
@@ -144,7 +82,7 @@ BEGIN
 END;
 $function$;
 
--- 3) Redistribuição geral: não solta nem redistribui matrículas fidelizadas.
+-- Restaura redistribuir_casos_operadores (original)
 CREATE OR REPLACE FUNCTION public.redistribuir_casos_operadores(p_executado_por_nome text, p_executado_por_email text, p_meta_por_operador integer DEFAULT 500)
  RETURNS TABLE(operador_email text, operador_nome text, casos_atribuidos integer, valor_total numeric)
  LANGUAGE plpgsql
@@ -173,12 +111,9 @@ begin
 
   insert into public.historico_operadores_alunos (chave_unificacao, nome_aluno, cpf_referencia, acao, operador_anterior_nome, operador_anterior_email, observacao, criado_em)
   select c.chave_unificacao, c.nome, c.cpf, 'REDISTRIBUICAO_AUTOMATICA_SOLTURA', c.operador_nome, c.operador_email, 'Redistribuição executada por '||p_executado_por_nome, now()
-  from public.casos c where c.operador_email = any(v_operadores)
-    and not internal.matricula_em_fidelizacao(c.aluno_id, c.matricula);
+  from public.casos c where c.operador_email = any(v_operadores);
 
-  update public.casos set operador_email=null, operador_nome=null, operador=null
-  where casos.operador_email = any(v_operadores)
-    and not internal.matricula_em_fidelizacao(casos.aluno_id, casos.matricula);
+  update public.casos set operador_email=null, operador_nome=null, operador=null where casos.operador_email = any(v_operadores);
 
   for caso_rec in
     with pool as (
@@ -188,7 +123,6 @@ begin
         and not public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento, c.nao_acionar, c.status_financeiro, c.valor_pago, c.quitado_em, c.valor_quitado)
         and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual, c.status_acionamento, c.status_financeiro, c.status_jornada)
         and not public.caso_reservado_administrativo(c.chave_unificacao)
-        and not internal.matricula_em_fidelizacao(c.aluno_id, c.matricula)
     )
     select pool.id, pool.saldo_orig from pool
     where pool.saldo_orig > 0
@@ -227,11 +161,7 @@ begin
 end;
 $function$;
 
--- 4) Redistribuição por faixas: matrícula fidelizada é tratada como caso
---    protegido (não é solta nem entra na pool), igual ao já existente para
---    caso_protegido_redistribuicao. Os invariantes de 500 contam apenas
---    atribuições vindas da pool, então casos fidelizados permanecem anexados
---    ao operador atual sem quebrar as verificações.
+-- Restaura redistribuir_casos_operadores_faixas (original)
 CREATE OR REPLACE FUNCTION public.redistribuir_casos_operadores_faixas(p_exec_nome text, p_exec_email text)
  RETURNS TABLE(operador_email text, operador_nome text, casos integer, saldo numeric, q_alto integer, q_medio integer, q_inter integer, q_baixo integer)
  LANGUAGE plpgsql
@@ -260,27 +190,22 @@ begin
   from public.casos c where c.operador_email is not null
     and not public.caso_protegido_redistribuicao(c.cpf_limpo,c.status_acionamento,c.nao_acionar,c.status_financeiro,c.valor_pago,c.quitado_em,c.valor_quitado)
     and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
-    and not internal.matricula_em_fidelizacao(c.aluno_id, c.matricula)
     and public.saldo_titulos_aberto(c.cpf_limpo) > 0;
 
-  -- CANCELA agendamentos de retorno dos casos que serao soltos
   update public.operador_agenda oa set status='CANCELADO_REDISTRIBUICAO', atualizado_em=now()
   from public.casos c
   where c.operador_email is not null
     and not public.caso_protegido_redistribuicao(c.cpf_limpo,c.status_acionamento,c.nao_acionar,c.status_financeiro,c.valor_pago,c.quitado_em,c.valor_quitado)
     and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
-    and not internal.matricula_em_fidelizacao(c.aluno_id, c.matricula)
     and public.saldo_titulos_aberto(c.cpf_limpo) > 0
     and oa.aluno_id::text = c.aluno_id::text and lower(oa.operador_email)=lower(c.operador_email)
     and coalesce(oa.status,'') not in ('CONCLUIDO','CANCELADO','CANCELADO_REDISTRIBUICAO');
 
-  -- SOLTURA: zera responsavel + LIMPA retorno na ficha do caso
   update public.casos c set operador_email=null, operador_nome=null, operador=null,
     data_retorno=null, data_retorno_nova=null, hora_retorno=null, proxima_acao_automatica=null
   where c.operador_email is not null
     and not public.caso_protegido_redistribuicao(c.cpf_limpo,c.status_acionamento,c.nao_acionar,c.status_financeiro,c.valor_pago,c.quitado_em,c.valor_quitado)
     and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
-    and not internal.matricula_em_fidelizacao(c.aluno_id, c.matricula)
     and public.saldo_titulos_aberto(c.cpf_limpo) > 0;
 
   create temp table _pool on commit drop as
@@ -289,7 +214,6 @@ begin
   where c.operador_email is null
     and not public.caso_protegido_redistribuicao(c.cpf_limpo,c.status_acionamento,c.nao_acionar,c.status_financeiro,c.valor_pago,c.quitado_em,c.valor_quitado)
     and not public.caso_encerrado_operacional(c.cpf_limpo,c.status_atual,c.status_acionamento,c.status_financeiro,c.status_jornada)
-    and not internal.matricula_em_fidelizacao(c.aluno_id, c.matricula)
     and x.s > 0;
   cap_alto := ceil((select count(*) from _pool where faixa=1)::numeric / n);
   cap_medio := ceil((select count(*) from _pool where faixa=2)::numeric / n);
@@ -341,9 +265,7 @@ begin
 end;
 $function$;
 
--- 5) Gatilho de teto: apenas impede que o caso ESCOLHIDO para sair seja uma
---    matrícula fidelizada. Não altera a meta (500), a contagem do teto
---    (v_qtd_ativa/v_excedente) nem qualquer regra numérica/carteira.
+-- Restaura trg_impor_teto_operador (original)
 CREATE OR REPLACE FUNCTION public.trg_impor_teto_operador()
  RETURNS trigger
  LANGUAGE plpgsql
@@ -357,7 +279,6 @@ DECLARE
   v_excedente int;
   caso_rec record;
 BEGIN
-  -- Só age se o caso ACABOU de ser atribuído/trocado pra um operador do pool
   IF v_email IS NULL OR v_email IS NOT DISTINCT FROM OLD.operador_email THEN
     RETURN NEW;
   END IF;
@@ -366,8 +287,6 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Se o próprio caso recém-atribuído já está protegido (pago/negociação/etc),
-  -- não conta pro teto -- não faz sentido soltar outro caso por causa dele.
   IF public.caso_protegido_redistribuicao(NEW.cpf_limpo, NEW.status_acionamento, NEW.nao_acionar, NEW.status_financeiro, NEW.valor_pago, NEW.quitado_em, NEW.valor_quitado) THEN
     RETURN NEW;
   END IF;
@@ -382,16 +301,12 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Solta o(s) caso(s) de menor valor pra voltar ao teto (normalmente 1,
-  -- mas cobre o caso raro de excesso maior por edição em lote).
-  -- Guarda de elegibilidade: matrícula fidelizada NUNCA é escolhida para sair.
   FOR caso_rec IN
     SELECT id, chave_unificacao, nome, cpf
     FROM public.casos c
     WHERE c.operador_email = v_email
       AND c.id <> NEW.id
       AND NOT public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento, c.nao_acionar, c.status_financeiro, c.valor_pago, c.quitado_em, c.valor_quitado)
-      AND NOT internal.matricula_em_fidelizacao(c.aluno_id, c.matricula)
     ORDER BY total_em_aberto ASC NULLS FIRST
     LIMIT v_excedente
   LOOP
@@ -412,5 +327,8 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
+
+-- Remove o helper de fidelização
+DROP FUNCTION IF EXISTS internal.matricula_em_fidelizacao(uuid, text);
 
 COMMIT;
