@@ -187,6 +187,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const [emailEditado, setEmailEditado] = useState("");
   const [salvandoCadastro, setSalvandoCadastro] = useState(false);
   const [movimentacoes, setMovimentacoes] = useState([]);
+  // Saldo financeiro atual da ficha aberta, pela fonte unica (RPC). Serve para
+  // (a) mostrar a situacao financeira ATUAL separada do ultimo evento de baixa
+  // e (b) bloquear "Quitar tudo" quando ainda ha saldo/pendencia em aberto.
+  const [saldoFicha, setSaldoFicha] = useState(null);
 
   // Exporta o historico/tabulacoes do aluno em PDF -- mesma funcao da
   // Minha Carteira, pra manter consistencia entre as duas telas.
@@ -429,8 +433,43 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         // continua restrito a proprio + livre, evitando reabrir a
         // brecha de "listar carteira de colega" que corrigimos hoje.
         const resultado = await supabase.rpc("buscar_aluno", { p_termo: termo });
-        data = resultado.data;
+        data = resultado.data || [];
         error = resultado.error;
+        // Busca multi-palavra: o RPC casa a expressao como substring CONTIGUA,
+        // entao "Sabrina Carvalho Silva" (nome com palavras fora de ordem ou
+        // com termos que nao aparecem juntos no cadastro) voltava vazio. Quando
+        // isso acontece e ha mais de um token, refaz por token e cruza os
+        // resultados: quem casa TODOS os tokens vem primeiro; se ninguem casar
+        // todos, cai para quem casa a maioria (parcial), respeitando o mesmo
+        // RPC (sem misturar fichas -- cada linha continua sendo um aluno unico).
+        const tokens = termo.split(/\s+/).filter((t) => t.length >= 2);
+        if (!error && data.length === 0 && tokens.length > 1) {
+          const porToken = await Promise.all(
+            tokens.map((tk) => supabase.rpc("buscar_aluno", { p_termo: tk }))
+          );
+          const erroToken = porToken.find((r) => r.error);
+          if (!erroToken) {
+            const contagem = new Map();
+            const porId = new Map();
+            porToken.forEach((r) => {
+              const vistos = new Set();
+              (r.data || []).forEach((a) => {
+                if (vistos.has(a.id)) return;
+                vistos.add(a.id);
+                contagem.set(a.id, (contagem.get(a.id) || 0) + 1);
+                porId.set(a.id, a);
+              });
+            });
+            const todos = [...contagem.entries()]
+              .filter(([, c]) => c === tokens.length)
+              .map(([id]) => porId.get(id));
+            const parcial = [...contagem.entries()]
+              .sort((a, b) => b[1] - a[1])
+              .map(([id]) => porId.get(id))
+              .slice(0, 150);
+            data = todos.length > 0 ? todos : parcial;
+          }
+        }
       } else {
         const resultado = await supabase.from("alunos").select("*").limit(150);
         data = resultado.data;
@@ -491,6 +530,30 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     prepararAlunoNaTela(aluno);
     await carregarMovimentacoes(aluno.id); setTimeout(function(){ var el = document.getElementById("ficha-aluno"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 150);
   }
+  // Recarrega o saldo oficial sempre que troca a ficha aberta.
+  useEffect(() => {
+    const id = alunoSelecionado?.id;
+    if (!id) {
+      setSaldoFicha(null);
+      return;
+    }
+    let ativo = true;
+    (async () => {
+      const { data, error } = await supabase.rpc("aluno_saldo_pendente_detalhe", {
+        p_aluno_id: id,
+      });
+      if (!ativo) return;
+      setSaldoFicha(error ? null : data || null);
+    })();
+    return () => {
+      ativo = false;
+    };
+  }, [alunoSelecionado?.id]);
+
+  // Verdadeiro quando ha mensalidade aberta, parcela de acordo aberta ou
+  // confirmacao/baixa pendente -- nesses casos o aluno NAO esta zerado.
+  const fichaComPendencia = !!(saldoFicha && saldoFicha.tem_pendencia === true);
+
   function prepararAlunoNaTela(aluno) {
     setAlunoSelecionado(aluno);
     setObservacao("");
@@ -1248,7 +1311,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </div>
                     <div style={colStatus}>
                       <span style={badgeSituacaoA}>
-                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Pago", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                       </span>
                       <div style={subCelA}>
                         Últ. contato: {formatarDataHora(aluno.data_ultimo_acionamento)}
@@ -1471,7 +1534,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                         </p>
                       )}
                       <p style={textoInfo}>
-                        Status atual:{" "}
+                        Último evento (status):{" "}
                         <strong style={{ color: "#93c5fd" }}>
                           {pegarCampo(
                             alunoSelecionado,
@@ -1480,6 +1543,35 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           )}
                         </strong>
                       </p>
+                      {saldoFicha && (
+                        <p style={textoInfo}>
+                          Situação financeira atual:{" "}
+                          <strong
+                            style={{ color: fichaComPendencia ? "#f59e0b" : "#22c55e" }}
+                          >
+                            {fichaComPendencia
+                              ? `Com saldo em aberto — ${moeda(saldoFicha.total)}`
+                              : "Sem saldo em aberto"}
+                          </strong>
+                          {fichaComPendencia &&
+                            Number(saldoFicha.parcelas_abertas_qtd) > 0 && (
+                              <span style={{ opacity: 0.85 }}>
+                                {" "}
+                                · {saldoFicha.parcelas_abertas_qtd}{" "}
+                                {Number(saldoFicha.parcelas_abertas_qtd) === 1
+                                  ? "parcela"
+                                  : "parcelas"}{" "}
+                                de acordo em aberto
+                              </span>
+                            )}
+                          {fichaComPendencia &&
+                            Number(saldoFicha.confirmacoes_pendentes) > 0 && (
+                              <span style={{ opacity: 0.85 }}>
+                                {" "}· confirmação/baixa pendente
+                              </span>
+                            )}
+                        </p>
+                      )}
                     </>
                   )}
                 </div>
@@ -1504,6 +1596,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   </button>
                 )}
                 {podeQuitarManual(usuarioLogado?.email) &&
+                  !fichaComPendencia &&
                   pegarCampo(
                     alunoSelecionado,
                     ["status_jornada", "status_atual", "status"],
@@ -1704,7 +1797,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       podeVerTudo(usuarioLogado?.email)
                   ).map((status) => (
                     <option key={status} value={status}>
-                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Pago", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                     </option>
                   ))}
                 </select>

@@ -177,6 +177,13 @@ export default function FinanceiroAluno({ aluno }) {
   const [carregando, setCarregando] = useState(true);
   const [acordos, setAcordos] = useState([]);
   const [parcelasPorAcordo, setParcelasPorAcordo] = useState({});
+  // Saldo oficial vindo da fonte unica no banco (RPC SECURITY DEFINER).
+  // Necessario porque acordos/parcelas tem RLS por responsavel: quem abre o
+  // card sem ser o dono via SELECT direto voltar vazio e o resumo mostrava
+  // "0 parcela(s)" mesmo com parcelas em aberto. O RPC ignora o RLS e usa
+  // exatamente os mesmos filtros do total, garantindo valor e quantidade
+  // pela MESMA fonte.
+  const [saldoOficial, setSaldoOficial] = useState(null);
   const [usuario, setUsuario] = useState(null);
   const [recarga, setRecarga] = useState(0);
   const [titulosSelecionaveis, setTitulosSelecionaveis] = useState([]);
@@ -274,6 +281,26 @@ export default function FinanceiroAluno({ aluno }) {
     }
 
     carregarAcordos();
+  }, [aluno?.id, recarga]);
+
+  // Fonte unica do saldo (nao depende de RLS de acordos/parcelas).
+  useEffect(() => {
+    const id = aluno?.id;
+    if (!id) {
+      setSaldoOficial(null);
+      return;
+    }
+    let ativo = true;
+    (async () => {
+      const { data, error } = await supabase.rpc("aluno_saldo_pendente_detalhe", {
+        p_aluno_id: id,
+      });
+      if (!ativo) return;
+      setSaldoOficial(error ? null : data || null);
+    })();
+    return () => {
+      ativo = false;
+    };
   }, [aluno?.id, recarga]);
 
   const podeBaixar = podeGerirFinanceiro(usuario?.email || "");
@@ -992,9 +1019,26 @@ export default function FinanceiroAluno({ aluno }) {
   // Contadores por seção (para a área financeira do card).
   const qtdMensalidadesAbertas = emAberto.length;
   const qtdParcelasAbertas = parcelasEmAberto.length;
+
+  // Fonte unica: quando o RPC respondeu, valor E quantidade das parcelas de
+  // acordo (e o total) vem exatamente dele -- mesmos filtros, imune ao RLS.
+  // Sem RPC (ex.: erro de rede) cai no calculo local ja existente.
+  const temOficial = saldoOficial && !saldoOficial.erro;
+  const qtdParcelasExibir = temOficial
+    ? Number(saldoOficial.parcelas_abertas_qtd || 0)
+    : qtdParcelasAbertas;
+  const valorParcelasExibir = temOficial
+    ? Number(saldoOficial.parcelas_abertas_valor || 0)
+    : valorAcordos;
+  const valorMensalidadesExibir = temOficial
+    ? Number(saldoOficial.titulos_abertos || 0)
+    : valorMensalidades;
+  const valorTotalExibir = temOficial ? Number(saldoOficial.total || 0) : valorTotalAluno;
+
   // "Zerado" nunca é decidido só pela mensalidade original: se há parcela de
   // acordo em aberto (ou título/honorário), o card NÃO pode aparecer como zero.
-  const temSaldoOperacional = valorTotalAluno > 0.005;
+  const temSaldoOperacional =
+    valorTotalExibir > 0.005 || (temOficial && saldoOficial.tem_pendencia === true);
   const somenteParcelasAcordo = valorMensalidades <= 0.005 && (valorAcordos + valorHonorarios) > 0.005;
   const temAlgumValor = titulos.length > 0 || acordos.length > 0;
 
@@ -1014,7 +1058,7 @@ export default function FinanceiroAluno({ aluno }) {
           <div style={estilos.resumoFinanceiroTopo}>
             <div style={estilos.resumoFinanceiroItem}>
               <span style={estilos.resumoFinanceiroLabel}>Mensalidades em aberto</span>
-              <span style={estilos.resumoFinanceiroValor}>{moeda(valorMensalidades)}</span>
+              <span style={estilos.resumoFinanceiroValor}>{moeda(valorMensalidadesExibir)}</span>
               <span style={estiloPago}>{qtdMensalidadesAbertas} em aberto · já pago: {moeda(pagoMensalidades)}</span>
             </div>
             <div style={estilos.resumoFinanceiroItem}>
@@ -1024,12 +1068,12 @@ export default function FinanceiroAluno({ aluno }) {
             </div>
             <div style={estilos.resumoFinanceiroItem}>
               <span style={estilos.resumoFinanceiroLabel}>Parcelas de acordo em aberto</span>
-              <span style={estilos.resumoFinanceiroValor}>{moeda(valorAcordos)}</span>
-              <span style={estiloPago}>{qtdParcelasAbertas} parcela(s) · já pago: {moeda(pagoAcordos)}</span>
+              <span style={estilos.resumoFinanceiroValor}>{moeda(valorParcelasExibir)}</span>
+              <span style={estiloPago}>{qtdParcelasExibir} {qtdParcelasExibir === 1 ? "parcela" : "parcelas"} em aberto · já pago: {moeda(pagoAcordos)}</span>
             </div>
             <div style={{ ...estilos.resumoFinanceiroItem, ...estilos.resumoFinanceiroItemTotal }}>
               <span style={estilos.resumoFinanceiroLabel}>💰 Total geral em aberto</span>
-              <span style={estilos.totalGeral}>{moeda(valorTotalAluno)}</span>
+              <span style={estilos.totalGeral}>{moeda(valorTotalExibir)}</span>
               <span style={estiloPago}>já pago: {moeda(pagoTotal)}</span>
             </div>
           </div>
