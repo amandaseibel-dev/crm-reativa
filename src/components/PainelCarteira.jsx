@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import { podeVerTudo, nomeOperadorPorEmail } from "../utils/operadores";
@@ -448,6 +448,16 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [novoOperadorEmailModal, setNovoOperadorEmailModal] = useState("");
   const [salvandoOperador, setSalvandoOperador] = useState(false);
   const [feedback, setFeedback] = useState(null); // { tipo: "ok"|"erro", texto }
+  // Aviso flutuante das acoes rapidas da linha (fora do modal).
+  const [avisoRapido, setAvisoRapido] = useState(null); // { tipo: "ok"|"erro", texto }
+  // Ids com acao rapida em andamento -- evita duplicar movimentacao no duplo clique.
+  const [tabulandoIds, setTabulandoIds] = useState(() => new Set());
+  const tabulandoRef = useRef(new Set());
+  useEffect(() => {
+    if (!avisoRapido) return;
+    const t = setTimeout(() => setAvisoRapido(null), avisoRapido.tipo === "erro" ? 9000 : 3500);
+    return () => clearTimeout(t);
+  }, [avisoRapido]);
 
   // Formulario de tabulacao/finalizacao (Negociacao)
   const [statusNovo, setStatusNovo] = useState("");
@@ -1037,32 +1047,65 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   async function tabularRapido(aluno, statusNovo, rotuloStatus, e) {
     if (e) e.stopPropagation();
     if (!aluno?.id) return;
+    // Trava sincrona: o segundo clique cai fora antes de qualquer gravacao.
+    if (tabulandoRef.current.has(aluno.id)) return;
+    tabulandoRef.current.add(aluno.id);
+    setTabulandoIds(new Set(tabulandoRef.current));
 
     const agora = new Date().toISOString();
     const statusAntigo = aluno.status_atual || aluno.status_jornada || null;
 
-    await supabase
-      .from("alunos")
-      .update({
-        status_jornada: statusNovo,
-        status_atual: statusNovo,
-        data_ultimo_acionamento: agora,
-        ultimo_contato: agora,
-      })
-      .eq("id", aluno.id);
+    try {
+      // 1) Atualiza a ficha do aluno. NAO mexe em responsavel_atual_email
+      // nem em fidelizacao -- o caso continua com o mesmo operador.
+      const { error: erroAluno } = await supabase
+        .from("alunos")
+        .update({
+          status_jornada: statusNovo,
+          status_atual: statusNovo,
+          data_ultimo_acionamento: agora,
+          ultimo_contato: agora,
+        })
+        .eq("id", aluno.id);
+      if (erroAluno) throw erroAluno;
 
-    await supabase.from("aluno_movimentacoes").insert({
-      aluno_id: String(aluno.id),
-      tipo: "FINALIZACAO_ATENDIMENTO",
-      descricao: `${rotuloStatus} — ação rápida direto na Minha Carteira.`,
-      status_anterior: statusAntigo,
-      status_novo: statusNovo,
-      registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
-      registrado_por_email: email,
-      registrado_em: agora,
-    });
+      // 2) Registra a movimentacao manual do operador. O tipo
+      // FINALIZACAO_ATENDIMENTO e reconhecido por eh_tipo_acionamento(),
+      // entao conta como acionamento manual e o gatilho propaga a data
+      // para alunos e casos.
+      const { error: erroMov } = await supabase.from("aluno_movimentacoes").insert({
+        aluno_id: String(aluno.id),
+        tipo: "FINALIZACAO_ATENDIMENTO",
+        descricao: `${rotuloStatus} — ação rápida direto na Minha Carteira.`,
+        status_anterior: statusAntigo,
+        status_novo: statusNovo,
+        registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
+        registrado_por_email: email,
+        registrado_em: agora,
+      });
+      if (erroMov) throw erroMov;
 
-    carregar();
+      // 3) Reordena na hora: a linha ja recebe a nova data e vai pro fim
+      // da fila do proprio operador, sem esperar o recarregamento inteiro.
+      setCasos((prev) =>
+        prev.map((c) =>
+          c.id === aluno.id
+            ? { ...c, status_jornada: statusNovo, status_atual: statusNovo, data_ultimo_acionamento: agora, ultimo_contato: agora }
+            : c
+        )
+      );
+      setAvisoRapido({ tipo: "ok", texto: `${rotuloStatus} registrado para ${nomeAluno(aluno)}.` });
+      // Recarrega KPIs em segundo plano, sem travar a acao.
+      carregar();
+    } catch (err) {
+      setAvisoRapido({
+        tipo: "erro",
+        texto: `Nao foi possivel registrar "${rotuloStatus}": ${err?.message || err?.details || "erro desconhecido"}`,
+      });
+    } finally {
+      tabulandoRef.current.delete(aluno.id);
+      setTabulandoIds(new Set(tabulandoRef.current));
+    }
   }
 
   // Move um caso de coluna arrastando -- reaproveita a mesma tabulacao
@@ -1675,6 +1718,27 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               do Dashboard/Fila Operacional). Ao concluir, recarrega a carteira
               e os indicadores. */}
           {aba === "carteira" && <CadastroNovoAluno onSucesso={() => carregar()} />}
+          {avisoRapido && (
+            <div
+              role="status"
+              style={{
+                position: "fixed",
+                right: 20,
+                bottom: 20,
+                zIndex: 9999,
+                maxWidth: 420,
+                padding: "12px 16px",
+                borderRadius: 10,
+                fontSize: 13,
+                fontWeight: 600,
+                color: "#fff",
+                boxShadow: "0 8px 24px rgba(0,0,0,.25)",
+                background: avisoRapido.tipo === "erro" ? "#b42318" : "#1e40af",
+              }}
+            >
+              {avisoRapido.texto}
+            </div>
+          )}
         </div>
       </div>
 
@@ -2099,8 +2163,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                         <td style={S.td} data-label="Ação rápida">
                           <button
                             type="button"
+                            disabled={tabulandoIds.has(a.id)}
                             onClick={(e) => tabularRapido(a, "MENSAGEM_ENVIADA", "Mensagem enviada", e)}
                             style={{
+                              opacity: tabulandoIds.has(a.id) ? 0.6 : 1,
                               background: "#2563eb",
                               color: "#fff",
                               border: "none",
@@ -2112,7 +2178,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                               whiteSpace: "nowrap",
                             }}
                           >
-                            ✅ Mensagem enviada
+                            {tabulandoIds.has(a.id) ? "Registrando..." : "✅ Mensagem enviada"}
                           </button>
                         </td>
                       </tr>
