@@ -122,6 +122,54 @@ UPDATE public.alunos
    SET status_jornada = 'EM_ATENDIMENTO', status_atual = 'EM_ATENDIMENTO', status_acionamento = 'EM_ATENDIMENTO'
  WHERE public.normalizar_status_acionamento(status_jornada) = 'SEM SALDO EM ABERTO';
 
-DROP FUNCTION IF EXISTS public.retirar_zerados_reais_sem_saldo(int);
+-- Restaura avaliar_quitacao_aluno (original: quita quando saldo zero)
+CREATE OR REPLACE FUNCTION public.avaliar_quitacao_aluno(p_aluno_id uuid, p_acordo_id uuid DEFAULT NULL::uuid, p_ignorar_confirmacao_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+declare v_det jsonb; v_agora timestamptz := now();
+begin
+  if p_acordo_id is not null then
+    if not exists (select 1 from public.parcelas p where p.acordo_id = p_acordo_id and upper(coalesce(p.status,'')) not in ('PAGO','CANCELADA','CANCELADO'))
+       and exists (select 1 from public.parcelas where acordo_id = p_acordo_id) then
+      update public.acordos set status = 'QUITADO', saldo = 0, atualizado_em = v_agora where id = p_acordo_id and upper(coalesce(status,'')) <> 'CANCELADO';
+      update public.acordos_titulos set status = 'quitada', atualizado_em = v_agora where id in (select titulo_id from public.acordo_titulo_vinculo where acordo_id = p_acordo_id and coalesce(ativo,true));
+    end if;
+  end if;
+  v_det := public.aluno_saldo_pendente_detalhe(p_aluno_id, p_ignorar_confirmacao_id);
+  if (v_det ->> 'tem_pendencia')::boolean then
+    insert into public.log_quitacao_bloqueada(aluno_id, origem, saldo_pendente, detalhe) values (p_aluno_id, 'BAIXA_PARCELA', (v_det ->> 'total')::numeric, v_det);
+    return jsonb_build_object('quitou_aluno', false, 'motivo', 'SALDO_PENDENTE', 'detalhe', v_det);
+  end if;
+  update public.alunos set status_jornada = 'QUITADO', status_atual = 'QUITADO', status_acionamento = 'QUITADO', valor_em_aberto = 0
+   where id = p_aluno_id and coalesce(status_jornada,'') not in ('QUITADO','QUITADO_MANUAL','JURIDICO','CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA');
+  update public.carteira_operador set status = 'quitado_saiu', saiu_em = v_agora where aluno_id = p_aluno_id::text and status = 'ativo';
+  return jsonb_build_object('quitou_aluno', true, 'detalhe', v_det);
+end;
+$function$;
+
+-- Restaura liberar_caso_por_evento (original, sem hook de reconciliacao)
+CREATE OR REPLACE FUNCTION public.liberar_caso_por_evento(p_aluno_id uuid, p_evento text, p_valor_pago numeric DEFAULT NULL::numeric, p_data_pagamento date DEFAULT CURRENT_DATE)
+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+declare v_det jsonb;
+begin
+  IF p_evento = 'LINK_PAGO' THEN
+    v_det := public.aluno_saldo_pendente_detalhe(p_aluno_id, null);
+    IF (v_det ->> 'tem_pendencia')::boolean THEN
+      insert into public.log_quitacao_bloqueada(aluno_id, origem, saldo_pendente, detalhe) values (p_aluno_id, 'LINK_PAGAMENTO', (v_det ->> 'total')::numeric, v_det);
+      RETURN;
+    END IF;
+    UPDATE public.casos SET status_financeiro = 'QUITADO_LINK_PAGAMENTO', quitado_em = p_data_pagamento, valor_quitado = COALESCE(p_valor_pago, 0), origem_quitacao = 'LINK_PAGAMENTO', caso_atualizado_por = 'sistema_link_pagamento', caso_atualizado_em = now() WHERE aluno_id = p_aluno_id;
+  ELSIF p_evento = 'CANCELADO' THEN
+    UPDATE public.casos SET status_acionamento = 'CANCELADO', caso_atualizado_por = 'sistema_cancelamento_acordo', caso_atualizado_em = now() WHERE aluno_id = p_aluno_id;
+  ELSIF p_evento = 'JURIDICO' THEN
+    UPDATE public.casos SET status_acionamento = 'JURIDICO', caso_atualizado_por = 'sistema_juridico', caso_atualizado_em = now() WHERE aluno_id = p_aluno_id;
+  ELSIF p_evento = 'ACORDO_MENSALIDADE_LIBERADA' THEN
+    UPDATE public.casos SET status_acionamento = 'ACORDO FECHADO', caso_atualizado_por = 'sistema_acordo_fechado', caso_atualizado_em = now() WHERE aluno_id = p_aluno_id;
+  END IF;
+end;
+$function$;
+
+DROP FUNCTION IF EXISTS public.retirar_zerados_reais_sem_saldo(uuid, int);
 
 COMMIT;

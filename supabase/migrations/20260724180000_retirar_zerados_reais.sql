@@ -142,18 +142,21 @@ END; $function$;
 -- 5) Retirada dos zerados reais: marca SEM_SALDO_EM_ABERTO, preserva responsavel,
 --    matricula e historico; NAO quita, NAO baixa, NAO altera parcelas, NAO apaga.
 --    Aplica-se aos casos atuais e (via agendamento/chamada) aos novos.
-CREATE OR REPLACE FUNCTION public.retirar_zerados_reais_sem_saldo(p_limite int DEFAULT NULL)
+CREATE OR REPLACE FUNCTION public.retirar_zerados_reais_sem_saldo(p_aluno_id uuid DEFAULT NULL, p_limite int DEFAULT NULL)
 RETURNS TABLE(caso_id uuid, aluno_id uuid, matricula text, status_anterior text, status_novo text)
 LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
 AS $function$
 declare r record; v_novo text := 'SEM_SALDO_EM_ABERTO'; v_n int := 0;
 begin
+  -- p_aluno_id: quando informado, avalia apenas aquele aluno (uso pelo ponto de
+  -- reconciliacao financeira); quando NULL, faz a varredura (backfill).
   for r in
     select c.id, c.aluno_id, c.matricula, c.status_acionamento AS st_ant,
            internal.resolver_aluno_por_matricula(c.aluno_id, c.matricula) AS aid
     from public.casos c
     where c.operador_email is not null
       and c.quitado_em is null
+      and (p_aluno_id is null or c.aluno_id = p_aluno_id)
       and coalesce(c.status_acionamento,'') not ilike '%CANCEL%'
       and coalesce(c.status_acionamento,'') not ilike '%JURIDIC%'
       and public.normalizar_status_acionamento(c.status_acionamento) <> 'SEM SALDO EM ABERTO'
@@ -194,7 +197,107 @@ begin
 end;
 $function$;
 
--- Backfill inicial (aplica aos casos atuais). Descomente para rodar na aplicacao:
--- SELECT count(*) FROM public.retirar_zerados_reais_sem_saldo();
+-- 6) HOOK AUTOMATICO no ponto de reconciliacao financeira JA EXISTENTE.
+--    Sem cron/trigger novo: reaproveita avaliar_quitacao_aluno (chamado apos
+--    cada baixa via checarQuitacao) e liberar_caso_por_evento (link/cancelamento
+--    de acordo). A retirada so ocorre depois da validacao completa das 4 fontes
+--    (a propria retirar_zerados_reais_sem_saldo usa caso_saldo_zerado_real).
+--
+--    avaliar_quitacao_aluno: quando NAO ha pendencia mas TAMBEM nao houve
+--    pagamento real (nenhuma parcela PAGO / baixa REALIZADA), o caso e "sem
+--    saldo" sem comprovacao -> marca SEM_SALDO_EM_ABERTO em vez de QUITADO.
+CREATE OR REPLACE FUNCTION public.avaliar_quitacao_aluno(p_aluno_id uuid, p_acordo_id uuid DEFAULT NULL::uuid, p_ignorar_confirmacao_id uuid DEFAULT NULL::uuid)
+ RETURNS jsonb LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+declare
+  v_det jsonb;
+  v_agora timestamptz := now();
+  v_teve_pagamento boolean;
+begin
+  if p_acordo_id is not null then
+    if not exists (
+      select 1 from public.parcelas p
+       where p.acordo_id = p_acordo_id
+         and upper(coalesce(p.status,'')) not in ('PAGO','CANCELADA','CANCELADO')
+    ) and exists (select 1 from public.parcelas where acordo_id = p_acordo_id) then
+      update public.acordos set status = 'QUITADO', saldo = 0, atualizado_em = v_agora
+       where id = p_acordo_id and upper(coalesce(status,'')) <> 'CANCELADO';
+      update public.acordos_titulos set status = 'quitada', atualizado_em = v_agora
+       where id in (select titulo_id from public.acordo_titulo_vinculo where acordo_id = p_acordo_id and coalesce(ativo,true));
+    end if;
+  end if;
+
+  v_det := public.aluno_saldo_pendente_detalhe(p_aluno_id, p_ignorar_confirmacao_id);
+
+  if (v_det ->> 'tem_pendencia')::boolean then
+    insert into public.log_quitacao_bloqueada(aluno_id, origem, saldo_pendente, detalhe)
+    values (p_aluno_id, 'BAIXA_PARCELA', (v_det ->> 'total')::numeric, v_det);
+    return jsonb_build_object('quitou_aluno', false, 'motivo', 'SALDO_PENDENTE', 'detalhe', v_det);
+  end if;
+
+  -- Sem pendencia. Houve pagamento real? (parcela PAGO ou baixa REALIZADA)
+  select exists (
+    select 1 from public.parcelas p join public.acordos a on a.id=p.acordo_id
+     where a.aluno_id = p_aluno_id and upper(coalesce(p.status,'')) = 'PAGO'
+  ) or exists (
+    select 1 from public.baixas_pagamento b
+     where b.aluno_id = p_aluno_id::text and upper(coalesce(b.status_baixa,'')) = 'REALIZADA'
+  ) into v_teve_pagamento;
+
+  if v_teve_pagamento then
+    update public.alunos
+       set status_jornada = 'QUITADO', status_atual = 'QUITADO', status_acionamento = 'QUITADO', valor_em_aberto = 0
+     where id = p_aluno_id
+       and coalesce(status_jornada,'') not in ('QUITADO','QUITADO_MANUAL','JURIDICO','CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA');
+    update public.carteira_operador set status = 'quitado_saiu', saiu_em = v_agora
+     where aluno_id = p_aluno_id::text and status = 'ativo';
+    return jsonb_build_object('quitou_aluno', true, 'detalhe', v_det);
+  end if;
+
+  -- Sem saldo e SEM comprovacao de pagamento -> zerado real (nao quita).
+  perform public.retirar_zerados_reais_sem_saldo(p_aluno_id, null);
+  return jsonb_build_object('quitou_aluno', false, 'motivo', 'SEM_SALDO_EM_ABERTO', 'detalhe', v_det);
+end;
+$function$;
+
+-- liberar_caso_por_evento: apos cancelamento/link, reconcilia o aluno e retira
+-- se ficou zerado real (nao-destrutivo). Mantem o restante do comportamento.
+CREATE OR REPLACE FUNCTION public.liberar_caso_por_evento(p_aluno_id uuid, p_evento text, p_valor_pago numeric DEFAULT NULL::numeric, p_data_pagamento date DEFAULT CURRENT_DATE)
+ RETURNS void LANGUAGE plpgsql SECURITY DEFINER SET search_path TO 'public'
+AS $function$
+declare v_det jsonb;
+begin
+  IF p_evento = 'LINK_PAGO' THEN
+    v_det := public.aluno_saldo_pendente_detalhe(p_aluno_id, null);
+    IF (v_det ->> 'tem_pendencia')::boolean THEN
+      insert into public.log_quitacao_bloqueada(aluno_id, origem, saldo_pendente, detalhe)
+      values (p_aluno_id, 'LINK_PAGAMENTO', (v_det ->> 'total')::numeric, v_det);
+      RETURN;
+    END IF;
+    UPDATE public.casos
+    SET status_financeiro = 'QUITADO_LINK_PAGAMENTO', quitado_em = p_data_pagamento,
+        valor_quitado = COALESCE(p_valor_pago, 0), origem_quitacao = 'LINK_PAGAMENTO',
+        caso_atualizado_por = 'sistema_link_pagamento', caso_atualizado_em = now()
+    WHERE aluno_id = p_aluno_id;
+  ELSIF p_evento = 'CANCELADO' THEN
+    UPDATE public.casos
+    SET status_acionamento = 'CANCELADO', caso_atualizado_por = 'sistema_cancelamento_acordo', caso_atualizado_em = now()
+    WHERE aluno_id = p_aluno_id;
+    -- Reconcilia: se, apos o cancelamento, o aluno ficou sem saldo real, retira.
+    PERFORM public.retirar_zerados_reais_sem_saldo(p_aluno_id, null);
+  ELSIF p_evento = 'JURIDICO' THEN
+    UPDATE public.casos
+    SET status_acionamento = 'JURIDICO', caso_atualizado_por = 'sistema_juridico', caso_atualizado_em = now()
+    WHERE aluno_id = p_aluno_id;
+  ELSIF p_evento = 'ACORDO_MENSALIDADE_LIBERADA' THEN
+    UPDATE public.casos
+    SET status_acionamento = 'ACORDO FECHADO', caso_atualizado_por = 'sistema_acordo_fechado', caso_atualizado_em = now()
+    WHERE aluno_id = p_aluno_id;
+  END IF;
+end;
+$function$;
+
+-- Backfill inicial (classifica os 114 casos atuais). Roda na aplicacao da migration.
+SELECT count(*) AS retirados_backfill FROM public.retirar_zerados_reais_sem_saldo(NULL, NULL);
 
 COMMIT;
