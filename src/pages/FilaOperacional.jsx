@@ -408,16 +408,19 @@ export default function FilaOperador() {
       // listados só travados pra edição, estes somem da lista mesmo --
       // a menos que a pessoa peça especificamente pra ver os quitados.
       if (filtro === "QUITADOS") {
-        query = query.in("status_jornada", ["QUITADO_MANUAL", "QUITADO"]);
+        // Bucket de finalizados: quitados + "Sem saldo em aberto" (zerado real,
+        // sem pagamento) -- ficam visíveis para revisão, sem voltar à fila ativa.
+        query = query.in("status_jornada", ["QUITADO_MANUAL", "QUITADO", "SEM_SALDO_EM_ABERTO"]);
       } else {
         // Além de quitados, casos aguardando confirmação de pagamento (já
-        // mandados pra fila de baixa) e já baixados saem da fila operacional
-        // -- não tem cobrança a fazer neles enquanto isso. Se a confirmação
-        // for rejeitada, o caso volta pro status normal e reaparece aqui.
+        // mandados pra fila de baixa), já baixados e os "Sem saldo em aberto"
+        // (zerado real) saem da fila operacional -- não tem cobrança a fazer
+        // neles. Se a confirmação for rejeitada, o caso volta pro status normal
+        // e reaparece aqui.
         query = query.not(
           "status_jornada",
           "in",
-          '("QUITADO_MANUAL","QUITADO","AGUARDANDO_BAIXA","BAIXA_REALIZADA")'
+          '("QUITADO_MANUAL","QUITADO","AGUARDANDO_BAIXA","BAIXA_REALIZADA","SEM_SALDO_EM_ABERTO")'
         );
       }
 
