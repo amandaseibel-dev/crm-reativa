@@ -3,17 +3,41 @@ import { supabase } from "../services/supabase";
 import Aluno from "./Aluno";
 
 // Fila de acordos importados para a operacao confirmar/acompanhar.
-// Lista 1 linha por acordo (agrupado por CPF + base do bloqueto).
+// A tela agrupa por CPF: 1 card por aluno, com uma tabela de todos os acordos dele.
+// As acoes continuam individualizadas por ID do acordo.
+
+const PAGE_SIZE = 1000;
 
 function moeda(n) { return (Number(n) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
+
+// CPF somente numeros, completado para 11 digitos (mantem os 11 finais se vier maior).
+function normCpf(v) {
+  const d = String(v || "").replace(/\D/g, "");
+  if (!d) return "";
+  return d.length >= 11 ? d.slice(-11) : d.padStart(11, "0");
+}
+
+function formatCpf(v) {
+  const d = normCpf(v);
+  if (d.length !== 11) return v || "-";
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}
+
+const STATUS_META = {
+  A_CONFIRMAR: { rotulo: "A confirmar", estilo: "chipPend" },
+  CONFIRMADO: { rotulo: "Confirmado", estilo: "chipOk" },
+  REJEITADO: { rotulo: "Rejeitado", estilo: "chipRej" },
+};
 
 export default function FilaAcordosConfirmar() {
   const [itens, setItens] = useState([]);
   const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
   const [filtro, setFiltro] = useState("A_CONFIRMAR");
   const [busca, setBusca] = useState("");
   const [email, setEmail] = useState("");
   const [fichaId, setFichaId] = useState(null);
+  const [processando, setProcessando] = useState({}); // id do acordo -> true enquanto salva
 
   useEffect(() => {
     (async () => {
@@ -21,40 +45,109 @@ export default function FilaAcordosConfirmar() {
       setEmail(data?.user?.email || "");
       carregar();
     })();
-  }, [filtro]);
+  }, []);
 
+  // Busca TODOS os registros paginando por range ate acabar (evita o teto de 1000).
   async function carregar() {
     setCarregando(true);
-    let q = supabase.from("fila_acordos_confirmar").select("*").order("valor_total", { ascending: false }).limit(1000);
-    if (filtro !== "TODOS") q = q.eq("status_confirmacao", filtro);
-    const { data } = await q;
-    setItens(data || []);
-    setCarregando(false);
+    setErro("");
+    let from = 0;
+    const todos = [];
+    try {
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { data, error } = await supabase
+          .from("fila_acordos_confirmar")
+          .select("*")
+          .order("valor_total", { ascending: false })
+          .range(from, from + PAGE_SIZE - 1);
+        if (error) throw error;
+        const lote = data || [];
+        todos.push(...lote);
+        if (lote.length < PAGE_SIZE) break;
+        from += PAGE_SIZE;
+      }
+      setItens(todos);
+    } catch (e) {
+      setErro(e?.message || String(e));
+      setItens([]);
+    } finally {
+      setCarregando(false);
+    }
   }
 
-  async function confirmar(item) {
-    const { error } = await supabase.from("fila_acordos_confirmar")
-      .update({ status_confirmacao: "CONFIRMADO", operador_email: email, confirmado_em: new Date().toISOString() })
+  // Troca o status de UM acordo (por id). Atualizacao otimista: altera somente o acordo processado.
+  async function mudarStatus(item, novoStatus) {
+    if (processando[item.id]) return; // impede clique duplo enquanto processa
+    setProcessando((p) => ({ ...p, [item.id]: true }));
+    setErro("");
+
+    const patch = { status_confirmacao: novoStatus };
+    if (novoStatus === "CONFIRMADO") {
+      patch.operador_email = email;
+      patch.confirmado_em = new Date().toISOString();
+    } else if (novoStatus === "REJEITADO") {
+      patch.operador_email = email;
+      patch.confirmado_em = null;
+    } else {
+      // A_CONFIRMAR (reabrir)
+      patch.confirmado_em = null;
+    }
+
+    const { error } = await supabase
+      .from("fila_acordos_confirmar")
+      .update(patch)
       .eq("id", item.id);
-    if (error) { alert("Erro: " + error.message); return; }
-    carregar();
+
+    if (error) {
+      setErro(`Erro ao atualizar o acordo ${item.id}: ${error.message}`);
+    } else {
+      setItens((prev) => prev.map((x) => (x.id === item.id ? { ...x, ...patch } : x)));
+    }
+
+    setProcessando((p) => {
+      const n = { ...p };
+      delete n[item.id];
+      return n;
+    });
   }
 
-  async function reabrir(item) {
-    const { error } = await supabase.from("fila_acordos_confirmar")
-      .update({ status_confirmacao: "A_CONFIRMAR", confirmado_em: null })
-      .eq("id", item.id);
-    if (error) { alert("Erro: " + error.message); return; }
-    carregar();
-  }
+  const confirmar = (item) => mudarStatus(item, "CONFIRMADO");
+  const rejeitar = (item) => mudarStatus(item, "REJEITADO");
+  const reabrir = (item) => mudarStatus(item, "A_CONFIRMAR");
 
+  // Filtro por status (client-side) + busca por nome/CPF.
   const filtrados = itens.filter((i) => {
+    const st = i.status_confirmacao || "A_CONFIRMAR";
+    if (filtro !== "TODOS" && st !== filtro) return false;
     if (!busca.trim()) return true;
-    const t = busca.toLowerCase();
-    return String(i.nome || "").toLowerCase().includes(t) || String(i.cpf || "").includes(t.replace(/\D/g, ""));
+    const t = busca.trim().toLowerCase();
+    const cpfBusca = t.replace(/\D/g, "");
+    const nomeOk = String(i.nome || "").toLowerCase().includes(t);
+    const cpfOk = cpfBusca && normCpf(i.cpf).includes(cpfBusca);
+    return nomeOk || cpfOk;
   });
 
-  const totalFila = filtrados.reduce((s, i) => s + (Number(i.valor_total) || 0), 0);
+  // Agrupa por CPF -> 1 card por aluno.
+  const grupos = (() => {
+    const map = new Map();
+    for (const i of filtrados) {
+      const cpf = normCpf(i.cpf);
+      const chave = cpf || `SEMCPF-${i.id}`;
+      if (!map.has(chave)) {
+        map.set(chave, { chave, cpf, nome: i.nome, unidade: i.unidade, alunoId: i.aluno_id, acordos: [] });
+      }
+      map.get(chave).acordos.push(i);
+    }
+    const arr = Array.from(map.values());
+    arr.forEach((g) => { g.total = g.acordos.reduce((s, a) => s + (Number(a.valor_total) || 0), 0); });
+    arr.sort((a, b) => b.total - a.total);
+    return arr;
+  })();
+
+  const totalAlunos = grupos.length;
+  const totalAcordos = filtrados.length;
+  const totalValor = filtrados.reduce((s, i) => s + (Number(i.valor_total) || 0), 0);
 
   return (
     <div style={S.wrap}>
@@ -70,54 +163,87 @@ export default function FilaAcordosConfirmar() {
         <select style={S.select} value={filtro} onChange={(e) => setFiltro(e.target.value)}>
           <option value="A_CONFIRMAR">A confirmar</option>
           <option value="CONFIRMADO">Confirmados</option>
+          <option value="REJEITADO">Rejeitados</option>
           <option value="TODOS">Todos</option>
         </select>
         <input style={S.input} placeholder="Buscar por nome ou CPF..." value={busca} onChange={(e) => setBusca(e.target.value)} />
-        <span style={S.contador}>{filtrados.length} acordos · {moeda(totalFila)}</span>
+        <div style={S.contadores}>
+          <span style={S.contadorAlunos}>{totalAlunos} alunos</span>
+          <span style={S.contadorAcordos}>{totalAcordos} acordos</span>
+          <span style={S.contadorValor}>{moeda(totalValor)}</span>
+        </div>
       </div>
+
+      {erro && <div style={S.erroBox}>⚠️ {erro}</div>}
 
       {carregando ? (
         <p style={S.muted}>Carregando...</p>
-      ) : filtrados.length === 0 ? (
+      ) : grupos.length === 0 ? (
         <p style={S.muted}>Nenhum acordo nesta fila.</p>
       ) : (
-        <table style={S.tabela}>
-          <thead>
-            <tr>
-              <th style={S.th}>Aluno</th>
-              <th style={S.th}>CPF</th>
-              <th style={S.th}>Unidade</th>
-              <th style={S.thNum}>Parcelas</th>
-              <th style={S.thNum}>Valor</th>
-              <th style={S.th}>Status</th>
-              <th style={S.th}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtrados.map((i) => (
-              <tr key={i.id}>
-                <td style={S.td}><strong>{i.nome || "-"}</strong></td>
-                <td style={S.td}>{i.cpf}</td>
-                <td style={S.tdMuted}>{i.unidade || "-"}</td>
-                <td style={S.tdNum}>{i.qtd_parcelas}</td>
-                <td style={S.tdNum}>{moeda(i.valor_total)}</td>
-                <td style={S.td}>
-                  <span style={{ ...S.chip, ...(i.status_confirmacao === "CONFIRMADO" ? S.chipOk : S.chipPend) }}>
-                    {i.status_confirmacao === "CONFIRMADO" ? "Confirmado" : "A confirmar"}
-                  </span>
-                </td>
-                <td style={S.td}>
-                  <div style={{ display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end" }}>
-                    <button style={S.btnFicha} onClick={() => setFichaId(i.aluno_id)}>Abrir ficha</button>
-                    {i.status_confirmacao === "CONFIRMADO"
-                      ? <button style={S.btnMini} onClick={() => reabrir(i)}>reabrir</button>
-                      : <button style={S.btnConf} onClick={() => confirmar(i)}>Confirmar</button>}
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <div style={S.cards}>
+          {grupos.map((g) => (
+            <div key={g.chave} style={S.card}>
+              <div style={S.cardHead}>
+                <div style={S.cardHeadInfo}>
+                  <span style={S.cardNome}>{g.nome || "-"}</span>
+                  <span style={S.cardCpf}>CPF {formatCpf(g.cpf)}</span>
+                  {g.unidade && <span style={S.cardUnidade}>{g.unidade}</span>}
+                </div>
+                <div style={S.cardHeadDir}>
+                  <span style={S.cardResumo}>{g.acordos.length} acordo{g.acordos.length > 1 ? "s" : ""} · {moeda(g.total)}</span>
+                  <button style={S.btnFicha} onClick={() => setFichaId(g.alunoId)}>Abrir ficha</button>
+                </div>
+              </div>
+
+              <table style={S.tabela}>
+                <thead>
+                  <tr>
+                    <th style={S.thNum}>Parcelas</th>
+                    <th style={S.thNum}>Valor</th>
+                    <th style={S.th}>Status</th>
+                    <th style={S.th}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {g.acordos.map((a) => {
+                    const st = a.status_confirmacao || "A_CONFIRMAR";
+                    const meta = STATUS_META[st] || STATUS_META.A_CONFIRMAR;
+                    const busy = !!processando[a.id];
+                    return (
+                      <tr key={a.id}>
+                        <td style={S.tdNum}>{a.qtd_parcelas}</td>
+                        <td style={S.tdNum}>{moeda(a.valor_total)}</td>
+                        <td style={S.td}>
+                          <span style={{ ...S.chip, ...S[meta.estilo] }}>{meta.rotulo}</span>
+                        </td>
+                        <td style={S.td}>
+                          <div style={S.acoes}>
+                            {st === "A_CONFIRMAR" && (
+                              <>
+                                <button style={{ ...S.btnConf, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => confirmar(a)}>
+                                  {busy ? "..." : "Confirmar"}
+                                </button>
+                                <button style={{ ...S.btnRej, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => rejeitar(a)}>
+                                  {busy ? "..." : "Rejeitar"}
+                                </button>
+                              </>
+                            )}
+                            {st === "REJEITADO" && (
+                              <button style={{ ...S.btnMini, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => reabrir(a)}>
+                                {busy ? "..." : "reabrir"}
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ))}
+        </div>
       )}
 
       {fichaId && (
@@ -146,19 +272,35 @@ const S = {
   barra: { display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap", marginBottom: 14 },
   select: { border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontSize: 13, background: "#fff", color: "#0f172a" },
   input: { border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontSize: 13, background: "#fff", color: "#0f172a", minWidth: 240, outline: "none" },
-  contador: { fontSize: 12.5, color: "#64748b", fontWeight: 700, marginLeft: "auto" },
+  contadores: { display: "flex", gap: 8, alignItems: "center", marginLeft: "auto", flexWrap: "wrap" },
+  contadorAlunos: { fontSize: 12, fontWeight: 800, color: "#3730a3", background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 999, padding: "4px 12px" },
+  contadorAcordos: { fontSize: 12, fontWeight: 800, color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "4px 12px" },
+  contadorValor: { fontSize: 12, fontWeight: 800, color: "#334155", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "4px 12px" },
+  erroBox: { background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", borderRadius: 10, padding: "10px 14px", fontSize: 13, fontWeight: 600, marginBottom: 14 },
   muted: { color: "#64748b", fontSize: 14 },
-  tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13, background: "#fff", borderRadius: 12, overflow: "hidden", border: "1px solid #e6eaf0" },
-  th: { textAlign: "left", padding: "10px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
-  thNum: { textAlign: "right", padding: "10px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
-  td: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", color: "#344054" },
-  tdMuted: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", color: "#8a93a3", fontSize: 12.5 },
-  tdNum: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", textAlign: "right", fontWeight: 700, color: "#101828" },
-  chip: { fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 10px" },
+  cards: { display: "flex", flexDirection: "column", gap: 14 },
+  card: { background: "#fff", borderRadius: 12, border: "1px solid #e6eaf0", overflow: "hidden", boxShadow: "0 1px 2px rgba(15,23,42,0.04)" },
+  cardHead: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "12px 16px", borderBottom: "1px solid #eef1f6", background: "#f8fafc" },
+  cardHeadInfo: { display: "flex", alignItems: "baseline", gap: 12, flexWrap: "wrap" },
+  cardHeadDir: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  cardNome: { fontFamily: "'Sora', Inter, sans-serif", fontSize: 15, fontWeight: 800, color: "#0d1321" },
+  cardCpf: { fontSize: 12.5, color: "#64748b", fontWeight: 600 },
+  cardUnidade: { fontSize: 12, color: "#8a93a3" },
+  cardResumo: { fontSize: 12.5, color: "#475569", fontWeight: 700 },
+  tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13, background: "#fff" },
+  th: { textAlign: "left", padding: "9px 14px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#fff", borderBottom: "1px solid #eef1f6" },
+  thNum: { textAlign: "right", padding: "9px 14px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#fff", borderBottom: "1px solid #eef1f6" },
+  td: { padding: "10px 14px", borderBottom: "1px solid #f4f6f9", color: "#344054" },
+  tdNum: { padding: "10px 14px", borderBottom: "1px solid #f4f6f9", textAlign: "right", fontWeight: 700, color: "#101828" },
+  acoes: { display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end" },
+  chip: { fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap" },
   chipPend: { background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a" },
   chipOk: { background: "#f0fdf4", color: "#166534", border: "1px solid #86efac" },
+  chipRej: { background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca" },
   btnConf: { background: "#15803d", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
+  btnRej: { background: "#b91c1c", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
   btnMini: { background: "transparent", color: "#2563eb", border: "none", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  btnBusy: { opacity: 0.55, cursor: "not-allowed" },
   btnFicha: { background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", borderRadius: 8, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
   modalOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "3vh 2vw", zIndex: 1000 },
   modalBox: { background: "#fff", borderRadius: 16, width: "min(1100px, 96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" },
