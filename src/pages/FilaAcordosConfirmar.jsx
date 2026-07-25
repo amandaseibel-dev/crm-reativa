@@ -76,9 +76,13 @@ export default function FilaAcordosConfirmar() {
     }
   }
 
-  // Troca o status de UM acordo (por id). Atualizacao otimista: altera somente o acordo processado.
+  // Troca o status de UM acordo, identificado SEMPRE pelo id unico (PK) da fila.
+  // Nunca por aluno_id/CPF/matricula/card agrupado/indice: acao afeta 1 registro.
+  // Estado de processamento e atualizacao sao individuais por id; try/catch/finally
+  // garantem que a tela seja sempre liberada, mesmo se a requisicao falhar.
   async function mudarStatus(item, novoStatus) {
-    if (processando[item.id]) return; // impede clique duplo enquanto processa
+    if (!item?.id) return;
+    if (processando[item.id]) return; // impede requisicao duplicada enquanto processa
     setProcessando((p) => ({ ...p, [item.id]: true }));
     setErro("");
 
@@ -94,22 +98,28 @@ export default function FilaAcordosConfirmar() {
       patch.confirmado_em = null;
     }
 
-    const { error } = await supabase
-      .from("fila_acordos_confirmar")
-      .update(patch)
-      .eq("id", item.id);
+    try {
+      const { error } = await supabase
+        .from("fila_acordos_confirmar")
+        .update(patch)
+        .eq("id", item.id); // <- exatamente 1 registro, pelo id unico
 
-    if (error) {
-      setErro(`Erro ao atualizar o acordo ${item.id}: ${error.message}`);
-    } else {
+      if (error) throw error;
+
+      // Atualizacao otimista: mexe SOMENTE no acordo processado.
+      // Outros acordos do mesmo aluno permanecem inalterados e visiveis.
       setItens((prev) => prev.map((x) => (x.id === item.id ? { ...x, ...patch } : x)));
+    } catch (e) {
+      // Mostra o erro real do Supabase.
+      setErro(`Erro ao atualizar o acordo ${item.id}: ${e?.message || String(e)}`);
+    } finally {
+      // Libera SEMPRE o botao clicado, mesmo em caso de falha (evita travar a tela).
+      setProcessando((p) => {
+        const n = { ...p };
+        delete n[item.id];
+        return n;
+      });
     }
-
-    setProcessando((p) => {
-      const n = { ...p };
-      delete n[item.id];
-      return n;
-    });
   }
 
   const confirmar = (item) => mudarStatus(item, "CONFIRMADO");
@@ -156,7 +166,7 @@ export default function FilaAcordosConfirmar() {
           <h1 style={S.titulo}>Fila de confirmação de acordos</h1>
           <p style={S.sub}>Acordos importados para a operação confirmar com o aluno e acompanhar.</p>
         </div>
-        <button style={S.btnGhost} onClick={carregar}>Atualizar</button>
+        <button type="button" style={S.btnGhost} onClick={carregar}>Atualizar</button>
       </div>
 
       <div style={S.barra}>
@@ -192,7 +202,7 @@ export default function FilaAcordosConfirmar() {
                 </div>
                 <div style={S.cardHeadDir}>
                   <span style={S.cardResumo}>{g.acordos.length} acordo{g.acordos.length > 1 ? "s" : ""} · {moeda(g.total)}</span>
-                  <button style={S.btnFicha} onClick={() => setFichaId(g.alunoId)}>Abrir ficha</button>
+                  <button type="button" style={S.btnFicha} onClick={() => setFichaId(g.alunoId)}>Abrir ficha</button>
                 </div>
               </div>
 
@@ -221,16 +231,16 @@ export default function FilaAcordosConfirmar() {
                           <div style={S.acoes}>
                             {st === "A_CONFIRMAR" && (
                               <>
-                                <button style={{ ...S.btnConf, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => confirmar(a)}>
+                                <button type="button" style={{ ...S.btnConf, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => confirmar(a)}>
                                   {busy ? "..." : "Confirmar"}
                                 </button>
-                                <button style={{ ...S.btnRej, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => rejeitar(a)}>
+                                <button type="button" style={{ ...S.btnRej, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => rejeitar(a)}>
                                   {busy ? "..." : "Rejeitar"}
                                 </button>
                               </>
                             )}
                             {st === "REJEITADO" && (
-                              <button style={{ ...S.btnMini, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => reabrir(a)}>
+                              <button type="button" style={{ ...S.btnMini, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => reabrir(a)}>
                                 {busy ? "..." : "reabrir"}
                               </button>
                             )}
@@ -251,7 +261,7 @@ export default function FilaAcordosConfirmar() {
           <div style={S.modalBox} onClick={(e) => e.stopPropagation()}>
             <div style={S.modalTopo}>
               <span style={S.modalTitulo}>Ficha do aluno</span>
-              <button style={S.modalFechar} onClick={() => setFichaId(null)}>Fechar ✕</button>
+              <button type="button" style={S.modalFechar} onClick={() => setFichaId(null)}>Fechar ✕</button>
             </div>
             <div style={S.modalConteudo}>
               <Aluno fichaEmbedId={fichaId} />
