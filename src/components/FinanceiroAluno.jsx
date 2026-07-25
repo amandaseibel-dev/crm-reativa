@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
 
@@ -545,8 +545,8 @@ export default function FinanceiroAluno({ aluno }) {
   // dá pra trocar o responsável de cada acordo individualmente aqui.
   async function alterarResponsavelAcordo(acordo, novoEmail, motivo) {
     if (!novoEmail) { alert("Selecione o novo responsável do acordo."); return; }
+    // Motivo é opcional: segue vazio quando não informado.
     const m = String(motivo || "").trim();
-    if (!m) { alert("Motivo obrigatório para alterar o responsável do acordo."); return; }
     // RPC manual segura (executor; so Amanda/Fernanda). Sem UPDATE direto.
     const { data: r, error } = await supabase.rpc("alterar_responsavel_acordo", {
       p_acordo_id: acordo.id, p_novo_email: novoEmail, p_motivo: m, p_origem: "financeiro_aluno",
@@ -1458,14 +1458,28 @@ function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, 
 function SeletorResponsavelAcordo({ acordo, operadoresAtivos, onAplicar }) {
   const [email, setEmail] = useState(acordo.operador_responsavel_email || "");
   const [motivo, setMotivo] = useState("");
+  const [aplicando, setAplicando] = useState(false);
+  // Trava de execução única: um clique = uma chamada, mesmo em duplo-clique.
+  const emExecucaoRef = useRef(false);
+  async function aplicar() {
+    if (emExecucaoRef.current) return;
+    emExecucaoRef.current = true;
+    setAplicando(true);
+    try {
+      await onAplicar(email, motivo);
+    } finally {
+      setAplicando(false);
+      emExecucaoRef.current = false;
+    }
+  }
   return (
     <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
       <select value={email} onChange={(e) => setEmail(e.target.value)} style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #e6eaf0", fontSize: 12 }}>
         <option value="">Selecione</option>
         {operadoresAtivos.map((op) => (<option key={op.email} value={op.email}>{op.nome}</option>))}
       </select>
-      <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (obrigatório)" style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #e6eaf0", fontSize: 12 }} />
-      <button type="button" onClick={() => onAplicar(email, motivo)} style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: "pointer", fontSize: 12 }}>Aplicar</button>
+      <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (opcional)" style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #e6eaf0", fontSize: 12 }} />
+      <button type="button" onClick={aplicar} disabled={aplicando} style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: aplicando ? "default" : "pointer", fontSize: 12, opacity: aplicando ? 0.6 : 1 }}>{aplicando ? "Aplicando..." : "Aplicar"}</button>
     </span>
   );
 }
