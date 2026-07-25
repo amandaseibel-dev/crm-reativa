@@ -24,7 +24,8 @@ const CONSULTAS = [
     rotulo: "✅ Pagamento aguardando confirmação",
     rota: "/fila-confirmacao-pagamento",
     tabela: "solicitacoes_confirmacao_pagamento",
-    filtro: (q) => q.eq("status", "AGUARDANDO_CONFIRMACAO"),
+    // inclui "recebido, aguardando vínculo" (também não finalizado)
+    filtro: (q) => q.in("status", ["AGUARDANDO_CONFIRMACAO", "PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO"]),
   },
   {
     tipo: "link",

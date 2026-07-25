@@ -88,8 +88,9 @@ export default function Dashboard() {
           .in("status", ["SOLICITADO_LINK", "LINK_EM_ATENDIMENTO"]),
         supabase
           .from("solicitacoes_confirmacao_pagamento")
+          /* inclui o novo status de revisão manual na contagem de pendências */
           .select("id", { count: "exact", head: true })
-          .eq("status", "AGUARDANDO_CONFIRMACAO"),
+          .in("status", ["AGUARDANDO_CONFIRMACAO", "PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO"]),
         supabase
           .from("termos_acordo")
           .select("id", { count: "exact", head: true })

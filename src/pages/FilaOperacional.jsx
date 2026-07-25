@@ -916,7 +916,7 @@ export default function FilaOperador() {
           .from("solicitacoes_confirmacao_pagamento")
           .select("id")
           .eq("aluno_id", String(alunoSelecionado.id))
-          .eq("status", "AGUARDANDO_CONFIRMACAO")
+          .in("status", ["AGUARDANDO_CONFIRMACAO", "PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO"])
           .maybeSingle();
 
         if (!pendenteExistente) {
