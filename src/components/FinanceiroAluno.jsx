@@ -1552,7 +1552,7 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
               ) : null}
 
               <div style={{ ...estilos.subLinha, display: "flex", alignItems: "center", gap: 6, marginTop: 4 }}>
-                Responsável:
+                Responsável pelo acordo:
                 {podeBaixar ? (
                   <SeletorResponsavelAcordo
                     acordo={acordo}
@@ -1560,7 +1560,7 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                     onAplicar={(email, motivo) => onAlterarResponsavel(acordo, email, motivo)}
                   />
                 ) : (
-                  <strong>{OPERADORES_POR_EMAIL[acordo.operador_responsavel_email] || acordo.operador_responsavel_email || "-"}</strong>
+                  <strong>{acordo.operador_responsavel_nome || OPERADORES_POR_EMAIL[acordo.operador_responsavel_email] || acordo.operador_responsavel_email || "Sem responsável"}</strong>
                 )}
               </div>
 

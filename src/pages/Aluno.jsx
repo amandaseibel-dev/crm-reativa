@@ -1637,7 +1637,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               <>
               <div style={gradeCards}>
                 <div style={cardInfo}>
-                  <strong>Responsável atual</strong>
+                  <strong>Responsável pelo aluno</strong>
                   <br />
                   {!editandoOperadorRapido ? (
                     <>

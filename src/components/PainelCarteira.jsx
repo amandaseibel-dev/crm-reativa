@@ -2245,9 +2245,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   <div style={S.gridInfo}>
                     {!editandoOperador ? (
                       <div style={S.infoBox}>
-                        <div style={S.infoRot}>Operador responsavel</div>
+                        <div style={S.infoRot}>Responsável pelo aluno</div>
                         <div style={S.infoVal}>
-                          {alunoModal.responsavel_atual_nome || "-"}
+                          {alunoModal.responsavel_atual_nome || "Sem responsável"}
                           {veTudo && (
                             <button
                               type="button"
@@ -2264,7 +2264,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                       </div>
                     ) : (
                       <div style={S.infoBox}>
-                        <div style={S.infoRot}>Operador responsavel</div>
+                        <div style={S.infoRot}>Responsável pelo aluno</div>
                         <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
                           <select
                             style={S.selectOperadorFicha}
@@ -2323,10 +2323,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               {abaModal === "adm" && (
                 <div style={S.secao}>
                   <div style={S.infoBox}>
-                    <div style={S.infoRot}>Operador responsavel</div>
+                    <div style={S.infoRot}>Responsável pelo aluno</div>
                     {!editandoOperador ? (
                       <div style={S.infoVal}>
-                        {alunoModal.responsavel_atual_nome || "-"}
+                        {alunoModal.responsavel_atual_nome || "Sem responsável"}
                         {veTudo && (
                           <button
                             type="button"
