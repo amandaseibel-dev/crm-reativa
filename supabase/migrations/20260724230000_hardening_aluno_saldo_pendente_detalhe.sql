@@ -1,23 +1,28 @@
 -- Hardening de acesso da RPC public.aluno_saldo_pendente_detalhe.
 --
 -- Motivacao: a funcao e SECURITY DEFINER (ignora RLS de acordos/parcelas) e
--- estava com EXECUTE aberto a PUBLIC/anon e SEM nenhuma checagem interna de
--- autorizacao -- qualquer chamador, inclusive anonimo, obtinha o financeiro de
--- qualquer aluno. Esta migration:
+-- estava com EXECUTE aberto a PUBLIC/anon -- qualquer chamador, inclusive
+-- anonimo, obtinha o financeiro de qualquer aluno. Esta migration:
 --   1) revoga EXECUTE de PUBLIC/anon (mantem authenticated e service_role);
---   2) adiciona checagem interna de autorizacao usando auth.uid()/auth.jwt()
---      (NUNCA e-mail vindo do frontend), preservando assinatura e retorno.
+--   2) exige, em request de usuario, sessao AUTENTICADA e ATIVA na operacao,
+--      confirmada por auth.uid()/auth.jwt() (NUNCA e-mail vindo do frontend).
 --
--- Regras de autorizacao:
+-- IMPORTANTE (escopo de consulta): a operacao mantem acesso de CONSULTA a base
+-- inteira. Qualquer operador autenticado e ativo pode consultar o saldo de
+-- QUALQUER aluno (necessario para o atendimento). NAO ha restricao por
+-- responsavel/matricula. Esta funcao e SOMENTE LEITURA: nao altera responsavel,
+-- nao transfere matricula, nao confirma/rejeita pagamento, nao da baixa, nao
+-- quita, nao mexe em acordo/parcela/dado financeiro. Todas as acoes de
+-- ALTERACAO continuam governadas pelos perfis/permissoes e RLS atuais, que esta
+-- migration NAO toca.
+--
+-- Regras de acesso desta RPC:
 --   - Contexto interno/backend (cron, triggers SECURITY DEFINER, service_role):
 --     liberado -- a funcao e reusada pelo fluxo de quitacao/zerado e nao pode
 --     quebrar. Detectado por ausencia de request JWT ou role=service_role.
 --   - anon / sem sessao de usuario: negado.
---   - gestao (gerencia, administrativo), supervisao (supervisor) e os e-mails de
---     usuario_e_gestao() (Amanda, Fernanda, Amanda Borges): liberados p/ qualquer aluno.
---   - operador: somente aluno sob sua responsabilidade (alunos.responsavel_atual_email)
---     ou com acesso operacional legitimo (caso/acordo atribuido a ele).
---   - Negacao e sempre generica (mesmo erro), sem revelar se o aluno existe.
+--   - Usuario autenticado e ativo (usuarios.id = auth.uid(), ativo = true),
+--     incluindo Amanda, Fernanda e qualquer operador: liberado para qualquer aluno.
 --
 -- Idempotente (CREATE OR REPLACE + REVOKE/GRANT). Rollback em
 -- supabase/rollbacks/20260724230000_hardening_aluno_saldo_pendente_detalhe_down.sql.
@@ -38,48 +43,29 @@ declare
   v_parcelas_qtd    int := 0;
   v_conf_pendentes  int := 0;
   v_total           numeric := 0;
-  -- Autorizacao (resolvida por auth.uid()/auth.jwt(), nunca por dado do frontend).
+  -- Acesso (resolvido por auth.uid()/auth.jwt(), nunca por dado do frontend).
   v_req_claims text := current_setting('request.jwt.claims', true); -- null fora de request PostgREST
   v_role       text := lower(coalesce(auth.jwt() ->> 'role', ''));
   v_uid        uuid := auth.uid();
-  v_email      text := lower(coalesce(auth.jwt() ->> 'email', ''));
-  v_perfil     text;
   v_interno    boolean;
-  v_autorizado boolean := false;
 begin
   -- 1) Contexto interno/backend confiavel: cron, triggers e chamadas internas
   --    (sem request JWT) e chamadas com service_role. NUNCA cobre anon.
   v_interno := (v_req_claims IS NULL) OR (v_role = 'service_role');
 
   if not v_interno then
-    -- 2) Request de usuario: exige sessao autenticada. anon cai aqui.
+    -- 2) Request de usuario: nega anon / sem sessao.
     if v_uid is null or v_role = 'anon' then
       raise exception 'Acesso negado.' using errcode = '42501';
     end if;
 
-    -- Perfil do chamador pela identidade do token (auth.uid()), nao pelo frontend.
-    select u.perfil into v_perfil
-      from public.usuarios u
-     where u.id = v_uid and u.ativo = true;
-
-    if public.usuario_e_gestao()
-       or v_perfil in ('gerencia', 'administrativo', 'supervisor') then
-      v_autorizado := true;
-    elsif v_perfil = 'operador' and v_email <> '' then
-      v_autorizado :=
-        exists (select 1 from public.alunos a
-                 where a.id = p_aluno_id
-                   and lower(coalesce(a.responsavel_atual_email, '')) = v_email)
-        or exists (select 1 from public.casos c
-                    where c.aluno_id = p_aluno_id
-                      and lower(coalesce(c.operador_email, '')) = v_email)
-        or exists (select 1 from public.acordos ac
-                    where ac.aluno_id = p_aluno_id
-                      and lower(coalesce(ac.operador_responsavel_email, '')) = v_email);
-    end if;
-
-    if not v_autorizado then
-      -- Negacao generica: nao revela se o aluno existe.
+    -- 3) Consulta a base inteira e liberada para qualquer usuario AUTENTICADO e
+    --    ATIVO (confirmado pela identidade do token, nao pelo frontend). Sem
+    --    restricao por responsavel/matricula. Esta RPC e somente leitura; as
+    --    acoes de alteracao seguem os perfis/RLS atuais, fora desta funcao.
+    if not exists (
+      select 1 from public.usuarios u where u.id = v_uid and u.ativo = true
+    ) then
       raise exception 'Acesso negado.' using errcode = '42501';
     end if;
   end if;
