@@ -92,6 +92,10 @@ export default function ProjecaoHoraHora() {
   const [projecaoTodos, setProjecaoTodos] = useState(null);
   const [carregandoTodos, setCarregandoTodos] = useState(false);
   const [mesReferencia, setMesReferencia] = useState(mesAtualISO());
+  // Filtro de unidade/estabelecimento OPCIONAL. "" = "Todos" (padrão): não
+  // filtra. Só restringe quando uma unidade é escolhida.
+  const [unidadeFiltro, setUnidadeFiltro] = useState("");
+  const [unidades, setUnidades] = useState([]);
 
   const [dashboard, setDashboard] = useState(null);
   const [diaSelecionado, setDiaSelecionado] = useState(null);
@@ -152,6 +156,13 @@ export default function ProjecaoHoraHora() {
       if (email) podeGerir = podeGerirFinanceiro(email);
       setUsuario({ email, podeGerir });
     })();
+    // Popula o seletor de unidade (opção "Todos" + unidades distintas).
+    (async () => {
+      const { data, error } = await supabase.rpc("projecao_unidades_disponiveis");
+      if (!error && Array.isArray(data)) {
+        setUnidades(data.map((u) => u.unidade).filter(Boolean));
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -165,7 +176,7 @@ export default function ProjecaoHoraHora() {
     }, 30000);
     return () => clearInterval(intervalo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mesReferencia, usuario, operadorSelecionado]);
+  }, [mesReferencia, usuario, operadorSelecionado, unidadeFiltro]);
 
   useEffect(() => {
     if (aba === "HISTORICO") carregarHistorico();
@@ -176,19 +187,19 @@ export default function ProjecaoHoraHora() {
   // operador, pra lista e somatória refletirem a troca na hora).
   async function carregarPagamentosDia(dia) {
     setCarregandoPagamentosDia(true);
-    // RLS garante operador só vendo o próprio; mas Amanda ADM tem RLS de
-    // gestão (por causa de outras telas), então aqui filtramos na mão
-    // pra ela também só ver os próprios pagamentos, igual um operador.
-    // id/operador_email entram no select pra permitir alterar operador aqui.
+    // Amanda ADM é perfil administrativo: vê os pagamentos do dia da filial
+    // inteira (não só os dela). id/operador_email entram no select pra
+    // permitir alterar operador aqui. Filtro de unidade é opcional: só faz
+    // inner join com alunos quando uma unidade é escolhida (senão os
+    // pagamentos sem aluno_id sumiriam).
+    const colunasDia = "id, aluno_nome, valor_pago, valor_honorario, operador_nome, operador_email, titulo_numero";
     let consultaDia = supabase
       .from("pagamentos")
-      .select("id, aluno_nome, valor_pago, valor_honorario, operador_nome, operador_email, titulo_numero")
+      .select(unidadeFiltro ? `${colunasDia}, alunos!inner(unidade)` : colunasDia)
       .eq("data_pagamento", dia)
       .order("valor_pago", { ascending: false });
 
-    if (usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br") {
-      consultaDia = consultaDia.eq("operador_email", "cobranca07@aelbra.com.br");
-    }
+    if (unidadeFiltro) consultaDia = consultaDia.eq("alunos.unidade", unidadeFiltro);
 
     const { data, error } = await consultaDia;
 
@@ -231,6 +242,7 @@ export default function ProjecaoHoraHora() {
     const { data, error } = await supabase.rpc("projecao_dashboard", {
       p_mes: mesReferencia,
       p_operador_email: operadorSelecionado || null,
+      p_unidade: unidadeFiltro || null,
     });
     if (error) {
       setErro("Erro ao carregar indicadores: " + error.message);
@@ -256,17 +268,19 @@ export default function ProjecaoHoraHora() {
 
   async function carregarLancamentosHoje() {
     const hojeISO = new Date().toISOString().slice(0, 10);
+    const colunasLanc = "id, data_pagamento, aluno_nome, operador_email, operador_nome, valor_pago, valor_honorario";
     let consulta = supabase
       .from("pagamentos")
-      .select("id, data_pagamento, aluno_nome, operador_email, operador_nome, valor_pago, valor_honorario")
+      .select(unidadeFiltro ? `${colunasLanc}, alunos!inner(unidade)` : colunasLanc)
       .eq("data_pagamento", hojeISO)
       .order("valor_pago", { ascending: false });
 
-    // Quem não é gestão (ou é Amanda ADM, que aqui vê só o dela) só pode
-    // ver os próprios lançamentos.
-    if ((!usuario?.podeGerir || usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br") && usuario?.email) {
+    // Operador comum vê só os próprios lançamentos. Amanda ADM é perfil
+    // administrativo: vê os lançamentos da filial inteira, como a gestão.
+    if (!usuario?.podeGerir && usuario?.email) {
       consulta = consulta.eq("operador_email", usuario.email);
     }
+    if (unidadeFiltro) consulta = consulta.eq("alunos.unidade", unidadeFiltro);
 
     const { data, error } = await consulta;
     if (!error) setLancamentosHoje(data || []);
@@ -511,11 +525,14 @@ export default function ProjecaoHoraHora() {
 
   const ranking = useMemo(() => dashboard?.ranking_equipe || [], [dashboard]);
   const historicoDia = useMemo(() => dashboard?.historico_dia_a_dia || [], [dashboard]);
-  // Amanda ADM (cobranca07) tem permissão de gestão pra outras telas
-  // (financeiro, importação), mas na Projeção/Hora a Hora ela deve ver
-  // só o que é dela -- não o painel gerencial do time inteiro.
+  // Amanda ADM (cobranca07) é perfil administrativo: além do painel pessoal
+  // (comissão 8%), enxerga a projeção da filial inteira (totais gerais,
+  // ranking e evolução) -- não fica limitada aos casos do e-mail dela.
+  // vePainelGestao continua reservado à gestão (Amanda Seibel/Fernanda) para
+  // as sub-abas de configuração de metas / por operador.
+  const eAmandaAdm = usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br";
   const vePainelGestao =
-    usuario?.podeGerir && usuario?.email?.toLowerCase() !== "cobranca07@aelbra.com.br";
+    usuario?.podeGerir && !eAmandaAdm;
   const maiorValorGrafico = useMemo(
     () => Math.max(1, ...historicoDia.map((d) => Number(d.valor_recuperado) || 0)),
     [historicoDia]
@@ -536,12 +553,25 @@ export default function ProjecaoHoraHora() {
             Acompanhamento em tempo real da operação e projeção automática do fechamento do mês.
           </p>
         </div>
-        <input
-          type="month"
-          value={mesReferencia}
-          onChange={(e) => setMesReferencia(e.target.value)}
-          style={estilos.inputMes}
-        />
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <select
+            value={unidadeFiltro}
+            onChange={(e) => setUnidadeFiltro(e.target.value)}
+            style={estilos.inputMes}
+            title="Filtrar por unidade/estabelecimento (opcional)"
+          >
+            <option value="">Todos</option>
+            {unidades.map((u) => (
+              <option key={u} value={u}>{u}</option>
+            ))}
+          </select>
+          <input
+            type="month"
+            value={mesReferencia}
+            onChange={(e) => setMesReferencia(e.target.value)}
+            style={estilos.inputMes}
+          />
+        </div>
       </div>
 
       <div style={estilos.abas}>
@@ -593,7 +623,7 @@ export default function ProjecaoHoraHora() {
                   gerencial -- só aparece pra quem gerencia (Amanda/Fernanda).
                   Operador vê só o que é dele: honorário hoje/mês e a
                   projeção individual mais abaixo. */}
-              {vePainelGestao && subAbaDashboard === "VISAO_GERAL" && (
+              {(vePainelGestao || eAmandaAdm) && subAbaDashboard === "VISAO_GERAL" && (
                 <>
                   <div style={estilos.hero}>
                     <div style={estilos.heroTopo}>
@@ -966,7 +996,7 @@ export default function ProjecaoHoraHora() {
               </div>
               )}
 
-              {(!vePainelGestao || subAbaDashboard === "EVOLUCAO") && usuario?.email?.toLowerCase() !== "cobranca07@aelbra.com.br" && (
+              {(!vePainelGestao || subAbaDashboard === "EVOLUCAO") && (
                 <>
                   <div style={estilos.blocoRanking}>
                     <h3 style={{ marginBottom: 10 }}>
