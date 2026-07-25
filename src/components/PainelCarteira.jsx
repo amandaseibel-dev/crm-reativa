@@ -1265,7 +1265,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           .from("solicitacoes_confirmacao_pagamento")
           .select("id")
           .eq("aluno_id", String(a.id))
-          .eq("status", "AGUARDANDO_CONFIRMACAO")
+          .in("status", ["AGUARDANDO_CONFIRMACAO", "PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO"])
           .maybeSingle();
 
         if (!pendenteExistente) {

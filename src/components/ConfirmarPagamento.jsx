@@ -2,8 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "../utils/operadores";
 
+import { STATUS_AGUARDANDO_VINCULO, isConfirmacaoAberta } from "../utils/confirmacaoPagamento";
+
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
+  [STATUS_AGUARDANDO_VINCULO]: "Recebido, aguardando vínculo",
   PAGAMENTO_CONFIRMADO: "Pagamento confirmado (baixado)",
   PAGAMENTO_REJEITADO: "Pagamento rejeitado (não identificado)",
 };
@@ -24,6 +27,7 @@ function traduzirStatus(status) {
 function corStatus(status) {
   if (status === "PAGAMENTO_CONFIRMADO") return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
   if (status === "PAGAMENTO_REJEITADO") return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
+  if (status === STATUS_AGUARDANDO_VINCULO) return { background: "#ede9fe", color: "#5b21b6", border: "1px solid #c4b5fd" };
   return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c" };
 }
 
@@ -174,7 +178,9 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
   }
 
   const ultimaSolicitacao = useMemo(() => (solicitacoes.length ? solicitacoes[0] : null), [solicitacoes]);
-  const temPendente = useMemo(() => solicitacoes.some((s) => s.status === "AGUARDANDO_CONFIRMACAO"), [solicitacoes]);
+  // Considera "pendente" tanto o aguardando confirmação quanto o recebido
+  // aguardando vínculo (nenhum dos dois é finalizado).
+  const temPendente = useMemo(() => solicitacoes.some((s) => isConfirmacaoAberta(s.status)), [solicitacoes]);
 
   const valorNum = Number(String(valorInformado).replace(",", ".")) || 0;
   const [alvoTipo, alvoId] = alvo ? alvo.split(":") : ["", ""];

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { planejarAcoesConfirmacao } from "./confirmacaoPagamento";
+import {
+  planejarAcoesConfirmacao,
+  isConfirmacaoAberta,
+  STATUS_AGUARDANDO_VINCULO,
+  STATUS_AGUARDANDO_CONFIRMACAO,
+  STATUS_CONFIRMACAO_ABERTOS,
+} from "./confirmacaoPagamento";
 
 describe("planejarAcoesConfirmacao", () => {
   it("pagamento confirmado com SALDO ABERTO (quitou=false): registra recebimento, NÃO quita, mantém na carteira, sem reposição", () => {
@@ -46,5 +52,26 @@ describe("planejarAcoesConfirmacao", () => {
       // recebimento continua sendo registrado mesmo quando não quita
       expect(plano.registrarRecebimento).toBe(true);
     }
+  });
+});
+
+describe("status de revisão manual (PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO)", () => {
+  it("o novo status é tratado como ABERTO (não finalizado)", () => {
+    expect(isConfirmacaoAberta(STATUS_AGUARDANDO_VINCULO)).toBe(true);
+    expect(isConfirmacaoAberta(STATUS_AGUARDANDO_CONFIRMACAO)).toBe(true);
+  });
+
+  it("status finalizados NÃO são tratados como abertos", () => {
+    for (const s of ["PAGAMENTO_CONFIRMADO", "PAGAMENTO_REJEITADO", "ENCERRADO_VIA_ACORDO", "CANCELADO"]) {
+      expect(isConfirmacaoAberta(s)).toBe(false);
+    }
+  });
+
+  it("o conjunto de abertos inclui exatamente aguardando confirmação e aguardando vínculo", () => {
+    expect(STATUS_CONFIRMACAO_ABERTOS).toEqual([
+      STATUS_AGUARDANDO_CONFIRMACAO,
+      STATUS_AGUARDANDO_VINCULO,
+    ]);
+    expect(STATUS_AGUARDANDO_VINCULO).toBe("PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO");
   });
 });

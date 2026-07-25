@@ -2,13 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import Alunos from "./Aluno";
 import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
-import { planejarAcoesConfirmacao } from "../utils/confirmacaoPagamento";
+import {
+  planejarAcoesConfirmacao,
+  STATUS_AGUARDANDO_CONFIRMACAO,
+  STATUS_AGUARDANDO_VINCULO,
+  isConfirmacaoAberta,
+} from "../utils/confirmacaoPagamento";
 import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados";
 import CasosSemValor from "../components/CasosSemValor";
 import CasosSemTelefone from "../components/CasosSemTelefone";
 
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
+  [STATUS_AGUARDANDO_VINCULO]: "Recebido, aguardando vínculo",
   PAGAMENTO_CONFIRMADO: "Pagamento confirmado (baixado)",
   PAGAMENTO_REJEITADO: "Pagamento rejeitado (não identificado)",
 };
@@ -57,6 +63,10 @@ function corStatus(status) {
   }
   if (status === "PAGAMENTO_REJEITADO") {
     return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
+  }
+  // Badge distinto (roxo) para "recebido, aguardando vínculo".
+  if (status === STATUS_AGUARDANDO_VINCULO) {
+    return { background: "#ede9fe", color: "#5b21b6", border: "1px solid #c4b5fd" };
   }
   return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c" };
 }
@@ -430,7 +440,8 @@ export default function FilaConfirmacaoPagamento() {
 
   const contadores = useMemo(() => {
     return {
-      pendentes: solicitacoes.filter((s) => s.status === "AGUARDANDO_CONFIRMACAO").length,
+      pendentes: solicitacoes.filter((s) => s.status === STATUS_AGUARDANDO_CONFIRMACAO).length,
+      aguardandoVinculo: solicitacoes.filter((s) => s.status === STATUS_AGUARDANDO_VINCULO).length,
       confirmados: solicitacoes.filter((s) => s.status === "PAGAMENTO_CONFIRMADO").length,
       todos: solicitacoes.length,
     };
@@ -440,7 +451,10 @@ export default function FilaConfirmacaoPagamento() {
   // (2) desempate por ultima atualizacao; (3) desempate por nome do aluno.
   const solicitacoesFiltradas = useMemo(() => {
     let base;
-    if (filtro === "PENDENTES") base = solicitacoes.filter((s) => s.status === "AGUARDANDO_CONFIRMACAO");
+    // "PENDENTES" (visível por padrão) inclui os recebidos aguardando vínculo,
+    // para que nenhum pagamento fique escondido de Amanda/Fernanda.
+    if (filtro === "PENDENTES") base = solicitacoes.filter((s) => isConfirmacaoAberta(s.status));
+    else if (filtro === "AGUARDANDO_VINCULO") base = solicitacoes.filter((s) => s.status === STATUS_AGUARDANDO_VINCULO);
     else if (filtro === "CONFIRMADOS") base = solicitacoes.filter((s) => s.status === "PAGAMENTO_CONFIRMADO");
     else base = solicitacoes;
 
@@ -493,6 +507,10 @@ export default function FilaConfirmacaoPagamento() {
           <span style={styles.descricao}>Aguardando confirmação</span>
         </div>
         <div style={styles.indicador}>
+          <span style={{ ...styles.numero, color: "#6d28d9" }}>{contadores.aguardandoVinculo}</span>
+          <span style={styles.descricao}>Recebido, aguardando vínculo</span>
+        </div>
+        <div style={styles.indicador}>
           <span style={styles.numero}>{contadores.confirmados}</span>
           <span style={styles.descricao}>Confirmados</span>
         </div>
@@ -504,7 +522,10 @@ export default function FilaConfirmacaoPagamento() {
 
       <div style={styles.filtros}>
         <button style={filtro === "PENDENTES" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("PENDENTES")}>
-          Aguardando confirmação
+          Pendentes{contadores.pendentes + contadores.aguardandoVinculo > 0 ? ` (${contadores.pendentes + contadores.aguardandoVinculo})` : ""}
+        </button>
+        <button style={filtro === "AGUARDANDO_VINCULO" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("AGUARDANDO_VINCULO")}>
+          Recebido, aguardando vínculo{contadores.aguardandoVinculo > 0 ? ` (${contadores.aguardandoVinculo})` : ""}
         </button>
         <button style={filtro === "CONFIRMADOS" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("CONFIRMADOS")}>
           Confirmados
@@ -744,15 +765,29 @@ export default function FilaConfirmacaoPagamento() {
               )}
             </div>
 
-            {detalhe.status === "AGUARDANDO_CONFIRMACAO" && (() => {
+            {isConfirmacaoAberta(detalhe.status) && (() => {
               const completos = dadosMinimosOk(detalhe);
-              const confirmavel = true;
+              // "Recebido, aguardando vínculo": a conclusão só é liberada DEPOIS
+              // que Amanda/Fernanda identificarem manualmente a dívida (tipo +
+              // parcela/título/acordo). Para AGUARDANDO_CONFIRMACAO o fluxo antigo
+              // é preservado.
+              const aguardandoVinculo = detalhe.status === STATUS_AGUARDANDO_VINCULO;
+              const confirmavel = aguardandoVinculo ? completos : true;
               const acordoOptions = [
                 ...new Map(parcelasAbertas.map((p) => [p.acordos?.id, p.acordos?.id])).keys(),
               ].filter(Boolean);
               return (
                 <div style={styles.modalAcoes}>
-                  {!completos && (
+                  {aguardandoVinculo && (
+                    <div style={{ ...styles.incompleto, background: "#f5f3ff", color: "#5b21b6", border: "1px solid #ddd6fe" }}>
+                      Pagamento <strong>recebido</strong>, mas ainda <strong>sem vínculo</strong>. Identifique
+                      manualmente a dívida em <strong>“Vincular dados”</strong> (mensalidade, parcela de acordo,
+                      entrada ou quitação total) — ou use <strong>“Rejeitar / devolver”</strong> para “pagamento
+                      sem vínculo localizado”. A conclusão fica bloqueada até a seleção manual. Nada é quitado,
+                      reposto ou alterado enquanto aguarda vínculo.
+                    </div>
+                  )}
+                  {!completos && !aguardandoVinculo && (
                     <div style={styles.incompleto}>
                       Dados financeiros incompletos — falta valor, data, tipo e/ou a
                       identificação da dívida (parcela, título ou acordo). A confirmação
@@ -865,7 +900,7 @@ export default function FilaConfirmacaoPagamento() {
                         <button
                           style={confirmavel ? styles.botaoConfirmar : styles.botaoDesabilitado}
                           disabled={!confirmavel}
-                          title={confirmavel ? "" : "Composição não validada ou valor ≠ total negociado"}
+                          title={confirmavel ? "" : "Identifique a dívida em “Vincular dados” antes de concluir."}
                           onClick={() => confirmavel && finalizarSolicitacao(detalhe)}
                         >
                           Confirmar pagamento

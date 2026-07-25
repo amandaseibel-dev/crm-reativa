@@ -12,6 +12,24 @@
 // Esta função é pura de propósito: concentra a decisão para poder ser
 // testada sem banco nem rede.
 
+// Status de solicitação (fonte única — evita strings soltas espalhadas).
+export const STATUS_AGUARDANDO_CONFIRMACAO = "AGUARDANDO_CONFIRMACAO";
+// Pagamento recebido pela ADM, mas SEM identificação da dívida paga.
+// Fica numa fila de revisão manual até Amanda/Fernanda vincularem.
+export const STATUS_AGUARDANDO_VINCULO = "PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO";
+
+// Solicitações AINDA ABERTAS (não finalizadas). Usado por filas, contadores e
+// guards de deduplicação para NÃO tratar o novo status como concluído.
+export const STATUS_CONFIRMACAO_ABERTOS = [
+  STATUS_AGUARDANDO_CONFIRMACAO,
+  STATUS_AGUARDANDO_VINCULO,
+];
+
+// true quando a solicitação ainda está aberta (pendente de ação da ADM).
+export function isConfirmacaoAberta(status) {
+  return STATUS_CONFIRMACAO_ABERTOS.includes(status);
+}
+
 /**
  * Decide o que fazer após a RPC de validação de saldo.
  *
