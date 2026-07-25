@@ -187,11 +187,11 @@ export default function ProjecaoHoraHora() {
   // operador, pra lista e somatória refletirem a troca na hora).
   async function carregarPagamentosDia(dia) {
     setCarregandoPagamentosDia(true);
-    // Amanda ADM é perfil administrativo: vê os pagamentos do dia da filial
-    // inteira (não só os dela). id/operador_email entram no select pra
-    // permitir alterar operador aqui. Filtro de unidade é opcional: só faz
-    // inner join com alunos quando uma unidade é escolhida (senão os
-    // pagamentos sem aluno_id sumiriam).
+    // Amanda ADM vê SOMENTE os pagamentos dela (operador_email). id/
+    // operador_email entram no select pra permitir alterar operador aqui.
+    // Filtro de unidade opcional: inner join com alunos só quando uma unidade
+    // é escolhida (senão pagamentos sem aluno_id sumiriam) -- e sempre dentro
+    // dos pagamentos dela.
     const colunasDia = "id, aluno_nome, valor_pago, valor_honorario, operador_nome, operador_email, titulo_numero";
     let consultaDia = supabase
       .from("pagamentos")
@@ -199,6 +199,9 @@ export default function ProjecaoHoraHora() {
       .eq("data_pagamento", dia)
       .order("valor_pago", { ascending: false });
 
+    if (usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br") {
+      consultaDia = consultaDia.eq("operador_email", "cobranca07@aelbra.com.br");
+    }
     if (unidadeFiltro) consultaDia = consultaDia.eq("alunos.unidade", unidadeFiltro);
 
     const { data, error } = await consultaDia;
@@ -275,9 +278,8 @@ export default function ProjecaoHoraHora() {
       .eq("data_pagamento", hojeISO)
       .order("valor_pago", { ascending: false });
 
-    // Operador comum vê só os próprios lançamentos. Amanda ADM é perfil
-    // administrativo: vê os lançamentos da filial inteira, como a gestão.
-    if (!usuario?.podeGerir && usuario?.email) {
+    // Operador comum e Amanda ADM veem só os próprios lançamentos.
+    if ((!usuario?.podeGerir || usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br") && usuario?.email) {
       consulta = consulta.eq("operador_email", usuario.email);
     }
     if (unidadeFiltro) consulta = consulta.eq("alunos.unidade", unidadeFiltro);
@@ -525,11 +527,10 @@ export default function ProjecaoHoraHora() {
 
   const ranking = useMemo(() => dashboard?.ranking_equipe || [], [dashboard]);
   const historicoDia = useMemo(() => dashboard?.historico_dia_a_dia || [], [dashboard]);
-  // Amanda ADM (cobranca07) é perfil administrativo: além do painel pessoal
-  // (comissão 8%), enxerga a projeção da filial inteira (totais gerais,
-  // ranking e evolução) -- não fica limitada aos casos do e-mail dela.
-  // vePainelGestao continua reservado à gestão (Amanda Seibel/Fernanda) para
-  // as sub-abas de configuração de metas / por operador.
+  // Amanda ADM (cobranca07) vê SOMENTE a projeção dos pagamentos dela
+  // (painel pessoal + comissão 8%), como um operador. O painel gerencial
+  // da filial (totais gerais, ranking, por operador) fica só para a gestão
+  // (Amanda Seibel / Fernanda).
   const eAmandaAdm = usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br";
   const vePainelGestao =
     usuario?.podeGerir && !eAmandaAdm;
@@ -623,7 +624,7 @@ export default function ProjecaoHoraHora() {
                   gerencial -- só aparece pra quem gerencia (Amanda/Fernanda).
                   Operador vê só o que é dele: honorário hoje/mês e a
                   projeção individual mais abaixo. */}
-              {(vePainelGestao || eAmandaAdm) && subAbaDashboard === "VISAO_GERAL" && (
+              {vePainelGestao && subAbaDashboard === "VISAO_GERAL" && (
                 <>
                   <div style={estilos.hero}>
                     <div style={estilos.heroTopo}>
@@ -996,7 +997,7 @@ export default function ProjecaoHoraHora() {
               </div>
               )}
 
-              {(!vePainelGestao || subAbaDashboard === "EVOLUCAO") && (
+              {(!vePainelGestao || subAbaDashboard === "EVOLUCAO") && usuario?.email?.toLowerCase() !== "cobranca07@aelbra.com.br" && (
                 <>
                   <div style={estilos.blocoRanking}>
                     <h3 style={{ marginBottom: 10 }}>
