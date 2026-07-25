@@ -162,13 +162,6 @@ export default function FichaAlunoUnificada({
   const emailLiberado = EMAILS_EMAIL_LIBERADO.map((e)=>e.toLowerCase()).includes((emailUsuario||"").toLowerCase());
   const abasVisiveis = ABAS.filter(([chave]) => chave !== "email" || emailLiberado);
 
-  // Responsável do acordo = do acordo mais recente que tenha responsável.
-  const respAcordo = useMemo(() => {
-    const comResp = acordos.find((a) => a.operador_responsavel_nome || a.operador_responsavel_email);
-    if (!comResp) return null;
-    return comResp.operador_responsavel_nome || comResp.operador_responsavel_email;
-  }, [acordos]);
-
   const totais = useMemo(() => {
     const honorarios = acordos.reduce((s, a) => s + (Number(a.honorarios_valor) || 0), 0);
     const pagas = parcelas.filter((p) => p.status === "PAGO");
@@ -222,8 +215,7 @@ export default function FichaAlunoUnificada({
       {aba === "resumo" && (
         <div>
           <div style={S.grid}>
-            <Info rot="Responsável (mensalidades)" val={aluno?.responsavel_atual_nome || "-"} />
-            <Info rot="Responsável do acordo" val={respAcordo || "—"} />
+            <Info rot="Responsável pelo aluno" val={aluno?.responsavel_atual_nome || "Sem responsável"} />
             <Info rot="Telefone" val={aluno?.telefone || "-"} />
             <Info rot="Situação" val={aluno?.status_atual || aluno?.status_jornada || "-"} />
             <Info rot="Último contato" val={data(aluno?.data_ultimo_acionamento || aluno?.ultimo_contato)} />
@@ -270,7 +262,7 @@ export default function FichaAlunoUnificada({
                   <Info rot="Parcelas" val={ac.qtd_parcelas ?? "-"} />
                   <Info rot="Entrada" val={ac.valor_entrada != null ? moeda(ac.valor_entrada) : "-"} />
                   <Info rot="Honorários" val={moeda(ac.honorarios_valor)} />
-                  <Info rot="Responsável do acordo" val={ac.operador_responsavel_nome || ac.operador_responsavel_email || "—"} />
+                  <Info rot="Responsável pelo acordo" val={ac.operador_responsavel_nome || ac.operador_responsavel_email || "Sem responsável"} />
                 </div>
                 {ps.length > 0 && (
                   <div style={S.tabelaParc}>
