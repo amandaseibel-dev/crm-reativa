@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import Alunos from "./Aluno";
 import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
+import { planejarAcoesConfirmacao } from "../utils/confirmacaoPagamento";
 import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados";
 import CasosSemValor from "../components/CasosSemValor";
 import CasosSemTelefone from "../components/CasosSemTelefone";
@@ -218,17 +219,6 @@ export default function FilaConfirmacaoPagamento() {
     return temValor && temData && temTipo && temAlvo && temOperador;
   }
 
-  // Confirmacao definitiva exige composicao VALIDADA (auditoria) e valor pago
-  // igual ao total negociado. Sem baixa/quitacao nesta etapa.
-  function composicaoValidadaOk(s) {
-    if (!s) return false;
-    const validada = !!s.composicao_validada_em && !!s.composicao_validada_por_email;
-    const bate =
-      s.total_negociado != null &&
-      Math.abs(Number(s.valor_informado || 0) - Number(s.total_negociado || 0)) < 0.005;
-    return validada && bate;
-  }
-
   const saldoAtual = totalAbertoParcelas + totalAbertoTitulos;
   const valorVinc = vinc ? Number(String(vinc.valor).replace(",", ".")) || 0 : 0;
   const saldoApos = Math.max(0, saldoAtual - valorVinc);
@@ -303,6 +293,30 @@ export default function FilaConfirmacaoPagamento() {
     const agora = new Date().toISOString();
     const observacaoAdm = [observacoes[s.id], observacaoExtra].filter(Boolean).join(" — ");
 
+    // 1) VALIDA O SALDO PRIMEIRO. Confirmar recebimento não é quitar: a
+    //    quitação do aluno/caso e a reposição automática só podem ocorrer se a
+    //    RPC devolver quitou === true. Nada de marcar BAIXA_REALIZADA antes.
+    //    p_confirmacao_id faz a RPC ignorar esta própria confirmação (ainda
+    //    AGUARDANDO neste ponto) ao somar o saldo, evitando autobloqueio.
+    let resBaixa = null;
+    let erroBaixaCaso = null;
+    if (s.aluno_id) {
+      const r = await supabase.rpc("confirmar_baixa_caso", {
+        p_aluno_id: s.aluno_id,
+        p_valor_pago: s.valor_informado || 0,
+        p_data_pagamento: s.data_pagamento || agora.slice(0, 10),
+        p_confirmacao_id: s.id,
+      });
+      resBaixa = r.data;
+      erroBaixaCaso = r.error;
+      if (erroBaixaCaso) {
+        console.error("Erro ao validar saldo do caso:", erroBaixaCaso);
+      }
+    }
+
+    const plano = planejarAcoesConfirmacao(resBaixa, erroBaixaCaso);
+
+    // 2) Registra SEMPRE que o pagamento foi recebido (não baixa a dívida).
     const { error } = await supabase
       .from("solicitacoes_confirmacao_pagamento")
       .update({
@@ -319,40 +333,33 @@ export default function FilaConfirmacaoPagamento() {
       return;
     }
 
-    if (s.aluno_id) {
+    // 3) Só quando a RPC quitou de fato (saldo zerado): marca o aluno como
+    //    QUITADO. A quitação do CASO e a reposição já foram feitas pela própria
+    //    RPC (confirmar_baixa_caso só quita se não há saldo pendente).
+    //    Quando quitou === false: mantém o responsável, o caso na carteira/fila
+    //    e NÃO gera reposição -- apenas o recebimento fica registrado.
+    if (s.aluno_id && plano.quitarAluno) {
       await supabase
         .from("alunos")
         .update({
-          status_jornada: "BAIXA_REALIZADA",
-          status_atual: "BAIXA_REALIZADA",
-          status_acionamento: "BAIXA_REALIZADA",
+          status_jornada: "QUITADO",
+          status_atual: "QUITADO",
+          status_acionamento: "QUITADO",
           data_ultimo_acionamento: agora,
         })
         .eq("id", s.aluno_id);
-
-      // Marca o caso como quitado em public.casos -- isso dispara a
-      // reposição automática (solta o operador e repõe com um caso de
-      // valor parecido), mantendo o teto de 500 por operador.
-      // HOTFIX quitacao parcial: p_confirmacao_id faz a RPC IGNORAR esta
-      // confirmacao (ja marcada como PAGAMENTO_CONFIRMADO logo acima) ao
-      // calcular o saldo -- senao o aluno que acabou de pagar a ultima
-      // obrigacao ficaria travado como ativo por causa de si mesmo.
-      // A RPC so quita se o saldo consolidado for zero.
-      const { data: resBaixa, error: erroBaixaCaso } = await supabase.rpc("confirmar_baixa_caso", {
-        p_aluno_id: s.aluno_id,
-        p_valor_pago: s.valor_informado || 0,
-        p_data_pagamento: s.data_pagamento || agora.slice(0, 10),
-        p_confirmacao_id: s.id,
-      });
-
-      if (erroBaixaCaso) {
-        console.error("Erro ao dar baixa no caso (reposição automática):", erroBaixaCaso);
-      } else if (resBaixa && resBaixa.quitou === false) {
-        console.info("Pagamento parcial: caso mantido na carteira.", resBaixa.detalhe);
-      }
     }
 
-    alert("Pagamento confirmado e baixado no sistema.");
+    if (plano.saldoPendente) {
+      console.info(
+        "Pagamento confirmado, mas saldo ainda em aberto: caso mantido na carteira, sem quitação nem reposição.",
+        resBaixa && resBaixa.detalhe
+      );
+      alert("Pagamento confirmado (recebimento registrado). O aluno ainda tem saldo em aberto, então o caso permanece na carteira e não foi quitado.");
+    } else {
+      alert("Pagamento confirmado e caso quitado (saldo zerado).");
+    }
+
     fecharFicha();
     carregarSolicitacoes();
   }
@@ -739,7 +746,6 @@ export default function FilaConfirmacaoPagamento() {
 
             {detalhe.status === "AGUARDANDO_CONFIRMACAO" && (() => {
               const completos = dadosMinimosOk(detalhe);
-              const composValidada = composicaoValidadaOk(detalhe);
               const confirmavel = true;
               const acordoOptions = [
                 ...new Map(parcelasAbertas.map((p) => [p.acordos?.id, p.acordos?.id])).keys(),
@@ -855,12 +861,6 @@ export default function FilaConfirmacaoPagamento() {
                           }}
                         />
                       </div>
-                      {false && completos && !composValidada && (
-                        <div style={styles.incompleto}>
-                          Confirmação definitiva bloqueada: exige composição validada (data e e-mail
-                          do financeiro) e valor pago igual ao total negociado. Use "Vincular dados".
-                        </div>
-                      )}
                       <div style={styles.acoes}>
                         <button
                           style={confirmavel ? styles.botaoConfirmar : styles.botaoDesabilitado}
