@@ -103,6 +103,12 @@ export default function FilaConfirmacaoPagamento() {
   const [carregandoFicha, setCarregandoFicha] = useState(false);
   const [motivoRejeicao, setMotivoRejeicao] = useState("");
 
+  // Identificacao manual do aluno (para pagamentos importados ambiguos ou nao
+  // localizados: aluno_id vazio). Nada e escolhido automaticamente.
+  const [buscaAluno, setBuscaAluno] = useState("");
+  const [resultadosAluno, setResultadosAluno] = useState([]);
+  const [identificando, setIdentificando] = useState(false);
+
   // "Vincular dados" (so identificacao financeira; nao baixa/quita/altera saldo).
   const [vinculando, setVinculando] = useState(false);
   const [salvandoVinc, setSalvandoVinc] = useState(false);
@@ -140,6 +146,8 @@ export default function FilaConfirmacaoPagamento() {
     setDetalhe(s);
     setAbaFicha("resumo");
     setMotivoRejeicao(observacoes[s.id] || "");
+    setBuscaAluno("");
+    setResultadosAluno([]);
     setHistorico([]);
     setParcelasAbertas([]);
     setTitulosAbertos([]);
@@ -232,6 +240,69 @@ export default function FilaConfirmacaoPagamento() {
   const saldoAtual = totalAbertoParcelas + totalAbertoTitulos;
   const valorVinc = vinc ? Number(String(vinc.valor).replace(",", ".")) || 0 : 0;
   const saldoApos = Math.max(0, saldoAtual - valorVinc);
+
+  // ---- Identificacao manual do aluno (ambiguo / nao localizado) ----
+  // Busca por nome, matricula ou CPF. NUNCA seleciona sozinho: quem escolhe e
+  // Amanda/Fernanda. So preenche o aluno_id; nao baixa, nao quita, nao vincula
+  // divida.
+  async function buscarAlunos(termo) {
+    setBuscaAluno(termo);
+    const t = String(termo || "").trim();
+    if (t.length < 3) {
+      setResultadosAluno([]);
+      return;
+    }
+    // Sanitiza para os padroes do PostgREST (.or nao aceita virgula/parenteses).
+    const safe = t.replace(/[(),]/g, " ").trim();
+    const digitos = t.replace(/\D/g, "");
+    let query = supabase.from("alunos").select("id,nome,cpf,matricula,unidade");
+    const ors = [`nome.ilike.%${safe}%`];
+    if (digitos.length >= 3) {
+      ors.push(`cpf.ilike.%${digitos}%`);
+      ors.push(`matricula.ilike.%${digitos}%`);
+    }
+    query = query.or(ors.join(","));
+    const { data, error } = await query.limit(10);
+    if (error) {
+      console.error("Erro ao buscar alunos:", error);
+      setResultadosAluno([]);
+      return;
+    }
+    setResultadosAluno(data || []);
+  }
+
+  async function identificarAluno(aluno) {
+    const s = detalhe;
+    if (!s || !aluno?.id) return;
+    setIdentificando(true);
+    try {
+      const agora = new Date().toISOString();
+      const upd = {
+        aluno_id: String(aluno.id),
+        aluno_nome: s.aluno_nome || aluno.nome,
+        aluno_cpf: aluno.cpf || s.aluno_cpf || null,
+        aluno_ambiguo: false,
+        aluno_candidatos: null,
+        atualizado_em: agora,
+        // NAO muda status, nao vincula divida, nao baixa, nao quita.
+      };
+      const { error } = await supabase
+        .from("solicitacoes_confirmacao_pagamento")
+        .update(upd)
+        .eq("id", s.id);
+      if (error) {
+        alert("Erro ao identificar o aluno: " + error.message);
+        return;
+      }
+      setSolicitacoes((prev) => prev.map((x) => (x.id === s.id ? { ...x, ...upd } : x)));
+      setBuscaAluno("");
+      setResultadosAluno([]);
+      // Recarrega a ficha ja com o aluno vinculado (parcelas/titulos/comprovante).
+      await abrirFicha({ ...s, ...upd });
+    } finally {
+      setIdentificando(false);
+    }
+  }
 
   // ---- Vincular dados (SOMENTE identificacao financeira) ----
   // Nao baixa parcela, nao quita titulo, nao altera saldo, nao muda o aluno
@@ -587,7 +658,15 @@ export default function FilaConfirmacaoPagamento() {
             <tbody>
               {solicitacoesFiltradas.map((s) => (
                 <tr key={s.id} style={styles.tr} onClick={() => abrirFicha(s)} title="Abrir ficha do aluno">
-                  <td style={styles.td}>{s.aluno_nome || "Aluno sem nome"}</td>
+                  <td style={styles.td}>
+                    {s.aluno_nome || "Aluno sem nome"}
+                    {isConfirmacaoAberta(s.status) && !s.aluno_id && s.aluno_ambiguo && (
+                      <span style={styles.tagAmb}>nome ambíguo</span>
+                    )}
+                    {isConfirmacaoAberta(s.status) && !s.aluno_id && !s.aluno_ambiguo && (
+                      <span style={styles.tagNao}>não identificado</span>
+                    )}
+                  </td>
                   <td style={styles.td}>{s.aluno_cpf || "-"}</td>
                   <td style={styles.td}>{s.operador_nome || s.operador_email || "-"}</td>
                   <td style={styles.td}>{formatarData(s.criado_em)}</td>
@@ -649,6 +728,14 @@ export default function FilaConfirmacaoPagamento() {
                   <p style={styles.info}><strong>Última atualização:</strong> {formatarData(detalhe.atualizado_em)}</p>
                   <p style={styles.info}><strong>Tipo informado:</strong> {traduzTipo(detalhe.forma_pagamento)}</p>
                   <p style={styles.info}><strong>Valor informado:</strong> {formatarMoeda(detalhe.valor_informado)}</p>
+                  {(detalhe.titulo_numero || detalhe.numero_parcela_completo) && (
+                    <p style={styles.info}>
+                      <strong>Origem do arquivo:</strong>{" "}
+                      {detalhe.titulo_numero ? `título ${detalhe.titulo_numero}` : ""}
+                      {detalhe.titulo_numero && detalhe.numero_parcela_completo ? " · " : ""}
+                      {detalhe.numero_parcela_completo ? `parcela ${detalhe.numero_parcela_completo}` : ""}
+                    </p>
+                  )}
                   <div style={styles.bloco}>
                     <strong>Observação do operador:</strong>
                     <p style={styles.paragrafo}>{detalhe.motivo || "Sem observação."}</p>
@@ -776,9 +863,59 @@ export default function FilaConfirmacaoPagamento() {
               const acordoOptions = [
                 ...new Map(parcelasAbertas.map((p) => [p.acordos?.id, p.acordos?.id])).keys(),
               ].filter(Boolean);
+              const precisaIdentificarAluno = !detalhe.aluno_id;
               return (
                 <div style={styles.modalAcoes}>
-                  {aguardandoVinculo && (
+                  {precisaIdentificarAluno && (
+                    <div style={styles.identBox}>
+                      <strong style={{ color: "#5b21b6" }}>
+                        {detalhe.aluno_ambiguo ? "Nome de aluno ambíguo" : "Aluno não identificado"}
+                      </strong>
+                      <p style={styles.avisoLeve}>
+                        {detalhe.aluno_ambiguo
+                          ? "Mais de um aluno com este nome. Selecione o aluno correto — nada é escolhido automaticamente."
+                          : "Nenhum aluno localizado com segurança. Busque manualmente por nome, matrícula ou CPF."}
+                      </p>
+
+                      {detalhe.aluno_ambiguo && Array.isArray(detalhe.aluno_candidatos) && detalhe.aluno_candidatos.length > 0 && (
+                        <div style={styles.candLista}>
+                          {detalhe.aluno_candidatos.map((c) => (
+                            <button
+                              key={c.id}
+                              style={styles.btnCand}
+                              disabled={identificando}
+                              onClick={() => identificarAluno(c)}
+                            >
+                              {c.nome} · CPF {c.cpf || "-"} · matr. {c.matricula || "-"} · {c.unidade || "-"}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+
+                      <input
+                        style={styles.inputBusca}
+                        placeholder="Buscar aluno por nome, matrícula ou CPF…"
+                        value={buscaAluno}
+                        onChange={(e) => buscarAlunos(e.target.value)}
+                      />
+                      <div style={styles.candLista}>
+                        {resultadosAluno.map((c) => (
+                          <button
+                            key={c.id}
+                            style={styles.btnCand}
+                            disabled={identificando}
+                            onClick={() => identificarAluno(c)}
+                          >
+                            {c.nome} · CPF {c.cpf || "-"} · matr. {c.matricula || "-"} · {c.unidade || "-"}
+                          </button>
+                        ))}
+                      </div>
+                      <p style={styles.avisoLeve}>
+                        Ou use <strong>“Rejeitar / devolver”</strong> para registrar “pagamento sem vínculo localizado”.
+                      </p>
+                    </div>
+                  )}
+                  {aguardandoVinculo && !precisaIdentificarAluno && (
                     <div style={{ ...styles.incompleto, background: "#f5f3ff", color: "#5b21b6", border: "1px solid #ddd6fe" }}>
                       Pagamento <strong>recebido</strong>, mas ainda <strong>sem vínculo</strong>. Identifique
                       manualmente a dívida em <strong>“Vincular dados”</strong> (mensalidade, parcela de acordo,
@@ -986,6 +1123,12 @@ const styles = {
   botaoCancelar: { background: "#e5e7eb", color: "#374151", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
   incompleto: { background: "#fff7ed", color: "#9a3412", border: "1px solid #fed7aa", borderRadius: "8px", padding: "10px 12px", fontSize: "13px", marginBottom: "12px" },
   vincBox: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "14px" },
+  identBox: { background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: "10px", padding: "14px", marginBottom: "12px" },
+  candLista: { display: "flex", flexDirection: "column", gap: "6px", margin: "8px 0" },
+  btnCand: { textAlign: "left", background: "#fff", border: "1px solid #e2e8f0", borderRadius: "8px", padding: "9px 11px", fontSize: "13px", color: "#334155", cursor: "pointer" },
+  inputBusca: { width: "100%", padding: "9px 11px", borderRadius: "8px", border: "1px solid #c4b5fd", fontSize: "13px", marginTop: "6px", boxSizing: "border-box" },
+  tagAmb: { display: "inline-block", marginLeft: "8px", background: "#fef3c7", color: "#92400e", borderRadius: "6px", padding: "2px 6px", fontSize: "11px", fontWeight: 700 },
+  tagNao: { display: "inline-block", marginLeft: "8px", background: "#fee2e2", color: "#991b1b", borderRadius: "6px", padding: "2px 6px", fontSize: "11px", fontWeight: 700 },
   avisoLeve: { color: "#64748b", fontSize: "12px", margin: "4px 0 10px" },
   linha2: { display: "flex", gap: "10px", flexWrap: "wrap" },
   preview: { background: "#eef6ff", border: "1px solid #cfe0f5", borderRadius: "8px", padding: "10px 12px", marginTop: "10px", marginBottom: "6px" },
