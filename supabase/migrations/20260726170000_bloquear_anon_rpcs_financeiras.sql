@@ -23,8 +23,13 @@
 -- revogar de anon/authenticated NÃO quebra a cadeia interna.
 
 ------------------------------------------------------------------------------
--- 1) ESCRITA: confirmar_baixa_caso  -> exige gestão autorizada E ativa.
---    Corpo IDÊNTICO ao atual; apenas o gate é prepend. service_role preservado.
+-- 1) ESCRITA: confirmar_baixa_caso  -> exige GESTÃO FINANCEIRA autorizada E ativa.
+--    Autorização alinhada 1:1 com a interface (podeGerirFinanceiro = 3 e-mails:
+--    Amanda gestora, Amanda ADM, Fernanda). Reusa o CONTROLE CENTRAL existente
+--    public.usuario_e_gestao() (mesma allowlist), sem criar allowlist nova e sem
+--    autorizar genericamente todo perfil 'administrativo'. Backend NÃO fica mais
+--    amplo que a tela. Acrescenta exigência de usuário ATIVO. service_role preservado.
+--    Corpo IDÊNTICO ao atual; apenas o gate é prepend.
 ------------------------------------------------------------------------------
 create or replace function public.confirmar_baixa_caso(
     p_aluno_id uuid, p_valor_pago numeric, p_data_pagamento date default current_date, p_confirmacao_id uuid default null::uuid)
@@ -39,8 +44,8 @@ begin
   -- GATE de identidade (defesa em profundidade; grants abaixo já barram anon).
   -- service_role (jobs/backends) preservado.
   if coalesce(auth.role(),'') <> 'service_role' then
-    if not (public.usuario_e_gestao_fila() and public.perfil_do_usuario_atual() is not null) then
-      raise exception 'Acesso negado: confirmar_baixa_caso exige gestao autorizada e ativa (usuario=%).',
+    if not (public.usuario_e_gestao() and public.perfil_do_usuario_atual() is not null) then
+      raise exception 'Acesso negado: confirmar_baixa_caso exige gestao financeira autorizada e ativa (usuario=%).',
         coalesce(auth.email(),'(anonimo)') using errcode = '42501';
     end if;
   end if;

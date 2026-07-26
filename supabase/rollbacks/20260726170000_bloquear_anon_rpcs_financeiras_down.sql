@@ -1,6 +1,13 @@
 -- ROLLBACK de 20260726170000_bloquear_anon_rpcs_financeiras.sql
 -- Restaura os corpos ORIGINAIS (sem gate) e os grants de EXECUTE a PUBLIC.
--- ATENÇÃO: reabre a execução anônima destas funções (estado inseguro anterior).
+--
+-- ============================ AVISO DE SEGURANÇA ============================
+-- ESTE ROLLBACK REABRE A EXPOSIÇÃO ANÔNIMA (anon volta a poder executar as 6
+-- funções financeiras SECURITY DEFINER, incluindo escrita). É um recurso de
+-- EMERGÊNCIA (ex.: quebra funcional inesperada em produção) e NÃO DEVE SER
+-- APLICADO AUTOMATICAMENTE nem em pipeline. Aplicar somente por decisão humana
+-- explícita, com registro do motivo, e reverter/refazer a remediação em seguida.
+-- ==========================================================================
 -- Idempotente.
 
 -- 1) confirmar_baixa_caso (corpo original, sem gate)
