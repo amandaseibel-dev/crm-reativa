@@ -42,6 +42,8 @@ export default function SuspeitasPagamentosDuplicados() {
     setCarregando(false);
   }
   useEffect(() => {
+    // Carga inicial da aba (busca as suspeitas). Padrão já usado nas demais telas.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     carregar();
   }, []);
 

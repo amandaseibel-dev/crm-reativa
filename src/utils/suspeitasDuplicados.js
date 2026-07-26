@@ -65,6 +65,62 @@ export function decisaoValida({ decisao, motivo, pagamentoManterId, pagamentoDup
   return true;
 }
 
+// ---------------------------------------------------------------------------
+// Regra PERMANENTE de detecção (espelha o trigger AFTER INSERT em pagamentos).
+// Mantida pura para poder testar o comportamento sem banco.
+// ---------------------------------------------------------------------------
+
+export const ACAO_DETECCAO = {
+  IGNORAR: "IGNORAR",   // não há repetição objetiva (ou linha inválida / não é inserção nova)
+  CRIAR: "CRIAR",       // primeira análise -> PENDENTE_VALIDACAO
+  ANEXAR: "ANEXAR",     // grupo já existe e continua no mesmo status
+  REABRIR: "REABRIR",   // grupo decidido + linha nova não analisada -> volta a PENDENTE
+};
+
+/**
+ * Só avaliamos inserções OBJETIVAS e reais.
+ * - ehInsercaoNova=false representa a reimportação da mesma linha (ON CONFLICT
+ *   DO UPDATE no importador), que não dispara AFTER INSERT -> não gera grupo.
+ */
+export function deveAvaliarDeteccao(pagamento, ehInsercaoNova = true) {
+  if (!ehInsercaoNova) return false;
+  if (!pagamento) return false;
+  if (!pagamento.numero_parcela_completo) return false; // só referência bancária
+  if (pagamento.retroativo === true) return false;
+  if (Number(pagamento.valor_pago || 0) <= 0) return false;
+  if (pagamento.estornado) return false;
+  return true;
+}
+
+/**
+ * Decide a ação sobre o grupo após a inserção de uma linha objetiva.
+ *
+ * @param {null|{status:string, pagamentos_analisados?:string[]}} grupo grupo atual (ou null)
+ * @param {{qtdObjetivaComChave:number, novoPagamentoId:string}} ctx
+ * @returns {{acao:string, status:string}}
+ */
+export function avaliarDeteccaoSuspeita(grupo, { qtdObjetivaComChave, novoPagamentoId }) {
+  // Precisa haver a MESMA referência em 2+ pagamentos objetivos.
+  if (Number(qtdObjetivaComChave || 0) < 2) {
+    return { acao: ACAO_DETECCAO.IGNORAR, status: grupo?.status ?? null };
+  }
+  if (!grupo) {
+    return { acao: ACAO_DETECCAO.CRIAR, status: STATUS_SUSPEITA.PENDENTE };
+  }
+  if (grupo.status === STATUS_SUSPEITA.PENDENTE) {
+    return { acao: ACAO_DETECCAO.ANEXAR, status: STATUS_SUSPEITA.PENDENTE };
+  }
+  // Grupo já decidido (LEGITIMO ou DUPLICIDADE_CONFIRMADA).
+  const analisados = grupo.pagamentos_analisados || [];
+  const jaAnalisado = analisados.includes(novoPagamentoId);
+  if (jaAnalisado) {
+    // Nenhuma linha nova -> não reabre, mantém a decisão.
+    return { acao: ACAO_DETECCAO.ANEXAR, status: grupo.status };
+  }
+  // Terceiro pagamento (novo) para a referência -> reabre para validação.
+  return { acao: ACAO_DETECCAO.REABRIR, status: STATUS_SUSPEITA.PENDENTE };
+}
+
 export function rotuloStatusSuspeita(status) {
   if (status === STATUS_SUSPEITA.LEGITIMO) return "Pagamento legítimo";
   if (status === STATUS_SUSPEITA.DUPLICIDADE) return "Duplicidade confirmada";

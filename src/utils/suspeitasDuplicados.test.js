@@ -5,6 +5,9 @@ import {
   decisaoValida,
   rotuloStatusSuspeita,
   STATUS_SUSPEITA,
+  ACAO_DETECCAO,
+  deveAvaliarDeteccao,
+  avaliarDeteccaoSuspeita,
 } from "./suspeitasDuplicados";
 
 describe("agruparSuspeitasPorReferencia (indício objetivo)", () => {
@@ -72,6 +75,61 @@ describe("decisaoValida (motivo obrigatório; não confirma sozinho)", () => {
   });
   it("rejeita decisão fora do conjunto permitido", () => {
     expect(decisaoValida({ decisao: "ESTORNAR", motivo: "m" })).toBe(false);
+  });
+});
+
+describe("regra permanente de detecção (espelha o trigger)", () => {
+  const novo = { numero_parcela_completo: "50607630002", valor_pago: 24.35, retroativo: false };
+
+  it("1) segunda linha da mesma referência cria suspeita", () => {
+    expect(deveAvaliarDeteccao(novo, true)).toBe(true);
+    const r = avaliarDeteccaoSuspeita(null, { qtdObjetivaComChave: 2, novoPagamentoId: "b" });
+    expect(r.acao).toBe(ACAO_DETECCAO.CRIAR);
+    expect(r.status).toBe(STATUS_SUSPEITA.PENDENTE);
+  });
+
+  it("2) reimportação da mesma linha não cria grupo (não é inserção nova)", () => {
+    // ON CONFLICT DO UPDATE no importador -> não é AFTER INSERT.
+    expect(deveAvaliarDeteccao(novo, false)).toBe(false);
+  });
+
+  it("3) referência diferente não cria suspeita", () => {
+    // Cada referência tem só 1 ocorrência -> qtdObjetivaComChave = 1.
+    const r = avaliarDeteccaoSuspeita(null, { qtdObjetivaComChave: 1, novoPagamentoId: "b" });
+    expect(r.acao).toBe(ACAO_DETECCAO.IGNORAR);
+  });
+
+  it("4) grupo LEGITIMO não reabre sem pagamento novo (linha já analisada)", () => {
+    const grupo = { status: STATUS_SUSPEITA.LEGITIMO, pagamentos_analisados: ["a", "b"] };
+    const r = avaliarDeteccaoSuspeita(grupo, { qtdObjetivaComChave: 2, novoPagamentoId: "b" });
+    expect(r.acao).toBe(ACAO_DETECCAO.ANEXAR);
+    expect(r.status).toBe(STATUS_SUSPEITA.LEGITIMO);
+  });
+
+  it("5) terceiro pagamento novo reabre a análise", () => {
+    const grupoLeg = { status: STATUS_SUSPEITA.LEGITIMO, pagamentos_analisados: ["a", "b"] };
+    const r1 = avaliarDeteccaoSuspeita(grupoLeg, { qtdObjetivaComChave: 3, novoPagamentoId: "c" });
+    expect(r1.acao).toBe(ACAO_DETECCAO.REABRIR);
+    expect(r1.status).toBe(STATUS_SUSPEITA.PENDENTE);
+
+    const grupoDup = { status: STATUS_SUSPEITA.DUPLICIDADE, pagamentos_analisados: ["a", "b"] };
+    const r2 = avaliarDeteccaoSuspeita(grupoDup, { qtdObjetivaComChave: 3, novoPagamentoId: "c" });
+    expect(r2.acao).toBe(ACAO_DETECCAO.REABRIR);
+  });
+
+  it("6) a detecção não devolve nenhuma mutação de pagamento (só ação de grupo)", () => {
+    const r = avaliarDeteccaoSuspeita(null, { qtdObjetivaComChave: 2, novoPagamentoId: "b" });
+    expect(Object.keys(r).sort()).toEqual(["acao", "status"]);
+    // não há campos de estorno/valor/pagamento no retorno
+    expect(r).not.toHaveProperty("valor_pago");
+    expect(r).not.toHaveProperty("estornar");
+  });
+
+  it("ignora inserções não-objetivas (sem referência, retroativo, valor<=0, estornado)", () => {
+    expect(deveAvaliarDeteccao({ numero_parcela_completo: null, valor_pago: 10 }, true)).toBe(false);
+    expect(deveAvaliarDeteccao({ numero_parcela_completo: "x", valor_pago: 0 }, true)).toBe(false);
+    expect(deveAvaliarDeteccao({ numero_parcela_completo: "x", valor_pago: 10, retroativo: true }, true)).toBe(false);
+    expect(deveAvaliarDeteccao({ numero_parcela_completo: "x", valor_pago: 10, estornado: true }, true)).toBe(false);
   });
 });
 

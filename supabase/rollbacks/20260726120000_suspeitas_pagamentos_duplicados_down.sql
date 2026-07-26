@@ -4,8 +4,11 @@
 
 BEGIN;
 
+DROP TRIGGER IF EXISTS pagamentos_detectar_suspeita_dup ON public.pagamentos;
+DROP FUNCTION IF EXISTS public.trg_detectar_suspeita_duplicidade();
 DROP FUNCTION IF EXISTS public.registrar_decisao_suspeita_duplicidade(uuid, text, uuid, uuid, text);
 DROP FUNCTION IF EXISTS public.projecao_suspeitas_pagamentos_duplicados();
+DROP INDEX IF EXISTS public.idx_pagamentos_numero_parcela_completo;
 DROP TABLE IF EXISTS public.suspeitas_pagamento_duplicado;
 
 COMMIT;
