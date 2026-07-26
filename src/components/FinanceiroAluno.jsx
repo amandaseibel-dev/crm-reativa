@@ -897,7 +897,6 @@ export default function FinanceiroAluno({ aluno }) {
       return;
     }
 
-    const documento = novaMensalidade.documento.trim() || ("MANUAL-" + Date.now());
     const vencimentoISO = paraDataISO(novaMensalidade.vencimento);
     if (!vencimentoISO) {
       setErroMensalidade("Informe o vencimento no formato dd/mm/aaaa.");
@@ -918,8 +917,52 @@ export default function FinanceiroAluno({ aluno }) {
       return;
     }
 
+    const competencia = novaMensalidade.competencia.trim() || null;
+    // Referência determinística: a MESMA mensalidade (mesmo aluno + competência
+    // + vencimento + valor original) gera sempre o mesmo documento. Assim o
+    // UNIQUE(documento) do banco também barra a duplicata mesmo sem número de
+    // título informado -- antes usava MANUAL-<timestamp>, que nunca colidia.
+    const valorCentavos = Math.round(valorOriginal * 100);
+    const referenciaManual =
+      `MANUAL-${aluno.id}-${competencia || "SEMCOMP"}-${vencimentoISO}-${valorCentavos}`;
+    const documento = novaMensalidade.documento.trim() || referenciaManual;
+
     salvandoMensalidadeRef.current = true;
     setSalvandoMensalidade(true);
+
+    // Antes de inserir, confere se já existe uma mensalidade equivalente e
+    // ainda válida (não paga/cancelada) para o mesmo aluno: mesma competência,
+    // vencimento e valor original. Se existir, bloqueia e mostra a atual em vez
+    // de criar outro registro. Complementa o UNIQUE(documento) para o caso de
+    // número de título digitado à mão diferente.
+    let consultaDup = supabase
+      .from("acordos_titulos")
+      .select("id, documento, vencimento, valor_original, competencia, situacao, status")
+      .eq("aluno_id", String(aluno.id))
+      .eq("vencimento", vencimentoISO)
+      .eq("valor_original", valorOriginal)
+      .not("situacao", "in", "(PAGO,CANCELADO)")
+      .not("status", "in", "(quitada,cancelado)");
+    consultaDup = competencia
+      ? consultaDup.eq("competencia", competencia)
+      : consultaDup.is("competencia", null);
+    const { data: existentes, error: erroDup } = await consultaDup.limit(1);
+
+    if (erroDup) {
+      setSalvandoMensalidade(false);
+      salvandoMensalidadeRef.current = false;
+      setErroMensalidade("Não foi possível checar duplicidade: " + erroDup.message);
+      return;
+    }
+    if (existentes && existentes.length > 0) {
+      const ex = existentes[0];
+      setSalvandoMensalidade(false);
+      salvandoMensalidadeRef.current = false;
+      setErroMensalidade(
+        `Já existe uma mensalidade em aberto para este aluno com essa competência, vencimento (${paraDataBR(ex.vencimento)}) e valor (${moeda(ex.valor_original)}) — título "${ex.documento}". Não foi criado outro registro.`
+      );
+      return;
+    }
 
     const agora = new Date().toISOString();
     // Auto-preenchimento a partir do cadastro do aluno (regra existente):
@@ -939,7 +982,7 @@ export default function FinanceiroAluno({ aluno }) {
       responsavel_atual_nome: aluno.responsavel_atual_nome || null,
       campos: {
         documento,
-        competencia: novaMensalidade.competencia || null,
+        competencia,
         vencimento: vencimentoISO,
         valor_original: valorOriginal,
         valor_em_aberto: valorAberto,
@@ -961,7 +1004,7 @@ export default function FinanceiroAluno({ aluno }) {
         situacao: "ABERTO",
         status: "em_aberto",
         tipo_boleto: novaMensalidade.tipoBoleto || null,
-        competencia: novaMensalidade.competencia || null,
+        competencia,
         dados: auditoria,
         motivo_ajuste: `Inclusão manual na ficha do aluno${
           usuario?.email ? " por " + usuario.email : ""
