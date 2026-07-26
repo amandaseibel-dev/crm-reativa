@@ -1,5 +1,17 @@
 # Reconciliação cadastral — Sâmara Moreno (matrículas 12876 × 12370)
 
+> **STATUS: `BLOQUEADO_AGUARDANDO_CONFIRMACAO_ACADEMICA`** (definido em 2026-07-26)
+>
+> Decisão da responsável (Amanda Seibel): **NÃO executar a reconciliação** e **NÃO
+> escolher matrícula canônica** até haver confirmação no sistema acadêmico.
+>
+> **Preservar sem alteração:** `aluno_id`, CPF, `alunos.matricula = 12370`,
+> `casos.matricula = 12876`, nome e registros atuais, e **todos os dados financeiros**.
+>
+> O script `scripts/reconciliacao/samara_moreno_reconciliacao.sql` fica **apenas como
+> documentação** — não deve ser executado. Este PR **não deve receber merge nem deploy**
+> enquanto a confirmação acadêmica não ocorrer.
+
 > Investigação **somente leitura**. Nenhum dado de produção foi alterado.
 > Branch: `fix/reconciliacao-cadastral-samara`. Data: 2026-07-26.
 

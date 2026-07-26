@@ -1,6 +1,11 @@
 -- ============================================================================
 -- Reconciliação cadastral — Sâmara Moreno (matrículas 12876 × 12370)
 -- ----------------------------------------------------------------------------
+-- STATUS: BLOQUEADO_AGUARDANDO_CONFIRMACAO_ACADEMICA (2026-07-26).
+--   Decisão da responsável: NÃO executar; manter este arquivo APENAS como
+--   documentação. Preservar aluno_id, CPF, alunos.matricula=12370,
+--   casos.matricula=12876, nome/registros atuais e todo o financeiro.
+--
 -- ATENÇÃO: este arquivo NÃO está em supabase/migrations/ de propósito.
 --          Ele NÃO deve ser aplicado por deploy/CI. Execução é MANUAL e só
 --          depois da confirmação do valor canônico da matrícula/nome no
