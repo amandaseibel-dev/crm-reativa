@@ -52,3 +52,46 @@ export async function abrirDocumento(fetcher) {
   }
   window.open(url, "_blank", "noreferrer");
 }
+
+// --- UPLOAD AUTORIZADO PELO SERVIDOR --------------------------------------
+// Fluxo em 3 passos, sem service_role no cliente e sem escolher bucket/caminho:
+//   1) pede autorização (ação "upload") -> { path, token, bucket };
+//   2) sobe o arquivo direto navegador->Storage com uploadToSignedUrl (token
+//      de uso único p/ aquele caminho);
+//   3) vincula (ação "vincular") -> servidor grava o caminho no registro.
+// Retorna { ok:true } ou { ok:false, erro }. Nunca lança para a UI.
+async function enviarDocumento(tipo, id, campo, file) {
+  if (!id || !file) return { ok: false, erro: "dados_invalidos" };
+  try {
+    const { data: auth, error: authErr } = await supabase.functions.invoke("documento-financeiro-url", {
+      body: { acao: "upload", tipo, id: String(id), campo, mime: file.type, tamanho: file.size },
+    });
+    if (authErr || !auth?.path || !auth?.token || !auth?.bucket) {
+      return { ok: false, erro: "nao_autorizado" };
+    }
+
+    const { error: upErr } = await supabase.storage
+      .from(auth.bucket)
+      .uploadToSignedUrl(auth.path, auth.token, file);
+    if (upErr) return { ok: false, erro: "falha_upload" };
+
+    const { data: vinc, error: vincErr } = await supabase.functions.invoke("documento-financeiro-url", {
+      body: { acao: "vincular", tipo, id: String(id), campo, path: auth.path },
+    });
+    if (vincErr || !vinc?.ok) return { ok: false, erro: "falha_vinculo" };
+
+    return { ok: true };
+  } catch {
+    return { ok: false, erro: "erro_inesperado" };
+  }
+}
+
+export function enviarComprovanteLink(id, file) {
+  return enviarDocumento("comprovante_link", id, undefined, file);
+}
+export function enviarComprovanteBaixa(id, file) {
+  return enviarDocumento("comprovante_baixa", id, undefined, file);
+}
+export function enviarTermo(id, campo, file) {
+  return enviarDocumento("termo", id, campo, file);
+}

@@ -12,8 +12,9 @@
 --      enumeração, mesmo logado); leitura só via Edge Function
 --      `documento-financeiro-url` (service role no servidor), que valida vínculo
 --      e assina URL de curta duração (TTL 300s);
---   3) INSERT por menor privilégio: só usuário CADASTRADO e ATIVO, no bucket
---      certo (bloqueia anon e não-cadastrado);
+--   3) SEM policy de INSERT para authenticated: o upload é autorizado caso a
+--      caso pela Edge Function (signed upload URL, token de uso único, caminho
+--      com UUID resolvido no servidor) — cliente não escolhe bucket/pasta/nome;
 --   4) UPDATE e DELETE restritos à GESTÃO financeira (usuario_e_gestao()) e
 --      usuário ativo — impede que um operador substitua/apague documento de
 --      outro registro. Uploads usam upsert:false (não sobrescrevem);
@@ -59,23 +60,17 @@ DROP POLICY IF EXISTS "upload termos acordo"             ON storage.objects; -- 
 DROP POLICY IF EXISTS "atualizar termos acordo"          ON storage.objects; -- UPDATE amplo
 
 ------------------------------------------------------------------------------
--- 3) INSERT (por bucket): somente cadastrado+ativo. SEM SELECT para authenticated.
-------------------------------------------------------------------------------
+-- 3) SEM policy de INSERT para authenticated. O upload é AUTORIZADO caso a caso
+--    pela Edge Function `documento-financeiro-url` (ação "upload"), que valida o
+--    vínculo do usuário com o registro e emite um signed upload URL (token de uso
+--    único, caminho com UUID resolvido no servidor). O arquivo trafega direto
+--    navegador->Storage sob esse token, sem depender de RLS de INSERT. Assim não
+--    resta nenhuma policy genérica de INSERT baseada só em "usuário ativo", e o
+--    cliente não escolhe bucket, pasta nem nome. Garantia idempotente de ausência:
 DROP POLICY IF EXISTS "docfin_comprovantes_insert_cadastrado" ON storage.objects;
-CREATE POLICY "docfin_comprovantes_insert_cadastrado" ON storage.objects
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    bucket_id = 'comprovantes-pagamento'
-    AND public.perfil_do_usuario_atual() IS NOT NULL
-  );
-
-DROP POLICY IF EXISTS "docfin_termos_insert_cadastrado" ON storage.objects;
-CREATE POLICY "docfin_termos_insert_cadastrado" ON storage.objects
-  FOR INSERT TO authenticated
-  WITH CHECK (
-    bucket_id = 'termos-acordo'
-    AND public.perfil_do_usuario_atual() IS NOT NULL
-  );
+DROP POLICY IF EXISTS "docfin_termos_insert_cadastrado"       ON storage.objects;
+DROP POLICY IF EXISTS "upload comprovantes pagamento"         ON storage.objects;
+DROP POLICY IF EXISTS "upload termos acordo"                  ON storage.objects;
 
 ------------------------------------------------------------------------------
 -- 4) UPDATE restrito à gestão (impede substituição por terceiros).

@@ -49,8 +49,20 @@ CREATE POLICY "atualizar termos acordo" ON storage.objects
   USING (bucket_id = 'termos-acordo')
   WITH CHECK (bucket_id = 'termos-acordo');
 
--- 3) (Opcional) Reverter limites do bucket ao estado original (sem limite/MIME).
---    Descomente se necessário — não afeta segurança de acesso.
--- UPDATE storage.buckets
---    SET file_size_limit = NULL, allowed_mime_types = NULL
---  WHERE id IN ('comprovantes-pagamento','termos-acordo');
+-- 3) Restaurar a configuração EXATA dos buckets no baseline (capturado em
+--    produção, 2026-07-26): public=false, file_size_limit=NULL,
+--    allowed_mime_types=NULL para ambos.
+UPDATE storage.buckets
+   SET public = false,
+       file_size_limit = NULL,
+       allowed_mime_types = NULL
+ WHERE id IN ('comprovantes-pagamento','termos-acordo');
+
+-- 4) Funções/grants: a remediação NÃO alterou nenhuma função nem grant
+--    (reusa public.perfil_do_usuario_atual() e public.usuario_e_gestao() como já
+--    existiam). Portanto não há definição de função a restaurar aqui.
+
+-- Observação: no baseline NÃO existiam policies de DELETE para estes buckets.
+-- O rollback acima remove as policies de DELETE introduzidas (docfin_*), então o
+-- estado de DELETE volta ao original (nenhuma policy => nenhum DELETE por
+-- authenticated), equivalente ao baseline.

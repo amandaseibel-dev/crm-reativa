@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import { urlComprovanteLink } from "../utils/documentoFinanceiro";
+import { urlComprovanteLink, enviarComprovanteLink } from "../utils/documentoFinanceiro";
 
 export default function ComprovantePagamento({ item, onAtualizar }) {
   const [arquivo, setArquivo] = useState(null);
@@ -38,55 +38,28 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
 
     setEnviando(true);
 
-    const { data: userData } = await supabase.auth.getUser();
-    const usuario = userData?.user;
-
-    const nomeSeguro = arquivo.name
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9.\-_]/g, "_");
-
-    const caminho = `${item.id}/${Date.now()}-${nomeSeguro}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("comprovantes-pagamento")
-      .upload(caminho, arquivo, {
-        cacheControl: "3600",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      alert("Erro ao anexar comprovante: " + uploadError.message);
+    // Upload autorizado pelo servidor: pede signed upload URL vinculada ao link,
+    // sobe direto ao Storage e o servidor grava o caminho + auditoria. O cliente
+    // nao escolhe bucket, pasta nem nome (UUID no servidor).
+    const res = await enviarComprovanteLink(item.id, arquivo);
+    if (!res.ok) {
+      const msg = res.erro === "ja_vinculado"
+        ? "Este link ja tem um comprovante anexado."
+        : res.erro === "mime_invalido"
+        ? "Formato nao permitido. Envie PDF, PNG ou JPG."
+        : res.erro === "tamanho_invalido"
+        ? "Arquivo acima do limite (20 MB)."
+        : "Nao foi possivel anexar o comprovante (sem permissao ou falha de envio).";
+      alert(msg);
       setEnviando(false);
       return;
     }
 
-    // Grava o CAMINHO INTERNO do objeto (bucket privado). A leitura é feita sob
-    // demanda pela Edge Function via ID do link — sem URL pública permanente.
-    const comprovanteUrl = caminho;
-
-    const { error } = await supabase
+    // Nome do arquivo e campo de exibicao (nao faz parte do caminho).
+    await supabase
       .from("links_pagamento")
-      .update({
-        comprovante_url: comprovanteUrl,
-        comprovante_nome: arquivo.name,
-        atualizado_em: new Date().toISOString(),
-      })
+      .update({ comprovante_nome: arquivo.name, atualizado_em: new Date().toISOString() })
       .eq("id", item.id);
-
-    if (error) {
-      alert("Erro ao salvar comprovante no link: " + error.message);
-      setEnviando(false);
-      return;
-    }
-
-    await supabase.from("historico_links_pagamento").insert({
-      link_pagamento_id: item.id,
-      status_anterior: item.status,
-      status_novo: item.status,
-      observacao: `Comprovante anexado: ${arquivo.name}`,
-      usuario_email: usuario?.email || "",
-    });
 
     alert("Comprovante anexado com sucesso.");
 

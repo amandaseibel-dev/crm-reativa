@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { enviarComprovanteLink } from "../utils/documentoFinanceiro";
 
 const STATUS_LABELS = {
   SOLICITADO_LINK: "Link solicitado",
@@ -468,31 +469,10 @@ export default function LinksPagamentoAluno({
 
     const agora = new Date().toISOString();
 
-    // Se tiver arquivo, sobe pro bucket de comprovantes antes de gravar.
-    let comprovanteUrl = null;
-    let comprovanteNome = null;
-
-    if (temArquivo) {
-      const nomeSeguro = arquivoRetroativo.name
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")
-        .replace(/[^a-zA-Z0-9.\-_]/g, "_");
-      const caminho = `${alunoId || "sem-id"}/${Date.now()}-${nomeSeguro}`;
-
-      const { error: erroUpload } = await supabase.storage
-        .from("comprovantes-pagamento")
-        .upload(caminho, arquivoRetroativo, { cacheControl: "3600", upsert: false });
-
-      if (erroUpload) {
-        setErro("Erro ao anexar o comprovante: " + erroUpload.message);
-        setCarregandoRetroativo(false);
-        return;
-      }
-
-      // Caminho interno (bucket privado); leitura via Edge Function por ID.
-      comprovanteUrl = caminho;
-      comprovanteNome = arquivoRetroativo.name;
-    }
+    // O comprovante e anexado APOS criar o link, via upload autorizado pelo
+    // servidor (usa o id do proprio link como vinculo). Aqui so guardamos o
+    // nome para exibicao.
+    const comprovanteNome = temArquivo ? arquivoRetroativo.name : null;
 
     const { data: novoLink, error } = await supabase
       .from("links_pagamento")
@@ -512,10 +492,10 @@ export default function LinksPagamentoAluno({
         link_pagamento: temLink ? link : null,
         link_gerado_por: emailUsuario,
         link_gerado_em: agora,
-        comprovante_url: comprovanteUrl,
+        comprovante_url: null,
         comprovante_nome: comprovanteNome,
-        comprovante_anexado_por: temArquivo ? emailUsuario : null,
-        comprovante_anexado_em: temArquivo ? agora : null,
+        comprovante_anexado_por: null,
+        comprovante_anexado_em: null,
         status: "AGUARDANDO_BAIXA",
         observacao_solicitacao: "Caso retroativo — comprovante anexado diretamente pelo operador.",
         observacao_comprovante: observacaoRetroativo || null,
@@ -531,6 +511,15 @@ export default function LinksPagamentoAluno({
       console.error("Erro ao anexar link retroativo:", error);
       setErro(error.message || "Não foi possível anexar o link retroativo.");
       return;
+    }
+
+    // Comprovante: upload autorizado pelo servidor, vinculado ao id do link.
+    if (temArquivo && novoLink?.id) {
+      const resComp = await enviarComprovanteLink(novoLink.id, arquivoRetroativo);
+      if (!resComp.ok) {
+        setErro("Link criado, mas nao foi possivel anexar o comprovante. Tente anexar novamente na fila.");
+        return;
+      }
     }
 
     if (alunoId) {
@@ -679,50 +668,27 @@ export default function LinksPagamentoAluno({
 
     setEnviandoComprovanteId(item.id);
 
-    const extensao = arquivo.name.includes(".")
-      ? arquivo.name.split(".").pop()
-      : "arquivo";
-
-    const nomeArquivo = `${item.id}-${Date.now()}.${extensao}`;
-    const caminho = `links-pagamento/${nomeArquivo}`;
-
-    const { error: erroUpload } = await supabase.storage
-      .from("comprovantes-pagamento")
-      .upload(caminho, arquivo, {
-        upsert: true,
-        contentType: arquivo.type || "application/octet-stream",
-      });
-
-    if (erroUpload) {
-      console.error("Erro ao anexar comprovante:", erroUpload);
+    // Upload autorizado pelo servidor (vinculo pelo id do link). O servidor
+    // grava comprovante_url + anexado_por/em. Aqui so completamos status/nome/obs.
+    const resComp = await enviarComprovanteLink(item.id, arquivo);
+    if (!resComp.ok) {
       setEnviandoComprovanteId(null);
-
-      if (String(erroUpload.message || "").toLowerCase().includes("row-level security")) {
-        setErro(
-          "Sua sessão expirou (a tela ficou muito tempo parada). Atualize a página (F5) e tente anexar o comprovante de novo."
-        );
-      } else {
-        setErro("Erro ao anexar comprovante: " + erroUpload.message);
-      }
-
+      setErro(
+        resComp.erro === "ja_vinculado"
+          ? "Este link ja tem um comprovante anexado."
+          : "Nao foi possivel anexar o comprovante (sem permissao ou falha de envio)."
+      );
       return;
     }
 
-    // Caminho interno (bucket privado); leitura via Edge Function por ID.
-    const comprovanteUrl = caminho;
-
     const observacaoComprovante = textoSeguro(observacoesComprovante[item.id]);
-
     const agora = new Date().toISOString();
 
     const { error } = await supabase
       .from("links_pagamento")
       .update({
         status: "AGUARDANDO_BAIXA",
-        comprovante_url: comprovanteUrl,
         comprovante_nome: arquivo.name,
-        comprovante_anexado_por: emailUsuario || null,
-        comprovante_anexado_em: agora,
         observacao_comprovante: observacaoComprovante || null,
         atualizado_em: agora,
       })
