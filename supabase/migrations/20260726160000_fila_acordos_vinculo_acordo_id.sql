@@ -53,19 +53,31 @@ alter table public.fila_acordos_vinculo_auditoria enable row level security;
 revoke all on public.fila_acordos_vinculo_auditoria from anon, authenticated;
 
 ------------------------------------------------------------------------------
--- 3) Allowlist de quem pode vincular (Amanda gestora, Amanda ADM, Fernanda)
+-- 3) Autorização CENTRALIZADA por perfil (reusa a estrutura do CRM).
+--    NÃO usa e-mails hardcoded próprios: delega ao gate existente
+--    public.usuario_e_gestao_fila() -> perfis 'gerencia' | 'supervisor' |
+--    'administrativo' em public.usuarios (cobre Amanda=gerencia,
+--    Fernanda=supervisor, Amanda ADM=administrativo), com fallback de allowlist
+--    mínima já documentado dentro de public.usuario_e_gestao(). Aqui apenas
+--    ACRESCENTAMOS a exigência de usuário ATIVO. Não amplia permissões.
 ------------------------------------------------------------------------------
-create or replace function public.fila_acordos_pode_vincular(p_email text)
+drop function if exists public.fila_acordos_pode_vincular(text);
+create or replace function public.fila_acordos_pode_vincular()
   returns boolean
   language sql
-  immutable
+  stable
+  security definer
+  set search_path to 'public'
 as $function$
-  select lower(coalesce(p_email, '')) in (
-    'amanda.seibel@aelbra.com.br',  -- Amanda (gestão de dados)
-    'cobranca07@aelbra.com.br',     -- Amanda ADM
-    'cobranca04@aelbra.com.br'      -- Fernanda (supervisão)
-  );
+  select public.usuario_e_gestao_fila()
+     and exists (
+       select 1 from public.usuarios u
+       where lower(u.email) = lower(auth.email()) and u.ativo
+     );
 $function$;
+
+revoke all on function public.fila_acordos_pode_vincular() from public, anon;
+grant execute on function public.fila_acordos_pode_vincular() to authenticated, service_role;
 
 ------------------------------------------------------------------------------
 -- 4) GUARDA: acordo_id só muda via RPC autorizada (ou roles internas).
@@ -111,11 +123,12 @@ declare
   v_email       text := lower(auth.email());
   v_motivo      text := btrim(coalesce(p_motivo, ''));
   v_old         uuid;
+  v_alterado    boolean := false;
   v_nome        text;
   v_email_resp  text;
 begin
-  -- usuário ativo e autorizado
-  if not public.fila_acordos_pode_vincular(v_email) then
+  -- usuário autenticado, ativo e autorizado (gate central por perfil)
+  if not public.fila_acordos_pode_vincular() then
     raise exception 'Usuário % não autorizado a vincular acordos.', coalesce(v_email, '(anônimo)')
       using errcode = '42501';
   end if;
@@ -142,21 +155,33 @@ begin
     raise exception 'Acordo % inexistente.', p_acordo_id using errcode = 'P0002';
   end if;
 
-  -- habilita a alteração de acordo_id apenas nesta transação
-  perform set_config('app.fila_vinculo_ok', 'on', true);
-  update public.fila_acordos_confirmar
-     set acordo_id = p_acordo_id
-   where id = p_fila_id;                    -- exatamente 1 linha (PK)
-  perform set_config('app.fila_vinculo_ok', 'off', true);
+  -- IDEMPOTÊNCIA: já com a linha travada, se o vínculo atual for IGUAL ao
+  -- solicitado, NÃO faz UPDATE e NÃO grava auditoria. Assim, duas chamadas
+  -- iguais concorrentes (serializadas pelo FOR UPDATE) produzem exatamente
+  -- UMA alteração e UMA auditoria: a segunda cai aqui e apenas retorna o estado.
+  if v_old is not distinct from p_acordo_id then
+    v_alterado := false;
+  else
+    v_alterado := true;
+    -- habilita a alteração de acordo_id apenas nesta transação
+    perform set_config('app.fila_vinculo_ok', 'on', true);
+    update public.fila_acordos_confirmar
+       set acordo_id = p_acordo_id
+     where id = p_fila_id;                    -- exatamente 1 linha (PK)
+    perform set_config('app.fila_vinculo_ok', 'off', true);
 
-  -- auditoria na MESMA transação
-  insert into public.fila_acordos_vinculo_auditoria
-    (fila_acordo_id, acordo_id_anterior, acordo_id_novo, alterado_por, motivo)
-  values
-    (p_fila_id, v_old, p_acordo_id, v_email, v_motivo);
+    -- auditoria na MESMA transação (apenas quando houve alteração)
+    insert into public.fila_acordos_vinculo_auditoria
+      (fila_acordo_id, acordo_id_anterior, acordo_id_novo, alterado_por, motivo)
+    values
+      (p_fila_id, v_old, p_acordo_id, v_email, v_motivo);
+  end if;
 
-  -- estado final (responsável específico do acordo agora vinculado)
-  select operador_responsavel_nome, operador_responsavel_email
+  -- estado final + minimização LGPD: retorna o NOME; e-mail SOMENTE quando o
+  -- nome estiver vazio. Sem CPF/telefone/outros dados pessoais.
+  select operador_responsavel_nome,
+         case when nullif(btrim(operador_responsavel_nome), '') is null
+              then operador_responsavel_email else null end
     into v_nome, v_email_resp
   from public.acordos
   where id = p_acordo_id;
@@ -165,6 +190,7 @@ begin
     'fila_id',                    p_fila_id,
     'acordo_id',                  p_acordo_id,
     'acordo_id_anterior',         v_old,
+    'alterado',                   v_alterado,
     'operador_responsavel_nome',  v_nome,
     'operador_responsavel_email', v_email_resp
   );
@@ -174,10 +200,14 @@ revoke all on function public.fila_vincular_acordo(uuid, uuid, text) from public
 grant execute on function public.fila_vincular_acordo(uuid, uuid, text) to authenticated, service_role;
 
 ------------------------------------------------------------------------------
--- 6) RPC de LEITURA: responsável ESPECÍFICO via acordo_id (somente campos mínimos)
+-- 6) RPC de LEITURA: responsável ESPECÍFICO via acordo_id (somente campos mínimos).
+--    NÃO é leitura ampla: SECURITY DEFINER + gate central por perfil ->
+--    retorna linhas apenas para gestão autorizada e ATIVA (Amanda/Fernanda/
+--    administrativo). anon e operador comum recebem conjunto vazio.
 --    Usa SOMENTE fila.acordo_id -> acordos. Não infere por nome/CPF/valor/
 --    parcelas/acordo_base. Distingue NÃO vinculado de SEM responsável
 --    (não esconde erro como "Sem responsável").
+--    Minimização LGPD: retorna NOME; e-mail SOMENTE quando o nome for vazio.
 ------------------------------------------------------------------------------
 create or replace function public.fila_acordos_responsavel()
   returns table (
@@ -189,7 +219,7 @@ create or replace function public.fila_acordos_responsavel()
   )
   language sql
   stable
-  security invoker
+  security definer
   set search_path to 'public'
 as $function$
   select
@@ -202,9 +232,11 @@ as $function$
       else 'OK'
     end as vinculo,
     a.operador_responsavel_nome,
-    a.operador_responsavel_email
+    case when nullif(btrim(a.operador_responsavel_nome), '') is null
+         then a.operador_responsavel_email else null end
   from public.fila_acordos_confirmar f
-  left join public.acordos a on a.id = f.acordo_id;
+  left join public.acordos a on a.id = f.acordo_id
+  where public.fila_acordos_pode_vincular();   -- bloqueia leitura ampla
 $function$;
 
 revoke all on function public.fila_acordos_responsavel() from public, anon;
@@ -213,6 +245,7 @@ grant execute on function public.fila_acordos_responsavel() to authenticated, se
 ------------------------------------------------------------------------------
 -- 7) RPC de BUSCA de acordo por identificador SEGURO (numero_acordo, único).
 --    Só retorna resultado para perfis autorizados; campos mínimos, sem CPF.
+--    Minimização LGPD: retorna NOME; e-mail SOMENTE quando o nome for vazio.
 ------------------------------------------------------------------------------
 create or replace function public.fila_buscar_acordo(p_numero bigint)
   returns table (
@@ -229,9 +262,11 @@ create or replace function public.fila_buscar_acordo(p_numero bigint)
   set search_path to 'public'
 as $function$
   select a.id, a.numero_acordo, a.qtd_parcelas, a.valor_total,
-         a.operador_responsavel_nome, a.operador_responsavel_email
+         a.operador_responsavel_nome,
+         case when nullif(btrim(a.operador_responsavel_nome), '') is null
+              then a.operador_responsavel_email else null end
   from public.acordos a
-  where public.fila_acordos_pode_vincular(lower(auth.email()))
+  where public.fila_acordos_pode_vincular()
     and a.numero_acordo = p_numero
   limit 20;
 $function$;

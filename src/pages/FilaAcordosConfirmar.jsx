@@ -255,7 +255,7 @@ export default function FilaAcordosConfirmar() {
                   <tr>
                     <th style={S.thNum}>Parcelas</th>
                     <th style={S.thNum}>Valor</th>
-                    <th style={S.th}>Responsável pelo acordo</th>
+                    {podeVincular && <th style={S.th}>Responsável pelo acordo</th>}
                     <th style={S.th}>Status</th>
                     <th style={S.th}></th>
                   </tr>
@@ -272,10 +272,10 @@ export default function FilaAcordosConfirmar() {
                       <tr key={a.id}>
                         <td style={S.tdNum}>{a.qtd_parcelas}</td>
                         <td style={S.tdNum}>{moeda(a.valor_total)}</td>
-                        <td style={S.td}>
-                          <div style={S.respCell}>
-                            <span style={estiloResp}>{view.texto}</span>
-                            {podeVincular && (
+                        {podeVincular && (
+                          <td style={S.td}>
+                            <div style={S.respCell}>
+                              <span style={estiloResp}>{view.texto}</span>
                               <button
                                 type="button"
                                 style={S.btnVinc}
@@ -284,9 +284,9 @@ export default function FilaAcordosConfirmar() {
                               >
                                 {resp?.acordo_id ? "Trocar" : "Vincular"}
                               </button>
-                            )}
-                          </div>
-                        </td>
+                            </div>
+                          </td>
+                        )}
                         <td style={S.td}>
                           <span style={{ ...S.chip, ...S[meta.estilo] }}>{meta.rotulo}</span>
                         </td>

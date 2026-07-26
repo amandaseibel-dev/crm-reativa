@@ -16,7 +16,8 @@ drop function if exists public.fila_vincular_acordo(uuid, uuid, text);
 drop trigger if exists trg_fila_acordos_guard_acordo_id on public.fila_acordos_confirmar;
 drop function if exists public.fila_acordos_guard_acordo_id();
 
--- Allowlist
+-- Autorização (helper próprio da feature; NÃO remove os gates centrais do CRM)
+drop function if exists public.fila_acordos_pode_vincular();
 drop function if exists public.fila_acordos_pode_vincular(text);
 
 -- Coluna / FK / índice
