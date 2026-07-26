@@ -29,8 +29,20 @@ const STATUS_META = {
   REJEITADO: { rotulo: "Rejeitado", estilo: "chipRej" },
 };
 
+// Responsável ESPECÍFICO do acordo. Prioriza o nome; usa o e-mail como fallback.
+// Nunca herda o responsável do aluno/carteira: se ambos vierem vazios (a RPC só
+// resolve quando ha vinculo seguro e unico com public.acordos), mostra "Sem responsavel".
+function responsavelAcordo(resp) {
+  const nome = String(resp?.operador_responsavel_nome || "").trim();
+  if (nome) return nome;
+  const email = String(resp?.operador_responsavel_email || "").trim();
+  if (email) return email;
+  return "Sem responsável";
+}
+
 export default function FilaAcordosConfirmar() {
   const [itens, setItens] = useState([]);
+  const [responsaveis, setResponsaveis] = useState({}); // fila_id -> { nome, email }
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [filtro, setFiltro] = useState("A_CONFIRMAR");
@@ -68,6 +80,24 @@ export default function FilaAcordosConfirmar() {
         from += PAGE_SIZE;
       }
       setItens(todos);
+      // Resolve o responsavel ESPECIFICO de cada acordo (somente leitura).
+      // A RPC devolve nome/email apenas quando ha vinculo unico e seguro com
+      // public.acordos; caso contrario os campos vem nulos -> "Sem responsavel".
+      // Falha aqui nao quebra a fila: apenas nao exibe responsavel.
+      try {
+        const { data: resp, error: respErr } = await supabase.rpc("fila_acordos_responsavel");
+        if (respErr) throw respErr;
+        const mapa = {};
+        for (const r of resp || []) {
+          mapa[r.fila_id] = {
+            operador_responsavel_nome: r.operador_responsavel_nome,
+            operador_responsavel_email: r.operador_responsavel_email,
+          };
+        }
+        setResponsaveis(mapa);
+      } catch {
+        setResponsaveis({});
+      }
     } catch (e) {
       setErro(e?.message || String(e));
       setItens([]);
@@ -211,6 +241,7 @@ export default function FilaAcordosConfirmar() {
                   <tr>
                     <th style={S.thNum}>Parcelas</th>
                     <th style={S.thNum}>Valor</th>
+                    <th style={S.th}>Responsável pelo acordo</th>
                     <th style={S.th}>Status</th>
                     <th style={S.th}></th>
                   </tr>
@@ -220,10 +251,16 @@ export default function FilaAcordosConfirmar() {
                     const st = a.status_confirmacao || "A_CONFIRMAR";
                     const meta = STATUS_META[st] || STATUS_META.A_CONFIRMAR;
                     const busy = !!processando[a.id];
+                    const resp = responsaveis[a.id];
+                    const respTexto = responsavelAcordo(resp);
+                    const semResp = respTexto === "Sem responsável";
                     return (
                       <tr key={a.id}>
                         <td style={S.tdNum}>{a.qtd_parcelas}</td>
                         <td style={S.tdNum}>{moeda(a.valor_total)}</td>
+                        <td style={S.td}>
+                          <span style={semResp ? S.respVazio : S.resp}>{respTexto}</span>
+                        </td>
                         <td style={S.td}>
                           <span style={{ ...S.chip, ...S[meta.estilo] }}>{meta.rotulo}</span>
                         </td>
@@ -303,6 +340,8 @@ const S = {
   td: { padding: "10px 14px", borderBottom: "1px solid #f4f6f9", color: "#344054" },
   tdNum: { padding: "10px 14px", borderBottom: "1px solid #f4f6f9", textAlign: "right", fontWeight: 700, color: "#101828" },
   acoes: { display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end" },
+  resp: { fontSize: 12.5, fontWeight: 600, color: "#334155" },
+  respVazio: { fontSize: 12.5, fontWeight: 600, color: "#94a3b8", fontStyle: "italic" },
   chip: { fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap" },
   chipPend: { background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a" },
   chipOk: { background: "#f0fdf4", color: "#166534", border: "1px solid #86efac" },
