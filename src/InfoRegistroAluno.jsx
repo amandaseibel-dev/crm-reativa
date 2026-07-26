@@ -99,7 +99,11 @@ export default function Alunos() {
         const somenteNumeros = termo.replace(/\D/g, "");
 
         if (somenteNumeros.length >= 3) {
-          query = query.ilike("cpf", `%${somenteNumeros}%`);
+          // Termo numerico: casa matricula EXATA (texto, zeros preservados) OU
+          // CPF por trecho. Matricula nao e inferida de nome/CPF.
+          query = query.or(
+            `matricula.eq.${somenteNumeros},cpf.ilike.%${somenteNumeros}%`
+          );
         } else {
           query = query.ilike("nome", `%${termo}%`);
         }
