@@ -1,9 +1,29 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { urlComprovanteLink } from "../utils/documentoFinanceiro";
 
 export default function ComprovantePagamento({ item, onAtualizar }) {
   const [arquivo, setArquivo] = useState(null);
   const [enviando, setEnviando] = useState(false);
+  // URL assinada de curta duração, obtida sob demanda via Edge Function pelo ID
+  // seguro do link. Nunca persistida; renovada quando o item muda.
+  const [visualizarUrl, setVisualizarUrl] = useState(null);
+
+  const temComprovante = Boolean(item?.comprovante_url || item?.comprovante_nome);
+
+  useEffect(() => {
+    let ativo = true;
+    // Busca a URL assinada de forma assíncrona. O render é guardado por
+    // `temComprovante`, então um valor residual de outro item não aparece.
+    if (item?.id && temComprovante) {
+      urlComprovanteLink(item.id).then((u) => {
+        if (ativo) setVisualizarUrl(u);
+      });
+    }
+    return () => {
+      ativo = false;
+    };
+  }, [item?.id, item?.comprovante_url, temComprovante]);
 
   async function anexarComprovante() {
     if (!item?.id) {
@@ -41,11 +61,9 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
       return;
     }
 
-    const { data: publicUrlData } = supabase.storage
-      .from("comprovantes-pagamento")
-      .getPublicUrl(caminho);
-
-    const comprovanteUrl = publicUrlData?.publicUrl || null;
+    // Grava o CAMINHO INTERNO do objeto (bucket privado). A leitura é feita sob
+    // demanda pela Edge Function via ID do link — sem URL pública permanente.
+    const comprovanteUrl = caminho;
 
     const { error } = await supabase
       .from("links_pagamento")
@@ -88,9 +106,9 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
           </p>
         </div>
 
-        {item?.comprovante_url && (
+        {temComprovante && visualizarUrl && (
           <a
-            href={item.comprovante_url}
+            href={visualizarUrl}
             target="_blank"
             rel="noreferrer"
             style={styles.link}
@@ -98,14 +116,19 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
             Abrir comprovante
           </a>
         )}
+        {temComprovante && !visualizarUrl && (
+          <span style={{ ...styles.link, color: "#9ca3af", cursor: "default" }}>
+            Carregando…
+          </span>
+        )}
       </div>
 
-      {/* previewComprovante */}
-      {item?.comprovante_url && (/(\.png|\.jpe?g)$/i.test(String(item.comprovante_nome || item.comprovante_url)) ? (
+      {/* previewComprovante — usa a URL assinada de curta duração */}
+      {temComprovante && visualizarUrl && (/(\.png|\.jpe?g)$/i.test(String(item.comprovante_nome || "")) ? (
         <img
-          src={item.comprovante_url}
+          src={visualizarUrl}
           alt="comprovante"
-          onClick={() => window.open(item.comprovante_url, "_blank", "noreferrer")}
+          onClick={() => window.open(visualizarUrl, "_blank", "noreferrer")}
           title="Clique para abrir em tamanho grande, em outra aba"
           style={{
             maxWidth: "100%",
@@ -118,8 +141,8 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
             cursor: "zoom-in",
           }}
         />
-      ) : /\.pdf$/i.test(String(item.comprovante_nome || item.comprovante_url)) ? (
-        <iframe src={item.comprovante_url} title="comprovante" style={{ width: "100%", height: 640, border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 10 }} />
+      ) : /\.pdf$/i.test(String(item.comprovante_nome || "")) ? (
+        <iframe src={visualizarUrl} title="comprovante" style={{ width: "100%", height: 640, border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 10 }} />
       ) : null)}
 
       {item?.comprovante_nome && (

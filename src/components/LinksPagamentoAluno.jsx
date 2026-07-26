@@ -489,11 +489,8 @@ export default function LinksPagamentoAluno({
         return;
       }
 
-      const { data: publicUrlData } = supabase.storage
-        .from("comprovantes-pagamento")
-        .getPublicUrl(caminho);
-
-      comprovanteUrl = publicUrlData?.publicUrl || null;
+      // Caminho interno (bucket privado); leitura via Edge Function por ID.
+      comprovanteUrl = caminho;
       comprovanteNome = arquivoRetroativo.name;
     }
 
@@ -711,11 +708,8 @@ export default function LinksPagamentoAluno({
       return;
     }
 
-    const { data: publicUrlData } = supabase.storage
-      .from("comprovantes-pagamento")
-      .getPublicUrl(caminho);
-
-    const comprovanteUrl = publicUrlData?.publicUrl || "";
+    // Caminho interno (bucket privado); leitura via Edge Function por ID.
+    const comprovanteUrl = caminho;
 
     const observacaoComprovante = textoSeguro(observacoesComprovante[item.id]);
 

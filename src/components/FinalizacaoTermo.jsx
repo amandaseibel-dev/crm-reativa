@@ -218,11 +218,8 @@ export default function FinalizacaoTermo({ aluno }) {
         return;
       }
 
-      const { data: publicUrlData } = supabase.storage
-        .from("termos-acordo")
-        .getPublicUrl(caminho);
-
-      arquivoUrl = publicUrlData?.publicUrl || null;
+      // Grava o CAMINHO INTERNO (bucket privado). Leitura via Edge Function por ID.
+      arquivoUrl = caminho;
     }
 
     // RG vai como um segundo arquivo, no mesmo bucket, numa subpasta
@@ -253,11 +250,7 @@ export default function FinalizacaoTermo({ aluno }) {
         return;
       }
 
-      const { data: publicUrlRgData } = supabase.storage
-        .from("termos-acordo")
-        .getPublicUrl(caminhoRg);
-
-      arquivoRgUrl = publicUrlRgData?.publicUrl || null;
+      arquivoRgUrl = caminhoRg; // caminho interno (bucket privado)
     }
 
     // Verso do termo -- mesma lógica do RG, arquivo opcional numa
@@ -288,11 +281,7 @@ export default function FinalizacaoTermo({ aluno }) {
         return;
       }
 
-      const { data: publicUrlVersoData } = supabase.storage
-        .from("termos-acordo")
-        .getPublicUrl(caminhoVerso);
-
-      arquivoVersoUrl = publicUrlVersoData?.publicUrl || null;
+      arquivoVersoUrl = caminhoVerso; // caminho interno (bucket privado)
     }
 
     // Assinatura via gov.br já vem validada eletronicamente pelo governo,

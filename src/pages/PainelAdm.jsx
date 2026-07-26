@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { urlComprovanteLink, urlTermo, abrirDocumento } from "../utils/documentoFinanceiro";
 import { podeVerTudo } from "../utils/operadores";
 
 const OPERADORES_REATIVA = [
@@ -1077,7 +1078,7 @@ export default function PainelAdm() {
                           {item.status === "AGUARDANDO_BAIXA" && (
                             <div style={estilos.acaoColuna}>
                               {item.comprovante_url && (
-                                <a href={item.comprovante_url} target="_blank" rel="noreferrer" style={estilos.linkComprovante}>
+                                <a href="#" onClick={(e) => { e.preventDefault(); abrirDocumento(() => urlComprovanteLink(item.id)); }} style={estilos.linkComprovante}>
                                   Ver comprovante
                                 </a>
                               )}
@@ -1341,7 +1342,7 @@ export default function PainelAdm() {
 
                   {termo.arquivo_url ? (
                     <div style={estilos.blocoCard}>
-                      <a href={termo.arquivo_url} target="_blank" rel="noreferrer" style={estilos.linkComprovante}>
+                      <a href="#" onClick={(e) => { e.preventDefault(); abrirDocumento(() => urlTermo(termo.id, "arquivo")); }} style={estilos.linkComprovante}>
                         Abrir termo de acordo
                       </a>
                     </div>
