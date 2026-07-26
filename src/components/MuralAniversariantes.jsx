@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { AvatarFoto } from "../components/AvatarFoto";
 
 function diasAteProximoAniversario(aniversario, hoje) {
   const [, mes, dia] = aniversario.split("-").map(Number);
@@ -27,7 +28,7 @@ export default function MuralAniversariantes() {
     async function carregar() {
       const { data } = await supabase
         .from("usuarios")
-        .select("nome, apelido, foto_url, aniversario")
+        .select("id, nome, apelido, aniversario")
         .not("aniversario", "is", null);
 
       if (!data) return;
@@ -59,13 +60,12 @@ export default function MuralAniversariantes() {
       <div style={estilos.lista}>
         {aniversariantes.map((pessoa) => (
           <div key={pessoa.nome} style={estilos.item}>
-            {pessoa.foto_url ? (
-              <img src={pessoa.foto_url} alt={pessoa.nome} style={estilos.foto} />
-            ) : (
-              <div style={estilos.fotoVazia}>
-                {(pessoa.apelido || pessoa.nome || "?").charAt(0).toUpperCase()}
-              </div>
-            )}
+            <AvatarFoto
+              usuarioId={pessoa.id}
+              nome={pessoa.apelido || pessoa.nome}
+              tamanho={estilos.foto?.width || 44}
+              style={estilos.foto}
+            />
             <div>
               <div style={estilos.nome}>{pessoa.apelido || pessoa.nome}</div>
               <div style={estilos.data}>

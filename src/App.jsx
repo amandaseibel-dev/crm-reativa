@@ -74,6 +74,7 @@ import CentralAvisos from "./pages/CentralAvisos";
 import TaxaConversao from "./pages/TaxaConversao";
 import PainelGeral from "./pages/PainelGeral";
 import NotificacoesPopup from "./components/NotificacoesPopup";
+import { AvatarFoto } from "./components/AvatarFoto";
 function EmDesenvolvimento({ titulo }) {
   return (
     <div className="main">
@@ -526,11 +527,11 @@ export default function App() {
           <div className="cabecalho-usuario">
             <h2 className="marca-reativa">{sidebarRecolhida ? (<><span style={{ color: "#3b82f6" }}>R</span>A</>) : (<><span style={{ color: "#3b82f6" }}>Re</span>ATIVA</>)}</h2>
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
-              {usuario.perfil?.foto_url ? (
-                <img
-                  src={usuario.perfil.foto_url}
-                  alt="Foto"
-                  style={{ width: 28, height: 28, borderRadius: "50%", objectFit: "cover" }}
+              {usuario.perfil?.id ? (
+                <AvatarFoto
+                  usuarioId={usuario.perfil.id}
+                  nome={usuario.perfil?.apelido || usuario.perfil?.nome}
+                  tamanho={28}
                 />
               ) : null}
               <span>{usuario.perfil?.apelido || usuario.perfil?.nome}</span>

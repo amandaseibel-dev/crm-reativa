@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { podeAcessoRestritoAmanda } from "../utils/operadores";
+import { AvatarFoto } from "../components/AvatarFoto";
 
 const PAUSAS = [
   { chave: "PAUSA_INTERVALO_1", label: "Pausa intervalo 1" },
@@ -142,7 +143,7 @@ export default function PainelOperadores() {
     const { data } = await query;
     setEventos(data || []);
 
-    const { data: usuarios } = await supabase.from("usuarios").select("email, apelido, foto_url");
+    const { data: usuarios } = await supabase.from("usuarios").select("id, email, apelido");
     const mapa = {};
     for (const usuario of usuarios || []) {
       mapa[usuario.email] = usuario;
@@ -222,13 +223,11 @@ export default function PainelOperadores() {
                 >
                   <td style={{ padding: "8px 10px" }}>{formatarData(linha.data)}</td>
                   <td style={{ padding: "8px 10px", display: "flex", alignItems: "center", gap: 8 }}>
-                    {perfis[linha.email]?.foto_url ? (
-                      <img
-                        src={perfis[linha.email].foto_url}
-                        alt={linha.nome}
-                        style={{ width: 24, height: 24, borderRadius: "50%", objectFit: "cover" }}
-                      />
-                    ) : null}
+                    <AvatarFoto
+                      usuarioId={perfis[linha.email]?.id}
+                      nome={perfis[linha.email]?.apelido || linha.nome}
+                      tamanho={24}
+                    />
                     {perfis[linha.email]?.apelido || linha.nome}
                   </td>
                   <td style={{ padding: "8px 10px" }}>{formatarHora(linha.login)}</td>

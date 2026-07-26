@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
 import { nomeOperadorPorEmail } from "../utils/operadores";
+import { AvatarFoto } from "../components/AvatarFoto";
 
 // A fila só mostra quem está realmente logado agora. O "heartbeat" bate a
 // cada 20s enquanto o operador está com o sistema aberto; se ele desloga
@@ -25,7 +26,7 @@ export default function FilaReceptivo({ usuarioLogado }) {
   async function buscarFila() {
     const { data: usuariosReceptivos } = await supabase
       .from("usuarios")
-      .select("email, apelido, foto_url")
+      .select("id, email, apelido")
       .eq("receptivo", true);
 
     const emails = (usuariosReceptivos || []).map((u) => u.email);
@@ -113,20 +114,11 @@ export default function FilaReceptivo({ usuarioLogado }) {
   }
 
   function Avatar({ linha, tamanho = 30 }) {
-    const foto = perfis[linha.email]?.foto_url;
-    const inicial = (nomeExibicao(linha) || "?").charAt(0).toUpperCase();
-    if (!foto) {
-      return (
-        <span style={{ ...estilos.avatarFallback, width: tamanho, height: tamanho }}>
-          {inicial}
-        </span>
-      );
-    }
     return (
-      <img
-        src={foto}
-        alt={nomeExibicao(linha)}
-        style={{ width: tamanho, height: tamanho, borderRadius: "50%", objectFit: "cover" }}
+      <AvatarFoto
+        usuarioId={perfis[linha.email]?.id}
+        nome={nomeExibicao(linha)}
+        tamanho={tamanho}
       />
     );
   }
