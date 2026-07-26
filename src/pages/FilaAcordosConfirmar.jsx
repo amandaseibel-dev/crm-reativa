@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { podeVincularAcordoFila } from "../utils/operadores";
 import Aluno from "./Aluno";
 
 // Fila de acordos importados para a operacao confirmar/acompanhar.
@@ -29,20 +30,29 @@ const STATUS_META = {
   REJEITADO: { rotulo: "Rejeitado", estilo: "chipRej" },
 };
 
-// Responsável ESPECÍFICO do acordo. Prioriza o nome; usa o e-mail como fallback.
-// Nunca herda o responsável do aluno/carteira: se ambos vierem vazios (a RPC só
-// resolve quando ha vinculo seguro e unico com public.acordos), mostra "Sem responsavel".
-function responsavelAcordo(resp) {
+// Exibição do responsável ESPECÍFICO do acordo, a partir do estado devolvido
+// pela RPC public.fila_acordos_responsavel (vínculo por acordo_id explícito).
+// Distingue os três casos exigidos, sem inferir por nome/CPF/valor/parcelas:
+//   - NAO_VINCULADO   -> "Acordo não vinculado"
+//   - SEM_RESPONSAVEL -> "Sem responsável" (acordo vinculado, mas sem operador)
+//   - OK              -> nome (prioridade) ou e-mail (fallback)
+function exibirResponsavel(resp) {
+  const vinculo = resp?.vinculo || "NAO_VINCULADO";
+  if (vinculo === "NAO_VINCULADO") return { texto: "Acordo não vinculado", tom: "naoVinc" };
+  if (vinculo === "SEM_RESPONSAVEL") return { texto: "Sem responsável", tom: "semResp" };
   const nome = String(resp?.operador_responsavel_nome || "").trim();
-  if (nome) return nome;
+  if (nome) return { texto: nome, tom: "ok" };
   const email = String(resp?.operador_responsavel_email || "").trim();
-  if (email) return email;
-  return "Sem responsável";
+  if (email) return { texto: email, tom: "ok" };
+  // OK sem nome/email não deveria ocorrer (a RPC classificaria como SEM_RESPONSAVEL).
+  return { texto: "Sem responsável", tom: "semResp" };
 }
 
 export default function FilaAcordosConfirmar() {
   const [itens, setItens] = useState([]);
-  const [responsaveis, setResponsaveis] = useState({}); // fila_id -> { nome, email }
+  const [responsaveis, setResponsaveis] = useState({}); // fila_id -> { vinculo, acordo_id, nome, email }
+  const [podeVincular, setPodeVincular] = useState(false);
+  const [vinculando, setVinculando] = useState(null); // item da fila em vínculo (modal) ou null
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [filtro, setFiltro] = useState("A_CONFIRMAR");
@@ -54,7 +64,9 @@ export default function FilaAcordosConfirmar() {
   useEffect(() => {
     (async () => {
       const { data } = await supabase.auth.getUser();
-      setEmail(data?.user?.email || "");
+      const mail = data?.user?.email || "";
+      setEmail(mail);
+      setPodeVincular(podeVincularAcordoFila(mail));
       carregar();
     })();
   }, []);
@@ -90,6 +102,8 @@ export default function FilaAcordosConfirmar() {
         const mapa = {};
         for (const r of resp || []) {
           mapa[r.fila_id] = {
+            vinculo: r.vinculo,
+            acordo_id: r.acordo_id,
             operador_responsavel_nome: r.operador_responsavel_nome,
             operador_responsavel_email: r.operador_responsavel_email,
           };
@@ -252,14 +266,26 @@ export default function FilaAcordosConfirmar() {
                     const meta = STATUS_META[st] || STATUS_META.A_CONFIRMAR;
                     const busy = !!processando[a.id];
                     const resp = responsaveis[a.id];
-                    const respTexto = responsavelAcordo(resp);
-                    const semResp = respTexto === "Sem responsável";
+                    const view = exibirResponsavel(resp);
+                    const estiloResp = view.tom === "ok" ? S.resp : view.tom === "semResp" ? S.respVazio : S.respNaoVinc;
                     return (
                       <tr key={a.id}>
                         <td style={S.tdNum}>{a.qtd_parcelas}</td>
                         <td style={S.tdNum}>{moeda(a.valor_total)}</td>
                         <td style={S.td}>
-                          <span style={semResp ? S.respVazio : S.resp}>{respTexto}</span>
+                          <div style={S.respCell}>
+                            <span style={estiloResp}>{view.texto}</span>
+                            {podeVincular && (
+                              <button
+                                type="button"
+                                style={S.btnVinc}
+                                onClick={() => setVinculando(a)}
+                                title="Vincular ou trocar o acordo desta linha"
+                              >
+                                {resp?.acordo_id ? "Trocar" : "Vincular"}
+                              </button>
+                            )}
+                          </div>
                         </td>
                         <td style={S.td}>
                           <span style={{ ...S.chip, ...S[meta.estilo] }}>{meta.rotulo}</span>
@@ -293,6 +319,30 @@ export default function FilaAcordosConfirmar() {
         </div>
       )}
 
+      {vinculando && podeVincular && (
+        <ModalVincularAcordo
+          item={vinculando}
+          onClose={() => setVinculando(null)}
+          onVinculado={(estado) => {
+            // Atualiza SOMENTE a linha vinculada, sem recarregar a tela.
+            setResponsaveis((prev) => ({
+              ...prev,
+              [estado.fila_id]: {
+                vinculo:
+                  String(estado.operador_responsavel_nome || "").trim() ||
+                  String(estado.operador_responsavel_email || "").trim()
+                    ? "OK"
+                    : "SEM_RESPONSAVEL",
+                acordo_id: estado.acordo_id,
+                operador_responsavel_nome: estado.operador_responsavel_nome,
+                operador_responsavel_email: estado.operador_responsavel_email,
+              },
+            }));
+            setVinculando(null);
+          }}
+        />
+      )}
+
       {fichaId && (
         <div style={S.modalOverlay} onClick={() => setFichaId(null)}>
           <div style={S.modalBox} onClick={(e) => e.stopPropagation()}>
@@ -306,6 +356,124 @@ export default function FilaAcordosConfirmar() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Modal de vínculo/troca de acordo. Busca o acordo por identificador SEGURO
+// (número do acordo, único) via RPC; exige motivo; uma confirmação e uma
+// execução; trava contra duplo clique; libera o botão em sucesso OU erro.
+// A autorização definitiva é do banco (RPC SECURITY DEFINER + allowlist).
+function ModalVincularAcordo({ item, onClose, onVinculado }) {
+  const [numero, setNumero] = useState("");
+  const [buscando, setBuscando] = useState(false);
+  const [achado, setAchado] = useState(null); // acordo encontrado
+  const [motivo, setMotivo] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  async function buscar() {
+    setErro("");
+    setAchado(null);
+    const n = String(numero).replace(/\D/g, "");
+    if (!n) { setErro("Informe o número do acordo."); return; }
+    setBuscando(true);
+    try {
+      const { data, error } = await supabase.rpc("fila_buscar_acordo", { p_numero: Number(n) });
+      if (error) throw error;
+      if (!data || data.length === 0) { setErro("Nenhum acordo encontrado para esse número."); return; }
+      setAchado(data[0]);
+    } catch (e) {
+      setErro(e?.message || String(e));
+    } finally {
+      setBuscando(false);
+    }
+  }
+
+  async function salvar() {
+    if (salvando) return; // trava contra duplo clique
+    if (!achado?.acordo_id) { setErro("Busque e selecione um acordo válido."); return; }
+    if (!motivo.trim()) { setErro("O motivo é obrigatório."); return; }
+    setSalvando(true);
+    setErro("");
+    try {
+      const { data, error } = await supabase.rpc("fila_vincular_acordo", {
+        p_fila_id: item.id,
+        p_acordo_id: achado.acordo_id,
+        p_motivo: motivo.trim(),
+      });
+      if (error) throw error;
+      onVinculado(data); // atualiza a tela sem recarregar
+    } catch (e) {
+      setErro(e?.message || String(e));
+    } finally {
+      setSalvando(false); // libera o botão em sucesso OU erro
+    }
+  }
+
+  return (
+    <div style={S.modalOverlay} onClick={onClose}>
+      <div style={S.vincBox} onClick={(e) => e.stopPropagation()}>
+        <div style={S.modalTopo}>
+          <span style={S.modalTitulo}>Vincular acordo</span>
+          <button type="button" style={S.modalFechar} onClick={onClose}>Fechar ✕</button>
+        </div>
+        <div style={S.vincCorpo}>
+          <p style={S.vincSub}>
+            Fila: <b>{item.nome || "-"}</b> · {item.qtd_parcelas} parcelas · {moeda(item.valor_total)}
+          </p>
+
+          <label style={S.vincLabel}>Número do acordo (identificador seguro)</label>
+          <div style={S.vincLinha}>
+            <input
+              style={S.input}
+              placeholder="Ex.: 12345"
+              value={numero}
+              onChange={(e) => setNumero(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") buscar(); }}
+            />
+            <button type="button" style={S.btnGhost} disabled={buscando} onClick={buscar}>
+              {buscando ? "Buscando..." : "Buscar"}
+            </button>
+          </div>
+
+          {achado && (
+            <div style={S.vincAchado}>
+              <div><b>Acordo #{achado.numero_acordo}</b></div>
+              <div style={S.muted}>{achado.qtd_parcelas} parcelas · {moeda(achado.valor_total)}</div>
+              <div style={S.muted}>
+                Responsável do acordo:{" "}
+                {String(achado.operador_responsavel_nome || "").trim() ||
+                  String(achado.operador_responsavel_email || "").trim() ||
+                  "Sem responsável"}
+              </div>
+            </div>
+          )}
+
+          <label style={S.vincLabel}>Motivo (obrigatório)</label>
+          <textarea
+            style={S.vincTextarea}
+            rows={3}
+            placeholder="Descreva o motivo do vínculo/troca..."
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+          />
+
+          {erro && <div style={S.erroBox}>⚠️ {erro}</div>}
+
+          <div style={S.vincAcoes}>
+            <button type="button" style={S.btnGhostClaro} onClick={onClose}>Cancelar</button>
+            <button
+              type="button"
+              style={{ ...S.btnConf, ...((salvando || !achado || !motivo.trim()) ? S.btnBusy : {}) }}
+              disabled={salvando || !achado || !motivo.trim()}
+              onClick={salvar}
+            >
+              {salvando ? "Salvando..." : "Confirmar vínculo"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
@@ -340,8 +508,20 @@ const S = {
   td: { padding: "10px 14px", borderBottom: "1px solid #f4f6f9", color: "#344054" },
   tdNum: { padding: "10px 14px", borderBottom: "1px solid #f4f6f9", textAlign: "right", fontWeight: 700, color: "#101828" },
   acoes: { display: "flex", gap: 8, alignItems: "center", justifyContent: "flex-end" },
+  respCell: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
   resp: { fontSize: 12.5, fontWeight: 600, color: "#334155" },
   respVazio: { fontSize: 12.5, fontWeight: 600, color: "#94a3b8", fontStyle: "italic" },
+  respNaoVinc: { fontSize: 12.5, fontWeight: 700, color: "#b45309", fontStyle: "italic" },
+  btnVinc: { background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", borderRadius: 8, padding: "4px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
+  vincBox: { background: "#fff", borderRadius: 14, width: "min(520px, 96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" },
+  vincCorpo: { padding: "16px 18px", display: "flex", flexDirection: "column", gap: 10, overflow: "auto" },
+  vincSub: { margin: 0, fontSize: 13, color: "#475569" },
+  vincLabel: { fontSize: 12, fontWeight: 700, color: "#334155", marginTop: 4 },
+  vincLinha: { display: "flex", gap: 8, alignItems: "center" },
+  vincAchado: { border: "1px solid #e2e8f0", background: "#f8fafc", borderRadius: 10, padding: "10px 12px", fontSize: 13, color: "#0f172a" },
+  vincTextarea: { border: "1px solid #cbd5e1", borderRadius: 10, padding: "8px 12px", fontSize: 13, background: "#fff", color: "#0f172a", resize: "vertical", fontFamily: "inherit" },
+  vincAcoes: { display: "flex", justifyContent: "flex-end", gap: 10, marginTop: 6 },
+  btnGhostClaro: { background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 10, padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
   chip: { fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap" },
   chipPend: { background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a" },
   chipOk: { background: "#f0fdf4", color: "#166534", border: "1px solid #86efac" },
