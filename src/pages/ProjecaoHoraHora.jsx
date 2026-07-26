@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
+import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
 
 function moeda(valor) {
   const n = Number(valor);
@@ -587,6 +588,11 @@ export default function ProjecaoHoraHora() {
         <button style={aba === "HISTORICO" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("HISTORICO")}>
           🗂️ Histórico de Importações
         </button>
+        {usuario?.podeGerir && (
+          <button style={aba === "SUSPEITAS_DUPLICADOS" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("SUSPEITAS_DUPLICADOS")}>
+            🔁 Suspeitas de pagamentos duplicados
+          </button>
+        )}
       </div>
 
       {erro && <p style={{ color: "#f87171" }}>{erro}</p>}
@@ -1342,6 +1348,10 @@ export default function ProjecaoHoraHora() {
             </div>
           )}
         </div>
+      )}
+
+      {aba === "SUSPEITAS_DUPLICADOS" && usuario?.podeGerir && (
+        <SuspeitasPagamentosDuplicados />
       )}
     </div>
   );
