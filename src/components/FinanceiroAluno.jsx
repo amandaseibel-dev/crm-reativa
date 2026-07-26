@@ -166,6 +166,7 @@ function mensalidadeManualInicial() {
     documento: "",
     vencimento: "",
     valor: "",
+    valorAberto: "",
     tipoBoleto: "",
     competencia: "",
     motivo: "",
@@ -195,6 +196,10 @@ export default function FinanceiroAluno({ aluno }) {
   const [novaMensalidade, setNovaMensalidade] = useState(mensalidadeManualInicial());
   const [salvandoMensalidade, setSalvandoMensalidade] = useState(false);
   const [erroMensalidade, setErroMensalidade] = useState("");
+  // Trava de execução única: garante que um duplo-clique (ou clique enquanto
+  // o insert ainda está em voo) não crie dois títulos. O disabled do botão
+  // cobre o caso normal; o ref cobre a corrida antes do setState propagar.
+  const salvandoMensalidadeRef = useRef(false);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setUsuario(data?.user || null));
@@ -884,24 +889,107 @@ export default function FinanceiroAluno({ aluno }) {
   async function salvarMensalidadeManual() {
     setErroMensalidade("");
 
+    // Trava de duplo-clique: se já há um insert em voo, ignora a chamada.
+    if (salvandoMensalidadeRef.current) return;
+
     if (!aluno?.id) {
       setErroMensalidade("Este aluno não tem cadastro (id) — não dá pra vincular o título.");
       return;
     }
 
-    const documento = novaMensalidade.documento.trim() || ("MANUAL-" + Date.now());
     const vencimentoISO = paraDataISO(novaMensalidade.vencimento);
     if (!vencimentoISO) {
       setErroMensalidade("Informe o vencimento no formato dd/mm/aaaa.");
       return;
     }
-    const valor = paraNumero(novaMensalidade.valor);
-    if (!valor) {
-      setErroMensalidade("Informe um valor válido.");
+    const valorOriginal = paraNumero(novaMensalidade.valor);
+    if (!valorOriginal) {
+      setErroMensalidade("Informe um valor original válido.");
+      return;
+    }
+    // Valor em aberto é opcional: quando não informado, assume o valor
+    // original (caso comum de mensalidade que nunca foi paga em parte).
+    const valorAberto = novaMensalidade.valorAberto
+      ? paraNumero(novaMensalidade.valorAberto)
+      : valorOriginal;
+    if (valorAberto < 0 || valorAberto > valorOriginal) {
+      setErroMensalidade("O valor em aberto não pode ser negativo nem maior que o valor original.");
       return;
     }
 
+    const competencia = novaMensalidade.competencia.trim() || null;
+    // Referência determinística: a MESMA mensalidade (mesmo aluno + competência
+    // + vencimento + valor original) gera sempre o mesmo documento. Assim o
+    // UNIQUE(documento) do banco também barra a duplicata mesmo sem número de
+    // título informado -- antes usava MANUAL-<timestamp>, que nunca colidia.
+    const valorCentavos = Math.round(valorOriginal * 100);
+    const referenciaManual =
+      `MANUAL-${aluno.id}-${competencia || "SEMCOMP"}-${vencimentoISO}-${valorCentavos}`;
+    const documento = novaMensalidade.documento.trim() || referenciaManual;
+
+    salvandoMensalidadeRef.current = true;
     setSalvandoMensalidade(true);
+
+    // Antes de inserir, confere se já existe uma mensalidade equivalente e
+    // ainda válida (não paga/cancelada) para o mesmo aluno: mesma competência,
+    // vencimento e valor original. Se existir, bloqueia e mostra a atual em vez
+    // de criar outro registro. Complementa o UNIQUE(documento) para o caso de
+    // número de título digitado à mão diferente.
+    let consultaDup = supabase
+      .from("acordos_titulos")
+      .select("id, documento, vencimento, valor_original, competencia, situacao, status")
+      .eq("aluno_id", String(aluno.id))
+      .eq("vencimento", vencimentoISO)
+      .eq("valor_original", valorOriginal)
+      .not("situacao", "in", "(PAGO,CANCELADO)")
+      .not("status", "in", "(quitada,cancelado)");
+    consultaDup = competencia
+      ? consultaDup.eq("competencia", competencia)
+      : consultaDup.is("competencia", null);
+    const { data: existentes, error: erroDup } = await consultaDup.limit(1);
+
+    if (erroDup) {
+      setSalvandoMensalidade(false);
+      salvandoMensalidadeRef.current = false;
+      setErroMensalidade("Não foi possível checar duplicidade: " + erroDup.message);
+      return;
+    }
+    if (existentes && existentes.length > 0) {
+      const ex = existentes[0];
+      setSalvandoMensalidade(false);
+      salvandoMensalidadeRef.current = false;
+      setErroMensalidade(
+        `Já existe uma mensalidade em aberto para este aluno com essa competência, vencimento (${paraDataBR(ex.vencimento)}) e valor (${moeda(ex.valor_original)}) — título "${ex.documento}". Não foi criado outro registro.`
+      );
+      return;
+    }
+
+    const agora = new Date().toISOString();
+    // Auto-preenchimento a partir do cadastro do aluno (regra existente):
+    // matrícula é o próprio aluno_id, CPF/unidade/responsável vêm da ficha.
+    // Não há colunas dedicadas em acordos_titulos para esses campos, então
+    // ficam registrados em `dados` (auditoria) + motivo_ajuste (leitura).
+    const auditoria = {
+      origem: "inclusao_manual_ficha",
+      incluido_por_email: usuario?.email || null,
+      incluido_por_nome: nomeOperadorPorEmail(usuario?.email || ""),
+      incluido_em: agora,
+      aluno_id: String(aluno.id),
+      matricula: aluno.matricula || null,
+      cpf: aluno.cpf || null,
+      unidade: aluno.unidade || null,
+      responsavel_atual_email: aluno.responsavel_atual_email || null,
+      responsavel_atual_nome: aluno.responsavel_atual_nome || null,
+      campos: {
+        documento,
+        competencia,
+        vencimento: vencimentoISO,
+        valor_original: valorOriginal,
+        valor_em_aberto: valorAberto,
+        descricao: novaMensalidade.motivo || null,
+        tipo_boleto: novaMensalidade.tipoBoleto || null,
+      },
+    };
 
     const { data: criado, error } = await supabase
       .from("acordos_titulos")
@@ -910,12 +998,14 @@ export default function FinanceiroAluno({ aluno }) {
         cpf: aluno.cpf || null,
         documento,
         vencimento: vencimentoISO,
-        valor_original: valor,
-        saldo_corrigido: valor,
+        valor_original: valorOriginal,
+        saldo_corrigido: valorAberto,
+        valor_em_aberto: valorAberto,
         situacao: "ABERTO",
         status: "em_aberto",
         tipo_boleto: novaMensalidade.tipoBoleto || null,
-        competencia: novaMensalidade.competencia || null,
+        competencia,
+        dados: auditoria,
         motivo_ajuste: `Inclusão manual na ficha do aluno${
           usuario?.email ? " por " + usuario.email : ""
         }${novaMensalidade.motivo ? " — " + novaMensalidade.motivo : ""}`,
@@ -924,6 +1014,7 @@ export default function FinanceiroAluno({ aluno }) {
       .single();
 
     setSalvandoMensalidade(false);
+    salvandoMensalidadeRef.current = false;
 
     if (error) {
       // Código 23505 = violação de UNIQUE -- já existe um título com esse
@@ -962,6 +1053,10 @@ export default function FinanceiroAluno({ aluno }) {
     );
     setNovaMensalidade(mensalidadeManualInicial());
     setFormMensalidadeAberto(false);
+    // Recalcula o saldo pela fonte única (RPC aluno_saldo_pendente_detalhe) e
+    // recarrega as listas — sem isso o "Total geral em aberto" ficava com o
+    // valor antigo até dar refresh na página. Não toca em acordos/pagamentos.
+    setRecarga((r) => r + 1);
   }
 
   if (carregando) return null;
@@ -1250,19 +1345,22 @@ export default function FinanceiroAluno({ aluno }) {
         <div style={estilos.caixa}>
           <div style={estilos.cabecalho}>
             <strong>💰 Financeiro</strong>
-            <button
-              style={estilos.botaoPequeno}
-              onClick={() => setFormMensalidadeAberto((v) => !v)}
-            >
-              {formMensalidadeAberto ? "Cancelar" : "+ Adicionar mensalidade manual"}
-            </button>
+            {podeBaixar && (
+              <button
+                style={estilos.botaoPequeno}
+                onClick={() => setFormMensalidadeAberto((v) => !v)}
+              >
+                {formMensalidadeAberto ? "Cancelar" : "+ Adicionar mensalidade manual"}
+              </button>
+            )}
           </div>
           <p style={{ fontSize: 12, opacity: 0.7, margin: "6px 0 0" }}>
             {aluno?.cpf
               ? `Nenhum título importado pelos borderôs para o CPF ${aluno.cpf}.`
               : "Este aluno não tem CPF cadastrado, então não dá pra casar com os borderôs."}
           </p>
-          {formMensalidadeAberto && <FormMensalidadeManual
+          {podeBaixar && formMensalidadeAberto && <FormMensalidadeManual
+            aluno={aluno}
             novaMensalidade={novaMensalidade}
             setNovaMensalidade={setNovaMensalidade}
             salvando={salvandoMensalidade}
@@ -1279,16 +1377,19 @@ export default function FinanceiroAluno({ aluno }) {
               {emAberto.length > 0 && (
                 <span style={estilos.totalAberto}>{moeda(valorMensalidades)} em aberto</span>
               )}
-              <button
-                style={estilos.botaoPequeno}
-                onClick={() => setFormMensalidadeAberto((v) => !v)}
-              >
-                {formMensalidadeAberto ? "Cancelar" : "+ Mensalidade manual"}
-              </button>
+              {podeBaixar && (
+                <button
+                  style={estilos.botaoPequeno}
+                  onClick={() => setFormMensalidadeAberto((v) => !v)}
+                >
+                  {formMensalidadeAberto ? "Cancelar" : "+ Mensalidade manual"}
+                </button>
+              )}
             </div>
           </div>
 
-          {formMensalidadeAberto && <FormMensalidadeManual
+          {podeBaixar && formMensalidadeAberto && <FormMensalidadeManual
+            aluno={aluno}
             novaMensalidade={novaMensalidade}
             setNovaMensalidade={setNovaMensalidade}
             salvando={salvandoMensalidade}
@@ -1369,25 +1470,85 @@ export default function FinanceiroAluno({ aluno }) {
   );
 }
 
-function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, erro, onSalvar, onCancelar }) {
+function FormMensalidadeManual({ aluno, novaMensalidade, setNovaMensalidade, salvando, erro, onSalvar, onCancelar }) {
+  // Etapa de revisão: ao clicar em "Revisar", mostra um resumo (com os campos
+  // digitados + os auto-preenchidos da ficha) para conferência antes de gravar.
+  const [revisando, setRevisando] = useState(false);
+
   function setCampo(campo, valor) {
     setNovaMensalidade((anterior) => ({ ...anterior, [campo]: valor }));
+  }
+
+  function irParaRevisao() {
+    // Validação leve só pra não abrir o resumo com o essencial faltando --
+    // a validação forte (formato/limites) continua no salvarMensalidadeManual.
+    if (!paraDataISO(novaMensalidade.vencimento)) {
+      alert("Informe o vencimento no formato dd/mm/aaaa antes de revisar.");
+      return;
+    }
+    if (!paraNumero(novaMensalidade.valor)) {
+      alert("Informe o valor original antes de revisar.");
+      return;
+    }
+    setRevisando(true);
+  }
+
+  const valorOriginalNum = paraNumero(novaMensalidade.valor);
+  const valorAbertoNum = novaMensalidade.valorAberto
+    ? paraNumero(novaMensalidade.valorAberto)
+    : valorOriginalNum;
+
+  if (revisando) {
+    return (
+      <div style={estilos.formBaixa}>
+        <p style={{ fontSize: 13, fontWeight: 700, margin: "0 0 8px" }}>
+          Confira antes de incluir
+        </p>
+        <div style={estilos.resumoInclusao}>
+          <div><span style={estilos.resumoRotulo}>Aluno:</span> {aluno?.nome || "-"}</div>
+          <div><span style={estilos.resumoRotulo}>Matrícula:</span> {aluno?.matricula || String(aluno?.id || "-")}</div>
+          <div><span style={estilos.resumoRotulo}>CPF:</span> {aluno?.cpf || "-"}</div>
+          <div><span style={estilos.resumoRotulo}>Unidade:</span> {aluno?.unidade || "-"}</div>
+          <div><span style={estilos.resumoRotulo}>Responsável atual:</span> {aluno?.responsavel_atual_nome || aluno?.responsavel_atual_email || "-"}</div>
+          <div style={estilos.resumoDivisor} />
+          <div><span style={estilos.resumoRotulo}>Competência:</span> {novaMensalidade.competencia || "-"}</div>
+          <div><span style={estilos.resumoRotulo}>Vencimento:</span> {paraDataBR(paraDataISO(novaMensalidade.vencimento))}</div>
+          <div><span style={estilos.resumoRotulo}>Valor original:</span> {moeda(valorOriginalNum)}</div>
+          <div><span style={estilos.resumoRotulo}>Valor em aberto:</span> {moeda(valorAbertoNum)}</div>
+          <div><span style={estilos.resumoRotulo}>Nº do título:</span> {novaMensalidade.documento.trim() || "(gerado automaticamente)"}</div>
+          <div><span style={estilos.resumoRotulo}>Descrição:</span> {novaMensalidade.motivo || "-"}</div>
+        </div>
+
+        {erro && <p style={{ color: "#f0999a", fontSize: 12, marginTop: 8 }}>{erro}</p>}
+
+        <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+          <button style={estilos.botaoConfirmar} onClick={onSalvar} disabled={salvando}>
+            {salvando ? "Salvando..." : "Confirmar inclusão"}
+          </button>
+          <button style={estilos.botaoCancelar} onClick={() => setRevisando(false)} disabled={salvando}>
+            Voltar e editar
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (
     <div style={estilos.formBaixa}>
       <p style={{ fontSize: 12, opacity: 0.8, margin: "0 0 8px" }}>
-        Uso pontual — pra incluir um título/parcela na ficha. O número de documento/borderô é
-        opcional; se tiver o mesmo número da planilha, use pra não duplicar quando o borderô for reimportado.
+        Uso pontual — pra incluir uma mensalidade direto na ficha, sem borderô/arquivo.
+        Aluno, matrícula, CPF, unidade e responsável são preenchidos automaticamente.
+        O número do título é opcional; se tiver o mesmo número da planilha, use pra não
+        duplicar quando o borderô for reimportado.
       </p>
       <div style={estilos.formLinha}>
         <label style={estilos.formLabel}>
-          Documento/borderô (opcional)
+          Competência
           <input
             style={estilos.formInput}
-            value={novaMensalidade.documento}
-            onChange={(e) => setCampo("documento", e.target.value)}
-            placeholder="Deixe em branco se não tiver"
+            value={novaMensalidade.competencia}
+            onChange={(e) => setCampo("competencia", e.target.value)}
+            placeholder="Ex: 05/2026"
           />
         </label>
         <label style={estilos.formLabel}>
@@ -1401,8 +1562,10 @@ function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, 
             placeholder="dd/mm/aaaa"
           />
         </label>
+      </div>
+      <div style={{ ...estilos.formLinha, marginTop: 8 }}>
         <label style={estilos.formLabel}>
-          Valor *
+          Valor original *
           <input
             style={estilos.formInput}
             value={novaMensalidade.valor}
@@ -1410,28 +1573,28 @@ function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, 
             placeholder="Ex: 850,00"
           />
         </label>
+        <label style={estilos.formLabel}>
+          Valor em aberto
+          <input
+            style={estilos.formInput}
+            value={novaMensalidade.valorAberto}
+            onChange={(e) => setCampo("valorAberto", e.target.value)}
+            placeholder="Igual ao original se vazio"
+          />
+        </label>
       </div>
       <div style={{ ...estilos.formLinha, marginTop: 8 }}>
         <label style={estilos.formLabel}>
-          Curso/tipo de boleto
+          Nº do título / borderô (opcional)
           <input
             style={estilos.formInput}
-            value={novaMensalidade.tipoBoleto}
-            onChange={(e) => setCampo("tipoBoleto", e.target.value)}
-            placeholder="Opcional"
-          />
-        </label>
-        <label style={estilos.formLabel}>
-          Competência
-          <input
-            style={estilos.formInput}
-            value={novaMensalidade.competencia}
-            onChange={(e) => setCampo("competencia", e.target.value)}
-            placeholder="Opcional, ex: 05/2026"
+            value={novaMensalidade.documento}
+            onChange={(e) => setCampo("documento", e.target.value)}
+            placeholder="Deixe em branco se não tiver"
           />
         </label>
         <label style={{ ...estilos.formLabel, flex: 2 }}>
-          Motivo (fica registrado no histórico)
+          Descrição (fica registrada no histórico)
           <input
             style={estilos.formInput}
             value={novaMensalidade.motivo}
@@ -1444,8 +1607,8 @@ function FormMensalidadeManual({ novaMensalidade, setNovaMensalidade, salvando, 
       {erro && <p style={{ color: "#f0999a", fontSize: 12, marginTop: 8 }}>{erro}</p>}
 
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-        <button style={estilos.botaoConfirmar} onClick={onSalvar} disabled={salvando}>
-          {salvando ? "Salvando..." : "Salvar mensalidade"}
+        <button style={estilos.botaoConfirmar} onClick={irParaRevisao} disabled={salvando}>
+          Revisar
         </button>
         <button style={estilos.botaoCancelar} onClick={onCancelar} disabled={salvando}>
           Cancelar
@@ -1725,6 +1888,9 @@ const estilos = {
   formLinha: { display: "flex", gap: 10, flexWrap: "wrap" },
   formLabel: { display: "flex", flexDirection: "column", gap: 4, fontSize: 11, opacity: 0.85, flex: 1, minWidth: 120 },
   formInput: { padding: "6px 8px", borderRadius: 6, border: "1px solid rgba(148,163,184,0.4)", background: "rgba(15,23,42,0.6)", color: "#e2e8f0", fontSize: 12 },
+  resumoInclusao: { display: "flex", flexDirection: "column", gap: 4, fontSize: 12.5, color: "#e2e8f0", background: "rgba(24,95,165,0.12)", border: "1px solid rgba(24,95,165,0.3)", borderRadius: 8, padding: 10 },
+  resumoRotulo: { opacity: 0.7, marginRight: 6 },
+  resumoDivisor: { borderTop: "1px solid rgba(148,163,184,0.25)", margin: "4px 0" },
   blocoTitulos: { background: "rgba(24,95,165,0.12)", border: "1px solid rgba(24,95,165,0.3)", borderRadius: 8, padding: 10, marginBottom: 10 },
   linhaTitulo: { display: "flex", alignItems: "center", gap: 10, padding: "5px 0", borderTop: "1px solid rgba(148,163,184,0.15)", fontSize: 13 },
   gridCampos: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 8 },
