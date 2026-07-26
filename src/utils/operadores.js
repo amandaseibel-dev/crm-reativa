@@ -58,6 +58,14 @@ export function podeVerTudo(email) {
   ].includes(chave);
 }
 
+// Fila de Acordos: quem pode vincular/trocar o acordo_id de uma linha da fila.
+// Mesmo allowlist de gestão (Amanda gestora, Amanda ADM, Fernanda). A regra
+// definitiva é aplicada no banco (public.fila_acordos_pode_vincular); aqui é
+// apenas para mostrar/ocultar o controle na interface.
+export function podeVincularAcordoFila(email) {
+  return podeVerTudo(email);
+}
+
 export function podeBaixarPagamento(email) {
   const chave = String(email || "").toLowerCase().trim();
   return chave === "amanda.seibel@aelbra.com.br";
