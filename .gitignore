@@ -23,3 +23,8 @@ dist-ssr
 *.sln
 *.sw?
 .vercel/
+
+# Segredos de ambiente (nunca versionar). Só o exemplo sem valores é rastreado.
+.env
+.env.*
+!.env.example
