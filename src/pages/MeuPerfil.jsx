@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import MinhaFolhaPagamento from "../components/MinhaFolhaPagamento";
+import { useFotoPerfil } from "../utils/fotoPerfil";
 
 export default function MeuPerfil() {
   const [usuarioAuth, setUsuarioAuth] = useState(null);
@@ -11,6 +12,8 @@ export default function MeuPerfil() {
   const [arquivoFoto, setArquivoFoto] = useState(null);
   const [salvando, setSalvando] = useState(false);
   const [mensagem, setMensagem] = useState("");
+  // Foto salva (privada) entregue via URL assinada de curta duração.
+  const fotoSalvaUrl = useFotoPerfil(perfil?.foto_path);
 
   useEffect(() => {
     async function carregar() {
@@ -30,7 +33,8 @@ export default function MeuPerfil() {
         setPerfil(dadosPerfil);
         setApelido(dadosPerfil.apelido || "");
         setAniversario(dadosPerfil.aniversario || "");
-        setFotoPreview(dadosPerfil.foto_url || "");
+        // A foto salva é privada: carregada via URL assinada (useFotoPerfil).
+        // fotoPreview fica reservado para o preview local do arquivo escolhido.
       }
     }
 
@@ -52,11 +56,15 @@ export default function MeuPerfil() {
     setMensagem("");
 
     try {
-      let fotoUrl = perfil.foto_url || null;
+      let fotoPath = perfil.foto_path || null;
+      let limparUrlPublica = false;
 
       if (arquivoFoto) {
-        const extensao = arquivoFoto.name.split(".").pop();
-        const caminho = `${perfil.email}/${Date.now()}.${extensao}`;
+        const extensao = (arquivoFoto.name.split(".").pop() || "jpg").toLowerCase();
+        // Caminho difícil de adivinhar (UUID) e escopado à pasta do próprio
+        // usuário (auth.uid()), exigido pela policy de escrita. Sem PII no nome.
+        const uid = usuarioAuth?.id;
+        const caminho = `${uid}/${crypto.randomUUID()}.${extensao}`;
 
         const { error: uploadError } = await supabase.storage
           .from("fotos-perfil")
@@ -68,20 +76,22 @@ export default function MeuPerfil() {
           return;
         }
 
-        const { data: publicUrlData } = supabase.storage
-          .from("fotos-perfil")
-          .getPublicUrl(caminho);
-
-        fotoUrl = publicUrlData?.publicUrl || fotoUrl;
+        // Persiste apenas o CAMINHO INTERNO; a entrega é por URL assinada.
+        fotoPath = caminho;
+        limparUrlPublica = true;
       }
+
+      const atualizacao = {
+        apelido: apelido.trim() || null,
+        foto_path: fotoPath,
+        aniversario: aniversario || null,
+      };
+      // Ao enviar nova foto, aposenta a URL pública antiga (bucket agora é privado).
+      if (limparUrlPublica) atualizacao.foto_url = null;
 
       const { error: updateError } = await supabase
         .from("usuarios")
-        .update({
-          apelido: apelido.trim() || null,
-          foto_url: fotoUrl,
-          aniversario: aniversario || null,
-        })
+        .update(atualizacao)
         .eq("email", perfil.email);
 
       if (updateError) {
@@ -114,9 +124,9 @@ export default function MeuPerfil() {
       </p>
 
       <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12, marginBottom: 20 }}>
-        {fotoPreview ? (
+        {fotoPreview || fotoSalvaUrl ? (
           <img
-            src={fotoPreview}
+            src={fotoPreview || fotoSalvaUrl}
             alt="Foto de perfil"
             style={{ width: 96, height: 96, borderRadius: "50%", objectFit: "cover", border: "2px solid rgba(148,163,184,0.4)" }}
           />

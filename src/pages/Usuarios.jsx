@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { AvatarFoto } from "../components/AvatarFoto";
 
 const perfis = ["gerencia", "supervisor", "administrativo", "operador", "auditor"];
 
@@ -434,7 +435,9 @@ export default function Usuarios() {
                   <td style={td}>
                     <div style={userCell}>
                       <div style={smallAvatar}>
-                        {u.foto_url ? (
+                        {u.foto_path ? (
+                          <AvatarFoto path={u.foto_path} nome={u.nome} tamanho={42} style={avatarImg} />
+                        ) : u.foto_url ? (
                           <img src={u.foto_url} alt={u.nome} style={avatarImg} />
                         ) : (
                           (u.nome || "?").charAt(0)

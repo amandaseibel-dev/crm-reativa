@@ -381,7 +381,7 @@ export default function FilaOperador() {
 
     const { data: perfilUsuario } = await supabase
       .from("usuarios")
-      .select("apelido, foto_url")
+      .select("apelido, foto_path")
       .eq("email", user.email)
       .maybeSingle();
 
@@ -389,7 +389,7 @@ export default function FilaOperador() {
       nome,
       email: user.email,
       apelido: perfilUsuario?.apelido || null,
-      fotoUrl: perfilUsuario?.foto_url || null,
+      fotoPath: perfilUsuario?.foto_path || null,
     };
   }
 
