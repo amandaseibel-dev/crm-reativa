@@ -26,7 +26,7 @@ export default function FilaReceptivo({ usuarioLogado }) {
   async function buscarFila() {
     const { data: usuariosReceptivos } = await supabase
       .from("usuarios")
-      .select("email, apelido, foto_path")
+      .select("id, email, apelido")
       .eq("receptivo", true);
 
     const emails = (usuariosReceptivos || []).map((u) => u.email);
@@ -116,7 +116,7 @@ export default function FilaReceptivo({ usuarioLogado }) {
   function Avatar({ linha, tamanho = 30 }) {
     return (
       <AvatarFoto
-        path={perfis[linha.email]?.foto_path}
+        usuarioId={perfis[linha.email]?.id}
         nome={nomeExibicao(linha)}
         tamanho={tamanho}
       />

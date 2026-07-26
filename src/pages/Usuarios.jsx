@@ -435,12 +435,10 @@ export default function Usuarios() {
                   <td style={td}>
                     <div style={userCell}>
                       <div style={smallAvatar}>
-                        {u.foto_path ? (
-                          <AvatarFoto path={u.foto_path} nome={u.nome} tamanho={42} style={avatarImg} />
-                        ) : u.foto_url ? (
+                        {u.foto_url ? (
                           <img src={u.foto_url} alt={u.nome} style={avatarImg} />
                         ) : (
-                          (u.nome || "?").charAt(0)
+                          <AvatarFoto usuarioId={u.id} nome={u.nome} tamanho={42} style={avatarImg} />
                         )}
                       </div>
                       <div>

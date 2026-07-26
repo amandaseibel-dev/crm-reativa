@@ -143,7 +143,7 @@ export default function PainelOperadores() {
     const { data } = await query;
     setEventos(data || []);
 
-    const { data: usuarios } = await supabase.from("usuarios").select("email, apelido, foto_path");
+    const { data: usuarios } = await supabase.from("usuarios").select("id, email, apelido");
     const mapa = {};
     for (const usuario of usuarios || []) {
       mapa[usuario.email] = usuario;
@@ -224,7 +224,7 @@ export default function PainelOperadores() {
                   <td style={{ padding: "8px 10px" }}>{formatarData(linha.data)}</td>
                   <td style={{ padding: "8px 10px", display: "flex", alignItems: "center", gap: 8 }}>
                     <AvatarFoto
-                      path={perfis[linha.email]?.foto_path}
+                      usuarioId={perfis[linha.email]?.id}
                       nome={perfis[linha.email]?.apelido || linha.nome}
                       tamanho={24}
                     />

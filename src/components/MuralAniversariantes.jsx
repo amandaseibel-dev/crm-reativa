@@ -28,7 +28,7 @@ export default function MuralAniversariantes() {
     async function carregar() {
       const { data } = await supabase
         .from("usuarios")
-        .select("nome, apelido, foto_path, aniversario")
+        .select("id, nome, apelido, aniversario")
         .not("aniversario", "is", null);
 
       if (!data) return;
@@ -61,7 +61,7 @@ export default function MuralAniversariantes() {
         {aniversariantes.map((pessoa) => (
           <div key={pessoa.nome} style={estilos.item}>
             <AvatarFoto
-              path={pessoa.foto_path}
+              usuarioId={pessoa.id}
               nome={pessoa.apelido || pessoa.nome}
               tamanho={estilos.foto?.width || 44}
               style={estilos.foto}

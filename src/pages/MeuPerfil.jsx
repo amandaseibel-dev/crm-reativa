@@ -12,8 +12,8 @@ export default function MeuPerfil() {
   const [arquivoFoto, setArquivoFoto] = useState(null);
   const [salvando, setSalvando] = useState(false);
   const [mensagem, setMensagem] = useState("");
-  // Foto salva (privada) entregue via URL assinada de curta duração.
-  const fotoSalvaUrl = useFotoPerfil(perfil?.foto_path);
+  // Foto salva (privada) entregue via URL assinada, solicitada por usuario_id.
+  const fotoSalvaUrl = useFotoPerfil(perfil?.id);
 
   useEffect(() => {
     async function carregar() {

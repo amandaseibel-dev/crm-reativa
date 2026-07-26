@@ -527,9 +527,9 @@ export default function App() {
           <div className="cabecalho-usuario">
             <h2 className="marca-reativa">{sidebarRecolhida ? (<><span style={{ color: "#3b82f6" }}>R</span>A</>) : (<><span style={{ color: "#3b82f6" }}>Re</span>ATIVA</>)}</h2>
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
-              {usuario.perfil?.foto_path ? (
+              {usuario.perfil?.id ? (
                 <AvatarFoto
-                  path={usuario.perfil.foto_path}
+                  usuarioId={usuario.perfil.id}
                   nome={usuario.perfil?.apelido || usuario.perfil?.nome}
                   tamanho={28}
                 />

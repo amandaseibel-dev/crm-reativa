@@ -1,11 +1,11 @@
 import { useFotoPerfil } from "../utils/fotoPerfil";
 
-// Avatar de foto de perfil (bucket privado). Recebe o CAMINHO INTERNO do objeto
-// (usuarios.foto_path), busca uma URL assinada de curta duração e exibe a foto;
-// enquanto carrega, em falha ou sem foto, mostra a inicial do nome (fallback),
-// nunca quebrando a tela.
-export function AvatarFoto({ path, nome, tamanho = 30, style }) {
-  const url = useFotoPerfil(path);
+// Avatar de foto de perfil (bucket privado). Recebe o USUARIO_ID (usuarios.id);
+// a URL assinada de curta duração é resolvida no servidor pela Edge Function.
+// Enquanto carrega, em falha ou sem foto, mostra a inicial do nome (fallback),
+// nunca quebrando a tela. O cliente nunca manipula o caminho do objeto.
+export function AvatarFoto({ usuarioId, nome, tamanho = 30, style }) {
+  const url = useFotoPerfil(usuarioId);
   const inicial = (nome || "?").charAt(0).toUpperCase();
   const base = {
     width: tamanho,
