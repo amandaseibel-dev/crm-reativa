@@ -37,6 +37,9 @@ const cors = {
 };
 
 const TTL_SEGUNDOS = 300; // 5 min (máximo permitido) para download
+// Validade da INTENÇÃO acompanha a validade real do signed upload URL do
+// Supabase (~2h). Não alegamos revogação antecipada do token.
+const TTL_UPLOAD_SEG = 7200; // 2 h
 const RE_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Host EXATO do projeto Supabase de produção (para validar URL legada).
@@ -183,7 +186,10 @@ Deno.serve(async (req: Request) => {
   if (!ident) return json({ error: "forbidden" }, 403);
   const ehGestao = GESTAO.has(ident.email);
 
-  let body: { acao?: unknown; tipo?: unknown; id?: unknown; campo?: unknown; mime?: unknown; tamanho?: unknown; path?: unknown } = {};
+  let body: {
+    acao?: unknown; tipo?: unknown; id?: unknown; campo?: unknown;
+    mime?: unknown; tamanho?: unknown; intent_id?: unknown;
+  } = {};
   try {
     body = await req.json();
   } catch (_e) {
@@ -191,14 +197,72 @@ Deno.serve(async (req: Request) => {
   }
 
   const acao = body?.acao === "upload" || body?.acao === "vincular" ? body.acao : "ler";
+  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+  // ===========================================================================
+  // AÇÃO: VINCULAR -> recebe SOMENTE intent_id. Tudo (bucket, caminho, tipo,
+  // campo, registro, mime/tamanho esperados) vem da INTENÇÃO armazenada; o
+  // cliente não reenvia nada disso. Idempotente e atômico (RPC).
+  // ===========================================================================
+  if (acao === "vincular") {
+    const intentId = typeof body?.intent_id === "string" ? body.intent_id : "";
+    if (!RE_UUID.test(intentId)) return json({ error: "bad_request" }, 400);
+
+    const { data: intento, error: intErr } = await admin
+      .from("documentos_financeiros_upload_intentos")
+      .select("id, tipo_documento, registro_id, campo_documento, bucket, caminho, mime_esperado, tamanho_maximo, solicitado_por, status, expira_em")
+      .eq("id", intentId)
+      .maybeSingle();
+    if (intErr) return json({ error: "lookup_failed" }, 500);
+    if (!intento) return json({ error: "not_found" }, 404);
+
+    const it = intento as Record<string, string>;
+    const donoIntento = String(it.solicitado_por ?? "").toLowerCase();
+    if (!ehGestao && donoIntento !== ident.email) return json({ error: "forbidden" }, 403);
+
+    // Idempotência: já vinculado => devolve o resultado sem reauditar/reescrever.
+    if (it.status === "VINCULADO") return json({ ok: true, ja_vinculado: true }, 200);
+    if (it.status !== "AUTORIZADO" && it.status !== "ENVIADO") return json({ error: "intencao_invalida" }, 409);
+    if (new Date(it.expira_em).getTime() < Date.now()) return json({ error: "intencao_expirada" }, 410);
+
+    const fonteI = resolverFonte(it.tipo_documento, it.campo_documento === "comprovante" ? undefined : it.campo_documento);
+    if (!fonteI || fonteI.bucket !== it.bucket) return json({ error: "intencao_invalida" }, 409);
+
+    // Confere o objeto REAL no bucket/caminho da intenção + MIME e tamanho reais.
+    const pasta = it.caminho.split("/")[0];
+    const nome = it.caminho.slice(pasta.length + 1);
+    const { data: lista, error: listErr } = await admin.storage.from(it.bucket).list(pasta, { search: nome, limit: 100 });
+    if (listErr) return json({ error: "verify_failed" }, 500);
+    const obj = Array.isArray(lista) ? lista.find((o) => o.name === nome) : undefined;
+    if (!obj) return json({ error: "objeto_ausente" }, 404);
+    const meta = (obj as { metadata?: { mimetype?: string; size?: number } }).metadata || {};
+    if (meta.mimetype && meta.mimetype !== it.mime_esperado) return json({ error: "mime_divergente" }, 415);
+    if (typeof meta.size === "number" && meta.size > Number(it.tamanho_maximo)) return json({ error: "tamanho_excedido" }, 413);
+
+    // Vinculação ATÔMICA (registro + intenção + auditoria) via RPC SECURITY DEFINER.
+    const { data: situacao, error: rpcErr } = await admin.rpc("docfin_vincular", {
+      p_intent_id: intentId,
+      p_tabela: fonteI.tabela,
+      p_coluna: fonteI.colunaUrl,
+      p_ator: ident.email,
+      p_gestao: ehGestao,
+    });
+    if (rpcErr) return json({ error: "vincular_failed" }, 500);
+    if (situacao === "OK") return json({ ok: true }, 200);
+    if (situacao === "JA_VINCULADO") return json({ ok: true, ja_vinculado: true }, 200);
+    if (situacao === "REGISTRO_JA_VINCULADO") return json({ error: "ja_vinculado" }, 409);
+    if (situacao === "EXPIRADA") return json({ error: "intencao_expirada" }, 410);
+    return json({ error: "vincular_falhou" }, 409);
+  }
+
+  // ===========================================================================
+  // AÇÕES LER / UPLOAD -> exigem tipo + id do registro e autorização por vínculo.
+  // ===========================================================================
   const fonte = resolverFonte(body?.tipo, body?.campo);
   if (!fonte) return json({ error: "bad_request" }, 400);
   const id = typeof body?.id === "string" ? body.id : "";
   if (!RE_UUID.test(id)) return json({ error: "bad_request" }, 400);
 
-  const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-
-  // Carrega o registro e valida autorização por vínculo (comum a todas as ações).
   const { data: registro, error: dbErr } = await admin
     .from(fonte.tabela)
     .select(`${fonte.colunaUrl}, ${fonte.colunaDono}`)
@@ -213,7 +277,7 @@ Deno.serve(async (req: Request) => {
   const valorAtual = (registro as Record<string, unknown>)[fonte.colunaUrl];
 
   // ---------------------------------------------------------------------------
-  // AÇÃO: LER  -> URL assinada de download.
+  // AÇÃO: LER  -> URL assinada de download (TTL 300s).
   // ---------------------------------------------------------------------------
   if (acao === "ler") {
     const caminho = resolverCaminho(valorAtual, fonte.bucket);
@@ -224,71 +288,53 @@ Deno.serve(async (req: Request) => {
   }
 
   // ---------------------------------------------------------------------------
-  // AÇÃO: UPLOAD -> autoriza UM upload (signed upload url). Sem sobrescrever
-  // documento já vinculado. Caminho com UUID, pasta = id do registro.
+  // AÇÃO: UPLOAD -> cria/reusa uma INTENÇÃO de upload e devolve signed upload URL.
+  // upsert:false explícito (nunca sobrescreve); caminho com UUID no servidor.
   // ---------------------------------------------------------------------------
   if (acao === "upload") {
     if (typeof valorAtual === "string" && valorAtual.trim().length > 0) {
-      return json({ error: "ja_vinculado" }, 409); // impede substituição silenciosa
+      return json({ error: "ja_vinculado" }, 409); // registro já tem documento
     }
     const mime = typeof body?.mime === "string" ? body.mime : "";
     const tamanho = typeof body?.tamanho === "number" ? body.tamanho : -1;
     if (!fonte.mimes.has(mime)) return json({ error: "mime_invalido" }, 415);
     if (!(tamanho > 0 && tamanho <= TAMANHO_MAX)) return json({ error: "tamanho_invalido" }, 413);
 
+    const campoDoc = body?.tipo === "termo" ? String(body?.campo) : "comprovante";
     const ext = EXT_POR_MIME[mime];
-    const uuid = crypto.randomUUID();
-    // pasta = id do registro (relação do banco); nome = uuid (sem dado pessoal).
-    const path = `${id}/${uuid}.${ext}`;
-    const { data, error } = await admin.storage.from(fonte.bucket).createSignedUploadUrl(path);
-    if (error || !data?.token) return json({ error: "upload_url_failed" }, 500);
-    // Retorna path + token (uso único p/ ESTE caminho). Bucket resolvido no servidor.
-    return json({ path: data.path ?? path, token: data.token, bucket: fonte.bucket }, 200);
-  }
 
-  // ---------------------------------------------------------------------------
-  // AÇÃO: VINCULAR -> confere o objeto enviado e grava o caminho na coluna.
-  // Vínculo controlado/auditável. Bloqueia sobrescrita e path fora do registro.
-  // ---------------------------------------------------------------------------
-  if (acao === "vincular") {
-    if (typeof valorAtual === "string" && valorAtual.trim().length > 0) {
-      return json({ error: "ja_vinculado" }, 409);
-    }
-    const path = typeof body?.path === "string" ? body.path : "";
-    // path emitido tem forma "<id>/<uuid>.<ext>" e pertence a ESTE registro.
-    const RE_PATH = new RegExp(`^${id}/[0-9a-f-]{36}\\.(pdf|png|jpg|doc|docx)$`, "i");
-    if (!RE_PATH.test(path)) return json({ error: "path_invalido" }, 400);
+    // Cria ou reusa a intenção (controle server-side, com lock e unicidade).
+    const { data: intentos, error: solErr } = await admin.rpc("docfin_solicitar_intento", {
+      p_tipo: String(body?.tipo),
+      p_registro: id,
+      p_campo: campoDoc,
+      p_tabela: fonte.tabela,
+      p_coluna: fonte.colunaUrl,
+      p_bucket: fonte.bucket,
+      p_mime: mime,
+      p_tam_max: TAMANHO_MAX,
+      p_ext: ext,
+      p_ttl_seg: TTL_UPLOAD_SEG,
+      p_ator: ident.email,
+    });
+    if (solErr) return json({ error: "intento_failed" }, 500);
+    const intento = Array.isArray(intentos) ? intentos[0] : intentos;
+    if (!intento) return json({ error: "intento_failed" }, 500);
+    if (intento.situacao === "JA_VINCULADO") return json({ error: "ja_vinculado" }, 409);
 
-    // Confirma que o objeto REALMENTE existe no bucket (não vincula órfão).
-    const pasta = id;
-    const nome = path.slice(pasta.length + 1);
-    const { data: lista, error: listErr } = await admin.storage.from(fonte.bucket).list(pasta, { search: nome, limit: 100 });
-    if (listErr) return json({ error: "verify_failed" }, 500);
-    const existe = Array.isArray(lista) && lista.some((o) => o.name === nome);
-    if (!existe) return json({ error: "objeto_ausente" }, 404);
+    // Autorização de upload p/ o caminho da intenção. upsert:false EXPLÍCITO:
+    // nunca sobrescreve objeto existente (o cliente não pode pedir upsert).
+    const { data: signed, error: upErr } = await admin.storage
+      .from(intento.bucket)
+      .createSignedUploadUrl(intento.caminho, { upsert: false });
+    if (upErr || !signed?.token) return json({ error: "upload_url_failed" }, 500);
 
-    // Grava o caminho interno + auditoria mínima (só onde já existe coluna).
-    const patch: Record<string, unknown> = { [fonte.colunaUrl]: path };
-    if (fonte.tabela === "links_pagamento") {
-      patch["comprovante_anexado_por"] = ident.email;
-      patch["comprovante_anexado_em"] = new Date().toISOString();
-    }
-    const { error: updErr } = await admin
-      .from(fonte.tabela)
-      .update(patch)
-      .eq("id", id)
-      .is(fonte.colunaUrl, null); // trava anti-corrida: só grava se ainda vazio
-    if (updErr) return json({ error: "vincular_failed" }, 500);
-
-    // Auditoria operacional já existente (comprovante de link).
-    if (fonte.tabela === "links_pagamento") {
-      await admin.from("historico_links_pagamento").insert({
-        link_pagamento_id: id,
-        observacao: "Comprovante anexado (upload autorizado por servidor).",
-        usuario_email: ident.email,
-      });
-    }
-    return json({ ok: true }, 200);
+    return json({
+      intent_id: intento.intent_id,
+      bucket: intento.bucket,
+      path: signed.path ?? intento.caminho,
+      token: signed.token,
+    }, 200);
   }
 
   return json({ error: "bad_request" }, 400);

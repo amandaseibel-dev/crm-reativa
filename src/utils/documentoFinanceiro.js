@@ -57,7 +57,8 @@ export async function abrirDocumento(fetcher) {
 // Fluxo em 3 passos, sem service_role no cliente e sem escolher bucket/caminho:
 //   1) pede autorização (ação "upload") -> { path, token, bucket };
 //   2) sobe o arquivo direto navegador->Storage com uploadToSignedUrl (token
-//      de uso único p/ aquele caminho);
+//      autorizado para aquele caminho; o servidor controla unicidade via
+//      tabela de intenções e upsert:false);
 //   3) vincula (ação "vincular") -> servidor grava o caminho no registro.
 // Retorna { ok:true } ou { ok:false, erro }. Nunca lança para a UI.
 async function enviarDocumento(tipo, id, campo, file) {
@@ -66,17 +67,21 @@ async function enviarDocumento(tipo, id, campo, file) {
     const { data: auth, error: authErr } = await supabase.functions.invoke("documento-financeiro-url", {
       body: { acao: "upload", tipo, id: String(id), campo, mime: file.type, tamanho: file.size },
     });
-    if (authErr || !auth?.path || !auth?.token || !auth?.bucket) {
-      return { ok: false, erro: "nao_autorizado" };
+    if (authErr || !auth?.intent_id || !auth?.path || !auth?.token || !auth?.bucket) {
+      // Propaga "ja_vinculado" para a UI diferenciar mensagem.
+      return { ok: false, erro: authErr?.context?.body?.error || "nao_autorizado" };
     }
 
+    // Sobe direto navegador->Storage. Bucket/caminho/token vieram do servidor e
+    // NÃO são persistidos nem logados aqui.
     const { error: upErr } = await supabase.storage
       .from(auth.bucket)
       .uploadToSignedUrl(auth.path, auth.token, file);
     if (upErr) return { ok: false, erro: "falha_upload" };
 
+    // Vincular envia SOMENTE o intent_id; o servidor obtém o resto da intenção.
     const { data: vinc, error: vincErr } = await supabase.functions.invoke("documento-financeiro-url", {
-      body: { acao: "vincular", tipo, id: String(id), campo, path: auth.path },
+      body: { acao: "vincular", intent_id: auth.intent_id },
     });
     if (vincErr || !vinc?.ok) return { ok: false, erro: "falha_vinculo" };
 

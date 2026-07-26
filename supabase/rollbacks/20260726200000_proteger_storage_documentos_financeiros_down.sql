@@ -8,6 +8,14 @@
 -- Não recria bucket público (os buckets já eram privados antes). Não toca em
 -- objetos do Storage. Idempotente.
 
+-- 0) Remover os objetos novos do controle de intenção de upload (funções,
+--    índices e tabela). Não havia nada disso no baseline.
+DROP FUNCTION IF EXISTS public.docfin_vincular(uuid,text,text,text,boolean);
+DROP FUNCTION IF EXISTS public.docfin_solicitar_intento(text,uuid,text,text,text,text,text,bigint,text,int,text);
+DROP INDEX  IF EXISTS public.ux_docfin_intento_ativo;
+DROP INDEX  IF EXISTS public.ix_docfin_intento_registro;
+DROP TABLE  IF EXISTS public.documentos_financeiros_upload_intentos;
+
 -- 1) Remover as policies restritivas introduzidas pela remediação.
 DROP POLICY IF EXISTS "docfin_comprovantes_insert_cadastrado" ON storage.objects;
 DROP POLICY IF EXISTS "docfin_termos_insert_cadastrado"       ON storage.objects;
