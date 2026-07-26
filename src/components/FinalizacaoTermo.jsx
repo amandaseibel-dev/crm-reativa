@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "../utils/operadores";
+import { enviarTermo } from "../utils/documentoFinanceiro";
 
 const STATUS_LABEL = {
   TERMO_ENVIADO_ADM: "Termo enviado ADM",
@@ -190,143 +191,64 @@ export default function FinalizacaoTermo({ aluno }) {
     const emailOperador = usuarioLogado?.email || "";
     const nomeOperador = nomeOperadorPorEmail(emailOperador);
 
-    let arquivoUrl = null;
-    let arquivoNome = null;
+    // Nomes dos arquivos (campo de exibicao; nao entram no caminho). Os arquivos
+    // sobem DEPOIS de criar a linha do termo, via upload autorizado pelo servidor
+    // (vinculo pelo termo_id + campo). Bucket/caminho/UUID resolvidos no servidor.
+    const arquivoNome = arquivo ? arquivo.name : null;
+    const arquivoRgNome = arquivoRg ? arquivoRg.name : null;
+    const arquivoVersoNome = arquivoVerso ? arquivoVerso.name : null;
 
-    // Só faz upload do termo quando há anexo (assinatura manual). No gov.br
-    // o anexo é opcional e normalmente não vem.
-    if (arquivo) {
-      arquivoNome = arquivo.name;
-
-      const nomeSeguro = arquivo.name
-        .normalize("NFD")
-        .replace(/[̀-ͯ]/g, "")
-        .replace(/[^a-zA-Z0-9.\-_]/g, "_");
-
-      const caminho = `${aluno.id}/${Date.now()}-${nomeSeguro}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("termos-acordo")
-        .upload(caminho, arquivo, {
-          cacheControl: "3600",
-          upsert: false,
-        });
-
-      if (uploadError) {
-        alert("Erro ao anexar termo: " + uploadError.message);
-        setEnviando(false);
-        return;
-      }
-
-      const { data: publicUrlData } = supabase.storage
-        .from("termos-acordo")
-        .getPublicUrl(caminho);
-
-      arquivoUrl = publicUrlData?.publicUrl || null;
-    }
-
-    // RG vai como um segundo arquivo, no mesmo bucket, numa subpasta
-    // separada pra não misturar com o termo assinado.
-    let arquivoRgUrl = null;
-    let arquivoRgNome = null;
-
-    if (arquivoRg) {
-      arquivoRgNome = arquivoRg.name;
-
-      const nomeSeguroRg = arquivoRg.name
-        .normalize("NFD")
-        .replace(/[̀-ͯ]/g, "")
-        .replace(/[^a-zA-Z0-9.\-_]/g, "_");
-
-      const caminhoRg = `${aluno.id}/rg-${Date.now()}-${nomeSeguroRg}`;
-
-      const { error: uploadRgError } = await supabase.storage
-        .from("termos-acordo")
-        .upload(caminhoRg, arquivoRg, {
-          cacheControl: "3600",
-          upsert: false,
-        });
-
-      if (uploadRgError) {
-        alert("Erro ao anexar o RG: " + uploadRgError.message);
-        setEnviando(false);
-        return;
-      }
-
-      const { data: publicUrlRgData } = supabase.storage
-        .from("termos-acordo")
-        .getPublicUrl(caminhoRg);
-
-      arquivoRgUrl = publicUrlRgData?.publicUrl || null;
-    }
-
-    // Verso do termo -- mesma lógica do RG, arquivo opcional numa
-    // subpasta própria pra não misturar com a frente do termo.
-    let arquivoVersoUrl = null;
-    let arquivoVersoNome = null;
-
-    if (arquivoVerso) {
-      arquivoVersoNome = arquivoVerso.name;
-
-      const nomeSeguroVerso = arquivoVerso.name
-        .normalize("NFD")
-        .replace(/[̀-ͯ]/g, "")
-        .replace(/[^a-zA-Z0-9.\-_]/g, "_");
-
-      const caminhoVerso = `${aluno.id}/verso-${Date.now()}-${nomeSeguroVerso}`;
-
-      const { error: uploadVersoError } = await supabase.storage
-        .from("termos-acordo")
-        .upload(caminhoVerso, arquivoVerso, {
-          cacheControl: "3600",
-          upsert: false,
-        });
-
-      if (uploadVersoError) {
-        alert("Erro ao anexar o verso do termo: " + uploadVersoError.message);
-        setEnviando(false);
-        return;
-      }
-
-      const { data: publicUrlVersoData } = supabase.storage
-        .from("termos-acordo")
-        .getPublicUrl(caminhoVerso);
-
-      arquivoVersoUrl = publicUrlVersoData?.publicUrl || null;
-    }
-
-    // Assinatura via gov.br já vem validada eletronicamente pelo governo,
-    // então libera na hora (não passa pela fila de conferencia do ADM) e
-    // fica so registrada para auditoria por amostragem depois. Assinatura
-    // manual + RG precisa de conferencia humana antes de liberar.
+    // Assinatura via gov.br ja vem validada eletronicamente; libera na hora.
+    // Manual + RG precisa de conferencia humana antes de liberar.
     const statusInicial = ehGovBr
       ? "TERMO_LIBERADO_AUTOMATICO_GOV"
       : "TERMO_ENVIADO_ADM";
 
-    const { error } = await supabase.from("termos_acordo").insert({
-      aluno_id: String(aluno.id),
-      aluno_nome: pegarNomeAluno(aluno),
-      aluno_cpf: pegarCpfAluno(aluno),
-      operador_email: emailOperador,
-      operador_nome: nomeOperador,
-      observacao_operador: observacao,
-      arquivo_nome: arquivoNome,
-      arquivo_url: arquivoUrl,
-      arquivo_rg_nome: arquivoRgNome,
-      arquivo_rg_url: arquivoRgUrl,
-      arquivo_verso_nome: arquivoVersoNome,
-      arquivo_verso_url: arquivoVersoUrl,
-      tipo_assinatura: tipoAssinatura,
-      status: statusInicial,
-      ...(ehGovBr
-        ? { validado_por: "AUTOMATICO_GOV_BR", validado_em: new Date().toISOString() }
-        : {}),
-    });
+    const { data: termoCriado, error } = await supabase
+      .from("termos_acordo")
+      .insert({
+        aluno_id: String(aluno.id),
+        aluno_nome: pegarNomeAluno(aluno),
+        aluno_cpf: pegarCpfAluno(aluno),
+        operador_email: emailOperador,
+        operador_nome: nomeOperador,
+        observacao_operador: observacao,
+        arquivo_nome: arquivoNome,
+        arquivo_url: null,
+        arquivo_rg_nome: arquivoRgNome,
+        arquivo_rg_url: null,
+        arquivo_verso_nome: arquivoVersoNome,
+        arquivo_verso_url: null,
+        tipo_assinatura: tipoAssinatura,
+        status: statusInicial,
+        ...(ehGovBr
+          ? { validado_por: "AUTOMATICO_GOV_BR", validado_em: new Date().toISOString() }
+          : {}),
+      })
+      .select("id")
+      .single();
 
     if (error) {
       alert("Erro ao enviar termo para ADM: " + error.message);
       setEnviando(false);
       return;
+    }
+
+    // Uploads autorizados pelo servidor, vinculados ao termo recem-criado.
+    const termoId = termoCriado?.id;
+    const anexos = [
+      [arquivo, "arquivo", "termo"],
+      [arquivoRg, "rg", "RG"],
+      [arquivoVerso, "verso", "verso do termo"],
+    ];
+    for (const [file, campo, rotulo] of anexos) {
+      if (!file || !termoId) continue;
+      const r = await enviarTermo(termoId, campo, file);
+      if (!r.ok) {
+        alert("Termo registrado, mas nao foi possivel anexar o " + rotulo + ". Reenvie o anexo na fila de termos.");
+        setEnviando(false);
+        return;
+      }
     }
 
     await atualizarStatusAluno(statusInicial);

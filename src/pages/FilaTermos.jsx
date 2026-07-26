@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { urlTermo, abrirDocumento } from "../utils/documentoFinanceiro";
 
 const ADM_AUTORIZADOS = [
   "cobranca04@aelbra.com.br", // Fernanda
@@ -362,9 +363,8 @@ export default function FilaAdmTermos() {
                 <strong>Termo anexado:</strong>
                 <br />
                 <a
-                  href={termo.arquivo_url}
-                  target="_blank"
-                  rel="noreferrer"
+                  href="#"
+                  onClick={(e) => { e.preventDefault(); abrirDocumento(() => urlTermo(termo.id, "arquivo")); }}
                   style={styles.link}
                 >
                   Abrir termo de acordo
@@ -374,9 +374,8 @@ export default function FilaAdmTermos() {
                   <>
                     {" "}
                     <a
-                      href={termo.arquivo_rg_url}
-                      target="_blank"
-                      rel="noreferrer"
+                      href="#"
+                      onClick={(e) => { e.preventDefault(); abrirDocumento(() => urlTermo(termo.id, "rg")); }}
                       style={styles.link}
                     >
                       Abrir RG anexado

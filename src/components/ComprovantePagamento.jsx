@@ -1,9 +1,29 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { urlComprovanteLink, enviarComprovanteLink } from "../utils/documentoFinanceiro";
 
 export default function ComprovantePagamento({ item, onAtualizar }) {
   const [arquivo, setArquivo] = useState(null);
   const [enviando, setEnviando] = useState(false);
+  // URL assinada de curta duração, obtida sob demanda via Edge Function pelo ID
+  // seguro do link. Nunca persistida; renovada quando o item muda.
+  const [visualizarUrl, setVisualizarUrl] = useState(null);
+
+  const temComprovante = Boolean(item?.comprovante_url || item?.comprovante_nome);
+
+  useEffect(() => {
+    let ativo = true;
+    // Busca a URL assinada de forma assíncrona. O render é guardado por
+    // `temComprovante`, então um valor residual de outro item não aparece.
+    if (item?.id && temComprovante) {
+      urlComprovanteLink(item.id).then((u) => {
+        if (ativo) setVisualizarUrl(u);
+      });
+    }
+    return () => {
+      ativo = false;
+    };
+  }, [item?.id, item?.comprovante_url, temComprovante]);
 
   async function anexarComprovante() {
     if (!item?.id) {
@@ -18,57 +38,28 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
 
     setEnviando(true);
 
-    const { data: userData } = await supabase.auth.getUser();
-    const usuario = userData?.user;
-
-    const nomeSeguro = arquivo.name
-      .normalize("NFD")
-      .replace(/[\u0300-\u036f]/g, "")
-      .replace(/[^a-zA-Z0-9.\-_]/g, "_");
-
-    const caminho = `${item.id}/${Date.now()}-${nomeSeguro}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from("comprovantes-pagamento")
-      .upload(caminho, arquivo, {
-        cacheControl: "3600",
-        upsert: false,
-      });
-
-    if (uploadError) {
-      alert("Erro ao anexar comprovante: " + uploadError.message);
+    // Upload autorizado pelo servidor: pede signed upload URL vinculada ao link,
+    // sobe direto ao Storage e o servidor grava o caminho + auditoria. O cliente
+    // nao escolhe bucket, pasta nem nome (UUID no servidor).
+    const res = await enviarComprovanteLink(item.id, arquivo);
+    if (!res.ok) {
+      const msg = res.erro === "ja_vinculado"
+        ? "Este link ja tem um comprovante anexado."
+        : res.erro === "mime_invalido"
+        ? "Formato nao permitido. Envie PDF, PNG ou JPG."
+        : res.erro === "tamanho_invalido"
+        ? "Arquivo acima do limite (20 MB)."
+        : "Nao foi possivel anexar o comprovante (sem permissao ou falha de envio).";
+      alert(msg);
       setEnviando(false);
       return;
     }
 
-    const { data: publicUrlData } = supabase.storage
-      .from("comprovantes-pagamento")
-      .getPublicUrl(caminho);
-
-    const comprovanteUrl = publicUrlData?.publicUrl || null;
-
-    const { error } = await supabase
+    // Nome do arquivo e campo de exibicao (nao faz parte do caminho).
+    await supabase
       .from("links_pagamento")
-      .update({
-        comprovante_url: comprovanteUrl,
-        comprovante_nome: arquivo.name,
-        atualizado_em: new Date().toISOString(),
-      })
+      .update({ comprovante_nome: arquivo.name, atualizado_em: new Date().toISOString() })
       .eq("id", item.id);
-
-    if (error) {
-      alert("Erro ao salvar comprovante no link: " + error.message);
-      setEnviando(false);
-      return;
-    }
-
-    await supabase.from("historico_links_pagamento").insert({
-      link_pagamento_id: item.id,
-      status_anterior: item.status,
-      status_novo: item.status,
-      observacao: `Comprovante anexado: ${arquivo.name}`,
-      usuario_email: usuario?.email || "",
-    });
 
     alert("Comprovante anexado com sucesso.");
 
@@ -88,9 +79,9 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
           </p>
         </div>
 
-        {item?.comprovante_url && (
+        {temComprovante && visualizarUrl && (
           <a
-            href={item.comprovante_url}
+            href={visualizarUrl}
             target="_blank"
             rel="noreferrer"
             style={styles.link}
@@ -98,14 +89,19 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
             Abrir comprovante
           </a>
         )}
+        {temComprovante && !visualizarUrl && (
+          <span style={{ ...styles.link, color: "#9ca3af", cursor: "default" }}>
+            Carregando…
+          </span>
+        )}
       </div>
 
-      {/* previewComprovante */}
-      {item?.comprovante_url && (/(\.png|\.jpe?g)$/i.test(String(item.comprovante_nome || item.comprovante_url)) ? (
+      {/* previewComprovante — usa a URL assinada de curta duração */}
+      {temComprovante && visualizarUrl && (/(\.png|\.jpe?g)$/i.test(String(item.comprovante_nome || "")) ? (
         <img
-          src={item.comprovante_url}
+          src={visualizarUrl}
           alt="comprovante"
-          onClick={() => window.open(item.comprovante_url, "_blank", "noreferrer")}
+          onClick={() => window.open(visualizarUrl, "_blank", "noreferrer")}
           title="Clique para abrir em tamanho grande, em outra aba"
           style={{
             maxWidth: "100%",
@@ -118,8 +114,8 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
             cursor: "zoom-in",
           }}
         />
-      ) : /\.pdf$/i.test(String(item.comprovante_nome || item.comprovante_url)) ? (
-        <iframe src={item.comprovante_url} title="comprovante" style={{ width: "100%", height: 640, border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 10 }} />
+      ) : /\.pdf$/i.test(String(item.comprovante_nome || "")) ? (
+        <iframe src={visualizarUrl} title="comprovante" style={{ width: "100%", height: 640, border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 10 }} />
       ) : null)}
 
       {item?.comprovante_nome && (

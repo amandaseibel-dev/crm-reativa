@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { urlComprovanteLink, abrirDocumento } from "../utils/documentoFinanceiro";
 import { nomeOperadorPorEmail, podeVerTudo, podeBaixarPagamento } from "../utils/operadores";
 
 const STATUS = {
@@ -539,7 +540,7 @@ export default function ControleLinksPagamento() {
 
                 <button
                   style={styles.botaoCinza}
-                  onClick={() => window.open(item.comprovante_url, "_blank", "noreferrer")}
+                  onClick={() => abrirDocumento(() => urlComprovanteLink(item.id))}
                 >
                   Abrir comprovante
                 </button>

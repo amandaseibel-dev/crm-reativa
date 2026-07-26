@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { urlTermo, abrirDocumento } from "../utils/documentoFinanceiro";
 
 const ADM_AUTORIZADOS = [
   "cobranca04@aelbra.com.br",
@@ -189,7 +190,7 @@ export default function FilaAdmTermos() {
             <div style={styles.bloco}>
               <strong>Termo anexado:</strong>
               <br />
-              <a href={termo.arquivo_url} target="_blank" rel="noreferrer">
+              <a href="#" onClick={(e) => { e.preventDefault(); abrirDocumento(() => urlTermo(termo.id, "arquivo")); }}>
                 Abrir termo de acordo
               </a>
             </div>
@@ -199,7 +200,7 @@ export default function FilaAdmTermos() {
             <div style={styles.bloco}>
               <strong>Verso do termo:</strong>
               <br />
-              <a href={termo.arquivo_verso_url} target="_blank" rel="noreferrer">
+              <a href="#" onClick={(e) => { e.preventDefault(); abrirDocumento(() => urlTermo(termo.id, "verso")); }}>
                 Abrir verso do termo
               </a>
             </div>
@@ -209,7 +210,7 @@ export default function FilaAdmTermos() {
             <div style={styles.bloco}>
               <strong>RG anexado:</strong>
               <br />
-              <a href={termo.arquivo_rg_url} target="_blank" rel="noreferrer">
+              <a href="#" onClick={(e) => { e.preventDefault(); abrirDocumento(() => urlTermo(termo.id, "rg")); }}>
                 Abrir RG
               </a>
             </div>
