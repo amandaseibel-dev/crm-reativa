@@ -86,6 +86,24 @@ function json(obj: unknown, status = 200): Response {
   });
 }
 
+// Garante (idempotente, best-effort) que um comprovante de CARTÃO vinculado
+// tenha sua solicitação na Minha Fila de Baixa. Toda a regra vive na função
+// server-side garantir_solicitacao_cartao_na_fila; aqui só a acionamos. Nunca
+// confirma/baixa e NUNCA quebra o fluxo de vínculo (erros são engolidos).
+async function garantirFilaCartao(
+  admin: ReturnType<typeof createClient>,
+  tipoDocumento: unknown,
+  registroId: unknown,
+): Promise<void> {
+  if (tipoDocumento !== "comprovante_link") return;
+  if (typeof registroId !== "string" || !RE_UUID.test(registroId)) return;
+  try {
+    await admin.rpc("garantir_solicitacao_cartao_na_fila", { p_link_id: registroId });
+  } catch (_e) {
+    // best-effort: o vínculo já ocorreu; a fila é reconciliável pelo trigger.
+  }
+}
+
 // Resolve (tipo, campo) -> Fonte. `campo` só é válido p/ termo e restrito a
 // arquivo|rg|verso (campo adulterado => null => bad_request).
 function resolverFonte(tipo: unknown, campo: unknown): Fonte | null {
@@ -221,7 +239,11 @@ Deno.serve(async (req: Request) => {
     if (!ehGestao && donoIntento !== ident.email) return json({ error: "forbidden" }, 403);
 
     // Idempotência: já vinculado => devolve o resultado sem reauditar/reescrever.
-    if (it.status === "VINCULADO") return json({ ok: true, ja_vinculado: true }, 200);
+    // Ainda assim garante a fila do cartão (recupera solicitação ausente).
+    if (it.status === "VINCULADO") {
+      await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      return json({ ok: true, ja_vinculado: true }, 200);
+    }
     if (it.status !== "AUTORIZADO" && it.status !== "ENVIADO") return json({ error: "intencao_invalida" }, 409);
     if (new Date(it.expira_em).getTime() < Date.now()) return json({ error: "intencao_expirada" }, 410);
 
@@ -248,9 +270,20 @@ Deno.serve(async (req: Request) => {
       p_gestao: ehGestao,
     });
     if (rpcErr) return json({ error: "vincular_failed" }, 500);
-    if (situacao === "OK") return json({ ok: true }, 200);
-    if (situacao === "JA_VINCULADO") return json({ ok: true, ja_vinculado: true }, 200);
-    if (situacao === "REGISTRO_JA_VINCULADO") return json({ error: "ja_vinculado" }, 409);
+    // (A) após vínculo bem-sucedido e (B) no caminho real de 409 ja_vinculado,
+    // garante a solicitação do cartão na fila (idempotente; best-effort).
+    if (situacao === "OK") {
+      await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      return json({ ok: true }, 200);
+    }
+    if (situacao === "JA_VINCULADO") {
+      await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      return json({ ok: true, ja_vinculado: true }, 200);
+    }
+    if (situacao === "REGISTRO_JA_VINCULADO") {
+      await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      return json({ error: "ja_vinculado" }, 409);
+    }
     if (situacao === "EXPIRADA") return json({ error: "intencao_expirada" }, 410);
     return json({ error: "vincular_falhou" }, 409);
   }
