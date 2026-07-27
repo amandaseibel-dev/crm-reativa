@@ -21,6 +21,19 @@ function textoSeguro(valor) {
   return String(valor || "").trim();
 }
 
+// Traduz o resultado de enviarComprovanteLink em mensagem operacional real
+// (sem a genérica "sem permissão ou falha de envio", sem dados pessoais).
+function mensagemErroComprovante(res) {
+  const c = res?.erro;
+  if (c === "sessao_expirada") return "Sessão expirada. Entre novamente e tente de novo.";
+  if (c === "acesso_negado") return "Acesso negado: sem permissão para anexar comprovante neste registro.";
+  if (c === "objeto_invalido") return "O arquivo já enviado está inválido ou vazio. Selecione o comprovante novamente e reenvie.";
+  if (c === "mime_invalido") return "Formato não permitido. Envie PDF, PNG ou JPG.";
+  if (c === "tamanho_invalido") return "Arquivo acima do limite (20 MB).";
+  if (c === "ja_vinculado") return "Este link já tem um comprovante anexado.";
+  return `Não foi possível anexar o comprovante (código: ${c || "desconhecido"}${res?.etapa ? `, etapa: ${res.etapa}` : ""}${res?.status ? `, http: ${res.status}` : ""}).`;
+}
+
 function emailNormalizado(valor) {
   return String(valor || "").trim().toLowerCase();
 }
@@ -517,8 +530,11 @@ export default function LinksPagamentoAluno({
     if (temArquivo && novoLink?.id) {
       const resComp = await enviarComprovanteLink(novoLink.id, arquivoRetroativo);
       if (!resComp.ok) {
-        setErro("Link criado, mas nao foi possivel anexar o comprovante. Tente anexar novamente na fila.");
+        setErro("Link criado, mas " + mensagemErroComprovante(resComp));
         return;
+      }
+      if (resComp.filaOk === false && resComp.filaCodigo === "fila_nao_criada") {
+        setErro("Link criado e comprovante vinculado, mas o envio à fila ficou pendente. Reenvie para a fila (não é preciso anexar de novo).");
       }
     }
 
@@ -670,16 +686,15 @@ export default function LinksPagamentoAluno({
 
     // Upload autorizado pelo servidor (vinculo pelo id do link). O servidor
     // grava comprovante_url + anexado_por/em. Aqui so completamos status/nome/obs.
+    // reconciliado/jaVinculado = sucesso (o objeto já estava no Storage e o
+    // servidor concluiu o vínculo sem novo upload). Só erro real interrompe.
     const resComp = await enviarComprovanteLink(item.id, arquivo);
     if (!resComp.ok) {
       setEnviandoComprovanteId(null);
-      setErro(
-        resComp.erro === "ja_vinculado"
-          ? "Este link ja tem um comprovante anexado."
-          : "Nao foi possivel anexar o comprovante (sem permissao ou falha de envio)."
-      );
+      setErro(mensagemErroComprovante(resComp));
       return;
     }
+    const filaPendente = resComp.filaOk === false && resComp.filaCodigo === "fila_nao_criada";
 
     const observacaoComprovante = textoSeguro(observacoesComprovante[item.id]);
     const agora = new Date().toISOString();
@@ -749,6 +764,11 @@ export default function LinksPagamentoAluno({
     }));
 
     await carregarHistorico();
+
+    // Comprovante vinculado, mas o envio à fila (cartão) ficou pendente.
+    if (filaPendente) {
+      setErro("Comprovante vinculado, mas o envio à fila ficou pendente. Reenvie para a fila (não é preciso anexar de novo).");
+    }
 
     if (onSucesso) onSucesso();
     if (onAtualizar) onAtualizar();

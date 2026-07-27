@@ -131,6 +131,18 @@ async function enviarDocumento(tipo, id, campo, file) {
         return erroReal(auth, "upload");
       }
       const a = auth.data;
+      // Reconciliação server-side: o objeto já existia e era válido; o servidor
+      // concluiu o vínculo SEM novo upload (não há token). Sucesso idempotente.
+      if (a && (a.reconciliado || (a.ok === true && !a.token))) {
+        return {
+          ok: true,
+          reconciliado: !!a.reconciliado,
+          jaVinculado: true,
+          filaOk: a.fila_ok !== false,
+          filaCodigo: a.fila_codigo,
+          filaStatus: a.fila_status,
+        };
+      }
       if (!a?.intent_id || !a?.path || !a?.token || !a?.bucket) return { ok: false, erro: "nao_autorizado", etapa: "upload" };
 
       // 2) Upload direto navegador->Storage. upsert:false (unicidade no servidor).
