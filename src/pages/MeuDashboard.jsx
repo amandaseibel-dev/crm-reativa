@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { chamarRpcContido } from "../utils/rpcResiliente";
+import { analiticasSuspensas } from "../config/modoContencao";
+import AvisoContencao from "../components/AvisoContencao";
 
 // Todo tipo de movimentacao que representa um contato/acao real do
 // operador sobre o caso -- nao so "finalizar atendimento". Se um botao
@@ -65,6 +67,12 @@ export default function MeuDashboard() {
   const [aba, setAba] = useState("FINANCEIRO");
 
   useEffect(() => {
+    // KILL SWITCH: dashboard analítico suspenso -> não chama o banco, mostra
+    // o aviso. Não deixa loading infinito.
+    if (analiticasSuspensas()) {
+      setCarregando(false);
+      return undefined;
+    }
     carregar();
     // projecao_dashboard só carrega com a tela realmente visível. Se estiver
     // oculta (aba em segundo plano), adia até voltar o foco -- não dispara RPC
@@ -179,6 +187,15 @@ export default function MeuDashboard() {
   }
 
   const maiorDia = Math.max(1, ...evolucao.map((e) => e.qtd));
+
+  if (analiticasSuspensas()) {
+    return (
+      <div style={estilos.container}>
+        <h1 style={estilos.titulo}>📊 Meu Dashboard</h1>
+        <AvisoContencao />
+      </div>
+    );
+  }
 
   if (carregando) {
     return <div style={estilos.container}>Carregando seu dashboard...</div>;

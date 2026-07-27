@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { analiticasSuspensas } from "../config/modoContencao";
+import AvisoContencao from "./AvisoContencao";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -13,6 +15,8 @@ export default function VisaoGeralCarteira() {
   const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
+    // KILL SWITCH: Carteira 360 é dashboard analítico -> suspenso em contenção.
+    if (analiticasSuspensas()) { setCarregando(false); return undefined; }
     let ativo = true;
     (async () => {
       const { data } = await supabase.rpc("dashboard_carteira_360");
@@ -23,6 +27,7 @@ export default function VisaoGeralCarteira() {
     return () => { ativo = false; };
   }, []);
 
+  if (analiticasSuspensas()) return <div style={S.card}><AvisoContencao /></div>;
   if (carregando) return <div style={S.card}><p style={S.muted}>Carregando Carteira 360...</p></div>;
   if (!d) return <div style={S.card}><p style={S.muted}>Não foi possível carregar a Carteira 360.</p></div>;
 

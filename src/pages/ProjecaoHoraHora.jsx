@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
+import { analiticasSuspensas } from "../config/modoContencao";
+import AvisoContencao from "../components/AvisoContencao";
 import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
 
 function moeda(valor) {
@@ -158,16 +160,21 @@ export default function ProjecaoHoraHora() {
       setUsuario({ email, podeGerir });
     })();
     // Popula o seletor de unidade (opção "Todos" + unidades distintas).
-    (async () => {
-      const { data, error } = await supabase.rpc("projecao_unidades_disponiveis");
-      if (!error && Array.isArray(data)) {
-        setUnidades(data.map((u) => u.unidade).filter(Boolean));
-      }
-    })();
+    // KILL SWITCH: RPC analítica suspensa em modo de contenção.
+    if (!analiticasSuspensas()) {
+      (async () => {
+        const { data, error } = await supabase.rpc("projecao_unidades_disponiveis");
+        if (!error && Array.isArray(data)) {
+          setUnidades(data.map((u) => u.unidade).filter(Boolean));
+        }
+      })();
+    }
   }, []);
 
   useEffect(() => {
     if (!usuario) return;
+    // KILL SWITCH: projeção analítica suspensa -> não chama nem faz polling.
+    if (analiticasSuspensas()) return;
     carregarDashboard();
     carregarLancamentosHoje();
     // Contenção de carga: projecao_dashboard é RPC analítica pesada. Intervalo
@@ -230,6 +237,7 @@ export default function ProjecaoHoraHora() {
   }
 
   async function carregarProjecaoTodos() {
+    if (analiticasSuspensas()) { setCarregandoTodos(false); return; }
     setCarregandoTodos(true);
     const { data, error } = await supabase.rpc("projecao_todos_operadores", { p_mes: mesReferencia });
     if (!error) setProjecaoTodos(data);
@@ -542,6 +550,17 @@ export default function ProjecaoHoraHora() {
     () => Math.max(1, ...historicoDia.map((d) => Number(d.valor_recuperado) || 0)),
     [historicoDia]
   );
+
+  if (analiticasSuspensas()) {
+    return (
+      <div className="main ph-root" style={{ background: "#f4f6fa", padding: "18px 16px 28px", fontFamily: "'Inter', system-ui, sans-serif" }}>
+        <h1 style={{ fontFamily: PH_FONTE_TITULO, fontSize: 26, fontWeight: 800, color: "#0d1321", letterSpacing: "-0.03em" }}>
+          ⏱️ Projeção Hora a Hora
+        </h1>
+        <AvisoContencao />
+      </div>
+    );
+  }
 
   return (
     <div className="main ph-root" style={{ background: "#f4f6fa", padding: "6px 4px 28px", fontFamily: "'Inter', system-ui, sans-serif" }}>
