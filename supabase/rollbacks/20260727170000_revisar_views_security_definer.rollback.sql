@@ -33,3 +33,24 @@ ALTER VIEW public.vw_operador_resumo_dia       RESET (security_invoker);
 -- ---------------------------------------------------------------------------
 
 GRANT ALL ON public.vw_diagnostico_saldo_casos TO anon;
+
+-- ---------------------------------------------------------------------------
+-- Parte 3: restaurar EXATAMENTE os grants originais de authenticated (ALL).
+--
+-- ATENÇÃO / RISCO DE SEGURANÇA: o estado original concedia a authenticated
+-- TODOS os privilégios (INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES,
+-- TRIGGER além de SELECT) nas 10 views. Restaurá-los REABRE privilégios
+-- EXCESSIVOS e desnecessários a todo usuário autenticado. Só execute ciente
+-- disso. service_role/postgres não foram alterados pela migration.
+-- ---------------------------------------------------------------------------
+
+GRANT ALL ON public.consulta_financeira_por_aluno TO authenticated;
+GRANT ALL ON public.projecao_operador            TO authenticated;
+GRANT ALL ON public.recuperacoes_consolidadas    TO authenticated;
+GRANT ALL ON public.vw_alerta_amanda_links_7min  TO authenticated;
+GRANT ALL ON public.vw_diagnostico_saldo_casos   TO authenticated;
+GRANT ALL ON public.vw_fila_baixa_amanda         TO authenticated;
+GRANT ALL ON public.vw_fila_links_adm            TO authenticated;
+GRANT ALL ON public.vw_links_prioridade_operador TO authenticated;
+GRANT ALL ON public.vw_links_respondidos         TO authenticated;
+GRANT ALL ON public.vw_operador_resumo_dia       TO authenticated;

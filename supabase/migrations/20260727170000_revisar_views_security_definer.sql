@@ -79,3 +79,37 @@ REVOKE ALL ON public.vw_fila_links_adm            FROM anon, PUBLIC;
 REVOKE ALL ON public.vw_links_prioridade_operador FROM anon, PUBLIC;
 REVOKE ALL ON public.vw_links_respondidos         FROM anon, PUBLIC;
 REVOKE ALL ON public.vw_operador_resumo_dia       FROM anon, PUBLIC;
+
+-- ---------------------------------------------------------------------------
+-- Parte 3: reduzir authenticated de ALL para SELECT somente nas 10 views.
+--
+-- Auditoria: authenticated possui TODOS os privilégios (SELECT, INSERT,
+-- UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER) nas 10 views (grants padrão
+-- do Supabase). Views só precisam de SELECT; os demais são desnecessários e
+-- excessivos. Reduzimos para SELECT somente. service_role e postgres NÃO são
+-- tocados. Não altera definição, colunas, filtros nem frontend.
+--
+-- Idempotente: REVOKE ALL + GRANT SELECT é repetível.
+-- ---------------------------------------------------------------------------
+
+REVOKE ALL ON public.consulta_financeira_por_aluno FROM authenticated;
+REVOKE ALL ON public.projecao_operador            FROM authenticated;
+REVOKE ALL ON public.recuperacoes_consolidadas    FROM authenticated;
+REVOKE ALL ON public.vw_alerta_amanda_links_7min  FROM authenticated;
+REVOKE ALL ON public.vw_diagnostico_saldo_casos   FROM authenticated;
+REVOKE ALL ON public.vw_fila_baixa_amanda         FROM authenticated;
+REVOKE ALL ON public.vw_fila_links_adm            FROM authenticated;
+REVOKE ALL ON public.vw_links_prioridade_operador FROM authenticated;
+REVOKE ALL ON public.vw_links_respondidos         FROM authenticated;
+REVOKE ALL ON public.vw_operador_resumo_dia       FROM authenticated;
+
+GRANT SELECT ON public.consulta_financeira_por_aluno TO authenticated;
+GRANT SELECT ON public.projecao_operador            TO authenticated;
+GRANT SELECT ON public.recuperacoes_consolidadas    TO authenticated;
+GRANT SELECT ON public.vw_alerta_amanda_links_7min  TO authenticated;
+GRANT SELECT ON public.vw_diagnostico_saldo_casos   TO authenticated;
+GRANT SELECT ON public.vw_fila_baixa_amanda         TO authenticated;
+GRANT SELECT ON public.vw_fila_links_adm            TO authenticated;
+GRANT SELECT ON public.vw_links_prioridade_operador TO authenticated;
+GRANT SELECT ON public.vw_links_respondidos         TO authenticated;
+GRANT SELECT ON public.vw_operador_resumo_dia       TO authenticated;
