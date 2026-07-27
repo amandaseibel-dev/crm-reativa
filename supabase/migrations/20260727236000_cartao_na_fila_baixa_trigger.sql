@@ -98,6 +98,10 @@ BEGIN
 END;
 $function$;
 
+-- Owner postgres (SECURITY DEFINER roda com o privilégio do dono; a cadeia de
+-- definer permite o trigger chamá-la mesmo sem EXECUTE direto do authenticated).
+ALTER FUNCTION public.garantir_solicitacao_cartao_na_fila(uuid) OWNER TO postgres;
+
 -- Só backend: revoga de todos e concede a service_role/postgres.
 REVOKE ALL ON FUNCTION public.garantir_solicitacao_cartao_na_fila(uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION public.garantir_solicitacao_cartao_na_fila(uuid) FROM anon;
@@ -123,6 +127,8 @@ BEGIN
   RETURN NEW;
 END;
 $function$;
+
+ALTER FUNCTION public.tg_criar_solicitacao_confirmacao_por_comprovante() OWNER TO postgres;
 
 DROP TRIGGER IF EXISTS trg_criar_solicitacao_confirmacao_por_comprovante
   ON public.links_pagamento;

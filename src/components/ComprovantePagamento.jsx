@@ -1,10 +1,14 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import { urlComprovanteLink, enviarComprovanteLink } from "../utils/documentoFinanceiro";
+import { urlComprovanteLink, enviarComprovanteLink, reconciliarFilaComprovanteLink } from "../utils/documentoFinanceiro";
 
 export default function ComprovantePagamento({ item, onAtualizar }) {
   const [arquivo, setArquivo] = useState(null);
   const [enviando, setEnviando] = useState(false);
+  // A fila pode falhar mesmo com o comprovante vinculado (ex.: cartão). Nesse
+  // caso NÃO pedimos novo upload — só oferecemos um retry idempotente.
+  const [filaFalhou, setFilaFalhou] = useState(false);
+  const [reenviandoFila, setReenviandoFila] = useState(false);
   // URL assinada de curta duração, obtida sob demanda via Edge Function pelo ID
   // seguro do link. Nunca persistida; renovada quando o item muda.
   const [visualizarUrl, setVisualizarUrl] = useState(null);
@@ -51,7 +55,13 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
     // (não repetimos upload) e NÃO gravamos nada no banco. Orienta o operador
     // para a próxima etapa — o anexo não envia sozinho para a fila.
     if (res.ok && res.jaVinculado) {
-      alert("Comprovante já anexado. Agora clique em ‘Enviar para confirmação’.");
+      if (res.filaOk === false) {
+        setFilaFalhou(true);
+        alert("Comprovante anexado, mas não foi possível enviar para a fila. Clique em ‘Enviar para confirmação’.");
+      } else {
+        setFilaFalhou(false);
+        alert("Comprovante já anexado. Agora clique em ‘Enviar para confirmação’.");
+      }
       setArquivo(null);
       setEnviando(false);
       if (onAtualizar) onAtualizar();
@@ -84,12 +94,37 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
       .update({ comprovante_nome: arquivo.name, atualizado_em: new Date().toISOString() })
       .eq("id", item.id);
 
-    alert("Comprovante anexado com sucesso.");
+    if (res.filaOk === false) {
+      setFilaFalhou(true);
+      alert("Comprovante anexado, mas não foi possível enviar para a fila. Clique em ‘Enviar para confirmação’.");
+    } else {
+      setFilaFalhou(false);
+      alert("Comprovante anexado com sucesso.");
+    }
 
     setArquivo(null);
     setEnviando(false);
 
     if (onAtualizar) onAtualizar();
+  }
+
+  // Retry idempotente da fila (sem novo upload). Reusa o mesmo fluxo do servidor.
+  async function reenviarParaFila() {
+    if (reenviandoFila || !item?.id) return;
+    setReenviandoFila(true);
+    const r = await reconciliarFilaComprovanteLink(item.id);
+    setReenviandoFila(false);
+    if (r.ok && r.filaOk) {
+      setFilaFalhou(false);
+      alert("Enviado para a fila de confirmação de pagamento.");
+      if (onAtualizar) onAtualizar();
+    } else {
+      alert(
+        r.erro === "sessao_expirada"
+          ? "Sessão expirada. Entre novamente e tente reenviar para a fila."
+          : "Ainda não foi possível enviar para a fila. Tente novamente ou use ‘Enviar para confirmação’."
+      );
+    }
   }
 
   return (
@@ -151,10 +186,29 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
       )}
 
       {/* Destaca a próxima etapa: o anexo NÃO cria a solicitação sozinho. */}
-      {temComprovante && (
+      {temComprovante && !filaFalhou && (
         <div style={styles.proximaEtapa}>
           Comprovante anexado. Agora clique em <strong>“Enviar para confirmação”</strong> para
           concluir o envio à fila.
+        </div>
+      )}
+
+      {/* Falha ao criar a solicitação na fila: comprovante permanece vinculado.
+          Não pedir novo upload — oferecer retry idempotente. */}
+      {filaFalhou && (
+        <div style={styles.filaFalhou}>
+          <div>
+            Comprovante anexado, mas <strong>não foi possível enviar para a fila</strong>. Clique em
+            <strong> “Enviar para confirmação”</strong> — ou tente reenviar para a fila abaixo.
+            (O comprovante já está salvo; não é preciso anexar de novo.)
+          </div>
+          <button
+            style={styles.botaoReenviarFila}
+            onClick={reenviarParaFila}
+            disabled={reenviandoFila}
+          >
+            {reenviandoFila ? "Reenviando para a fila..." : "Reenviar para a fila"}
+          </button>
         </div>
       )}
 
@@ -239,5 +293,27 @@ const styles = {
     borderRadius: "8px",
     color: "#065f46",
     fontSize: "13px",
+  },
+  filaFalhou: {
+    marginTop: "10px",
+    padding: "10px 12px",
+    background: "#fff7ed",
+    border: "1px solid #fed7aa",
+    borderRadius: "8px",
+    color: "#9a3412",
+    fontSize: "13px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px",
+    alignItems: "flex-start",
+  },
+  botaoReenviarFila: {
+    background: "#ea580c",
+    color: "#fff",
+    border: "none",
+    padding: "8px 14px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
   },
 };

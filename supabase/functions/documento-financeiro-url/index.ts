@@ -86,21 +86,34 @@ function json(obj: unknown, status = 200): Response {
   });
 }
 
-// Garante (idempotente, best-effort) que um comprovante de CARTÃO vinculado
-// tenha sua solicitação na Minha Fila de Baixa. Toda a regra vive na função
-// server-side garantir_solicitacao_cartao_na_fila; aqui só a acionamos. Nunca
-// confirma/baixa e NUNCA quebra o fluxo de vínculo (erros são engolidos).
+// Garante (idempotente) que um comprovante de CARTÃO vinculado tenha sua
+// solicitação na Minha Fila de Baixa. Toda a regra vive na função server-side
+// garantir_solicitacao_cartao_na_fila; aqui só a acionamos e REPORTAMOS o
+// resultado (não ocultamos falha). Nunca confirma/baixa nem quebra o vínculo.
+// Retorna campos para o corpo da resposta:
+//   { fila_ok: true }                      -> solicitação existe/foi criada, ou
+//                                             não se aplica (não é comprovante
+//                                             de link / não é cartão);
+//   { fila_ok: false, fila_codigo: "fila_nao_criada" } -> falhou ao criar.
 async function garantirFilaCartao(
   admin: ReturnType<typeof createClient>,
   tipoDocumento: unknown,
   registroId: unknown,
-): Promise<void> {
-  if (tipoDocumento !== "comprovante_link") return;
-  if (typeof registroId !== "string" || !RE_UUID.test(registroId)) return;
+): Promise<{ fila_ok: boolean; fila_codigo?: string }> {
+  // Não aplicável a termos/baixas ou id inválido: não é falha da fila.
+  if (tipoDocumento !== "comprovante_link") return { fila_ok: true };
+  if (typeof registroId !== "string" || !RE_UUID.test(registroId)) return { fila_ok: true };
   try {
-    await admin.rpc("garantir_solicitacao_cartao_na_fila", { p_link_id: registroId });
+    const { data, error } = await admin.rpc("garantir_solicitacao_cartao_na_fila", {
+      p_link_id: registroId,
+    });
+    if (error) return { fila_ok: false, fila_codigo: "fila_nao_criada" };
+    const d = data as { ok?: boolean; motivo?: string } | null;
+    // ok=true (criada/existente) ou motivo 'nao_cartao' (nada a fazer) => sucesso.
+    if (d && (d.ok === true || d.motivo === "nao_cartao")) return { fila_ok: true };
+    return { fila_ok: false, fila_codigo: "fila_nao_criada" };
   } catch (_e) {
-    // best-effort: o vínculo já ocorreu; a fila é reconciliável pelo trigger.
+    return { fila_ok: false, fila_codigo: "fila_nao_criada" };
   }
 }
 
@@ -241,8 +254,8 @@ Deno.serve(async (req: Request) => {
     // Idempotência: já vinculado => devolve o resultado sem reauditar/reescrever.
     // Ainda assim garante a fila do cartão (recupera solicitação ausente).
     if (it.status === "VINCULADO") {
-      await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
-      return json({ ok: true, ja_vinculado: true }, 200);
+      const f = await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      return json({ ok: true, ja_vinculado: true, ...f }, 200);
     }
     if (it.status !== "AUTORIZADO" && it.status !== "ENVIADO") return json({ error: "intencao_invalida" }, 409);
     if (new Date(it.expira_em).getTime() < Date.now()) return json({ error: "intencao_expirada" }, 410);
@@ -273,16 +286,16 @@ Deno.serve(async (req: Request) => {
     // (A) após vínculo bem-sucedido e (B) no caminho real de 409 ja_vinculado,
     // garante a solicitação do cartão na fila (idempotente; best-effort).
     if (situacao === "OK") {
-      await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
-      return json({ ok: true }, 200);
+      const f = await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      return json({ ok: true, ...f }, 200);
     }
     if (situacao === "JA_VINCULADO") {
-      await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
-      return json({ ok: true, ja_vinculado: true }, 200);
+      const f = await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      return json({ ok: true, ja_vinculado: true, ...f }, 200);
     }
     if (situacao === "REGISTRO_JA_VINCULADO") {
-      await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
-      return json({ error: "ja_vinculado" }, 409);
+      const f = await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      return json({ error: "ja_vinculado", ...f }, 409);
     }
     if (situacao === "EXPIRADA") return json({ error: "intencao_expirada" }, 410);
     return json({ error: "vincular_falhou" }, 409);
@@ -326,7 +339,10 @@ Deno.serve(async (req: Request) => {
   // ---------------------------------------------------------------------------
   if (acao === "upload") {
     if (typeof valorAtual === "string" && valorAtual.trim().length > 0) {
-      return json({ error: "ja_vinculado" }, 409); // registro já tem documento
+      // Registro já tem documento. Este é o caminho de RETRY idempotente da UI
+      // (reenvio sem novo upload): reconcilia a fila do cartão e reporta fila_ok.
+      const f = await garantirFilaCartao(admin, body?.tipo, id);
+      return json({ error: "ja_vinculado", ...f }, 409);
     }
     const mime = typeof body?.mime === "string" ? body.mime : "";
     const tamanho = typeof body?.tamanho === "number" ? body.tamanho : -1;
@@ -353,7 +369,10 @@ Deno.serve(async (req: Request) => {
     if (solErr) return json({ error: "intento_failed" }, 500);
     const intento = Array.isArray(intentos) ? intentos[0] : intentos;
     if (!intento) return json({ error: "intento_failed" }, 500);
-    if (intento.situacao === "JA_VINCULADO") return json({ error: "ja_vinculado" }, 409);
+    if (intento.situacao === "JA_VINCULADO") {
+      const f = await garantirFilaCartao(admin, body?.tipo, id);
+      return json({ error: "ja_vinculado", ...f }, 409);
+    }
 
     // Autorização de upload p/ o caminho da intenção. upsert:false EXPLÍCITO:
     // nunca sobrescreve objeto existente (o cliente não pode pedir upsert).

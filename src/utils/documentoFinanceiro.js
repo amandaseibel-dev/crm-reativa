@@ -77,14 +77,20 @@ async function invocarDocfin(body) {
   if (!error) return { ok: true, data, status: 200, code: null };
   let status = 0;
   let code = null;
+  let filaOk;
+  let filaCodigo;
   try {
     status = error?.context?.status ?? 0;
     const corpo = await error.context.clone().json();
     code = corpo?.error || null;
+    // A fila pode falhar mesmo com o vínculo OK (ex.: 409 ja_vinculado): o corpo
+    // carrega fila_ok/fila_codigo para a UI não ocultar a falha.
+    filaOk = corpo?.fila_ok;
+    filaCodigo = corpo?.fila_codigo;
   } catch {
     // corpo não-JSON / indisponível: ficamos só com o status.
   }
-  return { ok: false, data: null, status, code, error };
+  return { ok: false, data: null, status, code, filaOk, filaCodigo, error };
 }
 
 // Renova a sessão uma única vez (usado só em 401). true se obteve nova sessão.
@@ -115,8 +121,9 @@ async function enviarDocumento(tipo, id, campo, file) {
       // 1) Autorização de upload (cria/reusa a intenção no servidor).
       const auth = await invocarDocfin({ acao: "upload", tipo, id: String(id), campo, mime: file.type, tamanho: file.size });
       if (!auth.ok) {
-        // Já vinculado: sucesso idempotente — não reenviar o arquivo.
-        if (auth.code === "ja_vinculado") return { ok: true, jaVinculado: true };
+        // Já vinculado: sucesso idempotente — não reenviar o arquivo. Propaga o
+        // estado da fila (fila_ok) para a UI orientar o operador quando falhar.
+        if (auth.code === "ja_vinculado") return { ok: true, jaVinculado: true, filaOk: auth.filaOk !== false, filaCodigo: auth.filaCodigo };
         if (auth.status === 401) {
           if (!renovou401 && (await renovarSessao())) { renovou401 = true; continue; }
           return { ok: false, erro: "sessao_expirada", status: 401, etapa: "upload" };
@@ -132,9 +139,10 @@ async function enviarDocumento(tipo, id, campo, file) {
 
       // 3) Vincular (só intent_id; o servidor obtém o resto da intenção).
       const vinc = await invocarDocfin({ acao: "vincular", intent_id: a.intent_id });
-      if (vinc.ok && vinc.data?.ok) return { ok: true, jaVinculado: !!vinc.data?.ja_vinculado };
+      // fila_ok vem no corpo: undefined (não-cartão/não-comprovante) => true.
+      if (vinc.ok && vinc.data?.ok) return { ok: true, jaVinculado: !!vinc.data?.ja_vinculado, filaOk: vinc.data?.fila_ok !== false, filaCodigo: vinc.data?.fila_codigo };
       // Registro já vinculado no passo de vínculo: também é sucesso idempotente.
-      if (vinc.code === "ja_vinculado") return { ok: true, jaVinculado: true };
+      if (vinc.code === "ja_vinculado") return { ok: true, jaVinculado: true, filaOk: vinc.filaOk !== false, filaCodigo: vinc.filaCodigo };
       if (vinc.status === 401) {
         if (!renovou401 && (await renovarSessao())) { renovou401 = true; continue; }
         return { ok: false, erro: "sessao_expirada", status: 401, etapa: "vincular" };
@@ -151,6 +159,26 @@ async function enviarDocumento(tipo, id, campo, file) {
 
 export function enviarComprovanteLink(id, file) {
   return enviarDocumento("comprovante_link", id, undefined, file);
+}
+
+// RETRY idempotente da fila SEM novo upload: o comprovante já está vinculado, só
+// faltou criar a solicitação na fila de baixa. Reinvoca o fluxo (ação "upload"),
+// o servidor responde `ja_vinculado` e reconcilia a fila, devolvendo fila_ok.
+// Retorna { ok, filaOk, filaCodigo } — nunca pede novo arquivo.
+export async function reconciliarFilaComprovanteLink(id) {
+  if (!id) return { ok: false, filaOk: false, erro: "dados_invalidos" };
+  // mime/tamanho são exigidos pelo contrato, mas o servidor retorna ja_vinculado
+  // (409) antes de validá-los quando o registro já tem comprovante.
+  const auth = await invocarDocfin({ acao: "upload", tipo: "comprovante_link", id: String(id), mime: "application/pdf", tamanho: 1 });
+  if (auth.ok) {
+    // Caso raro: ainda não vinculado — não força nada, só reporta.
+    return { ok: true, filaOk: auth.data?.fila_ok !== false, filaCodigo: auth.data?.fila_codigo };
+  }
+  if (auth.code === "ja_vinculado") {
+    return { ok: true, filaOk: auth.filaOk !== false, filaCodigo: auth.filaCodigo };
+  }
+  if (auth.status === 401) return { ok: false, filaOk: false, erro: "sessao_expirada" };
+  return { ok: false, filaOk: false, erro: auth.code || "falha_reconciliar" };
 }
 export function enviarComprovanteBaixa(id, file) {
   return enviarDocumento("comprovante_baixa", id, undefined, file);
