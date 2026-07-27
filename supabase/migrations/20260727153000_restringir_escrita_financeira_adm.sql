@@ -12,26 +12,24 @@
 --
 -- Regras:
 --   * anon, sem cadastro e inativo: bloqueados (app_usuario_ativo()).
---   * operador: somente ações do PRÓPRIO atendimento (baixa/estorno do próprio
---     aluno em baixas_pagamento) — escopo por titularidade; nunca de terceiro.
---   * confirmação/baixa/estorno administrativos e importação/conciliação:
---     gestão financeira autorizada = public.usuario_e_gestao() + ativo.
---   * "gestão financeira" aqui é usuario_e_gestao() (Amanda gestora, Fernanda,
---     Amanda ADM) — o mesmo controle central já usado em confirmar_baixa_caso.
+--   * BAIXA, CONFIRMAÇÃO e ESTORNO de pagamento: SOMENTE gestão financeira
+--     autorizada = public.usuario_e_gestao() (Amanda, Fernanda/supervisão,
+--     Amanda ADM) + ativo. Operador NÃO insere/estorna/altera baixa direta.
+--   * O operador apenas envia o comprovante para a Fila de Confirmação
+--     (Edge Function + RPCs SECURITY DEFINER), e aguarda a gestão confirmar,
+--     rejeitar ou devolver.
+--   * importação/conciliação (baixas_importadas, fin_*): gestão financeira.
 --   * LEITURA (SELECT) inalterada em todas as tabelas.
 --   * service_role/postgres preservados (RLS não forçada; bypassam).
 --   * RPCs SECURITY DEFINER auditadas (concluir_baixa_pagamento,
 --     devolver_baixa_pagamento, confirmar_baixa_caso, quitar_e_encerrar_caso,
---     projecao_importar_pagamentos, vincular_pagamento_aluno) continuam
---     funcionando (owner=postgres, ignoram RLS).
+--     enviar_comprovante_para_baixa, projecao_importar_pagamentos,
+--     vincular_pagamento_aluno) continuam funcionando (owner=postgres).
 --
--- NÃO faz parte desta branch: refactor de frontend, RPCs novas, outras tabelas.
---
--- RISCO RESIDUAL (documentado): o operador ainda pode registrar baixa/estorno
---   por escrita direta nos registros do PRÓPRIO atendimento (fluxo atual do
---   FinanceiroAluno). A migração para RPC dedicada dessas ações fica para a
---   branch financeira de mutações. Esta branch elimina a ESCRITA CRUZADA e a
---   escrita ampla por qualquer autenticado.
+-- Frontend (mesma branch): FinanceiroAluno.jsx já esconde baixa/estorno para
+--   operador (podeGerirFinanceiro == usuario_e_gestao); acrescentados guards
+--   explícitos nos handlers de baixa/estorno/quitação/entrada. Envio de
+--   comprovante para confirmação preservado (não gatilha baixas_pagamento).
 --
 -- Idempotente. NÃO aplicar migration/merge/deploy nesta etapa.
 -- ============================================================================
@@ -51,54 +49,28 @@ create policy pagamentos_gestao_all on public.pagamentos
   with check (public.app_usuario_ativo() and public.usuario_e_gestao());
 
 -- ----------------------------------------------------------------------------
--- 2. BAIXAS_PAGAMENTO
---    INSERT: gestão OU baixa do PRÓPRIO atendimento (o operador carimba-se em
---            baixado_por_email e o aluno é da sua carteira). Bloqueia registrar
---            pagamento para aluno de terceiro.
---    UPDATE: gestão OU baixa cujo vínculo (baixado_por/responsavel_baixa/
---            operador_origem) é o próprio operador. Bloqueia estorno de baixa
---            de terceiro.
+-- 2. BAIXAS_PAGAMENTO  (REGRA DEFINITIVA)
+--    Baixa, confirmação e estorno de pagamento: SOMENTE gestão financeira
+--    autorizada = public.usuario_e_gestao() (Amanda, Fernanda/supervisão,
+--    Amanda ADM) + usuário ativo.
+--    INSERT: somente gestão financeira.
+--    UPDATE: somente gestão financeira (inclui estorno/DEVOLVIDA).
 --    DELETE: permanece sem policy (bloqueado). SELECT inalterado.
+--    O operador NÃO insere/estorna/altera baixa diretamente: ele apenas envia
+--    o comprovante para a Fila de Confirmação (Edge Function / RPCs auditadas
+--    concluir_baixa_pagamento, confirmar_baixa_caso, enviar_comprovante_para_baixa,
+--    devolver_baixa_pagamento — SECURITY DEFINER, preservadas).
 -- ----------------------------------------------------------------------------
 drop policy if exists baixas_pagamento_insert on public.baixas_pagamento;
 create policy baixas_pagamento_insert on public.baixas_pagamento
   for insert to authenticated
-  with check (
-    public.app_usuario_ativo()
-    and (
-      public.usuario_e_gestao()
-      or (
-        lower(coalesce(baixado_por_email, '')) = public.app_email()
-        and exists (
-          select 1 from public.alunos a
-          where a.id::text = baixas_pagamento.aluno_id
-            and lower(coalesce(a.responsavel_atual_email, '')) = public.app_email()
-        )
-      )
-    )
-  );
+  with check (public.app_usuario_ativo() and public.usuario_e_gestao());
 
 drop policy if exists baixas_pagamento_update on public.baixas_pagamento;
 create policy baixas_pagamento_update on public.baixas_pagamento
   for update to authenticated
-  using (
-    public.app_usuario_ativo()
-    and (
-      public.usuario_e_gestao()
-      or lower(coalesce(baixado_por_email, ''))      = public.app_email()
-      or lower(coalesce(responsavel_baixa_email, '')) = public.app_email()
-      or lower(coalesce(operador_origem_email, ''))   = public.app_email()
-    )
-  )
-  with check (
-    public.app_usuario_ativo()
-    and (
-      public.usuario_e_gestao()
-      or lower(coalesce(baixado_por_email, ''))      = public.app_email()
-      or lower(coalesce(responsavel_baixa_email, '')) = public.app_email()
-      or lower(coalesce(operador_origem_email, ''))   = public.app_email()
-    )
-  );
+  using (public.app_usuario_ativo() and public.usuario_e_gestao())
+  with check (public.app_usuario_ativo() and public.usuario_e_gestao());
 
 -- ----------------------------------------------------------------------------
 -- 3. BAIXAS_IMPORTADAS

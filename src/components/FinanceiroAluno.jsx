@@ -343,6 +343,10 @@ export default function FinanceiroAluno({ aluno }) {
   }
 
   async function baixarParcela(acordo, parcela, dados) {
+    // Baixa/confirmação/estorno de pagamento: SOMENTE gestão financeira
+    // (Amanda, Fernanda/supervisão, Amanda ADM). O operador envia o comprovante
+    // para a Fila de Confirmação; não efetiva baixa direta em baixas_pagamento.
+    if (!podeBaixar) { alert("Baixa de pagamento é exclusiva da gestão financeira. Envie o comprovante para a Fila de Confirmação."); return; }
     const agora = new Date().toISOString();
     const email = usuario?.email || "";
     const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
@@ -394,6 +398,7 @@ export default function FinanceiroAluno({ aluno }) {
   }
 
   async function quitarCartao(acordo, parcelasAbertas, dados) {
+    if (!podeBaixar) { alert("Quitação/baixa é exclusiva da gestão financeira. Envie o comprovante para a Fila de Confirmação."); return; }
     const agora = new Date().toISOString();
     const email = usuario?.email || "";
     const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
@@ -450,6 +455,7 @@ export default function FinanceiroAluno({ aluno }) {
   // acordo inteiro, desfaz também os efeitos colaterais da quitação
   // (título voltando pra "vinculada", aluno voltando ativo na carteira).
   async function desfazerBaixa(acordo, parcela) {
+    if (!podeBaixar) { alert("Estorno de baixa é exclusivo da gestão financeira."); return; }
     if (parcela.status !== "PAGO") return;
 
     const confirmado = window.confirm(
@@ -768,6 +774,7 @@ export default function FinanceiroAluno({ aluno }) {
   }
 
   async function salvarNovoAcordo() {
+    if (!podeBaixar) { alert("Criação de acordo com baixa de entrada é exclusiva da gestão financeira."); return; }
     if (!novo.parcelas.length) {
       alert('Clique em "Gerar parcelas" antes de salvar.');
       return;
