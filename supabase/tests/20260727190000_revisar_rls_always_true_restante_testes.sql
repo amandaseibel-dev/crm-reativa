@@ -54,4 +54,57 @@ from (values
 ) p(ord,nome,claim), lateral pg_temp.t(p.claim) x
 order by p.ord;
 
+-- ---------------------------------------------------------------------------
+-- TIER C — titularidade por acordo (app_owns_acordo) e autor do log.
+--   Requer a migration aplicada (helpers app_owns_acordo/app_matches_nome).
+--   Ajuste :acordo_dono para um acordo real do operador testado.
+--   RESULTADO ESPERADO:
+--     dono do acordo ..... parcelas/vínculo=OK, log próprio=OK, log 3º=NEG
+--     operador terceiro .. parcelas/vínculo=NEG (acordo de outro), log 3º=NEG
+--     gestão ............. tudo OK
+--     anon/não-cadastrado. tudo NEG
+-- ---------------------------------------------------------------------------
+create or replace function pg_temp.c(claim text, p_acordo uuid) returns table(
+  ativo bool, owns_acordo bool, parcela_ins bool, vinculo_ins bool,
+  log_proprio bool, log_terceiro bool
+) language plpgsql as $$
+begin
+  perform set_config('request.jwt.claims',
+    case when claim is null then '' else json_build_object('email',claim)::text end, true);
+  ativo := public.app_usuario_ativo();
+  owns_acordo := public.app_owns_acordo(p_acordo);
+  parcela_ins := ativo and (public.usuario_e_gestao() or public.app_owns_acordo(p_acordo));
+  vinculo_ins := ativo and (public.usuario_e_gestao() or public.app_owns_acordo(p_acordo));
+  log_proprio := ativo and (public.usuario_e_gestao()
+     or lower(coalesce(claim,'')) = public.app_email());            -- autor = self
+  log_terceiro := ativo and (public.usuario_e_gestao()
+     or lower('terceiro@aelbra.com.br') = public.app_email());       -- autor = 3º (deve negar)
+  return next;
+end $$;
+
+-- Troque o UUID por um acordo real do operador testado antes de rodar.
+select p.nome as perfil, x.*
+from (values
+  (1,'anon', null),
+  (2,'operador dono do acordo', 'cobranca10@aelbra.com.br'),
+  (3,'operador terceiro', 'cobranca13@aelbra.com.br'),
+  (4,'gestao/Amanda', 'amanda.seibel@aelbra.com.br'),
+  (5,'nao-cadastrado', 'ninguem@exemplo.com')
+) p(ord,nome,claim),
+  lateral pg_temp.c(p.claim, '233cdf80-5363-4d6a-b12e-d182cb7860e4'::uuid) x
+order by p.ord;
+
+-- Invariantes (devem retornar 0 / lista vazia):
+select
+  (select count(*) from pg_policies where schemaname='public'
+     and ((qual='true') or (with_check='true')) and roles::text like '%authenticated%' and cmd<>'SELECT') as writes_always_true,
+  (select coalesce(json_agg(tablename||'.'||policyname),'[]') from pg_policies
+     where schemaname='public' and cmd<>'SELECT' and roles::text like '%authenticated%'
+     and (coalesce(qual,'')||' '||coalesce(with_check,'')) like '%app_usuario_ativo%'
+     and (coalesce(qual,'')||' '||coalesce(with_check,'')) not like '%usuario_e_gestao%'
+     and (coalesce(qual,'')||' '||coalesce(with_check,'')) not like '%app_owns_acordo%'
+     and (coalesce(qual,'')||' '||coalesce(with_check,'')) not like '%app_matches_nome%'
+     and (coalesce(qual,'')||' '||coalesce(with_check,'')) not like '%app_email%'
+     and (coalesce(qual,'')||' '||coalesce(with_check,'')) not like '%app_pode_borderos%') as writes_somente_ativo;
+
 rollback;

@@ -151,4 +151,8 @@ drop policy if exists parcelas_insert on public.parcelas;
 create policy parcelas_insert on public.parcelas
   for insert to authenticated with check (true);
 
+-- Helpers de titularidade TIER C criados na migration.
+drop function if exists public.app_owns_acordo(uuid);
+drop function if exists public.app_matches_nome(text);
+
 commit;

@@ -35,11 +35,13 @@
 --   public.usuario_e_gestao()   -> perfil de gestão autorizado
 --   public.app_pode_borderos_importacoes() -> Borderô/Importação SOMENTE Amanda
 --
--- PADRÕES DE CORREÇÃO:
---   FLOOR       : app_usuario_ativo()  (bloqueia anon / sem-cadastro / inativo)
+-- PADRÕES DE CORREÇÃO (app_usuario_ativo() NUNCA é a única restrição):
 --   TITULARIDADE: app_usuario_ativo() AND (usuario_e_gestao()
 --                 OR lower(coalesce(<owner>,'')) = app_email() [OR owner vazio])
 --   GESTÃO/ADM  : app_usuario_ativo() AND usuario_e_gestao()  (ou Amanda-only)
+--   LOG (TIER C): INSERT só do PRÓPRIO autor (coluna-autor = app_email() ou
+--                 nome via app_matches_nome; vazio=sistema); UPDATE/DELETE bloqueados
+--   VÍNCULO/PARCELA: titularidade pelo acordo (app_owns_acordo) ou gestão
 --
 -- Idempotente (drop policy if exists + create). NÃO aplicar / merge / deploy.
 -- ============================================================================
@@ -268,94 +270,163 @@ create policy links_pagamento_update_authenticated on public.links_pagamento
 
 -- notificacoes — UPDATE always_true é redundante: já existe notif_update_proprias
 --   (usuario_destino_email = auth.email()). Remove o always_true e preserva o
---   update das próprias notificações. INSERT continua aberto a usuário ativo
---   (o sistema cria notificação PARA outros destinatários).
+--   update das próprias notificações.
+--   INSERT: frontend NÃO insere direto (só marca como lida); a criação de
+--   notificação para terceiros ocorre via RPC/trigger SECURITY DEFINER (bypassa
+--   RLS). Restringe INSERT direto de authenticated à gestão (nunca só ativo).
 drop policy if exists notificacoes_update on public.notificacoes;
 
 drop policy if exists notificacoes_insert on public.notificacoes;
 create policy notificacoes_insert on public.notificacoes
   for insert to authenticated
-  with check (public.app_usuario_ativo());
+  with check (public.app_usuario_ativo() and public.usuario_e_gestao());
 
 -- ============================================================================
--- TIER C — FLOOR (logs/auditoria e caminhos multi-autor):
---   bloqueia anon / sem-cadastro / inativo (app_usuario_ativo()).
---   Titularidade fina adiada (ver RISCOS RESIDUAIS no relatório).
+-- TIER C — TITULARIDADE REAL (app_usuario_ativo() NUNCA é a única restrição)
+--   Logs/auditoria: INSERT só do PRÓPRIO autor (ou gestão / RPC interna que
+--     bypassa RLS); UPDATE e DELETE bloqueados (sem policy).
+--   Vínculos/parcelas: titularidade pelo acordo/aluno relacionado, ou gestão;
+--     USING+CHECK impedem trocar acordo_id para escapar do escopo.
+-- ----------------------------------------------------------------------------
+-- HELPERS desta etapa (SECURITY DEFINER: fazem a checagem de titularidade sem
+--   recair na RLS das tabelas relacionadas; leem o e-mail do JWT via app_email).
 -- ============================================================================
 
--- acordo_titulo_vinculo (vínculo financeiro; integridade de acordo_id já
---   protegida por trigger fila_acordos_guard_acordo_id).
+-- Titularidade de acordo: acordo é do operador (operador_responsavel_email) OU
+--   do aluno responsável (responsavel_atual_email). Acordo órfão (ambos vazios)
+--   liberado a usuário ativo (legado/sistema) — documentado como residual.
+create or replace function public.app_owns_acordo(p_acordo_id uuid)
+returns boolean language sql stable security definer set search_path to 'public' as $$
+  select exists (
+    select 1 from public.acordos a
+    left join public.alunos al on al.id = a.aluno_id
+    where a.id = p_acordo_id
+      and (
+        (public.app_email() <> '' and lower(coalesce(a.operador_responsavel_email,'')) = public.app_email())
+        or (public.app_email() <> '' and lower(coalesce(al.responsavel_atual_email,'')) = public.app_email())
+        or (coalesce(a.operador_responsavel_email,'') = '' and coalesce(al.responsavel_atual_email,'') = '')
+      )
+  );
+$$;
+
+-- Nome do autor (coluna textual) bate com o nome cadastrado do chamador.
+--   Vazio/nulo é liberado (inserts que não preenchem o autor); nunca permite
+--   atribuir a NOME de outro operador.
+create or replace function public.app_matches_nome(p text)
+returns boolean language sql stable security definer set search_path to 'public' as $$
+  select p is null or btrim(p) = '' or exists (
+    select 1 from public.usuarios u
+    where lower(u.email) = public.app_email()
+      and lower(btrim(p)) in (lower(coalesce(u.nome,'')), lower(coalesce(u.operador_nome,'')), lower(coalesce(u.operador,'')))
+  );
+$$;
+
+revoke all on function public.app_owns_acordo(uuid) from public;
+revoke all on function public.app_matches_nome(text) from public;
+grant execute on function public.app_owns_acordo(uuid) to authenticated, service_role;
+grant execute on function public.app_matches_nome(text) to authenticated, service_role;
+
+-- acordo_titulo_vinculo (vínculo financeiro) — titularidade pelo acordo.
+--   INSERT/UPDATE/DELETE só do acordo do próprio operador ou gestão. UPDATE
+--   valida acordo_id novo e antigo (impede migrar vínculo para acordo de 3º).
+--   DELETE = desvínculo, fluxo operacional comprovado (FinanceiroAluno).
 drop policy if exists atv_insert on public.acordo_titulo_vinculo;
 create policy atv_insert on public.acordo_titulo_vinculo
-  for insert to authenticated with check (public.app_usuario_ativo());
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao() or public.app_owns_acordo(acordo_id)));
 
 drop policy if exists atv_update on public.acordo_titulo_vinculo;
 create policy atv_update on public.acordo_titulo_vinculo
-  for update to authenticated using (public.app_usuario_ativo());
+  for update to authenticated
+  using (public.app_usuario_ativo() and (public.usuario_e_gestao() or public.app_owns_acordo(acordo_id)))
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao() or public.app_owns_acordo(acordo_id)));
 
 drop policy if exists atv_delete on public.acordo_titulo_vinculo;
 create policy atv_delete on public.acordo_titulo_vinculo
-  for delete to authenticated using (public.app_usuario_ativo());
+  for delete to authenticated
+  using (public.app_usuario_ativo() and (public.usuario_e_gestao() or public.app_owns_acordo(acordo_id)));
 
--- aluno_movimentacoes (log)
-drop policy if exists aluno_movimentacoes_insert on public.aluno_movimentacoes;
-create policy aluno_movimentacoes_insert on public.aluno_movimentacoes
-  for insert to authenticated with check (public.app_usuario_ativo());
-
--- alunos_unificados (INSERT; UPDATE já restrito por operador_atualiza_sua_fila)
-drop policy if exists alunos_unificados_insert_authenticated on public.alunos_unificados;
-create policy alunos_unificados_insert_authenticated on public.alunos_unificados
-  for insert to authenticated with check (public.app_usuario_ativo());
-
--- historico_agendamentos (log)
-drop policy if exists historico_agendamentos_insert_authenticated on public.historico_agendamentos;
-create policy historico_agendamentos_insert_authenticated on public.historico_agendamentos
-  for insert to authenticated with check (public.app_usuario_ativo());
-
--- historico_alteracoes_crm (log)
-drop policy if exists historico_alteracoes_insert_authenticated on public.historico_alteracoes_crm;
-create policy historico_alteracoes_insert_authenticated on public.historico_alteracoes_crm
-  for insert to authenticated with check (public.app_usuario_ativo());
-
--- historico_atendimentos (log)
-drop policy if exists historico_insert_authenticated on public.historico_atendimentos;
-create policy historico_insert_authenticated on public.historico_atendimentos
-  for insert to authenticated with check (public.app_usuario_ativo());
-
--- historico_casos (log)
-drop policy if exists historico_casos_insert on public.historico_casos;
-create policy historico_casos_insert on public.historico_casos
-  for insert to authenticated with check (public.app_usuario_ativo());
-
--- historico_links_pagamento (log)
-drop policy if exists historico_links_insert_authenticated on public.historico_links_pagamento;
-create policy historico_links_insert_authenticated on public.historico_links_pagamento
-  for insert to authenticated with check (public.app_usuario_ativo());
-
--- historico_operadores_alunos (log: INSERT + UPDATE)
-drop policy if exists historico_operadores_insert_authenticated on public.historico_operadores_alunos;
-create policy historico_operadores_insert_authenticated on public.historico_operadores_alunos
-  for insert to authenticated with check (public.app_usuario_ativo());
-
-drop policy if exists historico_operadores_update_authenticated on public.historico_operadores_alunos;
-create policy historico_operadores_update_authenticated on public.historico_operadores_alunos
-  for update to authenticated
-  using (public.app_usuario_ativo()) with check (public.app_usuario_ativo());
-
--- links_pagamento_historico (log)
-drop policy if exists links_pagamento_historico_insert on public.links_pagamento_historico;
-create policy links_pagamento_historico_insert on public.links_pagamento_historico
-  for insert to authenticated with check (public.app_usuario_ativo());
-
--- sugestoes (INSERT; UPDATE já restrito por usuario_e_gestao_fila)
-drop policy if exists sugestoes_insert on public.sugestoes;
-create policy sugestoes_insert on public.sugestoes
-  for insert to authenticated with check (public.app_usuario_ativo());
-
--- parcelas (INSERT de parcela de acordo; UPDATE já restrito a gestão financeira
---   por parcelas_update e parcelas_update_executor é intencional).
+-- parcelas (INSERT) — titularidade pelo acordo. UPDATE já restrito a gestão
+--   financeira (parcelas_update) e executor (intencional); DELETE sem policy.
 drop policy if exists parcelas_insert on public.parcelas;
 create policy parcelas_insert on public.parcelas
-  for insert to authenticated with check (public.app_usuario_ativo());
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao() or public.app_owns_acordo(acordo_id)));
+
+-- ---- LOGS/AUDITORIA: INSERT só do próprio autor (ou gestão); UPDATE/DELETE bloqueados
+-- Coluna-autor = e-mail (vazio liberado para inserts de sistema/RPC; nunca
+--   permite atribuir a e-mail de OUTRO operador).
+
+-- aluno_movimentacoes (registrado_por_email)
+drop policy if exists aluno_movimentacoes_insert on public.aluno_movimentacoes;
+create policy aluno_movimentacoes_insert on public.aluno_movimentacoes
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
+    or coalesce(registrado_por_email,'') = '' or lower(registrado_por_email) = public.app_email()));
+
+-- alunos_unificados (operador_email) — frontend não faz INSERT (só RPC/UPDATE
+--   próprio via operador_atualiza_sua_fila); restringe por titularidade.
+drop policy if exists alunos_unificados_insert_authenticated on public.alunos_unificados;
+create policy alunos_unificados_insert_authenticated on public.alunos_unificados
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
+    or coalesce(operador_email,'') = '' or lower(operador_email) = public.app_email()));
+
+-- historico_agendamentos (operador_email) — só RPC no frontend
+drop policy if exists historico_agendamentos_insert_authenticated on public.historico_agendamentos;
+create policy historico_agendamentos_insert_authenticated on public.historico_agendamentos
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
+    or coalesce(operador_email,'') = '' or lower(operador_email) = public.app_email()));
+
+-- historico_alteracoes_crm (usuario_email)
+drop policy if exists historico_alteracoes_insert_authenticated on public.historico_alteracoes_crm;
+create policy historico_alteracoes_insert_authenticated on public.historico_alteracoes_crm
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
+    or coalesce(usuario_email,'') = '' or lower(usuario_email) = public.app_email()));
+
+-- historico_atendimentos (operador = NOME) — casa com o nome do chamador
+drop policy if exists historico_insert_authenticated on public.historico_atendimentos;
+create policy historico_insert_authenticated on public.historico_atendimentos
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao() or public.app_matches_nome(operador)));
+
+-- historico_casos (operador = NOME)
+drop policy if exists historico_casos_insert on public.historico_casos;
+create policy historico_casos_insert on public.historico_casos
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao() or public.app_matches_nome(operador)));
+
+-- historico_links_pagamento (usuario_email)
+drop policy if exists historico_links_insert_authenticated on public.historico_links_pagamento;
+create policy historico_links_insert_authenticated on public.historico_links_pagamento
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
+    or coalesce(usuario_email,'') = '' or lower(usuario_email) = public.app_email()));
+
+-- historico_operadores_alunos (operador_email) — INSERT próprio; UPDATE BLOQUEADO
+drop policy if exists historico_operadores_insert_authenticated on public.historico_operadores_alunos;
+create policy historico_operadores_insert_authenticated on public.historico_operadores_alunos
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
+    or coalesce(operador_email,'') = '' or lower(operador_email) = public.app_email()));
+-- UPDATE de log removido (bloqueado). Frontend não faz UPDATE direto; RPCs
+--   (SECURITY DEFINER, owner=postgres) bypassam RLS e seguem funcionando.
+drop policy if exists historico_operadores_update_authenticated on public.historico_operadores_alunos;
+
+-- links_pagamento_historico (usuario = e-mail)
+drop policy if exists links_pagamento_historico_insert on public.links_pagamento_historico;
+create policy links_pagamento_historico_insert on public.links_pagamento_historico
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
+    or coalesce(usuario,'') = '' or lower(usuario) = public.app_email()));
+
+-- sugestoes (autor_email) — cada um envia a PRÓPRIA sugestão
+drop policy if exists sugestoes_insert on public.sugestoes;
+create policy sugestoes_insert on public.sugestoes
+  for insert to authenticated
+  with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
+    or coalesce(autor_email,'') = '' or lower(autor_email) = public.app_email()));
 
 commit;
