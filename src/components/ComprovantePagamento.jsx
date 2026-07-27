@@ -47,10 +47,11 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
     // nao escolhe bucket, pasta nem nome (UUID no servidor).
     const res = await enviarComprovanteLink(item.id, arquivo);
 
-    // Sucesso idempotente: já estava vinculado. Não reenviar nem reprocessar;
-    // apenas confirmar ao operador que está anexado/enviado.
+    // Sucesso idempotente: já estava vinculado. Não reenviar nem reprocessar
+    // (não repetimos upload) e NÃO gravamos nada no banco. Orienta o operador
+    // para a próxima etapa — o anexo não envia sozinho para a fila.
     if (res.ok && res.jaVinculado) {
-      alert("Comprovante já anexado e enviado para confirmação.");
+      alert("Comprovante já anexado. Agora clique em ‘Enviar para confirmação’.");
       setArquivo(null);
       setEnviando(false);
       if (onAtualizar) onAtualizar();
@@ -62,7 +63,7 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
         res.erro === "sessao_expirada"
           ? "Sessão expirada. Entre novamente."
           : res.erro === "ja_vinculado"
-          ? "Comprovante já anexado e enviado para confirmação."
+          ? "Comprovante já anexado. Agora clique em ‘Enviar para confirmação’."
           : res.erro === "mime_invalido"
           ? "Formato nao permitido. Envie PDF, PNG ou JPG."
           : res.erro === "tamanho_invalido"
@@ -140,10 +141,21 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
         <iframe src={visualizarUrl} title="comprovante" style={{ width: "100%", height: 640, border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 10 }} />
       ) : null)}
 
-      {item?.comprovante_nome && (
+      {/* Considera anexado quando há comprovante_url, mesmo sem comprovante_nome
+          (registros antigos ficaram com nome NULL). Nome alternativo apenas para
+          exibição — nada é gravado no banco. */}
+      {temComprovante && (
         <p style={styles.arquivoAtual}>
-          Arquivo atual: <strong>{item.comprovante_nome}</strong>
+          Arquivo atual: <strong>{item?.comprovante_nome || "Comprovante anexado"}</strong>
         </p>
+      )}
+
+      {/* Destaca a próxima etapa: o anexo NÃO cria a solicitação sozinho. */}
+      {temComprovante && (
+        <div style={styles.proximaEtapa}>
+          Comprovante anexado. Agora clique em <strong>“Enviar para confirmação”</strong> para
+          concluir o envio à fila.
+        </div>
       )}
 
       <div style={styles.linha}>
@@ -218,5 +230,14 @@ const styles = {
   selecionado: {
     margin: "8px 0 0 0",
     color: "#374151",
+  },
+  proximaEtapa: {
+    marginTop: "10px",
+    padding: "10px 12px",
+    background: "#ecfdf5",
+    border: "1px solid #a7f3d0",
+    borderRadius: "8px",
+    color: "#065f46",
+    fontSize: "13px",
   },
 };
