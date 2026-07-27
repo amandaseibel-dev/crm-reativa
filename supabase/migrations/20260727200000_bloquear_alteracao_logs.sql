@@ -9,17 +9,19 @@
 --  * aluno_movimentacoes tinha policy UPDATE `aluno_movimentacoes_update` USING (NOT eh_painel())
 --    -> qualquer authenticated não-painel podia ALTERAR o log. REMOVIDA.
 --  * demais 7 tabelas tinham uma policy `painel_negado` cmd=ALL USING (NOT eh_painel()),
---    permissiva -> era o ÚNICO grant de UPDATE/DELETE, liberando alteração/exclusão a
---    qualquer authenticated não-painel. Substituída por policies SELECT + INSERT de mesma
---    semântica, sem cobrir UPDATE/DELETE.
+--    permissiva -> era o ÚNICO grant de UPDATE/DELETE, e ainda liberava INSERT amplo
+--    (apenas NOT eh_painel(), sem titularidade). Substituída SOMENTE por painel_negado_select.
+--    INSERT passa a depender exclusivamente das policies específicas já existentes
+--    (com app_usuario_ativo() + titularidade). UPDATE/DELETE ficam sem policy p/ authenticated.
 
 BEGIN;
 
 -- 1) aluno_movimentacoes: remover grant de UPDATE (DELETE já não possuía policy).
 DROP POLICY IF EXISTS aluno_movimentacoes_update ON public.aluno_movimentacoes;
 
--- 2) Tabelas com `painel_negado` (ALL): reduzir escopo para SELECT + INSERT,
---    preservando comportamento atual e eliminando UPDATE/DELETE.
+-- 2) Tabelas com `painel_negado` (ALL): reduzir escopo APENAS para SELECT.
+--    NÃO criar painel_negado_insert: o INSERT fica a cargo exclusivo das policies
+--    específicas já existentes (titularidade real). UPDATE/DELETE ficam sem policy.
 DO $$
 DECLARE
   t text;
@@ -37,8 +39,6 @@ BEGIN
     EXECUTE format('DROP POLICY IF EXISTS painel_negado ON public.%I', t);
     EXECUTE format(
       'CREATE POLICY painel_negado_select ON public.%I FOR SELECT TO authenticated USING (NOT eh_painel())', t);
-    EXECUTE format(
-      'CREATE POLICY painel_negado_insert ON public.%I FOR INSERT TO authenticated WITH CHECK (NOT eh_painel())', t);
   END LOOP;
 END $$;
 

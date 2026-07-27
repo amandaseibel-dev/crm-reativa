@@ -25,7 +25,6 @@ DECLARE
 BEGIN
   FOREACH t IN ARRAY tabelas LOOP
     EXECUTE format('DROP POLICY IF EXISTS painel_negado_select ON public.%I', t);
-    EXECUTE format('DROP POLICY IF EXISTS painel_negado_insert ON public.%I', t);
     EXECUTE format(
       'CREATE POLICY painel_negado ON public.%I FOR ALL TO authenticated USING (NOT eh_painel())', t);
   END LOOP;
