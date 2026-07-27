@@ -1,9 +1,11 @@
--- Reconciliacao HISTORICA (B) -- SEPARADA e NAO APLICAR AINDA.
+-- AUDITORIA / ANALISE -- NAO E MIGRATION, NAO EXECUTAR AUTOMATICAMENTE.
 --
--- Depende da correcao estrutural (A) 20260727235500. Esta migration NAO deve ser
--- aplicada junto com A: e um ajuste de dados historico, a ser revisado e aplicado
--- deliberadamente (a equipe pode preferir re-vincular manualmente alguns titulos
--- ao acordo ATIVO do aluno em vez de reabri-los).
+-- Este arquivo vive em supabase/audits/ (fora da sequencia de migrations) de
+-- proposito: nesta entrega NENHUM dos 25 titulos historicos pode ser alterado.
+-- E material de estudo/proposta para uma reconciliacao futura, a ser revisada e
+-- executada manualmente e deliberadamente (a equipe pode preferir re-vincular
+-- manualmente alguns titulos ao acordo ATIVO do aluno em vez de reabri-los).
+-- Depende da correcao estrutural (A) 20260727235500.
 --
 -- Populacao alvo (auditada em producao, 25 titulos / 11 alunos / R$47.528,45):
 -- titulos com situacao='NEGOCIADO' e status='em_aberto' que NUNCA tiveram linha

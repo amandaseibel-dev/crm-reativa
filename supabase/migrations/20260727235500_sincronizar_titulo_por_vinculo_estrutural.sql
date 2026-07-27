@@ -1,9 +1,10 @@
 -- Hotfix ESTRUTURAL (A): "mensalidades vinculadas continuam em aberto".
 --
 -- Escopo desta migration: SOMENTE a correcao estrutural do fluxo de vinculo.
--- A reconciliacao dos titulos historicos ja divergentes esta em migration
--- SEPARADA (20260727235600_reconciliar_titulos_negociados_orfaos.sql) e NAO
--- deve ser aplicada junto. Rollback em supabase/rollbacks/.
+-- NAO altera nenhum dado historico (nenhum dos 25 titulos divergentes e tocado).
+-- A analise da reconciliacao historica ficou FORA de migrations, em
+-- supabase/audits/reconciliar_titulos_negociados_orfaos.sql -- material de
+-- estudo, nunca executado automaticamente. Rollback em supabase/rollbacks/.
 --
 -- Causa (reproduzida em producao, BEGIN/ROLLBACK):
 -- O vinculo mensalidade->acordo era mantido por caminhos nao-transacionais e
