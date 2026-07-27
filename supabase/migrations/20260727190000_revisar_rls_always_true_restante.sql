@@ -40,8 +40,10 @@
 --                 OR lower(coalesce(<owner>,'')) = app_email() [OR owner vazio])
 --   GESTÃO/ADM  : app_usuario_ativo() AND usuario_e_gestao()  (ou Amanda-only)
 --   LOG (TIER C): INSERT só do PRÓPRIO autor (coluna-autor = app_email() ou
---                 nome via app_matches_nome; vazio=sistema); UPDATE/DELETE bloqueados
---   VÍNCULO/PARCELA: titularidade pelo acordo (app_owns_acordo) ou gestão
+--                 nome exato via app_matches_nome; autor vazio/NULL BLOQUEADO
+--                 p/ authenticated); UPDATE/DELETE bloqueados
+--   VÍNCULO/PARCELA: titularidade ESTRITA pelo acordo (app_owns_acordo); órfão
+--                 (sem responsável) só gestão / RPC interna
 --
 -- Idempotente (drop policy if exists + create). NÃO aplicar / merge / deploy.
 -- ============================================================================
@@ -292,33 +294,45 @@ create policy notificacoes_insert on public.notificacoes
 --   recair na RLS das tabelas relacionadas; leem o e-mail do JWT via app_email).
 -- ============================================================================
 
--- Titularidade de acordo: acordo é do operador (operador_responsavel_email) OU
---   do aluno responsável (responsavel_atual_email). Acordo órfão (ambos vazios)
---   liberado a usuário ativo (legado/sistema) — documentado como residual.
+-- Titularidade de acordo (ESTRITA). Retorna TRUE só quando o chamador é o
+--   responsável REAL do acordo. Retorna FALSE quando:
+--     * p_acordo_id IS NULL;
+--     * acordo não existe;
+--     * acordo/aluno sem responsável (órfão) — nesse caso só gestão/RPC interna;
+--     * o chamador não é o responsável atual.
 create or replace function public.app_owns_acordo(p_acordo_id uuid)
 returns boolean language sql stable security definer set search_path to 'public' as $$
-  select exists (
-    select 1 from public.acordos a
-    left join public.alunos al on al.id = a.aluno_id
-    where a.id = p_acordo_id
-      and (
-        (public.app_email() <> '' and lower(coalesce(a.operador_responsavel_email,'')) = public.app_email())
-        or (public.app_email() <> '' and lower(coalesce(al.responsavel_atual_email,'')) = public.app_email())
-        or (coalesce(a.operador_responsavel_email,'') = '' and coalesce(al.responsavel_atual_email,'') = '')
-      )
-  );
+  select p_acordo_id is not null
+     and public.app_email() <> ''
+     and exists (
+       select 1 from public.acordos a
+       left join public.alunos al on al.id = a.aluno_id
+       where a.id = p_acordo_id
+         and (
+           lower(coalesce(a.operador_responsavel_email,'')) = public.app_email()
+           or lower(coalesce(al.responsavel_atual_email,'')) = public.app_email()
+         )
+     );
 $$;
 
--- Nome do autor (coluna textual) bate com o nome cadastrado do chamador.
---   Vazio/nulo é liberado (inserts que não preenchem o autor); nunca permite
---   atribuir a NOME de outro operador.
+-- Nome do autor (coluna textual) bate EXATAMENTE com o nome cadastrado do
+--   chamador. Retorna FALSE quando: p vazio/nulo; sem usuário ativo com esse
+--   e-mail; correspondência ambígua (mais de um usuário ativo casando).
+--   Nunca permite atribuir log ao NOME de outro operador.
 create or replace function public.app_matches_nome(p text)
 returns boolean language sql stable security definer set search_path to 'public' as $$
-  select p is null or btrim(p) = '' or exists (
-    select 1 from public.usuarios u
-    where lower(u.email) = public.app_email()
-      and lower(btrim(p)) in (lower(coalesce(u.nome,'')), lower(coalesce(u.operador_nome,'')), lower(coalesce(u.operador,'')))
-  );
+  select p is not null and btrim(p) <> ''
+     and (
+       select count(*) = 1
+       from public.usuarios u
+       where lower(u.email) = public.app_email()
+         and u.ativo is true
+         and lower(btrim(p)) in (
+              lower(btrim(coalesce(u.nome,''))),
+              lower(btrim(coalesce(u.operador_nome,''))),
+              lower(btrim(coalesce(u.operador,'')))
+         )
+     );
 $$;
 
 revoke all on function public.app_owns_acordo(uuid) from public;
@@ -353,40 +367,43 @@ create policy parcelas_insert on public.parcelas
   for insert to authenticated
   with check (public.app_usuario_ativo() and (public.usuario_e_gestao() or public.app_owns_acordo(acordo_id)));
 
--- ---- LOGS/AUDITORIA: INSERT só do próprio autor (ou gestão); UPDATE/DELETE bloqueados
--- Coluna-autor = e-mail (vazio liberado para inserts de sistema/RPC; nunca
---   permite atribuir a e-mail de OUTRO operador).
+-- ---- LOGS/AUDITORIA: INSERT só do PRÓPRIO autor (ou gestão); UPDATE/DELETE bloqueados
+-- Coluna-autor = e-mail: EXIGE autor = e-mail do JWT. Autor vazio/NULL é
+--   BLOQUEADO para authenticated (app_email() nunca é ''); atribuir a e-mail de
+--   OUTRO operador é bloqueado. Inserts de sistema entram por RPC/trigger
+--   (SECURITY DEFINER, owner=postgres) / service_role, que bypassam RLS.
 
 -- aluno_movimentacoes (registrado_por_email)
 drop policy if exists aluno_movimentacoes_insert on public.aluno_movimentacoes;
 create policy aluno_movimentacoes_insert on public.aluno_movimentacoes
   for insert to authenticated
   with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
-    or coalesce(registrado_por_email,'') = '' or lower(registrado_por_email) = public.app_email()));
+    or lower(coalesce(registrado_por_email,'')) = public.app_email()));
 
--- alunos_unificados (operador_email) — frontend não faz INSERT (só RPC/UPDATE
---   próprio via operador_atualiza_sua_fila); restringe por titularidade.
+-- alunos_unificados (operador_email) — operador NÃO pode inserir com
+--   operador_email vazio/NULL: exige operador_email = próprio JWT. INSERT de
+--   sistema/distribuição vem por RPC (definer, bypassa RLS).
 drop policy if exists alunos_unificados_insert_authenticated on public.alunos_unificados;
 create policy alunos_unificados_insert_authenticated on public.alunos_unificados
   for insert to authenticated
   with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
-    or coalesce(operador_email,'') = '' or lower(operador_email) = public.app_email()));
+    or lower(coalesce(operador_email,'')) = public.app_email()));
 
--- historico_agendamentos (operador_email) — só RPC no frontend
+-- historico_agendamentos (operador_email)
 drop policy if exists historico_agendamentos_insert_authenticated on public.historico_agendamentos;
 create policy historico_agendamentos_insert_authenticated on public.historico_agendamentos
   for insert to authenticated
   with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
-    or coalesce(operador_email,'') = '' or lower(operador_email) = public.app_email()));
+    or lower(coalesce(operador_email,'')) = public.app_email()));
 
 -- historico_alteracoes_crm (usuario_email)
 drop policy if exists historico_alteracoes_insert_authenticated on public.historico_alteracoes_crm;
 create policy historico_alteracoes_insert_authenticated on public.historico_alteracoes_crm
   for insert to authenticated
   with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
-    or coalesce(usuario_email,'') = '' or lower(usuario_email) = public.app_email()));
+    or lower(coalesce(usuario_email,'')) = public.app_email()));
 
--- historico_atendimentos (operador = NOME) — casa com o nome do chamador
+-- historico_atendimentos (operador = NOME) — nome exato do chamador
 drop policy if exists historico_insert_authenticated on public.historico_atendimentos;
 create policy historico_insert_authenticated on public.historico_atendimentos
   for insert to authenticated
@@ -403,14 +420,14 @@ drop policy if exists historico_links_insert_authenticated on public.historico_l
 create policy historico_links_insert_authenticated on public.historico_links_pagamento
   for insert to authenticated
   with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
-    or coalesce(usuario_email,'') = '' or lower(usuario_email) = public.app_email()));
+    or lower(coalesce(usuario_email,'')) = public.app_email()));
 
 -- historico_operadores_alunos (operador_email) — INSERT próprio; UPDATE BLOQUEADO
 drop policy if exists historico_operadores_insert_authenticated on public.historico_operadores_alunos;
 create policy historico_operadores_insert_authenticated on public.historico_operadores_alunos
   for insert to authenticated
   with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
-    or coalesce(operador_email,'') = '' or lower(operador_email) = public.app_email()));
+    or lower(coalesce(operador_email,'')) = public.app_email()));
 -- UPDATE de log removido (bloqueado). Frontend não faz UPDATE direto; RPCs
 --   (SECURITY DEFINER, owner=postgres) bypassam RLS e seguem funcionando.
 drop policy if exists historico_operadores_update_authenticated on public.historico_operadores_alunos;
@@ -420,13 +437,13 @@ drop policy if exists links_pagamento_historico_insert on public.links_pagamento
 create policy links_pagamento_historico_insert on public.links_pagamento_historico
   for insert to authenticated
   with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
-    or coalesce(usuario,'') = '' or lower(usuario) = public.app_email()));
+    or lower(coalesce(usuario,'')) = public.app_email()));
 
 -- sugestoes (autor_email) — cada um envia a PRÓPRIA sugestão
 drop policy if exists sugestoes_insert on public.sugestoes;
 create policy sugestoes_insert on public.sugestoes
   for insert to authenticated
   with check (public.app_usuario_ativo() and (public.usuario_e_gestao()
-    or coalesce(autor_email,'') = '' or lower(autor_email) = public.app_email()));
+    or lower(coalesce(autor_email,'')) = public.app_email()));
 
 commit;

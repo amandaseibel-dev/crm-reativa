@@ -57,32 +57,39 @@ order by p.ord;
 -- ---------------------------------------------------------------------------
 -- TIER C — titularidade por acordo (app_owns_acordo) e autor do log.
 --   Requer a migration aplicada (helpers app_owns_acordo/app_matches_nome).
---   Ajuste :acordo_dono para um acordo real do operador testado.
---   RESULTADO ESPERADO:
---     dono do acordo ..... parcelas/vínculo=OK, log próprio=OK, log 3º=NEG
---     operador terceiro .. parcelas/vínculo=NEG (acordo de outro), log 3º=NEG
---     gestão ............. tudo OK
---     anon/não-cadastrado. tudo NEG
+--   Ajuste os UUIDs (:owned = acordo do operador; :orph = acordo órfão sem
+--   responsável) para dados reais antes de rodar.
+--   RESULTADO ESPERADO (helper ESTRITO):
+--     app_owns_acordo: TRUE só p/ dono; FALSE p/ órfão, inexistente e NULL.
+--     dono do acordo ..... parcela/vínculo=OK(owned), NEG(órfão); log próprio=OK,
+--                          log vazio/3º=NEG.
+--     operador terceiro .. parcela/vínculo=NEG; log vazio/3º=NEG.
+--     gestão ............. parcela/vínculo OK inclusive órfão; log qualquer=OK.
+--     anon/não-cadastrado. tudo NEG.
 -- ---------------------------------------------------------------------------
-create or replace function pg_temp.c(claim text, p_acordo uuid) returns table(
-  ativo bool, owns_acordo bool, parcela_ins bool, vinculo_ins bool,
-  log_proprio bool, log_terceiro bool
+create or replace function pg_temp.c(claim text, owned uuid, orph uuid) returns table(
+  o_ativo bool, owns_owned bool, owns_orphan bool, owns_missing bool, owns_null bool,
+  parc_owned bool, parc_orphan bool, log_self bool, log_empty bool, log_other bool
 ) language plpgsql as $$
+declare av bool; g bool;
 begin
   perform set_config('request.jwt.claims',
     case when claim is null then '' else json_build_object('email',claim)::text end, true);
-  ativo := public.app_usuario_ativo();
-  owns_acordo := public.app_owns_acordo(p_acordo);
-  parcela_ins := ativo and (public.usuario_e_gestao() or public.app_owns_acordo(p_acordo));
-  vinculo_ins := ativo and (public.usuario_e_gestao() or public.app_owns_acordo(p_acordo));
-  log_proprio := ativo and (public.usuario_e_gestao()
-     or lower(coalesce(claim,'')) = public.app_email());            -- autor = self
-  log_terceiro := ativo and (public.usuario_e_gestao()
-     or lower('terceiro@aelbra.com.br') = public.app_email());       -- autor = 3º (deve negar)
+  av := public.app_usuario_ativo(); g := public.usuario_e_gestao();
+  o_ativo := av;
+  owns_owned  := public.app_owns_acordo(owned);
+  owns_orphan := public.app_owns_acordo(orph);
+  owns_missing:= public.app_owns_acordo('00000000-0000-0000-0000-000000000000');
+  owns_null   := public.app_owns_acordo(null);
+  parc_owned  := av and (g or public.app_owns_acordo(owned));
+  parc_orphan := av and (g or public.app_owns_acordo(orph));         -- órfão: só gestão
+  log_self    := av and (g or lower(coalesce(public.app_email(),'')) = public.app_email());
+  log_empty   := av and (g or lower(coalesce(''::text,'')) = public.app_email());   -- vazio: NEG
+  log_other   := av and (g or lower('terceiro@aelbra.com.br') = public.app_email()); -- 3º: NEG
   return next;
 end $$;
 
--- Troque o UUID por um acordo real do operador testado antes de rodar.
+-- Troque os UUIDs por dados reais antes de rodar.
 select p.nome as perfil, x.*
 from (values
   (1,'anon', null),
@@ -91,7 +98,9 @@ from (values
   (4,'gestao/Amanda', 'amanda.seibel@aelbra.com.br'),
   (5,'nao-cadastrado', 'ninguem@exemplo.com')
 ) p(ord,nome,claim),
-  lateral pg_temp.c(p.claim, '233cdf80-5363-4d6a-b12e-d182cb7860e4'::uuid) x
+  lateral pg_temp.c(p.claim,
+    '233cdf80-5363-4d6a-b12e-d182cb7860e4'::uuid,
+    'd353a79e-04d5-47ef-8c52-b60ab59281e8'::uuid) x
 order by p.ord;
 
 -- Invariantes (devem retornar 0 / lista vazia):
