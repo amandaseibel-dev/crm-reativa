@@ -117,6 +117,76 @@ async function garantirFilaCartao(
   }
 }
 
+// Fila SOMENTE para cartão. Se o link não for CARTAO (NULL ou outro tipo),
+// devolve fila_nao_aplicavel — nunca classifica o pagamento como cartão.
+async function filaAposVinculo(
+  admin: ReturnType<typeof createClient>,
+  tipoDocumento: unknown,
+  registroId: unknown,
+): Promise<Record<string, unknown>> {
+  if (tipoDocumento !== "comprovante_link") return { fila_status: "fila_nao_aplicavel" };
+  if (typeof registroId !== "string" || !RE_UUID.test(registroId)) return { fila_status: "fila_nao_aplicavel" };
+  const { data: link } = await admin
+    .from("links_pagamento")
+    .select("forma_pagamento")
+    .eq("id", registroId)
+    .maybeSingle();
+  const forma = String((link as { forma_pagamento?: string } | null)?.forma_pagamento ?? "").toUpperCase();
+  if (forma !== "CARTAO") return { fila_status: "fila_nao_aplicavel" };
+  return await garantirFilaCartao(admin, "comprovante_link", registroId);
+}
+
+// Verifica o objeto REAL no bucket/caminho EXATOS da intenção (sem confiar no
+// cliente). Retorna se existe e se é válido (tamanho > 0 e MIME permitido).
+async function verificarObjetoIntento(
+  admin: ReturnType<typeof createClient>,
+  bucket: string,
+  caminho: string,
+  mimesPermitidos: Set<string>,
+): Promise<{ existe: boolean; valido: boolean; erro?: string }> {
+  const pasta = caminho.split("/")[0];
+  const nome = caminho.slice(pasta.length + 1);
+  const { data: lista, error } = await admin.storage.from(bucket).list(pasta, { search: nome, limit: 100 });
+  if (error) return { existe: false, valido: false, erro: "verify_failed" };
+  const obj = Array.isArray(lista) ? lista.find((o) => o.name === nome) : undefined;
+  if (!obj) return { existe: false, valido: false };
+  const meta = (obj as { metadata?: { mimetype?: string; size?: number } }).metadata || {};
+  const size = typeof meta.size === "number" ? meta.size : 0;
+  const mimetype = typeof meta.mimetype === "string" ? meta.mimetype : "";
+  const valido = size > 0 && (mimetype === "" || mimesPermitidos.has(mimetype));
+  return { existe: true, valido };
+}
+
+// Reconcilia um intento cujo objeto JÁ existe e é válido: conclui docfin_vincular
+// de forma idempotente (marca o intento VINCULADO e grava a URL) SEM novo upload.
+// Devolve a Response pronta. NUNCA sobrescreve objeto nem cria segunda signed URL.
+async function reconciliarIntentoExistente(
+  admin: ReturnType<typeof createClient>,
+  intento: { intent_id: string; bucket: string; caminho: string },
+  fonte: Fonte,
+  ator: string,
+  ehGestao: boolean,
+  registroId: string,
+): Promise<Response> {
+  const chk = await verificarObjetoIntento(admin, intento.bucket, intento.caminho, fonte.mimes);
+  if (!chk.existe) return json({ error: "objeto_ausente" }, 404);
+  if (!chk.valido) return json({ error: "objeto_invalido" }, 422);
+
+  const { data: situacao, error: rpcErr } = await admin.rpc("docfin_vincular", {
+    p_intent_id: intento.intent_id,
+    p_tabela: fonte.tabela,
+    p_coluna: fonte.colunaUrl,
+    p_ator: ator,
+    p_gestao: ehGestao,
+  });
+  if (rpcErr) return json({ error: "vincular_failed" }, 500);
+  if (situacao === "EXPIRADA") return json({ error: "intencao_expirada" }, 410);
+  const vinculado = situacao === "OK" || situacao === "JA_VINCULADO" || situacao === "REGISTRO_JA_VINCULADO";
+  if (!vinculado) return json({ error: "vincular_falhou" }, 409);
+  const f = await filaAposVinculo(admin, fonte.tabela === "links_pagamento" ? "comprovante_link" : "", registroId);
+  return json({ ok: true, reconciliado: true, jaVinculado: true, ...f }, 200);
+}
+
 // Resolve (tipo, campo) -> Fonte. `campo` só é válido p/ termo e restrito a
 // arquivo|rg|verso (campo adulterado => null => bad_request).
 function resolverFonte(tipo: unknown, campo: unknown): Fonte | null {
@@ -254,7 +324,7 @@ Deno.serve(async (req: Request) => {
     // Idempotência: já vinculado => devolve o resultado sem reauditar/reescrever.
     // Ainda assim garante a fila do cartão (recupera solicitação ausente).
     if (it.status === "VINCULADO") {
-      const f = await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      const f = await filaAposVinculo(admin, it.tipo_documento, it.registro_id);
       return json({ ok: true, ja_vinculado: true, ...f }, 200);
     }
     if (it.status !== "AUTORIZADO" && it.status !== "ENVIADO") return json({ error: "intencao_invalida" }, 409);
@@ -286,15 +356,15 @@ Deno.serve(async (req: Request) => {
     // (A) após vínculo bem-sucedido e (B) no caminho real de 409 ja_vinculado,
     // garante a solicitação do cartão na fila (idempotente; best-effort).
     if (situacao === "OK") {
-      const f = await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      const f = await filaAposVinculo(admin, it.tipo_documento, it.registro_id);
       return json({ ok: true, ...f }, 200);
     }
     if (situacao === "JA_VINCULADO") {
-      const f = await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      const f = await filaAposVinculo(admin, it.tipo_documento, it.registro_id);
       return json({ ok: true, ja_vinculado: true, ...f }, 200);
     }
     if (situacao === "REGISTRO_JA_VINCULADO") {
-      const f = await garantirFilaCartao(admin, it.tipo_documento, it.registro_id);
+      const f = await filaAposVinculo(admin, it.tipo_documento, it.registro_id);
       return json({ error: "ja_vinculado", ...f }, 409);
     }
     if (situacao === "EXPIRADA") return json({ error: "intencao_expirada" }, 410);
@@ -340,8 +410,8 @@ Deno.serve(async (req: Request) => {
   if (acao === "upload") {
     if (typeof valorAtual === "string" && valorAtual.trim().length > 0) {
       // Registro já tem documento. Este é o caminho de RETRY idempotente da UI
-      // (reenvio sem novo upload): reconcilia a fila do cartão e reporta fila_ok.
-      const f = await garantirFilaCartao(admin, body?.tipo, id);
+      // (reenvio sem novo upload): reconcilia a fila (só cartão) e reporta.
+      const f = await filaAposVinculo(admin, body?.tipo, id);
       return json({ error: "ja_vinculado", ...f }, 409);
     }
     const mime = typeof body?.mime === "string" ? body.mime : "";
@@ -370,8 +440,21 @@ Deno.serve(async (req: Request) => {
     const intento = Array.isArray(intentos) ? intentos[0] : intentos;
     if (!intento) return json({ error: "intento_failed" }, 500);
     if (intento.situacao === "JA_VINCULADO") {
-      const f = await garantirFilaCartao(admin, body?.tipo, id);
+      const f = await filaAposVinculo(admin, body?.tipo, id);
       return json({ error: "ja_vinculado", ...f }, 409);
+    }
+
+    // Intento REUSADO (tentativa anterior): se o objeto já subiu ao Storage e é
+    // válido, NÃO pedir novo upload nem criar outra signed URL — reconcilia
+    // (docfin_vincular idempotente) e retorna reconciliado=true. Se o objeto
+    // existente for inválido/vazio, não vincula (objeto_invalido).
+    if (intento.situacao === "REUSO") {
+      const chk = await verificarObjetoIntento(admin, intento.bucket, intento.caminho, fonte.mimes);
+      if (chk.existe && chk.valido) {
+        return await reconciliarIntentoExistente(admin, intento, fonte, ident.email, ehGestao, id);
+      }
+      if (chk.existe && !chk.valido) return json({ error: "objeto_invalido" }, 422);
+      // objeto ainda não existe: segue para emitir a signed URL do mesmo caminho.
     }
 
     // Autorização de upload p/ o caminho da intenção. upsert:false EXPLÍCITO:
@@ -379,7 +462,20 @@ Deno.serve(async (req: Request) => {
     const { data: signed, error: upErr } = await admin.storage
       .from(intento.bucket)
       .createSignedUploadUrl(intento.caminho, { upsert: false });
-    if (upErr || !signed?.token) return json({ error: "upload_url_failed" }, 500);
+    if (upErr || !signed?.token) {
+      // Duplicidade (bucketid_objname): o objeto já existe nesse caminho — não é
+      // falha. Reconcilia pelo mesmo fluxo em vez de devolver 500.
+      const msg = String((upErr as { message?: string } | null)?.message ?? "").toLowerCase();
+      const duplicado = msg.includes("duplicate") || msg.includes("already exists") || msg.includes("bucketid_objname") || (upErr as { statusCode?: string } | null)?.statusCode === "409";
+      if (duplicado) {
+        const chk = await verificarObjetoIntento(admin, intento.bucket, intento.caminho, fonte.mimes);
+        if (chk.existe && chk.valido) {
+          return await reconciliarIntentoExistente(admin, intento, fonte, ident.email, ehGestao, id);
+        }
+        if (chk.existe && !chk.valido) return json({ error: "objeto_invalido" }, 422);
+      }
+      return json({ error: "upload_url_failed" }, 500);
+    }
 
     return json({
       intent_id: intento.intent_id,
