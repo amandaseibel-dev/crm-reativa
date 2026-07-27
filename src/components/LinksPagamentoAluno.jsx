@@ -303,9 +303,21 @@ export default function LinksPagamentoAluno({
     return emailItem === emailUsuario;
   }
 
+  // Quem ASSUMIU validamente o atendimento (é o responsável atual do aluno em
+  // exibição) pode ver/enviar o link pronto, mesmo que o link tenha sido
+  // solicitado por um colega (links_pagamento.operador_email original). A RLS
+  // do banco é a fonte de verdade; aqui só espelhamos para exibir os botões.
+  const alunoSobMinhaResponsabilidade =
+    !!emailUsuario &&
+    emailNormalizado(alunoAtual?.responsavel_atual_email) === emailUsuario;
+
+  function podeAgirNoItem(item) {
+    return usuarioVeTudo || itemPertenceAoUsuario(item) || alunoSobMinhaResponsabilidade;
+  }
+
   function podeVerItem(item) {
     if (usuarioVeTudo) return true;
-    return itemPertenceAoUsuario(item);
+    return itemPertenceAoUsuario(item) || alunoSobMinhaResponsabilidade;
   }
 
   async function carregarHistorico() {
@@ -621,18 +633,26 @@ export default function LinksPagamentoAluno({
 
     const agora = new Date().toISOString();
 
-    const { error } = await supabase
-      .from("links_pagamento")
-      .update({
-        status: "LINK_ENVIADO_AO_ALUNO",
-        enviado_operador_em: agora,
-        atualizado_em: agora,
-      })
-      .eq("id", item.id);
+    // Envio via RPC dedicada (SECURITY DEFINER): altera SOMENTE os campos de
+    // envio do link e autoriza gestão, operador original OU quem assumiu o
+    // atendimento. Não há UPDATE direto do cliente em links_pagamento aqui —
+    // valor/URL/forma/operador_email permanecem imutáveis.
+    const { data: res, error } = await supabase.rpc("marcar_link_enviado_ao_aluno", {
+      p_link_id: item.id,
+    });
 
-    if (error) {
-      console.error("Erro ao marcar link enviado:", error);
+    if (error || !res?.ok) {
+      console.error("Erro ao marcar link enviado:", error || res?.erro);
       alert("Não foi possível marcar como enviado ao aluno.");
+      return;
+    }
+
+    // Idempotência: se já estava enviado, não repete atualização de ficha,
+    // movimentação nem histórico (evita duplicidade no segundo clique).
+    if (res.ja_enviado) {
+      await carregarHistorico();
+      if (onAtualizar) onAtualizar();
+      if (onSucesso) onSucesso();
       return;
     }
 
@@ -1021,7 +1041,6 @@ export default function LinksPagamentoAluno({
 
           {historico.map((item) => {
             const linkPagamento = obterLinkPagamento(item);
-            const operadorDoItem = itemPertenceAoUsuario(item);
             const podeAcionarComprovante =
               item.status !== "BAIXA_REALIZADA"; // anexar comprovante sempre, exceto quando ja baixado
 
@@ -1100,7 +1119,7 @@ export default function LinksPagamentoAluno({
                       </button>
                     )}
 
-                    {linkPagamento && ["LINK_GERADO", "LINK_PRONTO_PARA_ENVIO"].includes(item.status) && (operadorDoItem || usuarioVeTudo) && (
+                    {linkPagamento && ["LINK_GERADO", "LINK_PRONTO_PARA_ENVIO"].includes(item.status) && podeAgirNoItem(item) && (
                       <button
                         type="button"
                         style={botaoAzul}
