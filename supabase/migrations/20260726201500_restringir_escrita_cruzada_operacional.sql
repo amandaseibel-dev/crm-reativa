@@ -1,27 +1,36 @@
 -- ============================================================================
 -- Migration: restringir escrita cruzada operacional (alunos, casos, acordos,
---            acordos_titulos)
+--            acordos_titulos)  +  Borderôs/Importações somente Amanda
 -- Data.......: 2026-07-26
 -- Branch.....: security/restringir-escrita-cruzada-operacional
--- Objetivo...: substituir policies de INSERT/UPDATE/DELETE com USING true /
---              WITH CHECK true que permitiam escrita cruzada (assumir/alterar/
---              excluir registro de outro operador por envio direto de ID).
 --
--- Princípios:
---   * Menor privilégio para o papel `authenticated`.
---   * Preserva integralmente: service_role, postgres, role interna
---     `reativa_responsavel_executor` e todas as RPCs SECURITY DEFINER (que
---     continuam ignorando RLS por serem owned=postgres).
---   * NÃO reabre itens já corrigidos: mantém painel_negado / painel_sem_casos,
---     os guards existentes (_guard_resp_aluno, _guard_resp_acordo,
---     bloquear_alteracoes_restritas_casos) e as policies *_select / *_executor.
---   * "Gestão" = public.usuario_e_gestao() (amanda / cobranca04 / cobranca07),
---     consistente com o modelo de SELECT já vigente. NÃO amplia para todo
---     perfil administrativo.
+-- ESCOPO (endurecimento de RLS compatível com os fluxos atuais):
+--   1. Borderôs e Importações: SOMENTE Amanda (permissão central única).
+--   2. Inclusão manual: operador só cria aluno/caso atribuído a si mesmo
+--      (auth.email). Registro "livre" ou de terceiro: bloqueado para operador.
+--   3. Escrita cruzada: operador só atualiza registros do próprio escopo;
+--      DELETE de caso só gestão; DELETE de aluno/acordo/título continua sem
+--      policy (bloqueado); anon/sem-cadastro/inativo bloqueados.
+--   4. Fluxos financeiros ATUAIS preservados: a escrita financeira direta do
+--      operador (criar/cancelar/quitar acordo, incluir/quitar título) continua
+--      funcionando DESDE QUE o registro seja do próprio atendimento.
 --
--- Idempotente: DROP POLICY IF EXISTS + CREATE; CREATE OR REPLACE FUNCTION;
---              DROP TRIGGER IF EXISTS + CREATE TRIGGER.
--- NÃO aplicar merge/deploy nesta etapa.
+-- NÃO faz parte desta branch (fica para a branch financeira exclusiva):
+--   * RPCs de criar/cancelar/quitar acordo;
+--   * guard abrangente de colunas financeiras (saldo/valor/situação/quitação);
+--   * alterações em baixas_pagamento, acordo_titulo_vinculo, carteira_operador.
+--
+-- RISCO RESIDUAL (documentado): após esta branch o operador NÃO altera dados
+--   financeiros de OUTRO atendimento, mas AINDA pode enviar alterações
+--   financeiras diretas nos registros do PRÓPRIO atendimento. Isso será
+--   eliminado na branch financeira dedicada.
+--
+-- Preserva: service_role, postgres, role interna reativa_responsavel_executor,
+--   RPCs SECURITY DEFINER, painel_negado/painel_sem_casos e os guards já
+--   existentes (_guard_resp_aluno, _guard_resp_acordo,
+--   bloquear_alteracoes_restritas_casos).
+--
+-- Idempotente. NÃO aplicar merge/deploy nesta etapa.
 -- ============================================================================
 
 begin;
@@ -30,46 +39,54 @@ begin;
 -- 1. HELPERS DE IDENTIDADE
 -- ----------------------------------------------------------------------------
 
--- E-mail do usuário logado, normalizado. STABLE (sem SECURITY DEFINER: apenas
--- lê o JWT do próprio request).
 create or replace function public.app_email()
-returns text
-language sql
-stable
-set search_path to 'public'
-as $$
+returns text language sql stable set search_path to 'public' as $$
   select lower(coalesce((auth.jwt() ->> 'email'), ''));
 $$;
 
--- Usuário autenticado E cadastrado E ativo em public.usuarios.
--- Bloqueia anon (email vazio), authenticated sem cadastro e inativo.
--- SECURITY DEFINER para ler usuarios independentemente da RLS do chamador.
--- A resolução por e-mail espelha o login do app (App.jsx: usuarios.email + ativo).
+-- Autenticado + cadastrado + ativo (bloqueia anon, sem-cadastro e inativo).
 create or replace function public.app_usuario_ativo()
-returns boolean
-language sql
-stable
-security definer
-set search_path to 'public'
-as $$
+returns boolean language sql stable security definer set search_path to 'public' as $$
   select exists (
-    select 1
-    from public.usuarios u
+    select 1 from public.usuarios u
     where lower(u.email) = lower(coalesce((auth.jwt() ->> 'email'), ''))
       and u.ativo is true
   );
 $$;
 
+-- Permissão CENTRAL e ÚNICA para Borderôs e Importações: SOMENTE Amanda.
+-- (Não usa usuario_e_gestao(), que também autoriza Fernanda e Amanda ADM.)
+-- A decisão é por e-mail do JWT (o chamador), não por current_user, para
+-- funcionar corretamente dentro de RPCs SECURITY DEFINER (que rodam como
+-- postgres). Chamadas de sistema sem usuário (cron/service_role/postgres)
+-- permanecem preservadas.
+create or replace function public.app_pode_borderos_importacoes()
+returns boolean language plpgsql stable security definer set search_path to 'public' as $$
+declare em text := lower(coalesce((auth.jwt() ->> 'email'), ''));
+begin
+  if em = '' then
+    -- sem contexto de usuário final: chamadas internas de sistema
+    return current_user in ('postgres','supabase_admin','service_role');
+  end if;
+  return em = 'amanda.seibel@aelbra.com.br'
+     and exists (select 1 from public.usuarios u where lower(u.email) = em and u.ativo is true);
+end;
+$$;
+
 revoke all on function public.app_email() from public;
 revoke all on function public.app_usuario_ativo() from public;
+revoke all on function public.app_pode_borderos_importacoes() from public;
 grant execute on function public.app_email() to authenticated, service_role;
 grant execute on function public.app_usuario_ativo() to authenticated, service_role;
+grant execute on function public.app_pode_borderos_importacoes() to authenticated, service_role;
 
 -- ----------------------------------------------------------------------------
 -- 2. ALUNOS
 -- ----------------------------------------------------------------------------
 
--- INSERT: bloqueia inserir aluno já pertencente a outro operador.
+-- INSERT: operador só cria aluno ATRIBUÍDO A SI. Sem registro livre / de
+-- terceiro. Gestão mantém o fluxo administrativo. Registros livres em massa
+-- entram por importação/distribuição (RPCs SECURITY DEFINER, que ignoram RLS).
 drop policy if exists "Enable insert for authenticated users only" on public.alunos;
 create policy alunos_insert on public.alunos
   for insert to authenticated
@@ -78,13 +95,13 @@ create policy alunos_insert on public.alunos
     and public.app_usuario_ativo()
     and (
       public.usuario_e_gestao()
-      or coalesce(responsavel_atual_email, '') = ''
-      or lower(responsavel_atual_email) = public.app_email()
+      or lower(coalesce(responsavel_atual_email, '')) = public.app_email()
     )
   );
 
--- UPDATE: só a própria carteira (responsável = eu), registro livre, ou gestão.
--- A troca da coluna responsavel_atual_email continua barrada por _guard_resp_aluno.
+-- UPDATE: própria carteira (responsável = eu), registro livre (self-assign,
+-- coberto por _guard_resp_aluno) ou gestão. Troca de responsável continua
+-- barrada por _guard_resp_aluno.
 drop policy if exists alunos_update on public.alunos;
 create policy alunos_update on public.alunos
   for update to authenticated
@@ -107,49 +124,11 @@ create policy alunos_update on public.alunos
     )
   );
 
--- Guard de colunas sensíveis (financeiro/link/baixa/unificação) em alunos.
--- Essas colunas são gravadas exclusivamente por RPCs/triggers SECURITY DEFINER
--- (rodam como postgres) e nunca pelas telas de operador. Bloqueia adulteração
--- direta por operador sobre a própria carteira. Gestão e roles internas passam.
-create or replace function public._guard_cols_aluno()
-returns trigger
-language plpgsql
-set search_path to 'public'
-as $$
-begin
-  if current_user in ('postgres','supabase_admin','service_role','reativa_responsavel_executor') then
-    return new;
-  end if;
-  if public.usuario_e_gestao() then
-    return new;
-  end if;
-  if new.valor_em_aberto          is distinct from old.valor_em_aberto
-     or new.status_link_pagamento is distinct from old.status_link_pagamento
-     or new.status_baixa_pagamento is distinct from old.status_baixa_pagamento
-     or new.ultimo_link_pagamento_id is distinct from old.ultimo_link_pagamento_id
-     or new.ultima_baixa_pagamento_id is distinct from old.ultima_baixa_pagamento_id
-     or new.registro_unico       is distinct from old.registro_unico
-     or new.unificacao_status    is distinct from old.unificacao_status
-     or new.chave_unificacao     is distinct from old.chave_unificacao
-  then
-    raise exception 'SEM_PERMISSAO_ALTERAR_COLUNA_SENSIVEL_ALUNO';
-  end if;
-  return new;
-end;
-$$;
-
-drop trigger if exists trg_guard_cols_aluno on public.alunos;
-create trigger trg_guard_cols_aluno
-  before update on public.alunos
-  for each row execute function public._guard_cols_aluno();
-
 -- ----------------------------------------------------------------------------
 -- 3. CASOS
 -- ----------------------------------------------------------------------------
--- painel_negado / painel_sem_casos (RESTRICTIVE) e o guard financeiro
--- bloquear_alteracoes_restritas_casos permanecem inalterados.
 
--- INSERT: só caso da própria carteira (ou sem dono, ou gestão).
+-- INSERT: operador só cria caso ATRIBUÍDO A SI. Gestão mantém o fluxo.
 drop policy if exists casos_insert_todos on public.casos;
 create policy casos_insert_todos on public.casos
   for insert to authenticated
@@ -157,12 +136,11 @@ create policy casos_insert_todos on public.casos
     public.app_usuario_ativo()
     and (
       public.usuario_e_gestao()
-      or operador_email is null
-      or lower(operador_email) = public.app_email()
+      or lower(coalesce(operador_email, '')) = public.app_email()
     )
   );
 
--- UPDATE: só a própria carteira, sem dono, ou gestão.
+-- UPDATE: própria carteira, registro sem dono, ou gestão.
 drop policy if exists casos_update_todos on public.casos;
 create policy casos_update_todos on public.casos
   for update to authenticated
@@ -187,18 +165,14 @@ create policy casos_update_todos on public.casos
 drop policy if exists casos_delete_todos on public.casos;
 create policy casos_delete_gestao on public.casos
   for delete to authenticated
-  using (
-    public.app_usuario_ativo()
-    and public.usuario_e_gestao()
-  );
+  using (public.app_usuario_ativo() and public.usuario_e_gestao());
 
 -- ----------------------------------------------------------------------------
 -- 4. ACORDOS
 -- ----------------------------------------------------------------------------
--- painel_negado (RESTRICTIVE), _guard_resp_acordo (troca de responsável) e
--- acordos_update_executor (role interna) permanecem inalterados.
+-- _guard_resp_acordo (troca de responsável) e acordos_update_executor
+-- permanecem. Fluxos financeiros do próprio atendimento preservados.
 
--- INSERT: só cria acordo para aluno do próprio atendimento (ou gestão).
 drop policy if exists acordos_insert on public.acordos;
 create policy acordos_insert on public.acordos
   for insert to authenticated
@@ -220,8 +194,6 @@ create policy acordos_insert on public.acordos
     )
   );
 
--- UPDATE: só acordo do próprio operador/aluno (ou gestão). Money columns
--- permanecem editáveis pelo dono (criar/cancelar/quitar), mas nunca cruzado.
 drop policy if exists acordos_update on public.acordos;
 create policy acordos_update on public.acordos
   for update to authenticated
@@ -259,10 +231,7 @@ create policy acordos_update on public.acordos
 -- ----------------------------------------------------------------------------
 -- 5. ACORDOS_TITULOS
 -- ----------------------------------------------------------------------------
--- painel_negado (RESTRICTIVE) permanece inalterado. Não havia guard nesta tabela;
--- a proteção passa a ser por titularidade do aluno.
 
--- INSERT: só inclui título para aluno do próprio atendimento (ou gestão).
 drop policy if exists acordos_titulos_insert_authenticated on public.acordos_titulos;
 create policy acordos_titulos_insert_authenticated on public.acordos_titulos
   for insert to authenticated
@@ -279,7 +248,6 @@ create policy acordos_titulos_insert_authenticated on public.acordos_titulos
     )
   );
 
--- UPDATE: só título de aluno do próprio atendimento (ou gestão).
 drop policy if exists acordos_titulos_update_authenticated on public.acordos_titulos;
 create policy acordos_titulos_update_authenticated on public.acordos_titulos
   for update to authenticated
@@ -307,5 +275,77 @@ create policy acordos_titulos_update_authenticated on public.acordos_titulos
       )
     )
   );
+
+-- ----------------------------------------------------------------------------
+-- 6. IMPORTAÇÃO DE ACORDOS (Borderô) — trava de permissão SOMENTE Amanda
+--    Recriação idêntica da função com um guard no topo; corpo inalterado.
+-- ----------------------------------------------------------------------------
+create or replace function public.importar_acordos(p_linhas jsonb, p_importacao_id uuid)
+ returns json
+ language plpgsql
+ security definer
+ set search_path to 'public'
+ set statement_timeout to '180000'
+as $function$
+declare v_alunos_novos int:=0; v_titulos int:=0; v_fila int:=0; v_usuario text;
+begin
+  -- >>> trava de permissão: Borderô/Importação SOMENTE Amanda (ou sistema).
+  if not public.app_pode_borderos_importacoes() then
+    raise exception 'SEM_PERMISSAO_IMPORTACAO_BORDERO';
+  end if;
+
+  v_usuario := coalesce(nullif(auth.jwt()->>'email',''), 'sistema');
+  insert into public.importacoes (id,tipo,referencia,arquivo_nome,usuario,status,retroativo)
+  values (p_importacao_id,'ACORDOS','Relatorio de Titulos em Aberto (Acordo)','Relatorio Titulos em Aberto',v_usuario,'Concluída',false)
+  on conflict (id) do nothing;
+
+  create temp table _imp on commit drop as
+  with base as (
+    select regexp_replace(coalesce(l->>'cpf',''),'\D','','g') as cpf, nullif(trim(l->>'nome'),'') as nome,
+           regexp_replace(coalesce(l->>'documento',''),'\D','','g') as documento, nullif(l->>'venc','')::date as venc,
+           nullif(l->>'valor','')::numeric as valor, nullif(trim(l->>'unidade'),'') as unidade, nullif(trim(l->>'situacao'),'') as situacao
+    from jsonb_array_elements(p_linhas) l)
+  select cpf,nome,documento,venc,valor,unidade,situacao, left(documento,greatest(length(documento)-2,1)) as acordo_base
+  from base where documento <> '';
+  create index on _imp(cpf);
+  create temp table _al on commit drop as select id, regexp_replace(coalesce(cpf,''),'\D','','g') as cpf_n from public.alunos;
+  create index on _al(cpf_n);
+
+  insert into public.alunos (nome,cpf,unidade,situacao_academica,status_jornada,tipo_base,origem,observacao)
+  select distinct on (i.cpf) coalesce(i.nome,'(sem nome)'),i.cpf,i.unidade,i.situacao,'Em cobrança','ACORDO_IMPORTADO','IMPORT_ACORDOS',
+         'Importado do Relatorio de Titulos em Aberto (Acordo) — lote '||p_importacao_id::text
+  from _imp i where i.cpf<>'' and not exists (select 1 from _al a where a.cpf_n=i.cpf) order by i.cpf;
+  get diagnostics v_alunos_novos = row_count;
+  insert into _al (id,cpf_n) select id, regexp_replace(coalesce(cpf,''),'\D','','g')
+  from public.alunos where origem='IMPORT_ACORDOS' and observacao like '%'||p_importacao_id::text;
+
+  insert into public.acordos_titulos (aluno_id,cpf,documento,vencimento,valor_original,valor_em_aberto,situacao,status,tipo_boleto,importacao_id)
+  select (select a.id from _al a where a.cpf_n=i.cpf limit 1), i.cpf,i.documento,i.venc,i.valor,i.valor,'ABERTO','vinculada','Acordo',p_importacao_id
+  from _imp i where not exists (select 1 from public.acordos_titulos t where t.documento=i.documento);
+  get diagnostics v_titulos = row_count;
+
+  insert into public.fila_acordos_confirmar (aluno_id,cpf,nome,acordo_base,qtd_parcelas,valor_total,unidade,situacao_aluno,importacao_id)
+  select (select a.id from _al a where a.cpf_n=i.cpf limit 1), i.cpf, max(i.nome), i.acordo_base, count(*), round(sum(coalesce(i.valor,0)),2), max(i.unidade), max(i.situacao), p_importacao_id
+  from _imp i group by i.cpf, i.acordo_base
+  on conflict (cpf,acordo_base) do nothing;
+  get diagnostics v_fila = row_count;
+
+  update public.fila_acordos_confirmar f set qtd_parcelas=a.qtd, valor_total=a.total
+  from (select regexp_replace(coalesce(cpf,''),'\D','','g') cpf_n, left(documento,greatest(length(documento)-2,1)) acordo_base,
+               count(*) qtd, round(sum(coalesce(valor_em_aberto,valor_original,0)),2) total
+        from public.acordos_titulos where importacao_id=p_importacao_id and tipo_boleto='Acordo' group by 1,2) a
+  where regexp_replace(coalesce(f.cpf,''),'\D','','g')=a.cpf_n and f.acordo_base=a.acordo_base;
+
+  insert into public.acordos (aluno_id,cpf,tipo,forma_pagamento,valor_total,qtd_parcelas,status,unidade,saldo,observacao,criado_por_email,criado_por_nome,criado_em,atualizado_em)
+  select f.aluno_id,f.cpf,'ACORDO','PARCELADO',f.valor_total,f.qtd_parcelas,'ATIVO',f.unidade,f.valor_total,
+         'Importado do Relatorio de Titulos em Aberto (Acordo) — lote '||p_importacao_id::text,'importacao@sistema','Importacao Acordos',now(),now()
+  from public.fila_acordos_confirmar f
+  where f.importacao_id=p_importacao_id
+    and not exists (select 1 from public.acordos a where a.aluno_id=f.aluno_id
+                    and a.valor_total=f.valor_total and a.observacao like '%'||p_importacao_id::text);
+
+  update public.importacoes set qtd_registros=coalesce(qtd_registros,0)+v_titulos where id=p_importacao_id;
+  return json_build_object('alunos_novos',v_alunos_novos,'titulos_inseridos',v_titulos,'acordos_na_fila',v_fila,'importacao_id',p_importacao_id);
+end; $function$;
 
 commit;

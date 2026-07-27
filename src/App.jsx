@@ -232,6 +232,15 @@ function RotaProtegida({ usuario, rota, children }) {
       return <Navigate to="/" replace />;
     }
   }
+  // Borderôs e Importações: SOMENTE Amanda (regra operacional definitiva).
+  // Fernanda, Amanda ADM, operadores e demais perfis ficam bloqueados aqui;
+  // o backend tambem trava (importar_acordos exige app_pode_borderos_importacoes).
+  if (["/borderos","/importacoes","/importar-acordos","/importar-recuperacao"].includes(rota)) {
+    const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+    if (email !== "amanda.seibel@aelbra.com.br") {
+      return <Navigate to="/" replace />;
+    }
+  }
   return children;
 }
 function VisaoAuditor({ usuario, onSair }) {
