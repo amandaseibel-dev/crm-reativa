@@ -3,7 +3,11 @@ import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
 
 const SEG_POR_TELA = 12;
-const ATUALIZAR_DADOS = 60;
+// Contenção de carga: o painel TV dispara 3 RPCs analíticas pesadas por ciclo.
+// Fallback de segurança a cada 3600s (1h). A atualização "fresca" das métricas
+// deve vir por evento (marcador de versão) — ver arquitetura futura. Mantém uma
+// carga inicial ao abrir (o usePolling executa uma vez no mount).
+const ATUALIZAR_DADOS = 3600;
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -59,7 +63,11 @@ export default function TvElogios() {
   // sobreposicao, pausado se a aba ficar oculta e disparado na hora ao voltar.
   usePolling(
     async () => {
-      const [rk, dt, pj, el, dc] = await Promise.all([
+      // Erro da TV fica ISOLADO: Promise.allSettled garante que a falha de uma
+      // RPC (ex.: permission denied em dashboard_tv, ou timeout sob carga) não
+      // derrube as demais nem lance para o CRM. Cada bloco preserva o último
+      // valor conhecido quando a respectiva chamada falha.
+      const [rk, dt, pj, el, dc] = await Promise.allSettled([
         supabase.rpc("acionamentos_ranking"),
         supabase.rpc("dashboard_tv"),
         supabase.rpc("dashboard_tv_projecao"),
@@ -76,22 +84,20 @@ export default function TvElogios() {
           .eq("ativo", true)
           .order("ordem", { ascending: true }),
       ]);
-      setRank(rk.data || null);
-      setDados(dt.data || null);
-      setProj(pj.data || null);
-      setElogios(Array.isArray(el.data) ? el.data : []);
-      setDicas(Array.isArray(dc.data) ? dc.data : []);
+      const val = (r) => (r.status === "fulfilled" ? r.value?.data : undefined);
+      if (val(rk) !== undefined) setRank(val(rk) || null);
+      if (val(dt) !== undefined) setDados(val(dt) || null);
+      if (val(pj) !== undefined) setProj(val(pj) || null);
+      if (Array.isArray(val(el))) setElogios(val(el));
+      if (Array.isArray(val(dc))) setDicas(val(dc));
     },
     ATUALIZAR_DADOS * 1000,
     []
   );
 
-  // Blindagem para TV 24h: recarrega a pagina inteira a cada 10 min, para
-  // se recuperar caso o navegador congele/perca o tempo real em segundo plano.
-  useEffect(() => {
-    const t = setInterval(() => { try { window.location.reload(); } catch (e) {} }, 10 * 60 * 1000);
-    return () => clearInterval(t);
-  }, []);
+  // Reload total de 10 min REMOVIDO na contenção de carga: recarregar a página
+  // refazia todo o fan-out de RPCs pesadas e amplificava a saturação. O
+  // usePolling já pausa em aba oculta e dispara ao voltar o foco.
 
   const telas = useMemo(() => {
     const base = ["campanha", "meta3mi", "semana", "mes", "resultado", "projecao", "alunos", "maior", "topdia", "tophondia", "topmes"];

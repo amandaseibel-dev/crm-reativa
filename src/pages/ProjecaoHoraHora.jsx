@@ -170,11 +170,14 @@ export default function ProjecaoHoraHora() {
     if (!usuario) return;
     carregarDashboard();
     carregarLancamentosHoje();
-    // Atualiza os indicadores em tempo real a cada 30s.
+    // Contenção de carga: projecao_dashboard é RPC analítica pesada. Intervalo
+    // subido de 30s para 180s e pausado quando a aba está oculta (não gasta
+    // requisição em segundo plano).
     const intervalo = setInterval(() => {
+      if (document.hidden) return;
       carregarDashboard();
       carregarLancamentosHoje();
-    }, 30000);
+    }, 180000);
     return () => clearInterval(intervalo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesReferencia, usuario, operadorSelecionado, unidadeFiltro]);

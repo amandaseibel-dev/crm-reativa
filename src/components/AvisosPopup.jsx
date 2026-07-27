@@ -30,7 +30,7 @@ export default function AvisosPopup() {
     carregar(false);
     function reabrir() { carregar(true); }
     window.addEventListener("abrir-avisos", reabrir);
-    const t = setInterval(() => { if (!abertoRef.current) carregar(false); }, 20000);
+    const t = setInterval(() => { if (!abertoRef.current) carregar(false); }, 60000); // contenção: 20s -> 60s
     return () => { window.removeEventListener("abrir-avisos", reabrir); clearInterval(t); };
   }, []);
 

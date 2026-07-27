@@ -39,7 +39,7 @@ export default function NotificacoesPopup() {
   useEffect(() => {
     if (!email) return;
     buscar();
-    const t = setInterval(buscar, 12000);
+    const t = setInterval(buscar, 60000); // contenção: 12s -> 60s (o realtime abaixo cobre a urgência)
     // realtime: estoura na hora quando uma notificacao e inserida
     const canal = supabase
       .channel("notif-" + email)

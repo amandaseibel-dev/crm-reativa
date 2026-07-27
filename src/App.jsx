@@ -14,6 +14,7 @@ const ICONES_MENU = {
 };
 import { supabase } from "./services/supabase";
 import usePolling from "./utils/polling";
+import { chamarRpcContido } from "./utils/rpcResiliente";
 import AutoLogout from "./components/AutoLogout";
 import Dashboard from "./pages/Dashboard";
 import BaseAnalitica from "./pages/BaseAnalitica";
@@ -297,7 +298,16 @@ export default function App() {
   // aba esta oculta e com atualizacao imediata ao voltar o foco.
   const atualizarContadores = usePolling(
     async () => {
-      const { data, error } = await supabase.rpc("contadores_cabecalho");
+      // Chamada SECUNDÁRIA e contida: cache em memória de 60s, timeout local,
+      // single-flight e no máximo 1 retry. Uma falha aqui NUNCA lança: apenas
+      // retorna e mantém os últimos contadores — não bloqueia sessão, busca de
+      // alunos nem navegação.
+      const { data, error } = await chamarRpcContido(
+        supabase,
+        "contadores_cabecalho",
+        {},
+        { cacheMs: 60000, timeoutMs: 8000 }
+      );
       if (error || !data) return;
       const perfilAtual = usuario?.perfil?.perfil;
       const email = (usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase();
@@ -311,7 +321,7 @@ export default function App() {
       setTermosRejeitados(Number(data.termos_rejeitados || 0));
       setParcelasVencendo(Array.isArray(data.parcelas_vencendo) ? data.parcelas_vencendo : []);
     },
-    45000,
+    120000,
     [usuario],
     Boolean(usuario)
   );

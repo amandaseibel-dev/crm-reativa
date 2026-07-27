@@ -58,7 +58,7 @@ export default function ResumoDoDia({ usuarioLogado }) {
     }
 
     carregar();
-    const intervalo = setInterval(carregar, 30000);
+    const intervalo = setInterval(carregar, 60000); // contenção: 30s -> 60s
     return () => clearInterval(intervalo);
   }, [usuarioLogado?.email]);
 

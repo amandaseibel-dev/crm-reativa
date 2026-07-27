@@ -21,7 +21,7 @@ export default function LiberacoesAcesso() {
   useEffect(() => {
     if (!APROVADORES.includes(email)) return;
     carregar();
-    const t = setInterval(carregar, 20000);
+    const t = setInterval(carregar, 60000); // contenção: 20s -> 60s
     return () => clearInterval(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email]);
