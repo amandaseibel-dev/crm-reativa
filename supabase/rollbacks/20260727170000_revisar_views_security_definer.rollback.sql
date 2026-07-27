@@ -19,3 +19,17 @@ ALTER VIEW public.vw_fila_links_adm            RESET (security_invoker);
 ALTER VIEW public.vw_links_prioridade_operador RESET (security_invoker);
 ALTER VIEW public.vw_links_respondidos         RESET (security_invoker);
 ALTER VIEW public.vw_operador_resumo_dia       RESET (security_invoker);
+
+-- ---------------------------------------------------------------------------
+-- Parte 2: restaurar EXATAMENTE os grants originais removidos pela migration.
+--
+-- ATENÇÃO / RISCO DE SEGURANÇA: o único grant original a anon era em
+-- vw_diagnostico_saldo_casos, com TODOS os privilégios. Restaurá-lo REABRE
+-- O ACESSO ANÔNIMO a 3.891 linhas de saldos/casos (o vazamento que a
+-- migration fechou). Só execute este rollback ciente disso.
+--
+-- PUBLIC: nada a restaurar (não havia grant a PUBLIC em nenhuma das 10 views).
+-- authenticated/service_role/postgres não foram tocados pela migration.
+-- ---------------------------------------------------------------------------
+
+GRANT ALL ON public.vw_diagnostico_saldo_casos TO anon;

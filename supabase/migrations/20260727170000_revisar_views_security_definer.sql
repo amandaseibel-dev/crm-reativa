@@ -48,3 +48,34 @@ ALTER VIEW public.vw_fila_links_adm            SET (security_invoker = true);
 ALTER VIEW public.vw_links_prioridade_operador SET (security_invoker = true);
 ALTER VIEW public.vw_links_respondidos         SET (security_invoker = true);
 ALTER VIEW public.vw_operador_resumo_dia       SET (security_invoker = true);
+
+-- ---------------------------------------------------------------------------
+-- Parte 2: remover privilégios inseguros (anon / PUBLIC) das 10 views.
+--
+-- Auditoria dos GRANTs (information_schema.role_table_grants):
+--   * anon: possui TODOS os privilégios (SELECT, INSERT, UPDATE, DELETE,
+--     TRUNCATE, REFERENCES, TRIGGER) SOMENTE em vw_diagnostico_saldo_casos.
+--     É o único grant a anon entre as 10 views e deve ser removido por
+--     completo (sob definer, anon lia 3.891 linhas de saldos/casos).
+--   * PUBLIC: nenhum grant encontrado nas 10 views (os REVOKE ... FROM PUBLIC
+--     abaixo são defensivos/idempotentes — no-op se nada estiver concedido).
+--   * authenticated, service_role, postgres: mantidos intactos.
+--
+-- Idempotente: REVOKE é repetível (no-op se o privilégio já não existe).
+-- ---------------------------------------------------------------------------
+
+-- Obrigatório: revogar SELECT (e todo o resto) de anon em vw_diagnostico_saldo_casos.
+REVOKE ALL ON public.vw_diagnostico_saldo_casos FROM anon;
+
+-- Defesa em profundidade: garantir que anon e PUBLIC não tenham privilégio
+-- em nenhuma das 10 views (no-op onde já não há grant).
+REVOKE ALL ON public.consulta_financeira_por_aluno FROM anon, PUBLIC;
+REVOKE ALL ON public.projecao_operador            FROM anon, PUBLIC;
+REVOKE ALL ON public.recuperacoes_consolidadas    FROM anon, PUBLIC;
+REVOKE ALL ON public.vw_alerta_amanda_links_7min  FROM anon, PUBLIC;
+REVOKE ALL ON public.vw_diagnostico_saldo_casos   FROM anon, PUBLIC;
+REVOKE ALL ON public.vw_fila_baixa_amanda         FROM anon, PUBLIC;
+REVOKE ALL ON public.vw_fila_links_adm            FROM anon, PUBLIC;
+REVOKE ALL ON public.vw_links_prioridade_operador FROM anon, PUBLIC;
+REVOKE ALL ON public.vw_links_respondidos         FROM anon, PUBLIC;
+REVOKE ALL ON public.vw_operador_resumo_dia       FROM anon, PUBLIC;
