@@ -9,7 +9,7 @@ import { podeVerTudo } from "../utils/operadores";
 // aguardando resposta, ou envio ao financeiro. Roda em segundo plano em
 // qualquer tela (montado uma vez no App.jsx), não renderiza nada pra quem
 // não é supervisão/ADM.
-const INTERVALO_MS = 45000;
+const INTERVALO_MS = 60000; // contenção: 45s -> 60s (já pausa em aba oculta)
 
 const CONSULTAS = [
   {

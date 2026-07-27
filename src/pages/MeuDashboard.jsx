@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { chamarRpcContido } from "../utils/rpcResiliente";
 
 // Todo tipo de movimentacao que representa um contato/acao real do
 // operador sobre o caso -- nao so "finalizar atendimento". Se um botao
@@ -65,11 +66,33 @@ export default function MeuDashboard() {
 
   useEffect(() => {
     carregar();
+    // projecao_dashboard só carrega com a tela realmente visível. Se estiver
+    // oculta (aba em segundo plano), adia até voltar o foco -- não dispara RPC
+    // analítica pesada em componente oculto.
+    if (document.hidden) {
+      const aoVisivel = () => {
+        if (!document.hidden) {
+          document.removeEventListener("visibilitychange", aoVisivel);
+          carregarFinanceiro();
+        }
+      };
+      document.addEventListener("visibilitychange", aoVisivel);
+      return () => document.removeEventListener("visibilitychange", aoVisivel);
+    }
     carregarFinanceiro();
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function carregarFinanceiro() {
-    const { data, error } = await supabase.rpc("projecao_dashboard", { p_mes: mesAtualISO() });
+    // Chamada SECUNDÁRIA e contida: cache curto, timeout local, single-flight
+    // e 1 retry. Erro aqui não quebra o resto do dashboard nem a navegação.
+    const { data, error } = await chamarRpcContido(
+      supabase,
+      "projecao_dashboard",
+      { p_mes: mesAtualISO() },
+      { cacheMs: 30000, timeoutMs: 8000 }
+    );
     if (!error) setFinanceiro(data);
   }
 

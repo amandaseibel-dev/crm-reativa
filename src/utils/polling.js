@@ -45,8 +45,17 @@ export default function usePolling(fn, intervaloMs, deps = [], ativo = true) {
     executar();
     const timer = setInterval(tick, intervaloMs);
 
+    // Contenção de rajada: o disparo ao voltar o foco é DEBOUNCED. Sem isto,
+    // vários operadores voltando à aba ao mesmo tempo (ou trocas rápidas de
+    // foco) disparavam a mesma RPC em enxame, contribuindo para a saturação.
+    let focoTimer = null;
     function aoVoltarFoco() {
-      if (document.visibilityState === "visible") executar();
+      if (document.visibilityState !== "visible") return;
+      if (focoTimer) return; // já há um disparo agendado
+      focoTimer = setTimeout(() => {
+        focoTimer = null;
+        executar();
+      }, 3000);
     }
     document.addEventListener("visibilitychange", aoVoltarFoco);
     window.addEventListener("focus", aoVoltarFoco);
@@ -54,6 +63,7 @@ export default function usePolling(fn, intervaloMs, deps = [], ativo = true) {
     return () => {
       cancelado = true;
       clearInterval(timer);
+      if (focoTimer) clearTimeout(focoTimer);
       document.removeEventListener("visibilitychange", aoVoltarFoco);
       window.removeEventListener("focus", aoVoltarFoco);
     };
