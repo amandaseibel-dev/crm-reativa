@@ -308,7 +308,7 @@ export default function BaseReceptiva() {
           <button style={styles.botaoEscuro} onClick={() => navigate("/fila-operacional")}>
             Fila Operacional
           </button>
-          <button style={styles.botaoEscuro} onClick={() => navigate("/fila-adm-termos")}>
+          <button style={styles.botaoEscuro} onClick={() => navigate("/termos-adm")}>
             Validação ADM
           </button>
         </div>
