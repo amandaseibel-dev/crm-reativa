@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
+import { analiticasSuspensas } from "../config/modoContencao";
 
 const SEG_POR_TELA = 12;
 // Contenção de carga: o painel TV dispara 3 RPCs analíticas pesadas por ciclo.
@@ -63,6 +64,8 @@ export default function TvElogios() {
   // sobreposicao, pausado se a aba ficar oculta e disparado na hora ao voltar.
   usePolling(
     async () => {
+      // KILL SWITCH: RPCs analíticas da TV suspensas em modo de contenção.
+      if (analiticasSuspensas()) return;
       // Erro da TV fica ISOLADO: Promise.allSettled garante que a falha de uma
       // RPC (ex.: permission denied em dashboard_tv, ou timeout sob carga) não
       // derrube as demais nem lance para o CRM. Cada bloco preserva o último
@@ -92,7 +95,8 @@ export default function TvElogios() {
       if (Array.isArray(val(dc))) setDicas(val(dc));
     },
     ATUALIZAR_DADOS * 1000,
-    []
+    [],
+    !analiticasSuspensas()
   );
 
   // Reload total de 10 min REMOVIDO na contenção de carga: recarregar a página

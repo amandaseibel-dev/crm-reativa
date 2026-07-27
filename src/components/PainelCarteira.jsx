@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import { analiticasSuspensas } from "../config/modoContencao";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import { podeVerTudo, nomeOperadorPorEmail } from "../utils/operadores";
 import FilaReceptivo from "./FilaReceptivo";
@@ -593,10 +594,14 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         const { count: __cc } = await __qCanon;
         ativosCanonico = __cc;
       } catch (e) { ativosCanonico = null; }
-      try {
-        const { data: __vv } = await supabase.rpc("valor_carteira_operador", { p_email: alvoEscopo });
-        setValorCarteira(Number(__vv) || 0);
-      } catch (e) { ativosCanonico = null; }
+      // KILL SWITCH: valor_carteira_operador é MÉTRICA (não a lista). Suspenso
+      // em contenção -> valorCarteira fica 0; a lista de casos segue normal.
+      if (!analiticasSuspensas()) {
+        try {
+          const { data: __vv } = await supabase.rpc("valor_carteira_operador", { p_email: alvoEscopo });
+          setValorCarteira(Number(__vv) || 0);
+        } catch (e) { ativosCanonico = null; }
+      }
       const TETO = alvoEscopo ? 50000 : 3000;
       const PAGINA = 1000;
       let todas = [];
@@ -929,6 +934,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Compara a media da minha carteira com a media geral da equipe -- pra
   // eu saber se fiquei pra tras depois de fechar/quitar algum caso.
   async function carregarMinhaMediaVsEquipe() {
+    if (analiticasSuspensas()) return; // métrica analítica — suspensa em contenção
     const { data } = await supabase.rpc("minha_media_vs_equipe");
     setMinhaMediaVsEquipe(data || null);
   }
@@ -1466,6 +1472,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [valorCarteira, setValorCarteira] = useState(0);
   const normCpf = (c) => String(c || "").replace(/\D/g, "").padStart(11, "0");
   useEffect(() => {
+    // KILL SWITCH: vw_carteira_operador enriquece a lista com saldo/qtd
+    // (MÉTRICA). Suspenso -> saldoView vazio; a lista de casos segue normal.
+    if (analiticasSuspensas()) return undefined;
     let ativo = true;
     (async () => {
       const alvo = operadorFiltro && operadorFiltro !== "TODOS" ? operadorFiltro : (veTudo ? null : email);

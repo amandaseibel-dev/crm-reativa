@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { analiticasSuspensas } from "../config/modoContencao";
 
 function moeda(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -10,6 +11,8 @@ export default function MinhaCarteira({ usuarioLogado }) {
 
   useEffect(() => {
     if (!usuarioLogado?.email) return;
+    // KILL SWITCH: card de resumo é métrica analítica -> suspenso (retorna null).
+    if (analiticasSuspensas()) return;
 
     async function carregar() {
       const { data } = await supabase.rpc("resumo_carteira_operador", {
