@@ -439,9 +439,17 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         // entao "Sabrina Carvalho Silva" (nome com palavras fora de ordem ou
         // com termos que nao aparecem juntos no cadastro) voltava vazio. Quando
         // isso acontece e ha mais de um token, refaz por token e cruza os
-        // resultados: quem casa TODOS os tokens vem primeiro; se ninguem casar
-        // todos, cai para quem casa a maioria (parcial), respeitando o mesmo
-        // RPC (sem misturar fichas -- cada linha continua sendo um aluno unico).
+        // resultados: SO entram os alunos que casam TODOS os tokens.
+        //
+        // HOTFIX (pesquisa-aluno-id-correto): o fallback antigo, quando NINGUEM
+        // casava todos os tokens, caia para "quem casa a maioria" (parcial). Para
+        // nomes cujo cadastro nao existe/diverge (ex.: "Alba Kerlly Pinheiro
+        // Bastos" -- token "kerlly" nao existe, max de tokens casados = 1) isso
+        // despejava ~150 alunos que casavam UM UNICO token comum ("pinheiro",
+        // "bastos"), abrindo "diversos alunos" e nao a aluna pesquisada. Agora,
+        // se ninguem casa todos os tokens, a lista fica vazia (nenhum aluno
+        // encontrado) em vez de inundar com correspondencias parciais erradas.
+        // Cada linha continua sendo um aluno unico (dedup por a.id).
         const tokens = termo.split(/\s+/).filter((t) => t.length >= 2);
         if (!error && data.length === 0 && tokens.length > 1) {
           const porToken = await Promise.all(
@@ -463,11 +471,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
             const todos = [...contagem.entries()]
               .filter(([, c]) => c === tokens.length)
               .map(([id]) => porId.get(id));
-            const parcial = [...contagem.entries()]
-              .sort((a, b) => b[1] - a[1])
-              .map(([id]) => porId.get(id))
-              .slice(0, 150);
-            data = todos.length > 0 ? todos : parcial;
+            // Sem "parcial": exige casar TODOS os tokens. Se ninguem casa,
+            // retorna vazio -- nunca inunda com correspondencias de um so token.
+            data = todos;
           }
         }
       } else {
