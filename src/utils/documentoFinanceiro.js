@@ -60,32 +60,90 @@ export async function abrirDocumento(fetcher) {
 //      autorizado para aquele caminho; o servidor controla unicidade via
 //      tabela de intenções e upsert:false);
 //   3) vincula (ação "vincular") -> servidor grava o caminho no registro.
-// Retorna { ok:true } ou { ok:false, erro }. Nunca lança para a UI.
+// Retorna sempre um objeto (nunca lança para a UI):
+//   { ok:true }                      -> anexado agora
+//   { ok:true, jaVinculado:true }    -> já estava vinculado (idempotente)
+//   { ok:false, erro, status?, etapa? } -> falha real (código preservado)
+//
+// Códigos de `erro` possíveis (a UI mapeia mensagem): "sessao_expirada" (401),
+// "acesso_negado" (403/42501), "mime_invalido", "tamanho_invalido",
+// "falha_upload", "falha_vinculo", "dados_invalidos", ou o código bruto da
+// Edge Function quando não reconhecido. NUNCA registramos CPF/nome/arquivo.
+
+// Invoca a Edge Function e normaliza status HTTP + código de erro do corpo.
+// supabase-js entrega respostas não-2xx como erro com a Response em `context`.
+async function invocarDocfin(body) {
+  const { data, error } = await supabase.functions.invoke("documento-financeiro-url", { body });
+  if (!error) return { ok: true, data, status: 200, code: null };
+  let status = 0;
+  let code = null;
+  try {
+    status = error?.context?.status ?? 0;
+    const corpo = await error.context.clone().json();
+    code = corpo?.error || null;
+  } catch {
+    // corpo não-JSON / indisponível: ficamos só com o status.
+  }
+  return { ok: false, data: null, status, code, error };
+}
+
+// Renova a sessão uma única vez (usado só em 401). true se obteve nova sessão.
+async function renovarSessao() {
+  try {
+    const { data, error } = await supabase.auth.refreshSession();
+    return !error && !!data?.session;
+  } catch {
+    return false;
+  }
+}
+
+// Traduz um resultado de invocarDocfin já sabidamente falho em um `erro` estável
+// para a UI, sem mascarar 403/42501/desconhecidos.
+function erroReal(res, etapa) {
+  if (res.status === 403 || res.code === "acesso_negado") return { ok: false, erro: "acesso_negado", status: res.status, etapa };
+  if (res.code === "mime_invalido" || res.code === "tamanho_invalido") return { ok: false, erro: res.code, status: res.status, etapa };
+  return { ok: false, erro: res.code || "nao_autorizado", status: res.status, etapa };
+}
+
 async function enviarDocumento(tipo, id, campo, file) {
   if (!id || !file) return { ok: false, erro: "dados_invalidos" };
   try {
-    const { data: auth, error: authErr } = await supabase.functions.invoke("documento-financeiro-url", {
-      body: { acao: "upload", tipo, id: String(id), campo, mime: file.type, tamanho: file.size },
-    });
-    if (authErr || !auth?.intent_id || !auth?.path || !auth?.token || !auth?.bucket) {
-      // Propaga "ja_vinculado" para a UI diferenciar mensagem.
-      return { ok: false, erro: authErr?.context?.body?.error || "nao_autorizado" };
+    let renovou401 = false;
+    // Até 2 passadas: a 2ª só ocorre para renovar 401 uma vez OU para pedir uma
+    // intenção nova após intenção expirada/inválida (repetição única do upload).
+    for (let tentativa = 0; tentativa < 2; tentativa++) {
+      // 1) Autorização de upload (cria/reusa a intenção no servidor).
+      const auth = await invocarDocfin({ acao: "upload", tipo, id: String(id), campo, mime: file.type, tamanho: file.size });
+      if (!auth.ok) {
+        // Já vinculado: sucesso idempotente — não reenviar o arquivo.
+        if (auth.code === "ja_vinculado") return { ok: true, jaVinculado: true };
+        if (auth.status === 401) {
+          if (!renovou401 && (await renovarSessao())) { renovou401 = true; continue; }
+          return { ok: false, erro: "sessao_expirada", status: 401, etapa: "upload" };
+        }
+        return erroReal(auth, "upload");
+      }
+      const a = auth.data;
+      if (!a?.intent_id || !a?.path || !a?.token || !a?.bucket) return { ok: false, erro: "nao_autorizado", etapa: "upload" };
+
+      // 2) Upload direto navegador->Storage. upsert:false (unicidade no servidor).
+      const { error: upErr } = await supabase.storage.from(a.bucket).uploadToSignedUrl(a.path, a.token, file);
+      if (upErr) return { ok: false, erro: "falha_upload", etapa: "upload" };
+
+      // 3) Vincular (só intent_id; o servidor obtém o resto da intenção).
+      const vinc = await invocarDocfin({ acao: "vincular", intent_id: a.intent_id });
+      if (vinc.ok && vinc.data?.ok) return { ok: true, jaVinculado: !!vinc.data?.ja_vinculado };
+      // Registro já vinculado no passo de vínculo: também é sucesso idempotente.
+      if (vinc.code === "ja_vinculado") return { ok: true, jaVinculado: true };
+      if (vinc.status === 401) {
+        if (!renovou401 && (await renovarSessao())) { renovou401 = true; continue; }
+        return { ok: false, erro: "sessao_expirada", status: 401, etapa: "vincular" };
+      }
+      // Intenção expirada/inválida: pede intenção nova e repete UMA vez.
+      if ((vinc.code === "intencao_expirada" || vinc.code === "intencao_invalida") && tentativa === 0) continue;
+      return erroReal(vinc, "vincular");
     }
-
-    // Sobe direto navegador->Storage. Bucket/caminho/token vieram do servidor e
-    // NÃO são persistidos nem logados aqui.
-    const { error: upErr } = await supabase.storage
-      .from(auth.bucket)
-      .uploadToSignedUrl(auth.path, auth.token, file);
-    if (upErr) return { ok: false, erro: "falha_upload" };
-
-    // Vincular envia SOMENTE o intent_id; o servidor obtém o resto da intenção.
-    const { data: vinc, error: vincErr } = await supabase.functions.invoke("documento-financeiro-url", {
-      body: { acao: "vincular", intent_id: auth.intent_id },
-    });
-    if (vincErr || !vinc?.ok) return { ok: false, erro: "falha_vinculo" };
-
-    return { ok: true };
+    return { ok: false, erro: "falha_vinculo", etapa: "vincular" };
   } catch {
     return { ok: false, erro: "erro_inesperado" };
   }

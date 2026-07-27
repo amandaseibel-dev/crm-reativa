@@ -223,6 +223,9 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
   const podeEnviar = !!aluno?.id && !temPendente && !quitacaoBloqueada;
 
   async function enviarParaConfirmacao() {
+    // Guarda de duplo clique: uma requisição por vez (evita solicitação duplicada
+    // se o `disabled` do botão ainda não refletiu o estado).
+    if (enviando) return;
     if (!aluno?.id) return alert("Aluno não localizado.");
     if (temPendente) return alert("Este aluno já está na fila aguardando confirmação de pagamento.");
 
