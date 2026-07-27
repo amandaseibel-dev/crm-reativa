@@ -99,9 +99,11 @@ create policy alunos_insert on public.alunos
     )
   );
 
--- UPDATE: própria carteira (responsável = eu), registro livre (self-assign,
--- coberto por _guard_resp_aluno) ou gestão. Troca de responsável continua
--- barrada por _guard_resp_aluno.
+-- UPDATE: SOMENTE a própria carteira (responsável = eu) ou gestão.
+-- NÃO permite update direto de registro livre/sem responsável: assumir aluno
+-- livre é exclusivamente pela RPC sistema_assumir_atendimento (SECURITY
+-- DEFINER), que valida operador ativo, atribuição atômica, limite de carteira
+-- e fidelização. Troca de responsável continua barrada por _guard_resp_aluno.
 drop policy if exists alunos_update on public.alunos;
 create policy alunos_update on public.alunos
   for update to authenticated
@@ -110,8 +112,7 @@ create policy alunos_update on public.alunos
     and public.app_usuario_ativo()
     and (
       public.usuario_e_gestao()
-      or coalesce(responsavel_atual_email, '') = ''
-      or lower(responsavel_atual_email) = public.app_email()
+      or lower(coalesce(responsavel_atual_email, '')) = public.app_email()
     )
   )
   with check (
@@ -119,8 +120,7 @@ create policy alunos_update on public.alunos
     and public.app_usuario_ativo()
     and (
       public.usuario_e_gestao()
-      or coalesce(responsavel_atual_email, '') = ''
-      or lower(responsavel_atual_email) = public.app_email()
+      or lower(coalesce(responsavel_atual_email, '')) = public.app_email()
     )
   );
 
@@ -140,7 +140,11 @@ create policy casos_insert_todos on public.casos
     )
   );
 
--- UPDATE: própria carteira, registro sem dono, ou gestão.
+-- UPDATE: SOMENTE a própria carteira (operador_email = eu) ou gestão.
+-- NÃO permite update direto de caso livre/sem dono: assumir caso livre é
+-- exclusivamente pela RPC de assumir atendimento (SECURITY DEFINER), que
+-- valida atribuição atômica, limite de 500 e fidelização. Isso impede que um
+-- UPDATE direto contorne o limite de carteira.
 drop policy if exists casos_update_todos on public.casos;
 create policy casos_update_todos on public.casos
   for update to authenticated
@@ -148,16 +152,14 @@ create policy casos_update_todos on public.casos
     public.app_usuario_ativo()
     and (
       public.usuario_e_gestao()
-      or operador_email is null
-      or lower(operador_email) = public.app_email()
+      or lower(coalesce(operador_email, '')) = public.app_email()
     )
   )
   with check (
     public.app_usuario_ativo()
     and (
       public.usuario_e_gestao()
-      or operador_email is null
-      or lower(operador_email) = public.app_email()
+      or lower(coalesce(operador_email, '')) = public.app_email()
     )
   );
 
