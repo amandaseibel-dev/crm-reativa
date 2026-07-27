@@ -26,6 +26,10 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
   }, [item?.id, item?.comprovante_url, temComprovante]);
 
   async function anexarComprovante() {
+    // Guarda de duplo clique: evita duas requisições simultâneas (o estado do
+    // React pode não ter propagado para o `disabled` do botão ainda).
+    if (enviando) return;
+
     if (!item?.id) {
       alert("Registro do link não localizado.");
       return;
@@ -42,14 +46,32 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
     // sobe direto ao Storage e o servidor grava o caminho + auditoria. O cliente
     // nao escolhe bucket, pasta nem nome (UUID no servidor).
     const res = await enviarComprovanteLink(item.id, arquivo);
+
+    // Sucesso idempotente: já estava vinculado. Não reenviar nem reprocessar;
+    // apenas confirmar ao operador que está anexado/enviado.
+    if (res.ok && res.jaVinculado) {
+      alert("Comprovante já anexado e enviado para confirmação.");
+      setArquivo(null);
+      setEnviando(false);
+      if (onAtualizar) onAtualizar();
+      return;
+    }
+
     if (!res.ok) {
-      const msg = res.erro === "ja_vinculado"
-        ? "Este link ja tem um comprovante anexado."
-        : res.erro === "mime_invalido"
-        ? "Formato nao permitido. Envie PDF, PNG ou JPG."
-        : res.erro === "tamanho_invalido"
-        ? "Arquivo acima do limite (20 MB)."
-        : "Nao foi possivel anexar o comprovante (sem permissao ou falha de envio).";
+      const msg =
+        res.erro === "sessao_expirada"
+          ? "Sessão expirada. Entre novamente."
+          : res.erro === "ja_vinculado"
+          ? "Comprovante já anexado e enviado para confirmação."
+          : res.erro === "mime_invalido"
+          ? "Formato nao permitido. Envie PDF, PNG ou JPG."
+          : res.erro === "tamanho_invalido"
+          ? "Arquivo acima do limite (20 MB)."
+          : res.erro === "acesso_negado"
+          ? "Sem permissão para anexar comprovante neste registro."
+          // Erro não reconhecido: não mascarar — mostra código e etapa (sem
+          // CPF/nome/arquivo) para diagnóstico operacional.
+          : `Falha ao anexar o comprovante (código: ${res.erro || "desconhecido"}${res.etapa ? `, etapa: ${res.etapa}` : ""}${res.status ? `, http: ${res.status}` : ""}).`;
       alert(msg);
       setEnviando(false);
       return;
