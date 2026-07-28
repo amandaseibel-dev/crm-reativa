@@ -269,6 +269,11 @@ function ProjecaoHoraHoraInner() {
     // Só troca os dados em tela quando há payload; assim uma atualização com
     // erro (dados null) preserva o que já estava sendo exibido.
     if (data?.dados) aplicarDadosDashboard(data.dados);
+    // Gestão: aba "Por Operador" alimentada direto pela lista do snapshot
+    // (leitura leve; sem projecao_dashboard e sem projecao_todos_operadores).
+    if (data?.e_gestao === true && Array.isArray(data?.operadores)) {
+      setProjecaoTodos({ operadores: data.operadores });
+    }
   }
 
   // Botão "Atualizar projeção" — só Amanda/Fernanda (autorização real no
@@ -778,33 +783,73 @@ function ProjecaoHoraHoraInner() {
                   </p>
                 </div>
               )}
-              {veFilialSomente && dashboard && (
+              {/* AMANDA ADM (cobranca07): painel próprio — 8% sobre honorários,
+                  sem meta/faixa (layout de ontem). Só os próprios valores. */}
+              {veFilialSomente && dashboard && eAmandaAdm && (
+                <>
+                  <h3 style={{ margin: "0 0 12px" }}>💼 Meu painel (Amanda ADM)</h3>
+                  <div style={estilos.grade}>
+                    <Cartao label="Recuperado por mim no mês" valor={moeda(dashboard?.recuperado_mes_amanda_adm ?? dashboard?.acumulado_mes)} />
+                    <Cartao label="Honorários no mês" valor={moeda(dashboard?.honorario_mes)} />
+                    <Cartao
+                      label="Minha comissão (8% sobre honorários)"
+                      valor={moeda(dashboard?.comissao_amanda_adm ?? dashboard?.comissao_estimada_individual)}
+                      destaque
+                    />
+                  </div>
+                  <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: 6 }}>
+                    Sem meta e sem faixa — comissão fixa de 8% sobre o honorário que você mesma recuperou no mês.
+                  </p>
+                </>
+              )}
+
+              {/* OPERADOR: layout de ontem — HONORÁRIO no mês como métrica
+                  principal, META (M4 sobre honorários), % da meta, faixa atual,
+                  comissão; recuperado/acumulado e projeção como apoio. Só os
+                  próprios valores, vindos do snapshot individual. */}
+              {veFilialSomente && dashboard && !eAmandaAdm && (
                 <>
                   <div style={estilos.hero}>
                     <div style={estilos.heroTopo}>
-                      <span style={estilos.heroEyebrow}>MEU ACUMULADO NO MÊS · {mesReferencia}</span>
-                      <span style={estilos.heroBadge}>
-                        {dashboard?.dias_uteis_passados ?? 0} / {dashboard?.dias_uteis_total_mes ?? 0} dias úteis
-                      </span>
+                      <span style={estilos.heroEyebrow}>HONORÁRIO NO MÊS · {mesReferencia}</span>
+                      <span style={estilos.heroBadge}>Faixa atual: {dashboard?.faixa_atual || "-"}</span>
                     </div>
+
                     <div style={estilos.heroNumeroLinha}>
-                      <div style={estilos.heroNumero}>{moeda(dashboard?.acumulado_mes)}</div>
+                      <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes)}</div>
+                      <div style={estilos.heroMeta}>
+                        <span style={estilos.heroMetaLabel}>META</span>
+                        <span style={estilos.heroMetaValor}>{moeda(dashboard?.meta_honorario_individual)}</span>
+                      </div>
+                    </div>
+
+                    <div style={estilos.heroBarraFundo}>
+                      <div
+                        style={{
+                          ...estilos.heroBarraPreenchida,
+                          width: `${Math.min(dashboard?.percentual_meta_individual_realizado ?? 0, 100)}%`,
+                        }}
+                      />
+                    </div>
+
+                    <div style={estilos.heroRodape}>
+                      <span>
+                        <strong>{dashboard?.percentual_meta_individual_realizado ?? 0}%</strong> da meta atingido
+                      </span>
+                      <span>
+                        No ritmo atual, fecha em <strong>{moeda(dashboard?.projecao_honorario_individual)}</strong>{" "}
+                        ({dashboard?.percentual_projecao_individual ?? 0}% da meta)
+                      </span>
                     </div>
                   </div>
 
                   <div style={estilos.faixaStats}>
-                    <FaixaItem label="Recuperado no mês (acumulado)" valor={moeda(dashboard?.acumulado_mes)} />
-                    <FaixaItem label="Honorário no mês" valor={moeda(dashboard?.honorario_mes)} />
-                    <FaixaItem
-                      label={eAmandaAdm ? "Minha comissão (8%)" : "Comissão estimada"}
-                      valor={moeda(dashboard?.comissao_amanda_adm ?? dashboard?.comissao_estimada_individual)}
-                    />
+                    <FaixaItem label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
+                    <FaixaItem label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
+                    <FaixaItem label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
+                    <FaixaItem label="Comissão estimada" valor={moeda(dashboard?.comissao_estimada_individual)} />
+                    <FaixaItem label="Ritmo (dias úteis)" valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`} />
                   </div>
-                  {dashboard?.faixa_atual && (
-                    <p style={{ opacity: 0.7, fontSize: 12.5, marginTop: 8 }}>
-                      Faixa atual: <strong>{dashboard.faixa_atual}</strong>
-                    </p>
-                  )}
                 </>
               )}
 
