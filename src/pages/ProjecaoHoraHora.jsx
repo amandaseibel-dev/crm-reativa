@@ -4,6 +4,7 @@ import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
 import { analiticasSuspensas } from "../config/modoContencao";
 import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
+import ErrorBoundaryProjecao from "../components/ErrorBoundaryProjecao";
 
 function moeda(valor) {
   const n = Number(valor);
@@ -86,7 +87,7 @@ function normalizarLinhaSantander(linhaArray) {
   };
 }
 
-export default function ProjecaoHoraHora() {
+function ProjecaoHoraHoraInner() {
   const [usuario, setUsuario] = useState(null);
   const [aba, setAba] = useState("DASHBOARD");
   const [subAbaDashboard, setSubAbaDashboard] = useState("VISAO_GERAL");
@@ -714,7 +715,8 @@ export default function ProjecaoHoraHora() {
                   gerencial -- só aparece pra quem gerencia (Amanda/Fernanda).
                   Operador vê só o que é dele: honorário hoje/mês e a
                   projeção individual mais abaixo. */}
-              {((vePainelGestao && subAbaDashboard === "VISAO_GERAL") || veFilialSomente) && (
+              {/* GESTÃO (Amanda/Fernanda): visão da FILIAL. */}
+              {vePainelGestao && subAbaDashboard === "VISAO_GERAL" && (
                 <>
                   <div style={estilos.hero}>
                     <div style={estilos.heroTopo}>
@@ -759,6 +761,50 @@ export default function ProjecaoHoraHora() {
                     <FaixaItem label="Média diária necessária" valor={moeda(dashboard?.media_diaria_necessaria)} />
                     <FaixaItem label="Ritmo (dias úteis)" valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`} />
                   </div>
+                </>
+              )}
+
+              {/* OPERADOR / AMANDA ADM: SOMENTE os próprios números — foco no
+                  ACUMULADO DO MÊS (não o de hoje). Dados do snapshot individual.
+                  Tudo null-safe; sem dados = mensagem clara. */}
+              {veFilialSomente && !dashboard && (
+                <div style={{ padding: "28px 20px", background: "#fff", border: `1px solid ${PH_BORDA}`, borderRadius: 12, textAlign: "center" }}>
+                  <div style={{ fontSize: 30, marginBottom: 8 }}>🕒</div>
+                  <p style={{ fontSize: 15, fontWeight: 700, color: "#0d1321", margin: 0 }}>
+                    Os dados ainda não foram atualizados pela gestão.
+                  </p>
+                  <p style={{ fontSize: 13, color: "#64748b", marginTop: 6 }}>
+                    Assim que a Amanda ou a Fernanda atualizarem, seus números aparecem aqui.
+                  </p>
+                </div>
+              )}
+              {veFilialSomente && dashboard && (
+                <>
+                  <div style={estilos.hero}>
+                    <div style={estilos.heroTopo}>
+                      <span style={estilos.heroEyebrow}>MEU ACUMULADO NO MÊS · {mesReferencia}</span>
+                      <span style={estilos.heroBadge}>
+                        {dashboard?.dias_uteis_passados ?? 0} / {dashboard?.dias_uteis_total_mes ?? 0} dias úteis
+                      </span>
+                    </div>
+                    <div style={estilos.heroNumeroLinha}>
+                      <div style={estilos.heroNumero}>{moeda(dashboard?.acumulado_mes)}</div>
+                    </div>
+                  </div>
+
+                  <div style={estilos.faixaStats}>
+                    <FaixaItem label="Recuperado no mês (acumulado)" valor={moeda(dashboard?.acumulado_mes)} />
+                    <FaixaItem label="Honorário no mês" valor={moeda(dashboard?.honorario_mes)} />
+                    <FaixaItem
+                      label={eAmandaAdm ? "Minha comissão (8%)" : "Comissão estimada"}
+                      valor={moeda(dashboard?.comissao_amanda_adm ?? dashboard?.comissao_estimada_individual)}
+                    />
+                  </div>
+                  {dashboard?.faixa_atual && (
+                    <p style={{ opacity: 0.7, fontSize: 12.5, marginTop: 8 }}>
+                      Faixa atual: <strong>{dashboard.faixa_atual}</strong>
+                    </p>
+                  )}
                 </>
               )}
 
@@ -1643,3 +1689,12 @@ const estilos = {
     marginBottom: 16,
   },
 };
+
+// Export com Error Boundary local: erro de render nunca deixa a tela branca.
+export default function ProjecaoHoraHora() {
+  return (
+    <ErrorBoundaryProjecao>
+      <ProjecaoHoraHoraInner />
+    </ErrorBoundaryProjecao>
+  );
+}
