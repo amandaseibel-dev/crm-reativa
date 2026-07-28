@@ -4,7 +4,6 @@ import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
 import { analiticasSuspensas } from "../config/modoContencao";
 import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
-import ErrorBoundaryProjecao from "../components/ErrorBoundaryProjecao";
 
 function moeda(valor) {
   const n = Number(valor);
@@ -87,7 +86,7 @@ function normalizarLinhaSantander(linhaArray) {
   };
 }
 
-function ProjecaoHoraHoraInner() {
+export default function ProjecaoHoraHora() {
   const [usuario, setUsuario] = useState(null);
   const [aba, setAba] = useState("DASHBOARD");
   const [subAbaDashboard, setSubAbaDashboard] = useState("VISAO_GERAL");
@@ -179,9 +178,6 @@ function ProjecaoHoraHoraInner() {
   useEffect(() => {
     if (!usuario) return;
     carregarSnapshot();
-    // Leitura leve dos lançamentos do próprio dia (1 SELECT filtrado, sem cálculo
-    // pesado e sem polling). Alimenta "Meus lançamentos de hoje".
-    carregarLancamentosHoje();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mesReferencia, usuario]);
 
@@ -268,15 +264,10 @@ function ProjecaoHoraHoraInner() {
       duracao_ms: data?.duracao_ms,
       erro_resumo: data?.erro_resumo,
       e_gestao: data?.e_gestao === true,
-      temDados: !!data?.dados, // false = ainda não atualizado pela gestão (ou sem dados p/ este usuário)
     });
     // Só troca os dados em tela quando há payload; assim uma atualização com
     // erro (dados null) preserva o que já estava sendo exibido.
     if (data?.dados) aplicarDadosDashboard(data.dados);
-    // Gestão recebe a lista de todos os operadores direto do snapshot (sem RPC pesada).
-    if (data?.e_gestao === true && Array.isArray(data?.operadores)) {
-      setProjecaoTodos({ operadores: data.operadores });
-    }
   }
 
   // Botão "Atualizar projeção" — só Amanda/Fernanda (autorização real no
@@ -585,12 +576,12 @@ function ProjecaoHoraHoraInner() {
   // (Amanda Seibel / Fernanda).
   const eAmandaAdm = usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br";
   // Autoridade da visão de gestão = o backend (snapshot_ler retorna e_gestao só
-  // para Amanda/Fernanda). Gestão vê filial + ranking + todos os operadores.
-  // Não-gestão (operador / Amanda ADM) vê SOMENTE os próprios números.
-  const vePainelGestao = snapshotMeta?.e_gestao === true;
-  // Snapshot ainda não gerado pela gestão (ou sem dados individuais p/ este
-  // usuário): mostra mensagem clara em vez de números zerados/tela vazia.
-  const semSnapshot = !!snapshotMeta && snapshotMeta.temDados === false;
+  // para Amanda/Fernanda). Amanda ADM e operadores NUNCA veem ranking/individuais.
+  const vePainelGestao = snapshotMeta?.e_gestao === true && !eAmandaAdm;
+  // Não-gestão (Amanda ADM e operadores) visualizam o snapshot da FILIAL
+  // (totais + evolução), sem ranking, sem maior pagamento, sem dados de outros
+  // operadores, e sem botão de atualização.
+  const veFilialSomente = !vePainelGestao;
   const maiorValorGrafico = useMemo(
     () => Math.max(1, ...historicoDia.map((d) => Number(d.valor_recuperado) || 0)),
     [historicoDia]
@@ -694,18 +685,6 @@ function ProjecaoHoraHoraInner() {
         <>
           {carregandoDashboard ? (
             <p style={{ opacity: 0.7 }}>Carregando indicadores...</p>
-          ) : semSnapshot ? (
-            <div style={{ padding: "28px 20px", background: "#fff", border: `1px solid ${PH_BORDA}`, borderRadius: 12, textAlign: "center" }}>
-              <div style={{ fontSize: 30, marginBottom: 8 }}>🕒</div>
-              <p style={{ fontSize: 15, fontWeight: 700, color: "#0d1321", margin: 0 }}>
-                Os dados ainda não foram atualizados pela gestão.
-              </p>
-              <p style={{ fontSize: 13, color: "#64748b", marginTop: 6 }}>
-                {vePainelGestao
-                  ? 'Clique em "Atualizar projeção" para gerar o snapshot deste mês.'
-                  : "Assim que a Amanda ou a Fernanda atualizarem, seus números aparecem aqui."}
-              </p>
-            </div>
           ) : (
             <>
               {vePainelGestao && (
@@ -735,7 +714,7 @@ function ProjecaoHoraHoraInner() {
                   gerencial -- só aparece pra quem gerencia (Amanda/Fernanda).
                   Operador vê só o que é dele: honorário hoje/mês e a
                   projeção individual mais abaixo. */}
-              {vePainelGestao && subAbaDashboard === "VISAO_GERAL" && (
+              {((vePainelGestao && subAbaDashboard === "VISAO_GERAL") || veFilialSomente) && (
                 <>
                   <div style={estilos.hero}>
                     <div style={estilos.heroTopo}>
@@ -858,28 +837,12 @@ function ProjecaoHoraHoraInner() {
                 </div>
               )}
 
-              {/* Painel pessoal da Amanda ADM (cobranca07): SOMENTE os próprios
-                  números, vindos do snapshot individual dela. Sem meta/faixa. */}
-              {eAmandaAdm && snapshotMeta?.temDados && (
-                <>
-                  <h3 style={{ margin: "20px 0 10px" }}>💼 Meu painel (Amanda ADM)</h3>
-                  <div style={estilos.grade}>
-                    <Cartao label="Recuperado por mim no mês" valor={moeda(dashboard?.recuperado_mes_amanda_adm ?? dashboard?.acumulado_mes)} />
-                    <Cartao label="Honorários no mês" valor={moeda(dashboard?.honorario_mes)} />
-                    <Cartao
-                      label="Minha comissão (8% sobre honorários)"
-                      valor={moeda(dashboard?.comissao_amanda_adm ?? dashboard?.comissao_estimada_individual)}
-                      destaque
-                    />
-                  </div>
-                  <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
-                    Sem meta e sem faixa — comissão fixa de 8% sobre o valor que você mesma recuperou
-                    fechando acordos no mês.
-                  </p>
-                </>
-              )}
+              {/* Painel pessoal da Amanda ADM (recuperado/comissão individual)
+                  depende de dados que NÃO estão no snapshot da filial e segue sob
+                  o kill switch. Nesta release ela visualiza o snapshot filial,
+                  como os operadores — bloco pessoal removido intencionalmente. */}
 
-              {((!vePainelGestao && !eAmandaAdm && snapshotMeta?.temDados) || (vePainelGestao && subAbaDashboard === "POR_OPERADOR" && operadorSelecionado)) && (
+              {vePainelGestao && subAbaDashboard === "POR_OPERADOR" && operadorSelecionado && (
                 <>
                   {vePainelGestao && (
                     <h3 style={{ margin: "0 0 14px" }}>
@@ -1110,7 +1073,7 @@ function ProjecaoHoraHoraInner() {
               </div>
               )}
 
-              {(!vePainelGestao || subAbaDashboard === "EVOLUCAO") && !eAmandaAdm && (snapshotMeta?.temDados || vePainelGestao) && (
+              {vePainelGestao && subAbaDashboard === "EVOLUCAO" && (
                 <>
                   <div style={estilos.blocoRanking}>
                     <h3 style={{ marginBottom: 10 }}>
@@ -1680,13 +1643,3 @@ const estilos = {
     marginBottom: 16,
   },
 };
-
-// Export com Error Boundary local: qualquer erro de renderização da página é
-// contido aqui (mensagem + recarregar), nunca deixando a tela totalmente branca.
-export default function ProjecaoHoraHora() {
-  return (
-    <ErrorBoundaryProjecao>
-      <ProjecaoHoraHoraInner />
-    </ErrorBoundaryProjecao>
-  );
-}
