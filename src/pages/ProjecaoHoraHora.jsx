@@ -3,7 +3,6 @@ import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
 import { analiticasSuspensas } from "../config/modoContencao";
-import AvisoContencao from "../components/AvisoContencao";
 import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
 
 function moeda(valor) {
@@ -106,6 +105,9 @@ export default function ProjecaoHoraHora() {
   const [carregandoPagamentosDia, setCarregandoPagamentosDia] = useState(false);
   const [carregandoDashboard, setCarregandoDashboard] = useState(true);
   const [erro, setErro] = useState("");
+  // Snapshot manual: metadados da última atualização salva (sem polling).
+  const [snapshotMeta, setSnapshotMeta] = useState(null); // {status, atualizado_em, atualizado_por, duracao_ms, erro_resumo, e_gestao}
+  const [atualizandoProjecao, setAtualizandoProjecao] = useState(false);
 
   const [arquivo, setArquivo] = useState(null);
   const [linhasPreview, setLinhasPreview] = useState([]);
@@ -171,23 +173,13 @@ export default function ProjecaoHoraHora() {
     }
   }, []);
 
+  // Snapshot manual: ao abrir (e ao trocar o mês) faz UMA leitura leve do
+  // último snapshot salvo. Sem polling, sem cálculo pesado, sem projecao_dashboard.
   useEffect(() => {
     if (!usuario) return;
-    // KILL SWITCH: projeção analítica suspensa -> não chama nem faz polling.
-    if (analiticasSuspensas()) return;
-    carregarDashboard();
-    carregarLancamentosHoje();
-    // Contenção de carga: projecao_dashboard é RPC analítica pesada. Intervalo
-    // subido de 30s para 180s e pausado quando a aba está oculta (não gasta
-    // requisição em segundo plano).
-    const intervalo = setInterval(() => {
-      if (document.hidden) return;
-      carregarDashboard();
-      carregarLancamentosHoje();
-    }, 180000);
-    return () => clearInterval(intervalo);
+    carregarSnapshot();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mesReferencia, usuario, operadorSelecionado, unidadeFiltro]);
+  }, [mesReferencia, usuario]);
 
   useEffect(() => {
     if (aba === "HISTORICO") carregarHistorico();
@@ -252,17 +244,56 @@ export default function ProjecaoHoraHora() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subAbaDashboard, mesReferencia, usuario]);
 
-  async function carregarDashboard() {
+  // LEITURA LEVE: lê o último snapshot salvo (1 SELECT por PK no backend).
+  // Não dispara a RPC pesada nem cálculo. Mantém os dados anteriores em tela
+  // em caso de falha de rede (sem loading infinito).
+  async function carregarSnapshot() {
     setErro("");
-    const { data, error } = await supabase.rpc("projecao_dashboard", {
+    const { data, error } = await supabase.rpc("projecao_snapshot_ler", {
       p_mes: mesReferencia,
-      p_operador_email: operadorSelecionado || null,
-      p_unidade: unidadeFiltro || null,
+    });
+    setCarregandoDashboard(false);
+    if (error) {
+      setErro("Erro ao ler a projeção salva: " + error.message);
+      return;
+    }
+    setSnapshotMeta({
+      status: data?.status,
+      atualizado_em: data?.atualizado_em,
+      atualizado_por: data?.atualizado_por,
+      duracao_ms: data?.duracao_ms,
+      erro_resumo: data?.erro_resumo,
+      e_gestao: data?.e_gestao === true,
+    });
+    // Só troca os dados em tela quando há payload; assim uma atualização com
+    // erro (dados null) preserva o que já estava sendo exibido.
+    if (data?.dados) aplicarDadosDashboard(data.dados);
+  }
+
+  // Botão "Atualizar projeção" — só Amanda/Fernanda (autorização real no
+  // backend por allowlist de e-mail em SECURITY DEFINER). Uma execução por vez
+  // (lock no backend). Mantém os dados anteriores enquanto recalcula.
+  async function atualizarProjecao() {
+    if (atualizandoProjecao) return;
+    setAtualizandoProjecao(true);
+    setErro("");
+    const { data, error } = await supabase.rpc("projecao_snapshot_atualizar", {
+      p_mes: mesReferencia,
     });
     if (error) {
-      setErro("Erro ao carregar indicadores: " + error.message);
-    } else {
-      setDashboard(data);
+      // Ex.: 55P03 (já em andamento) ou 42501 (sem permissão). Dados anteriores ficam.
+      setErro("Não foi possível atualizar agora: " + error.message);
+    } else if (data?.status === "erro") {
+      setErro("A atualização falhou (snapshot anterior mantido): " + (data?.erro_resumo || ""));
+    }
+    // Recarrega o snapshot (novo ou o anterior preservado) via leitura leve.
+    await carregarSnapshot();
+    setAtualizandoProjecao(false);
+  }
+
+  function aplicarDadosDashboard(data) {
+    setDashboard(data);
+    {
       const cfg = data?.config_metas || {};
       setFormMeta({
         meta_operacional: cfg?.meta_operacional ?? data?.meta_recuperacao ?? "",
@@ -441,7 +472,7 @@ export default function ProjecaoHoraHora() {
       setLinhasPreview([]);
       setEhRetroativo(false);
       setSubstituindoImportacaoId(null);
-      carregarDashboard();
+      carregarSnapshot();
       carregarLancamentosHoje();
       carregarHistorico();
     }
@@ -464,7 +495,7 @@ export default function ProjecaoHoraHora() {
     if (error) {
       alert("Erro ao reprocessar: " + error.message);
     } else {
-      carregarDashboard();
+      carregarSnapshot();
       carregarHistorico();
     }
     setProcessandoAcaoId(null);
@@ -482,7 +513,7 @@ export default function ProjecaoHoraHora() {
     if (error) {
       alert("Erro ao excluir: " + error.message);
     } else {
-      carregarDashboard();
+      carregarSnapshot();
       carregarLancamentosHoje();
       carregarHistorico();
     }
@@ -508,7 +539,7 @@ export default function ProjecaoHoraHora() {
     if (error) {
       alert("Erro ao salvar meta: " + error.message);
     } else {
-      carregarDashboard();
+      carregarSnapshot();
     }
     setSalvandoMeta(false);
   }
@@ -529,7 +560,7 @@ export default function ProjecaoHoraHora() {
     if (error) {
       alert("Erro ao alterar operador: " + error.message);
     } else {
-      carregarDashboard();
+      carregarSnapshot();
       carregarLancamentosHoje();
       // Se a troca foi feita pelo painel de um dia da evolução, recarrega
       // aquele dia pra lista e somatória já mostrarem o novo operador.
@@ -544,24 +575,23 @@ export default function ProjecaoHoraHora() {
   // da filial (totais gerais, ranking, por operador) fica só para a gestão
   // (Amanda Seibel / Fernanda).
   const eAmandaAdm = usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br";
-  const vePainelGestao =
-    usuario?.podeGerir && !eAmandaAdm;
+  // Autoridade da visão de gestão = o backend (snapshot_ler retorna e_gestao só
+  // para Amanda/Fernanda). Amanda ADM e operadores NUNCA veem ranking/individuais.
+  const vePainelGestao = snapshotMeta?.e_gestao === true && !eAmandaAdm;
+  // Não-gestão (Amanda ADM e operadores) visualizam o snapshot da FILIAL
+  // (totais + evolução), sem ranking, sem maior pagamento, sem dados de outros
+  // operadores, e sem botão de atualização.
+  const veFilialSomente = !vePainelGestao;
   const maiorValorGrafico = useMemo(
     () => Math.max(1, ...historicoDia.map((d) => Number(d.valor_recuperado) || 0)),
     [historicoDia]
   );
 
-  if (analiticasSuspensas()) {
-    return (
-      <div className="main ph-root" style={{ background: "#f4f6fa", padding: "18px 16px 28px", fontFamily: "'Inter', system-ui, sans-serif" }}>
-        <h1 style={{ fontFamily: PH_FONTE_TITULO, fontSize: 26, fontWeight: 800, color: "#0d1321", letterSpacing: "-0.03em" }}>
-          ⏱️ Projeção Hora a Hora
-        </h1>
-        <AvisoContencao />
-      </div>
-    );
-  }
-
+  // NB: o kill switch global (analiticasSuspensas) permanece ATIVO para as
+  // demais telas analíticas (Dashboard/DRE/Visão Gerencial/Panorama/TV). Esta
+  // rota é liberada de forma controlada porque NÃO chama a RPC pesada ao abrir:
+  // lê apenas o último snapshot salvo (projecao_snapshot_ler) e só recalcula
+  // sob o botão manual (Amanda/Fernanda).
   return (
     <div className="main ph-root" style={{ background: "#f4f6fa", padding: "6px 4px 28px", fontFamily: "'Inter', system-ui, sans-serif" }}>
       <style>{`
@@ -595,7 +625,39 @@ export default function ProjecaoHoraHora() {
             onChange={(e) => setMesReferencia(e.target.value)}
             style={estilos.inputMes}
           />
+          {/* Botão manual: só Amanda/Fernanda (backend decide via e_gestao). */}
+          {snapshotMeta?.e_gestao && (
+            <button
+              onClick={atualizarProjecao}
+              disabled={atualizandoProjecao}
+              style={{ ...estilos.botaoPrimario, marginTop: 0, padding: "8px 16px", fontSize: 13, opacity: atualizandoProjecao ? 0.6 : 1 }}
+              title="Recalcula a projeção da filial e salva um novo snapshot"
+            >
+              {atualizandoProjecao ? "Atualizando…" : "🔄 Atualizar projeção"}
+            </button>
+          )}
         </div>
+      </div>
+
+      {/* Última atualização do snapshot (sem polling: só muda ao clicar Atualizar). */}
+      <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", margin: "2px 4px 10px", fontSize: 12.5, color: "#64748b" }}>
+        {snapshotMeta?.atualizado_em ? (
+          <span>
+            Última atualização:{" "}
+            <strong style={{ color: "#0d1321" }}>
+              {new Date(snapshotMeta.atualizado_em).toLocaleString("pt-BR")}
+            </strong>
+            {snapshotMeta?.atualizado_por ? ` · por ${snapshotMeta.atualizado_por}` : ""}
+            {typeof snapshotMeta?.duracao_ms === "number" ? ` · ${snapshotMeta.duracao_ms} ms` : ""}
+          </span>
+        ) : (
+          <span>Projeção ainda não foi gerada para {mesReferencia}.</span>
+        )}
+        {snapshotMeta?.status === "erro" && (
+          <span style={{ color: "#b45309" }}>
+            ⚠️ A última tentativa de atualização falhou — exibindo o snapshot anterior.
+          </span>
+        )}
       </div>
 
       <div style={estilos.abas}>
@@ -652,7 +714,7 @@ export default function ProjecaoHoraHora() {
                   gerencial -- só aparece pra quem gerencia (Amanda/Fernanda).
                   Operador vê só o que é dele: honorário hoje/mês e a
                   projeção individual mais abaixo. */}
-              {vePainelGestao && subAbaDashboard === "VISAO_GERAL" && (
+              {((vePainelGestao && subAbaDashboard === "VISAO_GERAL") || veFilialSomente) && (
                 <>
                   <div style={estilos.hero}>
                     <div style={estilos.heroTopo}>
@@ -775,26 +837,12 @@ export default function ProjecaoHoraHora() {
                 </div>
               )}
 
-              {usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br" && (
-                <>
-                  <h3 style={{ margin: "20px 0 10px" }}>💼 Meu painel (Amanda ADM)</h3>
-                  <div style={estilos.grade}>
-                    <Cartao label="Recuperado por mim no mês" valor={moeda(dashboard?.recuperado_mes_amanda_adm)} />
-                    <Cartao label="Honorários no mês" valor={moeda(dashboard?.honorario_mes)} />
-                    <Cartao
-                      label="Minha comissão (8% sobre honorários)"
-                      valor={moeda(dashboard?.comissao_amanda_adm)}
-                      destaque
-                    />
-                  </div>
-                  <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
-                    Sem meta e sem faixa — comissão fixa de 8% sobre o valor que você mesma recuperou
-                    fechando acordos no mês.
-                  </p>
-                </>
-              )}
+              {/* Painel pessoal da Amanda ADM (recuperado/comissão individual)
+                  depende de dados que NÃO estão no snapshot da filial e segue sob
+                  o kill switch. Nesta release ela visualiza o snapshot filial,
+                  como os operadores — bloco pessoal removido intencionalmente. */}
 
-              {(!usuario?.podeGerir || (vePainelGestao && subAbaDashboard === "POR_OPERADOR" && operadorSelecionado)) && (
+              {vePainelGestao && subAbaDashboard === "POR_OPERADOR" && operadorSelecionado && (
                 <>
                   {vePainelGestao && (
                     <h3 style={{ margin: "0 0 14px" }}>
@@ -939,9 +987,9 @@ export default function ProjecaoHoraHora() {
                     {historicoDia.map((d) => (
                       <div
                         key={d.dia}
-                        style={{ ...estilos.colunaBarra, cursor: "pointer" }}
+                        style={{ ...estilos.colunaBarra, cursor: vePainelGestao ? "pointer" : "default" }}
                         title={moeda(d.valor_recuperado)}
-                        onClick={() => abrirDiaSelecionado(d.dia)}
+                        onClick={vePainelGestao ? () => abrirDiaSelecionado(d.dia) : undefined}
                       >
                         <div
                           style={{
@@ -1025,7 +1073,7 @@ export default function ProjecaoHoraHora() {
               </div>
               )}
 
-              {(!vePainelGestao || subAbaDashboard === "EVOLUCAO") && usuario?.email?.toLowerCase() !== "cobranca07@aelbra.com.br" && (
+              {vePainelGestao && subAbaDashboard === "EVOLUCAO" && (
                 <>
                   <div style={estilos.blocoRanking}>
                     <h3 style={{ marginBottom: 10 }}>
