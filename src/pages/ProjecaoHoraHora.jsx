@@ -3,7 +3,6 @@ import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
 import { analiticasSuspensas } from "../config/modoContencao";
-import AvisoContencao from "../components/AvisoContencao";
 import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
 
 function moeda(valor) {
@@ -576,8 +575,13 @@ export default function ProjecaoHoraHora() {
   // da filial (totais gerais, ranking, por operador) fica só para a gestão
   // (Amanda Seibel / Fernanda).
   const eAmandaAdm = usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br";
-  const vePainelGestao =
-    usuario?.podeGerir && !eAmandaAdm;
+  // Autoridade da visão de gestão = o backend (snapshot_ler retorna e_gestao só
+  // para Amanda/Fernanda). Amanda ADM e operadores NUNCA veem ranking/individuais.
+  const vePainelGestao = snapshotMeta?.e_gestao === true && !eAmandaAdm;
+  // Não-gestão (Amanda ADM e operadores) visualizam o snapshot da FILIAL
+  // (totais + evolução), sem ranking, sem maior pagamento, sem dados de outros
+  // operadores, e sem botão de atualização.
+  const veFilialSomente = !vePainelGestao;
   const maiorValorGrafico = useMemo(
     () => Math.max(1, ...historicoDia.map((d) => Number(d.valor_recuperado) || 0)),
     [historicoDia]
@@ -710,7 +714,7 @@ export default function ProjecaoHoraHora() {
                   gerencial -- só aparece pra quem gerencia (Amanda/Fernanda).
                   Operador vê só o que é dele: honorário hoje/mês e a
                   projeção individual mais abaixo. */}
-              {vePainelGestao && subAbaDashboard === "VISAO_GERAL" && (
+              {((vePainelGestao && subAbaDashboard === "VISAO_GERAL") || veFilialSomente) && (
                 <>
                   <div style={estilos.hero}>
                     <div style={estilos.heroTopo}>
@@ -833,26 +837,12 @@ export default function ProjecaoHoraHora() {
                 </div>
               )}
 
-              {usuario?.email?.toLowerCase() === "cobranca07@aelbra.com.br" && (
-                <>
-                  <h3 style={{ margin: "20px 0 10px" }}>💼 Meu painel (Amanda ADM)</h3>
-                  <div style={estilos.grade}>
-                    <Cartao label="Recuperado por mim no mês" valor={moeda(dashboard?.recuperado_mes_amanda_adm)} />
-                    <Cartao label="Honorários no mês" valor={moeda(dashboard?.honorario_mes)} />
-                    <Cartao
-                      label="Minha comissão (8% sobre honorários)"
-                      valor={moeda(dashboard?.comissao_amanda_adm)}
-                      destaque
-                    />
-                  </div>
-                  <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: -6 }}>
-                    Sem meta e sem faixa — comissão fixa de 8% sobre o valor que você mesma recuperou
-                    fechando acordos no mês.
-                  </p>
-                </>
-              )}
+              {/* Painel pessoal da Amanda ADM (recuperado/comissão individual)
+                  depende de dados que NÃO estão no snapshot da filial e segue sob
+                  o kill switch. Nesta release ela visualiza o snapshot filial,
+                  como os operadores — bloco pessoal removido intencionalmente. */}
 
-              {(!usuario?.podeGerir || (vePainelGestao && subAbaDashboard === "POR_OPERADOR" && operadorSelecionado)) && (
+              {vePainelGestao && subAbaDashboard === "POR_OPERADOR" && operadorSelecionado && (
                 <>
                   {vePainelGestao && (
                     <h3 style={{ margin: "0 0 14px" }}>
@@ -997,9 +987,9 @@ export default function ProjecaoHoraHora() {
                     {historicoDia.map((d) => (
                       <div
                         key={d.dia}
-                        style={{ ...estilos.colunaBarra, cursor: "pointer" }}
+                        style={{ ...estilos.colunaBarra, cursor: vePainelGestao ? "pointer" : "default" }}
                         title={moeda(d.valor_recuperado)}
-                        onClick={() => abrirDiaSelecionado(d.dia)}
+                        onClick={vePainelGestao ? () => abrirDiaSelecionado(d.dia) : undefined}
                       >
                         <div
                           style={{
@@ -1083,7 +1073,7 @@ export default function ProjecaoHoraHora() {
               </div>
               )}
 
-              {(!vePainelGestao || subAbaDashboard === "EVOLUCAO") && usuario?.email?.toLowerCase() !== "cobranca07@aelbra.com.br" && (
+              {vePainelGestao && subAbaDashboard === "EVOLUCAO" && (
                 <>
                   <div style={estilos.blocoRanking}>
                     <h3 style={{ marginBottom: 10 }}>
