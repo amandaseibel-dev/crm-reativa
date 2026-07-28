@@ -678,7 +678,7 @@ export default function App() {
                 ) : ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(
                     (usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase()
                   ) ? (
-                  <Navigate to="/projecao-hora-a-hora" replace />
+                  <Navigate to="/aluno" replace />
                 ) : (
                   <Dashboard />
                 )
