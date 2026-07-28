@@ -77,6 +77,8 @@ import TaxaConversao from "./pages/TaxaConversao";
 import PainelGeral from "./pages/PainelGeral";
 import NotificacoesPopup from "./components/NotificacoesPopup";
 import { AvatarFoto } from "./components/AvatarFoto";
+import { useAbaLider } from "./context/AbaLiderContext";
+import AbaBloqueada from "./components/AbaBloqueada";
 function EmDesenvolvimento({ titulo }) {
   return (
     <div className="main">
@@ -259,6 +261,8 @@ function VisaoAuditor({ usuario, onSair }) {
 
 export default function App() {
   const [usuario, setUsuario] = useState(null);
+  // Controle de aba única: só a aba líder monta o CRM operacional.
+  const { ehLider, souSecundaria, liderPodeTerEncerrado, assumirLideranca } = useAbaLider();
   const [perfilVisao, setPerfilVisao] = useState(() => localStorage.getItem("reativa_perfil_visao") || "");
   const [carregando, setCarregando] = useState(true);
   const [linksAguardando, setLinksAguardando] = useState(0);
@@ -326,8 +330,8 @@ export default function App() {
       setParcelasVencendo(Array.isArray(data.parcelas_vencendo) ? data.parcelas_vencendo : []);
     },
     120000,
-    [usuario],
-    Boolean(usuario) && !analiticasSuspensas()
+    [usuario, ehLider],
+    Boolean(usuario) && ehLider && !analiticasSuspensas()
   );
 
   useEffect(() => {
@@ -407,6 +411,16 @@ export default function App() {
   }
   if (!usuario) {
     return <Login onLogin={setUsuario} />;
+  }
+  // Aba única: se outra aba deste usuário/navegador já é a líder, esta aba
+  // secundária NÃO monta o CRM operacional (sem polling/realtime/heartbeat).
+  if (souSecundaria) {
+    return (
+      <AbaBloqueada
+        onUsarEstaAba={assumirLideranca}
+        liderPodeTerEncerrado={liderPodeTerEncerrado}
+      />
+    );
   }
   if (usuario.perfil?.deve_trocar_senha) {
     return <RedefinirSenha forcado email={usuario.perfil.email} />;
