@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import usePolling from "../utils/polling";
 
 const EMAILS_MASTER = [
   "amanda.seibel@aelbra.com.br",
@@ -29,17 +30,25 @@ export default function FluxoLinksRapido() {
   const [salvandoId, setSalvandoId] = useState(null);
   const [erro, setErro] = useState("");
   const [busca, setBusca] = useState("");
+  // Guarda SÍNCRONA contra clique duplo por item (setSalvandoId é estado React
+  // e só desabilita no próximo render). Bloqueia 2 RPCs concorrentes no mesmo id.
+  const emAcaoRef = useRef(new Set());
 
   useEffect(() => {
     iniciar();
-
-    const intervalo = setInterval(() => {
-      carregarTudo(usuarioAtual);
-    }, 25000);
-
-    return () => clearInterval(intervalo);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [usuarioAtual.email, usuarioAtual.master, usuarioAtual.adm]);
+  }, []);
+
+  // Antes: setInterval fixo de 25s que NÃO pausava em aba oculta, sem trava de
+  // sobreposição nem debounce no foco — enxameava vw_fila_links/links_pagamento.
+  // Agora via usePolling: 60s (staging), pausa em document.hidden, sem
+  // sobreposição, disparo no foco com debounce de 3s.
+  usePolling(
+    async () => { await carregarTudo(usuarioAtual); },
+    60000,
+    [usuarioAtual.email, usuarioAtual.master, usuarioAtual.adm],
+    Boolean(usuarioAtual.email)
+  );
 
   async function iniciar() {
     const usuario = await identificarUsuario();
@@ -180,6 +189,9 @@ export default function FluxoLinksRapido() {
   }
 
   async function devolverLinkAoOperador(item) {
+    if (emAcaoRef.current.has(item.id)) return; // trava síncrona anti-duplo-clique
+    emAcaoRef.current.add(item.id);
+    try {
     // Trava exclusiva: assume o caso antes de gerar. Se outra pessoa ja
     // assumiu (ate 10 min), bloqueia para nao duplicar o mesmo aluno.
     try {
@@ -231,6 +243,9 @@ export default function FluxoLinksRapido() {
     await carregarTudo(usuarioAtual);
 
     alert("Link devolvido ao operador. Ele aparecerá no topo da fila operacional com a mensagem pronta.");
+    } finally {
+      emAcaoRef.current.delete(item.id);
+    }
   }
 
   async function copiarTexto(texto) {
@@ -249,6 +264,9 @@ export default function FluxoLinksRapido() {
 
     if (!confirmar) return;
 
+    if (emAcaoRef.current.has(item.id)) return; // trava síncrona anti-duplo-clique
+    emAcaoRef.current.add(item.id);
+    try {
     const agora = new Date().toISOString();
     const usuarioEmail = usuarioAtual.email || "";
     const usuarioNome = usuarioAtual.nome || usuarioAtual.email || "Operador";
@@ -312,6 +330,9 @@ export default function FluxoLinksRapido() {
 
     await carregarTudo(usuarioAtual);
     alert("Link marcado como enviado ao aluno.");
+    } finally {
+      emAcaoRef.current.delete(item.id);
+    }
   }
 
   function formatarMoeda(valor) {

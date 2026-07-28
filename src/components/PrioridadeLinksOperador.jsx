@@ -1,20 +1,18 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import usePolling from "../utils/polling";
 
 export default function PrioridadeLinksOperador() {
   const [links, setLinks] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
+  // Guarda síncrona anti-duplo-clique por item.
+  const emAcaoRef = useRef(new Set());
 
-  useEffect(() => {
-    carregarPrioridades();
-
-    const intervalo = setInterval(() => {
-      carregarPrioridades();
-    }, 25000);
-
-    return () => clearInterval(intervalo);
-  }, []);
+  // Antes: setInterval fixo de 25s sem pausa em aba oculta/sobreposição/debounce.
+  // Agora via usePolling: 60s (staging), pausa em document.hidden, sem
+  // sobreposição, disparo no foco com debounce de 3s.
+  usePolling(async () => { await carregarPrioridades(); }, 60000, []);
 
   async function carregarPrioridades() {
     setCarregando(true);
@@ -53,23 +51,29 @@ export default function PrioridadeLinksOperador() {
 
     if (!confirmar) return;
 
-    const { error } = await supabase
-      .from("links_pagamento")
-      .update({
-        status: "LINK_ENVIADO_AO_ALUNO",
-        enviado_operador_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString()
-      })
-      .eq("id", link.id);
+    if (emAcaoRef.current.has(link.id)) return; // trava síncrona anti-duplo-clique
+    emAcaoRef.current.add(link.id);
+    try {
+      const { error } = await supabase
+        .from("links_pagamento")
+        .update({
+          status: "LINK_ENVIADO_AO_ALUNO",
+          enviado_operador_em: new Date().toISOString(),
+          atualizado_em: new Date().toISOString()
+        })
+        .eq("id", link.id);
 
-    if (error) {
-      console.error("Erro ao marcar link como enviado:", error);
-      alert("Não foi possível marcar como enviado.");
-      return;
+      if (error) {
+        console.error("Erro ao marcar link como enviado:", error);
+        alert("Não foi possível marcar como enviado.");
+        return;
+      }
+
+      await carregarPrioridades();
+      alert("Link marcado como enviado ao aluno.");
+    } finally {
+      emAcaoRef.current.delete(link.id);
     }
-
-    await carregarPrioridades();
-    alert("Link marcado como enviado ao aluno.");
   }
 
   function formatarMoeda(valor) {

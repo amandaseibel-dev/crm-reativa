@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
 import { nomeOperadorPorEmail } from "../utils/operadores";
@@ -19,6 +19,11 @@ export default function FilaReceptivo({ usuarioLogado }) {
   const [perfis, setPerfis] = useState({});
   const [marcando, setMarcando] = useState(false);
   const [operadoresReceptivo, setOperadoresReceptivo] = useState([]);
+  // Guarda SÍNCRONA contra clique duplo: setMarcando (estado React) só
+  // desabilita o botão no próximo render, deixando uma janela para 2 cliques
+  // rápidos dispararem 2 RPCs concorrentes na mesma linha. A ref bloqueia na
+  // hora, antes de qualquer await.
+  const emAcaoRef = useRef(false);
 
   const email = usuarioLogado?.email || "";
   const ehParticipante = operadoresReceptivo.includes(email);
@@ -54,10 +59,11 @@ export default function FilaReceptivo({ usuarioLogado }) {
   // (montado no App.jsx) ja mantem o operador online em qualquer tela. Antes
   // os dois batiam a cada 20s, dobrando as chamadas de fila_receptivo_heartbeat.
   // Aqui ficou so a leitura da fila, pausada em aba oculta e sem sobreposicao.
-  usePolling(async () => { await buscarFila(); }, 30000, []);
+  usePolling(async () => { await buscarFila(); }, 60000, []);
 
   async function alternarPausa(pausar) {
-    if (!ehParticipante || marcando) return;
+    if (!ehParticipante || emAcaoRef.current) return;
+    emAcaoRef.current = true;
     setMarcando(true);
     try {
       await supabase.rpc("fila_receptivo_heartbeat", {
@@ -68,6 +74,7 @@ export default function FilaReceptivo({ usuarioLogado }) {
       await buscarFila();
     } finally {
       setMarcando(false);
+      emAcaoRef.current = false;
     }
   }
 
@@ -96,13 +103,15 @@ export default function FilaReceptivo({ usuarioLogado }) {
   // atendeu não foi quem estava na vez, ou pra a gestão registrar por eles.
   async function marcarAtendido(alvoEmail) {
     const alvo = alvoEmail || email;
-    if (!alvo || marcando) return;
+    if (!alvo || emAcaoRef.current) return;
+    emAcaoRef.current = true;
     setMarcando(true);
     try {
       await supabase.rpc("fila_receptivo_marcar_atendido", { p_email: alvo });
       await buscarFila();
     } finally {
       setMarcando(false);
+      emAcaoRef.current = false;
     }
   }
 
