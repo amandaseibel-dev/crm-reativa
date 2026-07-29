@@ -826,12 +826,26 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       // quando nao ha CPF). Duas fichas com o mesmo CPF contam uma vez por dia.
       try {
         const inicioMesTS = `${hoje.slice(0, 7)}-01T00:00:00`;
-        const { data: movMes } = await supabase
-          .from("aluno_movimentacoes")
-          .select("aluno_id,registrado_em")
-          .eq("registrado_por_email", email)
-          .in("tipo", TIPOS_ACIONAMENTO)
-          .gte("registrado_em", inicioMesTS);
+        // Pagina TODAS as movimentações do mês. Sem isto, o Supabase corta em
+        // 1000 linhas por requisição: operadores de alto volume (>1000
+        // tabulações/mês) perdiam as linhas de hoje, zerando "acionados hoje".
+        const movMes = [];
+        {
+          const TAM = 1000;
+          for (let de = 0; ; de += TAM) {
+            const { data: pagina, error: errPag } = await supabase
+              .from("aluno_movimentacoes")
+              .select("aluno_id,registrado_em")
+              .eq("registrado_por_email", email)
+              .in("tipo", TIPOS_ACIONAMENTO)
+              .gte("registrado_em", inicioMesTS)
+              .order("registrado_em", { ascending: false })
+              .range(de, de + TAM - 1);
+            if (errPag || !pagina || pagina.length === 0) break;
+            movMes.push(...pagina);
+            if (pagina.length < TAM) break;
+          }
+        }
 
         // Mapa aluno_id -> cpf para deduplicar por CPF (em lote, sem N+1).
         const movAlunoIds = [...new Set((movMes || []).map((m) => String(m.aluno_id)).filter(Boolean))];
