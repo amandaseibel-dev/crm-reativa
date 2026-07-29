@@ -265,6 +265,9 @@ export default function App() {
   const { ehLider, souSecundaria, liderPodeTerEncerrado, assumirLideranca } = useAbaLider();
   const [perfilVisao, setPerfilVisao] = useState(() => localStorage.getItem("reativa_perfil_visao") || "");
   const [carregando, setCarregando] = useState(true);
+  // Cadastro do usuário autenticado: mensagem clara para 0 ou >1 linha ativa
+  // (não escolhe perfil automaticamente, não faz signOut silencioso).
+  const [erroCadastro, setErroCadastro] = useState(null);
   const [linksAguardando, setLinksAguardando] = useState(0);
   const [termosRejeitados, setTermosRejeitados] = useState(0);
   const [termosAguardandoValidacao, setTermosAguardandoValidacao] = useState(0);
@@ -356,13 +359,31 @@ export default function App() {
     const { data } = await supabase.auth.getSession();
     if (data.session) {
       const email = data.session.user.email;
-      const { data: perfil } = await supabase
+      // Lê no máximo 2 cadastros ativos: distingue 0 / 1 / >1 sem escolher
+      // perfil arbitrariamente e sem signOut silencioso em caso de duplicidade.
+      const { data: perfis, error: erroPerfis } = await supabase
         .from("usuarios")
         .select("*")
         .eq("email", email)
         .eq("ativo", true)
-        .single();
-      if (perfil) {
+        .limit(2);
+      if (erroPerfis) {
+        // Não expõe PII; mantém a sessão para nova tentativa.
+        console.error("Falha ao carregar cadastro do usuário autenticado.");
+        setErroCadastro("Não foi possível carregar seu cadastro agora. Tente novamente em instantes.");
+        setUsuario(null);
+      } else if (!perfis || perfis.length === 0) {
+        setErroCadastro("Usuário não cadastrado ou inativo no sistema. Procure a gestão.");
+        await supabase.auth.signOut();
+        setUsuario(null);
+      } else if (perfis.length > 1) {
+        // Cadastro duplicado: NÃO escolhe perfil, NÃO faz signOut silencioso.
+        console.error("Cadastro duplicado (mais de um ativo) para o e-mail autenticado.");
+        setErroCadastro("Seu cadastro está duplicado no sistema. A gestão precisa corrigir antes de liberar o acesso.");
+        setUsuario(null);
+      } else {
+        const perfil = perfis[0];
+        setErroCadastro(null);
         const { data: ac } = await supabase.rpc("acesso_permitido_agora");
         setUsuario({ auth: data.session.user, perfil, acesso: ac });
         if (ac && ac.permitido === false) {
@@ -371,9 +392,6 @@ export default function App() {
           registrarLoginSeNecessario(perfil.email, perfil.nome);
           try { await supabase.rpc("registrar_acesso_sistema"); } catch (e) {}
         }
-      } else {
-        await supabase.auth.signOut();
-        setUsuario(null);
       }
     }
     setCarregando(false);
@@ -408,6 +426,20 @@ export default function App() {
   }
   if (window.location.pathname === "/redefinir-senha") {
     return <RedefinirSenha />;
+  }
+  if (erroCadastro && !usuario) {
+    return (
+      <div style={{ height: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", background: "#0f172a", color: "#fff", gap: 16, padding: 24, textAlign: "center" }}>
+        <div style={{ fontSize: 40 }}>⚠️</div>
+        <div style={{ fontSize: 18, fontWeight: 700, maxWidth: 460 }}>{erroCadastro}</div>
+        <button
+          onClick={async () => { setErroCadastro(null); try { await supabase.auth.signOut(); } catch (e) {} }}
+          style={{ padding: "10px 20px", borderRadius: 10, border: "none", background: "#2563eb", color: "#fff", fontWeight: 700, cursor: "pointer" }}
+        >
+          Voltar ao login
+        </button>
+      </div>
+    );
   }
   if (!usuario) {
     return <Login onLogin={setUsuario} />;
