@@ -17,6 +17,20 @@ function diaCurto(iso) {
 const AZUL = "#2563eb";
 const VERDE = "#0f9d6b";
 
+// Extrai a data (YYYY-MM-DD) de um clique no gráfico, de forma robusta a como o
+// recharts entrega o argumento. NB: recharts v3 mudou o onClick do gráfico e
+// NÃO passa mais `activePayload` como na v2 — por isso lemos o clique também no
+// próprio Bar/Line (o argumento vem como o datum {dia,...} ou {payload:{dia}}).
+// Aceita: {dia}, {payload:{dia}}, {activePayload:[{payload:{dia}}]}.
+export function diaDoCliqueGrafico(arg) {
+  if (!arg) return null;
+  if (arg.dia) return arg.dia;
+  if (arg.payload && arg.payload.dia) return arg.payload.dia;
+  const ap = arg.activePayload;
+  if (Array.isArray(ap) && ap[0] && ap[0].payload && ap[0].payload.dia) return ap[0].payload.dia;
+  return null;
+}
+
 // Gráfico mensal da Projeção. Lê SOMENTE o historico_dia_a_dia do snapshot.
 // Seletores: Honorários/Recuperado e Diário/Acumulado. Tooltip com qtd de
 // pagamentos. Marca os dias de mudança de faixa. Clique num dia -> onClickDia.
@@ -54,6 +68,14 @@ export default function GraficoEvolucaoProjecao({ historico = [], onClickDia, cl
 
   const cor = metrica === "honorario" ? AZUL : VERDE;
   const rotuloMetrica = metrica === "honorario" ? "Honorários" : "Recuperado";
+
+  // Handler único de clique num dia. Robusto a recharts v3 (Bar/Line entregam o
+  // datum; o gráfico pode não passar activePayload). diaDoCliqueGrafico normaliza.
+  function aoClicarDia(arg) {
+    if (!clicavel || !onClickDia) return;
+    const dia = diaDoCliqueGrafico(arg);
+    if (dia) onClickDia(dia);
+  }
 
   function BotaoTgl({ ativo, onClick, children }) {
     return (
@@ -105,11 +127,7 @@ export default function GraficoEvolucaoProjecao({ historico = [], onClickDia, cl
             <ComposedChart
               data={dados}
               margin={{ top: 24, right: 12, left: 4, bottom: 4 }}
-              onClick={(e) => {
-                if (clicavel && onClickDia && e && e.activePayload && e.activePayload[0]) {
-                  onClickDia(e.activePayload[0].payload.dia);
-                }
-              }}
+              onClick={aoClicarDia}
             >
               <CartesianGrid strokeDasharray="3 3" stroke="#eef1f5" vertical={false} />
               <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#98a2b3" }} interval="preserveStartEnd" />
@@ -125,9 +143,18 @@ export default function GraficoEvolucaoProjecao({ historico = [], onClickDia, cl
                 />
               ))}
               {modo === "acumulado" ? (
-                <Line type="monotone" dataKey="valor" stroke={cor} strokeWidth={2.5} dot={{ r: 2.5, cursor: clicavel ? "pointer" : "default" }} activeDot={{ r: 5 }} />
+                <Line
+                  type="monotone" dataKey="valor" stroke={cor} strokeWidth={2.5}
+                  dot={{ r: 2.5, cursor: clicavel ? "pointer" : "default" }}
+                  activeDot={{ r: 5, cursor: clicavel ? "pointer" : "default", onClick: (_e, d) => aoClicarDia(d) }}
+                  onClick={aoClicarDia}
+                />
               ) : (
-                <Bar dataKey="valor" fill={cor} radius={[4, 4, 0, 0]} maxBarSize={26} cursor={clicavel ? "pointer" : "default"} />
+                <Bar
+                  dataKey="valor" fill={cor} radius={[4, 4, 0, 0]} maxBarSize={26}
+                  cursor={clicavel ? "pointer" : "default"}
+                  onClick={aoClicarDia}
+                />
               )}
             </ComposedChart>
           </ResponsiveContainer>
