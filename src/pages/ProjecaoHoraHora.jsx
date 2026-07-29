@@ -104,6 +104,12 @@ function ProjecaoHoraHoraInner() {
   const [unidadeFiltro, setUnidadeFiltro] = useState("");
   const [unidades, setUnidades] = useState([]);
 
+  // Busca "o aluno pagou este mês?" — cada operador pesquisa SOMENTE os
+  // próprios pagamentos (gestão vê todos). Backend: projecao_pesquisar_pagamento_mes.
+  const [buscaTermo, setBuscaTermo] = useState("");
+  const [buscaResultado, setBuscaResultado] = useState(null);
+  const [buscando, setBuscando] = useState(false);
+
   const [dashboard, setDashboard] = useState(null);
   const [diaSelecionado, setDiaSelecionado] = useState(null);
   const [pagamentosDoDia, setPagamentosDoDia] = useState([]);
@@ -558,6 +564,29 @@ function ProjecaoHoraHoraInner() {
     setSalvandoMeta(false);
   }
 
+  async function buscarPagamentoMes(evento) {
+    if (evento) evento.preventDefault();
+    const termo = buscaTermo.trim();
+    if (termo.length < 3) {
+      setBuscaResultado({ total: 0, itens: [], aviso: "Digite ao menos 3 letras do nome ou 6 dígitos do CPF." });
+      return;
+    }
+    setBuscando(true);
+    try {
+      const { data, error } = await supabase.rpc("projecao_pesquisar_pagamento_mes", {
+        p_mes: mesReferencia,
+        p_termo: termo,
+      });
+      if (error) {
+        setBuscaResultado({ total: 0, itens: [], aviso: "Erro na busca: " + error.message });
+      } else {
+        setBuscaResultado(data);
+      }
+    } finally {
+      setBuscando(false);
+    }
+  }
+
   async function alterarOperador(pagamentoId, operadorAtualEmail) {
     const novoNome = prompt("Nome do novo operador responsável:");
     if (!novoNome) return;
@@ -743,6 +772,80 @@ function ProjecaoHoraHoraInner() {
             <p style={{ opacity: 0.7 }}>Carregando indicadores...</p>
           ) : (
             <>
+              {/* Busca: "o aluno pagou este mês?". Operador vê só os próprios
+                  pagamentos; gestão (Amanda/Fernanda) vê de todos. */}
+              <div style={estilos.blocoRanking}>
+                <h3 style={{ marginBottom: 4 }}>🔎 O aluno pagou este mês?</h3>
+                <p style={{ opacity: 0.7, fontSize: 12.5, marginTop: 0, marginBottom: 10 }}>
+                  {usuario?.podeGerir && !eAmandaAdm
+                    ? "Pesquisa nos pagamentos de todos os operadores no mês selecionado."
+                    : "Pesquisa nos SEUS pagamentos do mês selecionado."}
+                </p>
+                <form onSubmit={buscarPagamentoMes} style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <input
+                    value={buscaTermo}
+                    onChange={(e) => setBuscaTermo(e.target.value)}
+                    placeholder="Nome do aluno ou CPF"
+                    style={{ ...estilos.input, maxWidth: 320, marginBottom: 0 }}
+                  />
+                  <button type="submit" disabled={buscando} style={{ ...estilos.botaoPrimario, marginTop: 0 }}>
+                    {buscando ? "Buscando..." : "Buscar"}
+                  </button>
+                  {buscaResultado && (
+                    <button
+                      type="button"
+                      onClick={() => { setBuscaTermo(""); setBuscaResultado(null); }}
+                      style={{ ...estilos.botaoPrimario, marginTop: 0, background: "#fff", color: "#475569", border: `1px solid ${PH_BORDA}` }}
+                    >
+                      Limpar
+                    </button>
+                  )}
+                </form>
+                <p style={{ opacity: 0.6, fontSize: 11.5, marginTop: 8 }}>
+                  Aviso: a busca por CPF pode não encontrar pagamentos que ainda não estão vinculados ao cadastro do aluno. Em caso de dúvida, pesquise pelo nome.
+                </p>
+                {buscaResultado && (
+                  <div style={{ marginTop: 12 }}>
+                    {buscaResultado.aviso ? (
+                      <p style={{ color: "#b45309", fontSize: 13 }}>{buscaResultado.aviso}</p>
+                    ) : buscaResultado.total === 0 ? (
+                      <p style={{ opacity: 0.8 }}>
+                        Nenhum pagamento de <b>{buscaResultado.termo}</b> encontrado em {mesReferencia}.
+                      </p>
+                    ) : (
+                      <>
+                        <p style={{ fontSize: 13, marginBottom: 8 }}>
+                          <b>{buscaResultado.total}</b> pagamento(s) encontrado(s) em {mesReferencia}
+                          {buscaResultado.total > (buscaResultado.itens?.length || 0) ? ` (mostrando ${buscaResultado.itens.length})` : ""}.
+                        </p>
+                        <table style={estilos.tabela}>
+                          <thead>
+                            <tr>
+                              <th style={estilos.th}>Data</th>
+                              <th style={estilos.th}>Aluno</th>
+                              {usuario?.podeGerir && !eAmandaAdm && <th style={estilos.th}>Operador</th>}
+                              <th style={estilos.th}>Valor pago</th>
+                              <th style={estilos.th}>Honorário</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {buscaResultado.itens.map((it, i) => (
+                              <tr key={i} style={estilos.tr}>
+                                <td style={estilos.td}>{it.data_pagamento}</td>
+                                <td style={estilos.td}>{it.aluno_nome || "-"}</td>
+                                {usuario?.podeGerir && !eAmandaAdm && <td style={estilos.td}>{it.operador || "-"}</td>}
+                                <td style={estilos.td}>{moeda(it.valor_pago)}</td>
+                                <td style={estilos.td}>{moeda(it.valor_honorario)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {vePainelGestao && (
                 <div style={{ display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap", alignItems: "center" }}>
                   {[
