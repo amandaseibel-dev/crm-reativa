@@ -6,7 +6,6 @@ import { analiticasSuspensas } from "../config/modoContencao";
 import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
 import ErrorBoundaryProjecao from "../components/ErrorBoundaryProjecao";
 import GraficoEvolucaoProjecao from "../components/projecao/GraficoEvolucaoProjecao";
-import ModalConferenciaDia from "../components/projecao/ModalConferenciaDia";
 import CentralRelatorios from "../components/projecao/CentralRelatorios";
 import BoundaryLocal from "../components/projecao/BoundaryLocal";
 
@@ -192,8 +191,12 @@ function ProjecaoHoraHoraInner() {
   useEffect(() => {
     if (!usuario) return;
     carregarSnapshot();
+    // Carrega os lançamentos do dia já na abertura (antes só carregava depois
+    // de importar/ações), pra gestão ver e reatribuir TODOS os pagamentos do
+    // dia — inclusive os Sem Operador — sem precisar importar nada.
+    carregarLancamentosHoje();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [mesReferencia, usuario]);
+  }, [mesReferencia, usuario, unidadeFiltro]);
 
   useEffect(() => {
     if (aba === "HISTORICO") carregarHistorico();
@@ -1146,10 +1149,70 @@ function ProjecaoHoraHoraInner() {
                 <BoundaryLocal label="Gráfico de evolução">
                   <GraficoEvolucaoProjecao
                     historico={emailFoco ? historicoFoco : historicoDia}
-                    clicavel={!!emailFoco}
-                    onClickDia={abrirConferenciaDia}
+                    clicavel={true}
+                    onClickDia={abrirDiaSelecionado}
                   />
                 </BoundaryLocal>
+                <p style={{ opacity: 0.6, fontSize: 12, marginTop: 6 }}>
+                  💡 Clique em um dia do gráfico para ver os pagamentos daquele dia aqui embaixo.
+                </p>
+                {/* Pagamentos do dia clicado — inline (sem pop-up). Gestão vê
+                    todos os operadores + Sem Operador e pode reatribuir qualquer caso. */}
+                {diaSelecionado && (
+                  <div style={{ marginTop: 14, borderTop: `1px solid ${PH_BORDA}`, paddingTop: 14 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8 }}>
+                      <h4 style={{ margin: 0 }}>🧾 Pagamentos de {diaSelecionado.split("-").reverse().join("/")}</h4>
+                      <button
+                        type="button"
+                        onClick={() => { setDiaSelecionado(null); setPagamentosDoDia([]); }}
+                        style={{ ...estilos.botaoPrimario, marginTop: 0, padding: "6px 12px", fontSize: 12, background: "#fff", color: "#475569", border: `1px solid ${PH_BORDA}` }}
+                      >
+                        Fechar
+                      </button>
+                    </div>
+                    {carregandoPagamentosDia ? (
+                      <p style={{ opacity: 0.7 }}>Carregando pagamentos do dia...</p>
+                    ) : pagamentosDoDia.length === 0 ? (
+                      <p style={{ opacity: 0.7 }}>Nenhum pagamento neste dia.</p>
+                    ) : (
+                      <table style={estilos.tabela}>
+                        <thead>
+                          <tr>
+                            <th style={estilos.th}>Aluno</th>
+                            {usuario?.podeGerir && <th style={estilos.th}>Operador</th>}
+                            <th style={estilos.th}>Valor pago</th>
+                            <th style={estilos.th}>Honorário</th>
+                            {usuario?.podeGerir && <th style={estilos.th}>Ação</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {pagamentosDoDia.map((p) => (
+                            <tr key={p.id} style={estilos.tr}>
+                              <td style={estilos.td}>{p.aluno_nome || "-"}</td>
+                              {usuario?.podeGerir && (
+                                <td style={estilos.td}>{p.operador_nome || p.operador_email || "⚠️ SEM OPERADOR"}</td>
+                              )}
+                              <td style={estilos.td}>{moeda(p.valor_pago)}</td>
+                              <td style={estilos.td}>{moeda(p.valor_honorario)}</td>
+                              {usuario?.podeGerir && (
+                                <td style={estilos.td}>
+                                  <button style={estilos.botaoLink} onClick={() => alterarOperador(p.id, p.operador_email)}>
+                                    Alterar operador
+                                  </button>
+                                </td>
+                              )}
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                    {usuario?.podeGerir && (
+                      <p style={{ opacity: 0.6, fontSize: 12, marginTop: 8 }}>
+                        Toda troca de operador fica registrada em auditoria (quem alterou, de/para e motivo).
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
               )}
 
@@ -1504,15 +1567,6 @@ function ProjecaoHoraHoraInner() {
         <SuspeitasPagamentosDuplicados />
       )}
 
-      {conferencia && (
-        <ModalConferenciaDia
-          mes={mesReferencia}
-          dia={conferencia.dia}
-          operadorEmail={conferencia.operadorEmail}
-          esperado={conferencia.esperado}
-          onClose={() => setConferencia(null)}
-        />
-      )}
     </div>
   );
 }
