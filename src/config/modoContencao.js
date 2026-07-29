@@ -6,9 +6,13 @@
 // (login, busca/ficha de aluno, casos, acordos, links, baixa, fila, etc.)
 // NÃO são afetados.
 //
-// Para reativar as analíticas quando o banco estabilizar: trocar para `false`
-// e publicar. (Não depende de banco, RPC, migration ou config do Supabase.)
-export const MODO_CONTENCAO_ANALITICAS = true;
+// Controle por ambiente (seguro): PADRÃO = true (produção permanece contida).
+// Só desliga quando VITE_MODO_CONTENCAO_ANALITICAS === "false" — o que fazemos
+// APENAS na Vercel Preview conectada ao staging. Production não tem essa var,
+// então continua `true` (analíticas suspensas). Nunca usar "false" em Production.
+const _RAW_CONTENCAO = import.meta.env?.VITE_MODO_CONTENCAO_ANALITICAS;
+export const MODO_CONTENCAO_ANALITICAS =
+  _RAW_CONTENCAO === undefined ? true : String(_RAW_CONTENCAO).toLowerCase() !== "false";
 
 // Helper único usado por todos os gates.
 export function analiticasSuspensas() {
