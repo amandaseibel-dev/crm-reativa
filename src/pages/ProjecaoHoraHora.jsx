@@ -8,6 +8,7 @@ import ErrorBoundaryProjecao from "../components/ErrorBoundaryProjecao";
 import GraficoEvolucaoProjecao from "../components/projecao/GraficoEvolucaoProjecao";
 import ModalConferenciaDia from "../components/projecao/ModalConferenciaDia";
 import CentralRelatorios from "../components/projecao/CentralRelatorios";
+import BoundaryLocal from "../components/projecao/BoundaryLocal";
 
 function moeda(valor) {
   const n = Number(valor);
@@ -682,12 +683,14 @@ function ProjecaoHoraHoraInner() {
             </button>
           )}
           {podeVerRelatorios(usuario?.email) && (
-            <CentralRelatorios
-              email={usuario?.email}
-              mes={mesReferencia}
-              filialPayload={dashboard}
-              operadoresPayloadPorEmail={operadoresPayloadPorEmail}
-            />
+            <BoundaryLocal label="Relatórios">
+              <CentralRelatorios
+                email={usuario?.email}
+                mes={mesReferencia}
+                filialPayload={dashboard}
+                operadoresPayloadPorEmail={operadoresPayloadPorEmail}
+              />
+            </BoundaryLocal>
           )}
         </div>
       </div>
@@ -1037,11 +1040,13 @@ function ProjecaoHoraHoraInner() {
                   📈 Evolução do mês
                   {emailFoco ? ` · ${OPERADORES_POR_EMAIL[emailFoco] || emailFoco}` : " · Total da Empresa"}
                 </h3>
-                <GraficoEvolucaoProjecao
-                  historico={emailFoco ? historicoFoco : historicoDia}
-                  clicavel={!!emailFoco}
-                  onClickDia={abrirConferenciaDia}
-                />
+                <BoundaryLocal label="Gráfico de evolução">
+                  <GraficoEvolucaoProjecao
+                    historico={emailFoco ? historicoFoco : historicoDia}
+                    clicavel={!!emailFoco}
+                    onClickDia={abrirConferenciaDia}
+                  />
+                </BoundaryLocal>
               </div>
               )}
 

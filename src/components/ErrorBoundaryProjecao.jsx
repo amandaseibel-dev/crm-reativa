@@ -6,7 +6,7 @@ import { Component } from "react";
 export default class ErrorBoundaryProjecao extends Component {
   constructor(props) {
     super(props);
-    this.state = { erro: null };
+    this.state = { erro: null, info: null };
   }
 
   static getDerivedStateFromError(erro) {
@@ -16,6 +16,7 @@ export default class ErrorBoundaryProjecao extends Component {
   componentDidCatch(erro, info) {
     // Log no console para diagnóstico (sem quebrar a página).
     console.error("Projeção Hora a Hora — erro de renderização:", erro, info);
+    this.setState({ info });
   }
 
   render() {
@@ -50,6 +51,14 @@ export default class ErrorBoundaryProjecao extends Component {
             <p style={{ fontSize: 13, color: "#64748b", marginTop: 6 }}>
               Os demais atendimentos continuam normais. Recarregue a página para tentar de novo.
             </p>
+            {/* Diagnóstico TEMPORÁRIO — só aparece em dev/Preview (staging), nunca
+                em produção (Production não tem VITE_MODO_CONTENCAO_ANALITICAS=false).
+                Mostra apenas mensagem técnica + componente; sem token, sem PII. */}
+            {(import.meta.env?.DEV || String(import.meta.env?.VITE_MODO_CONTENCAO_ANALITICAS).toLowerCase() === "false") && (
+              <pre style={{ marginTop: 14, textAlign: "left", fontSize: 11, lineHeight: 1.45, color: "#b91c1c", background: "#fff5f5", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 12px", overflowX: "auto", whiteSpace: "pre-wrap" }}>
+{`[diagnóstico Preview]\n${this.state.erro?.name || "Error"}: ${this.state.erro?.message || "(sem mensagem)"}\n${String(this.state.info?.componentStack || "").split("\n").filter(Boolean).slice(0, 4).join("\n")}`}
+              </pre>
+            )}
             <button
               onClick={() => window.location.reload()}
               style={{
