@@ -1,10 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
-import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
+import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL, EQUIPE_9, podeVerRelatorios } from "../utils/operadores";
 import { analiticasSuspensas } from "../config/modoContencao";
 import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
 import ErrorBoundaryProjecao from "../components/ErrorBoundaryProjecao";
+import GraficoEvolucaoProjecao from "../components/projecao/GraficoEvolucaoProjecao";
+import ModalConferenciaDia from "../components/projecao/ModalConferenciaDia";
+import CentralRelatorios from "../components/projecao/CentralRelatorios";
 
 function moeda(valor) {
   const n = Number(valor);
@@ -104,6 +107,9 @@ function ProjecaoHoraHoraInner() {
   const [diaSelecionado, setDiaSelecionado] = useState(null);
   const [pagamentosDoDia, setPagamentosDoDia] = useState([]);
   const [carregandoPagamentosDia, setCarregandoPagamentosDia] = useState(false);
+  // Conferência diária (modal) — {dia, operadorEmail, esperado:{recuperado,honorario}}.
+  const [conferencia, setConferencia] = useState(null);
+  const [semOperador, setSemOperador] = useState(null);
   const [carregandoDashboard, setCarregandoDashboard] = useState(true);
   const [erro, setErro] = useState("");
   // Snapshot manual: metadados da última atualização salva (sem polling).
@@ -273,6 +279,7 @@ function ProjecaoHoraHoraInner() {
     // (leitura leve; sem projecao_dashboard e sem projecao_todos_operadores).
     if (data?.e_gestao === true && Array.isArray(data?.operadores)) {
       setProjecaoTodos({ operadores: data.operadores });
+      setSemOperador(data?.sem_operador || null);
     }
   }
 
@@ -593,6 +600,38 @@ function ProjecaoHoraHoraInner() {
     [historicoDia]
   );
 
+  // Mapa email -> payload completo do operador (gestão; vem do snapshot_ler).
+  const operadoresPayloadPorEmail = useMemo(() => {
+    const m = {};
+    (projecaoTodos?.operadores || []).forEach((o) => {
+      if (o?.operador_email && o?.payload) m[o.operador_email] = o.payload;
+    });
+    return m;
+  }, [projecaoTodos]);
+
+  // Operador em foco para a visão individual (hero + gráfico + conferência):
+  //  - não-gestão: o próprio usuário (payload = dashboard);
+  //  - gestão: o operador selecionado (payload completo do snapshot); sem
+  //    seleção, mostra a visão de Total da Empresa.
+  const emailFoco = vePainelGestao ? operadorSelecionado : (usuario?.email || "");
+  const payloadFoco = vePainelGestao
+    ? (operadorSelecionado ? operadoresPayloadPorEmail[operadorSelecionado] : null)
+    : dashboard;
+  const historicoFoco = payloadFoco?.historico_dia_a_dia || [];
+
+  function abrirConferenciaDia(dia) {
+    if (!emailFoco) return;
+    const d = (historicoFoco || []).find((x) => x.dia === dia) || {};
+    setConferencia({
+      dia,
+      operadorEmail: emailFoco,
+      esperado: {
+        recuperado: Number(d.recuperado_dia ?? d.valor_recuperado ?? 0),
+        honorario: Number(d.honorario_dia ?? d.valor_honorario ?? 0),
+      },
+    });
+  }
+
   // NB: o kill switch global (analiticasSuspensas) permanece ATIVO para as
   // demais telas analíticas (Dashboard/DRE/Visão Gerencial/Panorama/TV). Esta
   // rota é liberada de forma controlada porque NÃO chama a RPC pesada ao abrir:
@@ -641,6 +680,14 @@ function ProjecaoHoraHoraInner() {
             >
               {atualizandoProjecao ? "Atualizando…" : "🔄 Atualizar projeção"}
             </button>
+          )}
+          {podeVerRelatorios(usuario?.email) && (
+            <CentralRelatorios
+              email={usuario?.email}
+              mes={mesReferencia}
+              filialPayload={dashboard}
+              operadoresPayloadPorEmail={operadoresPayloadPorEmail}
+            />
           )}
         </div>
       </div>
@@ -808,49 +855,7 @@ function ProjecaoHoraHoraInner() {
                   comissão; recuperado/acumulado e projeção como apoio. Só os
                   próprios valores, vindos do snapshot individual. */}
               {veFilialSomente && dashboard && !eAmandaAdm && (
-                <>
-                  <div style={estilos.hero}>
-                    <div style={estilos.heroTopo}>
-                      <span style={estilos.heroEyebrow}>HONORÁRIO NO MÊS · {mesReferencia}</span>
-                      <span style={estilos.heroBadge}>Faixa atual: {dashboard?.faixa_atual || "-"}</span>
-                    </div>
-
-                    <div style={estilos.heroNumeroLinha}>
-                      <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes)}</div>
-                      <div style={estilos.heroMeta}>
-                        <span style={estilos.heroMetaLabel}>META</span>
-                        <span style={estilos.heroMetaValor}>{moeda(dashboard?.meta_honorario_individual)}</span>
-                      </div>
-                    </div>
-
-                    <div style={estilos.heroBarraFundo}>
-                      <div
-                        style={{
-                          ...estilos.heroBarraPreenchida,
-                          width: `${Math.min(dashboard?.percentual_meta_individual_realizado ?? 0, 100)}%`,
-                        }}
-                      />
-                    </div>
-
-                    <div style={estilos.heroRodape}>
-                      <span>
-                        <strong>{dashboard?.percentual_meta_individual_realizado ?? 0}%</strong> da meta atingido
-                      </span>
-                      <span>
-                        No ritmo atual, fecha em <strong>{moeda(dashboard?.projecao_honorario_individual)}</strong>{" "}
-                        ({dashboard?.percentual_projecao_individual ?? 0}% da meta)
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={estilos.faixaStats}>
-                    <FaixaItem label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
-                    <FaixaItem label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
-                    <FaixaItem label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
-                    <FaixaItem label="Comissão estimada" valor={moeda(dashboard?.comissao_estimada_individual)} />
-                    <FaixaItem label="Ritmo (dias úteis)" valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`} />
-                  </div>
-                </>
+                <PainelIndividual dados={dashboard} mes={mesReferencia} />
               )}
 
               {vePainelGestao && subAbaDashboard === "POR_OPERADOR" && (
@@ -916,14 +921,20 @@ function ProjecaoHoraHoraInner() {
                     style={{ ...estilos.input, maxWidth: 260 }}
                   >
                     <option value="">Selecione...</option>
-                    {Object.entries(OPERADORES_POR_EMAIL).map(([email, nome]) => (
+                    {EQUIPE_9.map(({ email, nome }) => (
                       <option key={email} value={email}>{nome}</option>
                     ))}
                   </select>
                   {!operadorSelecionado && (
                     <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: 10 }}>
-                      Escolha um operador acima pra ver a meta, projeção e comissão detalhada dele.
+                      Escolha um dos 9 acima pra ver a meta, projeção e premiação detalhada dele.
                     </p>
+                  )}
+                  {semOperador && (
+                    <div style={{ marginTop: 12, padding: "10px 14px", borderRadius: 10, background: "#fff7e6", border: "1px solid #fde3b3", fontSize: 12.5, color: "#b45309" }}>
+                      ⚠️ <strong>Sem operador</strong> (indicador de gestão, fora do ranking/premiação):{" "}
+                      {moeda(semOperador?.acumulado_mes)} recuperado · {moeda(semOperador?.honorario_mes)} honorário no mês.
+                    </div>
                   )}
                 </div>
               )}
@@ -934,61 +945,16 @@ function ProjecaoHoraHoraInner() {
                   como os operadores — bloco pessoal removido intencionalmente. */}
 
               {vePainelGestao && subAbaDashboard === "POR_OPERADOR" && operadorSelecionado && (
+                payloadFoco ? (
                 <>
-                  {vePainelGestao && (
-                    <h3 style={{ margin: "0 0 14px" }}>
-                      Números de {OPERADORES_POR_EMAIL[operadorSelecionado] || operadorSelecionado}
-                    </h3>
-                  )}
-
-                  <div style={estilos.hero}>
-                    <div style={estilos.heroTopo}>
-                      <span style={estilos.heroEyebrow}>HONORÁRIO NO MÊS</span>
-                      <span style={estilos.heroBadge}>Faixa atual: {dashboard?.faixa_atual || "-"}</span>
-                    </div>
-
-                    <div style={estilos.heroNumeroLinha}>
-                      <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes)}</div>
-                      <div style={estilos.heroMeta}>
-                        <span style={estilos.heroMetaLabel}>META</span>
-                        <span style={estilos.heroMetaValor}>{moeda(dashboard?.meta_honorario_individual)}</span>
-                      </div>
-                    </div>
-
-                    <div style={estilos.heroBarraFundo}>
-                      <div
-                        style={{
-                          ...estilos.heroBarraPreenchida,
-                          width: `${Math.min(dashboard?.percentual_meta_individual_realizado ?? 0, 100)}%`,
-                        }}
-                      />
-                    </div>
-
-                    <div style={estilos.heroRodape}>
-                      <span>
-                        <strong>{dashboard?.percentual_meta_individual_realizado ?? 0}%</strong> da meta atingido
-                      </span>
-                      <span>
-                        No ritmo atual, fecha em <strong>{moeda(dashboard?.projecao_honorario_individual)}</strong>{" "}
-                        ({dashboard?.percentual_projecao_individual ?? 0}% da meta)
-                      </span>
-                    </div>
-                  </div>
-
-                  <div style={estilos.faixaStats}>
-                    <FaixaItem label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje)} />
-                    <FaixaItem label="Honorários hoje" valor={moeda(dashboard?.honorario_hoje)} />
-                    <FaixaItem label="Acumulado do mês" valor={moeda(dashboard?.acumulado_mes)} />
-                    <FaixaItem label="Comissão estimada" valor={moeda(dashboard?.comissao_estimada_individual)} />
-                    <FaixaItem label="Ritmo (dias úteis)" valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`} />
-                  </div>
-
-                  <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: 2 }}>
-                    Comissão calculada por faixa progressiva (igual imposto de renda) sobre o honorário do
-                    mês — cada faixa comissiona só a fatia que cai dentro dela. Projeção é uma estimativa
-                    com base no ritmo médio de honorário por dia útil, não é garantia.
-                  </p>
+                  <h3 style={{ margin: "0 0 14px" }}>
+                    Números de {OPERADORES_POR_EMAIL[operadorSelecionado] || operadorSelecionado}
+                  </h3>
+                  <PainelIndividual dados={payloadFoco} mes={mesReferencia} />
                 </>
+                ) : (
+                  <p style={{ opacity: 0.7 }}>Sem snapshot para este operador nesta competência.</p>
+                )
               )}
 
               {vePainelGestao && subAbaDashboard === "CONFIGURACOES" && (
@@ -1065,102 +1031,17 @@ function ProjecaoHoraHoraInner() {
                 </div>
               )}
 
-              {(!vePainelGestao || subAbaDashboard === "EVOLUCAO") && (
+              {(!vePainelGestao || subAbaDashboard === "EVOLUCAO" || (vePainelGestao && subAbaDashboard === "POR_OPERADOR" && operadorSelecionado)) && (
               <div style={estilos.blocoGrafico}>
-                <h3 style={{ marginBottom: 12 }}>📈 Evolução do mês (recuperado por dia)</h3>
-                <p style={{ opacity: 0.6, fontSize: 12, marginTop: -6, marginBottom: 10 }}>
-                  Clique numa barra pra ver quem pagou naquele dia.
-                </p>
-                {historicoDia.length === 0 ? (
-                  <p style={{ opacity: 0.7 }}>Nenhum pagamento importado neste mês ainda.</p>
-                ) : (
-                  <div style={estilos.barras}>
-                    {historicoDia.map((d) => (
-                      <div
-                        key={d.dia}
-                        style={{ ...estilos.colunaBarra, cursor: vePainelGestao ? "pointer" : "default" }}
-                        title={moeda(d.valor_recuperado)}
-                        onClick={vePainelGestao ? () => abrirDiaSelecionado(d.dia) : undefined}
-                      >
-                        <div
-                          style={{
-                            ...estilos.barra,
-                            height: `${Math.max(4, (Number(d.valor_recuperado) / maiorValorGrafico) * 140)}px`,
-                            outline: diaSelecionado === d.dia ? "2px solid #7dd3fc" : "none",
-                          }}
-                        />
-                        <span style={estilos.legendaBarra}>{formatarDataCurta(d.dia)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-
-                {diaSelecionado && (
-                  <div style={estilos.blocoPagamentosDia}>
-                    <h4 style={{ margin: "14px 0 8px" }}>
-                      💳 Pagamentos de {formatarDataCurta(diaSelecionado)}
-                    </h4>
-                    {carregandoPagamentosDia ? (
-                      <p style={{ opacity: 0.7 }}>Carregando...</p>
-                    ) : pagamentosDoDia.length === 0 ? (
-                      <p style={{ opacity: 0.7 }}>Nenhum pagamento encontrado nesse dia.</p>
-                    ) : (
-                      <>
-                        {(() => {
-                          const totalPago = pagamentosDoDia.reduce((soma, p) => soma + (Number(p.valor_pago) || 0), 0);
-                          const totalHonorario = pagamentosDoDia.reduce((soma, p) => soma + (Number(p.valor_honorario) || 0), 0);
-                          return (
-                            <div
-                              style={{
-                                display: "flex",
-                                gap: 24,
-                                padding: "8px 12px",
-                                marginBottom: 10,
-                                background: "rgba(125, 211, 252, 0.08)",
-                                borderRadius: 8,
-                                fontWeight: 600,
-                              }}
-                            >
-                              <span>Total do dia ({pagamentosDoDia.length} pagamentos):</span>
-                              <span>Recuperado: {moeda(totalPago)}</span>
-                              <span>Honorário: {moeda(totalHonorario)}</span>
-                            </div>
-                          );
-                        })()}
-                        <table style={estilos.tabela}>
-                          <thead>
-                            <tr>
-                              <th style={estilos.th}>Aluno</th>
-                              {usuario?.podeGerir && <th style={estilos.th}>Operador</th>}
-                              <th style={estilos.th}>Valor pago</th>
-                              <th style={estilos.th}>Honorário</th>
-                              {usuario?.podeGerir && <th style={estilos.th}>Ação</th>}
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {pagamentosDoDia.map((p, i) => (
-                              <tr key={p.id || i} style={estilos.tr}>
-                                <td style={estilos.td}>{p.aluno_nome || "-"}</td>
-                                {usuario?.podeGerir && <td style={estilos.td}>{p.operador_nome || "-"}</td>}
-                                <td style={estilos.td}>{moeda(p.valor_pago)}</td>
-                                <td style={estilos.td}>{moeda(p.valor_honorario)}</td>
-                                {usuario?.podeGerir && (
-                                  <td style={estilos.td}>
-                                    {p.id ? (
-                                      <button style={estilos.botaoLink} onClick={() => alterarOperador(p.id, p.operador_email)}>
-                                        Alterar operador
-                                      </button>
-                                    ) : "-"}
-                                  </td>
-                                )}
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </>
-                    )}
-                  </div>
-                )}
+                <h3 style={{ marginBottom: 4 }}>
+                  📈 Evolução do mês
+                  {emailFoco ? ` · ${OPERADORES_POR_EMAIL[emailFoco] || emailFoco}` : " · Total da Empresa"}
+                </h3>
+                <GraficoEvolucaoProjecao
+                  historico={emailFoco ? historicoFoco : historicoDia}
+                  clicavel={!!emailFoco}
+                  onClickDia={abrirConferenciaDia}
+                />
               </div>
               )}
 
@@ -1514,6 +1395,16 @@ function ProjecaoHoraHoraInner() {
       {aba === "SUSPEITAS_DUPLICADOS" && usuario?.podeGerir && (
         <SuspeitasPagamentosDuplicados />
       )}
+
+      {conferencia && (
+        <ModalConferenciaDia
+          mes={mesReferencia}
+          dia={conferencia.dia}
+          operadorEmail={conferencia.operadorEmail}
+          esperado={conferencia.esperado}
+          onClose={() => setConferencia(null)}
+        />
+      )}
     </div>
   );
 }
@@ -1524,6 +1415,59 @@ function FaixaItem({ label, valor }) {
       <div style={estilos.faixaValor}>{valor}</div>
       <div style={estilos.faixaLabel}>{label}</div>
     </div>
+  );
+}
+
+// Visão individual (mesma para operador e para a gestão ao selecionar um dos 9):
+// honorário como destaque, meta M4, progresso, faixa, premiação, próxima faixa
+// e "quanto falta"; recuperado e resultado do dia como apoio.
+function PainelIndividual({ dados, mes }) {
+  const pctMeta = Math.min(Number(dados?.percentual_meta_individual_realizado ?? 0), 100);
+  const temProxima = Number(dados?.proxima_faixa_valor || 0) > 0;
+  return (
+    <>
+      <div style={estilos.hero}>
+        <div style={estilos.heroTopo}>
+          <span style={estilos.heroEyebrow}>HONORÁRIO NO MÊS · {mes}</span>
+          <span style={estilos.heroBadge}>Faixa atual: {dados?.faixa_atual || "-"}</span>
+        </div>
+        <div style={estilos.heroNumeroLinha}>
+          <div style={estilos.heroNumero}>{moeda(dados?.honorario_mes)}</div>
+          <div style={estilos.heroMeta}>
+            <span style={estilos.heroMetaLabel}>META (M4)</span>
+            <span style={estilos.heroMetaValor}>{moeda(dados?.meta_honorario_individual)}</span>
+          </div>
+        </div>
+        <div style={estilos.heroBarraFundo}>
+          <div style={{ ...estilos.heroBarraPreenchida, width: `${pctMeta}%` }} />
+        </div>
+        <div style={estilos.heroRodape}>
+          <span>
+            <strong>{dados?.percentual_meta_individual_realizado ?? 0}%</strong> da meta ·{" "}
+            {temProxima
+              ? <>faltam <strong>{moeda(dados?.falta_proxima_faixa)}</strong> p/ a próxima faixa ({moeda(dados?.proxima_faixa_valor)})</>
+              : <strong>faixa máxima atingida</strong>}
+          </span>
+          <span>
+            No ritmo atual, fecha em <strong>{moeda(dados?.projecao_honorario_individual)}</strong>{" "}
+            ({dados?.percentual_projecao_individual ?? 0}% da meta)
+          </span>
+        </div>
+      </div>
+
+      <div style={estilos.faixaStats}>
+        <FaixaItem label="Recuperado hoje" valor={moeda(dados?.recuperado_hoje)} />
+        <FaixaItem label="Honorários hoje" valor={moeda(dados?.honorario_hoje)} />
+        <FaixaItem label="Pagamentos hoje" valor={`${dados?.qtd_pagamentos_hoje ?? 0}`} />
+        <FaixaItem label="Premiação estimada" valor={moeda(dados?.comissao_estimada_individual)} />
+        <FaixaItem label="Falta p/ próxima faixa" valor={temProxima ? moeda(dados?.falta_proxima_faixa) : "—"} />
+      </div>
+
+      <p style={{ opacity: 0.6, fontSize: 12.5, marginTop: 2, marginBottom: 22 }}>
+        Premiação calculada sobre o <strong>honorário do mês</strong> pela faixa vigente. Recuperado é
+        informação complementar. Projeção é estimativa pelo ritmo de honorário por dia útil.
+      </p>
+    </>
   );
 }
 

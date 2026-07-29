@@ -94,3 +94,46 @@ export function podeGerirFinanceiro(email) {
     "cobranca04@aelbra.com.br",
   ].includes(chave);
 }
+
+// -------------------------------------------------------------------------
+// Projecao — equipe dos 9 (8 operadores + Amanda ADM). Amanda ADM (cobranca07)
+// participa com resultado individual (8% fixo). A regra definitiva e aplicada
+// no banco (snapshot por operador). Aqui e so para montar seletores/rotulos.
+// -------------------------------------------------------------------------
+export const EQUIPE_9_EMAILS = [
+  "cobranca03@aelbra.com.br", // OLGA
+  "cobranca05@aelbra.com.br", // LUANA
+  "cobranca06@aelbra.com.br", // MAURÍCIO
+  "cobranca08@aelbra.com.br", // NATALI
+  "cobranca10@aelbra.com.br", // JOÃO
+  "cobranca11@aelbra.com.br", // ALLAN
+  "cobranca12@aelbra.com.br", // RAFAELLA
+  "cobranca13@aelbra.com.br", // DIEGO
+  "cobranca07@aelbra.com.br", // AMANDA ADM
+];
+
+// Seletor de operador para a gestao: exatamente os 9, na ordem oficial.
+export const EQUIPE_9 = EQUIPE_9_EMAILS.map((email) => ({
+  email,
+  nome: OPERADORES_POR_EMAIL[email] || email,
+}));
+
+export function ehEquipe9(email) {
+  return EQUIPE_9_EMAILS.includes(String(email || "").toLowerCase().trim());
+}
+
+// Central de Relatorios: EXCLUSIVA de Amanda gestora e Fernanda. Espelha a
+// autorizacao do backend (RPC geral e exportacao). Amanda ADM NAO exporta.
+export function podeVerRelatorios(email) {
+  const chave = String(email || "").toLowerCase().trim();
+  return chave === "amanda.seibel@aelbra.com.br" || chave === "cobranca04@aelbra.com.br";
+}
+
+// Rotulo amigavel das classificacoes do relatorio geral de pagamentos.
+export const ROTULO_CLASSIFICACAO = {
+  EQUIPE_9: "Integrante da equipe",
+  FERNANDA: "Fernanda",
+  PAGAMENTO_DIRETO: "Pagamento direto",
+  SEM_OPERADOR: "Sem operador",
+  OUTRO: "Outro",
+};
