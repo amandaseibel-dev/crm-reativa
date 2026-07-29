@@ -111,6 +111,17 @@ function casoReceptivo(aluno) {
   const temResponsavel = !!(aluno?.responsavel_atual_email || aluno?.responsavel_atual_nome);
   const origem = String(aluno?.origem || aluno?.tipo_base || "").trim().toUpperCase();
 
+  // Filtro defensivo (leve, por status ja mantido -- sem calculo de saldo por
+  // linha): saldo zerado / encerrado operacional nao aparece no Receptivo.
+  // O bloqueio principal e no backend (guard em sistema_assumir_receptivo).
+  const st = [aluno?.status_jornada, aluno?.status_atual, aluno?.status_acionamento]
+    .map((s) => String(s || "").toUpperCase());
+  const encerrado = st.some((s) =>
+    s.includes("SEM_SALDO") || s.includes("SEM SALDO") ||
+    s.includes("QUITAD") || s.includes("CANCEL") || s.includes("JURIDIC") ||
+    s.includes("BAIXA_REALIZADA") || s.includes("AGUARDANDO_BAIXA"));
+  if (encerrado) return false;
+
   return !temResponsavel || origem.includes("RECEPT");
 }
 

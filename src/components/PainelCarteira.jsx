@@ -589,10 +589,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const alvoEscopo = emailEscopo();
       let ativosCanonico = null;
       try {
-        let __qCanon = supabase.from("casos").select("id", { count: "exact", head: true });
-        if (alvoEscopo) __qCanon = __qCanon.eq("operador_email", alvoEscopo);
-        const { count: __cc } = await __qCanon;
-        ativosCanonico = __cc;
+        // Contagem canonica da CARTEIRA ATIVA (exclui encerrados operacionais:
+        // SEM_SALDO_EM_ABERTO, quitados, juridico, cancelado). Backend:
+        // public.contar_carteira_ativa. Casos saldo-zero nao contam nos 500.
+        const { data: __cc } = await supabase.rpc("contar_carteira_ativa", { p_email: alvoEscopo || null });
+        ativosCanonico = Number(__cc);
+        if (!Number.isFinite(ativosCanonico)) ativosCanonico = null;
       } catch (e) { ativosCanonico = null; }
       // KILL SWITCH: valor_carteira_operador é MÉTRICA (não a lista). Suspenso
       // em contenção -> valorCarteira fica 0; a lista de casos segue normal.
