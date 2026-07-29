@@ -1,0 +1,13 @@
+-- =============================================================================
+-- DELTA: statement_timeout=30s em projecao_snapshot_atualizar(text)
+-- =============================================================================
+-- Reconciliacao repo<->prod: producao ja roda projecao_snapshot_atualizar com
+-- `SET statement_timeout TO '30s'` (hotfix aplicado direto no banco durante o
+-- incidente de timeout do updater). A migration 20260728163000 NAO contem esse
+-- SET. Esta delta documenta e garante o timeout SEM editar a 163000.
+--
+-- Idempotente. Preserva corpo, advisory lock e execucao atomica (a funcao segue
+-- identica; apenas fixa o timeout local da funcao). NAO altera o statement_timeout
+-- global do role authenticated.
+-- =============================================================================
+alter function public.projecao_snapshot_atualizar(text) set statement_timeout = '30s';
