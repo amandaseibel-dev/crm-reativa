@@ -117,6 +117,35 @@ function retornoAutomaticoDeStatus(statusNovo) {
   return `${yyyy}-${mm}-${dd}`;
 }
 
+// Diferenca em dias entre "hoje" e uma data "YYYY-MM-DD" (alvo - hoje).
+function diasParaData(hojeStr, alvoStr) {
+  const a = new Date(`${String(hojeStr).slice(0, 10)}T00:00:00`);
+  const b = new Date(`${String(alvoStr).slice(0, 10)}T00:00:00`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
+  return Math.round((b.getTime() - a.getTime()) / 86400000);
+}
+
+// Sugestao de proxima acao para o card, cruzando retorno agendado + vencimento
+// do boleto. Retorna {emoji,texto,bg,cor} ou null.
+function sugestaoDoCaso(a, menorVencimento, hojeStr) {
+  const ret = a && a.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
+  if (ret) {
+    const d = diasParaData(hojeStr, ret);
+    if (d === 0) return { emoji: "↩️", texto: "Retornar hoje", bg: "#155e75", cor: "#cffafe" };
+    if (d !== null && d < 0) return { emoji: "↩️", texto: `Retorno atrasado ${Math.abs(d)}d`, bg: "#7c2d12", cor: "#fed7aa" };
+  }
+  if (menorVencimento) {
+    const d = diasParaData(hojeStr, menorVencimento);
+    if (d !== null) {
+      if (d < 0) return { emoji: "🔴", texto: `Vencido há ${Math.abs(d)}d — cobrar`, bg: "#7f1d1d", cor: "#fecaca" };
+      if (d === 0) return { emoji: "⏰", texto: "Vence hoje — enviar lembrete", bg: "#78350f", cor: "#fde68a" };
+      if (d === 1) return { emoji: "📅", texto: "Vence amanhã — enviar lembrete", bg: "#713f12", cor: "#fef08a" };
+      if (d <= 3) return { emoji: "📩", texto: `Vence em ${d}d — enviar lembrete`, bg: "#1e3a5f", cor: "#bfdbfe" };
+    }
+  }
+  return null;
+}
+
 function formatarMoeda(valor) {
   const n = Number(valor) || 0;
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -785,6 +814,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             temDetalhe: false,
             temAtraso: false,
             temAVencer: false,
+            menorVencimento: null, // menor vencimento em aberto (YYYY-MM-DD)
             acordoResponsavel: null,
           };
         }
@@ -822,6 +852,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             fin[id].acordoResponsavel = ac.operador_responsavel_email || fin[id].acordoResponsavel;
             if (p.status === "VENCIDA") fin[id].temAtraso = true;
             else fin[id].temAVencer = true;
+            const vp = p.vencimento ? String(p.vencimento).slice(0, 10) : null;
+            if (vp && (!fin[id].menorVencimento || vp < fin[id].menorVencimento)) fin[id].menorVencimento = vp;
           }
         }
 
@@ -841,6 +873,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             const id = String(t.aluno_id);
             if (!fin[id]) continue;
             const v = Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+            const vt = t.vencimento ? String(t.vencimento).slice(0, 10) : null;
+            if (vt && (!fin[id].menorVencimento || vt < fin[id].menorVencimento)) fin[id].menorVencimento = vt;
             const negociada =
               t.status === "vinculada" || t.situacao === "NEGOCIADO" || !!t.acordo_id;
             if (negociada) {
@@ -1634,8 +1668,28 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     else if (ordenacao === "sem_contato_asc") arr.sort((a, b) => keyDias(a) - keyDias(b));
     else if (ordenacao === "valor_desc") arr.sort((a, b) => saldoDe(b) - saldoDe(a));
     else if (ordenacao === "valor_asc") arr.sort((a, b) => saldoDe(a) - saldoDe(b));
+
+    // No Foco do Dia, a prioridade manda por cima da ordenacao escolhida:
+    // retorno do dia/atrasado primeiro, depois boleto vencido/vencendo, depois
+    // o resto. Dentro de cada grupo, mantem a ordem ja aplicada acima (sort
+    // estavel). Usa o menor vencimento em aberto ja calculado em finAlunos.
+    if (somenteFocoDia) {
+      const hoje = hojeLocalBR();
+      const rankFoco = (a) => {
+        const ret = a.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
+        if (ret && ret <= hoje) return 0; // retorno devido
+        const venc = finAlunos[String(a.id)]?.menorVencimento || null;
+        if (venc) {
+          const d = diasParaData(hoje, venc);
+          if (d !== null && d < 0) return 1; // vencido
+          if (d !== null && d <= 3) return 2; // vence em ate 3 dias
+        }
+        return 3;
+      };
+      arr.sort((a, b) => rankFoco(a) - rankFoco(b));
+    }
     return arr;
-  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento]);
+  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]);
 
   // Agrupamento pro Kanban: uma coluna fixa "Sem acionamento" (nunca
   // acionados) + as tabulacoes normais mais usadas no dia a dia, com o
@@ -2192,6 +2246,26 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                                 : "Jurídico · Processo não informado"}
                             </div>
                           )}
+                          {(() => {
+                            const sug = sugestaoDoCaso(a, fa && fa.menorVencimento, hojeLocalBR());
+                            if (!sug) return null;
+                            return (
+                              <div
+                                style={{
+                                  display: "inline-block",
+                                  marginTop: 4,
+                                  background: sug.bg,
+                                  color: sug.cor,
+                                  borderRadius: 6,
+                                  padding: "2px 7px",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {sug.emoji} {sug.texto}
+                              </div>
+                            );
+                          })()}
                         </td>
                         <td style={S.td} data-label="CPF">{a.cpf || "-"}</td>
                         <td style={S.td} data-label="Situação">
