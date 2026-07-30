@@ -164,7 +164,9 @@ export default function Calibragem() {
               <CardOperador
                 key={o.operador_email}
                 operador={o}
-                onDrill={(chave, rotulo) => setDetalhe({ operador: o, chave, rotulo })}
+                onDrill={(chave, rotulo, extra) =>
+                  setDetalhe({ operador: o, chave, rotulo, ...(extra || {}) })
+                }
               />
             ))}
           </div>
@@ -264,7 +266,13 @@ function CardOperador({ operador, onDrill }) {
         <div style={S.grupoTitulo}>Por faixa de atraso</div>
         <div style={S.barras}>
           {(i.faixas_atraso || []).map((f) => (
-            <BarraFaixa key={f.rotulo} rotulo={f.rotulo} qtd={f.qtd} valor={f.valor} />
+            <BarraFaixa
+              key={f.rotulo}
+              rotulo={f.rotulo}
+              qtd={f.qtd}
+              valor={f.valor}
+              onClick={() => onDrill("faixa_atraso", `Faixa ${f.rotulo} dias`, { faixa: f.rotulo })}
+            />
           ))}
         </div>
       </div>
@@ -272,7 +280,13 @@ function CardOperador({ operador, onDrill }) {
         <div style={S.grupoTitulo}>Por ano da dívida</div>
         <div style={S.barras}>
           {(i.anos || []).map((a) => (
-            <BarraFaixa key={a.ano} rotulo={String(a.ano)} qtd={a.qtd} valor={a.valor} />
+            <BarraFaixa
+              key={a.ano}
+              rotulo={String(a.ano)}
+              qtd={a.qtd}
+              valor={a.valor}
+              onClick={() => onDrill("ano", `Dívidas de ${a.ano}`, { ano: a.ano })}
+            />
           ))}
         </div>
       </div>
@@ -280,22 +294,62 @@ function CardOperador({ operador, onDrill }) {
   );
 }
 
-function BarraFaixa({ rotulo, qtd, valor }) {
+function BarraFaixa({ rotulo, qtd, valor, onClick }) {
   return (
-    <div style={S.barraLinha}>
+    <button type="button" style={S.barraLinha} onClick={onClick} title="Ver casos">
       <span style={S.barraRotulo}>{rotulo}</span>
       <span style={S.barraQtd}>{num(qtd)}</span>
       <span style={S.barraValor}>{moeda(valor)}</span>
-    </div>
+    </button>
   );
 }
 
+// Indicadores cuja lista vem da carteira (tabela casos) via drill-down
+const DRILLABLE = new Set([
+  "cpfs", "saldo_total", "mensalidades", "titulos_abertos",
+  "sem_acionamento", "sem_acionamento_recente", "criticos", "antigos",
+  "faixa_atraso", "ano",
+]);
+
 function ModalDetalhe({ detalhe, onClose }) {
-  const { operador, chave, rotulo } = detalhe;
-  const d = qv(operador.indicadores, chave);
+  const { operador, chave, rotulo, faixa, ano } = detalhe;
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [lista, setLista] = useState(null);
+  const drillable = DRILLABLE.has(chave);
+
+  useEffect(() => {
+    if (!drillable) return;
+    let ativo = true;
+    (async () => {
+      setCarregando(true);
+      setErro("");
+      try {
+        const { data, error } = await supabase.rpc("calibragem_listar_casos", {
+          p_operador_email: operador.operador_email,
+          p_indicador: chave,
+          p_faixa: faixa ?? null,
+          p_ano: ano ?? null,
+        });
+        if (error) throw error;
+        if (ativo) setLista(data);
+      } catch (e) {
+        if (ativo) setErro(e?.message || String(e));
+      } finally {
+        if (ativo) setCarregando(false);
+      }
+    })();
+    return () => {
+      ativo = false;
+    };
+  }, [operador.operador_email, chave, faixa, ano, drillable]);
+
+  const casos = lista?.casos || [];
+  const totalSaldo = casos.reduce((s, c) => s + Number(c.saldo || 0), 0);
+
   return (
     <div style={S.overlay} onClick={onClose}>
-      <div style={S.modal} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...S.modal, width: "min(880px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div style={S.modalHeader}>
           <div>
             <div style={S.modalTitulo}>{rotulo}</div>
@@ -304,24 +358,81 @@ function ModalDetalhe({ detalhe, onClose }) {
           <button type="button" style={S.modalX} onClick={onClose}>×</button>
         </div>
         <div style={S.modalCorpo}>
-          <div style={S.modalKpis}>
-            <div style={S.modalKpi}>
-              <div style={S.modalKpiValor}>{num(d.qtd)}</div>
-              <div style={S.modalKpiRot}>casos</div>
-            </div>
-            <div style={S.modalKpi}>
-              <div style={S.modalKpiValor}>{moeda(d.valor)}</div>
-              <div style={S.modalKpiRot}>saldo</div>
-            </div>
-          </div>
-          <p style={{ opacity: 0.75, fontSize: 14, lineHeight: 1.5 }}>
-            A lista detalhada dos casos deste indicador (clicável, com filtros combináveis) será
-            aberta aqui — próximo incremento da Calibragem. Por ora, os números vêm do último
-            snapshot calculado.
-          </p>
+          {!drillable ? (
+            <p style={{ opacity: 0.75, fontSize: 14, lineHeight: 1.5 }}>
+              Este indicador é derivado de acordos/pagamentos. A lista detalhada de acordos deste
+              indicador entra no próximo incremento (funil de acordos). Os números vêm do snapshot
+              atual.
+            </p>
+          ) : carregando ? (
+            <div style={{ padding: 20, opacity: 0.7 }}>Carregando casos…</div>
+          ) : erro ? (
+            <div style={S.erro}>{erro}</div>
+          ) : (
+            <>
+              <div style={S.modalKpis}>
+                <div style={S.modalKpi}>
+                  <div style={S.modalKpiValor}>{num(casos.length)}</div>
+                  <div style={S.modalKpiRot}>casos{lista?.total >= 300 ? " (top 300)" : ""}</div>
+                </div>
+                <div style={S.modalKpi}>
+                  <div style={S.modalKpiValor}>{moeda(totalSaldo)}</div>
+                  <div style={S.modalKpiRot}>saldo listado</div>
+                </div>
+              </div>
+              <div style={{ overflowX: "auto" }}>
+                <table style={S.tabela}>
+                  <thead>
+                    <tr>
+                      <th style={S.th}>Nome</th>
+                      <th style={S.th}>CPF</th>
+                      <th style={{ ...S.th, textAlign: "right" }}>Saldo</th>
+                      <th style={{ ...S.th, textAlign: "right" }}>Atraso</th>
+                      <th style={S.th}>Criticidade</th>
+                      <th style={S.th}>Últ. acionamento</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {casos.map((c) => (
+                      <tr key={c.caso_id}>
+                        <td style={S.td}>{c.nome || "—"}</td>
+                        <td style={S.tdMono}>{c.cpf || "—"}</td>
+                        <td style={{ ...S.td, textAlign: "right" }}>{moeda(c.saldo)}</td>
+                        <td style={{ ...S.td, textAlign: "right" }}>{num(c.dias_atraso)}d</td>
+                        <td style={S.td}>
+                          <TagCrit valor={c.criticidade} />
+                        </td>
+                        <td style={S.td}>
+                          {c.ultimo_acionamento
+                            ? new Date(c.ultimo_acionamento).toLocaleDateString("pt-BR")
+                            : c.status_acionamento || "—"}
+                        </td>
+                      </tr>
+                    ))}
+                    {!casos.length && (
+                      <tr>
+                        <td style={S.td} colSpan={6}>Nenhum caso neste recorte.</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       </div>
     </div>
+  );
+}
+
+function TagCrit({ valor }) {
+  const v = String(valor || "").toUpperCase();
+  const cor =
+    v === "CRITICO" ? "#f87171" : v === "URGENTE" ? "#fb923c" : v === "ATENCAO" ? "#fbbf24" : "#94a3b8";
+  return (
+    <span style={{ color: cor, fontWeight: 700, fontSize: 12 }}>
+      {valor && valor !== "-" ? valor : "—"}
+    </span>
   );
 }
 
@@ -360,7 +471,7 @@ const S = {
   indQtd: { fontSize: 16, fontWeight: 800 },
   indValor: { fontSize: 12, opacity: 0.85, color: "#93c5fd" },
   barras: { display: "flex", flexDirection: "column", gap: 4 },
-  barraLinha: { display: "grid", gridTemplateColumns: "70px 50px 1fr", gap: 8, fontSize: 12, alignItems: "center", padding: "3px 0" },
+  barraLinha: { display: "grid", gridTemplateColumns: "70px 50px 1fr", gap: 8, fontSize: 12, alignItems: "center", padding: "4px 6px", width: "100%", background: "none", border: "none", borderRadius: 6, color: "inherit", cursor: "pointer", fontFamily: FONTE, textAlign: "left" },
   barraRotulo: { opacity: 0.7 },
   barraQtd: { fontWeight: 700, textAlign: "right" },
   barraValor: { textAlign: "right", opacity: 0.85, color: "#93c5fd" },
@@ -375,4 +486,8 @@ const S = {
   modalKpi: { background: "rgba(148,163,184,0.08)", borderRadius: 12, padding: "14px 18px", flex: 1, textAlign: "center" },
   modalKpiValor: { fontSize: 22, fontWeight: 800 },
   modalKpiRot: { fontSize: 12, opacity: 0.6, marginTop: 2 },
+  tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
+  th: { textAlign: "left", padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.2)", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, opacity: 0.6, position: "sticky", top: 0, background: "#0f172a" },
+  td: { padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.08)" },
+  tdMono: { padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.08)", fontFamily: "ui-monospace, monospace", fontSize: 12, opacity: 0.85 },
 };
