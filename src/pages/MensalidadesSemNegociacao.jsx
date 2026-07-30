@@ -56,10 +56,12 @@ export default function MensalidadesSemNegociacao() {
   return (
     <div style={{ padding: 24, maxWidth: 960, margin: "0 auto" }}>
       <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
-        Alunos com mensalidades de 2026/1 ainda sem negociação
+        Alunos com mensalidades vencidas entre janeiro e junho de 2026 ainda sem negociação
       </h1>
       <p style={{ color: "#6b7280", marginTop: 0, marginBottom: 20 }}>
-        Visão baseada exclusivamente na Base Reativa. Não contempla o status de matrícula no Prime.
+        Visão baseada na data de vencimento registrada na Base Reativa. Pode incluir mensalidades
+        ou matrículas antecipadas referentes a 2026/2. Não contempla o status de matrícula ou
+        rematrícula registrado no Prime.
       </p>
 
       <div style={{ marginBottom: 20, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
@@ -83,8 +85,9 @@ export default function MensalidadesSemNegociacao() {
       </div>
 
       <p style={{ marginTop: 16, color: "#6b7280", fontSize: 13 }}>
-        O mesmo aluno pode possuir mensalidades abertas em diferentes meses. No total do semestre,
-        cada aluno é contado uma única vez.
+        O relatório considera a data de vencimento dos títulos. Por esse motivo, pode incluir
+        mensalidades ou matrículas antecipadas referentes ao período acadêmico 2026/2. No total
+        consolidado, cada aluno é contado uma única vez.
       </p>
     </div>
   );

@@ -510,7 +510,7 @@ export default function App() {
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
 
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
-    { rota: "/relatorios-2026-1-sem-negociacao", label: "2026/1 sem negociação", icone: "TrendingUp", secao: "Gestão" },
+    { rota: "/relatorios-2026-1-sem-negociacao", label: "Jan–Jun/2026 sem negociação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/importar-acordos", label: "Importar Acordos", icone: "Upload", secao: "Gestão" }, { rota: "/fila-acordos", label: "Fila de Acordos", icone: "CheckCircle2", secao: "Gestão" }, { rota: "/ferramentas", label: "Ferramentas", icone: "FileStack", secao: "Gestão" }, { rota: "/importacoes", label: "Importações", icone: "Upload", secao: "Configurações" },
     { rota: "/avisos", label: "Central de Avisos", icone: "Bell", secao: "Configurações" },
     { rota: "/usuarios", label: "Usuários", icone: "Users", secao: "Configurações" },
