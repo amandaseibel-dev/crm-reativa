@@ -41,7 +41,7 @@ export default function MensalidadesSemNegociacao() {
 
   async function carregarLogo() {
     try {
-      const resp = await fetch("/logo_email_final.png");
+      const resp = await fetch("/logo_padrao_email.png");
       if (!resp.ok) return null;
       const blob = await resp.blob();
       return await new Promise((res) => {
@@ -65,8 +65,9 @@ export default function MensalidadesSemNegociacao() {
     doc.setFillColor(...BLUE); doc.rect(0, 0, PW, 5, "F");
     y = 30;
     const logo = await carregarLogo();
-    if (logo) { const lw = 140, lh = (140 * 197) / 767; try { doc.addImage(logo, "PNG", M, y, lw, lh); } catch { /* sem logo */ } }
-    y += 54;
+    let logoH = 0;
+    if (logo) { const lw = 128, lh = (128 * 150) / 356; logoH = lh; try { doc.addImage(logo, "PNG", M, y, lw, lh); } catch { /* sem logo */ } }
+    y += (logoH || 40) + 16;
     doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(...INK);
     doc.text("Mensalidades de 2026/1 ainda sem negociação", M, y);
     y += 15;
