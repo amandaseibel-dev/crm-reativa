@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
@@ -84,6 +84,29 @@ const STATUS_BLOQUEADOS_LABEL = {
   SUSPENSAO_COBRANCA: "Suspensão de cobrança",
   JURIDICO: "Jurídico",
   QUITADO_MANUAL: "Quitado",
+};
+// Mapa TABULACAO -> BLOCO expansivel que deve abrir automaticamente ao
+// selecionar a tabulacao. Usa os CODIGOS estaveis de STATUS_FINALIZACAO
+// (nunca o texto visivel). Tabulacoes sem acao complementar ("" implicito)
+// mantem todos os blocos fechados. A abertura automatica NAO executa nenhuma
+// acao nem altera permissao -- so revela o formulario correspondente.
+const TABULACAO_PARA_BLOCO = {
+  // Link de pagamento (o fluxo de comprovante vive dentro deste bloco)
+  AGUARDANDO_LINK: "link",
+  SOLICITADO_LINK: "link",
+  LINK_PRONTO_PARA_ENVIO: "link",
+  AGUARDANDO_COMPROVANTE: "link",
+  // Termo / negociacao / acordo
+  TERMO_ENVIADO_ALUNO: "termo",
+  TERMO_ENVIADO_ADM: "termo",
+  TERMO_RECEBIDO_LIBERADO: "termo",
+  TERMO_REJEITADO: "termo",
+  ACORDO_FECHADO: "termo",
+  // Enviar ao financeiro
+  AGUARDANDO_BAIXA: "financeiro",
+  // Confirmar pagamento / baixa (o componente aplica o guard de permissao)
+  BAIXA_REALIZADA: "confirmar",
+  BAIXA_DEVOLVIDA: "confirmar",
 };
 // Ordenação da lista de Alunos: ativos primeiro; QUITADOS, JURÍDICOS e
 // CANCELADOS/SUSPENSOS por último. Retorna 0 (ativo) ou 1 (final).
@@ -171,6 +194,41 @@ function moeda(valor) {
     currency: "BRL",
   });
 }
+// Responsavel pelo ACORDO -- lido do proprio registro, na ordem de prioridade
+// exigida. Nunca cai no responsavel atual do aluno nem em quem confirmou/baixou.
+function responsavelDoAcordo(a) {
+  return (
+    (a?.operador_responsavel_nome && String(a.operador_responsavel_nome).trim()) ||
+    (a?.operador_responsavel_email && String(a.operador_responsavel_email).trim()) ||
+    (a?.criado_por_nome && String(a.criado_por_nome).trim()) ||
+    (a?.criado_por_email && String(a.criado_por_email).trim()) ||
+    "Responsável não identificado"
+  );
+}
+// Situacao simples do acordo, derivada apenas de sinais auditaveis reais.
+function situacaoDoAcordo(a) {
+  if (!a) return "-";
+  if (a.status === "CANCELADO") return "Cancelado";
+  if (a.status === "QUITADO") return "Quitado";
+  if (a.status === "ATIVO") {
+    if (!a.confirmado_em) return "Aguardando confirmação";
+    return a._atrasado ? "Atrasado" : "Em dia";
+  }
+  return a.status || "-";
+}
+function corSituacaoAcordo(sit) {
+  if (sit === "Em dia" || sit === "Quitado") return "#16a34a";
+  if (sit === "Atrasado") return "#b45309";
+  if (sit === "Cancelado") return "#ef4444";
+  if (sit === "Aguardando confirmação") return "#2563eb";
+  return "#475569";
+}
+function dataCurta(v) {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("pt-BR");
+}
 export default function Alunos({ fichaEmbedId = null } = {}) {
   const navigate = useNavigate();
   const [vindoDaFila, setVindoDaFila] = useState(false);
@@ -191,6 +249,21 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // (a) mostrar a situacao financeira ATUAL separada do ultimo evento de baixa
   // e (b) bloquear "Quitar tudo" quando ainda ha saldo/pendencia em aberto.
   const [saldoFicha, setSaldoFicha] = useState(null);
+  // Estado explicito do carregamento do saldo canonico:
+  // "carregando" -> mostra indicador (NUNCA R$ 0,00 provisorio)
+  // "ok"         -> saldoFicha valido (pode ser zero de verdade)
+  // "erro"       -> consulta falhou (mostra "Saldo indisponivel", nao assume zero)
+  const [saldoStatus, setSaldoStatus] = useState("carregando");
+  // Qual bloco expansivel da aba Tabulacao esta aberto ("" = todos fechados).
+  // Controlado por estado para permitir abertura automatica por tabulacao,
+  // manter apenas um aberto por vez e evitar formularios longos simultaneos.
+  const [blocoAberto, setBlocoAberto] = useState("");
+  // Acordos do aluno aberto -- alimenta o card "Responsavel pelos acordos"
+  // (informativo). Responsavel vem SEMPRE do registro do acordo, nunca do
+  // responsavel atual do aluno / ultimo acionamento / quem confirmou.
+  const [acordosFicha, setAcordosFicha] = useState([]);
+  const [acordosStatus, setAcordosStatus] = useState("carregando"); // carregando|ok|erro
+  const [verTodosAcordos, setVerTodosAcordos] = useState(false);
 
   // Exporta o historico/tabulacoes do aluno em PDF -- mesma funcao da
   // Minha Carteira, pra manter consistencia entre as duas telas.
@@ -268,6 +341,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const [busca, setBusca] = useState("");
   const [observacao, setObservacao] = useState("");
   const [statusFinalizacao, setStatusFinalizacao] = useState("CONTATAR");
+  // Referencias aos blocos expansiveis da aba Tabulacao, para rolagem suave
+  // ate o inicio do formulario correspondente quando a tabulacao muda.
+  const blocosRef = useRef({});
   const [dataRetorno, setDataRetorno] = useState("");
   const [numeroProcesso, setNumeroProcesso] = useState("");
   const [prazoTipo, setPrazoTipo] = useState("DATA");
@@ -536,20 +612,95 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     prepararAlunoNaTela(aluno);
     await carregarMovimentacoes(aluno.id); setTimeout(function(){ var el = document.getElementById("ficha-aluno"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 150);
   }
+  // Fonte canonica do saldo operacional do aluno: RPC aluno_saldo_pendente_detalhe.
+  // Usada de forma consistente no cabecalho (situacao financeira) e no card
+  // "Valor em aberto". Nunca usar casos.total_em_aberto nem alunos.valor_em_aberto
+  // isoladamente, nem assumir 0 durante o carregamento/erro.
+  const recarregarSaldoFicha = useCallback(async (id) => {
+    if (!id) {
+      setSaldoFicha(null);
+      setSaldoStatus("carregando");
+      return;
+    }
+    setSaldoStatus("carregando");
+    const { data, error } = await supabase.rpc("aluno_saldo_pendente_detalhe", {
+      p_aluno_id: id,
+    });
+    if (error) {
+      setSaldoFicha(null);
+      setSaldoStatus("erro");
+      return;
+    }
+    setSaldoFicha(data || null);
+    setSaldoStatus("ok");
+  }, []);
+
+  // Carrega os acordos do aluno para o card "Responsavel pelos acordos".
+  // Responsavel: SEMPRE do proprio registro do acordo, na ordem de prioridade
+  // operador_responsavel -> criado_por -> "Responsavel nao identificado".
+  const recarregarAcordosFicha = useCallback(async (id) => {
+    if (!id) {
+      setAcordosFicha([]);
+      setAcordosStatus("carregando");
+      return;
+    }
+    setAcordosStatus("carregando");
+    const { data: acs, error } = await supabase
+      .from("acordos")
+      .select(
+        "id,status,criado_em,confirmado_em,operador_responsavel_nome,operador_responsavel_email,criado_por_nome,criado_por_email"
+      )
+      .eq("aluno_id", id)
+      .order("criado_em", { ascending: false });
+    if (error) {
+      setAcordosFicha([]);
+      setAcordosStatus("erro");
+      return;
+    }
+    const lista = acs || [];
+    // Marca acordos ATIVOS com parcela vencida como "atrasado".
+    const idsAtivos = lista.filter((a) => a.status === "ATIVO").map((a) => a.id);
+    const comVencida = new Set();
+    if (idsAtivos.length) {
+      const { data: parc } = await supabase
+        .from("parcelas")
+        .select("acordo_id")
+        .in("acordo_id", idsAtivos)
+        .eq("status", "VENCIDA");
+      for (const p of parc || []) comVencida.add(p.acordo_id);
+    }
+    setAcordosFicha(lista.map((a) => ({ ...a, _atrasado: comVencida.has(a.id) })));
+    setAcordosStatus("ok");
+  }, []);
+
+  // Recarrega o saldo oficial sempre que troca a ficha aberta.
+  useEffect(() => {
+    recarregarAcordosFicha(alunoSelecionado?.id);
+    setVerTodosAcordos(false);
+  }, [alunoSelecionado?.id, recarregarAcordosFicha]);
+
   // Recarrega o saldo oficial sempre que troca a ficha aberta.
   useEffect(() => {
     const id = alunoSelecionado?.id;
     if (!id) {
       setSaldoFicha(null);
+      setSaldoStatus("carregando");
       return;
     }
     let ativo = true;
     (async () => {
+      setSaldoStatus("carregando");
       const { data, error } = await supabase.rpc("aluno_saldo_pendente_detalhe", {
         p_aluno_id: id,
       });
       if (!ativo) return;
-      setSaldoFicha(error ? null : data || null);
+      if (error) {
+        setSaldoFicha(null);
+        setSaldoStatus("erro");
+      } else {
+        setSaldoFicha(data || null);
+        setSaldoStatus("ok");
+      }
     })();
     return () => {
       ativo = false;
@@ -559,6 +710,24 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // Verdadeiro quando ha mensalidade aberta, parcela de acordo aberta ou
   // confirmacao/baixa pendente -- nesses casos o aluno NAO esta zerado.
   const fichaComPendencia = !!(saldoFicha && saldoFicha.tem_pendencia === true);
+
+  // Ao trocar a tabulacao: abre automaticamente o bloco correspondente (e fecha
+  // o anterior, pois so um fica aberto por vez) e rola suavemente ate o inicio
+  // do formulario. Nao executa nenhuma acao nem apaga o que ja foi digitado --
+  // apenas revela/oculta o bloco. Fora da aba Tabulacao nao rola a tela.
+  useEffect(() => {
+    const destino = TABULACAO_PARA_BLOCO[statusFinalizacao] || "";
+    setBlocoAberto(destino);
+    if (destino && abaFicha === "tabulacoes") {
+      const t = setTimeout(() => {
+        const el = blocosRef.current[destino];
+        if (el && typeof el.scrollIntoView === "function") {
+          el.scrollIntoView({ behavior: "smooth", block: "start" });
+        }
+      }, 80);
+      return () => clearTimeout(t);
+    }
+  }, [statusFinalizacao, abaFicha]);
 
   function prepararAlunoNaTela(aluno) {
     setAlunoSelecionado(aluno);
@@ -654,6 +823,13 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     if (data) {
       prepararAlunoNaTela(data);
       setAlunos([data]);
+      // Reavalia a fonte canonica do saldo apos qualquer evento financeiro
+      // (pagamento, baixa, quitacao, acordo, link etc.), mantendo cabecalho e
+      // card "Valor em aberto" consistentes sem chamadas duplicadas espalhadas.
+      recarregarSaldoFicha(alunoId);
+      // Card "Responsavel pelos acordos" reflete criacao/confirmacao/quebra/
+      // cancelamento/quitacao sem exigir reload da pagina inteira.
+      recarregarAcordosFicha(alunoId);
     }
   }
   async function solicitarLinkPagamento() {
@@ -1549,7 +1725,26 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           )}
                         </strong>
                       </p>
-                      {saldoFicha && (
+                      {saldoStatus === "carregando" && (
+                        <p style={textoInfo}>
+                          Situação financeira atual:{" "}
+                          <strong style={{ color: "#94a3b8" }}>Carregando saldo…</strong>
+                        </p>
+                      )}
+                      {saldoStatus === "erro" && (
+                        <p style={textoInfo}>
+                          Situação financeira atual:{" "}
+                          <strong style={{ color: "#ef4444" }}>Saldo indisponível</strong>
+                          <button
+                            type="button"
+                            onClick={() => recarregarSaldoFicha(alunoSelecionado?.id)}
+                            style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
+                          >
+                            Tentar novamente
+                          </button>
+                        </p>
+                      )}
+                      {saldoStatus === "ok" && saldoFicha && (
                         <p style={textoInfo}>
                           Situação financeira atual:{" "}
                           <strong
@@ -1642,6 +1837,52 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               {abaFicha === "dados" && (
               <>
               <div style={gradeCards}>
+                <div
+                  style={{
+                    ...cardInfo,
+                    gridColumn: "1 / -1",
+                    background:
+                      saldoStatus === "ok" && fichaComPendencia ? "#fffbeb" : "#f8fafc",
+                    border:
+                      saldoStatus === "ok" && fichaComPendencia
+                        ? "1px solid #f59e0b"
+                        : "1px solid #e6eaf0",
+                  }}
+                >
+                  <strong>Valor em aberto</strong>
+                  <br />
+                  {saldoStatus === "carregando" && (
+                    <span style={{ color: "#94a3b8" }}>Carregando…</span>
+                  )}
+                  {saldoStatus === "erro" && (
+                    <span>
+                      <span style={{ color: "#ef4444", fontWeight: 700 }}>
+                        Saldo indisponível
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => recarregarSaldoFicha(alunoSelecionado?.id)}
+                        style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
+                      >
+                        Tentar novamente
+                      </button>
+                    </span>
+                  )}
+                  {saldoStatus === "ok" && (
+                    <span
+                      style={{
+                        fontSize: 20,
+                        fontWeight: 800,
+                        color: fichaComPendencia ? "#b45309" : "#16a34a",
+                      }}
+                    >
+                      {moeda(Number(saldoFicha?.total) || 0)}
+                      <span style={{ display: "block", fontSize: 12, fontWeight: 600, opacity: 0.8 }}>
+                        {fichaComPendencia ? "Com saldo em aberto" : "Sem saldo pendente"}
+                      </span>
+                    </span>
+                  )}
+                </div>
                 <div style={cardInfo}>
                   <strong>Responsável pelo aluno</strong>
                   <br />
@@ -1707,10 +1948,65 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </div>
                   )}
                 </div>
-                <div style={cardInfo}>
-                  <strong>Última tabulação</strong>
+                <div style={{ ...cardInfo, gridColumn: "1 / -1" }}>
+                  <strong>Responsável pelos acordos</strong>
                   <br />
-                  {formatarDataHora(alunoSelecionado.registrado_em)}
+                  {acordosStatus === "carregando" && (
+                    <span style={{ color: "#94a3b8" }}>Carregando…</span>
+                  )}
+                  {acordosStatus === "erro" && (
+                    <span>
+                      <span style={{ color: "#ef4444" }}>Acordos indisponíveis</span>
+                      <button
+                        type="button"
+                        onClick={() => recarregarAcordosFicha(alunoSelecionado?.id)}
+                        style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
+                      >
+                        Tentar novamente
+                      </button>
+                    </span>
+                  )}
+                  {acordosStatus === "ok" && acordosFicha.length === 0 && (
+                    <span style={{ color: "#64748b" }}>Nenhum acordo registrado</span>
+                  )}
+                  {acordosStatus === "ok" && acordosFicha.length > 0 && (
+                    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 8 }}>
+                      {(verTodosAcordos ? acordosFicha : acordosFicha.slice(0, 1)).map(
+                        (a, i) => {
+                          const sit = situacaoDoAcordo(a);
+                          return (
+                            <div key={a.id}>
+                              {acordosFicha.length > 1 && (
+                                <div style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700 }}>
+                                  {i === 0 ? "Acordo atual" : "Acordo anterior"}
+                                </div>
+                              )}
+                              <div>
+                                <strong style={{ color: "#0f172a" }}>
+                                  {responsavelDoAcordo(a)}
+                                </strong>{" "}
+                                · {dataCurta(a.criado_em)} ·{" "}
+                                <span style={{ color: corSituacaoAcordo(sit), fontWeight: 700 }}>
+                                  {sit}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        }
+                      )}
+                      {acordosFicha.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setVerTodosAcordos((v) => !v)}
+                          style={{ alignSelf: "flex-start", border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}
+                        >
+                          {verTodosAcordos
+                            ? "Ver menos"
+                            : `Ver todos os acordos (${acordosFicha.length})`}
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 <div style={cardInfo}>
                   <strong>Último acionamento</strong>
@@ -1718,19 +2014,19 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   {formatarDataHora(alunoSelecionado.data_ultimo_acionamento)}
                 </div>
                 <div style={cardInfo}>
-                  <strong>Próxima ação</strong>
-                  <br />
-                  {alunoSelecionado.proxima_acao || "CONTATAR"}
-                </div>
-                <div style={cardInfo}>
                   <strong>Data de retorno</strong>
                   <br />
                   {formatarDataHora(alunoSelecionado.data_retorno)}
                 </div>
                 <div style={cardInfo}>
-                  <strong>Valor em aberto</strong>
+                  <strong>Próxima ação</strong>
                   <br />
-                  {moeda(alunoSelecionado.valor_em_aberto)}
+                  {alunoSelecionado.proxima_acao || "CONTATAR"}
+                </div>
+                <div style={cardInfo}>
+                  <strong>Última tabulação</strong>
+                  <br />
+                  {formatarDataHora(alunoSelecionado.registrado_em)}
                 </div>
                 <div style={cardInfo}>
                   <strong>Status acionamento</strong>
@@ -1772,7 +2068,15 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   </button>
                 </div>
               ) : null}
-              <details style={{ marginBottom: 12, border: "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff" }}>
+              <details
+                ref={(el) => (blocosRef.current.link = el)}
+                open={blocoAberto === "link"}
+                onToggle={(e) => {
+                  if (e.target.open) setBlocoAberto("link");
+                  else if (blocoAberto === "link") setBlocoAberto("");
+                }}
+                style={{ marginBottom: 12, border: blocoAberto === "link" ? "1px solid #2563eb" : "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff", scrollMarginTop: 16 }}
+              >
                 <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Link de pagamento</summary>
               <LinksPagamentoAluno
                 aluno={alunoSelecionado}
@@ -1911,15 +2215,39 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   </button>
                 </div>
               </div>
-              <details style={{ marginBottom: 12, border: "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff" }}>
+              <details
+                ref={(el) => (blocosRef.current.termo = el)}
+                open={blocoAberto === "termo"}
+                onToggle={(e) => {
+                  if (e.target.open) setBlocoAberto("termo");
+                  else if (blocoAberto === "termo") setBlocoAberto("");
+                }}
+                style={{ marginBottom: 12, border: blocoAberto === "termo" ? "1px solid #2563eb" : "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff", scrollMarginTop: 16 }}
+              >
                 <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Termo de acordo</summary>
                 <FinalizacaoTermo aluno={alunoSelecionado} />
               </details>
-              <details style={{ marginBottom: 12, border: "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff" }}>
+              <details
+                ref={(el) => (blocosRef.current.financeiro = el)}
+                open={blocoAberto === "financeiro"}
+                onToggle={(e) => {
+                  if (e.target.open) setBlocoAberto("financeiro");
+                  else if (blocoAberto === "financeiro") setBlocoAberto("");
+                }}
+                style={{ marginBottom: 12, border: blocoAberto === "financeiro" ? "1px solid #2563eb" : "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff", scrollMarginTop: 16 }}
+              >
                 <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Enviar ao financeiro</summary>
                 <EnvioFinanceiro aluno={alunoSelecionado} />
               </details>
-              <details style={{ marginBottom: 12, border: "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff" }}>
+              <details
+                ref={(el) => (blocosRef.current.confirmar = el)}
+                open={blocoAberto === "confirmar"}
+                onToggle={(e) => {
+                  if (e.target.open) setBlocoAberto("confirmar");
+                  else if (blocoAberto === "confirmar") setBlocoAberto("");
+                }}
+                style={{ marginBottom: 12, border: blocoAberto === "confirmar" ? "1px solid #2563eb" : "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff", scrollMarginTop: 16 }}
+              >
                 <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Confirmar pagamento</summary>
                 <ConfirmarPagamento aluno={alunoSelecionado} />
               </details>
