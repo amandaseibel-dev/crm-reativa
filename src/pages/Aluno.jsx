@@ -258,6 +258,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // Controlado por estado para permitir abertura automatica por tabulacao,
   // manter apenas um aberto por vez e evitar formularios longos simultaneos.
   const [blocoAberto, setBlocoAberto] = useState("");
+  // Deep-link do aviso "Termo liberado" (?area=termo): posiciona a ficha na
+  // área de Termo assim que o aluno terminar de carregar.
+  const [areaAlvo, setAreaAlvo] = useState("");
   // Acordos do aluno aberto -- alimenta o card "Responsavel pelos acordos"
   // (informativo). Responsavel vem SEMPRE do registro do acordo, nunca do
   // responsavel atual do aluno / ultimo acionamento / quem confirmou.
@@ -459,6 +462,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       fichaEmbedId || alunoIdDaUrl || alunoIdLocalStorage || alunoIdSessionStorage;
     if (parametros.get("origem") === "fila") {
       setVindoDaFila(!fichaEmbedId);
+    }
+    if (parametros.get("area")) {
+      setAreaAlvo(parametros.get("area"));
     }
     if (alunoId) {
       setOrigemAbertura(`Abrindo aluno recebido da fila: ${alunoId}`);
@@ -728,6 +734,23 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       return () => clearTimeout(t);
     }
   }, [statusFinalizacao, abaFicha]);
+
+  // Deep-link do aviso "Termo liberado": ao abrir a ficha via ?area=termo,
+  // vai para a aba Tabulação, abre o bloco "Termo de acordo" e rola até ele.
+  // Apenas revela/posiciona — não executa ação nem altera o termo/fluxo.
+  useEffect(() => {
+    if (areaAlvo !== "termo" || !alunoSelecionado?.id) return;
+    setAbaFicha("tabulacoes");
+    setBlocoAberto("termo");
+    const t = setTimeout(() => {
+      const el = blocosRef.current.termo;
+      if (el && typeof el.scrollIntoView === "function") {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      setAreaAlvo("");
+    }, 250);
+    return () => clearTimeout(t);
+  }, [areaAlvo, alunoSelecionado?.id]);
 
   function prepararAlunoNaTela(aluno) {
     setAlunoSelecionado(aluno);

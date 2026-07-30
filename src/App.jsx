@@ -77,6 +77,7 @@ import CentralAvisos from "./pages/CentralAvisos";
 import TaxaConversao from "./pages/TaxaConversao";
 import PainelGeral from "./pages/PainelGeral";
 import NotificacoesPopup from "./components/NotificacoesPopup";
+import CentralNotificacoes from "./components/CentralNotificacoes";
 import { AvatarFoto } from "./components/AvatarFoto";
 import { useAbaLider } from "./context/AbaLiderContext";
 import AbaBloqueada from "./components/AbaBloqueada";
@@ -562,6 +563,7 @@ export default function App() {
         <LiberacoesAcesso />
         <BotaoSugestao />
         <NotificacoesPopup />
+        <CentralNotificacoes />
         <AvisoTemplateNovo />
         <AvisosPopup />
         <aside className={sidebarRecolhida ? "sidebar sidebar-recolhida" : "sidebar"}>

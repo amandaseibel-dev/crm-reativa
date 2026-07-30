@@ -4,6 +4,7 @@ import { analiticasSuspensas } from "../config/modoContencao";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import { podeVerTudo, nomeOperadorPorEmail } from "../utils/operadores";
 import FilaReceptivo from "./FilaReceptivo";
+import CardTermosLiberados from "./CardTermosLiberados";
 import jsPDF from "jspdf";
 import ReceberLeads from "./ReceberLeads";
 import LinksPagamentoAluno from "./LinksPagamentoAluno";
@@ -1644,6 +1645,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const conteudo = (
     <div style={S.pagina} className="pc-root">
       <style>{CSS_RESPONSIVO}</style>
+
+      {!veTudo && <CardTermosLiberados />}
 
       {!avisoNovosCasosFechado && novosCasosAutomaticos.length > 0 && (
         <div
