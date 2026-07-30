@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import * as XLSX from "xlsx";
+import jsPDF from "jspdf";
 import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL, EQUIPE_9, podeVerRelatorios } from "../utils/operadores";
 import { analiticasSuspensas } from "../config/modoContencao";
@@ -133,6 +134,106 @@ function ProjecaoHoraHoraInner() {
   const [lancamentosHoje, setLancamentosHoje] = useState([]);
   const [substituindoImportacaoId, setSubstituindoImportacaoId] = useState(null);
   const [processandoAcaoId, setProcessandoAcaoId] = useState(null);
+  const [exportandoPdf, setExportandoPdf] = useState(false);
+
+  async function exportarProjecaoPDF() {
+    setExportandoPdf(true);
+    try {
+      const { data: rel, error } = await supabase.rpc("projecao_relatorio_pdf", { p_mes: mesReferencia });
+      if (error || !rel) { alert("Não foi possível gerar o PDF: " + (error?.message || "sem dados")); return; }
+      const carregarLogo = async () => {
+        try {
+          const resp = await fetch("/logo_padrao_email.png");
+          if (!resp.ok) return null;
+          const blob = await resp.blob();
+          return await new Promise((res) => { const fr = new FileReader(); fr.onload = () => res(fr.result); fr.onerror = () => res(null); fr.readAsDataURL(blob); });
+        } catch { return null; }
+      };
+      const BR = (v) => (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+      const N = (v) => (Number(v) || 0).toLocaleString("pt-BR");
+      const DDMM = (d) => { const [, m, dd] = String(d).slice(0, 10).split("-"); return `${dd}/${m}`; };
+      const MESNOME = (() => {
+        const [an, me] = String(mesReferencia).split("-");
+        const nomes = ["", "Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
+        return `${nomes[Number(me)] || me}/${an}`;
+      })();
+      const doc = new jsPDF({ unit: "pt", format: "a4" });
+      const PW = 595.28, PH = 841.89, M = 40, CW = PW - 2 * M;
+      const BLUE = [37, 99, 235], INK = [31, 41, 55], MUT = [107, 114, 128], LINE = [229, 231, 235], SOFT = [244, 246, 250], SOFTBLUE = [232, 238, 246];
+      let y = 0;
+      const need = (h) => { if (y + h > PH - 46) { doc.addPage(); y = 48; } };
+      doc.setFillColor(...BLUE); doc.rect(0, 0, PW, 5, "F");
+      y = 30;
+      const logo = await carregarLogo();
+      let lh = 0;
+      if (logo) { const lw = 128; lh = (128 * 150) / 356; try { doc.addImage(logo, "PNG", M, y, lw, lh); } catch { /* sem logo */ } }
+      y += (lh || 40) + 16;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(...INK);
+      doc.text("Projeção Hora a Hora — Recuperação · " + MESNOME, M, y);
+      y += 15;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...MUT);
+      doc.text(rel.e_gestao ? "Visão da gestão — total da empresa." : ("Operador: " + (rel.operador_nome || "-")), M, y);
+      y += 20;
+      const t = rel.total || {};
+      const kpis = [["RECUPERADO", BR(t.recuperado)], ["HONORÁRIOS", BR(t.honorarios)], ["PAGAMENTOS", N(t.pagamentos)], ["DIAS", N(t.dias)]];
+      const gap = 10, kw = (CW - 3 * gap) / 4, kh = 54;
+      kpis.forEach((k, i) => {
+        const x = M + i * (kw + gap);
+        doc.setFillColor(...(i === 0 ? SOFTBLUE : SOFT)); doc.roundedRect(x, y, kw, kh, 7, 7, "F");
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(...MUT); doc.text(k[0], x + 10, y + 17);
+        doc.setFont("helvetica", "bold"); doc.setFontSize(k[1].length > 12 ? 11 : 14); doc.setTextColor(...INK); doc.text(k[1], x + 10, y + 38);
+      });
+      y += kh + 22;
+      // Gráfico por operador (gestão)
+      const ops = rel.por_operador || [];
+      if (rel.e_gestao && ops.length) {
+        const chH = 190; need(chH + 10);
+        doc.setDrawColor(...LINE); doc.roundedRect(M, y, CW, chH, 8, 8, "S");
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...INK); doc.text("Recuperação por operador", M + 14, y + 22);
+        const top = ops.slice(0, 8), cx = M + 16, cw = CW - 32, cBottom = y + chH - 40, cArea = chH - 80;
+        const maxV = Math.max(1, ...top.map((o) => Number(o.recuperado) || 0)); const slot = cw / top.length, bw = slot * 0.5;
+        top.forEach((o, i) => {
+          const v = Number(o.recuperado) || 0, h = (v / maxV) * cArea, x = cx + i * slot + (slot - bw) / 2, yb = cBottom - h;
+          doc.setFillColor(...BLUE); doc.roundedRect(x, yb, bw, Math.max(h, 1.5), 3, 3, "F");
+          doc.setFont("helvetica", "bold"); doc.setFontSize(8); doc.setTextColor(...INK);
+          doc.text("R$ " + (v / 1000).toFixed(0) + "k", x + bw / 2, yb - 5, { align: "center" });
+          doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...INK);
+          doc.text(String(o.operador || "-").split(" ")[0], x + bw / 2, cBottom + 14, { align: "center" });
+        });
+        doc.setDrawColor(...LINE); doc.line(cx, cBottom, cx + cw, cBottom);
+        y += chH + 20;
+      }
+      const tabela = (titulo, cabec, linhas, aligns) => {
+        if (!linhas.length) return;
+        need(46);
+        doc.setFillColor(...BLUE); doc.rect(M, y - 9, 3, 13, "F");
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...INK); doc.text(titulo, M + 10, y); y += 10;
+        const ncol = cabec.length, labelW = CW * 0.40, numW = (CW - labelW) / (ncol - 1);
+        const colX = (i) => (i === 0 ? M + 6 : M + labelW + i * numW - 6);
+        doc.setFillColor(...SOFT); doc.rect(M, y, CW, 18, "F");
+        doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...MUT);
+        cabec.forEach((c, i) => doc.text(c, colX(i), y + 12, { align: aligns[i] })); y += 18;
+        doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...INK);
+        linhas.forEach((l, r) => {
+          need(16); if (r % 2 === 1) { doc.setFillColor(...SOFT); doc.rect(M, y, CW, 15, "F"); }
+          l.forEach((cel, i) => { const s = i === 0 ? doc.splitTextToSize(String(cel), labelW - 12)[0] : String(cel); doc.text(s, colX(i), y + 11, { align: aligns[i] }); });
+          y += 15;
+        }); y += 18;
+      };
+      const A4 = ["left", "right", "right", "right"];
+      if (rel.e_gestao) tabela("Ranking por operador", ["Operador", "Pagamentos", "Recuperado", "Honorários"], ops.map((o) => [o.operador, N(o.pagamentos), BR(o.recuperado), BR(o.honorarios)]), A4);
+      tabela("Dias de maior recuperação", ["Dia", "Pagamentos", "Recuperado", "Honorários"], (rel.dias_maior || []).map((di) => [DDMM(di.dia), N(di.pagamentos), BR(di.recuperado), BR(di.honorarios)]), A4);
+      if (rel.e_gestao) tabela("Por unidade (campus)", ["Unidade", "Pagamentos", "Recuperado", "Honorários"], (rel.por_unidade || []).map((u) => [u.unidade, N(u.pagamentos), BR(u.recuperado), BR(u.honorarios)]), A4);
+      const pgs = doc.getNumberOfPages();
+      for (let p = 1; p <= pgs; p++) {
+        doc.setPage(p); doc.setDrawColor(...LINE); doc.line(M, PH - 34, PW - M, PH - 34);
+        doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...MUT);
+        doc.text("ReATIVA · Projeção Hora a Hora · exportado da tela", M, PH - 15);
+        doc.text("Gerado em " + new Date().toLocaleString("pt-BR") + " · Página " + p + "/" + pgs, PW - M, PH - 15, { align: "right" });
+      }
+      doc.save("projecao-hora-a-hora_" + mesReferencia + ".pdf");
+    } finally { setExportandoPdf(false); }
+  }
 
   const [formMeta, setFormMeta] = useState({
     meta_operacional: "",
@@ -714,6 +815,14 @@ function ProjecaoHoraHoraInner() {
               {atualizandoProjecao ? "Atualizando…" : "🔄 Atualizar projeção"}
             </button>
           )}
+          <button
+            onClick={exportarProjecaoPDF}
+            disabled={exportandoPdf}
+            style={{ ...estilos.botaoPrimario, marginTop: 0, padding: "8px 16px", fontSize: 13, background: "#fff", color: "#2563eb", border: "1px solid #2563eb", opacity: exportandoPdf ? 0.6 : 1 }}
+            title="Exporta a Projeção do mês em PDF"
+          >
+            {exportandoPdf ? "Gerando…" : "⬇ Exportar PDF"}
+          </button>
           {podeVerRelatorios(usuario?.email) && (
             <BoundaryLocal label="Relatórios">
               <CentralRelatorios
