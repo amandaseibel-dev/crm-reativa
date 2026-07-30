@@ -59,6 +59,7 @@ import LiberacoesAcesso from "./components/LiberacoesAcesso";
 import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
 import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
 import Auditoria from "./pages/Auditoria"; import RelatorioReceptivo from "./pages/RelatorioReceptivo"; import MinhaAgendaPessoal from "./pages/MinhaAgendaPessoal"; import EnvioGmailLote from "./pages/EnvioGmailLote";
+import MensalidadesSemNegociacao from "./pages/MensalidadesSemNegociacao";
 import DRE from "./pages/DRE";
 import ImportarRecuperacao from "./pages/ImportarRecuperacao"; import ImportacaoAcordos from "./pages/ImportacaoAcordos"; import FilaAcordosConfirmar from "./pages/FilaAcordosConfirmar"; import Ferramentas from "./pages/Ferramentas";
 import ExecutivoRecuperacao from "./pages/ExecutivoRecuperacao";
@@ -125,6 +126,7 @@ function podeAcessar(perfil, rota) {
       "/importacoes",
       "/usuarios",
       "/relatorios",
+      "/relatorios-2026-1-sem-negociacao",
       "/configuracoes",
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
@@ -158,6 +160,7 @@ function podeAcessar(perfil, rota) {
       "/base-analitica",
       "/termos-adm",
       "/relatorios",
+      "/relatorios-2026-1-sem-negociacao",
       "/controle-links-pagamento",
       "/minha-fila-pagamentos",
       "/fila-confirmacao-pagamento",
@@ -196,7 +199,8 @@ function podeAcessar(perfil, rota) {
       "/painel-carteira",
       "/meu-dashboard",
       "/elogios-atendimento",
-      "/projecao-hora-a-hora",],
+      "/projecao-hora-a-hora",
+      "/relatorios-2026-1-sem-negociacao",],
     operador: [
       "/",
       "/portal-operacional",
@@ -506,6 +510,7 @@ export default function App() {
     { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
 
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
+    { rota: "/relatorios-2026-1-sem-negociacao", label: "2026/1 sem negociação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/importar-acordos", label: "Importar Acordos", icone: "Upload", secao: "Gestão" }, { rota: "/fila-acordos", label: "Fila de Acordos", icone: "CheckCircle2", secao: "Gestão" }, { rota: "/ferramentas", label: "Ferramentas", icone: "FileStack", secao: "Gestão" }, { rota: "/importacoes", label: "Importações", icone: "Upload", secao: "Configurações" },
     { rota: "/avisos", label: "Central de Avisos", icone: "Bell", secao: "Configurações" },
     { rota: "/usuarios", label: "Usuários", icone: "Users", secao: "Configurações" },
@@ -525,6 +530,10 @@ export default function App() {
     if (item.rota === "/executivo") {
       const em3 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em3) && perfil !== "operador";
+    }
+    if (item.rota === "/relatorios-2026-1-sem-negociacao") {
+      const emR = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emR) && perfil !== "operador";
     }
     if (item.rota === "/") {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -813,6 +822,14 @@ export default function App() {
               element={
                 <RotaProtegida usuario={usuario} rota="/relatorios">
                   <RelatorioTabulacoes />
+                </RotaProtegida>
+              }
+            />
+            <Route
+              path="/relatorios-2026-1-sem-negociacao"
+              element={
+                <RotaProtegida usuario={usuario} rota="/relatorios-2026-1-sem-negociacao">
+                  <MensalidadesSemNegociacao />
                 </RotaProtegida>
               }
             />
