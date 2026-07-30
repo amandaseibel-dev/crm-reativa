@@ -194,6 +194,41 @@ function moeda(valor) {
     currency: "BRL",
   });
 }
+// Responsavel pelo ACORDO -- lido do proprio registro, na ordem de prioridade
+// exigida. Nunca cai no responsavel atual do aluno nem em quem confirmou/baixou.
+function responsavelDoAcordo(a) {
+  return (
+    (a?.operador_responsavel_nome && String(a.operador_responsavel_nome).trim()) ||
+    (a?.operador_responsavel_email && String(a.operador_responsavel_email).trim()) ||
+    (a?.criado_por_nome && String(a.criado_por_nome).trim()) ||
+    (a?.criado_por_email && String(a.criado_por_email).trim()) ||
+    "Responsável não identificado"
+  );
+}
+// Situacao simples do acordo, derivada apenas de sinais auditaveis reais.
+function situacaoDoAcordo(a) {
+  if (!a) return "-";
+  if (a.status === "CANCELADO") return "Cancelado";
+  if (a.status === "QUITADO") return "Quitado";
+  if (a.status === "ATIVO") {
+    if (!a.confirmado_em) return "Aguardando confirmação";
+    return a._atrasado ? "Atrasado" : "Em dia";
+  }
+  return a.status || "-";
+}
+function corSituacaoAcordo(sit) {
+  if (sit === "Em dia" || sit === "Quitado") return "#16a34a";
+  if (sit === "Atrasado") return "#b45309";
+  if (sit === "Cancelado") return "#ef4444";
+  if (sit === "Aguardando confirmação") return "#2563eb";
+  return "#475569";
+}
+function dataCurta(v) {
+  if (!v) return "—";
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("pt-BR");
+}
 export default function Alunos({ fichaEmbedId = null } = {}) {
   const navigate = useNavigate();
   const [vindoDaFila, setVindoDaFila] = useState(false);
@@ -223,6 +258,12 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // Controlado por estado para permitir abertura automatica por tabulacao,
   // manter apenas um aberto por vez e evitar formularios longos simultaneos.
   const [blocoAberto, setBlocoAberto] = useState("");
+  // Acordos do aluno aberto -- alimenta o card "Responsavel pelos acordos"
+  // (informativo). Responsavel vem SEMPRE do registro do acordo, nunca do
+  // responsavel atual do aluno / ultimo acionamento / quem confirmou.
+  const [acordosFicha, setAcordosFicha] = useState([]);
+  const [acordosStatus, setAcordosStatus] = useState("carregando"); // carregando|ok|erro
+  const [verTodosAcordos, setVerTodosAcordos] = useState(false);
 
   // Exporta o historico/tabulacoes do aluno em PDF -- mesma funcao da
   // Minha Carteira, pra manter consistencia entre as duas telas.
@@ -594,6 +635,50 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     setSaldoStatus("ok");
   }, []);
 
+  // Carrega os acordos do aluno para o card "Responsavel pelos acordos".
+  // Responsavel: SEMPRE do proprio registro do acordo, na ordem de prioridade
+  // operador_responsavel -> criado_por -> "Responsavel nao identificado".
+  const recarregarAcordosFicha = useCallback(async (id) => {
+    if (!id) {
+      setAcordosFicha([]);
+      setAcordosStatus("carregando");
+      return;
+    }
+    setAcordosStatus("carregando");
+    const { data: acs, error } = await supabase
+      .from("acordos")
+      .select(
+        "id,status,criado_em,confirmado_em,operador_responsavel_nome,operador_responsavel_email,criado_por_nome,criado_por_email"
+      )
+      .eq("aluno_id", id)
+      .order("criado_em", { ascending: false });
+    if (error) {
+      setAcordosFicha([]);
+      setAcordosStatus("erro");
+      return;
+    }
+    const lista = acs || [];
+    // Marca acordos ATIVOS com parcela vencida como "atrasado".
+    const idsAtivos = lista.filter((a) => a.status === "ATIVO").map((a) => a.id);
+    const comVencida = new Set();
+    if (idsAtivos.length) {
+      const { data: parc } = await supabase
+        .from("parcelas")
+        .select("acordo_id")
+        .in("acordo_id", idsAtivos)
+        .eq("status", "VENCIDA");
+      for (const p of parc || []) comVencida.add(p.acordo_id);
+    }
+    setAcordosFicha(lista.map((a) => ({ ...a, _atrasado: comVencida.has(a.id) })));
+    setAcordosStatus("ok");
+  }, []);
+
+  // Recarrega o saldo oficial sempre que troca a ficha aberta.
+  useEffect(() => {
+    recarregarAcordosFicha(alunoSelecionado?.id);
+    setVerTodosAcordos(false);
+  }, [alunoSelecionado?.id, recarregarAcordosFicha]);
+
   // Recarrega o saldo oficial sempre que troca a ficha aberta.
   useEffect(() => {
     const id = alunoSelecionado?.id;
@@ -742,6 +827,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       // (pagamento, baixa, quitacao, acordo, link etc.), mantendo cabecalho e
       // card "Valor em aberto" consistentes sem chamadas duplicadas espalhadas.
       recarregarSaldoFicha(alunoId);
+      // Card "Responsavel pelos acordos" reflete criacao/confirmacao/quebra/
+      // cancelamento/quitacao sem exigir reload da pagina inteira.
+      recarregarAcordosFicha(alunoId);
     }
   }
   async function solicitarLinkPagamento() {
@@ -1857,6 +1945,66 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           Cancelar
                         </button>
                       </div>
+                    </div>
+                  )}
+                </div>
+                <div style={{ ...cardInfo, gridColumn: "1 / -1" }}>
+                  <strong>Responsável pelos acordos</strong>
+                  <br />
+                  {acordosStatus === "carregando" && (
+                    <span style={{ color: "#94a3b8" }}>Carregando…</span>
+                  )}
+                  {acordosStatus === "erro" && (
+                    <span>
+                      <span style={{ color: "#ef4444" }}>Acordos indisponíveis</span>
+                      <button
+                        type="button"
+                        onClick={() => recarregarAcordosFicha(alunoSelecionado?.id)}
+                        style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
+                      >
+                        Tentar novamente
+                      </button>
+                    </span>
+                  )}
+                  {acordosStatus === "ok" && acordosFicha.length === 0 && (
+                    <span style={{ color: "#64748b" }}>Nenhum acordo registrado</span>
+                  )}
+                  {acordosStatus === "ok" && acordosFicha.length > 0 && (
+                    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 8 }}>
+                      {(verTodosAcordos ? acordosFicha : acordosFicha.slice(0, 1)).map(
+                        (a, i) => {
+                          const sit = situacaoDoAcordo(a);
+                          return (
+                            <div key={a.id}>
+                              {acordosFicha.length > 1 && (
+                                <div style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700 }}>
+                                  {i === 0 ? "Acordo atual" : "Acordo anterior"}
+                                </div>
+                              )}
+                              <div>
+                                <strong style={{ color: "#0f172a" }}>
+                                  {responsavelDoAcordo(a)}
+                                </strong>{" "}
+                                · {dataCurta(a.criado_em)} ·{" "}
+                                <span style={{ color: corSituacaoAcordo(sit), fontWeight: 700 }}>
+                                  {sit}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        }
+                      )}
+                      {acordosFicha.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setVerTodosAcordos((v) => !v)}
+                          style={{ alignSelf: "flex-start", border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}
+                        >
+                          {verTodosAcordos
+                            ? "Ver menos"
+                            : `Ver todos os acordos (${acordosFicha.length})`}
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
