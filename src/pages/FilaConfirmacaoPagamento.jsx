@@ -4,7 +4,6 @@ import { urlComprovanteLink, abrirDocumento } from "../utils/documentoFinanceiro
 import Alunos from "./Aluno";
 import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
 import {
-  planejarAcoesConfirmacao,
   STATUS_AGUARDANDO_CONFIRMACAO,
   STATUS_AGUARDANDO_VINCULO,
   isConfirmacaoAberta,
@@ -107,6 +106,7 @@ export default function FilaConfirmacaoPagamento() {
   // "Vincular dados" (so identificacao financeira; nao baixa/quita/altera saldo).
   const [vinculando, setVinculando] = useState(false);
   const [salvandoVinc, setSalvandoVinc] = useState(false);
+  const [finalizando, setFinalizando] = useState(false);
   const [vinc, setVinc] = useState(null); // { tipo, valor, data, alvoTipo, alvoId, comprovanteLinkId }
 
   useEffect(() => {
@@ -300,79 +300,53 @@ export default function FilaConfirmacaoPagamento() {
   }
 
   async function finalizarSolicitacao(s, observacaoExtra) {
-    const emailConfirmando = usuario?.email || "";
-    const agora = new Date().toISOString();
-    const observacaoAdm = [observacoes[s.id], observacaoExtra].filter(Boolean).join(" — ");
+    // Guarda de duplo clique: a RPC já é idempotente no banco (lock + checagem
+    // de status), mas evitamos a segunda ida ao servidor.
+    if (finalizando) return;
+    setFinalizando(true);
+    try {
+      const observacaoAdm = [observacoes[s.id], observacaoExtra].filter(Boolean).join(" — ");
 
-    // 1) VALIDA O SALDO PRIMEIRO. Confirmar recebimento não é quitar: a
-    //    quitação do aluno/caso e a reposição automática só podem ocorrer se a
-    //    RPC devolver quitou === true. Nada de marcar BAIXA_REALIZADA antes.
-    //    p_confirmacao_id faz a RPC ignorar esta própria confirmação (ainda
-    //    AGUARDANDO neste ponto) ao somar o saldo, evitando autobloqueio.
-    let resBaixa = null;
-    let erroBaixaCaso = null;
-    if (s.aluno_id) {
-      const r = await supabase.rpc("confirmar_baixa_caso", {
-        p_aluno_id: s.aluno_id,
-        p_valor_pago: s.valor_informado || 0,
-        p_data_pagamento: s.data_pagamento || agora.slice(0, 10),
+      // Uma única RPC ATÔMICA faz tudo no backend (fonte da verdade):
+      //  - bloqueia a solicitação (FOR UPDATE) e valida idempotência;
+      //  - registra o recebimento;
+      //  - recalcula o saldo canônico ignorando esta confirmação;
+      //  - SE zero: encerra o caso com status reconhecido (SEM_SALDO_EM_ABERTO)
+      //    e o retira de TODAS as filas do operador, preservando o responsável;
+      //  - SE ainda há saldo: mantém o caso na carteira, sem quitar nem repor.
+      // O frontend não faz mais UPDATE direto em alunos/solicitações.
+      const { data, error } = await supabase.rpc("confirmar_pagamento_solicitacao", {
         p_confirmacao_id: s.id,
+        p_observacao: observacaoAdm || null,
       });
-      resBaixa = r.data;
-      erroBaixaCaso = r.error;
-      if (erroBaixaCaso) {
-        console.error("Erro ao validar saldo do caso:", erroBaixaCaso);
+
+      if (error) {
+        alert("Erro ao confirmar pagamento: " + error.message);
+        return;
       }
-    }
 
-    const plano = planejarAcoesConfirmacao(resBaixa, erroBaixaCaso);
-
-    // 2) Registra SEMPRE que o pagamento foi recebido (não baixa a dívida).
-    const { error } = await supabase
-      .from("solicitacoes_confirmacao_pagamento")
-      .update({
-        status: "PAGAMENTO_CONFIRMADO",
-        observacao_adm: observacaoAdm || null,
-        confirmado_por: emailConfirmando,
-        confirmado_em: agora,
-        atualizado_em: agora,
-      })
-      .eq("id", s.id);
-
-    if (error) {
-      alert("Erro ao confirmar pagamento: " + error.message);
-      return;
-    }
-
-    // 3) Só quando a RPC quitou de fato (saldo zerado): marca o aluno como
-    //    QUITADO. A quitação do CASO e a reposição já foram feitas pela própria
-    //    RPC (confirmar_baixa_caso só quita se não há saldo pendente).
-    //    Quando quitou === false: mantém o responsável, o caso na carteira/fila
-    //    e NÃO gera reposição -- apenas o recebimento fica registrado.
-    if (s.aluno_id && plano.quitarAluno) {
-      await supabase
-        .from("alunos")
-        .update({
-          status_jornada: "QUITADO",
-          status_atual: "QUITADO",
-          status_acionamento: "QUITADO",
-          data_ultimo_acionamento: agora,
-        })
-        .eq("id", s.aluno_id);
-    }
-
-    if (plano.saldoPendente) {
-      console.info(
-        "Pagamento confirmado, mas saldo ainda em aberto: caso mantido na carteira, sem quitação nem reposição.",
-        resBaixa && resBaixa.detalhe
+      // Tira imediatamente da fila local (sem recarregar a página inteira).
+      setSolicitacoes((prev) =>
+        prev.map((x) => (x.id === s.id ? { ...x, status: "PAGAMENTO_CONFIRMADO" } : x))
       );
-      alert("Pagamento confirmado (recebimento registrado). O aluno ainda tem saldo em aberto, então o caso permanece na carteira e não foi quitado.");
-    } else {
-      alert("Pagamento confirmado e caso quitado (saldo zerado).");
-    }
 
-    fecharFicha();
-    carregarSolicitacoes();
+      if (data?.ja_processado) {
+        alert("Esta solicitação já havia sido processada. Nenhuma alteração adicional foi feita.");
+      } else if (data?.quitou) {
+        alert("Quitação total concluída: saldo zerado, caso encerrado e retirado das filas do operador.");
+      } else {
+        console.info(
+          "Pagamento confirmado, mas saldo ainda em aberto: caso mantido na carteira, sem quitação nem reposição.",
+          data && data.detalhe
+        );
+        alert("Pagamento confirmado (recebimento registrado). O aluno ainda tem saldo em aberto, então o caso permanece na carteira e não foi quitado.");
+      }
+
+      fecharFicha();
+      carregarSolicitacoes();
+    } finally {
+      setFinalizando(false);
+    }
   }
 
   // ---- Rejeitar / devolver para correcao (motivo obrigatorio) ----
@@ -880,12 +854,12 @@ export default function FilaConfirmacaoPagamento() {
                       </div>
                       <div style={styles.acoes}>
                         <button
-                          style={confirmavel ? styles.botaoConfirmar : styles.botaoDesabilitado}
-                          disabled={!confirmavel}
+                          style={confirmavel && !finalizando ? styles.botaoConfirmar : styles.botaoDesabilitado}
+                          disabled={!confirmavel || finalizando}
                           title={confirmavel ? "" : "Identifique a dívida em “Vincular dados” antes de concluir."}
-                          onClick={() => confirmavel && finalizarSolicitacao(detalhe)}
+                          onClick={() => confirmavel && !finalizando && finalizarSolicitacao(detalhe)}
                         >
-                          Confirmar pagamento
+                          {finalizando ? "Confirmando..." : "Confirmar pagamento"}
                         </button>
                         {podeQuitar(usuario?.email) && (
                           <button
