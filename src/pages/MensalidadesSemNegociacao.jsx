@@ -10,12 +10,10 @@ const BRL = (v) => (Number(v) || 0).toLocaleString("pt-BR", { style: "currency",
 const NUM = (v) => (Number(v) || 0).toLocaleString("pt-BR");
 const DIA = (d) => {
   if (!d) return "-";
-  const [a, m, dd] = String(d).slice(0, 10).split("-");
+  const [, m, dd] = String(d).slice(0, 10).split("-");
   return `${dd}/${m}`;
 };
 
-// Relatório da diretoria (ao vivo): mensalidades originais de jan–jun/2026 ainda sem
-// negociação, por data de vencimento. RPC read-only + captura de snapshot diário.
 export default function MensalidadesSemNegociacao() {
   const [dados, setDados] = useState(null);
   const [erro, setErro] = useState("");
@@ -33,7 +31,6 @@ export default function MensalidadesSemNegociacao() {
 
   async function atualizar() {
     setAtualizando(true);
-    // registra o ponto do dia (snapshot) e recarrega a leitura ao vivo
     const { error } = await supabase.rpc("relatorio_mensalidades_2026_1_capturar");
     if (error) setErro(error.message || "Erro ao atualizar.");
     await carregar();
@@ -42,52 +39,168 @@ export default function MensalidadesSemNegociacao() {
 
   useEffect(() => { carregar(); }, []);
 
-  function exportarPDF() {
+  async function carregarLogo() {
+    try {
+      const resp = await fetch("/logo_email_final.png");
+      if (!resp.ok) return null;
+      const blob = await resp.blob();
+      return await new Promise((res) => {
+        const fr = new FileReader();
+        fr.onload = () => res(fr.result);
+        fr.onerror = () => res(null);
+        fr.readAsDataURL(blob);
+      });
+    } catch { return null; }
+  }
+
+  async function exportarPDF() {
     if (!dados) return;
     const doc = new jsPDF({ unit: "pt", format: "a4" });
-    const M = 40;
-    let y = 48;
-    doc.setFont("helvetica", "bold"); doc.setFontSize(15);
-    doc.text("Alunos com mensalidades vencidas entre jan e jun/2026 sem negociação", M, y);
-    y += 18;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(110);
-    doc.text("Base Reativa · por data de vencimento (pode incluir antecipadas de 2026/2). Não contempla Prime.", M, y);
-    doc.text("Gerado em " + new Date().toLocaleString("pt-BR"), M, y + 12);
-    doc.setTextColor(20); y += 40;
+    const PW = 595.28, PH = 841.89, M = 40, CW = PW - 2 * M;
+    const BLUE = [37, 99, 235], INK = [31, 41, 55], MUT = [107, 114, 128], LINE = [229, 231, 235], SOFT = [244, 246, 250], SOFTBLUE = [232, 238, 246];
+    let y = 0;
+    const need = (h) => { if (y + h > PH - 46) { doc.addPage(); y = 48; } };
 
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11);
-    doc.text("Consolidado do semestre", M, y); y += 16;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(10);
-    doc.text(`Alunos únicos: ${NUM(dados.alunos_unicos_semestre)}   |   CPFs: ${NUM(dados.cpfs_semestre)}   |   Mensalidades: ${NUM(dados.mensalidades_total)}   |   Saldo: ${BRL(dados.saldo_total)}`, M, y);
-    y += 26;
+    // Cabeçalho
+    doc.setFillColor(...BLUE); doc.rect(0, 0, PW, 5, "F");
+    y = 30;
+    const logo = await carregarLogo();
+    if (logo) { const lw = 140, lh = (140 * 197) / 767; try { doc.addImage(logo, "PNG", M, y, lw, lh); } catch { /* sem logo */ } }
+    y += 54;
+    doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(...INK);
+    doc.text("Mensalidades de 2026/1 ainda sem negociação", M, y);
+    y += 15;
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...MUT);
+    doc.text("Alunos com mensalidades vencidas entre janeiro e junho de 2026 (por data de vencimento).", M, y);
+    y += 22;
 
-    const linha = (cols, xs, bold) => {
-      doc.setFont("helvetica", bold ? "bold" : "normal"); doc.setFontSize(9);
-      cols.forEach((c, i) => doc.text(String(c), xs[i], y));
-      y += 14;
-    };
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("Por mês (vencimento)", M, y); y += 16;
-    const xs = [M, M + 120, M + 240, M + 360];
-    linha(["Mês", "Alunos únicos", "Mensalidades", "Saldo"], xs, true);
-    (dados.meses || []).forEach((m) => linha([m.mes_nome, NUM(m.alunos_unicos), NUM(m.mensalidades_sem_negociacao), BRL(m.saldo_sem_negociacao)], xs));
-    y += 12;
+    // KPIs
+    const gap = 10;
+    const kpis = [
+      ["ALUNOS ÚNICOS", NUM(dados.alunos_unicos_semestre)],
+      ["CPFs", NUM(dados.cpfs_semestre)],
+      ["MENSALIDADES", NUM(dados.mensalidades_total)],
+      ["SALDO TOTAL", BRL(dados.saldo_total)],
+    ];
+    const kw = (CW - 3 * gap) / 4, kh = 54;
+    kpis.forEach((k, i) => {
+      const x = M + i * (kw + gap);
+      doc.setFillColor(...(i === 0 ? SOFTBLUE : SOFT)); doc.roundedRect(x, y, kw, kh, 7, 7, "F");
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7); doc.setTextColor(...MUT);
+      doc.text(k[0], x + 10, y + 17);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(k[1].length > 12 ? 11 : 14); doc.setTextColor(...INK);
+      doc.text(k[1], x + 10, y + 38);
+    });
+    y += kh + 22;
 
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("Por curso", M, y); y += 16;
-    linha(["Curso", "Alunos", "Mensalidades", "Saldo"], xs, true);
-    (dados.por_curso || []).forEach((c) => linha([c.curso, NUM(c.alunos), NUM(c.mensalidades), BRL(c.saldo)], xs));
-    y += 12;
+    // Gráfico (barras com valores visíveis)
+    const meses = dados.meses || [];
+    const totS = Number(dados.saldo_total) || 0;
+    const pct = (v) => (totS ? ((Number(v) || 0) / totS * 100).toFixed(1) + "%" : "-");
+    const chH = 196; need(chH + 10);
+    doc.setDrawColor(...LINE); doc.roundedRect(M, y, CW, chH, 8, 8, "S");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...INK);
+    doc.text("Alunos únicos por mês (vencimento jan–jun/2026)", M + 14, y + 22);
+    const cx = M + 16, cw = CW - 32, cTop = y + 40, cBottom = y + chH - 42, cArea = cBottom - cTop;
+    const maxA = Math.max(1, ...meses.map((m) => Number(m.alunos_unicos) || 0));
+    const n = meses.length || 6, slot = cw / n, bw = slot * 0.5;
+    meses.forEach((m, i) => {
+      const a = Number(m.alunos_unicos) || 0, h = (a / maxA) * cArea;
+      const x = cx + i * slot + (slot - bw) / 2, yb = cBottom - h;
+      doc.setFillColor(...BLUE); doc.roundedRect(x, yb, bw, Math.max(h, 1.5), 3, 3, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...INK);
+      doc.text(NUM(a), x + bw / 2, yb - 5, { align: "center" });
+      doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...INK);
+      doc.text(m.mes_nome, x + bw / 2, cBottom + 14, { align: "center" });
+      doc.setFontSize(7); doc.setTextColor(...MUT);
+      doc.text(BRL(m.saldo_sem_negociacao), x + bw / 2, cBottom + 23, { align: "center" });
+      doc.setFont("helvetica", "bold"); doc.setTextColor(...BLUE);
+      doc.text(pct(m.saldo_sem_negociacao), x + bw / 2, cBottom + 32, { align: "center" });
+    });
+    doc.setDrawColor(...LINE); doc.line(cx, cBottom, cx + cw, cBottom);
+    y += chH + 20;
 
-    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("Top unidades (por saldo)", M, y); y += 16;
-    linha(["Unidade", "Alunos", "Mensalidades", "Saldo"], xs, true);
-    (dados.por_unidade || []).slice(0, 8).forEach((u) => linha([u.unidade, NUM(u.alunos), NUM(u.mensalidades), BRL(u.saldo)], xs));
-
+    // Destaques (chips)
     const d = dados.destaques || {};
-    y += 12; doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.text("Destaques", M, y); y += 16;
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9);
-    if (d.curso_maior_inadimplencia) { doc.text(`Curso de maior inadimplência: ${d.curso_maior_inadimplencia.curso} (${BRL(d.curso_maior_inadimplencia.saldo)})`, M, y); y += 13; }
-    if (d.unidade_maior_inadimplencia) { doc.text(`Unidade de maior inadimplência: ${d.unidade_maior_inadimplencia.unidade} (${BRL(d.unidade_maior_inadimplencia.saldo)})`, M, y); y += 13; }
-    if (d.mes_maior_inadimplencia) { doc.text(`Mês de maior inadimplência (saldo): ${d.mes_maior_inadimplencia.mes_nome} (${BRL(d.mes_maior_inadimplencia.saldo_sem_negociacao)})`, M, y); y += 13; }
-    if (d.faixa_maior_saldo) { doc.text(`Faixa de maior saldo: ${d.faixa_maior_saldo.faixa} (${BRL(d.faixa_maior_saldo.saldo)})`, M, y); y += 13; }
+    const chips = [
+      ["CURSO + INADIMPLÊNCIA", d.curso_maior_inadimplencia?.curso, d.curso_maior_inadimplencia && BRL(d.curso_maior_inadimplencia.saldo)],
+      ["UNIDADE + INADIMPLÊNCIA", d.unidade_maior_inadimplencia?.unidade, d.unidade_maior_inadimplencia && BRL(d.unidade_maior_inadimplencia.saldo)],
+      ["MÊS + INADIMPLÊNCIA", d.mes_maior_inadimplencia?.mes_nome, d.mes_maior_inadimplencia && BRL(d.mes_maior_inadimplencia.saldo_sem_negociacao)],
+      ["FAIXA + SALDO", d.faixa_maior_saldo?.faixa, d.faixa_maior_saldo && BRL(d.faixa_maior_saldo.saldo)],
+    ];
+    need(74);
+    const cw2 = (CW - 3 * gap) / 4, ch2 = 62;
+    chips.forEach((c, i) => {
+      const x = M + i * (cw2 + gap);
+      doc.setDrawColor(...LINE); doc.roundedRect(x, y, cw2, ch2, 7, 7, "S");
+      doc.setFillColor(...BLUE); doc.rect(x, y + 7, 3, ch2 - 14, "F");
+      doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.setTextColor(...MUT);
+      doc.text(c[0], x + 10, y + 15);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...INK);
+      doc.text(doc.splitTextToSize(c[1] || "-", cw2 - 18), x + 10, y + 30);
+      if (c[2]) { doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...BLUE); doc.text(c[2], x + 10, y + 54); }
+    });
+    y += ch2 + 16;
+
+    // Maior concentração de inadimplentes (unidade com mais alunos)
+    const concU = [...(dados.por_unidade || [])].sort((a, b) => (Number(b.alunos) || 0) - (Number(a.alunos) || 0))[0];
+    if (concU) {
+      need(30);
+      doc.setFillColor(...SOFTBLUE); doc.roundedRect(M, y, CW, 26, 6, 6, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9); doc.setTextColor(...INK);
+      doc.text("Maior concentração de inadimplentes: " + concU.unidade, M + 12, y + 16);
+      doc.setFont("helvetica", "normal"); doc.setTextColor(...MUT);
+      doc.text(`${NUM(concU.alunos)} alunos · ${NUM(concU.mensalidades)} mensalidades · ${BRL(concU.saldo)}`, PW - M - 12, y + 16, { align: "right" });
+      y += 40;
+    }
+
+    // Tabelas
+    const tabela = (titulo, cabec, linhas, aligns) => {
+      need(46);
+      doc.setFillColor(...BLUE); doc.rect(M, y - 9, 3, 13, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...INK);
+      doc.text(titulo, M + 10, y);
+      y += 10;
+      const ncol = cabec.length, labelW = CW * 0.40, numW = (CW - labelW) / (ncol - 1);
+      const colX = (i) => (i === 0 ? M + 6 : M + labelW + i * numW - 6);
+      doc.setFillColor(...SOFT); doc.rect(M, y, CW, 18, "F");
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...MUT);
+      cabec.forEach((c, i) => doc.text(c, colX(i), y + 12, { align: aligns[i] }));
+      y += 18;
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...INK);
+      linhas.forEach((l, r) => {
+        need(16);
+        if (r % 2 === 1) { doc.setFillColor(...SOFT); doc.rect(M, y, CW, 15, "F"); }
+        l.forEach((cel, i) => {
+          const t = i === 0 ? doc.splitTextToSize(String(cel), labelW - 12)[0] : String(cel);
+          doc.text(t, colX(i), y + 11, { align: aligns[i] });
+        });
+        y += 15;
+      });
+      y += 18;
+    };
+
+    const A6 = ["left", "right", "right", "right", "right", "right"];
+    const A4 = ["left", "right", "right", "right"];
+    tabela("Detalhamento por mês", ["Mês", "CPFs", "Alunos", "Mensalidades", "Saldo", "% saldo"],
+      meses.map((m) => [m.mes_nome, NUM(m.cpfs), NUM(m.alunos_unicos), NUM(m.mensalidades_sem_negociacao), BRL(m.saldo_sem_negociacao), pct(m.saldo_sem_negociacao)]), A6);
+    tabela("Por curso", ["Curso", "Alunos", "Mensalidades", "Saldo"],
+      (dados.por_curso || []).map((c) => [c.curso, NUM(c.alunos), NUM(c.mensalidades), BRL(c.saldo)]), A4);
+    tabela("Por unidade (campus)", ["Unidade", "Alunos", "Mensalidades", "Saldo"],
+      (dados.por_unidade || []).map((u) => [u.unidade, NUM(u.alunos), NUM(u.mensalidades), BRL(u.saldo)]), A4);
+    tabela("Por faixa de saldo", ["Faixa", "Alunos", "Mensalidades", "Saldo"],
+      (dados.por_faixa || []).map((f) => [f.faixa, NUM(f.alunos), NUM(f.mensalidades), BRL(f.saldo)]), A4);
+
+    // Rodapé em todas as páginas
+    const pages = doc.getNumberOfPages();
+    for (let p = 1; p <= pages; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(...LINE); doc.line(M, PH - 34, PW - M, PH - 34);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...MUT);
+      doc.text("Base Reativa · por data de vencimento (pode incluir antecipadas de 2026/2). Não contempla Prime.", M, PH - 22);
+      doc.text("Gerado em " + new Date().toLocaleString("pt-BR"), M, PH - 13);
+      doc.text(`Página ${p}/${pages}`, PW - M, PH - 13, { align: "right" });
+    }
 
     doc.save(`relatorio-2026-1-sem-negociacao_${new Date().toISOString().slice(0, 10)}.pdf`);
   }
@@ -99,6 +212,9 @@ export default function MensalidadesSemNegociacao() {
   const meses = (dados.meses || []).map((m) => ({ ...m, label: m.mes_nome, qtd: Number(m.alunos_unicos) || 0 }));
   const evolucao = (dados.evolucao_diaria || []).map((e) => ({ ...e, label: DIA(e.dia), saldoNum: Number(e.saldo) || 0 }));
   const d = dados.destaques || {};
+  const totSaldo = Number(dados.saldo_total) || 0;
+  const pctSaldo = (v) => (totSaldo ? ((Number(v) || 0) / totSaldo * 100).toFixed(1) + "%" : "-");
+  const concUnidade = [...(dados.por_unidade || [])].sort((a, b) => (Number(b.alunos) || 0) - (Number(a.alunos) || 0))[0];
 
   const TipMes = ({ active, payload }) => {
     if (!active || !payload?.length) return null;
@@ -109,6 +225,7 @@ export default function MensalidadesSemNegociacao() {
         <div>Alunos únicos: {NUM(m.alunos_unicos)}</div>
         <div>Mensalidades: {NUM(m.mensalidades_sem_negociacao)}</div>
         <div>Saldo do mês: {BRL(m.saldo_sem_negociacao)}</div>
+        <div>% do saldo total: {pctSaldo(m.saldo_sem_negociacao)}</div>
       </div>
     );
   };
@@ -153,15 +270,14 @@ export default function MensalidadesSemNegociacao() {
         <Tot label="Saldo total sem negociação" val={BRL(dados.saldo_total)} />
       </div>
 
-      {/* Destaques */}
       <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
         <Destaque titulo="Curso de maior inadimplência" valor={d.curso_maior_inadimplencia?.curso} sub={d.curso_maior_inadimplencia && BRL(d.curso_maior_inadimplencia.saldo)} />
         <Destaque titulo="Unidade de maior inadimplência" valor={d.unidade_maior_inadimplencia?.unidade} sub={d.unidade_maior_inadimplencia && BRL(d.unidade_maior_inadimplencia.saldo)} />
         <Destaque titulo="Mês de maior inadimplência" valor={d.mes_maior_inadimplencia?.mes_nome} sub={d.mes_maior_inadimplencia && BRL(d.mes_maior_inadimplencia.saldo_sem_negociacao)} />
         <Destaque titulo="Faixa de maior saldo" valor={d.faixa_maior_saldo?.faixa} sub={d.faixa_maior_saldo && BRL(d.faixa_maior_saldo.saldo)} />
+        <Destaque titulo="Maior concentração de inadimplentes" valor={concUnidade?.unidade} sub={concUnidade && `${NUM(concUnidade.alunos)} alunos · ${BRL(concUnidade.saldo)}`} />
       </div>
 
-      {/* Gráfico por mês */}
       <Secao titulo="Alunos únicos por mês (vencimento jan–jun/2026)">
         <div style={{ width: "100%", height: 320 }}>
           <ResponsiveContainer>
@@ -178,13 +294,11 @@ export default function MensalidadesSemNegociacao() {
         </div>
       </Secao>
 
-      {/* Tabela por mês (CPFs / mensalidades / saldo) */}
       <Secao titulo="Detalhamento por mês">
-        <Tabela cabec={["Mês", "CPFs", "Alunos únicos", "Mensalidades", "Saldo"]}
-          linhas={(dados.meses || []).map((m) => [m.mes_nome, NUM(m.cpfs), NUM(m.alunos_unicos), NUM(m.mensalidades_sem_negociacao), BRL(m.saldo_sem_negociacao)])} />
+        <Tabela cabec={["Mês", "CPFs", "Alunos únicos", "Mensalidades", "Saldo", "% do saldo"]}
+          linhas={(dados.meses || []).map((m) => [m.mes_nome, NUM(m.cpfs), NUM(m.alunos_unicos), NUM(m.mensalidades_sem_negociacao), BRL(m.saldo_sem_negociacao), pctSaldo(m.saldo_sem_negociacao)])} />
       </Secao>
 
-      {/* Evolução diária */}
       <Secao titulo="Evolução diária (conforme as baixas)">
         {evolucao.length <= 1 ? (
           <p style={{ color: "#6b7280", margin: 0 }}>
@@ -205,19 +319,16 @@ export default function MensalidadesSemNegociacao() {
         )}
       </Secao>
 
-      {/* Por curso */}
       <Secao titulo="Por curso">
         <Tabela cabec={["Curso", "Alunos", "Mensalidades", "Saldo"]}
           linhas={(dados.por_curso || []).map((c) => [c.curso, NUM(c.alunos), NUM(c.mensalidades), BRL(c.saldo)])} />
       </Secao>
 
-      {/* Por unidade */}
       <Secao titulo="Por unidade (campus)">
         <Tabela cabec={["Unidade", "Alunos", "Mensalidades", "Saldo"]}
           linhas={(dados.por_unidade || []).map((u) => [u.unidade, NUM(u.alunos), NUM(u.mensalidades), BRL(u.saldo)])} />
       </Secao>
 
-      {/* Por faixa */}
       <Secao titulo="Por faixa de saldo da mensalidade">
         <Tabela cabec={["Faixa", "Alunos", "Mensalidades", "Saldo"]}
           linhas={(dados.por_faixa || []).map((f) => [f.faixa, NUM(f.alunos), NUM(f.mensalidades), BRL(f.saldo)])} />
