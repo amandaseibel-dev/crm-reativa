@@ -33,6 +33,9 @@ export default function FluxoLinksRapido() {
   // Guarda SÍNCRONA contra clique duplo por item (setSalvandoId é estado React
   // e só desabilita no próximo render). Bloqueia 2 RPCs concorrentes no mesmo id.
   const emAcaoRef = useRef(new Set());
+  // Ids que ACABARAM de ser enviados neste card (copiar = enviar). O item fica
+  // marcado "enviado" dentro do card e sai do topo no próximo refresh/polling.
+  const [enviadosLocais, setEnviadosLocais] = useState(new Set());
 
   useEffect(() => {
     iniciar();
@@ -257,103 +260,128 @@ export default function FluxoLinksRapido() {
     }
   }
 
+  const MSG_ERRO_ENVIO = {
+    NAO_AUTENTICADO: "Sessão expirada. Faça login novamente.",
+    USUARIO_INATIVO: "Usuário inativo.",
+    LINK_NAO_ENCONTRADO: "Link não encontrado.",
+    SEM_PERMISSAO: "Você não é o operador responsável por este link.",
+    SEM_LINK: "Este link ainda não tem URL de pagamento.",
+    STATUS_INVALIDO: "Este link não está mais pronto para envio.",
+    EM_ANDAMENTO: "Aguarde, já estamos registrando este envio.",
+  };
+
+  // Núcleo do envio: transição de status SEMPRE via RPC oficial (SECURITY
+  // DEFINER, atômica e idempotente — autoriza dono/gestão/assumiu). O UPDATE
+  // direto na tabela falhava em silêncio sob RLS quando o operador havia
+  // ASSUMIDO o atendimento de outro colega, deixando o link preso no topo.
+  // Só no envio efetivo atualiza a ficha do aluno e grava histórico. Sem
+  // confirm/alert/reload aqui: quem chama decide o feedback.
+  // Retorna { ok, jaEnviado?, erro? }.
+  async function executarEnvioRPC(item) {
+    if (emAcaoRef.current.has(item.id)) return { ok: false, erro: "EM_ANDAMENTO" };
+    emAcaoRef.current.add(item.id);
+    try {
+      const agora = new Date().toISOString();
+      const usuarioEmail = usuarioAtual.email || "";
+      const usuarioNome = usuarioAtual.nome || usuarioAtual.email || "Operador";
+
+      const { data: resultado, error } = await supabase.rpc(
+        "marcar_link_enviado_ao_aluno",
+        { p_link_id: item.id }
+      );
+
+      if (error) {
+        console.error("Erro ao marcar enviado:", error);
+        return { ok: false, erro: error.message };
+      }
+      if (!resultado?.ok) {
+        console.error("RPC recusou marcar enviado:", resultado);
+        return { ok: false, erro: resultado?.erro || "FALHA" };
+      }
+      // Idempotência: link já estava enviado (clique duplo / outra aba) — não
+      // recria histórico/movimentação nem mexe na ficha do aluno de novo.
+      if (resultado?.ja_enviado) {
+        return { ok: true, jaEnviado: true };
+      }
+
+      if (item?.aluno_id) {
+        await supabase
+          .from("alunos")
+          .update({
+            status_jornada: "AGUARDANDO_COMPROVANTE",
+            status_atual: "AGUARDANDO_COMPROVANTE",
+            status_acionamento: "AGUARDANDO_COMPROVANTE",
+            proxima_acao: "AGUARDAR_COMPROVANTE",
+            registrado_por_nome: usuarioNome,
+            registrado_por_email: usuarioEmail,
+            registrado_em: agora,
+            data_ultimo_acionamento: agora,
+          })
+          .eq("id", item.aluno_id);
+
+        await supabase.from("aluno_movimentacoes").insert({
+          aluno_id: String(item.aluno_id),
+          tipo: "LINK_ENVIADO_AO_ALUNO",
+          descricao: "Operador enviou o link ao aluno (registrado ao copiar). Próximo passo: aguardar comprovante.",
+          status_anterior: item.status || null,
+          status_novo: "AGUARDANDO_COMPROVANTE",
+          registrado_por_nome: usuarioNome,
+          registrado_por_email: usuarioEmail,
+          registrado_em: agora,
+        });
+      }
+
+      await supabase.from("historico_links_pagamento").insert({
+        link_id: item.id,
+        aluno_id: item?.aluno_id || null,
+        aluno_nome: item?.aluno_nome || null,
+        aluno_cpf: item?.aluno_cpf || null,
+        status_novo: "LINK_ENVIADO_AO_ALUNO",
+        status_anterior: item.status || null,
+        descricao: "Operador enviou o link ao aluno (registrado ao copiar).",
+        usuario_email: usuarioEmail || null,
+        usuario_nome: usuarioNome || null,
+        criado_em: agora,
+      });
+
+      return { ok: true };
+    } finally {
+      emAcaoRef.current.delete(item.id);
+    }
+  }
+
+  // Botão explícito "Marcar como enviado": mantém a confirmação e recarrega a lista.
   async function marcarComoEnviado(item) {
     const confirmar = window.confirm(
       `Confirmar que o link foi enviado ao aluno ${item.aluno_nome}?`
     );
-
     if (!confirmar) return;
 
-    if (emAcaoRef.current.has(item.id)) return; // trava síncrona anti-duplo-clique
-    emAcaoRef.current.add(item.id);
-    try {
-    const agora = new Date().toISOString();
-    const usuarioEmail = usuarioAtual.email || "";
-    const usuarioNome = usuarioAtual.nome || usuarioAtual.email || "Operador";
-
-    // Transição de status SEMPRE via RPC oficial (SECURITY DEFINER, atômica e
-    // idempotente). O UPDATE direto na tabela falhava em silêncio sob RLS quando
-    // o operador havia ASSUMIDO o atendimento de outro colega (não é dono nem
-    // gestão): 0 linhas afetadas, sem erro, status permanecia LINK_PRONTO_PARA_ENVIO
-    // e o link voltava a aparecer preso no topo. A RPC autoriza dono/gestão/assumiu.
-    const { data: resultado, error } = await supabase.rpc(
-      "marcar_link_enviado_ao_aluno",
-      { p_link_id: item.id }
-    );
-
-    if (error) {
-      console.error("Erro ao marcar enviado:", error);
-      alert(error.message || "Não foi possível marcar como enviado.");
+    const r = await executarEnvioRPC(item);
+    if (!r.ok) {
+      alert(MSG_ERRO_ENVIO[r.erro] || "Não foi possível marcar como enviado.");
       return;
     }
-
-    if (!resultado?.ok) {
-      const mapaErro = {
-        NAO_AUTENTICADO: "Sessão expirada. Faça login novamente.",
-        USUARIO_INATIVO: "Usuário inativo.",
-        LINK_NAO_ENCONTRADO: "Link não encontrado.",
-        SEM_PERMISSAO: "Você não é o operador responsável por este link.",
-        SEM_LINK: "Este link ainda não tem URL de pagamento.",
-        STATUS_INVALIDO: "Este link não está mais pronto para envio.",
-      };
-      console.error("RPC recusou marcar enviado:", resultado);
-      alert(mapaErro[resultado?.erro] || "Não foi possível marcar como enviado.");
-      return;
-    }
-
-    // Idempotência: se a RPC informa que o link JÁ estava enviado (ex.: clique
-    // duplo ou outra aba), não recriamos histórico/movimentação nem alteramos a
-    // ficha do aluno de novo — apenas removemos o item do topo recarregando.
-    if (resultado?.ja_enviado) {
-      await carregarTudo(usuarioAtual);
-      return;
-    }
-
-    if (item?.aluno_id) {
-      await supabase
-        .from("alunos")
-        .update({
-          status_jornada: "AGUARDANDO_COMPROVANTE",
-          status_atual: "AGUARDANDO_COMPROVANTE",
-          status_acionamento: "AGUARDANDO_COMPROVANTE",
-          proxima_acao: "AGUARDAR_COMPROVANTE",
-          registrado_por_nome: usuarioNome,
-          registrado_por_email: usuarioEmail,
-          registrado_em: agora,
-          data_ultimo_acionamento: agora,
-        })
-        .eq("id", item.aluno_id);
-
-      await supabase.from("aluno_movimentacoes").insert({
-        aluno_id: String(item.aluno_id),
-        tipo: "LINK_ENVIADO_AO_ALUNO",
-        descricao: "Operador marcou o link como enviado ao aluno. Próximo passo: aguardar comprovante.",
-        status_anterior: item.status || null,
-        status_novo: "AGUARDANDO_COMPROVANTE",
-        registrado_por_nome: usuarioNome,
-        registrado_por_email: usuarioEmail,
-        registrado_em: agora,
-      });
-    }
-
-    await supabase.from("historico_links_pagamento").insert({
-      link_id: item.id,
-      aluno_id: item?.aluno_id || null,
-      aluno_nome: item?.aluno_nome || null,
-      aluno_cpf: item?.aluno_cpf || null,
-      status_novo: "LINK_ENVIADO_AO_ALUNO",
-      status_anterior: item.status || null,
-      descricao: "Operador marcou o link como enviado ao aluno.",
-      usuario_email: usuarioEmail || null,
-      usuario_nome: usuarioNome || null,
-      criado_em: agora,
-    });
-
+    setEnviadosLocais((prev) => new Set(prev).add(item.id));
     await carregarTudo(usuarioAtual);
-    alert("Link marcado como enviado ao aluno.");
-    } finally {
-      emAcaoRef.current.delete(item.id);
+  }
+
+  // Novo fluxo (a partir de 30/07): copiar o link OU a mensagem já REGISTRA o
+  // envio. O card fica marcado "enviado" na hora e o item sai do topo no
+  // próximo refresh/polling — sem exigir um segundo clique de confirmação.
+  async function copiarEEnviar(item, texto) {
+    await copiarTexto(texto);
+    if (enviadosLocais.has(item.id)) return; // já registrado neste card
+
+    const r = await executarEnvioRPC(item);
+    if (!r.ok) {
+      alert(
+        MSG_ERRO_ENVIO[r.erro] ||
+          "Copiado, mas não foi possível marcar como enviado. Tente novamente."
+      );
+      return;
     }
+    setEnviadosLocais((prev) => new Set(prev).add(item.id));
   }
 
   function formatarMoeda(valor) {
@@ -506,7 +534,9 @@ export default function FluxoLinksRapido() {
                   </p>
                 </div>
 
-                <span style={badgePrioridade}>PRIORIDADE</span>
+                {enviadosLocais.has(item.id)
+                  ? <span style={badgeEnviado}>✓ LINK ENVIADO</span>
+                  : <span style={badgePrioridade}>PRIORIDADE</span>}
               </div>
 
               <label style={label}>Link de pagamento</label>
@@ -516,7 +546,7 @@ export default function FluxoLinksRapido() {
 
                 <button
                   type="button"
-                  onClick={() => copiarTexto(item.link_pagamento)}
+                  onClick={() => copiarEEnviar(item, item.link_pagamento)}
                   style={botaoCopiar}
                 >
                   Copiar link
@@ -527,15 +557,35 @@ export default function FluxoLinksRapido() {
 
               <textarea value={item.mensagem_pronta || ""} readOnly style={textarea} />
 
-              <div style={linhaBotoes}>
-                <button type="button" onClick={() => copiarTexto(item.mensagem_pronta)} style={botaoPrincipal}>
-                  Copiar mensagem pronta
-                </button>
+              {enviadosLocais.has(item.id) ? (
+                <div style={linhaBotoes}>
+                  <button
+                    type="button"
+                    onClick={() => copiarEEnviar(item, item.mensagem_pronta)}
+                    style={botaoPrincipal}
+                  >
+                    Copiar mensagem pronta
+                  </button>
 
-                <button type="button" onClick={() => marcarComoEnviado(item)} style={botaoConfirmar}>
-                  Marcar como enviado ao aluno
-                </button>
-              </div>
+                  <span style={avisoEnviado}>
+                    ✓ Link enviado ao aluno — aguardando comprovante. Sairá do topo ao atualizar.
+                  </span>
+                </div>
+              ) : (
+                <div style={linhaBotoes}>
+                  <button
+                    type="button"
+                    onClick={() => copiarEEnviar(item, item.mensagem_pronta)}
+                    style={botaoPrincipal}
+                  >
+                    Copiar mensagem pronta
+                  </button>
+
+                  <button type="button" onClick={() => marcarComoEnviado(item)} style={botaoConfirmar}>
+                    Marcar como enviado ao aluno
+                  </button>
+                </div>
+              )}
             </div>
           ))}
         </section>
@@ -685,6 +735,28 @@ const badgePrioridade = {
   fontSize: "12px",
   fontWeight: "900",
   whiteSpace: "nowrap"
+};
+
+const badgeEnviado = {
+  background: "#16a34a",
+  color: "#fff",
+  borderRadius: "999px",
+  padding: "6px 10px",
+  fontSize: "12px",
+  fontWeight: "900",
+  whiteSpace: "nowrap"
+};
+
+const avisoEnviado = {
+  display: "inline-flex",
+  alignItems: "center",
+  color: "#166534",
+  background: "#dcfce7",
+  border: "1px solid #86efac",
+  borderRadius: "8px",
+  padding: "8px 12px",
+  fontSize: "13px",
+  fontWeight: "700"
 };
 
 const label = {
