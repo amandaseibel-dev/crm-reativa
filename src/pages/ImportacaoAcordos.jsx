@@ -102,6 +102,21 @@ export default function ImportacaoAcordos() {
         acc.titulos_inseridos += (data && data.titulos_inseridos) || 0;
         acc.acordos_na_fila += (data && data.acordos_na_fila) || 0;
       }
+      // Passo fixo do modelo: gera as parcelas mes a mes dos acordos importados
+      // (a partir dos titulos do acordo) e move esses titulos para quarentena,
+      // para nao dobrar com as parcelas. Idempotente: acordo que ja tem parcela
+      // e pulado -> reimportar o mesmo arquivo nao duplica. Saldo permanece igual.
+      setProgresso("Gerando parcelas dos acordos...");
+      const { data: comp, error: compErr } = await supabase.rpc("completar_parcelas_acordo", {
+        p_limite: 1000000,
+        p_dry_run: false,
+        p_lote: importacaoId,
+      });
+      if (compErr) throw compErr;
+      acc.acordos_completados = Array.isArray(comp) ? comp.length : 0;
+      acc.parcelas_geradas = Array.isArray(comp)
+        ? comp.reduce((s, x) => s + (Number(x.qtd_parcelas) || 0), 0)
+        : 0;
       setResultado({ ...acc, importacaoId });
       setProgresso("");
     } catch (err) {
@@ -146,6 +161,7 @@ export default function ImportacaoAcordos() {
             <li><strong>{resultado.titulos_inseridos.toLocaleString("pt-BR")}</strong> titulos inseridos</li>
             <li><strong>{resultado.alunos_novos.toLocaleString("pt-BR")}</strong> alunos novos criados</li>
             <li><strong>{resultado.acordos_na_fila.toLocaleString("pt-BR")}</strong> acordos na fila de confirmacao</li>
+            <li><strong>{(resultado.parcelas_geradas || 0).toLocaleString("pt-BR")}</strong> parcelas geradas em <strong>{(resultado.acordos_completados || 0).toLocaleString("pt-BR")}</strong> acordos (mes a mes)</li>
           </ul>
           <div style={S.obs}>Lote: {resultado.importacaoId}</div>
         </div>

@@ -56,6 +56,7 @@ export default function FilaAcordosConfirmar() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [filtro, setFiltro] = useState("A_CONFIRMAR");
+  const [filtroVinculo, setFiltroVinculo] = useState("TODOS"); // TODOS | SEM_VINCULO | SEM_RESPONSAVEL | VINCULADO
   const [busca, setBusca] = useState("");
   const [email, setEmail] = useState("");
   const [fichaId, setFichaId] = useState(null);
@@ -170,16 +171,31 @@ export default function FilaAcordosConfirmar() {
   const rejeitar = (item) => mudarStatus(item, "REJEITADO");
   const reabrir = (item) => mudarStatus(item, "A_CONFIRMAR");
 
-  // Filtro por status (client-side) + busca por nome/CPF.
+  // Filtro por status + estado de vínculo (client-side) + busca por nome/CPF.
   const filtrados = itens.filter((i) => {
     const st = i.status_confirmacao || "A_CONFIRMAR";
     if (filtro !== "TODOS" && st !== filtro) return false;
-    if (!busca.trim()) return true;
-    const t = busca.trim().toLowerCase();
-    const cpfBusca = t.replace(/\D/g, "");
-    const nomeOk = String(i.nome || "").toLowerCase().includes(t);
-    const cpfOk = cpfBusca && normCpf(i.cpf).includes(cpfBusca);
-    return nomeOk || cpfOk;
+
+    // Filtro por estado de vínculo do acordo. Só se aplica a quem enxerga o
+    // responsavel (gestao); o vinculo vem da RPC fila_acordos_responsavel.
+    //   NAO_VINCULADO  -> "Sem vinculo" (acordo_id nulo)
+    //   SEM_RESPONSAVEL-> vinculado, mas o acordo nao tem operador
+    //   OK             -> vinculado e com operador
+    if (podeVincular && filtroVinculo !== "TODOS") {
+      const v = responsaveis[i.id]?.vinculo || "NAO_VINCULADO";
+      if (filtroVinculo === "SEM_VINCULO" && v !== "NAO_VINCULADO") return false;
+      if (filtroVinculo === "SEM_RESPONSAVEL" && v !== "SEM_RESPONSAVEL") return false;
+      if (filtroVinculo === "VINCULADO" && v !== "OK") return false;
+    }
+
+    if (busca.trim()) {
+      const t = busca.trim().toLowerCase();
+      const cpfBusca = t.replace(/\D/g, "");
+      const nomeOk = String(i.nome || "").toLowerCase().includes(t);
+      const cpfOk = cpfBusca && normCpf(i.cpf).includes(cpfBusca);
+      if (!nomeOk && !cpfOk) return false;
+    }
+    return true;
   });
 
   // Agrupa por CPF -> 1 card por aluno.
@@ -220,6 +236,14 @@ export default function FilaAcordosConfirmar() {
           <option value="REJEITADO">Rejeitados</option>
           <option value="TODOS">Todos</option>
         </select>
+        {podeVincular && (
+          <select style={S.select} value={filtroVinculo} onChange={(e) => setFiltroVinculo(e.target.value)} title="Filtrar pelo estado de vínculo do acordo">
+            <option value="TODOS">Vínculo: todos</option>
+            <option value="SEM_VINCULO">Sem vínculo</option>
+            <option value="SEM_RESPONSAVEL">Sem responsável</option>
+            <option value="VINCULADO">Vinculado</option>
+          </select>
+        )}
         <input style={S.input} placeholder="Buscar por nome ou CPF..." value={busca} onChange={(e) => setBusca(e.target.value)} />
         <div style={S.contadores}>
           <span style={S.contadorAlunos}>{totalAlunos} alunos</span>
@@ -305,6 +329,11 @@ export default function FilaAcordosConfirmar() {
                             {st === "REJEITADO" && (
                               <button type="button" style={{ ...S.btnMini, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => reabrir(a)}>
                                 {busy ? "..." : "reabrir"}
+                              </button>
+                            )}
+                            {st === "CONFIRMADO" && (
+                              <button type="button" style={{ ...S.btnMini, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => reabrir(a)} title="Voltar este acordo para 'A confirmar' (ex.: confirmou sem vincular o operador)">
+                                {busy ? "..." : "voltar para a fila"}
                               </button>
                             )}
                           </div>
