@@ -67,6 +67,7 @@ export default function Calibragem() {
   const [erro, setErro] = useState("");
   const [dados, setDados] = useState(null);
   const [detalhe, setDetalhe] = useState(null); // { operador, chave, rotulo }
+  const [vista, setVista] = useState("visao"); // 'visao' | 'simulador'
 
   async function carregar() {
     setCarregando(true);
@@ -138,9 +139,28 @@ export default function Calibragem() {
         </button>
       </div>
 
+      <div style={S.tabs}>
+        <button
+          type="button"
+          style={{ ...S.tab, ...(vista === "visao" ? S.tabAtiva : {}) }}
+          onClick={() => setVista("visao")}
+        >
+          Visão por operador
+        </button>
+        <button
+          type="button"
+          style={{ ...S.tab, ...(vista === "simulador" ? S.tabAtiva : {}) }}
+          onClick={() => setVista("simulador")}
+        >
+          Simulador de nivelamento
+        </button>
+      </div>
+
       {erro && <div style={S.erro}>{erro}</div>}
 
-      {carregando ? (
+      {vista === "simulador" ? (
+        <Simulador operadores={operadores} onExecutado={atualizar} />
+      ) : carregando ? (
         <div style={S.vazio}>Carregando…</div>
       ) : !operadores.length ? (
         <div style={S.vazio}>
@@ -175,6 +195,262 @@ export default function Calibragem() {
 
       {detalhe && (
         <ModalDetalhe detalhe={detalhe} onClose={() => setDetalhe(null)} />
+      )}
+    </div>
+  );
+}
+
+const CRITERIOS = [
+  { valor: "EQUIPARAR_SALDO", rotulo: "Equiparar saldo financeiro (troca)" },
+  { valor: "EQUIPARAR_QTD", rotulo: "Equiparar quantidade de CPFs" },
+  { valor: "RETIRAR_SEM_ACIONAMENTO", rotulo: "Retirar sem acionamento e redistribuir" },
+];
+
+function Simulador({ operadores, onExecutado }) {
+  const opcoesOp = (operadores || []).filter((o) => (o.operador_email || "").startsWith("cobranca"));
+  const [tipo, setTipo] = useState("EQUIPARAR_SALDO");
+  const [selecionados, setSelecionados] = useState(() => opcoesOp.map((o) => o.operador_email));
+  const [origem, setOrigem] = useState("");
+  const [simulando, setSimulando] = useState(false);
+  const [erro, setErro] = useState("");
+  const [sim, setSim] = useState(null);
+  const [fase, setFase] = useState("idle"); // idle | simulado | aprovado | executado
+  const [processando, setProcessando] = useState(false);
+
+  function toggleOp(email) {
+    setSelecionados((s) => (s.includes(email) ? s.filter((e) => e !== email) : [...s, email]));
+  }
+
+  async function simular() {
+    setSimulando(true);
+    setErro("");
+    setSim(null);
+    setFase("idle");
+    try {
+      const criterio = { tipo, operadores: selecionados };
+      if (tipo === "RETIRAR_SEM_ACIONAMENTO" && origem) criterio.origem = origem;
+      const { data, error } = await supabase.rpc("calibragem_simular", { p_criterio: criterio });
+      if (error) throw error;
+      setSim(data);
+      setFase("simulado");
+    } catch (e) {
+      setErro(e?.message || String(e));
+    } finally {
+      setSimulando(false);
+    }
+  }
+
+  async function aprovar() {
+    if (!sim?.simulacao_id) return;
+    setProcessando(true);
+    setErro("");
+    try {
+      const { error } = await supabase.rpc("calibragem_aprovar_simulacao", { p_id: sim.simulacao_id });
+      if (error) throw error;
+      setFase("aprovado");
+    } catch (e) {
+      setErro(e?.message || String(e));
+    } finally {
+      setProcessando(false);
+    }
+  }
+
+  async function executar() {
+    if (!sim?.simulacao_id) return;
+    const ok = window.confirm(
+      `Executar ${sim.total_movimentacoes} movimentações? Os casos serão reatribuídos AGORA aos novos operadores (com auditoria e marcador "Retirado por nivelamento"). Esta ação move a carteira real.`
+    );
+    if (!ok) return;
+    setProcessando(true);
+    setErro("");
+    try {
+      const { data, error } = await supabase.rpc("calibragem_executar_simulacao", { p_id: sim.simulacao_id });
+      if (error) throw error;
+      setFase("executado");
+      window.alert(`Executado: ${data.executados} movimentações (${data.pulados} puladas por mudança de estado).`);
+      onExecutado?.();
+    } catch (e) {
+      setErro(e?.message || String(e));
+    } finally {
+      setProcessando(false);
+    }
+  }
+
+  const antes = sim?.antes || [];
+  const depois = sim?.depois || [];
+  const depoisPorEmail = Object.fromEntries(depois.map((d) => [d.op_email, d]));
+  const movs = sim?.movimentacoes || [];
+
+  return (
+    <div>
+      <div style={S.simConfig}>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <label style={S.simLabel}>Critério de nivelamento</label>
+          <select style={S.simSelect} value={tipo} onChange={(e) => setTipo(e.target.value)}>
+            {CRITERIOS.map((c) => (
+              <option key={c.valor} value={c.valor}>{c.rotulo}</option>
+            ))}
+          </select>
+          {tipo === "RETIRAR_SEM_ACIONAMENTO" && (
+            <>
+              <label style={{ ...S.simLabel, marginTop: 10 }}>Operador de origem (opcional)</label>
+              <select style={S.simSelect} value={origem} onChange={(e) => setOrigem(e.target.value)}>
+                <option value="">Todos os selecionados</option>
+                {opcoesOp.map((o) => (
+                  <option key={o.operador_email} value={o.operador_email}>{o.operador_nome}</option>
+                ))}
+              </select>
+            </>
+          )}
+        </div>
+        <div style={{ flex: 1, minWidth: 260 }}>
+          <label style={S.simLabel}>Operadores participantes</label>
+          <div style={S.opChips}>
+            {opcoesOp.map((o) => {
+              const on = selecionados.includes(o.operador_email);
+              return (
+                <button
+                  key={o.operador_email}
+                  type="button"
+                  onClick={() => toggleOp(o.operador_email)}
+                  style={{ ...S.opChip, ...(on ? S.opChipOn : {}) }}
+                >
+                  {o.operador_nome}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+
+      <button
+        type="button"
+        style={S.btnSimular}
+        onClick={simular}
+        disabled={simulando || selecionados.length < 2}
+      >
+        {simulando ? "Simulando…" : "▶ Simular"}
+      </button>
+
+      {erro && <div style={{ ...S.erro, marginTop: 12 }}>{erro}</div>}
+
+      {sim && (
+        <div style={{ marginTop: 20 }}>
+          <div style={S.simResumo}>
+            <div style={S.simKpi}>
+              <div style={S.simKpiV}>{sim.total_movimentacoes}</div>
+              <div style={S.simKpiR}>movimentações</div>
+            </div>
+            <div style={S.simKpi}>
+              <div style={S.simKpiV}>{sim.indice_antes}</div>
+              <div style={S.simKpiR}>índice antes</div>
+            </div>
+            <div style={S.simKpi}>
+              <div style={{ ...S.simKpiV, color: "#34d399" }}>{sim.indice_depois}</div>
+              <div style={S.simKpiR}>índice depois</div>
+            </div>
+            <div style={S.simKpi}>
+              <div style={S.simKpiV}>
+                {sim.metrica === "QTD" ? num(sim.alvo) : moeda(sim.alvo)}
+              </div>
+              <div style={S.simKpiR}>alvo ({sim.metrica === "QTD" ? "CPFs" : "saldo"})</div>
+            </div>
+          </div>
+
+          {/* Antes/Depois por operador */}
+          <div style={{ overflowX: "auto", marginTop: 16 }}>
+            <table style={S.tabela}>
+              <thead>
+                <tr>
+                  <th style={S.th}>Operador</th>
+                  <th style={{ ...S.th, textAlign: "right" }}>CPFs antes</th>
+                  <th style={{ ...S.th, textAlign: "right" }}>CPFs depois</th>
+                  <th style={{ ...S.th, textAlign: "right" }}>Saldo antes</th>
+                  <th style={{ ...S.th, textAlign: "right" }}>Saldo depois</th>
+                </tr>
+              </thead>
+              <tbody>
+                {antes.map((a) => {
+                  const d = depoisPorEmail[a.op_email] || a;
+                  const dSaldo = Number(d.saldo) - Number(a.saldo);
+                  return (
+                    <tr key={a.op_email}>
+                      <td style={S.td}>{a.op_nome}</td>
+                      <td style={{ ...S.td, textAlign: "right" }}>{num(a.qtd)}</td>
+                      <td style={{ ...S.td, textAlign: "right" }}>{num(d.qtd)}</td>
+                      <td style={{ ...S.td, textAlign: "right" }}>{moeda(a.saldo)}</td>
+                      <td style={{ ...S.td, textAlign: "right" }}>
+                        {moeda(d.saldo)}
+                        <span style={{ fontSize: 11, marginLeft: 6, color: dSaldo < 0 ? "#f87171" : "#34d399" }}>
+                          {dSaldo >= 0 ? "▲" : "▼"}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Movimentações */}
+          {!!movs.length && (
+            <div style={{ marginTop: 16 }}>
+              <div style={S.grupoTitulo}>Movimentações sugeridas ({movs.length})</div>
+              <div style={{ overflowX: "auto", maxHeight: 320, overflowY: "auto" }}>
+                <table style={S.tabela}>
+                  <thead>
+                    <tr>
+                      <th style={S.th}>Aluno</th>
+                      <th style={{ ...S.th, textAlign: "right" }}>Valor</th>
+                      <th style={S.th}>De</th>
+                      <th style={S.th}>Para</th>
+                      <th style={S.th}>Motivo</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {movs.map((m) => (
+                      <tr key={m.caso_id}>
+                        <td style={S.td}>{m.nome || m.cpf}</td>
+                        <td style={{ ...S.td, textAlign: "right" }}>{moeda(m.valor)}</td>
+                        <td style={S.td}>{m.de_nome}</td>
+                        <td style={S.td}>{m.para_nome}</td>
+                        <td style={{ ...S.td, fontSize: 12, opacity: 0.8 }}>{m.motivo}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Ações de aprovação/execução */}
+          {sim.total_movimentacoes > 0 && (
+            <div style={S.simAcoes}>
+              {fase === "simulado" && (
+                <button type="button" style={S.btnAprovar} onClick={aprovar} disabled={processando}>
+                  {processando ? "Aprovando…" : "✓ Aprovar simulação"}
+                </button>
+              )}
+              {fase === "aprovado" && (
+                <button type="button" style={S.btnExecutar} onClick={executar} disabled={processando}>
+                  {processando ? "Executando…" : "⚡ Executar movimentações"}
+                </button>
+              )}
+              {fase === "executado" && (
+                <div style={S.simOk}>✓ Executado. Carteiras atualizadas.</div>
+              )}
+              <span style={S.simDica}>
+                {fase === "simulado" && "Revise as movimentações e aprove para liberar a execução."}
+                {fase === "aprovado" && "Aprovado. A execução move a carteira real e é auditada."}
+              </span>
+            </div>
+          )}
+          {sim.total_movimentacoes === 0 && (
+            <div style={{ ...S.vazio, marginTop: 16 }}>
+              As carteiras já estão equilibradas para este critério — nenhuma movimentação sugerida.
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -490,4 +766,23 @@ const S = {
   th: { textAlign: "left", padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.2)", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, opacity: 0.6, position: "sticky", top: 0, background: "#0f172a" },
   td: { padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.08)" },
   tdMono: { padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.08)", fontFamily: "ui-monospace, monospace", fontSize: 12, opacity: 0.85 },
+  tabs: { display: "flex", gap: 4, marginBottom: 18, borderBottom: "1px solid rgba(148,163,184,0.15)" },
+  tab: { padding: "10px 16px", background: "none", border: "none", borderBottom: "2px solid transparent", color: "#94a3b8", fontWeight: 600, cursor: "pointer", fontFamily: FONTE, fontSize: 14 },
+  tabAtiva: { color: "#e2e8f0", borderBottom: "2px solid #34d399" },
+  simConfig: { display: "flex", gap: 24, flexWrap: "wrap", background: "rgba(148,163,184,0.05)", border: "1px solid rgba(148,163,184,0.12)", borderRadius: 12, padding: 16 },
+  simLabel: { display: "block", fontSize: 12, opacity: 0.65, marginBottom: 6, fontWeight: 600 },
+  simSelect: { width: "100%", padding: "9px 10px", borderRadius: 8, background: "#0f172a", color: "#e2e8f0", border: "1px solid rgba(148,163,184,0.25)", fontFamily: FONTE, fontSize: 14 },
+  opChips: { display: "flex", flexWrap: "wrap", gap: 6 },
+  opChip: { padding: "6px 10px", borderRadius: 999, border: "1px solid rgba(148,163,184,0.25)", background: "rgba(148,163,184,0.06)", color: "#94a3b8", cursor: "pointer", fontSize: 12, fontFamily: FONTE },
+  opChipOn: { background: "rgba(52,211,153,0.16)", border: "1px solid rgba(52,211,153,0.5)", color: "#a7f3d0", fontWeight: 700 },
+  btnSimular: { marginTop: 14, padding: "10px 22px", borderRadius: 10, border: "1px solid rgba(56,189,248,0.5)", background: "rgba(56,189,248,0.15)", color: "#bae6fd", fontWeight: 700, cursor: "pointer", fontSize: 14 },
+  simResumo: { display: "flex", gap: 12, flexWrap: "wrap" },
+  simKpi: { background: "rgba(148,163,184,0.08)", borderRadius: 12, padding: "12px 18px", minWidth: 120 },
+  simKpiV: { fontSize: 22, fontWeight: 800 },
+  simKpiR: { fontSize: 12, opacity: 0.6, marginTop: 2 },
+  simAcoes: { display: "flex", alignItems: "center", gap: 14, marginTop: 18, flexWrap: "wrap" },
+  btnAprovar: { padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(251,191,36,0.5)", background: "rgba(251,191,36,0.15)", color: "#fde68a", fontWeight: 700, cursor: "pointer", fontSize: 14 },
+  btnExecutar: { padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(248,113,113,0.6)", background: "rgba(248,113,113,0.18)", color: "#fecaca", fontWeight: 800, cursor: "pointer", fontSize: 14 },
+  simOk: { color: "#34d399", fontWeight: 700 },
+  simDica: { fontSize: 13, opacity: 0.6 },
 };
