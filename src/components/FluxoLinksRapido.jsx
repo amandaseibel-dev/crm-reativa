@@ -271,20 +271,41 @@ export default function FluxoLinksRapido() {
     const usuarioEmail = usuarioAtual.email || "";
     const usuarioNome = usuarioAtual.nome || usuarioAtual.email || "Operador";
 
-    // Mesma lógica já usada (e confirmada correta) dentro da ficha do aluno,
-    // em vez de depender da função marcar_link_enviado_aluno do Supabase.
-    const { error } = await supabase
-      .from("links_pagamento")
-      .update({
-        status: "LINK_ENVIADO_AO_ALUNO",
-        enviado_operador_em: agora,
-        atualizado_em: agora,
-      })
-      .eq("id", item.id);
+    // Transição de status SEMPRE via RPC oficial (SECURITY DEFINER, atômica e
+    // idempotente). O UPDATE direto na tabela falhava em silêncio sob RLS quando
+    // o operador havia ASSUMIDO o atendimento de outro colega (não é dono nem
+    // gestão): 0 linhas afetadas, sem erro, status permanecia LINK_PRONTO_PARA_ENVIO
+    // e o link voltava a aparecer preso no topo. A RPC autoriza dono/gestão/assumiu.
+    const { data: resultado, error } = await supabase.rpc(
+      "marcar_link_enviado_ao_aluno",
+      { p_link_id: item.id }
+    );
 
     if (error) {
       console.error("Erro ao marcar enviado:", error);
       alert(error.message || "Não foi possível marcar como enviado.");
+      return;
+    }
+
+    if (!resultado?.ok) {
+      const mapaErro = {
+        NAO_AUTENTICADO: "Sessão expirada. Faça login novamente.",
+        USUARIO_INATIVO: "Usuário inativo.",
+        LINK_NAO_ENCONTRADO: "Link não encontrado.",
+        SEM_PERMISSAO: "Você não é o operador responsável por este link.",
+        SEM_LINK: "Este link ainda não tem URL de pagamento.",
+        STATUS_INVALIDO: "Este link não está mais pronto para envio.",
+      };
+      console.error("RPC recusou marcar enviado:", resultado);
+      alert(mapaErro[resultado?.erro] || "Não foi possível marcar como enviado.");
+      return;
+    }
+
+    // Idempotência: se a RPC informa que o link JÁ estava enviado (ex.: clique
+    // duplo ou outra aba), não recriamos histórico/movimentação nem alteramos a
+    // ficha do aluno de novo — apenas removemos o item do topo recarregando.
+    if (resultado?.ja_enviado) {
+      await carregarTudo(usuarioAtual);
       return;
     }
 
