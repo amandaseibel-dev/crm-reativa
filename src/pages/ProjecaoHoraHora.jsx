@@ -135,6 +135,18 @@ function ProjecaoHoraHoraInner() {
   const [substituindoImportacaoId, setSubstituindoImportacaoId] = useState(null);
   const [processandoAcaoId, setProcessandoAcaoId] = useState(null);
   const [exportandoPdf, setExportandoPdf] = useState(false);
+  const [serieMeses, setSerieMeses] = useState(null);
+
+  useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const { data } = await supabase.rpc("projecao_serie_recuperado", { p_mes: mesReferencia });
+        if (vivo) setSerieMeses(Array.isArray(data) ? data : []);
+      } catch { if (vivo) setSerieMeses([]); }
+    })();
+    return () => { vivo = false; };
+  }, [mesReferencia]);
 
   async function exportarProjecaoPDF() {
     setExportandoPdf(true);
@@ -184,6 +196,26 @@ function ProjecaoHoraHoraInner() {
         doc.setFont("helvetica", "bold"); doc.setFontSize(k[1].length > 12 ? 11 : 14); doc.setTextColor(...INK); doc.text(k[1], x + 10, y + 38);
       });
       y += kh + 22;
+      // Recuperado por mês (comparativo, no topo)
+      const mlbl = (ym) => { const [an, me] = String(ym).split("-"); const ab = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"]; return `${ab[Number(me)] || me}/${an.slice(2)}`; };
+      const serie = rel.serie_meses || [];
+      if (serie.length) {
+        const chH = 150; need(chH + 10);
+        doc.setDrawColor(...LINE); doc.roundedRect(M, y, CW, chH, 8, 8, "S");
+        doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...INK); doc.text("Recuperado por mês", M + 14, y + 22);
+        const cx = M + 16, cw = CW - 32, cBottom = y + chH - 34, cArea = chH - 74;
+        const maxV = Math.max(1, ...serie.map((s) => Number(s.recuperado) || 0)); const slot = cw / serie.length, bw = Math.min(slot * 0.5, 64);
+        serie.forEach((s, i) => {
+          const v = Number(s.recuperado) || 0, h = (v / maxV) * cArea, x = cx + i * slot + (slot - bw) / 2, yb = cBottom - h;
+          doc.setFillColor(...BLUE); doc.roundedRect(x, yb, bw, Math.max(h, 1.5), 3, 3, "F");
+          doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...INK);
+          doc.text("R$ " + (v / 1000000).toFixed(2) + "M", x + bw / 2, yb - 5, { align: "center" });
+          doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...MUT);
+          doc.text(mlbl(s.mes), x + bw / 2, cBottom + 13, { align: "center" });
+        });
+        doc.setDrawColor(...LINE); doc.line(cx, cBottom, cx + cw, cBottom);
+        y += chH + 20;
+      }
       // Gráfico por operador (gestão)
       const ops = rel.por_operador || [];
       if (rel.e_gestao && ops.length) {
@@ -835,6 +867,30 @@ function ProjecaoHoraHoraInner() {
           )}
         </div>
       </div>
+
+      {/* Recuperado por mês (comparativo, no topo) */}
+      {serieMeses && serieMeses.length > 0 && (
+        <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: "14px 16px", margin: "4px 4px 12px", background: "#fff" }}>
+          <div style={{ fontSize: 13, fontWeight: 700, color: "#0d1321", marginBottom: 10 }}>Recuperado por mês</div>
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 14, height: 120, borderBottom: "1px solid #eef1f5" }}>
+            {(() => {
+              const maxV = Math.max(1, ...serieMeses.map((s) => Number(s.recuperado) || 0));
+              const ab = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+              return serieMeses.map((s, i) => {
+                const v = Number(s.recuperado) || 0;
+                const [an, me] = String(s.mes).split("-");
+                return (
+                  <div key={i} style={{ flex: "0 0 66px", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", height: "100%" }} title={moeda(v)}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: "#0d1321", marginBottom: 3 }}>{"R$ " + (v / 1000000).toFixed(2) + "M"}</div>
+                    <div style={{ width: 36, background: "#2563eb", borderRadius: "4px 4px 0 0", height: Math.max((v / maxV) * 90, 3) }} />
+                    <div style={{ fontSize: 11, color: "#64748b", marginTop: 5 }}>{(ab[Number(me)] || me) + "/" + an.slice(2)}</div>
+                  </div>
+                );
+              });
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Última atualização do snapshot (sem polling: só muda ao clicar Atualizar). */}
       <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", margin: "2px 4px 10px", fontSize: 12.5, color: "#64748b" }}>
