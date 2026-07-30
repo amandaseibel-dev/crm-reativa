@@ -496,6 +496,7 @@ export default function App() {
     { rota: "/aluno", label: "Base", icone: "User", secao: "Operação" },
     { rota: "/relatorio-receptivo", label: "Relatório Receptivo", icone: "Phone", secao: "Operação" }, { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
+    { rota: "/termos-adm", label: "Validação de Termos", icone: "CheckCircle2", secao: "Financeiro" },
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
@@ -550,6 +551,10 @@ export default function App() {
     if (item.rota === "/usuarios") {
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       if (!EMAILS_PODE_GERIR_USUARIOS.includes(email)) return false;
+    }
+    if (item.rota === "/termos-adm") {
+      const emVt = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emVt);
     }
     if (item.rota === "/minha-agenda") { const emMa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return emMa === "amanda.seibel@aelbra.com.br"; } if (item.rota === "/envio-gmail") { const emEg = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emEg); } if (item.rota === "/importar-acordos") { const emIa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emIa); } if (item.rota === "/ferramentas") { const emFe = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emFe); } return podeAcessar(perfil, item.rota);
   });
@@ -666,12 +671,20 @@ export default function App() {
                   >
                     <IconeComponente size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
                     {!sidebarRecolhida && <span>{item.label}</span>}
-                {item.rota === "/financeiro-hub" && (linksAguardando + termosAguardandoValidacao + baixasAguardando) > 0 && (
+                {item.rota === "/financeiro-hub" && (linksAguardando + baixasAguardando) > 0 && (
                   <span
                     className="badge-pendente"
-                    title={`${linksAguardando} link(s) aguardando resposta · ${termosAguardandoValidacao} termo(s) aguardando validação · ${baixasAguardando} baixa(s) aguardando`}
+                    title={`${linksAguardando} link(s) aguardando resposta · ${baixasAguardando} baixa(s) aguardando`}
                   >
-                    {linksAguardando + termosAguardandoValidacao + baixasAguardando}
+                    {linksAguardando + baixasAguardando}
+                  </span>
+                )}
+                {item.rota === "/termos-adm" && termosAguardandoValidacao > 0 && (
+                  <span
+                    className="badge-pendente"
+                    title={`${termosAguardandoValidacao} termo(s) aguardando validação`}
+                  >
+                    {termosAguardandoValidacao}
                   </span>
                 )}
                 {item.rota === "/aluno" && termosRejeitados > 0 && (
