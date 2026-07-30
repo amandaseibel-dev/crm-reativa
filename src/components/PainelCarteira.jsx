@@ -82,6 +82,41 @@ function proximaAcaoDeStatus(statusNovo) {
   return "CONTATAR";
 }
 
+// Auto-retorno por status (prazos definidos com a gestao). Retorna uma data
+// "YYYY-MM-DD" sugerida a partir do status tabulado, ou null quando o retorno
+// deve ser manual. O operador sempre pode sobrescrever no formulario.
+function adicionarDiasUteisData(base, n) {
+  const d = new Date(base);
+  let add = 0;
+  while (add < n) {
+    d.setDate(d.getDate() + 1);
+    const dow = d.getDay();
+    if (dow !== 0 && dow !== 6) add += 1;
+  }
+  return d;
+}
+
+function retornoAutomaticoDeStatus(statusNovo) {
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+  const uteis = {
+    MENSAGEM_ENVIADA: 2,
+    SOLICITADO_LINK: 1,
+    AGUARDANDO_LINK: 1,
+    LINK_PRONTO_PARA_ENVIO: 1,
+    TERMO_ENVIADO_ALUNO: 2,
+    NAO_LOCALIZADO: 1,
+    AGUARDANDO_COMPROVANTE: 3,
+    ACORDO_FECHADO: 2,
+  };
+  if (!(statusNovo in uteis)) return null; // RETORNAR_DEPOIS/NEGOCIACAO_24H = manual
+  const d = adicionarDiasUteisData(hoje, uteis[statusNovo]);
+  const yyyy = d.getFullYear();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+}
+
 function formatarMoeda(valor) {
   const n = Number(valor) || 0;
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -250,7 +285,15 @@ const STATUS_NAO_ACIONAVEIS = ["JURIDICO", "CANCELAMENTO_COBRANCA", "SUSPENSAO_C
 function ehNaoAcionavel(a) {
   const s = String(a?.status_atual || "").toUpperCase();
   if (s.startsWith("QUITAD")) return true; // QUITADO / QUITADO_MANUAL / QUITACAO...
-  return STATUS_NAO_ACIONAVEIS.includes(a?.status_atual);
+  if (STATUS_NAO_ACIONAVEIS.includes(a?.status_atual)) return true;
+  // "Aguardando confirmacao de pagamento": caso ja foi para a etapa de
+  // confirmacao (operador registrou o valor). Nao ha cobranca a fazer enquanto
+  // a confirmacao nao e resolvida -- sai da fila operacional e segue apenas no
+  // fluxo de confirmacao. Se a confirmacao for rejeitada, o status volta ao
+  // normal e o caso reaparece. O status vem como texto humano em status_jornada.
+  const sj = String(a?.status_jornada || "").toUpperCase();
+  if (sj.includes("AGUARDANDO CONFIRMAÇÃO") || sj.includes("AGUARDANDO CONFIRMACAO")) return true;
+  return false;
 }
 
 // Dias de atraso de uma parcela (hoje - vencimento), em dias inteiros.
@@ -1254,6 +1297,11 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       if (retornoData) {
         atualizacaoAluno.data_retorno = retornoData;
         atualizacaoAluno.hora_retorno = retornoHora || null;
+      } else {
+        // Sem data digitada: agenda o retorno automaticamente pela regra do
+        // status (Fase 3). Alguns status nao geram retorno automatico.
+        const retornoAuto = retornoAutomaticoDeStatus(statusNovo);
+        if (retornoAuto) atualizacaoAluno.data_retorno = retornoAuto;
       }
       if (observacao !== (a.observacao || "")) {
         atualizacaoAluno.observacao = observacao;
@@ -1504,7 +1552,16 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     })();
     return () => { ativo = false; };
   }, [casos, email, veTudo, operadorFiltro]);
-  const saldoDe = (a) => (saldoView[normCpf(a && a.cpf)] ? saldoView[normCpf(a && a.cpf)].saldo : 0);
+  const saldoDe = (a) => {
+    const v = saldoView[normCpf(a && a.cpf)];
+    if (v && Number.isFinite(v.saldo)) return v.saldo;
+    // Fallback quando a view analitica nao trouxe o CPF (kill switch ligado,
+    // corrida de carga, ou CPF fora da view): usa o valor em aberto do proprio
+    // caso em vez de 0. Sem isso a ordenacao "Maior valor primeiro" jogava os
+    // maiores devedores para o fim da lista (todos empatados em 0).
+    const bruto = Number(a && a.valor_em_aberto);
+    return Number.isFinite(bruto) ? bruto : 0;
+  };
   const qtdTitulosDe = (a) => (saldoView[normCpf(a && a.cpf)] ? saldoView[normCpf(a && a.cpf)].qtd : 0);
   const listaFiltrada = useMemo(() => {
     // Com um card selecionado, a lista vem dos registros carregados do

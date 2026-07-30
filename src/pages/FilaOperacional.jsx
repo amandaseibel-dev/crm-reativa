@@ -241,153 +241,6 @@ function definirProximaAcao(status) {
   return "CONTATAR";
 }
 
-// --- Auto-retorno por status (Fase 3, prazos definidos com a gestao) ---
-function adicionarDiasCorridos(base, n) {
-  const d = new Date(base);
-  d.setDate(d.getDate() + n);
-  return d;
-}
-
-function adicionarDiasUteis(base, n) {
-  const d = new Date(base);
-  let adicionados = 0;
-  while (adicionados < n) {
-    d.setDate(d.getDate() + 1);
-    const dow = d.getDay(); // 0=domingo, 6=sabado
-    if (dow !== 0 && dow !== 6) adicionados += 1;
-  }
-  return d;
-}
-
-// Data de retorno sugerida automaticamente a partir do status tabulado.
-// Retorna um Date (base para ISO) ou null quando o retorno deve ser manual.
-// O operador sempre pode sobrescrever digitando a data no formulario.
-function retornoAutomaticoPorStatus(status, aluno, saldosPorCpf) {
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
-
-  switch (status) {
-    case "MENSAGEM_ENVIADA":
-      return adicionarDiasUteis(hoje, 2);
-    case "SOLICITADO_LINK":
-    case "AGUARDANDO_LINK":
-      return adicionarDiasUteis(hoje, 1);
-    case "LINK_ENVIADO_ALUNO":
-      return adicionarDiasUteis(hoje, 3);
-    case "NAO_LOCALIZADO":
-      return adicionarDiasUteis(hoje, 1);
-    case "TERMO_ENVIADO_ALUNO":
-      return adicionarDiasUteis(hoje, 2);
-    case "ACORDO_FECHADO": {
-      // Acompanhar pagamento: ancora no proximo vencimento em aberto do aluno.
-      // Se ja passou (ou nao ha), cai para +2 dias uteis.
-      const venc = saldosPorCpf && aluno ? saldosPorCpf[aluno.cpf]?.menorVencimento : null;
-      if (venc) {
-        const d = new Date(`${venc}T00:00:00`);
-        if (!Number.isNaN(d.getTime()) && d >= hoje) return d;
-      }
-      return adicionarDiasUteis(hoje, 2);
-    }
-    // RETORNAR_DEPOIS e ALUNO_EM_NEGOCIACAO_24H exigem data manual (validada
-    // antes). Demais status nao agendam retorno automatico.
-    default:
-      return null;
-  }
-}
-
-// --- Sugestao de proxima acao (Fase 4) ---
-// Diferenca em dias entre duas datas "YYYY-MM-DD" (alvo - hoje).
-function diasEntreDatas(hojeStr, alvoStr) {
-  const a = new Date(`${hojeStr}T00:00:00`);
-  const b = new Date(`${alvoStr}T00:00:00`);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
-  return Math.round((b - a) / 86400000);
-}
-
-// Sugere o que o operador deve fazer agora, cruzando retorno agendado +
-// vencimento do boleto + estado do caso. Retorna {emoji,texto,bg,cor} ou null.
-function sugestaoProximaAcao(aluno, saldosPorCpf, hojeStr) {
-  if (!aluno) return null;
-  const status = aluno.status_jornada || aluno.status_atual || aluno.status || "";
-  // Casos travados (juridico/cancelamento) ja mostram o proprio aviso.
-  if (STATUS_BLOQUEADOS_ACIONAMENTO.includes(status)) return null;
-
-  // 1) Retorno agendado devido tem prioridade.
-  const ret = aluno.data_retorno ? String(aluno.data_retorno).slice(0, 10) : null;
-  if (ret) {
-    const d = diasEntreDatas(hojeStr, ret);
-    if (d === 0) return { emoji: "↩️", texto: "Retornar hoje (retorno agendado)", bg: "#0e7490", cor: "#cffafe" };
-    if (d !== null && d < 0) return { emoji: "↩️", texto: `Retorno atrasado há ${Math.abs(d)} dia(s)`, bg: "#7c2d12", cor: "#fed7aa" };
-  }
-
-  // 2) Vencimento do boleto em aberto (mais proximo).
-  const venc = saldosPorCpf && saldosPorCpf[aluno.cpf] ? saldosPorCpf[aluno.cpf].menorVencimento : null;
-  if (venc) {
-    const d = diasEntreDatas(hojeStr, venc);
-    if (d !== null) {
-      if (d < 0) return { emoji: "🔴", texto: `Boleto vencido há ${Math.abs(d)} dia(s) — cobrar/renegociar`, bg: "#7f1d1d", cor: "#fecaca" };
-      if (d === 0) return { emoji: "⏰", texto: "Boleto vence hoje — enviar lembrete", bg: "#78350f", cor: "#fde68a" };
-      if (d === 1) return { emoji: "📅", texto: "Boleto vence amanhã — enviar lembrete de pagamento", bg: "#713f12", cor: "#fef08a" };
-      if (d <= 3) return { emoji: "📩", texto: `Boleto vence em ${d} dias — enviar lembrete`, bg: "#1e3a5f", cor: "#bfdbfe" };
-    }
-  }
-
-  // 3) Estado do caso.
-  if (aluno.proxima_acao === "AGUARDAR_COMPROVANTE") {
-    return { emoji: "📎", texto: "Cobrar comprovante de pagamento", bg: "#334155", cor: "#e2e8f0" };
-  }
-  if (!aluno.data_ultimo_acionamento) {
-    return { emoji: "🆕", texto: "Primeiro acionamento — fidelizar o caso", bg: "#065f46", cor: "#d1fae5" };
-  }
-  return null;
-}
-
-// Regua de prioridade da fila de acionamento (definida com a gestao):
-//   1) Retorno agendado devido (hoje/atrasado) primeiro, mais atrasado no topo.
-//   2) Depois por vencimento em aberto: mais vencido / mais proximo de vencer.
-//   3) Depois maior valor em aberto (desempate).
-//   4) Depois quem esta ha mais tempo sem acionamento (nunca acionado no topo).
-// `info` = mapa por CPF vindo de carregarSaldosPorCpf ({ total, menorVencimento }).
-function chavePrioridadeFila(aluno, info, hojeStr) {
-  const dado = info && info[aluno && aluno.cpf];
-  const ret = aluno && aluno.data_retorno ? String(aluno.data_retorno).slice(0, 10) : null;
-  return {
-    retDevido: Boolean(ret && ret <= hojeStr),
-    ret,
-    venc: (dado && dado.menorVencimento) || null,
-    saldo: (dado && dado.total) || 0,
-    // Nunca acionado (null) -> -Infinity -> topo na ordenacao ascendente.
-    ua: aluno && aluno.data_ultimo_acionamento
-      ? new Date(aluno.data_ultimo_acionamento).getTime()
-      : -Infinity,
-  };
-}
-
-function compararPrioridadeFila(a, b, info, hojeStr) {
-  const ka = chavePrioridadeFila(a, info, hojeStr);
-  const kb = chavePrioridadeFila(b, info, hojeStr);
-
-  // 1) Retorno devido primeiro; entre eles, o mais atrasado (data menor) no topo.
-  if (ka.retDevido !== kb.retDevido) return ka.retDevido ? -1 : 1;
-  if (ka.retDevido && kb.retDevido && ka.ret !== kb.ret) {
-    return ka.ret < kb.ret ? -1 : 1;
-  }
-
-  // 2) Vencimento em aberto ascendente (mais vencido/proximo primeiro); sem
-  //    vencimento vai para o fim deste criterio.
-  if (ka.venc !== kb.venc) {
-    if (!ka.venc) return 1;
-    if (!kb.venc) return -1;
-    return ka.venc < kb.venc ? -1 : 1;
-  }
-
-  // 3) Maior valor em aberto primeiro.
-  if (ka.saldo !== kb.saldo) return kb.saldo - ka.saldo;
-
-  // 4) Mais tempo sem acionamento (ascendente; nunca acionado no topo).
-  return ka.ua - kb.ua;
-}
-
 export default function FilaOperador() {
   const navigate = useNavigate();
   const [usuarioLogado, setUsuarioLogado] = useState(null);
@@ -443,12 +296,12 @@ export default function FilaOperador() {
 
     const { data, error } = await supabase
       .from("acordos_titulos")
-      .select("cpf, saldo_corrigido, valor_original, situacao, status, acordo_id, vencimento")
+      .select("cpf, saldo_corrigido, valor_original, situacao, status, acordo_id")
       .in("cpf", cpfsUnicos);
 
     if (error) {
       console.error("Erro ao carregar saldos financeiros:", error);
-      return {};
+      return;
     }
 
     // HOTFIX parcela negociada -- SO EXIBICAO.
@@ -470,21 +323,13 @@ export default function FilaOperador() {
       const valor = Number(titulo.saldo_corrigido ?? titulo.valor_original ?? 0);
       const negociada =
         titulo.status === "vinculada" || titulo.situacao === "NEGOCIADO" || !!titulo.acordo_id;
-      const atual = mapa[titulo.cpf] || { total: 0, negociado: 0, menorVencimento: null };
+      const atual = mapa[titulo.cpf] || { total: 0, negociado: 0 };
       atual.total += valor;
       if (negociada) atual.negociado += valor;
-      // Menor vencimento em aberto do aluno -- alimenta a ordenacao da fila por
-      // vencimento (mais vencido / mais proximo de vencer sobe). Datas ISO
-      // (YYYY-MM-DD) comparam corretamente como string.
-      const venc = titulo.vencimento ? String(titulo.vencimento).slice(0, 10) : null;
-      if (venc && (!atual.menorVencimento || venc < atual.menorVencimento)) {
-        atual.menorVencimento = venc;
-      }
       mapa[titulo.cpf] = atual;
     });
 
     setSaldosPorCpf(mapa);
-    return mapa;
   }
 
   async function carregarCasosFinalizados() {
@@ -572,15 +417,10 @@ export default function FilaOperador() {
         // (zerado real) saem da fila operacional -- não tem cobrança a fazer
         // neles. Se a confirmação for rejeitada, o caso volta pro status normal
         // e reaparece aqui.
-        // "Aguardando confirmação de pagamento": caso já foi enviado para a
-        // etapa de confirmação (operador registrou o valor). Não há cobrança a
-        // fazer enquanto a confirmação não é resolvida -- sai da fila operacional
-        // e segue apenas no fluxo de confirmação. Se a confirmação for rejeitada,
-        // o status volta ao normal e o caso reaparece aqui.
         query = query.not(
           "status_jornada",
           "in",
-          '("QUITADO_MANUAL","QUITADO","AGUARDANDO_BAIXA","BAIXA_REALIZADA","SEM_SALDO_EM_ABERTO","Aguardando confirmação de pagamento")'
+          '("QUITADO_MANUAL","QUITADO","AGUARDANDO_BAIXA","BAIXA_REALIZADA","SEM_SALDO_EM_ABERTO")'
         );
       }
 
@@ -683,17 +523,8 @@ export default function FilaOperador() {
       const urgentes = emCobranca.filter((a) => a.nivel_criticidade === "URGENTE");
       const resto = emCobranca.filter((a) => a.nivel_criticidade !== "URGENTE");
 
-      // Ordena pela regua de prioridade (retorno -> vencimento -> valor ->
-      // tempo sem acionamento). Precisa dos saldos/vencimentos por CPF ANTES de
-      // setar, entao aguardamos o mapa aqui (uma query em lote, ja existente).
-      const info = (await carregarSaldosPorCpf(dados.map((a) => a.cpf))) || {};
-      const hojeStr = hojeLocalBR();
-      const cmp = (x, y) => compararPrioridadeFila(x, y, info, hojeStr);
-      urgentes.sort(cmp);
-      resto.sort(cmp);
-      foraDaCobranca.sort(cmp);
-
       setAlunos([...urgentes, ...resto, ...foraDaCobranca]);
+      carregarSaldosPorCpf(dados.map((a) => a.cpf));
     } catch (e) {
       console.error("Erro inesperado ao carregar fila:", e);
       setErro("Erro inesperado ao carregar a fila.");
@@ -1049,18 +880,8 @@ export default function FilaOperador() {
         null
       );
 
-      // Retorno: se o operador digitou uma data, ela manda. Senao, agenda
-      // automaticamente pela regra do status (Fase 3). Alguns status nao geram
-      // retorno automatico (retornoAutomaticoPorStatus retorna null).
-      const retornoAuto = retornoAutomaticoPorStatus(
-        statusFinalizacao,
-        alunoSelecionado,
-        saldosPorCpf
-      );
       const retornoIso = dataRetorno
         ? new Date(dataRetorno).toISOString()
-        : retornoAuto
-        ? retornoAuto.toISOString()
         : null;
 
       const extraAluno = ehStatusComProcesso
@@ -1453,27 +1274,6 @@ export default function FilaOperador() {
                         {aluno.observacao ? ` ${aluno.observacao}` : ""}
                       </div>
                     )}
-
-                    {(() => {
-                      const sugestao = sugestaoProximaAcao(aluno, saldosPorCpf, hojeLocalBR());
-                      if (!sugestao) return null;
-                      return (
-                        <div
-                          style={{
-                            background: sugestao.bg,
-                            color: sugestao.cor,
-                            borderRadius: 8,
-                            padding: "8px 10px",
-                            margin: "8px 0",
-                            fontWeight: 700,
-                            fontSize: 13,
-                            textAlign: "left",
-                          }}
-                        >
-                          {sugestao.emoji} {sugestao.texto}
-                        </div>
-                      );
-                    })()}
 
                     <div style={gradeInfo}>
                       <div>
