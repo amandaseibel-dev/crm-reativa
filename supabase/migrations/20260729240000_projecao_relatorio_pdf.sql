@@ -13,6 +13,7 @@ AS $function$
 DECLARE
   v_email text := lower(coalesce(auth.email(),''));
   v_gestao boolean := v_email IN ('amanda.seibel@aelbra.com.br','cobranca04@aelbra.com.br');
+  v_ini date := to_date(p_mes||'-01','YYYY-MM-DD');
   v_out jsonb;
 BEGIN
   IF coalesce(auth.role(),'') <> 'service_role' AND public.perfil_do_usuario_atual() IS NULL THEN
@@ -30,6 +31,17 @@ BEGIN
       AND to_char(p.data_pagamento,'YYYY-MM') = p_mes
       AND (v_gestao OR lower(p.operador_email) = v_email)
   ),
+  serie AS (
+    SELECT to_char(p.data_pagamento,'YYYY-MM') ym,
+           round(sum(coalesce(p.valor_pago,0)),2) recuperado,
+           round(sum(coalesce(p.valor_honorario,0)),2) honorarios
+    FROM public.pagamentos p
+    WHERE p.retroativo = false
+      AND p.data_pagamento >= (v_ini - interval '5 months')
+      AND p.data_pagamento <  (v_ini + interval '1 month')
+      AND (v_gestao OR lower(p.operador_email) = v_email)
+    GROUP BY 1
+  ),
   tot AS (SELECT round(sum(vp),2) recuperado, round(sum(vh),2) honorarios, count(*) pagamentos, count(distinct dia) dias FROM base),
   ope AS (SELECT op_email, min(op_nome) operador, count(*) pagamentos, round(sum(vp),2) recuperado, round(sum(vh),2) honorarios
           FROM base WHERE op_email IS NOT NULL GROUP BY op_email),
@@ -42,6 +54,7 @@ BEGIN
     'e_gestao', v_gestao,
     'operador_nome', CASE WHEN v_gestao THEN NULL ELSE (SELECT min(operador) FROM ope) END,
     'total', (SELECT to_jsonb(t) FROM tot t),
+    'serie_meses', (SELECT coalesce(jsonb_agg(jsonb_build_object('mes',ym,'recuperado',recuperado,'honorarios',honorarios) ORDER BY ym),'[]'::jsonb) FROM serie),
     'por_operador', CASE WHEN v_gestao THEN
         (SELECT coalesce(jsonb_agg(jsonb_build_object('operador',operador,'pagamentos',pagamentos,'recuperado',recuperado,'honorarios',honorarios) ORDER BY recuperado DESC),'[]'::jsonb) FROM ope)
       ELSE '[]'::jsonb END,
