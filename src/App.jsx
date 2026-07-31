@@ -289,7 +289,7 @@ export default function App() {
   const [parcelasVencendo, setParcelasVencendo] = useState([]);
   const [baixasAguardando, setBaixasAguardando] = useState(0);
   const [elogiosPendentes, setElogiosPendentes] = useState(0);
-  const [tema, setTema] = useState("claro"); // tema fixo claro
+  const [tema, setTema] = useState(() => localStorage.getItem("reativa_tema") || "claro"); // tema opcional (claro/escuro)
   const [sidebarRecolhida, setSidebarRecolhida] = useState(() => {
     return localStorage.getItem("reativa_sidebar_recolhida") === "1";
   });
@@ -642,8 +642,16 @@ export default function App() {
               </select>
             )}
             <button
+              type="button"
+              className="botao-tema"
+              onClick={alternarTema}
+              title="Alternar tema claro/escuro"
+            >
+              {tema === "escuro" ? "☀️ Tema claro" : "🌙 Tema escuro"}
+            </button>
+            <button
               style={{
-                marginTop: 18,
+                marginTop: 10,
                 width: "100%",
                 padding: "9px 10px",
                 borderRadius: 10,

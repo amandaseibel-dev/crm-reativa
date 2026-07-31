@@ -413,3 +413,24 @@ button:hover {
 .app[data-tema="claro"] p {
   color: #475569;
 }
+
+/* ===== Modo escuro (opcional) — escurece o shell; telas com cards claros
+   continuam legíveis; telas antigas sem card serão refinadas aos poucos ===== */
+.app[data-tema="escuro"] {
+  background: #0b1220;
+}
+.app[data-tema="escuro"] .content {
+  background: #0b1220;
+  color: #e2e8f0;
+}
+.app[data-tema="escuro"] .main {
+  background: transparent;
+}
+.app[data-tema="escuro"] .content h1,
+.app[data-tema="escuro"] .content h2,
+.app[data-tema="escuro"] .content h3 {
+  color: #f8fafc;
+}
+.app[data-tema="escuro"] .cabecalho-usuario span {
+  color: #e2e8f0;
+}
