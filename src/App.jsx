@@ -76,6 +76,7 @@ import AvisosBadge from "./components/AvisosBadge";
 import CentralAvisos from "./pages/CentralAvisos";
 import TaxaConversao from "./pages/TaxaConversao";
 import Calibragem from "./pages/Calibragem";
+import Efetividade from "./pages/Efetividade";
 import PainelGeral from "./pages/PainelGeral";
 import NotificacoesPopup from "./components/NotificacoesPopup";
 import { AvatarFoto } from "./components/AvatarFoto";
@@ -109,6 +110,7 @@ function BloqueioAcesso({ info, email, onSair }) {
 }
 function podeAcessar(perfil, rota) {
   if (rota === "/calibragem") return perfil !== "operador";
+  if (rota === "/efetividade") return true; // operador vê o próprio; gestão vê todos
   if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
   const permissoes = {
     gerencia: [
@@ -507,6 +509,7 @@ export default function App() {
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
     { rota: "/termos-adm", label: "Validação de Termos", icone: "CheckCircle2", secao: "Financeiro" },
     { rota: "/calibragem", label: "⚖️ Calibragem", icone: "Scale", secao: "Gestão" },
+    { rota: "/efetividade", label: "📈 Efetividade", icone: "BarChart3", secao: "Operação" },
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
     { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
@@ -833,6 +836,14 @@ export default function App() {
               element={
                 <RotaProtegida usuario={usuario} rota="/calibragem">
                   <Calibragem />
+                </RotaProtegida>
+              }
+            />
+            <Route
+              path="/efetividade"
+              element={
+                <RotaProtegida usuario={usuario} rota="/efetividade">
+                  <Efetividade />
                 </RotaProtegida>
               }
             />
