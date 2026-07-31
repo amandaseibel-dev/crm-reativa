@@ -156,6 +156,13 @@ export default function Calibragem() {
         </button>
         <button
           type="button"
+          style={{ ...S.tab, ...(vista === "criticidade" ? S.tabAtiva : {}) }}
+          onClick={() => setVista("criticidade")}
+        >
+          Criticidade
+        </button>
+        <button
+          type="button"
           style={{ ...S.tab, ...(vista === "simulador" ? S.tabAtiva : {}) }}
           onClick={() => setVista("simulador")}
         >
@@ -169,6 +176,8 @@ export default function Calibragem() {
         <Simulador operadores={operadores} onExecutado={atualizar} />
       ) : vista === "comparacao" ? (
         <Comparacao operadores={operadores} />
+      ) : vista === "criticidade" ? (
+        <Criticidade />
       ) : carregando ? (
         <div style={S.vazio}>Carregando…</div>
       ) : !operadores.length ? (
@@ -205,6 +214,101 @@ export default function Calibragem() {
       {detalhe && (
         <ModalDetalhe detalhe={detalhe} onClose={() => setDetalhe(null)} />
       )}
+    </div>
+  );
+}
+
+const NIVEIS_CRIT = [
+  { key: "critico", rotulo: "Crítico", cor: "#f87171" },
+  { key: "urgente", rotulo: "Urgente", cor: "#fb923c" },
+  { key: "atencao", rotulo: "Atenção", cor: "#fbbf24" },
+  { key: "normal", rotulo: "Normal", cor: "#34d399" },
+];
+
+function Criticidade() {
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+  const [dados, setDados] = useState(null);
+
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      setCarregando(true);
+      setErro("");
+      try {
+        const { data, error } = await supabase.rpc("calibragem_criticidade_auto");
+        if (error) throw error;
+        if (ativo) setDados(data);
+      } catch (e) {
+        if (ativo) setErro(e?.message || String(e));
+      } finally {
+        if (ativo) setCarregando(false);
+      }
+    })();
+    return () => { ativo = false; };
+  }, []);
+
+  if (carregando) return <div style={S.vazio}>Calculando criticidade…</div>;
+  if (erro) return <div style={S.erro}>{erro}</div>;
+  const ops = dados?.operadores || [];
+  const pesos = dados?.config?.pesos || {};
+
+  return (
+    <div>
+      <div style={{ ...S.simConfig, marginBottom: 18 }}>
+        <div>
+          <div style={S.grupoTitulo}>Regras ativas (editáveis pela gestão)</div>
+          <div style={{ fontSize: 13, opacity: 0.85, lineHeight: 1.7 }}>
+            +{pesos.dias_vencido?.peso} se vencido ≥ {pesos.dias_vencido?.min} dias · +
+            {pesos.dias_sem_acionamento?.peso} se sem acionamento ≥ {pesos.dias_sem_acionamento?.min} dias · +
+            {pesos.valor?.peso} se saldo ≥ {moeda(pesos.valor?.min)} · +
+            {pesos.termo_pendente?.peso} se termo pendente · +{pesos.fim_mes?.peso} perto do fim do mês
+            {dados?.fim_mes ? " (ativo agora)" : ""}
+            <br />
+            <span style={{ opacity: 0.7 }}>
+              Score ≥ {dados?.config?.niveis?.critico} → Crítico · ≥ {dados?.config?.niveis?.urgente} → Urgente · ≥{" "}
+              {dados?.config?.niveis?.atencao} → Atenção · senão Normal.
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 6 }}>
+        {NIVEIS_CRIT.map((n) => (
+          <span key={n.key} style={{ fontSize: 12, opacity: 0.8 }}>
+            <span style={{ display: "inline-block", width: 10, height: 10, borderRadius: 2, background: n.cor, marginRight: 5 }} />
+            {n.rotulo}
+          </span>
+        ))}
+      </div>
+
+      {ops.map((o) => {
+        const total = NIVEIS_CRIT.reduce((s, n) => s + Number(o[n.key]?.qtd || 0), 0) || 1;
+        return (
+          <div key={o.operador_email} style={{ marginBottom: 14 }}>
+            <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
+              <strong>{o.operador_nome}</strong>
+              <span style={{ opacity: 0.7 }}>
+                {NIVEIS_CRIT.map((n) => `${num(o[n.key]?.qtd || 0)} ${n.rotulo.toLowerCase()}`).join(" · ")}
+              </span>
+            </div>
+            <div style={{ display: "flex", height: 22, borderRadius: 6, overflow: "hidden" }}>
+              {NIVEIS_CRIT.map((n) => {
+                const q = Number(o[n.key]?.qtd || 0);
+                const pct = (q / total) * 100;
+                if (!pct) return null;
+                return (
+                  <div
+                    key={n.key}
+                    title={`${n.rotulo}: ${num(q)} · ${moeda(o[n.key]?.valor)}`}
+                    style={{ width: `${pct}%`, background: n.cor, minWidth: q ? 2 : 0 }}
+                  />
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
