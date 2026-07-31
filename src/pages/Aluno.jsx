@@ -718,7 +718,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   useEffect(() => {
     const destino = TABULACAO_PARA_BLOCO[statusFinalizacao] || "";
     setBlocoAberto(destino);
-    if (destino && abaFicha === "tabulacoes") {
+    if (destino && (abaFicha === "dados" || abaFicha === "tabulacoes")) {
       const t = setTimeout(() => {
         const el = blocosRef.current[destino];
         if (el && typeof el.scrollIntoView === "function") {
@@ -1839,8 +1839,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               </div>
               <div style={barraAbasFicha}>
                 {[
-                  ["dados", "Resumo"],
-                  ["tabulacoes", "Tabulação"],
+                  ["dados", "Resumo e tabulação"],
                   ...(emailLiberadoAluno ? [["email", "📧 E-mail"]] : []),
                   ["financeiro", "Financeiro"],
                   ["adm", "ADM"],
@@ -2060,7 +2059,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               <TelefonesAluno aluno={alunoSelecionado} />
               </>
               )}
-              {abaFicha === "tabulacoes" && (
+              {(abaFicha === "dados" || abaFicha === "tabulacoes") && (
               <>
               {[
                 "LINK_PRONTO_PARA_ENVIO",
