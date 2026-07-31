@@ -149,6 +149,13 @@ export default function Calibragem() {
         </button>
         <button
           type="button"
+          style={{ ...S.tab, ...(vista === "comparacao" ? S.tabAtiva : {}) }}
+          onClick={() => setVista("comparacao")}
+        >
+          Comparação
+        </button>
+        <button
+          type="button"
           style={{ ...S.tab, ...(vista === "simulador" ? S.tabAtiva : {}) }}
           onClick={() => setVista("simulador")}
         >
@@ -160,6 +167,8 @@ export default function Calibragem() {
 
       {vista === "simulador" ? (
         <Simulador operadores={operadores} onExecutado={atualizar} />
+      ) : vista === "comparacao" ? (
+        <Comparacao operadores={operadores} />
       ) : carregando ? (
         <div style={S.vazio}>Carregando…</div>
       ) : !operadores.length ? (
@@ -196,6 +205,135 @@ export default function Calibragem() {
       {detalhe && (
         <ModalDetalhe detalhe={detalhe} onClose={() => setDetalhe(null)} />
       )}
+    </div>
+  );
+}
+
+function anoQtd(ind, ano) {
+  const a = (ind?.anos || []).find((x) => Number(x.ano) === ano);
+  return a ? Number(a.qtd || 0) : 0;
+}
+
+const METRICAS_COMP = [
+  { key: "cpfs", rotulo: "CPFs", get: (i) => qv(i, "cpfs").qtd, fmt: num, ruim: false },
+  { key: "saldo", rotulo: "Saldo", get: (i) => qv(i, "saldo_total").valor, fmt: moeda, ruim: false },
+  { key: "medio", rotulo: "Médio/CPF", get: (i) => Number(i?.valor_medio_cpf || 0), fmt: moeda, ruim: false },
+  { key: "criticos", rotulo: "Críticos", get: (i) => qv(i, "criticos").qtd, fmt: num, ruim: true },
+  { key: "sem_ac", rotulo: "Sem acionam.", get: (i) => qv(i, "sem_acionamento").qtd, fmt: num, ruim: true },
+  { key: "antigos", rotulo: "Antigos 360+", get: (i) => qv(i, "antigos").qtd, fmt: num, ruim: true },
+  { key: "ac_venc", rotulo: "Acordos venc.", get: (i) => qv(i, "acordos_vencidos").qtd, fmt: num, ruim: true },
+  { key: "d2026", rotulo: "Dívidas 2026", get: (i) => anoQtd(i, 2026), fmt: num, ruim: true },
+];
+
+function indiceEquilibrio(vals) {
+  const arr = vals.filter((v) => typeof v === "number");
+  if (arr.length < 2) return 100;
+  const avg = arr.reduce((a, b) => a + b, 0) / arr.length;
+  if (!avg) return 100;
+  const variance = arr.reduce((a, b) => a + (b - avg) ** 2, 0) / arr.length;
+  const cv = Math.sqrt(variance) / avg;
+  return Math.max(0, Math.round((1 - cv) * 1000) / 10);
+}
+
+function Comparacao({ operadores }) {
+  const ops = (operadores || []).filter((o) => (o.operador_email || "").startsWith("cobranca"));
+  if (!ops.length) {
+    return <div style={S.vazio}>Sem snapshot para comparar. Clique em “Atualizar dados”.</div>;
+  }
+
+  // máximos por métrica (para normalizar barras) e médias (para alertas)
+  const stats = {};
+  for (const m of METRICAS_COMP) {
+    const vals = ops.map((o) => m.get(o.indicadores || {}));
+    stats[m.key] = {
+      max: Math.max(...vals, 0),
+      avg: vals.reduce((a, b) => a + b, 0) / vals.length,
+      indice: indiceEquilibrio(vals),
+    };
+  }
+
+  // alertas automáticos de desequilíbrio (item 2.2)
+  const alertas = [];
+  for (const m of METRICAS_COMP.filter((x) => x.ruim || x.key === "saldo" || x.key === "medio")) {
+    const ranked = ops
+      .map((o) => ({ nome: o.operador_nome, v: m.get(o.indicadores || {}) }))
+      .sort((a, b) => b.v - a.v);
+    const top = ranked[0];
+    const avg = stats[m.key].avg;
+    if (top && avg > 0 && top.v > avg * 1.4 && top.v > 0) {
+      const frac = Math.round((top.v / avg - 1) * 100);
+      alertas.push({
+        ruim: m.ruim,
+        texto: `${top.nome} tem ${m.fmt(top.v)} em "${m.rotulo}" — ${frac}% acima da média da equipe.`,
+      });
+    }
+  }
+
+  return (
+    <div>
+      {/* Índices de equilíbrio */}
+      <div style={S.totais}>
+        <TotalChip rotulo="Equilíbrio de saldo" valor={stats.saldo.indice} destaque />
+        <TotalChip rotulo="Equilíbrio de CPFs" valor={stats.cpfs.indice} />
+        <TotalChip rotulo="Equilíbrio de críticos" valor={stats.criticos.indice} tom="alerta" />
+      </div>
+
+      {/* Alertas */}
+      {!!alertas.length && (
+        <div style={{ marginBottom: 18 }}>
+          <div style={S.grupoTitulo}>Alertas de desequilíbrio</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {alertas.map((a, idx) => (
+              <div key={idx} style={{ ...S.alerta, ...(a.ruim ? S.alertaRuim : {}) }}>
+                {a.ruim ? "⚠️ " : "ℹ️ "}
+                {a.texto}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Matriz comparativa */}
+      <div style={{ overflowX: "auto" }}>
+        <table style={S.tabela}>
+          <thead>
+            <tr>
+              <th style={S.th}>Operador</th>
+              {METRICAS_COMP.map((m) => (
+                <th key={m.key} style={{ ...S.th, textAlign: "right" }}>{m.rotulo}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {ops.map((o) => {
+              const i = o.indicadores || {};
+              return (
+                <tr key={o.operador_email}>
+                  <td style={{ ...S.td, fontWeight: 700 }}>{o.operador_nome}</td>
+                  {METRICAS_COMP.map((m) => {
+                    const v = m.get(i);
+                    const max = stats[m.key].max || 1;
+                    const pct = Math.round((v / max) * 100);
+                    const cor = m.ruim ? "#f87171" : "#38bdf8";
+                    return (
+                      <td key={m.key} style={{ ...S.td, textAlign: "right", minWidth: 92 }}>
+                        <div style={{ fontSize: 13 }}>{m.fmt(v)}</div>
+                        <div style={S.compTrack}>
+                          <div style={{ ...S.compFill, width: `${pct}%`, background: cor }} />
+                        </div>
+                      </td>
+                    );
+                  })}
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+      <p style={{ opacity: 0.5, fontSize: 12, marginTop: 10 }}>
+        Barras vermelhas = indicadores de risco (quanto maior, pior); azuis = tamanho/valor da
+        carteira. Índice de equilíbrio: 100 = carteiras idênticas na métrica.
+      </p>
     </div>
   );
 }
@@ -785,4 +923,8 @@ const S = {
   btnExecutar: { padding: "10px 20px", borderRadius: 10, border: "1px solid rgba(248,113,113,0.6)", background: "rgba(248,113,113,0.18)", color: "#fecaca", fontWeight: 800, cursor: "pointer", fontSize: 14 },
   simOk: { color: "#34d399", fontWeight: 700 },
   simDica: { fontSize: 13, opacity: 0.6 },
+  alerta: { padding: "8px 12px", borderRadius: 8, background: "rgba(56,189,248,0.1)", border: "1px solid rgba(56,189,248,0.25)", fontSize: 13 },
+  alertaRuim: { background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)" },
+  compTrack: { height: 4, background: "rgba(148,163,184,0.15)", borderRadius: 999, overflow: "hidden", marginTop: 3 },
+  compFill: { height: "100%", borderRadius: 999 },
 };
