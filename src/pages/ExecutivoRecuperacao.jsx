@@ -21,7 +21,7 @@ export default function ExecutivoRecuperacao() {
   useEffect(() => {
     let ativo = true;
     (async () => {
-      const { data } = await supabase.rpc("dashboard_executivo");
+      const { data } = await supabase.rpc("dashboard_executivo_snapshot");
       if (!ativo) return;
       setD(data);
       setCarregando(false);

@@ -441,6 +441,15 @@ function ProjecaoHoraHoraInner() {
       setErro("Não foi possível atualizar agora: " + error.message);
     } else if (data?.status === "erro") {
       setErro("A atualização falhou (snapshot anterior mantido): " + (data?.erro_resumo || ""));
+    } else {
+      // Mesmo gatilho atualiza os snapshots gerenciais (DRE e Visão Executiva),
+      // que passaram a ler snapshot (nao ao vivo). Falha aqui nao quebra a projeção.
+      try {
+        const anoRef = parseInt(String(mesReferencia).slice(0, 4), 10) || null;
+        await supabase.rpc("atualizar_snapshots_gerenciais", { p_ano: anoRef });
+      } catch (e) {
+        /* silencioso: a projeção segue */
+      }
     }
     // Recarrega o snapshot (novo ou o anterior preservado) via leitura leve.
     await carregarSnapshot();

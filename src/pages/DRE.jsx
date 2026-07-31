@@ -36,7 +36,7 @@ export default function DRE() {
 
   async function carregar() {
     setCarregando(true);
-    const { data, error } = await supabase.rpc("dre_dados", { p_ano: ano });
+    const { data, error } = await supabase.rpc("dre_snapshot", { p_ano: ano });
     setDados(error ? null : data);
     setCarregando(false);
   }
