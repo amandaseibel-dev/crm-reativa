@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 
 const OPERADORES_ALVO = [
@@ -16,8 +16,26 @@ export default function VincularBaseOperacional() {
   const [processando, setProcessando] = useState(false);
   const [resultado, setResultado] = useState(null);
   const [erro, setErro] = useState("");
+  const [congelada, setCongelada] = useState(true); // assume congelado até confirmar
+
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      const { data } = await supabase
+        .from("calibragem_flags")
+        .select("valor")
+        .eq("chave", "redistribuicao_congelada")
+        .maybeSingle();
+      // congelado se flag ausente OU verdadeira (fail-safe: bloqueia por padrão)
+      if (ativo) setCongelada(data ? Boolean(data.valor) : true);
+    })();
+    return () => {
+      ativo = false;
+    };
+  }, []);
 
   async function redistribuirCarteira() {
+    if (congelada) return;
     const confirmado = window.confirm(
       `Isso vai soltar TODOS os casos atuais dos ${OPERADORES_ALVO.length} operadores e redistribuir 500 casos novos pra cada um, priorizando valor mais alto e casos ainda sem acionamento. Essa ação não pode ser desfeita automaticamente. Confirma?`
     );
@@ -59,14 +77,34 @@ export default function VincularBaseOperacional() {
         fechado, cancelados ou marcados como "não acionar" ficam de fora do pool.
       </p>
 
+      {congelada && (
+        <div style={estilos.caixaCongelada}>
+          <strong>🧊 Redistribuição congelada.</strong>
+          <p style={{ margin: "6px 0 0" }}>
+            Toda redistribuição de carteira está suspensa e passará a ser feita exclusivamente pelo
+            módulo <strong>Calibragem</strong> (com simulação, aprovação e auditoria). Esta rotina
+            manual de "soltar tudo e redistribuir 500" foi desativada no banco — não é mais possível
+            executá-la por aqui.
+          </p>
+        </div>
+      )}
+
       <div style={estilos.caixaUpload}>
         <button
           type="button"
           onClick={redistribuirCarteira}
-          disabled={processando}
-          style={estilos.botaoConfirmar}
+          disabled={processando || congelada}
+          style={{
+            ...estilos.botaoConfirmar,
+            ...(congelada ? estilos.botaoDesabilitado : {}),
+          }}
+          title={congelada ? "Redistribuição congelada — use o módulo Calibragem" : undefined}
         >
-          {processando ? "Redistribuindo..." : "🔄 Redistribuir carteira agora"}
+          {congelada
+            ? "🔒 Redistribuição congelada"
+            : processando
+            ? "Redistribuindo..."
+            : "🔄 Redistribuir carteira agora"}
         </button>
       </div>
 
@@ -108,6 +146,18 @@ const estilos = {
     borderRadius: 10,
     border: "1px dashed rgba(148,163,184,0.4)",
     background: "rgba(148,163,184,0.05)",
+  },
+  caixaCongelada: {
+    marginBottom: 16,
+    padding: "12px 16px",
+    borderRadius: 10,
+    background: "rgba(56,189,248,0.10)",
+    border: "1px solid rgba(56,189,248,0.35)",
+  },
+  botaoDesabilitado: {
+    opacity: 0.5,
+    cursor: "not-allowed",
+    filter: "grayscale(0.4)",
   },
   caixaSucesso: {
     marginTop: 16,
