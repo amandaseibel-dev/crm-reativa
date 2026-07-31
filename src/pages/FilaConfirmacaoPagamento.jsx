@@ -332,6 +332,34 @@ export default function FilaConfirmacaoPagamento() {
     carregarSolicitacoes();
   }
 
+  // ---- Confirmar saldo zero e retirar das filas (financeiro preservado) ----
+  // Retira o aluno de carteira/fila/retornos/confirmacao/distribuicao e da
+  // contagem dos 500, bloqueia redistribuicao e libera reposicao, SEM apagar
+  // registros e SEM marcar o financeiro como pago. Exige motivo. So gestao.
+  async function confirmarSaldoZero(s) {
+    if (!s?.aluno_id) return;
+    const motivo = (motivoRejeicao ?? observacoes[s.id] ?? "").trim();
+    if (!motivo) {
+      alert("Escreva o motivo antes de confirmar saldo zero (ex.: pago fora do sistema, conciliação bancária, saldo residual indevido).");
+      return;
+    }
+    const ok = window.confirm(
+      "Confirmar saldo zero e retirar das filas?\n\nO aluno sai da carteira, da fila operacional, dos retornos, da confirmação e da distribuição, e deixa de contar nos 500. O financeiro e o histórico são preservados (nada é apagado)."
+    );
+    if (!ok) return;
+    const { error } = await supabase.rpc("confirmar_saldo_zero_retirar_filas", {
+      p_aluno_id: s.aluno_id,
+      p_motivo: motivo,
+    });
+    if (error) {
+      alert("Erro ao confirmar saldo zero: " + error.message);
+      return;
+    }
+    alert("Saldo zero confirmado. Aluno retirado das filas (financeiro e histórico preservados).");
+    fecharFicha();
+    carregarSolicitacoes();
+  }
+
   async function finalizarSolicitacao(s, observacaoExtra) {
     // Guarda de duplo clique: a RPC já é idempotente no banco (lock + checagem
     // de status), mas evitamos a segunda ida ao servidor.
@@ -915,6 +943,15 @@ export default function FilaConfirmacaoPagamento() {
                             title="Quita, zera e tira das filas. Nao volta pro operador."
                           >
                             💰 Quitar e encerrar
+                          </button>
+                        )}
+                        {podeQuitar(usuario?.email) && (
+                          <button
+                            style={{ background: "#0f766e", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontWeight: 600, cursor: "pointer" }}
+                            onClick={() => confirmarSaldoZero(detalhe)}
+                            title="Retira das filas e da contagem dos 500, bloqueia redistribuição e libera reposição. Preserva financeiro e histórico. Exige motivo."
+                          >
+                            ✅ Confirmar saldo zero e retirar das filas
                           </button>
                         )}
                         <button style={styles.botaoVincular} onClick={() => setVinculando(true)}>

@@ -319,7 +319,7 @@ const SITUACAO_OPERACIONAL_LABEL = {
 // (aba Negociacao), que e o centro unico do operador.
 // Casos nao acionaveis: nao aparecem na lista operacional (continuam
 // disponiveis para consulta/historico). Somente status ja existentes.
-const STATUS_NAO_ACIONAVEIS = ["JURIDICO", "CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "AGUARDANDO_BAIXA"];
+const STATUS_NAO_ACIONAVEIS = ["JURIDICO", "CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "AGUARDANDO_BAIXA", "SALDO_ZERO_CONFIRMADO"];
 
 function ehNaoAcionavel(a) {
   const s = String(a?.status_atual || "").toUpperCase();
