@@ -250,6 +250,10 @@ export default function FichaAlunoUnificada({
           {acordos.length === 0 && <p style={S.subInfo}>Nenhum acordo registrado para este aluno.</p>}
           {acordos.map((ac) => {
             const ps = parcelas.filter((p) => p.acordo_id === ac.id);
+            const temParcelaEntrada = ps.some((p) => p.is_entrada);
+            // Grupo B (acordo manual): entrada so em valor_entrada -> exibe linha
+            // informativa "Entrada do acordo" sem parcela fisica (sem dupla contagem).
+            const entradaSintetica = !temParcelaEntrada && Number(ac.valor_entrada) > 0.005;
             return (
               <div key={ac.id} style={S.blocoAcordo}>
                 <div style={S.acordoTopo}>
@@ -264,11 +268,21 @@ export default function FichaAlunoUnificada({
                   <Info rot="Honorários" val={moeda(ac.honorarios_valor)} />
                   <Info rot="Responsável pelo acordo" val={ac.operador_responsavel_nome || ac.operador_responsavel_email || "Sem responsável"} />
                 </div>
-                {ps.length > 0 && (
+                {(ps.length > 0 || entradaSintetica) && (
                   <div style={S.tabelaParc}>
+                    {entradaSintetica && (
+                      <div style={{ ...S.linhaParc, borderBottom: "1px dashed #cbd5e1" }}>
+                        <span style={S.parcNum}>Entrada</span>
+                        <span>{ac.data_entrada ? data(ac.data_entrada) : "—"}</span>
+                        <span>{moeda(ac.valor_entrada)}</span>
+                        <span style={{ color: ac.entrada_paga ? "#16a34a" : "#64748b", fontWeight: 600 }}>
+                          {ac.entrada_paga ? "PAGO" : "EM ABERTO"} · integra o total
+                        </span>
+                      </div>
+                    )}
                     {ps.map((p) => (
                       <div key={p.id} style={S.linhaParc}>
-                        <span style={S.parcNum}>{p.numero}ª</span>
+                        <span style={S.parcNum}>{p.is_entrada ? "Entrada" : `${p.numero}ª`}</span>
                         <span>{data(p.vencimento)}</span>
                         <span>{moeda(p.valor)}</span>
                         <span style={{ color: p.status === "PAGO" ? "#16a34a" : "#64748b", fontWeight: 600 }}>
