@@ -94,16 +94,23 @@ function TelaMetas({ snap }) {
 function TelaJulhoHistorico({ snap }) {
   const j = snap?.julho_historico;
   if (!j?.ativo) return <Tela titulo="Julho Histórico" icone="🏅"><Vazio>Reconhecimento indisponível nesta atualização.</Vazio></Tela>;
+  const metas = j.metas || [];
   return (
     <Tela titulo={j.titulo || "Julho Histórico"} icone="🏅">
-      <MensagemInstitucional badge="Reconhecimento" titulo={j.titulo || "Julho Histórico"} texto={j.texto_principal} />
-      <div style={linha}>
-        {(j.metas || []).map((mt, i) => (
-          <Conquista key={i} titulo={mt.nome} valor={`${mt.pct}%`} subtitulo={`${moeda(mt.realizado)} · excedente ${moeda(mt.excedente)}`} icone="✅" />
+      <div style={{ fontSize: fs(18, 2.2, 52), fontWeight: 800, color: T.texto, textAlign: "center", maxWidth: "80vw", lineHeight: 1.2 }}>
+        {j.texto_principal}
+      </div>
+      <div style={{ display: "flex", gap: "1.6vw", justifyContent: "center", width: "100%", flexWrap: "nowrap" }}>
+        {metas.map((mt, i) => (
+          <div key={i} style={{ ...layout.card, flex: "1 1 0", alignItems: "center", textAlign: "center", gap: "0.6vh", minWidth: 0 }}>
+            <div style={{ fontSize: fs(24, 3, 60) }}>✅</div>
+            <div style={{ fontSize: fs(15, 1.6, 36), fontWeight: 800, color: T.texto }}>{mt.nome}</div>
+            <div style={{ fontSize: fs(24, 3, 66), fontWeight: 900, color: T.verde }}>{mt.pct}%</div>
+            <div style={{ fontSize: fs(12, 1.2, 26), color: T.textoSuave, fontWeight: 600 }}>{moeda(mt.realizado)} · excedente {moeda(mt.excedente)}</div>
+          </div>
         ))}
       </div>
-      {j.texto_complementar && <Vazio>{j.texto_complementar}</Vazio>}
-      {j.data_referencia && <Vazio>Referência: {j.data_referencia}</Vazio>}
+      {j.texto_complementar && <div style={{ fontSize: fs(13, 1.4, 30), color: T.textoMudo, fontWeight: 600, textAlign: "center", maxWidth: "80vw" }}>{j.texto_complementar}</div>}
     </Tela>
   );
 }
@@ -139,8 +146,8 @@ function TelaAniversariantes({ snap }) {
     const msg = `Hoje é dia de celebrar o(a) ${nomeTxt}. Parabéns pelo seu aniversário. Desejamos um novo ciclo de saúde, realizações e boas conquistas.`;
     return (
       <Tela titulo="Aniversário de Hoje" icone="🎉">
-        <div style={{ fontSize: fs(46, 6, 150), lineHeight: 1 }}>🎂</div>
-        <div style={{ fontSize: fs(34, 4.4, 110), fontWeight: 900, color: T.texto, textAlign: "center" }}>
+        <div style={{ fontSize: fs(34, 4.4, 96), lineHeight: 1 }}>🎂</div>
+        <div style={{ fontSize: fs(26, 3.4, 80), fontWeight: 900, color: T.texto, textAlign: "center" }}>
           {nomeTxt}
         </div>
         <MensagemInstitucional badge="Parabéns!" titulo="Feliz aniversário!" texto={msg} />

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import {
   Cabecalho, Rodape, Palco, EstadoCarregando, EstadoSemSnapshot, T, AREA_SEGURA,
@@ -6,27 +6,26 @@ import {
 import { telasVisiveis } from "../components/tv/tvTelas";
 
 // =============================================================================
-// TV ReATIVA — ORQUESTRADOR (Etapas 1 + 2)
+// TV ReATIVA — ORQUESTRADOR
 // -----------------------------------------------------------------------------
-// Arquitetura de snapshot (Etapa 1): a TV lê UM snapshot leve (tv_snapshot_ler)
-// e NÃO calcula nada ao vivo. A troca de tela é 100% em memória (zero consulta).
-// CONSUMO MÍNIMO: a ÚNICA consulta ao banco é o tv_snapshot_ler — disparado só
-// ao abrir/recarregar a página e no clique do botão manual "Atualizar" da TV.
-// Sem polling, sem verificação periódica de versão, sem subscription/listener.
-// O carrossel roda indefinidamente sem gerar tráfego.
+// Snapshot (Etapa 1): a TV lê UM snapshot leve (tv_snapshot_ler) e NÃO calcula
+// nada ao vivo. A troca de tela é 100% em memória (zero consulta).
 //
-// Camada visual (Etapa 2): design system em src/components/tv. Carrossel
-// automático (15–20s por tela), transições suaves, cabeçalho com relógio local,
-// rodapé com a origem do dado, estados de carregando/sem-snapshot e resiliência
-// (mantém o último snapshot salvo LOCALMENTE em caso de falha de conexão).
+// CONSUMO MÍNIMO — a TV consulta o banco APENAS quando:
+//   (a) abre/recarrega a página;
+//   (b) recebe UM evento realtime de tv_sinal (novo snapshot gerado no CRM);
+//   (c) o usuário clica no botão manual "↻ Atualizar" do telão.
+// NÃO há polling, verificação periódica de versão nem escuta de outras tabelas.
+// O realtime acompanha SÓ a tabela-sinal do snapshot; cada evento gera 1 leitura.
+// Em falha de conexão, mantém o último snapshot salvo localmente (sem tela branca).
 // =============================================================================
 
 // >>> Tempo de exibição de cada tela (segundos). Ajuste AQUI (faixa 15–20). <<<
 const SEG_POR_TELA = 18;
 
-const CACHE_KEY = "tv_reativa_snapshot_v2";
+// v3: invalida caches antigos (ex.: mensagem "BORA TIME" removida).
+const CACHE_KEY = "tv_reativa_snapshot_v3";
 
-// Persistência local do último snapshot bom (sobrevive a reload/queda). ------
 function lerCache() {
   try {
     const raw = localStorage.getItem(CACHE_KEY);
@@ -44,66 +43,89 @@ function salvarCache(payload, meta) {
 }
 
 export default function TvElogios() {
-  // Hidrata do cache local no primeiro render → sem tela branca, sem consulta.
   const cache = lerCache();
   const [snap, setSnap] = useState(cache?.payload || null);
   const [meta, setMeta] = useState(cache?.meta || null); // { status, versao, gerado_em }
   const [carregou, setCarregou] = useState(false);
   const [indice, setIndice] = useState(0);
-  const [giro, setGiro] = useState(0); // conta ciclos completos (gira treinamento/elogio)
+  const [giro, setGiro] = useState(0);
   const [elogioUrl, setElogioUrl] = useState("");
   const [atualizando, setAtualizando] = useState(false);
+  const [toast, setToast] = useState("");
+  const versaoRef = useRef(Number(cache?.meta?.versao || 0));
 
-  // ÚNICA consulta ao banco: uma leitura do snapshot. Acontece só ao abrir/
-  // recarregar a página e quando o usuário pede atualização MANUAL (botão).
-  // NÃO há polling, verificação periódica de versão, subscription ou listener.
+  // Uma leitura do snapshot. Devolve se a versão mudou (para o feedback do botão).
   // Preserva o último snapshot bom (cache local) em caso de falha de conexão.
   async function carregarSnapshot() {
     setAtualizando(true);
+    let mudou = false;
     try {
       const { data, error } = await supabase.rpc("tv_snapshot_ler");
       if (error) throw error;
+      const nova = Number(data?.versao || 0);
+      mudou = nova !== versaoRef.current;
+      versaoRef.current = nova;
       const m = { status: data?.status, versao: data?.versao, gerado_em: data?.gerado_em, gerado_por: data?.gerado_por };
       setMeta(m);
       if (data?.payload) {
         setSnap(data.payload);
-        salvarCache(data.payload, m); // guarda localmente p/ resiliência
+        salvarCache(data.payload, m);
       }
     } catch {
-      // Sem conexão: mantém o snapshot em memória/cache (não apaga a tela).
+      mudou = false; // sem conexão: mantém o snapshot em memória/cache
     } finally {
       setCarregou(true);
       setAtualizando(false);
     }
+    return mudou;
   }
 
-  // Carga inicial: 1 leitura ao abrir/recarregar. Só isso.
+  // Carga inicial: 1 leitura ao abrir/recarregar.
   useEffect(() => {
     carregarSnapshot();
   }, []);
 
-  // Só as telas com regra definitiva E dado válido (estrutura das demais fica
-  // no código, porém oculta na TV). Recalcula quando o snapshot muda.
+  // Realtime: escuta SÓ a tabela-sinal do snapshot. Quando o CRM gera um novo
+  // snapshot com sucesso, chega 1 evento e a TV faz 1 leitura. Sem polling.
+  // Se o realtime falhar, o botão manual continua disponível como alternativa.
+  useEffect(() => {
+    const canal = supabase
+      .channel("tv-sinal")
+      .on("postgres_changes", { event: "*", schema: "public", table: "tv_sinal" }, (payload) => {
+        const v = Number(payload?.new?.versao || 0);
+        if (v > versaoRef.current) carregarSnapshot();
+      })
+      .subscribe();
+    return () => { supabase.removeChannel(canal); };
+  }, []);
+
+  // Botão manual do telão: 1 leitura; feedback breve; sem recarregar a app nem
+  // reiniciar o carrossel (o índice atual é preservado).
+  async function atualizarManual() {
+    const mudou = await carregarSnapshot();
+    setToast(mudou ? "Dados atualizados" : "A TV já está atualizada");
+    window.clearTimeout(atualizarManual._t);
+    atualizarManual._t = window.setTimeout(() => setToast(""), 2600);
+  }
+
   const telas = useMemo(() => telasVisiveis(snap), [snap]);
   const total = telas.length;
 
-  // Carrossel automático — 100% EM MEMÓRIA. Nunca consulta o banco (nem ao
-  // fechar um ciclo). Pausa quando a aba/TV não está visível. Reinicia ao
-  // concluir a última tela e pode rodar indefinidamente sem tráfego.
+  // Carrossel automático — 100% EM MEMÓRIA. Nunca consulta o banco. Pausa em
+  // aba/TV oculta. Reinicia ao concluir a última tela; roda indefinidamente.
   useEffect(() => {
-    if (total <= 1) return; // 0 ou 1 tela: nada a girar (evita módulo por 0)
+    if (total <= 1) return;
     const t = setInterval(() => {
-      if (document.hidden) return; // pausa: não avança
+      if (document.hidden) return;
       setIndice((i) => {
         const prox = (i + 1) % total;
-        if (prox === 0) setGiro((g) => g + 1); // novo ciclo: só gira conteúdo local
+        if (prox === 0) setGiro((g) => g + 1);
         return prox;
       });
     }, SEG_POR_TELA * 1000);
     return () => clearInterval(t);
   }, [total]);
 
-  // Navegação por teclado (útil em testes / operação manual).
   useEffect(() => {
     function onKey(e) {
       if (e.key === "ArrowRight") setIndice((i) => (i + 1) % total);
@@ -115,8 +137,7 @@ export default function TvElogios() {
 
   const tela = total > 0 ? telas[indice % total] : null;
 
-  // URL pública da imagem do elogio (Storage) — construção LOCAL de string,
-  // sem consulta ao banco. Só quando a tela de Reconhecimento está ativa.
+  // URL pública da imagem do elogio (Storage) — string LOCAL, sem consulta.
   useEffect(() => {
     if (tela?.id !== "reconhecimento") { setElogioUrl(""); return; }
     const elogios = snap?.elogios || [];
@@ -126,7 +147,6 @@ export default function TvElogios() {
     setElogioUrl(data?.publicUrl || "");
   }, [tela, snap, giro]);
 
-  // Estados especiais (dentro da identidade visual, nunca tela branca).
   const conteudo = (() => {
     if (!snap && !carregou) return <EstadoCarregando />;
     if (!snap || !tela) return <EstadoSemSnapshot />;
@@ -145,12 +165,14 @@ export default function TvElogios() {
   return (
     <div style={raiz}>
       {conteudo}
-      {/* Botão manual de atualização: refaz SÓ a leitura do snapshot (1 consulta),
-          sem recarregar a aplicação. É a única forma de trazer dados novos além
-          de recarregar a página — não há verificação automática. */}
+
+      {toast && <div style={estiloToast}>{toast}</div>}
+
+      {/* Botão manual do telão: alternativa ao evento realtime. Refaz SÓ a
+          leitura do snapshot (1 consulta), sem recarregar a aplicação. */}
       <button
         type="button"
-        onClick={carregarSnapshot}
+        onClick={atualizarManual}
         disabled={atualizando}
         title="Atualizar indicadores (busca o último snapshot)"
         aria-label="Atualizar indicadores"
@@ -162,9 +184,11 @@ export default function TvElogios() {
   );
 }
 
-// Raiz: identidade ReATIVA + ÁREA SEGURA (afasta das bordas p/ overscan de TV).
+// Raiz: 100vh EXATO, sem rolagem. A ÁREA SEGURA (padding) afasta o conteúdo das
+// bordas (~4% laterais, ~3% topo/base) contra overscan de TV.
 const raiz = {
-  minHeight: "100vh",
+  height: "100vh",
+  width: "100vw",
   background: T.bg,
   color: T.texto,
   fontFamily: "Inter, system-ui, Arial, sans-serif",
@@ -176,18 +200,30 @@ const raiz = {
   position: "relative",
 };
 
-// Botão manual discreto (canto inferior direito). Some visualmente sem atrapalhar
-// a TV; presente para quando a gestão quiser puxar o snapshot recém-atualizado.
+const estiloToast = {
+  position: "absolute",
+  bottom: "clamp(46px, 5vh, 84px)",
+  right: "clamp(10px, 1.4vw, 28px)",
+  background: "rgba(15,23,42,0.92)",
+  color: T.texto,
+  border: "1px solid rgba(59,130,246,0.5)",
+  borderRadius: 12,
+  padding: "clamp(6px,0.7vh,12px) clamp(12px,1.1vw,22px)",
+  fontSize: "clamp(12px,1vw,22px)",
+  fontWeight: 700,
+  boxShadow: "0 10px 30px rgba(2,6,23,0.5)",
+};
+
 const botaoAtualizar = {
   position: "absolute",
-  bottom: "clamp(10px, 1.4vw, 28px)",
+  bottom: "clamp(8px, 1vh, 20px)",
   right: "clamp(10px, 1.4vw, 28px)",
   background: "rgba(59,130,246,0.18)",
   color: T.texto,
   border: "1px solid rgba(59,130,246,0.4)",
   borderRadius: 999,
-  padding: "clamp(6px,0.6vw,12px) clamp(12px,1vw,22px)",
-  fontSize: "clamp(11px,0.9vw,20px)",
+  padding: "clamp(5px,0.5vh,10px) clamp(12px,1vw,22px)",
+  fontSize: "clamp(11px,0.9vw,18px)",
   fontWeight: 700,
   cursor: "pointer",
 };

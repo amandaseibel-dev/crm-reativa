@@ -29,8 +29,22 @@ export const T = {
 // fs(min, vw, max): fonte fluida — cresce com a resolução mas com limites.
 export const fs = (min, vw, max) => `clamp(${min}px, ${vw}vw, ${max}px)`;
 
-// Área segura: afasta o conteúdo das bordas (overscan de TVs corta ~5%).
-export const AREA_SEGURA = "clamp(20px, 3.2vw, 64px)";
+// Área segura: ~3% topo/base e ~4% laterais (evita corte por overscan de TV).
+export const AREA_SEGURA = "clamp(14px, 3vh, 34px) clamp(24px, 4vw, 72px)";
+
+// fsValor: fonte do NÚMERO principal, que ENCOLHE quando o valor é muito longo
+// (ex.: "R$ 1.180.400") para não estourar o card / a tela.
+export function fsValor(valor, grande) {
+  const len = String(valor == null ? "" : valor).length;
+  if (grande) {
+    if (len > 12) return fs(22, 3.0, 60);
+    if (len > 9) return fs(28, 3.8, 76);
+    return fs(32, 4.4, 92);
+  }
+  if (len > 12) return fs(18, 2.2, 42);
+  if (len > 9) return fs(20, 2.6, 52);
+  return fs(24, 3.0, 62);
+}
 
 // Helpers de formatação (puros, sem I/O) -------------------------------------
 export function moeda(v) {
@@ -128,7 +142,7 @@ export function Tela({ titulo, icone, children, centralizado = true }) {
           <span>{titulo}</span>
         </div>
       )}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "center", alignItems: centralizado ? "center" : "stretch", gap: "2.2vh", width: "100%" }}>
+      <div style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: centralizado ? "center" : "stretch", gap: "1.4vh", width: "100%" }}>
         {children}
       </div>
     </section>
@@ -139,13 +153,13 @@ export function Tela({ titulo, icone, children, centralizado = true }) {
 export function IndicadorCard({ rotulo, valor, sub, icone, tom = "azul", grande = false }) {
   const cor = { azul: T.azulClaro, verde: T.verde, ambar: T.ambar, vermelho: T.vermelho }[tom] || T.azulClaro;
   return (
-    <div style={{ ...s.card, minWidth: grande ? "34vw" : "20vw", flex: grande ? "1 1 34vw" : "1 1 20vw" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.6vw", color: T.textoMudo, fontSize: fs(13, 1.2, 26), fontWeight: 700 }}>
+    <div style={{ ...s.card, minWidth: grande ? "30vw" : "18vw", flex: grande ? "1 1 30vw" : "1 1 18vw" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "0.6vw", color: T.textoMudo, fontSize: fs(12, 1.1, 24), fontWeight: 700 }}>
         {icone && <span>{icone}</span>}
         <span style={{ textTransform: "uppercase", letterSpacing: "0.08em" }}>{rotulo}</span>
       </div>
-      <div style={{ fontSize: grande ? fs(48, 6.5, 150) : fs(34, 4.2, 104), fontWeight: 900, lineHeight: 1, color: cor, textShadow: "0 0 30px rgba(34,197,94,0.25)" }}>{valor}</div>
-      {sub && <div style={{ fontSize: fs(13, 1.2, 26), color: T.textoSuave, fontWeight: 600 }}>{sub}</div>}
+      <div style={{ fontSize: fsValor(valor, grande), fontWeight: 900, lineHeight: 1, color: cor, whiteSpace: "nowrap", textShadow: "0 0 30px rgba(34,197,94,0.25)" }}>{valor}</div>
+      {sub && <div style={{ fontSize: fs(12, 1.1, 24), color: T.textoSuave, fontWeight: 600 }}>{sub}</div>}
     </div>
   );
 }
@@ -196,40 +210,39 @@ export function CardMeta({ meta }) {
   if (meta.atingida) {
     // ---- Modo conquista (positivo, sem animação pesada) ----
     return (
-      <div style={{ ...s.card, width: "min(82vw,1500px)", alignItems: "stretch", gap: "1.2vh", background: "linear-gradient(135deg, rgba(16,185,129,0.22), rgba(59,130,246,0.18))", border: "1px solid rgba(52,211,153,0.5)" }}>
+      <div style={{ ...s.cardMeta, background: "linear-gradient(135deg, rgba(16,185,129,0.22), rgba(59,130,246,0.18))", border: "1px solid rgba(52,211,153,0.5)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "1vw", flexWrap: "wrap" }}>
-          <span style={{ fontSize: fs(16, 1.6, 38), fontWeight: 800, color: T.texto }}>{meta.nome}</span>
+          <span style={{ fontSize: fs(15, 1.5, 34), fontWeight: 800, color: T.texto }}>{meta.nome}</span>
           <span style={{ ...s.selo, color: T.verde, borderColor: T.verde }}>🏆 Meta batida</span>
         </div>
         <div style={{ display: "flex", alignItems: "baseline", gap: "1.2vw", flexWrap: "wrap" }}>
-          <span style={{ fontSize: fs(38, 5, 120), fontWeight: 900, lineHeight: 1, color: T.verde }}>{moeda(meta.realizado)}</span>
-          <span style={{ fontSize: fs(14, 1.4, 30), color: T.textoSuave, fontWeight: 600 }}>meta {moeda(meta.alvo)}</span>
-          {pct != null && <span style={{ fontSize: fs(20, 2.4, 56), fontWeight: 900, color: T.verde, marginLeft: "auto" }}>{pct}%</span>}
+          <span style={{ fontSize: fsValor(moeda(meta.realizado), false), fontWeight: 900, lineHeight: 1, color: T.verde, whiteSpace: "nowrap" }}>{moeda(meta.realizado)}</span>
+          <span style={{ fontSize: fs(13, 1.3, 28), color: T.textoSuave, fontWeight: 600 }}>meta {moeda(meta.alvo)}</span>
+          {pct != null && <span style={{ fontSize: fs(18, 2.2, 50), fontWeight: 900, color: T.verde, marginLeft: "auto" }}>{pct}%</span>}
         </div>
-        <BarraProgresso pct={100} tom="verde" />
-        <div style={{ display: "flex", gap: "2vw", flexWrap: "wrap", fontSize: fs(14, 1.4, 30), fontWeight: 700, color: T.texto }}>
+        <BarraProgresso pct={100} tom="verde" altura="1.8vh" />
+        <div style={{ display: "flex", gap: "2vw", flexWrap: "wrap", fontSize: fs(13, 1.3, 28), fontWeight: 700, color: T.texto }}>
           <span>Superamos em <strong style={{ color: T.verde }}>{moeda(meta.excedente)}</strong></span>
           {meta.data_atingimento && <span style={{ color: T.textoSuave }}>Atingida em {meta.data_atingimento}</span>}
         </div>
-        {meta.mensagem && <div style={{ fontSize: fs(13, 1.3, 26), color: T.textoSuave, fontWeight: 600 }}>{meta.mensagem}</div>}
       </div>
     );
   }
   // ---- Modo andamento ----
   const cor = corSituacao(meta.situacao);
   return (
-    <div style={{ ...s.card, width: "min(82vw,1500px)", alignItems: "stretch", gap: "1.2vh" }}>
+    <div style={s.cardMeta}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "1vw", flexWrap: "wrap" }}>
-        <span style={{ fontSize: fs(16, 1.6, 38), fontWeight: 800, color: T.texto }}>{meta.nome}</span>
+        <span style={{ fontSize: fs(15, 1.5, 34), fontWeight: 800, color: T.texto }}>{meta.nome}</span>
         <span style={{ ...s.selo, color: cor, borderColor: cor }}>{meta.situacao}</span>
       </div>
       <div style={{ display: "flex", alignItems: "baseline", gap: "1.2vw", flexWrap: "wrap" }}>
-        <span style={{ fontSize: fs(38, 5, 120), fontWeight: 900, lineHeight: 1, color: cor }}>{moeda(meta.realizado)}</span>
-        <span style={{ fontSize: fs(14, 1.4, 30), color: T.textoSuave, fontWeight: 600 }}>de {moeda(meta.alvo)}</span>
-        {pct != null && <span style={{ fontSize: fs(20, 2.4, 56), fontWeight: 900, color: cor, marginLeft: "auto" }}>{pct}%</span>}
+        <span style={{ fontSize: fsValor(moeda(meta.realizado), false), fontWeight: 900, lineHeight: 1, color: cor, whiteSpace: "nowrap" }}>{moeda(meta.realizado)}</span>
+        <span style={{ fontSize: fs(13, 1.3, 28), color: T.textoSuave, fontWeight: 600 }}>de {moeda(meta.alvo)}</span>
+        {pct != null && <span style={{ fontSize: fs(18, 2.2, 50), fontWeight: 900, color: cor, marginLeft: "auto" }}>{pct}%</span>}
       </div>
-      <BarraProgresso pct={pct} tom={meta.situacao === "No ritmo" ? "verde" : meta.situacao === "Atenção" ? "ambar" : "vermelho"} />
-      <div style={{ display: "flex", gap: "2vw", flexWrap: "wrap", fontSize: fs(14, 1.4, 30), fontWeight: 700, color: T.texto }}>
+      <BarraProgresso pct={pct} tom={meta.situacao === "No ritmo" ? "verde" : meta.situacao === "Atenção" ? "ambar" : "vermelho"} altura="1.8vh" />
+      <div style={{ display: "flex", gap: "2vw", flexWrap: "wrap", fontSize: fs(13, 1.3, 28), fontWeight: 700, color: T.texto }}>
         <span>Falta <strong style={{ color: cor }}>{moeda(meta.restante)}</strong></span>
         {meta.ritmo_necessario != null && <span style={{ color: T.textoSuave }}>Precisa {moeda(meta.ritmo_necessario)}/dia útil</span>}
       </div>
@@ -242,7 +255,7 @@ export function Ranking({ titulo, itens = [], podio = false }) {
   const medalha = ["🥇", "🥈", "🥉"];
   if (podio) {
     const trio = [{ o: itens[1], pos: 2 }, { o: itens[0], pos: 1 }, { o: itens[2], pos: 3 }];
-    const alturas = { 1: "30vh", 2: "22vh", 3: "17vh" };
+    const alturas = { 1: "18vh", 2: "13vh", 3: "10vh" };
     const cores = { 1: "linear-gradient(180deg,#fde68a,#f59e0b)", 2: "linear-gradient(180deg,#e2e8f0,#94a3b8)", 3: "linear-gradient(180deg,#fdba74,#c2843f)" };
     return (
       <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: "1vh" }}>
@@ -252,11 +265,11 @@ export function Ranking({ titulo, itens = [], podio = false }) {
             if (!it.o) return <div key={i} style={{ flex: 1, maxWidth: "24vw" }} />;
             return (
               <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", maxWidth: "24vw" }}>
-                <div style={{ fontSize: it.pos === 1 ? fs(40, 4.6, 120) : fs(28, 3.2, 90), lineHeight: 1, filter: "drop-shadow(0 0 16px rgba(251,191,36,0.5))" }}>{medalha[it.pos - 1]}</div>
-                <div style={{ fontSize: it.pos === 1 ? fs(20, 2.2, 54) : fs(16, 1.8, 44), fontWeight: 900, color: T.texto, marginTop: "0.4vh", textAlign: "center" }}>{it.o.nome || it.o.operador}</div>
-                {it.o.valor != null && <div style={{ fontSize: fs(14, 1.4, 32), fontWeight: 800, color: T.azulClaro }}>{it.o.valor}</div>}
-                <div style={{ width: "100%", borderRadius: "14px 14px 0 0", height: alturas[it.pos], background: cores[it.pos], display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "1vh", marginTop: "1vh", boxShadow: "0 -8px 40px rgba(59,130,246,0.45)" }}>
-                  <span style={{ fontSize: fs(30, 5, 130), fontWeight: 900, color: "rgba(2,6,23,0.5)" }}>{it.pos}</span>
+                <div style={{ fontSize: it.pos === 1 ? fs(28, 3.4, 84) : fs(22, 2.6, 64), lineHeight: 1, filter: "drop-shadow(0 0 16px rgba(251,191,36,0.5))" }}>{medalha[it.pos - 1]}</div>
+                <div style={{ fontSize: it.pos === 1 ? fs(18, 2, 48) : fs(15, 1.6, 40), fontWeight: 900, color: T.texto, marginTop: "0.3vh", textAlign: "center" }}>{it.o.nome || it.o.operador}</div>
+                {it.o.valor != null && <div style={{ fontSize: fs(13, 1.3, 30), fontWeight: 800, color: T.azulClaro }}>{it.o.valor}</div>}
+                <div style={{ width: "100%", borderRadius: "14px 14px 0 0", height: alturas[it.pos], background: cores[it.pos], display: "flex", alignItems: "flex-start", justifyContent: "center", paddingTop: "0.8vh", marginTop: "0.8vh", boxShadow: "0 -8px 40px rgba(59,130,246,0.45)" }}>
+                  <span style={{ fontSize: fs(22, 3.4, 84), fontWeight: 900, color: "rgba(2,6,23,0.5)" }}>{it.pos}</span>
                 </div>
               </div>
             );
@@ -284,11 +297,11 @@ export function Ranking({ titulo, itens = [], podio = false }) {
 // 5) Destaque de operador -----------------------------------------------------
 export function DestaqueOperador({ rotulo, nome, valor, icone = "⭐" }) {
   return (
-    <div style={{ ...s.card, minWidth: "26vw", alignItems: "center", textAlign: "center" }}>
-      <div style={{ fontSize: fs(28, 3, 80) }}>{icone}</div>
-      <div style={{ fontSize: fs(12, 1.1, 24), color: T.textoMudo, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>{rotulo}</div>
-      <div style={{ fontSize: fs(22, 2.6, 64), fontWeight: 900, color: T.texto }}>{nome || "—"}</div>
-      {valor && <div style={{ fontSize: fs(16, 1.8, 44), fontWeight: 800, color: T.verde }}>{valor}</div>}
+    <div style={{ ...s.card, minWidth: "20vw", flex: "1 1 0", alignItems: "center", textAlign: "center", gap: "0.3vh" }}>
+      <div style={{ fontSize: fs(18, 2, 46) }}>{icone}</div>
+      <div style={{ fontSize: fs(11, 1.05, 22), color: T.textoMudo, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.08em" }}>{rotulo}</div>
+      <div style={{ fontSize: fs(18, 2, 48), fontWeight: 900, color: T.texto, whiteSpace: "nowrap" }}>{nome || "—"}</div>
+      {valor && <div style={{ fontSize: fs(14, 1.5, 34), fontWeight: 800, color: T.verde }}>{valor}</div>}
     </div>
   );
 }
@@ -296,28 +309,28 @@ export function DestaqueOperador({ rotulo, nome, valor, icone = "⭐" }) {
 // 6) Mensagem institucional ---------------------------------------------------
 export function MensagemInstitucional({ badge, titulo, texto }) {
   return (
-    <div style={{ ...s.card, alignItems: "center", textAlign: "center", gap: "2vh", background: "linear-gradient(135deg, rgba(109,40,217,0.35), rgba(29,78,216,0.35))", border: "1px solid rgba(96,165,250,0.4)", padding: "5vh 5vw", width: "min(80vw,1400px)" }}>
+    <div style={{ ...s.card, alignItems: "center", textAlign: "center", gap: "1.2vh", background: "linear-gradient(135deg, rgba(109,40,217,0.35), rgba(29,78,216,0.35))", border: "1px solid rgba(96,165,250,0.4)", padding: "2.4vh 3vw", width: "min(80vw,1400px)", flex: "0 0 auto" }}>
       {badge && <div style={s.selo}>{badge}</div>}
-      <div style={{ fontSize: fs(34, 4.4, 110), fontWeight: 900, color: T.texto, lineHeight: 1.05 }}>{titulo}</div>
-      {texto && <div style={{ fontSize: fs(18, 2, 52), fontWeight: 600, color: T.textoSuave, maxWidth: "70vw" }}>{texto}</div>}
+      <div style={{ fontSize: fs(26, 3.4, 78), fontWeight: 900, color: T.texto, lineHeight: 1.06 }}>{titulo}</div>
+      {texto && <div style={{ fontSize: fs(16, 1.8, 44), fontWeight: 600, color: T.textoSuave, maxWidth: "72vw", lineHeight: 1.3 }}>{texto}</div>}
     </div>
   );
 }
 
-// 7) Aviso --------------------------------------------------------------------
+// 7) Aviso — MESMO sistema visual dos demais cards (sem cor exclusiva de fundo).
+//    A prioridade é indicada por um detalhe DISCRETO: uma borda-esquerda fina e
+//    um selo pequeno. Fundo, tipografia, bordas e sombra são os padrão da TV.
 export function Aviso({ nivel = "info", titulo, texto }) {
   const cfg = {
-    info: { cor: T.azulClaro, rot: "Aviso", icone: "📣" },
-    atencao: { cor: T.ambar, rot: "Atenção", icone: "⚠️" },
-    critico: { cor: T.vermelho, rot: "Importante", icone: "🚨" },
-  }[nivel] || { cor: T.azulClaro, rot: "Aviso", icone: "📣" };
+    info: { cor: T.azulClaro, rot: "Aviso" },
+    atencao: { cor: T.ambar, rot: "Prioridade" },
+    critico: { cor: T.vermelho, rot: "Importante" },
+  }[nivel] || { cor: T.azulClaro, rot: "Aviso" };
   return (
-    <div style={{ ...s.card, width: "min(78vw,1300px)", alignItems: "stretch", borderLeft: `6px solid ${cfg.cor}`, gap: "1vh" }}>
-      <div style={{ display: "flex", alignItems: "center", gap: "0.8vw", color: cfg.cor, fontSize: fs(14, 1.4, 30), fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.06em" }}>
-        <span>{cfg.icone}</span><span>{cfg.rot}</span>
-      </div>
-      <div style={{ fontSize: fs(24, 2.8, 66), fontWeight: 900, color: T.texto }}>{titulo}</div>
-      {texto && <div style={{ fontSize: fs(16, 1.7, 42), fontWeight: 600, color: T.textoSuave }}>{texto}</div>}
+    <div style={{ ...s.card, width: "min(78vw,1300px)", alignItems: "stretch", gap: "1.2vh", borderLeft: `5px solid ${cfg.cor}` }}>
+      <span style={{ ...s.selo, alignSelf: "flex-start", color: cfg.cor, borderColor: cfg.cor }}>{cfg.rot}</span>
+      <div style={{ fontSize: fs(22, 2.6, 60), fontWeight: 900, color: T.texto, lineHeight: 1.1 }}>{titulo}</div>
+      {texto && <div style={{ fontSize: fs(16, 1.7, 42), fontWeight: 600, color: T.textoSuave, lineHeight: 1.35 }}>{texto}</div>}
     </div>
   );
 }
@@ -387,9 +400,9 @@ export function EstadoSemSnapshot() {
 // Palco: envelope com transição suave (fade + leve subida) por troca de tela --
 export function Palco({ chave, children }) {
   return (
-    <div style={{ flex: 1, position: "relative", width: "100%", display: "flex" }}>
+    <div style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative", width: "100%", display: "flex" }}>
       <style>{`@keyframes tvfade{from{opacity:0;transform:translateY(1.2vh)}to{opacity:1;transform:none}}`}</style>
-      <div key={chave} style={{ flex: 1, display: "flex", flexDirection: "column", animation: "tvfade .5s ease" }}>
+      <div key={chave} style={{ flex: 1, minHeight: 0, overflow: "hidden", display: "flex", flexDirection: "column", animation: "tvfade .5s ease" }}>
         {children}
       </div>
     </div>
@@ -401,14 +414,16 @@ const s = {
   cab: { display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: "1.6vh", borderBottom: "1px solid rgba(148,163,184,0.18)" },
   cabTela: { fontSize: fs(14, 1.5, 34), color: T.azulClaro, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.14em", paddingLeft: "1vw", borderLeft: "2px solid rgba(148,163,184,0.3)" },
   rod: { display: "flex", alignItems: "center", justifyContent: "space-between", paddingTop: "1.4vh", borderTop: "1px solid rgba(148,163,184,0.18)", gap: "2vw" },
-  tela: { flex: 1, display: "flex", flexDirection: "column", width: "100%", padding: "1.5vh 0" },
-  telaTitulo: { display: "flex", alignItems: "center", gap: "1vw", fontSize: fs(24, 2.8, 68), fontWeight: 900, color: T.ambar, textShadow: "0 0 28px rgba(251,191,36,0.45)", marginBottom: "1vh" },
-  subTitulo: { fontSize: fs(15, 1.6, 38), color: T.azulClaro, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em" },
-  card: { background: T.surface, border: `1px solid ${T.surfaceBorda}`, borderRadius: 20, padding: "2.4vh 2vw", display: "flex", flexDirection: "column", gap: "0.8vh", boxShadow: "0 10px 40px rgba(2,6,23,0.35)" },
-  selo: { fontSize: fs(12, 1.2, 26), fontWeight: 800, padding: "0.5vh 1.2vw", borderRadius: 999, border: "1px solid currentColor", color: "#fff", background: "rgba(15,23,42,0.4)" },
-  vazio: { fontSize: fs(14, 1.5, 34), color: T.textoMudo, fontWeight: 600, textAlign: "center", padding: "3vh 0" },
-  estado: { minHeight: "100vh", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: "3vh", padding: AREA_SEGURA },
-  linhaCards: { display: "flex", gap: "2vw", flexWrap: "wrap", justifyContent: "center", width: "100%" },
+  tela: { flex: 1, minHeight: 0, display: "flex", flexDirection: "column", width: "100%", padding: "0.8vh 0" },
+  telaTitulo: { display: "flex", alignItems: "center", gap: "1vw", fontSize: fs(20, 2.3, 54), fontWeight: 900, color: T.ambar, textShadow: "0 0 28px rgba(251,191,36,0.45)", marginBottom: "0.6vh", flex: "0 0 auto" },
+  subTitulo: { fontSize: fs(14, 1.5, 34), color: T.azulClaro, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.1em" },
+  card: { background: T.surface, border: `1px solid ${T.surfaceBorda}`, borderRadius: 18, padding: "1.6vh 1.8vw", display: "flex", flexDirection: "column", gap: "0.6vh", boxShadow: "0 10px 40px rgba(2,6,23,0.35)", boxSizing: "border-box" },
+  // Card de meta: largura fixa e não-crescente para caber 3 na vertical.
+  cardMeta: { background: T.surface, border: `1px solid ${T.surfaceBorda}`, borderRadius: 18, padding: "1.4vh 1.8vw", display: "flex", flexDirection: "column", gap: "0.8vh", boxShadow: "0 10px 40px rgba(2,6,23,0.35)", boxSizing: "border-box", width: "min(80vw,1400px)", flex: "0 0 auto", alignItems: "stretch" },
+  selo: { fontSize: fs(11, 1.1, 24), fontWeight: 800, padding: "0.4vh 1vw", borderRadius: 999, border: "1px solid currentColor", color: "#fff", background: "rgba(15,23,42,0.4)", whiteSpace: "nowrap" },
+  vazio: { fontSize: fs(14, 1.5, 34), color: T.textoMudo, fontWeight: 600, textAlign: "center", padding: "2vh 0" },
+  estado: { flex: 1, minHeight: 0, height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", textAlign: "center", gap: "2.4vh" },
+  linhaCards: { display: "flex", gap: "1.6vw", flexWrap: "wrap", justifyContent: "center", width: "100%" },
 };
 
 export const layout = s;
