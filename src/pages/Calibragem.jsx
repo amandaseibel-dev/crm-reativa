@@ -156,6 +156,13 @@ export default function Calibragem() {
         </button>
         <button
           type="button"
+          style={{ ...S.tab, ...(vista === "regua" ? S.tabAtiva : {}) }}
+          onClick={() => setVista("regua")}
+        >
+          Régua de cobrança
+        </button>
+        <button
+          type="button"
           style={{ ...S.tab, ...(vista === "criticidade" ? S.tabAtiva : {}) }}
           onClick={() => setVista("criticidade")}
         >
@@ -178,6 +185,8 @@ export default function Calibragem() {
         <Comparacao operadores={operadores} />
       ) : vista === "criticidade" ? (
         <Criticidade />
+      ) : vista === "regua" ? (
+        <Regua operadores={operadores} />
       ) : carregando ? (
         <div style={S.vazio}>Carregando…</div>
       ) : !operadores.length ? (
@@ -213,6 +222,123 @@ export default function Calibragem() {
 
       {detalhe && (
         <ModalDetalhe detalhe={detalhe} onClose={() => setDetalhe(null)} />
+      )}
+    </div>
+  );
+}
+
+function Regua({ operadores }) {
+  const [funil, setFunil] = useState([]);
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      const { data } = await supabase.rpc("calibragem_funil", { p_operador: null });
+      if (ativo) setFunil(data?.estagios || []);
+    })();
+    return () => { ativo = false; };
+  }, []);
+
+  const ops = operadores || [];
+  // agrega a equipe a partir do snapshot
+  const eq = useMemo(() => {
+    const t = {
+      saldo: 0, cpfs: 0, criticos: 0, semAc: 0, recuperado: 0,
+      acEmDia: 0, acAVencer: 0, acVenc: 0, acQueb: 0,
+      faixas: {}, anos: {},
+    };
+    for (const o of ops) {
+      const i = o.indicadores || {};
+      t.saldo += qv(i, "saldo_total").valor;
+      t.cpfs += qv(i, "cpfs").qtd;
+      t.criticos += qv(i, "criticos").qtd;
+      t.semAc += qv(i, "sem_acionamento").qtd;
+      t.recuperado += qv(i, "recuperado_mes").valor;
+      t.acEmDia += qv(i, "acordos_em_dia").qtd;
+      t.acAVencer += qv(i, "acordos_a_vencer").qtd;
+      t.acVenc += qv(i, "acordos_vencidos").qtd;
+      t.acQueb += qv(i, "acordos_quebrados").qtd;
+      for (const f of i.faixas_atraso || []) {
+        t.faixas[f.rotulo] = t.faixas[f.rotulo] || { qtd: 0, valor: 0 };
+        t.faixas[f.rotulo].qtd += Number(f.qtd || 0);
+        t.faixas[f.rotulo].valor += Number(f.valor || 0);
+      }
+      for (const a of i.anos || []) {
+        t.anos[a.ano] = t.anos[a.ano] || { qtd: 0, valor: 0 };
+        t.anos[a.ano].qtd += Number(a.qtd || 0);
+        t.anos[a.ano].valor += Number(a.valor || 0);
+      }
+    }
+    return t;
+  }, [ops]);
+
+  const estagio = (chave) => funil.find((e) => e.chave === chave) || { qtd: 0, valor: 0 };
+  const gargalos = [...funil]
+    .filter((e) => ["pgto_aguardando", "link_enviado", "termo_enviado", "aguardando_baixa"].includes(e.chave))
+    .sort((a, b) => Number(b.qtd) - Number(a.qtd));
+
+  if (!ops.length) return <div style={S.vazio}>Sem snapshot. Clique em “Atualizar dados”.</div>;
+
+  return (
+    <div>
+      {/* Executivo */}
+      <div style={S.totais}>
+        <TotalChip rotulo="Saldo em aberto" valor={moeda(eq.saldo)} destaque />
+        <TotalChip rotulo="CPFs" valor={num(eq.cpfs)} />
+        <TotalChip rotulo="Recuperado no mês" valor={moeda(eq.recuperado)} destaque />
+        <TotalChip rotulo="Críticos" valor={num(eq.criticos)} tom="critico" />
+        <TotalChip rotulo="Sem acionamento" valor={num(eq.semAc)} tom="alerta" />
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginTop: 8 }}>
+        <div>
+          <div style={S.grupoTitulo}>Saldo por faixa de atraso</div>
+          <div style={S.barras}>
+            {Object.entries(eq.faixas).map(([r, v]) => (
+              <BarraFaixa key={r} rotulo={r} qtd={v.qtd} valor={v.valor} onClick={() => {}} />
+            ))}
+          </div>
+        </div>
+        <div>
+          <div style={S.grupoTitulo}>Saldo por ano da dívida</div>
+          <div style={S.barras}>
+            {Object.entries(eq.anos).map(([r, v]) => (
+              <BarraFaixa key={r} rotulo={r} qtd={v.qtd} valor={v.valor} onClick={() => {}} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Acordos */}
+      <div style={{ ...S.grupoTitulo, marginTop: 20 }}>Acordos</div>
+      <div style={S.totais}>
+        <TotalChip rotulo="Em dia" valor={num(eq.acEmDia)} />
+        <TotalChip rotulo="A vencer no mês" valor={num(eq.acAVencer)} tom="alerta" />
+        <TotalChip rotulo="Vencidos" valor={num(eq.acVenc)} tom="critico" />
+        <TotalChip rotulo="Quebrados" valor={num(eq.acQueb)} tom="critico" />
+      </div>
+
+      {/* Conversão por etapa (funil) */}
+      <div style={{ ...S.grupoTitulo, marginTop: 20 }}>Conversão por etapa</div>
+      <div style={S.totais}>
+        <TotalChip rotulo="Links enviados" valor={num(estagio("link_enviado").qtd)} />
+        <TotalChip rotulo="Aguard. confirmação" valor={num(estagio("pgto_aguardando").qtd)} tom="alerta" />
+        <TotalChip rotulo="Termos enviados" valor={num(estagio("termo_enviado").qtd)} />
+        <TotalChip rotulo="Baixas realizadas" valor={num(estagio("baixa_realizada").qtd)} destaque />
+      </div>
+
+      {/* Gargalos */}
+      {!!gargalos.length && (
+        <>
+          <div style={{ ...S.grupoTitulo, marginTop: 20 }}>Gargalos do funil</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            {gargalos.map((g) => (
+              <div key={g.chave} style={{ ...S.alerta, ...S.alertaRuim }}>
+                ⚠️ {num(g.qtd)} casos parados em <strong>{g.rotulo}</strong>
+                {Number(g.valor) > 0 ? ` (${moeda(g.valor)})` : ""}
+              </div>
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
