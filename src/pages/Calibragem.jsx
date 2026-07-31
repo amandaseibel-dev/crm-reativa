@@ -834,6 +834,7 @@ function ModalDetalhe({ detalhe, onClose }) {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [lista, setLista] = useState(null);
+  const [filtros, setFiltros] = useState({ criticidade: "", valor_min: "", unidade: "" });
   const drillable = DRILLABLE.has(chave);
 
   useEffect(() => {
@@ -843,11 +844,16 @@ function ModalDetalhe({ detalhe, onClose }) {
       setCarregando(true);
       setErro("");
       try {
+        const pf = {};
+        if (filtros.criticidade) pf.criticidade = filtros.criticidade;
+        if (filtros.valor_min) pf.valor_min = filtros.valor_min;
+        if (filtros.unidade) pf.unidade = filtros.unidade;
         const { data, error } = await supabase.rpc("calibragem_listar_casos", {
           p_operador_email: operador.operador_email,
           p_indicador: chave,
           p_faixa: faixa ?? null,
           p_ano: ano ?? null,
+          p_filtros: pf,
         });
         if (error) throw error;
         if (ativo) setLista(data);
@@ -860,7 +866,7 @@ function ModalDetalhe({ detalhe, onClose }) {
     return () => {
       ativo = false;
     };
-  }, [operador.operador_email, chave, faixa, ano, drillable]);
+  }, [operador.operador_email, chave, faixa, ano, drillable, filtros]);
 
   const casos = lista?.casos || [];
   const totalSaldo = casos.reduce((s, c) => s + Number(c.saldo || 0), 0);
@@ -882,12 +888,33 @@ function ModalDetalhe({ detalhe, onClose }) {
               indicador entra no próximo incremento (funil de acordos). Os números vêm do snapshot
               atual.
             </p>
-          ) : carregando ? (
-            <div style={{ padding: 20, opacity: 0.7 }}>Carregando casos…</div>
           ) : erro ? (
             <div style={S.erro}>{erro}</div>
           ) : (
             <>
+              <div style={S.filtroBar}>
+                <select style={S.filtroInput} value={filtros.criticidade}
+                  onChange={(e) => setFiltros((f) => ({ ...f, criticidade: e.target.value }))}>
+                  <option value="">Criticidade: todas</option>
+                  <option value="CRITICO">Crítico</option>
+                  <option value="URGENTE">Urgente</option>
+                  <option value="ATENCAO">Atenção</option>
+                  <option value="NORMAL">Normal</option>
+                </select>
+                <select style={S.filtroInput} value={filtros.valor_min}
+                  onChange={(e) => setFiltros((f) => ({ ...f, valor_min: e.target.value }))}>
+                  <option value="">Valor: qualquer</option>
+                  <option value="1000">≥ R$ 1.000</option>
+                  <option value="5000">≥ R$ 5.000</option>
+                  <option value="10000">≥ R$ 10.000</option>
+                </select>
+                <input style={S.filtroInput} placeholder="Unidade contém…" value={filtros.unidade}
+                  onChange={(e) => setFiltros((f) => ({ ...f, unidade: e.target.value }))} />
+              </div>
+              {carregando ? (
+                <div style={{ padding: 20, opacity: 0.7 }}>Carregando casos…</div>
+              ) : (
+              <>
               <div style={S.modalKpis}>
                 <div style={S.modalKpi}>
                   <div style={S.modalKpiValor}>{num(casos.length)}</div>
@@ -935,6 +962,8 @@ function ModalDetalhe({ detalhe, onClose }) {
                   </tbody>
                 </table>
               </div>
+              </>
+              )}
             </>
           )}
         </div>
@@ -1004,6 +1033,8 @@ const S = {
   modalKpi: { background: "rgba(148,163,184,0.08)", borderRadius: 12, padding: "14px 18px", flex: 1, textAlign: "center" },
   modalKpiValor: { fontSize: 22, fontWeight: 800 },
   modalKpiRot: { fontSize: 12, opacity: 0.6, marginTop: 2 },
+  filtroBar: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 },
+  filtroInput: { padding: "7px 10px", borderRadius: 8, background: "#0f172a", color: "#e2e8f0", border: "1px solid rgba(148,163,184,0.25)", fontFamily: FONTE, fontSize: 13 },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
   th: { textAlign: "left", padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.2)", fontSize: 11, textTransform: "uppercase", letterSpacing: 0.5, opacity: 0.6, position: "sticky", top: 0, background: "#0f172a" },
   td: { padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.08)" },
