@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { urlComprovanteLink, abrirDocumento } from "../utils/documentoFinanceiro";
 import Alunos from "./Aluno";
+import FinanceiroAluno from "../components/FinanceiroAluno";
 import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
 import {
   STATUS_AGUARDANDO_CONFIRMACAO,
@@ -108,6 +109,38 @@ export default function FilaConfirmacaoPagamento() {
   const [salvandoVinc, setSalvandoVinc] = useState(false);
   const [finalizando, setFinalizando] = useState(false);
   const [vinc, setVinc] = useState(null); // { tipo, valor, data, alvoTipo, alvoId, comprovanteLinkId }
+
+  // Aba "Acordo / Baixa": embute o FinanceiroAluno (mesmas acoes de sempre).
+  const [alunoFin, setAlunoFin] = useState(null);
+  const [carregandoAlunoFin, setCarregandoAlunoFin] = useState(false);
+
+  useEffect(() => {
+    let ativo = true;
+    if (abaFicha !== "acordo" || !detalhe?.aluno_id) return;
+    if (alunoFin && String(alunoFin.id) === String(detalhe.aluno_id)) return;
+    (async () => {
+      setCarregandoAlunoFin(true);
+      const { data } = await supabase
+        .from("alunos")
+        .select("id, cpf, nome, matricula, unidade, responsavel_atual_email, responsavel_atual_nome")
+        .eq("id", String(detalhe.aluno_id))
+        .maybeSingle();
+      if (!ativo) return;
+      // fallback: monta objeto minimo a partir da solicitacao se a linha nao vier
+      setAlunoFin(
+        data || {
+          id: detalhe.aluno_id,
+          cpf: detalhe.aluno_cpf,
+          nome: detalhe.aluno_nome,
+        }
+      );
+      setCarregandoAlunoFin(false);
+    })();
+    return () => {
+      ativo = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [abaFicha, detalhe?.aluno_id]);
 
   useEffect(() => {
     carregarUsuario();
@@ -603,13 +636,13 @@ export default function FilaConfirmacaoPagamento() {
             </div>
 
             <div style={styles.abas}>
-              {["resumo", "ficha", "financeiro", "historico", "comprovante"].map((a) => (
+              {["resumo", "ficha", "financeiro", "acordo", "historico", "comprovante"].map((a) => (
                 <button
                   key={a}
                   style={abaFicha === a ? styles.abaAtiva : styles.aba}
                   onClick={() => setAbaFicha(a)}
                 >
-                  {a === "resumo" ? "Resumo" : a === "ficha" ? "Ficha completa" : a === "financeiro" ? "Financeiro" : a === "historico" ? "Histórico" : "Comprovante"}
+                  {a === "resumo" ? "Resumo" : a === "ficha" ? "Ficha completa" : a === "financeiro" ? "Financeiro" : a === "acordo" ? "💳 Acordo / Baixa" : a === "historico" ? "Histórico" : "Comprovante"}
                 </button>
               ))}
             </div>
@@ -672,6 +705,20 @@ export default function FilaConfirmacaoPagamento() {
                         <span>{formatarMoeda(valorTitulo(t))}</span>
                       </div>
                     ))
+                  )}
+                </div>
+              )}
+
+              {abaFicha === "acordo" && (
+                <div>
+                  <p style={{ ...styles.info, marginBottom: 10 }}>
+                    Lance acordo, quite parcelas ou registre pagamento à vista aqui mesmo — sem sair
+                    da fila. As ações e permissões são as mesmas da ficha do aluno.
+                  </p>
+                  {carregandoAlunoFin || !alunoFin ? (
+                    <p style={styles.info}>Carregando financeiro do aluno…</p>
+                  ) : (
+                    <FinanceiroAluno aluno={alunoFin} />
                   )}
                 </div>
               )}
