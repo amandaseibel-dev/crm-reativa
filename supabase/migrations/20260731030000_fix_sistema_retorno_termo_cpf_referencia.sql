@@ -1,0 +1,6 @@
+-- HOTFIX: sistema_retorno_termo referenciava alunos.cpf_referencia (inexistente).
+-- Erro "column cpf_referencia does not exist" ao validar termo e ao liberar
+-- termo na confirmação de pagamento. public.alunos tem `cpf`, não `cpf_referencia`.
+-- Fix: coalesce(cpf, cpf_referencia) -> cpf. (Só o SELECT mudou; resto idêntico.)
+-- Aplicado prod+staging 2026-07-31; smoke test ok (função roda sem o erro).
+-- Corpo completo aplicado via CREATE OR REPLACE (ver migration aplicada no banco).
