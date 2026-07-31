@@ -1,0 +1,10 @@
+-- Trava de importacao de pagamentos: numero de titulo (numero_parcela_completo)
+-- nao pode repetir com o MESMO valor (duplicata exata) — independente da data.
+-- Antes so colapsava (parcela, valor, data), deixando passar o mesmo pagamento
+-- em datas diferentes (ex.: titulo 65126 R$2.887,01 em 10/07 e 13/07 = dobra).
+-- Juros/complemento (mesmo titulo, valor diferente) seguem sendo aceitos.
+-- Nao altera os pagamentos ja existentes; so trava novas importacoes.
+-- (Corpo completo aplicado via apply_migration em prod:
+--  ver trava_pagamento_titulo_valor_duplicado — DISTINCT ON (numero_parcela_completo,
+--  valor_pago) + WHERE NOT EXISTS pagamento ativo com mesmo titulo+valor,
+--  excluindo a importacao em substituicao.)
