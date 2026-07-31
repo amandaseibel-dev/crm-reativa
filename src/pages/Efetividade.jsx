@@ -151,6 +151,61 @@ export default function Efetividade() {
           </table>
         </div>
       )}
+
+      <div style={{ marginTop: 28 }}>
+        <Funil />
+      </div>
+    </div>
+  );
+}
+
+const GRUPO_COR = { Links: "#38bdf8", "Confirmação": "#fbbf24", Termos: "#a78bfa", Acordos: "#34d399", Baixas: "#f472b6" };
+
+function Funil() {
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+  const [estagios, setEstagios] = useState([]);
+
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      setCarregando(true);
+      try {
+        const { data, error } = await supabase.rpc("calibragem_funil", { p_operador: null });
+        if (error) throw error;
+        if (ativo) setEstagios(data?.estagios || []);
+      } catch (e) {
+        if (ativo) setErro(e?.message || String(e));
+      } finally {
+        if (ativo) setCarregando(false);
+      }
+    })();
+    return () => { ativo = false; };
+  }, []);
+
+  if (carregando) return <div style={S.vazio}>Carregando funil…</div>;
+  if (erro) return <div style={S.erro}>{erro}</div>;
+
+  const grupos = [...new Set(estagios.map((e) => e.grupo))];
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 800, margin: "8px 0 14px" }}>🫧 Funil de negociações</h2>
+      {grupos.map((g) => (
+        <div key={g} style={{ marginBottom: 16 }}>
+          <div style={{ ...S.th, opacity: 0.7, color: GRUPO_COR[g], marginBottom: 6 }}>{g}</div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 10 }}>
+            {estagios.filter((e) => e.grupo === g).map((e) => (
+              <div key={e.chave} style={{ ...S.chip, borderLeft: `3px solid ${GRUPO_COR[g]}` }}>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline" }}>
+                  <div style={S.chipV}>{num(e.qtd)}</div>
+                  {Number(e.valor) > 0 && <div style={{ fontSize: 13, color: "#93c5fd" }}>{moeda(e.valor)}</div>}
+                </div>
+                <div style={S.chipR}>{e.rotulo}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
