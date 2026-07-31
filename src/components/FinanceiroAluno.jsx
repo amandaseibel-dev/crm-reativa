@@ -1197,8 +1197,30 @@ export default function FinanceiroAluno({ aluno }) {
           {novoAberto && (
             <div style={{ marginTop: 10 }}>
               <div style={estilos.blocoTitulos}>
-                <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>
-                  Títulos em aberto — marque os que entram neste acordo
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 12, fontWeight: 700 }}>
+                    Títulos em aberto — marque os que entram neste acordo
+                  </span>
+                  {titulosSelecionaveis.length > 0 && (
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        type="button"
+                        style={{ ...estilos.botaoPequeno, padding: "4px 10px" }}
+                        onClick={() => setNovo((atual) => ({ ...atual, titulosSel: titulosSelecionaveis.map((t) => t.id) }))}
+                      >
+                        Selecionar todas ({titulosSelecionaveis.length})
+                      </button>
+                      {novo.titulosSel.length > 0 && (
+                        <button
+                          type="button"
+                          style={{ ...estilos.botaoPequeno, padding: "4px 10px", background: "#e2e8f0", color: "#334155" }}
+                          onClick={() => setNovo((atual) => ({ ...atual, titulosSel: [] }))}
+                        >
+                          Limpar
+                        </button>
+                      )}
+                    </div>
+                  )}
                 </div>
                 {titulosSelecionaveis.length === 0 ? (
                   <div style={{ fontSize: 12, opacity: 0.7 }}>
