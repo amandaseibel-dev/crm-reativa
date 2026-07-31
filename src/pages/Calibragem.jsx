@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import Alunos from "./Aluno";
 
 const FONTE = "'Sora','Inter',system-ui,sans-serif";
 
@@ -1016,6 +1017,7 @@ function ModalDetalhe({ detalhe, onClose }) {
   const [erro, setErro] = useState("");
   const [lista, setLista] = useState(null);
   const [filtros, setFiltros] = useState({ criticidade: "", valor_min: "", unidade: "" });
+  const [fichaAlunoId, setFichaAlunoId] = useState(null); // abre a ficha do caso na mesma tela
   const drillable = DRILLABLE.has(chave);
 
   useEffect(() => {
@@ -1053,6 +1055,7 @@ function ModalDetalhe({ detalhe, onClose }) {
   const totalSaldo = casos.reduce((s, c) => s + Number(c.saldo || 0), 0);
 
   return (
+    <>
     <div style={S.overlay} onClick={onClose}>
       <div style={{ ...S.modal, width: "min(880px, 100%)" }} onClick={(e) => e.stopPropagation()}>
         <div style={S.modalHeader}>
@@ -1120,7 +1123,12 @@ function ModalDetalhe({ detalhe, onClose }) {
                   </thead>
                   <tbody>
                     {casos.map((c) => (
-                      <tr key={c.caso_id}>
+                      <tr
+                        key={c.caso_id}
+                        onClick={() => c.aluno_id && setFichaAlunoId(c.aluno_id)}
+                        style={{ cursor: c.aluno_id ? "pointer" : "default" }}
+                        title={c.aluno_id ? "Abrir ficha do aluno" : "Sem ficha vinculada"}
+                      >
                         <td style={S.td}>{c.nome || "—"}</td>
                         <td style={S.tdMono}>{c.cpf || "—"}</td>
                         <td style={{ ...S.td, textAlign: "right" }}>{moeda(c.saldo)}</td>
@@ -1150,6 +1158,21 @@ function ModalDetalhe({ detalhe, onClose }) {
         </div>
       </div>
     </div>
+
+    {fichaAlunoId && (
+      <div style={S.fichaOverlay} onClick={() => setFichaAlunoId(null)}>
+        <div style={S.fichaModal} onClick={(e) => e.stopPropagation()}>
+          <div style={S.fichaTopo}>
+            <strong>Ficha do aluno</strong>
+            <button type="button" style={S.fichaX} onClick={() => setFichaAlunoId(null)}>✕</button>
+          </div>
+          <div style={{ padding: 4 }}>
+            <Alunos fichaEmbedId={fichaAlunoId} />
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   );
 }
 
@@ -1244,4 +1267,8 @@ const S = {
   alertaRuim: { background: "rgba(248,113,113,0.1)", border: "1px solid rgba(248,113,113,0.3)" },
   compTrack: { height: 4, background: "rgba(148,163,184,0.15)", borderRadius: 999, overflow: "hidden", marginTop: 3 },
   compFill: { height: "100%", borderRadius: 999 },
+  fichaOverlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1100, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "20px 12px", overflow: "auto" },
+  fichaModal: { background: "#fff", color: "#0f172a", borderRadius: 14, width: "min(1100px, 100%)", maxHeight: "94vh", overflow: "auto", boxShadow: "0 24px 70px rgba(0,0,0,0.5)" },
+  fichaTopo: { position: "sticky", top: 0, background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", borderBottom: "1px solid #e2e8f0", zIndex: 2 },
+  fichaX: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#64748b", lineHeight: 1 },
 };
