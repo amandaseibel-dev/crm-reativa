@@ -592,6 +592,7 @@ const CRITERIOS = [
   { valor: "EQUIPARAR_QTD", rotulo: "Equiparar quantidade de CPFs" },
   { valor: "RETIRAR_SEM_ACIONAMENTO", rotulo: "Retirar sem acionamento e redistribuir" },
   { valor: "EQUIPARAR_ACORDOS", rotulo: "Equiparar quantidade de acordos" },
+  { valor: "EQUIPARAR_ANO", rotulo: "Equiparar dívidas por ano" },
 ];
 
 function Simulador({ operadores, onExecutado }) {
@@ -599,6 +600,7 @@ function Simulador({ operadores, onExecutado }) {
   const [tipo, setTipo] = useState("EQUIPARAR_SALDO");
   const [selecionados, setSelecionados] = useState(() => opcoesOp.map((o) => o.operador_email));
   const [origem, setOrigem] = useState("");
+  const [anoSel, setAnoSel] = useState(2026);
   const [simulando, setSimulando] = useState(false);
   const [erro, setErro] = useState("");
   const [sim, setSim] = useState(null);
@@ -617,7 +619,11 @@ function Simulador({ operadores, onExecutado }) {
     try {
       const criterio = { tipo, operadores: selecionados };
       if (tipo === "RETIRAR_SEM_ACIONAMENTO" && origem) criterio.origem = origem;
-      const rpcSim = tipo === "EQUIPARAR_ACORDOS" ? "calibragem_simular_acordos" : "calibragem_simular";
+      if (tipo === "EQUIPARAR_ANO") criterio.ano = Number(anoSel);
+      const rpcSim =
+        tipo === "EQUIPARAR_ACORDOS" ? "calibragem_simular_acordos"
+        : tipo === "EQUIPARAR_ANO" ? "calibragem_simular_ano"
+        : "calibragem_simular";
       const { data, error } = await supabase.rpc(rpcSim, { p_criterio: criterio });
       if (error) throw error;
       setSim(data);
@@ -674,7 +680,9 @@ function Simulador({ operadores, onExecutado }) {
   const depoisPorEmail = Object.fromEntries(depois.map((d) => [d.op_email, d]));
   const movs = sim?.movimentacoes || [];
   const ehAcordos = sim?.metrica === "ACORDOS";
-  const unidade = ehAcordos ? "Acordos" : "CPFs";
+  const ehAno = sim?.metrica === "ANO";
+  const semSaldo = ehAcordos || ehAno;
+  const unidade = ehAcordos ? "Acordos" : ehAno ? `Casos ${sim?.ano}` : "CPFs";
 
   return (
     <div>
@@ -694,6 +702,16 @@ function Simulador({ operadores, onExecutado }) {
                 {opcoesOp.map((o) => (
                   <option key={o.operador_email} value={o.operador_email}>{o.operador_nome}</option>
                 ))}
+              </select>
+            </>
+          )}
+          {tipo === "EQUIPARAR_ANO" && (
+            <>
+              <label style={{ ...S.simLabel, marginTop: 10 }}>Ano da dívida a nivelar</label>
+              <select style={S.simSelect} value={anoSel} onChange={(e) => setAnoSel(Number(e.target.value))}>
+                <option value={2024}>2024</option>
+                <option value={2025}>2025</option>
+                <option value={2026}>2026</option>
               </select>
             </>
           )}
@@ -748,7 +766,7 @@ function Simulador({ operadores, onExecutado }) {
               <div style={S.simKpiV}>
                 {sim.metrica === "SALDO" ? moeda(sim.alvo) : num(sim.alvo)}
               </div>
-              <div style={S.simKpiR}>alvo ({sim.metrica === "SALDO" ? "saldo" : ehAcordos ? "acordos" : "CPFs"})</div>
+              <div style={S.simKpiR}>alvo ({sim.metrica === "SALDO" ? "saldo" : ehAcordos ? "acordos" : ehAno ? `casos ${sim.ano}` : "CPFs"})</div>
             </div>
           </div>
 
@@ -760,8 +778,8 @@ function Simulador({ operadores, onExecutado }) {
                   <th style={S.th}>Operador</th>
                   <th style={{ ...S.th, textAlign: "right" }}>{unidade} antes</th>
                   <th style={{ ...S.th, textAlign: "right" }}>{unidade} depois</th>
-                  {!ehAcordos && <th style={{ ...S.th, textAlign: "right" }}>Saldo antes</th>}
-                  {!ehAcordos && <th style={{ ...S.th, textAlign: "right" }}>Saldo depois</th>}
+                  {!semSaldo && <th style={{ ...S.th, textAlign: "right" }}>Saldo antes</th>}
+                  {!semSaldo && <th style={{ ...S.th, textAlign: "right" }}>Saldo depois</th>}
                 </tr>
               </thead>
               <tbody>
@@ -775,14 +793,14 @@ function Simulador({ operadores, onExecutado }) {
                       <td style={{ ...S.td, textAlign: "right" }}>{num(a.qtd)}</td>
                       <td style={{ ...S.td, textAlign: "right" }}>
                         {num(d.qtd)}
-                        {ehAcordos && dQtd !== 0 && (
+                        {semSaldo && dQtd !== 0 && (
                           <span style={{ fontSize: 11, marginLeft: 6, color: dQtd < 0 ? "#f87171" : "#34d399" }}>
                             {dQtd > 0 ? `▲${dQtd}` : `▼${Math.abs(dQtd)}`}
                           </span>
                         )}
                       </td>
-                      {!ehAcordos && <td style={{ ...S.td, textAlign: "right" }}>{moeda(a.saldo)}</td>}
-                      {!ehAcordos && (
+                      {!semSaldo && <td style={{ ...S.td, textAlign: "right" }}>{moeda(a.saldo)}</td>}
+                      {!semSaldo && (
                         <td style={{ ...S.td, textAlign: "right" }}>
                           {moeda(d.saldo)}
                           <span style={{ fontSize: 11, marginLeft: 6, color: dSaldo < 0 ? "#f87171" : "#34d399" }}>
