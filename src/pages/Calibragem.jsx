@@ -120,6 +120,7 @@ export default function Calibragem() {
 
   return (
     <div style={S.container}>
+      <div style={S.inner}>
       <div style={S.header}>
         <div>
           <h1 style={S.titulo}>⚖️ Calibragem</h1>
@@ -223,6 +224,7 @@ export default function Calibragem() {
       {detalhe && (
         <ModalDetalhe detalhe={detalhe} onClose={() => setDetalhe(null)} />
       )}
+      </div>
     </div>
   );
 }
@@ -1110,7 +1112,8 @@ function TagCrit({ valor }) {
 }
 
 const S = {
-  container: { padding: "24px 28px", fontFamily: FONTE, color: "#e2e8f0", maxWidth: 1400, margin: "0 auto" },
+  container: { padding: "24px 28px", fontFamily: FONTE, color: "#e2e8f0", background: "#0f172a", minHeight: "100vh", boxSizing: "border-box" },
+  inner: { maxWidth: 1400, margin: "0 auto" },
   header: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 20 },
   titulo: { fontSize: 26, fontWeight: 800, margin: 0 },
   subtitulo: { opacity: 0.7, margin: "6px 0 0", maxWidth: 620, fontSize: 14, lineHeight: 1.5 },
