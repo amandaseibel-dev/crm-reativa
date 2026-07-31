@@ -425,6 +425,15 @@ export default function App() {
   if (["/tv-elogios", "/tv"].includes(window.location.pathname)) {
     return <TvElogios />;
   }
+  // Confinamento do usuário técnico do telão: ele só existe para a rota /tv.
+  // Em qualquer outra rota, volta para /tv — nunca abre o CRM administrativo.
+  {
+    const emailTelao = String(usuario?.auth?.email || "").toLowerCase().trim();
+    if (emailTelao === "painel.tv@reativa.local") {
+      window.location.replace("/tv");
+      return null;
+    }
+  }
   if (carregando) {
     return (
       <div

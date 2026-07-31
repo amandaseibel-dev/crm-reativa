@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import {
-  Cabecalho, Rodape, Palco, EstadoCarregando, EstadoSemSnapshot, EstadoErro, T, AREA_SEGURA,
+  Cabecalho, Rodape, Palco, EstadoCarregando, EstadoSemSnapshot, EstadoErro, Marca, T, AREA_SEGURA, fs,
 } from "../components/tv/tvUI";
 import { telasVisiveis } from "../components/tv/tvTelas";
+
+// Usuário técnico do telão: painel.tv@reativa.local (perfil "painel"). É o
+// usuário de MENOR permissão — bloqueado de alunos/CPF/operacional por 96
+// políticas eh_painel; só lê o snapshot da TV. O e-mail NÃO é segredo; a senha
+// nunca fica no bundle — é digitada no telão uma vez e a sessão persiste.
+const TV_EMAIL_PADRAO = "painel.tv@reativa.local";
 
 // =============================================================================
 // TV ReATIVA — ORQUESTRADOR
@@ -53,7 +59,19 @@ export default function TvElogios() {
   const [atualizando, setAtualizando] = useState(false);
   const [toast, setToast] = useState("");
   const [erroLeitura, setErroLeitura] = useState(false);
+  // Sessão do telão: undefined = verificando; null = sem sessão (mostra login);
+  // objeto = sessão autenticada persistente (supabase renova o token sozinho).
+  const [sessao, setSessao] = useState(undefined);
   const versaoRef = useRef(Number(cache?.meta?.versao || 0));
+
+  // Detecta/observa a sessão. persistSession + autoRefreshToken (padrão do
+  // cliente) mantêm o telão logado durante o uso diário, sem senha no bundle.
+  useEffect(() => {
+    let vivo = true;
+    supabase.auth.getSession().then(({ data }) => { if (vivo) setSessao(data?.session || null); });
+    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSessao(s || null));
+    return () => { vivo = false; sub?.subscription?.unsubscribe(); };
+  }, []);
 
   // Uma leitura do snapshot. Devolve { ok, mudou } para o feedback do botão.
   // - ok=false  → a leitura FALHOU (erro/permission/rede): NÃO dizer "atualizada".
@@ -87,15 +105,16 @@ export default function TvElogios() {
     }
   }
 
-  // Carga inicial: 1 leitura ao abrir/recarregar.
+  // Carga inicial: 1 leitura, SÓ com sessão do telão (sem sessão → tela de login).
   useEffect(() => {
-    carregarSnapshot();
-  }, []);
+    if (sessao) carregarSnapshot();
+  }, [sessao]);
 
-  // Realtime: escuta SÓ a tabela-sinal do snapshot. Quando o CRM gera um novo
-  // snapshot com sucesso, chega 1 evento e a TV faz 1 leitura. Sem polling.
-  // Se o realtime falhar, o botão manual continua disponível como alternativa.
+  // Realtime: escuta SÓ a tabela-sinal do snapshot, com a sessão do telão. Quando
+  // o CRM gera um novo snapshot com sucesso, chega 1 evento e a TV faz 1 leitura.
+  // Sem polling. Se o realtime falhar, o botão manual segue como alternativa.
   useEffect(() => {
+    if (!sessao) return;
     const canal = supabase
       .channel("tv-sinal")
       .on("postgres_changes", { event: "*", schema: "public", table: "tv_sinal" }, (payload) => {
@@ -104,7 +123,7 @@ export default function TvElogios() {
       })
       .subscribe();
     return () => { supabase.removeChannel(canal); };
-  }, []);
+  }, [sessao]);
 
   // Botão manual do telão: 1 leitura; feedback breve; sem recarregar a app nem
   // reiniciar o carrossel (o índice atual é preservado).
@@ -179,6 +198,11 @@ export default function TvElogios() {
     return <EstadoSemSnapshot />;                    // status 'vazio' = nunca gerado
   })();
 
+  // Gating de sessão: enquanto verifica, mostra carregando; sem sessão, mostra a
+  // tela de login EXCLUSIVA do telão (não redireciona para o CRM).
+  if (sessao === undefined) return <div style={raiz}><EstadoCarregando /></div>;
+  if (sessao === null) return <TvLogin />;
+
   return (
     <div style={raiz}>
       {conteudo}
@@ -200,6 +224,53 @@ export default function TvElogios() {
     </div>
   );
 }
+
+// Tela de login EXCLUSIVA do telão. Autentica o usuário técnico e volta para a
+// própria TV (não redireciona para o CRM). A senha é digitada aqui — NUNCA fica
+// no código; a sessão persiste e renova sozinha depois do primeiro login.
+function TvLogin() {
+  const [email, setEmail] = useState(TV_EMAIL_PADRAO);
+  const [senha, setSenha] = useState("");
+  const [erro, setErro] = useState("");
+  const [entrando, setEntrando] = useState(false);
+  async function entrar(e) {
+    e.preventDefault();
+    setEntrando(true); setErro("");
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password: senha });
+    // Sucesso: onAuthStateChange no orquestrador assume e carrega a TV.
+    if (error) setErro("Não foi possível entrar. Verifique e-mail e senha do telão.");
+    setEntrando(false);
+  }
+  return (
+    <div style={{ ...raiz, alignItems: "center", justifyContent: "center" }}>
+      <form onSubmit={entrar} style={loginCard}>
+        <Marca tamanho={fs(30, 3.4, 72)} />
+        <div style={{ fontSize: fs(15, 1.5, 30), color: T.textoMudo, fontWeight: 700 }}>Acesso do telão</div>
+        <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="usuário do telão"
+          autoComplete="username" style={loginInput} />
+        <input type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="senha do telão"
+          autoComplete="current-password" style={loginInput} />
+        <button type="submit" disabled={entrando} style={loginBtn}>{entrando ? "Entrando…" : "Entrar"}</button>
+        {erro && <div style={{ color: T.vermelho, fontSize: fs(12, 1.2, 22), fontWeight: 600 }}>{erro}</div>}
+        <div style={{ fontSize: fs(11, 1, 18), color: T.textoSuave }}>Sessão exclusiva da TV — não abre o CRM.</div>
+      </form>
+    </div>
+  );
+}
+
+const loginCard = {
+  display: "flex", flexDirection: "column", gap: "1.4vh", alignItems: "stretch",
+  width: "min(90vw, 420px)", background: T.surface, border: `1px solid ${T.surfaceBorda}`,
+  borderRadius: 18, padding: "4vh 3vw", boxShadow: "0 20px 60px rgba(2,6,23,0.5)", textAlign: "center",
+};
+const loginInput = {
+  background: "rgba(15,23,42,0.7)", color: T.texto, border: "1px solid rgba(148,163,184,0.3)",
+  borderRadius: 10, padding: "12px 14px", fontSize: "clamp(14px,1.1vw,20px)", outline: "none",
+};
+const loginBtn = {
+  background: T.azul, color: "#fff", border: "none", borderRadius: 10, padding: "12px 16px",
+  fontSize: "clamp(14px,1.1vw,20px)", fontWeight: 800, cursor: "pointer",
+};
 
 // Raiz: 100vh EXATO, sem rolagem. A ÁREA SEGURA (padding) afasta o conteúdo das
 // bordas (~4% laterais, ~3% topo/base) contra overscan de TV.
