@@ -181,6 +181,62 @@ export function MetaCard({ titulo, valor, alvo, pct, detalhe }) {
   );
 }
 
+// Cor por rótulo de situação (nunca só cor: o texto acompanha sempre).
+export function corSituacao(sit) {
+  if (sit === "No ritmo" || sit === "Meta atingida") return T.verde;
+  if (sit === "Atenção") return T.ambar;
+  return T.vermelho; // Abaixo do ritmo
+}
+
+// 2b) Card de meta (Etapa 3) — andamento OU modo conquista, a partir do objeto
+//     de meta já calculado no snapshot. pct nunca é limitado a 100%.
+export function CardMeta({ meta }) {
+  if (!meta) return null;
+  const pct = meta.pct == null ? null : Number(meta.pct);
+  if (meta.atingida) {
+    // ---- Modo conquista (positivo, sem animação pesada) ----
+    return (
+      <div style={{ ...s.card, width: "min(82vw,1500px)", alignItems: "stretch", gap: "1.2vh", background: "linear-gradient(135deg, rgba(16,185,129,0.22), rgba(59,130,246,0.18))", border: "1px solid rgba(52,211,153,0.5)" }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "1vw", flexWrap: "wrap" }}>
+          <span style={{ fontSize: fs(16, 1.6, 38), fontWeight: 800, color: T.texto }}>{meta.nome}</span>
+          <span style={{ ...s.selo, color: T.verde, borderColor: T.verde }}>🏆 Meta batida</span>
+        </div>
+        <div style={{ display: "flex", alignItems: "baseline", gap: "1.2vw", flexWrap: "wrap" }}>
+          <span style={{ fontSize: fs(38, 5, 120), fontWeight: 900, lineHeight: 1, color: T.verde }}>{moeda(meta.realizado)}</span>
+          <span style={{ fontSize: fs(14, 1.4, 30), color: T.textoSuave, fontWeight: 600 }}>meta {moeda(meta.alvo)}</span>
+          {pct != null && <span style={{ fontSize: fs(20, 2.4, 56), fontWeight: 900, color: T.verde, marginLeft: "auto" }}>{pct}%</span>}
+        </div>
+        <BarraProgresso pct={100} tom="verde" />
+        <div style={{ display: "flex", gap: "2vw", flexWrap: "wrap", fontSize: fs(14, 1.4, 30), fontWeight: 700, color: T.texto }}>
+          <span>Superamos em <strong style={{ color: T.verde }}>{moeda(meta.excedente)}</strong></span>
+          {meta.data_atingimento && <span style={{ color: T.textoSuave }}>Atingida em {meta.data_atingimento}</span>}
+        </div>
+        {meta.mensagem && <div style={{ fontSize: fs(13, 1.3, 26), color: T.textoSuave, fontWeight: 600 }}>{meta.mensagem}</div>}
+      </div>
+    );
+  }
+  // ---- Modo andamento ----
+  const cor = corSituacao(meta.situacao);
+  return (
+    <div style={{ ...s.card, width: "min(82vw,1500px)", alignItems: "stretch", gap: "1.2vh" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: "1vw", flexWrap: "wrap" }}>
+        <span style={{ fontSize: fs(16, 1.6, 38), fontWeight: 800, color: T.texto }}>{meta.nome}</span>
+        <span style={{ ...s.selo, color: cor, borderColor: cor }}>{meta.situacao}</span>
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "1.2vw", flexWrap: "wrap" }}>
+        <span style={{ fontSize: fs(38, 5, 120), fontWeight: 900, lineHeight: 1, color: cor }}>{moeda(meta.realizado)}</span>
+        <span style={{ fontSize: fs(14, 1.4, 30), color: T.textoSuave, fontWeight: 600 }}>de {moeda(meta.alvo)}</span>
+        {pct != null && <span style={{ fontSize: fs(20, 2.4, 56), fontWeight: 900, color: cor, marginLeft: "auto" }}>{pct}%</span>}
+      </div>
+      <BarraProgresso pct={pct} tom={meta.situacao === "No ritmo" ? "verde" : meta.situacao === "Atenção" ? "ambar" : "vermelho"} />
+      <div style={{ display: "flex", gap: "2vw", flexWrap: "wrap", fontSize: fs(14, 1.4, 30), fontWeight: 700, color: T.texto }}>
+        <span>Falta <strong style={{ color: cor }}>{moeda(meta.restante)}</strong></span>
+        {meta.ritmo_necessario != null && <span style={{ color: T.textoSuave }}>Precisa {moeda(meta.ritmo_necessario)}/dia útil</span>}
+      </div>
+    </div>
+  );
+}
+
 // 4) Ranking — lista ou pódio ------------------------------------------------
 export function Ranking({ titulo, itens = [], podio = false }) {
   const medalha = ["🥇", "🥈", "🥉"];

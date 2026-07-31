@@ -1,36 +1,50 @@
 import {
-  Tela, IndicadorCard, MetaCard, Ranking, DestaqueOperador,
+  Tela, IndicadorCard, CardMeta, Ranking, DestaqueOperador,
   MensagemInstitucional, Aviso, Treinamento, Conquista,
   moeda, num, statusRitmo, T, fs, layout,
 } from "./tvUI";
 
 // =============================================================================
-// TV ReATIVA — TELAS (Etapa 2, estrutura)
+// TV ReATIVA — TELAS (Etapa 3: regras detalhadas)
 // -----------------------------------------------------------------------------
-// Cada tela recebe o payload do snapshot por PROPS e monta os componentes
-// reutilizáveis. NENHUMA consulta ao banco. Onde a regra específica ainda não
-// foi definida (Etapa 3+), há um placeholder claro em vez de dado inventado.
-//
-// Cada entrada de CATALOGO_TELAS = { id, nome, Comp }. O orquestrador percorre
-// esse catálogo para montar o carrossel.
+// TODA conta já vem PRONTA do snapshot (gerada no "Atualizar projeção"). Aqui só
+// se LÊ e EXIBE — nenhuma consulta ao banco, nenhum cálculo pesado.
+// Onde falta dado, usa mensagem padronizada (nunca zero enganoso/placeholder).
 // =============================================================================
 
 const linha = layout.linhaCards;
+const SR = "Sem registro"; // rótulo padrão p/ indicador inexistente
+
+function Vazio({ children }) {
+  return <div style={{ fontSize: fs(16, 1.7, 42), color: T.textoMudo, fontWeight: 600, textAlign: "center" }}>{children}</div>;
+}
 
 // 1) Hoje na Operação ---------------------------------------------------------
 function TelaHoje({ snap }) {
-  const d = snap?.dados || {};
-  const rank = snap?.rank || {};
-  const topDia = (rank.top_dia || [])[0];
+  const h = snap?.hoje || {};
+  if (h.sem_pagamentos) {
+    return (
+      <Tela titulo="Hoje na Operação" icone="⚡">
+        <Vazio>Ainda não há pagamentos confirmados no snapshot atual.</Vazio>
+      </Tela>
+    );
+  }
+  const mp = h.maior_pagamento;
+  const tr = h.top_recuperador;
+  const tq = h.top_qtd;
   return (
     <Tela titulo="Hoje na Operação" icone="⚡">
       <div style={linha}>
-        <IndicadorCard rotulo="Recuperado hoje" valor={moeda(d.recuperado_dia)} tom="verde" grande />
-        <IndicadorCard rotulo="Honorários hoje" valor={moeda(d.honorarios_dia)} tom="azul" grande />
+        <IndicadorCard rotulo="Recuperado hoje" valor={moeda(h.recuperado)} tom="verde" grande />
+        <IndicadorCard rotulo="Honorários hoje" valor={moeda(h.honorarios)} tom="azul" grande />
       </div>
       <div style={linha}>
-        <IndicadorCard rotulo="Alunos recuperados hoje" valor={num(d.alunos_pagos_dia)} tom="ambar" />
-        <DestaqueOperador rotulo="Destaque de acionamentos" nome={topDia?.nome} valor={topDia?.qtd != null ? `${num(topDia.qtd)} acionamentos` : null} icone="📞" />
+        <IndicadorCard rotulo="Pagamentos confirmados hoje" valor={num(h.pagamentos_confirmados)} tom="ambar" />
+        <DestaqueOperador rotulo="Maior pagamento do dia" nome={mp ? mp.operador : SR} valor={mp ? moeda(mp.valor) : null} icone="💰" />
+      </div>
+      <div style={linha}>
+        <DestaqueOperador rotulo="Maior valor recuperado hoje" nome={tr ? tr.operador : SR} valor={tr ? moeda(tr.valor) : null} icone="⭐" />
+        <DestaqueOperador rotulo="Mais pagamentos confirmados hoje" nome={tq ? tq.operador : SR} valor={tq ? `${num(tq.qtd)} pagamentos` : null} icone="🎯" />
       </div>
     </Tela>
   );
@@ -38,191 +52,147 @@ function TelaHoje({ snap }) {
 
 // 2) Resultado do Mês ---------------------------------------------------------
 function TelaResultadoMes({ snap }) {
-  const d = snap?.dados || {};
-  const p = snap?.proj || {};
-  const mp = d.maior_pagamento;
+  const m = snap?.mes || {};
+  const cmp = m.comparacao || {};
+  const necTxt = m.meta_atingida
+    ? "Meta já atingida."
+    : m.necessidade_diaria == null
+      ? "Sem dias úteis restantes."
+      : `${moeda(m.necessidade_diaria)}/dia útil`;
   return (
     <Tela titulo="Resultado do Mês" icone="📊">
       <div style={linha}>
-        <IndicadorCard rotulo="Honorários no mês" valor={moeda(p.honorarios_mes)} tom="verde" grande />
-        <IndicadorCard rotulo="Recuperado no mês" valor={moeda(p.recuperado_mes)} tom="azul" grande />
+        <IndicadorCard rotulo="Recuperado no mês" valor={moeda(m.recuperado)} tom="verde" grande />
+        <IndicadorCard rotulo="Honorários no mês" valor={moeda(m.honorarios)} tom="azul" grande />
       </div>
       <div style={linha}>
-        <IndicadorCard rotulo="Alunos recuperados no mês" valor={num(d.alunos_pagos_mes)} tom="ambar" />
-        {mp && <DestaqueOperador rotulo="Maior pagamento do mês" nome={mp.operador} valor={moeda(mp.valor)} icone="💰" />}
+        <IndicadorCard rotulo="Pagamentos confirmados no mês" valor={num(m.pagamentos_confirmados)} tom="ambar" />
+        <IndicadorCard rotulo="Média diária de recuperação" valor={moeda(m.media_diaria)} tom="azul" />
+        <IndicadorCard rotulo="Projeção de fechamento" valor={moeda(m.projecao_fechamento)} tom="verde" />
       </div>
+      <div style={linha}>
+        <IndicadorCard rotulo={`Dias úteis (${m.dias_uteis_transcorridos}/${m.dias_uteis_mes})`} valor={`${m.dias_uteis_restantes} restantes`} tom="azul" />
+        <IndicadorCard rotulo="Necessário por dia útil" valor={necTxt} tom={m.meta_atingida ? "verde" : "ambar"} />
+      </div>
+      <Vazio>{m.estimativa_aviso || "Projeção estimada com base no ritmo atual."}</Vazio>
     </Tela>
   );
 }
 
 // 3) Metas --------------------------------------------------------------------
 function TelaMetas({ snap }) {
-  const p = snap?.proj || {};
-  const pctCampanha = p.honorarios_mes != null ? Math.round((Number(p.honorarios_mes) / 500000) * 100) : null;
+  const metas = snap?.metas || [];
   return (
     <Tela titulo="Metas" icone="🎯">
-      <MetaCard
-        titulo="Meta de honorários do mês"
-        valor={moeda(p.honorarios_mes)}
-        alvo={p.meta ? moeda(p.meta) : null}
-        pct={p.pct_meta}
-        detalhe={p.falta != null ? `Falta ${moeda(p.falta)} · precisa ${moeda(p.precisa_por_dia)}/dia em ${p.dias_restantes} dia(s) úteis` : null}
-      />
-      <MetaCard
-        titulo="Campanha do mês — R$ 500 mil"
-        valor={moeda(p.honorarios_mes)}
-        alvo={moeda(500000)}
-        pct={pctCampanha}
-      />
+      {metas.length === 0 ? <Vazio>Sem registro no snapshot atual.</Vazio>
+        : metas.map((meta) => <CardMeta key={meta.id} meta={meta} />)}
     </Tela>
   );
 }
 
-// 4) Rankings e Destaques -----------------------------------------------------
+// 4) Julho Histórico (ativável por tv_config) ---------------------------------
+function TelaJulhoHistorico({ snap }) {
+  const j = snap?.julho_historico;
+  if (!j?.ativo) return <Tela titulo="Julho Histórico" icone="🏅"><Vazio>Reconhecimento indisponível nesta atualização.</Vazio></Tela>;
+  return (
+    <Tela titulo={j.titulo || "Julho Histórico"} icone="🏅">
+      <MensagemInstitucional badge="Reconhecimento" titulo={j.titulo || "Julho Histórico"} texto={j.texto_principal} />
+      <div style={linha}>
+        {(j.metas || []).map((mt, i) => (
+          <Conquista key={i} titulo={mt.nome} valor={`${mt.pct}%`} subtitulo={`${moeda(mt.realizado)} · excedente ${moeda(mt.excedente)}`} icone="✅" />
+        ))}
+      </div>
+      {j.texto_complementar && <Vazio>{j.texto_complementar}</Vazio>}
+      {j.data_referencia && <Vazio>Referência: {j.data_referencia}</Vazio>}
+    </Tela>
+  );
+}
+
+// 5) Rankings e Destaques -----------------------------------------------------
 function TelaRankings({ snap }) {
-  const d = snap?.dados || {};
-  // ranking_mes/semana vêm como {operador, pagos}; normaliza p/ o componente.
-  const mes = (d.ranking_mes || []).map((o) => ({ nome: o.operador, valor: `${num(o.pagos)} pgtos` }));
+  const r = snap?.rankings || {};
+  const top3 = r.top3_mes || [];
+  const mpm = r.maior_pagamento_mes;
   return (
     <Tela titulo="Rankings e Destaques" icone="🏆">
-      <Ranking titulo="Melhores do mês (alunos recuperados)" itens={mes} podio />
-    </Tela>
-  );
-}
-
-// 5) Hall da Fama -------------------------------------------------------------
-function TelaHallFama({ snap }) {
-  const d = snap?.dados || {};
-  const rank = snap?.rank || {};
-  const topMes = (rank.top_mes || [])[0];
-  const mp = d.maior_pagamento;
-  return (
-    <Tela titulo="Hall da Fama" icone="👑">
       <div style={linha}>
-        {topMes && <Conquista titulo={topMes.nome} valor={`${num(topMes.qtd)} acionamentos`} subtitulo="Mais acionamentos no mês" icone="👑" />}
-        {mp && <Conquista titulo={mp.operador} valor={moeda(mp.valor)} subtitulo={`Maior pagamento do mês · ${mp.quando}`} icone="💎" />}
+        {r.melhor_dia?.operador && <DestaqueOperador rotulo="Melhor recuperador do dia" nome={r.melhor_dia.operador} icone="🌟" />}
+        {r.melhor_mes?.operador && <DestaqueOperador rotulo="Melhor recuperador do mês" nome={r.melhor_mes.operador} icone="👑" />}
+        {r.mais_pagos_dia?.operador && <DestaqueOperador rotulo="Mais pagamentos confirmados hoje" nome={r.mais_pagos_dia.operador} valor={`${num(r.mais_pagos_dia.qtd)} pagamentos`} icone="🎯" />}
       </div>
-      {!topMes && !mp && <div style={{ color: T.textoMudo, fontSize: fs(16, 1.6, 40) }}>Os grandes marcos aparecerão aqui.</div>}
+      {top3.length > 0 && <Ranking titulo="Top 3 do mês por valor recuperado" itens={top3.map((o) => ({ nome: o.operador }))} podio />}
+      {mpm && <DestaqueOperador rotulo="Maior pagamento único do mês" nome={mpm.operador} valor={moeda(mpm.valor)} icone="💰" />}
     </Tela>
   );
 }
 
-// 6) Treinamento --------------------------------------------------------------
-function TelaTreinamento({ snap, indiceGiro = 0 }) {
-  const dicas = snap?.dicas || [];
-  if (dicas.length === 0) {
-    return (
-      <Tela titulo="Treinamento" icone="🎓">
-        <Treinamento categoria="Dica do dia" titulo="Conteúdos de treinamento aparecerão aqui." />
-      </Tela>
-    );
-  }
-  const dica = dicas[indiceGiro % dicas.length];
-  return (
-    <Tela titulo="Treinamento" icone="🎓">
-      <Treinamento categoria={dica.categoria} titulo={dica.titulo} texto={dica.texto} />
-    </Tela>
-  );
-}
-
-// 7) Reconhecimento (elogios de atendimento) ---------------------------------
-function TelaReconhecimento({ snap, elogioUrl, indiceGiro = 0 }) {
-  const elogios = snap?.elogios || [];
-  if (elogios.length === 0) {
-    return (
-      <Tela titulo="Reconhecimento" icone="💙">
-        <MensagemInstitucional badge="Reconhecimento" titulo="Aqui celebramos os elogios da nossa equipe." />
-      </Tela>
-    );
-  }
-  const e = elogios[indiceGiro % elogios.length];
-  return (
-    <Tela titulo="Reconhecimento" icone="💙">
-      <Conquista titulo={e.registrado_por_nome || "Equipe ReATIVA"} subtitulo="Elogio de atendimento" imagemUrl={elogioUrl} icone="💙" />
-    </Tela>
-  );
-}
-
-// 8) Aniversariantes ----------------------------------------------------------
+// 6) Aniversariantes ----------------------------------------------------------
 function TelaAniversariantes({ snap }) {
   const aniv = snap?.aniversariantes || [];
   return (
     <Tela titulo="Aniversariantes do Mês" icone="🎂">
-      {aniv.length === 0 ? (
-        <div style={{ color: T.textoMudo, fontSize: fs(16, 1.6, 40) }}>Sem aniversariantes neste mês.</div>
-      ) : (
-        <div style={{ display: "flex", flexWrap: "wrap", gap: "2vh 3vw", justifyContent: "center", width: "84%" }}>
-          {aniv.map((a, i) => (
-            <div key={i} style={{ display: "flex", alignItems: "center", gap: "1vw", fontSize: fs(20, 2.2, 60), fontWeight: 800, color: T.texto }}>
-              <span>🎉</span><span>{a.nome}</span>
-              <span style={{ color: T.azulClaro, fontWeight: 900 }}>dia {a.dia}</span>
-            </div>
-          ))}
-        </div>
-      )}
+      <MensagemInstitucional badge="Aniversariantes" titulo="Parabéns aos aniversariantes do mês"
+        texto="Desejamos um novo ciclo de boas conquistas." />
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "2vh 3vw", justifyContent: "center", width: "84%" }}>
+        {aniv.map((a, i) => (
+          <div key={i} style={{ display: "flex", alignItems: "center", gap: "1vw", fontSize: fs(20, 2.2, 60), fontWeight: 800, color: T.texto }}>
+            <span>🎉</span><span>{a.nome}</span>
+            {a.dia != null && <span style={{ color: T.azulClaro, fontWeight: 900 }}>dia {a.dia}</span>}
+          </div>
+        ))}
+      </div>
     </Tela>
   );
 }
 
-// 9) Avisos -------------------------------------------------------------------
-function TelaAvisos({ snap }) {
-  const msg = snap?.mensagem_especial;
+// 7) Avisos (um aviso por tela; gira entre os ativos por ciclo) ---------------
+function TelaAvisos({ snap, indiceGiro = 0 }) {
+  const avisos = snap?.avisos || [];
+  if (avisos.length === 0) return <Tela titulo="Avisos" icone="📣"><Vazio>Sem aviso ativo nesta atualização.</Vazio></Tela>;
+  const a = avisos[indiceGiro % avisos.length];
+  const nivel = a.prioridade >= 2 ? "critico" : a.prioridade === 1 ? "atencao" : "info";
   return (
     <Tela titulo="Avisos" icone="📣">
-      {msg && (msg.titulo || msg.texto) ? (
-        <Aviso nivel="info" titulo={msg.titulo || "Comunicado"} texto={msg.texto} />
-      ) : (
-        <div style={{ color: T.textoMudo, fontSize: fs(16, 1.6, 40) }}>Nenhum aviso ativo no momento.</div>
-      )}
+      <Aviso nivel={nivel} titulo={a.titulo || "Comunicado"} texto={a.mensagem} />
     </Tela>
   );
 }
 
-// 10) Modo Fechamento ---------------------------------------------------------
+// --- Telas mantidas no código, DESATIVADAS até etapas futuras ---
+function TelaHallFama({ snap }) {
+  return <Tela titulo="Hall da Fama" icone="👑"><Vazio>Em breve.</Vazio></Tela>;
+}
+function TelaTreinamento() {
+  return <Tela titulo="Treinamento" icone="🎓"><Vazio>Em breve.</Vazio></Tela>;
+}
+function TelaReconhecimento() {
+  return <Tela titulo="Reconhecimento" icone="💙"><Vazio>Em breve.</Vazio></Tela>;
+}
 function TelaFechamento({ snap }) {
-  const p = snap?.proj || {};
-  const st = statusRitmo(Number(p.proj_honorarios || 0), Number(p.meta || 0));
-  return (
-    <Tela titulo="Modo Fechamento" icone="🏁">
-      <MensagemInstitucional
-        badge="Projeção de fechamento"
-        titulo={moeda(p.proj_honorarios)}
-        texto={`Recuperação projetada: ${moeda(p.proj_recuperado)} · ${p.dias_restantes} dia(s) úteis restantes`}
-      />
-      <div style={{ ...layout.selo, fontSize: fs(18, 2, 48), color: st.cor, borderColor: st.cor, padding: "1vh 2.4vw" }}>{st.label}</div>
-    </Tela>
-  );
+  return <Tela titulo="Modo Fechamento" icone="🏁"><Vazio>Em breve.</Vazio></Tela>;
 }
 
-// Catálogo do carrossel (ordem de exibição) ----------------------------------
-// Cada entrada tem:
-//   ativa        -> a REGRA da tela já é definitiva? (false = pronta no código,
-//                   porém DESATIVADA na TV até a Etapa 3). Evita placeholder no ar.
-//   temConteudo  -> há dado válido no snapshot para exibir esta tela agora?
-// O orquestrador só mostra telas com (ativa && temConteudo(snap)).
-//
-// Núcleo (sempre válido quando há snapshot — mostram números reais, mesmo que 0):
-//   Hoje, Resultado do Mês, Metas, Rankings.
-// Condicionais por dado real: Aniversariantes (se houver), Avisos (se houver
-//   mensagem ativa).
-// DESATIVADAS até a Etapa 3 (regra ainda não definitiva): Hall da Fama,
-//   Treinamento, Reconhecimento, Modo Fechamento — nada de dica/placeholder no ar.
+// Catálogo do carrossel (ordem oficial da Etapa 3, §8) ------------------------
+//   ativa       -> regra definitiva pronta (false = no código, oculta na TV)
+//   temConteudo -> há dado válido no snapshot para exibir agora
+// A TV monta o carrossel só com telas (ativa && temConteudo(snap)), sem buracos.
 const sempre = () => true;
 export const CATALOGO_TELAS = [
-  { id: "hoje", nome: "Hoje na Operação", Comp: TelaHoje, ativa: true, temConteudo: (s) => !!s?.dados },
-  { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, temConteudo: (s) => !!s?.proj },
-  { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: true, temConteudo: (s) => !!s?.proj },
-  { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings, ativa: true, temConteudo: (s) => (s?.dados?.ranking_mes || []).length > 0 },
+  { id: "hoje", nome: "Hoje na Operação", Comp: TelaHoje, ativa: true, temConteudo: (s) => !!s?.hoje },
+  { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, temConteudo: (s) => !!s?.mes },
+  { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: true, temConteudo: (s) => (s?.metas || []).length > 0 },
+  { id: "julho", nome: "Julho Histórico", Comp: TelaJulhoHistorico, ativa: true, temConteudo: (s) => s?.julho_historico?.ativo === true },
+  { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings, ativa: true, temConteudo: (s) => {
+      const r = s?.rankings || {}; return !!(r.melhor_mes?.operador || (r.top3_mes || []).length > 0 || r.maior_pagamento_mes); } },
   { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes, ativa: true, temConteudo: (s) => (s?.aniversariantes || []).length > 0 },
-  { id: "avisos", nome: "Avisos", Comp: TelaAvisos, ativa: true, temConteudo: (s) => !!(s?.mensagem_especial && (s.mensagem_especial.titulo || s.mensagem_especial.texto)) },
-  // --- estrutura pronta, DESATIVADA na TV até a Etapa 3 ---
+  { id: "avisos", nome: "Avisos", Comp: TelaAvisos, ativa: true, temConteudo: (s) => (s?.avisos || []).length > 0 },
+  // --- estrutura pronta, DESATIVADA (etapas futuras) ---
   { id: "hall", nome: "Hall da Fama", Comp: TelaHallFama, ativa: false, temConteudo: sempre },
-  { id: "treinamento", nome: "Treinamento", Comp: TelaTreinamento, ativa: false, temConteudo: (s) => (s?.dicas || []).length > 0 },
-  { id: "reconhecimento", nome: "Reconhecimento", Comp: TelaReconhecimento, ativa: false, temConteudo: (s) => (s?.elogios || []).length > 0 },
-  { id: "fechamento", nome: "Modo Fechamento", Comp: TelaFechamento, ativa: false, temConteudo: (s) => !!s?.proj },
+  { id: "treinamento", nome: "Treinamento", Comp: TelaTreinamento, ativa: false, temConteudo: sempre },
+  { id: "reconhecimento", nome: "Reconhecimento", Comp: TelaReconhecimento, ativa: false, temConteudo: sempre },
+  { id: "fechamento", nome: "Modo Fechamento", Comp: TelaFechamento, ativa: false, temConteudo: sempre },
 ];
 
-// Telas efetivamente exibidas na TV agora (filtro central).
 export function telasVisiveis(snap) {
   return CATALOGO_TELAS.filter((t) => t.ativa && t.temConteudo(snap));
 }
