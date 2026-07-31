@@ -72,6 +72,7 @@ import SaudeDaBase from "./pages/SaudeDaBase";
 import TvElogios from "./pages/TvElogios";
 import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
 import AvisosPopup from "./components/AvisosPopup";
+import TourNovidades from "./components/TourNovidades";
 import AvisosBadge from "./components/AvisosBadge";
 import CentralAvisos from "./pages/CentralAvisos";
 import TaxaConversao from "./pages/TaxaConversao";
@@ -586,6 +587,7 @@ export default function App() {
         <NotificacoesPopup />
         <AvisoTemplateNovo />
         <AvisosPopup />
+        <TourNovidades usuario={usuario} />
         <aside className={sidebarRecolhida ? "sidebar sidebar-recolhida" : "sidebar"}>
           <button
             type="button"
