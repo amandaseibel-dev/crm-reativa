@@ -25,6 +25,7 @@ export default function DRE() {
   const [email, setEmail] = useState(null);
   const [ano, setAno] = useState(new Date().getFullYear());
   const [dados, setDados] = useState(null);
+  const [snapEm, setSnapEm] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [aba, setAba] = useState("dre");
   const [mesSel, setMesSel] = useState(new Date().getMonth() + 1);
@@ -39,6 +40,10 @@ export default function DRE() {
     const { data, error } = await supabase.rpc("dre_snapshot", { p_ano: ano });
     setDados(error ? null : data);
     setCarregando(false);
+    try {
+      const { data: m } = await supabase.rpc("snapshot_gerencial_meta", { p_chave: "dre", p_ano: ano });
+      setSnapEm(m?.gerado_em || null);
+    } catch (e) { setSnapEm(null); }
   }
   useEffect(() => {
     if (email === DONO) carregar();
@@ -76,6 +81,11 @@ export default function DRE() {
         <div>
           <h1 style={s.h1}>DRE — Demonstrativo mensal</h1>
           <p style={s.sub}>Faturamento (honorários recuperados) − despesas = resultado. Privado.</p>
+          <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+            {snapEm
+              ? `📸 Snapshot de ${new Date(snapEm).toLocaleString("pt-BR")} · atualize pela Projeção`
+              : "📸 Snapshot — atualize pela Projeção"}
+          </div>
         </div>
         <div style={s.anoBox}>
           <button style={s.botIcon} onClick={() => setAno((a) => a - 1)}>◀</button>

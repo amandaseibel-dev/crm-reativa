@@ -17,6 +17,7 @@ function mesLabel(m) {
 export default function ExecutivoRecuperacao() {
   const [d, setD] = useState(null);
   const [carregando, setCarregando] = useState(true);
+  const [snapEm, setSnapEm] = useState(null);
 
   useEffect(() => {
     let ativo = true;
@@ -25,6 +26,10 @@ export default function ExecutivoRecuperacao() {
       if (!ativo) return;
       setD(data);
       setCarregando(false);
+      try {
+        const { data: m } = await supabase.rpc("snapshot_gerencial_meta", { p_chave: "executivo", p_ano: 0 });
+        if (ativo && m?.gerado_em) setSnapEm(m.gerado_em);
+      } catch (e) { /* ignore */ }
     })();
     return () => { ativo = false; };
   }, []);
@@ -42,6 +47,11 @@ export default function ExecutivoRecuperacao() {
       <div style={S.head}>
         <h1 style={S.h1}>Recuperação ULBRA — Visão Executiva</h1>
         <span style={S.sub}>Resultado consolidado da operação ReATIVA</span>
+        <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>
+          {snapEm
+            ? `📸 Snapshot de ${new Date(snapEm).toLocaleString("pt-BR")} · atualize pela Projeção`
+            : "📸 Snapshot — atualize pela Projeção"}
+        </div>
       </div>
 
       <div style={S.heroRow}>
