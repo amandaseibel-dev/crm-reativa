@@ -1,14 +1,23 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
-import usePolling from "../utils/polling";
-import { analiticasSuspensas } from "../config/modoContencao";
 
 const SEG_POR_TELA = 12;
-// Contenção de carga: o painel TV dispara 3 RPCs analíticas pesadas por ciclo.
-// Fallback de segurança a cada 3600s (1h). A atualização "fresca" das métricas
-// deve vir por evento (marcador de versão) — ver arquitetura futura. Mantém uma
-// carga inicial ao abrir (o usePolling executa uma vez no mount).
-const ATUALIZAR_DADOS = 3600;
+
+// ARQUITETURA DE SNAPSHOT
+// -----------------------------------------------------------------------------
+// A TV NÃO calcula nem consulta métricas ao vivo. Ela lê UM ÚNICO snapshot leve
+// (RPC tv_snapshot_ler = 1 leitura indexada, sem cálculo). O snapshot é gerado
+// só quando Amanda/Fernanda clicam em "Atualizar projeção" no CRM.
+//
+// Sem polling de 60s, sem RPCs analíticas por ciclo, sem realtime/subscriptions.
+// Durante o carrossel, TODOS os dados ficam em memória (troca de slide = 0
+// consulta). A única verificação de novidade é LEVE (tv_snapshot_versao, que só
+// devolve o número da versão) e ocorre apenas ao reiniciar um ciclo completo do
+// carrossel (ou ao recarregar a página). Se a versão mudou, faz UMA leitura do
+// novo snapshot; senão, não consulta nada.
+//
+// Resiliência: se o Supabase estiver indisponível, mantém o último snapshot em
+// memória (sem tela branca). Se nunca houve snapshot, mostra a mensagem padrão.
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -50,71 +59,72 @@ function Podio({ titulo, rank }) {
 }
 
 export default function TvElogios() {
-  const [dados, setDados] = useState(null);
-  const [proj, setProj] = useState(null);
-  const [rank, setRank] = useState(null);
-  const [elogios, setElogios] = useState([]);
-  const [dicas, setDicas] = useState([]);
+  // snap = payload do último snapshot bom (em memória). meta = versão/status.
+  const [snap, setSnap] = useState(null);
+  const [meta, setMeta] = useState(null); // { status, versao, gerado_em, gerado_por }
+  const [carregou, setCarregou] = useState(false); // já tentou a 1ª leitura?
   const [urlElogio, setUrlElogio] = useState("");
   const [indice, setIndice] = useState(0);
+  const versaoRef = useRef(0);
 
-  // ANTES: 4 pollings independentes (rank 60s + dados 30s + elogios 30s +
-  // dicas 30s), sem trava de sobreposicao e sem pausa em aba oculta -- eram
-  // ~5 RPCs a cada 30s por telao ligado. AGORA: um unico ciclo a 60s, sem
-  // sobreposicao, pausado se a aba ficar oculta e disparado na hora ao voltar.
-  usePolling(
-    async () => {
-      // KILL SWITCH: RPCs analíticas da TV suspensas em modo de contenção.
-      if (analiticasSuspensas()) return;
-      // Erro da TV fica ISOLADO: Promise.allSettled garante que a falha de uma
-      // RPC (ex.: permission denied em dashboard_tv, ou timeout sob carga) não
-      // derrube as demais nem lance para o CRM. Cada bloco preserva o último
-      // valor conhecido quando a respectiva chamada falha.
-      const [rk, dt, pj, el, dc] = await Promise.allSettled([
-        supabase.rpc("acionamentos_ranking"),
-        supabase.rpc("dashboard_tv"),
-        supabase.rpc("dashboard_tv_projecao"),
-        supabase
-          .from("aluno_movimentacoes")
-          .select("id, aluno_id, descricao, registrado_por_nome, registrado_em, elogio_print_path")
-          .eq("status_novo", "ELOGIO_ATENDIMENTO")
-          .eq("elogio_aprovado_tv", true)
-          .order("registrado_em", { ascending: false })
-          .limit(20),
-        supabase
-          .from("tv_dicas")
-          .select("id, categoria, titulo, texto, ordem")
-          .eq("ativo", true)
-          .order("ordem", { ascending: true }),
-      ]);
-      const val = (r) => (r.status === "fulfilled" ? r.value?.data : undefined);
-      if (val(rk) !== undefined) setRank(val(rk) || null);
-      if (val(dt) !== undefined) setDados(val(dt) || null);
-      if (val(pj) !== undefined) setProj(val(pj) || null);
-      if (Array.isArray(val(el))) setElogios(val(el));
-      if (Array.isArray(val(dc))) setDicas(val(dc));
-    },
-    ATUALIZAR_DADOS * 1000,
-    [],
-    !analiticasSuspensas()
-  );
+  // Uma leitura do snapshot. Preserva o último snapshot bom em caso de falha.
+  async function carregarSnapshot() {
+    try {
+      const { data, error } = await supabase.rpc("tv_snapshot_ler");
+      if (error) throw error;
+      const status = data?.status;
+      versaoRef.current = Number(data?.versao || 0);
+      setMeta({ status, versao: data?.versao, gerado_em: data?.gerado_em, gerado_por: data?.gerado_por });
+      // Só troca os dados em tela quando há payload; assim um snapshot "vazio"
+      // ou uma leitura sem payload não apaga o que já estava sendo exibido.
+      if (data?.payload) setSnap(data.payload);
+    } catch (e) {
+      // Supabase indisponível: mantém o último snapshot em memória (sem tela branca).
+    } finally {
+      setCarregou(true);
+    }
+  }
 
-  // Reload total de 10 min REMOVIDO na contenção de carga: recarregar a página
-  // refazia todo o fan-out de RPCs pesadas e amplificava a saturação. O
-  // usePolling já pausa em aba oculta e dispara ao voltar o foco.
+  // 1ª carga ao abrir/recarregar a página.
+  useEffect(() => {
+    carregarSnapshot();
+  }, []);
 
   const telas = useMemo(() => {
-    const base = ["campanha", "meta3mi", "semana", "mes", "resultado", "projecao", "alunos", "maior", "topdia", "tophondia", "topmes"];
-    const dcs = (dicas || []).map((x) => ({ tipo: "dica", dica: x }));
-    const els = (elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
+    const base = ["campanha", "meta3mi", "aniversariantes", "semana", "mes", "resultado", "projecao", "alunos", "maior", "topdia", "tophondia", "topmes"];
+    const dcs = (snap?.dicas || []).map((x) => ({ tipo: "dica", dica: x }));
+    const els = (snap?.elogios || []).map((e) => ({ tipo: "elogio", elogio: e }));
     return [...base.map((t) => ({ tipo: t })), ...dcs, ...els];
-  }, [elogios, dicas]);
+  }, [snap]);
 
+  // Rotação de slides (12s) — 100% em memória, ZERO consulta ao trocar de tela.
+  // Ao completar um ciclo (voltar ao índice 0) fazemos APENAS a verificação leve
+  // de versão; só se mudou é que buscamos o novo snapshot (1 leitura).
   useEffect(() => {
     if (telas.length === 0) return;
-    const t = setInterval(() => setIndice((i) => (i + 1) % telas.length), SEG_POR_TELA * 1000);
+    const t = setInterval(() => {
+      setIndice((i) => {
+        const prox = (i + 1) % telas.length;
+        if (prox === 0 && !document.hidden) verificarNovaVersao();
+        return prox;
+      });
+    }, SEG_POR_TELA * 1000);
     return () => clearInterval(t);
   }, [telas]);
+
+  // Verificação leve: tv_snapshot_versao devolve só o número da versão. Se for
+  // maior que a carregada, busca o snapshot novo; senão, não consulta mais nada.
+  async function verificarNovaVersao() {
+    try {
+      const { data, error } = await supabase.rpc("tv_snapshot_versao");
+      if (error) throw error;
+      if (Number(data?.versao || 0) > versaoRef.current) {
+        await carregarSnapshot();
+      }
+    } catch (e) {
+      /* indisponível: mantém o snapshot atual */
+    }
+  }
 
   useEffect(() => {
     function onKey(e) {
@@ -128,14 +138,38 @@ export default function TvElogios() {
 
   const atual = telas[indice % (telas.length || 1)] || { tipo: "semana" };
 
+  // URL pública da imagem do elogio (Storage, local — não consulta o banco).
   useEffect(() => {
     if (atual.tipo !== "elogio" || !atual.elogio?.elogio_print_path) { setUrlElogio(""); return; }
     const { data } = supabase.storage.from("elogios-prints").getPublicUrl(atual.elogio.elogio_print_path);
     setUrlElogio(data?.publicUrl || "");
   }, [atual]);
 
-  const d = dados || {};
-  const p = proj || {};
+  // Estado vazio: nenhum snapshot com payload ainda. Só mostra depois da 1ª
+  // tentativa de leitura (evita piscar a mensagem no primeiro frame).
+  const semDados = carregou && !snap;
+  if (semDados) {
+    return (
+      <div style={S.tv}>
+        <div style={S.topo}>
+          <span style={S.marca}>Re<span style={{ color: "#3b82f6" }}>A</span>TIVA</span>
+          <span style={S.topoSub}>Recuperação ULBRA</span>
+        </div>
+        <div style={{ ...S.tela, gap: "3vh" }}>
+          <div style={{ fontSize: "4vw" }}>📺</div>
+          <div style={{ fontSize: "2.4vw", color: "#93c5fd", fontWeight: 700, maxWidth: "70vw", lineHeight: 1.4 }}>
+            Os indicadores serão exibidos após a atualização da projeção.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const d = snap?.dados || {};
+  const p = snap?.proj || {};
+  const rank = snap?.rank || null;
+  const aniversariantes = snap?.aniversariantes || [];
+  const msg = snap?.mensagem_especial || null;
   const dpr = p.delta_proj_recuperado;
   const deltaCor = dpr == null ? "#93c5fd" : dpr > 0 ? "#4ade80" : dpr < 0 ? "#f87171" : "#93c5fd";
   const deltaTxt = dpr == null ? "comparativo com ontem começa amanhã"
@@ -157,8 +191,8 @@ export default function TvElogios() {
         <div style={{ ...S.tela, background: "radial-gradient(circle at 30% 20%,#8b5cf6 0%,#6d28d9 35%,#1d4ed8 70%,#059669 100%)", position: "relative", overflow: "hidden" }}>
           <style>{`@keyframes pulseGlow{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}@keyframes shine{0%{transform:translateX(-120%)}100%{transform:translateX(240%)}}`}</style>
           <div style={{ fontSize: "1.9vw", color: "#fde68a", fontWeight: 800, letterSpacing: "0.3vw" }}>✨ CAMPANHA ESPECIAL ✨</div>
-          <div style={{ fontSize: "5.6vw", fontWeight: 900, color: "#fff", textShadow: "0 0 40px rgba(0,0,0,0.5)", animation: "pulseGlow 2s ease-in-out infinite" }}>🔥 BORA TIME! 🔥</div>
-          <div style={{ fontSize: "2.3vw", color: "#fff", fontWeight: 700, marginTop: "0.5vh" }}>Meta do mês: <b style={{ color: "#fde68a" }}>R$ 500 mil</b> em honorários</div>
+          <div style={{ fontSize: "5.6vw", fontWeight: 900, color: "#fff", textShadow: "0 0 40px rgba(0,0,0,0.5)", animation: "pulseGlow 2s ease-in-out infinite" }}>{msg?.titulo || "🔥 BORA TIME! 🔥"}</div>
+          <div style={{ fontSize: "2.3vw", color: "#fff", fontWeight: 700, marginTop: "0.5vh" }}>{msg?.texto || "Meta do mês: R$ 500 mil em honorários"}</div>
           <div style={{ margin: "4.5vh auto 2.5vh", width: "72%", height: "6vh", background: "rgba(255,255,255,0.18)", borderRadius: "4vh", overflow: "hidden", position: "relative", boxShadow: "inset 0 0 25px rgba(0,0,0,0.4)" }}>
             <div style={{ height: "100%", width: Math.min(100, Math.round((Number(p?.honorarios_mes || 0) / 500000) * 100)) + "%", background: "linear-gradient(90deg,#fbbf24,#f59e0b,#fbbf24)", borderRadius: "4vh", boxShadow: "0 0 35px rgba(251,191,36,0.9)", position: "relative", overflow: "hidden" }}>
               <div style={{ position: "absolute", top: 0, left: 0, width: "30%", height: "100%", background: "linear-gradient(90deg,transparent,rgba(255,255,255,0.75),transparent)", animation: "shine 2.2s linear infinite" }} />
@@ -185,6 +219,25 @@ export default function TvElogios() {
           <div style={{ fontSize: "2.6vw", fontWeight: 900, color: "#fff", marginTop: "1vh" }}>{moeda(p?.honorarios_total)} <span style={{ fontSize: "1.6vw", color: "#d1fae5" }}>de R$ 3.000.000</span></div>
           <div style={{ fontSize: "3.4vw", fontWeight: 900, color: "#a7f3d0", marginTop: "2vh" }}>Faltam {moeda(Math.max(0, 3000000 - Number(p?.honorarios_total || 0)))} 🚀</div>
           <div style={{ fontSize: "2vw", color: "#fff", marginTop: "2.5vh", fontWeight: 700 }}>🎯 No ritmo atual, batemos em <b style={{ color: "#fde68a" }}>{p?.data_projecao_3mi || "—"}</b></div>
+        </div>
+      )}
+
+      {atual.tipo === "aniversariantes" && (
+        <div style={S.tela}>
+          <div style={S.rotBig}>🎂 Aniversariantes do mês</div>
+          {aniversariantes.length === 0 ? (
+            <div style={S.ultimaMeta}>Sem aniversariantes neste mês.</div>
+          ) : (
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "2vh 3vw", justifyContent: "center", marginTop: "3vh", width: "82%" }}>
+              {aniversariantes.map((a, i) => (
+                <div key={i} style={{ display: "flex", alignItems: "center", gap: "1vw", fontSize: "2.4vw", fontWeight: 800, color: "#fff" }}>
+                  <span style={{ fontSize: "2vw" }}>🎉</span>
+                  <span>{a.nome}</span>
+                  <span style={{ color: "#7dd3fc", fontWeight: 900 }}>dia {a.dia}</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -232,7 +285,6 @@ export default function TvElogios() {
           {d.maior_pagamento ? (
             <>
               <div style={S.numGigante}>{moeda(d.maior_pagamento.valor)}</div>
-              <div style={S.ultimaAluno}>{d.maior_pagamento.aluno}</div>
               <div style={S.ultimaMeta}>por {d.maior_pagamento.operador} · {d.maior_pagamento.quando}</div>
             </>
           ) : <div style={S.ultimaMeta}>Sem pagamentos ainda.</div>}

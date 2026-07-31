@@ -450,6 +450,14 @@ function ProjecaoHoraHoraInner() {
       } catch (e) {
         /* silencioso: a projeção segue */
       }
+      // Mesmo gatilho regenera o snapshot da TV ReATIVA (a TV lê só esse
+      // snapshot; sem esta chamada ela não teria dados frescos). Falha aqui
+      // não quebra a projeção — a TV mantém o snapshot anterior.
+      try {
+        await supabase.rpc("tv_snapshot_atualizar");
+      } catch (e) {
+        /* silencioso: a projeção segue */
+      }
     }
     // Recarrega o snapshot (novo ou o anterior preservado) via leitura leve.
     await carregarSnapshot();
