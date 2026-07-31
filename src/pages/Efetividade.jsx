@@ -116,6 +116,8 @@ export default function Efetividade() {
         </div>
       )}
 
+      <SemTabulacao />
+
       <div style={{ marginBottom: 24 }}>
         <Saude />
       </div>
@@ -159,6 +161,27 @@ export default function Efetividade() {
       <div style={{ marginTop: 28 }}>
         <Funil />
       </div>
+    </div>
+  );
+}
+
+function SemTabulacao() {
+  const [ops, setOps] = useState(null);
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      const { data } = await supabase.rpc("calibragem_atendimentos_sem_tabulacao", { p_horas: 24 });
+      if (ativo) setOps(data?.por_operador || []);
+    })();
+    return () => { ativo = false; };
+  }, []);
+  if (!ops || !ops.length) return null;
+  const total = ops.reduce((s, o) => s + Number(o.qtd || 0), 0);
+  return (
+    <div style={{ ...S.erro, background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.35)", color: "#fde68a", marginBottom: 18 }}>
+      <strong>⚠️ {num(total)} atendimentos assumidos sem tabulação</strong> (mais de 24h) —{" "}
+      {ops.slice(0, 6).map((o) => `${o.op_nome}: ${o.qtd}`).join(" · ")}. A falta de tabulação não
+      gera vantagem: esses casos seguem responsabilizados e visíveis para nivelamento.
     </div>
   );
 }
