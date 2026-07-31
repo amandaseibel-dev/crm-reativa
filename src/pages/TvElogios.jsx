@@ -1,9 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import {
   Cabecalho, Rodape, Palco, EstadoCarregando, EstadoSemSnapshot, T, AREA_SEGURA,
 } from "../components/tv/tvUI";
-import { CATALOGO_TELAS } from "../components/tv/tvTelas";
+import { telasVisiveis } from "../components/tv/tvTelas";
 
 // =============================================================================
 // TV ReATIVA — ORQUESTRADOR (Etapas 1 + 2)
@@ -86,11 +86,15 @@ export default function TvElogios() {
     }
   }
 
-  const total = CATALOGO_TELAS.length;
+  // Só as telas com regra definitiva E dado válido (estrutura das demais fica
+  // no código, porém oculta na TV). Recalcula quando o snapshot muda.
+  const telas = useMemo(() => telasVisiveis(snap), [snap]);
+  const total = telas.length;
 
   // Carrossel automático. Pausa quando a aba/TV não está visível (economia e
   // zero consulta em segundo plano). Reinicia ao concluir a última tela.
   useEffect(() => {
+    if (total <= 1) return; // 0 ou 1 tela: nada a girar (evita módulo por 0)
     const t = setInterval(() => {
       if (document.hidden) return; // pausa: não avança nem consulta
       setIndice((i) => {
@@ -115,7 +119,7 @@ export default function TvElogios() {
     return () => window.removeEventListener("keydown", onKey);
   }, [total]);
 
-  const tela = CATALOGO_TELAS[indice % total];
+  const tela = total > 0 ? telas[indice % total] : null;
 
   // URL pública da imagem do elogio (Storage) — construção LOCAL de string,
   // sem consulta ao banco. Só quando a tela de Reconhecimento está ativa.
@@ -131,7 +135,7 @@ export default function TvElogios() {
   // Estados especiais (dentro da identidade visual, nunca tela branca).
   const conteudo = (() => {
     if (!snap && !carregou) return <EstadoCarregando />;
-    if (!snap) return <EstadoSemSnapshot />;
+    if (!snap || !tela) return <EstadoSemSnapshot />;
     const Comp = tela.Comp;
     return (
       <>

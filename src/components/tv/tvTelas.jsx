@@ -195,15 +195,34 @@ function TelaFechamento({ snap }) {
 }
 
 // Catálogo do carrossel (ordem de exibição) ----------------------------------
+// Cada entrada tem:
+//   ativa        -> a REGRA da tela já é definitiva? (false = pronta no código,
+//                   porém DESATIVADA na TV até a Etapa 3). Evita placeholder no ar.
+//   temConteudo  -> há dado válido no snapshot para exibir esta tela agora?
+// O orquestrador só mostra telas com (ativa && temConteudo(snap)).
+//
+// Núcleo (sempre válido quando há snapshot — mostram números reais, mesmo que 0):
+//   Hoje, Resultado do Mês, Metas, Rankings.
+// Condicionais por dado real: Aniversariantes (se houver), Avisos (se houver
+//   mensagem ativa).
+// DESATIVADAS até a Etapa 3 (regra ainda não definitiva): Hall da Fama,
+//   Treinamento, Reconhecimento, Modo Fechamento — nada de dica/placeholder no ar.
+const sempre = () => true;
 export const CATALOGO_TELAS = [
-  { id: "hoje", nome: "Hoje na Operação", Comp: TelaHoje },
-  { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes },
-  { id: "metas", nome: "Metas", Comp: TelaMetas },
-  { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings },
-  { id: "hall", nome: "Hall da Fama", Comp: TelaHallFama },
-  { id: "treinamento", nome: "Treinamento", Comp: TelaTreinamento },
-  { id: "reconhecimento", nome: "Reconhecimento", Comp: TelaReconhecimento },
-  { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes },
-  { id: "avisos", nome: "Avisos", Comp: TelaAvisos },
-  { id: "fechamento", nome: "Modo Fechamento", Comp: TelaFechamento },
+  { id: "hoje", nome: "Hoje na Operação", Comp: TelaHoje, ativa: true, temConteudo: (s) => !!s?.dados },
+  { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, temConteudo: (s) => !!s?.proj },
+  { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: true, temConteudo: (s) => !!s?.proj },
+  { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings, ativa: true, temConteudo: (s) => (s?.dados?.ranking_mes || []).length > 0 },
+  { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes, ativa: true, temConteudo: (s) => (s?.aniversariantes || []).length > 0 },
+  { id: "avisos", nome: "Avisos", Comp: TelaAvisos, ativa: true, temConteudo: (s) => !!(s?.mensagem_especial && (s.mensagem_especial.titulo || s.mensagem_especial.texto)) },
+  // --- estrutura pronta, DESATIVADA na TV até a Etapa 3 ---
+  { id: "hall", nome: "Hall da Fama", Comp: TelaHallFama, ativa: false, temConteudo: sempre },
+  { id: "treinamento", nome: "Treinamento", Comp: TelaTreinamento, ativa: false, temConteudo: (s) => (s?.dicas || []).length > 0 },
+  { id: "reconhecimento", nome: "Reconhecimento", Comp: TelaReconhecimento, ativa: false, temConteudo: (s) => (s?.elogios || []).length > 0 },
+  { id: "fechamento", nome: "Modo Fechamento", Comp: TelaFechamento, ativa: false, temConteudo: (s) => !!s?.proj },
 ];
+
+// Telas efetivamente exibidas na TV agora (filtro central).
+export function telasVisiveis(snap) {
+  return CATALOGO_TELAS.filter((t) => t.ativa && t.temConteudo(snap));
+}
