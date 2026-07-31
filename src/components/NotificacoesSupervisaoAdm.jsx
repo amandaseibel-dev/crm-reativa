@@ -43,13 +43,51 @@ const CONSULTAS = [
   },
 ];
 
+// Som de notificação (2 bips via WebAudio, sem arquivo). Respeita o mudo.
+let _audioCtx = null;
+function tocarSomNotificacao() {
+  try {
+    if (localStorage.getItem("rv_som_notif") === "0") return; // mudo
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    _audioCtx = _audioCtx || new AC();
+    if (_audioCtx.state === "suspended") _audioCtx.resume();
+    const bip = (t, freq) => {
+      const o = _audioCtx.createOscillator();
+      const g = _audioCtx.createGain();
+      o.type = "sine";
+      o.frequency.value = freq;
+      o.connect(g);
+      g.connect(_audioCtx.destination);
+      const now = _audioCtx.currentTime + t;
+      g.gain.setValueAtTime(0.0001, now);
+      g.gain.exponentialRampToValueAtTime(0.35, now + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, now + 0.3);
+      o.start(now);
+      o.stop(now + 0.32);
+    };
+    bip(0, 880);
+    bip(0.18, 1175);
+  } catch (e) {
+    /* silencioso */
+  }
+}
+
 export default function NotificacoesSupervisaoAdm({ usuario }) {
   const navigate = useNavigate();
   const email = usuario?.perfil?.email || usuario?.auth?.email || "";
   const habilitado = podeVerTudo(email);
 
   const [avisos, setAvisos] = useState([]);
+  const [mudo, setMudo] = useState(() => localStorage.getItem("rv_som_notif") === "0");
   const vistosRef = useRef(null);
+
+  function alternarMudo() {
+    const novo = !mudo;
+    setMudo(novo);
+    localStorage.setItem("rv_som_notif", novo ? "0" : "1");
+    if (!novo) tocarSomNotificacao(); // religou: toca 1x (e "desbloqueia" o áudio via clique)
+  }
 
   function dispensar(id) {
     setAvisos((atual) => atual.filter((a) => a.id !== id));
@@ -106,6 +144,9 @@ export default function NotificacoesSupervisaoAdm({ usuario }) {
           setAvisos((atual) => [{ ...n, id: idUnico }, ...atual].slice(0, 6));
           setTimeout(() => dispensar(idUnico), 40000);
         });
+
+        // Som de alerta quando chega algo novo (link/termo/pagamento) — urgentes.
+        if (novos.length > 0) tocarSomNotificacao();
       } catch (e) {
         console.error("Erro ao verificar notificações de supervisão/ADM:", e);
       } finally {
@@ -114,8 +155,11 @@ export default function NotificacoesSupervisaoAdm({ usuario }) {
     }
 
     verificar();
-    // Pausa em aba oculta; aoVoltarFoco (abaixo) roda na hora ao retomar.
-    const intervalo = setInterval(() => { if (!document.hidden) verificar(); }, INTERVALO_MS);
+    // Continua checando MESMO com a aba em segundo plano, pra tocar o som de
+    // link/termo mesmo quando a gestão está em outra aba/tela. (O navegador
+    // reduz a frequência em background ~1x/min, mas ainda detecta e alerta.)
+    // aoVoltarFoco força uma checagem imediata ao voltar o foco.
+    const intervalo = setInterval(() => { verificar(); }, INTERVALO_MS);
 
     // O navegador atrasa (throttle) o setInterval quando a aba fica em
     // segundo plano (pessoa em outra aba/janela) -- sem isso, quem tava
@@ -137,10 +181,18 @@ export default function NotificacoesSupervisaoAdm({ usuario }) {
     };
   }, [habilitado, email]);
 
-  if (!habilitado || avisos.length === 0) return null;
+  if (!habilitado) return null;
 
   return (
     <div style={estilos.container}>
+      <button
+        type="button"
+        onClick={alternarMudo}
+        style={estilos.botaoSom}
+        title={mudo ? "Som das notificações: DESLIGADO (clique para ligar)" : "Som das notificações: LIGADO (clique para mutar)"}
+      >
+        {mudo ? "🔕 Som off" : "🔔 Som on"}
+      </button>
       {avisos.map((a) => (
         <div
           key={a.id}
@@ -179,6 +231,18 @@ const estilos = {
     flexDirection: "column",
     gap: "10px",
     maxWidth: "320px",
+  },
+  botaoSom: {
+    alignSelf: "flex-end",
+    background: "#111827",
+    border: "1px solid #374151",
+    borderRadius: "999px",
+    padding: "5px 12px",
+    fontSize: "12px",
+    fontWeight: 700,
+    color: "#e5e7eb",
+    cursor: "pointer",
+    opacity: 0.85,
   },
   toast: {
     background: "#111827",
