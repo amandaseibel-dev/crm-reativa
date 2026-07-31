@@ -224,6 +224,25 @@ export default function FichaAlunoUnificada({
             <Info rot="Honorários" val={moeda(totais.honorarios)} />
           </div>
 
+          {/* Situacao operacional + proxima acao (recalcular_situacao_aluno) */}
+          {(aluno?.situacao_operacional || aluno?.proxima_acao) && (
+            <div style={S.obs}>
+              {aluno?.situacao_operacional && (
+                <div><strong>Situação:</strong> {({
+                  ACORDO_EM_DIA: "Acordo em dia (sem pendência vencida) — em acompanhamento",
+                  COBRANCA_VENCIDA: "Saldo vencido em aberto",
+                  AGUARDANDO_CONFIRMACAO: "Aguardando confirmação de pagamento",
+                  QUITADO_AGUARDANDO_BAIXA: "Quitado — concluir baixa",
+                  QUITADO: "Quitado",
+                  SEM_PENDENCIA: "Sem pendência",
+                })[aluno.situacao_operacional] || aluno.situacao_operacional}</div>
+              )}
+              {aluno?.proxima_acao && (
+                <div style={{ marginTop: 4 }}><strong>{aluno.proxima_acao}</strong></div>
+              )}
+            </div>
+          )}
+
           {aluno?.observacao ? (
             <div style={S.obs}><strong>Observação:</strong> {aluno.observacao}</div>
           ) : null}

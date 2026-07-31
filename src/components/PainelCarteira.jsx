@@ -302,7 +302,17 @@ const KPIS_FILTRAVEIS = new Set([
 const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
 
 const COLUNAS_ALUNO =
-  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
+  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
+
+// Rotulo amigavel da situacao operacional (recalcular_situacao_aluno).
+const SITUACAO_OPERACIONAL_LABEL = {
+  ACORDO_EM_DIA: { texto: "Acordo em dia", bg: "rgba(29,158,117,0.18)", cor: "#6fd7b6" },
+  COBRANCA_VENCIDA: { texto: "Saldo vencido", bg: "rgba(220,38,38,0.18)", cor: "#fca5a5" },
+  AGUARDANDO_CONFIRMACAO: { texto: "Aguardando confirmação", bg: "rgba(37,99,235,0.18)", cor: "#93c5fd" },
+  QUITADO_AGUARDANDO_BAIXA: { texto: "Quitado — concluir baixa", bg: "rgba(37,99,235,0.18)", cor: "#93c5fd" },
+  QUITADO: { texto: "Quitado", bg: "rgba(29,158,117,0.18)", cor: "#6fd7b6" },
+  SEM_PENDENCIA: { texto: "Sem pendência", bg: "rgba(100,116,139,0.18)", cor: "#cbd5e1" },
+};
 
 // Aba "Solicitacoes" foi removida: Solicitar link / termo / financeiro /
 // informar pagamento / anexar comprovante ficam INLINE dentro da Tabulacao
@@ -2266,6 +2276,31 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                               </div>
                             );
                           })()}
+                          {/* Situacao operacional + proxima acao autoritativas
+                              (recalcular_situacao_aluno). A proxima_acao ja vem
+                              como texto pronto do banco. */}
+                          {a.situacao_operacional && SITUACAO_OPERACIONAL_LABEL[a.situacao_operacional] && (
+                            <div
+                              style={{
+                                display: "inline-block",
+                                marginTop: 4,
+                                marginLeft: 4,
+                                background: SITUACAO_OPERACIONAL_LABEL[a.situacao_operacional].bg,
+                                color: SITUACAO_OPERACIONAL_LABEL[a.situacao_operacional].cor,
+                                borderRadius: 6,
+                                padding: "2px 7px",
+                                fontSize: 11,
+                                fontWeight: 700,
+                              }}
+                            >
+                              {SITUACAO_OPERACIONAL_LABEL[a.situacao_operacional].texto}
+                            </div>
+                          )}
+                          {a.proxima_acao && (
+                            <div style={{ ...S.subCel, marginTop: 4, color: "#334155", fontWeight: 600 }}>
+                              {a.proxima_acao}
+                            </div>
+                          )}
                         </td>
                         <td style={S.td} data-label="CPF">{a.cpf || "-"}</td>
                         <td style={S.td} data-label="Situação">
