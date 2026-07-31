@@ -1685,6 +1685,29 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           "Aluno sem nome"
                         )}
                       </h2>
+                      {/* Selos de status (visão rápida) */}
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "8px 0 6px" }}>
+                        {saldoStatus === "ok" && saldoFicha && (
+                          <span style={{ fontSize: 12, fontWeight: 800, padding: "4px 11px", borderRadius: 999,
+                            background: fichaComPendencia ? "#fef3c7" : "#dcfce7",
+                            color: fichaComPendencia ? "#92400e" : "#166534",
+                            border: `1px solid ${fichaComPendencia ? "#fde68a" : "#bbf7d0"}` }}>
+                            {fichaComPendencia ? `💰 ${moeda(saldoFicha.total)} em aberto` : "✓ Sem saldo em aberto"}
+                          </span>
+                        )}
+                        <span style={{ fontSize: 12, fontWeight: 800, padding: "4px 11px", borderRadius: 999, background: "#dbeafe", color: "#1e40af", border: "1px solid #bfdbfe" }}>
+                          {pegarCampo(alunoSelecionado, ["status_jornada", "status_atual", "status"], "CONTATAR")}
+                        </span>
+                        {(alunoSelecionado.nivel_criticidade || alunoSelecionado.criticidade) && (() => {
+                          const c = String(alunoSelecionado.nivel_criticidade || alunoSelecionado.criticidade).toUpperCase();
+                          const mapa = { CRITICO: ["#fee2e2", "#991b1b", "#fecaca"], URGENTE: ["#ffedd5", "#9a3412", "#fed7aa"], ATENCAO: ["#fef9c3", "#854d0e", "#fef08a"], NORMAL: ["#f1f5f9", "#475569", "#e2e8f0"] };
+                          const [bg, fg, bd] = mapa[c] || mapa.NORMAL;
+                          return <span style={{ fontSize: 12, fontWeight: 800, padding: "4px 11px", borderRadius: 999, background: bg, color: fg, border: `1px solid ${bd}` }}>{c}</span>;
+                        })()}
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 11px", borderRadius: 999, background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0" }}>
+                          👤 {alunoSelecionado.responsavel_atual_nome || "Sem responsável"}
+                        </span>
+                      </div>
                       <p style={textoInfo}>
                         CPF: {pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-")}
                         <button
