@@ -2116,12 +2116,14 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               />
               </details>
               <div style={caixaDestaque}>
-                <h3 style={tituloSecao}>Tabulações</h3>
-                <label style={label}>Tabulação</label>
+                <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" }}>
+                    Tabular:
+                  </span>
                 <select
                   value={statusFinalizacao}
                   onChange={(e) => setStatusFinalizacao(e.target.value)}
-                  style={select}
+                  style={{ ...select, width: "auto", flex: 1, minWidth: 220, marginBottom: 0 }}
                 >
                   {STATUS_FINALIZACAO.filter(
                     (status) =>
@@ -2133,6 +2135,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </option>
                   ))}
                 </select>
+                </div>
                 {statusFinalizacao === "ELOGIO_ATENDIMENTO" && (
                   <div style={{ ...caixaInterna, marginTop: "10px", marginBottom: "10px" }}>
                     <label style={label}>Anexar print do elogio (opcional)</label>
@@ -2462,11 +2465,11 @@ const caixa = {
   boxShadow: "0 1px 3px rgba(15,23,42,0.05)",
 };
 const caixaDestaque = {
-  background: "#f0fdf4",
-  border: "1px solid #93c5fd",
-  borderRadius: "14px",
-  padding: "16px",
-  marginBottom: "18px",
+  background: "#fff",
+  border: "1px solid #e2e8f0",
+  borderRadius: "10px",
+  padding: "12px 14px",
+  marginBottom: "12px",
 };
 const caixaLinkPronto = {
   background: "#f0fdf4",
@@ -2478,9 +2481,9 @@ const caixaLinkPronto = {
 const caixaInterna = {
   background: "#f8fafc",
   border: "1px solid #e6eaf0",
-  borderRadius: "14px",
-  padding: "16px",
-  marginBottom: "18px",
+  borderRadius: "8px",
+  padding: "10px 12px",
+  marginBottom: "10px",
 };
 const layout = {
   display: "grid",
@@ -2576,9 +2579,10 @@ const textoCinza = {
 };
 const label = {
   display: "block",
-  marginBottom: "8px",
+  marginBottom: "3px",
   color: "#475569",
-  fontSize: 12.5,
+  fontSize: 11.5,
+  fontWeight: 600,
 };
 const input = {
   flex: "1 1 280px",
@@ -2594,19 +2598,21 @@ const inputCheio = {
   background: "#f8fafc",
   color: "#334155",
   border: "1px solid #e6eaf0",
-  borderRadius: "10px",
-  padding: "12px",
+  borderRadius: "8px",
+  padding: "7px 10px",
+  fontSize: 13,
   outline: "none",
-  marginBottom: "10px",
+  marginBottom: "6px",
 };
 const select = {
   width: "100%",
   background: "#f8fafc",
   color: "#334155",
   border: "1px solid #e6eaf0",
-  borderRadius: "10px",
-  padding: "12px",
-  marginBottom: "10px",
+  borderRadius: "8px",
+  padding: "7px 10px",
+  fontSize: 13,
+  marginBottom: "6px",
 };
 const textarea = {
   width: "100%",
