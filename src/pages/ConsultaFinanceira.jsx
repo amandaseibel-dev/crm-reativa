@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { OPERADORES_POR_EMAIL } from "../utils/operadores";
+import Alunos from "./Aluno";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const POR_PAGINA = 30;
@@ -47,6 +48,7 @@ const SITUACAO_LABEL = {
 };
 
 export default function ConsultaFinanceira() {
+  const [fichaAlunoId, setFichaAlunoId] = useState(null); // abre a ficha em modal (tela unica)
   const [resumo, setResumo] = useState(null);
   const [gerencial, setGerencial] = useState(null);
   const [filtro, setFiltro] = useState("TODOS");
@@ -334,7 +336,7 @@ export default function ConsultaFinanceira() {
                 {linhas.map((linha) => (
                   <tr
                     key={linha.aluno_id}
-                    onClick={() => window.open(`/aluno?alunoId=${linha.aluno_id}`, "_blank")}
+                    onClick={() => setFichaAlunoId(linha.aluno_id)}
                     title="Clique para abrir a ficha do aluno"
                     style={S.tr}
                     onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
@@ -366,7 +368,7 @@ export default function ConsultaFinanceira() {
                         type="button"
                         onClick={(e) => {
                           e.stopPropagation();
-                          window.open(`/aluno?alunoId=${linha.aluno_id}`, "_blank");
+                          setFichaAlunoId(linha.aluno_id);
                         }}
                         style={S.botaoFicha}
                       >
@@ -402,11 +404,30 @@ export default function ConsultaFinanceira() {
           </div>
         </div>
       )}
+
+      {fichaAlunoId && (
+        <div style={S.fichaOverlay} onClick={() => setFichaAlunoId(null)}>
+          <div style={S.fichaModal} onClick={(e) => e.stopPropagation()}>
+            <div style={S.fichaTopo}>
+              <strong>Ficha do aluno</strong>
+              <button type="button" style={S.fichaX} onClick={() => setFichaAlunoId(null)}>✕</button>
+            </div>
+            <div style={S.fichaCorpo}>
+              <Alunos fichaEmbedId={fichaAlunoId} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
 const S = {
+  fichaOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 16px", overflow: "auto" },
+  fichaModal: { background: "#fff", borderRadius: 14, width: "min(1100px, 100%)", maxHeight: "92vh", overflow: "auto", boxShadow: "0 20px 60px rgba(15,23,42,0.3)" },
+  fichaTopo: { position: "sticky", top: 0, background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", borderBottom: "1px solid #e2e8f0", zIndex: 2 },
+  fichaX: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#64748b", lineHeight: 1 },
+  fichaCorpo: { padding: 4 },
   container: { minHeight: "100%", background: "#f4f6fa", padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif" },
   titulo: { margin: "0 0 4px", color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
   subtitulo: { margin: "0 0 22px", color: "#8a93a3", fontSize: 13.5 },
