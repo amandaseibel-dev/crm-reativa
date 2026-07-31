@@ -26,6 +26,10 @@ function formatarData(data) {
   }
 }
 
+function formatarMoeda(v) {
+  return (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
 export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
   const [carregando, setCarregando] = useState(true);
   const [lista, setLista] = useState([]);
@@ -163,6 +167,20 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
               <span>Enviado em: {formatarData(s.criado_em)}</span>
             </div>
             {s.motivo && <p style={obs}>Obs. do operador: {s.motivo}</p>}
+
+            {/* Valor calculado (saldo real do aluno) para a checagem manual:
+                com debito -> disparar pra base; sem debito -> retirar. */}
+            <div style={{ margin: "6px 0", fontSize: 13, fontWeight: 700 }}>
+              {s.tem_debito ? (
+                <span style={{ background: "rgba(220,38,38,0.12)", color: "#b91c1c", borderRadius: 6, padding: "3px 8px" }}>
+                  Tem débito: {formatarMoeda(s.saldo_real)} — disparar pra base
+                </span>
+              ) : (
+                <span style={{ background: "rgba(29,158,117,0.14)", color: "#166534", borderRadius: 6, padding: "3px 8px" }}>
+                  Sem débito calculado — pode retirar (saldo zero)
+                </span>
+              )}
+            </div>
 
             <div style={acaoLinha}>
               <input
