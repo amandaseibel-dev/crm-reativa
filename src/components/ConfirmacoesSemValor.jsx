@@ -11,7 +11,6 @@ import Aluno from "../pages/Aluno";
 // (concluir_confirmacao_saldo_zero -> caso_saldo_operacional): se o aluno ainda
 // tiver saldo real em aberto, o banco bloqueia. Exige motivo. So gestao.
 
-const PAGE_SIZE = 1000;
 const GESTAO = [
   "amanda.seibel@aelbra.com.br",
   "cobranca04@aelbra.com.br", // Fernanda
@@ -48,25 +47,13 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
 
   async function carregar() {
     setCarregando(true);
-    let from = 0;
-    const todos = [];
     try {
-      // eslint-disable-next-line no-constant-condition
-      while (true) {
-        const { data, error } = await supabase
-          .from("solicitacoes_confirmacao_pagamento")
-          .select("id, aluno_id, aluno_nome, aluno_cpf, operador_email, operador_nome, forma_pagamento, motivo, criado_em")
-          .eq("status", "AGUARDANDO_CONFIRMACAO")
-          .or("valor_informado.is.null,valor_informado.eq.0")
-          .order("criado_em", { ascending: false })
-          .range(from, from + PAGE_SIZE - 1);
-        if (error) throw error;
-        const lote = (data || []).filter((s) => !Number(s.valor_entrada || 0));
-        todos.push(...lote);
-        if ((data || []).length < PAGE_SIZE) break;
-        from += PAGE_SIZE;
-      }
-      setLista(todos);
+      // "Sem valor" calculado pelo SALDO REAL do aluno (sem parcela de acordo nem
+      // titulo em aberto), nao apenas por valor_informado=0. Assim acordos que TEM
+      // valor deixam de aparecer aqui. Regra unica no banco (RPC).
+      const { data, error } = await supabase.rpc("listar_confirmacoes_sem_valor");
+      if (error) throw error;
+      setLista(data || []);
     } catch (e) {
       console.error("Erro ao carregar confirmacoes sem valor:", e);
     } finally {
