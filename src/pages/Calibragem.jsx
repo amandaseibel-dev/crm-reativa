@@ -357,6 +357,7 @@ function Criticidade() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [dados, setDados] = useState(null);
+  const [detalhe, setDetalhe] = useState(null);
 
   useEffect(() => {
     let ativo = true;
@@ -410,10 +411,25 @@ function Criticidade() {
         ))}
       </div>
 
+      <p style={{ opacity: 0.6, fontSize: 12, marginBottom: 10 }}>
+        Clique em um operador para ver a lista dos casos críticos dele.
+      </p>
       {ops.map((o) => {
         const total = NIVEIS_CRIT.reduce((s, n) => s + Number(o[n.key]?.qtd || 0), 0) || 1;
         return (
-          <div key={o.operador_email} style={{ marginBottom: 14 }}>
+          <button
+            key={o.operador_email}
+            type="button"
+            onClick={() =>
+              setDetalhe({
+                operador: { operador_email: o.operador_email, operador_nome: o.operador_nome, indicadores: {} },
+                chave: "criticos",
+                rotulo: `Casos críticos — ${o.operador_nome}`,
+              })
+            }
+            style={{ display: "block", width: "100%", textAlign: "left", background: "none", border: "none", color: "inherit", cursor: "pointer", padding: 0, marginBottom: 14, fontFamily: FONTE }}
+            title="Ver casos críticos deste operador"
+          >
             <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, marginBottom: 4 }}>
               <strong>{o.operador_nome}</strong>
               <span style={{ opacity: 0.7 }}>
@@ -434,9 +450,10 @@ function Criticidade() {
                 );
               })}
             </div>
-          </div>
+          </button>
         );
       })}
+      {detalhe && <ModalDetalhe detalhe={detalhe} onClose={() => setDetalhe(null)} />}
     </div>
   );
 }
