@@ -574,6 +574,7 @@ const CRITERIOS = [
   { valor: "EQUIPARAR_SALDO", rotulo: "Equiparar saldo financeiro (troca)" },
   { valor: "EQUIPARAR_QTD", rotulo: "Equiparar quantidade de CPFs" },
   { valor: "RETIRAR_SEM_ACIONAMENTO", rotulo: "Retirar sem acionamento e redistribuir" },
+  { valor: "EQUIPARAR_ACORDOS", rotulo: "Equiparar quantidade de acordos" },
 ];
 
 function Simulador({ operadores, onExecutado }) {
@@ -599,7 +600,8 @@ function Simulador({ operadores, onExecutado }) {
     try {
       const criterio = { tipo, operadores: selecionados };
       if (tipo === "RETIRAR_SEM_ACIONAMENTO" && origem) criterio.origem = origem;
-      const { data, error } = await supabase.rpc("calibragem_simular", { p_criterio: criterio });
+      const rpcSim = tipo === "EQUIPARAR_ACORDOS" ? "calibragem_simular_acordos" : "calibragem_simular";
+      const { data, error } = await supabase.rpc(rpcSim, { p_criterio: criterio });
       if (error) throw error;
       setSim(data);
       setFase("simulado");
@@ -627,14 +629,18 @@ function Simulador({ operadores, onExecutado }) {
 
   async function executar() {
     if (!sim?.simulacao_id) return;
+    const ehAcordos = sim.metrica === "ACORDOS";
     const ok = window.confirm(
-      `Executar ${sim.total_movimentacoes} movimentações? Os casos serão reatribuídos AGORA aos novos operadores (com auditoria e marcador "Retirado por nivelamento"). Esta ação move a carteira real.`
+      ehAcordos
+        ? `Executar ${sim.total_movimentacoes} movimentações de ACORDOS? Os acordos serão reatribuídos AGORA aos novos operadores (com auditoria). Atenção: isso muda o responsável pelo acordo e pode impactar comissão de quem negociou.`
+        : `Executar ${sim.total_movimentacoes} movimentações? Os casos serão reatribuídos AGORA aos novos operadores (com auditoria e marcador "Retirado por nivelamento"). Esta ação move a carteira real.`
     );
     if (!ok) return;
     setProcessando(true);
     setErro("");
     try {
-      const { data, error } = await supabase.rpc("calibragem_executar_simulacao", { p_id: sim.simulacao_id });
+      const rpcExec = ehAcordos ? "calibragem_executar_acordos" : "calibragem_executar_simulacao";
+      const { data, error } = await supabase.rpc(rpcExec, { p_id: sim.simulacao_id });
       if (error) throw error;
       setFase("executado");
       window.alert(`Executado: ${data.executados} movimentações (${data.pulados} puladas por mudança de estado).`);
@@ -650,6 +656,8 @@ function Simulador({ operadores, onExecutado }) {
   const depois = sim?.depois || [];
   const depoisPorEmail = Object.fromEntries(depois.map((d) => [d.op_email, d]));
   const movs = sim?.movimentacoes || [];
+  const ehAcordos = sim?.metrica === "ACORDOS";
+  const unidade = ehAcordos ? "Acordos" : "CPFs";
 
   return (
     <div>
@@ -721,9 +729,9 @@ function Simulador({ operadores, onExecutado }) {
             </div>
             <div style={S.simKpi}>
               <div style={S.simKpiV}>
-                {sim.metrica === "QTD" ? num(sim.alvo) : moeda(sim.alvo)}
+                {sim.metrica === "SALDO" ? moeda(sim.alvo) : num(sim.alvo)}
               </div>
-              <div style={S.simKpiR}>alvo ({sim.metrica === "QTD" ? "CPFs" : "saldo"})</div>
+              <div style={S.simKpiR}>alvo ({sim.metrica === "SALDO" ? "saldo" : ehAcordos ? "acordos" : "CPFs"})</div>
             </div>
           </div>
 
@@ -733,28 +741,38 @@ function Simulador({ operadores, onExecutado }) {
               <thead>
                 <tr>
                   <th style={S.th}>Operador</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>CPFs antes</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>CPFs depois</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>Saldo antes</th>
-                  <th style={{ ...S.th, textAlign: "right" }}>Saldo depois</th>
+                  <th style={{ ...S.th, textAlign: "right" }}>{unidade} antes</th>
+                  <th style={{ ...S.th, textAlign: "right" }}>{unidade} depois</th>
+                  {!ehAcordos && <th style={{ ...S.th, textAlign: "right" }}>Saldo antes</th>}
+                  {!ehAcordos && <th style={{ ...S.th, textAlign: "right" }}>Saldo depois</th>}
                 </tr>
               </thead>
               <tbody>
                 {antes.map((a) => {
                   const d = depoisPorEmail[a.op_email] || a;
+                  const dQtd = Number(d.qtd) - Number(a.qtd);
                   const dSaldo = Number(d.saldo) - Number(a.saldo);
                   return (
                     <tr key={a.op_email}>
                       <td style={S.td}>{a.op_nome}</td>
                       <td style={{ ...S.td, textAlign: "right" }}>{num(a.qtd)}</td>
-                      <td style={{ ...S.td, textAlign: "right" }}>{num(d.qtd)}</td>
-                      <td style={{ ...S.td, textAlign: "right" }}>{moeda(a.saldo)}</td>
                       <td style={{ ...S.td, textAlign: "right" }}>
-                        {moeda(d.saldo)}
-                        <span style={{ fontSize: 11, marginLeft: 6, color: dSaldo < 0 ? "#f87171" : "#34d399" }}>
-                          {dSaldo >= 0 ? "▲" : "▼"}
-                        </span>
+                        {num(d.qtd)}
+                        {ehAcordos && dQtd !== 0 && (
+                          <span style={{ fontSize: 11, marginLeft: 6, color: dQtd < 0 ? "#f87171" : "#34d399" }}>
+                            {dQtd > 0 ? `▲${dQtd}` : `▼${Math.abs(dQtd)}`}
+                          </span>
+                        )}
                       </td>
+                      {!ehAcordos && <td style={{ ...S.td, textAlign: "right" }}>{moeda(a.saldo)}</td>}
+                      {!ehAcordos && (
+                        <td style={{ ...S.td, textAlign: "right" }}>
+                          {moeda(d.saldo)}
+                          <span style={{ fontSize: 11, marginLeft: 6, color: dSaldo < 0 ? "#f87171" : "#34d399" }}>
+                            {dSaldo >= 0 ? "▲" : "▼"}
+                          </span>
+                        </td>
+                      )}
                     </tr>
                   );
                 })}
@@ -779,7 +797,7 @@ function Simulador({ operadores, onExecutado }) {
                   </thead>
                   <tbody>
                     {movs.map((m) => (
-                      <tr key={m.caso_id}>
+                      <tr key={m.caso_id || m.acordo_id}>
                         <td style={S.td}>{m.nome || m.cpf}</td>
                         <td style={{ ...S.td, textAlign: "right" }}>{moeda(m.valor)}</td>
                         <td style={S.td}>{m.de_nome}</td>
