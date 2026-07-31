@@ -127,7 +127,26 @@ function TelaRankings({ snap }) {
 }
 
 // 6) Aniversariantes ----------------------------------------------------------
+//    No dia exato (aniversariantes_hoje preenchido pelo snapshot) → destaque
+//    individual com mensagem especial. Fora disso → card mensal. A regra do
+//    "hoje" é decidida no snapshot; aqui só se exibe o estado gravado.
 function TelaAniversariantes({ snap }) {
+  const hoje = snap?.aniversariantes_hoje || [];
+  if (hoje.length > 0) {
+    const nomes = hoje.map((a) => a.nome);
+    const nomeTxt = nomes.length === 1 ? nomes[0]
+      : nomes.slice(0, -1).join(", ") + " e " + nomes[nomes.length - 1];
+    const msg = `Hoje é dia de celebrar o(a) ${nomeTxt}. Parabéns pelo seu aniversário. Desejamos um novo ciclo de saúde, realizações e boas conquistas.`;
+    return (
+      <Tela titulo="Aniversário de Hoje" icone="🎉">
+        <div style={{ fontSize: fs(46, 6, 150), lineHeight: 1 }}>🎂</div>
+        <div style={{ fontSize: fs(34, 4.4, 110), fontWeight: 900, color: T.texto, textAlign: "center" }}>
+          {nomeTxt}
+        </div>
+        <MensagemInstitucional badge="Parabéns!" titulo="Feliz aniversário!" texto={msg} />
+      </Tela>
+    );
+  }
   const aniv = snap?.aniversariantes || [];
   return (
     <Tela titulo="Aniversariantes do Mês" icone="🎂">
@@ -184,7 +203,7 @@ export const CATALOGO_TELAS = [
   { id: "julho", nome: "Julho Histórico", Comp: TelaJulhoHistorico, ativa: true, temConteudo: (s) => s?.julho_historico?.ativo === true },
   { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings, ativa: true, temConteudo: (s) => {
       const r = s?.rankings || {}; return !!(r.melhor_mes?.operador || (r.top3_mes || []).length > 0 || r.maior_pagamento_mes); } },
-  { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes, ativa: true, temConteudo: (s) => (s?.aniversariantes || []).length > 0 },
+  { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes, ativa: true, temConteudo: (s) => (s?.aniversariantes || []).length > 0 || (s?.aniversariantes_hoje || []).length > 0 },
   { id: "avisos", nome: "Avisos", Comp: TelaAvisos, ativa: true, temConteudo: (s) => (s?.avisos || []).length > 0 },
   // --- estrutura pronta, DESATIVADA (etapas futuras) ---
   { id: "hall", nome: "Hall da Fama", Comp: TelaHallFama, ativa: false, temConteudo: sempre },
