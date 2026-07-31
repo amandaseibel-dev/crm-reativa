@@ -116,6 +116,10 @@ export default function Efetividade() {
         </div>
       )}
 
+      <div style={{ marginBottom: 24 }}>
+        <Saude />
+      </div>
+
       {carregando ? (
         <div style={S.vazio}>Calculando…</div>
       ) : !ops.length ? (
@@ -154,6 +158,76 @@ export default function Efetividade() {
 
       <div style={{ marginTop: 28 }}>
         <Funil />
+      </div>
+    </div>
+  );
+}
+
+function corNota(n) {
+  if (n >= 80) return "#34d399";
+  if (n >= 60) return "#fbbf24";
+  if (n >= 40) return "#fb923c";
+  return "#f87171";
+}
+
+function Saude() {
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+  const [ops, setOps] = useState([]);
+  const [aberto, setAberto] = useState(null);
+
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      setCarregando(true);
+      try {
+        const { data, error } = await supabase.rpc("calibragem_saude", { p_operador: null });
+        if (error) throw error;
+        if (ativo) setOps(data?.operadores || []);
+      } catch (e) {
+        if (ativo) setErro(e?.message || String(e));
+      } finally {
+        if (ativo) setCarregando(false);
+      }
+    })();
+    return () => { ativo = false; };
+  }, []);
+
+  if (carregando) return <div style={S.vazio}>Calculando saúde…</div>;
+  if (erro) return <div style={S.erro}>{erro}</div>;
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 800, margin: "8px 0 6px" }}>❤️ Saúde da carteira</h2>
+      <p style={{ opacity: 0.6, fontSize: 12, marginBottom: 14 }}>
+        Nota 0–100 por operador. Clique para ver os fatores que reduzem a nota.
+      </p>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12 }}>
+        {ops.filter((o) => Number(o.carteira_cpfs) > 20).map((o) => {
+          const nota = Number(o.nota || 0);
+          const on = aberto === o.operador_email;
+          return (
+            <div key={o.operador_email} style={{ ...S.chip, cursor: "pointer" }} onClick={() => setAberto(on ? null : o.operador_email)}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <strong>{o.operador_nome}</strong>
+                <span style={{ fontSize: 24, fontWeight: 800, color: corNota(nota) }}>{nota}</span>
+              </div>
+              <div style={{ ...S.track, marginTop: 6 }}>
+                <div style={{ height: "100%", width: `${nota}%`, background: corNota(nota), borderRadius: 999 }} />
+              </div>
+              {on && (
+                <div style={{ marginTop: 10, display: "flex", flexDirection: "column", gap: 4 }}>
+                  {(o.fatores || []).filter((f) => Number(f.penalidade) > 0).sort((a, b) => b.penalidade - a.penalidade).map((f, i) => (
+                    <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                      <span style={{ opacity: 0.8 }}>{f.fator} <span style={{ opacity: 0.5 }}>({f.detalhe})</span></span>
+                      <span style={{ color: "#f87171", fontWeight: 700 }}>−{f.penalidade}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );
