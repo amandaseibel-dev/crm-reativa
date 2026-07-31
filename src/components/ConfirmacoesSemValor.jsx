@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import Aluno from "../pages/Aluno";
 
 // Confirmacoes de acordo SEM VALOR (valor_informado=0 e valor_entrada=0) que
 // ficaram presas AGUARDANDO_CONFIRMACAO. O caso ja saiu das filas operacionais;
@@ -34,6 +35,7 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
   const [processando, setProcessando] = useState({});
   const [email, setEmail] = useState("");
   const [mensagem, setMensagem] = useState("");
+  const [fichaId, setFichaId] = useState(null);
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setEmail((data?.user?.email || "").toLowerCase()));
@@ -163,7 +165,7 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
               </div>
               <button
                 type="button"
-                onClick={() => window.open(`/aluno?alunoId=${s.aluno_id}`, "_blank")}
+                onClick={() => setFichaId(s.aluno_id)}
                 style={btnFicha}
               >
                 Ver ficha
@@ -205,6 +207,21 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
       {filtrada.length === 0 && (
         <p style={{ color: "#64748b", fontSize: 14 }}>Nenhuma confirmação sem valor pendente.</p>
       )}
+
+      {/* Ficha do aluno embutida (abre na mesma tela, sem ir pra outra pagina). */}
+      {fichaId && (
+        <div style={overlay} onClick={() => setFichaId(null)}>
+          <div style={modalBox} onClick={(e) => e.stopPropagation()}>
+            <div style={modalTopo}>
+              <span style={{ fontWeight: 800, color: "#0d1321" }}>Ficha do aluno</span>
+              <button type="button" style={modalFechar} onClick={() => setFichaId(null)}>Fechar ✕</button>
+            </div>
+            <div style={{ overflow: "auto", flex: 1 }}>
+              <Aluno fichaEmbedId={fichaId} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -220,3 +237,7 @@ const acaoLinha = { display: "flex", gap: 8, alignItems: "center", marginTop: 10
 const inputMotivo = { flex: 1, minWidth: 220, padding: "8px 10px", borderRadius: 8, border: "1px solid #e3e7ee", fontSize: 13 };
 const btnConcluir = { background: "#0f766e", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" };
 const btnBusy = { opacity: 0.55, cursor: "not-allowed" };
+const overlay = { position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "3vh 2vw", zIndex: 1000 };
+const modalBox = { background: "#fff", borderRadius: 16, width: "min(1100px, 96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" };
+const modalTopo = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #e6eaf0", background: "#f8fafc" };
+const modalFechar = { background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" };

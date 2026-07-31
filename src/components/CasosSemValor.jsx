@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import Aluno from "../pages/Aluno";
 
 // Casos sem valor em aberto calculado -- normalmente da carga retroativa
 // antiga, que nunca teve o titulo processado direito. Aparecem aqui pra
@@ -11,6 +12,7 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
   const [valores, setValores] = useState({});
   const [salvando, setSalvando] = useState({});
   const [mensagem, setMensagem] = useState("");
+  const [fichaId, setFichaId] = useState(null);
 
   useEffect(() => {
     carregar();
@@ -185,7 +187,7 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
                     </button>
                     <button
                       type="button"
-                      onClick={() => window.open(`/aluno?alunoId=${a.id}`, "_blank")}
+                      onClick={() => setFichaId(a.id)}
                       title="Abrir ficha completa do aluno (histórico, movimentações)"
                       style={{
                         background: "#fff",
@@ -212,9 +214,29 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
           </p>
         )}
       </div>
+
+      {/* Ficha do aluno embutida (abre na mesma tela). */}
+      {fichaId && (
+        <div style={ovl} onClick={() => setFichaId(null)}>
+          <div style={mbox} onClick={(e) => e.stopPropagation()}>
+            <div style={mtopo}>
+              <span style={{ fontWeight: 800, color: "#0d1321" }}>Ficha do aluno</span>
+              <button type="button" style={mfechar} onClick={() => setFichaId(null)}>Fechar ✕</button>
+            </div>
+            <div style={{ overflow: "auto", flex: 1 }}>
+              <Aluno fichaEmbedId={fichaId} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+const ovl = { position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "3vh 2vw", zIndex: 1000 };
+const mbox = { background: "#fff", borderRadius: 16, width: "min(1100px, 96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" };
+const mtopo = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #e6eaf0", background: "#f8fafc" };
+const mfechar = { background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" };
 
 const th = {
   textAlign: "left",

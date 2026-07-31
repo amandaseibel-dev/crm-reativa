@@ -662,7 +662,7 @@ export default function FilaConfirmacaoPagamento() {
               {detalhe.aluno_id && (
                 <button
                   type="button"
-                  onClick={() => window.open(`/aluno?alunoId=${detalhe.aluno_id}`, "_blank")}
+                  onClick={() => setAbaFicha("ficha")}
                   style={{ background: "#0f9d6b", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", marginLeft: 8 }}
                 >
                   Abrir ficha completa
