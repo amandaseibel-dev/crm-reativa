@@ -1685,6 +1685,27 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
           const chave = statusAcordo(acordo, parcelas);
           const cor = CORES_STATUS[chave];
 
+          // Entrada: pode existir como parcela fisica (is_entrada, ex.: acordos
+          // reconstruidos do lote 63fbaa7b) ou apenas como campo valor_entrada
+          // (acordos manuais antigos -- Grupo B). No 2o caso exibimos uma linha
+          // "Entrada do acordo" a partir de valor_entrada, SEM criar parcela,
+          // pra nao duplicar valor no saldo.
+          const parcelaEntrada = parcelas.find((p) => p.is_entrada);
+          const temParcelaEntrada = !!parcelaEntrada;
+          const entradaValor = temParcelaEntrada
+            ? Number(parcelaEntrada.valor || 0)
+            : Number(acordo.valor_entrada || 0);
+          const temEntrada = entradaValor > 0.005;
+          const entradaPaga = temParcelaEntrada ? parcelaEntrada.status === "PAGO" : !!acordo.entrada_paga;
+          const corEntrada = entradaPaga ? CORES_STATUS.quitado : CORES_STATUS.em_aberto;
+          // Parcelado restante em aberto (exclui a entrada, quando ela e parcela).
+          const parceladoRestanteAberto = parcelasAbertas
+            .filter((p) => !p.is_entrada)
+            .reduce((soma, p) => soma + Number(p.valor || 0), 0);
+          const totalPagoAcordo = parcelas
+            .filter((p) => p.status === "PAGO")
+            .reduce((soma, p) => soma + Number(p.valor || 0), 0);
+
           return (
             <div
               key={acordo.id}
@@ -1714,10 +1735,38 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                 </div>
               </div>
 
-              {acordo.valor_entrada ? (
-                <div style={estilos.subLinha}>
-                  Entrada: {moeda(acordo.valor_entrada)}
-                  {acordo.entrada_paga ? " (paga)" : " (pendente)"}
+              {/* Grupo B: entrada so no campo valor_entrada -> exibe linha
+                  "Entrada do acordo" sem parcela fisica (evita dupla contagem).
+                  Quando a entrada e parcela is_entrada, ela ja aparece na lista
+                  abaixo e nao repetimos aqui. */}
+              {temEntrada && !temParcelaEntrada ? (
+                <div style={{ ...estilos.linha, borderTop: `1px dashed ${cor.barra}`, marginTop: 6 }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>Entrada do acordo</div>
+                    <div style={estilos.subLinha}>
+                      {acordo.data_entrada ? `Vencimento: ${formatarDataSimples(acordo.data_entrada)}` : "Vencimento não informado"}
+                      {" · Origem: acordo manual"}
+                      <span style={{ marginLeft: 6, fontSize: 11.5, opacity: 0.85 }}>
+                        • integra o valor total (não somada ao saldo atual)
+                      </span>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: "right" }}>
+                    <div style={{ fontSize: 13, fontWeight: 700 }}>{moeda(entradaValor)}</div>
+                    <span style={{ ...estilos.tagBase, background: corEntrada.bg, color: corEntrada.texto }}>
+                      {entradaPaga ? "Paga" : "Em aberto"}
+                    </span>
+                  </div>
+                </div>
+              ) : null}
+
+              {temEntrada ? (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, margin: "8px 0", fontSize: 12, opacity: 0.9 }}>
+                  <span><b>Valor total:</b> {moeda(acordo.valor_total)}</span>
+                  <span><b>Entrada:</b> {moeda(entradaValor)}{entradaPaga ? " (paga)" : " (em aberto)"}</span>
+                  <span><b>Parcelado restante:</b> {moeda(parceladoRestanteAberto)}</span>
+                  <span><b>Total pago:</b> {moeda(totalPagoAcordo)}</span>
+                  <span><b>Saldo atual:</b> {moeda(totalAcordoAberto)}</span>
                 </div>
               ) : null}
 
