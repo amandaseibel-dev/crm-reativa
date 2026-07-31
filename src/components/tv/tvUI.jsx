@@ -397,6 +397,22 @@ export function EstadoSemSnapshot() {
   );
 }
 
+// Estado: erro de leitura (falha ao buscar o snapshot; sem cache disponível) ---
+export function EstadoErro({ detalhe }) {
+  return (
+    <div style={s.estado}>
+      <Marca tamanho={fs(40, 5, 120)} />
+      <div style={{ fontSize: fs(20, 2.2, 56), color: T.texto, fontWeight: 800, maxWidth: "72vw", lineHeight: 1.35 }}>
+        Não foi possível ler os indicadores agora.
+      </div>
+      <div style={{ fontSize: fs(14, 1.4, 30), color: T.textoMudo, fontWeight: 600, maxWidth: "70vw" }}>
+        Verifique a conexão. Nova tentativa automática no próximo evento, ou use “↻ Atualizar”.
+        {detalhe ? ` (${detalhe})` : ""}
+      </div>
+    </div>
+  );
+}
+
 // Palco: envelope com transição suave (fade + leve subida) por troca de tela --
 export function Palco({ chave, children }) {
   return (

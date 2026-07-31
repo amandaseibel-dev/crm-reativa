@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import {
-  Cabecalho, Rodape, Palco, EstadoCarregando, EstadoSemSnapshot, T, AREA_SEGURA,
+  Cabecalho, Rodape, Palco, EstadoCarregando, EstadoSemSnapshot, EstadoErro, T, AREA_SEGURA,
 } from "../components/tv/tvUI";
 import { telasVisiveis } from "../components/tv/tvTelas";
 
@@ -52,32 +52,39 @@ export default function TvElogios() {
   const [elogioUrl, setElogioUrl] = useState("");
   const [atualizando, setAtualizando] = useState(false);
   const [toast, setToast] = useState("");
+  const [erroLeitura, setErroLeitura] = useState(false);
   const versaoRef = useRef(Number(cache?.meta?.versao || 0));
 
-  // Uma leitura do snapshot. Devolve se a versão mudou (para o feedback do botão).
-  // Preserva o último snapshot bom (cache local) em caso de falha de conexão.
+  // Uma leitura do snapshot. Devolve { ok, mudou } para o feedback do botão.
+  // - ok=false  → a leitura FALHOU (erro/permission/rede): NÃO dizer "atualizada".
+  // - Zero, listas vazias e campos opcionais nulos são DADOS VÁLIDOS: desde que
+  //   venha payload, aplicamos e removemos a mensagem de ausência.
+  // Preserva o último snapshot bom (cache local) em caso de falha.
   async function carregarSnapshot() {
     setAtualizando(true);
-    let mudou = false;
     try {
       const { data, error } = await supabase.rpc("tv_snapshot_ler");
       if (error) throw error;
       const nova = Number(data?.versao || 0);
-      mudou = nova !== versaoRef.current;
+      const mudou = nova !== versaoRef.current;
       versaoRef.current = nova;
       const m = { status: data?.status, versao: data?.versao, gerado_em: data?.gerado_em, gerado_por: data?.gerado_por };
       setMeta(m);
+      setErroLeitura(false);
+      // Só aplica quando há PAYLOAD (snapshot válido). status 'vazio' = sem snapshot.
       if (data?.payload) {
         setSnap(data.payload);
-        salvarCache(data.payload, m);
+        salvarCache(data.payload, m); // cache só APÓS retorno válido
       }
-    } catch {
-      mudou = false; // sem conexão: mantém o snapshot em memória/cache
+      return { ok: true, mudou };
+    } catch (e) {
+      // Falha real de leitura: mantém o último snapshot (memória/cache) e sinaliza erro.
+      setErroLeitura(true);
+      return { ok: false, mudou: false, erro: e?.message };
     } finally {
       setCarregou(true);
       setAtualizando(false);
     }
-    return mudou;
   }
 
   // Carga inicial: 1 leitura ao abrir/recarregar.
@@ -102,10 +109,15 @@ export default function TvElogios() {
   // Botão manual do telão: 1 leitura; feedback breve; sem recarregar a app nem
   // reiniciar o carrossel (o índice atual é preservado).
   async function atualizarManual() {
-    const mudou = await carregarSnapshot();
-    setToast(mudou ? "Dados atualizados" : "A TV já está atualizada");
+    const r = await carregarSnapshot();
+    const msg = !r.ok
+      ? "Erro ao ler os dados. Verifique a conexão."
+      : r.mudou
+        ? "Dados atualizados"
+        : "A TV já está atualizada";
+    setToast(msg);
     window.clearTimeout(atualizarManual._t);
-    atualizarManual._t = window.setTimeout(() => setToast(""), 2600);
+    atualizarManual._t = window.setTimeout(() => setToast(""), 3000);
   }
 
   const telas = useMemo(() => telasVisiveis(snap), [snap]);
@@ -147,19 +159,24 @@ export default function TvElogios() {
     setElogioUrl(data?.publicUrl || "");
   }, [tela, snap, giro]);
 
+  // Regra da mensagem de ausência: só quando NÃO há snapshot válido.
+  // Havendo payload (mesmo com indicadores zero/listas vazias), renderiza.
   const conteudo = (() => {
-    if (!snap && !carregou) return <EstadoCarregando />;
-    if (!snap || !tela) return <EstadoSemSnapshot />;
-    const Comp = tela.Comp;
-    return (
-      <>
-        <Cabecalho tela={tela.nome} />
-        <Palco chave={`${tela.id}-${giro}`}>
-          <Comp snap={snap} indiceGiro={giro} elogioUrl={elogioUrl} />
-        </Palco>
-        <Rodape geradoEm={meta?.gerado_em} indice={indice % total} total={total} />
-      </>
-    );
+    if (snap && tela) {
+      const Comp = tela.Comp;
+      return (
+        <>
+          <Cabecalho tela={tela.nome} />
+          <Palco chave={`${tela.id}-${giro}`}>
+            <Comp snap={snap} indiceGiro={giro} elogioUrl={elogioUrl} />
+          </Palco>
+          <Rodape geradoEm={meta?.gerado_em} indice={indice % total} total={total} />
+        </>
+      );
+    }
+    if (!carregou) return <EstadoCarregando />;
+    if (erroLeitura && !snap) return <EstadoErro />; // leitura falhou e sem cache
+    return <EstadoSemSnapshot />;                    // status 'vazio' = nunca gerado
   })();
 
   return (
