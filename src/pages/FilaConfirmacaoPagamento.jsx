@@ -11,6 +11,7 @@ import {
 } from "../utils/confirmacaoPagamento";
 import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados";
 import CasosSemValor from "../components/CasosSemValor";
+import ConfirmacoesSemValor from "../components/ConfirmacoesSemValor";
 import CasosSemTelefone from "../components/CasosSemTelefone";
 
 const STATUS_LABEL = {
@@ -90,6 +91,7 @@ export default function FilaConfirmacaoPagamento() {
   const [filtro, setFiltro] = useState("PENDENTES");
   const [tipoFiltro, setTipoFiltro] = useState("TODOS");
   const [qtdSemValor, setQtdSemValor] = useState(null);
+  const [qtdAcordoSemValor, setQtdAcordoSemValor] = useState(null);
   const [qtdSemTelefone, setQtdSemTelefone] = useState(null);
 
   // Ficha do aluno (modal leve reaproveitando as pecas ja existentes:
@@ -572,6 +574,9 @@ export default function FilaConfirmacaoPagamento() {
         <button style={filtro === "NAO_IDENTIFICADOS" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("NAO_IDENTIFICADOS")}>
           Não identificados
         </button>
+        <button style={filtro === "ACORDO_SEM_VALOR" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("ACORDO_SEM_VALOR")}>
+          Acordo sem valor{qtdAcordoSemValor !== null ? ` (${qtdAcordoSemValor})` : ""}
+        </button>
         <button style={filtro === "SEM_VALOR" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("SEM_VALOR")}>
           Sem valor calculado{qtdSemValor !== null ? ` (${qtdSemValor})` : ""}
         </button>
@@ -591,6 +596,9 @@ export default function FilaConfirmacaoPagamento() {
       {/* Mantem os dois sempre "vivos" (carregando em segundo plano), so
           escondidos visualmente quando nao e a aba ativa -- assim o numero
           na aba fica sempre atualizado, mesmo sem abrir a aba. */}
+      <div style={{ display: filtro === "ACORDO_SEM_VALOR" ? "block" : "none" }}>
+        <ConfirmacoesSemValor aoAtualizarContagem={setQtdAcordoSemValor} />
+      </div>
       <div style={{ display: filtro === "SEM_VALOR" ? "block" : "none" }}>
         <CasosSemValor aoAtualizarContagem={setQtdSemValor} />
       </div>
@@ -600,7 +608,7 @@ export default function FilaConfirmacaoPagamento() {
 
       {filtro === "NAO_IDENTIFICADOS" ? (
         <PagamentosNaoIdentificados />
-      ) : filtro === "SEM_VALOR" || filtro === "SEM_TELEFONE" ? null : (
+      ) : filtro === "SEM_VALOR" || filtro === "ACORDO_SEM_VALOR" || filtro === "SEM_TELEFONE" ? null : (
         <>
       {solicitacoesFiltradas.length === 0 && (
         <div style={styles.vazio}>Nenhuma solicitação neste filtro.</div>
