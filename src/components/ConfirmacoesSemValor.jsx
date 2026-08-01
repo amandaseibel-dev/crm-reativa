@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import Aluno from "../pages/Aluno";
+import { superficie, modalBox as modalBox_import } from "../ui/cards";
 
 // Confirmacoes de acordo SEM VALOR (valor_informado=0 e valor_entrada=0) que
 // ficaram presas AGUARDANDO_CONFIRMACAO. O caso ja saiu das filas operacionais;
@@ -231,7 +232,7 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
   );
 }
 
-const card = { background: "#fff", border: "1px solid #e6eaf0", borderRadius: 12, padding: "12px 14px", boxShadow: "0 1px 2px rgba(15,23,42,0.04)" };
+const card = { ...superficie, marginBottom: 0 };
 const cardTopo = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" };
 const nome = { fontSize: 14.5, fontWeight: 800, color: "#0d1321", marginRight: 10 };
 const cpf = { fontSize: 12.5, color: "#64748b", fontWeight: 600 };
@@ -243,6 +244,6 @@ const inputMotivo = { flex: 1, minWidth: 220, padding: "8px 10px", borderRadius:
 const btnConcluir = { background: "#0f766e", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" };
 const btnBusy = { opacity: 0.55, cursor: "not-allowed" };
 const overlay = { position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "3vh 2vw", zIndex: 1000 };
-const modalBox = { background: "#fff", borderRadius: 16, width: "min(1100px, 96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" };
+const modalBox = { ...modalBox_import, width: "min(1100px, 96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden" };
 const modalTopo = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #e6eaf0", background: "#f8fafc" };
 const modalFechar = { background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" };

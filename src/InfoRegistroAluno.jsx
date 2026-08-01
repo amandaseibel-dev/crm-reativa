@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { cartaoInternoEscuro } from "./ui/cards";
 
 const STATUS_FINALIZACAO = [
   "EM_ATENDIMENTO",
@@ -927,13 +928,7 @@ export default function Alunos() {
   );
 }
 
-const cardInfo = {
-  background: "#020617",
-  border: "1px solid #374151",
-  borderRadius: "12px",
-  padding: "12px",
-  color: "#e5e7eb",
-};
+const cardInfo = cartaoInternoEscuro;
 
 const botaoSecundario = {
   background: "#1f2937",

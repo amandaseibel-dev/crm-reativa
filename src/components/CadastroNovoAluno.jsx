@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "../services/supabase";
+import { modalBox, cartaoErro } from "../ui/cards";
 
 function converterValor(valorDigitado) {
   let texto = String(valorDigitado || "")
@@ -316,12 +317,9 @@ const fundo = {
 };
 
 const modal = {
+  ...modalBox,
   width: "min(760px, 96vw)",
-  background: "#ffffff",
-  borderRadius: "16px",
-  padding: "20px",
   border: "3px solid #0f172a",
-  boxShadow: "0 20px 80px rgba(0,0,0,0.35)",
   maxHeight: "90vh",
   overflowY: "auto",
 };
@@ -382,12 +380,8 @@ const textarea = {
 };
 
 const erroBox = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  padding: "11px",
-  borderRadius: "9px",
+  ...cartaoErro,
   marginBottom: "12px",
-  fontWeight: "900",
 };
 
 const botaoConfirmar = {

@@ -1,6 +1,7 @@
 import { useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
+import { cartaoAcento, cartaoErro, cartaoInfo } from "../ui/cards";
 
 export default function PrioridadeLinksOperador() {
   const [links, setLinks] = useState([]);
@@ -188,12 +189,9 @@ export default function PrioridadeLinksOperador() {
 }
 
 const container = {
-  marginBottom: "18px",
-  padding: "16px",
-  borderRadius: "14px",
-  border: "2px solid #ef4444",
-  background: "#fff7ed",
-  animation: "piscarRetornoLink 1.4s infinite"
+  ...cartaoInfo("#fff7ed", "#ef4444", "#7c2d12"),
+  animation: "piscarRetornoLink 1.4s infinite",
+  marginBottom: "18px"
 };
 
 const cabecalho = {
@@ -227,27 +225,14 @@ const botaoAtualizar = {
   cursor: "pointer"
 };
 
-const erroBox = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  padding: "10px",
-  borderRadius: "8px",
-  fontWeight: "700",
-  marginBottom: "10px"
-};
+const erroBox = { ...cartaoErro, marginBottom: "10px" };
 
 const textoAuxiliar = {
   color: "#7c2d12",
   margin: 0
 };
 
-const card = {
-  background: "#ffffff",
-  border: "1px solid #fb923c",
-  borderRadius: "12px",
-  padding: "14px",
-  marginTop: "12px"
-};
+const card = { ...cartaoAcento("#fb923c"), marginTop: "12px" };
 
 const linhaTopo = {
   display: "flex",

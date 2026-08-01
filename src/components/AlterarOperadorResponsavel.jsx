@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
+import { cartaoEscuro } from "../ui/cards";
 
 // Mesma lista de operadores usada na ficha do aluno (Aluno.jsx).
 const OPERADORES_REATIVA = [
@@ -134,8 +135,7 @@ export default function AlterarOperadorResponsavel({
 }
 
 const caixaInterna = {
-  background: "#111827",
-  border: "1px solid #374151",
+  ...cartaoEscuro,
   borderRadius: "10px",
   padding: "16px",
   marginTop: "12px",

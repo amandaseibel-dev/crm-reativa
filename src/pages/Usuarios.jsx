@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { AvatarFoto } from "../components/AvatarFoto";
+import { cartaoAcentoEscuro, modalBoxEscuro } from "../ui/cards";
 
 const perfis = ["gerencia", "supervisor", "administrativo", "operador", "auditor"];
 
@@ -599,10 +600,10 @@ const cards = {
 };
 
 const card = {
-  background: "#111827",
-  border: "1px solid #312e81",
+  ...cartaoAcentoEscuro("#312e81"),
   borderRadius: 16,
   padding: 20,
+  color: "#fff",
 };
 
 const cardValue = {
@@ -831,7 +832,7 @@ const dangerBtn = {
 };
 
 const modalOverlay = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.65)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 };
-const modalBox = { background: "#111827", border: "1px solid #7e22ce", borderRadius: 16, padding: 24, width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", color: "#fff" };
+const modalBox = { ...modalBoxEscuro, border: "1px solid #7e22ce", boxShadow: "none", width: "100%", maxWidth: 480, maxHeight: "90vh", overflowY: "auto", color: "#fff" };
 
 const erroStyle = {
   color: "#f87171",

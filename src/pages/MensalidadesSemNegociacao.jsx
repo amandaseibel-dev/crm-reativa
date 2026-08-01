@@ -5,6 +5,7 @@ import {
 } from "recharts";
 import jsPDF from "jspdf";
 import { supabase } from "../supabaseClient";
+import { cartao } from "../ui/cards";
 
 const BRL = (v) => (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const NUM = (v) => (Number(v) || 0).toLocaleString("pt-BR");
@@ -345,7 +346,7 @@ export default function MensalidadesSemNegociacao() {
   );
 }
 
-const tipBox = { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 8, padding: 10, fontSize: 13, color: "#111827" };
+const tipBox = cartao;
 const btnPrimary = { background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontWeight: 600, cursor: "pointer" };
 const btnGhost = { background: "#fff", color: "#2563eb", border: "1px solid #2563eb", borderRadius: 8, padding: "9px 14px", fontWeight: 600, cursor: "pointer" };
 

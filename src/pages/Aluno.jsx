@@ -10,6 +10,16 @@ import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
 import TelefonesAluno from "../components/TelefonesAluno";
+import {
+  superficie,
+  cartao,
+  cartaoInterno,
+  cartaoTitulo as cardTituloUI,
+  faixaMini as faixaMiniUI,
+  itemMini as itemMiniUI,
+  valorMini as valorMiniUI,
+  cartaoSucesso,
+} from "../ui/cards";
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
   { nome: "Luana", email: "cobranca05@aelbra.com.br" },
@@ -1738,16 +1748,6 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           {[alunoSelecionado.unidade, alunoSelecionado.curso].filter(Boolean).join(" · ")}
                         </p>
                       )}
-                      <p style={textoInfo}>
-                        Último evento (status):{" "}
-                        <strong style={{ color: "#93c5fd" }}>
-                          {pegarCampo(
-                            alunoSelecionado,
-                            ["status_jornada", "status_atual", "status"],
-                            "CONTATAR"
-                          )}
-                        </strong>
-                      </p>
                       {saldoStatus === "carregando" && (
                         <p style={textoInfo}>
                           Situação financeira atual:{" "}
@@ -1871,8 +1871,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                         : "1px solid #e6eaf0",
                   }}
                 >
-                  <strong>Valor em aberto</strong>
-                  <br />
+                  <span style={cardTitulo}>Valor em aberto</span>
                   {saldoStatus === "carregando" && (
                     <span style={{ color: "#94a3b8" }}>Carregando…</span>
                   )}
@@ -1893,21 +1892,20 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   {saldoStatus === "ok" && (
                     <span
                       style={{
-                        fontSize: 20,
+                        fontSize: 17,
                         fontWeight: 800,
                         color: fichaComPendencia ? "#b45309" : "#16a34a",
                       }}
                     >
                       {moeda(Number(saldoFicha?.total) || 0)}
-                      <span style={{ display: "block", fontSize: 12, fontWeight: 600, opacity: 0.8 }}>
+                      <span style={{ display: "block", fontSize: 11.5, fontWeight: 600, opacity: 0.8 }}>
                         {fichaComPendencia ? "Com saldo em aberto" : "Sem saldo pendente"}
                       </span>
                     </span>
                   )}
                 </div>
                 <div style={cardInfo}>
-                  <strong>Responsável pelo aluno</strong>
-                  <br />
+                  <span style={cardTitulo}>Responsável pelo aluno</span>
                   {!editandoOperadorRapido ? (
                     <>
                       {alunoSelecionado.responsavel_atual_nome || "Sem responsável"}
@@ -1971,8 +1969,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   )}
                 </div>
                 <div style={{ ...cardInfo, gridColumn: "1 / -1" }}>
-                  <strong>Responsável pelos acordos</strong>
-                  <br />
+                  <span style={cardTitulo}>Responsável pelos acordos</span>
                   {acordosStatus === "carregando" && (
                     <span style={{ color: "#94a3b8" }}>Carregando…</span>
                   )}
@@ -2030,30 +2027,27 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </div>
                   )}
                 </div>
-                <div style={cardInfo}>
-                  <strong>Último acionamento</strong>
-                  <br />
-                  {formatarDataHora(alunoSelecionado.data_ultimo_acionamento)}
+              </div>
+              <div style={faixaMini}>
+                <div style={{ ...itemMini, borderLeft: "none" }}>
+                  <span style={cardTitulo}>Últ. acionamento</span>
+                  <div style={valorMini}>{formatarDataHora(alunoSelecionado.data_ultimo_acionamento)}</div>
                 </div>
-                <div style={cardInfo}>
-                  <strong>Data de retorno</strong>
-                  <br />
-                  {formatarDataHora(alunoSelecionado.data_retorno)}
+                <div style={itemMini}>
+                  <span style={cardTitulo}>Data de retorno</span>
+                  <div style={valorMini}>{formatarDataHora(alunoSelecionado.data_retorno)}</div>
                 </div>
-                <div style={cardInfo}>
-                  <strong>Próxima ação</strong>
-                  <br />
-                  {alunoSelecionado.proxima_acao || "CONTATAR"}
+                <div style={{ ...itemMini, flex: "2 1 200px" }}>
+                  <span style={cardTitulo}>Próxima ação</span>
+                  <div style={valorMini}>{alunoSelecionado.proxima_acao || "CONTATAR"}</div>
                 </div>
-                <div style={cardInfo}>
-                  <strong>Última tabulação</strong>
-                  <br />
-                  {formatarDataHora(alunoSelecionado.registrado_em)}
+                <div style={itemMini}>
+                  <span style={cardTitulo}>Últ. tabulação</span>
+                  <div style={valorMini}>{formatarDataHora(alunoSelecionado.registrado_em)}</div>
                 </div>
-                <div style={cardInfo}>
-                  <strong>Status acionamento</strong>
-                  <br />
-                  {alunoSelecionado.status_acionamento || "-"}
+                <div style={itemMini}>
+                  <span style={cardTitulo}>Status</span>
+                  <div style={valorMini}>{alunoSelecionado.status_acionamento || "-"}</div>
                 </div>
               </div>
               <TelefonesAluno aluno={alunoSelecionado} />
@@ -2456,35 +2450,10 @@ const tituloSecao = {
   fontSize: 16,
   fontWeight: 700,
 };
-const caixa = {
-  background: "#fff",
-  border: "1px solid #eef2f6",
-  borderRadius: "16px",
-  padding: "18px",
-  marginBottom: "18px",
-  boxShadow: "0 1px 3px rgba(15,23,42,0.05)",
-};
-const caixaDestaque = {
-  background: "#fff",
-  border: "1px solid #e2e8f0",
-  borderRadius: "10px",
-  padding: "12px 14px",
-  marginBottom: "12px",
-};
-const caixaLinkPronto = {
-  background: "#f0fdf4",
-  border: "1px solid #93c5fd",
-  borderRadius: "14px",
-  padding: "16px",
-  marginBottom: "18px",
-};
-const caixaInterna = {
-  background: "#f8fafc",
-  border: "1px solid #e6eaf0",
-  borderRadius: "8px",
-  padding: "10px 12px",
-  marginBottom: "10px",
-};
+const caixa = superficie;
+const caixaDestaque = { ...cartao, background: "#fff", border: "1px solid #e2e8f0", marginBottom: "12px" };
+const caixaLinkPronto = { ...cartaoSucesso, border: "1px solid #93c5fd", marginBottom: "16px" };
+const caixaInterna = cartaoInterno;
 const layout = {
   display: "grid",
   gridTemplateColumns: "1fr",
@@ -2497,15 +2466,15 @@ const topoFicha = {
   gap: "16px",
   alignItems: "start",
   flexWrap: "wrap",
-  marginBottom: "18px",
+  marginBottom: "12px",
 };
 const barraAbasFicha = {
   display: "flex",
   gap: "8px",
   flexWrap: "wrap",
-  marginBottom: "18px",
+  marginBottom: "12px",
   borderBottom: "1px solid #e6eaf0",
-  paddingBottom: "10px",
+  paddingBottom: "8px",
 };
 const abaFichaBase = {
   border: "none",
@@ -2527,17 +2496,15 @@ const abaFichaInativa = {
 };
 const gradeCards = {
   display: "grid",
-  gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-  gap: "12px",
-  marginBottom: "18px",
+  gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+  gap: "8px",
+  marginBottom: "10px",
 };
-const cardInfo = {
-  background: "#f8fafc",
-  border: "1px solid #e6eaf0",
-  borderRadius: "12px",
-  padding: "12px",
-  color: "#475569",
-};
+const cardInfo = cartao;
+const cardTitulo = cardTituloUI;
+const faixaMini = faixaMiniUI;
+const itemMini = itemMiniUI;
+const valorMini = valorMiniUI;
 const cardAlunoLista = {
   textAlign: "left",
   color: "#475569",
@@ -2562,17 +2529,12 @@ const subCelA = { fontSize: 11.5, color: "#94a3b8" };
 const badgeSituacaoA = { display: "inline-block", padding: "3px 9px", borderRadius: 999, background: "#eef2ff", color: "#4f46e5", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", alignSelf: "flex-start" };
 const emAbertoTotalA = { fontWeight: 700, fontSize: 13, color: "#101828" };
 const emAbertoSubA = { fontSize: 11, color: "#94a3b8" };
-const cardMov = {
-  background: "#f8fafc",
-  border: "1px solid #eef2f6",
-  borderRadius: "12px",
-  padding: "12px",
-  borderLeft: "4px solid #2563eb",
-  color: "#475569",
-};
+const cardMov = { ...cartao, borderLeft: "4px solid #2563eb" };
 const textoInfo = {
   color: "#475569",
-  margin: "6px 0",
+  margin: "3px 0",
+  fontSize: 13.5,
+  lineHeight: 1.4,
 };
 const textoCinza = {
   color: "#94a3b8",

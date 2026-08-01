@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "../utils/operadores";
+import { cartao, cartaoAviso } from "../ui/cards";
 
 const STATUS_LABEL = {
   AGUARDANDO_ENVIO_FINANCEIRO: "Aguardando envio ao financeiro",
@@ -397,13 +398,14 @@ export default function EnvioFinanceiro({ aluno }) {
 
 const styles = {
   card: {
+    ...cartao,
     background: "#fff",
+    borderLeft: "6px solid #198754",
     borderRadius: "14px",
     padding: "22px",
     marginTop: "24px",
     marginBottom: "24px",
     boxShadow: "0 2px 10px rgba(0,0,0,0.08)",
-    borderLeft: "6px solid #198754",
   },
   header: {
     display: "flex",
@@ -435,9 +437,7 @@ const styles = {
     whiteSpace: "nowrap",
   },
   resumo: {
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
-    borderRadius: "12px",
+    ...cartao,
     padding: "14px",
     marginBottom: "16px",
   },
@@ -459,18 +459,13 @@ const styles = {
     color: "#111827",
   },
   caixaAdm: {
-    marginTop: "14px",
+    ...cartao,
     background: "#fff",
-    border: "1px solid #e5e7eb",
-    borderRadius: "10px",
+    marginTop: "14px",
     padding: "12px",
   },
   alertaPendente: {
-    background: "#fff3cd",
-    color: "#664d03",
-    border: "1px solid #ffecb5",
-    borderRadius: "10px",
-    padding: "12px",
+    ...cartaoAviso,
     marginBottom: "16px",
   },
   bloco: {
@@ -533,9 +528,7 @@ const styles = {
     paddingTop: "18px",
   },
   itemHistorico: {
-    background: "#f9fafb",
-    border: "1px solid #e5e7eb",
-    borderRadius: "10px",
+    ...cartao,
     padding: "12px",
     marginBottom: "10px",
   },

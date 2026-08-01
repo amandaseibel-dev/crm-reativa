@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import usePolling from "../utils/polling";
+import { cartaoAcento, cartaoErro, cartaoInfo } from "../ui/cards";
 
 const EMAILS_MASTER = [
   "amanda.seibel@aelbra.com.br",
@@ -597,38 +598,18 @@ export default function FluxoLinksRapido() {
 
 const wrapper = { marginBottom: "18px" };
 
-const boxInfo = {
-  background: "#e0f2fe",
-  color: "#075985",
-  padding: "12px",
-  borderRadius: "10px",
-  marginBottom: "12px",
-  fontWeight: "700"
-};
+const boxInfo = { ...cartaoInfo("#e0f2fe", "#7dd3fc", "#075985"), marginBottom: "12px" };
 
-const erroBox = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  padding: "10px",
-  borderRadius: "8px",
-  fontWeight: "800",
-  marginBottom: "10px"
-};
+const erroBox = { ...cartaoErro, marginBottom: "10px" };
 
 const boxAdm = {
-  padding: "16px",
-  borderRadius: "14px",
-  border: "2px solid #f97316",
-  background: "#fff7ed",
+  ...cartaoInfo("#fff7ed", "#f97316", "#9a3412"),
   marginBottom: "16px",
   animation: "piscarLinkReativa 1.4s infinite"
 };
 
 const boxOperador = {
-  padding: "16px",
-  borderRadius: "14px",
-  border: "2px solid #ef4444",
-  background: "#fef2f2",
+  ...cartaoInfo("#fef2f2", "#ef4444", "#991b1b"),
   marginBottom: "16px",
   animation: "piscarLinkReativa 1.4s infinite"
 };
@@ -681,21 +662,9 @@ const botaoAtualizarEscuro = {
   cursor: "pointer"
 };
 
-const cardAdm = {
-  background: "#ffffff",
-  border: "1px solid #fdba74",
-  borderRadius: "12px",
-  padding: "14px",
-  marginTop: "12px"
-};
+const cardAdm = { ...cartaoAcento("#fdba74"), marginTop: "12px" };
 
-const cardOperador = {
-  background: "#ffffff",
-  border: "1px solid #fca5a5",
-  borderRadius: "12px",
-  padding: "14px",
-  marginTop: "12px"
-};
+const cardOperador = { ...cartaoAcento("#fca5a5"), marginTop: "12px" };
 
 const linhaTopo = {
   display: "flex",
@@ -858,11 +827,8 @@ const linhaIndicadores = {
 };
 
 const indicadorCard = {
+  ...cartaoAcento("#e2e8f0"),
   flex: "1 1 140px",
-  background: "#ffffff",
-  border: "1px solid #e2e8f0",
-  borderRadius: "10px",
-  padding: "12px",
   display: "flex",
   flexDirection: "column",
   gap: "4px"
