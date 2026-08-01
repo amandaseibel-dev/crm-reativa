@@ -3,6 +3,7 @@ import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "../utils/operadores";
 
 import { STATUS_AGUARDANDO_VINCULO, isConfirmacaoAberta } from "../utils/confirmacaoPagamento";
+import { cartao, cartaoAviso } from "../ui/cards";
 
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
@@ -389,13 +390,13 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
 }
 
 const styles = {
-  card: { background: "#fff", borderRadius: "14px", padding: "22px", marginTop: "24px", marginBottom: "24px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", borderLeft: "6px solid #0ea5e9" },
+  card: { ...cartao, background: "#fff", borderLeft: "6px solid #0ea5e9", borderRadius: "14px", padding: "22px", marginTop: "24px", marginBottom: "24px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)" },
   header: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "16px" },
   titulo: { margin: 0, marginBottom: "8px", color: "#1f2937" },
   subtitulo: { marginTop: 0, marginBottom: "12px", color: "#1f2937" },
   texto: { color: "#555", margin: 0, lineHeight: 1.5 },
   status: { padding: "8px 12px", borderRadius: "999px", fontWeight: "bold", fontSize: "13px", whiteSpace: "nowrap" },
-  alertaPendente: { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5", borderRadius: "10px", padding: "12px", marginBottom: "16px" },
+  alertaPendente: { ...cartaoAviso, marginBottom: "16px" },
   bloco: { marginTop: "14px" },
   linha2: { display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "14px" },
   label: { display: "block", fontWeight: "bold", marginBottom: "6px", color: "#111827" },
@@ -413,7 +414,7 @@ const styles = {
   botao: { marginTop: "16px", background: "#0ea5e9", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
   botaoDesabilitado: { background: "#cbd5e1", color: "#64748b", cursor: "not-allowed" },
   historico: { marginTop: "24px", borderTop: "1px solid #e5e7eb", paddingTop: "18px" },
-  itemHistorico: { background: "#f9fafb", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginBottom: "10px" },
+  itemHistorico: { ...cartao, padding: "12px", marginBottom: "10px" },
   linhaHistorico: { display: "flex", justifyContent: "space-between", gap: "10px", marginBottom: "8px" },
   dataHistorico: { fontSize: "12px", color: "#6b7280" },
   paragrafo: { margin: "6px 0", color: "#374151", lineHeight: 1.4 },

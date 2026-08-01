@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { modalBox, cartaoErro } from "../ui/cards";
 
 export default function ModuloLinkPagamentoGlobal() {
   const [aberto, setAberto] = useState(false);
@@ -326,12 +327,9 @@ const fundo = {
 };
 
 const modal = {
+  ...modalBox,
   width: "min(760px, 96vw)",
-  background: "#ffffff",
-  borderRadius: "16px",
-  padding: "20px",
-  border: "3px solid #16a34a",
-  boxShadow: "0 20px 80px rgba(0,0,0,0.35)"
+  border: "3px solid #16a34a"
 };
 
 const cabecalho = {
@@ -407,12 +405,8 @@ const textarea = {
 };
 
 const erroBox = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  padding: "11px",
-  borderRadius: "9px",
-  marginBottom: "12px",
-  fontWeight: "900"
+  ...cartaoErro,
+  marginBottom: "12px"
 };
 
 const botaoConfirmar = {

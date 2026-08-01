@@ -1,4 +1,5 @@
 import { memo } from "react";
+import { cartao } from "../ui/cards";
 
 /*
   CardAluno
@@ -87,12 +88,13 @@ function CardAluno({
 
 const S = {
   card: {
+    ...cartao,
     background: "#fff",
+    borderLeft: "4px solid #e2e8f0",
     borderRadius: 14,
     padding: 16,
     marginBottom: 12,
     boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-    borderLeft: "4px solid #e2e8f0",
     cursor: "pointer",
     transition: "box-shadow .15s, border-color .15s",
   },

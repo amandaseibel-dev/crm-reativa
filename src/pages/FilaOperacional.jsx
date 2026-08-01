@@ -18,6 +18,7 @@ import ResumoDoDia from "../components/ResumoDoDia";
 import ReceberLeads from "../components/ReceberLeads";
 import MinhaCarteira from "../components/MinhaCarteira";
 import PainelCarteira from "../components/PainelCarteira";
+import { superficieEscura, cartaoInternoEscuro, cartaoAcentoEscuro } from "../ui/cards";
 
 const STATUS_BLOQUEADOS_ACIONAMENTO = ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "JURIDICO"];
 
@@ -1421,16 +1422,10 @@ const valorCardModerno = {
   color: "#f8fafc",
 };
 
-const caixa = {
-  background: "#111827",
-  border: "1px solid #1f2937",
-  borderRadius: "14px",
-  padding: "16px",
-  marginBottom: "20px",
-};
+const caixa = superficieEscura;
 
 const caixaDestaque = {
-  background: "#020617",
+  ...cartaoInternoEscuro,
   border: "1px solid #3b82f6",
   borderRadius: "14px",
   padding: "16px",
@@ -1446,8 +1441,7 @@ const caixaLinkPronto = {
 };
 
 const caixaInterna = {
-  background: "#020617",
-  border: "1px solid #374151",
+  ...cartaoInternoEscuro,
   borderRadius: "14px",
   padding: "16px",
   marginBottom: "18px",
@@ -1466,8 +1460,7 @@ const cardsResumo = {
 };
 
 const cardResumo = {
-  background: "#111827",
-  border: "1px solid #3b82f6",
+  ...cartaoAcentoEscuro("#3b82f6"),
   borderRadius: "14px",
   padding: "14px",
   display: "grid",
@@ -1708,13 +1701,7 @@ const gradeCards = {
   marginBottom: "18px",
 };
 
-const cardInfo = {
-  background: "#020617",
-  border: "1px solid #374151",
-  borderRadius: "12px",
-  padding: "12px",
-  color: "#e5e7eb",
-};
+const cardInfo = cartaoInternoEscuro;
 
 const textoInfo = {
   color: "#cbd5e1",

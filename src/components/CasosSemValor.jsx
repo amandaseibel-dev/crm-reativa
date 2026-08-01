@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import Aluno from "../pages/Aluno";
+import { modalBox as modalBox_import } from "../ui/cards";
 
 // Casos sem valor em aberto calculado -- normalmente da carga retroativa
 // antiga, que nunca teve o titulo processado direito. Aparecem aqui pra
@@ -234,7 +235,7 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
 }
 
 const ovl = { position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "3vh 2vw", zIndex: 1000 };
-const mbox = { background: "#fff", borderRadius: 16, width: "min(1100px, 96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" };
+const mbox = { ...modalBox_import, width: "min(1100px, 96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden" };
 const mtopo = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #e6eaf0", background: "#f8fafc" };
 const mfechar = { background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" };
 

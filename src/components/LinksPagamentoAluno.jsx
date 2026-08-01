@@ -1,6 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { enviarComprovanteLink } from "../utils/documentoFinanceiro";
+import {
+  superficie,
+  cartao,
+  cartaoInfo,
+  cartaoErro,
+  cartaoAviso,
+  cartaoSucesso,
+} from "../ui/cards";
 
 const STATUS_LABELS = {
   SOLICITADO_LINK: "Link solicitado",
@@ -1208,11 +1216,9 @@ export default function LinksPagamentoAluno({
 }
 
 const container = {
+  ...superficie,
   marginTop: "16px",
-  padding: "16px",
-  border: "1px solid #d1d5db",
-  borderRadius: "12px",
-  background: "#fff",
+  marginBottom: 0,
 };
 
 const cabecalho = {
@@ -1247,11 +1253,9 @@ const botaoPrincipal = {
 };
 
 const formulario = {
+  ...cartao,
   marginTop: "14px",
   padding: "14px",
-  border: "1px solid #e2e8f0",
-  borderRadius: "10px",
-  background: "#f8fafc",
 };
 
 const linha = {
@@ -1307,33 +1311,21 @@ const textareaMenor = {
 };
 
 const erroBox = {
-  background: "#fee2e2",
-  color: "#991b1b",
-  padding: "10px",
-  borderRadius: "8px",
+  ...cartaoErro,
   marginTop: "10px",
   marginBottom: "10px",
-  fontWeight: "800",
 };
 
 const avisoBox = {
-  background: "#fef3c7",
-  color: "#92400e",
-  padding: "10px",
-  borderRadius: "8px",
+  ...cartaoAviso,
   marginTop: "10px",
   marginBottom: "10px",
-  fontWeight: "800",
 };
 
 const sucessoBox = {
-  background: "#dcfce7",
-  color: "#166534",
-  padding: "10px",
-  borderRadius: "8px",
+  ...cartaoSucesso,
   marginTop: "10px",
   marginBottom: "10px",
-  fontWeight: "800",
 };
 
 const botaoConfirmar = {
@@ -1356,13 +1348,10 @@ const tituloHistorico = {
 };
 
 const historicoItem = {
+  ...cartao,
+  background: "#fff",
   padding: "12px",
-  border: "1px solid #e2e8f0",
-  borderRadius: "10px",
   marginBottom: "10px",
-  color: "#334155",
-  fontSize: "13px",
-  background: "#ffffff",
 };
 
 const linhaHistoricoTopo = {
@@ -1394,12 +1383,8 @@ const infoLinhaAlerta = {
 };
 
 const linkBox = {
+  ...cartaoInfo("#eff6ff", "#bfdbfe", "#1e40af"),
   marginTop: "8px",
-  padding: "10px",
-  borderRadius: "8px",
-  background: "#eff6ff",
-  color: "#1e3a8a",
-  border: "1px solid #bfdbfe",
 };
 
 const linkTexto = {
@@ -1409,12 +1394,8 @@ const linkTexto = {
 };
 
 const comprovanteBox = {
+  ...cartaoInfo("#f5f3ff", "#ddd6fe", "#5b21b6"),
   marginTop: "8px",
-  padding: "10px",
-  borderRadius: "8px",
-  background: "#f5f3ff",
-  color: "#4c1d95",
-  border: "1px solid #ddd6fe",
 };
 
 const acoesBox = {
@@ -1445,11 +1426,9 @@ const botaoAzul = {
 };
 
 const comprovanteForm = {
+  ...cartao,
   marginTop: "12px",
   padding: "12px",
-  borderRadius: "10px",
-  background: "#f8fafc",
-  border: "1px solid #e2e8f0",
 };
 
 const botaoEnviarBaixa = {
