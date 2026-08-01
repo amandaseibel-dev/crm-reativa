@@ -275,7 +275,7 @@ function casoNoKpi(a, kpi) {
     case "semContato":
       return dias !== null && dias >= 10;
     case "criticos":
-      return statusPrazo(a).label === "Critico";
+      return critAlta(a);
     case "retornosHoje":
       return a.data_retorno === hojeLocalBR();
     case "acordosFechados":
@@ -313,6 +313,29 @@ const SITUACAO_OPERACIONAL_LABEL = {
   QUITADO: { texto: "Quitado", bg: "rgba(29,158,117,0.18)", cor: "#6fd7b6" },
   SEM_PENDENCIA: { texto: "Sem pendência", bg: "rgba(100,116,139,0.18)", cor: "#cbd5e1" },
 };
+
+// Criticidade CANONICA do backend (recalcular_situacao_aluno): combina saldo
+// vencido, dias sem acionamento, valor, termo pendente e fim de mes. E a fonte
+// da verdade -- NAO reinventar por dias sem contato. Ordem de severidade usada
+// para priorizar "o que acionar".
+const CRITICIDADE_LABEL = {
+  CRITICO: { texto: "Crítico", bg: "rgba(220,38,38,0.20)", cor: "#fca5a5", rank: 0 },
+  URGENTE: { texto: "Urgente", bg: "rgba(234,88,12,0.20)", cor: "#fdba74", rank: 1 },
+  ATENCAO: { texto: "Atenção", bg: "rgba(245,158,11,0.18)", cor: "#fcd34d", rank: 2 },
+  NORMAL: { texto: "Normal", bg: "rgba(100,116,139,0.16)", cor: "#cbd5e1", rank: 3 },
+};
+
+function critCanon(a) {
+  const n = String(a?.nivel_criticidade || "").toUpperCase();
+  return CRITICIDADE_LABEL[n] ? n : "NORMAL";
+}
+function critRank(a) {
+  return CRITICIDADE_LABEL[critCanon(a)].rank;
+}
+function critAlta(a) {
+  const n = critCanon(a);
+  return n === "CRITICO" || n === "URGENTE";
+}
 
 // Aba "Solicitacoes" foi removida: Solicitar link / termo / financeiro /
 // informar pagamento / anexar comprovante ficam INLINE dentro da Tabulacao
@@ -422,7 +445,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [filtroValorMin, setFiltroValorMin] = useState("");
   const [filtroValorMax, setFiltroValorMax] = useState("");
   const [filtroDiasMinSemContato, setFiltroDiasMinSemContato] = useState("");
-  const [ordenacao, setOrdenacao] = useState("sem_contato_desc");
+  const [ordenacao, setOrdenacao] = useState("prioridade");
   const [casosEspeciais, setCasosEspeciais] = useState(null);
   const [carregandoEspecial, setCarregandoEspecial] = useState(false);
   // Ids de alunos por estado de acordo (para clique dos cards operacionais).
@@ -1621,8 +1644,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     if (somenteFocoDia) {
       const hoje = hojeLocalBR();
       l = l.filter((a) => {
-        const label = statusPrazo(a).label;
-        const critico = label === "Critico" || label === "Perdendo o caso";
+        const critico = critAlta(a); // criticidade canonica do backend
         const retornoHoje = a.data_retorno === hoje;
         const retornoAtrasado = a.data_retorno && a.data_retorno < hoje;
         const fixado = fixados.has(a.id);
@@ -1674,7 +1696,23 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       return t === null ? Infinity : -t;
     };
     const arr = [...l];
-    if (ordenacao === "sem_contato_desc") arr.sort((a, b) => keyDias(b) - keyDias(a));
+    if (ordenacao === "prioridade") {
+      // O que acionar primeiro: retorno devido (hoje/atrasado) e maior
+      // criticidade canonica no topo; empate por mais tempo sem contato e maior
+      // saldo. Reflete a criticidade correta do backend, nao dias sem contato.
+      const hoje = hojeLocalBR();
+      const retornoDevido = (a) => {
+        const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
+        return ret && ret <= hoje ? 0 : 1;
+      };
+      arr.sort((a, b) =>
+        (retornoDevido(a) - retornoDevido(b)) ||
+        (critRank(a) - critRank(b)) ||
+        (keyDias(b) - keyDias(a)) ||
+        (saldoDe(b) - saldoDe(a))
+      );
+    }
+    else if (ordenacao === "sem_contato_desc") arr.sort((a, b) => keyDias(b) - keyDias(a));
     else if (ordenacao === "sem_contato_asc") arr.sort((a, b) => keyDias(a) - keyDias(b));
     else if (ordenacao === "valor_desc") arr.sort((a, b) => saldoDe(b) - saldoDe(a));
     else if (ordenacao === "valor_asc") arr.sort((a, b) => saldoDe(a) - saldoDe(b));
@@ -1696,7 +1734,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         }
         return 3;
       };
-      arr.sort((a, b) => rankFoco(a) - rankFoco(b));
+      arr.sort((a, b) => (rankFoco(a) - rankFoco(b)) || (critRank(a) - critRank(b)));
     }
     return arr;
   }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]);
@@ -2118,6 +2156,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 📌 Fixados {fixados.size > 0 ? `(${fixados.size})` : ""}
               </button>
               <select style={S.select} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
+                <option value="prioridade">Prioridade (o que acionar)</option>
                 <option value="sem_contato_desc">Mais antigo sem contato</option>
                 <option value="sem_contato_asc">Mais recente sem contato</option>
                 <option value="valor_desc">Maior valor primeiro</option>
@@ -2276,6 +2315,26 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                               </div>
                             );
                           })()}
+                          {/* Criticidade CANONICA do backend (recalcular_situacao_aluno):
+                              a fonte da verdade para "o que acionar". Nao mostra
+                              selo para NORMAL, so para o que exige acao. */}
+                          {critCanon(a) !== "NORMAL" && (
+                            <div
+                              style={{
+                                display: "inline-block",
+                                marginTop: 4,
+                                background: CRITICIDADE_LABEL[critCanon(a)].bg,
+                                color: CRITICIDADE_LABEL[critCanon(a)].cor,
+                                borderRadius: 6,
+                                padding: "2px 7px",
+                                fontSize: 11,
+                                fontWeight: 800,
+                                letterSpacing: 0.3,
+                              }}
+                            >
+                              {CRITICIDADE_LABEL[critCanon(a)].texto}
+                            </div>
+                          )}
                           {/* Situacao operacional + proxima acao autoritativas
                               (recalcular_situacao_aluno). A proxima_acao ja vem
                               como texto pronto do banco. */}
