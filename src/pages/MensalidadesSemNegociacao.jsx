@@ -298,7 +298,7 @@ export default function MensalidadesSemNegociacao() {
 
       <Secao titulo="Detalhamento por mês">
         <Tabela cabec={["Mês", "CPFs", "Alunos únicos", "Mensalidades", "Saldo", "% do saldo"]}
-          larguras={[130, 110, 130, 140, 180, 120]}
+          larguras={[150, 130, 150, 160, 200, 140]} centralizar
           linhas={(dados.meses || []).map((m) => [m.mes_nome, NUM(m.cpfs), NUM(m.alunos_unicos), NUM(m.mensalidades_sem_negociacao), BRL(m.saldo_sem_negociacao), pctSaldo(m.saldo_sem_negociacao)])} />
       </Secao>
 
@@ -376,7 +376,8 @@ function Secao({ titulo, children }) {
     </div>
   );
 }
-function Tabela({ cabec, linhas, larguras }) {
+function Tabela({ cabec, linhas, larguras, centralizar }) {
+  const alinhar = (i) => (i === 0 ? "left" : centralizar ? "center" : "right");
   return (
     <div style={{ overflowX: "auto" }}>
       <table style={{ borderCollapse: "collapse", width: "100%", minWidth: larguras ? larguras.reduce((a, b) => a + b, 0) : undefined, tableLayout: larguras ? "fixed" : "auto", fontSize: 13 }}>
@@ -385,13 +386,13 @@ function Tabela({ cabec, linhas, larguras }) {
         )}
         <thead>
           <tr>{cabec.map((c, i) => (
-            <th key={i} style={{ textAlign: i === 0 ? "left" : "right", padding: "8px 14px", borderBottom: "2px solid #e5e7eb", color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{c}</th>
+            <th key={i} style={{ textAlign: alinhar(i), padding: "8px 18px", borderBottom: "2px solid #e5e7eb", color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{c}</th>
           ))}</tr>
         </thead>
         <tbody>
           {linhas.map((l, r) => (
             <tr key={r}>{l.map((cel, i) => (
-              <td key={i} style={{ textAlign: i === 0 ? "left" : "right", padding: "7px 14px", borderBottom: "1px solid #f1f5f9", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{cel}</td>
+              <td key={i} style={{ textAlign: alinhar(i), padding: "7px 18px", borderBottom: "1px solid #f1f5f9", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{cel}</td>
             ))}</tr>
           ))}
         </tbody>
