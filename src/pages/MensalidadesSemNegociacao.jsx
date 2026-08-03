@@ -79,12 +79,11 @@ export default function MensalidadesSemNegociacao() {
     // KPIs
     const gap = 10;
     const kpis = [
-      ["ALUNOS ÚNICOS", NUM(dados.alunos_unicos_semestre)],
       ["CPFs", NUM(dados.cpfs_semestre)],
       ["MENSALIDADES", NUM(dados.mensalidades_total)],
       ["SALDO TOTAL", BRL(dados.saldo_total)],
     ];
-    const kw = (CW - 3 * gap) / 4, kh = 54;
+    const kw = (CW - 2 * gap) / 3, kh = 54;
     kpis.forEach((k, i) => {
       const x = M + i * (kw + gap);
       doc.setFillColor(...(i === 0 ? SOFTBLUE : SOFT)); doc.roundedRect(x, y, kw, kh, 7, 7, "F");
