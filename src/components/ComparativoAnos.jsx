@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { supabase } from "../services/supabase";
+import { useAnaliticaSobDemanda } from "../hooks/useAnaliticaSobDemanda";
+import BotaoAtualizar from "./BotaoAtualizar";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -24,22 +24,24 @@ function Variacao({ a, b }) {
 }
 
 export default function ComparativoAnos() {
-  const [d, setD] = useState(null);
-  const [carregando, setCarregando] = useState(true);
+  // SOB DEMANDA: sem auto-load/polling. Só roda no clique do botão Atualizar.
+  const { data: d, carregando, erro, ultimaEm, atualizar, jaRodou } =
+    useAnaliticaSobDemanda("dashboard_ano_vs_ano");
 
-  useEffect(() => {
-    let ativo = true;
-    (async () => {
-      const { data } = await supabase.rpc("dashboard_ano_vs_ano");
-      if (!ativo) return;
-      setD(data);
-      setCarregando(false);
-    })();
-    return () => { ativo = false; };
-  }, []);
+  const barra = (
+    <div style={{ marginBottom: 14 }}>
+      <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={atualizar} rotulo="Atualizar comparativo" />
+    </div>
+  );
 
-  if (carregando) return <section style={S.wrap}><p style={S.muted}>Carregando comparativo 2025 x 2026...</p></section>;
-  if (!d) return null;
+  if (!jaRodou || !d) {
+    return (
+      <section style={S.wrap}>
+        {barra}
+        <p style={S.muted}>{erro || "Clique em Atualizar para carregar o comparativo 2025 × 2026."}</p>
+      </section>
+    );
+  }
 
   const meses = d.por_mes || [];
   const proj = d.projecao_2026 || {};
@@ -48,6 +50,7 @@ export default function ComparativoAnos() {
 
   return (
     <section style={S.wrap}>
+      {barra}
       <h2 style={S.tituloSecao}>Recuperação — consolidado</h2>
       <div style={S.kpiRow}>
         <Kpi rot="Valor total pago" val={moeda(tg.valor_pago)} cor="#16a34a" destaque />

@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import BotaoAtualizar from "./BotaoAtualizar";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 
@@ -8,33 +9,56 @@ function moeda(valor) {
 }
 
 export default function FunilRecuperacao() {
-  const [carregando, setCarregando] = useState(true);
+  const [carregando, setCarregando] = useState(false);
   const [funil, setFunil] = useState(null);
   const [acordos, setAcordos] = useState(null);
+  const [ultimaEm, setUltimaEm] = useState(null);
+  const emVoo = useRef(false);
+  const bloqueadoAte = useRef(0);
 
-  useEffect(() => {
-    carregar();
-  }, []);
-
+  // SOB DEMANDA: sem auto-load/polling. Só roda no clique do botão Atualizar.
   async function carregar() {
+    const agora = Date.now();
+    if (emVoo.current || agora < bloqueadoAte.current) return;
+    emVoo.current = true;
+    bloqueadoAte.current = agora + 15000;
     setCarregando(true);
-    const [{ data: funilData, error: erroFunil }, { data: acordosData }] = await Promise.all([
-      supabase.rpc("funil_historico_recuperacao"),
-      supabase.rpc("metricas_acordos"),
-    ]);
-    if (!erroFunil) setFunil(funilData);
-    setAcordos(acordosData);
-    setCarregando(false);
+    try {
+      const [{ data: funilData, error: erroFunil }, { data: acordosData }] = await Promise.all([
+        supabase.rpc("funil_historico_recuperacao"),
+        supabase.rpc("metricas_acordos"),
+      ]);
+      if (!erroFunil) setFunil(funilData);
+      setAcordos(acordosData);
+      setUltimaEm(new Date());
+    } finally {
+      emVoo.current = false;
+      setCarregando(false);
+    }
   }
 
-  if (carregando || !funil) {
-    return null;
+  const barra = (
+    <div style={{ marginBottom: 12 }}>
+      <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={carregar} rotulo="Atualizar funil" />
+    </div>
+  );
+
+  if (!funil) {
+    return (
+      <div style={estilos.card}>
+        {barra}
+        <p style={{ color: "#94a3b8", margin: 0, fontSize: 13 }}>
+          {carregando ? "Carregando funil…" : "Clique em Atualizar para carregar o funil da base."}
+        </p>
+      </div>
+    );
   }
 
   const percentualRecuperado = funil.total > 0 ? ((funil.recuperado / funil.total) * 100).toFixed(1) : 0;
 
   return (
     <div style={estilos.card}>
+      {barra}
       <h3 style={estilos.tituloBloco}>📊 Funil da base — o que já passou e o que já foi recuperado</h3>
 
       <div style={estilos.funilBarra}>

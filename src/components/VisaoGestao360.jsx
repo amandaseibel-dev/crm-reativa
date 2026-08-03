@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import BotaoAtualizar from "./BotaoAtualizar";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -10,49 +11,52 @@ function num(v) {
 
 export default function VisaoGestao360({ dias = 30 }) {
   const [d, setD] = useState(null);
-  const [carregando, setCarregando] = useState(true);
+  const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [saude, setSaude] = useState(null);
   const [ano, setAno] = useState(null);
+  const [ultimaEm, setUltimaEm] = useState(null);
+  const [jaRodou, setJaRodou] = useState(false);
+  const emVoo = useRef(false);
+  const bloqueadoAte = useRef(0);
 
-  useEffect(() => {
-    let ativo = true;
-    (async () => {
-      setCarregando(true);
-      setErro("");
-      const { data, error } = await supabase.rpc("dashboard_gestao_geral", { p_dias: dias });
-      if (!ativo) return;
-      if (error) {
-        setErro(error.message);
-        setD(null);
-      } else {
-        setD(data);
-      }
+  // SOB DEMANDA: sem auto-load/polling. Um clique carrega as 3 RPCs do painel.
+  async function atualizar() {
+    const agora = Date.now();
+    if (emVoo.current || agora < bloqueadoAte.current) return;
+    emVoo.current = true;
+    bloqueadoAte.current = agora + 15000;
+    setCarregando(true);
+    setErro("");
+    try {
+      const [g, sb, av] = await Promise.all([
+        supabase.rpc("dashboard_gestao_geral", { p_dias: dias }),
+        supabase.rpc("dashboard_saude_base_acionamento"),
+        supabase.rpc("dashboard_ano_vs_ano"),
+      ]);
+      if (g.error) { setErro(g.error.message); setD(null); }
+      else { setD(g.data); }
+      setSaude(sb.data || null);
+      setAno(av.data || null);
+      setUltimaEm(new Date());
+    } finally {
+      setJaRodou(true);
+      emVoo.current = false;
       setCarregando(false);
-    })();
-    return () => {
-      ativo = false;
-    };
-  }, [dias]);
-
-  useEffect(() => {
-    let ativo = true;
-    supabase.rpc("dashboard_saude_base_acionamento").then(({ data }) => { if (ativo) setSaude(data); });
-    supabase.rpc("dashboard_ano_vs_ano").then(({ data }) => { if (ativo) setAno(data); });
-    return () => { ativo = false; };
-  }, []);
-
-  if (carregando) {
-    return (
-      <div style={s.card}>
-        <p style={s.muted}>Carregando panorama da carteira...</p>
-      </div>
-    );
+    }
   }
-  if (erro || !d) {
+
+  const barra = (
+    <div style={{ marginBottom: 14 }}>
+      <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={atualizar} rotulo="Atualizar panorama" />
+    </div>
+  );
+
+  if (!jaRodou || erro || !d) {
     return (
       <div style={s.card}>
-        <p style={s.muted}>Nao foi possivel carregar o panorama da carteira.</p>
+        {barra}
+        <p style={s.muted}>{erro ? "Não foi possível carregar o panorama da carteira." : "Clique em Atualizar para carregar o panorama da carteira."}</p>
       </div>
     );
   }
@@ -86,6 +90,7 @@ export default function VisaoGestao360({ dias = 30 }) {
 
   return (
     <div style={s.wrap}>
+      {barra}
       <div style={s.statsRow}>
         <Stat rot="Carteira a cobrar" val={num(base.com_divida)} cor="#111827" />
         <Stat rot="Já recuperados" val={num(base.quitados)} cor="#16a34a" />
