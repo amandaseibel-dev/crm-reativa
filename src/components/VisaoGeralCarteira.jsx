@@ -1,7 +1,5 @@
-import { useEffect, useState } from "react";
-import { supabase } from "../services/supabase";
-import { analiticasSuspensas } from "../config/modoContencao";
-import AvisoContencao from "./AvisoContencao";
+import { useAnaliticaSobDemanda } from "../hooks/useAnaliticaSobDemanda";
+import BotaoAtualizar from "./BotaoAtualizar";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -11,25 +9,33 @@ function num(v) {
 }
 
 export default function VisaoGeralCarteira() {
-  const [d, setD] = useState(null);
-  const [carregando, setCarregando] = useState(true);
+  // SOB DEMANDA: não carrega sozinha (sem polling/auto-load). Só roda no clique
+  // do botão Atualizar -- evita a carga contínua que saturava o Supabase.
+  const { data: d, carregando, erro, ultimaEm, atualizar, jaRodou } =
+    useAnaliticaSobDemanda("dashboard_carteira_360");
 
-  useEffect(() => {
-    // KILL SWITCH: Carteira 360 é dashboard analítico -> suspenso em contenção.
-    if (analiticasSuspensas()) { setCarregando(false); return undefined; }
-    let ativo = true;
-    (async () => {
-      const { data } = await supabase.rpc("dashboard_carteira_360");
-      if (!ativo) return;
-      setD(data);
-      setCarregando(false);
-    })();
-    return () => { ativo = false; };
-  }, []);
+  const barra = (
+    <div style={S.barraAtualizar}>
+      <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={atualizar} rotulo="Atualizar Carteira 360" />
+    </div>
+  );
 
-  if (analiticasSuspensas()) return <div style={S.card}><AvisoContencao /></div>;
-  if (carregando) return <div style={S.card}><p style={S.muted}>Carregando Carteira 360...</p></div>;
-  if (!d) return <div style={S.card}><p style={S.muted}>Não foi possível carregar a Carteira 360.</p></div>;
+  if (!jaRodou) {
+    return (
+      <div style={S.card}>
+        {barra}
+        <p style={S.muted}>{erro || "Clique em Atualizar para carregar a Carteira 360."}</p>
+      </div>
+    );
+  }
+  if (!d) {
+    return (
+      <div style={S.card}>
+        {barra}
+        <p style={S.muted}>{erro || "Não foi possível carregar a Carteira 360."}</p>
+      </div>
+    );
+  }
 
   const bt = d.base_total || {};
   const op = d.operacao_2026 || {};
@@ -46,6 +52,7 @@ export default function VisaoGeralCarteira() {
 
   return (
     <div style={S.wrap}>
+      {barra}
       <div style={S.head}>
         <h2 style={S.h2}>Carteira 360 — Recuperação ULBRA</h2>
         <span style={S.selo}>{d.referencia || "Visão a partir de 13/07/2026"}</span>
@@ -149,6 +156,7 @@ function Mini({ rot, cpfs, valor }) {
 
 const S = {
   wrap: { marginBottom: 22, fontFamily: "Inter, system-ui, sans-serif" },
+  barraAtualizar: { marginBottom: 14 },
   head: { display: "flex", alignItems: "baseline", gap: 12, marginBottom: 14, flexWrap: "wrap" },
   h2: { margin: 0, fontSize: 22, fontWeight: 800, color: "#0f172a", letterSpacing: "-0.02em" },
   selo: { fontSize: 12, fontWeight: 700, color: "#4338ca", background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 999, padding: "3px 12px" },

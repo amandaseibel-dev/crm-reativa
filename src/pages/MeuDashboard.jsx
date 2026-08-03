@@ -1,8 +1,7 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { chamarRpcContido } from "../utils/rpcResiliente";
-import { analiticasSuspensas } from "../config/modoContencao";
-import AvisoContencao from "../components/AvisoContencao";
+import BotaoAtualizar from "../components/BotaoAtualizar";
 
 // Todo tipo de movimentacao que representa um contato/acao real do
 // operador sobre o caso -- nao so "finalizar atendimento". Se um botao
@@ -52,7 +51,10 @@ function mesAtualISO() {
 }
 
 export default function MeuDashboard() {
-  const [carregando, setCarregando] = useState(true);
+  const [carregando, setCarregando] = useState(false);
+  const [ultimaEm, setUltimaEm] = useState(null);
+  const emVoo = useRef(false);
+  const bloqueadoAte = useRef(0);
   const [erro, setErro] = useState("");
   const [nome, setNome] = useState("");
   const [dados, setDados] = useState({
@@ -66,31 +68,21 @@ export default function MeuDashboard() {
   const [financeiro, setFinanceiro] = useState(null);
   const [aba, setAba] = useState("FINANCEIRO");
 
-  useEffect(() => {
-    // KILL SWITCH: dashboard analítico suspenso -> não chama o banco, mostra
-    // o aviso. Não deixa loading infinito.
-    if (analiticasSuspensas()) {
-      setCarregando(false);
-      return undefined;
+  // SOB DEMANDA: não carrega sozinho (sem auto-load no mount, sem polling). Só
+  // roda quando o usuário clica em Atualizar -- remove a carga contínua que
+  // saturava o Supabase. emVoo + cooldown evitam marteladas no botão.
+  async function atualizarTudo() {
+    const agora = Date.now();
+    if (emVoo.current || agora < bloqueadoAte.current) return;
+    emVoo.current = true;
+    bloqueadoAte.current = agora + 15000;
+    try {
+      await Promise.all([carregar(), carregarFinanceiro()]);
+      setUltimaEm(new Date());
+    } finally {
+      emVoo.current = false;
     }
-    carregar();
-    // projecao_dashboard só carrega com a tela realmente visível. Se estiver
-    // oculta (aba em segundo plano), adia até voltar o foco -- não dispara RPC
-    // analítica pesada em componente oculto.
-    if (document.hidden) {
-      const aoVisivel = () => {
-        if (!document.hidden) {
-          document.removeEventListener("visibilitychange", aoVisivel);
-          carregarFinanceiro();
-        }
-      };
-      document.addEventListener("visibilitychange", aoVisivel);
-      return () => document.removeEventListener("visibilitychange", aoVisivel);
-    }
-    carregarFinanceiro();
-    return undefined;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }
 
   async function carregarFinanceiro() {
     // Chamada SECUNDÁRIA e contida: cache curto, timeout local, single-flight
@@ -188,19 +180,6 @@ export default function MeuDashboard() {
 
   const maiorDia = Math.max(1, ...evolucao.map((e) => e.qtd));
 
-  if (analiticasSuspensas()) {
-    return (
-      <div style={estilos.container}>
-        <h1 style={estilos.titulo}>📊 Meu Dashboard</h1>
-        <AvisoContencao />
-      </div>
-    );
-  }
-
-  if (carregando) {
-    return <div style={estilos.container}>Carregando seu dashboard...</div>;
-  }
-
   return (
     <div style={estilos.container}>
       <style>{`.md-barra:hover { opacity: 0.85; }`}</style>
@@ -213,12 +192,16 @@ export default function MeuDashboard() {
           </p>
         </div>
 
-        <button style={estilos.botaoAtualizar} onClick={carregar}>
-          Atualizar
-        </button>
+        <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={atualizarTudo} />
       </div>
 
       {erro && <div style={estilos.alerta}>{erro}</div>}
+
+      {!ultimaEm && !carregando && (
+        <div style={estilos.alerta}>
+          Clique em <strong>Atualizar</strong> para carregar seus indicadores.
+        </div>
+      )}
 
       <div style={estilos.abas}>
         <button style={aba === "FINANCEIRO" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("FINANCEIRO")}>
