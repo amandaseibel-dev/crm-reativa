@@ -37,6 +37,34 @@ const CARDS = [
   ["acordos_em_dia_sem_acompanhamento", "Acordos em dia s/ acompanhamento", num, "acordos_em_dia_sem_acompanhamento"],
   ["casos_revisao", "Casos para revisão", num, "casos_revisao"],
 ];
+const CARDS_FIDELIZACAO = [
+  ["fidelizacao_ativa", "Fidelização ativa", num, "fidelizacao_ativa"],
+  ["fidelizacao_vence_3d", "Vence em ≤3 dias", num, "fidelizacao_vence_3d"],
+  ["fidelizacao_vence_amanha", "Vence amanhã", num, "fidelizacao_vence_amanha"],
+  ["fidelizacao_expira_hoje", "Expira hoje", num, "fidelizacao_expira_hoje"],
+  ["fidelizacao_expirada", "Fidelização expirada", num, "fidelizacao_expirada"],
+  ["casos_livres", "Casos livres", num, "casos_livres"],
+  ["saldo_livres", "Saldo dos casos livres", moeda],
+];
+const FIDEL = {
+  ATIVA: { txt: "Fidelização ativa", cor: "#15803d", bg: "#f0fdf4" },
+  ATENCAO: { txt: "Atenção", cor: "#b45309", bg: "#fffbeb" },
+  URGENTE: { txt: "Urgente", cor: "#c2410c", bg: "#fff7ed" },
+  ULTIMO_DIA: { txt: "Último dia", cor: "#b91c1c", bg: "#fef2f2" },
+  EXPIRADA: { txt: "Expirada — livre", cor: "#b91c1c", bg: "#fef2f2" },
+  LIVRE: { txt: "Livre", cor: "#2563eb", bg: "#eff6ff" },
+  PROTEGIDA: { txt: "Protegida", cor: "#6b7280", bg: "#f8fafc" },
+};
+function fidelTexto(sit, dias) {
+  if (sit === "ATIVA") return `Fidelização ativa · ${dias} dias para acionar`;
+  if (sit === "ATENCAO") return `Atenção · ${dias} dias para acionar e não perder a exclusividade`;
+  if (sit === "URGENTE") return "Urgente · falta 1 dia para acionar";
+  if (sit === "ULTIMO_DIA") return "Último dia para acionar e manter este caso";
+  if (sit === "EXPIRADA") return "Fidelização expirada. Livre para qualquer operador.";
+  if (sit === "LIVRE") return "Caso livre para qualquer operador autorizado.";
+  if (sit === "PROTEGIDA") return "Caso protegido (negociação/acordo em andamento).";
+  return sit;
+}
 const QUALIDADE_LABEL = {
   sem_telefone: "Sem telefone", sem_email: "Sem e-mail", sem_responsavel: "Sem responsável",
   sem_estabelecimento: "Sem estabelecimento", sem_faixa_atraso: "Sem faixa de atraso",
@@ -96,6 +124,17 @@ export default function SaudeCompletaCarteira() {
     carregarDetalhe(drill.filtro, detPag, detOrd);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detPag.offset, detOrd.ordenar_por, detOrd.ordem_dir]);
+
+  const assumirCaso = async (casoId) => {
+    const { data, error } = await supabase.rpc("assumir_caso_livre", { p_caso_id: casoId });
+    const r = Array.isArray(data) ? data[0] : data;
+    if (error || !r?.sucesso) {
+      alert(r?.mensagem || "Não foi possível assumir este caso.");
+      return;
+    }
+    alert(r.mensagem || "Atendimento assumido.");
+    if (drill) carregarDetalhe(drill.filtro, detPag, detOrd);
+  };
 
   const exportar = async () => {
     setExportando(true);
@@ -159,6 +198,19 @@ export default function SaudeCompletaCarteira() {
               </button>
             ))}
           </div>
+
+          <Secao titulo="Fidelização (exclusividade de 10 dias por acionamento)">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 12 }}>
+              {CARDS_FIDELIZACAO.map(([k, label, fmt, indicador]) => (
+                <button key={k} onClick={() => indicador && abrirDrill(label, { indicador })}
+                  style={{ ...card, cursor: indicador ? "pointer" : "default" }}>
+                  <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>{label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{fmt(totais[k])}</div>
+                  {indicador && <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>ver lista →</div>}
+                </button>
+              ))}
+            </div>
+          </Secao>
 
           <Secao titulo="Por estabelecimento">
             <div style={{ overflowX: "auto" }}>
@@ -252,7 +304,7 @@ export default function SaudeCompletaCarteira() {
       )}
 
       {drill && (
-        <DetalheDrawer titulo={drill.titulo} det={det} loading={detLoading}
+        <DetalheDrawer titulo={drill.titulo} det={det} loading={detLoading} onAssumir={assumirCaso}
           pag={detPag} setPag={setDetPag} ord={detOrd} setOrd={setDetOrd} onClose={() => { setDrill(null); setDet(null); }} />
       )}
     </div>
@@ -281,6 +333,16 @@ function Filtros({ filtros, setFiltros, estabs, operadores, isGestao }) {
         <option value="">Qualquer acordo</option>
         <option value="SEM_ACORDO">Sem acordo</option><option value="EM_DIA">Em dia</option>
         <option value="VENCIDO">Vencido</option><option value="QUEBRADO">Quebrado</option>
+      </select>
+      <select value={filtros.fidelizacao || ""} onChange={(e) => set("fidelizacao", e.target.value)} style={inp}>
+        <option value="">Fidelização (todas)</option>
+        <option value="ATIVA">Fidelização ativa</option>
+        <option value="ATENCAO">Expira em ≤3 dias (atenção)</option>
+        <option value="URGENTE">Expira amanhã (urgente)</option>
+        <option value="ULTIMO_DIA">Expira hoje</option>
+        <option value="EXPIRADA">Expirada</option>
+        <option value="LIVRE">Livre para qualquer operador</option>
+        <option value="PROTEGIDA">Protegida</option>
       </select>
       <label style={lbl}><input type="checkbox" checked={!!filtros.incluir_encerrados}
         onChange={(e) => set("incluir_encerrados", e.target.checked || undefined)} /> Incluir encerrados/bloqueados</label>
@@ -330,7 +392,7 @@ function Matriz({ linhas, colunas, metrica, onCelula }) {
   );
 }
 
-function DetalheDrawer({ titulo, det, loading, pag, setPag, ord, setOrd, onClose }) {
+function DetalheDrawer({ titulo, det, loading, pag, setPag, ord, setOrd, onClose, onAssumir }) {
   const rows = det?.rows || [];
   const total = det?.total || 0;
   const pagina = Math.floor(pag.offset / pag.limite) + 1;
@@ -350,8 +412,9 @@ function DetalheDrawer({ titulo, det, loading, pag, setPag, ord, setOrd, onClose
                 {[["estabelecimento", "Estab."], ["caso_codigo", "Caso"], ["aluno_mascarado", "Aluno"], ["operador_email", "Operador"],
                   ["faixa_atraso", "Faixa"], ["dias_atraso", "Dias atr."], ["saldo_vencido", "Saldo venc."], ["saldo_total", "Saldo total"],
                   ["acordo_situacao", "Acordo"], ["criticidade", "Crít."], ["ultimo_acionamento", "Últ. acion."], ["dias_sem_acionamento", "Dias s/ ac."],
-                  ["tipo_ultimo_acionamento", "Tipo"], ["proximo_retorno", "Próx. ret."], ["possui_telefone", "Tel?"], ["situacao_operacional", "Situação"]].map(([k, l]) => {
-                    const ordenavel = ["saldo_vencido", "saldo_total", "dias_sem_acionamento", "dias_atraso"].includes(k);
+                  ["tipo_ultimo_acionamento", "Tipo"], ["proximo_retorno", "Próx. ret."], ["possui_telefone", "Tel?"], ["situacao_operacional", "Situação"],
+                  ["dias_fidelizacao", "Fidelização"], ["acao", "Ação"]].map(([k, l]) => {
+                    const ordenavel = ["saldo_vencido", "saldo_total", "dias_sem_acionamento", "dias_atraso", "dias_fidelizacao"].includes(k);
                     return <th key={k} style={{ ...th, cursor: ordenavel ? "pointer" : "default" }} onClick={() => ordenavel && col(k)}>
                       {l}{ord.ordenar_por === k ? (ord.ordem_dir === "desc" ? " ▼" : " ▲") : ""}</th>;
                   })}
@@ -365,6 +428,21 @@ function DetalheDrawer({ titulo, det, loading, pag, setPag, ord, setOrd, onClose
                     <td style={td}>{rw.criticidade}</td><td style={td}>{dataBR(rw.ultimo_acionamento)}</td><td style={td}>{rw.dias_sem_acionamento ?? "nunca"}</td>
                     <td style={td}>{rw.tipo_ultimo_acionamento || "—"}</td><td style={td}>{dataBR(rw.proximo_retorno)}</td>
                     <td style={td}>{rw.possui_telefone ? "Sim" : "Não"}</td><td style={td}>{rw.situacao_operacional || "—"}</td>
+                    <td style={{ ...td, textAlign: "left" }}>
+                      <span title={fidelTexto(rw.fidelizacao_situacao, rw.dias_fidelizacao)} style={{
+                        display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700,
+                        color: (FIDEL[rw.fidelizacao_situacao] || {}).cor || "#334155",
+                        background: (FIDEL[rw.fidelizacao_situacao] || {}).bg || "#f1f5f9",
+                      }}>
+                        {(FIDEL[rw.fidelizacao_situacao] || {}).txt || rw.fidelizacao_situacao}
+                        {["ATIVA", "ATENCAO"].includes(rw.fidelizacao_situacao) && rw.dias_fidelizacao != null ? ` · ${rw.dias_fidelizacao}d` : ""}
+                      </span>
+                    </td>
+                    <td style={td}>
+                      {rw.fidelizacao_situacao === "LIVRE" && onAssumir ? (
+                        <button style={{ ...btnSec, padding: "4px 10px", fontSize: 12 }} onClick={() => onAssumir(rw.caso_id)}>Assumir caso</button>
+                      ) : "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
