@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import { supabase } from "../services/supabase"; import Alunos from "./Aluno";
+import BotaoAtualizar from "../components/BotaoAtualizar";
 import { OPERADORES_POR_EMAIL } from "../utils/operadores";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
@@ -30,7 +31,10 @@ function StatusChip({ ok, texto }) {
 }
 
 export default function SaudeDaBase() {
-  const [carregando, setCarregando] = useState(true);
+  const [carregando, setCarregando] = useState(false);
+  const [ultimaEm, setUltimaEm] = useState(null);
+  const emVoo = useRef(false);
+  const bloqueadoAte = useRef(0);
   const [dados, setDados] = useState(null);
   const [tendencia, setTendencia] = useState([]);
   const [modalCategoria, setModalCategoria] = useState(null);
@@ -41,19 +45,25 @@ export default function SaudeDaBase() {
   const [fidelizacaoVencida, setFidelizacaoVencida] = useState([]);
   const [liberandoFidelizacao, setLiberandoFidelizacao] = useState(false); const [fichaId, setFichaId] = useState(null);
 
-  useEffect(() => {
-    carregar();
-  }, []);
-
+  // SOB DEMANDA: sem auto-load/polling. Só roda no clique do botão Atualizar.
   async function carregar() {
+    const agora = Date.now();
+    if (emVoo.current || agora < bloqueadoAte.current) return;
+    emVoo.current = true;
+    bloqueadoAte.current = agora + 15000;
     setCarregando(true);
-    const { data, error } = await supabase.rpc("saude_da_base");
-    if (!error) setDados(data);
-    const { data: t } = await supabase.rpc("saude_base_tendencia");
-    setTendencia((t || []).slice().reverse());
-    const { data: f } = await supabase.rpc("casos_elegiveis_liberacao_fidelizacao");
-    setFidelizacaoVencida(f || []);
-    setCarregando(false);
+    try {
+      const { data, error } = await supabase.rpc("saude_da_base");
+      if (!error) setDados(data);
+      const { data: t } = await supabase.rpc("saude_base_tendencia");
+      setTendencia((t || []).slice().reverse());
+      const { data: f } = await supabase.rpc("casos_elegiveis_liberacao_fidelizacao");
+      setFidelizacaoVencida(f || []);
+      setUltimaEm(new Date());
+    } finally {
+      emVoo.current = false;
+      setCarregando(false);
+    }
   }
 
   async function liberarFidelizacaoVencida() {
@@ -93,8 +103,19 @@ export default function SaudeDaBase() {
     setTimeout(() => setMsg(""), 5000);
   }
 
-  if (carregando || !dados) {
-    return <div style={estilos.container}>Carregando saúde da base...</div>;
+  if (!dados) {
+    return (
+      <div style={estilos.container}>
+        <div style={estilos.cabecalho}>
+          <div>
+            <h1 style={estilos.titulo}>🩺 Saúde da Base</h1>
+            <p style={estilos.subtitulo}>Panorama rápido pra saber se está tudo em ordem, sem precisar perguntar.</p>
+          </div>
+          <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={carregar} />
+        </div>
+        <p style={estilos.subtitulo}>{carregando ? "Carregando saúde da base…" : "Clique em Atualizar para calcular a saúde da base."}</p>
+      </div>
+    );
   }
 
   const geradoEm = dados.gerado_em ? new Date(dados.gerado_em).toLocaleString("pt-BR") : "-";
@@ -108,9 +129,7 @@ export default function SaudeDaBase() {
           <h1 style={estilos.titulo}>🩺 Saúde da Base</h1>
           <p style={estilos.subtitulo}>Panorama rápido pra saber se está tudo em ordem, sem precisar perguntar.</p>
         </div>
-        <button style={estilos.botaoAtualizar} onClick={carregar}>
-          Atualizar
-        </button>
+        <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={carregar} />
       </div>
       <p style={estilos.geradoEm}>Calculado agora: {geradoEm}</p>
 

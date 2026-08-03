@@ -1,6 +1,7 @@
-import { useEffect, useState } from "react";
+import { useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
+import BotaoAtualizar from "../components/BotaoAtualizar";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const VERDE = "#1e40af";
@@ -75,12 +76,28 @@ export default function AcoesMassivas() {
   const [saude, setSaude] = useState(null);
   const [retornos, setRetornos] = useState(null);
 
-  useEffect(() => {
-    carregarProgresso();
-    carregarPorDia();
-    carregarSaude();
-    carregarRetornos();
-  }, [canal]);
+  // SOB DEMANDA: o painel analítico (saúde/retornos/por dia/elegíveis) não
+  // carrega sozinho. Só roda no clique de Atualizar painel. A busca e a geração
+  // de ações (operacionais) seguem normais, sob comando do usuário.
+  const [carregandoPainel, setCarregandoPainel] = useState(false);
+  const [painelEm, setPainelEm] = useState(null);
+  const emVooPainel = useRef(false);
+  const bloqueadoAtePainel = useRef(0);
+
+  async function atualizarPainel() {
+    const agora = Date.now();
+    if (emVooPainel.current || agora < bloqueadoAtePainel.current) return;
+    emVooPainel.current = true;
+    bloqueadoAtePainel.current = agora + 15000;
+    setCarregandoPainel(true);
+    try {
+      await Promise.all([carregarProgresso(), carregarPorDia(), carregarSaude(), carregarRetornos()]);
+      setPainelEm(new Date());
+    } finally {
+      emVooPainel.current = false;
+      setCarregandoPainel(false);
+    }
+  }
 
   async function carregarSaude() {
     const { data } = await supabase.rpc("saude_da_base");
@@ -271,6 +288,7 @@ export default function AcoesMassivas() {
             de operador pra fazer o acionamento manual.
           </p>
         </div>
+        <BotaoAtualizar carregando={carregandoPainel} ultimaEm={painelEm} onClick={atualizarPainel} rotulo="Atualizar painel" />
       </div>
 
       <div style={estilos.abas}>

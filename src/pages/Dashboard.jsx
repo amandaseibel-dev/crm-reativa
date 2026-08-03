@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Topbar from "../layout/Topbar";
+import BotaoAtualizar from "../components/BotaoAtualizar";
 import { supabase } from "../services/supabase";
 import MuralAniversariantes from "../components/MuralAniversariantes";
 import CadastroNovoAluno from "../components/CadastroNovoAluno";
@@ -23,9 +24,13 @@ function hojeLocalBR() {
 }
 
 export default function Dashboard() {
-  const [carregando, setCarregando] = useState(true);
+  const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [email, setEmail] = useState("");
+  const [ultimaEm, setUltimaEm] = useState(null);
+  const [jaRodou, setJaRodou] = useState(false);
+  const emVoo = useRef(false);
+  const bloqueadoAte = useRef(0);
   const [indicadores, setIndicadores] = useState({
     baseTotal: 0,
     semResponsavel: 0,
@@ -39,9 +44,20 @@ export default function Dashboard() {
     termosAguardandoAdm: 0,
   });
 
-  useEffect(() => {
-    carregarIndicadores();
-  }, []);
+  // SOB DEMANDA: sem auto-load no mount. Só carrega quando clicam em Atualizar.
+  async function atualizarIndicadores() {
+    const agora = Date.now();
+    if (emVoo.current || agora < bloqueadoAte.current) return;
+    emVoo.current = true;
+    bloqueadoAte.current = agora + 15000;
+    try {
+      await carregarIndicadores();
+      setUltimaEm(new Date());
+    } finally {
+      setJaRodou(true);
+      emVoo.current = false;
+    }
+  }
 
   async function carregarIndicadores() {
     setCarregando(true);
@@ -167,11 +183,13 @@ export default function Dashboard() {
 
           <div style={estilos.acoesTopo}>
             <CadastroNovoAluno onSucesso={carregarIndicadores} />
-            <button style={estilos.botaoAtualizar} onClick={carregarIndicadores} disabled={carregando}>
-              {carregando ? "Atualizando..." : "↻ Atualizar"}
-            </button>
+            <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={atualizarIndicadores} />
           </div>
         </div>
+
+        {!jaRodou && !carregando && (
+          <p style={estilos.subtitulo}>Clique em <strong>Atualizar</strong> para carregar os indicadores.</p>
+        )}
 
         {veTudo && (
           <>
@@ -184,7 +202,7 @@ export default function Dashboard() {
 
         {erro && <p style={estilos.erro}>{erro}</p>}
 
-        {secoes.map((secao) => (
+        {(jaRodou || carregando) && secoes.map((secao) => (
           <section key={secao.titulo} style={estilos.secao}>
             <h2 style={estilos.tituloSecao}>{secao.titulo}</h2>
             <div style={estilos.grid}>

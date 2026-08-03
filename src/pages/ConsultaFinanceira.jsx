@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { OPERADORES_POR_EMAIL } from "../utils/operadores";
 import Alunos from "./Aluno";
+import BotaoAtualizar from "../components/BotaoAtualizar";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const POR_PAGINA = 30;
@@ -96,13 +97,28 @@ export default function ConsultaFinanceira() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtro, pagina, operador]);
 
-  useEffect(() => {
-    carregarGerencial();
-  }, []);
+  // SOB DEMANDA: a visão gerencial (dashboard_gestao_geral, RPC pesada) não
+  // carrega sozinha. Só roda no clique de Atualizar. A consulta por aluno
+  // (busca/filtros/paginação) segue operacional e reativa aos filtros.
+  const [carregandoGerencial, setCarregandoGerencial] = useState(false);
+  const [gerencialEm, setGerencialEm] = useState(null);
+  const emVooGerencial = useRef(false);
+  const bloqueadoAteGerencial = useRef(0);
 
   async function carregarGerencial() {
-    const { data } = await supabase.rpc("dashboard_gestao_geral", { p_dias: 30 });
-    setGerencial(data || null);
+    const agora = Date.now();
+    if (emVooGerencial.current || agora < bloqueadoAteGerencial.current) return;
+    emVooGerencial.current = true;
+    bloqueadoAteGerencial.current = agora + 15000;
+    setCarregandoGerencial(true);
+    try {
+      const { data } = await supabase.rpc("dashboard_gestao_geral", { p_dias: 30 });
+      setGerencial(data || null);
+      setGerencialEm(new Date());
+    } finally {
+      emVooGerencial.current = false;
+      setCarregandoGerencial(false);
+    }
   }
 
   async function buscar() {
@@ -167,6 +183,10 @@ export default function ConsultaFinanceira() {
       <p style={S.subtitulo}>
         Visão gerencial da carteira financeira + consulta detalhada por aluno.
       </p>
+
+      <div style={{ margin: "6px 0 14px" }}>
+        <BotaoAtualizar carregando={carregandoGerencial} ultimaEm={gerencialEm} onClick={carregarGerencial} rotulo="Atualizar visão gerencial" />
+      </div>
 
       {gerencial && (
         <>
