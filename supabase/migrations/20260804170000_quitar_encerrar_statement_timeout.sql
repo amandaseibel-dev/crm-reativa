@@ -1,0 +1,32 @@
+-- ============================================================================
+-- Migration: quitar_e_encerrar_caso — statement_timeout dedicado
+-- Data.......: 2026-08-04
+-- Branch.....: hotfix/quitar-encerrar-timeout
+--
+-- SINTOMA (produção): "Erro ao quitar: canceling statement due to statement
+--   timeout" ao usar "Quitar e encerrar" em alunos cujo CASO ainda tem
+--   operador vinculado (ex.: caso d1b9d4e7-... / operador cobranca11).
+--
+-- CAUSA RAIZ: a RPC quitar_e_encerrar_caso (SECURITY DEFINER, owner=postgres)
+--   faz o UPDATE do caso para QUITADO. Essa transição dispara o gatilho
+--   trg_repor_caso_operador (nivelamento/reposição), que varre toda a base de
+--   casos, calcula médias e reatribui casos para repor a vaga liberada do
+--   operador. Medido em produção (leitura, revertido): ~20,4 s de execução.
+--   O papel `authenticated` tem statement_timeout=8s, então o PostgREST cancela
+--   a chamada aos 8s e faz ROLLBACK integral — nenhuma gravação parcial.
+--   O mesmo UPDATE com gatilhos desativados leva ~42 ms, confirmando que o
+--   custo é 100% do gatilho de reposição.
+--
+-- CORREÇÃO (mínima): dar à própria função um statement_timeout suficiente para
+--   a operação legítima concluir (reposição + recálculo central inclusos).
+--   NÃO desativa gatilho, NÃO altera saldo/status, NÃO muda a lógica canônica,
+--   preserva atomicidade/idempotência e o responsável para auditoria. Alunos
+--   sem operador no caso continuam quitando instantaneamente (o gatilho de
+--   reposição retorna cedo). 60s fica bem acima dos ~20s medidos e dentro do
+--   limite do gateway.
+--
+-- Idempotente.
+-- ============================================================================
+
+alter function public.quitar_e_encerrar_caso(uuid, numeric, date)
+  set statement_timeout to '60s';
