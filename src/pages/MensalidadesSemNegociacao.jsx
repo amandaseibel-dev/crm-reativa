@@ -182,10 +182,10 @@ export default function MensalidadesSemNegociacao() {
       y += 18;
     };
 
-    const A6 = ["left", "right", "right", "right", "right", "right"];
+    const A5 = ["left", "right", "right", "right", "right"];
     const A4 = ["left", "right", "right", "right"];
-    tabela("Detalhamento por mês", ["Mês", "CPFs", "Alunos", "Mensalidades", "Saldo", "% saldo"],
-      meses.map((m) => [m.mes_nome, NUM(m.cpfs), NUM(m.alunos_unicos), NUM(m.mensalidades_sem_negociacao), BRL(m.saldo_sem_negociacao), pct(m.saldo_sem_negociacao)]), A6);
+    tabela("Detalhamento por mês", ["Mês", "CPFs", "Mensalidades", "Saldo", "% saldo"],
+      meses.map((m) => [m.mes_nome, NUM(m.cpfs), NUM(m.mensalidades_sem_negociacao), BRL(m.saldo_sem_negociacao), pct(m.saldo_sem_negociacao)]), A5);
     tabela("Por modalidade", ["Modalidade", "Alunos", "Mensalidades", "Saldo"],
       (dados.por_curso || []).map((c) => [c.curso, NUM(c.alunos), NUM(c.mensalidades), BRL(c.saldo)]), A4);
     tabela("Por unidade (campus)", ["Unidade", "Alunos", "Mensalidades", "Saldo"],
@@ -297,9 +297,9 @@ export default function MensalidadesSemNegociacao() {
       </Secao>
 
       <Secao titulo="Detalhamento por mês">
-        <Tabela cabec={["Mês", "CPFs", "Alunos únicos", "Mensalidades", "Saldo", "% do saldo"]}
-          larguras={[150, 130, 150, 160, 200, 140]} centralizar
-          linhas={(dados.meses || []).map((m) => [m.mes_nome, NUM(m.cpfs), NUM(m.alunos_unicos), NUM(m.mensalidades_sem_negociacao), BRL(m.saldo_sem_negociacao), pctSaldo(m.saldo_sem_negociacao)])} />
+        <Tabela cabec={["Mês", "CPFs", "Mensalidades", "Saldo", "% do saldo"]}
+          larguras={[160, 140, 170, 210, 150]} centralizar
+          linhas={(dados.meses || []).map((m) => [m.mes_nome, NUM(m.cpfs), NUM(m.mensalidades_sem_negociacao), BRL(m.saldo_sem_negociacao), pctSaldo(m.saldo_sem_negociacao)])} />
       </Secao>
 
       <Secao titulo="Evolução diária (conforme as baixas)">
