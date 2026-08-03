@@ -71,6 +71,7 @@ import ExportarContatos from "./pages/ExportarContatos";
 import AcoesMassivas from "./pages/AcoesMassivas";
 import HistoricoRecuperacao from "./pages/HistoricoRecuperacao";
 import SaudeDaBase from "./pages/SaudeDaBase";
+import SaudeCompletaCarteira from "./pages/SaudeCompletaCarteira";
 import TvElogios from "./pages/TvElogios";
 import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
 import AvisosPopup from "./components/AvisosPopup";
@@ -151,7 +152,7 @@ function podeAcessar(perfil, rota) {
       "/exportar-contatos",
       "/acoes-massivas",
       "/historico-recuperacao",
-      "/saude-da-base", "/relatorio-receptivo",
+      "/saude-completa-carteira", "/saude-da-base", "/relatorio-receptivo",
       "/log-nivelamento",
       "/sugestoes-recebidas",
       "/taxa-conversao",],
@@ -182,7 +183,7 @@ function podeAcessar(perfil, rota) {
       "/exportar-contatos",
       "/acoes-massivas",
       "/historico-recuperacao",
-      "/saude-da-base", "/relatorio-receptivo",
+      "/saude-completa-carteira", "/saude-da-base", "/relatorio-receptivo",
       "/log-nivelamento",
       "/taxa-conversao",],
     administrativo: [
@@ -533,6 +534,7 @@ export default function App() {
     { rota: "/envio-gmail", label: "Envio pelo meu Gmail", icone: "Contact", secao: "Gestão" },
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
+    { rota: "/saude-completa-carteira", label: "Saúde Completa da Carteira", icone: "Activity", secao: "Gestão" },
     { rota: "/log-nivelamento", label: "Log do Job Noturno", icone: "Clock3", secao: "Gestão" },
     { rota: "/sugestoes-recebidas", label: "Sugestões Recebidas", icone: "FileStack", secao: "Gestão" },
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
@@ -955,6 +957,7 @@ export default function App() {
               <Route path="/historico-recuperacao" element={<HistoricoRecuperacao />} />
         <Route path="/executivo" element={<ExecutivoRecuperacao />} />
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
+              <Route path="/saude-completa-carteira" element={<SaudeCompletaCarteira />} />
               <Route path="/log-nivelamento" element={<LogNivelamento />} />
               <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
