@@ -1125,9 +1125,10 @@ export default function FinanceiroAluno({ aluno }) {
   // total sobe indevidamente).
   const acordosNaoCancelados = acordos.filter((a) => a.status !== "CANCELADO");
   const acordosAtivos = acordos.filter((a) => a.status === "ATIVO");
-  // Vincular mensalidades tambem a acordos JA PAGOS/QUITADOS (parcelas pagas):
-  // marca a mensalidade como NEGOCIADO (sai do "a cobrar"), sem alterar pagamento.
-  const acordosVinculaveis = acordos.filter((a) => a.status !== "CANCELADO");
+  // So acordos ATIVOS recebem vinculo de mensalidade. Acordo QUITADO/CANCELADO
+  // e encerrado (somente leitura) -- o backend tambem recusa (vincular_titulos_acordo
+  // -> acordo_quitado_/cancelado_operacao_nao_permitida).
+  const acordosVinculaveis = acordos.filter((a) => a.status === "ATIVO");
   const parcelasEmAberto = acordosNaoCancelados
     .flatMap((a) => parcelasPorAcordo[a.id] || [])
     .filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA");
