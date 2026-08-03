@@ -13,8 +13,12 @@ function motivoInelegivel(t) {
   if (t.acordo_id) return "Já vinculada a acordo ativo";
   const status = String(t.status || "").toLowerCase();
   const situacao = String(t.situacao || "").toUpperCase();
-  if (status === "vinculada" || situacao === "NEGOCIADO") return "Já negociada / vinculada";
-  if (status === "quitada" || situacao === "PAGO") return "Parcela quitada";
+  // "Quitado" e decidido por status + saldo, NAO pela etiqueta situacao='PAGO'
+  // (que pode vir defasada em titulo inserido manualmente: status='em_aberto'
+  // e saldo > 0, mas situacao herdada 'PAGO'). Espelha vincular_titulos_acordo.
+  if (status === "vinculada") return "Já negociada / vinculada";
+  if (["quitada", "quitado", "paga", "pago"].includes(status)) return "Parcela quitada";
+  if (["cancelada", "cancelado"].includes(status)) return "Parcela cancelada";
   if (situacao === "DUPLICADA") return "Parcela duplicada";
   if (valTit(t) <= 0) return "Saldo zero";
   return null;
