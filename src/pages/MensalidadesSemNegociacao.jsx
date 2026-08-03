@@ -163,7 +163,7 @@ export default function MensalidadesSemNegociacao() {
       doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...INK);
       doc.text(titulo, M + 10, y);
       y += 10;
-      const ncol = cabec.length, labelW = CW * 0.40, numW = (CW - labelW) / (ncol - 1);
+      const ncol = cabec.length, labelW = CW * 0.30, numW = (CW - labelW) / (ncol - 1);
       const colX = (i) => (i === 0 ? M + 6 : M + labelW + i * numW - 6);
       doc.setFillColor(...SOFT); doc.rect(M, y, CW, 18, "F");
       doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...MUT);
@@ -298,6 +298,7 @@ export default function MensalidadesSemNegociacao() {
 
       <Secao titulo="Detalhamento por mês">
         <Tabela cabec={["Mês", "CPFs", "Alunos únicos", "Mensalidades", "Saldo", "% do saldo"]}
+          larguras={[130, 110, 130, 140, 180, 120]}
           linhas={(dados.meses || []).map((m) => [m.mes_nome, NUM(m.cpfs), NUM(m.alunos_unicos), NUM(m.mensalidades_sem_negociacao), BRL(m.saldo_sem_negociacao), pctSaldo(m.saldo_sem_negociacao)])} />
       </Secao>
 
@@ -375,19 +376,22 @@ function Secao({ titulo, children }) {
     </div>
   );
 }
-function Tabela({ cabec, linhas }) {
+function Tabela({ cabec, linhas, larguras }) {
   return (
     <div style={{ overflowX: "auto" }}>
-      <table style={{ borderCollapse: "collapse", width: "100%", fontSize: 13 }}>
+      <table style={{ borderCollapse: "collapse", width: "100%", minWidth: larguras ? larguras.reduce((a, b) => a + b, 0) : undefined, tableLayout: larguras ? "fixed" : "auto", fontSize: 13 }}>
+        {larguras && (
+          <colgroup>{larguras.map((w, i) => <col key={i} style={{ width: w }} />)}</colgroup>
+        )}
         <thead>
           <tr>{cabec.map((c, i) => (
-            <th key={i} style={{ textAlign: i === 0 ? "left" : "right", padding: "8px 10px", borderBottom: "2px solid #e5e7eb", color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{c}</th>
+            <th key={i} style={{ textAlign: i === 0 ? "left" : "right", padding: "8px 14px", borderBottom: "2px solid #e5e7eb", color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{c}</th>
           ))}</tr>
         </thead>
         <tbody>
           {linhas.map((l, r) => (
             <tr key={r}>{l.map((cel, i) => (
-              <td key={i} style={{ textAlign: i === 0 ? "left" : "right", padding: "7px 10px", borderBottom: "1px solid #f1f5f9", fontVariantNumeric: "tabular-nums" }}>{cel}</td>
+              <td key={i} style={{ textAlign: i === 0 ? "left" : "right", padding: "7px 14px", borderBottom: "1px solid #f1f5f9", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{cel}</td>
             ))}</tr>
           ))}
         </tbody>
