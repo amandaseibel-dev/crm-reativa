@@ -302,7 +302,7 @@ const KPIS_FILTRAVEIS = new Set([
 const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
 
 const COLUNAS_ALUNO =
-  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
+  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
 
 // Rotulo amigavel da situacao operacional (recalcular_situacao_aluno).
 const SITUACAO_OPERACIONAL_LABEL = {
@@ -337,20 +337,34 @@ function critAlta(a) {
   return n === "CRITICO" || n === "URGENTE";
 }
 
-// Situacoes operacionais em que NAO existe saldo vencido: acordo em dia, pagamento
-// aguardando confirmacao no financeiro, quitado (com ou sem baixa). Nesses casos o
-// backend mantem a criticidade canonica so para priorizacao interna, mas o card NAO
-// deve exibir a palavra "Critico"/"Urgente" -- o selo de situacao ja comunica o estado.
-// (regra oficial: nao mostrar "critico" quando saldo vencido = R$ 0,00)
-const SITUACAO_SEM_SALDO_VENCIDO = new Set([
+// Selo financeiro (Critico/Urgente) e decidido pelo SALDO VENCIDO CANONICO -- nao
+// apenas pela situacao operacional nem pelo nivel_criticidade armazenado. Regra:
+//   - saldo vencido > 0  -> mostra o selo (inclusive AGUARDANDO_CONFIRMACAO com vencido);
+//   - saldo vencido = 0  -> nao mostra selo vermelho vindo de valor antigo armazenado.
+// Fonte primaria: alunos.saldo_vencido, persistido por recalcular_situacao_aluno
+// (ja aplica supersessao de mensalidades). Fallback canonico quando ainda nao
+// populado: a situacao operacional so vale como "sem vencido" nos estados que o
+// backend so atribui com saldo vencido = 0. QUITADO/baixa nunca mostram selo.
+const SITUACAO_QUITACAO = new Set(["QUITADO", "QUITADO_AGUARDANDO_BAIXA"]);
+const SITUACAO_CANONICA_SEM_VENCIDO = new Set([
   "ACORDO_EM_DIA",
   "AGUARDANDO_CONFIRMACAO",
   "QUITADO",
   "QUITADO_AGUARDANDO_BAIXA",
+  "SEM_PENDENCIA",
 ]);
+function semSaldoVencido(a) {
+  const sv = Number(a?.saldo_vencido);
+  if (Number.isFinite(sv)) return sv <= 0.005; // sinal canonico primario
+  // fallback (saldo_vencido ainda nao persistido): confia so nos estados que o
+  // backend atribui exclusivamente quando o saldo vencido e zero.
+  return SITUACAO_CANONICA_SEM_VENCIDO.has(String(a?.situacao_operacional || "").toUpperCase());
+}
 function mostrarSeloCriticidade(a) {
   if (critCanon(a) === "NORMAL") return false;
-  if (SITUACAO_SEM_SALDO_VENCIDO.has(String(a?.situacao_operacional || "").toUpperCase())) return false;
+  // quitacao nunca exibe criticidade financeira, independentemente de valor antigo.
+  if (SITUACAO_QUITACAO.has(String(a?.situacao_operacional || "").toUpperCase())) return false;
+  if (semSaldoVencido(a)) return false;
   return true;
 }
 
