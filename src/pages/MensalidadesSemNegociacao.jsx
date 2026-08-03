@@ -125,7 +125,7 @@ export default function MensalidadesSemNegociacao() {
     // Destaques (chips)
     const d = dados.destaques || {};
     const chips = [
-      ["CURSO + INADIMPLÊNCIA", d.curso_maior_inadimplencia?.curso, d.curso_maior_inadimplencia && BRL(d.curso_maior_inadimplencia.saldo)],
+      ["MODALIDADE + INADIMPLÊNCIA", d.curso_maior_inadimplencia?.curso, d.curso_maior_inadimplencia && BRL(d.curso_maior_inadimplencia.saldo)],
       ["UNIDADE + INADIMPLÊNCIA", d.unidade_maior_inadimplencia?.unidade, d.unidade_maior_inadimplencia && BRL(d.unidade_maior_inadimplencia.saldo)],
       ["MÊS + INADIMPLÊNCIA", d.mes_maior_inadimplencia?.mes_nome, d.mes_maior_inadimplencia && BRL(d.mes_maior_inadimplencia.saldo_sem_negociacao)],
       ["FAIXA + SALDO", d.faixa_maior_saldo?.faixa, d.faixa_maior_saldo && BRL(d.faixa_maior_saldo.saldo)],
@@ -186,7 +186,7 @@ export default function MensalidadesSemNegociacao() {
     const A4 = ["left", "right", "right", "right"];
     tabela("Detalhamento por mês", ["Mês", "CPFs", "Alunos", "Mensalidades", "Saldo", "% saldo"],
       meses.map((m) => [m.mes_nome, NUM(m.cpfs), NUM(m.alunos_unicos), NUM(m.mensalidades_sem_negociacao), BRL(m.saldo_sem_negociacao), pct(m.saldo_sem_negociacao)]), A6);
-    tabela("Por curso", ["Curso", "Alunos", "Mensalidades", "Saldo"],
+    tabela("Por modalidade", ["Modalidade", "Alunos", "Mensalidades", "Saldo"],
       (dados.por_curso || []).map((c) => [c.curso, NUM(c.alunos), NUM(c.mensalidades), BRL(c.saldo)]), A4);
     tabela("Por unidade (campus)", ["Unidade", "Alunos", "Mensalidades", "Saldo"],
       (dados.por_unidade || []).map((u) => [u.unidade, NUM(u.alunos), NUM(u.mensalidades), BRL(u.saldo)]), A4);
@@ -273,7 +273,7 @@ export default function MensalidadesSemNegociacao() {
       </div>
 
       <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
-        <Destaque titulo="Curso de maior inadimplência" valor={d.curso_maior_inadimplencia?.curso} sub={d.curso_maior_inadimplencia && BRL(d.curso_maior_inadimplencia.saldo)} />
+        <Destaque titulo="Modalidade de maior inadimplência" valor={d.curso_maior_inadimplencia?.curso} sub={d.curso_maior_inadimplencia && BRL(d.curso_maior_inadimplencia.saldo)} />
         <Destaque titulo="Unidade de maior inadimplência" valor={d.unidade_maior_inadimplencia?.unidade} sub={d.unidade_maior_inadimplencia && BRL(d.unidade_maior_inadimplencia.saldo)} />
         <Destaque titulo="Mês de maior inadimplência" valor={d.mes_maior_inadimplencia?.mes_nome} sub={d.mes_maior_inadimplencia && BRL(d.mes_maior_inadimplencia.saldo_sem_negociacao)} />
         <Destaque titulo="Faixa de maior saldo" valor={d.faixa_maior_saldo?.faixa} sub={d.faixa_maior_saldo && BRL(d.faixa_maior_saldo.saldo)} />
@@ -322,8 +322,8 @@ export default function MensalidadesSemNegociacao() {
         )}
       </Secao>
 
-      <Secao titulo="Por curso">
-        <Tabela cabec={["Curso", "Alunos", "Mensalidades", "Saldo"]}
+      <Secao titulo="Por modalidade">
+        <Tabela cabec={["Modalidade", "Alunos", "Mensalidades", "Saldo"]}
           linhas={(dados.por_curso || []).map((c) => [c.curso, NUM(c.alunos), NUM(c.mensalidades), BRL(c.saldo)])} />
       </Secao>
 
