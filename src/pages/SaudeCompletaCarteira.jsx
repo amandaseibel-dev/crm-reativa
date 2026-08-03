@@ -23,7 +23,7 @@ const FAIXAS_TEMPO = [
   ["d6_7", "6-7d", "6_7D"], ["d8_15", "8-15d", "8_15D"], ["d16_30", "16-30d", "16_30D"], ["d_mais_30", "30d+", "MAIS_30D"],
 ];
 const CARDS = [
-  ["casos_ativos", "Casos ativos", num], ["cpfs_unicos", "CPFs únicos", num],
+  ["casos_ativos", "Casos ativos", num], ["cpfs_unicos", "Alunos únicos", num],
   ["saldo_vencido", "Saldo vencido", moeda], ["saldo_total", "Saldo total", moeda],
   ["nunca_acionados", "Nunca acionados", num, "nunca_acionados"],
   ["sem_acionamento_limite", "Sem acionamento (limite)", num, "sem_acionamento_limite"],

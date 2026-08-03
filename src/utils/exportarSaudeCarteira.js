@@ -111,7 +111,7 @@ export async function exportarSaudeCarteira(payload, filtrosAtivos) {
   wsResumo.getCell("C2").value = `Gerado em ${new Date().toLocaleString("pt-BR")}`;
   wsResumo.getCell("C2").font = { size: 10, color: { argb: "FF64748B" } };
   const cards = [
-    ["Casos ativos", totais.casos_ativos], ["CPFs únicos", totais.cpfs_unicos],
+    ["Casos ativos", totais.casos_ativos], ["Alunos únicos", totais.cpfs_unicos],
     ["Saldo vencido", totais.saldo_vencido, true], ["Saldo total", totais.saldo_total, true],
     ["Nunca acionados", totais.nunca_acionados],
     [`Sem acionamento ≥ ${totais.min_dias_sem_acionamento || 5} dias`, totais.sem_acionamento_limite],
@@ -229,7 +229,7 @@ export async function exportarSaudeCarteira(payload, filtrosAtivos) {
     ["Data e hora", new Date().toLocaleString("pt-BR")],
     ["Filtros aplicados", JSON.stringify(filtrosAtivos || {})],
     ["Definição de caso", "1 linha por casos.id (public.casos)"],
-    ["Definição de CPF único", "dígitos de casos.cpf_limpo, senão alunos.cpf (contagem interna, não exposto)"],
+    ["Definição de aluno único", "count(distinct aluno_id) — chave de pessoa deduplicada (dados de CPF de origem são sujos: mix de CPF e matrícula, só ~56% CPF 11 dígitos válido). Órfãos (aluno_id nulo) aparecem em Casos para revisão."],
     ["Acionamento válido", "casos.data_ultimo_acionamento (trigger fn_atualizar_ultimo_acionamento via eh_tipo_acionamento)"],
     ["Saldo vencido", "coluna persistida casos.saldo_vencido (recalcular_situacao_aluno)"],
     ["Saldo total", "coluna persistida casos.saldo_total"],
