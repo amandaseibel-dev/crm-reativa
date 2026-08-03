@@ -138,6 +138,35 @@ function statusAcordo(acordo, parcelas) {
   return "em_dia";
 }
 
+// Regra central de acao financeira: acordo encerrado (CANCELADO/QUITADO)
+// nao permite baixa, quitacao, comprovante nem qualquer efetivacao. Espelha
+// a funcao de backend acordo_permite_acao_financeira(uuid) -- o backend e a
+// fonte de verdade; aqui e a barreira de interface.
+function acordoPermiteAcaoFinanceira(acordo) {
+  const s = String(acordo?.status || "").toUpperCase();
+  return s !== "CANCELADO" && s !== "QUITADO";
+}
+
+// Um acordo e "encerrado" (vai pros blocos recolhidos do fim) quando o status
+// oficial e QUITADO/CANCELADO ou quando, na pratica, todas as parcelas estao
+// pagas (derivado). Retorna 'quitado' | 'cancelado' | null.
+function grupoEncerrado(acordo, parcelas) {
+  const c = statusAcordo(acordo, parcelas);
+  return c === "quitado" || c === "cancelado" ? c : null;
+}
+
+// Maior atraso (em dias) entre as parcelas ainda abertas do acordo. Usado pra
+// ordenar os acordos ativos: quanto maior, mais urgente (vai pro topo).
+function maiorAtrasoAcordo(acordo, parcelas) {
+  let maior = -99999;
+  (parcelas || []).forEach((p) => {
+    if (p.status === "PAGO" || p.status === "CANCELADA") return;
+    const d = diasAtraso(p.vencimento);
+    if (d > maior) maior = d;
+  });
+  return maior;
+}
+
 function valorTitulo(t) {
   return Number(t.valor_em_aberto || t.saldo_corrigido || t.valor_original || 0);
 }
@@ -347,6 +376,7 @@ export default function FinanceiroAluno({ aluno }) {
     // (Amanda, Fernanda/supervisão, Amanda ADM). O operador envia o comprovante
     // para a Fila de Confirmação; não efetiva baixa direta em baixas_pagamento.
     if (!podeBaixar) { alert("Baixa de pagamento é exclusiva da gestão financeira. Envie o comprovante para a Fila de Confirmação."); return; }
+    if (!acordoPermiteAcaoFinanceira(acordo)) { alert("Este acordo está " + (String(acordo.status).toUpperCase() === "CANCELADO" ? "cancelado" : "quitado") + " — não é possível registrar baixa."); return; }
     const agora = new Date().toISOString();
     const email = usuario?.email || "";
     const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
@@ -399,6 +429,7 @@ export default function FinanceiroAluno({ aluno }) {
 
   async function quitarCartao(acordo, parcelasAbertas, dados) {
     if (!podeBaixar) { alert("Quitação/baixa é exclusiva da gestão financeira. Envie o comprovante para a Fila de Confirmação."); return; }
+    if (!acordoPermiteAcaoFinanceira(acordo)) { alert("Este acordo está " + (String(acordo.status).toUpperCase() === "CANCELADO" ? "cancelado" : "quitado") + " — não é possível quitar."); return; }
     const agora = new Date().toISOString();
     const email = usuario?.email || "";
     const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
@@ -1685,6 +1716,9 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
   const [formParcela, setFormParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
   const [campos, setCampos] = useState({});
+  const [quitadosAberto, setQuitadosAberto] = useState(false);
+  const [canceladosAberto, setCanceladosAberto] = useState(false);
+  const [detalhesAbertos, setDetalhesAbertos] = useState({});
 
   if (!acordos || acordos.length === 0) return null;
 
@@ -1700,12 +1734,46 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
     setCampos({ data: hojeISO(), comprovante: "" });
   }
 
+  // Separa acordos ativos (exigem acao) dos encerrados (quitados/cancelados,
+  // que vao pros blocos recolhidos do fim). Nao misturamos os dois.
+  const ativos = [];
+  const quitados = [];
+  const cancelados = [];
+  acordos.forEach((acordo) => {
+    const parcelas = parcelasPorAcordo[acordo.id] || [];
+    const enc = grupoEncerrado(acordo, parcelas);
+    if (enc === "quitado") quitados.push(acordo);
+    else if (enc === "cancelado") cancelados.push(acordo);
+    else ativos.push(acordo);
+  });
+
+  // Ordena os ativos por urgencia: pendencia mais vencida primeiro; acordos em
+  // dia por ultimo. maiorAtrasoAcordo() retorna o maior atraso em dias (>0 =
+  // vencido); em dia fica com valor baixo e cai pro fim do grupo ativo.
+  ativos.sort((a, b) => maiorAtrasoAcordo(b, parcelasPorAcordo[b.id] || []) - maiorAtrasoAcordo(a, parcelasPorAcordo[a.id] || []));
+
+  // Contadores (mesma regra da listagem).
+  const contPendencia = ativos.filter((a) => { const c = statusAcordo(a, parcelasPorAcordo[a.id] || []); return c === "atraso" || c === "quebrado"; }).length;
+  const contEmDia = ativos.filter((a) => statusAcordo(a, parcelasPorAcordo[a.id] || []) === "em_dia").length;
+  const contQuebrado = ativos.filter((a) => statusAcordo(a, parcelasPorAcordo[a.id] || []) === "quebrado").length;
+
   return (
     <div style={estilos.caixa}>
       <strong>📄 Acordos e parcelas</strong>
 
+      <div style={estilos.contadores}>
+        <span style={{ ...estilos.contadorChip, ...estilos.chipPendencia }}>Ativos com pendência: {contPendencia}</span>
+        <span style={{ ...estilos.contadorChip, ...estilos.chipEmDia }}>Ativos em dia: {contEmDia}</span>
+        {contQuebrado > 0 && <span style={{ ...estilos.contadorChip, ...estilos.chipQuebrado }}>Quebrados: {contQuebrado}</span>}
+        <span style={{ ...estilos.contadorChip, ...estilos.chipQuitado }}>Quitados: {quitados.length}</span>
+        <span style={{ ...estilos.contadorChip, ...estilos.chipCancelado }}>Cancelados: {cancelados.length}</span>
+      </div>
+
       <div style={{ marginTop: 10 }}>
-        {acordos.map((acordo) => {
+        {ativos.length === 0 && (
+          <p style={{ fontSize: 12.5, opacity: 0.7, margin: "4px 0 10px" }}>Nenhum acordo ativo. Veja os encerrados abaixo.</p>
+        )}
+        {ativos.map((acordo) => {
           const parcelas = parcelasPorAcordo[acordo.id] || [];
           const parcelasAbertas = parcelas.filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA");
           const totalAcordoAberto = parcelasAbertas.reduce((soma, p) => soma + Number(p.valor || 0), 0);
@@ -1931,12 +1999,117 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
           );
         })}
       </div>
+
+      <BlocoAcordosEncerrados
+        titulo="Acordos quitados"
+        acordos={quitados}
+        parcelasPorAcordo={parcelasPorAcordo}
+        aberto={quitadosAberto}
+        setAberto={setQuitadosAberto}
+        detalhesAbertos={detalhesAbertos}
+        setDetalhesAbertos={setDetalhesAbertos}
+      />
+      <BlocoAcordosEncerrados
+        titulo="Acordos cancelados"
+        acordos={cancelados}
+        parcelasPorAcordo={parcelasPorAcordo}
+        aberto={canceladosAberto}
+        setAberto={setCanceladosAberto}
+        detalhesAbertos={detalhesAbertos}
+        setDetalhesAbertos={setDetalhesAbertos}
+      />
+    </div>
+  );
+}
+
+// Bloco recolhido (fechado por padrao) de acordos encerrados. Modo resumido
+// sem NENHUMA acao financeira; "Ver detalhes" abre a consulta em somente leitura.
+function BlocoAcordosEncerrados({ titulo, acordos, parcelasPorAcordo, aberto, setAberto, detalhesAbertos, setDetalhesAbertos }) {
+  if (!acordos || acordos.length === 0) return null;
+  const ehCancelado = titulo.toLowerCase().includes("cancel");
+  const cor = ehCancelado ? CORES_STATUS.cancelado : CORES_STATUS.quitado;
+  return (
+    <div style={estilos.blocoEncerrado}>
+      <button style={estilos.blocoEncerradoHeader} onClick={() => setAberto((v) => !v)}>
+        <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ ...estilos.tagBase, background: cor.bg, color: cor.texto }}>{cor.label}</span>
+          <strong>{titulo} ({acordos.length})</strong>
+        </span>
+        <span style={{ opacity: 0.7 }}>{aberto ? "▲ recolher" : "▼ expandir"}</span>
+      </button>
+
+      {aberto && acordos.map((acordo) => {
+        const parcelas = parcelasPorAcordo[acordo.id] || [];
+        const detalheAberto = !!detalhesAbertos[acordo.id];
+        const dataEncerramento = acordo.atualizado_em || acordo.confirmado_em || acordo.criado_em;
+        return (
+          <div key={acordo.id} style={estilos.resumoEncerradoItem}>
+            <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 10, justifyContent: "space-between" }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12, fontSize: 12.5, alignItems: "center" }}>
+                <span><b>Acordo #{acordo.numero_acordo || "-"}</b></span>
+                <span style={{ ...estilos.tagBase, background: cor.bg, color: cor.texto }}>{ehCancelado ? "CANCELADO" : "QUITADO"}</span>
+                <span>{moeda(acordo.valor_total)}</span>
+                <span>{acordo.qtd_parcelas || parcelas.length || "-"}x</span>
+                <span style={{ opacity: 0.8 }}>Acordo: {formatarDataSimples(acordo.criado_em)}</span>
+                <span style={{ opacity: 0.8 }}>{ehCancelado ? "Cancelado" : "Quitado"}: {formatarDataSimples(dataEncerramento)}</span>
+                <span style={{ opacity: 0.8 }}>Resp.: {acordo.operador_responsavel_nome || OPERADORES_POR_EMAIL[acordo.operador_responsavel_email] || acordo.operador_responsavel_email || "-"}</span>
+              </div>
+              <button
+                style={estilos.botaoPequeno}
+                onClick={() => setDetalhesAbertos((s) => ({ ...s, [acordo.id]: !s[acordo.id] }))}
+              >
+                {detalheAberto ? "Ocultar" : "Ver detalhes"}
+              </button>
+            </div>
+
+            {ehCancelado && (acordo.motivo_ajuste || acordo.observacao) ? (
+              <div style={{ fontSize: 11.5, opacity: 0.8, marginTop: 6 }}>
+                Motivo: {acordo.motivo_ajuste || acordo.observacao}
+              </div>
+            ) : null}
+
+            {detalheAberto && (
+              <div style={estilos.detalheReadOnly}>
+                <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 6, fontStyle: "italic" }}>
+                  Somente leitura — acordo encerrado, sem ações financeiras.
+                </div>
+                {parcelas.length === 0 ? (
+                  <div style={{ fontSize: 12, opacity: 0.7 }}>Sem parcelas registradas.</div>
+                ) : parcelas.map((p) => (
+                  <div key={p.id} style={estilos.linha}>
+                    <div style={{ fontSize: 12.5 }}>
+                      Parcela {p.numero} · Venc.: {formatarDataSimples(p.vencimento)}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 700 }}>{moeda(p.valor)}</span>
+                      <span style={{ ...estilos.tagBase, background: (p.status === "PAGO" ? CORES_STATUS.quitado : CORES_STATUS.cancelado).bg, color: (p.status === "PAGO" ? CORES_STATUS.quitado : CORES_STATUS.cancelado).texto }}>
+                        {STATUS_PARCELA_LABEL[p.status] || p.status}
+                      </span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
 
 const estilos = {
   caixa: { padding: "12px 16px", marginTop: 14, marginBottom: 14, borderRadius: 10, background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.25)" },
+  contadores: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 },
+  contadorChip: { fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, border: "1px solid rgba(148,163,184,0.3)" },
+  chipPendencia: { background: "rgba(239,159,39,0.16)", color: "#f2c67a" },
+  chipEmDia: { background: "rgba(99,153,34,0.16)", color: "#a3d15f" },
+  chipQuebrado: { background: "rgba(226,75,74,0.16)", color: "#f0999a" },
+  chipQuitado: { background: "rgba(29,158,117,0.16)", color: "#6fd7b6" },
+  chipCancelado: { background: "rgba(100,116,139,0.18)", color: "#94a3b8" },
+  blocoEncerrado: { marginTop: 14, border: "1px solid rgba(148,163,184,0.25)", borderRadius: 10, overflow: "hidden" },
+  blocoEncerradoHeader: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 12px", background: "rgba(148,163,184,0.10)", border: "none", color: "inherit", cursor: "pointer", fontSize: 13, textAlign: "left" },
+  resumoEncerradoItem: { padding: "10px 12px", borderTop: "1px solid rgba(148,163,184,0.15)" },
+  detalheReadOnly: { marginTop: 8, padding: "8px 10px", background: "rgba(15,23,42,0.35)", border: "1px solid rgba(148,163,184,0.2)", borderRadius: 8 },
   cabecalho: { display: "flex", alignItems: "center", justifyContent: "space-between" },
   totalAberto: { fontSize: 13, color: "#fcd34d", fontWeight: 700 },
   caixaResumo: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", marginTop: 14, marginBottom: 4, borderRadius: 10, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" },
