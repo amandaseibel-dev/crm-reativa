@@ -62,6 +62,7 @@ import TvMensagem from "./pages/TvMensagem";
 import Auditoria from "./pages/Auditoria"; import RelatorioReceptivo from "./pages/RelatorioReceptivo"; import MinhaAgendaPessoal from "./pages/MinhaAgendaPessoal"; import EnvioGmailLote from "./pages/EnvioGmailLote";
 import MensalidadesSemNegociacao from "./pages/MensalidadesSemNegociacao";
 import DRE from "./pages/DRE";
+import FechamentoRemuneracao from "./pages/FechamentoRemuneracao";
 import ImportarRecuperacao from "./pages/ImportarRecuperacao"; import ImportacaoAcordos from "./pages/ImportacaoAcordos"; import FilaAcordosConfirmar from "./pages/FilaAcordosConfirmar"; import Ferramentas from "./pages/Ferramentas";
 import ExecutivoRecuperacao from "./pages/ExecutivoRecuperacao";
 import MeuDashboard from "./pages/MeuDashboard";
@@ -498,6 +499,7 @@ export default function App() {
   const menuBase = [
   { rota: "/executivo", label: "📊 Visão Executiva" },
     { rota: "/dre", label: "DRE (gerência)" },
+    { rota: "/fechamento-remuneracao", label: "💰 Fechamento de Remuneração", secao: "Gestão" },
     { rota: "/importar-recuperacao", label: "📥 Importar Recuperação" },
     {
       rota: "/",
@@ -546,7 +548,7 @@ export default function App() {
   ];
   const menu = menuBase.filter((item) => {
     if (perfil === "operador" && item.esconderParaOperador) return false; if (["/exportar-contatos","/log-nivelamento","/vincular-operadores","/importar-acordos","/importar-recuperacao","/importacoes","/sugestoes-recebidas"].includes(item.rota)) return false;
-    if (item.rota === "/dre") {
+    if (item.rota === "/dre" || item.rota === "/fechamento-remuneracao") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return em === "amanda.seibel@aelbra.com.br" && perfil !== "operador";
     }
@@ -958,6 +960,7 @@ export default function App() {
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} />
               <Route path="/dre" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <DRE /> : <Navigate to="/" replace />} />
+              <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
               <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} />
       </Routes>
         </main>
