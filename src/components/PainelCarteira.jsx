@@ -337,6 +337,23 @@ function critAlta(a) {
   return n === "CRITICO" || n === "URGENTE";
 }
 
+// Situacoes operacionais em que NAO existe saldo vencido: acordo em dia, pagamento
+// aguardando confirmacao no financeiro, quitado (com ou sem baixa). Nesses casos o
+// backend mantem a criticidade canonica so para priorizacao interna, mas o card NAO
+// deve exibir a palavra "Critico"/"Urgente" -- o selo de situacao ja comunica o estado.
+// (regra oficial: nao mostrar "critico" quando saldo vencido = R$ 0,00)
+const SITUACAO_SEM_SALDO_VENCIDO = new Set([
+  "ACORDO_EM_DIA",
+  "AGUARDANDO_CONFIRMACAO",
+  "QUITADO",
+  "QUITADO_AGUARDANDO_BAIXA",
+]);
+function mostrarSeloCriticidade(a) {
+  if (critCanon(a) === "NORMAL") return false;
+  if (SITUACAO_SEM_SALDO_VENCIDO.has(String(a?.situacao_operacional || "").toUpperCase())) return false;
+  return true;
+}
+
 // Aba "Solicitacoes" foi removida: Solicitar link / termo / financeiro /
 // informar pagamento / anexar comprovante ficam INLINE dentro da Tabulacao
 // (aba Negociacao), que e o centro unico do operador.
@@ -2318,7 +2335,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                           {/* Criticidade CANONICA do backend (recalcular_situacao_aluno):
                               a fonte da verdade para "o que acionar". Nao mostra
                               selo para NORMAL, so para o que exige acao. */}
-                          {critCanon(a) !== "NORMAL" && (
+                          {mostrarSeloCriticidade(a) && (
                             <div
                               style={{
                                 display: "inline-block",
