@@ -266,8 +266,7 @@ export default function MensalidadesSemNegociacao() {
       </div>
 
       <div style={{ marginTop: 18, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
-        <Tot label="Alunos únicos sem negociação" val={NUM(dados.alunos_unicos_semestre)} accent />
-        <Tot label="CPFs sem negociação" val={NUM(dados.cpfs_semestre)} />
+        <Tot label="CPFs sem negociação" val={NUM(dados.cpfs_semestre)} accent />
         <Tot label="Mensalidades sem negociação" val={NUM(dados.mensalidades_total)} />
         <Tot label="Saldo total sem negociação" val={BRL(dados.saldo_total)} />
       </div>
