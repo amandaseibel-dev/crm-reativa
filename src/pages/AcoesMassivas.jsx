@@ -68,7 +68,8 @@ export default function AcoesMassivas() {
   const [opcoesUnidade, setOpcoesUnidade] = useState([]);
   const [opcoesCurso, setOpcoesCurso] = useState([]);
   const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
-  const [apenasNuncaAcionado, setApenasNuncaAcionado] = useState(false);
+  // "todos" | "nunca" (nunca acionados) | "ja" (já acionados)
+  const [acionamentoFiltro, setAcionamentoFiltro] = useState("todos");
   const [soSemTelefone, setSoSemTelefone] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [gerando, setGerando] = useState(false);
@@ -175,7 +176,8 @@ export default function AcoesMassivas() {
           p_ano_vencimento: anoVencimento || null,
           p_limite: Math.min(qtd * 3, 6000),
           p_dias_minimo_sem_contato: diasMinimoSemContato ? Number(diasMinimoSemContato) : null,
-          p_apenas_nunca_acionado: apenasNuncaAcionado,
+          p_apenas_nunca_acionado: acionamentoFiltro === "nunca",
+          p_apenas_ja_acionado: acionamentoFiltro === "ja",
           p_unidade: unidade || null,
           p_curso: curso || null,
         }
@@ -542,15 +544,17 @@ export default function AcoesMassivas() {
               onChange={(e) => setDiasMinimoSemContato(e.target.value)}
             />
           </div>
-          <div style={{ ...estilos.campo, justifyContent: "flex-end" }}>
-            <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: "#475569", marginBottom: 9 }}>
-              <input
-                type="checkbox"
-                checked={apenasNuncaAcionado}
-                onChange={(e) => setApenasNuncaAcionado(e.target.checked)}
-              />
-              Só nunca acionados
-            </label>
+          <div style={estilos.campo}>
+            <label style={estilos.label}>Acionamento</label>
+            <select
+              style={estilos.input}
+              value={acionamentoFiltro}
+              onChange={(e) => setAcionamentoFiltro(e.target.value)}
+            >
+              <option value="todos">Todos</option>
+              <option value="nunca">Só nunca acionados</option>
+              <option value="ja">Só já acionados</option>
+            </select>
           </div>
 
           {canal === "EMAIL" && (
