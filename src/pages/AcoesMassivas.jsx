@@ -376,6 +376,12 @@ export default function AcoesMassivas() {
                     {progresso.ja_acionado} enviados · {restante} restantes de {progresso.total_elegivel}
                   </span>
                 </div>
+                {progresso.sem_acionamento != null && (
+                  <div style={{ fontSize: 12.5, color: "#475569", marginBottom: 8 }}>
+                    <strong style={{ color: "#0f172a" }}>{progresso.sem_acionamento}</strong> nunca acionados
+                    {" "}— marque <strong>“Só nunca acionados”</strong> abaixo para priorizá-los.
+                  </div>
+                )}
                 <div style={{ background: "#f1f5f9", borderRadius: 999, height: 10, overflow: "hidden" }}>
                   <div
                     style={{
