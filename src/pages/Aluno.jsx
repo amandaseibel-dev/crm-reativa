@@ -6,6 +6,7 @@ import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import jsPDF from "jspdf";
 import EnvioFinanceiro from "../components/EnvioFinanceiro";
 import FinanceiroAluno from "../components/FinanceiroAluno";
+import DadosAcademicos from "../components/DadosAcademicos";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
@@ -1837,6 +1838,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </button>
                   )}
               </div>
+              <DadosAcademicos aluno={alunoSelecionado} />
               <div style={barraAbasFicha}>
                 {[
                   ["dados", "Resumo e tabulação"],
