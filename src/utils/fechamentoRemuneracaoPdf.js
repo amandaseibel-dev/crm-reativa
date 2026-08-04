@@ -92,15 +92,15 @@ function desenharOperador(doc, benef, previa, mes, logo) {
   doc.setDrawColor(...LINE); doc.setLineWidth(0.6); doc.line(M, y, PW - M, y); y += 20;
 
   // ---- HERO: honorários em destaque ----
-  const heroH = 66;
+  const heroH = 54;
   doc.setFillColor(...SOFTBLUE); doc.roundedRect(M, y, CW, heroH, 10, 10, "F");
   doc.setFillColor(...BLUE); doc.roundedRect(M, y, 5, heroH, 2, 2, "F");
   doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...BLUE);
-  doc.text("HONORÁRIOS DO MÊS", M + 20, y + 22);
-  doc.setFont("helvetica", "bold"); doc.setFontSize(26); doc.setTextColor(...INK);
-  doc.text(BR(benef.honorarios), M + 20, y + 50);
+  doc.text("HONORÁRIOS DO MÊS", M + 20, y + 19);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(19); doc.setTextColor(...INK);
+  doc.text(BR(benef.honorarios), M + 20, y + 41);
   doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...MUT);
-  doc.text("base de cálculo da comissão", PW - M - 16, y + 44, { align: "right" });
+  doc.text("base de cálculo da comissão", PW - M - 16, y + 34, { align: "right" });
   y += heroH + 14;
 
   // ---- Card único: Comissão (só isso; salário eles já têm no sistema) ----
