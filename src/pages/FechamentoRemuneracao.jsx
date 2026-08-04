@@ -8,6 +8,7 @@ import { useState, useCallback, useMemo } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../supabaseClient";
 import { gerarExcelSintetico, gerarExcelAnalitico } from "../utils/fechamentoRemuneracaoExcel";
+import { gerarPdfOperador, gerarPdfsTodos } from "../utils/fechamentoRemuneracaoPdf";
 import { emailPorNomeOperador, nomeOperadorPorEmail } from "../utils/operadores";
 
 const BRL = (v) =>
@@ -136,6 +137,12 @@ export default function FechamentoRemuneracao() {
     baixarBuffer(buf, `Fechamento_Analitico_${mes.replace("-", "_")}_PREVIA.xlsx`);
     setMsg("Relatório analítico (prévia) gerado.");
   }
+  async function baixarPdfsPorOperador() {
+    if (!previa) return;
+    setMsg("Gerando PDFs por operador…");
+    const n = await gerarPdfsTodos(previa, mes);
+    setMsg(n ? `${n} PDF(s) por operador gerado(s).` : "Nenhum operador na prévia.");
+  }
 
   const totais = previa?.totais || {};
   const recon = previa?.reconciliacao || {};
@@ -167,6 +174,7 @@ export default function FechamentoRemuneracao() {
           <>
             <button onClick={baixarSintetico} style={btn(false)}>⬇ Sintético (prévia)</button>
             <button onClick={baixarAnalitico} style={btn(false)}>⬇ Analítico (prévia)</button>
+            <button onClick={baixarPdfsPorOperador} style={btn(false)}>⬇ PDFs por operador</button>
           </>
         )}
       </div>
@@ -188,7 +196,7 @@ export default function FechamentoRemuneracao() {
       </nav>
 
       <div style={{ marginTop: 16 }}>
-        {aba === "previa" && <AbaPrevia previa={previa} />}
+        {aba === "previa" && <AbaPrevia previa={previa} mes={mes} />}
         {aba === "config" && <AbaConfig competencia={competencia} lanc={lanc} onChange={carregarPrevia} setErro={setErro} setMsg={setMsg} />}
         {aba === "premiacoes" && <AbaPremiacoes competencia={competencia} lanc={lanc} onChange={carregarPrevia} setErro={setErro} />}
         {aba === "ajustes" && <AbaAjustes competencia={competencia} lanc={lanc} onChange={carregarPrevia} setErro={setErro} />}
@@ -256,14 +264,14 @@ function Indicadores({ totais }) {
   );
 }
 
-function AbaPrevia({ previa }) {
+function AbaPrevia({ previa, mes }) {
   if (!previa) return <Vazio>Selecione a competência e clique em “Calcular prévia”.</Vazio>;
   const benef = (previa.beneficiarios || []).slice().sort((a, b) => Number(b.total_final) - Number(a.total_final));
   return (
     <div style={{ overflowX: "auto" }}>
       <table style={tbl}>
         <thead>
-          <tr>{["#", "Operador", "Valor fixo", "Pag.", "Recuperado", "Honorários", "Faixa", "%", "Comissão", "Premiações", "Bônus/Corr.", "Desc./Est.", "TOTAL FINAL", "Situação"].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
+          <tr>{["#", "Operador", "Valor fixo", "Pag.", "Recuperado", "Honorários", "Faixa", "%", "Comissão", "Premiações", "Bônus/Corr.", "Desc./Est.", "TOTAL FINAL", "Situação", "PDF"].map((h) => <th key={h} style={th}>{h}</th>)}</tr>
         </thead>
         <tbody>
           {benef.map((l, i) => (
@@ -282,6 +290,13 @@ function AbaPrevia({ previa }) {
               <td style={tdN}>{BRL(Number(l.descontos || 0) + Number(l.estornos || 0))}</td>
               <td style={{ ...tdN, fontWeight: 700 }}>{BRL(l.total_final)}</td>
               <td style={{ ...td, fontSize: 12 }}>{l.situacao}{!l.elegivel_comissao && " (não elegível)"}</td>
+              <td style={tdC}>
+                <button onClick={() => gerarPdfOperador(l, previa, mes)}
+                  title="Baixar PDF deste operador"
+                  style={{ cursor: "pointer", border: "1px solid #d1d5db", background: "#fff", borderRadius: 6, padding: "3px 8px", fontSize: 12 }}>
+                  ⬇ PDF
+                </button>
+              </td>
             </tr>
           ))}
         </tbody>
@@ -460,7 +475,7 @@ function AbaVersoes({ versoes }) {
 function numroP(v) {
   if (v == null || v === "") return 0;
   if (typeof v === "number") return v;
-  const s = String(v).trim().replace(/\./g, "").replace(",", ".").replace(/[^0-9.\-]/g, "");
+  const s = String(v).trim().replace(/\./g, "").replace(",", ".").replace(/[^0-9.-]/g, "");
   const n = Number(s);
   return Number.isFinite(n) ? n : 0;
 }
