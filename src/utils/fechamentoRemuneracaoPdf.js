@@ -74,14 +74,11 @@ function desenharOperador(doc, benef, previa, mes, logo) {
   y += 16;
   doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...BLUE);
   doc.text(String(benef.nome || benef.email || "-"), M, y);
-  y += 13;
-  doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...MUT);
-  doc.text(String(benef.email || ""), M, y);
-  y += 20;
+  y += 22;
 
-  // --- Resumo (KPIs pedidos: Recuperado / Faixa / Comissao / Total) ---
+  // --- Resumo: HONORÁRIOS em destaque (o que importa aqui) / Faixa / Comissão / Total ---
   const kpis = [
-    ["RECUPERADO", BR(benef.valor_recuperado)],
+    ["HONORÁRIOS", BR(benef.honorarios)],
     ["FAIXA DE REMUNERAÇÃO", String(benef.faixa || "-")],
     ["COMISSÃO", benef.comissao == null ? "—" : BR(benef.comissao)],
     ["TOTAL", BR(benef.total_final)],
@@ -89,11 +86,13 @@ function desenharOperador(doc, benef, previa, mes, logo) {
   const gap = 10, kw = (CW - 3 * gap) / 4, kh = 58;
   kpis.forEach((k, i) => {
     const x = M + i * (kw + gap);
-    doc.setFillColor(...(i === 3 ? SOFTBLUE : SOFT)); doc.roundedRect(x, y, kw, kh, 7, 7, "F");
-    doc.setFont("helvetica", "normal"); doc.setFontSize(6.5); doc.setTextColor(...MUT);
+    const destaque = i === 0 || i === 3; // honorários e total
+    doc.setFillColor(...(destaque ? SOFTBLUE : SOFT)); doc.roundedRect(x, y, kw, kh, 7, 7, "F");
+    if (i === 0) { doc.setDrawColor(...BLUE); doc.setLineWidth(1.2); doc.roundedRect(x, y, kw, kh, 7, 7, "S"); doc.setLineWidth(0.2); }
+    doc.setFont("helvetica", "bold"); doc.setFontSize(6.5); doc.setTextColor(...(i === 0 ? BLUE : MUT));
     doc.text(k[0], x + 9, y + 15);
     const val = doc.splitTextToSize(k[1], kw - 16);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(val[0].length > 14 ? 9.5 : 12.5); doc.setTextColor(...INK);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(val[0].length > 14 ? 9.5 : (i === 0 ? 14 : 12.5)); doc.setTextColor(...INK);
     doc.text(val[0], x + 9, y + 36);
     if (val[1]) { doc.setFontSize(8); doc.text(val[1], x + 9, y + 48); }
   });
@@ -111,7 +110,7 @@ function desenharOperador(doc, benef, previa, mes, logo) {
     y += 12;
     doc.text("Remuneração da gestão: " + PCT(benef.percentual) + " sobre o honorário total da empresa no mês.", M + 2, y);
     y += 13;
-    doc.text("Base do mês — Recuperado " + BR(benef.valor_recuperado) + " · Honorário " + BR(benef.honorarios), M + 2, y);
+    doc.text("Honorário total da empresa no mês (base): " + BR(benef.honorarios), M + 2, y);
     y += 20;
   } else if (!faixas.length) {
     y += 12;
@@ -156,37 +155,6 @@ function desenharOperador(doc, benef, previa, mes, logo) {
     }
     y += 8;
   }
-
-  // --- Composicao do total (detalhamento completo) ---
-  need(40);
-  doc.setFillColor(...BLUE); doc.rect(M, y - 9, 3, 13, "F");
-  doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...INK);
-  doc.text("Composição do total", M + 10, y); y += 12;
-  const linhas = [
-    ["Valor fixo (salário)", BR(benef.valor_fixo)],
-    ["Comissão", benef.comissao == null ? "—" : BR(benef.comissao)],
-    ["Premiações", BR(benef.premiacoes)],
-    ["Bônus", BR(benef.bonus)],
-    ["Correções", BR(benef.correcoes)],
-    ["Descontos", "- " + BR(benef.descontos)],
-    ["Estornos", "- " + BR(benef.estornos)],
-  ];
-  doc.setFontSize(9.5);
-  linhas.forEach((l, r) => {
-    need(16);
-    if (r % 2 === 1) { doc.setFillColor(...SOFT); doc.rect(M, y, CW, 15, "F"); }
-    doc.setFont("helvetica", "normal"); doc.setTextColor(...INK);
-    doc.text(l[0], M + 8, y + 11);
-    doc.text(l[1], PW - M - 8, y + 11, { align: "right" });
-    y += 15;
-  });
-  // Total final destacado
-  need(24);
-  doc.setFillColor(...SOFTBLUE); doc.roundedRect(M, y, CW, 22, 5, 5, "F");
-  doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...INK);
-  doc.text("TOTAL A RECEBER", M + 10, y + 15);
-  doc.text(BR(benef.total_final), PW - M - 10, y + 15, { align: "right" });
-  y += 30;
 
   // Rodape
   doc.setDrawColor(...LINE); doc.line(M, PH - 34, PW - M, PH - 34);
