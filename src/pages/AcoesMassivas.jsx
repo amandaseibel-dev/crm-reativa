@@ -193,23 +193,24 @@ export default function AcoesMassivas() {
         return;
       }
 
+      // A prévia NÃO retorna telefone/e-mail completos (anti-enumeração): vêm
+      // mascarados só pra exibição + flags tem_telefone/tem_email pra filtrar.
+      // Os contatos reais só são devolvidos por registrar_acao_massiva (gestão).
       let lista = (alunosBrutos || [])
-        .map((a) => {
-          const telFmt = normalizarTelefone(a.telefone);
-          return {
-            alunoId: a.id,
-            nome: a.nome || "-",
-            telefoneBruto: a.telefone || "",
-            telefoneFormatado: telFmt,
-            semTelefone: !telFmt,
-            email: (a.email || "").trim(),
-            valor: Number(a.valor || 0),
-            diasSemContato: a.data_ultimo_acionamento
-              ? Math.floor((Date.now() - new Date(a.data_ultimo_acionamento).getTime()) / 86400000)
-              : null,
-          };
-        })
-        .filter((l) => (canal === "WHATSAPP" ? !!l.telefoneFormatado : !!l.email)) // precisa do contato certo pro canal escolhido
+        .map((a) => ({
+          alunoId: a.id,
+          nome: a.nome || "-",                       // já mascarado no backend (ex.: "Ana ***")
+          telefoneMascarado: a.telefone_mascarado || "",
+          emailMascarado: a.email_mascarado || "",
+          temTelefone: !!a.tem_telefone,
+          temEmail: !!a.tem_email,
+          semTelefone: !a.tem_telefone,
+          valor: Number(a.valor || 0),
+          diasSemContato: a.data_ultimo_acionamento
+            ? Math.floor((Date.now() - new Date(a.data_ultimo_acionamento).getTime()) / 86400000)
+            : null,
+        }))
+        .filter((l) => (canal === "WHATSAPP" ? l.temTelefone : l.temEmail)) // precisa do contato certo pro canal escolhido
         .filter((l) => l.valor >= minEfetivo)
         .filter((l) => (max === null ? true : l.valor <= max));
 
@@ -263,26 +264,28 @@ export default function AcoesMassivas() {
       });
       if (erroReg) throw erroReg;
 
-      const idsRegistrados = new Set((reg?.ids_registrados || []).map(String));
       const excluidosEnvio = Number(reg?.excluidos_confirmacao || 0);
       setExcluidosNoEnvio(excluidosEnvio);
 
-      // 2) Gera o Excel APENAS com quem passou na revalidação. Assim, casos que
-      // entraram em confirmação depois da prévia jamais aparecem na planilha de
-      // envio (não recebem comunicação nem são contabilizados como envio).
-      const registrados = resultados.filter((r) => idsRegistrados.has(String(r.alunoId)));
+      // 2) Gera o Excel APENAS com quem passou na revalidação. Os contatos
+      // completos (nome/telefone/e-mail) vêm exclusivamente de registrar_acao_massiva
+      // (backend gestão-gated e auditado) — a prévia nunca os expõe. Casos que
+      // entraram em confirmação depois da prévia não aparecem aqui.
+      const contatos = reg?.contatos || [];
 
-      if (registrados.length > 0) {
-        const linhas = registrados.map((r) =>
-          canal === "WHATSAPP"
-            ? { "Nome do aluno": r.nome, Telefone: r.telefoneFormatado }
-            : { "Nome do aluno": r.nome, "E-mail": r.email, Telefone: r.telefoneFormatado || r.telefoneBruto || "" }
-        );
+      if (contatos.length > 0) {
+        const linhas = contatos.map((c) => {
+          const telFmt = normalizarTelefone(c.telefone);
+          return canal === "WHATSAPP"
+            ? { "Nome do aluno": c.nome, Telefone: telFmt }
+            : { "Nome do aluno": c.nome, "E-mail": (c.email || "").trim(), Telefone: telFmt || "" };
+        });
         const planilha = XLSX.utils.json_to_sheet(linhas);
         const livro = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(livro, planilha, "Ação Massiva");
         XLSX.writeFile(livro, nomeArquivo);
       }
+      const registrados = contatos;
 
       const retorno = new Date();
       retorno.setDate(retorno.getDate() + 10);
@@ -660,7 +663,7 @@ export default function AcoesMassivas() {
                   {resultados.map((r) => (
                     <tr key={r.alunoId}>
                       <td style={estilos.td}>{r.nome}</td>
-                      <td style={estilos.td}>{canal === "WHATSAPP" ? r.telefoneFormatado : (<>{r.email}{r.semTelefone && <span style={{ marginLeft: 6, background: "#fee2e2", color: "#b91c1c", borderRadius: 6, padding: "1px 6px", fontSize: 11, fontWeight: 800 }}>sem telefone</span>}</>)}</td>
+                      <td style={estilos.td}>{canal === "WHATSAPP" ? r.telefoneMascarado : (<>{r.emailMascarado}{r.semTelefone && <span style={{ marginLeft: 6, background: "#fee2e2", color: "#b91c1c", borderRadius: 6, padding: "1px 6px", fontSize: 11, fontWeight: 800 }}>sem telefone</span>}</>)}</td>
                       <td style={estilos.tdNum}>
                         {r.diasSemContato === null ? (
                           <span style={{ color: "#b91c1c", fontWeight: 800 }}>Nunca acionado</span>
