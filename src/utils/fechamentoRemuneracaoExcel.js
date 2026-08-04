@@ -135,22 +135,20 @@ export async function gerarExcelSintetico(previa, meta) {
   const wsResumo = wb.addWorksheet("RESUMO DA EQUIPE");
   let r = await montarCabecalho(wsResumo, wb, logoId, "Fechamento Mensal da Remuneracao", meta);
   const colsResumo = [
-    { titulo: "Pos.", largura: 6, valor: (l, i) => l.__pos, align: "center" },
-    { titulo: "Operador", largura: 24, valor: (l) => l.nome || l.email },
-    { titulo: "E-mail", largura: 26, valor: (l) => l.email },
-    { titulo: "Valor fixo", largura: 14, valor: (l) => nf(l.valor_fixo), fmt: FMT_MOEDA },
-    { titulo: "Pagamentos", largura: 12, valor: (l) => nf(l.qtd_pagamentos), align: "center" },
-    { titulo: "Valor recuperado", largura: 18, valor: (l) => nf(l.valor_recuperado), fmt: FMT_MOEDA },
-    { titulo: "Honorarios", largura: 16, valor: (l) => nf(l.honorarios), fmt: FMT_MOEDA },
-    { titulo: "Faixa", largura: 20, valor: (l) => l.faixa },
-    { titulo: "%", largura: 8, valor: (l) => nf(l.percentual), fmt: FMT_PCT, align: "center" },
-    { titulo: "Comissao", largura: 15, valor: (l) => (l.comissao == null ? "BLOQUEADO" : nf(l.comissao)), fmt: FMT_MOEDA },
-    { titulo: "Premiacoes", largura: 14, valor: (l) => nf(l.premiacoes), fmt: FMT_MOEDA },
-    { titulo: "Bonus/Correc.", largura: 14, valor: (l) => nf(l.bonus) + nf(l.correcoes), fmt: FMT_MOEDA },
-    { titulo: "Descontos/Est.", largura: 14, valor: (l) => nf(l.descontos) + nf(l.estornos), fmt: FMT_MOEDA },
-    { titulo: "TOTAL FINAL", largura: 16, valor: (l) => nf(l.total_final), fmt: FMT_MOEDA },
-    { titulo: "Falta p/ faixa", largura: 14, valor: (l) => (l.falta_proxima_faixa == null ? "" : nf(l.falta_proxima_faixa)), fmt: FMT_MOEDA },
-    { titulo: "Situacao", largura: 26, valor: (l) => l.situacao },
+    { titulo: "#", largura: 4, valor: (l, i) => l.__pos, align: "center" },
+    { titulo: "Operador", largura: 30, valor: (l) => l.nome || l.email },
+    { titulo: "Salario", largura: 12, valor: (l) => nf(l.valor_fixo), fmt: FMT_MOEDA },
+    { titulo: "Pag.", largura: 8, valor: (l) => nf(l.qtd_pagamentos), align: "center" },
+    { titulo: "Recuperado", largura: 15, valor: (l) => nf(l.valor_recuperado), fmt: FMT_MOEDA },
+    { titulo: "Honorarios", largura: 14, valor: (l) => nf(l.honorarios), fmt: FMT_MOEDA },
+    { titulo: "Faixa", largura: 15, valor: (l) => l.faixa },
+    { titulo: "%", largura: 6, valor: (l) => nf(l.percentual), fmt: FMT_PCT, align: "center" },
+    { titulo: "Comissao", largura: 13, valor: (l) => (l.comissao == null ? "BLOQUEADO" : nf(l.comissao)), fmt: FMT_MOEDA },
+    { titulo: "Premiacao", largura: 12, valor: (l) => nf(l.premiacoes), fmt: FMT_MOEDA },
+    { titulo: "Bonus/Cor.", largura: 11, valor: (l) => nf(l.bonus) + nf(l.correcoes), fmt: FMT_MOEDA },
+    { titulo: "Desc./Est.", largura: 11, valor: (l) => nf(l.descontos) + nf(l.estornos), fmt: FMT_MOEDA },
+    { titulo: "TOTAL", largura: 14, valor: (l) => nf(l.total_final), fmt: FMT_MOEDA },
+    { titulo: "Situacao", largura: 16, valor: (l) => l.situacao },
   ];
   const linhasResumo = benef
     .slice()
@@ -159,7 +157,7 @@ export async function gerarExcelSintetico(previa, meta) {
   escreverTabela(wsResumo, r, colsResumo, linhasResumo, {
     rodape,
     totais: [
-      "TOTAIS", "", "",
+      "TOTAIS", "",
       { valor: nf(totais.total_fixo), fmt: FMT_MOEDA },
       "",
       { valor: nf(totais.total_recuperado), fmt: FMT_MOEDA },
@@ -170,7 +168,7 @@ export async function gerarExcelSintetico(previa, meta) {
       { valor: nf(totais.total_bonus) + nf(totais.total_correcoes), fmt: FMT_MOEDA },
       { valor: nf(totais.total_desconto) + nf(totais.total_estorno), fmt: FMT_MOEDA },
       { valor: nf(totais.total_final), fmt: FMT_MOEDA },
-      "", "",
+      "",
     ],
   });
 
@@ -192,7 +190,7 @@ export async function gerarExcelSintetico(previa, meta) {
     };
     const tit = wsDem.getRow(dr++);
     wsDem.mergeCells(`A${tit.number}:D${tit.number}`);
-    tit.getCell(1).value = `${l.nome || l.email}  (${l.email})`;
+    tit.getCell(1).value = `${l.nome || l.email}`;
     tit.getCell(1).font = { bold: true, size: 13, color: { argb: AZUL } };
     put(l.nome_exibicao_fixo || "Valor fixo contratual", nf(l.valor_fixo), FMT_MOEDA);
     put("Producao recuperada", nf(l.valor_recuperado), FMT_MOEDA);
