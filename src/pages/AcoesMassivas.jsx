@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import BotaoAtualizar from "../components/BotaoAtualizar";
@@ -63,6 +63,10 @@ export default function AcoesMassivas() {
   const [valorMax, setValorMax] = useState("");
   const [quantidade, setQuantidade] = useState("100");
   const [anoVencimento, setAnoVencimento] = useState("");
+  const [unidade, setUnidade] = useState("");
+  const [curso, setCurso] = useState("");
+  const [opcoesUnidade, setOpcoesUnidade] = useState([]);
+  const [opcoesCurso, setOpcoesCurso] = useState([]);
   const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
   const [apenasNuncaAcionado, setApenasNuncaAcionado] = useState(false);
   const [soSemTelefone, setSoSemTelefone] = useState(false);
@@ -75,6 +79,11 @@ export default function AcoesMassivas() {
   const [porDia, setPorDia] = useState([]);
   const [saude, setSaude] = useState(null);
   const [retornos, setRetornos] = useState(null);
+  // REGRA ABSOLUTA: casos em confirmação de pagamento nunca entram. A prévia os
+  // devolve à parte (lista mascarada) só para transparência — eles não são elegíveis.
+  const [excluidosConfirmacao, setExcluidosConfirmacao] = useState([]);
+  const [mostrarExcluidos, setMostrarExcluidos] = useState(false);
+  const [excluidosNoEnvio, setExcluidosNoEnvio] = useState(0);
 
   // SOB DEMANDA: o painel analítico (saúde/retornos/por dia/elegíveis) não
   // carrega sozinho. Só roda no clique de Atualizar painel. A busca e a geração
@@ -98,6 +107,15 @@ export default function AcoesMassivas() {
       setCarregandoPainel(false);
     }
   }
+
+  // Opções dos filtros de unidade/modalidade — carregadas uma vez na montagem.
+  useEffect(() => {
+    (async () => {
+      const { data } = await supabase.rpc("acoes_massivas_filtros");
+      setOpcoesUnidade(data?.unidades || []);
+      setOpcoesCurso(data?.cursos || []);
+    })();
+  }, []);
 
   async function carregarSaude() {
     const { data } = await supabase.rpc("saude_da_base");
@@ -141,23 +159,33 @@ export default function AcoesMassivas() {
 
     setCarregando(true);
     setResultados(null);
+    setExcluidosConfirmacao([]);
+    setMostrarExcluidos(false);
+    setExcluidosNoEnvio(0);
 
     try {
-      // Busca os candidatos direto no banco (funcao SQL, ja traz o valor
-      // junto), evitando montar uma lista gigante de IDs na URL da
-      // requisicao (que estourava o limite e dava "bad request").
-      const { data: alunosBrutos, error: erroAlunos } = await supabase.rpc(
-        "buscar_candidatos_acoes_massivas",
+      // Busca a prévia direto no banco (funcao SQL, ja traz o valor junto),
+      // evitando montar uma lista gigante de IDs na URL da requisicao.
+      //
+      // A prévia já separa, no backend, os casos em CONFIRMAÇÃO DE PAGAMENTO:
+      // eles vêm em `excluidos_confirmacao` (mascarados) e NUNCA em `elegiveis`.
+      const { data: previa, error: erroAlunos } = await supabase.rpc(
+        "acoes_massivas_previa",
         {
           p_ano_vencimento: anoVencimento || null,
           p_limite: Math.min(qtd * 3, 6000),
           p_dias_minimo_sem_contato: diasMinimoSemContato ? Number(diasMinimoSemContato) : null,
           p_apenas_nunca_acionado: apenasNuncaAcionado,
+          p_unidade: unidade || null,
+          p_curso: curso || null,
         }
       );
       if (erroAlunos) throw erroAlunos;
 
-      if (!alunosBrutos || alunosBrutos.length === 0) {
+      setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
+
+      const alunosBrutos = previa?.elegiveis || [];
+      if (alunosBrutos.length === 0) {
         setResultados([]);
         setCarregando(false);
         return;
@@ -205,22 +233,9 @@ export default function AcoesMassivas() {
     setGerando(true);
     setErro("");
     setSucesso("");
+    setExcluidosNoEnvio(0);
 
     try {
-      // 1) Gera o Excel com as colunas certas pro canal escolhido.
-      const linhas = resultados.map((r) =>
-        canal === "WHATSAPP"
-          ? { "Nome do aluno": r.nome, Telefone: r.telefoneFormatado }
-          : { "Nome do aluno": r.nome, "E-mail": r.email, Telefone: r.telefoneFormatado || r.telefoneBruto || "" }
-      );
-      const planilha = XLSX.utils.json_to_sheet(linhas);
-      const livro = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(livro, planilha, "Ação Massiva");
-      const nomeArquivo = `acao-massiva-${canal.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`;
-      XLSX.writeFile(livro, nomeArquivo);
-
-      // 2) Registra a acao no sistema pra cada aluno: fica marcado que foi
-      // estimulado por fora, com retorno agendado pra 10 dias.
       const { data: userData } = await supabase.auth.getUser();
       const email = userData?.user?.email || "";
       const { data: perfil } = await supabase
@@ -230,40 +245,55 @@ export default function AcoesMassivas() {
         .maybeSingle();
       const nomeUsuario = perfil?.nome || email;
 
-      const agora = new Date();
-      const retorno = new Date(agora);
-      retorno.setDate(retorno.getDate() + 10);
-      const retornoISO = retorno.toISOString().slice(0, 10);
+      const nomeArquivo = `acao-massiva-${canal.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
-      let falhas = 0;
-      for (const r of resultados) {
-        const { error: erroUpdate } = await supabase
-          .from("alunos")
-          .update({
-            data_retorno: retornoISO,
-            status_acionamento: "Ação massiva externa enviada — aguardando retorno",
-            data_ultimo_acionamento: agora.toISOString(),
-          })
-          .eq("id", r.alunoId);
+      // 1) REVALIDA E REGISTRA no backend (fonte única de verdade). A RPC
+      // recheca, aluno por aluno, se entrou em CONFIRMAÇÃO DE PAGAMENTO depois
+      // da prévia; quem entrou é removido aqui — sem update, sem movimentação,
+      // sem perder operador, sem contar como envio. Devolve só os ids que
+      // realmente foram registrados.
+      const { data: reg, error: erroReg } = await supabase.rpc("registrar_acao_massiva", {
+        p_aluno_ids: resultados.map((r) => String(r.alunoId)),
+        p_canal: canal,
+        p_arquivo: nomeArquivo,
+        p_registrado_por_nome: nomeUsuario,
+        p_registrado_por_email: email,
+      });
+      if (erroReg) throw erroReg;
 
-        const { error: erroMov } = await supabase.from("aluno_movimentacoes").insert({
-          aluno_id: String(r.alunoId),
-          tipo: canal === "WHATSAPP" ? "ACAO_MASSIVA_EXTERNA" : "ACAO_MASSIVA_EXTERNA_EMAIL",
-          descricao: `Ação de estímulo enviada por fora do CRM via ${canal === "WHATSAPP" ? "WhatsApp" : "e-mail"} (planilha ${nomeArquivo}), sem operador vinculado. Retorno agendado para ${retorno.toLocaleDateString("pt-BR")}.`,
-          registrado_por_nome: nomeUsuario,
-          registrado_por_email: email,
-          registrado_em: agora.toISOString(),
-        });
+      const idsRegistrados = new Set((reg?.ids_registrados || []).map(String));
+      const excluidosEnvio = Number(reg?.excluidos_confirmacao || 0);
+      setExcluidosNoEnvio(excluidosEnvio);
 
-        if (erroUpdate || erroMov) falhas += 1;
+      // 2) Gera o Excel APENAS com quem passou na revalidação. Assim, casos que
+      // entraram em confirmação depois da prévia jamais aparecem na planilha de
+      // envio (não recebem comunicação nem são contabilizados como envio).
+      const registrados = resultados.filter((r) => idsRegistrados.has(String(r.alunoId)));
+
+      if (registrados.length > 0) {
+        const linhas = registrados.map((r) =>
+          canal === "WHATSAPP"
+            ? { "Nome do aluno": r.nome, Telefone: r.telefoneFormatado }
+            : { "Nome do aluno": r.nome, "E-mail": r.email, Telefone: r.telefoneFormatado || r.telefoneBruto || "" }
+        );
+        const planilha = XLSX.utils.json_to_sheet(linhas);
+        const livro = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(livro, planilha, "Ação Massiva");
+        XLSX.writeFile(livro, nomeArquivo);
       }
 
-      if (falhas > 0) {
-        setSucesso(
-          `Planilha gerada e ${resultados.length - falhas} de ${resultados.length} registrados. ${falhas} tiveram erro ao registrar (confira o console).`
-        );
+      const retorno = new Date();
+      retorno.setDate(retorno.getDate() + 10);
+      const sufixoExcluidos = excluidosEnvio > 0
+        ? ` ${excluidosEnvio} caso(s) foram removidos na revalidação por entrarem em confirmação de pagamento.`
+        : "";
+
+      if (registrados.length === 0) {
+        setSucesso(`Nenhum caso registrado.${sufixoExcluidos}`);
       } else {
-        setSucesso(`Planilha gerada e ${resultados.length} aluno(s) registrados com retorno agendado para ${retorno.toLocaleDateString("pt-BR")}.`);
+        setSucesso(
+          `Planilha gerada e ${registrados.length} aluno(s) registrados com retorno agendado para ${retorno.toLocaleDateString("pt-BR")}.${sufixoExcluidos}`
+        );
       }
       carregarProgresso();
       carregarPorDia();
@@ -470,6 +500,32 @@ export default function AcoesMassivas() {
             </select>
           </div>
           <div style={estilos.campo}>
+            <label style={estilos.label}>Unidade</label>
+            <select
+              style={estilos.input}
+              value={unidade}
+              onChange={(e) => setUnidade(e.target.value)}
+            >
+              <option value="">Todas as unidades</option>
+              {opcoesUnidade.map((u) => (
+                <option key={u} value={u}>{u}</option>
+              ))}
+            </select>
+          </div>
+          <div style={estilos.campo}>
+            <label style={estilos.label}>Modalidade (curso)</label>
+            <select
+              style={estilos.input}
+              value={curso}
+              onChange={(e) => setCurso(e.target.value)}
+            >
+              <option value="">Todas as modalidades</option>
+              {opcoesCurso.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div style={estilos.campo}>
             <label style={estilos.label}>Dias mínimo sem contato</label>
             <input
               style={estilos.input}
@@ -512,6 +568,49 @@ export default function AcoesMassivas() {
           {carregando ? "Buscando..." : "Buscar prévia"}
         </button>
       </div>
+
+      {resultados && excluidosConfirmacao.length > 0 && (
+        <div style={{ ...estilos.card, background: "#fff7ed", borderColor: "#fed7aa", marginBottom: 12 }}>
+          <button
+            onClick={() => setMostrarExcluidos((v) => !v)}
+            style={{
+              background: "none", border: "none", cursor: "pointer", padding: 0,
+              display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
+            }}
+          >
+            <span style={{ fontFamily: FONTE_TITULO, fontSize: 14, fontWeight: 800, color: "#9a3412" }}>
+              🔒 Excluídos por confirmação de pagamento: {excluidosConfirmacao.length}
+            </span>
+            <span style={{ color: "#c2410c", fontSize: 12.5, fontWeight: 700 }}>
+              {mostrarExcluidos ? "▲ ocultar" : "▼ ver relação"}
+            </span>
+          </button>
+          <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "#9a3412" }}>
+            Casos aguardando confirmação financeira. Não entram como elegíveis, não recebem comunicação
+            e não são contabilizados como envio.
+          </p>
+          {mostrarExcluidos && (
+            <div style={{ overflowX: "auto", maxHeight: 260, overflowY: "auto", marginTop: 12 }}>
+              <table style={estilos.tabela}>
+                <thead>
+                  <tr>
+                    <th style={estilos.th}>Aluno (mascarado)</th>
+                    <th style={estilos.th}>Motivo</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {excluidosConfirmacao.map((e, i) => (
+                    <tr key={i}>
+                      <td style={estilos.td}>{e.aluno}</td>
+                      <td style={estilos.td}>{e.motivo}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
 
       {resultados && (
         <div style={estilos.card}>
