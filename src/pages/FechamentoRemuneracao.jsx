@@ -5,8 +5,10 @@
 // Gera relatorios Excel (sintetico + analitico) com a logo oficial da Reativa.
 // ============================================================================
 import { useState, useCallback, useMemo } from "react";
+import * as XLSX from "xlsx";
 import { supabase } from "../supabaseClient";
 import { gerarExcelSintetico, gerarExcelAnalitico } from "../utils/fechamentoRemuneracaoExcel";
+import { emailPorNomeOperador, nomeOperadorPorEmail } from "../utils/operadores";
 
 const BRL = (v) =>
   Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -38,6 +40,7 @@ const TABS = [
   ["premiacoes", "Premiações"],
   ["ajustes", "Ajustes"],
   ["reconciliacao", "Reconciliação"],
+  ["conferencia", "Conferência Prime"],
   ["versoes", "Fechamentos anteriores"],
 ];
 
@@ -171,6 +174,7 @@ export default function FechamentoRemuneracao() {
         {aba === "premiacoes" && <AbaPremiacoes competencia={competencia} lanc={lanc} onChange={carregarPrevia} setErro={setErro} />}
         {aba === "ajustes" && <AbaAjustes competencia={competencia} lanc={lanc} onChange={carregarPrevia} setErro={setErro} />}
         {aba === "reconciliacao" && <AbaReconciliacao previa={previa} />}
+        {aba === "conferencia" && <AbaConferenciaPrime competencia={competencia} mes={mes} />}
         {aba === "versoes" && <AbaVersoes versoes={versoes} />}
       </div>
     </div>
@@ -425,6 +429,287 @@ function AbaVersoes({ versoes }) {
         ))}
       </tbody>
     </table>
+  );
+}
+
+// ============================================================================
+// Aba Conferência Prime (Ulbra) x Sistema — valida os VALORES parcela a parcela.
+// Amanda exporta o relatório de pagamentos do Prime (mesmo layout Santander) e
+// o sistema aponta divergências. Não altera nada; operador exibido é o do
+// sistema. Chave = numero_parcela_completo (coluna E do extrato).
+// ============================================================================
+function numroP(v) {
+  if (v == null || v === "") return 0;
+  if (typeof v === "number") return v;
+  const s = String(v).trim().replace(/\./g, "").replace(",", ".").replace(/[^0-9.\-]/g, "");
+  const n = Number(s);
+  return Number.isFinite(n) ? n : 0;
+}
+function dataISOprime(v) {
+  if (!v) return null;
+  if (v instanceof Date) return v.toISOString().slice(0, 10);
+  if (typeof v === "number") { const d = XLSX.SSF.parse_date_code(v); return d ? `${d.y}-${String(d.m).padStart(2, "0")}-${String(d.d).padStart(2, "0")}` : null; }
+  if (typeof v === "string" && v.includes("/")) { const [dia, m, a] = v.split("/"); return `${a}-${String(m).padStart(2, "0")}-${String(dia).padStart(2, "0")}`; }
+  return null;
+}
+// Layout Santander por posição: B(1) "matríc - nome" | C(2) título | D(3)
+// operador NOME.SOBRENOME | E(4) parcela | I(8) honorário | J(9) data pagto | K(10) valor pago
+function parsePrime(rows, mesRef) {
+  const out = [];
+  for (const r of rows) {
+    const parcela = r[4] != null ? String(r[4]).trim() : "";
+    if (!parcela) continue;
+    const dISO = dataISOprime(r[9]);
+    if (mesRef && dISO && dISO.slice(0, 7) !== mesRef) continue; // ignora linhas de outro mês
+    let aluno = String(r[1] || "");
+    const partes = aluno.split(" - ");
+    if (partes.length > 1) aluno = partes.slice(1).join(" - ").trim();
+    const primeiroNome = String(r[3] || "").split(".")[0];
+    const email = emailPorNomeOperador(primeiroNome);
+    out.push({
+      parcela,
+      titulo: r[2] != null ? String(r[2]).trim() : null,
+      valor_pago: numroP(r[10]),
+      valor_honorario: numroP(r[8]),
+      operador_email: email || null,
+      operador_nome: email ? nomeOperadorPorEmail(email) : (String(r[3] || "").trim() || null),
+      aluno_nome: aluno || null,
+    });
+  }
+  return out;
+}
+
+function AbaConferenciaPrime({ competencia, mes }) {
+  const [linhas, setLinhas] = useState(null);
+  const [arquivo, setArquivo] = useState("");
+  const [res, setRes] = useState(null);
+  const [hist, setHist] = useState([]);
+  const [erroC, setErroC] = useState("");
+  const [msgC, setMsgC] = useState("");
+  const [rodando, setRodando] = useState(false);
+
+  const carregarHist = useCallback(async () => {
+    const { data } = await supabase.rpc("fechamento_conferencia_listar", { p_competencia: competencia });
+    setHist(data || []);
+  }, [competencia]);
+
+  async function aoEscolher(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErroC(""); setMsgC(""); setRes(null); setLinhas(null);
+    setArquivo(file.name);
+    try {
+      const buf = await file.arrayBuffer();
+      const wb = XLSX.read(buf, { type: "array", cellDates: true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
+      const parsed = parsePrime(rows, mes);
+      if (!parsed.length) { setErroC("Não encontrei linhas de pagamento nesse arquivo. Confirme que é o relatório de pagamentos do Prime (layout Santander) do mês selecionado."); return; }
+      setLinhas(parsed);
+      const vp = parsed.reduce((a, x) => a + x.valor_pago, 0);
+      const vh = parsed.reduce((a, x) => a + x.valor_honorario, 0);
+      setMsgC(`Arquivo lido: ${parsed.length.toLocaleString("pt-BR")} pagamentos · valor pago ${BRL(vp)} · honorário ${BRL(vh)}. Clique em "Rodar conferência".`);
+    } catch (err) {
+      setErroC("Erro ao ler a planilha: " + err.message);
+    }
+  }
+
+  async function rodar() {
+    if (!linhas) return;
+    setRodando(true); setErroC(""); setMsgC("");
+    try {
+      const { data, error } = await supabase.rpc("fechamento_conferir_prime", {
+        p_competencia: competencia, p_arquivo_nome: arquivo, p_linhas: linhas,
+      });
+      if (error) throw error;
+      setRes(data);
+      carregarHist();
+    } catch (err) {
+      setErroC(err.message || "Falha ao rodar a conferência.");
+    } finally {
+      setRodando(false);
+    }
+  }
+
+  function baixarExcel() {
+    if (!res) return;
+    const wb = XLSX.utils.book_new();
+    const t = res.totais || {};
+    const resumo = [
+      ["Conferência Prime × Sistema", ""],
+      ["Competência", res.competencia],
+      ["Arquivo Prime", res.arquivo_nome || ""],
+      ["Resultado", res.bateu ? "BATEU (exato)" : "COM DIVERGÊNCIAS"],
+      ["", ""],
+      ["", "Prime", "Sistema", "Diferença (Sist - Prime)"],
+      ["Valor pago", t.prime_valor, t.sistema_valor, t.diff_valor],
+      ["Honorário", t.prime_honorario, t.sistema_honorario, t.diff_honorario],
+      ["Qtd pagamentos", res.qtd_prime, res.qtd_sistema, ""],
+      ["", "", "", ""],
+      ["Só no Prime (sistema a menor)", res.qtd_so_prime],
+      ["Só no sistema (sistema a maior)", res.qtd_so_sistema],
+      ["Valor divergente", res.qtd_divergente],
+    ];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(resumo), "Resumo");
+    const opRows = (res.resumo_por_operador || []).map((o) => ({
+      Operador: o.operador_nome || o.operador_email, "Prime valor": o.prime_valor, "Sistema valor": o.sistema_valor,
+      "Dif valor": o.diff_valor, "Prime honor.": o.prime_honorario, "Sistema honor.": o.sistema_honorario,
+      "Dif honor.": o.diff_honorario, Bateu: o.bateu ? "OK" : "DIVERGE",
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(opRows), "Por operador");
+    const mapDiv = (a) => (a || []).map((d) => ({
+      Parcela: d.parcela, Título: d.titulo, Aluno: d.aluno_nome, Operador: d.operador_nome || d.operador_email,
+      "Prime valor pago": d.prime_valor_pago, "Sistema valor pago": d.sistema_valor_pago, "Dif valor": d.diff_valor_pago,
+      "Prime honor.": d.prime_honorario, "Sistema honor.": d.sistema_honorario, "Dif honor.": d.diff_honorario,
+    }));
+    const mapSo = (a) => (a || []).map((d) => ({
+      Parcela: d.parcela, Título: d.titulo, Aluno: d.aluno_nome, Operador: d.operador_nome || d.operador_email,
+      "Valor pago": d.valor_pago, Honorário: d.valor_honorario, Qtd: d.qtd,
+    }));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mapSo(res.so_no_prime)), "Só no Prime");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mapSo(res.so_no_sistema)), "Só no sistema");
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(mapDiv(res.divergentes)), "Valor diferente");
+    const buf = XLSX.write(wb, { type: "array", bookType: "xlsx" });
+    baixarBuffer(buf, `Conferencia_Prime_${(res.competencia || mes).replace("-", "_")}.xlsx`);
+  }
+
+  const t = res?.totais || {};
+  return (
+    <div>
+      <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 16 }}>
+        <p style={{ margin: "0 0 10px", fontSize: 13, color: "#374151" }}>
+          Exporte o relatório de pagamentos do <b>Prime (Ulbra)</b> do mês <b>{mes}</b> e carregue aqui.
+          O sistema confere <b>valor pago</b> e <b>honorário</b>, parcela a parcela. Nada é alterado — apenas aponta divergências.
+          O operador exibido é sempre o do sistema.
+        </p>
+        <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
+          <input type="file" accept=".xlsx,.xls" onChange={aoEscolher} />
+          <button onClick={rodar} disabled={!linhas || rodando} style={btn(true)}>
+            {rodando ? "Conferindo…" : "Rodar conferência"}
+          </button>
+          {res && <button onClick={baixarExcel} style={btn(false)}>⬇ Excel de divergências</button>}
+          <button onClick={carregarHist} style={{ ...btn(false), padding: "6px 12px" }}>Ver histórico</button>
+        </div>
+      </div>
+
+      {erroC && <Aviso cor="#b91c1c" bg="#fee2e2">{erroC}</Aviso>}
+      {msgC && <Aviso cor="#065f46" bg="#d1fae5">{msgC}</Aviso>}
+
+      {res && (
+        <>
+          <div style={{
+            marginTop: 16, padding: "14px 18px", borderRadius: 12, fontWeight: 700,
+            background: res.bateu ? "#dcfce7" : "#fef2f2", color: res.bateu ? "#166534" : "#991b1b",
+            border: `1px solid ${res.bateu ? "#86efac" : "#fecaca"}`,
+          }}>
+            {res.bateu
+              ? "✅ BATEU — todos os valores do sistema conferem exatamente com o Prime."
+              : `⚠️ DIVERGÊNCIAS: ${res.qtd_so_prime} só no Prime · ${res.qtd_so_sistema} só no sistema · ${res.qtd_divergente} com valor diferente.`}
+            <div style={{ fontWeight: 500, fontSize: 13, marginTop: 6 }}>
+              Diferença total — valor pago: <b>{BRL(t.diff_valor)}</b> · honorário: <b>{BRL(t.diff_honorario)}</b>
+              &nbsp;(positivo = sistema a maior; negativo = sistema a menor)
+            </div>
+          </div>
+
+          <table style={{ ...tbl, marginTop: 16 }}>
+            <thead><tr>{["", "Prime", "Sistema", "Diferença"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              <tr><td style={td}>Valor pago</td><td style={tdN}>{BRL(t.prime_valor)}</td><td style={tdN}>{BRL(t.sistema_valor)}</td><td style={tdN}>{BRL(t.diff_valor)}</td></tr>
+              <tr><td style={td}>Honorário</td><td style={tdN}>{BRL(t.prime_honorario)}</td><td style={tdN}>{BRL(t.sistema_honorario)}</td><td style={tdN}>{BRL(t.diff_honorario)}</td></tr>
+              <tr><td style={td}>Pagamentos</td><td style={tdN}>{res.qtd_prime}</td><td style={tdN}>{res.qtd_sistema}</td><td style={tdN}>{res.qtd_sistema - res.qtd_prime}</td></tr>
+            </tbody>
+          </table>
+
+          <TabelaConf titulo="Resumo por operador (só valores)" cols={[
+            ["operador", "Operador"], ["pv", "Prime valor", BRL], ["sv", "Sistema valor", BRL], ["dv", "Dif valor", BRL],
+            ["ph", "Prime honor.", BRL], ["sh", "Sistema honor.", BRL], ["dh", "Dif honor.", BRL], ["ok", "Bateu"],
+          ]} linhas={(res.resumo_por_operador || []).map((o, i) => ({
+            id: i, operador: o.operador_nome || o.operador_email, pv: o.prime_valor, sv: o.sistema_valor, dv: o.diff_valor,
+            ph: o.prime_honorario, sh: o.sistema_honorario, dh: o.diff_honorario, ok: o.bateu ? "✅" : "⚠️",
+          }))} />
+
+          <DivBloco titulo={`Só no Prime — sistema está a MENOR (${res.qtd_so_prime})`} itens={res.so_no_prime} tipo="so" />
+          <DivBloco titulo={`Só no sistema — sistema está a MAIOR (${res.qtd_so_sistema})`} itens={res.so_no_sistema} tipo="so" />
+          <DivBloco titulo={`Valor diferente — mesma parcela, valores divergem (${res.qtd_divergente})`} itens={res.divergentes} tipo="div" />
+        </>
+      )}
+
+      {hist.length > 0 && (
+        <div style={{ marginTop: 28 }}>
+          <h4>Histórico de conferências</h4>
+          <table style={tbl}>
+            <thead><tr>{["Competência", "Rodada em", "Por", "Arquivo", "Resultado", "Só Prime", "Só sistema", "Divergente", "Dif valor", "Dif honor."].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+            <tbody>
+              {hist.map((h) => (
+                <tr key={h.id}>
+                  <td style={td}>{h.competencia}</td>
+                  <td style={td}>{h.criado_em ? new Date(h.criado_em).toLocaleString("pt-BR") : "—"}</td>
+                  <td style={td}>{h.criado_por}</td>
+                  <td style={td}>{h.arquivo_nome || "—"}</td>
+                  <td style={tdC}>{h.bateu ? "✅ Bateu" : "⚠️ Diverge"}</td>
+                  <td style={tdN}>{h.qtd_so_prime}</td><td style={tdN}>{h.qtd_so_sistema}</td><td style={tdN}>{h.qtd_divergente}</td>
+                  <td style={tdN}>{BRL(h.diff_valor)}</td><td style={tdN}>{BRL(h.diff_honorario)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function TabelaConf({ titulo, cols, linhas }) {
+  if (!linhas?.length) return null;
+  return (
+    <div style={{ marginTop: 20, overflowX: "auto" }}>
+      <h4>{titulo}</h4>
+      <table style={tbl}>
+        <thead><tr>{cols.map(([, t]) => <th key={t} style={th}>{t}</th>)}</tr></thead>
+        <tbody>
+          {linhas.map((l) => (
+            <tr key={l.id}>{cols.map(([c, , fmt]) => <td key={c} style={typeof l[c] === "number" || fmt === BRL ? tdN : td}>{fmt ? fmt(l[c]) : String(l[c] ?? "")}</td>)}</tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function DivBloco({ titulo, itens, tipo }) {
+  if (!itens?.length) return <p style={{ color: "#16a34a", marginTop: 16, fontSize: 13 }}>✅ {titulo} — nenhuma.</p>;
+  const amostra = itens.slice(0, 200);
+  return (
+    <div style={{ marginTop: 20, overflowX: "auto" }}>
+      <h4 style={{ color: "#b91c1c" }}>{titulo}</h4>
+      <table style={tbl}>
+        <thead><tr>
+          {["Parcela", "Título", "Aluno", "Operador"].map((h) => <th key={h} style={th}>{h}</th>)}
+          {tipo === "div"
+            ? ["Prime pago", "Sist. pago", "Dif pago", "Prime honor.", "Sist. honor.", "Dif honor."].map((h) => <th key={h} style={th}>{h}</th>)
+            : ["Valor pago", "Honorário", "Qtd"].map((h) => <th key={h} style={th}>{h}</th>)}
+        </tr></thead>
+        <tbody>
+          {amostra.map((d, i) => (
+            <tr key={i}>
+              <td style={td}>{d.parcela}</td><td style={td}>{d.titulo}</td><td style={td}>{d.aluno_nome}</td>
+              <td style={td}>{d.operador_nome || d.operador_email || "—"}</td>
+              {tipo === "div" ? (
+                <>
+                  <td style={tdN}>{BRL(d.prime_valor_pago)}</td><td style={tdN}>{BRL(d.sistema_valor_pago)}</td><td style={tdN}>{BRL(d.diff_valor_pago)}</td>
+                  <td style={tdN}>{BRL(d.prime_honorario)}</td><td style={tdN}>{BRL(d.sistema_honorario)}</td><td style={tdN}>{BRL(d.diff_honorario)}</td>
+                </>
+              ) : (
+                <>
+                  <td style={tdN}>{BRL(d.valor_pago)}</td><td style={tdN}>{BRL(d.valor_honorario)}</td><td style={tdN}>{d.qtd}</td>
+                </>
+              )}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {itens.length > amostra.length && <p style={{ color: "#6b7280", fontSize: 12 }}>Mostrando 200 de {itens.length}. Baixe o Excel para a lista completa.</p>}
+    </div>
   );
 }
 
