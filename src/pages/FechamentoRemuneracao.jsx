@@ -20,6 +20,21 @@ function competenciaAtual() {
 }
 const primeiroDia = (mes) => `${mes}-01`;
 
+// Lista de competências para o seletor (dropdown), do mês atual para trás.
+// Substitui o <input type="month"> nativo, cujo widget do navegador dificultava
+// escolher meses anteriores (junho/julho).
+function mesesOpcoes(qtd = 24) {
+  const hoje = new Date();
+  const arr = [];
+  for (let i = 0; i < qtd; i++) {
+    const d = new Date(hoje.getFullYear(), hoje.getMonth() - i, 1);
+    const val = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    const label = d.toLocaleDateString("pt-BR", { month: "long", year: "numeric" });
+    arr.push([val, label]);
+  }
+  return arr;
+}
+
 function baixarBuffer(buffer, nome) {
   const blob = new Blob([buffer], {
     type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -137,8 +152,12 @@ export default function FechamentoRemuneracao() {
       <div style={{ display: "flex", gap: 12, alignItems: "flex-end", marginTop: 16, flexWrap: "wrap" }}>
         <label style={{ display: "flex", flexDirection: "column", fontSize: 13 }}>
           Competência (mês)
-          <input type="month" value={mes} onChange={(e) => setMes(e.target.value)}
-            style={{ padding: 8, borderRadius: 8, border: "1px solid #d1d5db" }} />
+          <select value={mes} onChange={(e) => setMes(e.target.value)}
+            style={{ padding: 8, borderRadius: 8, border: "1px solid #d1d5db", minWidth: 180, textTransform: "capitalize" }}>
+            {mesesOpcoes().map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
         </label>
         <button onClick={carregarPrevia} disabled={carregando}
           style={btn(true)}>
