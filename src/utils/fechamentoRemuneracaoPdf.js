@@ -116,13 +116,15 @@ function desenharOperador(doc, benef, previa, mes, logo) {
 
   // ---- Faixas de honorário (chips horizontais) ----
   const faixas = faixasDoMes(previa);
-  const ehGestao = String(benef.regra_comissao || "") === "percentual_total_honorario";
+  const regra = String(benef.regra_comissao || "");
+  const ehGestao = regra === "percentual_total_honorario";
+  const regraFixa = regra === "percentual_fixo"; // ex.: Amanda ADM (8% fixo)
   const titulo = (t) => {
     doc.setFillColor(...BLUE); doc.roundedRect(M, y - 9, 3.5, 13, 1, 1, "F");
     doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...INK);
     doc.text(t, M + 11, y);
   };
-  titulo("Faixas de comissão do mês");
+  titulo(ehGestao || regraFixa ? "Remuneração do mês" : "Faixas de comissão do mês");
   y += 14;
 
   if (ehGestao) {
@@ -131,6 +133,13 @@ function desenharOperador(doc, benef, previa, mes, logo) {
     doc.text(PCT(benef.percentual) + " sobre o honorário total da empresa", M + 16, y + 19);
     doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...MUT);
     doc.text("Base do mês: " + BR(benef.honorarios), M + 16, y + 33);
+    y += 42 + 14;
+  } else if (regraFixa) {
+    doc.setFillColor(...SOFTBLUE); doc.roundedRect(M, y, CW, 42, 9, 9, "F");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...BLUE);
+    doc.text(PCT(benef.percentual) + " fixo sobre o honorário (sem faixas)", M + 16, y + 19);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...MUT);
+    doc.text("Honorário do mês: " + BR(benef.honorarios), M + 16, y + 33);
     y += 42 + 14;
   } else if (!faixas.length) {
     doc.setFillColor(...SOFT); doc.roundedRect(M, y, CW, 30, 8, 8, "F");
