@@ -214,5 +214,5 @@ insert into public.fechamento_remuneracao_config
    valor_fixo, elegivel_comissao, regra_comissao, percentual_fixo, elegivel_premiacao, observacao, criado_por)
 values
   ('2026-07-01','cobranca13@aelbra.com.br','DIEGO','contratual','Valor fixo contratual',
-   0, true, 'percentual_fixo', 5, true, 'Ajuste julho/2026: Diego 5% sobre honorario (decisao Amanda 2026-08-04)', 'amanda.seibel@aelbra.com.br')
+   0, true, 'percentual_fixo', 6, true, 'Ajuste julho/2026: Diego 6% sobre honorario (decisao Amanda 2026-08-04)', 'amanda.seibel@aelbra.com.br')
 on conflict do nothing;
