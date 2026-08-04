@@ -10,6 +10,7 @@ import LinksPagamentoAluno from "./LinksPagamentoAluno";
 import FinalizacaoTermo from "./FinalizacaoTermo";
 import EnvioFinanceiro from "./EnvioFinanceiro";
 import FinanceiroAluno from "./FinanceiroAluno";
+import DadosAcademicos from "./DadosAcademicos";
 import ConfirmarPagamento from "./ConfirmarPagamento";
 import CadastroNovoAluno from "./CadastroNovoAluno";
 import VisaoGeralCarteira from "./VisaoGeralCarteira";
@@ -2499,6 +2500,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 </div>
               </div>
               <button style={S.btnFechar} onClick={fecharModal} aria-label="Fechar">✕</button>
+            </div>
+
+            <div style={{ padding: "0 16px" }}>
+              <DadosAcademicos aluno={alunoModal} />
             </div>
 
             <div style={S.modalAbas} role="tablist">

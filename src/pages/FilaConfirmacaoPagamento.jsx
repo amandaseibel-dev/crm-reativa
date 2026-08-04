@@ -3,6 +3,7 @@ import { supabase } from "../services/supabase";
 import { urlComprovanteLink, abrirDocumento } from "../utils/documentoFinanceiro";
 import Alunos from "./Aluno";
 import FinanceiroAluno from "../components/FinanceiroAluno";
+import DadosAcademicos from "../components/DadosAcademicos";
 import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
 import {
   STATUS_AGUARDANDO_CONFIRMACAO,
@@ -670,6 +671,12 @@ export default function FilaConfirmacaoPagamento() {
               )}
               <button style={styles.fechar} onClick={fecharFicha}>✕</button>
             </div>
+
+            {detalhe.aluno_id && (
+              <div style={{ padding: "0 16px" }}>
+                <DadosAcademicos aluno={{ id: detalhe.aluno_id, cpf: detalhe.aluno_cpf }} />
+              </div>
+            )}
 
             <div style={styles.abas}>
               {["resumo", "ficha", "financeiro", "acordo", "historico", "comprovante"].map((a) => (
