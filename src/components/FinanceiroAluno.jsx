@@ -1185,6 +1185,7 @@ export default function FinanceiroAluno({ aluno }) {
 
   return (
     <>
+      <DadosAcademicos aluno={aluno} />
       {(temAlgumValor || temSaldoOperacional) && (
         <>
           {somenteParcelasAcordo && (
@@ -2098,8 +2099,67 @@ function BlocoAcordosEncerrados({ titulo, acordos, parcelasPorAcordo, aberto, se
   );
 }
 
+// Bloco DADOS ACADEMICOS — so leitura. Busca as colunas academicas por id
+// (resiliente ao select do componente pai). Modalidade = alunos.curso;
+// Curso real e Situacao vem do Relatorio de Inadimplencia (import em Ferramentas).
+function ItemAcad({ rot, val }) {
+  return (
+    <div style={estilos.itemAcad}>
+      <span style={estilos.itemAcadRot}>{rot}</span>
+      <span style={estilos.itemAcadVal}>{val || "—"}</span>
+    </div>
+  );
+}
+
+function DadosAcademicos({ aluno }) {
+  const [dados, setDados] = useState(null);
+  useEffect(() => {
+    let vivo = true;
+    if (!aluno?.id) { setDados(null); return; }
+    supabase
+      .from("alunos")
+      .select("curso, curso_real, situacao_academica, matricula, unidade, academico_fonte, academico_atualizado_em")
+      .eq("id", aluno.id)
+      .maybeSingle()
+      .then(({ data }) => { if (vivo) setDados(data || null); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [aluno?.id]);
+
+  const d = dados || {};
+  const modalidade = d.curso || aluno?.curso || null;
+  const matricula = d.matricula || aluno?.matricula || null;
+  const estab = d.unidade || aluno?.unidade || null;
+  const curso = d.curso_real || null;
+  const situacao = d.situacao_academica || null;
+  const comp = d.academico_atualizado_em
+    ? new Date(d.academico_atualizado_em).toLocaleDateString("pt-BR")
+    : null;
+  const fonte = (curso || situacao) ? "Relatório acadêmico" : "Borderô / base";
+
+  return (
+    <div style={estilos.caixaAcad}>
+      <div style={estilos.cabecalho}><strong>🎓 Dados Acadêmicos</strong></div>
+      <div style={estilos.gridAcad}>
+        <ItemAcad rot="Matrícula" val={matricula} />
+        <ItemAcad rot="Modalidade" val={modalidade} />
+        <ItemAcad rot="Curso" val={curso} />
+        <ItemAcad rot="Situação acadêmica" val={situacao} />
+        <ItemAcad rot="Estabelecimento" val={estab} />
+        <ItemAcad rot="Competência" val={comp} />
+        <ItemAcad rot="Fonte" val={fonte} />
+      </div>
+    </div>
+  );
+}
+
 const estilos = {
   caixa: { padding: "12px 16px", marginTop: 14, marginBottom: 14, borderRadius: 10, background: "rgba(56,189,248,0.06)", border: "1px solid rgba(56,189,248,0.25)" },
+  caixaAcad: { padding: "12px 16px", marginBottom: 14, borderRadius: 10, background: "rgba(139,92,246,0.07)", border: "1px solid rgba(139,92,246,0.28)" },
+  gridAcad: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 8 },
+  itemAcad: { display: "flex", flexDirection: "column", gap: 2 },
+  itemAcadRot: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.6, fontWeight: 700 },
+  itemAcadVal: { fontSize: 13, fontWeight: 600 },
   contadores: { display: "flex", flexWrap: "wrap", gap: 8, marginTop: 10 },
   contadorChip: { fontSize: 11.5, fontWeight: 700, padding: "3px 10px", borderRadius: 999, border: "1px solid rgba(148,163,184,0.3)" },
   chipPendencia: { background: "rgba(239,159,39,0.16)", color: "#f2c67a" },

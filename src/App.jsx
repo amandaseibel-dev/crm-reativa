@@ -63,7 +63,7 @@ import Auditoria from "./pages/Auditoria"; import RelatorioReceptivo from "./pag
 import MensalidadesSemNegociacao from "./pages/MensalidadesSemNegociacao";
 import DRE from "./pages/DRE";
 import FechamentoRemuneracao from "./pages/FechamentoRemuneracao";
-import ImportarRecuperacao from "./pages/ImportarRecuperacao"; import ImportacaoAcordos from "./pages/ImportacaoAcordos"; import FilaAcordosConfirmar from "./pages/FilaAcordosConfirmar"; import Ferramentas from "./pages/Ferramentas";
+import ImportarRecuperacao from "./pages/ImportarRecuperacao"; import ImportacaoAcordos from "./pages/ImportacaoAcordos"; import FilaAcordosConfirmar from "./pages/FilaAcordosConfirmar"; import Ferramentas from "./pages/Ferramentas"; import ImportarAcademico from "./pages/ImportarAcademico";
 import ExecutivoRecuperacao from "./pages/ExecutivoRecuperacao";
 import MeuDashboard from "./pages/MeuDashboard";
 import ElogiosAtendimento from "./pages/ElogiosAtendimento";
@@ -964,7 +964,7 @@ export default function App() {
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} />
               <Route path="/dre" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <DRE /> : <Navigate to="/" replace />} />
               <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
-              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} />
+              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
       </Routes>
         </main>
       </div>
