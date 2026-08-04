@@ -756,7 +756,12 @@ function ProjecaoHoraHoraInner() {
     if (error) {
       alert("Erro ao alterar operador: " + error.message);
     } else {
-      carregarSnapshot();
+      // A troca só grava em `pagamentos`; o operador enxerga a projeção pelo
+      // SNAPSHOT (projecao_snapshot), que não é regenerado pela RPC de troca.
+      // Sem regerar aqui, o pagamento sumia do painel do operador antigo mas
+      // só entrava no do novo depois de alguém clicar "Atualizar projeção".
+      // Por isso regeneramos o snapshot na hora (Fernanda está na allowlist).
+      await atualizarProjecao();
       carregarLancamentosHoje();
       // Se a troca foi feita pelo painel de um dia da evolução, recarrega
       // aquele dia pra lista e somatória já mostrarem o novo operador.
