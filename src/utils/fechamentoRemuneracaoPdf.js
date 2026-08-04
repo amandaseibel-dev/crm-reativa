@@ -10,7 +10,7 @@
 //   await gerarPdfOperador(benef, previa, "2026-07");   // um operador
 //   await gerarPdfsTodos(previa, "2026-07");            // todos, em sequencia
 // ============================================================================
-import jsPDF from "jspdf";
+import { jsPDF } from "jspdf";
 
 const BR = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const PCT = (v) => `${Number(v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
@@ -61,103 +61,117 @@ function desenharOperador(doc, benef, previa, mes, logo) {
   const BLUE = [37, 99, 235], INK = [31, 41, 55], MUT = [107, 114, 128],
     LINE = [229, 231, 235], SOFT = [244, 246, 250], SOFTBLUE = [232, 238, 246];
   let y = 0;
-  const need = (h) => { if (y + h > PH - 46) { doc.addPage(); y = 48; } };
+  const DEEP = [30, 58, 138]; // azul escuro p/ header
 
-  doc.setFillColor(...BLUE); doc.rect(0, 0, PW, 5, "F");
-  y = 30;
-  let lh = 0;
-  if (logo) { const lw = 128; lh = (128 * 150) / 356; try { doc.addImage(logo, "PNG", M, y, lw, lh); } catch { /* sem logo */ } }
-  y += (lh || 40) + 16;
+  // ---- Header: faixa azul escura com logo + competência ----
+  const headH = 78;
+  doc.setFillColor(...DEEP); doc.rect(0, 0, PW, headH, "F");
+  doc.setFillColor(...BLUE); doc.rect(0, headH, PW, 3, "F");
+  if (logo) { const lw = 116, lhh = (116 * 150) / 356; try { doc.addImage(logo, "PNG", M, (headH - lhh) / 2, lw, lhh); } catch { /* sem logo */ } }
+  // pill competência (à direita)
+  const comp = nomeMes(mes);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+  const cpw = doc.getTextWidth(comp.toUpperCase()) + 24;
+  doc.setFillColor(255, 255, 255); doc.roundedRect(PW - M - cpw, headH / 2 - 11, cpw, 22, 11, 11, "F");
+  doc.setTextColor(...DEEP); doc.text(comp.toUpperCase(), PW - M - cpw / 2, headH / 2 + 3.5, { align: "center" });
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(210, 221, 245);
+  doc.text("Demonstrativo de Remuneração", PW - M, headH / 2 + 18, { align: "right" });
+  y = headH + 26;
 
-  doc.setFont("helvetica", "bold"); doc.setFontSize(16); doc.setTextColor(...INK);
-  doc.text("Demonstrativo de Remuneração · " + nomeMes(mes), M, y);
-  y += 16;
-  doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...BLUE);
+  // ---- Nome do operador + pill da faixa ----
+  doc.setFont("helvetica", "bold"); doc.setFontSize(19); doc.setTextColor(...INK);
   doc.text(String(benef.nome || benef.email || "-"), M, y);
-  y += 22;
+  {
+    const ftxt = String(benef.faixa || "-");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(8.5);
+    const fpw = doc.getTextWidth(ftxt) + 20;
+    doc.setFillColor(...SOFTBLUE); doc.roundedRect(PW - M - fpw, y - 12, fpw, 18, 9, 9, "F");
+    doc.setTextColor(...BLUE); doc.text(ftxt, PW - M - fpw / 2, y, { align: "center" });
+  }
+  y += 12;
+  doc.setDrawColor(...LINE); doc.setLineWidth(0.6); doc.line(M, y, PW - M, y); y += 20;
 
-  // --- Resumo: HONORÁRIOS em destaque (o que importa aqui) / Faixa / Comissão / Total ---
-  const kpis = [
-    ["HONORÁRIOS", BR(benef.honorarios)],
-    ["FAIXA DE REMUNERAÇÃO", String(benef.faixa || "-")],
-    ["COMISSÃO", benef.comissao == null ? "—" : BR(benef.comissao)],
-    ["TOTAL", BR(benef.total_final)],
-  ];
-  const gap = 10, kw = (CW - 3 * gap) / 4, kh = 58;
-  kpis.forEach((k, i) => {
-    const x = M + i * (kw + gap);
-    const destaque = i === 0 || i === 3; // honorários e total
-    doc.setFillColor(...(destaque ? SOFTBLUE : SOFT)); doc.roundedRect(x, y, kw, kh, 7, 7, "F");
-    if (i === 0) { doc.setDrawColor(...BLUE); doc.setLineWidth(1.2); doc.roundedRect(x, y, kw, kh, 7, 7, "S"); doc.setLineWidth(0.2); }
-    doc.setFont("helvetica", "bold"); doc.setFontSize(6.5); doc.setTextColor(...(i === 0 ? BLUE : MUT));
-    doc.text(k[0], x + 9, y + 15);
-    const val = doc.splitTextToSize(k[1], kw - 16);
-    doc.setFont("helvetica", "bold"); doc.setFontSize(val[0].length > 14 ? 9.5 : (i === 0 ? 14 : 12.5)); doc.setTextColor(...INK);
-    doc.text(val[0], x + 9, y + 36);
-    if (val[1]) { doc.setFontSize(8); doc.text(val[1], x + 9, y + 48); }
-  });
-  y += kh + 24;
+  // ---- HERO: honorários em destaque ----
+  const heroH = 66;
+  doc.setFillColor(...SOFTBLUE); doc.roundedRect(M, y, CW, heroH, 10, 10, "F");
+  doc.setFillColor(...BLUE); doc.roundedRect(M, y, 5, heroH, 2, 2, "F");
+  doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...BLUE);
+  doc.text("HONORÁRIOS DO MÊS", M + 20, y + 22);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(26); doc.setTextColor(...INK);
+  doc.text(BR(benef.honorarios), M + 20, y + 50);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...MUT);
+  doc.text("base de cálculo da comissão", PW - M - 16, y + 44, { align: "right" });
+  y += heroH + 14;
 
-  // --- Metas de referencia do mes (a parte da operacao) ---
+  // ---- Card único: Comissão (só isso; salário eles já têm no sistema) ----
+  const ch = 60;
+  doc.setFillColor(...SOFT); doc.roundedRect(M, y, CW, ch, 10, 10, "F");
+  doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...MUT);
+  doc.text("COMISSÃO", M + 20, y + 24);
+  doc.setFont("helvetica", "bold"); doc.setFontSize(22); doc.setTextColor(...INK);
+  doc.text(benef.comissao == null ? "—" : BR(benef.comissao), M + 20, y + 48);
+  doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.setTextColor(...MUT);
+  doc.text(String(benef.faixa || ""), PW - M - 16, y + 44, { align: "right" });
+  y += ch + 26;
+
+  // ---- Faixas de honorário (chips horizontais) ----
   const faixas = faixasDoMes(previa);
   const ehGestao = String(benef.regra_comissao || "") === "percentual_total_honorario";
-  doc.setFillColor(...BLUE); doc.rect(M, y - 9, 3, 13, "F");
-  doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...INK);
-  doc.text("Metas de referência do mês", M + 10, y); y += 8;
-  doc.setFont("helvetica", "normal"); doc.setFontSize(8.5); doc.setTextColor(...MUT);
+  const titulo = (t) => {
+    doc.setFillColor(...BLUE); doc.roundedRect(M, y - 9, 3.5, 13, 1, 1, "F");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(12); doc.setTextColor(...INK);
+    doc.text(t, M + 11, y);
+  };
+  titulo("Faixas de comissão do mês");
+  y += 14;
 
   if (ehGestao) {
-    y += 12;
-    doc.text("Remuneração da gestão: " + PCT(benef.percentual) + " sobre o honorário total da empresa no mês.", M + 2, y);
-    y += 13;
-    doc.text("Honorário total da empresa no mês (base): " + BR(benef.honorarios), M + 2, y);
-    y += 20;
+    doc.setFillColor(...SOFTBLUE); doc.roundedRect(M, y, CW, 42, 9, 9, "F");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...BLUE);
+    doc.text(PCT(benef.percentual) + " sobre o honorário total da empresa", M + 16, y + 19);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...MUT);
+    doc.text("Base do mês: " + BR(benef.honorarios), M + 16, y + 33);
+    y += 42 + 14;
   } else if (!faixas.length) {
-    y += 12;
-    doc.text("Faixas de comissão não configuradas para este mês.", M + 2, y);
-    y += 20;
+    doc.setFillColor(...SOFT); doc.roundedRect(M, y, CW, 30, 8, 8, "F");
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9.5); doc.setTextColor(...MUT);
+    doc.text("Faixas de comissão não configuradas para este mês.", M + 14, y + 19);
+    y += 30 + 14;
   } else {
     const atual = faixaAtualDoOperador(faixas, benef.honorarios);
-    y += 6;
-    // Cabecalho da tabela de faixas
-    const col = [M + 8, M + 150, M + 320, M + 470];
-    doc.setFillColor(...SOFT); doc.rect(M, y, CW, 18, "F");
-    doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...MUT);
-    doc.text("FAIXA", col[0], y + 12);
-    doc.text("HONORÁRIO A PARTIR DE", col[1], y + 12);
-    doc.text("% COMISSÃO", col[2], y + 12);
-    doc.text("SITUAÇÃO", col[3], y + 12);
-    y += 18;
-    faixas.forEach((fx) => {
-      need(16);
+    const n = faixas.length, cgap = 10, chipW = (CW - (n - 1) * cgap) / n, chipH = 62;
+    faixas.forEach((fx, i) => {
+      const x = M + i * (chipW + cgap);
       const ativa = fx.n === atual;
-      if (ativa) { doc.setFillColor(...SOFTBLUE); doc.rect(M, y, CW, 16, "F"); }
-      doc.setFont("helvetica", ativa ? "bold" : "normal"); doc.setFontSize(9); doc.setTextColor(...INK);
-      doc.text("Faixa " + fx.n, col[0], y + 11);
-      doc.text("≥ " + BR(fx.valor), col[1], y + 11);
-      doc.text(PCT(fx.pct), col[2], y + 11);
-      doc.setTextColor(...(ativa ? BLUE : MUT));
-      doc.text(ativa ? "◄ faixa atual" : "", col[3], y + 11);
-      y += 16;
+      if (ativa) { doc.setFillColor(...BLUE); } else { doc.setFillColor(...SOFT); }
+      doc.roundedRect(x, y, chipW, chipH, 9, 9, "F");
+      const cTxt = ativa ? [255, 255, 255] : INK, cMut = ativa ? [219, 231, 255] : MUT;
+      doc.setFont("helvetica", "bold"); doc.setFontSize(7.5); doc.setTextColor(...cMut);
+      doc.text("FAIXA " + fx.n, x + 12, y + 17);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(19); doc.setTextColor(...cTxt);
+      doc.text(PCT(fx.pct), x + 12, y + 39);
+      doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...cMut);
+      doc.text("a partir de", x + 12, y + 51);
+      doc.setFont("helvetica", "bold"); doc.setFontSize(8.5); doc.setTextColor(...cTxt);
+      doc.text(BR(fx.valor), x + 12, y + 59);
     });
-    y += 12;
-    // Honorario do operador + falta p/ proxima faixa
-    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...INK);
-    doc.text("Seu honorário no mês: " + BR(benef.honorarios), M + 2, y); y += 13;
+    y += chipH + 16;
+    // faixa atual + progresso, numa faixa suave
+    doc.setFillColor(...SOFTBLUE); doc.roundedRect(M, y, CW, 34, 8, 8, "F");
+    doc.setFont("helvetica", "bold"); doc.setFontSize(9.5); doc.setTextColor(...INK);
+    doc.text("Sua faixa: " + (atual ? "Faixa " + atual : "abaixo da mínima"), M + 16, y + 14);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...BLUE);
     if (benef.falta_proxima_faixa != null && Number(benef.falta_proxima_faixa) > 0) {
-      doc.setTextColor(...BLUE);
-      doc.text("Faltam " + BR(benef.falta_proxima_faixa) + " em honorário para subir de faixa.", M + 2, y);
-      y += 13;
+      doc.text("Faltam " + BR(benef.falta_proxima_faixa) + " em honorário para a próxima faixa.", M + 16, y + 27);
     } else {
       doc.setTextColor(...MUT);
-      doc.text("Você está na faixa máxima atingível com o honorário do mês.", M + 2, y);
-      y += 13;
+      doc.text("Você está na faixa máxima atingível neste mês.", M + 16, y + 27);
     }
-    y += 8;
+    y += 34 + 14;
   }
 
   // Rodape
-  doc.setDrawColor(...LINE); doc.line(M, PH - 34, PW - M, PH - 34);
+  doc.setDrawColor(...LINE); doc.setLineWidth(0.6); doc.line(M, PH - 34, PW - M, PH - 34);
   doc.setFont("helvetica", "normal"); doc.setFontSize(7.5); doc.setTextColor(...MUT);
   doc.text("ReATIVA · Demonstrativo de Remuneração · " + nomeMes(mes), M, PH - 15);
   doc.text("Gerado em " + new Date().toLocaleString("pt-BR"), PW - M, PH - 15, { align: "right" });
@@ -170,11 +184,17 @@ function nomeArquivo(benef, mes) {
   return `remuneracao_${base}_${mes}.pdf`;
 }
 
+// Monta o doc (sem salvar) — util para testes headless.
+export function construirDocOperador(benef, previa, mes, logo) {
+  const doc = new jsPDF({ unit: "pt", format: "a4" });
+  desenharOperador(doc, benef, previa, mes, logo || null);
+  return doc;
+}
+
 // Um PDF para UM operador.
 export async function gerarPdfOperador(benef, previa, mes, logoCache) {
   const logo = logoCache !== undefined ? logoCache : await carregarLogo();
-  const doc = new jsPDF({ unit: "pt", format: "a4" });
-  desenharOperador(doc, benef, previa, mes, logo);
+  const doc = construirDocOperador(benef, previa, mes, logo);
   doc.save(nomeArquivo(benef, mes));
 }
 
