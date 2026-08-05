@@ -6,6 +6,8 @@ import PenetracaoPorAno from "../components/PenetracaoPorAno";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const VERDE = "#1e40af";
+// Presets do seletor "Sem acionamento há (mín.)" — valor = nº de dias.
+const PRESETS_DIAS_SEM_ACIONAMENTO = ["7", "12", "15", "21", "30", "45", "60", "90"];
 
 function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -91,6 +93,7 @@ export default function AcoesMassivas() {
   const [opcoesCurso, setOpcoesCurso] = useState([]);
   const [opcoesSituacaoAcad, setOpcoesSituacaoAcad] = useState([]);
   const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
+  const [diasPersonalizado, setDiasPersonalizado] = useState(false);
   // "todos" | "nunca" (nunca acionados) | "ja" (já acionados)
   const [acionamentoFiltro, setAcionamentoFiltro] = useState("todos");
   const [soSemTelefone, setSoSemTelefone] = useState(false);
@@ -686,15 +689,50 @@ export default function AcoesMassivas() {
             </select>
           </div>
           <div style={estilos.campo}>
-            <label style={estilos.label}>Dias mínimo sem contato</label>
-            <input
+            <label style={estilos.label}>Sem acionamento há (mín.)</label>
+            <select
               style={estilos.input}
-              type="number"
-              min="0"
-              placeholder="Ex: 30"
-              value={diasMinimoSemContato}
-              onChange={(e) => setDiasMinimoSemContato(e.target.value)}
-            />
+              value={
+                diasPersonalizado
+                  ? "custom"
+                  : (PRESETS_DIAS_SEM_ACIONAMENTO.includes(String(diasMinimoSemContato))
+                      ? String(diasMinimoSemContato)
+                      : (diasMinimoSemContato ? "custom" : ""))
+              }
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === "custom") {
+                  setDiasPersonalizado(true);
+                } else {
+                  setDiasPersonalizado(false);
+                  setDiasMinimoSemContato(v);
+                }
+              }}
+            >
+              <option value="">Qualquer período</option>
+              <option value="7">Acima de 7 dias</option>
+              <option value="12">Acima de 12 dias</option>
+              <option value="15">Acima de 15 dias</option>
+              <option value="21">Acima de 21 dias</option>
+              <option value="30">Acima de 30 dias</option>
+              <option value="45">Acima de 45 dias</option>
+              <option value="60">Acima de 60 dias</option>
+              <option value="90">Acima de 90 dias</option>
+              <option value="custom">Personalizado…</option>
+            </select>
+            {diasPersonalizado && (
+              <input
+                style={{ ...estilos.input, marginTop: 6 }}
+                type="number"
+                min="1"
+                placeholder="Nº de dias (ex: 12)"
+                value={diasMinimoSemContato}
+                onChange={(e) => setDiasMinimoSemContato(e.target.value)}
+              />
+            )}
+            <span style={{ fontSize: 11, color: "#8a93a3", marginTop: 4 }}>
+              Inclui quem nunca foi acionado. Use o filtro “Acionamento” para separar.
+            </span>
           </div>
           <div style={estilos.campo}>
             <label style={estilos.label}>Acionamento</label>
