@@ -86,8 +86,10 @@ export default function AcoesMassivas() {
   const [anoVencimento, setAnoVencimento] = useState("");
   const [unidade, setUnidade] = useState("");
   const [curso, setCurso] = useState("");
+  const [situacaoAcad, setSituacaoAcad] = useState("");
   const [opcoesUnidade, setOpcoesUnidade] = useState([]);
   const [opcoesCurso, setOpcoesCurso] = useState([]);
+  const [opcoesSituacaoAcad, setOpcoesSituacaoAcad] = useState([]);
   const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
   // "todos" | "nunca" (nunca acionados) | "ja" (já acionados)
   const [acionamentoFiltro, setAcionamentoFiltro] = useState("todos");
@@ -145,6 +147,7 @@ export default function AcoesMassivas() {
       const { data } = await supabase.rpc("acoes_massivas_filtros");
       setOpcoesUnidade(data?.unidades || []);
       setOpcoesCurso(data?.cursos || []);
+      setOpcoesSituacaoAcad(data?.situacoes_academicas || []);
     })();
   }, []);
 
@@ -210,6 +213,7 @@ export default function AcoesMassivas() {
           p_apenas_ja_acionado: (over.acionamento ?? acionamentoFiltro) === "ja",
           p_unidade: (over.unidade ?? unidade) || null,
           p_curso: (over.curso ?? curso) || null,
+          p_situacao_academica: (over.situacaoAcad ?? situacaoAcad) || null,
         }
       );
       if (erroAlunos) throw erroAlunos;
@@ -354,6 +358,7 @@ export default function AcoesMassivas() {
       apenas_ja_acionado: acionamentoFiltro === "ja",
       unidade: unidade || null,
       curso: curso || null,
+      situacao_academica: situacaoAcad || null,
       valor_min: min,
       valor_max: max,
     };
@@ -664,6 +669,19 @@ export default function AcoesMassivas() {
               <option value="">Todas as modalidades</option>
               {opcoesCurso.map((c) => (
                 <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <div style={estilos.campo}>
+            <label style={estilos.label}>Status acadêmico</label>
+            <select
+              style={estilos.input}
+              value={situacaoAcad}
+              onChange={(e) => setSituacaoAcad(e.target.value)}
+            >
+              <option value="">Todos os status</option>
+              {opcoesSituacaoAcad.map((s) => (
+                <option key={s} value={s}>{s}</option>
               ))}
             </select>
           </div>
