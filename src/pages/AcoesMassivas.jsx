@@ -111,6 +111,10 @@ export default function AcoesMassivas() {
   const [excluidosConfirmacao, setExcluidosConfirmacao] = useState([]);
   const [mostrarExcluidos, setMostrarExcluidos] = useState(false);
   const [excluidosNoEnvio, setExcluidosNoEnvio] = useState(0);
+  // Guarda o último relatório gerado p/ permitir baixar manualmente caso o
+  // download automático seja bloqueado pelo navegador (perda de "user gesture"
+  // após os awaits do registrar — comum no Safari).
+  const [relatorioPronto, setRelatorioPronto] = useState(null); // { linhas, nomeArquivo }
 
   // Agendamento automático (fuso America/Sao_Paulo na interface; banco em UTC).
   const [agData, setAgData] = useState("");
@@ -269,6 +273,16 @@ export default function AcoesMassivas() {
     }
   }
 
+  // Monta e dispara o download do .xlsx. Chamado tanto automaticamente (após
+  // registrar) quanto pelo botão manual (gesto novo do usuário) de fallback.
+  function baixarPlanilha(rel) {
+    if (!rel || !rel.linhas || rel.linhas.length === 0) return;
+    const planilha = XLSX.utils.json_to_sheet(rel.linhas);
+    const livro = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(livro, planilha, "Ação Massiva");
+    XLSX.writeFile(livro, rel.nomeArquivo);
+  }
+
   async function gerarEregistrar() {
     if (!resultados || resultados.length === 0) return;
 
@@ -312,6 +326,7 @@ export default function AcoesMassivas() {
       // entraram em confirmação depois da prévia não aparecem aqui.
       const contatos = reg?.contatos || [];
 
+      let relGerado = null;
       if (contatos.length > 0) {
         const linhas = contatos.map((c) => {
           const telFmt = normalizarTelefone(c.telefone);
@@ -319,10 +334,15 @@ export default function AcoesMassivas() {
             ? { "Nome do aluno": c.nome, Telefone: telFmt }
             : { "Nome do aluno": c.nome, "E-mail": (c.email || "").trim(), Telefone: telFmt || "" };
         });
-        const planilha = XLSX.utils.json_to_sheet(linhas);
-        const livro = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(livro, planilha, "Ação Massiva");
-        XLSX.writeFile(livro, nomeArquivo);
+        relGerado = { linhas, nomeArquivo };
+        // Guarda para o botão manual de fallback (caso o auto-download seja
+        // bloqueado, a planilha não se perde: os alunos já foram registrados).
+        setRelatorioPronto(relGerado);
+        try {
+          baixarPlanilha(relGerado);
+        } catch (e) {
+          console.warn("Download automático falhou; use o botão Baixar planilha.", e);
+        }
       }
       const registrados = contatos;
 
@@ -336,7 +356,7 @@ export default function AcoesMassivas() {
         setSucesso(`Nenhum caso registrado.${sufixoExcluidos}`);
       } else {
         setSucesso(
-          `Planilha gerada e ${registrados.length} aluno(s) registrados com retorno agendado para ${retorno.toLocaleDateString("pt-BR")}.${sufixoExcluidos}`
+          `Planilha gerada e ${registrados.length} aluno(s) registrados com retorno agendado para ${retorno.toLocaleDateString("pt-BR")}. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
         );
       }
       carregarProgresso();
@@ -830,6 +850,22 @@ export default function AcoesMassivas() {
               </button>
             )}
           </div>
+
+          {relatorioPronto && relatorioPronto.linhas?.length > 0 && (
+            <div style={{ marginTop: 12, padding: "12px 14px", border: "1px solid #1e6b3a", borderRadius: 12, background: "#0e2318", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ color: "#bbf7d0", fontSize: 13 }}>
+                Planilha de <strong>{relatorioPronto.linhas.length}</strong> aluno(s) pronta
+                (<span style={{ color: "#8a93a3" }}>{relatorioPronto.nomeArquivo}</span>).
+                {" "}Se o download não abriu sozinho, clique aqui:
+              </div>
+              <button
+                style={{ ...estilos.botaoGerar, background: "#16a34a" }}
+                onClick={() => baixarPlanilha(relatorioPronto)}
+              >
+                ⬇️ Baixar planilha novamente
+              </button>
+            </div>
+          )}
 
           {/* ---- Agendar ação (executa automaticamente por SISTEMA no horário) ---- */}
           <div style={{ marginTop: 16, padding: 14, border: "1px solid #26304a", borderRadius: 12, background: "#0e1526" }}>
