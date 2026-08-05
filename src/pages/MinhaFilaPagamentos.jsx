@@ -72,10 +72,22 @@ export default function MinhaFilaPagamentos() {
       "Quitar e encerrar este caso? Ele e quitado, zerado, sai das filas e NAO volta pro operador."
     );
     if (!ok) return;
-    const { error } = await supabase.rpc("quitar_e_encerrar_caso", {
+    let { error } = await supabase.rpc("quitar_e_encerrar_caso", {
       p_aluno_id: item.aluno_id,
       p_valor: item.valor || null,
     });
+    // Acordo em dia (parcelas futuras, nada vencido): a RPC bloqueia de
+    // proposito pra nao encerrar acordo vigente por engano. Pede confirmacao
+    // explicita e reenvia.
+    if (error && /ACORDO_EM_DIA/.test(error.message || "")) {
+      const detalhe = (error.message || "").replace(/^.*ACORDO_EM_DIA:\s*/, "");
+      if (!window.confirm(detalhe + "\n\nConfirmar e quitar o acordo inteiro?")) return;
+      ({ error } = await supabase.rpc("quitar_e_encerrar_caso", {
+        p_aluno_id: item.aluno_id,
+        p_valor: item.valor || null,
+        p_confirmar_acordo_em_dia: true,
+      }));
+    }
     if (error) {
       alert("Erro ao quitar: " + error.message);
       return;
