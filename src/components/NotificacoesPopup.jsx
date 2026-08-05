@@ -63,11 +63,27 @@ export default function NotificacoesPopup() {
   }
 
   function abrir(n) {
-    if (n.aluno_id) {
-      try { localStorage.setItem("alunoSelecionado", JSON.stringify({ id: n.aluno_id })); } catch (e) {}
-    }
     marcarLida(n.id);
-    navigate(n.url_destino || "/painel-carteira");
+    // Regra: abrir SEMPRE a ficha unica do aluno pelo aluno_id da notificacao.
+    // Nunca decidir o aluno por CPF/aproximacao, nunca cair na fila Base quando
+    // existe vinculo. A ficha ja renderiza o bloco de Links (LINK_PRONTO_PARA_ENVIO)
+    // na aba inicial, permitindo "Marcar enviado ao aluno" pelo fluxo existente.
+    if (n.aluno_id) {
+      try {
+        localStorage.setItem("reativa_aluno_abrir_id", String(n.aluno_id));
+      } catch (e) {}
+      navigate("/aluno?origem=notificacao");
+      return;
+    }
+    // Sem aluno_id valido: nao abrir outro aluno por aproximacao.
+    if (n.url_destino) {
+      navigate(n.url_destino);
+      return;
+    }
+    alert(
+      "Esta solicitação está sem vínculo com o aluno (sem aluno_id). " +
+      "Não é possível abrir a ficha automaticamente."
+    );
   }
 
   if (fila.length === 0) return null;
