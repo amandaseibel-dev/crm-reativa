@@ -24,7 +24,7 @@ export default function NotificacoesPopup() {
     if (!email) return;
     const { data } = await supabase
       .from("notificacoes")
-      .select("id, tipo, titulo, mensagem, aluno_id, url_destino, criado_em")
+      .select("id, tipo, titulo, mensagem, aluno_id, solicitacao_link_id, url_destino, criado_em")
       .eq("usuario_destino_email", email)
       .eq("lida", false)
       .order("criado_em", { ascending: true })
@@ -62,6 +62,10 @@ export default function NotificacoesPopup() {
     setFila((f) => f.filter((n) => n.id !== id));
   }
 
+  // Notificacoes de link de pagamento: alem de abrir a ficha, devem abrir a
+  // secao "Link de pagamento" e destacar a solicitacao/link exato da notificacao.
+  const TIPOS_LINK = new Set(["LINK_PRONTO", "LINK_GERADO", "SOLICITACAO_LINK", "LINK_DEVOLVIDO"]);
+
   function abrir(n) {
     marcarLida(n.id);
     // Regra: abrir SEMPRE a ficha unica do aluno pelo aluno_id da notificacao.
@@ -71,6 +75,18 @@ export default function NotificacoesPopup() {
     if (n.aluno_id) {
       try {
         localStorage.setItem("reativa_aluno_abrir_id", String(n.aluno_id));
+        // Vinculo obrigatorio das notificacoes NOVAS de link: se veio o
+        // solicitacao_link_id, pedimos a ficha para abrir a secao de links e
+        // destacar exatamente esta solicitacao (sem procurar na fila geral).
+        // A autorizacao do aluno continua sendo feita pela ficha (RLS/responsavel);
+        // este id NAO concede acesso -- so escolhe qual card destacar.
+        if (n.solicitacao_link_id && TIPOS_LINK.has(n.tipo)) {
+          localStorage.setItem("reativa_aluno_abrir_secao", "link");
+          localStorage.setItem("reativa_link_destacar_id", String(n.solicitacao_link_id));
+        } else {
+          localStorage.removeItem("reativa_aluno_abrir_secao");
+          localStorage.removeItem("reativa_link_destacar_id");
+        }
       } catch (e) {}
       navigate("/aluno?origem=notificacao");
       return;
@@ -86,6 +102,15 @@ export default function NotificacoesPopup() {
     );
   }
 
+  function formatarQuando(iso) {
+    try {
+      const d = new Date(iso);
+      return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    } catch (e) {
+      return "";
+    }
+  }
+
   if (fila.length === 0) return null;
 
   return (
@@ -95,8 +120,11 @@ export default function NotificacoesPopup() {
           <button style={S.x} onClick={() => marcarLida(n.id)} aria-label="Fechar">×</button>
           <div style={S.titulo}>{n.titulo || "Notificação"}</div>
           <div style={S.msg}>{n.mensagem}</div>
+          {n.criado_em && <div style={S.hora}>{formatarQuando(n.criado_em)}</div>}
           <div style={S.acoes}>
-            <button style={S.btnAbrir} onClick={() => abrir(n)}>Abrir</button>
+            <button style={S.btnAbrir} onClick={() => abrir(n)}>
+              {n.aluno_id ? "Abrir aluno" : "Abrir"}
+            </button>
             <button style={S.btnOk} onClick={() => marcarLida(n.id)}>Ok, ciente</button>
           </div>
         </div>
@@ -111,6 +139,7 @@ const S = {
   x: { position: "absolute", top: 8, right: 10, background: "transparent", border: "none", color: "#94a3b8", fontSize: 20, cursor: "pointer", lineHeight: 1 },
   titulo: { fontSize: 15, fontWeight: 800, marginBottom: 4, paddingRight: 18 },
   msg: { fontSize: 13, color: "#cbd5e1", lineHeight: 1.45 },
+  hora: { fontSize: 11, color: "#94a3b8", marginTop: 6 },
   acoes: { display: "flex", gap: 8, marginTop: 12 },
   btnAbrir: { flex: 1, background: "#2563eb", color: "#fff", border: "none", borderRadius: 9, padding: "9px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
   btnOk: { background: "transparent", color: "#93c5fd", border: "1px solid rgba(148,163,184,0.35)", borderRadius: 9, padding: "9px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer" },

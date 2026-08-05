@@ -269,6 +269,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // Controlado por estado para permitir abertura automatica por tabulacao,
   // manter apenas um aberto por vez e evitar formularios longos simultaneos.
   const [blocoAberto, setBlocoAberto] = useState("");
+  // Intencao vinda de uma notificacao de link: abrir a secao "Link de pagamento"
+  // e destacar a solicitacao/link exato (sem procurar na fila). Preenchidos a
+  // partir do localStorage no momento da abertura por notificacao.
+  const [secaoAlvoFicha, setSecaoAlvoFicha] = useState("");
+  const [destacarLinkId, setDestacarLinkId] = useState("");
   // Acordos do aluno aberto -- alimenta o card "Responsavel pelos acordos"
   // (informativo). Responsavel vem SEMPRE do registro do acordo, nunca do
   // responsavel atual do aluno / ultimo acionamento / quem confirmou.
@@ -473,8 +478,18 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     }
     if (alunoId) {
       setOrigemAbertura(`Abrindo aluno recebido da fila: ${alunoId}`);
+      // Intencao de secao/destaque vinda da notificacao de link (consumida uma
+      // unica vez). NAO decide autorizacao -- isso continua sendo feito por
+      // abrirAlunoPorId/RLS; aqui so escolhemos qual bloco abrir e qual card
+      // destacar dentro da ficha ja autorizada.
+      const secaoAlvo = localStorage.getItem("reativa_aluno_abrir_secao") || "";
+      const linkDestacar = localStorage.getItem("reativa_link_destacar_id") || "";
       localStorage.removeItem("reativa_aluno_abrir_id");
       sessionStorage.removeItem("reativa_aluno_abrir_id");
+      localStorage.removeItem("reativa_aluno_abrir_secao");
+      localStorage.removeItem("reativa_link_destacar_id");
+      if (secaoAlvo) setSecaoAlvoFicha(secaoAlvo);
+      if (linkDestacar) setDestacarLinkId(linkDestacar);
       await abrirAlunoPorId(alunoId);
       return;
     }
@@ -739,6 +754,25 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       return () => clearTimeout(t);
     }
   }, [statusFinalizacao, abaFicha]);
+
+  // Abertura vinda de uma notificacao de link: quando o aluno correto ja esta
+  // carregado, garante a aba de dados, abre o bloco "Link de pagamento" e rola
+  // ate ele. O destaque do card exato fica a cargo de LinksPagamentoAluno via
+  // a prop destacarSolicitacaoId. Roda uma unica vez por abertura.
+  useEffect(() => {
+    if (secaoAlvoFicha !== "link") return;
+    if (!alunoSelecionado?.id) return;
+    setAbaFicha("dados");
+    setBlocoAberto("link");
+    const t = setTimeout(() => {
+      const el = blocosRef.current.link;
+      if (el && typeof el.scrollIntoView === "function") {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      setSecaoAlvoFicha("");
+    }, 200);
+    return () => clearTimeout(t);
+  }, [secaoAlvoFicha, alunoSelecionado?.id]);
 
   function prepararAlunoNaTela(aluno) {
     setAlunoSelecionado(aluno);
@@ -2099,6 +2133,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               <LinksPagamentoAluno
                 aluno={alunoSelecionado}
                 usuarioLogado={usuarioLogado}
+                destacarSolicitacaoId={destacarLinkId}
                 onAtualizar={async () => {
                   await recarregarAlunoSelecionado(alunoSelecionado.id);
                   await carregarMovimentacoes(alunoSelecionado.id);

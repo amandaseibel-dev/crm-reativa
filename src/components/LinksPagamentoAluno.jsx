@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { enviarComprovanteLink } from "../utils/documentoFinanceiro";
 import {
@@ -165,11 +165,18 @@ export default function LinksPagamentoAluno({
   // botao interno. Quando false (ex.: aberto por retorno do ADM), mantem o
   // estado atual do link (historico/acoes), sem abrir novo pedido.
   abrirFormularioInicial = false,
+  // Quando aberto por uma notificacao de link, o id da solicitacao/link exato a
+  // destacar (= links_pagamento.id = item.id do historico). Apenas visual: rola
+  // ate o card e aplica realce temporario; nao concede acesso a dado algum.
+  destacarSolicitacaoId = "",
 }) {
   const alunoAtual = aluno || alunoSelecionado || estudante || {};
   const usuarioProp = usuarioLogado || usuario || user || {};
 
   const [usuarioAtual, setUsuarioAtual] = useState(usuarioProp || {});
+  // Realce temporario do card destacado pela notificacao de link.
+  const itemDestacadoRef = useRef(null);
+  const [idRealcado, setIdRealcado] = useState("");
   const [aberto, setAberto] = useState(Boolean(abrirFormularioInicial));
 
   const [valor, setValor] = useState("");
@@ -189,6 +196,23 @@ export default function LinksPagamentoAluno({
 
   const [historico, setHistorico] = useState([]);
   const [carregando, setCarregando] = useState(false);
+
+  // Quando aberto por notificacao de link: assim que o historico carregar e o
+  // card destacado existir, rola ate ele e aplica realce que some em ~4s.
+  useEffect(() => {
+    const alvo = String(destacarSolicitacaoId || "");
+    if (!alvo) return;
+    if (!historico.some((it) => String(it.id) === alvo)) return;
+    setIdRealcado(alvo);
+    const tScroll = setTimeout(() => {
+      const el = itemDestacadoRef.current;
+      if (el && typeof el.scrollIntoView === "function") {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+    }, 250);
+    const tFade = setTimeout(() => setIdRealcado(""), 4200);
+    return () => { clearTimeout(tScroll); clearTimeout(tFade); };
+  }, [destacarSolicitacaoId, historico]);
   const [confirmandoValorLink, setConfirmandoValorLink] = useState(false);
   const [carregandoHistorico, setCarregandoHistorico] = useState(false);
   const [erro, setErro] = useState("");
@@ -1052,8 +1076,29 @@ export default function LinksPagamentoAluno({
             const podeAcionarComprovante =
               item.status !== "BAIXA_REALIZADA"; // anexar comprovante sempre, exceto quando ja baixado
 
+            const realcado = String(item.id) === String(idRealcado);
+
             return (
-              <div key={item.id} style={historicoItem}>
+              <div
+                key={item.id}
+                ref={realcado ? itemDestacadoRef : null}
+                style={
+                  realcado
+                    ? {
+                        ...historicoItem,
+                        border: "2px solid #2563eb",
+                        boxShadow: "0 0 0 4px rgba(37,99,235,0.18)",
+                        background: "#eff6ff",
+                        scrollMarginTop: 16,
+                      }
+                    : historicoItem
+                }
+              >
+                {realcado && (
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "#2563eb", marginBottom: 6 }}>
+                    ⬇ Solicitação da notificação
+                  </div>
+                )}
                 <div style={linhaHistoricoTopo}>
                   <div>
                     <strong
