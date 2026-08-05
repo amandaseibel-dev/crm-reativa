@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import BotaoAtualizar from "../components/BotaoAtualizar";
+import PenetracaoPorAno from "../components/PenetracaoPorAno";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const VERDE = "#1e40af";
@@ -147,7 +148,7 @@ export default function AcoesMassivas() {
     setProgresso(data);
   }
 
-  async function buscar() {
+  async function buscar(over = {}) {
     setErro("");
     setSucesso("");
     const min = valorMin.trim() ? converterValor(valorMin) : null;
@@ -182,13 +183,13 @@ export default function AcoesMassivas() {
       const { data: previa, error: erroAlunos } = await supabase.rpc(
         "acoes_massivas_previa",
         {
-          p_ano_vencimento: anoVencimento || null,
+          p_ano_vencimento: (over.ano ?? anoVencimento) || null,
           p_limite: Math.min(qtd * 3, 6000),
           p_dias_minimo_sem_contato: diasMinimoSemContato ? Number(diasMinimoSemContato) : null,
-          p_apenas_nunca_acionado: acionamentoFiltro === "nunca",
-          p_apenas_ja_acionado: acionamentoFiltro === "ja",
-          p_unidade: unidade || null,
-          p_curso: curso || null,
+          p_apenas_nunca_acionado: (over.acionamento ?? acionamentoFiltro) === "nunca",
+          p_apenas_ja_acionado: (over.acionamento ?? acionamentoFiltro) === "ja",
+          p_unidade: (over.unidade ?? unidade) || null,
+          p_curso: (over.curso ?? curso) || null,
         }
       );
       if (erroAlunos) throw erroAlunos;
@@ -401,6 +402,19 @@ export default function AcoesMassivas() {
 
   const valorTotal = resultados ? resultados.reduce((s, r) => s + r.valor, 0) : 0;
 
+  // Transporta os filtros do painel de penetração para a prévia oficial e
+  // recalcula. NÃO congela lista, NÃO cria/agenda/envia campanha — a prévia
+  // reavalia toda a elegibilidade (confirmação, saldo, quitados, jurídico, etc.).
+  function usarComoFiltroDaPenetracao({ ano, unidade: uni, curso: cur }) {
+    const anoStr = ano ? String(ano) : "";
+    setAnoVencimento(anoStr);
+    setUnidade(uni || "");
+    setCurso(cur || "");
+    setAcionamentoFiltro("nunca");
+    if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
+    buscar({ ano: anoStr, unidade: uni || "", curso: cur || "", acionamento: "nunca" });
+  }
+
   return (
     <div style={estilos.container}>
       <div style={estilos.cabecalho}>
@@ -440,6 +454,12 @@ export default function AcoesMassivas() {
           Pra tratar quem não tem telefone cadastrado, mas tem e-mail.
         </p>
       )}
+
+      <PenetracaoPorAno
+        opcoesUnidade={opcoesUnidade}
+        opcoesCurso={opcoesCurso}
+        onUsarComoFiltro={usarComoFiltroDaPenetracao}
+      />
 
       {saude && (saude.sem_valor > 0 || saude.sem_telefone > 0) && (
         <div style={{ ...estilos.card, background: "#fef7f0", borderColor: "#fde3cc" }}>
