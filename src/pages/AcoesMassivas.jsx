@@ -11,6 +11,26 @@ function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+// Cor do badge de status acadêmico por família de situação (só exibição).
+function estiloStatusAcademico(situacao) {
+  const base = {
+    display: "inline-block", borderRadius: 6, padding: "1px 8px",
+    fontSize: 11.5, fontWeight: 800, whiteSpace: "nowrap",
+  };
+  const s = String(situacao || "").toLowerCase();
+  // Encerrados / sem vínculo ativo → vermelho (atenção: cobrança pode ser inócua)
+  if (/(cancel|término|termino|desvincul|transfer|falecid|conclu[ií]|formad|saída|saida|reop)/.test(s))
+    return { ...base, background: "#fee2e2", color: "#b91c1c" };
+  // Aguardando matrícula / trancado → âmbar (pendência acadêmica)
+  if (/(aguardando|trancad|trancamento|reabertura|isen|certid)/.test(s))
+    return { ...base, background: "#fef3c7", color: "#92400e" };
+  // Matriculado / normal → verde
+  if (/(matriculad|normal|ativo|curr[ií]cul)/.test(s))
+    return { ...base, background: "#dcfce7", color: "#166534" };
+  // Demais → cinza neutro
+  return { ...base, background: "#eef1f6", color: "#475569" };
+}
+
 function converterValor(texto) {
   const limpo = String(texto || "").replace(/\./g, "").replace(",", ".").trim();
   const numero = Number(limpo);
@@ -210,6 +230,8 @@ export default function AcoesMassivas() {
         .map((a) => ({
           alunoId: a.id,
           nome: a.nome || "-",                       // já mascarado no backend (ex.: "Ana ***")
+          situacaoAcademica: a.situacao_academica || null,
+          curso: a.curso || null,
           telefoneMascarado: a.telefone_mascarado || "",
           emailMascarado: a.email_mascarado || "",
           temTelefone: !!a.tem_telefone,
@@ -859,6 +881,7 @@ export default function AcoesMassivas() {
                 <thead>
                   <tr>
                     <th style={estilos.th}>Nome do aluno</th>
+                    <th style={estilos.th}>Status acadêmico</th>
                     <th style={estilos.th}>{canal === "WHATSAPP" ? "Telefone (formatado)" : "E-mail"}</th>
                     <th style={estilos.thNum}>Sem contato há</th>
                     <th style={estilos.thNum}>Valor em aberto</th>
@@ -868,6 +891,14 @@ export default function AcoesMassivas() {
                   {resultados.map((r) => (
                     <tr key={r.alunoId}>
                       <td style={estilos.td}>{r.nome}</td>
+                      <td style={estilos.td}>
+                        {r.situacaoAcademica ? (
+                          <span style={estiloStatusAcademico(r.situacaoAcademica)}>{r.situacaoAcademica}</span>
+                        ) : (
+                          <span style={{ color: "#9aa3b2" }}>—</span>
+                        )}
+                        {r.curso && <div style={{ color: "#8a93a3", fontSize: 11, marginTop: 2 }}>{r.curso}</div>}
+                      </td>
                       <td style={estilos.td}>{canal === "WHATSAPP" ? r.telefoneMascarado : (<>{r.emailMascarado}{r.semTelefone && <span style={{ marginLeft: 6, background: "#fee2e2", color: "#b91c1c", borderRadius: 6, padding: "1px 6px", fontSize: 11, fontWeight: 800 }}>sem telefone</span>}</>)}</td>
                       <td style={estilos.tdNum}>
                         {r.diasSemContato === null ? (
