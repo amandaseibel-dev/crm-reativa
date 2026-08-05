@@ -368,7 +368,7 @@ export default function AcoesMassivas() {
       });
       if (error) throw error;
       setSucesso(
-        `Agendado para ${data?.programado_para_brasilia} (Brasília). Estimativa na prévia: ${data?.quantidade_previa} aluno(s). A elegibilidade é recalculada no horário da execução.`
+        `Agendado para ${data?.programado_para_brasilia} (Brasília). Estimativa na prévia: ${data?.quantidade_previa} aluno(s). No horário, o SISTEMA revalida e PREPARA a lista — o envio (WhatsApp/e-mail) permanece pelo processo externo atual.`
       );
       setAgNome("");
       setAgData("");
@@ -740,6 +740,11 @@ export default function AcoesMassivas() {
               Usa os filtros atuais. A elegibilidade é <strong>recalculada no horário</strong> (não congela a prévia).
               Horário no fuso de <strong>Brasília (America/Sao_Paulo)</strong>.
             </div>
+            <div style={{ background: "#3a2a0e", border: "1px solid #6b5010", color: "#f5d06b", borderRadius: 8, padding: "8px 10px", fontSize: 12, marginBottom: 10 }}>
+              ⚠️ O agendamento <strong>prepara e registra</strong> a campanha (lista revalidada no horário), mas o
+              <strong> envio depende do processo externo atual</strong> (WhatsApp/Gmail/planilha). Não há disparo
+              automático: o SISTEMA não marca “enviado” — a lista fica <strong>PREPARADA</strong> para o envio manual.
+            </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
               <label style={{ display: "flex", flexDirection: "column", fontSize: 12, color: "#8a93a3" }}>
                 Nome da campanha
@@ -789,7 +794,7 @@ export default function AcoesMassivas() {
                     <tr style={{ color: "#8a93a3", textAlign: "left" }}>
                       <th style={estilos.td}>Campanha</th><th style={estilos.td}>Canal</th>
                       <th style={estilos.td}>Programado (Brasília)</th><th style={estilos.td}>Status</th>
-                      <th style={estilos.td}>Prévia</th><th style={estilos.td}>Enviados</th>
+                      <th style={estilos.td}>Prévia</th><th style={estilos.td}>Preparados</th>
                       <th style={estilos.td}>Excl. reval.</th><th style={estilos.td}>Criado por</th>
                       <th style={estilos.td}>Executor</th><th style={estilos.td}>Ações</th>
                     </tr>
@@ -802,7 +807,7 @@ export default function AcoesMassivas() {
                         <td style={estilos.td}>{a.programado_para_brasilia}</td>
                         <td style={estilos.td}>{a.status}</td>
                         <td style={estilos.td}>{a.quantidade_previa ?? "—"}</td>
-                        <td style={estilos.td}>{a.quantidade_enviada ?? "—"}</td>
+                        <td style={estilos.td}>{a.quantidade_elegivel_execucao ?? "—"}</td>
                         <td style={estilos.td}>{a.quantidade_excluida_revalidacao ?? "—"}</td>
                         <td style={estilos.td}>{a.criado_por}</td>
                         <td style={estilos.td}>{a.executado_por || "—"}</td>
