@@ -43,7 +43,11 @@ export default function usePolling(fn, intervaloMs, deps = [], ativo = true) {
     }
 
     executar();
-    const timer = setInterval(tick, intervaloMs);
+    // intervaloMs <= 0 (ou null): SEM polling por tempo. Mantém apenas a carga
+    // inicial, o disparo por evento (dispararRef / trigger exposto) e o refresh
+    // debounced ao voltar o foco. Usado para contadores que agora atualizam só
+    // após ação relevante ou retorno de foco, não em loop de relógio.
+    const timer = intervaloMs > 0 ? setInterval(tick, intervaloMs) : null;
 
     // Contenção de rajada: o disparo ao voltar o foco é DEBOUNCED. Sem isto,
     // vários operadores voltando à aba ao mesmo tempo (ou trocas rápidas de
@@ -62,7 +66,7 @@ export default function usePolling(fn, intervaloMs, deps = [], ativo = true) {
 
     return () => {
       cancelado = true;
-      clearInterval(timer);
+      if (timer) clearInterval(timer);
       if (focoTimer) clearTimeout(focoTimer);
       document.removeEventListener("visibilitychange", aoVoltarFoco);
       window.removeEventListener("focus", aoVoltarFoco);

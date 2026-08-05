@@ -322,8 +322,12 @@ export default function App() {
   // parcelas_vencendo_2_dias. Eram ~6 requisicoes a cada 15s por aba aberta,
   // sem pausa em aba oculta e sem trava de sobreposicao -- principal causa do
   // consumo e dos travamentos. AGORA: uma unica RPC contadores_cabecalho(),
-  // com RLS invoker (mesmos numeros de antes), a cada 45s, pausada quando a
-  // aba esta oculta e com atualizacao imediata ao voltar o foco.
+  // com RLS invoker (mesmos numeros de antes), SEM polling por relogio
+  // (intervalo 0). A atualizacao acontece: (a) na carga inicial, (b) ao voltar
+  // o foco a aba (debounced, servida pelo cache compartilhado de 60s), e
+  // (c) sob demanda apos acao relevante via window.atualizarContadoresCrm
+  // (aprovar termo, dar baixa, confirmar pagamento). Continua pausada quando a
+  // aba esta oculta. Isso elimina o principal loop que saturava a CPU do banco.
   const atualizarContadores = usePolling(
     async () => {
       // KILL SWITCH: em modo de contenção, o contador de cabeçalho (RPC
@@ -352,7 +356,7 @@ export default function App() {
       setTermosRejeitados(Number(data.termos_rejeitados || 0));
       setParcelasVencendo(Array.isArray(data.parcelas_vencendo) ? data.parcelas_vencendo : []);
     },
-    120000,
+    0, // sem polling por tempo: atualiza no mount, no retorno de foco e por evento
     [usuario, ehLider],
     Boolean(usuario) && ehLider && !analiticasSuspensas()
   );

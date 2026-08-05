@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import Aluno from "../pages/Aluno";
 import { modalBox as modalBox_import } from "../ui/cards";
@@ -14,28 +14,77 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
   const [salvando, setSalvando] = useState({});
   const [mensagem, setMensagem] = useState("");
   const [fichaId, setFichaId] = useState(null);
+  // Impede chamadas simultaneas e cancela a requisicao anterior ao remontar/
+  // desmontar. A RPC listar_casos_sem_valor e cara (~3s); duas cargas em voo
+  // ao mesmo tempo so somam pressao no banco sem beneficio.
+  const emVooRef = useRef(false);
+  const abortRef = useRef(null);
 
   useEffect(() => {
     carregar();
+    return () => {
+      // Cancela a requisicao pendente ao desmontar (troca de aba/pagina).
+      if (abortRef.current) abortRef.current.abort();
+    };
+    // Carga unica no mount (sob demanda ao abrir a aba); carregar e estavel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (aoAtualizarContagem) aoAtualizarContagem(lista.length);
   }, [lista, aoAtualizarContagem]);
 
+  function ehAbort(erro) {
+    // O postgrest-js nao lanca no abort (shouldThrowOnError=false): devolve
+    // { error } com name/code de AbortError. Cobrimos os dois formatos (erro
+    // como objeto do postgrest e como excecao real) para nunca logar cancelamento.
+    const nome = erro?.name || "";
+    const msg = erro?.message || "";
+    const code = erro?.code || "";
+    return nome === "AbortError" || code === "ABORT_ERR" || /AbortError/.test(msg);
+  }
+
   async function carregar() {
+    // Single-flight: mesma consulta ja em andamento -> ignora (nao duplica).
+    if (emVooRef.current) return;
+    emVooRef.current = true;
+
+    // Cancela qualquer requisicao anterior ainda pendente antes de iniciar.
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     setCarregando(true);
 
-    const { data, error } = await supabase.rpc("listar_casos_sem_valor");
+    try {
+      const { data, error } = await supabase
+        .rpc("listar_casos_sem_valor")
+        .abortSignal(controller.signal);
 
-    if (error) {
-      console.error("Erro ao carregar casos sem valor:", error);
+      // Resposta antiga (desmontou/remontou/abortou): NUNCA atualiza o estado.
+      if (controller.signal.aborted) return;
+
+      if (error) {
+        // Cancelamento nao e erro operacional: nao loga, nao mostra nada.
+        if (ehAbort(error)) return;
+        console.error("Erro ao carregar casos sem valor:", error);
+        setCarregando(false);
+        return;
+      }
+
+      setLista(data || []);
       setCarregando(false);
-      return;
+    } catch (e) {
+      // Defensivo: se por algum motivo a chamada lancar, um abort e silencioso;
+      // qualquer outro erro apenas para o spinner (sem quebrar a tela).
+      if (controller.signal.aborted || ehAbort(e)) return;
+      console.error("Erro ao carregar casos sem valor:", e);
+      if (!controller.signal.aborted) setCarregando(false);
+    } finally {
+      // Garante liberar o single-flight mesmo em excecao, evitando travar
+      // futuras cargas.
+      emVooRef.current = false;
     }
-
-    setLista(data || []);
-    setCarregando(false);
   }
 
   async function salvarValor(aluno) {

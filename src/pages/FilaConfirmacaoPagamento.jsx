@@ -612,9 +612,15 @@ export default function FilaConfirmacaoPagamento() {
       <div style={{ display: filtro === "ACORDO_SEM_VALOR" ? "block" : "none" }}>
         <ConfirmacoesSemValor aoAtualizarContagem={setQtdAcordoSemValor} />
       </div>
-      <div style={{ display: filtro === "SEM_VALOR" ? "block" : "none" }}>
-        <CasosSemValor aoAtualizarContagem={setQtdSemValor} />
-      </div>
+      {/* SOB DEMANDA: a RPC listar_casos_sem_valor e cara (~3s). So monta
+          quando a aba "Sem valor calculado" esta realmente ativa -- antes ela
+          ficava sempre montada (display:none) so pelo badge, disparando a RPC
+          em TODA visita a esta pagina. O contador aparece ao abrir a aba. */}
+      {filtro === "SEM_VALOR" && (
+        <div>
+          <CasosSemValor aoAtualizarContagem={setQtdSemValor} />
+        </div>
+      )}
       <div style={{ display: filtro === "SEM_TELEFONE" ? "block" : "none" }}>
         <CasosSemTelefone aoAtualizarContagem={setQtdSemTelefone} />
       </div>
