@@ -40,4 +40,6 @@ por "Marcar enviado ao aluno"; demais fluxos (termos, financeiro, baixa, confirm
 inalterados.
 
 ### Resultado da publicação
-- Commit: (preencher após push)
+- Branch `fix/notificacao-abre-ficha-por-aluno-id` → merge em `main` (86cf07c),
+  correção em b2b74b2. `git push origin main` OK (a7a1d0e..86cf07c) → Vercel builda main.
+- Este push também subiu o commit pendente da sessão anterior (a7a1d0e — Penetração por Ano).
