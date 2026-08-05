@@ -1855,7 +1855,6 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   </button>
                 )}
                 {podeQuitarManual(usuarioLogado?.email) &&
-                  !fichaComPendencia &&
                   pegarCampo(
                     alunoSelecionado,
                     ["status_jornada", "status_atual", "status"],
