@@ -11,6 +11,7 @@ function formatarData(dataISO) {
 const CORES_TIPO = {
   Erro: { bg: "#fef2f2", cor: "#dc2626" },
   Melhoria: { bg: "#eff6ff", cor: "#2563eb" },
+  "Sugestão / Melhoria": { bg: "#eff6ff", cor: "#2563eb" },
   "Nova ideia": { bg: "#ecfdf5", cor: "#16a34a" },
   "Ajuste de informação": { bg: "#fffbeb", cor: "#b45309" },
   Dúvida: { bg: "#f1f5f9", cor: "#475569" },
@@ -35,6 +36,17 @@ export default function SugestoesRecebidas() {
   async function mudarStatus(id, status) {
     await supabase.from("sugestoes").update({ status }).eq("id", id);
     carregar();
+  }
+
+  async function abrirAnexo(path) {
+    const { data, error } = await supabase.storage
+      .from("sugestoes-prints")
+      .createSignedUrl(path, 60);
+    if (error || !data?.signedUrl) {
+      alert("Não foi possível abrir o print agora.");
+      return;
+    }
+    window.open(data.signedUrl, "_blank", "noopener");
   }
 
   const filtradas = filtroStatus === "TODAS" ? lista : lista.filter((s) => s.status === filtroStatus);
@@ -80,6 +92,11 @@ export default function SugestoesRecebidas() {
                 <span style={S.data}>{formatarData(s.criado_em)}</span>
               </div>
               <p style={S.descricao}>{s.descricao}</p>
+              {s.anexo_path && (
+                <button style={S.botaoAnexo} onClick={() => abrirAnexo(s.anexo_path)}>
+                  📎 Ver print{s.anexo_nome ? `: ${s.anexo_nome}` : ""}
+                </button>
+              )}
               <div style={S.rodape}>
                 <span style={S.autor}>{s.nome || s.autor_email || "Anônimo"}</span>
                 <div style={{ display: "flex", gap: 6 }}>
@@ -112,6 +129,7 @@ const S = {
   badgeCinza: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: "#f1f5f9", color: "#64748b" },
   data: { fontSize: 12, color: "#8a93a3" },
   descricao: { fontSize: 13.5, color: "#334155", lineHeight: 1.55, margin: "0 0 12px" },
+  botaoAnexo: { background: "#f8fafc", color: "#2563eb", border: "1px solid #dbeafe", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", marginBottom: 12 },
   rodape: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 },
   autor: { fontSize: 12, color: "#8a93a3", fontWeight: 600 },
   botaoAcao: { background: "#eff6ff", color: "#2563eb", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
