@@ -50,6 +50,11 @@ export default function MinhaFilaPagamentos() {
   const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState("");
   const [filtro, setFiltro] = useState("AGUARDANDO_BAIXA");
+  const [dataDe, setDataDe] = useState(""); // filtra por data do pagamento identificado
+  const [dataAte, setDataAte] = useState("");
+  const [soComSaldo, setSoComSaldo] = useState(false); // só alunos que ainda têm saldo em aberto
+  const [saldoPendente, setSaldoPendente] = useState({}); // aluno_id -> boolean (cache)
+  const [carregandoSaldo, setCarregandoSaldo] = useState(false);
   const [observacoes, setObservacoes] = useState({});
   const [valoresPagos, setValoresPagos] = useState({});
   const [qtdParcelasAcordo, setQtdParcelasAcordo] = useState({});
@@ -60,6 +65,20 @@ export default function MinhaFilaPagamentos() {
     carregarUsuario();
     carregarPagamentos();
   }, []);
+
+  // Atalhos de data. offsetInicio/offsetFim = dias a partir de hoje (0 = hoje,
+  // -1 = ontem). YYYY-MM-DD no fuso local para bater com os <input type="date">.
+  function ymdLocal(d) {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  }
+  function aplicarAtalhoData(offsetInicio, offsetFim) {
+    const ini = new Date();
+    ini.setDate(ini.getDate() + offsetInicio);
+    const fim = new Date();
+    fim.setDate(fim.getDate() + offsetFim);
+    setDataDe(ymdLocal(ini));
+    setDataAte(ymdLocal(fim));
+  }
 
   async function carregarUsuario() {
     const { data } = await supabase.auth.getUser();
@@ -303,7 +322,8 @@ export default function MinhaFilaPagamentos() {
   const podeBaixar = podeBaixarPagamento(email);
   const podeVer = podeVerFilaDeBaixas(email);
 
-  const lista = useMemo(() => {
+  // Lista após filtros de status/busca/data (antes do filtro de saldo).
+  const listaBase = useMemo(() => {
     let filtrada = [...links];
 
     if (filtro !== "TODOS") {
@@ -327,8 +347,69 @@ export default function MinhaFilaPagamentos() {
       );
     }
 
+    // Filtro por data (De/Até inclusivos, fuso local). Usa a data da baixa
+    // quando ela já ocorreu; senão, a data em que o pagamento foi identificado.
+    // Assim "baixas de hoje/ontem" refletem quando a baixa foi feita.
+    const dataRef = (item) => item.baixado_em || item.pagamento_identificado_em;
+    if (dataDe) {
+      const ini = new Date(`${dataDe}T00:00:00`).getTime();
+      filtrada = filtrada.filter((item) => dataRef(item) && new Date(dataRef(item)).getTime() >= ini);
+    }
+    if (dataAte) {
+      const fim = new Date(`${dataAte}T23:59:59.999`).getTime();
+      filtrada = filtrada.filter((item) => dataRef(item) && new Date(dataRef(item)).getTime() <= fim);
+    }
+
     return filtrada;
-  }, [links, filtro, busca]);
+  }, [links, filtro, busca, dataDe, dataAte]);
+
+  // Busca em lote (com cache) se cada aluno da lista ainda tem saldo em aberto.
+  // Só dispara quando o filtro "com saldo em aberto" está ligado, para não
+  // sobrecarregar a tela desnecessariamente.
+  useEffect(() => {
+    if (!soComSaldo) return;
+    const ehUuid = (v) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+    const ids = [
+      ...new Set(
+        listaBase
+          .map((i) => i.aluno_id)
+          .filter((id) => id && ehUuid(String(id)) && saldoPendente[id] === undefined)
+      ),
+    ];
+    if (ids.length === 0) return;
+
+    let ativo = true;
+    (async () => {
+      setCarregandoSaldo(true);
+      // Uma chamada só: retorna o subconjunto de aluno_ids que ainda têm saldo.
+      const { data, error } = await supabase.rpc("fila_baixas_alunos_com_saldo", {
+        p_aluno_ids: ids,
+      });
+      if (!ativo) return;
+      if (error) {
+        console.error("Erro ao consultar saldos da fila:", error);
+        setCarregandoSaldo(false);
+        return;
+      }
+      const comSaldo = new Set((data || []).map((r) => (typeof r === "string" ? r : r.id)));
+      setSaldoPendente((prev) => {
+        const novo = { ...prev };
+        for (const id of ids) novo[id] = comSaldo.has(id); // resolve todos os consultados
+        return novo;
+      });
+      setCarregandoSaldo(false);
+    })();
+
+    return () => {
+      ativo = false;
+    };
+  }, [soComSaldo, listaBase, saldoPendente]);
+
+  // Aplica o filtro de saldo em aberto por cima da lista base.
+  const lista = useMemo(() => {
+    if (!soComSaldo) return listaBase;
+    return listaBase.filter((i) => i.aluno_id && saldoPendente[i.aluno_id] === true);
+  }, [listaBase, soComSaldo, saldoPendente]);
 
   const indicadores = useMemo(() => {
     return {
@@ -384,6 +465,40 @@ export default function MinhaFilaPagamentos() {
             <option value="BAIXA_DEVOLVIDA">Divergências</option>
             <option value="TODOS">Todos</option>
           </select>
+
+          <label style={styles.labelData}>
+            Pagamento de
+            <input type="date" style={styles.input} value={dataDe} max={dataAte || undefined} onChange={(e) => setDataDe(e.target.value)} />
+          </label>
+          <label style={styles.labelData}>
+            até
+            <input type="date" style={styles.input} value={dataAte} min={dataDe || undefined} onChange={(e) => setDataAte(e.target.value)} />
+          </label>
+        </div>
+
+        <div style={styles.atalhosData}>
+          <button style={styles.chipData} onClick={() => aplicarAtalhoData(0, 0)}>Hoje</button>
+          <button style={styles.chipData} onClick={() => aplicarAtalhoData(-1, -1)}>Ontem</button>
+          <button style={styles.chipData} onClick={() => aplicarAtalhoData(-6, 0)}>Últimos 7 dias</button>
+          <button style={styles.chipData} onClick={() => aplicarAtalhoData(-29, 0)}>Últimos 30 dias</button>
+          {(dataDe || dataAte) && (
+            <button style={styles.botaoLimparData} onClick={() => { setDataDe(""); setDataAte(""); }}>
+              Limpar data
+            </button>
+          )}
+
+          <span style={styles.separadorFiltro} />
+
+          <button
+            style={soComSaldo ? styles.chipSaldoAtivo : styles.chipSaldo}
+            onClick={() => setSoComSaldo((v) => !v)}
+            title="Mostra só os alunos que ainda têm saldo em aberto (aluno_tem_saldo_pendente)"
+          >
+            {soComSaldo ? "✓ " : ""}Só com saldo em aberto
+          </button>
+          {soComSaldo && carregandoSaldo && (
+            <span style={styles.saldoCarregando}>conferindo saldos…</span>
+          )}
         </div>
       </div>
 
@@ -403,7 +518,12 @@ export default function MinhaFilaPagamentos() {
             </div>
             </div>
 
-            <span style={{ ...styles.status, ...corStatus(item.status) }}>{STATUS[item.status] || item.status}</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" }}>
+              <span style={{ ...styles.status, ...corStatus(item.status) }}>{STATUS[item.status] || item.status}</span>
+              {item.aluno_id && saldoPendente[item.aluno_id] === true && (
+                <span style={styles.badgeSaldo}>⚠ Saldo em aberto</span>
+              )}
+            </div>
           </div>
 
           {item.aluno_id && (
@@ -549,6 +669,15 @@ const styles = {
   card: { background: "#fff", borderRadius: "14px", padding: "18px", marginBottom: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" },
   input: { padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "14px" },
+  labelData: { display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px", fontWeight: "bold", color: "#374151" },
+  atalhosData: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "12px", alignItems: "center" },
+  chipData: { background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" },
+  botaoLimparData: { background: "#fff", color: "#374151", border: "1px solid #d1d5db", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" },
+  separadorFiltro: { width: "1px", alignSelf: "stretch", background: "#e5e7eb", margin: "2px 4px" },
+  chipSaldo: { background: "#fff", color: "#92400e", border: "1px solid #fcd34d", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" },
+  chipSaldoAtivo: { background: "#f59e0b", color: "#fff", border: "1px solid #f59e0b", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" },
+  saldoCarregando: { fontSize: "12px", color: "#94a3b8", fontStyle: "italic", alignSelf: "center" },
+  badgeSaldo: { background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d", padding: "5px 10px", borderRadius: "999px", fontWeight: "bold", fontSize: "12px", whiteSpace: "nowrap" },
   detalhe: { marginTop: 10, borderTop: "1px solid #eef2f6", paddingTop: 8 },
   detalheSum: { cursor: "pointer", fontWeight: 700, color: "#198754", padding: "9px 4px", fontSize: 14 },
   cardPagamento: { background: "#fff", borderRadius: "16px", padding: "20px", marginBottom: "16px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", borderLeft: "6px solid #198754" },
