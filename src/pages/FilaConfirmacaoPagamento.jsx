@@ -844,10 +844,10 @@ export default function FilaConfirmacaoPagamento() {
                 <div style={styles.modalAcoes}>
                   {aguardandoVinculo && (
                     <div style={{ ...styles.incompleto, background: "#f5f3ff", color: "#5b21b6", border: "1px solid #ddd6fe" }}>
-                      Pagamento <strong>recebido</strong>, mas ainda <strong>sem vínculo</strong>. Identifique
-                      manualmente a dívida em <strong>“Vincular dados”</strong> (mensalidade, parcela de acordo,
+                      Pagamento <strong>recebido</strong>, mas ainda <strong>sem vínculo</strong>. Ajuste
+                      a dívida na aba <strong>Financeiro</strong> (mensalidade, parcela de acordo,
                       entrada ou quitação total) — ou use <strong>“Rejeitar / devolver”</strong> para “pagamento
-                      sem vínculo localizado”. A conclusão fica bloqueada até a seleção manual. Nada é quitado,
+                      sem vínculo localizado”. A conclusão fica bloqueada até o acerto no Financeiro. Nada é quitado,
                       reposto ou alterado enquanto aguarda vínculo.
                     </div>
                   )}
@@ -964,7 +964,7 @@ export default function FilaConfirmacaoPagamento() {
                         <button
                           style={confirmavel && !finalizando ? styles.botaoConfirmar : styles.botaoDesabilitado}
                           disabled={!confirmavel || finalizando}
-                          title={confirmavel ? "" : "Identifique a dívida em “Vincular dados” antes de concluir."}
+                          title={confirmavel ? "" : "Ajuste a dívida na aba Financeiro antes de concluir."}
                           onClick={() => confirmavel && !finalizando && finalizarSolicitacao(detalhe)}
                         >
                           {finalizando ? "Confirmando..." : "Confirmar pagamento"}
@@ -987,9 +987,6 @@ export default function FilaConfirmacaoPagamento() {
                             ✅ Confirmar saldo zero e retirar das filas
                           </button>
                         )}
-                        <button style={styles.botaoVincular} onClick={() => setVinculando(true)}>
-                          Vincular dados
-                        </button>
                         <button style={styles.botaoRejeitar} onClick={() => rejeitarPagamento(detalhe, motivoRejeicao)}>
                           Rejeitar / devolver
                         </button>

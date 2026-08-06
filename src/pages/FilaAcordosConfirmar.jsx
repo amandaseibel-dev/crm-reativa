@@ -170,6 +170,41 @@ export default function FilaAcordosConfirmar() {
   const rejeitar = (item) => mudarStatus(item, "REJEITADO");
   const reabrir = (item) => mudarStatus(item, "A_CONFIRMAR");
 
+  // Confirma DE UMA VEZ todos os acordos "A confirmar" de um aluno (card).
+  // Evita o vai-e-volta de confirmar 1 e o aluno reaparecer pela pendencia do
+  // outro. Update em lote pelos ids da fila (nunca por CPF/aluno); mexe SOMENTE
+  // nos ids pendentes daquele card. Estado de processamento por grupo (chave).
+  async function confirmarTodos(grupo) {
+    const pendentes = grupo.acordos.filter((a) => (a.status_confirmacao || "A_CONFIRMAR") === "A_CONFIRMAR");
+    if (pendentes.length === 0) return;
+    const chaveBusy = `grp:${grupo.chave}`;
+    if (processando[chaveBusy]) return;
+    setProcessando((p) => ({ ...p, [chaveBusy]: true }));
+    setErro("");
+
+    const ids = pendentes.map((a) => a.id);
+    const patch = { status_confirmacao: "CONFIRMADO", operador_email: email, confirmado_em: new Date().toISOString() };
+
+    try {
+      const { error } = await supabase
+        .from("fila_acordos_confirmar")
+        .update(patch)
+        .in("id", ids); // <- somente os ids pendentes deste card
+
+      if (error) throw error;
+
+      setItens((prev) => prev.map((x) => (ids.includes(x.id) ? { ...x, ...patch } : x)));
+    } catch (e) {
+      setErro(`Erro ao confirmar todos do aluno ${grupo.nome || formatCpf(grupo.cpf)}: ${e?.message || String(e)}`);
+    } finally {
+      setProcessando((p) => {
+        const n = { ...p };
+        delete n[chaveBusy];
+        return n;
+      });
+    }
+  }
+
   // Filtro por status (client-side) + busca por nome/CPF.
   const filtrados = itens.filter((i) => {
     const st = i.status_confirmacao || "A_CONFIRMAR";
@@ -246,6 +281,22 @@ export default function FilaAcordosConfirmar() {
                 </div>
                 <div style={S.cardHeadDir}>
                   <span style={S.cardResumo}>{g.acordos.length} acordo{g.acordos.length > 1 ? "s" : ""} · {moeda(g.total)}</span>
+                  {(() => {
+                    const pendentes = g.acordos.filter((a) => (a.status_confirmacao || "A_CONFIRMAR") === "A_CONFIRMAR");
+                    const busyGrp = !!processando[`grp:${g.chave}`];
+                    if (pendentes.length === 0) return null;
+                    return (
+                      <button
+                        type="button"
+                        style={{ ...S.btnConf, ...(busyGrp ? S.btnBusy : {}) }}
+                        disabled={busyGrp}
+                        onClick={() => confirmarTodos(g)}
+                        title="Confirma de uma vez todos os acordos deste aluno"
+                      >
+                        {busyGrp ? "Confirmando..." : `Confirmar todos (${pendentes.length})`}
+                      </button>
+                    );
+                  })()}
                   <button type="button" style={S.btnFicha} onClick={() => setFichaId(g.alunoId)}>Abrir ficha</button>
                 </div>
               </div>
