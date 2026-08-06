@@ -4,13 +4,13 @@ import {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
-  Upload, Users, Settings, UserCircle,
+  Upload, Users, Settings, UserCircle, ClipboardList,
 } from "lucide-react";
 const ICONES_MENU = {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
-  Upload, Users, Settings, UserCircle,
+  Upload, Users, Settings, UserCircle, ClipboardList,
 };
 import { supabase } from "./services/supabase";
 import usePolling from "./utils/polling";
@@ -37,6 +37,7 @@ import AgendaOperacional from "./pages/AgendaOperacional";
 import PortalOperacional from "./pages/PortalOperacional";
 import LogNivelamento from "./pages/LogNivelamento";
 import SugestoesRecebidas from "./pages/SugestoesRecebidas";
+import MinhasSolicitacoes from "./pages/MinhasSolicitacoes";
 import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
 import ManualOperacao from "./pages/ManualOperacao";
 import BotaoManual from "./components/BotaoManual";
@@ -116,7 +117,7 @@ function podeAcessar(perfil, rota) {
   if (rota === "/calibragem") return perfil !== "operador";
   if (rota === "/efetividade") return true; // operador vê o próprio; gestão vê todos
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
-  if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
+  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
   const permissoes = {
     gerencia: [
       "/",
@@ -294,6 +295,7 @@ export default function App() {
   const [parcelasVencendo, setParcelasVencendo] = useState([]);
   const [baixasAguardando, setBaixasAguardando] = useState(0);
   const [elogiosPendentes, setElogiosPendentes] = useState(0);
+  const [minhasValidacoesPendentes, setMinhasValidacoesPendentes] = useState(0);
   const [tema, setTema] = useState(() => localStorage.getItem("reativa_tema") || "claro"); // tema opcional (claro/escuro)
   const [sidebarRecolhida, setSidebarRecolhida] = useState(() => {
     return localStorage.getItem("reativa_sidebar_recolhida") === "1";
@@ -360,6 +362,20 @@ export default function App() {
     [usuario, ehLider],
     Boolean(usuario) && ehLider && !analiticasSuspensas()
   );
+
+  // Sinaliza no menu quando o operador tem solicitações devolvidas para
+  // validar. Busca única ao logar (sem polling), como as demais analíticas
+  // sob demanda; qualquer falha apenas mantém o contador neutro.
+  useEffect(() => {
+    if (!usuario) { setMinhasValidacoesPendentes(0); return; }
+    let ativo = true;
+    (async () => {
+      const { data, error } = await supabase.rpc("listar_minhas_solicitacoes");
+      if (!ativo || error || !Array.isArray(data)) return;
+      setMinhasValidacoesPendentes(data.filter((s) => s.status === "AGUARDANDO_VALIDACAO").length);
+    })();
+    return () => { ativo = false; };
+  }, [usuario]);
 
   useEffect(() => {
     if (usuario) return;
@@ -525,6 +541,7 @@ export default function App() {
     { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" },
     { rota: "/aluno", label: "Base", icone: "User", secao: "Operação" },
     { rota: "/relatorio-receptivo", label: "Relatório Receptivo", icone: "Phone", secao: "Operação" }, { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
+    { rota: "/minhas-solicitacoes", label: "Minhas Solicitações", icone: "ClipboardList", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
     { rota: "/termos-adm", label: "Validação de Termos", icone: "CheckCircle2", secao: "Financeiro" },
     { rota: "/calibragem", label: "⚖️ Calibragem", icone: "Scale", secao: "Gestão" },
@@ -758,6 +775,14 @@ export default function App() {
                     {elogiosPendentes}
                   </span>
                 )}
+                {item.rota === "/minhas-solicitacoes" && minhasValidacoesPendentes > 0 && (
+                  <span
+                    className="badge-pendente"
+                    title="Solicitações aguardando sua validação"
+                  >
+                    {minhasValidacoesPendentes}
+                  </span>
+                )}
                   </NavLink>
                   )}
                 </div>
@@ -926,6 +951,7 @@ export default function App() {
               }
             />
             <Route path="/portal-operacional" element={<PortalOperacional />} />
+            <Route path="/minhas-solicitacoes" element={<MinhasSolicitacoes />} />
             <Route path="*" element={<Navigate to="/" replace />} />
               {/* Fila Operacional (rota antiga): operador e redirecionado para
                   a Minha Carteira; demais perfis mantem o acesso atual. */}
