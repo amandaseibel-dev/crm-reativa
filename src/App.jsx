@@ -360,14 +360,19 @@ export default function App() {
     },
     0, // sem polling por tempo: atualiza no mount, no retorno de foco e por evento
     [usuario, ehLider],
-    Boolean(usuario) && ehLider && !analiticasSuspensas()
+    // ISENTO da contenção: `contadores_cabecalho` é um contador operacional
+    // leve (~108ms, cache 60s, single-flight, só no mount/foco/evento) que
+    // alimenta os badges do menu (fila de baixa, links, elogios, termos). NÃO
+    // é uma das analíticas pesadas do incidente P0 — por isso roda mesmo em
+    // modo de contenção. As analíticas caras seguem gated por analiticasSuspensas().
+    Boolean(usuario) && ehLider
   );
 
   // Sinaliza no menu quando o operador tem solicitações devolvidas para
   // validar. Busca única ao logar (sem polling), como as demais analíticas
   // sob demanda; qualquer falha apenas mantém o contador neutro.
   useEffect(() => {
-    if (!usuario) { setMinhasValidacoesPendentes(0); return; }
+    if (!usuario || !ehLider) { setMinhasValidacoesPendentes(0); return; }
     let ativo = true;
     (async () => {
       const { data, error } = await supabase.rpc("listar_minhas_solicitacoes");
@@ -375,7 +380,7 @@ export default function App() {
       setMinhasValidacoesPendentes(data.filter((s) => s.status === "AGUARDANDO_VALIDACAO").length);
     })();
     return () => { ativo = false; };
-  }, [usuario]);
+  }, [usuario, ehLider]);
 
   useEffect(() => {
     if (usuario) return;
