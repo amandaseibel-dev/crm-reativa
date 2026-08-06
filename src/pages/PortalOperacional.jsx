@@ -711,7 +711,7 @@ function SecaoSugestoes() {
       <TituloSecao emoji="💡" titulo="Painel de Sugestões" sub="Envie ideias, ajustes e melhorias para o Sistema ReATIVA ou para o Portal Reativa." />
       <Card>
         <p style={S.avisoCanal}>
-          ⚠️ <strong>Canal oficial.</strong> Erros, dúvidas e sugestões só entram para tratativa por aqui — assim centralizamos e organizamos todas as demandas em um só lugar, com acompanhamento do início ao fim. Pedidos por outros meios (WhatsApp, e-mail, verbal) não entram na fila de análise.
+          ⚠️ <strong>Canal oficial.</strong> Registre erros, dúvidas e sugestões só por aqui — é assim que a demanda entra na fila e é acompanhada. Pedidos por WhatsApp, e-mail ou verbais não entram para tratativa.
         </p>
       </Card>
       <Card>

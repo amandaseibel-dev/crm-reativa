@@ -121,7 +121,7 @@ export default function BotaoSugestao() {
             ) : (
               <form onSubmit={enviar} style={S.form}>
                 <div style={S.aviso}>
-                  ⚠️ <strong>Canal oficial.</strong> Erros, dúvidas e sugestões só entram para tratativa por aqui — assim centralizamos e organizamos todas as demandas em um só lugar, com acompanhamento do início ao fim. Pedidos por outros meios (WhatsApp, e-mail, verbal) não entram na fila de análise.
+                  ⚠️ <strong>Canal oficial.</strong> Registre erros, dúvidas e sugestões só por aqui — é assim que a demanda entra na fila e é acompanhada. Pedidos por WhatsApp, e-mail ou verbais não entram para tratativa.
                 </div>
                 {erro && <p style={S.erro}>{erro}</p>}
                 <Campo label="Nome">
