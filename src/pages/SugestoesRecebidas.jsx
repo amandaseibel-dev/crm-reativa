@@ -31,6 +31,8 @@ export default function SugestoesRecebidas() {
   const [carregando, setCarregando] = useState(true);
   const [lista, setLista] = useState([]);
   const [filtroStatus, setFiltroStatus] = useState("NOVA");
+  const [rascunho, setRascunho] = useState({}); // id -> texto em edição
+  const [salvandoObs, setSalvandoObs] = useState(null);
 
   useEffect(() => {
     carregar();
@@ -49,6 +51,26 @@ export default function SugestoesRecebidas() {
       .from("sugestoes")
       .update({ status, status_em: new Date().toISOString(), status_por: userData?.user?.email || null })
       .eq("id", id);
+    carregar();
+  }
+
+  async function salvarObservacao(id) {
+    setSalvandoObs(id);
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase
+      .from("sugestoes")
+      .update({
+        observacao_tratativa: (rascunho[id] || "").trim() || null,
+        status_em: new Date().toISOString(),
+        status_por: userData?.user?.email || null,
+      })
+      .eq("id", id);
+    setSalvandoObs(null);
+    setRascunho((r) => {
+      const novo = { ...r };
+      delete novo[id];
+      return novo;
+    });
     carregar();
   }
 
@@ -117,6 +139,35 @@ export default function SugestoesRecebidas() {
                   📎 Ver print{s.anexo_nome ? `: ${s.anexo_nome}` : ""}
                 </button>
               )}
+
+              <div style={S.blocoObs}>
+                {s.observacao_tratativa && rascunho[s.id] === undefined && (
+                  <p style={S.obsTexto}>💬 {s.observacao_tratativa}</p>
+                )}
+                {rascunho[s.id] !== undefined ? (
+                  <>
+                    <textarea
+                      style={S.obsInput}
+                      placeholder="Escreva a tratativa / resposta desta sugestão..."
+                      value={rascunho[s.id]}
+                      onChange={(e) => setRascunho((r) => ({ ...r, [s.id]: e.target.value }))}
+                    />
+                    <div style={{ display: "flex", gap: 6 }}>
+                      <button style={S.obsSalvar} disabled={salvandoObs === s.id} onClick={() => salvarObservacao(s.id)}>
+                        {salvandoObs === s.id ? "Salvando..." : "Salvar tratativa"}
+                      </button>
+                      <button style={S.obsCancelar} onClick={() => setRascunho((r) => { const n = { ...r }; delete n[s.id]; return n; })}>
+                        Cancelar
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <button style={S.obsEditar} onClick={() => setRascunho((r) => ({ ...r, [s.id]: s.observacao_tratativa || "" }))}>
+                    {s.observacao_tratativa ? "✏️ Editar tratativa" : "➕ Adicionar tratativa"}
+                  </button>
+                )}
+              </div>
+
               <div style={S.rodape}>
                 <span style={S.autor}>
                   {s.nome || s.autor_email || "Anônimo"}
@@ -174,6 +225,12 @@ const S = {
   data: { fontSize: 12, color: "#8a93a3" },
   descricao: { fontSize: 13.5, color: "#334155", lineHeight: 1.55, margin: "0 0 12px" },
   botaoAnexo: { background: "#f8fafc", color: "#2563eb", border: "1px solid #dbeafe", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", marginBottom: 12 },
+  blocoObs: { background: "#f8fafc", border: "1px solid #eef2f7", borderRadius: 10, padding: "10px 12px", marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 },
+  obsTexto: { margin: 0, fontSize: 13, color: "#334155", lineHeight: 1.5, whiteSpace: "pre-wrap" },
+  obsInput: { width: "100%", boxSizing: "border-box", minHeight: 64, resize: "vertical", padding: "8px 10px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit" },
+  obsEditar: { alignSelf: "flex-start", background: "transparent", color: "#2563eb", border: "none", padding: 0, fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
+  obsSalvar: { background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  obsCancelar: { background: "#f1f5f9", color: "#64748b", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
   rodape: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 },
   autor: { fontSize: 12, color: "#8a93a3", fontWeight: 600 },
   botaoAcao: { background: "#eff6ff", color: "#2563eb", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
