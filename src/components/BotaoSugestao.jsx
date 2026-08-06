@@ -120,6 +120,9 @@ export default function BotaoSugestao() {
               </div>
             ) : (
               <form onSubmit={enviar} style={S.form}>
+                <div style={S.aviso}>
+                  ⚠️ <strong>Canal oficial.</strong> Erros, dúvidas e sugestões só entram para tratativa por aqui — assim centralizamos e organizamos todas as demandas em um só lugar, com acompanhamento do início ao fim. Pedidos por outros meios (WhatsApp, e-mail, verbal) não entram na fila de análise.
+                </div>
                 {erro && <p style={S.erro}>{erro}</p>}
                 <Campo label="Nome">
                   <input style={S.input} placeholder="Seu nome" value={form.nome} onChange={(e) => atualizar("nome", e.target.value)} />
@@ -216,6 +219,7 @@ const S = {
   dica: { fontSize: 11.5, color: "#b45309" },
   checkLinha: { display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer" },
   checkTexto: { fontSize: 12, color: "#475569", lineHeight: 1.4 },
+  aviso: { background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", borderRadius: 10, padding: "10px 12px", fontSize: 12, lineHeight: 1.5 },
   erro: { color: "#dc2626", fontSize: 13, margin: 0 },
   botaoPrimario: { background: "#2563eb", color: "#fff", padding: "11px 18px", borderRadius: 10, fontWeight: 700, fontSize: 14, border: "none", cursor: "pointer" },
   sucesso: { padding: 24, display: "flex", flexDirection: "column", gap: 14, alignItems: "flex-start" },

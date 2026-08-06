@@ -710,6 +710,11 @@ function SecaoSugestoes() {
     <>
       <TituloSecao emoji="💡" titulo="Painel de Sugestões" sub="Envie ideias, ajustes e melhorias para o Sistema ReATIVA ou para o Portal Reativa." />
       <Card>
+        <p style={S.avisoCanal}>
+          ⚠️ <strong>Canal oficial.</strong> Erros, dúvidas e sugestões só entram para tratativa por aqui — assim centralizamos e organizamos todas as demandas em um só lugar, com acompanhamento do início ao fim. Pedidos por outros meios (WhatsApp, e-mail, verbal) não entram na fila de análise.
+        </p>
+      </Card>
+      <Card>
         {enviado ? (
           <p style={S.paragrafo}>✅ Sugestão enviada, obrigado!</p>
         ) : (
@@ -942,6 +947,7 @@ const S = {
   card: { background: "#fff", border: `1px solid ${BORDA}`, borderRadius: 16, padding: "18px 20px", marginBottom: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
   h3: { fontFamily: FONTE_TITULO, fontSize: 15.5, fontWeight: 700, color: "#0d1321", margin: "0 0 10px" },
   paragrafo: { color: "#475569", fontSize: 13.5, lineHeight: 1.6, margin: 0 },
+  avisoCanal: { margin: 0, background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", borderRadius: 10, padding: "10px 12px", fontSize: 13, lineHeight: 1.55 },
   erroItem: { border: "1px solid #eef2f7", borderRadius: 10, padding: "10px 12px", background: "#fbfcfe" },
   erroBadge: { fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 999 },
   erroTela: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: "#f1f5f9", color: "#64748b" },
