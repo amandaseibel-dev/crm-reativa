@@ -193,8 +193,8 @@ function Campo({ label, children }) {
 const S = {
   fab: {
     position: "fixed",
-    right: "22px",
-    bottom: "78px",
+    left: "22px",
+    bottom: "22px",
     zIndex: 999999,
     background: "#2563eb",
     color: "#ffffff",

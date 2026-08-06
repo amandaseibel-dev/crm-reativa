@@ -20,12 +20,14 @@ const CORES_TIPO = {
 // Fluxo de tratativa. FEITA é tratada como "Corrigido/Feito".
 const STATUS = {
   NOVA: { label: "Novas", chip: "Nova", bg: "#eef2ff", cor: "#4338ca" },
+  REABERTO: { label: "Reabertas", chip: "Reaberto (persiste)", bg: "#fef2f2", cor: "#dc2626" },
   EM_ANALISE: { label: "Em análise", chip: "Em análise", bg: "#fff7ed", cor: "#c2410c" },
   EM_TRATATIVA: { label: "Em tratativa", chip: "Em tratativa", bg: "#fefce8", cor: "#a16207" },
+  AGUARDANDO_VALIDACAO: { label: "Aguardando validação", chip: "Aguardando validação", bg: "#eff6ff", cor: "#1d4ed8" },
   FEITA: { label: "Corrigidas", chip: "Corrigido / Feito", bg: "#ecfdf5", cor: "#15803d" },
   DESCARTADA: { label: "Descartadas", chip: "Descartada", bg: "#f1f5f9", cor: "#64748b" },
 };
-const ORDEM_FILTROS = ["NOVA", "EM_ANALISE", "EM_TRATATIVA", "FEITA", "DESCARTADA", "TODAS"];
+const ORDEM_FILTROS = ["NOVA", "REABERTO", "EM_ANALISE", "EM_TRATATIVA", "AGUARDANDO_VALIDACAO", "FEITA", "DESCARTADA", "TODAS"];
 
 export default function SugestoesRecebidas() {
   const [carregando, setCarregando] = useState(true);
@@ -140,6 +142,9 @@ export default function SugestoesRecebidas() {
                 <span style={S.data}>{formatarData(s.criado_em)}</span>
               </div>
               <p style={S.descricao}>{s.descricao}</p>
+              {s.retorno_operador && (
+                <p style={S.retornoOperador}>❌ Operador reportou que o erro persiste: {s.retorno_operador}</p>
+              )}
               {s.anexo_path && (
                 <button style={S.botaoAnexo} onClick={() => abrirAnexo(s.anexo_path)}>
                   📎 Ver print{s.anexo_nome ? `: ${s.anexo_nome}` : ""}
@@ -184,6 +189,7 @@ export default function SugestoesRecebidas() {
                 <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                   <button style={botaoStatus(atual, "EM_ANALISE")} onClick={() => mudarStatus(s.id, "EM_ANALISE")}>Em análise</button>
                   <button style={botaoStatus(atual, "EM_TRATATIVA")} onClick={() => mudarStatus(s.id, "EM_TRATATIVA")}>Em tratativa</button>
+                  <button style={botaoStatus(atual, "AGUARDANDO_VALIDACAO")} onClick={() => mudarStatus(s.id, "AGUARDANDO_VALIDACAO")}>Enviar p/ validação</button>
                   <button style={botaoStatus(atual, "FEITA")} onClick={() => mudarStatus(s.id, "FEITA")}>Corrigido</button>
                   <button style={botaoStatus(atual, "DESCARTADA")} onClick={() => mudarStatus(s.id, "DESCARTADA")}>Descartar</button>
                   {s.tipo === "Erro" && (
@@ -222,6 +228,7 @@ const S = {
   container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "#f4f6fa", minHeight: "100%" },
   tratativa: { color: "#94a3b8", fontWeight: 500 },
   badgeVisivel: { fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 999, background: "#ecfeff", color: "#0e7490" },
+  retornoOperador: { margin: "0 0 12px", background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 10, padding: "9px 12px", fontSize: 13, lineHeight: 1.5 },
   botaoVisibilidade: { background: "#f8fafc", color: "#475569", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18, flexWrap: "wrap" },
   titulo: { margin: 0, color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
