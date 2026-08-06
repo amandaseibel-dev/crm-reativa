@@ -205,6 +205,18 @@ function ehQuitado(a) {
   return texto.includes("QUITAD") || texto.includes("QUITACAO");
 }
 
+// Rotulo amigavel da origem da quitacao (arquivo de quitados, so gestao).
+function labelOrigemQuitacao(c) {
+  const o = String(c?.origem_quitacao || "").toUpperCase();
+  const sf = String(c?.status_financeiro || "").toUpperCase();
+  const chave = o || sf;
+  if (chave.includes("PLANILHA")) return "Planilha";
+  if (chave.includes("LINK")) return "Link de pagamento";
+  if (chave.includes("AUTOMAT")) return "Automatica (saldo zero)";
+  if (chave.includes("CONFIRMACAO") || chave.includes("MANUAL")) return "Manual / confirmacao";
+  return chave ? chave.charAt(0) + chave.slice(1).toLowerCase().replace(/_/g, " ") : "-";
+}
+
 function diasSemContato(a) {
   const base = a?.data_ultimo_acionamento || a?.ultimo_contato || a?.responsavel_atual_em || null;
   if (!base) return null;
@@ -374,7 +386,12 @@ function mostrarSeloCriticidade(a) {
 // (aba Negociacao), que e o centro unico do operador.
 // Casos nao acionaveis: nao aparecem na lista operacional (continuam
 // disponiveis para consulta/historico). Somente status ja existentes.
-const STATUS_NAO_ACIONAVEIS = ["JURIDICO", "CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "AGUARDANDO_BAIXA", "SALDO_ZERO_CONFIRMADO"];
+// SEM_SALDO_EM_ABERTO: status que a rotina canonica retirar_zerados_reais_sem_saldo()
+// atribui a casos com caso_saldo_zerado_real = true (saldo REAL zero, nao heuristica
+// de valor). Fica fora da fila ativa, mas continua consultavel na ficha. Nao confundir
+// com BAIXA_REALIZADA, que pode ter saldo real > 0 (anomalia sob investigacao) e por
+// isso PERMANECE na fila.
+const STATUS_NAO_ACIONAVEIS = ["JURIDICO", "CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "AGUARDANDO_BAIXA", "SALDO_ZERO_CONFIRMADO", "SEM_SALDO_EM_ABERTO"];
 
 function ehNaoAcionavel(a) {
   const s = String(a?.status_atual || "").toUpperCase();
@@ -485,6 +502,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Detalhamento de parcelas baixadas no mes (cards financeiros).
   const [detalheParcelas, setDetalheParcelas] = useState([]);
   const [detalheFinanceiro, setDetalheFinanceiro] = useState(null); // { tipo, titulo }
+  // Arquivo de quitados (SO GESTAO): casos com quitacao real registrada
+  // (quitado_em). Read-only, fora da fila operacional.
+  const [quitadosModal, setQuitadosModal] = useState(false);
+  const [quitadosLista, setQuitadosLista] = useState([]);
+  const [carregandoQuitados, setCarregandoQuitados] = useState(false);
+  const [qtdQuitados, setQtdQuitados] = useState(null);
   // Financeiro consolidado por aluno (valor em aberto sem duplicidade).
   // { [aluno_id]: { mensalidades, acordos, total, temDetalhe, temAtraso, acordoResponsavel } }
   const [finAlunos, setFinAlunos] = useState({});
@@ -1631,6 +1654,44 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     abrirKpi(id);
   }
 
+  // Arquivo de quitados (SO GESTAO). Anchor: casos.quitado_em IS NOT NULL --
+  // quitacao real com data/valor/origem. Read-only, nao entra na fila.
+  async function abrirQuitados() {
+    if (!veTudo) return; // guard de UI; RLS ainda protege no backend
+    setQuitadosModal(true);
+    setCarregandoQuitados(true);
+    try {
+      let q = supabase
+        .from("casos")
+        .select("aluno_id,nome,nome_aluno,cpf,operador_email,quitado_em,valor_quitado,origem_quitacao,status_financeiro")
+        .not("quitado_em", "is", null)
+        .order("quitado_em", { ascending: false })
+        .limit(5000);
+      if (operadorFiltro && operadorFiltro !== "TODOS") q = q.eq("operador_email", operadorFiltro);
+      const { data, error } = await q;
+      if (error) throw error;
+      setQuitadosLista(data || []);
+    } catch (e) {
+      console.error("Erro ao carregar arquivo de quitados:", e);
+      setQuitadosLista([]);
+    } finally {
+      setCarregandoQuitados(false);
+    }
+  }
+
+  // Contador do card (gestao). Leve: HEAD count sem trazer linhas.
+  useEffect(() => {
+    if (!veTudo) { setQtdQuitados(null); return undefined; }
+    let ativo = true;
+    (async () => {
+      let q = supabase.from("casos").select("aluno_id", { count: "exact", head: true }).not("quitado_em", "is", null);
+      if (operadorFiltro && operadorFiltro !== "TODOS") q = q.eq("operador_email", operadorFiltro);
+      const { count } = await q;
+      if (ativo) setQtdQuitados(Number(count) || 0);
+    })();
+    return () => { ativo = false; };
+  }, [veTudo, operadorFiltro]);
+
   const [saldoView, setSaldoView] = useState({});
   const [valorCarteira, setValorCarteira] = useState(0);
   const normCpf = (c) => String(c || "").replace(/\D/g, "").padStart(11, "0");
@@ -1818,6 +1879,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     { id: "valorBaixadoMes", rot: "Valor baixado no mes", val: formatarMoeda(kpis.valorBaixadoMes), cor: "#16a34a", financeiro: true, icone: "✅" },
     { id: "recebidosMes", rot: "Recebidos no mes", val: kpis.recebidosMes, cor: "#16a34a", financeiro: true, icone: "💰" },
     { id: "honorariosBaixadoMes", rot: "Honorarios no mes", val: formatarMoeda(kpis.honorariosBaixadoMes), cor: "#0d9488", financeiro: true, icone: "🧾" },
+    // Arquivo de quitados: SO GESTAO (veTudo). Read-only, abre modal proprio.
+    ...(veTudo ? [{ id: "quitados", rot: "Quitados (arquivo)", val: qtdQuitados ?? "…", cor: "#059669", icone: "🏁", arquivo: true }] : []),
   ].filter((c) => (!veTudo || operadorFiltro !== "TODOS") || c.id !== "retornosAdm");
 
   const painelReceptivo = (
@@ -2102,11 +2165,11 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             {kpiCards.map((k) => {
               // Todos os cards sao clicaveis e abrem a listagem filtrada.
               const filtravel = true;
-              const ativoK = filtroKpi === k.id;
+              const ativoK = k.arquivo ? quitadosModal : filtroKpi === k.id;
               return (
                 <div
                   key={k.id}
-                  onClick={filtravel ? () => onKpiClick(k.id) : undefined}
+                  onClick={filtravel ? () => (k.arquivo ? abrirQuitados() : onKpiClick(k.id)) : undefined}
                   style={{
                     ...S.kpiCard,
                     cursor: filtravel ? "pointer" : "default",
@@ -2861,6 +2924,64 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                         <td style={S.tdNumTotal}>{formatarMoeda(detalheParcelas.reduce((s, r) => s + r.valor, 0))}</td>
                         <td style={S.tdNumTotal}>{formatarMoeda(detalheParcelas.reduce((s, r) => s + r.honorarios, 0))}</td>
                         <td style={S.td}></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {quitadosModal && (
+        <div style={S.overlay} onClick={() => setQuitadosModal(false)}>
+          <div style={{ ...S.modal, maxWidth: 1040 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div style={S.modalHeader}>
+              <div style={{ minWidth: 0 }}>
+                <h2 style={S.modalNome}>Quitados (arquivo)</h2>
+                <div style={S.modalSub}>
+                  {carregandoQuitados
+                    ? "Carregando…"
+                    : `${quitadosLista.length} caso(s) quitado(s) · Total quitado: ${formatarMoeda(quitadosLista.reduce((s, r) => s + (Number(r.valor_quitado) || 0), 0))}`}
+                  {operadorFiltro && operadorFiltro !== "TODOS" ? ` · ${nomeOperadorPorEmail(operadorFiltro)}` : ""}
+                  {" · Somente leitura (fora da fila)"}
+                </div>
+              </div>
+              <button style={S.btnFechar} onClick={() => setQuitadosModal(false)} aria-label="Fechar">✕</button>
+            </div>
+            <div style={S.modalBody}>
+              <div style={S.tabelaWrap}>
+                <table style={S.tabela}>
+                  <thead>
+                    <tr>
+                      <th style={S.th}>Aluno</th>
+                      <th style={S.th}>Data da quitacao</th>
+                      <th style={S.thNum}>Valor quitado</th>
+                      <th style={S.th}>Origem</th>
+                      <th style={S.th}>Operador</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quitadosLista.map((r, i) => (
+                      <tr key={`${r.aluno_id || r.cpf || "q"}-${i}`} style={S.tr}>
+                        <td style={S.td}>{r.nome || r.nome_aluno || "-"}</td>
+                        <td style={S.td}>{formatarData(r.quitado_em)}</td>
+                        <td style={S.tdNum}>{formatarMoeda(Number(r.valor_quitado) || 0)}</td>
+                        <td style={S.td}>{labelOrigemQuitacao(r)}</td>
+                        <td style={S.td}>{nomeOperadorPorEmail(r.operador_email)}</td>
+                      </tr>
+                    ))}
+                    {!carregandoQuitados && quitadosLista.length === 0 && (
+                      <tr><td style={S.vazio} colSpan={5}>Nenhum caso quitado no recorte atual.</td></tr>
+                    )}
+                  </tbody>
+                  {quitadosLista.length > 0 && (
+                    <tfoot>
+                      <tr>
+                        <td style={S.tdTotal} colSpan={2}>Total</td>
+                        <td style={S.tdNumTotal}>{formatarMoeda(quitadosLista.reduce((s, r) => s + (Number(r.valor_quitado) || 0), 0))}</td>
+                        <td style={S.td} colSpan={2}></td>
                       </tr>
                     </tfoot>
                   )}
