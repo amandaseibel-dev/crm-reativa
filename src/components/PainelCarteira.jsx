@@ -205,6 +205,18 @@ function ehQuitado(a) {
   return texto.includes("QUITAD") || texto.includes("QUITACAO");
 }
 
+// Rotulo amigavel da origem da quitacao (arquivo de quitados, so gestao).
+function labelOrigemQuitacao(c) {
+  const o = String(c?.origem_quitacao || "").toUpperCase();
+  const sf = String(c?.status_financeiro || "").toUpperCase();
+  const chave = o || sf;
+  if (chave.includes("PLANILHA")) return "Planilha";
+  if (chave.includes("LINK")) return "Link de pagamento";
+  if (chave.includes("AUTOMAT")) return "Automatica (saldo zero)";
+  if (chave.includes("CONFIRMACAO") || chave.includes("MANUAL")) return "Manual / confirmacao";
+  return chave ? chave.charAt(0) + chave.slice(1).toLowerCase().replace(/_/g, " ") : "-";
+}
+
 function diasSemContato(a) {
   const base = a?.data_ultimo_acionamento || a?.ultimo_contato || a?.responsavel_atual_em || null;
   if (!base) return null;
@@ -249,6 +261,60 @@ function situacaoLabel(a) {
   if (MAPA_SITUACAO[s]) return MAPA_SITUACAO[s];
   if (!s || s === "Novo caso") return "Sem contato";
   return s;
+}
+
+// Tabulacao (desfecho do acionamento) canonica do aluno -- mesma precedencia
+// usada no resto da tela: status_atual > status_jornada > status_acionamento.
+function tabulacaoDoAluno(a) {
+  return a?.status_atual || a?.status_jornada || a?.status_acionamento || "";
+}
+
+// Opcoes do filtro por tabulacao na Minha Carteira. Pedido operacional: dar aos
+// operadores controle de RETORNO dos termos e links enviados -- por isso esse
+// grupo vem primeiro. Nenhum status novo: todos ja existem em STATUS_FINALIZACAO.
+const OPCOES_TABULACAO = [
+  {
+    grupo: "Termos e links (retorno)",
+    itens: [
+      "SOLICITADO_LINK",
+      "LINK_PRONTO_PARA_ENVIO",
+      "LINK_ENVIADO_AO_ALUNO",
+      "AGUARDANDO_COMPROVANTE",
+      "AGUARDANDO_BAIXA",
+      "BAIXA_REALIZADA",
+      "TERMO_ENVIADO_ALUNO",
+      "TERMO_ENVIADO_ADM",
+      "TERMO_RECEBIDO_LIBERADO",
+      "TERMO_REJEITADO",
+    ],
+  },
+  {
+    grupo: "Acionamento",
+    itens: [
+      "CONTATAR",
+      "MENSAGEM_ENVIADA",
+      "EM_ATENDIMENTO",
+      "ALUNO_EM_NEGOCIACAO_24H",
+      "RETORNAR_DEPOIS",
+      "SEM_RETORNO",
+      "NAO_LOCALIZADO",
+      "ACORDO_FECHADO",
+      "CANCELAMENTO_COBRANCA",
+      "SUSPENSAO_COBRANCA",
+      "JURIDICO",
+    ],
+  },
+];
+
+// Selo discreto na coluna Nome para o operador bater o olho e ver quem tem
+// termo/link enviado pendente de retorno, sem abrir a ficha.
+function seloTermoLink(a) {
+  const s = tabulacaoDoAluno(a);
+  if (["TERMO_ENVIADO_ALUNO", "TERMO_ENVIADO_ADM", "TERMO_RECEBIDO_LIBERADO"].includes(s))
+    return { emoji: "📄", texto: MAPA_SITUACAO[s] || "Termo enviado", bg: "#eef2ff", cor: "#4338ca" };
+  if (["SOLICITADO_LINK", "LINK_PRONTO_PARA_ENVIO", "LINK_ENVIADO_AO_ALUNO"].includes(s))
+    return { emoji: "🔗", texto: MAPA_SITUACAO[s] || "Link enviado", bg: "#ecfeff", cor: "#0e7490" };
+  return null;
 }
 
 function statusPrazo(a) {
@@ -338,6 +404,29 @@ function critAlta(a) {
   return n === "CRITICO" || n === "URGENTE";
 }
 
+// ---- Fila inteligente ----
+// Dias decorridos desde o ultimo acionamento (ou ultimo contato). null = nunca
+// acionado. Ancora da fidelizacao de 10 dias (data_ultimo_acionamento + 10).
+function diasSemAcionar(a, hojeStr) {
+  const base = a?.data_ultimo_acionamento || a?.ultimo_contato || null;
+  if (!base) return null;
+  const d = diasParaData(String(base).slice(0, 10), hojeStr);
+  return d === null ? null : Math.max(0, d);
+}
+// Selo que explica a posicao na fila inteligente (urgencia de fidelizacao).
+// Retorna {emoji,texto,bg,cor} ou null. Retorno devido ja e coberto por
+// sugestaoDoCaso, entao aqui focamos em "nunca acionado" e "perto de soltar".
+function seloFila(a, hojeStr) {
+  const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
+  if (ret && ret <= hojeStr) return null; // retorno devido: sugestaoDoCaso ja mostra
+  const d = diasSemAcionar(a, hojeStr);
+  if (d === null) return { emoji: "🆕", texto: "Nunca acionado", bg: "#1e3a8a", cor: "#bfdbfe" };
+  const faltam = 10 - d; // fidelizacao solta o caso em +10 dias
+  if (faltam <= 2) return { emoji: "⏳", texto: `Solta em ${Math.max(0, faltam)}d`, bg: "#7f1d1d", cor: "#fecaca" };
+  if (d >= 5) return { emoji: "🕒", texto: `Parado há ${d}d`, bg: "#78350f", cor: "#fde68a" };
+  return null;
+}
+
 // Selo financeiro (Critico/Urgente) e decidido pelo SALDO VENCIDO CANONICO -- nao
 // apenas pela situacao operacional nem pelo nivel_criticidade armazenado. Regra:
 //   - saldo vencido > 0  -> mostra o selo (inclusive AGUARDANDO_CONFIRMACAO com vencido);
@@ -374,7 +463,12 @@ function mostrarSeloCriticidade(a) {
 // (aba Negociacao), que e o centro unico do operador.
 // Casos nao acionaveis: nao aparecem na lista operacional (continuam
 // disponiveis para consulta/historico). Somente status ja existentes.
-const STATUS_NAO_ACIONAVEIS = ["JURIDICO", "CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "AGUARDANDO_BAIXA", "SALDO_ZERO_CONFIRMADO"];
+// SEM_SALDO_EM_ABERTO: status que a rotina canonica retirar_zerados_reais_sem_saldo()
+// atribui a casos com caso_saldo_zerado_real = true (saldo REAL zero, nao heuristica
+// de valor). Fica fora da fila ativa, mas continua consultavel na ficha. Nao confundir
+// com BAIXA_REALIZADA, que pode ter saldo real > 0 (anomalia sob investigacao) e por
+// isso PERMANECE na fila.
+const STATUS_NAO_ACIONAVEIS = ["JURIDICO", "CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "AGUARDANDO_BAIXA", "SALDO_ZERO_CONFIRMADO", "SEM_SALDO_EM_ABERTO"];
 
 function ehNaoAcionavel(a) {
   const s = String(a?.status_atual || "").toUpperCase();
@@ -473,11 +567,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
   const [busca, setBusca] = useState("");
   const [filtroStatus, setFiltroStatus] = useState("TODOS");
+  const [filtroTabulacao, setFiltroTabulacao] = useState("TODAS");
   const [filtroKpi, setFiltroKpi] = useState(null);
   const [filtroValorMin, setFiltroValorMin] = useState("");
   const [filtroValorMax, setFiltroValorMax] = useState("");
   const [filtroDiasMinSemContato, setFiltroDiasMinSemContato] = useState("");
-  const [ordenacao, setOrdenacao] = useState("prioridade");
+  const [ordenacao, setOrdenacao] = useState("inteligente");
   const [casosEspeciais, setCasosEspeciais] = useState(null);
   const [carregandoEspecial, setCarregandoEspecial] = useState(false);
   // Ids de alunos por estado de acordo (para clique dos cards operacionais).
@@ -485,6 +580,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Detalhamento de parcelas baixadas no mes (cards financeiros).
   const [detalheParcelas, setDetalheParcelas] = useState([]);
   const [detalheFinanceiro, setDetalheFinanceiro] = useState(null); // { tipo, titulo }
+  // Arquivo de quitados (SO GESTAO): casos com quitacao real registrada
+  // (quitado_em). Read-only, fora da fila operacional. Etapa 2 do tratamento
+  // de quitados -- ver [[quitados-blindagem-fila-e-arquivo]].
+  const [quitadosModal, setQuitadosModal] = useState(false);
+  const [quitadosLista, setQuitadosLista] = useState([]);
+  const [carregandoQuitados, setCarregandoQuitados] = useState(false);
+  const [qtdQuitados, setQtdQuitados] = useState(null);
   // Financeiro consolidado por aluno (valor em aberto sem duplicidade).
   // { [aluno_id]: { mensalidades, acordos, total, temDetalhe, temAtraso, acordoResponsavel } }
   const [finAlunos, setFinAlunos] = useState({});
@@ -1631,6 +1733,45 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     abrirKpi(id);
   }
 
+  // Arquivo de quitados (SO GESTAO). Anchor: casos.quitado_em IS NOT NULL --
+  // quitacao real com data/valor/origem. Read-only, nao entra na fila.
+  async function abrirQuitados() {
+    if (!veTudo) return; // guard de UI; RLS ainda protege no backend
+    setQuitadosModal(true);
+    setCarregandoQuitados(true);
+    try {
+      let q = supabase
+        .from("casos")
+        .select("aluno_id,nome,nome_aluno,cpf,operador_email,quitado_em,valor_quitado,origem_quitacao,status_financeiro")
+        .not("quitado_em", "is", null)
+        .order("quitado_em", { ascending: false })
+        .limit(5000);
+      // Se a gestao filtrou um operador especifico, respeita o recorte.
+      if (operadorFiltro && operadorFiltro !== "TODOS") q = q.eq("operador_email", operadorFiltro);
+      const { data, error } = await q;
+      if (error) throw error;
+      setQuitadosLista(data || []);
+    } catch (e) {
+      console.error("Erro ao carregar arquivo de quitados:", e);
+      setQuitadosLista([]);
+    } finally {
+      setCarregandoQuitados(false);
+    }
+  }
+
+  // Contador do card (gestao). Leve: HEAD count sem trazer linhas.
+  useEffect(() => {
+    if (!veTudo) { setQtdQuitados(null); return undefined; }
+    let ativo = true;
+    (async () => {
+      let q = supabase.from("casos").select("aluno_id", { count: "exact", head: true }).not("quitado_em", "is", null);
+      if (operadorFiltro && operadorFiltro !== "TODOS") q = q.eq("operador_email", operadorFiltro);
+      const { count } = await q;
+      if (ativo) setQtdQuitados(Number(count) || 0);
+    })();
+    return () => { ativo = false; };
+  }, [veTudo, operadorFiltro]);
+
   const [saldoView, setSaldoView] = useState({});
   const [valorCarteira, setValorCarteira] = useState(0);
   const normCpf = (c) => String(c || "").replace(/\D/g, "").padStart(11, "0");
@@ -1641,12 +1782,25 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     let ativo = true;
     (async () => {
       const alvo = operadorFiltro && operadorFiltro !== "TODOS" ? operadorFiltro : (veTudo ? null : email);
-      let query = supabase.from("vw_carteira_operador").select("cpf_limpo, saldo_mensalidades_aberto, qtd_titulos_abertos");
-      if (alvo) query = query.eq("operador_email", alvo);
-      const { data } = await query;
-      if (!ativo) return;
+      // Pagina a view: um .select() sem range trava em 1000 linhas no Supabase,
+      // entao so os primeiros ~1000 CPFs recebiam saldo real e a ordenacao por
+      // valor so funcionava nos primeiros casos. Aqui traz todos em lotes.
+      const PAGINA = 1000;
       const m = {};
-      (data || []).forEach((r) => { m[normCpf(r.cpf_limpo)] = { saldo: Number(r.saldo_mensalidades_aberto) || 0, qtd: Number(r.qtd_titulos_abertos) || 0 }; });
+      let inicio = 0;
+      while (true) {
+        let query = supabase
+          .from("vw_carteira_operador")
+          .select("cpf_limpo, saldo_mensalidades_aberto, qtd_titulos_abertos")
+          .range(inicio, inicio + PAGINA - 1);
+        if (alvo) query = query.eq("operador_email", alvo);
+        const { data } = await query;
+        if (!ativo) return;
+        (data || []).forEach((r) => { m[normCpf(r.cpf_limpo)] = { saldo: Number(r.saldo_mensalidades_aberto) || 0, qtd: Number(r.qtd_titulos_abertos) || 0 }; });
+        if (!data || data.length < PAGINA) break;
+        inicio += PAGINA;
+      }
+      if (!ativo) return;
       setSaldoView(m);
     })();
     return () => { ativo = false; };
@@ -1669,6 +1823,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     let l = filtroKpi ? casosEspeciais || [] : casos;
     if (filtroStatus !== "TODOS") {
       l = l.filter((a) => statusPrazo(a).label === filtroStatus);
+    }
+    if (filtroTabulacao !== "TODAS") {
+      l = l.filter((a) => tabulacaoDoAluno(a) === filtroTabulacao);
     }
     if (somenteFixados) {
       l = l.filter((a) => fixados.has(a.id));
@@ -1728,7 +1885,76 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       return t === null ? Infinity : -t;
     };
     const arr = [...l];
-    if (ordenacao === "prioridade") {
+    if (ordenacao === "inteligente") {
+      // Fila inteligente: organiza a carteira do PROPRIO operador sem mover
+      // dono de ninguem. Faixas de urgencia:
+      //   0 retorno devido | 1 nunca acionado / perto de soltar (10d)
+      //   2 parado ha algum tempo | 3 resto.
+      // Alunos "so mensalidade" (fila operacional) NAO recebem o boost de
+      // fidelizacao (ficam na faixa neutra) e ficam de fora do rodizio por ano
+      // -- a ordem deles nao e reprioritizada.
+      const hoje = hojeLocalBR();
+      const soMensalidade = (a) => {
+        const f = finAlunos[String(a.id)];
+        return !!(f && (f.acordos || 0) <= 0 && (f.mensalidades || 0) > 0);
+      };
+      const faixa = (a) => {
+        const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
+        if (ret && ret <= hoje) return 0;
+        if (soMensalidade(a)) return 3;
+        const d = diasSemAcionar(a, hoje);
+        if (d === null) return 1; // nunca acionado
+        if (d >= 8) return 1;     // a 2 dias (ou menos) de soltar
+        if (d >= 5) return 2;
+        return 3;
+      };
+      arr.sort((a, b) =>
+        (faixa(a) - faixa(b)) ||
+        (critRank(a) - critRank(b)) ||
+        (keyDias(b) - keyDias(a)) ||
+        (saldoDe(b) - saldoDe(a))
+      );
+      // Espalha por ANO de vencimento dentro de cada faixa (rodizio round-robin),
+      // pra nao cair tudo do mesmo ano de uma vez. So-mensalidade fica fora do
+      // rodizio, preservado em ordem estavel ao fim da faixa.
+      const anoDe = (a) => {
+        const v = finAlunos[String(a.id)]?.menorVencimento;
+        return v ? String(v).slice(0, 4) : "0000";
+      };
+      const espalharPorAno = (grupo) => {
+        const fixos = grupo.filter(soMensalidade);
+        const giram = grupo.filter((x) => !soMensalidade(x));
+        const buckets = new Map();
+        for (const a of giram) {
+          const k = anoDe(a);
+          if (!buckets.has(k)) buckets.set(k, []);
+          buckets.get(k).push(a);
+        }
+        const chaves = [...buckets.keys()];
+        const out = [];
+        let adicionou = true;
+        while (adicionou) {
+          adicionou = false;
+          for (const k of chaves) {
+            const b = buckets.get(k);
+            if (b.length) { out.push(b.shift()); adicionou = true; }
+          }
+        }
+        return out.concat(fixos);
+      };
+      const resultado = [];
+      let i = 0;
+      while (i < arr.length) {
+        const t = faixa(arr[i]);
+        let j = i;
+        while (j < arr.length && faixa(arr[j]) === t) j++;
+        resultado.push(...espalharPorAno(arr.slice(i, j)));
+        i = j;
+      }
+      arr.length = 0;
+      arr.push(...resultado);
+    }
+    else if (ordenacao === "prioridade") {
       // O que acionar primeiro: retorno devido (hoje/atrasado) e maior
       // criticidade canonica no topo; empate por mais tempo sem contato e maior
       // saldo. Reflete a criticidade correta do backend, nao dias sem contato.
@@ -1769,7 +1995,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       arr.sort((a, b) => (rankFoco(a) - rankFoco(b)) || (critRank(a) - critRank(b)));
     }
     return arr;
-  }, [casos, casosEspeciais, filtroStatus, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]);
+  }, [casos, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]);
 
   // Agrupamento pro Kanban: uma coluna fixa "Sem acionamento" (nunca
   // acionados) + as tabulacoes normais mais usadas no dia a dia, com o
@@ -1818,6 +2044,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     { id: "valorBaixadoMes", rot: "Valor baixado no mes", val: formatarMoeda(kpis.valorBaixadoMes), cor: "#16a34a", financeiro: true, icone: "✅" },
     { id: "recebidosMes", rot: "Recebidos no mes", val: kpis.recebidosMes, cor: "#16a34a", financeiro: true, icone: "💰" },
     { id: "honorariosBaixadoMes", rot: "Honorarios no mes", val: formatarMoeda(kpis.honorariosBaixadoMes), cor: "#0d9488", financeiro: true, icone: "🧾" },
+    // Arquivo de quitados: SO GESTAO (veTudo). Read-only, abre modal proprio.
+    ...(veTudo ? [{ id: "quitados", rot: "Quitados (arquivo)", val: qtdQuitados ?? "…", cor: "#059669", icone: "🏁", arquivo: true }] : []),
   ].filter((c) => (!veTudo || operadorFiltro !== "TODOS") || c.id !== "retornosAdm");
 
   const painelReceptivo = (
@@ -2102,11 +2330,11 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             {kpiCards.map((k) => {
               // Todos os cards sao clicaveis e abrem a listagem filtrada.
               const filtravel = true;
-              const ativoK = filtroKpi === k.id;
+              const ativoK = k.arquivo ? quitadosModal : filtroKpi === k.id;
               return (
                 <div
                   key={k.id}
-                  onClick={filtravel ? () => onKpiClick(k.id) : undefined}
+                  onClick={filtravel ? () => (k.arquivo ? abrirQuitados() : onKpiClick(k.id)) : undefined}
                   style={{
                     ...S.kpiCard,
                     cursor: filtravel ? "pointer" : "default",
@@ -2141,6 +2369,21 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 <option value="Perdendo o caso">Perdendo o caso</option>
                 <option value="Aguardando pgto">Aguardando pgto</option>
                 <option value="Juridico">Juridico</option>
+              </select>
+              <select
+                style={S.select}
+                value={filtroTabulacao}
+                onChange={(e) => setFiltroTabulacao(e.target.value)}
+                title="Filtrar por tabulação (desfecho do acionamento) — acompanhar retorno de termos e links"
+              >
+                <option value="TODAS">Todas as tabulações</option>
+                {OPCOES_TABULACAO.map((g) => (
+                  <optgroup key={g.grupo} label={g.grupo}>
+                    {g.itens.map((s) => (
+                      <option key={s} value={s}>{labelStatus(s)}</option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
               <input
                 style={{ ...S.select, width: 110 }}
@@ -2188,6 +2431,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 📌 Fixados {fixados.size > 0 ? `(${fixados.size})` : ""}
               </button>
               <select style={S.select} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
+                <option value="inteligente">🧠 Fila inteligente</option>
                 <option value="prioridade">Prioridade (o que acionar)</option>
                 <option value="sem_contato_desc">Mais antigo sem contato</option>
                 <option value="sem_contato_asc">Mais recente sem contato</option>
@@ -2320,6 +2564,26 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                           <div style={S.subCel}>
                             {[a.telefone, a.unidade, a.curso].filter(Boolean).join(" · ") || "-"}
                           </div>
+                          {(() => {
+                            const st = seloTermoLink(a);
+                            if (!st) return null;
+                            return (
+                              <div
+                                style={{
+                                  display: "inline-block",
+                                  marginTop: 4,
+                                  background: st.bg,
+                                  color: st.cor,
+                                  borderRadius: 6,
+                                  padding: "2px 7px",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {st.emoji} {st.texto}
+                              </div>
+                            );
+                          })()}
                           {String(a.status_atual) === "JURIDICO" && (
                             <div style={{ ...S.subCel, color: "#7c3aed", fontWeight: 600 }}>
                               {a.processo_numero && String(a.processo_numero).trim()
@@ -2344,6 +2608,27 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                                 }}
                               >
                                 {sug.emoji} {sug.texto}
+                              </div>
+                            );
+                          })()}
+                          {ordenacao === "inteligente" && fa && (fa.acordos || 0) > 0 && (() => {
+                            const selo = seloFila(a, hojeLocalBR());
+                            if (!selo) return null;
+                            return (
+                              <div
+                                style={{
+                                  display: "inline-block",
+                                  marginTop: 4,
+                                  marginLeft: 4,
+                                  background: selo.bg,
+                                  color: selo.cor,
+                                  borderRadius: 6,
+                                  padding: "2px 7px",
+                                  fontSize: 11,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {selo.emoji} {selo.texto}
                               </div>
                             );
                           })()}
@@ -2861,6 +3146,64 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                         <td style={S.tdNumTotal}>{formatarMoeda(detalheParcelas.reduce((s, r) => s + r.valor, 0))}</td>
                         <td style={S.tdNumTotal}>{formatarMoeda(detalheParcelas.reduce((s, r) => s + r.honorarios, 0))}</td>
                         <td style={S.td}></td>
+                      </tr>
+                    </tfoot>
+                  )}
+                </table>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {quitadosModal && (
+        <div style={S.overlay} onClick={() => setQuitadosModal(false)}>
+          <div style={{ ...S.modal, maxWidth: 1040 }} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+            <div style={S.modalHeader}>
+              <div style={{ minWidth: 0 }}>
+                <h2 style={S.modalNome}>Quitados (arquivo)</h2>
+                <div style={S.modalSub}>
+                  {carregandoQuitados
+                    ? "Carregando…"
+                    : `${quitadosLista.length} caso(s) quitado(s) · Total quitado: ${formatarMoeda(quitadosLista.reduce((s, r) => s + (Number(r.valor_quitado) || 0), 0))}`}
+                  {operadorFiltro && operadorFiltro !== "TODOS" ? ` · ${nomeOperadorPorEmail(operadorFiltro)}` : ""}
+                  {" · Somente leitura (fora da fila)"}
+                </div>
+              </div>
+              <button style={S.btnFechar} onClick={() => setQuitadosModal(false)} aria-label="Fechar">✕</button>
+            </div>
+            <div style={S.modalBody}>
+              <div style={S.tabelaWrap}>
+                <table style={S.tabela}>
+                  <thead>
+                    <tr>
+                      <th style={S.th}>Aluno</th>
+                      <th style={S.th}>Data da quitacao</th>
+                      <th style={S.thNum}>Valor quitado</th>
+                      <th style={S.th}>Origem</th>
+                      <th style={S.th}>Operador</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {quitadosLista.map((r, i) => (
+                      <tr key={`${r.aluno_id || r.cpf || "q"}-${i}`} style={S.tr}>
+                        <td style={S.td}>{r.nome || r.nome_aluno || "-"}</td>
+                        <td style={S.td}>{formatarData(r.quitado_em)}</td>
+                        <td style={S.tdNum}>{formatarMoeda(Number(r.valor_quitado) || 0)}</td>
+                        <td style={S.td}>{labelOrigemQuitacao(r)}</td>
+                        <td style={S.td}>{nomeOperadorPorEmail(r.operador_email)}</td>
+                      </tr>
+                    ))}
+                    {!carregandoQuitados && quitadosLista.length === 0 && (
+                      <tr><td style={S.vazio} colSpan={5}>Nenhum caso quitado no recorte atual.</td></tr>
+                    )}
+                  </tbody>
+                  {quitadosLista.length > 0 && (
+                    <tfoot>
+                      <tr>
+                        <td style={S.tdTotal} colSpan={2}>Total</td>
+                        <td style={S.tdNumTotal}>{formatarMoeda(quitadosLista.reduce((s, r) => s + (Number(r.valor_quitado) || 0), 0))}</td>
+                        <td style={S.td} colSpan={2}></td>
                       </tr>
                     </tfoot>
                   )}
