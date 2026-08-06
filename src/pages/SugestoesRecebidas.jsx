@@ -17,6 +17,16 @@ const CORES_TIPO = {
   Dúvida: { bg: "#f1f5f9", cor: "#475569" },
 };
 
+// Fluxo de tratativa. FEITA é tratada como "Corrigido/Feito".
+const STATUS = {
+  NOVA: { label: "Novas", chip: "Nova", bg: "#eef2ff", cor: "#4338ca" },
+  EM_ANALISE: { label: "Em análise", chip: "Em análise", bg: "#fff7ed", cor: "#c2410c" },
+  EM_TRATATIVA: { label: "Em tratativa", chip: "Em tratativa", bg: "#fefce8", cor: "#a16207" },
+  FEITA: { label: "Corrigidas", chip: "Corrigido / Feito", bg: "#ecfdf5", cor: "#15803d" },
+  DESCARTADA: { label: "Descartadas", chip: "Descartada", bg: "#f1f5f9", cor: "#64748b" },
+};
+const ORDEM_FILTROS = ["NOVA", "EM_ANALISE", "EM_TRATATIVA", "FEITA", "DESCARTADA", "TODAS"];
+
 export default function SugestoesRecebidas() {
   const [carregando, setCarregando] = useState(true);
   const [lista, setLista] = useState([]);
@@ -34,7 +44,11 @@ export default function SugestoesRecebidas() {
   }
 
   async function mudarStatus(id, status) {
-    await supabase.from("sugestoes").update({ status }).eq("id", id);
+    const { data: userData } = await supabase.auth.getUser();
+    await supabase
+      .from("sugestoes")
+      .update({ status, status_em: new Date().toISOString(), status_por: userData?.user?.email || null })
+      .eq("id", id);
     carregar();
   }
 
@@ -49,7 +63,7 @@ export default function SugestoesRecebidas() {
     window.open(data.signedUrl, "_blank", "noopener");
   }
 
-  const filtradas = filtroStatus === "TODAS" ? lista : lista.filter((s) => s.status === filtroStatus);
+  const filtradas = filtroStatus === "TODAS" ? lista : lista.filter((s) => (s.status || "NOVA") === filtroStatus);
 
   return (
     <div style={S.container}>
@@ -62,15 +76,18 @@ export default function SugestoesRecebidas() {
       </div>
 
       <div style={S.filtros}>
-        {["NOVA", "EM_ANALISE", "FEITA", "DESCARTADA", "TODAS"].map((s) => (
-          <button
-            key={s}
-            onClick={() => setFiltroStatus(s)}
-            style={filtroStatus === s ? S.filtroAtivo : S.filtro}
-          >
-            {s === "NOVA" ? "Novas" : s === "EM_ANALISE" ? "Em análise" : s === "FEITA" ? "Feitas" : s === "DESCARTADA" ? "Descartadas" : "Todas"}
-          </button>
-        ))}
+        {ORDEM_FILTROS.map((s) => {
+          const qtd = s === "TODAS" ? lista.length : lista.filter((x) => (x.status || "NOVA") === s).length;
+          return (
+            <button
+              key={s}
+              onClick={() => setFiltroStatus(s)}
+              style={filtroStatus === s ? S.filtroAtivo : S.filtro}
+            >
+              {s === "TODAS" ? "Todas" : STATUS[s].label} ({qtd})
+            </button>
+          );
+        })}
       </div>
 
       {carregando ? (
@@ -80,10 +97,13 @@ export default function SugestoesRecebidas() {
       ) : (
         filtradas.map((s) => {
           const cores = CORES_TIPO[s.tipo] || { bg: "#f1f5f9", cor: "#475569" };
+          const st = STATUS[s.status || "NOVA"] || STATUS.NOVA;
+          const atual = s.status || "NOVA";
           return (
             <div key={s.id} style={S.card}>
               <div style={S.cardTopo}>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  <span style={{ ...S.badge, background: st.bg, color: st.cor }}>{st.chip}</span>
                   <span style={{ ...S.badge, background: cores.bg, color: cores.cor }}>{s.tipo}</span>
                   <span style={S.badgeCinza}>{s.area}</span>
                   {s.prioridade && <span style={S.badgeCinza}>Prioridade: {s.prioridade}</span>}
@@ -98,11 +118,17 @@ export default function SugestoesRecebidas() {
                 </button>
               )}
               <div style={S.rodape}>
-                <span style={S.autor}>{s.nome || s.autor_email || "Anônimo"}</span>
-                <div style={{ display: "flex", gap: 6 }}>
-                  <button style={S.botaoAcao} onClick={() => mudarStatus(s.id, "EM_ANALISE")}>Em análise</button>
-                  <button style={S.botaoAcaoVerde} onClick={() => mudarStatus(s.id, "FEITA")}>Feita</button>
-                  <button style={S.botaoAcaoCinza} onClick={() => mudarStatus(s.id, "DESCARTADA")}>Descartar</button>
+                <span style={S.autor}>
+                  {s.nome || s.autor_email || "Anônimo"}
+                  {s.status_em && (
+                    <span style={S.tratativa}> · {st.chip.toLowerCase()} em {formatarData(s.status_em)}{s.status_por ? ` por ${s.status_por}` : ""}</span>
+                  )}
+                </span>
+                <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                  <button style={botaoStatus(atual, "EM_ANALISE")} onClick={() => mudarStatus(s.id, "EM_ANALISE")}>Em análise</button>
+                  <button style={botaoStatus(atual, "EM_TRATATIVA")} onClick={() => mudarStatus(s.id, "EM_TRATATIVA")}>Em tratativa</button>
+                  <button style={botaoStatus(atual, "FEITA")} onClick={() => mudarStatus(s.id, "FEITA")}>Corrigido</button>
+                  <button style={botaoStatus(atual, "DESCARTADA")} onClick={() => mudarStatus(s.id, "DESCARTADA")}>Descartar</button>
                 </div>
               </div>
             </div>
@@ -113,8 +139,26 @@ export default function SugestoesRecebidas() {
   );
 }
 
+// Botão de status: destaca o estado atual e apaga levemente os demais.
+function botaoStatus(atual, alvo) {
+  const ativo = atual === alvo;
+  const st = STATUS[alvo];
+  return {
+    background: ativo ? st.cor : st.bg,
+    color: ativo ? "#fff" : st.cor,
+    border: "none",
+    borderRadius: 8,
+    padding: "6px 12px",
+    fontSize: 11.5,
+    fontWeight: 700,
+    cursor: "pointer",
+    opacity: ativo ? 1 : 0.92,
+  };
+}
+
 const S = {
   container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "#f4f6fa", minHeight: "100%" },
+  tratativa: { color: "#94a3b8", fontWeight: 500 },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18, flexWrap: "wrap" },
   titulo: { margin: 0, color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
   subtitulo: { margin: "5px 0 0", color: "#8a93a3", fontSize: 13.5 },
