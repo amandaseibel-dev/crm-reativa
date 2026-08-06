@@ -8,6 +8,7 @@ const ESTADO_INICIAL = {
   prioridade: "",
   tela: "",
   descricao: "",
+  visivel_equipe: true,
 };
 
 export default function BotaoSugestao() {
@@ -80,6 +81,7 @@ export default function BotaoSugestao() {
       prioridade: form.prioridade || null,
       tela: form.tela.trim() || (typeof window !== "undefined" ? window.location.pathname : null),
       descricao: form.descricao.trim(),
+      visivel_equipe: form.tipo === "Erro" ? !!form.visivel_equipe : false,
       ...anexo,
     });
     setEnviando(false);
@@ -158,6 +160,12 @@ export default function BotaoSugestao() {
                   {arquivo && <span style={S.arquivoNome}>📎 {arquivo.name}</span>}
                   {ehErro && !arquivo && <span style={S.dica}>Anexe o print da tela onde o erro aconteceu para acelerar a análise.</span>}
                 </Campo>
+                {ehErro && (
+                  <label style={S.checkLinha}>
+                    <input type="checkbox" checked={form.visivel_equipe} onChange={(e) => atualizar("visivel_equipe", e.target.checked)} />
+                    <span style={S.checkTexto}>Deixar visível para a equipe (os outros operadores veem que este erro já foi reportado)</span>
+                  </label>
+                )}
                 <button type="submit" disabled={enviando} style={S.botaoPrimario}>
                   {enviando ? "Enviando..." : "Enviar"}
                 </button>
@@ -206,6 +214,8 @@ const S = {
   inputFile: { fontSize: 12.5, fontFamily: "inherit", color: "#475569" },
   arquivoNome: { fontSize: 12, color: "#16a34a", fontWeight: 700 },
   dica: { fontSize: 11.5, color: "#b45309" },
+  checkLinha: { display: "flex", gap: 8, alignItems: "flex-start", cursor: "pointer" },
+  checkTexto: { fontSize: 12, color: "#475569", lineHeight: 1.4 },
   erro: { color: "#dc2626", fontSize: 13, margin: 0 },
   botaoPrimario: { background: "#2563eb", color: "#fff", padding: "11px 18px", borderRadius: 10, fontWeight: 700, fontSize: 14, border: "none", cursor: "pointer" },
   sucesso: { padding: 24, display: "flex", flexDirection: "column", gap: 14, alignItems: "flex-start" },

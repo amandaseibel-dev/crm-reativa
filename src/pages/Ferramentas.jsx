@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "../services/supabase";
 
 // Hub de Ferramentas: agrupa utilitarios de dados/gestao que antes ficavam
 // soltos no menu. Cada card leva para a ferramenta correspondente.
@@ -16,6 +18,21 @@ const FERRAMENTAS = [
 
 export default function Ferramentas() {
   const navigate = useNavigate();
+  const [novas, setNovas] = useState(0);
+
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      // Sinaliza itens pendentes de análise (NOVA) no card de Sugestões.
+      const { count } = await supabase
+        .from("sugestoes")
+        .select("id", { count: "exact", head: true })
+        .or("status.eq.NOVA,status.is.null");
+      if (ativo) setNovas(count || 0);
+    })();
+    return () => { ativo = false; };
+  }, []);
+
   return (
     <div style={S.wrap}>
       <h1 style={S.titulo}>🧰 Ferramentas</h1>
@@ -26,7 +43,12 @@ export default function Ferramentas() {
             onMouseOver={(e) => (e.currentTarget.style.borderColor = "#93c5fd")}
             onMouseOut={(e) => (e.currentTarget.style.borderColor = "#e6eaf0")}>
             <span style={S.emoji}>{f.emoji}</span>
-            <span style={S.cardTitulo}>{f.titulo}</span>
+            <span style={S.cardTitulo}>
+              {f.titulo}
+              {f.rota === "/sugestoes-recebidas" && novas > 0 && (
+                <span style={S.badge}>{novas} nova{novas > 1 ? "s" : ""}</span>
+              )}
+            </span>
             <span style={S.cardDesc}>{f.desc}</span>
           </button>
         ))}
@@ -42,6 +64,7 @@ const S = {
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16 },
   card: { textAlign: "left", background: "#fff", border: "1px solid #e6eaf0", borderRadius: 16, padding: "18px 18px 20px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 6, transition: "border-color 0.15s", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
   emoji: { fontSize: 30, lineHeight: 1 },
-  cardTitulo: { fontFamily: "'Sora', Inter, sans-serif", fontSize: 16, fontWeight: 800, color: "#0d1321", marginTop: 6 },
+  cardTitulo: { fontFamily: "'Sora', Inter, sans-serif", fontSize: 16, fontWeight: 800, color: "#0d1321", marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  badge: { background: "#dc2626", color: "#fff", fontSize: 11, fontWeight: 800, padding: "2px 9px", borderRadius: 999, fontFamily: "'Inter', system-ui, sans-serif" },
   cardDesc: { fontSize: 12.5, color: "#64748b", lineHeight: 1.45 },
 };

@@ -74,6 +74,11 @@ export default function SugestoesRecebidas() {
     carregar();
   }
 
+  async function alternarVisibilidade(id, atual) {
+    await supabase.from("sugestoes").update({ visivel_equipe: !atual }).eq("id", id);
+    carregar();
+  }
+
   async function abrirAnexo(path) {
     const { data, error } = await supabase.storage
       .from("sugestoes-prints")
@@ -130,6 +135,7 @@ export default function SugestoesRecebidas() {
                   <span style={S.badgeCinza}>{s.area}</span>
                   {s.prioridade && <span style={S.badgeCinza}>Prioridade: {s.prioridade}</span>}
                   {s.tela && <span style={S.badgeCinza}>{s.tela}</span>}
+                  {s.visivel_equipe && <span style={S.badgeVisivel}>👁️ Visível p/ equipe</span>}
                 </div>
                 <span style={S.data}>{formatarData(s.criado_em)}</span>
               </div>
@@ -180,6 +186,11 @@ export default function SugestoesRecebidas() {
                   <button style={botaoStatus(atual, "EM_TRATATIVA")} onClick={() => mudarStatus(s.id, "EM_TRATATIVA")}>Em tratativa</button>
                   <button style={botaoStatus(atual, "FEITA")} onClick={() => mudarStatus(s.id, "FEITA")}>Corrigido</button>
                   <button style={botaoStatus(atual, "DESCARTADA")} onClick={() => mudarStatus(s.id, "DESCARTADA")}>Descartar</button>
+                  {s.tipo === "Erro" && (
+                    <button style={S.botaoVisibilidade} onClick={() => alternarVisibilidade(s.id, s.visivel_equipe)}>
+                      {s.visivel_equipe ? "🙈 Ocultar da equipe" : "👁️ Mostrar p/ equipe"}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -210,6 +221,8 @@ function botaoStatus(atual, alvo) {
 const S = {
   container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "#f4f6fa", minHeight: "100%" },
   tratativa: { color: "#94a3b8", fontWeight: 500 },
+  badgeVisivel: { fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 999, background: "#ecfeff", color: "#0e7490" },
+  botaoVisibilidade: { background: "#f8fafc", color: "#475569", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18, flexWrap: "wrap" },
   titulo: { margin: 0, color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
   subtitulo: { margin: "5px 0 0", color: "#8a93a3", fontSize: 13.5 },

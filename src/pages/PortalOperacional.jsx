@@ -1,5 +1,13 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { supabase } from "../services/supabase";
+
+const STATUS_ERRO = {
+  NOVA: { rotulo: "Reportado", bg: "#eef2ff", cor: "#4338ca" },
+  EM_ANALISE: { rotulo: "Em análise", bg: "#fff7ed", cor: "#c2410c" },
+  EM_TRATATIVA: { rotulo: "Em tratativa", bg: "#fefce8", cor: "#a16207" },
+  FEITA: { rotulo: "Corrigido", bg: "#ecfdf5", cor: "#15803d" },
+  DESCARTADA: { rotulo: "Descartado", bg: "#f1f5f9", cor: "#64748b" },
+};
 
 const SECOES = [
   { grupo: "Início", itens: [{ id: "inicio", label: "🏠 Início" }] },
@@ -748,6 +756,58 @@ function SecaoSugestoes() {
           </form>
         )}
       </Card>
+
+      <ErrosReportados />
+    </>
+  );
+}
+
+function ErrosReportados() {
+  const [lista, setLista] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+
+  async function carregar() {
+    setCarregando(true);
+    const { data } = await supabase.rpc("listar_erros_reportados");
+    setLista(data || []);
+    setCarregando(false);
+  }
+
+  useEffect(() => {
+    carregar();
+  }, []);
+
+  return (
+    <>
+      <TituloSecao
+        emoji="🐞"
+        titulo="Erros já reportados"
+        sub="Erros marcados como visíveis pela equipe. Antes de reportar, confira se já está aqui."
+      />
+      <Card>
+        <button style={{ ...S.botaoSecundario, marginBottom: 12 }} onClick={carregar}>Atualizar</button>
+        {carregando ? (
+          <p style={S.paragrafo}>Carregando...</p>
+        ) : lista.length === 0 ? (
+          <p style={S.paragrafo}>Nenhum erro reportado no momento.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {lista.map((e) => {
+              const st = STATUS_ERRO[e.status] || STATUS_ERRO.NOVA;
+              return (
+                <div key={e.id} style={S.erroItem}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ ...S.erroBadge, background: st.bg, color: st.cor }}>{st.rotulo}</span>
+                    {e.tela && <span style={S.erroTela}>{e.tela}</span>}
+                    <span style={S.erroData}>{new Date(e.criado_em).toLocaleDateString("pt-BR")}</span>
+                  </div>
+                  <p style={S.erroDesc}>{e.descricao}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
     </>
   );
 }
@@ -882,6 +942,11 @@ const S = {
   card: { background: "#fff", border: `1px solid ${BORDA}`, borderRadius: 16, padding: "18px 20px", marginBottom: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
   h3: { fontFamily: FONTE_TITULO, fontSize: 15.5, fontWeight: 700, color: "#0d1321", margin: "0 0 10px" },
   paragrafo: { color: "#475569", fontSize: 13.5, lineHeight: 1.6, margin: 0 },
+  erroItem: { border: "1px solid #eef2f7", borderRadius: 10, padding: "10px 12px", background: "#fbfcfe" },
+  erroBadge: { fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 999 },
+  erroTela: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: "#f1f5f9", color: "#64748b" },
+  erroData: { fontSize: 11.5, color: "#94a3b8", marginLeft: "auto" },
+  erroDesc: { margin: 0, fontSize: 13, color: "#334155", lineHeight: 1.5, whiteSpace: "pre-wrap" },
   observacao: { color: "#8a93a3", fontSize: 12, marginTop: 10 },
   lista: { margin: 0, paddingLeft: 20, color: "#475569", fontSize: 13.5, lineHeight: 1.8 },
   listaOrdenada: { margin: 0, paddingLeft: 20, color: "#475569", fontSize: 13.5, lineHeight: 1.8 },
