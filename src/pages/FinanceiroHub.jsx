@@ -4,6 +4,7 @@ import FilaConfirmacaoPagamento from "./FilaConfirmacaoPagamento";
 import Borderos from "./Borderos";
 import PainelAdm from "./PainelAdm";
 import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirmacoes from "./HistoricoConfirmacoes";
+import FilaAcordosConfirmar from "./FilaAcordosConfirmar";
 
 // Reune as telas financeiras num lugar so, com abas. Cada aba carrega o
 // componente ORIGINAL sem nenhuma alteracao interna -- nenhuma logica,
@@ -13,6 +14,7 @@ const ABAS = [
   { chave: "FINANCEIRO", rotulo: "Financeiro" },
   { chave: "CONFIRMACAO", rotulo: "Confirmação de Pagamento" },
   { chave: "FILA_BAIXAS", rotulo: "Fila de Baixas" },
+  { chave: "FILA_ACORDOS", rotulo: "Fila de Acordos" },
   { chave: "BORDEROS", rotulo: "Borderôs" }, { chave: "HIST_CONFIRMACOES", rotulo: "Histórico de Confirmações" },
 ];
 
@@ -45,6 +47,7 @@ export default function FinanceiroHub() {
         {aba === "FINANCEIRO" && <ConsultaFinanceira />}
         {aba === "CONFIRMACAO" && <FilaConfirmacaoPagamento />}
         {aba === "FILA_BAIXAS" && <MinhaFilaPagamentos />}
+        {aba === "FILA_ACORDOS" && <FilaAcordosConfirmar />}
         {aba === "BORDEROS" && <Borderos />} {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
       </div>
     </div>
