@@ -23,11 +23,11 @@ export default function Ferramentas() {
   useEffect(() => {
     let ativo = true;
     (async () => {
-      // Sinaliza itens pendentes de análise (NOVA) no card de Sugestões.
+      // Sinaliza itens pendentes de análise (novos ou reabertos) no card de Sugestões.
       const { count } = await supabase
         .from("sugestoes")
         .select("id", { count: "exact", head: true })
-        .or("status.eq.NOVA,status.is.null");
+        .or("status.eq.NOVA,status.is.null,status.eq.REABERTO");
       if (ativo) setNovas(count || 0);
     })();
     return () => { ativo = false; };

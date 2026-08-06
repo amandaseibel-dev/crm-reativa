@@ -5,6 +5,8 @@ const STATUS_ERRO = {
   NOVA: { rotulo: "Reportado", bg: "#eef2ff", cor: "#4338ca" },
   EM_ANALISE: { rotulo: "Em análise", bg: "#fff7ed", cor: "#c2410c" },
   EM_TRATATIVA: { rotulo: "Em tratativa", bg: "#fefce8", cor: "#a16207" },
+  AGUARDANDO_VALIDACAO: { rotulo: "Aguardando sua validação", bg: "#eff6ff", cor: "#1d4ed8" },
+  REABERTO: { rotulo: "Reaberto", bg: "#fef2f2", cor: "#dc2626" },
   FEITA: { rotulo: "Corrigido", bg: "#ecfdf5", cor: "#15803d" },
   DESCARTADA: { rotulo: "Descartado", bg: "#f1f5f9", cor: "#64748b" },
 };
@@ -762,7 +764,89 @@ function SecaoSugestoes() {
         )}
       </Card>
 
+      <MinhasSolicitacoes />
       <ErrosReportados />
+    </>
+  );
+}
+
+function MinhasSolicitacoes() {
+  const [lista, setLista] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [ocupado, setOcupado] = useState(null);
+
+  async function carregar() {
+    setCarregando(true);
+    const { data } = await supabase.rpc("listar_minhas_solicitacoes");
+    setLista(data || []);
+    setCarregando(false);
+  }
+
+  useEffect(() => {
+    carregar();
+  }, []);
+
+  async function validar(id, ok) {
+    let comentario = null;
+    if (!ok) {
+      comentario = window.prompt("Descreva por que o erro ainda persiste:");
+      if (comentario === null) return; // cancelou
+    }
+    setOcupado(id);
+    await supabase.rpc("validar_correcao", { p_id: id, p_ok: ok, p_comentario: comentario });
+    setOcupado(null);
+    carregar();
+  }
+
+  const aguardando = lista.filter((s) => s.status === "AGUARDANDO_VALIDACAO");
+
+  return (
+    <>
+      <TituloSecao
+        emoji="📌"
+        titulo="Minhas solicitações"
+        sub="Acompanhe o que você enviou. Quando a gestão devolve para validação, confirme se resolveu ou reporte que o erro persiste."
+      />
+      <Card>
+        <button style={{ ...S.botaoSecundario, marginBottom: 12 }} onClick={carregar}>Atualizar</button>
+        {carregando ? (
+          <p style={S.paragrafo}>Carregando...</p>
+        ) : lista.length === 0 ? (
+          <p style={S.paragrafo}>Você ainda não enviou solicitações.</p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+            {aguardando.length > 0 && (
+              <p style={S.avisoValidar}>⏳ Você tem {aguardando.length} solicitação(ões) aguardando sua validação.</p>
+            )}
+            {lista.map((s) => {
+              const st = STATUS_ERRO[s.status] || STATUS_ERRO.NOVA;
+              const precisaValidar = s.status === "AGUARDANDO_VALIDACAO";
+              return (
+                <div key={s.id} style={precisaValidar ? { ...S.erroItem, borderColor: "#bfdbfe", background: "#f5f9ff" } : S.erroItem}>
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
+                    <span style={{ ...S.erroBadge, background: st.bg, color: st.cor }}>{st.rotulo}</span>
+                    <span style={S.erroTela}>{s.tipo}</span>
+                    {s.tela && <span style={S.erroTela}>{s.tela}</span>}
+                    <span style={S.erroData}>{new Date(s.criado_em).toLocaleDateString("pt-BR")}</span>
+                  </div>
+                  <p style={S.erroDesc}>{s.descricao}</p>
+                  {s.observacao_tratativa && <p style={S.tratativaTxt}>💬 Gestão: {s.observacao_tratativa}</p>}
+                  {precisaValidar && (
+                    <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
+                      <button style={S.botaoConfirmar} disabled={ocupado === s.id} onClick={() => validar(s.id, true)}>
+                        ✅ Confirmar que corrigiu
+                      </button>
+                      <button style={S.botaoPersiste} disabled={ocupado === s.id} onClick={() => validar(s.id, false)}>
+                        ❌ O erro persiste
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </Card>
     </>
   );
 }
@@ -953,6 +1037,10 @@ const S = {
   erroTela: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: "#f1f5f9", color: "#64748b" },
   erroData: { fontSize: 11.5, color: "#94a3b8", marginLeft: "auto" },
   erroDesc: { margin: 0, fontSize: 13, color: "#334155", lineHeight: 1.5, whiteSpace: "pre-wrap" },
+  tratativaTxt: { margin: "6px 0 0", fontSize: 12.5, color: "#475569", lineHeight: 1.5, background: "#f8fafc", borderRadius: 8, padding: "6px 10px" },
+  avisoValidar: { margin: 0, background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 10, padding: "9px 12px", fontSize: 13, fontWeight: 700 },
+  botaoConfirmar: { background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
+  botaoPersiste: { background: "#fff", color: "#dc2626", border: "1px solid #fecaca", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
   observacao: { color: "#8a93a3", fontSize: 12, marginTop: 10 },
   lista: { margin: 0, paddingLeft: 20, color: "#475569", fontSize: 13.5, lineHeight: 1.8 },
   listaOrdenada: { margin: 0, paddingLeft: 20, color: "#475569", fontSize: 13.5, lineHeight: 1.8 },
