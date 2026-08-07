@@ -218,7 +218,9 @@ export default function BaseReceptiva() {
       p_hora_retorno: horaRetorno || null,
     });
     if (error || !rAssumir?.ok) {
-      alert("Erro ao assumir atendimento: " + (rAssumir?.erro || error?.message || "erro"));
+      // Prioriza a mensagem amigável da RPC (ex.: aluno já em atendimento por outro
+      // operador — trava anti-concorrência); cai no código/erro técnico se não houver.
+      alert(rAssumir?.mensagem || ("Erro ao assumir atendimento: " + (rAssumir?.erro || error?.message || "erro")));
       return;
     }
 

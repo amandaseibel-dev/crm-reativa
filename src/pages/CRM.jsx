@@ -523,11 +523,41 @@ export default function CRM() {
     setSucesso("");
     setCarregando(true);
 
-    const { data, error } = await supabase
-      .from("casos")
-      .select("*")
-      .eq("operador_base", operadorDaSessao())
-      .range(0, 5000);
+    // Email-alvo: operador comum vê o próprio; gestão vê o operador selecionado.
+    const alvoEmail = usuarioPodeVerTudo()
+      ? emailPorNomeOperador(operadorDaSessao())
+      : usuario?.email || "";
+    const alvoEmailLc = String(alvoEmail || "").toLowerCase().trim();
+
+    if (!alvoEmailLc) {
+      setCarregando(false);
+      setErro("Não foi possível identificar o operador para montar o CRM.");
+      return;
+    }
+
+    // União (igual à FilaOperacional): o aluno entra no CRM se eu sou dono da
+    // MENSALIDADE (casos.operador_email = responsável atual do aluno) OU dono de
+    // um ACORDO ativo (acordos.operador_responsavel_email). Mensalidade e acordo
+    // podem pertencer a operadores diferentes -- por isso a união. Antes o CRM
+    // filtrava só por casos.operador_base (operador de ORIGEM, ~11% do dono real).
+    const { data: acordosMeus } = await supabase
+      .from("acordos")
+      .select("aluno_id")
+      .eq("operador_responsavel_email", alvoEmailLc)
+      .eq("status", "ATIVO");
+    const idsPorAcordo = [
+      ...new Set((acordosMeus || []).map((a) => a.aluno_id).filter(Boolean)),
+    ];
+
+    let q = supabase.from("casos").select("*");
+    if (idsPorAcordo.length > 0) {
+      q = q.or(
+        `operador_email.eq.${alvoEmailLc},aluno_id.in.(${idsPorAcordo.join(",")})`
+      );
+    } else {
+      q = q.eq("operador_email", alvoEmailLc);
+    }
+    const { data, error } = await q.range(0, 5000);
 
     if (error) {
       setCarregando(false);
@@ -536,7 +566,14 @@ export default function CRM() {
       return;
     }
 
-    const resultadoNormalizado = (data || []).map(normalizar);
+    // Marca de qual lado o caso é meu, pro card indicar "sua parte".
+    const idsAcordoSet = new Set(idsPorAcordo.map(String));
+    const resultadoNormalizado = (data || []).map((c) => {
+      const meuPorMensalidade =
+        String(c.operador_email || "").toLowerCase().trim() === alvoEmailLc;
+      const meuPorAcordo = c.aluno_id ? idsAcordoSet.has(String(c.aluno_id)) : false;
+      return { ...normalizar(c), meuPorMensalidade, meuPorAcordo };
+    });
     const enriquecidos = await enriquecerValorAberto(resultadoNormalizado);
     setCarregando(false);
 
@@ -1236,6 +1273,18 @@ export default function CRM() {
                     }}
                   >
                     <CardInfo titulo="Operador" valor={c.operador} />
+                    {(c.meuPorMensalidade || c.meuPorAcordo) && (
+                      <CardInfo
+                        titulo="Sua parte"
+                        valor={
+                          c.meuPorMensalidade && c.meuPorAcordo
+                            ? "Mensalidade + Acordo"
+                            : c.meuPorMensalidade
+                            ? "Mensalidade"
+                            : "Acordo"
+                        }
+                      />
+                    )}
                     <CardInfo titulo="Dias atraso" valor={valorTexto(c.diasAtraso)} />
                     <CardInfo titulo="Nível carteira" valor={c.nivelCarteira} />
                     <CardInfo titulo="Urgência" valor={c.urgencia} />

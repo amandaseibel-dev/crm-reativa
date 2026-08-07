@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import usePolling from "../utils/polling";
 
 const APROVADORES = ["amanda.seibel" + "@" + "aelbra.com.br", "cobranca04" + "@" + "aelbra.com.br", "cobranca07" + "@" + "aelbra.com.br"];
 
@@ -18,13 +19,8 @@ export default function LiberacoesAcesso() {
     setPendentes(Array.isArray(data) ? data : []);
   }
 
-  useEffect(() => {
-    if (!APROVADORES.includes(email)) return;
-    carregar();
-    const t = setInterval(carregar, 60000); // contenção: 20s -> 60s
-    return () => clearInterval(t);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [email]);
+  // Polling padrão só para aprovadores: pausa em aba oculta, reatualiza ao focar.
+  usePolling(carregar, 60000, [email], APROVADORES.includes(email));
 
   async function liberar(em) {
     await supabase.rpc("liberar_acesso", { p_email: em });

@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 
 // Popup em tempo real de notificacoes do operador (link pronto, termo aprovado,
-// retorno do financeiro). Faz polling curto e tambem escuta em realtime.
+// retorno do financeiro). Carga inicial na montagem + escuta em realtime
+// (o realtime cobre todas as insercoes novas; sem polling recorrente).
 export default function NotificacoesPopup() {
   const [email, setEmail] = useState(null);
   const [fila, setFila] = useState([]); // notificacoes ainda nao exibidas
@@ -38,9 +39,9 @@ export default function NotificacoesPopup() {
 
   useEffect(() => {
     if (!email) return;
-    buscar();
-    const t = setInterval(buscar, 60000); // contenção: 12s -> 60s (o realtime abaixo cobre a urgência)
+    buscar(); // carga inicial: pega notificacoes nao lidas que ja existiam antes do realtime assinar
     // realtime: estoura na hora quando uma notificacao e inserida
+    // (polling recorrente de 60s removido — contencao Supabase; o realtime cobre a urgencia)
     const canal = supabase
       .channel("notif-" + email)
       .on(
@@ -54,7 +55,7 @@ export default function NotificacoesPopup() {
         }
       )
       .subscribe();
-    return () => { clearInterval(t); supabase.removeChannel(canal); };
+    return () => { supabase.removeChannel(canal); };
   }, [email]);
 
   async function marcarLida(id) {

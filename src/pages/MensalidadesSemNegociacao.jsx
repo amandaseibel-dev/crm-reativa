@@ -4,7 +4,7 @@ import {
   CartesianGrid, Cell,
 } from "recharts";
 import jsPDF from "jspdf";
-import { supabase } from "../supabaseClient";
+import { supabase } from "../services/supabase";
 import { cartao } from "../ui/cards";
 
 const BRL = (v) => (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });

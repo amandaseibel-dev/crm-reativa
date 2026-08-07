@@ -6,7 +6,7 @@
 // ============================================================================
 import { useState, useCallback, useMemo } from "react";
 import * as XLSX from "xlsx";
-import { supabase } from "../supabaseClient";
+import { supabase } from "../services/supabase";
 import { gerarExcelSintetico, gerarExcelAnalitico } from "../utils/fechamentoRemuneracaoExcel";
 import { gerarPdfOperador, gerarPdfsTodos } from "../utils/fechamentoRemuneracaoPdf";
 import { emailPorNomeOperador, nomeOperadorPorEmail } from "../utils/operadores";
