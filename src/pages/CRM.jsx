@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { emailPorNomeOperador, nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
+import { Carregando, Erro } from "../ui/estados";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 
 /* ================= BASE ================= */
@@ -1173,8 +1174,8 @@ export default function CRM() {
         </div>
       )}
 
-      {carregando && <p>Carregando casos...</p>}
-      {erro && <p style={{ color: "#f87171", fontWeight: 800 }}>{erro}</p>}
+      {carregando && <Carregando texto="Carregando casos…" tema="escuro" />}
+      {erro && <Erro texto={erro} onTentar={buscar} tema="escuro" />}
       {sucesso && <p style={{ color: "#3b82f6", fontWeight: 800 }}>{sucesso}</p>}
 
       <p style={{ fontSize: 14, color: "#e9d5ff" }}>
