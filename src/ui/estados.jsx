@@ -57,8 +57,9 @@ export function Carregando({ texto = "Carregando…", tema = "claro" }) {
   );
 }
 
-// Estado de erro, com botão opcional "Tentar de novo".
-export function Erro({ texto = "Não foi possível carregar. Tente de novo.", onTentar, tema = "claro" }) {
+// Estado de erro, com botão opcional "Tentar de novo". O cartão de erro tem
+// fundo próprio (tintado), então fica legível em tema claro e escuro sem ajuste.
+export function Erro({ texto = "Não foi possível carregar. Tente de novo.", onTentar }) {
   return (
     <div role="alert" style={wrap}>
       <div style={{ ...cartaoErro, maxWidth: 460, width: "100%", textAlign: "center", fontWeight: 600 }}>
