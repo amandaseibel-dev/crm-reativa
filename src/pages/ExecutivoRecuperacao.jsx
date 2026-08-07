@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import ComparativoAnos from "../components/ComparativoAnos";
 
 function moeda(v) {
@@ -34,7 +35,7 @@ export default function ExecutivoRecuperacao() {
     return () => { ativo = false; };
   }, []);
 
-  if (carregando) return <div style={S.wrap}><p style={S.muted}>Carregando visão executiva...</p></div>;
+  if (carregando) return <div style={S.wrap}><Carregando texto="Carregando visão executiva…" tema="escuro" /></div>;
   if (!d) return <div style={S.wrap}><p style={S.muted}>Não foi possível carregar.</p></div>;
 
   const ev = d.evolucao || [];

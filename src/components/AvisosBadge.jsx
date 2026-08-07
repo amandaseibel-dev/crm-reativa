@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import usePolling from "../utils/polling";
 
 export default function AvisosBadge() {
   const [qtd, setQtd] = useState(0);
@@ -8,12 +9,14 @@ export default function AvisosBadge() {
     const { data } = await supabase.rpc("avisos_nao_lidos_count");
     setQtd(typeof data === "number" ? data : 0);
   }
+  // Polling padrão: pausa em aba oculta e atualiza na hora ao voltar o foco.
+  usePolling(atualizar, 60000, [], true);
+  // Atualização imediata quando outro componente marca aviso como lido.
   useEffect(() => {
-    atualizar();
     function on() { atualizar(); }
     window.addEventListener("avisos-atualizou", on);
-    const t = setInterval(atualizar, 60000);
-    return () => { window.removeEventListener("avisos-atualizou", on); clearInterval(t); };
+    return () => window.removeEventListener("avisos-atualizou", on);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   return (

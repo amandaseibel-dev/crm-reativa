@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import FunilRecuperacao from "../components/FunilRecuperacao";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
@@ -40,7 +41,7 @@ export default function HistoricoRecuperacao() {
   }
 
   if (carregando) {
-    return <div style={estilos.container}>Carregando histórico...</div>;
+    return <div style={estilos.container}><Carregando texto="Carregando histórico…" /></div>;
   }
 
   return (

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 
 const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 const DONO = "amanda.seibel@aelbra.com.br";
@@ -65,7 +66,7 @@ export default function DRE() {
     return { fat: f, folha: fo, desp: d, lucro: f - fo - d };
   }, [meses]);
 
-  if (carregando) return <div style={s.wrap}><p style={s.muted}>Carregando DRE...</p></div>;
+  if (carregando) return <div style={s.wrap}><Carregando texto="Carregando DRE…" tema="escuro" /></div>;
   if (email !== DONO) {
     return (
       <div style={s.wrap}>

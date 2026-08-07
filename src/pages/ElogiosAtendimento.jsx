@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 
 function formatarDataHora(iso) {
   if (!iso) return "-";
@@ -177,7 +178,7 @@ export default function ElogiosAtendimento() {
   const pendentesCount = elogios.filter((e) => e.status === "PENDENTE_ANALISE").length;
 
   if (carregando) {
-    return <div style={estilos.container}>Carregando elogios de atendimento...</div>;
+    return <div style={estilos.container}><Carregando texto="Carregando elogios de atendimento…" /></div>;
   }
 
   return (

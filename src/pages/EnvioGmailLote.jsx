@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 
 // Envio em lote pelo proprio Gmail do usuario, com contador de seguranca
 // diario pra nao bloquear a conta. Um aluno por vez: escolhe a arte, abre o
@@ -160,7 +161,7 @@ export default function EnvioGmailLote() {
   const atingiuLimite = enviadosHoje >= limite;
   const pct = limite > 0 ? Math.min(100, Math.round((enviadosHoje / limite) * 100)) : 0;
 
-  if (carregando) return <div style={S.container}>Carregando fila de envio...</div>;
+  if (carregando) return <div style={S.container}><Carregando texto="Carregando fila de envio…" /></div>;
 
   return (
     <div style={S.container}>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import { urlComprovanteLink, abrirDocumento } from "../utils/documentoFinanceiro";
 import Alunos from "./Aluno";
 import FinanceiroAluno from "../components/FinanceiroAluno";
@@ -107,11 +108,7 @@ export default function FilaConfirmacaoPagamento() {
   const [carregandoFicha, setCarregandoFicha] = useState(false);
   const [motivoRejeicao, setMotivoRejeicao] = useState("");
 
-  // "Vincular dados" (so identificacao financeira; nao baixa/quita/altera saldo).
-  const [vinculando, setVinculando] = useState(false);
-  const [salvandoVinc, setSalvandoVinc] = useState(false);
   const [finalizando, setFinalizando] = useState(false);
-  const [vinc, setVinc] = useState(null); // { tipo, valor, data, alvoTipo, alvoId, comprovanteLinkId }
 
   // Aba "Acordo / Baixa": embute o FinanceiroAluno (mesmas acoes de sempre).
   const [alunoFin, setAlunoFin] = useState(null);
@@ -182,15 +179,6 @@ export default function FilaConfirmacaoPagamento() {
     setTitulosAbertos([]);
     setComprovante(null);
     setComprovantesDisponiveis([]);
-    setVinculando(false);
-    setVinc({
-      tipo: s.tipo_pagamento || "",
-      valor: s.valor_informado != null ? String(s.valor_informado) : "",
-      data: s.data_pagamento || "",
-      alvoTipo: s.parcela_id ? "PARCELA" : s.titulo_id ? "TITULO" : s.acordo_id ? "ACORDO" : "",
-      alvoId: s.parcela_id || s.titulo_id || s.acordo_id || "",
-      comprovanteLinkId: s.comprovante_link_id || "",
-    });
     setCarregandoFicha(true);
     try {
       // Historico do aluno.
@@ -267,53 +255,6 @@ export default function FilaConfirmacaoPagamento() {
   }
 
   const saldoAtual = totalAbertoParcelas + totalAbertoTitulos;
-  const valorVinc = vinc ? Number(String(vinc.valor).replace(",", ".")) || 0 : 0;
-  const saldoApos = Math.max(0, saldoAtual - valorVinc);
-
-  // ---- Vincular dados (SOMENTE identificacao financeira) ----
-  // Nao baixa parcela, nao quita titulo, nao altera saldo, nao muda o aluno
-  // para BAIXA_REALIZADA e nao remove a solicitacao da fila.
-  async function salvarVinculo() {
-    const s = detalhe;
-    if (!s) return;
-    if (!vinc.tipo) return alert("Selecione o tipo do pagamento.");
-    if (valorVinc <= 0) return alert("Informe o valor pago (maior que zero).");
-    if (!vinc.data) return alert("Informe a data do pagamento.");
-    if (!vinc.alvoTipo || !vinc.alvoId) return alert("Selecione a dívida correspondente (parcela, título ou acordo).");
-
-    setSalvandoVinc(true);
-    try {
-      const agora = new Date().toISOString();
-      const upd = {
-        tipo_pagamento: vinc.tipo,
-        valor_informado: valorVinc,
-        data_pagamento: vinc.data,
-        parcela_id: vinc.alvoTipo === "PARCELA" ? vinc.alvoId : null,
-        titulo_id: vinc.alvoTipo === "TITULO" ? vinc.alvoId : null,
-        acordo_id: vinc.alvoTipo === "ACORDO" ? vinc.alvoId : null,
-        comprovante_link_id: vinc.comprovanteLinkId || null,
-        dados_vinculados_em: agora,
-        dados_vinculados_por_email: usuario?.email || "",
-        atualizado_em: agora,
-        // NAO altera status, aluno, saldo, parcelas nem tira da fila.
-      };
-      const { error } = await supabase
-        .from("solicitacoes_confirmacao_pagamento")
-        .update(upd)
-        .eq("id", s.id);
-      if (error) {
-        alert("Erro ao vincular dados: " + error.message);
-        return;
-      }
-      alert("Dados financeiros vinculados. (Isso não confirma o pagamento nem baixa a dívida.)");
-      const atualizado = { ...s, ...upd };
-      setDetalhe(atualizado);
-      setVinculando(false);
-      setSolicitacoes((prev) => prev.map((x) => (x.id === s.id ? { ...x, ...upd } : x)));
-    } finally {
-      setSalvandoVinc(false);
-    }
-  }
 
   // ---- Confirmar (fluxo atual preservado) ----
   async function quitarEEncerrar(s) {
@@ -525,7 +466,7 @@ export default function FilaConfirmacaoPagamento() {
   }, [solicitacoes, filtro, tipoFiltro]);
 
   if (carregando) {
-    return <div style={styles.container}>Carregando fila de confirmação de pagamento...</div>;
+    return <div style={styles.container}><Carregando texto="Carregando fila de confirmação de pagamento…" /></div>;
   }
 
   if (!podeUsar) {
@@ -837,17 +778,14 @@ export default function FilaConfirmacaoPagamento() {
               // é preservado.
               const aguardandoVinculo = detalhe.status === STATUS_AGUARDANDO_VINCULO;
               const confirmavel = aguardandoVinculo ? completos : true;
-              const acordoOptions = [
-                ...new Map(parcelasAbertas.map((p) => [p.acordos?.id, p.acordos?.id])).keys(),
-              ].filter(Boolean);
               return (
                 <div style={styles.modalAcoes}>
                   {aguardandoVinculo && (
                     <div style={{ ...styles.incompleto, background: "#f5f3ff", color: "#5b21b6", border: "1px solid #ddd6fe" }}>
-                      Pagamento <strong>recebido</strong>, mas ainda <strong>sem vínculo</strong>. Identifique
-                      manualmente a dívida em <strong>“Vincular dados”</strong> (mensalidade, parcela de acordo,
+                      Pagamento <strong>recebido</strong>, mas ainda <strong>sem vínculo</strong>. Ajuste
+                      a dívida na aba <strong>Financeiro</strong> (mensalidade, parcela de acordo,
                       entrada ou quitação total) — ou use <strong>“Rejeitar / devolver”</strong> para “pagamento
-                      sem vínculo localizado”. A conclusão fica bloqueada até a seleção manual. Nada é quitado,
+                      sem vínculo localizado”. A conclusão fica bloqueada até o acerto no Financeiro. Nada é quitado,
                       reposto ou alterado enquanto aguarda vínculo.
                     </div>
                   )}
@@ -859,95 +797,7 @@ export default function FilaConfirmacaoPagamento() {
                     </div>
                   )}
 
-                  {/* Vincular dados (só identificação; não confirma, não baixa) */}
-                  {vinculando ? (
-                    <div style={styles.vincBox}>
-                      <strong>Vincular dados do pagamento</strong>
-                      <p style={styles.avisoLeve}>Vincular ≠ confirmar. Isto só salva a identificação financeira.</p>
-
-                      <label style={styles.label}>Tipo do pagamento</label>
-                      <select style={styles.input} value={vinc.tipo} onChange={(e) => setVinc({ ...vinc, tipo: e.target.value })}>
-                        <option value="">Selecione…</option>
-                        <option value="PARCELA">Parcela</option>
-                        <option value="ENTRADA">Entrada</option>
-                        <option value="ACORDO">Acordo</option>
-                        <option value="MENSALIDADE">Mensalidade/título</option>
-                        <option value="QUITACAO_TOTAL">Possível quitação total</option>
-                      </select>
-
-                      <div style={styles.linha2}>
-                        <div style={{ flex: 1 }}>
-                          <label style={styles.label}>Valor pago</label>
-                          <input style={styles.input} placeholder="Ex.: 350,00" value={vinc.valor} onChange={(e) => setVinc({ ...vinc, valor: e.target.value })} />
-                        </div>
-                        <div style={{ flex: 1 }}>
-                          <label style={styles.label}>Data do pagamento</label>
-                          <input type="date" style={styles.input} value={vinc.data} onChange={(e) => setVinc({ ...vinc, data: e.target.value })} />
-                        </div>
-                      </div>
-
-                      <label style={styles.label}>Dívida correspondente</label>
-                      <select
-                        style={styles.input}
-                        value={vinc.alvoTipo && vinc.alvoId ? `${vinc.alvoTipo}:${vinc.alvoId}` : ""}
-                        onChange={(e) => {
-                          const [t, id] = e.target.value.split(":");
-                          setVinc({ ...vinc, alvoTipo: t || "", alvoId: id || "" });
-                        }}
-                      >
-                        <option value="">Selecione parcela, título ou acordo…</option>
-                        {parcelasAbertas.length > 0 && (
-                          <optgroup label="Parcelas em aberto">
-                            {parcelasAbertas.map((p) => (
-                              <option key={p.id} value={`PARCELA:${p.id}`}>
-                                Parcela {p.numero} · venc. {p.vencimento} · {formatarMoeda(p.valor)}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {titulosAbertos.length > 0 && (
-                          <optgroup label="Títulos/mensalidades em aberto">
-                            {titulosAbertos.map((t) => (
-                              <option key={t.id} value={`TITULO:${t.id}`}>
-                                {t.documento || "Título"} · venc. {t.vencimento} · {formatarMoeda(valorTitulo(t))}
-                              </option>
-                            ))}
-                          </optgroup>
-                        )}
-                        {acordoOptions.length > 0 && (
-                          <optgroup label="Acordos ativos">
-                            {acordoOptions.map((id) => (
-                              <option key={id} value={`ACORDO:${id}`}>Acordo {String(id).slice(0, 8)}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </select>
-
-                      <label style={styles.label}>Comprovante (opcional, reaproveita o já anexado)</label>
-                      <select style={styles.input} value={vinc.comprovanteLinkId} onChange={(e) => setVinc({ ...vinc, comprovanteLinkId: e.target.value })}>
-                        <option value="">Sem comprovante vinculado</option>
-                        {comprovantesDisponiveis.map((c) => (
-                          <option key={c.id} value={c.id}>{c.comprovante_nome || "comprovante"} · {formatarData(c.comprovante_anexado_em)}</option>
-                        ))}
-                      </select>
-
-                      <div style={styles.preview}>
-                        <strong>Prévia</strong>
-                        <p style={styles.info}>{detalhe.aluno_nome} · CPF {detalhe.aluno_cpf || "-"}</p>
-                        <p style={styles.info}>Valor selecionado: {formatarMoeda(valorVinc)}</p>
-                        <p style={styles.info}>Saldo atual (parcelas + títulos): {formatarMoeda(saldoAtual)}</p>
-                        <p style={styles.info}>Saldo estimado após (referência): {formatarMoeda(saldoApos)}</p>
-                      </div>
-
-                      <div style={styles.acoes}>
-                        <button style={styles.botaoConfirmar} disabled={salvandoVinc} onClick={salvarVinculo}>
-                          {salvandoVinc ? "Salvando…" : "Salvar vínculo (não confirma)"}
-                        </button>
-                        <button style={styles.botaoCancelar} onClick={() => setVinculando(false)}>Cancelar</button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
+                  <>
                       <div style={styles.bloco}>
                         <label style={styles.label}>Motivo (obrigatório para rejeitar/devolver)</label>
                         <textarea
@@ -964,7 +814,7 @@ export default function FilaConfirmacaoPagamento() {
                         <button
                           style={confirmavel && !finalizando ? styles.botaoConfirmar : styles.botaoDesabilitado}
                           disabled={!confirmavel || finalizando}
-                          title={confirmavel ? "" : "Identifique a dívida em “Vincular dados” antes de concluir."}
+                          title={confirmavel ? "" : "Ajuste a dívida na aba Financeiro antes de concluir."}
                           onClick={() => confirmavel && !finalizando && finalizarSolicitacao(detalhe)}
                         >
                           {finalizando ? "Confirmando..." : "Confirmar pagamento"}
@@ -987,15 +837,11 @@ export default function FilaConfirmacaoPagamento() {
                             ✅ Confirmar saldo zero e retirar das filas
                           </button>
                         )}
-                        <button style={styles.botaoVincular} onClick={() => setVinculando(true)}>
-                          Vincular dados
-                        </button>
                         <button style={styles.botaoRejeitar} onClick={() => rejeitarPagamento(detalhe, motivoRejeicao)}>
                           Rejeitar / devolver
                         </button>
                       </div>
-                    </>
-                  )}
+                  </>
                 </div>
               );
             })()}

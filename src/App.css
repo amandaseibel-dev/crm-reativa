@@ -290,6 +290,20 @@ th {
 
   .sidebar {
     width: 100%;
+    /* Menu vira uma faixa com altura limitada e rolagem própria, em vez de
+       empurrar o conteúdo pra baixo com a lista inteira. */
+    max-height: 42vh;
+    overflow-y: auto;
+    padding: 16px;
+    box-sizing: border-box;
+  }
+
+  .content {
+    padding: 16px;
+  }
+
+  .topbar h2 {
+    font-size: 22px;
   }
 
   .cards {
@@ -298,8 +312,8 @@ th {
 }
 
 @media (max-width: 650px) {
-  .cards {
-    grid-template-columns: 1fr;
+  .content {
+    padding: 12px;
   }
 
   .topbar {
@@ -307,6 +321,20 @@ th {
     flex-direction: column;
     gap: 12px;
   }
+
+  .topbar h2 {
+    font-size: 20px;
+  }
+
+  .cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Nenhuma tela deve rolar horizontalmente: conteúdo largo (tabelas, etc.)
+   rola dentro do próprio container, não empurra a página. */
+.content {
+  overflow-x: hidden;
 }
 .badge-pendente {
   display: inline-flex;

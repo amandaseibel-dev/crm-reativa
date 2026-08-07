@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando, Erro, Vazio } from "../ui/estados";
 import Alunos from "./Aluno";
 
 const FONTE = "'Sora','Inter',system-ui,sans-serif";
@@ -62,13 +63,21 @@ const GRUPOS = [
   },
 ];
 
+// Passos do fluxo (substituem a barra de abas soltas)
+const PASSOS = [
+  { id: "diagnostico", num: 1, titulo: "Diagnóstico", desc: "Está desequilibrado? Onde?" },
+  { id: "acao", num: 2, titulo: "Decidir ação", desc: "O que fazer para equilibrar" },
+  { id: "aplicar", num: 3, titulo: "Aplicar", desc: "Aprovar e mover a carteira" },
+];
+
 export default function Calibragem() {
   const [carregando, setCarregando] = useState(true);
   const [atualizando, setAtualizando] = useState(false);
   const [erro, setErro] = useState("");
   const [dados, setDados] = useState(null);
   const [detalhe, setDetalhe] = useState(null); // { operador, chave, rotulo }
-  const [vista, setVista] = useState("visao"); // 'visao' | 'simulador'
+  const [passo, setPasso] = useState("diagnostico"); // diagnostico | acao | aplicar
+  const [subDiag, setSubDiag] = useState("resumo"); // resumo | comparacao | criticidade | regua
 
   async function carregar() {
     setCarregando(true);
@@ -104,6 +113,7 @@ export default function Calibragem() {
 
   const operadores = dados?.operadores || [];
   const geradoEm = dados?.gerado_em ? new Date(dados.gerado_em).toLocaleString("pt-BR") : null;
+  const recomendacao = useMemo(() => recomendarAcao(operadores), [operadores]);
 
   // Totais da equipe para comparação rápida
   const totais = useMemo(() => {
@@ -126,8 +136,8 @@ export default function Calibragem() {
         <div>
           <h1 style={S.titulo}>⚖️ Calibragem</h1>
           <p style={S.subtitulo}>
-            Centro de controle da composição das carteiras. Toda redistribuição passa por aqui —
-            com simulação, aprovação e auditoria.
+            Equilibrar a carteira entre os operadores — para que ninguém fique com muito mais
+            dívida, CPFs ou casos críticos que os outros. Siga os 3 passos abaixo.
           </p>
           {geradoEm && (
             <p style={S.meta}>
@@ -141,84 +151,104 @@ export default function Calibragem() {
         </button>
       </div>
 
-      <div style={S.tabs}>
-        <button
-          type="button"
-          style={{ ...S.tab, ...(vista === "visao" ? S.tabAtiva : {}) }}
-          onClick={() => setVista("visao")}
-        >
-          Visão por operador
-        </button>
-        <button
-          type="button"
-          style={{ ...S.tab, ...(vista === "comparacao" ? S.tabAtiva : {}) }}
-          onClick={() => setVista("comparacao")}
-        >
-          Comparação
-        </button>
-        <button
-          type="button"
-          style={{ ...S.tab, ...(vista === "regua" ? S.tabAtiva : {}) }}
-          onClick={() => setVista("regua")}
-        >
-          Régua de cobrança
-        </button>
-        <button
-          type="button"
-          style={{ ...S.tab, ...(vista === "criticidade" ? S.tabAtiva : {}) }}
-          onClick={() => setVista("criticidade")}
-        >
-          Criticidade
-        </button>
-        <button
-          type="button"
-          style={{ ...S.tab, ...(vista === "simulador" ? S.tabAtiva : {}) }}
-          onClick={() => setVista("simulador")}
-        >
-          Simulador de nivelamento
-        </button>
+      {/* Stepper: os 3 passos do fluxo */}
+      <div style={S.stepper}>
+        {PASSOS.map((p, idx) => {
+          const ativo = passo === p.id;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setPasso(p.id)}
+              style={{ ...S.step, ...(ativo ? S.stepAtivo : {}) }}
+            >
+              <span style={{ ...S.stepNum, ...(ativo ? S.stepNumAtivo : {}) }}>{p.num}</span>
+              <span>
+                <span style={S.stepTitulo}>{p.titulo}</span>
+                <span style={S.stepDesc}>{p.desc}</span>
+              </span>
+              {idx < PASSOS.length - 1 && <span style={S.stepSeta}>→</span>}
+            </button>
+          );
+        })}
       </div>
 
       {erro && <div style={S.erro}>{erro}</div>}
 
-      {vista === "simulador" ? (
-        <Simulador operadores={operadores} onExecutado={atualizar} />
-      ) : vista === "comparacao" ? (
-        <Comparacao operadores={operadores} />
-      ) : vista === "criticidade" ? (
-        <Criticidade />
-      ) : vista === "regua" ? (
-        <Regua operadores={operadores} />
+      {passo === "acao" || passo === "aplicar" ? (
+        <Simulador
+          operadores={operadores}
+          recomendacao={recomendacao}
+          focoAplicar={passo === "aplicar"}
+          onExecutado={atualizar}
+        />
       ) : carregando ? (
-        <div style={S.vazio}>Carregando…</div>
+        <Carregando texto="Carregando composição das carteiras…" tema="escuro" />
       ) : !operadores.length ? (
-        <div style={S.vazio}>
-          Nenhum snapshot ainda. Clique em <strong>Atualizar dados</strong> para calcular a
-          composição das carteiras.
-        </div>
+        <Vazio
+          tema="escuro"
+          texto="Nenhum snapshot ainda"
+          detalhe="Clique em “Atualizar dados” para calcular a composição das carteiras."
+        />
       ) : (
         <>
-          {/* Faixa de totais da equipe */}
-          <div style={S.totais}>
-            <TotalChip rotulo="Operadores" valor={num(operadores.length)} />
-            <TotalChip rotulo="CPFs na equipe" valor={num(totais.cpfs)} />
-            <TotalChip rotulo="Saldo total" valor={moeda(totais.saldo)} destaque />
-            <TotalChip rotulo="Críticos" valor={num(totais.criticos)} tom="critico" />
-            <TotalChip rotulo="Sem acionamento" valor={num(totais.semAcion)} tom="alerta" />
-            <TotalChip rotulo="Acordos vencidos" valor={num(totais.acVenc)} tom="alerta" />
-          </div>
+          {/* Veredito automático + atalho para a ação */}
+          <DiagnosticoResumo
+            operadores={operadores}
+            recomendacao={recomendacao}
+            onIrParaAcao={() => setPasso("acao")}
+          />
 
-          <div style={S.grid}>
-            {operadores.map((o) => (
-              <CardOperador
-                key={o.operador_email}
-                operador={o}
-                onDrill={(chave, rotulo, extra) =>
-                  setDetalhe({ operador: o, chave, rotulo, ...(extra || {}) })
-                }
-              />
+          {/* Seletor de profundidade do diagnóstico */}
+          <div style={S.subTabs}>
+            {[
+              { id: "resumo", rotulo: "Resumo por operador" },
+              { id: "comparacao", rotulo: "Comparação lado a lado" },
+              { id: "criticidade", rotulo: "Criticidade" },
+              { id: "regua", rotulo: "Régua / funil" },
+            ].map((s) => (
+              <button
+                key={s.id}
+                type="button"
+                style={{ ...S.subTab, ...(subDiag === s.id ? S.subTabAtiva : {}) }}
+                onClick={() => setSubDiag(s.id)}
+              >
+                {s.rotulo}
+              </button>
             ))}
           </div>
+
+          {subDiag === "comparacao" ? (
+            <Comparacao operadores={operadores} />
+          ) : subDiag === "criticidade" ? (
+            <Criticidade />
+          ) : subDiag === "regua" ? (
+            <Regua operadores={operadores} />
+          ) : (
+            <>
+              {/* Faixa de totais da equipe */}
+              <div style={S.totais}>
+                <TotalChip rotulo="Operadores" valor={num(operadores.length)} />
+                <TotalChip rotulo="CPFs na equipe" valor={num(totais.cpfs)} />
+                <TotalChip rotulo="Saldo total" valor={moeda(totais.saldo)} destaque />
+                <TotalChip rotulo="Críticos" valor={num(totais.criticos)} tom="critico" />
+                <TotalChip rotulo="Sem acionamento" valor={num(totais.semAcion)} tom="alerta" />
+                <TotalChip rotulo="Acordos vencidos" valor={num(totais.acVenc)} tom="alerta" />
+              </div>
+
+              <div style={S.grid}>
+                {operadores.map((o) => (
+                  <CardOperador
+                    key={o.operador_email}
+                    operador={o}
+                    onDrill={(chave, rotulo, extra) =>
+                      setDetalhe({ operador: o, chave, rotulo, ...(extra || {}) })
+                    }
+                  />
+                ))}
+              </div>
+            </>
+          )}
         </>
       )}
 
@@ -378,8 +408,8 @@ function Criticidade() {
     return () => { ativo = false; };
   }, []);
 
-  if (carregando) return <div style={S.vazio}>Calculando criticidade…</div>;
-  if (erro) return <div style={S.erro}>{erro}</div>;
+  if (carregando) return <Carregando texto="Calculando criticidade…" tema="escuro" />;
+  if (erro) return <Erro texto={erro} tema="escuro" />;
   const ops = dados?.operadores || [];
   const pesos = dados?.config?.pesos || {};
 
@@ -483,6 +513,81 @@ function indiceEquilibrio(vals) {
   const variance = arr.reduce((a, b) => a + (b - avg) ** 2, 0) / arr.length;
   const cv = Math.sqrt(variance) / avg;
   return Math.max(0, Math.round((1 - cv) * 1000) / 10);
+}
+
+// Descobre o maior desequilíbrio e sugere o critério de nivelamento certo (passo 1 → passo 2)
+function recomendarAcao(operadores) {
+  const ops = (operadores || []).filter((o) => (o.operador_email || "").startsWith("cobranca"));
+  if (ops.length < 2) return null;
+  const candidatos = [
+    { metrica: "saldo_total", tipo: "EQUIPARAR_SALDO", rotulo: "saldo financeiro", get: (i) => qv(i, "saldo_total").valor, fmt: moeda },
+    { metrica: "cpfs", tipo: "EQUIPARAR_QTD", rotulo: "quantidade de CPFs", get: (i) => qv(i, "cpfs").qtd, fmt: num },
+  ];
+  let pior = null;
+  for (const c of candidatos) {
+    const vals = ops.map((o) => c.get(o.indicadores || {}));
+    const indice = indiceEquilibrio(vals);
+    const ranked = ops
+      .map((o) => ({ nome: o.operador_nome, v: c.get(o.indicadores || {}) }))
+      .sort((a, b) => b.v - a.v);
+    if (!pior || indice < pior.indice) {
+      pior = { ...c, indice, maior: ranked[0], menor: ranked[ranked.length - 1] };
+    }
+  }
+  // Sem acionamento concentrado = brecha operacional que vale redistribuir
+  const semAc = ops
+    .map((o) => ({ nome: o.operador_nome, v: qv(o.indicadores || {}, "sem_acionamento").qtd }))
+    .sort((a, b) => b.v - a.v);
+  const totalSem = semAc.reduce((a, b) => a + b.v, 0);
+  const semAcConcentrado = semAc[0] && totalSem > 0 && semAc[0].v > totalSem * 0.35;
+
+  return {
+    ...pior,
+    equilibrado: pior.indice >= 90,
+    semAc: semAcConcentrado ? semAc[0] : null,
+    semAcTotal: totalSem,
+  };
+}
+
+// Veredito automático no topo do Diagnóstico + atalho para a ação recomendada
+function DiagnosticoResumo({ operadores, recomendacao, onIrParaAcao }) {
+  if (!recomendacao) return null;
+  const r = recomendacao;
+  const bom = r.equilibrado && !r.semAc;
+  return (
+    <div style={{ ...S.veredito, ...(bom ? S.vereditoBom : S.vereditoAlerta) }}>
+      <div style={{ flex: 1, minWidth: 260 }}>
+        <div style={S.vereditoTag}>{bom ? "✅ Carteiras equilibradas" : "⚠️ Desequilíbrio detectado"}</div>
+        {bom ? (
+          <div style={S.vereditoTexto}>
+            O maior desequilíbrio hoje é em <strong>{r.rotulo}</strong> (índice {r.indice}/100) — dentro
+            do aceitável. Nenhuma ação necessária agora.
+          </div>
+        ) : (
+          <div style={S.vereditoTexto}>
+            Maior desequilíbrio: <strong>{r.rotulo}</strong> (índice {r.indice}/100).{" "}
+            {r.maior && r.menor && (
+              <>
+                <strong>{r.maior.nome}</strong> tem {r.fmt(r.maior.v)} e <strong>{r.menor.nome}</strong>{" "}
+                tem {r.fmt(r.menor.v)}.{" "}
+              </>
+            )}
+            {r.semAc && (
+              <>
+                Além disso, <strong>{r.semAc.nome}</strong> concentra {num(r.semAc.v)} casos sem
+                acionamento.{" "}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+      {!bom && (
+        <button type="button" style={S.vereditoBtn} onClick={onIrParaAcao}>
+          Ver ação recomendada →
+        </button>
+      )}
+    </div>
+  );
 }
 
 function Comparacao({ operadores }) {
@@ -589,6 +694,7 @@ function Comparacao({ operadores }) {
 }
 
 const CRITERIOS = [
+  { valor: "EQUIPARAR_500", rotulo: "Deixar todos com 500 casos + saldo equilibrado" },
   { valor: "EQUIPARAR_SALDO", rotulo: "Equiparar saldo financeiro (troca)" },
   { valor: "EQUIPARAR_QTD", rotulo: "Equiparar quantidade de CPFs" },
   { valor: "RETIRAR_SEM_ACIONAMENTO", rotulo: "Retirar sem acionamento e redistribuir" },
@@ -596,12 +702,21 @@ const CRITERIOS = [
   { valor: "EQUIPARAR_ANO", rotulo: "Equiparar dívidas por ano" },
 ];
 
-function Simulador({ operadores, onExecutado }) {
+// Contas de gestão que aparecem como cobranca* mas não são operadores de carteira
+// (Fernanda, Amanda Borges) — ficam fora da seleção inicial do nivelamento.
+const GESTAO_SEM_CARTEIRA = ["cobranca04@aelbra.com.br", "cobranca07@aelbra.com.br"];
+
+function Simulador({ operadores, onExecutado, recomendacao, focoAplicar }) {
   const opcoesOp = (operadores || []).filter((o) => (o.operador_email || "").startsWith("cobranca"));
-  const [tipo, setTipo] = useState("EQUIPARAR_SALDO");
-  const [selecionados, setSelecionados] = useState(() => opcoesOp.map((o) => o.operador_email));
+  const sugerido = recomendacao?.semAc ? "RETIRAR_SEM_ACIONAMENTO" : recomendacao?.tipo || "EQUIPARAR_SALDO";
+  const [tipo, setTipo] = useState(sugerido);
+  const [selecionados, setSelecionados] = useState(() =>
+    opcoesOp.map((o) => o.operador_email).filter((e) => !GESTAO_SEM_CARTEIRA.includes(e))
+  );
   const [origem, setOrigem] = useState("");
   const [anoSel, setAnoSel] = useState(2026);
+  const [ano500, setAno500] = useState(""); // "" = qualquer ano
+  const [limiteMov, setLimiteMov] = useState(""); // "" = sem teto de movimentações
   const [simulando, setSimulando] = useState(false);
   const [erro, setErro] = useState("");
   const [sim, setSim] = useState(null);
@@ -621,8 +736,14 @@ function Simulador({ operadores, onExecutado }) {
       const criterio = { tipo, operadores: selecionados };
       if (tipo === "RETIRAR_SEM_ACIONAMENTO" && origem) criterio.origem = origem;
       if (tipo === "EQUIPARAR_ANO") criterio.ano = Number(anoSel);
+      if (tipo === "EQUIPARAR_500") {
+        criterio.teto = 500;
+        if (ano500) criterio.ano = Number(ano500);
+        if (limiteMov) criterio.limite_mov = Number(limiteMov);
+      }
       const rpcSim =
-        tipo === "EQUIPARAR_ACORDOS" ? "calibragem_simular_acordos"
+        tipo === "EQUIPARAR_500" ? "calibragem_simular_500"
+        : tipo === "EQUIPARAR_ACORDOS" ? "calibragem_simular_acordos"
         : tipo === "EQUIPARAR_ANO" ? "calibragem_simular_ano"
         : "calibragem_simular";
       const { data, error } = await supabase.rpc(rpcSim, { p_criterio: criterio });
@@ -685,8 +806,26 @@ function Simulador({ operadores, onExecutado }) {
   const semSaldo = ehAcordos || ehAno;
   const unidade = ehAcordos ? "Acordos" : ehAno ? `Casos ${sim?.ano}` : "CPFs";
 
+  const rotuloSugerido = CRITERIOS.find((c) => c.valor === sugerido)?.rotulo;
+
   return (
     <div>
+      {recomendacao && !recomendacao.equilibrado && (
+        <div style={S.recBanner}>
+          <div style={{ flex: 1 }}>
+            <strong>Sugestão automática:</strong> o maior desequilíbrio é em{" "}
+            <strong>{recomendacao.rotulo}</strong> (índice {recomendacao.indice}/100). Critério
+            recomendado: <strong>{rotuloSugerido}</strong>. Clique em <em>Simular</em> para ver a
+            prévia antes de aplicar.
+          </div>
+        </div>
+      )}
+      {focoAplicar && !sim && (
+        <div style={{ ...S.recBanner, background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.3)" }}>
+          Para <strong>aplicar</strong>, primeiro rode uma simulação abaixo, revise a prévia e então
+          aprove e execute.
+        </div>
+      )}
       <div style={S.simConfig}>
         <div style={{ flex: 1, minWidth: 260 }}>
           <label style={S.simLabel}>Critério de nivelamento</label>
@@ -714,6 +853,31 @@ function Simulador({ operadores, onExecutado }) {
                 <option value={2025}>2025</option>
                 <option value={2026}>2026</option>
               </select>
+            </>
+          )}
+          {tipo === "EQUIPARAR_500" && (
+            <>
+              <label style={{ ...S.simLabel, marginTop: 10 }}>Ano a passar primeiro (opcional)</label>
+              <select style={S.simSelect} value={ano500} onChange={(e) => setAno500(e.target.value)}>
+                <option value="">Qualquer ano</option>
+                <option value="2024">2024</option>
+                <option value="2025">2025</option>
+                <option value="2026">2026</option>
+              </select>
+              <label style={{ ...S.simLabel, marginTop: 10 }}>Máx. de movimentações (opcional)</label>
+              <input
+                style={S.simSelect}
+                type="number"
+                min="1"
+                placeholder="Sem limite"
+                value={limiteMov}
+                onChange={(e) => setLimiteMov(e.target.value)}
+              />
+              <p style={{ fontSize: 12, opacity: 0.6, marginTop: 6, lineHeight: 1.4 }}>
+                Todos ficam com <strong>500 casos</strong>; quem tem mais CPFs solta o excedente e
+                as trocas equilibram o <strong>saldo</strong>. Se escolher um ano, esses casos saem
+                primeiro.
+              </p>
             </>
           )}
         </div>
@@ -1247,6 +1411,24 @@ const S = {
   tabs: { display: "flex", gap: 4, marginBottom: 18, borderBottom: "1px solid rgba(148,163,184,0.15)" },
   tab: { padding: "10px 16px", background: "none", border: "none", borderBottom: "2px solid transparent", color: "#94a3b8", fontWeight: 600, cursor: "pointer", fontFamily: FONTE, fontSize: 14 },
   tabAtiva: { color: "#e2e8f0", borderBottom: "2px solid #34d399" },
+  stepper: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 },
+  step: { display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 12, border: "1px solid rgba(148,163,184,0.18)", background: "rgba(148,163,184,0.05)", color: "#94a3b8", cursor: "pointer", fontFamily: FONTE, flex: "1 1 220px", textAlign: "left" },
+  stepAtivo: { border: "1px solid rgba(52,211,153,0.6)", background: "rgba(52,211,153,0.12)", color: "#e2e8f0" },
+  stepNum: { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: 999, background: "rgba(148,163,184,0.2)", color: "#cbd5e1", fontWeight: 800, fontSize: 14, flexShrink: 0 },
+  stepNumAtivo: { background: "#34d399", color: "#052e1c" },
+  stepTitulo: { display: "block", fontSize: 14, fontWeight: 700 },
+  stepDesc: { display: "block", fontSize: 11.5, opacity: 0.7, marginTop: 1 },
+  stepSeta: { marginLeft: "auto", opacity: 0.4 },
+  subTabs: { display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" },
+  subTab: { padding: "7px 14px", borderRadius: 999, background: "rgba(148,163,184,0.06)", border: "1px solid rgba(148,163,184,0.18)", color: "#94a3b8", fontWeight: 600, cursor: "pointer", fontFamily: FONTE, fontSize: 13 },
+  subTabAtiva: { background: "rgba(56,189,248,0.14)", border: "1px solid rgba(56,189,248,0.5)", color: "#bae6fd" },
+  veredito: { display: "flex", alignItems: "center", gap: 16, padding: "16px 18px", borderRadius: 14, marginBottom: 18, flexWrap: "wrap" },
+  vereditoBom: { background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.35)" },
+  vereditoAlerta: { background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.35)" },
+  vereditoTag: { fontSize: 14, fontWeight: 800, marginBottom: 4 },
+  vereditoTexto: { fontSize: 13.5, opacity: 0.9, lineHeight: 1.5 },
+  vereditoBtn: { padding: "10px 18px", borderRadius: 10, border: "1px solid rgba(251,191,36,0.55)", background: "rgba(251,191,36,0.18)", color: "#fde68a", fontWeight: 700, cursor: "pointer", fontSize: 14, whiteSpace: "nowrap" },
+  recBanner: { display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", borderRadius: 12, background: "rgba(56,189,248,0.1)", border: "1px solid rgba(56,189,248,0.3)", fontSize: 13.5, lineHeight: 1.5, marginBottom: 16 },
   simConfig: { display: "flex", gap: 24, flexWrap: "wrap", background: "rgba(148,163,184,0.05)", border: "1px solid rgba(148,163,184,0.12)", borderRadius: 12, padding: 16 },
   simLabel: { display: "block", fontSize: 12, opacity: 0.65, marginBottom: 6, fontWeight: 600 },
   simSelect: { width: "100%", padding: "9px 10px", borderRadius: 8, background: "#0f172a", color: "#e2e8f0", border: "1px solid rgba(148,163,184,0.25)", fontFamily: FONTE, fontSize: 14 },

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import { urlTermo } from "../utils/documentoFinanceiro";
 
 const ADM_AUTORIZADOS = [
@@ -247,7 +248,7 @@ export default function FilaAdmTermos() {
   }, [termos, filtro]);
 
   if (carregando) {
-    return <div style={styles.container}>Carregando fila ADM...</div>;
+    return <div style={styles.container}><Carregando texto="Carregando fila ADM…" /></div>;
   }
 
   if (!podeValidar) {

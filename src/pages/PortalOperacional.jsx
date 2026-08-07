@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 
 const STATUS_ERRO = {
   NOVA: { rotulo: "Reportado", bg: "#eef2ff", cor: "#4338ca" },
@@ -794,7 +795,7 @@ function ErrosReportados() {
       <Card>
         <button style={{ ...S.botaoSecundario, marginBottom: 12 }} onClick={carregar}>Atualizar</button>
         {carregando ? (
-          <p style={S.paragrafo}>Carregando...</p>
+          <Carregando texto="Carregando…" />
         ) : lista.length === 0 ? (
           <p style={S.paragrafo}>Nenhum erro reportado no momento.</p>
         ) : (

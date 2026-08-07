@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import { podeBaixarPagamento, podeVerFilaDeBaixas } from "../utils/operadores";
 import ComprovantePagamento from "../components/ComprovantePagamento";
 import Alunos from "./Aluno";
@@ -421,7 +422,7 @@ export default function MinhaFilaPagamentos() {
   }, [links, lista]);
 
   if (carregando) {
-    return <div style={styles.container}>Carregando Minha Fila de Pagamentos...</div>;
+    return <div style={styles.container}><Carregando texto="Carregando Minha Fila de Pagamentos…" /></div>;
   }
 
   if (!podeVer) {

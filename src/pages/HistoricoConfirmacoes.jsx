@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 
 // Historico de confirmacoes de pagamento realizadas por dia, com o usuario
 // que fez cada uma (ultimos 30 dias, horario de Brasilia). So leitura.
@@ -50,7 +51,7 @@ export default function HistoricoConfirmacoes() {
       </div>
 
       {carregando ? (
-        <p style={S.muted}>Carregando...</p>
+        <Carregando texto="Carregando…" />
       ) : porDia.length === 0 ? (
         <p style={S.muted}>Nenhuma confirmação registrada nos últimos 30 dias.</p>
       ) : (

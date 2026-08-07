@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import usePolling from "../utils/polling";
 
 export default function AvisosPopup() {
   const [fila, setFila] = useState([]);
@@ -26,12 +27,15 @@ export default function AvisosPopup() {
 
   useEffect(() => { abertoRef.current = aberto; }, [aberto]);
 
+  // Polling padrão: pausa em aba oculta e reatualiza ao voltar o foco. Não
+  // recarrega enquanto o modal está aberto (abertoRef), preservando o comportamento.
+  usePolling(() => { if (!abertoRef.current) carregar(false); }, 60000, [], true);
+  // Evento externo "abrir-avisos" força mostrar todos (mesmo já lidos).
   useEffect(() => {
-    carregar(false);
     function reabrir() { carregar(true); }
     window.addEventListener("abrir-avisos", reabrir);
-    const t = setInterval(() => { if (!abertoRef.current) carregar(false); }, 60000); // contenção: 20s -> 60s
-    return () => { window.removeEventListener("abrir-avisos", reabrir); clearInterval(t); };
+    return () => window.removeEventListener("abrir-avisos", reabrir);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   if (!aberto || idx >= fila.length) return null;

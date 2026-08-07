@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import { podeBaixarPagamento } from "../utils/operadores";
 
 function dinheiro(valor) {
@@ -191,7 +192,7 @@ export default function MinhaFilaQuitacao() {
   }, [baixas, lista]);
 
   if (carregando) {
-    return <div style={styles.container}>Carregando Minha Fila de Quitação...</div>;
+    return <div style={styles.container}><Carregando texto="Carregando Minha Fila de Quitação…" /></div>;
   }
 
   const emailUsuario = usuario?.email || "";
