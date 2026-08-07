@@ -297,6 +297,7 @@ export default function App() {
   const [baixasAguardando, setBaixasAguardando] = useState(0);
   const [elogiosPendentes, setElogiosPendentes] = useState(0);
   const [minhasValidacoesPendentes, setMinhasValidacoesPendentes] = useState(0);
+  const [sugestoesNovas, setSugestoesNovas] = useState(0);
   const [tema, setTema] = useState(() => localStorage.getItem("reativa_tema") || "claro"); // tema opcional (claro/escuro)
   const [sidebarRecolhida, setSidebarRecolhida] = useState(() => {
     return localStorage.getItem("reativa_sidebar_recolhida") === "1";
@@ -371,9 +372,11 @@ export default function App() {
 
   // Sinaliza no menu quando o operador tem solicitações devolvidas para
   // validar. Busca única ao logar (sem polling), como as demais analíticas
-  // sob demanda; qualquer falha apenas mantém o contador neutro.
+  // sob demanda; qualquer falha apenas mantém o contador neutro. NÃO depende
+  // de ehLider: todo operador que enviou uma sugestão/erro precisa ver quando
+  // a gestão devolveu para validação, mesmo fora da aba líder.
   useEffect(() => {
-    if (!usuario || !ehLider) { setMinhasValidacoesPendentes(0); return; }
+    if (!usuario) { setMinhasValidacoesPendentes(0); return; }
     let ativo = true;
     (async () => {
       const { data, error } = await supabase.rpc("listar_minhas_solicitacoes");
@@ -381,7 +384,25 @@ export default function App() {
       setMinhasValidacoesPendentes(data.filter((s) => s.status === "AGUARDANDO_VALIDACAO").length);
     })();
     return () => { ativo = false; };
-  }, [usuario, ehLider]);
+  }, [usuario]);
+
+  // Sinaliza no menu (item Ferramentas) quando chega sugestão/erro novo da
+  // equipe (NOVA / sem status / REABERTO). Só a gestão lê a tabela sugestoes;
+  // busca única ao logar, sem polling. Mesma contagem do card em Ferramentas.jsx.
+  useEffect(() => {
+    const perfilAtual = usuario?.perfil?.perfil;
+    if (!usuario || perfilAtual === "operador") { setSugestoesNovas(0); return; }
+    let ativo = true;
+    (async () => {
+      const { count, error } = await supabase
+        .from("sugestoes")
+        .select("id", { count: "exact", head: true })
+        .or("status.eq.NOVA,status.is.null,status.eq.REABERTO");
+      if (!ativo || error) return;
+      setSugestoesNovas(count || 0);
+    })();
+    return () => { ativo = false; };
+  }, [usuario]);
 
   useEffect(() => {
     if (usuario) return;
@@ -391,6 +412,8 @@ export default function App() {
     setTermosAguardandoValidacao(0);
     setTermosRejeitados(0);
     setParcelasVencendo([]);
+    setSugestoesNovas(0);
+    setMinhasValidacoesPendentes(0);
   }, [usuario]);
 
   // Disponibiliza a atualizacao imediata pra qualquer tela que acabou de
@@ -787,6 +810,14 @@ export default function App() {
                     title="Solicitações aguardando sua validação"
                   >
                     {minhasValidacoesPendentes}
+                  </span>
+                )}
+                {item.rota === "/ferramentas" && sugestoesNovas > 0 && (
+                  <span
+                    className="badge-pendente"
+                    title="Sugestões/erros novos da equipe aguardando análise"
+                  >
+                    {sugestoesNovas}
                   </span>
                 )}
                   </NavLink>
