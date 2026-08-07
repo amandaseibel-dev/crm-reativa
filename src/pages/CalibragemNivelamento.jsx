@@ -62,21 +62,14 @@ export default function CalibragemNivelamento() {
 
   async function aplicar() {
     if (!sim?.simulacao_id) return;
-    const ok = window.confirm(
-      `APLICAR o nivelamento?\n\nIsto MOVE ${num(sim.total_movimentacoes)} casos de verdade entre operadores` +
-      `${ano ? " (dívida de " + ano + ")" : ""}. Alunos passam para a carteira do novo operador.\n\nEsta ação é registrada e auditada. Confirmar?`
+    // PASSO 3 (aplicar de verdade) ainda em validação: o executor dedicado do
+    // nivelamento — que sabe puxar do pool (sem responsável) e conviver com o
+    // gatilho de teto 500 — está sendo testado. Até liberar, não movemos nada.
+    setAviso(
+      "🔒 Aplicar em validação (passo 3): a simulação está pronta e o plano acima é real, " +
+      "mas o botão que MOVE os casos ainda está em teste (staging) para garantir que o pool " +
+      "e o teto de 500 funcionem certo. Assim que validado, este botão passa a mover de verdade."
     );
-    if (!ok) return;
-    setAplicando(true);
-    setAviso("");
-    const { error: e1 } = await supabase.rpc("calibragem_aprovar_simulacao", { p_id: sim.simulacao_id });
-    if (e1) { setAplicando(false); setAviso("Erro ao aprovar: " + (e1.message || "")); return; }
-    const { error: e2 } = await supabase.rpc("calibragem_executar_simulacao", { p_id: sim.simulacao_id });
-    setAplicando(false);
-    if (e2) { setAviso("Erro ao aplicar: " + (e2.message || "")); return; }
-    setAviso("✅ Nivelamento aplicado. Recarregando o diagnóstico…");
-    setSim(null);
-    carregarDiag(ano);
   }
 
   const S = estilos;
