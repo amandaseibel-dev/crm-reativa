@@ -81,6 +81,7 @@ import AvisosBadge from "./components/AvisosBadge";
 const CentralAvisos = lazy(() => import("./pages/CentralAvisos"));
 const TaxaConversao = lazy(() => import("./pages/TaxaConversao"));
 const Calibragem = lazy(() => import("./pages/Calibragem"));
+const CalibragemNivelamento = lazy(() => import("./pages/CalibragemNivelamento"));
 const Efetividade = lazy(() => import("./pages/Efetividade"));
 const PainelGeral = lazy(() => import("./pages/PainelGeral"));
 import NotificacoesPopup from "./components/NotificacoesPopup";
@@ -894,6 +895,14 @@ export default function App() {
             />
             <Route
               path="/calibragem"
+              element={
+                <RotaProtegida usuario={usuario} rota="/calibragem">
+                  <CalibragemNivelamento />
+                </RotaProtegida>
+              }
+            />
+            <Route
+              path="/calibragem-detalhada"
               element={
                 <RotaProtegida usuario={usuario} rota="/calibragem">
                   <Calibragem />
