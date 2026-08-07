@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import { podeGerirFinanceiro } from "../utils/operadores";
 
 const STATUS_LABEL = {
@@ -152,7 +153,7 @@ export default function FilaFinanceiro() {
   }, [solicitacoes, filtro]);
 
   if (carregando) {
-    return <div style={styles.container}>Carregando fila do financeiro...</div>;
+    return <div style={styles.container}><Carregando texto="Carregando fila do financeiro…" /></div>;
   }
 
   if (!podeUsar) {

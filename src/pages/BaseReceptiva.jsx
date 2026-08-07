@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import { nomeOperadorPorEmail } from "../utils/operadores";
 import BotaoManual from "../components/BotaoManual";
 
@@ -304,7 +305,7 @@ export default function BaseReceptiva() {
 
   if (carregando) {
     return <div style={styles.container}>
-      <BotaoManual />Carregando Base Receptiva...</div>;
+      <BotaoManual /><Carregando texto="Carregando Base Receptiva…" /></div>;
   }
 
   return (
