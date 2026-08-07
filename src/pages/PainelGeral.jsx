@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import { podeVerTudo } from "../utils/operadores";
 
 /*
@@ -96,7 +97,7 @@ export default function PainelGeral() {
     ];
   }, [ca]);
 
-  if (autorizado === null) return <div style={S.pagina}>Carregando...</div>;
+  if (autorizado === null) return <div style={S.pagina}><Carregando texto="Carregando…" /></div>;
   if (!autorizado) {
     return (
       <div style={S.pagina}>

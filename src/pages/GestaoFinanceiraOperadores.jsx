@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 
 const EMAIL_AMANDA = "amanda.seibel@aelbra.com.br";
 
@@ -399,7 +400,7 @@ export default function GestaoFinanceiraOperadores() {
     );
   }, [fechamentos]);
 
-  if (!usuario) return <div style={estilos.container}>Carregando...</div>;
+  if (!usuario) return <div style={estilos.container}><Carregando texto="Carregando…" /></div>;
 
   if (!podeUsar) {
     return (

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import { urlComprovanteLink, abrirDocumento } from "../utils/documentoFinanceiro";
 import { nomeOperadorPorEmail, podeVerTudo, podeBaixarPagamento } from "../utils/operadores";
 
@@ -382,7 +383,7 @@ export default function ControleLinksPagamento() {
   }, [listaFiltrada]);
 
   if (carregando) {
-    return <div style={styles.container}>Carregando links de pagamento...</div>;
+    return <div style={styles.container}><Carregando texto="Carregando links de pagamento…" /></div>;
   }
 
   return (

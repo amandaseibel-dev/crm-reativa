@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import { urlComprovanteLink, abrirDocumento } from "../utils/documentoFinanceiro";
 import Alunos from "./Aluno";
 import FinanceiroAluno from "../components/FinanceiroAluno";
@@ -465,7 +466,7 @@ export default function FilaConfirmacaoPagamento() {
   }, [solicitacoes, filtro, tipoFiltro]);
 
   if (carregando) {
-    return <div style={styles.container}>Carregando fila de confirmação de pagamento...</div>;
+    return <div style={styles.container}><Carregando texto="Carregando fila de confirmação de pagamento…" /></div>;
   }
 
   if (!podeUsar) {
