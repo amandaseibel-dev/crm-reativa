@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import { podeVerTudo } from "../utils/operadores";
 
 function inicioPeriodo(periodo) {
@@ -244,7 +245,7 @@ export default function RelatorioTabulacoes() {
       </div>
 
       {carregando ? (
-        <p style={estilos.textoAuxiliar}>Carregando...</p>
+        <Carregando texto="Carregando…" />
       ) : (
         <>
           {vejoTudo && (
