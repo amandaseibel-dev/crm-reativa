@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 import { podeVincularAcordoFila } from "../utils/operadores";
 import Aluno from "./Aluno";
 
@@ -266,7 +267,7 @@ export default function FilaAcordosConfirmar() {
       {erro && <div style={S.erroBox}>⚠️ {erro}</div>}
 
       {carregando ? (
-        <p style={S.muted}>Carregando...</p>
+        <Carregando texto="Carregando…" />
       ) : grupos.length === 0 ? (
         <p style={S.muted}>Nenhum acordo nesta fila.</p>
       ) : (

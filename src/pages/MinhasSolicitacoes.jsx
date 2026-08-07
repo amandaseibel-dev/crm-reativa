@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 
@@ -67,7 +68,7 @@ export default function MinhasSolicitacoes() {
       )}
 
       {carregando ? (
-        <p style={S.muted}>Carregando...</p>
+        <Carregando texto="Carregando…" />
       ) : lista.length === 0 ? (
         <p style={S.muted}>Você ainda não enviou solicitações.</p>
       ) : (
