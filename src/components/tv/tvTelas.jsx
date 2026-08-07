@@ -90,6 +90,55 @@ function TelaMetas({ snap }) {
   );
 }
 
+// 3b) Premiação — faixas de comissão da competência (ganha desde o 1º pagamento)
+function TelaPremiacao({ snap }) {
+  const p = snap?.premiacao || {};
+  const faixas = p.faixas || [];
+  if (faixas.length === 0) {
+    return <Tela titulo="Premiação" icone="🏅"><Vazio>Sem faixas cadastradas nesta atualização.</Vazio></Tela>;
+  }
+  const cores = [T.ambar, T.azulClaro, "#a78bfa", "#fb923c"]; // M1..M4
+  return (
+    <Tela titulo="Premiação do Mês" icone="🏅">
+      <div style={{ fontSize: fs(15, 1.6, 40), fontWeight: 800, color: T.textoSuave, textAlign: "center", maxWidth: "82vw", lineHeight: 1.25 }}>
+        Você premia <span style={{ color: T.ambar }}>desde o primeiro pagamento</span>. Quanto mais alto o honorário do mês, maior o percentual.
+      </div>
+      <div style={{ display: "flex", gap: "1.4vw", justifyContent: "center", width: "100%", flexWrap: "nowrap" }}>
+        {faixas.map((f, i) => {
+          const cor = cores[i] || T.azulClaro;
+          const destaque = i === 0;
+          const pctTxt = String(f.percentual).replace(".", ",");
+          const sub = f.desde_primeiro
+            ? `Desde o 1º pagamento${f.ate ? ` até ${moeda(f.ate)}` : ""}`
+            : f.maxima ? `Máxima — passando de ${moeda(f.valor)}` : `Passando de ${moeda(f.valor)}`;
+          return (
+            <div key={i} style={{
+              ...layout.card, flex: "1 1 0", minWidth: 0, alignItems: "flex-start", gap: "1vh",
+              border: `1px solid ${destaque ? "rgba(251,191,36,0.5)" : T.surfaceBorda}`,
+              background: destaque ? "linear-gradient(160deg, rgba(251,191,36,0.16), rgba(15,23,42,0.4))" : T.surface,
+              position: "relative", overflow: "hidden",
+            }}>
+              <div style={{ position: "absolute", top: 0, left: 0, height: "4px", width: "100%", background: cor }} />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", width: "100%" }}>
+                <span style={{ fontSize: fs(14, 1.4, 32), fontWeight: 900, letterSpacing: "0.1em", color: T.textoMudo }}>{f.marco}</span>
+                {destaque && <span style={{ fontSize: fs(10, 1, 20), fontWeight: 900, letterSpacing: "0.14em", color: T.ambar, textTransform: "uppercase" }}>Já premia</span>}
+                {f.maxima && <span style={{ fontSize: fs(10, 1, 20), fontWeight: 900, letterSpacing: "0.14em", color: cor, textTransform: "uppercase" }}>Máxima</span>}
+              </div>
+              <div style={{ fontSize: fs(40, 5.4, 120), fontWeight: 900, lineHeight: 0.9, color: cor, textShadow: `0 0 34px ${cor}55` }}>
+                {pctTxt}<span style={{ fontSize: "0.42em", fontWeight: 800 }}>%</span>
+              </div>
+              <div style={{ fontSize: fs(12, 1.25, 28), fontWeight: 700, color: T.textoSuave, lineHeight: 1.25 }}>{sub}</div>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{ fontSize: fs(13, 1.4, 32), fontWeight: 800, color: T.texto }}>
+        Todo pagamento já premia. Agora é subir de faixa 🚀
+      </div>
+    </Tela>
+  );
+}
+
 // 4) Julho Histórico (ativável por tv_config) ---------------------------------
 function TelaJulhoHistorico({ snap }) {
   const j = snap?.julho_historico;
@@ -207,6 +256,7 @@ export const CATALOGO_TELAS = [
   { id: "hoje", nome: "Hoje na Operação", Comp: TelaHoje, ativa: true, temConteudo: (s) => !!s?.hoje },
   { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, temConteudo: (s) => !!s?.mes },
   { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: true, temConteudo: (s) => (s?.metas || []).length > 0 },
+  { id: "premiacao", nome: "Premiação", Comp: TelaPremiacao, ativa: true, temConteudo: (s) => (s?.premiacao?.faixas || []).length > 0 },
   { id: "julho", nome: "Julho Histórico", Comp: TelaJulhoHistorico, ativa: true, temConteudo: (s) => s?.julho_historico?.ativo === true },
   { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings, ativa: true, temConteudo: (s) => {
       const r = s?.rankings || {}; return !!(r.melhor_mes?.operador || (r.top3_mes || []).length > 0 || r.maior_pagamento_mes); } },

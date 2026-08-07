@@ -15,7 +15,6 @@ const ICONES_MENU = {
 import { supabase } from "./services/supabase";
 import usePolling from "./utils/polling";
 import { chamarRpcContido } from "./utils/rpcResiliente";
-import { analiticasSuspensas } from "./config/modoContencao";
 import AutoLogout from "./components/AutoLogout";
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const BaseAnalitica = lazy(() => import("./pages/BaseAnalitica"));
@@ -334,9 +333,14 @@ export default function App() {
   // aba esta oculta. Isso elimina o principal loop que saturava a CPU do banco.
   const atualizarContadores = usePolling(
     async () => {
-      // KILL SWITCH: em modo de contenção, o contador de cabeçalho (RPC
-      // analítica) NÃO é chamado. Badges ficam neutros; não bloqueia nada.
-      if (analiticasSuspensas()) return;
+      // ISENTO do kill switch (contenção). `contadores_cabecalho` é o contador
+      // operacional leve que alimenta os badges do menu (baixa de cartão, links,
+      // elogios, termos). Medido em ~160ms, cache 60s, single-flight, só no
+      // mount/foco/evento — NÃO é uma das analíticas pesadas do incidente P0.
+      // Antes havia um `if (analiticasSuspensas()) return;` aqui que contradizia
+      // esta isenção e zerava TODOS os badges do cabeçalho em produção (onde a
+      // contenção fica sempre ligada). Removido de propósito. As analíticas caras
+      // seguem gated por analiticasSuspensas() nos seus próprios pontos.
       // Chamada SECUNDÁRIA e contida: cache em memória de 60s, timeout local,
       // single-flight e no máximo 1 retry. Uma falha aqui NUNCA lança: apenas
       // retorna e mantém os últimos contadores — não bloqueia sessão, busca de
