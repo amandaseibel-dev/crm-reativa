@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando, Vazio } from "../ui/estados";
 import { OPERADORES_POR_EMAIL } from "../utils/operadores";
 import Alunos from "./Aluno";
 import BotaoAtualizar from "../components/BotaoAtualizar";
@@ -334,9 +335,12 @@ export default function ConsultaFinanceira() {
       </div>
 
       {carregando ? (
-        <p style={S.muted}>Carregando...</p>
+        <Carregando texto="Carregando dados financeiros…" />
       ) : linhas.length === 0 ? (
-        <p style={S.muted}>Nenhum aluno encontrado com esse filtro.</p>
+        <Vazio
+          texto="Nenhum aluno encontrado"
+          detalhe="Ajuste os filtros acima para ver os dados financeiros."
+        />
       ) : (
         <div style={S.painel}>
           <div style={{ overflowX: "auto" }}>

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { Carregando, Erro, Vazio } from "../ui/estados";
 import Alunos from "./Aluno";
 
 const FONTE = "'Sora','Inter',system-ui,sans-serif";
@@ -182,12 +183,13 @@ export default function Calibragem() {
           onExecutado={atualizar}
         />
       ) : carregando ? (
-        <div style={S.vazio}>Carregando…</div>
+        <Carregando texto="Carregando composição das carteiras…" tema="escuro" />
       ) : !operadores.length ? (
-        <div style={S.vazio}>
-          Nenhum snapshot ainda. Clique em <strong>Atualizar dados</strong> para calcular a
-          composição das carteiras.
-        </div>
+        <Vazio
+          tema="escuro"
+          texto="Nenhum snapshot ainda"
+          detalhe="Clique em “Atualizar dados” para calcular a composição das carteiras."
+        />
       ) : (
         <>
           {/* Veredito automático + atalho para a ação */}
@@ -406,8 +408,8 @@ function Criticidade() {
     return () => { ativo = false; };
   }, []);
 
-  if (carregando) return <div style={S.vazio}>Calculando criticidade…</div>;
-  if (erro) return <div style={S.erro}>{erro}</div>;
+  if (carregando) return <Carregando texto="Calculando criticidade…" tema="escuro" />;
+  if (erro) return <Erro texto={erro} tema="escuro" />;
   const ops = dados?.operadores || [];
   const pesos = dados?.config?.pesos || {};
 
