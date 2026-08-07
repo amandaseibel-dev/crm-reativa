@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route, NavLink, Navigate } from "react-router-dom";
 import {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
@@ -17,72 +17,72 @@ import usePolling from "./utils/polling";
 import { chamarRpcContido } from "./utils/rpcResiliente";
 import { analiticasSuspensas } from "./config/modoContencao";
 import AutoLogout from "./components/AutoLogout";
-import Dashboard from "./pages/Dashboard";
-import BaseAnalitica from "./pages/BaseAnalitica";
-import Importacoes from "./pages/Importacoes";
-import Aluno from "./pages/Aluno";
-import PainelCarteira from "./components/PainelCarteira";
-import CRM from "./pages/CRM";
+const Dashboard = lazy(() => import("./pages/Dashboard"));
+const BaseAnalitica = lazy(() => import("./pages/BaseAnalitica"));
+const Importacoes = lazy(() => import("./pages/Importacoes"));
+const Aluno = lazy(() => import("./pages/Aluno"));
+const PainelCarteira = lazy(() => import("./components/PainelCarteira"));
+const CRM = lazy(() => import("./pages/CRM"));
 import Login from "./pages/Login";
 import RedefinirSenha from "./pages/RedefinirSenha";
-import Usuarios from "./pages/Usuarios";
-import MinhaFila from "./pages/MinhaFila";
-import FilaTermos from "./pages/FilaTermos";
-import FilaAdmTermos from "./pages/FilaAdmTermos";
-import BaseReceptiva from "./pages/BaseReceptiva";
-import FilaOperacional from "./pages/FilaOperacional";
-import ControleLinksPagamento from "./pages/ControleLinksPagamento";
-import MinhaFilaPagamentos from "./pages/MinhaFilaPagamentos";
-import AgendaOperacional from "./pages/AgendaOperacional";
-import PortalOperacional from "./pages/PortalOperacional";
-import LogNivelamento from "./pages/LogNivelamento";
-import SugestoesRecebidas from "./pages/SugestoesRecebidas";
-import MinhasSolicitacoes from "./pages/MinhasSolicitacoes";
-import MinhaFilaQuitacao from "./pages/MinhaFilaQuitacao";
-import ManualOperacao from "./pages/ManualOperacao";
+const Usuarios = lazy(() => import("./pages/Usuarios"));
+const MinhaFila = lazy(() => import("./pages/MinhaFila"));
+const FilaTermos = lazy(() => import("./pages/FilaTermos"));
+const FilaAdmTermos = lazy(() => import("./pages/FilaAdmTermos"));
+const BaseReceptiva = lazy(() => import("./pages/BaseReceptiva"));
+const FilaOperacional = lazy(() => import("./pages/FilaOperacional"));
+const ControleLinksPagamento = lazy(() => import("./pages/ControleLinksPagamento"));
+const MinhaFilaPagamentos = lazy(() => import("./pages/MinhaFilaPagamentos"));
+const AgendaOperacional = lazy(() => import("./pages/AgendaOperacional"));
+const PortalOperacional = lazy(() => import("./pages/PortalOperacional"));
+const LogNivelamento = lazy(() => import("./pages/LogNivelamento"));
+const SugestoesRecebidas = lazy(() => import("./pages/SugestoesRecebidas"));
+const MinhasSolicitacoes = lazy(() => import("./pages/MinhasSolicitacoes"));
+const MinhaFilaQuitacao = lazy(() => import("./pages/MinhaFilaQuitacao"));
+const ManualOperacao = lazy(() => import("./pages/ManualOperacao"));
 import BotaoManual from "./components/BotaoManual";
 import BotaoSugestao from "./components/BotaoSugestao";
-import FilaFinanceiro from "./pages/FilaFinanceiro";
-import FilaConfirmacaoPagamento from "./pages/FilaConfirmacaoPagamento";
-import PainelOperadores from "./pages/PainelOperadores";
-import MeuPerfil from "./pages/MeuPerfil";
-import Borderos from "./pages/Borderos";
-import ConsultaFinanceira from "./pages/ConsultaFinanceira";
-import VincularBaseOperacional from "./pages/VincularBaseOperacional";
+const FilaFinanceiro = lazy(() => import("./pages/FilaFinanceiro"));
+const FilaConfirmacaoPagamento = lazy(() => import("./pages/FilaConfirmacaoPagamento"));
+const PainelOperadores = lazy(() => import("./pages/PainelOperadores"));
+const MeuPerfil = lazy(() => import("./pages/MeuPerfil"));
+const Borderos = lazy(() => import("./pages/Borderos"));
+const ConsultaFinanceira = lazy(() => import("./pages/ConsultaFinanceira"));
+const VincularBaseOperacional = lazy(() => import("./pages/VincularBaseOperacional"));
 import { registrarLoginSeNecessario, registrarLogout } from "./utils/ponto";
-import PainelAdm from "./pages/PainelAdm";
-import FinanceiroHub from "./pages/FinanceiroHub";
-import CentralPagamentos from "./components/CentralPagamentos";
-import RelatorioTabulacoes from "./pages/RelatorioTabulacoes";
+const PainelAdm = lazy(() => import("./pages/PainelAdm"));
+const FinanceiroHub = lazy(() => import("./pages/FinanceiroHub"));
+const CentralPagamentos = lazy(() => import("./components/CentralPagamentos"));
+const RelatorioTabulacoes = lazy(() => import("./pages/RelatorioTabulacoes"));
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import LiberacoesAcesso from "./components/LiberacoesAcesso";
-import GestaoFinanceiraOperadores from "./pages/GestaoFinanceiraOperadores";
-import ProjecaoHoraHora from "./pages/ProjecaoHoraHora";
-import TvMensagem from "./pages/TvMensagem";
-import Auditoria from "./pages/Auditoria"; import RelatorioReceptivo from "./pages/RelatorioReceptivo"; import MinhaAgendaPessoal from "./pages/MinhaAgendaPessoal"; import EnvioGmailLote from "./pages/EnvioGmailLote";
-import MensalidadesSemNegociacao from "./pages/MensalidadesSemNegociacao";
-import DRE from "./pages/DRE";
-import FechamentoRemuneracao from "./pages/FechamentoRemuneracao";
-import ImportarRecuperacao from "./pages/ImportarRecuperacao"; import ImportacaoAcordos from "./pages/ImportacaoAcordos"; import FilaAcordosConfirmar from "./pages/FilaAcordosConfirmar"; import Ferramentas from "./pages/Ferramentas"; import ImportarAcademico from "./pages/ImportarAcademico";
-import ExecutivoRecuperacao from "./pages/ExecutivoRecuperacao";
-import MeuDashboard from "./pages/MeuDashboard";
-import ElogiosAtendimento from "./pages/ElogiosAtendimento";
-import ExportarContatos from "./pages/ExportarContatos";
-import AcoesMassivas from "./pages/AcoesMassivas";
-import HistoricoRecuperacao from "./pages/HistoricoRecuperacao";
-import SaudeDaBase from "./pages/SaudeDaBase";
-import SaudeCompletaCarteira from "./pages/SaudeCompletaCarteira";
-import TvElogios from "./pages/TvElogios";
+const GestaoFinanceiraOperadores = lazy(() => import("./pages/GestaoFinanceiraOperadores"));
+const ProjecaoHoraHora = lazy(() => import("./pages/ProjecaoHoraHora"));
+const TvMensagem = lazy(() => import("./pages/TvMensagem"));
+const Auditoria = lazy(() => import("./pages/Auditoria")); const RelatorioReceptivo = lazy(() => import("./pages/RelatorioReceptivo")); const MinhaAgendaPessoal = lazy(() => import("./pages/MinhaAgendaPessoal")); const EnvioGmailLote = lazy(() => import("./pages/EnvioGmailLote"));
+const MensalidadesSemNegociacao = lazy(() => import("./pages/MensalidadesSemNegociacao"));
+const DRE = lazy(() => import("./pages/DRE"));
+const FechamentoRemuneracao = lazy(() => import("./pages/FechamentoRemuneracao"));
+const ImportarRecuperacao = lazy(() => import("./pages/ImportarRecuperacao")); const ImportacaoAcordos = lazy(() => import("./pages/ImportacaoAcordos")); const FilaAcordosConfirmar = lazy(() => import("./pages/FilaAcordosConfirmar")); const Ferramentas = lazy(() => import("./pages/Ferramentas")); const ImportarAcademico = lazy(() => import("./pages/ImportarAcademico"));
+const ExecutivoRecuperacao = lazy(() => import("./pages/ExecutivoRecuperacao"));
+const MeuDashboard = lazy(() => import("./pages/MeuDashboard"));
+const ElogiosAtendimento = lazy(() => import("./pages/ElogiosAtendimento"));
+const ExportarContatos = lazy(() => import("./pages/ExportarContatos"));
+const AcoesMassivas = lazy(() => import("./pages/AcoesMassivas"));
+const HistoricoRecuperacao = lazy(() => import("./pages/HistoricoRecuperacao"));
+const SaudeDaBase = lazy(() => import("./pages/SaudeDaBase"));
+const SaudeCompletaCarteira = lazy(() => import("./pages/SaudeCompletaCarteira"));
+const TvElogios = lazy(() => import("./pages/TvElogios"));
 import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
 import AvisosPopup from "./components/AvisosPopup";
 import TourNovidades from "./components/TourNovidades";
 import AvisosBadge from "./components/AvisosBadge";
-import CentralAvisos from "./pages/CentralAvisos";
-import TaxaConversao from "./pages/TaxaConversao";
-import Calibragem from "./pages/Calibragem";
-import Efetividade from "./pages/Efetividade";
-import PainelGeral from "./pages/PainelGeral";
+const CentralAvisos = lazy(() => import("./pages/CentralAvisos"));
+const TaxaConversao = lazy(() => import("./pages/TaxaConversao"));
+const Calibragem = lazy(() => import("./pages/Calibragem"));
+const Efetividade = lazy(() => import("./pages/Efetividade"));
+const PainelGeral = lazy(() => import("./pages/PainelGeral"));
 import NotificacoesPopup from "./components/NotificacoesPopup";
 import { AvatarFoto } from "./components/AvatarFoto";
 import { useAbaLider } from "./context/AbaLiderContext";
@@ -800,6 +800,7 @@ export default function App() {
           <AvisosBadge />
         </aside>
         <main className="content">
+      <Suspense fallback={<div style={{ padding: 40, color: "#94a3b8", fontSize: 14, fontWeight: 600 }}>Carregando…</div>}>
       <Routes>
             <Route
               path="/"
@@ -1001,6 +1002,7 @@ export default function App() {
               <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
               <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
       </Routes>
+      </Suspense>
         </main>
       </div>
     </BrowserRouter>
