@@ -247,6 +247,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   const emailLiberadoAluno = true; // liberado para todos os operadores
   const [alunos, setAlunos] = useState([]);
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
+  const [nomeCopiado, setNomeCopiado] = useState(null);
   const [finAlunos, setFinAlunos] = useState({});
   const [abaFicha, setAbaFicha] = useState("dados");
   const [editandoCadastro, setEditandoCadastro] = useState(false);
@@ -1723,12 +1724,56 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </div>
                   ) : (
                     <>
-                      <h2 style={tituloSecao}>
+                      <h2 style={{ ...tituloSecao, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         {pegarCampo(
                           alunoSelecionado,
                           ["nome", "nome_aluno", "aluno"],
                           "Aluno sem nome"
                         )}
+                        {(() => {
+                          const nomeAluno = pegarCampo(
+                            alunoSelecionado,
+                            ["nome", "nome_aluno", "aluno"],
+                            ""
+                          );
+                          if (!nomeAluno || nomeAluno === "Aluno sem nome") return null;
+                          const copiado = nomeCopiado === nomeAluno;
+                          return (
+                            <button
+                              type="button"
+                              title="Copiar nome"
+                              onClick={async () => {
+                                try {
+                                  await navigator.clipboard.writeText(nomeAluno);
+                                } catch {
+                                  const ta = document.createElement("textarea");
+                                  ta.value = nomeAluno;
+                                  document.body.appendChild(ta);
+                                  ta.select();
+                                  document.execCommand("copy");
+                                  document.body.removeChild(ta);
+                                }
+                                setNomeCopiado(nomeAluno);
+                                setTimeout(() => setNomeCopiado(null), 1500);
+                              }}
+                              style={{
+                                display: "inline-flex",
+                                alignItems: "center",
+                                gap: 4,
+                                fontSize: 12,
+                                fontWeight: 700,
+                                padding: "4px 10px",
+                                borderRadius: 8,
+                                cursor: "pointer",
+                                background: copiado ? "#dcfce7" : "#f1f5f9",
+                                color: copiado ? "#166534" : "#334155",
+                                border: `1px solid ${copiado ? "#bbf7d0" : "#e2e8f0"}`,
+                              }}
+                            >
+                              {copiado ? "✓ Copiado" : "📋 Copiar"}
+                            </button>
+                          );
+                        })()}
                       </h2>
                       {/* Selos de status (visão rápida) */}
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "8px 0 6px" }}>
