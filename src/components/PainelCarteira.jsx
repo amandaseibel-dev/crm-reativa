@@ -369,7 +369,7 @@ const KPIS_FILTRAVEIS = new Set([
 const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
 
 const COLUNAS_ALUNO =
-  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
+  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
 
 // Rotulo amigavel da situacao operacional (recalcular_situacao_aluno).
 const SITUACAO_OPERACIONAL_LABEL = {
@@ -580,6 +580,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Detalhamento de parcelas baixadas no mes (cards financeiros).
   const [detalheParcelas, setDetalheParcelas] = useState([]);
   const [detalheFinanceiro, setDetalheFinanceiro] = useState(null); // { tipo, titulo }
+  const [mostrarAgenda, setMostrarAgenda] = useState(false); // painel Agenda (retornos) embutido
+  const [confirmandoRetorno, setConfirmandoRetorno] = useState(null); // aluno_id em confirmacao
   // Arquivo de quitados (SO GESTAO): casos com quitacao real registrada
   // (quitado_em). Read-only, fora da fila operacional. Etapa 2 do tratamento
   // de quitados -- ver [[quitados-blindagem-fila-e-arquivo]].
@@ -1722,7 +1724,30 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     }
   }
 
+  // Confirma (ou desfaz) o retorno de um aluno via RPC e reflete localmente.
+  async function confirmarRetornoAgenda(alunoId, confirmar = true) {
+    setConfirmandoRetorno(alunoId);
+    try {
+      const { data, error } = await supabase.rpc("agenda_confirmar_retorno", {
+        p_aluno_id: alunoId,
+        p_confirmar: confirmar,
+      });
+      if (error) throw error;
+      setCasos((prev) =>
+        prev.map((c) => (String(c.id) === String(alunoId) ? { ...c, retorno_confirmado_em: data || null } : c))
+      );
+    } catch (e) {
+      alert("Não foi possível confirmar o retorno: " + (e?.message || e));
+    } finally {
+      setConfirmandoRetorno(null);
+    }
+  }
+
   function onKpiClick(id) {
+    if (id === "agenda") {
+      setMostrarAgenda((v) => !v);
+      return;
+    }
     if (CARDS_FINANCEIROS.has(id)) {
       // Cards financeiros abrem o detalhamento das parcelas baixadas.
       const titulo =
@@ -2036,20 +2061,42 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
   // Cards operacionais (abrem a tabela) + financeiros (abrem detalhamento).
   // Todos permanecem visiveis mesmo zerados.
+  // Agenda embutida: retornos da carteira (hoje -> futuros) + atrasados nao
+  // confirmados por ate 7 dias. Confirmados saem da lista (tratados).
+  const agendaPendentes = useMemo(() => {
+    const hoje = hojeLocalBR();
+    const diasAtras = (iso) => {
+      const a = new Date(`${hoje}T00:00:00`);
+      const b = new Date(`${String(iso).slice(0, 10)}T00:00:00`);
+      return Math.round((a - b) / 86400000);
+    };
+    return (casos || [])
+      .filter((a) => {
+        const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
+        if (!ret) return false;
+        if (a.retorno_confirmado_em) return false; // ja tratado
+        if (ret >= hoje) return true; // hoje ou futuro
+        return diasAtras(ret) <= 7; // atrasado: some depois de 1 semana
+      })
+      .sort((x, y) => {
+        const rx = String(x.data_retorno).slice(0, 10);
+        const ry = String(y.data_retorno).slice(0, 10);
+        if (rx !== ry) return rx < ry ? -1 : 1;
+        return String(x.hora_retorno || "99:99").localeCompare(String(y.hora_retorno || "99:99"));
+      });
+  }, [casos]);
+
+  // Carteira compacta (sugestao da operacao 2026-08-08): so os cards que a
+  // operacao de fato usa. "Sem acionamento" + "proximos de perder" viraram um
+  // unico card focado na janela critica (9-11 dias). A Agenda entra como card.
   const kpiCards = [
     { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
-    { id: "retornosHoje", rot: "Retornos de hoje", val: kpis.retornosHoje, cor: "#0ea5e9", icone: "🔁" },
-    { id: "semAcionamento10", rot: "Sem acionamento há 10 dias", val: kpis.semAcionamento10, cor: "#f59e0b", icone: "⏳" },
-    { id: "proximosPerder", rot: "Proximos de perder a carteira", val: kpis.proximosPerder, cor: "#dc2626", icone: "⚠️", urgente: true },
+    { id: "proximosPerder", rot: "Sem acionamento (risco de perder)", val: kpis.proximosPerder, cor: "#dc2626", icone: "⚠️", urgente: true },
+    { id: "agenda", rot: "Agenda (retornos)", val: agendaPendentes.length, cor: "#7c3aed", icone: "🗓️" },
     { id: "acordoAVencer", rot: "Acordos a vencer", val: kpis.acordoAVencer, cor: "#0891b2", icone: "📄" },
     { id: "acordoAtrasado", rot: "Acordos atrasados", val: kpis.acordoAtrasado, cor: "#f97316", icone: "⏰" },
     { id: "acordoQuebrado", rot: "Acordos quebrados", val: kpis.acordoQuebrado, cor: "#e11d48", icone: "💥" },
     { id: "retornosAdm", rot: "Retornos do ADM", val: retornosPendentes.length, cor: "#c2410c", icone: "📌" },
-    { id: "valorBaixadoMes", rot: "Valor baixado no mes", val: formatarMoeda(kpis.valorBaixadoMes), cor: "#16a34a", financeiro: true, icone: "✅" },
-    { id: "recebidosMes", rot: "Recebidos no mes", val: kpis.recebidosMes, cor: "#16a34a", financeiro: true, icone: "💰" },
-    { id: "honorariosBaixadoMes", rot: "Honorarios no mes", val: formatarMoeda(kpis.honorariosBaixadoMes), cor: "#0d9488", financeiro: true, icone: "🧾" },
-    // Arquivo de quitados: SO GESTAO (veTudo). Read-only, abre modal proprio.
-    ...(veTudo ? [{ id: "quitados", rot: "Quitados (arquivo)", val: qtdQuitados ?? "…", cor: "#059669", icone: "🏁", arquivo: true }] : []),
   ].filter((c) => (!veTudo || operadorFiltro !== "TODOS") || c.id !== "retornosAdm");
 
   const painelReceptivo = (
@@ -2334,7 +2381,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             {kpiCards.map((k) => {
               // Todos os cards sao clicaveis e abrem a listagem filtrada.
               const filtravel = true;
-              const ativoK = k.arquivo ? quitadosModal : filtroKpi === k.id;
+              const ativoK = k.arquivo ? quitadosModal : k.id === "agenda" ? mostrarAgenda : filtroKpi === k.id;
               return (
                 <div
                   key={k.id}
@@ -2356,6 +2403,63 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               );
             })}
           </div>
+
+          {mostrarAgenda && (
+            <div style={S.agendaPainel}>
+              <div style={S.agendaHead}>
+                <span style={S.agendaTitulo}>🗓️ Agenda — retornos ({agendaPendentes.length})</span>
+                <button type="button" style={S.agendaFechar} onClick={() => setMostrarAgenda(false)}>
+                  Fechar ✕
+                </button>
+              </div>
+              {agendaPendentes.length === 0 ? (
+                <p style={S.agendaVazia}>Nenhum retorno pendente. 🎉</p>
+              ) : (
+                <div style={S.agendaLista}>
+                  {agendaPendentes.map((a) => {
+                    const ret = String(a.data_retorno).slice(0, 10);
+                    const hoje = hojeLocalBR();
+                    const atrasado = ret < hoje;
+                    const ehHoje = ret === hoje;
+                    const partes = ret.split("-");
+                    const dataBR = partes.length === 3 ? `${partes[2]}/${partes[1]}/${partes[0]}` : ret;
+                    const hora = a.hora_retorno ? String(a.hora_retorno).slice(0, 5) : null;
+                    return (
+                      <div
+                        key={a.id}
+                        style={{
+                          ...S.agendaItem,
+                          ...(atrasado ? S.agendaItemAtrasado : ehHoje ? S.agendaItemHoje : {}),
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <button type="button" style={S.agendaNome} onClick={() => abrirModal(a)} title="Abrir ficha">
+                            {a.nome_aluno || a.nome || "Aluno"}
+                          </button>
+                          <div style={S.agendaMeta}>
+                            <span style={{ color: atrasado ? "#dc2626" : ehHoje ? "#7c3aed" : "#475569", fontWeight: 700 }}>
+                              {atrasado ? "⚠️ Atrasado · " : ehHoje ? "Hoje · " : ""}
+                              {dataBR}
+                              {hora ? ` às ${hora}` : ""}
+                            </span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          style={S.agendaConfirmar}
+                          disabled={confirmandoRetorno === a.id}
+                          onClick={() => confirmarRetornoAgenda(a.id, true)}
+                          title="Marcar retorno como tratado"
+                        >
+                          {confirmandoRetorno === a.id ? "…" : "✓ Confirmar"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
 
           <div style={S.painelTabela}>
             <div style={S.filtros}>
@@ -3296,6 +3400,18 @@ const SOMBRA_ELEVADA = "0 20px 48px rgba(16,24,40,0.16), 0 4px 12px rgba(16,24,4
 
 const S = {
   pagina: { padding: "30px 32px 44px", fontFamily: FONTE_BASE, background: "#f4f6fa", minHeight: "100%", color: "#344054" },
+  agendaPainel: { background: "#fff", borderRadius: 16, padding: "16px 18px", border: "1px solid #ede9fe", boxShadow: SOMBRA_CARD, marginBottom: 18 },
+  agendaHead: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
+  agendaTitulo: { fontSize: 14.5, fontWeight: 800, color: "#5b21b6" },
+  agendaFechar: { background: "#f3f4f6", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, color: "#475569", cursor: "pointer" },
+  agendaVazia: { margin: "6px 0", fontSize: 13, color: "#64748b" },
+  agendaLista: { display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" },
+  agendaItem: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderRadius: 12, border: "1px solid #eef2f7", background: "#fafbfc" },
+  agendaItemHoje: { border: "1px solid #ddd6fe", background: "#f5f3ff" },
+  agendaItemAtrasado: { border: "1px solid #fecaca", background: "#fef2f2" },
+  agendaNome: { background: "none", border: "none", padding: 0, fontSize: 13.5, fontWeight: 700, color: "#1e293b", cursor: "pointer", textAlign: "left", textDecoration: "underline", textDecorationColor: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" },
+  agendaMeta: { fontSize: 11.5, marginTop: 2 },
+  agendaConfirmar: { background: "#7c3aed", color: "#fff", border: "none", borderRadius: 9, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 22, flexWrap: "wrap" },
   titulo: { margin: 0, marginBottom: 3, color: "#0d1321", fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em", fontFamily: FONTE_TITULO },
   subtitulo: { margin: 0, color: "#8a93a3", fontSize: 13.5 },
