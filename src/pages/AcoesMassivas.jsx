@@ -116,15 +116,6 @@ export default function AcoesMassivas() {
   // após os awaits do registrar — comum no Safari).
   const [relatorioPronto, setRelatorioPronto] = useState(null); // { linhas, nomeArquivo }
 
-  // Agendamento automático (fuso America/Sao_Paulo na interface; banco em UTC).
-  const [agData, setAgData] = useState("");
-  const [agHora, setAgHora] = useState("");
-  const [agNome, setAgNome] = useState("");
-  const [agFinalidade, setAgFinalidade] = useState("cobranca");
-  const [agendando, setAgendando] = useState(false);
-  const [agendamentos, setAgendamentos] = useState([]);
-  const [filtroStatusAg, setFiltroStatusAg] = useState("");
-
   // SOB DEMANDA: o painel analítico (saúde/retornos/por dia/elegíveis) não
   // carrega sozinho. Só roda no clique de Atualizar painel. A busca e a geração
   // de ações (operacionais) seguem normais, sob comando do usuário.
@@ -367,87 +358,6 @@ export default function AcoesMassivas() {
     } finally {
       setGerando(false);
     }
-  }
-
-  // ---- Agendamento automático ----------------------------------------------
-  function montarFiltros() {
-    const min = valorMin ? Number(String(valorMin).replace(/\./g, "").replace(",", ".")) : null;
-    const max = valorMax ? Number(String(valorMax).replace(/\./g, "").replace(",", ".")) : null;
-    return {
-      ano_vencimento: anoVencimento || null,
-      limite: Number(quantidade) || 100,
-      dias_minimo_sem_contato: diasMinimoSemContato ? Number(diasMinimoSemContato) : null,
-      apenas_nunca_acionado: acionamentoFiltro === "nunca",
-      apenas_ja_acionado: acionamentoFiltro === "ja",
-      unidade: unidade || null,
-      curso: curso || null,
-      situacao_academica: situacaoAcad || null,
-      valor_min: min,
-      valor_max: max,
-    };
-  }
-
-  async function carregarAgendamentos() {
-    const { data, error } = await supabase.rpc("acoes_massivas_listar", {
-      p_status: filtroStatusAg || null,
-      p_de: null,
-      p_ate: null,
-    });
-    if (!error) setAgendamentos(Array.isArray(data) ? data : []);
-  }
-
-  useEffect(() => {
-    carregarAgendamentos();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtroStatusAg]);
-
-  async function agendarAcao() {
-    setErro("");
-    setSucesso("");
-    if (!agNome.trim()) return setErro("Dê um nome à campanha para agendar.");
-    if (!agData || !agHora) return setErro("Escolha data e horário (Brasília) para agendar.");
-    setAgendando(true);
-    try {
-      const { data, error } = await supabase.rpc("acoes_massivas_agendar", {
-        p_nome: agNome.trim(),
-        p_finalidade: agFinalidade || "cobranca",
-        p_canal: canal,
-        p_mensagem: null,
-        p_filtros: montarFiltros(),
-        p_data: agData,
-        p_hora: agHora,
-      });
-      if (error) throw error;
-      setSucesso(
-        `Agendado para ${data?.programado_para_brasilia} (Brasília). Estimativa na prévia: ${data?.quantidade_previa} aluno(s). No horário, o SISTEMA revalida e PREPARA a lista — o envio (WhatsApp/e-mail) permanece pelo processo externo atual.`
-      );
-      setAgNome("");
-      setAgData("");
-      setAgHora("");
-      carregarAgendamentos();
-    } catch (e) {
-      setErro("Erro ao agendar: " + (e.message || "tente novamente"));
-    } finally {
-      setAgendando(false);
-    }
-  }
-
-  async function cancelarAgendamento(id) {
-    const motivo = window.prompt("Motivo do cancelamento?", "");
-    if (motivo === null) return;
-    const { error } = await supabase.rpc("acoes_massivas_cancelar", { p_id: id, p_motivo: motivo });
-    if (error) setErro("Erro ao cancelar: " + error.message);
-    else carregarAgendamentos();
-  }
-
-  async function reagendarAgendamento(id) {
-    const nd = window.prompt("Nova data (AAAA-MM-DD):", "");
-    if (!nd) return;
-    const nh = window.prompt("Novo horário Brasília (HH:MM):", "");
-    if (!nh) return;
-    const { error } = await supabase.rpc("acoes_massivas_reagendar", { p_id: id, p_data: nd, p_hora: nh });
-    if (error) setErro("Erro ao reagendar: " + error.message);
-    else carregarAgendamentos();
   }
 
   const valorTotal = resultados ? resultados.reduce((s, r) => s + r.valor, 0) : 0;
@@ -867,101 +777,6 @@ export default function AcoesMassivas() {
             </div>
           )}
 
-          {/* ---- Agendar ação (executa automaticamente por SISTEMA no horário) ---- */}
-          <div style={{ marginTop: 16, padding: 14, border: "1px solid #26304a", borderRadius: 12, background: "#0e1526" }}>
-            <div style={{ fontWeight: 800, marginBottom: 8 }}>📅 Agendar esta ação</div>
-            <div style={{ color: "#8a93a3", fontSize: 12, marginBottom: 10 }}>
-              Usa os filtros atuais. A elegibilidade é <strong>recalculada no horário</strong> (não congela a prévia).
-              Horário no fuso de <strong>Brasília (America/Sao_Paulo)</strong>.
-            </div>
-            <div style={{ background: "#3a2a0e", border: "1px solid #6b5010", color: "#f5d06b", borderRadius: 8, padding: "8px 10px", fontSize: 12, marginBottom: 10 }}>
-              ⚠️ O agendamento <strong>prepara e registra</strong> a campanha (lista revalidada no horário), mas o
-              <strong> envio depende do processo externo atual</strong> (WhatsApp/Gmail/planilha). Não há disparo
-              automático: o SISTEMA não marca “enviado” — a lista fica <strong>PREPARADA</strong> para o envio manual.
-            </div>
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
-              <label style={{ display: "flex", flexDirection: "column", fontSize: 12, color: "#8a93a3" }}>
-                Nome da campanha
-                <input value={agNome} onChange={(e) => setAgNome(e.target.value)} placeholder="Ex.: Cobrança 2026/1 lote A"
-                  style={{ padding: 8, borderRadius: 8, border: "1px solid #26304a", background: "#0b1220", color: "#e6e9ef", minWidth: 220 }} />
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", fontSize: 12, color: "#8a93a3" }}>
-                Finalidade
-                <input value={agFinalidade} onChange={(e) => setAgFinalidade(e.target.value)}
-                  style={{ padding: 8, borderRadius: 8, border: "1px solid #26304a", background: "#0b1220", color: "#e6e9ef", width: 140 }} />
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", fontSize: 12, color: "#8a93a3" }}>
-                Data
-                <input type="date" value={agData} onChange={(e) => setAgData(e.target.value)}
-                  style={{ padding: 8, borderRadius: 8, border: "1px solid #26304a", background: "#0b1220", color: "#e6e9ef" }} />
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", fontSize: 12, color: "#8a93a3" }}>
-                Horário (Brasília)
-                <input type="time" value={agHora} onChange={(e) => setAgHora(e.target.value)}
-                  style={{ padding: 8, borderRadius: 8, border: "1px solid #26304a", background: "#0b1220", color: "#e6e9ef" }} />
-              </label>
-              <button onClick={agendarAcao} disabled={agendando}
-                style={{ padding: "10px 16px", borderRadius: 8, border: "none", background: "#2b6cff", color: "#fff", fontWeight: 800, cursor: "pointer" }}>
-                {agendando ? "Agendando..." : "Agendar"}
-              </button>
-            </div>
-          </div>
-
-          {/* ---- Agendamentos ---- */}
-          <div style={{ marginTop: 16 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-              <div style={{ fontWeight: 800 }}>Agendamentos</div>
-              <select value={filtroStatusAg} onChange={(e) => setFiltroStatusAg(e.target.value)}
-                style={{ padding: 6, borderRadius: 8, border: "1px solid #26304a", background: "#0b1220", color: "#e6e9ef" }}>
-                <option value="">Todos os status</option>
-                {["RASCUNHO", "AGENDADO", "PROCESSANDO", "CONCLUIDO", "CONCLUIDO_COM_ERROS", "CANCELADO", "FALHOU"].map((s) => (
-                  <option key={s} value={s}>{s}</option>
-                ))}
-              </select>
-            </div>
-            {agendamentos.length === 0 ? (
-              <p style={{ color: "#8a93a3" }}>Nenhum agendamento.</p>
-            ) : (
-              <div style={{ overflowX: "auto" }}>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <thead>
-                    <tr style={{ color: "#8a93a3", textAlign: "left" }}>
-                      <th style={estilos.td}>Campanha</th><th style={estilos.td}>Canal</th>
-                      <th style={estilos.td}>Programado (Brasília)</th><th style={estilos.td}>Status</th>
-                      <th style={estilos.td}>Prévia</th><th style={estilos.td}>Preparados</th>
-                      <th style={estilos.td}>Excl. reval.</th><th style={estilos.td}>Criado por</th>
-                      <th style={estilos.td}>Executor</th><th style={estilos.td}>Ações</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {agendamentos.map((a) => (
-                      <tr key={a.id} style={{ borderTop: "1px solid #1b2334" }}>
-                        <td style={estilos.td}>{a.nome}<div style={{ color: "#8a93a3", fontSize: 11 }}>{a.finalidade}</div></td>
-                        <td style={estilos.td}>{a.canal}</td>
-                        <td style={estilos.td}>{a.programado_para_brasilia}</td>
-                        <td style={estilos.td}>{a.status}</td>
-                        <td style={estilos.td}>{a.quantidade_previa ?? "—"}</td>
-                        <td style={estilos.td}>{a.quantidade_elegivel_execucao ?? "—"}</td>
-                        <td style={estilos.td}>{a.quantidade_excluida_revalidacao ?? "—"}</td>
-                        <td style={estilos.td}>{a.criado_por}</td>
-                        <td style={estilos.td}>{a.executado_por || "—"}</td>
-                        <td style={estilos.td}>
-                          {["RASCUNHO", "AGENDADO"].includes(a.status) ? (
-                            <>
-                              <button onClick={() => reagendarAgendamento(a.id)} style={{ marginRight: 6, cursor: "pointer" }}>Reagendar</button>
-                              <button onClick={() => cancelarAgendamento(a.id)} style={{ cursor: "pointer" }}>Cancelar</button>
-                            </>
-                          ) : (
-                            <span style={{ color: "#8a93a3" }}>—</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
 
           {resultados.length === 0 ? (
             <p style={{ color: "#8a93a3" }}>
