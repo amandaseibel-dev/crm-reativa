@@ -15,9 +15,13 @@ const CAMADAS = [
 ];
 
 export default function Auditoria({ forcarAcesso = false }) {
+  const PAGINA = 1000;
   const [email, setEmail] = useState("");
   const [logs, setLogs] = useState([]);
+  const [total, setTotal] = useState(null);
   const [carregando, setCarregando] = useState(true);
+  const [carregandoMais, setCarregandoMais] = useState(false);
+  const [erro, setErro] = useState("");
   const [aberta, setAberta] = useState(null);
   const [fUsuario, setFUsuario] = useState("");
   const [fTabela, setFTabela] = useState("");
@@ -30,19 +34,33 @@ export default function Auditoria({ forcarAcesso = false }) {
     setEmail((data?.user?.email || "").toLowerCase());
   })(); }, []);
 
-  async function carregar() {
-    setCarregando(true);
-    let q = supabase.from("audit_log").select("*").order("criado_em", { ascending: false }).limit(1000);
+  async function carregar(anexar) {
+    const jaTem = anexar ? logs.length : 0;
+    if (anexar) setCarregandoMais(true); else { setCarregando(true); setErro(""); }
+    let q = supabase
+      .from("audit_log")
+      .select("*", { count: anexar ? undefined : "exact" })
+      .order("criado_em", { ascending: false })
+      .range(jaTem, jaTem + PAGINA - 1);
     if (fUsuario) q = q.ilike("usuario", "%" + fUsuario + "%");
     if (fTabela) q = q.eq("tabela", fTabela);
     if (fOperacao) q = q.eq("operacao", fOperacao);
     if (fDe) q = q.gte("criado_em", new Date(fDe).toISOString());
     if (fAte) q = q.lte("criado_em", new Date(fAte + "T23:59:59").toISOString());
-    const { data } = await q;
-    setLogs(Array.isArray(data) ? data : []);
+    const { data, error, count } = await q;
+    if (error) {
+      setErro(error.message || "Falha ao carregar. Sua sessão pode ter expirado — faça login novamente.");
+      if (!anexar) setLogs([]);
+    } else {
+      const novos = Array.isArray(data) ? data : [];
+      setLogs(anexar ? logs.concat(novos) : novos);
+      if (!anexar && typeof count === "number") setTotal(count);
+    }
     setCarregando(false);
+    setCarregandoMais(false);
   }
-  useEffect(() => { if (email === MEU_EMAIL || forcarAcesso) carregar(); }, [email]);
+  function filtrar() { setLogs([]); setTotal(null); carregar(false); }
+  useEffect(() => { if (email === MEU_EMAIL || forcarAcesso) carregar(false); }, [email]);
 
   function exportarCSV() {
     const linhas = [["Data", "Usuário", "Tabela", "Operação", "Registro", "Antes", "Depois"]];
@@ -103,9 +121,10 @@ export default function Auditoria({ forcarAcesso = false }) {
         </select>
         <input style={S.inp} type="date" value={fDe} onChange={function (e) { setFDe(e.target.value); }} />
         <input style={S.inp} type="date" value={fAte} onChange={function (e) { setFAte(e.target.value); }} />
-        <button style={S.btn} onClick={carregar}>Filtrar</button>
+        <button style={S.btn} onClick={filtrar}>Filtrar</button>
         <button style={S.btnSec} onClick={exportarCSV}>Exportar CSV</button>
       </div>
+      {erro && <div style={S.negado}>{erro}</div>}
       {carregando ? <p>Carregando...</p> : (
         <div style={S.tabelaWrap}>
           <table style={S.tabela}>
@@ -124,7 +143,14 @@ export default function Auditoria({ forcarAcesso = false }) {
                 </tr>); })}
             </tbody>
           </table>
-          <p style={S.rodape}>{logs.length} registro(s). Este log é somente-leitura e não pode ser alterado ou apagado pela operação.</p>
+          {typeof total === "number" && total > logs.length && (
+            <div style={{ padding: "12px", textAlign: "center", borderTop: "1px solid #f1f5f9" }}>
+              <button style={S.btn} disabled={carregandoMais} onClick={function () { carregar(true); }}>
+                {carregandoMais ? "Carregando..." : "Carregar mais 1000"}
+              </button>
+            </div>
+          )}
+          <p style={S.rodape}>Exibindo {logs.length}{typeof total === "number" ? " de " + total : ""} registro(s). Este log é somente-leitura e não pode ser alterado ou apagado pela operação.</p>
         </div>
       )}
     </div>
