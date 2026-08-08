@@ -1845,6 +1845,18 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     return Number.isFinite(bruto) ? bruto : 0;
   };
   const qtdTitulosDe = (a) => (saldoView[normCpf(a && a.cpf)] ? saldoView[normCpf(a && a.cpf)].qtd : 0);
+  // Valor CANONICO para ordenar/filtrar: o MESMO "Em aberto" que aparece grande
+  // no card (fa.total = mensalidades em aberto + acordos). Antes a ordenacao usava
+  // saldoDe (view analitica = "Mensalidades (originais)"), que diverge do total
+  // exibido -> a fila parecia fora de ordem (ex.: um caso de R$ 3.743 caindo
+  // abaixo de um de R$ 718 porque o "originais" dele era menor). Fallback pro
+  // valor_em_aberto do proprio caso quando nao ha detalhe consolidado.
+  const valorAbertoDe = (a) => {
+    const fa = finAlunos[String(a && a.id)];
+    if (fa && fa.temDetalhe && Number.isFinite(Number(fa.total))) return Number(fa.total);
+    const fb = Number(a && a.valor_em_aberto);
+    return Number.isFinite(fb) ? fb : 0;
+  };
   const listaFiltrada = useMemo(() => {
     // Com um card selecionado, a lista vem dos registros carregados do
     // indicador; sem card, mostra a carteira normal. Busca/status/ordenacao
@@ -1873,10 +1885,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     const valorMinNum = filtroValorMin.trim() ? Number(filtroValorMin.replace(/\./g, "").replace(",", ".")) : null;
     const valorMaxNum = filtroValorMax.trim() ? Number(filtroValorMax.replace(/\./g, "").replace(",", ".")) : null;
     if (valorMinNum !== null && !Number.isNaN(valorMinNum)) {
-      l = l.filter((a) => saldoDe(a) >= valorMinNum);
+      l = l.filter((a) => valorAbertoDe(a) >= valorMinNum);
     }
     if (valorMaxNum !== null && !Number.isNaN(valorMaxNum)) {
-      l = l.filter((a) => saldoDe(a) <= valorMaxNum);
+      l = l.filter((a) => valorAbertoDe(a) <= valorMaxNum);
     }
     if (filtroDiasMinSemContato.trim()) {
       const diasMin = Number(filtroDiasMinSemContato);
@@ -1941,7 +1953,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         (faixa(a) - faixa(b)) ||
         (critRank(a) - critRank(b)) ||
         (keyDias(b) - keyDias(a)) ||
-        (saldoDe(b) - saldoDe(a))
+        (valorAbertoDe(b) - valorAbertoDe(a))
       );
       // Espalha por ANO de vencimento dentro de cada faixa (rodizio round-robin),
       // pra nao cair tudo do mesmo ano de uma vez. So-mensalidade fica fora do
@@ -1996,13 +2008,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         (retornoDevido(a) - retornoDevido(b)) ||
         (critRank(a) - critRank(b)) ||
         (keyDias(b) - keyDias(a)) ||
-        (saldoDe(b) - saldoDe(a))
+        (valorAbertoDe(b) - valorAbertoDe(a))
       );
     }
     else if (ordenacao === "sem_contato_desc") arr.sort((a, b) => keyDias(b) - keyDias(a));
     else if (ordenacao === "sem_contato_asc") arr.sort((a, b) => keyDias(a) - keyDias(b));
-    else if (ordenacao === "valor_desc") arr.sort((a, b) => saldoDe(b) - saldoDe(a));
-    else if (ordenacao === "valor_asc") arr.sort((a, b) => saldoDe(a) - saldoDe(b));
+    else if (ordenacao === "valor_desc") arr.sort((a, b) => valorAbertoDe(b) - valorAbertoDe(a));
+    else if (ordenacao === "valor_asc") arr.sort((a, b) => valorAbertoDe(a) - valorAbertoDe(b));
 
     // Quando a operadora escolhe explicitamente ordenar por VALOR, essa ordem
     // manda por cima de tudo: nada de rodizio por ano nem re-rank do Foco do Dia
@@ -2034,7 +2046,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       arr.sort((a, b) =>
         (rankFoco(a) - rankFoco(b)) ||
         (critRank(a) - critRank(b)) ||
-        (saldoDe(b) - saldoDe(a))
+        (valorAbertoDe(b) - valorAbertoDe(a))
       );
     }
     return arr;
