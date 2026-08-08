@@ -1282,8 +1282,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       setAbaModal("negociacao");
       const acao = RETORNO_ABRE_ACAO[ret.resultado_adm] || null;
       if (acao) setAcaoInline(acao);
-      // Abrir o aluno = apenas marca visualizado (nao conclui).
-      try { await supabase.rpc("retorno_adm_visualizar", { p_id: ret.id }); } catch (e) { /* silencioso */ }
+      // Abrir a ficha marca visualizado E conclui o retorno de "link pronto"
+      // (regra de negocio: operador enviou/vai enviar o link por fora). Some do topo.
+      try {
+        await supabase.rpc("retorno_adm_visualizar", { p_id: ret.id });
+        setRetornosPendentes((atual) => atual.filter((r) => r.aluno_id !== a.id));
+      } catch (e) { /* silencioso */ }
     }
   }
 
