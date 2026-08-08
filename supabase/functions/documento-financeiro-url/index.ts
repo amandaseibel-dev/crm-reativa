@@ -24,7 +24,9 @@
 //
 // Autorização (mesma p/ ler e upload): gestão financeira vê/envia tudo; operador
 // só o registro cujo operador dono (operador_email / responsavel_baixa_email) é
-// o dele. Vínculo sempre por ID/relação do banco, nunca por nome/CPF/e-mail.
+// o dele OU cujo caso do aluno está ATUALMENTE sob sua titularidade (cobre
+// remanejamento: quem assume o caso pode anexar o comprovante do link criado por
+// outro). Vínculo sempre por ID/relação do banco, nunca por nome/CPF/e-mail.
 //
 // Nunca faz requisição HTTP à URL legada — apenas extrai/valida o caminho local.
 // Nunca loga id, caminho, token ou URL.
@@ -75,6 +77,7 @@ type Fonte = {
   tabela: string;
   colunaUrl: string;
   colunaDono: string;
+  colunaAluno: string;
   bucket: string;
   mimes: Set<string>;
 };
@@ -84,6 +87,29 @@ function json(obj: unknown, status = 200): Response {
     status,
     headers: { ...cors, "Content-Type": "application/json" },
   });
+}
+
+// Autorização por TITULARIDADE ATUAL do caso: quando o dono direto do registro
+// (quem criou o link/baixa/termo) não é o solicitante, ainda liberamos se o
+// solicitante for o operador dono do caso VIVO daquele aluno. Cobre o
+// remanejamento: ao assumir o caso, o novo operador passa a poder anexar o
+// comprovante do link criado por outro. Leitura via service_role (admin), sem
+// expor PII; retorna apenas true/false.
+async function ehDonoDoCasoAtual(
+  admin: ReturnType<typeof createClient>,
+  alunoId: unknown,
+  email: string,
+): Promise<boolean> {
+  if (typeof alunoId !== "string" || alunoId.length === 0) return false;
+  if (!email) return false;
+  const { data, error } = await admin
+    .from("casos")
+    .select("id")
+    .eq("aluno_id", alunoId)
+    .ilike("operador_email", email)
+    .limit(1);
+  if (error) return false;
+  return Array.isArray(data) && data.length > 0;
 }
 
 // Garante (idempotente) que um comprovante de CARTÃO vinculado tenha sua
@@ -191,15 +217,15 @@ async function reconciliarIntentoExistente(
 // arquivo|rg|verso (campo adulterado => null => bad_request).
 function resolverFonte(tipo: unknown, campo: unknown): Fonte | null {
   if (tipo === "comprovante_link") {
-    return { tabela: "links_pagamento", colunaUrl: "comprovante_url", colunaDono: "operador_email", bucket: "comprovantes-pagamento", mimes: MIME_COMPROVANTE };
+    return { tabela: "links_pagamento", colunaUrl: "comprovante_url", colunaDono: "operador_email", colunaAluno: "aluno_id", bucket: "comprovantes-pagamento", mimes: MIME_COMPROVANTE };
   }
   if (tipo === "comprovante_baixa") {
-    return { tabela: "baixas_pagamento", colunaUrl: "comprovante_url", colunaDono: "responsavel_baixa_email", bucket: "comprovantes-pagamento", mimes: MIME_COMPROVANTE };
+    return { tabela: "baixas_pagamento", colunaUrl: "comprovante_url", colunaDono: "responsavel_baixa_email", colunaAluno: "aluno_id", bucket: "comprovantes-pagamento", mimes: MIME_COMPROVANTE };
   }
   if (tipo === "termo") {
     const col = campo === "rg" ? "arquivo_rg_url" : campo === "verso" ? "arquivo_verso_url" : campo === "arquivo" ? "arquivo_url" : null;
     if (!col) return null; // campo ausente/adulterado
-    return { tabela: "termos_acordo", colunaUrl: col, colunaDono: "operador_email", bucket: "termos-acordo", mimes: MIME_TERMO };
+    return { tabela: "termos_acordo", colunaUrl: col, colunaDono: "operador_email", colunaAluno: "aluno_id", bucket: "termos-acordo", mimes: MIME_TERMO };
   }
   return null;
 }
@@ -381,14 +407,19 @@ Deno.serve(async (req: Request) => {
 
   const { data: registro, error: dbErr } = await admin
     .from(fonte.tabela)
-    .select(`${fonte.colunaUrl}, ${fonte.colunaDono}`)
+    .select(`${fonte.colunaUrl}, ${fonte.colunaDono}, ${fonte.colunaAluno}`)
     .eq("id", id)
     .maybeSingle();
   if (dbErr) return json({ error: "lookup_failed" }, 500);
   if (!registro) return json({ error: "not_found" }, 404);
 
   const dono = String((registro as Record<string, unknown>)[fonte.colunaDono] ?? "").toLowerCase();
-  if (!ehGestao && (!dono || dono !== ident.email)) return json({ error: "forbidden" }, 403);
+  if (!ehGestao && (!dono || dono !== ident.email)) {
+    // Fallback: dono ATUAL do caso do aluno (cobre remanejamento de titularidade).
+    const alunoId = (registro as Record<string, unknown>)[fonte.colunaAluno];
+    const donoDoCaso = await ehDonoDoCasoAtual(admin, alunoId, ident.email);
+    if (!donoDoCaso) return json({ error: "forbidden" }, 403);
+  }
 
   const valorAtual = (registro as Record<string, unknown>)[fonte.colunaUrl];
 
