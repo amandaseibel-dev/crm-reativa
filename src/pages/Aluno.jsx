@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
@@ -242,6 +242,7 @@ function dataCurta(v) {
 }
 export default function Alunos({ fichaEmbedId = null } = {}) {
   const navigate = useNavigate();
+  const location = useLocation();
   const [vindoDaFila, setVindoDaFila] = useState(false);
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const emailLiberadoAluno = true; // liberado para todos os operadores
@@ -462,6 +463,17 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   useEffect(() => {
     inicializarTelaAlunos();
   }, []);
+
+  // Notificacao clicada com a ficha JA montada: navigate("/aluno?...") nao
+  // remonta, entao o efeito de mount acima nao roda de novo. Aqui reagimos a
+  // cada navegacao (location.key e unico por navegacao, mesmo com a mesma URL)
+  // e consumimos os flags pendentes. Idempotente com o mount: quem rodar
+  // primeiro consome os flags; o outro vira no-op.
+  useEffect(() => {
+    if (!location.search || !location.search.includes("origem=notificacao")) return;
+    consumirIntencaoDeAbertura();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.key]);
   async function inicializarTelaAlunos() {
     const usuario = await pegarUsuarioLogado();
     setUsuarioLogado(usuario);
@@ -479,22 +491,34 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     }
     if (alunoId) {
       setOrigemAbertura(`Abrindo aluno recebido da fila: ${alunoId}`);
-      // Intencao de secao/destaque vinda da notificacao de link (consumida uma
-      // unica vez). NAO decide autorizacao -- isso continua sendo feito por
-      // abrirAlunoPorId/RLS; aqui so escolhemos qual bloco abrir e qual card
-      // destacar dentro da ficha ja autorizada.
-      const secaoAlvo = localStorage.getItem("reativa_aluno_abrir_secao") || "";
-      const linkDestacar = localStorage.getItem("reativa_link_destacar_id") || "";
-      localStorage.removeItem("reativa_aluno_abrir_id");
-      sessionStorage.removeItem("reativa_aluno_abrir_id");
-      localStorage.removeItem("reativa_aluno_abrir_secao");
-      localStorage.removeItem("reativa_link_destacar_id");
-      if (secaoAlvo) setSecaoAlvoFicha(secaoAlvo);
-      if (linkDestacar) setDestacarLinkId(linkDestacar);
-      await abrirAlunoPorId(alunoId);
+      // Consome a intencao de secao/destaque (mesmo caminho usado quando a
+      // ficha ja esta montada -- ver efeito de location abaixo).
+      await consumirIntencaoDeAbertura(alunoId);
       return;
     }
     await carregarAlunos();
+  }
+
+  // Consome, UMA UNICA VEZ, os flags de "abrir ficha X na secao Y destacando Z"
+  // deixados por uma notificacao (link, retorno etc). Idempotente: os flags sao
+  // removidos na primeira execucao, entao chamar duas vezes (mount + navegacao)
+  // nao reabre nada. NAO decide autorizacao -- isso continua em abrirAlunoPorId/RLS.
+  async function consumirIntencaoDeAbertura(alunoIdJaResolvido) {
+    const alunoId =
+      alunoIdJaResolvido ||
+      localStorage.getItem("reativa_aluno_abrir_id") ||
+      sessionStorage.getItem("reativa_aluno_abrir_id");
+    if (!alunoId) return false;
+    const secaoAlvo = localStorage.getItem("reativa_aluno_abrir_secao") || "";
+    const linkDestacar = localStorage.getItem("reativa_link_destacar_id") || "";
+    localStorage.removeItem("reativa_aluno_abrir_id");
+    sessionStorage.removeItem("reativa_aluno_abrir_id");
+    localStorage.removeItem("reativa_aluno_abrir_secao");
+    localStorage.removeItem("reativa_link_destacar_id");
+    if (secaoAlvo) setSecaoAlvoFicha(secaoAlvo);
+    if (linkDestacar) setDestacarLinkId(linkDestacar);
+    await abrirAlunoPorId(alunoId);
+    return true;
   }
   async function pegarUsuarioLogado() {
     const { data, error } = await supabase.auth.getUser();
@@ -769,14 +793,27 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     if (!alunoSelecionado?.id) return;
     setAbaFicha("dados");
     setBlocoAberto("link");
-    const t = setTimeout(() => {
+    // O bloco "Link de pagamento" pode ainda nao estar no DOM (dados assincronos
+    // da ficha). Em vez de um unico timeout que pode disparar cedo, tentamos
+    // rolar ate o ref existir. So limpamos secaoAlvoFicha ao final -- enquanto
+    // ele vale "link", o efeito de tabulacao cede e nao fecha o bloco.
+    let tentativas = 0;
+    let timer;
+    const tentarRolar = () => {
       const el = blocosRef.current.link;
       if (el && typeof el.scrollIntoView === "function") {
         el.scrollIntoView({ behavior: "smooth", block: "start" });
+        setSecaoAlvoFicha("");
+        return;
       }
-      setSecaoAlvoFicha("");
-    }, 200);
-    return () => clearTimeout(t);
+      if (tentativas++ < 12) {
+        timer = setTimeout(tentarRolar, 120);
+      } else {
+        setSecaoAlvoFicha(""); // desiste do scroll, mas o bloco ja abriu
+      }
+    };
+    timer = setTimeout(tentarRolar, 120);
+    return () => clearTimeout(timer);
   }, [secaoAlvoFicha, alunoSelecionado?.id]);
 
   function prepararAlunoNaTela(aluno) {
