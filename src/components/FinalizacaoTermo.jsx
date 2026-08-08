@@ -81,6 +81,7 @@ export default function FinalizacaoTermo({ aluno }) {
   const [enviando, setEnviando] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [termos, setTermos] = useState([]);
+  const [avisoGovAberto, setAvisoGovAberto] = useState(false);
 
   const alunoId = aluno?.id ? String(aluno.id) : "";
 
@@ -253,11 +254,13 @@ export default function FinalizacaoTermo({ aluno }) {
 
     await atualizarStatusAluno(statusInicial);
 
-    alert(
-      ehGovBr
-        ? "Termo com assinatura gov.br liberado automaticamente. Vai para a fila de auditoria do ADM."
-        : "Termo enviado para fila ADM da Fernanda/Amanda."
-    );
+    if (ehGovBr) {
+      // Documento enviado via gov.br: a área ADM ainda precisa validar a
+      // assinatura. Avisa o operador para NÃO liberar o boleto/link até lá.
+      setAvisoGovAberto(true);
+    } else {
+      alert("Termo enviado para fila ADM da Fernanda/Amanda.");
+    }
 
     setObservacao("");
     setArquivo(null);
@@ -504,6 +507,30 @@ export default function FinalizacaoTermo({ aluno }) {
             </div>
           ))}
       </div>
+
+      {avisoGovAberto && (
+        <div style={styles.overlay} onClick={() => setAvisoGovAberto(false)}>
+          <div style={styles.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalIcone}>⚠️</div>
+            <h3 style={styles.modalTitulo}>Não libere o boleto ainda</h3>
+            <p style={styles.modalTexto}>
+              O documento foi enviado via <strong>gov.br</strong>. A área ADM
+              ainda precisa <strong>validar a assinatura</strong> antes da
+              liberação.
+            </p>
+            <p style={styles.modalTexto}>
+              <strong>Aguarde a validação da assinatura</strong> pela ADM antes
+              de gerar ou enviar o boleto/link de pagamento ao aluno.
+            </p>
+            <button
+              style={styles.modalBotao}
+              onClick={() => setAvisoGovAberto(false)}
+            >
+              Entendi
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -673,5 +700,52 @@ const styles = {
     color: "#0d6efd",
     fontWeight: "bold",
     fontSize: "14px",
+  },
+  overlay: {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(2,6,23,0.55)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 9999,
+    padding: "16px",
+  },
+  modalBox: {
+    background: "#fff",
+    borderRadius: "14px",
+    padding: "24px",
+    maxWidth: "440px",
+    width: "100%",
+    boxShadow: "0 12px 40px rgba(0,0,0,0.28)",
+    borderTop: "6px solid #f59e0b",
+    textAlign: "center",
+  },
+  modalIcone: {
+    fontSize: "40px",
+    lineHeight: 1,
+    marginBottom: "8px",
+  },
+  modalTitulo: {
+    margin: "0 0 12px",
+    color: "#92400e",
+    fontSize: "20px",
+  },
+  modalTexto: {
+    margin: "0 0 12px",
+    color: "#374151",
+    lineHeight: 1.5,
+    fontSize: "15px",
+  },
+  modalBotao: {
+    marginTop: "8px",
+    background: "#f59e0b",
+    color: "#111827",
+    border: "none",
+    padding: "12px 22px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+    fontSize: "15px",
   },
 };
