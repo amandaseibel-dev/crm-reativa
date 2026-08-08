@@ -73,10 +73,31 @@ export default function CalibragemNivelamento() {
     setAviso("");
     const { error: e1 } = await supabase.rpc("calibragem_aprovar_simulacao", { p_id: sim.simulacao_id });
     if (e1) { setAplicando(false); setAviso("Erro ao aprovar: " + (e1.message || "")); return; }
-    const { error: e2 } = await supabase.rpc("calibragem_executar_nivelamento", { p_id: sim.simulacao_id });
+
+    // Aplica em LOTES pequenos: cada chamada é uma transação curta no banco,
+    // então não segura lock na tabela de casos e não trava os operadores.
+    const TAM_LOTE = 150;
+    let movidos = 0;
+    let guarda = 0; // trava anti-loop infinito
+    try {
+      while (true) {
+        const { data, error } = await supabase.rpc("calibragem_executar_nivelamento_lote", {
+          p_id: sim.simulacao_id,
+          p_tamanho: TAM_LOTE,
+        });
+        if (error) throw error;
+        movidos += Number(data?.movidos_lote || 0);
+        setAviso(`Aplicando em lotes… ${num(data?.feitos || 0)}/${num(data?.total || 0)} casos (movidos: ${num(movidos)}).`);
+        if (data?.concluido) break;
+        if (++guarda > 500) throw new Error("Muitos lotes — interrompido por segurança. Rode novamente para continuar.");
+      }
+    } catch (err) {
+      setAplicando(false);
+      setAviso("Erro ao aplicar: " + (err?.message || err?.details || "erro desconhecido"));
+      return;
+    }
     setAplicando(false);
-    if (e2) { setAviso("Erro ao aplicar: " + (e2.message || "")); return; }
-    setAviso("✅ Nivelamento aplicado e auditado. Recarregando o diagnóstico…");
+    setAviso(`✅ Nivelamento aplicado e auditado (${num(movidos)} casos movidos). Recarregando o diagnóstico…`);
     setSim(null);
     carregarDiag(ano);
   }
