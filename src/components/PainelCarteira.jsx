@@ -2004,11 +2004,19 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     else if (ordenacao === "valor_desc") arr.sort((a, b) => saldoDe(b) - saldoDe(a));
     else if (ordenacao === "valor_asc") arr.sort((a, b) => saldoDe(a) - saldoDe(b));
 
+    // Quando a operadora escolhe explicitamente ordenar por VALOR, essa ordem
+    // manda por cima de tudo: nada de rodizio por ano nem re-rank do Foco do Dia
+    // reembaralhando (era isso que fazia "os 5 primeiros em ordem e depois um de
+    // 300 alternando alto/baixo"). Fica valor puro, decrescente ou crescente.
+    const ordenacaoPorValor = ordenacao === "valor_desc" || ordenacao === "valor_asc";
+
     // No Foco do Dia, a prioridade manda por cima da ordenacao escolhida:
     // retorno do dia/atrasado primeiro, depois boleto vencido/vencendo, depois
     // o resto. Dentro de cada grupo, mantem a ordem ja aplicada acima (sort
     // estavel). Usa o menor vencimento em aberto ja calculado em finAlunos.
-    if (somenteFocoDia) {
+    // Excecao: se a ordenacao escolhida for por valor, nao re-ranqueia -- a
+    // operadora quer o maior valor no topo sem nada furando a fila.
+    if (somenteFocoDia && !ordenacaoPorValor) {
       const hoje = hojeLocalBR();
       const rankFoco = (a) => {
         const ret = a.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
@@ -2021,7 +2029,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         }
         return 3;
       };
-      arr.sort((a, b) => (rankFoco(a) - rankFoco(b)) || (critRank(a) - critRank(b)));
+      // Empate por MAIOR saldo dentro de cada faixa: sem esse desempate a ordem
+      // dentro do grupo dependia do sort anterior e parecia "sem ordem".
+      arr.sort((a, b) =>
+        (rankFoco(a) - rankFoco(b)) ||
+        (critRank(a) - critRank(b)) ||
+        (saldoDe(b) - saldoDe(a))
+      );
     }
     return arr;
   }, [casos, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]);
