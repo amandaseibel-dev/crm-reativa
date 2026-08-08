@@ -5,7 +5,8 @@ import { podeGerirFinanceiro } from "../utils/operadores";
 
 const STATUS_LABEL = {
   AGUARDANDO_ENVIO_FINANCEIRO: "Aguardando envio",
-  ENVIADO_FINANCEIRO: "Enviado ao financeiro",
+  ENVIADO_FINANCEIRO: "Aguardando retorno",
+  RETORNADO_FINANCEIRO: "Retorno registrado",
 };
 
 function traduzStatus(status) {
@@ -23,6 +24,14 @@ function formatarData(data) {
 }
 
 function corStatus(status) {
+  if (status === "RETORNADO_FINANCEIRO") {
+    return {
+      background: "#cff4fc",
+      color: "#055160",
+      border: "1px solid #9eeaf9",
+    };
+  }
+
   if (status === "ENVIADO_FINANCEIRO") {
     return {
       background: "#d1e7dd",
@@ -43,6 +52,8 @@ export default function FilaFinanceiro() {
   const [solicitacoes, setSolicitacoes] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [observacoes, setObservacoes] = useState({});
+  const [retornos, setRetornos] = useState({});
+  const [salvandoRetorno, setSalvandoRetorno] = useState(null);
   const [filtro, setFiltro] = useState("PENDENTES");
 
   useEffect(() => {
@@ -124,6 +135,35 @@ export default function FilaFinanceiro() {
     carregarSolicitacoes();
   }
 
+  async function registrarRetorno(solicitacao) {
+    const texto = (retornos[solicitacao.id] || "").trim();
+
+    if (!texto) {
+      alert("Escreva a resposta do financeiro antes de registrar.");
+      return;
+    }
+
+    setSalvandoRetorno(solicitacao.id);
+
+    const { error } = await supabase.rpc("financeiro_registrar_retorno", {
+      p_solicitacao_id: solicitacao.id,
+      p_texto: texto,
+    });
+
+    setSalvandoRetorno(null);
+
+    if (error) {
+      alert("Erro ao registrar retorno: " + error.message);
+      return;
+    }
+
+    alert(
+      "Retorno registrado no caso. O operador foi notificado e o caso voltou para ele tratar."
+    );
+
+    carregarSolicitacoes();
+  }
+
   const emailUsuario = usuario?.email || "";
   const podeUsar = podeGerirFinanceiro(emailUsuario);
 
@@ -134,6 +174,9 @@ export default function FilaFinanceiro() {
       ).length,
       enviados: solicitacoes.filter((s) => s.status === "ENVIADO_FINANCEIRO")
         .length,
+      retornados: solicitacoes.filter(
+        (s) => s.status === "RETORNADO_FINANCEIRO"
+      ).length,
       todos: solicitacoes.length,
     };
   }, [solicitacoes]);
@@ -147,6 +190,10 @@ export default function FilaFinanceiro() {
 
     if (filtro === "ENVIADOS") {
       return solicitacoes.filter((s) => s.status === "ENVIADO_FINANCEIRO");
+    }
+
+    if (filtro === "RETORNADOS") {
+      return solicitacoes.filter((s) => s.status === "RETORNADO_FINANCEIRO");
     }
 
     return solicitacoes;
@@ -195,7 +242,12 @@ export default function FilaFinanceiro() {
 
         <div style={styles.indicador}>
           <span style={styles.numero}>{contadores.enviados}</span>
-          <span style={styles.descricao}>Enviados</span>
+          <span style={styles.descricao}>Aguardando retorno</span>
+        </div>
+
+        <div style={styles.indicador}>
+          <span style={styles.numero}>{contadores.retornados}</span>
+          <span style={styles.descricao}>Retorno registrado</span>
         </div>
 
         <div style={styles.indicador}>
@@ -216,7 +268,14 @@ export default function FilaFinanceiro() {
           style={filtro === "ENVIADOS" ? styles.filtroAtivo : styles.filtro}
           onClick={() => setFiltro("ENVIADOS")}
         >
-          Enviados
+          Aguardando retorno
+        </button>
+
+        <button
+          style={filtro === "RETORNADOS" ? styles.filtroAtivo : styles.filtro}
+          onClick={() => setFiltro("RETORNADOS")}
+        >
+          Retorno registrado
         </button>
 
         <button
@@ -233,6 +292,8 @@ export default function FilaFinanceiro() {
 
       {solicitacoesFiltradas.map((s) => {
         const pendente = s.status === "AGUARDANDO_ENVIO_FINANCEIRO";
+        const aguardandoRetorno = s.status === "ENVIADO_FINANCEIRO";
+        const retornado = s.status === "RETORNADO_FINANCEIRO";
 
         return (
           <div key={s.id} style={styles.card}>
@@ -302,6 +363,51 @@ export default function FilaFinanceiro() {
                   </button>
                 </div>
               </>
+            )}
+
+            {aguardandoRetorno && (
+              <div style={styles.blocoRetornoInput}>
+                <label style={styles.label}>Resposta do financeiro</label>
+                <p style={styles.dicaRetorno}>
+                  Cole aqui o retorno do financeiro. Ele vai direto para o caso
+                  do operador — não é preciso responder pelo e-mail.
+                </p>
+                <textarea
+                  style={styles.textarea}
+                  placeholder="Exemplo: valor conferido e corrigido; boleto reemitido com vencimento 15/08."
+                  value={retornos[s.id] || ""}
+                  onChange={(e) =>
+                    setRetornos({ ...retornos, [s.id]: e.target.value })
+                  }
+                />
+                <div style={styles.acoes}>
+                  <button
+                    style={{
+                      ...styles.botaoConfirmar,
+                      opacity: salvandoRetorno === s.id ? 0.7 : 1,
+                      cursor:
+                        salvandoRetorno === s.id ? "not-allowed" : "pointer",
+                    }}
+                    disabled={salvandoRetorno === s.id}
+                    onClick={() => registrarRetorno(s)}
+                  >
+                    {salvandoRetorno === s.id
+                      ? "Registrando..."
+                      : "Registrar retorno no caso"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {retornado && (
+              <div style={styles.blocoRetornoFeito}>
+                <strong>Retorno registrado no caso:</strong>
+                <p style={styles.paragrafo}>{s.retorno_financeiro || "-"}</p>
+                <p style={styles.info}>
+                  <strong>Registrado por:</strong> {s.retorno_por || "-"} em{" "}
+                  {formatarData(s.retorno_em)}
+                </p>
+              </div>
             )}
           </div>
         );
@@ -464,6 +570,26 @@ const styles = {
     resize: "vertical",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
+  },
+  blocoRetornoInput: {
+    marginTop: "14px",
+    background: "#f0f9ff",
+    border: "1px solid #bae6fd",
+    borderRadius: "10px",
+    padding: "12px",
+  },
+  dicaRetorno: {
+    color: "#0369a1",
+    fontSize: "13px",
+    margin: "4px 0 10px 0",
+    lineHeight: 1.4,
+  },
+  blocoRetornoFeito: {
+    marginTop: "14px",
+    background: "#ecfdf5",
+    border: "1px solid #a7f3d0",
+    borderRadius: "10px",
+    padding: "12px",
   },
   acoes: {
     display: "flex",

@@ -743,6 +743,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // do formulario. Nao executa nenhuma acao nem apaga o que ja foi digitado --
   // apenas revela/oculta o bloco. Fora da aba Tabulacao nao rola a tela.
   useEffect(() => {
+    // Quando a ficha foi aberta por uma notificacao de link, a abertura do bloco
+    // "Link de pagamento" tem prioridade. Nao sobrepor aqui (o setAbaFicha("dados")
+    // do efeito de link reentra neste efeito e fecharia o bloco recem-aberto).
+    if (secaoAlvoFicha === "link") return;
     const destino = TABULACAO_PARA_BLOCO[statusFinalizacao] || "";
     setBlocoAberto(destino);
     if (destino && (abaFicha === "dados" || abaFicha === "tabulacoes")) {
@@ -754,7 +758,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       }, 80);
       return () => clearTimeout(t);
     }
-  }, [statusFinalizacao, abaFicha]);
+  }, [statusFinalizacao, abaFicha, secaoAlvoFicha]);
 
   // Abertura vinda de uma notificacao de link: quando o aluno correto ja esta
   // carregado, garante a aba de dados, abre o bloco "Link de pagamento" e rola

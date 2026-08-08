@@ -6,6 +6,7 @@ import { cartao, cartaoAviso } from "../ui/cards";
 const STATUS_LABEL = {
   AGUARDANDO_ENVIO_FINANCEIRO: "Aguardando envio ao financeiro",
   ENVIADO_FINANCEIRO: "Enviado ao financeiro",
+  RETORNADO_FINANCEIRO: "Retorno do financeiro recebido",
 };
 
 function traduzirStatus(status) {
@@ -13,6 +14,14 @@ function traduzirStatus(status) {
 }
 
 function corStatus(status) {
+  if (status === "RETORNADO_FINANCEIRO") {
+    return {
+      background: "#cff4fc",
+      color: "#055160",
+      border: "1px solid #9eeaf9",
+    };
+  }
+
   if (status === "ENVIADO_FINANCEIRO") {
     return {
       background: "#d1e7dd",
@@ -238,6 +247,30 @@ export default function EnvioFinanceiro({ aluno }) {
         )}
       </div>
 
+      {(ultimaSolicitacao?.status === "AGUARDANDO_ENVIO_FINANCEIRO" ||
+        ultimaSolicitacao?.status === "ENVIADO_FINANCEIRO") && (
+        <div style={styles.bannerAguardando}>
+          <strong>⏳ Caso enviado ao financeiro — aguardando retorno.</strong>
+          <p style={styles.bannerTexto}>
+            Não é necessário responder pelo chat do e-mail. Assim que o
+            financeiro responder, o retorno aparece aqui neste caso e você é
+            notificado.
+          </p>
+        </div>
+      )}
+
+      {ultimaSolicitacao?.status === "RETORNADO_FINANCEIRO" && (
+        <div style={styles.bannerRetorno}>
+          <strong>💰 Retorno do financeiro</strong>
+          <p style={styles.bannerTexto}>
+            {ultimaSolicitacao.retorno_financeiro || "-"}
+          </p>
+          <span style={styles.bannerData}>
+            Recebido em {formatarData(ultimaSolicitacao.retorno_em)}
+          </span>
+        </div>
+      )}
+
       {ultimaSolicitacao && (
         <div style={styles.resumo}>
           <strong>Última solicitação</strong>
@@ -389,6 +422,12 @@ export default function EnvioFinanceiro({ aluno }) {
                   <strong>Observação ADM:</strong> {s.observacao_adm}
                 </p>
               )}
+
+              {s.retorno_financeiro && (
+                <p style={styles.paragrafo}>
+                  <strong>💰 Retorno do financeiro:</strong> {s.retorno_financeiro}
+                </p>
+              )}
             </div>
           ))}
       </div>
@@ -467,6 +506,32 @@ const styles = {
   alertaPendente: {
     ...cartaoAviso,
     marginBottom: "16px",
+  },
+  bannerAguardando: {
+    background: "#fff7ed",
+    border: "1px solid #fed7aa",
+    color: "#9a3412",
+    borderRadius: "10px",
+    padding: "14px 16px",
+    marginBottom: "16px",
+  },
+  bannerRetorno: {
+    background: "#ecfdf5",
+    border: "1px solid #a7f3d0",
+    color: "#065f46",
+    borderRadius: "10px",
+    padding: "14px 16px",
+    marginBottom: "16px",
+  },
+  bannerTexto: {
+    margin: "6px 0 0 0",
+    lineHeight: 1.5,
+  },
+  bannerData: {
+    display: "block",
+    marginTop: "8px",
+    fontSize: "12px",
+    opacity: 0.85,
   },
   bloco: {
     marginTop: "14px",

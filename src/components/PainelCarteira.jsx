@@ -289,6 +289,14 @@ const OPCOES_TABULACAO = [
     ],
   },
   {
+    grupo: "Financeiro",
+    itens: [
+      "Aguardando envio financeiro",
+      "Enviado ao financeiro",
+      "Retorno do financeiro recebido",
+    ],
+  },
+  {
     grupo: "Acionamento",
     itens: [
       "CONTATAR",
@@ -314,6 +322,10 @@ function seloTermoLink(a) {
     return { emoji: "📄", texto: MAPA_SITUACAO[s] || "Termo enviado", bg: "#eef2ff", cor: "#4338ca" };
   if (["SOLICITADO_LINK", "LINK_PRONTO_PARA_ENVIO", "LINK_ENVIADO_AO_ALUNO"].includes(s))
     return { emoji: "🔗", texto: MAPA_SITUACAO[s] || "Link enviado", bg: "#ecfeff", cor: "#0e7490" };
+  if (["Aguardando envio financeiro", "Enviado ao financeiro"].includes(s))
+    return { emoji: "💰", texto: "No financeiro — aguardando retorno", bg: "#fff7ed", cor: "#b45309" };
+  if (s === "Retorno do financeiro recebido")
+    return { emoji: "📩", texto: "Retorno do financeiro recebido", bg: "#ecfdf5", cor: "#047857" };
   return null;
 }
 
