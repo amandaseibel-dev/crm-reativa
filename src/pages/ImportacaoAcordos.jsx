@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 
@@ -33,6 +33,13 @@ function moeda(n) {
   return (Number(n) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
+function dataHora(v) {
+  if (!v) return "-";
+  const d = new Date(v);
+  if (isNaN(d)) return "-";
+  return d.toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
+}
+
 export default function ImportacaoAcordos() {
   const [linhas, setLinhas] = useState(null);
   const [resumo, setResumo] = useState(null);
@@ -41,6 +48,14 @@ export default function ImportacaoAcordos() {
   const [progresso, setProgresso] = useState("");
   const [resultado, setResultado] = useState(null);
   const [nomeArquivo, setNomeArquivo] = useState("");
+  const [historico, setHistorico] = useState(null);
+
+  async function carregarHistorico() {
+    const { data, error } = await supabase.rpc("listar_importacoes_acordos");
+    if (!error) setHistorico(data || []);
+  }
+
+  useEffect(() => { carregarHistorico(); }, []);
 
   function analisar(e) {
     setErro(""); setResultado(null); setResumo(null); setLinhas(null);
@@ -104,6 +119,19 @@ export default function ImportacaoAcordos() {
       }
       setResultado({ ...acc, importacaoId });
       setProgresso("");
+      try {
+        await supabase.rpc("registrar_importacao_acordo", {
+          p_importacao_id: importacaoId,
+          p_arquivo_nome: nomeArquivo || null,
+          p_parcelas: resumo ? resumo.parcelas : linhas.length,
+          p_acordos: resumo ? resumo.acordos : null,
+          p_cpfs: resumo ? resumo.cpfs : null,
+          p_alunos_novos: acc.alunos_novos,
+          p_titulos_inseridos: acc.titulos_inseridos,
+          p_total: resumo ? resumo.total : null,
+        });
+        carregarHistorico();
+      } catch { /* histórico é secundário; não falha o import */ }
     } catch (err) {
       setErro("Erro na importacao: " + (err.message || err));
     } finally {
@@ -150,6 +178,45 @@ export default function ImportacaoAcordos() {
           <div style={S.obs}>Lote: {resultado.importacaoId}</div>
         </div>
       )}
+
+      <div style={S.card}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+          <h2 style={S.h2}>Histórico de importações</h2>
+          <button style={S.btnGhost} onClick={carregarHistorico}>Atualizar</button>
+        </div>
+        {historico == null && <div style={S.obs}>Carregando…</div>}
+        {historico && historico.length === 0 && <div style={S.obs}>Nenhuma importação registrada ainda.</div>}
+        {historico && historico.length > 0 && (
+          <div style={{ overflowX: "auto" }}>
+            <table style={S.tab}>
+              <thead>
+                <tr>
+                  <th style={S.th}>Quando</th>
+                  <th style={S.th}>Arquivo</th>
+                  <th style={S.th}>Quem</th>
+                  <th style={{ ...S.th, textAlign: "right" }}>Acordos</th>
+                  <th style={{ ...S.th, textAlign: "right" }}>Títulos</th>
+                  <th style={{ ...S.th, textAlign: "right" }}>CPFs</th>
+                  <th style={{ ...S.th, textAlign: "right" }}>Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {historico.map((h, idx) => (
+                  <tr key={h.importacao_id} style={idx === 0 ? S.trNovo : undefined}>
+                    <td style={S.td}>{dataHora(h.importado_em)}{idx === 0 && <span style={S.tagUlt}>última</span>}</td>
+                    <td style={S.td}>{h.arquivo_nome || <span style={{ color: "#94a3b8" }}>— (import antigo)</span>}</td>
+                    <td style={S.td}>{h.importado_por || "—"}</td>
+                    <td style={{ ...S.td, textAlign: "right" }}>{h.acordos != null ? Number(h.acordos).toLocaleString("pt-BR") : "—"}</td>
+                    <td style={{ ...S.td, textAlign: "right" }}>{h.titulos_inseridos != null ? Number(h.titulos_inseridos).toLocaleString("pt-BR") : "—"}</td>
+                    <td style={{ ...S.td, textAlign: "right" }}>{h.cpfs != null ? Number(h.cpfs).toLocaleString("pt-BR") : "—"}</td>
+                    <td style={{ ...S.td, textAlign: "right" }}>{h.total != null ? moeda(h.total) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -170,4 +237,10 @@ const S = {
   obs: { fontSize: 12, color: "#8a93a3" },
   erro: { background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13.5, fontWeight: 600 },
   lista: { margin: "6px 0 8px", paddingLeft: 18, fontSize: 14, color: "#166534", lineHeight: 1.7 },
+  btnGhost: { background: "#fff", color: "#1e40af", border: "1px solid #c7d2fe", borderRadius: 9, padding: "7px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
+  tab: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
+  th: { textAlign: "left", color: "#64748b", fontWeight: 700, fontSize: 11.5, textTransform: "uppercase", letterSpacing: "0.03em", padding: "8px 10px", borderBottom: "1px solid #e6eaf0", whiteSpace: "nowrap" },
+  td: { padding: "9px 10px", borderBottom: "1px solid #f1f5f9", color: "#0f172a", whiteSpace: "nowrap" },
+  trNovo: { background: "#f0f7ff" },
+  tagUlt: { marginLeft: 8, background: "#1e40af", color: "#fff", borderRadius: 6, padding: "1px 7px", fontSize: 10.5, fontWeight: 800, verticalAlign: "middle" },
 };
