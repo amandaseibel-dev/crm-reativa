@@ -9,6 +9,8 @@ import ErrorBoundaryProjecao from "../components/ErrorBoundaryProjecao";
 import GraficoEvolucaoProjecao from "../components/projecao/GraficoEvolucaoProjecao";
 import CentralRelatorios from "../components/projecao/CentralRelatorios";
 import BoundaryLocal from "../components/projecao/BoundaryLocal";
+import ComparativoAnoAno from "../components/projecao/ComparativoAnoAno";
+import PainelAnaliseEvolucao from "../components/projecao/PainelAnaliseEvolucao";
 
 function moeda(valor) {
   const n = Number(valor);
@@ -455,6 +457,14 @@ function ProjecaoHoraHoraInner() {
       // não quebra a projeção — a TV mantém o snapshot anterior.
       try {
         await supabase.rpc("tv_snapshot_atualizar");
+      } catch (e) {
+        /* silencioso: a projeção segue */
+      }
+      // Grava a foto DIÁRIA da projeção (recuperado/honorário/projeção) pra
+      // habilitar o comparativo "vs ontem" na aba Evolução. Upsert por dia:
+      // a última atualização do dia vence. Falha aqui não quebra a projeção.
+      try {
+        await supabase.rpc("projecao_historico_diario_gravar", { p_mes: mesReferencia });
       } catch (e) {
         /* silencioso: a projeção segue */
       }
@@ -939,6 +949,11 @@ function ProjecaoHoraHoraInner() {
         <button style={aba === "DASHBOARD" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("DASHBOARD")}>
           📊 Dashboard
         </button>
+        {snapshotMeta?.e_gestao && (
+          <button style={aba === "ANO_VS_ANO" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("ANO_VS_ANO")}>
+            📉 Ano vs Ano
+          </button>
+        )}
         {usuario?.podeGerir && (
           <button style={aba === "IMPORTAR" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("IMPORTAR")}>
             📥 Importar Planilha
@@ -1405,6 +1420,10 @@ function ProjecaoHoraHoraInner() {
 
               {vePainelGestao && subAbaDashboard === "EVOLUCAO" && (
                 <>
+                  <BoundaryLocal label="Painel de análise">
+                    <PainelAnaliseEvolucao dados={dashboard} mes={mesReferencia} />
+                  </BoundaryLocal>
+
                   <div style={estilos.blocoRanking}>
                     <h3 style={{ marginBottom: 10 }}>
                       {usuario?.podeGerir ? "🏆 Ranking da equipe (mês)" : "🏆 Meu desempenho (mês)"}
@@ -1493,6 +1512,12 @@ function ProjecaoHoraHoraInner() {
             </>
           )}
         </>
+      )}
+
+      {aba === "ANO_VS_ANO" && snapshotMeta?.e_gestao && (
+        <BoundaryLocal label="Comparativo ano vs ano">
+          <ComparativoAnoAno />
+        </BoundaryLocal>
       )}
 
       {aba === "IMPORTAR" && usuario?.podeGerir && (
