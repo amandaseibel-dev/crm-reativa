@@ -192,6 +192,79 @@ export default function ComparativoAnoAno() {
           Base: pagamentos do mês (Santander) + histórico de recuperação. "novo" = mês sem operação em {anoAnt}. Meses sem dado nos dois anos ficam ocultos.
         </p>
       </div>
+
+      {/* RECORTE REMATRÍCULA — quanto do recuperado veio de quem AINDA hoje
+          não matriculou para 2026/2 (status 'Aguardando Matrícula'). */}
+      <CardRematricula rematr={dados?.rematricula} porMes={dados?.por_mes} anoAtu={anoAtu} />
+    </div>
+  );
+}
+
+// Recorte: recuperação do ano atual vinda de alunos que HOJE ainda não
+// matricularam para 2026/2. Vínculo por nome (histórico não tem CPF/aluno_id),
+// então mostramos a cobertura do match e tratamos como ordem de grandeza.
+function CardRematricula({ rematr, porMes, anoAtu }) {
+  const linhas = useMemo(() => {
+    const totMes = new Map((porMes || []).map((m) => [m.mes, Number(m.rec_atu) || 0]));
+    return (rematr?.por_mes || []).map((r) => ({
+      ...r,
+      totalMes: totMes.get(r.mes) || 0,
+      pct: totMes.get(r.mes) ? (Number(r.rec) / totMes.get(r.mes)) * 100 : null,
+    }));
+  }, [rematr, porMes]);
+
+  if (!rematr || !linhas.length) return null;
+
+  const cobPct =
+    rematr.cobertura_rec_total > 0
+      ? (Number(rematr.cobertura_rec_casado) / Number(rematr.cobertura_rec_total)) * 100
+      : null;
+
+  return (
+    <div style={{ ...estilos.card, background: "#fffdf7", border: "1px solid #fde68a" }}>
+      <h3 style={{ margin: "0 0 4px" }}>🎓 Recuperado de quem ainda não matriculou (2026/2)</h3>
+      <p style={{ opacity: 0.65, fontSize: 12.5, margin: "0 0 12px" }}>
+        Recorte do recuperado de {anoAtu} vindo de alunos que <strong>hoje</strong> estão "Aguardando Matrícula" — o público que sobra para a campanha de rematrícula.
+      </p>
+      <div style={{ overflowX: "auto" }}>
+        <table style={estilos.tabela}>
+          <thead>
+            <tr>
+              <th style={estilos.th}>Mês</th>
+              <th style={estilos.thNum}>Recuperado (recorte)</th>
+              <th style={estilos.thNum}>Total do mês</th>
+              <th style={estilos.thNum}>% do mês</th>
+              <th style={estilos.thNum}>Honorário</th>
+              <th style={estilos.thNum}>Pagtos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map((r) => (
+              <tr key={r.mes}>
+                <td style={estilos.tdMes}>{ABREV[r.mes]}</td>
+                <td style={estilos.tdForte}>{moeda(r.rec)}</td>
+                <td style={estilos.td}>{r.totalMes ? moeda(r.totalMes) : "—"}</td>
+                <td style={estilos.td}>{r.pct != null ? r.pct.toFixed(0) + "%" : "—"}</td>
+                <td style={estilos.td}>{moeda(r.hon)}</td>
+                <td style={estilos.td}>{num(r.n)}</td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td style={estilos.tdTotal}>Total</td>
+              <td style={estilos.tdTotal}>{moeda(rematr.total_rec)}</td>
+              <td style={estilos.tdTotal}></td>
+              <td style={estilos.tdTotal}></td>
+              <td style={estilos.tdTotal}>{moeda(rematr.total_hon)}</td>
+              <td style={estilos.tdTotal}>{num(rematr.total_n)}</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p style={{ color: "#92722a", fontSize: 12, marginTop: 10 }}>
+        ⚠️ Vínculo por <strong>nome</strong> (o histórico de recuperação não tem CPF){cobPct != null && <> — cobertura ~{cobPct.toFixed(0)}% do valor de {anoAtu}</>}. Homônimos ficam de fora. Trate como ordem de grandeza, não valor fechado. É o status de <strong>hoje</strong> aplicado a pagamentos passados.
+      </p>
     </div>
   );
 }
