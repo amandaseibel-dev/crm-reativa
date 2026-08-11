@@ -1,7 +1,6 @@
 import { useState } from "react";
 import ConsultaFinanceira from "./ConsultaFinanceira";
 import FilaConfirmacaoPagamento from "./FilaConfirmacaoPagamento";
-import Borderos from "./Borderos";
 import PainelAdm from "./PainelAdm";
 import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirmacoes from "./HistoricoConfirmacoes";
 import FilaAcordosConfirmar from "./FilaAcordosConfirmar";
@@ -15,7 +14,7 @@ const ABAS = [
   { chave: "CONFIRMACAO", rotulo: "Confirmação de Pagamento" },
   { chave: "FILA_BAIXAS", rotulo: "Fila de Baixas" },
   { chave: "FILA_ACORDOS", rotulo: "Fila de Acordos" },
-  { chave: "BORDEROS", rotulo: "Borderôs" }, { chave: "HIST_CONFIRMACOES", rotulo: "Histórico de Confirmações" },
+  { chave: "HIST_CONFIRMACOES", rotulo: "Histórico de Confirmações" },
 ];
 
 export default function FinanceiroHub() {
@@ -26,7 +25,7 @@ export default function FinanceiroHub() {
       <div style={estilos.cabecalho}>
         <h1 style={estilos.titulo}>💰 Financeiro</h1>
         <p style={estilos.subtitulo}>
-          Painel ADM, Financeiro, Confirmação de Pagamento, Borderôs e Financeiro Operadores, tudo aqui.
+          Painel ADM, Financeiro, Confirmação de Pagamento e Financeiro Operadores, tudo aqui.
         </p>
       </div>
 
@@ -48,7 +47,7 @@ export default function FinanceiroHub() {
         {aba === "CONFIRMACAO" && <FilaConfirmacaoPagamento />}
         {aba === "FILA_BAIXAS" && <MinhaFilaPagamentos />}
         {aba === "FILA_ACORDOS" && <FilaAcordosConfirmar />}
-        {aba === "BORDEROS" && <Borderos />} {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
+        {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
       </div>
     </div>
   );

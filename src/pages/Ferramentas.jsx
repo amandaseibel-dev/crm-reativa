@@ -6,6 +6,7 @@ import { supabase } from "../services/supabase";
 // soltos no menu. Cada card leva para a ferramenta correspondente.
 
 const FERRAMENTAS = [
+  { rota: "/borderos", emoji: "🧾", titulo: "Borderôs", desc: "Sobe a planilha de mensalidades por CPF/titulo e importa o borderô." },
   { rota: "/importar-acordos", emoji: "🤝", titulo: "Importar Acordos", desc: "Sobe o Relatorio de Titulos em Aberto e importa a carteira de acordos." },
   { rota: "/importar-recuperacao", emoji: "📥", titulo: "Importar Recuperação", desc: "Importa a planilha de recuperacao retroativa." },
   { rota: "/importar-academico", emoji: "🎓", titulo: "Importar Dados Acadêmicos", desc: "Sobe o Relatorio de Inadimplencia e preenche curso real e situacao academica na ficha (so atualiza, nao duplica)." },
