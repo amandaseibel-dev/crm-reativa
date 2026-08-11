@@ -490,6 +490,24 @@ export default function Borderos() {
                   }
                 }
               }
+
+              // 4) Recalcula situacao/criticidade/proxima_acao SOMENTE dos
+              // alunos reativados (idsQuitados ja voltaram para CONTATAR).
+              // NAO recalcula a base inteira: os quitados que continuam em
+              // stand-by nao sao tocados e so voltam numa nova importacao.
+              // Best-effort: falha aqui nao invalida a importacao (o aluno ja
+              // esta na fila; a criticidade se ajusta no proximo acionamento
+              // ou no cron diario).
+              for (const idAluno of idsQuitados) {
+                try {
+                  await supabase.rpc("recalcular_situacao_aluno", {
+                    p_aluno_id: idAluno,
+                    p_lote: "reativacao_bordero",
+                  });
+                } catch (e) {
+                  // ignora: reativacao ja aconteceu, recalc e complementar
+                }
+              }
             }
           }
         }
