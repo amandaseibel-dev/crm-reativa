@@ -1090,7 +1090,16 @@ function ProjecaoHoraHoraInner() {
                     </div>
 
                     <div style={estilos.heroNumeroLinha}>
-                      <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes_filial ?? dashboard?.recuperado_reativa_mes)}</div>
+                      <div>
+                        <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes_filial ?? dashboard?.recuperado_reativa_mes)}</div>
+                        <div style={estilos.heroSubLabel}>Honorário realizado</div>
+                      </div>
+                      <div style={estilos.heroProjBloco}>
+                        <div style={{ ...estilos.heroNumero, color: "#1d4ed8" }}>{moeda(dashboard?.projecao_honorario_filial)}</div>
+                        <div style={{ ...estilos.heroSubLabel, color: "#1d4ed8" }}>
+                          Projeção de fechamento · {dashboard?.percentual_projecao_filial ?? 0}% da meta
+                        </div>
+                      </div>
                       <div style={estilos.heroMeta}>
                         <span style={estilos.heroMetaLabel}>META</span>
                         <span style={estilos.heroMetaValor}>{moeda(dashboard?.meta_honorario)}</span>
@@ -1111,8 +1120,7 @@ function ProjecaoHoraHoraInner() {
                         <strong>{dashboard?.percentual_meta_filial ?? 0}%</strong> da meta atingido
                       </span>
                       <span>
-                        No ritmo atual, fecha em <strong>{moeda(dashboard?.projecao_honorario_filial)}</strong>{" "}
-                        ({dashboard?.percentual_projecao_filial ?? 0}% da meta)
+                        Projeção pelo ritmo atual · <strong>{dashboard?.dias_uteis_restantes ?? 0}</strong> dias úteis restantes
                       </span>
                     </div>
                   </div>
@@ -1897,6 +1905,11 @@ const estilos = {
     fontWeight: 800,
     letterSpacing: "-0.02em",
     color: "#0d1321",
+  },
+  heroSubLabel: { fontSize: 12, fontWeight: 600, color: "#8a93a3", marginTop: 4 },
+  heroProjBloco: {
+    paddingLeft: 18,
+    borderLeft: `2px solid #bfdbfe`,
   },
   heroMeta: {
     display: "flex",
