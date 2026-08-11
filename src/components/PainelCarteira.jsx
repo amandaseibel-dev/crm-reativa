@@ -730,6 +730,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [retornoAluno, setRetornoAluno] = useState(null);
   const [retornosPendentes, setRetornosPendentes] = useState([]);
   const [fixados, setFixados] = useState(new Set());
+  const [nomeCopiadoId, setNomeCopiadoId] = useState(null);
   const [somenteFixados, setSomenteFixados] = useState(false);
   const [somenteFocoDia, setSomenteFocoDia] = useState(false);
   const [visao, setVisao] = useState("lista");
@@ -1221,6 +1222,24 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       .select("aluno_id")
       .eq("operador_email", email);
     setFixados(new Set((data || []).map((f) => f.aluno_id)));
+  }
+
+  async function copiarNome(a, e) {
+    if (e) e.stopPropagation();
+    const nome = nomeAluno(a);
+    try {
+      await navigator.clipboard.writeText(nome);
+    } catch {
+      // fallback para navegadores sem Clipboard API
+      const ta = document.createElement("textarea");
+      ta.value = nome;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    }
+    setNomeCopiadoId(a.id);
+    setTimeout(() => setNomeCopiadoId((atual) => (atual === a.id ? null : atual)), 1500);
   }
 
   async function alternarFixado(alunoId, e) {
@@ -2706,6 +2725,22 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                               📌
                             </button>
                             <div style={S.nomeCel}>{nomeAluno(a)}</div>
+                            <button
+                              type="button"
+                              onClick={(e) => copiarNome(a, e)}
+                              title="Copiar nome"
+                              style={{
+                                background: "none",
+                                border: "none",
+                                cursor: "pointer",
+                                fontSize: 13,
+                                lineHeight: 1,
+                                padding: 0,
+                                color: nomeCopiadoId === a.id ? "#16a34a" : "#94a3b8",
+                              }}
+                            >
+                              {nomeCopiadoId === a.id ? "✓" : "📋"}
+                            </button>
                           </div>
                           <div style={S.subCel}>
                             {[a.telefone, a.unidade, a.curso].filter(Boolean).join(" · ") || "-"}
