@@ -92,6 +92,9 @@ export default function AcoesMassivas() {
   const [opcoesUnidade, setOpcoesUnidade] = useState([]);
   const [opcoesCurso, setOpcoesCurso] = useState([]);
   const [opcoesSituacaoAcad, setOpcoesSituacaoAcad] = useState([]);
+  // Carteiras importadas (borderôs). borderosSel = ids selecionados no filtro.
+  const [opcoesBordero, setOpcoesBordero] = useState([]);
+  const [borderosSel, setBorderosSel] = useState([]);
   const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
   const [diasPersonalizado, setDiasPersonalizado] = useState(false);
   // "todos" | "nunca" (nunca acionados) | "ja" (já acionados)
@@ -146,6 +149,8 @@ export default function AcoesMassivas() {
       setOpcoesUnidade(data?.unidades || []);
       setOpcoesCurso(data?.cursos || []);
       setOpcoesSituacaoAcad(data?.situacoes_academicas || []);
+      const { data: bords } = await supabase.rpc("acoes_massivas_borderos");
+      setOpcoesBordero(bords || []);
     })();
   }, []);
 
@@ -212,6 +217,9 @@ export default function AcoesMassivas() {
           p_unidade: (over.unidade ?? unidade) || null,
           p_curso: (over.curso ?? curso) || null,
           p_situacao_academica: (over.situacaoAcad ?? situacaoAcad) || null,
+          p_importacao_ids: (over.borderosSel ?? borderosSel).length
+            ? (over.borderosSel ?? borderosSel)
+            : null,
         }
       );
       if (erroAlunos) throw erroAlunos;
@@ -592,6 +600,50 @@ export default function AcoesMassivas() {
               ))}
             </select>
           </div>
+          {opcoesBordero.length > 0 && (
+            <div style={{ ...estilos.campo, minWidth: 260 }}>
+              <label style={estilos.label}>
+                Carteira (borderô){borderosSel.length ? ` · ${borderosSel.length} selec.` : ""}
+              </label>
+              <div style={estilos.caixaBordero}>
+                {opcoesBordero.map((b) => {
+                  const marcado = borderosSel.includes(b.importacao_id);
+                  return (
+                    <label key={b.importacao_id} style={estilos.itemBordero} title={b.arquivo_nome}>
+                      <input
+                        type="checkbox"
+                        checked={marcado}
+                        onChange={() => {
+                          setBorderosSel((prev) => {
+                            const proximo = prev.includes(b.importacao_id)
+                              ? prev.filter((id) => id !== b.importacao_id)
+                              : [...prev, b.importacao_id];
+                            // Carteira nova = ninguém foi acionado; não faz sentido
+                            // travar por "já acionado". Solta o filtro de acionamento.
+                            if (proximo.length) setAcionamentoFiltro("todos");
+                            return proximo;
+                          });
+                        }}
+                      />
+                      <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {(b.arquivo_nome || "Borderô").replace(/\.xlsx?$/i, "")}
+                        <span style={{ color: "#8a93a3" }}> · {b.qtd_alunos} al.</span>
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+              {borderosSel.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setBorderosSel([])}
+                  style={estilos.limparBordero}
+                >
+                  Limpar carteira
+                </button>
+              )}
+            </div>
+          )}
           <div style={estilos.campo}>
             <label style={estilos.label}>Modalidade (curso)</label>
             <select
@@ -882,6 +934,36 @@ const estilos = {
     borderRadius: 10,
     border: "1px solid #e3e7ee",
     fontSize: 13,
+  },
+  caixaBordero: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 4,
+    maxHeight: 120,
+    overflowY: "auto",
+    padding: "8px 10px",
+    borderRadius: 10,
+    border: "1px solid #e3e7ee",
+    background: "#fafbfc",
+  },
+  itemBordero: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    fontSize: 12,
+    cursor: "pointer",
+    maxWidth: 240,
+  },
+  limparBordero: {
+    marginTop: 4,
+    alignSelf: "flex-start",
+    background: "none",
+    border: "none",
+    color: "#b91c1c",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
+    padding: 0,
   },
   erro: { color: "#b91c1c", fontSize: 13, marginBottom: 10 },
   sucesso: { color: "#0f7a4f", fontSize: 13, marginBottom: 10, fontWeight: 700 },
