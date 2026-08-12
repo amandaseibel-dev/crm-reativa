@@ -1,5 +1,5 @@
 import {
-  Tela, IndicadorCard, CardMeta, Ranking, DestaqueOperador,
+  Tela, IndicadorCard, CardMeta, MetaCard, Ranking, DestaqueOperador,
   MensagemInstitucional, Aviso, Treinamento, Conquista,
   moeda, num, statusRitmo, T, fs, layout,
 } from "./tvUI";
@@ -286,6 +286,26 @@ function TelaAcionamentosDia({ snap }) {
   );
 }
 
+// 7d) Magic Number — meta de superação = 150% da meta de honorários ----------
+//     Calculado no cliente a partir de mes.meta_empresa (não precisa backend).
+function TelaMagicNumber({ snap }) {
+  const m = snap?.mes || {};
+  const meta = Number(m.meta_empresa || 0);
+  if (!meta) return <Tela titulo="Magic Number" icone="✨"><Vazio>Meta não cadastrada nesta atualização.</Vazio></Tela>;
+  const alvo = Math.round(meta * 1.5);
+  const real = Number(m.honorarios || 0);
+  const pct = alvo > 0 ? (real / alvo) * 100 : null;
+  const falta = Math.max(0, alvo - real);
+  const detalhe = real >= alvo
+    ? "Magic batido! Superação total da meta 🚀"
+    : `Faltam ${moeda(falta)} para o Magic (150% da meta)`;
+  return (
+    <Tela titulo="Magic Number" icone="✨">
+      <MetaCard titulo="Magic Number — 150% da meta" valor={moeda(real)} alvo={moeda(alvo)} pct={pct} detalhe={detalhe} />
+    </Tela>
+  );
+}
+
 // 8) Elogios de atendimento (aprovados para a TV) ----------------------------
 //    Fonte: snap.elogios (aluno_movimentacoes com elogio_aprovado_tv). Só TEXTO
 //    — quem foi elogiado e quando. O print fica na aprovação; a TV celebra o nome.
@@ -364,6 +384,7 @@ export const CATALOGO_TELAS = [
       const r = s?.rankings || {}; return !!(r.melhor_mes?.operador || (r.top3_mes || []).length > 0 || r.maior_pagamento_mes); } },
   { id: "aniversario_destaque", nome: "Aniversário (destaque)", Comp: TelaAniversarioDestaque, ativa: true, temConteudo: (s) => aniversarioDestaqueHoje(s?.aniversario_destaque) },
   { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes, ativa: true, temConteudo: (s) => (s?.aniversariantes || []).length > 0 || (s?.aniversariantes_hoje || []).length > 0 },
+  { id: "magic_number", nome: "Magic Number", Comp: TelaMagicNumber, ativa: true, temConteudo: (s) => Number(s?.mes?.meta_empresa || 0) > 0 },
   { id: "destaque_semana", nome: "Destaque da Semana", Comp: TelaDestaqueSemana, ativa: true, temConteudo: (s) => (s?.dados?.ranking_semana || []).length > 0 },
   { id: "acionamentos_dia", nome: "Acionamentos do Dia", Comp: TelaAcionamentosDia, ativa: true, temConteudo: (s) => (s?.rank?.top_dia || []).length > 0 },
   { id: "elogios", nome: "Elogios", Comp: TelaElogios, ativa: true, temConteudo: (s) => (s?.elogios || []).length > 0 },
