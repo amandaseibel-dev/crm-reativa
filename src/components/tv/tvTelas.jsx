@@ -247,6 +247,45 @@ function TelaAvisos({ snap, indiceGiro = 0 }) {
   );
 }
 
+// 7b) Destaque da semana — campeão da semana por pagamentos únicos -----------
+function TelaDestaqueSemana({ snap }) {
+  const semana = snap?.dados?.ranking_semana || [];
+  if (semana.length === 0) return <Tela titulo="Destaque da Semana" icone="⭐"><Vazio>Sem dados da semana.</Vazio></Tela>;
+  const campeao = semana[0];
+  const vice = semana.slice(1, 3);
+  return (
+    <Tela titulo="Destaque da Semana" icone="⭐">
+      <div style={{ fontSize: fs(30, 3.8, 90) }}>⭐</div>
+      <div style={{ fontSize: fs(32, 4, 100), fontWeight: 900, color: T.verde, textAlign: "center", lineHeight: 1 }}>{campeao.operador}</div>
+      <div style={{ fontSize: fs(14, 1.5, 34), fontWeight: 700, color: T.textoMudo, textTransform: "uppercase", letterSpacing: "0.08em" }}>
+        Mais pagamentos únicos da semana
+      </div>
+      {vice.length > 0 && (
+        <div style={{ display: "flex", gap: "3vw", marginTop: "1vh" }}>
+          {vice.map((o, i) => (
+            <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2vh" }}>
+              <span style={{ fontSize: fs(13, 1.3, 28), fontWeight: 800, color: T.textoMudo }}>{i === 0 ? "🥈" : "🥉"}</span>
+              <span style={{ fontSize: fs(16, 1.7, 44), fontWeight: 800, color: T.textoSuave }}>{o.operador}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Tela>
+  );
+}
+
+// 7c) Acionamentos do dia — Top 3 com as quantidades -------------------------
+function TelaAcionamentosDia({ snap }) {
+  const top = snap?.rank?.top_dia || [];
+  if (top.length === 0) return <Tela titulo="Acionamentos do Dia" icone="📞"><Vazio>Sem acionamentos registrados hoje.</Vazio></Tela>;
+  return (
+    <Tela titulo="Acionamentos do Dia — Top 3" icone="📞">
+      <Ranking titulo="Quem mais acionou hoje" podio
+        itens={top.map((o) => ({ nome: o.nome, valor: `${num(o.qtd)} acion.` }))} />
+    </Tela>
+  );
+}
+
 // 8) Elogios de atendimento (aprovados para a TV) ----------------------------
 //    Fonte: snap.elogios (aluno_movimentacoes com elogio_aprovado_tv). Só TEXTO
 //    — quem foi elogiado e quando. O print fica na aprovação; a TV celebra o nome.
@@ -325,6 +364,8 @@ export const CATALOGO_TELAS = [
       const r = s?.rankings || {}; return !!(r.melhor_mes?.operador || (r.top3_mes || []).length > 0 || r.maior_pagamento_mes); } },
   { id: "aniversario_destaque", nome: "Aniversário (destaque)", Comp: TelaAniversarioDestaque, ativa: true, temConteudo: (s) => aniversarioDestaqueHoje(s?.aniversario_destaque) },
   { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes, ativa: true, temConteudo: (s) => (s?.aniversariantes || []).length > 0 || (s?.aniversariantes_hoje || []).length > 0 },
+  { id: "destaque_semana", nome: "Destaque da Semana", Comp: TelaDestaqueSemana, ativa: true, temConteudo: (s) => (s?.dados?.ranking_semana || []).length > 0 },
+  { id: "acionamentos_dia", nome: "Acionamentos do Dia", Comp: TelaAcionamentosDia, ativa: true, temConteudo: (s) => (s?.rank?.top_dia || []).length > 0 },
   { id: "elogios", nome: "Elogios", Comp: TelaElogios, ativa: true, temConteudo: (s) => (s?.elogios || []).length > 0 },
   { id: "avisos", nome: "Avisos", Comp: TelaAvisos, ativa: true, temConteudo: (s) => (s?.avisos || []).length > 0 },
   // --- estrutura pronta, DESATIVADA (etapas futuras) ---
