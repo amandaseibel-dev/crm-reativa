@@ -255,7 +255,7 @@ export function Ranking({ titulo, itens = [], podio = false }) {
   const medalha = ["🥇", "🥈", "🥉"];
   if (podio) {
     const trio = [{ o: itens[1], pos: 2 }, { o: itens[0], pos: 1 }, { o: itens[2], pos: 3 }];
-    const alturas = { 1: "18vh", 2: "13vh", 3: "10vh" };
+    const alturas = { 1: "13vh", 2: "9vh", 3: "7vh" };
     const cores = { 1: "linear-gradient(180deg,#fde68a,#f59e0b)", 2: "linear-gradient(180deg,#e2e8f0,#94a3b8)", 3: "linear-gradient(180deg,#fdba74,#c2843f)" };
     return (
       <div style={{ width: "100%", display: "flex", flexDirection: "column", alignItems: "center", gap: "1vh" }}>

@@ -1,5 +1,5 @@
 import {
-  Tela, IndicadorCard, CardMeta, MetaCard, Ranking, DestaqueOperador,
+  Tela, IndicadorCard, CardMeta, Ranking, DestaqueOperador,
   MensagemInstitucional, Aviso, Treinamento, Conquista,
   moeda, num, statusRitmo, T, fs, layout,
 } from "./tvUI";
@@ -73,19 +73,8 @@ function TelaResultadoMes({ snap }) {
     : m.necessidade_diaria == null
       ? "Sem dias úteis restantes."
       : `${moeda(m.necessidade_diaria)}/dia útil`;
-  const metaDetalhe = m.meta_atingida
-    ? `Meta batida! Honorários já passaram de ${moeda(m.meta_empresa)}.`
-    : `Faltam ${moeda(m.meta_falta)} · projeção de fechamento ${moeda(m.proj_honorarios)}` +
-      (m.proj_honorarios_pct != null ? ` (${Math.round(m.proj_honorarios_pct)}% da meta)` : "");
   return (
     <Tela titulo="Resultado do Mês" icone="📊">
-      <MetaCard
-        titulo="Meta de honorários do mês"
-        valor={moeda(m.honorarios)}
-        alvo={moeda(m.meta_empresa)}
-        pct={m.meta_pct}
-        detalhe={metaDetalhe}
-      />
       <div style={linha}>
         <IndicadorCard rotulo="Recuperado no mês" valor={moeda(m.recuperado)} tom="verde" grande />
         <IndicadorCard rotulo="Honorários no mês" valor={moeda(m.honorarios)} tom="azul" grande />
@@ -93,7 +82,7 @@ function TelaResultadoMes({ snap }) {
       <div style={linha}>
         <IndicadorCard rotulo="Pagamentos confirmados no mês" valor={num(m.pagamentos_confirmados)} tom="ambar" />
         <IndicadorCard rotulo="Média diária de recuperação" valor={moeda(m.media_diaria)} tom="azul" />
-        <IndicadorCard rotulo="Projeção de fechamento" valor={moeda(m.projecao_fechamento)} tom="verde" />
+        <IndicadorCard rotulo="Projeção de fechamento (honorários)" valor={moeda(m.proj_honorarios)} tom="verde" />
       </div>
       <div style={linha}>
         <IndicadorCard rotulo={`Dias úteis (${m.dias_uteis_transcorridos}/${m.dias_uteis_mes})`} valor={`${m.dias_uteis_restantes} restantes`} tom="azul" />
@@ -200,9 +189,9 @@ function TelaRankings({ snap }) {
         {r.melhor_dia?.operador && <DestaqueOperador rotulo="Melhor recuperador do dia" nome={r.melhor_dia.operador} icone="🌟" />}
         {r.melhor_mes?.operador && <DestaqueOperador rotulo="Melhor recuperador do mês" nome={r.melhor_mes.operador} icone="👑" />}
         {r.mais_pagos_dia?.operador && <DestaqueOperador rotulo="Mais pagamentos confirmados hoje" nome={r.mais_pagos_dia.operador} valor={`${num(r.mais_pagos_dia.qtd)} pagamentos`} icone="🎯" />}
+        {mpm && <DestaqueOperador rotulo="Maior pagamento único do mês" nome={mpm.operador} valor={moeda(mpm.valor)} icone="💰" />}
       </div>
       {top3.length > 0 && <Ranking titulo="Top 3 do mês por valor recuperado" itens={top3.map((o) => ({ nome: o.operador }))} podio />}
-      {mpm && <DestaqueOperador rotulo="Maior pagamento único do mês" nome={mpm.operador} valor={moeda(mpm.valor)} icone="💰" />}
     </Tela>
   );
 }
