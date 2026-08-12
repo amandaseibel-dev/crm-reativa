@@ -335,18 +335,41 @@ function TelaElogios({ snap }) {
 function TelaAniversarioDestaque({ snap }) {
   const d = snap?.aniversario_destaque;
   if (!d) return null;
+  const ouro = "linear-gradient(100deg,#fde68a,#fbbf24 45%,#f59e0b)";
   return (
     <Tela titulo="Aniversário de Hoje" icone="🎉">
-      <div style={{ display: "flex", alignItems: "center", gap: "4vw", width: "84%", justifyContent: "center", flexWrap: "wrap" }}>
+      <div style={{ position: "relative", display: "flex", alignItems: "center", justifyContent: "center", gap: "5vw",
+        width: "90%", padding: "2vh 2vw", borderRadius: "3vh", overflow: "hidden",
+        background: "radial-gradient(60% 90% at 50% 0%, rgba(251,191,36,0.16), transparent 70%), radial-gradient(50% 80% at 90% 100%, rgba(244,114,182,0.14), transparent 70%)" }}>
+        {/* enfeites de festa */}
+        <span style={{ position: "absolute", top: "1vh", left: "3vw", fontSize: fs(24, 3, 60), opacity: 0.9 }}>🎈</span>
+        <span style={{ position: "absolute", bottom: "1vh", left: "12vw", fontSize: fs(20, 2.4, 48), opacity: 0.85 }}>🎊</span>
+        <span style={{ position: "absolute", top: "0", right: "6vw", fontSize: fs(22, 2.8, 56), opacity: 0.9 }}>🎉</span>
+
         {d.foto && (
-          <img src={d.foto} alt={d.nome || "Aniversariante"}
-            style={{ width: "min(32vh, 28vw)", height: "min(42vh, 38vw)", objectFit: "cover", objectPosition: "center 25%",
-              borderRadius: "2.4vh", border: `0.5vh solid ${T.azulClaro}`, boxShadow: "0 0 40px rgba(59,130,246,0.5)" }} />
+          <div style={{ position: "relative", flexShrink: 0, padding: "0.7vh", borderRadius: "3vh",
+            background: ouro, boxShadow: "0 0 60px rgba(251,191,36,0.45)" }}>
+            <img src={d.foto} alt={d.nome || "Aniversariante"}
+              style={{ display: "block", width: "min(34vh, 30vw)", height: "min(44vh, 40vw)", objectFit: "cover",
+                objectPosition: "center 25%", borderRadius: "2.4vh" }} />
+            <div style={{ position: "absolute", bottom: "-1.6vh", left: "50%", transform: "translateX(-50%)",
+              fontSize: fs(30, 3.8, 82), filter: "drop-shadow(0 6px 16px rgba(0,0,0,0.5))" }}>🎂</div>
+          </div>
         )}
-        <div style={{ display: "flex", flexDirection: "column", gap: "1.4vh", maxWidth: "44vw" }}>
-          <div style={{ fontSize: fs(34, 4.4, 96) }}>🎂</div>
-          <div style={{ fontSize: fs(30, 3.8, 92), fontWeight: 900, color: T.texto, lineHeight: 1 }}>{d.nome}</div>
-          <div style={{ fontSize: fs(16, 1.8, 44), fontWeight: 700, color: T.textoSuave, lineHeight: 1.3 }}>
+
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.6vh", maxWidth: "46vw" }}>
+          <div style={{ fontSize: fs(14, 1.5, 34), fontWeight: 900, letterSpacing: "0.18em", textTransform: "uppercase",
+            backgroundImage: ouro, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent" }}>
+            🎉 Hoje é dia de festa
+          </div>
+          <div style={{ fontSize: fs(40, 5.2, 128), fontWeight: 900, lineHeight: 0.95,
+            backgroundImage: ouro, WebkitBackgroundClip: "text", backgroundClip: "text", color: "transparent",
+            filter: "drop-shadow(0 0 30px rgba(251,191,36,0.35))" }}>
+            {d.nome}
+          </div>
+          <div style={{ fontSize: fs(16, 1.8, 44), fontWeight: 700, color: T.textoSuave, lineHeight: 1.35,
+            background: "rgba(148,163,184,0.10)", border: `1px solid ${T.surfaceBorda}`, borderLeft: `0.5vh solid #fbbf24`,
+            borderRadius: "1.4vh", padding: "1.6vh 1.6vw" }}>
             {d.mensagem || "Feliz aniversário! Que seu dia seja especial."}
           </div>
         </div>
