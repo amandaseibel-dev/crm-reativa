@@ -318,7 +318,7 @@ const sempre = () => true;
 export const CATALOGO_TELAS = [
   { id: "hoje", nome: "Hoje na Operação", Comp: TelaHoje, ativa: true, temConteudo: (s) => !!s?.hoje },
   { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, temConteudo: (s) => !!s?.mes },
-  { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: true, temConteudo: (s) => (s?.metas || []).length > 0 },
+  { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: false, temConteudo: (s) => (s?.metas || []).length > 0 },
   { id: "premiacao", nome: "Premiação", Comp: TelaPremiacao, ativa: true, temConteudo: (s) => (s?.premiacao?.faixas || []).length > 0 },
   { id: "julho", nome: "Julho Histórico", Comp: TelaJulhoHistorico, ativa: true, temConteudo: (s) => s?.julho_historico?.ativo === true },
   { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings, ativa: true, temConteudo: (s) => {
