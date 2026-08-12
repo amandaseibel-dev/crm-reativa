@@ -141,25 +141,33 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
     if (!alunoId) return;
     setCarregandoDividas(true);
     try {
-      const [{ data: parc }, { data: tit }, { data: acs }, { data: comp }] = await Promise.all([
-        supabase
-          .from("parcelas")
-          .select("id, numero, valor, vencimento, status, acordos!inner(id, aluno_id, status)")
-          .eq("acordos.aluno_id", alunoId)
-          .eq("acordos.status", "ATIVO")
-          .in("status", ["A_VENCER", "VENCIDA"])
-          .order("vencimento", { ascending: true }),
+      // Acordos ATIVOS do aluno primeiro (super seletivo, usa acordos_aluno_id_idx).
+      // As parcelas sao filtradas por acordo_id direto — evita varrer TODAS as
+      // parcelas da base (usa ix_parcelas_acordo_status_venc). Antes, o embed
+      // acordos!inner com filtro no aluno forcava o planner a varrer ~11k parcelas
+      // pra devolver ~12 (19k buffers/chamada).
+      const { data: acs } = await supabase
+        .from("acordos")
+        .select("id, status")
+        .eq("aluno_id", alunoId)
+        .eq("status", "ATIVO");
+      const acordoIds = (acs || []).map((a) => a.id);
+
+      const [{ data: parc }, { data: tit }, { data: comp }] = await Promise.all([
+        acordoIds.length
+          ? supabase
+              .from("parcelas")
+              .select("id, numero, valor, vencimento, status, acordos(id, aluno_id, status)")
+              .in("acordo_id", acordoIds)
+              .in("status", ["A_VENCER", "VENCIDA"])
+              .order("vencimento", { ascending: true })
+          : Promise.resolve({ data: [] }),
         supabase
           .from("acordos_titulos")
           .select("id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, status")
           .eq("aluno_id", alunoId)
           .eq("status", "em_aberto")
           .order("vencimento", { ascending: true }),
-        supabase
-          .from("acordos")
-          .select("id, status")
-          .eq("aluno_id", alunoId)
-          .eq("status", "ATIVO"),
         supabase
           .from("links_pagamento")
           .select("id, comprovante_nome, comprovante_anexado_em, comprovante_url")
