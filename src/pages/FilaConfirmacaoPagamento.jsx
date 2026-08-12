@@ -191,13 +191,24 @@ export default function FilaConfirmacaoPagamento() {
           .limit(40);
         setHistorico(mov || []);
 
-        // Parcelas em aberto (mesma consulta ja usada nesta tela).
-        const { data: parc } = await supabase
-          .from("parcelas")
-          .select("id, numero, valor, honorarios, vencimento, status, acordos!inner(id, aluno_id)")
-          .eq("acordos.aluno_id", String(s.aluno_id))
-          .in("status", ["A_VENCER", "VENCIDA"])
-          .order("vencimento", { ascending: true });
+        // Parcelas em aberto: parte dos acordos ATIVOS do aluno e filtra as
+        // parcelas por acordo_id direto (usa ix_parcelas_acordo_status_venc).
+        // Antes, o embed acordos!inner com filtro no aluno forcava varredura de
+        // TODAS as parcelas da base pra devolver poucas linhas.
+        const { data: acsAtivos } = await supabase
+          .from("acordos")
+          .select("id")
+          .eq("aluno_id", String(s.aluno_id))
+          .eq("status", "ATIVO");
+        const acordoIds = (acsAtivos || []).map((a) => a.id);
+        const { data: parc } = acordoIds.length
+          ? await supabase
+              .from("parcelas")
+              .select("id, numero, valor, honorarios, vencimento, status")
+              .in("acordo_id", acordoIds)
+              .in("status", ["A_VENCER", "VENCIDA"])
+              .order("vencimento", { ascending: true })
+          : { data: [] };
         setParcelasAbertas(parc || []);
 
         // Titulos/mensalidades importados em aberto.

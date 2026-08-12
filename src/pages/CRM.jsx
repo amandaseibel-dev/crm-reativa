@@ -490,16 +490,22 @@ export default function CRM() {
     const titPorAluno = {};
     for (let i = 0; i < ids.length; i += LOTE) {
       const lote = ids.slice(i, i + LOTE);
-      const { data: parc } = await supabase
-        .from("parcelas")
-        .select("valor,status,acordos!inner(aluno_id,status)")
-        .in("acordos.aluno_id", lote)
-        .eq("acordos.status", "ATIVO")
-        .in("status", ["A_VENCER", "VENCIDA"]);
-      for (const p of parc || []) {
-        const aid = String(p.acordos?.aluno_id || "");
+      // Parte de acordos (aluno_id IN lote, indexado) e embute as parcelas por
+      // FK — evita varrer TODAS as parcelas da base a cada lote. Antes, o
+      // parcelas-first com acordos!inner varria ~11k parcelas/lote (~738k
+      // buffers); agora ~1,2k buffers/lote.
+      const { data: acsLote } = await supabase
+        .from("acordos")
+        .select("aluno_id, parcelas(valor,status)")
+        .in("aluno_id", lote)
+        .eq("status", "ATIVO")
+        .in("parcelas.status", ["A_VENCER", "VENCIDA"]);
+      for (const a of acsLote || []) {
+        const aid = String(a.aluno_id || "");
         if (!aid) continue;
-        parcPorAluno[aid] = (parcPorAluno[aid] || 0) + Number(p.valor || 0);
+        for (const p of a.parcelas || []) {
+          parcPorAluno[aid] = (parcPorAluno[aid] || 0) + Number(p.valor || 0);
+        }
       }
       const { data: tit } = await supabase
         .from("acordos_titulos")
