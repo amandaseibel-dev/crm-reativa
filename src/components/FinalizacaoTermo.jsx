@@ -455,7 +455,7 @@ export default function FinalizacaoTermo({ aluno }) {
             {enviando
               ? "Enviando..."
               : tipoAssinatura === "GOV_BR"
-              ? "Liberar (gov.br)"
+              ? "Enviar (gov.br) para auditoria"
               : "Enviar termo para ADM"}
           </button>
         </>
@@ -521,6 +521,10 @@ export default function FinalizacaoTermo({ aluno }) {
             <p style={styles.modalTexto}>
               <strong>Aguarde a validação da assinatura</strong> pela ADM antes
               de gerar ou enviar o boleto/link de pagamento ao aluno.
+            </p>
+            <p style={styles.modalTexto}>
+              Você receberá uma <strong>notificação</strong> assim que a ADM
+              validar o documento e liberar o acordo.
             </p>
             <button
               style={styles.modalBotao}

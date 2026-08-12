@@ -83,6 +83,21 @@ function mensagemErro(erro) {
   }
 }
 
+// gov.br pendente de auditoria = documento ainda não conferido pela ADM. Enquanto
+// pendente, validado_por mantém o marcador automático "AUTOMATICO_GOV_BR"; ao
+// validar/rejeitar, passa a ser o e-mail da ADM e sai do conjunto pendente.
+// Gov legado (anterior ao portão de validação) foi rotulado
+// "LEGADO_GOV_PRE_AUDITORIA" e NÃO é acionável — fica só como histórico.
+function ehGovPendenteAuditoria(t) {
+  return t?.status === "TERMO_LIBERADO_AUTOMATICO_GOV" && t?.validado_por === "AUTOMATICO_GOV_BR";
+}
+
+// Termo em que a ADM pode decidir (validar/rejeitar): manual aguardando ADM ou
+// gov pendente de auditoria.
+function ehTermoAcionavel(t) {
+  return t?.status === "TERMO_ENVIADO_ADM" || ehGovPendenteAuditoria(t);
+}
+
 export default function FilaAdmTermos() {
   const [usuario, setUsuario] = useState(null);
   const [termos, setTermos] = useState([]);
@@ -187,10 +202,13 @@ export default function FilaAdmTermos() {
       }
     }
 
+    const ehGov = modalTermo.status === "TERMO_LIBERADO_AUTOMATICO_GOV";
     const okConfirm = window.confirm(
       decisao === "APROVAR"
-        ? "Confirmar: assinatura validada e termo liberado para operação?"
-        : "Confirmar rejeição da assinatura e devolução ao operador?"
+        ? ehGov
+          ? "Confirmar: documento gov.br conferido e liberar ao operador? O operador será avisado para liberar o acordo."
+          : "Confirmar: assinatura validada e termo liberado para operação?"
+        : "Confirmar rejeição e devolução ao operador?"
     );
     if (!okConfirm) return;
 
@@ -234,7 +252,7 @@ export default function FilaAdmTermos() {
       pendentes: termos.filter((t) => t.status === "TERMO_ENVIADO_ADM").length,
       liberados: termos.filter((t) => t.status === "TERMO_RECEBIDO_LIBERADO").length,
       rejeitados: termos.filter((t) => t.status === "TERMO_REJEITADO").length,
-      auditoria: termos.filter((t) => t.status === "TERMO_LIBERADO_AUTOMATICO_GOV").length,
+      auditoria: termos.filter(ehGovPendenteAuditoria).length,
       todos: termos.length,
     };
   }, [termos]);
@@ -243,7 +261,7 @@ export default function FilaAdmTermos() {
     if (filtro === "PENDENTES") return termos.filter((t) => t.status === "TERMO_ENVIADO_ADM");
     if (filtro === "LIBERADOS") return termos.filter((t) => t.status === "TERMO_RECEBIDO_LIBERADO");
     if (filtro === "REJEITADOS") return termos.filter((t) => t.status === "TERMO_REJEITADO");
-    if (filtro === "AUDITORIA") return termos.filter((t) => t.status === "TERMO_LIBERADO_AUTOMATICO_GOV");
+    if (filtro === "AUDITORIA") return termos.filter(ehGovPendenteAuditoria);
     return termos;
   }, [termos, filtro]);
 
@@ -316,7 +334,8 @@ export default function FilaAdmTermos() {
       )}
 
       {termosFiltrados.map((termo) => {
-        const pendente = termo.status === "TERMO_ENVIADO_ADM";
+        const acionavel = ehTermoAcionavel(termo);
+        const ehGov = termo.status === "TERMO_LIBERADO_AUTOMATICO_GOV";
         return (
           <div key={termo.id} style={styles.card}>
             <div style={styles.topoCard}>
@@ -363,9 +382,9 @@ export default function FilaAdmTermos() {
             )}
 
             <div style={styles.acoes}>
-              {pendente ? (
+              {acionavel ? (
                 <button style={styles.botaoValidar} onClick={() => abrirValidacao(termo)}>
-                  Validar assinatura
+                  {ehGov ? "Validar documento (gov.br)" : "Validar assinatura"}
                 </button>
               ) : (
                 termo.arquivo_url && (
@@ -412,8 +431,11 @@ function ModalValidacao(props) {
     motivoTxt, setMotivoTxt, salvando, onFechar, onDecidir,
   } = props;
 
-  const pendente = termo.status === "TERMO_ENVIADO_ADM";
-  const podeDecidir = pendente && !!previewUrl && !previewLoading; // sem doc -> só rejeição
+  const ehGov = termo.status === "TERMO_LIBERADO_AUTOMATICO_GOV";
+  const acionavel = ehTermoAcionavel(termo);
+  // Manual sem doc -> só rejeição. gov.br: anexo é opcional (assinatura já é
+  // eletrônica), então a decisão não exige preview carregado.
+  const podeDecidir = acionavel && !previewLoading && (ehGov || !!previewUrl);
 
   const nomeCampo =
     previewCampo === "rg" ? termo.arquivo_rg_nome
@@ -525,7 +547,7 @@ function ModalValidacao(props) {
             )}
           </div>
 
-          {pendente ? (
+          {acionavel ? (
             <div style={styles.validacaoAcoes}>
               <label style={styles.label}>Observação (aprovação)</label>
               <textarea
@@ -565,28 +587,43 @@ function ModalValidacao(props) {
                   disabled={!podeDecidir || salvando}
                   onClick={() => onDecidir("APROVAR", false)}
                 >
-                  {salvando ? "Processando..." : "Assinatura validada"}
+                  {salvando
+                    ? "Processando..."
+                    : ehGov
+                    ? "Validar e liberar ao operador"
+                    : "Assinatura validada"}
                 </button>
                 <button
                   style={{ ...styles.botaoRejeitar, opacity: salvando ? 0.6 : 1 }}
                   disabled={salvando}
                   onClick={() => onDecidir("REJEITAR", false)}
                 >
-                  Rejeitar assinatura
+                  {ehGov ? "Rejeitar documento" : "Rejeitar assinatura"}
                 </button>
               </div>
-              <button
-                style={{ ...styles.botaoProximo, opacity: podeDecidir && !salvando ? 1 : 0.6 }}
-                disabled={!podeDecidir || salvando}
-                onClick={() => onDecidir("APROVAR", true)}
-              >
-                Validar e abrir próximo
-              </button>
-              {!previewUrl && !previewLoading && (
-                <p style={{ color: "#b45309", fontSize: 13, marginTop: 8 }}>
-                  Sem documento carregado: aprovação bloqueada. É possível rejeitar por arquivo
-                  ilegível/ausente.
+              {!ehGov && (
+                <button
+                  style={{ ...styles.botaoProximo, opacity: podeDecidir && !salvando ? 1 : 0.6 }}
+                  disabled={!podeDecidir || salvando}
+                  onClick={() => onDecidir("APROVAR", true)}
+                >
+                  Validar e abrir próximo
+                </button>
+              )}
+              {ehGov ? (
+                <p style={{ color: "#4b1e8f", fontSize: 13, marginTop: 8 }}>
+                  Assinatura via gov.br já é validada eletronicamente. Confira os dados do
+                  documento e clique em <strong>Validar e liberar ao operador</strong> — só então
+                  o operador é avisado para liberar o acordo. Se algo estiver errado, rejeite.
                 </p>
+              ) : (
+                !previewUrl &&
+                !previewLoading && (
+                  <p style={{ color: "#b45309", fontSize: 13, marginTop: 8 }}>
+                    Sem documento carregado: aprovação bloqueada. É possível rejeitar por arquivo
+                    ilegível/ausente.
+                  </p>
+                )
               )}
             </div>
           ) : (
