@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { supabase } from "../services/supabase";
+import usePolling from "../utils/polling";
 
 // Bloco motivacional no topo da Minha Fila: mostra os acionamentos do
 // operador logado (hoje, semana, mes) e o recorde (melhor dia). Recarrega
@@ -11,11 +12,9 @@ export default function MeusAcionamentos() {
     const { data } = await supabase.rpc("meus_acionamentos_resumo");
     if (data && data.ok) setD(data);
   }
-  useEffect(() => {
-    carregar();
-    const t = setInterval(carregar, 60000);
-    return () => clearInterval(t);
-  }, []);
+  // usePolling pausa em aba oculta, sem sobreposicao e com refresh debounced ao
+  // voltar o foco. Mesma frequencia (60s) quando visivel.
+  usePolling(carregar, 60000, []);
 
   if (!d) return null;
 
