@@ -1,5 +1,5 @@
 import {
-  Tela, IndicadorCard, CardMeta, Ranking, DestaqueOperador,
+  Tela, IndicadorCard, CardMeta, MetaCard, Ranking, DestaqueOperador,
   MensagemInstitucional, Aviso, Treinamento, Conquista,
   moeda, num, statusRitmo, T, fs, layout,
 } from "./tvUI";
@@ -14,6 +14,20 @@ import {
 
 const linha = layout.linhaCards;
 const SR = "Sem registro"; // rótulo padrão p/ indicador inexistente
+
+// Destaque de aniversário só aparece NO DIA exato (data local do painel, sem
+// consultar o banco). data no formato 'YYYY-MM-DD'. Fora do dia → oculto.
+function aniversarioDestaqueHoje(d) {
+  if (!d || d.ativo === false || !d.data) return false;
+  // Modo prévia: /tv?preview=1 força a exibição (para conferir antes do dia).
+  // Não afeta a TV normal — sem o parâmetro, segue a trava de data.
+  try {
+    if (typeof window !== "undefined" && new URLSearchParams(window.location.search).has("preview")) return true;
+  } catch { /* ignore */ }
+  const h = new Date();
+  const iso = `${h.getFullYear()}-${String(h.getMonth() + 1).padStart(2, "0")}-${String(h.getDate()).padStart(2, "0")}`;
+  return d.data === iso;
+}
 
 function Vazio({ children }) {
   return <div style={{ fontSize: fs(16, 1.7, 42), color: T.textoMudo, fontWeight: 600, textAlign: "center" }}>{children}</div>;
@@ -59,8 +73,19 @@ function TelaResultadoMes({ snap }) {
     : m.necessidade_diaria == null
       ? "Sem dias úteis restantes."
       : `${moeda(m.necessidade_diaria)}/dia útil`;
+  const metaDetalhe = m.meta_atingida
+    ? `Meta batida! Honorários já passaram de ${moeda(m.meta_empresa)}.`
+    : `Faltam ${moeda(m.meta_falta)} · projeção de fechamento ${moeda(m.proj_honorarios)}` +
+      (m.proj_honorarios_pct != null ? ` (${Math.round(m.proj_honorarios_pct)}% da meta)` : "");
   return (
     <Tela titulo="Resultado do Mês" icone="📊">
+      <MetaCard
+        titulo="Meta de honorários do mês"
+        valor={moeda(m.honorarios)}
+        alvo={moeda(m.meta_empresa)}
+        pct={m.meta_pct}
+        detalhe={metaDetalhe}
+      />
       <div style={linha}>
         <IndicadorCard rotulo="Recuperado no mês" valor={moeda(m.recuperado)} tom="verde" grande />
         <IndicadorCard rotulo="Honorários no mês" valor={moeda(m.honorarios)} tom="azul" grande />
@@ -233,6 +258,55 @@ function TelaAvisos({ snap, indiceGiro = 0 }) {
   );
 }
 
+// 8) Elogios de atendimento (aprovados para a TV) ----------------------------
+//    Fonte: snap.elogios (aluno_movimentacoes com elogio_aprovado_tv). Só TEXTO
+//    — quem foi elogiado e quando. O print fica na aprovação; a TV celebra o nome.
+function TelaElogios({ snap }) {
+  const elogios = snap?.elogios || [];
+  if (elogios.length === 0) return <Tela titulo="Elogios" icone="💙"><Vazio>Sem elogio aprovado nesta atualização.</Vazio></Tela>;
+  return (
+    <Tela titulo="Elogios ao Atendimento" icone="💙">
+      <MensagemInstitucional badge="Reconhecimento" titulo="Elogio de quem foi bem atendido"
+        texto="Cada elogio é um cliente que saiu satisfeito. Parabéns a quem fez acontecer." />
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "2vh 2vw", justifyContent: "center", width: "84%" }}>
+        {elogios.slice(0, 6).map((e, i) => (
+          <div key={e.id || i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.4vh",
+            background: T.surface, border: `1px solid ${T.surfaceBorda}`, borderRadius: "1.2vh", padding: "1.6vh 2vw", minWidth: "22vw" }}>
+            <span style={{ fontSize: fs(22, 2.6, 64), fontWeight: 900, color: T.texto }}>{e.registrado_por_nome || "Equipe"}</span>
+            <span style={{ fontSize: fs(12, 1.2, 26), fontWeight: 700, color: T.textoMudo }}>💙 Elogio ao atendimento</span>
+          </div>
+        ))}
+      </div>
+    </Tela>
+  );
+}
+
+// 9) Aniversário com destaque (foto + mensagem) ------------------------------
+//    Fonte: snap.aniversario_destaque { nome, mensagem, foto, data }. A DATA
+//    controla a exibição no cliente (só aparece no dia exato) — ver catálogo.
+function TelaAniversarioDestaque({ snap }) {
+  const d = snap?.aniversario_destaque;
+  if (!d) return null;
+  return (
+    <Tela titulo="Aniversário de Hoje" icone="🎉">
+      <div style={{ display: "flex", alignItems: "center", gap: "4vw", width: "84%", justifyContent: "center", flexWrap: "wrap" }}>
+        {d.foto && (
+          <img src={d.foto} alt={d.nome || "Aniversariante"}
+            style={{ width: "min(32vh, 28vw)", height: "min(42vh, 38vw)", objectFit: "cover", objectPosition: "center 25%",
+              borderRadius: "2.4vh", border: `0.5vh solid ${T.azulClaro}`, boxShadow: "0 0 40px rgba(59,130,246,0.5)" }} />
+        )}
+        <div style={{ display: "flex", flexDirection: "column", gap: "1.4vh", maxWidth: "44vw" }}>
+          <div style={{ fontSize: fs(34, 4.4, 96) }}>🎂</div>
+          <div style={{ fontSize: fs(30, 3.8, 92), fontWeight: 900, color: T.texto, lineHeight: 1 }}>{d.nome}</div>
+          <div style={{ fontSize: fs(16, 1.8, 44), fontWeight: 700, color: T.textoSuave, lineHeight: 1.3 }}>
+            {d.mensagem || "Feliz aniversário! Que seu dia seja especial."}
+          </div>
+        </div>
+      </div>
+    </Tela>
+  );
+}
+
 // --- Telas mantidas no código, DESATIVADAS até etapas futuras ---
 function TelaHallFama({ snap }) {
   return <Tela titulo="Hall da Fama" icone="👑"><Vazio>Em breve.</Vazio></Tela>;
@@ -260,7 +334,9 @@ export const CATALOGO_TELAS = [
   { id: "julho", nome: "Julho Histórico", Comp: TelaJulhoHistorico, ativa: true, temConteudo: (s) => s?.julho_historico?.ativo === true },
   { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings, ativa: true, temConteudo: (s) => {
       const r = s?.rankings || {}; return !!(r.melhor_mes?.operador || (r.top3_mes || []).length > 0 || r.maior_pagamento_mes); } },
+  { id: "aniversario_destaque", nome: "Aniversário (destaque)", Comp: TelaAniversarioDestaque, ativa: true, temConteudo: (s) => aniversarioDestaqueHoje(s?.aniversario_destaque) },
   { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes, ativa: true, temConteudo: (s) => (s?.aniversariantes || []).length > 0 || (s?.aniversariantes_hoje || []).length > 0 },
+  { id: "elogios", nome: "Elogios", Comp: TelaElogios, ativa: true, temConteudo: (s) => (s?.elogios || []).length > 0 },
   { id: "avisos", nome: "Avisos", Comp: TelaAvisos, ativa: true, temConteudo: (s) => (s?.avisos || []).length > 0 },
   // --- estrutura pronta, DESATIVADA (etapas futuras) ---
   { id: "hall", nome: "Hall da Fama", Comp: TelaHallFama, ativa: false, temConteudo: sempre },

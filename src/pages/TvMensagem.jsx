@@ -82,10 +82,11 @@ export default function TvMensagem() {
             <input
               value={titulo}
               onChange={(e) => setTitulo(e.target.value)}
-              placeholder="🔥 BORA TIME! 🔥"
+              placeholder="Título da mensagem"
               maxLength={80}
               style={inp}
             />
+            <span style={contador}>{titulo.length}/80</span>
           </label>
 
           <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
@@ -93,11 +94,12 @@ export default function TvMensagem() {
             <textarea
               value={texto}
               onChange={(e) => setTexto(e.target.value)}
-              placeholder="Meta do mês: R$ 500 mil em honorários"
+              placeholder="Texto de apoio da mensagem"
               maxLength={200}
               rows={3}
               style={{ ...inp, resize: "vertical" }}
             />
+            <span style={contador}>{texto.length}/200</span>
           </label>
 
           <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#0f172a", fontWeight: 600 }}>
@@ -120,8 +122,8 @@ export default function TvMensagem() {
             <strong>Prévia do slide:</strong>
             <div style={{ marginTop: 8, background: "linear-gradient(135deg,#6d28d9,#1d4ed8)", color: "#fff", borderRadius: 10, padding: "18px", textAlign: "center" }}>
               <div style={{ fontSize: 12, color: "#fde68a", fontWeight: 800, letterSpacing: 2 }}>✨ CAMPANHA ESPECIAL ✨</div>
-              <div style={{ fontSize: 26, fontWeight: 900, margin: "6px 0" }}>{titulo || "🔥 BORA TIME! 🔥"}</div>
-              <div style={{ fontSize: 15, fontWeight: 700 }}>{texto || "Meta do mês: R$ 500 mil em honorários"}</div>
+              <div style={{ fontSize: 26, fontWeight: 900, margin: "6px 0", opacity: titulo ? 1 : 0.5 }}>{titulo || "Título da mensagem"}</div>
+              <div style={{ fontSize: 15, fontWeight: 700, opacity: texto ? 1 : 0.5 }}>{texto || "Texto de apoio da mensagem"}</div>
             </div>
           </div>
         </div>
@@ -131,6 +133,7 @@ export default function TvMensagem() {
 }
 
 const lbl = { fontSize: 13, fontWeight: 700, color: "#334155" };
+const contador = { fontSize: 11, color: "#94a3b8", fontWeight: 600, alignSelf: "flex-end" };
 const inp = { border: "1px solid #cbd5e1", borderRadius: 10, padding: "10px 12px", fontSize: 15, color: "#0f172a", outline: "none" };
 const btnPrimario = { background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 800, cursor: "pointer" };
 const btnSecundario = { background: "#e2e8f0", color: "#0f172a", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, cursor: "pointer" };
