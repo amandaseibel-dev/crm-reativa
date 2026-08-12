@@ -1,5 +1,6 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { supabase } from "../services/supabase";
+import usePolling from "../utils/polling";
 
 function inicioDoDiaISO() {
   const agora = new Date();
@@ -25,42 +26,41 @@ const CARTOES = [
 export default function ResumoDoDia({ usuarioLogado }) {
   const [contagens, setContagens] = useState(null);
 
-  useEffect(() => {
+  async function carregar() {
     if (!usuarioLogado?.email) return;
 
-    async function carregar() {
-      const { data } = await supabase
-        .from("aluno_movimentacoes")
-        .select("tipo, status_novo")
-        .eq("registrado_por_email", usuarioLogado.email)
-        .gte("registrado_em", inicioDoDiaISO())
-        .lte("registrado_em", fimDoDiaISO());
+    const { data } = await supabase
+      .from("aluno_movimentacoes")
+      .select("tipo, status_novo")
+      .eq("registrado_por_email", usuarioLogado.email)
+      .gte("registrado_em", inicioDoDiaISO())
+      .lte("registrado_em", fimDoDiaISO());
 
-      const linhas = data || [];
+    const linhas = data || [];
 
-      const totalFinalizados = linhas.filter(
-        (l) => l.tipo === "FINALIZACAO_ATENDIMENTO"
+    const totalFinalizados = linhas.filter(
+      (l) => l.tipo === "FINALIZACAO_ATENDIMENTO"
+    ).length;
+
+    const contar = (statusNovo) =>
+      linhas.filter(
+        (l) => l.tipo === "FINALIZACAO_ATENDIMENTO" && l.status_novo === statusNovo
       ).length;
 
-      const contar = (statusNovo) =>
-        linhas.filter(
-          (l) => l.tipo === "FINALIZACAO_ATENDIMENTO" && l.status_novo === statusNovo
-        ).length;
+    setContagens({
+      acordosFechados: contar("ACORDO_FECHADO"),
+      mensagensEnviadas: contar("MENSAGEM_ENVIADA"),
+      semRetorno: contar("SEM_RETORNO"),
+      naoLocalizado: contar("NAO_LOCALIZADO"),
+      linksEnviados: linhas.filter((l) => l.tipo === "LINK_ENVIADO_AO_ALUNO").length,
+      totalFinalizados,
+    });
+  }
 
-      setContagens({
-        acordosFechados: contar("ACORDO_FECHADO"),
-        mensagensEnviadas: contar("MENSAGEM_ENVIADA"),
-        semRetorno: contar("SEM_RETORNO"),
-        naoLocalizado: contar("NAO_LOCALIZADO"),
-        linksEnviados: linhas.filter((l) => l.tipo === "LINK_ENVIADO_AO_ALUNO").length,
-        totalFinalizados,
-      });
-    }
-
-    carregar();
-    const intervalo = setInterval(carregar, 60000); // contenção: 30s -> 60s
-    return () => clearInterval(intervalo);
-  }, [usuarioLogado?.email]);
+  // usePolling pausa quando a aba esta oculta, sem sobreposicao e com refresh
+  // debounced ao voltar o foco. Mesma frequencia (60s) quando visivel -- o
+  // operador nao perde nada; corta as queries desperdicadas de abas em 2o plano.
+  usePolling(carregar, 60000, [usuarioLogado?.email], Boolean(usuarioLogado?.email));
 
   if (!contagens) return null;
 
