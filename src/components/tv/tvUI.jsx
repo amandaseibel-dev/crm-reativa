@@ -425,6 +425,32 @@ export function Palco({ chave, children }) {
   );
 }
 
+// Faixa de texto extra editável pela gestão (painel da TV) --------------------
+// Renderizada pelo orquestrador em volta de QUALQUER slide: `topo` = subtítulo
+// logo abaixo do cabeçalho; `rodape` = observação em faixa acima do rodapé.
+// Puramente visual — o texto vem do snapshot (telas_config[id]); sem I/O.
+export function FaixaExtra({ texto, posicao = "rodape" }) {
+  if (!texto) return null;
+  if (posicao === "topo") {
+    return (
+      <div style={{ flex: "0 0 auto", textAlign: "center", padding: "0.4vh 0 0.2vh", width: "100%",
+        fontSize: fs(15, 1.6, 38), fontWeight: 800, color: T.azulClaro, lineHeight: 1.2,
+        textShadow: "0 0 22px rgba(59,130,246,0.35)" }}>
+        {texto}
+      </div>
+    );
+  }
+  return (
+    <div style={{ flex: "0 0 auto", display: "flex", justifyContent: "center", padding: "0.6vh 0 0.2vh", width: "100%" }}>
+      <div style={{ background: T.surface, border: `1px solid ${T.surfaceBorda}`, borderLeft: `5px solid ${T.ambar}`,
+        borderRadius: 12, padding: "0.8vh 1.6vw", maxWidth: "82vw", textAlign: "center",
+        fontSize: fs(14, 1.4, 32), fontWeight: 700, color: T.textoSuave, lineHeight: 1.3 }}>
+        {texto}
+      </div>
+    </div>
+  );
+}
+
 // Estilos ---------------------------------------------------------------------
 const s = {
   cab: { display: "flex", alignItems: "center", justifyContent: "space-between", paddingBottom: "1.6vh", borderBottom: "1px solid rgba(148,163,184,0.18)" },

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import {
-  Cabecalho, Rodape, Palco, EstadoCarregando, EstadoSemSnapshot, EstadoErro, Marca, T, AREA_SEGURA, fs,
+  Cabecalho, Rodape, Palco, FaixaExtra, EstadoCarregando, EstadoSemSnapshot, EstadoErro, Marca, T, AREA_SEGURA, fs,
 } from "../components/tv/tvUI";
 import { telasVisiveis } from "../components/tv/tvTelas";
 
@@ -186,9 +186,11 @@ export default function TvElogios() {
       return (
         <>
           <Cabecalho tela={tela.nome} />
+          {tela.extras?.subtitulo && <FaixaExtra texto={tela.extras.subtitulo} posicao="topo" />}
           <Palco chave={`${tela.id}-${giro}`}>
-            <Comp snap={snap} indiceGiro={giro} elogioUrl={elogioUrl} />
+            <Comp snap={snap} indiceGiro={giro} elogioUrl={elogioUrl} extras={tela.extras} />
           </Palco>
+          {tela.extras?.observacao && <FaixaExtra texto={tela.extras.observacao} posicao="rodape" />}
           <Rodape geradoEm={meta?.gerado_em} indice={indice % total} total={total} />
         </>
       );

@@ -392,33 +392,106 @@ function TelaFechamento({ snap }) {
   return <Tela titulo="Modo Fechamento" icone="🏁"><Vazio>Em breve.</Vazio></Tela>;
 }
 
-// Catálogo do carrossel (ordem oficial da Etapa 3, §8) ------------------------
-//   ativa       -> regra definitiva pronta (false = no código, oculta na TV)
-//   temConteudo -> há dado válido no snapshot para exibir agora
-// A TV monta o carrossel só com telas (ativa && temConteudo(snap)), sem buracos.
+// Catálogo do carrossel --------------------------------------------------------
+//   ativa       -> padrão de fábrica (mostrar/ocultar). O painel da TV
+//                  (tv_config.telas_config) pode SOBREPOR por slide.
+//   temConteudo -> há dado válido no snapshot para exibir agora (trava dura:
+//                  a TV NUNCA mostra um slide sem conteúdo, mesmo se ligado).
+//   descricao/grupo/placeholder -> metadados para o painel de edição.
+// A ordem final do carrossel vem de tv_config.telas_config[id].ordem (asc),
+// com fallback para a ordem deste array.
 const sempre = () => true;
 export const CATALOGO_TELAS = [
-  { id: "hoje", nome: "Hoje na Operação", Comp: TelaHoje, ativa: true, temConteudo: (s) => !!s?.hoje },
-  { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, temConteudo: (s) => !!s?.mes },
-  { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: false, temConteudo: (s) => (s?.metas || []).length > 0 },
-  { id: "premiacao", nome: "Premiação", Comp: TelaPremiacao, ativa: false, temConteudo: (s) => (s?.premiacao?.faixas || []).length > 0 },
-  { id: "julho", nome: "Julho Histórico", Comp: TelaJulhoHistorico, ativa: true, temConteudo: (s) => s?.julho_historico?.ativo === true },
-  { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings, ativa: true, temConteudo: (s) => {
+  { id: "hoje", nome: "Hoje na Operação", Comp: TelaHoje, ativa: true, grupo: "operacao",
+    descricao: "Indicadores do dia: recuperado, honorários e destaques de operadores.",
+    temConteudo: (s) => !!s?.hoje },
+  { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, grupo: "operacao",
+    descricao: "Acumulado do mês, projeção de fechamento e ritmo necessário.",
+    temConteudo: (s) => !!s?.mes },
+  { id: "metas", nome: "Metas", Comp: TelaMetas, ativa: false, grupo: "operacao",
+    descricao: "Cards de metas (empresa, magic, marco histórico).",
+    temConteudo: (s) => (s?.metas || []).length > 0 },
+  { id: "premiacao", nome: "Premiação", Comp: TelaPremiacao, ativa: false, grupo: "operacao",
+    descricao: "Faixas de comissão do mês (M1 a M4).",
+    temConteudo: (s) => (s?.premiacao?.faixas || []).length > 0 },
+  { id: "julho", nome: "Julho Histórico", Comp: TelaJulhoHistorico, ativa: true, grupo: "comunicacao",
+    descricao: "Reconhecimento das metas batidas em julho (ativável em tv_config).",
+    temConteudo: (s) => s?.julho_historico?.ativo === true },
+  { id: "rankings", nome: "Rankings e Destaques", Comp: TelaRankings, ativa: true, grupo: "operacao",
+    descricao: "Melhores do dia/mês, mais pagamentos e maior pagamento único.",
+    temConteudo: (s) => {
       const r = s?.rankings || {}; return !!(r.melhor_mes?.operador || (r.top3_mes || []).length > 0 || r.maior_pagamento_mes); } },
-  { id: "aniversario_destaque", nome: "Aniversário (destaque)", Comp: TelaAniversarioDestaque, ativa: true, temConteudo: (s) => aniversarioDestaqueHoje(s?.aniversario_destaque) },
-  { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes, ativa: true, temConteudo: (s) => (s?.aniversariantes || []).length > 0 || (s?.aniversariantes_hoje || []).length > 0 },
-  { id: "magic_number", nome: "Magic Number", Comp: TelaMagicNumber, ativa: true, temConteudo: (s) => Number(s?.mes?.meta_empresa || 0) > 0 },
-  { id: "destaque_semana", nome: "Destaque da Semana", Comp: TelaDestaqueSemana, ativa: true, temConteudo: (s) => (s?.dados?.ranking_semana || []).length > 0 },
-  { id: "acionamentos_dia", nome: "Acionamentos do Dia", Comp: TelaAcionamentosDia, ativa: true, temConteudo: (s) => (s?.rank?.top_dia || []).length > 0 },
-  { id: "elogios", nome: "Elogios", Comp: TelaElogios, ativa: true, temConteudo: (s) => (s?.elogios || []).length > 0 },
-  { id: "avisos", nome: "Avisos", Comp: TelaAvisos, ativa: true, temConteudo: (s) => (s?.avisos || []).length > 0 },
-  // --- estrutura pronta, DESATIVADA (etapas futuras) ---
-  { id: "hall", nome: "Hall da Fama", Comp: TelaHallFama, ativa: false, temConteudo: sempre },
-  { id: "treinamento", nome: "Treinamento", Comp: TelaTreinamento, ativa: false, temConteudo: sempre },
-  { id: "reconhecimento", nome: "Reconhecimento", Comp: TelaReconhecimento, ativa: false, temConteudo: sempre },
-  { id: "fechamento", nome: "Modo Fechamento", Comp: TelaFechamento, ativa: false, temConteudo: sempre },
+  { id: "aniversario_destaque", nome: "Aniversário (destaque)", Comp: TelaAniversarioDestaque, ativa: true, grupo: "pessoas",
+    descricao: "Aniversário com foto e mensagem — só aparece no dia exato.",
+    temConteudo: (s) => aniversarioDestaqueHoje(s?.aniversario_destaque) },
+  { id: "aniversariantes", nome: "Aniversariantes", Comp: TelaAniversariantes, ativa: true, grupo: "pessoas",
+    descricao: "Aniversariantes do mês (ou do dia, com destaque).",
+    temConteudo: (s) => (s?.aniversariantes || []).length > 0 || (s?.aniversariantes_hoje || []).length > 0 },
+  { id: "magic_number", nome: "Magic Number", Comp: TelaMagicNumber, ativa: true, grupo: "operacao",
+    descricao: "Meta de superação = 150% da meta de honorários.",
+    temConteudo: (s) => Number(s?.mes?.meta_empresa || 0) > 0 },
+  { id: "destaque_semana", nome: "Destaque da Semana", Comp: TelaDestaqueSemana, ativa: true, grupo: "operacao",
+    descricao: "Campeão da semana por pagamentos únicos (com vice e 3º).",
+    temConteudo: (s) => (s?.dados?.ranking_semana || []).length > 0 },
+  { id: "acionamentos_dia", nome: "Acionamentos do Dia", Comp: TelaAcionamentosDia, ativa: true, grupo: "operacao",
+    descricao: "Top 3 de quem mais acionou hoje, com as quantidades.",
+    temConteudo: (s) => (s?.rank?.top_dia || []).length > 0 },
+  { id: "elogios", nome: "Elogios", Comp: TelaElogios, ativa: true, grupo: "pessoas",
+    descricao: "Elogios de atendimento aprovados para a TV.",
+    temConteudo: (s) => (s?.elogios || []).length > 0 },
+  { id: "avisos", nome: "Avisos", Comp: TelaAvisos, ativa: true, grupo: "comunicacao",
+    descricao: "Recados e avisos — editados na seção \"Mensagem / Avisos\" abaixo.",
+    temConteudo: (s) => (s?.avisos || []).length > 0 },
+  // --- estrutura pronta, EM CONSTRUÇÃO (mostram apenas "Em breve") ---
+  { id: "hall", nome: "Hall da Fama", Comp: TelaHallFama, ativa: false, grupo: "construcao", placeholder: true,
+    descricao: "Em construção — ainda sem conteúdo real.", temConteudo: sempre },
+  { id: "treinamento", nome: "Treinamento", Comp: TelaTreinamento, ativa: false, grupo: "construcao", placeholder: true,
+    descricao: "Em construção — ainda sem conteúdo real.", temConteudo: sempre },
+  { id: "reconhecimento", nome: "Reconhecimento", Comp: TelaReconhecimento, ativa: false, grupo: "construcao", placeholder: true,
+    descricao: "Em construção — ainda sem conteúdo real.", temConteudo: sempre },
+  { id: "fechamento", nome: "Modo Fechamento", Comp: TelaFechamento, ativa: false, grupo: "construcao", placeholder: true,
+    descricao: "Em construção — ainda sem conteúdo real.", temConteudo: sempre },
 ];
 
+// Resolve a config de UM slide (mescla o override do painel sobre o padrão do
+// catálogo). Fonte única usada tanto pela TV quanto pelo painel de edição.
+function resolverTela(t, indice, cfg) {
+  const c = (cfg && cfg[t.id]) || {};
+  return {
+    visivel: typeof c.visivel === "boolean" ? c.visivel : !!t.ativa,
+    ordem: Number.isFinite(c.ordem) ? c.ordem : indice + 1,
+    subtitulo: typeof c.subtitulo === "string" ? c.subtitulo : "",
+    observacao: typeof c.observacao === "string" ? c.observacao : "",
+  };
+}
+
+// Telas que a TV realmente exibe, na ordem final. A visibilidade do painel
+// sobrepõe o padrão, mas temConteudo continua sendo trava dura (sem slide vazio).
 export function telasVisiveis(snap) {
-  return CATALOGO_TELAS.filter((t) => t.ativa && t.temConteudo(snap));
+  const cfg = snap?.telas_config || {};
+  return CATALOGO_TELAS
+    .map((t, i) => {
+      const r = resolverTela(t, i, cfg);
+      return { ...t, visivel: r.visivel, ordem: r.ordem, extras: { subtitulo: r.subtitulo, observacao: r.observacao } };
+    })
+    .filter((t) => t.visivel && t.temConteudo(snap))
+    .sort((a, b) => a.ordem - b.ordem);
+}
+
+// Lista completa para o painel de edição (todos os slides, inclusive ocultos e
+// em construção), já ordenada, com o estado atual e se há conteúdo agora.
+// `cfg` = valor de tv_config.telas_config; `snap` = último snapshot (para
+// avaliar temConteudo). Ambos opcionais.
+export function telasParaAdmin(snap, cfg) {
+  return CATALOGO_TELAS
+    .map((t, i) => {
+      const r = resolverTela(t, i, cfg);
+      return {
+        id: t.id, nome: t.nome, descricao: t.descricao || "", grupo: t.grupo || "operacao",
+        placeholder: !!t.placeholder,
+        visivel: r.visivel, ordem: r.ordem, subtitulo: r.subtitulo, observacao: r.observacao,
+        temConteudoAgora: snap ? !!t.temConteudo(snap) : null,
+      };
+    })
+    .sort((a, b) => a.ordem - b.ordem);
 }

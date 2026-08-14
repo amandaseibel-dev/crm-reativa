@@ -2528,6 +2528,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               />
               <select style={S.select} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
                 <option value="TODOS">Todos os status</option>
+                <option value="Novo">Novo</option>
                 <option value="Dentro do prazo">Dentro do prazo</option>
                 <option value="Atencao">Atencao</option>
                 <option value="Critico">Critico</option>
