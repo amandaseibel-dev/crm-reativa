@@ -887,16 +887,17 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       }
       // Alunos com confirmacao de pagamento PENDENTE saem da fila operacional,
       // mesmo que o texto de status ainda nao reflita "pago". Fonte de verdade =
-      // solicitacoes_confirmacao_pagamento (PENDENTES).
+      // RPC alunos_em_confirmacao_pendente() (SECURITY DEFINER): devolve TODOS os
+      // aluno_id em confirmacao, independentemente de quem filtrou o pagamento.
+      // Ler a tabela direto NAO servia: a policy de SELECT so mostra as
+      // solicitacoes do proprio operador; quando o caso foi remanejado depois do
+      // pagamento, o dono atual nao via a solicitacao e o pago continuava na fila.
       const idsEmConfirmacao = new Set();
       try {
-        const { data: pendentesConf } = await supabase
-          .from("solicitacoes_confirmacao_pagamento")
-          .select("aluno_id")
-          .in("status", ["AGUARDANDO_CONFIRMACAO", "PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO"])
-          .limit(20000);
+        const { data: pendentesConf } = await supabase.rpc("alunos_em_confirmacao_pendente");
         (pendentesConf || []).forEach((p) => {
-          if (p?.aluno_id != null) idsEmConfirmacao.add(String(p.aluno_id));
+          const id = p?.aluno_id ?? p;
+          if (id != null) idsEmConfirmacao.add(String(id));
         });
       } catch (e) {
         console.error("Erro ao carregar confirmacoes pendentes (fila):", e);
