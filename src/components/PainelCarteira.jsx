@@ -482,10 +482,14 @@ function mostrarSeloCriticidade(a) {
 // isso PERMANECE na fila.
 const STATUS_NAO_ACIONAVEIS = ["JURIDICO", "CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "AGUARDANDO_BAIXA", "SALDO_ZERO_CONFIRMADO", "SEM_SALDO_EM_ABERTO"];
 
-function ehNaoAcionavel(a) {
+function ehNaoAcionavel(a, idsEmConfirmacao) {
   const s = String(a?.status_atual || "").toUpperCase();
   if (s.startsWith("QUITAD")) return true; // QUITADO / QUITADO_MANUAL / QUITACAO...
   if (STATUS_NAO_ACIONAVEIS.includes(a?.status_atual)) return true;
+  // Tem solicitacao de confirmacao de pagamento PENDENTE: ja esta no fluxo de
+  // Confirmacao de Pagamento, sai da fila operacional (fonte de verdade =
+  // solicitacoes_confirmacao_pagamento, nao o texto de status).
+  if (idsEmConfirmacao && idsEmConfirmacao.has(String(a?.id))) return true;
   // "Aguardando confirmacao de pagamento": caso ja foi para a etapa de
   // confirmacao (operador registrou o valor). Nao ha cobranca a fazer enquanto
   // a confirmacao nao e resolvida -- sai da fila operacional e segue apenas no
@@ -608,6 +612,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [desempenho, setDesempenho] = useState(null);
   const [acionadosHojeIds, setAcionadosHojeIds] = useState([]);
   const [semPrimeiroIds, setSemPrimeiroIds] = useState([]);
+  // aluno_ids com solicitacao de confirmacao de pagamento PENDENTE. Enquanto a
+  // confirmacao nao e resolvida (validada ou rejeitada), o aluno sai da fila
+  // operacional -- independentemente do texto de status_atual/status_jornada,
+  // que nem sempre reflete o "pago". Fonte de verdade =
+  // solicitacoes_confirmacao_pagamento (ver [[auto-sair-fila-quitou-ou-confirmacao]]).
+  const idsEmConfirmacaoRef = useRef(new Set());
 
   // ---- Modal operacional ----
   const [modalAberto, setModalAberto] = useState(false);
@@ -875,9 +885,27 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         if (!parte || parte.length < PAGINA || todas.length >= TETO) break;
         inicio += PAGINA;
       }
+      // Alunos com confirmacao de pagamento PENDENTE saem da fila operacional,
+      // mesmo que o texto de status ainda nao reflita "pago". Fonte de verdade =
+      // solicitacoes_confirmacao_pagamento (PENDENTES).
+      const idsEmConfirmacao = new Set();
+      try {
+        const { data: pendentesConf } = await supabase
+          .from("solicitacoes_confirmacao_pagamento")
+          .select("aluno_id")
+          .in("status", ["AGUARDANDO_CONFIRMACAO", "PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO"])
+          .limit(20000);
+        (pendentesConf || []).forEach((p) => {
+          if (p?.aluno_id != null) idsEmConfirmacao.add(String(p.aluno_id));
+        });
+      } catch (e) {
+        console.error("Erro ao carregar confirmacoes pendentes (fila):", e);
+      }
+      idsEmConfirmacaoRef.current = idsEmConfirmacao;
+
       // Lista operacional: fora quitados e demais nao-acionaveis (status
       // existentes). Casos continuam no banco para consulta/historico.
-      const listaAtiva = todas.filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a));
+      const listaAtiva = todas.filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a, idsEmConfirmacao));
       setCasos(listaAtiva);
 
       // Contagens por data (usam a mesma base escopada).
@@ -892,7 +920,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       );
 
       const [rRetHoje, rSemAcion10, rProx] = await Promise.all([cRetHoje, cSemAcion10, cProx]);
-      const soAcionaveis = (r) => (r?.data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a));
+      const soAcionaveis = (r) => (r?.data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a, idsEmConfirmacao));
       const nRetHoje = soAcionaveis(rRetHoje).length;
       const nSemAcion10 = soAcionaveis(rSemAcion10).length;
       const nProx = soAcionaveis(rProx).length;
@@ -1720,17 +1748,17 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         dados = casos.filter((a) => idset.has(String(a.id)));
       } else if (kpi === "retornosHoje") {
         const { data } = await base().eq("data_retorno", hoje).limit(5000);
-        dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a));
+        dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a, idsEmConfirmacaoRef.current));
       } else if (kpi === "semAcionamento10") {
         const { data } = await base().lte("data_ultimo_acionamento", corteDias(10)).limit(5000);
-        dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a));
+        dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a, idsEmConfirmacaoRef.current));
       } else if (kpi === "proximosPerder") {
         // 9 ou 10 dias sem acionamento (no 11o dia ficam elegiveis ao Receptivo).
         const { data } = await base()
           .lte("data_ultimo_acionamento", corteDias(9))
           .gt("data_ultimo_acionamento", corteDias(11))
           .limit(5000);
-        dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a));
+        dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a, idsEmConfirmacaoRef.current));
       } else if (kpi === "retornosAdm") {
         const ids = [...new Set(retornosPendentes.map((r) => r.aluno_id).filter(Boolean))];
         if (ids.length) {
@@ -2528,6 +2556,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               />
               <select style={S.select} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
                 <option value="TODOS">Todos os status</option>
+                <option value="Novo">Novo</option>
                 <option value="Dentro do prazo">Dentro do prazo</option>
                 <option value="Atencao">Atencao</option>
                 <option value="Critico">Critico</option>
