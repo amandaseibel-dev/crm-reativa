@@ -850,48 +850,32 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       return;
     }
     setSalvandoCadastro(true);
-    const nomeAnterior = pegarCampo(
-      alunoSelecionado,
-      ["nome", "nome_aluno", "aluno"],
-      ""
-    );
-    const cpfAnterior = pegarCampo(alunoSelecionado, ["cpf", "CPF"], "");
-    const telefoneAnterior = pegarCampo(alunoSelecionado, ["telefone", "Telefone"], "");
-    const emailAnterior = pegarCampo(alunoSelecionado, ["email", "Email", "e_mail"], "");
-    const { error } = await supabase
-      .from("alunos")
-      .update({
-        nome: nomeEditado.trim(),
-        cpf: cpfEditado.trim(),
-        telefone: telefoneEditado.trim() || null,
-        email: emailEditado.trim() || null,
-        atualizado_em: new Date().toISOString(),
-      })
-      .eq("id", alunoSelecionado.id);
+    // Grava via RPC SECURITY DEFINER: contorna a RLS de UPDATE (que barra
+    // silenciosamente, com 0 linhas e sem erro, quando o aluno não tem
+    // responsável) e devolve erro explícito. A auditoria é registrada dentro
+    // da própria RPC.
+    const { error } = await supabase.rpc("corrigir_cadastro_aluno", {
+      p_aluno_id: alunoSelecionado.id,
+      p_nome: nomeEditado.trim(),
+      p_cpf: cpfEditado.trim(),
+      p_telefone: telefoneEditado.trim() || null,
+      p_email: emailEditado.trim() || null,
+    });
     setSalvandoCadastro(false);
     if (error) {
       console.error("Erro ao atualizar cadastro:", error);
-      alert("Erro ao salvar cadastro: " + error.message);
+      const traducoes = {
+        NOME_OBRIGATORIO: "Informe o nome do aluno.",
+        CPF_OBRIGATORIO: "Informe o CPF do aluno.",
+        ALUNO_NAO_ENCONTRADO: "Aluno não encontrado. Recarregue a página e tente de novo.",
+        SEM_PERMISSAO_CORRIGIR_CADASTRO: "Sem permissão para corrigir este cadastro.",
+      };
+      const chave = Object.keys(traducoes).find((k) =>
+        (error.message || "").includes(k)
+      );
+      alert("Erro ao salvar cadastro: " + (chave ? traducoes[chave] : error.message));
       return;
     }
-    await supabase.from("aluno_movimentacoes").insert({
-      aluno_id: String(alunoSelecionado.id),
-      tipo: "CORRECAO_CADASTRO",
-      descricao: `Cadastro corrigido. Nome: "${nomeAnterior}" -> "${nomeEditado.trim()}". CPF: "${cpfAnterior}" -> "${cpfEditado.trim()}". Telefone: "${telefoneAnterior}" -> "${telefoneEditado.trim()}". E-mail: "${emailAnterior}" -> "${emailEditado.trim()}".`,
-      status_anterior: pegarCampo(
-        alunoSelecionado,
-        ["status_jornada", "status_atual", "status"],
-        null
-      ),
-      status_novo: pegarCampo(
-        alunoSelecionado,
-        ["status_jornada", "status_atual", "status"],
-        null
-      ),
-      registrado_por_nome: usuarioLogado?.nome,
-      registrado_por_email: usuarioLogado?.email,
-      registrado_em: new Date().toISOString(),
-    });
     setEditandoCadastro(false);
     await recarregarAlunoSelecionado(alunoSelecionado.id);
     await carregarMovimentacoes(alunoSelecionado.id);
