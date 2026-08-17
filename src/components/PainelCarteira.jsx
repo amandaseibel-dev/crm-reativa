@@ -258,6 +258,9 @@ function labelStatus(s) {
 
 function situacaoLabel(a) {
   const s = a?.status_atual || a?.status_jornada || "";
+  // Mesma premissa do statusPrazo: baixa realizada que ainda carrega saldo
+  // vencido e pagamento PARCIAL -- a tabulacao nao pode se ler como "Pago".
+  if (s === "BAIXA_REALIZADA" && !semSaldoVencido(a)) return "Pago parcial";
   if (MAPA_SITUACAO[s]) return MAPA_SITUACAO[s];
   if (!s || s === "Novo caso") return "Sem contato";
   return s;
@@ -334,7 +337,15 @@ function statusPrazo(a) {
   if (sit === "JURIDICO") return { label: "Juridico", cor: "#7c3aed" };
   if (["ACORDO_FECHADO", "AGUARDANDO_BAIXA", "AGUARDANDO_COMPROVANTE", "SOLICITADO_LINK", "LINK_ENVIADO_AO_ALUNO"].includes(sit))
     return { label: "Aguardando pgto", cor: "#2563eb" };
-  if (sit === "BAIXA_REALIZADA") return { label: "Pago", cor: "#16a34a" };
+  // PREMISSA DO SISTEMA: "Pago" so existe com SALDO ZERADO. Caso com baixa
+  // realizada que ainda carrega saldo vencido e pagamento PARCIAL -- nao pode
+  // se apresentar como pago, senao a operadora para de cobrar o que sobrou
+  // (a confirmacao de pagamento so quita quando o saldo total zera; sobrando
+  // saldo, o caso segue com o operador de proposito).
+  if (sit === "BAIXA_REALIZADA")
+    return semSaldoVencido(a)
+      ? { label: "Pago", cor: "#16a34a" }
+      : { label: "Pago parcial", cor: "#f97316" };
   if (["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"].includes(sit))
     return { label: "Cancelado", cor: "#6b7280" };
 
@@ -2566,6 +2577,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 <option value="Critico">Critico</option>
                 <option value="Perdendo o caso">Perdendo o caso</option>
                 <option value="Aguardando pgto">Aguardando pgto</option>
+                <option value="Pago parcial">Pago parcial (ainda deve)</option>
                 <option value="Juridico">Juridico</option>
               </select>
               <select
