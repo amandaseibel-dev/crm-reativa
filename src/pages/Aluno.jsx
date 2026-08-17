@@ -1083,6 +1083,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     }
     if (retorno) {
       atualizacaoAluno.data_retorno = paraDataLocalBR(retorno);
+      // Retorno digitado na tabulação = compromisso do operador; é o que a
+      // Agenda Operacional lista (o resto de data_retorno é motor da fila).
+      atualizacaoAluno.retorno_origem = "OPERADOR";
     }
     if (observacaoAluno !== null) {
       atualizacaoAluno.observacao = observacaoAluno;
@@ -1439,7 +1442,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         return;
       }
       const extraAluno = {};
-      if (novaDataRetornoAlteracao) { extraAluno.data_retorno = paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()); }
+      if (novaDataRetornoAlteracao) { extraAluno.data_retorno = paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()); extraAluno.retorno_origem = "OPERADOR"; }
       if (novaTabulacaoAlteracao) { extraAluno.status_jornada = novaTabulacaoAlteracao; extraAluno.status_atual = novaTabulacaoAlteracao; }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
       setNovoOperadorEmail("");

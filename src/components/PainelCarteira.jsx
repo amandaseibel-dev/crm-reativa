@@ -1564,11 +1564,17 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       if (retornoData) {
         atualizacaoAluno.data_retorno = retornoData;
         atualizacaoAluno.hora_retorno = retornoHora || null;
+        // Data digitada pelo operador = compromisso; e so isso entra na
+        // Agenda Operacional.
+        atualizacaoAluno.retorno_origem = "OPERADOR";
       } else {
         // Sem data digitada: agenda o retorno automaticamente pela regra do
         // status (Fase 3). Alguns status nao geram retorno automatico.
         const retornoAuto = retornoAutomaticoDeStatus(statusNovo);
-        if (retornoAuto) atualizacaoAluno.data_retorno = retornoAuto;
+        if (retornoAuto) {
+          atualizacaoAluno.data_retorno = retornoAuto;
+          atualizacaoAluno.retorno_origem = "AUTOMATICO";
+        }
       }
       if (observacao !== (a.observacao || "")) {
         atualizacaoAluno.observacao = observacao;

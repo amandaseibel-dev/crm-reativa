@@ -98,6 +98,8 @@ export default function AgendaAlunoUnificado({ aluno, onAtualizar }) {
         status_jornada: form.status_jornada || "EM_COBRANCA",
         prioridade_operacional: form.prioridade_operacional || "NORMAL",
         data_retorno: form.data_retorno || null,
+        // Agendamento feito na mão pela operação -- é o que a Agenda lista.
+        retorno_origem: form.data_retorno ? "OPERADOR" : null,
         hora_retorno: form.hora_retorno || null,
         observacao_operacional: form.observacao_operacional || null,
         ultima_interacao_em: new Date().toISOString(),

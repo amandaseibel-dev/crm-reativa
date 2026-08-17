@@ -137,9 +137,14 @@ export default function AgendaOperacional() {
   async function carregarAgenda() {
     setCarregando(true);
 
+    // Só o que a operação agendou de verdade. A coluna data_retorno também
+    // é usada pelo motor da fila (recalcular_situacao_aluno grava "hoje" em
+    // toda cobrança vencida, ação massiva grava +10 dias), e sem esse filtro
+    // a agenda mostrava milhares de "retornos" que ninguém marcou.
     const { data, error } = await supabase
       .from("alunos_unificados")
       .select("*")
+      .eq("retorno_origem", "OPERADOR")
       .eq("ocultar_fila", false)
       .not("status_jornada", "eq", "QUITADO")
       .not("status_jornada", "eq", "NAO_CONTATAR")

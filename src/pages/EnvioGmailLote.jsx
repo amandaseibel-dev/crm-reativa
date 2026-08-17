@@ -109,6 +109,8 @@ export default function EnvioGmailLote() {
     const agora = new Date().toISOString();
     await supabase.from("alunos").update({
       data_retorno: proximoDiaUtil(tpl?.dias_retorno || 10),
+      // Retorno de régua, não agendamento -- fica fora da Agenda Operacional.
+      retorno_origem: "AUTOMATICO",
       status_acionamento: "Ação massiva externa enviada — aguardando retorno",
       status_jornada: "RETORNAR_DEPOIS",
       status_atual: "RETORNAR_DEPOIS",
