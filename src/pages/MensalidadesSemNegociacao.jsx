@@ -211,7 +211,11 @@ export default function MensalidadesSemNegociacao() {
   if (!dados) return null;
 
   const meses = (dados.meses || []).map((m) => ({ ...m, label: m.mes_nome, qtd: Number(m.alunos_unicos) || 0 }));
-  const evolucao = (dados.evolucao_diaria || []).map((e) => ({ ...e, label: DIA(e.dia), saldoNum: Number(e.saldo) || 0 }));
+  const evolucao = (dados.evolucao_diaria || []).map((e) => ({
+    ...e, label: DIA(e.dia), saldoNum: Number(e.saldo) || 0,
+    estimado: e.origem === "reconstruido",
+  }));
+  const temEstimado = evolucao.some((e) => e.estimado);
   const d = dados.destaques || {};
   const totSaldo = Number(dados.saldo_total) || 0;
   const pctSaldo = (v) => (totSaldo ? ((Number(v) || 0) / totSaldo * 100).toFixed(1) + "%" : "-");
@@ -230,12 +234,19 @@ export default function MensalidadesSemNegociacao() {
       </div>
     );
   };
+  // Ponto medido = bolinha cheia azul; ponto reconstruído = vazado âmbar.
+  const PontoDia = ({ cx, cy, payload }) => {
+    if (cx == null || cy == null) return null;
+    return payload?.estimado
+      ? <circle cx={cx} cy={cy} r={3.5} fill="#fff" stroke="#b45309" strokeWidth={1.5} />
+      : <circle cx={cx} cy={cy} r={3} fill="#2563eb" />;
+  };
   const TipDia = ({ active, payload }) => {
     if (!active || !payload?.length) return null;
     const e = payload[0].payload;
     return (
       <div style={tipBox}>
-        <strong>{DIA(e.dia)}</strong>
+        <strong>{DIA(e.dia)}</strong>{e.estimado && <span style={{ color: "#b45309" }}> · estimado</span>}
         <div>Saldo: {BRL(e.saldo)}</div>
         <div>Mensalidades: {NUM(e.mensalidades)}</div>
         <div>Alunos: {NUM(e.alunos)}</div>
@@ -306,17 +317,27 @@ export default function MensalidadesSemNegociacao() {
             A curva de evolução começa hoje e cresce a cada atualização diária. Clique em <b>Atualizar</b> uma vez por dia para registrar o ponto do dia.
           </p>
         ) : (
-          <div style={{ width: "100%", height: 300 }}>
-            <ResponsiveContainer>
-              <LineChart data={evolucao} margin={{ top: 10, right: 16, left: 8, bottom: 8 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                <XAxis dataKey="label" />
-                <YAxis tickFormatter={(v) => "R$ " + (v / 1000000).toFixed(1) + "M"} width={70} />
-                <Tooltip content={<TipDia />} />
-                <Line type="monotone" dataKey="saldoNum" stroke="#2563eb" strokeWidth={2} dot={{ r: 3 }} />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <>
+            <div style={{ width: "100%", height: 300 }}>
+              <ResponsiveContainer>
+                <LineChart data={evolucao} margin={{ top: 10, right: 16, left: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" />
+                  <YAxis tickFormatter={(v) => "R$ " + (v / 1000000).toFixed(1) + "M"} width={70} />
+                  <Tooltip content={<TipDia />} />
+                  <Line type="monotone" dataKey="saldoNum" stroke="#2563eb" strokeWidth={2} dot={<PontoDia />} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            {temEstimado && (
+              <p style={{ color: "#6b7280", fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+                <span style={{ color: "#b45309" }}>●</span> Pontos vazados (04 a 16/08) são <b>estimados</b>: reconstruídos
+                pela data real dos eventos que tiraram cada mensalidade do relatório (acordo, baixa, entrada em
+                confirmação de pagamento) e ancorados nos dias medidos de 03/08 e 17/08. Os demais pontos são medição
+                do dia.
+              </p>
+            )}
+          </>
         )}
       </Secao>
 
