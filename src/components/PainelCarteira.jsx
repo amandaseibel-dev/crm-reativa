@@ -428,6 +428,8 @@ function diasSemAcionar(a, hojeStr) {
 // Selo que explica a posicao na fila inteligente (urgencia de fidelizacao).
 // Retorna {emoji,texto,bg,cor} ou null. Retorno devido ja e coberto por
 // sugestaoDoCaso, entao aqui focamos em "nunca acionado" e "perto de soltar".
+// Quem esta dentro do prazo (menos de 8 dias) nao recebe selo -- o alerta so
+// aparece a 2 dias de soltar, junto com a subida na fila.
 function seloFila(a, hojeStr) {
   const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
   if (ret && ret <= hojeStr) return null; // retorno devido: sugestaoDoCaso ja mostra
@@ -435,7 +437,6 @@ function seloFila(a, hojeStr) {
   if (d === null) return { emoji: "🆕", texto: "Nunca acionado", bg: "#1e3a8a", cor: "#bfdbfe" };
   const faltam = 10 - d; // fidelizacao solta o caso em +10 dias
   if (faltam <= 2) return { emoji: "⏳", texto: `Solta em ${Math.max(0, faltam)}d`, bg: "#7f1d1d", cor: "#fecaca" };
-  if (d >= 5) return { emoji: "🕒", texto: `Parado há ${d}d`, bg: "#78350f", cor: "#fde68a" };
   return null;
 }
 
@@ -1989,7 +1990,11 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       // Fila inteligente: organiza a carteira do PROPRIO operador sem mover
       // dono de ninguem. Faixas de urgencia:
       //   0 retorno devido | 1 nunca acionado / perto de soltar (10d)
-      //   2 parado ha algum tempo | 3 resto.
+      //   3 resto (inclui quem ainda esta dentro do prazo).
+      // Quem esta DENTRO DO PRAZO (menos de 8 dias parado) nao sobe na fila:
+      // fica na faixa neutra junto com os casos ativos e so e puxado pro topo
+      // a 2 dias de soltar (8d+). Antes havia uma faixa intermediaria aos 5
+      // dias que tirava o caso do "Casos ativos" cedo demais.
       // Alunos "so mensalidade" (fila operacional) NAO recebem o boost de
       // fidelizacao (ficam na faixa neutra) e ficam de fora do rodizio por ano
       // -- a ordem deles nao e reprioritizada.
@@ -2005,8 +2010,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         const d = diasSemAcionar(a, hoje);
         if (d === null) return 1; // nunca acionado
         if (d >= 8) return 1;     // a 2 dias (ou menos) de soltar
-        if (d >= 5) return 2;
-        return 3;
+        return 3;                 // dentro do prazo: segue nos casos ativos
       };
       arr.sort((a, b) =>
         (faixa(a) - faixa(b)) ||
