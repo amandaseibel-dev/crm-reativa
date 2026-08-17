@@ -62,7 +62,16 @@ function statusPrazo(a) {
   if (sit === "JURIDICO") return { label: "Jurídico", cor: "#7c3aed" };
   if (["ACORDO_FECHADO", "AGUARDANDO_BAIXA", "AGUARDANDO_COMPROVANTE", "SOLICITADO_LINK", "LINK_ENVIADO_AO_ALUNO"].includes(sit))
     return { label: "Aguardando pgto", cor: "#2563eb" };
-  if (sit === "BAIXA_REALIZADA") return { label: "Pago", cor: "#16a34a" };
+  // PREMISSA DO SISTEMA: "Pago" só existe com SALDO ZERADO. Com saldo vencido
+  // remanescente é pagamento PARCIAL — a ficha não pode dizer "Pago" para quem
+  // ainda deve (mesma regra da Minha Carteira).
+  if (sit === "BAIXA_REALIZADA") {
+    const sv = Number(a?.saldo_vencido);
+    const quitado = Number.isFinite(sv) ? sv <= 0.005 : true;
+    return quitado
+      ? { label: "Pago", cor: "#16a34a" }
+      : { label: "Pago parcial", cor: "#f97316" };
+  }
   if (["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"].includes(sit)) return { label: "Cancelado", cor: "#6b7280" };
   const dias = diasSemContato(a);
   if (dias === null) return { label: "Novo", cor: "#94a3b8" };
