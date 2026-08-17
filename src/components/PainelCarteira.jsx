@@ -3,6 +3,13 @@ import { supabase } from "../services/supabase";
 import { analiticasSuspensas } from "../config/modoContencao";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import { podeVerTudo, nomeOperadorPorEmail } from "../utils/operadores";
+import {
+  useTabulacoes,
+  opcoesTabulacao,
+  rotuloTabulacao,
+  proximaAcaoDeTabulacao,
+  retornoAutomaticoDeTabulacao,
+} from "../utils/tabulacoes";
 import FilaReceptivo from "./FilaReceptivo";
 import jsPDF from "jspdf";
 import ReceberLeads from "./ReceberLeads";
@@ -46,77 +53,12 @@ const OPERADORES = [
   { nome: "Amanda Seibel", email: "amanda.seibel@aelbra.com.br" },
 ];
 
-// Lista de status de finalizacao -- IDENTICA a usada na pagina Aluno.jsx
-// (replicada como referencia; nenhum status novo foi inventado).
-const STATUS_FINALIZACAO = [
-  "CONTATAR",
-  "MENSAGEM_ENVIADA",
-  "EM_ATENDIMENTO",
-  "ALUNO_EM_NEGOCIACAO_24H",
-  "RETORNAR_DEPOIS",
-  "SEM_RETORNO",
-  "NAO_LOCALIZADO",
-  "AGUARDANDO_LINK",
-  "SOLICITADO_LINK",
-  "LINK_PRONTO_PARA_ENVIO",
-  "AGUARDANDO_COMPROVANTE",
-  "AGUARDANDO_BAIXA",
-  "BAIXA_REALIZADA",
-  "BAIXA_DEVOLVIDA",
-  "TERMO_ENVIADO_ALUNO",
-  "TERMO_ENVIADO_ADM",
-  "TERMO_RECEBIDO_LIBERADO",
-  "TERMO_REJEITADO",
-  "ACORDO_FECHADO",
-  "CANCELAMENTO_COBRANCA",
-  "SUSPENSAO_COBRANCA",
-  "JURIDICO",
-];
-
-// Derivacao da proxima acao a partir do status escolhido -- mesma regra do
-// Aluno.jsx.
-function proximaAcaoDeStatus(statusNovo) {
-  if (statusNovo === "RETORNAR_DEPOIS" || statusNovo === "ALUNO_EM_NEGOCIACAO_24H") return "RETORNAR";
-  if (statusNovo === "ACORDO_FECHADO") return "ACOMPANHAR_PAGAMENTO";
-  if (statusNovo === "NAO_LOCALIZADO") return "TENTAR_NOVO_CONTATO";
-  if (statusNovo === "LINK_PRONTO_PARA_ENVIO") return "ENVIAR_LINK_AO_ALUNO";
-  return "CONTATAR";
-}
-
-// Auto-retorno por status (prazos definidos com a gestao). Retorna uma data
-// "YYYY-MM-DD" sugerida a partir do status tabulado, ou null quando o retorno
-// deve ser manual. O operador sempre pode sobrescrever no formulario.
-function adicionarDiasUteisData(base, n) {
-  const d = new Date(base);
-  let add = 0;
-  while (add < n) {
-    d.setDate(d.getDate() + 1);
-    const dow = d.getDay();
-    if (dow !== 0 && dow !== 6) add += 1;
-  }
-  return d;
-}
-
-function retornoAutomaticoDeStatus(statusNovo) {
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
-  const uteis = {
-    MENSAGEM_ENVIADA: 2,
-    SOLICITADO_LINK: 1,
-    AGUARDANDO_LINK: 1,
-    LINK_PRONTO_PARA_ENVIO: 1,
-    TERMO_ENVIADO_ALUNO: 2,
-    NAO_LOCALIZADO: 1,
-    AGUARDANDO_COMPROVANTE: 3,
-    ACORDO_FECHADO: 2,
-  };
-  if (!(statusNovo in uteis)) return null; // RETORNAR_DEPOIS/NEGOCIACAO_24H = manual
-  const d = adicionarDiasUteisData(hoje, uteis[statusNovo]);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
+// A lista de tabulacoes e as regras derivadas dela (rotulo, proxima acao,
+// prazo de retorno automatico) vem do catalogo em public.tabulacoes, editavel
+// pela gestao em /tabulacoes. Ver src/utils/tabulacoes.js.
+//
+// O catalogo so e consultado no ATO de tabular: mudar uma regra la nao
+// reescreve retorno ja agendado de ninguem.
 
 // Diferenca em dias entre "hoje" e uma data "YYYY-MM-DD" (alvo - hoje).
 function diasParaData(hojeStr, alvoStr) {
@@ -271,7 +213,8 @@ function tabulacaoDoAluno(a) {
 
 // Opcoes do filtro por tabulacao na Minha Carteira. Pedido operacional: dar aos
 // operadores controle de RETORNO dos termos e links enviados -- por isso esse
-// grupo vem primeiro. Nenhum status novo: todos ja existem em STATUS_FINALIZACAO.
+// grupo vem primeiro. E um recorte curado pra filtrar, nao a lista de tabular
+// -- esta ultima vem do catalogo (public.tabulacoes).
 const OPCOES_TABULACAO = [
   {
     grupo: "Termos e links (retorno)",
@@ -558,6 +501,8 @@ const RETORNO_ABRE_ACAO = {
 };
 
 export default function PainelCarteira({ embedded = false, mostrar360 = false }) {
+  // Catalogo de tabulacoes (fonte unica; ver src/utils/tabulacoes.js).
+  const { tabulacoes } = useTabulacoes();
   const [email, setEmail] = useState(null);
   const [usuarioPerfil, setUsuarioPerfil] = useState(null);
   const [veTudo, setVeTudo] = useState(false);
@@ -1554,7 +1499,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const atualizacaoAluno = {
         status_jornada: statusNovo,
         status_atual: statusNovo,
-        proxima_acao: proximaAcaoDeStatus(statusNovo),
+        proxima_acao: proximaAcaoDeTabulacao(tabulacoes, statusNovo),
         data_ultimo_acionamento: agora,
         ultimo_contato: agora,
         registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
@@ -1570,7 +1515,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       } else {
         // Sem data digitada: agenda o retorno automaticamente pela regra do
         // status (Fase 3). Alguns status nao geram retorno automatico.
-        const retornoAuto = retornoAutomaticoDeStatus(statusNovo);
+        const retornoAuto = retornoAutomaticoDeTabulacao(tabulacoes, statusNovo);
         if (retornoAuto) {
           atualizacaoAluno.data_retorno = retornoAuto;
           atualizacaoAluno.retorno_origem = "AUTOMATICO";
@@ -2584,7 +2529,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 {OPCOES_TABULACAO.map((g) => (
                   <optgroup key={g.grupo} label={g.grupo}>
                     {g.itens.map((s) => (
-                      <option key={s} value={s}>{labelStatus(s)}</option>
+                      <option key={s} value={s}>{rotuloTabulacao(tabulacoes, s)}</option>
                     ))}
                   </optgroup>
                 ))}
@@ -3192,13 +3137,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   <label style={S.label}>Tabular atendimento (status)</label>
                   <select style={S.select} value={statusNovo} onChange={(e) => setStatusNovo(e.target.value)}>
                     <option value="">Selecione o status...</option>
-                    {STATUS_FINALIZACAO.map((s) => (
-                      <option key={s} value={s}>{labelStatus(s)}</option>
+                    {opcoesTabulacao(tabulacoes, statusNovo, { podeVerTudo: veTudo }).map((t) => (
+                      <option key={t.codigo} value={t.codigo}>{t.rotulo}</option>
                     ))}
                   </select>
 
                   <div style={S.proximaAcao}>
-                    Proxima acao: <strong>{statusNovo ? proximaAcaoDeStatus(statusNovo) : "-"}</strong>
+                    Proxima acao: <strong>{statusNovo ? proximaAcaoDeTabulacao(tabulacoes, statusNovo) : "-"}</strong>
                   </div>
 
                   <label style={S.label}>Resumo da conversa</label>

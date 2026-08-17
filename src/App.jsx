@@ -53,6 +53,7 @@ const PainelAdm = lazy(() => import("./pages/PainelAdm"));
 const FinanceiroHub = lazy(() => import("./pages/FinanceiroHub"));
 const CentralPagamentos = lazy(() => import("./components/CentralPagamentos"));
 const RelatorioTabulacoes = lazy(() => import("./pages/RelatorioTabulacoes"));
+const Tabulacoes = lazy(() => import("./pages/Tabulacoes"));
 import HeartbeatReceptivo from "./components/HeartbeatReceptivo";
 import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import LiberacoesAcesso from "./components/LiberacoesAcesso";
@@ -115,6 +116,10 @@ function BloqueioAcesso({ info, email, onSair }) {
 }
 function podeAcessar(perfil, rota) {
   if (rota === "/calibragem") return perfil !== "operador";
+  // Catálogo de tabulações: SOMENTE Amanda (decisão dela, 2026-08-17). O
+  // e-mail é conferido de novo em RotaProtegida e, no banco, por
+  // public.usuario_pode_editar_tabulacoes() dentro das RPCs tabulacao_*.
+  if (rota === "/tabulacoes") return perfil !== "operador";
   if (rota === "/efetividade") return true; // operador vê o próprio; gestão vê todos
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
   if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
@@ -254,6 +259,15 @@ function RotaProtegida({ usuario, rota, children }) {
   if (rota === "/calibragem") {
     const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
     if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
+      return <Navigate to="/" replace />;
+    }
+  }
+  // Tabulações: SOMENTE Amanda -- mais restrito que a Calibragem de propósito.
+  // Fernanda e Amanda ADM ficam de fora. O banco tranca igual, em
+  // public.usuario_pode_editar_tabulacoes().
+  if (rota === "/tabulacoes") {
+    const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+    if (email !== "amanda.seibel@aelbra.com.br") {
       return <Navigate to="/" replace />;
     }
   }
@@ -973,6 +987,14 @@ export default function App() {
               element={
                 <RotaProtegida usuario={usuario} rota="/relatorios">
                   <RelatorioTabulacoes />
+                </RotaProtegida>
+              }
+            />
+            <Route
+              path="/tabulacoes"
+              element={
+                <RotaProtegida usuario={usuario} rota="/tabulacoes">
+                  <Tabulacoes />
                 </RotaProtegida>
               }
             />

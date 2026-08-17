@@ -67,30 +67,9 @@ const FILTROS = [
   { valor: "JURIDICO_INDETERMINADO", label: "⚖️ Jurídico - prazo indeterminado", somenteGestao: true },
 ];
 
-const STATUS_FINALIZACAO = [
-  "CONTATAR",
-  "MENSAGEM_ENVIADA",
-  "EM_ATENDIMENTO",
-  "ALUNO_EM_NEGOCIACAO_24H",
-  "RETORNAR_DEPOIS",
-  "SEM_RETORNO",
-  "NAO_LOCALIZADO",
-  "AGUARDANDO_LINK",
-  "SOLICITADO_LINK",
-  "LINK_PRONTO_PARA_ENVIO",
-  "AGUARDANDO_COMPROVANTE",
-  "AGUARDANDO_BAIXA",
-  "BAIXA_REALIZADA",
-  "BAIXA_DEVOLVIDA",
-  "TERMO_ENVIADO_ALUNO",
-  "TERMO_ENVIADO_ADM",
-  "TERMO_RECEBIDO_LIBERADO",
-  "TERMO_REJEITADO",
-  "ACORDO_FECHADO",
-  "CANCELAMENTO_COBRANCA",
-  "SUSPENSAO_COBRANCA",
-  "JURIDICO",
-];
+// A lista de tabulacoes vem do catalogo public.tabulacoes (/tabulacoes).
+// Ver src/utils/tabulacoes.js.
+
 
 // Cancelamento definitivo e suspensão de cobrança exigem número do
 // processo + prazo (data específica ou indeterminado). Prazo indeterminado

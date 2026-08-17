@@ -1,6 +1,14 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import {
+  useTabulacoes,
+  opcoesTabulacao,
+  proximaAcaoDeTabulacao,
+  retornoAutomaticoDeTabulacao,
+  blocoDaTabulacao,
+  exigeProcesso,
+} from "../utils/tabulacoes";
 import { podeVerTudo } from "../utils/operadores";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import jsPDF from "jspdf";
@@ -34,31 +42,10 @@ const OPERADORES_REATIVA = [
   { nome: "Natali", email: "cobranca08@aelbra.com.br" },
   { nome: "Amanda Seibel", email: "amanda.seibel@aelbra.com.br" },
 ];
-const STATUS_FINALIZACAO = [
-  "CONTATAR",
-  "ELOGIO_ATENDIMENTO",
-  "MENSAGEM_ENVIADA",
-  "EM_ATENDIMENTO",
-  "ALUNO_EM_NEGOCIACAO_24H",
-  "RETORNAR_DEPOIS",
-  "SEM_RETORNO",
-  "NAO_LOCALIZADO",
-  "AGUARDANDO_LINK",
-  "SOLICITADO_LINK",
-  "LINK_PRONTO_PARA_ENVIO",
-  "AGUARDANDO_COMPROVANTE",
-  "AGUARDANDO_BAIXA",
-  "BAIXA_REALIZADA",
-  "BAIXA_DEVOLVIDA",
-  "TERMO_ENVIADO_ALUNO",
-  "TERMO_ENVIADO_ADM",
-  "TERMO_RECEBIDO_LIBERADO",
-  "TERMO_REJEITADO",
-  "ACORDO_FECHADO",
-  "CANCELAMENTO_COBRANCA",
-  "SUSPENSAO_COBRANCA",
-  "JURIDICO",
-];
+// A lista de tabulacoes vem do catalogo public.tabulacoes (editavel pela
+// gestao em /tabulacoes). Ver src/utils/tabulacoes.js.
+// Fallback de "exige numero de processo" para quando o codigo nao estiver no
+// catalogo (status legado). O catalogo (exige_processo) tem precedencia.
 const STATUS_COM_PROCESSO = ["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "JURIDICO"];
 // Reaproveita toda a trava/renderização de "ficha bloqueada" que já existe
 // pra Jurídico/Cancelamento -- só que este aqui é diferente dos outros
@@ -96,29 +83,10 @@ const STATUS_BLOQUEADOS_LABEL = {
   JURIDICO: "Jurídico",
   QUITADO_MANUAL: "Quitado",
 };
-// Mapa TABULACAO -> BLOCO expansivel que deve abrir automaticamente ao
-// selecionar a tabulacao. Usa os CODIGOS estaveis de STATUS_FINALIZACAO
-// (nunca o texto visivel). Tabulacoes sem acao complementar ("" implicito)
-// mantem todos os blocos fechados. A abertura automatica NAO executa nenhuma
-// acao nem altera permissao -- so revela o formulario correspondente.
-const TABULACAO_PARA_BLOCO = {
-  // Link de pagamento (o fluxo de comprovante vive dentro deste bloco)
-  AGUARDANDO_LINK: "link",
-  SOLICITADO_LINK: "link",
-  LINK_PRONTO_PARA_ENVIO: "link",
-  AGUARDANDO_COMPROVANTE: "link",
-  // Termo / negociacao / acordo
-  TERMO_ENVIADO_ALUNO: "termo",
-  TERMO_ENVIADO_ADM: "termo",
-  TERMO_RECEBIDO_LIBERADO: "termo",
-  TERMO_REJEITADO: "termo",
-  ACORDO_FECHADO: "termo",
-  // Enviar ao financeiro
-  AGUARDANDO_BAIXA: "financeiro",
-  // Confirmar pagamento / baixa (o componente aplica o guard de permissao)
-  BAIXA_REALIZADA: "confirmar",
-  BAIXA_DEVOLVIDA: "confirmar",
-};
+// O bloco expansivel que abre sozinho ao escolher a tabulacao vem do campo
+// bloco_ficha do catalogo (link | termo | financeiro | confirmar). A abertura
+// automatica NAO executa nenhuma acao nem altera permissao -- so revela o
+// formulario correspondente.
 // Ordenação da lista de Alunos: ativos primeiro; QUITADOS, JURÍDICOS e
 // CANCELADOS/SUSPENSOS por último. Retorna 0 (ativo) ou 1 (final).
 function grupoFinalAluno(aluno) {
@@ -241,6 +209,8 @@ function dataCurta(v) {
   return d.toLocaleDateString("pt-BR");
 }
 export default function Alunos({ fichaEmbedId = null } = {}) {
+  // Catalogo de tabulacoes (fonte unica; ver src/utils/tabulacoes.js).
+  const { tabulacoes } = useTabulacoes();
   const navigate = useNavigate();
   const location = useLocation();
   const [vindoDaFila, setVindoDaFila] = useState(false);
@@ -771,7 +741,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     // "Link de pagamento" tem prioridade. Nao sobrepor aqui (o setAbaFicha("dados")
     // do efeito de link reentra neste efeito e fecharia o bloco recem-aberto).
     if (secaoAlvoFicha === "link") return;
-    const destino = TABULACAO_PARA_BLOCO[statusFinalizacao] || "";
+    const destino = blocoDaTabulacao(tabulacoes, statusFinalizacao) || "";
     setBlocoAberto(destino);
     if (destino && (abaFicha === "dados" || abaFicha === "tabulacoes")) {
       const t = setTimeout(() => {
@@ -782,7 +752,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       }, 80);
       return () => clearTimeout(t);
     }
-  }, [statusFinalizacao, abaFicha, secaoAlvoFicha]);
+    // `tabulacoes` entra aqui porque o bloco a abrir vem do catálogo: quando
+    // ele termina de carregar, o efeito reavalia. É idempotente (mesmo status
+    // -> mesmo bloco) e a prioridade do link acima continua valendo.
+  }, [statusFinalizacao, abaFicha, secaoAlvoFicha, tabulacoes]);
 
   // Abertura vinda de uma notificacao de link: quando o aluno correto ja esta
   // carregado, garante a aba de dados, abre o bloco "Link de pagamento" e rola
@@ -1068,24 +1041,32 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       atualizacaoAluno.status_jornada = statusNovo;
       atualizacaoAluno.status_atual = statusNovo;
       atualizacaoAluno.status_acionamento = statusNovo;
-      if (
-        statusNovo === "RETORNAR_DEPOIS" ||
-        statusNovo === "ALUNO_EM_NEGOCIACAO_24H"
-      ) {
-        atualizacaoAluno.proxima_acao = "RETORNAR";
-      } else if (statusNovo === "ACORDO_FECHADO") {
-        atualizacaoAluno.proxima_acao = "ACOMPANHAR_PAGAMENTO";
-      } else if (statusNovo === "NAO_LOCALIZADO") {
-        atualizacaoAluno.proxima_acao = "TENTAR_NOVO_CONTATO";
-      } else {
-        atualizacaoAluno.proxima_acao = "CONTATAR";
-      }
+      atualizacaoAluno.proxima_acao = proximaAcaoDeTabulacao(tabulacoes, statusNovo);
     }
     if (retorno) {
       atualizacaoAluno.data_retorno = paraDataLocalBR(retorno);
       // Retorno digitado na tabulação = compromisso do operador; é o que a
       // Agenda Operacional lista (o resto de data_retorno é motor da fila).
       atualizacaoAluno.retorno_origem = "OPERADOR";
+    } else if (statusNovo) {
+      // Sem data digitada: a tabulação pode agendar sozinha, pelo prazo em
+      // dias úteis configurado no catálogo (/tabulacoes).
+      //
+      // GUARDA -- "respeita o que já está agendado": só agenda se o aluno NÃO
+      // tiver retorno futuro marcado. Se já existe compromisso pra frente, ele
+      // é mantido; a regra da tabulação não passa por cima dele.
+      const retornoVigente = alunoSelecionado?.data_retorno
+        ? paraDataLocalBR(alunoSelecionado.data_retorno)
+        : null;
+      const hojeStr = paraDataLocalBR(new Date().toISOString());
+      const jaTemCompromissoFuturo = Boolean(retornoVigente && retornoVigente > hojeStr);
+      if (!jaTemCompromissoFuturo) {
+        const retornoAuto = retornoAutomaticoDeTabulacao(tabulacoes, statusNovo);
+        if (retornoAuto) {
+          atualizacaoAluno.data_retorno = retornoAuto;
+          atualizacaoAluno.retorno_origem = "AUTOMATICO";
+        }
+      }
     }
     if (observacaoAluno !== null) {
       atualizacaoAluno.observacao = observacaoAluno;
@@ -1274,7 +1255,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       );
       return;
     }
-    const ehStatusComProcesso = STATUS_COM_PROCESSO.includes(statusFinalizacao);
+    const ehStatusComProcesso =
+      exigeProcesso(tabulacoes, statusFinalizacao) ||
+      STATUS_COM_PROCESSO.includes(statusFinalizacao);
     if (ehStatusComProcesso) {
       if (!numeroProcesso.trim()) {
         alert(
@@ -1544,7 +1527,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 const selecionado = alunoSelecionado?.id === aluno.id;
                 const bloqueado = STATUS_BLOQUEADOS_ACIONAMENTO.includes(status);
                 const quitado = STATUS_QUITADOS.includes(status);
-                const temProcesso = STATUS_COM_PROCESSO.includes(status);
+                const temProcesso =
+                  exigeProcesso(tabulacoes, status) || STATUS_COM_PROCESSO.includes(status);
                 const fa = finAlunos[String(aluno.id)];
                 const temDetFin = !!(fa && fa.temDetalhe);
                 const fallbackFin = Number(aluno.valor_em_aberto || 0);
@@ -2244,13 +2228,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   onChange={(e) => setStatusFinalizacao(e.target.value)}
                   style={{ ...select, width: "auto", flex: 1, minWidth: 220, marginBottom: 0 }}
                 >
-                  {STATUS_FINALIZACAO.filter(
-                    (status) =>
-                      !STATUS_BLOQUEADOS_ACIONAMENTO.includes(status) ||
-                      podeVerTudo(usuarioLogado?.email)
-                  ).map((status) => (
-                    <option key={status} value={status}>
-                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                  {opcoesTabulacao(tabulacoes, statusFinalizacao, {
+                    podeVerTudo: podeVerTudo(usuarioLogado?.email),
+                  }).map((t) => (
+                    <option key={t.codigo} value={t.codigo}>
+                      {t.rotulo}
                     </option>
                   ))}
                 </select>
@@ -2271,7 +2253,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     )}
                   </div>
                 )}
-                {STATUS_COM_PROCESSO.includes(statusFinalizacao) && (
+                {(exigeProcesso(tabulacoes, statusFinalizacao) ||
+                  STATUS_COM_PROCESSO.includes(statusFinalizacao)) && (
                   <div style={{ ...caixaInterna, marginTop: "10px", marginBottom: "10px" }}>
                     <label style={label}>Número do processo</label>
                     <input
@@ -2500,9 +2483,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   style={select}
                 >
                   <option value="">Não alterar tabulação</option>
-                  {STATUS_FINALIZACAO.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
+                  {opcoesTabulacao(tabulacoes, novaTabulacaoAlteracao, {
+                    podeVerTudo: podeVerTudo(usuarioLogado?.email),
+                  }).map((t) => (
+                    <option key={t.codigo} value={t.codigo}>
+                      {t.rotulo}
                     </option>
                   ))}
                 </select>
