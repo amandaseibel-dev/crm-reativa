@@ -48,8 +48,15 @@ export function nomeOperadorPorEmail(email) {
   return OPERADORES_POR_EMAIL[chave] || email || "OPERADOR";
 }
 
-export function podeVerTudo(email) {
+// Quem enxerga a carteira inteira (e não só a própria). Além da allowlist de
+// gestão, o perfil "diretoria" vê tudo -- é leitura de resultado da empresa,
+// então o Panorama 360 abre consolidado. O dado em si vem de RPCs agregadas
+// (dashboard_carteira_360 / dashboard_gestao_geral), que não expõem carteira
+// de operador individual.
+export function podeVerTudo(email, perfil) {
   const chave = String(email || "").toLowerCase().trim();
+
+  if (String(perfil || "").toLowerCase().trim() === "diretoria") return true;
 
   return [
     "cobranca04@aelbra.com.br",

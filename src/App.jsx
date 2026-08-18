@@ -113,7 +113,28 @@ function BloqueioAcesso({ info, email, onSair }) {
     </div>
   );
 }
+// Rotas liberadas para o perfil "diretoria". Lista única, usada tanto pelo
+// gate de rota quanto pelo menu -- para não existir tela visível sem acesso
+// (nem o contrário). "/" só existe aqui porque a raiz redireciona a diretoria
+// para a Visão Executiva.
+const DIRETORIA_ROTAS = [
+  "/",
+  "/executivo",
+  "/dre",
+  "/painel-carteira",
+  "/relatorios-2026-1-sem-negociacao",
+  "/meu-perfil",
+];
 function podeAcessar(perfil, rota) {
+  // DIRETORIA: perfil de leitura executiva, não de operação. Vê SÓ as quatro
+  // áreas combinadas -- Visão Executiva, DRE, Panorama 360 e o relatório de
+  // 2026/1 sem negociação. Fica de fora de fila, base, financeiro operacional,
+  // usuários e configurações. Este return vem ANTES de tudo de propósito: os
+  // atalhos abaixo liberam rota por "perfil !== operador" e, sem isto, a
+  // diretoria herdaria Calibragem, Tabulações, Ferramentas e afins.
+  if (perfil === "diretoria") {
+    return DIRETORIA_ROTAS.includes(rota);
+  }
   if (rota === "/calibragem") return perfil !== "operador";
   if (rota === "/efetividade") return true; // operador vê o próprio; gestão vê todos
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
@@ -540,7 +561,9 @@ export default function App() {
     return <RedefinirSenha forcado email={usuario.perfil.email} />;
   }
   const perfilReal = usuario.perfil?.perfil;
-  const podePreVisualizar = perfilReal !== "operador";
+  // Pré-visualizar como operador é ferramenta de gestão. A diretoria não
+  // gerencia a operação, então também não troca de visão.
+  const podePreVisualizar = perfilReal !== "operador" && perfilReal !== "diretoria";
   const perfil = (podePreVisualizar && perfilVisao === "operador") ? "operador" : perfilReal;
   if (usuario.acesso && usuario.acesso.permitido === false) {
     return <BloqueioAcesso info={usuario.acesso} email={usuario.perfil?.email || usuario.auth?.email} onSair={sair} />;
@@ -604,7 +627,13 @@ export default function App() {
   ];
   const menu = menuBase.filter((item) => {
     if (perfil === "operador" && item.esconderParaOperador) return false; if (["/exportar-contatos","/log-nivelamento","/vincular-operadores","/importar-acordos","/importar-recuperacao","/importacoes","/sugestoes-recebidas"].includes(item.rota)) return false;
-    if (item.rota === "/dre" || item.rota === "/fechamento-remuneracao") {
+    // DRE: Amanda + diretoria. O Fechamento de Remuneração continua SÓ Amanda
+    // -- por isso os dois deixaram de dividir a mesma regra.
+    if (item.rota === "/dre") {
+      const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return (em === "amanda.seibel@aelbra.com.br" || perfil === "diretoria") && perfil !== "operador";
+    }
+    if (item.rota === "/fechamento-remuneracao") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return em === "amanda.seibel@aelbra.com.br" && perfil !== "operador";
     }
@@ -614,7 +643,7 @@ export default function App() {
     }
     if (item.rota === "/executivo") {
       const em3 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
-      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em3) && perfil !== "operador";
+      return (["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em3) || perfil === "diretoria") && perfil !== "operador";
     }
     if (item.rota === "/calibragem") {
       const emC = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -622,9 +651,12 @@ export default function App() {
     }
     if (item.rota === "/relatorios-2026-1-sem-negociacao") {
       const emR = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
-      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emR) && perfil !== "operador";
+      return (["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emR) || perfil === "diretoria") && perfil !== "operador";
     }
     if (item.rota === "/") {
+      // Para a diretoria "/" só redireciona para a Visão Executiva -- deixar o
+      // item no menu daria dois caminhos para a mesma tela.
+      if (perfil === "diretoria") return false;
       const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       if (["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(email)) return false;
     }
@@ -656,7 +688,9 @@ export default function App() {
         <BotaoSugestao />
         <NotificacoesPopup />
         <AvisoTemplateNovo />
-        <AvisosPopup />
+        {/* Central de Avisos é recado de operação: a diretoria não recebe o
+            pop-up nem o sino (decisão da Amanda, 2026-08-18). */}
+        {perfil !== "diretoria" ? <AvisosPopup /> : null}
         <TourNovidades usuario={usuario} />
         <aside className={sidebarRecolhida ? "sidebar sidebar-recolhida" : "sidebar"}>
           <button
@@ -833,7 +867,7 @@ export default function App() {
           <div style={{ marginTop: "auto", padding: "14px 10px 6px", textAlign: "center", color: "#94a3b8", fontSize: 11, fontWeight: 600, letterSpacing: "0.02em", borderTop: "1px solid rgba(148,163,184,0.15)" }}>
             Desenvolvido por Amanda Seibel
           </div>
-          <AvisosBadge />
+          {perfil !== "diretoria" ? <AvisosBadge /> : null}
         </aside>
         <main className="content">
       <Suspense fallback={<div style={{ padding: 40, color: "#94a3b8", fontSize: 14, fontWeight: 600 }}>Carregando…</div>}>
@@ -843,6 +877,8 @@ export default function App() {
               element={
                 perfil === "operador" ? (
                   <Navigate to="/painel-carteira" replace />
+                ) : perfil === "diretoria" ? (
+                  <Navigate to="/executivo" replace />
                 ) : ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(
                     (usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase()
                   ) ? (
@@ -1042,7 +1078,7 @@ export default function App() {
               <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} />
-              <Route path="/dre" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <DRE /> : <Navigate to="/" replace />} />
+              <Route path="/dre" element={(["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) || perfil === "diretoria") ? <DRE /> : <Navigate to="/" replace />} />
               <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
               <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
       </Routes>

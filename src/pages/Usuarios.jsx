@@ -3,7 +3,7 @@ import { supabase } from "../services/supabase";
 import { AvatarFoto } from "../components/AvatarFoto";
 import { cartaoAcentoEscuro, modalBoxEscuro } from "../ui/cards";
 
-const perfis = ["gerencia", "supervisor", "administrativo", "operador", "auditor"];
+const perfis = ["gerencia", "supervisor", "administrativo", "operador", "auditor", "diretoria"];
 
 export default function Usuarios() {
   const [usuarios, setUsuarios] = useState([]);

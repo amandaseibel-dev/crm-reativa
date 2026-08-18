@@ -767,15 +767,22 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const { data } = await supabase.auth.getUser();
       const mail = data?.user?.email || null;
       setEmail(mail);
-      setVeTudo(podeVerTudo(mail) && localStorage.getItem("reativa_perfil_visao") !== "operador");
+      // O cadastro vem ANTES do setVeTudo porque "ver tudo" agora também
+      // depende do perfil (diretoria), não só do e-mail.
+      let perfil = null;
       if (mail) {
-        const { data: perfil } = await supabase
+        const { data: cadastro } = await supabase
           .from("usuarios")
           .select("*")
           .eq("email", mail)
           .single();
-        setUsuarioPerfil(perfil || { email: mail, nome: nomeOperadorPorEmail(mail) });
+        perfil = cadastro || null;
+        setUsuarioPerfil(cadastro || { email: mail, nome: nomeOperadorPorEmail(mail) });
       }
+      setVeTudo(
+        podeVerTudo(mail, perfil?.perfil) &&
+          localStorage.getItem("reativa_perfil_visao") !== "operador"
+      );
     })();
   }, []);
 

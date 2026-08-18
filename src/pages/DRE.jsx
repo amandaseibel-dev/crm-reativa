@@ -24,6 +24,8 @@ function comp(ano, mes1a12) {
 
 export default function DRE() {
   const [email, setEmail] = useState(null);
+  // null = ainda carregando o cadastro; false/true = resposta definitiva.
+  const [ehDiretoria, setEhDiretoria] = useState(null);
   const [ano, setAno] = useState(new Date().getFullYear());
   const [dados, setDados] = useState(null);
   const [snapEm, setSnapEm] = useState(null);
@@ -33,7 +35,18 @@ export default function DRE() {
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    supabase.auth.getUser().then(({ data }) => setEmail(data?.user?.email || ""));
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const mail = data?.user?.email || "";
+      setEmail(mail);
+      if (!mail) { setEhDiretoria(false); return; }
+      // O DRE também abre para o perfil "diretoria". Quem decide de verdade é
+      // o banco (snapshot_gerencial_e_gestao); aqui é só para não mostrar a
+      // tela de "acesso restrito" a quem tem permissão.
+      const { data: cadastro } = await supabase
+        .from("usuarios").select("perfil").eq("email", mail).maybeSingle();
+      setEhDiretoria(cadastro?.perfil === "diretoria");
+    })();
   }, []);
 
   async function carregar() {
@@ -46,11 +59,13 @@ export default function DRE() {
       setSnapEm(m?.gerado_em || null);
     } catch (e) { setSnapEm(null); }
   }
+  const podeVerDre = email === DONO || ehDiretoria === true;
   useEffect(() => {
-    if (email === DONO) carregar();
+    if (ehDiretoria === null) return; // ainda conferindo o cadastro
+    if (podeVerDre) carregar();
     else setCarregando(false);
     // eslint-disable-next-line
-  }, [email, ano]);
+  }, [email, ehDiretoria, ano]);
 
   const mesAtual = { ano: new Date().getFullYear(), mes: new Date().getMonth() + 1 };
   const meses = dados?.meses || [];
@@ -66,8 +81,8 @@ export default function DRE() {
     return { fat: f, folha: fo, desp: d, lucro: f - fo - d };
   }, [meses]);
 
-  if (carregando) return <div style={s.wrap}><Carregando texto="Carregando DRE…" tema="escuro" /></div>;
-  if (email !== DONO) {
+  if (carregando || ehDiretoria === null) return <div style={s.wrap}><Carregando texto="Carregando DRE…" tema="escuro" /></div>;
+  if (!podeVerDre) {
     return (
       <div style={s.wrap}>
         <h1 style={s.h1}>DRE</h1>
@@ -96,7 +111,13 @@ export default function DRE() {
       </div>
 
       <div style={s.abas}>
-        {[["dre", "DRE"], ["faturamento", "Faturamento"], ["funcionarios", "Funcionários"], ["folha", "Folha do mês"], ["despesas", "Despesas do mês"]].map(([k, r]) => (
+        {/* Faturamento, Funcionários, Folha e Despesas ALIMENTAM o DRE e as
+            tabelas dre_* são privativas da Amanda no banco (policy dre_priv).
+            A diretoria lê o demonstrativo; não vê aba que não conseguiria
+            salvar. */}
+        {[["dre", "DRE"], ["faturamento", "Faturamento"], ["funcionarios", "Funcionários"], ["folha", "Folha do mês"], ["despesas", "Despesas do mês"]]
+          .filter(([k]) => k === "dre" || email === DONO)
+          .map(([k, r]) => (
           <button key={k} style={aba === k ? s.abaAtiva : s.aba} onClick={() => setAba(k)}>{r}</button>
         ))}
       </div>
