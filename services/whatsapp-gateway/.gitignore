@@ -1,0 +1,8 @@
+node_modules
+.env
+
+# Credencial da sessao do WhatsApp e fila de reenvio. NUNCA no git: quem tem o
+# conteudo de dados/ tem o WhatsApp da empresa. Em producao isto vive num volume
+# do Docker; aqui a pasta so aparece se alguem rodar o servico local.
+dados/
+*.log

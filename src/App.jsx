@@ -83,6 +83,8 @@ const Calibragem = lazy(() => import("./pages/Calibragem"));
 const CalibragemNivelamento = lazy(() => import("./pages/CalibragemNivelamento"));
 const Efetividade = lazy(() => import("./pages/Efetividade"));
 const PainelGeral = lazy(() => import("./pages/PainelGeral"));
+const CentralWhatsApp = lazy(() => import("./pages/CentralWhatsApp"));
+const LeadsWhatsApp = lazy(() => import("./pages/LeadsWhatsApp"));
 import NotificacoesPopup from "./components/NotificacoesPopup";
 import { AvatarFoto } from "./components/AvatarFoto";
 import { useAbaLider } from "./context/AbaLiderContext";
@@ -137,6 +139,14 @@ function podeAcessar(perfil, rota) {
   }
   if (rota === "/calibragem") return perfil !== "operador";
   if (rota === "/efetividade") return true; // operador vê o próprio; gestão vê todos
+  // Central WhatsApp: central ÚNICA e compartilhada — todo perfil ativo atende
+  // por ela. Ainda não há distribuição/fidelização (fase 1 é só receber e
+  // responder). O acesso real é conferido no banco por app_usuario_ativo().
+  if (rota === "/central-whatsapp") return true;
+  // Leads do WhatsApp: registro manual enquanto a integração não entra. Todo
+  // operador precisa registrar quem chamou, então liberado para todos os
+  // perfis ativos (o banco confere de novo por app_usuario_ativo()).
+  if (rota === "/leads-whatsapp") return true;
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
   if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
   const permissoes = {
@@ -597,6 +607,8 @@ export default function App() {
     { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" },
     { rota: "/aluno", label: "Base", icone: "User", secao: "Operação" },
     { rota: "/relatorio-receptivo", label: "Relatório Receptivo", icone: "Phone", secao: "Operação" }, { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
+    { rota: "/leads-whatsapp", label: "Leads do WhatsApp", icone: "MessageSquare", secao: "Operação" },
+    { rota: "/central-whatsapp", label: "Central WhatsApp", icone: "MessageSquare", secao: "Operação" },
     { rota: "/minhas-solicitacoes", label: "Minhas Solicitações", icone: "ClipboardList", secao: "Operação" },
     { rota: "/financeiro-hub", label: "Financeiro", icone: "DollarSign", secao: "Financeiro" },
     { rota: "/termos-adm", label: "Validação de Termos", icone: "CheckCircle2", secao: "Financeiro" },
@@ -1077,7 +1089,7 @@ export default function App() {
               <Route path="/log-nivelamento" element={<LogNivelamento />} />
               <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
               <Route path="/taxa-conversao" element={<TaxaConversao />} />
-              <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} />
+              <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} /> <Route path="/central-whatsapp" element={<RotaProtegida usuario={usuario} rota="/central-whatsapp"><CentralWhatsApp /></RotaProtegida>} /> <Route path="/leads-whatsapp" element={<RotaProtegida usuario={usuario} rota="/leads-whatsapp"><LeadsWhatsApp /></RotaProtegida>} />
               <Route path="/dre" element={(["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) || perfil === "diretoria") ? <DRE /> : <Navigate to="/" replace />} />
               <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
               <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
