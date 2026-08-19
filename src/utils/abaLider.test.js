@@ -3,6 +3,7 @@ import {
   criarControleAbaLider,
   HEARTBEAT_MS,
   EXPIRACAO_MS,
+  ORFAO_MS,
 } from "./abaLider";
 
 // Ambiente fake, sem jsdom: localStorage em memória + window com registro de
@@ -13,6 +14,7 @@ const SCOPE = "u1";
 const CHAVE = `reativa_aba_lider__${SCOPE}`;
 const BASE_TS = 1_000_000;
 const JITTER = 200; // > CLAIM_JITTER_MS interno
+const MONITOR = 3000; // MONITOR_MS interno: varredura local da secundária
 
 let store;
 let listeners;
@@ -60,7 +62,31 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   delete global.window;
+  globalThis.BroadcastChannel = undefined;
 });
+
+// BroadcastChannel de mentira: entrega síncrona para os OUTROS inscritos no
+// mesmo nome. Os testes de órfão precisam dele porque a sonda "quem-e-lider"
+// só pode ser respondida por esse caminho.
+function instalarBroadcastChannel() {
+  const canais = new Map();
+  globalThis.BroadcastChannel = class {
+    constructor(nome) {
+      this.nome = nome;
+      this.onmessage = null;
+      if (!canais.has(nome)) canais.set(nome, new Set());
+      canais.get(nome).add(this);
+    }
+    postMessage(data) {
+      for (const outro of canais.get(this.nome) || []) {
+        if (outro !== this && typeof outro.onmessage === "function") outro.onmessage({ data });
+      }
+    }
+    close() {
+      canais.get(this.nome)?.delete(this);
+    }
+  };
+}
 
 describe("abaLider — eleição básica", () => {
   it("aba única com storage vazio vira líder e grava o registro", () => {
@@ -202,6 +228,127 @@ describe("abaLider — transferência e revalidação", () => {
     fireStorage();
 
     expect(c.estado().ehLider).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Registro órfão — o incidente de 19/08/2026.
+//
+// O Mac reiniciou e o Chrome morreu sem rodar `pagehide`. O registro da líder
+// ficou no localStorage sem dono nenhum, e como a regra proíbe assumir por
+// expiração, TODA aba nova ficava bloqueada para sempre: o CRM não montava e de
+// fora parecia "a Central não carrega as mensagens".
+// ---------------------------------------------------------------------------
+describe("abaLider — registro órfão de crash/reboot", () => {
+  const SONDA = 700 + JITTER; // janela da sonda + folga do desempate
+
+  it("reboot do navegador deixa registro órfão: a aba destrava sozinha após a sonda", () => {
+    seedRegistro("ABA_MORTA_NO_REBOOT", ORFAO_MS + 60_000); // 6 min sem renovar
+    const c = criarControleAbaLider(SCOPE, {});
+    c.iniciar();
+    vi.advanceTimersByTime(JITTER);
+
+    // Não pode assumir de imediato: primeiro pergunta.
+    expect(c.estado().ehLider).toBe(false);
+    expect(lerRegistro().tabId).toBe("ABA_MORTA_NO_REBOOT");
+
+    // Ninguém responde a sonda e o registro não é tocado: assume.
+    vi.advanceTimersByTime(SONDA);
+
+    expect(c.estado().ehLider).toBe(true);
+    expect(lerRegistro().tabId).toBe(c.tabId);
+  });
+
+  it("órfão que aparece com a aba já aberta também destrava (varredura do monitor)", () => {
+    seedRegistro("OUTRA_ABA", 0); // começa fresco: aba fica secundária
+    const c = criarControleAbaLider(SCOPE, {});
+    c.iniciar();
+    vi.advanceTimersByTime(JITTER);
+    expect(c.estado().ehLider).toBe(false);
+
+    // A outra aba morre sem limpar. O tempo passa muito além do congelamento.
+    vi.advanceTimersByTime(ORFAO_MS + MONITOR + SONDA);
+
+    expect(c.estado().ehLider).toBe(true);
+    expect(lerRegistro().tabId).toBe(c.tabId);
+  });
+
+  it("registro velho mas AINDA NÃO órfão continua protegido (congelamento de 2min)", () => {
+    seedRegistro("LIDER_CONGELADA", 0);
+    const c = criarControleAbaLider(SCOPE, {});
+    c.iniciar();
+    vi.advanceTimersByTime(JITTER);
+
+    // 2 minutos: passa da expiração (25s) mas NÃO do limite de órfão (5min).
+    vi.advanceTimersByTime(130_000);
+
+    expect(c.estado().ehLider).toBe(false);
+    expect(c.estado().pareceExpirada).toBe(true); // CTA continua disponível
+    expect(lerRegistro().tabId).toBe("LIDER_CONGELADA");
+  });
+});
+
+describe("abaLider — duas abas vivas continuam protegidas", () => {
+  const SONDA = 700 + JITTER;
+
+  it("líder viva responde a sonda: a secundária NÃO rouba, mesmo com registro antigo", () => {
+    instalarBroadcastChannel();
+    seedRegistro("LIDER_VIVA", ORFAO_MS + 60_000); // registro velho de propósito
+
+    // Uma aba viva que não renovou o registro, mas responde quando perguntam.
+    const canal = new BroadcastChannel(`reativa_aba_lider__${SCOPE}`);
+    let perguntas = 0;
+    canal.onmessage = (ev) => {
+      if (ev.data?.tipo === "quem-e-lider") {
+        perguntas += 1;
+        canal.postMessage({ tipo: "heartbeat", tabId: "LIDER_VIVA", ts: Date.now() });
+      }
+    };
+
+    const c = criarControleAbaLider(SCOPE, {});
+    c.iniciar();
+    vi.advanceTimersByTime(JITTER + SONDA);
+
+    expect(perguntas).toBeGreaterThan(0); // a sonda realmente perguntou
+    expect(c.estado().ehLider).toBe(false); // e recuou ao ouvir prova de vida
+    expect(lerRegistro().tabId).toBe("LIDER_VIVA");
+  });
+
+  it("duas abas reais: a 2ª nunca assume, por mais tempo que passe", () => {
+    instalarBroadcastChannel();
+    const a = criarControleAbaLider(SCOPE, {});
+    a.iniciar();
+    vi.advanceTimersByTime(JITTER);
+    expect(a.estado().ehLider).toBe(true);
+
+    const b = criarControleAbaLider(SCOPE, {});
+    b.iniciar();
+    vi.advanceTimersByTime(JITTER);
+    expect(b.estado().ehLider).toBe(false);
+
+    // 10 minutos — o dobro do limite de órfão. A líder segue renovando.
+    vi.advanceTimersByTime(600_000);
+
+    expect(a.estado().ehLider).toBe(true);
+    expect(b.estado().ehLider).toBe(false);
+    expect(lerRegistro().tabId).toBe(a.tabId);
+  });
+
+  it("líder viva que renova o registro impede o takeover mesmo sem BroadcastChannel", () => {
+    // BroadcastChannel desligado (padrão do setup): a única prova de vida é o
+    // registro ser tocado durante a janela da sonda.
+    seedRegistro("LIDER_SEM_CANAL", ORFAO_MS + 60_000);
+    const c = criarControleAbaLider(SCOPE, {});
+    c.iniciar();
+    vi.advanceTimersByTime(JITTER);
+
+    // No meio da sonda, a "outra aba" renova o registro — sinal de vida.
+    vi.advanceTimersByTime(300);
+    seedRegistro("LIDER_SEM_CANAL", 0);
+    vi.advanceTimersByTime(SONDA);
+
+    expect(c.estado().ehLider).toBe(false);
+    expect(lerRegistro().tabId).toBe("LIDER_SEM_CANAL");
   });
 });
 
