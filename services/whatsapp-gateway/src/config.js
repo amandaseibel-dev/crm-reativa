@@ -49,6 +49,11 @@ export const config = {
   // atenção e levar bloqueio.
   backoffInicialMs: 2_000,
   backoffMaximoMs: 5 * 60_000,
+  // Quantas recusas seguidas do CRM sobre o MESMO item antes de tirá-lo da
+  // frente. Baixo demais quarentena item que só pegou um soluço; alto demais
+  // deixa a fila congelada por horas. Cinco cobre um erro transitório e ainda
+  // destrava em minutos.
+  tentativasAntesDeQuarentena: 5,
 };
 
 if (config.sessoes.length === 0) {
