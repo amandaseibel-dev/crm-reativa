@@ -27,6 +27,7 @@ const servico = vi.hoisted(() => ({
   alunosAchados: [],
   comandos: [],
   canaisSalvos: [],
+  transferencias: [],
 }));
 
 vi.mock("../services/whatsapp", async (original) => {
@@ -58,6 +59,9 @@ vi.mock("../services/whatsapp", async (original) => {
     }),
     salvarCanal: vi.fn(async (args) => {
       servico.canaisSalvos.push(args);
+    }),
+    transferirConversa: vi.fn(async (id, email) => {
+      servico.transferencias.push({ id, email });
     }),
     buscarAluno: vi.fn(async () => servico.alunosAchados),
     procurarConversaPorTelefone: vi.fn(async () => servico.conversaExistente),
@@ -123,6 +127,7 @@ beforeEach(() => {
   servico.alunosAchados = [];
   servico.comandos = [];
   servico.canaisSalvos = [];
+  servico.transferencias = [];
 });
 
 afterEach(cleanup);
@@ -408,6 +413,33 @@ describe("Central WhatsApp — nova conversa", () => {
     expect(aviso.textContent).toContain("João da Silva");
   });
 
+  it("conversa de outro operador não promete que a mensagem vai entrar nela", async () => {
+    // Dizer "sua mensagem entra nessa mesma conversa" quando ela é de um colega
+    // é prometer o que o banco vai recusar — e o operador só descobriria depois
+    // de escrever tudo.
+    servico.conversaExistente = { conversa_id: "k9", responsavel_nome: "Maria", aluno_nome: null };
+    await abrirFormularioNovaConversa();
+    fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
+      target: { value: "51999998888" },
+    });
+    const aviso = await screen.findByText(/Já existe conversa com este número/);
+    expect(aviso.textContent).not.toContain("entra nessa mesma conversa");
+    expect(aviso.textContent).toContain("recusado");
+    expect(aviso.textContent).toContain("transferência");
+  });
+
+  it("conversa sem responsável avisa que a mensagem entra nela mesma", async () => {
+    servico.conversaExistente = { conversa_id: "k9", responsavel_nome: null, aluno_nome: null };
+    await abrirFormularioNovaConversa();
+    fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
+      target: { value: "51999998888" },
+    });
+    const aviso = await screen.findByText(/Já existe conversa com este número/);
+    expect(aviso.textContent).toContain("Sem responsável");
+    expect(aviso.textContent).toContain("entra nessa mesma conversa");
+    expect(aviso.textContent).not.toContain("recusado");
+  });
+
   it("envia com o canal, o telefone normalizado e o texto", async () => {
     await abrirFormularioNovaConversa();
     fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
@@ -633,5 +665,59 @@ describe("Central WhatsApp — gestão", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Números" }));
     fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
     expect(screen.getByPlaceholderText("cobranca").disabled).toBe(true);
+  });
+});
+
+
+describe("Central WhatsApp — de onde veio a conversa", () => {
+  it("conversa que o aluno abriu diz 'recebido em'", async () => {
+    servico.conversas = [conversa()];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+    expect(await screen.findByText(/recebido em/)).toBeDefined();
+  });
+
+  it("conversa que nós abrimos diz 'iniciada por' — ninguém recebeu nada", async () => {
+    servico.conversas = [conversa({ aguardando_resposta: false, nao_lidas: 0 })];
+    servico.mensagens = [
+      { id: "m1", direcao: "SAIDA", texto: "Bom dia", status: "ENVIADO",
+        timestamp_wa: new Date().toISOString() },
+    ];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+    expect(await screen.findByText(/iniciada por/)).toBeDefined();
+    expect(screen.queryByText(/recebido em/)).toBeNull();
+  });
+});
+
+
+describe("Central WhatsApp — transferência", () => {
+  it("cabeçalho mostra o novo responsável mesmo se a conversa sair do filtro", async () => {
+    // A conversa pode deixar de casar com o filtro por responsável e sumir da
+    // lista. Se o cabeçalho continuasse com o dono antigo, o operador
+    // transferiria de novo achando que a primeira não pegou.
+    servico.conversas = [conversa({ responsavel_email: null, responsavel_nome: null, nao_lidas: 0 })];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+    expect(await screen.findByText("Sem responsável")).toBeDefined();
+
+    // a partir daqui a listagem passa a NÃO devolver esta conversa
+    servico.conversas = [];
+    const seletor = screen.getByRole("option", { name: "Transferir para…" }).closest("select");
+    fireEvent.change(seletor, { target: { value: "maria@aelbra.com.br" } });
+
+    await waitFor(() => expect(servico.transferencias).toEqual([
+      { id: "k1", email: "maria@aelbra.com.br" },
+    ]));
+    // o cabeçalho passa a mostrar o novo dono, mesmo sem a conversa na lista
+    // (o seletor `strong` evita casar com a <option> de mesmo nome)
+    await waitFor(() =>
+      expect(screen.getByText("Maria", { selector: "strong" })).toBeDefined());
   });
 });

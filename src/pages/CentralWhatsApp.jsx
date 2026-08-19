@@ -347,6 +347,26 @@ export default function CentralWhatsApp() {
     }
   }
 
+  // Transferência tem handler próprio porque a conversa pode SAIR do filtro
+  // atual (por responsável, por exemplo) e sumir da lista. Quando isso
+  // acontece, `carregarConversas` não acha a linha para atualizar e o cabeçalho
+  // continua mostrando o dono antigo — o operador transferiria de novo achando
+  // que a primeira não pegou.
+  async function transferir(paraEmail) {
+    if (!selecionada || !paraEmail) return;
+    setErro("");
+    try {
+      await transferirConversa(selecionada.id, paraEmail);
+      const dono = operadores.find((o) => o.email === paraEmail);
+      setSelecionada((c) =>
+        c ? { ...c, responsavel_email: paraEmail,
+              responsavel_nome: dono?.nome || paraEmail, status: "EM_ATENDIMENTO" } : c);
+      await carregarConversas();
+    } catch (e) {
+      setErro(e.message);
+    }
+  }
+
   async function escolherAluno(alunoId) {
     await acao(vincularAluno, alunoId);
     setCandidatos([]);
@@ -388,6 +408,14 @@ export default function CentralWhatsApp() {
       setErro(e.message);
     }
   }
+
+  // "Recebido em" é verdade para quem nos procurou. Numa conversa que NÓS
+  // abrimos, ninguém recebeu nada — dizer o contrário confunde justamente na
+  // hora de entender de onde veio o contato.
+  const conversaIniciadaPorNos = useMemo(
+    () => mensagens.length > 0 && !mensagens.some((m) => m.direcao === "ENTRADA"),
+    [mensagens],
+  );
 
   const canalDaConversa = useMemo(
     () => canais.find((c) => c.id === selecionada?.canal_id) || null,
@@ -721,7 +749,8 @@ export default function CentralWhatsApp() {
                       formatarTelefone(selecionada.telefone_e164)}
                   </div>
                   <div style={S.threadInfo}>
-                    {formatarTelefone(selecionada.telefone_e164)} · recebido em{" "}
+                    {formatarTelefone(selecionada.telefone_e164)} ·{" "}
+                    {conversaIniciadaPorNos ? "iniciada por" : "recebido em"}{" "}
                     <strong>{selecionada.canal_apelido}</strong> ({selecionada.canal_numero})
                   </div>
                   <div style={S.threadDono}>
@@ -741,7 +770,7 @@ export default function CentralWhatsApp() {
                   <select
                     style={S.selectAcao}
                     value=""
-                    onChange={(e) => { if (e.target.value) acao(transferirConversa, e.target.value); }}
+                    onChange={(e) => { if (e.target.value) transferir(e.target.value); }}
                   >
                     <option value="">Transferir para…</option>
                     {operadores
@@ -1251,13 +1280,22 @@ function ModalNovaConversa({ canais, onFechar, onCriada }) {
             </label>
 
             {existente ? (
-              <div style={S.jaExiste}>
+              // O texto MUDA conforme a conversa tenha dono ou não, porque o
+              // desfecho é outro. Dizer "sua mensagem entra nessa conversa"
+              // quando ela é de um colega é prometer o que o banco vai recusar
+              // — e o operador só descobriria depois de escrever tudo.
+              <div style={existente.responsavel_nome ? S.jaExisteDeOutro : S.jaExiste}>
                 Já existe conversa com este número
                 {existente.aluno_nome ? <> — <strong>{existente.aluno_nome}</strong></> : null}.
-                {existente.responsavel_nome
-                  ? <> Responsável: <strong>{existente.responsavel_nome}</strong>.</>
-                  : " Sem responsável."}
-                {" "}Sua mensagem entra nessa mesma conversa, sem abrir outra.
+                {existente.responsavel_nome ? (
+                  <>
+                    {" "}Em atendimento por <strong>{existente.responsavel_nome}</strong>. Se a
+                    conversa não for sua, o envio será recusado: procure {existente.responsavel_nome}{" "}
+                    ou peça a transferência, em vez de abrir um atendimento paralelo.
+                  </>
+                ) : (
+                  <> Sem responsável. Sua mensagem entra nessa mesma conversa, sem abrir outra.</>
+                )}
               </div>
             ) : null}
 
@@ -1546,6 +1584,10 @@ const S = {
   jaExiste: {
     fontSize: 12, lineHeight: 1.6, color: "#92400e",
     background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "9px 11px",
+  },
+  jaExisteDeOutro: {
+    fontSize: 12, lineHeight: 1.6, color: "#7f1d1d",
+    background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "9px 11px",
   },
   textoNovo: {
     padding: "9px 11px", borderRadius: 8, border: `1px solid ${BORDA}`,
