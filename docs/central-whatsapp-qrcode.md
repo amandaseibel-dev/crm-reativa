@@ -110,6 +110,62 @@ ao operador: o **número está fora do ar**, ou a conversa está **finalizada**.
 
 ---
 
+## 3.1 Nova conversa — quando somos nós que escrevemos primeiro
+
+Até a primeira versão, a Central só sabia **responder**: toda conversa nascia de
+uma mensagem do aluno. Isso empurrava o operador de volta para o celular ou para
+o WhatsApp Web sempre que ele precisava iniciar um contato — e o que sai por
+fora não tem histórico aqui, não tem responsável e não aparece na supervisão.
+
+Como funciona:
+
+| Passo | O que acontece |
+|---|---|
+| O operador clica em **Nova conversa** | Só aparece habilitado se houver número conectado |
+| Escolhe o número de saída | Só os que estão de pé agora; com um só, não há escolha a fazer |
+| Procura o aluno (opcional) | Preenche o telefone da ficha e deixa a conversa já vinculada |
+| Digita o número | Enquanto digita, a Central avisa se **já existe** conversa com ele, e de quem é |
+| Escreve a primeira mensagem | Sem mensagem não há envio: conversa vazia não existe no WhatsApp |
+
+Três decisões que valem registro:
+
+1. **A conversa nasce no envio, não ao abrir o formulário.** Se nascesse antes,
+   todo operador que desistisse no meio deixaria conversa vazia na caixa de
+   entrada. E como falha de envio é gravada como mensagem `FALHOU`, a conversa
+   nunca fica muda: ou tem a mensagem, ou tem o registro do erro.
+
+2. **"Nova conversa" não fura a trava de responsável.** Se já existe conversa
+   com aquele número e ela é de outro operador, o backend recusa dizendo o nome
+   de quem está atendendo. Sem isso, o recurso viraria a porta dos fundos para
+   dois operadores falarem com o mesmo aluno.
+
+3. **Conversa que nós iniciamos não entra em "Sem retorno".** Ninguém está
+   esperando resposta nossa ainda. Como o filtro padrão da tela é justamente
+   "Sem retorno", a conversa recém-criada ficaria invisível no instante em que
+   mais importa — por isso a tela troca o filtro para "Minhas" e abre a conversa.
+
+O número de saída continua sendo decidido no **banco**: a tela manda o canal,
+nunca a sessão.
+
+## 3.2 O que a gestão faz sem depender de SQL
+
+| Ação | Onde |
+|---|---|
+| Cadastrar, renomear ou desativar um número | botão **Números** |
+| Ver o QR Code | faixa de status, quando o número está aguardando leitura |
+| Reconectar | faixa de status |
+| Desconectar | faixa de status, só quando o número está no ar |
+| Desvincular o aparelho (`logout`) | faixa de status, **em dois cliques** |
+| Supervisão por operador | botão **Supervisão** |
+
+`sessao_chave` **não pode ser editada depois de criada**: é ela que amarra a
+conversa ao canal, e trocá-la orfanaria o histórico. No cadastro ela é
+normalizada para minúsculas — divergir do serviço por causa de um espaço ou uma
+maiúscula é uma falha que não avisa: o número simplesmente nunca conecta.
+
+Desvincular exige confirmação porque obriga a reparear, e **o histórico do
+aparelho só é importado no pareamento**.
+
 ## 4. Decisões que valem registro
 
 **A armadilha do nono dígito.** A base tem telefone com e sem o 9; o WhatsApp

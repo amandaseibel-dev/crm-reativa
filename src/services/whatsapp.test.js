@@ -1,5 +1,17 @@
-import { describe, it, expect } from "vitest";
-import { esperaDesde, linkWhatsApp } from "./whatsapp";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+// A camada de serviço fala com o Supabase; aqui só interessa QUANDO ela fala.
+const espiao = vi.hoisted(() => ({ rpcs: [], resposta: { data: [], error: null } }));
+vi.mock("./supabase", () => ({
+  supabase: {
+    rpc: vi.fn(async (nome, args) => {
+      espiao.rpcs.push({ nome, args });
+      return espiao.resposta;
+    }),
+  },
+}));
+
+import { esperaDesde, linkWhatsApp, procurarConversaPorTelefone } from "./whatsapp";
 
 const MIN = 60 * 1000;
 const HORA = 60 * MIN;
@@ -61,5 +73,53 @@ describe("linkWhatsApp", () => {
   it("sem telefone nao gera link quebrado", () => {
     expect(linkWhatsApp("")).toBeNull();
     expect(linkWhatsApp(null)).toBeNull();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// A consulta "já existe conversa com este número?" roda enquanto o operador
+// DIGITA. Com 11 operadores na Central, disparar uma consulta por tecla — e
+// ainda por cima com número pela metade — é o tipo de detalhe que derruba o
+// banco. O guarda-corpo é o próprio serviço.
+// ---------------------------------------------------------------------------
+describe("procurarConversaPorTelefone — não bate no banco à toa", () => {
+  beforeEach(() => {
+    espiao.rpcs = [];
+    espiao.resposta = { data: [], error: null };
+  });
+
+  it("não consulta enquanto o número está incompleto", async () => {
+    expect(await procurarConversaPorTelefone("c1", "519999")).toBeNull();
+    expect(espiao.rpcs.length).toBe(0);
+  });
+
+  it("não consulta sem canal escolhido", async () => {
+    expect(await procurarConversaPorTelefone(null, "51999998888")).toBeNull();
+    expect(espiao.rpcs.length).toBe(0);
+  });
+
+  it("não consulta com o campo vazio", async () => {
+    expect(await procurarConversaPorTelefone("c1", "")).toBeNull();
+    expect(espiao.rpcs.length).toBe(0);
+  });
+
+  it("consulta quando o número fica válido", async () => {
+    espiao.resposta = { data: [{ conversa_id: "k1", responsavel_nome: "Maria" }], error: null };
+    const r = await procurarConversaPorTelefone("c1", "(51) 99999-8888");
+    expect(r.conversa_id).toBe("k1");
+    expect(espiao.rpcs).toEqual([
+      { nome: "whatsapp_conversa_por_telefone", args: { p_canal_id: "c1", p_telefone: "(51) 99999-8888" } },
+    ]);
+  });
+
+  it("número sem conversa devolve nulo, não lista vazia", async () => {
+    espiao.resposta = { data: [], error: null };
+    expect(await procurarConversaPorTelefone("c1", "51999998888")).toBeNull();
+  });
+
+  it("erro do banco sobe — a tela não pode achar que o número está livre", async () => {
+    espiao.resposta = { data: null, error: { message: "acesso negado" } };
+    await expect(procurarConversaPorTelefone("c1", "51999998888")).rejects.toThrow("acesso negado");
   });
 });
