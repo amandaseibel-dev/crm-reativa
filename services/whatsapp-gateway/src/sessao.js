@@ -315,8 +315,36 @@ export function criarSessao({ chave }) {
       const endereco = resolverEndereco(jid, vinculos, msg.key);
       if (!endereco.telefone) {
         descartes[endereco.motivo]++;
-        log.warn({ motivo: endereco.motivo, porMotivo: resumoDescartes(descartes) },
-          "mensagem recebida sem telefone utilizavel - nao enfileirada");
+        // TUDO o que der para saber sobre o descarte, MENOS conteúdo. Sem isto
+        // a investigação vira dedução: o log dizia que a mensagem caiu, e não
+        // dava para comparar a descartada com as que passaram.
+        //
+        // O id do LID entra de propósito: é o identificador ANÔNIMO que o
+        // WhatsApp usa justamente para não expor telefone, e sem ele não dá
+        // para saber se descartes repetidos são do mesmo contato.
+        log.warn(
+          {
+            motivo: endereco.motivo,
+            porMotivo: resumoDescartes(descartes),
+            lid: String(jid || "").split("@")[0],
+            formatos: {
+              remoteJid: formatoDoJid(msg.key.remoteJid),
+              senderLid: formatoDoJid(msg.key.senderLid),
+              senderPn: formatoDoJid(msg.key.senderPn),
+              participant: formatoDoJid(msg.key.participant),
+              participantLid: formatoDoJid(msg.key.participantLid),
+              participantPn: formatoDoJid(msg.key.participantPn),
+            },
+            // estrutura da mensagem, nunca o texto
+            tiposDeConteudo: Object.keys(msg.message || {}).slice(0, 6),
+            stubType: msg.messageStubType ?? null,
+            fromMe: Boolean(msg.key.fromMe),
+            temPushName: Boolean(msg.pushName),
+            broadcast: Boolean(msg.broadcast),
+            vinculosConhecidos: vinculos.tamanho,
+          },
+          "mensagem recebida sem telefone utilizavel - nao enfileirada",
+        );
         continue;
       }
       descartes.aceitos++;
