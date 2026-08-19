@@ -274,6 +274,21 @@ export function criarSessao({ chave }) {
 
       if (qr) {
         qrDataUrl = await QRCode.toDataURL(qr, { margin: 1, width: 320 });
+
+        // CHEGAR AO QR JÁ É SUCESSO — e por isso zera o contador de tentativas.
+        //
+        // POR QUE ISTO É NECESSÁRIO: o contador só era zerado em
+        // `connection === "open"`, que o Baileys emite apenas DEPOIS do login.
+        // Numa sessão ainda não pareada esse evento nunca chega, então cada
+        // expiração normal da janela do QR (que fecha com `connectionLost`)
+        // era contada como falha e a espera dobrava: 2s, 4s, 8s... até o teto
+        // de 5 minutos. Resultado prático: quem fosse parear abria a Central e
+        // encontrava QR vencido, tendo que esperar minutos por um novo.
+        //
+        // Receber o QR prova que o socket subiu e o handshake funcionou. Isso
+        // não é falha: é a sessão esperando gente. O backoff exponencial
+        // continua valendo para queda de verdade, antes de chegar ao QR.
+        tentativas = 0;
         // O WhatsApp troca o QR a cada ~20s; o CRM precisa saber que o que
         // está na tela venceu, em vez de mostrar um código morto.
         await reportar("AGUARDANDO_QR", { texto: "leia o QR Code no celular", ttlQr: 60 });
@@ -289,6 +304,10 @@ export function criarSessao({ chave }) {
       }
 
       if (connection === "close") {
+        // QR guardado em memória morre junto com a conexão. Sem isto o /saude
+        // dizia `temQr: true` com a sessão caída — informação que não ajuda
+        // quem está diagnosticando.
+        qrDataUrl = null;
         const codigo = lastDisconnect?.error?.output?.statusCode;
         const motivo = Object.keys(DisconnectReason).find((k) => DisconnectReason[k] === codigo) || codigo;
         log.warn({ codigo, motivo }, "conexao caiu");
