@@ -67,6 +67,35 @@ const NOME_DO_STATUS = {
   5: "PLAYED",
 };
 
+// Ack do Baileys -> nosso vocabulário de status.
+//
+// O QUE FOI MEDIDO NESTA SESSÃO (19/08/2026, mensagens reais):
+//   3 DELIVERY_ACK chegou 3x seguidas para o MESMO wamid — ack repetido é
+//     normal, não anomalia. Por isso a aplicação no banco é idempotente.
+//   4 READ chegou no mesmo segundo do DELIVERY_ACK (10ms de diferença nos
+//     casos observados). Ordem invertida é plausível: daí a trava monotônica.
+//   2 SERVER_ACK é OCASIONAL. Várias mensagens foram direto para
+//     DELIVERY_ACK, sem passar por ele — inclusive a de teste. O modelo tem
+//     que aceitar entrar em ENTREGUE sem nunca ter visto ACEITA_PELO_WHATSAPP.
+//
+// `ERROR` (0) DE PROPÓSITO NÃO VIRA `FALHOU`. Não observamos esse valor uma
+// única vez em produção, e marcar mensagem como falhada por um código que
+// ninguém viu acontecer é inventar. Falha só quando o `sendMessage` devolve
+// erro confirmado — que é o caminho que já grava FALHOU hoje. Se o 0 aparecer
+// no log algum dia, aí se decide com evidência na mão.
+//
+// `PLAYED` (5) é áudio ouvido: quem ouviu, abriu. Vale como LIDA.
+export function statusDoAck(bruto) {
+  switch (bruto) {
+    case 1: return "PENDENTE";
+    case 2: return "ACEITA_PELO_WHATSAPP";
+    case 3: return "ENTREGUE";
+    case 4: return "LIDA";
+    case 5: return "LIDA";
+    default: return null; // inclui 0 (ERROR) e qualquer valor novo
+  }
+}
+
 function paraISO(ts) {
   const n = Number(ts);
   if (!Number.isFinite(n) || n <= 0) return new Date().toISOString();
@@ -566,17 +595,33 @@ export function criarSessao({ chave }) {
     sock.ev.on("messages.update", (atualizacoes) => {
       for (const u of atualizacoes || []) {
         if (!u?.key?.fromMe) continue; // ack só interessa no que NÓS mandamos
+        const bruto = u.update?.status ?? null;
+        const status = statusDoAck(bruto);
         log.info(
           {
             ack: "messages.update",
             wamid: u.key.id,
             destino: formatoDoJid(u.key.remoteJid),
-            statusBruto: u.update?.status ?? null,
-            statusNome: NOME_DO_STATUS[u.update?.status] ?? null,
+            statusBruto: bruto,
+            statusNome: NOME_DO_STATUS[bruto] ?? null,
+            statusAplicado: status,
             camposDoUpdate: Object.keys(u.update || {}),
           },
           "ack observado",
         );
+
+        // Vai pela fila em disco, igual às mensagens: ack perdido por CRM fora
+        // do ar significa tique errado na tela do operador até a próxima
+        // atualização — e o ponto deste trabalho é justamente o operador poder
+        // confiar no tique.
+        if (status && u.key.id) {
+          enfileirar("mensagem.status", {
+            sessao: chave,
+            wamid: u.key.id,
+            status,
+            em: new Date().toISOString(),
+          });
+        }
       }
     });
 

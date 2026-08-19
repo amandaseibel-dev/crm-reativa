@@ -148,6 +148,24 @@ Deno.serve(async (req) => {
         break;
       }
 
+      // ---------------------------------------------------------------------
+      // Evolução do status de saída, vinda dos acks do WhatsApp.
+      //
+      // A correlação é EXCLUSIVAMENTE por wamid (que é UNIQUE na tabela). A RPC
+      // é quem garante a monotonia: ack atrasado não rebaixa status, e wamid
+      // desconhecido devolve null em silêncio — ack chega para mensagem que
+      // este processo nunca viu sair (reinício do gateway, envio pelo celular).
+      // ---------------------------------------------------------------------
+      case "mensagem.status": {
+        const { error } = await admin.rpc("whatsapp_mensagem_ack", {
+          p_wamid: d.wamid,
+          p_status: d.status,
+          p_em: d.em ?? new Date().toISOString(),
+        });
+        if (error) throw new Error(error.message);
+        break;
+      }
+
       case "conexao": {
         const { error } = await admin.rpc("whatsapp_conexao_reportar", {
           p_sessao_chave: d.sessao,
