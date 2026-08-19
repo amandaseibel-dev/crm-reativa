@@ -4,6 +4,7 @@
 // NUNCA vê segredo do gateway nem escolhe por qual número responder: quem
 // decide isso é a conversa, no banco.
 import { supabase } from "./supabase";
+import { normalizarE164 } from "../utils/telefone";
 
 export const STATUS_CONVERSA = {
   NOVO: "NOVO",
@@ -253,6 +254,46 @@ async function detalharErro(error) {
 export async function enviarMensagem(conversaId, texto) {
   const { data, error } = await supabase.functions.invoke("whatsapp-send", {
     body: { conversa_id: conversaId, texto },
+  });
+  if (error) throw new Error(await detalharErro(error));
+  if (data?.erro) throw new Error(data.erro);
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// NOVA CONVERSA — o operador inicia o contato
+//
+// Sem isto, iniciar contato obrigava o operador a sair da Central para o
+// celular ou o WhatsApp Web. O que sai por fora não tem histórico aqui, não tem
+// responsável e não aparece na supervisão — some da operação.
+// ---------------------------------------------------------------------------
+
+// Chamada enquanto o operador digita o número. Serve para avisar ANTES que já
+// existe conversa com aquela pessoa (e de quem ela é), em vez de o operador
+// descobrir depois de escrever a mensagem — ou abrir um atendimento paralelo ao
+// de um colega sem perceber.
+export async function procurarConversaPorTelefone(canalId, telefone) {
+  if (!canalId || !normalizarE164(telefone)) return null;
+  const { data, error } = await supabase.rpc("whatsapp_conversa_por_telefone", {
+    p_canal_id: canalId,
+    p_telefone: telefone,
+  });
+  if (error) throw new Error(error.message);
+  const linha = Array.isArray(data) ? data[0] : data;
+  return linha || null;
+}
+
+// A conversa nasce no envio, não ao abrir o formulário: quem desiste no meio
+// não deixa conversa vazia na caixa de entrada. O número de saída continua
+// sendo decidido no banco — daqui vai o canal, nunca a sessão.
+export async function iniciarConversa({ canalId, telefone, alunoId, texto } = {}) {
+  const { data, error } = await supabase.functions.invoke("whatsapp-send", {
+    body: {
+      canal_id: canalId,
+      telefone,
+      aluno_id: alunoId || null,
+      texto,
+    },
   });
   if (error) throw new Error(await detalharErro(error));
   if (data?.erro) throw new Error(data.erro);

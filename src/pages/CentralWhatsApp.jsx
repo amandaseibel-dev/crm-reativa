@@ -18,7 +18,7 @@
 //    não é assumido por outro (só gestão). A trava é do BANCO, não daqui.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
-import { formatarTelefone } from "../utils/telefone";
+import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import {
   FILTRO_MINHAS,
   FILTRO_NAO_LIDAS,
@@ -39,13 +39,16 @@ import {
   encerrarConversa,
   enviarMensagem,
   esperaDesde,
+  iniciarConversa,
   listarCanais,
   listarConversas,
   listarMensagens,
   listarOperadores,
   marcarLida,
+  procurarConversaPorTelefone,
   reabrirConversa,
   retirarResponsavel,
+  salvarCanal,
   souGestao,
   transferirConversa,
   vincularAluno,
@@ -105,6 +108,13 @@ export default function CentralWhatsApp() {
   const [achadosAluno, setAchadosAluno] = useState([]);
 
   const [qrCanal, setQrCanal] = useState(null);
+  const [novaAberta, setNovaAberta] = useState(false);
+  const [canaisAberto, setCanaisAberto] = useState(false);
+  // Desvincular obriga a reparear e queima a única chance de importar
+  // histórico. Nunca em um clique só.
+  const [confirmandoLogout, setConfirmandoLogout] = useState(null);
+  // Conversa recém-criada que precisa ser aberta assim que aparecer na lista.
+  const pendenteAbrirRef = useRef(null);
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [carregandoThread, setCarregandoThread] = useState(false);
   const [rascunho, setRascunho] = useState("");
@@ -249,6 +259,37 @@ export default function CentralWhatsApp() {
     carregarSupervisao().then(setSupervisao).catch(() => {});
   }, [gestao, verSupervisao, conversas]);
 
+  // A conversa criada agora só existe na tela depois que a lista recarrega.
+  // Em vez de adivinhar o tempo, espera ela aparecer e então abre.
+  useEffect(() => {
+    const alvo = pendenteAbrirRef.current;
+    if (!alvo) return;
+    const achou = conversas.find((c) => c.id === alvo);
+    if (achou) {
+      pendenteAbrirRef.current = null;
+      abrirConversa(achou);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversas]);
+
+  function aoCriarConversa(conversaId) {
+    setNovaAberta(false);
+    if (!conversaId) {
+      carregarConversas();
+      return;
+    }
+    pendenteAbrirRef.current = conversaId;
+    // Conversa que EU iniciei não está "sem retorno" — ninguém está esperando
+    // resposta minha ainda. No filtro padrão ela ficaria invisível logo depois
+    // de criada, que é a pior hora para sumir. Vai para "Minhas", onde ela
+    // acabou de entrar.
+    setFiltroStatus(FILTRO_MINHAS);
+    setFiltroCanal("");
+    setFiltroResponsavel("");
+    setBusca("");
+    carregarConversas();
+  }
+
   async function abrirConversa(conversa) {
     setSelecionada(conversa);
     setErro("");
@@ -368,6 +409,11 @@ export default function CentralWhatsApp() {
   }, [selecionada, canalDaConversa]);
 
   const algumCanalFora = canais.some((c) => c.ativo && !c.online);
+  // Só dá para iniciar conversa por número que está de pé agora.
+  const canaisDisponiveis = useMemo(
+    () => canais.filter((c) => c.ativo && c.online),
+    [canais],
+  );
 
   return (
     <div style={S.pagina}>
@@ -380,6 +426,18 @@ export default function CentralWhatsApp() {
         </div>
         <div style={S.cabecalhoAcoes}>
           <button
+            style={canaisDisponiveis.length ? S.botao : S.botaoOff}
+            onClick={() => setNovaAberta(true)}
+            disabled={!canaisDisponiveis.length}
+            title={
+              canaisDisponiveis.length
+                ? "Escrever para alguém que ainda não escreveu para nós"
+                : "Nenhum número conectado — não dá para iniciar conversa agora"
+            }
+          >
+            Nova conversa
+          </button>
+          <button
             style={som ? S.botaoSecAtivo : S.botaoSec}
             onClick={() => { setSom((s) => !s); if (!som) tocarAviso(); }}
             title="Aviso sonoro quando chega mensagem nova"
@@ -387,9 +445,12 @@ export default function CentralWhatsApp() {
             {som ? "Som ligado" : "Som desligado"}
           </button>
           {gestao ? (
-            <button style={S.botaoSec} onClick={() => setVerSupervisao((v) => !v)}>
-              {verSupervisao ? "Ocultar supervisão" : "Supervisão"}
-            </button>
+            <>
+              <button style={S.botaoSec} onClick={() => setCanaisAberto(true)}>Números</button>
+              <button style={S.botaoSec} onClick={() => setVerSupervisao((v) => !v)}>
+                {verSupervisao ? "Ocultar supervisão" : "Supervisão"}
+              </button>
+            </>
           ) : null}
           {/* Rede de segurança para quando o Realtime cai sem avisar. */}
           <button style={S.botaoSec} onClick={carregarConversas}>Atualizar</button>
@@ -420,12 +481,43 @@ export default function CentralWhatsApp() {
                     <button style={S.botaoMini} onClick={() => verQr(c)}>Ver QR Code</button>
                   ) : null}
                   <button style={S.botaoMini} onClick={() => comando(c, "reconectar")}>Reconectar</button>
+                  {c.online ? (
+                    <button style={S.botaoMini} onClick={() => comando(c, "desconectar")}>
+                      Desconectar
+                    </button>
+                  ) : null}
+                  {confirmandoLogout === c.id ? (
+                    <>
+                      <button
+                        style={S.botaoMiniPerigo}
+                        onClick={() => { setConfirmandoLogout(null); comando(c, "logout"); }}
+                      >
+                        Confirmar desvincular
+                      </button>
+                      <button style={S.botaoMini} onClick={() => setConfirmandoLogout(null)}>
+                        Cancelar
+                      </button>
+                    </>
+                  ) : (
+                    <button style={S.botaoMini} onClick={() => setConfirmandoLogout(c.id)}>
+                      Desvincular
+                    </button>
+                  )}
                 </span>
               ) : null}
             </div>
           ))
         )}
       </div>
+
+      {confirmandoLogout ? (
+        <p style={S.avisoPerigo}>
+          Desvincular remove este aparelho da conta do WhatsApp. Para voltar a usar o número
+          será preciso <strong>ler o QR Code de novo</strong> — e o histórico do aparelho é
+          importado só no pareamento. Use isto para trocar de celular, não para resolver
+          queda de conexão (para isso, Reconectar).
+        </p>
+      ) : null}
 
       {/* ------------- Painel: quem está esperando ------------- */}
       {resumo ? (
@@ -791,6 +883,24 @@ export default function CentralWhatsApp() {
         </section>
       </div>
 
+      {/* ---------------- Nova conversa ---------------- */}
+      {novaAberta ? (
+        <ModalNovaConversa
+          canais={canaisDisponiveis}
+          onFechar={() => setNovaAberta(false)}
+          onCriada={aoCriarConversa}
+        />
+      ) : null}
+
+      {/* ---------------- Números cadastrados (gestão) ---------------- */}
+      {canaisAberto ? (
+        <ModalCanais
+          canais={canais}
+          onFechar={() => setCanaisAberto(false)}
+          onSalvo={() => listarCanais().then(setCanais).catch((e) => setErro(e.message))}
+        />
+      ) : null}
+
       {/* ---------------- QR Code (gestão) ---------------- */}
       {qrCanal ? (
         <div style={S.modalFundo} onClick={() => setQrCanal(null)}>
@@ -812,6 +922,369 @@ export default function CentralWhatsApp() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// NÚMEROS CADASTRADOS (gestão)
+//
+// POR QUE ISTO PRECISA EXISTIR: sem esta tela, cadastrar ou renomear um número
+// só era possível escrevendo direto no banco. Isso significa depender de alguém
+// com acesso ao SQL para uma tarefa de operação — e é o tipo de dependência que
+// trava a equipe num sábado.
+//
+// A ARMADILHA QUE ESTA TELA PRECISA EVITAR: `sessao_chave` tem que ser
+// IDÊNTICA à chave configurada no serviço do WhatsApp. Se divergir, tudo parece
+// certo na tela e nada funciona: o número nunca conecta e mensagem nenhuma
+// encontra o canal. Por isso o campo vem com aviso, e não com um valor
+// adivinhado.
+// ---------------------------------------------------------------------------
+function ModalCanais({ canais, onFechar, onSalvo }) {
+  const [editando, setEditando] = useState(null);
+  const [salvando, setSalvando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const vazio = { id: null, apelido: "", numero: "", sessaoChave: "", ativo: true };
+
+  async function salvar() {
+    const f = editando;
+    if (!f?.apelido.trim() || !f?.numero.trim() || !f?.sessaoChave.trim()) {
+      setErro("Apelido, número e chave da sessão são obrigatórios.");
+      return;
+    }
+    setSalvando(true);
+    setErro("");
+    try {
+      await salvarCanal({
+        id: f.id,
+        apelido: f.apelido.trim(),
+        numero: f.numero.trim(),
+        sessaoChave: f.sessaoChave.trim().toLowerCase(),
+        ativo: f.ativo,
+      });
+      setEditando(null);
+      onSalvo();
+    } catch (e) {
+      setErro(e.message);
+    } finally {
+      setSalvando(false);
+    }
+  }
+
+  return (
+    <div style={S.modalFundo} onClick={onFechar}>
+      <div style={S.modalLargo} onClick={(e) => e.stopPropagation()}>
+        <h2 style={S.modalTitulo}>Números da Central</h2>
+
+        {canais.length === 0 ? (
+          <p style={S.modalTexto}>Nenhum número cadastrado ainda.</p>
+        ) : (
+          <div style={S.listaCanais}>
+            {canais.map((c) => (
+              <div key={c.id} style={S.linhaCanal}>
+                <span style={c.online ? S.pontoOk : S.pontoRuim} />
+                <div style={S.canalTexto}>
+                  <strong>{c.apelido}</strong> · {c.display_phone_number}
+                  <div style={S.canalSub}>
+                    sessão <code>{c.sessao_chave}</code>
+                    {c.ativo ? "" : " · desativado"}
+                  </div>
+                </div>
+                <button
+                  style={S.botaoMini}
+                  onClick={() =>
+                    setEditando({
+                      id: c.id, apelido: c.apelido, numero: c.display_phone_number,
+                      sessaoChave: c.sessao_chave, ativo: c.ativo,
+                    })
+                  }
+                >
+                  Editar
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {editando ? (
+          <>
+            <label style={S.campoNovo}>
+              <span style={S.rotuloNovo}>Apelido</span>
+              <input
+                style={S.busca}
+                placeholder="Cobrança"
+                value={editando.apelido}
+                onChange={(e) => setEditando({ ...editando, apelido: e.target.value })}
+              />
+            </label>
+            <label style={S.campoNovo}>
+              <span style={S.rotuloNovo}>Número exibido</span>
+              <input
+                style={S.busca}
+                placeholder="+55 51 99999-8888"
+                value={editando.numero}
+                onChange={(e) => setEditando({ ...editando, numero: e.target.value })}
+              />
+            </label>
+            <label style={S.campoNovo}>
+              <span style={S.rotuloNovo}>Chave da sessão</span>
+              <input
+                style={S.busca}
+                placeholder="cobranca"
+                value={editando.sessaoChave}
+                onChange={(e) => setEditando({ ...editando, sessaoChave: e.target.value })}
+                disabled={Boolean(editando.id)}
+              />
+              <span style={S.dicaRuim}>
+                Precisa ser idêntica à chave configurada no serviço do WhatsApp. Se divergir,
+                o número nunca conecta — e nada na tela avisa o porquê.
+                {editando.id ? " Não muda depois de criado: é ela que amarra o histórico." : ""}
+              </span>
+            </label>
+            <label style={S.linhaNovo}>
+              <input
+                type="checkbox"
+                checked={editando.ativo}
+                onChange={(e) => setEditando({ ...editando, ativo: e.target.checked })}
+              />
+              <span style={S.rotuloNovo}>Ativo</span>
+            </label>
+
+            {erro ? <p style={S.erro}>{erro}</p> : null}
+
+            <div style={S.linhaNovo}>
+              <button style={S.botaoSec} onClick={() => { setEditando(null); setErro(""); }}>
+                Cancelar
+              </button>
+              <button style={salvando ? S.botaoOff : S.botao} onClick={salvar} disabled={salvando}>
+                {salvando ? "Salvando…" : "Salvar"}
+              </button>
+            </div>
+          </>
+        ) : (
+          <div style={S.linhaNovo}>
+            <button style={S.botaoSec} onClick={onFechar}>Fechar</button>
+            <button style={S.botao} onClick={() => { setEditando(vazio); setErro(""); }}>
+              Cadastrar número
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// NOVA CONVERSA — o operador escreve primeiro
+//
+// POR QUE ISTO EXISTE: sem este caminho, iniciar contato obrigava o operador a
+// sair da Central para o celular ou o WhatsApp Web. O que sai por fora não tem
+// histórico aqui, não tem responsável e não aparece na supervisão — some da
+// operação, que é exatamente o problema que este módulo veio resolver.
+//
+// TRÊS CUIDADOS QUE MUDAM O COMPORTAMENTO:
+//
+//   1. AVISA ANTES, NÃO DEPOIS. Enquanto o número é digitado, a tela pergunta
+//      ao banco se já existe conversa com aquela pessoa. Descobrir isso só
+//      depois de escrever a mensagem é como o operador acaba abrindo um
+//      atendimento paralelo ao de um colega.
+//
+//   2. SÓ NÚMERO CONECTADO. A lista de canais já chega filtrada; se nenhum
+//      estiver de pé, o formulário nem abre em modo de envio — diz o porquê.
+//
+//   3. A CONVERSA NASCE NO ENVIO, não ao abrir este formulário. Quem desiste no
+//      meio não deixa conversa vazia na caixa de entrada.
+// ---------------------------------------------------------------------------
+function ModalNovaConversa({ canais, onFechar, onCriada }) {
+  const [canalId, setCanalId] = useState(canais[0]?.id || "");
+  const [telefone, setTelefone] = useState("");
+  const [texto, setTexto] = useState("");
+  const [aluno, setAluno] = useState(null);
+  const [termo, setTermo] = useState("");
+  const [achados, setAchados] = useState([]);
+  const [buscando, setBuscando] = useState(false);
+  const [existente, setExistente] = useState(null);
+  const [enviando, setEnviando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const e164 = normalizarE164(telefone);
+  const canal = canais.find((c) => c.id === canalId) || null;
+
+  // Consulta enquanto digita, com folga para não bater no banco a cada tecla.
+  useEffect(() => {
+    if (!canalId || !e164) {
+      setExistente(null);
+      return undefined;
+    }
+    let vivo = true;
+    const t = setTimeout(() => {
+      procurarConversaPorTelefone(canalId, e164)
+        .then((r) => { if (vivo) setExistente(r); })
+        .catch(() => { if (vivo) setExistente(null); });
+    }, 400);
+    return () => { vivo = false; clearTimeout(t); };
+  }, [canalId, e164]);
+
+  async function procurar() {
+    const t = termo.trim();
+    if (!t) return;
+    setBuscando(true);
+    setErro("");
+    try {
+      setAchados(await buscarAluno(t));
+    } catch (e) {
+      setErro(e.message);
+    } finally {
+      setBuscando(false);
+    }
+  }
+
+  function escolher(a) {
+    setAluno(a);
+    setAchados([]);
+    setTermo("");
+    // O telefone da ficha é uma sugestão, não uma imposição: dá para corrigir
+    // antes de enviar, e aluno sem telefone na base não trava o fluxo.
+    if (a.telefone) setTelefone(a.telefone);
+  }
+
+  const podeEnviar = Boolean(canalId && e164 && texto.trim() && !enviando);
+
+  async function enviar() {
+    if (!podeEnviar) return;
+    setEnviando(true);
+    setErro("");
+    try {
+      const r = await iniciarConversa({
+        canalId,
+        telefone: e164,
+        alunoId: aluno?.id || null,
+        texto: texto.trim(),
+      });
+      onCriada(r?.conversa_id);
+    } catch (e) {
+      setErro(e.message);
+      setEnviando(false);
+    }
+  }
+
+  return (
+    <div style={S.modalFundo} onClick={onFechar}>
+      <div style={S.modalLargo} onClick={(e) => e.stopPropagation()}>
+        <h2 style={S.modalTitulo}>Nova conversa</h2>
+        <p style={S.modalTexto}>
+          Para escrever a quem ainda não nos procurou. A conversa fica registrada aqui,
+          com você como responsável.
+        </p>
+
+        {canais.length === 0 ? (
+          <p style={S.erro}>
+            Nenhum número está conectado agora. Enquanto isso, não é possível iniciar
+            conversa — as mensagens que chegarem continuam sendo guardadas normalmente.
+          </p>
+        ) : (
+          <>
+            {canais.length > 1 ? (
+              <label style={S.campoNovo}>
+                <span style={S.rotuloNovo}>Enviar pelo número</span>
+                <select style={S.busca} value={canalId} onChange={(e) => setCanalId(e.target.value)}>
+                  {canais.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.apelido} · {c.display_phone_number}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <p style={S.modalTexto}>
+                Enviando por <strong>{canal?.apelido}</strong> ({canal?.display_phone_number})
+              </p>
+            )}
+
+            <label style={S.campoNovo}>
+              <span style={S.rotuloNovo}>Procurar aluno (opcional)</span>
+              <div style={S.linhaNovo}>
+                <input
+                  style={S.busca}
+                  placeholder="Nome, CPF ou matrícula"
+                  value={termo}
+                  onChange={(e) => setTermo(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); procurar(); } }}
+                />
+                <button style={S.botaoSec} onClick={procurar} disabled={buscando}>
+                  {buscando ? "Procurando…" : "Procurar"}
+                </button>
+              </div>
+              {achados.length > 0 ? (
+                <div style={S.achados}>
+                  {achados.map((a) => (
+                    <button key={a.id} style={S.botaoMini} onClick={() => escolher(a)}>
+                      {a.nome}
+                      {a.matricula ? ` · ${a.matricula}` : ""}
+                      {a.telefone ? ` · ${formatarTelefone(a.telefone)}` : " · sem telefone"}
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+              {aluno ? (
+                <div style={S.alunoEscolhido}>
+                  Vinculando a <strong>{aluno.nome}</strong>
+                  <button style={S.botaoMini} onClick={() => setAluno(null)}>tirar</button>
+                </div>
+              ) : null}
+            </label>
+
+            <label style={S.campoNovo}>
+              <span style={S.rotuloNovo}>Número de destino</span>
+              <input
+                style={S.busca}
+                placeholder="(51) 99999-8888"
+                value={telefone}
+                onChange={(e) => setTelefone(e.target.value)}
+              />
+              {telefone && !e164 ? (
+                <span style={S.dicaRuim}>Número incompleto — informe DDD e número.</span>
+              ) : e164 ? (
+                <span style={S.dicaOk}>Vai para {formatarTelefone(e164)}</span>
+              ) : null}
+            </label>
+
+            {existente ? (
+              <div style={S.jaExiste}>
+                Já existe conversa com este número
+                {existente.aluno_nome ? <> — <strong>{existente.aluno_nome}</strong></> : null}.
+                {existente.responsavel_nome
+                  ? <> Responsável: <strong>{existente.responsavel_nome}</strong>.</>
+                  : " Sem responsável."}
+                {" "}Sua mensagem entra nessa mesma conversa, sem abrir outra.
+              </div>
+            ) : null}
+
+            <label style={S.campoNovo}>
+              <span style={S.rotuloNovo}>Primeira mensagem</span>
+              <textarea
+                style={S.textoNovo}
+                rows={4}
+                placeholder="Escreva a mensagem que abre a conversa"
+                value={texto}
+                onChange={(e) => setTexto(e.target.value)}
+              />
+            </label>
+
+            {erro ? <p style={S.erro}>{erro}</p> : null}
+          </>
+        )}
+
+        <div style={S.linhaNovo}>
+          <button style={S.botaoSec} onClick={onFechar}>Cancelar</button>
+          {canais.length > 0 ? (
+            <button style={podeEnviar ? S.botao : S.botaoOff} onClick={enviar} disabled={!podeEnviar}>
+              {enviando ? "Enviando…" : "Enviar e abrir conversa"}
+            </button>
+          ) : null}
+        </div>
+      </div>
     </div>
   );
 }
@@ -1038,6 +1511,45 @@ const S = {
   modal: {
     background: "#fff", borderRadius: 14, padding: 22, maxWidth: 440,
     textAlign: "center", display: "flex", flexDirection: "column", gap: 10, alignItems: "center",
+  },
+  modalLargo: {
+    background: "#fff", borderRadius: 14, padding: 20, width: "min(520px, 94vw)",
+    maxHeight: "92vh", overflowY: "auto",
+    display: "flex", flexDirection: "column", gap: 14,
+    boxShadow: "0 20px 50px rgba(15,23,42,.25)",
+  },
+  campoNovo: { display: "flex", flexDirection: "column", gap: 6 },
+  listaCanais: { display: "flex", flexDirection: "column", gap: 8 },
+  linhaCanal: {
+    display: "flex", alignItems: "center", gap: 9,
+    border: `1px solid ${BORDA}`, borderRadius: 9, padding: "8px 10px",
+  },
+  canalTexto: { flex: 1, fontSize: 13 },
+  canalSub: { fontSize: 11.5, color: CINZA, marginTop: 2 },
+  botaoMiniPerigo: {
+    ...botaoBase, padding: "4px 9px", fontSize: 12,
+    background: VERMELHO, color: "#fff", borderColor: VERMELHO, fontWeight: 600,
+  },
+  avisoPerigo: {
+    margin: "0 0 10px", fontSize: 12, lineHeight: 1.6, color: "#7f1d1d",
+    background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 9, padding: "9px 12px",
+  },
+  rotuloNovo: { fontSize: 12, fontWeight: 600, color: "#334155" },
+  linhaNovo: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
+  achados: { display: "flex", flexDirection: "column", gap: 4, maxHeight: 160, overflowY: "auto" },
+  alunoEscolhido: {
+    display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#166534",
+    background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "6px 9px",
+  },
+  dicaOk: { fontSize: 11.5, color: VERDE },
+  dicaRuim: { fontSize: 11.5, color: VERMELHO },
+  jaExiste: {
+    fontSize: 12, lineHeight: 1.6, color: "#92400e",
+    background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "9px 11px",
+  },
+  textoNovo: {
+    padding: "9px 11px", borderRadius: 8, border: `1px solid ${BORDA}`,
+    fontSize: 13, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", width: "100%",
   },
   modalTitulo: { margin: 0, fontSize: 18 },
   modalTexto: { margin: 0, fontSize: 13, color: CINZA },

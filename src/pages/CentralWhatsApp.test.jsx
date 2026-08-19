@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, waitFor, cleanup } from "@testing-library/react";
+import { render, screen, waitFor, cleanup, fireEvent, within } from "@testing-library/react";
 import CentralWhatsApp from "./CentralWhatsApp";
 
 // Realtime: canal inerte. A tela não pode depender dele para renderizar.
@@ -21,6 +21,12 @@ const servico = vi.hoisted(() => ({
   gestao: false,
   filtrosPedidos: [],
   fichasPedidas: [],
+  conversaExistente: null,
+  enviosNovos: [],
+  erroAoIniciar: null,
+  alunosAchados: [],
+  comandos: [],
+  canaisSalvos: [],
 }));
 
 vi.mock("../services/whatsapp", async (original) => {
@@ -47,6 +53,19 @@ vi.mock("../services/whatsapp", async (original) => {
       return servico.ficha;
     }),
     carregarCandidatos: vi.fn(async () => servico.candidatos),
+    comandarSessao: vi.fn(async (canalId, comando) => {
+      servico.comandos.push({ canalId, comando });
+    }),
+    salvarCanal: vi.fn(async (args) => {
+      servico.canaisSalvos.push(args);
+    }),
+    buscarAluno: vi.fn(async () => servico.alunosAchados),
+    procurarConversaPorTelefone: vi.fn(async () => servico.conversaExistente),
+    iniciarConversa: vi.fn(async (args) => {
+      servico.enviosNovos.push(args);
+      if (servico.erroAoIniciar) throw new Error(servico.erroAoIniciar);
+      return { ok: true, conversa_id: "k-nova", ja_existia: false };
+    }),
   };
 });
 
@@ -98,6 +117,12 @@ beforeEach(() => {
   servico.gestao = false;
   servico.filtrosPedidos = [];
   servico.fichasPedidas = [];
+  servico.conversaExistente = null;
+  servico.enviosNovos = [];
+  servico.erroAoIniciar = null;
+  servico.alunosAchados = [];
+  servico.comandos = [];
+  servico.canaisSalvos = [];
 });
 
 afterEach(cleanup);
@@ -289,5 +314,324 @@ describe("Central WhatsApp", () => {
     expect(screen.getByText("41")).toBeDefined();
     expect(screen.getByText("pendências resgatadas")).toBeDefined();
     expect(screen.getByText(/espera mais antiga:/)).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NOVA CONVERSA — o operador escreve primeiro.
+//
+// Sem este caminho, iniciar contato empurrava o operador de volta para o
+// celular ou o WhatsApp Web. O que sai por fora não tem histórico na Central,
+// não tem responsável e não aparece na supervisão.
+// ---------------------------------------------------------------------------
+async function abrirFormularioNovaConversa() {
+  render(<CentralWhatsApp />);
+  const botao = await screen.findByRole("button", { name: "Nova conversa" });
+  fireEvent.click(botao);
+  return await screen.findByText("Primeira mensagem");
+}
+
+// O nome do canal também aparece na faixa de status da página; as asserções
+// sobre o formulário precisam ficar dentro dele.
+const formulario = () => screen.getByRole("heading", { name: "Nova conversa" }).parentElement;
+
+describe("Central WhatsApp — nova conversa", () => {
+  it("não deixa iniciar conversa com todos os números fora do ar", async () => {
+    servico.canais = [CANAL_FORA];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByRole("button", { name: "Nova conversa" });
+    expect(botao.disabled).toBe(true);
+  });
+
+  it("libera o botão quando existe número conectado", async () => {
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByRole("button", { name: "Nova conversa" });
+    expect(botao.disabled).toBe(false);
+  });
+
+  it("só oferece números que estão conectados agora", async () => {
+    // CANAL_FORA está PAREAMENTO_NECESSARIO: responder por ele não sairia.
+    servico.canais = [CANAL_ONLINE, CANAL_FORA];
+    await abrirFormularioNovaConversa();
+    const f = formulario();
+    expect(within(f).queryByText(/Comercial/)).toBeNull();
+    expect(within(f).getByText(/Cobrança/)).toBeDefined();
+    // com um único número disponível não há escolha a fazer
+    expect(within(f).queryByRole("combobox")).toBeNull();
+  });
+
+  it("não envia sem telefone válido", async () => {
+    await abrirFormularioNovaConversa();
+    fireEvent.change(screen.getByPlaceholderText(/Escreva a mensagem/), {
+      target: { value: "Bom dia" },
+    });
+    const enviar = screen.getByRole("button", { name: /Enviar e abrir conversa/ });
+    expect(enviar.disabled).toBe(true);
+
+    fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
+      target: { value: "99999" },
+    });
+    expect(await screen.findByText(/Número incompleto/)).toBeDefined();
+    expect(screen.getByRole("button", { name: /Enviar e abrir conversa/ }).disabled).toBe(true);
+  });
+
+  it("não envia sem mensagem — conversa sem texto não existe no WhatsApp", async () => {
+    await abrirFormularioNovaConversa();
+    fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
+      target: { value: "51999998888" },
+    });
+    expect(await screen.findByText(/Vai para/)).toBeDefined();
+    expect(screen.getByRole("button", { name: /Enviar e abrir conversa/ }).disabled).toBe(true);
+  });
+
+  it("mostra para onde a mensagem vai, já normalizado", async () => {
+    await abrirFormularioNovaConversa();
+    fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
+      target: { value: "51 99999-8888" },
+    });
+    expect(await screen.findByText("Vai para +55 (51) 99999-8888")).toBeDefined();
+  });
+
+  it("avisa ANTES de escrever que já existe conversa, e de quem é", async () => {
+    servico.conversaExistente = {
+      conversa_id: "k9",
+      responsavel_nome: "Maria",
+      aluno_nome: "João da Silva",
+      status: "EM_ATENDIMENTO",
+    };
+    await abrirFormularioNovaConversa();
+    fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
+      target: { value: "51999998888" },
+    });
+    const aviso = await screen.findByText(/Já existe conversa com este número/);
+    expect(aviso.textContent).toContain("Maria");
+    expect(aviso.textContent).toContain("João da Silva");
+  });
+
+  it("envia com o canal, o telefone normalizado e o texto", async () => {
+    await abrirFormularioNovaConversa();
+    fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
+      target: { value: "(51) 99999-8888" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Escreva a mensagem/), {
+      target: { value: "  Bom dia, aqui é da ULBRA  " },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Enviar e abrir conversa/ }));
+
+    await waitFor(() => expect(servico.enviosNovos.length).toBe(1));
+    expect(servico.enviosNovos[0]).toEqual({
+      canalId: "c1",
+      telefone: "5551999998888",
+      alunoId: null,
+      texto: "Bom dia, aqui é da ULBRA",
+    });
+  });
+
+  it("depois de criar, troca o filtro para Minhas — senão a conversa nova sumiria", async () => {
+    // Conversa que EU iniciei não está "sem retorno" (ninguém espera resposta
+    // minha ainda). No filtro padrão ela nasceria invisível.
+    await abrirFormularioNovaConversa();
+    fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
+      target: { value: "51999998888" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Escreva a mensagem/), {
+      target: { value: "Bom dia" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Enviar e abrir conversa/ }));
+
+    await waitFor(() => {
+      const ultimo = servico.filtrosPedidos[servico.filtrosPedidos.length - 1];
+      expect(ultimo.status).toBe("MINHAS");
+    });
+  });
+
+  it("mostra a recusa do backend em vez de fingir que enviou", async () => {
+    servico.erroAoIniciar = "ja existe conversa com este numero, em atendimento por Maria";
+    await abrirFormularioNovaConversa();
+    fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
+      target: { value: "51999998888" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Escreva a mensagem/), {
+      target: { value: "Bom dia" },
+    });
+    fireEvent.click(await screen.findByRole("button", { name: /Enviar e abrir conversa/ }));
+
+    expect(await screen.findByText(/em atendimento por Maria/)).toBeDefined();
+  });
+
+  it("escolher aluno preenche o telefone e vincula no envio", async () => {
+    servico.alunosAchados = [
+      { id: "a1", nome: "João da Silva", matricula: "12345", telefone: "51988887777" },
+    ];
+    await abrirFormularioNovaConversa();
+    fireEvent.change(screen.getByPlaceholderText("Nome, CPF ou matrícula"), {
+      target: { value: "João" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Procurar" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: /João da Silva · 12345/ }));
+    expect(await screen.findByText("Vai para +55 (51) 98888-7777")).toBeDefined();
+
+    fireEvent.change(screen.getByPlaceholderText(/Escreva a mensagem/), {
+      target: { value: "Bom dia" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Enviar e abrir conversa/ }));
+
+    await waitFor(() => expect(servico.enviosNovos.length).toBe(1));
+    expect(servico.enviosNovos[0].alunoId).toBe("a1");
+    expect(servico.enviosNovos[0].telefone).toBe("5551988887777");
+  });
+
+  it("aluno sem telefone na base não trava o fluxo", async () => {
+    servico.alunosAchados = [{ id: "a2", nome: "Sem Fone", matricula: "999", telefone: null }];
+    await abrirFormularioNovaConversa();
+    fireEvent.change(screen.getByPlaceholderText("Nome, CPF ou matrícula"), {
+      target: { value: "Sem" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Procurar" }));
+    fireEvent.click(await screen.findByRole("button", { name: /Sem Fone · 999 · sem telefone/ }));
+
+    expect(await screen.findByText(/Vinculando a/)).toBeDefined();
+    // o operador ainda pode digitar o número na mão
+    fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
+      target: { value: "51977776666" },
+    });
+    expect(await screen.findByText("Vai para +55 (51) 97777-6666")).toBeDefined();
+  });
+
+  it("com dois números conectados o operador escolhe por qual sai", async () => {
+    // A regra "responde pelo mesmo número que recebeu" não vale aqui: ninguém
+    // recebeu nada ainda, então a escolha é do operador — e precisa ser
+    // explícita, nunca um padrão silencioso.
+    servico.canais = [
+      CANAL_ONLINE,
+      { ...CANAL_ONLINE, id: "c3", apelido: "Comercial",
+        display_phone_number: "+55 51 3333-3333", online: true, conexao_status: "CONECTADO" },
+    ];
+    await abrirFormularioNovaConversa();
+    const escolha = within(formulario()).getByRole("combobox");
+    expect(escolha.options.length).toBe(2);
+
+    fireEvent.change(escolha, { target: { value: "c3" } });
+    fireEvent.change(screen.getByPlaceholderText("(51) 99999-8888"), {
+      target: { value: "51999998888" },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/Escreva a mensagem/), {
+      target: { value: "Bom dia" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Enviar e abrir conversa/ }));
+
+    await waitFor(() => expect(servico.enviosNovos.length).toBe(1));
+    expect(servico.enviosNovos[0].canalId).toBe("c3");
+  });
+
+  it("fechar no Cancelar não envia nada", async () => {
+    await abrirFormularioNovaConversa();
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByText("Primeira mensagem")).toBeNull());
+    expect(servico.enviosNovos.length).toBe(0);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// GESTÃO — o que só a gestão pode fazer, e o que ela não conseguia fazer sem
+// acesso ao banco.
+// ---------------------------------------------------------------------------
+describe("Central WhatsApp — gestão", () => {
+  it("operador não vê as ações de número", async () => {
+    servico.gestao = false;
+    render(<CentralWhatsApp />);
+    await screen.findByText("Central WhatsApp");
+    expect(screen.queryByRole("button", { name: "Números" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reconectar" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Desvincular" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Supervisão" })).toBeNull();
+  });
+
+  it("gestão desconecta um número que está no ar", async () => {
+    servico.gestao = true;
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Desconectar" }));
+    await waitFor(() => expect(servico.comandos).toEqual([{ canalId: "c1", comando: "desconectar" }]));
+  });
+
+  it("número já fora do ar não oferece Desconectar", async () => {
+    servico.gestao = true;
+    servico.canais = [CANAL_FORA];
+    render(<CentralWhatsApp />);
+    await screen.findByText("Central WhatsApp");
+    expect(screen.queryByRole("button", { name: "Desconectar" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Reconectar" })).toBeDefined();
+  });
+
+  it("desvincular nunca sai em um clique só", async () => {
+    // Desvincular obriga a reparear, e o histórico do aparelho só é importado
+    // no pareamento. Um clique acidental aqui custa caro.
+    servico.gestao = true;
+    servico.canais = [CANAL_ONLINE];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Desvincular" }));
+    expect(servico.comandos.length).toBe(0);
+    expect(screen.getByText(/ler o QR Code de novo/)).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Confirmar desvincular" }));
+    await waitFor(() => expect(servico.comandos).toEqual([{ canalId: "c1", comando: "logout" }]));
+  });
+
+  it("dá para desistir do desvincular", async () => {
+    servico.gestao = true;
+    servico.canais = [CANAL_ONLINE];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Desvincular" }));
+    fireEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    await waitFor(() => expect(screen.queryByText(/ler o QR Code de novo/)).toBeNull());
+    expect(servico.comandos.length).toBe(0);
+  });
+
+  it("gestão cadastra número novo sem precisar de SQL", async () => {
+    servico.gestao = true;
+    servico.canais = [];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Números" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cadastrar número" }));
+
+    fireEvent.change(screen.getByPlaceholderText("Cobrança"), { target: { value: "Comercial" } });
+    fireEvent.change(screen.getByPlaceholderText("+55 51 99999-8888"), {
+      target: { value: "+55 51 3333-3333" },
+    });
+    fireEvent.change(screen.getByPlaceholderText("cobranca"), { target: { value: "  COMERCIAL " } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    await waitFor(() => expect(servico.canaisSalvos.length).toBe(1));
+    // a chave é normalizada: divergir do serviço por causa de espaço ou
+    // maiúscula é justamente a falha que não avisa
+    expect(servico.canaisSalvos[0]).toEqual({
+      id: null, apelido: "Comercial", numero: "+55 51 3333-3333",
+      sessaoChave: "comercial", ativo: true,
+    });
+  });
+
+  it("não salva número pela metade", async () => {
+    servico.gestao = true;
+    servico.canais = [];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Números" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Cadastrar número" }));
+    fireEvent.change(screen.getByPlaceholderText("Cobrança"), { target: { value: "Comercial" } });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar" }));
+
+    expect(await screen.findByText(/são obrigatórios/)).toBeDefined();
+    expect(servico.canaisSalvos.length).toBe(0);
+  });
+
+  it("editar não deixa trocar a chave da sessão", async () => {
+    // A chave amarra a conversa ao canal. Trocar depois órfãos o histórico.
+    servico.gestao = true;
+    servico.canais = [{ ...CANAL_ONLINE, sessao_chave: "piloto" }];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "Números" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Editar" }));
+    expect(screen.getByPlaceholderText("cobranca").disabled).toBe(true);
   });
 });

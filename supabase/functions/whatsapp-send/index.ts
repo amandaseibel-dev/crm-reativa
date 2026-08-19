@@ -23,6 +23,21 @@
 //    na fila de "sem retorno" — se a tentativa sumisse, um erro de envio
 //    esconderia a pessoa da fila e ninguém notaria que ela ficou sem resposta.
 //
+// DOIS CAMINHOS DE ENTRADA, MESMAS TRAVAS:
+//
+//   { conversa_id, texto }          -> responder conversa que já existe
+//   { canal_id, telefone, texto }   -> INICIAR conversa (o operador procura a
+//                                      pessoa e escreve primeiro)
+//
+// O segundo caminho existe porque, sem ele, iniciar contato obrigava o operador
+// a sair para o celular ou para o WhatsApp Web — e o que sai por fora não tem
+// histórico na Central, não tem responsável e não aparece na supervisão.
+//
+// A conversa só nasce DENTRO do envio (RPC whatsapp_preparar_envio_novo). Se
+// nascesse ao abrir o formulário, todo operador que desistisse no meio deixaria
+// conversa vazia na caixa de entrada. E como a falha também é registrada (ver
+// item 3), a conversa nunca fica muda: ou tem a mensagem, ou tem o erro.
+//
 // Não existe mais regra de janela de 24h nem de template: aquilo era tarifação
 // da Cloud API da Meta e não se aplica ao caminho por QR Code.
 //
@@ -62,7 +77,13 @@ Deno.serve(async (req) => {
     return jsonResp({ erro: "gateway do WhatsApp nao configurado" }, 500);
   }
 
-  let corpo: { conversa_id?: string; texto?: string };
+  let corpo: {
+    conversa_id?: string;
+    canal_id?: string;
+    telefone?: string;
+    aluno_id?: string;
+    texto?: string;
+  };
   try {
     corpo = await req.json();
   } catch {
@@ -70,7 +91,11 @@ Deno.serve(async (req) => {
   }
 
   const texto = String(corpo.texto ?? "").trim();
-  if (!corpo.conversa_id) return jsonResp({ erro: "conversa_id obrigatorio" }, 400);
+  const conversaNova = !corpo.conversa_id;
+
+  if (conversaNova && !(corpo.canal_id && corpo.telefone)) {
+    return jsonResp({ erro: "informe conversa_id, ou canal_id e telefone" }, 400);
+  }
   if (!texto) return jsonResp({ erro: "mensagem vazia" }, 400);
   if (texto.length > LIMITE_TEXTO) {
     return jsonResp({ erro: `mensagem acima de ${LIMITE_TEXTO} caracteres` }, 400);
@@ -83,13 +108,28 @@ Deno.serve(async (req) => {
     { global: { headers: { Authorization: autorizacao } }, auth: { persistSession: false } },
   );
 
-  const { data: preparo, error: erroPreparo } = await comoOperador
-    .rpc("whatsapp_preparar_envio", { p_conversa_id: corpo.conversa_id });
+  // Qual RPC prepara o envio depende de a conversa já existir. As duas aplicam
+  // as MESMAS travas (usuário ativo, canal ativo e conectado, dono da conversa)
+  // e as duas decidem o número de saída no banco — nunca aqui.
+  const { data: preparo, error: erroPreparo } = conversaNova
+    ? await comoOperador.rpc("whatsapp_preparar_envio_novo", {
+        p_canal_id: corpo.canal_id,
+        p_telefone: corpo.telefone,
+        p_aluno_id: corpo.aluno_id ?? null,
+      })
+    : await comoOperador.rpc("whatsapp_preparar_envio", {
+        p_conversa_id: corpo.conversa_id,
+      });
 
   if (erroPreparo) return jsonResp({ erro: erroPreparo.message }, 403);
 
   const dados = Array.isArray(preparo) ? preparo[0] : preparo;
   if (!dados?.sessao_chave) return jsonResp({ erro: "conversa sem canal valido" }, 400);
+
+  // A tela precisa do id para abrir a conversa recém-criada. Na resposta a uma
+  // conversa existente ele já é conhecido, mas devolver sempre mantém o
+  // contrato igual nos dois caminhos.
+  const conversaId: string = dados.conversa_id ?? corpo.conversa_id!;
 
   const admin = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -104,7 +144,7 @@ Deno.serve(async (req) => {
       p_nome_perfil: null,
       // Sem id do WhatsApp (envio que falhou) o registro precisa de uma chave
       // própria, senão duas falhas colidiriam na trava de idempotência.
-      p_wamid: wamid ?? `falha:${corpo.conversa_id}:${Date.now()}`,
+      p_wamid: wamid ?? `falha:${conversaId}:${Date.now()}`,
       p_direcao: "SAIDA",
       p_tipo: "text",
       p_texto: texto,
@@ -137,16 +177,24 @@ Deno.serve(async (req) => {
     if (!resposta.ok || !resultado?.ok) {
       const detalhe = resultado?.erro || `gateway respondeu ${resposta.status}`;
       await registrar("FALHOU", null, detalhe);
-      return jsonResp({ erro: detalhe }, 502);
+      return jsonResp({ erro: detalhe, conversa_id: conversaId }, 502);
     }
 
     await registrar("ENVIADO", resultado.wamid ?? null, null);
-    return jsonResp({ ok: true, wamid: resultado.wamid ?? null });
+    return jsonResp({
+      ok: true,
+      wamid: resultado.wamid ?? null,
+      conversa_id: conversaId,
+      ja_existia: dados.ja_existia ?? true,
+    });
   } catch (erro) {
     const detalhe = String((erro as Error)?.message || erro);
     // Gateway inalcançável (VPS fora, proxy caído, timeout). Registra a falha
     // para a conversa continuar aparecendo como sem retorno.
     await registrar("FALHOU", null, detalhe);
-    return jsonResp({ erro: `nao foi possivel falar com o WhatsApp: ${detalhe}` }, 502);
+    return jsonResp(
+      { erro: `nao foi possivel falar com o WhatsApp: ${detalhe}`, conversa_id: conversaId },
+      502,
+    );
   }
 });
