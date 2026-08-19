@@ -7,7 +7,7 @@ import { createServer } from "node:http";
 import { config } from "./config.js";
 import { tokenDeComandoConfere } from "./crm.js";
 import { log } from "./log.js";
-import { tamanhoDaFila } from "./outbox.js";
+import { tamanhoDaFila, tamanhoDaQuarentena } from "./outbox.js";
 
 function json(res, status, corpo) {
   const texto = JSON.stringify(corpo);
@@ -42,6 +42,7 @@ export function iniciarServidor(sessoes) {
           ok: true,
           sessoes: sessoes.map((s) => s.estado()),
           fila_pendente: tamanhoDaFila(),
+          quarentena: tamanhoDaQuarentena(),
           alguma_conectada: algumaOnline,
         });
       }

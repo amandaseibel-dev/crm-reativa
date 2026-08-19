@@ -4,10 +4,13 @@
   "private": true,
   "type": "module",
   "description": "Espelho do WhatsApp por QR Code para a Central do ReATIVA One. Roda em VPS/Docker, 24/7, isolado do CRM.",
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "start": "node src/index.js",
-    "dev": "node --watch src/index.js"
+    "dev": "node --watch src/index.js",
+    "test": "node --test src/*.test.js"
   },
   "dependencies": {
     "baileys": "6.7.24",

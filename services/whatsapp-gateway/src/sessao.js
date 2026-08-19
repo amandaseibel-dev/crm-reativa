@@ -8,28 +8,22 @@ import makeWASocket, {
   makeCacheableSignalKeyStore,
 } from "baileys";
 import QRCode from "qrcode";
+import { writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { config } from "./config.js";
 import { chamar } from "./crm.js";
 import { logSessao } from "./log.js";
 import { enfileirar } from "./outbox.js";
+import {
+  VinculosLid, criarContadores, resolverEndereco, resumoDescartes,
+} from "./enderecos.js";
 import { usarAuthStatePostgres } from "./authState.js";
 
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 
-// Quem NÃO entra na central. Escopo desta fase é receptivo 1:1.
-function jidIgnorado(jid) {
-  if (!jid) return true;
-  return (
-    jid.endsWith("@g.us") ||            // grupo
-    jid.endsWith("@broadcast") ||       // listas e status
-    jid.endsWith("@newsletter") ||      // canais
-    jid.includes("@lid")                // id anônimo: não dá para saber o telefone
-  );
-}
-
-function telefoneDoJid(jid) {
-  return String(jid || "").split("@")[0].split(":")[0];
-}
+// Quem entra na central e quem não entra vive em `enderecos.js`, com o motivo
+// de cada descarte contado. O filtro antigo morava aqui e descartava todo
+// `@lid` — foi o que jogou fora o histórico do primeiro pareamento.
 
 // Extrai o que interessa da mensagem. Mídia na fase 1 é registrada como
 // referência: o operador precisa SABER que veio um comprovante, mesmo que o
@@ -73,6 +67,18 @@ export function criarSessao({ chave }) {
   // Sincronização inicial: uma execução, vários lotes, e um relógio de
   // inatividade — o WhatsApp não avisa de forma confiável que terminou.
   let syncId = null;
+  // Vínculo LID -> telefone aprendido com o próprio histórico e com os
+  // contatos. Vive enquanto a sessão viver; é o que permite processar `@lid`
+  // em vez de descartar.
+  const vinculos = new VinculosLid();
+  // Descartes contados POR MOTIVO. O silêncio foi o que deixou 5.800 mensagens
+  // sumirem sem ninguém notar.
+  const descartes = criarContadores();
+  // Mensagem endereçada por LID cujo vínculo ainda não chegou. O WhatsApp não
+  // garante que o contato venha ANTES da mensagem, e o histórico só vem uma
+  // vez: descartar na hora seria repetir o erro que custou o primeiro
+  // pareamento. Fica retida e é reavaliada quando a sincronização fecha.
+  const retidasPorLid = [];
   let syncRelogio = null;
 
   async function reportar(status, { texto = null, ttlQr = null, jid = null } = {}) {
@@ -125,8 +131,70 @@ export function criarSessao({ chave }) {
       clearTimeout(syncRelogio);
       syncRelogio = null;
     }
+    // ÚLTIMA CHANCE das mensagens retidas: o vínculo LID->telefone pode ter
+    // chegado num lote posterior ao da mensagem. Só agora, com tudo recebido,
+    // dá para saber o que realmente não tem como ser resolvido.
+    const aindaSemVinculo = [];
+    let recuperadas = 0;
+    for (const { jid, msg } of retidasPorLid) {
+      const r = resolverEndereco(jid, vinculos);
+      if (r.telefone) {
+        enfileirar("mensagem", mensagemDoHistorico(msg, r.telefone, null));
+        descartes.aceitos++;
+        descartes.resolvidos_por_lid++;
+        recuperadas++;
+      } else {
+        aindaSemVinculo.push({ jid, wamid: msg.key?.id, em: paraISO(msg.messageTimestamp) });
+        descartes.LID_SEM_VINCULO++;
+      }
+    }
+    retidasPorLid.length = 0;
+
+    // O que sobrou NÃO É APAGADO EM SILÊNCIO. Vai para disco com o LID, para
+    // poder ser reprocessado se o vínculo aparecer depois. Perda silenciosa foi
+    // o que fez 5.800 mensagens sumirem sem ninguém notar.
+    if (aindaSemVinculo.length) {
+      try {
+        const arq = join(config.dadosDir, `lid-sem-vinculo-${chave}-${Date.now()}.json`);
+        writeFileSync(arq, JSON.stringify(aindaSemVinculo, null, 2));
+        log.error({ quantidade: aindaSemVinculo.length, arquivo: arq },
+          "mensagens do historico sem vinculo LID->telefone - registradas em disco, nao descartadas");
+      } catch (erro) {
+        log.error({ erro: String(erro?.message || erro), quantidade: aindaSemVinculo.length },
+          "nao consegui registrar as mensagens sem vinculo");
+      }
+    }
+
     enfileirar("sync.concluir", { sync_id: id });
-    log.info({ syncId: id }, "sincronizacao inicial encerrada");
+    log.info(
+      { syncId: id, recuperadasNoFim: recuperadas, semVinculo: aindaSemVinculo.length,
+        aceitas: descartes.aceitos, porMotivo: resumoDescartes(descartes),
+        vinculosLid: vinculos.tamanho },
+      "sincronizacao inicial encerrada",
+    );
+  }
+
+  // Monta o evento de uma mensagem do histórico. Existe separado porque as
+  // mensagens retidas por LID são enfileiradas mais tarde, quando o vínculo
+  // aparece — e precisam sair exatamente iguais às demais.
+  function mensagemDoHistorico(msg, telefone, nome) {
+    const { tipo, texto, mime } = conteudo(msg);
+    return {
+      sessao: chave,
+      telefone,
+      nome_perfil: nome || msg.pushName || null,
+      wamid: msg.key.id,
+      // fromMe = respondemos pelo celular antes do CRM existir. Entra como
+      // SAIDA para o cálculo de "quem ficou sem retorno" ficar certo.
+      direcao: msg.key.fromMe ? "SAIDA" : "ENTRADA",
+      tipo,
+      texto,
+      midia_id: mime ? msg.key.id : null,
+      midia_mime: mime || null,
+      timestamp: paraISO(msg.messageTimestamp),
+      origem: "SYNC_INICIAL",
+      status: msg.key.fromMe ? "ENVIADO" : null,
+    };
   }
 
   function tratarHistorico({ chats, contacts, messages, isLatest, syncType, progress }) {
@@ -139,48 +207,59 @@ export function criarSessao({ chave }) {
         isLatest: Boolean(isLatest),
         syncType,
         progresso: progress,
+        vinculosLid: vinculos.tamanho,
+        novosVinculos,
       },
       "lote de historico recebido",
     );
 
-    // Nome de perfil vindo dos contatos: melhora a identificação de quem é.
+    // PRIMEIRO aprender os vínculos LID->telefone que vêm neste lote: sem
+    // isso, as mensagens do próprio lote não teriam como ser resolvidas.
+    const novosVinculos = vinculos.aprender({ chats, contacts });
+
+    // Nome de perfil: indexado pelo TELEFONE já resolvido, para valer também
+    // quando o contato chega endereçado por LID.
     const nomes = new Map();
+    const anotarNome = (jid, nome) => {
+      if (!nome) return;
+      const r = resolverEndereco(jid, vinculos);
+      if (r.telefone && !nomes.has(r.telefone)) nomes.set(r.telefone, nome);
+    };
     for (const c of contacts || []) {
-      const tel = telefoneDoJid(c.id);
-      const nome = c.name || c.notify || c.verifiedName;
-      if (tel && nome) nomes.set(tel, nome);
+      anotarNome(c.jid || c.id, c.name || c.notify || c.verifiedName);
+      anotarNome(c.lid, c.name || c.notify || c.verifiedName);
     }
-    for (const c of chats || []) {
-      const tel = telefoneDoJid(c.id);
-      if (tel && c.name && !nomes.has(tel)) nomes.set(tel, c.name);
-    }
+    for (const c of chats || []) anotarNome(c.pnJid || c.id, c.name);
 
     let gravadas = 0;
     for (const msg of lista) {
       const jid = msg.key?.remoteJid;
-      if (jidIgnorado(jid) || !msg.key?.id) continue;
+      if (!msg.key?.id) { descartes.SEM_ID++; continue; }
 
-      const { tipo, texto, mime } = conteudo(msg);
-      const telefone = telefoneDoJid(jid);
+      const endereco = resolverEndereco(jid, vinculos);
+      if (!endereco.telefone) {
+        if (endereco.motivo === "LID_SEM_VINCULO") {
+          retidasPorLid.push({ jid, msg });
+        } else {
+          descartes[endereco.motivo]++;
+        }
+        continue;
+      }
 
-      enfileirar("mensagem", {
-        sessao: chave,
-        telefone,
-        nome_perfil: nomes.get(telefone) || msg.pushName || null,
-        wamid: msg.key.id,
-        // fromMe = respondemos pelo celular antes do CRM existir. Entra como
-        // SAIDA para o cálculo de "quem ficou sem retorno" ficar certo.
-        direcao: msg.key.fromMe ? "SAIDA" : "ENTRADA",
-        tipo,
-        texto,
-        midia_id: mime ? msg.key.id : null,
-        midia_mime: mime || null,
-        timestamp: paraISO(msg.messageTimestamp),
-        origem: "SYNC_INICIAL",
-        status: msg.key.fromMe ? "ENVIADO" : null,
-      });
+      const telefone = endereco.telefone;
+      descartes.aceitos++;
+      if (endereco.viaLid) descartes.resolvidos_por_lid++;
+
+      enfileirar("mensagem", mensagemDoHistorico(msg, telefone, nomes.get(telefone)));
       gravadas++;
     }
+
+    log.info(
+      { aproveitadas: gravadas, descartadas: lista.length - gravadas,
+        porMotivo: resumoDescartes(descartes), resolvidosPorLid: descartes.resolvidos_por_lid,
+        vinculosLid: vinculos.tamanho },
+      "lote de historico processado",
+    );
 
     if (syncId) {
       enfileirar("sync.contabilizar", {
@@ -202,14 +281,24 @@ export function criarSessao({ chave }) {
 
     for (const msg of messages || []) {
       const jid = msg.key?.remoteJid;
-      if (jidIgnorado(jid) || !msg.key?.id) continue;
-      if (!msg.message) continue; // protocolo/recibo, não é mensagem de gente
+      if (!msg.key?.id) { descartes.SEM_ID++; continue; }
+      if (!msg.message) { descartes.SEM_CONTEUDO++; continue; } // protocolo/recibo
+
+      const endereco = resolverEndereco(jid, vinculos);
+      if (!endereco.telefone) {
+        descartes[endereco.motivo]++;
+        log.warn({ motivo: endereco.motivo, porMotivo: resumoDescartes(descartes) },
+          "mensagem recebida sem telefone utilizavel - nao enfileirada");
+        continue;
+      }
+      descartes.aceitos++;
+      if (endereco.viaLid) descartes.resolvidos_por_lid++;
 
       const { tipo, texto, mime } = conteudo(msg);
 
       enfileirar("mensagem", {
         sessao: chave,
-        telefone: telefoneDoJid(jid),
+        telefone: endereco.telefone,
         nome_perfil: msg.pushName || null,
         wamid: msg.key.id,
         // Mensagem enviada do CELULAR pelo operador também é registrada, senão
@@ -263,6 +352,10 @@ export function criarSessao({ chave }) {
     });
 
     sock.ev.on("creds.update", () => auth.salvarCredenciais());
+    // Contatos que chegam fora do histórico também trazem o par LID/telefone.
+    sock.ev.on("contacts.upsert", (c) => vinculos.aprender({ contacts: c }));
+    sock.ev.on("contacts.update", (c) => vinculos.aprender({ contacts: c }));
+    sock.ev.on("chats.upsert", (c) => vinculos.aprender({ chats: c }));
     sock.ev.on("messages.upsert", tratarMensagensNovas);
     sock.ev.on("messaging-history.set", async (dados) => {
       await garantirSync();
@@ -298,7 +391,8 @@ export function criarSessao({ chave }) {
       if (connection === "open") {
         tentativas = 0;
         qrDataUrl = null;
-        const jid = sock.user?.id ? telefoneDoJid(sock.user.id) : null;
+        // O próprio número da empresa: aqui o JID é sempre de telefone.
+        const jid = sock.user?.id ? String(sock.user.id).split("@")[0].split(":")[0] : null;
         await reportar("CONECTADO", { texto: null, jid });
         log.info({ jid }, "sessao conectada");
       }
@@ -384,6 +478,12 @@ export function criarSessao({ chave }) {
       detalhe,
       temQr: Boolean(qrDataUrl),
       conectado: estadoAtual === "CONECTADO",
+      // Visível no /saude de propósito: descarte silencioso foi o que fez o
+      // histórico do primeiro pareamento sumir sem ninguém perceber.
+      vinculos_lid: vinculos.tamanho,
+      descartes: resumoDescartes(descartes),
+      aceitas: descartes.aceitos,
+      resolvidas_por_lid: descartes.resolvidos_por_lid,
       sincronizando: Boolean(syncId),
       tentativasReconexao: tentativas,
     }),
