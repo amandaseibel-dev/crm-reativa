@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Tunel ngrok que publica o gateway na internet, com dominio FIXO.
 
   POR QUE IMPORTA TANTO: o Supabase guarda a URL do gateway num secret. Se o
   endereco mudar, mensagem continua ENTRANDO (o gateway fala de dentro para
-  fora) mas RESPOSTA e comando de sessao param -- falha silenciosa, a pior de
+  fora) mas RESPOSTA e comando de sessao param: falha silenciosa, a pior de
   todas neste modulo. O dominio reservado no ngrok.yml e o que impede isso.
 
   Sobe pelo nome do tunel ("whatsapp") definido em

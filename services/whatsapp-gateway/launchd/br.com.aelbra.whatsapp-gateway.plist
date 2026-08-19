@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
   Gateway do WhatsApp (Baileys) — piloto no Mac da Amanda.
 
@@ -13,7 +14,7 @@
 
   RunAtLoad=true faz subir no login. Nao ha "boot sem login" aqui: LaunchAgent
   roda na sessao do usuario. Se a maquina reiniciar e ninguem logar, o gateway
-  NAO sobe -- limitacao conhecida do piloto em Mac.
+  NAO sobe: limitacao conhecida do piloto em Mac.
 -->
 <plist version="1.0">
 <dict>
