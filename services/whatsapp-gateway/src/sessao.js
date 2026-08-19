@@ -484,6 +484,10 @@ export function criarSessao({ chave }) {
       descartes: resumoDescartes(descartes),
       aceitas: descartes.aceitos,
       resolvidas_por_lid: descartes.resolvidos_por_lid,
+      // Aguardando o vínculo aparecer num lote posterior. É o número que diz se
+      // vale continuar o pareamento ou parar: retenção alta significa que o
+      // vínculo não está vindo, e processar mais seria queimar a chance à toa.
+      retidas_por_lid: retidasPorLid.length,
       sincronizando: Boolean(syncId),
       tentativasReconexao: tentativas,
     }),
