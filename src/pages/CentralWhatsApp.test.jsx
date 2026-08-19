@@ -43,6 +43,7 @@ vi.mock("../services/whatsapp", async (original) => {
     listarOperadores: vi.fn(async () => [
       { email: "maria@aelbra.com.br", nome: "Maria" },
       { email: "joao@aelbra.com.br", nome: "João" },
+      { email: "rafaella@aelbra.com.br", nome: "Rafaella" },
     ]),
     marcarLida: vi.fn(async () => {}),
     carregarResumo: vi.fn(async () => servico.resumo),
@@ -60,8 +61,32 @@ vi.mock("../services/whatsapp", async (original) => {
     salvarCanal: vi.fn(async (args) => {
       servico.canaisSalvos.push(args);
     }),
+    // Estes mocks PRECISAM alterar os dados, como o banco faz. Um mock que só
+    // registra a chamada deixa a tela mostrando o estado anterior depois da
+    // ação, e aí o teste cobra da tela um comportamento que ela nunca poderia
+    // ter — ou passa por acidente.
     transferirConversa: vi.fn(async (id, email) => {
       servico.transferencias.push({ id, email });
+      const c = servico.conversas.find((x) => x.id === id);
+      if (c) {
+        c.responsavel_email = email;
+        c.responsavel_nome = { "maria@aelbra.com.br": "Maria",
+                               "joao@aelbra.com.br": "João",
+                               "rafaella@aelbra.com.br": "Rafaella" }[email] || email;
+        c.status = "EM_ATENDIMENTO";
+      }
+    }),
+    assumirConversa: vi.fn(async (id) => {
+      const c = servico.conversas.find((x) => x.id === id);
+      if (c) {
+        c.responsavel_email = "eu@aelbra.com.br";
+        c.responsavel_nome = "Eu Mesmo";
+        c.status = "EM_ATENDIMENTO";
+      }
+    }),
+    retirarResponsavel: vi.fn(async (id) => {
+      const c = servico.conversas.find((x) => x.id === id);
+      if (c) { c.responsavel_email = null; c.responsavel_nome = null; }
     }),
     buscarAluno: vi.fn(async () => servico.alunosAchados),
     procurarConversaPorTelefone: vi.fn(async () => servico.conversaExistente),
@@ -719,5 +744,198 @@ describe("Central WhatsApp — transferência", () => {
     // (o seletor `strong` evita casar com a <option> de mesmo nome)
     await waitFor(() =>
       expect(screen.getByText("Maria", { selector: "strong" })).toBeDefined());
+  });
+});
+
+// ---------------------------------------------------------------------------
+// SELECIONAR OPERADOR NÃO PODE SAIR DA CENTRAL
+//
+// Problema relatado: escolher o próprio nome (ou o de um colega) tirava a
+// pessoa da Central e abria outra tela. Quem está atendendo perde a fila, o
+// rascunho e o contexto — e no meio de um atendimento isso custa o aluno.
+//
+// Estes testes montam a Central DENTRO de um roteador de verdade e vigiam a
+// rota a cada render. Qualquer `navigate`, `<Navigate>` ou `<a href>` que
+// escape aparece aqui como mudança de rota.
+//
+// A ÚNICA saída autorizada é "Abrir ficha completa", e mesmo ela não troca a
+// rota: abre outra aba e deixa a Central onde estava.
+// ---------------------------------------------------------------------------
+import { MemoryRouter, Routes, Route, useLocation } from "react-router-dom";
+
+function SondaRota({ registrar }) {
+  const l = useLocation();
+  registrar(`${l.pathname}${l.search}${l.hash}`);
+  return null;
+}
+
+// Trocar o filtro de responsável, de verdade.
+//
+// DOIS JEITOS DE ESTE TESTE MENTIR, os dois já aconteceram aqui:
+//
+//   1. guardar a referência do <select> e disparar depois — entre o render
+//      inicial e o disparo o elemento é recriado, o evento cai num nó solto e o
+//      teste passa sem exercitar nada;
+//   2. disparar antes de a lista de operadores chegar — `<select>` recusa um
+//      valor que ainda não existe como <option>, o value continua vazio e, de
+//      novo, o teste passa sem exercitar nada.
+//
+// Por isso: espera a opção existir, consulta o select na hora, dispara, e só
+// devolve depois de o filtro ter chegado ao serviço.
+async function filtrarPorResponsavel(email) {
+  if (email) await screen.findByRole("option", { name: NOMES[email] });
+  const select = screen.getByRole("option", { name: "Qualquer responsável" }).closest("select");
+  fireEvent.change(select, { target: { value: email } });
+  await waitFor(() => expect(select.value).toBe(email));
+  await waitFor(() => {
+    const ultimo = servico.filtrosPedidos[servico.filtrosPedidos.length - 1];
+    expect(ultimo.responsavel).toBe(email || "");
+  });
+}
+
+// Os mesmos nomes que `listarOperadores` devolve acima. Se divergirem, o
+// <select> recusa o valor em silêncio e o teste passa sem exercitar nada.
+const NOMES = {
+  "maria@aelbra.com.br": "Maria",
+  "joao@aelbra.com.br": "João",
+  "rafaella@aelbra.com.br": "Rafaella",
+};
+
+function montarNaRota(registrar) {
+  return render(
+    <MemoryRouter initialEntries={["/central-whatsapp"]}>
+      <SondaRota registrar={registrar} />
+      <Routes>
+        <Route path="/central-whatsapp" element={<CentralWhatsApp />} />
+        {/* Se algo navegar para fora, cai aqui e o teste vê a rota mudar. */}
+        <Route path="*" element={<div>SAIU DA CENTRAL</div>} />
+      </Routes>
+    </MemoryRouter>,
+  );
+}
+
+describe("Central WhatsApp — selecionar operador não navega", () => {
+  let rotas;
+  let abriuJanela;
+
+  beforeEach(() => {
+    rotas = [];
+    abriuJanela = vi.spyOn(window, "open").mockImplementation(() => null);
+  });
+  afterEach(() => abriuJanela.mockRestore());
+
+  const soCentral = () => Array.from(new Set(rotas));
+
+  it("filtrar por responsável muda só o filtro, não a rota", async () => {
+    servico.conversas = [conversa()];
+    montarNaRota((r) => rotas.push(r));
+    await screen.findByText("Central WhatsApp");
+
+    // o filtro chegou ao serviço...
+    await filtrarPorResponsavel("maria@aelbra.com.br");
+    // ...e a rota não se mexeu
+    expect(soCentral()).toEqual(["/central-whatsapp"]);
+    expect(screen.queryByText("SAIU DA CENTRAL")).toBeNull();
+    expect(abriuJanela).not.toHaveBeenCalled();
+  });
+
+  it("percorrer TODOS os operadores do filtro mantém a Central aberta", async () => {
+    servico.conversas = [conversa()];
+    montarNaRota((r) => rotas.push(r));
+    await screen.findByText("Central WhatsApp");
+
+    for (const email of ["maria@aelbra.com.br", "joao@aelbra.com.br", ""]) {
+      await filtrarPorResponsavel(email);
+    }
+    expect(soCentral()).toEqual(["/central-whatsapp"]);
+    expect(abriuJanela).not.toHaveBeenCalled();
+  });
+
+  it("transferir para um operador não tira ninguém da Central", async () => {
+    servico.conversas = [conversa({ responsavel_email: null, responsavel_nome: null, nao_lidas: 0 })];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    montarNaRota((r) => rotas.push(r));
+    fireEvent.click(await screen.findByText("Fulano"));
+
+    const seletor = screen.getByRole("option", { name: "Transferir para…" }).closest("select");
+    fireEvent.change(seletor, { target: { value: "joao@aelbra.com.br" } });
+
+    await waitFor(() => expect(servico.transferencias.length).toBe(1));
+    // Esperar o ciclo de render ASSENTAR antes de olhar a rota: conferir logo
+    // após a chamada do serviço checaria um instante em que a navegação ainda
+    // não teria acontecido, e o teste passaria com o defeito presente.
+    await waitFor(() =>
+      expect(screen.getByText("João", { selector: "strong" })).toBeDefined());
+
+    expect(soCentral()).toEqual(["/central-whatsapp"]);
+    expect(screen.queryByText("SAIU DA CENTRAL")).toBeNull();
+    expect(abriuJanela).not.toHaveBeenCalled();
+  });
+
+  it("assumir e retirar responsável também ficam na Central", async () => {
+    servico.conversas = [conversa({ responsavel_email: null, responsavel_nome: null, nao_lidas: 0 })];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    montarNaRota((r) => rotas.push(r));
+    fireEvent.click(await screen.findByText("Fulano"));
+
+    fireEvent.click(screen.getByRole("button", { name: "Assumir" }));
+    // idem: espera a conversa passar a ter dono antes de olhar a rota
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Retirar responsável" })).toBeDefined());
+    expect(soCentral()).toEqual(["/central-whatsapp"]);
+    expect(abriuJanela).not.toHaveBeenCalled();
+  });
+
+  it("gestão faz o mesmo e continua na Central", async () => {
+    // Gestão tem botões a mais (Números, Supervisão). Nenhum deles é rota.
+    servico.gestao = true;
+    servico.conversas = [conversa()];
+    montarNaRota((r) => rotas.push(r));
+    await screen.findByText("Central WhatsApp");
+
+    await filtrarPorResponsavel("rafaella@aelbra.com.br");
+    fireEvent.click(await screen.findByRole("button", { name: "Supervisão" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Números" }));
+    await waitFor(() => expect(screen.getByText("Números da Central")).toBeDefined());
+
+    expect(soCentral()).toEqual(["/central-whatsapp"]);
+    expect(screen.queryByText("SAIU DA CENTRAL")).toBeNull();
+    expect(abriuJanela).not.toHaveBeenCalled();
+  });
+
+  it("a Central não tem link nenhum para outra tela", async () => {
+    // Um <a href> perdido navega sem passar por navigate() e escaparia dos
+    // testes acima. Aqui a busca é no DOM renderizado.
+    servico.gestao = true;
+    servico.conversas = [conversa()];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    const { container } = montarNaRota((r) => rotas.push(r));
+    fireEvent.click(await screen.findByText("Fulano"));
+    await waitFor(() => expect(screen.getByText("Assumir")).toBeDefined());
+
+    expect(container.querySelectorAll("a[href]").length).toBe(0);
+  });
+
+  it("só 'Abrir ficha completa' navega — e ainda assim não troca a rota", async () => {
+    servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    servico.ficha = { aluno_id: "a1", nome: "Carlos", matricula: "1", saldo_total: 0, saldo_vencido: 0 };
+    montarNaRota((r) => rotas.push(r));
+    fireEvent.click(await screen.findByText("Carlos"));
+
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha completa" }));
+
+    // abre OUTRA aba: a Central continua aberta e na mesma rota
+    await waitFor(() => expect(abriuJanela).toHaveBeenCalledWith("/aluno", "_blank"));
+    expect(soCentral()).toEqual(["/central-whatsapp"]);
+    expect(screen.queryByText("SAIU DA CENTRAL")).toBeNull();
   });
 });

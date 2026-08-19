@@ -8,7 +8,28 @@
 import { resolve } from "node:path";
 
 export default {
-  server: { port: 5199, strictPort: true },
+  // `appType: "mpa"` + fallback manual: a entrada do preview é um HTML próprio,
+  // e o roteador troca o caminho para /central-whatsapp. Sem isto, recarregar a
+  // página nessa rota daria 404 no servidor de desenvolvimento.
+  appType: "mpa",
+  server: {
+    port: 5199,
+    strictPort: true,
+    middlewareMode: false,
+  },
+  plugins: [
+    {
+      name: "preview-fallback",
+      configureServer(servidor) {
+        servidor.middlewares.use((req, _res, proximo) => {
+          if (req.url && !req.url.includes(".") && !req.url.startsWith("/@")) {
+            req.url = "/preview-central.html";
+          }
+          proximo();
+        });
+      },
+    },
+  ],
   resolve: {
     alias: [
       { find: /^.*\/services\/whatsapp$/, replacement: resolve("./.preview/mock-whatsapp.js") },

@@ -102,7 +102,12 @@ export const vincularAluno = async (id, alunoId) => {
   const a = ALUNOS.find((x) => x.id === alunoId);
   if (c) { c.aluno_id = alunoId; c.aluno_nome = a?.nome || "Aluno vinculado"; c.aluno_status = "ENCONTRADO"; }
 };
-export const abrirFichaDoAluno = () => {};
+// No preview não abre outra aba de verdade, mas REGISTRA — é assim que dá para
+// verificar que abrir a ficha é a única ação da Central que sai dela, e que
+// nenhuma seleção de operador faz isso.
+export const abrirFichaDoAluno = (alunoId) => {
+  (window.__fichasAbertas ||= []).push(alunoId);
+};
 
 export const carregarQr = async () => espera({
   qr_code:

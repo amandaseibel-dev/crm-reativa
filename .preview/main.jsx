@@ -1,7 +1,16 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import CentralWhatsApp from "/src/pages/CentralWhatsApp.jsx";
 import { cenario } from "./mock-whatsapp.js";
+
+// O preview roda sob um roteador DE VERDADE, na mesma rota da produção. Assim,
+// se qualquer coisa dentro da Central navegar, a barra de endereço muda e a
+// rota abaixo aparece na tela — em vez de o problema passar despercebido por
+// não haver roteador nenhum.
+if (window.location.pathname !== "/central-whatsapp") {
+  window.history.replaceState({}, "", "/central-whatsapp");
+}
 
 function Barra() {
   const [gestao, setGestao] = useState(cenario.gestao);
@@ -29,7 +38,19 @@ function Barra() {
           Gestão
         </button>
       </div>
-      <CentralWhatsApp key={chave} />
+      <BrowserRouter>
+        <Routes>
+          <Route path="/central-whatsapp" element={<CentralWhatsApp key={chave} />} />
+          <Route
+            path="*"
+            element={
+              <div style={{ padding: 40, fontSize: 20, color: "#dc2626", fontWeight: 700 }}>
+                SAIU DA CENTRAL — rota atual: {window.location.pathname}
+              </div>
+            }
+          />
+        </Routes>
+      </BrowserRouter>
     </>
   );
 }
