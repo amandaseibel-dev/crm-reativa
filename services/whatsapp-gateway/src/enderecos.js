@@ -101,9 +101,36 @@ export class VinculosLid {
   }
 }
 
+// Formato do endereço, SEM os dígitos. Serve para o log dizer o que chegou sem
+// despejar telefone de aluno no arquivo.
+export function formatoDoJid(jid) {
+  if (!jid) return "ausente";
+  const t = String(jid);
+  const arroba = t.indexOf("@");
+  return arroba === -1 ? "sem-arroba" : t.slice(arroba);
+}
+
+// O telefone que o PRÓPRIO evento carrega. O Baileys decodifica `sender_pn` e
+// `participant_pn` da mensagem e coloca na chave — é o telefone de quem
+// escreveu, mesmo quando a conversa é endereçada por LID.
+//
+// Estávamos ignorando esse campo: por isso mensagem ao vivo de conta LID caía
+// em LID_SEM_VINCULO e nunca chegava à Central, mesmo com o telefone ali.
+export function telefoneDaChave(chave) {
+  for (const candidato of [chave?.senderPn, chave?.participantPn]) {
+    if (!candidato) continue;
+    const user = jidDecode(candidato)?.user;
+    if (telefoneValido(user)) return { user, jid: candidato };
+  }
+  return null;
+}
+
 // O coração: devolve `{ telefone }` OU `{ motivo }`. Nunca as duas coisas, e
 // nunca `null` silencioso — quem chama é obrigado a contabilizar o motivo.
-export function resolverEndereco(jid, vinculos) {
+//
+// `chave` é a chave da mensagem (`msg.key`), quando houver: é dela que sai o
+// telefone do remetente numa conversa endereçada por LID.
+export function resolverEndereco(jid, vinculos, chave = null) {
   if (!jid) return { motivo: "SEM_ID" };
 
   const texto = String(jid);
@@ -114,6 +141,16 @@ export function resolverEndereco(jid, vinculos) {
   if (isLidUser(texto)) {
     const tel = vinculos?.resolver(texto);
     if (tel) return { telefone: tel, viaLid: true };
+
+    // O evento pode trazer o telefone do remetente. Quando traz, aprendemos o
+    // par para que as próximas mensagens deste LID resolvam pelo mapa, sem
+    // depender de o campo vir de novo.
+    const daChave = telefoneDaChave(chave);
+    if (daChave) {
+      vinculos?.registrar(texto, daChave.jid);
+      return { telefone: daChave.user, viaLid: true };
+    }
+
     return { motivo: "LID_SEM_VINCULO" };
   }
 
