@@ -61,6 +61,64 @@ function paraISO(ts) {
   return new Date(n * 1000).toISOString();
 }
 
+// O que fazer quando a conexão cai. Função pura de propósito: esta decisão já
+// custou uma credencial boa e 33 minutos do número fora do ar, e precisa ser
+// testável sem socket, sem rede e sem WhatsApp.
+//
+// A DISTINÇÃO QUE IMPORTA — código explícito x padrão do Baileys:
+//
+//   O Baileys traduz `stream:error` em código assim (Utils/generics.js):
+//       statusCode = +(node.attrs.code || CODE_MAP[reason] || badSession)
+//
+//   Ou seja: `badSession` (500) NÃO é o WhatsApp dizendo que a sessão morreu.
+//   É o valor de ENCHIMENTO para qualquer stream:error que chegue sem o
+//   atributo `code`. Em 19/08/2026 o WhatsApp mandou um `stream:error` cujo
+//   único conteúdo era `<ack class="message" type="text">` — sem `code`. Virou
+//   500 aqui dentro, o código tratou como credencial morta, apagou do disco E
+//   do Postgres, e o número ficou pedindo QR até alguém parear de novo. A
+//   credencial estava perfeita.
+//
+//   Já `loggedOut` (401) e `multideviceMismatch` (411) só existem quando o
+//   WhatsApp manda o código explicitamente. Aí a credencial é inutilizável de
+//   verdade e insistir com ela é reconectar para sempre contra uma sessão que
+//   o outro lado já derrubou.
+//
+// POR QUE É SEGURO NÃO APAGAR NO 500: se a credencial estiver mesmo morta, a
+// próxima tentativa de conexão volta com 401 explícito e o apagamento acontece
+// ali, de forma legítima. O erro se corrige sozinho. O contrário — apagar por
+// engano — é irreversível: reparear gasta a ÚNICA sincronização inicial de
+// histórico daquele número.
+export function politicaDeQueda(codigo) {
+  // Invalidação inequívoca: o WhatsApp mandou o código, não o Baileys deduziu.
+  if (codigo === DisconnectReason.loggedOut) {
+    return { acao: "APAGAR_E_PAREAR", texto: "a sessao foi encerrada no celular - e preciso ler o QR de novo" };
+  }
+  if (codigo === DisconnectReason.multideviceMismatch) {
+    return { acao: "APAGAR_E_PAREAR", texto: "o aparelho nao esta em multi-dispositivo - e preciso ler o QR de novo" };
+  }
+
+  // Passo NORMAL logo depois de ler o QR: o WhatsApp manda fechar e reabrir. A
+  // reconexão precisa ser imediata, porque é na conexão SEGUINTE que o
+  // histórico do aparelho chega — e ele vem uma vez só.
+  if (codigo === DisconnectReason.restartRequired) {
+    return { acao: "REINICIAR", texto: "reiniciando apos pareamento", atrasoMs: 500 };
+  }
+
+  // Outro aparelho assumiu esta sessão. Reconectar aqui vira cabo de guerra:
+  // os dois lados se derrubam em looping. Para e avisa.
+  if (codigo === DisconnectReason.connectionReplaced) {
+    return {
+      acao: "PARAR",
+      texto: "outro dispositivo assumiu esta sessao - desconecte o WhatsApp Web e reconecte pela Central",
+    };
+  }
+
+  // Todo o resto — inclusive `badSession` (500), `connectionLost` (408) e
+  // `connectionClosed` (428) — é queda comum: preserva a credencial e tenta de
+  // novo com o backoff normal.
+  return { acao: "RECONECTAR" };
+}
+
 export function criarSessao({ chave }) {
   const log = logSessao(chave);
 
@@ -510,12 +568,8 @@ export function criarSessao({ chave }) {
       }
 
       if (connection === "open") {
-        tentativas = 0;
-        qrDataUrl = null;
         // O próprio número da empresa: aqui o JID é sempre de telefone.
-        const jid = sock.user?.id ? String(sock.user.id).split("@")[0].split(":")[0] : null;
-        await reportar("CONECTADO", { texto: null, jid });
-        log.info({ jid }, "sessao conectada");
+        await tratarConexaoAberta(sock.user?.id ? String(sock.user.id).split("@")[0].split(":")[0] : null);
       }
 
       if (connection === "close") {
@@ -523,57 +577,68 @@ export function criarSessao({ chave }) {
         // dizia `temQr: true` com a sessão caída — informação que não ajuda
         // quem está diagnosticando.
         qrDataUrl = null;
-        const codigo = lastDisconnect?.error?.output?.statusCode;
-        const motivo = Object.keys(DisconnectReason).find((k) => DisconnectReason[k] === codigo) || codigo;
-        log.warn({ codigo, motivo }, "conexao caiu");
-
-        // Histórico interrompido no meio: fecha a execução para o CRM não
-        // ficar com uma sincronização eternamente "em andamento".
-        await fecharSync();
-
-        const precisaNovoQr =
-          codigo === DisconnectReason.loggedOut ||
-          codigo === DisconnectReason.badSession ||
-          codigo === DisconnectReason.multideviceMismatch;
-
-        if (precisaNovoQr) {
-          // A credencial morreu. Insistir com ela é reconectar para sempre
-          // contra uma sessão que o WhatsApp já derrubou.
-          await auth.apagar();
-          auth = null;
-          await reportar("PAREAMENTO_NECESSARIO", {
-            texto: "a sessao foi encerrada no celular - e preciso ler o QR de novo",
-          });
-          agendarReconexao(5_000);
-          return;
-        }
-
-        if (codigo === DisconnectReason.restartRequired) {
-          // Passo NORMAL logo depois de ler o QR: o WhatsApp manda fechar e
-          // reabrir. A reconexão precisa ser imediata, porque é na conexão
-          // SEGUINTE que o histórico do aparelho chega — e ele vem uma vez só.
-          log.info("reinicio pedido pelo WhatsApp (normal apos pareamento)");
-          await reportar("CONECTANDO", { texto: "reiniciando apos pareamento" });
-          agendarReconexao(500);
-          return;
-        }
-
-        if (codigo === DisconnectReason.connectionReplaced) {
-          // Outro aparelho assumiu esta sessão. Reconectar aqui vira cabo de
-          // guerra: os dois lados se derrubam em looping. Para e avisa.
-          await reportar("ERRO", {
-            texto: "outro dispositivo assumiu esta sessao - desconecte o WhatsApp Web e reconecte pela Central",
-          });
-          return;
-        }
-
-        await reportar("DESCONECTADO", { texto: `queda (${motivo})` });
-        agendarReconexao();
+        await tratarQueda(lastDisconnect?.error?.output?.statusCode);
       }
     });
   }
 
+  async function tratarConexaoAberta(jid) {
+    tentativas = 0;
+    qrDataUrl = null;
+    await reportar("CONECTADO", { texto: null, jid });
+    log.info({ jid }, "sessao conectada");
+  }
+
+  // Executa a decisão de `politicaDeQueda`. Separado do manipulador de evento
+  // para que o teste possa exercitar a queda inteira — inclusive o apagamento
+  // da credencial, que é a parte irreversível — sem subir socket nenhum.
+  async function tratarQueda(codigo) {
+    const motivo = Object.keys(DisconnectReason).find((k) => DisconnectReason[k] === codigo) || codigo;
+    log.warn({ codigo, motivo }, "conexao caiu");
+
+    // Histórico interrompido no meio: fecha a execução para o CRM não ficar
+    // com uma sincronização eternamente "em andamento".
+    await fecharSync();
+
+    const politica = politicaDeQueda(codigo);
+
+    if (politica.acao === "APAGAR_E_PAREAR") {
+      log.warn({ codigo, motivo }, "invalidacao explicita do WhatsApp - apagando credencial");
+      await auth.apagar();
+      auth = null;
+      await reportar("PAREAMENTO_NECESSARIO", { texto: politica.texto });
+      agendarReconexao(5_000);
+      return;
+    }
+
+    if (politica.acao === "REINICIAR") {
+      log.info("reinicio pedido pelo WhatsApp (normal apos pareamento)");
+      await reportar("CONECTANDO", { texto: politica.texto });
+      agendarReconexao(politica.atrasoMs);
+      return;
+    }
+
+    if (politica.acao === "PARAR") {
+      await reportar("ERRO", { texto: politica.texto });
+      return;
+    }
+
+    // RECONECTAR: a credencial fica onde está, no disco e no Postgres.
+    await reportar("DESCONECTADO", { texto: `queda (${motivo})` });
+    agendarReconexao();
+  }
+
+  // Costura de teste. Sem ela, exercitar uma queda dispara um `conectar()` de
+  // verdade por `setTimeout`: rede, socket e um laço de reconexão que não
+  // termina junto com o teste. Registrar o pedido também é o que prova que a
+  // sessão TENTOU voltar, em vez de desistir com a credencial na mão.
+  let reconexaoDeTeste = null;
+
   function agendarReconexao(forcarMs = null) {
+    if (reconexaoDeTeste) {
+      reconexaoDeTeste(forcarMs);
+      return;
+    }
     if (parando || reconectando) return;
     reconectando = true;
 
@@ -605,6 +670,13 @@ export function criarSessao({ chave }) {
       garantirSync: () => garantirSync(),
       descartes: () => ({ ...descartes }),
       vinculos: () => vinculos,
+      // A queda pelo caminho de verdade: mesma função que o evento do Baileys
+      // chama. É o único jeito de provar que um 500 NÃO apaga a credencial.
+      tratarQueda: (codigo) => tratarQueda(codigo),
+      conexaoAberta: ({ jid } = {}) => tratarConexaoAberta(jid ?? null),
+      usarAuth: (a) => { auth = a; },
+      auth: () => auth,
+      usarReconexao: (fn) => { reconexaoDeTeste = fn; },
     },
     estado: () => ({
       sessao: chave,
