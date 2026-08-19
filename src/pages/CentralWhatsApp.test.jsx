@@ -939,3 +939,56 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
     expect(screen.queryByText("SAIU DA CENTRAL")).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// ANEXO NA CONVERSA
+//
+// A mídia é a próxima entrega, mas a Central já tem de saber exibi-la — e,
+// principalmente, tem de continuar mostrando a mensagem quando o anexo NÃO pôde
+// ser recuperado. Comprovante que some sem aviso é pior do que comprovante que
+// não abre.
+// ---------------------------------------------------------------------------
+describe("Central WhatsApp — anexo", () => {
+  it("mensagem com anexo não recuperado avisa, e não some", async () => {
+    servico.conversas = [conversa({ nao_lidas: 0 })];
+    servico.mensagens = [{
+      id: "m1", direcao: "ENTRADA", tipo: "image",
+      texto: "segue o comprovante",
+      midia_path: null, midia_erro: "anexo acima do limite (22 MB)",
+      timestamp_wa: new Date().toISOString(),
+    }];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+
+    // a legenda continua visível
+    expect(await screen.findByText("segue o comprovante")).toBeDefined();
+    // e o motivo aparece, em vez de a mensagem parecer vazia
+    expect(screen.getByText(/Anexo não recuperado/)).toBeDefined();
+    expect(screen.getByText(/22 MB/)).toBeDefined();
+  });
+
+  it("mensagem sem anexo e sem texto ainda mostra o tipo", async () => {
+    servico.conversas = [conversa({ nao_lidas: 0 })];
+    servico.mensagens = [{
+      id: "m2", direcao: "ENTRADA", tipo: "sticker", texto: null,
+      midia_path: null, midia_erro: null,
+      timestamp_wa: new Date().toISOString(),
+    }];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+    expect(await screen.findByText("[sticker]")).toBeDefined();
+  });
+
+  it("mensagem de texto comum não vira anexo", async () => {
+    servico.conversas = [conversa({ nao_lidas: 0 })];
+    servico.mensagens = [{
+      id: "m3", direcao: "ENTRADA", tipo: "text", texto: "só texto",
+      timestamp_wa: new Date().toISOString(),
+    }];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+    expect(await screen.findByText("só texto")).toBeDefined();
+    expect(screen.queryByText(/Anexo não recuperado/)).toBeNull();
+    expect(screen.queryByText(/carregando anexo/)).toBeNull();
+  });
+});

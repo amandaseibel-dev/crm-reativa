@@ -19,6 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { formatarTelefone, normalizarE164 } from "../utils/telefone";
+import AnexoWhatsApp from "../components/AnexoWhatsApp";
 import {
   FILTRO_MINHAS,
   FILTRO_NAO_LIDAS,
@@ -865,7 +866,12 @@ export default function CentralWhatsApp() {
                     return (
                       <div key={m.id} style={saida ? S.balaoSaidaWrap : S.balaoEntradaWrap}>
                         <div style={saida ? S.balaoSaida : S.balaoEntrada}>
-                          {m.texto || <em style={S.midia}>[{m.tipo}]</em>}
+                          {/* O anexo vem ANTES do texto: quando ha os dois, o texto
+                              e a legenda da midia. */}
+                          <AnexoWhatsApp mensagem={m} />
+                          {m.texto || (m.midia_path || m.midia_erro
+                            ? null
+                            : <em style={S.midia}>[{m.tipo}]</em>)}
                           <div style={S.balaoRodape}>
                             {horaCompleta(m.timestamp_wa)}
                             {saida && m.enviado_por_email ? ` · ${m.enviado_por_email}` : ""}

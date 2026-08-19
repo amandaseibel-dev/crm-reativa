@@ -9,5 +9,10 @@ export default defineConfig({
   esbuild: { jsx: "automatic", jsxImportSource: "react" },
   test: {
     environment: "node",
+    // O gateway do WhatsApp tem testes proprios, escritos para `node --test`
+    // (rodam com `npm test` DENTRO de services/whatsapp-gateway). O vitest da
+    // raiz nao sabe executa-los e os marcaria como falha — ruido que esconderia
+    // falha de verdade.
+    exclude: ["**/node_modules/**", "**/dist/**", "services/**"],
   },
 });
