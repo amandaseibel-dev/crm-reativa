@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Tunel ngrok que publica o gateway na internet, com dominio FIXO.
+
+  POR QUE IMPORTA TANTO: o Supabase guarda a URL do gateway num secret. Se o
+  endereco mudar, mensagem continua ENTRANDO (o gateway fala de dentro para
+  fora) mas RESPOSTA e comando de sessao param: falha silenciosa, a pior de
+  todas neste modulo. O dominio reservado no ngrok.yml e o que impede isso.
+
+  Sobe pelo nome do tunel ("whatsapp") definido em
+  ~/Library/Application Support/ngrok/ngrok.yml. O authtoken mora la, nunca
+  aqui: este arquivo pode ser lido por qualquer processo do usuario.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>br.com.aelbra.whatsapp-ngrok</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/Users/amandapradoseibel/.local/bin/ngrok</string>
+    <string>start</string>
+    <string>whatsapp</string>
+    <string>--config</string>
+    <string>/Users/amandapradoseibel/Library/Application Support/ngrok/ngrok.yml</string>
+    <string>--log</string>
+    <string>stdout</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/amandapradoseibel/Library/Logs/whatsapp-gateway/ngrok.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/amandapradoseibel/Library/Logs/whatsapp-gateway/ngrok.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>
