@@ -23,7 +23,7 @@ export function _usarCrmParaTeste(fn) {
 import { logSessao } from "./log.js";
 import { enfileirar } from "./outbox.js";
 import {
-  VinculosLid, criarContadores, resolverEndereco, resumoDescartes,
+  VinculosLid, criarContadores, formatoDoJid, resolverEndereco, resumoDescartes,
 } from "./enderecos.js";
 import { usarAuthStatePostgres } from "./authState.js";
 
@@ -145,7 +145,7 @@ export function criarSessao({ chave }) {
     const aindaSemVinculo = [];
     let recuperadas = 0;
     for (const { jid, msg } of retidasPorLid) {
-      const r = resolverEndereco(jid, vinculos);
+      const r = resolverEndereco(jid, vinculos, msg.key);
       if (r.telefone) {
         enfileirar("mensagem", mensagemDoHistorico(msg, r.telefone, null));
         descartes.aceitos++;
@@ -250,7 +250,7 @@ export function criarSessao({ chave }) {
       const jid = msg.key?.remoteJid;
       if (!msg.key?.id) { descartes.SEM_ID++; continue; }
 
-      const endereco = resolverEndereco(jid, vinculos);
+      const endereco = resolverEndereco(jid, vinculos, msg.key);
       if (!endereco.telefone) {
         if (endereco.motivo === "LID_SEM_VINCULO") {
           retidasPorLid.push({ jid, msg });
@@ -298,7 +298,21 @@ export function criarSessao({ chave }) {
       if (!msg.key?.id) { descartes.SEM_ID++; continue; }
       if (!msg.message) { descartes.SEM_CONTEUDO++; continue; } // protocolo/recibo
 
-      const endereco = resolverEndereco(jid, vinculos);
+      // Só FORMATO, nunca os dígitos: o log não pode virar depósito de telefone
+      // de aluno. Isto existe porque uma mensagem real foi descartada e não
+      // havia como saber qual campo tinha chegado preenchido.
+      log.info(
+        {
+          remoteJid: formatoDoJid(msg.key.remoteJid),
+          senderLid: formatoDoJid(msg.key.senderLid),
+          senderPn: formatoDoJid(msg.key.senderPn),
+          participantLid: formatoDoJid(msg.key.participantLid),
+          participantPn: formatoDoJid(msg.key.participantPn),
+        },
+        "chave da mensagem recebida",
+      );
+
+      const endereco = resolverEndereco(jid, vinculos, msg.key);
       if (!endereco.telefone) {
         descartes[endereco.motivo]++;
         log.warn({ motivo: endereco.motivo, porMotivo: resumoDescartes(descartes) },

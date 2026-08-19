@@ -274,4 +274,103 @@ describe("tratarHistorico ponta a ponta", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// MENSAGEM AO VIVO endereçada por LID.
+//
+// Uma mensagem real de outro celular chegou e foi DESCARTADA: o `remoteJid`
+// vinha `@lid`, o mapa de vínculos estava vazio (ele se alimenta do histórico,
+// que não existe mais) e o caminho ao vivo não tinha outra fonte.
+//
+// Só que o telefone vinha no próprio evento, em `key.senderPn`, e nós o
+// ignorávamos. Estes testes trancam esse comportamento.
+// ---------------------------------------------------------------------------
+describe("tratarMensagensNovas com @lid", () => {
+  const LIDV = "172138000009999@lid";
+  const PNV = "5551988887777@s.whatsapp.net";
+
+  function aoVivo(id, { senderPn = null, participantPn = null } = {}) {
+    return {
+      type: "notify",
+      messages: [{
+        key: { remoteJid: LIDV, id, fromMe: false, senderLid: LIDV, senderPn, participantPn },
+        message: { conversation: "oi, quero negociar" },
+        messageTimestamp: 1755600000,
+        pushName: "Aluno",
+      }],
+    };
+  }
+
+  test("1-5. @lid com senderPn: entra na fila, conta e aprende o vinculo", async () => {
+    sessao._paraTeste.tratarMensagensNovas(aoVivo("V1", { senderPn: PNV }));
+
+    // 1. entrou na fila persistente (antes de qualquer entrega)
+    assert.equal(tamanhoDaFila(), 1, "a mensagem tem de estar na fila em disco");
+
+    // 2 e 3. contadores
+    const d = sessao._paraTeste.descartes();
+    assert.equal(d.aceitos, 1, "aceitas tem de incrementar");
+    assert.equal(d.resolvidos_por_lid, 1, "resolvidas_por_lid tem de incrementar");
+    assert.equal(d.LID_SEM_VINCULO, 0, "nao pode contar como descarte");
+
+    // 4. o par ficou no mapa
+    assert.equal(sessao._paraTeste.vinculos().tamanho, 1);
+    assert.equal(sessao._paraTeste.vinculos().resolver(LIDV), "5551988887777");
+
+    // 5. o webhook recebe telefone valido
+    await drenarTudo();
+    const m = mensagensEntregues();
+    assert.equal(m.length, 1);
+    assert.equal(m[0].telefone, "5551988887777");
+    assert.equal(m[0].direcao, "ENTRADA");
+    assert.equal(m[0].origem, "TEMPO_REAL");
+  });
+
+  test("6. a mensagem SEGUINTE do mesmo LID passa sem repetir senderPn", async () => {
+    sessao._paraTeste.tratarMensagensNovas(aoVivo("V1", { senderPn: PNV }));
+    // agora sem nenhum campo de telefone: tem de resolver pelo mapa aprendido
+    sessao._paraTeste.tratarMensagensNovas(aoVivo("V2"));
+    await drenarTudo();
+
+    const m = mensagensEntregues();
+    assert.equal(m.length, 2, "as duas tem de chegar");
+    assert.ok(m.every((x) => x.telefone === "5551988887777"));
+    assert.equal(sessao._paraTeste.descartes().aceitos, 2);
+  });
+
+  test("participantPn tambem serve quando senderPn nao vem", async () => {
+    sessao._paraTeste.tratarMensagensNovas(aoVivo("V3", { participantPn: PNV }));
+    await drenarTudo();
+    assert.equal(mensagensEntregues()[0].telefone, "5551988887777");
+  });
+
+  test("sem senderPn e sem vinculo continua sendo descarte contado - nada de fallback inventado", async () => {
+    // Se o telefone nao vem e nao ha vinculo, NAO se inventa numero a partir do
+    // LID: aquilo nao e telefone de ninguem. Fica contado para aparecer.
+    sessao._paraTeste.tratarMensagensNovas(aoVivo("V4"));
+    assert.equal(tamanhoDaFila(), 0);
+    assert.equal(sessao._paraTeste.descartes().LID_SEM_VINCULO, 1);
+    assert.equal(sessao._paraTeste.descartes().aceitos, 0);
+  });
+
+  test("senderPn invalido nao vira telefone", async () => {
+    sessao._paraTeste.tratarMensagensNovas(aoVivo("V5", { senderPn: "0@s.whatsapp.net" }));
+    assert.equal(tamanhoDaFila(), 0);
+    assert.equal(sessao._paraTeste.descartes().LID_SEM_VINCULO, 1);
+  });
+
+  test("conversa por telefone comum segue funcionando", async () => {
+    sessao._paraTeste.tratarMensagensNovas({
+      type: "notify",
+      messages: [{
+        key: { remoteJid: TEL(50), id: "V6", fromMe: false },
+        message: { conversation: "oi" },
+        messageTimestamp: 1755600000,
+      }],
+    });
+    await drenarTudo();
+    assert.equal(mensagensEntregues()[0].telefone, "5551999900050");
+    assert.equal(sessao._paraTeste.descartes().resolvidos_por_lid, 0, "esta nao passou por LID");
+  });
+});
+
 process.on("exit", () => rmSync(base, { recursive: true, force: true }));
