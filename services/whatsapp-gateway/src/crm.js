@@ -9,6 +9,7 @@ import { config } from "./config.js";
 import { log } from "./log.js";
 
 const CAMINHO = "/whatsapp-webhook";
+const CAMINHO_MIDIA = "/whatsapp-midia";
 
 function assinar(corpo, timestamp) {
   return createHmac("sha256", config.crmSegredo)
@@ -27,6 +28,42 @@ export function tokenDeComandoConfere(recebido) {
 }
 
 const espera = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Envia o arquivo já baixado para a Edge Function que grava no bucket.
+ *
+ * SEPARADO de `chamar` de propósito: é outra Edge Function, o corpo é grande
+ * (binário em base64) e o timeout precisa ser maior. Misturar isso com a fila
+ * de mensagens faria um anexo pesado atrasar texto de aluno.
+ */
+export async function enviarMidia(dados, { tentativas = 3 } = {}) {
+  const corpo = JSON.stringify(dados);
+  let ultimoErro;
+
+  for (let i = 0; i < tentativas; i++) {
+    try {
+      const ts = Date.now().toString();
+      const resposta = await fetch(config.crmUrl + CAMINHO_MIDIA, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-gateway-timestamp": ts,
+          "x-gateway-assinatura": assinar(corpo, ts),
+        },
+        body: corpo,
+        signal: AbortSignal.timeout(90_000),
+      });
+      const texto = await resposta.text();
+      if (!resposta.ok) throw new Error(`HTTP ${resposta.status}: ${texto.slice(0, 200)}`);
+      return texto ? JSON.parse(texto) : null;
+    } catch (erro) {
+      ultimoErro = erro;
+      if (String(erro.message).includes("HTTP 4")) break;
+      if (i < tentativas - 1) await espera(2000 * 2 ** i);
+    }
+  }
+  throw ultimoErro;
+}
 
 /**
  * Chamada com resposta. Usada para o que o serviço PRECISA saber agora:

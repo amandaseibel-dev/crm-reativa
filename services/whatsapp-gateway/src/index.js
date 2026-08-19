@@ -7,6 +7,7 @@
 import { config } from "./config.js";
 import { log } from "./log.js";
 import { iniciarFila, tamanhoDaFila } from "./outbox.js";
+import { enviarMidia } from "./crm.js";
 import { criarSessao } from "./sessao.js";
 import { iniciarServidor } from "./servidor.js";
 
@@ -32,6 +33,25 @@ async function principal() {
       log.error({ sessao: sessao.chave, erro: String(erro?.message || erro) }, "falha ao iniciar sessao");
     });
   }
+
+  // Limpeza da fila de expurgo de mídia.
+  //
+  // O expurgo de 12 meses ANOTA no banco os arquivos a remover, porque o
+  // Storage não aceita remoção por SQL. Quem remove é a Edge Function, e
+  // alguém precisa chamá-la — senão o arquivo do aluno fica no bucket depois de
+  // a mensagem ter sido apagada, que é exatamente a mídia órfã que queremos
+  // evitar.
+  //
+  // De hora em hora basta: o expurgo roda uma vez por mês.
+  const limpezaDeMidia = setInterval(() => {
+    enviarMidia({ acao: "limpar" }, { tentativas: 1 })
+      .then((r) => {
+        if (r?.removidos) log.info({ removidos: r.removidos, falhas: r.falhas }, "midia expurgada do bucket");
+      })
+      .catch((erro) =>
+        log.warn({ erro: String(erro?.message || erro) }, "limpeza de midia adiada"));
+  }, 60 * 60 * 1000);
+  limpezaDeMidia.unref?.();
 
   const batimento = setInterval(() => {
     for (const sessao of sessoes) {

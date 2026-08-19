@@ -373,4 +373,56 @@ describe("tratarMensagensNovas com @lid", () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// ANEXO NÃO SEGURA A FILA DE MENSAGENS.
+//
+// É o requisito que mais importa aqui: um comprovante pesado, ou um download
+// que falha, não pode atrasar a mensagem de texto do próximo aluno.
+// ---------------------------------------------------------------------------
+describe("anexo nao bloqueia a fila", () => {
+  test("mensagem com imagem entra na fila IMEDIATAMENTE, sem esperar o download", async () => {
+    const antes = Date.now();
+    sessao._paraTeste.tratarMensagensNovas({
+      type: "notify",
+      messages: [{
+        key: { remoteJid: TEL(70), id: "ANEXO1", fromMe: false },
+        message: { imageMessage: { mimetype: "image/jpeg", caption: "comprovante" } },
+        messageTimestamp: 1755600000,
+      }],
+    });
+    const decorrido = Date.now() - antes;
+
+    // O evento já está em disco antes de qualquer download terminar.
+    assert.equal(tamanhoDaFila(), 1, "a mensagem tem de estar na fila na hora");
+    assert.ok(decorrido < 500, `enfileirar levou ${decorrido}ms - nao pode esperar o anexo`);
+
+    await drenarTudo();
+    const m = mensagensEntregues();
+    assert.equal(m.length, 1);
+    assert.equal(m[0].tipo, "image");
+    assert.equal(m[0].texto, "comprovante", "a legenda tem de vir junto");
+    assert.equal(m[0].telefone, "5551999900070");
+  });
+
+  test("mensagens de texto seguintes passam mesmo com anexo em curso", async () => {
+    sessao._paraTeste.tratarMensagensNovas({
+      type: "notify",
+      messages: [
+        { key: { remoteJid: TEL(71), id: "ANEXO2", fromMe: false },
+          message: { imageMessage: { mimetype: "image/jpeg" } }, messageTimestamp: 1755600000 },
+        { key: { remoteJid: TEL(72), id: "TXT1", fromMe: false },
+          message: { conversation: "e o meu boleto?" }, messageTimestamp: 1755600001 },
+        { key: { remoteJid: TEL(73), id: "TXT2", fromMe: false },
+          message: { conversation: "alguem ai?" }, messageTimestamp: 1755600002 },
+      ],
+    });
+    await drenarTudo();
+
+    const ids = mensagensEntregues().map((d) => d.wamid);
+    assert.ok(ids.includes("TXT1"), "texto depois do anexo tem de passar");
+    assert.ok(ids.includes("TXT2"));
+    assert.equal(tamanhoDaFila(), 0, "nada pode ficar preso");
+  });
+});
+
 process.on("exit", () => rmSync(base, { recursive: true, force: true }));

@@ -11,7 +11,7 @@ import QRCode from "qrcode";
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "./config.js";
-import { chamar } from "./crm.js";
+import { chamar, enviarMidia } from "./crm.js";
 
 // Quem fala com o CRM. A indireção existe para o teste poder substituir sem
 // rede. `tratarHistorico` é a função que já custou dois históricos: ela precisa
@@ -22,6 +22,7 @@ export function _usarCrmParaTeste(fn) {
 }
 import { logSessao } from "./log.js";
 import { enfileirar } from "./outbox.js";
+import { baixarMidia, TIPOS_ACEITOS } from "./midia.js";
 import {
   VinculosLid, criarContadores, formatoDoJid, resolverEndereco, resumoDescartes,
 } from "./enderecos.js";
@@ -180,6 +181,63 @@ export function criarSessao({ chave }) {
         vinculosLid: vinculos.tamanho },
       "sincronizacao inicial encerrada",
     );
+  }
+
+  // ---------------------------------------------------------------------
+  // ANEXO — corre POR FORA da fila ordenada, de propósito.
+  //
+  // A mensagem de texto já foi enfileirada antes disto começar. Se o anexo
+  // demorar ou falhar, nada segura as mensagens seguintes: o pior caso é a
+  // conversa aparecer com o aviso de que o arquivo não pôde ser trazido.
+  //
+  // A mídia pode chegar ao servidor ANTES de a mensagem ter sido gravada no
+  // banco (são caminhos independentes). Por isso a Edge Function devolve
+  // `registrado: false` nesse caso e nós tentamos de novo, com espera.
+  // ---------------------------------------------------------------------
+  async function cuidarDoAnexo(msg, tipo) {
+    if (!TIPOS_ACEITOS.has(tipo)) return;
+    const wamid = msg.key?.id;
+    if (!wamid) return;
+
+    const r = await baixarMidia(msg);
+
+    if (r.erro) {
+      log.warn({ wamid, motivo: r.erro }, "anexo nao pode ser baixado");
+      try {
+        await enviarMidia({ wamid, erro: r.erro });
+      } catch (erro) {
+        log.error({ wamid, erro: String(erro?.message || erro) },
+          "nao consegui registrar a falha do anexo");
+      }
+      return;
+    }
+
+    // Só metadado no log. Conteúdo binário nunca.
+    log.info({ wamid, mime: r.mime, bytes: r.dados.length }, "anexo baixado");
+
+    for (let tentativa = 1; tentativa <= 4; tentativa++) {
+      try {
+        const resposta = await enviarMidia({
+          wamid,
+          conteudo_base64: r.dados.toString("base64"),
+          mime: r.mime,
+          nome: r.nome,
+        });
+        if (resposta?.registrado) {
+          log.info({ wamid, path: resposta.path }, "anexo guardado e associado a mensagem");
+          return;
+        }
+        // Guardado, mas a mensagem ainda não estava no banco. Espera e insiste
+        // só no registro — o arquivo já está no bucket.
+        log.warn({ wamid, tentativa }, "anexo guardado, mensagem ainda nao gravada - vou insistir");
+        await espera(2000 * tentativa);
+      } catch (erro) {
+        log.error({ wamid, tentativa, erro: String(erro?.message || erro) },
+          "falha ao enviar o anexo ao CRM");
+        if (tentativa === 4) return;
+        await espera(2000 * tentativa);
+      }
+    }
   }
 
   // Monta o evento de uma mensagem do histórico. Existe separado porque as
@@ -369,6 +427,13 @@ export function criarSessao({ chave }) {
         origem: "TEMPO_REAL",
         status: msg.key.fromMe ? "ENVIADO" : null,
       });
+
+      // Dispara o download SEM esperar: a fila de mensagens não pode ficar
+      // presa atrás de um anexo lento. Erros são tratados lá dentro.
+      if (mime) {
+        cuidarDoAnexo(msg, tipo).catch((erro) =>
+          log.error({ erro: String(erro?.message || erro) }, "anexo: falha inesperada"));
+      }
     }
   }
 
