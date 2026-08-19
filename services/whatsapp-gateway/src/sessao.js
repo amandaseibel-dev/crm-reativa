@@ -12,6 +12,14 @@ import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { config } from "./config.js";
 import { chamar } from "./crm.js";
+
+// Quem fala com o CRM. A indireção existe para o teste poder substituir sem
+// rede. `tratarHistorico` é a função que já custou dois históricos: ela precisa
+// ser exercitada DE VERDADE, com lotes reais, e isso exige esta costura.
+let chamarCrm = chamar;
+export function _usarCrmParaTeste(fn) {
+  chamarCrm = fn || chamar;
+}
 import { logSessao } from "./log.js";
 import { enfileirar } from "./outbox.js";
 import {
@@ -85,7 +93,7 @@ export function criarSessao({ chave }) {
     estadoAtual = status;
     detalhe = texto;
     try {
-      await chamar("conexao", {
+      await chamarCrm("conexao", {
         sessao: chave,
         status,
         detalhe: texto,
@@ -110,7 +118,7 @@ export function criarSessao({ chave }) {
   async function garantirSync() {
     if (syncId) return syncId;
     try {
-      syncId = await chamar("sync.abrir", { sessao: chave });
+      syncId = await chamarCrm("sync.abrir", { sessao: chave });
       log.info({ syncId }, "sincronizacao inicial aberta");
     } catch (erro) {
       log.error({ erro: String(erro?.message || erro) }, "nao consegui abrir a sincronizacao");
@@ -199,6 +207,16 @@ export function criarSessao({ chave }) {
 
   function tratarHistorico({ chats, contacts, messages, isLatest, syncType, progress }) {
     const lista = messages || [];
+
+    // PRIMEIRO aprender os vínculos LID->telefone que vêm neste lote: sem
+    // isso, as mensagens do próprio lote não teriam como ser resolvidas.
+    //
+    // E antes do log, não depois: instrumentar o log com uma variável ainda não
+    // declarada derrubou o processamento de TODO o histórico do segundo
+    // pareamento — erro de execução, que nem `node --check` nem teste de
+    // função auxiliar pegam. Só teste que roda esta função inteira pega.
+    const novosVinculos = vinculos.aprender({ chats, contacts });
+
     log.info(
       {
         conversas: chats?.length || 0,
@@ -212,10 +230,6 @@ export function criarSessao({ chave }) {
       },
       "lote de historico recebido",
     );
-
-    // PRIMEIRO aprender os vínculos LID->telefone que vêm neste lote: sem
-    // isso, as mensagens do próprio lote não teriam como ser resolvidas.
-    const novosVinculos = vinculos.aprender({ chats, contacts });
 
     // Nome de perfil: indexado pelo TELEFONE já resolvido, para valer também
     // quando o contato chega endereçado por LID.
@@ -472,6 +486,19 @@ export function criarSessao({ chave }) {
   return {
     chave,
     iniciar: () => conectar(),
+    // Costura de teste. Estes manipuladores são internos de propósito, mas
+    // `tratarHistorico` perdeu o histórico de DOIS pareamentos — uma vez por um
+    // filtro errado, outra por um erro de execução que nenhum teste de função
+    // auxiliar pegaria. Só executando esta função inteira dá para provar que
+    // ela funciona.
+    _paraTeste: {
+      tratarHistorico: (lote) => tratarHistorico(lote),
+      tratarMensagensNovas: (lote) => tratarMensagensNovas(lote),
+      fecharSync: () => fecharSync(),
+      garantirSync: () => garantirSync(),
+      descartes: () => ({ ...descartes }),
+      vinculos: () => vinculos,
+    },
     estado: () => ({
       sessao: chave,
       status: estadoAtual,
