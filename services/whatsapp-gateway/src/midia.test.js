@@ -52,9 +52,15 @@ describe("mimeReal — o tipo vem dos BYTES", () => {
   });
 
   test("nao reconhece o que nao esta na lista", () => {
-    assert.equal(mimeReal(Buffer.from("isto e so texto solto")), null);
+    // Texto puro DEIXOU de cair aqui: virou tipo suportado quando documentos
+    // entraram no escopo. O que continua sendo recusado e binario desconhecido.
     assert.equal(mimeReal(Buffer.alloc(0)), null);
     assert.equal(mimeReal(Buffer.from([1, 2])), null);
+    assert.equal(mimeReal(Buffer.from([0x00, 0xff, 0x00, 0xfe, 0x01, 0x02, 0x03])), null);
+  });
+
+  test("texto puro agora e reconhecido (documentos entraram no escopo)", () => {
+    assert.equal(mimeReal(Buffer.from("isto e so texto solto")), "text/plain");
   });
 
   test("EXE disfarcado de imagem e recusado", () => {
@@ -169,5 +175,122 @@ describe("tipos aceitos nesta fase", () => {
     assert.ok(TIPOS_ACEITOS.has("audio_voz"));
     assert.ok(!TIPOS_ACEITOS.has("video"), "video ficou fora por decisao");
     assert.ok(!TIPOS_ACEITOS.has("sticker"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// DOCUMENTOS
+//
+// PDF já funcionava. Faltavam DOCX, XLSX, os formatos antigos e texto puro.
+//
+// O problema aqui é que docx e xlsx são o MESMO container (ZIP), e doc/xls são
+// o mesmo OLE2. Os primeiros bytes não distinguem — e distinguir pela extensão
+// seria exatamente a brecha que esta validação existe para fechar. A saída é
+// olhar dentro do container.
+// ---------------------------------------------------------------------------
+import { readFileSync, existsSync } from "node:fs";
+import { extensaoConfere } from "./midia.js";
+
+const leia = (p) => (existsSync(p) ? readFileSync(p) : null);
+const DOCX = leia("/tmp/teste.docx");
+const XLSX = leia("/tmp/teste.xlsx");
+const DOC = leia("/tmp/teste.doc");
+
+describe("documentos — tipo pelo conteudo do container", () => {
+  test("DOCX real e reconhecido (olhando dentro do ZIP)", { skip: !DOCX }, () => {
+    assert.equal(mimeReal(DOCX, "termo.docx"),
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+  });
+
+  test("XLSX real e reconhecido, e NAO confundido com DOCX", { skip: !XLSX }, () => {
+    assert.equal(mimeReal(XLSX, "planilha.xlsx"),
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  });
+
+  test("DOC antigo (OLE2) e reconhecido", { skip: !DOC }, () => {
+    assert.equal(mimeReal(DOC, "antigo.doc"), "application/msword");
+  });
+
+  test("texto puro vira text/plain; .csv vira text/csv", () => {
+    const txt = Buffer.from("Mensalidade de marco em aberto\nValor: 450,00\n");
+    assert.equal(mimeReal(txt, "obs.txt"), "text/plain");
+    assert.equal(mimeReal(Buffer.from("nome,valor\nJoao,450\n"), "lista.csv"), "text/csv");
+  });
+
+  test("binario disfarcado de texto NAO passa", () => {
+    const bin = Buffer.from([0x00, 0x01, 0x02, 0xff, 0xfe, 0x00, 0x03]);
+    assert.equal(mimeReal(bin, "nota.txt"), null);
+  });
+
+  test("ZIP que nao e Office e recusado", () => {
+    // Um .zip comum nao entra nesta fase.
+    const zipQualquer = Buffer.concat([
+      Buffer.from([0x50, 0x4b, 0x03, 0x04]), Buffer.from("qualquer/coisa.bin"), Buffer.alloc(200)]);
+    assert.equal(mimeReal(zipQualquer, "arquivo.zip"), null);
+  });
+});
+
+describe("extensao falsa e recusada", () => {
+  test("PDF de mentira: extensao .pdf com conteudo ZIP", { skip: !DOCX }, () => {
+    const mime = mimeReal(DOCX, "comprovante.pdf");
+    // os bytes dizem docx...
+    assert.match(mime, /wordprocessingml/);
+    // ...e a extensao promete pdf: nao confere
+    assert.equal(extensaoConfere("comprovante.pdf", mime), false);
+  });
+
+  test("imagem renomeada para .docx e recusada", () => {
+    const mime = mimeReal(JPEG, "termo.docx");
+    assert.equal(mime, "image/jpeg");
+    assert.equal(extensaoConfere("termo.docx", mime), false);
+  });
+
+  test("extensao correta passa", { skip: !DOCX || !XLSX }, () => {
+    assert.equal(extensaoConfere("termo.docx", mimeReal(DOCX, "termo.docx")), true);
+    assert.equal(extensaoConfere("planilha.xlsx", mimeReal(XLSX, "planilha.xlsx")), true);
+    assert.equal(extensaoConfere("boleto.pdf", "application/pdf"), true);
+  });
+
+  test("extensao desconhecida nao bloqueia", () => {
+    // Nao e papel desta checagem inventar regra para o que nao mapeamos.
+    assert.equal(extensaoConfere("arquivo.qualquer", "application/pdf"), true);
+    assert.equal(extensaoConfere("", "application/pdf"), true);
+  });
+});
+
+describe("baixarMidia com documentos", () => {
+  test("DOCX real: passa e devolve o nome", { skip: !DOCX }, async () => {
+    const msg = msgCom({ documentMessage: { fileName: "Termo_assinado.docx" } });
+    const r = await baixarMidia(msg, { baixar: async () => DOCX });
+    assert.match(r.mime, /wordprocessingml/);
+    assert.equal(r.nome, "Termo_assinado.docx");
+    assert.equal(r.erro, undefined);
+  });
+
+  test("XLSX real: passa", { skip: !XLSX }, async () => {
+    const msg = msgCom({ documentMessage: { fileName: "planilha.xlsx" } });
+    const r = await baixarMidia(msg, { baixar: async () => XLSX });
+    assert.match(r.mime, /spreadsheetml/);
+  });
+
+  test("EXTENSAO FALSA e recusada no download", { skip: !DOCX }, async () => {
+    const msg = msgCom({ documentMessage: { fileName: "boleto.pdf" } });
+    const r = await baixarMidia(msg, { baixar: async () => DOCX });
+    assert.equal(r.dados, undefined);
+    assert.match(r.erro, /extensao nao corresponde/);
+  });
+
+  test("documento acima do limite e recusado com motivo", async () => {
+    const grande = Buffer.concat([Buffer.from("%PDF-1.7\n"), Buffer.alloc(LIMITE_BYTES + 1, 0x41)]);
+    const msg = msgCom({ documentMessage: { fileName: "enorme.pdf" } });
+    const r = await baixarMidia(msg, { baixar: async () => grande });
+    assert.match(r.erro, /acima do limite/);
+  });
+
+  test("PDF continua funcionando (nao houve regressao)", async () => {
+    const msg = msgCom({ documentMessage: { fileName: "comprovante.pdf" } });
+    const r = await baixarMidia(msg, { baixar: async () => PDF });
+    assert.equal(r.mime, "application/pdf");
+    assert.equal(r.nome, "comprovante.pdf");
   });
 });

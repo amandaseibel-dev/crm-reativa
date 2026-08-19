@@ -99,7 +99,107 @@ const ASSINATURAS: Array<{ mime: string; bytes: number[]; deslocamento?: number 
   { mime: "audio/mp4", bytes: [0x66, 0x74, 0x79, 0x70], deslocamento: 4 },
 ];
 
-function mimeReal(dados: Uint8Array): string | null {
+// docx e xlsx são o MESMO container (ZIP); doc e xls são o mesmo OLE2. Os
+// primeiros bytes não distinguem, e distinguir pela extensão seria a brecha que
+// esta validação existe para fechar. A saída é olhar DENTRO do container.
+const ZIP = [0x50, 0x4b, 0x03, 0x04];
+const OLE2 = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
+
+function comeca(d: Uint8Array, bytes: number[], off = 0): boolean {
+  if (d.length < off + bytes.length) return false;
+  for (let i = 0; i < bytes.length; i++) if (d[off + i] !== bytes[i]) return false;
+  return true;
+}
+
+function contem(d: Uint8Array, texto: string, limite = 8192): boolean {
+  const alvo = new TextEncoder().encode(texto);
+  const fim = Math.min(d.length, limite);
+  for (let i = 0; i <= fim - alvo.length; i++) {
+    let bate = true;
+    for (let j = 0; j < alvo.length; j++) {
+      if (d[i + j] !== alvo[j]) { bate = false; break; }
+    }
+    if (bate) return true;
+  }
+  return false;
+}
+
+function contemUtf16(d: Uint8Array, texto: string, limite = 8192): boolean {
+  const alvo = new Uint8Array(texto.length * 2);
+  for (let i = 0; i < texto.length; i++) alvo[i * 2] = texto.charCodeAt(i);
+  const fim = Math.min(d.length, limite);
+  for (let i = 0; i <= fim - alvo.length; i++) {
+    let bate = true;
+    for (let j = 0; j < alvo.length; j++) {
+      if (d[i + j] !== alvo[j]) { bate = false; break; }
+    }
+    if (bate) return true;
+  }
+  return false;
+}
+
+// Texto não tem assinatura. Dá para afirmar que NÃO é binário: sem bytes nulos
+// e decodificável como UTF-8.
+function pareceTexto(d: Uint8Array): boolean {
+  const amostra = d.subarray(0, 4096);
+  for (const b of amostra) {
+    if (b === 0) return false;
+    if (b < 0x09 || (b > 0x0d && b < 0x20)) return false;
+  }
+  try {
+    new TextDecoder("utf-8", { fatal: true }).decode(amostra);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function mimeDeDocumento(dados: Uint8Array, nome = ""): string | null {
+  const ext = String(nome || "").toLowerCase().split(".").pop();
+
+  if (comeca(dados, ZIP)) {
+    if (contem(dados, "word/")) {
+      return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    }
+    if (contem(dados, "xl/")) {
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    }
+    return null;
+  }
+
+  if (comeca(dados, OLE2)) {
+    if (contemUtf16(dados, "WordDocument")) return "application/msword";
+    if (contemUtf16(dados, "Workbook") || contemUtf16(dados, "Book")) return "application/vnd.ms-excel";
+    return null;
+  }
+
+  if (pareceTexto(dados)) return ext === "csv" ? "text/csv" : "text/plain";
+
+  return null;
+}
+
+// A extensão declarada bate com o que os bytes dizem? Não é para adivinhar o
+// tipo — é para recusar arquivo renomeado para enganar.
+const EXTENSAO_ESPERADA: Record<string, string[]> = {
+  pdf: ["application/pdf"],
+  doc: ["application/msword"],
+  docx: ["application/vnd.openxmlformats-officedocument.wordprocessingml.document"],
+  xls: ["application/vnd.ms-excel"],
+  xlsx: ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"],
+  csv: ["text/csv", "text/plain"],
+  txt: ["text/plain", "text/csv"],
+  jpg: ["image/jpeg"], jpeg: ["image/jpeg"], png: ["image/png"],
+  gif: ["image/gif"], webp: ["image/webp"],
+};
+
+function extensaoConfere(nome: string, mime: string): boolean {
+  const ext = String(nome || "").toLowerCase().split(".").pop() || "";
+  const esperados = EXTENSAO_ESPERADA[ext];
+  if (!esperados) return true;
+  return esperados.includes(mime);
+}
+
+function mimeReal(dados: Uint8Array, nome = ""): string | null {
   for (const a of ASSINATURAS) {
     const off = a.deslocamento ?? 0;
     if (dados.length < off + a.bytes.length) continue;
@@ -109,7 +209,7 @@ function mimeReal(dados: Uint8Array): string | null {
     }
     if (bate) return a.mime;
   }
-  return null;
+  return mimeDeDocumento(dados, nome);
 }
 
 // Caminho imprevisível: ano/mês para a manutenção humana, nome aleatório para
@@ -121,7 +221,15 @@ function caminhoNovo(mime: string): string {
   const aleatorio = Array.from(crypto.getRandomValues(new Uint8Array(16)))
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
-  const ext = mime.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin";
+  const EXT_POR_MIME: Record<string, string> = {
+    "application/pdf": "pdf",
+    "application/msword": "doc",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "docx",
+    "application/vnd.ms-excel": "xls",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": "xlsx",
+    "text/plain": "txt", "text/csv": "csv",
+  };
+  const ext = EXT_POR_MIME[mime] || mime.split("/")[1]?.replace(/[^a-z0-9]/gi, "") || "bin";
   return `${ano}/${mes}/${aleatorio}.${ext}`;
 }
 
@@ -231,13 +339,24 @@ Deno.serve(async (req) => {
 
   // MIME pelos BYTES. O que veio no corpo é só uma dica, e uma dica não decide
   // o que entra no bucket.
-  const mime = mimeReal(dados);
+  const nomeArquivo = corpo.nome ? String(corpo.nome).slice(0, 200) : "";
+  const mime = mimeReal(dados, nomeArquivo);
   if (!mime) {
     await admin.rpc("whatsapp_midia_registrar", {
       p_wamid: corpo.wamid,
       p_erro: "tipo de arquivo nao suportado nesta fase",
     });
     return jsonResp({ ok: true, guardado: false, motivo: "tipo nao reconhecido" });
+  }
+
+  // Segundo portão: o gateway já conferiu, e aqui se confere de novo. Arquivo
+  // renomeado para enganar não entra no bucket.
+  if (!extensaoConfere(nomeArquivo, mime)) {
+    await admin.rpc("whatsapp_midia_registrar", {
+      p_wamid: corpo.wamid,
+      p_erro: `extensao nao corresponde ao conteudo (${mime})`,
+    });
+    return jsonResp({ ok: true, guardado: false, motivo: "extensao nao corresponde" });
   }
 
   const caminho = caminhoNovo(mime);
