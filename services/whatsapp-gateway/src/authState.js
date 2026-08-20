@@ -15,23 +15,49 @@
 //   leitura de partida prefere o disco e só cai no banco quando não há disco —
 //   se fosse o contrário, uma gravação falha no banco faria o serviço subir com
 //   credencial velha e derrubar a sessão.
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, unlinkSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { BufferJSON, initAuthCreds, proto } from "baileys";
 import { config } from "./config.js";
 import { chamar } from "./crm.js";
 import { logSessao } from "./log.js";
 
+// A credencial É a sessão do WhatsApp. Quem lê este arquivo clona o número:
+// manda mensagem como a empresa e lê tudo que chega. Não é "config sensível",
+// é a chave da conta.
+//
+// POR QUE MODO EXPLÍCITO E NÃO `chmod` MANUAL: o arquivo é reescrito a cada
+// atualização de chave — centenas de vezes por minuto durante um sync. Um
+// `chmod` de uma vez é desfeito na gravação seguinte, porque o arquivo novo
+// nasce com o modo padrão do processo (0666 & ~umask = 0644 no launchd).
+// Então o modo entra em TODA criação, e é reforçado após o rename.
+const MODO_ARQUIVO = 0o600;
+const MODO_DIR = 0o700;
+
 const DIR = join(config.dadosDir, "sessoes");
-mkdirSync(DIR, { recursive: true });
+mkdirSync(DIR, { recursive: true, mode: MODO_DIR });
+// `mkdirSync` não altera diretório que já existe: garante o modo de qualquer jeito.
+try {
+  chmodSync(DIR, MODO_DIR);
+} catch {
+  /* sem permissão para ajustar: melhor seguir do que não subir */
+}
 
 const arquivoDe = (chave) => join(DIR, `${chave}.json`);
 
 function gravarDisco(chave, estado) {
   const destino = arquivoDe(chave);
   const temporario = destino + ".tmp";
-  writeFileSync(temporario, JSON.stringify(estado, BufferJSON.replacer));
+  // `mode` vale só na CRIAÇÃO — por isso o temporário é sempre novo, e por
+  // isso o `chmod` depois do rename fecha o caso do arquivo que já existia
+  // com modo frouxo (é o estado em que os dois canais estavam em 20/08).
+  writeFileSync(temporario, JSON.stringify(estado, BufferJSON.replacer), { mode: MODO_ARQUIVO });
   renameSync(temporario, destino); // atômico: nunca fica um estado pela metade
+  try {
+    chmodSync(destino, MODO_ARQUIVO);
+  } catch {
+    /* o conteúdo já está salvo; permissão é reforço */
+  }
 }
 
 function lerDisco(chave) {
@@ -152,6 +178,11 @@ export async function usarAuthStatePostgres(chave) {
 
   return {
     state,
+    // O store de chaves cru, para quem precisa LER o que a Baileys persistiu —
+    // hoje, o `lid-mapping` do Baileys 7, que é onde mora o vínculo
+    // LID<->telefone autoritativo. A interface `state.keys.get` exige saber os
+    // ids de antemão; aqui o interesse é justamente varrer o balde inteiro.
+    chavesBrutas: () => estado.chaves,
     // Credencial é o dado que não pode atrasar: vai para o banco na hora.
     salvarCredenciais: () => agendarGravacao({ imediato: true }),
     // Chamado no encerramento: garante que nada fique preso no agrupamento.

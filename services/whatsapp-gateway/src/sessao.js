@@ -253,6 +253,16 @@ export function criarSessao({ chave }) {
     // ÚLTIMA CHANCE das mensagens retidas: o vínculo LID->telefone pode ter
     // chegado num lote posterior ao da mensagem. Só agora, com tudo recebido,
     // dá para saber o que realmente não tem como ser resolvido.
+    // O `lid-mapping` da credencial se enche de forma ASSÍNCRONA, pelo canal do
+    // Signal, e frequentemente termina DEPOIS do último lote de histórico. Ler
+    // só na conexão não bastaria: no Comercial os 899 vínculos apareceram
+    // durante o sync. Esta é a leitura que realmente decide.
+    const semeadosNoFim = vinculos.aprenderDoStore(auth?.chavesBrutas?.());
+    if (semeadosNoFim) {
+      log.info({ semeados: semeadosNoFim, vinculosLid: vinculos.tamanho },
+        "vinculos LID aproveitados da credencial no fecho do sync");
+    }
+
     const aindaSemVinculo = [];
     let recuperadas = 0;
     for (const { jid, msg } of retidasPorLid) {
@@ -571,6 +581,19 @@ export function criarSessao({ chave }) {
       sock = null;
 
       auth = auth || (await usarAuthStatePostgres(chave));
+
+      // ANTES do socket subir — e portanto antes de qualquer lote de histórico
+      // chegar — aproveita o vínculo LID<->telefone que a própria credencial já
+      // guarda. Sem isto, a resolução dependia só do que vem dentro dos lotes,
+      // e no pareamento do Comercial (20/08) isso deixou 39.455 mensagens de
+      // 899 contatos de fora: o `lid-mapping` tinha os 899, mas só ficou
+      // completo depois que o sync fechou.
+      const semeados = vinculos.aprenderDoStore(auth.chavesBrutas());
+      if (semeados) {
+        log.info({ semeados, vinculosLid: vinculos.tamanho },
+          "vinculos LID aproveitados da credencial");
+      }
+
       const { version } = await obterVersao();
 
       await reportar("CONECTANDO", { texto: `protocolo ${version.join(".")}` });
