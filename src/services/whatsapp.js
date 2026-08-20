@@ -28,6 +28,9 @@ export const FILTRO_MINHAS = "MINHAS";
 // Arquivadas nao e status: e a coluna `arquivada_em`. Fica aqui junto com os
 // outros filtros derivados porque, para a tela, funciona igual.
 export const FILTRO_ARQUIVADAS = "ARQUIVADAS";
+// Backlog importado pelo sync que ficou esperando resposta. Fica FORA de
+// "Sem retorno" de proposito: nao e demanda nova, e recuperacao.
+export const FILTRO_RESGATE = "RESGATE";
 
 export const ROTULO_CONEXAO = {
   CONECTADO: "Conectado",

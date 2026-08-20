@@ -24,6 +24,7 @@ import {
   FILTRO_ARQUIVADAS,
   FILTRO_MINHAS,
   FILTRO_NAO_LIDAS,
+  FILTRO_RESGATE,
   FILTRO_SEM_RESPONSAVEL,
   FILTRO_SEM_RETORNO,
   ROTULO_CONEXAO,
@@ -60,6 +61,7 @@ import {
 
 const FILTROS_STATUS = [
   { valor: FILTRO_SEM_RETORNO, rotulo: "Sem retorno" },
+  { valor: FILTRO_RESGATE, rotulo: "Resgate" },
   { valor: FILTRO_MINHAS, rotulo: "Minhas" },
   { valor: FILTRO_NAO_LIDAS, rotulo: "Não lidas" },
   { valor: FILTRO_SEM_RESPONSAVEL, rotulo: "Aguardando atendimento" },
@@ -614,7 +616,16 @@ export default function CentralWhatsApp() {
             <span style={S.tileRotulo}>minhas</span>
           </div>
           {resumo.pendencias_resgate > 0 ? (
-            <div style={S.tileResgate}>
+            <div
+              style={{ ...S.tileResgate, cursor: "pointer" }}
+              role="button"
+              tabIndex={0}
+              title="Abrir as conversas de resgate"
+              onClick={() => setFiltroStatus(FILTRO_RESGATE)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") setFiltroStatus(FILTRO_RESGATE);
+              }}
+            >
               <span style={S.tileNumero}>{resumo.pendencias_resgate}</span>
               <span style={S.tileRotulo}>pendências resgatadas</span>
             </div>

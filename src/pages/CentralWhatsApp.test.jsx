@@ -353,6 +353,23 @@ describe("Central WhatsApp", () => {
     expect(await screen.findByText("Supervisão")).toBeDefined();
   });
 
+  // O contador de resgate ja existia; o que faltava era como ABRIR a lista.
+  // Tirar o backlog de "Sem retorno" sem isto o deixaria contado e inalcancavel.
+  it("o resgate tem filtro proprio e o contador abre a lista", async () => {
+    servico.resumo = {
+      sem_retorno: 3, esperando_mais_1h: 1, esperando_mais_24h: 0, nao_lidas: 2,
+      sem_responsavel: 1, em_atendimento: 2, minhas: 1, pendencias_resgate: 7,
+      arquivadas_nao_lidas: 0,
+    };
+    render(<CentralWhatsApp />);
+    await screen.findByText(/pendências resgatadas/i);
+
+    fireEvent.click(screen.getByText("7"));
+    await waitFor(() => {
+      expect(servico.filtrosPedidos.at(-1).status).toBe("RESGATE");
+    });
+  });
+
   it("o painel conta quem espera, incluindo o resgate do histórico", async () => {
     servico.resumo = {
       sem_retorno: 12, esperando_mais_1h: 8, esperando_mais_24h: 3,
