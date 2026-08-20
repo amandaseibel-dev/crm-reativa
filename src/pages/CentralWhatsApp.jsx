@@ -45,6 +45,7 @@ import {
   arquivarConversa,
   desarquivarConversa,
   encerrarConversa,
+  enviarDocumento,
   enviarMensagem,
   esperaDesde,
   iniciarConversa,
@@ -203,6 +204,10 @@ export default function CentralWhatsApp() {
   const [arquivando, setArquivando] = useState(false);
   const [rascunho, setRascunho] = useState("");
   const [enviando, setEnviando] = useState(false);
+  // Anexo: um estado só, com o nome do arquivo junto. "enviando" sem dizer O
+  // QUE está subindo não ajuda quem mandou o arquivo errado.
+  const [anexo, setAnexo] = useState(null); // { nome, estado: ENVIANDO|ENVIADO|ERRO, erro }
+  const seletorArquivoRef = useRef(null);
   const [erro, setErro] = useState("");
   const [som, setSom] = useState(false);
 
@@ -418,6 +423,7 @@ export default function CentralWhatsApp() {
   async function abrirConversa(conversa) {
     setSelecionada(conversa);
     setErro("");
+    setAnexo(null);
     setFicha(null);
     setCandidatos([]);
     setAchadosAluno([]);
@@ -458,6 +464,33 @@ export default function CentralWhatsApp() {
       setErro(e.message);
     } finally {
       setEnviando(false);
+    }
+  }
+
+  // Anexar PDF. Estado visível o tempo todo: enviando, enviado, erro.
+  //
+  // O SELETOR É LIMPO SEMPRE, no fim. Sem isso, escolher o MESMO arquivo de
+  // novo (depois de um erro, que é justamente quando se tenta de novo) não
+  // dispara `change` e o botão parece morto.
+  async function anexarPdf(arquivo) {
+    if (!arquivo || !selecionada || enviando) return;
+    setErro("");
+    setAnexo({ nome: arquivo.name, estado: "ENVIANDO" });
+    setEnviando(true);
+    try {
+      await enviarDocumento(selecionada.id, arquivo);
+      setAnexo({ nome: arquivo.name, estado: "ENVIADO" });
+      setMensagens(await listarMensagens(selecionada.id));
+      carregarConversas();
+    } catch (e) {
+      // ERRO NÃO PODE PARECER ENVIADO. O estado fica em ERRO com o motivo, e a
+      // thread é recarregada mesmo assim: o backend registra a tentativa como
+      // FALHOU, e o operador precisa ver esse registro.
+      setAnexo({ nome: arquivo.name, estado: "ERRO", erro: e.message });
+      setMensagens(await listarMensagens(selecionada.id).catch(() => mensagens));
+    } finally {
+      setEnviando(false);
+      if (seletorArquivoRef.current) seletorArquivoRef.current.value = "";
     }
   }
 
@@ -1160,6 +1193,26 @@ export default function CentralWhatsApp() {
                   <div style={S.composerBloqueado}>{bloqueio}</div>
                 ) : (
                   <div style={S.composerLinha}>
+                    {/* Anexar PDF. `input` escondido + botão: o input nativo não
+                        aceita estilo e mostraria "Nenhum arquivo escolhido" ao
+                        lado, que não é informação para quem atende. */}
+                    <input
+                      ref={seletorArquivoRef}
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      style={{ display: "none" }}
+                      data-testid="seletor-pdf"
+                      onChange={(e) => anexarPdf(e.target.files?.[0])}
+                    />
+                    <button
+                      type="button"
+                      style={enviando ? S.botaoOff : S.botaoSec}
+                      disabled={enviando}
+                      title="Anexar PDF (até 16 MB)"
+                      onClick={() => seletorArquivoRef.current?.click()}
+                    >
+                      📎 PDF
+                    </button>
                     <textarea
                       style={S.campo}
                       rows={2}
@@ -1179,6 +1232,15 @@ export default function CentralWhatsApp() {
                     </button>
                   </div>
                 )}
+                {anexo ? (
+                  <div style={anexo.estado === "ERRO" ? S.anexoErro : S.anexoEstado}>
+                    {anexo.estado === "ENVIANDO" ? `Enviando ${anexo.nome}…` : null}
+                    {anexo.estado === "ENVIADO" ? `${anexo.nome} enviado` : null}
+                    {anexo.estado === "ERRO"
+                      ? `${anexo.nome} não foi enviado — ${anexo.erro}`
+                      : null}
+                  </div>
+                ) : null}
               </div>
             </>
           )}
@@ -1916,6 +1978,13 @@ const S = {
   campo: {
     flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${BORDA}`,
     fontSize: 14, fontFamily: "inherit", resize: "vertical",
+  },
+  // Estado do anexo. O erro é VERMELHO e fica na tela: um envio que falhou
+  // desaparecendo em silêncio é como o operador acha que mandou o boleto.
+  anexoEstado: { marginTop: 8, fontSize: 12.5, color: CINZA },
+  anexoErro: {
+    marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "#fef2f2",
+    border: "1px solid #fecaca", color: "#991b1b", fontSize: 12.5, lineHeight: 1.5,
   },
 
   botao: { ...botaoBase, background: VERDE, color: "#fff", border: `1px solid ${VERDE}`, fontWeight: 600 },
