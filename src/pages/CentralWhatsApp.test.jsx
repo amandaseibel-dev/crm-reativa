@@ -1044,10 +1044,12 @@ function montarNaRota(registrar) {
     <MemoryRouter initialEntries={["/central-whatsapp"]}>
       <SondaRota registrar={registrar} />
       <BotaoVoltar />
+      <Menu />
       <Routes>
         <Route path="/central-whatsapp" element={<CentralWhatsApp />} />
         {/* Dublê da ficha: prova QUAL aluno a Central mandou abrir. */}
         <Route path="/aluno" element={<FichaDubla />} />
+        <Route path="/outra-area" element={<div>OUTRA ÁREA DO CRM</div>} />
         {/* Se algo navegar para fora, cai aqui e o teste vê a rota mudar. */}
         <Route path="*" element={<div>SAIU DA CENTRAL</div>} />
       </Routes>
@@ -1069,6 +1071,20 @@ function BotaoVoltar() {
 }
 
 const voltar = () => fireEvent.click(screen.getByText("VOLTAR DO NAVEGADOR"));
+
+// O menu do CRM: navegação normal (PUSH), não o Voltar (POP). É a diferença
+// que decide se o contexto guardado pode ou não ser restaurado.
+function Menu() {
+  const navegar = useNavigate();
+  return (
+    <>
+      <button onClick={() => navegar("/outra-area")}>MENU: OUTRA ÁREA</button>
+      <button onClick={() => navegar("/central-whatsapp")}>MENU: CENTRAL</button>
+    </>
+  );
+}
+
+const peloMenu = (destino) => fireEvent.click(screen.getByText(`MENU: ${destino}`));
 
 // Só existe para ser procurado no que a tela grava. Se aparecer lá, vazou.
 const CPF_DIGITADO = "12345678901";
@@ -1367,6 +1383,43 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
     expect(await screen.findByText("Carlos")).toBeDefined();
     await waitFor(() => expect(screen.getByText(/Escolha uma conversa/)).toBeDefined());
     expect(screen.queryByRole("button", { name: "Abrir ficha completa" })).toBeNull();
+  });
+
+  it("sair da ficha pelo menu e voltar à Central pelo menu NÃO restaura nada", async () => {
+    // O caminho que o Voltar não cobre: da ficha o operador vai para outra
+    // tela pelo menu e só depois reabre a Central. Restaurar aqui reabriria,
+    // sem ele pedir, uma conversa de minutos atrás em cima do que ele foi
+    // fazer agora.
+    await contextualizarESairPelaFicha();
+    expect(await screen.findByText("FICHA DO ALUNO a1")).toBeDefined();
+
+    peloMenu("OUTRA ÁREA");
+    expect(await screen.findByText("OUTRA ÁREA DO CRM")).toBeDefined();
+    peloMenu("CENTRAL");
+    await screen.findByText("Central WhatsApp");
+
+    // padrão da tela, não o filtro de antes
+    await waitFor(() => {
+      const ultimo = servico.filtrosPedidos[servico.filtrosPedidos.length - 1];
+      expect(ultimo.status).toBe("SEM_RETORNO");
+      expect(ultimo.canalId).toBe("");
+      expect(ultimo.responsavel).toBe("");
+    });
+    // e nenhuma conversa reaberta sozinha
+    expect(screen.getByText(/Escolha uma conversa/)).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Abrir ficha completa" })).toBeNull();
+  });
+
+  it("o contexto não restaurado é apagado do mesmo jeito", async () => {
+    // Se sobrasse na sessão, a visita SEGUINTE — essa sim pelo Voltar —
+    // ressuscitaria um contexto velho.
+    await contextualizarESairPelaFicha();
+    peloMenu("OUTRA ÁREA");
+    await screen.findByText("OUTRA ÁREA DO CRM");
+    peloMenu("CENTRAL");
+    await screen.findByText("Central WhatsApp");
+
+    await waitFor(() => expect(contextoGuardado()).toBeNull());
   });
 
   it("o contexto guardado é consumido UMA vez: entrar de novo abre no padrão", async () => {
