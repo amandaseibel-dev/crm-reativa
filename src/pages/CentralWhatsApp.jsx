@@ -17,6 +17,7 @@
 // 4. RESPONSÁVEL EVITA RESPOSTA DOBRADA. Quem responde assume; quem já tem dono
 //    não é assumido por outro (só gestão). A trava é do BANCO, não daqui.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import AnexoWhatsApp from "../components/AnexoWhatsApp";
@@ -100,7 +101,45 @@ const dinheiro = (v) =>
     ? "—"
     : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
+// ---------------------------------------------------------------------------
+// VOLTAR TEM DE DEVOLVER A CENTRAL COMO ELA ESTAVA
+//
+// "Abrir ficha completa" agora navega dentro do CRM (mesma aba). O Voltar do
+// navegador remonta a Central do zero, e sem isto o operador voltaria para o
+// filtro padrão, sem a conversa que estava lendo — no meio de um atendimento.
+//
+// Guardamos o MÍNIMO (canal, filtros e qual conversa estava aberta) na sessão,
+// só no caminho da ficha, e consumimos uma única vez ao voltar. Nada de estado
+// grudento: entrar na Central por qualquer outro caminho abre no padrão.
+// ---------------------------------------------------------------------------
+const CHAVE_ESTADO = "reativa_central_whatsapp_estado";
+
+// Leitura PURA de propósito: o StrictMode invoca o inicializador de useState
+// duas vezes, e um read que apagasse a chave devolveria nulo na segunda.
+// Quem apaga é o efeito de montagem, abaixo.
+function lerEstadoSalvo() {
+  try {
+    return JSON.parse(sessionStorage.getItem(CHAVE_ESTADO) || "null");
+  } catch {
+    return null;
+  }
+}
+
+function esquecerEstadoSalvo() {
+  try {
+    sessionStorage.removeItem(CHAVE_ESTADO);
+  } catch {
+    /* sessão indisponível: perder o contexto é ruim, quebrar a tela é pior */
+  }
+}
+
 export default function CentralWhatsApp() {
+  // Consumido no mount: o que estiver aqui veio do clique em "Abrir ficha
+  // completa" desta mesma aba.
+  const [restaurado] = useState(lerEstadoSalvo);
+  useEffect(esquecerEstadoSalvo, []);
+  const navigate = useNavigate();
+
   const [canais, setCanais] = useState([]);
   const [conversas, setConversas] = useState([]);
   const [selecionada, setSelecionada] = useState(null);
@@ -108,13 +147,13 @@ export default function CentralWhatsApp() {
   const [operadores, setOperadores] = useState([]);
   const [gestao, setGestao] = useState(false);
 
-  const [filtroStatus, setFiltroStatus] = useState(FILTRO_SEM_RETORNO);
-  const [filtroCanal, setFiltroCanal] = useState("");
-  const [filtroTempo, setFiltroTempo] = useState("");
+  const [filtroStatus, setFiltroStatus] = useState(restaurado?.filtroStatus ?? FILTRO_SEM_RETORNO);
+  const [filtroCanal, setFiltroCanal] = useState(restaurado?.filtroCanal ?? "");
+  const [filtroTempo, setFiltroTempo] = useState(restaurado?.filtroTempo ?? "");
   // Agrupa as recargas da lista disparadas pelo Realtime (ver o handler abaixo).
   const recargaRef = useRef(null);
-  const [filtroResponsavel, setFiltroResponsavel] = useState("");
-  const [busca, setBusca] = useState("");
+  const [filtroResponsavel, setFiltroResponsavel] = useState(restaurado?.filtroResponsavel ?? "");
+  const [busca, setBusca] = useState(restaurado?.busca ?? "");
   const [resumo, setResumo] = useState(null);
   const [cadencia, setCadencia] = useState([]);
   const [supervisao, setSupervisao] = useState([]);
@@ -132,8 +171,9 @@ export default function CentralWhatsApp() {
   // Desvincular obriga a reparear e queima a única chance de importar
   // histórico. Nunca em um clique só.
   const [confirmandoLogout, setConfirmandoLogout] = useState(null);
-  // Conversa recém-criada que precisa ser aberta assim que aparecer na lista.
-  const pendenteAbrirRef = useRef(null);
+  // Conversa recém-criada — ou a que estava aberta antes de ir para a ficha —
+  // que precisa ser aberta assim que aparecer na lista.
+  const pendenteAbrirRef = useRef(restaurado?.conversaId || null);
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [carregandoThread, setCarregandoThread] = useState(false);
   const [arquivando, setArquivando] = useState(false);
@@ -328,6 +368,21 @@ export default function CentralWhatsApp() {
     setFiltroResponsavel("");
     setBusca("");
     carregarConversas();
+  }
+
+  // Única saída da Central. Deixa o contexto guardado ANTES de navegar, para o
+  // Voltar do navegador reabrir a mesma fila e a mesma conversa.
+  function irParaFichaCompleta(alunoId) {
+    if (!alunoId) return;
+    try {
+      sessionStorage.setItem(CHAVE_ESTADO, JSON.stringify({
+        filtroStatus, filtroCanal, filtroTempo, filtroResponsavel, busca,
+        conversaId: selecionada?.id || null,
+      }));
+    } catch {
+      /* sem sessão a ficha ainda abre; só se perde o contexto ao voltar */
+    }
+    abrirFichaDoAluno(alunoId, navigate);
   }
 
   async function abrirConversa(conversa) {
@@ -1016,7 +1071,7 @@ export default function CentralWhatsApp() {
                     <strong>{ficha.nome}</strong>
                     {ficha.matricula ? <span style={S.fichaItem}>matrícula {ficha.matricula}</span> : null}
                     {ficha.cpf_mascarado ? <span style={S.fichaItem}>CPF {ficha.cpf_mascarado}</span> : null}
-                    <button style={S.botaoMini} onClick={() => abrirFichaDoAluno(ficha.aluno_id)}>
+                    <button style={S.botaoMini} onClick={() => irParaFichaCompleta(ficha.aluno_id)}>
                       Abrir ficha completa
                     </button>
                   </div>

@@ -41,6 +41,10 @@ function Barra() {
       <BrowserRouter>
         <Routes>
           <Route path="/central-whatsapp" element={<CentralWhatsApp key={chave} />} />
+          {/* Ficha de mentira: no CRM real esta rota é a ficha do aluno. Aqui
+              serve para conferir que "Abrir ficha completa" navega na MESMA aba
+              e que o Voltar devolve a Central como estava. */}
+          <Route path="/aluno" element={<FichaDeMentira />} />
           <Route
             path="*"
             element={
@@ -52,6 +56,17 @@ function Barra() {
         </Routes>
       </BrowserRouter>
     </>
+  );
+}
+
+function FichaDeMentira() {
+  const id = new URLSearchParams(window.location.search).get("id");
+  return (
+    <div style={{ padding: 40, fontFamily: "system-ui, sans-serif" }}>
+      <h1 style={{ fontSize: 22, margin: 0 }}>Ficha completa do aluno</h1>
+      <p style={{ color: "#475569" }}>aluno_id: <strong>{id}</strong></p>
+      <p style={{ color: "#475569" }}>Use o Voltar do navegador para retornar à Central.</p>
+    </div>
   );
 }
 
