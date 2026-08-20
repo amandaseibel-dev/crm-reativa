@@ -19,6 +19,25 @@ function ddmm(dataISO) {
   const [, m, d] = String(dataISO).slice(0, 10).split("-");
   return `${d}/${m}`;
 }
+// PREMISSA (2026-08-17): ritmo só com DIA FECHADO. O dia corrente ainda está
+// incompleto -- boleto e parte dos cartões só caem no dia seguinte; no próprio
+// dia entra basicamente PIX --, então ele aparece no gráfico mas NÃO entra na
+// média (senão puxa a média pra baixo e o dia sempre parece ruim).
+export function hojeISO() {
+  const d = new Date();
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
+}
+// Média diária: só dias FECHADOS e só dias que tiveram recuperação (dia sem
+// lançamento não puxa a média pra baixo artificialmente).
+export function mediaDiasFechados(dias, hoje) {
+  const fechados = (dias || []).filter(
+    (d) => String(d.dia).slice(0, 10) !== hoje && Number(d.valor_recuperado) > 0
+  );
+  if (!fechados.length) return 0;
+  return fechados.reduce((s, d) => s + Number(d.valor_recuperado || 0), 0) / fechados.length;
+}
 
 export default function PainelAnaliseEvolucao({ dados, mes }) {
   const [hist, setHist] = useState(null);
@@ -39,13 +58,11 @@ export default function PainelAnaliseEvolucao({ dados, mes }) {
   const pctProj = Number(dados?.percentual_projecao_filial ?? 0) || 0;
 
   const diasHist = useMemo(() => dados?.historico_dia_a_dia || [], [dados]);
+  const hoje = hojeISO();
   // Média diária considera só os dias que tiveram recuperação (dias sem
-  // lançamento não puxam a média pra baixo artificialmente).
-  const media = useMemo(() => {
-    const comValor = diasHist.filter((d) => Number(d.valor_recuperado) > 0);
-    if (!comValor.length) return 0;
-    return comValor.reduce((s, d) => s + Number(d.valor_recuperado || 0), 0) / comValor.length;
-  }, [diasHist]);
+  // lançamento não puxam a média pra baixo artificialmente) E só dias FECHADOS
+  // (o dia corrente ainda está entrando -- ver hojeISO acima).
+  const media = useMemo(() => mediaDiasFechados(diasHist, hoje), [diasHist, hoje]);
   const maxDia = useMemo(
     () => Math.max(1, ...diasHist.map((d) => Number(d.valor_recuperado) || 0)),
     [diasHist]
@@ -90,7 +107,7 @@ export default function PainelAnaliseEvolucao({ dados, mes }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
           <h3 style={{ margin: 0 }}>📅 Recuperação por dia</h3>
           <span style={{ fontSize: 12.5, color: "#64748b" }}>
-            Média diária do mês: <strong style={{ color: "#0d1321" }}>{moeda(media)}</strong> · verde acima, vermelho abaixo
+            Média diária do mês (só dias fechados): <strong style={{ color: "#0d1321" }}>{moeda(media)}</strong> · verde acima, vermelho abaixo
           </span>
         </div>
         {diasHist.length === 0 ? (
@@ -99,18 +116,21 @@ export default function PainelAnaliseEvolucao({ dados, mes }) {
           <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 200, borderBottom: `1px solid ${BORDA}`, overflowX: "auto", paddingTop: 20, marginTop: 12 }}>
             {diasHist.map((d) => {
               const v = Number(d.valor_recuperado) || 0;
+              // Dia corrente = ainda ABERTO: mostra o valor, mas sem comparar
+              // com a média (o dinheiro do dia só fecha amanhã).
+              const aberto = String(d.dia).slice(0, 10) === hoje;
               const acima = v >= media;
               const h = Math.max((v / maxDia) * 150, v > 0 ? 3 : 0);
               const difPct = media > 0 ? Math.round(((v - media) / media) * 100) : 0;
               return (
-                <div key={d.dia} style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", minWidth: 46, height: "100%" }} title={`${ddmm(d.dia)}: ${moeda(v)} (${difPct >= 0 ? "+" : ""}${difPct}% vs média)`}>
-                  <div style={{ fontSize: 10.5, fontWeight: 700, color: acima ? VERDE : VERM, height: 14 }}>
-                    {v > 0 ? (acima ? "▲" : "▼") + (difPct >= 0 ? "+" : "") + difPct + "%" : ""}
+                <div key={d.dia} style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", minWidth: 46, height: "100%" }} title={aberto ? `${ddmm(d.dia)}: ${moeda(v)} — dia em aberto, fora da média` : `${ddmm(d.dia)}: ${moeda(v)} (${difPct >= 0 ? "+" : ""}${difPct}% vs média)`}>
+                  <div style={{ fontSize: 10.5, fontWeight: 700, color: aberto ? "#94a3b8" : acima ? VERDE : VERM, height: 14 }}>
+                    {aberto ? "em aberto" : v > 0 ? (acima ? "▲" : "▼") + (difPct >= 0 ? "+" : "") + difPct + "%" : ""}
                   </div>
                   <div style={{ fontSize: 10.5, fontWeight: 600, color: "#0d1321", marginBottom: 4 }}>
                     {v >= 1000 ? "R$" + (v / 1000).toFixed(0) + "k" : v > 0 ? "R$" + v.toFixed(0) : "—"}
                   </div>
-                  <div style={{ width: 26, height: h, background: acima ? AZUL : "#f59e0b", borderRadius: "4px 4px 0 0" }} />
+                  <div style={{ width: 26, height: h, background: aberto ? "#cbd5e1" : acima ? AZUL : "#f59e0b", borderRadius: "4px 4px 0 0" }} />
                   <div style={{ fontSize: 11, color: "#64748b", marginTop: 5 }}>{ddmm(d.dia)}</div>
                 </div>
               );
@@ -119,6 +139,7 @@ export default function PainelAnaliseEvolucao({ dados, mes }) {
         )}
         <p style={{ color: "#8a93a3", fontSize: 12, marginTop: 10 }}>
           Barras azuis = dias acima da média do mês; laranja = abaixo. A seta mostra o quanto o dia ficou acima/abaixo do normal.
+          A barra cinza é o dia de hoje: como boleto e parte dos cartões só entram no dia seguinte, o dia em aberto fica fora da média.
         </p>
       </div>
 

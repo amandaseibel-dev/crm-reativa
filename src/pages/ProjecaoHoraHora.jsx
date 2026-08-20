@@ -1120,7 +1120,7 @@ function ProjecaoHoraHoraInner() {
                         <strong>{dashboard?.percentual_meta_filial ?? 0}%</strong> da meta atingido
                       </span>
                       <span>
-                        Projeção pelo ritmo atual · <strong>{dashboard?.dias_uteis_restantes ?? 0}</strong> dias úteis restantes
+                        Projeção pelo ritmo dos dias fechados · <strong>{dashboard?.dias_uteis_restantes ?? 0}</strong> dias úteis restantes (hoje incluído)
                       </span>
                     </div>
                   </div>
@@ -1130,7 +1130,11 @@ function ProjecaoHoraHoraInner() {
                     <FaixaItem label="Honorário hoje" valor={moeda(dashboard?.honorario_hoje)} />
                     <FaixaItem label="Falta p/ meta" valor={moeda(dashboard?.valor_restante_meta)} />
                     <FaixaItem label="Média diária necessária" valor={moeda(dashboard?.media_diaria_necessaria)} />
-                    <FaixaItem label="Ritmo (dias úteis)" valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`} />
+                    {/* PREMISSA (2026-08-17): o ritmo só conta DIA FECHADO --
+                        o dia de hoje ainda está entrando (boleto e parte dos
+                        cartões caem no dia seguinte), então ele fica nos
+                        restantes, não no numerador do ritmo. */}
+                    <FaixaItem label="Ritmo (dias úteis fechados)" valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`} />
                   </div>
                 </>
               )}
