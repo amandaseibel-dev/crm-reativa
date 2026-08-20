@@ -34,6 +34,24 @@ export const EXPIRACAO_MS = 25000; // idade a partir da qual o registro "parece"
 const CLAIM_JITTER_MS = 120; // janela de desempate após um claim
 const MONITOR_MS = 3000; // varredura local da secundária (sem rede)
 
+// REGISTRO ÓRFÃO — o único caso em que a assunção automática é permitida.
+//
+// O problema real (19/08/2026): o Mac reiniciou e o Chrome morreu sem rodar
+// `pagehide`/`beforeunload`. O registro da líder ficou no localStorage sem dono.
+// Como a regra acima proíbe assumir por expiração, TODA aba nova ficava
+// bloqueada para sempre — o CRM inteiro deixou de montar, e de fora parecia
+// "a Central não carrega as mensagens".
+//
+// A saída não pode ser afrouxar a expiração de 25s: ela existe justamente para
+// não roubar a liderança de uma aba viva com timers congelados em segundo plano.
+// Então usamos um limite MUITO maior e, antes de assumir, PERGUNTAMOS.
+//
+// 5 minutos é folgado de propósito: a líder renova a cada 5s, então um registro
+// com 60x essa idade só sobrevive se ninguém o estiver renovando. E mesmo assim
+// a assunção só acontece depois de a sonda não achar ninguém vivo.
+export const ORFAO_MS = 300000; // 5 min sem renovação = candidato a órfão
+const SONDA_MS = 700; // janela de resposta da sonda "quem-e-lider"
+
 function agora() {
   return Date.now();
 }
@@ -84,6 +102,11 @@ export function criarControleAbaLider(scopeId, opcoes = {}) {
   let heartbeatTimer = null;
   let monitorTimer = null;
   let bc = null;
+  // Sonda de órfão em andamento (evita empilhar sondas a cada varredura) e
+  // sinal de que ALGUÉM vivo respondeu enquanto ela corria.
+  let sondando = false;
+  let respostaViva = false;
+  let sondaTimer = null;
 
   function estado() {
     return {
@@ -128,6 +151,55 @@ export function criarControleAbaLider(scopeId, opcoes = {}) {
 
   function souDonoDoRegistro(reg) {
     return reg && reg.tabId === tabId;
+  }
+
+  function registroOrfao(reg) {
+    if (!reg || typeof reg.ts !== "number") return false;
+    return agora() - reg.ts > ORFAO_MS;
+  }
+
+  // Pergunta "tem alguém vivo aí?" antes de assumir um registro que parece
+  // abandonado. Só assume se NINGUÉM responder e o registro continuar
+  // exatamente como estava — duas evidências independentes de que não há líder:
+  //
+  //   1. ninguém respondeu à sonda pelo BroadcastChannel;
+  //   2. o registro não foi tocado durante a janela — uma líder viva o renova a
+  //      cada 5s, então mexer nele é prova de vida mesmo sem BroadcastChannel.
+  //
+  // A segunda condição é o que mantém a proteção quando o BroadcastChannel não
+  // existe (navegador antigo, contexto restrito): sem ela, "ninguém respondeu"
+  // seria trivialmente verdade e a sonda viraria um takeover cego.
+  function sondarSeOrfao(reg) {
+    if (destruido || ehLider || sondando || !temStorage) return;
+    if (!reg || souDonoDoRegistro(reg) || !registroOrfao(reg)) return;
+
+    sondando = true;
+    respostaViva = false;
+    const donoAntes = reg.tabId;
+    const tsAntes = reg.ts;
+
+    postar("quem-e-lider");
+
+    sondaTimer = setTimeout(() => {
+      sondaTimer = null;
+      sondando = false;
+      if (destruido || ehLider) return;
+
+      // Alguém vivo se manifestou: não há órfão nenhum.
+      if (respostaViva) return;
+
+      const atual = lerRegistro();
+      // Registro liberado no meio da sonda: é o failover normal, sem forçar.
+      if (!atual) {
+        tentarAssumir();
+        return;
+      }
+      // Mexeram no registro: há líder viva renovando. Recua.
+      if (atual.tabId !== donoAntes || atual.ts !== tsAntes) return;
+      // Envelheceu ainda mais e ninguém apareceu: assume.
+      if (!registroOrfao(atual)) return;
+      tentarAssumir(true);
+    }, SONDA_MS);
   }
 
   function postar(tipo) {
@@ -274,6 +346,9 @@ export function criarControleAbaLider(scopeId, opcoes = {}) {
       }
       if (!souDonoDoRegistro(reg) && registroExpirado(reg)) {
         setPareceExpirada(true); // pode ter travado — oferece "Usar esta aba"
+        // Muito além de qualquer congelamento plausível: checa se sobrou órfão
+        // de um crash/reboot e, se ninguém responder, destrava sozinha.
+        sondarSeOrfao(reg);
       } else {
         setPareceExpirada(false); // líder viva/recente
       }
@@ -301,6 +376,9 @@ export function criarControleAbaLider(scopeId, opcoes = {}) {
     if (msg.tipo === "lider-assumiu" || msg.tipo === "heartbeat") {
       // Outra aba é líder e está viva. Se eu achava que era, recuo (a menos que
       // o registro ainda seja meu). Limpa qualquer aviso de expiração.
+      // Também é a RESPOSTA da sonda de órfão: prova de vida, cancela o
+      // takeover automático.
+      respostaViva = true;
       setPareceExpirada(false);
       if (ehLider) {
         const reg = lerRegistro();
@@ -395,6 +473,9 @@ export function criarControleAbaLider(scopeId, opcoes = {}) {
     const inicial = lerRegistro();
     if (!ehLider && inicial && !souDonoDoRegistro(inicial) && registroExpirado(inicial)) {
       setPareceExpirada(true);
+      // Caso do reboot/crash: a aba sobe já encontrando um registro sem dono.
+      // Sonda agora, para não esperar a primeira varredura do monitor.
+      sondarSeOrfao(inicial);
     }
     iniciarMonitor();
   }
@@ -409,6 +490,11 @@ export function criarControleAbaLider(scopeId, opcoes = {}) {
     destruido = true;
     pararHeartbeat();
     pararMonitor();
+    if (sondaTimer) {
+      clearTimeout(sondaTimer);
+      sondaTimer = null;
+    }
+    sondando = false;
     // Ao fechar/desmontar a líder, libera o registro para uma secundária
     // assumir imediatamente (failover ~1s, sem esperar nada).
     if (ehLider && temStorage) {
