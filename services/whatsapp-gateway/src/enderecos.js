@@ -22,7 +22,7 @@
 // E todo descarte é CONTADO POR MOTIVO. O silêncio foi o que fez o problema
 // passar despercebido: a operação não tinha como saber que 5.800 mensagens
 // tinham sido jogadas fora.
-import { isJidUser, isLidUser, jidDecode } from "baileys";
+import { isPnUser, isLidUser, jidDecode } from "baileys";
 
 export const MOTIVOS = [
   "GRUPO",
@@ -86,12 +86,12 @@ export class VinculosLid {
       if (this.registrar(c?.lid, c?.jid)) novos++;
       // `id` pode vir em qualquer um dos dois formatos
       if (isLidUser(c?.id) && this.registrar(c.id, c?.jid)) novos++;
-      if (isJidUser(c?.id) && this.registrar(c?.lid, c.id)) novos++;
+      if (isPnUser(c?.id) && this.registrar(c?.lid, c.id)) novos++;
     }
     for (const ch of chats || []) {
       if (this.registrar(ch?.lidJid, ch?.pnJid)) novos++;
       if (isLidUser(ch?.id) && this.registrar(ch.id, ch?.pnJid)) novos++;
-      if (isJidUser(ch?.id) && this.registrar(ch?.lidJid, ch.id)) novos++;
+      if (isPnUser(ch?.id) && this.registrar(ch?.lidJid, ch.id)) novos++;
     }
     return novos;
   }
@@ -116,9 +116,30 @@ export function formatoDoJid(jid) {
 //
 // Estávamos ignorando esse campo: por isso mensagem ao vivo de conta LID caía
 // em LID_SEM_VINCULO e nunca chegava à Central, mesmo com o telefone ali.
+// A Baileys 7 MUDOU ONDE O TELEFONE VEM, e isso custou mensagem perdida em
+// produção em 19/08/2026: na 6.7.24 o telefone do remetente chegava em
+// `senderPn`; na 7.x, numa conversa endereçada por LID, ele vem em
+// `remoteJidAlt` (e `participantAlt` em grupo). Como este código só olhava os
+// campos antigos, TODA mensagem de entrada caía em LID_SEM_VINCULO e era
+// descartada — decodificada corretamente e jogada fora em seguida.
+//
+// Os campos antigos continuam sendo consultados primeiro: se a 7.x voltar a
+// preenchê-los, ou se rodarmos a 6.7.24 de novo, nada muda.
+//
+// POR QUE O GUARDA `isPnUser` NOS CAMPOS `*Alt`: eles são "o outro endereço"
+// da chave, não "o telefone". Numa conversa endereçada por PN, o `Alt` traz o
+// LID — usar aquilo como telefone seria inventar um número que não existe. É a
+// mesma armadilha do `0@s.whatsapp.net`: parece telefone, não é.
 export function telefoneDaChave(chave) {
+  // Campos da 6.7.24: por definição já são PN, ficam como estavam.
   for (const candidato of [chave?.senderPn, chave?.participantPn]) {
     if (!candidato) continue;
+    const user = jidDecode(candidato)?.user;
+    if (telefoneValido(user)) return { user, jid: candidato };
+  }
+  // Campos da 7.x: só valem se forem PN DE VERDADE.
+  for (const candidato of [chave?.remoteJidAlt, chave?.participantAlt]) {
+    if (!candidato || !isPnUser(candidato)) continue;
     const user = jidDecode(candidato)?.user;
     if (telefoneValido(user)) return { user, jid: candidato };
   }
@@ -154,9 +175,9 @@ export function resolverEndereco(jid, vinculos, chave = null) {
     return { motivo: "LID_SEM_VINCULO" };
   }
 
-  if (isJidUser(texto)) {
+  if (isPnUser(texto)) {
     const user = jidDecode(texto)?.user || "";
-    // `0@s.whatsapp.net` e afins passam por `isJidUser`, mas são o WhatsApp
+    // `0@s.whatsapp.net` e afins passam por `isPnUser`, mas são o WhatsApp
     // falando com a gente, não um aluno.
     if (!telefoneValido(user)) {
       return { motivo: /^\d*$/.test(user) && Number(user) === 0 ? "SISTEMA" : "TELEFONE_INVALIDO" };
