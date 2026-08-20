@@ -21,6 +21,27 @@ export function _usarCrmParaTeste(fn) {
   chamarCrm = fn || chamar;
 }
 
+// Quem busca o arquivo do documento. Costura de teste: um teste que dependesse
+// de rede para provar o limite de tamanho seria lento e instável — e o limite é
+// justamente o que não pode falhar em silêncio.
+let buscar = fetch;
+export function _usarFetchParaTeste(fn) {
+  buscar = fn || fetch;
+}
+
+// Teto do documento de SAIDA. Espelha o `LIMITE_BYTES` do validador da Edge
+// (supabase/functions/_shared/pdf.ts). Está repetido de propósito: são dois
+// processos diferentes, e o gateway não importa código do CRM. Se um dia mudar,
+// muda nos dois — o teste abaixo existe para o número não divergir calado.
+export const LIMITE_DOCUMENTO_BYTES = 16 * 1024 * 1024;
+
+// "%PDF-" nos primeiros bytes. Mesma regra do validador da Edge.
+function ehPdfBuffer(dados) {
+  return dados.length >= 5
+    && dados[0] === 0x25 && dados[1] === 0x50 && dados[2] === 0x44
+    && dados[3] === 0x46 && dados[4] === 0x2d;
+}
+
 // Costura de teste para o CICLO DE VIDA da conexão. Sem ela não há como provar
 // a corrida de `conectar()` sem rede e sem WhatsApp — e foi uma corrida que
 // derrubou a sessão 7 vezes em 8 horas, com o serviço brigando consigo mesmo.
@@ -864,6 +885,46 @@ export function criarSessao({ chave }) {
       }
       const jid = `${String(telefone).replace(/\D/g, "")}@s.whatsapp.net`;
       const enviada = await sock.sendMessage(jid, { text: texto });
+      return { wamid: enviada?.key?.id || null };
+    },
+
+    // Documento (PDF) que o operador anexou na Central.
+    //
+    // POR QUE O ARQUIVO VEM POR URL, e não no corpo do POST: a API de controle
+    // recusa corpo acima de 1 MB de propósito, e base64 ainda cresceria ~33%
+    // em cima do arquivo. A Edge Function grava no bucket privado e manda para
+    // cá uma URL ASSINADA de vida curta; quem busca os bytes é este processo.
+    //
+    // O DOWNLOAD É CONFERIDO AQUI TAMBÉM. Não porque a Edge seja pouco
+    // confiável, mas porque este é o último ponto antes de o arquivo virar
+    // mensagem no telefone de um aluno: se veio vazio, se veio maior do que o
+    // combinado ou se não começa com %PDF, não sai. Dois portões, de propósito
+    // — o mesmo desenho da mídia que ENTRA.
+    enviarDocumento: async (telefone, { url, nome, mime, limiteBytes }) => {
+      if (estadoAtual !== "CONECTADO" || !sock) {
+        throw new Error(`sessao ${chave} nao esta conectada (${estadoAtual})`);
+      }
+      if (!url) throw new Error("documento sem url");
+
+      const resposta = await buscar(url, { signal: AbortSignal.timeout(20_000) });
+      if (!resposta.ok) {
+        throw new Error(`nao foi possivel buscar o documento (HTTP ${resposta.status})`);
+      }
+      const dados = Buffer.from(await resposta.arrayBuffer());
+
+      const teto = Number(limiteBytes) || LIMITE_DOCUMENTO_BYTES;
+      if (dados.length === 0) throw new Error("documento vazio");
+      if (dados.length > teto) {
+        throw new Error(`documento de ${dados.length} bytes acima do limite (${teto})`);
+      }
+      if (!ehPdfBuffer(dados)) throw new Error("documento nao e um PDF");
+
+      const jid = `${String(telefone).replace(/\D/g, "")}@s.whatsapp.net`;
+      const enviada = await sock.sendMessage(jid, {
+        document: dados,
+        fileName: nome || "documento.pdf",
+        mimetype: mime || "application/pdf",
+      });
       return { wamid: enviada?.key?.id || null };
     },
 

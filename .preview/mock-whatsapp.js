@@ -128,6 +128,27 @@ export const abrirFichaDoAluno = (alunoId, navegar) => {
   if (typeof navegar === "function") navegar(`/aluno?id=${encodeURIComponent(alunoId)}`);
 };
 
+// Anexo de PDF no preview: exercita os TRES estados sem rede e sem bucket.
+// `window.__anexoFalha = "motivo"` no console faz o proximo envio falhar --
+// e o estado de erro e justamente o que nao pode passar despercebido.
+export const LIMITE_DOCUMENTO_BYTES = real.LIMITE_DOCUMENTO_BYTES;
+export const recusaLocalDoPdf = real.recusaLocalDoPdf;
+export const enviarDocumento = async (conversaId, arquivo) => {
+  const recusa = real.recusaLocalDoPdf(arquivo);
+  if (recusa) throw new Error(recusa);
+  await espera(true);
+  if (window.__anexoFalha) throw new Error(window.__anexoFalha);
+  const msgs = estado.mensagens[conversaId] || (estado.mensagens[conversaId] = []);
+  msgs.push({
+    id: `doc-${msgs.length + 1}`, direcao: "SAIDA", tipo: "document", texto: null,
+    status: "ENVIADO", enviado_por_email: "op@aelbra.com.br",
+    midia_path: `saida/2026/08/${msgs.length}.pdf`, midia_mime: "application/pdf",
+    midia_nome: arquivo.name, midia_tamanho: arquivo.size,
+    timestamp_wa: new Date().toISOString(),
+  });
+  return { ok: true, wamid: "wamid-preview", nome: arquivo.name };
+};
+
 export const carregarQr = async () => espera({
   qr_code:
     "data:image/svg+xml;utf8," +

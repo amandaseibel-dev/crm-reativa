@@ -56,6 +56,28 @@ export function iniciarServidor(sessoes) {
         return json(res, 200, { sessoes: sessoes.map((s) => s.estado()) });
       }
 
+      // Documento (PDF) anexado na Central.
+      //
+      // O corpo aqui é PEQUENO de propósito: só a URL assinada do arquivo e os
+      // metadados. Os bytes são buscados pela sessão, o que mantém o limite de
+      // 1 MB de `lerCorpo` valendo para todo mundo — inclusive para este
+      // caminho, que é o que lida com arquivo grande.
+      if (caminho === "/enviar-documento" && req.method === "POST") {
+        const corpo = await lerCorpo(req);
+        const sessao = porChave.get(String(corpo.sessao || "").toLowerCase());
+        if (!sessao) return json(res, 404, { erro: `sessao desconhecida: ${corpo.sessao}` });
+        if (!corpo.telefone || !corpo.url) {
+          return json(res, 400, { erro: "telefone e url sao obrigatorios" });
+        }
+        const r = await sessao.enviarDocumento(corpo.telefone, {
+          url: corpo.url,
+          nome: corpo.nome,
+          mime: corpo.mime,
+          limiteBytes: corpo.limite_bytes,
+        });
+        return json(res, 200, { ok: true, wamid: r.wamid });
+      }
+
       if (caminho === "/enviar" && req.method === "POST") {
         const corpo = await lerCorpo(req);
         const sessao = porChave.get(String(corpo.sessao || "").toLowerCase());

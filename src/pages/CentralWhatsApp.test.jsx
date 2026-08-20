@@ -13,6 +13,17 @@ vi.mock("../services/supabase", () => ({
   supabase: {
     channel: () => ({ on() { return this; }, subscribe() { return this; } }),
     removeChannel: () => {},
+    // O anexo pede uma URL assinada na hora de aparecer. Sem isto ele nunca
+    // renderiza o link e os testes de anexo mediriam a ausência do mock, não o
+    // comportamento.
+    storage: {
+      from: () => ({
+        createSignedUrl: async (caminho) => ({
+          data: { signedUrl: `https://assinada.exemplo/${caminho}?token=abc` },
+          error: null,
+        }),
+      }),
+    },
   },
 }));
 
@@ -38,6 +49,8 @@ const servico = vi.hoisted(() => ({
   arquivadas: [],
   desarquivadas: [],
   arquivadasLista: [],
+  documentosEnviados: [],
+  erroAoEnviarDocumento: null,
 }));
 
 vi.mock("../services/whatsapp", async (original) => {
@@ -117,6 +130,16 @@ vi.mock("../services/whatsapp", async (original) => {
     }),
     buscarAluno: vi.fn(async () => servico.alunosAchados),
     procurarConversaPorTelefone: vi.fn(async () => servico.conversaExistente),
+    // O envio de PDF: registra o que foi pedido e obedece ao roteiro do teste.
+    // `recusaLocalDoPdf` NÃO é mockada de propósito — a recusa antes de subir é
+    // comportamento que precisa ser exercitado de verdade.
+    enviarDocumento: vi.fn(async (conversaId, arquivo) => {
+      const recusa = real.recusaLocalDoPdf(arquivo);
+      if (recusa) throw new Error(recusa);
+      servico.documentosEnviados.push({ conversaId, nome: arquivo.name, tamanho: arquivo.size });
+      if (servico.erroAoEnviarDocumento) throw new Error(servico.erroAoEnviarDocumento);
+      return { ok: true, wamid: "wamid-doc-1", nome: arquivo.name };
+    }),
     iniciarConversa: vi.fn(async (args) => {
       servico.enviosNovos.push(args);
       if (servico.erroAoIniciar) throw new Error(servico.erroAoIniciar);
@@ -201,6 +224,8 @@ beforeEach(() => {
   servico.desarquivadas = [];
   servico.arquivadasLista = [];
   servico.supervisao = [];
+  servico.documentosEnviados = [];
+  servico.erroAoEnviarDocumento = null;
 });
 
 afterEach(cleanup);
@@ -1605,5 +1630,179 @@ describe("Central WhatsApp — arquivados", () => {
     // Os numeros da gestao: arquivar nao pode esconder conversa do supervisor.
     expect(await screen.findByText("7")).toBeDefined();
     expect(await screen.findByText("4")).toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ANEXAR PDF
+//
+// O que a Central promete a quem atende: o arquivo sobe, o operador vê em que
+// pé está, e um envio que falhou NUNCA aparece como enviado. Esta última é a
+// que mais custa caro: o operador acha que mandou o boleto, o aluno não paga, e
+// os dois descobrem uma semana depois.
+//
+// A validação de verdade — bytes, tipo real, tamanho — é do servidor
+// (supabase/functions/_shared/pdf.ts, com suíte própria). Aqui prova-se o que
+// só a tela pode provar: o estado que o operador enxerga, e o que ela recusa
+// ANTES de gastar a rede.
+// ---------------------------------------------------------------------------
+function arquivo(nome, bytes, tipo = "application/pdf") {
+  const f = new File([new Uint8Array(bytes)], nome, { type: tipo });
+  // jsdom respeita o tamanho real do conteúdo; para o teste do limite não dá
+  // para materializar 16 MB, então o tamanho é declarado.
+  Object.defineProperty(f, "size", { value: bytes, configurable: true });
+  return f;
+}
+
+async function abrirConversaComAnexo() {
+  servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
+  servico.mensagens = [
+    { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+  ];
+  render(<CentralWhatsApp />);
+  fireEvent.click(await screen.findByText("Carlos"));
+  await screen.findByRole("button", { name: "📎 PDF" });
+  return screen.getByTestId("seletor-pdf");
+}
+
+describe("Central WhatsApp — anexar PDF", () => {
+  it("1. PDF pequeno: mostra enviando, depois enviado, e vai na conversa certa", async () => {
+    const seletor = await abrirConversaComAnexo();
+
+    fireEvent.change(seletor, { target: { files: [arquivo("boleto.pdf", 2048)] } });
+
+    // estado intermediário visível — não é um clique mudo
+    expect(await screen.findByText(/Enviando boleto\.pdf/)).toBeDefined();
+    expect(await screen.findByText("boleto.pdf enviado")).toBeDefined();
+    expect(servico.documentosEnviados).toEqual([
+      { conversaId: "k1", nome: "boleto.pdf", tamanho: 2048 },
+    ]);
+  });
+
+  it("2. nome longo sobe igual, e a tela mostra de qual arquivo está falando", async () => {
+    const seletor = await abrirConversaComAnexo();
+    const nomeLongo = `acordo-${"x".repeat(220)}-parcela-12.pdf`;
+
+    fireEvent.change(seletor, { target: { files: [arquivo(nomeLongo, 4096)] } });
+
+    expect(await screen.findByText(`${nomeLongo} enviado`)).toBeDefined();
+    expect(servico.documentosEnviados[0].nome).toBe(nomeLongo);
+  });
+
+  it("3. arquivo que não é .pdf é recusado ANTES de subir", async () => {
+    const seletor = await abrirConversaComAnexo();
+
+    fireEvent.change(seletor, {
+      target: { files: [arquivo("virus.exe", 512, "application/octet-stream")] },
+    });
+
+    expect(await screen.findByText(/não foi enviado/)).toBeDefined();
+    expect(screen.getByText(/só PDF nesta versão/)).toBeDefined();
+    // e nada foi para a rede
+    expect(servico.documentosEnviados).toEqual([]);
+  });
+
+  it("4. acima do limite nem tenta subir — e o motivo diz o tamanho", async () => {
+    const seletor = await abrirConversaComAnexo();
+
+    fireEvent.change(seletor, { target: { files: [arquivo("enorme.pdf", 17 * 1024 * 1024)] } });
+
+    expect(await screen.findByText(/não foi enviado/)).toBeDefined();
+    expect(screen.getByText(/17\.0 MB/)).toBeDefined();
+    expect(screen.getByText(/limite é 16 MB/)).toBeDefined();
+    expect(servico.documentosEnviados).toEqual([]);
+  });
+
+  it("5. falha do gateway NÃO pode aparecer como enviado", async () => {
+    const seletor = await abrirConversaComAnexo();
+    servico.erroAoEnviarDocumento = "gateway respondeu 502";
+
+    fireEvent.change(seletor, { target: { files: [arquivo("boleto.pdf", 2048)] } });
+
+    expect(await screen.findByText(/boleto\.pdf não foi enviado/)).toBeDefined();
+    expect(screen.getByText(/502/)).toBeDefined();
+    // a palavra "enviado" sozinha não pode aparecer como estado de sucesso
+    expect(screen.queryByText("boleto.pdf enviado")).toBeNull();
+  });
+
+  it("depois de um erro dá para tentar de novo com o MESMO arquivo", async () => {
+    // O seletor guarda o último valor: sem limpá-lo, escolher o mesmo arquivo
+    // não dispara `change` e o botão parece morto justamente na hora em que a
+    // pessoa tenta de novo.
+    const seletor = await abrirConversaComAnexo();
+    servico.erroAoEnviarDocumento = "gateway respondeu 502";
+    fireEvent.change(seletor, { target: { files: [arquivo("boleto.pdf", 2048)] } });
+    await screen.findByText(/não foi enviado/);
+
+    expect(seletor.value).toBe("");
+
+    servico.erroAoEnviarDocumento = null;
+    fireEvent.change(seletor, { target: { files: [arquivo("boleto.pdf", 2048)] } });
+    expect(await screen.findByText("boleto.pdf enviado")).toBeDefined();
+    expect(servico.documentosEnviados.length).toBe(2);
+  });
+
+  it("7. o histórico mostra o documento enviado com nome e tamanho", async () => {
+    servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
+    servico.mensagens = [{
+      id: "m9", direcao: "SAIDA", tipo: "document", texto: null,
+      status: "ENVIADO", enviado_por_email: "op@aelbra.com.br",
+      midia_path: "saida/2026/08/abc123.pdf",
+      midia_mime: "application/pdf",
+      midia_nome: "acordo.pdf",
+      midia_tamanho: 245760,
+      timestamp_wa: new Date().toISOString(),
+    }];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Carlos"));
+
+    expect(await screen.findByText(/acordo\.pdf/)).toBeDefined();
+    expect(screen.getByText(/240 KB/)).toBeDefined();
+    expect(screen.getByText(/enviado/)).toBeDefined();
+  });
+
+  it("7b. tentativa FALHOU aparece como falhou, com o anexo que não saiu", async () => {
+    servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
+    servico.mensagens = [{
+      id: "m10", direcao: "SAIDA", tipo: "document", texto: null,
+      status: "FALHOU", enviado_por_email: "op@aelbra.com.br",
+      midia_path: "saida/2026/08/def456.pdf",
+      midia_mime: "application/pdf",
+      midia_nome: "boleto.pdf",
+      midia_tamanho: 1024,
+      timestamp_wa: new Date().toISOString(),
+    }];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Carlos"));
+
+    expect(await screen.findByText(/falhou/)).toBeDefined();
+  });
+
+  it("8. PDF RECEBIDO do aluno continua abrindo em aba nova", async () => {
+    // O caminho de entrada não pode ter sido afetado pelo de saída.
+    servico.conversas = [conversa({ nao_lidas: 0 })];
+    servico.mensagens = [{
+      id: "m11", direcao: "ENTRADA", tipo: "document",
+      texto: "segue o comprovante",
+      midia_path: "2026/08/recebido.pdf",
+      midia_mime: "application/pdf",
+      midia_nome: "comprovante.pdf",
+      midia_tamanho: 51200,
+      timestamp_wa: new Date().toISOString(),
+    }];
+    const { container } = render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+
+    const link = await waitFor(() => {
+      const a = container.querySelector('a[href^="https://assinada.exemplo/"]');
+      expect(a).toBeTruthy();
+      return a;
+    });
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noreferrer");
+    // a URL é pedida na hora e aponta para o caminho do arquivo — nunca é uma
+    // URL guardada no banco
+    expect(link.getAttribute("href")).toContain("2026/08/recebido.pdf");
+    expect(screen.getByText(/comprovante\.pdf/)).toBeDefined();
   });
 });

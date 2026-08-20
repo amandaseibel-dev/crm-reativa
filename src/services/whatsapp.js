@@ -330,6 +330,50 @@ export async function enviarMensagem(conversaId, texto) {
 }
 
 // ---------------------------------------------------------------------------
+// ANEXAR PDF
+//
+// O arquivo NÃO vai para o bucket pelo navegador: vai para a Edge Function, que
+// confere os bytes e grava com a chave de serviço. O bucket continua sem
+// permissão de escrita para `authenticated` — é a mesma postura da mídia que
+// entra, e é ela que garante que nada chega ao Storage sem passar pela
+// validação.
+//
+// multipart e não base64: base64 cresceria ~33% em cima do arquivo.
+// ---------------------------------------------------------------------------
+
+// 16 MB. Repetido aqui de propósito, para a tela recusar ANTES de subir 16 MB
+// pela rede e só então ouvir "não". O número que vale é sempre o do servidor —
+// este é conveniência, não trava.
+export const LIMITE_DOCUMENTO_BYTES = 16 * 1024 * 1024;
+
+export function recusaLocalDoPdf(arquivo) {
+  if (!arquivo) return "escolha um arquivo";
+  if (!/\.pdf$/i.test(arquivo.name || "")) return "só PDF nesta versão";
+  if (arquivo.size === 0) return "arquivo vazio";
+  if (arquivo.size > LIMITE_DOCUMENTO_BYTES) {
+    const mb = (arquivo.size / 1024 / 1024).toFixed(1);
+    return `arquivo de ${mb} MB — o limite é ${LIMITE_DOCUMENTO_BYTES / 1024 / 1024} MB`;
+  }
+  return null;
+}
+
+export async function enviarDocumento(conversaId, arquivo) {
+  const recusa = recusaLocalDoPdf(arquivo);
+  if (recusa) throw new Error(recusa);
+
+  const formulario = new FormData();
+  formulario.append("conversa_id", conversaId);
+  formulario.append("arquivo", arquivo, arquivo.name);
+
+  const { data, error } = await supabase.functions.invoke("whatsapp-enviar-documento", {
+    body: formulario,
+  });
+  if (error) throw new Error(await detalharErro(error));
+  if (data?.erro) throw new Error(data.erro);
+  return data;
+}
+
+// ---------------------------------------------------------------------------
 // NOVA CONVERSA — o operador inicia o contato
 //
 // Sem isto, iniciar contato obrigava o operador a sair da Central para o
