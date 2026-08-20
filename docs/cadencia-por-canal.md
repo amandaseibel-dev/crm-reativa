@@ -239,3 +239,46 @@ desaceleram a entrega do canal 1. Não mistura dados — cada item carrega
 **6. RLS não isola por operador nem por canal.** Decisão sua de 20/08: não é
 bloqueador com equipe única atendendo os dois números. Fica registrado porque
 deixa de ser aceitável se as carteiras se separarem.
+
+---
+
+# Backlog PRIORITÁRIO — encerramento do canal Comercial
+
+Incidente encerrado em 20/08/2026. O número `+55 55 99915-4925` foi
+**banido/restrito pelo WhatsApp**, confirmado no aparelho. A operação segue
+**apenas pelo Piloto**.
+
+Estado congelado: canal `PAUSADO` e `ativo = false`, socket encerrado, credencial
+preservada, carteira intacta e visível na Central.
+
+**Nada aqui deve ser executado sem autorização.**
+
+**1. Remover `comercial` de `SESSOES` no próximo restart planejado.**
+Hoje `SESSOES=piloto,comercial`. A sessão continua subindo e tentando reconectar
+contra um número banido — o backoff tem teto de 5 minutos, então são ~12
+tentativas por hora que falham em milissegundos. Não consome fila, não afeta o
+Piloto e o alerta horário já está silenciado pelo `ativo = false`. É ruído de
+log, não urgência. Tirar da lista só faz sentido junto de um restart que já
+esteja acontecendo por outro motivo — o restart derruba o Piloto por alguns
+segundos, e isso é o custo real da operação.
+
+**2. Validar o Piloto depois dessa remoção.**
+`CONECTADO` sem QR, mesma credencial (`registrationId 88`), fila 0, retidas 0,
+zero reconexões, e uma mensagem real entrando ponta a ponta. O procedimento é o
+mesmo já usado duas vezes hoje.
+
+**3. Manter os 38.661 itens suspensos preservados e FORA da fila ativa.**
+Vivem em `dados/fila-suspensa/comercial/` (`700`, arquivos `600`), com os nomes
+originais — portanto a ordenação FIFO está preservada. Conferidos um a um:
+todos legíveis, todos `sessao: comercial`, zero duplicata. **Não apagar.**
+
+**4. NÃO reinjetar esse histórico até existir novo canal e plano específico.**
+Reinjetar hoje faria as mensagens entrarem apontando para um `canal_id` de um
+número banido — carteira que ninguém pode atender. A reinjeção só faz sentido
+depois de: (a) existir um número novo pareado, (b) um plano de redistribuição
+que decida se a carteira do Comercial migra para ele, e (c) a decisão sobre o
+que fazer com os casos em Resgate.
+
+Vale lembrar por que isso é possível: `telefone_e164`, `aluno_id` e `canal_id`
+vivem no banco e não dependem da sessão. Redistribuir é um `UPDATE canal_id` —
+a identificação dos casos sobreviveu ao banimento.
