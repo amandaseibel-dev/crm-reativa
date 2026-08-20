@@ -25,6 +25,9 @@ export const FILTRO_SEM_RETORNO = "SEM_RETORNO";
 export const FILTRO_NAO_LIDAS = "NAO_LIDAS";
 export const FILTRO_SEM_RESPONSAVEL = "SEM_RESPONSAVEL";
 export const FILTRO_MINHAS = "MINHAS";
+// Arquivadas nao e status: e a coluna `arquivada_em`. Fica aqui junto com os
+// outros filtros derivados porque, para a tela, funciona igual.
+export const FILTRO_ARQUIVADAS = "ARQUIVADAS";
 
 export const ROTULO_CONEXAO = {
   CONECTADO: "Conectado",
@@ -170,6 +173,20 @@ export async function retirarResponsavel(conversaId) {
 
 export async function marcarLida(conversaId) {
   const { error } = await supabase.rpc("whatsapp_marcar_lida", { p_conversa_id: conversaId });
+  if (error) throw new Error(error.message);
+}
+
+// Arquivar tira a conversa das filas operacionais SEM alterar status,
+// responsavel, nao_lidas ou historico — a RPC no banco garante isso. Nova
+// mensagem de ENTRADA do aluno desarquiva sozinha, do lado do banco: e demanda
+// nova, nao decisao nossa. Saida nossa nao desarquiva.
+export async function arquivarConversa(conversaId) {
+  const { error } = await supabase.rpc("whatsapp_arquivar_conversa", { p_conversa_id: conversaId });
+  if (error) throw new Error(error.message);
+}
+
+export async function desarquivarConversa(conversaId) {
+  const { error } = await supabase.rpc("whatsapp_desarquivar_conversa", { p_conversa_id: conversaId });
   if (error) throw new Error(error.message);
 }
 

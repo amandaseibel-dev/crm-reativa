@@ -21,6 +21,7 @@ import { supabase } from "../services/supabase";
 import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import AnexoWhatsApp from "../components/AnexoWhatsApp";
 import {
+  FILTRO_ARQUIVADAS,
   FILTRO_MINHAS,
   FILTRO_NAO_LIDAS,
   FILTRO_SEM_RESPONSAVEL,
@@ -37,6 +38,8 @@ import {
   carregarSupervisao,
   carregarSyncStatus,
   comandarSessao,
+  arquivarConversa,
+  desarquivarConversa,
   encerrarConversa,
   enviarMensagem,
   esperaDesde,
@@ -60,6 +63,7 @@ const FILTROS_STATUS = [
   { valor: FILTRO_MINHAS, rotulo: "Minhas" },
   { valor: FILTRO_NAO_LIDAS, rotulo: "Não lidas" },
   { valor: FILTRO_SEM_RESPONSAVEL, rotulo: "Aguardando atendimento" },
+  { valor: FILTRO_ARQUIVADAS, rotulo: "Arquivadas" },
   { valor: "EM_ATENDIMENTO", rotulo: "Em atendimento" },
   { valor: "ENCERRADO", rotulo: "Finalizadas" },
   { valor: "", rotulo: "Todas" },
@@ -118,6 +122,7 @@ export default function CentralWhatsApp() {
   const pendenteAbrirRef = useRef(null);
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [carregandoThread, setCarregandoThread] = useState(false);
+  const [arquivando, setArquivando] = useState(false);
   const [rascunho, setRascunho] = useState("");
   const [enviando, setEnviando] = useState(false);
   const [erro, setErro] = useState("");
@@ -368,6 +373,43 @@ export default function CentralWhatsApp() {
     }
   }
 
+  // Arquivar e desarquivar tem handler proprio, como `transferir`, e pelo mesmo
+  // motivo: a conversa SAI do filtro em que esta. Se so recarregassemos a lista,
+  // `carregarConversas` nao acharia a linha para atualizar e o cabecalho ficaria
+  // mostrando uma conversa que nao esta mais ali — o operador arquivaria de novo
+  // achando que a primeira nao pegou.
+  async function alternarArquivo() {
+    if (!selecionada || arquivando) return;
+    const estaArquivada = Boolean(selecionada.arquivada_em);
+    setArquivando(true);
+    setErro("");
+    try {
+      if (estaArquivada) {
+        await desarquivarConversa(selecionada.id);
+        // Desarquivou: ela volta as filas conforme o estado REAL que sempre
+        // esteve la (status, responsavel e nao_lidas nunca foram tocados).
+        setSelecionada((c) => (c ? { ...c, arquivada_em: null, arquivada_por: null } : c));
+      } else {
+        await arquivarConversa(selecionada.id);
+        // Arquivou estando numa fila operacional: a conversa deixa de existir
+        // nesta lista. Fechar a thread e o unico estado coerente.
+        if (filtroStatus !== FILTRO_ARQUIVADAS) {
+          setSelecionada(null);
+          setMensagens([]);
+          setFicha(null);
+        } else {
+          setSelecionada((c) => (c ? { ...c, arquivada_em: new Date().toISOString() } : c));
+        }
+      }
+      await carregarConversas();
+      carregarResumo().then(setResumo).catch(() => {});
+    } catch (e) {
+      setErro(e.message);
+    } finally {
+      setArquivando(false);
+    }
+  }
+
   async function escolherAluno(alunoId) {
     await acao(vincularAluno, alunoId);
     setCandidatos([]);
@@ -596,6 +638,9 @@ export default function CentralWhatsApp() {
                 <th style={S.th}>Aguardando resposta</th>
                 <th style={S.th}>Não lidas</th>
                 <th style={S.th}>Finalizadas hoje</th>
+                {/* Gestao PRECISA ver arquivadas, senao arquivar vira jeito de esconder. */}
+                <th style={S.th}>Arquivadas</th>
+                <th style={S.th}>Arq. não lidas</th>
                 <th style={S.th}>Espera mais antiga</th>
               </tr>
             </thead>
@@ -607,6 +652,8 @@ export default function CentralWhatsApp() {
                   <td style={S.td}>{l.aguardando_resposta}</td>
                   <td style={S.td}>{l.nao_lidas}</td>
                   <td style={S.td}>{l.encerradas_hoje}</td>
+                  <td style={S.td}>{l.arquivadas}</td>
+                  <td style={S.td}>{l.arquivadas_nao_lidas}</td>
                   <td style={S.td}>
                     {l.espera_mais_antiga ? esperaDesde(l.espera_mais_antiga)?.texto : "—"}
                   </td>
@@ -657,6 +704,11 @@ export default function CentralWhatsApp() {
                   style={filtroStatus === f.valor ? S.chipAtivo : S.chip}
                 >
                   {f.rotulo}
+                  {/* Arquivada nao volta para a fila, mas nao pode ficar muda: o
+                      aluno pode ter escrito de novo. Este numero e o aviso. */}
+                  {f.valor === FILTRO_ARQUIVADAS && resumo?.arquivadas_nao_lidas > 0
+                    ? ` (${resumo.arquivadas_nao_lidas})`
+                    : ""}
                 </button>
               ))}
             </div>
@@ -783,6 +835,16 @@ export default function CentralWhatsApp() {
                   ) : (
                     <button style={S.botaoSec} onClick={() => acao(encerrarConversa)}>Finalizar</button>
                   )}
+                    <button
+                      style={S.botaoSec}
+                      onClick={alternarArquivo}
+                      disabled={arquivando}
+                      title={selecionada.arquivada_em
+                        ? "Volta para as filas conforme o estado real da conversa"
+                        : "Sai das filas sem apagar nada. Se o aluno escrever, ela volta sozinha."}
+                    >
+                      {arquivando ? "…" : selecionada.arquivada_em ? "Desarquivar" : "Arquivar"}
+                    </button>
                 </div>
               </div>
 
