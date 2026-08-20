@@ -20,6 +20,43 @@ let chamarCrm = chamar;
 export function _usarCrmParaTeste(fn) {
   chamarCrm = fn || chamar;
 }
+
+// Costura de teste para o CICLO DE VIDA da conexão. Sem ela não há como provar
+// a corrida de `conectar()` sem rede e sem WhatsApp — e foi uma corrida que
+// derrubou a sessão 7 vezes em 8 horas, com o serviço brigando consigo mesmo.
+let criarSocket = makeWASocket;
+let obterVersao = fetchLatestBaileysVersion;
+export function _usarSocketParaTeste(criar, versao) {
+  criarSocket = criar || makeWASocket;
+  obterVersao = versao || fetchLatestBaileysVersion;
+}
+
+// Eventos que uma sessão assina. Vira lista porque o ENCERRAMENTO precisa
+// desfazer todos: socket antigo com manipulador vivo foi o que criou duas
+// conexões concorrentes. Inclui os de ack de propósito — assim o encerramento
+// continua completo quando a instrumentação estiver junta.
+const EVENTOS_DA_SESSAO = [
+  "creds.update", "contacts.upsert", "contacts.update", "chats.upsert",
+  "messages.upsert", "messaging-history.set", "connection.update",
+  "messages.update", "message-receipt.update",
+];
+
+// Desliga um socket SEM deixar que ele dispare mais nada.
+//
+// POR QUE REMOVER OS MANIPULADORES ANTES DO `end()`: encerrar faz o Baileys
+// emitir `connection.update` com `close` no socket que está morrendo. Se o
+// nosso manipulador ainda estiver ligado, ele lê isso como queda e agenda MAIS
+// uma reconexão — exatamente a cascata que este código existe para acabar.
+export function encerrarSocket(anterior) {
+  if (!anterior) return false;
+  try {
+    for (const evento of EVENTOS_DA_SESSAO) anterior.ev?.removeAllListeners?.(evento);
+  } catch { /* emissor já desligado */ }
+  try {
+    anterior.end?.(undefined);
+  } catch { /* já encerrado */ }
+  return true;
+}
 import { logSessao } from "./log.js";
 import { enfileirar } from "./outbox.js";
 import { baixarMidia, TIPOS_ACEITOS } from "./midia.js";
@@ -142,6 +179,9 @@ export function criarSessao({ chave }) {
   let tentativas = 0;
   let parando = false;
   let reconectando = false;
+  // Reentrância de `conectar()`: sem isto, duas chamadas concorrentes criavam
+  // DOIS sockets e o WhatsApp derrubava um com 440 connectionReplaced.
+  let conectando = false;
 
   // Sincronização inicial: uma execução, vários lotes, e um relógio de
   // inatividade — o WhatsApp não avisa de forma confiável que terminou.
@@ -512,14 +552,30 @@ export function criarSessao({ chave }) {
   // ---------------------------------------------------------------------
   async function conectar() {
     if (parando) return;
-    reconectando = false;
 
-    auth = auth || (await usarAuthStatePostgres(chave));
-    const { version } = await fetchLatestBaileysVersion();
+    // GUARDA DE REENTRÂNCIA. Em 20/08/2026 o serviço abriu duas conexões
+    // simultâneas e uma derrubou a outra: 7 `connectionReplaced` (440) em 8
+    // horas, com "connected to WA" e "logging in..." saindo em duplicata no
+    // log. Não era outro aparelho — era ele contra ele mesmo.
+    if (conectando) {
+      log.warn("conexao ja em andamento - pedido ignorado");
+      return;
+    }
+    conectando = true;
 
-    await reportar("CONECTANDO", { texto: `protocolo ${version.join(".")}` });
+    try {
+      // O socket velho sai de cena ANTES de o novo nascer. Antes disto,
+      // `sock = makeWASocket(...)` apenas trocava a referência e deixava o
+      // anterior VIVO, ainda falando com o WhatsApp.
+      encerrarSocket(sock);
+      sock = null;
 
-    sock = makeWASocket({
+      auth = auth || (await usarAuthStatePostgres(chave));
+      const { version } = await obterVersao();
+
+      await reportar("CONECTANDO", { texto: `protocolo ${version.join(".")}` });
+
+      sock = criarSocket({
       version,
       auth: {
         creds: auth.state.creds,
@@ -647,6 +703,17 @@ export function criarSessao({ chave }) {
         await tratarQueda(lastDisconnect?.error?.output?.statusCode);
       }
     });
+
+      // SÓ AGORA a trava de reconexão cai — com o socket novo já de pé.
+      //
+      // Antes ela caía na PRIMEIRA linha de `conectar()`, ou seja, antes de
+      // `usarAuthStatePostgres` e `fetchLatestBaileysVersion`, dois acessos de
+      // rede. Naquela janela `agendarReconexao` se considerava livre e uma
+      // segunda conexão entrava — a corrida que gerava os 440.
+      reconectando = false;
+    } finally {
+      conectando = false;
+    }
   }
 
   async function tratarConexaoAberta(jid) {
