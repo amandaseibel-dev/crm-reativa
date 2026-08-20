@@ -24,6 +24,7 @@ import {
   FILTRO_ARQUIVADAS,
   FILTRO_MINHAS,
   FILTRO_NAO_LIDAS,
+  FILTRO_RESGATE,
   FILTRO_SEM_RESPONSAVEL,
   FILTRO_SEM_RETORNO,
   ROTULO_CONEXAO,
@@ -35,6 +36,7 @@ import {
   carregarFichaAluno,
   carregarQr,
   carregarResumo,
+  carregarCadencia,
   carregarSupervisao,
   carregarSyncStatus,
   comandarSessao,
@@ -52,6 +54,7 @@ import {
   procurarConversaPorTelefone,
   reabrirConversa,
   retirarResponsavel,
+  salvarCadenciaCanal,
   salvarCanal,
   souGestao,
   transferirConversa,
@@ -60,6 +63,7 @@ import {
 
 const FILTROS_STATUS = [
   { valor: FILTRO_SEM_RETORNO, rotulo: "Sem retorno" },
+  { valor: FILTRO_RESGATE, rotulo: "Resgate" },
   { valor: FILTRO_MINHAS, rotulo: "Minhas" },
   { valor: FILTRO_NAO_LIDAS, rotulo: "Não lidas" },
   { valor: FILTRO_SEM_RESPONSAVEL, rotulo: "Aguardando atendimento" },
@@ -68,6 +72,11 @@ const FILTROS_STATUS = [
   { valor: "ENCERRADO", rotulo: "Finalizadas" },
   { valor: "", rotulo: "Todas" },
 ];
+
+// O banco devolve `time` como "09:00:00"; a tela mostra "09:00".
+function horaSemSegundos(t) {
+  return String(t || "").slice(0, 5);
+}
 
 function horaCurta(iso) {
   if (!iso) return "";
@@ -103,6 +112,7 @@ export default function CentralWhatsApp() {
   const [filtroResponsavel, setFiltroResponsavel] = useState("");
   const [busca, setBusca] = useState("");
   const [resumo, setResumo] = useState(null);
+  const [cadencia, setCadencia] = useState([]);
   const [supervisao, setSupervisao] = useState([]);
   const [verSupervisao, setVerSupervisao] = useState(false);
   const [sync, setSync] = useState([]);
@@ -184,6 +194,7 @@ export default function CentralWhatsApp() {
       }
       carregarResumo().then(setResumo).catch(() => {});
       listarCanais().then(setCanais).catch(() => {});
+      carregarCadencia().then(setCadencia).catch(() => {});
     } catch (e) {
       setErro(e.message);
     } finally {
@@ -481,10 +492,52 @@ export default function CentralWhatsApp() {
 
   const algumCanalFora = canais.some((c) => c.ativo && !c.online);
   // Só dá para iniciar conversa por número que está de pé agora.
+  // Cadência por canal, indexada por id, para consultar sem varrer a lista.
+  const cadenciaPorCanal = useMemo(() => {
+    const m = new Map();
+    for (const c of cadencia) m.set(c.canal_id, c);
+    return m;
+  }, [cadencia]);
+
+  // Por que o motivo mora aqui e não no botão: o mesmo cálculo decide se o
+  // canal aparece no seletor da Nova conversa. Duas cópias divergiriam, e o
+  // operador veria um número na lista que o backend recusa no envio.
+  function motivoSemAbordagem(c) {
+    const k = cadenciaPorCanal.get(c.id);
+    if (!k) return null;
+    if (k.modo === "PAUSADO") return `${c.apelido} está pausado`;
+    if (k.modo === "SOMENTE_RESPOSTAS") return `${c.apelido} só responde quem procurou a empresa`;
+    if (!k.dentro_da_janela) {
+      return `${c.apelido} só inicia conversas entre ${horaSemSegundos(k.janela_inicio)} e ${horaSemSegundos(k.janela_fim)}`;
+    }
+    if (k.limite_canal != null && k.usadas_canal >= k.limite_canal) {
+      return `${c.apelido} atingiu ${k.limite_canal} conversas novas hoje`;
+    }
+    if (k.limite_operador != null && k.usadas_operador >= k.limite_operador) {
+      return `você atingiu ${k.limite_operador} conversas novas hoje em ${c.apelido}`;
+    }
+    return null;
+  }
+
   const canaisDisponiveis = useMemo(
-    () => canais.filter((c) => c.ativo && c.online),
-    [canais],
+    () => canais.filter((c) => c.ativo && c.online && !motivoSemAbordagem(c)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canais, cadenciaPorCanal],
   );
+
+  // Só os canais que o operador pode ACIONAR entram no contador da barra.
+  const cadenciaAtiva = useMemo(
+    () => cadencia.filter((k) => k.modo === "ATIVO_CONTROLADO" && k.limite_operador != null),
+    [cadencia],
+  );
+
+  const bloqueioNovaConversa = useMemo(() => {
+    if (canaisDisponiveis.length) return null;
+    const online = canais.filter((c) => c.ativo && c.online);
+    if (!online.length) return "Nenhum número conectado — não dá para iniciar conversa agora";
+    return online.map(motivoSemAbordagem).filter(Boolean).join("; ");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canais, canaisDisponiveis, cadenciaPorCanal]);
 
   return (
     <div style={S.pagina}>
@@ -500,11 +553,7 @@ export default function CentralWhatsApp() {
             style={canaisDisponiveis.length ? S.botao : S.botaoOff}
             onClick={() => setNovaAberta(true)}
             disabled={!canaisDisponiveis.length}
-            title={
-              canaisDisponiveis.length
-                ? "Escrever para alguém que ainda não escreveu para nós"
-                : "Nenhum número conectado — não dá para iniciar conversa agora"
-            }
+            title={bloqueioNovaConversa || "Escrever para alguém que ainda não escreveu para nós"}
           >
             Nova conversa
           </button>
@@ -613,8 +662,41 @@ export default function CentralWhatsApp() {
             <span style={S.tileNumero}>{resumo.minhas}</span>
             <span style={S.tileRotulo}>minhas</span>
           </div>
+          {cadenciaAtiva.map((k) => {
+            const restam = Math.max(0, k.limite_operador - k.usadas_operador);
+            const canalCheio = k.limite_canal != null && k.usadas_canal >= k.limite_canal;
+            return (
+              <div
+                key={k.canal_id}
+                style={restam === 0 || canalCheio ? S.tileCritico : S.tile}
+                title={
+                  canalCheio
+                    ? `${k.canal_apelido} atingiu o teto do dia: ${k.usadas_canal}/${k.limite_canal}`
+                    : `${k.canal_apelido}: ${k.usadas_canal}/${k.limite_canal} no número hoje`
+                }
+              >
+                <span style={S.tileNumero}>
+                  {k.usadas_operador}/{k.limite_operador}
+                </span>
+                <span style={S.tileRotulo}>
+                  {canalCheio
+                    ? `${k.canal_apelido} no teto do dia`
+                    : `Novas abordagens hoje · restam ${restam}`}
+                </span>
+              </div>
+            );
+          })}
           {resumo.pendencias_resgate > 0 ? (
-            <div style={S.tileResgate}>
+            <div
+              style={{ ...S.tileResgate, cursor: "pointer" }}
+              role="button"
+              tabIndex={0}
+              title="Abrir as conversas de resgate"
+              onClick={() => setFiltroStatus(FILTRO_RESGATE)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") setFiltroStatus(FILTRO_RESGATE);
+              }}
+            >
               <span style={S.tileNumero}>{resumo.pendencias_resgate}</span>
               <span style={S.tileRotulo}>pendências resgatadas</span>
             </div>
@@ -993,8 +1075,12 @@ export default function CentralWhatsApp() {
       {canaisAberto ? (
         <ModalCanais
           canais={canais}
+          cadencia={cadencia}
           onFechar={() => setCanaisAberto(false)}
-          onSalvo={() => listarCanais().then(setCanais).catch((e) => setErro(e.message))}
+          onSalvo={() => {
+            listarCanais().then(setCanais).catch((e) => setErro(e.message));
+            carregarCadencia().then(setCadencia).catch(() => {});
+          }}
         />
       ) : null}
 
@@ -1037,12 +1123,24 @@ export default function CentralWhatsApp() {
 // encontra o canal. Por isso o campo vem com aviso, e não com um valor
 // adivinhado.
 // ---------------------------------------------------------------------------
-function ModalCanais({ canais, onFechar, onSalvo }) {
+const MODOS = [
+  { valor: "ATIVO_CONTROLADO", rotulo: "Ativo controlado — inicia conversas dentro da cota" },
+  { valor: "SOMENTE_RESPOSTAS", rotulo: "Somente respostas — não inicia conversa nenhuma" },
+  { valor: "PAUSADO", rotulo: "Pausado — nada sai por este número, nem resposta" },
+];
+
+function ModalCanais({ canais, cadencia, onFechar, onSalvo }) {
   const [editando, setEditando] = useState(null);
   const [salvando, setSalvando] = useState(false);
   const [erro, setErro] = useState("");
 
   const vazio = { id: null, apelido: "", numero: "", sessaoChave: "", ativo: true };
+
+  const porCanal = useMemo(() => {
+    const m = new Map();
+    for (const k of cadencia || []) m.set(k.canal_id, k);
+    return m;
+  }, [cadencia]);
 
   async function salvar() {
     const f = editando;
@@ -1060,6 +1158,20 @@ function ModalCanais({ canais, onFechar, onSalvo }) {
         sessaoChave: f.sessaoChave.trim().toLowerCase(),
         ativo: f.ativo,
       });
+      // Cadência só para número que já existe: canal recém-criado nasce em
+      // SOMENTE_RESPOSTAS pelo banco, e é isso que se quer num número novo.
+      if (f.id) {
+        await salvarCadenciaCanal({
+          canalId: f.id,
+          modo: f.modo,
+          limiteOperador: f.limiteOperador,
+          limiteCanal: f.limiteCanal,
+          // Repassa a janela inalterada. A RPC grava os cinco campos de uma vez;
+          // omitir aqui apagaria o horário sem ninguém ter pedido.
+          janelaInicio: f.janelaInicio,
+          janelaFim: f.janelaFim,
+        });
+      }
       setEditando(null);
       onSalvo();
     } catch (e) {
@@ -1086,6 +1198,15 @@ function ModalCanais({ canais, onFechar, onSalvo }) {
                   <div style={S.canalSub}>
                     sessão <code>{c.sessao_chave}</code>
                     {c.ativo ? "" : " · desativado"}
+                    {porCanal.get(c.id) ? (
+                      <>
+                        {" · "}
+                        {MODOS.find((m) => m.valor === porCanal.get(c.id).modo)?.valor}
+                        {porCanal.get(c.id).modo === "ATIVO_CONTROLADO"
+                          ? ` ${porCanal.get(c.id).limite_operador ?? "–"}/operador · ${porCanal.get(c.id).limite_canal ?? "–"}/dia`
+                          : ""}
+                      </>
+                    ) : null}
                   </div>
                 </div>
                 <button
@@ -1094,6 +1215,11 @@ function ModalCanais({ canais, onFechar, onSalvo }) {
                     setEditando({
                       id: c.id, apelido: c.apelido, numero: c.display_phone_number,
                       sessaoChave: c.sessao_chave, ativo: c.ativo,
+                      modo: porCanal.get(c.id)?.modo || "SOMENTE_RESPOSTAS",
+                      limiteOperador: porCanal.get(c.id)?.limite_operador ?? "",
+                      limiteCanal: porCanal.get(c.id)?.limite_canal ?? "",
+                      janelaInicio: porCanal.get(c.id)?.janela_inicio || null,
+                      janelaFim: porCanal.get(c.id)?.janela_fim || null,
                     })
                   }
                 >
@@ -1139,6 +1265,72 @@ function ModalCanais({ canais, onFechar, onSalvo }) {
                 {editando.id ? " Não muda depois de criado: é ela que amarra o histórico." : ""}
               </span>
             </label>
+
+            {/* --------- Cadência: só para número já criado --------- */}
+            {editando.id ? (
+              <>
+                <label style={S.campoNovo}>
+                  <span style={S.rotuloNovo}>Modo do número</span>
+                  <select
+                    style={S.busca}
+                    value={editando.modo}
+                    onChange={(e) => setEditando({ ...editando, modo: e.target.value })}
+                  >
+                    {MODOS.map((m) => (
+                      <option key={m.valor} value={m.valor}>{m.rotulo}</option>
+                    ))}
+                  </select>
+                </label>
+
+                {editando.modo === "ATIVO_CONTROLADO" ? (
+                  <>
+                    <label style={S.campoNovo}>
+                      <span style={S.rotuloNovo}>Novas abordagens por operador, por dia</span>
+                      <input
+                        style={S.busca}
+                        type="number"
+                        min="0"
+                        placeholder="10"
+                        value={editando.limiteOperador}
+                        onChange={(e) => setEditando({ ...editando, limiteOperador: e.target.value })}
+                      />
+                    </label>
+                    <label style={S.campoNovo}>
+                      <span style={S.rotuloNovo}>Novas abordagens no número, por dia</span>
+                      <input
+                        style={S.busca}
+                        type="number"
+                        min="0"
+                        placeholder="100"
+                        value={editando.limiteCanal}
+                        onChange={(e) => setEditando({ ...editando, limiteCanal: e.target.value })}
+                      />
+                      <span style={S.dicaRuim}>
+                        Os dois valem ao mesmo tempo. Quem atinge o próprio limite para de
+                        iniciar conversas; quando o número atinge o dele, ninguém inicia até o
+                        dia seguinte. Responder quem procurou a empresa continua liberado nos
+                        dois casos.
+                        {editando.janelaInicio
+                          ? ` Janela atual: ${horaSemSegundos(editando.janelaInicio)} às ${horaSemSegundos(editando.janelaFim)}.`
+                          : ""}
+                      </span>
+                    </label>
+                  </>
+                ) : (
+                  <span style={S.dicaRuim}>
+                    {editando.modo === "PAUSADO"
+                      ? "Pausado: nenhuma mensagem sai por este número, nem resposta a quem escreveu. As que chegarem continuam sendo guardadas."
+                      : "Somente respostas: dá para responder quem procurou a empresa nos últimos 30 dias, e nada mais sai por aqui."}
+                  </span>
+                )}
+              </>
+            ) : (
+              <span style={S.dicaRuim}>
+                Número novo entra em <strong>Somente respostas</strong>. É de propósito: número
+                recém-pareado é o mais frágil, e liberar abordagem antes da hora custa bloqueio
+                do WhatsApp. Depois de criado, o modo se ajusta aqui mesmo.
+              </span>
+            )}
             <label style={S.linhaNovo}>
               <input
                 type="checkbox"

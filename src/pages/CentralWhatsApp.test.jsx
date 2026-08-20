@@ -13,6 +13,8 @@ vi.mock("../services/supabase", () => ({
 
 const servico = vi.hoisted(() => ({
   canais: [],
+  cadencia: [],
+  cadenciaSalva: [],
   conversas: [],
   mensagens: [],
   resumo: null,
@@ -64,6 +66,10 @@ vi.mock("../services/whatsapp", async (original) => {
     }),
     carregarResumo: vi.fn(async () => servico.resumo),
     carregarSupervisao: vi.fn(async () => servico.supervisao),
+    carregarCadencia: vi.fn(async () => servico.cadencia),
+    salvarCadenciaCanal: vi.fn(async (args) => {
+      servico.cadenciaSalva.push(args);
+    }),
     carregarSyncStatus: vi.fn(async () => []),
     souGestao: vi.fn(async () => servico.gestao),
     carregarFichaAluno: vi.fn(async (id) => {
@@ -116,11 +122,22 @@ vi.mock("../services/whatsapp", async (original) => {
 
 const CANAL_ONLINE = {
   id: "c1", apelido: "Cobrança", display_phone_number: "+55 51 1111-1111",
+  sessao_chave: "cobranca",
   ativo: true, conexao_status: "CONECTADO", online: true,
   sync_inicial_em: new Date().toISOString(), aguardando_qr: false,
 };
+// Cadência do canal online, com folga. Os testes que exercitam limite trocam
+// campos desta base.
+const CADENCIA_LIVRE = {
+  canal_id: "c1", canal_apelido: "Cobrança", modo: "ATIVO_CONTROLADO",
+  limite_operador: 10, usadas_operador: 4,
+  limite_canal: 100, usadas_canal: 37,
+  janela_inicio: "09:00:00", janela_fim: "20:00:00", dentro_da_janela: true,
+};
+
 const CANAL_FORA = {
   id: "c2", apelido: "Comercial", display_phone_number: "+55 51 2222-2222",
+  sessao_chave: "comercial",
   ativo: true, conexao_status: "PAREAMENTO_NECESSARIO", online: false,
   sync_inicial_em: null, aguardando_qr: true,
 };
@@ -154,6 +171,8 @@ beforeEach(() => {
   // mensagem. Sem este stub o teste quebra por um detalhe de ambiente.
   Element.prototype.scrollIntoView = vi.fn();
   servico.canais = [CANAL_ONLINE, CANAL_FORA];
+  servico.cadencia = [CADENCIA_LIVRE];
+  servico.cadenciaSalva = [];
   servico.conversas = [];
   servico.mensagens = [];
   servico.resumo = null;
@@ -351,6 +370,139 @@ describe("Central WhatsApp", () => {
     servico.gestao = true;
     render(<CentralWhatsApp />);
     expect(await screen.findByText("Supervisão")).toBeDefined();
+  });
+
+  // O contador de resgate ja existia; o que faltava era como ABRIR a lista.
+  // Tirar o backlog de "Sem retorno" sem isto o deixaria contado e inalcancavel.
+  // ------------------------------------------------------------------ cadência
+  // O operador precisa ver o consumo ANTES de escrever. Sem isto ele digita a
+  // mensagem inteira para descobrir no envio que já bateu no teto.
+  // ------------------------------------------- configuração da cadência (gestão)
+  it("o rótulo do operador diz exatamente quanto sobrou", async () => {
+    servico.resumo = {
+      sem_retorno: 0, esperando_mais_1h: 0, esperando_mais_24h: 0, nao_lidas: 0,
+      sem_responsavel: 0, em_atendimento: 0, minhas: 0, pendencias_resgate: 0,
+      arquivadas_nao_lidas: 0,
+    };
+    render(<CentralWhatsApp />);
+    expect(await screen.findByText("4/10")).toBeTruthy();
+    expect(screen.getByText(/Novas abordagens hoje · restam 6/)).toBeTruthy();
+  });
+
+  it("gestão altera modo e limites pelo painel de números", async () => {
+    servico.gestao = true;
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Números"));
+    fireEvent.click((await screen.findAllByText("Editar"))[0]);
+
+    const limiteOp = await screen.findByDisplayValue("10");
+    fireEvent.change(limiteOp, { target: { value: "15" } });
+    fireEvent.change(screen.getByDisplayValue("100"), { target: { value: "150" } });
+    fireEvent.click(screen.getByText("Salvar"));
+
+    await waitFor(() => expect(servico.cadenciaSalva.length).toBe(1));
+    const salvo = servico.cadenciaSalva[0];
+    expect(salvo.limiteOperador).toBe("15");
+    expect(salvo.limiteCanal).toBe("150");
+    expect(salvo.modo).toBe("ATIVO_CONTROLADO");
+  });
+
+  // A RPC grava os cinco campos de uma vez. Se a tela não devolvesse a janela,
+  // trocar o limite apagaria o 09:00–20:00 sem ninguém pedir.
+  it("salvar limite NÃO apaga a janela", async () => {
+    servico.gestao = true;
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Números"));
+    fireEvent.click((await screen.findAllByText("Editar"))[0]);
+    fireEvent.change(await screen.findByDisplayValue("10"), { target: { value: "12" } });
+    fireEvent.click(screen.getByText("Salvar"));
+
+    await waitFor(() => expect(servico.cadenciaSalva.length).toBe(1));
+    expect(servico.cadenciaSalva[0].janelaInicio).toBe("09:00:00");
+    expect(servico.cadenciaSalva[0].janelaFim).toBe("20:00:00");
+  });
+
+  it("mudar para SOMENTE_RESPOSTAS esconde os limites", async () => {
+    servico.gestao = true;
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Números"));
+    fireEvent.click((await screen.findAllByText("Editar"))[0]);
+    await screen.findByDisplayValue("10");
+
+    fireEvent.change(screen.getByDisplayValue(/Ativo controlado/), {
+      target: { value: "SOMENTE_RESPOSTAS" },
+    });
+    await waitFor(() => expect(screen.queryByDisplayValue("10")).toBeNull());
+    expect(screen.getByText(/só dá para responder|responder quem procurou a empresa/i)).toBeTruthy();
+  });
+
+
+  it("mostra o consumo diário do operador", async () => {
+    servico.resumo = {
+      sem_retorno: 0, esperando_mais_1h: 0, esperando_mais_24h: 0, nao_lidas: 0,
+      sem_responsavel: 0, em_atendimento: 0, minhas: 0, pendencias_resgate: 0,
+      arquivadas_nao_lidas: 0,
+    };
+    render(<CentralWhatsApp />);
+    expect(await screen.findByText("4/10")).toBeTruthy();
+    expect(screen.getByText(/restam 6/)).toBeTruthy();
+  });
+
+  it("operador no teto não consegue abrir Nova conversa, e o motivo é o dele", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, usadas_operador: 10 }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/você atingiu 10 conversas novas hoje/i);
+  });
+
+  it("canal no teto bloqueia todo mundo, com motivo diferente do teto pessoal", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, usadas_operador: 1, usadas_canal: 100 }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/atingiu 100 conversas novas hoje/i);
+    expect(botao.title).not.toMatch(/você atingiu/i);
+  });
+
+  it("SOMENTE_RESPOSTAS tira o número da Nova conversa", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, modo: "SOMENTE_RESPOSTAS" }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/só responde quem procurou a empresa/i);
+  });
+
+  it("fora da janela avisa o horário, não um erro genérico", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, dentro_da_janela: false }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/entre 09:00 e 20:00/);
+  });
+
+  it("PAUSADO bloqueia iniciar conversa", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, modo: "PAUSADO" }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/pausado/i);
+  });
+
+
+  it("o resgate tem filtro proprio e o contador abre a lista", async () => {
+    servico.resumo = {
+      sem_retorno: 3, esperando_mais_1h: 1, esperando_mais_24h: 0, nao_lidas: 2,
+      sem_responsavel: 1, em_atendimento: 2, minhas: 1, pendencias_resgate: 7,
+      arquivadas_nao_lidas: 0,
+    };
+    render(<CentralWhatsApp />);
+    await screen.findByText(/pendências resgatadas/i);
+
+    fireEvent.click(screen.getByText("7"));
+    await waitFor(() => {
+      expect(servico.filtrosPedidos.at(-1).status).toBe("RESGATE");
+    });
   });
 
   it("o painel conta quem espera, incluindo o resgate do histórico", async () => {
