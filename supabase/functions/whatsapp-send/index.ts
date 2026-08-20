@@ -64,6 +64,17 @@ const jsonResp = (obj: unknown, status = 200) =>
 
 const LIMITE_TEXTO = 4096;
 
+// Códigos que a cadência devolve em `DETAIL`. A lista é fechada de propósito:
+// só registra o que se reconhece, para o log não virar depósito de qualquer
+// mensagem de erro que passe por aqui.
+const MOTIVOS_DE_BLOQUEIO = new Set([
+  "MODO_PAUSADO",
+  "MODO_SOMENTE_RESPOSTAS",
+  "FORA_DA_JANELA",
+  "LIMITE_OPERADOR",
+  "LIMITE_CANAL",
+]);
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return jsonResp({ erro: "metodo nao suportado" }, 405);
@@ -121,7 +132,34 @@ Deno.serve(async (req) => {
         p_conversa_id: corpo.conversa_id,
       });
 
-  if (erroPreparo) return jsonResp({ erro: erroPreparo.message }, 403);
+  if (erroPreparo) {
+    // CADÊNCIA — registro do bloqueio.
+    //
+    // POR QUE AQUI E NÃO DENTRO DA RPC: a RPC barra levantando exceção, e
+    // exceção desfaz a transação inteira — inclusive um log que ela tivesse
+    // gravado. O registro precisa de transação separada, e esta é a primeira
+    // que existe depois do bloqueio.
+    //
+    // `details` carrega o código de máquina; `message` continua sendo o texto
+    // que o operador lê. Assim não é preciso interpretar frase para saber o
+    // motivo.
+    //
+    // Nada de conteúdo da mensagem e nada de telefone: só canal, operador,
+    // referência da conversa, motivo e quando.
+    const motivo = (erroPreparo as { details?: string }).details;
+    if (motivo && MOTIVOS_DE_BLOQUEIO.has(motivo)) {
+      // Falhar o log NÃO pode transformar um bloqueio em erro diferente para o
+      // operador: o que importa é que a mensagem não saiu.
+      await comoOperador
+        .rpc("whatsapp_cadencia_registrar_bloqueio", {
+          p_canal_id: corpo.canal_id ?? null,
+          p_conversa_id: corpo.conversa_id ?? null,
+          p_motivo: motivo,
+        })
+        .catch(() => {});
+    }
+    return jsonResp({ erro: erroPreparo.message }, 403);
+  }
 
   const dados = Array.isArray(preparo) ? preparo[0] : preparo;
   if (!dados?.sessao_chave) return jsonResp({ erro: "conversa sem canal valido" }, 400);

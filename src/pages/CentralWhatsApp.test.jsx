@@ -13,6 +13,7 @@ vi.mock("../services/supabase", () => ({
 
 const servico = vi.hoisted(() => ({
   canais: [],
+  cadencia: [],
   conversas: [],
   mensagens: [],
   resumo: null,
@@ -64,6 +65,7 @@ vi.mock("../services/whatsapp", async (original) => {
     }),
     carregarResumo: vi.fn(async () => servico.resumo),
     carregarSupervisao: vi.fn(async () => servico.supervisao),
+    carregarCadencia: vi.fn(async () => servico.cadencia),
     carregarSyncStatus: vi.fn(async () => []),
     souGestao: vi.fn(async () => servico.gestao),
     carregarFichaAluno: vi.fn(async (id) => {
@@ -119,6 +121,15 @@ const CANAL_ONLINE = {
   ativo: true, conexao_status: "CONECTADO", online: true,
   sync_inicial_em: new Date().toISOString(), aguardando_qr: false,
 };
+// Cadência do canal online, com folga. Os testes que exercitam limite trocam
+// campos desta base.
+const CADENCIA_LIVRE = {
+  canal_id: "c1", canal_apelido: "Cobrança", modo: "ATIVO_CONTROLADO",
+  limite_operador: 10, usadas_operador: 4,
+  limite_canal: 100, usadas_canal: 37,
+  janela_inicio: "09:00:00", janela_fim: "20:00:00", dentro_da_janela: true,
+};
+
 const CANAL_FORA = {
   id: "c2", apelido: "Comercial", display_phone_number: "+55 51 2222-2222",
   ativo: true, conexao_status: "PAREAMENTO_NECESSARIO", online: false,
@@ -154,6 +165,7 @@ beforeEach(() => {
   // mensagem. Sem este stub o teste quebra por um detalhe de ambiente.
   Element.prototype.scrollIntoView = vi.fn();
   servico.canais = [CANAL_ONLINE, CANAL_FORA];
+  servico.cadencia = [CADENCIA_LIVRE];
   servico.conversas = [];
   servico.mensagens = [];
   servico.resumo = null;
@@ -355,6 +367,62 @@ describe("Central WhatsApp", () => {
 
   // O contador de resgate ja existia; o que faltava era como ABRIR a lista.
   // Tirar o backlog de "Sem retorno" sem isto o deixaria contado e inalcancavel.
+  // ------------------------------------------------------------------ cadência
+  // O operador precisa ver o consumo ANTES de escrever. Sem isto ele digita a
+  // mensagem inteira para descobrir no envio que já bateu no teto.
+  it("mostra o consumo diário do operador", async () => {
+    servico.resumo = {
+      sem_retorno: 0, esperando_mais_1h: 0, esperando_mais_24h: 0, nao_lidas: 0,
+      sem_responsavel: 0, em_atendimento: 0, minhas: 0, pendencias_resgate: 0,
+      arquivadas_nao_lidas: 0,
+    };
+    render(<CentralWhatsApp />);
+    expect(await screen.findByText("4/10")).toBeTruthy();
+    expect(screen.getByText(/restam 6/)).toBeTruthy();
+  });
+
+  it("operador no teto não consegue abrir Nova conversa, e o motivo é o dele", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, usadas_operador: 10 }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/você atingiu 10 conversas novas hoje/i);
+  });
+
+  it("canal no teto bloqueia todo mundo, com motivo diferente do teto pessoal", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, usadas_operador: 1, usadas_canal: 100 }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/atingiu 100 conversas novas hoje/i);
+    expect(botao.title).not.toMatch(/você atingiu/i);
+  });
+
+  it("SOMENTE_RESPOSTAS tira o número da Nova conversa", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, modo: "SOMENTE_RESPOSTAS" }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/só responde quem procurou a empresa/i);
+  });
+
+  it("fora da janela avisa o horário, não um erro genérico", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, dentro_da_janela: false }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/entre 09:00 e 20:00/);
+  });
+
+  it("PAUSADO bloqueia iniciar conversa", async () => {
+    servico.cadencia = [{ ...CADENCIA_LIVRE, modo: "PAUSADO" }];
+    render(<CentralWhatsApp />);
+    const botao = await screen.findByText("Nova conversa");
+    await waitFor(() => expect(botao.disabled).toBe(true));
+    expect(botao.title).toMatch(/pausado/i);
+  });
+
+
   it("o resgate tem filtro proprio e o contador abre a lista", async () => {
     servico.resumo = {
       sem_retorno: 3, esperando_mais_1h: 1, esperando_mais_24h: 0, nao_lidas: 2,

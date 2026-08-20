@@ -51,6 +51,15 @@ export async function carregarResumo() {
   return (Array.isArray(data) ? data[0] : data) || null;
 }
 
+// Cadência: quanto o operador já gastou hoje e o que o canal permite. O backend
+// é a autoridade — isto serve para a tela não deixar o operador escrever uma
+// mensagem inteira só para levar "não" no envio.
+export async function carregarCadencia() {
+  const { data, error } = await supabase.rpc("whatsapp_cadencia_consumo");
+  if (error) throw new Error(error.message);
+  return data || [];
+}
+
 export async function carregarSupervisao() {
   const { data, error } = await supabase.rpc("whatsapp_supervisao");
   if (error) throw new Error(error.message);

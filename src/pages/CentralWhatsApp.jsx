@@ -36,6 +36,7 @@ import {
   carregarFichaAluno,
   carregarQr,
   carregarResumo,
+  carregarCadencia,
   carregarSupervisao,
   carregarSyncStatus,
   comandarSessao,
@@ -71,6 +72,11 @@ const FILTROS_STATUS = [
   { valor: "", rotulo: "Todas" },
 ];
 
+// O banco devolve `time` como "09:00:00"; a tela mostra "09:00".
+function horaSemSegundos(t) {
+  return String(t || "").slice(0, 5);
+}
+
 function horaCurta(iso) {
   if (!iso) return "";
   const d = new Date(iso);
@@ -105,6 +111,7 @@ export default function CentralWhatsApp() {
   const [filtroResponsavel, setFiltroResponsavel] = useState("");
   const [busca, setBusca] = useState("");
   const [resumo, setResumo] = useState(null);
+  const [cadencia, setCadencia] = useState([]);
   const [supervisao, setSupervisao] = useState([]);
   const [verSupervisao, setVerSupervisao] = useState(false);
   const [sync, setSync] = useState([]);
@@ -186,6 +193,7 @@ export default function CentralWhatsApp() {
       }
       carregarResumo().then(setResumo).catch(() => {});
       listarCanais().then(setCanais).catch(() => {});
+      carregarCadencia().then(setCadencia).catch(() => {});
     } catch (e) {
       setErro(e.message);
     } finally {
@@ -483,10 +491,52 @@ export default function CentralWhatsApp() {
 
   const algumCanalFora = canais.some((c) => c.ativo && !c.online);
   // Só dá para iniciar conversa por número que está de pé agora.
+  // Cadência por canal, indexada por id, para consultar sem varrer a lista.
+  const cadenciaPorCanal = useMemo(() => {
+    const m = new Map();
+    for (const c of cadencia) m.set(c.canal_id, c);
+    return m;
+  }, [cadencia]);
+
+  // Por que o motivo mora aqui e não no botão: o mesmo cálculo decide se o
+  // canal aparece no seletor da Nova conversa. Duas cópias divergiriam, e o
+  // operador veria um número na lista que o backend recusa no envio.
+  function motivoSemAbordagem(c) {
+    const k = cadenciaPorCanal.get(c.id);
+    if (!k) return null;
+    if (k.modo === "PAUSADO") return `${c.apelido} está pausado`;
+    if (k.modo === "SOMENTE_RESPOSTAS") return `${c.apelido} só responde quem procurou a empresa`;
+    if (!k.dentro_da_janela) {
+      return `${c.apelido} só inicia conversas entre ${horaSemSegundos(k.janela_inicio)} e ${horaSemSegundos(k.janela_fim)}`;
+    }
+    if (k.limite_canal != null && k.usadas_canal >= k.limite_canal) {
+      return `${c.apelido} atingiu ${k.limite_canal} conversas novas hoje`;
+    }
+    if (k.limite_operador != null && k.usadas_operador >= k.limite_operador) {
+      return `você atingiu ${k.limite_operador} conversas novas hoje em ${c.apelido}`;
+    }
+    return null;
+  }
+
   const canaisDisponiveis = useMemo(
-    () => canais.filter((c) => c.ativo && c.online),
-    [canais],
+    () => canais.filter((c) => c.ativo && c.online && !motivoSemAbordagem(c)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [canais, cadenciaPorCanal],
   );
+
+  // Só os canais que o operador pode ACIONAR entram no contador da barra.
+  const cadenciaAtiva = useMemo(
+    () => cadencia.filter((k) => k.modo === "ATIVO_CONTROLADO" && k.limite_operador != null),
+    [cadencia],
+  );
+
+  const bloqueioNovaConversa = useMemo(() => {
+    if (canaisDisponiveis.length) return null;
+    const online = canais.filter((c) => c.ativo && c.online);
+    if (!online.length) return "Nenhum número conectado — não dá para iniciar conversa agora";
+    return online.map(motivoSemAbordagem).filter(Boolean).join("; ");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canais, canaisDisponiveis, cadenciaPorCanal]);
 
   return (
     <div style={S.pagina}>
@@ -502,11 +552,7 @@ export default function CentralWhatsApp() {
             style={canaisDisponiveis.length ? S.botao : S.botaoOff}
             onClick={() => setNovaAberta(true)}
             disabled={!canaisDisponiveis.length}
-            title={
-              canaisDisponiveis.length
-                ? "Escrever para alguém que ainda não escreveu para nós"
-                : "Nenhum número conectado — não dá para iniciar conversa agora"
-            }
+            title={bloqueioNovaConversa || "Escrever para alguém que ainda não escreveu para nós"}
           >
             Nova conversa
           </button>
@@ -615,6 +661,30 @@ export default function CentralWhatsApp() {
             <span style={S.tileNumero}>{resumo.minhas}</span>
             <span style={S.tileRotulo}>minhas</span>
           </div>
+          {cadenciaAtiva.map((k) => {
+            const restam = Math.max(0, k.limite_operador - k.usadas_operador);
+            const canalCheio = k.limite_canal != null && k.usadas_canal >= k.limite_canal;
+            return (
+              <div
+                key={k.canal_id}
+                style={restam === 0 || canalCheio ? S.tileCritico : S.tile}
+                title={
+                  canalCheio
+                    ? `${k.canal_apelido} atingiu o teto do dia: ${k.usadas_canal}/${k.limite_canal}`
+                    : `${k.canal_apelido}: ${k.usadas_canal}/${k.limite_canal} no número hoje`
+                }
+              >
+                <span style={S.tileNumero}>
+                  {k.usadas_operador}/{k.limite_operador}
+                </span>
+                <span style={S.tileRotulo}>
+                  {canalCheio
+                    ? `${k.canal_apelido} no teto do dia`
+                    : `novas em ${k.canal_apelido} · restam ${restam}`}
+                </span>
+              </div>
+            );
+          })}
           {resumo.pendencias_resgate > 0 ? (
             <div
               style={{ ...S.tileResgate, cursor: "pointer" }}
