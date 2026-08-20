@@ -1,7 +1,27 @@
 <!doctype html>
-<html lang="en">
+<html lang="pt-BR" translate="no">
   <head>
     <meta charset="UTF-8" />
+    <!--
+      NAO REMOVER — isto e o que impede a TELA BRANCA.
+
+      O `lang` estava como "en" (padrao do template do Vite) numa aplicacao
+      inteiramente em portugues. O Chrome le "pagina em ingles, conteudo em
+      portugues" e traduz sozinho. O Google Translate substitui cada no de
+      texto por um `<font>`; o React continua com referencia aos nos
+      originais e, ao inserir qualquer coisa relativa a eles, quebra com
+      `NotFoundError: Failed to execute 'insertBefore' on 'Node'` — e a
+      arvore inteira desmonta.
+
+      Foi o que derrubou a Central em 20/08/2026 ao abrir uma conversa:
+      trocar a thread mexe em dezenas de nos de texto de uma vez, que e a
+      operacao com maior chance de colidir com o tradutor.
+
+      `lang="pt-BR"` tira o motivo de traduzir. `translate="no"` e o
+      `notranslate` abaixo sao a trava explicita, para o caso de o operador
+      ja ter marcado "traduzir sempre este site" no navegador dele.
+    -->
+    <meta name="google" content="notranslate" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
