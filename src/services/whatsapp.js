@@ -54,6 +54,21 @@ export async function carregarResumo() {
 // Cadência: quanto o operador já gastou hoje e o que o canal permite. O backend
 // é a autoridade — isto serve para a tela não deixar o operador escrever uma
 // mensagem inteira só para levar "não" no envio.
+// Configuração da cadência (gestão). A janela é repassada de volta sem
+// alteração de propósito: a RPC grava os cinco campos juntos, e mandar null
+// aqui APAGARIA o 09:00–20:00 sem ninguém pedir.
+export async function salvarCadenciaCanal({ canalId, modo, limiteOperador, limiteCanal, janelaInicio, janelaFim } = {}) {
+  const { error } = await supabase.rpc("whatsapp_canal_cadencia_salvar", {
+    p_canal_id: canalId,
+    p_modo: modo,
+    p_limite_operador: limiteOperador === "" || limiteOperador == null ? null : Number(limiteOperador),
+    p_limite_canal: limiteCanal === "" || limiteCanal == null ? null : Number(limiteCanal),
+    p_janela_inicio: janelaInicio || null,
+    p_janela_fim: janelaFim || null,
+  });
+  if (error) throw new Error(error.message);
+}
+
 export async function carregarCadencia() {
   const { data, error } = await supabase.rpc("whatsapp_cadencia_consumo");
   if (error) throw new Error(error.message);

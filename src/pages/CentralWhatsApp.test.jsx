@@ -14,6 +14,7 @@ vi.mock("../services/supabase", () => ({
 const servico = vi.hoisted(() => ({
   canais: [],
   cadencia: [],
+  cadenciaSalva: [],
   conversas: [],
   mensagens: [],
   resumo: null,
@@ -66,6 +67,9 @@ vi.mock("../services/whatsapp", async (original) => {
     carregarResumo: vi.fn(async () => servico.resumo),
     carregarSupervisao: vi.fn(async () => servico.supervisao),
     carregarCadencia: vi.fn(async () => servico.cadencia),
+    salvarCadenciaCanal: vi.fn(async (args) => {
+      servico.cadenciaSalva.push(args);
+    }),
     carregarSyncStatus: vi.fn(async () => []),
     souGestao: vi.fn(async () => servico.gestao),
     carregarFichaAluno: vi.fn(async (id) => {
@@ -118,6 +122,7 @@ vi.mock("../services/whatsapp", async (original) => {
 
 const CANAL_ONLINE = {
   id: "c1", apelido: "Cobrança", display_phone_number: "+55 51 1111-1111",
+  sessao_chave: "cobranca",
   ativo: true, conexao_status: "CONECTADO", online: true,
   sync_inicial_em: new Date().toISOString(), aguardando_qr: false,
 };
@@ -132,6 +137,7 @@ const CADENCIA_LIVRE = {
 
 const CANAL_FORA = {
   id: "c2", apelido: "Comercial", display_phone_number: "+55 51 2222-2222",
+  sessao_chave: "comercial",
   ativo: true, conexao_status: "PAREAMENTO_NECESSARIO", online: false,
   sync_inicial_em: null, aguardando_qr: true,
 };
@@ -166,6 +172,7 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = vi.fn();
   servico.canais = [CANAL_ONLINE, CANAL_FORA];
   servico.cadencia = [CADENCIA_LIVRE];
+  servico.cadenciaSalva = [];
   servico.conversas = [];
   servico.mensagens = [];
   servico.resumo = null;
@@ -370,6 +377,66 @@ describe("Central WhatsApp", () => {
   // ------------------------------------------------------------------ cadência
   // O operador precisa ver o consumo ANTES de escrever. Sem isto ele digita a
   // mensagem inteira para descobrir no envio que já bateu no teto.
+  // ------------------------------------------- configuração da cadência (gestão)
+  it("o rótulo do operador diz exatamente quanto sobrou", async () => {
+    servico.resumo = {
+      sem_retorno: 0, esperando_mais_1h: 0, esperando_mais_24h: 0, nao_lidas: 0,
+      sem_responsavel: 0, em_atendimento: 0, minhas: 0, pendencias_resgate: 0,
+      arquivadas_nao_lidas: 0,
+    };
+    render(<CentralWhatsApp />);
+    expect(await screen.findByText("4/10")).toBeTruthy();
+    expect(screen.getByText(/Novas abordagens hoje · restam 6/)).toBeTruthy();
+  });
+
+  it("gestão altera modo e limites pelo painel de números", async () => {
+    servico.gestao = true;
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Números"));
+    fireEvent.click((await screen.findAllByText("Editar"))[0]);
+
+    const limiteOp = await screen.findByDisplayValue("10");
+    fireEvent.change(limiteOp, { target: { value: "15" } });
+    fireEvent.change(screen.getByDisplayValue("100"), { target: { value: "150" } });
+    fireEvent.click(screen.getByText("Salvar"));
+
+    await waitFor(() => expect(servico.cadenciaSalva.length).toBe(1));
+    const salvo = servico.cadenciaSalva[0];
+    expect(salvo.limiteOperador).toBe("15");
+    expect(salvo.limiteCanal).toBe("150");
+    expect(salvo.modo).toBe("ATIVO_CONTROLADO");
+  });
+
+  // A RPC grava os cinco campos de uma vez. Se a tela não devolvesse a janela,
+  // trocar o limite apagaria o 09:00–20:00 sem ninguém pedir.
+  it("salvar limite NÃO apaga a janela", async () => {
+    servico.gestao = true;
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Números"));
+    fireEvent.click((await screen.findAllByText("Editar"))[0]);
+    fireEvent.change(await screen.findByDisplayValue("10"), { target: { value: "12" } });
+    fireEvent.click(screen.getByText("Salvar"));
+
+    await waitFor(() => expect(servico.cadenciaSalva.length).toBe(1));
+    expect(servico.cadenciaSalva[0].janelaInicio).toBe("09:00:00");
+    expect(servico.cadenciaSalva[0].janelaFim).toBe("20:00:00");
+  });
+
+  it("mudar para SOMENTE_RESPOSTAS esconde os limites", async () => {
+    servico.gestao = true;
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Números"));
+    fireEvent.click((await screen.findAllByText("Editar"))[0]);
+    await screen.findByDisplayValue("10");
+
+    fireEvent.change(screen.getByDisplayValue(/Ativo controlado/), {
+      target: { value: "SOMENTE_RESPOSTAS" },
+    });
+    await waitFor(() => expect(screen.queryByDisplayValue("10")).toBeNull());
+    expect(screen.getByText(/só dá para responder|responder quem procurou a empresa/i)).toBeTruthy();
+  });
+
+
   it("mostra o consumo diário do operador", async () => {
     servico.resumo = {
       sem_retorno: 0, esperando_mais_1h: 0, esperando_mais_24h: 0, nao_lidas: 0,
