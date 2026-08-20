@@ -96,6 +96,56 @@ export class VinculosLid {
     return novos;
   }
 
+  // Semeia a partir do `lid-mapping` que a PRÓPRIA CREDENCIAL guarda.
+  //
+  // POR QUE ISTO EXISTE — o pareamento do Comercial em 2026-08-20:
+  //
+  // `aprender()` só enxerga o que vem DENTRO dos lotes de histórico
+  // (`chats`/`contacts`). No Baileys 7 o vínculo autoritativo não mora ali: o
+  // WhatsApp entrega os pares LID↔telefone pelo canal do Signal, e a Baileys
+  // os grava no store de chaves sob `lid-mapping`. Esse store é preenchido de
+  // forma ASSÍNCRONA — no Comercial ele chegou a 1.805 pares, mas DEPOIS de o
+  // sync ter fechado.
+  //
+  // Resultado: 39.455 mensagens de 899 contatos ficaram sem vínculo e não
+  // entraram no CRM, embora o mapeamento dos 899 estivesse no disco minutos
+  // depois. O histórico só é oferecido UMA VEZ por pareamento.
+  //
+  // A correção é ler o store ANTES de processar histórico. Não inventa vínculo
+  // nenhum: usa o que a própria Baileys já persistiu.
+  //
+  // FORMATO (verificado na credencial real): as duas direções são gravadas, com
+  // usuários crus, sem domínio.
+  //   "5551999999999"            -> "179999999999999"   (telefone -> LID)
+  //   "179999999999999_reverse"  -> "5551999999999"     (LID -> telefone)
+  // Só a direção reversa é confiável para o nosso uso; a direta é aceita
+  // invertendo-se, e `registrar()` valida o telefone dos dois jeitos.
+  aprenderDoStore(chaves) {
+    const mapa = chaves?.["lid-mapping"];
+    if (!mapa || typeof mapa !== "object") return 0;
+
+    const SUF = "_reverse";
+    const soUsuario = (v) => String(v ?? "").split("@")[0];
+    let novos = 0;
+
+    for (const [bruto, valor] of Object.entries(mapa)) {
+      const chave = String(bruto);
+      let lid;
+      let telefone;
+      if (chave.endsWith(SUF)) {
+        lid = soUsuario(chave.slice(0, -SUF.length));
+        telefone = soUsuario(valor);
+      } else {
+        lid = soUsuario(valor);
+        telefone = soUsuario(chave);
+      }
+      if (!lid || !telefone) continue;
+      // Passa com domínio porque `registrar` usa `jidDecode`.
+      if (this.registrar(`${lid}@lid`, `${telefone}@s.whatsapp.net`)) novos++;
+    }
+    return novos;
+  }
+
   resolver(lidJid) {
     return this.porLid.get(this.#userDe(lidJid)) || null;
   }
