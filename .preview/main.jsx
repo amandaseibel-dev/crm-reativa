@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import CentralWhatsApp from "/src/pages/CentralWhatsApp.jsx";
 import { cenario } from "./mock-whatsapp.js";
 
@@ -39,12 +39,19 @@ function Barra() {
         </button>
       </div>
       <BrowserRouter>
+        {/* O menu do CRM, reduzido ao essencial: navegação normal (PUSH). Serve
+            para conferir a regra — só o Voltar do navegador (POP) restaura o
+            contexto da Central; chegar por aqui abre a tela no padrão. */}
+        <MenuPreview />
         <Routes>
           <Route path="/central-whatsapp" element={<CentralWhatsApp key={chave} />} />
           {/* Ficha de mentira: no CRM real esta rota é a ficha do aluno. Aqui
               serve para conferir que "Abrir ficha completa" navega na MESMA aba
               e que o Voltar devolve a Central como estava. */}
           <Route path="/aluno" element={<FichaDeMentira />} />
+          <Route path="/outra-area" element={
+            <div style={{ padding: 40, fontFamily: "system-ui, sans-serif" }}>Outra área do CRM</div>
+          } />
           <Route
             path="*"
             element={
@@ -56,6 +63,21 @@ function Barra() {
         </Routes>
       </BrowserRouter>
     </>
+  );
+}
+
+function MenuPreview() {
+  const navegar = useNavigate();
+  const estilo = {
+    padding: "4px 10px", marginRight: 8, borderRadius: 6, border: "1px solid #cbd5e1",
+    background: "#fff", cursor: "pointer", fontSize: 12,
+  };
+  return (
+    <div style={{ padding: "8px 16px", background: "#e2e8f0", fontFamily: "system-ui, sans-serif" }}>
+      <span style={{ marginRight: 10, fontSize: 12, color: "#475569" }}>menu:</span>
+      <button style={estilo} onClick={() => navegar("/central-whatsapp")}>Central</button>
+      <button style={estilo} onClick={() => navegar("/outra-area")}>Outra área</button>
+    </div>
   );
 }
 

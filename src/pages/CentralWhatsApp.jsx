@@ -17,7 +17,7 @@
 // 4. RESPONSÁVEL EVITA RESPOSTA DOBRADA. Quem responde assume; quem já tem dono
 //    não é assumido por outro (só gestão). A trava é do BANCO, não daqui.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useNavigationType } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import AnexoWhatsApp from "../components/AnexoWhatsApp";
@@ -112,6 +112,12 @@ const dinheiro = (v) =>
 // só no caminho da ficha, e consumimos uma única vez ao voltar. Nada de estado
 // grudento: entrar na Central por qualquer outro caminho abre no padrão.
 //
+// "Ao voltar" é literal: só restaura quando o React Router diz que a navegação
+// foi POP — o Voltar do navegador. Quem sai da ficha pelo MENU e chega à
+// Central por outro caminho (PUSH) recebe a tela no padrão, e não uma conversa
+// de minutos atrás reabrindo sozinha. O contexto é apagado nos DOIS casos: o
+// que não foi restaurado também não fica esperando a próxima visita.
+//
 // O QUE NÃO ENTRA AQUI, e por quê: o texto da BUSCA. A caixa aceita "nome,
 // telefone, CPF ou matrícula" — gravar o que o operador digitou seria escrever
 // CPF e telefone de aluno num armazenamento do navegador para restaurar um
@@ -142,8 +148,12 @@ function esquecerEstadoSalvo() {
 
 export default function CentralWhatsApp() {
   // Consumido no mount: o que estiver aqui veio do clique em "Abrir ficha
-  // completa" desta mesma aba.
-  const [restaurado] = useState(lerEstadoSalvo);
+  // completa" desta mesma aba — e só vale se a chegada foi pelo Voltar.
+  const tipoNavegacao = useNavigationType();
+  const [restaurado] = useState(() =>
+    (tipoNavegacao === "POP" ? lerEstadoSalvo() : null));
+  // Apaga SEMPRE, restaurando ou não: contexto que sobra é contexto que
+  // ressuscita na visita seguinte.
   useEffect(esquecerEstadoSalvo, []);
   const navigate = useNavigate();
 
