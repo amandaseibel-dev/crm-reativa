@@ -201,3 +201,41 @@ apertados ou folgados. Registrar isso exige uma alteração pequena na Edge
 Function: ao receber 403, chamar uma RPC de log antes de devolver o erro. É a
 única alteração fora do banco em todo o desenho, e fica para uma segunda etapa
 se você quiser.
+
+---
+
+# Backlog — melhorias não bloqueadoras
+
+Encontradas durante a implementação em 20/08/2026. Nenhuma impede o pareamento
+do canal 2.
+
+**1. Ações Massivas deveria consumir a mesma cota.** Hoje está bloqueada por
+trava de fase. O desenho certo é dar `canal_id` à ação e fazê-la passar por
+`whatsapp_cadencia_checar`, para o teto de 100 valer para a empresa e não só
+para a Central. Mexe na tela de Ações Massivas, fora do escopo desta rodada.
+
+**2. Deploy da Edge `whatsapp-send`.** O código está no repo com o registro de
+bloqueios. Sem o deploy, os bloqueios são aplicados normalmente e apenas não
+ficam registrados — os indicadores mostram abordagens que saíram, não tentativas
+barradas. Um comando, independente das migrations:
+`supabase functions deploy whatsapp-send --project-ref ahattpqrjmhkzsmnbdzs`
+
+**3. Tela de configuração da cadência.** `whatsapp_canal_cadencia_salvar` e
+`whatsapp_cadencia_indicadores` existem e estão testadas, mas só são alcançáveis
+por SQL. Enquanto não houver tela, mudar limite depende de quem tem acesso ao
+banco — o que contraria "subir manualmente depois de observar os indicadores".
+
+**4. Staging não espelha produção.** Faltam `registrar_acao_massiva` (testada
+por stub) e a Edge `whatsapp-send`; e sobra uma constraint
+`ck_whatsapp_msg_status` da branch pausada de status de entrega, que produção
+não tem. Nenhuma afeta o que foi entregue, mas cada divergência é um teste que
+não dá para fazer aqui.
+
+**5. Fila e quarentena do gateway ainda são globais.** Item da auditoria do canal
+2: o backoff do `outbox` é compartilhado, então falhas de CRM no canal 2
+desaceleram a entrega do canal 1. Não mistura dados — cada item carrega
+`sessao` —, só divide velocidade.
+
+**6. RLS não isola por operador nem por canal.** Decisão sua de 20/08: não é
+bloqueador com equipe única atendendo os dois números. Fica registrado porque
+deixa de ser aceitável se as carteiras se separarem.
