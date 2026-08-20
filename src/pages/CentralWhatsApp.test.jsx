@@ -378,6 +378,60 @@ describe("Central WhatsApp", () => {
   // O operador precisa ver o consumo ANTES de escrever. Sem isto ele digita a
   // mensagem inteira para descobrir no envio que já bateu no teto.
   // ------------------------------------------- configuração da cadência (gestão)
+  // ------------------------------------------------ ordem e filtro de tempo
+  // A Central passa a se comportar como o WhatsApp: quem falou por último fica
+  // no topo. A ordenação vem do backend — a tela não reordena nada.
+  it("respeita a ordem que o backend devolve, sem reordenar", async () => {
+    servico.conversas = [
+      conversa({ id: "z", nome_perfil: "Comercial 14h03", ultima_mensagem_em: "2026-08-20T14:03:00Z" }),
+      conversa({ id: "y", nome_perfil: "Piloto 14h02", ultima_mensagem_em: "2026-08-20T14:02:00Z" }),
+    ];
+    render(<CentralWhatsApp />);
+    await screen.findByText("Comercial 14h03");
+    const nomes = [...document.querySelectorAll("button")]
+      .map((b) => b.textContent)
+      .filter((t) => /14h0/.test(t));
+    expect(nomes[0]).toMatch(/Comercial 14h03/);
+    expect(nomes[1]).toMatch(/Piloto 14h02/);
+  });
+
+  it("o filtro de tempo vai para o backend, nao filtra no navegador", async () => {
+    render(<CentralWhatsApp />);
+    await screen.findByText("Central WhatsApp");
+    fireEvent.change(screen.getByTitle(/Tempo desde a última mensagem/), {
+      target: { value: "4_7_DIAS" },
+    });
+    await waitFor(() => {
+      expect(servico.filtrosPedidos.at(-1).tempoSemInteracao).toBe("4_7_DIAS");
+    });
+  });
+
+  it("oferece as seis faixas e nao inventa um filtro de ordenacao", async () => {
+    render(<CentralWhatsApp />);
+    const sel = await screen.findByTitle(/Tempo desde a última mensagem/);
+    const opcoes = [...sel.options].map((o) => o.value);
+    expect(opcoes).toEqual(["", "ATE_1_DIA", "2_3_DIAS", "4_7_DIAS", "8_15_DIAS", "16_30_DIAS", "MAIS_30_DIAS"]);
+    // "Mais recentes" NÃO é um filtro: é a ordenação padrão.
+    expect(screen.queryByText(/Mais recentes/i)).toBeNull();
+  });
+
+  it("combina busca, canal, status e tempo numa chamada so", async () => {
+    render(<CentralWhatsApp />);
+    await screen.findByText("Central WhatsApp");
+    fireEvent.change(screen.getByTitle(/Tempo desde a última mensagem/), { target: { value: "8_15_DIAS" } });
+    fireEvent.click(screen.getByText("Resgate"));
+    fireEvent.change(screen.getByPlaceholderText(/Buscar por nome, telefone, CPF ou matrícula/), {
+      target: { value: "Maria" },
+    });
+    await waitFor(() => {
+      const p = servico.filtrosPedidos.at(-1);
+      expect(p.status).toBe("RESGATE");
+      expect(p.tempoSemInteracao).toBe("8_15_DIAS");
+      expect(p.busca).toBe("Maria");
+    }, { timeout: 2000 });
+  });
+
+
   it("o rótulo do operador diz exatamente quanto sobrou", async () => {
     servico.resumo = {
       sem_retorno: 0, esperando_mais_1h: 0, esperando_mais_24h: 0, nao_lidas: 0,

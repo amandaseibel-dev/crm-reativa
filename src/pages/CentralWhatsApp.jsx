@@ -28,6 +28,7 @@ import {
   FILTRO_SEM_RESPONSAVEL,
   FILTRO_SEM_RETORNO,
   ROTULO_CONEXAO,
+  TEMPOS_SEM_INTERACAO,
   ROTULO_STATUS,
   abrirFichaDoAluno,
   assumirConversa,
@@ -109,6 +110,9 @@ export default function CentralWhatsApp() {
 
   const [filtroStatus, setFiltroStatus] = useState(FILTRO_SEM_RETORNO);
   const [filtroCanal, setFiltroCanal] = useState("");
+  const [filtroTempo, setFiltroTempo] = useState("");
+  // Agrupa as recargas da lista disparadas pelo Realtime (ver o handler abaixo).
+  const recargaRef = useRef(null);
   const [filtroResponsavel, setFiltroResponsavel] = useState("");
   const [busca, setBusca] = useState("");
   const [resumo, setResumo] = useState(null);
@@ -183,6 +187,7 @@ export default function CentralWhatsApp() {
       const linhas = await listarConversas({
         status: filtroStatus,
         canalId: filtroCanal,
+        tempoSemInteracao: filtroTempo,
         busca,
         responsavel: filtroResponsavel,
       });
@@ -200,7 +205,7 @@ export default function CentralWhatsApp() {
     } finally {
       setCarregandoLista(false);
     }
-  }, [filtroStatus, filtroCanal, busca, filtroResponsavel]);
+  }, [filtroStatus, filtroCanal, filtroTempo, busca, filtroResponsavel]);
 
   useEffect(() => {
     listarCanais().then(setCanais).catch((e) => setErro(e.message));
@@ -228,17 +233,35 @@ export default function CentralWhatsApp() {
 
           if (nova.direcao === "ENTRADA" && nova.origem === "TEMPO_REAL") tocarAviso();
 
+          // A thread ABERTA continua imediata: quem está lendo a conversa vê a
+          // mensagem aparecer na hora.
           const atual = selecionadaRef.current;
           if (atual && nova.conversa_id === atual.id) {
             setMensagens((antes) =>
               antes.some((m) => m.id === nova.id) ? antes : [...antes, nova],
             );
           }
-          carregarConversas();
+
+          // A LISTA é recarregada em lote, não a cada INSERT.
+          //
+          // POR QUE: `carregarConversas()` direto aqui refazia a lista inteira a
+          // cada mensagem. Numa importação de histórico (20/08: 1,2 inserções
+          // por segundo por horas) a Central re-renderizava sem parar e piscava
+          // na cara do operador. Agrupar em 600ms transforma uma rajada numa
+          // recarga só, e a ordenação nova já coloca a conversa no topo — o
+          // comportamento visível continua o mesmo, sem o tremor.
+          if (recargaRef.current) clearTimeout(recargaRef.current);
+          recargaRef.current = setTimeout(() => {
+            recargaRef.current = null;
+            carregarConversas();
+          }, 600);
         },
       )
       .subscribe();
-    return () => supabase.removeChannel(canal);
+    return () => {
+      if (recargaRef.current) clearTimeout(recargaRef.current);
+      supabase.removeChannel(canal);
+    };
   }, [carregarConversas, tocarAviso]);
 
   useEffect(() => {
@@ -803,6 +826,21 @@ export default function CentralWhatsApp() {
                   ))}
                 </select>
               ) : null}
+              {/* Tempo sem interação. NÃO é uma ordenação alternativa: a lista
+                  continua sempre com a conversa mais recente no topo, dentro da
+                  faixa escolhida. */}
+              <select
+                style={S.select}
+                value={filtroTempo}
+                onChange={(e) => setFiltroTempo(e.target.value)}
+                title="Tempo desde a última mensagem da conversa"
+              >
+                {TEMPOS_SEM_INTERACAO.map((t) => (
+                  <option key={t.valor || "qualquer"} value={t.valor}>
+                    {t.valor ? `Sem interação: ${t.rotulo}` : t.rotulo}
+                  </option>
+                ))}
+              </select>
               <select
                 style={S.select}
                 value={filtroResponsavel}
