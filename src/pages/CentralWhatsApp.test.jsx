@@ -28,6 +28,9 @@ const servico = vi.hoisted(() => ({
   comandos: [],
   canaisSalvos: [],
   transferencias: [],
+  arquivadas: [],
+  desarquivadas: [],
+  arquivadasLista: [],
 }));
 
 vi.mock("../services/whatsapp", async (original) => {
@@ -46,8 +49,21 @@ vi.mock("../services/whatsapp", async (original) => {
       { email: "rafaella@aelbra.com.br", nome: "Rafaella" },
     ]),
     marcarLida: vi.fn(async () => {}),
+    // Mexem no dado, como o banco. Mock que so registra a chamada deixaria a
+    // tela mostrando o estado anterior e o teste passaria por acidente.
+    arquivarConversa: vi.fn(async (id) => {
+      servico.arquivadas.push(id);
+      const c = servico.conversas.find((x) => x.id === id);
+      if (c) c.arquivada_em = "2026-08-20T10:00:00Z";
+      servico.conversas = servico.conversas.filter((x) => x.id !== id);
+    }),
+    desarquivarConversa: vi.fn(async (id) => {
+      servico.desarquivadas.push(id);
+      const c = servico.arquivadasLista.find((x) => x.id === id);
+      if (c) { c.arquivada_em = null; c.arquivada_por = null; }
+    }),
     carregarResumo: vi.fn(async () => servico.resumo),
-    carregarSupervisao: vi.fn(async () => []),
+    carregarSupervisao: vi.fn(async () => servico.supervisao),
     carregarSyncStatus: vi.fn(async () => []),
     souGestao: vi.fn(async () => servico.gestao),
     carregarFichaAluno: vi.fn(async (id) => {
@@ -153,6 +169,10 @@ beforeEach(() => {
   servico.comandos = [];
   servico.canaisSalvos = [];
   servico.transferencias = [];
+  servico.arquivadas = [];
+  servico.desarquivadas = [];
+  servico.arquivadasLista = [];
+  servico.supervisao = [];
 });
 
 afterEach(cleanup);
@@ -990,5 +1010,116 @@ describe("Central WhatsApp — anexo", () => {
     expect(await screen.findByText("só texto")).toBeDefined();
     expect(screen.queryByText(/Anexo não recuperado/)).toBeNull();
     expect(screen.queryByText(/carregando anexo/)).toBeNull();
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Arquivados.
+//
+// Arquivar tira a conversa das filas operacionais SEM apagar nada — status,
+// responsavel, nao_lidas e historico ficam onde estavam. A regra que sustenta
+// tudo: se o aluno escrever de novo, o BANCO desarquiva sozinho. Arquivar nao
+// pode virar buraco onde mensagem de aluno some.
+// ---------------------------------------------------------------------------
+describe("Central WhatsApp — arquivados", () => {
+  it("o chip Arquivadas existe entre os filtros", async () => {
+    render(<CentralWhatsApp />);
+    expect(await screen.findByText("Arquivadas")).toBeDefined();
+  });
+
+  it("clicar no chip pede o filtro ARQUIVADAS ao banco", async () => {
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Arquivadas"));
+    await waitFor(() =>
+      expect(servico.filtrosPedidos.some((f) => f.status === "ARQUIVADAS")).toBe(true));
+  });
+
+  it("o chip mostra o contador de nao lidas das arquivadas", async () => {
+    servico.resumo = { nao_lidas: 0, arquivadas_nao_lidas: 3 };
+    render(<CentralWhatsApp />);
+    expect(await screen.findByText(/Arquivadas \(3\)/)).toBeDefined();
+  });
+
+  it("sem nao lidas arquivadas, o chip nao mostra numero", async () => {
+    servico.resumo = { nao_lidas: 0, arquivadas_nao_lidas: 0 };
+    render(<CentralWhatsApp />);
+    const chip = await screen.findByText("Arquivadas");
+    expect(chip.textContent).toBe("Arquivadas");
+  });
+
+  it("ARQUIVAR chama a RPC e a conversa sai da lista", async () => {
+    servico.conversas = [conversa({ responsavel_email: "amanda@aelbra.com.br" })];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+    fireEvent.click(await screen.findByRole("button", { name: "Arquivar" }));
+
+    await waitFor(() => expect(servico.arquivadas).toEqual(["k1"]));
+    // Saiu do filtro atual: manter a thread aberta mostraria uma conversa que
+    // nao esta mais na lista.
+    await waitFor(() =>
+      expect(screen.getByText("Escolha uma conversa à esquerda.")).toBeDefined());
+  });
+
+  it("na aba Arquivadas o botao vira Desarquivar", async () => {
+    servico.conversas = [conversa({ arquivada_em: "2026-08-20T10:00:00Z",
+                                    arquivada_por: "amanda@aelbra.com.br" })];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+    expect(await screen.findByRole("button", { name: "Desarquivar" })).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Arquivar" })).toBeNull();
+  });
+
+  it("DESARQUIVAR chama a RPC e a conversa volta as filas", async () => {
+    const c = conversa({ arquivada_em: "2026-08-20T10:00:00Z" });
+    servico.conversas = [c];
+    servico.arquivadasLista = [c];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+    fireEvent.click(await screen.findByRole("button", { name: "Desarquivar" }));
+
+    await waitFor(() => expect(servico.desarquivadas).toEqual(["k1"]));
+    // Voltou: o botao inverte sem precisar recarregar a pagina.
+    await waitFor(() =>
+      expect(screen.getByRole("button", { name: "Arquivar" })).toBeDefined());
+  });
+
+  it("arquivar NAO altera responsavel, status nem historico da conversa", async () => {
+    const c = conversa({ responsavel_email: "amanda@aelbra.com.br",
+                         responsavel_nome: "Amanda", status: "EM_ATENDIMENTO", nao_lidas: 5 });
+    servico.conversas = [c];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+    fireEvent.click(await screen.findByRole("button", { name: "Arquivar" }));
+    await waitFor(() => expect(servico.arquivadas).toEqual(["k1"]));
+
+    expect(c.status).toBe("EM_ATENDIMENTO");
+    expect(c.responsavel_email).toBe("amanda@aelbra.com.br");
+    expect(c.nao_lidas).toBe(5);
+  });
+
+  it("clique duplo em Arquivar nao dispara duas vezes", async () => {
+    servico.conversas = [conversa()];
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
+    const botao = await screen.findByRole("button", { name: "Arquivar" });
+    fireEvent.click(botao);
+    fireEvent.click(botao);
+    await waitFor(() => expect(servico.arquivadas.length).toBeGreaterThan(0));
+    expect(servico.arquivadas).toEqual(["k1"]);
+  });
+
+  it("supervisao mostra arquivadas para a gestao", async () => {
+    servico.gestao = true;
+    servico.supervisao = [{ responsavel_email: "a@a.com", responsavel_nome: "Amanda",
+      em_atendimento: 1, aguardando_resposta: 2, nao_lidas: 3, encerradas_hoje: 0,
+      espera_mais_antiga: null, arquivadas: 7, arquivadas_nao_lidas: 4 }];
+    render(<CentralWhatsApp />);
+    // O painel so aparece para gestao E com a supervisao aberta.
+    fireEvent.click(await screen.findByRole("button", { name: "Supervisão" }));
+    expect(await screen.findByText("Arq. não lidas")).toBeDefined();
+    // Os numeros da gestao: arquivar nao pode esconder conversa do supervisor.
+    expect(await screen.findByText("7")).toBeDefined();
+    expect(await screen.findByText("4")).toBeDefined();
   });
 });
