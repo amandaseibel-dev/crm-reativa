@@ -111,6 +111,13 @@ const dinheiro = (v) =>
 // Guardamos o MÍNIMO (canal, filtros e qual conversa estava aberta) na sessão,
 // só no caminho da ficha, e consumimos uma única vez ao voltar. Nada de estado
 // grudento: entrar na Central por qualquer outro caminho abre no padrão.
+//
+// O QUE NÃO ENTRA AQUI, e por quê: o texto da BUSCA. A caixa aceita "nome,
+// telefone, CPF ou matrícula" — gravar o que o operador digitou seria escrever
+// CPF e telefone de aluno num armazenamento do navegador para restaurar um
+// filtro. O que se restaura são identificadores e escolhas de filtro: id de
+// canal, id de conversa e os enums das filas. Nada de conteúdo de conversa,
+// nome, telefone ou documento.
 // ---------------------------------------------------------------------------
 const CHAVE_ESTADO = "reativa_central_whatsapp_estado";
 
@@ -153,7 +160,8 @@ export default function CentralWhatsApp() {
   // Agrupa as recargas da lista disparadas pelo Realtime (ver o handler abaixo).
   const recargaRef = useRef(null);
   const [filtroResponsavel, setFiltroResponsavel] = useState(restaurado?.filtroResponsavel ?? "");
-  const [busca, setBusca] = useState(restaurado?.busca ?? "");
+  // Busca NÃO é restaurada: ver o bloco acima — o que se digita aqui é PII.
+  const [busca, setBusca] = useState("");
   const [resumo, setResumo] = useState(null);
   const [cadencia, setCadencia] = useState([]);
   const [supervisao, setSupervisao] = useState([]);
@@ -174,6 +182,12 @@ export default function CentralWhatsApp() {
   // Conversa recém-criada — ou a que estava aberta antes de ir para a ficha —
   // que precisa ser aberta assim que aparecer na lista.
   const pendenteAbrirRef = useRef(restaurado?.conversaId || null);
+  // A conversa RESTAURADA é procurada só na primeira lista que chega. Sem a
+  // busca (que não é restaurada, por ser PII), o filtro de agora pode não
+  // trazê-la — e aí o pedido tem de morrer ali. Se ficasse armado, a conversa
+  // abriria sozinha na cara do operador na próxima recarga do Realtime, no meio
+  // de outro atendimento.
+  const restauraSoNaPrimeiraListaRef = useRef(Boolean(restaurado?.conversaId));
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [carregandoThread, setCarregandoThread] = useState(false);
   const [arquivando, setArquivando] = useState(false);
@@ -343,14 +357,20 @@ export default function CentralWhatsApp() {
   // Em vez de adivinhar o tempo, espera ela aparecer e então abre.
   useEffect(() => {
     const alvo = pendenteAbrirRef.current;
-    if (!alvo) return;
+    // `carregandoLista` começa true: sem esta guarda, a lista VAZIA do primeiro
+    // render contaria como "não achei" e mataria a restauração antes de a
+    // primeira lista de verdade chegar.
+    if (!alvo || carregandoLista) return;
     const achou = conversas.find((c) => c.id === alvo);
     if (achou) {
       pendenteAbrirRef.current = null;
       abrirConversa(achou);
+    } else if (restauraSoNaPrimeiraListaRef.current) {
+      pendenteAbrirRef.current = null;
     }
+    restauraSoNaPrimeiraListaRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [conversas]);
+  }, [conversas, carregandoLista]);
 
   function aoCriarConversa(conversaId) {
     setNovaAberta(false);
@@ -376,7 +396,7 @@ export default function CentralWhatsApp() {
     if (!alunoId) return;
     try {
       sessionStorage.setItem(CHAVE_ESTADO, JSON.stringify({
-        filtroStatus, filtroCanal, filtroTempo, filtroResponsavel, busca,
+        filtroStatus, filtroCanal, filtroTempo, filtroResponsavel,
         conversaId: selecionada?.id || null,
       }));
     } catch {

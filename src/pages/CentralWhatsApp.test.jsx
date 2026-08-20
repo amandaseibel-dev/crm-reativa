@@ -1070,6 +1070,9 @@ function BotaoVoltar() {
 
 const voltar = () => fireEvent.click(screen.getByText("VOLTAR DO NAVEGADOR"));
 
+// Só existe para ser procurado no que a tela grava. Se aparecer lá, vazou.
+const CPF_DIGITADO = "12345678901";
+
 describe("Central WhatsApp — selecionar operador não navega", () => {
   let rotas;
   let abriuJanela;
@@ -1203,10 +1206,18 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
     fireEvent.change(canal, { target: { value: "c2" } });
     await waitFor(() => expect(canal.value).toBe("c2"));
     await filtrarPorResponsavel("joao@aelbra.com.br");
+    // A caixa de busca aceita "nome, telefone, CPF ou matrícula": aqui vai um
+    // CPF, que é justamente o que NÃO pode acabar gravado na sessão.
+    fireEvent.change(screen.getByPlaceholderText(/Buscar por nome/), {
+      target: { value: CPF_DIGITADO },
+    });
     fireEvent.click(await screen.findByText("Carlos"));
 
     fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha completa" }));
   }
+
+  const contextoGuardado = () =>
+    JSON.parse(sessionStorage.getItem("reativa_central_whatsapp_estado") || "null");
 
   it("abre a ficha do aluno certo, na mesma aba, por navegação interna", async () => {
     servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
@@ -1248,6 +1259,114 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
     // ficha quando existe conversa selecionada COM aluno.
     expect(await screen.findByRole("button", { name: "Abrir ficha completa" })).toBeDefined();
     expect(abriuJanela).not.toHaveBeenCalled();
+  });
+
+  it("o contexto guardado é só id de canal, id de conversa e filtro — sem PII", async () => {
+    await contextualizarESairPelaFicha();
+
+    // Chaves fechadas: qualquer campo novo que alguém acrescente aparece aqui e
+    // obriga a decidir, de propósito, se aquilo pode ser gravado.
+    const ctx = contextoGuardado();
+    expect(Object.keys(ctx).sort()).toEqual([
+      "conversaId", "filtroCanal", "filtroResponsavel", "filtroStatus", "filtroTempo",
+    ]);
+    expect(ctx).toEqual({
+      filtroStatus: "MINHAS",
+      filtroCanal: "c2",
+      filtroTempo: "",
+      filtroResponsavel: "joao@aelbra.com.br",
+      conversaId: "k1",
+    });
+
+    // E, olhando o texto cru: nada do que passou pela tela — CPF digitado,
+    // telefone da conversa, nome do aluno ou o texto da mensagem.
+    const cru = sessionStorage.getItem("reativa_central_whatsapp_estado");
+    for (const pii of [CPF_DIGITADO, "5551999998888", "Carlos", "Fulano", "Oi", "98877-6655"]) {
+      expect(cru).not.toContain(pii);
+    }
+  });
+
+  it("a busca digitada não volta com o Voltar — some junto com o contexto", async () => {
+    await contextualizarESairPelaFicha();
+    voltar();
+    await screen.findByText("Central WhatsApp");
+
+    expect(screen.getByPlaceholderText(/Buscar por nome/).value).toBe("");
+    await waitFor(() => {
+      const ultimo = servico.filtrosPedidos[servico.filtrosPedidos.length - 1];
+      expect(ultimo.busca).toBe("");
+      // o filtro que NÃO é PII continua restaurado
+      expect(ultimo.canalId).toBe("c2");
+    });
+  });
+
+  it("o contexto é apagado da sessão assim que a Central volta", async () => {
+    await contextualizarESairPelaFicha();
+    expect(contextoGuardado()).not.toBeNull();
+
+    voltar();
+    await screen.findByText("Central WhatsApp");
+
+    await waitFor(() => expect(contextoGuardado()).toBeNull());
+  });
+
+  it("abrir a ficha de OUTRA conversa depois de voltar não ressuscita a anterior", async () => {
+    // Duas conversas, cada uma com seu aluno. A armadilha real: voltar da
+    // segunda ficha e a Central reabrir a PRIMEIRA conversa.
+    servico.conversas = [
+      conversa({ id: "k1", aluno_id: "a1", aluno_nome: "Carlos", nome_perfil: "Carlos", nao_lidas: 0 }),
+      conversa({ id: "k2", aluno_id: "a2", aluno_nome: "Beatriz", nome_perfil: "Beatriz",
+                 telefone_e164: "5551988887777", nao_lidas: 0 }),
+    ];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    servico.ficha = { aluno_id: "a1", nome: "Carlos", matricula: "1", saldo_total: 0, saldo_vencido: 0 };
+    montarNaRota((r) => rotas.push(r));
+
+    // 1ª conversa: abre a ficha e volta
+    fireEvent.click(await screen.findByText("Carlos"));
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha completa" }));
+    expect(await screen.findByText("FICHA DO ALUNO a1")).toBeDefined();
+    voltar();
+    await screen.findByText("Central WhatsApp");
+    expect(await screen.findByRole("button", { name: "Abrir ficha completa" })).toBeDefined();
+
+    // 2ª conversa: a ficha aberta agora é a DELA
+    servico.ficha = { aluno_id: "a2", nome: "Beatriz", matricula: "2", saldo_total: 0, saldo_vencido: 0 };
+    fireEvent.click(await screen.findByText("Beatriz"));
+    await waitFor(() =>
+      expect(servico.fichasPedidas[servico.fichasPedidas.length - 1]).toBe("k2"));
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha completa" }));
+
+    expect(await screen.findByText("FICHA DO ALUNO a2")).toBeDefined();
+    // o contexto gravado é o da SEGUNDA conversa, não o resto da primeira
+    expect(contextoGuardado().conversaId).toBe("k2");
+
+    // e o Voltar traz a SEGUNDA de volta
+    voltar();
+    await screen.findByText("Central WhatsApp");
+    await waitFor(() =>
+      expect(servico.fichasPedidas[servico.fichasPedidas.length - 1]).toBe("k2"));
+  });
+
+  it("conversa restaurada que o filtro de agora não traz não abre sozinha depois", async () => {
+    // Sem a busca (que é PII e não volta), a conversa pode simplesmente não
+    // estar na lista restaurada. O pedido tem de morrer ali: nada de abrir na
+    // cara do operador quando o Realtime recarregar a lista mais tarde.
+    await contextualizarESairPelaFicha();
+    servico.conversas = [];
+
+    voltar();
+    await screen.findByText("Central WhatsApp");
+    await waitFor(() => expect(screen.getByText(/Escolha uma conversa/)).toBeDefined());
+
+    // a conversa reaparece numa recarga posterior — e continua fechada
+    servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
+    fireEvent.click(screen.getByRole("button", { name: "Atualizar" }));
+    expect(await screen.findByText("Carlos")).toBeDefined();
+    await waitFor(() => expect(screen.getByText(/Escolha uma conversa/)).toBeDefined());
+    expect(screen.queryByRole("button", { name: "Abrir ficha completa" })).toBeNull();
   });
 
   it("o contexto guardado é consumido UMA vez: entrar de novo abre no padrão", async () => {
