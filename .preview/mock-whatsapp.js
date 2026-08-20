@@ -12,6 +12,11 @@ export const FILTRO_SEM_RETORNO = real.FILTRO_SEM_RETORNO;
 export const FILTRO_NAO_LIDAS = real.FILTRO_NAO_LIDAS;
 export const FILTRO_SEM_RESPONSAVEL = real.FILTRO_SEM_RESPONSAVEL;
 export const FILTRO_MINHAS = real.FILTRO_MINHAS;
+// O preview ficou para trás das entregas de arquivamento e cadência: sem estes
+// re-exports o módulo nem carrega e a página abre em branco.
+export const FILTRO_ARQUIVADAS = real.FILTRO_ARQUIVADAS;
+export const FILTRO_RESGATE = real.FILTRO_RESGATE;
+export const TEMPOS_SEM_INTERACAO = real.TEMPOS_SEM_INTERACAO;
 export const esperaDesde = real.esperaDesde;
 export const linkWhatsApp = real.linkWhatsApp;
 
@@ -38,6 +43,18 @@ export const listarCanais = async () => espera(estado.canais.map((c) => ({ ...c 
 export const listarOperadores = async () => espera(OPERADORES);
 export const carregarResumo = async () => espera(RESUMO);
 export const carregarSupervisao = async () => espera(SUPERVISAO);
+export const carregarCadencia = async () => espera([]);
+export const salvarCadenciaCanal = async () => espera(true);
+export const arquivarConversa = async (id) => {
+  const c = estado.conversas.find((x) => x.id === id);
+  if (c) c.arquivada_em = new Date().toISOString();
+  return espera(true);
+};
+export const desarquivarConversa = async (id) => {
+  const c = estado.conversas.find((x) => x.id === id);
+  if (c) c.arquivada_em = null;
+  return espera(true);
+};
 export const carregarSyncStatus = async () => espera(SYNC);
 
 export const listarConversas = async ({ status, canalId, busca, responsavel } = {}) => {
@@ -102,11 +119,13 @@ export const vincularAluno = async (id, alunoId) => {
   const a = ALUNOS.find((x) => x.id === alunoId);
   if (c) { c.aluno_id = alunoId; c.aluno_nome = a?.nome || "Aluno vinculado"; c.aluno_status = "ENCONTRADO"; }
 };
-// No preview não abre outra aba de verdade, mas REGISTRA — é assim que dá para
-// verificar que abrir a ficha é a única ação da Central que sai dela, e que
-// nenhuma seleção de operador faz isso.
-export const abrirFichaDoAluno = (alunoId) => {
+// Espelha o serviço real: navega POR DENTRO do CRM, na mesma aba — e REGISTRA
+// o aluno pedido, que é como se verifica que abrir a ficha é a única ação da
+// Central que sai dela, e que nenhuma seleção de operador faz isso. O preview
+// tem uma rota /aluno de mentira só para o Voltar ter para onde voltar.
+export const abrirFichaDoAluno = (alunoId, navegar) => {
   (window.__fichasAbertas ||= []).push(alunoId);
+  if (typeof navegar === "function") navegar(`/aluno?id=${encodeURIComponent(alunoId)}`);
 };
 
 export const carregarQr = async () => espera({
