@@ -2,8 +2,11 @@ import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando, Erro } from "../ui/estados";
 
-// Calibragem — NIVELAMENTO (tela enxuta): escolhe o ano da dívida, vê cada
-// operador vs 500 CPFs (só mensalidades sem negociação), simula e aplica.
+// Calibragem — NIVELAMENTO (tela enxuta): escolhe o ano do aluno (o ano da
+// dívida MAIS RECENTE dele), vê cada operador vs o alvo (só mensalidades sem
+// negociação), simula e aplica.
+// O alvo é 500, mas quando não há material para 500 por cabeça o motor nivela
+// pela média disponível ("alvo efetivo") — senão a tela roda e não move nada.
 // Backend: calibragem_diagnostico_sem_negociacao(ano) + calibragem_simular_nivelamento(criterio)
 // + calibragem_aprovar_simulacao/executar_simulacao (aplicar = move de verdade).
 
@@ -12,8 +15,8 @@ const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency",
 const num = (v) => Number(v || 0).toLocaleString("pt-BR");
 const mi = (v) => (Number(v || 0) / 1e6).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " mi";
 
-function corBarra(qtd) {
-  const pct = (qtd / ALVO) * 100;
+function corBarra(qtd, alvo) {
+  const pct = (qtd / (alvo || ALVO)) * 100;
   if (pct >= 99) return "#34d399";
   if (pct >= 70) return "#fbbf24";
   return "#f87171";
@@ -54,8 +57,16 @@ export default function CalibragemNivelamento() {
     setSimulando(false);
     if (error) { setAviso("Erro ao simular: " + (error.message || "")); return; }
     setSim(data);
-    const abaixo = (data?.depois || []).filter((o) => Number(o.qtd) < ALVO);
-    if (abaixo.length) {
+    const alvoEf = Number(data?.alvo_efetivo || ALVO);
+    const abaixo = (data?.depois || []).filter((o) => Number(o.qtd) < alvoEf);
+    if (alvoEf < ALVO) {
+      setAviso(
+        `ℹ️ Não há casos "sem negociação" para ${ALVO} por operador${ano ? " em " + ano : ""}: ` +
+        `${num(data?.total_disponivel)} disponíveis (${num(data?.pool_total)} sem responsável). ` +
+        `O nivelamento usa o alvo efetivo de ${num(alvoEf)} — a média por operador.` +
+        (abaixo.length ? ` ${abaixo.length} operador(es) ficaram abaixo dela por falta de casos parados para soltar.` : "")
+      );
+    } else if (abaixo.length) {
       setAviso(`⚠️ Pool insuficiente: ${abaixo.length} operador(es) ficaram abaixo de ${ALVO} (não há casos "sem negociação" suficientes${ano ? " para " + ano : ""}).`);
     }
   }
@@ -64,8 +75,9 @@ export default function CalibragemNivelamento() {
     if (!sim?.simulacao_id) return;
     const ok = window.confirm(
       `APLICAR o nivelamento?\n\nIsto MOVE ${num(sim.total_movimentacoes)} casos de verdade` +
-      `${ano ? " (dívida de " + ano + ")" : ""}: retira os parados (+11d) de quem está acima → pool, ` +
-      `e completa quem está abaixo com casos recentes do pool. Os alunos passam para a carteira do novo operador.\n\n` +
+      `${ano ? " (alunos de " + ano + ")" : ""} para nivelar todo mundo em ${num(sim.alvo_efetivo || ALVO)}: ` +
+      `retira os parados (+11d) de quem está acima → pool, e completa quem está abaixo com os sem responsável ` +
+      `e os casos mais recentes. Os alunos passam para a carteira do novo operador.\n\n` +
       `Ação registrada e auditada. Confirmar?`
     );
     if (!ok) return;
@@ -111,6 +123,8 @@ export default function CalibragemNivelamento() {
   (sim?.antes || diag?.operadores || []).forEach((o) => { antesPorEmail[o.op_email] = o; });
   const base = sim ? null : diag?.base_total;
   const pool = sim ? null : diag?.pool_total;
+  // Alvo efetivo: 500 quando há material para isso; a média por operador quando não há.
+  const alvoEfetivo = Number(sim?.alvo_efetivo ?? diag?.alvo_sugerido ?? ALVO) || ALVO;
 
   return (
     <div style={S.container}>
@@ -119,7 +133,9 @@ export default function CalibragemNivelamento() {
           <div>
             <h1 style={S.titulo}>⚖️ Calibragem</h1>
             <p style={S.sub}>
-              Nivelar cada operador em <strong>{ALVO} CPFs</strong> e valor na média — só mensalidades sem negociação.
+              Nivelar cada operador em <strong>{num(alvoEfetivo)} CPFs</strong>
+              {alvoEfetivo < ALVO && <> (média disponível — não há material para {ALVO})</>} e valor na média — só
+              mensalidades sem negociação.
             </p>
           </div>
         </div>
@@ -127,7 +143,7 @@ export default function CalibragemNivelamento() {
         {/* Filtros: ano + (todos operadores) */}
         <div style={S.toolbar}>
           <div style={S.grp}>
-            <span style={S.lbl}>Ano da dívida</span>
+            <span style={S.lbl}>Ano do aluno (dívida mais recente)</span>
             <div style={S.chips}>
               {anos.map((a) => (
                 <button key={a} type="button" onClick={() => setAno(a)} style={{ ...S.chip, ...(ano === a ? S.chipOn : {}) }}>{a}</button>
@@ -141,8 +157,16 @@ export default function CalibragemNivelamento() {
         {!sim && (
           <div style={S.resumo}>
             <div style={S.rcell}><div style={S.rk}>Base sem negociação</div><div style={S.rv}>{num(base)}</div></div>
-            <div style={S.rcell}><div style={S.rk}>Pool disponível</div><div style={S.rv}>{num(pool)}</div></div>
-            <div style={S.rcell}><div style={S.rk}>Alvo por operador</div><div style={S.rv}>{ALVO}</div></div>
+            <div style={S.rcell}>
+              <div style={S.rk}>Sem responsável</div>
+              <div style={S.rv}>{num(pool)}</div>
+              {diag?.pool_saldo > 0 && <div style={S.rsub}>{moeda(diag.pool_saldo)}</div>}
+            </div>
+            <div style={S.rcell}>
+              <div style={S.rk}>Alvo por operador</div>
+              <div style={S.rv}>{num(alvoEfetivo)}</div>
+              {alvoEfetivo < ALVO && <div style={S.rsub}>média — pedido: {ALVO}</div>}
+            </div>
           </div>
         )}
 
@@ -157,17 +181,17 @@ export default function CalibragemNivelamento() {
         <div>
           {lista.map((o) => {
             const q = Number(o.qtd);
-            const pct = Math.min(100, (q / ALVO) * 100);
+            const pct = Math.min(100, (q / alvoEfetivo) * 100);
             const antes = antesPorEmail[o.op_email];
             const delta = sim && antes ? q - Number(antes.qtd) : null;
             const st = sim
-              ? (q >= ALVO ? "✓ nivelado" : `${ALVO - q} abaixo (faltou pool)`)
-              : (q >= ALVO ? "✓ nivelado" : `${ALVO - q} abaixo do alvo`);
+              ? (q >= alvoEfetivo ? "✓ nivelado" : `${num(alvoEfetivo - q)} abaixo (sem casos parados para soltar)`)
+              : (q >= alvoEfetivo ? "✓ nivelado" : `${num(alvoEfetivo - q)} abaixo do alvo`);
             return (
               <div key={o.op_email} style={S.op}>
                 <div><div style={S.nome}>{o.op_nome}</div><div style={S.st}>{st}</div></div>
                 <div style={S.bar}>
-                  <div style={{ ...S.fill, width: pct + "%", background: corBarra(q) }} />
+                  <div style={{ ...S.fill, width: pct + "%", background: corBarra(q, alvoEfetivo) }} />
                   <div style={S.alvo500} />
                   <div style={S.barnum}>{num(q)}{delta ? ` (${delta > 0 ? "+" : ""}${delta})` : ""}</div>
                 </div>
@@ -193,8 +217,11 @@ export default function CalibragemNivelamento() {
         </div>
 
         <p style={S.nota}>
-          A linha azul marca o alvo de {ALVO}. Vermelho = abaixo · Verde = nivelado. Aplicar move os casos de verdade
-          (tira parados +11 dias → pool; completa com os mais recentes) e é auditado.
+          A linha azul marca o alvo de {num(alvoEfetivo)}
+          {alvoEfetivo < ALVO && ` (média por operador — o pedido de ${ALVO} não cabe no material disponível)`}.
+          Vermelho = abaixo · Verde = nivelado. O aluno entra no ano da dívida mais recente dele. Aplicar move os casos
+          de verdade (tira parados +11 dias → pool; completa com os sem responsável e os mais recentes) e é auditado.
+          Quem está em negociação, com acordo ativo, link, termo ou confirmação de pagamento nunca é movido.
         </p>
       </div>
     </div>
@@ -217,6 +244,7 @@ const estilos = {
   rcell: { flex: 1, padding: "11px 16px", borderLeft: "1px solid #22304a" },
   rk: { fontSize: 10, textTransform: "uppercase", letterSpacing: "0.06em", color: "#64748b", fontWeight: 700 },
   rv: { fontSize: 19, fontWeight: 800, marginTop: 2 },
+  rsub: { fontSize: 10.5, color: "#64748b", fontWeight: 600, marginTop: 1 },
   modo: { fontSize: 12, fontWeight: 700, marginBottom: 10 },
   op: { display: "grid", gridTemplateColumns: "120px 1fr 120px", alignItems: "center", gap: 14, padding: "9px 0", borderBottom: "1px solid #0b1424" },
   nome: { fontWeight: 700, fontSize: 14 },
