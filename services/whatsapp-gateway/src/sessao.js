@@ -55,6 +55,18 @@ function conteudo(msg) {
   return { tipo: "outro", texto: null };
 }
 
+// Nomes do enum `proto.WebMessageInfo.Status` do Baileys, para o log ficar
+// legível. Só instrumentação: o mapa para o nosso vocabulário de status é
+// decidido depois, com base no que estes valores realmente forem em produção.
+const NOME_DO_STATUS = {
+  0: "ERROR",
+  1: "PENDING",
+  2: "SERVER_ACK",
+  3: "DELIVERY_ACK",
+  4: "READ",
+  5: "PLAYED",
+};
+
 function paraISO(ts) {
   const n = Number(ts);
   if (!Number.isFinite(n) || n <= 0) return new Date().toISOString();
@@ -531,6 +543,61 @@ export function criarSessao({ chave }) {
     });
 
     sock.ev.on("creds.update", () => auth.salvarCredenciais());
+
+    // -------------------------------------------------------------------
+    // INSTRUMENTAÇÃO DE ACK — fase 1: SÓ OBSERVA.
+    //
+    // Hoje o status de saída é gravado uma vez, no momento em que a mensagem
+    // entra na fila, e nunca mais muda. "ENVIADO" na Central significa apenas
+    // "nós enfileiramos" — o operador lê isso como "o aluno recebeu", e não é.
+    //
+    // Antes de trocar o modelo de status em produção, é preciso PROVAR quais
+    // valores esta sessão realmente entrega. O mapa do enum do Baileys
+    // (PENDING=1, SERVER_ACK=2, DELIVERY_ACK=3, READ=4, PLAYED=5) é o que a
+    // biblioteca promete; o que o WhatsApp de fato manda para ESTE número, com
+    // ESTE aparelho, é o que estas duas linhas vão registrar.
+    //
+    // Correlação exclusivamente por `wamid` (`key.id`), como pedido: é a única
+    // chave estável entre o envio e o ack.
+    //
+    // Número de telefone NUNCA vai para o log: só o formato do JID, igual ao
+    // resto do serviço.
+    // -------------------------------------------------------------------
+    sock.ev.on("messages.update", (atualizacoes) => {
+      for (const u of atualizacoes || []) {
+        if (!u?.key?.fromMe) continue; // ack só interessa no que NÓS mandamos
+        log.info(
+          {
+            ack: "messages.update",
+            wamid: u.key.id,
+            destino: formatoDoJid(u.key.remoteJid),
+            statusBruto: u.update?.status ?? null,
+            statusNome: NOME_DO_STATUS[u.update?.status] ?? null,
+            camposDoUpdate: Object.keys(u.update || {}),
+          },
+          "ack observado",
+        );
+      }
+    });
+
+    sock.ev.on("message-receipt.update", (recibos) => {
+      for (const r of recibos || []) {
+        if (!r?.key?.fromMe) continue;
+        log.info(
+          {
+            ack: "message-receipt.update",
+            wamid: r.key.id,
+            destino: formatoDoJid(r.key.remoteJid),
+            recibo: formatoDoJid(r.receipt?.userJid),
+            entregueEm: r.receipt?.receiptTimestamp ?? null,
+            lidoEm: r.receipt?.readTimestamp ?? null,
+            tocadoEm: r.receipt?.playedTimestamp ?? null,
+          },
+          "recibo observado",
+        );
+      }
+    });
+
     // Contatos que chegam fora do histórico também trazem o par LID/telefone.
     sock.ev.on("contacts.upsert", (c) => vinculos.aprender({ contacts: c }));
     sock.ev.on("contacts.update", (c) => vinculos.aprender({ contacts: c }));
