@@ -157,13 +157,26 @@ export async function salvarCanal({ id, apelido, numero, sessaoChave, ativo } = 
 // Conversas
 // ---------------------------------------------------------------------------
 
-export async function listarConversas({ status, canalId, busca, limite, responsavel } = {}) {
+// Faixas de "tempo sem interação", medidas sobre `ultima_mensagem_em` — o
+// único campo que só muda quando entra mensagem de verdade.
+export const TEMPOS_SEM_INTERACAO = [
+  { valor: "", rotulo: "Qualquer tempo" },
+  { valor: "ATE_1_DIA", rotulo: "Até 1 dia" },
+  { valor: "2_3_DIAS", rotulo: "2 a 3 dias" },
+  { valor: "4_7_DIAS", rotulo: "4 a 7 dias" },
+  { valor: "8_15_DIAS", rotulo: "8 a 15 dias" },
+  { valor: "16_30_DIAS", rotulo: "16 a 30 dias" },
+  { valor: "MAIS_30_DIAS", rotulo: "Mais de 30 dias" },
+];
+
+export async function listarConversas({ status, canalId, busca, limite, responsavel, tempoSemInteracao } = {}) {
   const { data, error } = await supabase.rpc("whatsapp_conversas_listar", {
     p_status: status || null,
     p_canal_id: canalId || null,
     p_busca: busca || null,
     p_limite: limite || 100,
     p_responsavel: responsavel || null,
+    p_tempo_sem_interacao: tempoSemInteracao || null,
   });
   if (error) throw new Error(error.message);
   return data || [];
