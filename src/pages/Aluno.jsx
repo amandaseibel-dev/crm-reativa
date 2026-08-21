@@ -11,6 +11,7 @@ import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
 import TelefonesAluno from "../components/TelefonesAluno";
+import PainelDesfazer from "../components/PainelDesfazer";
 import {
   superficie,
   cartao,
@@ -271,6 +272,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // Controlado por estado para permitir abertura automatica por tabulacao,
   // manter apenas um aberto por vez e evitar formularios longos simultaneos.
   const [blocoAberto, setBlocoAberto] = useState("");
+  // Sobe a cada acao gravada na ficha: e o sinal para a faixa "Da para
+  // desfazer" reconsultar o que ainda pode voltar atras.
+  const [desfazerTick, setDesfazerTick] = useState(0);
   // Intencao vinda de uma notificacao de link: abrir a secao "Link de pagamento"
   // e destacar a solicitacao/link exato (sem procurar na fila). Preenchidos a
   // partir do localStorage no momento da abertura por notificacao.
@@ -910,6 +914,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     if (data) {
       prepararAlunoNaTela(data);
       setAlunos([data]);
+      setDesfazerTick((t) => t + 1);
       // Reavalia a fonte canonica do saldo apos qualquer evento financeiro
       // (pagamento, baixa, quitacao, acordo, link etc.), mantendo cabecalho e
       // card "Valor em aberto" consistentes sem chamadas duplicadas espalhadas.
@@ -1839,6 +1844,15 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           👤 {alunoSelecionado.responsavel_atual_nome || "Sem responsável"}
                         </span>
                       </div>
+                      <PainelDesfazer
+                        alunoId={alunoSelecionado?.id}
+                        atualizarEm={desfazerTick}
+                        onDesfeito={async () => {
+                          await recarregarAlunoSelecionado(alunoSelecionado.id);
+                          await carregarMovimentacoes(alunoSelecionado.id);
+                          await carregarAlunos();
+                        }}
+                      />
                       <p style={textoInfo}>
                         CPF: {pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-")}
                         <button
@@ -2366,7 +2380,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 style={{ marginBottom: 12, border: blocoAberto === "termo" ? "1px solid #2563eb" : "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff", scrollMarginTop: 16 }}
               >
                 <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Termo de acordo</summary>
-                <FinalizacaoTermo aluno={alunoSelecionado} />
+                <FinalizacaoTermo
+                  aluno={alunoSelecionado}
+                  onEnviado={() => setDesfazerTick((t) => t + 1)}
+                />
               </details>
               <details
                 ref={(el) => (blocosRef.current.financeiro = el)}
