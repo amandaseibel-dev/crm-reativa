@@ -67,30 +67,9 @@ const FILTROS = [
   { valor: "JURIDICO_INDETERMINADO", label: "⚖️ Jurídico - prazo indeterminado", somenteGestao: true },
 ];
 
-const STATUS_FINALIZACAO = [
-  "CONTATAR",
-  "MENSAGEM_ENVIADA",
-  "EM_ATENDIMENTO",
-  "ALUNO_EM_NEGOCIACAO_24H",
-  "RETORNAR_DEPOIS",
-  "SEM_RETORNO",
-  "NAO_LOCALIZADO",
-  "AGUARDANDO_LINK",
-  "SOLICITADO_LINK",
-  "LINK_PRONTO_PARA_ENVIO",
-  "AGUARDANDO_COMPROVANTE",
-  "AGUARDANDO_BAIXA",
-  "BAIXA_REALIZADA",
-  "BAIXA_DEVOLVIDA",
-  "TERMO_ENVIADO_ALUNO",
-  "TERMO_ENVIADO_ADM",
-  "TERMO_RECEBIDO_LIBERADO",
-  "TERMO_REJEITADO",
-  "ACORDO_FECHADO",
-  "CANCELAMENTO_COBRANCA",
-  "SUSPENSAO_COBRANCA",
-  "JURIDICO",
-];
+// A lista de tabulacoes vem do catalogo public.tabulacoes (/tabulacoes).
+// Ver src/utils/tabulacoes.js.
+
 
 // Cancelamento definitivo e suspensão de cobrança exigem número do
 // processo + prazo (data específica ou indeterminado). Prazo indeterminado
@@ -687,6 +666,8 @@ export default function FilaOperador() {
       atualizacaoAluno.status_acionamento = statusNovo;
       atualizacaoAluno.proxima_acao = definirProximaAcao(statusNovo);
       atualizacaoAluno.data_retorno = paraDataLocalBR(retorno);
+      // Só retorno digitado pelo operador vai pra Agenda Operacional.
+      atualizacaoAluno.retorno_origem = retorno ? "OPERADOR" : null;
     }
 
     if (observacaoAluno !== null) {
@@ -754,6 +735,7 @@ export default function FilaOperador() {
             .from("alunos_unificados")
             .update({
               data_retorno: paraDataLocalBR(retorno),
+              retorno_origem: "OPERADOR",
               hora_retorno: horaRetorno,
               status_jornada: statusNovo,
             })
@@ -1030,7 +1012,7 @@ export default function FilaOperador() {
         return;
       }
       const extraAluno = {};
-      if (novaDataRetornoAlteracao) { extraAluno.data_retorno = paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()); }
+      if (novaDataRetornoAlteracao) { extraAluno.data_retorno = paraDataLocalBR(new Date(novaDataRetornoAlteracao).toISOString()); extraAluno.retorno_origem = "OPERADOR"; }
       if (novaTabulacaoAlteracao) { extraAluno.status_jornada = novaTabulacaoAlteracao; extraAluno.status_atual = novaTabulacaoAlteracao; }
       if (Object.keys(extraAluno).length > 0) { await supabase.from("alunos").update(extraAluno).eq("id", alunoSelecionado.id); }
 

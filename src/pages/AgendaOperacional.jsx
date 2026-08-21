@@ -1,33 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { useTabulacoes, opcoesTabulacao } from "../utils/tabulacoes";
 import { nomeOperadorPorEmail } from "../utils/operadores";
 import BotaoManual from "../components/BotaoManual";import Alunos from "./Aluno";
 
-const STATUS_FINALIZACAO = [
-  "CONTATAR",
-  "ELOGIO_ATENDIMENTO",
-  "MENSAGEM_ENVIADA",
-  "EM_ATENDIMENTO",
-  "ALUNO_EM_NEGOCIACAO_24H",
-  "RETORNAR_DEPOIS",
-  "SEM_RETORNO",
-  "NAO_LOCALIZADO",
-  "AGUARDANDO_LINK",
-  "SOLICITADO_LINK",
-  "LINK_PRONTO_PARA_ENVIO",
-  "AGUARDANDO_COMPROVANTE",
-  "AGUARDANDO_BAIXA",
-  "BAIXA_REALIZADA",
-  "BAIXA_DEVOLVIDA",
-  "TERMO_ENVIADO_ALUNO",
-  "TERMO_ENVIADO_ADM",
-  "TERMO_RECEBIDO_LIBERADO",
-  "TERMO_REJEITADO",
-  "ACORDO_FECHADO",
-  "CANCELAMENTO_COBRANCA",
-  "SUSPENSAO_COBRANCA",
-  "JURIDICO",
-];
+// As opcoes do filtro vem do catalogo public.tabulacoes (/tabulacoes), pra
+// que uma tabulacao nova apareca aqui sozinha. Ver src/utils/tabulacoes.js.
+
 
 const OPERADORES = [
   "OLGA",
@@ -115,6 +94,8 @@ function podeVerAgendaGeral(email) {
 }
 
 export default function AgendaOperacional() {
+  // Catalogo de tabulacoes (fonte unica; ver src/utils/tabulacoes.js).
+  const { tabulacoes } = useTabulacoes();
   const [usuario, setUsuario] = useState(null);
   const [alunos, setAlunos] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -137,9 +118,14 @@ export default function AgendaOperacional() {
   async function carregarAgenda() {
     setCarregando(true);
 
+    // Só o que a operação agendou de verdade. A coluna data_retorno também
+    // é usada pelo motor da fila (recalcular_situacao_aluno grava "hoje" em
+    // toda cobrança vencida, ação massiva grava +10 dias), e sem esse filtro
+    // a agenda mostrava milhares de "retornos" que ninguém marcou.
     const { data, error } = await supabase
       .from("alunos_unificados")
       .select("*")
+      .eq("retorno_origem", "OPERADOR")
       .eq("ocultar_fila", false)
       .not("status_jornada", "eq", "QUITADO")
       .not("status_jornada", "eq", "NAO_CONTATAR")
@@ -375,9 +361,9 @@ export default function AgendaOperacional() {
           onChange={(e) => setFiltroTipoFinalizacao(e.target.value)}
         >
           <option value="TODOS">Todos os tipos de finalização</option>
-          {STATUS_FINALIZACAO.map((s) => (
-            <option key={s} value={s}>
-              {s.replaceAll("_", " ")}
+          {opcoesTabulacao(tabulacoes, filtroTipoFinalizacao, { podeVerTudo: true }).map((t) => (
+            <option key={t.codigo} value={t.codigo}>
+              {t.rotulo}
             </option>
           ))}
         </select>

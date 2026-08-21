@@ -14,12 +14,17 @@ const FERRAMENTAS = [
   { rota: "/exportar-contatos", emoji: "📤", titulo: "Exportar Contatos", desc: "Exporta contatos dos alunos para acoes externas." },
   { rota: "/vincular-operadores", emoji: "🔗", titulo: "Vincular Operadores", desc: "Vincula alunos da base a operadores responsaveis." },
   { rota: "/log-nivelamento", emoji: "🌙", titulo: "Log do Job Noturno", desc: "Acompanha a execucao do job de nivelamento noturno." },
+  // soAmanda: a rota e restrita ao e-mail da Amanda (ver App.jsx e
+  // public.usuario_pode_editar_tabulacoes no banco). Sem este filtro o card
+  // apareceria pra Fernanda/Amanda ADM e so daria um redirect pra home.
+  { rota: "/tabulacoes", emoji: "🏷️", titulo: "Tabulações", soAmanda: true, desc: "Inclui, edita ou tira da lista as tabulacoes que a equipe usa ao finalizar atendimento. Nao mexe em retorno ja agendado." },
   { rota: "/sugestoes-recebidas", emoji: "💡", titulo: "Sugestões Recebidas", desc: "Sugestoes enviadas pela equipe." },
 ];
 
 export default function Ferramentas() {
   const navigate = useNavigate();
   const [novas, setNovas] = useState(0);
+  const [email, setEmail] = useState("");
 
   useEffect(() => {
     let ativo = true;
@@ -31,15 +36,23 @@ export default function Ferramentas() {
         .or("status.eq.NOVA,status.is.null,status.eq.REABERTO");
       if (ativo) setNovas(count || 0);
     })();
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      if (ativo) setEmail(String(data?.user?.email || "").toLowerCase().trim());
+    })();
     return () => { ativo = false; };
   }, []);
+
+  const visiveis = FERRAMENTAS.filter(
+    (f) => !f.soAmanda || email === "amanda.seibel@aelbra.com.br"
+  );
 
   return (
     <div style={S.wrap}>
       <h1 style={S.titulo}>🧰 Ferramentas</h1>
       <p style={S.sub}>Utilitários de dados e gestão reunidos num só lugar. Clique para abrir.</p>
       <div style={S.grid}>
-        {FERRAMENTAS.map((f) => (
+        {visiveis.map((f) => (
           <button key={f.rota} style={S.card} onClick={() => navigate(f.rota)}
             onMouseOver={(e) => (e.currentTarget.style.borderColor = "#93c5fd")}
             onMouseOut={(e) => (e.currentTarget.style.borderColor = "#e6eaf0")}>

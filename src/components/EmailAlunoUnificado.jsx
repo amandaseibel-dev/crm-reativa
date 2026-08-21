@@ -118,6 +118,8 @@ export default function EmailAlunoUnificado({ aluno }) {
         status_acionamento: "E-mail enviado - " + (tpl?.situacao || chave),
         proxima_acao: "RETORNAR",
         data_retorno: proximoDiaUtil(tpl?.dias_retorno),
+        // Retorno de régua do e-mail, não agendamento da operação.
+        retorno_origem: "AUTOMATICO",
         data_ultimo_acionamento: new Date().toISOString(),
       }).eq("id", aluno.id);
     } catch (e) { /* silencioso */ }
