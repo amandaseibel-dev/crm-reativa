@@ -160,7 +160,6 @@ export default function FilaAdmTermos() {
   const [anexoArquivo, setAnexoArquivo] = useState(null);
   const [testemunha1, setTestemunha1] = useState("");
   const [testemunha2, setTestemunha2] = useState("");
-  const [backupConfirmado, setBackupConfirmado] = useState(false);
   const [processando, setProcessando] = useState(false);
 
   // --- Estado do modal de validação em tela única ---
@@ -347,7 +346,6 @@ export default function FilaAdmTermos() {
     setAnexoArquivo(null);
     setTestemunha1(termo.testemunha_1_nome || "");
     setTestemunha2(termo.testemunha_2_nome || "");
-    setBackupConfirmado(false);
   }
 
   // Sobe a via completa e conclui. A ordem é upload -> conclusão -> descarte
@@ -367,10 +365,13 @@ export default function FilaAdmTermos() {
       return;
     }
 
+    // O descarte é automático: anexar a via completa É a decisão de descartar a
+    // do aluno. A trava que sobra é a do backend — sem o arquivo novo confirmado
+    // no bucket, nada é apagado.
     const res = await concluirAssinaturaTermo(modalAnexo.id, {
       testemunha1,
       testemunha2,
-      backupConfirmado,
+      backupConfirmado: true,
     });
     setProcessando(false);
 
@@ -886,18 +887,11 @@ export default function FilaAdmTermos() {
             </div>
 
             <div style={styles.avisoBackup}>
-              <label style={styles.checkLinha}>
-                <input
-                  type="checkbox"
-                  checked={backupConfirmado}
-                  onChange={(e) => setBackupConfirmado(e.target.checked)}
-                />
-                Já salvei as duas vias na pasta de backup
-              </label>
+              <strong>Ao salvar, a via assinada só pelo aluno é apagada do CRM</strong>
               <p style={styles.texto}>
-                Marcando isto, a via assinada só pelo aluno (e o RG/verso) é apagada do CRM
-                assim que a via completa for confirmada no armazenamento. Sem marcar, o termo
-                é concluído e a via antiga permanece.
+                O RG e o verso saem junto. Isso só acontece depois que a via completa
+                estiver confirmada no armazenamento — se o envio falhar, nada é apagado.
+                Guarde as vias na pasta de backup antes, porque o descarte não tem volta.
               </p>
             </div>
 
@@ -907,7 +901,7 @@ export default function FilaAdmTermos() {
                 onClick={salvarViaCompleta}
                 disabled={processando || !anexoArquivo}
               >
-                {processando ? "Salvando…" : "Salvar via assinada"}
+                {processando ? "Salvando…" : "Salvar via assinada e descartar a do aluno"}
               </button>
               <button
                 style={styles.botaoVer}
