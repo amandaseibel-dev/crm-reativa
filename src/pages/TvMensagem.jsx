@@ -417,8 +417,10 @@ function SecaoTitulo({ icone, titulo, sub }) {
 // Estilos ---------------------------------------------------------------------
 const lbl = { fontSize: 13, fontWeight: 700, color: "#334155" };
 const lblMini = { fontSize: 11, fontWeight: 700, color: "#64748b" };
-const inp = { border: "1px solid #cbd5e1", borderRadius: 10, padding: "10px 12px", fontSize: 15, color: "#0f172a", outline: "none" };
-const inpMini = { border: "1px solid #cbd5e1", borderRadius: 8, padding: "7px 10px", fontSize: 13, color: "#0f172a", outline: "none" };
+// background branco explícito: o CSS global (index.css) pinta todo <input> de
+// #0f172a, e com color escura o texto digitado ficava invisível.
+const inp = { border: "1px solid #cbd5e1", borderRadius: 10, padding: "10px 12px", fontSize: 15, color: "#0f172a", background: "#fff", outline: "none" };
+const inpMini = { border: "1px solid #cbd5e1", borderRadius: 8, padding: "7px 10px", fontSize: 13, color: "#0f172a", background: "#fff", outline: "none" };
 const cartaoSlide = { border: "1px solid #e2e8f0", borderRadius: 12, padding: "12px 14px", background: "#fff" };
 const chip = { fontSize: 11, fontWeight: 700, color: "#475569", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "2px 8px" };
 const btnMover = { width: 26, height: 22, border: "1px solid #cbd5e1", background: "#fff", borderRadius: 6, cursor: "pointer", fontSize: 11, color: "#475569", lineHeight: 1, padding: 0 };
