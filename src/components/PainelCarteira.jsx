@@ -1485,6 +1485,45 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     setGuiadoAvancar((t) => t + 1);
   }
 
+  // Avanco RAPIDO do guiado: nao recarrega a carteira inteira (isso levava
+  // segundos). Pega o proximo da lista ja ordenada e confere SO ELE no banco
+  // (ainda e meu? ainda e acionavel?). Quem falhar na conferencia e marcado
+  // como feito e passa-se ao seguinte. A recarga completa roda em segundo
+  // plano depois que o proximo ja esta aberto.
+  async function avancarGuiadoRapido(idAtual) {
+    const meuEmail = emailEscopo();
+    for (let tentativa = 0; tentativa < 25; tentativa++) {
+      const cand = proximoDoGuiado(listaFiltradaRef.current.filter((x) => String(x.id) !== String(idAtual)));
+      if (!cand) {
+        encerrarGuiado(true);
+        setModalAberto(false);
+        setAlunoModal(null);
+        carregar();
+        return;
+      }
+      let fresco = null;
+      try {
+        const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).eq("id", cand.id).maybeSingle();
+        fresco = data;
+      } catch { fresco = null; }
+      const aindaMeu = !meuEmail || String(fresco?.responsavel_atual_email || "").toLowerCase() === String(meuEmail).toLowerCase();
+      const ok = fresco && aindaMeu && !ehNaoAcionavel(fresco, idsEmConfirmacaoRef.current)
+        && !(fresco.data_ultimo_acionamento && String(fresco.data_ultimo_acionamento).slice(0, 10) === hojeLocalBR());
+      if (!ok) {
+        guiadoFeitosRef.current.add(String(cand.id)); // saiu da fila por fora: nao e meu/ja pago/ja acionado
+        continue;
+      }
+      await abrirModal(fresco);
+      setAbaModal("negociacao");
+      carregar(); // recarga completa em segundo plano
+      return;
+    }
+    // Muitas conferencias seguidas falharam: recarrega tudo e deixa o efeito decidir.
+    await carregar();
+    guiadoPendenteRef.current = true;
+    setGuiadoAvancar((t) => t + 1);
+  }
+
   function encerrarGuiado(concluiu) {
     setGuiado(false);
     if (concluiu) setGuiadoConcluido({ acionados: guiadoFeitosRef.current.size });
@@ -1821,9 +1860,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         // deixa o efeito de avanco abrir o proximo com a lista fresca.
         guiadoFeitosRef.current.add(String(a.id));
         setGuiadoAcionados(guiadoFeitosRef.current.size);
-        await carregar();
-        guiadoPendenteRef.current = true;
-        setGuiadoAvancar((t) => t + 1);
+        // Tira o tabulado da lista local na hora (sem esperar recarga).
+        setCasos((atual) => atual.map((x) => (String(x.id) === String(a.id) ? { ...x, ...atualizacaoAluno } : x)));
+        await avancarGuiadoRapido(a.id);
       } else {
         await atualizarTudo(a.id);
       }
