@@ -22,6 +22,13 @@ import { telasParaAdmin, PREFIXO_IMG } from "../components/tv/tvTelas";
 // =============================================================================
 
 const CHAVE_CFG = "telas_config";
+const MAX_AVISOS = 5;
+const novoAviso = () => ({ id: null, titulo: "", texto: "", ativo: true, prioridade: 0 });
+const NIVEIS = [
+  { v: 0, rot: "Aviso (azul)" },
+  { v: 1, rot: "Prioridade (âmbar)" },
+  { v: 2, rot: "Importante (vermelho)" },
+];
 const CHAVE_IMG = "imagens";
 const BUCKET_IMG = "tv-imagens";
 const MAX_IMG_BYTES = 5 * 1024 * 1024;
@@ -43,10 +50,10 @@ export default function TvMensagem() {
   const [enviando, setEnviando] = useState(false);
 
   // --- Mensagem / aviso ---
-  const [msgId, setMsgId] = useState(null);
-  const [titulo, setTitulo] = useState("");
-  const [texto, setTexto] = useState("");
-  const [msgAtivo, setMsgAtivo] = useState(true);
+  // Lista de avisos (até MAX_AVISOS). A TV gira entre os ATIVOS, do nível mais
+  // alto para o mais baixo. {id|null, titulo, texto, ativo, prioridade}
+  const [avisos, setAvisos] = useState([]);
+  const [avisosRemovidos, setAvisosRemovidos] = useState([]); // ids a apagar no Salvar
 
   // --- UI ---
   const [carregando, setCarregando] = useState(true);
@@ -59,8 +66,8 @@ export default function TvMensagem() {
     const [cfgRes, snapRes, msgRes, imgRes] = await Promise.all([
       supabase.from("tv_config").select("valor").eq("chave", CHAVE_CFG).maybeSingle(),
       supabase.rpc("tv_snapshot_ler"),
-      supabase.from("tv_mensagem_especial").select("id, titulo, texto, ativo")
-        .order("atualizado_em", { ascending: false }).limit(1).maybeSingle(),
+      supabase.from("tv_mensagem_especial").select("id, titulo, texto, ativo, prioridade")
+        .order("prioridade", { ascending: false }).order("atualizado_em", { ascending: false }).limit(MAX_AVISOS),
       supabase.from("tv_config").select("valor").eq("chave", CHAVE_IMG).maybeSingle(),
     ]);
 
@@ -75,12 +82,11 @@ export default function TvMensagem() {
     setReais(todas.filter((t) => !t.placeholder));
     setPlaceholders(todas.filter((t) => t.placeholder));
 
-    if (msgRes?.data) {
-      setMsgId(msgRes.data.id);
-      setTitulo(msgRes.data.titulo || "");
-      setTexto(msgRes.data.texto || "");
-      setMsgAtivo(msgRes.data.ativo !== false);
-    }
+    const lista = (msgRes?.data || []).map((m) => ({
+      id: m.id, titulo: m.titulo || "", texto: m.texto || "", ativo: m.ativo !== false, prioridade: Number(m.prioridade) || 0,
+    }));
+    setAvisos(lista.length > 0 ? lista : [novoAviso()]);
+    setAvisosRemovidos([]);
     setCarregando(false);
   }
 
@@ -160,6 +166,17 @@ export default function TvMensagem() {
     patchReal(i, { imagem: { ...tela.imagem, legenda }, nome: legenda || tela.imagem.nome });
   }
 
+  // --- Avisos ---
+  function patchAviso(i, patch) {
+    setAvisos((arr) => arr.map((a, k) => (k === i ? { ...a, ...patch } : a)));
+  }
+  function removerAviso(i) {
+    const a = avisos[i];
+    if ((a.titulo.trim() || a.texto.trim()) && !window.confirm(`Remover o aviso "${a.titulo || a.texto.slice(0, 40)}"? (apaga ao Salvar)`)) return;
+    if (a.id) setAvisosRemovidos((ids) => [...ids, a.id]);
+    setAvisos((arr) => arr.filter((_, k) => k !== i));
+  }
+
   // Monta o mapa de config (reais na ordem atual + placeholders sempre no fim, ocultos).
   function montarMapa() {
     const mapa = {};
@@ -193,17 +210,31 @@ export default function TvMensagem() {
         { onConflict: "chave" });
     if (eImg) { setAviso("Slides salvos, mas as imagens não: " + eImg.message); setSalvando(false); return; }
 
-    // 2) Mensagem / aviso
-    const payloadMsg = { titulo, texto, ativo: msgAtivo, atualizado_em: new Date().toISOString() };
-    let eMsg;
-    if (msgId) {
-      ({ error: eMsg } = await supabase.from("tv_mensagem_especial").update(payloadMsg).eq("id", msgId));
-    } else if (titulo.trim() || texto.trim()) {
-      const res = await supabase.from("tv_mensagem_especial").insert(payloadMsg).select("id").single();
-      eMsg = res.error;
-      if (res.data) setMsgId(res.data.id);
+    // 2) Avisos: apaga os removidos, atualiza os existentes, insere os novos
+    //    (cartões novos totalmente em branco são ignorados).
+    const agora = new Date().toISOString();
+    let eMsg = null;
+    if (avisosRemovidos.length > 0) {
+      ({ error: eMsg } = await supabase.from("tv_mensagem_especial").delete().in("id", avisosRemovidos));
     }
-    if (eMsg) { setAviso("Slides salvos, mas a mensagem não: " + eMsg.message); setSalvando(false); return; }
+    const novaLista = [];
+    for (const a of avisos) {
+      if (eMsg) break;
+      const payloadMsg = { titulo: a.titulo, texto: a.texto, ativo: a.ativo, prioridade: a.prioridade, atualizado_em: agora };
+      if (a.id) {
+        ({ error: eMsg } = await supabase.from("tv_mensagem_especial").update(payloadMsg).eq("id", a.id));
+        novaLista.push(a);
+      } else if (a.titulo.trim() || a.texto.trim()) {
+        const res = await supabase.from("tv_mensagem_especial").insert(payloadMsg).select("id").single();
+        eMsg = res.error;
+        novaLista.push({ ...a, id: res.data?.id ?? null });
+      } else {
+        novaLista.push(a);
+      }
+    }
+    if (eMsg) { setAviso("Slides salvos, mas os avisos não: " + eMsg.message); setSalvando(false); return; }
+    setAvisos(novaLista);
+    setAvisosRemovidos([]);
 
     // 3) Regenerar snapshot (aplica na TV agora)
     if (atualizarTv) {
@@ -290,21 +321,37 @@ export default function TvMensagem() {
 
           {/* ================= SEÇÃO B — MENSAGEM / AVISO ================= */}
           <div style={{ marginTop: 28 }}>
-            <SecaoTitulo icone="📣" titulo="Mensagem / Aviso"
-              sub="Texto que gira no slide de Avisos da TV. Deixe em branco (ou desmarque) para não exibir." />
-            <div style={{ display: "flex", flexDirection: "column", gap: 14, background: "#fff", border: "1px solid #e2e8f0", borderRadius: 14, padding: 16 }}>
-              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={lbl}>Título (destaque)</span>
-                <input value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Título da mensagem" style={inp} />
-              </label>
-              <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-                <span style={lbl}>Texto (linha de apoio)</span>
-                <textarea value={texto} onChange={(e) => setTexto(e.target.value)} placeholder="Texto de apoio da mensagem" rows={4} style={{ ...inp, resize: "vertical" }} />
-              </label>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 14, color: "#0f172a", fontWeight: 600 }}>
-                <input type="checkbox" checked={msgAtivo} onChange={(e) => setMsgAtivo(e.target.checked)} />
-                Exibir esta mensagem na TV
-              </label>
+            <SecaoTitulo icone="📣" titulo="Mensagens / Avisos"
+              sub={`Até ${MAX_AVISOS} avisos. A TV mostra um por passagem do slide de Avisos e vai girando entre os que estão ligados (os "Importante" primeiro). Em branco ou desligado não aparece.`} />
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {avisos.map((a, i) => (
+                <div key={a.id ?? `novo-${i}`} style={{ display: "flex", flexDirection: "column", gap: 12, background: a.ativo ? "#fff" : "#f8fafc", border: "1px solid " + (a.ativo ? "#e2e8f0" : "#cbd5e1"), borderRadius: 14, padding: 16, opacity: a.ativo ? 1 : 0.8 }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                    <span style={{ ...chip, fontSize: 12 }}>Aviso {i + 1}</span>
+                    <select value={a.prioridade} onChange={(e) => patchAviso(i, { prioridade: Number(e.target.value) })} style={{ ...inpMini, padding: "6px 8px" }}>
+                      {NIVEIS.map((n) => <option key={n.v} value={n.v}>{n.rot}</option>)}
+                    </select>
+                    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#0f172a", fontWeight: 600, marginLeft: "auto" }}>
+                      <input type="checkbox" checked={a.ativo} onChange={(e) => patchAviso(i, { ativo: e.target.checked })} />
+                      Exibir na TV
+                    </label>
+                    <button type="button" onClick={() => removerAviso(i)} style={{ ...btnToggle, background: "#fee2e2", color: "#b91c1c", padding: "6px 12px" }}>Remover</button>
+                  </div>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <span style={lbl}>Título (destaque)</span>
+                    <input value={a.titulo} onChange={(e) => patchAviso(i, { titulo: e.target.value })} placeholder="Título da mensagem" style={inp} />
+                  </label>
+                  <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                    <span style={lbl}>Texto (linha de apoio)</span>
+                    <textarea value={a.texto} onChange={(e) => patchAviso(i, { texto: e.target.value })} placeholder="Texto de apoio da mensagem" rows={3} style={{ ...inp, resize: "vertical" }} />
+                  </label>
+                </div>
+              ))}
+              {avisos.length < MAX_AVISOS && (
+                <button type="button" onClick={() => setAvisos((arr) => [...arr, novoAviso()])} style={{ ...btnSecundario, alignSelf: "flex-start" }}>
+                  ＋ Adicionar aviso ({avisos.length}/{MAX_AVISOS})
+                </button>
+              )}
             </div>
           </div>
 
