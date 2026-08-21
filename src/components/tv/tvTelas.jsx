@@ -392,6 +392,19 @@ function TelaFechamento({ snap }) {
   return <Tela titulo="Modo Fechamento" icone="🏁"><Vazio>Em breve.</Vazio></Tela>;
 }
 
+// 8) Imagem pronta (arte/cartaz subido no painel) ----------------------------
+// A URL pública vem gravada no próprio item (resolvida no upload) — a TV não
+// consulta o Storage nem o banco. A imagem ocupa o palco inteiro, sem cortar.
+function TelaImagem({ imagem }) {
+  if (!imagem?.url) return <Tela titulo="Imagem" icone="🖼️"><Vazio>Imagem indisponível.</Vazio></Tela>;
+  return (
+    <Tela titulo={imagem.legenda || ""} icone={imagem.legenda ? "🖼️" : ""}>
+      <img src={imagem.url} alt={imagem.legenda || imagem.nome || "Imagem"}
+        style={{ maxWidth: "96%", maxHeight: "100%", objectFit: "contain", borderRadius: 18, boxShadow: "0 20px 60px rgba(0,0,0,0.45)" }} />
+    </Tela>
+  );
+}
+
 // Catálogo do carrossel --------------------------------------------------------
 //   ativa       -> padrão de fábrica (mostrar/ocultar). O painel da TV
 //                  (tv_config.telas_config) pode SOBREPOR por slide.
@@ -453,6 +466,21 @@ export const CATALOGO_TELAS = [
     descricao: "Em construção — ainda sem conteúdo real.", temConteudo: sempre },
 ];
 
+// Slides de imagem: um por item de snap.imagens.itens (ou da lista passada ao
+// painel). id = 'img:<id>' para a config em telas_config. Ligados por padrão,
+// ordem padrão DEPOIS do catálogo fixo.
+export const PREFIXO_IMG = "img:";
+export function telasDeImagens(itens) {
+  return (Array.isArray(itens) ? itens : [])
+    .filter((im) => im && im.id && im.url)
+    .map((im) => ({
+      id: PREFIXO_IMG + im.id, nome: im.legenda || im.nome || "Imagem", ativa: true, grupo: "imagem",
+      descricao: im.nome || "", imagem: im,
+      Comp: () => <TelaImagem imagem={im} />,
+      temConteudo: sempre,
+    }));
+}
+
 // Resolve a config de UM slide (mescla o override do painel sobre o padrão do
 // catálogo). Fonte única usada tanto pela TV quanto pelo painel de edição.
 function resolverTela(t, indice, cfg) {
@@ -469,7 +497,7 @@ function resolverTela(t, indice, cfg) {
 // sobrepõe o padrão, mas temConteudo continua sendo trava dura (sem slide vazio).
 export function telasVisiveis(snap) {
   const cfg = snap?.telas_config || {};
-  return CATALOGO_TELAS
+  return [...CATALOGO_TELAS, ...telasDeImagens(snap?.imagens?.itens)]
     .map((t, i) => {
       const r = resolverTela(t, i, cfg);
       return { ...t, visivel: r.visivel, ordem: r.ordem, extras: { subtitulo: r.subtitulo, observacao: r.observacao } };
@@ -482,13 +510,15 @@ export function telasVisiveis(snap) {
 // em construção), já ordenada, com o estado atual e se há conteúdo agora.
 // `cfg` = valor de tv_config.telas_config; `snap` = último snapshot (para
 // avaliar temConteudo). Ambos opcionais.
-export function telasParaAdmin(snap, cfg) {
-  return CATALOGO_TELAS
+// `imagens` = itens de tv_config.imagens (lista viva do painel, pode ainda não
+// estar no snapshot).
+export function telasParaAdmin(snap, cfg, imagens) {
+  return [...CATALOGO_TELAS, ...telasDeImagens(imagens)]
     .map((t, i) => {
       const r = resolverTela(t, i, cfg);
       return {
         id: t.id, nome: t.nome, descricao: t.descricao || "", grupo: t.grupo || "operacao",
-        placeholder: !!t.placeholder,
+        placeholder: !!t.placeholder, imagem: t.imagem || null,
         visivel: r.visivel, ordem: r.ordem, subtitulo: r.subtitulo, observacao: r.observacao,
         temConteudoAgora: snap ? !!t.temConteudo(snap) : null,
       };
