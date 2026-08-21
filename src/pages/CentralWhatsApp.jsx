@@ -97,6 +97,13 @@ function horaCompleta(iso) {
   });
 }
 
+// `date` do banco chega "2026-08-21". Passar por new Date() interpreta como
+// UTC e a tela mostra o dia ANTERIOR para quem está em Brasília. Fatiamos.
+function dataCurta(d) {
+  const [ano, mes, dia] = String(d || "").slice(0, 10).split("-");
+  return dia ? `${dia}/${mes}/${ano}` : "—";
+}
+
 const dinheiro = (v) =>
   v === null || v === undefined
     ? "—"
@@ -105,9 +112,11 @@ const dinheiro = (v) =>
 // ---------------------------------------------------------------------------
 // VOLTAR TEM DE DEVOLVER A CENTRAL COMO ELA ESTAVA
 //
-// "Abrir ficha completa" agora navega dentro do CRM (mesma aba). O Voltar do
-// navegador remonta a Central do zero, e sem isto o operador voltaria para o
-// filtro padrão, sem a conversa que estava lendo — no meio de um atendimento.
+// Olhar o aluno não sai mais da Central: o resumo abre em popup por cima da
+// conversa. Quem PRECISA da ficha completa (acionar, tabular, histórico) sai
+// por dentro do CRM, na mesma aba — e o Voltar do navegador remonta a Central
+// do zero. Sem isto o operador voltaria para o filtro padrão, sem a conversa
+// que estava lendo — no meio de um atendimento.
 //
 // Guardamos o MÍNIMO (canal, filtros e qual conversa estava aberta) na sessão,
 // só no caminho da ficha, e consumimos uma única vez ao voltar. Nada de estado
@@ -180,6 +189,10 @@ export default function CentralWhatsApp() {
   const [sync, setSync] = useState([]);
 
   const [ficha, setFicha] = useState(null);
+  // Resumo do aluno EM CIMA da conversa. Booleano, e não uma segunda cópia da
+  // ficha: o popup mostra exatamente o que já está em memória — abrir não
+  // consulta o banco de novo nem faz o operador esperar.
+  const [resumoAberto, setResumoAberto] = useState(false);
   const [candidatos, setCandidatos] = useState([]);
   const [buscaAluno, setBuscaAluno] = useState("");
   const [achadosAluno, setAchadosAluno] = useState([]);
@@ -405,8 +418,9 @@ export default function CentralWhatsApp() {
     carregarConversas();
   }
 
-  // Única saída da Central. Deixa o contexto guardado ANTES de navegar, para o
-  // Voltar do navegador reabrir a mesma fila e a mesma conversa.
+  // Única saída da Central, agora acionada de dentro do popup de resumo. Deixa
+  // o contexto guardado ANTES de navegar, para o Voltar do navegador reabrir a
+  // mesma fila e a mesma conversa.
   function irParaFichaCompleta(alunoId) {
     if (!alunoId) return;
     try {
@@ -425,6 +439,7 @@ export default function CentralWhatsApp() {
     setErro("");
     setAnexo(null);
     setFicha(null);
+    setResumoAberto(false);
     setCandidatos([]);
     setAchadosAluno([]);
     setBuscaAluno("");
@@ -1127,15 +1142,17 @@ export default function CentralWhatsApp() {
                 </div>
               ) : null}
 
-              {/* Ficha leve, carregada só agora. O pesado fica na ficha completa. */}
+              {/* Ficha leve, carregada só agora. A linha fica compacta de
+                  propósito: o detalhamento é o popup de resumo, e o pesado
+                  (acionar, tabular, histórico) continua na ficha completa. */}
               {ficha ? (
                 <div style={S.fichaBox}>
                   <div style={S.fichaLinha}>
                     <strong>{ficha.nome}</strong>
                     {ficha.matricula ? <span style={S.fichaItem}>matrícula {ficha.matricula}</span> : null}
                     {ficha.cpf_mascarado ? <span style={S.fichaItem}>CPF {ficha.cpf_mascarado}</span> : null}
-                    <button style={S.botaoMini} onClick={() => irParaFichaCompleta(ficha.aluno_id)}>
-                      Abrir ficha completa
+                    <button style={S.botaoMini} onClick={() => setResumoAberto(true)}>
+                      Ver resumo
                     </button>
                   </div>
                   <div style={S.fichaLinha}>
@@ -1269,6 +1286,15 @@ export default function CentralWhatsApp() {
         />
       ) : null}
 
+      {/* ---------------- Resumo do aluno (popup) ---------------- */}
+      {resumoAberto && ficha ? (
+        <ResumoAluno
+          ficha={ficha}
+          onFechar={() => setResumoAberto(false)}
+          onFichaCompleta={() => irParaFichaCompleta(ficha.aluno_id)}
+        />
+      ) : null}
+
       {/* ---------------- QR Code (gestão) ---------------- */}
       {qrCanal ? (
         <div style={S.modalFundo} onClick={() => setQrCanal(null)}>
@@ -1290,6 +1316,127 @@ export default function CentralWhatsApp() {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// RESUMO DO ALUNO — em cima da conversa, sem sair da Central
+//
+// POR QUE VIROU POPUP: quem está atendendo precisa do saldo e da situação NA
+// HORA de escrever a resposta. Mandar o operador para a ficha completa tirava a
+// conversa da frente dele — e ele voltava sem o que ia digitar. Aqui o resumo
+// cobre a tela, fecha no ESC ou no clique fora, e devolve a conversa
+// exatamente como estava.
+//
+// NÃO CONSULTA NADA. Tudo o que aparece aqui já veio no `whatsapp_aluno_resumo`
+// carregado quando a conversa foi aberta. Abrir o resumo é de graça para o
+// banco — que é o que permite abrir e fechar à vontade no meio do atendimento.
+//
+// A ficha completa continua a UM clique, no rodapé: é lá que se aciona e se
+// tabula. A diferença é que sair passou a ser escolha, não o preço de olhar.
+// ---------------------------------------------------------------------------
+function ResumoAluno({ ficha, onFechar, onFichaCompleta }) {
+  // ESC fecha: o operador está com as mãos no teclado, no meio de uma resposta.
+  useEffect(() => {
+    function aoTeclar(e) {
+      if (e.key === "Escape") onFechar();
+    }
+    window.addEventListener("keydown", aoTeclar);
+    return () => window.removeEventListener("keydown", aoTeclar);
+  }, [onFechar]);
+
+  const vencido = Number(ficha.saldo_vencido || 0);
+  const identificacao = [
+    ficha.matricula ? `matrícula ${ficha.matricula}` : null,
+    ficha.cpf_mascarado ? `CPF ${ficha.cpf_mascarado}` : null,
+    ficha.telefone ? formatarTelefone(ficha.telefone) : null,
+  ].filter(Boolean).join(" · ");
+
+  return (
+    <div style={S.modalFundo} onClick={onFechar}>
+      <div
+        style={S.modalResumo}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Resumo do aluno"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={S.resumoTopo}>
+          <div>
+            <h2 style={S.modalTitulo}>{ficha.nome || "Aluno"}</h2>
+            {identificacao ? <div style={S.resumoSub}>{identificacao}</div> : null}
+          </div>
+          <button style={S.botaoMini} onClick={onFechar}>Fechar</button>
+        </div>
+
+        {/* O que decide a conversa vem primeiro e em corpo grande: o operador
+            olha isto de relance enquanto digita. */}
+        <div style={S.resumoGrade}>
+          <div style={S.resumoCard}>
+            <div style={S.resumoRotulo}>Vencido</div>
+            <div style={vencido > 0 ? S.resumoValorAlerta : S.resumoValor}>
+              {dinheiro(ficha.saldo_vencido)}
+            </div>
+          </div>
+          <div style={S.resumoCard}>
+            <div style={S.resumoRotulo}>Total em aberto</div>
+            <div style={S.resumoValor}>{dinheiro(ficha.saldo_total)}</div>
+          </div>
+          <div style={S.resumoCard}>
+            <div style={S.resumoRotulo}>Negociações ativas</div>
+            <div style={S.resumoValor}>{ficha.acordos_ativos ?? 0}</div>
+          </div>
+          <div style={S.resumoCard}>
+            <div style={S.resumoRotulo}>Retorno agendado</div>
+            <div style={S.resumoValor}>{dataCurta(ficha.data_retorno)}</div>
+          </div>
+        </div>
+
+        <BlocoResumo
+          titulo="Situação na operação"
+          itens={[
+            ["Última tabulação", ficha.status_atual],
+            ["Criticidade", ficha.nivel_criticidade],
+            ["Situação", ficha.situacao_operacional],
+            ["Carteira de", ficha.responsavel_carteira],
+          ]}
+        />
+        <BlocoResumo
+          titulo="Acadêmico"
+          itens={[
+            ["Curso", ficha.curso],
+            ["Unidade", ficha.unidade],
+            ["Situação", ficha.situacao_academica],
+          ]}
+        />
+
+        <div style={S.resumoRodape}>
+          <span style={S.resumoRodapeNota}>
+            Para acionar, tabular ou ver o histórico, abra a ficha completa —
+            ela sai da Central, e o Voltar traz esta conversa de novo.
+          </span>
+          <button style={S.botaoSec} onClick={onFichaCompleta}>Abrir ficha completa</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Um bloco só existe se tiver o que mostrar: campo vazio vira linha vazia, e
+// linha vazia faz o operador procurar informação que não existe.
+function BlocoResumo({ titulo, itens }) {
+  const preenchidos = itens.filter(([, valor]) => valor !== null && valor !== undefined && valor !== "");
+  if (!preenchidos.length) return null;
+  return (
+    <div style={S.resumoBloco}>
+      <div style={S.resumoBlocoTitulo}>{titulo}</div>
+      {preenchidos.map(([rotulo, valor]) => (
+        <div key={rotulo} style={S.resumoLinha}>
+          <span style={S.resumoLinhaRotulo}>{rotulo}</span>
+          <span style={S.resumoLinhaValor}>{valor}</span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -2045,6 +2192,38 @@ const S = {
     padding: "9px 11px", borderRadius: 8, border: `1px solid ${BORDA}`,
     fontSize: 13, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", width: "100%",
   },
+  // ---- resumo do aluno (popup) ----
+  modalResumo: {
+    background: "#fff", borderRadius: 14, padding: 20, width: "min(560px, 94vw)",
+    maxHeight: "92vh", overflowY: "auto",
+    display: "flex", flexDirection: "column", gap: 14,
+    boxShadow: "0 20px 50px rgba(15,23,42,.25)",
+  },
+  resumoTopo: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
+  resumoSub: { fontSize: 12.5, color: CINZA, marginTop: 4 },
+  // 2 por linha no tamanho normal do popup (4 caberiam apertadas e a última
+  // sobraria sozinha numa linha); 1 por linha quando a janela é estreita.
+  resumoGrade: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10 },
+  resumoCard: {
+    border: `1px solid ${BORDA}`, borderRadius: 10, padding: "10px 12px", background: "#f8fafc",
+  },
+  resumoRotulo: { fontSize: 11.5, color: CINZA, textTransform: "uppercase", letterSpacing: .3 },
+  resumoValor: { fontSize: 17, fontWeight: 700, marginTop: 3, color: "#0f172a" },
+  resumoValorAlerta: { fontSize: 17, fontWeight: 700, marginTop: 3, color: VERMELHO },
+  resumoBloco: {
+    border: `1px solid ${BORDA}`, borderRadius: 10, padding: "10px 12px",
+    display: "flex", flexDirection: "column", gap: 6,
+  },
+  resumoBlocoTitulo: { fontSize: 12, fontWeight: 700, color: "#334155" },
+  resumoLinha: { display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12.5 },
+  resumoLinhaRotulo: { color: CINZA },
+  resumoLinhaValor: { color: "#0f172a", textAlign: "right" },
+  resumoRodape: {
+    display: "flex", alignItems: "center", justifyContent: "space-between",
+    gap: 12, flexWrap: "wrap", borderTop: `1px solid ${BORDA}`, paddingTop: 12,
+  },
+  resumoRodapeNota: { flex: 1, minWidth: 200, fontSize: 11.5, color: CINZA, lineHeight: 1.5 },
+
   modalTitulo: { margin: 0, fontSize: 18 },
   modalTexto: { margin: 0, fontSize: 13, color: CINZA },
   qr: { width: 260, height: 260, imageRendering: "pixelated" },

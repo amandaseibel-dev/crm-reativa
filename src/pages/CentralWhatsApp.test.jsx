@@ -1234,6 +1234,13 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
 
   // Deixa a Central num estado RECONHECÍVEL (filtro, canal, busca e uma
   // conversa aberta) e sai por "Abrir ficha completa".
+  // Sair da Central agora tem DOIS passos de propósito: o clique na conversa
+  // abre o RESUMO em cima dela, e só quem escolhe "Abrir ficha completa" sai.
+  async function sairPelaFichaCompleta() {
+    fireEvent.click(await screen.findByRole("button", { name: "Ver resumo" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha completa" }));
+  }
+
   async function contextualizarESairPelaFicha() {
     servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
     servico.mensagens = [
@@ -1254,7 +1261,7 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
     });
     fireEvent.click(await screen.findByText("Carlos"));
 
-    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha completa" }));
+    await sairPelaFichaCompleta();
   }
 
   const contextoGuardado = () =>
@@ -1269,7 +1276,7 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
     const { container } = montarNaRota((r) => rotas.push(r));
     fireEvent.click(await screen.findByText("Carlos"));
 
-    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha completa" }));
+    await sairPelaFichaCompleta();
 
     // a rota do CRM mudou para a ficha DAQUELE aluno — nada de aba nova
     expect(await screen.findByText("FICHA DO ALUNO a1")).toBeDefined();
@@ -1297,8 +1304,8 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
       expect(ultimo.responsavel).toBe("joao@aelbra.com.br");
     });
     // ...e com a conversa que estava aberta reaberta sozinha: só há botão de
-    // ficha quando existe conversa selecionada COM aluno.
-    expect(await screen.findByRole("button", { name: "Abrir ficha completa" })).toBeDefined();
+    // resumo quando existe conversa selecionada COM aluno.
+    expect(await screen.findByRole("button", { name: "Ver resumo" })).toBeDefined();
     expect(abriuJanela).not.toHaveBeenCalled();
   });
 
@@ -1367,18 +1374,18 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
 
     // 1ª conversa: abre a ficha e volta
     fireEvent.click(await screen.findByText("Carlos"));
-    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha completa" }));
+    await sairPelaFichaCompleta();
     expect(await screen.findByText("FICHA DO ALUNO a1")).toBeDefined();
     voltar();
     await screen.findByText("Central WhatsApp");
-    expect(await screen.findByRole("button", { name: "Abrir ficha completa" })).toBeDefined();
+    expect(await screen.findByRole("button", { name: "Ver resumo" })).toBeDefined();
 
     // 2ª conversa: a ficha aberta agora é a DELA
     servico.ficha = { aluno_id: "a2", nome: "Beatriz", matricula: "2", saldo_total: 0, saldo_vencido: 0 };
     fireEvent.click(await screen.findByText("Beatriz"));
     await waitFor(() =>
       expect(servico.fichasPedidas[servico.fichasPedidas.length - 1]).toBe("k2"));
-    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha completa" }));
+    await sairPelaFichaCompleta();
 
     expect(await screen.findByText("FICHA DO ALUNO a2")).toBeDefined();
     // o contexto gravado é o da SEGUNDA conversa, não o resto da primeira
@@ -1407,7 +1414,7 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
     fireEvent.click(screen.getByRole("button", { name: "Atualizar" }));
     expect(await screen.findByText("Carlos")).toBeDefined();
     await waitFor(() => expect(screen.getByText(/Escolha uma conversa/)).toBeDefined());
-    expect(screen.queryByRole("button", { name: "Abrir ficha completa" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ver resumo" })).toBeNull();
   });
 
   it("sair da ficha pelo menu e voltar à Central pelo menu NÃO restaura nada", async () => {
@@ -1432,7 +1439,7 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
     });
     // e nenhuma conversa reaberta sozinha
     expect(screen.getByText(/Escolha uma conversa/)).toBeDefined();
-    expect(screen.queryByRole("button", { name: "Abrir ficha completa" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Ver resumo" })).toBeNull();
   });
 
   it("o contexto não restaurado é apagado do mesmo jeito", async () => {
@@ -1466,6 +1473,165 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
       expect(ultimo.status).toBe("SEM_RETORNO");
       expect(ultimo.canalId).toBe("");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RESUMO DO ALUNO EM POPUP
+//
+// O comportamento anterior era: clicou no aluno, saiu da Central. Quem estava
+// no meio de uma resposta perdia a conversa de vista para consultar um saldo.
+// Agora o resumo abre EM CIMA da conversa e fecha sem sair do lugar.
+//
+// O que estes testes protegem, na ordem em que dói quando quebra:
+//   1. abrir o resumo NÃO muda a rota — a conversa continua atrás dele;
+//   2. abrir o resumo NÃO consulta o banco de novo (11 operadores clicando);
+//   3. fechar (ESC, clique fora, botão) devolve a conversa como estava;
+//   4. trocar de conversa não deixa o resumo do aluno ANTERIOR na tela.
+// ---------------------------------------------------------------------------
+describe("Central WhatsApp — resumo do aluno", () => {
+  const FICHA = {
+    aluno_id: "a1",
+    nome: "Carlos Silva",
+    matricula: "20231234",
+    cpf_mascarado: "***.456.789-**",
+    telefone: "5551999998888",
+    curso: "Direito",
+    unidade: "Canoas",
+    situacao_academica: "Matriculado",
+    situacao_operacional: "Cobrança vencida",
+    nivel_criticidade: "Crítico",
+    status_atual: "Mensagem enviada",
+    saldo_vencido: 1234.5,
+    saldo_total: 4321,
+    responsavel_carteira: "joao@aelbra.com.br",
+    acordos_ativos: 2,
+    data_retorno: "2026-08-25",
+  };
+
+  async function abrirConversaDoCarlos() {
+    servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos Silva", nao_lidas: 0 })];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi, quanto está minha dívida?",
+        timestamp_wa: new Date().toISOString() },
+    ];
+    servico.ficha = FICHA;
+    fireEvent.click(await screen.findByText("Carlos Silva"));
+    return screen.findByRole("button", { name: "Ver resumo" });
+  }
+
+  const abrirResumo = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Ver resumo" }));
+    return screen.findByRole("dialog");
+  };
+
+  it("abre o resumo em cima da conversa, sem sair da Central", async () => {
+    const rotas = [];
+    montarNaRota((r) => rotas.push(r));
+    await abrirConversaDoCarlos();
+
+    const popup = await abrirResumo();
+
+    // a rota não se mexeu e a conversa continua montada atrás do popup
+    expect(rotas[rotas.length - 1]).toBe("/central-whatsapp");
+    expect(screen.queryByText("SAIU DA CENTRAL")).toBeNull();
+    expect(screen.getByText("Oi, quanto está minha dívida?")).toBeDefined();
+    expect(within(popup).getByText("Carlos Silva")).toBeDefined();
+  });
+
+  it("mostra o que decide a conversa: saldo, negociações, retorno e situação", async () => {
+    render(<CentralWhatsApp />);
+    await abrirConversaDoCarlos();
+    const popup = await abrirResumo();
+
+    expect(within(popup).getByText("R$ 1.234,50")).toBeDefined();
+    expect(within(popup).getByText("R$ 4.321,00")).toBeDefined();
+    expect(within(popup).getByText("2")).toBeDefined();
+    // date do banco ("2026-08-25") não pode virar 24/08 por causa de fuso
+    expect(within(popup).getByText("25/08/2026")).toBeDefined();
+    expect(within(popup).getByText("Mensagem enviada")).toBeDefined();
+    expect(within(popup).getByText("Crítico")).toBeDefined();
+    expect(within(popup).getByText("Direito")).toBeDefined();
+    expect(within(popup).getByText("Canoas")).toBeDefined();
+    // identificação: matrícula e CPF JÁ MASCARADO, como vem do banco
+    expect(within(popup).getByText(/20231234/)).toBeDefined();
+    expect(within(popup).getByText(/\*\*\*\.456\.789-\*\*/)).toBeDefined();
+  });
+
+  it("abrir o resumo não consulta o banco de novo", async () => {
+    render(<CentralWhatsApp />);
+    await abrirConversaDoCarlos();
+    await waitFor(() => expect(servico.fichasPedidas.length).toBe(1));
+
+    await abrirResumo();
+    fireEvent.click(screen.getByRole("button", { name: "Fechar" }));
+    await abrirResumo();
+
+    // abrir e fechar à vontade continua custando UMA consulta: a da conversa
+    expect(servico.fichasPedidas.length).toBe(1);
+  });
+
+  it("fecha no botão, no ESC e no clique fora — e a conversa fica onde estava", async () => {
+    render(<CentralWhatsApp />);
+    await abrirConversaDoCarlos();
+
+    const popup = await abrirResumo();
+    fireEvent.click(within(popup).getByRole("button", { name: "Fechar" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    await abrirResumo();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    const denovo = await abrirResumo();
+    fireEvent.click(denovo.parentElement);
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+
+    // a conversa continua aberta o tempo todo
+    expect(screen.getByText("Oi, quanto está minha dívida?")).toBeDefined();
+  });
+
+  it("clicar DENTRO do popup não o fecha", async () => {
+    render(<CentralWhatsApp />);
+    await abrirConversaDoCarlos();
+    const popup = await abrirResumo();
+
+    fireEvent.click(within(popup).getByText("Carlos Silva"));
+
+    expect(screen.getByRole("dialog")).toBeDefined();
+  });
+
+  it("trocar de conversa fecha o resumo — nada do aluno anterior fica na tela", async () => {
+    servico.conversas = [
+      conversa({ id: "k1", aluno_id: "a1", aluno_nome: "Carlos Silva",
+                 nome_perfil: "Carlos Silva", nao_lidas: 0 }),
+      conversa({ id: "k2", aluno_id: "a2", aluno_nome: "Beatriz",
+                 nome_perfil: "Beatriz", telefone_e164: "5551988887777", nao_lidas: 0 }),
+    ];
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    servico.ficha = FICHA;
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Carlos Silva"));
+    await abrirResumo();
+
+    servico.ficha = { ...FICHA, aluno_id: "a2", nome: "Beatriz", matricula: "9" };
+    fireEvent.click(screen.getByText("Beatriz"));
+
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  it("a ficha completa continua a um clique, e leva ao aluno certo", async () => {
+    const rotas = [];
+    montarNaRota((r) => rotas.push(r));
+    await abrirConversaDoCarlos();
+    const popup = await abrirResumo();
+
+    fireEvent.click(within(popup).getByRole("button", { name: "Abrir ficha completa" }));
+
+    expect(await screen.findByText("FICHA DO ALUNO a1")).toBeDefined();
+    expect(rotas[rotas.length - 1]).toBe("/aluno?id=a1");
   });
 });
 

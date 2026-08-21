@@ -96,10 +96,15 @@ export const ALUNOS = [
   { id: "a7", nome: "Ana Beatriz Lopes", matricula: "20224411", curso: "Psicologia", telefone: null },
 ];
 
+// Espelha TODAS as colunas de `whatsapp_aluno_resumo`: o popup de resumo mostra
+// campos que a linha compacta não mostrava (tabulação, criticidade, retorno), e
+// um mock incompleto esconderia justamente o que se veio rever aqui.
 export const FICHA = {
   aluno_id: "a1", nome: "Carlos Eduardo Ramos", matricula: "20218844",
-  cpf_mascarado: "***.456.789-**", curso: "Administração", unidade: "Canoas",
-  situacao_academica: "Matriculado", situacao_operacional: "ACORDO_EM_DIA",
+  cpf_mascarado: "***.456.789-**", telefone: "5551999998888",
+  curso: "Administração", unidade: "Canoas",
+  situacao_academica: "Matriculado", situacao_operacional: "Acordo em dia",
+  nivel_criticidade: "Atenção", status_atual: "Mensagem enviada",
   saldo_total: 4382.19, saldo_vencido: 1461.4, acordos_ativos: 1,
-  responsavel_carteira: "Rafaella Lima",
+  responsavel_carteira: "Rafaella Lima", data_retorno: "2026-08-25",
 };
