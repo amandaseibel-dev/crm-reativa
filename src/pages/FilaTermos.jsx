@@ -2,6 +2,13 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import {
+  ETAPA_LABEL,
+  ETAPAS_ASSINATURA,
+  etapaDe,
+  dataEtapa,
+  casaBusca,
+} from "../utils/termosAssinatura";
+import {
   urlTermo,
   enviarTermo,
   concluirAssinaturaTermo,
@@ -33,25 +40,6 @@ const MOTIVOS_REJEICAO = [
 
 function traduzStatus(status) {
   return STATUS_LABEL[status] || status || "-";
-}
-
-// Trilha de assinatura de testemunhas + Ulbra. Vive em `etapa_assinatura`,
-// separada de `status` (que move a fila de validação e as notificações).
-// Termo carregado de um banco sem a coluna cai em NAO_APLICAVEL, e a aba
-// Assinaturas fica vazia em vez de quebrar.
-const ETAPA_LABEL = {
-  NAO_APLICAVEL: "Sem assinatura pendente",
-  NAO_VERIFICADO: "Não verificado",
-  PENDENTE_ENVIO: "A enviar",
-  ENVIADO_ASSINATURA: "Aguardando assinaturas",
-  COMPLETO: "Termo assinado",
-};
-
-const ETAPAS_ASSINATURA = ["NAO_VERIFICADO", "PENDENTE_ENVIO", "ENVIADO_ASSINATURA", "COMPLETO"];
-
-function etapaDe(t) {
-  const e = t?.etapa_assinatura;
-  return ETAPA_LABEL[e] ? e : "NAO_APLICAVEL";
 }
 
 function corEtapa(etapa) {
@@ -155,6 +143,7 @@ export default function FilaAdmTermos() {
 
   // --- Aba Assinaturas (testemunhas + Ulbra) ---
   const [etapaFiltro, setEtapaFiltro] = useState("TODAS");
+  const [buscaAssinatura, setBuscaAssinatura] = useState("");
   const [selecionados, setSelecionados] = useState([]);
   const [modalAnexo, setModalAnexo] = useState(null);
   const [anexoArquivo, setAnexoArquivo] = useState(null);
@@ -466,14 +455,15 @@ export default function FilaAdmTermos() {
       const naFila = termos.filter((t) => etapaDe(t) !== "NAO_APLICAVEL");
       const porEtapa =
         etapaFiltro === "TODAS" ? naFila : naFila.filter((t) => etapaDe(t) === etapaFiltro);
-      return [...porEtapa].sort((a, b) =>
+      const porBusca = porEtapa.filter((t) => casaBusca(t, buscaAssinatura));
+      return [...porBusca].sort((a, b) =>
         ordemLiberados === "RECENTE"
-          ? dataLiberacao(b) - dataLiberacao(a)
-          : dataLiberacao(a) - dataLiberacao(b)
+          ? dataEtapa(b) - dataEtapa(a)
+          : dataEtapa(a) - dataEtapa(b)
       );
     }
     return termos;
-  }, [termos, termosLiberados, filtro, tipoLiberado, ordemLiberados, etapaFiltro]);
+  }, [termos, termosLiberados, filtro, tipoLiberado, ordemLiberados, etapaFiltro, buscaAssinatura]);
 
   // Contadores da trilha de assinatura. Valem para TODO termo liberado —
   // manual e gov.br —, porque todos precisam das testemunhas e da Ulbra.
@@ -603,6 +593,21 @@ export default function FilaAdmTermos() {
         <>
           <div style={styles.subFiltros}>
             <div style={styles.grupoSubFiltro}>
+              <span style={styles.rotuloSubFiltro}>Aluno:</span>
+              <input
+                style={styles.campoBusca}
+                placeholder="Pesquisar por nome ou CPF"
+                value={buscaAssinatura}
+                onChange={(e) => setBuscaAssinatura(e.target.value)}
+              />
+              {buscaAssinatura.trim() !== "" && (
+                <button style={styles.subFiltro} onClick={() => setBuscaAssinatura("")}>
+                  Limpar busca
+                </button>
+              )}
+            </div>
+
+            <div style={styles.grupoSubFiltro}>
               <span style={styles.rotuloSubFiltro}>Etapa:</span>
               {[{ chave: "TODAS", label: `Todas (${contadoresEtapa.TODAS})` }].concat(
                 ETAPAS_ASSINATURA.map((e) => ({
@@ -639,6 +644,14 @@ export default function FilaAdmTermos() {
               ))}
             </div>
           </div>
+
+          {buscaAssinatura.trim() !== "" && (
+            <div style={styles.avisoBusca}>
+              Mostrando <strong>{termosFiltrados.length}</strong> termo(s) de{" "}
+              {etapaFiltro === "TODAS" ? contadoresEtapa.TODAS : contadoresEtapa[etapaFiltro]} nesta
+              etapa. Os contadores acima seguem contando tudo, não só a busca.
+            </div>
+          )}
 
           <div style={styles.barraLote}>
             <span style={styles.rotuloSubFiltro}>
@@ -1191,6 +1204,22 @@ const styles = {
     marginBottom: "18px",
   },
   grupoSubFiltro: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" },
+  campoBusca: {
+    padding: "7px 12px",
+    borderRadius: "999px",
+    border: "1px solid #d1d5db",
+    fontSize: "13px",
+    minWidth: "230px",
+  },
+  avisoBusca: {
+    background: "#e9f5ff",
+    border: "1px solid #b6effb",
+    color: "#055160",
+    borderRadius: "10px",
+    padding: "10px 14px",
+    marginBottom: "12px",
+    fontSize: "13px",
+  },
   barraLote: {
     display: "flex",
     flexWrap: "wrap",
