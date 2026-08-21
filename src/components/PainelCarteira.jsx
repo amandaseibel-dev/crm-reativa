@@ -421,7 +421,7 @@ const KPIS_FILTRAVEIS = new Set([
 const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
 
 const COLUNAS_ALUNO =
-  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
+  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,saldo_total,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
 
 // Rotulo amigavel da situacao operacional (recalcular_situacao_aluno).
 const SITUACAO_OPERACIONAL_LABEL = {
@@ -476,7 +476,8 @@ function seloFila(a, hojeStr) {
   const d = diasSemAcionar(a, hojeStr);
   if (d === null) return { emoji: "🆕", texto: "Nunca acionado", bg: "#1e3a8a", cor: "#bfdbfe" };
   const faltam = 10 - d; // fidelizacao solta o caso em +10 dias
-  if (faltam <= 2) return { emoji: "⏳", texto: `Solta em ${Math.max(0, faltam)}d`, bg: "#7f1d1d", cor: "#fecaca" };
+  if (faltam <= 0) return { emoji: "🚨", texto: `Perdendo o caso (${d}d)`, bg: "#7f1d1d", cor: "#fecaca" };
+  if (faltam <= 2) return { emoji: "⏳", texto: `Solta em ${faltam}d`, bg: "#7f1d1d", cor: "#fecaca" };
   return null;
 }
 
@@ -533,6 +534,8 @@ function mostrarSeloCriticidade(a) {
 // isso PERMANECE na fila.
 const STATUS_NAO_ACIONAVEIS = ["JURIDICO", "CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "AGUARDANDO_BAIXA", "SALDO_ZERO_CONFIRMADO", "SEM_SALDO_EM_ABERTO"];
 
+const SALDO_MINIMO_FILA = 5; // R$ -- abaixo disso o caso nao entra na fila do operador
+
 function ehNaoAcionavel(a, idsEmConfirmacao) {
   const s = String(a?.status_atual || "").toUpperCase();
   if (s.startsWith("QUITAD")) return true; // QUITADO / QUITADO_MANUAL / QUITACAO...
@@ -548,6 +551,12 @@ function ehNaoAcionavel(a, idsEmConfirmacao) {
   // normal e o caso reaparece. O status vem como texto humano em status_jornada.
   const sj = String(a?.status_jornada || "").toUpperCase();
   if (sj.includes("AGUARDANDO CONFIRMAÇÃO") || sj.includes("AGUARDANDO CONFIRMACAO")) return true;
+  // Saldo total abaixo de R$ 5,00 (decisao da gestao, 21/08/2026): residuo
+  // nao vale acionamento e so ocupa a fila. Fonte = alunos.saldo_total
+  // (canonico, persistido por recalcular_situacao_aluno). Sem saldo gravado,
+  // o caso continua na fila (nao esconder por falta de dado).
+  const st = Number(a?.saldo_total);
+  if (a?.saldo_total != null && Number.isFinite(st) && st < SALDO_MINIMO_FILA) return true;
   return false;
 }
 
@@ -967,16 +976,26 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       // Alunos com confirmacao de pagamento PENDENTE saem da fila operacional,
       // mesmo que o texto de status ainda nao reflita "pago". Fonte de verdade =
       // solicitacoes_confirmacao_pagamento (PENDENTES).
+      // PAGINADO: o PostgREST devolve no maximo 1000 linhas por resposta,
+      // independentemente do .limit(). Com ~2.400 pendentes, um unico select
+      // deixava ~1.400 alunos ja enviados para confirmacao/baixa VAZAREM para
+      // a fila do operador.
       const idsEmConfirmacao = new Set();
       try {
-        const { data: pendentesConf } = await supabase
-          .from("solicitacoes_confirmacao_pagamento")
-          .select("aluno_id")
-          .in("status", ["AGUARDANDO_CONFIRMACAO", "PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO"])
-          .limit(20000);
-        (pendentesConf || []).forEach((p) => {
-          if (p?.aluno_id != null) idsEmConfirmacao.add(String(p.aluno_id));
-        });
+        const PAG_CONF = 1000;
+        for (let ini = 0; ini < 50000; ini += PAG_CONF) {
+          const { data: pendentesConf, error: erroConf } = await supabase
+            .from("solicitacoes_confirmacao_pagamento")
+            .select("aluno_id")
+            .in("status", ["AGUARDANDO_CONFIRMACAO", "PAGAMENTO_RECEBIDO_AGUARDANDO_VINCULO"])
+            .order("id", { ascending: true })
+            .range(ini, ini + PAG_CONF - 1);
+          if (erroConf) throw erroConf;
+          (pendentesConf || []).forEach((p) => {
+            if (p?.aluno_id != null) idsEmConfirmacao.add(String(p.aluno_id));
+          });
+          if (!pendentesConf || pendentesConf.length < PAG_CONF) break;
+        }
       } catch (e) {
         console.error("Erro ao carregar confirmacoes pendentes (fila):", e);
       }
@@ -2152,76 +2171,40 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     };
     const arr = [...l];
     if (ordenacao === "inteligente") {
-      // Fila inteligente: organiza a carteira do PROPRIO operador sem mover
-      // dono de ninguem. Faixas de urgencia:
-      //   0 retorno devido | 1 nunca acionado / perto de soltar (10d)
-      //   3 resto (inclui quem ainda esta dentro do prazo).
-      // Quem esta DENTRO DO PRAZO (menos de 8 dias parado) nao sobe na fila:
-      // fica na faixa neutra junto com os casos ativos e so e puxado pro topo
-      // a 2 dias de soltar (8d+). Antes havia uma faixa intermediaria aos 5
-      // dias que tirava o caso do "Casos ativos" cedo demais.
-      // Alunos "so mensalidade" (fila operacional) NAO recebem o boost de
-      // fidelizacao (ficam na faixa neutra) e ficam de fora do rodizio por ano
-      // -- a ordem deles nao e reprioritizada.
+      // Fila inteligente (regra da gestao, 21/08/2026):
+      //   1) PERDENDO O CASO primeiro: 10+ dias sem acionamento (a fidelizacao
+      //      solta o caso) -- e quem nunca foi acionado, contado desde que o
+      //      caso chegou ao operador;
+      //   2) retorno devido (hoje/atrasado): compromisso marcado;
+      //   3) perto de soltar (8-9 dias);
+      //   4) resto (dentro do prazo).
+      // Dentro de cada faixa: CRITICIDADE canonica, depois SEMPRE os mais
+      // antigos sem acionamento primeiro, chegando por ultimo nos mais novos;
+      // empate por saldo. Sem rodizio por ano: a ordem e estrita, para o
+      // operador nao perder caso nenhum.
       const hoje = hojeLocalBR();
-      const soMensalidade = (a) => {
-        const f = finAlunos[String(a.id)];
-        return !!(f && (f.acordos || 0) <= 0 && (f.mensalidades || 0) > 0);
+      const diasParado = (a) => {
+        const d = diasSemAcionar(a, hoje);
+        if (d !== null) return d;
+        // nunca acionado: conta desde que o caso chegou ao operador
+        const desde = a?.responsavel_atual_em ? String(a.responsavel_atual_em).slice(0, 10) : null;
+        const dd = desde ? diasParaData(desde, hoje) : null;
+        return dd === null ? 9999 : Math.max(0, dd);
       };
       const faixa = (a) => {
+        if (diasParado(a) >= 10) return 0;
         const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
-        if (ret && ret <= hoje) return 0;
-        if (soMensalidade(a)) return 3;
-        const d = diasSemAcionar(a, hoje);
-        if (d === null) return 1; // nunca acionado
-        if (d >= 8) return 1;     // a 2 dias (ou menos) de soltar
-        return 3;                 // dentro do prazo: segue nos casos ativos
+        if (ret && ret <= hoje) return 1;
+        if (diasParado(a) >= 8) return 2;
+        return 3;
       };
       arr.sort((a, b) =>
         (faixa(a) - faixa(b)) ||
         (critRank(a) - critRank(b)) ||
+        (diasParado(b) - diasParado(a)) ||
         (keyDias(b) - keyDias(a)) ||
         (valorAbertoDe(b) - valorAbertoDe(a))
       );
-      // Espalha por ANO de vencimento dentro de cada faixa (rodizio round-robin),
-      // pra nao cair tudo do mesmo ano de uma vez. So-mensalidade fica fora do
-      // rodizio, preservado em ordem estavel ao fim da faixa.
-      const anoDe = (a) => {
-        const v = finAlunos[String(a.id)]?.menorVencimento;
-        return v ? String(v).slice(0, 4) : "0000";
-      };
-      const espalharPorAno = (grupo) => {
-        const fixos = grupo.filter(soMensalidade);
-        const giram = grupo.filter((x) => !soMensalidade(x));
-        const buckets = new Map();
-        for (const a of giram) {
-          const k = anoDe(a);
-          if (!buckets.has(k)) buckets.set(k, []);
-          buckets.get(k).push(a);
-        }
-        const chaves = [...buckets.keys()];
-        const out = [];
-        let adicionou = true;
-        while (adicionou) {
-          adicionou = false;
-          for (const k of chaves) {
-            const b = buckets.get(k);
-            if (b.length) { out.push(b.shift()); adicionou = true; }
-          }
-        }
-        return out.concat(fixos);
-      };
-      const resultado = [];
-      let i = 0;
-      while (i < arr.length) {
-        const t = faixa(arr[i]);
-        let j = i;
-        while (j < arr.length && faixa(arr[j]) === t) j++;
-        resultado.push(...espalharPorAno(arr.slice(i, j)));
-        i = j;
-      }
-      arr.length = 0;
-      arr.push(...resultado);
     }
     else if (ordenacao === "prioridade") {
       // O que acionar primeiro: retorno devido (hoje/atrasado) e maior
@@ -3255,7 +3238,18 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     ▶ Acionamento guiado · {guiadoAcionados} {guiadoAcionados === 1 ? "acionado" : "acionados"} · faltam {Math.max(0, listaFiltrada.filter((x) => !guiadoFeitosRef.current.has(String(x.id)) && !acionadosHojeIds.map(String).includes(String(x.id))).length)}
                   </div>
                 )}
-                <h2 style={S.modalNome}>{nomeAluno(alunoModal)}</h2>
+                <h2 style={{ ...S.modalNome, display: "flex", alignItems: "center", gap: 8 }}>
+                  <span>{nomeAluno(alunoModal)}</span>
+                  <button
+                    type="button"
+                    onClick={(e) => copiarNome(alunoModal, e)}
+                    title="Copiar nome do aluno"
+                    aria-label="Copiar nome do aluno"
+                    style={S.btnCopiarNome}
+                  >
+                    {nomeCopiadoId === alunoModal.id ? "✓ copiado" : "📋 copiar"}
+                  </button>
+                </h2>
                 <div style={S.modalSub}>
                   {alunoModal.cpf || "-"} · {alunoModal.telefone || "sem telefone"} ·{" "}
                   <span style={{ color: statusPrazo(alunoModal).cor, fontWeight: 700 }}>
@@ -3890,6 +3884,7 @@ const S = {
   textarea: { padding: "10px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, minHeight: 70, resize: "vertical", fontFamily: "inherit", background: "#fff", color: "#344054" },
   proximaAcao: { fontSize: 12.5, color: "#667085", background: "#f9fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: "9px 13px" },
   acoesLinha: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 },
+  btnCopiarNome: { background: "#eef2ff", color: "#1e40af", border: "1px solid #c7d2fe", borderRadius: 8, padding: "2px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
   guiadoBanner: { marginTop: 10, padding: "10px 14px", borderRadius: 10, background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 10 },
   guiadoBannerFechar: { marginLeft: "auto", background: "transparent", border: "none", cursor: "pointer", color: "#065f46", fontWeight: 700 },
   guiadoSelo: { display: "inline-block", marginBottom: 6, padding: "3px 10px", borderRadius: 999, background: "#1e40af", color: "#fff", fontSize: 11, fontWeight: 800, letterSpacing: 0.3 },
