@@ -6,6 +6,7 @@ import makeWASocket, {
   DisconnectReason,
   fetchLatestBaileysVersion,
   makeCacheableSignalKeyStore,
+  proto,
 } from "baileys";
 import QRCode from "qrcode";
 import { writeFileSync } from "node:fs";
@@ -92,10 +93,38 @@ const espera = (ms) => new Promise((r) => setTimeout(r, ms));
 // de cada descarte contado. O filtro antigo morava aqui e descartava todo
 // `@lid` — foi o que jogou fora o histórico do primeiro pareamento.
 
+// Formatos que são a MAQUINARIA do WhatsApp, não mensagem de gente.
+//
+// `protocolMessage` é o campeão: sincronização de histórico, chave de app
+// state, exclusão e edição de mensagem. Em 19-20/08/2026 isso virou 49 bolhas
+// vazias de SAÍDA dentro das conversas, em rajadas de dez em três segundos —
+// o operador via "[outro]" onde ninguém tinha escrito nada. Confirmado
+// cruzando o wamid `2A122F5E1AFD9F23C642` com "got history notification" no
+// log do Baileys.
+//
+// NÃO SE ESTÁ DESCARTANDO MENSAGEM DE ALUNO: nada nesta lista carrega texto
+// nem anexo. Quando o aluno APAGA ou EDITA, porém, é por aqui que o aviso
+// chega — e hoje ele é ignorado, então a mensagem original continua na Central
+// como se nada tivesse acontecido. Refletir isso na conversa é outro trabalho;
+// o que muda agora é que a exclusão parou de virar bolha vazia.
+const FORMATOS_INTERNOS = new Set([
+  "protocolMessage",
+  "senderKeyDistributionMessage",
+  "messageContextInfo",
+]);
+
 // Extrai o que interessa da mensagem. Mídia na fase 1 é registrada como
 // referência: o operador precisa SABER que veio um comprovante, mesmo que o
 // arquivo em si só entre na fase 2.
-function conteudo(msg) {
+//
+// O QUE SAI DAQUI, além de tipo/texto/mime:
+//   `descartar` — é maquinaria do WhatsApp e não pode virar bolha na conversa.
+//   `formatos`  — o NOME do campo que o WhatsApp mandou, quando não
+//                 reconhecemos o formato. Sem isso, `outro` é um beco sem
+//                 saída: 378 mensagens em produção viraram "[outro]" e não
+//                 havia como descobrir o que cada uma era. Nome de campo é
+//                 metadado, não conteúdo — não vaza texto de aluno.
+export function conteudo(msg) {
   const m = msg.message || {};
   const interno = m.ephemeralMessage?.message || m.viewOnceMessage?.message ||
                   m.viewOnceMessageV2?.message || m.documentWithCaptionMessage?.message || m;
@@ -110,7 +139,14 @@ function conteudo(msg) {
   if (interno.locationMessage) return { tipo: "location", texto: null };
   if (interno.contactMessage) return { tipo: "contact", texto: interno.contactMessage.displayName || null };
   if (interno.reactionMessage) return { tipo: "reaction", texto: interno.reactionMessage.text || null };
-  return { tipo: "outro", texto: null };
+
+  // Nada reconhecido. Duas saídas, e a diferença entre elas é o ponto:
+  // maquinaria do WhatsApp sai da conversa; formato de gente que ainda não
+  // sabemos ler FICA, agora com nome, para virar suporte de verdade depois.
+  const formatos = Object.keys(interno).filter((k) => interno[k] != null);
+  const utaveis = formatos.filter((k) => !FORMATOS_INTERNOS.has(k));
+  if (utaveis.length === 0) return { tipo: "interno", texto: null, descartar: true, formatos };
+  return { tipo: "outro", texto: null, formatos: utaveis };
 }
 
 // Nomes do enum `proto.WebMessageInfo.Status` do Baileys, para o log ficar
@@ -289,7 +325,9 @@ export function criarSessao({ chave }) {
     for (const { jid, msg } of retidasPorLid) {
       const r = resolverEndereco(jid, vinculos, msg.key);
       if (r.telefone) {
-        enfileirar("mensagem", mensagemDoHistorico(msg, r.telefone, null));
+        const evento = mensagemDoHistorico(msg, r.telefone, null);
+        if (!evento) { descartes.INTERNO++; continue; }
+        enfileirar("mensagem", evento);
         descartes.aceitos++;
         descartes.resolvidos_por_lid++;
         recuperadas++;
@@ -384,8 +422,11 @@ export function criarSessao({ chave }) {
   // Monta o evento de uma mensagem do histórico. Existe separado porque as
   // mensagens retidas por LID são enfileiradas mais tarde, quando o vínculo
   // aparece — e precisam sair exatamente iguais às demais.
+  //
+  // Devolve `null` quando o item é maquinaria do WhatsApp — o chamador pula.
   function mensagemDoHistorico(msg, telefone, nome) {
-    const { tipo, texto, mime } = conteudo(msg);
+    const { tipo, texto, mime, descartar, formatos } = conteudo(msg);
+    if (descartar) return null;
     return {
       sessao: chave,
       telefone,
@@ -401,6 +442,7 @@ export function criarSessao({ chave }) {
       timestamp: paraISO(msg.messageTimestamp),
       origem: "SYNC_INICIAL",
       status: msg.key.fromMe ? "ENVIADO" : null,
+      payload: formatos ? { formatos } : null,
     };
   }
 
@@ -460,10 +502,13 @@ export function criarSessao({ chave }) {
       }
 
       const telefone = endereco.telefone;
+      const evento = mensagemDoHistorico(msg, telefone, nomes.get(telefone));
+      if (!evento) { descartes.INTERNO++; continue; }
+
       descartes.aceitos++;
       if (endereco.viaLid) descartes.resolvidos_por_lid++;
 
-      enfileirar("mensagem", mensagemDoHistorico(msg, telefone, nomes.get(telefone)));
+      enfileirar("mensagem", evento);
       gravadas++;
     }
 
@@ -488,14 +533,80 @@ export function criarSessao({ chave }) {
   }
 
   function tratarMensagensNovas({ messages, type }) {
-    // `notify` = chegou agora. `append` costuma ser preenchimento de histórico
-    // durante a sincronização, e já é tratado pelo evento próprio.
-    if (type !== "notify") return;
+    // `notify` é mensagem chegando agora. `append` é O QUE FICOU ACUMULADO
+    // enquanto o gateway esteve fora do ar — o Baileys marca assim tudo que
+    // vem com `offline` na stanza:
+    //
+    //   upsertMessage(msg, node.attrs.offline ? 'append' : 'notify')
+    //   (baileys/lib/Socket/messages-recv.js)
+    //
+    // ISTO JÁ APAGOU MENSAGEM DE ALUNO. Em 20/08/2026 o Mac ficou na bateria e
+    // dormiu cinco vezes entre 17:47 e 18:26 — o Piloto ficou 22 minutos fora.
+    // O CPF que uma aluna mandou às 18:03 voltou no religamento marcado como
+    // `append` e este guard descartou o lote inteiro: sem contador, sem log,
+    // sem rastro. Ninguém no CRM tinha como saber que a mensagem existiu; só
+    // se descobriu porque a aluna cobrou a resposta.
+    //
+    // Reprocessar é seguro: `wamid` é UNIQUE e a gravação é
+    // `ON CONFLICT (wamid) DO NOTHING`, então o repetido não vira bolha dobrada.
+    if (type !== "notify" && type !== "append") {
+      descartes.LOTE_IGNORADO++;
+      log.warn({ tipoDoLote: type, mensagens: messages?.length || 0 },
+        "lote de mensagens de tipo desconhecido - nada gravado");
+      return;
+    }
+    if (type === "append") {
+      log.info({ mensagens: messages?.length || 0 },
+        "lote acumulado enquanto o gateway esteve fora do ar");
+    }
 
     for (const msg of messages || []) {
       const jid = msg.key?.remoteJid;
       if (!msg.key?.id) { descartes.SEM_ID++; continue; }
-      if (!msg.message) { descartes.SEM_CONTEUDO++; continue; } // protocolo/recibo
+
+      // "Sem conteúdo" tem DOIS significados, e tratar os dois igual é o que
+      // faz mensagem sumir. Recibo e evento de protocolo não têm nada a
+      // mostrar. Mas quando o WhatsApp entrega um envelope que não conseguimos
+      // ABRIR, o Baileys marca `messageStubType = CIPHERTEXT` e também deixa
+      // `message` nulo — e ali existe texto de gente.
+      //
+      // 12 caíram por aqui em 20/08/2026, com "Failed to decrypt message with
+      // any known session" e "Bad MAC" no log do Baileys, somadas a um contador
+      // que ninguém lê. O Baileys pede o conteúdo de volta ao celular e
+      // reemite a mensagem quando ela chega, então o normal é este aviso
+      // aparecer e a mensagem entrar logo depois. O que fica sozinho é
+      // mensagem perdida de verdade — e aí alguém precisa pedir o reenvio.
+      if (!msg.message) {
+        if (msg.messageStubType === proto.WebMessageInfo.StubType.CIPHERTEXT) {
+          descartes.NAO_DECIFRADA++;
+          log.warn(
+            { wamid: msg.key.id, fromMe: Boolean(msg.key.fromMe) },
+            "mensagem chegou e nao foi possivel descriptografar - esperando o celular reenviar o conteudo",
+          );
+        } else {
+          descartes.SEM_CONTEUDO++; // recibo / evento de protocolo
+        }
+        continue;
+      }
+
+      // O QUE é a mensagem se decide ANTES de resolver o endereço: maquinaria
+      // do WhatsApp não merece nem o custo de resolver LID nem uma linha de log
+      // sugerindo que uma pessoa escreveu algo.
+      const { tipo, texto, mime, descartar, formatos } = conteudo(msg);
+      if (descartar) {
+        descartes.INTERNO++;
+        // `info`, não `debug`: o nível padrão é `info` e o contador de
+        // descartes por motivo só é resumido no fim do sync — em tempo real
+        // ninguém veria. Volume é baixo (49 em dois dias) e é o que prova que
+        // o filtro está pegando o que deve.
+        log.info({ formatos, fromMe: Boolean(msg.key.fromMe) },
+          "evento interno do WhatsApp - fora da conversa");
+        continue;
+      }
+      if (tipo === "outro") {
+        log.warn({ formatos, fromMe: Boolean(msg.key.fromMe) },
+          "formato de mensagem que ainda nao sabemos ler");
+      }
 
       // Só FORMATO, nunca os dígitos: o log não pode virar depósito de telefone
       // de aluno. Isto existe porque uma mensagem real foi descartada e não
@@ -549,8 +660,6 @@ export function criarSessao({ chave }) {
       descartes.aceitos++;
       if (endereco.viaLid) descartes.resolvidos_por_lid++;
 
-      const { tipo, texto, mime } = conteudo(msg);
-
       enfileirar("mensagem", {
         sessao: chave,
         telefone: endereco.telefone,
@@ -567,6 +676,9 @@ export function criarSessao({ chave }) {
         timestamp: paraISO(msg.messageTimestamp),
         origem: "TEMPO_REAL",
         status: msg.key.fromMe ? "ENVIADO" : null,
+        // Só o NOME do formato desconhecido. É o que faltava para dar suporte
+        // a um formato novo sem depender de reproduzir o caso no aparelho.
+        payload: formatos ? { formatos } : null,
       });
 
       // Dispara o download SEM esperar: a fila de mensagens não pode ficar

@@ -33,6 +33,12 @@ export const MOTIVOS = [
   "TELEFONE_INVALIDO",
   "SEM_ID",
   "SEM_CONTEUDO",
+  "INTERNO",
+  // Chegou mensagem de gente e o WhatsApp não abriu o envelope. NÃO é o mesmo
+  // que "sem conteúdo": ali é recibo, aqui é texto que existiu e não foi lido.
+  "NAO_DECIFRADA",
+  // Lote de `messages.upsert` que não é nem `notify` nem `append`.
+  "LOTE_IGNORADO",
 ];
 
 export function criarContadores() {
