@@ -26,6 +26,7 @@ const MOTIVO = {
   motivo_obrigatorio: "Informe o motivo para desfazer a ação de outro operador.",
   termo_nao_encontrado: "O termo não está mais no sistema.",
   termo_ja_tratado: "O ADM já tratou este termo — fale com a Fernanda/Amanda para corrigir.",
+  assinaturas_concluidas: "As assinaturas deste termo já foram concluídas — não é mais possível desfazer.",
   link_nao_encontrado: "A solicitação de link não está mais no sistema.",
   link_ja_em_atendimento: "O ADM já assumiu este link — fale com a Fernanda/Amanda para corrigir.",
   prazo_expirado: "Passou de 24h: a tabulação não pode mais ser desfeita pelo operador.",

@@ -19,6 +19,7 @@ describe("explicarBloqueio", () => {
   it("traduz o código do banco em instrução para o operador", () => {
     expect(explicarBloqueio("link_ja_em_atendimento")).toMatch(/ADM já assumiu/);
     expect(explicarBloqueio("houve_acao_depois")).toMatch(/outro atendimento depois/);
+    expect(explicarBloqueio("assinaturas_concluidas")).toMatch(/assinaturas.*concluídas/);
   });
 
   it("não vaza código cru quando o motivo é desconhecido", () => {
