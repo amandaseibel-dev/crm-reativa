@@ -42,6 +42,25 @@ function traduzStatus(status) {
   return STATUS_LABEL[status] || status || "-";
 }
 
+// Falha ao anexar precisa dizer o que fazer, não devolver o código cru. Em
+// todos os casos nada é apagado: o descarte só roda depois do arquivo aceito.
+function erroAnexo(codigo) {
+  const fim = " Nada foi apagado.";
+  if (codigo === "mime_invalido") {
+    return "Formato não aceito. Envie PDF, JPG, PNG ou Word — foto em HEIC precisa ser convertida." + fim;
+  }
+  if (codigo === "tamanho_invalido" || codigo === "tamanho_excedido") {
+    return "Arquivo acima de 20 MB. Reduza a qualidade da digitalização e tente de novo." + fim;
+  }
+  if (codigo === "acesso_negado" || codigo === "forbidden") {
+    return "Seu usuário não tem permissão para anexar a via assinada." + fim;
+  }
+  if (codigo === "sessao_expirada") {
+    return "Sua sessão expirou. Entre de novo e repita o anexo." + fim;
+  }
+  return "Não foi possível anexar a via assinada (" + codigo + ")." + fim;
+}
+
 function corEtapa(etapa) {
   if (etapa === "COMPLETO") return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
   if (etapa === "ENVIADO_ASSINATURA") return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c" };
@@ -350,7 +369,7 @@ export default function FilaAdmTermos() {
     const envio = await enviarTermo(modalAnexo.id, "final", anexoArquivo);
     if (!envio.ok && envio.erro !== "ja_vinculado") {
       setProcessando(false);
-      alert("Falha ao anexar a via assinada (" + envio.erro + "). Nada foi apagado.");
+      alert(erroAnexo(envio.erro));
       return;
     }
 
@@ -876,11 +895,19 @@ export default function FilaAdmTermos() {
 
             <div style={styles.bloco}>
               <label style={styles.label}>Arquivo da via assinada</label>
+              {/* O accept precisa espelhar o que a Edge Function aceita. Mais
+                  estreito aqui deixa o arquivo CINZA na pasta e parece que ele
+                  sumiu. Extensões junto dos MIME: em alguns sistemas o diálogo
+                  casa por extensão, não por tipo. */}
               <input
                 type="file"
-                accept="application/pdf,image/png,image/jpeg"
+                accept=".pdf,.png,.jpg,.jpeg,.doc,.docx,application/pdf,image/png,image/jpeg,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 onChange={(e) => setAnexoArquivo(e.target.files?.[0] || null)}
               />
+              <p style={styles.texto}>
+                Aceita PDF, JPG, PNG e Word, até 20 MB. Foto de iPhone em HEIC não
+                entra: converta para JPG ou PDF antes.
+              </p>
             </div>
 
             <div style={styles.bloco}>
