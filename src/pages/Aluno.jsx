@@ -1499,7 +1499,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
             onKeyDown={(e) => {
               if (e.key === "Enter") carregarAlunos();
             }}
-            placeholder="Digite nome ou CPF"
+            placeholder="Digite nome, CPF ou telefone"
             style={input}
           />
           <button
