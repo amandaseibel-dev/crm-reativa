@@ -20,7 +20,14 @@
 //   vincular: { acao:"vincular", tipo, id, campo?, path }   // path = o emitido no upload
 //
 //   tipo ∈ { "comprovante_link", "comprovante_baixa", "termo" }
-//   campo (só termo) ∈ { "arquivo", "rg", "verso" }
+//   campo (só termo) ∈ { "arquivo", "rg", "verso", "final" }
+//     "final" = via COMPLETA (aluno + 2 testemunhas + Ulbra), anexada pela ADM.
+//
+//   "concluir_assinatura"  -> { acao, id, testemunha_1?, testemunha_2?, backup_confirmado }
+//        Marca o termo COMPLETO e, se o backup fora do CRM foi confirmado,
+//        DESCARTA do Storage a via só-aluno (+ RG + verso). Só gestão.
+//   "descartar_via_aluno"  -> { acao, id, backup_confirmado }
+//        Descarte avulso, sem via completa: exige backup confirmado. Só gestão.
 //
 // Autorização (mesma p/ ler e upload): gestão financeira vê/envia tudo; operador
 // só o registro cujo operador dono (operador_email / responsavel_baixa_email) é
@@ -223,7 +230,15 @@ function resolverFonte(tipo: unknown, campo: unknown): Fonte | null {
     return { tabela: "baixas_pagamento", colunaUrl: "comprovante_url", colunaDono: "responsavel_baixa_email", colunaAluno: "aluno_id", bucket: "comprovantes-pagamento", mimes: MIME_COMPROVANTE };
   }
   if (tipo === "termo") {
-    const col = campo === "rg" ? "arquivo_rg_url" : campo === "verso" ? "arquivo_verso_url" : campo === "arquivo" ? "arquivo_url" : null;
+    const col = campo === "rg"
+      ? "arquivo_rg_url"
+      : campo === "verso"
+        ? "arquivo_verso_url"
+        : campo === "arquivo"
+          ? "arquivo_url"
+          : campo === "final"
+            ? "arquivo_final_url" // via completa: aluno + 2 testemunhas + Ulbra
+            : null;
     if (!col) return null; // campo ausente/adulterado
     return { tabela: "termos_acordo", colunaUrl: col, colunaDono: "operador_email", colunaAluno: "aluno_id", bucket: "termos-acordo", mimes: MIME_TERMO };
   }
@@ -323,8 +338,91 @@ Deno.serve(async (req: Request) => {
     body = {};
   }
 
-  const acao = body?.acao === "upload" || body?.acao === "vincular" ? body.acao : "ler";
+  const ACOES = new Set(["upload", "vincular", "concluir_assinatura", "descartar_via_aluno"]);
+  const acao = typeof body?.acao === "string" && ACOES.has(body.acao) ? body.acao : "ler";
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+  // ===========================================================================
+  // AÇÕES DE DESCARTE (só gestão) -> a RPC registra a auditoria e limpa as
+  // colunas; aqui só apagamos os objetos do Storage e confirmamos a remoção.
+  // Ordem proposital: registrar -> apagar -> confirmar. Se a remoção falhar, a
+  // linha de auditoria fica com removido_do_storage_em NULL e o objeto é
+  // rastreável em vez de virar órfão silencioso.
+  // ===========================================================================
+  if (acao === "concluir_assinatura" || acao === "descartar_via_aluno") {
+    if (!ehGestao) return json({ error: "forbidden" }, 403);
+    const termoId = typeof body?.id === "string" ? body.id : "";
+    if (!RE_UUID.test(termoId)) return json({ error: "bad_request" }, 400);
+    const backupOk = body?.backup_confirmado === true;
+
+    let resultado: Record<string, unknown> | null = null;
+    if (acao === "concluir_assinatura") {
+      const { data, error } = await admin.rpc("termo_concluir_assinatura", {
+        p_termo_id: termoId,
+        p_ator: ident.email,
+        p_gestao: true,
+        p_testemunha_1: typeof body?.testemunha_1 === "string" ? body.testemunha_1 : null,
+        p_testemunha_2: typeof body?.testemunha_2 === "string" ? body.testemunha_2 : null,
+        p_backup_confirmado: backupOk,
+      });
+      if (error) return json({ error: "concluir_failed" }, 500);
+      resultado = data as Record<string, unknown>;
+    } else {
+      if (!backupOk) return json({ error: "backup_nao_confirmado" }, 428);
+      const { data, error } = await admin.rpc("termo_descartar_via_aluno", {
+        p_termo_id: termoId,
+        p_ator: ident.email,
+        p_gestao: true,
+        p_backup_confirmado: true,
+      });
+      if (error) return json({ error: "descartar_failed" }, 500);
+      resultado = data as Record<string, unknown>;
+    }
+
+    if (!resultado || resultado.ok !== true) {
+      const cod = String(resultado?.erro ?? "operacao_recusada");
+      const status = cod === "acesso_negado" ? 403 : cod === "termo_nao_encontrado" ? 404 : 409;
+      return json({ error: cod }, status);
+    }
+
+    // Remoção física. Cada item traz o id da linha de auditoria e o caminho.
+    const itens = Array.isArray(resultado.itens)
+      ? (resultado.itens as Array<{ id?: string; caminho?: string }>)
+      : [];
+    const caminhos: string[] = [];
+    const idsPorCaminho = new Map<string, string>();
+    for (const it of itens) {
+      const c = resolverCaminho(it?.caminho, "termos-acordo");
+      if (!c || typeof it?.id !== "string") continue;
+      caminhos.push(c);
+      idsPorCaminho.set(c, it.id);
+    }
+
+    let removidos = 0;
+    if (caminhos.length > 0) {
+      const { data: rem, error: remErr } = await admin.storage.from("termos-acordo").remove(caminhos);
+      if (!remErr && Array.isArray(rem)) {
+        const idsOk = rem
+          .map((o) => idsPorCaminho.get(String((o as { name?: string }).name ?? "")))
+          .filter((v): v is string => typeof v === "string");
+        removidos = idsOk.length;
+        if (idsOk.length > 0) {
+          await admin.rpc("termo_confirmar_descarte_storage", { p_ids: idsOk });
+        }
+      }
+    }
+
+    // Falha na remoção NÃO é escondida: o termo já está concluído e a auditoria
+    // registrada, mas o objeto continua no bucket e precisa de nova passada.
+    return json({
+      ok: true,
+      etapa: resultado.etapa ?? null,
+      descarte: resultado.descarte ?? null,
+      arquivos_marcados: caminhos.length,
+      arquivos_removidos: removidos,
+      pendentes_no_storage: caminhos.length - removidos,
+    }, 200);
+  }
 
   // ===========================================================================
   // AÇÃO: VINCULAR -> recebe SOMENTE intent_id. Tudo (bucket, caminho, tipo,

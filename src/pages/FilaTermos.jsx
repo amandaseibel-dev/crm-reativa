@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
-import { urlTermo } from "../utils/documentoFinanceiro";
+import {
+  urlTermo,
+  enviarTermo,
+  concluirAssinaturaTermo,
+  descartarViaAluno,
+} from "../utils/documentoFinanceiro";
 
 const ADM_AUTORIZADOS = [
   "cobranca04@aelbra.com.br", // Fernanda
@@ -28,6 +33,33 @@ const MOTIVOS_REJEICAO = [
 
 function traduzStatus(status) {
   return STATUS_LABEL[status] || status || "-";
+}
+
+// Trilha de assinatura de testemunhas + Ulbra. Vive em `etapa_assinatura`,
+// separada de `status` (que move a fila de validação e as notificações).
+// Termo carregado de um banco sem a coluna cai em NAO_APLICAVEL, e a aba
+// Assinaturas fica vazia em vez de quebrar.
+const ETAPA_LABEL = {
+  NAO_APLICAVEL: "Sem assinatura pendente",
+  NAO_VERIFICADO: "Não verificado",
+  PENDENTE_ENVIO: "Pendente de envio",
+  ENVIADO_ASSINATURA: "Enviado para assinatura",
+  COMPLETO: "Assinado completo",
+};
+
+const ETAPAS_ASSINATURA = ["NAO_VERIFICADO", "PENDENTE_ENVIO", "ENVIADO_ASSINATURA", "COMPLETO"];
+
+function etapaDe(t) {
+  const e = t?.etapa_assinatura;
+  return ETAPA_LABEL[e] ? e : "NAO_APLICAVEL";
+}
+
+function corEtapa(etapa) {
+  if (etapa === "COMPLETO") return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
+  if (etapa === "ENVIADO_ASSINATURA") return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c" };
+  if (etapa === "PENDENTE_ENVIO") return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
+  if (etapa === "NAO_VERIFICADO") return { background: "#e2e3e5", color: "#41464b", border: "1px solid #d3d6d8" };
+  return { background: "#f8f9fa", color: "#6c757d", border: "1px solid #e9ecef" };
 }
 
 function formatarData(data) {
@@ -120,6 +152,16 @@ export default function FilaAdmTermos() {
   // Sub-filtros que só valem na aba Liberados.
   const [tipoLiberado, setTipoLiberado] = useState("TODOS");
   const [ordemLiberados, setOrdemLiberados] = useState("RECENTE");
+
+  // --- Aba Assinaturas (testemunhas + Ulbra) ---
+  const [etapaFiltro, setEtapaFiltro] = useState("TODAS");
+  const [selecionados, setSelecionados] = useState([]);
+  const [modalAnexo, setModalAnexo] = useState(null);
+  const [anexoArquivo, setAnexoArquivo] = useState(null);
+  const [testemunha1, setTestemunha1] = useState("");
+  const [testemunha2, setTestemunha2] = useState("");
+  const [backupConfirmado, setBackupConfirmado] = useState(false);
+  const [processando, setProcessando] = useState(false);
 
   // --- Estado do modal de validação em tela única ---
   const [modalTermo, setModalTermo] = useState(null);
@@ -261,6 +303,125 @@ export default function FilaAdmTermos() {
     }
   }
 
+  // --- Ações do fluxo de assinatura ---------------------------------------
+
+  // Baixar a via e marcar o envio são o MESMO gesto: a ADM abre o PDF para
+  // mandar ao gov.br. A abertura vem primeiro; se o navegador bloquear, nada é
+  // marcado. O "Desfazer envio" cobre o clique errado.
+  async function baixarEMarcarEnviado(termo) {
+    const url = await urlTermo(termo.id, termo.arquivo_url ? "arquivo" : "final");
+    if (!url) {
+      alert("Documento indisponível. O envio não foi marcado.");
+      return;
+    }
+    window.open(url, "_blank", "noreferrer");
+    await marcarEnviados([termo.id]);
+  }
+
+  async function marcarEnviados(ids) {
+    if (!ids || ids.length === 0) return;
+    setProcessando(true);
+    const { data, error } = await supabase.rpc("termos_marcar_envio_assinatura", { p_ids: ids });
+    setProcessando(false);
+    if (error || !data?.ok) {
+      alert("Não foi possível marcar o envio: " + (error?.message || data?.erro || "erro desconhecido"));
+      return;
+    }
+    setSelecionados([]);
+    carregarTermos();
+  }
+
+  async function desfazerEnvio(termo) {
+    setProcessando(true);
+    const { data, error } = await supabase.rpc("termo_desfazer_envio_assinatura", { p_termo_id: termo.id });
+    setProcessando(false);
+    if (error || !data?.ok) {
+      alert("Não foi possível desfazer: " + (error?.message || data?.erro || "erro desconhecido"));
+      return;
+    }
+    carregarTermos();
+  }
+
+  function abrirAnexo(termo) {
+    setModalAnexo(termo);
+    setAnexoArquivo(null);
+    setTestemunha1(termo.testemunha_1_nome || "");
+    setTestemunha2(termo.testemunha_2_nome || "");
+    setBackupConfirmado(false);
+  }
+
+  // Sobe a via completa e conclui. A ordem é upload -> conclusão -> descarte
+  // (feito pela Edge): a via do aluno só sai depois de o arquivo novo estar
+  // confirmado no bucket. Sem confirmação de backup, conclui SEM descartar.
+  async function salvarViaCompleta() {
+    if (!modalAnexo || !anexoArquivo) {
+      alert("Selecione o arquivo da via assinada.");
+      return;
+    }
+    setProcessando(true);
+
+    const envio = await enviarTermo(modalAnexo.id, "final", anexoArquivo);
+    if (!envio.ok && envio.erro !== "ja_vinculado") {
+      setProcessando(false);
+      alert("Falha ao anexar a via assinada (" + envio.erro + "). Nada foi apagado.");
+      return;
+    }
+
+    const res = await concluirAssinaturaTermo(modalAnexo.id, {
+      testemunha1,
+      testemunha2,
+      backupConfirmado,
+    });
+    setProcessando(false);
+
+    if (!res.ok) {
+      alert("A via foi anexada, mas a conclusão falhou (" + res.erro + "). Nada foi apagado.");
+      return;
+    }
+
+    if (res.descarte === "adiado_sem_backup") {
+      alert("Termo marcado como assinado completo. A via do aluno NÃO foi apagada — confirme o backup para descartá-la.");
+    } else if (res.pendentes_no_storage > 0) {
+      alert("Termo concluído, mas " + res.pendentes_no_storage + " arquivo(s) não saíram do Storage. Ficaram registrados para nova tentativa.");
+    } else {
+      alert("Termo concluído. Via assinada guardada e via do aluno descartada.");
+    }
+
+    setModalAnexo(null);
+    carregarTermos();
+  }
+
+  async function descartarSomenteViaAluno(termo) {
+    const ok = window.confirm(
+      "Confirma que as vias já estão salvas na pasta de backup?\n\n" +
+        "A via assinada pelo aluno (e RG/verso) será apagada do CRM. Isso não pode ser desfeito."
+    );
+    if (!ok) return;
+    setProcessando(true);
+    const res = await descartarViaAluno(termo.id, { backupConfirmado: true });
+    setProcessando(false);
+    if (!res.ok) {
+      alert("Não foi possível descartar: " + res.erro);
+      return;
+    }
+    carregarTermos();
+  }
+
+  async function abrirDocumentoFinal(termo) {
+    const url = await urlTermo(termo.id, "final");
+    if (!url) {
+      alert("Documento indisponível ou você não tem permissão para visualizá-lo.");
+      return;
+    }
+    window.open(url, "_blank", "noreferrer");
+  }
+
+  function alternarSelecao(id) {
+    setSelecionados((atual) =>
+      atual.includes(id) ? atual.filter((x) => x !== id) : [...atual, id]
+    );
+  }
+
   const emailUsuario = usuario?.email || "";
   const podeValidar = ADM_AUTORIZADOS.includes(emailUsuario);
 
@@ -300,8 +461,37 @@ export default function FilaAdmTermos() {
     }
     if (filtro === "REJEITADOS") return termos.filter((t) => t.status === "TERMO_REJEITADO");
     if (filtro === "AUDITORIA") return termos.filter(ehGovPendenteAuditoria);
+    if (filtro === "ASSINATURAS") {
+      const naFila = termos.filter((t) => etapaDe(t) !== "NAO_APLICAVEL");
+      const porEtapa =
+        etapaFiltro === "TODAS" ? naFila : naFila.filter((t) => etapaDe(t) === etapaFiltro);
+      return [...porEtapa].sort((a, b) =>
+        ordemLiberados === "RECENTE"
+          ? dataLiberacao(b) - dataLiberacao(a)
+          : dataLiberacao(a) - dataLiberacao(b)
+      );
+    }
     return termos;
-  }, [termos, termosLiberados, filtro, tipoLiberado, ordemLiberados]);
+  }, [termos, termosLiberados, filtro, tipoLiberado, ordemLiberados, etapaFiltro]);
+
+  // Contadores da trilha de assinatura. Valem para TODO termo liberado —
+  // manual e gov.br —, porque todos precisam das testemunhas e da Ulbra.
+  const contadoresEtapa = useMemo(() => {
+    const base = { NAO_VERIFICADO: 0, PENDENTE_ENVIO: 0, ENVIADO_ASSINATURA: 0, COMPLETO: 0, TODAS: 0 };
+    for (const t of termos) {
+      const e = etapaDe(t);
+      if (e === "NAO_APLICAVEL") continue;
+      base[e] += 1;
+      base.TODAS += 1;
+    }
+    return base;
+  }, [termos]);
+
+  // Só faz sentido marcar envio em lote no que ainda não saiu.
+  const selecionaveis = useMemo(
+    () => termosFiltrados.filter((t) => ["NAO_VERIFICADO", "PENDENTE_ENVIO"].includes(etapaDe(t))),
+    [termosFiltrados]
+  );
 
   if (carregando) {
     return <div style={styles.container}><Carregando texto="Carregando fila ADM…" /></div>;
@@ -356,13 +546,17 @@ export default function FilaAdmTermos() {
       </div>
 
       <div style={styles.filtros}>
-        {["PENDENTES", "LIBERADOS", "REJEITADOS", "AUDITORIA", "TODOS"].map((f) => (
+        {["PENDENTES", "LIBERADOS", "REJEITADOS", "AUDITORIA", "ASSINATURAS", "TODOS"].map((f) => (
           <button
             key={f}
             style={filtro === f ? styles.filtroAtivo : styles.filtro}
             onClick={() => setFiltro(f)}
           >
-            {f === "AUDITORIA" ? "Auditoria (gov.br)" : f.charAt(0) + f.slice(1).toLowerCase()}
+            {f === "AUDITORIA"
+              ? "Auditoria (gov.br)"
+              : f === "ASSINATURAS"
+                ? `Assinaturas (${contadoresEtapa.TODAS})`
+                : f.charAt(0) + f.slice(1).toLowerCase()}
           </button>
         ))}
       </div>
@@ -404,6 +598,78 @@ export default function FilaAdmTermos() {
         </div>
       )}
 
+      {filtro === "ASSINATURAS" && (
+        <>
+          <div style={styles.subFiltros}>
+            <div style={styles.grupoSubFiltro}>
+              <span style={styles.rotuloSubFiltro}>Etapa:</span>
+              {[{ chave: "TODAS", label: `Todas (${contadoresEtapa.TODAS})` }].concat(
+                ETAPAS_ASSINATURA.map((e) => ({
+                  chave: e,
+                  label: `${ETAPA_LABEL[e]} (${contadoresEtapa[e]})`,
+                }))
+              ).map((op) => (
+                <button
+                  key={op.chave}
+                  style={etapaFiltro === op.chave ? styles.subFiltroAtivo : styles.subFiltro}
+                  onClick={() => {
+                    setEtapaFiltro(op.chave);
+                    setSelecionados([]);
+                  }}
+                >
+                  {op.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={styles.grupoSubFiltro}>
+              <span style={styles.rotuloSubFiltro}>Ordem:</span>
+              {[
+                { chave: "RECENTE", label: "Mais recentes primeiro" },
+                { chave: "ANTIGO", label: "Mais antigos primeiro" },
+              ].map((op) => (
+                <button
+                  key={op.chave}
+                  style={ordemLiberados === op.chave ? styles.subFiltroAtivo : styles.subFiltro}
+                  onClick={() => setOrdemLiberados(op.chave)}
+                >
+                  {op.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div style={styles.barraLote}>
+            <span style={styles.rotuloSubFiltro}>
+              {selecionados.length > 0
+                ? `${selecionados.length} termo(s) selecionado(s)`
+                : "Selecione termos para marcar o envio em lote"}
+            </span>
+            <button
+              style={styles.subFiltro}
+              onClick={() => setSelecionados(selecionaveis.map((t) => t.id))}
+              disabled={selecionaveis.length === 0}
+            >
+              Selecionar todos desta lista ({selecionaveis.length})
+            </button>
+            <button
+              style={styles.subFiltro}
+              onClick={() => setSelecionados([])}
+              disabled={selecionados.length === 0}
+            >
+              Limpar seleção
+            </button>
+            <button
+              style={styles.botaoValidar}
+              onClick={() => marcarEnviados(selecionados)}
+              disabled={selecionados.length === 0 || processando}
+            >
+              Marcar como enviados
+            </button>
+          </div>
+        </>
+      )}
+
       {termosFiltrados.length === 0 && (
         <div style={styles.vazio}>Nenhum termo encontrado neste filtro.</div>
       )}
@@ -431,6 +697,20 @@ export default function FilaAdmTermos() {
                     <strong>Liberado em:</strong> {formatarData(termo.validado_em)}
                   </p>
                 )}
+                {termo.assinatura_enviada_em && (
+                  <p style={styles.info}>
+                    <strong>Enviado para assinatura:</strong>{" "}
+                    {formatarData(termo.assinatura_enviada_em)} por{" "}
+                    {termo.assinatura_enviada_por || "-"}
+                  </p>
+                )}
+                {termo.assinatura_completa_em && (
+                  <p style={styles.info}>
+                    <strong>Assinado completo:</strong>{" "}
+                    {formatarData(termo.assinatura_completa_em)} por{" "}
+                    {termo.assinatura_completa_por || "-"}
+                  </p>
+                )}
                 <p style={styles.info}>
                   <strong>Assinatura:</strong>{" "}
                   {termo.tipo_assinatura === "GOV_BR"
@@ -438,9 +718,16 @@ export default function FilaAdmTermos() {
                     : "Manual + RG"}
                 </p>
               </div>
-              <span style={{ ...styles.status, ...corStatus(termo.status) }}>
-                {traduzStatus(termo.status)}
-              </span>
+              <div style={styles.selos}>
+                <span style={{ ...styles.status, ...corStatus(termo.status) }}>
+                  {traduzStatus(termo.status)}
+                </span>
+                {etapaDe(termo) !== "NAO_APLICAVEL" && (
+                  <span style={{ ...styles.status, ...corEtapa(etapaDe(termo)) }}>
+                    {ETAPA_LABEL[etapaDe(termo)]}
+                  </span>
+                )}
+              </div>
             </div>
 
             <div style={styles.bloco}>
@@ -458,6 +745,69 @@ export default function FilaAdmTermos() {
                 <p style={styles.info}>
                   <strong>Validado em:</strong> {formatarData(termo.validado_em)}
                 </p>
+              </div>
+            )}
+
+            {filtro === "ASSINATURAS" && (
+              <div style={styles.acoesAssinatura}>
+                {["NAO_VERIFICADO", "PENDENTE_ENVIO"].includes(etapaDe(termo)) && (
+                  <>
+                    <label style={styles.checkLinha}>
+                      <input
+                        type="checkbox"
+                        checked={selecionados.includes(termo.id)}
+                        onChange={() => alternarSelecao(termo.id)}
+                      />
+                      Selecionar
+                    </label>
+                    <button
+                      style={styles.botaoValidar}
+                      onClick={() => baixarEMarcarEnviado(termo)}
+                      disabled={processando}
+                    >
+                      Baixar PDF e marcar como enviado
+                    </button>
+                  </>
+                )}
+
+                {etapaDe(termo) === "ENVIADO_ASSINATURA" && (
+                  <button
+                    style={styles.botaoVer}
+                    onClick={() => desfazerEnvio(termo)}
+                    disabled={processando}
+                  >
+                    Desfazer envio
+                  </button>
+                )}
+
+                {etapaDe(termo) !== "COMPLETO" && (
+                  <button
+                    style={styles.botaoValidar}
+                    onClick={() => abrirAnexo(termo)}
+                    disabled={processando}
+                  >
+                    Anexar via assinada
+                  </button>
+                )}
+
+                {termo.arquivo_final_url && (
+                  <button
+                    style={styles.botaoVer}
+                    onClick={() => abrirDocumentoFinal(termo)}
+                  >
+                    Abrir via assinada
+                  </button>
+                )}
+
+                {termo.arquivo_url && etapaDe(termo) !== "COMPLETO" && (
+                  <button
+                    style={styles.botaoDescartar}
+                    onClick={() => descartarSomenteViaAluno(termo)}
+                    disabled={processando}
+                  >
+                    Descartar via do aluno
+                  </button>
+                )}
               </div>
             )}
 
@@ -499,6 +849,76 @@ export default function FilaAdmTermos() {
           onFechar={fecharModal}
           onDecidir={decidir}
         />
+      )}
+
+      {modalAnexo && (
+        <div style={styles.overlay}>
+          <div style={styles.modalAnexo}>
+            <h2 style={styles.titulo}>Anexar via assinada</h2>
+            <p style={styles.texto}>
+              {modalAnexo.aluno_nome || "Aluno sem nome"} — a via completa deve ter a
+              assinatura do aluno, das duas testemunhas e da Ulbra.
+            </p>
+
+            <div style={styles.bloco}>
+              <label style={styles.label}>Arquivo da via assinada</label>
+              <input
+                type="file"
+                accept="application/pdf,image/png,image/jpeg"
+                onChange={(e) => setAnexoArquivo(e.target.files?.[0] || null)}
+              />
+            </div>
+
+            <div style={styles.bloco}>
+              <label style={styles.label}>Testemunhas (opcional)</label>
+              <input
+                style={styles.campoTexto}
+                placeholder="Nome da 1ª testemunha"
+                value={testemunha1}
+                onChange={(e) => setTestemunha1(e.target.value)}
+              />
+              <input
+                style={{ ...styles.campoTexto, marginTop: "8px" }}
+                placeholder="Nome da 2ª testemunha"
+                value={testemunha2}
+                onChange={(e) => setTestemunha2(e.target.value)}
+              />
+            </div>
+
+            <div style={styles.avisoBackup}>
+              <label style={styles.checkLinha}>
+                <input
+                  type="checkbox"
+                  checked={backupConfirmado}
+                  onChange={(e) => setBackupConfirmado(e.target.checked)}
+                />
+                Já salvei as duas vias na pasta de backup
+              </label>
+              <p style={styles.texto}>
+                Marcando isto, a via assinada só pelo aluno (e o RG/verso) é apagada do CRM
+                assim que a via completa for confirmada no armazenamento. Sem marcar, o termo
+                é concluído e a via antiga permanece.
+              </p>
+            </div>
+
+            <div style={styles.acoes}>
+              <button
+                style={styles.botaoValidar}
+                onClick={salvarViaCompleta}
+                disabled={processando || !anexoArquivo}
+              >
+                {processando ? "Salvando…" : "Salvar via assinada"}
+              </button>
+              <button
+                style={styles.botaoVer}
+                onClick={() => setModalAnexo(null)}
+                disabled={processando}
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -777,6 +1197,60 @@ const styles = {
     marginBottom: "18px",
   },
   grupoSubFiltro: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" },
+  barraLote: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+    alignItems: "center",
+    background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    marginBottom: "18px",
+  },
+  selos: { display: "flex", flexDirection: "column", gap: "6px", alignItems: "flex-end" },
+  acoesAssinatura: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "8px",
+    alignItems: "center",
+    marginTop: "14px",
+    paddingTop: "14px",
+    borderTop: "1px dashed #e5e7eb",
+  },
+  checkLinha: { display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "#374151" },
+  botaoDescartar: {
+    background: "#fff",
+    color: "#b02a37",
+    border: "1px solid #f1aeb5",
+    padding: "10px 14px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+  },
+  modalAnexo: {
+    background: "#fff",
+    borderRadius: "14px",
+    padding: "22px",
+    width: "min(560px, 96vw)",
+    maxHeight: "92vh",
+    overflowY: "auto",
+    boxShadow: "0 10px 40px rgba(0,0,0,0.25)",
+  },
+  campoTexto: {
+    width: "100%",
+    padding: "10px",
+    borderRadius: "8px",
+    border: "1px solid #ccc",
+    boxSizing: "border-box",
+  },
+  avisoBackup: {
+    marginTop: "14px",
+    background: "#fff3cd",
+    border: "1px solid #ffe69c",
+    borderRadius: "8px",
+    padding: "12px",
+  },
   rotuloSubFiltro: { fontSize: "13px", fontWeight: "bold", color: "#374151" },
   subFiltro: {
     background: "#f3f4f6",
