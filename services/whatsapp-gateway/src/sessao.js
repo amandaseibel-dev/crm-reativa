@@ -225,10 +225,41 @@ export function politicaDeQueda(codigo) {
   return { acao: "RECONECTAR" };
 }
 
+// Descobre o JID REAL de um telefone antes de enviar.
+//
+// POR QUE: o WhatsApp registra muitos celulares brasileiros no JID ANTIGO, sem
+// o 9º dígito (55 DD 8 dígitos), mesmo que a pessoa disque com o 9. Montar o
+// JID só colando o número digitado (`5551999...@s.whatsapp.net`) aponta para
+// uma conta que NÃO EXISTE: o Baileys aceita, devolve wamid, o CRM grava
+// ENVIADO — e o servidor nunca entrega, sem ack nenhum. Foi assim com TODAS
+// as abordagens a número novo de 13 dígitos de 19 a 21/08 (~50 mensagens).
+// Respostas em conversa existente funcionavam porque ali o JID veio do
+// próprio WhatsApp.
+//
+// `onWhatsApp` consulta pelo TELEFONE (protocolo de contato do USync) e o
+// servidor responde com o JID canônico, com ou sem o 9. Se o número não
+// está no WhatsApp, falha aqui — melhor o operador ver "não enviado" do que
+// um ENVIADO mentiroso.
+export async function resolverJid(sock, telefone, cache = null) {
+  const digitos = String(telefone).replace(/\D/g, "");
+  if (!digitos) throw new Error("telefone vazio");
+  const emCache = cache?.get(digitos);
+  if (emCache) return emCache;
+
+  const resultado = await sock.onWhatsApp(digitos);
+  const achado = (resultado || []).find((r) => r?.exists && r?.jid);
+  if (!achado) {
+    throw new Error(`numero ${digitos.slice(0, 4)}...${digitos.slice(-2)} nao esta no WhatsApp`);
+  }
+  cache?.set(digitos, achado.jid);
+  return achado.jid;
+}
+
 export function criarSessao({ chave }) {
   const log = logSessao(chave);
 
   let sock = null;
+  const jidsResolvidos = new Map();
   let auth = null;
   let estadoAtual = "DESCONECTADO";
   let detalhe = null;
@@ -995,7 +1026,7 @@ export function criarSessao({ chave }) {
       if (estadoAtual !== "CONECTADO" || !sock) {
         throw new Error(`sessao ${chave} nao esta conectada (${estadoAtual})`);
       }
-      const jid = `${String(telefone).replace(/\D/g, "")}@s.whatsapp.net`;
+      const jid = await resolverJid(sock, telefone, jidsResolvidos);
       const enviada = await sock.sendMessage(jid, { text: texto });
       return { wamid: enviada?.key?.id || null };
     },
@@ -1031,7 +1062,7 @@ export function criarSessao({ chave }) {
       }
       if (!ehPdfBuffer(dados)) throw new Error("documento nao e um PDF");
 
-      const jid = `${String(telefone).replace(/\D/g, "")}@s.whatsapp.net`;
+      const jid = await resolverJid(sock, telefone, jidsResolvidos);
       const enviada = await sock.sendMessage(jid, {
         document: dados,
         fileName: nome || "documento.pdf",
