@@ -67,6 +67,39 @@ end$$;
 create index if not exists ix_termos_acordo_etapa_assinatura
   on public.termos_acordo (etapa_assinatura, validado_em desc);
 
+-- 1.b) Recálculo de situação só quando o que muda IMPORTA para o caso ---------
+--      trg_recalc_termo chamava recalcular_situacao_aluno em QUALQUER update da
+--      tabela, sem olhar a coluna. Com a trilha de assinatura isso vira uma
+--      bomba: o backfill (748 linhas) e cada marcação em lote da ADM
+--      disparariam centenas de recálculos de situação/criticidade — pico de CPU
+--      e a fila dos operadores remexida por uma mudança que não tem nada a ver
+--      com o caso.
+--
+--      O gatilho passa a olhar status e aluno_id, que é o que de fato move o
+--      caso. INSERT continua recalculando sempre (termo novo muda a jornada), e
+--      a validação da ADM também, porque ela muda o status. Anexar arquivo ou
+--      andar na trilha de assinatura deixa de mexer no caso.
+--      O gatilho só existe em produção; staging não tem a função de recálculo.
+--      Por isso o bloco é condicional, em vez de quebrar o migration lá.
+do $$
+begin
+  if to_regprocedure('public._trg_recalc_por_aluno_uuid()') is null then
+    return;
+  end if;
+
+  drop trigger if exists trg_recalc_termo on public.termos_acordo;
+
+  create trigger trg_recalc_termo_ins
+    after insert on public.termos_acordo
+    for each row execute function public._trg_recalc_por_aluno_uuid('trg_termo');
+
+  create trigger trg_recalc_termo_upd
+    after update on public.termos_acordo
+    for each row
+    when (old.status is distinct from new.status or old.aluno_id is distinct from new.aluno_id)
+    execute function public._trg_recalc_por_aluno_uuid('trg_termo');
+end$$;
+
 -- 2) Backfill do legado -------------------------------------------------------
 --    Só o que JÁ está liberado entra como NAO_VERIFICADO. Termo pendente de
 --    validação ou rejeitado continua NAO_APLICAVEL: não há o que assinar ainda.
