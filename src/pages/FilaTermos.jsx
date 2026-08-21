@@ -92,6 +92,20 @@ function ehGovPendenteAuditoria(t) {
   return t?.status === "TERMO_LIBERADO_AUTOMATICO_GOV" && t?.validado_por === "AUTOMATICO_GOV_BR";
 }
 
+// Assinatura gov.br x manual. Termo antigo pode ter tipo_assinatura vazio: nesse
+// caso vale a mesma leitura dos cards, que tratam o vazio como "Manual + RG".
+function ehAssinaturaGov(t) {
+  return t?.tipo_assinatura === "GOV_BR";
+}
+
+// Data que ordena os liberados: quando a ADM liberou. Termo liberado antes de o
+// carimbo existir cai pro envio, para nunca ficar sem data.
+function dataLiberacao(t) {
+  const bruto = t?.validado_em || t?.criado_em;
+  const ms = bruto ? new Date(bruto).getTime() : NaN;
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
 // Termo em que a ADM pode decidir (validar/rejeitar): manual aguardando ADM ou
 // gov pendente de auditoria.
 function ehTermoAcionavel(t) {
@@ -103,6 +117,9 @@ export default function FilaAdmTermos() {
   const [termos, setTermos] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [filtro, setFiltro] = useState("PENDENTES");
+  // Sub-filtros que só valem na aba Liberados.
+  const [tipoLiberado, setTipoLiberado] = useState("TODOS");
+  const [ordemLiberados, setOrdemLiberados] = useState("RECENTE");
 
   // --- Estado do modal de validação em tela única ---
   const [modalTermo, setModalTermo] = useState(null);
@@ -257,13 +274,34 @@ export default function FilaAdmTermos() {
     };
   }, [termos]);
 
+  const termosLiberados = useMemo(
+    () => termos.filter((t) => t.status === "TERMO_RECEBIDO_LIBERADO"),
+    [termos]
+  );
+
+  const contadoresLiberados = useMemo(() => {
+    const gov = termosLiberados.filter(ehAssinaturaGov).length;
+    return { todos: termosLiberados.length, gov, manual: termosLiberados.length - gov };
+  }, [termosLiberados]);
+
   const termosFiltrados = useMemo(() => {
     if (filtro === "PENDENTES") return termos.filter((t) => t.status === "TERMO_ENVIADO_ADM");
-    if (filtro === "LIBERADOS") return termos.filter((t) => t.status === "TERMO_RECEBIDO_LIBERADO");
+    if (filtro === "LIBERADOS") {
+      const porTipo =
+        tipoLiberado === "TODOS"
+          ? termosLiberados
+          : termosLiberados.filter((t) => ehAssinaturaGov(t) === (tipoLiberado === "GOV_BR"));
+
+      return [...porTipo].sort((a, b) =>
+        ordemLiberados === "RECENTE"
+          ? dataLiberacao(b) - dataLiberacao(a)
+          : dataLiberacao(a) - dataLiberacao(b)
+      );
+    }
     if (filtro === "REJEITADOS") return termos.filter((t) => t.status === "TERMO_REJEITADO");
     if (filtro === "AUDITORIA") return termos.filter(ehGovPendenteAuditoria);
     return termos;
-  }, [termos, filtro]);
+  }, [termos, termosLiberados, filtro, tipoLiberado, ordemLiberados]);
 
   if (carregando) {
     return <div style={styles.container}><Carregando texto="Carregando fila ADM…" /></div>;
@@ -329,6 +367,43 @@ export default function FilaAdmTermos() {
         ))}
       </div>
 
+      {filtro === "LIBERADOS" && (
+        <div style={styles.subFiltros}>
+          <div style={styles.grupoSubFiltro}>
+            <span style={styles.rotuloSubFiltro}>Assinatura:</span>
+            {[
+              { chave: "TODOS", label: `Todas (${contadoresLiberados.todos})` },
+              { chave: "MANUAL", label: `Manual + RG (${contadoresLiberados.manual})` },
+              { chave: "GOV_BR", label: `Gov.br (${contadoresLiberados.gov})` },
+            ].map((op) => (
+              <button
+                key={op.chave}
+                style={tipoLiberado === op.chave ? styles.subFiltroAtivo : styles.subFiltro}
+                onClick={() => setTipoLiberado(op.chave)}
+              >
+                {op.label}
+              </button>
+            ))}
+          </div>
+
+          <div style={styles.grupoSubFiltro}>
+            <span style={styles.rotuloSubFiltro}>Liberação:</span>
+            {[
+              { chave: "RECENTE", label: "Mais recentes primeiro" },
+              { chave: "ANTIGO", label: "Mais antigos primeiro" },
+            ].map((op) => (
+              <button
+                key={op.chave}
+                style={ordemLiberados === op.chave ? styles.subFiltroAtivo : styles.subFiltro}
+                onClick={() => setOrdemLiberados(op.chave)}
+              >
+                {op.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       {termosFiltrados.length === 0 && (
         <div style={styles.vazio}>Nenhum termo encontrado neste filtro.</div>
       )}
@@ -351,6 +426,11 @@ export default function FilaAdmTermos() {
                 <p style={styles.info}>
                   <strong>Enviado em:</strong> {formatarData(termo.criado_em)}
                 </p>
+                {termo.status === "TERMO_RECEBIDO_LIBERADO" && (
+                  <p style={styles.info}>
+                    <strong>Liberado em:</strong> {formatarData(termo.validado_em)}
+                  </p>
+                )}
                 <p style={styles.info}>
                   <strong>Assinatura:</strong>{" "}
                   {termo.tipo_assinatura === "GOV_BR"
@@ -685,6 +765,38 @@ const styles = {
   numero: { display: "block", fontSize: "28px", fontWeight: "bold", color: "#111827" },
   descricao: { display: "block", color: "#6b7280", marginTop: "4px" },
   filtros: { display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "18px" },
+  subFiltros: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: "18px",
+    alignItems: "center",
+    background: "#fff",
+    border: "1px solid #e5e7eb",
+    borderRadius: "12px",
+    padding: "12px 14px",
+    marginBottom: "18px",
+  },
+  grupoSubFiltro: { display: "flex", flexWrap: "wrap", gap: "6px", alignItems: "center" },
+  rotuloSubFiltro: { fontSize: "13px", fontWeight: "bold", color: "#374151" },
+  subFiltro: {
+    background: "#f3f4f6",
+    color: "#374151",
+    border: "1px solid #d1d5db",
+    padding: "6px 12px",
+    borderRadius: "999px",
+    cursor: "pointer",
+    fontSize: "13px",
+  },
+  subFiltroAtivo: {
+    background: "#0d6efd",
+    color: "#fff",
+    border: "1px solid #0d6efd",
+    padding: "6px 12px",
+    borderRadius: "999px",
+    cursor: "pointer",
+    fontSize: "13px",
+    fontWeight: "bold",
+  },
   filtro: {
     background: "#fff",
     color: "#111827",
