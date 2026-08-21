@@ -173,6 +173,31 @@ function hojeLocalBR() {
   return `${ano}-${mes}-${dia}`;
 }
 
+// Azul claro da linha ja trabalhada no dia (e o tom do hover em cima dela).
+const COR_TRABALHADO_HOJE = "#e0f2fe";
+const COR_TRABALHADO_HOJE_HOVER = "#bae6fd";
+
+// Data local (fuso do operador) de um timestamp. Nao da pra fatiar o ISO
+// direto: uma tabulacao das 22h vira o dia seguinte em UTC e a linha
+// deixaria de contar como trabalhada hoje.
+function dataLocalDe(valor) {
+  if (!valor) return null;
+  const bruto = String(valor);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(bruto)) return bruto;
+  const d = new Date(bruto);
+  if (Number.isNaN(d.getTime())) return bruto.slice(0, 10) || null;
+  const ano = d.getFullYear();
+  const mes = String(d.getMonth() + 1).padStart(2, "0");
+  const dia = String(d.getDate()).padStart(2, "0");
+  return `${ano}-${mes}-${dia}`;
+}
+
+// Caso ja acionado hoje. So marca visualmente -- nao altera fila, filtro nem
+// ordenacao: o caso continua saindo de "sem acionamento" como sempre.
+function trabalhadoHoje(a) {
+  return dataLocalDe(a?.data_ultimo_acionamento) === hojeLocalBR();
+}
+
 function formatarData(data) {
   if (!data) return "-";
   if (/^\d{4}-\d{2}-\d{2}$/.test(data)) {
@@ -2695,15 +2720,17 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
                       {col.itens.map((a) => {
                         const sp = statusPrazo(a);
+                        const feitoHoje = trabalhadoHoje(a);
                         return (
                           <div
                             key={a.id}
                             draggable
+                            title={feitoHoje ? "Ja trabalhado hoje" : undefined}
                             onDragStart={() => setArrastandoId(a.id)}
                             onDragEnd={() => { setArrastandoId(null); setColunaSobre(null); }}
                             onClick={() => abrirModal(a)}
                             style={{
-                              background: "#fff", borderRadius: 12, padding: "12px 13px", border: "1px solid #e6eaf0",
+                              background: feitoHoje ? COR_TRABALHADO_HOJE : "#fff", borderRadius: 12, padding: "12px 13px", border: "1px solid #e6eaf0",
                               borderLeft: `3px solid ${sp.cor}`, boxShadow: "0 1px 2px rgba(16,24,40,0.05)", cursor: "grab",
                               opacity: arrastandoId === a.id ? 0.4 : 1,
                             }}
@@ -2750,12 +2777,24 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     const corTotal = temDet
                       ? (fa.temAtraso ? "#b42318" : fa.temAVencer ? "#b54708" : "#101828")
                       : "#101828";
+                    const feitoHoje = trabalhadoHoje(a);
                     return (
                       <tr
                         key={a.id}
-                        style={{ ...S.tr, borderLeft: `4px solid ${sp.cor}` }}
-                        onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
-                        onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+                        title={feitoHoje ? "Ja trabalhado hoje" : undefined}
+                        style={{
+                          ...S.tr,
+                          borderLeft: `4px solid ${sp.cor}`,
+                          // Sem destaque nao fixa cor nenhuma: no celular a
+                          // linha vira card e o branco vem do CSS.
+                          background: feitoHoje ? COR_TRABALHADO_HOJE : undefined,
+                        }}
+                        onMouseEnter={(e) =>
+                          (e.currentTarget.style.background = feitoHoje ? COR_TRABALHADO_HOJE_HOVER : "#f8fafc")
+                        }
+                        onMouseLeave={(e) =>
+                          (e.currentTarget.style.background = feitoHoje ? COR_TRABALHADO_HOJE : "")
+                        }
                         onClick={() => abrirModal(a)}
                       >
                         <td style={S.td} data-label="Nome">
@@ -2996,6 +3035,20 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             </div>
             <p style={S.rodapeTabela}>
               Mostrando {listaFiltrada.length} de {casos.length} casos carregados. Clique numa linha para abrir o atendimento.
+              {" "}
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
+                <span
+                  style={{
+                    width: 12,
+                    height: 12,
+                    borderRadius: 3,
+                    background: COR_TRABALHADO_HOJE,
+                    border: `1px solid ${COR_TRABALHADO_HOJE_HOVER}`,
+                    display: "inline-block",
+                  }}
+                />
+                Linhas em azul claro = ja acionadas hoje.
+              </span>
             </p>
               </>
             )}
