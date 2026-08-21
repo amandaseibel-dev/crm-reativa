@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { urlComprovanteLink, urlTermo, abrirDocumento } from "../utils/documentoFinanceiro";
 import { podeVerTudo } from "../utils/operadores";
+import { intervaloPeriodo, comoInputData, intervaloInvalido } from "../utils/periodo";
 
 const OPERADORES_REATIVA = [
   { nome: "Fernanda Supervisora", email: "cobranca04@aelbra.com.br" },
@@ -82,30 +83,6 @@ function formatarTabulacao(valor) {
     .split("_")
     .map((parte) => parte.charAt(0) + parte.slice(1).toLowerCase())
     .join(" ");
-}
-
-function inicioPeriodo(periodo) {
-  const agora = new Date();
-
-  if (periodo === "HOJE") {
-    agora.setHours(0, 0, 0, 0);
-    return agora;
-  }
-
-  if (periodo === "SEMANA") {
-    const diaSemana = agora.getDay();
-    agora.setDate(agora.getDate() - diaSemana);
-    agora.setHours(0, 0, 0, 0);
-    return agora;
-  }
-
-  if (periodo === "MES") {
-    agora.setDate(1);
-    agora.setHours(0, 0, 0, 0);
-    return agora;
-  }
-
-  return null;
 }
 
 function diffMinutos(inicio, fim) {
@@ -198,6 +175,8 @@ export default function PainelAdm() {
   const [aba, setAba] = useState("LINKS");
 
   const [periodo, setPeriodo] = useState("HOJE");
+  const [dataDe, setDataDe] = useState("");
+  const [dataAte, setDataAte] = useState("");
   const [busca, setBusca] = useState("");
 
   // ---- Links de pagamento ----
@@ -229,12 +208,27 @@ export default function PainelAdm() {
     carregarUsuario();
   }, []);
 
+  // Intervalo invertido não recarrega: a tela avisa e mantém o que já estava
+  // na frente do usuário.
+  const periodoInvalido = intervaloInvalido(periodo, dataDe, dataAte);
+
   useEffect(() => {
+    if (periodoInvalido) return;
     if (aba === "LINKS") carregarLinks();
     if (aba === "FINANCEIRO") carregarFinanceiro();
     if (aba === "TERMOS") carregarTermos();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [aba, periodo]);
+  }, [aba, periodo, dataDe, dataAte, periodoInvalido]);
+
+  // Ao abrir o personalizado, comeca no mes corrente pra tela nunca ficar vazia.
+  function trocarPeriodo(valor) {
+    if (valor === "PERSONALIZADO" && !dataDe && !dataAte) {
+      const hoje = new Date();
+      setDataDe(comoInputData(new Date(hoje.getFullYear(), hoje.getMonth(), 1)));
+      setDataAte(comoInputData(hoje));
+    }
+    setPeriodo(valor);
+  }
 
   async function carregarUsuario() {
     const { data } = await supabase.auth.getUser();
@@ -246,7 +240,7 @@ export default function PainelAdm() {
     setErroLinks("");
 
     try {
-      const desde = inicioPeriodo(periodo);
+      const { desde, ate } = intervaloPeriodo(periodo, dataDe, dataAte);
 
       let query = supabase
         .from("links_pagamento")
@@ -256,6 +250,10 @@ export default function PainelAdm() {
 
       if (desde) {
         query = query.gte("criado_em", desde.toISOString());
+      }
+
+      if (ate) {
+        query = query.lte("criado_em", ate.toISOString());
       }
 
       const { data, error } = await query;
@@ -308,7 +306,7 @@ export default function PainelAdm() {
   async function carregarFinanceiro() {
     setCarregandoFinanceiro(true);
 
-    const desde = inicioPeriodo(periodo);
+    const { desde, ate } = intervaloPeriodo(periodo, dataDe, dataAte);
 
     let query = supabase
       .from("solicitacoes_financeiro")
@@ -318,6 +316,10 @@ export default function PainelAdm() {
 
     if (desde) {
       query = query.gte("criado_em", desde.toISOString());
+    }
+
+    if (ate) {
+      query = query.lte("criado_em", ate.toISOString());
     }
 
     const { data, error } = await query;
@@ -335,7 +337,7 @@ export default function PainelAdm() {
   async function carregarTermos() {
     setCarregandoTermos(true);
 
-    const desde = inicioPeriodo(periodo);
+    const { desde, ate } = intervaloPeriodo(periodo, dataDe, dataAte);
 
     let query = supabase
       .from("termos_acordo")
@@ -343,8 +345,15 @@ export default function PainelAdm() {
       .order("criado_em", { ascending: false })
       .limit(2000);
 
-    if (desde) {
-      query = query.or(`status.eq.TERMO_ENVIADO_ADM,criado_em.gte.${desde.toISOString()}`);
+    if (desde || ate) {
+      // Termo esperando o ADM continua aparecendo mesmo fora da janela escolhida.
+      const dentroDoPeriodo = [
+        desde ? `criado_em.gte.${desde.toISOString()}` : null,
+        ate ? `criado_em.lte.${ate.toISOString()}` : null,
+      ].filter(Boolean);
+      const janela =
+        dentroDoPeriodo.length > 1 ? `and(${dentroDoPeriodo.join(",")})` : dentroDoPeriodo[0];
+      query = query.or(`status.eq.TERMO_ENVIADO_ADM,${janela}`);
     }
 
     const { data, error } = await query;
@@ -867,12 +876,55 @@ export default function PainelAdm() {
       </div>
 
       <div style={estilos.filtros}>
-        <select value={periodo} onChange={(e) => setPeriodo(e.target.value)} style={estilos.select}>
+        <select
+          value={periodo}
+          onChange={(e) => trocarPeriodo(e.target.value)}
+          style={estilos.select}
+          aria-label="Período"
+        >
           <option value="HOJE">Hoje</option>
           <option value="SEMANA">Esta semana</option>
           <option value="MES">Este mês</option>
           <option value="TODOS">Tudo</option>
+          <option value="PERSONALIZADO">Escolher datas…</option>
         </select>
+
+        {periodo === "PERSONALIZADO" && (
+          <div style={estilos.intervalo}>
+            <label style={estilos.rotuloData}>
+              De
+              <input
+                type="date"
+                value={dataDe}
+                max={dataAte || undefined}
+                onChange={(e) => setDataDe(e.target.value)}
+                style={estilos.inputData}
+              />
+            </label>
+            <label style={estilos.rotuloData}>
+              Até
+              <input
+                type="date"
+                value={dataAte}
+                min={dataDe || undefined}
+                onChange={(e) => setDataAte(e.target.value)}
+                style={estilos.inputData}
+              />
+            </label>
+            {(dataDe || dataAte) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDataDe("");
+                  setDataAte("");
+                }}
+                style={estilos.limparDatas}
+              >
+                Limpar datas
+              </button>
+            )}
+          </div>
+        )}
 
         {aba === "LINKS" && (
           <select
@@ -947,6 +999,12 @@ export default function PainelAdm() {
           Atualizar
         </button>
       </div>
+
+      {periodoInvalido && (
+        <div style={estilos.aviso}>
+          A data final é anterior à inicial — ajuste o intervalo pra atualizar a lista.
+        </div>
+      )}
 
       {aba === "LINKS" && (
         <>
@@ -1444,6 +1502,43 @@ const estilos = {
     borderRadius: "8px",
     fontSize: "14px",
     background: "#fff",
+  },
+  intervalo: {
+    display: "flex",
+    gap: "8px",
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
+  rotuloData: {
+    display: "flex",
+    alignItems: "center",
+    gap: "6px",
+    fontSize: "13px",
+    color: "#475569",
+  },
+  inputData: {
+    padding: "8px 10px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "8px",
+    fontSize: "14px",
+    background: "#fff",
+  },
+  limparDatas: {
+    padding: "8px 10px",
+    border: "1px solid #cbd5e1",
+    borderRadius: "8px",
+    fontSize: "13px",
+    background: "#f8fafc",
+    color: "#475569",
+    cursor: "pointer",
+  },
+  aviso: {
+    padding: "10px 12px",
+    borderRadius: "8px",
+    background: "#fef3c7",
+    color: "#92400e",
+    fontSize: "14px",
+    marginBottom: "16px",
   },
   busca: {
     padding: "9px 10px",
