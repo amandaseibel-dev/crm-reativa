@@ -102,3 +102,41 @@ describe("telasParaAdmin", () => {
     expect(admin.every((t) => t.temConteudoAgora === null)).toBe(true);
   });
 });
+
+describe("slides de imagem (imagens prontas do painel)", () => {
+  const imagens = { itens: [
+    { id: "a1", path: "a1.png", url: "https://x/a1.png", nome: "cartaz.png", legenda: "Campanha" },
+    { id: "b2", path: "b2.jpg", url: "https://x/b2.jpg", nome: "foto.jpg", legenda: "" },
+    { id: "semurl", path: "c.png", url: "", nome: "quebrada.png" },
+  ] };
+
+  it("cada imagem com url vira um slide 'img:<id>', ligado por padrão e no fim do rodízio", () => {
+    const t = telasVisiveis(snapBase({ imagens }));
+    const i = ids(t);
+    expect(i.slice(-2)).toEqual(["img:a1", "img:b2"]);
+    expect(i).not.toContain("img:semurl");
+    expect(t.find((x) => x.id === "img:a1").nome).toBe("Campanha");
+    expect(t.find((x) => x.id === "img:b2").nome).toBe("foto.jpg");
+  });
+
+  it("telas_config oculta e reordena imagem como qualquer slide", () => {
+    const t = telasVisiveis(snapBase({ imagens, telas_config: { "img:b2": { visivel: false }, "img:a1": { ordem: 0 } } }));
+    const i = ids(t);
+    expect(i[0]).toBe("img:a1");
+    expect(i).not.toContain("img:b2");
+  });
+
+  it("sem imagens no snapshot, o rodízio é o mesmo de antes", () => {
+    expect(ids(telasVisiveis(snapBase()))).toEqual(ids(telasVisiveis(snapBase({ imagens: { itens: [] } }))));
+  });
+
+  it("telasParaAdmin lista as imagens passadas (mesmo fora do snapshot), com grupo 'imagem' e o item", () => {
+    const t = telasParaAdmin(snapBase(), {}, imagens.itens);
+    const img = t.find((x) => x.id === "img:a1");
+    expect(img).toBeTruthy();
+    expect(img.grupo).toBe("imagem");
+    expect(img.imagem.url).toBe("https://x/a1.png");
+    expect(img.visivel).toBe(true);
+    expect(img.temConteudoAgora).toBe(true);
+  });
+});
