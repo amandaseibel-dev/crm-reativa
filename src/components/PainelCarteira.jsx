@@ -476,8 +476,8 @@ function seloFila(a, hojeStr) {
   const d = diasSemAcionar(a, hojeStr);
   if (d === null) return { emoji: "🆕", texto: "Nunca acionado", bg: "#1e3a8a", cor: "#bfdbfe" };
   const faltam = 10 - d; // fidelizacao solta o caso em +10 dias
-  if (faltam <= 0) return { emoji: "🚨", texto: `Perdendo o caso (${d}d)`, bg: "#7f1d1d", cor: "#fecaca" };
-  if (faltam <= 2) return { emoji: "⏳", texto: `Solta em ${faltam}d`, bg: "#7f1d1d", cor: "#fecaca" };
+  if (d >= 11) return { emoji: "🚨", texto: `Perdendo o caso (${d}d)`, bg: "#7f1d1d", cor: "#fecaca" };
+  if (faltam <= 2) return { emoji: "⏳", texto: `Solta em ${Math.max(0, faltam)}d`, bg: "#7f1d1d", cor: "#fecaca" };
   return null;
 }
 
@@ -2210,32 +2210,29 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     };
     const arr = [...l];
     if (ordenacao === "inteligente") {
-      // Fila inteligente (regra da gestao, 21/08/2026):
-      //   1) PERDENDO O CASO primeiro: 10+ dias sem acionamento (a fidelizacao
-      //      solta o caso) -- e quem nunca foi acionado, contado desde que o
-      //      caso chegou ao operador;
-      //   2) retorno devido (hoje/atrasado): compromisso marcado;
-      //   3) perto de soltar (8-9 dias);
-      //   4) resto (dentro do prazo).
+      // Fila inteligente (regra da gestao, 21/08/2026): a ordem segue
+      // EXATAMENTE o selo de prazo que o operador ve na linha (statusPrazo):
+      //   0 Perdendo o caso (11+ dias)  -> nunca perder caso
+      //   1 Critico (9-10 dias)
+      //   2 Atencao (8 dias)
+      //   3 Novo (nunca acionado e sem data de entrada)
+      //   4 Retorno devido (hoje/atrasado)
+      //   5 Dentro do prazo (0-7 dias)
       // Dentro de cada faixa: CRITICIDADE canonica, depois SEMPRE os mais
-      // antigos sem acionamento primeiro, chegando por ultimo nos mais novos;
-      // empate por saldo. Sem rodizio por ano: a ordem e estrita, para o
-      // operador nao perder caso nenhum.
+      // antigos sem acionamento primeiro (chegando por ultimo nos mais novos);
+      // empate por saldo. Sem rodizio por ano: ordem estrita.
       const hoje = hojeLocalBR();
-      const diasParado = (a) => {
-        const d = diasSemAcionar(a, hoje);
-        if (d !== null) return d;
-        // nunca acionado: conta desde que o caso chegou ao operador
-        const desde = a?.responsavel_atual_em ? String(a.responsavel_atual_em).slice(0, 10) : null;
-        const dd = desde ? diasParaData(desde, hoje) : null;
-        return dd === null ? 9999 : Math.max(0, dd);
-      };
+      const RANK_PRAZO = { "Perdendo o caso": 0, Critico: 1, Atencao: 2, Novo: 3 };
       const faixa = (a) => {
-        if (diasParado(a) >= 10) return 0;
+        const lab = statusPrazo(a).label;
+        if (lab in RANK_PRAZO) return RANK_PRAZO[lab];
         const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
-        if (ret && ret <= hoje) return 1;
-        if (diasParado(a) >= 8) return 2;
-        return 3;
+        if (ret && ret <= hoje) return 4;
+        return 5;
+      };
+      const diasParado = (a) => {
+        const d = diasSemContato(a);
+        return d === null ? 9999 : d;
       };
       arr.sort((a, b) =>
         (faixa(a) - faixa(b)) ||
