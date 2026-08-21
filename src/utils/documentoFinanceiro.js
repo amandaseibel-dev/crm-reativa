@@ -198,3 +198,36 @@ export function enviarComprovanteBaixa(id, file) {
 export function enviarTermo(id, campo, file) {
   return enviarDocumento("termo", id, campo, file);
 }
+
+// --- FLUXO DE ASSINATURA (testemunhas + Ulbra) -----------------------------
+// Concluir e descartar passam pela MESMA Edge Function: só ela tem permissão de
+// apagar objeto do Storage. O cliente manda o ID do termo e a confirmação do
+// backup; nunca caminho, bucket ou nome de arquivo.
+//
+// Retorno: { ok:true, arquivos_removidos, pendentes_no_storage, ... } ou
+//          { ok:false, erro } com o código bruto da Edge preservado.
+async function acaoAssinatura(body) {
+  const res = await invocarDocfin(body);
+  if (res.ok) return { ok: true, ...(res.data || {}) };
+  return { ok: false, erro: res.code || "falha_operacao", status: res.status };
+}
+
+export function concluirAssinaturaTermo(id, opcoes = {}) {
+  if (!id) return Promise.resolve({ ok: false, erro: "dados_invalidos" });
+  return acaoAssinatura({
+    acao: "concluir_assinatura",
+    id: String(id),
+    testemunha_1: opcoes.testemunha1 || null,
+    testemunha_2: opcoes.testemunha2 || null,
+    backup_confirmado: opcoes.backupConfirmado === true,
+  });
+}
+
+export function descartarViaAluno(id, opcoes = {}) {
+  if (!id) return Promise.resolve({ ok: false, erro: "dados_invalidos" });
+  return acaoAssinatura({
+    acao: "descartar_via_aluno",
+    id: String(id),
+    backup_confirmado: opcoes.backupConfirmado === true,
+  });
+}
