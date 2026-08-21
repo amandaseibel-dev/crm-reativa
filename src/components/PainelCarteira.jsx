@@ -70,6 +70,7 @@ const STATUS_FINALIZACAO = [
   "TERMO_RECEBIDO_LIBERADO",
   "TERMO_REJEITADO",
   "ACORDO_FECHADO",
+  "LEMBRETE_PARCELA",
   "CANCELAMENTO_COBRANCA",
   "SUSPENSAO_COBRANCA",
   "JURIDICO",
@@ -270,6 +271,7 @@ const MAPA_SITUACAO = {
   BAIXA_REALIZADA: "Pago",
   BAIXA_DEVOLVIDA: "Baixa devolvida",
   ACORDO_FECHADO: "Acordo fechado",
+  LEMBRETE_PARCELA: "Lembrete de parcela feito",
   TERMO_ENVIADO_ALUNO: "Termo enviado",
   TERMO_ENVIADO_ADM: "Termo no ADM",
   TERMO_RECEBIDO_LIBERADO: "Termo liberado",
@@ -501,6 +503,16 @@ function semSaldoVencido(a) {
   // backend atribui exclusivamente quando o saldo vencido e zero.
   return SITUACAO_CANONICA_SEM_VENCIDO.has(String(a?.situacao_operacional || "").toUpperCase());
 }
+// Lembrete de parcela devido: acordo em dia com retorno automatico (D-2, dia
+// util) ja vencido ou hoje. E o backend (recalcular_situacao_aluno) quem
+// agenda e quem silencia depois que o operador tabula.
+function lembreteParcelaDevido(a, hojeStr) {
+  if (String(a?.situacao_operacional || "").toUpperCase() !== "ACORDO_EM_DIA") return false;
+  const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
+  if (!ret) return false;
+  return ret <= (hojeStr || hojeLocalBR());
+}
+
 function mostrarSeloCriticidade(a) {
   if (critCanon(a) === "NORMAL") return false;
   // quitacao nunca exibe criticidade financeira, independentemente de valor antigo.
@@ -663,6 +675,20 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [alunoModal, setAlunoModal] = useState(null);
   const [abaModal, setAbaModal] = useState("resumo");
   const [historico, setHistorico] = useState([]);
+
+  // ---- Acionamento guiado ----
+  // O operador clica em "Iniciar acionamento" e o sistema abre, um a um, os
+  // casos da fila inteligente. SEM PULO: o proximo so abre depois de tabular
+  // (finalizarAtendimento). Sair e permitido (receptivo, pausa) -- pular o
+  // aluno, nao. A ordem e a da propria fila inteligente, reconsultada a cada
+  // avanco (outro operador pode ter pego o caso; o aluno pode ter pago).
+  const [guiado, setGuiado] = useState(false);
+  const [guiadoAcionados, setGuiadoAcionados] = useState(0);
+  const [guiadoAvancar, setGuiadoAvancar] = useState(0); // tick: avancar apos tabular
+  const [guiadoConcluido, setGuiadoConcluido] = useState(null); // { acionados }
+  const guiadoFeitosRef = useRef(new Set()); // ids ja tabulados nesta sessao guiada
+  const guiadoPendenteRef = useRef(false); // ha um avanco pedido e ainda nao consumido
+  const listaFiltradaRef = useRef([]);
 
   // Exporta o historico/tabulacoes do aluno em PDF -- pra registro,
   // conferencia ou envio pra fora do sistema.
@@ -1377,7 +1403,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     setAcaoInline(null);
     setAbrirFormInicial(false);
     setRetornoAluno(null);
-    setStatusNovo(a.status_atual || "");
+    // Lembrete de parcela devido (acordo em dia, D-2): a tabulacao ja vem
+    // pre-selecionada -- o operador so confirma depois de falar com o aluno.
+    setStatusNovo(lembreteParcelaDevido(a) ? "LEMBRETE_PARCELA" : (a.status_atual || ""));
     setResumoConversa("");
     setRetornoData(a.data_retorno || "");
     setRetornoHora(a.hora_retorno || "");
@@ -1417,7 +1445,40 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     } catch (e) { /* silencioso */ }
   }
 
+  // Proximo caso do acionamento guiado: primeiro da fila inteligente (ordem
+  // viva, recem-recarregada) que ainda nao foi tabulado hoje nem nesta sessao.
+  function proximoDoGuiado(lista) {
+    const hojeSet = new Set((acionadosHojeIds || []).map(String));
+    return (lista || []).find(
+      (a) => a?.id && !guiadoFeitosRef.current.has(String(a.id)) && !hojeSet.has(String(a.id))
+    ) || null;
+  }
+
+  function iniciarGuiado() {
+    if (ordenacao !== "inteligente") setOrdenacao("inteligente");
+    guiadoFeitosRef.current = new Set();
+    setGuiadoAcionados(0);
+    setGuiadoConcluido(null);
+    setGuiado(true);
+    // A lista ja esta na ordem da fila inteligente quando ordenacao ==
+    // "inteligente"; se acabou de trocar, o efeito de avanco recalcula.
+    guiadoPendenteRef.current = true;
+    setGuiadoAvancar((t) => t + 1);
+  }
+
+  function encerrarGuiado(concluiu) {
+    setGuiado(false);
+    if (concluiu) setGuiadoConcluido({ acionados: guiadoFeitosRef.current.size });
+  }
+
   function fecharModal() {
+    if (guiado) {
+      const sair = window.confirm(
+        "Sair do acionamento guiado?\n\nEste aluno ainda nao foi tabulado. Ele continua na fila e sera o primeiro quando voce retomar."
+      );
+      if (!sair) return;
+      encerrarGuiado(false);
+    }
     setModalAberto(false);
     setAlunoModal(null);
     setFeedback(null);
@@ -1735,7 +1796,18 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
       setResumoConversa("");
       setFeedback({ tipo: "ok", texto: "Atendimento salvo com sucesso." });
-      await atualizarTudo(a.id);
+      if (guiado) {
+        // Tabulou: este e o unico jeito de avancar. Recarrega a fila do banco
+        // (outro operador pode ter pego o proximo; alguem pode ter pago) e
+        // deixa o efeito de avanco abrir o proximo com a lista fresca.
+        guiadoFeitosRef.current.add(String(a.id));
+        setGuiadoAcionados(guiadoFeitosRef.current.size);
+        await carregar();
+        guiadoPendenteRef.current = true;
+        setGuiadoAvancar((t) => t + 1);
+      } else {
+        await atualizarTudo(a.id);
+      }
     } catch (e) {
       console.error("Erro ao finalizar atendimento:", e);
       setFeedback({ tipo: "erro", texto: "Nao foi possivel salvar. " + (e?.message || "") });
@@ -2207,6 +2279,24 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     }
     return arr;
   }, [casos, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]);
+  listaFiltradaRef.current = listaFiltrada;
+
+  // Avanco do acionamento guiado. Roda depois que a lista foi recarregada
+  // (carregar -> setCasos -> listaFiltrada), por isso le a lista fresca.
+  useEffect(() => {
+    if (!guiado || !guiadoAvancar || !guiadoPendenteRef.current) return;
+    if (ordenacao !== "inteligente") return; // iniciarGuiado ja trocou; espera o re-render
+    guiadoPendenteRef.current = false; // consome o pedido: trocar filtro/ordem depois nao pula ninguem
+    const prox = proximoDoGuiado(listaFiltradaRef.current);
+    if (!prox) {
+      encerrarGuiado(true);
+      setModalAberto(false);
+      setAlunoModal(null);
+      return;
+    }
+    abrirModal(prox).then(() => setAbaModal("negociacao"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [guiadoAvancar, ordenacao]);
 
   // Agrupamento pro Kanban: uma coluna fixa "Sem acionamento" (nunca
   // acionados) + as tabulacoes normais mais usadas no dia a dia, com o
@@ -2743,6 +2833,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               >
                 📌 Fixados {fixados.size > 0 ? `(${fixados.size})` : ""}
               </button>
+              <button
+                type="button"
+                onClick={iniciarGuiado}
+                disabled={guiado || listaFiltrada.length === 0}
+                title="Abre os casos da fila inteligente um a um. O proximo so abre depois de tabular."
+                style={{ ...S.btnPrimario, padding: "8px 14px", opacity: guiado || listaFiltrada.length === 0 ? 0.6 : 1 }}
+              >
+                ▶ Iniciar acionamento
+              </button>
               <select style={S.select} value={ordenacao} onChange={(e) => setOrdenacao(e.target.value)}>
                 <option value="inteligente">🧠 Fila inteligente</option>
                 <option value="prioridade">Prioridade (o que acionar)</option>
@@ -2757,6 +2856,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 </div>
               )}
             </div>
+            {guiadoConcluido && (
+              <div style={S.guiadoBanner} role="status">
+                🎉 Fila do dia concluida: {guiadoConcluido.acionados} {guiadoConcluido.acionados === 1 ? "aluno acionado" : "alunos acionados"} nesta rodada.
+                <button type="button" style={S.guiadoBannerFechar} onClick={() => setGuiadoConcluido(null)} aria-label="Fechar">✕</button>
+              </div>
+            )}
 
             {visao === "kanban" ? (
               <div style={{ display: "flex", gap: 14, overflowX: "auto", paddingBottom: 10 }}>
@@ -3130,9 +3235,26 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       {/* ---- Modal operacional ---- */}
       {modalAberto && alunoModal && (
         <div style={S.overlay} onClick={fecharModal}>
-          <div style={S.modal} onClick={(e) => e.stopPropagation()} role="dialog" aria-modal="true">
+          <div
+            style={S.modal}
+            onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            onKeyDown={(e) => {
+              // Atalho do acionamento guiado: Ctrl/Cmd+Enter = Finalizar atendimento.
+              if (guiado && abaModal === "negociacao" && e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                finalizarAtendimento();
+              }
+            }}
+          >
             <div style={S.modalHeader}>
               <div style={{ minWidth: 0 }}>
+                {guiado && (
+                  <div style={S.guiadoSelo}>
+                    ▶ Acionamento guiado · {guiadoAcionados} {guiadoAcionados === 1 ? "acionado" : "acionados"} · faltam {Math.max(0, listaFiltrada.filter((x) => !guiadoFeitosRef.current.has(String(x.id)) && !acionadosHojeIds.map(String).includes(String(x.id))).length)}
+                  </div>
+                )}
                 <h2 style={S.modalNome}>{nomeAluno(alunoModal)}</h2>
                 <div style={S.modalSub}>
                   {alunoModal.cpf || "-"} · {alunoModal.telefone || "sem telefone"} ·{" "}
@@ -3141,7 +3263,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   </span>
                 </div>
               </div>
-              <button style={S.btnFechar} onClick={fecharModal} aria-label="Fechar">✕</button>
+              <button style={S.btnFechar} onClick={fecharModal} aria-label={guiado ? "Sair do acionamento guiado" : "Fechar"} title={guiado ? "Sair do acionamento guiado" : "Fechar"}>
+                {guiado ? "Sair ✕" : "✕"}
+              </button>
             </div>
 
             <div style={{ padding: "0 16px" }}>
@@ -3334,6 +3458,18 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     </div>
                   )}
 
+                  {lembreteParcelaDevido(alunoModal) && (
+                    <div style={S.lembreteBox}>
+                      <div style={S.lembreteTitulo}>🔔 Lembrete de parcela</div>
+                      <div style={S.lembreteTexto}>
+                        {alunoModal.proxima_acao || "Acordo em dia: lembrar o aluno da proxima parcela."}
+                      </div>
+                      <div style={S.lembreteDica}>
+                        Agendado automaticamente 2 dias antes do vencimento. Depois de tabular, o caso fica em silencio ate a parcela vencer.
+                      </div>
+                    </div>
+                  )}
+
                   <label style={S.label}>Tabular atendimento (status)</label>
                   <select style={S.select} value={statusNovo} onChange={(e) => setStatusNovo(e.target.value)}>
                     <option value="">Selecione o status...</option>
@@ -3364,8 +3500,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     <button style={S.btnSecundario} onClick={registrarResumo} disabled={salvando}>
                       {salvando ? "..." : "Registrar resumo"}
                     </button>
-                    <button style={S.btnPrimario} onClick={finalizarAtendimento} disabled={salvando}>
-                      {salvando ? "Salvando..." : "Finalizar atendimento"}
+                    <button style={S.btnPrimario} onClick={finalizarAtendimento} disabled={salvando} title={guiado ? "Ctrl+Enter. No acionamento guiado, salvar abre o proximo aluno." : undefined}>
+                      {salvando ? "Salvando..." : guiado ? "Finalizar e abrir o proximo ▶" : "Finalizar atendimento"}
                     </button>
                   </div>
 
@@ -3754,6 +3890,13 @@ const S = {
   textarea: { padding: "10px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, minHeight: 70, resize: "vertical", fontFamily: "inherit", background: "#fff", color: "#344054" },
   proximaAcao: { fontSize: 12.5, color: "#667085", background: "#f9fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: "9px 13px" },
   acoesLinha: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 },
+  guiadoBanner: { marginTop: 10, padding: "10px 14px", borderRadius: 10, background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 10 },
+  guiadoBannerFechar: { marginLeft: "auto", background: "transparent", border: "none", cursor: "pointer", color: "#065f46", fontWeight: 700 },
+  guiadoSelo: { display: "inline-block", marginBottom: 6, padding: "3px 10px", borderRadius: 999, background: "#1e40af", color: "#fff", fontSize: 11, fontWeight: 800, letterSpacing: 0.3 },
+  lembreteBox: { marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: "#ecfdf5", border: "1px solid #6ee7b7" },
+  lembreteTitulo: { fontSize: 13, fontWeight: 800, color: "#065f46" },
+  lembreteTexto: { fontSize: 13, color: "#064e3b", marginTop: 4 },
+  lembreteDica: { fontSize: 11, color: "#047857", marginTop: 6 },
   btnPrimario: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
   btnSecundario: { background: "#eef2f6", color: "#475569", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
   timeline: { display: "flex", flexDirection: "column", gap: 11 },
