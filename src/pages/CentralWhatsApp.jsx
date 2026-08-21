@@ -263,8 +263,12 @@ export default function CentralWhatsApp() {
     }
   }, []);
 
-  const carregarConversas = useCallback(async () => {
-    setCarregandoLista(true);
+  // `mostrarCarregando` só na primeira carga e na troca de filtro. As recargas
+  // de fundo (Realtime, volta de foco, marcar lida) NÃO tiram a lista da tela:
+  // trocar a lista por "Carregando…" e devolvê-la meio segundo depois, a cada
+  // mensagem que chega, é o que fazia a Central piscar na cara do operador.
+  const carregarConversas = useCallback(async ({ mostrarCarregando = false } = {}) => {
+    if (mostrarCarregando) setCarregandoLista(true);
     try {
       const linhas = await listarConversas({
         status: filtroStatus,
@@ -297,7 +301,10 @@ export default function CentralWhatsApp() {
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(carregarConversas, busca ? 350 : 0);
+    const t = setTimeout(
+      () => carregarConversas({ mostrarCarregando: true }),
+      busca ? 350 : 0,
+    );
     return () => clearTimeout(t);
   }, [carregarConversas, busca]);
 

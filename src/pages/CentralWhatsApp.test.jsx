@@ -231,6 +231,25 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("Central WhatsApp", () => {
+  it("recarga de fundo NÃO tira a lista da tela (era o piscar)", async () => {
+    const { listarConversas } = await import("../services/whatsapp");
+    servico.conversas = [conversa()];
+    render(<CentralWhatsApp />);
+    await screen.findByText("Fulano");
+    const chamadasAntes = listarConversas.mock.calls.length;
+
+    // Recarga demorada, como no Realtime/volta de foco: a lista de antes tem
+    // de continuar visível enquanto a nova não chega — sem "Carregando…".
+    listarConversas.mockImplementationOnce(() => new Promise(() => {}));
+    fireEvent(window, new Event("focus"));
+    await waitFor(
+      () => expect(listarConversas.mock.calls.length).toBeGreaterThan(chamadasAntes),
+      { timeout: 2000 },
+    );
+    expect(screen.queryByText("Carregando…")).toBeNull();
+    expect(screen.getByText("Fulano")).toBeDefined();
+  });
+
   it("é UMA central só — nunca uma por número", async () => {
     render(<CentralWhatsApp />);
     expect(await screen.findByText("Central WhatsApp")).toBeDefined();
