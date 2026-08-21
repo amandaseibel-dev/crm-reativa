@@ -42,9 +42,9 @@ function traduzStatus(status) {
 const ETAPA_LABEL = {
   NAO_APLICAVEL: "Sem assinatura pendente",
   NAO_VERIFICADO: "Não verificado",
-  PENDENTE_ENVIO: "Pendente de envio",
-  ENVIADO_ASSINATURA: "Enviado para assinatura",
-  COMPLETO: "Assinado completo",
+  PENDENTE_ENVIO: "A enviar",
+  ENVIADO_ASSINATURA: "Aguardando assinaturas",
+  COMPLETO: "Termo assinado",
 };
 
 const ETAPAS_ASSINATURA = ["NAO_VERIFICADO", "PENDENTE_ENVIO", "ENVIADO_ASSINATURA", "COMPLETO"];
@@ -160,7 +160,6 @@ export default function FilaAdmTermos() {
   const [anexoArquivo, setAnexoArquivo] = useState(null);
   const [testemunha1, setTestemunha1] = useState("");
   const [testemunha2, setTestemunha2] = useState("");
-  const [backupConfirmado, setBackupConfirmado] = useState(false);
   const [processando, setProcessando] = useState(false);
 
   // --- Estado do modal de validação em tela única ---
@@ -347,7 +346,6 @@ export default function FilaAdmTermos() {
     setAnexoArquivo(null);
     setTestemunha1(termo.testemunha_1_nome || "");
     setTestemunha2(termo.testemunha_2_nome || "");
-    setBackupConfirmado(false);
   }
 
   // Sobe a via completa e conclui. A ordem é upload -> conclusão -> descarte
@@ -367,10 +365,13 @@ export default function FilaAdmTermos() {
       return;
     }
 
+    // O descarte é automático: anexar a via completa É a decisão de descartar a
+    // do aluno. A trava que sobra é a do backend — sem o arquivo novo confirmado
+    // no bucket, nada é apagado.
     const res = await concluirAssinaturaTermo(modalAnexo.id, {
       testemunha1,
       testemunha2,
-      backupConfirmado,
+      backupConfirmado: true,
     });
     setProcessando(false);
 
@@ -384,7 +385,7 @@ export default function FilaAdmTermos() {
     } else if (res.pendentes_no_storage > 0) {
       alert("Termo concluído, mas " + res.pendentes_no_storage + " arquivo(s) não saíram do Storage. Ficaram registrados para nova tentativa.");
     } else {
-      alert("Termo concluído. Via assinada guardada e via do aluno descartada.");
+      alert("Termo assinado. Via completa guardada e via do aluno descartada.");
     }
 
     setModalAnexo(null);
@@ -643,7 +644,7 @@ export default function FilaAdmTermos() {
             <span style={styles.rotuloSubFiltro}>
               {selecionados.length > 0
                 ? `${selecionados.length} termo(s) selecionado(s)`
-                : "Selecione termos para marcar o envio em lote"}
+                : "Selecione termos para mandar para assinatura em lote"}
             </span>
             <button
               style={styles.subFiltro}
@@ -664,7 +665,7 @@ export default function FilaAdmTermos() {
               onClick={() => marcarEnviados(selecionados)}
               disabled={selecionados.length === 0 || processando}
             >
-              Marcar como enviados
+              Marcar como aguardando assinaturas
             </button>
           </div>
         </>
@@ -699,14 +700,14 @@ export default function FilaAdmTermos() {
                 )}
                 {termo.assinatura_enviada_em && (
                   <p style={styles.info}>
-                    <strong>Enviado para assinatura:</strong>{" "}
+                    <strong>Foi para assinatura em:</strong>{" "}
                     {formatarData(termo.assinatura_enviada_em)} por{" "}
                     {termo.assinatura_enviada_por || "-"}
                   </p>
                 )}
                 {termo.assinatura_completa_em && (
                   <p style={styles.info}>
-                    <strong>Assinado completo:</strong>{" "}
+                    <strong>Termo assinado em:</strong>{" "}
                     {formatarData(termo.assinatura_completa_em)} por{" "}
                     {termo.assinatura_completa_por || "-"}
                   </p>
@@ -765,7 +766,7 @@ export default function FilaAdmTermos() {
                       onClick={() => baixarEMarcarEnviado(termo)}
                       disabled={processando}
                     >
-                      Baixar PDF e marcar como enviado
+                      Baixar PDF para assinatura
                     </button>
                   </>
                 )}
@@ -886,18 +887,11 @@ export default function FilaAdmTermos() {
             </div>
 
             <div style={styles.avisoBackup}>
-              <label style={styles.checkLinha}>
-                <input
-                  type="checkbox"
-                  checked={backupConfirmado}
-                  onChange={(e) => setBackupConfirmado(e.target.checked)}
-                />
-                Já salvei as duas vias na pasta de backup
-              </label>
+              <strong>Ao salvar, a via assinada só pelo aluno é apagada do CRM</strong>
               <p style={styles.texto}>
-                Marcando isto, a via assinada só pelo aluno (e o RG/verso) é apagada do CRM
-                assim que a via completa for confirmada no armazenamento. Sem marcar, o termo
-                é concluído e a via antiga permanece.
+                O RG e o verso saem junto. Isso só acontece depois que a via completa
+                estiver confirmada no armazenamento — se o envio falhar, nada é apagado.
+                Guarde as vias na pasta de backup antes, porque o descarte não tem volta.
               </p>
             </div>
 
@@ -907,7 +901,7 @@ export default function FilaAdmTermos() {
                 onClick={salvarViaCompleta}
                 disabled={processando || !anexoArquivo}
               >
-                {processando ? "Salvando…" : "Salvar via assinada"}
+                {processando ? "Salvando…" : "Salvar via assinada e descartar a do aluno"}
               </button>
               <button
                 style={styles.botaoVer}
