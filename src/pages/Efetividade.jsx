@@ -160,6 +160,10 @@ export default function Efetividade() {
       )}
 
       <div style={{ marginTop: 28 }}>
+        <CarteiraPenetracao preset={preset} />
+      </div>
+
+      <div style={{ marginTop: 28 }}>
         <Funil />
       </div>
       </div>
@@ -305,6 +309,145 @@ function Funil() {
           </div>
         </div>
       ))}
+    </div>
+  );
+}
+
+const FAIXA_ROTULO = {
+  A_VENCER: "A vencer", "1_30": "1–30 d", "31_60": "31–60 d", "61_90": "61–90 d",
+  "91_180": "91–180 d", "181_365": "181–365 d", MAIS_365: "+365 d",
+};
+const FAIXAS_ORDEM = ["A_VENCER", "1_30", "31_60", "61_90", "91_180", "181_365", "MAIS_365"];
+
+function corPenetracao(p) {
+  if (p >= 80) return "#34d399";
+  if (p >= 60) return "#fbbf24";
+  if (p >= 40) return "#fb923c";
+  return "#f87171";
+}
+
+/**
+ * Composição da carteira + penetração + ritmo por operador.
+ * Fonte: RPC calibragem_efetividade_carteira (mv_saude_carteira, refresh 2h).
+ * Gestão vê todos; operador vê só a própria linha (forçado no backend).
+ */
+function CarteiraPenetracao({ preset }) {
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+  const [dados, setDados] = useState(null);
+  const [aberto, setAberto] = useState(null);
+
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      setCarregando(true);
+      setErro("");
+      try {
+        const { de, ate } = periodo(preset);
+        const { data, error } = await supabase.rpc("calibragem_efetividade_carteira", { p_de: de, p_ate: ate });
+        if (error) throw error;
+        if (ativo) setDados(data);
+      } catch (e) {
+        if (ativo) setErro(e?.message || String(e));
+      } finally {
+        if (ativo) setCarregando(false);
+      }
+    })();
+    return () => { ativo = false; };
+  }, [preset]);
+
+  const ops = (dados?.operadores || []).filter((o) => Number(o.ativos) > 0);
+  const atualizada = dados?.carteira_atualizada_em
+    ? new Date(dados.carteira_atualizada_em).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+    : null;
+
+  const cols = [
+    { k: "ativos", r: "Casos ativos", fmt: num, forte: true },
+    { k: "mensalidades", r: "Mensalidades", fmt: num, sub: (o) => `${num(o.mens_vencidas)} venc. · ${num(o.mens_a_vencer)} a vencer` },
+    { k: "acordos", r: "Acordos", fmt: num, sub: (o) => `${num(o.ac_em_dia)} em dia · ${num(o.ac_vencidos)} venc. · ${num(o.ac_quebrados)} quebr.` },
+    { k: "saldo_total", r: "Saldo", fmt: moeda, sub: (o) => `vencido ${moeda(o.saldo_vencido)}` },
+    { k: "penetracao_pct", r: "Penetração", fmt: (v) => `${v ?? 0}%`, bar: true, sub: (o) => `${num(o.acionados_na_carteira)} de ${num(o.ativos)} acionados` },
+    { k: "acionamentos", r: "Acionamentos", fmt: num, sub: (o) => `${num(o.alunos_acionados)} alunos` },
+    { k: "sem_acionamento_9d", r: "Sem acion. 9d+", fmt: num, sub: (o) => `${num(o.nunca_acionados)} nunca`, alerta: true },
+    { k: "media_alunos_dia", r: "Média/dia útil", fmt: (v) => num(v), sub: (o) => `${num(o.media_acoes_dia)} ações · ${num(o.dias_uteis)} dias` },
+    { k: "dias_percorrer_carteira", r: "Percorre em", fmt: (v) => (v == null ? "—" : `${num(v)} d úteis`), sub: (o) => (o.dias_terminar_restante == null ? "" : `faltam ${num(o.dias_terminar_restante)} d p/ fechar`) },
+  ];
+
+  return (
+    <div>
+      <h2 style={{ fontSize: 18, fontWeight: 800, margin: "8px 0 6px" }}>🗂️ Carteira e penetração por operador</h2>
+      <p style={{ opacity: 0.6, fontSize: 12, marginBottom: 14 }}>
+        Composição da carteira ativa (mensalidades × acordos), saldo, % da carteira acionada pelo próprio
+        operador no período e ritmo por dia útil fechado. Clique no operador para ver a faixa de atraso.
+        {atualizada && <> Carteira atualizada às {atualizada}.</>}
+      </p>
+      {erro && <div style={S.erro}>{erro}</div>}
+      {carregando ? (
+        <div style={S.vazio}>Calculando carteira…</div>
+      ) : !ops.length ? (
+        <div style={S.vazio}>Sem carteira para mostrar.</div>
+      ) : (
+        <div style={{ overflowX: "auto" }}>
+          <table style={S.tabela}>
+            <thead>
+              <tr>
+                <th style={S.th}>Operador</th>
+                {cols.map((c) => (
+                  <th key={c.k} style={{ ...S.th, textAlign: "right" }}>{c.r}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {ops.map((o) => {
+                const on = aberto === o.operador_email;
+                const pen = Number(o.penetracao_pct || 0);
+                return [
+                  <tr key={o.operador_email} onClick={() => setAberto(on ? null : o.operador_email)} style={{ cursor: "pointer", background: on ? "rgba(148,163,184,0.06)" : undefined }}>
+                    <td style={{ ...S.td, fontWeight: 700 }}>{on ? "▾" : "▸"} {o.operador_nome}</td>
+                    {cols.map((c) => (
+                      <td key={c.k} style={{ ...S.td, textAlign: "right", verticalAlign: "top" }}>
+                        <div style={{
+                          fontWeight: c.forte || c.bar ? 700 : 500,
+                          ...(c.bar ? { color: corPenetracao(pen) } : {}),
+                          ...(c.alerta && Number(o[c.k]) > 0 ? { color: "#fca5a5" } : {}),
+                        }}>
+                          {c.fmt(o[c.k])}
+                        </div>
+                        {c.bar && (
+                          <div style={S.track}>
+                            <div style={{ ...S.fill, width: `${Math.min(100, pen)}%`, background: corPenetracao(pen) }} />
+                          </div>
+                        )}
+                        {c.sub && <div style={{ fontSize: 11, opacity: 0.55, marginTop: 2 }}>{c.sub(o)}</div>}
+                      </td>
+                    ))}
+                  </tr>,
+                  on && (
+                    <tr key={`${o.operador_email}-faixas`}>
+                      <td colSpan={cols.length + 1} style={{ ...S.td, whiteSpace: "normal", background: "rgba(148,163,184,0.04)" }}>
+                        <div style={{ ...S.th, padding: "0 0 8px", border: "none" }}>Faixa de atraso (vencimento em aberto mais antigo)</div>
+                        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(150px, 1fr))", gap: 8 }}>
+                          {FAIXAS_ORDEM.map((f) => {
+                            const fx = (o.faixas || []).find((x) => x.faixa === f) || { qtd: 0, saldo: 0 };
+                            const pct = o.ativos ? Math.round((100 * Number(fx.qtd)) / Number(o.ativos)) : 0;
+                            return (
+                              <div key={f} style={{ ...S.chip, minWidth: 0, padding: "10px 12px" }}>
+                                <div style={S.chipR}>{FAIXA_ROTULO[f]}</div>
+                                <div style={{ fontSize: 18, fontWeight: 800 }}>{num(fx.qtd)} <span style={{ fontSize: 11, opacity: 0.5 }}>({pct}%)</span></div>
+                                <div style={{ fontSize: 12, color: "#93c5fd" }}>{moeda(fx.saldo)}</div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  ),
+                ];
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
