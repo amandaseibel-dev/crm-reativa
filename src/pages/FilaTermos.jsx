@@ -42,9 +42,9 @@ function traduzStatus(status) {
 const ETAPA_LABEL = {
   NAO_APLICAVEL: "Sem assinatura pendente",
   NAO_VERIFICADO: "Não verificado",
-  PENDENTE_ENVIO: "Pendente de envio",
-  ENVIADO_ASSINATURA: "Enviado para assinatura",
-  COMPLETO: "Assinado completo",
+  PENDENTE_ENVIO: "A enviar",
+  ENVIADO_ASSINATURA: "Aguardando assinaturas",
+  COMPLETO: "Termo assinado",
 };
 
 const ETAPAS_ASSINATURA = ["NAO_VERIFICADO", "PENDENTE_ENVIO", "ENVIADO_ASSINATURA", "COMPLETO"];
@@ -385,7 +385,7 @@ export default function FilaAdmTermos() {
     } else if (res.pendentes_no_storage > 0) {
       alert("Termo concluído, mas " + res.pendentes_no_storage + " arquivo(s) não saíram do Storage. Ficaram registrados para nova tentativa.");
     } else {
-      alert("Termo concluído. Via assinada guardada e via do aluno descartada.");
+      alert("Termo assinado. Via completa guardada e via do aluno descartada.");
     }
 
     setModalAnexo(null);
@@ -644,7 +644,7 @@ export default function FilaAdmTermos() {
             <span style={styles.rotuloSubFiltro}>
               {selecionados.length > 0
                 ? `${selecionados.length} termo(s) selecionado(s)`
-                : "Selecione termos para marcar o envio em lote"}
+                : "Selecione termos para mandar para assinatura em lote"}
             </span>
             <button
               style={styles.subFiltro}
@@ -665,7 +665,7 @@ export default function FilaAdmTermos() {
               onClick={() => marcarEnviados(selecionados)}
               disabled={selecionados.length === 0 || processando}
             >
-              Marcar como enviados
+              Marcar como aguardando assinaturas
             </button>
           </div>
         </>
@@ -700,14 +700,14 @@ export default function FilaAdmTermos() {
                 )}
                 {termo.assinatura_enviada_em && (
                   <p style={styles.info}>
-                    <strong>Enviado para assinatura:</strong>{" "}
+                    <strong>Foi para assinatura em:</strong>{" "}
                     {formatarData(termo.assinatura_enviada_em)} por{" "}
                     {termo.assinatura_enviada_por || "-"}
                   </p>
                 )}
                 {termo.assinatura_completa_em && (
                   <p style={styles.info}>
-                    <strong>Assinado completo:</strong>{" "}
+                    <strong>Termo assinado em:</strong>{" "}
                     {formatarData(termo.assinatura_completa_em)} por{" "}
                     {termo.assinatura_completa_por || "-"}
                   </p>
@@ -766,7 +766,7 @@ export default function FilaAdmTermos() {
                       onClick={() => baixarEMarcarEnviado(termo)}
                       disabled={processando}
                     >
-                      Baixar PDF e marcar como enviado
+                      Baixar PDF para assinatura
                     </button>
                   </>
                 )}
