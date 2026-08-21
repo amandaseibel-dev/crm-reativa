@@ -15,6 +15,12 @@ O **componente é o real** (`src/pages/CentralWhatsApp.jsx`). O que está trocad
 é só a camada de serviço: `vite.preview.config.js` aponta
 `services/whatsapp` e `services/supabase` para os arquivos daqui.
 
+Uma exceção: a **ficha do aluno**, que a Central abre em popup, entra como
+dublê (`mock-ficha-aluno.jsx`). A ficha real fala com o banco em dezenas de
+consultas; montá-la aqui mostraria uma tela de erro e pareceria defeito da
+Central. O que o preview prova sobre ela é o enquadramento — abre por cima da
+conversa, o topo com o Fechar não rola junto, a Central continua atrás.
+
 Nenhum dado vem de produção. `dados.js` é inventado.
 
 ## Por que isto existe

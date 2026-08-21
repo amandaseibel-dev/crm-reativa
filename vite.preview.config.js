@@ -35,6 +35,11 @@ export default {
       { find: /^.*\/services\/whatsapp$/, replacement: resolve("./.preview/mock-whatsapp.js") },
       { find: /^.*\/services\/supabase$/, replacement: resolve("./.preview/mock-supabase.js") },
       { find: /^\.{1,2}\/supabase$/,      replacement: resolve("./.preview/mock-supabase.js") },
+      // A ficha completa do aluno abre DENTRO da Central. A real conversa com o
+      // banco em dezenas de consultas; aqui entra um dublê, senão o preview
+      // mostraria uma ficha em erro e pareceria defeito da Central.
+      { find: /^\.\/Aluno$/,              replacement: resolve("./.preview/mock-ficha-aluno.jsx") },
+      { find: /^.*\/pages\/Aluno$/,       replacement: resolve("./.preview/mock-ficha-aluno.jsx") },
     ],
   },
 };

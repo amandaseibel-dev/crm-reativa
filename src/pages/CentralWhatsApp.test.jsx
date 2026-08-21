@@ -8,6 +8,15 @@ import CentralWhatsApp from "./CentralWhatsApp";
 // os testes de rota mais abaixo montam o roteador deles, com rotas de verdade.
 const render = (ui, opcoes) => renderNu(<MemoryRouter>{ui}</MemoryRouter>, opcoes);
 
+// A ficha COMPLETA agora monta dentro da Central. Aqui ela é um dublê: o que
+// esta suíte tem de provar é que a Central abre a ficha DO ALUNO CERTO sem sair
+// do lugar — o comportamento da ficha em si é testado onde ela mora. Montar a
+// ficha de verdade traria 2.700 linhas e as consultas dela para dentro destes
+// testes, e um "defeito" aqui seria, na prática, defeito de outro arquivo.
+vi.mock("./Aluno", () => ({
+  default: ({ fichaEmbedId }) => <div>FICHA EMBUTIDA {fichaEmbedId}</div>,
+}));
+
 // Realtime: canal inerte. A tela não pode depender dele para renderizar.
 vi.mock("../services/supabase", () => ({
   supabase: {
@@ -1087,7 +1096,6 @@ function montarNaRota(registrar) {
   return renderNu(
     <MemoryRouter initialEntries={["/central-whatsapp"]}>
       <SondaRota registrar={registrar} />
-      <BotaoVoltar />
       <Menu />
       <Routes>
         <Route path="/central-whatsapp" element={<CentralWhatsApp />} />
@@ -1106,18 +1114,10 @@ function FichaDubla() {
   return <div>FICHA DO ALUNO {new URLSearchParams(l.search).get("id")}</div>;
 }
 
-// O Voltar do navegador, no nível em que o roteador o enxerga. `navigate(-1)` é
-// exatamente o que o botão do navegador dispara — e o MemoryRouter tem a mesma
-// pilha de histórico do BrowserRouter.
-function BotaoVoltar() {
-  const navegar = useNavigate();
-  return <button onClick={() => navegar(-1)}>VOLTAR DO NAVEGADOR</button>;
-}
-
-const voltar = () => fireEvent.click(screen.getByText("VOLTAR DO NAVEGADOR"));
-
-// O menu do CRM: navegação normal (PUSH), não o Voltar (POP). É a diferença
-// que decide se o contexto guardado pode ou não ser restaurado.
+// O menu do CRM: o único jeito de sair da Central hoje é o operador escolher
+// outra tela. Serve para provar que reentrar abre a Central no padrão — não há
+// mais "Voltar do navegador" a testar, porque a Central não navega para lugar
+// nenhum.
 function Menu() {
   const navegar = useNavigate();
   return (
@@ -1242,51 +1242,19 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
   });
 
   // -------------------------------------------------------------------------
-  // ABRIR FICHA COMPLETA — MESMA ABA
+  // A FICHA ABRE DENTRO DA CENTRAL
   //
-  // Antes isto era window.open("/aluno", "_blank"): cada clique deixava mais
-  // uma aba de ficha aberta e ninguém sabia mais qual Central era a viva. A
-  // regressão que estes testes barram é o retorno de QUALQUER forma de sair da
-  // aba — window.open, target="_blank", <a href> — e a perda do contexto da
-  // Central no caminho de volta.
+  // Três gerações deste comportamento: window.open (uma pilha de abas de ficha
+  // e ninguém sabia qual Central era a viva), depois navigate("/aluno") com o
+  // Voltar restaurando a fila, e agora a ficha COMPLETA montada em popup por
+  // cima da conversa. Ninguém sai do lugar — então não há aba nova, não há rota
+  // nova e não há contexto para restaurar na volta.
+  //
+  // A rota /aluno continua no roteador destes testes de propósito: é a
+  // armadilha. Se alguém devolver a navegação, o dublê aparece e o teste cai.
   // -------------------------------------------------------------------------
 
-  // Deixa a Central num estado RECONHECÍVEL (filtro, canal, busca e uma
-  // conversa aberta) e sai por "Abrir ficha completa".
-  // Sair da Central agora tem DOIS passos de propósito: o clique na conversa
-  // abre o RESUMO em cima dela, e só quem escolhe "Abrir ficha completa" sai.
-  async function sairPelaFichaCompleta() {
-    fireEvent.click(await screen.findByRole("button", { name: "Ver resumo" }));
-    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha completa" }));
-  }
-
-  async function contextualizarESairPelaFicha() {
-    servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
-    servico.mensagens = [
-      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
-    ];
-    servico.ficha = { aluno_id: "a1", nome: "Carlos", matricula: "1", saldo_total: 0, saldo_vencido: 0 };
-    montarNaRota((r) => rotas.push(r));
-
-    fireEvent.click(await screen.findByRole("button", { name: "Minhas" }));
-    const canal = screen.getByRole("option", { name: "Todos os números" }).closest("select");
-    fireEvent.change(canal, { target: { value: "c2" } });
-    await waitFor(() => expect(canal.value).toBe("c2"));
-    await filtrarPorResponsavel("joao@aelbra.com.br");
-    // A caixa de busca aceita "nome, telefone, CPF ou matrícula": aqui vai um
-    // CPF, que é justamente o que NÃO pode acabar gravado na sessão.
-    fireEvent.change(screen.getByPlaceholderText(/Buscar por nome/), {
-      target: { value: CPF_DIGITADO },
-    });
-    fireEvent.click(await screen.findByText("Carlos"));
-
-    await sairPelaFichaCompleta();
-  }
-
-  const contextoGuardado = () =>
-    JSON.parse(sessionStorage.getItem("reativa_central_whatsapp_estado") || "null");
-
-  it("abre a ficha do aluno certo, na mesma aba, por navegação interna", async () => {
+  it("abrir a ficha não muda a rota, não abre aba e não vira link", async () => {
     servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
     servico.mensagens = [
       { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
@@ -1295,237 +1263,84 @@ describe("Central WhatsApp — selecionar operador não navega", () => {
     const { container } = montarNaRota((r) => rotas.push(r));
     fireEvent.click(await screen.findByText("Carlos"));
 
-    await sairPelaFichaCompleta();
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha" }));
 
-    // a rota do CRM mudou para a ficha DAQUELE aluno — nada de aba nova
-    expect(await screen.findByText("FICHA DO ALUNO a1")).toBeDefined();
-    expect(rotas[rotas.length - 1]).toBe("/aluno?id=a1");
+    // a ficha do aluno certo está na tela, montada AQUI dentro...
+    expect(await screen.findByText("FICHA EMBUTIDA a1")).toBeDefined();
+    // ...e nada navegou: nem para o dublê de rota da ficha, nem para fora
+    expect(rotas[rotas.length - 1]).toBe("/central-whatsapp");
+    expect(screen.queryByText("FICHA DO ALUNO a1")).toBeNull();
     expect(screen.queryByText("SAIU DA CENTRAL")).toBeNull();
     expect(abriuJanela).not.toHaveBeenCalled();
     expect(container.querySelectorAll('[target="_blank"]').length).toBe(0);
+    expect(container.querySelectorAll("a[href]").length).toBe(0);
   });
 
-  it("Voltar do navegador devolve a Central com canal, filtro e conversa", async () => {
-    await contextualizarESairPelaFicha();
-    expect(await screen.findByText("FICHA DO ALUNO a1")).toBeDefined();
-
-    voltar();
-
-    // de volta na Central...
-    await screen.findByText("Central WhatsApp");
-    expect(rotas[rotas.length - 1]).toBe("/central-whatsapp");
-    // ...com os MESMOS filtros: quem confirma é o pedido que chega ao serviço,
-    // não o visual do chip.
-    await waitFor(() => {
-      const ultimo = servico.filtrosPedidos[servico.filtrosPedidos.length - 1];
-      expect(ultimo.status).toBe("MINHAS");
-      expect(ultimo.canalId).toBe("c2");
-      expect(ultimo.responsavel).toBe("joao@aelbra.com.br");
-    });
-    // ...e com a conversa que estava aberta reaberta sozinha: só há botão de
-    // resumo quando existe conversa selecionada COM aluno.
-    expect(await screen.findByRole("button", { name: "Ver resumo" })).toBeDefined();
-    expect(abriuJanela).not.toHaveBeenCalled();
-  });
-
-  it("o contexto guardado é só id de canal, id de conversa e filtro — sem PII", async () => {
-    await contextualizarESairPelaFicha();
-
-    // Chaves fechadas: qualquer campo novo que alguém acrescente aparece aqui e
-    // obriga a decidir, de propósito, se aquilo pode ser gravado.
-    const ctx = contextoGuardado();
-    expect(Object.keys(ctx).sort()).toEqual([
-      "conversaId", "filtroCanal", "filtroResponsavel", "filtroStatus", "filtroTempo",
-    ]);
-    expect(ctx).toEqual({
-      filtroStatus: "MINHAS",
-      filtroCanal: "c2",
-      filtroTempo: "",
-      filtroResponsavel: "joao@aelbra.com.br",
-      conversaId: "k1",
-    });
-
-    // E, olhando o texto cru: nada do que passou pela tela — CPF digitado,
-    // telefone da conversa, nome do aluno ou o texto da mensagem.
-    const cru = sessionStorage.getItem("reativa_central_whatsapp_estado");
-    for (const pii of [CPF_DIGITADO, "5551999998888", "Carlos", "Fulano", "Oi", "98877-6655"]) {
-      expect(cru).not.toContain(pii);
-    }
-  });
-
-  it("a busca digitada não volta com o Voltar — some junto com o contexto", async () => {
-    await contextualizarESairPelaFicha();
-    voltar();
-    await screen.findByText("Central WhatsApp");
-
-    expect(screen.getByPlaceholderText(/Buscar por nome/).value).toBe("");
-    await waitFor(() => {
-      const ultimo = servico.filtrosPedidos[servico.filtrosPedidos.length - 1];
-      expect(ultimo.busca).toBe("");
-      // o filtro que NÃO é PII continua restaurado
-      expect(ultimo.canalId).toBe("c2");
-    });
-  });
-
-  it("o contexto é apagado da sessão assim que a Central volta", async () => {
-    await contextualizarESairPelaFicha();
-    expect(contextoGuardado()).not.toBeNull();
-
-    voltar();
-    await screen.findByText("Central WhatsApp");
-
-    await waitFor(() => expect(contextoGuardado()).toBeNull());
-  });
-
-  it("abrir a ficha de OUTRA conversa depois de voltar não ressuscita a anterior", async () => {
-    // Duas conversas, cada uma com seu aluno. A armadilha real: voltar da
-    // segunda ficha e a Central reabrir a PRIMEIRA conversa.
-    servico.conversas = [
-      conversa({ id: "k1", aluno_id: "a1", aluno_nome: "Carlos", nome_perfil: "Carlos", nao_lidas: 0 }),
-      conversa({ id: "k2", aluno_id: "a2", aluno_nome: "Beatriz", nome_perfil: "Beatriz",
-                 telefone_e164: "5551988887777", nao_lidas: 0 }),
-    ];
-    servico.mensagens = [
-      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
-    ];
+  it("sair pelo menu e reabrir a Central devolve a tela no padrão", async () => {
+    // Sem estado guardado, reentrar não pode herdar filtro nem reabrir sozinha
+    // uma conversa de minutos atrás em cima do que o operador foi fazer agora.
+    servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
     servico.ficha = { aluno_id: "a1", nome: "Carlos", matricula: "1", saldo_total: 0, saldo_vencido: 0 };
     montarNaRota((r) => rotas.push(r));
-
-    // 1ª conversa: abre a ficha e volta
+    fireEvent.click(await screen.findByRole("button", { name: "Minhas" }));
     fireEvent.click(await screen.findByText("Carlos"));
-    await sairPelaFichaCompleta();
-    expect(await screen.findByText("FICHA DO ALUNO a1")).toBeDefined();
-    voltar();
-    await screen.findByText("Central WhatsApp");
-    expect(await screen.findByRole("button", { name: "Ver resumo" })).toBeDefined();
-
-    // 2ª conversa: a ficha aberta agora é a DELA
-    servico.ficha = { aluno_id: "a2", nome: "Beatriz", matricula: "2", saldo_total: 0, saldo_vencido: 0 };
-    fireEvent.click(await screen.findByText("Beatriz"));
-    await waitFor(() =>
-      expect(servico.fichasPedidas[servico.fichasPedidas.length - 1]).toBe("k2"));
-    await sairPelaFichaCompleta();
-
-    expect(await screen.findByText("FICHA DO ALUNO a2")).toBeDefined();
-    // o contexto gravado é o da SEGUNDA conversa, não o resto da primeira
-    expect(contextoGuardado().conversaId).toBe("k2");
-
-    // e o Voltar traz a SEGUNDA de volta
-    voltar();
-    await screen.findByText("Central WhatsApp");
-    await waitFor(() =>
-      expect(servico.fichasPedidas[servico.fichasPedidas.length - 1]).toBe("k2"));
-  });
-
-  it("conversa restaurada que o filtro de agora não traz não abre sozinha depois", async () => {
-    // Sem a busca (que é PII e não volta), a conversa pode simplesmente não
-    // estar na lista restaurada. O pedido tem de morrer ali: nada de abrir na
-    // cara do operador quando o Realtime recarregar a lista mais tarde.
-    await contextualizarESairPelaFicha();
-    servico.conversas = [];
-
-    voltar();
-    await screen.findByText("Central WhatsApp");
-    await waitFor(() => expect(screen.getByText(/Escolha uma conversa/)).toBeDefined());
-
-    // a conversa reaparece numa recarga posterior — e continua fechada
-    servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
-    fireEvent.click(screen.getByRole("button", { name: "Atualizar" }));
-    expect(await screen.findByText("Carlos")).toBeDefined();
-    await waitFor(() => expect(screen.getByText(/Escolha uma conversa/)).toBeDefined());
-    expect(screen.queryByRole("button", { name: "Ver resumo" })).toBeNull();
-  });
-
-  it("sair da ficha pelo menu e voltar à Central pelo menu NÃO restaura nada", async () => {
-    // O caminho que o Voltar não cobre: da ficha o operador vai para outra
-    // tela pelo menu e só depois reabre a Central. Restaurar aqui reabriria,
-    // sem ele pedir, uma conversa de minutos atrás em cima do que ele foi
-    // fazer agora.
-    await contextualizarESairPelaFicha();
-    expect(await screen.findByText("FICHA DO ALUNO a1")).toBeDefined();
+    await screen.findByRole("button", { name: "Abrir ficha" });
 
     peloMenu("OUTRA ÁREA");
     expect(await screen.findByText("OUTRA ÁREA DO CRM")).toBeDefined();
     peloMenu("CENTRAL");
     await screen.findByText("Central WhatsApp");
 
-    // padrão da tela, não o filtro de antes
     await waitFor(() => {
       const ultimo = servico.filtrosPedidos[servico.filtrosPedidos.length - 1];
       expect(ultimo.status).toBe("SEM_RETORNO");
       expect(ultimo.canalId).toBe("");
-      expect(ultimo.responsavel).toBe("");
     });
-    // e nenhuma conversa reaberta sozinha
     expect(screen.getByText(/Escolha uma conversa/)).toBeDefined();
-    expect(screen.queryByRole("button", { name: "Ver resumo" })).toBeNull();
   });
 
-  it("o contexto não restaurado é apagado do mesmo jeito", async () => {
-    // Se sobrasse na sessão, a visita SEGUINTE — essa sim pelo Voltar —
-    // ressuscitaria um contexto velho.
-    await contextualizarESairPelaFicha();
-    peloMenu("OUTRA ÁREA");
-    await screen.findByText("OUTRA ÁREA DO CRM");
-    peloMenu("CENTRAL");
-    await screen.findByText("Central WhatsApp");
-
-    await waitFor(() => expect(contextoGuardado()).toBeNull());
-  });
-
-  it("o contexto guardado é consumido UMA vez: entrar de novo abre no padrão", async () => {
-    await contextualizarESairPelaFicha();
-    voltar();
-    await waitFor(() => {
-      const ultimo = servico.filtrosPedidos[servico.filtrosPedidos.length - 1];
-      expect(ultimo.status).toBe("MINHAS");
-    });
-
-    // Entrar na Central por qualquer outro caminho não pode herdar o filtro de
-    // uma visita passada — o padrão da tela é "Sem retorno".
-    cleanup();
-    servico.filtrosPedidos = [];
+  it("a Central não guarda mais nada na sessão para 'voltar'", async () => {
+    // O retrato de filtros só existia porque a Central era desmontada ao sair.
+    // Ninguém sai mais: gravar qualquer coisa aqui seria estado grudento — e,
+    // no caso da busca, PII (a caixa aceita CPF e telefone) num armazenamento
+    // do navegador.
+    servico.conversas = [conversa({ aluno_id: "a1", aluno_nome: "Carlos", nao_lidas: 0 })];
+    servico.ficha = { aluno_id: "a1", nome: "Carlos", matricula: "1", saldo_total: 0, saldo_vencido: 0 };
     montarNaRota((r) => rotas.push(r));
-    await screen.findByText("Central WhatsApp");
-    await waitFor(() => {
-      const ultimo = servico.filtrosPedidos[servico.filtrosPedidos.length - 1];
-      expect(ultimo.status).toBe("SEM_RETORNO");
-      expect(ultimo.canalId).toBe("");
+
+    fireEvent.click(await screen.findByRole("button", { name: "Minhas" }));
+    fireEvent.change(screen.getByPlaceholderText(/Buscar por nome/), {
+      target: { value: CPF_DIGITADO },
     });
+    fireEvent.click(await screen.findByText("Carlos"));
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha" }));
+    await screen.findByText("FICHA EMBUTIDA a1");
+
+    expect(sessionStorage.length).toBe(0);
+    expect(JSON.stringify(sessionStorage)).not.toContain(CPF_DIGITADO);
   });
+
 });
 
 // ---------------------------------------------------------------------------
-// RESUMO DO ALUNO EM POPUP
+// FICHA DO ALUNO EM POPUP
 //
 // O comportamento anterior era: clicou no aluno, saiu da Central. Quem estava
-// no meio de uma resposta perdia a conversa de vista para consultar um saldo.
-// Agora o resumo abre EM CIMA da conversa e fecha sem sair do lugar.
+// no meio de uma resposta perdia a conversa de vista para consultar a ficha, e
+// voltava sem o que ia digitar. Agora a ficha COMPLETA abre EM CIMA da conversa.
 //
 // O que estes testes protegem, na ordem em que dói quando quebra:
-//   1. abrir o resumo NÃO muda a rota — a conversa continua atrás dele;
-//   2. abrir o resumo NÃO consulta o banco de novo (11 operadores clicando);
+//   1. a ficha montada é a do aluno DAQUELA conversa;
+//   2. abrir não muda a rota — a conversa continua atrás dela;
 //   3. fechar (ESC, clique fora, botão) devolve a conversa como estava;
-//   4. trocar de conversa não deixa o resumo do aluno ANTERIOR na tela.
+//   4. trocar de conversa não deixa a ficha do aluno ANTERIOR aberta;
+//   5. conversa sem aluno vinculado não oferece ficha nenhuma.
 // ---------------------------------------------------------------------------
-describe("Central WhatsApp — resumo do aluno", () => {
+describe("Central WhatsApp — ficha do aluno", () => {
   const FICHA = {
-    aluno_id: "a1",
-    nome: "Carlos Silva",
-    matricula: "20231234",
-    cpf_mascarado: "***.456.789-**",
-    telefone: "5551999998888",
-    curso: "Direito",
-    unidade: "Canoas",
-    situacao_academica: "Matriculado",
-    situacao_operacional: "Cobrança vencida",
-    nivel_criticidade: "Crítico",
-    status_atual: "Mensagem enviada",
-    saldo_vencido: 1234.5,
-    saldo_total: 4321,
-    responsavel_carteira: "joao@aelbra.com.br",
+    aluno_id: "a1", nome: "Carlos Silva", matricula: "20231234",
+    cpf_mascarado: "***.456.789-**", saldo_vencido: 1234.5, saldo_total: 4321,
     acordos_ativos: 2,
-    data_retorno: "2026-08-25",
   };
 
   async function abrirConversaDoCarlos() {
@@ -1536,91 +1351,57 @@ describe("Central WhatsApp — resumo do aluno", () => {
     ];
     servico.ficha = FICHA;
     fireEvent.click(await screen.findByText("Carlos Silva"));
-    return screen.findByRole("button", { name: "Ver resumo" });
+    return screen.findByRole("button", { name: "Abrir ficha" });
   }
 
-  const abrirResumo = async () => {
-    fireEvent.click(await screen.findByRole("button", { name: "Ver resumo" }));
+  const abrirFicha = async () => {
+    fireEvent.click(await screen.findByRole("button", { name: "Abrir ficha" }));
     return screen.findByRole("dialog");
   };
 
-  it("abre o resumo em cima da conversa, sem sair da Central", async () => {
-    const rotas = [];
-    montarNaRota((r) => rotas.push(r));
+  it("abre a ficha do aluno da conversa, em cima dela, num clique só", async () => {
+    render(<CentralWhatsApp />);
     await abrirConversaDoCarlos();
 
-    const popup = await abrirResumo();
+    const popup = await abrirFicha();
 
-    // a rota não se mexeu e a conversa continua montada atrás do popup
-    expect(rotas[rotas.length - 1]).toBe("/central-whatsapp");
-    expect(screen.queryByText("SAIU DA CENTRAL")).toBeNull();
+    expect(within(popup).getByText("FICHA EMBUTIDA a1")).toBeDefined();
+    // a conversa continua montada atrás do popup — não foi substituída
     expect(screen.getByText("Oi, quanto está minha dívida?")).toBeDefined();
-    expect(within(popup).getByText("Carlos Silva")).toBeDefined();
-  });
-
-  it("mostra o que decide a conversa: saldo, negociações, retorno e situação", async () => {
-    render(<CentralWhatsApp />);
-    await abrirConversaDoCarlos();
-    const popup = await abrirResumo();
-
-    expect(within(popup).getByText("R$ 1.234,50")).toBeDefined();
-    expect(within(popup).getByText("R$ 4.321,00")).toBeDefined();
-    expect(within(popup).getByText("2")).toBeDefined();
-    // date do banco ("2026-08-25") não pode virar 24/08 por causa de fuso
-    expect(within(popup).getByText("25/08/2026")).toBeDefined();
-    expect(within(popup).getByText("Mensagem enviada")).toBeDefined();
-    expect(within(popup).getByText("Crítico")).toBeDefined();
-    expect(within(popup).getByText("Direito")).toBeDefined();
-    expect(within(popup).getByText("Canoas")).toBeDefined();
-    // identificação: matrícula e CPF JÁ MASCARADO, como vem do banco
-    expect(within(popup).getByText(/20231234/)).toBeDefined();
-    expect(within(popup).getByText(/\*\*\*\.456\.789-\*\*/)).toBeDefined();
-  });
-
-  it("abrir o resumo não consulta o banco de novo", async () => {
-    render(<CentralWhatsApp />);
-    await abrirConversaDoCarlos();
-    await waitFor(() => expect(servico.fichasPedidas.length).toBe(1));
-
-    await abrirResumo();
-    fireEvent.click(screen.getByRole("button", { name: "Fechar" }));
-    await abrirResumo();
-
-    // abrir e fechar à vontade continua custando UMA consulta: a da conversa
-    expect(servico.fichasPedidas.length).toBe(1);
   });
 
   it("fecha no botão, no ESC e no clique fora — e a conversa fica onde estava", async () => {
     render(<CentralWhatsApp />);
     await abrirConversaDoCarlos();
 
-    const popup = await abrirResumo();
+    const popup = await abrirFicha();
     fireEvent.click(within(popup).getByRole("button", { name: "Fechar" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-    await abrirResumo();
+    await abrirFicha();
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-    const denovo = await abrirResumo();
+    const denovo = await abrirFicha();
     fireEvent.click(denovo.parentElement);
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
 
-    // a conversa continua aberta o tempo todo
     expect(screen.getByText("Oi, quanto está minha dívida?")).toBeDefined();
   });
 
-  it("clicar DENTRO do popup não o fecha", async () => {
+  it("clicar DENTRO da ficha não a fecha", async () => {
     render(<CentralWhatsApp />);
     await abrirConversaDoCarlos();
-    const popup = await abrirResumo();
+    const popup = await abrirFicha();
 
-    fireEvent.click(within(popup).getByText("Carlos Silva"));
+    // clicar na ficha é o que o operador faz o tempo todo lá dentro (acionar,
+    // tabular): se isso fechasse o popup, a tela seria inutilizável
+    fireEvent.click(within(popup).getByText("FICHA EMBUTIDA a1"));
 
     expect(screen.getByRole("dialog")).toBeDefined();
   });
 
-  it("trocar de conversa fecha o resumo — nada do aluno anterior fica na tela", async () => {
+  it("trocar de conversa fecha a ficha — nada do aluno anterior fica aberto", async () => {
     servico.conversas = [
       conversa({ id: "k1", aluno_id: "a1", aluno_nome: "Carlos Silva",
                  nome_perfil: "Carlos Silva", nao_lidas: 0 }),
@@ -1633,24 +1414,26 @@ describe("Central WhatsApp — resumo do aluno", () => {
     servico.ficha = FICHA;
     render(<CentralWhatsApp />);
     fireEvent.click(await screen.findByText("Carlos Silva"));
-    await abrirResumo();
+    await abrirFicha();
 
     servico.ficha = { ...FICHA, aluno_id: "a2", nome: "Beatriz", matricula: "9" };
     fireEvent.click(screen.getByText("Beatriz"));
 
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(screen.queryByText("FICHA EMBUTIDA a1")).toBeNull();
   });
 
-  it("a ficha completa continua a um clique, e leva ao aluno certo", async () => {
-    const rotas = [];
-    montarNaRota((r) => rotas.push(r));
-    await abrirConversaDoCarlos();
-    const popup = await abrirResumo();
+  it("conversa sem aluno vinculado não oferece ficha", async () => {
+    servico.conversas = [conversa({ nao_lidas: 0 })]; // aluno_id nulo
+    servico.mensagens = [
+      { id: "m1", direcao: "ENTRADA", texto: "Oi", timestamp_wa: new Date().toISOString() },
+    ];
+    servico.ficha = null;
+    render(<CentralWhatsApp />);
+    fireEvent.click(await screen.findByText("Fulano"));
 
-    fireEvent.click(within(popup).getByRole("button", { name: "Abrir ficha completa" }));
-
-    expect(await screen.findByText("FICHA DO ALUNO a1")).toBeDefined();
-    expect(rotas[rotas.length - 1]).toBe("/aluno?id=a1");
+    await waitFor(() => expect(screen.getByText("Assumir")).toBeDefined());
+    expect(screen.queryByRole("button", { name: "Abrir ficha" })).toBeNull();
   });
 });
 
