@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useRef, useState } from "react";
-import { criarControleAbaLider } from "../utils/abaLider";
+import { criarControleAbasPorVagas } from "../utils/abaLider";
 import { supabase } from "../services/supabase";
 
 // Contexto de aba única. O provider descobre o usuário logado pela sessão do
@@ -64,7 +64,7 @@ export function AbaLiderProvider({ children }) {
       return undefined;
     }
 
-    const controle = criarControleAbaLider(userId, {
+    const controle = criarControleAbasPorVagas(userId, {
       onMudanca: (estado) => {
         setEhLider(estado.ehLider);
         setDegradado(estado.degradado);

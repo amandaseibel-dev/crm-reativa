@@ -25,10 +25,10 @@ export default function AbaBloqueada({ onUsarEstaAba, liderPodeTerEncerrado }) {
       >
         <div style={{ fontSize: 44 }}>🗂️</div>
         <h1 style={{ fontSize: 22, fontWeight: 900, margin: "8px 0", color: "#0f172a" }}>
-          Aba duplicada do ReATIVA
+          Limite de abas do ReATIVA
         </h1>
         <p style={{ color: "#475569", fontSize: 15 }}>
-          Já existe outra aba ativa do ReATIVA. Feche esta aba para continuar.
+          Você já tem 2 abas ativas do ReATIVA (o limite por pessoa). Feche esta aba ou uma das outras para continuar.
         </p>
         {liderPodeTerEncerrado && (
           <p
@@ -43,13 +43,13 @@ export default function AbaBloqueada({ onUsarEstaAba, liderPodeTerEncerrado }) {
               fontWeight: 600,
             }}
           >
-            A outra aba pode ter sido encerrada. Clique em “Usar esta aba” para
-            continuar.
+            Uma das outras abas pode ter sido encerrada. Clique em “Usar esta aba”
+            para continuar.
           </p>
         )}
         <p style={{ color: "#64748b", fontSize: 13, marginTop: 12 }}>
-          Se você quer usar o sistema aqui, clique abaixo. A outra aba será
-          bloqueada e esta passará a ser a aba ativa.
+          Se você quer usar o sistema aqui, clique abaixo. Uma das outras abas será
+          bloqueada e esta passará a ser ativa.
         </p>
         <button
           onClick={onUsarEstaAba}

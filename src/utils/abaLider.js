@@ -411,7 +411,9 @@ export function criarControleAbaLider(scopeId, opcoes = {}) {
     pararMonitor();
     // Ao fechar/desmontar a líder, libera o registro para uma secundária
     // assumir imediatamente (failover ~1s, sem esperar nada).
-    if (ehLider && temStorage) {
+    if (temStorage) {
+      // Libera o registro se for meu — inclusive um CLAIM ainda pendente (a aba
+      // desistiu da disputa antes de concluir); senão a vaga ficaria "presa".
       const reg = lerRegistro();
       if (souDonoDoRegistro(reg)) {
         try {
@@ -419,8 +421,9 @@ export function criarControleAbaLider(scopeId, opcoes = {}) {
         } catch (e) {
           /* ignore */
         }
+        if (!ehLider) postar("lider-saiu");
       }
-      postar("lider-saiu");
+      if (ehLider) postar("lider-saiu");
     }
     if (bc) {
       try {
@@ -442,5 +445,144 @@ export function criarControleAbaLider(scopeId, opcoes = {}) {
     assumirForcado,
     estado,
     _temStorage: temStorage,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Várias abas por pessoa (vagas).
+//
+// A operação pediu mais de uma aba por usuário (uma só limitava os
+// atendimentos). Em vez de mexer na eleição, compomos N eleições
+// independentes — uma por VAGA (`${scopeId}__v1`, `${scopeId}__v2`, ...).
+// A aba é "líder" se detém QUALQUER vaga; ao conquistar uma, abre mão das
+// outras (destrói os controles restantes), para nunca ocupar duas vagas e
+// deixar a colega de fora. Ao perder a vaga, volta a disputar todas.
+// ---------------------------------------------------------------------------
+export const VAGAS_POR_USUARIO = 2;
+
+export function criarControleAbasPorVagas(scopeId, opcoes = {}) {
+  const onMudanca = typeof opcoes.onMudanca === "function" ? opcoes.onMudanca : () => {};
+  const vagas = Math.max(1, Number(opcoes.vagas) || VAGAS_POR_USUARIO);
+
+  let controles = new Map(); // vaga -> controle
+  let vagaMinha = null;
+  let destruido = false;
+  let ultimo = null;
+
+  function estado() {
+    let pareceExpirada = false;
+    let degradado = false;
+    for (const c of controles.values()) {
+      const e = c.estado();
+      if (e.pareceExpirada) pareceExpirada = true;
+      if (e.degradado) degradado = true;
+    }
+    const ehLider = vagaMinha !== null;
+    return {
+      ehLider,
+      degradado,
+      // Só faz sentido avisar "pode ter encerrado" se TODAS as vagas estão
+      // ocupadas por outras abas e alguma parece morta.
+      pareceExpirada: !ehLider && pareceExpirada,
+      vaga: vagaMinha,
+      tabId: controles.size ? controles.values().next().value.tabId : null,
+    };
+  }
+
+  function notificar() {
+    if (destruido) return;
+    const e = estado();
+    const chave = `${e.ehLider}|${e.degradado}|${e.pareceExpirada}|${e.vaga}`;
+    if (chave === ultimo) return;
+    ultimo = chave;
+    onMudanca(e);
+  }
+
+  function aoMudarVaga(vaga) {
+    if (destruido) return;
+    const c = controles.get(vaga);
+    if (!c) return;
+    const e = c.estado();
+    if (e.ehLider) {
+      if (vagaMinha === null) {
+        vagaMinha = vaga;
+        // Conquistei uma vaga: solto as demais.
+        for (const [v, outro] of Array.from(controles.entries())) {
+          if (v !== vaga) {
+            controles.delete(v);
+            outro.destruir();
+          }
+        }
+      } else if (vagaMinha !== vaga) {
+        // Corrida: já tenho outra vaga. Devolvo esta.
+        controles.delete(vaga);
+        c.destruir();
+      }
+    } else if (vagaMinha === vaga) {
+      // Perdi minha vaga (transferência "Usar esta aba" em outra aba).
+      vagaMinha = null;
+      abrirTodas();
+    }
+    notificar();
+  }
+
+  function abrirTodas() {
+    for (let v = 1; v <= vagas; v += 1) {
+      if (controles.has(v)) continue;
+      const c = criarControleAbaLider(`${scopeId}__v${v}`, {
+        onMudanca: () => aoMudarVaga(v),
+      });
+      controles.set(v, c);
+    }
+    // Inicia em ordem (vaga 1 primeiro). Estado inicial não dispara onMudanca.
+    for (let v = 1; v <= vagas; v += 1) {
+      const c = controles.get(v);
+      if (c && !c._iniciado) {
+        c._iniciado = true;
+        c.iniciar();
+        aoMudarVaga(v);
+        if (vagaMinha !== null) break;
+      }
+    }
+  }
+
+  function iniciar() {
+    if (destruido) return;
+    abrirTodas();
+    notificar();
+  }
+
+  // "Usar esta aba": toma a vaga que parece encerrada (ou a 1ª) à força.
+  function assumirForcado() {
+    if (destruido || vagaMinha !== null) return;
+    let alvo = null;
+    for (const [v, c] of controles.entries()) {
+      if (c.estado().pareceExpirada) {
+        alvo = v;
+        break;
+      }
+    }
+    if (alvo === null) alvo = controles.keys().next().value;
+    const c = alvo != null ? controles.get(alvo) : null;
+    if (c) c.assumirForcado();
+  }
+
+  function destruir() {
+    if (destruido) return;
+    destruido = true;
+    for (const c of controles.values()) c.destruir();
+    controles = new Map();
+    vagaMinha = null;
+  }
+
+  return {
+    get tabId() {
+      return estado().tabId;
+    },
+    iniciar,
+    destruir,
+    assumirForcado,
+    estado,
+    vagas,
   };
 }
