@@ -968,8 +968,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const cSemAcion10 = aplicarEscopo(
         supabase.from("alunos").select("id,status_atual,status_jornada,status_acionamento").lte("data_ultimo_acionamento", corte(10)).limit(5000)
       );
+      // 9 dias ou mais sem acionamento (sem teto: quem passou de 10 dias
+      // continua na carteira e segue em risco ate ser acionado).
       const cProx = aplicarEscopo(
-        supabase.from("alunos").select("id,status_atual,status_jornada,status_acionamento").lte("data_ultimo_acionamento", corte(9)).gt("data_ultimo_acionamento", corte(11)).limit(5000)
+        supabase.from("alunos").select("id,status_atual,status_jornada,status_acionamento").lte("data_ultimo_acionamento", corte(9)).limit(5000)
       );
 
       const [rRetHoje, rSemAcion10, rProx] = await Promise.all([cRetHoje, cSemAcion10, cProx]);
@@ -1845,10 +1847,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         const { data } = await base().lte("data_ultimo_acionamento", corteDias(10)).limit(5000);
         dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a, idsEmConfirmacaoRef.current));
       } else if (kpi === "proximosPerder") {
-        // 9 ou 10 dias sem acionamento (no 11o dia ficam elegiveis ao Receptivo).
+        // 9 dias ou mais sem acionamento (sem teto: acima de 10 dias o caso
+        // continua na carteira e segue em risco ate ser acionado).
         const { data } = await base()
           .lte("data_ultimo_acionamento", corteDias(9))
-          .gt("data_ultimo_acionamento", corteDias(11))
           .limit(5000);
         dados = (data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a, idsEmConfirmacaoRef.current));
       } else if (kpi === "retornosAdm") {

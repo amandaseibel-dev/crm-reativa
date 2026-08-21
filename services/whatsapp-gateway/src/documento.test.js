@@ -79,6 +79,9 @@ function socketFalso() {
       enviados.push({ jid, conteudo });
       return { key: { id: `wamid-${enviados.length}` } };
     },
+    // O WhatsApp devolve o JID canônico do telefone consultado. Aqui ele é
+    // igual ao número digitado; o caso "sem o 9º dígito" fica em jid.test.js.
+    onWhatsApp: async (numero) => [{ jid: `${numero}@s.whatsapp.net`, exists: true }],
   };
   return s;
 }
