@@ -56,6 +56,7 @@ const STATUS_FINALIZACAO = [
   "TERMO_RECEBIDO_LIBERADO",
   "TERMO_REJEITADO",
   "ACORDO_FECHADO",
+  "LEMBRETE_PARCELA",
   "CANCELAMENTO_COBRANCA",
   "SUSPENSAO_COBRANCA",
   "JURIDICO",
@@ -1585,7 +1586,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </div>
                     <div style={colStatus}>
                       <span style={badgeSituacaoA}>
-                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                       </span>
                       <div style={subCelA}>
                         Últ. contato: {formatarDataHora(aluno.data_ultimo_acionamento)}
@@ -2261,7 +2262,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       podeVerTudo(usuarioLogado?.email)
                   ).map((status) => (
                     <option key={status} value={status}>
-                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                     </option>
                   ))}
                 </select>
