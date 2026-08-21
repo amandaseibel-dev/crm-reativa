@@ -17,10 +17,13 @@
 // 4. RESPONSÁVEL EVITA RESPOSTA DOBRADA. Quem responde assume; quem já tem dono
 //    não é assumido por outro (só gestão). A trava é do BANCO, não daqui.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useNavigationType } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { formatarTelefone, normalizarE164 } from "../utils/telefone";
 import AnexoWhatsApp from "../components/AnexoWhatsApp";
+// A ficha COMPLETA, embutida. É o mesmo componente da tela /aluno: aqui ele
+// recebe `fichaEmbedId` e se comporta como conteúdo, não como página — o padrão
+// que Agenda Operacional, Saúde da Base e as filas de confirmação já usam.
+import Aluno from "./Aluno";
 import {
   FILTRO_ARQUIVADAS,
   FILTRO_MINHAS,
@@ -31,7 +34,6 @@ import {
   ROTULO_CONEXAO,
   TEMPOS_SEM_INTERACAO,
   ROTULO_STATUS,
-  abrirFichaDoAluno,
   assumirConversa,
   buscarAluno,
   carregarCandidatos,
@@ -97,75 +99,25 @@ function horaCompleta(iso) {
   });
 }
 
-// `date` do banco chega "2026-08-21". Passar por new Date() interpreta como
-// UTC e a tela mostra o dia ANTERIOR para quem está em Brasília. Fatiamos.
-function dataCurta(d) {
-  const [ano, mes, dia] = String(d || "").slice(0, 10).split("-");
-  return dia ? `${dia}/${mes}/${ano}` : "—";
-}
-
 const dinheiro = (v) =>
   v === null || v === undefined
     ? "—"
     : Number(v).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 // ---------------------------------------------------------------------------
-// VOLTAR TEM DE DEVOLVER A CENTRAL COMO ELA ESTAVA
+// A CENTRAL NÃO SAI DO LUGAR
 //
-// Olhar o aluno não sai mais da Central: o resumo abre em popup por cima da
-// conversa. Quem PRECISA da ficha completa (acionar, tabular, histórico) sai
-// por dentro do CRM, na mesma aba — e o Voltar do navegador remonta a Central
-// do zero. Sem isto o operador voltaria para o filtro padrão, sem a conversa
-// que estava lendo — no meio de um atendimento.
+// A ficha do aluno abre EM POPUP, por cima da conversa (ver `FichaDoAluno`, no
+// fim do arquivo). Não há mais navegação para /aluno e, com ela, sumiu todo o
+// aparato que existia para sobreviver à ida e à volta: o retrato de filtros no
+// sessionStorage, a restauração só em navegação POP e o cuidado de nunca gravar
+// o texto da busca (que é PII — a caixa aceita CPF e telefone). Nada disso é
+// necessário quando ninguém sai: o estado da tela nunca é desmontado.
 //
-// Guardamos o MÍNIMO (canal, filtros e qual conversa estava aberta) na sessão,
-// só no caminho da ficha, e consumimos uma única vez ao voltar. Nada de estado
-// grudento: entrar na Central por qualquer outro caminho abre no padrão.
-//
-// "Ao voltar" é literal: só restaura quando o React Router diz que a navegação
-// foi POP — o Voltar do navegador. Quem sai da ficha pelo MENU e chega à
-// Central por outro caminho (PUSH) recebe a tela no padrão, e não uma conversa
-// de minutos atrás reabrindo sozinha. O contexto é apagado nos DOIS casos: o
-// que não foi restaurado também não fica esperando a próxima visita.
-//
-// O QUE NÃO ENTRA AQUI, e por quê: o texto da BUSCA. A caixa aceita "nome,
-// telefone, CPF ou matrícula" — gravar o que o operador digitou seria escrever
-// CPF e telefone de aluno num armazenamento do navegador para restaurar um
-// filtro. O que se restaura são identificadores e escolhas de filtro: id de
-// canal, id de conversa e os enums das filas. Nada de conteúdo de conversa,
-// nome, telefone ou documento.
+// Se algum dia a Central voltar a navegar para fora, isto tem de voltar junto —
+// o histórico está no PR #107 e nos anteriores (#96/#97).
 // ---------------------------------------------------------------------------
-const CHAVE_ESTADO = "reativa_central_whatsapp_estado";
-
-// Leitura PURA de propósito: o StrictMode invoca o inicializador de useState
-// duas vezes, e um read que apagasse a chave devolveria nulo na segunda.
-// Quem apaga é o efeito de montagem, abaixo.
-function lerEstadoSalvo() {
-  try {
-    return JSON.parse(sessionStorage.getItem(CHAVE_ESTADO) || "null");
-  } catch {
-    return null;
-  }
-}
-
-function esquecerEstadoSalvo() {
-  try {
-    sessionStorage.removeItem(CHAVE_ESTADO);
-  } catch {
-    /* sessão indisponível: perder o contexto é ruim, quebrar a tela é pior */
-  }
-}
-
 export default function CentralWhatsApp() {
-  // Consumido no mount: o que estiver aqui veio do clique em "Abrir ficha
-  // completa" desta mesma aba — e só vale se a chegada foi pelo Voltar.
-  const tipoNavegacao = useNavigationType();
-  const [restaurado] = useState(() =>
-    (tipoNavegacao === "POP" ? lerEstadoSalvo() : null));
-  // Apaga SEMPRE, restaurando ou não: contexto que sobra é contexto que
-  // ressuscita na visita seguinte.
-  useEffect(esquecerEstadoSalvo, []);
-  const navigate = useNavigate();
 
   const [canais, setCanais] = useState([]);
   const [conversas, setConversas] = useState([]);
@@ -174,12 +126,12 @@ export default function CentralWhatsApp() {
   const [operadores, setOperadores] = useState([]);
   const [gestao, setGestao] = useState(false);
 
-  const [filtroStatus, setFiltroStatus] = useState(restaurado?.filtroStatus ?? FILTRO_SEM_RETORNO);
-  const [filtroCanal, setFiltroCanal] = useState(restaurado?.filtroCanal ?? "");
-  const [filtroTempo, setFiltroTempo] = useState(restaurado?.filtroTempo ?? "");
+  const [filtroStatus, setFiltroStatus] = useState(FILTRO_SEM_RETORNO);
+  const [filtroCanal, setFiltroCanal] = useState("");
+  const [filtroTempo, setFiltroTempo] = useState("");
   // Agrupa as recargas da lista disparadas pelo Realtime (ver o handler abaixo).
   const recargaRef = useRef(null);
-  const [filtroResponsavel, setFiltroResponsavel] = useState(restaurado?.filtroResponsavel ?? "");
+  const [filtroResponsavel, setFiltroResponsavel] = useState("");
   // Busca NÃO é restaurada: ver o bloco acima — o que se digita aqui é PII.
   const [busca, setBusca] = useState("");
   const [resumo, setResumo] = useState(null);
@@ -189,10 +141,10 @@ export default function CentralWhatsApp() {
   const [sync, setSync] = useState([]);
 
   const [ficha, setFicha] = useState(null);
-  // Resumo do aluno EM CIMA da conversa. Booleano, e não uma segunda cópia da
-  // ficha: o popup mostra exatamente o que já está em memória — abrir não
-  // consulta o banco de novo nem faz o operador esperar.
-  const [resumoAberto, setResumoAberto] = useState(false);
+  // Ficha do aluno EM CIMA da conversa. Guarda o ID, e não um booleano: é ele
+  // que a ficha embutida consome, e prender a ficha ao aluno que estava aberto
+  // evita que uma troca de conversa no meio do caminho abra a ficha de outro.
+  const [fichaAbertaId, setFichaAbertaId] = useState(null);
   const [candidatos, setCandidatos] = useState([]);
   const [buscaAluno, setBuscaAluno] = useState("");
   const [achadosAluno, setAchadosAluno] = useState([]);
@@ -203,15 +155,8 @@ export default function CentralWhatsApp() {
   // Desvincular obriga a reparear e queima a única chance de importar
   // histórico. Nunca em um clique só.
   const [confirmandoLogout, setConfirmandoLogout] = useState(null);
-  // Conversa recém-criada — ou a que estava aberta antes de ir para a ficha —
-  // que precisa ser aberta assim que aparecer na lista.
-  const pendenteAbrirRef = useRef(restaurado?.conversaId || null);
-  // A conversa RESTAURADA é procurada só na primeira lista que chega. Sem a
-  // busca (que não é restaurada, por ser PII), o filtro de agora pode não
-  // trazê-la — e aí o pedido tem de morrer ali. Se ficasse armado, a conversa
-  // abriria sozinha na cara do operador na próxima recarga do Realtime, no meio
-  // de outro atendimento.
-  const restauraSoNaPrimeiraListaRef = useRef(Boolean(restaurado?.conversaId));
+  // Conversa recém-criada que precisa ser aberta assim que aparecer na lista.
+  const pendenteAbrirRef = useRef(null);
   const [carregandoLista, setCarregandoLista] = useState(true);
   const [carregandoThread, setCarregandoThread] = useState(false);
   const [arquivando, setArquivando] = useState(false);
@@ -393,10 +338,7 @@ export default function CentralWhatsApp() {
     if (achou) {
       pendenteAbrirRef.current = null;
       abrirConversa(achou);
-    } else if (restauraSoNaPrimeiraListaRef.current) {
-      pendenteAbrirRef.current = null;
     }
-    restauraSoNaPrimeiraListaRef.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversas, carregandoLista]);
 
@@ -418,28 +360,12 @@ export default function CentralWhatsApp() {
     carregarConversas();
   }
 
-  // Única saída da Central, agora acionada de dentro do popup de resumo. Deixa
-  // o contexto guardado ANTES de navegar, para o Voltar do navegador reabrir a
-  // mesma fila e a mesma conversa.
-  function irParaFichaCompleta(alunoId) {
-    if (!alunoId) return;
-    try {
-      sessionStorage.setItem(CHAVE_ESTADO, JSON.stringify({
-        filtroStatus, filtroCanal, filtroTempo, filtroResponsavel,
-        conversaId: selecionada?.id || null,
-      }));
-    } catch {
-      /* sem sessão a ficha ainda abre; só se perde o contexto ao voltar */
-    }
-    abrirFichaDoAluno(alunoId, navigate);
-  }
-
   async function abrirConversa(conversa) {
     setSelecionada(conversa);
     setErro("");
     setAnexo(null);
     setFicha(null);
-    setResumoAberto(false);
+    setFichaAbertaId(null);
     setCandidatos([]);
     setAchadosAluno([]);
     setBuscaAluno("");
@@ -1151,8 +1077,8 @@ export default function CentralWhatsApp() {
                     <strong>{ficha.nome}</strong>
                     {ficha.matricula ? <span style={S.fichaItem}>matrícula {ficha.matricula}</span> : null}
                     {ficha.cpf_mascarado ? <span style={S.fichaItem}>CPF {ficha.cpf_mascarado}</span> : null}
-                    <button style={S.botaoMini} onClick={() => setResumoAberto(true)}>
-                      Ver resumo
+                    <button style={S.botaoMini} onClick={() => setFichaAbertaId(ficha.aluno_id)}>
+                      Abrir ficha
                     </button>
                   </div>
                   <div style={S.fichaLinha}>
@@ -1286,13 +1212,9 @@ export default function CentralWhatsApp() {
         />
       ) : null}
 
-      {/* ---------------- Resumo do aluno (popup) ---------------- */}
-      {resumoAberto && ficha ? (
-        <ResumoAluno
-          ficha={ficha}
-          onFechar={() => setResumoAberto(false)}
-          onFichaCompleta={() => irParaFichaCompleta(ficha.aluno_id)}
-        />
+      {/* ---------------- Ficha completa do aluno (popup) ---------------- */}
+      {fichaAbertaId ? (
+        <FichaDoAluno alunoId={fichaAbertaId} onFechar={() => setFichaAbertaId(null)} />
       ) : null}
 
       {/* ---------------- QR Code (gestão) ---------------- */}
@@ -1321,22 +1243,20 @@ export default function CentralWhatsApp() {
 }
 
 // ---------------------------------------------------------------------------
-// RESUMO DO ALUNO — em cima da conversa, sem sair da Central
+// FICHA COMPLETA DO ALUNO — em cima da conversa, sem sair da Central
 //
-// POR QUE VIROU POPUP: quem está atendendo precisa do saldo e da situação NA
-// HORA de escrever a resposta. Mandar o operador para a ficha completa tirava a
-// conversa da frente dele — e ele voltava sem o que ia digitar. Aqui o resumo
-// cobre a tela, fecha no ESC ou no clique fora, e devolve a conversa
-// exatamente como estava.
+// POR QUE É POPUP: quem está atendendo precisa da ficha INTEIRA (acionar,
+// tabular, ver acordos, links, termos) enquanto lê o que o aluno escreveu.
+// Abrir a ficha em outra tela tirava a conversa da frente do operador, e ele
+// voltava sem o que ia digitar. Aqui é a MESMA ficha de /aluno, montada por
+// cima da conversa: fecha no ESC, no botão ou no clique fora, e a Central fica
+// exatamente como estava — sem ida, sem volta, sem perder o lugar na fila.
 //
-// NÃO CONSULTA NADA. Tudo o que aparece aqui já veio no `whatsapp_aluno_resumo`
-// carregado quando a conversa foi aberta. Abrir o resumo é de graça para o
-// banco — que é o que permite abrir e fechar à vontade no meio do atendimento.
-//
-// A ficha completa continua a UM clique, no rodapé: é lá que se aciona e se
-// tabula. A diferença é que sair passou a ser escolha, não o preço de olhar.
+// É o componente REAL da tela /aluno (`fichaEmbedId`), não uma cópia reduzida:
+// o que se pode fazer na ficha, se pode fazer daqui. O mesmo padrão já roda na
+// Agenda Operacional, na Saúde da Base e nas filas de confirmação.
 // ---------------------------------------------------------------------------
-function ResumoAluno({ ficha, onFechar, onFichaCompleta }) {
+function FichaDoAluno({ alunoId, onFechar }) {
   // ESC fecha: o operador está com as mãos no teclado, no meio de uma resposta.
   useEffect(() => {
     function aoTeclar(e) {
@@ -1346,97 +1266,25 @@ function ResumoAluno({ ficha, onFechar, onFichaCompleta }) {
     return () => window.removeEventListener("keydown", aoTeclar);
   }, [onFechar]);
 
-  const vencido = Number(ficha.saldo_vencido || 0);
-  const identificacao = [
-    ficha.matricula ? `matrícula ${ficha.matricula}` : null,
-    ficha.cpf_mascarado ? `CPF ${ficha.cpf_mascarado}` : null,
-    ficha.telefone ? formatarTelefone(ficha.telefone) : null,
-  ].filter(Boolean).join(" · ");
-
   return (
-    <div style={S.modalFundo} onClick={onFechar}>
+    <div style={S.fichaFundo} onClick={onFechar}>
       <div
-        style={S.modalResumo}
+        style={S.fichaCaixa}
         role="dialog"
         aria-modal="true"
-        aria-label="Resumo do aluno"
+        aria-label="Ficha do aluno"
         onClick={(e) => e.stopPropagation()}
       >
-        <div style={S.resumoTopo}>
-          <div>
-            <h2 style={S.modalTitulo}>{ficha.nome || "Aluno"}</h2>
-            {identificacao ? <div style={S.resumoSub}>{identificacao}</div> : null}
-          </div>
+        {/* O topo NÃO rola junto: a ficha é longa, e o operador tem de poder
+            fechar de onde estiver nela. */}
+        <div style={S.fichaTopo}>
+          <strong>Ficha do aluno</strong>
           <button style={S.botaoMini} onClick={onFechar}>Fechar</button>
         </div>
-
-        {/* O que decide a conversa vem primeiro e em corpo grande: o operador
-            olha isto de relance enquanto digita. */}
-        <div style={S.resumoGrade}>
-          <div style={S.resumoCard}>
-            <div style={S.resumoRotulo}>Vencido</div>
-            <div style={vencido > 0 ? S.resumoValorAlerta : S.resumoValor}>
-              {dinheiro(ficha.saldo_vencido)}
-            </div>
-          </div>
-          <div style={S.resumoCard}>
-            <div style={S.resumoRotulo}>Total em aberto</div>
-            <div style={S.resumoValor}>{dinheiro(ficha.saldo_total)}</div>
-          </div>
-          <div style={S.resumoCard}>
-            <div style={S.resumoRotulo}>Negociações ativas</div>
-            <div style={S.resumoValor}>{ficha.acordos_ativos ?? 0}</div>
-          </div>
-          <div style={S.resumoCard}>
-            <div style={S.resumoRotulo}>Retorno agendado</div>
-            <div style={S.resumoValor}>{dataCurta(ficha.data_retorno)}</div>
-          </div>
-        </div>
-
-        <BlocoResumo
-          titulo="Situação na operação"
-          itens={[
-            ["Última tabulação", ficha.status_atual],
-            ["Criticidade", ficha.nivel_criticidade],
-            ["Situação", ficha.situacao_operacional],
-            ["Carteira de", ficha.responsavel_carteira],
-          ]}
-        />
-        <BlocoResumo
-          titulo="Acadêmico"
-          itens={[
-            ["Curso", ficha.curso],
-            ["Unidade", ficha.unidade],
-            ["Situação", ficha.situacao_academica],
-          ]}
-        />
-
-        <div style={S.resumoRodape}>
-          <span style={S.resumoRodapeNota}>
-            Para acionar, tabular ou ver o histórico, abra a ficha completa —
-            ela sai da Central, e o Voltar traz esta conversa de novo.
-          </span>
-          <button style={S.botaoSec} onClick={onFichaCompleta}>Abrir ficha completa</button>
+        <div style={S.fichaCorpo}>
+          <Aluno fichaEmbedId={alunoId} />
         </div>
       </div>
-    </div>
-  );
-}
-
-// Um bloco só existe se tiver o que mostrar: campo vazio vira linha vazia, e
-// linha vazia faz o operador procurar informação que não existe.
-function BlocoResumo({ titulo, itens }) {
-  const preenchidos = itens.filter(([, valor]) => valor !== null && valor !== undefined && valor !== "");
-  if (!preenchidos.length) return null;
-  return (
-    <div style={S.resumoBloco}>
-      <div style={S.resumoBlocoTitulo}>{titulo}</div>
-      {preenchidos.map(([rotulo, valor]) => (
-        <div key={rotulo} style={S.resumoLinha}>
-          <span style={S.resumoLinhaRotulo}>{rotulo}</span>
-          <span style={S.resumoLinhaValor}>{valor}</span>
-        </div>
-      ))}
     </div>
   );
 }
@@ -2192,37 +2040,24 @@ const S = {
     padding: "9px 11px", borderRadius: 8, border: `1px solid ${BORDA}`,
     fontSize: 13, fontFamily: "inherit", resize: "vertical", boxSizing: "border-box", width: "100%",
   },
-  // ---- resumo do aluno (popup) ----
-  modalResumo: {
-    background: "#fff", borderRadius: 14, padding: 20, width: "min(560px, 94vw)",
-    maxHeight: "92vh", overflowY: "auto",
-    display: "flex", flexDirection: "column", gap: 14,
+  // ---- ficha do aluno (popup) ----
+  // Larga e alta de propósito: é a ficha inteira aí dentro. O topo fica fixo e
+  // só o CORPO rola — fechar não pode depender de voltar ao começo da ficha.
+  fichaFundo: {
+    position: "fixed", inset: 0, background: "rgba(15,23,42,.55)",
+    display: "flex", alignItems: "flex-start", justifyContent: "center",
+    padding: "3vh 2vw", zIndex: 60,
+  },
+  fichaCaixa: {
+    background: "#fff", borderRadius: 14, width: "min(1100px, 96vw)",
+    maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden",
     boxShadow: "0 20px 50px rgba(15,23,42,.25)",
   },
-  resumoTopo: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 },
-  resumoSub: { fontSize: 12.5, color: CINZA, marginTop: 4 },
-  // 2 por linha no tamanho normal do popup (4 caberiam apertadas e a última
-  // sobraria sozinha numa linha); 1 por linha quando a janela é estreita.
-  resumoGrade: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: 10 },
-  resumoCard: {
-    border: `1px solid ${BORDA}`, borderRadius: 10, padding: "10px 12px", background: "#f8fafc",
+  fichaTopo: {
+    display: "flex", justifyContent: "space-between", alignItems: "center",
+    gap: 12, padding: "12px 16px", borderBottom: `1px solid ${BORDA}`, background: "#f8fafc",
   },
-  resumoRotulo: { fontSize: 11.5, color: CINZA, textTransform: "uppercase", letterSpacing: .3 },
-  resumoValor: { fontSize: 17, fontWeight: 700, marginTop: 3, color: "#0f172a" },
-  resumoValorAlerta: { fontSize: 17, fontWeight: 700, marginTop: 3, color: VERMELHO },
-  resumoBloco: {
-    border: `1px solid ${BORDA}`, borderRadius: 10, padding: "10px 12px",
-    display: "flex", flexDirection: "column", gap: 6,
-  },
-  resumoBlocoTitulo: { fontSize: 12, fontWeight: 700, color: "#334155" },
-  resumoLinha: { display: "flex", justifyContent: "space-between", gap: 12, fontSize: 12.5 },
-  resumoLinhaRotulo: { color: CINZA },
-  resumoLinhaValor: { color: "#0f172a", textAlign: "right" },
-  resumoRodape: {
-    display: "flex", alignItems: "center", justifyContent: "space-between",
-    gap: 12, flexWrap: "wrap", borderTop: `1px solid ${BORDA}`, paddingTop: 12,
-  },
-  resumoRodapeNota: { flex: 1, minWidth: 200, fontSize: 11.5, color: CINZA, lineHeight: 1.5 },
+  fichaCorpo: { flex: 1, overflow: "auto" },
 
   modalTitulo: { margin: 0, fontSize: 18 },
   modalTexto: { margin: 0, fontSize: 13, color: CINZA },

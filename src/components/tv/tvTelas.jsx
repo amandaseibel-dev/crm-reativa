@@ -234,15 +234,25 @@ function TelaAniversariantes({ snap }) {
   );
 }
 
-// 7) Avisos (um aviso por tela; gira entre os ativos por ciclo) ---------------
+// 7) Avisos — TODOS os ativos no mesmo slide (até AVISOS_POR_TELA), do nível
+// mais alto para o mais baixo (ordem já vem do snapshot). Acima disso, a tela
+// pagina: a cada passagem do rodízio mostra o próximo bloco.
+const AVISOS_POR_TELA = 5;
+function nivelAviso(p) { return p >= 2 ? "critico" : p === 1 ? "atencao" : "info"; }
 function TelaAvisos({ snap, indiceGiro = 0 }) {
   const avisos = snap?.avisos || [];
   if (avisos.length === 0) return <Tela titulo="Avisos" icone="📣"><Vazio>Sem aviso ativo nesta atualização.</Vazio></Tela>;
-  const a = avisos[indiceGiro % avisos.length];
-  const nivel = a.prioridade >= 2 ? "critico" : a.prioridade === 1 ? "atencao" : "info";
+  const paginas = Math.ceil(avisos.length / AVISOS_POR_TELA);
+  const ini = (indiceGiro % paginas) * AVISOS_POR_TELA;
+  const bloco = avisos.slice(ini, ini + AVISOS_POR_TELA);
+  const compacto = bloco.length > 2;
   return (
     <Tela titulo="Avisos" icone="📣">
-      <Aviso nivel={nivel} titulo={a.titulo || "Comunicado"} texto={a.mensagem} />
+      <div style={{ display: "flex", flexDirection: "column", gap: compacto ? "1.2vh" : "2vh", alignItems: "center", width: "100%" }}>
+        {bloco.map((a, i) => (
+          <Aviso key={i} nivel={nivelAviso(a.prioridade)} titulo={a.titulo || "Comunicado"} texto={a.mensagem} compacto={compacto} />
+        ))}
+      </div>
     </Tela>
   );
 }
