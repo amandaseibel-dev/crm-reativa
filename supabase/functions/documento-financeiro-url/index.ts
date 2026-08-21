@@ -28,6 +28,9 @@
 //        DESCARTA do Storage a via só-aluno (+ RG + verso). Só gestão.
 //   "descartar_via_aluno"  -> { acao, id, backup_confirmado }
 //        Descarte avulso, sem via completa: exige backup confirmado. Só gestão.
+//   "desfazer_assinatura"  -> { acao, id, motivo? }
+//        "Termo assinado" marcado por engano: volta para A enviar e DESCARTA do
+//        Storage o arquivo anexado como via completa. Só gestão.
 //   "desfazer_acao"        -> { acao, id, motivo? }   (id = acoes_desfazer.id)
 //        Desfaz a ação recém-feita pelo operador (termo, link ou tabulação).
 //        NÃO é restrita à gestão: quem autoriza é a RPC desfazer_acao, que
@@ -377,7 +380,7 @@ Deno.serve(async (req: Request) => {
     body = {};
   }
 
-  const ACOES = new Set(["upload", "vincular", "concluir_assinatura", "descartar_via_aluno", "desfazer_acao"]);
+  const ACOES = new Set(["upload", "vincular", "concluir_assinatura", "descartar_via_aluno", "desfazer_assinatura", "desfazer_acao"]);
   const acao = typeof body?.acao === "string" && ACOES.has(body.acao) ? body.acao : "ler";
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -388,14 +391,25 @@ Deno.serve(async (req: Request) => {
   // linha de auditoria fica com removido_do_storage_em NULL e o objeto é
   // rastreável em vez de virar órfão silencioso.
   // ===========================================================================
-  if (acao === "concluir_assinatura" || acao === "descartar_via_aluno") {
+  if (acao === "concluir_assinatura" || acao === "descartar_via_aluno" || acao === "desfazer_assinatura") {
     if (!ehGestao) return json({ error: "forbidden" }, 403);
     const termoId = typeof body?.id === "string" ? body.id : "";
     if (!RE_UUID.test(termoId)) return json({ error: "bad_request" }, 400);
     const backupOk = body?.backup_confirmado === true;
 
     let resultado: Record<string, unknown> | null = null;
-    if (acao === "concluir_assinatura") {
+    if (acao === "desfazer_assinatura") {
+      // "Termo assinado" marcado por engano: volta para "A enviar" e o arquivo
+      // anexado como via completa é descartado (itens devolvidos para remoção).
+      const { data, error } = await admin.rpc("termo_desfazer_assinatura_concluida", {
+        p_termo_id: termoId,
+        p_ator: ident.email,
+        p_gestao: true,
+        p_motivo: typeof body?.motivo === "string" ? body.motivo.slice(0, 500) : null,
+      });
+      if (error) return json({ error: "desfazer_assinatura_failed" }, 500);
+      resultado = data as Record<string, unknown>;
+    } else if (acao === "concluir_assinatura") {
       const { data, error } = await admin.rpc("termo_concluir_assinatura", {
         p_termo_id: termoId,
         p_ator: ident.email,

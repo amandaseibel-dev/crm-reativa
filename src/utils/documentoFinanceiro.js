@@ -223,6 +223,18 @@ export function concluirAssinaturaTermo(id, opcoes = {}) {
   });
 }
 
+// Desfaz um "Termo assinado" marcado por engano: o termo volta para "A enviar"
+// e o arquivo anexado como via completa é descartado (Amanda, 2026-08-21: o
+// termo sem assinaturas não precisa ficar guardado; só o assinado interessa).
+export function desfazerAssinaturaConcluida(id, motivo = null) {
+  if (!id) return Promise.resolve({ ok: false, erro: "dados_invalidos" });
+  return acaoAssinatura({
+    acao: "desfazer_assinatura",
+    id: String(id),
+    motivo: motivo ? String(motivo).slice(0, 500) : null,
+  });
+}
+
 export function descartarViaAluno(id, opcoes = {}) {
   if (!id) return Promise.resolve({ ok: false, erro: "dados_invalidos" });
   return acaoAssinatura({
