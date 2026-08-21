@@ -28,6 +28,11 @@
 //        DESCARTA do Storage a via só-aluno (+ RG + verso). Só gestão.
 //   "descartar_via_aluno"  -> { acao, id, backup_confirmado }
 //        Descarte avulso, sem via completa: exige backup confirmado. Só gestão.
+//   "desfazer_acao"        -> { acao, id, motivo? }   (id = acoes_desfazer.id)
+//        Desfaz a ação recém-feita pelo operador (termo, link ou tabulação).
+//        NÃO é restrita à gestão: quem autoriza é a RPC desfazer_acao, que
+//        confere o dono do cartão e se o item ainda está intocado na fila.
+//        Desfazer termo apaga o anexo do Storage -- por isso passa por aqui.
 //
 // Autorização (mesma p/ ler e upload): gestão financeira vê/envia tudo; operador
 // só o registro cujo operador dono (operador_email / responsavel_baixa_email) é
@@ -312,6 +317,40 @@ async function identificar(authHeader: string, url: string, anon: string): Promi
   return { email: (userData.user.email || "").toLowerCase() };
 }
 
+// Remoção física dos anexos de termo. Cada item traz o id da linha de auditoria
+// e o caminho; só confirmamos no banco o que o Storage disse ter apagado -- o
+// que sobrar fica com removido_do_storage_em NULL, rastreável, em vez de virar
+// órfão silencioso.
+async function removerAnexosDoStorage(
+  // deno-lint-ignore no-explicit-any
+  admin: any,
+  itensBrutos: unknown,
+): Promise<{ marcados: number; removidos: number }> {
+  const itens = Array.isArray(itensBrutos)
+    ? (itensBrutos as Array<{ id?: string; caminho?: string }>)
+    : [];
+  const caminhos: string[] = [];
+  const idsPorCaminho = new Map<string, string>();
+  for (const it of itens) {
+    const c = resolverCaminho(it?.caminho, "termos-acordo");
+    if (!c || typeof it?.id !== "string") continue;
+    caminhos.push(c);
+    idsPorCaminho.set(c, it.id);
+  }
+  if (caminhos.length === 0) return { marcados: 0, removidos: 0 };
+
+  const { data: rem, error: remErr } = await admin.storage.from("termos-acordo").remove(caminhos);
+  if (remErr || !Array.isArray(rem)) return { marcados: caminhos.length, removidos: 0 };
+
+  const idsOk = rem
+    .map((o: unknown) => idsPorCaminho.get(String((o as { name?: string }).name ?? "")))
+    .filter((v: unknown): v is string => typeof v === "string");
+  if (idsOk.length > 0) {
+    await admin.rpc("termo_confirmar_descarte_storage", { p_ids: idsOk });
+  }
+  return { marcados: caminhos.length, removidos: idsOk.length };
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -338,7 +377,7 @@ Deno.serve(async (req: Request) => {
     body = {};
   }
 
-  const ACOES = new Set(["upload", "vincular", "concluir_assinatura", "descartar_via_aluno"]);
+  const ACOES = new Set(["upload", "vincular", "concluir_assinatura", "descartar_via_aluno", "desfazer_acao"]);
   const acao = typeof body?.acao === "string" && ACOES.has(body.acao) ? body.acao : "ler";
   const admin = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
@@ -385,42 +424,61 @@ Deno.serve(async (req: Request) => {
       return json({ error: cod }, status);
     }
 
-    // Remoção física. Cada item traz o id da linha de auditoria e o caminho.
-    const itens = Array.isArray(resultado.itens)
-      ? (resultado.itens as Array<{ id?: string; caminho?: string }>)
-      : [];
-    const caminhos: string[] = [];
-    const idsPorCaminho = new Map<string, string>();
-    for (const it of itens) {
-      const c = resolverCaminho(it?.caminho, "termos-acordo");
-      if (!c || typeof it?.id !== "string") continue;
-      caminhos.push(c);
-      idsPorCaminho.set(c, it.id);
-    }
+    // Remoção física. Falha NÃO é escondida: o termo já está concluído e a
+    // auditoria registrada, mas o objeto continua no bucket e precisa de nova
+    // passada.
+    const { marcados, removidos } = await removerAnexosDoStorage(admin, resultado.itens);
 
-    let removidos = 0;
-    if (caminhos.length > 0) {
-      const { data: rem, error: remErr } = await admin.storage.from("termos-acordo").remove(caminhos);
-      if (!remErr && Array.isArray(rem)) {
-        const idsOk = rem
-          .map((o) => idsPorCaminho.get(String((o as { name?: string }).name ?? "")))
-          .filter((v): v is string => typeof v === "string");
-        removidos = idsOk.length;
-        if (idsOk.length > 0) {
-          await admin.rpc("termo_confirmar_descarte_storage", { p_ids: idsOk });
-        }
-      }
-    }
-
-    // Falha na remoção NÃO é escondida: o termo já está concluído e a auditoria
-    // registrada, mas o objeto continua no bucket e precisa de nova passada.
     return json({
       ok: true,
       etapa: resultado.etapa ?? null,
       descarte: resultado.descarte ?? null,
-      arquivos_marcados: caminhos.length,
+      arquivos_marcados: marcados,
       arquivos_removidos: removidos,
-      pendentes_no_storage: caminhos.length - removidos,
+      pendentes_no_storage: marcados - removidos,
+    }, 200);
+  }
+
+  // ===========================================================================
+  // AÇÃO: DESFAZER -> o operador desfaz o PRÓPRIO erro, então aqui NÃO existe
+  // gate de gestão: quem decide se pode é a RPC, que confere o dono do cartão e
+  // se o item ainda está intocado na fila do outro lado. Passa pela Edge porque
+  // desfazer termo apaga o anexo do Storage, e apagar objeto é privilégio dela.
+  // ===========================================================================
+  if (acao === "desfazer_acao") {
+    const acaoId = typeof body?.id === "string" ? body.id : "";
+    if (!RE_UUID.test(acaoId)) return json({ error: "bad_request" }, 400);
+    const motivo = typeof body?.motivo === "string" ? body.motivo.slice(0, 500) : null;
+
+    const { data, error } = await admin.rpc("desfazer_acao", {
+      p_id: acaoId,
+      p_motivo: motivo,
+      p_ator: ident.email,
+      p_gestao: ehGestao,
+    });
+    if (error) return json({ error: "desfazer_failed" }, 500);
+
+    const resultado = data as Record<string, unknown> | null;
+    if (!resultado || resultado.ok !== true) {
+      const cod = String(resultado?.erro ?? "operacao_recusada");
+      const status = cod === "nao_e_sua" ? 403
+        : cod === "acao_nao_encontrada" ? 404
+        : cod === "sem_sessao" ? 401
+        : 409;
+      return json({ error: cod }, status);
+    }
+
+    // Só o termo devolve anexos; link e tabulação voltam com a lista vazia.
+    const { marcados, removidos } = await removerAnexosDoStorage(admin, resultado.itens);
+
+    return json({
+      ok: true,
+      tipo: resultado.tipo ?? null,
+      aluno_id: resultado.aluno_id ?? null,
+      status_restaurado: resultado.status_restaurado ?? null,
+      arquivos_marcados: marcados,
+      arquivos_removidos: removidos,
+      pendentes_no_storage: marcados - removidos,
     }, 200);
   }
 

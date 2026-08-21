@@ -71,7 +71,9 @@ function corStatus(status) {
   };
 }
 
-export default function FinalizacaoTermo({ aluno }) {
+// onEnviado avisa a ficha que nasceu uma acao que ainda da para desfazer --
+// sem isso a faixa "Da para desfazer" so apareceria no proximo reload.
+export default function FinalizacaoTermo({ aluno, onEnviado }) {
   const [usuario, setUsuario] = useState(null);
   const [observacao, setObservacao] = useState("");
   const [arquivo, setArquivo] = useState(null);
@@ -269,6 +271,7 @@ export default function FinalizacaoTermo({ aluno }) {
     setTipoAssinatura("MANUAL_RG");
     setEnviando(false);
     carregarTermosDoAluno();
+    if (onEnviado) onEnviado();
   }
 
   return (

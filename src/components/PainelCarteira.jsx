@@ -13,6 +13,8 @@ import FinanceiroAluno from "./FinanceiroAluno";
 import DadosAcademicos from "./DadosAcademicos";
 import ConfirmarPagamento from "./ConfirmarPagamento";
 import CadastroNovoAluno from "./CadastroNovoAluno";
+import PainelDesfazer from "./PainelDesfazer";
+import { listarDesfazer, desfazerAcao, explicarBloqueio } from "../utils/desfazer";
 import VisaoGeralCarteira from "./VisaoGeralCarteira";
 import VisaoGestao360 from "./VisaoGestao360";
 
@@ -751,12 +753,19 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [feedback, setFeedback] = useState(null); // { tipo: "ok"|"erro", texto }
   // Aviso flutuante das acoes rapidas da linha (fora do modal).
   const [avisoRapido, setAvisoRapido] = useState(null); // { tipo: "ok"|"erro", texto }
+  // Sobe a cada gravacao: sinal para a faixa "Da para desfazer" reconsultar.
+  const [desfazerTick, setDesfazerTick] = useState(0);
   // Ids com acao rapida em andamento -- evita duplicar movimentacao no duplo clique.
   const [tabulandoIds, setTabulandoIds] = useState(() => new Set());
   const tabulandoRef = useRef(new Set());
   useEffect(() => {
     if (!avisoRapido) return;
-    const t = setTimeout(() => setAvisoRapido(null), avisoRapido.tipo === "erro" ? 9000 : 3500);
+    // Com botao de desfazer o aviso precisa durar o suficiente para o
+    // operador ler, decidir e clicar.
+    const t = setTimeout(
+      () => setAvisoRapido(null),
+      avisoRapido.tipo === "erro" ? 9000 : avisoRapido.desfazerAlunoId ? 15000 : 3500
+    );
     return () => clearTimeout(t);
   }, [avisoRapido]);
 
@@ -1417,6 +1426,39 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     carregarRetornosPendentes();
   }
 
+  // Desfazer direto do aviso da acao rapida: pega o cartao mais recente que
+  // ainda pode voltar atras naquele aluno. Quem decide se pode e o banco -- se
+  // o ADM ja pegou o item ou outra acao entrou no meio, volta recusado com o
+  // motivo, e o operador ve a frase em vez de um botao que nao faz nada.
+  async function desfazerUltimaDoAluno(alunoId) {
+    const lista = await listarDesfazer(alunoId, 5);
+    const alvo = (lista.itens || []).find((i) => !i.bloqueio);
+    if (!alvo) {
+      const bloqueado = (lista.itens || [])[0];
+      setAvisoRapido({
+        tipo: "erro",
+        texto: bloqueado
+          ? `Nao da mais para desfazer: ${explicarBloqueio(bloqueado.bloqueio)}`
+          : "Nao encontrei essa acao para desfazer.",
+      });
+      return;
+    }
+
+    const res = await desfazerAcao(alvo);
+    if (!res.ok) {
+      setAvisoRapido({ tipo: "erro", texto: res.erro });
+      return;
+    }
+    setAvisoRapido({
+      tipo: "ok",
+      texto:
+        "Desfeito." +
+        (res.statusRestaurado ? ` A ficha voltou para "${res.statusRestaurado}".` : ""),
+    });
+    setDesfazerTick((t) => t + 1);
+    carregar();
+  }
+
   // Acao rapida direto na linha da carteira -- tabula sem precisar abrir
   // o modal inteiro, pra casos simples do dia a dia.
   async function tabularRapido(aluno, statusNovo, rotuloStatus, e) {
@@ -1469,7 +1511,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             : c
         )
       );
-      setAvisoRapido({ tipo: "ok", texto: `${rotuloStatus} registrado para ${nomeAluno(aluno)}.` });
+      setAvisoRapido({
+        tipo: "ok",
+        texto: `${rotuloStatus} registrado para ${nomeAluno(aluno)}.`,
+        desfazerAlunoId: aluno.id,
+      });
+      setDesfazerTick((t) => t + 1);
       // Recarrega KPIs em segundo plano, sem travar a acao.
       carregar();
     } catch (err) {
@@ -1566,6 +1613,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
   // Recarrega o aluno atual (linha da carteira + modal) apos uma acao.
   async function atualizarTudo(id) {
+    setDesfazerTick((t) => t + 1);
     const { data: row } = await supabase.from("alunos").select(COLUNAS_ALUNO).eq("id", id).single();
     if (row) {
       setAlunoModal(row);
@@ -2363,7 +2411,28 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 background: avisoRapido.tipo === "erro" ? "#b42318" : "#1e40af",
               }}
             >
-              {avisoRapido.texto}
+              <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                <span>{avisoRapido.texto}</span>
+                {avisoRapido.desfazerAlunoId && (
+                  <button
+                    type="button"
+                    onClick={() => desfazerUltimaDoAluno(avisoRapido.desfazerAlunoId)}
+                    style={{
+                      background: "rgba(255,255,255,.18)",
+                      color: "#fff",
+                      border: "1px solid rgba(255,255,255,.5)",
+                      borderRadius: 8,
+                      padding: "4px 10px",
+                      fontSize: 12,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    ↺ Desfazer
+                  </button>
+                )}
+              </div>
             </div>
           )}
         </div>
@@ -3075,6 +3144,14 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
             <div style={{ padding: "0 16px" }}>
               <DadosAcademicos aluno={alunoModal} />
+              <PainelDesfazer
+                alunoId={alunoModal?.id}
+                atualizarEm={desfazerTick}
+                onDesfeito={() => {
+                  atualizarTudo(alunoModal.id);
+                  carregar();
+                }}
+              />
             </div>
 
             <div style={S.modalAbas} role="tablist">
