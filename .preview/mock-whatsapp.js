@@ -119,14 +119,9 @@ export const vincularAluno = async (id, alunoId) => {
   const a = ALUNOS.find((x) => x.id === alunoId);
   if (c) { c.aluno_id = alunoId; c.aluno_nome = a?.nome || "Aluno vinculado"; c.aluno_status = "ENCONTRADO"; }
 };
-// Espelha o serviço real: navega POR DENTRO do CRM, na mesma aba — e REGISTRA
-// o aluno pedido, que é como se verifica que abrir a ficha é a única ação da
-// Central que sai dela, e que nenhuma seleção de operador faz isso. O preview
-// tem uma rota /aluno de mentira só para o Voltar ter para onde voltar.
-export const abrirFichaDoAluno = (alunoId, navegar) => {
-  (window.__fichasAbertas ||= []).push(alunoId);
-  if (typeof navegar === "function") navegar(`/aluno?id=${encodeURIComponent(alunoId)}`);
-};
+// `abrirFichaDoAluno` saiu do serviço real: a ficha do aluno abre em POPUP,
+// dentro da Central. A rota /aluno do preview continua existindo como
+// armadilha — se ela aparecer, alguém devolveu a navegação para fora.
 
 // Anexo de PDF no preview: exercita os TRES estados sem rede e sem bucket.
 // `window.__anexoFalha = "motivo"` no console faz o proximo envio falhar --

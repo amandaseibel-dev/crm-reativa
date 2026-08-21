@@ -284,24 +284,12 @@ export async function buscarAluno(termo, limite = 20) {
   return data || [];
 }
 
-// Abre a ficha completa do aluno DENTRO do CRM, na mesma aba.
-//
-// Antes isto abria outra aba (window.open). Duplicava a navegação: o operador
-// terminava o dia com uma pilha de abas de ficha e sem saber qual Central era a
-// viva. Agora é navegação interna — a Central fica no histórico e o Voltar do
-// navegador devolve o operador exatamente para ela.
-//
-// O `navegar` vem de fora (useNavigate) de propósito: serviço não conhece
-// roteador. Sem ele, não navega — nunca cai de volta em window.open.
-//
-// O id vai TAMBÉM no localStorage porque esse é o padrão canônico que a ficha
-// consome; o parâmetro na URL é o que faz o F5 e o Avançar continuarem abrindo
-// o mesmo aluno.
-export function abrirFichaDoAluno(alunoId, navegar) {
-  if (!alunoId || typeof navegar !== "function") return;
-  localStorage.setItem("reativa_aluno_abrir_id", alunoId);
-  navegar(`/aluno?id=${encodeURIComponent(alunoId)}`);
-}
+// A ficha do aluno NÃO é aberta por navegação: a Central monta a ficha completa
+// em popup, por cima da conversa (ver `FichaDoAluno` em CentralWhatsApp.jsx).
+// Existiu aqui um `abrirFichaDoAluno(alunoId, navegar)` — window.open primeiro,
+// navigate("/aluno?id=") depois. Os dois tiravam o operador da conversa; o
+// segundo ainda exigia todo um aparato para restaurar a Central na volta.
+// Não recriar: quem precisa da ficha a abre onde está.
 
 // ---------------------------------------------------------------------------
 // Envio

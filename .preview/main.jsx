@@ -39,15 +39,14 @@ function Barra() {
         </button>
       </div>
       <BrowserRouter>
-        {/* O menu do CRM, reduzido ao essencial: navegação normal (PUSH). Serve
-            para conferir a regra — só o Voltar do navegador (POP) restaura o
-            contexto da Central; chegar por aqui abre a tela no padrão. */}
+        {/* O menu do CRM, reduzido ao essencial. Serve para conferir que sair
+            e voltar pelo menu devolve a Central no padrão. */}
         <MenuPreview />
         <Routes>
           <Route path="/central-whatsapp" element={<CentralWhatsApp key={chave} />} />
-          {/* Ficha de mentira: no CRM real esta rota é a ficha do aluno. Aqui
-              serve para conferir que "Abrir ficha completa" navega na MESMA aba
-              e que o Voltar devolve a Central como estava. */}
+          {/* Ficha de mentira: no CRM real esta rota é a ficha do aluno. Hoje
+              a Central NÃO navega para cá — a ficha abre em popup. Esta rota
+              fica como armadilha: se ela aparecer, a navegação voltou. */}
           <Route path="/aluno" element={<FichaDeMentira />} />
           <Route path="/outra-area" element={
             <div style={{ padding: 40, fontFamily: "system-ui, sans-serif" }}>Outra área do CRM</div>
@@ -87,7 +86,9 @@ function FichaDeMentira() {
     <div style={{ padding: 40, fontFamily: "system-ui, sans-serif" }}>
       <h1 style={{ fontSize: 22, margin: 0 }}>Ficha completa do aluno</h1>
       <p style={{ color: "#475569" }}>aluno_id: <strong>{id}</strong></p>
-      <p style={{ color: "#475569" }}>Use o Voltar do navegador para retornar à Central.</p>
+      <p style={{ color: "#dc2626", fontWeight: 700 }}>
+        A Central não deveria ter navegado para cá: a ficha abre em popup.
+      </p>
     </div>
   );
 }
