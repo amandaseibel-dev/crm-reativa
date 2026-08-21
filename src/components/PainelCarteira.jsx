@@ -1501,7 +1501,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         carregar();
         return;
       }
-      let fresco = null;
+      let fresco;
       try {
         const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).eq("id", cand.id).maybeSingle();
         fresco = data;
