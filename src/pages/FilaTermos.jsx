@@ -12,6 +12,7 @@ import {
   urlTermo,
   enviarTermo,
   concluirAssinaturaTermo,
+  desfazerAssinaturaConcluida,
   descartarViaAluno,
 } from "../utils/documentoFinanceiro";
 
@@ -345,6 +346,30 @@ export default function FilaAdmTermos() {
     if (error || !data?.ok) {
       alert("Não foi possível desfazer: " + (error?.message || data?.erro || "erro desconhecido"));
       return;
+    }
+    carregarTermos();
+  }
+
+  // "Termo assinado" marcado por engano (ex.: anexou a via sem testemunhas).
+  // Volta para "A enviar"; o arquivo anexado é descartado — o termo assinado
+  // de verdade é anexado depois, quando voltar.
+  async function desfazerAssinatura(termo) {
+    const motivo = window.prompt(
+      `Desfazer "Termo assinado" de ${termo.aluno_nome || "este aluno"}?\n\n` +
+        "O termo volta para \"A enviar\" e o arquivo anexado como via assinada é descartado. " +
+        "Depois, anexe o termo com as assinaturas.\n\nMotivo (opcional):",
+      "",
+    );
+    if (motivo === null) return;
+    setProcessando(true);
+    const res = await desfazerAssinaturaConcluida(termo.id, motivo);
+    setProcessando(false);
+    if (!res.ok) {
+      alert("Não foi possível desfazer: " + (res.erro === "etapa_invalida" ? "Este termo já não está como assinado. A fila será atualizada." : mensagemErro(res.erro)));
+      return;
+    }
+    if (res.pendentes_no_storage > 0) {
+      alert("Desfeito, mas o arquivo anexado ainda não saiu do Storage. Avise o suporte.");
     }
     carregarTermos();
   }
@@ -810,6 +835,17 @@ export default function FilaAdmTermos() {
                     disabled={processando}
                   >
                     Desfazer envio
+                  </button>
+                )}
+
+                {etapaDe(termo) === "COMPLETO" && (
+                  <button
+                    style={styles.botaoDescartar}
+                    onClick={() => desfazerAssinatura(termo)}
+                    disabled={processando}
+                    title="Marcado como assinado por engano? Volta para 'A enviar' e descarta o arquivo anexado."
+                  >
+                    Desfazer assinatura
                   </button>
                 )}
 
