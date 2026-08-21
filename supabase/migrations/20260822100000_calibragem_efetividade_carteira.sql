@@ -4,8 +4,8 @@
 -- calibragem_efetividade_carteira(de, ate, operador?) — por operador:
 --   * carteira: casos, ativos (não encerrados), mensalidades (vencidas / a vencer),
 --     acordos (em dia / vencidos / quebrados), saldo total e vencido;
---   * faixas de atraso (qtd + saldo) pelo vencimento em aberto mais antigo
---     (casos.dias_atraso está defasado — quase tudo 'A_VENCER');
+--   * faixas de atraso (qtd + saldo) — faixa_atraso da mv_saude_carteira, que a
+--     partir de 20260822110000 usa o vencimento em aberto mais antigo;
 --   * acionamentos no período: qtd, alunos distintos, penetração (% dos ativos
 --     acionados pelo PRÓPRIO operador), nunca acionados, sem acionamento 9+ dias;
 --   * ritmo: média de alunos e de ações por dia ÚTIL trabalhado (seg–sex, dias
@@ -53,33 +53,16 @@ begin
     where operador_email is not null and (v_op is null or operador_email = v_op)
     group by operador_email
   ),
-  -- faixa de atraso REAL: vencimento em aberto mais antigo (título original
-  -- sem acordo ou parcela vencida do acordo). casos.dias_atraso está defasado.
-  venc as (
-    select c.operador_email, c.saldo_total,
-      least(
-        (select min(t.vencimento) from public.acordos_titulos t
-          where t.aluno_id = c.aluno_id and t.situacao='ABERTO' and t.status='em_aberto'
-            and t.acordo_id is null and t.vencimento < current_date),
-        c.parcela_vencida_mais_antiga) venc
-    from public.mv_saude_carteira c
-    where c.operador_email is not null and not c.encerrado and (v_op is null or c.operador_email = v_op)
-  ),
   faixas as (
     select operador_email op_email,
       jsonb_agg(jsonb_build_object('faixa', faixa, 'qtd', qtd, 'saldo', saldo) order by ord) faixas
     from (
-      select operador_email, faixa, count(*) qtd, round(sum(saldo_total),2) saldo,
-        case faixa when 'A_VENCER' then 0 when '1_30' then 1 when '31_60' then 2 when '61_90' then 3
+      select operador_email, faixa_atraso faixa, count(*) qtd, round(sum(saldo_total),2) saldo,
+        case faixa_atraso when 'A_VENCER' then 0 when '1_30' then 1 when '31_60' then 2 when '61_90' then 3
           when '91_180' then 4 when '181_365' then 5 else 6 end ord
-      from (
-        select operador_email, saldo_total,
-          case when venc is null then 'A_VENCER'
-               when current_date - venc <= 30 then '1_30' when current_date - venc <= 60 then '31_60'
-               when current_date - venc <= 90 then '61_90' when current_date - venc <= 180 then '91_180'
-               when current_date - venc <= 365 then '181_365' else 'MAIS_365' end faixa
-        from venc
-      ) x group by operador_email, faixa
+      from public.mv_saude_carteira
+      where operador_email is not null and not encerrado and (v_op is null or operador_email = v_op)
+      group by operador_email, faixa_atraso
     ) f group by operador_email
   ),
   mov as (
