@@ -290,6 +290,8 @@ function situacaoLabel(a) {
   // Mesma premissa do statusPrazo: baixa realizada que ainda carrega saldo
   // vencido e pagamento PARCIAL -- a tabulacao nao pode se ler como "Pago".
   if (s === "BAIXA_REALIZADA" && !semSaldoVencido(a)) return "Pago parcial";
+  // Baixa de parcela com acordo em dia: ainda ha parcelas A VENCER -- nao e "Pago".
+  if (s === "BAIXA_REALIZADA" && acordoEmDia(a)) return "Parcela paga — a vencer";
   if (MAPA_SITUACAO[s]) return MAPA_SITUACAO[s];
   if (!s || s === "Novo caso") return "Sem contato";
   return s;
@@ -371,10 +373,13 @@ function statusPrazo(a) {
   // se apresentar como pago, senao a operadora para de cobrar o que sobrou
   // (a confirmacao de pagamento so quita quando o saldo total zera; sobrando
   // saldo, o caso segue com o operador de proposito).
-  if (sit === "BAIXA_REALIZADA")
-    return semSaldoVencido(a)
-      ? { label: "Pago", cor: "#16a34a" }
-      : { label: "Pago parcial", cor: "#f97316" };
+  if (sit === "BAIXA_REALIZADA") {
+    if (!semSaldoVencido(a)) return { label: "Pago parcial", cor: "#f97316" };
+    // Parcela baixada mas o acordo segue em dia com parcelas futuras: o caso
+    // nao esta pago -- esta A VENCER. "Pago" so com saldo TOTAL zerado.
+    if (acordoEmDia(a)) return { label: "A vencer", cor: "#0ea5e9" };
+    return { label: "Pago", cor: "#16a34a" };
+  }
   if (["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"].includes(sit))
     return { label: "Cancelado", cor: "#6b7280" };
 
@@ -497,6 +502,9 @@ const SITUACAO_CANONICA_SEM_VENCIDO = new Set([
   "QUITADO_AGUARDANDO_BAIXA",
   "SEM_PENDENCIA",
 ]);
+function acordoEmDia(a) {
+  return String(a?.situacao_operacional || "").toUpperCase() === "ACORDO_EM_DIA";
+}
 function semSaldoVencido(a) {
   const sv = Number(a?.saldo_vencido);
   if (Number.isFinite(sv)) return sv <= 0.005; // sinal canonico primario
@@ -2790,6 +2798,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 <option value="Perdendo o caso">Perdendo o caso</option>
                 <option value="Aguardando pgto">Aguardando pgto</option>
                 <option value="Pago parcial">Pago parcial (ainda deve)</option>
+                <option value="A vencer">A vencer (acordo em dia)</option>
                 <option value="Juridico">Juridico</option>
               </select>
               <select
