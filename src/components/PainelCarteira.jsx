@@ -195,8 +195,8 @@ function dataLocalDe(valor) {
   return `${ano}-${mes}-${dia}`;
 }
 
-// Caso ja acionado hoje. So marca visualmente -- nao altera fila, filtro nem
-// ordenacao: o caso continua saindo de "sem acionamento" como sempre.
+// Caso ja acionado hoje. Sai da lista de trabalho (ver listaFiltrada), mas
+// segue na base: busca, card "Acionados hoje" e contadores continuam vendo.
 function trabalhadoHoje(a) {
   return dataLocalDe(a?.data_ultimo_acionamento) === hojeLocalBR();
 }
@@ -2153,6 +2153,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     // indicador; sem card, mostra a carteira normal. Busca/status/ordenacao
     // continuam aplicando por cima.
     let l = filtroKpi ? casosEspeciais || [] : casos;
+    // Quem ja foi acionado hoje sai da lista de trabalho (ja esta feito) e
+    // a fila volta a mostrar os casos ha mais tempo sem acionamento. O aluno
+    // continua na base do operador: aparece na busca por nome/CPF, no card
+    // "Acionados hoje" e nos contadores da carteira.
+    if (filtroKpi !== "acionadosHoje" && !busca.trim()) {
+      l = l.filter((a) => !trabalhadoHoje(a));
+    }
     if (filtroStatus !== "TODOS") {
       l = l.filter((a) => statusPrazo(a).label === filtroStatus);
     }
