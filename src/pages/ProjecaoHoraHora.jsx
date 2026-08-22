@@ -1806,6 +1806,11 @@ function FaixaItem({ label, valor }) {
 function PainelIndividual({ dados, mes }) {
   const pctMeta = Math.min(Number(dados?.percentual_meta_individual_realizado ?? 0), 100);
   const temProxima = Number(dados?.proxima_faixa_valor || 0) > 0;
+  const honMes = Number(dados?.honorario_mes || 0);
+  const cfg = dados?.config_metas || {};
+  const escadaMetas = ["m1", "m2", "m3", "m4"]
+    .map((k) => ({ marco: k.toUpperCase(), valor: Number(cfg[`${k}_valor`] || 0), percentual: Number(cfg[`${k}_percentual`] || 0) }))
+    .filter((m) => m.valor > 0);
   return (
     <>
       <div style={estilos.hero}>
@@ -1836,6 +1841,39 @@ function PainelIndividual({ dados, mes }) {
           </span>
         </div>
       </div>
+
+      {/* Escada de metas individuais (M1→M4): o operador precisa enxergar TODAS
+          as faixas, não só a M4. Vem de config_metas do snapshot. */}
+      {escadaMetas.length > 0 && (
+        <div style={{ ...estilos.hero, padding: "18px 24px" }}>
+          <div style={{ fontSize: 11.5, fontWeight: 800, letterSpacing: "0.12em", color: PH_VERDE, marginBottom: 10 }}>
+            MINHAS METAS · FAIXAS DE PREMIAÇÃO
+          </div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 10 }}>
+            {escadaMetas.map((m) => {
+              const atingida = honMes >= m.valor;
+              return (
+                <div
+                  key={m.marco}
+                  style={{
+                    border: `1px solid ${atingida ? "#bdeed4" : PH_BORDA}`,
+                    background: atingida ? "#ecfdf5" : "#f8fafc",
+                    borderRadius: 12,
+                    padding: "10px 12px",
+                  }}
+                >
+                  <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, fontWeight: 700, color: atingida ? PH_VERDE : "#64748b" }}>
+                    <span>{m.marco}</span>
+                    <span>{atingida ? "✅ atingida" : `faltam ${moeda(m.valor - honMes)}`}</span>
+                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: "#0d1321", marginTop: 4 }}>{moeda(m.valor)}</div>
+                  <div style={{ fontSize: 12, color: "#64748b" }}>premiação {m.percentual}% do honorário</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div style={estilos.faixaStats}>
         <FaixaItem label="Recuperado hoje" valor={moeda(dados?.recuperado_hoje)} />
