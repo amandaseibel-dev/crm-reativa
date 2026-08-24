@@ -50,12 +50,17 @@ function nomeAluno(a) {
 }
 
 // Situação/saúde do caso — mesma leitura da Minha Carteira.
+// Dias de calendario (mesma conta do PainelCarteira) pra o selo da ficha bater
+// com o selo da lista e com a contagem dos cards da carteira.
 function diasSemContato(a) {
   const base = a?.data_ultimo_acionamento || a?.ultimo_contato || a?.responsavel_atual_em || null;
   if (!base) return null;
   const d = new Date(base);
   if (Number.isNaN(d.getTime())) return null;
-  return Math.floor((Date.now() - d.getTime()) / 86400000);
+  const dia = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const agora = new Date();
+  const hojeZero = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+  return Math.round((hojeZero.getTime() - dia.getTime()) / 86400000);
 }
 function statusPrazo(a) {
   const sit = a?.status_atual || "";
@@ -77,7 +82,7 @@ function statusPrazo(a) {
   if (dias === null) return { label: "Novo", cor: "#94a3b8" };
   if (dias <= 7) return { label: "Dentro do prazo", cor: "#16a34a" };
   if (dias === 8) return { label: "Atenção", cor: "#f59e0b" };
-  if (dias <= 10) return { label: "Crítico", cor: "#dc2626" };
+  if (dias <= 10) return { label: "Risco de perder", cor: "#dc2626" };
   return { label: "Perdendo o caso", cor: "#991b1b" };
 }
 
