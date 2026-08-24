@@ -66,10 +66,10 @@ function normalizarLinhaSantander(linhaArray) {
     return null;
   }
 
-  // Operador vem como "NOME.SOBRENOME" -- usa só o primeiro nome pra
-  // casar com o mapeamento de operadores já existente no sistema.
-  const primeiroNome = String(operadorBruto || "").split(".")[0];
-  const emailOperador = emailPorNomeOperador(primeiroNome);
+  // Operador vem como "NOME.SOBRENOME" -- o mapeamento tenta o login
+  // completo (resolve aliases como AMANDA.BORGES -> Amanda ADM) e só
+  // então cai para o primeiro nome.
+  const emailOperador = emailPorNomeOperador(operadorBruto);
 
   let aluno = String(alunoBruto || "");
   const partesAluno = aluno.split(" - ");

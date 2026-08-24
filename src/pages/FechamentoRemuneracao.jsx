@@ -498,8 +498,7 @@ function parsePrime(rows, mesRef) {
     let aluno = String(r[1] || "");
     const partes = aluno.split(" - ");
     if (partes.length > 1) aluno = partes.slice(1).join(" - ").trim();
-    const primeiroNome = String(r[3] || "").split(".")[0];
-    const email = emailPorNomeOperador(primeiroNome);
+    const email = emailPorNomeOperador(String(r[3] || ""));
     out.push({
       parcela,
       titulo: r[2] != null ? String(r[2]).trim() : null,
