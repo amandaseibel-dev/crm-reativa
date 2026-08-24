@@ -21,6 +21,12 @@ const ALIAS_NOME_OPERADOR = {
   // consolida a variacao no operador oficial ja no momento da importacao
   // (caixa e espacos ja sao tratados por normalizarNomeOperador).
   RAFAELA: "RAFAELLA",
+  // Decisão de 2026-07-30: tudo que entra no Santander/Prime como
+  // "Amanda Borges" pertence à Amanda ADM (cobranca07). O primeiro nome
+  // "AMANDA" sozinho é ambíguo (ADM x gestora), então o alias precisa ser
+  // pelo login completo — por isso a resolução tenta o nome inteiro antes
+  // de cair para o primeiro nome (ver emailPorNomeOperador).
+  "AMANDA.BORGES": "AMANDA ADM",
 };
 
 function normalizarNomeOperador(nome) {
@@ -39,6 +45,12 @@ export function emailPorNomeOperador(nomeArquivo) {
   for (const [email, nome] of Object.entries(OPERADORES_POR_EMAIL)) {
     if (normalizarNomeOperador(nome) === alvo) return email;
   }
+
+  // Login de planilha no formato "NOME.SOBRENOME": só depois de tentar o
+  // nome completo (que resolve aliases como AMANDA.BORGES) cai para o
+  // primeiro nome. Cortar antes perderia o sobrenome e tornaria "AMANDA"
+  // ambíguo entre ADM e gestora.
+  if (alvo.includes(".")) return emailPorNomeOperador(alvo.split(".")[0]);
 
   return null;
 }
