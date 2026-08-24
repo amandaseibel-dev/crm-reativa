@@ -73,17 +73,21 @@ export default function MensalidadesSemNegociacao() {
     doc.text("Mensalidades de 2026/1 ainda sem negociação", M, y);
     y += 15;
     doc.setFont("helvetica", "normal"); doc.setFontSize(9); doc.setTextColor(...MUT);
-    doc.text("Alunos com mensalidades vencidas entre janeiro e junho de 2026 (por data de vencimento).", M, y);
+    doc.text("Alunos com mensalidades vencidas entre janeiro e maio de 2026 (por data de vencimento).", M, y);
     y += 22;
 
     // KPIs
     const gap = 10;
+    const neg = dados.negociado_166 || null;
     const kpis = [
       ["CPFs", NUM(dados.cpfs_semestre)],
       ["MENSALIDADES", NUM(dados.mensalidades_total)],
       ["SALDO TOTAL", BRL(dados.saldo_total)],
+      // Espelho do que saiu por ter negociado: sem ele o leitor não tem como
+      // saber que a queda é reclassificação, não recuperação.
+      ...(neg ? [["JÁ NEGOCIOU (PRIME)", BRL(neg.saldo)]] : []),
     ];
-    const kw = (CW - 2 * gap) / 3, kh = 54;
+    const kw = (CW - (kpis.length - 1) * gap) / kpis.length, kh = 54;
     kpis.forEach((k, i) => {
       const x = M + i * (kw + gap);
       doc.setFillColor(...(i === 0 ? SOFTBLUE : SOFT)); doc.roundedRect(x, y, kw, kh, 7, 7, "F");
@@ -101,7 +105,7 @@ export default function MensalidadesSemNegociacao() {
     const chH = 196; need(chH + 10);
     doc.setDrawColor(...LINE); doc.roundedRect(M, y, CW, chH, 8, 8, "S");
     doc.setFont("helvetica", "bold"); doc.setFontSize(11); doc.setTextColor(...INK);
-    doc.text("Alunos únicos por mês (vencimento jan–jun/2026)", M + 14, y + 22);
+    doc.text("Alunos únicos por mês (vencimento jan–mai/2026)", M + 14, y + 22);
     const cx = M + 16, cw = CW - 32, cTop = y + 40, cBottom = y + chH - 42, cArea = cBottom - cTop;
     const maxA = Math.max(1, ...meses.map((m) => Number(m.alunos_unicos) || 0));
     const n = meses.length || 6, slot = cw / n, bw = slot * 0.5;
@@ -259,7 +263,7 @@ export default function MensalidadesSemNegociacao() {
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
-            Alunos com mensalidades vencidas entre janeiro e junho de 2026 ainda sem negociação
+            Alunos com mensalidades vencidas entre janeiro e maio de 2026 ainda sem negociação
           </h1>
           <p style={{ color: "#6b7280", marginTop: 0, marginBottom: 0, maxWidth: 760 }}>
             Visão baseada na data de vencimento registrada na Base Reativa. Pode incluir mensalidades
@@ -281,6 +285,17 @@ export default function MensalidadesSemNegociacao() {
         <Tot label="Saldo total sem negociação" val={BRL(dados.saldo_total)} />
       </div>
 
+      {/* Espelho de quem negociou pela Prime e nao tem acordo nem confirmacao
+          no CRM. Sem esta linha a queda do saldo se le como recuperacao,
+          quando a divida so mudou de forma: virou parcela de acordo. */}
+      {dados.negociado_166 && (
+        <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
+          <Tot label="CPFs com negociação" val={NUM(dados.negociado_166.cpfs)} />
+          <Tot label="Mensalidades com negociação" val={NUM(dados.negociado_166.mensalidades)} />
+          <Tot label="Saldo total com negociação" val={BRL(dados.negociado_166.saldo)} />
+        </div>
+      )}
+
       <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
         <Destaque titulo="Modalidade de maior inadimplência" valor={d.curso_maior_inadimplencia?.curso} sub={d.curso_maior_inadimplencia && BRL(d.curso_maior_inadimplencia.saldo)} />
         <Destaque titulo="Unidade de maior inadimplência" valor={d.unidade_maior_inadimplencia?.unidade} sub={d.unidade_maior_inadimplencia && BRL(d.unidade_maior_inadimplencia.saldo)} />
@@ -289,7 +304,7 @@ export default function MensalidadesSemNegociacao() {
         <Destaque titulo="Maior concentração de inadimplentes" valor={concUnidade?.unidade} sub={concUnidade && `${NUM(concUnidade.alunos)} alunos · ${BRL(concUnidade.saldo)}`} />
       </div>
 
-      <Secao titulo="Alunos únicos por mês (vencimento jan–jun/2026)">
+      <Secao titulo="Alunos únicos por mês (vencimento jan–mai/2026)">
         <div style={{ width: "100%", height: 320 }}>
           <ResponsiveContainer>
             <BarChart data={meses} margin={{ top: 10, right: 16, left: 8, bottom: 8 }}>
