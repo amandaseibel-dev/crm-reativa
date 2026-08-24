@@ -28,8 +28,10 @@
 // ARMADILHAS DA API que este código trata (cada uma causou erro real):
 //   1. Busca por CPF SÓ funciona formatada ("052.961.800-11"). Em dígitos puros
 //      devolve totalItems:0 SEM ERRO -- falha silenciosa.
-//   2. Toda listagem é paginada com `take` padrão 50. Um aluno com 61 parcelas
-//      entrega 50 e não avisa.
+//   2. Toda listagem é paginada com `take` padrão 50 -- um aluno com 61
+//      parcelas entrega 50 e não avisa. Por isso o detalhe do aluno vem do
+//      composto GET /students/{matrícula}, que devolve registrationData,
+//      contracts, financialStatement e agreements inteiros, sem paginar.
 //   3. 503 "Prime database unavailable" é temporário -> backoff.
 //   4. O nome do portador varia; o que vale é o `id`. `covenant` vem com zero à
 //      esquerda ("0272047") e é null no 195.
@@ -53,7 +55,6 @@ const CARRIER_MENSALIDADES = 195; // REATIVA RECUPERAÇÃO DE CRÉDITO
 
 const LOTE_PADRAO = 300;   // alunos por execução
 const CONCORRENCIA = 6;    // requisições simultâneas à Prime
-const TAKE_MAX = 200;      // nunca confiar no default de 50
 
 // Espelha public.usuario_e_gestao().
 const GESTAO = new Set([
@@ -104,25 +105,6 @@ async function primeGet(
   return { ok: false, status: ultimoStatus };
 }
 
-// ARMADILHA 2: pagina até esgotar totalItems em vez de aceitar o default de 50.
-async function primeGetTudo(
-  base: string,
-  chave: string,
-): Promise<any[] | null> {
-  const itens: any[] = [];
-  let skip = 0;
-  for (let guarda = 0; guarda < 50; guarda++) {
-    const sep = base.includes("?") ? "&" : "?";
-    const r = await primeGet(`${base}${sep}skip=${skip}&take=${TAKE_MAX}`, chave);
-    if (!r.ok) return null;
-    const lote = Array.isArray(r.dados?.items) ? r.dados.items : [];
-    itens.push(...lote);
-    skip += lote.length;
-    if (lote.length === 0 || skip >= (r.dados?.totalItems ?? 0)) break;
-  }
-  return itens;
-}
-
 // Executa `tarefa` sobre `itens` com concorrência limitada.
 async function emLotes<T, R>(
   itens: T[],
@@ -168,13 +150,19 @@ async function colherCadastro(cpf: string, chave: string) {
   // Fora dos nossos dois portadores: não é nossa carteira, não coletamos.
   if (!aluno) return { foraDoEscopo: true as const };
 
+  // GET /students/{matrícula} devolve registrationData + contracts +
+  // financialStatement + agreements NUM SÓ objeto e SEM PAGINAR -- confirmado
+  // em produção: 61 parcelas contra as 50 que o endpoint paginado entrega por
+  // padrão, e 44 contratos. Uma requisição no lugar de três, e a ARMADILHA 2
+  // deixa de existir neste caminho.
   const reg = encodeURIComponent(String(aluno.registration));
-  const [cad, contratos] = await Promise.all([
-    primeGet(`/students/${reg}/registration-data`, chave),
-    primeGetTudo(`/students/${reg}/contracts`, chave),
-  ]);
+  const composto = await primeGet(`/students/${reg}`, chave);
+  if (!composto.ok) return { erro: true as const };
 
-  const rd = cad.ok ? cad.dados : {};
+  const rd = composto.dados?.registrationData ?? {};
+  const contratos: any[] = Array.isArray(composto.dados?.contracts)
+    ? composto.dados.contracts
+    : [];
   const telefones: string[] = Array.isArray(rd?.phones)
     ? rd.phones.filter((p: unknown) => digitos(p).length >= 10).map((p: unknown) => String(p).trim())
     : [];
@@ -184,14 +172,14 @@ async function colherCadastro(cpf: string, chave: string) {
   const hoje = new Date().toISOString().slice(0, 10);
   let vigente = false;
   let validoAte: string | null = null;
-  for (const c of contratos ?? []) {
+  for (const c of contratos) {
     const ate = typeof c?.validTo === "string" ? c.validTo.slice(0, 10) : null;
     if (!c?.cancelledAt && ate && ate >= hoje) {
       vigente = true;
       if (!validoAte || ate > validoAte) validoAte = ate;
     }
   }
-  const ultimo = (contratos ?? []).at(-1) ?? {};
+  const ultimo = contratos.at(-1) ?? {};
 
   return {
     linha: {
@@ -253,7 +241,7 @@ Deno.serve(async (req: Request) => {
     return json({
       total: itens.length,
       nossos: itens
-        .filter((c) => c.id === CARRIER_ACORDOS || c.id === CARRIER_MENSALIDADES)
+        .filter((c: any) => c.id === CARRIER_ACORDOS || c.id === CARRIER_MENSALIDADES)
         .map((c) => ({ id: c.id, name: c.name, covenant: c.covenant })),
     });
   }
