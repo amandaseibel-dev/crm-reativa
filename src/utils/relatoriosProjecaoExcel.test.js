@@ -4,6 +4,7 @@ import JSZip from "jszip";
 import {
   montarWorksheet, abaPremiacaoSintetica, montarWorkbookIndividual,
   montarWorkbookGeral, montarZipIndividuais, nomeArquivoIndividual,
+  abaPagamentosVencimento, abaResumoVencimento,
 } from "./relatoriosProjecaoExcel";
 import { EQUIPE_9_EMAILS } from "./operadores";
 
@@ -105,5 +106,34 @@ describe("montarZipIndividuais", () => {
     const arquivos = Object.keys(relido.files).filter((f) => f.endsWith(".xlsx"));
     expect(arquivos.length).toBe(9);
     expect(arquivos).toContain(nomeArquivoIndividual("cobranca13@aelbra.com.br", "2026-07"));
+  });
+});
+
+describe("relatório por operador e vencimento", () => {
+  const itens = [
+    { pagamento_id: "a", data_pagamento: "2026-08-05", vencimento: "2026-08-05", situacao: "EM_DIA", dias_diferenca: 0, aluno_nome: "Aluno X", titulo_numero: "67015", numero_parcela_completo: "50670150001", valor_original: 100, valor_pago: 100, valor_honorario: 10, operador_email: "cobranca03@aelbra.com.br", operador_nome: "OLGA" },
+    { pagamento_id: "b", data_pagamento: "2026-08-10", vencimento: "2026-08-01", situacao: "ATRASADO", dias_diferenca: 9, aluno_nome: "Aluno Y", titulo_numero: "67016", numero_parcela_completo: "50670160001", valor_original: 200, valor_pago: 230, valor_honorario: 20, operador_email: "SEM_OPERADOR", operador_nome: "VITOR.ROCHA" },
+    { pagamento_id: "c", data_pagamento: "2026-08-11", vencimento: null, situacao: "SEM_VENCIMENTO", dias_diferenca: null, aluno_nome: "Aluno Z", titulo_numero: "67017", numero_parcela_completo: "50670170001", valor_original: null, valor_pago: 50, valor_honorario: 5, operador_email: "cobranca03@aelbra.com.br", operador_nome: "OLGA" },
+  ];
+
+  it("abaPagamentosVencimento traduz situação, marca sem operador e soma totais", () => {
+    const ws = abaPagamentosVencimento(itens);
+    expect(ws["G2"].v).toBe("Em dia");
+    expect(ws["A3"].v).toContain("Sem operador");
+    expect(ws["E3"].v).toBe("01/08/2026");           // vencimento em BR
+    const range = XLSX.utils.decode_range(ws["!ref"]);
+    expect(range.e.r).toBe(4);                        // header + 3 + total
+    expect(ws["J5"].v).toBe(380);                     // total recuperado
+    expect(ws["K5"].v).toBe(35);                      // total honorário
+  });
+
+  it("abaResumoVencimento soma qtds por situação e o total geral", () => {
+    const ws = abaResumoVencimento([
+      { operador_email: "cobranca03@aelbra.com.br", operador_nome: "OLGA", qtd: 2, qtd_em_dia: 1, qtd_adiantado: 0, qtd_atrasado: 0, qtd_sem_vencimento: 1, soma_pago: 150, soma_honorario: 15 },
+      { operador_email: "SEM_OPERADOR", operador_nome: "Sem operador", qtd: 1, qtd_em_dia: 0, qtd_adiantado: 0, qtd_atrasado: 1, qtd_sem_vencimento: 0, soma_pago: 230, soma_honorario: 20 },
+    ]);
+    expect(ws["A3"].v).toBe("Sem operador");
+    expect(ws["B4"].v).toBe(3);                       // total qtd
+    expect(ws["G4"].v).toBe(380);                     // total recuperado
   });
 });

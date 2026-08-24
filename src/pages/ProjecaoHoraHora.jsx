@@ -33,8 +33,8 @@ function formatarDataCurta(dataISO) {
 // verdade (a linha 1 é só um título "Data de Pagamento: ..."), colunas
 // fixas por posição:
 // A instituição | B "matrícula - nome do aluno" | C título | D operador
-// (NOME.SOBRENOME) | E código convênio+título | F convênio | G data
-// referência | H valor original | I honorário | J data de pagamento |
+// (NOME.SOBRENOME) | E código convênio+título | F convênio | G vencimento
+// da parcela | H valor original | I honorário | J data de pagamento |
 // K valor pago
 function normalizarLinhaSantander(linhaArray) {
   const [
@@ -44,8 +44,8 @@ function normalizarLinhaSantander(linhaArray) {
     operadorBruto,
     numeroParcelaCompleto,
     ,
-    ,
-    ,
+    vencimento,
+    valorOriginal,
     honorario,
     dataPagamento,
     valorPago,
@@ -86,6 +86,10 @@ function normalizarLinhaSantander(linhaArray) {
     // NUNCA usar titulo_numero como chave de dedup -- só esta coluna é
     // de fato única por parcela/boleto.
     numero_parcela_completo: numeroParcelaCompleto ? String(numeroParcelaCompleto) : null,
+    // Vencimento da parcela (coluna G) e valor original (H): ficam guardados
+    // dentro de `dados` no backend e alimentam o relatório por vencimento.
+    vencimento: paraDataISO(vencimento),
+    valor_original: Number(valorOriginal) || null,
     operador_email: emailOperador,
     operador_nome: emailOperador ? nomeOperadorPorEmail(emailOperador) : (operadorBruto || null),
     aluno_nome: aluno || null,

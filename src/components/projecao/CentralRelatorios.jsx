@@ -4,6 +4,7 @@ import {
   exportarIndividual, exportarGeralRH, exportarGeralPagamentos,
   exportarTodosIndividuais, exportarPacoteCompleto,
 } from "../../utils/relatoriosProjecaoExcel";
+import RelatorioVencimento from "./RelatorioVencimento";
 
 // Central de Relatórios — botão no canto superior direito, EXCLUSIVO de
 // Amanda gestora e Fernanda (mesma allowlist do backend). Gera .xlsx/.zip
@@ -70,6 +71,8 @@ export default function CentralRelatorios({ email, mes, filialPayload, operadore
                 {ocupado === op.chave ? "Gerando…" : op.rotulo}
               </button>
             ))}
+
+            <RelatorioVencimento mes={mes} />
 
             {erro && <div style={estilos.erro}>{erro}</div>}
             <div style={estilos.rodape}>
