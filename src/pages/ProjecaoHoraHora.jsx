@@ -1555,7 +1555,17 @@ function ProjecaoHoraHoraInner() {
             Você pode importar quantos arquivos precisar na mesma competência — os valores de todas as
             importações válidas são somados automaticamente na Projeção e no Hora a Hora.
           </p>
-          <input type="file" accept=".xls,.xlsx" onChange={selecionarArquivo} />
+          <input
+            type="file"
+            accept=".xls,.xlsx"
+            onChange={selecionarArquivo}
+            // Sem limpar o value, escolher um arquivo com o MESMO nome do
+            // anterior não dispara onChange (o navegador acha que nada mudou)
+            // e a prévia nunca carrega. Limpa antes de abrir o seletor.
+            onClick={(e) => {
+              e.target.value = "";
+            }}
+          />
 
           <label style={estilos.checkboxRetroativo}>
             <input
