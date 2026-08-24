@@ -78,16 +78,12 @@ export default function MensalidadesSemNegociacao() {
 
     // KPIs
     const gap = 10;
-    const neg = dados.negociado_166 || null;
     const kpis = [
       ["CPFs", NUM(dados.cpfs_semestre)],
       ["MENSALIDADES", NUM(dados.mensalidades_total)],
       ["SALDO TOTAL", BRL(dados.saldo_total)],
-      // Espelho do que saiu por ter negociado: sem ele o leitor não tem como
-      // saber que a queda é reclassificação, não recuperação.
-      ...(neg ? [["JÁ NEGOCIOU (PRIME)", BRL(neg.saldo)]] : []),
     ];
-    const kw = (CW - (kpis.length - 1) * gap) / kpis.length, kh = 54;
+    const kw = (CW - 2 * gap) / 3, kh = 54;
     kpis.forEach((k, i) => {
       const x = M + i * (kw + gap);
       doc.setFillColor(...(i === 0 ? SOFTBLUE : SOFT)); doc.roundedRect(x, y, kw, kh, 7, 7, "F");
@@ -284,17 +280,6 @@ export default function MensalidadesSemNegociacao() {
         <Tot label="Mensalidades sem negociação" val={NUM(dados.mensalidades_total)} />
         <Tot label="Saldo total sem negociação" val={BRL(dados.saldo_total)} />
       </div>
-
-      {/* Espelho de quem negociou pela Prime e nao tem acordo nem confirmacao
-          no CRM. Sem esta linha a queda do saldo se le como recuperacao,
-          quando a divida so mudou de forma: virou parcela de acordo. */}
-      {dados.negociado_166 && (
-        <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12 }}>
-          <Tot label="CPFs com negociação" val={NUM(dados.negociado_166.cpfs)} />
-          <Tot label="Mensalidades com negociação" val={NUM(dados.negociado_166.mensalidades)} />
-          <Tot label="Saldo total com negociação" val={BRL(dados.negociado_166.saldo)} />
-        </div>
-      )}
 
       <div style={{ marginTop: 14, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12 }}>
         <Destaque titulo="Modalidade de maior inadimplência" valor={d.curso_maior_inadimplencia?.curso} sub={d.curso_maior_inadimplencia && BRL(d.curso_maior_inadimplencia.saldo)} />
