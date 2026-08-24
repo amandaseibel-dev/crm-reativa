@@ -226,6 +226,111 @@ export function abaGeralPagamentos(itens) {
   return montarWorksheet(colunas, linhas, totais);
 }
 
+// --- Relatório por operador e vencimento -------------------------------------
+export const ROTULO_SITUACAO_VENCIMENTO = {
+  EM_DIA: "Em dia",
+  ADIANTADO: "Adiantado",
+  ATRASADO: "Atrasado",
+  SEM_VENCIMENTO: "Sem vencimento",
+};
+
+export function abaResumoVencimento(resumoPorOperador) {
+  const colunas = [
+    { h: "Operador", k: "op", t: "text", w: 24 },
+    { h: "Qtd", k: "qtd", t: "int", w: 10 },
+    { h: "Em dia", k: "emDia", t: "int", w: 10 },
+    { h: "Adiantado", k: "adiantado", t: "int", w: 11 },
+    { h: "Atrasado", k: "atrasado", t: "int", w: 10 },
+    { h: "Sem vencimento", k: "semVenc", t: "int", w: 15 },
+    { h: "Recuperado", k: "pago", t: "moeda", w: 18 },
+    { h: "Honorário", k: "hon", t: "moeda", w: 18 },
+  ];
+  const linhas = (resumoPorOperador || []).map((r) => ({
+    op: r.operador_email === "SEM_OPERADOR" ? "Sem operador" : nomeOp(r.operador_email) || r.operador_nome || "-",
+    qtd: num(r.qtd), emDia: num(r.qtd_em_dia), adiantado: num(r.qtd_adiantado),
+    atrasado: num(r.qtd_atrasado), semVenc: num(r.qtd_sem_vencimento),
+    pago: num(r.soma_pago), hon: num(r.soma_honorario),
+  }));
+  const totais = {
+    op: "TOTAL", qtd: soma(linhas, "qtd"), emDia: soma(linhas, "emDia"),
+    adiantado: soma(linhas, "adiantado"), atrasado: soma(linhas, "atrasado"),
+    semVenc: soma(linhas, "semVenc"), pago: soma(linhas, "pago"), hon: soma(linhas, "hon"),
+  };
+  return montarWorksheet(colunas, linhas, totais);
+}
+
+export function abaPagamentosVencimento(itens) {
+  const colunas = [
+    { h: "Operador", k: "op", t: "text", w: 22 },
+    { h: "Aluno", k: "aluno", t: "text", w: 34 },
+    { h: "Título", k: "titulo", t: "text", w: 12 },
+    { h: "Parcela", k: "parcela", t: "text", w: 14 },
+    { h: "Vencimento", k: "venc", t: "text", w: 12 },
+    { h: "Data pagamento", k: "dataPag", t: "text", w: 14 },
+    { h: "Situação", k: "sit", t: "text", w: 14 },
+    { h: "Dias de atraso", k: "dias", t: "int", w: 13 },
+    { h: "Valor original", k: "orig", t: "moeda", w: 15 },
+    { h: "Recuperado", k: "pago", t: "moeda", w: 16 },
+    { h: "Honorário", k: "hon", t: "moeda", w: 16 },
+  ];
+  const linhas = (itens || []).map((p) => ({
+    op: p.operador_email === "SEM_OPERADOR" ? (p.operador_nome ? `Sem operador (${p.operador_nome})` : "Sem operador") : nomeOp(p.operador_email),
+    aluno: p.aluno_nome || "-", titulo: String(p.titulo_numero || ""),
+    parcela: String(p.numero_parcela_completo || ""),
+    venc: dataBR(p.vencimento), dataPag: dataBR(p.data_pagamento),
+    sit: ROTULO_SITUACAO_VENCIMENTO[p.situacao] || p.situacao || "-",
+    dias: p.dias_diferenca == null ? "" : num(p.dias_diferenca),
+    orig: num(p.valor_original), pago: num(p.valor_pago), hon: num(p.valor_honorario),
+  }));
+  const totais = {
+    op: "TOTAL", aluno: `${linhas.length} pagamento(s)`, titulo: "", parcela: "",
+    venc: "", dataPag: "", sit: "", dias: "",
+    orig: soma(linhas, "orig"), pago: soma(linhas, "pago"), hon: soma(linhas, "hon"),
+  };
+  return montarWorksheet(colunas, linhas, totais);
+}
+
+// Fetcher paginado da RPC do relatório por vencimento (só gestão no backend).
+export async function buscarPagamentosVencimento(mes, filtros = {}) {
+  const params = {
+    p_mes: mes,
+    p_operadores: filtros.operadores && filtros.operadores.length ? filtros.operadores : null,
+    p_venc_de: filtros.vencDe || null,
+    p_venc_ate: filtros.vencAte || null,
+    p_incluir_sem_vencimento: filtros.incluirSemVencimento !== false,
+  };
+  const itens = [];
+  let resumoOperador = [];
+  let offset = 0; const limit = 500;
+  for (let guarda = 0; guarda < 400; guarda++) {
+    const { data, error } = await supabase.rpc("projecao_relatorio_pagamentos_vencimento", {
+      ...params, p_limit: limit, p_offset: offset,
+    });
+    if (error) throw error;
+    if (offset === 0) resumoOperador = data?.resumo_por_operador || [];
+    const lote = data?.itens || [];
+    itens.push(...lote);
+    if (lote.length < limit) return { itens, resumoOperador };
+    offset += limit;
+  }
+  return { itens, resumoOperador };
+}
+
+export function montarWorkbookVencimento(dados) {
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, abaResumoVencimento(dados.resumoOperador), "Resumo por Operador");
+  XLSX.utils.book_append_sheet(wb, abaPagamentosVencimento(dados.itens), "Pagamentos");
+  return wb;
+}
+
+export async function exportarPagamentosPorVencimento(mes, filtros = {}) {
+  const dados = await buscarPagamentosVencimento(mes, filtros);
+  const sufixoVenc = filtros.vencDe || filtros.vencAte
+    ? `_venc_${filtros.vencDe || "inicio"}_a_${filtros.vencAte || "fim"}`
+    : "";
+  baixarBlob(`Relatorio_Vencimento_Reativa_${mes}${sufixoVenc}.xlsx`, wbParaBlob(montarWorkbookVencimento(dados)));
+}
+
 // --- helpers ----------------------------------------------------------------
 function num(v) { const n = Number(v); return Number.isNaN(n) ? 0 : n; }
 function soma(linhas, k) { return linhas.reduce((s, l) => s + Number(l[k] || 0), 0); }
