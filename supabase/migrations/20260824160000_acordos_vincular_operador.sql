@@ -26,11 +26,24 @@
 -- Serve como último recurso -- para a tratativa acontecer -- mas perde para
 -- qualquer campo que fale especificamente do acordo.
 --
--- LIXO FILTRADO: `operador_acordo` e a planilha NÃO contêm só nomes de gente.
--- Têm 'DIRETO' (413), 'QUITADO' (76), 'RECEPTIVO', 'JURIDICO' e
--- 'CANCELAMENTO TOTAL DA COBRANCA'. Por isso só aceitamos valor que casa com
--- alguém de `usuarios` -- marcador não vira operador. 'DANIELE' (15 acordos)
--- também cai fora: não está mais na tabela de usuários.
+-- MARCADORES, NÃO PESSOAS: `operador_acordo` e a planilha guardam também
+-- valores que não são nome de operador. Só aceitamos valor que casa com alguém
+-- de `usuarios`, então marcador nunca vira operador. NADA é apagado da origem:
+-- os campos em `casos` seguem intactos, apenas não são usados como nome.
+--
+-- O que de fato aparece entre os acordos ATIVOS sem dono (medido 2026-08-24):
+--   DIRETO     312 acordos  -- o aluno negociou sem operador. NÃO é motivo para
+--                              ficar órfão: 256 deles recebem o dono ATUAL do
+--                              caso (R$ 989.743,73) e seguem para tratativa
+--                              normalmente; 56 não têm nem isso.
+--   DANIELE      2 acordos  -- saiu da empresa, não está em `usuarios`; 1 é
+--                              salvo pelo operador atual do caso.
+--   QUITADO      1
+--   RECEPTIVO    1
+-- 'JURIDICO' e 'CANCELAMENTO TOTAL DA COBRANCA' existem em `casos` mas NÃO
+-- aparecem em nenhum acordo ATIVO -- estão fora do alcance deste backfill.
+-- Nenhum desses casos está marcado `nao_acionar`, e as situações são normais
+-- (ACORDO_EM_DIA, COBRANCA_VENCIDA): são carteira viva, não cobrança encerrada.
 --
 -- NÃO TOCA: os 114 acordos que já têm operador, nenhum acordo CANCELADO ou
 -- QUITADO, e nada financeiro (saldo, parcela, título, situação).
