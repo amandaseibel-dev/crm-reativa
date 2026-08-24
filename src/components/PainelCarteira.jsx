@@ -83,12 +83,53 @@ function proximaAcaoDeStatus(statusNovo) {
   if (statusNovo === "ACORDO_FECHADO") return "ACOMPANHAR_PAGAMENTO";
   if (statusNovo === "NAO_LOCALIZADO") return "TENTAR_NOVO_CONTATO";
   if (statusNovo === "LINK_PRONTO_PARA_ENVIO") return "ENVIAR_LINK_AO_ALUNO";
+  // Resto dos status de finalizacao: mesmos codigos ja usados nas outras telas
+  // (Aluno.jsx, LinksPagamentoAluno.jsx), pra nao inventar vocabulario novo.
+  if (statusNovo === "SOLICITADO_LINK" || statusNovo === "AGUARDANDO_LINK") return "AGUARDAR_LINK";
+  if (statusNovo === "AGUARDANDO_COMPROVANTE") return "AGUARDAR_COMPROVANTE";
+  if (statusNovo === "AGUARDANDO_BAIXA" || statusNovo === "BAIXA_REALIZADA") return "AGUARDAR_BAIXA";
+  if (statusNovo === "BAIXA_DEVOLVIDA") return "CONTATAR";
+  if (statusNovo === "TERMO_ENVIADO_ALUNO" || statusNovo === "TERMO_ENVIADO_ADM") return "AGUARDAR_TERMO";
+  if (statusNovo === "TERMO_RECEBIDO_LIBERADO") return "ENVIAR_TERMO_AO_ALUNO";
+  if (statusNovo === "LEMBRETE_PARCELA") return "LEMBRAR_PARCELA";
+  if (statusNovo === "JURIDICO" || statusNovo === "CANCELAMENTO_COBRANCA" || statusNovo === "SUSPENSAO_COBRANCA")
+    return "NENHUMA";
   return "CONTATAR";
+}
+
+// A coluna `proxima_acao` guarda tanto CODIGO (gravado pelas telas do operador)
+// quanto FRASE (gravada pelo recalculo do banco). Na linha da carteira o codigo
+// cru fica ilegivel -- aqui ele vira texto humano; frase passa direto.
+const PROXIMA_ACAO_LABEL = {
+  CONTATAR: "Proxima acao: entrar em contato.",
+  RETORNAR: "Proxima acao: retornar na data agendada.",
+  ACOMPANHAR_PAGAMENTO: "Proxima acao: acompanhar o pagamento do acordo.",
+  TENTAR_NOVO_CONTATO: "Proxima acao: tentar um novo contato.",
+  ENVIAR_LINK_AO_ALUNO: "Proxima acao: enviar o link ao aluno.",
+  AGUARDAR_LINK: "Proxima acao: aguardar o link do financeiro.",
+  AGUARDAR_COMPROVANTE: "Proxima acao: cobrar o comprovante do aluno.",
+  AGUARDAR_BAIXA: "Proxima acao: aguardar a baixa do financeiro.",
+  AGUARDAR_TERMO: "Proxima acao: aguardar o retorno do termo.",
+  ENVIAR_TERMO_AO_ALUNO: "Proxima acao: enviar o termo ao aluno.",
+  LEMBRAR_PARCELA: "Proxima acao: lembrar o aluno da parcela.",
+  NENHUMA: "",
+};
+function labelProximaAcao(valor) {
+  const v = String(valor || "").trim();
+  if (!v) return "";
+  if (v in PROXIMA_ACAO_LABEL) return PROXIMA_ACAO_LABEL[v];
+  return v;
 }
 
 // Auto-retorno por status (prazos definidos com a gestao). Retorna uma data
 // "YYYY-MM-DD" sugerida a partir do status tabulado, ou null quando o retorno
 // deve ser manual. O operador sempre pode sobrescrever no formulario.
+function adicionarDiasCorridosData(base, n) {
+  const d = new Date(base);
+  d.setDate(d.getDate() + n);
+  return d;
+}
+
 function adicionarDiasUteisData(base, n) {
   const d = new Date(base);
   let add = 0;
@@ -100,25 +141,89 @@ function adicionarDiasUteisData(base, n) {
   return d;
 }
 
+// Regua COMPLETA de retorno automatico por tabulacao (aprovada pela gestao em
+// 24/08/2026). Antes so 8 dos 23 status tinham prazo; quem tabulava "em
+// atendimento", "negociacao 24h", termos etc. saia sem data e o recalculo do
+// banco carimbava "retornar hoje" -- o caso voltava pra fila como se nao
+// tivesse sido acionado. Agora quem manda no retorno e a tabulacao.
+// Valor numero = DIAS UTEIS; { corridos: n } = dias de calendario.
+const RETORNO_UTEIS_POR_STATUS = {
+  CONTATAR: 1,
+  // Gestao 24/08/2026: mensagem enviada espera 7 dias CORRIDOS (nao uteis --
+  // 7 uteis dariam 9/10 dias de calendario e o caso cairia no card "sem
+  // acionamento (risco de perder)", que conta 9 dias ou mais).
+  MENSAGEM_ENVIADA: { corridos: 7 },
+  EM_ATENDIMENTO: 1,
+  ALUNO_EM_NEGOCIACAO_24H: 1,
+  RETORNAR_DEPOIS: 2, // o operador normalmente digita a data; sem data, 2 uteis
+  SEM_RETORNO: 3,
+  NAO_LOCALIZADO: 1,
+  AGUARDANDO_LINK: 1,
+  SOLICITADO_LINK: 1,
+  LINK_PRONTO_PARA_ENVIO: 1,
+  AGUARDANDO_COMPROVANTE: 3,
+  BAIXA_DEVOLVIDA: 1,
+  TERMO_ENVIADO_ALUNO: 2,
+  TERMO_ENVIADO_ADM: 1,
+  TERMO_RECEBIDO_LIBERADO: 1,
+  TERMO_REJEITADO: 1,
+  ACORDO_FECHADO: 2,
+};
+
+// Tabulacoes que NAO geram retorno: o caso sai da fila do operador (vai pra
+// fila de confirmacao, pro lembrete automatico da parcela ou pra fora da
+// carteira). Aqui o retorno e limpado de proposito, senao sobra data velha.
+const STATUS_SEM_RETORNO = new Set([
+  "AGUARDANDO_BAIXA",
+  "BAIXA_REALIZADA",
+  "LEMBRETE_PARCELA",
+  "CANCELAMENTO_COBRANCA",
+  "SUSPENSAO_COBRANCA",
+  "JURIDICO",
+]);
+
 function retornoAutomaticoDeStatus(statusNovo) {
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
-  const uteis = {
-    MENSAGEM_ENVIADA: 2,
-    SOLICITADO_LINK: 1,
-    AGUARDANDO_LINK: 1,
-    LINK_PRONTO_PARA_ENVIO: 1,
-    TERMO_ENVIADO_ALUNO: 2,
-    NAO_LOCALIZADO: 1,
-    AGUARDANDO_COMPROVANTE: 3,
-    ACORDO_FECHADO: 2,
-  };
-  if (!(statusNovo in uteis)) return null; // RETORNAR_DEPOIS/NEGOCIACAO_24H = manual
-  const d = adicionarDiasUteisData(hoje, uteis[statusNovo]);
+  if (STATUS_SEM_RETORNO.has(statusNovo)) return null;
+  if (!(statusNovo in RETORNO_UTEIS_POR_STATUS)) return null;
+  const prazo = RETORNO_UTEIS_POR_STATUS[statusNovo];
+  const d =
+    prazo && typeof prazo === "object"
+      ? adicionarDiasCorridosData(hoje, prazo.corridos)
+      : adicionarDiasUteisData(hoje, prazo);
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${yyyy}-${mm}-${dd}`;
+}
+
+// Campos de desfecho gravados em `alunos` quando o operador tabula. Concentrado
+// aqui pra que TODO caminho de tabulacao (modal, acao rapida na linha, envio de
+// e-mail) grave a mesma coisa -- a fila precisa refletir exatamente o que o
+// operador finalizou. `retorno_origem` distingue o compromisso digitado pelo
+// operador (aparece na Agenda) do reposicionamento automatico da regua.
+function desfechoDaTabulacao(statusNovo, dataDigitada, horaDigitada) {
+  const campos = { proxima_acao: proximaAcaoDeStatus(statusNovo) };
+  if (dataDigitada) {
+    campos.data_retorno = dataDigitada;
+    campos.hora_retorno = horaDigitada || null;
+    campos.retorno_origem = "OPERADOR";
+    return campos;
+  }
+  if (STATUS_SEM_RETORNO.has(statusNovo)) {
+    campos.data_retorno = null;
+    campos.hora_retorno = null;
+    campos.retorno_origem = null;
+    return campos;
+  }
+  const auto = retornoAutomaticoDeStatus(statusNovo);
+  if (auto) {
+    campos.data_retorno = auto;
+    campos.hora_retorno = null;
+    campos.retorno_origem = "AUTOMATICO";
+  }
+  return campos;
 }
 
 // Diferenca em dias entre "hoje" e uma data "YYYY-MM-DD" (alvo - hoje).
@@ -245,13 +350,19 @@ function labelOrigemQuitacao(c) {
   return chave ? chave.charAt(0) + chave.slice(1).toLowerCase().replace(/_/g, " ") : "-";
 }
 
+// Dias parado em DIAS DE CALENDARIO (nao em horas corridas). Tem que bater
+// com o corte usado nas contagens dos cards (corte/corteDias: fim do dia
+// N dias atras), senao um caso acionado as 23h de 9 dias atras entra no card
+// "risco de perder" mas aparece na lista com o selo "Atencao" (8 dias).
 function diasSemContato(a) {
   const base = a?.data_ultimo_acionamento || a?.ultimo_contato || a?.responsavel_atual_em || null;
   if (!base) return null;
   const d = new Date(base);
   if (Number.isNaN(d.getTime())) return null;
-  const ms = Date.now() - d.getTime();
-  return Math.floor(ms / (1000 * 60 * 60 * 24));
+  const dia = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  const agora = new Date();
+  const hojeZero = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate());
+  return Math.round((hojeZero.getTime() - dia.getTime()) / 86400000);
 }
 
 const MAPA_SITUACAO = {
@@ -387,7 +498,10 @@ function statusPrazo(a) {
   if (dias === null) return { label: "Novo", cor: "#94a3b8" };
   if (dias <= 7) return { label: "Dentro do prazo", cor: "#16a34a" };
   if (dias === 8) return { label: "Atencao", cor: "#f59e0b" };
-  if (dias <= 10) return { label: "Critico", cor: "#dc2626" };
+  // 9 dias ou mais = exatamente o que o card "Sem acionamento (risco de
+  // perder)" conta. O selo usa a mesma linguagem do card pra nao dar a
+  // impressao de duas regras diferentes.
+  if (dias <= 10) return { label: "Risco de perder", cor: "#dc2626" };
   return { label: "Perdendo o caso", cor: "#991b1b" };
 }
 
@@ -1611,6 +1725,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           status_atual: statusNovo,
           data_ultimo_acionamento: agora,
           ultimo_contato: agora,
+          ...desfechoDaTabulacao(statusNovo, null, null),
         })
         .eq("id", aluno.id);
       if (erroAluno) throw erroAluno;
@@ -1636,7 +1751,14 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       setCasos((prev) =>
         prev.map((c) =>
           c.id === aluno.id
-            ? { ...c, status_jornada: statusNovo, status_atual: statusNovo, data_ultimo_acionamento: agora, ultimo_contato: agora }
+            ? {
+                ...c,
+                status_jornada: statusNovo,
+                status_atual: statusNovo,
+                data_ultimo_acionamento: agora,
+                ultimo_contato: agora,
+                ...desfechoDaTabulacao(statusNovo, null, null),
+              }
             : c
         )
       );
@@ -1723,6 +1845,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         status_atual: "MENSAGEM_ENVIADA",
         data_ultimo_acionamento: agora,
         ultimo_contato: agora,
+        ...desfechoDaTabulacao("MENSAGEM_ENVIADA", null, null),
       })
       .eq("id", aluno.id);
 
@@ -1774,22 +1897,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const atualizacaoAluno = {
         status_jornada: statusNovo,
         status_atual: statusNovo,
-        proxima_acao: proximaAcaoDeStatus(statusNovo),
         data_ultimo_acionamento: agora,
         ultimo_contato: agora,
         registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
         registrado_por_email: email,
         registrado_em: agora,
+        // Proxima acao + data/origem do retorno saem da tabulacao: e o desfecho
+        // do operador que manda na fila, nao o recalculo automatico.
+        ...desfechoDaTabulacao(statusNovo, retornoData, retornoHora),
       };
-      if (retornoData) {
-        atualizacaoAluno.data_retorno = retornoData;
-        atualizacaoAluno.hora_retorno = retornoHora || null;
-      } else {
-        // Sem data digitada: agenda o retorno automaticamente pela regra do
-        // status (Fase 3). Alguns status nao geram retorno automatico.
-        const retornoAuto = retornoAutomaticoDeStatus(statusNovo);
-        if (retornoAuto) atualizacaoAluno.data_retorno = retornoAuto;
-      }
       if (observacao !== (a.observacao || "")) {
         atualizacaoAluno.observacao = observacao;
       }
@@ -2228,7 +2344,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       // Fila inteligente (regra da gestao, 21/08/2026): a ordem segue
       // EXATAMENTE o selo de prazo que o operador ve na linha (statusPrazo):
       //   0 Perdendo o caso (11+ dias)  -> nunca perder caso
-      //   1 Critico (9-10 dias)
+      //   1 Risco de perder (9-10 dias)
       //   2 Atencao (8 dias)
       //   3 Novo (nunca acionado e sem data de entrada)
       //   4 Retorno devido (hoje/atrasado)
@@ -2237,7 +2353,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       // antigos sem acionamento primeiro (chegando por ultimo nos mais novos);
       // empate por saldo. Sem rodizio por ano: ordem estrita.
       const hoje = hojeLocalBR();
-      const RANK_PRAZO = { "Perdendo o caso": 0, Critico: 1, Atencao: 2, Novo: 3 };
+      const RANK_PRAZO = { "Perdendo o caso": 0, "Risco de perder": 1, Atencao: 2, Novo: 3 };
       const faixa = (a) => {
         const lab = statusPrazo(a).label;
         if (lab in RANK_PRAZO) return RANK_PRAZO[lab];
@@ -2799,10 +2915,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               <select style={S.select} value={filtroStatus} onChange={(e) => setFiltroStatus(e.target.value)}>
                 <option value="TODOS">Todos os status</option>
                 <option value="Novo">Novo</option>
-                <option value="Dentro do prazo">Dentro do prazo</option>
-                <option value="Atencao">Atencao</option>
-                <option value="Critico">Critico</option>
-                <option value="Perdendo o caso">Perdendo o caso</option>
+                <option value="Dentro do prazo">Dentro do prazo (até 7 dias)</option>
+                <option value="Atencao">Atenção (8 dias)</option>
+                <option value="Risco de perder">Risco de perder (9-10 dias)</option>
+                <option value="Perdendo o caso">Perdendo o caso (11+ dias)</option>
                 <option value="Aguardando pgto">Aguardando pgto</option>
                 <option value="Pago parcial">Pago parcial (ainda deve)</option>
                 <option value="A vencer">A vencer (acordo em dia)</option>
@@ -3155,9 +3271,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                               {SITUACAO_OPERACIONAL_LABEL[a.situacao_operacional].texto}
                             </div>
                           )}
-                          {a.proxima_acao && (
+                          {labelProximaAcao(a.proxima_acao) && (
                             <div style={{ ...S.subCel, marginTop: 4, color: "#334155", fontWeight: 600 }}>
-                              {a.proxima_acao}
+                              {labelProximaAcao(a.proxima_acao)}
                             </div>
                           )}
                         </td>
@@ -3508,7 +3624,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     <div style={S.lembreteBox}>
                       <div style={S.lembreteTitulo}>🔔 Lembrete de parcela</div>
                       <div style={S.lembreteTexto}>
-                        {alunoModal.proxima_acao || "Acordo em dia: lembrar o aluno da proxima parcela."}
+                        {labelProximaAcao(alunoModal.proxima_acao) || "Acordo em dia: lembrar o aluno da proxima parcela."}
                       </div>
                       <div style={S.lembreteDica}>
                         Agendado automaticamente 2 dias antes do vencimento. Depois de tabular, o caso fica em silencio ate a parcela vencer.
