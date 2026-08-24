@@ -15,8 +15,30 @@ function Item({ rot, val }) {
   );
 }
 
+// Cor por status do contrato. "Confirmado" = matrícula fechada. "Aberto" =
+// iniciada e não confirmada -- é o estado da maioria das matrículas do semestre
+// seguinte, e a operação precisa enxergar essa diferença antes de cobrar.
+// "Anulado" não conta como matrícula.
+const COR_STATUS = {
+  Confirmado: { fundo: "rgba(15,118,110,0.12)", cor: "#0f766e", borda: "rgba(15,118,110,0.35)" },
+  Aberto:     { fundo: "rgba(180,83,9,0.12)",   cor: "#b45309", borda: "rgba(180,83,9,0.35)" },
+  Anulado:    { fundo: "rgba(100,116,139,0.12)", cor: "#64748b", borda: "rgba(100,116,139,0.3)" },
+};
+
 export default function DadosAcademicos({ aluno }) {
   const [dados, setDados] = useState(null);
+  const [matriculas, setMatriculas] = useState([]);
+
+  useEffect(() => {
+    let vivo = true;
+    if (!aluno?.id) { setMatriculas([]); return; }
+    supabase
+      .rpc("aluno_matricula_semestres", { p_aluno_id: aluno.id })
+      .then(({ data }) => { if (vivo) setMatriculas(data || []); })
+      .catch(() => {});
+    return () => { vivo = false; };
+  }, [aluno?.id]);
+
   useEffect(() => {
     let vivo = true;
     if (!aluno?.id) { setDados(null); return; }
@@ -53,6 +75,26 @@ export default function DadosAcademicos({ aluno }) {
         <Item rot="Competência" val={comp} />
         <Item rot="Fonte" val={fonte} />
       </div>
+
+      {matriculas.length > 0 ? (
+        <div style={S.matriculas}>
+          <span style={S.rot}>Matrícula por semestre</span>
+          <div style={S.chips}>
+            {matriculas.map((m) => {
+              const c = COR_STATUS[m.status] || COR_STATUS.Anulado;
+              return (
+                <span
+                  key={`${m.semestre}-${m.valid_from}-${m.status}`}
+                  style={{ ...S.chip, background: c.fundo, color: c.cor, borderColor: c.borda }}
+                  title={`${m.curso || ""} · ${m.turno || ""} · ${m.valid_from} a ${m.valid_to || "—"}`}
+                >
+                  {m.semestre} · {m.cancelado ? "Cancelado" : (m.status || "—")}
+                </span>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -64,4 +106,7 @@ const S = {
   item: { display: "flex", flexDirection: "column", gap: 2 },
   rot: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.6, fontWeight: 700 },
   val: { fontSize: 13, fontWeight: 600 },
+  matriculas: { marginTop: 10, display: "flex", flexDirection: "column", gap: 4 },
+  chips: { display: "flex", gap: 6, flexWrap: "wrap" },
+  chip: { fontSize: 12, fontWeight: 700, borderRadius: 999, padding: "3px 10px", border: "1px solid" },
 };
