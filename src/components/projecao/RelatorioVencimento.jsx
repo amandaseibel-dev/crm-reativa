@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { supabase } from "../../services/supabase";
 import { exportarPagamentosPorVencimento } from "../../utils/relatoriosProjecaoExcel";
+import { exportarPagamentosVencimentoPdf } from "../../utils/relatorioVencimentoPdf";
 
 // Bloco "Pagamentos por Vencimento" dentro da Central de Relatórios.
 // Gestão escolhe os operadores (todos ou alguns, incluindo "Sem operador")
@@ -14,7 +15,7 @@ export default function RelatorioVencimento({ mes }) {
   const [vencDe, setVencDe] = useState("");
   const [vencAte, setVencAte] = useState("");
   const [incluirSemVenc, setIncluirSemVenc] = useState(true);
-  const [ocupado, setOcupado] = useState(false);
+  const [ocupado, setOcupado] = useState(""); // "" | "excel" | "pdf"
   const [erro, setErro] = useState("");
 
   async function abrir() {
@@ -45,22 +46,24 @@ export default function RelatorioVencimento({ mes }) {
 
   const todosMarcados = operadores && selecionados.size === operadores.length;
 
-  async function gerar() {
+  async function gerar(formato) {
     setErro("");
     if (!selecionados.size) { setErro("Selecione ao menos um operador."); return; }
-    setOcupado(true);
+    setOcupado(formato);
+    const filtros = {
+      // todos marcados = sem filtro (pega inclusive operador novo que entrar depois)
+      operadores: todosMarcados ? null : Array.from(selecionados),
+      vencDe: vencDe || null,
+      vencAte: vencAte || null,
+      incluirSemVencimento: incluirSemVenc,
+    };
     try {
-      await exportarPagamentosPorVencimento(mes, {
-        // todos marcados = sem filtro (pega inclusive operador novo que entrar depois)
-        operadores: todosMarcados ? null : Array.from(selecionados),
-        vencDe: vencDe || null,
-        vencAte: vencAte || null,
-        incluirSemVencimento: incluirSemVenc,
-      });
+      if (formato === "pdf") await exportarPagamentosVencimentoPdf(mes, filtros);
+      else await exportarPagamentosPorVencimento(mes, filtros);
     } catch (e) {
       setErro(e?.message || "Falha ao gerar o relatório.");
     } finally {
-      setOcupado(false);
+      setOcupado("");
     }
   }
 
@@ -111,9 +114,14 @@ export default function RelatorioVencimento({ mes }) {
             Incluir pagamentos sem vencimento identificado
           </label>
 
-          <button disabled={ocupado} onClick={gerar} style={estilos.gerar}>
-            {ocupado ? "Gerando…" : "Gerar Excel"}
-          </button>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button disabled={!!ocupado} onClick={() => gerar("excel")} style={{ ...estilos.gerar, flex: 1 }}>
+              {ocupado === "excel" ? "Gerando…" : "Gerar Excel"}
+            </button>
+            <button disabled={!!ocupado} onClick={() => gerar("pdf")} style={{ ...estilos.gerar, flex: 1, background: "#1e40af" }}>
+              {ocupado === "pdf" ? "Gerando…" : "Gerar PDF"}
+            </button>
+          </div>
           {erro && <div style={estilos.erro}>{erro}</div>}
           <div style={estilos.nota}>
             O vencimento passa a ser gravado nas importações novas; para um mês já importado,
