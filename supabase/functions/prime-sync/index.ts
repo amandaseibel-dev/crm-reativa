@@ -136,18 +136,37 @@ async function emLotes<T, R>(
   return saida;
 }
 
-// Colhe o cadastro de UM CPF. Retorna null se a Prime não conhece a pessoa.
+// Colhe o cadastro de UM CPF, SOMENTE se a pessoa estiver em um dos nossos
+// portadores. A Prime tem 400 mil alunos e 124 portadores -- o resto da base é
+// cobrança de outras agências e NÃO é responsabilidade da Reativa. Buscar já
+// filtrado pelo portador é o portão de escopo, e sai de graça: substitui a
+// busca solta em vez de somar requisição.
+// Medido em 2026-08-24: numa amostra de 45 devedores do CRM, 44 estavam em 166
+// ou 195 e 1 não estava em nenhum dos dois -- esse 1 não deve ser tocado.
 async function colherCadastro(cpf: string, chave: string) {
-  const busca = await primeGet(
-    `/students?search=${encodeURIComponent(cpfFormatado(cpf))}&take=10`,
-    chave,
-  );
-  if (!busca.ok) return { erro: true as const };
+  const formatado = encodeURIComponent(cpfFormatado(cpf));
+  let aluno: any = null;
+  let portador: number | null = null;
 
-  const itens: any[] = Array.isArray(busca.dados?.items) ? busca.dados.items : [];
-  // Confere o CPF: `search` é substring e pode trazer gente que não é a pessoa.
-  const aluno = itens.find((i) => digitos(i?.cpf) === cpf);
-  if (!aluno?.registration) return { ausente: true as const };
+  // 195 primeiro: é o portador mais populoso (mensalidades) e resolve a maioria
+  // numa requisição só. 166 (acordos) cobre quem já negociou.
+  for (const carrier of [CARRIER_MENSALIDADES, CARRIER_ACORDOS]) {
+    const busca = await primeGet(
+      `/students?search=${formatado}&carrierId=${carrier}&take=10`,
+      chave,
+    );
+    if (!busca.ok) return { erro: true as const };
+    const itens: any[] = Array.isArray(busca.dados?.items) ? busca.dados.items : [];
+    // Confere o CPF: `search` é substring e pode trazer gente que não é a pessoa.
+    const achado = itens.find((i) => digitos(i?.cpf) === cpf);
+    if (achado?.registration) {
+      aluno = achado;
+      portador = carrier;
+      break;
+    }
+  }
+  // Fora dos nossos dois portadores: não é nossa carteira, não coletamos.
+  if (!aluno) return { foraDoEscopo: true as const };
 
   const reg = encodeURIComponent(String(aluno.registration));
   const [cad, contratos] = await Promise.all([
@@ -188,6 +207,7 @@ async function colherCadastro(cpf: string, chave: string) {
       status_academico: aluno?.status ?? null,
       contrato_vigente: vigente,
       contrato_valid_to: validoAte,
+      portador: portador,          // 166 (acordos) ou 195 (mensalidades)
       coletado_em: new Date().toISOString(),
     },
     vigente,
@@ -293,7 +313,8 @@ Deno.serve(async (req: Request) => {
   const resultados = await emLotes(cpfs, CONCORRENCIA, (cpf) => colherCadastro(cpf, chave));
 
   const linhas = resultados.filter((r: any) => r?.linha).map((r: any) => r.linha);
-  const ausentes = resultados.filter((r: any) => r?.ausente).length;
+  // Fora dos portadores 166/195: não é carteira da Reativa, ficou de fora.
+  const foraDoEscopo = resultados.filter((r: any) => r?.foraDoEscopo).length;
   const erros = resultados.filter((r: any) => r?.erro).length;
   const comTelefone = resultados.filter((r: any) => r?.ganhouTelefone).length;
   const estudando = resultados.filter((r: any) => r?.vigente).length;
@@ -318,7 +339,7 @@ Deno.serve(async (req: Request) => {
     alvos: cpfs.length,
     encontrados: linhas.length,
     erros,
-    detalhe: { ausentes, com_telefone: comTelefone, estudando_hoje: estudando },
+    detalhe: { fora_do_escopo: foraDoEscopo, com_telefone: comTelefone, estudando_hoje: estudando },
   }).eq("id", exec?.id);
 
   return json({
@@ -326,7 +347,7 @@ Deno.serve(async (req: Request) => {
     execucao_id: exec?.id,
     alvos: cpfs.length,
     encontrados: linhas.length,
-    ausentes,
+    fora_do_escopo: foraDoEscopo,
     erros,
     ganham_telefone: comTelefone,
     estudando_hoje: estudando,

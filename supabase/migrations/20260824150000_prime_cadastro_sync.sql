@@ -38,8 +38,12 @@ create table if not exists public.prime_cadastro_sync (
   status_academico   text,
   contrato_vigente   boolean not null default false,   -- matriculado HOJE
   contrato_valid_to  date,
+  portador           integer,                          -- 166 acordos | 195 mensalidades
   coletado_em        timestamptz not null default now(),
-  constraint prime_cadastro_sync_cpf_digitos check (cpf ~ '^[0-9]{11}$')
+  constraint prime_cadastro_sync_cpf_digitos check (cpf ~ '^[0-9]{11}$'),
+  -- Portão de escopo: a Reativa só responde por estes dois portadores.
+  -- Os judiciais (165, 202) e os demais 120 da Prime não são nossos.
+  constraint prime_cadastro_sync_portador_nosso check (portador in (166, 195))
 );
 
 comment on table public.prime_cadastro_sync is
