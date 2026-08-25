@@ -29,14 +29,23 @@ function dataBR(iso) {
   return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : iso;
 }
 
+function n1(v) {
+  return Number(v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 1 });
+}
+
 export default function HistoricoConfirmacoes() {
   const [rows, setRows] = useState([]);
+  const [ritmo, setRitmo] = useState(null);
   const [carregando, setCarregando] = useState(true);
 
   useEffect(() => {
     (async () => {
-      const { data } = await supabase.rpc("historico_confirmacoes_por_dia");
-      setRows(data || []);
+      const [hist, rit] = await Promise.all([
+        supabase.rpc("historico_confirmacoes_por_dia"),
+        supabase.rpc("ritmo_fila_confirmacao", { p_dias: 14 }),
+      ]);
+      setRows(hist.data || []);
+      setRitmo(rit.error ? null : rit.data);
       setCarregando(false);
     })();
   }, []);
@@ -91,6 +100,34 @@ export default function HistoricoConfirmacoes() {
         </div>
       </div>
 
+      {ritmo && (
+        <div style={S.ritmoBox}>
+          <div style={S.ritmoLinha}>
+            <Metrica rot="Na fila hoje" val={Number(ritmo.pendentes || 0).toLocaleString("pt-BR")} />
+            <Metrica rot="Saíram hoje" val={ritmo.feitas_hoje} cor="#166534" />
+            <Metrica rot="Entraram hoje" val={ritmo.entraram_hoje} cor="#b45309" />
+            <Metrica rot={`Saem por dia (média de ${ritmo.dias_considerados} dias)`} val={n1(ritmo.media_saidas)} />
+            <Metrica rot="Entram por dia (mesma média)" val={n1(ritmo.media_entradas)} />
+          </div>
+          {/* A conta ingenua -- pendentes / feitas por dia -- mente, porque a
+              fila recebe caso novo todo dia. O que drena a fila e o SALDO. */}
+          {ritmo.dias_para_zerar ? (
+            <p style={S.ritmoOk}>
+              No ritmo atual a fila zera em <strong>{ritmo.dias_para_zerar} dias</strong> de trabalho —
+              saem {n1(ritmo.media_saidas)} por dia e entram {n1(ritmo.media_entradas)}, sobrando{" "}
+              {n1(ritmo.saldo_dia)} a menos na fila por dia.
+            </p>
+          ) : (
+            <p style={S.ritmoAlerta}>
+              No ritmo atual a fila <strong>não zera</strong>: entram {n1(ritmo.media_entradas)} por dia e
+              saem {n1(ritmo.media_saidas)}, então ela <strong>cresce {n1(Math.abs(ritmo.saldo_dia))} por dia</strong>.
+              Para zerar os {Number(ritmo.pendentes || 0).toLocaleString("pt-BR")} em 30 dias seria preciso
+              fechar <strong>~{ritmo.necessario_por_dia_30d} por dia</strong> — já contando o que continua entrando.
+            </p>
+          )}
+        </div>
+      )}
+
       {carregando ? (
         <Carregando texto="Carregando…" />
       ) : porDia.length === 0 ? (
@@ -142,6 +179,15 @@ export default function HistoricoConfirmacoes() {
   );
 }
 
+function Metrica({ rot, val, cor }) {
+  return (
+    <div style={S.metrica}>
+      <span style={{ ...S.metricaNum, ...(cor ? { color: cor } : {}) }}>{val}</span>
+      <span style={S.metricaRot}>{rot}</span>
+    </div>
+  );
+}
+
 const S = {
   wrap: { padding: "20px 22px 28px", fontFamily: "'Inter', system-ui, sans-serif", color: "#0f172a" },
   topo: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 16 },
@@ -152,6 +198,13 @@ const S = {
   cardNum: { fontSize: 24, fontWeight: 800, color: "#0d1321", fontFamily: "'Sora', Inter, sans-serif" },
   cardRot: { fontSize: 12, color: "#8a93a3", fontWeight: 600, marginTop: 2 },
   muted: { color: "#8a93a3", fontSize: 14 },
+  ritmoBox: { background: "#f8fafc", border: "1px solid #e6eaf0", borderRadius: 12, padding: "14px 16px", marginBottom: 18 },
+  ritmoLinha: { display: "flex", gap: 24, flexWrap: "wrap" },
+  metrica: { display: "flex", flexDirection: "column", minWidth: 110 },
+  metricaNum: { fontSize: 20, fontWeight: 800, color: "#0d1321", fontFamily: "'Sora', Inter, sans-serif" },
+  metricaRot: { fontSize: 11.5, color: "#8a93a3", fontWeight: 600, marginTop: 2 },
+  ritmoOk: { margin: "12px 0 0", fontSize: 13, color: "#166534", lineHeight: 1.5 },
+  ritmoAlerta: { margin: "12px 0 0", fontSize: 13, color: "#9a3412", lineHeight: 1.5 },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
   th: { textAlign: "left", padding: "9px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
   thNum: { textAlign: "right", padding: "9px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
