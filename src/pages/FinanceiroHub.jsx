@@ -2,6 +2,7 @@ import { useState } from "react";
 import ConsultaFinanceira from "./ConsultaFinanceira";
 import FilaConfirmacaoPagamento from "./FilaConfirmacaoPagamento";
 import PainelAdm from "./PainelAdm";
+import ConferenciaPrime from "./ConferenciaPrime";
 import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirmacoes from "./HistoricoConfirmacoes";
 
 // Reune as telas financeiras num lugar so, com abas. Cada aba carrega o
@@ -15,6 +16,7 @@ const ABAS = [
   { chave: "FINANCEIRO", rotulo: "Financeiro" },
   { chave: "CONFIRMACAO", rotulo: "Confirmação de Pagamento" },
   { chave: "FILA_BAIXAS", rotulo: "Fila de Baixas" },
+  { chave: "CONFERENCIA_PRIME", rotulo: "Conferência Prime" },
   { chave: "HIST_CONFIRMACOES", rotulo: "Histórico de Confirmações" },
 ];
 
@@ -47,6 +49,7 @@ export default function FinanceiroHub() {
         {aba === "FINANCEIRO" && <ConsultaFinanceira />}
         {aba === "CONFIRMACAO" && <FilaConfirmacaoPagamento />}
         {aba === "FILA_BAIXAS" && <MinhaFilaPagamentos />}
+        {aba === "CONFERENCIA_PRIME" && <ConferenciaPrime />}
         {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
       </div>
     </div>

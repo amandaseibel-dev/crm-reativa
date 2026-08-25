@@ -1,0 +1,339 @@
+import { useEffect, useMemo, useState } from "react";
+import { supabase } from "../services/supabase";
+import { Carregando } from "../ui/estados";
+import { S as A } from "../ui/estilosFila";
+
+// Conferência Prime: títulos que o CRM ainda cobra e a Prime já registra como
+// liquidados. Mesma anatomia das outras filas (card por aluno, ação no próprio
+// card), porque é o mesmo tipo de trabalho: olhar um caso e decidir.
+//
+// A REGRA QUE MANDA AQUI: nada é automático. A Prime só expõe parcela
+// LIQUIDADA -- ausência lá não quer dizer "em aberto", quer dizer "não sei". E
+// quando o aluno negocia, a mensalidade é liquidada na Prime pela negociação;
+// se o acordo cair depois, a Prime NÃO reverte. Por isso a lista exclui quem
+// tem acordo cancelado, e a baixa é um clique de gente, um título por vez.
+//
+// Os dois grupos NÃO são a mesma conversa:
+//   - SEM acordo ativo  -> a Prime diz que o aluno pagou e nós seguimos
+//                          cobrando. A baixa provavelmente é devida.
+//   - COM acordo ativo  -> o título foi liquidado PELA negociação e virou
+//                          acordo. Se ele continua aberto aqui, a dívida está
+//                          sendo contada duas vezes -- baixar não perdoa nada,
+//                          para de cobrar em dobro.
+
+function moeda(v) {
+  return (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function dia(v) {
+  if (!v) return "-";
+  try {
+    // Data pura (YYYY-MM-DD) não pode passar por fuso: viraria o dia anterior.
+    const [a, m, d] = String(v).slice(0, 10).split("-");
+    return `${d}/${m}/${a}`;
+  } catch {
+    return "-";
+  }
+}
+
+function formatCpf(v) {
+  const d = String(v || "").replace(/\D/g, "");
+  if (d.length !== 11) return v || "-";
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}
+
+export default function ConferenciaPrime() {
+  const [itens, setItens] = useState([]);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+  const [semPermissao, setSemPermissao] = useState(false);
+  const [grupo, setGrupo] = useState("SEM_ACORDO");
+  const [busca, setBusca] = useState("");
+  const [ordem, setOrdem] = useState("VALOR_DESC");
+  const [processando, setProcessando] = useState({});
+
+  useEffect(() => {
+    carregar();
+  }, []);
+
+  async function carregar() {
+    setCarregando(true);
+    setErro("");
+    try {
+      const { data, error } = await supabase.rpc("prime_conferencia_listar");
+      if (error) throw error;
+      const linhas = data || [];
+      setItens(linhas);
+      // A RPC devolve vazio para quem não tem permissão (o gate está dentro
+      // dela). Sem isso, a tela diria "nada a conferir" para quem só não pode ver.
+      setSemPermissao(linhas.length === 0);
+    } catch (e) {
+      setErro(e?.message || String(e));
+      setItens([]);
+    } finally {
+      setCarregando(false);
+    }
+  }
+
+  async function baixar(item) {
+    const ok = window.confirm(
+      `Dar baixa neste título?\n\n` +
+        `Aluno: ${item.aluno_nome}\n` +
+        `Boleto: ${item.documento}\n` +
+        `Vencimento: ${dia(item.vencimento)}\n` +
+        `Valor que o CRM cobra: ${moeda(item.valor_em_aberto)}\n` +
+        `A Prime registra liquidado em: ${dia(item.liquidado_em)}\n\n` +
+        (item.tem_acordo_ativo
+          ? "ATENÇÃO: este aluno tem acordo ATIVO. Provavelmente o título foi liquidado pela negociação — baixar aqui evita cobrar a mesma dívida duas vezes.\n\n"
+          : "") +
+        "O título fica como pago e sai da dívida em aberto."
+    );
+    if (!ok) return;
+    if (processando[item.titulo_id]) return;
+
+    setProcessando((p) => ({ ...p, [item.titulo_id]: true }));
+    try {
+      const { data, error } = await supabase.rpc("prime_conferencia_baixar", {
+        p_titulo_id: item.titulo_id,
+        p_observacao: null,
+      });
+      if (error) throw error;
+
+      // Tira da tela sem recarregar tudo: a lista é longa e a pessoa está no meio dela.
+      setItens((prev) => prev.filter((x) => x.titulo_id !== item.titulo_id));
+      if (data?.ja_processado) {
+        alert("Este título já tinha sido baixado. Nada foi alterado.");
+      }
+    } catch (e) {
+      alert("Não foi possível baixar: " + (e?.message || String(e)));
+    } finally {
+      setProcessando((p) => {
+        const n = { ...p };
+        delete n[item.titulo_id];
+        return n;
+      });
+    }
+  }
+
+  const filtrados = useMemo(() => {
+    let lista = itens.filter((i) =>
+      grupo === "TODOS" ? true : grupo === "COM_ACORDO" ? i.tem_acordo_ativo : !i.tem_acordo_ativo
+    );
+
+    if (busca.trim()) {
+      const t = busca.trim().toLowerCase();
+      const digitos = t.replace(/\D/g, "");
+      lista = lista.filter((i) => {
+        const nomeOk = String(i.aluno_nome || "").toLowerCase().includes(t);
+        const cpfOk = digitos && String(i.cpf || "").replace(/\D/g, "").includes(digitos);
+        const docOk = digitos && String(i.documento || "").includes(digitos);
+        return nomeOk || cpfOk || docOk;
+      });
+    }
+    return lista;
+  }, [itens, grupo, busca]);
+
+  // 1 card por aluno, como nas outras filas.
+  const grupos = useMemo(() => {
+    const mapa = new Map();
+    for (const i of filtrados) {
+      const chave = i.aluno_id || `SEM-${i.titulo_id}`;
+      if (!mapa.has(chave)) {
+        mapa.set(chave, {
+          chave,
+          alunoId: i.aluno_id,
+          nome: i.aluno_nome,
+          cpf: i.cpf,
+          responsavel: i.operador_responsavel,
+          temAcordoAtivo: i.tem_acordo_ativo,
+          titulos: [],
+        });
+      }
+      mapa.get(chave).titulos.push(i);
+    }
+    const arr = Array.from(mapa.values());
+    for (const g of arr) {
+      g.total = g.titulos.reduce((s, t) => s + (Number(t.valor_em_aberto) || 0), 0);
+      g.ultimaLiquidacao = g.titulos.reduce(
+        (max, t) => (t.liquidado_em && (!max || t.liquidado_em > max) ? t.liquidado_em : max),
+        null
+      );
+    }
+    const porNome = (a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR");
+    arr.sort((a, b) => {
+      if (ordem === "VALOR_ASC") return a.total - b.total || porNome(a, b);
+      if (ordem === "LIQUIDACAO_DESC") {
+        return String(b.ultimaLiquidacao || "").localeCompare(String(a.ultimaLiquidacao || "")) || porNome(a, b);
+      }
+      return b.total - a.total || porNome(a, b);
+    });
+    return arr;
+  }, [filtrados, ordem]);
+
+  const contagens = useMemo(
+    () => ({
+      semAcordo: itens.filter((i) => !i.tem_acordo_ativo).length,
+      comAcordo: itens.filter((i) => i.tem_acordo_ativo).length,
+    }),
+    [itens]
+  );
+
+  const totalFiltrado = filtrados.reduce((s, i) => s + (Number(i.valor_em_aberto) || 0), 0);
+
+  if (carregando) {
+    return (
+      <div style={A.wrap}>
+        <Carregando texto="Conferindo com a Prime…" />
+      </div>
+    );
+  }
+
+  return (
+    <div style={A.wrap}>
+      <div style={A.topo}>
+        <div>
+          <h1 style={A.titulo}>Conferência Prime</h1>
+          <p style={A.sub}>Títulos que ainda cobramos e a Prime registra como liquidados.</p>
+        </div>
+        <button type="button" style={A.btnGhost} onClick={carregar}>Atualizar</button>
+      </div>
+
+      {erro && <div style={A.erroBox}>⚠️ {erro}</div>}
+
+      {semPermissao && !erro ? (
+        <p style={A.muted}>
+          Nada a conferir — ou seu usuário não tem permissão para dar baixa em título.
+        </p>
+      ) : (
+        <>
+          <div style={A.barra}>
+            <select style={A.select} value={grupo} onChange={(e) => setGrupo(e.target.value)}>
+              <option value="SEM_ACORDO">Sem acordo ativo ({contagens.semAcordo})</option>
+              <option value="COM_ACORDO">Com acordo ativo ({contagens.comAcordo})</option>
+              <option value="TODOS">Todos ({itens.length})</option>
+            </select>
+            <select style={A.select} value={ordem} onChange={(e) => setOrdem(e.target.value)}>
+              <option value="VALOR_DESC">Maior valor primeiro</option>
+              <option value="VALOR_ASC">Menor valor primeiro</option>
+              <option value="LIQUIDACAO_DESC">Liquidação mais recente</option>
+            </select>
+            <input
+              style={A.input}
+              placeholder="Buscar por nome, CPF ou boleto..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+            <div style={A.contadores}>
+              <span style={A.contadorAlunos}>{grupos.length} alunos</span>
+              <span style={A.contadorAcordos}>{filtrados.length} títulos</span>
+              <span style={A.contadorValor}>{moeda(totalFiltrado)}</span>
+            </div>
+          </div>
+
+          <div style={estilos.aviso}>
+            {grupo === "COM_ACORDO" ? (
+              <>
+                Estes títulos foram liquidados na Prime <b>pela negociação</b> — a dívida virou
+                acordo. Se o título segue aberto aqui, ela está sendo contada duas vezes: baixar
+                não perdoa nada, para de cobrar em dobro. Confira o acordo do aluno antes.
+              </>
+            ) : (
+              <>
+                A Prime registra pagamento e nós continuamos cobrando. Confira o caso antes de
+                baixar: a Prime mostra apenas o que foi liquidado, e <b>não distingue</b> dinheiro
+                recebido de liquidação por negociação. Alunos com acordo cancelado já ficam fora
+                desta lista.
+              </>
+            )}
+          </div>
+
+          {grupos.length === 0 ? (
+            <p style={A.muted}>Nenhum título neste filtro.</p>
+          ) : (
+            <div style={A.cards}>
+              {grupos.map((g) => (
+                <div key={g.chave} style={A.card}>
+                  <div style={A.cardHead}>
+                    <div style={A.cardHeadInfo}>
+                      <span style={A.cardNome}>{g.nome || "-"}</span>
+                      <span style={A.cardCpf}>CPF {formatCpf(g.cpf)}</span>
+                      {g.temAcordoAtivo && <span style={estilos.selo}>acordo ativo</span>}
+                    </div>
+                    <div style={A.cardHeadDir}>
+                      <span style={A.cardResumo}>
+                        {g.titulos.length} título{g.titulos.length > 1 ? "s" : ""} · {moeda(g.total)}
+                        {g.ultimaLiquidacao ? ` · liquidado até ${dia(g.ultimaLiquidacao)}` : ""}
+                      </span>
+                      <span style={A.cardUnidade}>{g.responsavel}</span>
+                    </div>
+                  </div>
+
+                  <table style={A.tabela}>
+                    <thead>
+                      <tr>
+                        <th style={A.th}>Boleto</th>
+                        <th style={A.th}>Vencimento</th>
+                        <th style={A.th}>Liquidado na Prime</th>
+                        <th style={A.thNum}>O CRM cobra</th>
+                        <th style={A.th}></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {g.titulos.map((t) => {
+                        const busy = !!processando[t.titulo_id];
+                        return (
+                          <tr key={t.titulo_id}>
+                            <td style={A.td}>{t.documento || "-"}</td>
+                            <td style={A.td}>{dia(t.vencimento)}</td>
+                            <td style={A.td}>{dia(t.liquidado_em)}</td>
+                            <td style={A.tdNum}>{moeda(t.valor_em_aberto)}</td>
+                            <td style={A.td}>
+                              <div style={A.acoes}>
+                                <button
+                                  type="button"
+                                  style={{ ...A.btnConf, ...(busy ? A.btnBusy : {}) }}
+                                  disabled={busy}
+                                  onClick={() => baixar(t)}
+                                  title="Marca o título como pago e tira da dívida em aberto"
+                                >
+                                  {busy ? "Baixando..." : "Dar baixa"}
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+const estilos = {
+  aviso: {
+    background: "#fffbeb",
+    border: "1px solid #fde68a",
+    color: "#92400e",
+    borderRadius: 10,
+    padding: "12px 14px",
+    fontSize: 13,
+    lineHeight: 1.5,
+    marginBottom: 14,
+  },
+  selo: {
+    fontSize: 11,
+    fontWeight: 700,
+    borderRadius: 999,
+    padding: "2px 10px",
+    background: "#eef2ff",
+    color: "#3730a3",
+    border: "1px solid #c7d2fe",
+    whiteSpace: "nowrap",
+  },
+};
