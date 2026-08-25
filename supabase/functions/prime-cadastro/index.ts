@@ -163,6 +163,30 @@ async function emLotes<T, R>(itens: T[], n: number, fn: (t: T) => Promise<R>): P
 }
 
 Deno.serve(async (req) => {
+  // PORTÃO DE ACESSO. `verify_jwt` só garante que quem chamou está logado --
+  // qualquer operador passaria. Uma varredura na Prime lê PII de milhares de
+  // alunos e gasta cota da API, então tem que ser gestão.
+  //
+  // A checagem usa o token de QUEM CHAMOU, não a service key: é o banco que
+  // decide, pela mesma função que as políticas de RLS usam.
+  const autorizacao = req.headers.get("Authorization") ?? "";
+  if (!autorizacao.startsWith("Bearer ")) {
+    return new Response(JSON.stringify({ erro: "SEM_TOKEN" }), {
+      status: 401, headers: { "Content-Type": "application/json" },
+    });
+  }
+  const supaChamador = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!,
+    { global: { headers: { Authorization: autorizacao } } },
+  );
+  const { data: ehGestao, error: erroGestao } = await supaChamador.rpc("usuario_e_gestao");
+  if (erroGestao || ehGestao !== true) {
+    return new Response(JSON.stringify({ erro: "ACESSO_NEGADO", detalhe: "restrito a gestao" }), {
+      status: 403, headers: { "Content-Type": "application/json" },
+    });
+  }
+
   const chave = Deno.env.get("PRIME_API_KEY");
   if (!chave) {
     return new Response(JSON.stringify({ erro: "PRIME_API_KEY nao configurada" }), {
