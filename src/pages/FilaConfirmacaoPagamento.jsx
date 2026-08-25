@@ -9,6 +9,7 @@ import { podeGerirFinanceiro, nomeOperadorPorEmail } from "../utils/operadores";
 import {
   STATUS_AGUARDANDO_CONFIRMACAO,
   STATUS_AGUARDANDO_VINCULO,
+  STATUS_CONFIRMACAO_ABERTOS,
   isConfirmacaoAberta,
 } from "../utils/confirmacaoPagamento";
 import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados";
@@ -21,6 +22,9 @@ import { S as A } from "../ui/estilosFila";
 // A tela é a MESMA da fila de acordos: 1 card por aluno, tabela dos pagamentos
 // dele e a ação de confirmar no próprio card (sem precisar abrir o modal).
 // Os estilos vêm importados de lá justamente pra não divergirem com o tempo.
+
+// Teto da API: cada requisicao devolve no maximo 1000 linhas.
+const PAGE_SIZE = 1000;
 
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
@@ -164,6 +168,8 @@ export default function FilaConfirmacaoPagamento() {
   // card e uma acao por linha, entao a trava tambem tem que ser por linha --
   // um botao ocupado nao pode desabilitar os outros da tela.
   const [processando, setProcessando] = useState({});
+  // Contagens por status, vindas do banco (nao do que a tela carregou).
+  const [contadores, setContadores] = useState({ pendentes: 0, aguardandoVinculo: 0, confirmados: 0, todos: 0 });
 
   // Aba "Acordo / Baixa": embute o FinanceiroAluno (mesmas acoes de sempre).
   const [alunoFin, setAlunoFin] = useState(null);
@@ -197,9 +203,15 @@ export default function FilaConfirmacaoPagamento() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [abaFicha, detalhe?.aluno_id]);
 
+  // Cada aba de status busca so o que precisa, entao a troca de aba recarrega.
+  // O carregamento inicial tambem passa por aqui (o efeito roda na montagem).
+  useEffect(() => {
+    carregarSolicitacoes();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtro]);
+
   useEffect(() => {
     carregarUsuario();
-    carregarSolicitacoes();
     // A origem da divida e carimbada quando a solicitacao nasce, mas o saldo do
     // aluno muda enquanto o caso espera (ele fecha acordo, paga mensalidade).
     // Recarimba os ABERTOS uma vez ao abrir a tela; se algo mudou, recarrega.
@@ -217,21 +229,78 @@ export default function FilaConfirmacaoPagamento() {
     setUsuario(data?.user || null);
   }
 
+  // A API devolve no MAXIMO 1000 linhas por requisicao -- inclusive quando a
+  // consulta nao pede limite nenhum, e a resposta ainda volta como sucesso
+  // (206). Antes esta fila pedia .limit(5000) numa tacada e recebia 1000: em
+  // 25/08/2026 isso escondia 1.641 pagamentos abertos e R$ 2,36 milhoes, sem
+  // erro em lugar nenhum. Agora busca de mil em mil ate acabar, igual a fila
+  // de acordos, e so dos status que a aba pediu -- antes lia TODOS os status e
+  // jogava fora no cliente, entao casos ja resolvidos ocupavam vaga e
+  // empurravam os pendentes antigos para fora.
+  async function buscarPaginado(statusAlvo) {
+    const todas = [];
+    let de = 0;
+    while (true) {
+      let q = supabase
+        .from("solicitacoes_confirmacao_pagamento")
+        .select("*")
+        .order("criado_em", { ascending: false })
+        // Desempate estavel: sem chave unica na ordenacao, linhas com o mesmo
+        // criado_em podem trocar de pagina e sumir (ou vir duas vezes).
+        .order("id", { ascending: true })
+        .range(de, de + PAGE_SIZE - 1);
+      if (statusAlvo) q = q.in("status", statusAlvo);
+      const { data, error } = await q;
+      if (error) throw error;
+      const lote = data || [];
+      todas.push(...lote);
+      if (lote.length < PAGE_SIZE) break;
+      de += PAGE_SIZE;
+    }
+    return todas;
+  }
+
+  // Contagem vem do banco (count exato, sem trazer as linhas): e barata e nao
+  // depende de quanto a tela conseguiu carregar.
+  async function contar(statusAlvo) {
+    let q = supabase
+      .from("solicitacoes_confirmacao_pagamento")
+      .select("id", { count: "exact", head: true });
+    if (statusAlvo) q = q.in("status", statusAlvo);
+    const { count, error } = await q;
+    if (error) throw error;
+    return count || 0;
+  }
+
   async function carregarSolicitacoes() {
     setCarregando(true);
-    const { data, error } = await supabase
-      .from("solicitacoes_confirmacao_pagamento")
-      .select("*")
-      .order("criado_em", { ascending: false })
-      .limit(5000);
+    try {
+      // A aba decide o que precisa vir; nunca a base inteira "por via das duvidas".
+      const statusAlvo =
+        filtro === "CONFIRMADOS" ? ["PAGAMENTO_CONFIRMADO"]
+        : filtro === "AGUARDANDO_VINCULO" ? [STATUS_AGUARDANDO_VINCULO]
+        : filtro === "TODOS" ? null
+        : STATUS_CONFIRMACAO_ABERTOS;
 
-    if (error) {
-      alert("Erro ao carregar fila de confirmação de pagamento: " + error.message);
+      const [linhas, nPendentes, nVinculo, nConfirmados, nTodos] = await Promise.all([
+        buscarPaginado(statusAlvo),
+        contar([STATUS_AGUARDANDO_CONFIRMACAO]),
+        contar([STATUS_AGUARDANDO_VINCULO]),
+        contar(["PAGAMENTO_CONFIRMADO"]),
+        contar(null),
+      ]);
+      setSolicitacoes(linhas);
+      setContadores({
+        pendentes: nPendentes,
+        aguardandoVinculo: nVinculo,
+        confirmados: nConfirmados,
+        todos: nTodos,
+      });
+    } catch (e) {
+      alert("Erro ao carregar fila de confirmação de pagamento: " + (e?.message || String(e)));
+    } finally {
       setCarregando(false);
-      return;
     }
-    setSolicitacoes(data || []);
-    setCarregando(false);
   }
 
   // ---- Ficha do aluno (abre no clique, sem sair da pagina) ----
@@ -593,14 +662,7 @@ export default function FilaConfirmacaoPagamento() {
   const emailUsuario = usuario?.email || "";
   const podeUsar = podeGerirFinanceiro(emailUsuario);
 
-  const contadores = useMemo(() => {
-    return {
-      pendentes: solicitacoes.filter((s) => s.status === STATUS_AGUARDANDO_CONFIRMACAO).length,
-      aguardandoVinculo: solicitacoes.filter((s) => s.status === STATUS_AGUARDANDO_VINCULO).length,
-      confirmados: solicitacoes.filter((s) => s.status === "PAGAMENTO_CONFIRMADO").length,
-      todos: solicitacoes.length,
-    };
-  }, [solicitacoes]);
+
 
   // Ordenacao: (1) data/hora do envio (criado_em) mais recente primeiro;
   // (2) desempate por ultima atualizacao; (3) desempate por nome do aluno.

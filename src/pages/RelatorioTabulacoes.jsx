@@ -4,6 +4,9 @@ import { Carregando } from "../ui/estados";
 import { podeVerTudo } from "../utils/operadores";
 import { intervaloPeriodo, comoInputData, intervaloInvalido } from "../utils/periodo";
 
+// Teto da API: cada requisicao devolve no maximo 1000 linhas.
+const PAGE_SIZE = 1000;
+
 function chaveDia(dataIso) {
   if (!dataIso) return null;
   return String(dataIso).slice(0, 10);
@@ -88,40 +91,51 @@ export default function RelatorioTabulacoes() {
     const emailUsuario = usuario?.email || "";
     const vejoTudo = podeVerTudo(emailUsuario);
 
-    let query = supabase
-      .from("aluno_movimentacoes")
-      .select("registrado_por_nome, registrado_por_email, registrado_em, status_novo")
-      // Conta finalizações de atendimento (tabulação em si) e também o
-      // "marcar link como enviado", que é um acionamento real do operador
-      // mas é registrado com um tipo separado.
-      .in("tipo", ["FINALIZACAO_ATENDIMENTO", "LINK_ENVIADO_AO_ALUNO", "COMPROVANTE_ENVIADO_BAIXA"])
-      .order("registrado_em", { ascending: false })
-      .limit(20000);
+    // A API devolve no MAXIMO 1000 linhas por requisicao, mesmo com .limit()
+    // maior -- e responde 206 (sucesso), sem erro nenhum. Este relatorio pedia
+    // 20.000 e recebia 1.000: em 25/08/2026 eram 10.264 movimentacoes em 30
+    // dias, ou seja, a produtividade de todo mundo estava sendo contada sobre
+    // 10% dos dados. Agora busca de mil em mil ate acabar.
+    const montarQuery = (de) => {
+      let q = supabase
+        .from("aluno_movimentacoes")
+        .select("registrado_por_nome, registrado_por_email, registrado_em, status_novo")
+        // Conta finalizações de atendimento (tabulação em si) e também o
+        // "marcar link como enviado", que é um acionamento real do operador
+        // mas é registrado com um tipo separado.
+        .in("tipo", ["FINALIZACAO_ATENDIMENTO", "LINK_ENVIADO_AO_ALUNO", "COMPROVANTE_ENVIADO_BAIXA"])
+        .order("registrado_em", { ascending: false })
+        // Desempate estavel entre paginas: sem chave unica, linhas com o mesmo
+        // instante podem trocar de pagina e sumir (ou vir duas vezes).
+        .order("id", { ascending: true })
+        .range(de, de + PAGE_SIZE - 1);
+      if (desde) q = q.gte("registrado_em", desde.toISOString());
+      if (ate) q = q.lte("registrado_em", ate.toISOString());
+      // Operador comum só vê a própria contagem -- gestão/ADM/supervisão vê
+      // o ranking de todo mundo.
+      if (!vejoTudo) q = q.eq("registrado_por_email", emailUsuario);
+      return q;
+    };
 
-    if (desde) {
-      query = query.gte("registrado_em", desde.toISOString());
+    const todas = [];
+    let de = 0;
+    while (true) {
+      const { data, error } = await montarQuery(de);
+      if (error) {
+        console.error("Erro ao carregar tabulações:", error);
+        setErro("Não foi possível carregar as tabulações.");
+        setCarregando(false);
+        return;
+      }
+      const lote = data || [];
+      todas.push(...lote);
+      if (lote.length < PAGE_SIZE) break;
+      de += PAGE_SIZE;
+      // Guarda de sanidade: o periodo maximo da tela nao chega perto disso.
+      if (de >= 100000) break;
     }
 
-    if (ate) {
-      query = query.lte("registrado_em", ate.toISOString());
-    }
-
-    // Operador comum só vê a própria contagem -- gestão/ADM/supervisão vê
-    // o ranking de todo mundo.
-    if (!vejoTudo) {
-      query = query.eq("registrado_por_email", emailUsuario);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-      console.error("Erro ao carregar tabulações:", error);
-      setErro("Não foi possível carregar as tabulações.");
-      setCarregando(false);
-      return;
-    }
-
-    setMovimentacoes(data || []);
+    setMovimentacoes(todas);
     setCarregando(false);
   }
 
