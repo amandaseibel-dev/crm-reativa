@@ -16,6 +16,11 @@ import CasosSemValor from "../components/CasosSemValor";
 import ConfirmacoesSemValor from "../components/ConfirmacoesSemValor";
 import CasosSemTelefone from "../components/CasosSemTelefone";
 import FilaAcordosConfirmar from "./FilaAcordosConfirmar";
+import { S as A } from "../ui/estilosFila";
+
+// A tela é a MESMA da fila de acordos: 1 card por aluno, tabela dos pagamentos
+// dele e a ação de confirmar no próprio card (sem precisar abrir o modal).
+// Os estilos vêm importados de lá justamente pra não divergirem com o tempo.
 
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
@@ -88,19 +93,43 @@ function valorTitulo(t) {
   return Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
 }
 
-function corStatus(status) {
-  if (status === "PAGAMENTO_CONFIRMADO") {
-    return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
-  }
-  if (status === "PAGAMENTO_REJEITADO") {
-    return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
-  }
-  // Badge distinto (roxo) para "recebido, aguardando vínculo".
-  if (status === STATUS_AGUARDANDO_VINCULO) {
-    return { background: "#ede9fe", color: "#5b21b6", border: "1px solid #c4b5fd" };
-  }
-  return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c" };
+// CPF só dígitos, 11 posições -- chave do agrupamento por aluno (igual acordos).
+function normCpf(v) {
+  const d = String(v || "").replace(/\D/g, "");
+  if (!d) return "";
+  return d.length >= 11 ? d.slice(-11) : d.padStart(11, "0");
 }
+
+function formatCpf(v) {
+  const d = normCpf(v);
+  if (d.length !== 11) return v || "-";
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}
+
+function ts(v) {
+  const t = v ? new Date(v).getTime() : 0;
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function formatarDia(v) {
+  if (!v) return "-";
+  try {
+    return new Date(v).toLocaleDateString("pt-BR");
+  } catch {
+    return "-";
+  }
+}
+
+// Chip de status no padrão da fila de acordos (mesma pílula, mesmas cores).
+function chipStatus(status) {
+  if (status === "PAGAMENTO_CONFIRMADO") return A.chipOk;
+  if (status === "PAGAMENTO_REJEITADO") return A.chipRej;
+  if (status === STATUS_AGUARDANDO_VINCULO) {
+    return { background: "#f5f3ff", color: "#5b21b6", border: "1px solid #ddd6fe" };
+  }
+  return A.chipPend;
+}
+
 
 // Quem pode quitar e encerrar direto da fila (espelha crm_usuario_pode_quitar_baixar no banco)
 const EMAILS_PODE_QUITAR = [
@@ -121,8 +150,11 @@ export default function FilaConfirmacaoPagamento() {
   const [tipoFiltro, setTipoFiltro] = useState("TODOS");
   // Ordenacao da lista: data de envio (padrao) ou valor informado.
   const [ordem, setOrdem] = useState("DATA_DESC");
-  // Escopo do trabalho: pagamentos informados pela operacao x acordos importados.
+  // Escopo do trabalho: pagamentos, acordos importados e as listas auxiliares
+  // (nao identificados / sem valor / sem telefone), que antes eram "filtros" e
+  // nao filtravam nada -- trocavam a tela inteira. Agora sao abas de verdade.
   const [escopo, setEscopo] = useState("PAGAMENTOS");
+  const [busca, setBusca] = useState("");
   // Acordo x mensalidade, pela origem da divida (derivada no banco).
   const [origemFiltro, setOrigemFiltro] = useState("TODAS");
   const [qtdSemValor, setQtdSemValor] = useState(null);
@@ -141,7 +173,10 @@ export default function FilaConfirmacaoPagamento() {
   const [carregandoFicha, setCarregandoFicha] = useState(false);
   const [motivoRejeicao, setMotivoRejeicao] = useState("");
 
-  const [finalizando, setFinalizando] = useState(false);
+  // Trava por id (solicitacao) ou por card (`grp:<cpf>`): confirmar direto no
+  // card e uma acao por linha, entao a trava tambem tem que ser por linha --
+  // um botao ocupado nao pode desabilitar os outros da tela.
+  const [processando, setProcessando] = useState({});
 
   // Aba "Acordo / Baixa": embute o FinanceiroAluno (mesmas acoes de sempre).
   const [alunoFin, setAlunoFin] = useState(null);
@@ -370,11 +405,94 @@ export default function FilaConfirmacaoPagamento() {
     carregarSolicitacoes();
   }
 
+  // Confirma UMA solicitacao (pelo id) e devolve o resultado, sem alert nem
+  // recarga -- pra servir tanto ao botao do card quanto ao "confirmar todos".
+  async function enviarConfirmacao(s, observacaoExtra) {
+    const observacaoAdm = [observacoes[s.id], observacaoExtra].filter(Boolean).join(" — ");
+    const { data, error } = await supabase.rpc("confirmar_pagamento_solicitacao", {
+      p_confirmacao_id: s.id,
+      p_observacao: observacaoAdm || null,
+    });
+    if (error) return { erro: error.message };
+    // Tira imediatamente da fila local (sem recarregar a pagina inteira).
+    setSolicitacoes((prev) =>
+      prev.map((x) => (x.id === s.id ? { ...x, status: "PAGAMENTO_CONFIRMADO" } : x))
+    );
+    return { dados: data || {} };
+  }
+
+  // Confirmavel = fluxo antigo liberado; "recebido, aguardando vinculo" so
+  // depois que a divida foi identificada (mesma regra do rodape do modal).
+  function podeConfirmarSolicitacao(s) {
+    if (!isConfirmacaoAberta(s?.status)) return false;
+    return s.status === STATUS_AGUARDANDO_VINCULO ? dadosMinimosOk(s) : true;
+  }
+
+  // Confirma de uma vez todos os pagamentos pendentes de UM aluno (card).
+  // Cada um continua sendo uma chamada por id -- nao existe baixa por CPF.
+  async function confirmarGrupo(g) {
+    const alvos = g.itens.filter(podeConfirmarSolicitacao);
+    if (alvos.length === 0) return;
+    const chave = `grp:${g.chave}`;
+    if (processando[chave]) return;
+    setProcessando((p) => ({ ...p, [chave]: true }));
+    let quitados = 0;
+    let confirmados = 0;
+    const erros = [];
+    try {
+      for (const s of alvos) {
+        const r = await enviarConfirmacao(s);
+        if (r.erro) erros.push(r.erro);
+        else {
+          confirmados += 1;
+          if (r.dados?.quitou) quitados += 1;
+        }
+      }
+    } finally {
+      setProcessando((p) => {
+        const n = { ...p };
+        delete n[chave];
+        return n;
+      });
+    }
+    const partes = [`${confirmados} pagamento(s) confirmado(s).`];
+    if (quitados) partes.push(`${quitados} caso(s) quitado(s) e retirado(s) das filas.`);
+    if (confirmados > quitados) partes.push("Os demais seguem com saldo em aberto na carteira.");
+    if (erros.length) partes.push(`Falhas: ${erros.join(" | ")}`);
+    alert(partes.join("\n"));
+    carregarSolicitacoes();
+  }
+
+  // Rejeita direto do card: o motivo continua obrigatorio, so que perguntado
+  // na hora em vez de exigir abrir o modal e descer ate o rodape.
+  async function rejeitarNoCard(s) {
+    const motivo = window.prompt(
+      "Motivo da rejeição (obrigatório):\nEx.: comprovante ilegível, valor divergente, CPF divergente, pagamento não localizado.",
+      observacoes[s.id] || ""
+    );
+    if (motivo === null) return; // cancelou
+    if (!motivo.trim()) {
+      alert("O motivo é obrigatório para devolver ao operador.");
+      return;
+    }
+    if (processando[s.id]) return;
+    setProcessando((p) => ({ ...p, [s.id]: true }));
+    try {
+      await rejeitarPagamento(s, motivo);
+    } finally {
+      setProcessando((p) => {
+        const n = { ...p };
+        delete n[s.id];
+        return n;
+      });
+    }
+  }
+
   async function finalizarSolicitacao(s, observacaoExtra) {
     // Guarda de duplo clique: a RPC já é idempotente no banco (lock + checagem
     // de status), mas evitamos a segunda ida ao servidor.
-    if (finalizando) return;
-    setFinalizando(true);
+    if (processando[s.id]) return;
+    setProcessando((p) => ({ ...p, [s.id]: true }));
     try {
       const observacaoAdm = [observacoes[s.id], observacaoExtra].filter(Boolean).join(" — ");
 
@@ -416,7 +534,11 @@ export default function FilaConfirmacaoPagamento() {
       fecharFicha();
       carregarSolicitacoes();
     } finally {
-      setFinalizando(false);
+      setProcessando((p) => {
+        const n = { ...p };
+        delete n[s.id];
+        return n;
+      });
     }
   }
 
@@ -517,6 +639,15 @@ export default function FilaConfirmacaoPagamento() {
 
     if (tipoFiltro !== "TODOS") base = (base || []).filter((s) => (s.tipo_pagamento || "SEM_TIPO") === tipoFiltro);
     if (origemFiltro !== "TODAS") base = (base || []).filter((s) => casaOrigem(origemFiltro, s.origem_divida));
+    if (busca.trim()) {
+      const t = busca.trim().toLowerCase();
+      const cpfBusca = t.replace(/\D/g, "");
+      base = (base || []).filter((s) => {
+        const nomeOk = String(s.aluno_nome || "").toLowerCase().includes(t);
+        const cpfOk = cpfBusca && normCpf(s.aluno_cpf).includes(cpfBusca);
+        return nomeOk || cpfOk;
+      });
+    }
 
     const ts = (v) => {
       const t = v ? new Date(v).getTime() : 0;
@@ -547,7 +678,53 @@ export default function FilaConfirmacaoPagamento() {
       }
       return porData(a, b);
     });
-  }, [solicitacoes, filtro, tipoFiltro, origemFiltro, ordem]);
+  }, [solicitacoes, filtro, tipoFiltro, origemFiltro, ordem, busca]);
+
+  // 1 card por aluno (CPF), igual à fila de acordos: o card é o aluno, a tabela
+  // são os pagamentos dele. Sem CPF, cada linha vira seu próprio card.
+  const grupos = useMemo(() => {
+    const mapa = new Map();
+    for (const s of solicitacoesFiltradas) {
+      const cpf = normCpf(s.aluno_cpf);
+      const chave = cpf || `SEMCPF-${s.id}`;
+      if (!mapa.has(chave)) {
+        mapa.set(chave, { chave, cpf, nome: s.aluno_nome, alunoId: s.aluno_id, itens: [] });
+      }
+      mapa.get(chave).itens.push(s);
+    }
+    const arr = Array.from(mapa.values());
+    for (const g of arr) {
+      g.total = g.itens.reduce((soma, s) => soma + (Number(s.valor_informado) || 0), 0);
+      // Duas datas: a mais antiga (há quanto tempo o aluno espera) e a mais
+      // recente (o que acabou de chegar). Cada ordenação usa a sua.
+      g.primeiroEm = g.itens.reduce((min, s) => {
+        const t = ts(s.criado_em);
+        return t && (!min || t < min) ? t : min;
+      }, 0);
+      g.ultimoEm = g.itens.reduce((max, s) => Math.max(max, ts(s.criado_em)), 0);
+      g.abertos = g.itens.filter((s) => isConfirmacaoAberta(s.status));
+    }
+    const porNome = (a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR");
+    arr.sort((a, b) => {
+      if (ordem === "VALOR_DESC") {
+        const v = b.total - a.total;
+        return v !== 0 ? v : porNome(a, b);
+      }
+      if (ordem === "VALOR_ASC") {
+        const v = a.total - b.total;
+        return v !== 0 ? v : porNome(a, b);
+      }
+      if (ordem === "DATA_ASC") {
+        const d = a.primeiroEm - b.primeiroEm;
+        return d !== 0 ? d : porNome(a, b);
+      }
+      const d = b.ultimoEm - a.ultimoEm; // DATA_DESC (padrão)
+      return d !== 0 ? d : porNome(a, b);
+    });
+    return arr;
+  }, [solicitacoesFiltradas, ordem]);
+
+  const totalFiltrado = solicitacoesFiltradas.reduce((soma, s) => soma + (Number(s.valor_informado) || 0), 0);
 
   if (carregando) {
     return <div style={styles.container}><Carregando texto="Carregando fila de confirmação de pagamento…" /></div>;
@@ -562,205 +739,258 @@ export default function FilaConfirmacaoPagamento() {
     );
   }
 
-  // As duas frentes num lugar so: pagamentos informados pela operacao e acordos
-  // importados a confirmar. Sao tabelas e fluxos diferentes -- a tela nao mistura
-  // as linhas, ela deixa escolher o que trabalhar agora.
+  // As frentes num lugar so: pagamentos informados pela operacao, acordos
+  // importados e as listas auxiliares. Sao tabelas e fluxos diferentes -- a tela
+  // nao mistura as linhas, ela deixa escolher o que trabalhar agora.
+  const abertosTotal = contadores.pendentes + contadores.aguardandoVinculo;
+  const ESCOPOS = [
+    { chave: "PAGAMENTOS", rotulo: "Pagamentos a confirmar", badge: abertosTotal || null },
+    { chave: "ACORDOS", rotulo: "Acordos a confirmar", badge: null },
+    { chave: "NAO_IDENTIFICADOS", rotulo: "Não identificados", badge: null },
+    { chave: "ACORDO_SEM_VALOR", rotulo: "Acordo sem valor", badge: qtdAcordoSemValor },
+    { chave: "SEM_VALOR", rotulo: "Sem valor calculado", badge: qtdSemValor },
+    { chave: "SEM_TELEFONE", rotulo: "Sem telefone", badge: qtdSemTelefone },
+  ];
   const abasEscopo = (
     <div style={styles.escopo}>
-      <button
-        style={escopo === "PAGAMENTOS" ? styles.escopoAtivo : styles.escopoBotao}
-        onClick={() => setEscopo("PAGAMENTOS")}
-      >
-        Pagamentos a confirmar
-        {contadores.pendentes + contadores.aguardandoVinculo > 0
-          ? ` (${contadores.pendentes + contadores.aguardandoVinculo})`
-          : ""}
-      </button>
-      <button
-        style={escopo === "ACORDOS" ? styles.escopoAtivo : styles.escopoBotao}
-        onClick={() => setEscopo("ACORDOS")}
-      >
-        Acordos a confirmar
-      </button>
+      {ESCOPOS.map((e) => (
+        <button
+          key={e.chave}
+          type="button"
+          style={escopo === e.chave ? styles.escopoAtivo : styles.escopoBotao}
+          onClick={() => setEscopo(e.chave)}
+        >
+          {e.rotulo}
+          {e.badge !== null && e.badge !== undefined ? ` (${e.badge})` : ""}
+        </button>
+      ))}
     </div>
   );
 
-  if (escopo === "ACORDOS") {
-    return (
-      <div style={styles.container}>
-        {abasEscopo}
-        <FilaAcordosConfirmar />
-      </div>
-    );
-  }
-
   return (
-    <div style={styles.container}>
+    <div style={A.wrap}>
       {abasEscopo}
-      <div style={styles.cabecalho}>
-        <div>
-          <h1 style={styles.titulo}>Fila de Confirmação de Pagamento</h1>
-          <p style={styles.subtitulo}>
-            Casos enviados pela operação (tabulação "Confirmar pagamento"). Use "Ordenar" para ver por data de envio ou por valor.
-            Clique numa linha para abrir a ficha do aluno.
-          </p>
-        </div>
-        <button style={styles.botaoAtualizar} onClick={carregarSolicitacoes}>
-          Atualizar
-        </button>
-      </div>
-
-      <div style={styles.cardsIndicadores}>
-        <div style={styles.indicador}>
-          <span style={styles.numero}>{contadores.pendentes}</span>
-          <span style={styles.descricao}>Aguardando confirmação</span>
-        </div>
-        <div style={styles.indicador}>
-          <span style={{ ...styles.numero, color: "#6d28d9" }}>{contadores.aguardandoVinculo}</span>
-          <span style={styles.descricao}>Recebido, aguardando vínculo</span>
-        </div>
-        <div style={styles.indicador}>
-          <span style={styles.numero}>{contadores.confirmados}</span>
-          <span style={styles.descricao}>Confirmados</span>
-        </div>
-        <div style={styles.indicador}>
-          <span style={styles.numero}>{contadores.todos}</span>
-          <span style={styles.descricao}>Total</span>
-        </div>
-      </div>
-
-      <div style={styles.filtros}>
-        <button style={filtro === "PENDENTES" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("PENDENTES")}>
-          Pendentes{contadores.pendentes + contadores.aguardandoVinculo > 0 ? ` (${contadores.pendentes + contadores.aguardandoVinculo})` : ""}
-        </button>
-        <button style={filtro === "AGUARDANDO_VINCULO" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("AGUARDANDO_VINCULO")}>
-          Recebido, aguardando vínculo{contadores.aguardandoVinculo > 0 ? ` (${contadores.aguardandoVinculo})` : ""}
-        </button>
-        <button style={filtro === "CONFIRMADOS" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("CONFIRMADOS")}>
-          Confirmados
-        </button>
-        <button style={filtro === "TODOS" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("TODOS")}>
-          Todos
-        </button>
-        <button style={filtro === "NAO_IDENTIFICADOS" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("NAO_IDENTIFICADOS")}>
-          Não identificados
-        </button>
-        <button style={filtro === "ACORDO_SEM_VALOR" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("ACORDO_SEM_VALOR")}>
-          Acordo sem valor{qtdAcordoSemValor !== null ? ` (${qtdAcordoSemValor})` : ""}
-        </button>
-        <button style={filtro === "SEM_VALOR" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("SEM_VALOR")}>
-          Sem valor calculado{qtdSemValor !== null ? ` (${qtdSemValor})` : ""}
-        </button>
-        <button style={filtro === "SEM_TELEFONE" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("SEM_TELEFONE")}>
-          Sem telefone{qtdSemTelefone !== null ? ` (${qtdSemTelefone})` : ""}
-        </button>
-        <select value={origemFiltro} onChange={(e) => setOrigemFiltro(e.target.value)} style={{ border: "1px solid #d1d5db", borderRadius: 999, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}>
-          <option value="TODAS">Acordo e mensalidade</option>
-          <option value="ACORDO">Só acordo{porOrigem.acordo ? ` (${porOrigem.acordo})` : ""}</option>
-          <option value="MENSALIDADE">Só mensalidade{porOrigem.mensalidade ? ` (${porOrigem.mensalidade})` : ""}</option>
-          <option value="SEM_SALDO">Sem saldo em aberto{porOrigem.semSaldo ? ` (${porOrigem.semSaldo})` : ""}</option>
-          <option value="SEM_CLASSIFICACAO">Sem classificação</option>
-        </select>
-        <select value={tipoFiltro} onChange={(e) => setTipoFiltro(e.target.value)} style={{ border: "1px solid #d1d5db", borderRadius: 999, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}>
-          <option value="TODOS">Todos os tipos informados</option>
-          <option value="QUITACAO_TOTAL">Quitação total</option>
-          <option value="PARCELA">Parcela</option>
-          <option value="MENSALIDADE">Mensalidade</option>
-          <option value="ACORDO">Acordo</option>
-          <option value="SEM_TIPO">Sem tipo informado</option>
-        </select>
-        <select value={ordem} onChange={(e) => setOrdem(e.target.value)} style={{ border: "1px solid #d1d5db", borderRadius: 999, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}>
-          <option value="DATA_DESC">Mais recentes primeiro</option>
-          <option value="DATA_ASC">Mais antigos primeiro</option>
-          <option value="VALOR_DESC">Maior valor primeiro</option>
-          <option value="VALOR_ASC">Menor valor primeiro</option>
-        </select>
-      </div>
 
       {/* Mantem os dois sempre "vivos" (carregando em segundo plano), so
           escondidos visualmente quando nao e a aba ativa -- assim o numero
           na aba fica sempre atualizado, mesmo sem abrir a aba. */}
-      <div style={{ display: filtro === "ACORDO_SEM_VALOR" ? "block" : "none" }}>
+      <div style={{ display: escopo === "ACORDO_SEM_VALOR" ? "block" : "none" }}>
         <ConfirmacoesSemValor aoAtualizarContagem={setQtdAcordoSemValor} />
+      </div>
+      <div style={{ display: escopo === "SEM_TELEFONE" ? "block" : "none" }}>
+        <CasosSemTelefone aoAtualizarContagem={setQtdSemTelefone} />
       </div>
       {/* SOB DEMANDA: a RPC listar_casos_sem_valor e cara (~3s). So monta
           quando a aba "Sem valor calculado" esta realmente ativa -- antes ela
           ficava sempre montada (display:none) so pelo badge, disparando a RPC
           em TODA visita a esta pagina. O contador aparece ao abrir a aba. */}
-      {filtro === "SEM_VALOR" && (
-        <div>
-          <CasosSemValor aoAtualizarContagem={setQtdSemValor} />
-        </div>
-      )}
-      <div style={{ display: filtro === "SEM_TELEFONE" ? "block" : "none" }}>
-        <CasosSemTelefone aoAtualizarContagem={setQtdSemTelefone} />
-      </div>
+      {escopo === "SEM_VALOR" && <CasosSemValor aoAtualizarContagem={setQtdSemValor} />}
+      {escopo === "NAO_IDENTIFICADOS" && <PagamentosNaoIdentificados />}
+      {escopo === "ACORDOS" && <FilaAcordosConfirmar />}
 
-      {filtro === "NAO_IDENTIFICADOS" ? (
-        <PagamentosNaoIdentificados />
-      ) : filtro === "SEM_VALOR" || filtro === "ACORDO_SEM_VALOR" || filtro === "SEM_TELEFONE" ? null : (
+      {escopo === "PAGAMENTOS" && (
         <>
-      {solicitacoesFiltradas.length === 0 && (
-        <div style={styles.vazio}>Nenhuma solicitação neste filtro.</div>
-      )}
+          <div style={A.topo}>
+            <div>
+              <h1 style={A.titulo}>Fila de confirmação de pagamento</h1>
+              <p style={A.sub}>
+                Pagamentos informados pela operação, agrupados por aluno. Confirme direto no card;
+                clique na linha para abrir a ficha, o financeiro e o comprovante.
+              </p>
+            </div>
+            <button type="button" style={A.btnGhost} onClick={carregarSolicitacoes}>Atualizar</button>
+          </div>
 
-      {solicitacoesFiltradas.length > 0 && (
-        <div style={styles.tabelaWrap}>
-          <table style={styles.tabela}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Aluno</th>
-                <th style={styles.th}>CPF</th>
-                <th style={styles.th}>Operador que informou</th>
-                <th style={styles.th}>Enviado em</th>
-                <th style={styles.th}>Origem da dívida</th>
-                <th style={styles.th}>Tipo informado</th>
-                <th style={styles.thNum}>Valor informado</th>
-                <th style={styles.th}>Status</th>
-              </tr>
-            </thead>
-            <tbody>
-              {solicitacoesFiltradas.map((s) => (
-                <tr key={s.id} style={styles.tr} onClick={() => abrirFicha(s)} title="Abrir ficha do aluno">
-                  <td style={styles.td}>{s.aluno_nome || "Aluno sem nome"}</td>
-                  <td style={styles.td}>{s.aluno_cpf || "-"}</td>
-                  <td style={styles.td}>{s.operador_nome || s.operador_email || "-"}</td>
-                  <td style={styles.td}>{formatarData(s.criado_em)}</td>
-                  <td style={styles.td}>{traduzOrigem(s.origem_divida)}</td>
-                  <td style={styles.td}>{traduzTipo(s.forma_pagamento)}</td>
-                  <td style={styles.tdNum}>{formatarMoeda(s.valor_informado)}</td>
-                  <td style={styles.td}>
-                    <span style={{ ...styles.status, ...corStatus(s.status) }}>{traduzStatus(s.status)}</span>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+          <div style={A.barra}>
+            <select style={A.select} value={filtro} onChange={(e) => setFiltro(e.target.value)}>
+              <option value="PENDENTES">Pendentes{abertosTotal ? ` (${abertosTotal})` : ""}</option>
+              <option value="AGUARDANDO_VINCULO">
+                Recebido, aguardando vínculo{contadores.aguardandoVinculo ? ` (${contadores.aguardandoVinculo})` : ""}
+              </option>
+              <option value="CONFIRMADOS">Confirmados</option>
+              <option value="TODOS">Todos</option>
+            </select>
+            <select style={A.select} value={origemFiltro} onChange={(e) => setOrigemFiltro(e.target.value)}>
+              <option value="TODAS">Acordo e mensalidade</option>
+              <option value="ACORDO">Só acordo{porOrigem.acordo ? ` (${porOrigem.acordo})` : ""}</option>
+              <option value="MENSALIDADE">Só mensalidade{porOrigem.mensalidade ? ` (${porOrigem.mensalidade})` : ""}</option>
+              <option value="SEM_SALDO">Sem saldo em aberto{porOrigem.semSaldo ? ` (${porOrigem.semSaldo})` : ""}</option>
+              <option value="SEM_CLASSIFICACAO">Sem classificação</option>
+            </select>
+            <select style={A.select} value={tipoFiltro} onChange={(e) => setTipoFiltro(e.target.value)}>
+              <option value="TODOS">Todos os tipos informados</option>
+              <option value="QUITACAO_TOTAL">Quitação total</option>
+              <option value="PARCELA">Parcela</option>
+              <option value="MENSALIDADE">Mensalidade</option>
+              <option value="ACORDO">Acordo</option>
+              <option value="SEM_TIPO">Sem tipo informado</option>
+            </select>
+            <select style={A.select} value={ordem} onChange={(e) => setOrdem(e.target.value)}>
+              <option value="DATA_DESC">Mais recentes primeiro</option>
+              <option value="DATA_ASC">Mais antigos primeiro</option>
+              <option value="VALOR_DESC">Maior valor primeiro</option>
+              <option value="VALOR_ASC">Menor valor primeiro</option>
+            </select>
+            <input
+              style={A.input}
+              placeholder="Buscar por nome ou CPF..."
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+            />
+            <div style={A.contadores}>
+              <span style={A.contadorAlunos}>{grupos.length} alunos</span>
+              <span style={A.contadorAcordos}>{solicitacoesFiltradas.length} pagamentos</span>
+              <span style={A.contadorValor}>{formatarMoeda(totalFiltrado)}</span>
+            </div>
+          </div>
+
+          {grupos.length === 0 ? (
+            <p style={A.muted}>Nenhuma solicitação neste filtro.</p>
+          ) : (
+            <div style={A.cards}>
+              {grupos.map((g) => {
+                const confirmaveis = g.itens.filter(podeConfirmarSolicitacao);
+                const busyGrp = !!processando[`grp:${g.chave}`];
+                return (
+                  <div key={g.chave} style={A.card}>
+                    <div style={A.cardHead}>
+                      <div style={A.cardHeadInfo}>
+                        <span style={A.cardNome}>{g.nome || "Aluno sem nome"}</span>
+                        <span style={A.cardCpf}>CPF {formatCpf(g.cpf)}</span>
+                      </div>
+                      <div style={A.cardHeadDir}>
+                        <span style={A.cardResumo}>
+                          {g.itens.length} pagamento{g.itens.length > 1 ? "s" : ""} · {formatarMoeda(g.total)}
+                          {g.primeiroEm ? ` · na fila desde ${formatarDia(g.primeiroEm)}` : ""}
+                        </span>
+                        {confirmaveis.length > 0 && (
+                          <button
+                            type="button"
+                            style={{ ...A.btnConf, ...(busyGrp ? A.btnBusy : {}) }}
+                            disabled={busyGrp}
+                            onClick={() => confirmarGrupo(g)}
+                            title={
+                              confirmaveis.length > 1
+                                ? "Confirma de uma vez todos os pagamentos pendentes deste aluno"
+                                : "Confirma o pagamento pendente deste aluno"
+                            }
+                          >
+                            {busyGrp
+                              ? "Confirmando..."
+                              : confirmaveis.length > 1
+                                ? `Confirmar os ${confirmaveis.length} pagamentos`
+                                : "Confirmar pagamento"}
+                          </button>
+                        )}
+                        {podeQuitar(emailUsuario) && g.abertos.length > 0 && (
+                          <button
+                            type="button"
+                            style={styles.btnQuitar}
+                            onClick={() => quitarEEncerrar(g.abertos[0])}
+                            title="Quita, zera e tira das filas. Não volta pro operador."
+                          >
+                            💰 Quitar e encerrar
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          style={A.btnFicha}
+                          onClick={() => abrirFicha(g.abertos[0] || g.itens[0])}
+                        >
+                          Abrir ficha
+                        </button>
+                      </div>
+                    </div>
+
+                    <table style={A.tabela}>
+                      <thead>
+                        <tr>
+                          <th style={A.th}>Enviado em</th>
+                          <th style={A.th}>Operador que informou</th>
+                          <th style={A.th}>Origem da dívida</th>
+                          <th style={A.th}>Tipo informado</th>
+                          <th style={A.thNum}>Valor informado</th>
+                          <th style={A.th}>Status</th>
+                          <th style={A.th}></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {g.itens.map((s) => {
+                          const busy = !!processando[s.id];
+                          const aberto = isConfirmacaoAberta(s.status);
+                          const travado = aberto && !podeConfirmarSolicitacao(s);
+                          return (
+                            <tr
+                              key={s.id}
+                              style={{ cursor: "pointer" }}
+                              onClick={() => abrirFicha(s)}
+                              title="Abrir ficha do aluno"
+                            >
+                              <td style={A.td}>{formatarData(s.criado_em)}</td>
+                              <td style={A.td}>{s.operador_nome || s.operador_email || "-"}</td>
+                              <td style={A.td}>{traduzOrigem(s.origem_divida)}</td>
+                              <td style={A.td}>{traduzTipo(s.forma_pagamento)}</td>
+                              <td style={A.tdNum}>{formatarMoeda(s.valor_informado)}</td>
+                              <td style={A.td}>
+                                <span style={{ ...A.chip, ...chipStatus(s.status) }}>{traduzStatus(s.status)}</span>
+                              </td>
+                              <td style={A.td}>
+                                <div style={A.acoes} onClick={(e) => e.stopPropagation()}>
+                                  {travado && (
+                                    <button
+                                      type="button"
+                                      style={A.btnVinc}
+                                      onClick={() => { abrirFicha(s); setAbaFicha("acordo"); }}
+                                      title="Sem vínculo com a dívida: acerte no financeiro para liberar a confirmação"
+                                    >
+                                      Acertar dívida
+                                    </button>
+                                  )}
+                                  {aberto && (
+                                    <button
+                                      type="button"
+                                      style={{ ...A.btnRej, ...(busy ? A.btnBusy : {}) }}
+                                      disabled={busy}
+                                      onClick={() => rejeitarNoCard(s)}
+                                    >
+                                      {busy ? "..." : "Rejeitar"}
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </>
       )}
 
       {/* ---- Ficha do aluno (modal) ---- */}
       {detalhe && (
-        <div style={styles.overlay} onClick={fecharFicha}>
-          <div style={styles.modal} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.modalTopo}>
-              <div>
-                <h2 style={styles.modalNome}>{detalhe.aluno_nome || "Aluno sem nome"}</h2>
-                <span style={styles.modalCpf}>CPF: {detalhe.aluno_cpf || "-"}</span>
+        <div style={A.modalOverlay} onClick={fecharFicha}>
+          <div style={A.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div style={A.modalTopo}>
+              <div style={A.cardHeadInfo}>
+                <span style={A.modalTitulo}>{detalhe.aluno_nome || "Aluno sem nome"}</span>
+                <span style={A.cardCpf}>CPF {formatCpf(detalhe.aluno_cpf)}</span>
               </div>
-              <span style={{ ...styles.status, ...corStatus(detalhe.status) }}>{traduzStatus(detalhe.status)}</span>
+              <span style={{ ...A.chip, ...chipStatus(detalhe.status) }}>{traduzStatus(detalhe.status)}</span>
               {detalhe.aluno_id && (
                 <button
                   type="button"
                   onClick={() => setAbaFicha("ficha")}
-                  style={{ background: "#0f9d6b", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", marginLeft: 8 }}
+                  style={A.btnFicha}
                 >
                   Abrir ficha completa
                 </button>
               )}
-              <button style={styles.fechar} onClick={fecharFicha}>✕</button>
+              <button type="button" style={{ ...A.modalFechar, marginLeft: "auto" }} onClick={fecharFicha}>Fechar ✕</button>
             </div>
 
             {detalhe.aluno_id && (
@@ -781,7 +1011,7 @@ export default function FilaConfirmacaoPagamento() {
               ))}
             </div>
 
-            <div style={styles.modalCorpo}>
+            <div style={A.modalConteudo}>
               {carregandoFicha && <p style={styles.info}>Carregando ficha...</p>}
 
               {abaFicha === "resumo" && (
@@ -944,12 +1174,12 @@ export default function FilaConfirmacaoPagamento() {
                       </div>
                       <div style={styles.acoes}>
                         <button
-                          style={confirmavel && !finalizando ? styles.botaoConfirmar : styles.botaoDesabilitado}
-                          disabled={!confirmavel || finalizando}
+                          style={confirmavel && !processando[detalhe.id] ? styles.botaoConfirmar : styles.botaoDesabilitado}
+                          disabled={!confirmavel || !!processando[detalhe.id]}
                           title={confirmavel ? "" : "Ajuste a dívida na aba Financeiro antes de concluir."}
-                          onClick={() => confirmavel && !finalizando && finalizarSolicitacao(detalhe)}
+                          onClick={() => confirmavel && !processando[detalhe.id] && finalizarSolicitacao(detalhe)}
                         >
-                          {finalizando ? "Confirmando..." : "Confirmar pagamento"}
+                          {processando[detalhe.id] ? "Confirmando..." : "Confirmar pagamento"}
                         </button>
                         {podeQuitar(usuario?.email) && (
                           <button
@@ -986,39 +1216,14 @@ export default function FilaConfirmacaoPagamento() {
 
 const styles = {
   container: { padding: "24px", fontFamily: "Arial, sans-serif", background: "#f4f6f8", minHeight: "100%" },
-  cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "18px" },
   titulo: { margin: 0, marginBottom: "6px", color: "#111827" },
-  subtitulo: { margin: 0, color: "#4b5563" },
-  botaoAtualizar: { background: "#111827", color: "#fff", border: "none", padding: "10px 16px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold", height: "fit-content" },
-  cardsIndicadores: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: "12px", marginBottom: "18px" },
-  indicador: { background: "#fff", borderRadius: "12px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)", display: "flex", flexDirection: "column", gap: "4px" },
-  numero: { fontSize: "26px", fontWeight: "bold", color: "#111827" },
-  descricao: { fontSize: "13px", color: "#6b7280" },
-  filtros: { display: "flex", gap: "10px", marginBottom: "18px", flexWrap: "wrap" },
+  btnQuitar: { background: "#6b21a8", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
   escopo: { display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" },
   escopoBotao: { background: "#fff", border: "1px solid #d1d5db", color: "#374151", padding: "10px 18px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 700 },
   escopoAtivo: { background: "#1e40af", border: "1px solid #1e40af", color: "#fff", padding: "10px 18px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 800 },
-  filtro: { background: "#fff", border: "1px solid #d1d5db", color: "#374151", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontSize: "13px" },
-  filtroAtivo: { background: "#0ea5e9", border: "1px solid #0ea5e9", color: "#fff", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontSize: "13px", fontWeight: "bold" },
-  vazio: { background: "#fff", borderRadius: "12px", padding: "20px", textAlign: "center", color: "#6b7280" },
-  tabelaWrap: { background: "#fff", borderRadius: "14px", overflow: "hidden", boxShadow: "0 2px 10px rgba(0,0,0,0.06)" },
-  tabela: { width: "100%", borderCollapse: "collapse", fontSize: "14px" },
-  th: { textAlign: "left", padding: "12px 10px", background: "#f1f5f9", color: "#475569", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.3px" },
-  thNum: { textAlign: "right", padding: "12px 10px", background: "#f1f5f9", color: "#475569", fontSize: "12px", textTransform: "uppercase", letterSpacing: "0.3px" },
-  tr: { cursor: "pointer", borderTop: "1px solid #eef2f7" },
-  td: { padding: "12px 10px", color: "#374151" },
-  tdNum: { padding: "12px 10px", color: "#111827", textAlign: "right", fontWeight: 600, whiteSpace: "nowrap" },
-  status: { padding: "6px 10px", borderRadius: "999px", fontWeight: "bold", fontSize: "12px", whiteSpace: "nowrap" },
-  overlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex", justifyContent: "center", alignItems: "flex-start", padding: "40px 16px", zIndex: 50, overflowY: "auto" },
-  modal: { background: "#fff", borderRadius: "16px", width: "100%", maxWidth: "760px", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" },
-  modalTopo: { display: "flex", alignItems: "center", gap: "14px", padding: "18px 20px", borderBottom: "1px solid #eef2f7" },
-  modalNome: { margin: 0, color: "#111827", fontSize: "20px" },
-  modalCpf: { color: "#6b7280", fontSize: "13px" },
-  fechar: { marginLeft: "auto", background: "transparent", border: "none", fontSize: "18px", cursor: "pointer", color: "#6b7280" },
   abas: { display: "flex", gap: "8px", padding: "12px 20px 0", flexWrap: "wrap" },
   aba: { background: "#f1f5f9", border: "none", color: "#475569", padding: "8px 14px", borderRadius: "8px 8px 0 0", cursor: "pointer", fontSize: "13px" },
   abaAtiva: { background: "#0ea5e9", border: "none", color: "#fff", padding: "8px 14px", borderRadius: "8px 8px 0 0", cursor: "pointer", fontSize: "13px", fontWeight: "bold" },
-  modalCorpo: { padding: "18px 20px", maxHeight: "50vh", overflowY: "auto" },
   subttl: { margin: "14px 0 6px", color: "#111827", fontSize: "14px" },
   info: { margin: "4px 0", color: "#374151", fontSize: "14px" },
   bloco: { marginTop: "12px" },
