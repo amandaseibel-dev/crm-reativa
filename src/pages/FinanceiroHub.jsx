@@ -3,17 +3,18 @@ import ConsultaFinanceira from "./ConsultaFinanceira";
 import FilaConfirmacaoPagamento from "./FilaConfirmacaoPagamento";
 import PainelAdm from "./PainelAdm";
 import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirmacoes from "./HistoricoConfirmacoes";
-import FilaAcordosConfirmar from "./FilaAcordosConfirmar";
 
 // Reune as telas financeiras num lugar so, com abas. Cada aba carrega o
 // componente ORIGINAL sem nenhuma alteracao interna -- nenhuma logica,
 // permissao ou referencia foi tocada, so a navegacao mudou.
+// A fila de acordos NAO tem aba propria aqui: ela ja vive dentro de
+// "Confirmacao de Pagamento" (sub-aba "Acordos a confirmar"), e ter as duas
+// portas pra mesma tela so fazia parecer que eram filas diferentes.
 const ABAS = [
   { chave: "PAINEL_ADM", rotulo: "Painel ADM" },
   { chave: "FINANCEIRO", rotulo: "Financeiro" },
   { chave: "CONFIRMACAO", rotulo: "Confirmação de Pagamento" },
   { chave: "FILA_BAIXAS", rotulo: "Fila de Baixas" },
-  { chave: "FILA_ACORDOS", rotulo: "Fila de Acordos" },
   { chave: "HIST_CONFIRMACOES", rotulo: "Histórico de Confirmações" },
 ];
 
@@ -46,7 +47,6 @@ export default function FinanceiroHub() {
         {aba === "FINANCEIRO" && <ConsultaFinanceira />}
         {aba === "CONFIRMACAO" && <FilaConfirmacaoPagamento />}
         {aba === "FILA_BAIXAS" && <MinhaFilaPagamentos />}
-        {aba === "FILA_ACORDOS" && <FilaAcordosConfirmar />}
         {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
       </div>
     </div>
