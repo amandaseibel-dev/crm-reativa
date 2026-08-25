@@ -190,7 +190,6 @@ export default function FilaAcordosConfirmar() {
     }
   }
 
-  const confirmar = (item) => mudarStatus(item, "CONFIRMADO");
   const rejeitar = (item) => mudarStatus(item, "REJEITADO");
   const reabrir = (item) => mudarStatus(item, "A_CONFIRMAR");
 
@@ -348,9 +347,17 @@ export default function FilaAcordosConfirmar() {
                         style={{ ...S.btnConf, ...(busyGrp ? S.btnBusy : {}) }}
                         disabled={busyGrp}
                         onClick={() => confirmarTodos(g)}
-                        title="Confirma de uma vez todos os acordos deste aluno"
+                        title={
+                          pendentes.length > 1
+                            ? "Confirma de uma vez todos os acordos pendentes deste aluno"
+                            : "Confirma o acordo pendente deste aluno"
+                        }
                       >
-                        {busyGrp ? "Confirmando..." : `Confirmar todos (${pendentes.length})`}
+                        {busyGrp
+                          ? "Confirmando..."
+                          : pendentes.length > 1
+                            ? `Confirmar os ${pendentes.length} acordos`
+                            : "Confirmar"}
                       </button>
                     );
                   })()}
@@ -400,15 +407,16 @@ export default function FilaAcordosConfirmar() {
                         </td>
                         <td style={S.td}>
                           <div style={S.acoes}>
+                            {/* Confirmar mora SO no cabecalho do card (um botao por
+                                aluno). Antes, card de 1 acordo -- a maioria --
+                                mostrava dois botoes verdes fazendo a mesma coisa:
+                                "Confirmar todos (1)" e "Confirmar". Rejeitar
+                                continua por linha: rejeitar e sempre sobre UM
+                                acordo especifico, nunca sobre o aluno inteiro. */}
                             {st === "A_CONFIRMAR" && (
-                              <>
-                                <button type="button" style={{ ...S.btnConf, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => confirmar(a)}>
-                                  {busy ? "..." : "Confirmar"}
-                                </button>
-                                <button type="button" style={{ ...S.btnRej, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => rejeitar(a)}>
-                                  {busy ? "..." : "Rejeitar"}
-                                </button>
-                              </>
+                              <button type="button" style={{ ...S.btnRej, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => rejeitar(a)}>
+                                {busy ? "..." : "Rejeitar"}
+                              </button>
                             )}
                             {st === "REJEITADO" && (
                               <button type="button" style={{ ...S.btnMini, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => reabrir(a)}>
