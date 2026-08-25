@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 import { emailPorNomeOperador, nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
 import { Carregando, Erro } from "../ui/estados";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
@@ -547,26 +548,40 @@ export default function CRM() {
     // um ACORDO ativo (acordos.operador_responsavel_email). Mensalidade e acordo
     // podem pertencer a operadores diferentes -- por isso a união. Antes o CRM
     // filtrava só por casos.operador_base (operador de ORIGEM, ~11% do dono real).
-    const { data: acordosMeus } = await supabase
-      .from("acordos")
-      .select("aluno_id")
-      .eq("operador_responsavel_email", alvoEmailLc)
-      .eq("status", "ATIVO");
+    // Um operador ja tem 1.734 acordos ativos, e a API entrega no maximo 1.000
+    // por requisicao (respondendo 206, sem erro). Sem paginar, os alunos dos
+    // acordos que passassem de mil sumiam do CRM dele.
+    const acordosMeus = await buscarTudo((de, ate) =>
+      supabase
+        .from("acordos")
+        .select("aluno_id")
+        .eq("operador_responsavel_email", alvoEmailLc)
+        .eq("status", "ATIVO")
+        // Desempate estavel entre paginas.
+        .order("id", { ascending: true })
+        .range(de, ate)
+    );
     const idsPorAcordo = [
-      ...new Set((acordosMeus || []).map((a) => a.aluno_id).filter(Boolean)),
+      ...new Set(acordosMeus.map((a) => a.aluno_id).filter(Boolean)),
     ];
 
-    let q = supabase.from("casos").select("*");
-    if (idsPorAcordo.length > 0) {
-      q = q.or(
-        `operador_email.eq.${alvoEmailLc},aluno_id.in.(${idsPorAcordo.join(",")})`
-      );
-    } else {
-      q = q.eq("operador_email", alvoEmailLc);
-    }
-    const { data, error } = await q.range(0, 5000);
-
-    if (error) {
+    // `.range(0, 5000)` tambem nao vale: a API para em 1.000 linhas de qualquer
+    // jeito. A maior carteira esta em 786 casos -- ainda cabe, mas encostada no
+    // teto, e o corte seria silencioso no dia em que passar.
+    let data;
+    try {
+      data = await buscarTudo((de, ate) => {
+        let q = supabase.from("casos").select("*").order("id", { ascending: true }).range(de, ate);
+        if (idsPorAcordo.length > 0) {
+          q = q.or(
+            `operador_email.eq.${alvoEmailLc},aluno_id.in.(${idsPorAcordo.join(",")})`
+          );
+        } else {
+          q = q.eq("operador_email", alvoEmailLc);
+        }
+        return q;
+      });
+    } catch (error) {
       setCarregando(false);
       console.error(error);
       setErro("Erro ao carregar dados do CRM operacional.");

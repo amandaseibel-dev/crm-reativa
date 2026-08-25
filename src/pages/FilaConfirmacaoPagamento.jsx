@@ -717,12 +717,19 @@ export default function FilaConfirmacaoPagamento() {
   }, [solicitacoes, filtro, ordem, busca]);
 
   // 1 card por aluno (CPF), igual à fila de acordos: o card é o aluno, a tabela
-  // são os pagamentos dele. Sem CPF, cada linha vira seu próprio card.
+  // são os pagamentos dele.
+  //
+  // A chave é o CPF, mas 69% das solicitações abertas em produção (1.568 de
+  // 2.258, medido em 25/08/2026) nascem SEM cpf preenchido. Agrupando só por
+  // CPF, cada uma dessas virava um card sozinho e o "Confirmar os N pagamentos"
+  // praticamente nunca aparecia -- justo no caso em que ele mais economiza
+  // clique. Sem CPF, cai para o aluno_id, que identifica a pessoa igual. Só
+  // quando não há nem um nem outro é que a linha vira seu próprio card.
   const grupos = useMemo(() => {
     const mapa = new Map();
     for (const s of solicitacoesFiltradas) {
       const cpf = normCpf(s.aluno_cpf);
-      const chave = cpf || `SEMCPF-${s.id}`;
+      const chave = cpf || (s.aluno_id ? `ALUNO-${s.aluno_id}` : `SEMCPF-${s.id}`);
       if (!mapa.has(chave)) {
         mapa.set(chave, { chave, cpf, nome: s.aluno_nome, alunoId: s.aluno_id, itens: [] });
       }
@@ -874,7 +881,9 @@ export default function FilaConfirmacaoPagamento() {
                     <div style={A.cardHead}>
                       <div style={A.cardHeadInfo}>
                         <span style={A.cardNome}>{g.nome || "Aluno sem nome"}</span>
-                        <span style={A.cardCpf}>CPF {formatCpf(g.cpf)}</span>
+                        <span style={A.cardCpf}>
+                          {g.cpf ? `CPF ${formatCpf(g.cpf)}` : "sem CPF cadastrado"}
+                        </span>
                       </div>
                       <div style={A.cardHeadDir}>
                         <span style={A.cardResumo}>
