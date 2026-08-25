@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const VERDE = "#1e40af";
@@ -43,37 +44,58 @@ export default function ExportarContatos() {
     setResultados(null);
 
     try {
-      let query = supabase
-        .from("casos")
-        .select("aluno_id, total_em_aberto, operador_nome")
-        .not("aluno_id", "is", null)
-        .order("total_em_aberto", { ascending: false })
-        .limit(qtd);
+      // A tela deixa pedir ate 5.000 contatos, mas a API devolve no maximo
+      // 1.000 por requisicao -- e sem erro nenhum. Quem pedia 5.000 exportava
+      // 1.000 e nao tinha como saber. Agora busca de mil em mil ate juntar a
+      // quantidade pedida.
+      const casos = await buscarTudo(
+        (de, ate) => {
+          let q = supabase
+            .from("casos")
+            .select("aluno_id, total_em_aberto, operador_nome")
+            .not("aluno_id", "is", null)
+            .order("total_em_aberto", { ascending: false })
+            // Desempate estavel entre paginas: muitos casos com o mesmo valor.
+            .order("id", { ascending: true })
+            .range(de, ate);
+          if (min !== null) q = q.gte("total_em_aberto", min);
+          if (max !== null) q = q.lte("total_em_aberto", max);
+          if (somenteLivres) q = q.is("operador_email", null);
+          return q;
+        },
+        { maximo: qtd }
+      );
+      // buscarTudo para na pagina que cruza o maximo; corta no numero pedido.
+      const casosLimitados = casos.slice(0, qtd);
 
-      if (min !== null) query = query.gte("total_em_aberto", min);
-      if (max !== null) query = query.lte("total_em_aberto", max);
-      if (somenteLivres) query = query.is("operador_email", null);
-
-      const { data: casos, error: erroCasos } = await query;
-      if (erroCasos) throw erroCasos;
-
-      const idsAlunos = [...new Set((casos || []).map((c) => c.aluno_id))];
+      const idsAlunos = [...new Set(casosLimitados.map((c) => c.aluno_id))];
       if (idsAlunos.length === 0) {
         setResultados([]);
         setCarregando(false);
         return;
       }
 
-      const { data: alunos, error: erroAlunos } = await supabase
-        .from("alunos")
-        .select("id, nome, telefone, cpf")
-        .in("id", idsAlunos);
+      // Mesma armadilha aqui: `.in("id", [5000 ids])` tambem para em 1.000
+      // linhas. Sem isto, boa parte da exportacao saia com nome "-" e telefone
+      // vazio -- parecia cadastro incompleto, era a consulta cortada.
+      // Lotes de 500 ids tambem evitam URL longa demais.
+      const alunos = [];
+      for (let i = 0; i < idsAlunos.length; i += 500) {
+        const bloco = idsAlunos.slice(i, i + 500);
+        const parte = await buscarTudo((de, ate) =>
+          supabase
+            .from("alunos")
+            .select("id, nome, telefone, cpf")
+            .in("id", bloco)
+            .order("id", { ascending: true })
+            .range(de, ate)
+        );
+        alunos.push(...parte);
+      }
 
-      if (erroAlunos) throw erroAlunos;
+      const alunosPorId = Object.fromEntries(alunos.map((a) => [String(a.id), a]));
 
-      const alunosPorId = Object.fromEntries((alunos || []).map((a) => [String(a.id), a]));
-
-      let lista = (casos || []).map((c) => {
+      let lista = casosLimitados.map((c) => {
         const a = alunosPorId[String(c.aluno_id)] || {};
         return {
           nome: a.nome || "-",

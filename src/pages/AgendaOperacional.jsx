@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 import { nomeOperadorPorEmail } from "../utils/operadores";
 import BotaoManual from "../components/BotaoManual";import Alunos from "./Aluno";
 
@@ -114,6 +115,14 @@ function podeVerAgendaGeral(email) {
   ].includes(e);
 }
 
+// So o que a agenda mostra ou filtra -- `select *` trazia a linha inteira.
+const COLUNAS_AGENDA = [
+  "id", "chave_unificacao", "nome_aluno", "nome_referencia", "cpf_referencia", "matricula",
+  "operador_nome", "operador_email", "status_jornada", "data_retorno", "hora_retorno",
+  "prioridade_operacional", "observacao_operacional",
+  "quantidade_casos", "quantidade_cpfs", "valor_total_casos",
+].join(", ");
+
 export default function AgendaOperacional() {
   const [usuario, setUsuario] = useState(null);
   const [alunos, setAlunos] = useState([]);
@@ -124,36 +133,53 @@ export default function AgendaOperacional() {
   const [filtroOperador, setFiltroOperador] = useState("TODOS");
   const [filtroTipoFinalizacao, setFiltroTipoFinalizacao] = useState("TODOS");
 
+  // A agenda so pode ser buscada DEPOIS de saber quem esta logado: operador
+  // comum recebe do banco apenas a propria agenda (antes o recorte era feito no
+  // navegador, com a base inteira ja baixada).
   useEffect(() => {
-    carregarUsuario();
-    carregarAgenda();
+    (async () => {
+      const { data } = await supabase.auth.getUser();
+      const u = data?.user || null;
+      setUsuario(u);
+      const email = u?.email || "";
+      await carregarAgenda(email, podeVerAgendaGeral(email));
+    })();
   }, []);
 
-  async function carregarUsuario() {
-    const { data } = await supabase.auth.getUser();
-    setUsuario(data?.user || null);
-  }
-
-  async function carregarAgenda() {
+  // Antes: `select *` com .limit(5000), recebendo 1000 (teto da API) de 16.951
+  // linhas -- a agenda mostrava um pedaco arbitrario. Tres coisas que a tela ja
+  // fazia no navegador passam a ser feitas no banco:
+  //   - so quem TEM retorno agendado (era `lista.filter(item.data_retorno)`);
+  //   - operador comum ve so a agenda dele (era filtro por email/nome no
+  //     cliente, DEPOIS de baixar a base inteira);
+  //   - so as colunas que a agenda usa, em vez de todas.
+  // O que sobra e paginado ate acabar.
+  async function carregarAgenda(email, ehAdm) {
     setCarregando(true);
 
-    const { data, error } = await supabase
-      .from("alunos_unificados")
-      .select("*")
-      .eq("ocultar_fila", false)
-      .not("status_jornada", "eq", "QUITADO")
-      .not("status_jornada", "eq", "NAO_CONTATAR")
-      .order("data_retorno", { ascending: true })
-      .limit(5000);
-
-    if (error) {
-      alert("Erro ao carregar Agenda Operacional: " + error.message);
+    try {
+      const dados = await buscarTudo((de, ate) => {
+        let q = supabase
+          .from("alunos_unificados")
+          .select(COLUNAS_AGENDA)
+          .eq("ocultar_fila", false)
+          .not("status_jornada", "eq", "QUITADO")
+          .not("status_jornada", "eq", "NAO_CONTATAR")
+          // A agenda e feita de retorno agendado: sem data, nao entra.
+          .not("data_retorno", "is", null)
+          .order("data_retorno", { ascending: true })
+          // Desempate estavel entre paginas.
+          .order("id", { ascending: true })
+          .range(de, ate);
+        if (!ehAdm && email) q = q.eq("operador_email", email);
+        return q;
+      });
+      setAlunos(dados);
+    } catch (e) {
+      alert("Erro ao carregar Agenda Operacional: " + (e?.message || String(e)));
+    } finally {
       setCarregando(false);
-      return;
     }
-
-    setAlunos(data || []);
-    setCarregando(false);
   }
 
   function abrirCadastroAluno(item) {

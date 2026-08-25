@@ -126,6 +126,17 @@ function casoReceptivo(aluno) {
   return !temResponsavel || origem.includes("RECEPT");
 }
 
+// Uma pagina da API (o teto e 1000 linhas por requisicao).
+const PAGINA = 1000;
+
+// So o que a LISTA mostra ou filtra. `select *` custava 2,2 KB por aluno.
+const COLUNAS_LISTA = [
+  "id", "nome", "cpf", "cpf_mascarado", "matricula", "email", "telefone", "curso", "unidade",
+  "origem", "tipo_base", "status_jornada", "status_atual", "status_acionamento",
+  "data_retorno", "hora_retorno", "responsavel_atual_email", "responsavel_atual_nome",
+  "valor_em_aberto",
+].join(", ");
+
 export default function BaseReceptiva() {
   const navigate = useNavigate();
 
@@ -134,6 +145,8 @@ export default function BaseReceptiva() {
   const [carregando, setCarregando] = useState(true);
 
   const [busca, setBusca] = useState("");
+  // true quando a lista na tela veio de uma busca no banco (e nao da 1a pagina).
+  const [buscandoNoBanco, setBuscandoNoBanco] = useState(false);
   const [filtroBase, setFiltroBase] = useState("RECEPTIVOS");
   const [filtroStatus, setFiltroStatus] = useState("TODOS");
   const [ordenacao, setOrdenacao] = useState("VALOR_DESC");
@@ -148,18 +161,41 @@ export default function BaseReceptiva() {
     carregarAlunos();
   }, []);
 
+  // A busca vai ao banco (com uma pausa para nao consultar a cada tecla). Menos
+  // de 3 caracteres nao vale a viagem: filtra o que ja esta na tela.
+  useEffect(() => {
+    const termo = busca.trim();
+    if (termo.length > 0 && termo.length < 3) return;
+    const id = setTimeout(() => {
+      if (termo.length >= 3) buscarNoBanco(termo);
+      else if (buscandoNoBanco) carregarAlunos();
+    }, 400);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busca]);
+
   async function carregarUsuario() {
     const { data } = await supabase.auth.getUser();
     setUsuario(data?.user || null);
   }
 
+  // Antes esta tela pedia `select *` com .limit(1500) e recebia 1000 (teto da
+  // API), com TODAS as colunas: 2,2 KB por aluno, 2,2 MB de tráfego para o
+  // navegador filtrar em memoria. Pior: como a busca era feita no cliente, ela
+  // so achava quem estivesse entre esses 1000 -- os outros 16.470 alunos eram
+  // invisiveis para quem atendia uma ligacao.
+  //
+  // Agora a lista abre com a primeira pagina (ordenada por nome) e a BUSCA vai
+  // ao banco, varrendo a base inteira. As colunas sao so as que a lista usa;
+  // ao abrir um aluno, a linha completa e buscada por id (abrirAluno).
   async function carregarAlunos() {
     setCarregando(true);
 
     const { data, error } = await supabase
       .from("alunos")
-      .select("*")
-      .limit(1500);
+      .select(COLUNAS_LISTA)
+      .order("nome", { ascending: true })
+      .range(0, PAGINA - 1);
 
     if (error) {
       alert("Erro ao carregar Base Receptiva: " + error.message);
@@ -168,11 +204,55 @@ export default function BaseReceptiva() {
     }
 
     setAlunos(data || []);
+    setBuscandoNoBanco(false);
     setCarregando(false);
   }
 
-  function abrirAluno(aluno) {
-    localStorage.setItem("alunoSelecionado", JSON.stringify(aluno));
+  // Busca server-side: acha o aluno em toda a base, nao so no que foi baixado.
+  async function buscarNoBanco(termo) {
+    const t = termo.trim();
+    // Virgula e parentese quebram a sintaxe do filtro `or` do PostgREST.
+    const limpo = t.replace(/[(),]/g, " ").trim();
+    if (!limpo) return carregarAlunos();
+
+    setCarregando(true);
+    const soDigitos = limpo.replace(/\D/g, "");
+    const alvos = ["nome", "matricula", "email", "curso"].map((c) => `${c}.ilike.%${limpo}%`);
+    if (soDigitos) alvos.push(`cpf.ilike.%${soDigitos}%`, `telefone.ilike.%${soDigitos}%`);
+
+    const { data, error } = await supabase
+      .from("alunos")
+      .select(COLUNAS_LISTA)
+      .or(alvos.join(","))
+      .order("nome", { ascending: true })
+      .range(0, PAGINA - 1);
+
+    if (error) {
+      alert("Erro ao buscar aluno: " + error.message);
+      setCarregando(false);
+      return;
+    }
+
+    setAlunos(data || []);
+    setBuscandoNoBanco(true);
+    setCarregando(false);
+  }
+
+  // A lista traz colunas enxutas; a ficha usa o objeto salvo. Busca a linha
+  // completa por id antes de navegar -- se falhar, segue com o que tem.
+  async function abrirAluno(aluno) {
+    let completo = aluno;
+    try {
+      const { data } = await supabase
+        .from("alunos")
+        .select("*")
+        .eq("id", String(aluno.id))
+        .maybeSingle();
+      if (data) completo = data;
+    } catch {
+      // segue com os dados da lista
+    }
+    localStorage.setItem("alunoSelecionado", JSON.stringify(completo));
     navigate("/aluno");
   }
 
