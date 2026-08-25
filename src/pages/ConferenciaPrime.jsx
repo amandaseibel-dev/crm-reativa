@@ -52,6 +52,8 @@ export default function ConferenciaPrime() {
   const [grupo, setGrupo] = useState("SEM_ACORDO");
   const [busca, setBusca] = useState("");
   const [ordem, setOrdem] = useState("VALOR_DESC");
+  // O sinal e calculado por ALUNO, entao este filtro entra depois do agrupamento.
+  const [sinal, setSinal] = useState("TODOS");
   const [processando, setProcessando] = useState({});
   // Ficha do aluno. A tela nasceu sem isso e ficou impossivel conferir o caso
   // antes de baixar -- que e exatamente o que se pede a quem usa esta lista.
@@ -77,6 +79,58 @@ export default function ConferenciaPrime() {
       setItens([]);
     } finally {
       setCarregando(false);
+    }
+  }
+
+  // Baixa TODOS os titulos de um aluno. A decisao e por aluno -- quem liquidou
+  // nove boletos no mesmo dia e um caso so, nao nove. Cada titulo continua
+  // sendo uma chamada individual a RPC, que revalida a prova e trava a linha:
+  // o que agrupa e a decisao, nao a permissao.
+  async function baixarCard(g) {
+    const ok = window.confirm(
+      `Dar baixa em ${g.titulos.length} titulo(s) de ${g.nome}?\n\n` +
+        `Total: ${moeda(g.total)}\n` +
+        `A Prime registra liquidacao ${g.padrao === "DINHEIRO" ? "em datas distintas" : "toda no mesmo dia"}` +
+        (g.ultimaLiquidacao ? `, ate ${dia(g.ultimaLiquidacao)}` : "") + ".\n\n" +
+        (g.padrao === "NEGOCIACAO"
+          ? "CUIDADO: este aluno tem assinatura de NEGOCIACAO (tudo no mesmo dia, incluindo mensalidade que venceria depois) e nao tem acordo no CRM. Baixar apaga divida sem deixar nada para cobrar.\n\n"
+          : g.temAcordoAtivo
+            ? "Este aluno tem acordo ATIVO: os titulos foram liquidados pela negociacao e estao sendo cobrados em dobro. Baixar corrige a duplicidade.\n\n"
+            : "") +
+        "Os titulos ficam como pagos e saem da divida em aberto."
+    );
+    if (!ok) return;
+
+    const chave = `card:${g.chave}`;
+    if (processando[chave]) return;
+    setProcessando((p) => ({ ...p, [chave]: true }));
+
+    let baixados = 0;
+    const falhas = [];
+    try {
+      for (const t of g.titulos) {
+        const { error } = await supabase.rpc("prime_conferencia_baixar", {
+          p_titulo_id: t.titulo_id,
+          p_observacao: null,
+        });
+        if (error) falhas.push(`${t.documento}: ${error.message}`);
+        else baixados += 1;
+      }
+    } finally {
+      setProcessando((p) => {
+        const n = { ...p };
+        delete n[chave];
+        return n;
+      });
+    }
+
+    const idsBaixados = new Set(g.titulos.map((t) => t.titulo_id));
+    if (falhas.length === 0) {
+      setItens((prev) => prev.filter((x) => !idsBaixados.has(x.titulo_id)));
+    } else {
+      // Recarrega: parte foi e parte nao, e a tela nao pode adivinhar quais.
+      alert(`${baixados} baixado(s). Falharam:\n${falhas.join("\n")}`);
+      carregar();
     }
   }
 
@@ -124,9 +178,11 @@ export default function ConferenciaPrime() {
   }
 
   const filtrados = useMemo(() => {
-    let lista = itens.filter((i) =>
-      grupo === "TODOS" ? true : grupo === "COM_ACORDO" ? i.tem_acordo_ativo : !i.tem_acordo_ativo
-    );
+    let lista = itens.filter((i) => {
+      if (grupo === "TODOS") return true;
+      if (grupo === "COM_ACORDO") return i.tem_acordo_ativo;
+      return !i.tem_acordo_ativo;
+    });
 
     if (busca.trim()) {
       const t = busca.trim().toLowerCase();
@@ -185,16 +241,17 @@ export default function ConferenciaPrime() {
             ? "BLOCO"
             : "DINHEIRO";
     }
+    const visiveis = sinal === "TODOS" ? arr : arr.filter((g) => g.padrao === sinal);
     const porNome = (a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR");
-    arr.sort((a, b) => {
+    visiveis.sort((a, b) => {
       if (ordem === "VALOR_ASC") return a.total - b.total || porNome(a, b);
       if (ordem === "LIQUIDACAO_DESC") {
         return String(b.ultimaLiquidacao || "").localeCompare(String(a.ultimaLiquidacao || "")) || porNome(a, b);
       }
       return b.total - a.total || porNome(a, b);
     });
-    return arr;
-  }, [filtrados, ordem]);
+    return visiveis;
+  }, [filtrados, ordem, sinal]);
 
   const contagens = useMemo(
     () => ({
@@ -237,6 +294,12 @@ export default function ConferenciaPrime() {
               <option value="SEM_ACORDO">Sem acordo ativo ({contagens.semAcordo})</option>
               <option value="COM_ACORDO">Com acordo ativo ({contagens.comAcordo})</option>
               <option value="TODOS">Todos ({itens.length})</option>
+            </select>
+            <select style={A.select} value={sinal} onChange={(e) => setSinal(e.target.value)}>
+              <option value="TODOS">Todos os sinais</option>
+              <option value="DINHEIRO">Só os sem selo (parece dinheiro)</option>
+              <option value="BLOCO">Só quitação em bloco</option>
+              <option value="NEGOCIACAO">Só provável negociação</option>
             </select>
             <select style={A.select} value={ordem} onChange={(e) => setOrdem(e.target.value)}>
               <option value="VALOR_DESC">Maior valor primeiro</option>
@@ -307,6 +370,27 @@ export default function ConferenciaPrime() {
                         {g.ultimaLiquidacao ? ` · liquidado até ${dia(g.ultimaLiquidacao)}` : ""}
                       </span>
                       <span style={A.cardUnidade}>{g.responsavel}</span>
+                      {g.titulos.length > 1 && (
+                        <button
+                          type="button"
+                          style={{
+                            ...A.btnConf,
+                            ...(processando[`card:${g.chave}`] ? A.btnBusy : {}),
+                            ...(g.padrao === "NEGOCIACAO" ? estilos.btnPerigo : {}),
+                          }}
+                          disabled={!!processando[`card:${g.chave}`]}
+                          onClick={() => baixarCard(g)}
+                          title={
+                            g.padrao === "NEGOCIACAO"
+                              ? "Este aluno tem assinatura de negociação — confira antes"
+                              : "Baixa todos os títulos deste aluno de uma vez"
+                          }
+                        >
+                          {processando[`card:${g.chave}`]
+                            ? "Baixando..."
+                            : `Baixar os ${g.titulos.length} títulos`}
+                        </button>
+                      )}
                       {g.alunoId && (
                         <button
                           type="button"
@@ -401,6 +485,7 @@ const estilos = {
     lineHeight: 1.5,
     marginBottom: 14,
   },
+  btnPerigo: { background: "#b91c1c" },
   seloAlerta: {
     fontSize: 11,
     fontWeight: 700,
