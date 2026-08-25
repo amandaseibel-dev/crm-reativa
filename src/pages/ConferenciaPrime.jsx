@@ -86,6 +86,9 @@ export default function ConferenciaPrime() {
         (item.tem_acordo_ativo
           ? "ATENÇÃO: este aluno tem acordo ATIVO. Provavelmente o título foi liquidado pela negociação — baixar aqui evita cobrar a mesma dívida duas vezes.\n\n"
           : "") +
+        (item.padraoAluno === "NEGOCIACAO"
+          ? "CUIDADO: os títulos deste aluno foram todos liquidados no MESMO dia, incluindo mensalidade que venceria depois. Isso é assinatura de NEGOCIAÇÃO, não de pagamento — e não há acordo ativo no CRM. Se o acordo não foi importado, baixar apaga a dívida sem deixar nada para cobrar.\n\n"
+          : "") +
         "O título fica como pago e sai da dívida em aberto."
     );
     if (!ok) return;
@@ -158,6 +161,24 @@ export default function ConferenciaPrime() {
         (max, t) => (t.liquidado_em && (!max || t.liquidado_em > max) ? t.liquidado_em : max),
         null
       );
+      // COMO SE RECONHECE UMA NEGOCIACAO DISFARCADA DE PAGAMENTO:
+      // ninguem paga adiantado quatro mensalidades que ainda nem venceram. Se
+      // TODOS os titulos foram liquidados no MESMO dia e pelo menos um deles
+      // venceria DEPOIS dessa data, o que aconteceu foi negociacao -- as
+      // mensalidades futuras foram liquidadas de uma vez para virar acordo.
+      // Quando esse aluno nao tem acordo ativo aqui, o acordo provavelmente
+      // nao foi importado: baixar apagaria a divida dele do CRM sem que o
+      // acordo exista para cobrar.
+      const datas = new Set(g.titulos.map((t) => t.liquidado_em).filter(Boolean));
+      const quitouFuturo = g.titulos.some(
+        (t) => t.liquidado_em && t.vencimento && t.vencimento > t.liquidado_em
+      );
+      g.padrao =
+        datas.size === 1 && quitouFuturo
+          ? "NEGOCIACAO"
+          : datas.size === 1 && g.titulos.length > 1
+            ? "BLOCO"
+            : "DINHEIRO";
     }
     const porNome = (a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR");
     arr.sort((a, b) => {
@@ -258,6 +279,22 @@ export default function ConferenciaPrime() {
                       <span style={A.cardNome}>{g.nome || "-"}</span>
                       <span style={A.cardCpf}>CPF {formatCpf(g.cpf)}</span>
                       {g.temAcordoAtivo && <span style={estilos.selo}>acordo ativo</span>}
+                      {g.padrao === "NEGOCIACAO" && (
+                        <span
+                          style={estilos.seloAlerta}
+                          title="Tudo liquidado no mesmo dia, incluindo mensalidade que venceria depois. Isso é negociação, não pagamento — e o acordo não está no CRM."
+                        >
+                          provável negociação — não baixar
+                        </span>
+                      )}
+                      {g.padrao === "BLOCO" && (
+                        <span
+                          style={estilos.seloAtencao}
+                          title="Tudo liquidado no mesmo dia, mas só de parcelas já vencidas. Pode ser acordo à vista ou pagamento de atrasados juntos."
+                        >
+                          quitação em bloco — conferir
+                        </span>
+                      )}
                     </div>
                     <div style={A.cardHeadDir}>
                       <span style={A.cardResumo}>
@@ -293,7 +330,7 @@ export default function ConferenciaPrime() {
                                   type="button"
                                   style={{ ...A.btnConf, ...(busy ? A.btnBusy : {}) }}
                                   disabled={busy}
-                                  onClick={() => baixar(t)}
+                                  onClick={() => baixar({ ...t, padraoAluno: g.padrao })}
                                   title="Marca o título como pago e tira da dívida em aberto"
                                 >
                                   {busy ? "Baixando..." : "Dar baixa"}
@@ -325,6 +362,26 @@ const estilos = {
     fontSize: 13,
     lineHeight: 1.5,
     marginBottom: 14,
+  },
+  seloAlerta: {
+    fontSize: 11,
+    fontWeight: 700,
+    borderRadius: 999,
+    padding: "2px 10px",
+    background: "#fef2f2",
+    color: "#991b1b",
+    border: "1px solid #fecaca",
+    whiteSpace: "nowrap",
+  },
+  seloAtencao: {
+    fontSize: 11,
+    fontWeight: 700,
+    borderRadius: 999,
+    padding: "2px 10px",
+    background: "#fffbeb",
+    color: "#92400e",
+    border: "1px solid #fde68a",
+    whiteSpace: "nowrap",
   },
   selo: {
     fontSize: 11,
