@@ -63,7 +63,7 @@ const Auditoria = lazy(() => import("./pages/Auditoria")); const RelatorioRecept
 const MensalidadesSemNegociacao = lazy(() => import("./pages/MensalidadesSemNegociacao"));
 const DRE = lazy(() => import("./pages/DRE"));
 const FechamentoRemuneracao = lazy(() => import("./pages/FechamentoRemuneracao"));
-const ImportarRecuperacao = lazy(() => import("./pages/ImportarRecuperacao")); const ImportacaoAcordos = lazy(() => import("./pages/ImportacaoAcordos")); const FilaAcordosConfirmar = lazy(() => import("./pages/FilaAcordosConfirmar")); const Ferramentas = lazy(() => import("./pages/Ferramentas")); const ImportarAcademico = lazy(() => import("./pages/ImportarAcademico"));
+const ImportarRecuperacao = lazy(() => import("./pages/ImportarRecuperacao")); const ImportacaoAcordos = lazy(() => import("./pages/ImportacaoAcordos")); const FilaAcordosConfirmar = lazy(() => import("./pages/FilaAcordosConfirmar")); const Ferramentas = lazy(() => import("./pages/Ferramentas")); const ImportarAcademico = lazy(() => import("./pages/ImportarAcademico")); const AtualizacaoCadastral = lazy(() => import("./pages/AtualizacaoCadastral"));
 const ExecutivoRecuperacao = lazy(() => import("./pages/ExecutivoRecuperacao"));
 const MeuDashboard = lazy(() => import("./pages/MeuDashboard"));
 const ElogiosAtendimento = lazy(() => import("./pages/ElogiosAtendimento"));
@@ -149,6 +149,11 @@ function podeAcessar(perfil, rota) {
   if (rota === "/leads-whatsapp") return true;
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
   if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
+  // A atualizacao cadastral fica junto de Ferramentas: fora do alcance do
+  // operador. O portao de verdade e na Edge Function, que confere
+  // `usuario_e_gestao()` com o token de quem chamou -- esta linha so evita que
+  // a tela apareca para quem nao vai conseguir usar.
+  if (rota === "/atualizacao-cadastral") return perfil !== "operador";
   const permissoes = {
     gerencia: [
       "/",
@@ -1092,7 +1097,7 @@ export default function App() {
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} /> <Route path="/central-whatsapp" element={<RotaProtegida usuario={usuario} rota="/central-whatsapp"><CentralWhatsApp /></RotaProtegida>} /> <Route path="/leads-whatsapp" element={<RotaProtegida usuario={usuario} rota="/leads-whatsapp"><LeadsWhatsApp /></RotaProtegida>} />
               <Route path="/dre" element={(["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) || perfil === "diretoria") ? <DRE /> : <Navigate to="/" replace />} />
               <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
-              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
+              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} /> <Route path="/atualizacao-cadastral" element={<AtualizacaoCadastral />} />
       </Routes>
       </Suspense>
         </main>
