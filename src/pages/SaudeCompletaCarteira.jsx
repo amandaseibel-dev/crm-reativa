@@ -201,6 +201,8 @@ export default function SaudeCompletaCarteira() {
 
           <SaldoPorOrigem origem={resumo?.saldo_por_origem} />
 
+          <MovimentoDoPeriodo filtros={filtros} />
+
           <Secao titulo="Fidelização (exclusividade de 10 dias por acionamento)">
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 12 }}>
               {CARDS_FIDELIZACAO.map(([k, label, fmt, indicador]) => (
@@ -528,6 +530,124 @@ function SaldoPorOrigem({ origem }) {
   );
 }
 
+// Movimento do período em TRÊS linhas, porque somar as três esconde o trabalho:
+//   liquidou      -> dívida que deixou de existir. É o resultado.
+//   entrou        -> dívida nova por remessa. Não depende do operador.
+//   reclassificou -> mensalidade que virou acordo. Saneamento, NÃO reduz nada.
+// Medido em 13--25/08: liquidou R$ 1,07 mi, entrou R$ 1,31 mi, reclassificou
+// R$ 2,14 mi. O maior volume de trabalho do período é justamente o que, por
+// definição, não faz o número cair -- e sem separar, o mês parece parado.
+// Sob demanda como o resto da tela: só consulta quando se pede.
+function MovimentoDoPeriodo({ filtros }) {
+  const hoje = new Date();
+  const primeiro = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const iso = (d) => d.toISOString().slice(0, 10);
+
+  const [de, setDe] = useState(iso(primeiro));
+  const [ate, setAte] = useState(iso(hoje));
+  const [dados, setDados] = useState(null);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const buscar = async () => {
+    setCarregando(true);
+    setErro("");
+    try {
+      const { data, error } = await supabase.rpc("saude_carteira_movimento_periodo", {
+        p_de: de, p_ate: ate, p_filtros: filtros,
+      });
+      if (error) setErro(error.message || "Não foi possível carregar o movimento.");
+      else setDados(data);
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  const l = dados?.liquidou, e = dados?.entrou, r = dados?.reclassificou;
+  const liquido = Number(dados?.resultado_liquido || 0);
+
+  return (
+    <Secao
+      titulo="Movimento do período"
+      extra={
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input type="date" value={de} onChange={(ev) => setDe(ev.target.value)} style={inputData} />
+          <span style={{ color: "#94a3b8", fontSize: 12 }}>até</span>
+          <input type="date" value={ate} onChange={(ev) => setAte(ev.target.value)} style={inputData} />
+          <button onClick={buscar} disabled={carregando} style={btnSec}>
+            {carregando ? "Carregando…" : "Calcular"}
+          </button>
+        </div>
+      }
+    >
+      {erro && <div style={{ ...vazio, color: "#b91c1c" }}>{erro}</div>}
+      {!dados && !erro && (
+        <div style={vazio}>Escolha o período e clique em <b>Calcular</b>.</div>
+      )}
+
+      {dados && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: 12 }}>
+            <div style={{ ...card, borderLeft: "3px solid #15803d" }}>
+              <div style={{ fontSize: 12, color: "#15803d", fontWeight: 700 }}>Liquidou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{moeda(l?.total)}</div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                Acordo {moeda(l?.acordo_valor)} · {num(l?.acordo_qtd)} parcelas<br />
+                Mensalidade {moeda(l?.mensalidade_valor)} · {num(l?.mensalidade_qtd)} títulos
+              </div>
+              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>dívida que deixou de existir</div>
+            </div>
+
+            <div style={{ ...card, borderLeft: "3px solid #b91c1c" }}>
+              <div style={{ fontSize: 12, color: "#b91c1c", fontWeight: 700 }}>Entrou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{moeda(e?.total)}</div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                Títulos {moeda(e?.titulo_valor)} · {num(e?.titulo_qtd)}<br />
+                Acordos importados {moeda(e?.acordo_valor)} · {num(e?.acordo_qtd)}
+              </div>
+              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>dívida nova por remessa</div>
+            </div>
+
+            <div style={{ ...card, borderLeft: "3px solid #64748b" }}>
+              <div style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>Reclassificou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{moeda(r?.valor)}</div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                {num(r?.qtd)} mensalidades vinculadas a acordo
+              </div>
+              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>saneamento — não reduz a carteira</div>
+            </div>
+
+            <div style={{ ...card, borderLeft: `3px solid ${liquido >= 0 ? "#15803d" : "#b45309"}` }}>
+              <div style={{ fontSize: 12, color: liquido >= 0 ? "#15803d" : "#b45309", fontWeight: 700 }}>
+                Resultado líquido
+              </div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: liquido >= 0 ? "#15803d" : "#b45309", marginTop: 4 }}>
+                {liquido >= 0 ? "−" : "+"}{moeda(Math.abs(liquido))}
+              </div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                {liquido >= 0
+                  ? "a carteira encolheu neste período"
+                  : "a remessa repôs mais do que a operação baixou"}
+              </div>
+              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>liquidou − entrou</div>
+            </div>
+          </div>
+
+          <p style={{ margin: "10px 0 0", fontSize: 11.5, color: "#64748b", lineHeight: 1.5 }}>
+            <b>Reclassificar não é liquidar.</b> Vincular mensalidade a acordo tira a mensalidade do saldo em
+            aberto, mas a parcela do acordo entra no lugar — a dívida continua. É o que destrava o caso e o
+            operador, não o que reduz a carteira.
+            <br />
+            <b>Sobre as datas:</b> o lado do acordo usa a data real de pagamento. O lado da mensalidade é
+            aproximado — a tabela de títulos não tem campo de data de pagamento, então usa a última alteração
+            do registro.
+          </p>
+        </>
+      )}
+    </Secao>
+  );
+}
+
 function Secao({ titulo, extra, children }) {
   return (
     <div style={{ marginTop: 22 }}>
@@ -546,6 +666,7 @@ const td = { textAlign: "right", padding: "6px 8px", color: "#334155", whiteSpac
 const btnSec = { background: "#fff", border: "1px solid #cbd5e1", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", color: "#1e40af" };
 const chip = { background: "#fff", border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#475569" };
 const chipOn = { background: "#1e40af", color: "#fff", borderColor: "#1e40af" };
+const inputData = { border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 8px", fontSize: 12.5, fontFamily: "inherit", color: "#334155" };
 const vazio = { padding: 30, textAlign: "center", color: "#64748b", background: "#f8fafc", borderRadius: 10, marginTop: 16 };
 const lbl = { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#334155", fontWeight: 600 };
 const inp = { padding: "6px 10px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13, background: "#fff" };
