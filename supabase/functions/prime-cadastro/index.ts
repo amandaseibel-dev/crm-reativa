@@ -35,7 +35,24 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 const BASE = "https://prime-api.ulbra.ai/api";
 const CARRIER_MENSALIDADES = 195;
 const CARRIER_ACORDOS = 166;
-const CONCORRENCIA = 4;
+// QUANTOS ALUNOS AO MESMO TEMPO.
+//
+// O limite que morde aqui NÃO é a Ulbra -- eles liberaram o acesso sem impor
+// teto de chamadas. É o tempo da própria Edge Function: 150 segundos por
+// invocação, e a resposta só sai no fim. Medido em 25/08/2026, com a função
+// reportando a própria duração:
+//
+//     60 alunos, concorrência 12 -> 67s, 200 OK
+//    150 alunos, concorrência 12 -> 504 IDLE_TIMEOUT
+//    150 alunos, concorrência  4 -> 504 IDLE_TIMEOUT (duas vezes, e o mutirão
+//                                   daquela madrugada não coletou nada)
+//
+// Dá ~1,1s por aluno, com ~3 chamadas cada (duas buscas por carrier mais o
+// composto). Subir a concorrência faz caber mais aluno no mesmo tempo; pedir
+// lote grande só estoura e desperdiça a viagem até a Ulbra.
+//
+// Se um dia eles pedirem para pegar leve, este é o número para baixar.
+const CONCORRENCIA = 12;
 
 const digitos = (v: unknown) => String(v ?? "").replace(/\D/g, "");
 
@@ -253,6 +270,9 @@ Deno.serve(async (req) => {
   }
   cpfs = cpfs.slice(0, limite);
 
+  // Quanto o lote levou. Sem isso, a única forma de descobrir que ele não cabia
+  // era o 504 -- que chega depois de já ter torrado a chamada.
+  const inicio = Date.now();
   const colhidos = await emLotes(cpfs, CONCORRENCIA, (cpf) => colher(cpf, chave));
 
   let aplicados = 0, fora = 0, erros = 0, telNovos = 0, mailNovos = 0, tit = 0;
@@ -270,5 +290,6 @@ Deno.serve(async (req) => {
   return new Response(JSON.stringify({
     pedidos: cpfs.length, aplicados, fora_do_escopo: fora, erros,
     telefones_novos: telNovos, emails_novos: mailNovos, titulos_classificados: tit,
+    segundos: Math.round((Date.now() - inicio) / 1000), concorrencia: CONCORRENCIA,
   }), { headers: { "Content-Type": "application/json" } });
 });
