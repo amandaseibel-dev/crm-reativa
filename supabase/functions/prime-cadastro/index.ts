@@ -154,6 +154,14 @@ async function colher(cpf: string, chave: string) {
   return { cpf, registration, telefones, emails, contratos, titulos };
 }
 
+// Comparacao que nao entrega o segredo pelo tempo de resposta.
+function iguaisEmTempoConstante(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  let diferenca = 0;
+  for (let i = 0; i < a.length; i++) diferenca |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diferenca === 0;
+}
+
 async function emLotes<T, R>(itens: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
   const saida: R[] = [];
   for (let i = 0; i < itens.length; i += n) {
@@ -178,13 +186,17 @@ Deno.serve(async (req) => {
 
   // Dois chamadores legítimos, e só dois:
   //
-  //  1. a rotina noturna, que apresenta a service key. `usuario_e_gestao()`
-  //     devolveria false para ela (não há e-mail no token), então a checagem
-  //     é por igualdade com a própria chave do projeto;
-  //  2. a gestão pela tela, com a sessão dela. Aí quem decide é o banco, pela
+  //  1. a ROTINA NOTURNA, que se identifica com um token dedicado no header
+  //     `x-rotina-token`. Não é a service key de propósito: aquela passa por
+  //     cima de todo o RLS, e o estrago de um vazamento seria o banco inteiro.
+  //     Com um token próprio, o pior que acontece é alguém disparar uma coleta.
+  //     A comparação é de tempo constante -- comparar segredo com `===` vaza
+  //     informação pelo tempo de resposta;
+  //  2. a GESTÃO pela tela, com a sessão dela. Aí quem decide é o banco, pela
   //     mesma função que as políticas de RLS usam.
-  const tokenChamador = autorizacao.slice("Bearer ".length).trim();
-  const ehRotina = tokenChamador === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+  const tokenEsperado = Deno.env.get("PRIME_CADASTRO_TOKEN") ?? "";
+  const tokenRecebido = req.headers.get("x-rotina-token") ?? "";
+  const ehRotina = tokenEsperado.length > 0 && iguaisEmTempoConstante(tokenRecebido, tokenEsperado);
 
   if (!ehRotina) {
     const supaChamador = createClient(
