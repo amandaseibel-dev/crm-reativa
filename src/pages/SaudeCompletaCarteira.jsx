@@ -563,8 +563,13 @@ function MovimentoDoPeriodo({ filtros }) {
     }
   };
 
-  const l = dados?.liquidou, e = dados?.entrou, r = dados?.reclassificou;
-  const liquido = Number(dados?.resultado_liquido || 0);
+  const l = dados?.liquidou, e = dados?.entrou, r = dados?.reclassificou, g = dados?.renegociou;
+  // O resultado e uma FAIXA, nao um numero: parte dos acordos importados nao
+  // diz se e divida nova ou renegociacao do que ja estava na base. Fingir
+  // precisao aqui seria pior do que mostrar o intervalo.
+  const resMin = Number(dados?.resultado_min || 0);
+  const resMax = Number(dados?.resultado_max || 0);
+  const encolheu = resMax > 0;
 
   return (
     <Secao
@@ -600,12 +605,16 @@ function MovimentoDoPeriodo({ filtros }) {
 
             <div style={{ ...card, borderLeft: "3px solid #b91c1c" }}>
               <div style={{ fontSize: 12, color: "#b91c1c", fontWeight: 700 }}>Entrou</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{moeda(e?.total)}</div>
-              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
-                Títulos {moeda(e?.titulo_valor)} · {num(e?.titulo_qtd)}<br />
-                Acordos importados {moeda(e?.acordo_valor)} · {num(e?.acordo_qtd)}
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
+                {moeda(e?.minimo)} a {moeda(e?.maximo)}
               </div>
-              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>dívida nova por remessa</div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                Títulos novos {moeda(e?.titulo_valor)} · {num(e?.titulo_qtd)}<br />
+                Acordos sem vínculo {moeda(e?.acordo_indefinido_valor)} · {num(e?.acordo_indefinido_qtd)}
+              </div>
+              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>
+                faixa: o acordo sem vínculo pode ser dívida nova ou renegociação
+              </div>
             </div>
 
             <div style={{ ...card, borderLeft: "3px solid #64748b" }}>
@@ -617,16 +626,25 @@ function MovimentoDoPeriodo({ filtros }) {
               <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>saneamento — não reduz a carteira</div>
             </div>
 
-            <div style={{ ...card, borderLeft: `3px solid ${liquido >= 0 ? "#15803d" : "#b45309"}` }}>
-              <div style={{ fontSize: 12, color: liquido >= 0 ? "#15803d" : "#b45309", fontWeight: 700 }}>
-                Resultado líquido
+            <div style={{ ...card, borderLeft: "3px solid #7c3aed" }}>
+              <div style={{ fontSize: 12, color: "#6d28d9", fontWeight: 700 }}>Renegociou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{moeda(g?.valor)}</div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                {num(g?.qtd)} acordos importados que substituem dívida já contada
               </div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: liquido >= 0 ? "#15803d" : "#b45309", marginTop: 4 }}>
-                {liquido >= 0 ? "−" : "+"}{moeda(Math.abs(liquido))}
+              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>não é entrada — não soma</div>
+            </div>
+
+            <div style={{ ...card, borderLeft: `3px solid ${encolheu ? "#15803d" : "#b45309"}` }}>
+              <div style={{ fontSize: 12, color: encolheu ? "#15803d" : "#b45309", fontWeight: 700 }}>
+                Resultado
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: encolheu ? "#15803d" : "#b45309", marginTop: 4 }}>
+                {moeda(Math.abs(resMin))} a {moeda(Math.abs(resMax))}
               </div>
               <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
-                {liquido >= 0
-                  ? "a carteira encolheu neste período"
+                {encolheu
+                  ? "a carteira pode ter encolhido no período"
                   : "a remessa repôs mais do que a operação baixou"}
               </div>
               <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>liquidou − entrou</div>
@@ -637,6 +655,11 @@ function MovimentoDoPeriodo({ filtros }) {
             <b>Reclassificar não é liquidar.</b> Vincular mensalidade a acordo tira a mensalidade do saldo em
             aberto, mas a parcela do acordo entra no lugar — a dívida continua. É o que destrava o caso e o
             operador, não o que reduz a carteira.
+            <br />
+            <b>Por que o resultado é uma faixa:</b> o acordo importado que já aponta para o título que
+            substituiu conta como <i>renegociação</i>, não entrada. O que não aponta para nenhum título fica
+            indefinido — pode ser dívida nova ou renegociação sem registro. Em vez de escolher um dos dois e
+            entregar um número falsamente preciso, o painel mostra o intervalo.
             <br />
             <b>Sobre as datas:</b> o lado do acordo usa a data real de pagamento. O lado da mensalidade é
             aproximado — a tabela de títulos não tem campo de data de pagamento, então usa a última alteração
