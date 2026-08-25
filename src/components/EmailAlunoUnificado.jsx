@@ -38,10 +38,34 @@ export default function EmailAlunoUnificado({ aluno }) {
   const [operador, setOperador] = useState({ nome: "", email: "" });
   const [msg, setMsg] = useState("");
   const [carregando, setCarregando] = useState(true);
+  // Saldo CANONICO do aluno. `alunos.valor_em_aberto` e um campo congelado --
+  // escrito na importacao e nunca atualizado pelo recalculo -- entao usa-lo aqui
+  // mandava divida inexistente PARA O ALUNO. Casos reais em 25/08: Gabriele com
+  // R$ 7.974,24 e Selso com R$ 2.535,82 no campo velho, ambos com saldo zero.
+  // Guarda junto o aluno a que o saldo pertence: trocando de ficha, o valor
+  // antigo deixa de valer sozinho, sem precisar zerar dentro do efeito.
+  const [saldoInfo, setSaldoInfo] = useState({ alunoId: null, total: null });
   const [emailDest, setEmailDest] = useState(aluno?.email || "");
   const [salvandoEmail, setSalvandoEmail] = useState(false);
 
   useEffect(() => { setEmailDest(aluno?.email || ""); }, [aluno?.id, aluno?.email]);
+
+  // Mesma fonte que a quitacao, a confirmacao e a fila usam.
+  useEffect(() => {
+    let ativo = true;
+    const id = aluno?.id;
+    if (!id) return;
+    supabase
+      .rpc("aluno_saldo_pendente_detalhe", { p_aluno_id: id, p_ignorar_confirmacao_id: null })
+      .then(({ data, error }) => {
+        if (!ativo || error) return;
+        const t = Number(data?.total);
+        setSaldoInfo({ alunoId: id, total: Number.isFinite(t) ? t : null });
+      });
+    return () => { ativo = false; };
+  }, [aluno?.id]);
+
+  const saldo = saldoInfo.alunoId && saldoInfo.alunoId === aluno?.id ? saldoInfo.total : null;
 
   async function salvarEmail() {
     if (!aluno?.id) return;
@@ -79,14 +103,16 @@ export default function EmailAlunoUnificado({ aluno }) {
 
   const campos = useMemo(() => ({
     "{{nome}}": aluno?.nome || "aluno(a)",
-    "{{valor}}": moeda(aluno?.valor_em_aberto),
+    // Enquanto o saldo nao chega, nao inventa numero: melhor um texto neutro
+    // do que um valor errado dentro de um e-mail que vai para o aluno.
+    "{{valor}}": saldo == null ? "(saldo em conferência)" : moeda(saldo),
     "{{vencimento}}": dataBR(aluno?.proximo_vencimento || aluno?.data_retorno) || "a combinar",
     "{{link}}": aluno?.link_pagamento || "https://reativa.app/pagar",
     "{{unidade}}": aluno?.unidade || aluno?.estabelecimento || "ULBRA",
     "{{parcela}}": aluno?.parcela || "",
     "{{operador}}": operador.nome || "Equipe ReATIVA",
     "{{operador_email}}": operador.email || "",
-  }), [aluno, operador]);
+  }), [aluno, operador, saldo]);
 
   function merge(txt) {
     let r = String(txt || "");
