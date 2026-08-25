@@ -14,8 +14,10 @@
 --    saldo zero (todas com autor) e 226 rejeições simplesmente não apareciam.
 --    Agora cada dia é aberto por AÇÃO: confirmado, saldo zero, rejeitado.
 --
--- E os 1.057 'PAGAMENTO_CONFIRMADO' sem `confirmado_por` não são de ninguém:
+-- E os 'PAGAMENTO_CONFIRMADO' sem `confirmado_por` (1.057) não são de ninguém:
 -- são a faxina automática ("Confirmado automaticamente (aluno quitado/baixado)").
+-- O mesmo vale para quem assina com pseudo-usuário sem e-mail, como
+-- 'sistema_reconciliacao_baixados'.
 -- Apareciam como um "-" que parecia gente. Passam a se identificar como
 -- automáticos, separados do trabalho das pessoas.
 --
@@ -68,7 +70,11 @@ as $function$
   with base as (
     select
       (s.confirmado_em at time zone 'America/Sao_Paulo')::date as dia,
-      lower(nullif(btrim(coalesce(s.confirmado_por, '')), '')) as email_autor,
+      -- Autor "de verdade" e quem tem e-mail. Rotinas internas assinam com
+      -- pseudo-usuario (ex.: 'sistema_reconciliacao_baixados'): isso e sistema,
+      -- nao pessoa, e nao pode virar produtividade de ninguem.
+      case when lower(btrim(coalesce(s.confirmado_por, ''))) like '%@%'
+           then lower(btrim(s.confirmado_por)) end as email_autor,
       case
         when s.status = 'PAGAMENTO_CONFIRMADO'                          then 'CONFIRMADO'
         when s.status in ('CONCLUIDA_SALDO_ZERO','ENCERRADO_SALDO_ZERO') then 'SALDO_ZERO'
