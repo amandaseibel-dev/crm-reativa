@@ -19,6 +19,23 @@ function normCpf(v) {
   return d.length >= 11 ? d.slice(-11) : d.padStart(11, "0");
 }
 
+// Data em que o acordo ENTROU na fila (criado_em = importacao). Em prod sao
+// ~10 datas distintas de remessa, entao "mais antigos primeiro" separa de fato
+// o que esta encalhado desde julho do que chegou ontem.
+function ts(v) {
+  const t = v ? new Date(v).getTime() : 0;
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function formatData(v) {
+  if (!v) return "-";
+  try {
+    return new Date(v).toLocaleDateString("pt-BR");
+  } catch {
+    return "-";
+  }
+}
+
 function formatCpf(v) {
   const d = normCpf(v);
   if (d.length !== 11) return v || "-";
@@ -57,6 +74,7 @@ export default function FilaAcordosConfirmar() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [filtro, setFiltro] = useState("A_CONFIRMAR");
+  const [ordem, setOrdem] = useState("VALOR_DESC");
   const [busca, setBusca] = useState("");
   const [email, setEmail] = useState("");
   const [fichaId, setFichaId] = useState(null);
@@ -85,6 +103,11 @@ export default function FilaAcordosConfirmar() {
           .from("fila_acordos_confirmar")
           .select("*")
           .order("valor_total", { ascending: false })
+          // Desempate estavel: sem uma chave unica na ordenacao, linhas com o
+          // mesmo valor_total podem trocar de pagina entre um range e outro e
+          // sumir (ou vir duas vezes) da fila. A ordem final da tela e feita
+          // no client; aqui a ordem so precisa ser DETERMINISTICA.
+          .order("id", { ascending: true })
           .range(from, from + PAGE_SIZE - 1);
         if (error) throw error;
         const lote = data || [];
@@ -230,8 +253,32 @@ export default function FilaAcordosConfirmar() {
       map.get(chave).acordos.push(i);
     }
     const arr = Array.from(map.values());
-    arr.forEach((g) => { g.total = g.acordos.reduce((s, a) => s + (Number(a.valor_total) || 0), 0); });
-    arr.sort((a, b) => b.total - a.total);
+    arr.forEach((g) => {
+      g.total = g.acordos.reduce((s, a) => s + (Number(a.valor_total) || 0), 0);
+      // O card representa o aluno: a data dele e a do acordo mais ANTIGO da fila
+      // (o que esta esperando ha mais tempo), nao a do ultimo que chegou.
+      g.entrouEm = g.acordos.reduce((min, a) => {
+        const t = ts(a.criado_em);
+        return t && (!min || t < min) ? t : min;
+      }, 0);
+    });
+    const porNome = (a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR");
+    arr.sort((a, b) => {
+      if (ordem === "VALOR_ASC") {
+        const v = a.total - b.total;
+        return v !== 0 ? v : porNome(a, b);
+      }
+      if (ordem === "DATA_ASC") {
+        const d = a.entrouEm - b.entrouEm;
+        return d !== 0 ? d : b.total - a.total;
+      }
+      if (ordem === "DATA_DESC") {
+        const d = b.entrouEm - a.entrouEm;
+        return d !== 0 ? d : b.total - a.total;
+      }
+      const v = b.total - a.total;   // VALOR_DESC (padrao de sempre)
+      return v !== 0 ? v : porNome(a, b);
+    });
     return arr;
   })();
 
@@ -255,6 +302,12 @@ export default function FilaAcordosConfirmar() {
           <option value="CONFIRMADO">Confirmados</option>
           <option value="REJEITADO">Rejeitados</option>
           <option value="TODOS">Todos</option>
+        </select>
+        <select style={S.select} value={ordem} onChange={(e) => setOrdem(e.target.value)}>
+          <option value="VALOR_DESC">Maior valor primeiro</option>
+          <option value="VALOR_ASC">Menor valor primeiro</option>
+          <option value="DATA_ASC">Mais antigos primeiro</option>
+          <option value="DATA_DESC">Mais recentes primeiro</option>
         </select>
         <input style={S.input} placeholder="Buscar por nome ou CPF..." value={busca} onChange={(e) => setBusca(e.target.value)} />
         <div style={S.contadores}>
@@ -281,7 +334,10 @@ export default function FilaAcordosConfirmar() {
                   {g.unidade && <span style={S.cardUnidade}>{g.unidade}</span>}
                 </div>
                 <div style={S.cardHeadDir}>
-                  <span style={S.cardResumo}>{g.acordos.length} acordo{g.acordos.length > 1 ? "s" : ""} · {moeda(g.total)}</span>
+                  <span style={S.cardResumo}>
+                    {g.acordos.length} acordo{g.acordos.length > 1 ? "s" : ""} · {moeda(g.total)}
+                    {g.entrouEm ? ` · na fila desde ${formatData(g.entrouEm)}` : ""}
+                  </span>
                   {(() => {
                     const pendentes = g.acordos.filter((a) => (a.status_confirmacao || "A_CONFIRMAR") === "A_CONFIRMAR");
                     const busyGrp = !!processando[`grp:${g.chave}`];

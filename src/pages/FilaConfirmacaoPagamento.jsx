@@ -15,6 +15,7 @@ import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados
 import CasosSemValor from "../components/CasosSemValor";
 import ConfirmacoesSemValor from "../components/ConfirmacoesSemValor";
 import CasosSemTelefone from "../components/CasosSemTelefone";
+import FilaAcordosConfirmar from "./FilaAcordosConfirmar";
 
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
@@ -31,6 +32,32 @@ const TIPO_LABEL = {
   ENTRADA: "Entrada",
   PARCELA: "Parcela",
 };
+
+// De onde vem a divida do caso (coluna origem_divida, carimbada no banco a
+// partir do saldo real do aluno). Nao e o que o operador informou -- isso
+// continua sendo tipo_pagamento.
+const ORIGEM_LABEL = {
+  ACORDO: "Acordo",
+  MENSALIDADE: "Mensalidade",
+  ACORDO_E_MENSALIDADE: "Acordo + mensalidade",
+  SEM_SALDO: "Sem saldo em aberto",
+};
+
+function traduzOrigem(origem) {
+  if (!origem) return "-";
+  return ORIGEM_LABEL[origem] || origem;
+}
+
+// "Acordos" e "Mensalidades" incluem quem tem os dois -- o caso e trabalho nas
+// duas frentes, entao ele aparece nas duas listas em vez de sumir de uma.
+function casaOrigem(filtroOrigem, origem) {
+  if (filtroOrigem === "TODAS") return true;
+  if (filtroOrigem === "ACORDO") return origem === "ACORDO" || origem === "ACORDO_E_MENSALIDADE";
+  if (filtroOrigem === "MENSALIDADE") return origem === "MENSALIDADE" || origem === "ACORDO_E_MENSALIDADE";
+  if (filtroOrigem === "SEM_SALDO") return origem === "SEM_SALDO";
+  if (filtroOrigem === "SEM_CLASSIFICACAO") return !origem;
+  return true;
+}
 
 function traduzStatus(status) {
   return STATUS_LABEL[status] || status || "-";
@@ -92,6 +119,12 @@ export default function FilaConfirmacaoPagamento() {
   const [observacoes, setObservacoes] = useState({});
   const [filtro, setFiltro] = useState("PENDENTES");
   const [tipoFiltro, setTipoFiltro] = useState("TODOS");
+  // Ordenacao da lista: data de envio (padrao) ou valor informado.
+  const [ordem, setOrdem] = useState("DATA_DESC");
+  // Escopo do trabalho: pagamentos informados pela operacao x acordos importados.
+  const [escopo, setEscopo] = useState("PAGAMENTOS");
+  // Acordo x mensalidade, pela origem da divida (derivada no banco).
+  const [origemFiltro, setOrigemFiltro] = useState("TODAS");
   const [qtdSemValor, setQtdSemValor] = useState(null);
   const [qtdAcordoSemValor, setQtdAcordoSemValor] = useState(null);
   const [qtdSemTelefone, setQtdSemTelefone] = useState(null);
@@ -145,6 +178,16 @@ export default function FilaConfirmacaoPagamento() {
   useEffect(() => {
     carregarUsuario();
     carregarSolicitacoes();
+    // A origem da divida e carimbada quando a solicitacao nasce, mas o saldo do
+    // aluno muda enquanto o caso espera (ele fecha acordo, paga mensalidade).
+    // Recarimba os ABERTOS uma vez ao abrir a tela; se algo mudou, recarrega.
+    // Falha aqui nao atrapalha a fila -- so deixa a classificacao desatualizada.
+    supabase
+      .rpc("recarimbar_origem_divida_pendentes", { p_limite: 5000 })
+      .then(({ data, error }) => {
+        if (error) return;
+        if (Number(data?.atualizadas) > 0) carregarSolicitacoes();
+      });
   }, []);
 
   async function carregarUsuario() {
@@ -450,6 +493,17 @@ export default function FilaConfirmacaoPagamento() {
     };
   }, [solicitacoes]);
 
+  // Quanto tem de cada frente DENTRO do que ainda esta aberto -- e o que decide
+  // se hoje se trabalha acordo ou mensalidade.
+  const porOrigem = useMemo(() => {
+    const abertas = solicitacoes.filter((s) => isConfirmacaoAberta(s.status));
+    return {
+      acordo: abertas.filter((s) => casaOrigem("ACORDO", s.origem_divida)).length,
+      mensalidade: abertas.filter((s) => casaOrigem("MENSALIDADE", s.origem_divida)).length,
+      semSaldo: abertas.filter((s) => s.origem_divida === "SEM_SALDO").length,
+    };
+  }, [solicitacoes]);
+
   // Ordenacao: (1) data/hora do envio (criado_em) mais recente primeiro;
   // (2) desempate por ultima atualizacao; (3) desempate por nome do aluno.
   const solicitacoesFiltradas = useMemo(() => {
@@ -462,19 +516,38 @@ export default function FilaConfirmacaoPagamento() {
     else base = solicitacoes;
 
     if (tipoFiltro !== "TODOS") base = (base || []).filter((s) => (s.tipo_pagamento || "SEM_TIPO") === tipoFiltro);
+    if (origemFiltro !== "TODAS") base = (base || []).filter((s) => casaOrigem(origemFiltro, s.origem_divida));
 
     const ts = (v) => {
       const t = v ? new Date(v).getTime() : 0;
       return Number.isNaN(t) ? 0 : t;
     };
-    return [...base].sort((a, b) => {
+    const vl = (s) => {
+      const n = Number(s?.valor_informado);
+      return Number.isFinite(n) ? n : 0;
+    };
+    const porNome = (a, b) =>
+      String(a.aluno_nome || "").localeCompare(String(b.aluno_nome || ""), "pt-BR");
+    const porData = (a, b) => {
       const d = ts(b.criado_em) - ts(a.criado_em);
       if (d !== 0) return d;
       const u = ts(b.atualizado_em) - ts(a.atualizado_em);
       if (u !== 0) return u;
-      return String(a.aluno_nome || "").localeCompare(String(b.aluno_nome || ""), "pt-BR");
+      return porNome(a, b);
+    };
+    return [...base].sort((a, b) => {
+      if (ordem === "DATA_ASC") return -porData(a, b);
+      if (ordem === "VALOR_DESC") {
+        const v = vl(b) - vl(a);
+        return v !== 0 ? v : porData(a, b);
+      }
+      if (ordem === "VALOR_ASC") {
+        const v = vl(a) - vl(b);
+        return v !== 0 ? v : porData(a, b);
+      }
+      return porData(a, b);
     });
-  }, [solicitacoes, filtro, tipoFiltro]);
+  }, [solicitacoes, filtro, tipoFiltro, origemFiltro, ordem]);
 
   if (carregando) {
     return <div style={styles.container}><Carregando texto="Carregando fila de confirmação de pagamento…" /></div>;
@@ -489,13 +562,46 @@ export default function FilaConfirmacaoPagamento() {
     );
   }
 
+  // As duas frentes num lugar so: pagamentos informados pela operacao e acordos
+  // importados a confirmar. Sao tabelas e fluxos diferentes -- a tela nao mistura
+  // as linhas, ela deixa escolher o que trabalhar agora.
+  const abasEscopo = (
+    <div style={styles.escopo}>
+      <button
+        style={escopo === "PAGAMENTOS" ? styles.escopoAtivo : styles.escopoBotao}
+        onClick={() => setEscopo("PAGAMENTOS")}
+      >
+        Pagamentos a confirmar
+        {contadores.pendentes + contadores.aguardandoVinculo > 0
+          ? ` (${contadores.pendentes + contadores.aguardandoVinculo})`
+          : ""}
+      </button>
+      <button
+        style={escopo === "ACORDOS" ? styles.escopoAtivo : styles.escopoBotao}
+        onClick={() => setEscopo("ACORDOS")}
+      >
+        Acordos a confirmar
+      </button>
+    </div>
+  );
+
+  if (escopo === "ACORDOS") {
+    return (
+      <div style={styles.container}>
+        {abasEscopo}
+        <FilaAcordosConfirmar />
+      </div>
+    );
+  }
+
   return (
     <div style={styles.container}>
+      {abasEscopo}
       <div style={styles.cabecalho}>
         <div>
           <h1 style={styles.titulo}>Fila de Confirmação de Pagamento</h1>
           <p style={styles.subtitulo}>
-            Casos enviados pela operação (tabulação "Confirmar pagamento"), do mais recente para o mais antigo.
+            Casos enviados pela operação (tabulação "Confirmar pagamento"). Use "Ordenar" para ver por data de envio ou por valor.
             Clique numa linha para abrir a ficha do aluno.
           </p>
         </div>
@@ -548,13 +654,26 @@ export default function FilaConfirmacaoPagamento() {
         <button style={filtro === "SEM_TELEFONE" ? styles.filtroAtivo : styles.filtro} onClick={() => setFiltro("SEM_TELEFONE")}>
           Sem telefone{qtdSemTelefone !== null ? ` (${qtdSemTelefone})` : ""}
         </button>
+        <select value={origemFiltro} onChange={(e) => setOrigemFiltro(e.target.value)} style={{ border: "1px solid #d1d5db", borderRadius: 999, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}>
+          <option value="TODAS">Acordo e mensalidade</option>
+          <option value="ACORDO">Só acordo{porOrigem.acordo ? ` (${porOrigem.acordo})` : ""}</option>
+          <option value="MENSALIDADE">Só mensalidade{porOrigem.mensalidade ? ` (${porOrigem.mensalidade})` : ""}</option>
+          <option value="SEM_SALDO">Sem saldo em aberto{porOrigem.semSaldo ? ` (${porOrigem.semSaldo})` : ""}</option>
+          <option value="SEM_CLASSIFICACAO">Sem classificação</option>
+        </select>
         <select value={tipoFiltro} onChange={(e) => setTipoFiltro(e.target.value)} style={{ border: "1px solid #d1d5db", borderRadius: 999, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}>
-          <option value="TODOS">Todos os tipos</option>
+          <option value="TODOS">Todos os tipos informados</option>
           <option value="QUITACAO_TOTAL">Quitação total</option>
           <option value="PARCELA">Parcela</option>
           <option value="MENSALIDADE">Mensalidade</option>
           <option value="ACORDO">Acordo</option>
-          <option value="SEM_TIPO">Sem tipo</option>
+          <option value="SEM_TIPO">Sem tipo informado</option>
+        </select>
+        <select value={ordem} onChange={(e) => setOrdem(e.target.value)} style={{ border: "1px solid #d1d5db", borderRadius: 999, padding: "8px 12px", fontSize: 13, cursor: "pointer" }}>
+          <option value="DATA_DESC">Mais recentes primeiro</option>
+          <option value="DATA_ASC">Mais antigos primeiro</option>
+          <option value="VALOR_DESC">Maior valor primeiro</option>
+          <option value="VALOR_ASC">Menor valor primeiro</option>
         </select>
       </div>
 
@@ -594,6 +713,7 @@ export default function FilaConfirmacaoPagamento() {
                 <th style={styles.th}>CPF</th>
                 <th style={styles.th}>Operador que informou</th>
                 <th style={styles.th}>Enviado em</th>
+                <th style={styles.th}>Origem da dívida</th>
                 <th style={styles.th}>Tipo informado</th>
                 <th style={styles.thNum}>Valor informado</th>
                 <th style={styles.th}>Status</th>
@@ -606,6 +726,7 @@ export default function FilaConfirmacaoPagamento() {
                   <td style={styles.td}>{s.aluno_cpf || "-"}</td>
                   <td style={styles.td}>{s.operador_nome || s.operador_email || "-"}</td>
                   <td style={styles.td}>{formatarData(s.criado_em)}</td>
+                  <td style={styles.td}>{traduzOrigem(s.origem_divida)}</td>
                   <td style={styles.td}>{traduzTipo(s.forma_pagamento)}</td>
                   <td style={styles.tdNum}>{formatarMoeda(s.valor_informado)}</td>
                   <td style={styles.td}>
@@ -874,6 +995,9 @@ const styles = {
   numero: { fontSize: "26px", fontWeight: "bold", color: "#111827" },
   descricao: { fontSize: "13px", color: "#6b7280" },
   filtros: { display: "flex", gap: "10px", marginBottom: "18px", flexWrap: "wrap" },
+  escopo: { display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" },
+  escopoBotao: { background: "#fff", border: "1px solid #d1d5db", color: "#374151", padding: "10px 18px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 700 },
+  escopoAtivo: { background: "#1e40af", border: "1px solid #1e40af", color: "#fff", padding: "10px 18px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 800 },
   filtro: { background: "#fff", border: "1px solid #d1d5db", color: "#374151", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontSize: "13px" },
   filtroAtivo: { background: "#0ea5e9", border: "1px solid #0ea5e9", color: "#fff", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontSize: "13px", fontWeight: "bold" },
   vazio: { background: "#fff", borderRadius: "12px", padding: "20px", textAlign: "center", color: "#6b7280" },
