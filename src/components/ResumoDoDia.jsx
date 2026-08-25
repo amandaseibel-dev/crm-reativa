@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 import usePolling from "../utils/polling";
 
 function inicioDoDiaISO() {
@@ -29,14 +30,19 @@ export default function ResumoDoDia({ usuarioLogado }) {
   async function carregar() {
     if (!usuarioLogado?.email) return;
 
-    const { data } = await supabase
-      .from("aluno_movimentacoes")
-      .select("tipo, status_novo")
-      .eq("registrado_por_email", usuarioLogado.email)
-      .gte("registrado_em", inicioDoDiaISO())
-      .lte("registrado_em", fimDoDiaISO());
-
-    const linhas = data || [];
+    // Dia cheio de operador passa de 1000 movimentacoes (pico medido em
+    // producao: 3.266), e a API corta ai sem avisar -- o resumo mostrava
+    // menos trabalho do que a pessoa fez.
+    const linhas = await buscarTudo((de, ate) =>
+      supabase
+        .from("aluno_movimentacoes")
+        .select("tipo, status_novo")
+        .eq("registrado_por_email", usuarioLogado.email)
+        .gte("registrado_em", inicioDoDiaISO())
+        .lte("registrado_em", fimDoDiaISO())
+        .order("id", { ascending: true })
+        .range(de, ate)
+    );
 
     const totalFinalizados = linhas.filter(
       (l) => l.tipo === "FINALIZACAO_ATENDIMENTO"

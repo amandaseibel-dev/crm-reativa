@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 import FluxoLinksRapido from "../components/FluxoLinksRapido";
 import ModuloLinkPagamentoGlobal from "../components/ModuloLinkPagamentoGlobal";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
@@ -341,14 +342,20 @@ export default function FilaOperador() {
     const inicioHoje = new Date();
     inicioHoje.setHours(0, 0, 0, 0);
 
-    const { data, error } = await supabase
-      .from("aluno_movimentacoes")
-      .select("aluno_id, registrado_em, tipo")
-      .eq("registrado_por_email", usuarioLogado.email)
-      .eq("tipo", "FINALIZACAO_ATENDIMENTO")
-      .gte("registrado_em", inicioHoje.toISOString());
-
-    if (error) {
+    let data;
+    try {
+      // Dia cheio passa de 1000 e a API corta sem erro nenhum.
+      data = await buscarTudo((de, ate) =>
+        supabase
+          .from("aluno_movimentacoes")
+          .select("aluno_id, registrado_em, tipo")
+          .eq("registrado_por_email", usuarioLogado.email)
+          .eq("tipo", "FINALIZACAO_ATENDIMENTO")
+          .gte("registrado_em", inicioHoje.toISOString())
+          .order("id", { ascending: true })
+          .range(de, ate)
+      );
+    } catch (error) {
       console.error("Erro ao carregar tabulacoes do dia:", error);
       return;
     }
@@ -443,11 +450,15 @@ export default function FilaOperador() {
         // Além de quem é responsável atual do aluno, traz também quem tem
         // pelo menos um acordo ativo sob o próprio nome -- pra dar pra
         // acompanhar e mandar lembrete mesmo sem ser o "dono" do caso.
-        const { data: acordosDoOperador } = await supabase
-          .from("acordos")
-          .select("aluno_id")
-          .eq("operador_responsavel_email", usuarioLogado.email)
-          .eq("status", "ATIVO");
+        const acordosDoOperador = await buscarTudo((de, ate) =>
+          supabase
+            .from("acordos")
+            .select("aluno_id")
+            .eq("operador_responsavel_email", usuarioLogado.email)
+            .eq("status", "ATIVO")
+            .order("id", { ascending: true })
+            .range(de, ate)
+        );
 
         const idsPorAcordo = [
           ...new Set((acordosDoOperador || []).map((a) => a.aluno_id).filter(Boolean)),

@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 
 /* ================= BASE ================= */
 
@@ -109,12 +110,19 @@ function passaFiltro(c) {
 async function buscar() {
   setCarregando(true);
 
-  const { data, error } = await supabase
-    .from("casos")
-    .select("*")
-    .ilike("operador_base", `%${operador}%`);
-
-  if (error) {
+  let data;
+  try {
+    // Carteira grande passa de 1000 casos (pico medido: 1.511) e a API corta
+    // ai sem avisar -- a lista do operador vinha pela metade.
+    data = await buscarTudo((de, ate) =>
+      supabase
+        .from("casos")
+        .select("*")
+        .ilike("operador_base", `%${operador}%`)
+        .order("id", { ascending: true })
+        .range(de, ate)
+    );
+  } catch {
     setErro("Erro ao carregar dados");
     setCarregando(false);
     return;
