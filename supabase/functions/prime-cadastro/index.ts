@@ -154,14 +154,6 @@ async function colher(cpf: string, chave: string) {
   return { cpf, registration, telefones, emails, contratos, titulos };
 }
 
-// Comparacao que nao entrega o segredo pelo tempo de resposta.
-function iguaisEmTempoConstante(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diferenca = 0;
-  for (let i = 0; i < a.length; i++) diferenca |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  return diferenca === 0;
-}
-
 async function emLotes<T, R>(itens: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
   const saida: R[] = [];
   for (let i = 0; i < itens.length; i += n) {
@@ -171,6 +163,13 @@ async function emLotes<T, R>(itens: T[], n: number, fn: (t: T) => Promise<R>): P
 }
 
 Deno.serve(async (req) => {
+  // Cliente de servico criado logo no inicio: e ele que pergunta ao banco se o
+  // token da rotina confere, antes de qualquer outra coisa.
+  const supa = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+
   // PORTÃO DE ACESSO. A função roda com `verify_jwt = false` e decide sozinha
   // quem entra. Não é afrouxamento: são as mesmas duas portas de sempre -- o
   // token dedicado da rotina, ou uma sessão de gestão validada pelo banco. O
@@ -189,9 +188,16 @@ Deno.serve(async (req) => {
   //     informação pelo tempo de resposta;
   //  2. a GESTÃO pela tela, com a sessão dela. Aí quem decide é o banco, pela
   //     mesma função que as políticas de RLS usam.
-  const tokenEsperado = Deno.env.get("PRIME_CADASTRO_TOKEN") ?? "";
+  // O token vive em UM lugar so, o Vault -- a funcao pergunta ao banco se
+  // confere, em vez de guardar uma copia. Dois lugares significaria alguem
+  // copiando segredo entre telas, que e quando segredo vaza. A comparacao la
+  // dentro usa digest, para nao entregar o segredo pelo tempo de resposta.
   const tokenRecebido = req.headers.get("x-rotina-token") ?? "";
-  const ehRotina = tokenEsperado.length > 0 && iguaisEmTempoConstante(tokenRecebido, tokenEsperado);
+  let ehRotina = false;
+  if (tokenRecebido) {
+    const { data } = await supa.rpc("prime_cadastro_token_valido", { p_token: tokenRecebido });
+    ehRotina = data === true;
+  }
 
   if (!ehRotina) {
     // Sem o token, só passa quem apresentar sessão de gestão.
@@ -213,17 +219,20 @@ Deno.serve(async (req) => {
     }
   }
 
-  const chave = Deno.env.get("PRIME_API_KEY");
+  // A chave da Prime vem do Vault, no mesmo lugar que o token da rotina. O
+  // secret de ambiente continua valendo como alternativa -- se um dia alguem
+  // preferir cadastrar pelo painel, funciona sem mudar nada aqui.
+  let chave = Deno.env.get("PRIME_API_KEY") ?? "";
   if (!chave) {
-    return new Response(JSON.stringify({ erro: "PRIME_API_KEY nao configurada" }), {
-      status: 500, headers: { "Content-Type": "application/json" },
-    });
+    const { data } = await supa.rpc("prime_api_key_backend");
+    chave = typeof data === "string" ? data : "";
   }
-
-  const supa = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
+  if (!chave) {
+    return new Response(JSON.stringify({
+      erro: "PRIME_API_KEY_AUSENTE",
+      detalhe: "cadastre no Vault como 'prime_api_key' ou como secret PRIME_API_KEY da funcao",
+    }), { status: 500, headers: { "Content-Type": "application/json" } });
+  }
 
   let corpo: any = {};
   try { corpo = await req.json(); } catch { /* sem corpo = usa os padrões */ }
