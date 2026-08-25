@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import { S as A } from "../ui/estilosFila";
+import Aluno from "./Aluno";
+import DadosAcademicos from "../components/DadosAcademicos";
 
 // Conferência Prime: títulos que o CRM ainda cobra e a Prime já registra como
 // liquidados. Mesma anatomia das outras filas (card por aluno, ação no próprio
@@ -51,6 +53,9 @@ export default function ConferenciaPrime() {
   const [busca, setBusca] = useState("");
   const [ordem, setOrdem] = useState("VALOR_DESC");
   const [processando, setProcessando] = useState({});
+  // Ficha do aluno. A tela nasceu sem isso e ficou impossivel conferir o caso
+  // antes de baixar -- que e exatamente o que se pede a quem usa esta lista.
+  const [fichaId, setFichaId] = useState(null);
 
   useEffect(() => {
     carregar();
@@ -302,6 +307,16 @@ export default function ConferenciaPrime() {
                         {g.ultimaLiquidacao ? ` · liquidado até ${dia(g.ultimaLiquidacao)}` : ""}
                       </span>
                       <span style={A.cardUnidade}>{g.responsavel}</span>
+                      {g.alunoId && (
+                        <button
+                          type="button"
+                          style={A.btnFicha}
+                          onClick={() => setFichaId(g.alunoId)}
+                          title="Abrir a ficha para conferir o caso antes de baixar"
+                        >
+                          Abrir ficha
+                        </button>
+                      )}
                     </div>
                   </div>
 
@@ -347,6 +362,29 @@ export default function ConferenciaPrime() {
             </div>
           )}
         </>
+      )}
+
+      {fichaId && (
+        <div style={A.modalOverlay} onClick={() => setFichaId(null)}>
+          <div style={A.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div style={A.modalTopo}>
+              <span style={A.modalTitulo}>Ficha do aluno</span>
+              <button
+                type="button"
+                style={{ ...A.modalFechar, marginLeft: "auto" }}
+                onClick={() => setFichaId(null)}
+              >
+                Fechar ✕
+              </button>
+            </div>
+            <div style={{ padding: "0 16px" }}>
+              <DadosAcademicos aluno={{ id: fichaId }} />
+            </div>
+            <div style={A.modalConteudo}>
+              <Aluno fichaEmbedId={fichaId} />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
