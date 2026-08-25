@@ -175,16 +175,29 @@ Deno.serve(async (req) => {
       status: 401, headers: { "Content-Type": "application/json" },
     });
   }
-  const supaChamador = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_ANON_KEY")!,
-    { global: { headers: { Authorization: autorizacao } } },
-  );
-  const { data: ehGestao, error: erroGestao } = await supaChamador.rpc("usuario_e_gestao");
-  if (erroGestao || ehGestao !== true) {
-    return new Response(JSON.stringify({ erro: "ACESSO_NEGADO", detalhe: "restrito a gestao" }), {
-      status: 403, headers: { "Content-Type": "application/json" },
-    });
+
+  // Dois chamadores legítimos, e só dois:
+  //
+  //  1. a rotina noturna, que apresenta a service key. `usuario_e_gestao()`
+  //     devolveria false para ela (não há e-mail no token), então a checagem
+  //     é por igualdade com a própria chave do projeto;
+  //  2. a gestão pela tela, com a sessão dela. Aí quem decide é o banco, pela
+  //     mesma função que as políticas de RLS usam.
+  const tokenChamador = autorizacao.slice("Bearer ".length).trim();
+  const ehRotina = tokenChamador === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!ehRotina) {
+    const supaChamador = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: autorizacao } } },
+    );
+    const { data: ehGestao, error: erroGestao } = await supaChamador.rpc("usuario_e_gestao");
+    if (erroGestao || ehGestao !== true) {
+      return new Response(JSON.stringify({ erro: "ACESSO_NEGADO", detalhe: "restrito a gestao" }), {
+        status: 403, headers: { "Content-Type": "application/json" },
+      });
+    }
   }
 
   const chave = Deno.env.get("PRIME_API_KEY");
