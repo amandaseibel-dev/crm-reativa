@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 import { Carregando } from "../ui/estados";
 import { urlTermo, abrirDocumento } from "../utils/documentoFinanceiro";
 
@@ -39,10 +40,24 @@ export default function FilaAdmTermos() {
   async function carregarTermos() {
     setCarregando(true);
 
-    const { data, error } = await supabase
-      .from("termos_acordo")
-      .select("*")
-      .order("criado_em", { ascending: false });
+    // A API entrega no maximo 1000 linhas por requisicao, mesmo sem .limit(),
+    // e responde 206 (sucesso). Esta consulta ainda cabe, mas a tabela cresce
+    // todo dia -- sem paginar, o corte chegaria calado.
+    let data;
+    let error = null;
+    try {
+      data = await buscarTudo((de, ate) =>
+        supabase
+          .from("termos_acordo")
+          .select("*")
+          .order("criado_em", { ascending: false })
+          // Desempate estavel entre paginas.
+          .order("id", { ascending: true })
+          .range(de, ate)
+      );
+    } catch (e) {
+      error = e;
+    }
 
     if (error) {
       alert("Erro ao carregar fila ADM: " + error.message);
