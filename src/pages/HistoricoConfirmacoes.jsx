@@ -15,12 +15,17 @@ const ACAO_LABEL = {
   CONFIRMADO: "confirmou",
   SALDO_ZERO: "saldo zero",
   REJEITADO: "rejeitou",
+  // A baixa vem de baixas_pagamento, nao da solicitacao: la o autor e
+  // confiavel. Sem isso, quem deu 159 baixas num dia aparecia com 3
+  // confirmacoes -- a rotina que fecha a solicitacao depois da baixa nao assina.
+  BAIXA: "deu baixa",
 };
 
 const ACAO_COR = {
   CONFIRMADO: { background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534" },
   SALDO_ZERO: { background: "#eef2ff", border: "1px solid #e0e7ff", color: "#3730a3" },
   REJEITADO: { background: "#fee2e2", border: "1px solid #fecaca", color: "#991b1b" },
+  BAIXA: { background: "#e0f2fe", border: "1px solid #bae6fd", color: "#075985" },
 };
 
 function dataBR(iso) {
