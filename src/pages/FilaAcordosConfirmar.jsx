@@ -46,6 +46,9 @@ const STATUS_META = {
   A_CONFIRMAR: { rotulo: "A confirmar", estilo: "chipPend" },
   CONFIRMADO: { rotulo: "Confirmado", estilo: "chipOk" },
   REJEITADO: { rotulo: "Rejeitado", estilo: "chipRej" },
+  // Aluno nao deve mais nada: nao ha o que confirmar com ele. Sai da fila de
+  // trabalho, mas nada e apagado -- fica achavel aqui e da pra reabrir.
+  ENCERRADO_SEM_SALDO: { rotulo: "Encerrado sem saldo", estilo: "chipZero" },
 };
 
 // Exibição do responsável ESPECÍFICO do acordo, a partir do estado devolvido
@@ -86,7 +89,17 @@ export default function FilaAcordosConfirmar() {
       const mail = data?.user?.email || "";
       setEmail(mail);
       setPodeVincular(podeVincularAcordoFila(mail));
-      carregar();
+      await carregar();
+      // Caso zerado nao tem o que confirmar: o aluno ja nao deve nada. A rotina
+      // tira esses da fila (status ENCERRADO_SEM_SALDO, nada e apagado) sempre
+      // que a gestao abre a tela, pra fila nao voltar a acumular conforme os
+      // alunos vao pagando. Operador nao tem permissao e o erro e ignorado --
+      // a fila carrega normal de qualquer jeito.
+      const { data: limpeza, error: erroLimpeza } = await supabase.rpc(
+        "fila_acordos_sair_sem_saldo",
+        { p_dry_run: false, p_limite: 500 }
+      );
+      if (!erroLimpeza && Number(limpeza?.encerrados) > 0) carregar();
     })();
   }, []);
 
@@ -190,7 +203,6 @@ export default function FilaAcordosConfirmar() {
     }
   }
 
-  const confirmar = (item) => mudarStatus(item, "CONFIRMADO");
   const rejeitar = (item) => mudarStatus(item, "REJEITADO");
   const reabrir = (item) => mudarStatus(item, "A_CONFIRMAR");
 
@@ -301,6 +313,7 @@ export default function FilaAcordosConfirmar() {
           <option value="A_CONFIRMAR">A confirmar</option>
           <option value="CONFIRMADO">Confirmados</option>
           <option value="REJEITADO">Rejeitados</option>
+          <option value="ENCERRADO_SEM_SALDO">Encerrados sem saldo</option>
           <option value="TODOS">Todos</option>
         </select>
         <select style={S.select} value={ordem} onChange={(e) => setOrdem(e.target.value)}>
@@ -348,9 +361,17 @@ export default function FilaAcordosConfirmar() {
                         style={{ ...S.btnConf, ...(busyGrp ? S.btnBusy : {}) }}
                         disabled={busyGrp}
                         onClick={() => confirmarTodos(g)}
-                        title="Confirma de uma vez todos os acordos deste aluno"
+                        title={
+                          pendentes.length > 1
+                            ? "Confirma de uma vez todos os acordos pendentes deste aluno"
+                            : "Confirma o acordo pendente deste aluno"
+                        }
                       >
-                        {busyGrp ? "Confirmando..." : `Confirmar todos (${pendentes.length})`}
+                        {busyGrp
+                          ? "Confirmando..."
+                          : pendentes.length > 1
+                            ? `Confirmar os ${pendentes.length} acordos`
+                            : "Confirmar"}
                       </button>
                     );
                   })()}
@@ -400,17 +421,18 @@ export default function FilaAcordosConfirmar() {
                         </td>
                         <td style={S.td}>
                           <div style={S.acoes}>
+                            {/* Confirmar mora SO no cabecalho do card (um botao por
+                                aluno). Antes, card de 1 acordo -- a maioria --
+                                mostrava dois botoes verdes fazendo a mesma coisa:
+                                "Confirmar todos (1)" e "Confirmar". Rejeitar
+                                continua por linha: rejeitar e sempre sobre UM
+                                acordo especifico, nunca sobre o aluno inteiro. */}
                             {st === "A_CONFIRMAR" && (
-                              <>
-                                <button type="button" style={{ ...S.btnConf, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => confirmar(a)}>
-                                  {busy ? "..." : "Confirmar"}
-                                </button>
-                                <button type="button" style={{ ...S.btnRej, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => rejeitar(a)}>
-                                  {busy ? "..." : "Rejeitar"}
-                                </button>
-                              </>
+                              <button type="button" style={{ ...S.btnRej, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => rejeitar(a)}>
+                                {busy ? "..." : "Rejeitar"}
+                              </button>
                             )}
-                            {st === "REJEITADO" && (
+                            {(st === "REJEITADO" || st === "ENCERRADO_SEM_SALDO") && (
                               <button type="button" style={{ ...S.btnMini, ...(busy ? S.btnBusy : {}) }} disabled={busy} onClick={() => reabrir(a)}>
                                 {busy ? "..." : "reabrir"}
                               </button>
@@ -633,6 +655,7 @@ const S = {
   chip: { fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 10px", whiteSpace: "nowrap" },
   chipPend: { background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a" },
   chipOk: { background: "#f0fdf4", color: "#166534", border: "1px solid #86efac" },
+  chipZero: { background: "#f1f5f9", border: "1px solid #e2e8f0", color: "#475569" },
   chipRej: { background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca" },
   btnConf: { background: "#15803d", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
   btnRej: { background: "#b91c1c", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
