@@ -171,18 +171,13 @@ async function emLotes<T, R>(itens: T[], n: number, fn: (t: T) => Promise<R>): P
 }
 
 Deno.serve(async (req) => {
-  // PORTÃO DE ACESSO. `verify_jwt` só garante que quem chamou está logado --
-  // qualquer operador passaria. Uma varredura na Prime lê PII de milhares de
-  // alunos e gasta cota da API, então tem que ser gestão.
-  //
-  // A checagem usa o token de QUEM CHAMOU, não a service key: é o banco que
-  // decide, pela mesma função que as políticas de RLS usam.
+  // PORTÃO DE ACESSO. A função roda com `verify_jwt = false` e decide sozinha
+  // quem entra. Não é afrouxamento: são as mesmas duas portas de sempre -- o
+  // token dedicado da rotina, ou uma sessão de gestão validada pelo banco. O
+  // que saiu foi a exigência de um JWT só para atravessar o portão do Supabase,
+  // que obrigava a guardar a anon key no Vault sem ganhar segurança nenhuma
+  // (ela é pública, vai no bundle do navegador).
   const autorizacao = req.headers.get("Authorization") ?? "";
-  if (!autorizacao.startsWith("Bearer ")) {
-    return new Response(JSON.stringify({ erro: "SEM_TOKEN" }), {
-      status: 401, headers: { "Content-Type": "application/json" },
-    });
-  }
 
   // Dois chamadores legítimos, e só dois:
   //
@@ -199,6 +194,12 @@ Deno.serve(async (req) => {
   const ehRotina = tokenEsperado.length > 0 && iguaisEmTempoConstante(tokenRecebido, tokenEsperado);
 
   if (!ehRotina) {
+    // Sem o token, só passa quem apresentar sessão de gestão.
+    if (!autorizacao.startsWith("Bearer ")) {
+      return new Response(JSON.stringify({ erro: "SEM_TOKEN" }), {
+        status: 401, headers: { "Content-Type": "application/json" },
+      });
+    }
     const supaChamador = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_ANON_KEY")!,
