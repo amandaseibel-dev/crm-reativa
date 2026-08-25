@@ -431,7 +431,9 @@ export default function App() {
   // busca única ao logar, sem polling. Mesma contagem do card em Ferramentas.jsx.
   useEffect(() => {
     const perfilAtual = usuario?.perfil?.perfil;
-    if (!usuario || perfilAtual === "operador") { setSugestoesNovas(0); return; }
+    // Diretoria fora: não vê Ferramentas (onde o badge mora) e não recebe
+    // sinalização de operação — a consulta só gastaria requisição.
+    if (!usuario || perfilAtual === "operador" || perfilAtual === "diretoria") { setSugestoesNovas(0); return; }
     let ativo = true;
     (async () => {
       const { count, error } = await supabase
@@ -703,12 +705,19 @@ export default function App() {
         <NotificacoesSupervisaoAdm usuario={usuario} />
         <LiberacoesAcesso />
         <BotaoSugestao />
-        <NotificacoesPopup />
-        <AvisoTemplateNovo />
-        {/* Central de Avisos é recado de operação: a diretoria não recebe o
-            pop-up nem o sino (decisão da Amanda, 2026-08-18). */}
+        {/* NENHUM pop-up de operação para a diretoria (decisão da Amanda,
+            2026-08-18, estendida a TODOS os canais em 2026-08-25). O perfil é
+            de leitura executiva: não opera fila, não atende WhatsApp e não usa
+            template de e-mail — então nada disso pode estourar na tela dela,
+            ainda mais porque o clique levaria a rota que ela nem acessa.
+            O corte no banco (quem NASCE com notificação) está na migration
+            20260825140000_diretoria_sem_notificacao.sql; estes gates são a
+            segunda trava, para o caso de sobrar linha antiga ou entrar remetente
+            novo. */}
+        {perfil !== "diretoria" ? <NotificacoesPopup /> : null}
+        {perfil !== "diretoria" ? <AvisoTemplateNovo /> : null}
         {perfil !== "diretoria" ? <AvisosPopup /> : null}
-        <TourNovidades usuario={usuario} />
+        {perfil !== "diretoria" ? <TourNovidades usuario={usuario} /> : null}
         <aside className={sidebarRecolhida ? "sidebar sidebar-recolhida" : "sidebar"}>
           <button
             type="button"
