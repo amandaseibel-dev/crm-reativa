@@ -204,6 +204,10 @@ function mensalidadeManualInicial() {
 
 export default function FinanceiroAluno({ aluno }) {
   const [titulos, setTitulos] = useState([]);
+  // Semestre de cada título, vindo da Prime. A chave é o número do boleto, que
+  // é o mesmo do nosso `documento`. NÃO dá para deduzir pelo mês do vencimento:
+  // matrícula antecipada cobra em junho uma parcela do semestre seguinte.
+  const [semestrePorBoleto, setSemestrePorBoleto] = useState({});
   const [carregando, setCarregando] = useState(true);
   const [acordos, setAcordos] = useState([]);
   const [parcelasPorAcordo, setParcelasPorAcordo] = useState({});
@@ -262,6 +266,19 @@ export default function FinanceiroAluno({ aluno }) {
 
       setTitulos(emAbertoPrimeiro);
       setCarregando(false);
+
+      const boletos = emAbertoPrimeiro.map((t) => t.documento).filter(Boolean);
+      if (boletos.length) {
+        const { data: sem } = await supabase
+          .from("prime_titulo_semestre")
+          .select("boleto, semestre")
+          .in("boleto", boletos);
+        const mapa = {};
+        for (const linha of sem || []) if (linha.semestre) mapa[linha.boleto] = linha.semestre;
+        setSemestrePorBoleto(mapa);
+      } else {
+        setSemestrePorBoleto({});
+      }
     }
 
     carregar();
@@ -1488,6 +1505,9 @@ export default function FinanceiroAluno({ aluno }) {
                   <div>
                     <div style={{ fontSize: 13 }}>
                       Título {titulo.documento}
+                      {semestrePorBoleto[titulo.documento]
+                        ? <span style={estilos.marcaSemestre}>{semestrePorBoleto[titulo.documento]}</span>
+                        : null}
                       {titulo.tipo_boleto ? ` · ${titulo.tipo_boleto}` : ""}
                     </div>
                     <div style={estilos.subLinha}>
@@ -2124,6 +2144,12 @@ const estilos = {
   linha: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid rgba(148,163,184,0.12)" },
   subLinha: { fontSize: 11, opacity: 0.7, marginTop: 2 },
   marcaVencida: { color: "#f0999a", fontWeight: 700, marginLeft: 6 },
+  // Semestre a que a dívida pertence, conforme o contrato na Prime.
+  marcaSemestre: {
+    marginLeft: 6, fontSize: 11, fontWeight: 700, color: "#6d28d9",
+    background: "rgba(109,40,217,0.10)", border: "1px solid rgba(109,40,217,0.28)",
+    borderRadius: 999, padding: "1px 7px",
+  },
   marcaLembrete: { color: "#fcd34d", fontWeight: 700, marginLeft: 6 },
   tagBase: { fontSize: 11, padding: "2px 8px", borderRadius: 999, fontWeight: 700 },
   botaoPequeno: { background: "#0ea5e9", color: "#fff", border: "none", padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12 },
