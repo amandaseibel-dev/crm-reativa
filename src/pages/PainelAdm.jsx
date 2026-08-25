@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 import { urlComprovanteLink, urlTermo, abrirDocumento } from "../utils/documentoFinanceiro";
 import { podeVerTudo } from "../utils/operadores";
 import { intervaloPeriodo, comoInputData, intervaloInvalido } from "../utils/periodo";
@@ -242,21 +243,28 @@ export default function PainelAdm() {
     try {
       const { desde, ate } = intervaloPeriodo(periodo, dataDe, dataAte);
 
-      let query = supabase
-        .from("links_pagamento")
-        .select("*")
-        .order("criado_em", { ascending: false })
-        .limit(2000);
+      // Pedia .limit(2000) e receberia 1000: a API ignora o limite pedido e
+      // responde 206 (sucesso). Pagina de mil em mil ate acabar.
+      const montar = (de, ate2) => {
+        let q = supabase
+          .from("links_pagamento")
+          .select("*")
+          .order("criado_em", { ascending: false })
+          // Desempate estavel entre paginas.
+          .order("id", { ascending: true })
+          .range(de, ate2);
+        if (desde) q = q.gte("criado_em", desde.toISOString());
+        if (ate) q = q.lte("criado_em", ate.toISOString());
+        return q;
+      };
 
-      if (desde) {
-        query = query.gte("criado_em", desde.toISOString());
+      let data = null;
+      let error = null;
+      try {
+        data = await buscarTudo(montar);
+      } catch (e) {
+        error = e;
       }
-
-      if (ate) {
-        query = query.lte("criado_em", ate.toISOString());
-      }
-
-      const { data, error } = await query;
 
       if (error) {
         console.error("Erro ao carregar links:", error);
@@ -308,23 +316,24 @@ export default function PainelAdm() {
 
     const { desde, ate } = intervaloPeriodo(periodo, dataDe, dataAte);
 
-    let query = supabase
-      .from("solicitacoes_financeiro")
-      .select("*")
-      .order("criado_em", { ascending: false })
-      .limit(2000);
+    // Mesma correcao do bloco de links: pagina em vez de pedir um limite que a
+    // API nao respeita.
+    const montarSolicitacoes = (de, ate2) => {
+      let q = supabase
+        .from("solicitacoes_financeiro")
+        .select("*")
+        .order("criado_em", { ascending: false })
+        .order("id", { ascending: true })
+        .range(de, ate2);
+      if (desde) q = q.gte("criado_em", desde.toISOString());
+      if (ate) q = q.lte("criado_em", ate.toISOString());
+      return q;
+    };
 
-    if (desde) {
-      query = query.gte("criado_em", desde.toISOString());
-    }
-
-    if (ate) {
-      query = query.lte("criado_em", ate.toISOString());
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
+    let data;
+    try {
+      data = await buscarTudo(montarSolicitacoes);
+    } catch (error) {
       alert("Erro ao carregar fila do financeiro: " + error.message);
       setCarregandoFinanceiro(false);
       return;
@@ -339,26 +348,34 @@ export default function PainelAdm() {
 
     const { desde, ate } = intervaloPeriodo(periodo, dataDe, dataAte);
 
-    let query = supabase
-      .from("termos_acordo")
-      .select("*")
-      .order("criado_em", { ascending: false })
-      .limit(2000);
+    // Sao 795 termos hoje: ainda cabe numa pagina, mas o .limit(2000) que
+    // estava aqui entregaria 1.000 no dia em que a base passar disso -- calado.
+    const montarTermos = (de, ate2) => {
+      let q = supabase
+        .from("termos_acordo")
+        .select("*")
+        .order("criado_em", { ascending: false })
+        // Desempate estavel entre paginas.
+        .order("id", { ascending: true })
+        .range(de, ate2);
 
-    if (desde || ate) {
-      // Termo esperando o ADM continua aparecendo mesmo fora da janela escolhida.
-      const dentroDoPeriodo = [
-        desde ? `criado_em.gte.${desde.toISOString()}` : null,
-        ate ? `criado_em.lte.${ate.toISOString()}` : null,
-      ].filter(Boolean);
-      const janela =
-        dentroDoPeriodo.length > 1 ? `and(${dentroDoPeriodo.join(",")})` : dentroDoPeriodo[0];
-      query = query.or(`status.eq.TERMO_ENVIADO_ADM,${janela}`);
-    }
+      if (desde || ate) {
+        // Termo esperando o ADM continua aparecendo mesmo fora da janela escolhida.
+        const dentroDoPeriodo = [
+          desde ? `criado_em.gte.${desde.toISOString()}` : null,
+          ate ? `criado_em.lte.${ate.toISOString()}` : null,
+        ].filter(Boolean);
+        const janela =
+          dentroDoPeriodo.length > 1 ? `and(${dentroDoPeriodo.join(",")})` : dentroDoPeriodo[0];
+        q = q.or(`status.eq.TERMO_ENVIADO_ADM,${janela}`);
+      }
+      return q;
+    };
 
-    const { data, error } = await query;
-
-    if (error) {
+    let data;
+    try {
+      data = await buscarTudo(montarTermos);
+    } catch (error) {
       alert("Erro ao carregar fila de termos: " + error.message);
       setCarregandoTermos(false);
       return;

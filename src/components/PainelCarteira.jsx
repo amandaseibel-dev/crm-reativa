@@ -2054,15 +2054,33 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       } else if (kpi === "retornosAdm") {
         const ids = [...new Set(retornosPendentes.map((r) => r.aluno_id).filter(Boolean))];
         if (ids.length) {
-          const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).in("id", ids).limit(5000);
-          dados = data || [];
+          // `.in(ids)` para em 1.000 linhas: busca em lotes e pagina cada um.
+          const linhas = [];
+          for (let i = 0; i < ids.length; i += LOTE_IN) {
+            const lote = ids.slice(i, i + LOTE_IN);
+            const parte = await buscarTudo((de, ate) =>
+              supabase.from("alunos").select(COLUNAS_ALUNO).in("id", lote)
+                .order("id", { ascending: true }).range(de, ate)
+            );
+            linhas.push(...parte);
+          }
+          dados = linhas;
         }
       } else if (kpi === "acordoAVencer" || kpi === "acordoAtrasado" || kpi === "acordoQuebrado") {
         const chave = kpi === "acordoAVencer" ? "aVencer" : kpi === "acordoAtrasado" ? "atrasado" : "quebrado";
         const ids = acordoBuckets[chave] || [];
         if (ids.length) {
-          const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).in("id", ids).limit(5000);
-          dados = data || [];
+          // `.in(ids)` para em 1.000 linhas: busca em lotes e pagina cada um.
+          const linhas = [];
+          for (let i = 0; i < ids.length; i += LOTE_IN) {
+            const lote = ids.slice(i, i + LOTE_IN);
+            const parte = await buscarTudo((de, ate) =>
+              supabase.from("alunos").select(COLUNAS_ALUNO).in("id", lote)
+                .order("id", { ascending: true }).range(de, ate)
+            );
+            linhas.push(...parte);
+          }
+          dados = linhas;
         }
       }
 
@@ -2120,16 +2138,21 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     setQuitadosModal(true);
     setCarregandoQuitados(true);
     try {
-      let q = supabase
-        .from("casos")
-        .select("aluno_id,nome,nome_aluno,cpf,operador_email,quitado_em,valor_quitado,origem_quitacao,status_financeiro")
-        .not("quitado_em", "is", null)
-        .order("quitado_em", { ascending: false })
-        .limit(5000);
-      // Se a gestao filtrou um operador especifico, respeita o recorte.
-      if (operadorFiltro && operadorFiltro !== "TODOS") q = q.eq("operador_email", operadorFiltro);
-      const { data, error } = await q;
-      if (error) throw error;
+      // Sao 509 quitados hoje, mas isso so cresce -- e .limit(5000) entregaria
+      // 1.000 no dia em que passar, sem avisar.
+      const data = await buscarTudo((de, ate) => {
+        let q = supabase
+          .from("casos")
+          .select("aluno_id,nome,nome_aluno,cpf,operador_email,quitado_em,valor_quitado,origem_quitacao,status_financeiro")
+          .not("quitado_em", "is", null)
+          .order("quitado_em", { ascending: false })
+          // Desempate estavel entre paginas.
+          .order("id", { ascending: true })
+          .range(de, ate);
+        // Se a gestao filtrou um operador especifico, respeita o recorte.
+        if (operadorFiltro && operadorFiltro !== "TODOS") q = q.eq("operador_email", operadorFiltro);
+        return q;
+      });
       setQuitadosLista(data || []);
     } catch (e) {
       console.error("Erro ao carregar arquivo de quitados:", e);
