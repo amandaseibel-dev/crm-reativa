@@ -199,6 +199,8 @@ export default function SaudeCompletaCarteira() {
             ))}
           </div>
 
+          <SaldoPorOrigem origem={resumo?.saldo_por_origem} />
+
           <Secao titulo="Fidelização (exclusividade de 10 dias por acionamento)">
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 12 }}>
               {CARDS_FIDELIZACAO.map(([k, label, fmt, indicador]) => (
@@ -458,6 +460,71 @@ function DetalheDrawer({ titulo, det, loading, pag, setPag, ord, setOrd, onClose
         </div>
       </div>
     </div>
+  );
+}
+
+// Saldo separado entre ACORDO e MENSALIDADE. Vem da RPC em `saldo_por_origem`,
+// calculado direto de `parcelas` e `acordos_titulos` -- e NÃO do saldo gravado
+// no caso, que está defasado. Por isso é a posição de AGORA, enquanto os demais
+// cards vêm da matview: as duas datas ficam rotuladas para ninguém comparar
+// número de momentos diferentes sem perceber.
+function SaldoPorOrigem({ origem }) {
+  if (!origem) return null;
+  const linhas = [
+    ["Acordo", "acordo_total", "acordo_vencido", "acordo_a_vencer", "acordo_alunos",
+      "parcelas de acordos ativos"],
+    ["Mensalidade", "mensalidade_total", "mensalidade_vencido", "mensalidade_a_vencer", "mensalidade_alunos",
+      "títulos em aberto, fora de acordo"],
+  ];
+  const calc = origem.calculado_em
+    ? new Date(origem.calculado_em).toLocaleString("pt-BR")
+    : null;
+
+  return (
+    <Secao
+      titulo="Saldo em aberto por origem"
+      extra={calc && <span style={{ fontSize: 11.5, color: "#64748b" }}>posição de {calc}</span>}
+    >
+      <div style={{ overflowX: "auto" }}>
+        <table style={tabela}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: "left" }}>Origem</th>
+              <th style={th}>Em aberto</th>
+              <th style={th}>Vencido</th>
+              <th style={th}>A vencer</th>
+              <th style={th}>Alunos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map(([rotulo, kTot, kVenc, kAv, kAlunos, ajuda]) => (
+              <tr key={rotulo} style={{ borderTop: "1px solid #e2e8f0" }}>
+                <td style={{ ...td, textAlign: "left" }}>
+                  <div style={{ fontWeight: 700, color: "#0f172a" }}>{rotulo}</div>
+                  <div style={{ fontSize: 11, color: "#94a3b8" }}>{ajuda}</div>
+                </td>
+                <td style={{ ...td, fontWeight: 700 }}>{moeda(origem[kTot])}</td>
+                <td style={{ ...td, color: "#b91c1c" }}>{moeda(origem[kVenc])}</td>
+                <td style={{ ...td, color: "#15803d" }}>{moeda(origem[kAv])}</td>
+                <td style={td}>{num(origem[kAlunos])}</td>
+              </tr>
+            ))}
+            <tr style={{ borderTop: "2px solid #cbd5e1", background: "#f8fafc" }}>
+              <td style={{ ...td, textAlign: "left", fontWeight: 800, color: "#0f172a" }}>Total</td>
+              <td style={{ ...td, fontWeight: 800 }}>{moeda(origem.total)}</td>
+              <td style={{ ...td, fontWeight: 700, color: "#b91c1c" }}>{moeda(origem.vencido)}</td>
+              <td style={{ ...td, fontWeight: 700, color: "#15803d" }}>{moeda(origem.a_vencer)}</td>
+              <td style={td}>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "#64748b", lineHeight: 1.5 }}>
+        Lido das tabelas de origem, não do saldo gravado no caso — por isso pode divergir
+        do card “Saldo total” acima, que vem da base consolidada.
+        “A vencer” em Acordo é dívida negociada com data marcada; em Mensalidade é dívida sem negociação.
+      </p>
+    </Secao>
   );
 }
 
