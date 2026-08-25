@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 
 // Casos sem telefone cadastrado -- precisam de tratativa diferenciada
 // (pesquisa de telefone, contato por e-mail, correspondência, etc), ja que
@@ -28,19 +29,24 @@ export default function CasosSemTelefone({ aoAtualizarContagem }) {
 
     // Busca separada (mais confiável que .or() com string) -- telefone
     // nulo de um lado, telefone vazio ("") do outro, e junta os dois.
+    // Pedia 6000 e recebia 1000 -- por isso a aba mostrava "(1000)" fixo, que
+    // era o teto da API se passando por contagem. Sao 4.871 alunos sem telefone
+    // em producao (25/08/2026).
+    const COLUNAS = "id, nome, cpf, email, status_jornada, responsavel_atual_nome, matricula, curso, unidade";
+    const paginar = (aplicarFiltro) =>
+      buscarTudo((de, ate) =>
+        aplicarFiltro(supabase.from("alunos").select(COLUNAS))
+          .order("nome", { ascending: true })
+          // Desempate estavel: muitos homonimos na base.
+          .order("id", { ascending: true })
+          .range(de, ate)
+      )
+        .then((data) => ({ data, error: null }))
+        .catch((error) => ({ data: null, error }));
+
     const [semTelefoneNull, semTelefoneVazio] = await Promise.all([
-      supabase
-        .from("alunos")
-        .select("id, nome, cpf, email, status_jornada, responsavel_atual_nome, matricula, curso, unidade")
-        .is("telefone", null)
-        .order("nome", { ascending: true })
-        .limit(6000),
-      supabase
-        .from("alunos")
-        .select("id, nome, cpf, email, status_jornada, responsavel_atual_nome, matricula, curso, unidade")
-        .eq("telefone", "")
-        .order("nome", { ascending: true })
-        .limit(6000),
+      paginar((q) => q.is("telefone", null)),
+      paginar((q) => q.eq("telefone", "")),
     ]);
 
     if (semTelefoneNull.error) {

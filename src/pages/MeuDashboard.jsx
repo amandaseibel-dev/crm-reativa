@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 import { chamarRpcContido } from "../utils/rpcResiliente";
 import BotaoAtualizar from "../components/BotaoAtualizar";
 
@@ -125,17 +126,21 @@ export default function MeuDashboard() {
       const hoje = hojeISO();
       const inicioMes = `${hoje.slice(0, 7)}-01T00:00:00`;
 
-      const { data: acionamentos, error: erroAcionamentos } = await supabase
-        .from("aluno_movimentacoes")
-        .select("registrado_em")
-        .eq("registrado_por_email", email)
-        .in("tipo", TIPOS_ACIONAMENTO)
-        .gte("registrado_em", inicioMes)
-        .order("registrado_em", { ascending: true });
-
-      if (erroAcionamentos) throw erroAcionamentos;
-
-      const lista = acionamentos || [];
+      // Mes inteiro de um operador passa folgado de 1000 linhas, e a API corta
+      // ai respondendo 206 (sucesso): o painel dele mostrava menos acionamento
+      // do que ele fez de verdade.
+      const lista = await buscarTudo((de, ate) =>
+        supabase
+          .from("aluno_movimentacoes")
+          .select("registrado_em")
+          .eq("registrado_por_email", email)
+          .in("tipo", TIPOS_ACIONAMENTO)
+          .gte("registrado_em", inicioMes)
+          .order("registrado_em", { ascending: true })
+          // Desempate estavel entre paginas.
+          .order("id", { ascending: true })
+          .range(de, ate)
+      );
       const totalAcionamentos = lista.length;
 
       const porDia = {};

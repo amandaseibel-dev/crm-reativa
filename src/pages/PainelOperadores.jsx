@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 import { podeAcessoRestritoAmanda } from "../utils/operadores";
 import { AvatarFoto } from "../components/AvatarFoto";
 
@@ -132,15 +133,20 @@ export default function PainelOperadores() {
   async function carregarEventos() {
     setCarregando(true);
 
-    let query = supabase
-      .from("ponto_operadores")
-      .select("email, nome, tipo, criado_em")
-      .order("criado_em", { ascending: true });
-
     const corte = dataDeCorte(periodo);
-    if (corte) query = query.gte("criado_em", corte);
-
-    const { data } = await query;
+    // O mes inteiro ja passa de 1000 batidas (1.209 em 08/2026) e a API corta
+    // ai: faltavam entradas/saidas no fim do periodo.
+    const data = await buscarTudo((de, ate) => {
+      let q = supabase
+        .from("ponto_operadores")
+        .select("email, nome, tipo, criado_em")
+        .order("criado_em", { ascending: true })
+        // Desempate estavel entre paginas.
+        .order("id", { ascending: true })
+        .range(de, ate);
+      if (corte) q = q.gte("criado_em", corte);
+      return q;
+    });
     setEventos(data || []);
 
     const { data: usuarios } = await supabase.from("usuarios").select("id, email, apelido");
