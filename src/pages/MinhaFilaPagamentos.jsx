@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 import { Carregando } from "../ui/estados";
 import { podeBaixarPagamento, podeVerFilaDeBaixas } from "../utils/operadores";
 import ComprovantePagamento from "../components/ComprovantePagamento";
@@ -119,11 +120,25 @@ export default function MinhaFilaPagamentos() {
   async function carregarPagamentos() {
     setCarregando(true);
 
-    const { data, error } = await supabase
-      .from("links_pagamento")
-      .select("*")
-      .in("status", ["AGUARDANDO_BAIXA", "BAIXA_REALIZADA", "BAIXA_DEVOLVIDA"])
-      .order("pagamento_identificado_em", { ascending: false });
+    // A API entrega no maximo 1000 linhas por requisicao, mesmo sem .limit(),
+    // e responde 206 (sucesso). Esta consulta ainda cabe, mas a tabela cresce
+    // todo dia -- sem paginar, o corte chegaria calado.
+    let data;
+    let error = null;
+    try {
+      data = await buscarTudo((de, ate) =>
+        supabase
+          .from("links_pagamento")
+          .select("*")
+          .in("status", ["AGUARDANDO_BAIXA", "BAIXA_REALIZADA", "BAIXA_DEVOLVIDA"])
+          .order("pagamento_identificado_em", { ascending: false })
+          // Desempate estavel entre paginas.
+          .order("id", { ascending: true })
+          .range(de, ate)
+      );
+    } catch (e) {
+      error = e;
+    }
 
     if (error) {
       alert("Erro ao carregar fila de pagamentos: " + error.message);

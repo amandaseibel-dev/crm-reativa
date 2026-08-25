@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { buscarTudo } from "../utils/paginado";
 import { Carregando } from "../ui/estados";
 import { podeGerirFinanceiro } from "../utils/operadores";
 
@@ -69,10 +70,24 @@ export default function FilaFinanceiro() {
   async function carregarSolicitacoes() {
     setCarregando(true);
 
-    const { data, error } = await supabase
-      .from("solicitacoes_financeiro")
-      .select("*")
-      .order("criado_em", { ascending: false });
+    // A API entrega no maximo 1000 linhas por requisicao, mesmo sem .limit(),
+    // e responde 206 (sucesso). Esta consulta ainda cabe, mas a tabela cresce
+    // todo dia -- sem paginar, o corte chegaria calado.
+    let data;
+    let error = null;
+    try {
+      data = await buscarTudo((de, ate) =>
+        supabase
+          .from("solicitacoes_financeiro")
+          .select("*")
+          .order("criado_em", { ascending: false })
+          // Desempate estavel entre paginas.
+          .order("id", { ascending: true })
+          .range(de, ate)
+      );
+    } catch (e) {
+      error = e;
+    }
 
     if (error) {
       alert("Erro ao carregar fila do financeiro: " + error.message);
