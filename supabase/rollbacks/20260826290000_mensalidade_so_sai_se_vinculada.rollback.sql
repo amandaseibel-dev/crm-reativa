@@ -1,0 +1,4 @@
+-- Rollback: o saldo volta a esconder mensalidade por dedução de data.
+-- Depende também de reverter 20260826300000 (a função aposentada).
+-- ATENÇÃO: R$ 6.229.309,16 de 1.432 alunos somem da conta de novo.
+-- A gestão foi explícita: mensalidade só sai se for vinculada.
