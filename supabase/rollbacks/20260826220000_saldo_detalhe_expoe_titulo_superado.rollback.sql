@@ -1,0 +1,9 @@
+-- Rollback: o card volta a não dizer o que deixa de somar.
+--
+-- ATENÇÃO: sem os campos titulos_superados_*, a tela volta a mostrar
+-- "Mensalidades em aberto: R$ 0,00" com a lista cheia logo abaixo -- duas
+-- partes da mesma tela discordando, sem pista de qual acreditar. São 1.460
+-- alunos e R$ 6,3 milhões nessa situação.
+--
+-- Basta remover os dois campos do retorno; o cálculo do total nunca dependeu
+-- deles. Reaplicar a migration anterior a esta restaura o comportamento.

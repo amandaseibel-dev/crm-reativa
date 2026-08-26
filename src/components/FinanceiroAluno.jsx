@@ -1205,6 +1205,23 @@ export default function FinanceiroAluno({ aluno }) {
   const somenteParcelasAcordo = valorMensalidades <= 0.005 && (valorAcordos + valorHonorarios) > 0.005;
   const temAlgumValor = titulos.length > 0 || acordos.length > 0;
 
+  // Quantas ja passaram do vencimento -- o numero que decide se o caso e
+  // urgente ou so futuro. Antes o card mostrava so "N em aberto", sem separar.
+  const hojeStr = hojeISO();
+  const mensalidadesVencidas = titulos.filter(
+    (t) => String(t.status || "").toLowerCase() === "em_aberto" && t.situacao !== "PAGO"
+      && String(t.vencimento || "").slice(0, 10) < hojeStr
+  ).length;
+  const parcelasVencidas = acordosNaoCancelados
+    .flatMap((a) => parcelasPorAcordo[a.id] || [])
+    .filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA"
+      && String(p.vencimento || "").slice(0, 10) < hojeStr).length;
+
+  // Mensalidades que a regra `titulo_superado_por_acordo` tirou da conta. Vem
+  // do MESMO RPC que calcula o saldo, para a tela nunca discordar dele.
+  const superadasQtd = temOficial ? Number(saldoOficial.titulos_superados_qtd || 0) : 0;
+  const superadasValor = temOficial ? Number(saldoOficial.titulos_superados_valor || 0) : 0;
+
   const somaTitulosMarcados = titulosSelecionaveis
     .filter((t) => novo.titulosSel.includes(t.id))
     .reduce((acc, t) => acc + valorTitulo(t), 0);
@@ -1222,7 +1239,18 @@ export default function FinanceiroAluno({ aluno }) {
             <div style={estilos.resumoFinanceiroItem}>
               <span style={estilos.resumoFinanceiroLabel}>Mensalidades em aberto</span>
               <span style={estilos.resumoFinanceiroValor}>{moeda(valorMensalidadesExibir)}</span>
-              <span style={estiloPago}>{qtdMensalidadesAbertas} em aberto · já pago: {moeda(pagoMensalidades)}</span>
+              <span style={estiloPago}>
+                {qtdMensalidadesAbertas} em aberto
+                {mensalidadesVencidas > 0 && <> · <span style={estilos.seloVencidas}>{mensalidadesVencidas} vencida{mensalidadesVencidas > 1 ? "s" : ""}</span></>}
+                {" · "}já pago: {moeda(pagoMensalidades)}
+              </span>
+              {superadasQtd > 0 && (
+                <span style={estilos.foraDaConta}>
+                  ⚠️ Mais {superadasQtd} mensalidade{superadasQtd > 1 ? "s" : ""} ({moeda(superadasValor)}) fora
+                  desta conta — o sistema as considera cobertas por um acordo feito depois do vencimento delas.
+                  Confira antes de tratar o aluno como quite.
+                </span>
+              )}
             </div>
             <div style={estilos.resumoFinanceiroItem}>
               <span style={estilos.resumoFinanceiroLabel}>Honorários em aberto</span>
@@ -1232,7 +1260,11 @@ export default function FinanceiroAluno({ aluno }) {
             <div style={estilos.resumoFinanceiroItem}>
               <span style={estilos.resumoFinanceiroLabel}>Parcelas de acordo em aberto</span>
               <span style={estilos.resumoFinanceiroValor}>{moeda(valorParcelasExibir)}</span>
-              <span style={estiloPago}>{qtdParcelasExibir} {qtdParcelasExibir === 1 ? "parcela" : "parcelas"} em aberto · já pago: {moeda(pagoAcordos)}</span>
+              <span style={estiloPago}>
+                {qtdParcelasExibir} {qtdParcelasExibir === 1 ? "parcela" : "parcelas"} em aberto
+                {parcelasVencidas > 0 && <> · <span style={estilos.seloVencidas}>{parcelasVencidas} vencida{parcelasVencidas > 1 ? "s" : ""}</span></>}
+                {" · "}já pago: {moeda(pagoAcordos)}
+              </span>
             </div>
             <div style={{ ...estilos.resumoFinanceiroItem, ...estilos.resumoFinanceiroItemTotal }}>
               <span style={estilos.resumoFinanceiroLabel}>💰 Total geral em aberto</span>
@@ -2397,13 +2429,18 @@ const estilos = {
   },
   totalAberto: { fontSize: 13, color: "#fcd34d", fontWeight: 700 },
   caixaResumo: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", marginTop: 14, marginBottom: 4, borderRadius: 10, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" },
-  totalGeral: { fontSize: 16, fontWeight: 800, color: "#60a5fa" },
+  totalGeral: { fontSize: 21, fontWeight: 800, color: "#60a5fa", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" },
+  // O que a regra de data tirou da conta. Fica com cor propria porque nao e
+  // "pago" nem "em aberto": e um valor que o sistema decidiu nao somar, e a
+  // pessoa precisa saber que ele existe para poder discordar.
+  foraDaConta: { fontSize: 11, color: "#fcd34d", fontWeight: 700, marginTop: 4, lineHeight: 1.35 },
+  seloVencidas: { fontSize: 11, color: "#f0999a", fontWeight: 800 },
   bannerSomenteAcordo: { marginTop: 14, marginBottom: 4, padding: "10px 14px", borderRadius: 10, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.4)", color: "#fcd34d", fontSize: 12.5, fontWeight: 700 },
   resumoFinanceiroTopo: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14, marginBottom: 4 },
   resumoFinanceiroItem: { flex: "1 1 180px", display: "flex", flexDirection: "column", gap: 4, padding: "12px 16px", borderRadius: 10, background: "rgba(148,163,184,0.08)", border: "1px solid rgba(148,163,184,0.2)" },
   resumoFinanceiroItemTotal: { background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" },
   resumoFinanceiroLabel: { fontSize: 12, opacity: 0.8, fontWeight: 600 },
-  resumoFinanceiroValor: { fontSize: 16, fontWeight: 800, color: "#e2e8f0" },
+  resumoFinanceiroValor: { fontSize: 19, fontWeight: 800, color: "#e2e8f0", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" },
   linha: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid rgba(148,163,184,0.12)" },
   subLinha: { fontSize: 11, opacity: 0.7, marginTop: 2 },
   marcaVencida: { color: "#f0999a", fontWeight: 700, marginLeft: 6 },
