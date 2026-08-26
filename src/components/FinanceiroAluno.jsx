@@ -204,10 +204,6 @@ function mensalidadeManualInicial() {
 
 export default function FinanceiroAluno({ aluno }) {
   const [titulos, setTitulos] = useState([]);
-  // Semestre de cada título, vindo da Prime. A chave é o número do boleto, que
-  // é o mesmo do nosso `documento`. NÃO dá para deduzir pelo mês do vencimento:
-  // matrícula antecipada cobra em junho uma parcela do semestre seguinte.
-  const [semestrePorBoleto, setSemestrePorBoleto] = useState({});
   const [carregando, setCarregando] = useState(true);
   const [acordos, setAcordos] = useState([]);
   const [parcelasPorAcordo, setParcelasPorAcordo] = useState({});
@@ -266,19 +262,6 @@ export default function FinanceiroAluno({ aluno }) {
 
       setTitulos(emAbertoPrimeiro);
       setCarregando(false);
-
-      const boletos = emAbertoPrimeiro.map((t) => t.documento).filter(Boolean);
-      if (boletos.length) {
-        const { data: sem } = await supabase
-          .from("prime_titulo_semestre")
-          .select("boleto, semestre")
-          .in("boleto", boletos);
-        const mapa = {};
-        for (const linha of sem || []) if (linha.semestre) mapa[linha.boleto] = linha.semestre;
-        setSemestrePorBoleto(mapa);
-      } else {
-        setSemestrePorBoleto({});
-      }
     }
 
     carregar();
@@ -447,6 +430,23 @@ export default function FinanceiroAluno({ aluno }) {
   async function quitarCartao(acordo, parcelasAbertas, dados) {
     if (!podeBaixar) { alert("Quitação/baixa é exclusiva da gestão financeira. Envie o comprovante para a Fila de Confirmação."); return; }
     if (!acordoPermiteAcaoFinanceira(acordo)) { alert("Este acordo está " + (String(acordo.status).toUpperCase() === "CANCELADO" ? "cancelado" : "quitado") + " — não é possível quitar."); return; }
+
+    // Este botão baixa TODAS as parcelas em aberto de uma vez. Sem este
+    // resumo, quem clica não sabe se está quitando 1 parcela ou 12 -- o
+    // formulário acima só pede data e comprovante, nunca mostra o tamanho
+    // do que vai ser gravado. Dizer o número e o valor é o que torna a
+    // confirmação uma decisão, e não um reflexo.
+    const qtd = (parcelasAbertas || []).length;
+    if (qtd === 0) { alert("Este acordo não tem parcelas em aberto para quitar."); return; }
+    const totalQuitacao = (parcelasAbertas || []).reduce(
+      (soma, p) => soma + Number(p.valor || 0),
+      0
+    );
+    const confirmadoQuitacao = window.confirm(
+      `Quitar ${qtd} ${qtd === 1 ? "parcela" : "parcelas"} — ${moeda(totalQuitacao)} — do acordo de ${acordo.qtd_parcelas}x?\n\n` +
+      `Todas passam a PAGO de uma vez e o acordo é encerrado.`
+    );
+    if (!confirmadoQuitacao) return;
     const agora = new Date().toISOString();
     const email = usuario?.email || "";
     const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
@@ -1505,9 +1505,6 @@ export default function FinanceiroAluno({ aluno }) {
                   <div>
                     <div style={{ fontSize: 13 }}>
                       Título {titulo.documento}
-                      {semestrePorBoleto[titulo.documento]
-                        ? <span style={estilos.marcaSemestre}>{semestrePorBoleto[titulo.documento]}</span>
-                        : null}
                       {titulo.tipo_boleto ? ` · ${titulo.tipo_boleto}` : ""}
                     </div>
                     <div style={estilos.subLinha}>
@@ -1822,6 +1819,38 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
             .filter((p) => p.status === "PAGO")
             .reduce((soma, p) => soma + Number(p.valor || 0), 0);
 
+          // HONORARIOS. Vem de dois lugares e nao sao a mesma coisa:
+          //   - acordo.honorarios_valor: o combinado do acordo inteiro;
+          //   - parcela.honorarios: quanto de honorario ha em cada parcela.
+          // Mostramos os dois, porque quando divergem e sinal de acordo
+          // remontado ou de parcela editada na mao -- e quem cobra precisa ver.
+          const honorarioAcordo = Number(acordo.honorarios_valor || 0);
+          const honorarioParcelas = parcelas
+            .reduce((soma, p) => soma + Number(p.honorarios || 0), 0);
+          const honorarioAberto = parcelasAbertas
+            .reduce((soma, p) => soma + Number(p.honorarios || 0), 0);
+          const temHonorario = honorarioAcordo > 0.005 || honorarioParcelas > 0.005;
+
+          // ENTRADA QUE SUMIU NA IMPORTACAO.
+          //
+          // 547 acordos ATIVOS comecam na parcela 2: a entrada existiu no mundo
+          // real, o aluno pagou, mas ela nao foi importada -- nao esta como
+          // parcela, nem em valor_entrada, e o valor_total gravado e apenas a
+          // soma do parcelado. Nao da para deduzir o valor: ele nao esta em
+          // lugar nenhum do banco.
+          //
+          // A tela nao pode inventar, mas TAMBEM nao pode calar: sem aviso, o
+          // acordo parece comecar na segunda parcela por acaso, e o total
+          // exibido fica menor do que o acordo real.
+          const numeros = parcelas.map((p) => Number(p.numero || 0)).filter((n) => n > 0);
+          const menorNumero = numeros.length ? Math.min(...numeros) : null;
+          const entradaSumida = !temEntrada && menorNumero != null && menorNumero > 1;
+
+          // Valor total do acordo: o gravado, mais a entrada quando ela existe
+          // fora das parcelas (senao ela ficaria de fora da conta).
+          const totalDoAcordo = Number(acordo.valor_total || 0)
+            + (temEntrada && !temParcelaEntrada ? entradaValor : 0);
+
           return (
             <div
               key={acordo.id}
@@ -1876,13 +1905,35 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                 </div>
               ) : null}
 
-              {temEntrada ? (
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 12, margin: "8px 0", fontSize: 12, opacity: 0.9 }}>
-                  <span><b>Valor total:</b> {moeda(acordo.valor_total)}</span>
+              {/* O resumo aparecia SO quando havia entrada registrada -- isso
+                  era 7 acordos de 2.825. Quem cobra ficava sem ver valor total,
+                  quanto ja entrou e quanto falta justamente nos outros 2.818. */}
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 12, margin: "8px 0", fontSize: 12, opacity: 0.9 }}>
+                <span><b>Valor total:</b> {moeda(totalDoAcordo)}</span>
+                {temEntrada ? (
                   <span><b>Entrada:</b> {moeda(entradaValor)}{entradaPaga ? " (paga)" : " (em aberto)"}</span>
-                  <span><b>Parcelado restante:</b> {moeda(parceladoRestanteAberto)}</span>
-                  <span><b>Total pago:</b> {moeda(totalPagoAcordo)}</span>
-                  <span><b>Saldo atual:</b> {moeda(totalAcordoAberto)}</span>
+                ) : null}
+                <span><b>Parcelado restante:</b> {moeda(parceladoRestanteAberto)}</span>
+                <span><b>Total pago:</b> {moeda(totalPagoAcordo)}</span>
+                <span><b>Saldo atual:</b> {moeda(totalAcordoAberto)}</span>
+                {temHonorario ? (
+                  <span>
+                    <b>Honorários:</b> {moeda(honorarioAcordo > 0.005 ? honorarioAcordo : honorarioParcelas)}
+                    {honorarioAberto > 0.005 ? ` (${moeda(honorarioAberto)} em aberto)` : ""}
+                    {honorarioAcordo > 0.005 && honorarioParcelas > 0.005
+                      && Math.abs(honorarioAcordo - honorarioParcelas) > 0.05
+                      ? ` — nas parcelas soma ${moeda(honorarioParcelas)}`
+                      : ""}
+                  </span>
+                ) : null}
+              </div>
+
+              {entradaSumida ? (
+                <div style={estilos.avisoEntrada}>
+                  <b>Entrada não registrada.</b> Este acordo começa na parcela {menorNumero} — a
+                  entrada foi paga, mas não veio na importação: não está como parcela nem no
+                  valor total acima. O valor dela não existe no sistema, então some do total do
+                  acordo e do que o aluno já pagou. Confira no acordo original.
                 </div>
               ) : null}
 
@@ -2132,6 +2183,10 @@ const estilos = {
   resumoEncerradoItem: { padding: "10px 12px", borderTop: "1px solid rgba(148,163,184,0.15)" },
   detalheReadOnly: { marginTop: 8, padding: "8px 10px", background: "rgba(15,23,42,0.35)", border: "1px solid rgba(148,163,184,0.2)", borderRadius: 8 },
   cabecalho: { display: "flex", alignItems: "center", justifyContent: "space-between" },
+  avisoEntrada: {
+    margin: "6px 0 8px", padding: "8px 12px", borderRadius: 8, fontSize: 12, lineHeight: 1.5,
+    background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.4)", color: "#fcd34d",
+  },
   totalAberto: { fontSize: 13, color: "#fcd34d", fontWeight: 700 },
   caixaResumo: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", marginTop: 14, marginBottom: 4, borderRadius: 10, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" },
   totalGeral: { fontSize: 16, fontWeight: 800, color: "#60a5fa" },
@@ -2144,12 +2199,6 @@ const estilos = {
   linha: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid rgba(148,163,184,0.12)" },
   subLinha: { fontSize: 11, opacity: 0.7, marginTop: 2 },
   marcaVencida: { color: "#f0999a", fontWeight: 700, marginLeft: 6 },
-  // Semestre a que a dívida pertence, conforme o contrato na Prime.
-  marcaSemestre: {
-    marginLeft: 6, fontSize: 11, fontWeight: 700, color: "#6d28d9",
-    background: "rgba(109,40,217,0.10)", border: "1px solid rgba(109,40,217,0.28)",
-    borderRadius: 999, padding: "1px 7px",
-  },
   marcaLembrete: { color: "#fcd34d", fontWeight: 700, marginLeft: 6 },
   tagBase: { fontSize: 11, padding: "2px 8px", borderRadius: 999, fontWeight: 700 },
   botaoPequeno: { background: "#0ea5e9", color: "#fff", border: "none", padding: "6px 12px", borderRadius: 8, cursor: "pointer", fontWeight: 700, fontSize: 12 },
