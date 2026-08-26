@@ -602,6 +602,54 @@ export default function FinanceiroAluno({ aluno }) {
   // diferente (ex: um da Amanda ADM, outro da Olga) -- puxar sempre do
   // responsável atual do aluno (1 valor só) não dá conta disso, por isso
   // dá pra trocar o responsável de cada acordo individualmente aqui.
+  // Informa o honorario de um acordo existente. O rateio pelas parcelas em
+  // aberto e feito no banco (acordo_definir_honorarios), que tambem recusa
+  // acordo nao ativo e grava quem informou no historico do aluno.
+  async function definirHonorarios(acordo, modo, numero, motivo) {
+    if (!acordo?.id || !(numero > 0)) return;
+
+    const { data, error } = await supabase.rpc("acordo_definir_honorarios", {
+      p_acordo_id: acordo.id,
+      p_valor: modo === "VALOR" ? numero : null,
+      p_percentual: modo === "PERCENTUAL" ? numero : null,
+      p_motivo: motivo || null,
+    });
+
+    if (error) {
+      alert("Não foi possível salvar os honorários: " + error.message);
+      return;
+    }
+
+    alert(
+      `Honorários definidos: ${moeda(data?.honorario_total || 0)}, ` +
+      `rateados em ${data?.parcelas_ajustadas || 0} parcela(s) em aberto.`
+    );
+
+    // Atualiza na tela sem recarregar a ficha inteira: o rateio ja foi feito no
+    // banco, aqui so refletimos para a pessoa ver o resultado do que acabou de
+    // fazer. A proxima abertura da ficha traz os valores exatos do banco.
+    const totalGravado = Number(data?.honorario_total || 0);
+    setAcordos((atual) =>
+      atual.map((a) => (a.id === acordo.id ? { ...a, honorarios_valor: totalGravado } : a))
+    );
+    setParcelasPorAcordo((atual) => {
+      const doAcordo = atual[acordo.id] || [];
+      const abertas = doAcordo.filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA");
+      const base = abertas.reduce((soma, p) => soma + Number(p.valor || 0), 0);
+      let acumulado = 0;
+      const novas = doAcordo.map((p) => {
+        if (p.status === "PAGO" || p.status === "CANCELADA") return p;
+        const ultima = abertas[abertas.length - 1]?.id === p.id;
+        const quota = ultima
+          ? Number((totalGravado - acumulado).toFixed(2))
+          : Number((totalGravado * (Number(p.valor || 0) / (base || 1))).toFixed(2));
+        if (!ultima) acumulado += quota;
+        return { ...p, honorarios: quota };
+      });
+      return { ...atual, [acordo.id]: novas };
+    });
+  }
+
   async function alterarResponsavelAcordo(acordo, novoEmail, motivo) {
     if (!novoEmail) { alert("Selecione o novo responsável do acordo."); return; }
     // Motivo é opcional: segue vazio quando não informado.
@@ -1548,6 +1596,7 @@ export default function FinanceiroAluno({ aluno }) {
         onExcluirAcordo={excluirAcordo}
         onDesfazerBaixa={desfazerBaixa}
         onAlterarResponsavel={alterarResponsavelAcordo}
+        onDefinirHonorarios={definirHonorarios}
       />
     </>
   );
@@ -1701,6 +1750,90 @@ function FormMensalidadeManual({ aluno, novaMensalidade, setNovaMensalidade, sal
   );
 }
 
+// Informar o honorario de um acordo que ja existe.
+//
+// POR QUE ISTO EXISTE: a operacao trabalha sobre HONORARIO -- meta, comissao e
+// o numero que o operador persegue. Mas os acordos vieram por importacao, que
+// nao trazia o campo: em 26/08/2026 eram 11 acordos com honorario em 2.825
+// ativos, e a previsao do mes seguinte somava R$ 326,76 sobre R$ 1,46 milhao a
+// receber. Nao faltava honorario; faltava onde informa-lo.
+//
+// O valor informado e do acordo inteiro e o banco rateia entre as parcelas EM
+// ABERTO -- parcela ja paga nao e tocada, para nao reescrever honorario de
+// fechamento ja fechado. Quando a parcela e paga, aquele honorario entra; se o
+// acordo quebra, nao entra.
+function FormHonorarios({ acordo, onAplicar }) {
+  const [aberto, setAberto] = useState(false);
+  const [modo, setModo] = useState("VALOR");
+  const [valor, setValor] = useState("");
+  const [motivo, setMotivo] = useState("");
+  const [salvando, setSalvando] = useState(false);
+
+  const total = Number(acordo.valor_total || 0);
+  const numero = paraNumero(valor);
+  // Previa: com percentual, mostra quanto da em reais antes de gravar.
+  const previa = modo === "PERCENTUAL" ? (total * numero) / 100 : numero;
+
+  if (!aberto) {
+    return (
+      <button type="button" style={estilos.botaoPequeno} onClick={() => setAberto(true)}>
+        {Number(acordo.honorarios_valor || 0) > 0 ? "Corrigir honorários" : "Informar honorários"}
+      </button>
+    );
+  }
+
+  return (
+    <div style={estilos.caixaHonorario}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        <select style={estilos.input} value={modo} onChange={(e) => setModo(e.target.value)}>
+          <option value="VALOR">Valor em R$</option>
+          <option value="PERCENTUAL">% do acordo</option>
+        </select>
+        <input
+          style={{ ...estilos.input, maxWidth: 140 }}
+          value={valor}
+          placeholder={modo === "VALOR" ? "Ex: 1.200,00" : "Ex: 30"}
+          onChange={(e) => setValor(e.target.value)}
+        />
+        {previa > 0 && (
+          <span style={{ fontSize: 12, opacity: 0.85 }}>
+            = {moeda(previa)} rateado nas parcelas em aberto
+          </span>
+        )}
+      </div>
+      <input
+        style={{ ...estilos.input, marginTop: 8 }}
+        value={motivo}
+        placeholder="De onde veio esse valor (ex.: relatório do Santander, contrato)"
+        onChange={(e) => setMotivo(e.target.value)}
+      />
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button
+          type="button"
+          style={estilos.botaoConfirmar}
+          disabled={salvando || previa <= 0}
+          onClick={async () => {
+            setSalvando(true);
+            try {
+              await onAplicar(acordo, modo, numero, motivo);
+              setAberto(false);
+              setValor("");
+              setMotivo("");
+            } finally {
+              setSalvando(false);
+            }
+          }}
+        >
+          {salvando ? "Salvando..." : "Salvar honorários"}
+        </button>
+        <button type="button" style={estilos.botaoCancelar} onClick={() => setAberto(false)}>
+          Cancelar
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SeletorResponsavelAcordo({ acordo, operadoresAtivos, onAplicar }) {
   const [email, setEmail] = useState(acordo.operador_responsavel_email || "");
   const [motivo, setMotivo] = useState("");
@@ -1730,7 +1863,7 @@ function SeletorResponsavelAcordo({ acordo, operadoresAtivos, onAplicar }) {
   );
 }
 
-function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel }) {
+function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios }) {
   const [formParcela, setFormParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
   const [campos, setCampos] = useState({});
@@ -1927,6 +2060,17 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                   </span>
                 ) : null}
               </div>
+
+              {podeBaixar && onDefinirHonorarios ? (
+                <div style={{ margin: "4px 0 8px" }}>
+                  <FormHonorarios acordo={acordo} onAplicar={onDefinirHonorarios} />
+                  {!temHonorario ? (
+                    <span style={{ fontSize: 11.5, opacity: 0.75, marginLeft: 8 }}>
+                      sem honorário informado — não entra na previsão do operador
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
 
               {entradaSumida ? (
                 <div style={estilos.avisoEntrada}>
