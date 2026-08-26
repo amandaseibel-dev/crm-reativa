@@ -1,0 +1,13 @@
+-- Rollback: volta a recusar o registro de ação externa por telefone.
+--
+-- ATENÇÃO: isso NÃO impede envio nenhum -- a função nunca disparou nada. O que
+-- volta é a ação acontecer no Excel e o CRM não ficar sabendo: aluno não
+-- marcado como acionado, sem retorno agendado, fora da régua.
+--
+-- Para reintroduzir a trava, basta recolocar este bloco logo após a checagem de
+-- permissão em public.registrar_acao_massiva:
+--
+--   IF upper(coalesce(p_canal, '')) = 'WHATSAPP' THEN
+--     RAISE EXCEPTION 'Acoes Massivas por WhatsApp estao suspensas: o disparo sai fora do controle de cadencia e nao entra no teto diario do numero. Use a Central para iniciar conversas.'
+--       USING ERRCODE = '42501';
+--   END IF;
