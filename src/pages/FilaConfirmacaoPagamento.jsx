@@ -83,10 +83,6 @@ function formatarMoeda(valor) {
   return numero.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-function valorTitulo(t) {
-  return Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
-}
-
 // CPF só dígitos, 11 posições -- chave do agrupamento por aluno (igual acordos).
 function normCpf(v) {
   const d = String(v || "").replace(/\D/g, "");
@@ -157,8 +153,6 @@ export default function FilaConfirmacaoPagamento() {
   const [detalhe, setDetalhe] = useState(null); // solicitacao selecionada
   const [abaFicha, setAbaFicha] = useState("resumo");
   const [historico, setHistorico] = useState([]);
-  const [parcelasAbertas, setParcelasAbertas] = useState([]);
-  const [titulosAbertos, setTitulosAbertos] = useState([]);
   const [comprovante, setComprovante] = useState(null);
   const [comprovantesDisponiveis, setComprovantesDisponiveis] = useState([]);
   const [carregandoFicha, setCarregandoFicha] = useState(false);
@@ -177,7 +171,7 @@ export default function FilaConfirmacaoPagamento() {
 
   useEffect(() => {
     let ativo = true;
-    if (abaFicha !== "acordo" || !detalhe?.aluno_id) return;
+    if (abaFicha !== "financeiro" || !detalhe?.aluno_id) return;
     if (alunoFin && String(alunoFin.id) === String(detalhe.aluno_id)) return;
     (async () => {
       setCarregandoAlunoFin(true);
@@ -309,8 +303,6 @@ export default function FilaConfirmacaoPagamento() {
     setAbaFicha("resumo");
     setMotivoRejeicao(observacoes[s.id] || "");
     setHistorico([]);
-    setParcelasAbertas([]);
-    setTitulosAbertos([]);
     setComprovante(null);
     setComprovantesDisponiveis([]);
     setCarregandoFicha(true);
@@ -325,35 +317,10 @@ export default function FilaConfirmacaoPagamento() {
           .limit(40);
         setHistorico(mov || []);
 
-        // Parcelas em aberto: parte dos acordos ATIVOS do aluno e filtra as
-        // parcelas por acordo_id direto (usa ix_parcelas_acordo_status_venc).
-        // Antes, o embed acordos!inner com filtro no aluno forcava varredura de
-        // TODAS as parcelas da base pra devolver poucas linhas.
-        const { data: acsAtivos } = await supabase
-          .from("acordos")
-          .select("id")
-          .eq("aluno_id", String(s.aluno_id))
-          .eq("status", "ATIVO");
-        const acordoIds = (acsAtivos || []).map((a) => a.id);
-        const { data: parc } = acordoIds.length
-          ? await supabase
-              .from("parcelas")
-              .select("id, numero, valor, honorarios, vencimento, status")
-              .in("acordo_id", acordoIds)
-              .in("status", ["A_VENCER", "VENCIDA"])
-              .order("vencimento", { ascending: true })
-          : { data: [] };
-        setParcelasAbertas(parc || []);
-
-        // Titulos/mensalidades importados em aberto.
-        let qTit = supabase
-          .from("acordos_titulos")
-          .select("id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, status")
-          .eq("status", "em_aberto")
-          .order("vencimento", { ascending: true });
-        qTit = s.aluno_id ? qTit.eq("aluno_id", String(s.aluno_id)) : qTit.eq("cpf", s.aluno_cpf);
-        const { data: tit } = await qTit;
-        setTitulosAbertos(tit || []);
+        // As parcelas e as mensalidades NAO sao mais buscadas aqui: a aba
+        // Financeiro renderiza a ficha de verdade (FinanceiroAluno), que busca
+        // o que precisa e ainda calcula o saldo pela fonte unica. Duas
+        // consultas a menos toda vez que um card e aberto.
 
         // Comprovante: procura o mais recente vinculado ao aluno (fluxo de
         // links/baixas). So exibe se existir; nao cria nada.
@@ -379,15 +346,6 @@ export default function FilaConfirmacaoPagamento() {
     setDetalhe(null);
   }
 
-  const totalAbertoParcelas = useMemo(
-    () => parcelasAbertas.reduce((s, p) => s + Number(p.valor || 0), 0),
-    [parcelasAbertas]
-  );
-  const totalAbertoTitulos = useMemo(
-    () => titulosAbertos.reduce((s, t) => s + valorTitulo(t), 0),
-    [titulosAbertos]
-  );
-
   // Dados minimos para permitir a confirmacao definitiva.
   function dadosMinimosOk(s) {
     if (!s) return false;
@@ -398,8 +356,6 @@ export default function FilaConfirmacaoPagamento() {
     const temOperador = !!s.operador_email;
     return temValor && temData && temTipo && temAlvo && temOperador;
   }
-
-  const saldoAtual = totalAbertoParcelas + totalAbertoTitulos;
 
   // ---- Confirmar (fluxo atual preservado) ----
   async function quitarEEncerrar(s) {
@@ -1027,13 +983,13 @@ export default function FilaConfirmacaoPagamento() {
             )}
 
             <div style={styles.abas}>
-              {["resumo", "ficha", "financeiro", "acordo", "historico", "comprovante"].map((a) => (
+              {["resumo", "ficha", "financeiro", "historico", "comprovante"].map((a) => (
                 <button
                   key={a}
                   style={abaFicha === a ? styles.abaAtiva : styles.aba}
                   onClick={() => setAbaFicha(a)}
                 >
-                  {a === "resumo" ? "Resumo" : a === "ficha" ? "Ficha completa" : a === "financeiro" ? "Financeiro" : a === "acordo" ? "💳 Acordo / Baixa" : a === "historico" ? "Histórico" : "Comprovante"}
+                  {a === "resumo" ? "Resumo" : a === "ficha" ? "Ficha completa" : a === "financeiro" ? "💳 Financeiro" : a === "historico" ? "Histórico" : "Comprovante"}
                 </button>
               ))}
             </div>
@@ -1067,45 +1023,16 @@ export default function FilaConfirmacaoPagamento() {
                   <Alunos fichaEmbedId={detalhe.aluno_id} />
                 </div>
               )}
+              {/* A MESMA ficha financeira da base -- nao uma copia.
+                  Antes havia duas abas de dinheiro: "Financeiro", uma lista
+                  simplificada e sem acao nenhuma, e "Acordo / Baixa", que
+                  trazia a ficha de verdade. Quem chegava pela fila caia na
+                  copia, via numeros diferentes dos da base e nao tinha como
+                  vincular mensalidade (Amanda, 26/08/2026: "esta bem confuso e
+                  nao consigo vincular"). Agora e uma aba so, e ela e a real:
+                  mesmas contas, mesmas acoes, mesmas permissoes. */}
               {abaFicha === "financeiro" && (
                 <div>
-                  <p style={styles.info}>
-                    <strong>Saldo em aberto (parcelas + títulos):</strong>{" "}
-                    {formatarMoeda(totalAbertoParcelas + totalAbertoTitulos)}
-                  </p>
-                  <h4 style={styles.subttl}>Parcelas em aberto ({parcelasAbertas.length})</h4>
-                  {parcelasAbertas.length === 0 ? (
-                    <p style={styles.info}>Nenhuma parcela A_VENCER/VENCIDA.</p>
-                  ) : (
-                    parcelasAbertas.map((p) => (
-                      <div key={p.id} style={styles.linhaFin}>
-                        <span>Parcela {p.numero} · venc. {p.vencimento}</span>
-                        <span>{p.status}</span>
-                        <span>{formatarMoeda(p.valor)}</span>
-                      </div>
-                    ))
-                  )}
-                  <h4 style={styles.subttl}>Títulos/mensalidades em aberto ({titulosAbertos.length})</h4>
-                  {titulosAbertos.length === 0 ? (
-                    <p style={styles.info}>Nenhum título em aberto.</p>
-                  ) : (
-                    titulosAbertos.map((t) => (
-                      <div key={t.id} style={styles.linhaFin}>
-                        <span>{t.documento || "Título"} · venc. {t.vencimento}</span>
-                        <span>{t.status}</span>
-                        <span>{formatarMoeda(valorTitulo(t))}</span>
-                      </div>
-                    ))
-                  )}
-                </div>
-              )}
-
-              {abaFicha === "acordo" && (
-                <div>
-                  <p style={{ ...styles.info, marginBottom: 10 }}>
-                    Lance acordo, quite parcelas ou registre pagamento à vista aqui mesmo — sem sair
-                    da fila. As ações e permissões são as mesmas da ficha do aluno.
-                  </p>
                   {carregandoAlunoFin || !alunoFin ? (
                     <p style={styles.info}>Carregando financeiro do aluno…</p>
                   ) : (
