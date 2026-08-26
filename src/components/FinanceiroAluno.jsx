@@ -935,12 +935,38 @@ export default function FinanceiroAluno({ aluno }) {
     // some da cobranca sem ninguem saber.
     if (r.avisos?.length) alert(r.avisos.join("\n\n"));
 
-    // Montar novo acordo NAO vincula titulos automaticamente.
-    // O vinculo de mensalidades e feito apenas pelo botao "Vincular a acordo existente".
+    // As mensalidades marcadas ENTRAM no acordo aqui mesmo.
+    //
+    // Antes a selecao servia so para somar o valor total e era jogada fora: o
+    // acordo nascia solto e a pessoa tinha de refazer a mesma marcacao no
+    // "Vincular a acordo existente" (Amanda, 26/08/2026: "fecho um acordo ja
+    // vinculando as parcelas e tenho que vincular novamente pq?"). Alem do
+    // retrabalho, era um convite ao erro: marcar diferente na segunda vez deixa
+    // o acordo com titulo que nao e dele.
+    //
+    // Se o vinculo falhar, o acordo ja existe -- entao o aviso diz exatamente
+    // isso e manda usar o "Vincular a acordo existente", em vez de sumir com o
+    // problema.
+    let avisoVinculo = "";
+    if (novo.titulosSel.length && r.acordo?.id) {
+      const { data: vinc, error: erroVinc } = await supabase.rpc("vincular_titulos_acordo", {
+        p_titulo_ids: novo.titulosSel,
+        p_acordo_id: r.acordo.id,
+      });
+      if (erroVinc || (vinc && vinc.ok === false)) {
+        avisoVinculo =
+          "\n\nATENCAO: o acordo foi criado, mas as mensalidades NAO foram vinculadas (" +
+          (erroVinc?.message || vinc?.erro || "falha") +
+          "). Use \u201cVincular a acordo existente\u201d para prende-las.";
+      } else {
+        avisoVinculo = `\n\n${(vinc && vinc.vinculados) || novo.titulosSel.length} mensalidade(s) vinculada(s) ao acordo.`;
+      }
+    }
+
     setNovo(novoAcordoInicial());
     setNovoAberto(false);
     setRecarga((x) => x + 1);
-    alert("Acordo criado com sucesso!");
+    alert("Acordo criado com sucesso!" + avisoVinculo);
   }
 
   async function salvarMensalidadeManual() {
