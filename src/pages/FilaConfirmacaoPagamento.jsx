@@ -827,6 +827,15 @@ export default function FilaConfirmacaoPagamento() {
               value={busca}
               onChange={(e) => { setBusca(e.target.value); setQuantosCards(CARDS_POR_VEZ); }}
             />
+            <button
+              type="button"
+              style={A.btnGhost}
+              disabled={carregando}
+              onClick={() => carregarSolicitacoes()}
+              title="Buscar de novo no banco -- a lista nao se atualiza sozinha"
+            >
+              {carregando ? "Atualizando..." : "↻ Atualizar"}
+            </button>
             <div style={A.contadores}>
               <span style={A.contadorAlunos}>{grupos.length} alunos</span>
               <span style={A.contadorAcordos}>{solicitacoesFiltradas.length} pagamentos</span>
