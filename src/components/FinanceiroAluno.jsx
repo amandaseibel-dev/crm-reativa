@@ -654,6 +654,30 @@ export default function FinanceiroAluno({ aluno }) {
     });
   }
 
+  // Honorario de UMA parcela. Diferente de definirHonorarios, que informa o do
+  // acordo inteiro e rateia: aqui e o caso da Amanda de corrigir acordo antigo
+  // uma parcela por vez, conforme o pagamento entra, sem desmanchar o que ja foi
+  // ajustado nas outras. A regra (quem pode, teto do valor, acordo ativo,
+  // historico) mora no banco, em parcela_definir_honorario.
+  async function definirHonorarioParcela(acordo, parcela, valor, motivo) {
+    const { data, error } = await supabase.rpc("parcela_definir_honorario", {
+      p_parcela_id: parcela.id,
+      p_valor: Number(valor) || 0,
+      p_motivo: motivo || null,
+    });
+
+    if (error) {
+      alert("Não foi possível salvar o honorário desta parcela: " + error.message);
+      return;
+    }
+
+    const novo = Number(data?.honorario || 0);
+    setParcelasPorAcordo((atual) => ({
+      ...atual,
+      [acordo.id]: (atual[acordo.id] || []).map((x) => (x.id === parcela.id ? { ...x, honorarios: novo } : x)),
+    }));
+  }
+
   async function alterarResponsavelAcordo(acordo, novoEmail, motivo) {
     if (!novoEmail) { alert("Selecione o novo responsável do acordo."); return; }
     // Motivo é opcional: segue vazio quando não informado.
@@ -1482,6 +1506,7 @@ export default function FinanceiroAluno({ aluno }) {
         onDesfazerBaixa={desfazerBaixa}
         onAlterarResponsavel={alterarResponsavelAcordo}
         onDefinirHonorarios={definirHonorarios}
+        onDefinirHonorarioParcela={definirHonorarioParcela}
       />
     </>
   );
@@ -1647,6 +1672,49 @@ function FormMensalidadeManual({ aluno, novaMensalidade, setNovaMensalidade, sal
 // ABERTO -- parcela ja paga nao e tocada, para nao reescrever honorario de
 // fechamento ja fechado. Quando a parcela e paga, aquele honorario entra; se o
 // acordo quebra, nao entra.
+// Corrigir o honorario de UMA parcela. O teto e a propria parcela: honorario
+// maior que ela e erro de digitacao, e o banco recusa de qualquer forma -- aqui
+// e so para a pessoa ver antes de tentar.
+function FormHonorarioParcela({ parcela, onAplicar, onCancelar }) {
+  const [valor, setValor] = useState(parcela.honorarios != null ? String(parcela.honorarios) : "");
+  const [motivo, setMotivo] = useState("");
+  const numero = Number(String(valor).replace(",", ".")) || 0;
+  const maiorQueParcela = numero > Number(parcela.valor || 0) + 0.005;
+
+  return (
+    <div style={estilos.formBaixa}>
+      <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 6 }}>
+        Honorário desta parcela. Não mexe nas outras nem refaz o rateio do acordo.
+      </div>
+      <div style={estilos.formLinha}>
+        <label style={estilos.formLabel}>
+          Honorário
+          <input type="number" step="0.01" style={estilos.formInput} value={valor}
+            onChange={(e) => setValor(e.target.value)} />
+        </label>
+        <label style={{ ...estilos.formLabel, flex: 1 }}>
+          Motivo (opcional)
+          <input type="text" style={estilos.formInput} value={motivo}
+            placeholder="ex: conferido no relatório do Santander"
+            onChange={(e) => setMotivo(e.target.value)} />
+        </label>
+      </div>
+      {maiorQueParcela && (
+        <div style={{ fontSize: 12, color: "#f0999a", marginTop: 6 }}>
+          {moeda(numero)} é mais do que a parcela inteira ({moeda(parcela.valor)}).
+        </div>
+      )}
+      <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
+        <button style={estilos.botaoConfirmar} disabled={maiorQueParcela}
+          onClick={() => onAplicar(numero, motivo)}>
+          Salvar honorário
+        </button>
+        <button style={estilos.botaoCancelar} onClick={onCancelar}>Cancelar</button>
+      </div>
+    </div>
+  );
+}
+
 function FormHonorarios({ acordo, onAplicar }) {
   const [aberto, setAberto] = useState(false);
   const [modo, setModo] = useState("VALOR");
@@ -1748,8 +1816,9 @@ function SeletorResponsavelAcordo({ acordo, operadoresAtivos, onAplicar }) {
   );
 }
 
-function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios }) {
+function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios, onDefinirHonorarioParcela }) {
   const [formParcela, setFormParcela] = useState(null);
+  const [formHonParcela, setFormHonParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
   const [campos, setCampos] = useState({});
   const [quitadosAberto, setQuitadosAberto] = useState(false);
@@ -2043,10 +2112,23 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                       <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 10 }}>
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 700 }}>{moeda(p.valor)}</div>
+                          <div style={estilos.subLinha}>
+                            {Number(p.honorarios || 0) > 0
+                              ? `Honorário: ${moeda(p.honorarios)}`
+                              : "Honorário não informado"}
+                          </div>
                           <span style={{ ...estilos.tagBase, background: corP.bg, color: corP.texto }}>
                             {pago ? "Paga" : STATUS_PARCELA_LABEL[p.status] || "A vencer"}
                           </span>
                         </div>
+                        {podeBaixar && onDefinirHonorarioParcela && !cancelada && acordoPermiteAcaoFinanceira(acordo) && (
+                          <button
+                            style={estilos.botaoPequeno}
+                            onClick={() => setFormHonParcela(formHonParcela === p.id ? null : p.id)}
+                          >
+                            Honorário
+                          </button>
+                        )}
                         {podeBaixar && !pago && (
                           <button style={estilos.botaoPequeno} onClick={() => abrirParcela(p)}>Baixar</button>
                         )}
@@ -2057,6 +2139,17 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                         )}
                       </div>
                     </div>
+
+                    {podeBaixar && formHonParcela === p.id && (
+                      <FormHonorarioParcela
+                        parcela={p}
+                        onAplicar={(valor, motivo) => {
+                          onDefinirHonorarioParcela(acordo, p, valor, motivo);
+                          setFormHonParcela(null);
+                        }}
+                        onCancelar={() => setFormHonParcela(null)}
+                      />
+                    )}
 
                     {podeBaixar && formParcela === p.id && (
                       <div style={estilos.formBaixa}>
