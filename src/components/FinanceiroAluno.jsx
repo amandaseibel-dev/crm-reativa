@@ -83,14 +83,20 @@ const STATUS_PARCELA_LABEL = {
   CANCELADA: "Cancelada",
 };
 
+// Selos de status: fundo SOLIDO claro com texto escuro.
+//
+// Antes o fundo era translucido e o texto claro -- desenhado so para a ficha,
+// que e escura. Sobre o modal branco da fila de confirmacao o fundo sumia e o
+// texto ficava ilegivel. Selo solido com texto escuro le bem nos dois fundos:
+// no escuro ele vira um badge claro, no claro ele mantem o contraste.
 const CORES_STATUS = {
-  em_aberto: { barra: "#185FA5", bg: "rgba(24,95,165,0.16)", texto: "#7cb5f0", label: "Em aberto" },
-  em_dia: { barra: "#639922", bg: "rgba(99,153,34,0.18)", texto: "#a3d15f", label: "Em dia" },
-  atraso: { barra: "#EF9F27", bg: "rgba(239,159,39,0.18)", texto: "#f2c67a", label: "Em atraso" },
-  vencida: { barra: "#E24B4A", bg: "rgba(226,75,74,0.18)", texto: "#f0999a", label: "Vencida" },
-  quebrado: { barra: "#E24B4A", bg: "rgba(226,75,74,0.18)", texto: "#f0999a", label: "Quebrado" },
-  quitado: { barra: "#1D9E75", bg: "rgba(29,158,117,0.18)", texto: "#6fd7b6", label: "Quitado" },
-  cancelado: { barra: "#64748b", bg: "rgba(100,116,139,0.18)", texto: "#94a3b8", label: "Cancelado" },
+  em_aberto: { barra: "#185FA5", bg: "#dbeafe", texto: "#1e40af", label: "Em aberto" },
+  em_dia:    { barra: "#639922", bg: "#dcfce7", texto: "#166534", label: "Em dia" },
+  atraso:    { barra: "#EF9F27", bg: "#fef3c7", texto: "#92400e", label: "Em atraso" },
+  vencida:   { barra: "#E24B4A", bg: "#fee2e2", texto: "#991b1b", label: "Vencida" },
+  quebrado:  { barra: "#E24B4A", bg: "#fee2e2", texto: "#991b1b", label: "Quebrado" },
+  quitado:   { barra: "#1D9E75", bg: "#d1fae5", texto: "#065f46", label: "Quitado" },
+  cancelado: { barra: "#64748b", bg: "#e2e8f0", texto: "#334155", label: "Cancelado" },
 };
 
 function diasAtraso(venc) {
@@ -1201,7 +1207,7 @@ export default function FinanceiroAluno({ aluno }) {
   const pagoAcordos = parcelasPagas.reduce((soma, p) => soma + Number(p.valor || 0), 0);
   const pagoHonorarios = parcelasPagas.reduce((soma, p) => soma + Number(p.honorarios || 0), 0);
   const pagoTotal = pagoMensalidades + pagoHonorarios + pagoAcordos;
-  const estiloPago = { fontSize: 11, color: "#16a34a", fontWeight: 700, marginTop: 2 };
+  const estiloPago = { fontSize: 11.5, color: "#15803d", fontWeight: 700, marginTop: 2 };
 
   // Contadores por seção (para a área financeira do card).
   const qtdMensalidadesAbertas = emAberto.length;
@@ -2489,20 +2495,30 @@ const estilos = {
   },
   totalAberto: { fontSize: 13, color: "#fcd34d", fontWeight: 700 },
   caixaResumo: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", marginTop: 14, marginBottom: 4, borderRadius: 10, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" },
-  totalGeral: { fontSize: 21, fontWeight: 800, color: "#60a5fa", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" },
+  totalGeral: { fontSize: 22, fontWeight: 800, color: "#065f46", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" },
   // O que a regra de data tirou da conta. Fica com cor propria porque nao e
   // "pago" nem "em aberto": e um valor que o sistema decidiu nao somar, e a
   // pessoa precisa saber que ele existe para poder discordar.
-  foraDaConta: { fontSize: 11, color: "#fcd34d", fontWeight: 700, marginTop: 4, lineHeight: 1.35 },
-  seloVencidas: { fontSize: 11, color: "#f0999a", fontWeight: 800 },
+  foraDaConta: { fontSize: 11.5, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 8, padding: "7px 9px", fontWeight: 600, marginTop: 6, lineHeight: 1.4 },
+  seloVencidas: { fontSize: 11, color: "#b91c1c", fontWeight: 800 },
   bannerSomenteAcordo: { marginTop: 14, marginBottom: 4, padding: "10px 14px", borderRadius: 10, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.4)", color: "#fcd34d", fontSize: 12.5, fontWeight: 700 },
+  // CORES DO RESUMO: fundo e texto com cor PROPRIA, nao translucida.
+  //
+  // Este bloco nasceu na ficha, que tem fundo escuro, entao usava texto quase
+  // branco (#e2e8f0) sobre camadas translucidas. Quando a ficha passou a ser
+  // renderizada tambem dentro da fila de confirmacao -- que abre num modal
+  // BRANCO -- virou branco no branco (Amanda, 26/08/2026: "a cor do card que
+  // esta terrivel de enxergar").
+  //
+  // Cor solida resolve nos dois fundos ao mesmo tempo, sem depender de onde o
+  // componente foi encaixado.
   resumoFinanceiroTopo: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14, marginBottom: 4 },
-  resumoFinanceiroItem: { flex: "1 1 180px", display: "flex", flexDirection: "column", gap: 4, padding: "12px 16px", borderRadius: 10, background: "rgba(148,163,184,0.08)", border: "1px solid rgba(148,163,184,0.2)" },
-  resumoFinanceiroItemTotal: { background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" },
-  resumoFinanceiroLabel: { fontSize: 12, opacity: 0.8, fontWeight: 600 },
-  resumoFinanceiroValor: { fontSize: 19, fontWeight: 800, color: "#e2e8f0", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" },
+  resumoFinanceiroItem: { flex: "1 1 180px", display: "flex", flexDirection: "column", gap: 4, padding: "12px 16px", borderRadius: 10, background: "#f1f5f9", border: "1px solid #cbd5e1" },
+  resumoFinanceiroItemTotal: { background: "#ecfdf5", border: "1px solid #6ee7b7" },
+  resumoFinanceiroLabel: { fontSize: 12, color: "#475569", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" },
+  resumoFinanceiroValor: { fontSize: 20, fontWeight: 800, color: "#0f172a", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" },
   linha: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid rgba(148,163,184,0.12)" },
-  subLinha: { fontSize: 11, opacity: 0.7, marginTop: 2 },
+  subLinha: { fontSize: 11.5, color: "#475569", marginTop: 2 },
   parcSoma: { display: "grid", gridTemplateColumns: "40px 1fr 1fr 1fr", gap: 8, alignItems: "center", padding: "8px 10px 2px", marginTop: 4, borderTop: "1px solid rgba(148,163,184,0.25)", fontSize: 12.5, fontWeight: 800, color: "#e2e8f0", fontVariantNumeric: "tabular-nums" },
   avisoConferencia: { marginTop: 10, padding: "10px 14px", borderRadius: 10, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.4)", color: "#fcd34d", fontSize: 12.5, fontWeight: 700 },
   marcaVencida: { color: "#f0999a", fontWeight: 700, marginLeft: 6 },
