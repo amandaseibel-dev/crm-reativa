@@ -26,6 +26,9 @@ import { S as A } from "../ui/estilosFila";
 // Teto da API: cada requisicao devolve no maximo 1000 linhas.
 const PAGE_SIZE = 1000;
 
+// Cards desenhados por vez na lista (ver comentario em quantosCards).
+const CARDS_POR_VEZ = 40;
+
 const STATUS_LABEL = {
   AGUARDANDO_CONFIRMACAO: "Aguardando confirmação",
   [STATUS_AGUARDANDO_VINCULO]: "Recebido, aguardando vínculo",
@@ -144,6 +147,12 @@ export default function FilaConfirmacaoPagamento() {
   // nao filtravam nada -- trocavam a tela inteira. Agora sao abas de verdade.
   const [escopo, setEscopo] = useState("PAGAMENTOS");
   const [busca, setBusca] = useState("");
+  // Quantos cards desenhar de uma vez. A tela desenhava TODOS os grupos -- 1.650
+  // cards, cada um com sua tabela interna, somando 2.121 linhas num unico
+  // render. Os dados chegam rapido (a consulta roda em milissegundos); o que
+  // travava era o navegador montar tudo isso de uma vez (Amanda, 26/08/2026:
+  // "fila de confirmacao de pagamento esta bem lenta").
+  const [quantosCards, setQuantosCards] = useState(CARDS_POR_VEZ);
   const [qtdSemValor, setQtdSemValor] = useState(null);
   const [qtdAcordoSemValor, setQtdAcordoSemValor] = useState(null);
   const [qtdSemTelefone, setQtdSemTelefone] = useState(null);
@@ -757,7 +766,7 @@ export default function FilaConfirmacaoPagamento() {
           key={e.chave}
           type="button"
           style={escopo === e.chave ? styles.escopoAtivo : styles.escopoBotao}
-          onClick={() => setEscopo(e.chave)}
+          onClick={() => { setEscopo(e.chave); setQuantosCards(CARDS_POR_VEZ); }}
         >
           {e.rotulo}
           {e.badge !== null && e.badge !== undefined ? ` (${e.badge})` : ""}
@@ -798,7 +807,7 @@ export default function FilaConfirmacaoPagamento() {
           </div>
 
           <div style={A.barra}>
-            <select style={A.select} value={filtro} onChange={(e) => setFiltro(e.target.value)}>
+            <select style={A.select} value={filtro} onChange={(e) => { setFiltro(e.target.value); setQuantosCards(CARDS_POR_VEZ); }}>
               <option value="PENDENTES">Pendentes{abertosTotal ? ` (${abertosTotal})` : ""}</option>
               <option value="AGUARDANDO_VINCULO">
                 Recebido, aguardando vínculo{contadores.aguardandoVinculo ? ` (${contadores.aguardandoVinculo})` : ""}
@@ -816,7 +825,7 @@ export default function FilaConfirmacaoPagamento() {
               style={A.input}
               placeholder="Buscar por nome ou CPF..."
               value={busca}
-              onChange={(e) => setBusca(e.target.value)}
+              onChange={(e) => { setBusca(e.target.value); setQuantosCards(CARDS_POR_VEZ); }}
             />
             <div style={A.contadores}>
               <span style={A.contadorAlunos}>{grupos.length} alunos</span>
@@ -829,7 +838,7 @@ export default function FilaConfirmacaoPagamento() {
             <p style={A.muted}>Nenhuma solicitação neste filtro.</p>
           ) : (
             <div style={A.cards}>
-              {grupos.map((g) => {
+              {grupos.slice(0, quantosCards).map((g) => {
                 const confirmaveis = g.itens.filter(podeConfirmarSolicitacao);
                 const busyGrp = !!processando[`grp:${g.chave}`];
                 return (
@@ -949,6 +958,15 @@ export default function FilaConfirmacaoPagamento() {
                   </div>
                 );
               })}
+            </div>
+          )}
+
+          {grupos.length > quantosCards && (
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 16 }}>
+              <button type="button" style={A.btnGhost}
+                onClick={() => setQuantosCards((n) => n + CARDS_POR_VEZ)}>
+                Mostrar mais {Math.min(CARDS_POR_VEZ, grupos.length - quantosCards)} — faltam {grupos.length - quantosCards}
+              </button>
             </div>
           )}
         </>
