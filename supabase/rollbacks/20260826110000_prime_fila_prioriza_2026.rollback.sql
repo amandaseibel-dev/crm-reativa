@@ -1,0 +1,3 @@
+-- Volta a fila da coleta para a ordem anterior (sem a prioridade de 2026).
+-- Basta remover `d.tem_2026 DESC` do ORDER BY -- a versao anterior esta no
+-- historico do git, em 20260826_prime_* / migrations anteriores.
