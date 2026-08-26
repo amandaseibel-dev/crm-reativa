@@ -117,16 +117,31 @@ export default function LancarAcordo() {
     setUltimo(null);
 
     const digitos = soDigitos(termo);
-    let q = supabase
-      .from("alunos")
-      .select("id, nome, cpf, responsavel_atual_email, situacao")
-      .limit(20);
 
-    // CPF completo é a busca do dia a dia (colado do relatório). Nome é o
-    // socorro para quando o relatório vem sem CPF utilizável.
-    q = digitos.length >= 11 ? q.ilike("cpf", `%${digitos.slice(-11)}%`) : q.ilike("nome", `%${termo}%`);
+    // O SELECT lista só coluna que existe de verdade em `alunos`. Pedir uma
+    // coluna inexistente faz a API recusar a consulta INTEIRA -- foi assim que
+    // esta busca nasceu quebrada, por nome e por CPF, pedindo um `situacao` que
+    // a tabela não tem.
+    const colunas = "id, nome, cpf, responsavel_atual_email";
 
-    const { data, error } = await q;
+    let data;
+    let error;
+
+    if (digitos.length >= 11) {
+      // CPF é a busca do dia a dia (colado do relatório). A base tem os dois
+      // formatos -- 17.336 só com números e 65 com ponto e traço -- então
+      // procura pelos números e, se não achar, tenta a máscara.
+      const cru = digitos.slice(-11);
+      const mascarado = `${cru.slice(0, 3)}.${cru.slice(3, 6)}.${cru.slice(6, 9)}-${cru.slice(9)}`;
+      ({ data, error } = await supabase.from("alunos").select(colunas).eq("cpf", cru).limit(20));
+      if (!error && !data?.length) {
+        ({ data, error } = await supabase.from("alunos").select(colunas).eq("cpf", mascarado).limit(20));
+      }
+    } else {
+      ({ data, error } = await supabase
+        .from("alunos").select(colunas).ilike("nome", `%${termo}%`).limit(20));
+    }
+
     setBuscando(false);
 
     if (error) { setErro("Erro na busca: " + error.message); return; }
