@@ -58,12 +58,13 @@ import NotificacoesSupervisaoAdm from "./components/NotificacoesSupervisaoAdm";
 import LiberacoesAcesso from "./components/LiberacoesAcesso";
 const GestaoFinanceiraOperadores = lazy(() => import("./pages/GestaoFinanceiraOperadores"));
 const ProjecaoHoraHora = lazy(() => import("./pages/ProjecaoHoraHora"));
+const HonorariosAEntrar = lazy(() => import("./pages/HonorariosAEntrar"));
 const TvMensagem = lazy(() => import("./pages/TvMensagem"));
 const Auditoria = lazy(() => import("./pages/Auditoria")); const RelatorioReceptivo = lazy(() => import("./pages/RelatorioReceptivo")); const MinhaAgendaPessoal = lazy(() => import("./pages/MinhaAgendaPessoal")); const EnvioGmailLote = lazy(() => import("./pages/EnvioGmailLote"));
 const MensalidadesSemNegociacao = lazy(() => import("./pages/MensalidadesSemNegociacao"));
 const DRE = lazy(() => import("./pages/DRE"));
 const FechamentoRemuneracao = lazy(() => import("./pages/FechamentoRemuneracao"));
-const ImportarRecuperacao = lazy(() => import("./pages/ImportarRecuperacao")); const ImportacaoAcordos = lazy(() => import("./pages/ImportacaoAcordos")); const FilaAcordosConfirmar = lazy(() => import("./pages/FilaAcordosConfirmar")); const Ferramentas = lazy(() => import("./pages/Ferramentas")); const ImportarAcademico = lazy(() => import("./pages/ImportarAcademico")); const AtualizacaoCadastral = lazy(() => import("./pages/AtualizacaoCadastral"));
+const ImportarRecuperacao = lazy(() => import("./pages/ImportarRecuperacao")); const ImportacaoAcordos = lazy(() => import("./pages/ImportacaoAcordos")); const FilaAcordosConfirmar = lazy(() => import("./pages/FilaAcordosConfirmar")); const Ferramentas = lazy(() => import("./pages/Ferramentas")); const ImportarAcademico = lazy(() => import("./pages/ImportarAcademico"));
 const ExecutivoRecuperacao = lazy(() => import("./pages/ExecutivoRecuperacao"));
 const MeuDashboard = lazy(() => import("./pages/MeuDashboard"));
 const ElogiosAtendimento = lazy(() => import("./pages/ElogiosAtendimento"));
@@ -148,12 +149,7 @@ function podeAcessar(perfil, rota) {
   // perfis ativos (o banco confere de novo por app_usuario_ativo()).
   if (rota === "/leads-whatsapp") return true;
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
-  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
-  // A atualizacao cadastral fica junto de Ferramentas: fora do alcance do
-  // operador. O portao de verdade e na Edge Function, que confere
-  // `usuario_e_gestao()` com o token de quem chamou -- esta linha so evita que
-  // a tela apareca para quem nao vai conseguir usar.
-  if (rota === "/atualizacao-cadastral") return perfil !== "operador";
+  if (rota === "/a-entrar") return true; if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
   const permissoes = {
     gerencia: [
       "/",
@@ -431,9 +427,7 @@ export default function App() {
   // busca única ao logar, sem polling. Mesma contagem do card em Ferramentas.jsx.
   useEffect(() => {
     const perfilAtual = usuario?.perfil?.perfil;
-    // Diretoria fora: não vê Ferramentas (onde o badge mora) e não recebe
-    // sinalização de operação — a consulta só gastaria requisição.
-    if (!usuario || perfilAtual === "operador" || perfilAtual === "diretoria") { setSugestoesNovas(0); return; }
+    if (!usuario || perfilAtual === "operador") { setSugestoesNovas(0); return; }
     let ativo = true;
     (async () => {
       const { count, error } = await supabase
@@ -611,7 +605,7 @@ export default function App() {
       secao: "Operação",
       esconderParaOperador: true,
     },
-    { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" },
+    { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" }, { rota: "/a-entrar", label: "O que tenho a entrar", icone: "TrendingUp", secao: "Operação" },
     { rota: "/aluno", label: "Base", icone: "User", secao: "Operação" },
     { rota: "/relatorio-receptivo", label: "Relatório Receptivo", icone: "Phone", secao: "Operação" }, { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/leads-whatsapp", label: "Leads do WhatsApp", icone: "MessageSquare", secao: "Operação" },
@@ -705,19 +699,12 @@ export default function App() {
         <NotificacoesSupervisaoAdm usuario={usuario} />
         <LiberacoesAcesso />
         <BotaoSugestao />
-        {/* NENHUM pop-up de operação para a diretoria (decisão da Amanda,
-            2026-08-18, estendida a TODOS os canais em 2026-08-25). O perfil é
-            de leitura executiva: não opera fila, não atende WhatsApp e não usa
-            template de e-mail — então nada disso pode estourar na tela dela,
-            ainda mais porque o clique levaria a rota que ela nem acessa.
-            O corte no banco (quem NASCE com notificação) está na migration
-            20260825140000_diretoria_sem_notificacao.sql; estes gates são a
-            segunda trava, para o caso de sobrar linha antiga ou entrar remetente
-            novo. */}
-        {perfil !== "diretoria" ? <NotificacoesPopup /> : null}
-        {perfil !== "diretoria" ? <AvisoTemplateNovo /> : null}
+        <NotificacoesPopup />
+        <AvisoTemplateNovo />
+        {/* Central de Avisos é recado de operação: a diretoria não recebe o
+            pop-up nem o sino (decisão da Amanda, 2026-08-18). */}
         {perfil !== "diretoria" ? <AvisosPopup /> : null}
-        {perfil !== "diretoria" ? <TourNovidades usuario={usuario} /> : null}
+        <TourNovidades usuario={usuario} />
         <aside className={sidebarRecolhida ? "sidebar sidebar-recolhida" : "sidebar"}>
           <button
             type="button"
@@ -1106,7 +1093,7 @@ export default function App() {
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} /> <Route path="/central-whatsapp" element={<RotaProtegida usuario={usuario} rota="/central-whatsapp"><CentralWhatsApp /></RotaProtegida>} /> <Route path="/leads-whatsapp" element={<RotaProtegida usuario={usuario} rota="/leads-whatsapp"><LeadsWhatsApp /></RotaProtegida>} />
               <Route path="/dre" element={(["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) || perfil === "diretoria") ? <DRE /> : <Navigate to="/" replace />} />
               <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
-              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} /> <Route path="/atualizacao-cadastral" element={<AtualizacaoCadastral />} />
+              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/a-entrar" element={<HonorariosAEntrar />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
       </Routes>
       </Suspense>
         </main>
