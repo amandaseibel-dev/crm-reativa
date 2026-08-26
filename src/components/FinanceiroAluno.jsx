@@ -1196,7 +1196,17 @@ export default function FinanceiroAluno({ aluno }) {
   const valorHonorarios = parcelasEmAberto.reduce((soma, p) => soma + Number(p.honorarios || 0), 0);
 
   // Valor total do aluno = mensalidades em aberto + honorários em aberto + acordos em aberto.
-  const valorTotalAluno = valorMensalidades + valorHonorarios + valorAcordos;
+  // HONORARIO NAO ENTRA NO SALDO (Amanda, 26/08/2026: "honorarios em aberto nao
+  // aumenta o saldo").
+  //
+  // O honorario nao e divida do aluno: e a nossa remuneracao sobre o que ele
+  // pagar. Ele ja esta DENTRO do valor da parcela -- somar de novo conta duas
+  // vezes o mesmo dinheiro e infla o que o aluno aparenta dever.
+  //
+  // O RPC aluno_saldo_pendente_detalhe (fonte oficial) nunca somou honorario;
+  // este calculo local somava, e valia sempre que o RPC nao respondesse. Agora
+  // os dois dizem a mesma coisa.
+  const valorTotalAluno = valorMensalidades + valorAcordos;
 
   const pagoMensalidades = titulos
     .filter((t) => t.situacao === "PAGO" || t.status === "quitada")
@@ -1232,7 +1242,8 @@ export default function FinanceiroAluno({ aluno }) {
   // acordo em aberto (ou título/honorário), o card NÃO pode aparecer como zero.
   const temSaldoOperacional =
     valorTotalExibir > 0.005 || (temOficial && saldoOficial.tem_pendencia === true);
-  const somenteParcelasAcordo = valorMensalidades <= 0.005 && (valorAcordos + valorHonorarios) > 0.005;
+  // Idem aqui: quem so tem honorario em aberto nao "tem saldo".
+  const somenteParcelasAcordo = valorMensalidades <= 0.005 && valorAcordos > 0.005;
   const temAlgumValor = titulos.length > 0 || acordos.length > 0;
 
   // Quantas ja passaram do vencimento -- o numero que decide se o caso e
