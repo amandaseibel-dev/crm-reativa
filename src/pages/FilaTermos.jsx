@@ -16,6 +16,7 @@ import {
   desfazerAssinaturaConcluida,
   descartarViaAluno,
 } from "../utils/documentoFinanceiro";
+import { juntarEmPdf, nomeArquivoPdf } from "../utils/juntarPdf";
 
 const ADM_AUTORIZADOS = [
   "cobranca04@aelbra.com.br", // Fernanda
@@ -147,6 +148,27 @@ function dataLiberacao(t) {
   return Number.isNaN(ms) ? 0 : ms;
 }
 
+// Termo sem NENHUM arquivo guardado no CRM. Acontece de duas origens medidas em
+// 2026-08-26: gov liberado automaticamente sem documento, e termo que foi
+// concluído e depois teve a assinatura desfeita quando a via completa já era o
+// único arquivo (furo fechado em 20260826150000). Nesses, abrir e marcar envio
+// são impossíveis — a fila precisa dizer isso na cara, não devolver
+// "documento indisponível".
+function semArquivo(t) {
+  return !t?.arquivo_url && !t?.arquivo_final_url;
+}
+
+// A mensagem antiga ("Documento indisponível") mandava a ADM caçar problema de
+// permissão ou de formato que não existe. Diz o que houve e o que fazer.
+function mensagemSemArquivo(t) {
+  return (
+    `O termo de ${t?.aluno_nome || "este aluno"} está sem arquivo nenhum no CRM.\n\n` +
+    "Não é falha de formato nem de permissão: não há documento guardado. " +
+    "Reanexe a via a partir da pasta de backup em \"Anexar via assinada\" — " +
+    "só depois dá para baixar e marcar o envio."
+  );
+}
+
 // Termo em que a ADM pode decidir (validar/rejeitar): manual aguardando ADM ou
 // gov pendente de auditoria.
 function ehTermoAcionavel(t) {
@@ -171,6 +193,8 @@ export default function FilaAdmTermos() {
   const [testemunha1, setTestemunha1] = useState("");
   const [testemunha2, setTestemunha2] = useState("");
   const [processando, setProcessando] = useState(false);
+  // id do termo cujo PDF está sendo montado (o botão trava só naquele card)
+  const [juntando, setJuntando] = useState(null);
 
   // --- Estado do modal de validação em tela única ---
   const [modalTermo, setModalTermo] = useState(null);
@@ -328,17 +352,86 @@ export default function FilaAdmTermos() {
 
   // --- Ações do fluxo de assinatura ---------------------------------------
 
-  // Baixar a via e marcar o envio são o MESMO gesto: a ADM abre o PDF para
-  // mandar ao gov.br. A abertura vem primeiro; se o navegador bloquear, nada é
-  // marcado. O "Desfazer envio" cobre o clique errado.
+  // Baixar a via e marcar o envio são o MESMO gesto: a ADM pega o PDF para
+  // mandar ao gov.br. O download vem primeiro; se ele não sair, nada é marcado.
+  // O "Desfazer envio" cobre o clique errado.
+  //
+  // O que sai é o PDF ÚNICO (termo + RG + verso), o mesmo do botão de baixar:
+  // mandar o termo sem o RG anexo obrigava a juntar os arquivos na mão depois.
   async function baixarEMarcarEnviado(termo) {
-    const url = await urlTermo(termo.id, termo.arquivo_url ? "arquivo" : "final");
-    if (!url) {
-      alert("Documento indisponível. O envio não foi marcado.");
+    // RG sozinho não é termo: sem a via, não há o que mandar para assinatura.
+    if (semArquivo(termo)) {
+      alert(mensagemSemArquivo(termo));
       return;
     }
-    window.open(url, "_blank", "noreferrer");
+    const baixou = await baixarPdfDoAluno(termo);
+    if (!baixou) return;
     await marcarEnviados([termo.id]);
+  }
+
+  // Termo, RG e verso são três arquivos separados; a operação precisa deles como
+  // um documento só. Cada arquivo tem a URL assinada pedida na hora (nunca
+  // reaproveitada) e a junção acontece aqui no navegador — nada sobe e nada
+  // muda de etapa: baixar é só baixar.
+  //
+  // Devolve true quando o PDF chegou ao disco. Quem marca envio depende disso:
+  // sem documento na mão, marcar "enviado para assinatura" é mentira.
+  async function baixarPdfDoAluno(termo) {
+    // A via completa só entra quando a do aluno já não existe: com as duas, a
+    // do aluno é a que vai para assinatura.
+    const campos = [
+      ["Termo", "arquivo", termo.arquivo_url],
+      ["Via assinada", "final", termo.arquivo_url ? null : termo.arquivo_final_url],
+      ["RG", "rg", termo.arquivo_rg_url],
+      ["Verso", "verso", termo.arquivo_verso_url],
+    ].filter(([, , url]) => !!url);
+
+    if (campos.length === 0) {
+      alert(mensagemSemArquivo(termo));
+      return false;
+    }
+
+    setJuntando(termo.id);
+    const pecas = [];
+    const naoBaixados = [];
+    for (const [rotulo, campo] of campos) {
+      try {
+        const url = await urlTermo(termo.id, campo);
+        if (!url) throw new Error("sem_url");
+        const resposta = await fetch(url);
+        if (!resposta.ok) throw new Error("http_" + resposta.status);
+        pecas.push({ rotulo, bytes: new Uint8Array(await resposta.arrayBuffer()) });
+      } catch {
+        naoBaixados.push(rotulo);
+      }
+    }
+
+    const res = await juntarEmPdf(pecas);
+    setJuntando(null);
+
+    if (!res.bytes) {
+      alert("Não foi possível montar o PDF: nenhum arquivo deste aluno pôde ser lido.");
+      return false;
+    }
+
+    const blob = new Blob([res.bytes], { type: "application/pdf" });
+    const href = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = nomeArquivoPdf(termo.aluno_nome);
+    link.click();
+    URL.revokeObjectURL(href);
+
+    // Arquivo que ficou de fora precisa ser dito: PDF incompleto sem aviso é
+    // pior que PDF que não saiu.
+    const fora = [...naoBaixados, ...res.falhas.map((f) => `${f.rotulo} (${f.motivo})`)];
+    if (fora.length > 0) {
+      alert(
+        `PDF baixado com ${res.paginas} página(s), mas ficou incompleto.\n\n` +
+          `Não entrou: ${fora.join(", ")}.`,
+      );
+    }
+    return true;
   }
 
   async function marcarEnviados(ids) {
@@ -369,10 +462,18 @@ export default function FilaAdmTermos() {
   // Volta para "A enviar"; o arquivo anexado é descartado — o termo assinado
   // de verdade é anexado depois, quando voltar.
   async function desfazerAssinatura(termo) {
+    // O texto muda conforme haja ou não outra via no CRM: prometer descarte
+    // quando o arquivo vai ser mantido (e vice-versa) é o que fez a ADM apagar
+    // 10 termos sem perceber em 2026-08-25.
+    const unicoArquivo = !termo.arquivo_url;
     const motivo = window.prompt(
       `Desfazer "Termo assinado" de ${termo.aluno_nome || "este aluno"}?\n\n` +
-        "O termo volta para \"A enviar\" e o arquivo anexado como via assinada é descartado. " +
-        "Depois, anexe o termo com as assinaturas.\n\nMotivo (opcional):",
+        (unicoArquivo
+          ? "O termo volta para \"A enviar\". A via assinada é o ÚNICO arquivo deste termo " +
+            "no CRM, então ela é MANTIDA — nada será apagado."
+          : "O termo volta para \"A enviar\" e o arquivo anexado como via assinada é descartado. " +
+            "A via assinada pelo aluno continua no CRM.") +
+        "\n\nMotivo (opcional):",
       "",
     );
     if (motivo === null) return;
@@ -383,7 +484,12 @@ export default function FilaAdmTermos() {
       alert("Não foi possível desfazer: " + (res.erro === "etapa_invalida" ? "Este termo já não está como assinado. A fila será atualizada." : mensagemErro(res.erro)));
       return;
     }
-    if (res.pendentes_no_storage > 0) {
+    if (res.descarte === "mantido_unico_arquivo") {
+      alert(
+        "Termo de volta em \"A enviar\". A via assinada foi MANTIDA por ser o único " +
+          "arquivo deste termo no CRM — assim ele não fica sem documento.",
+      );
+    } else if (res.pendentes_no_storage > 0) {
       alert("Desfeito, mas o arquivo anexado ainda não saiu do Storage. Avise o suporte.");
     }
     carregarTermos();
@@ -821,6 +927,14 @@ export default function FilaAdmTermos() {
               </div>
             )}
 
+            {filtro === "ASSINATURAS" && semArquivo(termo) && (
+              <div style={styles.avisoSemArquivo}>
+                <strong>Sem arquivo no CRM.</strong> Não há documento guardado para este
+                termo — não dá para abrir nem marcar o envio. Reanexe a via a partir da
+                pasta de backup em "Anexar via assinada".
+              </div>
+            )}
+
             {filtro === "ASSINATURAS" && (
               <div style={styles.acoesAssinatura}>
                 {["NAO_VERIFICADO", "PENDENTE_ENVIO"].includes(etapaDe(termo)) && (
@@ -836,11 +950,27 @@ export default function FilaAdmTermos() {
                     <button
                       style={styles.botaoValidar}
                       onClick={() => baixarEMarcarEnviado(termo)}
-                      disabled={processando}
+                      disabled={processando || juntando === termo.id || semArquivo(termo)}
+                      title={
+                        semArquivo(termo)
+                          ? "Termo sem arquivo no CRM: reanexe a via antes de enviar."
+                          : "Baixa termo, RG e verso num PDF só e marca como enviado para assinatura."
+                      }
                     >
-                      Baixar PDF para assinatura
+                      {juntando === termo.id ? "Montando PDF..." : "Baixar PDF para assinatura"}
                     </button>
                   </>
+                )}
+
+                {(termo.arquivo_url || termo.arquivo_final_url || termo.arquivo_rg_url || termo.arquivo_verso_url) && (
+                  <button
+                    style={styles.botaoVer}
+                    onClick={() => baixarPdfDoAluno(termo)}
+                    disabled={juntando === termo.id}
+                    title="Baixa termo, RG e verso deste aluno juntos, num PDF só. Não marca envio."
+                  >
+                    {juntando === termo.id ? "Montando PDF..." : "Baixar tudo num PDF"}
+                  </button>
                 )}
 
                 {etapaDe(termo) === "ENVIADO_ASSINATURA" && (
@@ -1351,6 +1481,18 @@ const styles = {
     border: "1px solid #ffe69c",
     borderRadius: "8px",
     padding: "12px",
+  },
+  // Vermelho, não amarelo: não é ressalva, é um termo que não funciona até
+  // alguém reanexar a via.
+  avisoSemArquivo: {
+    marginTop: "10px",
+    background: "#fdecea",
+    border: "1px solid #f5c2c0",
+    borderRadius: "8px",
+    padding: "10px 12px",
+    fontSize: "13px",
+    color: "#7f1d1d",
+    lineHeight: 1.45,
   },
   rotuloSubFiltro: { fontSize: "13px", fontWeight: "bold", color: "#374151" },
   subFiltro: {
