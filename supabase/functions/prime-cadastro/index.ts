@@ -136,6 +136,12 @@ async function colher(cpf: string, chave: string) {
       parcela: Number(dn.slice(-3)) / 100,
       vencimento: p?.dueDate ? String(p.dueDate).slice(0, 10) : null,
       liquidado_em: p?.paymentDate ? String(p.paymentDate).slice(0, 10) : null,
+      // O PORTADOR DO TITULO -- a peca que decide se ainda se cobra.
+      //   195 = mensalidade em cobranca (ainda deve)
+      //   166 = saiu da cobranca (negociou ou pagou)
+      // Vinha na resposta e era descartado. Sem ele so da para saber o portador
+      // do ALUNO, que nao serve: quem tem duas matriculas aparece nos dois.
+      carrier_id: Number.isFinite(p?.carrier?.id) ? p.carrier.id : null,
     });
   }
 
@@ -276,11 +282,22 @@ Deno.serve(async (req) => {
   const colhidos = await emLotes(cpfs, CONCORRENCIA, (cpf) => colher(cpf, chave));
 
   let aplicados = 0, fora = 0, erros = 0, telNovos = 0, mailNovos = 0, tit = 0;
+  // POR QUE contar o motivo: em 26/08/2026 a coleta passou cinco horas com 55
+  // erros em cada lote de 60 e ninguem sabia de que erro se tratava -- a funcao
+  // so devolvia o numero. Cinco horas de chamada desperdicada na Ulbra por
+  // falta de uma linha de diagnostico.
+  const motivos: Record<string, number> = {};
+  const amostra: string[] = [];
+  const anotar = (motivo: string, detalhe?: string) => {
+    motivos[motivo] = (motivos[motivo] ?? 0) + 1;
+    if (detalhe && amostra.length < 3) amostra.push(`${motivo}: ${detalhe}`.slice(0, 200));
+  };
+
   for (const c of colhidos) {
     if ((c as any).foraDoEscopo) { fora++; continue; }
-    if ((c as any).erro) { erros++; continue; }
+    if ((c as any).erro) { erros++; anotar(String((c as any).erro)); continue; }
     const { data, error } = await supa.rpc("prime_cadastro_aplicar", { p_dados: c });
-    if (error) { erros++; continue; }
+    if (error) { erros++; anotar("APLICAR_FALHOU", error.message); continue; }
     aplicados++;
     telNovos += data?.telefones_novos ?? 0;
     mailNovos += data?.emails_novos ?? 0;
@@ -291,5 +308,6 @@ Deno.serve(async (req) => {
     pedidos: cpfs.length, aplicados, fora_do_escopo: fora, erros,
     telefones_novos: telNovos, emails_novos: mailNovos, titulos_classificados: tit,
     segundos: Math.round((Date.now() - inicio) / 1000), concorrencia: CONCORRENCIA,
+    motivos, amostra,
   }), { headers: { "Content-Type": "application/json" } });
 });
