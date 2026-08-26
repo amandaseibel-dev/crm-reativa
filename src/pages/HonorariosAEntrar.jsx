@@ -6,13 +6,24 @@ import Aluno from "./Aluno";
 
 // "O que tenho para entrar" — a previsão de honorário do operador.
 //
-// POR QUE ESTA TELA EXISTE. A Projeção mostra o que JÁ entrou: ela lê
-// `pagamentos.valor_honorario`, que vem da importação do Santander. Nenhuma das
-// 29 funções de projeção olha as parcelas. Ou seja, o número pelo qual o
-// operador é cobrado só aparecia para ele depois de acontecer -- não havia onde
-// ver o que ainda pode entrar, nem o que se perdeu por quebra.
+// POR QUE ESTA TELA EXISTE. A Projeção mostra o que JÁ entrou, e só isso. O
+// número pelo qual o operador é cobrado aparecia para ele depois de acontecer
+// -- não havia onde ver o que ainda PODE entrar, nem o que se perdeu por quebra.
 //
-// Aqui é o outro lado: as parcelas dos acordos ativos dele, em três estados.
+// Aqui estão os três lados juntos.
+//
+// DE ONDE VEM CADA NÚMERO -- e isso não é detalhe:
+//
+//     A VENCER / PERDIDO -> parcelas dos acordos ativos (é lá que mora o futuro)
+//     ENTROU             -> pagamentos.valor_honorario, a MESMA fonte e o mesmo
+//                           filtro da Projeção
+//
+// O "Entrou" já saiu de `parcelas.honorarios` e estava errado por duas ordens de
+// grandeza: de 1.484 parcelas pagas, só 116 (7,8%) tinham o campo preenchido --
+// a tela mostrava R$ 5 mil onde tinham entrado R$ 837 mil. Pior que o número
+// baixo era o desacordo: duas telas dizendo coisas diferentes sobre o mesmo
+// fato fazem ninguém confiar em nenhuma das duas. Agora batem por construção,
+// operador a operador, até o centavo.
 //
 // A REGRA (Amanda, 26/08/2026): o honorário da parcela a vencer entra quando
 // ela é paga; se não for paga, o acordo quebra e ele não entra. Por isso os
@@ -149,7 +160,7 @@ export default function HonorariosAEntrar() {
       <div style={A.topo}>
         <div>
           <h1 style={A.titulo}>O que tenho para entrar</h1>
-          <p style={A.sub}>Honorários das parcelas dos seus acordos ativos, por mês de vencimento.</p>
+          <p style={A.sub}>O que ainda pode entrar vem das parcelas dos seus acordos; o que entrou vem da mesma fonte da Projeção.</p>
         </div>
         <button type="button" style={A.btnGhost} onClick={() => carregar(operadorFiltro)}>Atualizar</button>
       </div>
@@ -174,10 +185,10 @@ export default function HonorariosAEntrar() {
           onClick={() => setEstado("PAGO")}
           style={{ ...estilos.cartao, ...(estado === "PAGO" ? estilos.cartaoAtivo : {}) }}
         >
-          <span style={estilos.rotulo}>Entrou — parcela paga</span>
+          <span style={estilos.rotulo}>Entrou — honorário recebido</span>
           <span style={{ ...estilos.numero, color: "#15803d" }}>{moeda(totais.PAGO.honorario)}</span>
           <span style={estilos.detalhe}>
-            {totais.PAGO.parcelas} parcelas · {moeda(totais.PAGO.valor)} recebidos
+            {totais.PAGO.parcelas} pagamento{totais.PAGO.parcelas === 1 ? "" : "s"} · {moeda(totais.PAGO.valor)} recebidos
           </span>
         </button>
 
@@ -194,7 +205,7 @@ export default function HonorariosAEntrar() {
         </button>
       </div>
 
-      {totais[estado].semHonorario > 0 && (
+      {estado !== "PAGO" && totais[estado].semHonorario > 0 && (
         <div style={estilos.avisoSemHonorario}>
           <b>{totais[estado].semHonorario} destas parcelas estão sem honorário informado.</b> Elas
           contam na dívida, mas somam zero aqui — os acordos vieram por importação, que não trazia o
@@ -222,7 +233,7 @@ export default function HonorariosAEntrar() {
         />
         <div style={A.contadores}>
           <span style={A.contadorAlunos}>{meses.length} meses</span>
-          <span style={A.contadorAcordos}>{filtradas.length} parcelas</span>
+          <span style={A.contadorAcordos}>{filtradas.length} {estado === "PAGO" ? "pagamentos" : "parcelas"}</span>
           <span style={A.contadorValor}>{moeda(filtradas.reduce((s, x) => s + Number(x.honorario || 0), 0))}</span>
         </div>
       </div>
@@ -240,7 +251,7 @@ export default function HonorariosAEntrar() {
                 </div>
                 <div style={A.cardHeadDir}>
                   <span style={A.cardResumo}>
-                    {m.itens.length} parcela{m.itens.length > 1 ? "s" : ""} · {moeda(m.valor)} de dívida
+                    {m.itens.length} {estado === "PAGO" ? "pagamento" : "parcela"}{m.itens.length > 1 ? "s" : ""} · {moeda(m.valor)} {estado === "PAGO" ? "recebidos" : "de dívida"}
                   </span>
                   <span style={estilos.honorarioMes}>{moeda(m.honorario)} de honorário</span>
                   {m.semHonorario > 0 && (
@@ -253,8 +264,8 @@ export default function HonorariosAEntrar() {
                 <thead>
                   <tr>
                     <th style={A.th}>Aluno</th>
-                    <th style={A.th}>Parcela</th>
-                    <th style={A.th}>Vencimento</th>
+                    <th style={A.th}>{estado === "PAGO" ? "Origem" : "Parcela"}</th>
+                    <th style={A.th}>{estado === "PAGO" ? "Pago em" : "Vencimento"}</th>
                     <th style={A.thNum}>Valor</th>
                     <th style={A.thNum}>Honorário</th>
                     <th style={A.th}></th>
@@ -262,9 +273,9 @@ export default function HonorariosAEntrar() {
                 </thead>
                 <tbody>
                   {m.itens.map((l) => (
-                    <tr key={l.parcela_id}>
+                    <tr key={l.parcela_id || `${l.aluno_id}-${l.vencimento}-${l.valor}`}>
                       <td style={A.td}>{l.aluno_nome}</td>
-                      <td style={A.td}>{l.is_entrada ? "Entrada" : `Parcela ${l.numero}`}</td>
+                      <td style={A.td}>{l.is_entrada ? "Entrada" : l.numero != null ? `Parcela ${l.numero}` : "Pagamento"}</td>
                       <td style={A.td}>{dia(l.vencimento)}</td>
                       <td style={A.tdNum}>{moeda(l.valor)}</td>
                       <td style={A.tdNum}>
