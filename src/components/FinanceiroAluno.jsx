@@ -35,16 +35,6 @@ function hojeISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function somarMeses(dataISO, meses) {
-  const [ano, mes, dia] = String(dataISO).split("-").map(Number);
-  const totalMeses = mes - 1 + meses;
-  const anoFinal = ano + Math.floor(totalMeses / 12);
-  const mesFinal = (totalMeses % 12) + 1;
-  const ultimoDiaMes = new Date(anoFinal, mesFinal, 0).getDate();
-  const diaFinal = Math.min(dia, ultimoDiaMes);
-  return `${anoFinal}-${String(mesFinal).padStart(2, "0")}-${String(diaFinal).padStart(2, "0")}`;
-}
-
 // NAO force showPicker() no clique do campo de data.
 //
 // Ja teve um handler aqui que abria o calendario a cada clique, para garantir
@@ -184,7 +174,15 @@ function novoAcordoInicial() {
     dataEntrada: paraDataBR(hojeISO()),
     honorariosEntrada: "0",
     honorarios: "",
-    primeiroVenc: paraDataBR(somarMeses(hojeISO(), 1)),
+    // Primeiro vencimento no MES VIGENTE, nao daqui a 30 dias.
+    //
+    // O padrao era hoje + 1 mes, pensando em acordo que esta sendo negociado
+    // agora. Mas o uso real e outro: lancar acordo que JA foi fechado, cuja
+    // primeira parcela e do mes corrente -- muitas vezes ja vencida. O padrao
+    // antigo obrigava a corrigir a data em todo lancamento (Amanda, 26/08/2026:
+    // "preciso sempre deixar as parcelas para o mes vigente, esta lancando
+    // sempre para 30 dias").
+    primeiroVenc: paraDataBR(hojeISO()),
     titulosSel: [],
     parcelas: [],
   };
