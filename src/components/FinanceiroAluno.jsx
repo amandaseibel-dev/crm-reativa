@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
+// A regra de lancar acordo mora em um lugar so -- a ficha e a tela de
+// lancamento chamam a MESMA funcao. Ver o comentario de src/utils/lancarAcordo.js:
+// caminho proprio foi como nasceram 88 acordos duplicados na mao.
+import { lancarAcordo, gerarParcelas as gerarParcelasAcordo } from "../utils/lancarAcordo";
 
 function formatarData(data) {
   if (!data) return "-";
@@ -814,31 +818,9 @@ export default function FinanceiroAluno({ aluno }) {
   }
 
   function gerarParcelasNovo() {
-    const total = paraNumero(novo.valorTotal);
-    if (total <= 0) {
-      alert("Informe o valor total do acordo.");
-      return;
-    }
-    const qtd = Math.max(1, parseInt(novo.qtdParcelas) || 1);
-    const entrada = novo.temEntrada ? Math.min(paraNumero(novo.entradaRs), total) : 0;
-    const honTotal = paraNumero(novo.honorarios);
-    const saldo = Math.max(0, total - entrada);
-    const vParc = saldo / qtd;
-    const honEnt = total > 0 ? honTotal * (entrada / total) : 0;
-    const honSaldo = Math.max(0, honTotal - honEnt);
-    const honCada = honSaldo / qtd;
-    const base = paraDataISO(novo.primeiroVenc) || hojeISO();
-    const parcelas = [];
-    for (let i = 1; i <= qtd; i++) {
-      parcelas.push({
-        numero: i,
-        vencimento: paraDataBR(somarMeses(base, i - 1)),
-        valor: vParc.toFixed(2),
-        honorarios: honCada.toFixed(2),
-        status: "A_VENCER",
-      });
-    }
-    setNovo((atual) => ({ ...atual, parcelas, honorariosEntrada: honEnt.toFixed(2) }));
+    const r = gerarParcelasAcordo(novo);
+    if (r.erro) { alert(r.erro); return; }
+    setNovo((atual) => ({ ...atual, parcelas: r.parcelas, honorariosEntrada: r.honorariosEntrada }));
   }
 
   function atualizarParcelaNovo(index, campo, valor) {
@@ -871,154 +853,24 @@ export default function FinanceiroAluno({ aluno }) {
 
   async function salvarNovoAcordo() {
     if (!podeBaixar) { alert("Criação de acordo com baixa de entrada é exclusiva da gestão financeira."); return; }
-    if (!novo.parcelas.length) {
-      alert('Clique em "Gerar parcelas" antes de salvar.');
-      return;
-    }
-    const total = paraNumero(novo.valorTotal);
-    if (total <= 0) {
-      alert("Informe o valor total do acordo.");
-      return;
-    }
-    const email = usuario?.email || "";
-    const agora = new Date().toISOString();
-    // Quem cria o acordo (normalmente a Amanda) nem sempre é o operador
-    // responsável pelo caso -- o "dono" do caso pra fins de carteira/KPI é
-    // sempre o responsável atual do aluno, não quem apertou salvar.
-    const operadorResponsavel = aluno.responsavel_atual_email || email;
-    const entrada = novo.temEntrada ? Math.min(paraNumero(novo.entradaRs), total) : 0;
-    const pct = total > 0 && novo.temEntrada ? Number(((entrada / total) * 100).toFixed(2)) : null;
-    const honTotal = paraNumero(novo.honorarios);
-    const saldo = Math.max(0, total - entrada);
 
-    const { data: acordo, error } = await supabase
-      .from("acordos")
-      .insert({
-        aluno_id: String(aluno.id),
-        cpf: aluno.cpf,
-        tipo: "ACORDO",
-        forma_pagamento: "PARCELADO",
-        valor_total: total,
-        qtd_parcelas: novo.parcelas.length,
-        valor_entrada: novo.temEntrada ? entrada : null,
-        entrada_percentual: pct,
-        entrada_paga: novo.temEntrada ? Boolean(novo.entradaPaga) : false,
-        data_entrada: novo.temEntrada && novo.entradaPaga ? (paraDataISO(novo.dataEntrada) || hojeISO()) : null,
-        honorarios_valor: honTotal || null,
-        saldo: saldo,
-        status: "ATIVO",
-        operador_responsavel_email: operadorResponsavel,
-        criado_por_nome: nomeOperadorPorEmail(email),
-        criado_por_email: email,
-        confirmado_por_email: email,
-        confirmado_em: agora,
-      })
-      .select()
-      .single();
+    const r = await lancarAcordo({
+      aluno,
+      dados: novo,
+      usuarioEmail: usuario?.email || "",
+    });
 
-    if (error) {
-      alert("Erro ao criar acordo: " + error.message);
-      return;
-    }
+    if (!r.ok) { alert(r.erro); return; }
 
-    const parcelas = novo.parcelas.map((p) => ({
-      acordo_id: acordo.id,
-      numero: p.numero,
-      valor: paraNumero(p.valor),
-      honorarios: p.honorarios != null ? paraNumero(p.honorarios) : null,
-      vencimento: paraDataISO(p.vencimento) || p.vencimento,
-      status: p.status,
-    }));
-
-    const { error: e2 } = await supabase.from("parcelas").insert(parcelas);
-    if (e2) {
-      alert("Acordo criado, mas houve erro ao gerar as parcelas: " + e2.message);
-      return;
-    }
-
-    // Entrada já paga vira um registro de pagamento de verdade (parcela
-    // número 0 + baixa), não só uma marcação no acordo -- sem isso, o
-    // valor da entrada nunca aparecia em nenhum KPI de "valor baixado" ou
-    // "honorários", porque esses somam de baixas/parcelas reais.
-    // ENTRADA AINDA NAO PAGA TAMBEM VIRA PARCELA.
-    //
-    // O parcelado e gerado sobre `total - entrada`, e o saldo do acordo tambem
-    // desconta a entrada. Se ela nao virasse parcela, esse valor sumia da
-    // cobranca sem ninguem ter pago: nao estaria no parcelado, nao estaria no
-    // saldo, e nao apareceria em lista nenhuma para cobrar.
-    //
-    // Como parcela A_VENCER, ela segue a mesma regra das outras: quando for
-    // paga, o honorario dela entra; se nao for, o acordo quebra e nao entra.
-    if (novo.temEntrada && !novo.entradaPaga && entrada > 0) {
-      const honEntrada = paraNumero(novo.honorariosEntrada);
-      const { error: erroEntradaAberta } = await supabase.from("parcelas").insert({
-        acordo_id: acordo.id,
-        numero: 0,
-        valor: entrada,
-        honorarios: honEntrada || 0,
-        vencimento: paraDataISO(novo.dataEntrada) || hojeISO(),
-        status: "A_VENCER",
-        is_entrada: true,
-      });
-      if (erroEntradaAberta) {
-        alert(
-          "Acordo criado, mas a parcela da ENTRADA não foi gerada: " +
-          erroEntradaAberta.message +
-          "\n\nLance a entrada manualmente, senão esse valor não será cobrado."
-        );
-      }
-    }
-
-    if (novo.temEntrada && novo.entradaPaga && entrada > 0) {
-      const dataEntradaEscolhida = paraDataISO(novo.dataEntrada) || hojeISO();
-      const honEntrada = paraNumero(novo.honorariosEntrada);
-
-      const { data: parcelaEntrada, error: erroEntrada } = await supabase
-        .from("parcelas")
-        .insert({
-          acordo_id: acordo.id,
-          numero: 0,
-          valor: entrada,
-          honorarios: honEntrada || 0,
-          vencimento: dataEntradaEscolhida,
-          status: "PAGO",
-          pago_em: dataEntradaEscolhida,
-          confirmado_por_email: email,
-          // A tela identifica a entrada por este campo. Sem ele, ela caia no
-          // remendo de ler `acordos.valor_entrada` -- e o rateio de honorario
-          // e o "parcelado restante" tratavam a entrada como parcela comum.
-          is_entrada: true,
-        })
-        .select()
-        .single();
-
-      if (erroEntrada) {
-        console.error("Erro ao registrar a entrada como paga:", erroEntrada);
-        alert("Acordo criado, mas houve erro ao registrar a entrada como paga: " + erroEntrada.message);
-      } else {
-        await supabase.from("baixas_pagamento").insert({
-          aluno_id: String(aluno.id),
-          aluno_nome: aluno.nome || null,
-          aluno_cpf: aluno.cpf || null,
-          valor_pago: entrada,
-          honorarios_recebidos: honEntrada || 0,
-          status_baixa: "REALIZADA",
-          responsavel_baixa_nome: nomeOperadorPorEmail(operadorResponsavel),
-          responsavel_baixa_email: operadorResponsavel,
-          baixado_por_email: email,
-          data_pagamento: dataEntradaEscolhida,
-          parcela_id: parcelaEntrada?.id || null,
-          acordo_id: acordo.id,
-        });
-      }
-    }
+    // Avisos sao gravacao pela metade: a pessoa PRECISA ver, senao o valor
+    // some da cobranca sem ninguem saber.
+    if (r.avisos?.length) alert(r.avisos.join("\n\n"));
 
     // Montar novo acordo NAO vincula titulos automaticamente.
     // O vinculo de mensalidades e feito apenas pelo botao "Vincular a acordo existente".
-
     setNovo(novoAcordoInicial());
     setNovoAberto(false);
-    setRecarga((r) => r + 1);
+    setRecarga((x) => x + 1);
     alert("Acordo criado com sucesso!");
   }
 

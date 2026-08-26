@@ -4,13 +4,13 @@ import {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
-  Upload, Users, Settings, UserCircle, ClipboardList,
+  Upload, Users, Settings, UserCircle, ClipboardList, FilePlus2,
 } from "lucide-react";
 const ICONES_MENU = {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
-  Upload, Users, Settings, UserCircle, ClipboardList,
+  Upload, Users, Settings, UserCircle, ClipboardList, FilePlus2,
 };
 import { supabase } from "./services/supabase";
 import usePolling from "./utils/polling";
@@ -59,6 +59,7 @@ import LiberacoesAcesso from "./components/LiberacoesAcesso";
 const GestaoFinanceiraOperadores = lazy(() => import("./pages/GestaoFinanceiraOperadores"));
 const ProjecaoHoraHora = lazy(() => import("./pages/ProjecaoHoraHora"));
 const HonorariosAEntrar = lazy(() => import("./pages/HonorariosAEntrar"));
+const LancarAcordo = lazy(() => import("./pages/LancarAcordo"));
 const TvMensagem = lazy(() => import("./pages/TvMensagem"));
 const Auditoria = lazy(() => import("./pages/Auditoria")); const RelatorioReceptivo = lazy(() => import("./pages/RelatorioReceptivo")); const MinhaAgendaPessoal = lazy(() => import("./pages/MinhaAgendaPessoal")); const EnvioGmailLote = lazy(() => import("./pages/EnvioGmailLote"));
 const MensalidadesSemNegociacao = lazy(() => import("./pages/MensalidadesSemNegociacao"));
@@ -149,7 +150,7 @@ function podeAcessar(perfil, rota) {
   // perfis ativos (o banco confere de novo por app_usuario_ativo()).
   if (rota === "/leads-whatsapp") return true;
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
-  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
+  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return perfil !== "operador"; if (rota === "/lancar-acordo") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
   const permissoes = {
     gerencia: [
       "/",
@@ -605,7 +606,7 @@ export default function App() {
       secao: "Operação",
       esconderParaOperador: true,
     },
-    { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" }, { rota: "/a-entrar", label: "O que tenho a entrar", icone: "TrendingUp", secao: "Operação" },
+    { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" }, { rota: "/a-entrar", label: "O que tenho a entrar", icone: "TrendingUp", secao: "Operação" }, { rota: "/lancar-acordo", label: "Lançar acordo", icone: "FilePlus2", secao: "Financeiro" },
     { rota: "/aluno", label: "Base", icone: "User", secao: "Operação" },
     { rota: "/relatorio-receptivo", label: "Relatório Receptivo", icone: "Phone", secao: "Operação" }, { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/leads-whatsapp", label: "Leads do WhatsApp", icone: "MessageSquare", secao: "Operação" },
@@ -689,7 +690,7 @@ export default function App() {
       const emVt = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emVt);
     }
-    if (item.rota === "/minha-agenda") { const emMa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return emMa === "amanda.seibel@aelbra.com.br"; } if (item.rota === "/a-entrar") { const emAe = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emAe); } if (item.rota === "/envio-gmail") { const emEg = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emEg); } if (item.rota === "/importar-acordos") { const emIa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emIa); } if (item.rota === "/ferramentas") { const emFe = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emFe); } return podeAcessar(perfil, item.rota);
+    if (item.rota === "/minha-agenda") { const emMa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return emMa === "amanda.seibel@aelbra.com.br"; } if (item.rota === "/a-entrar") { const emAe = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emAe); } if (item.rota === "/lancar-acordo") { const emLa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emLa); } if (item.rota === "/envio-gmail") { const emEg = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emEg); } if (item.rota === "/importar-acordos") { const emIa = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emIa); } if (item.rota === "/ferramentas") { const emFe = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim(); return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emFe); } return podeAcessar(perfil, item.rota);
   });
   return (
     <BrowserRouter>
@@ -1093,7 +1094,7 @@ export default function App() {
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} /> <Route path="/central-whatsapp" element={<RotaProtegida usuario={usuario} rota="/central-whatsapp"><CentralWhatsApp /></RotaProtegida>} /> <Route path="/leads-whatsapp" element={<RotaProtegida usuario={usuario} rota="/leads-whatsapp"><LeadsWhatsApp /></RotaProtegida>} />
               <Route path="/dre" element={(["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) || perfil === "diretoria") ? <DRE /> : <Navigate to="/" replace />} />
               <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
-              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/a-entrar" element={<HonorariosAEntrar />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
+              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/a-entrar" element={<HonorariosAEntrar />} /> <Route path="/lancar-acordo" element={<LancarAcordo />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
       </Routes>
       </Suspense>
         </main>
