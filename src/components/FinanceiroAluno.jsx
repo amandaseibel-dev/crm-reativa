@@ -1222,6 +1222,19 @@ export default function FinanceiroAluno({ aluno }) {
   const superadasQtd = temOficial ? Number(saldoOficial.titulos_superados_qtd || 0) : 0;
   const superadasValor = temOficial ? Number(saldoOficial.titulos_superados_valor || 0) : 0;
 
+  // Conferencia do "Montar novo acordo": entrada + parcelas tem de fechar com o
+  // total combinado, e os honorarios das parcelas com o do acordo.
+  const entradaNovo = novo.temEntrada
+    ? Math.min(paraNumero(novo.entradaRs), paraNumero(novo.valorTotal))
+    : 0;
+  const somaParcelasNovo = novo.parcelas.reduce((soma, p) => soma + paraNumero(p.valor), 0);
+  const somaConferida = somaParcelasNovo + entradaNovo;
+  const somaHonorariosNovo =
+    novo.parcelas.reduce((soma, p) => soma + paraNumero(p.honorarios), 0)
+    + (novo.temEntrada ? paraNumero(novo.honorariosEntrada) : 0);
+  const difValorNovo = Math.abs(somaConferida - paraNumero(novo.valorTotal));
+  const difHonorariosNovo = Math.abs(somaHonorariosNovo - paraNumero(novo.honorarios));
+
   const somaTitulosMarcados = titulosSelecionaveis
     .filter((t) => novo.titulosSel.includes(t.id))
     .reduce((acc, t) => acc + valorTitulo(t), 0);
@@ -1449,6 +1462,29 @@ export default function FinanceiroAluno({ aluno }) {
                         onChange={(e) => atualizarParcelaNovo(index, "honorarios", e.target.value)} />
                     </div>
                   ))}
+                  <div style={estilos.parcSoma}>
+                    <span>Soma</span>
+                    <span></span>
+                    <span>{moeda(somaConferida)}</span>
+                    <span>{moeda(somaHonorariosNovo)}</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Conferencia antes de gravar: se as parcelas nao fecham com o
+                  total combinado, alguem editou uma linha na mao e o acordo
+                  nasce errado. Diferenca de centavo e arredondamento e nao
+                  conta -- o gerador ja faz a ultima parcela absorver a sobra. */}
+              {novo.parcelas.length > 0 && difValorNovo > 0.05 && (
+                <div style={estilos.avisoConferencia}>
+                  A soma das parcelas ({moeda(somaConferida)}) não bate com o valor total
+                  informado ({moeda(paraNumero(novo.valorTotal))}). Confira antes de salvar.
+                </div>
+              )}
+              {novo.parcelas.length > 0 && paraNumero(novo.honorarios) > 0 && difHonorariosNovo > 0.05 && (
+                <div style={estilos.avisoConferencia}>
+                  A soma dos honorários ({moeda(somaHonorariosNovo)}) não bate com o honorário do
+                  acordo ({moeda(paraNumero(novo.honorarios))}).
                 </div>
               )}
 
@@ -2443,6 +2479,8 @@ const estilos = {
   resumoFinanceiroValor: { fontSize: 19, fontWeight: 800, color: "#e2e8f0", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" },
   linha: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid rgba(148,163,184,0.12)" },
   subLinha: { fontSize: 11, opacity: 0.7, marginTop: 2 },
+  parcSoma: { display: "grid", gridTemplateColumns: "40px 1fr 1fr 1fr", gap: 8, alignItems: "center", padding: "8px 10px 2px", marginTop: 4, borderTop: "1px solid rgba(148,163,184,0.25)", fontSize: 12.5, fontWeight: 800, color: "#e2e8f0", fontVariantNumeric: "tabular-nums" },
+  avisoConferencia: { marginTop: 10, padding: "10px 14px", borderRadius: 10, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.4)", color: "#fcd34d", fontSize: 12.5, fontWeight: 700 },
   marcaVencida: { color: "#f0999a", fontWeight: 700, marginLeft: 6 },
   marcaLembrete: { color: "#fcd34d", fontWeight: 700, marginLeft: 6 },
   tagBase: { fontSize: 11, padding: "2px 8px", borderRadius: 999, fontWeight: 700 },
