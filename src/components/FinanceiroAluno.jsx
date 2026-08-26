@@ -45,18 +45,16 @@ function somarMeses(dataISO, meses) {
   return `${anoFinal}-${String(mesFinal).padStart(2, "0")}-${String(diaFinal).padStart(2, "0")}`;
 }
 
-// Campo de data dentro de um <label> às vezes não repassa o clique certo
-// pro seletor nativo do navegador (foca o campo, mas não abre o
-// calendário). Forçando o showPicker() no clique, garante que abre
-// sempre -- em navegadores sem suporte a essa API, cai pro comportamento
-// padrão sem quebrar nada.
-function abrirCalendario(evento) {
-  try {
-    evento.target.showPicker?.();
-  } catch {
-    // Sem suporte a showPicker() nesse navegador -- segue o clique normal.
-  }
-}
+// NAO force showPicker() no clique do campo de data.
+//
+// Ja teve um handler aqui que abria o calendario a cada clique, para garantir
+// que ele abrisse mesmo com o input dentro de um <label>. O efeito colateral era
+// pior que o problema: o calendario roubava o clique, entao nao dava para pousar
+// o cursor no dia/mes/ano e DIGITAR a data -- so escolhendo no calendario, um
+// clique por campo (Amanda, 26/08/2026).
+//
+// O input nativo ja resolve os dois: digitar direto nos segmentos, e o icone de
+// calendario do proprio navegador para quem prefere escolher.
 
 function paraNumero(v) {
   let t = String(v || "").replace("R$", "").replace(/\s/g, "").trim();
@@ -678,6 +676,53 @@ export default function FinanceiroAluno({ aluno }) {
     }));
   }
 
+  // Replicar honorario: o mesmo valor nas demais parcelas EM ABERTO do acordo.
+  // Grava primeiro o que foi digitado (senao replicaria o valor antigo) e so
+  // entao replica. Parcela paga nao e tocada -- honorario dela e fato, nao
+  // previsao -- e parcela onde o valor nao caberia e pulada e reportada.
+  async function replicarHonorarioParcela(acordo, parcela, valor, motivo) {
+    const { error: erroSalvar } = await supabase.rpc("parcela_definir_honorario", {
+      p_parcela_id: parcela.id,
+      p_valor: Number(valor) || 0,
+      p_motivo: motivo || null,
+    });
+    if (erroSalvar) {
+      alert("Não foi possível salvar o honorário desta parcela: " + erroSalvar.message);
+      return;
+    }
+
+    const { data, error } = await supabase.rpc("parcela_replicar_honorario", {
+      p_parcela_id: parcela.id,
+      p_motivo: motivo || null,
+    });
+    if (error) {
+      alert("O honorário desta parcela foi salvo, mas não foi replicado: " + error.message);
+      setRecarga((x) => x + 1);
+      return;
+    }
+
+    const novo = Number(data?.honorario || 0);
+    setParcelasPorAcordo((atual) => ({
+      ...atual,
+      [acordo.id]: (atual[acordo.id] || []).map((x) => {
+        if (x.id === parcela.id) return { ...x, honorarios: novo };
+        if (x.status === "PAGO" || x.status === "CANCELADA") return x;
+        // Pulada por nao caber: mantem o que tinha.
+        const pulada = (data?.puladas || []).some((q) => Number(q.numero) === Number(x.numero));
+        return pulada ? x : { ...x, honorarios: novo };
+      }),
+    }));
+
+    const puladas = data?.puladas || [];
+    alert(
+      `Honorário de ${moeda(novo)} aplicado em ${data?.parcelas_alteradas || 0} parcela(s) em aberto.` +
+      (puladas.length
+        ? "\n\nNão coube em " + puladas.length + ": " +
+          puladas.map((q) => `parcela ${q.numero} (${q.motivo})`).join("; ")
+        : "")
+    );
+  }
+
   async function alterarResponsavelAcordo(acordo, novoEmail, motivo) {
     if (!novoEmail) { alert("Selecione o novo responsável do acordo."); return; }
     // Motivo é opcional: segue vazio quando não informado.
@@ -1102,7 +1147,14 @@ export default function FinanceiroAluno({ aluno }) {
   // So acordos ATIVOS recebem vinculo de mensalidade. Acordo QUITADO/CANCELADO
   // e encerrado (somente leitura) -- o backend tambem recusa (vincular_titulos_acordo
   // -> acordo_quitado_/cancelado_operacao_nao_permitida).
-  const acordosVinculaveis = acordos.filter((a) => a.status === "ATIVO");
+  // Vincular mensalidade vale tambem em acordo JA PAGO (Amanda, 26/08/2026):
+  // o aluno quitou, mas as mensalidades que aquele acordo cobria continuam
+  // soltas, aparecendo como divida de quem nao deve mais nada. Prender a
+  // mensalidade ao acordo que a quitou registra a verdade.
+  //
+  // CANCELADO fica de fora: ele devolveu a divida para cobranca, e prender
+  // titulo nele esconderia divida viva. O backend recusa do mesmo jeito.
+  const acordosVinculaveis = acordos.filter((a) => a.status === "ATIVO" || a.status === "QUITADO");
   const parcelasEmAberto = acordosNaoCancelados
     .flatMap((a) => parcelasPorAcordo[a.id] || [])
     .filter((p) => p.status !== "PAGO" && p.status !== "CANCELADA");
@@ -1507,6 +1559,7 @@ export default function FinanceiroAluno({ aluno }) {
         onAlterarResponsavel={alterarResponsavelAcordo}
         onDefinirHonorarios={definirHonorarios}
         onDefinirHonorarioParcela={definirHonorarioParcela}
+        onReplicarHonorarioParcela={replicarHonorarioParcela}
       />
     </>
   );
@@ -1675,7 +1728,7 @@ function FormMensalidadeManual({ aluno, novaMensalidade, setNovaMensalidade, sal
 // Corrigir o honorario de UMA parcela. O teto e a propria parcela: honorario
 // maior que ela e erro de digitacao, e o banco recusa de qualquer forma -- aqui
 // e so para a pessoa ver antes de tentar.
-function FormHonorarioParcela({ parcela, onAplicar, onCancelar }) {
+function FormHonorarioParcela({ parcela, onAplicar, onReplicar, onCancelar, podeReplicar, qtdOutrasAbertas }) {
   const [valor, setValor] = useState(parcela.honorarios != null ? String(parcela.honorarios) : "");
   const [motivo, setMotivo] = useState("");
   const numero = Number(String(valor).replace(",", ".")) || 0;
@@ -1707,8 +1760,14 @@ function FormHonorarioParcela({ parcela, onAplicar, onCancelar }) {
       <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
         <button style={estilos.botaoConfirmar} disabled={maiorQueParcela}
           onClick={() => onAplicar(numero, motivo)}>
-          Salvar honorário
+          Salvar só nesta
         </button>
+        {podeReplicar && (
+          <button style={estilos.botaoConfirmar} disabled={maiorQueParcela || numero <= 0}
+            onClick={() => onReplicar(numero, motivo)}>
+            Salvar e replicar nas outras {qtdOutrasAbertas}
+          </button>
+        )}
         <button style={estilos.botaoCancelar} onClick={onCancelar}>Cancelar</button>
       </div>
     </div>
@@ -1816,7 +1875,7 @@ function SeletorResponsavelAcordo({ acordo, operadoresAtivos, onAplicar }) {
   );
 }
 
-function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios, onDefinirHonorarioParcela }) {
+function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios, onDefinirHonorarioParcela, onReplicarHonorarioParcela }) {
   const [formParcela, setFormParcela] = useState(null);
   const [formHonParcela, setFormHonParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
@@ -2065,7 +2124,6 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                     <label style={estilos.formLabel}>
                       Data
                       <input type="date" style={estilos.formInput} value={campos.data || ""}
-                        onClick={abrirCalendario}
                         onChange={(e) => setCampos({ ...campos, data: e.target.value })} />
                     </label>
                     <label style={estilos.formLabel}>
@@ -2109,7 +2167,7 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                           ) : null}
                         </div>
                       </div>
-                      <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" }}>
                         <div>
                           <div style={{ fontSize: 13, fontWeight: 700 }}>{moeda(p.valor)}</div>
                           <div style={estilos.subLinha}>
@@ -2123,17 +2181,17 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                         </div>
                         {podeBaixar && onDefinirHonorarioParcela && !cancelada && acordoPermiteAcaoFinanceira(acordo) && (
                           <button
-                            style={estilos.botaoPequeno}
+                            style={{ ...estilos.botaoPequeno, flexShrink: 0 }}
                             onClick={() => setFormHonParcela(formHonParcela === p.id ? null : p.id)}
                           >
                             Honorário
                           </button>
                         )}
                         {podeBaixar && !pago && (
-                          <button style={estilos.botaoPequeno} onClick={() => abrirParcela(p)}>Baixar</button>
+                          <button style={{ ...estilos.botaoPequeno, flexShrink: 0 }} onClick={() => abrirParcela(p)}>Baixar</button>
                         )}
                         {podeBaixar && pago && (
-                          <button style={estilos.botaoExcluir} onClick={() => onDesfazerBaixa(acordo, p)}>
+                          <button style={{ ...estilos.botaoExcluir, flexShrink: 0 }} onClick={() => onDesfazerBaixa(acordo, p)}>
                             Desfazer
                           </button>
                         )}
@@ -2143,8 +2201,14 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                     {podeBaixar && formHonParcela === p.id && (
                       <FormHonorarioParcela
                         parcela={p}
+                        podeReplicar={Boolean(onReplicarHonorarioParcela) && parcelasAbertas.length > 1}
+                        qtdOutrasAbertas={parcelasAbertas.filter((x) => x.id !== p.id).length}
                         onAplicar={(valor, motivo) => {
                           onDefinirHonorarioParcela(acordo, p, valor, motivo);
+                          setFormHonParcela(null);
+                        }}
+                        onReplicar={(valor, motivo) => {
+                          onReplicarHonorarioParcela(acordo, p, valor, motivo);
                           setFormHonParcela(null);
                         }}
                         onCancelar={() => setFormHonParcela(null)}
@@ -2160,7 +2224,6 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                           <label style={estilos.formLabel}>
                             Data
                             <input type="date" style={estilos.formInput} value={campos.data || ""}
-                              onClick={abrirCalendario}
                               onChange={(e) => setCampos({ ...campos, data: e.target.value })} />
                           </label>
                           <label style={estilos.formLabel}>
@@ -2198,6 +2261,8 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
         titulo="Acordos quitados"
         acordos={quitados}
         parcelasPorAcordo={parcelasPorAcordo}
+        podeDesfazer={podeBaixar}
+        onDesfazerBaixa={onDesfazerBaixa}
         aberto={quitadosAberto}
         setAberto={setQuitadosAberto}
         detalhesAbertos={detalhesAbertos}
@@ -2218,7 +2283,18 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
 
 // Bloco recolhido (fechado por padrao) de acordos encerrados. Modo resumido
 // sem NENHUMA acao financeira; "Ver detalhes" abre a consulta em somente leitura.
-function BlocoAcordosEncerrados({ titulo, acordos, parcelasPorAcordo, aberto, setAberto, detalhesAbertos, setDetalhesAbertos }) {
+// Acordo encerrado e somente leitura -- com UMA excecao, e ela e importante.
+//
+// Quando o acordo fecha (ou porque todas as parcelas foram pagas, ou porque o
+// status virou QUITADO), ele desce para este bloco e perde todos os botoes.
+// So que a baixa errada e justamente o que FECHA o acordo: baixou por engano ->
+// o acordo quitou -> o "Desfazer" sumiu junto, e nao sobrava caminho nenhum
+// para corrigir pela ficha (Amanda, 26/08/2026: "desfazer pagamento tambem
+// sumiu").
+//
+// Entao o QUITADO mantem o Desfazer. O CANCELADO nao: nele a divida ja voltou
+// para cobranca e mexer em parcela nao corrige nada.
+function BlocoAcordosEncerrados({ titulo, acordos, parcelasPorAcordo, aberto, setAberto, detalhesAbertos, setDetalhesAbertos, podeDesfazer, onDesfazerBaixa }) {
   if (!acordos || acordos.length === 0) return null;
   const ehCancelado = titulo.toLowerCase().includes("cancel");
   const cor = ehCancelado ? CORES_STATUS.cancelado : CORES_STATUS.quitado;
@@ -2265,7 +2341,9 @@ function BlocoAcordosEncerrados({ titulo, acordos, parcelasPorAcordo, aberto, se
             {detalheAberto && (
               <div style={estilos.detalheReadOnly}>
                 <div style={{ fontSize: 11, opacity: 0.7, marginBottom: 6, fontStyle: "italic" }}>
-                  Somente leitura — acordo encerrado, sem ações financeiras.
+                  {podeDesfazer && onDesfazerBaixa
+                    ? "Acordo encerrado. Só é possível desfazer uma baixa lançada por engano."
+                    : "Somente leitura — acordo encerrado, sem ações financeiras."}
                 </div>
                 {parcelas.length === 0 ? (
                   <div style={{ fontSize: 12, opacity: 0.7 }}>Sem parcelas registradas.</div>
@@ -2279,6 +2357,14 @@ function BlocoAcordosEncerrados({ titulo, acordos, parcelasPorAcordo, aberto, se
                       <span style={{ ...estilos.tagBase, background: (p.status === "PAGO" ? CORES_STATUS.quitado : CORES_STATUS.cancelado).bg, color: (p.status === "PAGO" ? CORES_STATUS.quitado : CORES_STATUS.cancelado).texto }}>
                         {STATUS_PARCELA_LABEL[p.status] || p.status}
                       </span>
+                      {podeDesfazer && onDesfazerBaixa && p.status === "PAGO" && (
+                        <button
+                          style={{ ...estilos.botaoExcluir, flexShrink: 0 }}
+                          onClick={() => onDesfazerBaixa(acordo, p)}
+                        >
+                          Desfazer
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
