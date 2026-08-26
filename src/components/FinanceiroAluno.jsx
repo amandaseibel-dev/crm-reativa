@@ -940,6 +940,35 @@ export default function FinanceiroAluno({ aluno }) {
     // número 0 + baixa), não só uma marcação no acordo -- sem isso, o
     // valor da entrada nunca aparecia em nenhum KPI de "valor baixado" ou
     // "honorários", porque esses somam de baixas/parcelas reais.
+    // ENTRADA AINDA NAO PAGA TAMBEM VIRA PARCELA.
+    //
+    // O parcelado e gerado sobre `total - entrada`, e o saldo do acordo tambem
+    // desconta a entrada. Se ela nao virasse parcela, esse valor sumia da
+    // cobranca sem ninguem ter pago: nao estaria no parcelado, nao estaria no
+    // saldo, e nao apareceria em lista nenhuma para cobrar.
+    //
+    // Como parcela A_VENCER, ela segue a mesma regra das outras: quando for
+    // paga, o honorario dela entra; se nao for, o acordo quebra e nao entra.
+    if (novo.temEntrada && !novo.entradaPaga && entrada > 0) {
+      const honEntrada = paraNumero(novo.honorariosEntrada);
+      const { error: erroEntradaAberta } = await supabase.from("parcelas").insert({
+        acordo_id: acordo.id,
+        numero: 0,
+        valor: entrada,
+        honorarios: honEntrada || 0,
+        vencimento: paraDataISO(novo.dataEntrada) || hojeISO(),
+        status: "A_VENCER",
+        is_entrada: true,
+      });
+      if (erroEntradaAberta) {
+        alert(
+          "Acordo criado, mas a parcela da ENTRADA não foi gerada: " +
+          erroEntradaAberta.message +
+          "\n\nLance a entrada manualmente, senão esse valor não será cobrado."
+        );
+      }
+    }
+
     if (novo.temEntrada && novo.entradaPaga && entrada > 0) {
       const dataEntradaEscolhida = paraDataISO(novo.dataEntrada) || hojeISO();
       const honEntrada = paraNumero(novo.honorariosEntrada);
@@ -955,6 +984,10 @@ export default function FinanceiroAluno({ aluno }) {
           status: "PAGO",
           pago_em: dataEntradaEscolhida,
           confirmado_por_email: email,
+          // A tela identifica a entrada por este campo. Sem ele, ela caia no
+          // remendo de ler `acordos.valor_entrada` -- e o rateio de honorario
+          // e o "parcelado restante" tratavam a entrada como parcela comum.
+          is_entrada: true,
         })
         .select()
         .single();
