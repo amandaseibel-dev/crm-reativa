@@ -1,0 +1,3 @@
+-- Rollback: a fila da Prime volta a considerar so quem tem titulo em aberto.
+-- Reaplicar a versao anterior de prime_cadastro_pendentes (sem as CTEs
+-- `repetidos` e `candidatos`, e sem o primeiro criterio do ORDER BY).
