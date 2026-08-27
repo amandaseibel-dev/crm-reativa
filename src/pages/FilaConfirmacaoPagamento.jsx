@@ -259,6 +259,7 @@ export default function FilaConfirmacaoPagamento() {
     // Recarimba os ABERTOS uma vez ao abrir a tela; se algo mudou, recarrega.
     // Falha aqui nao atrapalha a fila -- so deixa a classificacao desatualizada.
     carregarPlacar();
+    carregarContagemSemTelefone();
     supabase
       .rpc("recarimbar_origem_divida_pendentes", { p_limite: 5000 })
       .then(({ data, error }) => {
@@ -284,6 +285,20 @@ export default function FilaConfirmacaoPagamento() {
     }
     setNomeCopiado(chave);
     setTimeout(() => setNomeCopiado((atual) => (atual === chave ? null : atual)), 1500);
+  }
+
+  // Quantos alunos estao sem telefone -- contagem pelo banco, sem trazer linha.
+  // Substitui a varredura de 3.821 registros que a aba fazia so para o badge.
+  async function carregarContagemSemTelefone() {
+    try {
+      const [nulos, vazios] = await Promise.all([
+        supabase.from("alunos").select("id", { count: "exact", head: true }).is("telefone", null),
+        supabase.from("alunos").select("id", { count: "exact", head: true }).eq("telefone", ""),
+      ]);
+      setQtdSemTelefone((nulos.count || 0) + (vazios.count || 0));
+    } catch {
+      setQtdSemTelefone(null);
+    }
   }
 
   // Fechadas e abertas HOJE, direto do banco (contagem, sem trazer linha).
@@ -884,9 +899,16 @@ export default function FilaConfirmacaoPagamento() {
       <div style={{ display: escopo === "ACORDO_SEM_VALOR" ? "block" : "none" }}>
         <ConfirmacoesSemValor aoAtualizarContagem={setQtdAcordoSemValor} />
       </div>
-      <div style={{ display: escopo === "SEM_TELEFONE" ? "block" : "none" }}>
+      {/* SOB DEMANDA. Esta aba baixa TODOS os alunos sem telefone -- 3.821 em
+          producao, em duas varreduras paginadas de mil em mil. Ficava montada
+          escondida so pelo badge, entao toda visita a esta tela pagava esse
+          preco antes de mostrar qualquer coisa (Amanda, 27/08/2026: "esta bem
+          lenta a tela de confirmacao de pagamento"). O numero do badge agora
+          vem de uma contagem no banco, que nao traz linha nenhuma. Mesmo
+          tratamento que "Sem valor calculado" ja tinha. */}
+      {escopo === "SEM_TELEFONE" && (
         <CasosSemTelefone aoAtualizarContagem={setQtdSemTelefone} />
-      </div>
+      )}
       {/* SOB DEMANDA: a RPC listar_casos_sem_valor e cara (~3s). So monta
           quando a aba "Sem valor calculado" esta realmente ativa -- antes ela
           ficava sempre montada (display:none) so pelo badge, disparando a RPC
