@@ -141,14 +141,24 @@ export default function FilaConfirmacaoPagamento() {
   const [observacoes, setObservacoes] = useState({});
   const [filtro, setFiltro] = useState("PENDENTES");
   // Ordenacao da lista: data de envio (padrao) ou valor informado.
-  // MAIS ANTIGOS PRIMEIRO, e nao os mais recentes (Amanda, 27/08/2026: "parece
-  // que estou andando em circulos, otimize por favor").
+  // MAIOR VALOR PRIMEIRO (Amanda, 27/08/2026: "se tu colocar na confirmacao por
+  // maior valor me ajuda, maior valor total").
   //
-  // A fila cresce a cada importacao. Com os mais novos no topo, o que ela
-  // trabalha e sempre o que acabou de chegar, e a cauda nunca e alcancada: sao
-  // 560 solicitacoes paradas ha mais de 30 dias, a mais antiga de 14/07. Uma
-  // fila so tem fim quando se comeca pelo comeco.
-  const [ordem, setOrdem] = useState("DATA_ASC");
+  // O valor e o do ALUNO -- a soma das confirmacoes abertas dele --, nao o de
+  // uma linha solta. Um aluno com tres pagamentos pequenos pode pesar mais que
+  // outro com um medio, e e o aluno que ela abre.
+  //
+  // POR QUE ISSO E O PADRAO. Medido no dia: em quatro dias sairam 172 casos
+  // quitados, R$ 241.901,43 -- 0,5% de um saldo de R$ 47,7 milhoes. O caso que
+  // ela vinha quitando vale R$ 1.441 em media; o caso medio da carteira vale
+  // R$ 3.317. A contagem caia e o dinheiro nao se mexia. Comecando pelos
+  // maiores, cada confirmacao fechada pesa.
+  //
+  // Antes disto o padrao era DATA_DESC (mais recentes primeiro), numa fila que
+  // cresce a cada importacao -- entao a cauda nunca era alcancada. "Mais
+  // antigos primeiro" continua na lista, junto com o botao "Parados +30 dias",
+  // para atacar as 560 que esperam ha mais de um mes.
+  const [ordem, setOrdem] = useState("VALOR_DESC");
   // Escopo do trabalho: pagamentos, acordos importados e as listas auxiliares
   // (nao identificados / sem valor / sem telefone), que antes eram "filtros" e
   // nao filtravam nada -- trocavam a tela inteira. Agora sao abas de verdade.
@@ -921,9 +931,9 @@ export default function FilaConfirmacaoPagamento() {
               ⏳ Parados +30 dias{totalAntigos ? ` (${totalAntigos})` : ""}
             </button>
             <select style={A.select} value={ordem} onChange={(e) => setOrdem(e.target.value)}>
+              <option value="VALOR_DESC">Maior valor primeiro</option>
               <option value="DATA_ASC">Mais antigos primeiro</option>
               <option value="DATA_DESC">Mais recentes primeiro</option>
-              <option value="VALOR_DESC">Maior valor primeiro</option>
               <option value="VALOR_ASC">Menor valor primeiro</option>
             </select>
             <input
