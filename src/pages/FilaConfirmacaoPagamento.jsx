@@ -141,12 +141,21 @@ export default function FilaConfirmacaoPagamento() {
   const [observacoes, setObservacoes] = useState({});
   const [filtro, setFiltro] = useState("PENDENTES");
   // Ordenacao da lista: data de envio (padrao) ou valor informado.
-  const [ordem, setOrdem] = useState("DATA_DESC");
+  // MAIS ANTIGOS PRIMEIRO, e nao os mais recentes (Amanda, 27/08/2026: "parece
+  // que estou andando em circulos, otimize por favor").
+  //
+  // A fila cresce a cada importacao. Com os mais novos no topo, o que ela
+  // trabalha e sempre o que acabou de chegar, e a cauda nunca e alcancada: sao
+  // 560 solicitacoes paradas ha mais de 30 dias, a mais antiga de 14/07. Uma
+  // fila so tem fim quando se comeca pelo comeco.
+  const [ordem, setOrdem] = useState("DATA_ASC");
   // Escopo do trabalho: pagamentos, acordos importados e as listas auxiliares
   // (nao identificados / sem valor / sem telefone), que antes eram "filtros" e
   // nao filtravam nada -- trocavam a tela inteira. Agora sao abas de verdade.
   const [escopo, setEscopo] = useState("PAGAMENTOS");
   const [busca, setBusca] = useState("");
+  // Ver so a cauda -- o que esta esperando ha mais de 30 dias.
+  const [soAntigos, setSoAntigos] = useState(false);
   // Quantos cards desenhar de uma vez. A tela desenhava TODOS os grupos -- 1.650
   // cards, cada um com sua tabela interna, somando 2.121 linhas num unico
   // render. Os dados chegam rapido (a consulta roda em milissegundos); o que
@@ -667,7 +676,9 @@ export default function FilaConfirmacaoPagamento() {
       if (u !== 0) return u;
       return porNome(a, b);
     };
-    return [...base].sort((a, b) => {
+    const corte = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    const comIdade = soAntigos ? base.filter((s) => ts(s.criado_em) && ts(s.criado_em) < corte) : base;
+    return [...comIdade].sort((a, b) => {
       if (ordem === "DATA_ASC") return -porData(a, b);
       if (ordem === "VALOR_DESC") {
         const v = vl(b) - vl(a);
@@ -679,7 +690,7 @@ export default function FilaConfirmacaoPagamento() {
       }
       return porData(a, b);
     });
-  }, [solicitacoes, filtro, ordem, busca]);
+  }, [solicitacoes, filtro, ordem, busca, soAntigos]);
 
   // 1 card por aluno (CPF), igual à fila de acordos: o card é o aluno, a tabela
   // são os pagamentos dele.
@@ -711,6 +722,11 @@ export default function FilaConfirmacaoPagamento() {
       }, 0);
       g.ultimoEm = g.itens.reduce((max, s) => Math.max(max, ts(s.criado_em)), 0);
       g.abertos = g.itens.filter((s) => isConfirmacaoAberta(s.status));
+      // Ha quantos dias o aluno espera. E o numero que diz se a fila esta
+      // andando ou so recebendo.
+      g.diasNaFila = g.primeiroEm
+        ? Math.floor((Date.now() - g.primeiroEm) / 86400000)
+        : null;
     }
     const porNome = (a, b) => String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR");
     arr.sort((a, b) => {
@@ -731,6 +747,15 @@ export default function FilaConfirmacaoPagamento() {
     });
     return arr;
   }, [solicitacoesFiltradas, ordem]);
+
+  // Quantas estao paradas ha mais de 30 dias -- a cauda que a ordem antiga
+  // escondia. Conta sobre os ABERTOS, nao sobre o filtro atual.
+  const totalAntigos = useMemo(() => {
+    const corte = Date.now() - 30 * 24 * 60 * 60 * 1000;
+    return solicitacoes.filter(
+      (s) => isConfirmacaoAberta(s.status) && ts(s.criado_em) && ts(s.criado_em) < corte
+    ).length;
+  }, [solicitacoes]);
 
   const totalFiltrado = solicitacoesFiltradas.reduce((soma, s) => soma + (Number(s.valor_informado) || 0), 0);
 
@@ -815,9 +840,22 @@ export default function FilaConfirmacaoPagamento() {
               <option value="CONFIRMADOS">Confirmados</option>
               <option value="TODOS">Todos</option>
             </select>
+            <button
+              type="button"
+              onClick={() => { setSoAntigos((v) => !v); setQuantosCards(CARDS_POR_VEZ); }}
+              title="Só o que está esperando há mais de 30 dias"
+              style={{
+                ...A.select, cursor: "pointer", fontWeight: 700,
+                background: soAntigos ? "#fef2f2" : "#fff",
+                borderColor: soAntigos ? "#fecaca" : undefined,
+                color: soAntigos ? "#991b1b" : undefined,
+              }}
+            >
+              ⏳ Parados +30 dias{totalAntigos ? ` (${totalAntigos})` : ""}
+            </button>
             <select style={A.select} value={ordem} onChange={(e) => setOrdem(e.target.value)}>
-              <option value="DATA_DESC">Mais recentes primeiro</option>
               <option value="DATA_ASC">Mais antigos primeiro</option>
+              <option value="DATA_DESC">Mais recentes primeiro</option>
               <option value="VALOR_DESC">Maior valor primeiro</option>
               <option value="VALOR_ASC">Menor valor primeiro</option>
             </select>
@@ -864,6 +902,13 @@ export default function FilaConfirmacaoPagamento() {
                           {g.itens.length} pagamento{g.itens.length > 1 ? "s" : ""} · {formatarMoeda(g.total)}
                           {g.primeiroEm ? ` · na fila desde ${formatarDia(g.primeiroEm)}` : ""}
                         </span>
+                        {g.diasNaFila != null && (
+                          <span style={g.diasNaFila >= 30 ? styles.seloVelho : styles.seloIdade}>
+                            {g.diasNaFila === 0
+                              ? "chegou hoje"
+                              : `parado há ${g.diasNaFila} dia${g.diasNaFila > 1 ? "s" : ""}`}
+                          </span>
+                        )}
                         {confirmaveis.length > 0 && (
                           <button
                             type="button"
@@ -1196,6 +1241,14 @@ export default function FilaConfirmacaoPagamento() {
 }
 
 const styles = {
+  seloIdade: {
+    fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
+    background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", whiteSpace: "nowrap",
+  },
+  seloVelho: {
+    fontSize: 11.5, fontWeight: 800, borderRadius: 999, padding: "2px 10px",
+    background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", whiteSpace: "nowrap",
+  },
   container: { padding: "24px", fontFamily: "Arial, sans-serif", background: "#f4f6f8", minHeight: "100%" },
   titulo: { margin: 0, marginBottom: "6px", color: "#111827" },
   btnQuitar: { background: "#6b21a8", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
