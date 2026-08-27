@@ -1,0 +1,2 @@
+-- Rollback: reabre o caminho em que sessao sem e-mail e sem gestao ve a base
+-- inteira. Reaplicar 20260827160000_a_entrar_ordem_estavel_para_paginar.sql.
