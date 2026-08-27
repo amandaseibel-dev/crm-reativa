@@ -1,0 +1,5 @@
+-- Rollback: os valores anteriores estao no audit_log da tabela
+-- (fila_acordos_confirmar tem trg_audit). Para reverter, buscar os registros
+-- com observacao = 'Valor alinhado ao acordo: a entrada chegou numa importacao
+-- posterior a esta linha.' e restaurar valor_total/qtd_parcelas/acordo_id a
+-- partir do log. Sao 11 linhas de 27/08/2026.
