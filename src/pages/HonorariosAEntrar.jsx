@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import { S as A } from "../ui/estilosFila";
+import { nomeOperadorPorEmail } from "../utils/operadores";
 import Aluno from "./Aluno";
 
 // "O que tenho para entrar" — a previsão de honorário do operador.
@@ -262,7 +263,7 @@ export default function HonorariosAEntrar() {
             onChange={(e) => { setOperadorFiltro(e.target.value); carregar(e.target.value); }}
           >
             <option value="">Todos os operadores</option>
-            {operadores.map((o) => <option key={o} value={o}>{o}</option>)}
+            {operadores.map((o) => <option key={o} value={o}>{nomeOperadorPorEmail(o) || o}</option>)}
           </select>
         )}
         <select
