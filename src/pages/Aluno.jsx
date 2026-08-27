@@ -373,6 +373,19 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // bloco olha para este sinal -- assim carregamento de dados nunca rola a
   // tela, e a troca feita por ela continua rolando.
   const rolarAoTrocarRef = useRef(false);
+
+  // DENTRO DO MODAL A FICHA NAO ROLA SOZINHA, nunca.
+  //
+  // Na tela Base a rolagem automatica faz sentido: existe uma LISTA em cima e a
+  // ficha embaixo, entao levar a pessoa ate a ficha e ate util. Embutida no
+  // modal da fila, a ficha e o unico conteudo -- nao ha de onde nem para onde
+  // rolar, e qualquer scrollIntoView so arranca a leitura do lugar.
+  //
+  // Amanda passou por isso tres vezes hoje ("corre pra baixo", "continua
+  // rolando", "ainda esta puxando para baixo"), e a cada vez eu fechei UM
+  // efeito especifico. Errado: o certo e desligar a categoria inteira no
+  // contexto onde ela nao serve, em vez de perseguir um efeito por vez.
+  const podeRolarSozinho = !fichaEmbedId;
   const [dataRetorno, setDataRetorno] = useState("");
   const [numeroProcesso, setNumeroProcesso] = useState("");
   const [prazoTipo, setPrazoTipo] = useState("DATA");
@@ -672,7 +685,12 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   async function abrirAluno(aluno) {
     setAbaFicha("dados");
     prepararAlunoNaTela(aluno);
-    await carregarMovimentacoes(aluno.id); setTimeout(function(){ var el = document.getElementById("ficha-aluno"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 150);
+    await carregarMovimentacoes(aluno.id);
+    if (!podeRolarSozinho) return;
+    setTimeout(function () {
+      var el = document.getElementById("ficha-aluno");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 150);
   }
   // Fonte canonica do saldo operacional do aluno: RPC aluno_saldo_pendente_detalhe.
   // Usada de forma consistente no cabecalho (situacao financeira) e no card
@@ -801,6 +819,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     // dela marca. E o pedido e consumido, para nao valer duas vezes.
     if (!rolarAoTrocarRef.current) return;
     rolarAoTrocarRef.current = false;
+    if (!podeRolarSozinho) return;
 
     if (destino && (abaFicha === "dados" || abaFicha === "tabulacoes")) {
       const t = setTimeout(() => {
@@ -822,6 +841,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     if (!alunoSelecionado?.id) return;
     setAbaFicha("dados");
     setBlocoAberto("link");
+    // No modal, abrir o bloco basta -- rolar arranca a leitura do lugar.
+    if (!podeRolarSozinho) { setSecaoAlvoFicha(""); return; }
     // O bloco "Link de pagamento" pode ainda nao estar no DOM (dados assincronos
     // da ficha). Em vez de um unico timeout que pode disparar cedo, tentamos
     // rolar ate o ref existir. So limpamos secaoAlvoFicha ao final -- enquanto
