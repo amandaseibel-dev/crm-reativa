@@ -1,0 +1,3 @@
+-- Rollback: a lista volta a ver so o que a trava marcou (perde as duplicidades
+-- anteriores). Reaplicar 20260827140000_acordos_duplicados_filtro_por_operador.sql
+-- depois de: drop function if exists public.acordos_duplicados_sinalizados(text);
