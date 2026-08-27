@@ -106,7 +106,7 @@ export default function ImportacaoAcordos() {
     setImportando(true); setErro(""); setResultado(null);
     const importacaoId = crypto.randomUUID();
     const BATCH = 1200;
-    const acc = { alunos_novos: 0, titulos_inseridos: 0, acordos_na_fila: 0 };
+    const acc = { alunos_novos: 0, titulos_inseridos: 0, acordos_na_fila: 0, duplicados: 0, pulados: 0, linhasPuladas: 0 };
     try {
       for (let i = 0; i < linhas.length; i += BATCH) {
         const chunk = linhas.slice(i, i + BATCH);
@@ -116,6 +116,12 @@ export default function ImportacaoAcordos() {
         acc.alunos_novos += (data && data.alunos_novos) || 0;
         acc.titulos_inseridos += (data && data.titulos_inseridos) || 0;
         acc.acordos_na_fila += (data && data.acordos_na_fila) || 0;
+        // Duplicidade nao barra mais a importacao (Amanda, 27/08/2026): o
+        // acordo entra marcado e aparece aqui para conferencia.
+        acc.duplicados = Math.max(acc.duplicados, (data && data.acordos_duplicados_sinalizados) || 0);
+        // Quitados desta semana que a Prime ainda traz com divida: nao entram.
+        acc.pulados += (data && data.cpfs_pulados_quitados) || 0;
+        acc.linhasPuladas += (data && data.linhas_puladas_quitados) || 0;
       }
       setResultado({ ...acc, importacaoId });
       setProgresso("");
@@ -175,6 +181,23 @@ export default function ImportacaoAcordos() {
             <li><strong>{resultado.alunos_novos.toLocaleString("pt-BR")}</strong> alunos novos criados</li>
             <li><strong>{resultado.acordos_na_fila.toLocaleString("pt-BR")}</strong> acordos na fila de confirmacao</li>
           </ul>
+          {resultado.duplicados > 0 && (
+            <div style={S.avisoDup}>
+              ⚠️ <strong>{resultado.duplicados.toLocaleString("pt-BR")} acordo{resultado.duplicados > 1 ? "s" : ""} entrou duplicado</strong> —
+              o aluno já tinha um acordo ATIVO com o mesmo valor e a mesma quantidade de parcelas.
+              Nada foi barrado: eles estão na base, marcados para conferência. Abra
+              <strong> Acordos duplicados</strong> em Ferramentas para ver o novo e o antigo lado a lado
+              e decidir qual cancelar.
+            </div>
+          )}
+          {resultado.pulados > 0 && (
+            <div style={S.avisoPulado}>
+              🛡️ <strong>{resultado.pulados.toLocaleString("pt-BR")} aluno{resultado.pulados > 1 ? "s" : ""} não {resultado.pulados > 1 ? "foram" : "foi"} importado{resultado.pulados > 1 ? "s" : ""}</strong>{" "}
+              ({resultado.linhasPuladas.toLocaleString("pt-BR")} linhas do arquivo) — {resultado.pulados > 1 ? "eles já foram" : "ele já foi"} quitado{resultado.pulados > 1 ? "s" : ""} aqui
+              nos últimos 7 dias e {resultado.pulados > 1 ? "têm" : "tem"} acordo. O relatório da Prime ainda mostra a dívida
+              porque ela não refletiu a baixa. Importar traria a dívida de volta.
+            </div>
+          )}
           <div style={S.obs}>Lote: {resultado.importacaoId}</div>
         </div>
       )}
@@ -235,6 +258,14 @@ const S = {
   rot: { fontSize: 12, color: "#8a93a3", fontWeight: 600, marginTop: 3 },
   btn: { alignSelf: "flex-start", background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "12px 22px", fontWeight: 800, fontSize: 14, cursor: "pointer" },
   obs: { fontSize: 12, color: "#8a93a3" },
+  avisoPulado: {
+    background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534",
+    borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, margin: "10px 0",
+  },
+  avisoDup: {
+    background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e",
+    borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, margin: "10px 0",
+  },
   erro: { background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13.5, fontWeight: 600 },
   lista: { margin: "6px 0 8px", paddingLeft: 18, fontSize: 14, color: "#166534", lineHeight: 1.7 },
   btnGhost: { background: "#fff", color: "#1e40af", border: "1px solid #c7d2fe", borderRadius: 9, padding: "7px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer" },

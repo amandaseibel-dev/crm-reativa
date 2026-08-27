@@ -1986,6 +1986,20 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     return d.toISOString();
   }
 
+  // Zera os filtros da barra. Usado ao abrir um card: o numero do card e uma
+  // promessa, e a lista tem que cumprir ela.
+  function limparFiltrosDaBarra() {
+    setFiltroStatus("TODOS");
+    setFiltroTabulacao("TODAS");
+    setSomenteFixados(false);
+    setSomenteFocoDia(false);
+    setFiltroValorMin("");
+    setFiltroValorMax("");
+    setFiltroDiasMinSemContato("");
+    setFiltroAnoVencimento("");
+    setBusca("");
+  }
+
   // Carrega os registros (alunos unicos) que compoem o indicador OPERACIONAL
   // clicado, com a mesma definicao da contagem e respeitando o escopo/permissao
   // do usuario. Cards financeiros nao passam por aqui (abrem o detalhamento).
@@ -1996,6 +2010,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       return;
     }
     setFiltroKpi(kpi);
+    // O card E o filtro. Antes ele apenas se somava ao que ja estava ligado na
+    // barra -- Fixados, status, tabulacao, faixa de valor, ano de vencimento --
+    // e a intersecao podia dar ZERO. O operador via "89" no card, clicava, e a
+    // lista abria vazia sem dizer por que (Joao, 27/08/2026: card com 89 e
+    // "Nenhum caso encontrado"). Os 89 estavam la; os filtros antigos e que os
+    // cortavam por cima, em silencio.
+    limparFiltrosDaBarra();
     setCarregandoEspecial(true);
     try {
       const hoje = hojeLocalBR();
@@ -3320,7 +3341,14 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   {listaFiltrada.length === 0 && (
                     <tr>
                       <td style={S.vazio} colSpan={8}>
-                        {carregando || carregandoEspecial ? "Carregando..." : "Nenhum caso encontrado"}
+                        {carregando || carregandoEspecial
+                          ? "Carregando..."
+                          : filtroKpi && (casosEspeciais || []).length > 0
+                          // O card trouxe casos e a lista ficou vazia: sao os
+                          // filtros da barra cortando. Dizer isso, e nao so
+                          // "nenhum caso encontrado", que nao explica nada.
+                          ? `O card tem ${(casosEspeciais || []).length} caso${(casosEspeciais || []).length > 1 ? "s" : ""}, mas os filtros da barra escondem todos. Limpe os filtros para ve-los.`
+                          : "Nenhum caso encontrado"}
                       </td>
                     </tr>
                   )}
@@ -3328,7 +3356,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               </table>
             </div>
             <p style={S.rodapeTabela}>
-              Mostrando {listaFiltrada.length} de {casos.length} casos carregados. Clique numa linha para abrir o atendimento.
+              Mostrando {listaFiltrada.length} de {filtroKpi ? (casosEspeciais || []).length : casos.length}{" "}
+              {filtroKpi ? "casos do card" : "casos carregados"}. Clique numa linha para abrir o atendimento.
               {" "}
               <span style={{ display: "inline-flex", alignItems: "center", gap: 5 }}>
                 <span
