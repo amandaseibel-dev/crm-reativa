@@ -174,6 +174,16 @@ export default function FilaConfirmacaoPagamento() {
   // para conferir o pagamento. Sem isso, seleciona com o mouse e erra pedaco do
   // nome (Amanda, 27/08/2026).
   const [nomeCopiado, setNomeCopiado] = useState(null);
+  // Ficha do aluno em modal -- exatamente o que "Acordos a confirmar" faz.
+  // Amanda, 27/08/2026: "deixar exatamente igual a forma como abre o card, um
+  // padrao, cada um esta abrindo de um jeito". Aqui o clique abria um painel de
+  // detalhe da SOLICITACAO, com abas; la abria a FICHA DO ALUNO. Duas telas
+  // irmas, dois comportamentos, e ela alternando entre as duas o dia inteiro.
+  //
+  // Agora as duas abrem a ficha do aluno. O painel da solicitacao continua
+  // existindo -- e onde ficam comprovante e rejeicao -- mas passa a ser um
+  // botao explicito ("Detalhes"), nao o comportamento padrao do clique.
+  const [fichaAlunoId, setFichaAlunoId] = useState(null);
   // Ver so a cauda -- o que esta esperando ha mais de 30 dias.
   const [soAntigos, setSoAntigos] = useState(false);
   // Quantos cards desenhar de uma vez. A tela desenhava TODOS os grupos -- 1.650
@@ -1031,7 +1041,10 @@ export default function FilaConfirmacaoPagamento() {
                         <button
                           type="button"
                           style={A.btnFicha}
-                          onClick={() => abrirFicha(g.abertos[0] || g.itens[0])}
+                          onClick={() => {
+                            const alvo = g.abertos[0] || g.itens[0];
+                            if (alvo?.aluno_id) setFichaAlunoId(String(alvo.aluno_id));
+                          }}
                         >
                           Abrir ficha
                         </button>
@@ -1059,7 +1072,7 @@ export default function FilaConfirmacaoPagamento() {
                             <tr
                               key={s.id}
                               style={{ cursor: "pointer" }}
-                              onClick={() => abrirFicha(s)}
+                              onClick={() => s.aluno_id && setFichaAlunoId(String(s.aluno_id))}
                               title="Abrir ficha do aluno"
                             >
                               <td style={A.td}>{formatarData(s.criado_em)}</td>
@@ -1072,6 +1085,14 @@ export default function FilaConfirmacaoPagamento() {
                               </td>
                               <td style={A.td}>
                                 <div style={A.acoes} onClick={(e) => e.stopPropagation()}>
+                                  <button
+                                    type="button"
+                                    style={A.btnGhost}
+                                    onClick={() => abrirFicha(s)}
+                                    title="Comprovante, historico e rejeicao deste pagamento"
+                                  >
+                                    Detalhes
+                                  </button>
                                   {travado && (
                                     <button
                                       type="button"
@@ -1116,7 +1137,28 @@ export default function FilaConfirmacaoPagamento() {
         </>
       )}
 
-      {/* ---- Ficha do aluno (modal) ---- */}
+      {/* ---- Ficha do aluno (modal) -- mesmo padrao de "Acordos a confirmar" ---- */}
+      {fichaAlunoId && (
+        <div style={A.modalOverlay} onClick={() => setFichaAlunoId(null)}>
+          <div style={A.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div style={A.modalTopo}>
+              <span style={A.modalTitulo}>Ficha do aluno</span>
+              <button
+                type="button"
+                style={{ ...A.modalFechar, marginLeft: "auto" }}
+                onClick={() => { setFichaAlunoId(null); carregarSolicitacoes(); carregarPlacar(); }}
+              >
+                Fechar ✕
+              </button>
+            </div>
+            <div style={A.modalConteudo}>
+              <Alunos fichaEmbedId={fichaAlunoId} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- Detalhe da solicitacao: comprovante, historico, rejeicao ---- */}
       {detalhe && (
         <div style={A.modalOverlay} onClick={fecharFicha}>
           <div style={A.modalBox} onClick={(e) => e.stopPropagation()}>
