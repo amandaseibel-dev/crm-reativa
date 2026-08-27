@@ -1,0 +1,6 @@
+-- Rollback: reabre as linhas fechadas por este criterio e remove o gatilho.
+-- update public.fila_acordos_confirmar
+--    set status_confirmacao='A_CONFIRMAR', confirmado_em=null
+--  where status_confirmacao='ENCERRADO_SEM_ACORDO_ATIVO';
+-- drop trigger if exists trg_fila_acordo_fecha_ao_encerrar on public.acordos;
+-- drop function if exists public._fila_acordo_fecha_ao_encerrar_acordo();
