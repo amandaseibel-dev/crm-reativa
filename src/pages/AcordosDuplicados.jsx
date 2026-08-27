@@ -40,15 +40,30 @@ export default function AcordosDuplicados() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [busca, setBusca] = useState("");
+  const [ehGestao, setEhGestao] = useState(false);
+  const [operadorFiltro, setOperadorFiltro] = useState("");
   const [fichaId, setFichaId] = useState(null);
 
-  useEffect(() => { carregar(); }, []);
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data } = await supabase.rpc("usuario_e_gestao");
+        setEhGestao(data === true);
+      } catch {
+        setEhGestao(false);
+      }
+      await carregar("");
+    })();
+  }, []);
 
-  async function carregar() {
+  async function carregar(email) {
     setCarregando(true);
     setErro("");
     try {
-      const { data, error } = await supabase.rpc("acordos_duplicados_sinalizados");
+      // Operador: a RPC ignora p_email e devolve so os dele.
+      const { data, error } = await supabase.rpc("acordos_duplicados_sinalizados", {
+        p_email: email || null,
+      });
       if (error) throw error;
       setLinhas(data || []);
     } catch (e) {
@@ -67,6 +82,11 @@ export default function AcordosDuplicados() {
     );
   }, [linhas, busca]);
 
+  const operadores = useMemo(() => {
+    const set = new Set(linhas.map((l) => l.operador_email).filter(Boolean));
+    return [...set].sort();
+  }, [linhas]);
+
   const total = useMemo(
     () => filtradas.reduce((s, l) => s + Number(l.valor_total || 0), 0),
     [filtradas],
@@ -84,10 +104,11 @@ export default function AcordosDuplicados() {
           <p style={A.sub}>
             Acordos que a importação deixou entrar porque o aluno já tinha outro <b>ATIVO</b> com o
             mesmo valor e a mesma quantidade de parcelas. Eles estão na base — a importação não é
-            mais barrada por isso. Aqui você vê os dois lado a lado e decide.
+            mais barrada por isso. Aqui você vê os dois lado a lado e decide. Filtre por operador
+            para ver os da carteira de cada um.
           </p>
         </div>
-        <button type="button" style={A.btnGhost} onClick={carregar}>Atualizar</button>
+        <button type="button" style={A.btnGhost} onClick={() => carregar(operadorFiltro)}>Atualizar</button>
       </div>
 
       {erro && <div style={A.erroBox}>⚠️ {erro}</div>}
@@ -99,6 +120,16 @@ export default function AcordosDuplicados() {
       </div>
 
       <div style={A.barra}>
+        {ehGestao && (
+          <select
+            style={A.select}
+            value={operadorFiltro}
+            onChange={(e) => { setOperadorFiltro(e.target.value); carregar(e.target.value); }}
+          >
+            <option value="">Todos os operadores</option>
+            {operadores.map((o) => <option key={o} value={o}>{nomeOperadorPorEmail(o) || o}</option>)}
+          </select>
+        )}
         <input
           style={A.input}
           placeholder="Buscar por aluno ou CPF..."
@@ -170,7 +201,7 @@ export default function AcordosDuplicados() {
               <button
                 type="button"
                 style={{ ...A.modalFechar, marginLeft: "auto" }}
-                onClick={() => { setFichaId(null); carregar(); }}
+                onClick={() => { setFichaId(null); carregar(operadorFiltro); }}
               >
                 Fechar ✕
               </button>
