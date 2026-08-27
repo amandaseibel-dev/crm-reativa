@@ -160,6 +160,10 @@ export default function FilaConfirmacaoPagamento() {
   // a pilha na frente, sem nada dizendo que a pilha tinha encolhido -- por isso
   // a sensacao de andar em circulos. Nao era ritmo, era falta de placar.
   const [placar, setPlacar] = useState(null);
+  // Copiar o nome do aluno direto do card: e o que ela cola na busca do Prime
+  // para conferir o pagamento. Sem isso, seleciona com o mouse e erra pedaco do
+  // nome (Amanda, 27/08/2026).
+  const [nomeCopiado, setNomeCopiado] = useState(null);
   // Ver so a cauda -- o que esta esperando ha mais de 30 dias.
   const [soAntigos, setSoAntigos] = useState(false);
   // Quantos cards desenhar de uma vez. A tela desenhava TODOS os grupos -- 1.650
@@ -242,6 +246,25 @@ export default function FilaConfirmacaoPagamento() {
         if (Number(data?.atualizadas) > 0) carregarSolicitacoes();
       });
   }, []);
+
+  async function copiarNome(nome, chave, e) {
+    if (e) e.stopPropagation();
+    const texto = String(nome || "").trim();
+    if (!texto) return;
+    try {
+      await navigator.clipboard.writeText(texto);
+    } catch {
+      // Fallback para navegador sem Clipboard API (ou pagina sem HTTPS).
+      const ta = document.createElement("textarea");
+      ta.value = texto;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    }
+    setNomeCopiado(chave);
+    setTimeout(() => setNomeCopiado((atual) => (atual === chave ? null : atual)), 1500);
+  }
 
   // Fechadas e abertas HOJE, direto do banco (contagem, sem trazer linha).
   async function carregarPlacar() {
@@ -937,6 +960,19 @@ export default function FilaConfirmacaoPagamento() {
                     <div style={A.cardHead}>
                       <div style={A.cardHeadInfo}>
                         <span style={A.cardNome}>{g.nome || "Aluno sem nome"}</span>
+                        {g.nome && (
+                          <button
+                            type="button"
+                            onClick={(e) => copiarNome(g.nome, g.chave, e)}
+                            title="Copiar o nome do aluno"
+                            style={{
+                              ...styles.btnCopiar,
+                              color: nomeCopiado === g.chave ? "#16a34a" : "#94a3b8",
+                            }}
+                          >
+                            {nomeCopiado === g.chave ? "✓ copiado" : "📋 copiar nome"}
+                          </button>
+                        )}
                         <span style={A.cardCpf}>
                           {g.cpf ? `CPF ${formatCpf(g.cpf)}` : "sem CPF cadastrado"}
                         </span>
@@ -1285,6 +1321,10 @@ export default function FilaConfirmacaoPagamento() {
 }
 
 const styles = {
+  btnCopiar: {
+    border: "none", background: "none", padding: "0 4px", cursor: "pointer",
+    fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
+  },
   placar: {
     background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534",
     borderRadius: 10, padding: "10px 14px", fontSize: 13.5, marginBottom: 12,
