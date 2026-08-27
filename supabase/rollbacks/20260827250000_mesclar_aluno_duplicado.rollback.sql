@@ -1,0 +1,22 @@
+-- Rollback da MESCLAGEM (lote dup_mesmo_cpf_20260827, 7 cadastros).
+--
+-- Nada foi apagado: o conteudo foi MOVIDO e o duplicado ficou marcado. Para
+-- desfazer, devolver as linhas ao cadastro de origem usando o registro em
+-- _backup_mesclagem_aluno, que guarda tabela, coluna e quantas linhas foram.
+--
+-- ATENCAO: o backup guarda a CONTAGEM por tabela, nao os ids das linhas.
+-- Para reverter com precisao, use o audit_log das tabelas que o tem, ou
+-- reverta caso a caso pelos pares (aluno_mantido, aluno_removido):
+--
+--   select * from public._backup_mesclagem_aluno where lote='dup_mesmo_cpf_20260827';
+--
+-- Os contatos repetidos removidos (3 linhas) nao voltam pelo backup -- mas o
+-- valor deles continua existindo no cadastro que ficou, entao nada se perdeu.
+--
+-- Para desfazer a marcacao:
+--   update public.alunos set status_jornada = 'Em cobrança'
+--    where status_jornada = 'CADASTRO_DUPLICADO';
+--
+-- Remover a funcao e a tabela de registro:
+--   drop function if exists public.mesclar_aluno_duplicado(uuid, uuid, boolean, text);
+--   -- manter _backup_mesclagem_aluno: e o registro de auditoria.
