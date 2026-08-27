@@ -141,6 +141,11 @@ export default function HonorariosAEntrar() {
     return new Set([`1-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`]);
   });
   const [acionamento, setAcionamento] = useState("");
+  // Dentro do mes, o que vem primeiro. Eu tinha fixado em "quem esta parado ha
+  // mais tempo" -- bom para roteiro de ligacao, mas a Amanda esperava ordem de
+  // vencimento, que e como se le um controle de acordo. Os dois servem, entao
+  // vira escolha em vez de decisao minha.
+  const [ordem, setOrdem] = useState("PARADO");
   const [fichaId, setFichaId] = useState(null);
 
   useEffect(() => {
@@ -224,16 +229,27 @@ export default function HonorariosAEntrar() {
       m.semHonorario = m.itens.filter((x) => Number(x.honorario || 0) === 0).length;
       m.semAcionar = m.itens.filter((x) => x.dias_sem_acionamento !== 0).length;
       m.itens.sort((a, b) => {
-        // Dentro do mês, primeiro quem está mais tempo sem acionamento.
+        const porNome = () =>
+          String(a.aluno_nome || "").localeCompare(String(b.aluno_nome || ""), "pt-BR");
+        if (ordem === "VENCIMENTO") {
+          const v = String(a.vencimento || "").localeCompare(String(b.vencimento || ""));
+          return v !== 0 ? v : porNome();
+        }
+        if (ordem === "VALOR") {
+          const v = Number(b.valor || 0) - Number(a.valor || 0);
+          return v !== 0 ? v : porNome();
+        }
+        // PARADO (padrão): quem está mais tempo sem acionamento vem primeiro.
+        // Nunca acionado (null) vai para o topo.
         const da = a.dias_sem_acionamento == null ? 9999 : a.dias_sem_acionamento;
         const db = b.dias_sem_acionamento == null ? 9999 : b.dias_sem_acionamento;
         if (da !== db) return db - da;
-        return String(a.aluno_nome || "").localeCompare(String(b.aluno_nome || ""));
+        return porNome();
       });
     }
     arr.sort((a, b) => a.chave.localeCompare(b.chave));
     return arr;
-  }, [filtradas]);
+  }, [filtradas, ordem]);
 
   // Quanto esta sem dono no estado em foco. So a gestao ve isso.
   const semDono = useMemo(() => {
@@ -377,6 +393,16 @@ export default function HonorariosAEntrar() {
             {operadores.filter(Boolean).map((o) => <option key={o} value={o}>{nomeOperadorPorEmail(o) || o}</option>)}
           </select>
         )}
+        <select
+          style={A.select}
+          value={ordem}
+          onChange={(e) => setOrdem(e.target.value)}
+          title="Ordem das parcelas dentro de cada mês"
+        >
+          <option value="PARADO">Parado há mais tempo primeiro</option>
+          <option value="VENCIMENTO">Por vencimento</option>
+          <option value="VALOR">Maior valor primeiro</option>
+        </select>
         <select
           style={A.select}
           value={acionamento}
