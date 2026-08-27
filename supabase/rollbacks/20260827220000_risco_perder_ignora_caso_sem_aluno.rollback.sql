@@ -1,0 +1,4 @@
+-- Rollback: a funcao volta a devolver caso sem aluno_id.
+-- ATENCAO: isso reintroduz o travamento da lista para operador que tenha caso
+-- orfao, a menos que a defesa do front (UUID_RE em PainelCarteira) permaneca.
+-- Basta remover a linha `and c.aluno_id is not null`.
