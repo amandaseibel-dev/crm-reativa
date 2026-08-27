@@ -1,0 +1,4 @@
+-- Rollback: a importacao volta a trazer tambem quem foi quitado nos ultimos 7 dias.
+-- Basta reaplicar a versao anterior da funcao (migration
+-- 20260827131950_importar_acordos_liga_o_sinal_e_conta_duplicados.sql), que ja
+-- tem o sinal de duplicidade mas nao tem o corte dos quitados.
