@@ -301,6 +301,34 @@ export default function FilaConfirmacaoPagamento() {
     }
   }
 
+  // Atualiza SO as linhas do aluno que acabou de ser mexido.
+  //
+  // Fechar a ficha recarregava a fila inteira -- 1.129 linhas mais quatro
+  // contagens -- e a tela travava a cada fechamento (Amanda, 27/08/2026:
+  // "quando fecho a aba da fila de confirmacao de pagamento demora para
+  // carregar"). Foi defeito que eu mesmo introduzi ao fazer o modal recarregar
+  // no fechamento.
+  //
+  // O que muda quando ela resolve alguem e o que aconteceu COM AQUELE ALUNO.
+  // Entao busca so as linhas dele e troca no lugar: uma requisicao pequena,
+  // sem spinner, sem perder a posicao da rolagem.
+  async function atualizarAluno(alunoId) {
+    const id = String(alunoId || "").trim();
+    if (!id) return;
+    try {
+      const { data, error } = await supabase
+        .from("solicitacoes_confirmacao_pagamento")
+        .select("*")
+        .eq("aluno_id", id);
+      if (error) return;
+      const novas = data || [];
+      setSolicitacoes((atual) => {
+        const semEsse = atual.filter((x) => String(x.aluno_id || "") !== id);
+        return [...semEsse, ...novas];
+      });
+    } catch { /* silencioso: a fila continua valida com o que ja tem */ }
+  }
+
   // Fechadas e abertas HOJE, direto do banco (contagem, sem trazer linha).
   async function carregarPlacar() {
     const hoje = new Date();
@@ -488,7 +516,9 @@ export default function FilaConfirmacaoPagamento() {
     }
     alert("Caso quitado e encerrado.");
     fecharFicha();
-    carregarSolicitacoes();
+    // So o aluno mexido -- recarregar a fila inteira aqui travava a tela a cada
+    // acao, e ela faz mais de 150 por dia.
+    atualizarAluno(s.aluno_id);
     carregarPlacar();
   }
 
@@ -517,7 +547,9 @@ export default function FilaConfirmacaoPagamento() {
     }
     alert("Saldo zero confirmado. Aluno retirado das filas (financeiro e histórico preservados).");
     fecharFicha();
-    carregarSolicitacoes();
+    // So o aluno mexido -- recarregar a fila inteira aqui travava a tela a cada
+    // acao, e ela faz mais de 150 por dia.
+    atualizarAluno(s.aluno_id);
     carregarPlacar();
   }
 
@@ -576,7 +608,7 @@ export default function FilaConfirmacaoPagamento() {
     if (confirmados > quitados) partes.push("Os demais seguem com saldo em aberto na carteira.");
     if (erros.length) partes.push(`Falhas: ${erros.join(" | ")}`);
     alert(partes.join("\n"));
-    carregarSolicitacoes();
+    atualizarAluno(g.alunoId || g.itens?.[0]?.aluno_id);
     carregarPlacar();
   }
 
@@ -649,7 +681,7 @@ export default function FilaConfirmacaoPagamento() {
       }
 
       fecharFicha();
-      carregarSolicitacoes();
+      atualizarAluno(s.aluno_id);
       carregarPlacar();
     } finally {
       setProcessando((p) => {
@@ -718,7 +750,9 @@ export default function FilaConfirmacaoPagamento() {
 
     alert("Pagamento devolvido ao operador com o motivo. O caso volta pro topo da fila dele.");
     fecharFicha();
-    carregarSolicitacoes();
+    // So o aluno mexido -- recarregar a fila inteira aqui travava a tela a cada
+    // acao, e ela faz mais de 150 por dia.
+    atualizarAluno(s.aluno_id);
     carregarPlacar();
   }
 
@@ -1168,7 +1202,13 @@ export default function FilaConfirmacaoPagamento() {
               <button
                 type="button"
                 style={{ ...A.modalFechar, marginLeft: "auto" }}
-                onClick={() => { setFichaAlunoId(null); carregarSolicitacoes(); carregarPlacar(); }}
+                onClick={() => {
+                  const alvo = fichaAlunoId;
+                  setFichaAlunoId(null);
+                  // So o aluno mexido -- nao a fila inteira.
+                  atualizarAluno(alvo);
+                  carregarPlacar();
+                }}
               >
                 Fechar ✕
               </button>
