@@ -1,0 +1,12 @@
+-- Rollback: a fila volta a segurar confirmacao de aluno sem saldo.
+-- 1) Reabre as fechadas por este criterio:
+--    update public.solicitacoes_confirmacao_pagamento
+--       set status='AGUARDANDO_CONFIRMACAO', confirmado_em=null
+--     where status='CONCLUIDA_SALDO_ZERO'
+--       and observacao_adm = 'Fechada automaticamente: o aluno nao tem saldo em aberto. Nao ha divida para conferir.';
+-- 2) Reaplicar a versao anterior da funcao (so o ramo do valor zero) e recriar
+--    o gatilho sem origem_divida na lista de colunas:
+--    create trigger trg_confirmacao_sem_valor
+--    after insert or update of valor_informado, status
+--    on public.solicitacoes_confirmacao_pagamento
+--    for each row execute function public._confirmacao_sem_valor_sai_da_fila();
