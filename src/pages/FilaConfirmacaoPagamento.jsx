@@ -154,6 +154,12 @@ export default function FilaConfirmacaoPagamento() {
   // nao filtravam nada -- trocavam a tela inteira. Agora sao abas de verdade.
   const [escopo, setEscopo] = useState("PAGAMENTOS");
   const [busca, setBusca] = useState("");
+  // O placar do dia. Amanda: "eu estou fazendo bastante por dia" -- e estava
+  // mesmo: 276 fechadas em 26/08, 593 em quatro dias contra 231 que entraram.
+  // A tela nunca mostrou isso. Ela fechava centenas e abria no dia seguinte com
+  // a pilha na frente, sem nada dizendo que a pilha tinha encolhido -- por isso
+  // a sensacao de andar em circulos. Nao era ritmo, era falta de placar.
+  const [placar, setPlacar] = useState(null);
   // Ver so a cauda -- o que esta esperando ha mais de 30 dias.
   const [soAntigos, setSoAntigos] = useState(false);
   // Quantos cards desenhar de uma vez. A tela desenhava TODOS os grupos -- 1.650
@@ -228,6 +234,7 @@ export default function FilaConfirmacaoPagamento() {
     // aluno muda enquanto o caso espera (ele fecha acordo, paga mensalidade).
     // Recarimba os ABERTOS uma vez ao abrir a tela; se algo mudou, recarrega.
     // Falha aqui nao atrapalha a fila -- so deixa a classificacao desatualizada.
+    carregarPlacar();
     supabase
       .rpc("recarimbar_origem_divida_pendentes", { p_limite: 5000 })
       .then(({ data, error }) => {
@@ -235,6 +242,25 @@ export default function FilaConfirmacaoPagamento() {
         if (Number(data?.atualizadas) > 0) carregarSolicitacoes();
       });
   }, []);
+
+  // Fechadas e abertas HOJE, direto do banco (contagem, sem trazer linha).
+  async function carregarPlacar() {
+    const hoje = new Date();
+    const iso = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, "0")}-${String(hoje.getDate()).padStart(2, "0")}`;
+    try {
+      const [fech, novas] = await Promise.all([
+        supabase.from("solicitacoes_confirmacao_pagamento")
+          .select("id", { count: "exact", head: true })
+          .gte("confirmado_em", `${iso}T00:00:00`),
+        supabase.from("solicitacoes_confirmacao_pagamento")
+          .select("id", { count: "exact", head: true })
+          .gte("criado_em", `${iso}T00:00:00`),
+      ]);
+      setPlacar({ fechadas: fech.count || 0, novas: novas.count || 0 });
+    } catch {
+      setPlacar(null);
+    }
+  }
 
   async function carregarUsuario() {
     const { data } = await supabase.auth.getUser();
@@ -405,6 +431,7 @@ export default function FilaConfirmacaoPagamento() {
     alert("Caso quitado e encerrado.");
     fecharFicha();
     carregarSolicitacoes();
+    carregarPlacar();
   }
 
   // ---- Confirmar saldo zero e retirar das filas (financeiro preservado) ----
@@ -433,6 +460,7 @@ export default function FilaConfirmacaoPagamento() {
     alert("Saldo zero confirmado. Aluno retirado das filas (financeiro e histórico preservados).");
     fecharFicha();
     carregarSolicitacoes();
+    carregarPlacar();
   }
 
   // Confirma UMA solicitacao (pelo id) e devolve o resultado, sem alert nem
@@ -491,6 +519,7 @@ export default function FilaConfirmacaoPagamento() {
     if (erros.length) partes.push(`Falhas: ${erros.join(" | ")}`);
     alert(partes.join("\n"));
     carregarSolicitacoes();
+    carregarPlacar();
   }
 
   // Rejeita direto do card: o motivo continua obrigatorio, so que perguntado
@@ -563,6 +592,7 @@ export default function FilaConfirmacaoPagamento() {
 
       fecharFicha();
       carregarSolicitacoes();
+      carregarPlacar();
     } finally {
       setProcessando((p) => {
         const n = { ...p };
@@ -631,6 +661,7 @@ export default function FilaConfirmacaoPagamento() {
     alert("Pagamento devolvido ao operador com o motivo. O caso volta pro topo da fila dele.");
     fecharFicha();
     carregarSolicitacoes();
+    carregarPlacar();
   }
 
   const emailUsuario = usuario?.email || "";
@@ -830,6 +861,19 @@ export default function FilaConfirmacaoPagamento() {
             </div>
             <button type="button" style={A.btnGhost} onClick={carregarSolicitacoes}>Atualizar</button>
           </div>
+
+          {placar && (placar.fechadas > 0 || placar.novas > 0) && (
+            <div style={styles.placar}>
+              <b>Hoje: {placar.fechadas} confirmação{placar.fechadas === 1 ? "" : "ões"} fechada{placar.fechadas === 1 ? "" : "s"}</b>
+              {" · "}{placar.novas} entrou{placar.novas === 1 ? "" : " / entraram"}
+              {placar.fechadas > placar.novas && (
+                <> — a fila caiu <b>{placar.fechadas - placar.novas}</b> hoje.</>
+              )}
+              {placar.fechadas < placar.novas && (
+                <> — a fila subiu <b>{placar.novas - placar.fechadas}</b> hoje.</>
+              )}
+            </div>
+          )}
 
           <div style={A.barra}>
             <select style={A.select} value={filtro} onChange={(e) => { setFiltro(e.target.value); setQuantosCards(CARDS_POR_VEZ); }}>
@@ -1241,6 +1285,10 @@ export default function FilaConfirmacaoPagamento() {
 }
 
 const styles = {
+  placar: {
+    background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534",
+    borderRadius: 10, padding: "10px 14px", fontSize: 13.5, marginBottom: 12,
+  },
   seloIdade: {
     fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
     background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", whiteSpace: "nowrap",
