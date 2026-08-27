@@ -1,0 +1,6 @@
+-- Rollback: desfaz o religamento dos 678 casos.
+-- update public.casos c set aluno_id = null
+--   from public._backup_casos_orfaos_religados b
+--  where b.caso_id = c.id and c.aluno_id = b.aluno_id_novo;
+-- A tabela _backup_casos_orfaos_religados guarda caso_id, aluno vinculado,
+-- CPF de antes e os dois nomes -- da para auditar caso a caso antes de reverter.
