@@ -369,9 +369,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // Referencias aos blocos expansiveis da aba Tabulacao, para rolagem suave
   // ate o inicio do formulario correspondente quando a tabulacao muda.
   const blocosRef = useRef({});
-  // Guarda de qual aluno a ficha ja foi aberta, para nao rolar a tela na
-  // primeira montagem (ver o efeito de tabulacao mais abaixo).
-  const rolagemInicialRef = useRef(null);
+  // Marcado SO pelo onChange do seletor de tabulacao. O efeito que rola ate o
+  // bloco olha para este sinal -- assim carregamento de dados nunca rola a
+  // tela, e a troca feita por ela continua rolando.
+  const rolarAoTrocarRef = useRef(false);
   const [dataRetorno, setDataRetorno] = useState("");
   const [numeroProcesso, setNumeroProcesso] = useState("");
   const [prazoTipo, setPrazoTipo] = useState("DATA");
@@ -784,20 +785,22 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     const destino = TABULACAO_PARA_BLOCO[statusFinalizacao] || "";
     setBlocoAberto(destino);
 
-    // NAO ROLAR NA ABERTURA. Este efeito existe para acompanhar quem MUDA a
-    // tabulacao: escolheu "acordo fechado", o bloco do acordo abre e a tela
-    // desce ate ele. Mas ele tambem dispara quando a ficha carrega e traz a
-    // tabulacao que o aluno ja tinha -- e ai a tela "corre pra baixo" sozinha,
-    // sem ninguem ter pedido (Amanda, 27/08/2026: "quando abro a ficha ela
-    // corre pra baixo"). Dentro do modal da fila e pior: arrasta a pagina
-    // inteira e ela perde de vista o que estava conferindo.
+    // SO ROLA SE ELA PEDIU. Este efeito existe para acompanhar quem MUDA a
+    // tabulacao no seletor: escolheu "acordo fechado", o bloco do acordo abre e
+    // a tela desce ate ele. Util.
     //
-    // Entao a primeira passagem de cada aluno so ABRE o bloco. A partir da
-    // segunda -- que so acontece por acao dela -- volta a rolar.
-    const alunoAtual = alunoSelecionado?.id || fichaEmbedId || "";
-    const jaAbriuEste = rolagemInicialRef.current === alunoAtual;
-    rolagemInicialRef.current = alunoAtual;
-    if (!jaAbriuEste) return;
+    // Mas ele tambem dispara quando a ficha CARREGA, porque statusFinalizacao e
+    // preenchido com a tabulacao que o aluno ja tinha -- e mais de uma vez,
+    // conforme os dados chegam. Resultado: a tela descia sozinha ao abrir
+    // (Amanda, 27/08/2026: "quando abro a ficha ela corre pra baixo"; depois,
+    // sobre a primeira tentativa de conserto: "continua rolando a tela").
+    //
+    // Contar passagens nao resolve -- o numero delas depende de quantas vezes o
+    // dado chega. Entao a rolagem passa a exigir um pedido EXPLICITO, marcado
+    // pelo proprio onChange do seletor. Carregamento nunca marca; so a mao
+    // dela marca. E o pedido e consumido, para nao valer duas vezes.
+    if (!rolarAoTrocarRef.current) return;
+    rolarAoTrocarRef.current = false;
 
     if (destino && (abaFicha === "dados" || abaFicha === "tabulacoes")) {
       const t = setTimeout(() => {
@@ -2123,7 +2126,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   </span>
                 <select
                   value={statusFinalizacao}
-                  onChange={(e) => setStatusFinalizacao(e.target.value)}
+                  onChange={(e) => {
+                    // Foi ela quem trocou: pode rolar ate o bloco.
+                    rolarAoTrocarRef.current = true;
+                    setStatusFinalizacao(e.target.value);
+                  }}
                   style={{ ...select, width: "auto", flex: 1, minWidth: 220, marginBottom: 0 }}
                 >
                   {STATUS_FINALIZACAO.filter(
