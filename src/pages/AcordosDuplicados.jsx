@@ -102,10 +102,10 @@ export default function AcordosDuplicados() {
         <div>
           <h1 style={A.titulo}>Acordos duplicados</h1>
           <p style={A.sub}>
-            Acordos que a importação deixou entrar porque o aluno já tinha outro <b>ATIVO</b> com o
-            mesmo valor e a mesma quantidade de parcelas. Eles estão na base — a importação não é
-            mais barrada por isso. Aqui você vê os dois lado a lado e decide. Filtre por operador
-            para ver os da carteira de cada um.
+            Acordos <b>ATIVOS</b> repetidos: mesmo aluno, mesmo valor e a mesma quantidade de
+            parcelas. Entram tanto os que a importação deixou passar marcados quanto os que já
+            estavam na base antes da trava existir. Aqui você vê a cópia e a original lado a lado.
+            Quando sobra um só ativo, a linha some sozinha — a duplicidade foi resolvida.
           </p>
         </div>
         <button type="button" style={A.btnGhost} onClick={() => carregar(operadorFiltro)}>Atualizar</button>
@@ -152,6 +152,12 @@ export default function AcordosDuplicados() {
                 <div style={A.cardHeadInfo}>
                   <span style={A.cardNome}>{l.aluno_nome}</span>
                   <span style={estilos.cpf}>{l.cpf || "-"}</span>
+                  <span style={l.origem === "IMPORTACAO" ? estilos.origemImport : estilos.origemAntiga}>
+                    {l.origem === "IMPORTACAO" ? "marcado na importação" : "anterior à trava"}
+                  </span>
+                  {l.no_grupo > 2 && (
+                    <span style={estilos.grupoGrande}>{l.no_grupo} acordos iguais</span>
+                  )}
                 </div>
                 <div style={A.cardHeadDir}>
                   <span style={A.cardResumo}>
@@ -170,7 +176,7 @@ export default function AcordosDuplicados() {
 
               <div style={estilos.lado}>
                 <div style={{ ...estilos.coluna, borderColor: "#fde68a", background: "#fffbeb" }}>
-                  <span style={estilos.colRot}>Entrou pela importação</span>
+                  <span style={estilos.colRot}>A cópia</span>
                   <span style={estilos.colNum}>nº {l.numero_acordo ?? "sem número"}</span>
                   <span style={estilos.colDet}>criado em {dataHora(l.criado_em)}</span>
                   <span style={estilos.colDet}>
@@ -222,6 +228,18 @@ const estilos = {
     borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, marginBottom: 14,
   },
   cpf: { fontSize: 12.5, color: "#64748b" },
+  origemImport: {
+    fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 9px",
+    background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a", whiteSpace: "nowrap",
+  },
+  origemAntiga: {
+    fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 9px",
+    background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", whiteSpace: "nowrap",
+  },
+  grupoGrande: {
+    fontSize: 11, fontWeight: 800, borderRadius: 999, padding: "2px 9px",
+    background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", whiteSpace: "nowrap",
+  },
   operador: { fontSize: 12.5, color: "#64748b" },
   lado: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, padding: "10px 14px 14px" },
   coluna: {
