@@ -119,6 +119,11 @@ export default function HonorariosAEntrar() {
   const [erro, setErro] = useState("");
   const [ehGestao, setEhGestao] = useState(false);
   const [operadorFiltro, setOperadorFiltro] = useState("");
+  // Acordo sem dono: ninguem cobra e ninguem ve. O operador nunca enxerga essas
+  // linhas -- a RPC casa pelo e-mail dele e o campo esta vazio -- entao so a
+  // gestao pode achar (Amanda, 27/08/2026: "uma coluna visivel para mim e
+  // fernanda e adm sem responsavel cadastrado").
+  const [soSemResponsavel, setSoSemResponsavel] = useState(false);
   // So dois estados: a tela e de PENDENCIA (Amanda, 27/08/2026 -- "o que entrou
   // pode sair da lista"). Parcela paga nao e controle, e historico: quem quer o
   // que entrou olha a Projecao. As linhas PAGO ainda chegam da RPC, mas so para
@@ -193,13 +198,14 @@ export default function HonorariosAEntrar() {
 
   const filtradas = useMemo(() => {
     let lista = linhas.filter((l) => l.estado === estado);
+    if (soSemResponsavel) lista = lista.filter((l) => !String(l.operador_email || "").trim());
     if (acionamento) lista = lista.filter((l) => passaAcionamento(l, acionamento));
     if (busca.trim()) {
       const t = busca.trim().toLowerCase();
       lista = lista.filter((l) => String(l.aluno_nome || "").toLowerCase().includes(t));
     }
     return lista;
-  }, [linhas, estado, acionamento, busca]);
+  }, [linhas, estado, acionamento, busca, soSemResponsavel]);
 
   // Um card por grupo: um bloco para o que ficou para trás, um por mês de 2026,
   // um para o que vence depois.
@@ -228,6 +234,16 @@ export default function HonorariosAEntrar() {
     arr.sort((a, b) => a.chave.localeCompare(b.chave));
     return arr;
   }, [filtradas]);
+
+  // Quanto esta sem dono no estado em foco. So a gestao ve isso.
+  const semDono = useMemo(() => {
+    const l = linhas.filter((x) => x.estado === estado && !String(x.operador_email || "").trim());
+    return {
+      parcelas: l.length,
+      acordos: contarAcordos(l),
+      valor: l.reduce((s, x) => s + Number(x.valor || 0), 0),
+    };
+  }, [linhas, estado]);
 
   // Chave do grupo do mes corrente, para destacar.
   const mesAtual = useMemo(() => {
@@ -326,15 +342,39 @@ export default function HonorariosAEntrar() {
         </div>
       )}
 
+      {ehGestao && !soSemResponsavel && semDono.parcelas > 0 && (
+        <div style={estilos.avisoSemDono}>
+          <b>{semDono.acordos} acordo{semDono.acordos > 1 ? "s" : ""} sem responsável cadastrado</b>
+          {" "}({semDono.parcelas} parcela{semDono.parcelas > 1 ? "s" : ""}, {moeda(semDono.valor)}).
+          Ninguém está cobrando: como a lista de cada operador casa pelo e-mail dele, essas linhas
+          não aparecem para nenhum deles.{" "}
+          <button
+            type="button"
+            style={estilos.linkSemDono}
+            onClick={() => { setSoSemResponsavel(true); setOperadorFiltro("__SEM__"); carregar(""); }}
+          >
+            Ver só esses
+          </button>
+        </div>
+      )}
+
       <div style={A.barra}>
         {ehGestao && (
           <select
             style={A.select}
             value={operadorFiltro}
-            onChange={(e) => { setOperadorFiltro(e.target.value); carregar(e.target.value); }}
+            onChange={(e) => {
+              const v = e.target.value;
+              const sem = v === "__SEM__";
+              setSoSemResponsavel(sem);
+              setOperadorFiltro(v);
+              // "Sem responsável" nao e um e-mail: busca tudo e filtra aqui.
+              carregar(sem ? "" : v);
+            }}
           >
             <option value="">Todos os operadores</option>
-            {operadores.map((o) => <option key={o} value={o}>{nomeOperadorPorEmail(o) || o}</option>)}
+            <option value="__SEM__">⚠️ Sem responsável cadastrado</option>
+            {operadores.filter(Boolean).map((o) => <option key={o} value={o}>{nomeOperadorPorEmail(o) || o}</option>)}
           </select>
         )}
         <select
@@ -403,6 +443,7 @@ export default function HonorariosAEntrar() {
                     <th style={A.thNum}>Valor</th>
                     <th style={A.thNum}>Honorário</th>
                     <th style={A.th}>Último acionamento</th>
+                    {ehGestao && <th style={A.th}>Responsável</th>}
                     <th style={A.th}></th>
                   </tr>
                 </thead>
@@ -432,6 +473,13 @@ export default function HonorariosAEntrar() {
                           </span>
                           {l.tabulacao && <div style={estilos.tabulacao}>{l.tabulacao}</div>}
                         </td>
+                        {ehGestao && (
+                          <td style={A.td}>
+                            {String(l.operador_email || "").trim()
+                              ? (nomeOperadorPorEmail(l.operador_email) || l.operador_email)
+                              : <span style={estilos.semDonoSelo}>sem responsável</span>}
+                          </td>
+                        )}
                         <td style={A.td}>
                           <div style={A.acoes}>
                             {l.aluno_id && (
@@ -502,6 +550,19 @@ const estilos = {
   },
   honorarioMes: { fontSize: 13, fontWeight: 800, color: "#15803d" },
   seta: { fontSize: 13, color: "#64748b", width: 12, display: "inline-block" },
+  semDonoSelo: {
+    display: "inline-block", fontSize: 11.5, fontWeight: 700, borderRadius: 999,
+    padding: "2px 10px", background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca",
+    whiteSpace: "nowrap",
+  },
+  avisoSemDono: {
+    background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b",
+    borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, marginBottom: 14,
+  },
+  linkSemDono: {
+    border: "none", background: "none", padding: 0, color: "#991b1b",
+    fontWeight: 800, fontSize: 13, cursor: "pointer", textDecoration: "underline",
+  },
   pendente: {
     fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
     background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a", whiteSpace: "nowrap",
