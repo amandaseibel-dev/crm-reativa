@@ -1,0 +1,4 @@
+-- Rollback: volta a ordem sem desempate (order by p.vencimento, al.nome).
+-- ATENCAO: com a tela paginando, isso REINTRODUZ perda e repeticao de linhas.
+-- So faz sentido junto com o rollback do front. Reaplicar
+-- 20260827125611_a_entrar_mostra_ultimo_acionamento.sql.
