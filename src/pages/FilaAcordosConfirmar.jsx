@@ -79,10 +79,36 @@ export default function FilaAcordosConfirmar() {
   const [erro, setErro] = useState("");
   const [filtro, setFiltro] = useState("A_CONFIRMAR");
   const [ordem, setOrdem] = useState("VALOR_DESC");
+  // Copiar o nome do aluno direto do card: e o que ela cola na busca do Prime
+  // para conferir o acordo. Selecionando com o mouse dentro do card, pega
+  // pedaco do nome ou arrasta o CPF junto, e ai a busca no Prime nao acha
+  // (Amanda, 27/08/2026 -- mesmo pedido que ja foi atendido na fila de
+  // confirmacao de pagamento).
+  const [nomeCopiado, setNomeCopiado] = useState(null);
   const [busca, setBusca] = useState("");
   const [email, setEmail] = useState("");
   const [fichaId, setFichaId] = useState(null);
   const [processando, setProcessando] = useState({}); // id do acordo -> true enquanto salva
+
+
+  async function copiarNome(nome, chave, e) {
+    if (e) e.stopPropagation();
+    const texto = String(nome || "").trim();
+    if (!texto) return;
+    try {
+      await navigator.clipboard.writeText(texto);
+    } catch {
+      // Fallback para navegador sem Clipboard API (ou pagina sem HTTPS).
+      const ta = document.createElement("textarea");
+      ta.value = texto;
+      document.body.appendChild(ta);
+      ta.select();
+      try { document.execCommand("copy"); } catch { /* ignore */ }
+      document.body.removeChild(ta);
+    }
+    setNomeCopiado(chave);
+    setTimeout(() => setNomeCopiado((atual) => (atual === chave ? null : atual)), 1500);
+  }
 
   useEffect(() => {
     (async () => {
@@ -344,6 +370,20 @@ export default function FilaAcordosConfirmar() {
               <div style={S.cardHead}>
                 <div style={S.cardHeadInfo}>
                   <span style={S.cardNome}>{g.nome || "-"}</span>
+                  {g.nome && (
+                    <button
+                      type="button"
+                      onClick={(e) => copiarNome(g.nome, g.chave, e)}
+                      title="Copiar o nome do aluno"
+                      style={{
+                        border: "none", background: "none", padding: "0 4px", cursor: "pointer",
+                        fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
+                        color: nomeCopiado === g.chave ? "#16a34a" : "#94a3b8",
+                      }}
+                    >
+                      {nomeCopiado === g.chave ? "✓ copiado" : "📋 copiar nome"}
+                    </button>
+                  )}
                   <span style={S.cardCpf}>CPF {formatCpf(g.cpf)}</span>
                   {g.unidade && <span style={S.cardUnidade}>{g.unidade}</span>}
                 </div>
