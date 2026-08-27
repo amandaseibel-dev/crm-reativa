@@ -1,0 +1,5 @@
+-- Rollback: volta a comparar carteira_operador.aluno_id (uuid) com texto.
+-- ATENÇÃO: isso reintroduz o erro "operator does not exist: uuid = text" toda
+-- vez que uma baixa zerar o aluno -- o pagamento grava e a quitação falha.
+-- Basta trocar, em avaliar_quitacao_aluno:
+--   where aluno_id = p_aluno_id      ->      where aluno_id = p_aluno_id::text
