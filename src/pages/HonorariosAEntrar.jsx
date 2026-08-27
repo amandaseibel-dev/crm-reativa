@@ -60,6 +60,26 @@ function chaveMes(v) {
   return String(v || "").slice(0, 7);
 }
 
+// Como o vencimento vira grupo na tela (Amanda, 27/08/2026: "deixa todos os
+// anos de 2024 e 2025 junto, deixe aberto apenas 2026").
+//
+// O ano corrente e o que se trabalha: cada mes dele merece uma linha propria.
+// O que ficou para tras nao se planeja mais por mes -- vira um bloco so, que e
+// a divida velha. O que vence depois do ano corrente tambem: e previsao
+// distante, nao pauta do dia.
+//
+// A chave leva um prefixo numerico so para ordenar: passado, meses, futuro.
+const ANO_ABERTO = 2026;
+
+function grupoDe(v) {
+  const iso = String(v || "").slice(0, 10);
+  const ano = Number(iso.slice(0, 4));
+  if (!ano) return { chave: "9-sem-data", rotulo: "Sem data" };
+  if (ano < ANO_ABERTO) return { chave: "0-passado", rotulo: `Até ${ANO_ABERTO - 1}` };
+  if (ano > ANO_ABERTO) return { chave: "2-futuro", rotulo: `${ANO_ABERTO + 1} em diante` };
+  return { chave: `1-${iso.slice(0, 7)}`, rotulo: mesDe(iso) };
+}
+
 function contarAcordos(itens) {
   return new Set(itens.map((x) => x.acordo_id).filter(Boolean)).size;
 }
@@ -105,7 +125,16 @@ export default function HonorariosAEntrar() {
   // calcular a taxa de honorario usada na estimativa do que falta preencher.
   const [estado, setEstado] = useState("VENCIDO");
   const [busca, setBusca] = useState("");
-  const [mesFoco, setMesFoco] = useState("");
+  // Grupos abertos. Comeca tudo fechado: a tela abre como um panorama, e a
+  // pessoa escolhe onde entrar ("os meses quando clica aparece o que tem no mes
+  // e os honorarios para entrar").
+  // Comeca com o mes corrente aberto: e onde ela trabalha hoje. O resto fica
+  // fechado -- inclusive o bloco dos anos anteriores, que e divida velha e nao
+  // se planeja mais por mes.
+  const [abertos, setAbertos] = useState(() => {
+    const d = new Date();
+    return new Set([`1-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`]);
+  });
   const [acionamento, setAcionamento] = useState("");
   const [fichaId, setFichaId] = useState(null);
 
@@ -146,11 +175,6 @@ export default function HonorariosAEntrar() {
     return [...set].sort();
   }, [linhas]);
 
-  const mesesDisponiveis = useMemo(() => {
-    const set = new Set(linhas.map((l) => chaveMes(l.vencimento)).filter(Boolean));
-    return [...set].sort();
-  }, [linhas]);
-
   // TOPO: o total de TODOS os meses, sempre. É o tamanho da carteira de acordos
   // -- não muda quando ela escolhe um mês, senão ela perde a referência do todo.
   const totais = useMemo(() => {
@@ -169,22 +193,22 @@ export default function HonorariosAEntrar() {
 
   const filtradas = useMemo(() => {
     let lista = linhas.filter((l) => l.estado === estado);
-    if (mesFoco) lista = lista.filter((l) => chaveMes(l.vencimento) === mesFoco);
     if (acionamento) lista = lista.filter((l) => passaAcionamento(l, acionamento));
     if (busca.trim()) {
       const t = busca.trim().toLowerCase();
       lista = lista.filter((l) => String(l.aluno_nome || "").toLowerCase().includes(t));
     }
     return lista;
-  }, [linhas, estado, mesFoco, acionamento, busca]);
+  }, [linhas, estado, acionamento, busca]);
 
-  // Um card por mês de vencimento: é assim que ela planeja.
+  // Um card por grupo: um bloco para o que ficou para trás, um por mês de 2026,
+  // um para o que vence depois.
   const meses = useMemo(() => {
     const mapa = new Map();
     for (const l of filtradas) {
-      const k = chaveMes(l.vencimento);
-      if (!mapa.has(k)) mapa.set(k, { chave: k, rotulo: mesDe(l.vencimento), itens: [] });
-      mapa.get(k).itens.push(l);
+      const g = grupoDe(l.vencimento);
+      if (!mapa.has(g.chave)) mapa.set(g.chave, { chave: g.chave, rotulo: g.rotulo, itens: [] });
+      mapa.get(g.chave).itens.push(l);
     }
     const arr = [...mapa.values()];
     for (const m of arr) {
@@ -205,10 +229,20 @@ export default function HonorariosAEntrar() {
     return arr;
   }, [filtradas]);
 
+  // Chave do grupo do mes corrente, para destacar.
   const mesAtual = useMemo(() => {
     const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+    return `1-${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   }, []);
+
+  function alternar(chave) {
+    setAbertos((atual) => {
+      const proximo = new Set(atual);
+      if (proximo.has(chave)) proximo.delete(chave);
+      else proximo.add(chave);
+      return proximo;
+    });
+  }
 
   if (carregando) {
     return <div style={A.wrap}><Carregando texto="Somando os acordos…" /></div>;
@@ -221,8 +255,9 @@ export default function HonorariosAEntrar() {
           <h1 style={A.titulo}>Controle de Acordos</h1>
           <p style={A.sub}>
             O que está pendente nos acordos: o que ainda pode entrar e o que já venceu sem pagar.
-            Os cards do topo somam <b>todos os meses</b>; clique num deles para abrir a lista,
-            mês a mês. Parcela já paga não aparece aqui — para o que entrou, veja a Projeção.
+            Os cards do topo somam <b>tudo</b>. Abaixo, <b>2026 aparece mês a mês</b> e o que ficou
+            para trás vem num bloco só. Clique num mês para ver as parcelas e o honorário dele.
+            Parcela já paga não aparece aqui — para o que entrou, veja a Projeção.
           </p>
         </div>
         <button type="button" style={A.btnGhost} onClick={() => carregar(operadorFiltro)}>Atualizar</button>
@@ -304,17 +339,6 @@ export default function HonorariosAEntrar() {
         )}
         <select
           style={A.select}
-          value={mesFoco}
-          onChange={(e) => setMesFoco(e.target.value)}
-          title="Mostrar só um mês na lista"
-        >
-          <option value="">Todos os meses</option>
-          {mesesDisponiveis.map((m) => (
-            <option key={m} value={m}>{mesDe(m + "-01")}</option>
-          ))}
-        </select>
-        <select
-          style={A.select}
           value={acionamento}
           onChange={(e) => setAcionamento(e.target.value)}
           title="Filtrar pelo último acionamento do aluno"
@@ -342,8 +366,15 @@ export default function HonorariosAEntrar() {
         <div style={A.cards}>
           {meses.map((m) => (
             <div key={m.chave} style={A.card}>
-              <div style={{ ...A.cardHead, ...(m.chave === mesAtual ? estilos.mesDestaque : {}) }}>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => alternar(m.chave)}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); alternar(m.chave); } }}
+                style={{ ...A.cardHead, cursor: "pointer", ...(m.chave === mesAtual ? estilos.mesDestaque : {}) }}
+              >
                 <div style={A.cardHeadInfo}>
+                  <span style={estilos.seta}>{abertos.has(m.chave) ? "▾" : "▸"}</span>
                   <span style={A.cardNome}>{m.rotulo}</span>
                   {m.chave === mesAtual && <span style={estilos.selo}>mês atual</span>}
                   <span style={estilos.acordosMes}>{m.acordos} acordo{m.acordos > 1 ? "s" : ""}</span>
@@ -352,7 +383,7 @@ export default function HonorariosAEntrar() {
                   <span style={A.cardResumo}>
                     {m.itens.length} parcela{m.itens.length > 1 ? "s" : ""} · {moeda(m.valor)} em aberto
                   </span>
-                  <span style={estilos.honorarioMes}>{moeda(m.honorario)} de honorário</span>
+                  <span style={estilos.honorarioMes}>{moeda(m.honorario)} de honorário a entrar</span>
                   {m.semHonorario > 0 && (
                     <span style={estilos.pendente}>{m.semHonorario} sem informar</span>
                   )}
@@ -362,6 +393,7 @@ export default function HonorariosAEntrar() {
                 </div>
               </div>
 
+              {abertos.has(m.chave) && (
               <table style={A.tabela}>
                 <thead>
                   <tr>
@@ -414,6 +446,7 @@ export default function HonorariosAEntrar() {
                   })}
                 </tbody>
               </table>
+              )}
             </div>
           ))}
         </div>
@@ -468,6 +501,7 @@ const estilos = {
     background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", whiteSpace: "nowrap",
   },
   honorarioMes: { fontSize: 13, fontWeight: 800, color: "#15803d" },
+  seta: { fontSize: 13, color: "#64748b", width: 12, display: "inline-block" },
   pendente: {
     fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
     background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a", whiteSpace: "nowrap",
