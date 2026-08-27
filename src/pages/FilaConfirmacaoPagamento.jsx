@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import { urlComprovanteLink, abrirDocumento } from "../utils/documentoFinanceiro";
@@ -174,6 +174,9 @@ export default function FilaConfirmacaoPagamento() {
   // para conferir o pagamento. Sem isso, seleciona com o mouse e erra pedaco do
   // nome (Amanda, 27/08/2026).
   const [nomeCopiado, setNomeCopiado] = useState(null);
+  // Linhas ja buscadas, por filtro. Volta para uma aba vista = instantaneo.
+  const cacheFiltro = useRef({});
+  const primeiraCarga = useRef(true);
   // Ficha do aluno em modal -- exatamente o que "Acordos a confirmar" faz.
   // Amanda, 27/08/2026: "deixar exatamente igual a forma como abre o card, um
   // padrao, cada um esta abrindo de um jeito". Aqui o clique abria um painel de
@@ -248,7 +251,9 @@ export default function FilaConfirmacaoPagamento() {
   // Cada aba de status busca so o que precisa, entao a troca de aba recarrega.
   // O carregamento inicial tambem passa por aqui (o efeito roda na montagem).
   useEffect(() => {
-    carregarSolicitacoes();
+    // Trocar de aba nao mexe nos contadores: eles nao dependem do filtro.
+    carregarSolicitacoes(primeiraCarga.current);
+    primeiraCarga.current = false;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtro]);
 
@@ -315,6 +320,8 @@ export default function FilaConfirmacaoPagamento() {
   async function atualizarAluno(alunoId) {
     const id = String(alunoId || "").trim();
     if (!id) return;
+    // O que estava guardado por filtro ficou velho para este aluno.
+    cacheFiltro.current = {};
     try {
       const { data, error } = await supabase
         .from("solicitacoes_confirmacao_pagamento")
@@ -396,7 +403,7 @@ export default function FilaConfirmacaoPagamento() {
     return count || 0;
   }
 
-  async function carregarSolicitacoes() {
+  async function carregarSolicitacoes(contarDeNovo = true) {
     setCarregando(true);
     try {
       // A aba decide o que precisa vir; nunca a base inteira "por via das duvidas".
@@ -406,20 +413,37 @@ export default function FilaConfirmacaoPagamento() {
         : filtro === "TODOS" ? null
         : STATUS_CONFIRMACAO_ABERTOS;
 
-      const [linhas, nPendentes, nVinculo, nConfirmados, nTodos] = await Promise.all([
-        buscarPaginado(statusAlvo),
-        contar([STATUS_AGUARDANDO_CONFIRMACAO]),
-        contar([STATUS_AGUARDANDO_VINCULO]),
-        contar(["PAGAMENTO_CONFIRMADO"]),
-        contar(null),
-      ]);
+      // Cache por filtro: voltar para uma aba ja vista e instantaneo. A lista
+      // continua sendo buscada em segundo plano para nao ficar velha, mas ela
+      // ve o conteudo na hora em vez de esperar a viagem inteira.
+      const emCache = cacheFiltro.current[filtro];
+      if (emCache) {
+        setSolicitacoes(emCache);
+        setCarregando(false);
+      }
+
+      const linhas = await buscarPaginado(statusAlvo);
+      cacheFiltro.current[filtro] = linhas;
       setSolicitacoes(linhas);
-      setContadores({
-        pendentes: nPendentes,
-        aguardandoVinculo: nVinculo,
-        confirmados: nConfirmados,
-        todos: nTodos,
-      });
+
+      // Os quatro contadores NAO dependem do filtro escolhido -- sao sempre os
+      // mesmos numeros. Recalcula-los a cada troca de aba custava quatro idas
+      // ao banco por clique, sem mudar nada na tela. Agora so na abertura e
+      // depois de uma acao.
+      if (contarDeNovo) {
+        const [nPendentes, nVinculo, nConfirmados, nTodos] = await Promise.all([
+          contar([STATUS_AGUARDANDO_CONFIRMACAO]),
+          contar([STATUS_AGUARDANDO_VINCULO]),
+          contar(["PAGAMENTO_CONFIRMADO"]),
+          contar(null),
+        ]);
+        setContadores({
+          pendentes: nPendentes,
+          aguardandoVinculo: nVinculo,
+          confirmados: nConfirmados,
+          todos: nTodos,
+        });
+      }
     } catch (e) {
       alert("Erro ao carregar fila de confirmação de pagamento: " + (e?.message || String(e)));
     } finally {
