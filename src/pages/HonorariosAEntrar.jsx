@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import { S as A } from "../ui/estilosFila";
+import { nomeOperadorPorEmail } from "../utils/operadores";
 import Aluno from "./Aluno";
 
 // "O que tenho para entrar" — a previsão de honorário do operador.
@@ -66,6 +67,10 @@ export default function HonorariosAEntrar() {
   const [operadorFiltro, setOperadorFiltro] = useState("");
   const [estado, setEstado] = useState("A_VENCER");
   const [busca, setBusca] = useState("");
+  // Mes em foco. Os cards somavam TODOS os meses juntos -- de julho a 2030 --
+  // entao nao davam para planejar nada. "O que tenho a entrar" e uma pergunta
+  // por mes (Amanda, 27/08/2026).
+  const [mesFoco, setMesFoco] = useState("");
   const [fichaId, setFichaId] = useState(null);
 
   useEffect(() => {
@@ -102,21 +107,33 @@ export default function HonorariosAEntrar() {
     return [...set].sort();
   }, [linhas]);
 
+  // Meses que existem no dado, para o seletor.
+  const mesesDisponiveis = useMemo(() => {
+    const set = new Set(linhas.map((l) => chaveMes(l.vencimento)).filter(Boolean));
+    return [...set].sort();
+  }, [linhas]);
+
+  // Escopo: tudo do mes em foco (qualquer estado). Vazio = todos os meses.
+  const noMes = useMemo(
+    () => (mesFoco ? linhas.filter((l) => chaveMes(l.vencimento) === mesFoco) : linhas),
+    [linhas, mesFoco],
+  );
+
   const filtradas = useMemo(() => {
-    let lista = linhas.filter((l) => l.estado === estado);
+    let lista = noMes.filter((l) => l.estado === estado);
     if (busca.trim()) {
       const t = busca.trim().toLowerCase();
       lista = lista.filter((l) => String(l.aluno_nome || "").toLowerCase().includes(t));
     }
     return lista;
-  }, [linhas, estado, busca]);
+  }, [noMes, estado, busca]);
 
   // Totais dos três estados: o operador precisa ver os três juntos para
   // entender a própria carteira -- o que pode entrar, o que entrou e o que a
   // quebra levou.
   const totais = useMemo(() => {
     const conta = (e) => {
-      const l = linhas.filter((x) => x.estado === e);
+      const l = noMes.filter((x) => x.estado === e);
       return {
         parcelas: l.length,
         valor: l.reduce((s, x) => s + Number(x.valor || 0), 0),
@@ -125,7 +142,7 @@ export default function HonorariosAEntrar() {
       };
     };
     return { A_VENCER: conta("A_VENCER"), PAGO: conta("PAGO"), VENCIDO: conta("VENCIDO") };
-  }, [linhas]);
+  }, [noMes]);
 
   // Agrupado por mês de vencimento: é assim que o operador pensa a meta.
   const meses = useMemo(() => {
@@ -160,7 +177,7 @@ export default function HonorariosAEntrar() {
       <div style={A.topo}>
         <div>
           <h1 style={A.titulo}>O que tenho para entrar</h1>
-          <p style={A.sub}>O que ainda pode entrar vem das parcelas dos seus acordos; o que entrou vem da mesma fonte da Projeção.</p>
+          <p style={A.sub}>Escolha o mês para ver o que pode entrar, o que já entrou e o que a quebra levou. Sem mês escolhido, os cards somam tudo.</p>
         </div>
         <button type="button" style={A.btnGhost} onClick={() => carregar(operadorFiltro)}>Atualizar</button>
       </div>
@@ -173,7 +190,7 @@ export default function HonorariosAEntrar() {
           onClick={() => setEstado("A_VENCER")}
           style={{ ...estilos.cartao, ...(estado === "A_VENCER" ? estilos.cartaoAtivo : {}) }}
         >
-          <span style={estilos.rotulo}>A vencer — pode entrar</span>
+          <span style={estilos.rotulo}>A vencer — pode entrar{mesFoco ? ` · ${mesDe(mesFoco + "-01")}` : ""}</span>
           <span style={estilos.numero}>{moeda(totais.A_VENCER.honorario)}</span>
           <span style={estilos.detalhe}>
             {totais.A_VENCER.parcelas} parcelas · {moeda(totais.A_VENCER.valor)} de dívida
@@ -185,7 +202,7 @@ export default function HonorariosAEntrar() {
           onClick={() => setEstado("PAGO")}
           style={{ ...estilos.cartao, ...(estado === "PAGO" ? estilos.cartaoAtivo : {}) }}
         >
-          <span style={estilos.rotulo}>Entrou — honorário recebido</span>
+          <span style={estilos.rotulo}>Entrou — honorário recebido{mesFoco ? ` · ${mesDe(mesFoco + "-01")}` : ""}</span>
           <span style={{ ...estilos.numero, color: "#15803d" }}>{moeda(totais.PAGO.honorario)}</span>
           <span style={estilos.detalhe}>
             {totais.PAGO.parcelas} pagamento{totais.PAGO.parcelas === 1 ? "" : "s"} · {moeda(totais.PAGO.valor)} recebidos
@@ -197,7 +214,7 @@ export default function HonorariosAEntrar() {
           onClick={() => setEstado("VENCIDO")}
           style={{ ...estilos.cartao, ...(estado === "VENCIDO" ? estilos.cartaoAtivo : {}) }}
         >
-          <span style={estilos.rotulo}>Perdido — venceu sem pagar</span>
+          <span style={estilos.rotulo}>Perdido — venceu sem pagar{mesFoco ? ` · ${mesDe(mesFoco + "-01")}` : ""}</span>
           <span style={{ ...estilos.numero, color: "#b91c1c" }}>{moeda(totais.VENCIDO.honorario)}</span>
           <span style={estilos.detalhe}>
             {totais.VENCIDO.parcelas} parcelas · {moeda(totais.VENCIDO.valor)} em atraso
@@ -205,7 +222,31 @@ export default function HonorariosAEntrar() {
         </button>
       </div>
 
-      {estado !== "PAGO" && totais[estado].semHonorario > 0 && (
+      {estado === "A_VENCER" && totais.A_VENCER.parcelas > 0 && (() => {
+        // Quanto do que esta por vencer NAO tem honorario informado -- e quanto
+        // isso seria, na taxa do que ja entrou. Sem isso o card mostra um numero
+        // que a pessoa acha ser "o que vai entrar", quando na verdade e "o que
+        // alguem lembrou de preencher".
+        const semHon = totais.A_VENCER.semHonorario;
+        if (!semHon) return null;
+        const taxa = totais.PAGO.valor > 0 ? totais.PAGO.honorario / totais.PAGO.valor : 0;
+        const valorSemHon = filtradas
+          .filter((l) => Number(l.honorario || 0) === 0)
+          .reduce((s2, l) => s2 + Number(l.valor || 0), 0);
+        return (
+          <div style={estilos.avisoSemHonorario}>
+            <b>{semHon} de {totais.A_VENCER.parcelas} parcelas estao sem honorario informado</b>
+            {" "}({moeda(valorSemHon)} de divida).
+            {taxa > 0 && (
+              <> Na taxa do que ja entrou ({(taxa * 100).toFixed(1)}%), isso seria cerca de{" "}
+              <b>{moeda(valorSemHon * taxa)}</b> a mais para entrar.</>
+            )}
+            {" "}O valor do card mostra so o que foi preenchido, nao o total previsto.
+          </div>
+        );
+      })()}
+
+      {estado === "VENCIDO" && totais[estado].semHonorario > 0 && (
         <div style={estilos.avisoSemHonorario}>
           <b>{totais[estado].semHonorario} destas parcelas estão sem honorário informado.</b> Elas
           contam na dívida, mas somam zero aqui — os acordos vieram por importação, que não trazia o
@@ -222,9 +263,20 @@ export default function HonorariosAEntrar() {
             onChange={(e) => { setOperadorFiltro(e.target.value); carregar(e.target.value); }}
           >
             <option value="">Todos os operadores</option>
-            {operadores.map((o) => <option key={o} value={o}>{o}</option>)}
+            {operadores.map((o) => <option key={o} value={o}>{nomeOperadorPorEmail(o) || o}</option>)}
           </select>
         )}
+        <select
+          style={A.select}
+          value={mesFoco}
+          onChange={(e) => setMesFoco(e.target.value)}
+          title="Os cards e a lista passam a mostrar so este mes"
+        >
+          <option value="">Todos os meses</option>
+          {mesesDisponiveis.map((m) => (
+            <option key={m} value={m}>{mesDe(m + "-01")}</option>
+          ))}
+        </select>
         <input
           style={A.input}
           placeholder="Buscar por aluno..."
