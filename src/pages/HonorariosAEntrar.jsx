@@ -3,6 +3,7 @@ import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import { S as A } from "../ui/estilosFila";
 import { nomeOperadorPorEmail } from "../utils/operadores";
+import { buscarTudo } from "../utils/paginado";
 import Aluno from "./Aluno";
 
 // "Controle de Acordos" — o acompanhamento do que foi negociado.
@@ -124,11 +125,14 @@ export default function HonorariosAEntrar() {
     setCarregando(true);
     setErro("");
     try {
-      const { data, error } = await supabase.rpc("honorarios_a_entrar", {
-        p_email: email || null,
-      });
-      if (error) throw error;
-      setLinhas(data || []);
+      // De mil em mil. A API corta em 1.000 linhas mesmo sem limite pedido, e
+      // responde 206 -- que e SUCESSO. Sao 10.533 parcelas na visao da gestao:
+      // chegava so ate 07/12/2025 e 2026 inteiro sumia da tela, sem erro nenhum
+      // (Amanda, 27/08/2026: "precisa trazer o ano de 2026 tambem").
+      const linhas = await buscarTudo((de, ate) =>
+        supabase.rpc("honorarios_a_entrar", { p_email: email || null }).range(de, ate)
+      );
+      setLinhas(linhas);
     } catch (e) {
       setErro(e?.message || String(e));
       setLinhas([]);
