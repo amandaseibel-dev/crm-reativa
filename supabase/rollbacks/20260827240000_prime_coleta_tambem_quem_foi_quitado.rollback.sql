@@ -1,0 +1,5 @@
+-- Rollback: a fila da Prime volta a ignorar quem foi quitado/baixado.
+-- Reaplicar 20260827190000_prime_prioriza_cadastro_repetido.sql -- ela tem a
+-- versao sem a CTE `recuperados` e sem o criterio dela no ORDER BY.
+-- Consequencia: volta a nao dar para medir matricula de quem a operacao
+-- recuperou, porque eles nunca sao consultados na Prime.
