@@ -2,6 +2,8 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
+import { formatarCadastro } from "../utils/telefone";
+import { rotuloStatusComSaldo, rotuloStatus } from "../utils/rotulosStatus";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import jsPDF from "jspdf";
 import EnvioFinanceiro from "../components/EnvioFinanceiro";
@@ -367,6 +369,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // Referencias aos blocos expansiveis da aba Tabulacao, para rolagem suave
   // ate o inicio do formulario correspondente quando a tabulacao muda.
   const blocosRef = useRef({});
+  // Guarda de qual aluno a ficha ja foi aberta, para nao rolar a tela na
+  // primeira montagem (ver o efeito de tabulacao mais abaixo).
+  const rolagemInicialRef = useRef(null);
   const [dataRetorno, setDataRetorno] = useState("");
   const [numeroProcesso, setNumeroProcesso] = useState("");
   const [prazoTipo, setPrazoTipo] = useState("DATA");
@@ -778,6 +783,22 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     if (secaoAlvoFicha === "link") return;
     const destino = TABULACAO_PARA_BLOCO[statusFinalizacao] || "";
     setBlocoAberto(destino);
+
+    // NAO ROLAR NA ABERTURA. Este efeito existe para acompanhar quem MUDA a
+    // tabulacao: escolheu "acordo fechado", o bloco do acordo abre e a tela
+    // desce ate ele. Mas ele tambem dispara quando a ficha carrega e traz a
+    // tabulacao que o aluno ja tinha -- e ai a tela "corre pra baixo" sozinha,
+    // sem ninguem ter pedido (Amanda, 27/08/2026: "quando abro a ficha ela
+    // corre pra baixo"). Dentro do modal da fila e pior: arrasta a pagina
+    // inteira e ela perde de vista o que estava conferindo.
+    //
+    // Entao a primeira passagem de cada aluno so ABRE o bloco. A partir da
+    // segunda -- que so acontece por acao dela -- volta a rolar.
+    const alunoAtual = alunoSelecionado?.id || fichaEmbedId || "";
+    const jaAbriuEste = rolagemInicialRef.current === alunoAtual;
+    rolagemInicialRef.current = alunoAtual;
+    if (!jaAbriuEste) return;
+
     if (destino && (abaFicha === "dados" || abaFicha === "tabulacoes")) {
       const t = setTimeout(() => {
         const el = blocosRef.current[destino];
@@ -1723,7 +1744,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 </button>
               )}
               <div style={topoFicha}>
-                <div>
+                <div style={topoFichaIdentificacao}>
                   {editandoCadastro ? (
                     <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 340 }}>
                       <input
@@ -1771,7 +1792,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </div>
                   ) : (
                     <>
-                      <h2 style={{ ...tituloSecao, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                      <h2 style={{ ...nomeAlunoFicha, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
                         {pegarCampo(
                           alunoSelecionado,
                           ["nome", "nome_aluno", "aluno"],
@@ -1822,28 +1843,24 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           );
                         })()}
                       </h2>
-                      {/* Selos de status (visão rápida) */}
+                      {/* Selos de status (visão rápida). Saldo e responsável ficam
+                          no bloco de decisão, à direita -- aqui seria repetição. */}
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "8px 0 6px" }}>
-                        {saldoStatus === "ok" && saldoFicha && (
-                          <span style={{ fontSize: 12, fontWeight: 800, padding: "4px 11px", borderRadius: 999,
-                            background: fichaComPendencia ? "#fef3c7" : "#dcfce7",
-                            color: fichaComPendencia ? "#92400e" : "#166534",
-                            border: `1px solid ${fichaComPendencia ? "#fde68a" : "#bbf7d0"}` }}>
-                            {fichaComPendencia ? `💰 ${moeda(saldoFicha.total)} em aberto` : "✓ Sem saldo em aberto"}
-                          </span>
-                        )}
-                        <span style={{ fontSize: 12, fontWeight: 800, padding: "4px 11px", borderRadius: 999, background: "#dbeafe", color: "#1e40af", border: "1px solid #bfdbfe" }}>
-                          {pegarCampo(alunoSelecionado, ["status_jornada", "status_atual", "status"], "CONTATAR")}
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 11px", borderRadius: 999, background: "#f1f5f9", color: "#475569", border: "1px solid #d5dde7" }}>
+                          {rotuloStatusComSaldo(
+                            pegarCampo(alunoSelecionado, ["status_jornada", "status_atual", "status"], "CONTATAR"),
+                            saldoStatus === "ok" ? !fichaComPendencia : null
+                          )}
                         </span>
                         {(alunoSelecionado.nivel_criticidade || alunoSelecionado.criticidade) && (() => {
                           const c = String(alunoSelecionado.nivel_criticidade || alunoSelecionado.criticidade).toUpperCase();
-                          const mapa = { CRITICO: ["#fee2e2", "#991b1b", "#fecaca"], URGENTE: ["#ffedd5", "#9a3412", "#fed7aa"], ATENCAO: ["#fef9c3", "#854d0e", "#fef08a"], NORMAL: ["#f1f5f9", "#475569", "#e2e8f0"] };
+                          // CRITICO/URGENTE vem PREENCHIDO: sao os unicos chips
+                          // fortes da ficha, pra serem a primeira coisa lida.
+                          // ATENCAO/NORMAL ficam suaves -- nao pedem acao imediata.
+                          const mapa = { CRITICO: ["#b91c1c", "#fff", "#991b1b"], URGENTE: ["#c2410c", "#fff", "#9a3412"], ATENCAO: ["#fef9c3", "#854d0e", "#fde68a"], NORMAL: ["#f1f5f9", "#475569", "#d5dde7"] };
                           const [bg, fg, bd] = mapa[c] || mapa.NORMAL;
-                          return <span style={{ fontSize: 12, fontWeight: 800, padding: "4px 11px", borderRadius: 999, background: bg, color: fg, border: `1px solid ${bd}` }}>{c}</span>;
+                          return <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.03em", padding: "4px 11px", borderRadius: 999, background: bg, color: fg, border: `1px solid ${bd}` }}>{c}</span>;
                         })()}
-                        <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 11px", borderRadius: 999, background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0" }}>
-                          👤 {alunoSelecionado.responsavel_atual_nome || "Sem responsável"}
-                        </span>
                       </div>
                       <PainelDesfazer
                         alunoId={alunoSelecionado?.id}
@@ -1863,7 +1880,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                             marginLeft: 10,
                             background: "none",
                             border: "none",
-                            color: "#93c5fd",
+                            color: "#1d4ed8",
                             cursor: "pointer",
                             textDecoration: "underline",
                             fontSize: 13,
@@ -1874,296 +1891,209 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       </p>
                       {(alunoSelecionado.telefone || alunoSelecionado.email) && (
                         <p style={textoInfo}>
-                          {alunoSelecionado.telefone ? `Tel: ${alunoSelecionado.telefone}` : ""}
+                          {alunoSelecionado.telefone ? `Tel: ${formatarCadastro(alunoSelecionado.telefone)}` : ""}
                           {alunoSelecionado.telefone && alunoSelecionado.email ? " · " : ""}
                           {alunoSelecionado.email ? `E-mail: ${alunoSelecionado.email}` : ""}
                         </p>
                       )}
-                      {(alunoSelecionado.unidade || alunoSelecionado.curso) && (
-                        <p style={textoInfo}>
-                          {[alunoSelecionado.unidade, alunoSelecionado.curso].filter(Boolean).join(" · ")}
-                        </p>
-                      )}
-                      {saldoStatus === "carregando" && (
-                        <p style={textoInfo}>
-                          Situação financeira atual:{" "}
-                          <strong style={{ color: "#94a3b8" }}>Carregando saldo…</strong>
-                        </p>
-                      )}
-                      {saldoStatus === "erro" && (
-                        <p style={textoInfo}>
-                          Situação financeira atual:{" "}
-                          <strong style={{ color: "#ef4444" }}>Saldo indisponível</strong>
-                          <button
-                            type="button"
-                            onClick={() => recarregarSaldoFicha(alunoSelecionado?.id)}
-                            style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
-                          >
-                            Tentar novamente
-                          </button>
-                        </p>
-                      )}
-                      {saldoStatus === "ok" && saldoFicha && (
-                        <p style={textoInfo}>
-                          Situação financeira atual:{" "}
-                          <strong
-                            style={{ color: fichaComPendencia ? "#f59e0b" : "#22c55e" }}
-                          >
-                            {fichaComPendencia
-                              ? `Com saldo em aberto — ${moeda(saldoFicha.total)}`
-                              : "Sem saldo em aberto"}
-                          </strong>
-                          {fichaComPendencia &&
-                            Number(saldoFicha.parcelas_abertas_qtd) > 0 && (
-                              <span style={{ opacity: 0.85 }}>
-                                {" "}
-                                · {saldoFicha.parcelas_abertas_qtd}{" "}
-                                {Number(saldoFicha.parcelas_abertas_qtd) === 1
-                                  ? "parcela"
-                                  : "parcelas"}{" "}
-                                de acordo em aberto
-                              </span>
-                            )}
-                          {fichaComPendencia &&
-                            Number(saldoFicha.confirmacoes_pendentes) > 0 && (
-                              <span style={{ opacity: 0.85 }}>
-                                {" "}· confirmação/baixa pendente
-                              </span>
-                            )}
-                        </p>
-                      )}
+                      {/* Unidade/curso saem daqui: o card Dados Acadêmicos logo
+                          abaixo já traz campus, curso e modalidade. O saldo sai
+                          daqui: vive no bloco de decisão, à direita. */}
                     </>
                   )}
                 </div>
-                {!alunoSelecionado.responsavel_atual_email && (
-                  <button
-                    type="button"
-                    onClick={assumirAtendimento}
-                    disabled={
-                      salvando ||
-                      (STATUS_BLOQUEADOS_ACIONAMENTO.includes(
+                {/* Bloco de decisão: o que o operador precisa pra agir, sem rolar.
+                    Valor e responsável vivem aqui -- e só aqui. */}
+                <div style={blocoDecisao}>
+                  <div
+                    style={{
+                      ...blocoDecisaoItem,
+                      // A faixa so pode ser ambar quando REALMENTE ha saldo.
+                      // Em erro/carregando ela seria uma mentira: sinalizaria
+                      // divida sem que ninguem tenha conseguido ler o saldo.
+                      borderLeft: `4px solid ${
+                        saldoStatus === "erro"
+                          ? "#dc2626"
+                          : saldoStatus !== "ok"
+                            ? "#cbd5e1"
+                            : fichaComPendencia
+                              ? "#f59e0b"
+                              : "#16a34a"
+                      }`,
+                      background:
+                        saldoStatus === "ok" && fichaComPendencia ? "#fffbeb" : "#f8fafc",
+                    }}
+                  >
+                    <span style={cardTitulo}>Valor em aberto</span>
+                    {saldoStatus === "carregando" && (
+                      <div style={{ color: "#64748b", fontSize: 13 }}>Carregando saldo…</div>
+                    )}
+                    {saldoStatus === "erro" && (
+                      <div>
+                        <span style={{ color: "#dc2626", fontWeight: 700, fontSize: 13 }}>
+                          Saldo indisponível
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => recarregarSaldoFicha(alunoSelecionado?.id)}
+                          style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
+                        >
+                          Tentar novamente
+                        </button>
+                      </div>
+                    )}
+                    {saldoStatus === "ok" && (
+                      <>
+                        <div
+                          style={{
+                            fontSize: 26,
+                            fontWeight: 800,
+                            lineHeight: 1.15,
+                            color: fichaComPendencia ? "#b45309" : "#15803d",
+                          }}
+                        >
+                          {moeda(Number(saldoFicha?.total) || 0)}
+                        </div>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginTop: 2 }}>
+                          {fichaComPendencia ? "Com saldo em aberto" : "Sem saldo pendente"}
+                          {fichaComPendencia &&
+                            Number(saldoFicha?.parcelas_abertas_qtd) > 0 &&
+                            ` · ${saldoFicha.parcelas_abertas_qtd} ${
+                              Number(saldoFicha.parcelas_abertas_qtd) === 1
+                                ? "parcela"
+                                : "parcelas"
+                            } de acordo em aberto`}
+                          {fichaComPendencia &&
+                            Number(saldoFicha?.confirmacoes_pendentes) > 0 &&
+                            " · confirmação/baixa pendente"}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  <div
+                    style={{
+                      ...blocoDecisaoItem,
+                      borderLeft: `4px solid ${
+                        alunoSelecionado.responsavel_atual_nome ? "#2563eb" : "#94a3b8"
+                      }`,
+                    }}
+                  >
+                    <span style={cardTitulo}>Responsável pelo aluno</span>
+                    {!editandoOperadorRapido ? (
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>
+                        {alunoSelecionado.responsavel_atual_nome || (
+                          <span style={{ color: "#64748b", fontWeight: 600 }}>Sem responsável</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setNovoOperadorEmail(alunoSelecionado.responsavel_atual_email || "");
+                            setEditandoOperadorRapido(true);
+                          }}
+                          style={{ marginLeft: 8, border: "none", background: "transparent", cursor: "pointer", fontSize: 13 }}
+                          title="Alterar operador responsável"
+                        >
+                          ✏️
+                        </button>
+                      </div>
+                    ) : (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+                        <select
+                          value={novoOperadorEmail}
+                          onChange={(e) => setNovoOperadorEmail(e.target.value)}
+                          style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12 }}
+                        >
+                          <option value="">Selecione</option>
+                          {OPERADORES_REATIVA.map((op) => (
+                            <option key={op.email} value={op.email}>
+                              {op.nome}
+                            </option>
+                          ))}
+                        </select>
+                        <input
+                          type="text"
+                          placeholder="Motivo da troca (opcional)"
+                          value={motivoAlteracaoOperador}
+                          onChange={(e) => setMotivoAlteracaoOperador(e.target.value)}
+                          style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12 }}
+                        />
+                        <div style={{ display: "flex", gap: 6 }}>
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              await alterarOperadorResponsavel();
+                              setEditandoOperadorRapido(false);
+                            }}
+                            disabled={salvando || !novoOperadorEmail}
+                            style={{ border: "none", background: "#16a34a", color: "#fff", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                          >
+                            {salvando ? "..." : "Salvar"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditandoOperadorRapido(false);
+                              setMotivoAlteracaoOperador("");
+                            }}
+                            style={{ border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                  {(!alunoSelecionado.responsavel_atual_email ||
+                    (podeQuitarManual(usuarioLogado?.email) &&
+                      pegarCampo(
+                        alunoSelecionado,
+                        ["status_jornada", "status_atual", "status"],
+                        "CONTATAR"
+                      ) !== STATUS_QUITADO_MANUAL)) && (
+                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                      {!alunoSelecionado.responsavel_atual_email && (
+                        <button
+                          type="button"
+                          onClick={assumirAtendimento}
+                          disabled={
+                            salvando ||
+                            (STATUS_BLOQUEADOS_ACIONAMENTO.includes(
+                              pegarCampo(
+                                alunoSelecionado,
+                                ["status_jornada", "status_atual", "status"],
+                                "CONTATAR"
+                              )
+                            ) &&
+                              !podeVerTudo(usuarioLogado?.email))
+                          }
+                          style={{ ...botaoPrincipal, flex: "1 1 auto" }}
+                        >
+                          {salvando ? "Salvando..." : "Assumir atendimento"}
+                        </button>
+                      )}
+                      {podeQuitarManual(usuarioLogado?.email) &&
                         pegarCampo(
                           alunoSelecionado,
                           ["status_jornada", "status_atual", "status"],
                           "CONTATAR"
-                        )
-                      ) &&
-                        !podeVerTudo(usuarioLogado?.email))
-                    }
-                    style={botaoPrincipal}
-                  >
-                    {salvando ? "Salvando..." : "Assumir atendimento"}
-                  </button>
-                )}
-                {podeQuitarManual(usuarioLogado?.email) &&
-                  pegarCampo(
-                    alunoSelecionado,
-                    ["status_jornada", "status_atual", "status"],
-                    "CONTATAR"
-                  ) !== STATUS_QUITADO_MANUAL && (
-                    <button
-                      type="button"
-                      onClick={quitarManual}
-                      disabled={salvando}
-                      title="Tira o aluno da fila (ficha fica amarela). Volta sozinho se subir um título novo dele em bordero."
-                      style={{ ...botaoPrincipal, background: "#6b21a8", marginLeft: 8 }}
-                    >
-                      💰 Quitar tudo (sai da fila)
-                    </button>
-                  )}
-              </div>
-              <DadosAcademicos aluno={alunoSelecionado} />
-              <div style={barraAbasFicha}>
-                {[
-                  ["dados", "Resumo e tabulação"],
-                  ...(emailLiberadoAluno ? [["email", "📧 E-mail"]] : []),
-                  ["financeiro", "Financeiro"],
-                  ["adm", "ADM"],
-                ].map(([chave, rotulo]) => (
-                  <button
-                    key={chave}
-                    type="button"
-                    onClick={() => setAbaFicha(chave)}
-                    style={
-                      abaFicha === chave ? abaFichaAtiva : abaFichaInativa
-                    }
-                  >
-                    {rotulo}
-                  </button>
-                ))}
-              </div>
-              {abaFicha === "dados" && (
-              <>
-              <div style={gradeCards}>
-                <div
-                  style={{
-                    ...cardInfo,
-                    gridColumn: "1 / -1",
-                    background:
-                      saldoStatus === "ok" && fichaComPendencia ? "#fffbeb" : "#f8fafc",
-                    border:
-                      saldoStatus === "ok" && fichaComPendencia
-                        ? "1px solid #f59e0b"
-                        : "1px solid #e6eaf0",
-                  }}
-                >
-                  <span style={cardTitulo}>Valor em aberto</span>
-                  {saldoStatus === "carregando" && (
-                    <span style={{ color: "#94a3b8" }}>Carregando…</span>
-                  )}
-                  {saldoStatus === "erro" && (
-                    <span>
-                      <span style={{ color: "#ef4444", fontWeight: 700 }}>
-                        Saldo indisponível
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => recarregarSaldoFicha(alunoSelecionado?.id)}
-                        style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
-                      >
-                        Tentar novamente
-                      </button>
-                    </span>
-                  )}
-                  {saldoStatus === "ok" && (
-                    <span
-                      style={{
-                        fontSize: 17,
-                        fontWeight: 800,
-                        color: fichaComPendencia ? "#b45309" : "#16a34a",
-                      }}
-                    >
-                      {moeda(Number(saldoFicha?.total) || 0)}
-                      <span style={{ display: "block", fontSize: 11.5, fontWeight: 600, opacity: 0.8 }}>
-                        {fichaComPendencia ? "Com saldo em aberto" : "Sem saldo pendente"}
-                      </span>
-                    </span>
-                  )}
-                </div>
-                <div style={cardInfo}>
-                  <span style={cardTitulo}>Responsável pelo aluno</span>
-                  {!editandoOperadorRapido ? (
-                    <>
-                      {alunoSelecionado.responsavel_atual_nome || "Sem responsável"}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setNovoOperadorEmail(alunoSelecionado.responsavel_atual_email || "");
-                          setEditandoOperadorRapido(true);
-                        }}
-                        style={{ marginLeft: 8, border: "none", background: "transparent", cursor: "pointer", fontSize: 13 }}
-                        title="Alterar operador responsável"
-                      >
-                        ✏️
-                      </button>
-                    </>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4, maxWidth: 220 }}>
-                      <select
-                        value={novoOperadorEmail}
-                        onChange={(e) => setNovoOperadorEmail(e.target.value)}
-                        style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12 }}
-                      >
-                        <option value="">Selecione</option>
-                        {OPERADORES_REATIVA.map((op) => (
-                          <option key={op.email} value={op.email}>
-                            {op.nome}
-                          </option>
-                        ))}
-                      </select>
-                      <input
-                        type="text"
-                        placeholder="Motivo da troca (opcional)"
-                        value={motivoAlteracaoOperador}
-                        onChange={(e) => setMotivoAlteracaoOperador(e.target.value)}
-                        style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12 }}
-                      />
-                      <div style={{ display: "flex", gap: 6 }}>
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            await alterarOperadorResponsavel();
-                            setEditandoOperadorRapido(false);
-                          }}
-                          disabled={salvando || !novoOperadorEmail}
-                          style={{ border: "none", background: "#16a34a", color: "#fff", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
-                        >
-                          {salvando ? "..." : "Salvar"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditandoOperadorRapido(false);
-                            setMotivoAlteracaoOperador("");
-                          }}
-                          style={{ border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div style={{ ...cardInfo, gridColumn: "1 / -1" }}>
-                  <span style={cardTitulo}>Responsável pelos acordos</span>
-                  {acordosStatus === "carregando" && (
-                    <span style={{ color: "#94a3b8" }}>Carregando…</span>
-                  )}
-                  {acordosStatus === "erro" && (
-                    <span>
-                      <span style={{ color: "#ef4444" }}>Acordos indisponíveis</span>
-                      <button
-                        type="button"
-                        onClick={() => recarregarAcordosFicha(alunoSelecionado?.id)}
-                        style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
-                      >
-                        Tentar novamente
-                      </button>
-                    </span>
-                  )}
-                  {acordosStatus === "ok" && acordosFicha.length === 0 && (
-                    <span style={{ color: "#64748b" }}>Nenhum acordo registrado</span>
-                  )}
-                  {acordosStatus === "ok" && acordosFicha.length > 0 && (
-                    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 8 }}>
-                      {(verTodosAcordos ? acordosFicha : acordosFicha.slice(0, 1)).map(
-                        (a, i) => {
-                          const sit = situacaoDoAcordo(a);
-                          return (
-                            <div key={a.id}>
-                              {acordosFicha.length > 1 && (
-                                <div style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700 }}>
-                                  {i === 0 ? "Acordo atual" : "Acordo anterior"}
-                                </div>
-                              )}
-                              <div>
-                                <strong style={{ color: "#0f172a" }}>
-                                  {responsavelDoAcordo(a)}
-                                </strong>{" "}
-                                · {dataCurta(a.criado_em)} ·{" "}
-                                <span style={{ color: corSituacaoAcordo(sit), fontWeight: 700 }}>
-                                  {sit}
-                                </span>
-                              </div>
-                            </div>
-                          );
-                        }
-                      )}
-                      {acordosFicha.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => setVerTodosAcordos((v) => !v)}
-                          style={{ alignSelf: "flex-start", border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}
-                        >
-                          {verTodosAcordos
-                            ? "Ver menos"
-                            : `Ver todos os acordos (${acordosFicha.length})`}
-                        </button>
-                      )}
+                        ) !== STATUS_QUITADO_MANUAL && (
+                          <button
+                            type="button"
+                            onClick={quitarManual}
+                            disabled={salvando}
+                            title="Tira o aluno da fila (ficha fica amarela). Volta sozinho se subir um título novo dele em bordero."
+                            style={botaoQuitarTudo}
+                          >
+                            💰 Quitar tudo (sai da fila)
+                          </button>
+                        )}
                     </div>
                   )}
                 </div>
               </div>
+              {/* Ordem da ficha = frequencia de uso. A faixa diz ONDE o caso
+                  esta, tabular e O QUE o operador faz o dia inteiro, e o
+                  academico e so referencia -- por isso vem por ultimo. */}
               <div style={faixaMini}>
                 <div style={{ ...itemMini, borderLeft: "none" }}>
                   <span style={cardTitulo}>Últ. acionamento</span>
@@ -2175,7 +2105,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 </div>
                 <div style={{ ...itemMini, flex: "2 1 200px" }}>
                   <span style={cardTitulo}>Próxima ação</span>
-                  <div style={valorMini}>{alunoSelecionado.proxima_acao || "CONTATAR"}</div>
+                  <div style={valorMini}>{rotuloStatus(alunoSelecionado.proxima_acao || "CONTATAR")}</div>
                 </div>
                 <div style={itemMini}>
                   <span style={cardTitulo}>Últ. tabulação</span>
@@ -2183,72 +2113,12 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 </div>
                 <div style={itemMini}>
                   <span style={cardTitulo}>Status</span>
-                  <div style={valorMini}>{alunoSelecionado.status_acionamento || "-"}</div>
+                  <div style={valorMini}>{rotuloStatus(alunoSelecionado.status_acionamento) || "-"}</div>
                 </div>
               </div>
-              <TelefonesAluno aluno={alunoSelecionado} />
-              </>
-              )}
-              {(abaFicha === "dados" || abaFicha === "tabulacoes") && (
-              <>
-              {[
-                "LINK_PRONTO_PARA_ENVIO",
-                "LINK_GERADO",
-              ].includes(
-                pegarCampo(
-                  alunoSelecionado,
-                  ["status_jornada", "status_atual", "status"],
-                  "CONTATAR"
-                )
-              ) ||
-              alunoSelecionado.proxima_acao === "ENVIAR_LINK_AO_ALUNO" ? (
-                <div style={caixaLinkPronto}>
-                  <h3 style={tituloSecao}>Link pronto para envio</h3>
-                  <p style={textoInfo}>
-                    Este aluno está com link pronto. Depois de enviar o link ao aluno,
-                    clique abaixo para mudar o caso para aguardando comprovante.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={marcarLinkEnviadoAoAluno}
-                    disabled={salvando}
-                    style={botaoPrincipal}
-                  >
-                    {salvando
-                      ? "Salvando..."
-                      : "Link enviado ao aluno / Aguardar comprovante"}
-                  </button>
-                </div>
-              ) : null}
-              <details
-                ref={(el) => (blocosRef.current.link = el)}
-                open={blocoAberto === "link"}
-                onToggle={(e) => {
-                  if (e.target.open) setBlocoAberto("link");
-                  else if (blocoAberto === "link") setBlocoAberto("");
-                }}
-                style={{ marginBottom: 12, border: blocoAberto === "link" ? "1px solid #2563eb" : "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff", scrollMarginTop: 16 }}
-              >
-                <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Link de pagamento</summary>
-              <LinksPagamentoAluno
-                aluno={alunoSelecionado}
-                usuarioLogado={usuarioLogado}
-                destacarSolicitacaoId={destacarLinkId}
-                onAtualizar={async () => {
-                  await recarregarAlunoSelecionado(alunoSelecionado.id);
-                  await carregarMovimentacoes(alunoSelecionado.id);
-                  await carregarAlunos();
-                }}
-                onSucesso={async () => {
-                  await recarregarAlunoSelecionado(alunoSelecionado.id);
-                  await carregarMovimentacoes(alunoSelecionado.id);
-                  await carregarAlunos();
-                }}
-              />
-              </details>
-              <div style={caixaDestaque}>
+              <div style={caixaTabular}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13, fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: "#1e3a8a", whiteSpace: "nowrap" }}>
                     Tabular:
                   </span>
                 <select
@@ -2371,6 +2241,149 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   </button>
                 </div>
               </div>
+              <DadosAcademicos aluno={alunoSelecionado} />
+              <div style={barraAbasFicha}>
+                {[
+                  ["dados", "Resumo e tabulação"],
+                  ...(emailLiberadoAluno ? [["email", "📧 E-mail"]] : []),
+                  ["financeiro", "Financeiro"],
+                  ["adm", "ADM"],
+                ].map(([chave, rotulo]) => (
+                  <button
+                    key={chave}
+                    type="button"
+                    onClick={() => setAbaFicha(chave)}
+                    style={
+                      abaFicha === chave ? abaFichaAtiva : abaFichaInativa
+                    }
+                  >
+                    {rotulo}
+                  </button>
+                ))}
+              </div>
+              {abaFicha === "dados" && (
+              <>
+              <div style={gradeCards}>
+                <div style={{ ...cardInfo, gridColumn: "1 / -1" }}>
+                  <span style={cardTitulo}>Responsável pelos acordos</span>
+                  {acordosStatus === "carregando" && (
+                    <span style={{ color: "#94a3b8" }}>Carregando…</span>
+                  )}
+                  {acordosStatus === "erro" && (
+                    <span>
+                      <span style={{ color: "#ef4444" }}>Acordos indisponíveis</span>
+                      <button
+                        type="button"
+                        onClick={() => recarregarAcordosFicha(alunoSelecionado?.id)}
+                        style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
+                      >
+                        Tentar novamente
+                      </button>
+                    </span>
+                  )}
+                  {acordosStatus === "ok" && acordosFicha.length === 0 && (
+                    <span style={{ color: "#64748b" }}>Nenhum acordo registrado</span>
+                  )}
+                  {acordosStatus === "ok" && acordosFicha.length > 0 && (
+                    <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 8 }}>
+                      {(verTodosAcordos ? acordosFicha : acordosFicha.slice(0, 1)).map(
+                        (a, i) => {
+                          const sit = situacaoDoAcordo(a);
+                          return (
+                            <div key={a.id}>
+                              {acordosFicha.length > 1 && (
+                                <div style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700 }}>
+                                  {i === 0 ? "Acordo atual" : "Acordo anterior"}
+                                </div>
+                              )}
+                              <div>
+                                <strong style={{ color: "#0f172a" }}>
+                                  {responsavelDoAcordo(a)}
+                                </strong>{" "}
+                                · {dataCurta(a.criado_em)} ·{" "}
+                                <span style={{ color: corSituacaoAcordo(sit), fontWeight: 700 }}>
+                                  {sit}
+                                </span>
+                              </div>
+                            </div>
+                          );
+                        }
+                      )}
+                      {acordosFicha.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => setVerTodosAcordos((v) => !v)}
+                          style={{ alignSelf: "flex-start", border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}
+                        >
+                          {verTodosAcordos
+                            ? "Ver menos"
+                            : `Ver todos os acordos (${acordosFicha.length})`}
+                        </button>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <TelefonesAluno aluno={alunoSelecionado} />
+              </>
+              )}
+              {(abaFicha === "dados" || abaFicha === "tabulacoes") && (
+              <>
+              {[
+                "LINK_PRONTO_PARA_ENVIO",
+                "LINK_GERADO",
+              ].includes(
+                pegarCampo(
+                  alunoSelecionado,
+                  ["status_jornada", "status_atual", "status"],
+                  "CONTATAR"
+                )
+              ) ||
+              alunoSelecionado.proxima_acao === "ENVIAR_LINK_AO_ALUNO" ? (
+                <div style={caixaLinkPronto}>
+                  <h3 style={tituloSecao}>Link pronto para envio</h3>
+                  <p style={textoInfo}>
+                    Este aluno está com link pronto. Depois de enviar o link ao aluno,
+                    clique abaixo para mudar o caso para aguardando comprovante.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={marcarLinkEnviadoAoAluno}
+                    disabled={salvando}
+                    style={botaoPrincipal}
+                  >
+                    {salvando
+                      ? "Salvando..."
+                      : "Link enviado ao aluno / Aguardar comprovante"}
+                  </button>
+                </div>
+              ) : null}
+              <details
+                ref={(el) => (blocosRef.current.link = el)}
+                open={blocoAberto === "link"}
+                onToggle={(e) => {
+                  if (e.target.open) setBlocoAberto("link");
+                  else if (blocoAberto === "link") setBlocoAberto("");
+                }}
+                style={{ marginBottom: 12, border: blocoAberto === "link" ? "1px solid #2563eb" : "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff", scrollMarginTop: 16 }}
+              >
+                <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Link de pagamento</summary>
+              <LinksPagamentoAluno
+                aluno={alunoSelecionado}
+                usuarioLogado={usuarioLogado}
+                destacarSolicitacaoId={destacarLinkId}
+                onAtualizar={async () => {
+                  await recarregarAlunoSelecionado(alunoSelecionado.id);
+                  await carregarMovimentacoes(alunoSelecionado.id);
+                  await carregarAlunos();
+                }}
+                onSucesso={async () => {
+                  await recarregarAlunoSelecionado(alunoSelecionado.id);
+                  await carregarMovimentacoes(alunoSelecionado.id);
+                  await carregarAlunos();
+                }}
+              />
+              </details>
               <details
                 ref={(el) => (blocosRef.current.termo = el)}
                 open={blocoAberto === "termo"}
@@ -2590,8 +2603,25 @@ const tituloSecao = {
   fontSize: 16,
   fontWeight: 700,
 };
+// O nome do aluno e o titulo da pagina -- 16px o deixava do tamanho de um
+// subtitulo qualquer, sem ancorar a leitura.
+const nomeAlunoFicha = {
+  ...tituloSecao,
+  fontSize: 22,
+  fontWeight: 800,
+  letterSpacing: "-0.01em",
+};
 const caixa = superficie;
-const caixaDestaque = { ...cartao, background: "#fff", border: "1px solid #e2e8f0", marginBottom: "12px" };
+// Bloco de tabular: e a acao que o operador repete o dia inteiro, entao tem
+// peso proprio -- borda azul e fundo levemente tintado. Nao e "mais uma caixa".
+const caixaTabular = {
+  ...cartao,
+  background: "#f8fbff",
+  border: "1px solid #93c5fd",
+  borderLeft: "4px solid #2563eb",
+  padding: "12px 14px",
+  marginBottom: "14px",
+};
 const caixaLinkPronto = { ...cartaoSucesso, border: "1px solid #93c5fd", marginBottom: "16px" };
 const caixaInterna = cartaoInterno;
 const layout = {
@@ -2607,6 +2637,42 @@ const topoFicha = {
   alignItems: "start",
   flexWrap: "wrap",
   marginBottom: "12px",
+};
+// Coluna esquerda do topo: identificação do aluno (nome, CPF, contato).
+const topoFichaIdentificacao = { flex: "1 1 340px", minWidth: 0 };
+// Coluna direita: bloco de decisão. Painel próprio, com borda visível, pra
+// separar do resto da ficha -- é onde ficam saldo e responsável.
+const blocoDecisao = {
+  flex: "0 1 340px",
+  minWidth: 260,
+  display: "flex",
+  flexDirection: "column",
+  gap: 10,
+  background: "#fff",
+  border: "1px solid #cbd5e1",
+  borderRadius: 14,
+  padding: 12,
+  boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
+};
+// Cada item do bloco tem faixa de cor à esquerda, pra ler como bloco separado.
+const blocoDecisaoItem = {
+  background: "#f8fafc",
+  border: "1px solid #e2e8f0",
+  borderRadius: 10,
+  padding: "8px 12px",
+};
+// "Quitar tudo" é ação de gestão (tira o aluno da fila): contorno, não preenchido,
+// pra não competir com "Assumir atendimento".
+const botaoQuitarTudo = {
+  background: "#fff",
+  color: "#6b21a8",
+  border: "1px solid #c4b5fd",
+  borderRadius: "8px",
+  padding: "10px 14px",
+  fontWeight: 600,
+  fontSize: 13,
+  cursor: "pointer",
+  flex: "1 1 auto",
 };
 const barraAbasFicha = {
   display: "flex",
