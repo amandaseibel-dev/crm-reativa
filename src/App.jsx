@@ -149,7 +149,7 @@ function podeAcessar(perfil, rota) {
   // perfis ativos (o banco confere de novo por app_usuario_ativo()).
   if (rota === "/leads-whatsapp") return true;
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
-  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return perfil !== "operador"; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
+  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return true; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
   const permissoes = {
     gerencia: [
       "/",
@@ -605,7 +605,7 @@ export default function App() {
       secao: "Operação",
       esconderParaOperador: true,
     },
-    { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" }, { rota: "/a-entrar", label: "O que tenho a entrar", icone: "TrendingUp", secao: "Operação" },
+    { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" }, { rota: "/a-entrar", label: "Controle de Acordos", icone: "TrendingUp", secao: "Operação" },
     { rota: "/aluno", label: "Base", icone: "User", secao: "Operação" },
     { rota: "/relatorio-receptivo", label: "Relatório Receptivo", icone: "Phone", secao: "Operação" }, { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/leads-whatsapp", label: "Leads do WhatsApp", icone: "MessageSquare", secao: "Operação" },
