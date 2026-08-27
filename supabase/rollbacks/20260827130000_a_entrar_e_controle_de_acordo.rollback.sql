@@ -1,0 +1,5 @@
+-- Rollback: o estado PAGO volta a ler `pagamentos` (fonte da Projeção).
+-- ATENÇÃO: isso reintroduz pagamento de MENSALIDADE numa tela que é controle de
+-- ACORDO. A gestão foi explícita: "lá é só o que está pendente de acordo a
+-- entrar, o que já está vencido, um controle dos acordos".
+-- Para reverter, reaplique 20260826180000_honorarios_a_entrar_entrou_da_fonte_certa.sql
