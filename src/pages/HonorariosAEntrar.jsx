@@ -5,37 +5,33 @@ import { S as A } from "../ui/estilosFila";
 import { nomeOperadorPorEmail } from "../utils/operadores";
 import Aluno from "./Aluno";
 
-// "O que tenho para entrar" — a previsão de honorário do operador.
+// "Controle de Acordos" — o acompanhamento do que foi negociado.
 //
-// POR QUE ESTA TELA EXISTE. A Projeção mostra o que JÁ entrou, e só isso. O
-// número pelo qual o operador é cobrado aparecia para ele depois de acontecer
-// -- não havia onde ver o que ainda PODE entrar, nem o que se perdeu por quebra.
+// O QUE ESTA TELA É (Amanda, 27/08/2026): "lá é só o que está pendente de
+// acordo a entrar, o que já está vencido, um controle dos acordos".
 //
-// Aqui estão os três lados juntos.
-//
-// DE ONDE VEM CADA NÚMERO -- e isso não é detalhe:
-//
-//     A VENCER / PERDIDO -> parcelas dos acordos ativos (é lá que mora o futuro)
-//     ENTROU             -> pagamentos.valor_honorario, a MESMA fonte e o mesmo
-//                           filtro da Projeção
-//
-// O "Entrou" já saiu de `parcelas.honorarios` e estava errado por duas ordens de
-// grandeza: de 1.484 parcelas pagas, só 116 (7,8%) tinham o campo preenchido --
-// a tela mostrava R$ 5 mil onde tinham entrado R$ 837 mil. Pior que o número
-// baixo era o desacordo: duas telas dizendo coisas diferentes sobre o mesmo
-// fato fazem ninguém confiar em nenhuma das duas. Agora batem por construção,
-// operador a operador, até o centavo.
-//
-// A REGRA (Amanda, 26/08/2026): o honorário da parcela a vencer entra quando
-// ela é paga; se não for paga, o acordo quebra e ele não entra. Por isso os
-// três estados aparecem separados e nunca somados num número só:
+// Não é caixa. Não é a Projeção. É a parcela de acordo em três estados -- e os
+// três são estados da MESMA coisa, por isso saem todos de `parcelas`:
 //
 //     A VENCER  -> ainda pode entrar
 //     ENTROU    -> parcela paga
-//     PERDIDO   -> venceu sem pagar; é a quebra
+//     VENCIDA   -> venceu sem pagar; é a quebra
 //
-// FICA SEPARADA DA FILA de propósito (pedido da Amanda): a fila é o trabalho de
-// hoje, isto é acompanhamento do que já foi negociado.
+// Já errei aqui uma vez: fiz o "Entrou" ler `pagamentos`, a fonte da Projeção.
+// O número ficava certo como "honorário do mês", mas passava a incluir
+// pagamento de mensalidade -- que não é acordo -- e a tela deixava de responder
+// a pergunta que existe para responder. Voltou para `parcelas`; o honorário do
+// pago vem da BAIXA (o que de fato entrou) e só cai para `parcelas.honorarios`
+// quando não há baixa.
+//
+// COMO SE LÊ:
+//   topo   -> tudo, todos os meses. O tamanho da carteira de acordos.
+//   cards  -> mês a mês: quantos acordos, quanto em aberto, quanto de honorário.
+//   linha  -> o aluno, e há quantos dias ele não é acionado.
+//
+// O ACIONAMENTO na linha existe porque isto virou lista de trabalho: em agosto
+// são 953 parcelas vencidas. Sem ver quem já foi acionado, o operador liga duas
+// vezes para a mesma pessoa e nunca chega no fim da lista.
 
 function moeda(v) {
   return (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -59,18 +55,49 @@ function chaveMes(v) {
   return String(v || "").slice(0, 7);
 }
 
+function contarAcordos(itens) {
+  return new Set(itens.map((x) => x.acordo_id).filter(Boolean)).size;
+}
+
+// Como o acionamento aparece na linha. O operador precisa de UMA olhada, não de
+// uma conta: "hoje" e "ontem" por extenso, o resto em dias, e nunca acionado em
+// destaque, porque é onde tem chance de ter alguém intocado.
+function selo(l) {
+  const d = l.dias_sem_acionamento;
+  if (d == null) return { txt: "nunca acionado", cor: "#b91c1c", fundo: "#fef2f2", borda: "#fecaca" };
+  if (d === 0) return { txt: "hoje", cor: "#15803d", fundo: "#f0fdf4", borda: "#bbf7d0" };
+  if (d === 1) return { txt: "ontem", cor: "#15803d", fundo: "#f0fdf4", borda: "#bbf7d0" };
+  if (d <= 7) return { txt: `há ${d} dias`, cor: "#92400e", fundo: "#fffbeb", borda: "#fde68a" };
+  return { txt: `há ${d} dias`, cor: "#b91c1c", fundo: "#fef2f2", borda: "#fecaca" };
+}
+
+const FILTROS_ACIONAMENTO = [
+  { v: "", label: "Qualquer acionamento" },
+  { v: "PENDENTE", label: "Ainda não acionei hoje" },
+  { v: "NUNCA", label: "Nunca acionados" },
+  { v: "FRIO", label: "Parados há 8 dias ou mais" },
+  { v: "HOJE", label: "Acionados hoje" },
+];
+
+function passaAcionamento(l, f) {
+  const d = l.dias_sem_acionamento;
+  if (f === "PENDENTE") return d !== 0;
+  if (f === "NUNCA") return d == null;
+  if (f === "FRIO") return d == null || d >= 8;
+  if (f === "HOJE") return d === 0;
+  return true;
+}
+
 export default function HonorariosAEntrar() {
   const [linhas, setLinhas] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [ehGestao, setEhGestao] = useState(false);
   const [operadorFiltro, setOperadorFiltro] = useState("");
-  const [estado, setEstado] = useState("A_VENCER");
+  const [estado, setEstado] = useState("VENCIDO");
   const [busca, setBusca] = useState("");
-  // Mes em foco. Os cards somavam TODOS os meses juntos -- de julho a 2030 --
-  // entao nao davam para planejar nada. "O que tenho a entrar" e uma pergunta
-  // por mes (Amanda, 27/08/2026).
   const [mesFoco, setMesFoco] = useState("");
+  const [acionamento, setAcionamento] = useState("");
   const [fichaId, setFichaId] = useState(null);
 
   useEffect(() => {
@@ -107,44 +134,39 @@ export default function HonorariosAEntrar() {
     return [...set].sort();
   }, [linhas]);
 
-  // Meses que existem no dado, para o seletor.
   const mesesDisponiveis = useMemo(() => {
     const set = new Set(linhas.map((l) => chaveMes(l.vencimento)).filter(Boolean));
     return [...set].sort();
   }, [linhas]);
 
-  // Escopo: tudo do mes em foco (qualquer estado). Vazio = todos os meses.
-  const noMes = useMemo(
-    () => (mesFoco ? linhas.filter((l) => chaveMes(l.vencimento) === mesFoco) : linhas),
-    [linhas, mesFoco],
-  );
-
-  const filtradas = useMemo(() => {
-    let lista = noMes.filter((l) => l.estado === estado);
-    if (busca.trim()) {
-      const t = busca.trim().toLowerCase();
-      lista = lista.filter((l) => String(l.aluno_nome || "").toLowerCase().includes(t));
-    }
-    return lista;
-  }, [noMes, estado, busca]);
-
-  // Totais dos três estados: o operador precisa ver os três juntos para
-  // entender a própria carteira -- o que pode entrar, o que entrou e o que a
-  // quebra levou.
+  // TOPO: o total de TODOS os meses, sempre. É o tamanho da carteira de acordos
+  // -- não muda quando ela escolhe um mês, senão ela perde a referência do todo.
   const totais = useMemo(() => {
     const conta = (e) => {
-      const l = noMes.filter((x) => x.estado === e);
+      const l = linhas.filter((x) => x.estado === e);
       return {
         parcelas: l.length,
+        acordos: contarAcordos(l),
         valor: l.reduce((s, x) => s + Number(x.valor || 0), 0),
         honorario: l.reduce((s, x) => s + Number(x.honorario || 0), 0),
         semHonorario: l.filter((x) => Number(x.honorario || 0) === 0).length,
       };
     };
     return { A_VENCER: conta("A_VENCER"), PAGO: conta("PAGO"), VENCIDO: conta("VENCIDO") };
-  }, [noMes]);
+  }, [linhas]);
 
-  // Agrupado por mês de vencimento: é assim que o operador pensa a meta.
+  const filtradas = useMemo(() => {
+    let lista = linhas.filter((l) => l.estado === estado);
+    if (mesFoco) lista = lista.filter((l) => chaveMes(l.vencimento) === mesFoco);
+    if (acionamento) lista = lista.filter((l) => passaAcionamento(l, acionamento));
+    if (busca.trim()) {
+      const t = busca.trim().toLowerCase();
+      lista = lista.filter((l) => String(l.aluno_nome || "").toLowerCase().includes(t));
+    }
+    return lista;
+  }, [linhas, estado, mesFoco, acionamento, busca]);
+
+  // Um card por mês de vencimento: é assim que ela planeja.
   const meses = useMemo(() => {
     const mapa = new Map();
     for (const l of filtradas) {
@@ -154,30 +176,41 @@ export default function HonorariosAEntrar() {
     }
     const arr = [...mapa.values()];
     for (const m of arr) {
+      m.acordos = contarAcordos(m.itens);
       m.valor = m.itens.reduce((s, x) => s + Number(x.valor || 0), 0);
       m.honorario = m.itens.reduce((s, x) => s + Number(x.honorario || 0), 0);
       m.semHonorario = m.itens.filter((x) => Number(x.honorario || 0) === 0).length;
+      m.semAcionar = m.itens.filter((x) => x.dias_sem_acionamento !== 0).length;
+      m.itens.sort((a, b) => {
+        // Dentro do mês, primeiro quem está mais tempo sem acionamento.
+        const da = a.dias_sem_acionamento == null ? 9999 : a.dias_sem_acionamento;
+        const db = b.dias_sem_acionamento == null ? 9999 : b.dias_sem_acionamento;
+        if (da !== db) return db - da;
+        return String(a.aluno_nome || "").localeCompare(String(b.aluno_nome || ""));
+      });
     }
     arr.sort((a, b) => a.chave.localeCompare(b.chave));
     return arr;
   }, [filtradas]);
 
-  const proximoMes = useMemo(() => {
+  const mesAtual = useMemo(() => {
     const d = new Date();
-    d.setMonth(d.getMonth() + 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
   }, []);
 
   if (carregando) {
-    return <div style={A.wrap}><Carregando texto="Somando o que tem para entrar…" /></div>;
+    return <div style={A.wrap}><Carregando texto="Somando os acordos…" /></div>;
   }
 
   return (
     <div style={A.wrap}>
       <div style={A.topo}>
         <div>
-          <h1 style={A.titulo}>O que tenho para entrar</h1>
-          <p style={A.sub}>Escolha o mês para ver o que pode entrar, o que já entrou e o que a quebra levou. Sem mês escolhido, os cards somam tudo.</p>
+          <h1 style={A.titulo}>Controle de Acordos</h1>
+          <p style={A.sub}>
+            Os três estados da parcela do acordo. Os cards do topo somam <b>todos os meses</b>;
+            clique num deles para abrir a lista, mês a mês.
+          </p>
         </div>
         <button type="button" style={A.btnGhost} onClick={() => carregar(operadorFiltro)}>Atualizar</button>
       </div>
@@ -190,11 +223,25 @@ export default function HonorariosAEntrar() {
           onClick={() => setEstado("A_VENCER")}
           style={{ ...estilos.cartao, ...(estado === "A_VENCER" ? estilos.cartaoAtivo : {}) }}
         >
-          <span style={estilos.rotulo}>A vencer — pode entrar{mesFoco ? ` · ${mesDe(mesFoco + "-01")}` : ""}</span>
-          <span style={estilos.numero}>{moeda(totais.A_VENCER.honorario)}</span>
+          <span style={estilos.rotulo}>A vencer — ainda pode entrar</span>
+          <span style={estilos.numero}>{moeda(totais.A_VENCER.valor)}</span>
           <span style={estilos.detalhe}>
-            {totais.A_VENCER.parcelas} parcelas · {moeda(totais.A_VENCER.valor)} de dívida
+            {totais.A_VENCER.acordos} acordos · {totais.A_VENCER.parcelas} parcelas
           </span>
+          <span style={estilos.honorarioLinha}>{moeda(totais.A_VENCER.honorario)} de honorário</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setEstado("VENCIDO")}
+          style={{ ...estilos.cartao, ...(estado === "VENCIDO" ? estilos.cartaoAtivo : {}), borderLeft: "4px solid #b91c1c" }}
+        >
+          <span style={estilos.rotulo}>Vencida — a quebra</span>
+          <span style={{ ...estilos.numero, color: "#b91c1c" }}>{moeda(totais.VENCIDO.valor)}</span>
+          <span style={estilos.detalhe}>
+            {totais.VENCIDO.acordos} acordos · {totais.VENCIDO.parcelas} parcelas
+          </span>
+          <span style={estilos.honorarioLinha}>{moeda(totais.VENCIDO.honorario)} de honorário</span>
         </button>
 
         <button
@@ -202,56 +249,44 @@ export default function HonorariosAEntrar() {
           onClick={() => setEstado("PAGO")}
           style={{ ...estilos.cartao, ...(estado === "PAGO" ? estilos.cartaoAtivo : {}) }}
         >
-          <span style={estilos.rotulo}>Entrou — honorário recebido{mesFoco ? ` · ${mesDe(mesFoco + "-01")}` : ""}</span>
-          <span style={{ ...estilos.numero, color: "#15803d" }}>{moeda(totais.PAGO.honorario)}</span>
+          <span style={estilos.rotulo}>Entrou — parcela paga</span>
+          <span style={{ ...estilos.numero, color: "#15803d" }}>{moeda(totais.PAGO.valor)}</span>
           <span style={estilos.detalhe}>
-            {totais.PAGO.parcelas} pagamento{totais.PAGO.parcelas === 1 ? "" : "s"} · {moeda(totais.PAGO.valor)} recebidos
+            {totais.PAGO.acordos} acordos · {totais.PAGO.parcelas} parcelas
           </span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => setEstado("VENCIDO")}
-          style={{ ...estilos.cartao, ...(estado === "VENCIDO" ? estilos.cartaoAtivo : {}) }}
-        >
-          <span style={estilos.rotulo}>Perdido — venceu sem pagar{mesFoco ? ` · ${mesDe(mesFoco + "-01")}` : ""}</span>
-          <span style={{ ...estilos.numero, color: "#b91c1c" }}>{moeda(totais.VENCIDO.honorario)}</span>
-          <span style={estilos.detalhe}>
-            {totais.VENCIDO.parcelas} parcelas · {moeda(totais.VENCIDO.valor)} em atraso
-          </span>
+          <span style={estilos.honorarioLinha}>{moeda(totais.PAGO.honorario)} de honorário</span>
         </button>
       </div>
 
-      {estado === "A_VENCER" && totais.A_VENCER.parcelas > 0 && (() => {
-        // Quanto do que esta por vencer NAO tem honorario informado -- e quanto
-        // isso seria, na taxa do que ja entrou. Sem isso o card mostra um numero
-        // que a pessoa acha ser "o que vai entrar", quando na verdade e "o que
-        // alguem lembrou de preencher".
+      {estado === "A_VENCER" && totais.A_VENCER.semHonorario > 0 && (() => {
+        // Quanto do que está por vencer NÃO tem honorário informado -- e quanto
+        // isso seria, na taxa do que já entrou. Sem isso o card mostra um número
+        // que a pessoa acha ser "o que vai entrar", quando na verdade é "o que
+        // alguém lembrou de preencher".
         const semHon = totais.A_VENCER.semHonorario;
-        if (!semHon) return null;
         const taxa = totais.PAGO.valor > 0 ? totais.PAGO.honorario / totais.PAGO.valor : 0;
-        const valorSemHon = filtradas
-          .filter((l) => Number(l.honorario || 0) === 0)
+        const valorSemHon = linhas
+          .filter((l) => l.estado === "A_VENCER" && Number(l.honorario || 0) === 0)
           .reduce((s2, l) => s2 + Number(l.valor || 0), 0);
         return (
           <div style={estilos.avisoSemHonorario}>
-            <b>{semHon} de {totais.A_VENCER.parcelas} parcelas estao sem honorario informado</b>
-            {" "}({moeda(valorSemHon)} de divida).
+            <b>{semHon} de {totais.A_VENCER.parcelas} parcelas estão sem honorário informado</b>
+            {" "}({moeda(valorSemHon)} de dívida).
             {taxa > 0 && (
-              <> Na taxa do que ja entrou ({(taxa * 100).toFixed(1)}%), isso seria cerca de{" "}
+              <> Na taxa do que já entrou ({(taxa * 100).toFixed(1)}%), isso seria cerca de{" "}
               <b>{moeda(valorSemHon * taxa)}</b> a mais para entrar.</>
             )}
-            {" "}O valor do card mostra so o que foi preenchido, nao o total previsto.
+            {" "}O honorário do card mostra só o que foi preenchido, não o total previsto.
           </div>
         );
       })()}
 
-      {estado === "VENCIDO" && totais[estado].semHonorario > 0 && (
+      {estado === "VENCIDO" && totais.VENCIDO.semHonorario > 0 && (
         <div style={estilos.avisoSemHonorario}>
-          <b>{totais[estado].semHonorario} destas parcelas estão sem honorário informado.</b> Elas
-          contam na dívida, mas somam zero aqui — os acordos vieram por importação, que não trazia o
-          campo. Para cada uma, abra a ficha do aluno e use <b>“Informar honorários”</b> no card do
-          acordo. O valor se distribui pelas parcelas em aberto e passa a aparecer nesta tela.
+          <b>{totais.VENCIDO.semHonorario} destas parcelas estão sem honorário informado.</b> Elas
+          contam na dívida, mas somam zero no honorário — os acordos vieram por importação, que não
+          trazia o campo. Para cada uma, abra a ficha do aluno e use <b>“Informar honorários”</b> no
+          card do acordo.
         </div>
       )}
 
@@ -270,11 +305,21 @@ export default function HonorariosAEntrar() {
           style={A.select}
           value={mesFoco}
           onChange={(e) => setMesFoco(e.target.value)}
-          title="Os cards e a lista passam a mostrar so este mes"
+          title="Mostrar só um mês na lista"
         >
           <option value="">Todos os meses</option>
           {mesesDisponiveis.map((m) => (
             <option key={m} value={m}>{mesDe(m + "-01")}</option>
+          ))}
+        </select>
+        <select
+          style={A.select}
+          value={acionamento}
+          onChange={(e) => setAcionamento(e.target.value)}
+          title="Filtrar pelo último acionamento do aluno"
+        >
+          {FILTROS_ACIONAMENTO.map((f) => (
+            <option key={f.v} value={f.v}>{f.label}</option>
           ))}
         </select>
         <input
@@ -284,9 +329,9 @@ export default function HonorariosAEntrar() {
           onChange={(e) => setBusca(e.target.value)}
         />
         <div style={A.contadores}>
-          <span style={A.contadorAlunos}>{meses.length} meses</span>
-          <span style={A.contadorAcordos}>{filtradas.length} {estado === "PAGO" ? "pagamentos" : "parcelas"}</span>
-          <span style={A.contadorValor}>{moeda(filtradas.reduce((s, x) => s + Number(x.honorario || 0), 0))}</span>
+          <span style={A.contadorAlunos}>{contarAcordos(filtradas)} acordos</span>
+          <span style={A.contadorAcordos}>{filtradas.length} parcelas</span>
+          <span style={A.contadorValor}>{moeda(filtradas.reduce((s, x) => s + Number(x.valor || 0), 0))}</span>
         </div>
       </div>
 
@@ -296,18 +341,23 @@ export default function HonorariosAEntrar() {
         <div style={A.cards}>
           {meses.map((m) => (
             <div key={m.chave} style={A.card}>
-              <div style={{ ...A.cardHead, ...(m.chave === proximoMes ? estilos.mesDestaque : {}) }}>
+              <div style={{ ...A.cardHead, ...(m.chave === mesAtual ? estilos.mesDestaque : {}) }}>
                 <div style={A.cardHeadInfo}>
                   <span style={A.cardNome}>{m.rotulo}</span>
-                  {m.chave === proximoMes && <span style={estilos.selo}>próximo mês</span>}
+                  {m.chave === mesAtual && <span style={estilos.selo}>mês atual</span>}
+                  <span style={estilos.acordosMes}>{m.acordos} acordo{m.acordos > 1 ? "s" : ""}</span>
                 </div>
                 <div style={A.cardHeadDir}>
                   <span style={A.cardResumo}>
-                    {m.itens.length} {estado === "PAGO" ? "pagamento" : "parcela"}{m.itens.length > 1 ? "s" : ""} · {moeda(m.valor)} {estado === "PAGO" ? "recebidos" : "de dívida"}
+                    {m.itens.length} parcela{m.itens.length > 1 ? "s" : ""} · {moeda(m.valor)}{" "}
+                    {estado === "PAGO" ? "recebidos" : "em aberto"}
                   </span>
                   <span style={estilos.honorarioMes}>{moeda(m.honorario)} de honorário</span>
                   {m.semHonorario > 0 && (
                     <span style={estilos.pendente}>{m.semHonorario} sem informar</span>
+                  )}
+                  {estado !== "PAGO" && m.semAcionar > 0 && (
+                    <span style={estilos.semAcionar}>{m.semAcionar} sem acionar hoje</span>
                   )}
                 </div>
               </div>
@@ -316,36 +366,52 @@ export default function HonorariosAEntrar() {
                 <thead>
                   <tr>
                     <th style={A.th}>Aluno</th>
-                    <th style={A.th}>{estado === "PAGO" ? "Origem" : "Parcela"}</th>
+                    <th style={A.th}>Parcela</th>
                     <th style={A.th}>{estado === "PAGO" ? "Pago em" : "Vencimento"}</th>
                     <th style={A.thNum}>Valor</th>
                     <th style={A.thNum}>Honorário</th>
+                    <th style={A.th}>Último acionamento</th>
                     <th style={A.th}></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {m.itens.map((l) => (
-                    <tr key={l.parcela_id || `${l.aluno_id}-${l.vencimento}-${l.valor}`}>
-                      <td style={A.td}>{l.aluno_nome}</td>
-                      <td style={A.td}>{l.is_entrada ? "Entrada" : l.numero != null ? `Parcela ${l.numero}` : "Pagamento"}</td>
-                      <td style={A.td}>{dia(l.vencimento)}</td>
-                      <td style={A.tdNum}>{moeda(l.valor)}</td>
-                      <td style={A.tdNum}>
-                        {Number(l.honorario || 0) > 0
-                          ? moeda(l.honorario)
-                          : <span style={estilos.zerado}>não informado</span>}
-                      </td>
-                      <td style={A.td}>
-                        <div style={A.acoes}>
-                          {l.aluno_id && (
-                            <button type="button" style={A.btnFicha} onClick={() => setFichaId(l.aluno_id)}>
-                              Abrir ficha
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {m.itens.map((l) => {
+                    const s = selo(l);
+                    return (
+                      <tr key={l.parcela_id || `${l.aluno_id}-${l.vencimento}-${l.valor}`}>
+                        <td style={A.td}>{l.aluno_nome}</td>
+                        <td style={A.td}>{l.is_entrada ? "Entrada" : l.numero != null ? `Parcela ${l.numero}` : "Parcela"}</td>
+                        <td style={A.td}>{dia(l.vencimento)}</td>
+                        <td style={A.tdNum}>{moeda(l.valor)}</td>
+                        <td style={A.tdNum}>
+                          {Number(l.honorario || 0) > 0
+                            ? moeda(l.honorario)
+                            : <span style={estilos.zerado}>não informado</span>}
+                        </td>
+                        <td style={A.td}>
+                          <span
+                            style={{
+                              ...estilos.seloAcion,
+                              color: s.cor, background: s.fundo, borderColor: s.borda,
+                            }}
+                            title={l.ultimo_acionamento ? `Acionado em ${dia(l.ultimo_acionamento)}` : "Sem acionamento registrado"}
+                          >
+                            {s.txt}
+                          </span>
+                          {l.tabulacao && <div style={estilos.tabulacao}>{l.tabulacao}</div>}
+                        </td>
+                        <td style={A.td}>
+                          <div style={A.acoes}>
+                            {l.aluno_id && (
+                              <button type="button" style={A.btnFicha} onClick={() => setFichaId(l.aluno_id)}>
+                                Abrir ficha
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -387,6 +453,7 @@ const estilos = {
   rotulo: { fontSize: 11.5, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em" },
   numero: { fontFamily: "'Sora', Inter, sans-serif", fontSize: 24, fontWeight: 800, color: "#0d1321" },
   detalhe: { fontSize: 12.5, color: "#64748b" },
+  honorarioLinha: { fontSize: 12.5, fontWeight: 700, color: "#15803d" },
   avisoSemHonorario: {
     background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e",
     borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, marginBottom: 14,
@@ -396,10 +463,23 @@ const estilos = {
     fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
     background: "#1e40af", color: "#fff", whiteSpace: "nowrap",
   },
+  acordosMes: {
+    fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
+    background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", whiteSpace: "nowrap",
+  },
   honorarioMes: { fontSize: 13, fontWeight: 800, color: "#15803d" },
   pendente: {
     fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
     background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a", whiteSpace: "nowrap",
   },
+  semAcionar: {
+    fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
+    background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", whiteSpace: "nowrap",
+  },
+  seloAcion: {
+    display: "inline-block", fontSize: 11.5, fontWeight: 700, borderRadius: 999,
+    padding: "2px 10px", border: "1px solid", whiteSpace: "nowrap",
+  },
+  tabulacao: { fontSize: 11.5, color: "#64748b", marginTop: 3, maxWidth: 220 },
   zerado: { fontSize: 12, color: "#b45309", fontStyle: "italic" },
 };
