@@ -583,6 +583,10 @@ const CARDS_FINANCEIROS = new Set(["valorBaixadoMes", "recebidosMes", "honorario
 // Tamanho do lote para consultas .in() consolidadas (evita URL longa e N+1).
 const LOTE_IN = 200;
 
+// Um id invalido na lista derruba a consulta inteira (coluna uuid). Conferir
+// antes de mandar e mais barato que descobrir pela tela vazia.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Tipos de movimentacao que representam uma TABULACAO real do operador.
 // Somente a finalizacao de atendimento (o operador tabulou o resultado).
 // Nao contam: cargas automaticas, retorno do ADM, alteracao de operador,
@@ -1052,7 +1056,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const soAcionaveis = (r) => (r?.data || []).filter((a) => !ehQuitado(a) && !ehNaoAcionavel(a, idsEmConfirmacao));
       const nRetHoje = soAcionaveis(rRetHoje).length;
       const nSemAcion10 = soAcionaveis(rSemAcion10).length;
-      const riscoPerder = (rProx?.data || []).map((c) => String(c.aluno_id)).filter(Boolean);
+      // SO ID VALIDO. `String(null)` vira o TEXTO "null", que passa por
+      // .filter(Boolean) e vai parar num `id IN (...)` contra coluna uuid --
+      // o Postgres entao rejeita a consulta INTEIRA e a lista abre vazia.
+      // Foi o que travou Diego (14 casos orfaos), Rafaella (6) e Mauricio (2)
+      // em 27/08/2026: card com 122 e tela em branco. A funcao do banco tambem
+      // passou a nao devolver caso sem aluno; isto aqui e a segunda defesa.
+      const riscoPerder = (rProx?.data || [])
+        .map((c) => c?.aluno_id)
+        .filter((id) => typeof id === "string" && UUID_RE.test(id));
       riscoPerderIdsRef.current = riscoPerder;
       const nProx = riscoPerder.length;
 
@@ -2067,7 +2079,11 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           const porId = new Map();
           for (let i = 0; i < ids.length; i += LOTE_IN) {
             const lote = ids.slice(i, i + LOTE_IN);
-            const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).in("id", lote);
+            const { data, error: erroLote } = await supabase
+              .from("alunos").select(COLUNAS_ALUNO).in("id", lote);
+            // Nao engolir: era o erro silencioso que fazia a lista abrir vazia
+            // sem nada no console e sem nada na tela.
+            if (erroLote) throw erroLote;
             (data || []).forEach((a) => porId.set(String(a.id), a));
           }
           dados = ids.map((id) => porId.get(id)).filter(Boolean);
