@@ -10,12 +10,16 @@ import Aluno from "./Aluno";
 // O QUE ESTA TELA É (Amanda, 27/08/2026): "lá é só o que está pendente de
 // acordo a entrar, o que já está vencido, um controle dos acordos".
 //
-// Não é caixa. Não é a Projeção. É a parcela de acordo em três estados -- e os
-// três são estados da MESMA coisa, por isso saem todos de `parcelas`:
+// Não é caixa. Não é a Projeção. É a parcela de acordo que AINDA TEM PARA
+// ENTRAR, em dois estados:
 //
 //     A VENCER  -> ainda pode entrar
-//     ENTROU    -> parcela paga
-//     VENCIDA   -> venceu sem pagar; é a quebra
+//     VENCIDA   -> venceu sem pagar; é a quebra, e continua devida
+//
+// Parcela já paga saiu da tela (Amanda, 27/08/2026: "o que entrou pode sair da
+// lista"; "ali fica o controle do que tem para entrar"). Ela não é controle, é
+// histórico -- quem quer o que entrou olha a Projeção. As linhas pagas ainda
+// chegam da RPC, mas só para calcular a taxa de honorário da estimativa.
 //
 // Já errei aqui uma vez: fiz o "Entrou" ler `pagamentos`, a fonte da Projeção.
 // O número ficava certo como "honorário do mês", mas passava a incluir
@@ -94,6 +98,10 @@ export default function HonorariosAEntrar() {
   const [erro, setErro] = useState("");
   const [ehGestao, setEhGestao] = useState(false);
   const [operadorFiltro, setOperadorFiltro] = useState("");
+  // So dois estados: a tela e de PENDENCIA (Amanda, 27/08/2026 -- "o que entrou
+  // pode sair da lista"). Parcela paga nao e controle, e historico: quem quer o
+  // que entrou olha a Projecao. As linhas PAGO ainda chegam da RPC, mas so para
+  // calcular a taxa de honorario usada na estimativa do que falta preencher.
   const [estado, setEstado] = useState("VENCIDO");
   const [busca, setBusca] = useState("");
   const [mesFoco, setMesFoco] = useState("");
@@ -208,8 +216,9 @@ export default function HonorariosAEntrar() {
         <div>
           <h1 style={A.titulo}>Controle de Acordos</h1>
           <p style={A.sub}>
-            Os três estados da parcela do acordo. Os cards do topo somam <b>todos os meses</b>;
-            clique num deles para abrir a lista, mês a mês.
+            O que está pendente nos acordos: o que ainda pode entrar e o que já venceu sem pagar.
+            Os cards do topo somam <b>todos os meses</b>; clique num deles para abrir a lista,
+            mês a mês. Parcela já paga não aparece aqui — para o que entrou, veja a Projeção.
           </p>
         </div>
         <button type="button" style={A.btnGhost} onClick={() => carregar(operadorFiltro)}>Atualizar</button>
@@ -244,18 +253,6 @@ export default function HonorariosAEntrar() {
           <span style={estilos.honorarioLinha}>{moeda(totais.VENCIDO.honorario)} de honorário</span>
         </button>
 
-        <button
-          type="button"
-          onClick={() => setEstado("PAGO")}
-          style={{ ...estilos.cartao, ...(estado === "PAGO" ? estilos.cartaoAtivo : {}) }}
-        >
-          <span style={estilos.rotulo}>Entrou — parcela paga</span>
-          <span style={{ ...estilos.numero, color: "#15803d" }}>{moeda(totais.PAGO.valor)}</span>
-          <span style={estilos.detalhe}>
-            {totais.PAGO.acordos} acordos · {totais.PAGO.parcelas} parcelas
-          </span>
-          <span style={estilos.honorarioLinha}>{moeda(totais.PAGO.honorario)} de honorário</span>
-        </button>
       </div>
 
       {estado === "A_VENCER" && totais.A_VENCER.semHonorario > 0 && (() => {
@@ -349,14 +346,13 @@ export default function HonorariosAEntrar() {
                 </div>
                 <div style={A.cardHeadDir}>
                   <span style={A.cardResumo}>
-                    {m.itens.length} parcela{m.itens.length > 1 ? "s" : ""} · {moeda(m.valor)}{" "}
-                    {estado === "PAGO" ? "recebidos" : "em aberto"}
+                    {m.itens.length} parcela{m.itens.length > 1 ? "s" : ""} · {moeda(m.valor)} em aberto
                   </span>
                   <span style={estilos.honorarioMes}>{moeda(m.honorario)} de honorário</span>
                   {m.semHonorario > 0 && (
                     <span style={estilos.pendente}>{m.semHonorario} sem informar</span>
                   )}
-                  {estado !== "PAGO" && m.semAcionar > 0 && (
+                  {m.semAcionar > 0 && (
                     <span style={estilos.semAcionar}>{m.semAcionar} sem acionar hoje</span>
                   )}
                 </div>
@@ -367,7 +363,7 @@ export default function HonorariosAEntrar() {
                   <tr>
                     <th style={A.th}>Aluno</th>
                     <th style={A.th}>Parcela</th>
-                    <th style={A.th}>{estado === "PAGO" ? "Pago em" : "Vencimento"}</th>
+                    <th style={A.th}>Vencimento</th>
                     <th style={A.thNum}>Valor</th>
                     <th style={A.thNum}>Honorário</th>
                     <th style={A.th}>Último acionamento</th>
@@ -443,7 +439,7 @@ export default function HonorariosAEntrar() {
 }
 
 const estilos = {
-  cartoes: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 12, marginBottom: 14 },
+  cartoes: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 320px))", gap: 12, marginBottom: 14 },
   cartao: {
     textAlign: "left", cursor: "pointer", background: "#fff",
     border: "1px solid #e6eaf0", borderRadius: 12, padding: "14px 16px",
