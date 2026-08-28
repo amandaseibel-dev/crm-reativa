@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { supabase } from "../services/supabase";
@@ -111,6 +112,7 @@ function normalizarLinhaSantander(linhaArray) {
 }
 
 function ProjecaoHoraHoraInner() {
+  const navigate = useNavigate();
   const [usuario, setUsuario] = useState(null);
   const [aba, setAba] = useState("DASHBOARD");
   const [subAbaDashboard, setSubAbaDashboard] = useState("VISAO_GERAL");
@@ -136,6 +138,7 @@ function ProjecaoHoraHoraInner() {
   // SOMAM em vez de um substituir o outro -- e o numero do dia deixa de
   // corresponder a qualquer planilha aberta. Aqui ele volta a se explicar.
   const [composicaoDia, setComposicaoDia] = useState([]);
+  const [nomeCopiado, setNomeCopiado] = useState("");
   const [pagamentosDoDia, setPagamentosDoDia] = useState([]);
   const [carregandoPagamentosDia, setCarregandoPagamentosDia] = useState(false);
   // Conferência diária (modal) — {dia, operadorEmail, esperado:{recuperado,honorario}}.
@@ -369,7 +372,7 @@ function ProjecaoHoraHoraInner() {
     // Filtro de unidade opcional: inner join com alunos só quando uma unidade
     // é escolhida (senão pagamentos sem aluno_id sumiriam) -- e sempre dentro
     // dos pagamentos dela.
-    const colunasDia = "id, aluno_nome, valor_pago, valor_honorario, operador_nome, operador_email, titulo_numero";
+    const colunasDia = "id, aluno_id, aluno_nome, valor_pago, valor_honorario, operador_nome, operador_email, titulo_numero, matricula";
     let consultaDia = supabase
       .from("pagamentos")
       .select(unidadeFiltro ? `${colunasDia}, alunos!inner(unidade)` : colunasDia)
@@ -857,6 +860,16 @@ function ProjecaoHoraHoraInner() {
   // rota é liberada de forma controlada porque NÃO chama a RPC pesada ao abrir:
   // lê apenas o último snapshot salvo (projecao_snapshot_ler) e só recalcula
   // sob o botão manual (Amanda/Fernanda).
+  // Copiar o nome e abrir a ficha: as duas coisas que a gestao faz depois de
+  // olhar um pagamento do dia. Antes so dava para trocar o operador, entao era
+  // preciso sair da tela e buscar o aluno na mao.
+  function copiarNomeDia(nome) {
+    navigator.clipboard.writeText(nome || "").then(() => {
+      setNomeCopiado(nome);
+      setTimeout(() => setNomeCopiado(""), 1500);
+    });
+  }
+
   return (
     <div className="main ph-root" style={{ background: "#f4f6fa", padding: "6px 4px 28px", fontFamily: "'Inter', system-ui, sans-serif" }}>
       <style>{`
@@ -1429,28 +1442,61 @@ function ProjecaoHoraHoraInner() {
                         <thead>
                           <tr>
                             <th style={estilos.th}>Aluno</th>
+                            <th style={estilos.th}>Título</th>
                             {usuario?.podeGerir && <th style={estilos.th}>Operador</th>}
                             <th style={estilos.th}>Valor pago</th>
                             <th style={estilos.th}>Honorário</th>
-                            {usuario?.podeGerir && <th style={estilos.th}>Ação</th>}
+                            <th style={estilos.th}>Ação</th>
                           </tr>
                         </thead>
                         <tbody>
                           {pagamentosDoDia.map((p) => (
                             <tr key={p.id} style={estilos.tr}>
-                              <td style={estilos.td}>{p.aluno_nome || "-"}</td>
+                              <td style={estilos.td}>
+                                {p.aluno_nome || "-"}
+                                {p.aluno_nome ? (
+                                  <button
+                                    style={estilos.botaoCopiarNome}
+                                    onClick={() => copiarNomeDia(p.aluno_nome)}
+                                    title="Copiar o nome do aluno"
+                                  >
+                                    {nomeCopiado === p.aluno_nome ? "✓" : "📋"}
+                                  </button>
+                                ) : null}
+                              </td>
+                              <td style={estilos.td}>
+                                {p.titulo_numero || "-"}
+                                {p.matricula ? (
+                                  <span style={{ color: "#94a3b8", fontSize: 11.5 }}> · mat. {p.matricula}</span>
+                                ) : null}
+                              </td>
                               {usuario?.podeGerir && (
                                 <td style={estilos.td}>{p.operador_nome || p.operador_email || "⚠️ SEM OPERADOR"}</td>
                               )}
                               <td style={estilos.td}>{moeda(p.valor_pago)}</td>
                               <td style={estilos.td}>{moeda(p.valor_honorario)}</td>
-                              {usuario?.podeGerir && (
-                                <td style={estilos.td}>
-                                  <button style={estilos.botaoLink} onClick={() => alterarOperador(p.id, p.operador_email)}>
-                                    Alterar operador
-                                  </button>
-                                </td>
-                              )}
+                              <td style={estilos.td}>
+                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                  {p.aluno_id ? (
+                                    <button
+                                      style={estilos.botaoLink}
+                                      onClick={() => navigate("/aluno?id=" + p.aluno_id)}
+                                      title="Abrir a ficha deste aluno"
+                                    >
+                                      Abrir ficha
+                                    </button>
+                                  ) : (
+                                    <span style={{ fontSize: 11.5, color: "#b45309" }} title="Este pagamento ainda não foi vinculado a um aluno. Resolva em Gestão > Pagamentos sem aluno.">
+                                      sem aluno vinculado
+                                    </span>
+                                  )}
+                                  {usuario?.podeGerir && (
+                                    <button style={estilos.botaoLink} onClick={() => alterarOperador(p.id, p.operador_email)}>
+                                      Alterar operador
+                                    </button>
+                                  )}
+                                </div>
+                              </td>
                             </tr>
                           ))}
                         </tbody>
@@ -1966,6 +2012,7 @@ const PH_FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const PH_VERDE = "#2563eb";
 
 const estilos = {
+  botaoCopiarNome: { marginLeft: 6, background: "transparent", border: "none", cursor: "pointer", fontSize: 12, padding: 0 },
   hero: {
     background: "#fff",
     border: `1px solid ${PH_BORDA_SUAVE}`,
