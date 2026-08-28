@@ -1,0 +1,2 @@
+-- volta para a versao sem a trava de duplicata (NAO recomendado: ela
+-- ressuscita as copias que a fusao aposentou)
