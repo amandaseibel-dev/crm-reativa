@@ -1,0 +1,11 @@
+-- Rollback: cancelamento, suspensao e juridico voltam a ser tabulacao livre.
+-- ATENCAO: reabre o caminho que tirou Leonardo Soares de Sena da cobranca com
+-- R$ 1.923,09 em aberto, por tabulacao de operador sem validacao.
+--
+-- drop trigger if exists trg_encerramento_so_gestao on public.alunos;
+-- drop function if exists public._encerramento_so_gestao();
+-- update public.tabulacoes set somente_gestao = false
+--  where codigo in ('CANCELAMENTO_COBRANCA','SUSPENSAO_COBRANCA','JURIDICO');
+-- drop policy if exists tabulacoes_leitura_autenticado on public.tabulacoes;
+-- create policy tabulacoes_leitura_autenticado on public.tabulacoes for select using (true);
+-- (a coluna somente_gestao pode ficar: nao atrapalha.)
