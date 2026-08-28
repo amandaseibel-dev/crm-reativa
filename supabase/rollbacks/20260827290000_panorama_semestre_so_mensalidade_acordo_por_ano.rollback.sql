@@ -1,0 +1,4 @@
+-- Rollback: acordo volta para dentro do bloco de semestre, como linha "ja em
+-- acordo", e o bloco por ano some. Reaplicar
+-- 20260827280000_panorama_semestre_da_serie_do_prime.sql e remover o bloco
+-- "Acordo por ano de vencimento" de src/pages/SaudeCompletaCarteira.jsx.
