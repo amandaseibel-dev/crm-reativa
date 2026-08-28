@@ -49,6 +49,7 @@ export default function ConferenciaPrime() {
   // entrar e negociacao, nao pagamento. Amanda: "tem casos la que nem estao
   // pagos, nao tem vinculo com os relatorios do santander".
   const [dinheiro, setDinheiro] = useState("TODOS");
+  const [cobertura, setCobertura] = useState("TODOS");
   const [nomeCopiado, setNomeCopiado] = useState("");
   const [itens, setItens] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -184,8 +185,20 @@ export default function ConferenciaPrime() {
 
   const filtrados = useMemo(() => {
     const porDinheiro = (t) => dinheiro === "TODOS" || t.dinheiro === dinheiro;
+    // A cobertura compara a SOMA dos titulos liquidados no dia com tudo que o
+    // aluno pagou na janela. Valor titulo a titulo nao serve: de 1.595 titulos
+    // com pagamento, so 1 batia exato -- o aluno paga em lote, com juros.
+    const porCobertura = (t) => {
+      if (cobertura === "TODOS") return true;
+      const c = Number(t.lote_cobertura);
+      if (!Number.isFinite(c)) return false;
+      if (cobertura === "COBRE") return c >= 98;
+      if (cobertura === "PARCIAL") return c >= 50 && c < 98;
+      return c < 50;
+    };
     let lista = itens.filter((i) => {
       if (!porDinheiro(i)) return false;
+      if (!porCobertura(i)) return false;
       if (grupo === "TODOS") return true;
       if (grupo === "COM_ACORDO") return i.tem_acordo_ativo;
       return !i.tem_acordo_ativo;
@@ -202,7 +215,7 @@ export default function ConferenciaPrime() {
       });
     }
     return lista;
-  }, [itens, grupo, busca, dinheiro]);
+  }, [itens, grupo, busca, dinheiro, cobertura]);
 
   // 1 card por aluno, como nas outras filas.
   const grupos = useMemo(() => {
@@ -346,6 +359,12 @@ export default function ConferenciaPrime() {
               <option value="OUTRA_DATA">Pagou em outra data</option>
               <option value="FORA_DA_JANELA">Antes de a base ter pagamentos</option>
             </select>
+            <select style={A.select} value={cobertura} onChange={(e) => setCobertura(e.target.value)}>
+              <option value="TODOS">Cobertura do pagamento (todas)</option>
+              <option value="COBRE">Pagamento cobre o dia inteiro</option>
+              <option value="PARCIAL">Cobre só parte</option>
+              <option value="ABAIXO">Muito abaixo — provável negociação</option>
+            </select>
             <select style={A.select} value={ordem} onChange={(e) => setOrdem(e.target.value)}>
               <option value="VALOR_DESC">Maior valor primeiro</option>
               <option value="VALOR_ASC">Menor valor primeiro</option>
@@ -400,6 +419,17 @@ export default function ConferenciaPrime() {
                       </button>
                       <span style={A.cardCpf}>CPF {formatCpf(g.cpf)}</span>
                       {g.temAcordoAtivo && <span style={estilos.selo}>acordo ativo</span>}
+                      {(() => {
+                        const c = Number(g.titulos?.[0]?.lote_cobertura);
+                        if (!Number.isFinite(c)) return null;
+                        const est = c >= 98 ? estilos.seloComDinheiro
+                          : c >= 50 ? estilos.seloPortadorAlerta : estilos.seloSemDinheiro;
+                        return (
+                          <span style={est} title={g.titulos[0].lote_diz || ""}>
+                            pagamento cobre {c}% do dia
+                          </span>
+                        );
+                      })()}
                       {g.padrao === "NEGOCIACAO" && (
                         <span
                           style={estilos.seloAlerta}
