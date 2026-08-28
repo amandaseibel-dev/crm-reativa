@@ -1,0 +1,2 @@
+-- Volta para a versao sem as travas (b) e (c). NAO recomendado: ela sugeria
+-- quitar 105 alunos com acordo em andamento.
