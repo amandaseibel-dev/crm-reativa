@@ -95,11 +95,11 @@ export default function DadosAcademicos({ aluno }) {
       resumo={resumo}
       style={S.caixa}
     >
+      {/* Matricula, Curso e Situacao nao se repetem aqui: os tres ja ficam na
+          linha do titulo, que continua visivel com o bloco aberto. Aqui entra
+          so o que nao cabia la. */}
       <div style={S.grid}>
-        <Item rot="Matrícula" val={matricula} />
         <Item rot="Modalidade" val={modalidade} />
-        <Item rot="Curso" val={curso} />
-        <Item rot="Situação acadêmica" val={situacao} />
         <Item rot="Estabelecimento" val={estab} />
         <Item rot="Competência" val={comp} />
         <Item rot="Fonte" val={fonte} />
