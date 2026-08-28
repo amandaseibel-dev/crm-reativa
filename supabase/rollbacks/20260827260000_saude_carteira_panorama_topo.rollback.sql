@@ -1,0 +1,4 @@
+-- Rollback: remove o panorama do topo da Saude da Carteira.
+-- drop function if exists public.saude_carteira_panorama();
+-- No front, remover <Panorama dados={panorama} /> e o estado/carga em
+-- src/pages/SaudeCompletaCarteira.jsx. Nada mais depende disso -- e leitura pura.

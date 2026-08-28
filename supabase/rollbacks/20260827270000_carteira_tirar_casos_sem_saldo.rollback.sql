@@ -1,0 +1,7 @@
+-- Rollback: devolve a carteira os 288 casos tirados por saldo zero.
+-- update public.casos c
+--    set status_atual = b.status_atual_antes
+--   from public._backup_carteira_saldo_zero_20260827 b
+--  where c.id = b.caso_id and c.status_atual = 'SEM_SALDO_EM_ABERTO';
+-- A tabela _backup_carteira_saldo_zero_20260827 guarda caso, aluno, situacao e
+-- os status de antes, caso a caso.
