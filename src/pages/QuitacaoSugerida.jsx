@@ -13,6 +13,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
+import Aluno from "./Aluno";
+import DadosAcademicos from "../components/DadosAcademicos";
 
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dataCurta = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "-");
@@ -25,6 +27,9 @@ export default function QuitacaoSugerida() {
   const [marcados, setMarcados] = useState(() => new Set());
   const [processando, setProcessando] = useState(false);
   const [resultado, setResultado] = useState(null);
+  // Ficha na MESMA tela: sair para outra aba e voltar fazia perder a lista e o
+  // que ja estava marcado. Aqui ela abre por cima, confere e fecha.
+  const [fichaId, setFichaId] = useState(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(""); setResultado(null); setMarcados(new Set());
@@ -151,14 +156,37 @@ export default function QuitacaoSugerida() {
                 {Number(l.sobra) > 0.005 ? (
                   <span style={colunaSobra}>sobra {moeda(l.sobra)}</span>
                 ) : null}
-                <a href={`/aluno?id=${l.aluno_id}`} target="_blank" rel="noreferrer" style={linkFicha}>
+                <button type="button" onClick={() => setFichaId(l.aluno_id)} style={linkFicha}>
                   Abrir ficha
-                </a>
+                </button>
               </div>
             </div>
           </div>
         ))}
       </div>
+
+      {fichaId && (
+        <div style={S.modalOverlay} onClick={() => setFichaId(null)}>
+          <div style={S.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div style={S.modalTopo}>
+              <span style={S.modalTitulo}>Ficha do aluno</span>
+              <button
+                type="button"
+                style={{ ...S.modalFechar, marginLeft: "auto" }}
+                onClick={() => { setFichaId(null); carregar(); }}
+              >
+                Fechar ✕
+              </button>
+            </div>
+            <div style={{ padding: "0 16px" }}>
+              <DadosAcademicos aluno={{ id: fichaId }} />
+            </div>
+            <div style={S.modalConteudo}>
+              <Aluno fichaEmbedId={fichaId} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -15,6 +15,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import CadastroNovoAluno from "../components/CadastroNovoAluno";
+import Aluno from "./Aluno";
+import DadosAcademicos from "../components/DadosAcademicos";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -36,6 +38,7 @@ export default function PagamentosSemAluno() {
   const [erro, setErro] = useState("");
   const [filtro, setFiltro] = useState("TODOS");
   const [abertoId, setAbertoId] = useState(null);
+  const [fichaId, setFichaId] = useState(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -108,14 +111,38 @@ export default function PagamentosSemAluno() {
             aberto={abertoId === l.pagamento_id}
             onAbrir={() => setAbertoId(abertoId === l.pagamento_id ? null : l.pagamento_id)}
             onVinculado={carregar}
+            onVerFicha={setFichaId}
           />
         ))}
       </div>
+
+      {fichaId && (
+        <div style={S.modalOverlay} onClick={() => setFichaId(null)}>
+          <div style={S.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div style={S.modalTopo}>
+              <span style={S.modalTitulo}>Ficha do aluno</span>
+              <button
+                type="button"
+                style={{ ...S.modalFechar, marginLeft: "auto" }}
+                onClick={() => setFichaId(null)}
+              >
+                Fechar ✕
+              </button>
+            </div>
+            <div style={{ padding: "0 16px" }}>
+              <DadosAcademicos aluno={{ id: fichaId }} />
+            </div>
+            <div style={S.modalConteudo}>
+              <Aluno fichaEmbedId={fichaId} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
-function Linha({ item, aberto, onAbrir, onVinculado }) {
+function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha }) {
   const [termo, setTermo] = useState("");
   const [resultados, setResultados] = useState(null);
   const [buscando, setBuscando] = useState(false);
@@ -211,14 +238,24 @@ function Linha({ item, aberto, onAbrir, onVinculado }) {
                         {a.status_atual ? ` · ${a.status_atual}` : ""}
                       </div>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => vincular(a.id, a.nome)}
-                      disabled={salvando}
-                      style={S.btnGhost}
-                    >
-                      {salvando ? "…" : "Vincular"}
-                    </button>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => onVerFicha && onVerFicha(a.id)}
+                        style={{ ...S.btnGhost, background: "#eef2ff", color: "#3730a3" }}
+                        title="Conferir a ficha antes de vincular, sem sair da fila"
+                      >
+                        Ver ficha
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => vincular(a.id, a.nome)}
+                        disabled={salvando}
+                        style={S.btnGhost}
+                      >
+                        {salvando ? "…" : "Vincular"}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
