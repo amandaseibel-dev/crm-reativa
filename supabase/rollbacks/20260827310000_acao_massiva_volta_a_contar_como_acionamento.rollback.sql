@@ -1,0 +1,4 @@
+-- Rollback: a acao massiva deixa de contar como acionamento.
+-- Remover `data_ultimo_acionamento = v_agora` do UPDATE em
+-- registrar_acao_massiva. ATENCAO: a Amanda decidiu o contrario em 27/08/2026
+-- ("todos os acionamentos da operacao ou acao massiva devem contar").
