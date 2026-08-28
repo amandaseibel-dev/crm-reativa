@@ -12,6 +12,7 @@ const FILTROS = [
   { valor: "TODOS", label: "Todos" },
   { valor: "EM_ABERTO", label: "Em aberto" },
   { valor: "EM_ATRASO", label: "Em atraso" },
+  { valor: "NEGOCIADO", label: "Negociados" },
   { valor: "PAGO", label: "Pagos" },
   { valor: "PARCIAL", label: "Parciais" },
 ];
@@ -43,10 +44,15 @@ function moedaCompacta(valor) {
   return moeda(n);
 }
 
+// "Negociado" e rotulo proprio de proposito: a mensalidade zerou porque virou
+// acordo, e o aluno continua devendo. Chamar isso de "Pago" contraria a premissa
+// de que "Pago" so existe com saldo zerado -- foi o caso do Frederico Tarrago.
 const SITUACAO_LABEL = {
   EM_ABERTO: "Em aberto",
   PARCIAL: "Parcial",
   PAGO: "Pago",
+  NEGOCIADO: "Negociado",
+  SEM_TITULO: "Sem título",
 };
 
 export default function ConsultaFinanceira() {
@@ -69,6 +75,7 @@ export default function ConsultaFinanceira() {
     if (filtro === "EM_ABERTO") query = query.in("situacao_geral", ["EM_ABERTO", "PARCIAL"]);
     if (filtro === "EM_ATRASO") query = query.eq("tem_atraso", true);
     if (filtro === "PAGO") query = query.eq("situacao_geral", "PAGO");
+    if (filtro === "NEGOCIADO") query = query.eq("situacao_geral", "NEGOCIADO");
     if (filtro === "PARCIAL") query = query.eq("situacao_geral", "PARCIAL");
 
     if (buscaLimpa) {
@@ -376,12 +383,23 @@ export default function ConsultaFinanceira() {
                       {linha.qtd_pagos > 0 ? ` (+${linha.qtd_pagos} pagos)` : ""}
                     </td>
                     <td style={S.td}>
-                      {formatarData(linha.proximo_vencimento)}
+                      {formatarData(linha.proximo_vencimento || linha.proxima_parcela_acordo)}
                       {linha.tem_atraso && (
                         <span style={{ ...S.selo, ...S.seloAtraso, marginLeft: 6 }}>atrasado</span>
                       )}
                     </td>
-                    <td style={S.tdNum}>{moeda(linha.valor_em_aberto)}</td>
+                    <td style={S.tdNum}>
+                      {Number(linha.valor_em_aberto) > 0
+                        ? moeda(linha.valor_em_aberto)
+                        : Number(linha.valor_acordo_aberto) > 0
+                          ? (
+                            <span title="A mensalidade virou acordo. O que vale e o saldo do acordo.">
+                              {moeda(linha.valor_acordo_aberto)}
+                              <span style={{ ...S.selo, ...S.seloAberto, marginLeft: 6 }}>acordo</span>
+                            </span>
+                          )
+                          : moeda(0)}
+                    </td>
                     <td style={S.td}>
                       <span style={{ ...S.selo, ...(linha.situacao_geral === "PAGO" ? S.seloPago : S.seloAberto) }}>
                         {SITUACAO_LABEL[linha.situacao_geral] || linha.situacao_geral}
