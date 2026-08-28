@@ -308,6 +308,32 @@ export default function ConferenciaPrime() {
     carregar();
   }
 
+  // Rejeitar em lote. Rejeitar NAO mexe em dinheiro -- nao baixa titulo, nao
+  // altera saldo, nao tira ninguem da carteira. So registra "conferi e a
+  // divida e real" e tira da fila. Por isso o lote e seguro aqui, enquanto
+  // BAIXAR continua um titulo por vez, de proposito.
+  async function rejeitarLote(lista, descricao) {
+    if (!lista.length) return;
+    const total = lista.reduce((t, x) => t + Number(x.valor_em_aberto || 0), 0);
+    const motivo = window.prompt(
+      `Rejeitar ${lista.length} título(s) — ${descricao}\n` +
+      `Somam ${moeda(total)}.\n\n` +
+      `Rejeitar NÃO baixa nada: só marca que você conferiu e a dívida é real, ` +
+      `e tira da fila.\n\nPor quê?`,
+      "Liquidado no Prime sem pagamento no Santander — é negociação, não pagamento",
+    );
+    if (motivo === null) return;
+    setProcessando((a) => ({ ...a, lote: true }));
+    const { data, error } = await supabase.rpc("prime_conferencia_rejeitar_lote", {
+      p_titulo_ids: lista.map((x) => x.titulo_id),
+      p_motivo: motivo,
+    });
+    setProcessando((a) => ({ ...a, lote: false }));
+    if (error) { alert("Erro ao rejeitar em lote: " + error.message); return; }
+    alert(`${data?.rejeitados ?? lista.length} título(s) rejeitado(s).`);
+    carregar();
+  }
+
   function copiarNome(nome) {
     navigator.clipboard.writeText(nome || "").then(() => {
       setNomeCopiado(nome);
@@ -376,6 +402,17 @@ export default function ConferenciaPrime() {
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
             />
+            {dinheiro !== "TODOS" || cobertura !== "TODOS" || grupo !== "TODOS" ? (
+              <button
+                type="button"
+                style={{ ...estilos.btnRejeitar, ...(processando.lote ? A.btnBusy : {}) }}
+                disabled={!!processando.lote || filtrados.length === 0}
+                onClick={() => rejeitarLote(filtrados, "resultado do filtro atual")}
+                title="Marca todos os títulos filtrados como conferidos e não baixados"
+              >
+                {processando.lote ? "Rejeitando..." : `Rejeitar os ${filtrados.length} filtrados`}
+              </button>
+            ) : null}
             <div style={A.contadores}>
               <span style={A.contadorAlunos}>{grupos.length} alunos</span>
               <span style={A.contadorAcordos}>{filtrados.length} títulos</span>
@@ -472,6 +509,17 @@ export default function ConferenciaPrime() {
                           {processando[`card:${g.chave}`]
                             ? "Baixando..."
                             : `Baixar os ${g.titulos.length} títulos`}
+                        </button>
+                      )}
+                      {g.titulos.length > 1 && (
+                        <button
+                          type="button"
+                          style={{ ...estilos.btnRejeitar, ...(processando.lote ? A.btnBusy : {}) }}
+                          disabled={!!processando.lote}
+                          onClick={() => rejeitarLote(g.titulos, `todos do aluno ${g.nome}`)}
+                          title="Confere e tira da fila sem baixar nada"
+                        >
+                          Rejeitar os {g.titulos.length}
                         </button>
                       )}
                       {g.alunoId && (
