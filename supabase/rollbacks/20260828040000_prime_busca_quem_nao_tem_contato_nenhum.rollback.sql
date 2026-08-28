@@ -1,0 +1,5 @@
+-- Rollback: a fila da Prime volta a ignorar quem nao tem contato nenhum.
+-- Reaplicar 20260827240000_prime_coleta_tambem_quem_foi_quitado.sql -- ela tem
+-- a versao sem a CTE `sem_contato` e sem o criterio dela no ORDER BY.
+-- Consequencia: 3.216 alunos sem telefone e sem e-mail voltam a nunca ser
+-- consultados na Prime, e seguem inalcancaveis por qualquer canal.
