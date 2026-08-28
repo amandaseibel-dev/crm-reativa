@@ -45,6 +45,7 @@ function formatCpf(v) {
 }
 
 export default function ConferenciaPrime() {
+  const [nomeCopiado, setNomeCopiado] = useState("");
   const [itens, setItens] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
@@ -67,7 +68,7 @@ export default function ConferenciaPrime() {
     setCarregando(true);
     setErro("");
     try {
-      const { data, error } = await supabase.rpc("prime_conferencia_listar");
+      const { data, error } = await supabase.rpc("prime_conferencia_fila");
       if (error) throw error;
       const linhas = data || [];
       setItens(linhas);
@@ -109,7 +110,7 @@ export default function ConferenciaPrime() {
     const falhas = [];
     try {
       for (const t of g.titulos) {
-        const { error } = await supabase.rpc("prime_conferencia_baixar", {
+        const { error } = await supabase.rpc("prime_conferencia_confirmar", {
           p_titulo_id: t.titulo_id,
           p_observacao: null,
         });
@@ -155,7 +156,7 @@ export default function ConferenciaPrime() {
 
     setProcessando((p) => ({ ...p, [item.titulo_id]: true }));
     try {
-      const { data, error } = await supabase.rpc("prime_conferencia_baixar", {
+      const { data, error } = await supabase.rpc("prime_conferencia_confirmar", {
         p_titulo_id: item.titulo_id,
         p_observacao: null,
       });
@@ -264,7 +265,34 @@ export default function ConferenciaPrime() {
   const totalFiltrado = filtrados.reduce((s, i) => s + (Number(i.valor_em_aberto) || 0), 0);
 
   if (carregando) {
-    return (
+    // REJEITAR: a Prime diz liquidado, mas a gestao conferiu e a divida e real
+  // (o caso mais comum: portador 195, que significa "ainda em cobranca"). Nao
+  // baixa nada -- so tira da fila com o motivo registrado.
+  async function rejeitar(t) {
+    const motivo = window.prompt(
+      `Não baixar o boleto ${t.documento} de ${t.aluno_nome}?\n\n` +
+      `Por quê? (ex.: Prime ainda cobra, cliente não pagou, liquidação por negociação)`,
+      t.portador === 195 ? "Prime ainda cobra este título (portador 195)" : "",
+    );
+    if (motivo === null) return;
+    setProcessando((a) => ({ ...a, [t.titulo_id]: true }));
+    const { error } = await supabase.rpc("prime_conferencia_rejeitar", {
+      p_titulo_id: t.titulo_id,
+      p_motivo: motivo,
+    });
+    setProcessando((a) => ({ ...a, [t.titulo_id]: false }));
+    if (error) { alert("Erro ao rejeitar: " + error.message); return; }
+    carregar();
+  }
+
+  function copiarNome(nome) {
+    navigator.clipboard.writeText(nome || "").then(() => {
+      setNomeCopiado(nome);
+      setTimeout(() => setNomeCopiado(""), 1500);
+    });
+  }
+
+  return (
       <div style={A.wrap}>
         <Carregando texto="Conferindo com a Prime…" />
       </div>
@@ -345,6 +373,14 @@ export default function ConferenciaPrime() {
                   <div style={A.cardHead}>
                     <div style={A.cardHeadInfo}>
                       <span style={A.cardNome}>{g.nome || "-"}</span>
+                      <button
+                        type="button"
+                        onClick={() => copiarNome(g.nome)}
+                        style={estilos.btnCopiar}
+                        title="Copiar o nome do aluno"
+                      >
+                        {nomeCopiado === g.nome ? "✓ Copiado" : "📋 Copiar"}
+                      </button>
                       <span style={A.cardCpf}>CPF {formatCpf(g.cpf)}</span>
                       {g.temAcordoAtivo && <span style={estilos.selo}>acordo ativo</span>}
                       {g.padrao === "NEGOCIACAO" && (
@@ -421,7 +457,17 @@ export default function ConferenciaPrime() {
                           <tr key={t.titulo_id}>
                             <td style={A.td}>{t.documento || "-"}</td>
                             <td style={A.td}>{dia(t.vencimento)}</td>
-                            <td style={A.td}>{dia(t.liquidado_em)}</td>
+                            <td style={A.td}>
+                              {dia(t.liquidado_em)}
+                              {t.portador ? (
+                                <span
+                                  style={t.portador === 166 ? estilos.seloPortadorOk : estilos.seloPortadorAlerta}
+                                  title={t.portador_diz || ""}
+                                >
+                                  {t.portador === 166 ? "saiu da cobrança" : `portador ${t.portador}`}
+                                </span>
+                              ) : null}
+                            </td>
                             <td style={A.tdNum}>{moeda(t.valor_em_aberto)}</td>
                             <td style={A.td}>
                               <div style={A.acoes}>
@@ -432,7 +478,16 @@ export default function ConferenciaPrime() {
                                   onClick={() => baixar({ ...t, padraoAluno: g.padrao })}
                                   title="Marca o título como pago e tira da dívida em aberto"
                                 >
-                                  {busy ? "Baixando..." : "Dar baixa"}
+                                  {busy ? "Baixando..." : "Confirmado"}
+                                </button>
+                                <button
+                                  type="button"
+                                  style={{ ...estilos.btnRejeitar, ...(busy ? A.btnBusy : {}) }}
+                                  disabled={busy}
+                                  onClick={() => rejeitar(t)}
+                                  title="A dívida é real: não baixar e tirar da fila"
+                                >
+                                  Rejeitar
                                 </button>
                               </div>
                             </td>
@@ -475,6 +530,10 @@ export default function ConferenciaPrime() {
 }
 
 const estilos = {
+  btnCopiar: { background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
+  btnRejeitar: { background: "#fff", color: "#b91c1c", border: "1px solid #fecaca", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
+  seloPortadorAlerta: { marginLeft: 8, fontSize: 11, fontWeight: 800, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 999, padding: "2px 8px" },
+  seloPortadorOk: { marginLeft: 8, fontSize: 11, fontWeight: 800, color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "2px 8px" },
   aviso: {
     background: "#fffbeb",
     border: "1px solid #fde68a",
