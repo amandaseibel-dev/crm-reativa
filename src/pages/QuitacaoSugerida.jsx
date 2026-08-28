@@ -30,6 +30,7 @@ export default function QuitacaoSugerida() {
   // Ficha na MESMA tela: sair para outra aba e voltar fazia perder a lista e o
   // que ja estava marcado. Aqui ela abre por cima, confere e fecha.
   const [fichaId, setFichaId] = useState(null);
+  const [nomeCopiado, setNomeCopiado] = useState("");
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro(""); setResultado(null); setMarcados(new Set());
@@ -46,6 +47,13 @@ export default function QuitacaoSugerida() {
   const saldoMarcado = useMemo(
     () => linhas.filter((l) => marcados.has(l.aluno_id)).reduce((s, l) => s + Number(l.saldo || 0), 0),
     [linhas, marcados]);
+
+  function copiarNome(nome) {
+    navigator.clipboard.writeText(nome || "").then(() => {
+      setNomeCopiado(nome);
+      setTimeout(() => setNomeCopiado(""), 1500);
+    });
+  }
 
   function alternar(id) {
     setMarcados((antes) => {
@@ -146,6 +154,14 @@ export default function QuitacaoSugerida() {
                   style={{ width: 17, height: 17, cursor: "pointer" }}
                 />
                 <span style={S.cardNome}>{l.nome}</span>
+                <button
+                  type="button"
+                  onClick={() => copiarNome(l.nome)}
+                  style={btnCopiarNome}
+                  title="Copiar o nome do aluno"
+                >
+                  {nomeCopiado === l.nome ? "✓ Copiado" : "📋 Copiar"}
+                </button>
                 <span style={S.cardCpf}>
                   CPF {l.cpf || "-"} · {l.responsavel} · {l.qtd_pagamentos} pagamento(s) · último {dataCurta(l.ultimo_pagamento)}
                 </span>
@@ -191,6 +207,7 @@ export default function QuitacaoSugerida() {
   );
 }
 
+const btnCopiarNome = { background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" };
 const colunaPagou = { fontSize: 12.5, fontWeight: 800, color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "4px 12px" };
 const colunaDeve = { fontSize: 12.5, fontWeight: 800, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 999, padding: "4px 12px" };
 const colunaSobra = { fontSize: 12, fontWeight: 700, color: "#475569", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "4px 10px" };
