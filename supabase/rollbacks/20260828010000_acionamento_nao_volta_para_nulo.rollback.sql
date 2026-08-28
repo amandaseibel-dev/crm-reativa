@@ -1,0 +1,3 @@
+-- Rollback: volta a permitir que a troca de dono apague o acionamento.
+-- drop trigger if exists trg_acionamento_nao_volta_para_nulo on public.alunos;
+-- drop function if exists public._acionamento_nao_volta_para_nulo();
