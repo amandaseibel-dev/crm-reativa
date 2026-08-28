@@ -71,9 +71,21 @@ function normalizarLinhaSantander(linhaArray) {
   // então cai para o primeiro nome.
   const emailOperador = emailPorNomeOperador(operadorBruto);
 
+  // Coluna B vem como "2026002333 - Nome do Aluno". A matricula era JOGADA
+  // FORA aqui: ficava so o nome, e o pagamento entrava na base sem nenhum
+  // identificador que casasse com o aluno -- nem CPF, nem matricula. Era por
+  // isso que 3.272 pagamentos do mes estavam sem vinculo e o unico casamento
+  // possivel era por nome, que erra em homonimo.
   let aluno = String(alunoBruto || "");
+  let matricula = null;
   const partesAluno = aluno.split(" - ");
-  if (partesAluno.length > 1) aluno = partesAluno.slice(1).join(" - ");
+  if (partesAluno.length > 1) {
+    const prefixo = partesAluno[0].trim();
+    // So aceita como matricula se for numero: tem nome de aluno com " - "
+    // no meio, e ali o prefixo e parte do nome, nao matricula.
+    if (/^[0-9]{3,}$/.test(prefixo)) matricula = prefixo;
+    aluno = partesAluno.slice(1).join(" - ");
+  }
 
   return {
     data_pagamento: paraDataISO(dataPagamento),
@@ -93,6 +105,7 @@ function normalizarLinhaSantander(linhaArray) {
     operador_email: emailOperador,
     operador_nome: emailOperador ? nomeOperadorPorEmail(emailOperador) : (operadorBruto || null),
     aluno_nome: aluno || null,
+    matricula,
     cpf: null,
   };
 }
