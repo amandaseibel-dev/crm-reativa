@@ -50,6 +50,10 @@ export default function ConferenciaPrime() {
   // pagos, nao tem vinculo com os relatorios do santander".
   const [dinheiro, setDinheiro] = useState("TODOS");
   const [cobertura, setCobertura] = useState("TODOS");
+  // Simulacao nao cumprida: liquidou no Prime, nao entrou dinheiro e nao
+  // existe acordo no CRM. A divida e real -- e o oposto de quem tem acordo
+  // ativo, onde o titulo esta sendo cobrado em dobro.
+  const [acordoSit, setAcordoSit] = useState("TODOS");
   const [nomeCopiado, setNomeCopiado] = useState("");
   const [itens, setItens] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -188,6 +192,7 @@ export default function ConferenciaPrime() {
     // A cobertura compara a SOMA dos titulos liquidados no dia com tudo que o
     // aluno pagou na janela. Valor titulo a titulo nao serve: de 1.595 titulos
     // com pagamento, so 1 batia exato -- o aluno paga em lote, com juros.
+    const porAcordo = (t) => acordoSit === "TODOS" || t.acordo_situacao === acordoSit;
     const porCobertura = (t) => {
       if (cobertura === "TODOS") return true;
       const c = Number(t.lote_cobertura);
@@ -199,6 +204,7 @@ export default function ConferenciaPrime() {
     let lista = itens.filter((i) => {
       if (!porDinheiro(i)) return false;
       if (!porCobertura(i)) return false;
+      if (!porAcordo(i)) return false;
       if (grupo === "TODOS") return true;
       if (grupo === "COM_ACORDO") return i.tem_acordo_ativo;
       return !i.tem_acordo_ativo;
@@ -215,7 +221,7 @@ export default function ConferenciaPrime() {
       });
     }
     return lista;
-  }, [itens, grupo, busca, dinheiro, cobertura]);
+  }, [itens, grupo, busca, dinheiro, cobertura, acordoSit]);
 
   // 1 card por aluno, como nas outras filas.
   const grupos = useMemo(() => {
@@ -291,7 +297,9 @@ export default function ConferenciaPrime() {
     const motivo = window.prompt(
       `Não baixar o boleto ${t.documento} de ${t.aluno_nome}?\n\n` +
       `Por quê? (ex.: Prime ainda cobra, cliente não pagou, liquidação por negociação)`,
-      t.dinheiro === "NAO_ENTROU"
+      t.dinheiro === "NAO_ENTROU" && t.acordo_situacao === "SEM_ACORDO"
+        ? "Simulação de acordo não cumprida: liquidou no Prime, não entrou dinheiro e não há acordo no CRM"
+        : t.dinheiro === "NAO_ENTROU"
         ? "Liquidado no Prime sem pagamento no Santander — é negociação, não pagamento"
         : t.portador === 195
           ? "Prime ainda cobra este título (portador 195)"
@@ -390,6 +398,12 @@ export default function ConferenciaPrime() {
               <option value="COBRE">Pagamento cobre o dia inteiro</option>
               <option value="PARCIAL">Cobre só parte</option>
               <option value="ABAIXO">Muito abaixo — provável negociação</option>
+            </select>
+            <select style={A.select} value={acordoSit} onChange={(e) => setAcordoSit(e.target.value)}>
+              <option value="TODOS">Acordo no CRM (todos)</option>
+              <option value="SEM_ACORDO">Sem acordo — simulação não cumprida</option>
+              <option value="ACORDO_ATIVO">Com acordo ativo — cobrança em dobro</option>
+              <option value="ACORDO_ENCERRADO">Acordo já encerrado</option>
             </select>
             <select style={A.select} value={ordem} onChange={(e) => setOrdem(e.target.value)}>
               <option value="VALOR_DESC">Maior valor primeiro</option>
@@ -562,6 +576,11 @@ export default function ConferenciaPrime() {
                                   {t.portador === 166 ? "saiu da cobrança" : `portador ${t.portador}`}
                                 </span>
                               ) : null}
+                              {t.dinheiro === "NAO_ENTROU" && t.acordo_situacao === "SEM_ACORDO" ? (
+                                <span style={estilos.seloSimulacao} title={t.acordo_diz || ""}>
+                                  simulação não cumprida
+                                </span>
+                              ) : null}
                               {t.dinheiro === "NAO_ENTROU" ? (
                                 <span style={estilos.seloSemDinheiro} title={t.dinheiro_diz || ""}>
                                   sem pagamento no Santander
@@ -638,6 +657,7 @@ export default function ConferenciaPrime() {
 }
 
 const estilos = {
+  seloSimulacao: { marginLeft: 6, fontSize: 11, fontWeight: 800, color: "#7c2d12", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 999, padding: "2px 8px" },
   seloSemDinheiro: { marginLeft: 6, fontSize: 11, fontWeight: 800, color: "#991b1b", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 999, padding: "2px 8px" },
   seloComDinheiro: { marginLeft: 6, fontSize: 11, fontWeight: 800, color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "2px 8px" },
   btnCopiar: { background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
