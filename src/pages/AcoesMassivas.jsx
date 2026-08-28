@@ -86,7 +86,13 @@ export default function AcoesMassivas() {
   const [valorMax, setValorMax] = useState("");
   const [quantidade, setQuantidade] = useState("100");
   const [anoVencimento, setAnoVencimento] = useState("");
-  const [unidade, setUnidade] = useState("");
+  // Selecao MULTIPLA de unidades: algumas ja encerraram e outras encerram a
+  // matricula hoje, entao a gestao precisa marcar um subconjunto. O backend
+  // recebe as unidades separadas por "|" -- uma sozinha continua funcionando
+  // igual, entao nada que ja chamava a funcao quebrou.
+  const [unidadesSel, setUnidadesSel] = useState([]);
+  // Situacao da matricula no semestre corrente, vinda do Prime.
+  const [matricula, setMatricula] = useState("");
   const [curso, setCurso] = useState("");
   const [situacaoAcad, setSituacaoAcad] = useState("");
   const [opcoesUnidade, setOpcoesUnidade] = useState([]);
@@ -214,7 +220,8 @@ export default function AcoesMassivas() {
           p_dias_minimo_sem_contato: diasMinimoSemContato ? Number(diasMinimoSemContato) : null,
           p_apenas_nunca_acionado: (over.acionamento ?? acionamentoFiltro) === "nunca",
           p_apenas_ja_acionado: (over.acionamento ?? acionamentoFiltro) === "ja",
-          p_unidade: (over.unidade ?? unidade) || null,
+          p_unidade: ((over.unidades ?? unidadesSel) || []).join("|") || null,
+          p_matricula: (over.matricula ?? matricula) || null,
           p_curso: (over.curso ?? curso) || null,
           p_situacao_academica: (over.situacaoAcad ?? situacaoAcad) || null,
           p_importacao_ids: (over.borderosSel ?? borderosSel).length
@@ -242,6 +249,7 @@ export default function AcoesMassivas() {
           nome: a.nome || "-",                       // já mascarado no backend (ex.: "Ana ***")
           situacaoAcademica: a.situacao_academica || null,
           curso: a.curso || null,
+          unidade: a.unidade || null,
           telefoneMascarado: a.telefone_mascarado || "",
           emailMascarado: a.email_mascarado || "",
           temTelefone: !!a.tem_telefone,
@@ -380,7 +388,7 @@ export default function AcoesMassivas() {
     setCurso(cur || "");
     setAcionamentoFiltro("nunca");
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-    buscar({ ano: anoStr, unidade: uni || "", curso: cur || "", acionamento: "nunca" });
+    buscar({ ano: anoStr, unidades: uni ? [uni] : [], curso: cur || "", acionamento: "nunca" });
   }
 
   return (
@@ -587,17 +595,47 @@ export default function AcoesMassivas() {
               <option value="2026">2026</option>
             </select>
           </div>
+          <div style={{ ...estilos.campo, minWidth: 260 }}>
+            <label style={estilos.label}>
+              Unidades{unidadesSel.length ? ` · ${unidadesSel.length} selec.` : " · todas"}
+            </label>
+            <div style={estilos.caixaBordero}>
+              {opcoesUnidade.map((u) => {
+                const marcado = unidadesSel.includes(u);
+                return (
+                  <label key={u} style={estilos.itemBordero} title={u}>
+                    <input
+                      type="checkbox"
+                      checked={marcado}
+                      onChange={() =>
+                        setUnidadesSel((prev) =>
+                          prev.includes(u) ? prev.filter((x) => x !== u) : [...prev, u]
+                        )
+                      }
+                    />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {u}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            {unidadesSel.length > 0 && (
+              <button type="button" onClick={() => setUnidadesSel([])} style={estilos.limparBordero}>
+                limpar unidades
+              </button>
+            )}
+          </div>
           <div style={estilos.campo}>
-            <label style={estilos.label}>Unidade</label>
+            <label style={estilos.label}>Matrícula no semestre</label>
             <select
               style={estilos.input}
-              value={unidade}
-              onChange={(e) => setUnidade(e.target.value)}
+              value={matricula}
+              onChange={(e) => setMatricula(e.target.value)}
             >
-              <option value="">Todas as unidades</option>
-              {opcoesUnidade.map((u) => (
-                <option key={u} value={u}>{u}</option>
-              ))}
+              <option value="">Tanto faz</option>
+              <option value="NAO_CONFIRMADA">Não confirmada (não matriculou)</option>
+              <option value="CONFIRMADA">Confirmada</option>
             </select>
           </div>
           {opcoesBordero.length > 0 && (
