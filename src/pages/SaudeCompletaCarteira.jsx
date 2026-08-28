@@ -9,6 +9,7 @@ import { useAnaliticaSobDemanda } from "../hooks/useAnaliticaSobDemanda";
 import { exportarSaudeCarteira } from "../utils/exportarSaudeCarteira";
 
 const FONTE = "'Sora','Inter',system-ui,sans-serif";
+const pct = (v) => `${Number(v || 0).toFixed(1)}%`;
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const num = (v) => Number(v || 0).toLocaleString("pt-BR");
 const dataBR = (v) => (v ? new Date(v).toLocaleDateString("pt-BR") : "—");
@@ -79,6 +80,8 @@ export default function SaudeCompletaCarteira() {
     useAnaliticaSobDemanda("saude_carteira_resumo", { p_filtros: filtros }, { timeoutMs: 20000 });
 
   const [qualidade, setQualidade] = useState(null);
+  // Panorama do topo: de que a carteira e feita (semestre, faixa, tipo).
+  const [panorama, setPanorama] = useState(null);
   const [metricaFaixa, setMetricaFaixa] = useState("casos");
   const [ordEstab, setOrdEstab] = useState({ col: "sem_acionamento_limite", dir: "desc" });
   const [exportando, setExportando] = useState(false);
@@ -95,6 +98,9 @@ export default function SaudeCompletaCarteira() {
 
   const carregar = useCallback(async () => {
     await atualizar();
+    supabase.rpc("saude_carteira_panorama").then(({ data: p, error: e }) => {
+      if (!e) setPanorama(p || null);
+    });
     const { data } = await supabase.rpc("saude_carteira_qualidade", { p_filtros: filtros });
     setQualidade(data?.qualidade || null);
   }, [atualizar, filtros]);
@@ -188,6 +194,8 @@ export default function SaudeCompletaCarteira() {
 
       {resumo && (
         <>
+          <Panorama dados={panorama} />
+
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 12, marginTop: 16 }}>
             {CARDS.map(([k, label, fmt, indicador]) => (
               <button key={k} onClick={() => indicador && abrirDrill(label, { indicador })}
@@ -198,6 +206,10 @@ export default function SaudeCompletaCarteira() {
               </button>
             ))}
           </div>
+
+          <SaldoPorOrigem origem={resumo?.saldo_por_origem} />
+
+          <MovimentoDoPeriodo filtros={filtros} />
 
           <Secao titulo="Fidelização (exclusividade de 10 dias por acionamento)">
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 12 }}>
@@ -361,6 +373,91 @@ function MetricaToggle({ valor, setValor }) {
   );
 }
 
+// DE QUE E FEITA A CARTEIRA -- fica no topo, antes dos indicadores de trabalho.
+//
+// Amanda, 27/08/2026: "ajuste a saude da carteira por semestre, quantidade de
+// cpf por faixa, titulos mensalidade = acordos, % da base -- isso deixe no
+// topo".
+//
+// A tela abria pelos indicadores operacionais (sem acionamento, retornos,
+// criticos), que respondem "o que fazer hoje". Faltava a resposta anterior:
+// onde estao os R$ 46 milhoes. Sem isso o saldo e um numero solto.
+//
+// Os tres cortes saem da mesma base canonica (parcela de acordo ATIVO +
+// mensalidade nao vinculada) e cada linha traz a % sobre o total -- o absoluto
+// sozinho nao diz se e muito ou pouco.
+function Panorama({ dados }) {
+  if (!dados) return null;
+  const t = dados.total || {};
+  const barra = (p, cor) => (
+    <div style={{ height: 6, background: "#eef2f7", borderRadius: 4, overflow: "hidden", marginTop: 4 }}>
+      <div style={{ width: `${Math.min(100, Number(p) || 0)}%`, height: "100%", background: cor }} />
+    </div>
+  );
+  const bloco = { background: "#fff", border: "1px solid #e6eaf0", borderRadius: 12, padding: 14 };
+  const titulo = { fontSize: 12.5, fontWeight: 800, color: "#0f172a", marginBottom: 10 };
+  const linha = { display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "baseline", marginBottom: 9 };
+  const rot = { fontSize: 12.5, color: "#334155" };
+  const val = { fontSize: 12.5, fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" };
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>De que é feita a carteira</span>
+        <span style={{ fontSize: 12.5, color: "#64748b" }}>
+          {num(t.cpfs)} alunos · {num(t.titulos)} títulos · {moeda(t.valor)}
+        </span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 12 }}>
+        <div style={bloco}>
+          <div style={titulo}>Por semestre da dívida</div>
+          {(dados.por_semestre || []).map((r) => (
+            <div key={r.semestre}>
+              <div style={linha}>
+                <span style={rot}>{r.semestre} · {num(r.cpfs)} alunos</span>
+                <span style={val}>{moeda(r.valor)} · {pct(r.pct_valor)}</span>
+              </div>
+              {barra(r.pct_valor, "#1e40af")}
+            </div>
+          ))}
+        </div>
+
+        <div style={bloco}>
+          <div style={titulo}>Alunos por faixa de dívida</div>
+          {(dados.por_faixa || []).map((r) => (
+            <div key={r.faixa}>
+              <div style={linha}>
+                <span style={rot}>{r.faixa} · <b>{num(r.cpfs)}</b> ({pct(r.pct_cpfs)} da base)</span>
+                <span style={val}>{moeda(r.valor)} · {pct(r.pct_valor)}</span>
+              </div>
+              {barra(r.pct_valor, "#b45309")}
+            </div>
+          ))}
+        </div>
+
+        <div style={bloco}>
+          <div style={titulo}>Mensalidade x acordo</div>
+          {(dados.por_tipo || []).map((r) => (
+            <div key={r.tipo}>
+              <div style={linha}>
+                <span style={rot}>
+                  {r.tipo === "ACORDO" ? "Parcela de acordo" : "Mensalidade sem acordo"}
+                  {" · "}{num(r.titulos)} títulos · {num(r.cpfs)} alunos
+                </span>
+                <span style={val}>{moeda(r.valor)} · {pct(r.pct_valor)}</span>
+              </div>
+              {barra(r.pct_valor, r.tipo === "ACORDO" ? "#15803d" : "#b91c1c")}
+            </div>
+          ))}
+          <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 8, lineHeight: 1.5 }}>
+            Mensalidade sem acordo é dívida que ainda não foi negociada.
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function Matriz({ linhas, colunas, metrica, onCelula }) {
   const fmt = metrica.startsWith("saldo") ? moeda : num;
   const valorCelula = (linha, colKey) => {
@@ -461,6 +558,212 @@ function DetalheDrawer({ titulo, det, loading, pag, setPag, ord, setOrd, onClose
   );
 }
 
+// Saldo separado entre ACORDO e MENSALIDADE. Vem da RPC em `saldo_por_origem`,
+// calculado direto de `parcelas` e `acordos_titulos` -- e NÃO do saldo gravado
+// no caso, que está defasado. Por isso é a posição de AGORA, enquanto os demais
+// cards vêm da matview: as duas datas ficam rotuladas para ninguém comparar
+// número de momentos diferentes sem perceber.
+function SaldoPorOrigem({ origem }) {
+  if (!origem) return null;
+  const linhas = [
+    ["Acordo", "acordo_total", "acordo_vencido", "acordo_a_vencer", "acordo_alunos",
+      "parcelas de acordos ativos"],
+    ["Mensalidade", "mensalidade_total", "mensalidade_vencido", "mensalidade_a_vencer", "mensalidade_alunos",
+      "títulos em aberto, fora de acordo"],
+  ];
+  const calc = origem.calculado_em
+    ? new Date(origem.calculado_em).toLocaleString("pt-BR")
+    : null;
+
+  return (
+    <Secao
+      titulo="Saldo em aberto por origem"
+      extra={calc && <span style={{ fontSize: 11.5, color: "#64748b" }}>posição de {calc}</span>}
+    >
+      <div style={{ overflowX: "auto" }}>
+        <table style={tabela}>
+          <thead>
+            <tr>
+              <th style={{ ...th, textAlign: "left" }}>Origem</th>
+              <th style={th}>Em aberto</th>
+              <th style={th}>Vencido</th>
+              <th style={th}>A vencer</th>
+              <th style={th}>Alunos</th>
+            </tr>
+          </thead>
+          <tbody>
+            {linhas.map(([rotulo, kTot, kVenc, kAv, kAlunos, ajuda]) => (
+              <tr key={rotulo} style={{ borderTop: "1px solid #e2e8f0" }}>
+                <td style={{ ...td, textAlign: "left" }}>
+                  <div style={{ fontWeight: 700, color: "#0f172a" }}>{rotulo}</div>
+                  <div style={{ fontSize: 11, color: "#94a3b8" }}>{ajuda}</div>
+                </td>
+                <td style={{ ...td, fontWeight: 700 }}>{moeda(origem[kTot])}</td>
+                <td style={{ ...td, color: "#b91c1c" }}>{moeda(origem[kVenc])}</td>
+                <td style={{ ...td, color: "#15803d" }}>{moeda(origem[kAv])}</td>
+                <td style={td}>{num(origem[kAlunos])}</td>
+              </tr>
+            ))}
+            <tr style={{ borderTop: "2px solid #cbd5e1", background: "#f8fafc" }}>
+              <td style={{ ...td, textAlign: "left", fontWeight: 800, color: "#0f172a" }}>Total</td>
+              <td style={{ ...td, fontWeight: 800 }}>{moeda(origem.total)}</td>
+              <td style={{ ...td, fontWeight: 700, color: "#b91c1c" }}>{moeda(origem.vencido)}</td>
+              <td style={{ ...td, fontWeight: 700, color: "#15803d" }}>{moeda(origem.a_vencer)}</td>
+              <td style={td}>—</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "#64748b", lineHeight: 1.5 }}>
+        Lido das tabelas de origem, não do saldo gravado no caso — por isso pode divergir
+        do card “Saldo total” acima, que vem da base consolidada.
+        “A vencer” em Acordo é dívida negociada com data marcada; em Mensalidade é dívida sem negociação.
+      </p>
+    </Secao>
+  );
+}
+
+// Movimento do período em TRÊS linhas, porque somar as três esconde o trabalho:
+//   liquidou      -> dívida que deixou de existir. É o resultado.
+//   entrou        -> dívida nova por remessa. Não depende do operador.
+//   reclassificou -> mensalidade que virou acordo. Saneamento, NÃO reduz nada.
+// Medido em 13--25/08: liquidou R$ 1,07 mi, entrou R$ 1,31 mi, reclassificou
+// R$ 2,14 mi. O maior volume de trabalho do período é justamente o que, por
+// definição, não faz o número cair -- e sem separar, o mês parece parado.
+// Sob demanda como o resto da tela: só consulta quando se pede.
+function MovimentoDoPeriodo({ filtros }) {
+  const hoje = new Date();
+  const primeiro = new Date(hoje.getFullYear(), hoje.getMonth(), 1);
+  const iso = (d) => d.toISOString().slice(0, 10);
+
+  const [de, setDe] = useState(iso(primeiro));
+  const [ate, setAte] = useState(iso(hoje));
+  const [dados, setDados] = useState(null);
+  const [carregando, setCarregando] = useState(false);
+  const [erro, setErro] = useState("");
+
+  const buscar = async () => {
+    setCarregando(true);
+    setErro("");
+    try {
+      const { data, error } = await supabase.rpc("saude_carteira_movimento_periodo", {
+        p_de: de, p_ate: ate, p_filtros: filtros,
+      });
+      if (error) setErro(error.message || "Não foi possível carregar o movimento.");
+      else setDados(data);
+    } finally {
+      setCarregando(false);
+    }
+  };
+
+  const l = dados?.liquidou, e = dados?.entrou, r = dados?.reclassificou, g = dados?.renegociou;
+  // O resultado e uma FAIXA, nao um numero: parte dos acordos importados nao
+  // diz se e divida nova ou renegociacao do que ja estava na base. Fingir
+  // precisao aqui seria pior do que mostrar o intervalo.
+  const resMin = Number(dados?.resultado_min || 0);
+  const resMax = Number(dados?.resultado_max || 0);
+  const encolheu = resMax > 0;
+
+  return (
+    <Secao
+      titulo="Movimento do período"
+      extra={
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <input type="date" value={de} onChange={(ev) => setDe(ev.target.value)} style={inputData} />
+          <span style={{ color: "#94a3b8", fontSize: 12 }}>até</span>
+          <input type="date" value={ate} onChange={(ev) => setAte(ev.target.value)} style={inputData} />
+          <button onClick={buscar} disabled={carregando} style={btnSec}>
+            {carregando ? "Carregando…" : "Calcular"}
+          </button>
+        </div>
+      }
+    >
+      {erro && <div style={{ ...vazio, color: "#b91c1c" }}>{erro}</div>}
+      {!dados && !erro && (
+        <div style={vazio}>Escolha o período e clique em <b>Calcular</b>.</div>
+      )}
+
+      {dados && (
+        <>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: 12 }}>
+            <div style={{ ...card, borderLeft: "3px solid #15803d" }}>
+              <div style={{ fontSize: 12, color: "#15803d", fontWeight: 700 }}>Liquidou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{moeda(l?.total)}</div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                Acordo {moeda(l?.acordo_valor)} · {num(l?.acordo_qtd)} parcelas<br />
+                Mensalidade {moeda(l?.mensalidade_valor)} · {num(l?.mensalidade_qtd)} títulos
+              </div>
+              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>dívida que deixou de existir</div>
+            </div>
+
+            <div style={{ ...card, borderLeft: "3px solid #b91c1c" }}>
+              <div style={{ fontSize: 12, color: "#b91c1c", fontWeight: 700 }}>Entrou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
+                {moeda(e?.minimo)} a {moeda(e?.maximo)}
+              </div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                Títulos novos {moeda(e?.titulo_valor)} · {num(e?.titulo_qtd)}<br />
+                Acordos sem vínculo {moeda(e?.acordo_indefinido_valor)} · {num(e?.acordo_indefinido_qtd)}
+              </div>
+              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>
+                faixa: o acordo sem vínculo pode ser dívida nova ou renegociação
+              </div>
+            </div>
+
+            <div style={{ ...card, borderLeft: "3px solid #64748b" }}>
+              <div style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>Reclassificou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{moeda(r?.valor)}</div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                {num(r?.qtd)} mensalidades vinculadas a acordo
+              </div>
+              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>saneamento — não reduz a carteira</div>
+            </div>
+
+            <div style={{ ...card, borderLeft: "3px solid #7c3aed" }}>
+              <div style={{ fontSize: 12, color: "#6d28d9", fontWeight: 700 }}>Renegociou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{moeda(g?.valor)}</div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                {num(g?.qtd)} acordos importados que substituem dívida já contada
+              </div>
+              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>não é entrada — não soma</div>
+            </div>
+
+            <div style={{ ...card, borderLeft: `3px solid ${encolheu ? "#15803d" : "#b45309"}` }}>
+              <div style={{ fontSize: 12, color: encolheu ? "#15803d" : "#b45309", fontWeight: 700 }}>
+                Resultado
+              </div>
+              <div style={{ fontSize: 18, fontWeight: 800, color: encolheu ? "#15803d" : "#b45309", marginTop: 4 }}>
+                {moeda(Math.abs(resMin))} a {moeda(Math.abs(resMax))}
+              </div>
+              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+                {encolheu
+                  ? "a carteira pode ter encolhido no período"
+                  : "a remessa repôs mais do que a operação baixou"}
+              </div>
+              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>liquidou − entrou</div>
+            </div>
+          </div>
+
+          <p style={{ margin: "10px 0 0", fontSize: 11.5, color: "#64748b", lineHeight: 1.5 }}>
+            <b>Reclassificar não é liquidar.</b> Vincular mensalidade a acordo tira a mensalidade do saldo em
+            aberto, mas a parcela do acordo entra no lugar — a dívida continua. É o que destrava o caso e o
+            operador, não o que reduz a carteira.
+            <br />
+            <b>Por que o resultado é uma faixa:</b> o acordo importado que já aponta para o título que
+            substituiu conta como <i>renegociação</i>, não entrada. O que não aponta para nenhum título fica
+            indefinido — pode ser dívida nova ou renegociação sem registro. Em vez de escolher um dos dois e
+            entregar um número falsamente preciso, o painel mostra o intervalo.
+            <br />
+            <b>Sobre as datas:</b> o lado do acordo usa a data real de pagamento. O lado da mensalidade é
+            aproximado — a tabela de títulos não tem campo de data de pagamento, então usa a última alteração
+            do registro.
+          </p>
+        </>
+      )}
+    </Secao>
+  );
+}
+
 function Secao({ titulo, extra, children }) {
   return (
     <div style={{ marginTop: 22 }}>
@@ -479,6 +782,7 @@ const td = { textAlign: "right", padding: "6px 8px", color: "#334155", whiteSpac
 const btnSec = { background: "#fff", border: "1px solid #cbd5e1", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", color: "#1e40af" };
 const chip = { background: "#fff", border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#475569" };
 const chipOn = { background: "#1e40af", color: "#fff", borderColor: "#1e40af" };
+const inputData = { border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 8px", fontSize: 12.5, fontFamily: "inherit", color: "#334155" };
 const vazio = { padding: 30, textAlign: "center", color: "#64748b", background: "#f8fafc", borderRadius: 10, marginTop: 16 };
 const lbl = { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#334155", fontWeight: 600 };
 const inp = { padding: "6px 10px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13, background: "#fff" };
