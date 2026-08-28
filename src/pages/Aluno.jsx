@@ -1970,7 +1970,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       <>
                         <div
                           style={{
-                            fontSize: 26,
+                            fontSize: 22,
                             fontWeight: 800,
                             lineHeight: 1.15,
                             color: fichaComPendencia ? "#b45309" : "#15803d",
@@ -2237,7 +2237,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   value={observacao}
                   onChange={(e) => setObservacao(e.target.value)}
                   placeholder="Digite a observação do atendimento..."
-                  rows={4}
+                  rows={2}
                   style={textarea}
                 />
                 <div style={{ display: "flex", gap: "10px", flexWrap: "wrap" }}>
@@ -2591,7 +2591,9 @@ const pagina = {
   minHeight: "calc(100vh - 56px)",
   background: "#f4f6fa",
   color: "#334155",
-  padding: "28px 28px 40px",
+  // Era 28/40. Numa ficha longa, margem de pagina e o espaco que menos
+  // trabalha -- o operador rola por causa dela, nao por causa do conteudo.
+  padding: "18px 20px 28px",
   fontFamily: "Inter, Arial, sans-serif",
 };
 const cabecalho = {
@@ -2599,7 +2601,7 @@ const cabecalho = {
   justifyContent: "space-between",
   gap: "16px",
   alignItems: "center",
-  marginBottom: "24px",
+  marginBottom: "16px",
   flexWrap: "wrap",
 };
 const titulo = {
@@ -2639,7 +2641,9 @@ const nomeAlunoFicha = {
   fontWeight: 800,
   letterSpacing: "-0.01em",
 };
-const caixa = superficie;
+// Override local do token: a ficha e a tela mais longa do CRM, entao ela
+// aperta a propria superficie sem mudar as outras telas que usam o padrao.
+const caixa = { ...superficie, padding: "14px", marginBottom: "12px" };
 // Bloco de tabular: e a acao que o operador repete o dia inteiro, entao tem
 // peso proprio -- borda azul e fundo levemente tintado. Nao e "mais uma caixa".
 const caixaTabular = {
@@ -2647,8 +2651,8 @@ const caixaTabular = {
   background: "#f8fbff",
   border: "1px solid #93c5fd",
   borderLeft: "4px solid #2563eb",
-  padding: "12px 14px",
-  marginBottom: "14px",
+  padding: "10px 12px",
+  marginBottom: "10px",
 };
 const caixaLinkPronto = { ...cartaoSucesso, border: "1px solid #93c5fd", marginBottom: "16px" };
 const caixaInterna = cartaoInterno;
@@ -2664,7 +2668,7 @@ const topoFicha = {
   gap: "16px",
   alignItems: "start",
   flexWrap: "wrap",
-  marginBottom: "12px",
+  marginBottom: "10px",
 };
 // Coluna esquerda do topo: identificação do aluno (nome, CPF, contato).
 const topoFichaIdentificacao = { flex: "1 1 340px", minWidth: 0 };
@@ -2675,11 +2679,11 @@ const blocoDecisao = {
   minWidth: 260,
   display: "flex",
   flexDirection: "column",
-  gap: 10,
+  gap: 8,
   background: "#fff",
   border: "1px solid #cbd5e1",
   borderRadius: 14,
-  padding: 12,
+  padding: 10,
   boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
 };
 // Cada item do bloco tem faixa de cor à esquerda, pra ler como bloco separado.
@@ -2687,7 +2691,7 @@ const blocoDecisaoItem = {
   background: "#f8fafc",
   border: "1px solid #e2e8f0",
   borderRadius: 10,
-  padding: "8px 12px",
+  padding: "6px 10px",
 };
 // "Quitar tudo" é ação de gestão (tira o aluno da fila): contorno, não preenchido,
 // pra não competir com "Assumir atendimento".
@@ -2819,7 +2823,7 @@ const textarea = {
   padding: "12px",
   resize: "vertical",
   outline: "none",
-  marginBottom: "10px",
+  marginBottom: "8px",
 };
 const botaoPrincipal = {
   background: "#2563eb",
