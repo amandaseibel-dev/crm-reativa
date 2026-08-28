@@ -45,6 +45,10 @@ function formatCpf(v) {
 }
 
 export default function ConferenciaPrime() {
+  // Cruzamento com o relatorio do Santander: liquidado no Prime sem dinheiro
+  // entrar e negociacao, nao pagamento. Amanda: "tem casos la que nem estao
+  // pagos, nao tem vinculo com os relatorios do santander".
+  const [dinheiro, setDinheiro] = useState("TODOS");
   const [nomeCopiado, setNomeCopiado] = useState("");
   const [itens, setItens] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -179,7 +183,9 @@ export default function ConferenciaPrime() {
   }
 
   const filtrados = useMemo(() => {
+    const porDinheiro = (t) => dinheiro === "TODOS" || t.dinheiro === dinheiro;
     let lista = itens.filter((i) => {
+      if (!porDinheiro(i)) return false;
       if (grupo === "TODOS") return true;
       if (grupo === "COM_ACORDO") return i.tem_acordo_ativo;
       return !i.tem_acordo_ativo;
@@ -196,7 +202,7 @@ export default function ConferenciaPrime() {
       });
     }
     return lista;
-  }, [itens, grupo, busca]);
+  }, [itens, grupo, busca, dinheiro]);
 
   // 1 card por aluno, como nas outras filas.
   const grupos = useMemo(() => {
@@ -272,7 +278,11 @@ export default function ConferenciaPrime() {
     const motivo = window.prompt(
       `Não baixar o boleto ${t.documento} de ${t.aluno_nome}?\n\n` +
       `Por quê? (ex.: Prime ainda cobra, cliente não pagou, liquidação por negociação)`,
-      t.portador === 195 ? "Prime ainda cobra este título (portador 195)" : "",
+      t.dinheiro === "NAO_ENTROU"
+        ? "Liquidado no Prime sem pagamento no Santander — é negociação, não pagamento"
+        : t.portador === 195
+          ? "Prime ainda cobra este título (portador 195)"
+          : "",
     );
     if (motivo === null) return;
     setProcessando((a) => ({ ...a, [t.titulo_id]: true }));
@@ -328,6 +338,13 @@ export default function ConferenciaPrime() {
               <option value="DINHEIRO">Só os sem selo (parece dinheiro)</option>
               <option value="BLOCO">Só quitação em bloco</option>
               <option value="NEGOCIACAO">Só provável negociação</option>
+            </select>
+            <select style={A.select} value={dinheiro} onChange={(e) => setDinheiro(e.target.value)}>
+              <option value="TODOS">Entrou dinheiro? (todos)</option>
+              <option value="ENTROU">Só com pagamento no Santander</option>
+              <option value="NAO_ENTROU">Só sem pagamento nenhum</option>
+              <option value="OUTRA_DATA">Pagou em outra data</option>
+              <option value="FORA_DA_JANELA">Antes de a base ter pagamentos</option>
             </select>
             <select style={A.select} value={ordem} onChange={(e) => setOrdem(e.target.value)}>
               <option value="VALOR_DESC">Maior valor primeiro</option>
@@ -467,6 +484,19 @@ export default function ConferenciaPrime() {
                                   {t.portador === 166 ? "saiu da cobrança" : `portador ${t.portador}`}
                                 </span>
                               ) : null}
+                              {t.dinheiro === "NAO_ENTROU" ? (
+                                <span style={estilos.seloSemDinheiro} title={t.dinheiro_diz || ""}>
+                                  sem pagamento no Santander
+                                </span>
+                              ) : t.dinheiro === "ENTROU" ? (
+                                <span style={estilos.seloComDinheiro} title={t.dinheiro_diz || ""}>
+                                  pagamento confere
+                                </span>
+                              ) : t.dinheiro === "OUTRA_DATA" ? (
+                                <span style={estilos.seloPortadorAlerta} title={t.dinheiro_diz || ""}>
+                                  pagou em outra data
+                                </span>
+                              ) : null}
                             </td>
                             <td style={A.tdNum}>{moeda(t.valor_em_aberto)}</td>
                             <td style={A.td}>
@@ -530,6 +560,8 @@ export default function ConferenciaPrime() {
 }
 
 const estilos = {
+  seloSemDinheiro: { marginLeft: 6, fontSize: 11, fontWeight: 800, color: "#991b1b", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 999, padding: "2px 8px" },
+  seloComDinheiro: { marginLeft: 6, fontSize: 11, fontWeight: 800, color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "2px 8px" },
   btnCopiar: { background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
   btnRejeitar: { background: "#fff", color: "#b91c1c", border: "1px solid #fecaca", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
   seloPortadorAlerta: { marginLeft: 8, fontSize: 11, fontWeight: 800, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 999, padding: "2px 8px" },
