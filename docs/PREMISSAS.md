@@ -227,13 +227,20 @@ fila (`recalcular_situacao_aluno`), ação massiva +10 e régua de e-mail.
 **Por quê:** `data_retorno` é o campo que reposiciona o caso na fila. Usá-lo
 como agenda mistura reposicionamento com compromisso e a tela vira ruído.
 
-> **ESTA PREMISSA NÃO ESTÁ IMPLEMENTADA.** Medido em 28/08/2026: a agenda mostra
-> **12.986** itens, dos quais só **313** têm `retorno_origem = 'OPERADOR'` —
-> **97,6% é ruído**. `AgendaOperacional.jsx` filtra apenas `data_retorno is not
-> null` e escopa por `operador_email`; `PainelCarteira.jsx` tem consulta própria
-> sobre `alunos`. O módulo compartilhado `src/utils/filaAcionamento.js`, dado
-> como pronto em 25/08, **não existe em nenhuma branch** — foi registrado na
-> memória mas nunca commitado.
+> **A TELA FOI RETIRADA DO AR EM 28/08/2026, por decisão da gestão.** Medido
+> naquele dia: a agenda mostrava **12.986** itens, dos quais só **313** tinham
+> `retorno_origem = 'OPERADOR'` — **97,6% era ruído**. `AgendaOperacional.jsx`
+> filtrava apenas `data_retorno is not null` e escopava por `operador_email`
+> (o do cadastro unificado) em vez do dono do caso; `PainelCarteira.jsx` tem
+> consulta própria sobre `alunos`. Duas regras diferentes para a mesma pergunta.
+>
+> O módulo compartilhado `src/utils/filaAcionamento.js`, dado como pronto em
+> 25/08, **nunca existiu** — foi registrado na memória e jamais commitado.
+>
+> Retirada a rota `/agenda`, o item de menu e as entradas de permissão. O
+> arquivo `src/pages/AgendaOperacional.jsx` **fica no repositório**: a tela
+> volta quando a regra única existir. Enquanto isso o operador trabalha pela
+> Carteira. `Minha Agenda` (`/minha-agenda`) é outra tela e continua no ar.
 
 **Onde deve viver:** regra única, no banco, lida por Painel Carteira e Agenda.
 Qualquer código que grave `data_retorno` grava `retorno_origem` junto, e só
