@@ -212,7 +212,7 @@ confirmado em produção.**
 
 Memória: `cancelamento-de-operador-volta-para-a-fila`
 
-### 11. Fila e agenda leem a mesma função
+### 11. A Carteira é a fila; retorno agendado nasce marcado
 
 A agenda é lista de **compromisso**, não de trabalho pendente: só entra retorno
 que uma pessoa marcou com o aluno (`retorno_origem = 'OPERADOR'`). E ela aplica
@@ -237,14 +237,27 @@ como agenda mistura reposicionamento com compromisso e a tela vira ruído.
 > O módulo compartilhado `src/utils/filaAcionamento.js`, dado como pronto em
 > 25/08, **nunca existiu** — foi registrado na memória e jamais commitado.
 >
-> Retirada a rota `/agenda`, o item de menu e as entradas de permissão. O
-> arquivo `src/pages/AgendaOperacional.jsx` **fica no repositório**: a tela
-> volta quando a regra única existir. Enquanto isso o operador trabalha pela
-> Carteira. `Minha Agenda` (`/minha-agenda`) é outra tela e continua no ar.
+> **A tela não foi adiada, foi dispensada.** Decisão da gestão em 28/08/2026:
+> *"se a fila de acionamentos faz sentido, e se é possível definir a data como
+> hoje para acionar os casos, não vejo sentido"*. A Carteira já entrega o mesmo
+> serviço e entrega melhor — selo **"Retornar hoje"** no card, filtro e contador
+> do dia, e a data de retorno editável dentro do próprio atendimento. A Agenda
+> era uma segunda porta para o mesmo dado, e a porta pior: mostrava
+> reposicionamento de fila junto com compromisso.
+>
+> Retiradas a rota `/agenda`, o item de menu e as entradas de permissão dos
+> quatro perfis. O arquivo `src/pages/AgendaOperacional.jsx` fica no repositório
+> como histórico. `Minha Agenda` (`/minha-agenda`) é outra tela e continua no ar.
+>
+> **O que sobrevive desta premissa** é a regra de escrita, que continua valendo
+> em qualquer lugar que grave retorno: quem grava `data_retorno` grava
+> `retorno_origem` junto, e só marca `'OPERADOR'` quando o humano digitou a data
+> naquele atendimento. Sem isso não há como distinguir compromisso de motor da
+> fila — e foi essa mistura que inutilizou a Agenda.
 
-**Onde deve viver:** regra única, no banco, lida por Painel Carteira e Agenda.
-Qualquer código que grave `data_retorno` grava `retorno_origem` junto, e só
-marca `'OPERADOR'` quando o humano digitou a data naquele atendimento.
+**Onde vive:** a Carteira é a única porta para o trabalho do dia. Não abrir uma
+segunda tela sobre `data_retorno` sem que ela leia exatamente as mesmas
+exclusões da fila.
 
 Memórias: `premissa-agenda-so-retorno-agendado`, `agenda-retorno-origem-operador`
 
