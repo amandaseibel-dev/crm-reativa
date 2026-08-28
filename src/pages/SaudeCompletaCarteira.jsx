@@ -82,6 +82,7 @@ export default function SaudeCompletaCarteira() {
   const [qualidade, setQualidade] = useState(null);
   // Panorama do topo: de que a carteira e feita (semestre, faixa, tipo).
   const [panorama, setPanorama] = useState(null);
+  const [erroPanorama, setErroPanorama] = useState("");
   const [metricaFaixa, setMetricaFaixa] = useState("casos");
   const [ordEstab, setOrdEstab] = useState({ col: "sem_acionamento_limite", dir: "desc" });
   const [exportando, setExportando] = useState(false);
@@ -98,12 +99,25 @@ export default function SaudeCompletaCarteira() {
 
   const carregar = useCallback(async () => {
     await atualizar();
-    supabase.rpc("saude_carteira_panorama").then(({ data: p, error: e }) => {
-      if (!e) setPanorama(p || null);
-    });
     const { data } = await supabase.rpc("saude_carteira_qualidade", { p_filtros: filtros });
     setQualidade(data?.qualidade || null);
   }, [atualizar, filtros]);
+
+  // O panorama NAO espera "Atualizar indicadores": ele e o topo da pagina e a
+  // primeira coisa que ela quer ver. Carrega sozinho na abertura.
+  //
+  // E o erro NAO e engolido: se a funcao falhar, a tela diz. Antes eu
+  // silenciava, e o resultado era o painel simplesmente nao existir sem
+  // ninguem saber por que (Amanda: "saude da carteira nao esta por semestre").
+  useEffect(() => {
+    let vivo = true;
+    supabase.rpc("saude_carteira_panorama").then(({ data, error }) => {
+      if (!vivo) return;
+      if (error) { setErroPanorama(error.message || String(error)); setPanorama(null); }
+      else { setErroPanorama(""); setPanorama(data || null); }
+    });
+    return () => { vivo = false; };
+  }, []);
 
   const carregarDetalhe = useCallback(async (filtroExtra, pag, ord) => {
     setDetLoading(true);
@@ -187,15 +201,15 @@ export default function SaudeCompletaCarteira() {
 
       <Filtros filtros={filtros} setFiltros={setFiltros} estabs={resumo?.estabelecimentos || []} operadores={operadores} isGestao={isGestao} />
 
+      <Panorama dados={panorama} erro={erroPanorama} />
+
       {!resumo && !carregando && (
-        <div style={vazio}>Clique em <b>Atualizar indicadores</b> para carregar os dados.</div>
+        <div style={vazio}>Clique em <b>Atualizar indicadores</b> para carregar os indicadores de trabalho.</div>
       )}
       {carregando && !resumo && <div style={vazio}>Carregando…</div>}
 
       {resumo && (
         <>
-          <Panorama dados={panorama} />
-
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(190px,1fr))", gap: 12, marginTop: 16 }}>
             {CARDS.map(([k, label, fmt, indicador]) => (
               <button key={k} onClick={() => indicador && abrirDrill(label, { indicador })}
@@ -386,7 +400,15 @@ function MetricaToggle({ valor, setValor }) {
 // Os tres cortes saem da mesma base canonica (parcela de acordo ATIVO +
 // mensalidade nao vinculada) e cada linha traz a % sobre o total -- o absoluto
 // sozinho nao diz se e muito ou pouco.
-function Panorama({ dados }) {
+function Panorama({ dados, erro }) {
+  if (erro) {
+    return (
+      <div style={{ marginTop: 16, background: "#fef2f2", border: "1px solid #fecaca",
+                    color: "#991b1b", borderRadius: 10, padding: "12px 14px", fontSize: 13 }}>
+        ⚠️ Não foi possível carregar o panorama da carteira: {erro}
+      </div>
+    );
+  }
   if (!dados) return null;
   const t = dados.total || {};
   const barra = (p, cor) => (
