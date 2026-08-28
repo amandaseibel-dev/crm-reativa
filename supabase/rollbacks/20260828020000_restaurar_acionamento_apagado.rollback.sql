@@ -1,0 +1,8 @@
+-- Rollback: desfaz a restauracao dos 1.826 acionamentos.
+-- ATENCAO: a trava (20260828010000) impede voltar para NULO. Para reverter e
+-- preciso desligar o gatilho primeiro:
+--   alter table public.alunos disable trigger trg_acionamento_nao_volta_para_nulo;
+--   update public.alunos al set data_ultimo_acionamento = null
+--     from public._backup_acionamento_restaurado_20260828 b
+--    where al.id = b.aluno_id and al.data_ultimo_acionamento = b.acionamento_restaurado;
+--   alter table public.alunos enable trigger trg_acionamento_nao_volta_para_nulo;
