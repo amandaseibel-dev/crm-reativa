@@ -11,7 +11,7 @@ Cada premissa diz **onde ela é imposta**. Premissa que só existe em texto é
 premissa que volta a ser violada: a regra tem de morar no banco (gatilho,
 constraint ou função), não na tela.
 
-Estado em 28/08/2026. Premissas 1 a 11 fechadas com a gestão.
+Estado em 28/08/2026. As quinze premissas foram fechadas com a gestão.
 
 ---
 
@@ -263,9 +263,98 @@ Memórias: `premissa-agenda-so-retorno-agendado`, `agenda-retorno-origem-operado
 
 ---
 
-## Pendente de decisão
+---
 
-Premissas de **como se escreve** (regra no banco e não na tela, paginação com
-desempate, checagem de rotinas concorrentes sobre a mesma coluna de estado,
-migration commitada no mesmo dia) foram propostas em 28/08/2026 e ainda não
-foram fechadas com a gestão. Entram aqui quando forem.
+## Como se escreve
+
+As onze premissas acima dizem o que o sistema deve fazer. **Estas quatro existem
+para que as onze não sejam desfeitas sem ninguém perceber.** Os quatro erros que
+as originaram têm a mesma assinatura: nada quebrou, nenhum alarme tocou, e o
+número errado chegou à gestão com a cara de um número certo.
+
+### 12. A regra mora no banco, não na tela
+
+Regra de negócio se escreve uma vez, no banco, e toda tela pergunta para lá.
+Nenhuma regra nova em `.jsx`.
+
+**Por quê:** regra escrita dentro de uma tela vale só ali — a tela do lado não
+sabe que ela existe, e as duas divergem sem dar erro. A Agenda e a Carteira
+respondiam "quem eu ligo hoje?" com contas diferentes: 12.986 contra 313.
+Nenhuma das duas estava quebrada; cada uma tinha a sua regra. O selo "Pago"
+repetiu o padrão — uma tela conferia o saldo antes de escrever, outra não.
+
+**Onde vive:** mudar de ideia sobre uma regra tem de ser uma alteração em um
+lugar só, valendo em todas as telas no mesmo instante.
+
+Memórias: `premissa-agenda-so-retorno-agendado`, `premissa-pago-so-com-saldo-zerado`
+
+### 13. Lista longa se pagina, e sempre com desempate por coluna única
+
+Usar `src/utils/paginado.js` (`buscarTudo`). Toda consulta paginada termina com
+`.order("id")`. Contagem se faz com `count: 'exact', head: true`, não trazendo
+tudo. Filtro de status vai no banco, não no cliente.
+
+**Por quê — dois defeitos distintos, ambos silenciosos:**
+
+1. **Sem paginar**, a API corta em **1.000 linhas mesmo sem `.limit`** e responde
+   `206 Partial Content` — sucesso. Nenhuma tela reclama, nenhum log acusa. A
+   fila de confirmação mostrava 617 pagamentos e R$ 853.230,58 quando o correto
+   era 2.258 e R$ 3.226.623,24: **R$ 2,36 milhões invisíveis**. Foram 16
+   consultas cortadas, incluindo produtividade e comissão calculadas sobre 10%
+   dos dados.
+2. **Paginando sem desempate**, cada página é uma consulta nova e o Postgres não
+   garante a mesma ordem entre elas quando a coluna tem empates. A linha cai em
+   várias páginas (repetida) e outras não caem em nenhuma (somem). Tarciele
+   apareceu **4×** na fila do João com uma ficha só no banco — e o lado que some
+   é invisível.
+
+**Onde vive:** `src/utils/paginado.js`. Não deixar tela nova nascer com laço
+próprio — foi assim que a Carteira ficou de fora do helper que já existia.
+
+**Não levantar o teto da API:** o navegador passaria a baixar 17 mil linhas num
+sistema que já caiu por CPU/IO.
+
+Memórias: `teto-mil-linhas-corta-telas`, `paginacao-sem-desempate-repete-e-perde`
+
+### 14. Antes de criar rotina que mexe em estado, listar quem mais mexe
+
+Rotina automática que escreve numa coluna de estado (`encerrado_operacional`,
+`status_financeiro`, `data_retorno`) só entra depois de conferir as outras que
+escrevem na mesma coluna. Dois consertos relacionados no mesmo dia exigem
+reconferir o estado no fim.
+
+**Por quê:** em 28/08 duas rotinas mexiam em `encerrado_operacional` com
+critérios opostos — a fusão de duplicados marcava, o reabridor desmarcava. O
+reabridor achou as cópias que a fusão tinha aposentado e **trouxe 513 de volta**,
+recriando a duplicidade recém-limpa. Não houve erro nem aviso: as duas
+"funcionaram". Só apareceu porque a gestão pediu revisão do início ao fim.
+
+**Onde vive:** trava aplicada — o reabridor só reabre quando o aluno não tem
+nenhum outro caso aberto.
+
+Memória: `reabridor-e-fusao-se-atropelaram`
+
+### 15. Migration aplicada em produção é commitada no mesmo dia
+
+Aplicar no banco e salvar o arquivo no repositório são dois passos. O segundo
+não fica para depois. E **"está pronto" sem número de PR é suspeita, não fato** —
+conferir com `git grep` antes de contar com qualquer coisa.
+
+**Por quê — o erro acontece nos dois sentidos:**
+
+- **Código vivo sem arquivo:** 12 funções e gatilhos rodavam em produção sem
+  definição em arquivo nenhum, incluindo `_reabrir_aluno_com_divida_nova` e
+  `saude_carteira_saldo_por_origem`. Uma reconstrução do banco pelo repositório
+  teria perdido tudo isso (PR #235 versionou 20 arquivos).
+- **Arquivo que nunca existiu:** `src/utils/filaAcionamento.js` foi registrado
+  como pronto e importado pelas duas telas em 25/08. Não existe em nenhuma
+  branch, nenhum commit, nem no disco. Foi o que deixou a Agenda três dias no ar
+  mostrando 97% de ruído.
+
+**Onde vive:** a auditoria que funciona compara **objetos**, não nomes de
+migration — extrair `create function/trigger/table/view/policy` de
+`supabase_migrations.schema_migrations` e conferir se aparecem em
+`supabase/migrations`. Comparar nomes de arquivo deu 73 falsos positivos. Vale
+repetir de tempos em tempos.
+
+Memórias: `prod-tinha-funcoes-que-o-repo-nao-registrava`, `arquivos-locais-podem-estar-atras-da-main`
