@@ -6,6 +6,7 @@ import { Carregando } from "../ui/estados";
 import { podeBaixarPagamento, podeVerFilaDeBaixas } from "../utils/operadores";
 import ComprovantePagamento from "../components/ComprovantePagamento";
 import Alunos from "./Aluno";
+import Dobra from "../ui/blocos";
 
 const STATUS = {
   PAGO_AGUARDANDO_BAIXA: "Pago - aguardando baixa",
@@ -576,8 +577,11 @@ export default function MinhaFilaPagamentos() {
             </div>
           )}
 
-          <details style={styles.detalhe}>
-            <summary style={styles.detalheSum}>Abrir aluno - conferir comprovante e lancar baixa</summary>
+          <Dobra
+            titulo="Abrir aluno — conferir comprovante e lançar baixa"
+            estiloSumario={{ color: "#198754" }}
+            style={styles.detalhe}
+          >
           <ComprovantePagamento item={item} onAtualizar={carregarPagamentos} />
 
           {item.status === "AGUARDANDO_BAIXA" && (
@@ -661,7 +665,7 @@ export default function MinhaFilaPagamentos() {
               </button>
             </div>
           )}
-          </details>
+          </Dobra>
         </div>
       ))}
     </div>

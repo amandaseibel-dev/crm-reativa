@@ -434,3 +434,36 @@ button:hover {
 .app[data-tema="escuro"] .cabecalho-usuario span {
   color: #e2e8f0;
 }
+
+/* ===== BLOCO DOBRAVEL (padrao unico do CRM) =====
+   Toda secao que abre e fecha usa <Dobra> (src/ui/blocos.jsx), que aplica
+   estas classes. Regra: a seta fica SEMPRE a esquerda e gira ao abrir, o
+   titulo nunca muda de tamanho entre aberto e fechado, e a area de clique e
+   a linha inteira. Antes disso cada tela tinha o seu jeito -- em algumas o
+   marcador era o triangulo nativo do navegador (que muda de forma entre
+   Chrome, Firefox e Safari), em outras nao havia marcador nenhum. */
+.rv-dobra > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  user-select: none;
+}
+.rv-dobra > summary::-webkit-details-marker { display: none; }
+.rv-dobra > summary::marker { content: ""; }
+.rv-dobra > summary:focus-visible {
+  outline: 2px solid var(--rv-verde-claro, #3b82f6);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.rv-dobra-seta {
+  flex: none;
+  width: 14px;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1;
+  transition: transform 120ms ease;
+  opacity: 0.7;
+}
+.rv-dobra[open] > summary .rv-dobra-seta { transform: rotate(90deg); }

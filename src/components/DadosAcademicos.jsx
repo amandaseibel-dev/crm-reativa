@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import Dobra from "../ui/blocos";
 
 // Bloco DADOS ACADEMICOS — so leitura, no TOPO da ficha (sempre visivel,
 // fora das abas). Busca as colunas academicas por id (resiliente ao select
@@ -69,29 +70,31 @@ export default function DadosAcademicos({ aluno }) {
   // com um clique.
   const resumo = [curso || modalidade, situacao].filter(Boolean).join(" · ");
 
-  return (
-    <details style={S.caixa}>
-      <summary style={S.resumo}>
-        <strong style={S.tituloResumo}>🎓 Acadêmico</strong>
-        {matricula ? <span style={S.matriculaResumo}>{matricula}</span> : null}
-        {matriculas.length > 0 ? (
-          <span style={S.chips}>
-            {matriculas.map((m) => {
-              const c = COR_STATUS[m.status] || COR_STATUS.Anulado;
-              return (
-                <span
-                  key={`${m.semestre}-${m.valid_from}-${m.status}`}
-                  style={{ ...S.chip, background: c.fundo, color: c.cor, borderColor: c.borda }}
-                  title={`${m.curso || ""} · ${m.turno || ""} · ${m.valid_from} a ${m.valid_to || "—"}`}
-                >
-                  {m.semestre} · {m.cancelado ? "Cancelado" : (m.status || "—")}
-                </span>
-              );
-            })}
+  const chips = matriculas.length > 0 ? (
+    <span style={S.chips}>
+      {matriculas.map((m) => {
+        const c = COR_STATUS[m.status] || COR_STATUS.Anulado;
+        return (
+          <span
+            key={`${m.semestre}-${m.valid_from}-${m.status}`}
+            style={{ ...S.chip, background: c.fundo, color: c.cor, borderColor: c.borda }}
+            title={`${m.curso || ""} · ${m.turno || ""} · ${m.valid_from} a ${m.valid_to || "—"}`}
+          >
+            {m.semestre} · {m.cancelado ? "Cancelado" : (m.status || "—")}
           </span>
-        ) : null}
-        <span style={S.textoResumo}>{resumo}</span>
-      </summary>
+        );
+      })}
+    </span>
+  ) : null;
+
+  return (
+    <Dobra
+      titulo="🎓 Acadêmico"
+      contador={matricula || null}
+      extraNoResumo={chips}
+      resumo={resumo}
+      style={S.caixa}
+    >
       <div style={S.grid}>
         <Item rot="Matrícula" val={matricula} />
         <Item rot="Modalidade" val={modalidade} />
@@ -101,17 +104,13 @@ export default function DadosAcademicos({ aluno }) {
         <Item rot="Competência" val={comp} />
         <Item rot="Fonte" val={fonte} />
       </div>
-    </details>
+    </Dobra>
   );
 }
 
 const S = {
-  caixa: { padding: "6px 12px", marginBottom: 10, borderRadius: 10, background: "rgba(139,92,246,0.07)", border: "1px solid rgba(139,92,246,0.28)" },
-  resumo: { cursor: "pointer", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "3px 0", fontSize: 12.5 },
-  tituloResumo: { whiteSpace: "nowrap" },
-  matriculaResumo: { fontSize: 12.5, fontWeight: 700, color: "#0f172a" },
-  textoResumo: { color: "#64748b", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(139,92,246,0.22)" },
+  caixa: { marginBottom: 10, background: "rgba(139,92,246,0.07)", border: "1px solid rgba(139,92,246,0.28)" },
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 },
   item: { display: "flex", flexDirection: "column", gap: 2 },
   rot: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.6, fontWeight: 700 },
   val: { fontSize: 13, fontWeight: 600 },

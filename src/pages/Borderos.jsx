@@ -1,6 +1,7 @@
 import { useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
+import Dobra from "../ui/blocos";
 
 function limparCpf(valor) {
   const digitos = String(valor || "").replace(/\D/g, "");
@@ -536,29 +537,34 @@ export default function Borderos() {
           </p>
 
           {resultado.nomesCriados?.length > 0 && (
-            <details style={{ marginTop: 10 }}>
-              <summary style={{ cursor: "pointer", fontSize: 13 }}>
-                Ver os {resultado.nomesCriados.length} alunos criados agora
-              </summary>
+            <Dobra
+              tema="escuro"
+              titulo="Alunos criados agora"
+              contador={resultado.nomesCriados.length}
+              style={{ marginTop: 10 }}
+            >
               <ul style={{ fontSize: 13, opacity: 0.85, marginTop: 6 }}>
                 {resultado.nomesCriados.map((nome, indice) => (
                   <li key={indice}>{nome}</li>
                 ))}
               </ul>
-            </details>
+            </Dobra>
           )}
 
           {resultado.nomesNaoEncontrados?.length > 0 && (
-            <details style={{ marginTop: 10 }}>
-              <summary style={{ cursor: "pointer", fontSize: 13, color: "#fcd34d" }}>
-                Relatório: {resultado.nomesNaoEncontrados.length} não importados
-              </summary>
+            <Dobra
+              tema="escuro"
+              titulo="Não importados"
+              contador={resultado.nomesNaoEncontrados.length}
+              estiloSumario={{ color: "#fcd34d" }}
+              style={{ marginTop: 10 }}
+            >
               <ul style={{ fontSize: 13, opacity: 0.85, marginTop: 6 }}>
                 {resultado.nomesNaoEncontrados.map((nome, indice) => (
                   <li key={indice}>{nome}</li>
                 ))}
               </ul>
-            </details>
+            </Dobra>
           )}
         </div>
       )}
