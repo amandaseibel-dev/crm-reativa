@@ -2,7 +2,6 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { podeVerTudo } from "../utils/operadores";
-import { formatarCadastro } from "../utils/telefone";
 import { rotuloStatusComSaldo, rotuloStatus } from "../utils/rotulosStatus";
 import FinalizacaoTermo from "../components/FinalizacaoTermo";
 import jsPDF from "jspdf";
@@ -1914,13 +1913,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           Corrigir nome/CPF
                         </button>
                       </p>
-                      {(alunoSelecionado.telefone || alunoSelecionado.email) && (
-                        <p style={textoInfo}>
-                          {alunoSelecionado.telefone ? `Tel: ${formatarCadastro(alunoSelecionado.telefone)}` : ""}
-                          {alunoSelecionado.telefone && alunoSelecionado.email ? " · " : ""}
-                          {alunoSelecionado.email ? `E-mail: ${alunoSelecionado.email}` : ""}
-                        </p>
-                      )}
+                      {/* Telefone e e-mail saem daqui: o cartao "Contatos do aluno"
+                          logo abaixo e a fonte de verdade -- ele lista TODOS os
+                          numeros, marca o principal e mostra os invalidados. Esta
+                          linha lia o campo antigo do cadastro, que guarda um so
+                          contato, e as duas coisas podiam divergir. */}
                       {/* Unidade/curso saem daqui: o card Dados Acadêmicos logo
                           abaixo já traz campus, curso e modalidade. O saldo sai
                           daqui: vive no bloco de decisão, à direita. */}
