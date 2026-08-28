@@ -1210,6 +1210,21 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
   // (novo ou antigo), deixando a ficha amarela. Diferente de
   // Jurídico/Cancelamento, este volta sozinho pra fila se aparecer um
   // título novo desse aluno num bordero (ver Borderos.jsx).
+  // QUITAR TUDO.
+  //
+  // O QUE MUDOU E POR QUE. Isto era uma sequencia de gravacoes soltas no
+  // navegador -- movimentacao, titulos, acordos, parcelas, carteira -- sem
+  // transacao e com o erro engolido num catch mudo. Se qualquer passo falhasse,
+  // o caso ficava PELA METADE: status "quitado" e divida intacta. E a tela
+  // ainda dizia que tinha dado certo.
+  //
+  // Caso real, 28/08/2026: Yasmim da Silva ficou QUITADO_MANUAL com
+  // R$ 7.021,66 em tres titulos que nunca foram tocados -- data de atualizacao
+  // deles era de julho. Voltou para o topo da fila porque o saldo continuava.
+  //
+  // Agora chama `quitar_e_encerrar_caso`, que faz TUDO no servidor numa
+  // transacao so: casos, alunos, parcelas, acordos, titulos, confirmacoes e
+  // baixas. Ou vai tudo, ou nao vai nada -- e o erro aparece na tela.
   async function quitarManual() {
     if (!alunoSelecionado?.id) return;
     if (!podeQuitarManual(usuarioLogado?.email)) return;
@@ -1219,73 +1234,53 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     if (!confirmado) return;
     setSalvando(true);
     try {
-      const statusAnterior = pegarCampo(
-        alunoSelecionado,
-        ["status_jornada", "status_atual", "status"],
-        null
-      );
+      let { data, error } = await supabase.rpc("quitar_e_encerrar_caso", {
+        p_aluno_id: alunoSelecionado.id,
+      });
+
+      // Guarda do acordo em dia: o servidor recusa quando o aluno tem parcela
+      // futura e nada vencido, para nao apagar acordo vigente sem querer.
+      if (error && String(error.message || "").includes("ACORDO_EM_DIA")) {
+        const seguir = window.confirm(
+          error.message.replace("ACORDO_EM_DIA: ", "") +
+            "\n\nConfirmar mesmo assim?"
+        );
+        if (!seguir) { setSalvando(false); return; }
+        ({ data, error } = await supabase.rpc("quitar_e_encerrar_caso", {
+          p_aluno_id: alunoSelecionado.id,
+          p_confirmar_acordo_em_dia: true,
+        }));
+      }
+
+      if (error) {
+        alert("NAO foi quitado. Nada foi alterado.\n\n" + error.message);
+        return;
+      }
+
       await registrarMovimentacao({
         alunoId: alunoSelecionado.id,
         tipo: "QUITADO_MANUAL",
         descricao: "Caso marcado como quitado manualmente para sair da fila ativa.",
-        statusAnterior,
+        statusAnterior: pegarCampo(
+          alunoSelecionado,
+          ["status_jornada", "status_atual", "status"],
+          null
+        ),
         statusNovo: STATUS_QUITADO_MANUAL,
         retorno: null,
         atualizarResponsavel: false,
-        extraAluno: {
-          status_jornada: STATUS_QUITADO_MANUAL,
-          status_atual: STATUS_QUITADO_MANUAL,
-          status_acionamento: STATUS_QUITADO_MANUAL,
-          proxima_acao: "NENHUMA",
-          valor_em_aberto: 0,
-        },
       });
-      const agoraIso = new Date().toISOString();
-      // Zera os títulos soltos (que nunca entraram num acordo).
-      await supabase
-        .from("acordos_titulos")
-        .update({
-          situacao: "PAGO",
-          status: "quitada",
-          saldo_corrigido: 0,
-          valor_em_aberto: 0,
-          motivo_ajuste: "Quitado manualmente (saiu da fila) por " + (usuarioLogado?.email || "Amanda"),
-          atualizado_em: agoraIso,
-        })
-        .eq("aluno_id", String(alunoSelecionado.id))
-        .neq("situacao", "PAGO");
-      // Zera os acordos ativos e as parcelas que ainda estavam em aberto.
-      const { data: acordosAtivos } = await supabase
-        .from("acordos")
-        .select("id")
-        .eq("aluno_id", String(alunoSelecionado.id))
-        .eq("status", "ATIVO");
-      const idsAcordos = (acordosAtivos || []).map((a) => a.id);
-      if (idsAcordos.length > 0) {
-        await supabase
-          .from("acordos")
-          .update({ status: "QUITADO", saldo: 0, atualizado_em: agoraIso })
-          .in("id", idsAcordos);
-        // pago_em fica null de propósito -- não é um recebimento de
-        // verdade neste mês, é só regularização de um caso antigo. Deixar
-        // null impede que isso conte como "recebido este mês" em qualquer
-        // KPI que filtre por data de pagamento.
-        await supabase
-          .from("parcelas")
-          .update({ status: "PAGO", pago_em: null, atualizado_em: agoraIso })
-          .in("acordo_id", idsAcordos)
-          .neq("status", "PAGO");
-      }
-      await supabase
-        .from("carteira_operador")
-        .update({ status: "quitado_saiu", saiu_em: agoraIso })
-        .eq("aluno_id", String(alunoSelecionado.id))
-        .eq("status", "ativo");
+
       await recarregarAlunoSelecionado(alunoSelecionado.id);
       await carregarMovimentacoes(alunoSelecionado.id);
-      alert("Caso marcado como quitado -- valores zerados e removido da fila ativa.");
+      const t = data?.titulos ?? data?.titulos_zerados;
+      alert(
+        "Caso quitado e removido da fila ativa." +
+          (t != null ? ` ${t} título(s) zerado(s).` : "")
+      );
     } catch (e) {
       console.error(e);
+      alert("NAO foi quitado. Nada foi alterado.\n\n" + (e?.message || e));
     } finally {
       setSalvando(false);
     }
