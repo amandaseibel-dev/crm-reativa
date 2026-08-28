@@ -63,23 +63,19 @@ export default function DadosAcademicos({ aluno }) {
     : null;
   const fonte = (curso || situacao) ? "Relatório acadêmico" : "Borderô / base";
 
-  return (
-    <div style={S.caixa}>
-      <div style={S.cabecalho}><strong>🎓 Dados Acadêmicos</strong></div>
-      <div style={S.grid}>
-        <Item rot="Matrícula" val={matricula} />
-        <Item rot="Modalidade" val={modalidade} />
-        <Item rot="Curso" val={curso} />
-        <Item rot="Situação acadêmica" val={situacao} />
-        <Item rot="Estabelecimento" val={estab} />
-        <Item rot="Competência" val={comp} />
-        <Item rot="Fonte" val={fonte} />
-      </div>
+  // O bloco ocupava um cartao inteiro com sete campos sempre abertos. Curso e
+  // situacao o operador le uma vez; matricula por semestre ele usa para decidir
+  // se cobra. Entao o que decide fica na linha fechada, e a referencia abre
+  // com um clique.
+  const resumo = [curso || modalidade, situacao].filter(Boolean).join(" · ");
 
-      {matriculas.length > 0 ? (
-        <div style={S.matriculas}>
-          <span style={S.rot}>Matrícula por semestre</span>
-          <div style={S.chips}>
+  return (
+    <details style={S.caixa}>
+      <summary style={S.resumo}>
+        <strong style={S.tituloResumo}>🎓 Acadêmico</strong>
+        {matricula ? <span style={S.matriculaResumo}>{matricula}</span> : null}
+        {matriculas.length > 0 ? (
+          <span style={S.chips}>
             {matriculas.map((m) => {
               const c = COR_STATUS[m.status] || COR_STATUS.Anulado;
               return (
@@ -92,21 +88,33 @@ export default function DadosAcademicos({ aluno }) {
                 </span>
               );
             })}
-          </div>
-        </div>
-      ) : null}
-    </div>
+          </span>
+        ) : null}
+        <span style={S.textoResumo}>{resumo}</span>
+      </summary>
+      <div style={S.grid}>
+        <Item rot="Matrícula" val={matricula} />
+        <Item rot="Modalidade" val={modalidade} />
+        <Item rot="Curso" val={curso} />
+        <Item rot="Situação acadêmica" val={situacao} />
+        <Item rot="Estabelecimento" val={estab} />
+        <Item rot="Competência" val={comp} />
+        <Item rot="Fonte" val={fonte} />
+      </div>
+    </details>
   );
 }
 
 const S = {
-  caixa: { padding: "12px 16px", marginBottom: 14, borderRadius: 10, background: "rgba(139,92,246,0.07)", border: "1px solid rgba(139,92,246,0.28)" },
-  cabecalho: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 },
-  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 },
+  caixa: { padding: "6px 12px", marginBottom: 10, borderRadius: 10, background: "rgba(139,92,246,0.07)", border: "1px solid rgba(139,92,246,0.28)" },
+  resumo: { cursor: "pointer", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", padding: "3px 0", fontSize: 12.5 },
+  tituloResumo: { whiteSpace: "nowrap" },
+  matriculaResumo: { fontSize: 12.5, fontWeight: 700, color: "#0f172a" },
+  textoResumo: { color: "#64748b", minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8, marginTop: 8, paddingTop: 8, borderTop: "1px solid rgba(139,92,246,0.22)" },
   item: { display: "flex", flexDirection: "column", gap: 2 },
   rot: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.6, fontWeight: 700 },
   val: { fontSize: 13, fontWeight: 600 },
-  matriculas: { marginTop: 10, display: "flex", flexDirection: "column", gap: 4 },
-  chips: { display: "flex", gap: 6, flexWrap: "wrap" },
-  chip: { fontSize: 12, fontWeight: 700, borderRadius: 999, padding: "3px 10px", border: "1px solid" },
+  chips: { display: "inline-flex", gap: 6, flexWrap: "wrap" },
+  chip: { fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 9px", border: "1px solid" },
 };

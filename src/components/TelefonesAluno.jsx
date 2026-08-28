@@ -139,6 +139,9 @@ export default function TelefonesAluno({ aluno }) {
 
   const telefones = contatos.filter((c) => c.tipo === "telefone");
   const emails = contatos.filter((c) => c.tipo === "email");
+  // O numero no titulo da dobra existe para nada ficar escondido sem aviso:
+  // fechado com "(2)" o operador sabe que ha responsavel cadastrado.
+  const qtdResp = [resp.telefone_resp1, resp.telefone_resp2].filter((t) => String(t || "").trim()).length;
 
   function Contato({ c }) {
     const texto = c.tipo === "telefone" ? exibirTelefone(c.valor) : c.valor;
@@ -175,8 +178,7 @@ export default function TelefonesAluno({ aluno }) {
 
       {carregando && contatos.length === 0 ? <div style={S.vazio}>Carregando…</div> : null}
 
-      <div style={S.grupo}>
-        <span style={S.rot}>Telefones</span>
+      <div style={S.grupoAberto}>
         <div style={S.lista}>
           {telefones.length === 0 && !carregando ? <div style={S.vazio}>Nenhum telefone cadastrado.</div> : null}
           {telefones.map((c) => <Contato key={c.id} c={c} />)}
@@ -193,8 +195,10 @@ export default function TelefonesAluno({ aluno }) {
         </div>
       </div>
 
-      <div style={S.grupo}>
-        <span style={S.rot}>E-mails</span>
+      <details style={S.grupoDobra}>
+        <summary style={S.dobraResumo}>
+          E-mails{emails.length ? ` (${emails.length})` : ""}
+        </summary>
         <div style={S.lista}>
           {emails.length === 0 && !carregando ? <div style={S.vazio}>Nenhum e-mail cadastrado.</div> : null}
           {emails.map((c) => <Contato key={c.id} c={c} />)}
@@ -209,10 +213,12 @@ export default function TelefonesAluno({ aluno }) {
             <button style={S.botaoAdd} onClick={() => adicionar("email", novoMail)}>Adicionar e-mail</button>
           </div>
         </div>
-      </div>
+      </details>
 
-      <div style={S.grupo}>
-        <span style={S.rot}>Responsáveis</span>
+      <details style={S.grupoDobra}>
+        <summary style={S.dobraResumo}>
+          Responsáveis{qtdResp ? ` (${qtdResp})` : ""}
+        </summary>
         <div style={S.lista}>
           {[1, 2].map((n) => (
             <div key={n} style={S.linhaNovo}>
@@ -237,7 +243,7 @@ export default function TelefonesAluno({ aluno }) {
             </button>
           </div>
         </div>
-      </div>
+      </details>
 
       {msg ? <div style={S.msg}>{msg}</div> : null}
     </div>
@@ -245,11 +251,13 @@ export default function TelefonesAluno({ aluno }) {
 }
 
 const S = {
-  wrap: { border: "1px solid #eef2f6", borderRadius: 12, padding: 14, marginTop: 12, background: "#fff" },
-  head: { fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 10 },
-  grupo: { display: "flex", gap: 10, marginBottom: 12, flexWrap: "wrap" },
+  wrap: { border: "1px solid #eef2f6", borderRadius: 12, padding: "10px 12px", marginTop: 10, background: "#fff" },
+  head: { fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 8 },
+  grupoAberto: { display: "flex", gap: 10, marginBottom: 8, flexWrap: "wrap" },
+  grupoDobra: { marginBottom: 4 },
+  dobraResumo: { cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#475569", padding: "3px 0" },
   rot: { fontSize: 12, color: "#64748b", fontWeight: 700, minWidth: 96, paddingTop: 7 },
-  lista: { display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 260 },
+  lista: { display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 260, marginTop: 6 },
   item: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
   itemInvalido: { opacity: 0.75 },
   valor: { fontSize: 13, fontWeight: 600, color: "#0f172a", minWidth: 140 },
@@ -266,7 +274,7 @@ const S = {
   botaoLeve: { background: "#fff", color: "#334155", border: "1px solid #cbd5e1", borderRadius: 8, padding: "5px 10px", fontWeight: 600, cursor: "pointer", fontSize: 12 },
   botaoInvalidar: { background: "#fff", color: "#b91c1c", border: "1px solid #fecaca", borderRadius: 8, padding: "5px 10px", fontWeight: 600, cursor: "pointer", fontSize: 12 },
   acoes: { display: "flex", alignItems: "center", gap: 12, marginTop: 2 },
-  salvar: { background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontWeight: 700, cursor: "pointer" },
+  salvar: { background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "7px 12px", fontWeight: 700, fontSize: 12.5, cursor: "pointer" },
   vazio: { fontSize: 12, color: "#94a3b8" },
   msg: { fontSize: 12, color: "#166534", fontWeight: 600, marginTop: 4 },
 };
