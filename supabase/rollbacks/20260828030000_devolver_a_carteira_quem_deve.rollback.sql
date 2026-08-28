@@ -1,0 +1,7 @@
+-- Rollback: devolve os 165 casos ao estado anterior (fora da carteira).
+-- update public.casos c
+--    set status_atual = b.status_atual_antes,
+--        status_acionamento = b.status_acionamento_antes
+--   from public._backup_status_falso_20260828 b
+--  where c.id = b.caso_id;
+-- ATENCAO: isso volta a esconder R$ 515.805,39 de divida real da carteira.
