@@ -4,6 +4,8 @@ import FilaConfirmacaoPagamento from "./FilaConfirmacaoPagamento";
 import PainelAdm from "./PainelAdm";
 import ConferenciaPrime from "./ConferenciaPrime";
 import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirmacoes from "./HistoricoConfirmacoes";
+import PagamentosSemAluno from "./PagamentosSemAluno";
+import QuitacaoSugerida from "./QuitacaoSugerida";
 
 // Reune as telas financeiras num lugar so, com abas. Cada aba carrega o
 // componente ORIGINAL sem nenhuma alteracao interna -- nenhuma logica,
@@ -11,11 +13,19 @@ import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirm
 // A fila de acordos NAO tem aba propria aqui: ela ja vive dentro de
 // "Confirmacao de Pagamento" (sub-aba "Acordos a confirmar"), e ter as duas
 // portas pra mesma tela so fazia parecer que eram filas diferentes.
+//
+// MESMA REGRA, 28/08/2026: "Pagamentos sem aluno" e "Quitacao sugerida"
+// nasceram como itens soltos no menu Gestao. Sao conferencia igual as outras
+// -- olhar um caso e decidir -- entao vieram para ca como abas. Amanda: "tudo
+// que tiver de confirmacao deveria aparecer na aba de confirmacao e nao em
+// outro lugar, vai confundir tudo".
 const ABAS = [
   { chave: "PAINEL_ADM", rotulo: "Painel ADM" },
   { chave: "FINANCEIRO", rotulo: "Financeiro" },
   { chave: "CONFIRMACAO", rotulo: "Confirmação de Pagamento" },
   { chave: "FILA_BAIXAS", rotulo: "Fila de Baixas" },
+  { chave: "SEM_ALUNO", rotulo: "Pagamentos sem aluno" },
+  { chave: "QUITACAO_SUGERIDA", rotulo: "Quitação sugerida" },
   { chave: "CONFERENCIA_PRIME", rotulo: "Conferência Prime" },
   { chave: "HIST_CONFIRMACOES", rotulo: "Histórico de Confirmações" },
 ];
@@ -49,6 +59,8 @@ export default function FinanceiroHub() {
         {aba === "FINANCEIRO" && <ConsultaFinanceira />}
         {aba === "CONFIRMACAO" && <FilaConfirmacaoPagamento />}
         {aba === "FILA_BAIXAS" && <MinhaFilaPagamentos />}
+        {aba === "SEM_ALUNO" && <PagamentosSemAluno />}
+        {aba === "QUITACAO_SUGERIDA" && <QuitacaoSugerida />}
         {aba === "CONFERENCIA_PRIME" && <ConferenciaPrime />}
         {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
       </div>
