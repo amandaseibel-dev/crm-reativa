@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
+import Dobra from "../ui/blocos";
 
 // Contatos do aluno.
 //
@@ -195,10 +196,7 @@ export default function TelefonesAluno({ aluno }) {
         </div>
       </div>
 
-      <details style={S.grupoDobra}>
-        <summary style={S.dobraResumo}>
-          E-mails{emails.length ? ` (${emails.length})` : ""}
-        </summary>
+      <Dobra titulo="E-mails" contador={emails.length || null} tema="embutido" style={S.grupoDobra}>
         <div style={S.lista}>
           {emails.length === 0 && !carregando ? <div style={S.vazio}>Nenhum e-mail cadastrado.</div> : null}
           {emails.map((c) => <Contato key={c.id} c={c} />)}
@@ -213,12 +211,9 @@ export default function TelefonesAluno({ aluno }) {
             <button style={S.botaoAdd} onClick={() => adicionar("email", novoMail)}>Adicionar e-mail</button>
           </div>
         </div>
-      </details>
+      </Dobra>
 
-      <details style={S.grupoDobra}>
-        <summary style={S.dobraResumo}>
-          Responsáveis{qtdResp ? ` (${qtdResp})` : ""}
-        </summary>
+      <Dobra titulo="Responsáveis" contador={qtdResp || null} tema="embutido" style={S.grupoDobra}>
         <div style={S.lista}>
           {[1, 2].map((n) => (
             <div key={n} style={S.linhaNovo}>
@@ -243,7 +238,7 @@ export default function TelefonesAluno({ aluno }) {
             </button>
           </div>
         </div>
-      </details>
+      </Dobra>
 
       {msg ? <div style={S.msg}>{msg}</div> : null}
     </div>
@@ -254,8 +249,7 @@ const S = {
   wrap: { border: "1px solid #eef2f6", borderRadius: 12, padding: "10px 12px", marginTop: 10, background: "#fff" },
   head: { fontSize: 13, fontWeight: 700, color: "#0f172a", marginBottom: 8 },
   grupoAberto: { display: "flex", gap: 10, marginBottom: 8, flexWrap: "wrap" },
-  grupoDobra: { marginBottom: 4 },
-  dobraResumo: { cursor: "pointer", fontSize: 12, fontWeight: 700, color: "#475569", padding: "3px 0" },
+  grupoDobra: { marginBottom: 2 },
   rot: { fontSize: 12, color: "#64748b", fontWeight: 700, minWidth: 96, paddingTop: 7 },
   lista: { display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 260, marginTop: 6 },
   item: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },

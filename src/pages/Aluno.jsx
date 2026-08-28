@@ -14,6 +14,7 @@ import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
 import TelefonesAluno from "../components/TelefonesAluno";
 import PainelDesfazer from "../components/PainelDesfazer";
+import Dobra from "../ui/blocos";
 import {
   superficie,
   cartao,
@@ -2386,16 +2387,13 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   </button>
                 </div>
               ) : null}
-              <details
-                ref={(el) => (blocosRef.current.link = el)}
-                open={blocoAberto === "link"}
-                onToggle={(e) => {
-                  if (e.target.open) setBlocoAberto("link");
-                  else if (blocoAberto === "link") setBlocoAberto("");
-                }}
-                style={{ marginBottom: 12, border: blocoAberto === "link" ? "1px solid #2563eb" : "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff", scrollMarginTop: 16 }}
+              <Dobra
+                titulo="Link de pagamento"
+                refBloco={(el) => (blocosRef.current.link = el)}
+                aberto={blocoAberto === "link"}
+                onAlternar={(abriu) => setBlocoAberto(abriu ? "link" : (blocoAberto === "link" ? "" : blocoAberto))}
+                style={{ ...blocoFicha, borderColor: blocoAberto === "link" ? "#2563eb" : undefined }}
               >
-                <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Link de pagamento</summary>
               <LinksPagamentoAluno
                 aluno={alunoSelecionado}
                 usuarioLogado={usuarioLogado}
@@ -2411,46 +2409,37 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   await carregarAlunos();
                 }}
               />
-              </details>
-              <details
-                ref={(el) => (blocosRef.current.termo = el)}
-                open={blocoAberto === "termo"}
-                onToggle={(e) => {
-                  if (e.target.open) setBlocoAberto("termo");
-                  else if (blocoAberto === "termo") setBlocoAberto("");
-                }}
-                style={{ marginBottom: 12, border: blocoAberto === "termo" ? "1px solid #2563eb" : "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff", scrollMarginTop: 16 }}
+              </Dobra>
+              <Dobra
+                titulo="Termo de acordo"
+                refBloco={(el) => (blocosRef.current.termo = el)}
+                aberto={blocoAberto === "termo"}
+                onAlternar={(abriu) => setBlocoAberto(abriu ? "termo" : (blocoAberto === "termo" ? "" : blocoAberto))}
+                style={{ ...blocoFicha, borderColor: blocoAberto === "termo" ? "#2563eb" : undefined }}
               >
-                <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Termo de acordo</summary>
                 <FinalizacaoTermo
                   aluno={alunoSelecionado}
                   onEnviado={() => setDesfazerTick((t) => t + 1)}
                 />
-              </details>
-              <details
-                ref={(el) => (blocosRef.current.financeiro = el)}
-                open={blocoAberto === "financeiro"}
-                onToggle={(e) => {
-                  if (e.target.open) setBlocoAberto("financeiro");
-                  else if (blocoAberto === "financeiro") setBlocoAberto("");
-                }}
-                style={{ marginBottom: 12, border: blocoAberto === "financeiro" ? "1px solid #2563eb" : "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff", scrollMarginTop: 16 }}
+              </Dobra>
+              <Dobra
+                titulo="Enviar ao financeiro"
+                refBloco={(el) => (blocosRef.current.financeiro = el)}
+                aberto={blocoAberto === "financeiro"}
+                onAlternar={(abriu) => setBlocoAberto(abriu ? "financeiro" : (blocoAberto === "financeiro" ? "" : blocoAberto))}
+                style={{ ...blocoFicha, borderColor: blocoAberto === "financeiro" ? "#2563eb" : undefined }}
               >
-                <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Enviar ao financeiro</summary>
                 <EnvioFinanceiro aluno={alunoSelecionado} />
-              </details>
-              <details
-                ref={(el) => (blocosRef.current.confirmar = el)}
-                open={blocoAberto === "confirmar"}
-                onToggle={(e) => {
-                  if (e.target.open) setBlocoAberto("confirmar");
-                  else if (blocoAberto === "confirmar") setBlocoAberto("");
-                }}
-                style={{ marginBottom: 12, border: blocoAberto === "confirmar" ? "1px solid #2563eb" : "1px solid #e6eaf0", borderRadius: 12, padding: "6px 12px", background: "#fff", scrollMarginTop: 16 }}
+              </Dobra>
+              <Dobra
+                titulo="Confirmar pagamento"
+                refBloco={(el) => (blocosRef.current.confirmar = el)}
+                aberto={blocoAberto === "confirmar"}
+                onAlternar={(abriu) => setBlocoAberto(abriu ? "confirmar" : (blocoAberto === "confirmar" ? "" : blocoAberto))}
+                style={{ ...blocoFicha, borderColor: blocoAberto === "confirmar" ? "#2563eb" : undefined }}
               >
-                <summary style={{ cursor: "pointer", fontWeight: 700, padding: "10px 4px", color: "#0f172a", fontSize: 15 }}>Confirmar pagamento</summary>
                 <ConfirmarPagamento aluno={alunoSelecionado} />
-              </details>
+              </Dobra>
               <div style={caixaInterna}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                   <h3 style={tituloSecao}>Movimentações</h3>
@@ -2644,6 +2633,9 @@ const nomeAlunoFicha = {
 // Override local do token: a ficha e a tela mais longa do CRM, entao ela
 // aperta a propria superficie sem mudar as outras telas que usam o padrao.
 const caixa = { ...superficie, padding: "14px", marginBottom: "12px" };
+// Moldura dos blocos dobraveis da ficha. A borda azul quando aberto e a unica
+// diferenca entre eles -- o resto do visual vem do padrao em src/ui/blocos.jsx.
+const blocoFicha = { marginBottom: 12, scrollMarginTop: 16 };
 // Bloco de tabular: e a acao que o operador repete o dia inteiro, entao tem
 // peso proprio -- borda azul e fundo levemente tintado. Nao e "mais uma caixa".
 const caixaTabular = {
@@ -2706,31 +2698,38 @@ const botaoQuitarTudo = {
   cursor: "pointer",
   flex: "1 1 auto",
 };
+// Barra de abas da ficha. Com a ficha compacta ela subiu na tela, e o desenho
+// antigo (cinza-claro sobre branco, texto cinza) passou a ler como botao
+// desligado -- a Amanda procurou a aba Financeiro e nao achou. Agora: aba
+// escolhida em azul solido, as outras com borda e texto escuro. Sao ABAS, e
+// tem que parecer clicaveis mesmo quando nao estao escolhidas.
 const barraAbasFicha = {
   display: "flex",
   gap: "8px",
   flexWrap: "wrap",
-  marginBottom: "12px",
-  borderBottom: "1px solid #e6eaf0",
-  paddingBottom: "8px",
+  marginBottom: "14px",
+  borderBottom: "2px solid #e2e8f0",
+  paddingBottom: "10px",
 };
 const abaFichaBase = {
-  border: "none",
   borderRadius: "8px",
-  padding: "8px 14px",
-  fontSize: "13px",
+  padding: "9px 16px",
+  fontSize: "13.5px",
   fontWeight: 700,
   cursor: "pointer",
 };
 const abaFichaAtiva = {
   ...abaFichaBase,
-  background: "#eef2ff",
-  color: "#2563eb",
+  background: "#2563eb",
+  color: "#fff",
+  border: "1px solid #2563eb",
+  boxShadow: "0 1px 3px rgba(37,99,235,0.35)",
 };
 const abaFichaInativa = {
   ...abaFichaBase,
-  background: "#f1f5f9",
-  color: "#64748b",
+  background: "#fff",
+  color: "#334155",
+  border: "1px solid #cbd5e1",
 };
 const gradeCards = {
   display: "grid",
