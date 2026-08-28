@@ -432,7 +432,7 @@ function Panorama({ dados, erro }) {
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 12 }}>
         <div style={bloco}>
-          <div style={titulo}>Por semestre da dívida</div>
+          <div style={titulo}>Mensalidade por semestre de origem</div>
           {(dados.por_semestre || []).map((r) => (
             <div key={r.semestre}>
               <div style={linha}>
@@ -442,6 +442,30 @@ function Panorama({ dados, erro }) {
               {barra(r.pct_valor, "#1e40af")}
             </div>
           ))}
+          <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 8, lineHeight: 1.5 }}>
+            Semestre pela série de cobrança do Prime — não pelo vencimento, que erra
+            por causa da matrícula antecipada.
+          </div>
+        </div>
+
+        <div style={bloco}>
+          <div style={titulo}>Acordo por ano de vencimento</div>
+          {(dados.acordo_por_ano || []).map((r, i) => (
+            <div key={`${r.ano}-${i}`}>
+              <div style={linha}>
+                <span style={rot}>
+                  {r.ano} · {num(r.cpfs)} alunos · {num(r.parcelas)} parcelas
+                  {r.vencido && <b style={{ color: "#b91c1c" }}> · vencido</b>}
+                </span>
+                <span style={val}>{moeda(r.valor)} · {pct(r.pct_valor)}</span>
+              </div>
+              {barra(r.pct_valor, r.vencido ? "#b91c1c" : "#15803d")}
+            </div>
+          ))}
+          <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 8, lineHeight: 1.5 }}>
+            Acordo não tem semestre de origem — o boleto está no portador 166, que não
+            traz a série. Aqui a pergunta é <b>quando o dinheiro negociado deveria entrar</b>.
+          </div>
         </div>
 
         <div style={bloco}>
