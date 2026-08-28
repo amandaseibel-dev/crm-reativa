@@ -46,6 +46,13 @@ function podeQuitar(email) {
 }
 
 export default function MinhaFilaPagamentos() {
+  const [nomeCopiado, setNomeCopiado] = useState("");
+  function copiarNomeFila(nome) {
+    navigator.clipboard.writeText(nome || "").then(() => {
+      setNomeCopiado(nome);
+      setTimeout(() => setNomeCopiado(""), 1500);
+    });
+  }
   const navigate = useNavigate();
 
   const [usuario, setUsuario] = useState(null);
@@ -525,7 +532,19 @@ export default function MinhaFilaPagamentos() {
         <div key={item.id} style={styles.cardPagamento}>
           <div style={styles.topoCard}>
             <div>
-              <h2 style={styles.nome}>{item.aluno_nome || "Aluno sem nome"}</h2>
+              <h2 style={styles.nome}>
+                {item.aluno_nome || "Aluno sem nome"}
+                {item.aluno_nome ? (
+                  <button
+                    type="button"
+                    onClick={() => copiarNomeFila(item.aluno_nome)}
+                    style={styles.btnCopiarNome}
+                    title="Copiar o nome do aluno"
+                  >
+                    {nomeCopiado === item.aluno_nome ? "✓ Copiado" : "📋 Copiar"}
+                  </button>
+                ) : null}
+              </h2>
             <div style={styles.infoGrid}>
               <p style={styles.info}><strong>CPF:</strong> {item.aluno_cpf || "-"}</p>
               <p style={styles.info}><strong>Operador:</strong> {item.operador_nome || "-"}</p>
@@ -673,6 +692,7 @@ export default function MinhaFilaPagamentos() {
 }
 
 const styles = {
+  btnCopiarNome: { marginLeft: 10, background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", verticalAlign: "middle" },
   infoGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", columnGap: "18px", rowGap: "2px", marginTop: "4px" },
   indNum: { fontSize: "28px", fontWeight: 800, color: "#111827", lineHeight: 1 },
   indLbl: { fontSize: "13px", color: "#64748b", fontWeight: 600 },

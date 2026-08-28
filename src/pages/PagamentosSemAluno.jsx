@@ -39,6 +39,7 @@ export default function PagamentosSemAluno() {
   const [filtro, setFiltro] = useState("TODOS");
   const [abertoId, setAbertoId] = useState(null);
   const [fichaId, setFichaId] = useState(null);
+  const [nomeCopiado, setNomeCopiado] = useState("");
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -61,6 +62,13 @@ export default function PagamentosSemAluno() {
   );
   const repetidos = linhas.filter((l) => l.motivo === "NOME_REPETIDO").length;
   const semCadastro = linhas.filter((l) => l.motivo === "SEM_CADASTRO").length;
+
+  function copiarNome(nome) {
+    navigator.clipboard.writeText(nome || "").then(() => {
+      setNomeCopiado(nome);
+      setTimeout(() => setNomeCopiado(""), 1500);
+    });
+  }
 
   return (
     <div style={S.wrap}>
@@ -112,6 +120,8 @@ export default function PagamentosSemAluno() {
             onAbrir={() => setAbertoId(abertoId === l.pagamento_id ? null : l.pagamento_id)}
             onVinculado={carregar}
             onVerFicha={setFichaId}
+            onCopiar={copiarNome}
+            nomeCopiado={nomeCopiado}
           />
         ))}
       </div>
@@ -142,7 +152,7 @@ export default function PagamentosSemAluno() {
   );
 }
 
-function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha }) {
+function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeCopiado }) {
   const [termo, setTermo] = useState("");
   const [resultados, setResultados] = useState(null);
   const [buscando, setBuscando] = useState(false);
@@ -182,6 +192,16 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha }) {
       <div style={S.cardHead}>
         <div style={S.cardHeadInfo}>
           <span style={S.cardNome}>{item.aluno_nome || "(sem nome no arquivo)"}</span>
+          {item.aluno_nome ? (
+            <button
+              type="button"
+              onClick={() => onCopiar && onCopiar(item.aluno_nome)}
+              style={btnCopiarNome}
+              title="Copiar o nome como veio no arquivo"
+            >
+              {nomeCopiado === item.aluno_nome ? "✓ Copiado" : "📋 Copiar"}
+            </button>
+          ) : null}
           <span style={S.cardCpf}>
             {dataCurta(item.data_pagamento)} · título {item.titulo_numero || "-"}
             {item.matricula ? ` · matrícula ${item.matricula}` : ""}
@@ -267,6 +287,7 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha }) {
   );
 }
 
+const btnCopiarNome = { background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" };
 const selo = {
   repetido: { fontSize: 12, fontWeight: 800, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 999, padding: "4px 12px" },
   semCadastro: { fontSize: 12, fontWeight: 800, color: "#991b1b", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 999, padding: "4px 12px" },
