@@ -131,6 +131,11 @@ function ProjecaoHoraHoraInner() {
 
   const [dashboard, setDashboard] = useState(null);
   const [diaSelecionado, setDiaSelecionado] = useState(null);
+  // De quais arquivos o total do dia e feito. A substituicao de importacao e
+  // por NOME de arquivo, entao dois arquivos diferentes para o mesmo dia se
+  // SOMAM em vez de um substituir o outro -- e o numero do dia deixa de
+  // corresponder a qualquer planilha aberta. Aqui ele volta a se explicar.
+  const [composicaoDia, setComposicaoDia] = useState([]);
   const [pagamentosDoDia, setPagamentosDoDia] = useState([]);
   const [carregandoPagamentosDia, setCarregandoPagamentosDia] = useState(false);
   // Conferência diária (modal) — {dia, operadorEmail, esperado:{recuperado,honorario}}.
@@ -1391,12 +1396,30 @@ function ProjecaoHoraHoraInner() {
                       <h4 style={{ margin: 0 }}>🧾 Pagamentos de {diaSelecionado.split("-").reverse().join("/")}</h4>
                       <button
                         type="button"
-                        onClick={() => { setDiaSelecionado(null); setPagamentosDoDia([]); }}
+                        onClick={() => { setDiaSelecionado(null); setPagamentosDoDia([]); setComposicaoDia([]); }}
                         style={{ ...estilos.botaoPrimario, marginTop: 0, padding: "6px 12px", fontSize: 12, background: "#fff", color: "#475569", border: `1px solid ${PH_BORDA}` }}
                       >
                         Fechar
                       </button>
                     </div>
+                    {composicaoDia.length > 1 ? (
+                      <div style={{ marginTop: 10, marginBottom: 4, border: `1px solid ${PH_BORDA}`, borderRadius: 10, padding: "8px 12px", background: "#f8fafc" }}>
+                        <div style={{ fontSize: 12, fontWeight: 800, color: "#475569", marginBottom: 6 }}>
+                          Este dia vem de {composicaoDia.length} arquivos — o total é a soma deles
+                        </div>
+                        {composicaoDia.map((c, i) => (
+                          <div key={i} style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap", fontSize: 12.5, padding: "3px 0", color: "#334155" }}>
+                            <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>
+                              <strong>{c.arquivo_nome}</strong>
+                              <span style={{ color: "#64748b" }}> · {c.usuario}{c.status === "SUBSTITUIDA" ? " · versão substituída" : ""}</span>
+                            </span>
+                            <span style={{ whiteSpace: "nowrap", fontWeight: 700 }}>
+                              {c.linhas} · {Number(c.valor).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null}
                     {carregandoPagamentosDia ? (
                       <p style={{ opacity: 0.7 }}>Carregando pagamentos do dia...</p>
                     ) : pagamentosDoDia.length === 0 ? (
