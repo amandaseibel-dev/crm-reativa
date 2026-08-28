@@ -976,16 +976,32 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const PAGINA = 1000;
       let todas = [];
       let inicio = 0;
+      // DESEMPATE ESTAVEL (obrigatorio aqui): a lista vem em paginas de 1.000,
+      // e cada pagina e uma consulta nova. Ordenando so por
+      // data_ultimo_acionamento -- coluna com milhares de empates e de nulos --
+      // o banco nao garante a mesma ordem entre uma pagina e outra. O aluno
+      // caia em duas, tres, quatro paginas (a fila mostrava a mesma pessoa
+      // repetida) e OUTROS nao apareciam em pagina nenhuma: eram os casos que
+      // sumiam da carteira. `id` desempata e torna a paginacao deterministica.
+      const vistos = new Set();
       while (true) {
         let q = supabase
           .from("alunos")
           .select(colunas)
           .order("data_ultimo_acionamento", { ascending: true, nullsFirst: false })
+          .order("id", { ascending: true })
           .range(inicio, inicio + PAGINA - 1);
         q = aplicarEscopo(q);
         const { data: parte, error: erroParte } = await q;
         if (erroParte) throw erroParte;
-        todas = todas.concat(parte || []);
+        // Cinto e suspensorio: mesmo com a ordem estavel, nenhuma linha entra
+        // duas vezes na fila.
+        for (const linha of parte || []) {
+          const chave = String(linha?.id);
+          if (vistos.has(chave)) continue;
+          vistos.add(chave);
+          todas.push(linha);
+        }
         if (!parte || parte.length < PAGINA || todas.length >= TETO) break;
         inicio += PAGINA;
       }
