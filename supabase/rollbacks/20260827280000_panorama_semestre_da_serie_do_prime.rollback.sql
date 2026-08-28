@@ -1,0 +1,3 @@
+-- Rollback: o semestre volta a ser deduzido do MES DO VENCIMENTO.
+-- ATENCAO: aquela versao classifica 3.371 titulos no semestre errado por causa
+-- da matricula antecipada. Reaplicar 20260827260000_saude_carteira_panorama_topo.sql.
