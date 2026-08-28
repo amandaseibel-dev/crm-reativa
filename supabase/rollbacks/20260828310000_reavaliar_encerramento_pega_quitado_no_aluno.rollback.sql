@@ -1,0 +1,2 @@
+-- volta para a versao que so fechava quando a regra do caso dizia encerrado
+-- (ver migration 20260828080000)
