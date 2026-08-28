@@ -1,0 +1,7 @@
+-- Rollback: a previa volta a so considerar aluno SEM responsavel.
+-- Trocar, na CTE `base` de acoes_massivas_previa, a condicao
+--   (a.responsavel_atual_email IS NULL OR (p_apenas_nunca_acionado AND a.data_ultimo_acionamento IS NULL))
+-- de volta para
+--   a.responsavel_atual_email IS NULL
+-- Consequencia: 1.138 alunos com dono e nunca acionados voltam a ficar
+-- inalcancaveis pelos dois lados.
