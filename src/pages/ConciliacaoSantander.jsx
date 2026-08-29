@@ -48,6 +48,8 @@ export default function ConciliacaoSantander() {
   const [linhas, setLinhas] = useState([]);
   const [totalFaixa, setTotalFaixa] = useState(0);
   const [saldoFaixa, setSaldoFaixa] = useState(0);
+  const [pgtosFaixa, setPgtosFaixa] = useState(0);
+  const [entrouFaixa, setEntrouFaixa] = useState(0);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [faixa, setFaixa] = useState(10000);
@@ -76,6 +78,8 @@ export default function ConciliacaoSantander() {
     setLinhas(dados);
     setTotalFaixa(dados[0]?.total_faixa ?? dados.length);
     setSaldoFaixa(dados[0]?.saldo_faixa ?? 0);
+    setPgtosFaixa(dados[0]?.pagamentos_faixa ?? 0);
+    setEntrouFaixa(dados[0]?.entrou_faixa ?? 0);
     setBacklog(bl.data || null);
     setCursor(0);
     setCarregando(false);
@@ -194,8 +198,9 @@ export default function ConciliacaoSantander() {
         <div>
           <h1 style={S.titulo}>Conciliação com o Santander</h1>
           <p style={S.sub}>
-            Quem entrou no extrato de julho e agosto e ainda tem saldo aqui. Uma linha por aluno,
-            com os dois meses somados. O extrato define quem pagou; o saldo diz o que falta ajustar.
+            Pagamentos de julho e agosto que <b>ainda não foram conferidos</b>, de quem ainda tem saldo.
+            Uma linha por aluno, com os dois meses somados. Quem já está zerado sai da lista — já foi
+            conferido. Decidir aqui carimba os pagamentos daquele aluno, e a fila diminui.
           </p>
         </div>
         <button type="button" onClick={carregar} style={S.btnGhost} disabled={carregando}>
@@ -230,9 +235,11 @@ export default function ConciliacaoSantander() {
         />
         <div style={S.contadores}>
           <span style={S.contadorAlunos}>
-            {visiveis.length < totalFaixa ? `${visiveis.length} de ${totalFaixa}` : `${visiveis.length}`} alunos
+            {visiveis.length < totalFaixa ? `${visiveis.length} de ${totalFaixa}` : `${totalFaixa}`} alunos
           </span>
-          <span style={S.contadorValor}>{moeda(saldoFaixa)} na faixa</span>
+          <span style={S.contadorAlunos}>{pgtosFaixa} pagamentos</span>
+          <span style={S.contadorAcordos}>{moeda(entrouFaixa)} entrou</span>
+          <span style={S.contadorValor}>{moeda(saldoFaixa)} em aberto</span>
           {placar.n > 0 ? (
             <span style={S.contadorAcordos}>✓ {placar.n} resolvidos · {moeda(placar.valor)}</span>
           ) : null}
@@ -241,8 +248,9 @@ export default function ConciliacaoSantander() {
 
       {linhas.length < totalFaixa ? (
         <p style={avisoCorte}>
-          Mostrando os <b>{linhas.length}</b> maiores de <b>{totalFaixa}</b> na faixa {rotuloFaixa}.
-          Resolva estes e clique em Atualizar, ou estreite a faixa.
+          Mostrando os <b>{linhas.length}</b> maiores de <b>{totalFaixa}</b> alunos
+          ({pgtosFaixa} pagamentos) na faixa {rotuloFaixa}. Resolva estes e clique em Atualizar,
+          ou estreite a faixa.
         </p>
       ) : null}
 
