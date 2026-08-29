@@ -11,7 +11,7 @@ Cada premissa diz **onde ela é imposta**. Premissa que só existe em texto é
 premissa que volta a ser violada: a regra tem de morar no banco (gatilho,
 constraint ou função), não na tela.
 
-Estado em 28/08/2026. As quinze premissas foram fechadas com a gestão.
+Estado em 29/08/2026. As dezoito premissas foram fechadas com a gestão.
 
 ---
 
@@ -262,6 +262,65 @@ exclusões da fila.
 Memórias: `premissa-agenda-so-retorno-agendado`, `agenda-retorno-origem-operador`
 
 ---
+
+---
+
+## Pagamento
+
+### 16. O extrato do Santander define quem pagou
+
+A tabela de pagamentos, alimentada pelo arquivo do Santander, é a fonte de
+verdade sobre **recebimento**. Fila de conferência se constrói sobre evidência
+positiva de pagamento — **nunca sobre ausência de registro**.
+
+**Por quê:** em 29/08/2026 nasceram duas filas partindo de "quem NÃO pagou?", e
+essa pergunta só se responde por ausência. Com R$ 3.480.557,72 de baixa manual
+pendente, ausência mede o **nosso atraso**, não o aluno — os rótulos das duas
+precisaram de correção no mesmo dia por tratarem suposição como fato, e horas
+depois foram aposentadas. Amanda: *"criar uma fila única, sem suposições e sim
+com quem realmente pagou"*.
+
+**Onde vive:** `conciliacao_santander()` e a aba Conciliação Santander. Se uma
+lista só existe porque falta um registro, ela mede backlog: vira número de
+gestão no relatório, não tela com botão de ação.
+
+Memória: `fila-unica-pelo-extrato-do-santander`
+
+### 17. Valor não é chave de conciliação, nem sinal de anomalia
+
+Casar pagamento com dívida por **aluno + data**. Nunca por valor.
+
+**Por quê:** Amanda — *"sempre o valor do pagamento à vista por exemplo será
+maior que o valor principal"*. O extrato traz valor cheio (principal + juros +
+multa + honorários) e o nosso registro traz o principal. Logo **"pagou mais do
+que devia" é o comportamento normal de quem quitou à vista**, não alerta — e
+conciliar por valor produz falso positivo em massa. O mesmo já estava medido na
+Prime: `paidAmount > netAmount` em **89,4%** dos casos, acréscimo mediano
+**+89,8%**.
+
+**Onde vive:** nenhuma tela compara valor pago com saldo. Onde o saldo aparece,
+vai **partido**: parcela de acordo (valor já negociado, embute os encargos) e
+mensalidade (dívida original) — são decisões diferentes.
+
+**Limite do nosso dado:** não dá para decompor a parcela em principal +
+encargos. `parcelas.honorarios` está praticamente vazio — R$ 15.794,14 em
+R$ 4,7 milhões.
+
+### 18. Rejeitar pagamento devolve o aluno para a cobrança
+
+Rejeição restaura **status e operador**, não só o operador.
+
+**Por quê:** a rejeição devolvia o dono e esquecia o status. O aluno ficava em
+`AGUARDANDO_BAIXA` para sempre — e como esse status está em
+`STATUS_NAO_ACIONAVEIS` na Carteira, o caso sumia da fila sem caminho de volta.
+Resultado acumulado: **480 casos presos**, 304 deles com saldo vencido somando
+**R$ 906.949,69**, invisíveis para os operadores.
+
+**Onde vive:** `devolver_operador_ao_rejeitar_confirmacao`, que agora devolve o
+aluno para `CONTATAR` — e **só** quem está em espera. Não pisa em quitado,
+jurídico, suspensão ou cancelamento: encerrar cobrança é da gestão (premissa 10).
+
+Memória: `rejeicao-de-pagamento-nao-devolvia-para-cobranca`
 
 ---
 
