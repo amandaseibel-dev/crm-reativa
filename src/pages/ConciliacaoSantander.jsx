@@ -33,12 +33,17 @@ export default function ConciliacaoSantander() {
   const [ordem, setOrdem] = useState("SALDO");
   const [fichaId, setFichaId] = useState(null);
   const [ocupado, setOcupado] = useState(null);
+  const [backlog, setBacklog] = useState(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro("");
-    const { data, error } = await supabase.rpc("conciliacao_santander", { p_desde: "2026-07-01" });
-    if (error) setErro(error.message);
-    setLinhas(data || []);
+    const [fila, bl] = await Promise.all([
+      supabase.rpc("conciliacao_santander", { p_desde: "2026-07-01" }),
+      supabase.rpc("backlog_manual"),
+    ]);
+    if (fila.error) setErro(fila.error.message);
+    setLinhas(fila.data || []);
+    setBacklog(bl.data || null);
     setCarregando(false);
   }, []);
 
@@ -157,6 +162,15 @@ export default function ConciliacaoSantander() {
         </div>
       </div>
 
+      {backlog ? (
+        <p style={contexto}>
+          Ainda a lançar: <b>{backlog.pagamentos_sem_baixa}</b> pagamentos
+          ({moeda(backlog.pagamentos_sem_baixa_valor)}) sem fechar parcela ou título,
+          e <b>{backlog.acordos_sem_vinculo}</b> acordos sem mensalidade vinculada.
+          O saldo desta fila cai à medida que isso é feito.
+        </p>
+      ) : null}
+
       {erro ? <div style={S.erroBox}>{erro}</div> : null}
 
       {!carregando && visiveis.length === 0 ? (
@@ -258,6 +272,8 @@ const linkNome = {
   background: "none", border: "none", padding: 0, cursor: "pointer",
   fontWeight: 800, fontSize: 13.5, color: "#0f172a", textAlign: "left", textDecoration: "underline",
 };
+const contexto = { margin: "0 0 12px", fontSize: 12.5, color: "#78350f", background: "#fffbeb",
+  border: "1px solid #fde68a", borderRadius: 8, padding: "10px 14px", maxWidth: 900 };
 const sub = { fontSize: 11.5, color: "#64748b", marginTop: 2 };
 const btnQuitar = {
   background: "#0f172a", color: "#fff", border: "none", borderRadius: 8,
