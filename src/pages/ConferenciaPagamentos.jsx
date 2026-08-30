@@ -212,7 +212,9 @@ export default function ConferenciaPagamentos() {
           <p style={S.sub}>
             Todo pagamento de julho e agosto que <b>ainda não foi conferido</b>, uma linha por pessoa.
             O extrato do Santander define quem pagou. Quem já está zerado sai da lista — já foi conferido.
-            Decidir aqui carimba os pagamentos daquela pessoa, e a fila diminui.
+            Decidir aqui carimba os pagamentos daquela pessoa, e a fila diminui. Quem pagou
+            <b> depois de ter sido quitado</b> vem primeiro — dinheiro novo depois de uma quitação
+            total pede um olhar.
           </p>
         </div>
         <button type="button" onClick={carregar} style={S.btnGhost} disabled={carregando}>
@@ -296,6 +298,11 @@ export default function ConferenciaPagamentos() {
                     <div style={sub}>
                       {semDono ? <span style={seloSemDono}>sem vínculo</span> : `CPF ${l.cpf || "-"} · ${l.responsavel}`}
                       {!semDono && !l.tem_acordo ? <span style={seloSemAcordo}>sem acordo</span> : null}
+                      {!semDono && l.quitado_em && l.ultimo_pagamento > l.quitado_em ? (
+                        <span style={seloDepoisDeQuitar} title={`Quitado em ${curta(l.quitado_em)} e o pagamento entrou depois. Pode ser duplicidade, estorno a fazer ou dívida nova.`}>
+                          pagou depois de quitar
+                        </span>
+                      ) : null}
                       {" · "}{l.qtd_pagamentos} pagamento{l.qtd_pagamentos === 1 ? "" : "s"}
                       {" · "}{l.primeiro_pagamento === l.ultimo_pagamento
                         ? curta(l.ultimo_pagamento)
@@ -431,6 +438,10 @@ const sub = { fontSize: 11.5, color: "#64748b", marginTop: 2 };
 const seloSemDono = {
   fontSize: 10.5, fontWeight: 800, color: "#9a3412", background: "#ffedd5",
   border: "1px solid #fed7aa", borderRadius: 999, padding: "1px 8px", marginRight: 6,
+};
+const seloDepoisDeQuitar = {
+  fontSize: 10.5, fontWeight: 800, color: "#9f1239", background: "#fff1f2",
+  border: "1px solid #fecdd3", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
 };
 const seloSemAcordo = {
   fontSize: 10.5, fontWeight: 800, color: "#3730a3", background: "#e0e7ff",
