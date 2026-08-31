@@ -1,0 +1,8 @@
+-- select cron.unschedule('fluxo_pagamentos');
+-- drop function if exists public.fluxo_pagamentos_rodar(text);
+-- drop table if exists public.fluxo_pagamentos_execucoes;
+-- drop table if exists public.fluxo_pagamentos_config;
+--
+-- Para so PARAR sem derrubar nada, desligue as etapas:
+--   update public.fluxo_pagamentos_config set ligado = false;
+-- O cron continua rodando e registrando, sem escrever nada.
