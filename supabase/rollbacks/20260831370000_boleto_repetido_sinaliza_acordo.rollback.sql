@@ -1,0 +1,6 @@
+-- select cron.unschedule('acordos_sinalizar_boleto_repetido');
+-- drop function if exists public.acordos_sinalizar_boleto_repetido();
+--
+-- Para desfazer a sinalizacao (NAO cancela nada, so limpa a marca):
+--   update public.acordos set duplicado_de = null, duplicado_marcado_em = null
+--    where duplicado_marcado_em::date = date '2026-08-31';
