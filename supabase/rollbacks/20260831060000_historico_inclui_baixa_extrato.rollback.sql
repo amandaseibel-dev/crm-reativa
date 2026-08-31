@@ -1,0 +1,1 @@
+-- volta a ler so solicitacoes_confirmacao_pagamento (versao anterior).
