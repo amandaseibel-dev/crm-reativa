@@ -1,0 +1,14 @@
+-- Desfaz a trava de coerencia. Sem ela os dois campos voltam a poder discordar,
+-- e o titulo volta ao limbo: fora do saldo, dentro da ficha.
+--
+-- drop trigger if exists trg_titulo_situacao_status_coerentes on public.acordos_titulos;
+-- drop function if exists public._titulo_situacao_e_status_coerentes();
+--
+-- Para devolver os 391 titulos ao estado anterior:
+--   update public.acordos_titulos t
+--      set situacao = b.situacao, status = b.status, motivo_ajuste = b.motivo_ajuste
+--     from public._backup_situacao_status_divergentes_20260831 b
+--    where b.id = t.id;
+-- e recalcular_situacao_aluno por ULTIMO, aluno a aluno.
+-- ATENCAO: com a trava ativa esse update seria normalizado de volta. Derrube o
+-- gatilho ANTES de restaurar.
