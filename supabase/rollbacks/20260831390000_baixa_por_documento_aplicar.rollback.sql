@@ -1,0 +1,9 @@
+-- drop function if exists public.baixa_por_documento_aplicar(date, boolean);
+--
+-- Para desfazer UMA execucao, use o backup que ela devolve no campo `backup`:
+--   update public.parcelas p
+--      set status = b.status, pago_em = b.pago_em, honorarios = b.honorarios,
+--          confirmado_por_email = b.confirmado_por_email, observacao = b.observacao
+--     from public._backup_baixa_documento_<timestamp> b
+--    where b.id = p.id;
+-- e recalcular_situacao_aluno por ULTIMO, aluno a aluno.
