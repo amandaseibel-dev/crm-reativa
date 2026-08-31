@@ -42,11 +42,15 @@ const FAIXAS = [
   { min: 50000, rotulo: "R$ 50 mil +" },
 ];
 
-// Periodo: mes fechado ou intervalo livre de datas.
+// Periodo. Abre em JULHO E AGOSTO por decisao da gestao -- "quero julho e
+// agosto, depois voltamos em junho". Junho fica a um clique: quando o arquivo
+// dele for importado, entra sem inundar a fila antes da hora.
 const MESES = [
-  { chave: "TUDO", rotulo: "Todo o período", de: null, ate: null },
-  { chave: "2026-07", rotulo: "Julho", de: "2026-07-01", ate: "2026-08-01" },
-  { chave: "2026-08", rotulo: "Agosto", de: "2026-08-01", ate: "2026-09-01" },
+  { chave: "JUL_AGO", rotulo: "Julho e agosto", de: "2026-07-01", ate: "2026-09-01" },
+  { chave: "2026-07", rotulo: "Só julho", de: "2026-07-01", ate: "2026-08-01" },
+  { chave: "2026-08", rotulo: "Só agosto", de: "2026-08-01", ate: "2026-09-01" },
+  { chave: "2026-06", rotulo: "Junho", de: "2026-06-01", ate: "2026-07-01" },
+  { chave: "TUDO", rotulo: "Tudo", de: null, ate: null },
 ];
 
 const SEGUNDOS_DESFAZER = 12;
@@ -57,7 +61,7 @@ export default function ConferenciaPagamentos() {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [faixa, setFaixa] = useState(0);
-  const [mes, setMes] = useState("TUDO");
+  const [mes, setMes] = useState("JUL_AGO");
   const [de, setDe] = useState("");
   const [ate, setAte] = useState("");
   const [busca, setBusca] = useState("");
@@ -232,7 +236,7 @@ export default function ConferenciaPagamentos() {
         <div>
           <h1 style={S.titulo}>Conferência de Pagamentos</h1>
           <p style={S.sub}>
-            Todo pagamento que <b>ainda não foi conferido</b>, e as baixas do período,
+            Pagamento que <b>ainda não foi conferido</b>, e as baixas do período,
             uma linha por pessoa. Entrou, baixado e saldo lado a lado.
             O extrato do Santander define quem pagou. Quem já está zerado sai da lista — já foi conferido.
             Decidir aqui carimba os pagamentos daquela pessoa, e a fila diminui. Quem pagou
