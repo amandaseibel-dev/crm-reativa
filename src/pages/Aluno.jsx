@@ -770,17 +770,57 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
     // QUAIS -- que e o que permite conferir se o acordo cobriu o que devia.
     const porAcordo = new Map();
     if (lista.length) {
-      const { data: tits } = await supabase
-        .from("acordos_titulos")
-        .select(
-          "id,acordo_id,documento,vencimento,competencia,situacao,valor_original,valor_em_aberto,saldo_corrigido,vinculado_em,vinculado_por"
-        )
-        .in("acordo_id", lista.map((a) => a.id))
-        .order("vencimento", { ascending: true })
-        .order("id");
-      for (const t of tits || []) {
-        if (!porAcordo.has(t.acordo_id)) porAcordo.set(t.acordo_id, []);
-        porAcordo.get(t.acordo_id).push(t);
+      const idsAcordos = lista.map((a) => a.id);
+      const COLUNAS =
+        "id,acordo_id,documento,vencimento,competencia,situacao,valor_original,valor_em_aberto,saldo_corrigido,vinculado_em,vinculado_por";
+
+      // O VINCULO MORA EM DOIS LUGARES, e os dois valem.
+      //
+      // `acordos_titulos.acordo_id` e a tabela `acordo_titulo_vinculo`. O certo e
+      // ter os dois -- e os 2.733 titulos negociados corretamente tem. Mas em
+      // 31/08 havia 122 titulos ligados SO pela tabela, com a coluna vazia.
+      // Lendo so a coluna, esses 122 sumiam da ficha sem aviso: o operador veria
+      // "nenhuma mensalidade negociada" num acordo que cobriu varias.
+      //
+      // Quem manda no SALDO e a tabela de vinculo -- e o que
+      // `recalcular_situacao_aluno` consulta para tirar a mensalidade da conta.
+      // Entao a ficha precisa mostrar, no minimo, tudo o que o saldo ja desconta.
+      const [porColuna, vinculos] = await Promise.all([
+        supabase.from("acordos_titulos").select(COLUNAS).in("acordo_id", idsAcordos),
+        supabase
+          .from("acordo_titulo_vinculo")
+          .select("titulo_id,acordo_id,ativo")
+          .in("acordo_id", idsAcordos),
+      ]);
+
+      const ativos = (vinculos.data || []).filter((v) => v.ativo !== false);
+      const acordoDoTitulo = new Map(ativos.map((v) => [v.titulo_id, v.acordo_id]));
+
+      let pelaTabela = [];
+      if (ativos.length) {
+        const r = await supabase
+          .from("acordos_titulos")
+          .select(COLUNAS)
+          .in("id", ativos.map((v) => v.titulo_id));
+        pelaTabela = r.data || [];
+      }
+
+      // junta as duas fontes sem repetir o mesmo titulo
+      const vistos = new Set();
+      for (const t of [...(porColuna.data || []), ...pelaTabela]) {
+        if (vistos.has(t.id)) continue;
+        vistos.add(t.id);
+        const destino = t.acordo_id || acordoDoTitulo.get(t.id);
+        if (!destino) continue;
+        if (!porAcordo.has(destino)) porAcordo.set(destino, []);
+        porAcordo.get(destino).push(t);
+      }
+      for (const lst of porAcordo.values()) {
+        lst.sort(
+          (x, y) =>
+            String(x.vencimento || "").localeCompare(String(y.vencimento || "")) ||
+            String(x.id).localeCompare(String(y.id))
+        );
       }
     }
     setAcordosFicha(
