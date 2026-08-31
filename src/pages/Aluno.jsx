@@ -238,6 +238,17 @@ function corSituacaoAcordo(sit) {
   if (sit === "Aguardando confirmação") return "#2563eb";
   return "#475569";
 }
+// Quanto vale uma mensalidade negociada. Mesma ordem que a Carteira e o
+// Financeiro usam -- se divergir daqui, a ficha passa a contar diferente do
+// resto do sistema sem ninguem perceber.
+function valorTitulo(t) {
+  return Number(t?.saldo_corrigido ?? t?.valor_em_aberto ?? t?.valor_original ?? 0);
+}
+
+function somaTitulos(ts) {
+  return (ts || []).reduce((acc, t) => acc + valorTitulo(t), 0);
+}
+
 function dataCurta(v) {
   if (!v) return "—";
   const d = new Date(v);
@@ -749,7 +760,36 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
         .eq("status", "VENCIDA");
       for (const p of parc || []) comVencida.add(p.acordo_id);
     }
-    setAcordosFicha(lista.map((a) => ({ ...a, _atrasado: comVencida.has(a.id) })));
+    // MENSALIDADES VINCULADAS A CADA ACORDO.
+    //
+    // Elas existem, tem valor, e NAO entram no total em aberto -- quem entra sao
+    // as parcelas do acordo, que ja representam essa mesma divida. Somar as duas
+    // dobraria: sao R$ 6,3 milhoes em 2.717 titulos NEGOCIADO na base inteira.
+    //
+    // Ate agora so aparecia o total ("Negociadas em acordo: R$ X"). Faltava dizer
+    // QUAIS -- que e o que permite conferir se o acordo cobriu o que devia.
+    const porAcordo = new Map();
+    if (lista.length) {
+      const { data: tits } = await supabase
+        .from("acordos_titulos")
+        .select(
+          "id,acordo_id,documento,vencimento,competencia,situacao,valor_original,valor_em_aberto,saldo_corrigido,vinculado_em,vinculado_por"
+        )
+        .in("acordo_id", lista.map((a) => a.id))
+        .order("vencimento", { ascending: true })
+        .order("id");
+      for (const t of tits || []) {
+        if (!porAcordo.has(t.acordo_id)) porAcordo.set(t.acordo_id, []);
+        porAcordo.get(t.acordo_id).push(t);
+      }
+    }
+    setAcordosFicha(
+      lista.map((a) => ({
+        ...a,
+        _atrasado: comVencida.has(a.id),
+        _titulos: porAcordo.get(a.id) || [],
+      }))
+    );
     setAcordosStatus("ok");
   }, []);
 
@@ -2326,6 +2366,43 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                                   {sit}
                                 </span>
                               </div>
+                              {a._titulos && a._titulos.length > 0 ? (
+                                <Dobra
+                                  titulo="Mensalidades negociadas neste acordo"
+                                  contador={a._titulos.length}
+                                  resumo={`${moeda(somaTitulos(a._titulos))} — já representadas pelas parcelas; não somam ao total em aberto`}
+                                  style={{ marginTop: 6 }}
+                                >
+                                  <div style={tabNegHead}>
+                                    <span>Documento</span>
+                                    <span>Competência</span>
+                                    <span>Vencimento</span>
+                                    <span>Situação</span>
+                                    <span style={{ textAlign: "right" }}>Valor</span>
+                                  </div>
+                                  {a._titulos.map((t) => (
+                                    <div key={t.id} style={tabNegLinha}>
+                                      <span>{t.documento || "—"}</span>
+                                      <span>{t.competencia || "—"}</span>
+                                      <span>{dataCurta(t.vencimento)}</span>
+                                      <span>{t.situacao || "—"}</span>
+                                      <span style={{ textAlign: "right", fontWeight: 600 }}>
+                                        {moeda(valorTitulo(t))}
+                                      </span>
+                                    </div>
+                                  ))}
+                                  <div style={tabNegRodape}>
+                                    <span>
+                                      {a._titulos.length}{" "}
+                                      {a._titulos.length === 1 ? "mensalidade" : "mensalidades"} · vinculadas
+                                      {a._titulos[0]?.vinculado_em
+                                        ? ` desde ${dataCurta(a._titulos[0].vinculado_em)}`
+                                        : ""}
+                                    </span>
+                                    <strong>{moeda(somaTitulos(a._titulos))}</strong>
+                                  </div>
+                                </Dobra>
+                              ) : null}
                             </div>
                           );
                         }
@@ -2729,6 +2806,38 @@ const gradeCards = {
   gap: "8px",
   marginBottom: "10px",
 };
+// Tabela das mensalidades negociadas dentro de cada acordo. Cinco colunas
+// fixas para documento, competencia, vencimento, situacao e valor -- o valor
+// alinhado a direita porque e o que se le em coluna.
+const tabNegGrade = {
+  display: "grid",
+  gridTemplateColumns: "1.4fr 0.8fr 0.9fr 0.9fr 1fr",
+  gap: 8,
+  fontSize: 12.5,
+  alignItems: "center",
+};
+const tabNegHead = {
+  ...tabNegGrade,
+  fontWeight: 700,
+  color: "#64748b",
+  padding: "0 0 4px",
+  borderBottom: "1px solid #e2e8f0",
+};
+const tabNegLinha = {
+  ...tabNegGrade,
+  padding: "4px 0",
+  borderBottom: "1px solid #f1f5f9",
+  color: "#0f172a",
+};
+const tabNegRodape = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: 8,
+  paddingTop: 6,
+  fontSize: 12,
+  color: "#475569",
+};
+
 const cardInfo = cartao;
 const cardTitulo = cardTituloUI;
 const faixaMini = faixaMiniUI;
