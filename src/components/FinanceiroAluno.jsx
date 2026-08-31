@@ -807,45 +807,21 @@ export default function FinanceiroAluno({ aluno }) {
     );
     if (!confirmado) return;
 
-    const agora = new Date().toISOString();
+    // Cancelar acordo e uma coisa so, nao seis. Antes eram updates soltos em
+    // acordo_titulo_vinculo, acordos_titulos, parcelas e acordos, sem transacao
+    // e sem checar erro -- se um falhava no meio, o acordo ficava CANCELADO com
+    // as parcelas vivas, e o job diario as marcava VENCIDA (175 parcelas /
+    // R$ 94.628,77 em 68 acordos). Pior: o vinculo era APAGADO antes de o
+    // acordo mudar de status, e o gatilho que devolve os titulos le justamente
+    // esse vinculo -- por isso o boleto do proprio acordo nunca era cancelado e
+    // seguia como divida viva (17 titulos / R$ 32.758,19).
+    const { data: r, error: erroCancelar } = await supabase.rpc("acordo_cancelar", {
+      p_acordo_id: acordo.id,
+      p_motivo: "cancelado pela ficha do aluno",
+    });
 
-    const { data: vinculos } = await supabase
-      .from("acordo_titulo_vinculo")
-      .select("titulo_id")
-      .eq("acordo_id", acordo.id);
-
-    const idsTitulos = (vinculos || []).map((v) => v.titulo_id);
-
-    if (idsTitulos.length > 0) {
-      const { error: erroReverter } = await supabase
-        .from("acordos_titulos")
-        .update({ status: "em_aberto", atualizado_em: agora })
-        .in("id", idsTitulos);
-      if (erroReverter) {
-        alert("Erro ao devolver os títulos pro status em aberto: " + erroReverter.message);
-        return;
-      }
-    }
-
-    // acordos e parcelas não têm permissão de exclusão (DELETE) no banco
-    // -- tentar apagar falha silenciosamente, sem erro, e o registro
-    // continua lá do mesmo jeito. Por isso cancela (marca status) em vez
-    // de apagar -- o que também é melhor pra manter histórico/auditoria.
-    await supabase.from("acordo_titulo_vinculo").delete().eq("acordo_id", acordo.id);
-
-    await supabase
-      .from("parcelas")
-      .update({ status: "CANCELADA", atualizado_em: agora })
-      .eq("acordo_id", acordo.id)
-      .neq("status", "PAGO");
-
-    const { error: erroCancelar } = await supabase
-      .from("acordos")
-      .update({ status: "CANCELADO", saldo: 0, atualizado_em: agora })
-      .eq("id", acordo.id);
-
-    if (erroCancelar) {
-      alert("Erro ao cancelar o acordo: " + erroCancelar.message);
+    if (erroCancelar || !r?.ok) {
+      alert("Não foi possível cancelar o acordo: " + (erroCancelar?.message || "erro"));
       return;
     }
 
@@ -862,8 +838,12 @@ export default function FinanceiroAluno({ aluno }) {
       }
     }
 
-    setRecarga((r) => r + 1);
-    alert("Acordo cancelado.");
+    setRecarga((x) => x + 1);
+    alert(
+      r.ja_estava_cancelado
+        ? "Esse acordo já estava cancelado."
+        : "Acordo cancelado. " + (r.parcelas_canceladas || 0) + " parcela(s) deixaram de contar."
+    );
   }
 
   // ---- Montar novo acordo (direto na ficha) ----
