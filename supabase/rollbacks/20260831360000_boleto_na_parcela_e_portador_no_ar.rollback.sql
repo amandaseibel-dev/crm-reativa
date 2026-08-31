@@ -1,0 +1,9 @@
+-- select cron.unschedule('parcelas_amarrar_boleto');
+-- select cron.unschedule('prime_portador_mutirao');
+-- drop function if exists public.parcelas_amarrar_boleto();
+-- drop function if exists public.prime_portador_mutirao();
+-- drop index if exists public.ux_parcelas_boleto;
+-- alter table public.parcelas drop column if exists boleto;
+--
+-- Derrubar so a coluna ja desfaz a amarracao: ela nao sobrescreve nada, so
+-- preenche o que estava nulo.
