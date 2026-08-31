@@ -196,7 +196,11 @@ async function colher(cpf: string, chave: string) {
     recebidas: parcelas.length,
     sem_pagamento: parcelas.filter((p: any) => !p?.paymentDate).length,
     sem_boleto: parcelas.filter((p: any) => !String(p?.boleto ?? "").trim()).length,
+    // `sem_valor` chuta os nomes `value`/`amount`. Para nao tirar conclusao de um
+    // chute, `campos` lista as chaves que a API realmente manda numa parcela --
+    // e ai da para ver se existe valor com outro nome.
     sem_valor: parcelas.filter((p: any) => p?.value == null && p?.amount == null).length,
+    campos: parcelas.length ? Object.keys(parcelas[0]) : [],
   };
 
   return { cpf, registration, telefones, emails, contratos, titulos, _diag };
@@ -324,7 +328,7 @@ Deno.serve(async (req) => {
   // deterministica, os mesmos CPFs voltavam a cada 2 minutos. Assim que o topo
   // da fila fosse so gente que o Prime nao conhece, a coleta pararia de vez:
   // resposta 200, `aplicados: 0`, ninguem coletado. Em 31/08 eram 27% do lote.
-  const diag = { recebidas: 0, sem_pagamento: 0, sem_boleto: 0, sem_valor: 0 };
+  const diag: any = { recebidas: 0, sem_pagamento: 0, sem_boleto: 0, sem_valor: 0, campos: {} as Record<string, number> };
   const semRetorno: string[] = [];
   const comErro: string[] = [];
   const okColhidos: string[] = [];
@@ -339,6 +343,7 @@ Deno.serve(async (req) => {
       diag.sem_pagamento += _diag.sem_pagamento ?? 0;
       diag.sem_boleto += _diag.sem_boleto ?? 0;
       diag.sem_valor += _diag.sem_valor ?? 0;
+      for (const k of _diag.campos ?? []) diag.campos[k] = (diag.campos[k] ?? 0) + 1;
     }
     const { data, error } = await supa.rpc("prime_cadastro_aplicar", { p_dados: dados });
     // Erro nosso, nao do Prime -- mas se nao marcar, este CPF prende a fila do
