@@ -223,6 +223,10 @@ export default function FinanceiroAluno({ aluno }) {
   const [usuario, setUsuario] = useState(null);
   const [recarga, setRecarga] = useState(0);
   const [titulosSelecionaveis, setTitulosSelecionaveis] = useState([]);
+  // Marcar titulo duplicado -- id do titulo aberto no painel, e o motivo digitado.
+  const [duplicando, setDuplicando] = useState(null);
+  const [motivoDup, setMotivoDup] = useState("");
+  const [salvandoDup, setSalvandoDup] = useState(false);
   const [acordoAlvoId, setAcordoAlvoId] = useState("");
   const [novoAberto, setNovoAberto] = useState(true);
   const [novo, setNovo] = useState(novoAcordoInicial());
@@ -344,6 +348,48 @@ export default function FinanceiroAluno({ aluno }) {
   }, [aluno?.id, recarga]);
 
   const podeBaixar = podeGerirFinanceiro(usuario?.email || "");
+
+  // TIRAR DA CONTA UM TITULO DUPLICADO.
+  //
+  // Amanda, 31/08: "eu quero poder excluir uma parcela que criou sozinha do
+  // sistema". Ate aqui nao havia caminho nenhum: nenhuma tela alterava
+  // `acordos_titulos`.
+  //
+  // O caso que motivou: cancelar um acordo devolve para ABERTO o boleto do
+  // PROPRIO acordo, que veio na importacao de titulos. Como as mensalidades
+  // originais tambem voltam, a mesma divida passa a contar duas vezes.
+  //
+  // MARCA, nao apaga. Apagar some com o rastro -- ninguem sabe depois que valor
+  // existia nem por que sumiu. DUPLICADA mantem a linha e o valor, tira da conta
+  // e grava autor, data e motivo. O motivo e obrigatorio de proposito.
+  async function marcarDuplicada(tituloId) {
+    const motivo = String(motivoDup || "").trim();
+    if (motivo.length < 5) { alert("Escreva o motivo — por que este título está duplicado."); return; }
+    setSalvandoDup(true);
+    try {
+      const { error } = await supabase.rpc("titulo_marcar_duplicada", {
+        p_titulo_id: tituloId, p_motivo: motivo,
+      });
+      if (error) throw error;
+      setDuplicando(null); setMotivoDup("");
+      setRecarga((n) => n + 1);
+    } catch (e) {
+      alert("Não foi possível marcar: " + (e?.message || String(e)));
+    } finally { setSalvandoDup(false); }
+  }
+
+  async function desfazerDuplicada(tituloId) {
+    setSalvandoDup(true);
+    try {
+      const { error } = await supabase.rpc("titulo_desfazer_duplicada", {
+        p_titulo_id: tituloId, p_motivo: null,
+      });
+      if (error) throw error;
+      setRecarga((n) => n + 1);
+    } catch (e) {
+      alert("Não foi possível desfazer: " + (e?.message || String(e)));
+    } finally { setSalvandoDup(false); }
+  }
 
   // HOTFIX quitacao parcial (24/07/2026)
   //
@@ -1602,6 +1648,7 @@ export default function FinanceiroAluno({ aluno }) {
           <div style={{ marginTop: 10 }}>
             {titulos.map((titulo) => {
               const pago = titulo.situacao === "PAGO" || titulo.status === "quitada";
+              const duplicada = String(titulo.situacao || "").toUpperCase() === "DUPLICADA";
               // Reconhece o vinculo por qualquer um dos tres sinais: o
               // gatilho grava situacao=NEGOCIADO + status=vinculada, mas ha
               // uma janela em que so o acordo_id esta preenchido.
@@ -1645,9 +1692,62 @@ export default function FinanceiroAluno({ aluno }) {
                     <div style={{ fontSize: 13, fontWeight: 700 }}>
                       {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
                     </div>
-                    <span style={{ ...estilos.tagBase, background: cor.bg, color: cor.texto }}>
-                      {pago ? "Quitada" : negociada ? "Negociado" : "Em aberto"}
+                    <span style={{ ...estilos.tagBase, background: duplicada ? "#e2e8f0" : cor.bg,
+                                   color: duplicada ? "#475569" : cor.texto }}>
+                      {duplicada ? "Duplicada — fora da conta"
+                        : pago ? "Quitada" : negociada ? "Negociado" : "Em aberto"}
                     </span>
+
+                    {/* Tirar da conta um titulo duplicado. So gestao, e so o que
+                        nao esta pago -- titulo quitado errado se resolve pelo
+                        Financeiro, nao marcando duplicidade. */}
+                    {podeBaixar && !pago && !duplicada ? (
+                      duplicando === titulo.id ? (
+                        <div style={{ marginTop: 6, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          <input
+                            autoFocus
+                            placeholder="Motivo — por que está duplicado?"
+                            value={motivoDup}
+                            onChange={(e) => setMotivoDup(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter") marcarDuplicada(titulo.id);
+                              if (e.key === "Escape") { setDuplicando(null); setMotivoDup(""); }
+                            }}
+                            style={{ border: "1px solid #cbd5e1", borderRadius: 8, padding: "4px 9px", fontSize: 12, minWidth: 230 }}
+                          />
+                          <button type="button" disabled={salvandoDup}
+                            onClick={() => marcarDuplicada(titulo.id)}
+                            style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>
+                            {salvandoDup ? "…" : "Confirmar"}
+                          </button>
+                          <button type="button"
+                            onClick={() => { setDuplicando(null); setMotivoDup(""); }}
+                            style={{ background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}>
+                            Não
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: 6 }}>
+                          <button type="button"
+                            onClick={() => { setDuplicando(titulo.id); setMotivoDup(""); }}
+                            title="Tira este título da conta por estar duplicado. Não apaga: o valor fica registrado com o motivo, e dá para desfazer."
+                            style={{ background: "#fff", color: "#9a3412", border: "1px solid #fed7aa", borderRadius: 8, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                            Marcar duplicada
+                          </button>
+                        </div>
+                      )
+                    ) : null}
+
+                    {podeBaixar && duplicada ? (
+                      <div style={{ marginTop: 6 }}>
+                        <button type="button" disabled={salvandoDup}
+                          onClick={() => desfazerDuplicada(titulo.id)}
+                          title="Devolve este título para a conta do aluno."
+                          style={{ background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                          {salvandoDup ? "…" : "Voltar a contar"}
+                        </button>
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               );
