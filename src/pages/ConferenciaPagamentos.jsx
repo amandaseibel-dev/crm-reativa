@@ -42,7 +42,7 @@ const SEGUNDOS_DESFAZER = 12;
 
 export default function ConferenciaPagamentos() {
   const [linhas, setLinhas] = useState([]);
-  const [totais, setTotais] = useState({ linhas: 0, pagamentos: 0, entrou: 0, saldo: 0 });
+  const [totais, setTotais] = useState({ linhas: 0, pagamentos: 0, entrou: 0, baixado: 0, saldo: 0 });
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [faixa, setFaixa] = useState(0);
@@ -70,6 +70,7 @@ export default function ConferenciaPagamentos() {
       linhas: d[0]?.total_linhas ?? d.length,
       pagamentos: d[0]?.total_pagamentos ?? 0,
       entrou: d[0]?.total_entrou ?? 0,
+      baixado: d[0]?.total_baixado ?? 0,
       saldo: d[0]?.total_saldo ?? 0,
     });
     setCursor(0);
@@ -210,7 +211,8 @@ export default function ConferenciaPagamentos() {
         <div>
           <h1 style={S.titulo}>Conferência de Pagamentos</h1>
           <p style={S.sub}>
-            Todo pagamento de julho e agosto que <b>ainda não foi conferido</b>, uma linha por pessoa.
+            Todo pagamento de julho e agosto que <b>ainda não foi conferido</b>, e as baixas do período,
+            uma linha por pessoa. Entrou, baixado e saldo lado a lado.
             O extrato do Santander define quem pagou. Quem já está zerado sai da lista — já foi conferido.
             Decidir aqui carimba os pagamentos daquela pessoa, e a fila diminui. Quem pagou
             <b> depois de ter sido quitado</b> vem primeiro — dinheiro novo depois de uma quitação
@@ -250,6 +252,7 @@ export default function ConferenciaPagamentos() {
           </span>
           <span style={S.contadorAlunos}>{totais.pagamentos} pagamentos</span>
           <span style={S.contadorAcordos}>{moeda(totais.entrou)} entrou</span>
+          <span style={S.contadorAcordos}>{moeda(totais.baixado)} baixado</span>
           <span style={S.contadorValor}>{moeda(totais.saldo)} em aberto</span>
           {placar.n > 0 ? <span style={S.contadorAcordos}>✓ {placar.n} resolvidos</span> : null}
         </div>
@@ -272,6 +275,7 @@ export default function ConferenciaPagamentos() {
             <tr>
               <th style={S.th}>Pessoa</th>
               <th style={S.thNum}>Entrou</th>
+              <th style={S.thNum}>Baixado</th>
               <th style={S.thNum}>Saldo</th>
               <th style={S.thNum}>Em acordo</th>
               <th style={S.thNum}>Mensalidade</th>
@@ -298,6 +302,17 @@ export default function ConferenciaPagamentos() {
                     <div style={sub}>
                       {semDono ? <span style={seloSemDono}>sem vínculo</span> : `CPF ${l.cpf || "-"} · ${l.responsavel}`}
                       {!semDono && !l.tem_acordo ? <span style={seloSemAcordo}>sem acordo</span> : null}
+                      {!semDono && Number(l.entrou) === 0 && Number(l.baixado) > 0 ? (
+                        <span style={seloSoBaixa} title="Baixa registrada sem pagamento correspondente no extrato do Santander.">
+                          baixa sem lastro
+                        </span>
+                      ) : null}
+                      {!semDono && Number(l.entrou) > 0 && Number(l.baixado) > 0
+                        && Math.abs(Number(l.entrou) - Number(l.baixado)) > 0.05 ? (
+                        <span style={seloDiverge} title="O valor baixado não é o valor que entrou. Pagamento à vista vem maior que o principal — confira antes de concluir.">
+                          baixa ≠ extrato
+                        </span>
+                      ) : null}
                       {!semDono && l.quitado_em && l.ultimo_pagamento > l.quitado_em ? (
                         <span style={seloDepoisDeQuitar} title={`Quitado em ${curta(l.quitado_em)} e o pagamento entrou depois. Pode ser duplicidade, estorno a fazer ou dívida nova.`}>
                           pagou depois de quitar
@@ -309,7 +324,14 @@ export default function ConferenciaPagamentos() {
                         : `${curta(l.primeiro_pagamento)} a ${curta(l.ultimo_pagamento)}`}
                     </div>
                   </td>
-                  <td style={{ ...S.tdNum, fontWeight: 800, color: "#166534" }}>{moeda(l.entrou)}</td>
+                  <td style={{ ...S.tdNum, fontWeight: 800, color: "#166534" }}>
+                    {Number(l.entrou) > 0 ? moeda(l.entrou) : <span style={{ color: "#94a3b8" }}>—</span>}
+                  </td>
+                  <td style={S.tdNum}>
+                    {semDono ? "—" : Number(l.baixado) > 0 ? (
+                      <span title={`${l.qtd_baixas} baixa(s) no relatório`}>{moeda(l.baixado)}</span>
+                    ) : <span style={{ color: "#94a3b8" }}>—</span>}
+                  </td>
                   <td style={{ ...S.tdNum, fontWeight: 800 }}>{semDono ? "—" : moeda(l.saldo_aberto)}</td>
                   <td style={S.tdNum}>{semDono ? "—" : moeda(l.saldo_em_acordo)}</td>
                   <td style={S.tdNum}>{semDono ? "—" : moeda(l.saldo_em_mensalidade)}</td>
@@ -438,6 +460,14 @@ const sub = { fontSize: 11.5, color: "#64748b", marginTop: 2 };
 const seloSemDono = {
   fontSize: 10.5, fontWeight: 800, color: "#9a3412", background: "#ffedd5",
   border: "1px solid #fed7aa", borderRadius: 999, padding: "1px 8px", marginRight: 6,
+};
+const seloSoBaixa = {
+  fontSize: 10.5, fontWeight: 800, color: "#7c2d12", background: "#fff7ed",
+  border: "1px solid #fed7aa", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
+};
+const seloDiverge = {
+  fontSize: 10.5, fontWeight: 800, color: "#854d0e", background: "#fefce8",
+  border: "1px solid #fde047", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
 };
 const seloDepoisDeQuitar = {
   fontSize: 10.5, fontWeight: 800, color: "#9f1239", background: "#fff1f2",
