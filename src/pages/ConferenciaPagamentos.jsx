@@ -61,7 +61,9 @@ export default function ConferenciaPagamentos() {
   const carregar = useCallback(async () => {
     setCarregando(true); setErro("");
     const { data, error } = await supabase.rpc("conferencia_pagamentos", {
-      p_desde: "2026-07-01", p_faixa_min: faixa, p_limite: 300,
+      // sem p_desde: usa o padrao da funcao (01/06). Junho ainda nao tem dado
+      // nenhum, mas quando o arquivo entrar a fila cobre sozinha.
+      p_faixa_min: faixa, p_limite: 300,
     });
     if (error) setErro(error.message);
     const d = data || [];
@@ -211,7 +213,7 @@ export default function ConferenciaPagamentos() {
         <div>
           <h1 style={S.titulo}>Conferência de Pagamentos</h1>
           <p style={S.sub}>
-            Todo pagamento de julho e agosto que <b>ainda não foi conferido</b>, e as baixas do período,
+            Todo pagamento que <b>ainda não foi conferido</b>, e as baixas do período,
             uma linha por pessoa. Entrou, baixado e saldo lado a lado.
             O extrato do Santander define quem pagou. Quem já está zerado sai da lista — já foi conferido.
             Decidir aqui carimba os pagamentos daquela pessoa, e a fila diminui. Quem pagou

@@ -34,7 +34,7 @@
 drop function if exists public.conferencia_pagamentos(date, numeric, int);
 
 create or replace function public.conferencia_pagamentos(
-  p_desde date default '2026-07-01'::date,
+  p_desde date default '2026-06-01'::date,
   p_faixa_min numeric default 0,
   p_limite integer default 300
 )
@@ -149,3 +149,17 @@ $function$;
 
 revoke all on function public.conferencia_pagamentos(date, numeric, int) from public, anon;
 grant execute on function public.conferencia_pagamentos(date, numeric, int) to authenticated, service_role;
+
+-- JANELA A PARTIR DE 01/06 (e nao 01/07).
+--
+-- Amanda perguntou por junho. Conferido: junho NAO EXISTE em nenhum dos dois
+-- lados -- o primeiro pagamento do extrato e de 01/07/2026 e a primeira baixa
+-- tambem e de julho. Nao e corte de consulta, e dado que nunca foi importado.
+--
+-- Trocar o padrao para 01/06 nao muda NADA hoje: 2.785 linhas e R$ 9.026.477,20
+-- nas duas janelas, conferido lado a lado. Serve para quando o arquivo de junho
+-- entrar -- a fila passa a cobrir o mes sozinha, sem mexer em codigo.
+--
+-- Para dimensionar o que falta: julho recebeu R$ 7,6 mi e baixou R$ 824 mil
+-- (11%); agosto recebeu R$ 4,1 mi e baixou R$ 2,19 mi (53%). O atraso esta em
+-- julho.
