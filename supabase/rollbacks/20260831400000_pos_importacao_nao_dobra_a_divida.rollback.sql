@@ -1,0 +1,13 @@
+-- drop function if exists public.acordos_pos_importacao(uuid, boolean);
+--
+-- Para desfazer UMA execucao, pelo backup que ela devolve:
+--   delete from public.acordo_titulo_vinculo v
+--    using public._backup_pos_import_<lote> b where v.titulo_id = b.id;
+--   update public.acordos_titulos t
+--      set situacao=b.situacao, status=b.status, acordo_id=b.acordo_id,
+--          motivo_ajuste=b.motivo_ajuste
+--     from public._backup_pos_import_<lote> b where b.id = t.id;
+--   update public.parcelas set boleto = null where boleto in (
+--     select ltrim(documento,'0') from public._backup_pos_import_<lote>);
+-- e recalcular_situacao_aluno por ULTIMO, aluno a aluno.
+-- ATENCAO: derrube o gatilho de coerencia antes, senao ele normaliza de volta.
