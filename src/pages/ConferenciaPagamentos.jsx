@@ -141,6 +141,15 @@ export default function ConferenciaPagamentos() {
     setOcupado(chaveDe(l)); setConfirmando(null);
     try {
       if (acao === "CONFIRMADO") {
+        // 1) registra a baixa no relatorio, direto do extrato -- sem isto o
+        //    dinheiro do Santander nunca aparecia em baixas_pagamento.
+        const { error: eb } = await supabase.rpc("conferencia_baixar_do_extrato", {
+          p_aluno_id: l.aluno_id, p_valor: Number(l.entrou),
+          p_data: l.ultimo_pagamento, p_observacao: null,
+        });
+        if (eb) throw eb;
+        // 2) so entao decide quitacao: `confirmar_baixa_caso` quita APENAS se o
+        //    saldo zerar. Quem tem acordo em aberto continua na cobranca.
         const { error } = await supabase.rpc("confirmar_baixa_caso", {
           p_aluno_id: l.aluno_id, p_valor_pago: Number(l.entrou),
           p_data_pagamento: l.ultimo_pagamento, p_confirmacao_id: null,
@@ -416,7 +425,7 @@ export default function ConferenciaPagamentos() {
                       <div style={caixaConf}>
                         {conf === "REJEITADO" ? (
                           <input
-                            autoFocus style={inputMotivo} placeholder="Motivo (obrigatório)…"
+                            autoFocus style={inputMotivo} placeholder="Motivo — ex.: já baixado em outro fluxo"
                             value={motivo} onChange={(e) => setMotivo(e.target.value)}
                             onKeyDown={(e) => {
                               if (e.key === "Enter" && motivo.trim()) aplicar(l, "REJEITADO", motivo.trim());
@@ -426,8 +435,10 @@ export default function ConferenciaPagamentos() {
                         ) : (
                           <span style={txtConf}>
                             {conf === "QUITADO"
-                              ? <>Encerrar <b>{moeda(l.saldo_aberto)}</b> e tirar da cobrança?</>
-                              : <>Registrar baixa de <b>{moeda(l.entrou)}</b>?</>}
+                              ? <>Quitar e encerrar <b>{moeda(l.saldo_aberto)}</b>?</>
+                              : <>Baixar <b>{moeda(l.entrou)}</b>?{Number(l.saldo_em_acordo) > 0
+                                  ? <> Sobra <b>{moeda(l.saldo_em_acordo)}</b> de acordo — segue na cobrança.</>
+                                  : null}</>}
                           </span>
                         )}
                         <button type="button" style={btnOk}
@@ -446,13 +457,13 @@ export default function ConferenciaPagamentos() {
                         <button type="button" style={ocupado === chave ? S.btnBusy : S.btnConf}
                           disabled={ocupado === chave}
                           onClick={() => setConfirmando({ chave, acao: "CONFIRMADO" })}
-                          title="Registra a baixa com o valor do extrato. Só quita se o saldo zerar. (C)">Confirmar</button>
+                          title="Registra a baixa no relatório com o valor do extrato. Se o saldo zerar, quita; quem tem acordo em aberto continua na cobrança. (C)">Baixar</button>
                         <button type="button" style={S.btnRej} disabled={ocupado === chave}
                           onClick={() => { setConfirmando({ chave, acao: "REJEITADO" }); setMotivo(""); }}
-                          title="Não ajustar, com motivo. (R)">Rejeitar</button>
+                          title="Já está baixado, ou não é para ajustar. Pede motivo e não mexe em dinheiro. (R)">Já baixado</button>
                         <button type="button" style={btnQuitar} disabled={ocupado === chave}
                           onClick={() => setConfirmando({ chave, acao: "QUITADO" })}
-                          title="Encerra o caso inteiro. (Q)">Quitar tudo</button>
+                          title="Quita e encerra: tira o aluno da cobrança. (Q)">Quitar</button>
                       </div>
                     )}
                   </td>
@@ -467,7 +478,7 @@ export default function ConferenciaPagamentos() {
         <div style={toast}>
           <span>
             <b>{desfazer.linha.nome}</b> — {desfazer.acao === "CONFIRMADO" ? "baixa registrada"
-              : desfazer.acao === "QUITADO" ? "quitado e encerrado" : "rejeitado"}.
+              : desfazer.acao === "QUITADO" ? "quitado e encerrado" : "marcado como já baixado"}.
           </span>
           <button type="button" style={btnDesfazer} onClick={desfazerAgora}>Desfazer (U)</button>
         </div>
