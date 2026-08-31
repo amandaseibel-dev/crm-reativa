@@ -1,0 +1,18 @@
+-- Desfaz a RPC de cancelamento. A tela volta a precisar dos updates soltos --
+-- so faca isso junto com a reversao do FinanceiroAluno.jsx, senao o botao
+-- Cancelar acordo para de funcionar.
+--
+-- drop function if exists public.acordo_cancelar(uuid, text);
+--
+-- Para desfazer o backfill das 169 parcelas:
+--   update public.parcelas p set status = b.status, observacao = b.observacao
+--     from public._backup_parcela_viva_acordo_cancelado_20260831 b
+--    where b.id = p.id;
+--
+-- Para desfazer os 12 boletos de acordo:
+--   update public.acordos_titulos t
+--      set situacao = b.situacao, status = b.status, motivo_ajuste = b.motivo_ajuste
+--     from public._backup_boleto_acordo_orfao_20260831 b
+--    where b.id = t.id;
+--
+-- Nos dois casos, recalcular_situacao_aluno por ULTIMO, aluno a aluno.
