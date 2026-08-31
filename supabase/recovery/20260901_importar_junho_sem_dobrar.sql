@@ -1,0 +1,70 @@
+-- IMPORTAR JUNHO SEM DOBRAR O FATURAMENTO -- roteiro, NAO executar solto.
+--
+-- Amanda, 31/08: "sim, finalizando julho e agosto importamos junho".
+--
+-- POR QUE ISTO EXISTE. Junho JA ESTA na base, em `recuperacao_historica`:
+-- 2.194 linhas, R$ 3.742.803,00, origem IMPORTACAO_RETROATIVA. Se junho entrar
+-- tambem em `pagamentos` e nao sair do historico, ele passa a ser contado DUAS
+-- VEZES -- junho viraria R$ 7,5 milhoes.
+--
+-- Quem soma as duas tabelas com union all (conferido em 31/08): projecao_ano_vs_ano,
+-- dashboard_ano_vs_ano, dashboard_executivo, dashboard_faturamento_anual,
+-- dashboard_faturamento_mensal_yoy, dashboard_projecao_semestre,
+-- dashboard_tv_projecao, dre_dados, relatorio_executivo, tv_snapshot_calcular.
+--
+-- REGRA: junho mora em UM lugar so. Como o objetivo e poder CONFERIR junho
+-- contra o relatorio de baixa, ele vai para `pagamentos` -- e sai do historico
+-- no mesmo movimento. `recuperacao_historica` nao serve para conferencia: nao
+-- tem aluno_id nem CPF, so nome e valor.
+--
+-- ============================================================================
+-- ORDEM DE EXECUCAO
+-- ============================================================================
+--
+-- PASSO 0 -- LIGAR O GATILHO DE VINCULO ANTES DE IMPORTAR.
+--   migration 20260828390000_pagamento_nasce_vinculado.sql, ainda NAO aplicada.
+--   Sem ele junho entra sem `aluno_id`, como julho entrou -- e julho ficou dois
+--   meses inconferivel por causa disso. Com o gatilho, junho ja nasce vinculado
+--   e o batimento com a baixa funciona no primeiro dia.
+--
+-- PASSO 1 -- IMPORTAR pela Projecao Hora a Hora, com:
+--   mes de referencia = 2026-06
+--   retroativo = SIM  (junho e mes fechado; sem isso contamina o ritmo diario
+--                      do mes corrente)
+--
+-- PASSO 2 -- CONFERIR ANTES DE REMOVER (executar e comparar):
+--
+--   select 'historico' o, count(*) n, round(sum(valor_pago)::numeric,2) v
+--     from public.recuperacao_historica where competencia = date '2026-06-01'
+--   union all
+--   select 'pagamentos importados', count(*), round(sum(valor_pago)::numeric,2)
+--     from public.pagamentos
+--    where data_pagamento >= date '2026-06-01' and data_pagamento < date '2026-07-01';
+--
+--   Os dois totais devem ficar proximos de R$ 3.742.803,00. Se o importado vier
+--   MUITO diferente, PARE -- ou o arquivo nao e o mesmo, ou entrou duplicado.
+--
+-- PASSO 3 -- so entao remover junho do historico, com backup:
+
+-- create table if not exists public._backup_recup_historica_junho_20260901 as
+--   select * from public.recuperacao_historica where competencia = date '2026-06-01';
+-- alter table public._backup_recup_historica_junho_20260901 enable row level security;
+--
+-- delete from public.recuperacao_historica where competencia = date '2026-06-01';
+
+-- PASSO 4 -- CONFERIR DEPOIS. Junho deve aparecer UMA vez, nao duas:
+--
+--   with unif as (
+--     select data_pagamento, valor_pago from public.pagamentos
+--     union all
+--     select data_pagamento, valor_pago from public.recuperacao_historica
+--   )
+--   select to_char(data_pagamento,'YYYY-MM') mes, count(*) n,
+--          round(sum(valor_pago)::numeric,2) v
+--     from unif where data_pagamento >= date '2026-05-01'
+--    group by 1 order by 1;
+--
+--   Junho tem de bater com o total do PASSO 2, nao com o dobro.
+--
+-- DESFAZER: reinserir do backup em recuperacao_historica e apagar os pagamentos
+-- de junho pela importacao_id que a Projecao devolve.
