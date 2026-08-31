@@ -1,6 +1,5 @@
 import { useState } from "react";
 import ConsultaFinanceira from "./ConsultaFinanceira";
-import FilaConfirmacaoPagamento from "./FilaConfirmacaoPagamento";
 import ConferenciaPagamentos from "./ConferenciaPagamentos";
 import PainelAdm from "./PainelAdm";
 import ConferenciaPrime from "./ConferenciaPrime";
@@ -23,7 +22,6 @@ const ABAS = [
   { chave: "FINANCEIRO", rotulo: "Financeiro" },
   { chave: "CONFIRMACAO", rotulo: "Confirmação de Pagamento" },
   { chave: "FILA_BAIXAS", rotulo: "Fila de Baixas" },
-  { chave: "CONFERENCIA", rotulo: "Conferência de Pagamentos" },
   { chave: "CONFERENCIA_PRIME", rotulo: "Conferência Prime" },
   { chave: "HIST_CONFIRMACOES", rotulo: "Histórico de Confirmações" },
 ];
@@ -55,9 +53,8 @@ export default function FinanceiroHub() {
       <div style={estilos.conteudo}>
         {aba === "PAINEL_ADM" && <PainelAdm />}
         {aba === "FINANCEIRO" && <ConsultaFinanceira />}
-        {aba === "CONFIRMACAO" && <FilaConfirmacaoPagamento />}
+        {aba === "CONFIRMACAO" && <ConferenciaPagamentos />}
         {aba === "FILA_BAIXAS" && <MinhaFilaPagamentos />}
-        {aba === "CONFERENCIA" && <ConferenciaPagamentos />}
         {aba === "CONFERENCIA_PRIME" && <ConferenciaPrime />}
         {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
       </div>

@@ -1,4 +1,8 @@
-// Conferência de Pagamentos: UMA lista, uma linha por pessoa.
+// Confirmação de Pagamento: UMA lista, uma linha por pessoa.
+//
+// Mora no lugar da antiga Confirmacao de Pagamento, por decisao da gestao --
+// "se esta redundante, utilize ela como referencia para criar a nova dentro
+// dela". Mesma aba, mesmo lugar no menu; o conteudo e que mudou.
 //
 // Amanda: "organize a fila e todos os pagamentos que entraram por aluno, sem se
 // repetir os alunos, deixe uma aba para conferencia de pagamentos, nao precisamos
@@ -243,7 +247,7 @@ export default function ConferenciaPagamentos() {
     <div style={S.wrap}>
       <div style={S.topo}>
         <div>
-          <h1 style={S.titulo}>Conferência de Pagamentos</h1>
+          <h1 style={S.titulo}>Confirmação de Pagamento</h1>
           <p style={S.sub}>
             Pagamento que <b>ainda não foi conferido</b>, e as baixas do período,
             uma linha por pessoa. Entrou, baixado e saldo lado a lado.

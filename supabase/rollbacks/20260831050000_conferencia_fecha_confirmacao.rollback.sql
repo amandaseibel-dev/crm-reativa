@@ -1,0 +1,1 @@
+-- volta para a versao que nao fecha confirmacao, em 20260831040000.
