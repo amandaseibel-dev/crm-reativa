@@ -7,6 +7,7 @@ import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirm
 import PagamentosSemAluno from "./PagamentosSemAluno";
 import QuitacaoSugerida from "./QuitacaoSugerida";
 import PossivelAcordo from "./PossivelAcordo";
+import ConciliacaoSantander from "./ConciliacaoSantander";
 
 // Reune as telas financeiras num lugar so, com abas. Cada aba carrega o
 // componente ORIGINAL sem nenhuma alteracao interna -- nenhuma logica,
@@ -28,6 +29,7 @@ const ABAS = [
   { chave: "SEM_ALUNO", rotulo: "Pagamentos sem aluno" },
   { chave: "QUITACAO_SUGERIDA", rotulo: "Quitação sugerida" },
   { chave: "POSSIVEL_ACORDO", rotulo: "Possível acordo" },
+  { chave: "CONCILIACAO", rotulo: "Conciliação Santander" },
   { chave: "CONFERENCIA_PRIME", rotulo: "Conferência Prime" },
   { chave: "HIST_CONFIRMACOES", rotulo: "Histórico de Confirmações" },
 ];
@@ -64,6 +66,7 @@ export default function FinanceiroHub() {
         {aba === "SEM_ALUNO" && <PagamentosSemAluno />}
         {aba === "QUITACAO_SUGERIDA" && <QuitacaoSugerida />}
         {aba === "POSSIVEL_ACORDO" && <PossivelAcordo />}
+        {aba === "CONCILIACAO" && <ConciliacaoSantander />}
         {aba === "CONFERENCIA_PRIME" && <ConferenciaPrime />}
         {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
       </div>

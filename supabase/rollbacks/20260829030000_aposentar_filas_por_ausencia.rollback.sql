@@ -1,0 +1,1 @@
+-- Recriar exige as migrations 20260828350000 e 20260828370000, aposentadas de proposito.
