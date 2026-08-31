@@ -1,0 +1,2 @@
+-- drop function if exists public.prime_chave_api();
+-- Derruba so a leitura da chave; a Edge Function passa a responder 500.
