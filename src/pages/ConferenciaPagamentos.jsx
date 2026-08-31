@@ -215,6 +215,41 @@ export default function ConferenciaPagamentos() {
     setVinculando((v) => (v ? { ...v, achados: (data || []).slice(0, 8), buscando: false } : v));
   }
 
+  // CADASTRAR QUEM NAO ESTA NA BASE.
+  //
+  // Amanda, 31/08: "tem casos a vincular que nao tem cadastro e tem acordo para
+  // acompanhamento". Ate agora o sistema inteiro tinha UM unico caminho que cria
+  // aluno -- `importar_acordos`. Nenhuma tela inseria aluno. Entao, quando
+  // entrava dinheiro de alguem fora da base, a fila mostrava "sem vinculo" e a
+  // saida era montar uma planilha de uma linha so para importar.
+  //
+  // A RPC nao cria acordo nem caso e nao mexe em dinheiro: so abre a ficha, para
+  // o pagamento ter em quem ser ligado. Se o CPF ja existir, ela devolve o aluno
+  // existente em vez de criar outro -- cadastro repetido nesta base ja custou
+  // uma migration inteira de fusao.
+  async function cadastrarEVincular(l) {
+    const cpf = String(vinculando?.cpfNovo || "").replace(/\D/g, "");
+    const nome = String(vinculando?.nomeNovo || "").trim();
+    if (cpf.length !== 11) { alert("Informe os 11 dígitos do CPF."); return; }
+    if (nome.length < 3) { alert("Informe o nome do aluno."); return; }
+    setOcupado(chaveDe(l));
+    try {
+      const { data, error } = await supabase.rpc("criar_aluno_para_vinculo", {
+        p_nome: nome, p_cpf: cpf, p_unidade: null,
+      });
+      if (error) throw error;
+      const id = data?.aluno_id;
+      if (!id) throw new Error("cadastro não retornou o aluno");
+      if (data?.criado === false) {
+        alert("Esse CPF já estava cadastrado. Vinculando ao cadastro existente.");
+      }
+      await vincularEm(l, id);
+    } catch (e) {
+      alert("Não foi possível cadastrar: " + (e?.message || String(e)));
+      setOcupado(null);
+    }
+  }
+
   async function vincularEm(l, alunoId) {
     setOcupado(chaveDe(l)); setVinculando(null);
     try {
@@ -429,12 +464,33 @@ export default function ConferenciaPagamentos() {
                         {vinc.buscando ? <span style={txtConf}>buscando…</span> : null}
                         {vinc.achados ? (
                           <div style={{ display: "flex", gap: 5, flexWrap: "wrap", width: "100%", marginTop: 4 }}>
-                            {vinc.achados.length === 0 ? <span style={txtConf}>nenhum aluno encontrado</span> : null}
                             {vinc.achados.map((a) => (
                               <button key={a.id} type="button" style={btnAchado} onClick={() => vincularEm(l, a.id)}>
                                 {a.nome} · {a.cpf || "sem CPF"}
                               </button>
                             ))}
+                            {vinc.achados.length === 0 ? (
+                              <div style={{ display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap", width: "100%" }}>
+                                <span style={txtConf}>
+                                  Nenhum aluno encontrado. Cadastrar para poder vincular:
+                                </span>
+                                <input
+                                  style={{ ...inputMotivo, minWidth: 210 }}
+                                  placeholder="Nome do aluno"
+                                  value={vinc.nomeNovo ?? l.nome ?? ""}
+                                  onChange={(e) => setVinculando({ ...vinc, nomeNovo: e.target.value })}
+                                />
+                                <input
+                                  style={{ ...inputMotivo, minWidth: 140 }}
+                                  placeholder="CPF (11 dígitos)"
+                                  value={vinc.cpfNovo ?? ""}
+                                  onChange={(e) => setVinculando({ ...vinc, cpfNovo: e.target.value })}
+                                  onKeyDown={(e) => { if (e.key === "Enter") cadastrarEVincular(l); }}
+                                />
+                                <button type="button" style={btnOk} disabled={ocupado === chave}
+                                  onClick={() => cadastrarEVincular(l)}>Cadastrar e vincular</button>
+                              </div>
+                            ) : null}
                           </div>
                         ) : null}
                       </div>
