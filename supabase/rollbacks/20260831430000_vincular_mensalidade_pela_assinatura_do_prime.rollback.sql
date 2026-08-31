@@ -1,0 +1,16 @@
+-- select cron.unschedule('prime_extrato_mutirao');
+-- drop function if exists public.prime_vincular_por_negociacao(boolean,int);
+-- drop function if exists public.prime_extrato_mutirao();
+-- drop function if exists public.prime_extrato_ok(text);
+-- drop function if exists public.prime_extrato_falhou(text,text);
+-- drop table if exists public.prime_extrato_fila;
+-- drop table if exists public.prime_extrato;   -- so espelho, nao ha dado proprio aqui
+--
+-- Para desfazer UMA aplicacao do vinculo, pelo backup que ela devolve:
+--   delete from public.acordo_titulo_vinculo v
+--    using public._backup_vinc_negociacao_<lote> b where v.titulo_id = b.id;
+--   update public.acordos_titulos t
+--      set situacao=b.situacao, status=b.status, acordo_id=b.acordo_id,
+--          motivo_ajuste=b.motivo_ajuste
+--     from public._backup_vinc_negociacao_<lote> b where b.id = t.id;
+-- e recalcular_situacao_aluno por ULTIMO. Derrube o gatilho de coerencia antes.
