@@ -1,0 +1,11 @@
+-- DESFAZER 20260831110000_remover_conciliacao_decidir_duplicada.sql
+--
+-- ATENCAO: recriar esta funcao TRAZ O DEFEITO DE VOLTA. Com as duas versoes no
+-- banco, a chamada de 4 argumentos que a tela faz volta a ser ambigua e o botao
+-- "Ja baixado" volta a dar erro 300 (PGRST203).
+--
+-- So use se algo fora do CRM depender da assinatura de 4 parametros. Nesse caso,
+-- o certo NAO e recriar a funcao velha -- e fazer esse chamador passar tambem o
+-- `p_desde`, para a chamada deixar de ser ambigua.
+--
+-- Reaplicar o corpo original de supabase/migrations/20260828400000_conciliacao_santander.sql.
