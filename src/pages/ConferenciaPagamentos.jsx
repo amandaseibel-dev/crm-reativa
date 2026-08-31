@@ -72,7 +72,6 @@ export default function ConferenciaPagamentos() {
   const [buscaAtiva, setBuscaAtiva] = useState("");
   const [cursor, setCursor] = useState(0);
   const [confirmando, setConfirmando] = useState(null);
-  const [motivo, setMotivo] = useState("");
   const [vinculando, setVinculando] = useState(null); // {chave, termo, achados}
   const [ocupado, setOcupado] = useState(null);
   const [desfazer, setDesfazer] = useState(null);
@@ -141,40 +140,55 @@ export default function ConferenciaPagamentos() {
     setPlacar((p) => ({ n: p.n + 1, valor: p.valor + Number(l.saldo_aberto || 0) }));
   }
 
-  async function aplicar(l, acao, motivoTexto) {
+  // UM BOTAO SO: "Feito".
+  //
+  // Eram tres -- Baixar, Ja baixado e Quitar -- e a Amanda pediu um so depois de
+  // descobrirmos, em 31/08, que dois deles nao faziam o que prometiam:
+  //
+  //  * "Baixar" registrava o dinheiro mas NAO abatia a divida. A baixa entrava
+  //    sem parcela e sem acordo ligados, os titulos ficavam intocados, o saldo
+  //    nao caia -- e por isso `confirmar_baixa_caso`, que so quita se o saldo
+  //    zerar, nunca quitava. Medido no John Willian: baixa de R$ 34.289,40 e os
+  //    quatro titulos dele intocados desde 04/07;
+  //
+  //  * "Quitar" chamava `quitar_e_encerrar_caso`, que zera TUDO -- saldo,
+  //    parcelas e titulos -- sem comparar com o valor pago, e a tela ainda
+  //    passava `p_confirmar_acordo_em_dia: true`, desligando a unica protecao
+  //    que existia. Como o saldo nunca caia pelo "Baixar", a tela empurrava
+  //    justamente para o botao perigoso.
+  //
+  // Agora ha um caminho so, e ele NUNCA ZERA NADA: registra a baixa do extrato
+  // e marca a pessoa como conferida. `conferencia_baixar_do_extrato` ja ignora
+  // baixa repetida (mesmo aluno, mesma data, mesmo valor), entao clicar em quem
+  // ja foi baixado por outro fluxo apenas marca como conferido.
+  //
+  // A quitacao volta a ser consequencia: quando a divida realmente zerar, o
+  // caso quita sozinho. Enquanto o abatimento nao existir, ninguem zera por
+  // engano a partir daqui.
+  async function aplicar(l, observacao) {
     setOcupado(chaveDe(l)); setConfirmando(null);
     try {
-      if (acao === "CONFIRMADO") {
-        // 1) registra a baixa no relatorio, direto do extrato -- sem isto o
-        //    dinheiro do Santander nunca aparecia em baixas_pagamento.
-        const { error: eb } = await supabase.rpc("conferencia_baixar_do_extrato", {
-          p_aluno_id: l.aluno_id, p_valor: Number(l.entrou),
-          p_data: l.ultimo_pagamento, p_observacao: null,
-        });
-        if (eb) throw eb;
-        // 2) so entao decide quitacao: `confirmar_baixa_caso` quita APENAS se o
-        //    saldo zerar. Quem tem acordo em aberto continua na cobranca.
-        const { error } = await supabase.rpc("confirmar_baixa_caso", {
-          p_aluno_id: l.aluno_id, p_valor_pago: Number(l.entrou),
-          p_data_pagamento: l.ultimo_pagamento, p_confirmacao_id: null,
-        });
-        if (error) throw error;
-      }
-      if (acao === "QUITADO") {
-        const { error } = await supabase.rpc("quitar_e_encerrar_caso", {
-          p_aluno_id: l.aluno_id, p_valor: Number(l.entrou),
-          p_data: l.ultimo_pagamento, p_confirmar_acordo_em_dia: true,
-        });
-        if (error) throw error;
-      }
+      const { error: eb } = await supabase.rpc("conferencia_baixar_do_extrato", {
+        p_aluno_id: l.aluno_id, p_valor: Number(l.entrou),
+        p_data: l.ultimo_pagamento, p_observacao: observacao || null,
+      });
+      if (eb) throw eb;
+
+      // Quita SOMENTE se o saldo ja estiver zerado. Quem ainda deve segue na
+      // cobranca -- e o que impede a tela de apagar divida.
+      const { error } = await supabase.rpc("confirmar_baixa_caso", {
+        p_aluno_id: l.aluno_id, p_valor_pago: Number(l.entrou),
+        p_data_pagamento: l.ultimo_pagamento, p_confirmacao_id: null,
+      });
+      if (error) throw error;
+
       const { error: e2 } = await supabase.rpc("conciliacao_santander_decidir", {
-        p_aluno_id: l.aluno_id, p_decisao: acao,
-        p_motivo: motivoTexto || null, p_valor: Number(l.entrou),
+        p_aluno_id: l.aluno_id, p_decisao: "CONFIRMADO",
+        p_motivo: observacao || null, p_valor: Number(l.entrou),
       });
       if (e2) throw e2;
       tirarDaTela(l);
-      setDesfazer({ linha: l, acao });
-      setMotivo("");
+      setDesfazer({ linha: l, acao: "CONFIRMADO" });
     } catch (e) {
       alert("Não foi possível concluir: " + (e?.message || String(e)));
     } finally { setOcupado(null); }
@@ -232,9 +246,8 @@ export default function ConferenciaPagamentos() {
       else if (l.tipo === "SEM_VINCULO") {
         if (e.key === "v") { e.preventDefault(); setVinculando({ chave: chaveDe(l), termo: l.nome, achados: null }); procurarAluno(l, l.nome); }
       }
-      else if (e.key === "c") { e.preventDefault(); setConfirmando({ chave: chaveDe(l), acao: "CONFIRMADO" }); }
-      else if (e.key === "r") { e.preventDefault(); setConfirmando({ chave: chaveDe(l), acao: "REJEITADO" }); setMotivo(""); }
-      else if (e.key === "q") { e.preventDefault(); setConfirmando({ chave: chaveDe(l), acao: "QUITADO" }); }
+      // F de Feito. C segue valendo por costume de quem ja usava a tela.
+      else if (e.key === "f" || e.key === "c") { e.preventDefault(); setConfirmando({ chave: chaveDe(l), acao: "FEITO" }); }
       else if (e.key === "Enter" && l.aluno_id) { e.preventDefault(); setFichaId(l.aluno_id); }
     }
     window.addEventListener("keydown", onKey);
@@ -427,27 +440,16 @@ export default function ConferenciaPagamentos() {
                       </div>
                     ) : conf ? (
                       <div style={caixaConf}>
-                        {conf === "REJEITADO" ? (
-                          <input
-                            autoFocus style={inputMotivo} placeholder="Motivo — ex.: já baixado em outro fluxo"
-                            value={motivo} onChange={(e) => setMotivo(e.target.value)}
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter" && motivo.trim()) aplicar(l, "REJEITADO", motivo.trim());
-                              if (e.key === "Escape") setConfirmando(null);
-                            }}
-                          />
-                        ) : (
-                          <span style={txtConf}>
-                            {conf === "QUITADO"
-                              ? <>Quitar e encerrar <b>{moeda(l.saldo_aberto)}</b>?</>
-                              : <>Baixar <b>{moeda(l.entrou)}</b>?{Number(l.saldo_em_acordo) > 0
-                                  ? <> Sobra <b>{moeda(l.saldo_em_acordo)}</b> de acordo — segue na cobrança.</>
-                                  : null}</>}
-                          </span>
-                        )}
+                        <span style={txtConf}>
+                          Registrar <b>{moeda(l.entrou)}</b> como conferido?
+                          {Number(l.saldo_aberto) > 0.005 ? (
+                            <> Restam <b>{moeda(l.saldo_aberto)}</b> — segue na cobrança.</>
+                          ) : (
+                            <> Sem saldo em aberto — o caso quita sozinho.</>
+                          )}
+                        </span>
                         <button type="button" style={btnOk}
-                          disabled={conf === "REJEITADO" && !motivo.trim()}
-                          onClick={() => aplicar(l, conf, conf === "REJEITADO" ? motivo.trim() : null)}>Sim</button>
+                          onClick={() => aplicar(l)}>Sim</button>
                         <button type="button" style={btnNao} onClick={() => setConfirmando(null)}>Não</button>
                       </div>
                     ) : semDono ? (
@@ -457,18 +459,10 @@ export default function ConferenciaPagamentos() {
                         Vincular
                       </button>
                     ) : (
-                      <div style={{ display: "flex", gap: 5, flexWrap: "wrap" }}>
-                        <button type="button" style={ocupado === chave ? S.btnBusy : S.btnConf}
-                          disabled={ocupado === chave}
-                          onClick={() => setConfirmando({ chave, acao: "CONFIRMADO" })}
-                          title="Registra a baixa no relatório com o valor do extrato. Se o saldo zerar, quita; quem tem acordo em aberto continua na cobrança. (C)">Baixar</button>
-                        <button type="button" style={S.btnRej} disabled={ocupado === chave}
-                          onClick={() => { setConfirmando({ chave, acao: "REJEITADO" }); setMotivo(""); }}
-                          title="Já está baixado, ou não é para ajustar. Pede motivo e não mexe em dinheiro. (R)">Já baixado</button>
-                        <button type="button" style={btnQuitar} disabled={ocupado === chave}
-                          onClick={() => setConfirmando({ chave, acao: "QUITADO" })}
-                          title="Quita e encerra: tira o aluno da cobrança. (Q)">Quitar</button>
-                      </div>
+                      <button type="button" style={ocupado === chave ? S.btnBusy : S.btnConf}
+                        disabled={ocupado === chave}
+                        onClick={() => setConfirmando({ chave, acao: "FEITO" })}
+                        title="Registra a baixa do extrato e marca como conferido. NÃO zera dívida: quem ainda deve segue na cobrança, e quem já zerou quita sozinho. (F)">Feito</button>
                     )}
                   </td>
                 </tr>
@@ -481,8 +475,7 @@ export default function ConferenciaPagamentos() {
       {desfazer ? (
         <div style={toast}>
           <span>
-            <b>{desfazer.linha.nome}</b> — {desfazer.acao === "CONFIRMADO" ? "baixa registrada"
-              : desfazer.acao === "QUITADO" ? "quitado e encerrado" : "marcado como já baixado"}.
+            <b>{desfazer.linha.nome}</b> — baixa registrada e conferido.
           </span>
           <button type="button" style={btnDesfazer} onClick={desfazerAgora}>Desfazer (U)</button>
         </div>
@@ -547,10 +540,6 @@ const seloDepoisDeQuitar = {
 const seloSemAcordo = {
   fontSize: 10.5, fontWeight: 800, color: "#3730a3", background: "#e0e7ff",
   border: "1px solid #c7d2fe", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
-};
-const btnQuitar = {
-  background: "#0f172a", color: "#fff", border: "none", borderRadius: 8,
-  padding: "5px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer",
 };
 const btnVincular = {
   background: "#9a3412", color: "#fff", border: "none", borderRadius: 8,
