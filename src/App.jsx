@@ -32,7 +32,6 @@ const BaseReceptiva = lazy(() => import("./pages/BaseReceptiva"));
 const FilaOperacional = lazy(() => import("./pages/FilaOperacional"));
 const ControleLinksPagamento = lazy(() => import("./pages/ControleLinksPagamento"));
 const MinhaFilaPagamentos = lazy(() => import("./pages/MinhaFilaPagamentos"));
-const AgendaOperacional = lazy(() => import("./pages/AgendaOperacional"));
 const PortalOperacional = lazy(() => import("./pages/PortalOperacional"));
 const LogNivelamento = lazy(() => import("./pages/LogNivelamento"));
 const SugestoesRecebidas = lazy(() => import("./pages/SugestoesRecebidas"));
@@ -159,8 +158,6 @@ function podeAcessar(perfil, rota) {
       "/",
       "/portal-operacional",
       "/minha-fila",
-      "/agenda",
-      "/agenda-operacional",
       "/aluno",
       "/crm",
       "/financeiro",
@@ -197,8 +194,6 @@ function podeAcessar(perfil, rota) {
       "/",
       "/portal-operacional",
       "/minha-fila",
-      "/agenda",
-      "/agenda-operacional",
       "/aluno",
       "/crm",
       "/financeiro",
@@ -227,8 +222,6 @@ function podeAcessar(perfil, rota) {
       "/",
       "/portal-operacional",
       "/minha-fila",
-      "/agenda",
-      "/agenda-operacional",
       "/aluno",
       "/crm",
       "/financeiro",
@@ -253,8 +246,6 @@ function podeAcessar(perfil, rota) {
       "/minha-fila",
       "/aluno",
       "/crm",
-      "/agenda",
-      "/agenda-operacional",
       "/meu-perfil",
       "/painel-carteira",
       "/projecao-hora-a-hora",],
@@ -609,7 +600,7 @@ export default function App() {
       secao: "Operação",
       esconderParaOperador: true,
     },
-    { rota: "/agenda", label: "Agenda Operacional", icone: "Calendar", secao: "Operação" }, { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" }, { rota: "/a-entrar", label: "Controle de Acordos", icone: "TrendingUp", secao: "Operação" },
+    { rota: "/minha-agenda", label: "Minha Agenda", icone: "Clock3", secao: "Operação" }, { rota: "/a-entrar", label: "Controle de Acordos", icone: "TrendingUp", secao: "Operação" },
     { rota: "/aluno", label: "Base", icone: "User", secao: "Operação" },
     { rota: "/relatorio-receptivo", label: "Relatório Receptivo", icone: "Phone", secao: "Operação" }, { rota: "/elogios-atendimento", label: "Elogios de Atendimento", icone: "Heart", secao: "Operação" },
     { rota: "/leads-whatsapp", label: "Leads do WhatsApp", icone: "MessageSquare", secao: "Operação" },
@@ -1042,14 +1033,6 @@ export default function App() {
               element={
                 <RotaProtegida usuario={usuario} rota="/configuracoes">
                   <Auditoria />
-                </RotaProtegida>
-              }
-            />
-            <Route
-              path="/agenda"
-              element={
-                <RotaProtegida usuario={usuario} rota="/agenda">
-                  <AgendaOperacional />
                 </RotaProtegida>
               }
             />
