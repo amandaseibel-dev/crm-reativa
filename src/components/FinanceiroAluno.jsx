@@ -223,7 +223,7 @@ export default function FinanceiroAluno({ aluno }) {
   const [usuario, setUsuario] = useState(null);
   const [recarga, setRecarga] = useState(0);
   const [titulosSelecionaveis, setTitulosSelecionaveis] = useState([]);
-  // Marcar titulo duplicado -- id do titulo aberto no painel, e o motivo digitado.
+  // Excluir titulo -- id do titulo com o painel aberto, e o motivo digitado.
   const [duplicando, setDuplicando] = useState(null);
   const [motivoDup, setMotivoDup] = useState("");
   const [salvandoDup, setSalvandoDup] = useState(false);
@@ -349,7 +349,7 @@ export default function FinanceiroAluno({ aluno }) {
 
   const podeBaixar = podeGerirFinanceiro(usuario?.email || "");
 
-  // TIRAR DA CONTA UM TITULO DUPLICADO.
+  // EXCLUIR UM TITULO QUE NAO EXISTE.
   //
   // Amanda, 31/08: "eu quero poder excluir uma parcela que criou sozinha do
   // sistema". Ate aqui nao havia caminho nenhum: nenhuma tela alterava
@@ -359,35 +359,27 @@ export default function FinanceiroAluno({ aluno }) {
   // PROPRIO acordo, que veio na importacao de titulos. Como as mensalidades
   // originais tambem voltam, a mesma divida passa a contar duas vezes.
   //
-  // MARCA, nao apaga. Apagar some com o rastro -- ninguem sabe depois que valor
-  // existia nem por que sumiu. DUPLICADA mantem a linha e o valor, tira da conta
-  // e grava autor, data e motivo. O motivo e obrigatorio de proposito.
-  async function marcarDuplicada(tituloId) {
+  // EXCLUI de verdade, e nao "marca como duplicado". Amanda, 31/08: "eu quero
+  // excluir nao marcar como duplicado, duplicado esta errado". Ela tem razao no
+  // termo -- duplicado e a mesma coisa lancada duas vezes; isto aqui e um boleto
+  // que NAO EXISTE. O rotulo errado deixaria o registro mentindo sobre si mesmo.
+  //
+  // Apagar e seguro: `acordos_titulos` tem gatilho de auditoria que, no DELETE,
+  // guarda a LINHA INTEIRA em audit_log.dados_antes, com usuario e data. O rastro
+  // nao se perde -- so sai da tabela viva. A movimentacao tambem fica na ficha.
+  async function excluirTitulo(tituloId) {
     const motivo = String(motivoDup || "").trim();
-    if (motivo.length < 5) { alert("Escreva o motivo — por que este título está duplicado."); return; }
+    if (motivo.length < 5) { alert("Escreva o motivo — por que este título não existe."); return; }
     setSalvandoDup(true);
     try {
-      const { error } = await supabase.rpc("titulo_marcar_duplicada", {
+      const { error } = await supabase.rpc("titulo_excluir", {
         p_titulo_id: tituloId, p_motivo: motivo,
       });
       if (error) throw error;
       setDuplicando(null); setMotivoDup("");
       setRecarga((n) => n + 1);
     } catch (e) {
-      alert("Não foi possível marcar: " + (e?.message || String(e)));
-    } finally { setSalvandoDup(false); }
-  }
-
-  async function desfazerDuplicada(tituloId) {
-    setSalvandoDup(true);
-    try {
-      const { error } = await supabase.rpc("titulo_desfazer_duplicada", {
-        p_titulo_id: tituloId, p_motivo: null,
-      });
-      if (error) throw error;
-      setRecarga((n) => n + 1);
-    } catch (e) {
-      alert("Não foi possível desfazer: " + (e?.message || String(e)));
+      alert("Não foi possível excluir: " + (e?.message || String(e)));
     } finally { setSalvandoDup(false); }
   }
 
@@ -1694,31 +1686,31 @@ export default function FinanceiroAluno({ aluno }) {
                     </div>
                     <span style={{ ...estilos.tagBase, background: duplicada ? "#e2e8f0" : cor.bg,
                                    color: duplicada ? "#475569" : cor.texto }}>
-                      {duplicada ? "Duplicada — fora da conta"
+                      {duplicada ? "Fora da conta"
                         : pago ? "Quitada" : negociada ? "Negociado" : "Em aberto"}
                     </span>
 
-                    {/* Tirar da conta um titulo duplicado. So gestao, e so o que
-                        nao esta pago -- titulo quitado errado se resolve pelo
-                        Financeiro, nao marcando duplicidade. */}
-                    {podeBaixar && !pago && !duplicada ? (
+                    {/* Excluir titulo que nao existe. So gestao, e so o que nao
+                        esta pago -- titulo quitado errado se resolve pelo
+                        Financeiro, nao apagando a linha. */}
+                    {podeBaixar && !pago ? (
                       duplicando === titulo.id ? (
                         <div style={{ marginTop: 6, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
                           <input
                             autoFocus
-                            placeholder="Motivo — por que está duplicado?"
+                            placeholder="Motivo — por que este título não existe?"
                             value={motivoDup}
                             onChange={(e) => setMotivoDup(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === "Enter") marcarDuplicada(titulo.id);
+                              if (e.key === "Enter") excluirTitulo(titulo.id);
                               if (e.key === "Escape") { setDuplicando(null); setMotivoDup(""); }
                             }}
                             style={{ border: "1px solid #cbd5e1", borderRadius: 8, padding: "4px 9px", fontSize: 12, minWidth: 230 }}
                           />
                           <button type="button" disabled={salvandoDup}
-                            onClick={() => marcarDuplicada(titulo.id)}
+                            onClick={() => excluirTitulo(titulo.id)}
                             style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>
-                            {salvandoDup ? "…" : "Confirmar"}
+                            {salvandoDup ? "…" : "Excluir"}
                           </button>
                           <button type="button"
                             onClick={() => { setDuplicando(null); setMotivoDup(""); }}
@@ -1730,23 +1722,12 @@ export default function FinanceiroAluno({ aluno }) {
                         <div style={{ marginTop: 6 }}>
                           <button type="button"
                             onClick={() => { setDuplicando(titulo.id); setMotivoDup(""); }}
-                            title="Tira este título da conta por estar duplicado. Não apaga: o valor fica registrado com o motivo, e dá para desfazer."
-                            style={{ background: "#fff", color: "#9a3412", border: "1px solid #fed7aa", borderRadius: 8, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                            Marcar duplicada
+                            title="Apaga este título. Use quando o boleto não existe — por exemplo o boleto do próprio acordo, que volta a contar quando o acordo é cancelado. Pede motivo, e a linha fica guardada na auditoria."
+                            style={{ background: "#fff", color: "#9f1239", border: "1px solid #fecdd3", borderRadius: 8, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                            Excluir
                           </button>
                         </div>
                       )
-                    ) : null}
-
-                    {podeBaixar && duplicada ? (
-                      <div style={{ marginTop: 6 }}>
-                        <button type="button" disabled={salvandoDup}
-                          onClick={() => desfazerDuplicada(titulo.id)}
-                          title="Devolve este título para a conta do aluno."
-                          style={{ background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
-                          {salvandoDup ? "…" : "Voltar a contar"}
-                        </button>
-                      </div>
                     ) : null}
                   </div>
                 </div>
