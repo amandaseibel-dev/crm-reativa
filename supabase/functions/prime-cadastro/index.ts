@@ -181,7 +181,25 @@ async function colher(cpf: string, chave: string) {
     .filter((e: unknown) => typeof e === "string" && (e as string).includes("@"))
     .map((e: unknown) => String(e).trim());
 
-  return { cpf, registration, telefones, emails, contratos, titulos };
+  // DIAGNOSTICO -- so contagem, nao muda nada do que e gravado.
+  //
+  // A pergunta que isto responde: o Prime consegue dizer quem AINDA DEVE?
+  // Hoje nao consegue -- os 331.326 titulos que temos estao todos com data de
+  // pagamento, e nao existe campo de valor. Falta saber se e a API que so
+  // devolve parcela liquidada, ou se a parcela em aberto vem sem boleto e e
+  // descartada aqui na linha `if (!it.boleto) continue`.
+  //
+  // Se `sem_pagamento` vier > 0, a API devolve parcela em aberto e o descarte e
+  // nosso -- da para corrigir. Se vier 0 em todo lote, o Prime realmente so tem
+  // o que ja foi pago, e divida continua sendo assunto da nossa base.
+  const _diag = {
+    recebidas: parcelas.length,
+    sem_pagamento: parcelas.filter((p: any) => !p?.paymentDate).length,
+    sem_boleto: parcelas.filter((p: any) => !String(p?.boleto ?? "").trim()).length,
+    sem_valor: parcelas.filter((p: any) => p?.value == null && p?.amount == null).length,
+  };
+
+  return { cpf, registration, telefones, emails, contratos, titulos, _diag };
 }
 
 async function emLotes<T, R>(itens: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
@@ -306,6 +324,7 @@ Deno.serve(async (req) => {
   // deterministica, os mesmos CPFs voltavam a cada 2 minutos. Assim que o topo
   // da fila fosse so gente que o Prime nao conhece, a coleta pararia de vez:
   // resposta 200, `aplicados: 0`, ninguem coletado. Em 31/08 eram 27% do lote.
+  const diag = { recebidas: 0, sem_pagamento: 0, sem_boleto: 0, sem_valor: 0 };
   const semRetorno: string[] = [];
   const comErro: string[] = [];
   const okColhidos: string[] = [];
@@ -313,7 +332,15 @@ Deno.serve(async (req) => {
   for (const c of colhidos) {
     if ((c as any).foraDoEscopo) { fora++; semRetorno.push((c as any).cpf); continue; }
     if ((c as any).erro) { erros++; anotar(String((c as any).erro)); comErro.push((c as any).cpf); continue; }
-    const { data, error } = await supa.rpc("prime_cadastro_aplicar", { p_dados: c });
+    // o _diag e so nosso: nao vai para a RPC
+    const { _diag, ...dados } = c as any;
+    if (_diag) {
+      diag.recebidas += _diag.recebidas ?? 0;
+      diag.sem_pagamento += _diag.sem_pagamento ?? 0;
+      diag.sem_boleto += _diag.sem_boleto ?? 0;
+      diag.sem_valor += _diag.sem_valor ?? 0;
+    }
+    const { data, error } = await supa.rpc("prime_cadastro_aplicar", { p_dados: dados });
     // Erro nosso, nao do Prime -- mas se nao marcar, este CPF prende a fila do
     // mesmo jeito. Fica registrado com o motivo e volta a ser tentado em 7 dias.
     if (error) { erros++; anotar("APLICAR_FALHOU", error.message); comErro.push((c as any).cpf); continue; }
@@ -343,6 +370,6 @@ Deno.serve(async (req) => {
     marcados_sem_retorno: semRetorno.length + comErro.length,
     telefones_novos: telNovos, emails_novos: mailNovos, titulos_classificados: tit,
     segundos: Math.round((Date.now() - inicio) / 1000), concorrencia: CONCORRENCIA,
-    motivos, amostra,
+    motivos, amostra, diagnostico_parcelas: diag,
   }), { headers: { "Content-Type": "application/json" } });
 });
