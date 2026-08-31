@@ -95,6 +95,16 @@ begin
        where id = p_baixa_id;
     end if;
 
+    -- O RECALCULO E A ULTIMA COISA, e isto nao e detalhe.
+    --
+    -- A baixa dispara recalculo no momento em que e INSERIDA -- ou seja, ANTES
+    -- deste abatimento acontecer. Sem recalcular aqui, o saldo fica congelado no
+    -- estado anterior e o aluno aparece quitado devendo.
+    --
+    -- Foi o que aconteceu com o Eduardo Oliveira do Nascimento em 31/08: acordo
+    -- QUITADO, parcela PAGO, dois titulos quitados as 13:17:52 -- e R$ 5.867,58
+    -- ainda constando em aberto.
+    begin perform public.recalcular_situacao_aluno(p_aluno_id, 'baixa_extrato'); exception when others then null; end;
     return jsonb_build_object('ligou', v_pagas > 0, 'acordo_id', v_acordo,
                               'parcelas_pagas', v_pagas, 'sobrou', v_restante);
   end if;
@@ -121,6 +131,7 @@ begin
     v_titulos := v_titulos + 1;
   end loop;
 
+  begin perform public.recalcular_situacao_aluno(p_aluno_id, 'baixa_extrato'); exception when others then null; end;
   return jsonb_build_object('ligou', v_titulos > 0, 'acordo_id', null,
                             'titulos_quitados', v_titulos, 'sobrou', v_restante);
 end;
