@@ -29,13 +29,24 @@ import Aluno from "./Aluno";
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const curta = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "-");
 
+// Faixa sobre o VALOR PAGO -- decisao da gestao: "sempre o valor pago". A fila
+// e do dinheiro que entrou, entao "acima de quanto?" e sobre o pagamento, nao
+// sobre a divida. Efeito bom: as linhas sem vinculo deixam de sumir com faixa,
+// porque elas tem valor pago (so nao tem saldo).
 const FAIXAS = [
-  { min: 50000, rotulo: "R$ 50 mil +" },
-  { min: 20000, rotulo: "R$ 20 mil +" },
-  { min: 10000, rotulo: "R$ 10 mil +" },
-  { min: 5000, rotulo: "R$ 5 mil +" },
+  { min: 0, rotulo: "Qualquer valor" },
   { min: 1000, rotulo: "R$ 1 mil +" },
-  { min: 0, rotulo: "Tudo" },
+  { min: 5000, rotulo: "R$ 5 mil +" },
+  { min: 10000, rotulo: "R$ 10 mil +" },
+  { min: 20000, rotulo: "R$ 20 mil +" },
+  { min: 50000, rotulo: "R$ 50 mil +" },
+];
+
+// Periodo: mes fechado ou intervalo livre de datas.
+const MESES = [
+  { chave: "TUDO", rotulo: "Todo o período", de: null, ate: null },
+  { chave: "2026-07", rotulo: "Julho", de: "2026-07-01", ate: "2026-08-01" },
+  { chave: "2026-08", rotulo: "Agosto", de: "2026-08-01", ate: "2026-09-01" },
 ];
 
 const SEGUNDOS_DESFAZER = 12;
@@ -46,6 +57,9 @@ export default function ConferenciaPagamentos() {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [faixa, setFaixa] = useState(0);
+  const [mes, setMes] = useState("TUDO");
+  const [de, setDe] = useState("");
+  const [ate, setAte] = useState("");
   const [busca, setBusca] = useState("");
   const [buscaAtiva, setBuscaAtiva] = useState("");
   const [cursor, setCursor] = useState(0);
@@ -60,10 +74,15 @@ export default function ConferenciaPagamentos() {
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro("");
+    // Data livre ganha do seletor de mes; sem nenhum dos dois, usa o padrao da
+    // funcao (01/06) -- junho ainda nao tem dado, mas quando entrar ja cobre.
+    const m = MESES.find((x) => x.chave === mes);
+    const desde = de || m?.de || undefined;
+    const limite = ate || m?.ate || undefined;
     const { data, error } = await supabase.rpc("conferencia_pagamentos", {
-      // sem p_desde: usa o padrao da funcao (01/06). Junho ainda nao tem dado
-      // nenhum, mas quando o arquivo entrar a fila cobre sozinha.
-      p_faixa_min: faixa, p_limite: 300,
+      ...(desde ? { p_desde: desde } : {}),
+      ...(limite ? { p_ate: limite } : {}),
+      p_valor_min: faixa, p_limite: 300,
     });
     if (error) setErro(error.message);
     const d = data || [];
@@ -77,7 +96,7 @@ export default function ConferenciaPagamentos() {
     });
     setCursor(0);
     setCarregando(false);
-  }, [faixa]);
+  }, [faixa, mes, de, ate]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -227,12 +246,35 @@ export default function ConferenciaPagamentos() {
       </div>
 
       <div style={faixas}>
+        <span style={rotuloGrupo}>Período</span>
+        {MESES.map((m) => (
+          <button
+            key={m.chave} type="button"
+            onClick={() => { setMes(m.chave); setDe(""); setAte(""); }}
+            style={{ ...chipFaixa, ...(m.chave === mes && !de && !ate ? chipFaixaOn : null) }}
+            aria-pressed={m.chave === mes && !de && !ate}
+          >
+            {m.rotulo}
+          </button>
+        ))}
+        <input type="date" value={de} onChange={(e) => setDe(e.target.value)}
+               style={inputData} title="Pagamentos a partir desta data" />
+        <span style={{ fontSize: 12, color: "#94a3b8" }}>até</span>
+        <input type="date" value={ate} onChange={(e) => setAte(e.target.value)}
+               style={inputData} title="Pagamentos antes desta data" />
+        {(de || ate) ? (
+          <button type="button" style={chipFaixa} onClick={() => { setDe(""); setAte(""); }}>limpar datas</button>
+        ) : null}
+      </div>
+
+      <div style={faixas}>
+        <span style={rotuloGrupo}>Valor pago</span>
         {FAIXAS.map((f) => (
           <button
             key={f.min} type="button" onClick={() => setFaixa(f.min)}
             style={{ ...chipFaixa, ...(f.min === faixa ? chipFaixaOn : null) }}
             aria-pressed={f.min === faixa}
-            title={f.min > 0 ? "Só quem tem saldo acima disso. Dinheiro sem dono não tem saldo, então some." : "Tudo, inclusive o dinheiro sem dono."}
+            title="Filtra pelo valor que entrou no extrato, não pelo saldo."
           >
             {f.rotulo}
           </button>
@@ -450,6 +492,14 @@ const chipFaixa = {
 };
 const chipFaixaOn = { background: "#0f172a", borderColor: "#0f172a", color: "#fff" };
 const dicaTeclado = { fontSize: 11.5, color: "#94a3b8", marginLeft: "auto" };
+const rotuloGrupo = {
+  fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: .6,
+  color: "#94a3b8", marginRight: 2,
+};
+const inputData = {
+  border: "1px solid #cbd5e1", borderRadius: 8, padding: "4px 9px",
+  fontSize: 12, color: "#334155", background: "#fff",
+};
 const avisoCorte = {
   margin: "0 0 10px", fontSize: 12.5, color: "#1e3a8a", background: "#eff6ff",
   border: "1px solid #bfdbfe", borderRadius: 8, padding: "9px 13px", maxWidth: 900,
