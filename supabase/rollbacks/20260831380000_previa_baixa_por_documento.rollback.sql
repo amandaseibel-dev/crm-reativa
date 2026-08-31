@@ -1,0 +1,2 @@
+-- drop function if exists public.baixa_por_documento_previa(date);
+-- So leitura: derrubar nao altera dado nenhum.
