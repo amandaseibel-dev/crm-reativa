@@ -37,6 +37,19 @@ const curta = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") 
 // e do dinheiro que entrou, entao "acima de quanto?" e sobre o pagamento, nao
 // sobre a divida. Efeito bom: as linhas sem vinculo deixam de sumir com faixa,
 // porque elas tem valor pago (so nao tem saldo).
+// O QUE A FILA MOSTRA POR PADRAO.
+//
+// Amanda, 31/08: "se nao tem mensalidade, parcelas estao em dia e tem operador
+// responsavel, o que faz na fila?". Sem nada a vincular, nada vencido e com dono
+// definido, nao ha decisao humana a tomar -- eram 256 pessoas e R$ 837.862,30 so
+// fazendo volume. O padrao passa a esconder esses; "Tudo" traz de volta.
+const TIPOS = [
+  { chave: null,          rotulo: "A fazer",        dica: "Esconde quem nao tem mensalidade, esta com as parcelas em dia e ja tem operador — nao ha o que decidir." },
+  { chave: "MENSALIDADE", rotulo: "Com mensalidade", dica: "So quem tem mensalidade em aberto: e onde o vinculo mensalidade x acordo precisa ser feito." },
+  { chave: "ACORDO",      rotulo: "Só acordo",       dica: "So quem nao tem mensalidade em aberto — o dinheiro so precisa ser registrado." },
+  { chave: "TUDO",        rotulo: "Tudo",            dica: "Inclui tambem quem ja esta resolvido, para conferir o conjunto." },
+];
+
 const FAIXAS = [
   { min: 0, rotulo: "Qualquer valor" },
   { min: 1000, rotulo: "R$ 1 mil +" },
@@ -65,6 +78,7 @@ export default function ConferenciaPagamentos() {
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [faixa, setFaixa] = useState(0);
+  const [tipoDivida, setTipoDivida] = useState(null);
   const [mes, setMes] = useState("JUL_AGO");
   const [de, setDe] = useState("");
   const [ate, setAte] = useState("");
@@ -90,6 +104,7 @@ export default function ConferenciaPagamentos() {
       ...(desde ? { p_desde: desde } : {}),
       ...(limite ? { p_ate: limite } : {}),
       p_valor_min: faixa, p_limite: 300,
+      ...(tipoDivida ? { p_tipo_divida: tipoDivida } : {}),
     });
     if (error) setErro(error.message);
     const d = data || [];
@@ -103,7 +118,7 @@ export default function ConferenciaPagamentos() {
     });
     setCursor(0);
     setCarregando(false);
-  }, [faixa, mes, de, ate]);
+  }, [faixa, mes, de, ate, tipoDivida]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -333,6 +348,17 @@ export default function ConferenciaPagamentos() {
       </div>
 
       <div style={faixas}>
+        <span style={rotuloGrupo}>Dívida</span>
+        {TIPOS.map((t) => (
+          <button
+            key={t.rotulo} type="button" onClick={() => setTipoDivida(t.chave)}
+            style={{ ...chipFaixa, ...(t.chave === tipoDivida ? chipFaixaOn : null) }}
+            aria-pressed={t.chave === tipoDivida}
+            title={t.dica}
+          >
+            {t.rotulo}
+          </button>
+        ))}
         <span style={rotuloGrupo}>Valor pago</span>
         {FAIXAS.map((f) => (
           <button
@@ -345,7 +371,7 @@ export default function ConferenciaPagamentos() {
           </button>
         ))}
         <span style={dicaTeclado}>
-          <b>J/K</b> anda · <b>C</b> confirma · <b>R</b> rejeita · <b>Q</b> quita · <b>V</b> vincula · <b>Enter</b> ficha · <b>/</b> busca
+          <b>J/K</b> anda · <b>F</b> feito · <b>V</b> vincula · <b>Enter</b> ficha · <b>/</b> busca
         </span>
       </div>
 
