@@ -28,6 +28,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
+import { listarMeses } from "../utils/mesesConferencia";
 import Aluno from "./Aluno";
 
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -59,16 +60,8 @@ const FAIXAS = [
   { min: 50000, rotulo: "R$ 50 mil +" },
 ];
 
-// Periodo. Abre em JULHO E AGOSTO por decisao da gestao -- "quero julho e
-// agosto, depois voltamos em junho". Junho fica a um clique: quando o arquivo
-// dele for importado, entra sem inundar a fila antes da hora.
-const MESES = [
-  { chave: "JUL_AGO", rotulo: "Julho e agosto", de: "2026-07-01", ate: "2026-09-01" },
-  { chave: "2026-07", rotulo: "Só julho", de: "2026-07-01", ate: "2026-08-01" },
-  { chave: "2026-08", rotulo: "Só agosto", de: "2026-08-01", ate: "2026-09-01" },
-  { chave: "2026-06", rotulo: "Junho", de: "2026-06-01", ate: "2026-07-01" },
-  { chave: "TUDO", rotulo: "Tudo", de: null, ate: null },
-];
+const MESES = listarMeses();
+const MES_PADRAO = MESES[0].chave;
 
 const SEGUNDOS_DESFAZER = 12;
 
@@ -79,7 +72,7 @@ export default function ConferenciaPagamentos() {
   const [erro, setErro] = useState("");
   const [faixa, setFaixa] = useState(0);
   const [tipoDivida, setTipoDivida] = useState(null);
-  const [mes, setMes] = useState("JUL_AGO");
+  const [mes, setMes] = useState(MES_PADRAO);
   const [de, setDe] = useState("");
   const [ate, setAte] = useState("");
   const [busca, setBusca] = useState("");
@@ -97,6 +90,7 @@ export default function ConferenciaPagamentos() {
     setCarregando(true); setErro("");
     // Data livre ganha do seletor de mes; sem nenhum dos dois, usa o padrao da
     // funcao (01/06) -- junho ainda nao tem dado, mas quando entrar ja cobre.
+    // As duas pontas sao INCLUSIVAS: a funcao compara `data_pagamento < p_ate + 1`.
     const m = MESES.find((x) => x.chave === mes);
     const desde = de || m?.de || undefined;
     const limite = ate || m?.ate || undefined;
@@ -209,6 +203,38 @@ export default function ConferenciaPagamentos() {
     } finally { setOcupado(null); }
   }
 
+  // "JA TRATADO" -- carimbo SEM baixa nenhuma.
+  //
+  // Amanda, 01/09: "tipo cartao, eu baixo no Prime e ja baixo no CRM, ok, ja
+  // esta tratado". Ate agora a tela tinha um caminho so, o "Feito", e ele
+  // SEMPRE registra uma baixa do extrato. Para quem ja foi baixado por fora
+  // isso e baixa em dobro: `conferencia_baixar_do_extrato` so ignora repetido
+  // quando aluno, data E valor batem exatamente -- e o valor daqui e a SOMA dos
+  // pagamentos da janela, que quase nunca e igual a baixa feita a mao.
+  //
+  // Este botao nao chama a baixa nem a quitacao: so grava a decisao e carimba
+  // os pagamentos como conferidos. Fica gravado como JA_TRATADO, com o motivo,
+  // para depois dar para separar "conferi eu aqui" de "ja estava resolvido".
+  async function marcarJaTratado(l, motivo) {
+    const texto = String(motivo || "").trim();
+    if (texto.length < 3) { alert("Diga onde já foi tratado (ex.: cartão baixado no Prime)."); return; }
+    setOcupado(chaveDe(l)); setConfirmando(null);
+    try {
+      const m = MESES.find((x) => x.chave === mes);
+      const desde = de || m?.de || undefined;
+      const { error } = await supabase.rpc("conciliacao_santander_decidir", {
+        p_aluno_id: l.aluno_id, p_decisao: "JA_TRATADO",
+        p_motivo: texto, p_valor: Number(l.entrou),
+        ...(desde ? { p_desde: desde } : {}),
+      });
+      if (error) throw error;
+      tirarDaTela(l);
+      setDesfazer({ linha: l, acao: "JA_TRATADO" });
+    } catch (e) {
+      alert("Não foi possível carimbar: " + (e?.message || String(e)));
+    } finally { setOcupado(null); }
+  }
+
   const desfazerAgora = useCallback(async () => {
     if (!desfazer) return;
     const { linha, acao } = desfazer;
@@ -218,7 +244,9 @@ export default function ConferenciaPagamentos() {
     setLinhas((ls) => [linha, ...ls].sort((a, b) => Number(b.saldo_aberto) - Number(a.saldo_aberto)));
     setTotais((t) => ({ ...t, linhas: t.linhas + 1, pagamentos: t.pagamentos + Number(linha.qtd_pagamentos || 0) }));
     setPlacar((p) => ({ n: Math.max(0, p.n - 1), valor: Math.max(0, p.valor - Number(linha.saldo_aberto || 0)) }));
-    if (acao !== "REJEITADO") {
+    // So o "Feito" cria baixa. O carimbo "ja tratado" nao mexeu em dinheiro
+    // nenhum, entao desfazer ele nao deixa ponta solta a avisar.
+    if (acao === "CONFIRMADO") {
       alert("Voltou para a fila. A baixa em si NÃO foi estornada — se for o caso, desfaça pelo fluxo do Financeiro.");
     }
   }, [desfazer]);
@@ -298,6 +326,8 @@ export default function ConferenciaPagamentos() {
       }
       // F de Feito. C segue valendo por costume de quem ja usava a tela.
       else if (e.key === "f" || e.key === "c") { e.preventDefault(); setConfirmando({ chave: chaveDe(l), acao: "FEITO" }); }
+      // T de "ja Tratado": sai da fila sem criar baixa.
+      else if (e.key === "t") { e.preventDefault(); setConfirmando({ chave: chaveDe(l), acao: "JA_TRATADO", motivo: "" }); }
       else if (e.key === "Enter" && l.aluno_id) { e.preventDefault(); setFichaId(l.aluno_id); }
     }
     window.addEventListener("keydown", onKey);
@@ -341,7 +371,7 @@ export default function ConferenciaPagamentos() {
                style={inputData} title="Pagamentos a partir desta data" />
         <span style={{ fontSize: 12, color: "#94a3b8" }}>até</span>
         <input type="date" value={ate} onChange={(e) => setAte(e.target.value)}
-               style={inputData} title="Pagamentos antes desta data" />
+               style={inputData} title="Pagamentos até esta data, ela inclusive" />
         {(de || ate) ? (
           <button type="button" style={chipFaixa} onClick={() => { setDe(""); setAte(""); }}>limpar datas</button>
         ) : null}
@@ -371,7 +401,7 @@ export default function ConferenciaPagamentos() {
           </button>
         ))}
         <span style={dicaTeclado}>
-          <b>J/K</b> anda · <b>F</b> feito · <b>V</b> vincula · <b>Enter</b> ficha · <b>/</b> busca
+          <b>J/K</b> anda · <b>F</b> feito · <b>T</b> já tratado · <b>V</b> vincula · <b>Enter</b> ficha · <b>/</b> busca
         </span>
       </div>
 
@@ -520,6 +550,25 @@ export default function ConferenciaPagamentos() {
                           </div>
                         ) : null}
                       </div>
+                    ) : conf === "JA_TRATADO" ? (
+                      <div style={caixaConf}>
+                        <span style={txtConf}>
+                          Tirar da fila <b>sem criar baixa</b>. Onde já foi tratado?
+                        </span>
+                        <input
+                          autoFocus style={inputMotivo}
+                          placeholder="ex.: cartão baixado no Prime e no CRM"
+                          value={confirmando?.motivo ?? ""}
+                          onChange={(e) => setConfirmando({ ...confirmando, motivo: e.target.value })}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") marcarJaTratado(l, confirmando?.motivo);
+                            if (e.key === "Escape") setConfirmando(null);
+                          }}
+                        />
+                        <button type="button" style={btnOk}
+                          onClick={() => marcarJaTratado(l, confirmando?.motivo)}>Carimbar</button>
+                        <button type="button" style={btnNao} onClick={() => setConfirmando(null)}>Não</button>
+                      </div>
                     ) : conf ? (
                       <div style={caixaConf}>
                         <span style={txtConf}>
@@ -541,10 +590,16 @@ export default function ConferenciaPagamentos() {
                         Vincular
                       </button>
                     ) : (
-                      <button type="button" style={ocupado === chave ? S.btnBusy : S.btnConf}
-                        disabled={ocupado === chave}
-                        onClick={() => setConfirmando({ chave, acao: "FEITO" })}
-                        title="Registra a baixa do extrato e marca como conferido. NÃO zera dívida: quem ainda deve segue na cobrança, e quem já zerou quita sozinho. (F)">Feito</button>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        <button type="button" style={ocupado === chave ? S.btnBusy : S.btnConf}
+                          disabled={ocupado === chave}
+                          onClick={() => setConfirmando({ chave, acao: "FEITO" })}
+                          title="Registra a baixa do extrato e marca como conferido. NÃO zera dívida: quem ainda deve segue na cobrança, e quem já zerou quita sozinho. (F)">Feito</button>
+                        <button type="button" style={btnJaTratado}
+                          disabled={ocupado === chave}
+                          onClick={() => setConfirmando({ chave, acao: "JA_TRATADO", motivo: "" })}
+                          title="Já foi resolvido por fora (cartão baixado no Prime, baixa feita na ficha…). Só carimba como conferido: NÃO cria baixa nenhuma. (T)">Já tratado</button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -557,7 +612,9 @@ export default function ConferenciaPagamentos() {
       {desfazer ? (
         <div style={toast}>
           <span>
-            <b>{desfazer.linha.nome}</b> — baixa registrada e conferido.
+            <b>{desfazer.linha.nome}</b> — {desfazer.acao === "JA_TRATADO"
+              ? "carimbado como já tratado (nenhuma baixa foi criada)."
+              : "baixa registrada e conferido."}
           </span>
           <button type="button" style={btnDesfazer} onClick={desfazerAgora}>Desfazer (U)</button>
         </div>
@@ -585,6 +642,12 @@ const chipFaixa = {
   padding: "5px 13px", fontSize: 12.5, fontWeight: 800, color: "#475569", cursor: "pointer",
 };
 const chipFaixaOn = { background: "#0f172a", borderColor: "#0f172a", color: "#fff" };
+// Cinza de proposito: e uma saida lateral, nao o caminho principal. O verde do
+// "Feito" continua sendo o botao que registra dinheiro.
+const btnJaTratado = {
+  background: "#fff", border: "1px solid #cbd5e1", borderRadius: 8,
+  padding: "6px 12px", fontSize: 12.5, fontWeight: 800, color: "#475569", cursor: "pointer",
+};
 const dicaTeclado = { fontSize: 11.5, color: "#94a3b8", marginLeft: "auto" };
 const rotuloGrupo = {
   fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: .6,
