@@ -912,11 +912,30 @@ export default function FinanceiroAluno({ aluno }) {
   async function salvarNovoAcordo() {
     if (!podeBaixar) { alert("Criação de acordo com baixa de entrada é exclusiva da gestão financeira."); return; }
 
-    const r = await lancarAcordo({
+    let r = await lancarAcordo({
       aluno,
       dados: novo,
       usuarioEmail: usuario?.email || "",
     });
+
+    // Fechar sem marcar mensalidade deixa a divida contada duas vezes -- por
+    // isso a funcao recusa. A saida existe para o acordo de divida antiga, que
+    // nao tem mensalidade correspondente no CRM, mas ela e explicita: quem
+    // fecha precisa dizer que e esse o caso.
+    if (!r.ok && r.precisaComposicao) {
+      const seguir = window.confirm(
+        r.erro +
+        "\n\nSe este acordo NAO e das mensalidades em aberto deste aluno " +
+        "(divida antiga, por exemplo), confirme para fechar mesmo assim. " +
+        "Ele vai ficar marcado como sem composicao."
+      );
+      if (!seguir) return;
+      r = await lancarAcordo({
+        aluno,
+        dados: { ...novo, semComposicaoConfirmado: true },
+        usuarioEmail: usuario?.email || "",
+      });
+    }
 
     if (!r.ok) { alert(r.erro); return; }
 

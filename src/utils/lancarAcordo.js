@@ -125,6 +125,53 @@ export async function lancarAcordo({ aluno, dados, usuarioEmail }) {
   if (total <= 0) return { ok: false, erro: "Informe o valor total do acordo." };
   if (!dados.parcelas?.length) return { ok: false, erro: 'Gere as parcelas antes de salvar.' };
 
+  // Amanda, 01/09/2026: "quando fechamos o acordo obrigatoriamente devemos
+  // vincular as mensalidades que vamos negociar".
+  //
+  // A obrigacao existia no processo e nao no sistema: 47% dos acordos fechados
+  // na tela sairam sem composicao (185 de 388). Sem o vinculo a mensalidade
+  // continua ABERTA e o acordo tambem conta -- a mesma divida entra duas vezes
+  // no saldo. Foi o caso do Jose Luiz de Assis Neto: R$ 2.400,53 de mensalidade
+  // mais R$ 3.007,12 de acordo, para uma divida so.
+  //
+  // A checagem vive AQUI, e nao na tela, porque esta funcao e a porta unica de
+  // lancamento -- ficha e bancada chamam ela. Quem fecha nao consegue passar
+  // por fora, nem hoje nem numa tela nova.
+  //
+  // Nao da para adivinhar a composicao depois: ela nao existe em fonte nenhuma
+  // -- nem no Prime (`agreements` vazio, boletos de acordo ausentes do extrato),
+  // nem no relatorio da Ulbra, nem no arquivo de pagamento. So quem negociou
+  // sabe. Por isso se pergunta na hora.
+  const selecionados = Array.isArray(dados.titulosSel) ? dados.titulosSel : [];
+  if (selecionados.length === 0 && !dados.semComposicaoConfirmado) {
+    const { data: abertos, error: erroAbertos } = await supabase
+      .from("acordos_titulos")
+      .select("id")
+      .eq("aluno_id", String(aluno.id))
+      .is("acordo_id", null)
+      .eq("situacao", "ABERTO")
+      .limit(1);
+
+    // Se a consulta falhar nao se inventa permissao nem bloqueio: avisa e para.
+    if (erroAbertos) {
+      return {
+        ok: false,
+        erro: "Nao foi possivel conferir as mensalidades em aberto do aluno (" +
+              erroAbertos.message + "). Tente de novo antes de fechar o acordo.",
+      };
+    }
+
+    if (abertos && abertos.length > 0) {
+      return {
+        ok: false,
+        precisaComposicao: true,
+        erro: "Este aluno tem mensalidade em aberto e nenhuma foi marcada. " +
+              "Marque as mensalidades que entram neste acordo -- sem isso a " +
+              "mesma divida passa a ser contada duas vezes.",
+      };
+    }
+  }
+
   const email = usuarioEmail || "";
   const agora = new Date().toISOString();
   // Quem lança (normalmente a Amanda) quase nunca é o operador dono do caso.
