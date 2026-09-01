@@ -769,45 +769,18 @@ export default function FinanceiroAluno({ aluno }) {
     );
     if (!confirmado) return;
 
-    const agora = new Date().toISOString();
+    // Cancelar em varios passos soltos deixava parcela viva de acordo morto
+    // -- a parcela continuava cobrando e voltava na ficha do aluno. A RPC faz
+    // tudo numa transacao so e na ordem que o gatilho precisa: primeiro o
+    // status do acordo (com o vinculo ainda no lugar, pro gatilho ler),
+    // depois os titulos, as parcelas, o vinculo, e o recalculo por ultimo.
+    const { data, error } = await supabase.rpc("acordo_cancelar", {
+      p_acordo_id: acordo.id,
+      p_motivo: null,
+    });
 
-    const { data: vinculos } = await supabase
-      .from("acordo_titulo_vinculo")
-      .select("titulo_id")
-      .eq("acordo_id", acordo.id);
-
-    const idsTitulos = (vinculos || []).map((v) => v.titulo_id);
-
-    if (idsTitulos.length > 0) {
-      const { error: erroReverter } = await supabase
-        .from("acordos_titulos")
-        .update({ status: "em_aberto", atualizado_em: agora })
-        .in("id", idsTitulos);
-      if (erroReverter) {
-        alert("Erro ao devolver os títulos pro status em aberto: " + erroReverter.message);
-        return;
-      }
-    }
-
-    // acordos e parcelas não têm permissão de exclusão (DELETE) no banco
-    // -- tentar apagar falha silenciosamente, sem erro, e o registro
-    // continua lá do mesmo jeito. Por isso cancela (marca status) em vez
-    // de apagar -- o que também é melhor pra manter histórico/auditoria.
-    await supabase.from("acordo_titulo_vinculo").delete().eq("acordo_id", acordo.id);
-
-    await supabase
-      .from("parcelas")
-      .update({ status: "CANCELADA", atualizado_em: agora })
-      .eq("acordo_id", acordo.id)
-      .neq("status", "PAGO");
-
-    const { error: erroCancelar } = await supabase
-      .from("acordos")
-      .update({ status: "CANCELADO", saldo: 0, atualizado_em: agora })
-      .eq("id", acordo.id);
-
-    if (erroCancelar) {
-      alert("Erro ao cancelar o acordo: " + erroCancelar.message);
+    if (error) {
+      alert("Erro ao cancelar o acordo: " + error.message);
       return;
     }
 
@@ -825,7 +798,19 @@ export default function FinanceiroAluno({ aluno }) {
     }
 
     setRecarga((r) => r + 1);
-    alert("Acordo cancelado.");
+
+    if (data?.ja_estava_cancelado) {
+      alert("Esse acordo já estava cancelado.");
+      return;
+    }
+
+    const canceladas = data?.parcelas_canceladas || 0;
+    const devolvidos = data?.titulos_devolvidos || 0;
+    alert(
+      "Acordo cancelado." +
+        (canceladas ? ` ${canceladas} parcela(s) cancelada(s).` : "") +
+        (devolvidos ? ` ${devolvidos} título(s) voltaram para em aberto.` : "")
+    );
   }
 
   // ---- Montar novo acordo (direto na ficha) ----
