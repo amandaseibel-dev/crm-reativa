@@ -1,0 +1,10 @@
+-- Rollback: acionamento volta a ser CLIQUE (count(*)) em vez de aluno no dia.
+-- ATENCAO: isso reintroduz a contagem em dobro -- tabular + mandar o e-mail no
+-- mesmo atendimento volta a valer 2. Em 01/09/2026 isso dobrava o numero de
+-- todo o time (Mauricio 437 para 219 alunos reais).
+--
+-- Para reverter, reaplicar as versoes anteriores:
+--   supabase/migrations/20260901130000_efetividade_nome_do_cadastro.sql
+--     (calibragem_efetividade e calibragem_efetividade_carteira)
+-- e trocar de volta, em meus_acionamentos_resumo e acionamentos_ranking,
+-- os count(distinct ...) por count(*).
