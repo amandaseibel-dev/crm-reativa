@@ -583,6 +583,127 @@ const CARDS_FINANCEIROS = new Set(["valorBaixadoMes", "recebidosMes", "honorario
 // Tamanho do lote para consultas .in() consolidadas (evita URL longa e N+1).
 const LOTE_IN = 200;
 
+// Valor em aberto consolidado por aluno, sem duplicidade:
+// (1) parcelas A_VENCER/VENCIDA de acordos ATIVO + (2) titulos/mensalidades
+// importados em_aberto (os 'vinculada' ficam num balde separado -- a divida
+// deles ja esta nas parcelas do acordo).
+//
+// Vive fora do componente porque roda em DOIS momentos: na carga da carteira e
+// quando um card de indicador abre uma lista que tem gente FORA da carteira
+// (retornos do dia, sem acionamento, acordo quebrado...). Antes so a carteira
+// era consolidada: os alunos que vinham pelo card ficavam sem detalhe, o valor
+// da linha caia no "estimado" de alunos.valor_em_aberto -- outro numero, quase
+// sempre menor -- e a ordenacao "Maior valor primeiro" misturava as duas
+// escalas. Comecava certa e embaralhava do meio pra baixo.
+//
+// As duas consultas sao PAGINADAS: `.in(...)` com 200 ids devolve no maximo
+// 1.000 linhas e responde 206 (sucesso). O lote de titulos de um operador ja
+// bate em ~810 hoje -- sem paginar, era questao de tempo ate um pedaco da
+// divida sumir da conta em silencio.
+async function consolidarFinanceiro(ids, hoje) {
+  const fin = {};
+  for (const id of ids) {
+    fin[id] = {
+      mensalidades: 0,
+      negociadas: 0,
+      qtdNegociadas: 0,
+      acordos: 0,
+      total: 0,
+      temDetalhe: false,
+      temAtraso: false,
+      temAVencer: false,
+      menorVencimento: null, // menor vencimento em aberto (YYYY-MM-DD)
+      acordoResponsavel: null,
+    };
+  }
+  if (!ids.length) return fin;
+
+  // 1) Acordos ATIVO desses alunos (qualquer responsavel do acordo).
+  const acAluno = [];
+  for (let i = 0; i < ids.length; i += LOTE_IN) {
+    const lote = ids.slice(i, i + LOTE_IN);
+    const parte = await buscarTudo((de, ate) =>
+      supabase
+        .from("acordos")
+        .select("id,aluno_id,operador_responsavel_email,status")
+        .in("aluno_id", lote)
+        .eq("status", "ATIVO")
+        .order("id", { ascending: true })
+        .range(de, ate)
+    );
+    acAluno.push(...parte);
+  }
+  const acAlunoById = new Map(acAluno.map((a) => [a.id, a]));
+  const acAlunoIds = acAluno.map((a) => a.id);
+
+  // Parcelas em aberto desses acordos.
+  for (let i = 0; i < acAlunoIds.length; i += LOTE_IN) {
+    const lote = acAlunoIds.slice(i, i + LOTE_IN);
+    if (!lote.length) continue;
+    const parcelas = await buscarTudo((de, ate) =>
+      supabase
+        .from("parcelas")
+        .select("acordo_id,status,valor,vencimento")
+        .in("acordo_id", lote)
+        .in("status", ["A_VENCER", "VENCIDA"])
+        .order("id", { ascending: true })
+        .range(de, ate)
+    );
+    for (const p of parcelas) {
+      const ac = acAlunoById.get(p.acordo_id);
+      if (!ac || !ac.aluno_id) continue;
+      const id = String(ac.aluno_id);
+      if (!fin[id]) continue;
+      fin[id].acordos += Number(p.valor || 0);
+      fin[id].temDetalhe = true;
+      fin[id].acordoResponsavel = ac.operador_responsavel_email || fin[id].acordoResponsavel;
+      if (p.status === "VENCIDA") fin[id].temAtraso = true;
+      else fin[id].temAVencer = true;
+      const vp = p.vencimento ? String(p.vencimento).slice(0, 10) : null;
+      if (vp && (!fin[id].menorVencimento || vp < fin[id].menorVencimento)) fin[id].menorVencimento = vp;
+    }
+  }
+
+  // 2) Titulos/mensalidades importados em aberto (borderos ja normalizados).
+  for (let i = 0; i < ids.length; i += LOTE_IN) {
+    const lote = ids.slice(i, i + LOTE_IN);
+    const titulos = await buscarTudo((de, ate) =>
+      supabase
+        .from("acordos_titulos")
+        .select("aluno_id,status,situacao,acordo_id,valor_em_aberto,saldo_corrigido,valor_original,vencimento")
+        .in("aluno_id", lote)
+        .in("status", ["em_aberto", "vinculada"])
+        .order("id", { ascending: true })
+        .range(de, ate)
+    );
+    for (const t of titulos) {
+      const id = String(t.aluno_id);
+      if (!fin[id]) continue;
+      const v = Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
+      const vt = t.vencimento ? String(t.vencimento).slice(0, 10) : null;
+      if (vt && (!fin[id].menorVencimento || vt < fin[id].menorVencimento)) fin[id].menorVencimento = vt;
+      // HOTFIX parcela negociada: as vinculadas ficam num balde separado. NAO
+      // entram em "mensalidades" (obrigacao avulsa) nem sao somadas junto com
+      // as parcelas do acordo -- a divida delas ja esta em fin[id].acordos.
+      const negociada = t.status === "vinculada" || t.situacao === "NEGOCIADO" || !!t.acordo_id;
+      if (negociada) {
+        fin[id].negociadas += v;
+        fin[id].qtdNegociadas += 1;
+        fin[id].temDetalhe = true;
+        continue;
+      }
+      fin[id].mensalidades += v;
+      fin[id].temDetalhe = true;
+      const d = diasAtraso(t.vencimento, hoje);
+      if (d !== null && d > 0) fin[id].temAtraso = true;
+      else if (d !== null) fin[id].temAVencer = true;
+    }
+  }
+
+  for (const id of ids) fin[id].total = fin[id].mensalidades + fin[id].acordos;
+  return fin;
+}
+
 // Um id invalido na lista derruba a consulta inteira (coluna uuid). Conferir
 // antes de mandar e mais barato que descobrir pela tela vazia.
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -681,6 +802,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Financeiro consolidado por aluno (valor em aberto sem duplicidade).
   // { [aluno_id]: { mensalidades, acordos, total, temDetalhe, temAtraso, acordoResponsavel } }
   const [finAlunos, setFinAlunos] = useState({});
+  const finAlunosRef = useRef({});
+  useEffect(() => { finAlunosRef.current = finAlunos; }, [finAlunos]);
   // Meu desempenho operacional (indicadores pessoais do operador logado).
   const [desempenho, setDesempenho] = useState(null);
   const [acionadosHojeIds, setAcionadosHojeIds] = useState([]);
@@ -1187,98 +1310,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       // Sem N+1: consultas consolidadas em lote sobre os alunos da carteira.
       try {
         const idsCarteira = listaAtiva.map((a) => String(a.id));
-        const fin = {};
-        for (const id of idsCarteira) {
-          fin[id] = {
-            mensalidades: 0,
-            negociadas: 0,
-            qtdNegociadas: 0,
-            acordos: 0,
-            total: 0,
-            temDetalhe: false,
-            temAtraso: false,
-            temAVencer: false,
-            menorVencimento: null, // menor vencimento em aberto (YYYY-MM-DD)
-            acordoResponsavel: null,
-          };
-        }
-
-        // 1) Acordos ATIVO dos alunos da carteira (qualquer responsavel do acordo).
-        const acAluno = [];
-        for (let i = 0; i < idsCarteira.length; i += LOTE_IN) {
-          const lote = idsCarteira.slice(i, i + LOTE_IN);
-          const { data } = await supabase
-            .from("acordos")
-            .select("id,aluno_id,operador_responsavel_email,status")
-            .in("aluno_id", lote)
-            .eq("status", "ATIVO");
-          if (data) acAluno.push(...data);
-        }
-        const acAlunoById = new Map(acAluno.map((a) => [a.id, a]));
-        const acAlunoIds = acAluno.map((a) => a.id);
-
-        // Parcelas em aberto desses acordos.
-        for (let i = 0; i < acAlunoIds.length; i += LOTE_IN) {
-          const lote = acAlunoIds.slice(i, i + LOTE_IN);
-          if (!lote.length) continue;
-          const { data } = await supabase
-            .from("parcelas")
-            .select("acordo_id,status,valor,vencimento")
-            .in("acordo_id", lote)
-            .in("status", ["A_VENCER", "VENCIDA"]);
-          for (const p of data || []) {
-            const ac = acAlunoById.get(p.acordo_id);
-            if (!ac || !ac.aluno_id) continue;
-            const id = String(ac.aluno_id);
-            if (!fin[id]) continue;
-            fin[id].acordos += Number(p.valor || 0);
-            fin[id].temDetalhe = true;
-            fin[id].acordoResponsavel = ac.operador_responsavel_email || fin[id].acordoResponsavel;
-            if (p.status === "VENCIDA") fin[id].temAtraso = true;
-            else fin[id].temAVencer = true;
-            const vp = p.vencimento ? String(p.vencimento).slice(0, 10) : null;
-            if (vp && (!fin[id].menorVencimento || vp < fin[id].menorVencimento)) fin[id].menorVencimento = vp;
-          }
-        }
-
-        // 2) Titulos/mensalidades importados em aberto (borderos ja normalizados aqui).
-        for (let i = 0; i < idsCarteira.length; i += LOTE_IN) {
-          const lote = idsCarteira.slice(i, i + LOTE_IN);
-          // HOTFIX parcela negociada: traz tambem as vinculadas, num balde
-          // separado. Elas NAO entram em "mensalidades" (que segue sendo so
-          // obrigacao avulsa) nem sao somadas junto com as parcelas do acordo
-          // -- a divida delas ja esta em fin[id].acordos. O total nao muda.
-          const { data } = await supabase
-            .from("acordos_titulos")
-            .select("aluno_id,status,situacao,acordo_id,valor_em_aberto,saldo_corrigido,valor_original,vencimento")
-            .in("aluno_id", lote)
-            .in("status", ["em_aberto", "vinculada"]);
-          for (const t of data || []) {
-            const id = String(t.aluno_id);
-            if (!fin[id]) continue;
-            const v = Number(t.valor_em_aberto ?? t.saldo_corrigido ?? t.valor_original ?? 0);
-            const vt = t.vencimento ? String(t.vencimento).slice(0, 10) : null;
-            if (vt && (!fin[id].menorVencimento || vt < fin[id].menorVencimento)) fin[id].menorVencimento = vt;
-            const negociada =
-              t.status === "vinculada" || t.situacao === "NEGOCIADO" || !!t.acordo_id;
-            if (negociada) {
-              fin[id].negociadas += v;
-              fin[id].qtdNegociadas += 1;
-              fin[id].temDetalhe = true;
-              continue;
-            }
-            fin[id].mensalidades += v;
-            fin[id].temDetalhe = true;
-            const d = diasAtraso(t.vencimento, hoje);
-            if (d !== null && d > 0) fin[id].temAtraso = true;
-            else if (d !== null) fin[id].temAVencer = true;
-          }
-        }
-
-        for (const id of idsCarteira) {
-          fin[id].total = fin[id].mensalidades + fin[id].acordos;
-        }
-        setFinAlunos(fin);
+        setFinAlunos(await consolidarFinanceiro(idsCarteira, hoje));
       } catch (eFin) {
         console.error("Erro ao consolidar valor em aberto:", eFin);
       }
@@ -2138,6 +2170,23 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       }
 
       setCasosEspeciais(dados);
+
+      // O card pode trazer gente que NAO esta na carteira (retornos do dia,
+      // sem acionamento, acordo quebrado...). Sem consolidar o financeiro
+      // deles, a linha mostrava "estimado (sem detalhamento)" e a ordenacao
+      // "Maior valor primeiro" comparava o total real de uns com o estimado de
+      // outros -- a lista comecava certa e embaralhava do meio pra baixo.
+      const faltantes = dados
+        .map((a) => String(a.id))
+        .filter((id) => !finAlunosRef.current[id]);
+      if (faltantes.length) {
+        try {
+          const extra = await consolidarFinanceiro(faltantes, hoje);
+          setFinAlunos((prev) => ({ ...prev, ...extra }));
+        } catch (eFin) {
+          console.error("Erro ao consolidar valor em aberto do indicador:", eFin);
+        }
+      }
     } catch (e) {
       console.error("Erro ao carregar registros do indicador:", e);
       setCasosEspeciais([]);
