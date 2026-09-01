@@ -142,6 +142,28 @@ export async function lancarAcordo({ aluno, dados, usuarioEmail }) {
   // -- nem no Prime (`agreements` vazio, boletos de acordo ausentes do extrato),
   // nem no relatorio da Ulbra, nem no arquivo de pagamento. So quem negociou
   // sabe. Por isso se pergunta na hora.
+  // Amanda, 01/09: "se o sistema cria o numero do documento quando fechamos o
+  // acordo, ele deve baixar automaticamente quando importamos".
+  //
+  // O documento de cada parcela e "50" + numero do acordo na Ulbra + parcela(4).
+  // Informado no fechamento, a baixa pelo relatorio de pagamento passa a casar
+  // sozinha, sem reconstrucao. Reconstruir depois foi a origem de todos os erros
+  // de 01/09: o deslocamento do Nathan Gomides Brandao (parcela #1 do CRM era a
+  // 10 da Ulbra) e o cruzamento da Josele dos Santos Rosa (pagamento de um
+  // acordo lancado na parcela de outro).
+  const numeroUlbra = String(dados.numeroUlbra || "").replace(/\D/g, "");
+  if (numeroUlbra && !/^\d{1,5}$/.test(numeroUlbra)) {
+    return { ok: false, erro: "O numero do acordo na Ulbra deve ter ate 5 digitos." };
+  }
+  if (!numeroUlbra && !dados.semNumeroUlbraConfirmado) {
+    return {
+      ok: false,
+      precisaNumeroUlbra: true,
+      erro: "Informe o numero do acordo na Ulbra. Sem ele o pagamento nao encontra " +
+            "a parcela e a baixa nunca acontece sozinha.",
+    };
+  }
+
   const selecionados = Array.isArray(dados.titulosSel) ? dados.titulosSel : [];
   if (selecionados.length === 0 && !dados.semComposicaoConfirmado) {
     const { data: abertos, error: erroAbertos } = await supabase
@@ -204,6 +226,7 @@ export async function lancarAcordo({ aluno, dados, usuarioEmail }) {
       criado_por_email: email,
       confirmado_por_email: email,
       confirmado_em: agora,
+      numero_ulbra: numeroUlbra || null,
     })
     .select()
     .single();
@@ -219,7 +242,16 @@ export async function lancarAcordo({ aluno, dados, usuarioEmail }) {
     status: p.status,
   }));
 
-  const { error: e2 } = await supabase.from("parcelas").insert(parcelas);
+  // A Ulbra numera a ENTRADA como parcela 1; o CRM guarda a entrada como numero
+  // 0. Por isso o documento leva +1 quando ha entrada -- entrada 0 vira 1, e a
+  // primeira do parcelado vira 2. Sem entrada, numero e documento coincidem.
+  const desloc = dados.temEntrada && entrada > 0 ? 1 : 0;
+  const documentoDaParcela = (n) =>
+    numeroUlbra ? "50" + numeroUlbra.padStart(5, "0") + String(n + desloc).padStart(4, "0") : null;
+
+  const parcelasComDocumento = parcelas.map((p) => ({ ...p, boleto: documentoDaParcela(p.numero) }));
+
+  const { error: e2 } = await supabase.from("parcelas").insert(parcelasComDocumento);
   if (e2) {
     return {
       ok: false, acordo, erro: "Acordo criado, mas as parcelas não foram geradas: " + e2.message,
@@ -240,6 +272,7 @@ export async function lancarAcordo({ aluno, dados, usuarioEmail }) {
         honorarios: honEntrada || 0,
         vencimento: dataEntrada,
         status: paga ? "PAGO" : "A_VENCER",
+        boleto: documentoDaParcela(0),
         pago_em: paga ? dataEntrada : null,
         confirmado_por_email: paga ? email : null,
         // A tela identifica a entrada por este campo. Sem ele, o rateio de

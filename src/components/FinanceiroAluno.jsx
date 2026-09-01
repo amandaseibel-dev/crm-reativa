@@ -171,6 +171,7 @@ function valorTitulo(t) {
 
 function novoAcordoInicial() {
   return {
+    numeroUlbra: "",
     valorTotal: "",
     qtdParcelas: "1",
     temEntrada: false,
@@ -922,6 +923,20 @@ export default function FinanceiroAluno({ aluno }) {
     // isso a funcao recusa. A saida existe para o acordo de divida antiga, que
     // nao tem mensalidade correspondente no CRM, mas ela e explicita: quem
     // fecha precisa dizer que e esse o caso.
+    if (!r.ok && r.precisaNumeroUlbra) {
+      const seguir = window.confirm(
+        r.erro +
+        "\n\nSe tu nao tem o numero agora, confirme para lancar sem ele -- mas a " +
+        "baixa desse acordo tera de ser feita a mao, uma parcela por vez."
+      );
+      if (!seguir) return;
+      r = await lancarAcordo({
+        aluno,
+        dados: { ...novo, semNumeroUlbraConfirmado: true },
+        usuarioEmail: usuario?.email || "",
+      });
+    }
+
     if (!r.ok && r.precisaComposicao) {
       const seguir = window.confirm(
         r.erro +
@@ -932,7 +947,7 @@ export default function FinanceiroAluno({ aluno }) {
       if (!seguir) return;
       r = await lancarAcordo({
         aluno,
-        dados: { ...novo, semComposicaoConfirmado: true },
+        dados: { ...novo, semComposicaoConfirmado: true, semNumeroUlbraConfirmado: true },
         usuarioEmail: usuario?.email || "",
       });
     }
@@ -1433,6 +1448,17 @@ export default function FinanceiroAluno({ aluno }) {
                   1º vencimento
                   <input style={estilos.input} type="text" placeholder="dd/mm/aaaa" value={novo.primeiroVenc}
                     onChange={(e) => atualizarNovo("primeiroVenc", e.target.value)} />
+                </label>
+                {/* Sem este numero o pagamento nao encontra a parcela: o documento
+                    do boleto e "50" + este numero + o numero da parcela. */}
+                <label style={estilos.campo}>
+                  Nº do acordo na Ulbra
+                  <input style={estilos.input} type="text" inputMode="numeric" maxLength={5}
+                    placeholder="Ex: 70915" value={novo.numeroUlbra}
+                    onChange={(e) => atualizarNovo("numeroUlbra", e.target.value.replace(/\D/g, ""))} />
+                  <span style={{ fontSize: 11, opacity: 0.7 }}>
+                    Com ele a baixa do pagamento acontece sozinha.
+                  </span>
                 </label>
               </div>
 
