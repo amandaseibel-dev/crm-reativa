@@ -224,6 +224,11 @@ export default function FinanceiroAluno({ aluno }) {
   const [usuario, setUsuario] = useState(null);
   const [recarga, setRecarga] = useState(0);
   const [titulosSelecionaveis, setTitulosSelecionaveis] = useState([]);
+  const [verTitulosAcordo, setVerTitulosAcordo] = useState(false);
+  // Mensalidade e parcela de acordo sao coisas diferentes e nao devem aparecer
+  // na mesma lista: a parcela ja e mostrada na secao do acordo.
+  const mensalidades = titulos.filter((t) => String(t.tipo_boleto || "") !== "Acordo");
+  const titulosDeAcordo = titulos.filter((t) => String(t.tipo_boleto || "") === "Acordo");
   const [acordoAlvoId, setAcordoAlvoId] = useState("");
   const [novoAberto, setNovoAberto] = useState(true);
   const [novo, setNovo] = useState(novoAcordoInicial());
@@ -1603,7 +1608,7 @@ export default function FinanceiroAluno({ aluno }) {
       ) : (
         <div style={estilos.caixa}>
           <div style={estilos.cabecalho}>
-            <strong>💰 Financeiro (borderôs)</strong>
+            <strong>💰 Mensalidades (borderôs)</strong>
             <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
               {emAberto.length > 0 && (
                 <span style={estilos.totalAberto}>{moeda(valorMensalidades)} em aberto</span>
@@ -1629,8 +1634,28 @@ export default function FinanceiroAluno({ aluno }) {
             onCancelar={() => { setFormMensalidadeAberto(false); setErroMensalidade(""); }}
           />}
 
+          {/* A parcela do acordo ja aparece na secao do acordo. Mostrar o titulo
+              dela aqui, no meio das mensalidades, e mostrar a mesma divida duas
+              vezes -- foi o que fez parecer que a importacao de 31/08 duplicou
+              (Amanda, 01/09: "entrou as parcelas do acordo como bordero"). As
+              duas listas ficam separadas, e a do acordo so abre se pedirem. */}
+          {titulosDeAcordo.length > 0 && (
+            <div style={{ marginTop: 10, fontSize: 12, opacity: 0.75 }}>
+              <button
+                type="button"
+                onClick={() => setVerTitulosAcordo((v) => !v)}
+                style={{ ...estilos.botaoPequeno, background: "#eef2f6", color: "#334155" }}
+              >
+                {verTitulosAcordo ? "Ocultar" : "Ver"} os {titulosDeAcordo.length} boleto(s) do acordo
+              </button>
+              <span style={{ marginLeft: 8 }}>
+                são as parcelas do acordo, já contadas acima — não somam de novo
+              </span>
+            </div>
+          )}
+
           <div style={{ marginTop: 10 }}>
-            {titulos.map((titulo) => {
+            {(verTitulosAcordo ? titulos : mensalidades).map((titulo) => {
               const pago = titulo.situacao === "PAGO" || titulo.status === "quitada";
               // Reconhece o vinculo por qualquer um dos tres sinais: o
               // gatilho grava situacao=NEGOCIADO + status=vinculada, mas ha
