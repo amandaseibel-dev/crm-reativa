@@ -494,7 +494,20 @@ export default function ConferenciaPagamentos() {
                   </td>
                   <td style={S.tdNum}>
                     {semDono ? "—" : Number(l.baixado) > 0 ? (
-                      <span title={`${l.qtd_baixas} baixa(s) no relatório`}>{moeda(l.baixado)}</span>
+                      <>
+                        <span title={`${l.qtd_baixas} baixa(s) no relatório`}>{moeda(l.baixado)}</span>
+                        {/* QUEM FEZ A BAIXA, na propria linha (Amanda, 01/09: "quero
+                            que apareca quem fez a baixa"). Sem isto a unica forma de
+                            saber se a baixa foi tua, da Fernanda ou de uma rotina era
+                            abrir a ficha -- ou decidir de novo. "automático" e o caso
+                            em que ninguem decidiu nada. */}
+                        {l.baixado_por ? (
+                          <div style={l.baixado_por.includes("automático") ? autorAuto : autor}
+                               title={`Baixa feita por ${l.baixado_por}${l.ultima_baixa ? ` em ${curta(l.ultima_baixa)}` : ""}`}>
+                            {l.baixado_por}{l.ultima_baixa ? ` · ${curta(l.ultima_baixa)}` : ""}
+                          </div>
+                        ) : null}
+                      </>
                     ) : <span style={{ color: "#94a3b8" }}>—</span>}
                   </td>
                   <td style={{ ...S.tdNum, fontWeight: 800 }}>{semDono ? "—" : moeda(l.saldo_aberto)}</td>
@@ -648,6 +661,10 @@ const btnJaTratado = {
   background: "#fff", border: "1px solid #cbd5e1", borderRadius: 8,
   padding: "6px 12px", fontSize: 12.5, fontWeight: 800, color: "#475569", cursor: "pointer",
 };
+// Autor da baixa, debaixo do valor. Discreto: e contexto para decidir, nao o
+// numero em si. O laranja marca a baixa que nenhuma pessoa fez.
+const autor = { fontSize: 11, fontWeight: 700, color: "#64748b", marginTop: 2 };
+const autorAuto = { ...autor, color: "#b45309" };
 const dicaTeclado = { fontSize: 11.5, color: "#94a3b8", marginLeft: "auto" };
 const rotuloGrupo = {
   fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: .6,
