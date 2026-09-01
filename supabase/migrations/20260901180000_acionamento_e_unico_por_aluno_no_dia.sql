@@ -315,4 +315,29 @@ begin
 end;
 $function$;
 
+-- ---------------------------------------------------------------------------
+-- A TV nao usa acionamentos_ranking: tv_snapshot_calcular tem a consulta dela
+-- propria (foi por isso que o painel continuou mostrando 437 depois da troca).
+-- O snapshot e uma funcao longa e gerada; aqui trocamos SO a contagem, com
+-- guarda: se o texto esperado nao estiver la, a migration falha em vez de
+-- passar batido.
+--
+-- A mesma expressao serve para o dia e para o mes: no bloco do dia a data e
+-- constante, entao contar (dia, aluno) da o mesmo que contar aluno.
+--
+-- ATENCAO: a TV so mostra o numero novo depois que alguem roda
+-- tv_snapshot_atualizar() -- botao "Salvar e atualizar TV", permitido so para
+-- Amanda e Fernanda. O snapshot guardado nao se refaz sozinho.
+-- ---------------------------------------------------------------------------
+do $do$
+declare d text; n int;
+begin
+  select pg_get_functiondef('public.tv_snapshot_calcular'::regproc) into d;
+  n := (length(d) - length(replace(d, 'count(*) as qtd', ''))) / length('count(*) as qtd');
+  if n <> 2 then raise exception 'tv_snapshot_calcular: esperava 2 ocorrencias de count(*) as qtd, achei %', n; end if;
+  d := replace(d, 'count(*) as qtd',
+       'count(distinct ((m.registrado_em at time zone ''America/Sao_Paulo'')::date, m.aluno_id)) as qtd');
+  execute d;
+end $do$;
+
 commit;
