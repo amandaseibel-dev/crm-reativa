@@ -171,6 +171,7 @@ function valorTitulo(t) {
 
 function novoAcordoInicial() {
   return {
+    numeroUlbra: "",
     valorTotal: "",
     qtdParcelas: "1",
     temEntrada: false,
@@ -807,45 +808,18 @@ export default function FinanceiroAluno({ aluno }) {
     );
     if (!confirmado) return;
 
-    const agora = new Date().toISOString();
+    // Cancelar em varios passos soltos deixava parcela viva de acordo morto
+    // -- a parcela continuava cobrando e voltava na ficha do aluno. A RPC faz
+    // tudo numa transacao so e na ordem que o gatilho precisa: primeiro o
+    // status do acordo (com o vinculo ainda no lugar, pro gatilho ler),
+    // depois os titulos, as parcelas, o vinculo, e o recalculo por ultimo.
+    const { data, error } = await supabase.rpc("acordo_cancelar", {
+      p_acordo_id: acordo.id,
+      p_motivo: null,
+    });
 
-    const { data: vinculos } = await supabase
-      .from("acordo_titulo_vinculo")
-      .select("titulo_id")
-      .eq("acordo_id", acordo.id);
-
-    const idsTitulos = (vinculos || []).map((v) => v.titulo_id);
-
-    if (idsTitulos.length > 0) {
-      const { error: erroReverter } = await supabase
-        .from("acordos_titulos")
-        .update({ status: "em_aberto", atualizado_em: agora })
-        .in("id", idsTitulos);
-      if (erroReverter) {
-        alert("Erro ao devolver os títulos pro status em aberto: " + erroReverter.message);
-        return;
-      }
-    }
-
-    // acordos e parcelas não têm permissão de exclusão (DELETE) no banco
-    // -- tentar apagar falha silenciosamente, sem erro, e o registro
-    // continua lá do mesmo jeito. Por isso cancela (marca status) em vez
-    // de apagar -- o que também é melhor pra manter histórico/auditoria.
-    await supabase.from("acordo_titulo_vinculo").delete().eq("acordo_id", acordo.id);
-
-    await supabase
-      .from("parcelas")
-      .update({ status: "CANCELADA", atualizado_em: agora })
-      .eq("acordo_id", acordo.id)
-      .neq("status", "PAGO");
-
-    const { error: erroCancelar } = await supabase
-      .from("acordos")
-      .update({ status: "CANCELADO", saldo: 0, atualizado_em: agora })
-      .eq("id", acordo.id);
-
-    if (erroCancelar) {
-      alert("Erro ao cancelar o acordo: " + erroCancelar.message);
+    if (error) {
+      alert("Erro ao cancelar o acordo: " + error.message);
       return;
     }
 
@@ -863,7 +837,19 @@ export default function FinanceiroAluno({ aluno }) {
     }
 
     setRecarga((r) => r + 1);
-    alert("Acordo cancelado.");
+
+    if (data?.ja_estava_cancelado) {
+      alert("Esse acordo já estava cancelado.");
+      return;
+    }
+
+    const canceladas = data?.parcelas_canceladas || 0;
+    const devolvidos = data?.titulos_devolvidos || 0;
+    alert(
+      "Acordo cancelado." +
+        (canceladas ? ` ${canceladas} parcela(s) cancelada(s).` : "") +
+        (devolvidos ? ` ${devolvidos} título(s) voltaram para em aberto.` : "")
+    );
   }
 
   // ---- Montar novo acordo (direto na ficha) ----
@@ -965,11 +951,44 @@ export default function FinanceiroAluno({ aluno }) {
   async function salvarNovoAcordo() {
     if (!podeBaixar) { alert("Criação de acordo com baixa de entrada é exclusiva da gestão financeira."); return; }
 
-    const r = await lancarAcordo({
+    let r = await lancarAcordo({
       aluno,
       dados: novo,
       usuarioEmail: usuario?.email || "",
     });
+
+    // Fechar sem marcar mensalidade deixa a divida contada duas vezes -- por
+    // isso a funcao recusa. A saida existe para o acordo de divida antiga, que
+    // nao tem mensalidade correspondente no CRM, mas ela e explicita: quem
+    // fecha precisa dizer que e esse o caso.
+    if (!r.ok && r.precisaNumeroUlbra) {
+      const seguir = window.confirm(
+        r.erro +
+        "\n\nSe tu nao tem o numero agora, confirme para lancar sem ele -- mas a " +
+        "baixa desse acordo tera de ser feita a mao, uma parcela por vez."
+      );
+      if (!seguir) return;
+      r = await lancarAcordo({
+        aluno,
+        dados: { ...novo, semNumeroUlbraConfirmado: true },
+        usuarioEmail: usuario?.email || "",
+      });
+    }
+
+    if (!r.ok && r.precisaComposicao) {
+      const seguir = window.confirm(
+        r.erro +
+        "\n\nSe este acordo NAO e das mensalidades em aberto deste aluno " +
+        "(divida antiga, por exemplo), confirme para fechar mesmo assim. " +
+        "Ele vai ficar marcado como sem composicao."
+      );
+      if (!seguir) return;
+      r = await lancarAcordo({
+        aluno,
+        dados: { ...novo, semComposicaoConfirmado: true, semNumeroUlbraConfirmado: true },
+        usuarioEmail: usuario?.email || "",
+      });
+    }
 
     if (!r.ok) { alert(r.erro); return; }
 
@@ -1467,6 +1486,17 @@ export default function FinanceiroAluno({ aluno }) {
                   1º vencimento
                   <input style={estilos.input} type="text" placeholder="dd/mm/aaaa" value={novo.primeiroVenc}
                     onChange={(e) => atualizarNovo("primeiroVenc", e.target.value)} />
+                </label>
+                {/* Sem este numero o pagamento nao encontra a parcela: o documento
+                    do boleto e "50" + este numero + o numero da parcela. */}
+                <label style={estilos.campo}>
+                  Nº do acordo na Ulbra
+                  <input style={estilos.input} type="text" inputMode="numeric" maxLength={5}
+                    placeholder="Ex: 70915" value={novo.numeroUlbra}
+                    onChange={(e) => atualizarNovo("numeroUlbra", e.target.value.replace(/\D/g, ""))} />
+                  <span style={{ fontSize: 11, opacity: 0.7 }}>
+                    Com ele a baixa do pagamento acontece sozinha.
+                  </span>
                 </label>
               </div>
 
