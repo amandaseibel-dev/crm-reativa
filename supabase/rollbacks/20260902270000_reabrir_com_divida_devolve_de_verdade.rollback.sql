@@ -1,0 +1,6 @@
+-- Volta o reabridor a NÃO escrever `encerrado_operacional = false`.
+-- Atenção: com isso ele volta a "reabrir" casos que continuam fora da fila, e a
+-- repescá-los toda hora gravando movimentação de reabertura que não reabre nada.
+-- Basta remover a linha `encerrado_operacional = false,` do UPDATE em
+-- public.casos_reabrir_com_divida -- ver a migration 20260902270000 para o corpo
+-- completo da função.
