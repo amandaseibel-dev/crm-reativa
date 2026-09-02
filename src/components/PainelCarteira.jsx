@@ -105,6 +105,10 @@ function adicionarDiasUteisData(base, n) {
 function retornoAutomaticoDeStatus(statusNovo) {
   const hoje = new Date();
   hoje.setHours(0, 0, 0, 0);
+  // AGUARDANDO_BAIXA nao entra aqui de proposito: o caso foi para a
+  // confirmacao de pagamento e fica sem retorno ate a conferencia ser
+  // concluida. Data digitada a mao tambem e apagada pelo recalculo enquanto a
+  // confirmacao estiver pendente.
   const uteis = {
     MENSAGEM_ENVIADA: 2,
     SOLICITADO_LINK: 1,
@@ -1837,6 +1841,39 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     });
 
     atualizarTudo(aluno.id);
+  }
+
+  // Mandar para a confirmacao JA E a tabulacao (Amanda, 02/09/2026): "ao inves
+  // de termos que mandar pra confirmacao e tabular tambem". O card
+  // ConfirmarPagamento ja gravou status, acionamento e movimentacao, e o banco
+  // ja agendou o retorno; aqui a TELA para de cobrar a tabulacao por cima --
+  // fecha o bloco, reflete o status e, no acionamento guiado, avanca para o
+  // proximo aluno igual ao "Finalizar atendimento".
+  async function tabuladoPelaConfirmacao(a) {
+    if (!a?.id) return;
+    setAcaoInline(null);
+    setResumoConversa("");
+    setStatusNovo("AGUARDANDO_BAIXA");
+    setFeedback({
+      tipo: "ok",
+      texto:
+        'Tabulado como "Aguardando confirmação de pagamento". O caso fica com o ' +
+        "financeiro e volta para a fila quando a confirmação for concluída.",
+    });
+    if (guiado) {
+      guiadoFeitosRef.current.add(String(a.id));
+      setGuiadoAcionados(guiadoFeitosRef.current.size);
+      setCasos((atual) =>
+        atual.map((x) =>
+          String(x.id) === String(a.id)
+            ? { ...x, status_atual: "AGUARDANDO_BAIXA", status_jornada: "AGUARDANDO_BAIXA" }
+            : x
+        )
+      );
+      await avancarGuiadoRapido(a.id);
+    } else {
+      await atualizarTudo(a.id);
+    }
   }
 
   // Recarrega o aluno atual (linha da carteira + modal) apos uma acao.
@@ -3838,7 +3875,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   )}
                   {acaoInline === "pagamento" && (
                     <div style={S.blocoInline}>
-                      <ConfirmarPagamento aluno={alunoModal} />
+                      <ConfirmarPagamento aluno={alunoModal} onSucesso={() => tabuladoPelaConfirmacao(alunoModal)} />
                     </div>
                   )}
 
