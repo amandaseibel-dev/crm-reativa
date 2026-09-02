@@ -28,3 +28,6 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Exportacoes de trabalho: tem nome e CPF de aluno, nao vao para o repositorio.
+*.csv
