@@ -59,6 +59,7 @@ const GestaoFinanceiraOperadores = lazy(() => import("./pages/GestaoFinanceiraOp
 const ProjecaoHoraHora = lazy(() => import("./pages/ProjecaoHoraHora"));
 const HonorariosAEntrar = lazy(() => import("./pages/HonorariosAEntrar"));
 const AcordosDuplicados = lazy(() => import("./pages/AcordosDuplicados"));
+const AcordosSemVinculo = lazy(() => import("./pages/AcordosSemVinculo"));
 const PagamentosSemAluno = lazy(() => import("./pages/PagamentosSemAluno"));
 const QuitacaoSugerida = lazy(() => import("./pages/QuitacaoSugerida"));
 const ConferenciaPrime = lazy(() => import("./pages/ConferenciaPrime"));
@@ -152,7 +153,7 @@ function podeAcessar(perfil, rota) {
   // perfis ativos (o banco confere de novo por app_usuario_ativo()).
   if (rota === "/leads-whatsapp") return true;
   if (rota === "/tv-mensagem") return perfil !== "operador"; // escrita ainda restrita pela RLS
-  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return true; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/acordos-duplicados") return perfil !== "operador"; if (rota === "/pagamentos-sem-aluno") return perfil !== "operador"; if (rota === "/quitacao-sugerida") return perfil !== "operador"; if (rota === "/conferencia-prime") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
+  if (rota === "/minhas-solicitacoes") return true; if (rota === "/avisos") return true; if (rota === "/minha-agenda") return true; if (rota === "/envio-gmail") return perfil !== "operador"; if (rota === "/a-entrar") return true; if (rota === "/importar-acordos") return perfil !== "operador"; if (rota === "/fila-acordos") return perfil !== "operador"; if (rota === "/acordos-duplicados") return perfil !== "operador"; if (rota === "/acordos-sem-vinculo") return perfil !== "operador"; if (rota === "/pagamentos-sem-aluno") return perfil !== "operador"; if (rota === "/quitacao-sugerida") return perfil !== "operador"; if (rota === "/conferencia-prime") return perfil !== "operador"; if (rota === "/ferramentas") return perfil !== "operador";
   const permissoes = {
     gerencia: [
       "/",
@@ -1080,7 +1081,7 @@ export default function App() {
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} /> <Route path="/central-whatsapp" element={<RotaProtegida usuario={usuario} rota="/central-whatsapp"><CentralWhatsApp /></RotaProtegida>} /> <Route path="/leads-whatsapp" element={<RotaProtegida usuario={usuario} rota="/leads-whatsapp"><LeadsWhatsApp /></RotaProtegida>} />
               <Route path="/dre" element={(["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) || perfil === "diretoria") ? <DRE /> : <Navigate to="/" replace />} />
               <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
-              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/a-entrar" element={<HonorariosAEntrar />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/acordos-duplicados" element={<AcordosDuplicados />} /> <Route path="/pagamentos-sem-aluno" element={<PagamentosSemAluno />} /> <Route path="/quitacao-sugerida" element={<QuitacaoSugerida />} /> <Route path="/conferencia-prime" element={<ConferenciaPrime />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
+              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/a-entrar" element={<HonorariosAEntrar />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/acordos-duplicados" element={<AcordosDuplicados />} /> <Route path="/acordos-sem-vinculo" element={<AcordosSemVinculo />} /> <Route path="/pagamentos-sem-aluno" element={<PagamentosSemAluno />} /> <Route path="/quitacao-sugerida" element={<QuitacaoSugerida />} /> <Route path="/conferencia-prime" element={<ConferenciaPrime />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
       </Routes>
       </Suspense>
         </main>

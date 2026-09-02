@@ -109,10 +109,23 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
       }
       if (erro === "acordo_cancelado_operacao_nao_permitida") { setMsg("Este acordo está cancelado — não é possível vincular."); return; }
       if (erro === "acordo_quitado_operacao_nao_permitida") { setMsg("Este acordo está quitado — não é possível vincular."); return; }
+      // Recusa imediata, antes de gravar: dá para afirmar que nada foi salvo.
+      if (erro === "ACORDO_EM_USO") { setMsg("Este acordo está sendo vinculado neste instante. Nada foi gravado — espere alguns segundos e tente de novo."); return; }
       setMsg("Erro ao vincular: " + erro);
       return;
     }
-    setMsg(data.vinculados + " parcela(s) vinculada(s) ao acordo — saíram da carteira a cobrar.");
+    // Em acordo ja pago a mensalidade nasce quitada; em acordo ativo fica
+    // negociada. Nos dois casos ela sai da carteira a cobrar.
+    const ja = Number(data.ja_estavam || 0);
+    setMsg(
+      Number(data.vinculados) > 0
+        ? data.vinculados +
+            (data.estado_titulo === "quitada"
+              ? " parcela(s) vinculada(s) e marcada(s) como quitada(s) — o acordo já foi pago."
+              : " parcela(s) vinculada(s) ao acordo — saíram da carteira a cobrar.") +
+            (ja > 0 ? " Outra(s) " + ja + " já estavam vinculadas." : "")
+        : "Nada a fazer: " + ja + " parcela(s) já estavam vinculadas a este acordo."
+    );
     carregar();
   }
   async function desvincular(id) {

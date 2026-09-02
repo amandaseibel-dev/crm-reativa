@@ -295,6 +295,12 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
 
     // Aluno vai para AGUARDANDO_BAIXA -- isto NAO representa baixa financeira,
     // apenas sinaliza que aguarda conferencia da Amanda/Fernanda.
+    //
+    // MANDAR PARA A CONFIRMACAO JA E A TABULACAO (Amanda, 02/09/2026): o
+    // operador nao precisa tabular por cima. O caso fica SEM data de retorno
+    // ate a conferencia ser concluida -- quem apaga a data e o recalculo do
+    // banco (`recalcular_situacao_aluno`), para nenhum caminho de tela
+    // conseguir devolver o caso para a fila antes da hora.
     const agora = new Date().toISOString();
     await supabase
       .from("alunos")
@@ -303,6 +309,10 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
         status_atual: "AGUARDANDO_BAIXA",
         status_acionamento: "Aguardando confirmação de pagamento",
         data_ultimo_acionamento: agora,
+        ultimo_contato: agora,
+        registrado_por_nome: nomeOperador,
+        registrado_por_email: emailOperador,
+        registrado_em: agora,
       })
       .eq("id", aluno.id);
 
@@ -311,14 +321,21 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
     await supabase.from("aluno_movimentacoes").insert({
       aluno_id: String(aluno.id),
       tipo: "FINALIZACAO_ATENDIMENTO",
-      descricao: `Enviado para confirmação de pagamento manualmente. Motivo: ${motivo.trim()}.`,
+      descricao:
+        `Enviado para confirmação de pagamento manualmente. Motivo: ${motivo.trim()}. ` +
+        `Tabulado como "Aguardando confirmação de pagamento"; o caso fica com o ` +
+        `financeiro até a conferência ser concluída.`,
       status_novo: "Aguardando confirmação de pagamento",
       registrado_por_nome: nomeOperador,
       registrado_por_email: emailOperador,
       registrado_em: agora,
     });
 
-    alert("Enviado para a fila de confirmação de pagamento.");
+    alert(
+      "Enviado para a fila de confirmação de pagamento.\n\n" +
+        'Já tabulado como "Aguardando confirmação de pagamento" — não precisa tabular de novo. ' +
+        "O caso fica com o financeiro e volta para a sua fila quando a confirmação for concluída."
+    );
     setMotivo("");
     setValorInformado("");
     setTipo("");

@@ -4,6 +4,7 @@ import ConferenciaPagamentos from "./ConferenciaPagamentos";
 import PainelAdm from "./PainelAdm";
 import ConferenciaPrime from "./ConferenciaPrime";
 import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirmacoes from "./HistoricoConfirmacoes";
+import AcordosSemVinculo from "./AcordosSemVinculo";
 
 // Reune as telas financeiras num lugar so, com abas. Cada aba carrega o
 // componente ORIGINAL sem nenhuma alteracao interna -- nenhuma logica,
@@ -17,12 +18,18 @@ import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirm
 // -- olhar um caso e decidir -- entao vieram para ca como abas. Amanda: "tudo
 // que tiver de confirmacao deveria aparecer na aba de confirmacao e nao em
 // outro lugar, vai confundir tudo".
+//
+// DE NOVO, 02/09/2026: "Acordos sem vinculo" tambem nasceu como item solto no
+// menu Gestao, e a Amanda perguntou na hora "vai ficar no financeiro onde?".
+// E conferencia igual as outras -- olhar o acordo, decidir qual mensalidade ele
+// substituiu -- e o vinculo em si e feito no Financeiro da ficha. Virou aba.
 const ABAS = [
   { chave: "PAINEL_ADM", rotulo: "Painel ADM" },
   { chave: "FINANCEIRO", rotulo: "Financeiro" },
   { chave: "CONFIRMACAO", rotulo: "Confirmação de Pagamento" },
   { chave: "FILA_BAIXAS", rotulo: "Fila de Baixas" },
   { chave: "CONFERENCIA_PRIME", rotulo: "Conferência Prime" },
+  { chave: "ACORDOS_SEM_VINCULO", rotulo: "Acordos sem vínculo" },
   { chave: "HIST_CONFIRMACOES", rotulo: "Histórico de Confirmações" },
 ];
 
@@ -56,6 +63,7 @@ export default function FinanceiroHub() {
         {aba === "CONFIRMACAO" && <ConferenciaPagamentos />}
         {aba === "FILA_BAIXAS" && <MinhaFilaPagamentos />}
         {aba === "CONFERENCIA_PRIME" && <ConferenciaPrime />}
+        {aba === "ACORDOS_SEM_VINCULO" && <AcordosSemVinculo />}
         {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
       </div>
     </div>

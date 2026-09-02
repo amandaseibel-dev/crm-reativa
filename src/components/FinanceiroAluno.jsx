@@ -228,6 +228,10 @@ export default function FinanceiroAluno({ aluno }) {
   const [motivoDup, setMotivoDup] = useState("");
   const [salvandoDup, setSalvandoDup] = useState(false);
   const [acordoAlvoId, setAcordoAlvoId] = useState("");
+  // Trava de clique do "Vincular a este acordo". Sem ela, cada clique disparava
+  // outra chamada: elas se enfileiram no lock por acordo do backend e morrem no
+  // limite de 8s ("Erro ao vincular"), mesmo quando o vinculo ja foi gravado.
+  const [vinculando, setVinculando] = useState(false);
   const [novoAberto, setNovoAberto] = useState(true);
   const [novo, setNovo] = useState(novoAcordoInicial());
 
@@ -942,8 +946,10 @@ export default function FinanceiroAluno({ aluno }) {
   }
 
   async function vincularTitulosExistente() {
+    if (vinculando) return;
     if (!novo.titulosSel.length) { alert("Marque ao menos um título para vincular."); return; }
     if (!acordoAlvoId) { alert("Escolha o acordo que vai receber os títulos."); return; }
+    setVinculando(true);
     // RPC unica: marca a mensalidade como NEGOCIADO (sai do "a cobrar"), liga ao
     // acordo e registra auditoria. Funciona mesmo com o acordo JA PAGO/QUITADO
     // (vincular mensalidades a parcelas ja pagas). Nao altera pagamento.
@@ -951,15 +957,37 @@ export default function FinanceiroAluno({ aluno }) {
       p_titulo_ids: novo.titulosSel,
       p_acordo_id: acordoAlvoId,
     });
+    setVinculando(false);
     if (error || (data && data.ok === false)) {
-      alert("Erro ao vincular: " + (error?.message || data?.erro || "falha"));
+      const cod = data?.erro || error?.message || "falha";
+      // O backend agora recusa NA HORA quando o acordo esta em uso, antes de
+      // escrever qualquer coisa -- entao da para afirmar que nada foi gravado,
+      // em vez de mandar o usuario conferir o caso na mao.
+      if (cod === "ACORDO_EM_USO") {
+        alert("Esse acordo está sendo vinculado neste instante. Nada foi gravado nesta tentativa — espere alguns segundos e clique de novo.");
+        setRecarga((r) => r + 1);
+        return;
+      }
+      alert("Erro ao vincular: " + cod);
       return;
     }
     setNovo(novoAcordoInicial());
     setAcordoAlvoId("");
     setNovoAberto(false);
     setRecarga((r) => r + 1);
-    alert(`${(data && data.vinculados) || novo.titulosSel.length} mensalidade(s) vinculada(s) ao acordo (marcadas como negociadas).`);
+    // A mensalidade segue o acordo: em acordo pago ela nasce quitada; em acordo
+    // ativo fica negociada, esperando o pagamento. `ja_estavam` deixa claro o
+    // que ja tinha sido feito numa tentativa anterior -- repetir e seguro.
+    const quitou = data && data.estado_titulo === "quitada";
+    const n = Number(data?.vinculados ?? novo.titulosSel.length);
+    const ja = Number(data?.ja_estavam || 0);
+    const comoFicou = quitou ? "quitadas — o acordo já foi pago" : "negociadas";
+    alert(
+      n > 0
+        ? `${n} mensalidade(s) vinculada(s) ao acordo (marcadas como ${comoFicou}).` +
+          (ja > 0 ? ` Outra(s) ${ja} já estavam vinculadas.` : "")
+        : `Nada a fazer: ${ja} mensalidade(s) já estavam vinculadas a este acordo.`
+    );
   }
 
   async function salvarNovoAcordo() {
@@ -1001,7 +1029,9 @@ export default function FinanceiroAluno({ aluno }) {
           (erroVinc?.message || vinc?.erro || "falha") +
           "). Use \u201cVincular a acordo existente\u201d para prende-las.";
       } else {
-        avisoVinculo = `\n\n${(vinc && vinc.vinculados) || novo.titulosSel.length} mensalidade(s) vinculada(s) ao acordo.`;
+        avisoVinculo =
+          `\n\n${(vinc && vinc.vinculados) || novo.titulosSel.length} mensalidade(s) vinculada(s) ao acordo` +
+          (vinc && vinc.estado_titulo === "quitada" ? " (marcadas como quitadas — o acordo ja foi pago)." : ".");
       }
     }
 
@@ -1440,7 +1470,13 @@ export default function FinanceiroAluno({ aluno }) {
                             </option>
                           ))}
                         </select>
-                        <button style={estilos.botaoPequeno} onClick={vincularTitulosExistente}>Vincular a este acordo</button>
+                        <button
+                          style={{ ...estilos.botaoPequeno, opacity: vinculando ? 0.5 : 1 }}
+                          onClick={vincularTitulosExistente}
+                          disabled={vinculando}
+                        >
+                          {vinculando ? "Vinculando…" : "Vincular a este acordo"}
+                        </button>
                       </div>
                     )}
                   </>

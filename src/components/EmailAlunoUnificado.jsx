@@ -21,7 +21,7 @@ function sugerir(aluno) {
   const s = String(aluno?.status_atual || aluno?.status_jornada || "").toLowerCase();
   if (/atraso|vencid/.test(s)) return "acordo_em_atraso";
   if (/acordo|negocia/.test(s)) return "envio_acordo";
-  if (!aluno?.data_ultimo_acionamento) return "primeira_abordagem";
+  if (!aluno?.data_ultimo_acionamento) return "aviso_mensalidades_aberto";
   return "lembrete_pagamento";
 }
 
@@ -64,9 +64,12 @@ export default function EmailAlunoUnificado({ aluno }) {
         .eq("ativo", true)
         .order("ordem");
       if (!ativo) return;
+      const lista = data || [];
+      const sugerida = sugerir(aluno);
       setOperador({ nome, email });
-      setTemplates(data || []);
-      setChave(sugerir(aluno));
+      setTemplates(lista);
+      // a arte sugerida pode estar fora do ar; nesse caso cai na primeira disponivel
+      setChave(lista.some((t) => t.chave === sugerida) ? sugerida : lista[0]?.chave || "");
       setCarregando(false);
     })();
     return () => { ativo = false; };
