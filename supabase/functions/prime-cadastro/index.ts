@@ -174,6 +174,26 @@ async function colher(cpf: string, chave: string) {
     }
   }
 
+  // O NOME. `socialName` ganha do `fullName` quando existe: é o nome pelo qual a
+  // pessoa pede para ser chamada, e é ele que o operador lê na tela antes de
+  // ligar. Só cai no `fullName` quando não há nome social.
+  //
+  // POR QUE ISTO PRECISA VIR DAQUI. Em 02/09/2026 a base tinha 33 cadastros
+  // exibindo o nome de OUTRA pessoa sobre o CPF certo -- e o defeito não tem uma
+  // direção só: às vezes o errado era `alunos.nome`, às vezes `casos.nome`, e em
+  // vários casos os dois. Comparar as duas tabelas entre si só acha o problema
+  // quando elas discordam; quando repetem o mesmo nome errado, ninguém vê.
+  // O caso que abriu isso: "Agnes Cibele Dal'Toé" aparecia duas vezes, e a
+  // segunda linha era da Aliny Angelica Alves. O pior: um cadastro com R$ 122
+  // mil onde nem o nome do cadastro nem o do caso batiam -- o Prime disse que
+  // era um terceiro, Dyullyan Vargas de Barros, e o e-mail da linha
+  // (dvargasbarros@) confirmou.
+  //
+  // Corrigir isso à mão vira uma corrente: cada nome devolvido ao dono revela
+  // que o nome antigo ocupava ainda outra linha. Foram cinco rodadas e 27 nomes
+  // num dia. Vindo daqui, a rotina de domingo desfaz a corrente sozinha.
+  const nome = String(rd?.socialName ?? rd?.fullName ?? "").trim();
+
   const telefones = Array.isArray(rd?.phones)
     ? rd.phones.filter((p: unknown) => digitos(p).length >= 10).map((p: unknown) => String(p).trim())
     : [];
@@ -203,7 +223,7 @@ async function colher(cpf: string, chave: string) {
     campos: parcelas.length ? Object.keys(parcelas[0]) : [],
   };
 
-  return { cpf, registration, telefones, emails, contratos, titulos, _diag };
+  return { cpf, registration, nome, telefones, emails, contratos, titulos, _diag };
 }
 
 async function emLotes<T, R>(itens: T[], n: number, fn: (t: T) => Promise<R>): Promise<R[]> {
@@ -310,7 +330,7 @@ Deno.serve(async (req) => {
   const inicio = Date.now();
   const colhidos = await emLotes(cpfs, CONCORRENCIA, (cpf) => colher(cpf, chave));
 
-  let aplicados = 0, fora = 0, erros = 0, telNovos = 0, mailNovos = 0, tit = 0;
+  let aplicados = 0, fora = 0, erros = 0, telNovos = 0, mailNovos = 0, tit = 0, nomesTrocados = 0;
   // POR QUE contar o motivo: em 26/08/2026 a coleta passou cinco horas com 55
   // erros em cada lote de 60 e ninguem sabia de que erro se tratava -- a funcao
   // so devolvia o numero. Cinco horas de chamada desperdicada na Ulbra por
@@ -354,6 +374,9 @@ Deno.serve(async (req) => {
     telNovos += data?.telefones_novos ?? 0;
     mailNovos += data?.emails_novos ?? 0;
     tit += data?.titulos ?? 0;
+    // Sem esta contagem nao havia como saber se a correcao de nome esta agindo:
+    // o log fica em `prime_nome_corrigido`, mas a resposta do lote nao dizia nada.
+    if (data?.nome_trocado === true) nomesTrocados += 1;
   }
 
   // Uma chamada por motivo. `p_ok` limpa a marca de quem voltou a ser coletado.
@@ -374,6 +397,7 @@ Deno.serve(async (req) => {
     pedidos: cpfs.length, aplicados, fora_do_escopo: fora, erros,
     marcados_sem_retorno: semRetorno.length + comErro.length,
     telefones_novos: telNovos, emails_novos: mailNovos, titulos_classificados: tit,
+    nomes_trocados: nomesTrocados,
     segundos: Math.round((Date.now() - inicio) / 1000), concorrencia: CONCORRENCIA,
     motivos, amostra, diagnostico_parcelas: diag,
   }), { headers: { "Content-Type": "application/json" } });
