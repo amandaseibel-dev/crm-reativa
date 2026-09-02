@@ -4,7 +4,7 @@ export const OPERADORES_POR_EMAIL = {
   "cobranca05@aelbra.com.br": "LUANA",
   "cobranca06@aelbra.com.br": "MAURÍCIO",
   "cobranca07@aelbra.com.br": "AMANDA ADM",
-  "cobranca08@aelbra.com.br": "NATALI",
+  "cobranca08@aelbra.com.br": "NATALY",
   "cobranca10@aelbra.com.br": "JOÃO",
   "cobranca11@aelbra.com.br": "ALLAN",
   "cobranca12@aelbra.com.br": "RAFAELLA",
@@ -13,7 +13,12 @@ export const OPERADORES_POR_EMAIL = {
 };
 
 const ALIAS_NOME_OPERADOR = {
-  NATALY: "NATALI",
+  // 02/09/2026: a grafia oficial e NATALY -- e o que esta no cadastro de
+  // usuarios, que virou a fonte unica do nome. O alias INVERTEU: antes o codigo
+  // convertia NATALY -> NATALI e impunha a grafia errada em todo pagamento
+  // importado. Agora e o contrario, para planilha antiga com "NATALI" continuar
+  // casando com a operadora certa.
+  NATALI: "NATALY",
   // A planilha do Santander as vezes traz "Rafaela" (um L) para a mesma
   // operadora oficial "RAFAELLA" (cobranca12). Sem este alias, o nome com
   // um L nao casava com nenhum operador e o pagamento entrava sem
@@ -123,7 +128,7 @@ export const EQUIPE_9_EMAILS = [
   "cobranca03@aelbra.com.br", // OLGA
   "cobranca05@aelbra.com.br", // LUANA
   "cobranca06@aelbra.com.br", // MAURÍCIO
-  "cobranca08@aelbra.com.br", // NATALI
+  "cobranca08@aelbra.com.br", // NATALY
   "cobranca10@aelbra.com.br", // JOÃO
   "cobranca11@aelbra.com.br", // ALLAN
   "cobranca12@aelbra.com.br", // RAFAELLA

@@ -54,7 +54,7 @@ const OPERADORES_REATIVA = [
   { nome: "Olga", email: "cobranca03@aelbra.com.br" },
   { nome: "João", email: "cobranca10@aelbra.com.br" },
   { nome: "Diego", email: "cobranca13@aelbra.com.br" },
-  { nome: "Natali", email: "cobranca08@aelbra.com.br" },
+  { nome: "Nataly", email: "cobranca08@aelbra.com.br" },
   { nome: "Amanda Seibel", email: "amanda.seibel@aelbra.com.br" },
 ];
 

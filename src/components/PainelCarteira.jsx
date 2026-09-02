@@ -46,7 +46,7 @@ const OPERADORES = [
   { nome: "Olga", email: "cobranca03@aelbra.com.br" },
   { nome: "Joao", email: "cobranca10@aelbra.com.br" },
   { nome: "Diego", email: "cobranca13@aelbra.com.br" },
-  { nome: "Natali", email: "cobranca08@aelbra.com.br" },
+  { nome: "Nataly", email: "cobranca08@aelbra.com.br" },
   { nome: "Amanda Seibel", email: "amanda.seibel@aelbra.com.br" },
 ];
 
