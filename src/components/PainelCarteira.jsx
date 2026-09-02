@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
+import { umaLinhaPorPessoa } from "../utils/filaSemRepetido";
 import { analiticasSuspensas } from "../config/modoContencao";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import { podeVerTudo, nomeOperadorPorEmail } from "../utils/operadores";
@@ -2496,9 +2497,30 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         (valorAbertoDe(b) - valorAbertoDe(a))
       );
     }
-    return arr;
+    // Ultimo passo, depois de filtrar e ordenar: a mesma pessoa nunca sai duas
+    // vezes daqui. Fica no fim de proposito -- a linha que sobrevive e a que a
+    // ordenacao ja tinha colocado mais acima, e o rodape ("N casos") conta a
+    // lista deduplicada, o mesmo numero que aparece na tela.
+    return umaLinhaPorPessoa(arr);
   }, [casos, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]);
   listaFiltradaRef.current = listaFiltrada;
+
+  // A GESTAO CONSEGUE ABRIR A FILA DE UM OPERADOR.
+  //
+  // Amanda, 02/09/2026: "eu nao consigo abrir a tela dele".
+  //
+  // O menu da gestao leva a UMA rota, /painel-carteira, e ela vinha com
+  // `mostrar360` ligado -- que escondia o seletor de operador E trocava a fila
+  // inteira pelos paineis do Panorama 360. A rota que mostra a fila de um
+  // operador (/fila-operacional) existe, funciona e NAO tem item de menu: nao
+  // havia caminho clicavel para ver a tela do Joao. Nao era permissao (o RLS de
+  // `alunos` libera leitura para a gestao) nem dado -- era so a tela.
+  //
+  // Agora o seletor aparece tambem no Panorama 360. Enquanto estiver em "Todos
+  // os operadores", nada muda: seguem os paineis do 360. Escolhendo um nome, a
+  // tela vira a FILA daquele operador -- a mesma que ele ve, com os mesmos
+  // cards, filtros e ordem. Voltar para "Todos" devolve o 360.
+  const vendoPanorama360 = veTudo && mostrar360 && operadorFiltro === "TODOS";
 
   // Avanco do acionamento guiado. Roda depois que a lista foi recarregada
   // (carregar -> setCasos -> listaFiltrada), por isso le a lista fresca.
@@ -2675,9 +2697,19 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
       <div style={S.cabecalho}>
         <div>
-          <h1 style={S.titulo}>{mostrar360 ? "Panorama 360" : (veTudo ? "Fila operacional" : "Minha Carteira")}</h1>
+          <h1 style={S.titulo}>
+            {vendoPanorama360
+              ? "Panorama 360"
+              : veTudo
+                ? (operadorFiltro === "TODOS" ? "Fila operacional" : `Fila de ${nomeOperadorPorEmail(operadorFiltro)}`)
+                : "Minha Carteira"}
+          </h1>
           <p style={S.subtitulo}>
-            {veTudo ? "Visao completa da base de casos." : `Carteira de ${nomeOperadorPorEmail(email)}.`}
+            {!veTudo
+              ? `Carteira de ${nomeOperadorPorEmail(email)}.`
+              : operadorFiltro === "TODOS"
+                ? "Visao completa da base de casos."
+                : `A mesma fila que ${nomeOperadorPorEmail(operadorFiltro)} ve, na mesma ordem.`}
           </p>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
@@ -2685,7 +2717,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             <span style={S.userNome}>{nomeOperadorPorEmail(email)}</span>
             <span style={S.userRole}>{veTudo ? "Gestao" : "Operador"}</span>
           </div>
-          {veTudo && !mostrar360 && aba === "carteira" && (
+          {veTudo && aba === "carteira" && (
             <select style={S.select} value={operadorFiltro} onChange={(e) => setOperadorFiltro(e.target.value)}>
               <option value="TODOS">Todos os operadores</option>
               {OPERADORES.map((o) => (
@@ -2749,7 +2781,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         </div>
       </div>
 
-      <div style={mostrar360 && veTudo ? { display: "none" } : S.abas} role="tablist">
+      <div style={vendoPanorama360 ? { display: "none" } : S.abas} role="tablist">
         <button
           type="button"
           onClick={() => setSomenteFocoDia((atual) => !atual)}
@@ -2828,7 +2860,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
       {aba === "receptivo" ? (
         painelReceptivo
-      ) : veTudo && mostrar360 ? (
+      ) : vendoPanorama360 ? (
         <>
           <VisaoGeralCarteira email={emailEscopo()} />
           <VisaoGestao360 />
@@ -3212,6 +3244,42 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                               📌
                             </button>
                             <div style={S.nomeCel}>{nomeAluno(a)}</div>
+                            {a._duplicados > 0 && (
+                              <span
+                                style={S.tagCadastroRepetido}
+                                title={
+                                  `Existe mais de um cadastro com este CPF (${a._duplicados + 1} ao todo). ` +
+                                  "A fila mostra um so, com o acionamento mais recente. " +
+                                  "Unificar cadastro e da gestao: avise para nao ficar dividido."
+                                }
+                              >
+                                cadastro repetido
+                              </span>
+                            )}
+                            {a._repetidoNaFila && (
+                              <span
+                                style={S.tagCadastroRepetido}
+                                title={
+                                  "Esta pessoa tem outro cadastro com saldo proprio, que continua na fila " +
+                                  "logo abaixo. As duas linhas ficam de proposito: esconder uma sumiria com " +
+                                  "a cobranca dela. Unificar os cadastros e decidir qual acordo vale e da gestao."
+                                }
+                              >
+                                2 cadastros na fila
+                              </span>
+                            )}
+                            {a._cpfConflitante && (
+                              <span
+                                style={S.tagCpfConflitante}
+                                title={
+                                  "Outro aluno, com OUTRO nome, esta cadastrado com este mesmo CPF. " +
+                                  "Um dos dois foi digitado errado. As duas linhas continuam na fila de " +
+                                  "proposito -- corrigir o CPF e da gestao."
+                                }
+                              >
+                                CPF de outro aluno
+                              </span>
+                            )}
                             <button
                               type="button"
                               onClick={(e) => copiarNome(a, e)}
@@ -4096,6 +4164,8 @@ const S = {
   emAbertoTotal: { fontWeight: 800, fontSize: 13.5, fontFamily: FONTE_TITULO },
   emAbertoSub: { fontSize: 11, color: "#98a2b3" },
   tagRevisar: { fontSize: 10.5, fontWeight: 700, color: "#b54708", background: "#fff4e6", border: "1px solid #f5c98a", borderRadius: 6, padding: "1px 7px", marginTop: 2 },
+  tagCadastroRepetido: { fontSize: 10, fontWeight: 700, color: "#7c4a1e", background: "#fff7e6", border: "1px solid #f5c542", borderRadius: 6, padding: "1px 6px", whiteSpace: "nowrap" },
+  tagCpfConflitante: { fontSize: 10, fontWeight: 700, color: "#b42318", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, padding: "1px 6px", whiteSpace: "nowrap" },
   badgeSituacao: { display: "inline-block", padding: "4px 10px", borderRadius: 999, background: "#eef1ff", color: "#4f46e5", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", letterSpacing: "0.01em" },
   badgeStatus: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap" },
   bolinha: { width: 7, height: 7, borderRadius: "50%", display: "inline-block" },
