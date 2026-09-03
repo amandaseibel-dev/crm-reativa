@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import BotaoAtualizar from "../components/BotaoAtualizar";
 
-// Acordos vivos por operador: a vencer, vencido e a renegociar.
+// Acordos vivos por operador: a vencer, vencido e quebrado.
 //
 // A tela que faltava: Efetividade mede esforço, Saúde da Carteira mede estoque,
 // e nada acompanhava o acordo DEPOIS de fechado. Cada número aqui abre a lista
@@ -15,11 +15,13 @@ const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency",
 const num = (v) => Number(v || 0).toLocaleString("pt-BR");
 const data = (v) => (v ? new Date(v).toLocaleDateString("pt-BR") : "—");
 
-// "Quebrado" não existe no vocabulário da operação: acordo se renegocia.
+// O rótulo é "quebrado" -- foi como a gestão pediu em 03/09. O que a decisão
+// de 02/09 mantém é a regra do saldo: quando o acordo volta para a fila, volta
+// com o saldo DO ACORDO, e a mensalidade de origem não ressuscita.
 const ESTADOS = {
   EM_DIA: { rotulo: "Em dia", cor: "#15803d", fundo: "#dcfce7" },
   ATRASADO: { rotulo: "Atrasado", cor: "#b45309", fundo: "#fef3c7" },
-  RENEGOCIAR: { rotulo: "A renegociar", cor: "#b91c1c", fundo: "#fee2e2" },
+  QUEBRADO: { rotulo: "Quebrado", cor: "#b91c1c", fundo: "#fee2e2" },
   VENCE_7: { rotulo: "Vence em 7 dias", cor: "#1d4ed8", fundo: "#dbeafe" },
   VENCE_30: { rotulo: "Vence em 30 dias", cor: "#1d4ed8", fundo: "#dbeafe" },
   TODOS: { rotulo: "Todos os acordos", cor: "#334155", fundo: "#e2e8f0" },
@@ -89,10 +91,10 @@ export default function AcordosPorOperador() {
               cor={ESTADOS.EM_DIA.cor}
             />
             <Card
-              rotulo="A renegociar"
+              rotulo="Quebrados"
               valor={num(totais.a_renegociar)}
               nota={moeda(totais.vencido_renegociar) + " vencidos"}
-              cor={ESTADOS.RENEGOCIAR.cor}
+              cor={ESTADOS.QUEBRADO.cor}
             />
             <Card
               rotulo="Vence em 7 dias"
@@ -116,10 +118,10 @@ export default function AcordosPorOperador() {
                     <th style={S.th}>Operador</th>
                     <th style={S.thNum}>Acordos</th>
                     <th style={S.thNum}>Saldo</th>
-                    <th style={{ ...S.th, minWidth: 150 }}>Em dia · atrasado · a renegociar</th>
+                    <th style={{ ...S.th, minWidth: 150 }}>Em dia · atrasado · quebrado</th>
                     <th style={S.thNum}>Em dia</th>
                     <th style={S.thNum}>Atrasados</th>
-                    <th style={S.thNum}>A renegociar</th>
+                    <th style={S.thNum}>Quebrados</th>
                     <th style={S.thNum}>Vencido</th>
                     <th style={S.thNum}>Vence 7d</th>
                     <th style={S.thNum}>Vence 30d</th>
@@ -145,7 +147,7 @@ export default function AcordosPorOperador() {
                           <div style={S.trilho}>
                             <i style={{ ...S.fatia, width: pct(l.em_dia, t), background: ESTADOS.EM_DIA.cor }} />
                             <i style={{ ...S.fatia, width: pct(l.atrasados, t), background: ESTADOS.ATRASADO.cor }} />
-                            <i style={{ ...S.fatia, width: pct(l.a_renegociar, t), background: ESTADOS.RENEGOCIAR.cor }} />
+                            <i style={{ ...S.fatia, width: pct(l.a_renegociar, t), background: ESTADOS.QUEBRADO.cor }} />
                           </div>
                         </td>
                         <td style={S.tdNum}>
@@ -159,7 +161,7 @@ export default function AcordosPorOperador() {
                           </Botao>
                         </td>
                         <td style={S.tdNum}>
-                          <Botao cor={ESTADOS.RENEGOCIAR.cor} onClick={() => setDrill({ email: chave, nome: l.operador_nome, estado: "RENEGOCIAR" })}>
+                          <Botao cor={ESTADOS.QUEBRADO.cor} onClick={() => setDrill({ email: chave, nome: l.operador_nome, estado: "QUEBRADO" })}>
                             {num(l.a_renegociar)}
                           </Botao>
                           {Number(l.dias_atraso_medio) > 0 && (
@@ -199,7 +201,7 @@ export default function AcordosPorOperador() {
             <p style={S.legenda}>
               <Ponto cor={ESTADOS.EM_DIA.cor} /> Em dia — nenhuma parcela vencida
               <Ponto cor={ESTADOS.ATRASADO.cor} /> Atrasado — 1 ou 2 vencidas
-              <Ponto cor={ESTADOS.RENEGOCIAR.cor} /> A renegociar — 3 ou mais vencidas
+              <Ponto cor={ESTADOS.QUEBRADO.cor} /> Quebrado — 3 ou mais vencidas
             </p>
             <p style={S.rodape}>
               O dono sai do responsável do aluno; quando o aluno não tem, vale o do acordo. A linha

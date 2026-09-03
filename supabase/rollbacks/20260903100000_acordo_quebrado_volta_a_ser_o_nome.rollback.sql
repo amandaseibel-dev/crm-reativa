@@ -1,0 +1,4 @@
+-- Volta o estado para RENEGOCIAR. Reaplicar a migration
+-- 20260903000000_acordos_vivos_por_operador.sql, que traz a versão anterior da
+-- função inteira -- e trocar o rótulo de volta em src/pages/AcordosPorOperador.jsx,
+-- senão a tela manda QUEBRADO e a função recusa.
