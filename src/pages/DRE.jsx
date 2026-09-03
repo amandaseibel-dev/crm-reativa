@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
-import { Carregando } from "../ui/estados";
+import { Carregando, Erro } from "../ui/estados";
 
 const MESES = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
 const DONO = "amanda.seibel@aelbra.com.br";
@@ -28,6 +28,7 @@ export default function DRE() {
   const [ehDiretoria, setEhDiretoria] = useState(null);
   const [ano, setAno] = useState(new Date().getFullYear());
   const [dados, setDados] = useState(null);
+  const [erro, setErro] = useState("");
   const [snapEm, setSnapEm] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [aba, setAba] = useState("dre");
@@ -51,8 +52,22 @@ export default function DRE() {
 
   async function carregar() {
     setCarregando(true);
-    const { data, error } = await supabase.rpc("dre_snapshot", { p_ano: ano });
-    setDados(error ? null : data);
+    setErro("");
+    // Zero e um resultado legitimo do DRE (mes sem faturamento). Falha nao e.
+    // Quando as duas coisas se pareciam na tela, um snapshot quebrado passava
+    // por "o ano nao teve movimento" -- foi assim que o DRE de 2026 "sumiu".
+    // Regra: so desenha a tabela com payload que tenha 'meses'.
+    try {
+      const { data, error } = await supabase.rpc("dre_snapshot", { p_ano: ano });
+      if (error) throw error;
+      if (!data || !Array.isArray(data.meses)) {
+        throw new Error(`O snapshot de ${ano} veio sem os meses. Clique em "Atualizar projeção" para regerar.`);
+      }
+      setDados(data);
+    } catch (e) {
+      setDados(null);
+      setErro(e?.message || "Não foi possível carregar o DRE.");
+    }
     setCarregando(false);
     try {
       const { data: m } = await supabase.rpc("snapshot_gerencial_meta", { p_chave: "dre", p_ano: ano });
@@ -124,7 +139,9 @@ export default function DRE() {
 
       {msg && <div style={s.msg}>{msg}</div>}
 
-      {aba === "dre" && (
+      {aba === "dre" && erro && <Erro texto={erro} onTentar={carregar} />}
+
+      {aba === "dre" && !erro && (
         <>
           <div style={s.kpis}>
             <Kpi rot="Faturamento (ano)" val={moeda(totais.fat)} cor="#16a34a" />
