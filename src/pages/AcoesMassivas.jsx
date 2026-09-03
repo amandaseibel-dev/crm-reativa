@@ -109,6 +109,10 @@ export default function AcoesMassivas() {
   const [carregando, setCarregando] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [resultados, setResultados] = useState(null);
+  // Quantos alunos atendem aos filtros montados na tela, sem limite. A lista
+  // abaixo e so a fatia do disparo: sem este numero, "vieram 14" parecia
+  // "existem 14".
+  const [totalElegivelFiltros, setTotalElegivelFiltros] = useState(null);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
   const [progresso, setProgresso] = useState(null);
@@ -202,6 +206,7 @@ export default function AcoesMassivas() {
 
     setCarregando(true);
     setResultados(null);
+    setTotalElegivelFiltros(null);
     setExcluidosConfirmacao([]);
     setMostrarExcluidos(false);
     setExcluidosNoEnvio(0);
@@ -227,11 +232,21 @@ export default function AcoesMassivas() {
           p_importacao_ids: (over.borderosSel ?? borderosSel).length
             ? (over.borderosSel ?? borderosSel)
             : null,
+          // Canal e faixa de valor vao para o BANCO. Antes o corte por
+          // `p_limite` acontecia primeiro e o front descartava metade do que
+          // voltava, entao a tela mostrava um punhado de linhas sem relacao com
+          // o tamanho real da base.
+          p_canal: canal,
+          p_valor_min: minEfetivo,
+          p_valor_max: max,
         }
       );
       if (erroAlunos) throw erroAlunos;
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
+      setTotalElegivelFiltros(
+        previa?.total_elegivel_filtros == null ? null : Number(previa.total_elegivel_filtros),
+      );
 
       const alunosBrutos = previa?.elegiveis || [];
       if (alunosBrutos.length === 0) {
@@ -384,7 +399,10 @@ export default function AcoesMassivas() {
   function usarComoFiltroDaPenetracao({ ano, unidade: uni, curso: cur }) {
     const anoStr = ano ? String(ano) : "";
     setAnoVencimento(anoStr);
-    setUnidade(uni || "");
+    // A unidade virou selecao MULTIPLA (`unidadesSel`) e esta linha ficou para
+    // tras, chamando o setter antigo: clicar em "usar como filtro" no painel de
+    // penetracao estourava `setUnidade is not defined` e a busca nem rodava.
+    setUnidadesSel(uni ? [uni] : []);
     setCurso(cur || "");
     setAcionamentoFiltro("nunca");
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -571,7 +589,7 @@ export default function AcoesMassivas() {
             />
           </div>
           <div style={estilos.campo}>
-            <label style={estilos.label}>Quantidade</label>
+            <label style={estilos.label}>Quantidade a disparar agora</label>
             <input
               style={estilos.input}
               type="number"
@@ -580,6 +598,9 @@ export default function AcoesMassivas() {
               value={quantidade}
               onChange={(e) => setQuantidade(e.target.value)}
             />
+            <span style={estilos.ajudaCampo}>
+              Tamanho do lote, não da base. O resultado diz quantos atendem aos filtros.
+            </span>
           </div>
           <div style={estilos.campo}>
             <label style={estilos.label}>Ano de vencimento da parcela</label>
@@ -752,6 +773,8 @@ export default function AcoesMassivas() {
             )}
             <span style={{ fontSize: 11, color: "#8a93a3", marginTop: 4 }}>
               Inclui quem nunca foi acionado. Use o filtro “Acionamento” para separar.
+              Com este prazo preenchido, entra também quem <strong>já tem operador</strong> mas
+              está parado há esse tempo — passou do prazo, entra na ação.
             </span>
           </div>
           <div style={estilos.campo}>
@@ -838,10 +861,23 @@ export default function AcoesMassivas() {
             <div>
               <strong style={{ fontFamily: FONTE_TITULO, fontSize: 18 }}>{resultados.length}</strong>{" "}
               <span style={{ color: "#8a93a3" }}>
-                caso(s) livre(s) com {canal === "WHATSAPP" ? "telefone" : "e-mail"}, prontos pra ação
+                caso(s) com {canal === "WHATSAPP" ? "telefone" : "e-mail"}, prontos pra ação
               </span>
               {resultados.length > 0 && (
                 <span style={{ color: "#8a93a3" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
+              )}
+              {totalElegivelFiltros != null && (
+                <div style={{ color: "#8a93a3", fontSize: 12.5, marginTop: 4 }}>
+                  {totalElegivelFiltros > resultados.length ? (
+                    <>
+                      <strong style={{ color: "#0f172a" }}>{totalElegivelFiltros}</strong> atendem a
+                      estes filtros — a lista traz os {resultados.length} primeiros porque
+                      <strong> Quantidade</strong> está em {quantidade}. Aumente para disparar mais.
+                    </>
+                  ) : (
+                    <>São todos os que atendem a estes filtros.</>
+                  )}
+                </div>
               )}
             </div>
             {resultados.length > 0 && (
@@ -967,6 +1003,7 @@ const estilos = {
   linhaFiltros: { display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 },
   campo: { display: "flex", flexDirection: "column", gap: 5, minWidth: 160 },
   label: { fontSize: 12, fontWeight: 700, color: "#475569" },
+  ajudaCampo: { fontSize: 11, color: "#8a93a3", marginTop: 4 },
   input: {
     padding: "9px 12px",
     borderRadius: 10,

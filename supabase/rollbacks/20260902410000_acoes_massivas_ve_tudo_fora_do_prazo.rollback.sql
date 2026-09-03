@@ -1,0 +1,23 @@
+-- Rollback de 20260902410000_acoes_massivas_ve_tudo_fora_do_prazo.
+--
+-- A migration DERRUBA a assinatura antiga (10 parametros) antes de criar a nova
+-- (13), porque manter as duas deixaria a chamada por nome ambigua. Entao este
+-- rollback nao e um simples DROP: e preciso RECRIAR a versao anterior.
+--
+-- PASSOS:
+--   1. drop da assinatura nova (abaixo);
+--   2. reaplicar o corpo anterior de `acoes_massivas_previa` -- o texto exato
+--      esta no proprio historico desta funcao em producao antes de 02/09/2026,
+--      e o comportamento a restaurar e: LIMIT antes de filtrar canal e valor,
+--      `LEFT JOIN casos c ON c.aluno_id = a.id AND c.operador_email IS NULL`,
+--      e base restrita a `responsavel_atual_email IS NULL`;
+--   3. `grant execute ... to authenticated, service_role`;
+--   4. reverter o front (AcoesMassivas.jsx) para nao mandar p_canal,
+--      p_valor_min e p_valor_max -- senao a chamada falha por assinatura
+--      inexistente.
+--
+-- O QUE SE PERDE AO VOLTAR: a tela deixa de saber quantos alunos atendem aos
+-- filtros (volta a mostrar so a fatia que sobreviveu ao corte cego) e alunos
+-- com responsavel somem das acoes massivas mesmo parados ha 40 dias.
+
+drop function if exists public.acoes_massivas_previa(text,integer,integer,boolean,text,text,boolean,text,uuid[],text,text,numeric,numeric);
