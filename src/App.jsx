@@ -594,7 +594,6 @@ export default function App() {
   { rota: "/executivo", label: "📊 Visão Executiva" },
     { rota: "/dre", label: "DRE (gerência)" },
     { rota: "/fechamento-remuneracao", label: "💰 Fechamento de Remuneração", secao: "Gestão" },
-    { rota: "/importar-recuperacao", label: "📥 Importar Recuperação" },
     {
       rota: "/",
       label: perfil === "operador" ? "Minha Fila" : "Dashboard",
@@ -602,7 +601,6 @@ export default function App() {
       secao: "Operação",
       esconderParaOperador: true,
     },
-    
     { rota: "/painel-carteira", label: perfil === "operador" ? "Minha Carteira" : "Panorama 360", icone: "Folder", secao: "Operação" },
     {
       rota: "/minha-fila",
@@ -623,7 +621,6 @@ export default function App() {
     { rota: "/efetividade", label: "📈 Efetividade", icone: "BarChart3", secao: "Operação" },
     { rota: "/meu-dashboard", label: "Meu Dashboard", icone: "BarChart3", secao: "Gestão" },
     { rota: "/projecao-hora-a-hora", label: "Projeção Hora a Hora", icone: "Clock", secao: "Gestão" },
-    { rota: "/exportar-contatos", label: "Exportar Contatos", icone: "Contact", secao: "Gestão" },
     { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Gestão" }, { rota: "/tv", label: "📺 TV ReATIVA", icone: "LayoutPanelTop", secao: "Gestão", externo: true },
     { rota: "/tv-mensagem", label: "📝 Mensagem da TV", icone: "MessageSquare", secao: "Gestão" },
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
@@ -631,15 +628,13 @@ export default function App() {
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
     { rota: "/saude-completa-carteira", label: "Saúde Completa da Carteira", icone: "Activity", secao: "Gestão" },
-    { rota: "/acordos-operador", label: "Acordos por Operador", icone: "TrendingUp", secao: "Gestão" },
-    { rota: "/log-nivelamento", label: "Log do Job Noturno", icone: "Clock3", secao: "Gestão" },
-    { rota: "/sugestoes-recebidas", label: "Sugestões Recebidas", icone: "FileStack", secao: "Gestão" },
+    { rota: "/acordos-operador", label: "Acordos por Operador", icone: "TrendingUp", secao: "Operação" },
+    
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
-    { rota: "/vincular-operadores", label: "Vincular Operadores", icone: "Link2", secao: "Gestão" },
 
     { rota: "/relatorios", label: "Relatórios", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/relatorios-2026-1-sem-negociacao", label: "Jan–Jun/2026 sem negociação", icone: "TrendingUp", secao: "Gestão" },
-    { rota: "/importar-acordos", label: "Importar Acordos", icone: "Upload", secao: "Gestão" }, { rota: "/acordos-duplicados", label: "Acordos duplicados", icone: "Copy", secao: "Gestão" }, { rota: "/ferramentas", label: "Ferramentas", icone: "FileStack", secao: "Gestão" }, { rota: "/importacoes", label: "Importações", icone: "Upload", secao: "Configurações" },
+     { rota: "/acordos-duplicados", label: "Acordos duplicados", icone: "Copy", secao: "Gestão" }, { rota: "/ferramentas", label: "Ferramentas", icone: "FileStack", secao: "Gestão" }, 
     { rota: "/avisos", label: "Central de Avisos", icone: "Bell", secao: "Configurações" },
     { rota: "/usuarios", label: "Usuários", icone: "Users", secao: "Configurações" },
     { rota: "/configuracoes", label: "🛡️ Auditoria e Segurança", icone: "Settings", secao: "Configurações" },
