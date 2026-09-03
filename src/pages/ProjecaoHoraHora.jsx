@@ -1905,18 +1905,10 @@ function PainelIndividual({ dados, mes }) {
   const temProxima = Number(dados?.proxima_faixa_valor || 0) > 0;
   const honMes = Number(dados?.honorario_mes || 0);
   const cfg = dados?.config_metas || {};
-  // Os m*_valor sao o INICIO de cada faixa (m1 vem como 0,01), entao o teto de
-  // uma faixa e o inicio da seguinte. Arredondamos para exibir "ate R$ 15.000"
-  // em vez de "R$ 15.000,01" — mesma leitura que a TV ja usa.
-  const corte = (v) => Math.round(Number(v) || 0);
+  // Cada card mostra o PONTO DE CORTE da faixa (m*_valor), nao o intervalo:
+  // decisao da Amanda em 03/09 — ela quer ver "R$ 15.000,01" na tela.
   const escadaMetas = ["m1", "m2", "m3", "m4"]
-    .map((k, i) => ({
-      marco: k.toUpperCase(),
-      valor: Number(cfg[`${k}_valor`] || 0),
-      piso: corte(cfg[`${k}_valor`]),
-      teto: corte(cfg[`m${i + 2}_valor`]),
-      percentual: Number(cfg[`${k}_percentual`] || 0),
-    }))
+    .map((k) => ({ marco: k.toUpperCase(), valor: Number(cfg[`${k}_valor`] || 0), percentual: Number(cfg[`${k}_percentual`] || 0) }))
     .filter((m) => m.valor > 0);
   return (
     <>
@@ -1973,12 +1965,8 @@ function PainelIndividual({ dados, mes }) {
                     <span>{m.marco}</span>
                     <span>{atingida ? "✅ atingida" : `faltam ${moeda(m.valor - honMes)}`}</span>
                   </div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: "#0d1321", marginTop: 4 }}>
-                    {String(m.percentual).replace(".", ",")}% <span style={{ fontSize: 12.5, fontWeight: 600, color: "#64748b" }}>do honorário</span>
-                  </div>
-                  <div style={{ fontSize: 12, color: "#64748b" }}>
-                    {!m.teto ? `acima de ${moeda(m.piso)}` : !m.piso ? `até ${moeda(m.teto)}` : `${moeda(m.piso)} a ${moeda(m.teto)}`}
-                  </div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: "#0d1321", marginTop: 4 }}>{moeda(m.valor)}</div>
+                  <div style={{ fontSize: 12, color: "#64748b" }}>premiação {m.percentual}% do honorário</div>
                 </div>
               );
             })}
