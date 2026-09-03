@@ -18,6 +18,7 @@ const OPERADORES = [
 
 const FILTROS_STATUS = [
   "Todos",
+  "Perdendo o caso",
   "Críticos",
   "Urgentes",
   "Atenção",
@@ -56,6 +57,7 @@ function normalizarCriticidade(texto) {
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "");
 
+  if (t.includes("PERDENDO")) return "PERDENDO";
   if (t.includes("CRIT")) return "CRITICO";
   if (t.includes("URG")) return "URGENTE";
   if (t.includes("ATEN")) return "ATENCAO";
@@ -97,6 +99,7 @@ function passaFiltro(c) {
   const crit = normalizarCriticidade(c.criticidade);
 
   if (filtroStatus === "Todos") return true;
+  if (filtroStatus === "Perdendo o caso") return crit === "PERDENDO";
   if (filtroStatus === "Críticos") return crit === "CRITICO";
   if (filtroStatus === "Urgentes") return crit === "URGENTE";
   if (filtroStatus === "Atenção") return crit === "ATENCAO";
