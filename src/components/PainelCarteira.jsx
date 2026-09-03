@@ -274,7 +274,11 @@ const MAPA_SITUACAO = {
   LINK_ENVIADO_AO_ALUNO: "Link enviado",
   AGUARDANDO_COMPROVANTE: "Aguardando comprovante",
   AGUARDANDO_BAIXA: "Aguardando baixa",
-  BAIXA_REALIZADA: "Pago",
+  // Rotulo GENERICO da tabulacao (dropdown, historico, toast): sem o aluno na
+  // mao nao da pra afirmar quitacao -- baixa de UMA parcela de acordo em dia
+  // nao e "Pago". Mesma decisao ja registrada em src/utils/rotulosStatus.js.
+  // Quem tem o aluno (situacaoLabel/statusPrazo) e que decide "Pago".
+  BAIXA_REALIZADA: "Baixa realizada",
   BAIXA_DEVOLVIDA: "Baixa devolvida",
   ACORDO_FECHADO: "Acordo fechado",
   LEMBRETE_PARCELA: "Lembrete de parcela feito",
@@ -293,11 +297,16 @@ function labelStatus(s) {
 
 function situacaoLabel(a) {
   const s = a?.status_atual || a?.status_jornada || "";
-  // Mesma premissa do statusPrazo: baixa realizada que ainda carrega saldo
-  // vencido e pagamento PARCIAL -- a tabulacao nao pode se ler como "Pago".
-  if (s === "BAIXA_REALIZADA" && !semSaldoVencido(a)) return "Pago parcial";
-  // Baixa de parcela com acordo em dia: ainda ha parcelas A VENCER -- nao e "Pago".
-  if (s === "BAIXA_REALIZADA" && acordoEmDia(a)) return "Parcela paga — a vencer";
+  if (s === "BAIXA_REALIZADA") {
+    // Mesma premissa do statusPrazo: baixa realizada que ainda carrega saldo
+    // vencido e pagamento PARCIAL -- a tabulacao nao pode se ler como "Pago".
+    if (!semSaldoVencido(a)) return "Pago parcial";
+    // Quem esta pagando o acordo em dia le "Acordo em dia" -- e o que a
+    // operadora precisa ver: nao e cobranca, e acompanhamento das proximas
+    // parcelas. "Pago" aqui fazia o caso parecer encerrado.
+    if (acordoEmDia(a)) return "Acordo em dia";
+    return "Pago"; // saldo zerado de verdade
+  }
   if (MAPA_SITUACAO[s]) return MAPA_SITUACAO[s];
   if (!s || s === "Novo caso") return "Sem contato";
   return s;
@@ -382,8 +391,9 @@ function statusPrazo(a) {
   if (sit === "BAIXA_REALIZADA") {
     if (!semSaldoVencido(a)) return { label: "Pago parcial", cor: "#f97316" };
     // Parcela baixada mas o acordo segue em dia com parcelas futuras: o caso
-    // nao esta pago -- esta A VENCER. "Pago" so com saldo TOTAL zerado.
-    if (acordoEmDia(a)) return { label: "A vencer", cor: "#0ea5e9" };
+    // nao esta pago. Usa o MESMO rotulo do selo de situacao operacional
+    // ("Acordo em dia") pra tela nao dizer duas coisas sobre o mesmo aluno.
+    if (acordoEmDia(a)) return { label: "Acordo em dia", cor: "#0f766e" };
     return { label: "Pago", cor: "#16a34a" };
   }
   if (["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"].includes(sit))
@@ -3062,7 +3072,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                 <option value="Perdendo o caso">Perdendo o caso</option>
                 <option value="Aguardando pgto">Aguardando pgto</option>
                 <option value="Pago parcial">Pago parcial (ainda deve)</option>
-                <option value="A vencer">A vencer (acordo em dia)</option>
+                <option value="Acordo em dia">Acordo em dia</option>
                 <option value="Juridico">Juridico</option>
               </select>
               <select
