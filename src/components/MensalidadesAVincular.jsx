@@ -17,10 +17,22 @@ import { S as A } from "../ui/estilosFila";
 //
 // QUEM NÃO APARECE: aluno sem acordo e sem pagamento nenhum. Esse é cobrança
 // normal, não tratativa -- misturar os dois só faria a fila parecer maior.
+//
+// ACORDO QUITADO TAMBÉM CONTA. Quem pagou o acordo inteiro deixa a mensalidade
+// substituída solta do mesmo jeito -- e, até 03/09/2026, aparecia aqui como
+// "Pagou, sem acordo", com a coluna Acordo vazia. Medido nos pagadores de
+// julho e agosto: 143 alunos / R$ 223.766 escondidos assim. Vincular a acordo
+// quitado é permitido e deixa a mensalidade quitada (regra de 02/09).
 
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const num = (v) => Number(v || 0).toLocaleString("pt-BR");
-const data = (v) => (v ? new Date(v).toLocaleDateString("pt-BR") : "—");
+// Data só com dia ("2026-09-01") NÃO passa pelo Date: o construtor lê como
+// meia-noite UTC e no fuso do Brasil vira 31/08.
+const data = (v) => {
+  if (!v) return "—";
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(v));
+  return m ? `${m[3]}/${m[2]}/${m[1]}` : new Date(v).toLocaleDateString("pt-BR");
+};
 
 const SITUACOES = [
   {
@@ -28,6 +40,12 @@ const SITUACOES = [
     rotulo: "Tem acordo e já pagou",
     cor: "#b91c1c",
     ajuda: "O aluno negociou e está pagando, mas a mensalidade antiga continua contando. É o caso mais claro de dívida em dobro.",
+  },
+  {
+    chave: "ACORDO_QUITADO",
+    rotulo: "Acordo quitado, mensalidade solta",
+    cor: "#6d28d9",
+    ajuda: "O acordo foi pago e encerrado, mas a mensalidade que ele substituiu continua contando. Vincular ao acordo quitado deixa a mensalidade quitada.",
   },
   {
     chave: "ACORDO_SEM_PAGAR",
@@ -194,9 +212,12 @@ export default function MensalidadesAVincular({ aoAtualizarContagem }) {
                     <td style={S.tdNum}>
                       {i.acordos > 0 ? (
                         <>
-                          {moeda(i.saldo_acordo)}
+                          {i.acordo_status === "QUITADO" ? moeda(i.valor_acordo) : moeda(i.saldo_acordo)}
                           <span style={S.nota}>
                             {i.acordos > 1 ? `${i.acordos} acordos` : `nº ${i.numero_acordo ?? "—"}`}
+                            {i.acordo_status === "QUITADO"
+                              ? ` · quitado${i.quitado_em ? ` em ${data(i.quitado_em)}` : ""}`
+                              : ""}
                             {i.acordos_com_parcela_paga > 0 ? " · com parcela paga" : ""}
                           </span>
                         </>
