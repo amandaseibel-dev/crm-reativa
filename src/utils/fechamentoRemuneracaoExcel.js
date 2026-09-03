@@ -5,6 +5,7 @@
 // Uso EXCLUSIVO da Amanda (a tela ja e restrita). Nao envia a terceiros.
 // ============================================================================
 import ExcelJS from "exceljs";
+import { rotuloFonteTotal } from "./fechamentoTotalMes";
 
 const AZUL = "FF1E40AF";
 const AZUL_CLARO = "FFDBEAFE";
@@ -281,10 +282,16 @@ export async function gerarExcelSintetico(previa, meta) {
   // ---- TOTAIS DO FECHAMENTO ----
   const wsTot = wb.addWorksheet("TOTAIS DO FECHAMENTO");
   let tr = await montarCabecalho(wsTot, wb, logoId, "Totais do Fechamento", meta);
+  // Total do mês = base da gestão; vem do relatório do Prime ou do sistema
+  // (escolha na aba Conferência Prime). Os totais "(operadores)" somam só as
+  // linhas dos operadores e não mudam com a escolha.
   const pares = [
+    ["Total do mes - recuperado", nf(totais.total_mes_recuperado)],
+    ["Total do mes - honorarios", nf(totais.total_mes_honorario)],
+    ["Fonte do total do mes", rotuloFonteTotal(previa.total_mes) || "sistema"],
     ["Total fixo da equipe", nf(totais.total_fixo)],
-    ["Total recuperado", nf(totais.total_recuperado)],
-    ["Total de honorarios", nf(totais.total_honorario)],
+    ["Total recuperado (operadores)", nf(totais.total_recuperado)],
+    ["Total de honorarios (operadores)", nf(totais.total_honorario)],
     ["Total de comissoes", nf(totais.total_comissao)],
     ["Total de premiacoes", nf(totais.total_premiacao)],
     ["Total de bonus", nf(totais.total_bonus)],
@@ -302,7 +309,7 @@ export async function gerarExcelSintetico(previa, meta) {
     row.getCell(1).value = k;
     const c = row.getCell(2);
     c.value = v;
-    if (k !== "Registros sem operador") c.numFmt = FMT_MOEDA;
+    if (k !== "Registros sem operador" && typeof v === "number") c.numFmt = FMT_MOEDA;
     if (k.startsWith("TOTAL FINAL")) {
       row.getCell(1).font = { bold: true, color: { argb: "FFFFFFFF" } };
       c.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -340,6 +347,26 @@ async function abaAuditoria(wb, logoId, meta, previa) {
     ["Projecao recuperado", `R$ ${nf(recon.projecao_recuperado).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`],
     ["Fechamento recuperado", `R$ ${nf(recon.fechamento_recuperado_total).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`],
   ];
+  const tm = previa.total_mes;
+  if (tm) {
+    const moeda = (v) => `R$ ${nf(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`;
+    linhas.push(
+      ["Total do mes - fonte", rotuloFonteTotal(tm)],
+      ["Total do mes - recuperado", moeda(tm.recuperado)],
+      ["Total do mes - honorarios", moeda(tm.honorario)],
+    );
+    if (tm.conferencia_id) {
+      linhas.push(
+        ["Prime recuperado", moeda(tm.prime_recuperado)],
+        ["Prime honorarios", moeda(tm.prime_honorario)],
+        ["Sistema recuperado", moeda(tm.sistema_recuperado)],
+        ["Sistema honorarios", moeda(tm.sistema_honorario)],
+        ["Diferenca sistema - Prime (recuperado)", moeda(tm.diff_recuperado)],
+        ["Diferenca sistema - Prime (honorarios)", moeda(tm.diff_honorario)],
+        ["Arquivo do Prime", tm.arquivo_nome || ""],
+      );
+    }
+  }
   ws.getColumn(1).width = 28;
   ws.getColumn(2).width = 40;
   linhas.forEach(([k, v], i) => {
@@ -445,6 +472,25 @@ export async function gerarExcelAnalitico(previa, analitico, meta) {
     { k: "Valor recuperado", f: recon.fechamento_recuperado_total, p: recon.projecao_recuperado, d: recon.diff_recuperado },
     { k: "Honorarios", f: recon.fechamento_honorario_total, p: recon.projecao_honorario, d: recon.diff_honorario },
   ], { rodape, orientacao: "portrait" });
+
+  // Relatório do Prime x sistema (total do mês) e qual dos dois vale no fechamento.
+  const tm = previa.total_mes;
+  if (tm?.conferencia_id) {
+    const tmr = wsDv.rowCount + 2;
+    const viewsAntes = wsDv.views; // a 2ª tabela não deve mover o congelamento do topo
+    wsDv.getRow(tmr).getCell(1).value = `Total do mes em vigor: ${rotuloFonteTotal(tm)}`;
+    wsDv.getRow(tmr).getCell(1).font = { bold: true };
+    escreverTabela(wsDv, tmr + 1, [
+      { titulo: "Indicador", largura: 26, valor: (l) => l.k },
+      { titulo: "Relatorio do Prime", largura: 20, valor: (l) => nf(l.p), fmt: FMT_MOEDA },
+      { titulo: "Sistema", largura: 20, valor: (l) => nf(l.s), fmt: FMT_MOEDA },
+      { titulo: "Diferenca (sist - Prime)", largura: 18, valor: (l) => nf(l.d), fmt: FMT_MOEDA },
+    ], [
+      { k: "Valor recuperado", p: tm.prime_recuperado, s: tm.sistema_recuperado, d: tm.diff_recuperado },
+      { k: "Honorarios", p: tm.prime_honorario, s: tm.sistema_honorario, d: tm.diff_honorario },
+    ], { rodape, orientacao: "portrait" });
+    wsDv.views = viewsAntes;
+  }
 
   // SEM OPERADOR
   const wsSo = wb.addWorksheet("SEM OPERADOR");

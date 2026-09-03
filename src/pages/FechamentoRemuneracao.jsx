@@ -4,12 +4,13 @@
 // Consolida valor fixo, comissao (sobre honorarios), premiacoes e ajustes.
 // Gera relatorios Excel (sintetico + analitico) com a logo oficial da Reativa.
 // ============================================================================
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import { gerarExcelSintetico, gerarExcelAnalitico } from "../utils/fechamentoRemuneracaoExcel";
 import { gerarPdfOperador, gerarPdfsTodos } from "../utils/fechamentoRemuneracaoPdf";
 import { emailPorNomeOperador, nomeOperadorPorEmail } from "../utils/operadores";
+import { rotuloFonteTotal, dataHoraBR } from "../utils/fechamentoTotalMes";
 
 const BRL = (v) =>
   Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -186,7 +187,7 @@ export default function FechamentoRemuneracao() {
         <BannerReconciliacao recon={recon} faixas={previa.faixas_configuradas} />
       )}
 
-      {previa && <Indicadores totais={totais} />}
+      {previa && <Indicadores totais={totais} totalMes={previa.total_mes} />}
 
       <nav style={{ display: "flex", gap: 4, marginTop: 20, borderBottom: "1px solid #e5e7eb", flexWrap: "wrap" }}>
         {TABS.map(([id, label]) => (
@@ -201,7 +202,9 @@ export default function FechamentoRemuneracao() {
         {aba === "premiacoes" && <AbaPremiacoes competencia={competencia} lanc={lanc} onChange={carregarPrevia} setErro={setErro} />}
         {aba === "ajustes" && <AbaAjustes competencia={competencia} lanc={lanc} onChange={carregarPrevia} setErro={setErro} />}
         {aba === "reconciliacao" && <AbaReconciliacao previa={previa} />}
-        {aba === "conferencia" && <AbaConferenciaPrime competencia={competencia} mes={mes} />}
+        {aba === "conferencia" && (
+          <AbaConferenciaPrime competencia={competencia} mes={mes} onFonteAlterada={previa ? carregarPrevia : undefined} />
+        )}
         {aba === "versoes" && <AbaVersoes versoes={versoes} />}
       </div>
     </div>
@@ -241,26 +244,64 @@ function BannerReconciliacao({ recon, faixas }) {
   );
 }
 
-function Indicadores({ totais }) {
+// Total do mês = o número que vale para a base da gestão e o cabeçalho dos
+// relatórios. Vem do relatório do Prime (última conferência) ou do sistema,
+// conforme a escolha feita na aba Conferência Prime. Os cards "operadores"
+// somam só as linhas dos operadores (sem gestão, sem "sem operador") e não
+// mudam com a escolha.
+function TotalDoMes({ totais, totalMes }) {
+  if (!totalMes) return null;
+  const temPrime = !!totalMes.conferencia_id;
+  return (
+    <div style={{ marginTop: 14, padding: "12px 16px", borderRadius: 10, background: "#eff6ff", border: "1px solid #bfdbfe" }}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "#1e40af", textTransform: "uppercase", letterSpacing: 0.3 }}>
+        Total do mês — fonte: {rotuloFonteTotal(totalMes)}
+      </div>
+      <div style={{ display: "flex", gap: 28, marginTop: 6, flexWrap: "wrap", alignItems: "flex-end" }}>
+        {[["Recuperado no mês", totais.total_mes_recuperado], ["Honorários no mês", totais.total_mes_honorario]].map(([k, v]) => (
+          <div key={k}>
+            <div style={{ fontSize: 12, color: "#374151" }}>{k}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "#1e3a8a", fontVariantNumeric: "tabular-nums" }}>{BRL(v)}</div>
+          </div>
+        ))}
+        <div style={{ fontSize: 12, color: "#4b5563", maxWidth: 560 }}>
+          {temPrime ? (
+            <>
+              Relatório do Prime {BRL(totalMes.prime_recuperado)} / {BRL(totalMes.prime_honorario)} ·
+              sistema {BRL(totalMes.sistema_recuperado)} / {BRL(totalMes.sistema_honorario)} ·
+              diferença (sistema − Prime) {BRL(totalMes.diff_recuperado)} / {BRL(totalMes.diff_honorario)}.
+            </>
+          ) : "Sem Conferência Prime neste mês: só existe o valor do sistema."}
+          {" "}Os valores dos operadores não mudam com a escolha — ela fica na aba Conferência Prime.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Indicadores({ totais, totalMes }) {
   const cards = [
-    ["Total fixo", totais.total_fixo], ["Recuperado", totais.total_recuperado],
-    ["Honorários", totais.total_honorario], ["Comissões", totais.total_comissao],
+    ["Total fixo", totais.total_fixo], ["Recuperado (operadores)", totais.total_recuperado],
+    ["Honorários (operadores)", totais.total_honorario], ["Comissões", totais.total_comissao],
     ["Premiações", totais.total_premiacao], ["Bônus", totais.total_bonus],
     ["Descontos", totais.total_desconto], ["TOTAL FINAL", totais.total_final],
     ["Sem operador (R$)", totais.valor_sem_operador],
   ];
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 10, marginTop: 14 }}>
-      {cards.map(([k, v]) => (
-        <div key={k} style={{
-          padding: 12, borderRadius: 10, background: k === "TOTAL FINAL" ? "#1e40af" : "#f8fafc",
-          color: k === "TOTAL FINAL" ? "#fff" : "#111827", border: "1px solid #e5e7eb",
-        }}>
-          <div style={{ fontSize: 12, opacity: 0.8 }}>{k}</div>
-          <div style={{ fontSize: 17, fontWeight: 700 }}>{BRL(v)}</div>
-        </div>
-      ))}
-    </div>
+    <>
+      <TotalDoMes totais={totais} totalMes={totalMes} />
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 10, marginTop: 14 }}>
+        {cards.map(([k, v]) => (
+          <div key={k} style={{
+            padding: 12, borderRadius: 10, background: k === "TOTAL FINAL" ? "#1e40af" : "#f8fafc",
+            color: k === "TOTAL FINAL" ? "#fff" : "#111827", border: "1px solid #e5e7eb",
+          }}>
+            <div style={{ fontSize: 12, opacity: 0.8 }}>{k}</div>
+            <div style={{ fontSize: 17, fontWeight: 700 }}>{BRL(v)}</div>
+          </div>
+        ))}
+      </div>
+    </>
   );
 }
 
@@ -428,22 +469,57 @@ function AbaAjustes({ competencia, lanc, onChange, setErro }) {
 function AbaReconciliacao({ previa }) {
   if (!previa) return <Vazio>Calcule a prévia primeiro.</Vazio>;
   const r = previa.reconciliacao || {};
+  const tm = previa.total_mes;
   const linhas = [
     ["Valor recuperado", r.fechamento_recuperado_total, r.projecao_recuperado, r.diff_recuperado],
     ["Honorários", r.fechamento_honorario_total, r.projecao_honorario, r.diff_honorario],
   ];
+  const linhasPrime = tm?.conferencia_id ? [
+    ["Valor recuperado", tm.prime_recuperado, tm.sistema_recuperado, tm.diff_recuperado],
+    ["Honorários", tm.prime_honorario, tm.sistema_honorario, tm.diff_honorario],
+  ] : [];
   return (
-    <table style={tbl}>
-      <thead><tr>{["Indicador", "Fechamento", "Projeção", "Diferença"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
-      <tbody>
-        {linhas.map(([k, f, p, d]) => (
-          <tr key={k}>
-            <td style={td}>{k}</td><td style={tdN}>{BRL(f)}</td><td style={tdN}>{BRL(p)}</td>
-            <td style={{ ...tdN, color: Number(d) === 0 ? "#065f46" : "#b91c1c", fontWeight: 700 }}>{BRL(d)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div>
+      <h4 style={{ margin: "4px 0 8px" }}>Sistema × Projeção (os dois leem os mesmos pagamentos; tem que dar zero)</h4>
+      <table style={tbl}>
+        <thead><tr>{["Indicador", "Fechamento (sistema)", "Projeção", "Diferença"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+        <tbody>
+          {linhas.map(([k, f, p, d]) => (
+            <tr key={k}>
+              <td style={td}>{k}</td><td style={tdN}>{BRL(f)}</td><td style={tdN}>{BRL(p)}</td>
+              <td style={{ ...tdN, color: Number(d) === 0 ? "#065f46" : "#b91c1c", fontWeight: 700 }}>{BRL(d)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {tm && (
+        <div style={{ marginTop: 24 }}>
+          <h4 style={{ margin: "4px 0 8px" }}>Relatório do Prime × Sistema — total do mês</h4>
+          {linhasPrime.length ? (
+            <>
+              <table style={tbl}>
+                <thead><tr>{["Indicador", "Relatório do Prime", "Sistema", "Diferença (sistema − Prime)"].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                <tbody>
+                  {linhasPrime.map(([k, p, s, d]) => (
+                    <tr key={k}>
+                      <td style={td}>{k}</td><td style={tdN}>{BRL(p)}</td><td style={tdN}>{BRL(s)}</td>
+                      <td style={{ ...tdN, color: Number(d) === 0 ? "#065f46" : "#b45309", fontWeight: 700 }}>{BRL(d)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <p style={{ fontSize: 13, color: "#374151", marginTop: 8 }}>
+                Em vigor no fechamento: <b>{rotuloFonteTotal(tm)}</b> — recuperado {BRL(tm.recuperado)} · honorários {BRL(tm.honorario)}.
+                Para trocar, use a aba Conferência Prime. Os operadores não mudam.
+              </p>
+            </>
+          ) : (
+            <p style={{ fontSize: 13, color: "#6b7280" }}>Sem Conferência Prime neste mês — o total do mês é o do sistema.</p>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -512,7 +588,7 @@ function parsePrime(rows, mesRef) {
   return out;
 }
 
-function AbaConferenciaPrime({ competencia, mes }) {
+function AbaConferenciaPrime({ competencia, mes, onFonteAlterada }) {
   const [linhas, setLinhas] = useState(null);
   const [arquivo, setArquivo] = useState("");
   const [res, setRes] = useState(null);
@@ -520,11 +596,48 @@ function AbaConferenciaPrime({ competencia, mes }) {
   const [erroC, setErroC] = useState("");
   const [msgC, setMsgC] = useState("");
   const [rodando, setRodando] = useState(false);
+  // Escolha do total do mês (relatório x sistema) — vem do backend com os
+  // dois valores e qual está em vigor.
+  const [fonte, setFonte] = useState(null);
+  const [salvandoFonte, setSalvandoFonte] = useState(false);
 
   const carregarHist = useCallback(async () => {
     const { data } = await supabase.rpc("fechamento_conferencia_listar", { p_competencia: competencia });
     setHist(data || []);
   }, [competencia]);
+
+  const carregarFonte = useCallback(async () => {
+    const { data, error } = await supabase.rpc("fechamento_conferencia_fonte_ler", { p_competencia: competencia });
+    if (!error) setFonte(data);
+  }, [competencia]);
+
+  // Ao abrir a aba (ou trocar o mês) já mostra qual total está em vigor.
+  useEffect(() => {
+    let vivo = true;
+    supabase.rpc("fechamento_conferencia_fonte_ler", { p_competencia: competencia })
+      .then(({ data, error }) => { if (vivo && !error) setFonte(data); });
+    return () => { vivo = false; };
+  }, [competencia]);
+
+  async function definirFonte(f) {
+    setSalvandoFonte(true); setErroC(""); setMsgC("");
+    try {
+      const { data, error } = await supabase.rpc("fechamento_conferencia_definir_fonte", {
+        p_competencia: competencia, p_fonte: f,
+      });
+      if (error) throw error;
+      setFonte(data);
+      const c = data?.conferencia, s = data?.sistema_agora || {};
+      setMsgC(f === "relatorio"
+        ? `Total do mês de ${mes} = relatório do Prime: ${BRL(c?.prime_valor)} recuperado · ${BRL(c?.prime_honorario)} honorário. Os operadores não mudam.`
+        : `Total do mês de ${mes} = sistema: ${BRL(s.valor)} recuperado · ${BRL(s.honorario)} honorário. Os operadores não mudam.`);
+      onFonteAlterada?.();
+    } catch (err) {
+      setErroC(err.message || "Não consegui registrar a escolha.");
+    } finally {
+      setSalvandoFonte(false);
+    }
+  }
 
   async function aoEscolher(e) {
     const file = e.target.files?.[0];
@@ -557,6 +670,8 @@ function AbaConferenciaPrime({ competencia, mes }) {
       if (error) throw error;
       setRes(data);
       carregarHist();
+      carregarFonte();
+      onFonteAlterada?.();
     } catch (err) {
       setErroC(err.message || "Falha ao rodar a conferência.");
     } finally {
@@ -612,8 +727,8 @@ function AbaConferenciaPrime({ competencia, mes }) {
       <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 16 }}>
         <p style={{ margin: "0 0 10px", fontSize: 13, color: "#374151" }}>
           Exporte o relatório de pagamentos do <b>Prime (Ulbra)</b> do mês <b>{mes}</b> e carregue aqui.
-          O sistema confere <b>valor pago</b> e <b>honorário</b>, parcela a parcela. Nada é alterado — apenas aponta divergências.
-          O operador exibido é sempre o do sistema.
+          O sistema confere <b>valor pago</b> e <b>honorário</b>, parcela a parcela. Nada é alterado nos pagamentos — apenas aponta divergências.
+          O operador exibido é sempre o do sistema. Depois de conferir, escolha abaixo qual valor vale como <b>total do mês</b> no fechamento.
         </p>
         <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
           <input type="file" accept=".xlsx,.xls" onChange={aoEscolher} />
@@ -624,6 +739,8 @@ function AbaConferenciaPrime({ competencia, mes }) {
           <button onClick={carregarHist} style={{ ...btn(false), padding: "6px 12px" }}>Ver histórico</button>
         </div>
       </div>
+
+      <FonteTotalMes fonte={fonte} mes={mes} ocupado={salvandoFonte} onEscolher={definirFonte} />
 
       {erroC && <Aviso cor="#b91c1c" bg="#fee2e2">{erroC}</Aviso>}
       {msgC && <Aviso cor="#065f46" bg="#d1fae5">{msgC}</Aviso>}
@@ -688,6 +805,67 @@ function AbaConferenciaPrime({ competencia, mes }) {
           </table>
         </div>
       )}
+    </div>
+  );
+}
+
+// "Deixar o valor do relatório" x "Deixar o valor do sistema": qual total do
+// mês vale no fechamento (base da gestão, cabeçalho dos relatórios, registro
+// do fechamento definitivo). Os operadores NÃO mudam com isso.
+function OpcaoFonteTotal({ ativo, pode, habilitado, titulo, valor, honorario, sub, onClick }) {
+  return (
+    <button onClick={() => pode && onClick()} disabled={!pode} aria-pressed={ativo}
+      style={{
+        flex: 1, minWidth: 260, textAlign: "left", padding: 14, borderRadius: 10,
+        cursor: pode ? "pointer" : "default", opacity: habilitado ? 1 : 0.55,
+        border: ativo ? "2px solid #1e40af" : "1px solid #d1d5db", background: ativo ? "#eff6ff" : "#fff",
+      }}>
+      <div style={{ fontWeight: 700, color: "#111827" }}>{ativo ? "✔ " : ""}{titulo}{ativo ? " — em vigor" : ""}</div>
+      <div style={{ fontSize: 19, fontWeight: 800, color: "#1e3a8a", marginTop: 6, fontVariantNumeric: "tabular-nums" }}>
+        {BRL(valor)} <span style={{ fontSize: 12, fontWeight: 500, color: "#6b7280" }}>recuperado</span>
+      </div>
+      <div style={{ fontSize: 15, fontWeight: 700, color: "#1e3a8a", fontVariantNumeric: "tabular-nums" }}>
+        {BRL(honorario)} <span style={{ fontSize: 12, fontWeight: 500, color: "#6b7280" }}>honorário</span>
+      </div>
+      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 6 }}>{sub}</div>
+    </button>
+  );
+}
+
+function FonteTotalMes({ fonte, mes, ocupado, onEscolher }) {
+  if (!fonte) return null;
+  const c = fonte.conferencia;
+  const s = fonte.sistema_agora || {};
+  const emVigor = fonte.em_vigor;
+  const travado = !!fonte.competencia_fechada;
+  const opcao = (id, habilitado) => ({
+    ativo: emVigor === id, habilitado,
+    pode: habilitado && !ocupado && !travado && emVigor !== id,
+    onClick: () => onEscolher(id),
+  });
+
+  let rodape;
+  if (travado) rodape = "Competência FECHADA — reabra o fechamento para trocar.";
+  else if (fonte.escolha) rodape = `Escolha registrada por ${fonte.escolha.definido_por} em ${dataHoraBR(fonte.escolha.definido_em)}.`;
+  else if (c) rodape = "Sem escolha registrada: vale o relatório da última conferência.";
+  else rodape = "Sem conferência no mês: vale o sistema.";
+
+  return (
+    <div style={{ marginTop: 16, padding: 16, borderRadius: 10, border: "1px solid #bfdbfe", background: "#f8fafc" }}>
+      <div style={{ fontWeight: 700, fontSize: 15 }}>Total do mês no fechamento de {mes}</div>
+      <p style={{ margin: "4px 0 12px", fontSize: 13, color: "#374151" }}>
+        Vale para a base da gestão (3% / 1,5%), o cabeçalho dos relatórios e o registro do fechamento definitivo.
+        {" "}<b>Os valores dos operadores não mudam.</b>
+      </p>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        <OpcaoFonteTotal {...opcao("relatorio", !!c)} titulo="Deixar o valor do relatório"
+          valor={c?.prime_valor} honorario={c?.prime_honorario}
+          sub={c ? `Conferência de ${dataHoraBR(c.criado_em)} · ${c.arquivo_nome || "arquivo do Prime"}` : "Rode a conferência do mês para liberar esta opção."} />
+        <OpcaoFonteTotal {...opcao("sistema", true)} titulo="Deixar o valor do sistema"
+          valor={s.valor} honorario={s.honorario}
+          sub={`${Number(s.qtd || 0).toLocaleString("pt-BR")} pagamentos no sistema agora`} />
+      </div>
+      <div style={{ fontSize: 12, color: "#6b7280", marginTop: 10 }}>{ocupado ? "Registrando…" : rodape}</div>
     </div>
   );
 }
