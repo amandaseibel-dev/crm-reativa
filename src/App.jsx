@@ -129,14 +129,18 @@ const DIRETORIA_ROTAS = [
   "/",
   "/executivo",
   "/dre",
-  "/painel-carteira",
+  // "/painel-carteira" (Panorama 360) SAIU em 03/09/2026: a projeção de redução
+  // da carteira está presa a julho e agosto dentro do código
+  // (VisaoGestao360.jsx), e desde setembro o painel projeta meses que já
+  // fecharam. Enquanto isso não for corrigido, a diretoria não deve ler dali.
   "/relatorios-2026-1-sem-negociacao",
   "/meu-perfil",
 ];
 function podeAcessar(perfil, rota) {
-  // DIRETORIA: perfil de leitura executiva, não de operação. Vê SÓ as quatro
-  // áreas combinadas -- Visão Executiva, DRE, Panorama 360 e o relatório de
-  // 2026/1 sem negociação. Fica de fora de fila, base, financeiro operacional,
+  // DIRETORIA: perfil de leitura executiva, não de operação. Vê SÓ as três
+  // áreas combinadas -- Visão Executiva, DRE e o relatório de 2026/1 sem
+  // negociação (o Panorama 360 saiu em 03/09, ver DIRETORIA_ROTAS). Fica de
+  // fora de fila, base, financeiro operacional,
   // usuários e configurações. Este return vem ANTES de tudo de propósito: os
   // atalhos abaixo liberam rota por "perfil !== operador" e, sem isto, a
   // diretoria herdaria Calibragem, Tabulações, Ferramentas e afins.
