@@ -1897,15 +1897,26 @@ function FaixaItem({ label, valor }) {
 }
 
 // Visão individual (mesma para operador e para a gestão ao selecionar um dos 9):
-// honorário como destaque, meta M4, progresso, faixa, premiação, próxima faixa
+// honorário como destaque, meta = PRÓXIMA faixa (começa no 1º degrau e acompanha
+// conforme o operador avança), progresso, faixa, premiação
 // e "quanto falta"; recuperado e resultado do dia como apoio.
 function PainelIndividual({ dados, mes }) {
   const pctMeta = Math.min(Number(dados?.percentual_meta_individual_realizado ?? 0), 100);
   const temProxima = Number(dados?.proxima_faixa_valor || 0) > 0;
   const honMes = Number(dados?.honorario_mes || 0);
   const cfg = dados?.config_metas || {};
+  // Os m*_valor sao o INICIO de cada faixa (m1 vem como 0,01), entao o teto de
+  // uma faixa e o inicio da seguinte. Arredondamos para exibir "ate R$ 15.000"
+  // em vez de "R$ 15.000,01" — mesma leitura que a TV ja usa.
+  const corte = (v) => Math.round(Number(v) || 0);
   const escadaMetas = ["m1", "m2", "m3", "m4"]
-    .map((k) => ({ marco: k.toUpperCase(), valor: Number(cfg[`${k}_valor`] || 0), percentual: Number(cfg[`${k}_percentual`] || 0) }))
+    .map((k, i) => ({
+      marco: k.toUpperCase(),
+      valor: Number(cfg[`${k}_valor`] || 0),
+      piso: corte(cfg[`${k}_valor`]),
+      teto: corte(cfg[`m${i + 2}_valor`]),
+      percentual: Number(cfg[`${k}_percentual`] || 0),
+    }))
     .filter((m) => m.valor > 0);
   return (
     <>
@@ -1917,7 +1928,7 @@ function PainelIndividual({ dados, mes }) {
         <div style={estilos.heroNumeroLinha}>
           <div style={estilos.heroNumero}>{moeda(dados?.honorario_mes)}</div>
           <div style={estilos.heroMeta}>
-            <span style={estilos.heroMetaLabel}>META (M4)</span>
+            <span style={estilos.heroMetaLabel}>{temProxima ? "PRÓXIMA META" : "META MÁXIMA"}</span>
             <span style={estilos.heroMetaValor}>{moeda(dados?.meta_honorario_individual)}</span>
           </div>
         </div>
@@ -1928,7 +1939,7 @@ function PainelIndividual({ dados, mes }) {
           <span>
             <strong>{dados?.percentual_meta_individual_realizado ?? 0}%</strong> da meta ·{" "}
             {temProxima
-              ? <>faltam <strong>{moeda(dados?.falta_proxima_faixa)}</strong> p/ a próxima faixa ({moeda(dados?.proxima_faixa_valor)})</>
+              ? <>faltam <strong>{moeda(dados?.falta_proxima_faixa)}</strong> p/ chegar lá</>
               : <strong>faixa máxima atingida</strong>}
           </span>
           <span>
@@ -1962,8 +1973,12 @@ function PainelIndividual({ dados, mes }) {
                     <span>{m.marco}</span>
                     <span>{atingida ? "✅ atingida" : `faltam ${moeda(m.valor - honMes)}`}</span>
                   </div>
-                  <div style={{ fontSize: 17, fontWeight: 800, color: "#0d1321", marginTop: 4 }}>{moeda(m.valor)}</div>
-                  <div style={{ fontSize: 12, color: "#64748b" }}>premiação {m.percentual}% do honorário</div>
+                  <div style={{ fontSize: 17, fontWeight: 800, color: "#0d1321", marginTop: 4 }}>
+                    {String(m.percentual).replace(".", ",")}% <span style={{ fontSize: 12.5, fontWeight: 600, color: "#64748b" }}>do honorário</span>
+                  </div>
+                  <div style={{ fontSize: 12, color: "#64748b" }}>
+                    {!m.teto ? `acima de ${moeda(m.piso)}` : !m.piso ? `até ${moeda(m.teto)}` : `${moeda(m.piso)} a ${moeda(m.teto)}`}
+                  </div>
                 </div>
               );
             })}
