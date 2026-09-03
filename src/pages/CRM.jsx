@@ -24,6 +24,7 @@ const OPERADORES = [
 
 const FILTROS = [
   "TODOS",
+  "PERDENDO",
   "CRITICOS",
   "URGENTES",
   "ATENCAO",
@@ -369,12 +370,13 @@ export default function CRM() {
     const cr = c.criticidade;
 
     if (filtro === "TODOS") return true;
+    if (filtro === "PERDENDO") return cr.includes("PERDENDO");
     if (filtro === "CRITICOS") return cr.includes("CRIT");
     if (filtro === "URGENTES") return cr.includes("URG");
     if (filtro === "ATENCAO") return cr.includes("ATEN");
 
     if (filtro === "NORMAL") {
-      return !cr.includes("CRIT") && !cr.includes("URG") && !cr.includes("ATEN");
+      return !cr.includes("PERDENDO") && !cr.includes("CRIT") && !cr.includes("URG") && !cr.includes("ATEN");
     }
 
     if (filtro === "FINALIZADOS") {

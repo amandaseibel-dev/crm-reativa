@@ -378,6 +378,7 @@ function Regua({ operadores }) {
 }
 
 const NIVEIS_CRIT = [
+  { key: "perdendo", rotulo: "Perdendo o caso", cor: "#fb7185" },
   { key: "critico", rotulo: "Crítico", cor: "#f87171" },
   { key: "urgente", rotulo: "Urgente", cor: "#fb923c" },
   { key: "atencao", rotulo: "Atenção", cor: "#fbbf24" },
@@ -429,6 +430,16 @@ function Criticidade() {
               Score ≥ {dados?.config?.niveis?.critico} → Crítico · ≥ {dados?.config?.niveis?.urgente} → Urgente · ≥{" "}
               {dados?.config?.niveis?.atencao} → Atenção · senão Normal.
             </span>
+            {dados?.config?.escada_dias ? (
+              <>
+                <br />
+                <span style={{ opacity: 0.7 }}>
+                  Piso por dias sem acionamento: {dados.config.escada_dias.urgente}d → Urgente ·{" "}
+                  {dados.config.escada_dias.critico}d → Crítico · {dados.config.escada_dias.perdendo}d → Perdendo o
+                  caso. O score pode subir o nível, nunca baixar.
+                </span>
+              </>
+            ) : null}
           </div>
         </div>
       </div>
@@ -1244,6 +1255,7 @@ function ModalDetalhe({ detalhe, onClose }) {
                 <select style={S.filtroInput} value={filtros.criticidade}
                   onChange={(e) => setFiltros((f) => ({ ...f, criticidade: e.target.value }))}>
                   <option value="">Criticidade: todas</option>
+                  <option value="PERDENDO">Perdendo o caso</option>
                   <option value="CRITICO">Crítico</option>
                   <option value="URGENTE">Urgente</option>
                   <option value="ATENCAO">Atenção</option>
@@ -1343,7 +1355,11 @@ function ModalDetalhe({ detalhe, onClose }) {
 function TagCrit({ valor }) {
   const v = String(valor || "").toUpperCase();
   const cor =
-    v === "CRITICO" ? "#f87171" : v === "URGENTE" ? "#fb923c" : v === "ATENCAO" ? "#fbbf24" : "#94a3b8";
+    v === "PERDENDO" ? "#fb7185"
+      : v === "CRITICO" ? "#f87171"
+      : v === "URGENTE" ? "#fb923c"
+      : v === "ATENCAO" ? "#fbbf24"
+      : "#94a3b8";
   return (
     <span style={{ color: cor, fontWeight: 700, fontSize: 12 }}>
       {valor && valor !== "-" ? valor : "—"}

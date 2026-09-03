@@ -448,11 +448,14 @@ const SITUACAO_OPERACIONAL_LABEL = {
 // vencido, dias sem acionamento, valor, termo pendente e fim de mes. E a fonte
 // da verdade -- NAO reinventar por dias sem contato. Ordem de severidade usada
 // para priorizar "o que acionar".
+// PERDENDO vem da escada por dias sem acionamento (8 urgente, 9 critico, 10
+// perdendo). E o 10o dia: o ultimo em que a fidelizacao ainda segura o caso.
 const CRITICIDADE_LABEL = {
-  CRITICO: { texto: "Crítico", bg: "rgba(220,38,38,0.20)", cor: "#fca5a5", rank: 0 },
-  URGENTE: { texto: "Urgente", bg: "rgba(234,88,12,0.20)", cor: "#fdba74", rank: 1 },
-  ATENCAO: { texto: "Atenção", bg: "rgba(245,158,11,0.18)", cor: "#fcd34d", rank: 2 },
-  NORMAL: { texto: "Normal", bg: "rgba(100,116,139,0.16)", cor: "#cbd5e1", rank: 3 },
+  PERDENDO: { texto: "Perdendo o caso", bg: "rgba(190,18,60,0.28)", cor: "#fda4af", rank: 0 },
+  CRITICO: { texto: "Crítico", bg: "rgba(220,38,38,0.20)", cor: "#fca5a5", rank: 1 },
+  URGENTE: { texto: "Urgente", bg: "rgba(234,88,12,0.20)", cor: "#fdba74", rank: 2 },
+  ATENCAO: { texto: "Atenção", bg: "rgba(245,158,11,0.18)", cor: "#fcd34d", rank: 3 },
+  NORMAL: { texto: "Normal", bg: "rgba(100,116,139,0.16)", cor: "#cbd5e1", rank: 4 },
 };
 
 function critCanon(a) {
@@ -464,7 +467,7 @@ function critRank(a) {
 }
 function critAlta(a) {
   const n = critCanon(a);
-  return n === "CRITICO" || n === "URGENTE";
+  return n === "PERDENDO" || n === "CRITICO" || n === "URGENTE";
 }
 
 // ---- Fila inteligente ----
