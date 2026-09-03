@@ -967,6 +967,11 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Retorno ADM acionavel do aluno aberto + contador da carteira.
   const [retornoAluno, setRetornoAluno] = useState(null);
   const [retornosPendentes, setRetornosPendentes] = useState([]);
+  // Ficha dos alunos dos retornos do ADM, buscada por id. O card do topo NAO
+  // pode depender da fila (`casos`): quem zerou o saldo, quitou ou foi para a
+  // confirmacao sai da fila e o card ficava sem nome e sem clique -- preso no
+  // topo para sempre, porque so abrir a ficha conclui o retorno.
+  const [alunosDeRetorno, setAlunosDeRetorno] = useState({});
   const [fixados, setFixados] = useState(new Set());
   const [nomeCopiadoId, setNomeCopiadoId] = useState(null);
   const [somenteFixados, setSomenteFixados] = useState(false);
@@ -1517,13 +1522,43 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     if (veTudo) {
       if (operadorFiltro === "TODOS") {
         setRetornosPendentes([]);
+        setAlunosDeRetorno({});
         return;
       }
       query = query.eq("operador_destino_email", operadorFiltro);
     }
 
     const { data } = await query;
-    setRetornosPendentes(data || []);
+    const lista = data || [];
+    setRetornosPendentes(lista);
+
+    // Busca a ficha de cada aluno com retorno pendente POR ID, sem passar pela
+    // fila. Sao poucos (o bloco mostra 6), e e o que garante que o card sempre
+    // tenha nome e sempre abra -- inclusive para quem ja saiu da fila.
+    const ids = [...new Set(lista.map((r) => r.aluno_id).filter(Boolean))];
+    if (!ids.length) {
+      setAlunosDeRetorno({});
+      return;
+    }
+    const { data: linhas } = await supabase
+      .from("alunos")
+      .select(COLUNAS_ALUNO)
+      .in("id", ids.slice(0, LOTE_IN));
+    const mapa = {};
+    (linhas || []).forEach((a) => { if (a?.id) mapa[String(a.id)] = a; });
+    setAlunosDeRetorno(mapa);
+  }
+
+  // Ultimo recurso do card do topo: se nem por id a ficha do aluno vier (linha
+  // apagada, id invalido), o operador ainda consegue tirar o retorno do topo.
+  // A mesma RPC que a abertura da ficha usa -- conclui os retornos de link do
+  // aluno e e idempotente.
+  async function dispensarRetornoSemFicha(retorno) {
+    if (!retorno?.id) return;
+    try {
+      await supabase.rpc("retorno_adm_visualizar", { p_id: retorno.id });
+    } catch (e) { /* silencioso: a lista abaixo ja tira o card */ }
+    setRetornosPendentes((atual) => atual.filter((r) => r.id !== retorno.id));
   }
 
   // Abre o modal (nao navega). Preserva a lista/filtros/paginacao atras.
@@ -2915,15 +2950,26 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               </div>
               <div style={S.retornoCarteiraLista}>
                 {retornosPendentes.slice(0, 6).map((r) => {
-                  const caso = casos.find((c) => c.id === r.aluno_id);
+                  // A fila (`casos`) e so uma das fontes: quem saiu dela
+                  // (saldo zerado, quitado, em confirmacao) vem da busca por
+                  // id. Sem isso o card ficava sem nome e o clique nao fazia
+                  // nada -- e so abrir a ficha conclui o retorno.
+                  const naFila = casos.find((c) => String(c.id) === String(r.aluno_id));
+                  const caso = naFila || alunosDeRetorno[String(r.aluno_id)] || null;
+                  const foraDaFila = Boolean(caso) && !naFila;
                   return (
                     <div
                       key={r.id}
                       style={S.retornoCarteiraItem}
-                      onClick={() => caso && abrirModal(caso)}
-                      title="Abrir atendimento"
+                      onClick={() => (caso ? abrirModal(caso) : dispensarRetornoSemFicha(r))}
+                      title={caso ? "Abrir atendimento" : "Ficha indisponivel - clique para tirar do topo"}
                     >
-                      <span style={S.retornoCarteiraNome}>{caso ? nomeAluno(caso) : "Aluno"}</span>
+                      <span style={S.retornoCarteiraNome}>{caso ? nomeAluno(caso) : "Aluno nao encontrado"}</span>
+                      {foraDaFila && (
+                        <span style={S.retornoCarteiraForaFila} title="Este caso nao esta mais na sua fila (saldo zerado, quitado ou em confirmacao)">
+                          fora da fila
+                        </span>
+                      )}
                       <span style={S.retornoCarteiraTag}>{labelStatus(r.resultado_adm)}</span>
                       <span style={S.retornoCarteiraStatus}>{r.status_tratamento}</span>
                     </div>
@@ -4278,4 +4324,5 @@ const S = {
   retornoCarteiraNome: { flex: 1, fontWeight: 700, color: "#101828", fontSize: 13 },
   retornoCarteiraTag: { fontSize: 11, fontWeight: 700, color: "#c2410c", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 6, padding: "2px 8px" },
   retornoCarteiraStatus: { fontSize: 11, color: "#98a2b3" },
+  retornoCarteiraForaFila: { fontSize: 11, fontWeight: 700, color: "#475467", background: "#f2f4f7", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 6, padding: "2px 8px" },
 };
