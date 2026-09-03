@@ -16,6 +16,7 @@ import PagamentosNaoIdentificados from "../components/PagamentosNaoIdentificados
 import CasosSemValor from "../components/CasosSemValor";
 import ConfirmacoesSemValor from "../components/ConfirmacoesSemValor";
 import CasosSemTelefone from "../components/CasosSemTelefone";
+import MensalidadesAVincular from "../components/MensalidadesAVincular";
 import FilaAcordosConfirmar from "./FilaAcordosConfirmar";
 import { S as A } from "../ui/estilosFila";
 
@@ -198,6 +199,7 @@ export default function FilaConfirmacaoPagamento() {
   const [qtdSemValor, setQtdSemValor] = useState(null);
   const [qtdAcordoSemValor, setQtdAcordoSemValor] = useState(null);
   const [qtdSemTelefone, setQtdSemTelefone] = useState(null);
+  const [qtdAVincular, setQtdAVincular] = useState(null);
 
   // Ficha do aluno (modal leve reaproveitando as pecas ja existentes:
   // financeiro em aberto, historico de movimentacoes e comprovante).
@@ -929,6 +931,7 @@ export default function FilaConfirmacaoPagamento() {
     { chave: "NAO_IDENTIFICADOS", rotulo: "Não identificados", badge: null },
     { chave: "ACORDO_SEM_VALOR", rotulo: "Acordo sem valor", badge: qtdAcordoSemValor },
     { chave: "SEM_VALOR", rotulo: "Sem valor calculado", badge: qtdSemValor },
+    { chave: "A_VINCULAR", rotulo: "Mensalidades a vincular", badge: qtdAVincular },
     { chave: "SEM_TELEFONE", rotulo: "Sem telefone", badge: qtdSemTelefone },
   ];
   const abasEscopo = (
@@ -964,6 +967,12 @@ export default function FilaConfirmacaoPagamento() {
           lenta a tela de confirmacao de pagamento"). O numero do badge agora
           vem de uma contagem no banco, que nao traz linha nenhuma. Mesmo
           tratamento que "Sem valor calculado" ja tinha. */}
+      {/* SOB DEMANDA: a RPC varre acordos_titulos inteiro cruzando com acordos e
+          pagamentos. So monta quando a aba esta ativa -- o mesmo cuidado que
+          "Sem telefone" e "Sem valor calculado" ja recebem. */}
+      {escopo === "A_VINCULAR" && (
+        <MensalidadesAVincular aoAtualizarContagem={setQtdAVincular} />
+      )}
       {escopo === "SEM_TELEFONE" && (
         <CasosSemTelefone aoAtualizarContagem={setQtdSemTelefone} />
       )}
