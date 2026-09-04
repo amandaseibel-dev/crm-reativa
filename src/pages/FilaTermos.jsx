@@ -1216,7 +1216,7 @@ export default function FilaAdmTermos() {
               )}
               {podeDevolverAoOperador(termo) && (
                 <button
-                  style={styles.botaoRejeitar}
+                  style={styles.botaoDevolver}
                   onClick={() => abrirDecisao("DEVOLVER", termo)}
                   disabled={processando}
                   title="Algo errado no acordo? O termo volta como rejeitado e o operador é avisado para corrigir e reenviar."
@@ -1405,7 +1405,7 @@ function ModalDecisao({ tipo, termo, motivo, setMotivo, texto, setTexto, process
 
         <div style={styles.acoes}>
           <button
-            style={dispensar ? styles.botaoDescartar : styles.botaoRejeitar}
+            style={dispensar ? styles.botaoDescartar : styles.botaoDevolver}
             onClick={onConfirmar}
             disabled={processando}
           >
@@ -1913,6 +1913,17 @@ const styles = {
     color: "#fff",
     border: "none",
     padding: "12px 16px",
+    borderRadius: "8px",
+    cursor: "pointer",
+    fontWeight: "bold",
+  },
+  // Mesmo vermelho do "Rejeitar", mas SEM flex: 1 — no card ele divide a linha
+  // com "Ver documento" e não pode virar uma faixa na largura toda.
+  botaoDevolver: {
+    background: "#dc3545",
+    color: "#fff",
+    border: "none",
+    padding: "10px 16px",
     borderRadius: "8px",
     cursor: "pointer",
     fontWeight: "bold",
