@@ -11,6 +11,7 @@ import DadosAcademicos from "../components/DadosAcademicos";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
 import EmailAlunoUnificado from "../components/EmailAlunoUnificado";
+import { carregarTabulacoes, desfechoDaTabulacao, retornoEhManual } from "../utils/tabulacoes";
 import TelefonesAluno from "../components/TelefonesAluno";
 import PainelDesfazer from "../components/PainelDesfazer";
 import Dobra from "../ui/blocos";
@@ -957,7 +958,13 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       "CONTATAR"
     );
     setStatusFinalizacao(statusAtual);
-    setDataRetorno(paraInputDateTime(aluno.data_retorno));
+    // So pre-preenche data que o OPERADOR marcou e ainda esta no futuro. Data
+    // automatica (motor da fila / regra da tabulacao) nao e compromisso: se
+    // viesse preenchida, o Finalizar a regravava como escolha humana.
+    const compromisso =
+      String(aluno.retorno_origem || "").startsWith("OPERADOR") &&
+      (paraDataLocalBR(aluno.data_retorno) || "") >= paraDataLocalBR(new Date());
+    setDataRetorno(compromisso ? paraInputDateTime(aluno.data_retorno) : "");
   }
   function abrirEdicaoCadastro() {
     if (!alunoSelecionado) return;
@@ -1199,21 +1206,21 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       atualizacaoAluno.status_jornada = statusNovo;
       atualizacaoAluno.status_atual = statusNovo;
       atualizacaoAluno.status_acionamento = statusNovo;
-      if (
-        statusNovo === "RETORNAR_DEPOIS" ||
-        statusNovo === "ALUNO_EM_NEGOCIACAO_24H"
-      ) {
-        atualizacaoAluno.proxima_acao = "RETORNAR";
-      } else if (statusNovo === "ACORDO_FECHADO") {
-        atualizacaoAluno.proxima_acao = "ACOMPANHAR_PAGAMENTO";
-      } else if (statusNovo === "NAO_LOCALIZADO") {
-        atualizacaoAluno.proxima_acao = "TENTAR_NOVO_CONTATO";
-      } else {
-        atualizacaoAluno.proxima_acao = "CONTATAR";
+      // Proxima acao e prazo de retorno vem do catalogo de tabulacoes -- a
+      // mesma regra da Minha Carteira e do e-mail. Data digitada e compromisso
+      // do operador; sem data, a tabulacao agenda sozinha (ou nao agenda).
+      const catalogo = await carregarTabulacoes();
+      const desfecho = desfechoDaTabulacao(catalogo, statusNovo, {
+        dataDigitada: retorno ? paraDataLocalBR(retorno) || "" : "",
+      });
+      atualizacaoAluno.proxima_acao = desfecho.proxima_acao;
+      if (desfecho.data_retorno) {
+        atualizacaoAluno.data_retorno = desfecho.data_retorno;
+        atualizacaoAluno.retorno_origem = desfecho.retorno_origem;
       }
-    }
-    if (retorno) {
+    } else if (retorno) {
       atualizacaoAluno.data_retorno = paraDataLocalBR(retorno);
+      atualizacaoAluno.retorno_origem = "OPERADOR";
     }
     if (observacaoAluno !== null) {
       atualizacaoAluno.observacao = observacaoAluno;
@@ -1371,9 +1378,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
       alert("Selecione o status da finalização.");
       return;
     }
-    const precisaRetorno =
-      statusFinalizacao === "RETORNAR_DEPOIS" ||
-      statusFinalizacao === "ALUNO_EM_NEGOCIACAO_24H";
+    const precisaRetorno = retornoEhManual(await carregarTabulacoes(), statusFinalizacao);
     if (precisaRetorno && !dataRetorno) {
       alert("Informe a data de retorno para esse status.");
       return;
@@ -2615,7 +2620,10 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               )}
               {abaFicha === "email" && emailLiberadoAluno && (
                 <div style={caixaInterna}>
-                  <EmailAlunoUnificado aluno={alunoSelecionado} />
+                  <EmailAlunoUnificado
+                    aluno={alunoSelecionado}
+                    onTabulado={() => recarregarAlunoSelecionado(alunoSelecionado.id)}
+                  />
                 </div>
               )}
               {abaFicha === "adm" && (

@@ -1,10 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
+import { rotuloStatus } from "../utils/rotulosStatus";
+import { carregarTabulacoes, desfechoDaTabulacao, descreverPrazo, dataBRDeISO } from "../utils/tabulacoes";
 
 // Painel de e-mail no card do aluno: operador escolhe a arte (template),
 // os dados do aluno preenchem sozinhos e ele envia pela propria conta Google
 // (Gmail compose). Anexos sao adicionados no proprio Gmail. Cada envio fica
-// registrado como acionamento (ACAO_MASSIVA_EXTERNA_EMAIL).
+// registrado como acionamento (ACAO_MASSIVA_EXTERNA_EMAIL) e TABULA o caso
+// como "Mensagem enviada" -- a mesma tabulacao do botao rapido da Minha
+// Carteira (Amanda, 04/09/2026). Quem monta este painel recebe `onTabulado`
+// para refletir o status novo na propria tela (select, retorno, lista).
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -25,6 +30,28 @@ function sugerir(aluno) {
   return "lembrete_pagamento";
 }
 
+// Status em que o caso NAO esta na mao do operador (pago aguardando baixa,
+// encerrado pela gestao, sem saldo). Mandar e-mail nesses casos registra o
+// contato, mas nao muda a tabulacao -- senao "Aguardando baixa" viraria
+// "Mensagem enviada" e o caso sairia da fila de confirmacao. Mesma lista dos
+// nao acionaveis da Minha Carteira.
+const STATUS_FORA_DA_MAO = [
+  "AGUARDANDO_BAIXA",
+  "JURIDICO",
+  "CANCELAMENTO_COBRANCA",
+  "SUSPENSAO_COBRANCA",
+  "SEM_SALDO_EM_ABERTO",
+  "SALDO_ZERO_CONFIRMADO",
+];
+function foraDaMaoDoOperador(aluno) {
+  const s = String(aluno?.status_atual || aluno?.status_jornada || "").toUpperCase();
+  if (s.startsWith("QUITAD") || STATUS_FORA_DA_MAO.includes(s)) return true;
+  // "Aguardando confirmacao de pagamento" chega como texto humano em
+  // status_jornada (card Confirmar pagamento) -- mesma leitura da Carteira.
+  const sj = String(aluno?.status_jornada || "").toUpperCase();
+  return sj.includes("AGUARDANDO CONFIRMA");
+}
+
 function soDigitos(t) {
   let d = String(t || "").replace(/\D/g, "");
   if (!d) return "";
@@ -32,11 +59,12 @@ function soDigitos(t) {
   return d;
 }
 
-export default function EmailAlunoUnificado({ aluno }) {
+export default function EmailAlunoUnificado({ aluno, onTabulado }) {
   const [templates, setTemplates] = useState([]);
   const [chave, setChave] = useState("");
   const [operador, setOperador] = useState({ nome: "", email: "" });
   const [msg, setMsg] = useState("");
+  const [msgErro, setMsgErro] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [emailDest, setEmailDest] = useState(aluno?.email || "");
   const [salvandoEmail, setSalvandoEmail] = useState(false);
@@ -101,42 +129,77 @@ export default function EmailAlunoUnificado({ aluno }) {
   const html = tpl ? merge(tpl.corpo_html) : "";
   const texto = tpl ? merge(tpl.corpo_texto) : "";
 
-  function proximoDiaUtil(dias) {
-    const d = new Date();
-    let add = 0;
-    while (add < (dias || 2)) {
-      d.setDate(d.getDate() + 1);
-      const w = d.getDay();
-      if (w !== 0 && w !== 6) add += 1;
-    }
-    return d.toISOString().slice(0, 10);
-  }
-
+  // Enviar e-mail JA E a tabulacao "Mensagem enviada" -- a mesma do botao
+  // rapido. Antes gravava "Retornar depois" em silencio, o modal da Carteira
+  // nao ficava sabendo, e o "Finalizar atendimento" seguinte gravava o status
+  // velho ("A contatar", retorno hoje) por cima. Devolve o que foi gravado
+  // para a tela-mae se atualizar; lanca erro quando o banco recusa.
   async function tabularEnvioEmail() {
-    if (!aluno?.id) return;
-    try {
-      await supabase.from("alunos").update({
-        status_jornada: "RETORNAR_DEPOIS",
-        status_atual: "RETORNAR_DEPOIS",
-        status_acionamento: "E-mail enviado - " + (tpl?.situacao || chave),
-        proxima_acao: "RETORNAR",
-        data_retorno: proximoDiaUtil(tpl?.dias_retorno),
-        data_ultimo_acionamento: new Date().toISOString(),
-      }).eq("id", aluno.id);
-    } catch (e) { /* silencioso */ }
+    if (!aluno?.id) return null;
+    const agora = new Date().toISOString();
+    const statusAntigo = aluno.status_atual || aluno.status_jornada || null;
+    const situacao = tpl?.situacao || chave;
+    const base = { data_ultimo_acionamento: agora, ultimo_contato: agora };
+
+    if (foraDaMaoDoOperador(aluno)) {
+      const { error } = await supabase.from("alunos").update(base).eq("id", aluno.id);
+      if (error) throw error;
+      return { status: statusAntigo, statusAntigo, dataRetorno: null, mantido: true, agora };
+    }
+
+    // Prazo do catalogo de tabulacoes (a mesma regra do botao rapido, do
+    // modal e da ficha) -- nao mais o `dias_retorno` da arte. Data futura que
+    // o operador ja marcou fica.
+    const catalogo = await carregarTabulacoes();
+    const desfecho = desfechoDaTabulacao(catalogo, "MENSAGEM_ENVIADA", {
+      retornoAtual: { data: aluno.data_retorno, origem: aluno.retorno_origem },
+    });
+    const campos = {
+      ...base,
+      status_jornada: "MENSAGEM_ENVIADA",
+      status_atual: "MENSAGEM_ENVIADA",
+      status_acionamento: "E-mail enviado - " + situacao,
+      proxima_acao: desfecho.proxima_acao,
+    };
+    if (desfecho.data_retorno) {
+      campos.data_retorno = desfecho.data_retorno;
+      campos.retorno_origem = desfecho.retorno_origem;
+    }
+    const { error } = await supabase.from("alunos").update(campos).eq("id", aluno.id);
+    if (error) throw error;
+    return {
+      status: "MENSAGEM_ENVIADA",
+      statusAntigo,
+      dataRetorno: desfecho.data_retorno || null,
+      prazo: desfecho.motivo === "MANTIDA" ? "data que você já tinha marcado" : descreverPrazo(catalogo, "MENSAGEM_ENVIADA"),
+      mantido: false,
+      agora,
+    };
   }
 
-  async function registrarAcionamento() {
+  // Historico do aluno: o e-mail e, junto, a tabulacao que ele gravou (ou o
+  // motivo de nao ter gravado). `info` nulo = o status nao foi salvo.
+  async function registrarAcionamento(info) {
     if (!aluno?.id) return;
+    const situacao = tpl?.situacao || chave;
+    let desfecho = " — sem tabular (erro ao gravar o status).";
+    if (info?.mantido) desfecho = ` — tabulação "${rotuloStatus(info.status)}" mantida.`;
+    else if (info) desfecho = ` — tabulado como "Mensagem enviada"${info.dataRetorno ? `, retorno ${dataBRDeISO(info.dataRetorno)} (${info.prazo})` : ""}.`;
+    const linha = {
+      aluno_id: String(aluno.id),
+      tipo: "ACAO_MASSIVA_EXTERNA_EMAIL",
+      descricao: `E-mail (${situacao}) enviado por ${operador.email}${desfecho}`,
+      registrado_por_email: operador.email,
+      registrado_por_nome: operador.nome,
+      registrado_em: info?.agora || new Date().toISOString(),
+    };
+    if (info) {
+      linha.status_anterior = info.statusAntigo;
+      linha.status_novo = info.status;
+    }
     try {
-      await supabase.from("aluno_movimentacoes").insert({
-        aluno_id: aluno.id,
-        tipo: "ACAO_MASSIVA_EXTERNA_EMAIL",
-        descricao: `E-mail (${tpl?.situacao || chave}) enviado por ${operador.email}`,
-        registrado_por_email: operador.email,
-        registrado_por_nome: operador.nome,
-      });
-    } catch (e) { /* silencioso */ }
+      await supabase.from("aluno_movimentacoes").insert(linha);
+    } catch (e) { /* silencioso: o historico nao pode travar o envio */ }
   }
 
   async function abrirGmail() {
@@ -160,13 +223,35 @@ export default function EmailAlunoUnificado({ aluno }) {
       `https://mail.google.com/mail/?view=cm&fs=1&to=${to}&su=${su}${cc}&body=${body}`,
       "_blank"
     );
-    registrarAcionamento();
-    tabularEnvioEmail();
-    setMsg(
-      arteCopiada
-        ? "Gmail aberto! Clique no corpo do e-mail e cole a arte com Ctrl+V" + (tpl?.permite_anexo ? ", anexe o termo" : "") + " e envie."
-        : "Gmail aberto com o texto pronto. Revise e envie."
-    );
+
+    // Primeiro a ficha (status + retorno + data do acionamento), depois o
+    // historico: o gatilho da movimentacao recalcula a situacao e, com o
+    // acionamento de hoje ja gravado, preserva o retorno que acabou de entrar.
+    let info = null;
+    let erroTabulacao = null;
+    try {
+      info = await tabularEnvioEmail();
+    } catch (e) {
+      erroTabulacao = e;
+    }
+    await registrarAcionamento(info);
+    if (info && typeof onTabulado === "function") {
+      try { await onTabulado(info); } catch (e) { /* a tela-mae trata o proprio erro */ }
+    }
+
+    const abertura = arteCopiada
+      ? "Gmail aberto! Clique no corpo do e-mail e cole a arte com Ctrl+V" + (tpl?.permite_anexo ? ", anexe o termo" : "") + " e envie."
+      : "Gmail aberto com o texto pronto. Revise e envie.";
+    if (erroTabulacao) {
+      setMsgErro(true);
+      setMsg(`${abertura} NÃO consegui tabular "Mensagem enviada" (${erroTabulacao?.message || "erro desconhecido"}). Tabule na aba Tabulação.`);
+    } else if (info?.mantido) {
+      setMsgErro(false);
+      setMsg(`${abertura} A tabulação "${rotuloStatus(info.status)}" foi mantida (caso fora da fila do operador); o e-mail ficou no histórico.`);
+    } else {
+      setMsgErro(false);
+      setMsg(`${abertura} Tabulado como "Mensagem enviada"${info?.dataRetorno ? ` — retorno em ${dataBRDeISO(info.dataRetorno)} (${info.prazo})` : ""}.`);
+    }
   }
 
   async function registrarContato(canal) {
@@ -264,9 +349,10 @@ export default function EmailAlunoUnificado({ aluno }) {
         </button>
       </div>
 
-      {msg ? <div style={S.msg}>{msg}</div> : null}
+      {msg ? <div style={msgErro ? S.msgErro : S.msg}>{msg}</div> : null}
       <p style={S.rodape}>
-        O envio sai da sua conta Google ({operador.email}). O acionamento e registrado automaticamente ao abrir o Gmail.
+        O envio sai da sua conta Google ({operador.email}). Ao abrir o Gmail o caso e tabulado como
+        &quot;Mensagem enviada&quot; (a mesma tabulacao do botao rapido) e o retorno segue a regra dessa tabulacao.
       </p>
     </div>
   );
@@ -293,5 +379,6 @@ const S = {
   btnPrim: { background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, padding: "11px 18px", fontWeight: 700, cursor: "pointer" },
   btnSec: { background: "#fff", color: "#1d4ed8", border: "1px solid #1d4ed8", borderRadius: 8, padding: "11px 16px", fontWeight: 700, cursor: "pointer" },
   msg: { marginTop: 12, background: "#dcfce7", border: "1px solid #bfdbfe", color: "#166534", padding: 10, borderRadius: 8, fontSize: 13, fontWeight: 600 },
+  msgErro: { marginTop: 12, background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", padding: 10, borderRadius: 8, fontSize: 13, fontWeight: 600 },
   rodape: { color: "#8a93a3", fontSize: 12, marginTop: 10, lineHeight: 1.5 },
 };
