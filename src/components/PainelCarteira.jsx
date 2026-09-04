@@ -17,6 +17,14 @@ import ConfirmarPagamento from "./ConfirmarPagamento";
 import CadastroNovoAluno from "./CadastroNovoAluno";
 import PainelDesfazer from "./PainelDesfazer";
 import { listarDesfazer, desfazerAcao, explicarBloqueio } from "../utils/desfazer";
+import {
+  carregarTabulacoes,
+  useTabulacoes,
+  desfechoDaTabulacao,
+  descreverPrazo,
+  proximaAcaoDeTabulacao,
+  retornoEhManual,
+} from "../utils/tabulacoes";
 import VisaoGeralCarteira from "./VisaoGeralCarteira";
 import VisaoGestao360 from "./VisaoGestao360";
 
@@ -78,54 +86,10 @@ const STATUS_FINALIZACAO = [
   "JURIDICO",
 ];
 
-// Derivacao da proxima acao a partir do status escolhido -- mesma regra do
-// Aluno.jsx.
-function proximaAcaoDeStatus(statusNovo) {
-  if (statusNovo === "RETORNAR_DEPOIS" || statusNovo === "ALUNO_EM_NEGOCIACAO_24H") return "RETORNAR";
-  if (statusNovo === "ACORDO_FECHADO") return "ACOMPANHAR_PAGAMENTO";
-  if (statusNovo === "NAO_LOCALIZADO") return "TENTAR_NOVO_CONTATO";
-  if (statusNovo === "LINK_PRONTO_PARA_ENVIO") return "ENVIAR_LINK_AO_ALUNO";
-  return "CONTATAR";
-}
-
-// Auto-retorno por status (prazos definidos com a gestao). Retorna uma data
-// "YYYY-MM-DD" sugerida a partir do status tabulado, ou null quando o retorno
-// deve ser manual. O operador sempre pode sobrescrever no formulario.
-function adicionarDiasUteisData(base, n) {
-  const d = new Date(base);
-  let add = 0;
-  while (add < n) {
-    d.setDate(d.getDate() + 1);
-    const dow = d.getDay();
-    if (dow !== 0 && dow !== 6) add += 1;
-  }
-  return d;
-}
-
-function retornoAutomaticoDeStatus(statusNovo) {
-  const hoje = new Date();
-  hoje.setHours(0, 0, 0, 0);
-  // AGUARDANDO_BAIXA nao entra aqui de proposito: o caso foi para a
-  // confirmacao de pagamento e fica sem retorno ate a conferencia ser
-  // concluida. Data digitada a mao tambem e apagada pelo recalculo enquanto a
-  // confirmacao estiver pendente.
-  const uteis = {
-    MENSAGEM_ENVIADA: 2,
-    SOLICITADO_LINK: 1,
-    AGUARDANDO_LINK: 1,
-    LINK_PRONTO_PARA_ENVIO: 1,
-    TERMO_ENVIADO_ALUNO: 2,
-    NAO_LOCALIZADO: 1,
-    AGUARDANDO_COMPROVANTE: 3,
-    ACORDO_FECHADO: 2,
-  };
-  if (!(statusNovo in uteis)) return null; // RETORNAR_DEPOIS/NEGOCIACAO_24H = manual
-  const d = adicionarDiasUteisData(hoje, uteis[statusNovo]);
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
-}
+// Proxima acao e prazo de retorno de cada tabulacao vem do catalogo
+// (src/utils/tabulacoes.js) -- a mesma regra do botao rapido, da ficha e do
+// e-mail. A tabela fixa que vivia aqui (Mensagem enviada = 2 dias uteis) foi
+// aposentada em 04/09/2026.
 
 // Diferenca em dias entre "hoje" e uma data "YYYY-MM-DD" (alvo - hoje).
 function diasParaData(hojeStr, alvoStr) {
@@ -180,6 +144,24 @@ function hojeLocalBR() {
   const mes = String(d.getMonth() + 1).padStart(2, "0");
   const dia = String(d.getDate()).padStart(2, "0");
   return `${ano}-${mes}-${dia}`;
+}
+
+// So entra no <select> de tabulacao o que esta na lista. Status legado ("Novo
+// caso", "Em cobranca") ficava invisivel no select e o "Finalizar" o
+// regravava sem ninguem escolher (124 casos em 3 dias, 09/2026).
+function statusTabulavel(status) {
+  return STATUS_FINALIZACAO.includes(status) ? status : "";
+}
+
+// O campo "Agendar retorno" so vem preenchido com data que o OPERADOR marcou
+// e que ainda esta no futuro. Data automatica (motor da fila, regra da
+// tabulacao) nao e compromisso: se viesse preenchida, o "Finalizar" a
+// regravava como escolha humana -- e "retorno hoje" virava o desfecho de tudo.
+function retornoAgendadoPeloOperador(a) {
+  const data = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : "";
+  if (!data) return "";
+  if (!String(a?.retorno_origem || "").startsWith("OPERADOR")) return "";
+  return data >= hojeLocalBR() ? data : "";
 }
 
 // Azul claro da linha ja trabalhada no dia (e o tom do hover em cima dela).
@@ -432,7 +414,7 @@ const KPIS_FILTRAVEIS = new Set([
 const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
 
 const COLUNAS_ALUNO =
-  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,saldo_total,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,hora_retorno,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
+  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,saldo_total,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,retorno_origem,hora_retorno,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
 
 // Rotulo amigavel da situacao operacional (recalcular_situacao_aluno).
 const SITUACAO_OPERACIONAL_LABEL = {
@@ -937,6 +919,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [avisoRapido, setAvisoRapido] = useState(null); // { tipo: "ok"|"erro", texto }
   // Sobe a cada gravacao: sinal para a faixa "Da para desfazer" reconsultar.
   const [desfazerTick, setDesfazerTick] = useState(0);
+  // Catalogo de tabulacoes (prazo + proxima acao), para a tela explicar a regra.
+  const { tabulacoes: catalogoTabulacoes } = useTabulacoes();
   // Ids com acao rapida em andamento -- evita duplicar movimentacao no duplo clique.
   const [tabulandoIds, setTabulandoIds] = useState(() => new Set());
   const tabulandoRef = useRef(new Set());
@@ -1573,10 +1557,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     setRetornoAluno(null);
     // Lembrete de parcela devido (acordo em dia, D-2): a tabulacao ja vem
     // pre-selecionada -- o operador so confirma depois de falar com o aluno.
-    setStatusNovo(lembreteParcelaDevido(a) ? "LEMBRETE_PARCELA" : (a.status_atual || ""));
+    setStatusNovo(lembreteParcelaDevido(a) ? "LEMBRETE_PARCELA" : statusTabulavel(a.status_atual));
     setResumoConversa("");
-    setRetornoData(a.data_retorno || "");
-    setRetornoHora(a.hora_retorno || "");
+    setRetornoData(retornoAgendadoPeloOperador(a));
+    setRetornoHora(retornoAgendadoPeloOperador(a) ? (a.hora_retorno || "") : "");
     setObservacao(a.observacao || "");
     carregarDadosModal(a.id, a.cpf);
 
@@ -1743,17 +1727,35 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     const statusAntigo = aluno.status_atual || aluno.status_jornada || null;
 
     try {
+      // Prazo e proxima acao vem do catalogo de tabulacoes (a mesma regra do
+      // modal, da ficha e do e-mail). O retorno atual e lido do banco, nao da
+      // linha: se o operador ja marcou uma data futura, ela fica.
+      const catalogo = await carregarTabulacoes();
+      const { data: atual } = await supabase
+        .from("alunos")
+        .select("data_retorno,retorno_origem")
+        .eq("id", aluno.id)
+        .maybeSingle();
+      const desfecho = desfechoDaTabulacao(catalogo, statusNovo, {
+        retornoAtual: { data: atual?.data_retorno, origem: atual?.retorno_origem },
+      });
+      const camposAluno = {
+        status_jornada: statusNovo,
+        status_atual: statusNovo,
+        proxima_acao: desfecho.proxima_acao,
+        data_ultimo_acionamento: agora,
+        ultimo_contato: agora,
+      };
+      if (desfecho.data_retorno) {
+        camposAluno.data_retorno = desfecho.data_retorno;
+        camposAluno.retorno_origem = desfecho.retorno_origem;
+        if (desfecho.motivo === "AUTOMATICA") camposAluno.hora_retorno = null;
+      }
+      const textoRetorno = desfecho.data_retorno ? ` Retorno: ${formatarData(desfecho.data_retorno)}.` : "";
+
       // 1) Atualiza a ficha do aluno. NAO mexe em responsavel_atual_email
       // nem em fidelizacao -- o caso continua com o mesmo operador.
-      const { error: erroAluno } = await supabase
-        .from("alunos")
-        .update({
-          status_jornada: statusNovo,
-          status_atual: statusNovo,
-          data_ultimo_acionamento: agora,
-          ultimo_contato: agora,
-        })
-        .eq("id", aluno.id);
+      const { error: erroAluno } = await supabase.from("alunos").update(camposAluno).eq("id", aluno.id);
       if (erroAluno) throw erroAluno;
 
       // 2) Registra a movimentacao manual do operador. O tipo
@@ -1763,7 +1765,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const { error: erroMov } = await supabase.from("aluno_movimentacoes").insert({
         aluno_id: String(aluno.id),
         tipo: "FINALIZACAO_ATENDIMENTO",
-        descricao: `${rotuloStatus} — ação rápida direto na Minha Carteira.`,
+        descricao: `${rotuloStatus} — ação rápida direto na Minha Carteira.${textoRetorno}`,
         status_anterior: statusAntigo,
         status_novo: statusNovo,
         registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
@@ -1777,13 +1779,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       setCasos((prev) =>
         prev.map((c) =>
           c.id === aluno.id
-            ? { ...c, status_jornada: statusNovo, status_atual: statusNovo, data_ultimo_acionamento: agora, ultimo_contato: agora }
+            ? { ...c, ...camposAluno }
             : c
         )
       );
       setAvisoRapido({
         tipo: "ok",
-        texto: `${rotuloStatus} registrado para ${nomeAluno(aluno)}.`,
+        texto: `${rotuloStatus} registrado para ${nomeAluno(aluno)}.${textoRetorno.replace(" Retorno: ", " Retorno em ")}`,
         desfazerAlunoId: aluno.id,
       });
       setDesfazerTick((t) => t + 1);
@@ -1914,6 +1916,40 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     }
   }
 
+  // Enviar e-mail pela aba E-mail JA E a tabulacao "Mensagem enviada" (a
+  // mesma do botao rapido); o painel de e-mail grava no banco e avisa aqui.
+  // O modal precisa refletir isso -- select, retorno, linha da carteira --
+  // senao o "Finalizar atendimento" seguinte gravava o status VELHO
+  // ("A contatar", retorno hoje) por cima do que o e-mail tabulou: em
+  // 04/09/2026, 13 dos 14 e-mails da manha terminaram assim.
+  async function tabuladoPeloEmail(a, info) {
+    if (!a?.id) return;
+    if (info?.mantido) {
+      setFeedback({
+        tipo: "ok",
+        texto:
+          `E-mail registrado no histórico. A tabulação "${labelStatus(info.status)}" foi mantida: ` +
+          "o caso não está na fila do operador.",
+      });
+      await atualizarTudo(a.id);
+      return;
+    }
+    setResumoConversa("");
+    setFeedback({
+      tipo: "ok",
+      texto:
+        'Tabulado como "Mensagem enviada" pelo envio do e-mail' +
+        (info?.dataRetorno ? ` — retorno em ${formatarData(info.dataRetorno)}.` : "."),
+    });
+    if (guiado) {
+      guiadoFeitosRef.current.add(String(a.id));
+      setGuiadoAcionados(guiadoFeitosRef.current.size);
+    }
+    // Reabre a ficha do banco: o select ja vem com "Mensagem enviada" e o
+    // retorno com a data agendada, e a linha da carteira acompanha.
+    await atualizarTudo(a.id);
+  }
+
   // Recarrega o aluno atual (linha da carteira + modal) apos uma acao.
   async function atualizarTudo(id) {
     setDesfazerTick((t) => t + 1);
@@ -1921,9 +1957,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     if (row) {
       setAlunoModal(row);
       setObservacao(row.observacao || "");
-      setStatusNovo(row.status_atual || "");
-      setRetornoData(row.data_retorno || "");
-      setRetornoHora(row.hora_retorno || "");
+      setStatusNovo(statusTabulavel(row.status_atual));
+      setRetornoData(retornoAgendadoPeloOperador(row));
+      setRetornoHora(retornoAgendadoPeloOperador(row) ? (row.hora_retorno || "") : "");
       // Atualiza a linha correspondente na carteira sem recarregar tudo.
       setCasos((prev) => prev.map((c) => (c.id === id ? { ...c, ...row } : c)));
     }
@@ -1940,6 +1976,18 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       setFeedback({ tipo: "erro", texto: "Selecione o status do atendimento." });
       return;
     }
+    // Prazo e proxima acao pelo catalogo de tabulacoes -- a mesma regra do
+    // botao rapido, da ficha e do e-mail. Data digitada e compromisso do
+    // operador; sem data, a tabulacao agenda sozinha (ou nao agenda).
+    const catalogo = await carregarTabulacoes();
+    if (retornoEhManual(catalogo, statusNovo) && !retornoData) {
+      setFeedback({ tipo: "erro", texto: `"${labelStatus(statusNovo)}" precisa de data: informe em "Agendar retorno".` });
+      return;
+    }
+    const desfecho = desfechoDaTabulacao(catalogo, statusNovo, {
+      dataDigitada: retornoData,
+      retornoAtual: { data: a.data_retorno, origem: a.retorno_origem },
+    });
     setSalvando(true);
     setFeedback(null);
     try {
@@ -1948,21 +1996,17 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       const atualizacaoAluno = {
         status_jornada: statusNovo,
         status_atual: statusNovo,
-        proxima_acao: proximaAcaoDeStatus(statusNovo),
+        proxima_acao: desfecho.proxima_acao,
         data_ultimo_acionamento: agora,
         ultimo_contato: agora,
         registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
         registrado_por_email: email,
         registrado_em: agora,
       };
-      if (retornoData) {
-        atualizacaoAluno.data_retorno = retornoData;
-        atualizacaoAluno.hora_retorno = retornoHora || null;
-      } else {
-        // Sem data digitada: agenda o retorno automaticamente pela regra do
-        // status (Fase 3). Alguns status nao geram retorno automatico.
-        const retornoAuto = retornoAutomaticoDeStatus(statusNovo);
-        if (retornoAuto) atualizacaoAluno.data_retorno = retornoAuto;
+      if (desfecho.data_retorno) {
+        atualizacaoAluno.data_retorno = desfecho.data_retorno;
+        atualizacaoAluno.retorno_origem = desfecho.retorno_origem;
+        atualizacaoAluno.hora_retorno = desfecho.motivo === "DIGITADA" ? (retornoHora || null) : null;
       }
       if (observacao !== (a.observacao || "")) {
         atualizacaoAluno.observacao = observacao;
@@ -1977,7 +2021,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         descricao:
           (resumoConversa.trim() ? resumoConversa.trim() + " " : "") +
           `Atendimento finalizado como "${labelStatus(statusNovo)}".` +
-          (retornoData ? ` Retorno: ${formatarData(retornoData)}${retornoHora ? " " + retornoHora : ""}.` : ""),
+          (desfecho.data_retorno
+            ? ` Retorno: ${formatarData(desfecho.data_retorno)}` +
+              (desfecho.motivo === "DIGITADA" && retornoHora ? " " + retornoHora : "") +
+              (desfecho.motivo === "AUTOMATICA" ? ` (automático: ${descreverPrazo(catalogo, statusNovo)})` : "") +
+              "."
+            : ""),
         status_anterior: statusAntigo,
         status_novo: statusNovo,
         registrado_por_nome: usuarioLogado?.nome || nomeOperadorPorEmail(email),
@@ -2035,7 +2084,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       }
 
       setResumoConversa("");
-      setFeedback({ tipo: "ok", texto: "Atendimento salvo com sucesso." });
+      setFeedback({
+        tipo: "ok",
+        texto: "Atendimento salvo." + (desfecho.data_retorno ? ` Retorno em ${formatarData(desfecho.data_retorno)}.` : ""),
+      });
       if (guiado) {
         // Tabulou: este e o unico jeito de avancar. Recarrega a fila do banco
         // (outro operador pode ter pego o proximo; alguem pode ter pago) e
@@ -3872,7 +3924,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   </select>
 
                   <div style={S.proximaAcao}>
-                    Proxima acao: <strong>{statusNovo ? proximaAcaoDeStatus(statusNovo) : "-"}</strong>
+                    Proxima acao: <strong>{statusNovo ? proximaAcaoDeTabulacao(catalogoTabulacoes, statusNovo) : "-"}</strong>
+                    {statusNovo && (
+                      <>
+                        {" · "}Retorno: <strong>{descreverPrazo(catalogoTabulacoes, statusNovo)}</strong>
+                      </>
+                    )}
                   </div>
 
                   <label style={S.label}>Resumo da conversa</label>
@@ -3887,6 +3944,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   <div style={{ display: "flex", gap: 8 }}>
                     <input type="date" style={{ ...S.input, flex: 1 }} value={retornoData} onChange={(e) => setRetornoData(e.target.value)} />
                     <input type="time" style={{ ...S.input, width: 120 }} value={retornoHora} onChange={(e) => setRetornoHora(e.target.value)} />
+                  </div>
+                  <div style={S.lembreteDica}>
+                    Sem data, o retorno segue a regra da tabulacao (acima). Data digitada e compromisso seu e aparece na Agenda.
                   </div>
 
                   <div style={S.acoesLinha}>
@@ -3968,7 +4028,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
               {abaModal === "email" && (
                 <div style={S.secao}>
-                  <EmailAlunoUnificado aluno={alunoModal} />
+                  <EmailAlunoUnificado aluno={alunoModal} onTabulado={(info) => tabuladoPeloEmail(alunoModal, info)} />
                 </div>
               )}
 

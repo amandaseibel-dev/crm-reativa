@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
+import { carregarTabulacoes, desfechoDaTabulacao } from "../utils/tabulacoes";
 import { buscarTudo } from "../utils/paginado";
 import FluxoLinksRapido from "../components/FluxoLinksRapido";
 import ModuloLinkPagamentoGlobal from "../components/ModuloLinkPagamentoGlobal";
@@ -223,25 +224,6 @@ function mensagemIncentivo(qtdFinalizados) {
   return { texto: `${qtdFinalizados} casos finalizados hoje. Você está arrasando!`, cor: "#facc15", bg: "#1c1917" };
 }
 
-function definirProximaAcao(status) {
-  if (status === "MENSAGEM_ENVIADA") return "AGUARDAR_RETORNO";
-  if (status === "RETORNAR_DEPOIS") return "RETORNAR";
-  if (status === "ALUNO_EM_NEGOCIACAO_24H") return "RETORNAR";
-  if (status === "ACORDO_FECHADO") return "ACOMPANHAR_PAGAMENTO";
-  if (status === "NAO_LOCALIZADO") return "TENTAR_NOVO_CONTATO";
-  if (status === "SOLICITADO_LINK") return "AGUARDAR_LINK";
-  if (status === "AGUARDANDO_LINK") return "AGUARDAR_LINK";
-  if (status === "LINK_GERADO") return "ENVIAR_LINK_AO_ALUNO";
-  if (status === "LINK_PRONTO_PARA_ENVIO") return "ENVIAR_LINK_AO_ALUNO";
-  if (status === "LINK_ENVIADO_ALUNO") return "AGUARDAR_COMPROVANTE";
-  if (status === "AGUARDANDO_COMPROVANTE") return "AGUARDAR_COMPROVANTE";
-  if (status === "AGUARDANDO_BAIXA") return "AGUARDAR_BAIXA";
-  if (status === "BAIXA_REALIZADA") return "BAIXA_REALIZADA";
-  if (status === "BAIXA_DEVOLVIDA") return "CORRIGIR_COMPROVANTE";
-  if (status === "TERMO_ENVIADO_ALUNO") return "AGUARDAR_ASSINATURA_ALUNO";
-  if (status === "TERMO_ENVIADO_ADM") return "AGUARDAR_ADM";
-  return "CONTATAR";
-}
 
 export default function FilaOperador() {
   const navigate = useNavigate();
@@ -696,8 +678,18 @@ export default function FilaOperador() {
       atualizacaoAluno.status_jornada = statusNovo;
       atualizacaoAluno.status_atual = statusNovo;
       atualizacaoAluno.status_acionamento = statusNovo;
-      atualizacaoAluno.proxima_acao = definirProximaAcao(statusNovo);
-      atualizacaoAluno.data_retorno = paraDataLocalBR(retorno);
+      // Prazo e proxima acao pelo catalogo de tabulacoes -- regra unica com a
+      // Minha Carteira, a ficha e o e-mail. Antes esta tela zerava o retorno
+      // de toda tabulacao sem data e tinha a propria tabela fixa de acoes.
+      const catalogo = await carregarTabulacoes();
+      const desfecho = desfechoDaTabulacao(catalogo, statusNovo, {
+        dataDigitada: retorno ? paraDataLocalBR(retorno) || "" : "",
+      });
+      atualizacaoAluno.proxima_acao = desfecho.proxima_acao;
+      if (desfecho.data_retorno) {
+        atualizacaoAluno.data_retorno = desfecho.data_retorno;
+        atualizacaoAluno.retorno_origem = desfecho.retorno_origem;
+      }
     }
 
     if (observacaoAluno !== null) {
