@@ -8,6 +8,11 @@ import {
   etapaDe,
   dataEtapa,
   casaBusca,
+  ehDispensado,
+  naTrilha,
+  podeDevolverAoOperador,
+  MOTIVOS_DISPENSA,
+  rotuloMotivoDispensa,
 } from "../utils/termosAssinatura";
 import {
   urlTermo,
@@ -41,6 +46,18 @@ const MOTIVOS_REJEICAO = [
   "Outro",
 ];
 
+// Motivos para DEVOLVER um termo já liberado ao operador: aqui o problema não é
+// a assinatura, é o conteúdo do acordo. Vira o "Retorno ADM" que o operador lê
+// na ficha antes de reenviar.
+const MOTIVOS_DEVOLUCAO = [
+  "Valor do acordo incorreto",
+  "Parcelas ou vencimentos incorretos",
+  "Dados do aluno incorretos",
+  "Termo de outro aluno / arquivo trocado",
+  "Falta documento ou assinatura",
+  "Outro",
+];
+
 function traduzStatus(status) {
   return STATUS_LABEL[status] || status || "-";
 }
@@ -69,6 +86,7 @@ function corEtapa(etapa) {
   if (etapa === "ENVIADO_ASSINATURA") return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c" };
   if (etapa === "PENDENTE_ENVIO") return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
   if (etapa === "NAO_VERIFICADO") return { background: "#e2e3e5", color: "#41464b", border: "1px solid #d3d6d8" };
+  if (etapa === "DISPENSADO") return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
   return { background: "#f8f9fa", color: "#6c757d", border: "1px solid #e9ecef" };
 }
 
@@ -207,6 +225,12 @@ export default function FilaAdmTermos() {
   const [motivoSel, setMotivoSel] = useState("");
   const [motivoTxt, setMotivoTxt] = useState("");
   const [salvando, setSalvando] = useState(false);
+
+  // --- Decisão sobre termo JÁ LIBERADO: "não será assinado" ou "devolver" ---
+  // { tipo: "DISPENSAR" | "DEVOLVER", termo }
+  const [modalDecisao, setModalDecisao] = useState(null);
+  const [decisaoMotivo, setDecisaoMotivo] = useState("");
+  const [decisaoTxt, setDecisaoTxt] = useState("");
 
   useEffect(() => {
     carregarUsuario();
@@ -495,6 +519,117 @@ export default function FilaAdmTermos() {
     carregarTermos();
   }
 
+  // --- Termo liberado que não vai adiante --------------------------------------
+
+  function abrirDecisao(tipo, termo) {
+    setModalDecisao({ tipo, termo });
+    setDecisaoMotivo("");
+    setDecisaoTxt("");
+  }
+
+  function fecharDecisao() {
+    setModalDecisao(null);
+  }
+
+  // "Não será assinado": o acordo não foi cumprido e o termo sai da trilha de
+  // assinatura (etapa DISPENSADO). Nada é apagado — a via assinada de quem não
+  // pagou é a confissão de dívida — e dá para voltar atrás.
+  async function dispensarAssinatura(termo) {
+    const detalhe = decisaoTxt.trim();
+    if (!decisaoMotivo) {
+      alert("Selecione o motivo.");
+      return;
+    }
+    if (decisaoMotivo === "OUTRO" && !detalhe) {
+      alert("Descreva o motivo (obrigatório para 'Outro').");
+      return;
+    }
+    setProcessando(true);
+    const { data, error } = await supabase.rpc("termo_dispensar_assinatura", {
+      p_termo_id: termo.id,
+      p_motivo: decisaoMotivo,
+      p_detalhe: detalhe || null,
+    });
+    setProcessando(false);
+    if (error || !data?.ok) {
+      const cod = error?.message || data?.erro || "erro desconhecido";
+      alert(
+        cod === "etapa_invalida"
+          ? "Este termo já não está na fila de assinatura. A lista será atualizada."
+          : "Não foi possível tirar o termo da fila: " + cod,
+      );
+      if (data?.erro === "etapa_invalida") carregarTermos();
+      return;
+    }
+    fecharDecisao();
+    carregarTermos();
+  }
+
+  // "Devolver ao operador": termo liberado com algo errado no acordo. Vira
+  // TERMO_REJEITADO com o motivo e o caso volta ao operador, que reenvia um
+  // termo novo pela ficha. O arquivo conferido fica como histórico.
+  async function devolverAoOperador(termo) {
+    const compl = decisaoTxt.trim();
+    if (!decisaoMotivo) {
+      alert("Selecione o motivo da devolução.");
+      return;
+    }
+    if (decisaoMotivo === "Outro" && !compl) {
+      alert("Descreva o motivo (obrigatório para 'Outro').");
+      return;
+    }
+    const motivo =
+      decisaoMotivo === "Outro" ? compl : compl ? `${decisaoMotivo} — ${compl}` : decisaoMotivo;
+
+    setProcessando(true);
+    const { data, error } = await supabase.rpc("termo_devolver_ao_operador", {
+      p_termo_id: termo.id,
+      p_motivo: motivo,
+    });
+    setProcessando(false);
+    if (error || !data?.ok) {
+      const cod = error?.message || data?.erro || "erro desconhecido";
+      alert(
+        cod === "assinatura_concluida"
+          ? "Este termo já está assinado por testemunhas e Ulbra. Use 'Desfazer assinatura' antes de devolver."
+          : cod === "status_invalido"
+            ? "Este termo não está liberado; só termo liberado pode ser devolvido. A lista será atualizada."
+            : "Não foi possível devolver o termo: " + cod,
+      );
+      if (data?.erro === "status_invalido") carregarTermos();
+      return;
+    }
+    fecharDecisao();
+    alert(
+      `Termo de ${termo.aluno_nome || "aluno"} devolvido. O operador ` +
+        `${termo.operador_nome || termo.operador_email || ""} foi avisado e o caso voltou para a fila dele.`,
+    );
+    carregarTermos();
+  }
+
+  function confirmarDecisao() {
+    if (!modalDecisao || processando) return;
+    if (modalDecisao.tipo === "DISPENSAR") return dispensarAssinatura(modalDecisao.termo);
+    return devolverAoOperador(modalDecisao.termo);
+  }
+
+  // Dispensado por engano, ou aluno que voltou a pagar: volta para "A enviar".
+  async function reativarAssinatura(termo) {
+    const ok = window.confirm(
+      `Voltar o termo de ${termo.aluno_nome || "este aluno"} para a fila de assinatura?\n\n` +
+        'Ele volta como "A enviar".',
+    );
+    if (!ok) return;
+    setProcessando(true);
+    const { data, error } = await supabase.rpc("termo_reativar_assinatura", { p_termo_id: termo.id });
+    setProcessando(false);
+    if (error || !data?.ok) {
+      alert("Não foi possível voltar o termo para a fila: " + (error?.message || data?.erro || "erro desconhecido"));
+      return;
+    }
+    carregarTermos();
+  }
+
   function abrirAnexo(termo) {
     setModalAnexo(termo);
     setAnexoArquivo(null);
@@ -617,9 +752,13 @@ export default function FilaAdmTermos() {
     if (filtro === "REJEITADOS") return termos.filter((t) => t.status === "TERMO_REJEITADO");
     if (filtro === "AUDITORIA") return termos.filter(ehGovPendenteAuditoria);
     if (filtro === "ASSINATURAS") {
-      const naFila = termos.filter((t) => etapaDe(t) !== "NAO_APLICAVEL");
+      // "Todas" é a trilha viva; o dispensado só aparece no filtro dele.
       const porEtapa =
-        etapaFiltro === "TODAS" ? naFila : naFila.filter((t) => etapaDe(t) === etapaFiltro);
+        etapaFiltro === "TODAS"
+          ? termos.filter(naTrilha)
+          : etapaFiltro === "DISPENSADO"
+            ? termos.filter(ehDispensado)
+            : termos.filter((t) => etapaDe(t) === etapaFiltro);
       const porBusca = porEtapa.filter((t) => casaBusca(t, buscaAssinatura));
       return [...porBusca].sort((a, b) =>
         ordemLiberados === "RECENTE"
@@ -633,12 +772,13 @@ export default function FilaAdmTermos() {
   // Contadores da trilha de assinatura. Valem para TODO termo liberado —
   // manual e gov.br —, porque todos precisam das testemunhas e da Ulbra.
   const contadoresEtapa = useMemo(() => {
-    const base = { NAO_VERIFICADO: 0, PENDENTE_ENVIO: 0, ENVIADO_ASSINATURA: 0, COMPLETO: 0, TODAS: 0 };
+    const base = { NAO_VERIFICADO: 0, PENDENTE_ENVIO: 0, ENVIADO_ASSINATURA: 0, COMPLETO: 0, DISPENSADO: 0, TODAS: 0 };
     for (const t of termos) {
       const e = etapaDe(t);
       if (e === "NAO_APLICAVEL") continue;
       base[e] += 1;
-      base.TODAS += 1;
+      // O dispensado não entra em "Todas": foi tirado da fila de propósito.
+      if (naTrilha(t)) base.TODAS += 1;
     }
     return base;
   }, [termos]);
@@ -778,7 +918,8 @@ export default function FilaAdmTermos() {
                 ETAPAS_ASSINATURA.map((e) => ({
                   chave: e,
                   label: `${ETAPA_LABEL[e]} (${contadoresEtapa[e]})`,
-                }))
+                })),
+                [{ chave: "DISPENSADO", label: `${ETAPA_LABEL.DISPENSADO} (${contadoresEtapa.DISPENSADO})` }]
               ).map((op) => (
                 <button
                   key={op.chave}
@@ -935,8 +1076,44 @@ export default function FilaAdmTermos() {
               </div>
             )}
 
+            {ehDispensado(termo) && (
+              <div style={styles.blocoRetorno}>
+                <strong>Fora da fila de assinatura.</strong>
+                <p style={styles.paragrafo}>
+                  {rotuloMotivoDispensa(termo.dispensa_motivo)}
+                  {termo.dispensa_detalhe ? ` — ${termo.dispensa_detalhe}` : ""}
+                </p>
+                <p style={styles.info}>
+                  <strong>Por:</strong> {termo.dispensado_por || "-"} <strong>em</strong>{" "}
+                  {formatarData(termo.dispensado_em)}
+                </p>
+              </div>
+            )}
+
             {filtro === "ASSINATURAS" && (
               <div style={styles.acoesAssinatura}>
+                {ehDispensado(termo) && (
+                  <button
+                    style={styles.botaoVer}
+                    onClick={() => reativarAssinatura(termo)}
+                    disabled={processando}
+                    title="Dispensado por engano, ou o aluno voltou a pagar: volta para 'A enviar'."
+                  >
+                    Voltar para a fila
+                  </button>
+                )}
+
+                {["NAO_VERIFICADO", "PENDENTE_ENVIO", "ENVIADO_ASSINATURA"].includes(etapaDe(termo)) && (
+                  <button
+                    style={styles.botaoDescartar}
+                    onClick={() => abrirDecisao("DISPENSAR", termo)}
+                    disabled={processando}
+                    title="Acordo não cumprido: o termo sai da fila de assinatura. Nada é apagado e dá para voltar."
+                  >
+                    Não será assinado
+                  </button>
+                )}
+
                 {["NAO_VERIFICADO", "PENDENTE_ENVIO"].includes(etapaDe(termo)) && (
                   <>
                     <label style={styles.checkLinha}>
@@ -994,7 +1171,7 @@ export default function FilaAdmTermos() {
                   </button>
                 )}
 
-                {etapaDe(termo) !== "COMPLETO" && (
+                {etapaDe(termo) !== "COMPLETO" && !ehDispensado(termo) && (
                   <button
                     style={styles.botaoValidar}
                     onClick={() => abrirAnexo(termo)}
@@ -1037,6 +1214,16 @@ export default function FilaAdmTermos() {
                   </button>
                 )
               )}
+              {podeDevolverAoOperador(termo) && (
+                <button
+                  style={styles.botaoRejeitar}
+                  onClick={() => abrirDecisao("DEVOLVER", termo)}
+                  disabled={processando}
+                  title="Algo errado no acordo? O termo volta como rejeitado e o operador é avisado para corrigir e reenviar."
+                >
+                  Devolver ao operador
+                </button>
+              )}
             </div>
           </div>
         );
@@ -1062,6 +1249,20 @@ export default function FilaAdmTermos() {
           salvando={salvando}
           onFechar={fecharModal}
           onDecidir={decidir}
+        />
+      )}
+
+      {modalDecisao && (
+        <ModalDecisao
+          tipo={modalDecisao.tipo}
+          termo={modalDecisao.termo}
+          motivo={decisaoMotivo}
+          setMotivo={setDecisaoMotivo}
+          texto={decisaoTxt}
+          setTexto={setDecisaoTxt}
+          processando={processando}
+          onConfirmar={confirmarDecisao}
+          onFechar={fecharDecisao}
         />
       )}
 
@@ -1135,6 +1336,90 @@ export default function FilaAdmTermos() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// Decisão sobre termo já liberado. Dois usos com a mesma casca:
+//   DISPENSAR -> sai da fila de assinatura (motivo fechado; reversível; nada apagado)
+//   DEVOLVER  -> volta ao operador como rejeitado (motivo livre com lista de apoio)
+function ModalDecisao({ tipo, termo, motivo, setMotivo, texto, setTexto, processando, onConfirmar, onFechar }) {
+  const dispensar = tipo === "DISPENSAR";
+  const nome = termo.aluno_nome || "este aluno";
+  const outro = dispensar ? motivo === "OUTRO" : motivo === "Outro";
+
+  return (
+    <div style={styles.overlay} onClick={onFechar}>
+      <div style={styles.modalAnexo} onClick={(e) => e.stopPropagation()}>
+        <h2 style={styles.titulo}>{dispensar ? "Não será assinado" : "Devolver ao operador"}</h2>
+        <p style={styles.texto}>
+          {dispensar ? (
+            <>
+              O termo de <strong>{nome}</strong> sai da fila de assinatura (testemunhas + Ulbra).
+              Nenhum arquivo é apagado e dá para voltar atrás em "Voltar para a fila".
+            </>
+          ) : (
+            <>
+              O termo de <strong>{nome}</strong> volta como <strong>rejeitado</strong> para{" "}
+              {termo.operador_nome || termo.operador_email || "o operador"}, que recebe o motivo
+              na ficha e reenvia um termo corrigido. O documento conferido fica guardado.
+            </>
+          )}
+        </p>
+
+        <div style={styles.bloco}>
+          <label style={styles.label}>Motivo</label>
+          <select
+            style={styles.select}
+            value={motivo}
+            onChange={(e) => setMotivo(e.target.value)}
+            aria-label="Motivo"
+          >
+            <option value="">Selecione o motivo...</option>
+            {dispensar
+              ? MOTIVOS_DISPENSA.map((m) => (
+                  <option key={m.codigo} value={m.codigo}>
+                    {m.rotulo}
+                  </option>
+                ))
+              : MOTIVOS_DEVOLUCAO.map((m) => (
+                  <option key={m} value={m}>
+                    {m}
+                  </option>
+                ))}
+          </select>
+          <textarea
+            style={{ ...styles.textarea, marginTop: 8 }}
+            placeholder={
+              outro
+                ? "Descreva o motivo (obrigatório para 'Outro')."
+                : dispensar
+                  ? "Detalhe (opcional)."
+                  : "O que o operador precisa ajustar (opcional, vai junto no retorno)."
+            }
+            value={texto}
+            onChange={(e) => setTexto(e.target.value)}
+            aria-label="Detalhe do motivo"
+          />
+        </div>
+
+        <div style={styles.acoes}>
+          <button
+            style={dispensar ? styles.botaoDescartar : styles.botaoRejeitar}
+            onClick={onConfirmar}
+            disabled={processando}
+          >
+            {processando
+              ? "Processando…"
+              : dispensar
+                ? "Confirmar: não será assinado"
+                : "Confirmar devolução"}
+          </button>
+          <button style={styles.botaoVer} onClick={onFechar} disabled={processando}>
+            Cancelar
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

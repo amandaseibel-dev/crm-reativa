@@ -9,7 +9,12 @@ export const ETAPA_LABEL = {
   PENDENTE_ENVIO: "A enviar",
   ENVIADO_ASSINATURA: "Aguardando assinaturas",
   COMPLETO: "Termo assinado",
+  DISPENSADO: "Não será assinado",
 };
+
+// Etapas da TRILHA (o que ainda pode andar). DISPENSADO fica fora de propósito:
+// é o termo que a ADM tirou da fila porque o acordo não foi cumprido, e ele não
+// pode inflar o contador de "faltam assinar".
 
 export const ETAPAS_ASSINATURA = [
   "NAO_VERIFICADO",
@@ -18,9 +23,44 @@ export const ETAPAS_ASSINATURA = [
   "COMPLETO",
 ];
 
+export const ETAPA_FORA = "DISPENSADO";
+
+// Motivos fechados da dispensa (mesma lista que a RPC aceita).
+export const MOTIVOS_DISPENSA = [
+  { codigo: "NAO_PAGOU", rotulo: "Aluno não pagou / não cumpriu o acordo" },
+  { codigo: "ACORDO_CANCELADO", rotulo: "Acordo cancelado" },
+  { codigo: "TERMO_SUBSTITUIDO", rotulo: "Termo substituído por outro" },
+  { codigo: "DUPLICADO", rotulo: "Termo duplicado" },
+  { codigo: "OUTRO", rotulo: "Outro (descrever)" },
+];
+
+export function rotuloMotivoDispensa(codigo) {
+  const m = MOTIVOS_DISPENSA.find((x) => x.codigo === codigo);
+  return m ? m.rotulo : codigo || "-";
+}
+
 export function etapaDe(t) {
   const e = t?.etapa_assinatura;
   return ETAPA_LABEL[e] ? e : "NAO_APLICAVEL";
+}
+
+export function ehDispensado(t) {
+  return etapaDe(t) === ETAPA_FORA;
+}
+
+// Está na trilha de assinatura: liberado e não dispensado. É o que a aba
+// Assinaturas conta em "Todas" e o que a ADM ainda precisa fazer andar.
+export function naTrilha(t) {
+  const e = etapaDe(t);
+  return e !== "NAO_APLICAVEL" && e !== ETAPA_FORA;
+}
+
+// Termo liberado que ainda dá para devolver ao operador: manual ou gov.br,
+// em qualquer etapa menos COMPLETO (já assinado — primeiro desfaz a assinatura).
+export function podeDevolverAoOperador(t) {
+  const liberado =
+    t?.status === "TERMO_RECEBIDO_LIBERADO" || t?.status === "TERMO_LIBERADO_AUTOMATICO_GOV";
+  return liberado && etapaDe(t) !== "COMPLETO";
 }
 
 // Data que ORDENA cada termo na aba Assinaturas: a da própria etapa em que ele
@@ -34,7 +74,9 @@ export function dataEtapa(t) {
       ? t?.assinatura_completa_em || t?.validado_em || t?.criado_em
       : etapa === "ENVIADO_ASSINATURA"
         ? t?.assinatura_enviada_em || t?.validado_em || t?.criado_em
-        : t?.validado_em || t?.criado_em;
+        : etapa === ETAPA_FORA
+          ? t?.dispensado_em || t?.validado_em || t?.criado_em
+          : t?.validado_em || t?.criado_em;
   const ms = bruto ? new Date(bruto).getTime() : NaN;
   return Number.isNaN(ms) ? 0 : ms;
 }
