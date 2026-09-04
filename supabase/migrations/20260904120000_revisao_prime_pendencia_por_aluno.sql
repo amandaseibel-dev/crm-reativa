@@ -77,6 +77,9 @@ create table if not exists public.revisao_prime_aluno (
   matricula_2026_2              text,
   curso_2026_2                  text,
   campus_2026_2                 text,
+  matricula_2026_1              text,
+  curso_2026_1                  text,
+  campus_2026_1                 text,
   portador_prime                text,
   pendencia_reativa             text,
   pendencia_santander           text,
@@ -85,7 +88,12 @@ create table if not exists public.revisao_prime_aluno (
 );
 
 comment on table public.revisao_prime_aluno is
-  'Retrato da revisão CRM x Prime por aluno: portador (195/166), mensalidades do 195 sem liquidação real, acordo no CRM e matrícula 2026/2. Recalculado por revisao_prime_recalcular().';
+  'Retrato da revisão CRM x Prime por aluno: portador (195/166), mensalidades do 195 sem liquidação real, acordo no CRM e matrícula 2026/2 e 2026/1. Recalculado por revisao_prime_recalcular().';
+
+-- 2026/1 entrou depois da primeira aplicacao em prod (pedido da Amanda no mesmo dia).
+alter table public.revisao_prime_aluno add column if not exists matricula_2026_1 text;
+alter table public.revisao_prime_aluno add column if not exists curso_2026_1 text;
+alter table public.revisao_prime_aluno add column if not exists campus_2026_1 text;
 
 alter table public.revisao_prime_aluno enable row level security;
 
@@ -129,6 +137,7 @@ begin
     p195_liquidados_n, p195_ultima_liquidacao,
     crm_abertos_liquidados_no_prime_n, crm_abertos_liquidados_no_prime_valor,
     matricula_2026_2, curso_2026_2, campus_2026_2,
+    matricula_2026_1, curso_2026_1, campus_2026_1,
     portador_prime, pendencia_reativa, pendencia_santander, resumo, calculado_em)
   with al as (
     select a.id, a.nome, a.matricula, a.unidade,
@@ -191,7 +200,22 @@ begin
               order by case when c.cancelado_em is not null then 3
                             when c.status = 'Confirmado' then 1
                             when c.status = 'Aberto' then 2 else 4 end, c.valid_from desc)
-              filter (where c.valid_from between date '2026-07-01' and date '2026-12-31'))[1] as campus_2026_2
+              filter (where c.valid_from between date '2026-07-01' and date '2026-12-31'))[1] as campus_2026_2,
+           (array_agg(case when c.cancelado_em is not null then 'Cancelado' else coalesce(c.status,'—') end
+              order by case when c.cancelado_em is not null then 3
+                            when c.status = 'Confirmado' then 1
+                            when c.status = 'Aberto' then 2 else 4 end, c.valid_from desc)
+              filter (where c.valid_from between date '2026-01-01' and date '2026-06-30'))[1] as st_2026_1,
+           (array_agg(c.curso
+              order by case when c.cancelado_em is not null then 3
+                            when c.status = 'Confirmado' then 1
+                            when c.status = 'Aberto' then 2 else 4 end, c.valid_from desc)
+              filter (where c.valid_from between date '2026-01-01' and date '2026-06-30'))[1] as curso_2026_1,
+           (array_agg(c.campus
+              order by case when c.cancelado_em is not null then 3
+                            when c.status = 'Confirmado' then 1
+                            when c.status = 'Aberto' then 2 else 4 end, c.valid_from desc)
+              filter (where c.valid_from between date '2026-01-01' and date '2026-06-30'))[1] as campus_2026_1
       from public.prime_contratos c
      group by c.cpf
   ), tit as (
@@ -253,6 +277,8 @@ begin
            (ext.cpf is not null or fila.cpf is not null) as tem_extrato,
            coalesce(contr.st_2026_2, case when contr.cpf is not null then 'Não' else 'sem cadastro no Prime' end) as st_2026_2,
            contr.curso_2026_2, contr.campus_2026_2,
+           coalesce(contr.st_2026_1, case when contr.cpf is not null then 'Não' else 'sem cadastro no Prime' end) as st_2026_1,
+           contr.curso_2026_1, contr.campus_2026_1,
            cl.cpf11
       from cl
       left join caso   on caso.aluno_id = cl.id
@@ -299,6 +325,7 @@ begin
          c.liquidados_n, c.ultima_liq,
          c.crm_abertos_liq_n, c.crm_abertos_liq_valor,
          c.st_2026_2, c.curso_2026_2, c.campus_2026_2,
+         c.st_2026_1, c.curso_2026_1, c.campus_2026_1,
          c.portador_prime, c.pendencia_reativa, c.pendencia_santander,
          case when c.cpf11 is null then 'CPF INVÁLIDO'
               when not c.conhece then 'SEM DADO NO PRIME'
