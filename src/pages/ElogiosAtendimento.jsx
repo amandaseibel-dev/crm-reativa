@@ -266,10 +266,14 @@ export default function ElogiosAtendimento() {
                 </div>
 
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                  {e.print_path && (
+                  {e.print_path ? (
                     <button style={estilos.botaoAnexo} onClick={() => abrirAnexo(e.print_path)}>
                       📎 Ver anexo{e.print_nome_arquivo ? `: ${e.print_nome_arquivo}` : ""}
                     </button>
+                  ) : (
+                    <span style={estilos.meta} title="O operador registrou o elogio sem anexar print">
+                      Sem print anexado
+                    </span>
                   )}
 
                   {e.status === "PENDENTE_ANALISE" && (
