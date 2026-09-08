@@ -94,7 +94,9 @@ export default function AcoesMassivas() {
   // Situacao da matricula no semestre corrente, vinda do Prime.
   const [matricula, setMatricula] = useState("");
   const [curso, setCurso] = useState("");
-  const [situacaoAcad, setSituacaoAcad] = useState("");
+  // Status academico: selecao MULTIPLA, no mesmo formato das unidades. O
+  // backend recebe os status separados por "|"; um sozinho funciona igual.
+  const [situacoesAcadSel, setSituacoesAcadSel] = useState([]);
   const [opcoesUnidade, setOpcoesUnidade] = useState([]);
   const [opcoesCurso, setOpcoesCurso] = useState([]);
   const [opcoesSituacaoAcad, setOpcoesSituacaoAcad] = useState([]);
@@ -223,7 +225,7 @@ export default function AcoesMassivas() {
           p_unidade: ((over.unidades ?? unidadesSel) || []).join("|") || null,
           p_matricula: (over.matricula ?? matricula) || null,
           p_curso: (over.curso ?? curso) || null,
-          p_situacao_academica: (over.situacaoAcad ?? situacaoAcad) || null,
+          p_situacao_academica: ((over.situacoesAcad ?? situacoesAcadSel) || []).join("|") || null,
           p_importacao_ids: (over.borderosSel ?? borderosSel).length
             ? (over.borderosSel ?? borderosSel)
             : null,
@@ -384,7 +386,7 @@ export default function AcoesMassivas() {
   function usarComoFiltroDaPenetracao({ ano, unidade: uni, curso: cur }) {
     const anoStr = ano ? String(ano) : "";
     setAnoVencimento(anoStr);
-    setUnidade(uni || "");
+    setUnidadesSel(uni ? [uni] : []);
     setCurso(cur || "");
     setAcionamentoFiltro("nunca");
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
@@ -695,18 +697,36 @@ export default function AcoesMassivas() {
               ))}
             </select>
           </div>
-          <div style={estilos.campo}>
-            <label style={estilos.label}>Status acadêmico</label>
-            <select
-              style={estilos.input}
-              value={situacaoAcad}
-              onChange={(e) => setSituacaoAcad(e.target.value)}
-            >
-              <option value="">Todos os status</option>
-              {opcoesSituacaoAcad.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+          <div style={{ ...estilos.campo, minWidth: 260 }}>
+            <label style={estilos.label}>
+              Status acadêmico{situacoesAcadSel.length ? ` · ${situacoesAcadSel.length} selec.` : " · todos"}
+            </label>
+            <div style={estilos.caixaBordero}>
+              {opcoesSituacaoAcad.map((s) => {
+                const marcado = situacoesAcadSel.includes(s);
+                return (
+                  <label key={s} style={estilos.itemBordero} title={s}>
+                    <input
+                      type="checkbox"
+                      checked={marcado}
+                      onChange={() =>
+                        setSituacoesAcadSel((prev) =>
+                          prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
+                        )
+                      }
+                    />
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {s}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+            {situacoesAcadSel.length > 0 && (
+              <button type="button" onClick={() => setSituacoesAcadSel([])} style={estilos.limparBordero}>
+                limpar status
+              </button>
+            )}
           </div>
           <div style={estilos.campo}>
             <label style={estilos.label}>Sem acionamento há (mín.)</label>
