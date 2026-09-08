@@ -28,9 +28,9 @@ jobs:
     timeout-minutes: 15
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           # 22 é o que a Vercel usa para publicar. Mesma versão aqui para o
           # build medido ser o build que vai para o ar.
