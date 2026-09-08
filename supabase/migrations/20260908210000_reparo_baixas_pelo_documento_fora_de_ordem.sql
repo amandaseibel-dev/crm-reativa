@@ -40,7 +40,7 @@ as $$
 declare
   v_lote text := 'reparo_baixa_documento_' || to_char(clock_timestamp(),'YYYYMMDDHH24MISS');
   v_hoje text := to_char(current_date,'DD/MM/YYYY');
-  r record; v_alvo uuid; v_alvo_num int; v_alvo_venc date;
+  r record; v_alvo uuid; v_alvo_num int; v_alvo_venc date; v_por_venc boolean;
   v_acordos int := 0; v_reaplicadas int := 0; v_no_lugar int := 0; v_sem_destino int := 0; v_ja_manual int := 0;
   v_plano jsonb := '[]'::jsonb;
   v_res jsonb;
@@ -101,7 +101,7 @@ begin
 
     -- 5. Reaplica em ordem de data.
     for r in select * from _rep_pag order by acordo_id, pago_em, numero loop
-      v_alvo := null;
+      v_alvo := null; v_por_venc := false;
 
       if r.ja_manual then
         v_ja_manual := v_ja_manual + 1;
@@ -115,6 +115,7 @@ begin
          where acordo_id = r.acordo_id and status in ('VENCIDA','A_VENCER')
            and abs(vencimento - r.venc_extrato) <= 3 and abs(valor - r.valor) <= 0.05
          order by abs(vencimento - r.venc_extrato) limit 1;
+        v_por_venc := v_alvo is not null;
       end if;
 
       if v_alvo is null then
@@ -140,7 +141,7 @@ begin
              observacao = coalesce(observacao,'') || case when coalesce(observacao,'') = '' then '' else ' | ' end
                           || 'reparo ' || v_hoje || ': baixa pelo documento ' || coalesce(r.boleto,'?')
                           || ' (pago em ' || to_char(r.pago_em,'DD/MM/YYYY') || ') movida da parcela ' || r.numero
-                          || case when r.venc_extrato is not null then ', vencimento ' || to_char(r.venc_extrato,'DD/MM/YYYY') || ' conferido no extrato' else ', parcela aberta mais antiga' end,
+                          || case when v_por_venc then ', vencimento ' || to_char(r.venc_extrato,'DD/MM/YYYY') || ' conferido no extrato' else ', parcela aberta mais antiga' end,
              atualizado_em = now()
        where id = v_alvo;
 
@@ -149,7 +150,7 @@ begin
 
       if v_alvo = r.parcela_origem then v_no_lugar := v_no_lugar + 1; else v_reaplicadas := v_reaplicadas + 1; end if;
       v_plano := v_plano || jsonb_build_object('acordo', r.acordo_id, 'aluno', r.aluno_id, 'de_parcela', r.numero, 'para_parcela', v_alvo_num, 'venc_destino', v_alvo_venc, 'pago_em', r.pago_em::date, 'valor', r.valor,
-                                               'resultado', case when v_alvo = r.parcela_origem then 'ja estava certa' when r.venc_extrato is not null then 'movida (vencimento do extrato)' else 'movida (mais antiga aberta)' end);
+                                               'resultado', case when v_alvo = r.parcela_origem then 'ja estava certa' when v_por_venc then 'movida (vencimento do extrato)' else 'movida (mais antiga aberta)' end);
     end loop;
 
     -- 6. Recalculo dos alunos.
