@@ -1,0 +1,50 @@
+# Portão de qualidade do CRM. NÃO publica nada, NÃO fala com o Supabase e NÃO
+# tem segredo nenhum: só baixa o código, instala e roda o que já existe aqui.
+# Repositório é público, então o minuto de execução custa US$ 0,00.
+#
+# O que trava um merge:
+#   - teste quebrado  (a rede de 447 testes existia e não rodava sozinha)
+#   - build quebrado  (build quebrado = tela branca em produção)
+#   - lint PIORANDO   (ver scripts/ci/catraca-lint.mjs)
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+# Um PR atualizado cancela a execução anterior — não faz fila à toa.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    name: testes, build e catraca do lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          # 22 é o que a Vercel usa para publicar. Mesma versão aqui para o
+          # build medido ser o build que vai para o ar.
+          node-version: '22'
+          cache: npm
+
+      - name: Instalar (a partir do package-lock)
+        run: npm ci
+
+      - name: Testes
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+      - name: Catraca do lint
+        run: node scripts/ci/catraca-lint.mjs
