@@ -51,6 +51,14 @@ set statement_timeout to '300s'
 as $$
 declare v_anc int := 0; v_limpos int := 0; v_limpos2 int := 0; v_desloc int := 0; v_legado int := 0;
 begin
+  -- Donos de cada prefixo de titulo (documento sem os 4 ultimos digitos), pelo
+  -- Relatorio de Titulos em Aberto. E o unico vinculo aluno <-> documento
+  -- aceito: numero do titulo, nunca nome (Amanda, 08/09).
+  create temp table _tp on commit drop as
+  select distinct left(ltrim(documento,'0'), length(ltrim(documento,'0'))-4) prefixo, aluno_id
+    from public.acordos_titulos where documento ~ '^\d{8,}$' and aluno_id is not null;
+  create index on _tp(prefixo);
+
   -- A. titulo tipo Acordo com vencimento -> parcela do mesmo aluno, mesmo
   --    vencimento (+-3 dias) e mesmo valor.
   create temp table _anc on commit drop as
@@ -62,15 +70,19 @@ begin
      and abs(p.valor - coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0)) <= 0.05
    order by p.id, abs(p.vencimento - t.vencimento);
 
-  -- B. linha do extrato com aluno e vencimento -> parcela do aluno com aquele
-  --    vencimento e valor compativel (pagou a parcela, ate 15% de acrescimo).
+  -- B. linha do extrato com vencimento -> parcela do acordo cujo aluno e dono
+  --    do PREFIXO do documento (pelo titulo, ou por boleto confiavel do mesmo
+  --    acordo). O nome do extrato nao entra: e o pagador, nao o dono.
   insert into _anc
-  select distinct on (p.id) p.id, p.acordo_id, ltrim(g.numero_parcela_completo,'0'), 'pagamento'
+  select distinct on (p.id) p.id, p.acordo_id, px.chave, 'pagamento'
     from public.pagamentos g
-    join public.acordos a on a.aluno_id = g.aluno_id and upper(coalesce(a.status,'')) not in ('CANCELADO','CANCELADA')
+    cross join lateral (select ltrim(g.numero_parcela_completo,'0') chave,
+                               left(ltrim(g.numero_parcela_completo,'0'), length(ltrim(g.numero_parcela_completo,'0'))-4) prefixo) px
+    join public.acordos a on upper(coalesce(a.status,'')) not in ('CANCELADO','CANCELADA')
+         and (exists (select 1 from _tp t where t.prefixo = px.prefixo and t.aluno_id = a.aluno_id)
+              or exists (select 1 from public.parcelas pc where pc.acordo_id = a.id and pc.boleto_confiavel and left(pc.boleto, length(pc.boleto)-4) = px.prefixo))
     join public.parcelas p on p.acordo_id = a.id and abs(p.vencimento - public.vencimento_do_pagamento(g.dados)) <= 3
-   where g.aluno_id is not null
-     and public.vencimento_do_pagamento(g.dados) is not null
+   where public.vencimento_do_pagamento(g.dados) is not null
      and coalesce(g.numero_parcela_completo,'') ~ '^\d{8,}$'
      and g.valor_pago >= p.valor - 0.05 and g.valor_pago <= p.valor * 1.15
      and not exists (select 1 from _anc x where x.parcela_id = p.id)
