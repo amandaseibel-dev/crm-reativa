@@ -425,44 +425,26 @@ export default function FinanceiroAluno({ aluno }) {
     // para a Fila de Confirmação; não efetiva baixa direta em baixas_pagamento.
     if (!podeBaixar) { alert("Baixa de pagamento é exclusiva da gestão financeira. Envie o comprovante para a Fila de Confirmação."); return; }
     if (!acordoPermiteAcaoFinanceira(acordo)) { alert("Este acordo está " + (String(acordo.status).toUpperCase() === "CANCELADO" ? "cancelado" : "quitado") + " — não é possível registrar baixa."); return; }
-    const agora = new Date().toISOString();
-    const email = usuario?.email || "";
-    const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
+    // A baixa é feita no banco, em uma transação só (parcela PAGO + registro
+    // em baixas_pagamento), pela RPC baixar_parcela_acordo. Antes era um PATCH
+    // solto em `parcelas`: quando a parcela era a última do acordo, os
+    // gatilhos quitavam acordo, aluno e caso, e a reposição da carteira da
+    // operadora (~17 s medidos) estourava o teto de 8 s do PATCH --
+    // "canceling statement due to statement timeout" e nada gravado
+    // (Amanda, 08/09). A RPC tem teto de 60 s, como o "Quitar e encerrar".
     // pago_em usa a data real informada no formulário (não a data em que a
     // baixa foi processada no sistema) -- isso importa pra lançamentos
     // retroativos não entrarem na visão "deste mês" do operador.
-    const dataPagamento = dados.data ? new Date(dados.data + "T00:00:00").toISOString() : agora;
-
-    const { error: erroParcela } = await supabase
-      .from("parcelas")
-      .update({ status: "PAGO", pago_em: dataPagamento, confirmado_por_email: email, atualizado_em: agora })
-      .eq("id", parcela.id);
-
-    if (erroParcela) {
-      alert("Erro ao dar baixa na parcela: " + erroParcela.message);
-      return;
-    }
-
-    const { error: erroBaixa } = await supabase.from("baixas_pagamento").insert({
-      aluno_id: String(aluno.id),
-      aluno_nome: aluno.nome || null,
-      aluno_cpf: aluno.cpf || null,
-      parcela_id: parcela.id,
-      acordo_id: acordo.id,
-      valor_pago: dados.valor,
-      honorarios_recebidos: dados.honorarios,
-      data_pagamento: dados.data,
-      status_baixa: "REALIZADA",
-      responsavel_baixa_email: responsavelOperador,
-      baixado_por_email: email,
-      recebido_em: agora,
-      atualizado_em: agora,
-      baixado_em: agora,
+    const { error: erroBaixa } = await supabase.rpc("baixar_parcela_acordo", {
+      p_parcela_id: parcela.id,
+      p_data: dados.data || null,
+      p_valor: dados.valor,
+      p_honorarios: dados.honorarios,
     });
 
     if (erroBaixa) {
-      console.error("Erro ao registrar baixa:", erroBaixa);
-      alert("Parcela baixada, mas houve erro ao registrar a baixa: " + erroBaixa.message);
+      alert("Erro ao dar baixa na parcela: " + erroBaixa.message);
+      return;
     }
 
     const res = await checarQuitacao(acordo.id);
@@ -495,45 +477,20 @@ export default function FinanceiroAluno({ aluno }) {
       `Todas passam a PAGO de uma vez e o acordo é encerrado.`
     );
     if (!confirmadoQuitacao) return;
-    const agora = new Date().toISOString();
-    const email = usuario?.email || "";
-    const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
-    const dataPagamento = dados.data ? new Date(dados.data + "T00:00:00").toISOString() : agora;
 
-    const { error: erroParcelas } = await supabase
-      .from("parcelas")
-      .update({ status: "PAGO", pago_em: dataPagamento, confirmado_por_email: email, atualizado_em: agora })
-      .eq("acordo_id", acordo.id)
-      .neq("status", "PAGO");
+    // Mesma razão da baixa de parcela: quitar o acordo inteiro fecha o caso e
+    // dispara a reposição da carteira (~17 s), acima do teto de 8 s de um
+    // PATCH solto. A RPC quitar_acordo_cartao vira todas as parcelas em
+    // aberto e grava uma baixa por parcela na mesma transação, com 60 s.
+    const { error: erroParcelas } = await supabase.rpc("quitar_acordo_cartao", {
+      p_acordo_id: acordo.id,
+      p_data: dados.data || null,
+      p_comprovante_url: dados.comprovante || null,
+    });
 
     if (erroParcelas) {
       alert("Erro ao quitar as parcelas: " + erroParcelas.message);
       return;
-    }
-
-    const linhas = parcelasAbertas.map((p) => ({
-      aluno_id: String(aluno.id),
-      aluno_nome: aluno.nome || null,
-      aluno_cpf: aluno.cpf || null,
-      parcela_id: p.id,
-      acordo_id: acordo.id,
-      valor_pago: Number(p.valor || 0),
-      honorarios_recebidos: p.honorarios != null ? Number(p.honorarios) : null,
-      data_pagamento: dados.data,
-      comprovante_url: dados.comprovante,
-      status_baixa: "REALIZADA",
-      responsavel_baixa_email: responsavelOperador,
-      baixado_por_email: email,
-      recebido_em: agora,
-      atualizado_em: agora,
-      baixado_em: agora,
-    }));
-
-    if (linhas.length > 0) {
-      const { error: erroBaixa } = await supabase.from("baixas_pagamento").insert(linhas);
-      if (erroBaixa) {
-        console.error("Erro ao registrar baixas do cartão:", erroBaixa);
-      }
     }
 
     const res = await checarQuitacao(acordo.id);
