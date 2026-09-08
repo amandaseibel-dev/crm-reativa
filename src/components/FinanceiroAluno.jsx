@@ -425,44 +425,26 @@ export default function FinanceiroAluno({ aluno }) {
     // para a Fila de Confirmação; não efetiva baixa direta em baixas_pagamento.
     if (!podeBaixar) { alert("Baixa de pagamento é exclusiva da gestão financeira. Envie o comprovante para a Fila de Confirmação."); return; }
     if (!acordoPermiteAcaoFinanceira(acordo)) { alert("Este acordo está " + (String(acordo.status).toUpperCase() === "CANCELADO" ? "cancelado" : "quitado") + " — não é possível registrar baixa."); return; }
-    const agora = new Date().toISOString();
-    const email = usuario?.email || "";
-    const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
+    // A baixa é feita no banco, em uma transação só (parcela PAGO + registro
+    // em baixas_pagamento), pela RPC baixar_parcela_acordo. Antes era um PATCH
+    // solto em `parcelas`: quando a parcela era a última do acordo, os
+    // gatilhos quitavam acordo, aluno e caso, e a reposição da carteira da
+    // operadora (~17 s medidos) estourava o teto de 8 s do PATCH --
+    // "canceling statement due to statement timeout" e nada gravado
+    // (Amanda, 08/09). A RPC tem teto de 60 s, como o "Quitar e encerrar".
     // pago_em usa a data real informada no formulário (não a data em que a
     // baixa foi processada no sistema) -- isso importa pra lançamentos
     // retroativos não entrarem na visão "deste mês" do operador.
-    const dataPagamento = dados.data ? new Date(dados.data + "T00:00:00").toISOString() : agora;
-
-    const { error: erroParcela } = await supabase
-      .from("parcelas")
-      .update({ status: "PAGO", pago_em: dataPagamento, confirmado_por_email: email, atualizado_em: agora })
-      .eq("id", parcela.id);
-
-    if (erroParcela) {
-      alert("Erro ao dar baixa na parcela: " + erroParcela.message);
-      return;
-    }
-
-    const { error: erroBaixa } = await supabase.from("baixas_pagamento").insert({
-      aluno_id: String(aluno.id),
-      aluno_nome: aluno.nome || null,
-      aluno_cpf: aluno.cpf || null,
-      parcela_id: parcela.id,
-      acordo_id: acordo.id,
-      valor_pago: dados.valor,
-      honorarios_recebidos: dados.honorarios,
-      data_pagamento: dados.data,
-      status_baixa: "REALIZADA",
-      responsavel_baixa_email: responsavelOperador,
-      baixado_por_email: email,
-      recebido_em: agora,
-      atualizado_em: agora,
-      baixado_em: agora,
+    const { error: erroBaixa } = await supabase.rpc("baixar_parcela_acordo", {
+      p_parcela_id: parcela.id,
+      p_data: dados.data || null,
+      p_valor: dados.valor,
+      p_honorarios: dados.honorarios,
     });
 
     if (erroBaixa) {
-      console.error("Erro ao registrar baixa:", erroBaixa);
-      alert("Parcela baixada, mas houve erro ao registrar a baixa: " + erroBaixa.message);
+      alert("Erro ao dar baixa na parcela: " + erroBaixa.message);
+      return;
     }
 
     const res = await checarQuitacao(acordo.id);
@@ -495,45 +477,20 @@ export default function FinanceiroAluno({ aluno }) {
       `Todas passam a PAGO de uma vez e o acordo é encerrado.`
     );
     if (!confirmadoQuitacao) return;
-    const agora = new Date().toISOString();
-    const email = usuario?.email || "";
-    const responsavelOperador = acordo.operador_responsavel_email || acordo.criado_por_email || null;
-    const dataPagamento = dados.data ? new Date(dados.data + "T00:00:00").toISOString() : agora;
 
-    const { error: erroParcelas } = await supabase
-      .from("parcelas")
-      .update({ status: "PAGO", pago_em: dataPagamento, confirmado_por_email: email, atualizado_em: agora })
-      .eq("acordo_id", acordo.id)
-      .neq("status", "PAGO");
+    // Mesma razão da baixa de parcela: quitar o acordo inteiro fecha o caso e
+    // dispara a reposição da carteira (~17 s), acima do teto de 8 s de um
+    // PATCH solto. A RPC quitar_acordo_cartao vira todas as parcelas em
+    // aberto e grava uma baixa por parcela na mesma transação, com 60 s.
+    const { error: erroParcelas } = await supabase.rpc("quitar_acordo_cartao", {
+      p_acordo_id: acordo.id,
+      p_data: dados.data || null,
+      p_comprovante_url: dados.comprovante || null,
+    });
 
     if (erroParcelas) {
       alert("Erro ao quitar as parcelas: " + erroParcelas.message);
       return;
-    }
-
-    const linhas = parcelasAbertas.map((p) => ({
-      aluno_id: String(aluno.id),
-      aluno_nome: aluno.nome || null,
-      aluno_cpf: aluno.cpf || null,
-      parcela_id: p.id,
-      acordo_id: acordo.id,
-      valor_pago: Number(p.valor || 0),
-      honorarios_recebidos: p.honorarios != null ? Number(p.honorarios) : null,
-      data_pagamento: dados.data,
-      comprovante_url: dados.comprovante,
-      status_baixa: "REALIZADA",
-      responsavel_baixa_email: responsavelOperador,
-      baixado_por_email: email,
-      recebido_em: agora,
-      atualizado_em: agora,
-      baixado_em: agora,
-    }));
-
-    if (linhas.length > 0) {
-      const { error: erroBaixa } = await supabase.from("baixas_pagamento").insert(linhas);
-      if (erroBaixa) {
-        console.error("Erro ao registrar baixas do cartão:", erroBaixa);
-      }
     }
 
     const res = await checarQuitacao(acordo.id);
@@ -559,83 +516,19 @@ export default function FinanceiroAluno({ aluno }) {
     );
     if (!confirmado) return;
 
-    const agora = new Date().toISOString();
-    const email = usuario?.email || "";
+    // Tudo no banco, em uma transação (RPC desfazer_baixa_parcela): a baixa
+    // vira DEVOLVIDA (baixas_pagamento não tem DELETE; o registro fica para
+    // auditoria), a parcela reabre e, se o acordo estava QUITADO, o acordo
+    // volta a ATIVO com saldo recalculado, os títulos voltam a "vinculada",
+    // a carteira reativa e o aluno sai de QUITADO. Antes eram sete awaits
+    // soltos: se um falhava no meio, a ficha ficava pela metade.
+    const { error: erroEstorno } = await supabase.rpc("desfazer_baixa_parcela", {
+      p_parcela_id: parcela.id,
+    });
 
-    // baixas_pagamento não tem política de DELETE no banco -- um .delete()
-    // aqui falha silenciosamente (sem erro, sem apagar nada) e deixa o
-    // registro "fantasma", travando a exclusão do acordo depois. Em vez
-    // de apagar, marca como devolvida (a tabela já tem campo pra isso).
-    await supabase
-      .from("baixas_pagamento")
-      .update({
-        status_baixa: "DEVOLVIDA",
-        devolvido_por_email: email,
-        devolvido_em: agora,
-        motivo_devolucao: "Baixa desfeita na ficha do aluno (correção)",
-      })
-      .eq("parcela_id", parcela.id);
-
-    const { error: erroParcela } = await supabase
-      .from("parcelas")
-      .update({ status: "A_VENCER", pago_em: null, confirmado_por_email: null, atualizado_em: agora })
-      .eq("id", parcela.id);
-
-    if (erroParcela) {
-      alert("Erro ao desfazer a baixa: " + erroParcela.message);
+    if (erroEstorno) {
+      alert("Erro ao desfazer a baixa: " + erroEstorno.message);
       return;
-    }
-
-    if (acordo.status === "QUITADO") {
-      const { data: parcelasAtuais } = await supabase
-        .from("parcelas")
-        .select("status, valor")
-        .eq("acordo_id", acordo.id);
-
-      const novoSaldo = (parcelasAtuais || [])
-        .filter((p) => p.status !== "PAGO")
-        .reduce((soma, p) => soma + Number(p.valor || 0), 0);
-
-      await supabase
-        .from("acordos")
-        .update({ status: "ATIVO", saldo: novoSaldo, atualizado_em: agora })
-        .eq("id", acordo.id);
-
-      const { data: vinculos } = await supabase
-        .from("acordo_titulo_vinculo")
-        .select("titulo_id")
-        .eq("acordo_id", acordo.id)
-        .eq("ativo", true);
-      const idsTitulos = (vinculos || []).map((v) => v.titulo_id);
-      if (idsTitulos.length > 0) {
-        await supabase
-          .from("acordos_titulos")
-          .update({ status: "vinculada", atualizado_em: agora })
-          .in("id", idsTitulos);
-      }
-
-      if (aluno?.id) {
-        await supabase
-          .from("carteira_operador")
-          .update({ status: "ativo", saiu_em: null })
-          .eq("aluno_id", String(aluno.id))
-          .eq("status", "quitado_saiu");
-
-        // Espelha o que checarQuitacao faz -- se o aluno tinha sido
-        // marcado como QUITADO por causa desse acordo, volta a ficar
-        // ativo na fila (só reverte se ainda estiver como QUITADO; se já
-        // foi mudado por outro motivo, não mexe).
-        await supabase
-          .from("alunos")
-          .update({
-            status_jornada: "EM_ATENDIMENTO",
-            status_atual: "EM_ATENDIMENTO",
-            status_acionamento: "EM_ATENDIMENTO",
-            proxima_acao: "CONTATAR",
-          })
-          .eq("id", String(aluno.id))
-          .eq("status_jornada", "QUITADO");
-      }
     }
 
     setRecarga((r) => r + 1);
@@ -811,59 +704,19 @@ export default function FinanceiroAluno({ aluno }) {
     );
     if (!confirmado) return;
 
-    const agora = new Date().toISOString();
-
-    const { data: vinculos } = await supabase
-      .from("acordo_titulo_vinculo")
-      .select("titulo_id")
-      .eq("acordo_id", acordo.id);
-
-    const idsTitulos = (vinculos || []).map((v) => v.titulo_id);
-
-    if (idsTitulos.length > 0) {
-      const { error: erroReverter } = await supabase
-        .from("acordos_titulos")
-        .update({ status: "em_aberto", atualizado_em: agora })
-        .in("id", idsTitulos);
-      if (erroReverter) {
-        alert("Erro ao devolver os títulos pro status em aberto: " + erroReverter.message);
-        return;
-      }
-    }
-
-    // acordos e parcelas não têm permissão de exclusão (DELETE) no banco
-    // -- tentar apagar falha silenciosamente, sem erro, e o registro
-    // continua lá do mesmo jeito. Por isso cancela (marca status) em vez
-    // de apagar -- o que também é melhor pra manter histórico/auditoria.
-    await supabase.from("acordo_titulo_vinculo").delete().eq("acordo_id", acordo.id);
-
-    await supabase
-      .from("parcelas")
-      .update({ status: "CANCELADA", atualizado_em: agora })
-      .eq("acordo_id", acordo.id)
-      .neq("status", "PAGO");
-
-    const { error: erroCancelar } = await supabase
-      .from("acordos")
-      .update({ status: "CANCELADO", saldo: 0, atualizado_em: agora })
-      .eq("id", acordo.id);
+    // Tudo no banco, em uma transação (RPC cancelar_acordo_ficha): títulos
+    // voltam a "em_aberto", vínculos saem, parcelas viram CANCELADA, o acordo
+    // vira CANCELADO (acordos e parcelas não têm DELETE -- cancela em vez de
+    // apagar, o que também preserva o histórico) e o caso é liberado da
+    // carteira ativa. As duas travas de cima (parcela paga / baixa viva) são
+    // conferidas de novo no banco, no momento da gravação.
+    const { error: erroCancelar } = await supabase.rpc("cancelar_acordo_ficha", {
+      p_acordo_id: acordo.id,
+    });
 
     if (erroCancelar) {
       alert("Erro ao cancelar o acordo: " + erroCancelar.message);
       return;
-    }
-
-    // Sinaliza que o caso saiu da carteira ativa -- dispara a reposicao
-    // automatica (mesmo mecanismo da confirmacao de pagamento).
-    if (aluno?.id) {
-      const { error: erroLiberar } = await supabase.rpc("liberar_caso_por_evento", {
-        p_aluno_id: aluno.id,
-        p_evento: "CANCELADO",
-      });
-
-      if (erroLiberar) {
-        console.error("Erro ao liberar caso (reposição automática):", erroLiberar);
-      }
     }
 
     setRecarga((r) => r + 1);
