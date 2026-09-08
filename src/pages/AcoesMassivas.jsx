@@ -120,6 +120,9 @@ export default function AcoesMassivas() {
   // REGRA ABSOLUTA: casos em confirmação de pagamento nunca entram. A prévia os
   // devolve à parte (lista mascarada) só para transparência — eles não são elegíveis.
   const [excluidosConfirmacao, setExcluidosConfirmacao] = useState([]);
+  // Data do extrato do Prime que a prévia usou para tirar quem já pagou lá.
+  // A relação NÃO vem para a tela: quem consta liquidado não deve nem aparecer.
+  const [primeExtratoEm, setPrimeExtratoEm] = useState(null);
   const [mostrarExcluidos, setMostrarExcluidos] = useState(false);
   const [excluidosNoEnvio, setExcluidosNoEnvio] = useState(0);
   // Guarda o último relatório gerado p/ permitir baixar manualmente caso o
@@ -205,6 +208,7 @@ export default function AcoesMassivas() {
     setCarregando(true);
     setResultados(null);
     setExcluidosConfirmacao([]);
+    setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
     setExcluidosNoEnvio(0);
 
@@ -234,6 +238,7 @@ export default function AcoesMassivas() {
       if (erroAlunos) throw erroAlunos;
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
+      setPrimeExtratoEm(previa?.prime_extrato_em || null);
 
       const alunosBrutos = previa?.elegiveis || [];
       if (alunosBrutos.length === 0) {
@@ -327,6 +332,7 @@ export default function AcoesMassivas() {
       if (erroReg) throw erroReg;
 
       const excluidosEnvio = Number(reg?.excluidos_confirmacao || 0);
+      const excluidosPrime = Number(reg?.excluidos_liquidados_prime || 0);
       setExcluidosNoEnvio(excluidosEnvio);
 
       // 2) Gera o Excel APENAS com quem passou na revalidação. Os contatos
@@ -357,9 +363,12 @@ export default function AcoesMassivas() {
 
       const retorno = new Date();
       retorno.setDate(retorno.getDate() + 10);
-      const sufixoExcluidos = excluidosEnvio > 0
+      const sufixoExcluidos = (excluidosEnvio > 0
         ? ` ${excluidosEnvio} caso(s) foram removidos na revalidação por entrarem em confirmação de pagamento.`
-        : "";
+        : "")
+        + (excluidosPrime > 0
+        ? ` ${excluidosPrime} caso(s) foram removidos por já constarem liquidados no Prime.`
+        : "");
 
       if (registrados.length === 0) {
         setSucesso(`Nenhum caso registrado.${sufixoExcluidos}`);
@@ -862,6 +871,13 @@ export default function AcoesMassivas() {
               </span>
               {resultados.length > 0 && (
                 <span style={{ color: "#8a93a3" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
+              )}
+              {primeExtratoEm && (
+                <div style={{ color: "#8a93a3", fontSize: 12.5, marginTop: 4 }}>
+                  Quem já consta liquidado no Prime não entra nesta lista. Extrato de{" "}
+                  {new Date(`${primeExtratoEm}T12:00:00`).toLocaleDateString("pt-BR")} — quem pagou
+                  depois disso só sai na próxima coleta.
+                </div>
               )}
             </div>
             {resultados.length > 0 && (
