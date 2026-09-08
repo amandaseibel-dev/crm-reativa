@@ -97,7 +97,7 @@ begin
            pago_em = null, confirmado_por_email = null, boleto = null,
            observacao = coalesce(p.observacao,'') || ' | reparo ' || v_hoje || ': baixa automatica reaplicada na parcela certa',
            atualizado_em = now()
-      from _rep_pag r where p.id = r.parcela_origem;
+      from _rep_pag rp where p.id = rp.parcela_origem;
 
     -- 5. Reaplica em ordem de data.
     for r in select * from _rep_pag order by acordo_id, pago_em, numero loop
