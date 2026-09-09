@@ -133,3 +133,38 @@ create unique index if not exists ux_casos_uma_ficha_aberta_por_aluno
 
 comment on index public.ux_casos_uma_ficha_aberta_por_aluno is
   'UM CPF, UMA FICHA. Impede fisicamente duas fichas abertas para o mesmo aluno. A mensagem legivel vem do gatilho trg_zz_caso_nao_duplica_aluno, que roda antes deste indice ser violado.';
+
+-- ---------------------------------------------------------------------------
+-- C) A MENSAGEM PRECISA CHEGAR ANTES DO INDICE.
+-- ---------------------------------------------------------------------------
+-- Erro pego no teste em producao (09/09): so com o CONSTRAINT TRIGGER AFTER,
+-- quem barrava primeiro era o INDICE -- ele e verificado no proprio INSERT,
+-- antes de qualquer AFTER. O operador via a mensagem crua do Postgres:
+--
+--   duplicate key value violates unique constraint "ux_casos_uma_ficha_aberta_por_aluno"
+--
+-- que e exatamente o que esta trava se propunha a evitar.
+--
+-- CONSERTO: um gatilho BEFORE com a MESMA funcao, chamado `trg_zz_...` de
+-- proposito. Gatilhos disparam em ordem alfabetica, e "trg_zz" vem depois de
+-- "trg_casos_set_encerrado_operacional" -- entao ele roda por ULTIMO entre os
+-- BEFORE e ja enxerga o encerrado_operacional calculado. Era esse o furo
+-- original da trava antiga, que rodava ANTES de quem define esse valor.
+--
+-- As tres camadas, nesta ordem:
+--   1. BEFORE  -> a mensagem legivel, no caminho normal;
+--   2. indice  -> a garantia fisica, para o que o gatilho nao ve;
+--   3. AFTER   -> rede final, enxerga o estado definitivo da linha.
+--
+-- Verificado em producao: a tentativa de criar uma segunda ficha devolve
+-- "ALUNO_JA_TEM_CASO_ABERTO: Jorge Andre Cunha Leal ja esta na fila no caso
+-- 15852", e nao mais o erro de indice.
+drop trigger if exists trg_zz_caso_nao_duplica_aluno_before on public.casos;
+
+create trigger trg_zz_caso_nao_duplica_aluno_before
+  before insert or update on public.casos
+  for each row
+  execute function public._caso_nao_duplica_aluno();
+
+comment on index public.ux_casos_uma_ficha_aberta_por_aluno is
+  'UM CPF, UMA FICHA. Garantia fisica. A mensagem legivel vem do gatilho BEFORE trg_zz_caso_nao_duplica_aluno_before, que roda por ultimo entre os BEFORE e barra antes deste indice ser consultado. Se esta mensagem aparecer crua para alguem, o gatilho BEFORE foi removido.';
