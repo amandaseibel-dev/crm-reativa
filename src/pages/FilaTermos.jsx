@@ -343,6 +343,31 @@ export default function FilaAdmTermos() {
     return compl ? `${motivoSel} — ${compl}` : motivoSel;
   }
 
+  // Toda acao desta tela era `setFlag(true) -> await -> setFlag(false)`, sem
+  // rede de protecao. Se a promise REJEITA (queda de rede, sessao expirada, aba
+  // suspensa), o `setFlag(false)` nunca roda: o flag fica preso em true e a fila
+  // para de responder EM SILENCIO -- todo clique seguinte morre no guard
+  // `if (salvando) return`, sem uma linha de aviso.
+  //
+  // Foi o que sobrou como explicacao em 2026-09-09: a ADM diz ter rejeitado um
+  // termo e o log da API nao registrou NENHUMA chamada de decisao no dia (so as
+  // duas aprovacoes). Sem POST, o clique morreu no navegador.
+  //
+  // `tentar` nunca lanca: devolve null quando a chamada nao chegou ao servidor,
+  // e quem chamou libera o flag e para. O usuario ouve o que houve.
+  async function tentar(rotulo, acao) {
+    try {
+      return await acao();
+    } catch (e) {
+      alert(
+        `${rotulo} NÃO foi registrado: a chamada não chegou ao servidor.\n\n` +
+          `Detalhe técnico: ${e?.message || e}\n\n` +
+          "Verifique a conexão e tente de novo — nada foi alterado."
+      );
+      return null;
+    }
+  }
+
   async function decidir(decisao, abrirProximo = false) {
     if (!modalTermo || salvando) return;
 
@@ -366,14 +391,20 @@ export default function FilaAdmTermos() {
     if (!okConfirm) return;
 
     setSalvando(true);
-    const { data, error } = await supabase.rpc("validar_assinatura_termo", {
-      p_termo_id: modalTermo.id,
-      p_decisao: decisao,
-      p_observacao: decisao === "APROVAR" ? obs.trim() || null : null,
-      p_motivo: motivo,
-      p_abrir_proximo: abrirProximo,
-    });
+    const resp = await tentar(
+      decisao === "APROVAR" ? "A liberação do termo" : "A rejeição do termo",
+      () =>
+        supabase.rpc("validar_assinatura_termo", {
+          p_termo_id: modalTermo.id,
+          p_decisao: decisao,
+          p_observacao: decisao === "APROVAR" ? obs.trim() || null : null,
+          p_motivo: motivo,
+          p_abrir_proximo: abrirProximo,
+        })
+    );
     setSalvando(false);
+    if (!resp) return;
+    const { data, error } = resp;
 
     if (error) {
       alert("Erro ao processar: " + error.message);
@@ -487,8 +518,12 @@ export default function FilaAdmTermos() {
   async function marcarEnviados(ids) {
     if (!ids || ids.length === 0) return;
     setProcessando(true);
-    const { data, error } = await supabase.rpc("termos_marcar_envio_assinatura", { p_ids: ids });
+    const resp = await tentar("A marcação de envio para assinatura", () =>
+      supabase.rpc("termos_marcar_envio_assinatura", { p_ids: ids })
+    );
     setProcessando(false);
+    if (!resp) return;
+    const { data, error } = resp;
     if (error || !data?.ok) {
       alert("Não foi possível marcar o envio: " + (error?.message || data?.erro || "erro desconhecido"));
       return;
@@ -499,8 +534,12 @@ export default function FilaAdmTermos() {
 
   async function desfazerEnvio(termo) {
     setProcessando(true);
-    const { data, error } = await supabase.rpc("termo_desfazer_envio_assinatura", { p_termo_id: termo.id });
+    const resp = await tentar("O desfazer do envio", () =>
+      supabase.rpc("termo_desfazer_envio_assinatura", { p_termo_id: termo.id })
+    );
     setProcessando(false);
+    if (!resp) return;
+    const { data, error } = resp;
     if (error || !data?.ok) {
       alert("Não foi possível desfazer: " + (error?.message || data?.erro || "erro desconhecido"));
       return;
@@ -528,8 +567,11 @@ export default function FilaAdmTermos() {
     );
     if (motivo === null) return;
     setProcessando(true);
-    const res = await desfazerAssinaturaConcluida(termo.id, motivo);
+    const res = await tentar("O desfazer da assinatura", () =>
+      desfazerAssinaturaConcluida(termo.id, motivo)
+    );
     setProcessando(false);
+    if (!res) return;
     if (!res.ok) {
       alert("Não foi possível desfazer: " + (res.erro === "etapa_invalida" ? "Este termo já não está como assinado. A fila será atualizada." : mensagemErro(res.erro)));
       return;
@@ -571,12 +613,16 @@ export default function FilaAdmTermos() {
       return;
     }
     setProcessando(true);
-    const { data, error } = await supabase.rpc("termo_dispensar_assinatura", {
-      p_termo_id: termo.id,
-      p_motivo: decisaoMotivo,
-      p_detalhe: detalhe || null,
-    });
+    const resp = await tentar('A saída da fila de assinatura ("não será assinado")', () =>
+      supabase.rpc("termo_dispensar_assinatura", {
+        p_termo_id: termo.id,
+        p_motivo: decisaoMotivo,
+        p_detalhe: detalhe || null,
+      })
+    );
     setProcessando(false);
+    if (!resp) return;
+    const { data, error } = resp;
     if (error || !data?.ok) {
       const cod = error?.message || data?.erro || "erro desconhecido";
       alert(
@@ -608,11 +654,15 @@ export default function FilaAdmTermos() {
       decisaoMotivo === "Outro" ? compl : compl ? `${decisaoMotivo} — ${compl}` : decisaoMotivo;
 
     setProcessando(true);
-    const { data, error } = await supabase.rpc("termo_devolver_ao_operador", {
-      p_termo_id: termo.id,
-      p_motivo: motivo,
-    });
+    const resp = await tentar("A devolução do termo", () =>
+      supabase.rpc("termo_devolver_ao_operador", {
+        p_termo_id: termo.id,
+        p_motivo: motivo,
+      })
+    );
     setProcessando(false);
+    if (!resp) return;
+    const { data, error } = resp;
     if (error || !data?.ok) {
       const cod = error?.message || data?.erro || "erro desconhecido";
       alert(
@@ -649,8 +699,12 @@ export default function FilaAdmTermos() {
     );
     if (!ok) return;
     setProcessando(true);
-    const { data, error } = await supabase.rpc("termo_reativar_assinatura", { p_termo_id: termo.id });
+    const resp = await tentar("A volta do termo para a fila", () =>
+      supabase.rpc("termo_reativar_assinatura", { p_termo_id: termo.id })
+    );
     setProcessando(false);
+    if (!resp) return;
+    const { data, error } = resp;
     if (error || !data?.ok) {
       alert("Não foi possível voltar o termo para a fila: " + (error?.message || data?.erro || "erro desconhecido"));
       return;
@@ -675,7 +729,13 @@ export default function FilaAdmTermos() {
     }
     setProcessando(true);
 
-    const envio = await enviarTermo(modalAnexo.id, "final", anexoArquivo);
+    const envio = await tentar("O envio da via assinada", () =>
+      enviarTermo(modalAnexo.id, "final", anexoArquivo)
+    );
+    if (!envio) {
+      setProcessando(false);
+      return;
+    }
     if (!envio.ok && envio.erro !== "ja_vinculado") {
       setProcessando(false);
       alert(erroAnexo(envio.erro));
@@ -685,12 +745,15 @@ export default function FilaAdmTermos() {
     // O descarte é automático: anexar a via completa É a decisão de descartar a
     // do aluno. A trava que sobra é a do backend — sem o arquivo novo confirmado
     // no bucket, nada é apagado.
-    const res = await concluirAssinaturaTermo(modalAnexo.id, {
-      testemunha1,
-      testemunha2,
-      backupConfirmado: true,
-    });
+    const res = await tentar("A conclusão da assinatura", () =>
+      concluirAssinaturaTermo(modalAnexo.id, {
+        testemunha1,
+        testemunha2,
+        backupConfirmado: true,
+      })
+    );
     setProcessando(false);
+    if (!res) return;
 
     if (!res.ok) {
       alert("A via foi anexada, mas a conclusão falhou (" + res.erro + "). Nada foi apagado.");
@@ -716,8 +779,11 @@ export default function FilaAdmTermos() {
     );
     if (!ok) return;
     setProcessando(true);
-    const res = await descartarViaAluno(termo.id, { backupConfirmado: true });
+    const res = await tentar("O descarte da via do aluno", () =>
+      descartarViaAluno(termo.id, { backupConfirmado: true })
+    );
     setProcessando(false);
+    if (!res) return;
     if (!res.ok) {
       alert("Não foi possível descartar: " + res.erro);
       return;

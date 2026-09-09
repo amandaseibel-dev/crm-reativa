@@ -155,4 +155,25 @@ describe("Fila ADM de Termos: não será assinado / devolver ao operador", () =>
     expect(screen.getByRole("heading", { name: "Bia Pendente" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Fabio Rejeitado" })).toBeNull();
   });
+
+  it("chamada que nem sai do navegador avisa e NÃO trava a tela", async () => {
+    // Sem try/catch, a promise rejeitada deixava o flag `processando` preso em
+    // true: a fila parava de responder em silêncio e o clique seguinte morria
+    // no guard, sem nada no log da API.
+    rpcMock.mockRejectedValue(new Error("Failed to fetch"));
+    await abrir(/^Assinaturas/);
+
+    const devolver = () =>
+      within(cardDe("Bia Pendente")).getByRole("button", { name: "Devolver ao operador" });
+    await act(async () => { fireEvent.click(devolver()); });
+    fireEvent.change(screen.getByLabelText("Motivo"), { target: { value: "Valor do acordo incorreto" } });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirmar devolução" })); });
+
+    expect(window.alert).toHaveBeenCalledWith(expect.stringContaining("NÃO foi registrado"));
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+
+    // A tela continua viva: o segundo clique chega ao servidor de novo.
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Confirmar devolução" })); });
+    expect(rpcMock).toHaveBeenCalledTimes(2);
+  });
 });
