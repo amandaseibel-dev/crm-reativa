@@ -4,13 +4,13 @@ import {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
-  Upload, Users, Settings, UserCircle, ClipboardList,
+  Upload, Users, Settings, UserCircle, ClipboardList, ShieldAlert,
 } from "lucide-react";
 const ICONES_MENU = {
   LayoutDashboard, Zap, Folder, Calendar, User, Phone, Heart,
   DollarSign, CreditCard, CheckCircle2, FileStack, Lock,
   BarChart3, Clock, Contact, LayoutPanelTop, Clock3, Database, Link2, TrendingUp,
-  Upload, Users, Settings, UserCircle, ClipboardList,
+  Upload, Users, Settings, UserCircle, ClipboardList, ShieldAlert,
 };
 import { supabase } from "./services/supabase";
 import usePolling from "./utils/polling";
@@ -79,6 +79,7 @@ const HistoricoRecuperacao = lazy(() => import("./pages/HistoricoRecuperacao"));
 const SaudeDaBase = lazy(() => import("./pages/SaudeDaBase"));
 const SaudeCompletaCarteira = lazy(() => import("./pages/SaudeCompletaCarteira"));
 const RevisaoPrime = lazy(() => import("./pages/RevisaoPrime"));
+const VigiaInvariantes = lazy(() => import("./pages/VigiaInvariantes"));
 const TvElogios = lazy(() => import("./pages/TvElogios"));
 import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
 import AvisosPopup from "./components/AvisosPopup";
@@ -195,6 +196,7 @@ function podeAcessar(perfil, rota) {
       "/historico-recuperacao",
       "/saude-completa-carteira", "/saude-da-base", "/relatorio-receptivo",
       "/revisao-prime",
+      "/vigia-invariantes",
       "/log-nivelamento",
       "/sugestoes-recebidas",
       "/taxa-conversao",],
@@ -635,6 +637,7 @@ export default function App() {
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
     { rota: "/saude-completa-carteira", label: "Saúde Completa da Carteira", icone: "Activity", secao: "Gestão" },
     { rota: "/revisao-prime", label: "Revisão Prime × CRM", icone: "GitCompare", secao: "Gestão" },
+    { rota: "/vigia-invariantes", label: "Vigia de Invariantes", icone: "ShieldAlert", secao: "Gestão" },
     { rota: "/acordos-operador", label: "Acordos por Operador", icone: "TrendingUp", secao: "Operação" },
     
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
@@ -1089,6 +1092,7 @@ export default function App() {
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
               <Route path="/saude-completa-carteira" element={<SaudeCompletaCarteira />} />
               <Route path="/revisao-prime" element={<RevisaoPrime />} />
+              <Route path="/vigia-invariantes" element={<VigiaInvariantes />} />
               <Route path="/acordos-operador" element={<RotaProtegida usuario={usuario} rota="/acordos-operador"><AcordosPorOperador /></RotaProtegida>} />
               <Route path="/log-nivelamento" element={<LogNivelamento />} />
               <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
