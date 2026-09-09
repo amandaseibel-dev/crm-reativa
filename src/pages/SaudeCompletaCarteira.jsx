@@ -84,6 +84,8 @@ export default function SaudeCompletaCarteira() {
   // Panorama do topo: de que a carteira e feita (semestre, faixa, tipo).
   const [panorama, setPanorama] = useState(null);
   const [erroPanorama, setErroPanorama] = useState("");
+  const [porCurso, setPorCurso] = useState(null);
+  const [erroCurso, setErroCurso] = useState("");
   const [metricaFaixa, setMetricaFaixa] = useState("casos");
   const [ordEstab, setOrdEstab] = useState({ col: "sem_acionamento_limite", dir: "desc" });
   const [exportando, setExportando] = useState(false);
@@ -94,15 +96,48 @@ export default function SaudeCompletaCarteira() {
   const [detPag, setDetPag] = useState({ limite: 50, offset: 0 });
   const [detOrd, setDetOrd] = useState({ ordenar_por: "saldo_vencido", ordem_dir: "desc" });
   const [detLoading, setDetLoading] = useState(false);
+  const [avisoRefresh, setAvisoRefresh] = useState("");
 
   const totais = resumo?.totais || {};
   const isGestao = resumo?.escopo?.is_gestao;
 
+  // "ATUALIZAR" PRECISA RECALCULAR, NAO SO RELER.
+  //
+  // A tela le a matview mv_saude_carteira, recalculada por cron de hora em
+  // hora. Ate aqui o botao apenas reconsultava essa foto: quem fizesse uma
+  // acao e clicasse em seguida via o numero velho -- "faco acao e nao aparece"
+  // (Amanda, 09/09). O caso classico e o contador de nunca acionados.
+  //
+  // Agora o botao recalcula primeiro. Leva ~6,7s, medido em producao, e por
+  // isso continua sendo acao explicita: ninguem paga esse custo sem pedir.
+  //
+  // So gestao pode recalcular (a propria RPC recusa os demais), entao para
+  // operador seguimos direto para a leitura -- sem erro na cara de quem nao
+  // tem permissao para uma coisa que ele nem pediu.
   const carregar = useCallback(async () => {
+    if (isGestao) {
+      const { error } = await supabase.rpc("saude_carteira_atualizar");
+      // Erro aqui NAO impede a leitura: sob carga a RPC adia o refresh de
+      // proposito, e nesse caso a foto anterior e melhor que tela vazia.
+      if (error) setAvisoRefresh("Não foi possível recalcular agora — os números abaixo são do último cálculo.");
+      else setAvisoRefresh("");
+    }
     await atualizar();
     const { data } = await supabase.rpc("saude_carteira_qualidade", { p_filtros: filtros });
     setQualidade(data?.qualidade || null);
-  }, [atualizar, filtros]);
+  }, [atualizar, filtros, isGestao]);
+
+  // POR CURSO. Carrega junto do panorama, pelo mesmo motivo: e leitura de
+  // composicao, nao indicador de trabalho. Erro aparece, nao some.
+  useEffect(() => {
+    let vivo = true;
+    supabase.rpc("saude_carteira_por_curso", { p_filtros: filtros }).then(({ data, error }) => {
+      if (!vivo) return;
+      if (error) { setErroCurso(error.message || String(error)); setPorCurso(null); }
+      else { setErroCurso(""); setPorCurso(data || null); }
+    });
+    return () => { vivo = false; };
+  }, [filtros]);
 
   // O panorama NAO espera "Atualizar indicadores": ele e o topo da pagina e a
   // primeira coisa que ela quer ver. Carrega sozinho na abertura.
@@ -193,12 +228,18 @@ export default function SaudeCompletaCarteira() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={carregar} rotulo="Atualizar indicadores" />
+          <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={carregar} rotulo={isGestao ? "Recalcular indicadores" : "Atualizar indicadores"} />
           <button onClick={exportar} disabled={exportando || !resumo} style={btnSec}>
             {exportando ? "Gerando…" : "⬇ Exportar Excel"}
           </button>
         </div>
       </div>
+
+      {avisoRefresh ? (
+        <div style={{ marginTop: 10, fontSize: 12.5, color: "var(--rv-alerta, #a8471d)" }}>
+          {avisoRefresh}
+        </div>
+      ) : null}
 
       {/* Até quando os números abaixo valem. A carteira só enxerga até o
           vencimento mais novo que entrou por borderô -- sem isso escrito, o
@@ -208,6 +249,8 @@ export default function SaudeCompletaCarteira() {
       <Filtros filtros={filtros} setFiltros={setFiltros} estabs={resumo?.estabelecimentos || []} operadores={operadores} isGestao={isGestao} />
 
       <Panorama dados={panorama} erro={erroPanorama} />
+
+      <PorCurso dados={porCurso} erro={erroCurso} />
 
       {!resumo && !carregando && (
         <div style={vazio}>Clique em <b>Atualizar indicadores</b> para carregar os indicadores de trabalho.</div>
@@ -406,6 +449,65 @@ function MetricaToggle({ valor, setValor }) {
 // Os tres cortes saem da mesma base canonica (parcela de acordo ATIVO +
 // mensalidade nao vinculada) e cada linha traz a % sobre o total -- o absoluto
 // sozinho nao diz se e muito ou pouco.
+// A CARTEIRA NAO E HOMOGENEA, E SO O CURSO MOSTRA ISSO.
+//
+// 523 alunos de MEDICINA concentram R$ 15,05 milhoes -- 4% das pessoas e 37%
+// do valor, com ticket medio de R$ 28.783 contra R$ 2.598 de Direito. O dado
+// vinha do Prime (prime_contratos, 17.246 alunos) e nao era usado em tela
+// nenhuma: a fila tratava todo mundo igual.
+//
+// O TICKET MEDIO vai junto de proposito. Sem ele, Medicina parece so "um curso
+// grande"; com ele, fica claro que e outro negocio.
+function PorCurso({ dados, erro }) {
+  if (erro) {
+    return (
+      <div style={{ marginTop: 16, background: "var(--rv-superficie, #fef2f2)",
+                    border: "1px solid var(--rv-erro, #fecaca)", color: "var(--rv-erro, #991b1b)",
+                    borderRadius: 10, padding: "12px 14px", fontSize: 13 }}>
+        ⚠️ Não foi possível carregar a carteira por curso: {erro}
+      </div>
+    );
+  }
+  const linhas = dados?.por_curso || [];
+  if (!linhas.length) return null;
+
+  const maior = Math.max(...linhas.map((r) => Number(r.saldo) || 0), 1);
+
+  return (
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 800, color: "var(--rv-texto, #0f172a)" }}>Por curso</span>
+        <span style={{ fontSize: 12.5, color: "var(--rv-texto-suave, #64748b)" }}>
+          onde o dinheiro está concentrado · total {moeda(dados?.total)}
+        </span>
+      </div>
+      <div style={{ background: "var(--rv-superficie, #fff)", border: "1px solid var(--rv-borda, #e6eaf0)",
+                    borderRadius: 12, padding: 14 }}>
+        {linhas.map((r) => (
+          <div key={r.curso} style={{ marginBottom: 11 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "baseline" }}>
+              <span style={{ fontSize: 12.5, color: "var(--rv-texto, #334155)" }}>
+                {r.curso} · {num(r.casos)} alunos
+                <span style={{ color: "var(--rv-texto-suave, #64748b)" }}>
+                  {" · ticket "}{moeda(r.ticket_medio)}
+                </span>
+              </span>
+              <span style={{ fontSize: 12.5, fontWeight: 700, color: "var(--rv-texto, #0f172a)", whiteSpace: "nowrap" }}>
+                {moeda(r.saldo)} · {pct(r.pct_valor)}
+              </span>
+            </div>
+            <div style={{ height: 6, background: "var(--rv-superficie-2, #eef2f7)", borderRadius: 4,
+                          overflow: "hidden", marginTop: 4 }}>
+              <div style={{ width: `${Math.min(100, (Number(r.saldo) || 0) / maior * 100)}%`,
+                            height: "100%", background: "var(--rv-tinta, #1e40af)" }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Panorama({ dados, erro }) {
   if (erro) {
     return (

@@ -15,6 +15,7 @@
 // baixa automática apagaria dívida viva. Esta tela mostra e exporta; quem baixa
 // é gente, pelo número do título, no fluxo normal.
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 
 const FONTE = "'Sora','Inter',system-ui,sans-serif";
@@ -62,7 +63,12 @@ const VISOES = [
 ];
 
 export default function RevisaoPrime() {
+  const navigate = useNavigate();
   const [visao, setVisao] = useState(VISOES[0]);
+  // O que ja foi olhado: mapa aluno_id -> {status, motivo, por_email}.
+  const [tratado, setTratado] = useState({});
+  const [mostrarTratados, setMostrarTratados] = useState(false);
+  const [salvando, setSalvando] = useState(null);
   const [linhas, setLinhas] = useState([]);
   const [totais, setTotais] = useState(null);
   const [carregando, setCarregando] = useState(true);
@@ -103,6 +109,59 @@ export default function RevisaoPrime() {
       });
     return () => { vivo = false; };
   }, [visao]);
+
+  // As tratativas vem separadas: a tabela da revisao e recalculada por cron e
+  // nao tem dono; o que a gestao decidiu vive ao lado, em revisao_prime_tratativa.
+  useEffect(() => {
+    let vivo = true;
+    supabase
+      .from("revisao_prime_tratativa")
+      .select("aluno_id, status, motivo, por_email, em")
+      .eq("visao", visao.id)
+      .then(({ data }) => {
+        if (!vivo) return;
+        const mapa = {};
+        (data || []).forEach((t) => { mapa[t.aluno_id] = t; });
+        setTratado(mapa);
+      });
+    return () => { vivo = false; };
+  }, [visao]);
+
+  // REGRA DA CASA: a ficha do aluno abre pela ficha unica, por aluno_id --
+  // nunca por busca aproximada de nome. Mesmo caminho das notificacoes.
+  function abrirFicha(alunoId) {
+    try {
+      localStorage.setItem("reativa_aluno_abrir_id", String(alunoId));
+      localStorage.removeItem("reativa_aluno_abrir_secao");
+      localStorage.removeItem("reativa_link_destacar_id");
+    } catch { /* navegador sem storage: a ficha ainda abre pela rota */ }
+    navigate("/aluno?origem=revisao-prime");
+  }
+
+  async function tratar(alunoId, status) {
+    setSalvando(alunoId);
+    const motivo = status === "REJEITADO"
+      ? (window.prompt("Por que este caso está certo? (opcional)") ?? "")
+      : null;
+    const { error } = await supabase.rpc("revisao_prime_tratar", {
+      p_aluno_id: alunoId, p_visao: visao.id, p_status: status, p_motivo: motivo,
+    });
+    if (!error) {
+      setTratado((m) => ({ ...m, [alunoId]: { aluno_id: alunoId, status, motivo } }));
+    } else {
+      setErro(error.message);
+    }
+    setSalvando(null);
+  }
+
+  async function reabrir(alunoId) {
+    setSalvando(alunoId);
+    const { error } = await supabase.rpc("revisao_prime_tratar", {
+      p_aluno_id: alunoId, p_visao: visao.id, p_status: null, p_motivo: null,
+    });
+    if (!error) setTratado((m) => { const n = { ...m }; delete n[alunoId]; return n; });
+    setSalvando(null);
+  }
 
   function exportarCsv() {
     const cab = ["Aluno", "CPF", "Operador", "Caso", "Unidade", "Situação CRM",
@@ -163,6 +222,15 @@ export default function RevisaoPrime() {
         </div>
       ) : null}
 
+      <label style={S.filtroTratados}>
+        <input type="checkbox" checked={mostrarTratados}
+               onChange={(e) => setMostrarTratados(e.target.checked)} />
+        {" "}mostrar também o que já foi tratado
+        {Object.keys(tratado).length
+          ? ` (${Object.keys(tratado).length} tratado${Object.keys(tratado).length > 1 ? "s" : ""})`
+          : ""}
+      </label>
+
       {carregando ? <div style={S.vazio}>Carregando…</div> : null}
       {!carregando && !linhas.length && !erro ? (
         <div style={S.vazio}>Nenhuma divergência nesta visão. </div>
@@ -181,12 +249,21 @@ export default function RevisaoPrime() {
                 <th style={S.thN}>Títulos</th>
                 <th style={S.thN}>Valor</th>
                 <th style={S.th}>Última liquidação</th>
+                <th style={S.th}>Tratativa</th>
               </tr>
             </thead>
             <tbody>
-              {linhas.map((r) => (
-                <tr key={r.aluno_id}>
-                  <td style={S.td}>{r.nome}</td>
+              {linhas.filter((r) => mostrarTratados || !tratado[r.aluno_id]).map((r) => {
+                const t = tratado[r.aluno_id];
+                return (
+                <tr key={r.aluno_id} style={t ? S.trTratada : undefined}>
+                  <td style={S.td}>
+                    {/* Abre a ficha unica pelo aluno_id -- regra da casa. */}
+                    <button type="button" onClick={() => abrirFicha(r.aluno_id)}
+                            style={S.linkNome} title="Abrir a ficha do aluno">
+                      {r.nome}
+                    </button>
+                  </td>
                   <td style={S.tdM}>{r.cpf_mascarado}</td>
                   <td style={S.td}>{r.operador || <span style={S.fraco}>sem operador</span>}</td>
                   <td style={S.tdM}>{r.caso_codigo || "—"}</td>
@@ -194,8 +271,33 @@ export default function RevisaoPrime() {
                   <td style={S.tdN}>{num(r[visao.coluna])}</td>
                   <td style={{ ...S.tdN, fontWeight: 600 }}>{moeda(r[visao.colunaValor])}</td>
                   <td style={S.tdM}>{dataBR(r.p195_ultima_liquidacao)}</td>
+                  <td style={S.td}>
+                    {t ? (
+                      <span style={S.jaTratada}>
+                        <span style={t.status === "FEITO" ? S.seloFeito : S.seloRejeitado}>
+                          {t.status === "FEITO" ? "Feito" : "Rejeitado"}
+                        </span>
+                        <button type="button" style={S.btnMini}
+                                disabled={salvando === r.aluno_id}
+                                onClick={() => reabrir(r.aluno_id)}
+                                title="Volta este caso para a fila">desfazer</button>
+                      </span>
+                    ) : (
+                      <span style={S.acoes}>
+                        <button type="button" style={S.btnFeito}
+                                disabled={salvando === r.aluno_id}
+                                onClick={() => tratar(r.aluno_id, "FEITO")}
+                                title="A divergência era real e foi tratada">Feito</button>
+                        <button type="button" style={S.btnRejeitar}
+                                disabled={salvando === r.aluno_id}
+                                onClick={() => tratar(r.aluno_id, "REJEITADO")}
+                                title="Não era divergência: o caso está certo no Prime">Rejeitar</button>
+                      </span>
+                    )}
+                  </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
           {linhas.length >= 1000 ? (
@@ -259,6 +361,34 @@ const S = {
   tdN: {
     padding: "8px 10px", borderBottom: "1px solid var(--rv-borda-suave)", textAlign: "right",
     color: "var(--rv-texto)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
+  },
+  filtroTratados: { display:"block", marginTop:14, fontSize:13, color:"var(--rv-texto-suave)", cursor:"pointer" },
+  linkNome: {
+    background:"none", border:"none", padding:0, cursor:"pointer", font:"inherit",
+    color:"var(--rv-tinta)", textDecoration:"underline", textAlign:"left",
+  },
+  trTratada: { opacity:0.55 },
+  acoes: { display:"flex", gap:6 },
+  jaTratada: { display:"flex", gap:8, alignItems:"center" },
+  btnFeito: {
+    padding:"4px 10px", fontSize:12, cursor:"pointer", borderRadius:"var(--rv-raio-pequeno, 6px)",
+    border:"1px solid var(--rv-verde-borda)", background:"var(--rv-verde-fundo)", color:"var(--rv-verde-escuro)",
+  },
+  btnRejeitar: {
+    padding:"4px 10px", fontSize:12, cursor:"pointer", borderRadius:"var(--rv-raio-pequeno, 6px)",
+    border:"1px solid var(--rv-borda)", background:"var(--rv-superficie)", color:"var(--rv-texto-suave)",
+  },
+  btnMini: {
+    padding:"2px 6px", fontSize:11, cursor:"pointer", borderRadius:"var(--rv-raio-pequeno, 6px)",
+    border:"1px solid var(--rv-borda)", background:"transparent", color:"var(--rv-texto-suave)",
+  },
+  seloFeito: {
+    fontSize:11, fontWeight:600, padding:"2px 7px", borderRadius:2,
+    background:"var(--rv-verde-fundo)", color:"var(--rv-verde-escuro)",
+  },
+  seloRejeitado: {
+    fontSize:11, fontWeight:600, padding:"2px 7px", borderRadius:2,
+    background:"var(--rv-superficie-2, var(--rv-superficie))", color:"var(--rv-texto-suave)",
   },
   fraco: { color: "var(--rv-texto-suave)", fontStyle: "italic" },
   vazio: { marginTop: 18, padding: 16, fontSize: 14, color: "var(--rv-texto-suave)" },
