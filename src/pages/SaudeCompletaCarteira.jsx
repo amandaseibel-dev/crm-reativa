@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import BotaoAtualizar from "../components/BotaoAtualizar";
+import SeloDataDeCorte from "../components/SeloDataDeCorte";
 import { useAnaliticaSobDemanda } from "../hooks/useAnaliticaSobDemanda";
 import { exportarSaudeCarteira } from "../utils/exportarSaudeCarteira";
 
@@ -198,6 +199,11 @@ export default function SaudeCompletaCarteira() {
           </button>
         </div>
       </div>
+
+      {/* Até quando os números abaixo valem. A carteira só enxerga até o
+          vencimento mais novo que entrou por borderô -- sem isso escrito, o
+          total é lido como a inadimplência de hoje, e não é. */}
+      <SeloDataDeCorte variante="bloco" />
 
       <Filtros filtros={filtros} setFiltros={setFiltros} estabs={resumo?.estabelecimentos || []} operadores={operadores} isGestao={isGestao} />
 
