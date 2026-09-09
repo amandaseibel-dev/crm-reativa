@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import { origemDoAcordo } from "../utils/origemDoAcordo";
 import { podeGerirFinanceiro, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
 // A regra de lancar acordo mora em um lugar so -- a ficha e a tela de
 // lancamento chamam a MESMA funcao. Ver o comentario de src/utils/lancarAcordo.js:
@@ -1630,6 +1631,7 @@ export default function FinanceiroAluno({ aluno }) {
       <SecaoAcordos
         acordos={acordos}
         parcelasPorAcordo={parcelasPorAcordo}
+        titulos={titulos}
         podeBaixar={podeBaixar}
         onBaixarParcela={baixarParcela}
         onQuitarCartao={quitarCartao}
@@ -1954,7 +1956,7 @@ function SeletorResponsavelAcordo({ acordo, operadoresAtivos, onAplicar }) {
   );
 }
 
-function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios, onDefinirHonorarioParcela, onReplicarHonorarioParcela }) {
+function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios, onDefinirHonorarioParcela, onReplicarHonorarioParcela }) {
   const [formParcela, setFormParcela] = useState(null);
   const [formHonParcela, setFormHonParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
@@ -2076,6 +2078,24 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
           const totalDoAcordo = Number(acordo.valor_total || 0)
             + (temEntrada && !temParcelaEntrada ? entradaValor : 0);
 
+          // DE ONDE ESTE ACORDO VEIO. Sao TRES estados diferentes, e confundi-los
+          // e o erro que esta tela precisa evitar:
+          //
+          //   1. veio de mensalidade  -> mostra os numeros dos titulos;
+          //   2. RENEGOCIACAO         -> o titulo de origem e o boleto de um
+          //      acordo anterior (tipo_boleto = 'Acordo'). Acontece muito: em
+          //      09/09/2026 eram 276 acordos ativos renegociando outro acordo;
+          //   3. sem vinculo nenhum   -> aquele acordo nao sabe de onde veio.
+          //      1.319 acordos ativos, R$ 5,42 mi.
+          //
+          // NAO se usa `parcelas.titulos_origem` aqui: o gatilho que a preenche
+          // FILTRA os titulos do tipo 'Acordo', entao renegociacao (o caso 2)
+          // chegaria vazia e seria lida como caso 3 -- 237 acordos e R$ 962 mil
+          // apareceriam como cegos sem ser. Lemos os titulos direto.
+          const origem = origemDoAcordo(titulos, acordo.id);
+          const origemMensalidade = origem.mensalidades;
+          const origemRenegociacao = origem.renegociacoes;
+
           return (
             <div
               key={acordo.id}
@@ -2135,6 +2155,27 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                   quanto ja entrou e quanto falta justamente nos outros 2.818. */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 12, margin: "8px 0", fontSize: 12, opacity: 0.9 }}>
                 <span><b>Valor total:</b> {moeda(totalDoAcordo)}</span>
+                {/* De qual divida este acordo veio. Sem isto, acordo importado
+                    nao diz o que substituiu -- em 09/09/2026 eram 1.319 acordos
+                    ativos cegos, R$ 5,42 mi sem origem conhecida. */}
+                {origemMensalidade.length ? (
+                  <span title="Mensalidades que este acordo substituiu">
+                    <b>Títulos de origem:</b> {origemMensalidade.join(", ")}
+                  </span>
+                ) : null}
+                {origemRenegociacao.length ? (
+                  <span title="Este acordo renegociou um acordo anterior — o número é o boleto daquele acordo">
+                    <b>Renegociação do acordo:</b> {origemRenegociacao.join(", ")}
+                  </span>
+                ) : null}
+                {!origemMensalidade.length && !origemRenegociacao.length ? (
+                  <span
+                    style={{ opacity: 0.7 }}
+                    title="Este acordo chegou por importação sem dizer quais títulos substituiu. Sem isso não dá para saber de que dívida ele veio."
+                  >
+                    <b>Origem:</b> não registrada
+                  </span>
+                ) : null}
                 {temEntrada ? (
                   <span><b>Entrada:</b> {moeda(entradaValor)}{entradaPaga ? " (paga)" : " (em aberto)"}</span>
                 ) : null}
@@ -2240,6 +2281,15 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, podeBaixar, onBaixarParcela,
                         <div style={{ fontSize: 13 }}>Parcela {p.numero}</div>
                         <div style={estilos.subLinha}>
                           Vencimento: {formatarDataSimples(p.vencimento)}
+                          {/* O NUMERO DO TITULO NA CARA. A baixa se da pelo numero
+                              do titulo, nunca pelo nome -- mas ate aqui a tela nao
+                              mostrava esse numero, entao conferir exigia abrir o
+                              banco. Agora da para bater com o extrato a olho. */}
+                          {p.boleto ? (
+                            <span style={estilos.numeroTitulo} title="Número do título desta parcela — é por ele que a baixa é feita">
+                              • título {p.boleto}
+                            </span>
+                          ) : null}
                           {vencida ? <span style={estilos.marcaVencida}>• vencida</span> : null}
                           {venceAmanha ? (
                             <span style={estilos.marcaLembrete}>• vence amanhã — envie um lembrete ao aluno</span>
@@ -2502,6 +2552,14 @@ const estilos = {
   subLinha: { fontSize: 11.5, color: "#475569", marginTop: 2 },
   parcSoma: { display: "grid", gridTemplateColumns: "40px 1fr 1fr 1fr", gap: 8, alignItems: "center", padding: "8px 10px 2px", marginTop: 4, borderTop: "1px solid rgba(148,163,184,0.25)", fontSize: 12.5, fontWeight: 800, color: "#e2e8f0", fontVariantNumeric: "tabular-nums" },
   avisoConferencia: { marginTop: 10, padding: "10px 14px", borderRadius: 10, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.4)", color: "#fcd34d", fontSize: 12.5, fontWeight: 700 },
+  // Numero do titulo: tabular para alinhar digito com digito quando ha varias
+  // parcelas, e discreto -- e referencia para conferir, nao destaque.
+  numeroTitulo: {
+    marginLeft: 6,
+    fontVariantNumeric: "tabular-nums",
+    opacity: 0.75,
+    cursor: "help",
+  },
   marcaVencida: { color: "#f0999a", fontWeight: 700, marginLeft: 6 },
   marcaLembrete: { color: "#fcd34d", fontWeight: 700, marginLeft: 6 },
   tagBase: { fontSize: 11, padding: "2px 8px", borderRadius: 999, fontWeight: 700 },
