@@ -211,6 +211,10 @@ function mensalidadeManualInicial() {
 
 export default function FinanceiroAluno({ aluno }) {
   const [titulos, setTitulos] = useState([]);
+  // Histórico de quais títulos passaram por cada acordo. Sobrevive ao
+  // cancelamento, que zera acordos_titulos.acordo_id — sem isto a composição
+  // do acordo cancelado ficaria vazia justamente quando alguém precisa vê-la.
+  const [vinculos, setVinculos] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [acordos, setAcordos] = useState([]);
   const [parcelasPorAcordo, setParcelasPorAcordo] = useState({});
@@ -276,6 +280,16 @@ export default function FinanceiroAluno({ aluno }) {
       });
 
       setTitulos(emAbertoPrimeiro);
+
+      // RLS: gestão vê tudo; o operador vê os vínculos dos acordos que são
+      // dele. Quem não puder ler recebe lista vazia e a tela só perde o
+      // histórico do acordo cancelado — nada quebra.
+      const { data: vinc } = await supabase
+        .from("acordo_titulo_vinculo")
+        .select("titulo_id, acordo_id, ativo")
+        .in("titulo_id", (data || []).map((t) => t.id));
+      setVinculos(vinc || []);
+
       setCarregando(false);
     }
 
@@ -1629,6 +1643,7 @@ export default function FinanceiroAluno({ aluno }) {
 
 
       <SecaoAcordos
+        vinculos={vinculos}
         acordos={acordos}
         parcelasPorAcordo={parcelasPorAcordo}
         titulos={titulos}
@@ -1956,7 +1971,7 @@ function SeletorResponsavelAcordo({ acordo, operadoresAtivos, onAplicar }) {
   );
 }
 
-function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios, onDefinirHonorarioParcela, onReplicarHonorarioParcela }) {
+function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], vinculos = [], podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios, onDefinirHonorarioParcela, onReplicarHonorarioParcela }) {
   const [formParcela, setFormParcela] = useState(null);
   const [formHonParcela, setFormHonParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
@@ -2092,7 +2107,7 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, on
           // FILTRA os titulos do tipo 'Acordo', entao renegociacao (o caso 2)
           // chegaria vazia e seria lida como caso 3 -- 237 acordos e R$ 962 mil
           // apareceriam como cegos sem ser. Lemos os titulos direto.
-          const origem = origemDoAcordo(titulos, acordo.id);
+          const origem = origemDoAcordo(titulos, acordo.id, vinculos);
 
           return (
             <div
@@ -2169,6 +2184,14 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, on
                       <div key={t.documento} style={estilos.composicaoLinha}>
                         <span style={estilos.composicaoDoc}>{t.documento}</span>
                         <span>venc. {formatarDataSimples(t.vencimento)}</span>
+                        {t.voltouACobrar ? (
+                          <span
+                            style={estilos.composicaoVoltou}
+                            title="O acordo caiu e esta mensalidade voltou a ser cobrada."
+                          >
+                            voltou a cobrar
+                          </span>
+                        ) : null}
                         <span style={{ marginLeft: "auto", fontWeight: 600 }}>{moeda(t.valor)}</span>
                       </div>
                     ))}
@@ -2582,6 +2605,16 @@ const estilos = {
   composicaoLista: { margin: "6px 0 0 14px", display: "flex", flexDirection: "column", gap: 3 },
   composicaoLinha: { display: "flex", gap: 10, alignItems: "baseline", opacity: 0.9 },
   composicaoDoc: { fontVariantNumeric: "tabular-nums", minWidth: 90 },
+  // A mensalidade que voltou para a carteira porque o acordo caiu. Cor de
+  // alerta, não de erro: não é defeito, é dívida viva de novo.
+  composicaoVoltou: {
+    fontSize: 11,
+    padding: "1px 7px",
+    borderRadius: 99,
+    border: "1px solid var(--rv-alerta)",
+    color: "var(--rv-alerta)",
+    whiteSpace: "nowrap",
+  },
   numeroTitulo: {
     marginLeft: 6,
     fontVariantNumeric: "tabular-nums",
