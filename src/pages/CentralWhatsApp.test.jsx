@@ -1758,19 +1758,27 @@ describe("Central WhatsApp — anexar PDF", () => {
       midia_tamanho: 51200,
       timestamp_wa: new Date().toISOString(),
     }];
-    const { container } = render(<CentralWhatsApp />);
-    fireEvent.click(await screen.findByText("Fulano"));
+    // A aba nasce vazia no clique e só depois recebe o endereço assinado: é o
+    // que escapa do bloqueador de popup. Ver AnexoWhatsApp.jsx.
+    const aba = { location: { replace: vi.fn() }, opener: {}, close: vi.fn() };
+    const abrirOriginal = window.open;
+    window.open = vi.fn(() => aba);
+    try {
+      render(<CentralWhatsApp />);
+      fireEvent.click(await screen.findByText("Fulano"));
 
-    const link = await waitFor(() => {
-      const a = container.querySelector('a[href^="https://assinada.exemplo/"]');
-      expect(a).toBeTruthy();
-      return a;
-    });
-    expect(link.getAttribute("target")).toBe("_blank");
-    expect(link.getAttribute("rel")).toBe("noreferrer");
-    // a URL é pedida na hora e aponta para o caminho do arquivo — nunca é uma
-    // URL guardada no banco
-    expect(link.getAttribute("href")).toContain("2026/08/recebido.pdf");
-    expect(screen.getByText(/comprovante\.pdf/)).toBeDefined();
+      const link = await screen.findByText(/comprovante\.pdf/);
+      fireEvent.click(link);
+
+      // A URL é pedida NO CLIQUE e aponta para o caminho do arquivo — nunca é
+      // uma URL guardada no banco, e nunca uma assinada na montagem (que
+      // apodrecia em 5 minutos com a conversa aberta).
+      await waitFor(() => expect(aba.location.replace).toHaveBeenCalled());
+      expect(String(aba.location.replace.mock.calls[0][0]))
+        .toContain("2026/08/recebido.pdf");
+      expect(window.open).toHaveBeenCalledWith("", "_blank");
+    } finally {
+      window.open = abrirOriginal;
+    }
   });
 });
