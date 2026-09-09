@@ -136,12 +136,21 @@ $function$;
 revoke all on function public.prime_varredura_nome_processar(integer) from public, anon, authenticated;
 revoke all on function public.prime_varredura_nome_pendentes(integer)  from public, anon, authenticated;
 
--- Cron: a cada 2 minutos, so na madrugada (03:00-08:58 UTC = 00:00-05:58 BRT).
--- 50 CPFs por lote, ~30 lotes por hora -> ~1.500/hora. Com 12.351 alunos em
--- fila, sao ~250 lotes: cabe em UMA madrugada de 6 horas. Para parar: desative
--- o job.
-select cron.schedule('prime_varredura_nome', '*/2 3-8 * * *',
-                     $$select public.prime_varredura_nome_processar(50);$$);
+-- Cron: a cada 2 minutos, das 21:00 as 05:58 BRT (00:00-08:58 UTC).
+--
+-- A CONTA, que na primeira versao estava errada: sao 12.351 alunos em fila e
+-- 60 por lote, ou seja ~206 lotes. A cada 2 minutos da 6h52 -- nao cabia na
+-- janela de 6 horas que eu tinha posto (00:00-05:58), ia parar no meio.
+--
+-- Comecando as 21:00 sao 8h58 de janela, ~269 lotes, ~16 mil CPFs: termina com
+-- folga antes das 6 da manha, que e quando a operacao acorda.
+--
+-- 60 por lote e o teto seguro: medido 50 CPFs = 57s, e a Edge Function corta em
+-- 150s. Nao vale subir mais -- lote grande nao cabe e desperdicia a viagem.
+--
+-- Para parar: select cron.unschedule('prime_varredura_nome');
+select cron.schedule('prime_varredura_nome', '*/2 0-8 * * *',
+                     $$select public.prime_varredura_nome_processar(60);$$);
 
 -- Os 18 CPFs criados hoje e os 16 conferidos ja foram varridos a mao: entram
 -- marcados para a rotina nao gastar viagem com eles.
