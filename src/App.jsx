@@ -205,6 +205,14 @@ function podeAcessar(perfil, rota) {
       "/portal-operacional",
       "/minha-fila",
       "/aluno",
+      // Revisao Prime e Vigia sao de GESTAO. No banco, usuario_e_gestao() ja
+      // lista as tres pessoas (Amanda, Fernanda, Amanda Borges) -- mas o
+      // front-end so liberava o perfil `gerencia`, entao as outras duas viam
+      // "acesso negado" numa tela que a RLS ja deixaria abrir. Cada um destes
+      // perfis tem exatamente um usuario, entao liberar o perfil e liberar a
+      // pessoa.
+      "/revisao-prime",
+      "/vigia-invariantes",
       "/crm",
       "/financeiro",
       "/financeiro-hub",
@@ -233,6 +241,14 @@ function podeAcessar(perfil, rota) {
       "/portal-operacional",
       "/minha-fila",
       "/aluno",
+      // Revisao Prime e Vigia sao de GESTAO. No banco, usuario_e_gestao() ja
+      // lista as tres pessoas (Amanda, Fernanda, Amanda Borges) -- mas o
+      // front-end so liberava o perfil `gerencia`, entao as outras duas viam
+      // "acesso negado" numa tela que a RLS ja deixaria abrir. Cada um destes
+      // perfis tem exatamente um usuario, entao liberar o perfil e liberar a
+      // pessoa.
+      "/revisao-prime",
+      "/vigia-invariantes",
       "/crm",
       "/financeiro",
       "/financeiro-hub",
