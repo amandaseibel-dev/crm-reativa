@@ -18,23 +18,44 @@
 
 const TIPO_ACORDO = "Acordo";
 
-export function origemDoAcordo(titulos, acordoId) {
-  const doAcordo = (titulos || []).filter((t) => t && t.acordo_id === acordoId);
+// Valor de um título de origem: o original é o que foi negociado. Saldo
+// corrigido e em aberto mudam depois do acordo e diriam outra coisa.
+function valorDoTitulo(t) {
+  const v = Number(t?.valor_original ?? t?.saldo_corrigido ?? t?.valor_em_aberto ?? 0);
+  return Number.isFinite(v) ? v : 0;
+}
 
-  const documentosDe = (deAcordo) =>
+export function origemDoAcordo(titulos, acordoId) {
+  const doAcordo = (titulos || [])
+    .filter((t) => t && t.acordo_id === acordoId)
+    .filter((t) => t.documento != null && String(t.documento).trim() !== "");
+
+  const separar = (deAcordo) =>
     doAcordo
       .filter((t) => ((t.tipo_boleto || "") === TIPO_ACORDO) === deAcordo)
-      .map((t) => t.documento)
-      .filter((d) => d != null && String(d).trim() !== "")
-      .map(String);
+      // Do mais antigo para o mais novo: é a ordem em que a dívida se formou.
+      .sort((a, b) => String(a.vencimento || "").localeCompare(String(b.vencimento || "")))
+      .map((t) => ({
+        documento: String(t.documento),
+        vencimento: t.vencimento || null,
+        valor: valorDoTitulo(t),
+        situacao: t.situacao || null,
+      }));
 
-  const mensalidades = documentosDe(false);
-  const renegociacoes = documentosDe(true);
+  const itensMensalidade = separar(false);
+  const itensRenegociacao = separar(true);
+  const somar = (itens) => itens.reduce((s, t) => s + t.valor, 0);
 
   return {
-    mensalidades,
-    renegociacoes,
+    // Detalhe: o que compõe o acordo, para a tela poder listar.
+    itensMensalidade,
+    itensRenegociacao,
+    totalMensalidade: somar(itensMensalidade),
+    totalRenegociacao: somar(itensRenegociacao),
+    // Só os números, para a linha resumida.
+    mensalidades: itensMensalidade.map((t) => t.documento),
+    renegociacoes: itensRenegociacao.map((t) => t.documento),
     // "Sem origem" é a ausência das duas — e é informação, não vazio de tela.
-    semOrigem: mensalidades.length === 0 && renegociacoes.length === 0,
+    semOrigem: itensMensalidade.length === 0 && itensRenegociacao.length === 0,
   };
 }
