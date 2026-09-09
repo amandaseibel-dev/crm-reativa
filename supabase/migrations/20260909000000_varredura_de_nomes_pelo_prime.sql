@@ -11,15 +11,21 @@
 -- cobranca de divida que nao e dela, que e problema de LGPD antes de ser de
 -- numero.
 --
--- POR QUE UMA ROTINA E NAO UM MUTIRAO MANUAL. Sao 17.405 alunos. A Edge Function
--- tem teto de 150s por invocacao e faz ~50 por vez (medido: 50 CPFs = 57s), ou
--- seja ~350 chamadas. Disparar isso a mao ocupa meio dia e quebra se alguem
--- fechar a janela. Uma rotina retoma de onde parou e nao depende de ninguem.
+-- POR QUE UMA ROTINA E NAO UM MUTIRAO MANUAL. Sao 12.351 alunos com caso aberto.
+-- A Edge Function tem teto de 150s por invocacao e faz ~50 por vez (medido:
+-- 50 CPFs = 57s), ou seja ~250 chamadas. Disparar isso a mao ocupa horas e
+-- quebra se alguem fechar a janela. Uma rotina retoma de onde parou.
+--
+-- QUEM ENTRA: so aluno com CASO ABERTO. Caso encerrado nao entra -- decisao da
+-- Amanda, 08/09. Faz sentido: nome errado so causa dano em ficha que esta sendo
+-- trabalhada, e sao 12.351 alunos em vez de 17.405. Se um caso encerrado reabrir
+-- (o cron casos_reabrir_com_divida faz isso), ele volta a ser candidato sozinho,
+-- porque a fila e calculada na hora.
 --
 -- ORDEM DE PRIORIDADE, do mais provavel para o menos:
 --   1. ficha que passou por rotina de fusao   -- e de la que vem o defeito;
 --   2. ficha com divida em aberto             -- errar o nome aqui vira cobranca;
---   3. o resto da base.
+--   3. o resto de quem esta na fila.
 --
 -- A rotina respeita o disjuntor `sistema_sob_carga` -- se o banco estiver
 -- sofrendo, ela nao dispara e registra o motivo. E so roda de madrugada.
@@ -55,6 +61,10 @@ as $function$
                end)::smallint as prioridade
       from public.alunos a
      where length(regexp_replace(coalesce(a.cpf,''), '\D', '', 'g')) = 11
+       -- Caso encerrado nao entra: nome errado so faz estrago em ficha viva.
+       and exists (select 1 from public.casos k
+                    where k.aluno_id = a.id
+                      and not coalesce(k.encerrado_operacional, false))
        and not exists (select 1 from public.prime_varredura_nome v
                         where v.cpf = lpad(regexp_replace(coalesce(a.cpf,''), '\D', '', 'g'), 11, '0'))
      group by 1
@@ -127,8 +137,9 @@ revoke all on function public.prime_varredura_nome_processar(integer) from publi
 revoke all on function public.prime_varredura_nome_pendentes(integer)  from public, anon, authenticated;
 
 -- Cron: a cada 2 minutos, so na madrugada (03:00-08:58 UTC = 00:00-05:58 BRT).
--- 50 CPFs por lote, ~30 lotes por hora -> ~1.500/hora -> a base inteira em
--- ~12 horas de janela, ou seja duas madrugadas. Para parar: desative o job.
+-- 50 CPFs por lote, ~30 lotes por hora -> ~1.500/hora. Com 12.351 alunos em
+-- fila, sao ~250 lotes: cabe em UMA madrugada de 6 horas. Para parar: desative
+-- o job.
 select cron.schedule('prime_varredura_nome', '*/2 3-8 * * *',
                      $$select public.prime_varredura_nome_processar(50);$$);
 
