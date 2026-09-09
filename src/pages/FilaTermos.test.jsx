@@ -30,6 +30,7 @@ vi.mock("../utils/documentoFinanceiro", () => ({
 }));
 vi.mock("../utils/juntarPdf", () => ({ juntarEmPdf: vi.fn(), nomeArquivoPdf: () => "x.pdf" }));
 
+import { MemoryRouter } from "react-router-dom";
 import FilaTermos from "./FilaTermos";
 
 const base = {
@@ -42,6 +43,7 @@ const FIXTURE = [
   { ...base, id: "t2", aluno_id: "a2", aluno_nome: "Caio Assinado", status: "TERMO_LIBERADO_AUTOMATICO_GOV", validado_por: "LEGADO_GOV_PRE_AUDITORIA", etapa_assinatura: "COMPLETO", arquivo_final_url: "f.pdf" },
   { ...base, id: "t3", aluno_id: "a3", aluno_nome: "Dora Dispensada", status: "TERMO_RECEBIDO_LIBERADO", etapa_assinatura: "DISPENSADO", dispensa_motivo: "NAO_PAGOU", dispensado_em: "2026-09-03T10:00:00Z", dispensado_por: "adm@x" },
   { ...base, id: "t4", aluno_id: "a4", aluno_nome: "Edu Na Validacao", status: "TERMO_ENVIADO_ADM", etapa_assinatura: "NAO_APLICAVEL" },
+  { ...base, id: "t5", aluno_id: "a5", aluno_nome: "Fabio Rejeitado", status: "TERMO_REJEITADO", etapa_assinatura: "NAO_APLICAVEL", observacao_adm: "Valor do acordo incorreto" },
 ];
 
 function cardDe(nome) {
@@ -49,7 +51,13 @@ function cardDe(nome) {
 }
 
 async function abrir(aba) {
-  await act(async () => { render(<FilaTermos />); });
+  await act(async () => {
+    render(
+      <MemoryRouter>
+        <FilaTermos />
+      </MemoryRouter>
+    );
+  });
   if (aba) await act(async () => { fireEvent.click(screen.getByRole("button", { name: aba })); });
 }
 
@@ -100,7 +108,7 @@ describe("Fila ADM de Termos: não será assinado / devolver ao operador", () =>
   });
 
   it("'Devolver ao operador' só em termo liberado não assinado, e manda o motivo composto", async () => {
-    await abrir("Todos");
+    await abrir(/^Todos \(/);
     expect(within(cardDe("Bia Pendente")).getByRole("button", { name: "Devolver ao operador" })).toBeTruthy();
     expect(within(cardDe("Caio Assinado")).queryByRole("button", { name: "Devolver ao operador" })).toBeNull();
     expect(within(cardDe("Edu Na Validacao")).queryByRole("button", { name: "Devolver ao operador" })).toBeNull();
@@ -119,5 +127,32 @@ describe("Fila ADM de Termos: não será assinado / devolver ao operador", () =>
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Não será assinado (1)" })); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Voltar para a fila" })); });
     expect(rpcMock).toHaveBeenCalledWith("termo_reativar_assinatura", { p_termo_id: "t3" });
+  });
+
+  it("Confirmados junta a validação manual com o gov.br liberado; Rejeitados tem filtro próprio", async () => {
+    // O gov legado não é status TERMO_RECEBIDO_LIBERADO: antes ele só existia
+    // em "Todos", e "Liberados" mostrava metade dos termos já confirmados.
+    await abrir(/^Confirmados \(3\)$/);
+    expect(screen.getByRole("heading", { name: "Bia Pendente" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Caio Assinado" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Fabio Rejeitado" })).toBeNull();
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /^Rejeitados \(1\)$/ })); });
+    expect(screen.getByRole("heading", { name: "Fabio Rejeitado" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Bia Pendente" })).toBeNull();
+    // Acesso ao caso: da lista de rejeitados dá para abrir a ficha do aluno.
+    expect(
+      within(cardDe("Fabio Rejeitado")).getByRole("button", { name: "Abrir ficha do aluno" })
+    ).toBeTruthy();
+  });
+
+  it("a busca por aluno vale fora da aba Assinaturas", async () => {
+    await abrir(/^Todos \(/);
+    expect(screen.getByRole("heading", { name: "Fabio Rejeitado" })).toBeTruthy();
+    fireEvent.change(screen.getByPlaceholderText("Pesquisar por nome ou CPF"), {
+      target: { value: "bia" },
+    });
+    expect(screen.getByRole("heading", { name: "Bia Pendente" })).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Fabio Rejeitado" })).toBeNull();
   });
 });
