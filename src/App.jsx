@@ -78,6 +78,7 @@ const AcoesMassivas = lazy(() => import("./pages/AcoesMassivas"));
 const HistoricoRecuperacao = lazy(() => import("./pages/HistoricoRecuperacao"));
 const SaudeDaBase = lazy(() => import("./pages/SaudeDaBase"));
 const SaudeCompletaCarteira = lazy(() => import("./pages/SaudeCompletaCarteira"));
+const RevisaoPrime = lazy(() => import("./pages/RevisaoPrime"));
 const TvElogios = lazy(() => import("./pages/TvElogios"));
 import AvisoTemplateNovo from "./components/AvisoTemplateNovo";
 import AvisosPopup from "./components/AvisosPopup";
@@ -193,6 +194,7 @@ function podeAcessar(perfil, rota) {
       "/acoes-massivas",
       "/historico-recuperacao",
       "/saude-completa-carteira", "/saude-da-base", "/relatorio-receptivo",
+      "/revisao-prime",
       "/log-nivelamento",
       "/sugestoes-recebidas",
       "/taxa-conversao",],
@@ -632,6 +634,7 @@ export default function App() {
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
     { rota: "/saude-completa-carteira", label: "Saúde Completa da Carteira", icone: "Activity", secao: "Gestão" },
+    { rota: "/revisao-prime", label: "Revisão Prime × CRM", icone: "GitCompare", secao: "Gestão" },
     { rota: "/acordos-operador", label: "Acordos por Operador", icone: "TrendingUp", secao: "Operação" },
     
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
@@ -1085,6 +1088,7 @@ export default function App() {
         <Route path="/executivo" element={<ExecutivoRecuperacao />} />
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
               <Route path="/saude-completa-carteira" element={<SaudeCompletaCarteira />} />
+              <Route path="/revisao-prime" element={<RevisaoPrime />} />
               <Route path="/acordos-operador" element={<RotaProtegida usuario={usuario} rota="/acordos-operador"><AcordosPorOperador /></RotaProtegida>} />
               <Route path="/log-nivelamento" element={<LogNivelamento />} />
               <Route path="/sugestoes-recebidas" element={<SugestoesRecebidas />} />
