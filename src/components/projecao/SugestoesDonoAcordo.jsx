@@ -22,9 +22,12 @@ export default function SugestoesDonoAcordo() {
   const [erro, setErro] = useState("");
   const [aviso, setAviso] = useState("");
   const [aplicando, setAplicando] = useState({});
-  // O credito que veio com nome de fora (arquivo do Santander) e uma decisao
-  // diferente do credito entre dois operadores da equipe: separa-se por padrao.
-  const [soEntreOperadores, setSoEntreOperadores] = useState(true);
+  // A gestao (10/09/2026): "o que e da operacao, na teoria, nao precisa mexer --
+  // o que vamos precisar ajustar sao de pessoas que nao tem usuario cadastrado".
+  // Credito entre gente da casa e decisao de quem trabalhou o caso; credito para
+  // um nome que nem existe no sistema (STEPHANIE.PAULA, ADEMIR.SANTOS...) vem do
+  // arquivo do Santander e nao e de ninguem. A lista abre por esses.
+  const [soSemUsuario, setSoSemUsuario] = useState(true);
 
   const carregar = useCallback(async (m) => {
     setCarregando(true);
@@ -68,9 +71,9 @@ export default function SugestoesDonoAcordo() {
     carregar(mes);
   }
 
-  const visiveis = soEntreOperadores ? lista.filter((s) => s.entre_operadores) : lista;
+  const visiveis = soSemUsuario ? lista.filter((s) => s.creditado_sem_usuario) : lista;
   const total = visiveis.reduce((t, s) => t + Number(s.valor_pago || 0), 0);
-  const deFora = lista.filter((s) => !s.entre_operadores).length;
+  const comUsuario = lista.filter((s) => !s.creditado_sem_usuario).length;
 
   return (
     <div style={S.wrap}>
@@ -78,8 +81,9 @@ export default function SugestoesDonoAcordo() {
         <div>
           <h3 style={S.titulo}>Pagamentos que deveriam ser de outro operador</h3>
           <p style={S.sub}>
-            O crédito foi para uma pessoa e o acordo é de outra. Confira e passe para o
-            dono do acordo — nada muda sozinho.
+            O crédito foi para uma pessoa e o acordo é de outra. A lista abre pelos
+            créditos que ficaram com nomes sem usuário no sistema, que vêm do arquivo
+            do banco e não são de ninguém. Nada muda sozinho.
           </p>
         </div>
         <div style={S.filtros}>
@@ -92,10 +96,10 @@ export default function SugestoesDonoAcordo() {
           <label style={S.check}>
             <input
               type="checkbox"
-              checked={soEntreOperadores}
-              onChange={(e) => setSoEntreOperadores(e.target.checked)}
+              checked={soSemUsuario}
+              onChange={(e) => setSoSemUsuario(e.target.checked)}
             />
-            Só entre operadores da equipe
+            Só crédito sem usuário no sistema
           </label>
           <button type="button" style={S.btnGhost} onClick={() => carregar(mes)}>
             Atualizar
@@ -111,15 +115,15 @@ export default function SugestoesDonoAcordo() {
       ) : !visiveis.length ? (
         <p style={S.muted}>
           Nenhuma sugestão neste mês.
-          {soEntreOperadores && deFora > 0
-            ? ` Há ${deFora} com crédito de nome de fora da equipe — desmarque o filtro para ver.`
+          {soSemUsuario && comUsuario > 0
+            ? ` Há ${comUsuario} com crédito para gente da casa — desmarque o filtro para ver.`
             : ""}
         </p>
       ) : (
         <>
           <p style={S.resumo}>
             {visiveis.length} pagamento(s) · {moeda(total)}
-            {soEntreOperadores && deFora > 0 ? ` · ${deFora} de fora da equipe ocultos` : ""}
+            {soSemUsuario && comUsuario > 0 ? ` · ${comUsuario} entre gente da casa ocultos` : ""}
           </p>
           <table style={S.tabela}>
             <thead>
@@ -138,6 +142,9 @@ export default function SugestoesDonoAcordo() {
                   <td style={S.td}>{dia(s.data_pagamento)}</td>
                   <td style={S.td}>
                     {s.aluno_nome || "—"}
+                    {s.creditado_sem_usuario ? (
+                      <span style={S.seloAlerta}>sem usuário no sistema</span>
+                    ) : null}
                     {s.ja_ajustado ? <span style={S.selo}>🔁 já ajustado antes</span> : null}
                   </td>
                   <td style={S.tdNum}>{moeda(s.valor_pago)}</td>
@@ -182,5 +189,6 @@ const S = {
   td: { padding: "9px 12px", borderBottom: "1px solid var(--rv-borda-suave)", color: "var(--rv-texto-forte)" },
   tdNum: { padding: "9px 12px", borderBottom: "1px solid var(--rv-borda-suave)", textAlign: "right", fontWeight: 700, color: "var(--rv-tinta)" },
   selo: { marginLeft: 8, fontSize: 11, color: "var(--rv-texto-fraco)" },
+  seloAlerta: { marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#b45309", background: "rgba(180,83,9,0.14)", borderRadius: 999, padding: "2px 8px" },
   btnAplicar: { background: "#15803d", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
 };
