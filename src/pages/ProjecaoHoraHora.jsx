@@ -6,6 +6,7 @@ import { supabase } from "../services/supabase";
 import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL, EQUIPE_9, podeVerRelatorios } from "../utils/operadores";
 import { analiticasSuspensas } from "../config/modoContencao";
 import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
+import SugestoesDonoAcordo from "../components/projecao/SugestoesDonoAcordo";
 import ErrorBoundaryProjecao from "../components/ErrorBoundaryProjecao";
 import GraficoEvolucaoProjecao from "../components/projecao/GraficoEvolucaoProjecao";
 import CentralRelatorios from "../components/projecao/CentralRelatorios";
@@ -1002,6 +1003,11 @@ function ProjecaoHoraHoraInner() {
             🔁 Suspeitas de pagamentos duplicados
           </button>
         )}
+        {usuario?.podeGerir && (
+          <button style={aba === "SUGESTOES_DONO_ACORDO" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("SUGESTOES_DONO_ACORDO")}>
+            🤝 Pagamento x dono do acordo
+          </button>
+        )}
       </div>
 
       {erro && <p style={{ color: "#f87171" }}>{erro}</p>}
@@ -1881,6 +1887,13 @@ function ProjecaoHoraHoraInner() {
 
       {aba === "SUSPEITAS_DUPLICADOS" && usuario?.podeGerir && (
         <SuspeitasPagamentosDuplicados />
+      )}
+
+      {/* Credito que foi para uma pessoa e acordo que e de outra -- o caso da
+          Fernanda fechando fora do turno para o operador. SUGERE; quem decide e
+          a gestao, uma linha por vez. */}
+      {aba === "SUGESTOES_DONO_ACORDO" && usuario?.podeGerir && (
+        <SugestoesDonoAcordo />
       )}
 
     </div>
