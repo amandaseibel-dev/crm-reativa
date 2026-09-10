@@ -11,7 +11,17 @@ primary_region = 'gru'
 
 [env]
   PORTA = '3000'
-  SESSOES = 'piloto,comercial'
+  # 10/09/2026: o Piloto foi aposentado (arquivado no CRM) e entrou o numero
+  # Cobranca. Esta lista e a unica coisa que faz o gateway conhecer uma sessao:
+  # com a chave fora daqui, o comando de conectar volta 502 e o QR nunca
+  # aparece -- foi o que aconteceu ao cadastrar o Cobranca.
+  #
+  # ATENCAO: o valor em uso hoje esta como SECRET no Fly (secrets vencem o
+  # [env] do fly.toml). Mudar so este arquivo NAO muda o gateway: e preciso
+  # `fly secrets set SESSOES=... -a reativa-whatsapp-gateway`, que reinicia a
+  # maquina -- os canais caem por segundos e voltam sozinhos, porque a
+  # credencial vive no Postgres.
+  SESSOES = 'comercial,cobranca'
 
 [[mounts]]
   source = 'whatsapp_dados'
