@@ -7,6 +7,7 @@ import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERAD
 import { analiticasSuspensas } from "../config/modoContencao";
 import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
 import SugestoesDonoAcordo from "../components/projecao/SugestoesDonoAcordo";
+import AjusteHonorarios from "../components/projecao/AjusteHonorarios";
 import ErrorBoundaryProjecao from "../components/ErrorBoundaryProjecao";
 import GraficoEvolucaoProjecao from "../components/projecao/GraficoEvolucaoProjecao";
 import CentralRelatorios from "../components/projecao/CentralRelatorios";
@@ -1008,6 +1009,11 @@ function ProjecaoHoraHoraInner() {
             🤝 Pagamento x dono do acordo
           </button>
         )}
+        {usuario?.podeGerir && (
+          <button style={aba === "HONORARIOS" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("HONORARIOS")}>
+            💰 Honorários
+          </button>
+        )}
       </div>
 
       {erro && <p style={{ color: "#f87171" }}>{erro}</p>}
@@ -1894,6 +1900,13 @@ function ProjecaoHoraHoraInner() {
           a gestao, uma linha por vez. */}
       {aba === "SUGESTOES_DONO_ACORDO" && usuario?.podeGerir && (
         <SugestoesDonoAcordo />
+      )}
+
+      {/* Honorario vem pronto do arquivo e e a base da comissao: ate 10/09/2026
+          nao havia como corrigir um valor errado. Ajustar e so Amanda e
+          Fernanda -- a propria RPC recusa os demais. */}
+      {aba === "HONORARIOS" && usuario?.podeGerir && (
+        <AjusteHonorarios />
       )}
 
     </div>
