@@ -18,8 +18,6 @@ import ConfirmacoesSemValor from "../components/ConfirmacoesSemValor";
 import CasosSemTelefone from "../components/CasosSemTelefone";
 import MensalidadesAVincular from "../components/MensalidadesAVincular";
 import FilaAcordosConfirmar from "./FilaAcordosConfirmar";
-import AcordosSemResponsavel from "../components/AcordosSemResponsavel";
-import ForaDaCobranca from "../components/ForaDaCobranca";
 import { S as A } from "../ui/estilosFila";
 
 // A tela é a MESMA da fila de acordos: 1 card por aluno, tabela dos pagamentos
@@ -121,7 +119,7 @@ function chipStatus(status) {
   if (status === "PAGAMENTO_CONFIRMADO") return A.chipOk;
   if (status === "PAGAMENTO_REJEITADO") return A.chipRej;
   if (status === STATUS_AGUARDANDO_VINCULO) {
-    return { background: "#f5f3ff", color: "#5b21b6", border: "1px solid #ddd6fe" };
+    return { background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)", border: "1px solid var(--rv-roxo-borda)" };
   }
   return A.chipPend;
 }
@@ -201,8 +199,6 @@ export default function FilaConfirmacaoPagamento() {
   const [qtdSemValor, setQtdSemValor] = useState(null);
   const [qtdAcordoSemValor, setQtdAcordoSemValor] = useState(null);
   const [qtdSemTelefone, setQtdSemTelefone] = useState(null);
-  const [qtdAcordoSemResp, setQtdAcordoSemResp] = useState(null);
-  const [qtdForaCobranca, setQtdForaCobranca] = useState(null);
   const [qtdAVincular, setQtdAVincular] = useState(null);
 
   // Ficha do aluno (modal leve reaproveitando as pecas ja existentes:
@@ -937,8 +933,6 @@ export default function FilaConfirmacaoPagamento() {
     { chave: "SEM_VALOR", rotulo: "Sem valor calculado", badge: qtdSemValor },
     { chave: "A_VINCULAR", rotulo: "Mensalidades a vincular", badge: qtdAVincular },
     { chave: "SEM_TELEFONE", rotulo: "Sem telefone", badge: qtdSemTelefone },
-    { chave: "ACORDO_SEM_RESP", rotulo: "Acordos sem responsável", badge: qtdAcordoSemResp },
-    { chave: "FORA_COBRANCA", rotulo: "Fora da cobrança", badge: qtdForaCobranca },
   ];
   const abasEscopo = (
     <div style={styles.escopo}>
@@ -987,15 +981,6 @@ export default function FilaConfirmacaoPagamento() {
           ficava sempre montada (display:none) so pelo badge, disparando a RPC
           em TODA visita a esta pagina. O contador aparece ao abrir a aba. */}
       {escopo === "SEM_VALOR" && <CasosSemValor aoAtualizarContagem={setQtdSemValor} />}
-      {/* SOB DEMANDA, como as demais abas caras: a RPC varre acordos e parcelas
-          inteiros. So monta quando a aba esta ativa -- o badge fica vazio ate a
-          primeira visita, que e o preco de nao pesar a tela toda. */}
-      {escopo === "ACORDO_SEM_RESP" && (
-        <AcordosSemResponsavel aoAtualizarContagem={setQtdAcordoSemResp} />
-      )}
-      {escopo === "FORA_COBRANCA" && (
-        <ForaDaCobranca aoAtualizarContagem={setQtdForaCobranca} />
-      )}
       {escopo === "NAO_IDENTIFICADOS" && <PagamentosNaoIdentificados />}
       {escopo === "ACORDOS" && <FilaAcordosConfirmar />}
 
@@ -1037,9 +1022,9 @@ export default function FilaConfirmacaoPagamento() {
               title="Só o que está esperando há mais de 30 dias"
               style={{
                 ...A.select, cursor: "pointer", fontWeight: 700,
-                background: soAntigos ? "#fef2f2" : "#fff",
-                borderColor: soAntigos ? "#fecaca" : undefined,
-                color: soAntigos ? "#991b1b" : undefined,
+                background: soAntigos ? "var(--rv-vermelho-fundo)" : "var(--rv-superficie)",
+                borderColor: soAntigos ? "var(--rv-vermelho-borda)" : undefined,
+                color: soAntigos ? "var(--rv-vermelho-texto)" : undefined,
               }}
             >
               ⏳ Parados +30 dias{totalAntigos ? ` (${totalAntigos})` : ""}
@@ -1091,7 +1076,7 @@ export default function FilaConfirmacaoPagamento() {
                             title="Copiar o nome do aluno"
                             style={{
                               ...styles.btnCopiar,
-                              color: nomeCopiado === g.chave ? "#16a34a" : "#94a3b8",
+                              color: nomeCopiado === g.chave ? "var(--rv-verde-ok)" : "var(--rv-texto-fraco)",
                             }}
                           >
                             {nomeCopiado === g.chave ? "✓ copiado" : "📋 copiar nome"}
@@ -1333,7 +1318,7 @@ export default function FilaConfirmacaoPagamento() {
               )}
 
               {abaFicha === "ficha" && detalhe?.aluno_id && (
-                <div style={{ border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden", background: "#fff" }}>
+                <div style={{ border: "1px solid var(--rv-borda)", borderRadius: 12, overflow: "hidden", background: "var(--rv-superficie)" }}>
                   <Alunos fichaEmbedId={detalhe.aluno_id} />
                 </div>
               )}
@@ -1411,7 +1396,7 @@ export default function FilaConfirmacaoPagamento() {
               return (
                 <div style={styles.modalAcoes}>
                   {aguardandoVinculo && (
-                    <div style={{ ...styles.incompleto, background: "#f5f3ff", color: "#5b21b6", border: "1px solid #ddd6fe" }}>
+                    <div style={{ ...styles.incompleto, background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)", border: "1px solid var(--rv-roxo-borda)" }}>
                       Pagamento <strong>recebido</strong>, mas ainda <strong>sem vínculo</strong>. Ajuste
                       a dívida na aba <strong>Financeiro</strong> (mensalidade, parcela de acordo,
                       entrada ou quitação total) — ou use <strong>“Rejeitar / devolver”</strong> para “pagamento
@@ -1488,51 +1473,51 @@ const styles = {
     fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
   },
   placar: {
-    background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534",
+    background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", color: "var(--rv-verde-ok-texto)",
     borderRadius: 10, padding: "10px 14px", fontSize: 13.5, marginBottom: 12,
   },
   seloIdade: {
     fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
-    background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", whiteSpace: "nowrap",
+    background: "var(--rv-fundo-suave)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda)", whiteSpace: "nowrap",
   },
   seloVelho: {
     fontSize: 11.5, fontWeight: 800, borderRadius: 999, padding: "2px 10px",
-    background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", whiteSpace: "nowrap",
+    background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)", whiteSpace: "nowrap",
   },
-  container: { padding: "24px", fontFamily: "Arial, sans-serif", background: "#f4f6f8", minHeight: "100%" },
-  titulo: { margin: 0, marginBottom: "6px", color: "#111827" },
+  container: { padding: "24px", fontFamily: "Arial, sans-serif", background: "var(--rv-fundo-suave)", minHeight: "100%" },
+  titulo: { margin: 0, marginBottom: "6px", color: "var(--rv-tinta)" },
   btnQuitar: { background: "#6b21a8", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
   escopo: { display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" },
-  escopoBotao: { background: "#fff", border: "1px solid #d1d5db", color: "#374151", padding: "10px 18px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 700 },
+  escopoBotao: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-forte)", color: "var(--rv-texto-forte)", padding: "10px 18px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 700 },
   escopoAtivo: { background: "#1e40af", border: "1px solid #1e40af", color: "#fff", padding: "10px 18px", borderRadius: 10, cursor: "pointer", fontSize: 14, fontWeight: 800 },
   abas: { display: "flex", gap: "8px", padding: "12px 20px 0", flexWrap: "wrap" },
-  aba: { background: "#f1f5f9", border: "none", color: "#475569", padding: "8px 14px", borderRadius: "8px 8px 0 0", cursor: "pointer", fontSize: "13px" },
+  aba: { background: "var(--rv-fundo-suave)", border: "none", color: "var(--rv-texto)", padding: "8px 14px", borderRadius: "8px 8px 0 0", cursor: "pointer", fontSize: "13px" },
   abaAtiva: { background: "#0ea5e9", border: "none", color: "#fff", padding: "8px 14px", borderRadius: "8px 8px 0 0", cursor: "pointer", fontSize: "13px", fontWeight: "bold" },
-  subttl: { margin: "14px 0 6px", color: "#111827", fontSize: "14px" },
-  info: { margin: "4px 0", color: "#374151", fontSize: "14px" },
+  subttl: { margin: "14px 0 6px", color: "var(--rv-tinta)", fontSize: "14px" },
+  info: { margin: "4px 0", color: "var(--rv-texto-forte)", fontSize: "14px" },
   bloco: { marginTop: "12px" },
-  blocoRetorno: { marginTop: "12px", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px" },
-  paragrafo: { margin: "6px 0", color: "#374151", lineHeight: 1.4 },
-  linhaFin: { display: "flex", justifyContent: "space-between", gap: "10px", padding: "8px 0", borderTop: "1px solid #eef2f7", fontSize: "13px", color: "#374151" },
-  linhaHist: { padding: "10px 0", borderTop: "1px solid #eef2f7" },
+  blocoRetorno: { marginTop: "12px", background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: "10px", padding: "12px" },
+  paragrafo: { margin: "6px 0", color: "var(--rv-texto-forte)", lineHeight: 1.4 },
+  linhaFin: { display: "flex", justifyContent: "space-between", gap: "10px", padding: "8px 0", borderTop: "1px solid var(--rv-borda-suave)", fontSize: "13px", color: "var(--rv-texto-forte)" },
+  linhaHist: { padding: "10px 0", borderTop: "1px solid var(--rv-borda-suave)" },
   histTopo: { display: "flex", justifyContent: "space-between", gap: "10px" },
-  histData: { color: "#94a3b8", fontSize: "12px" },
-  histQuem: { color: "#94a3b8", fontSize: "12px" },
-  modalAcoes: { padding: "16px 20px", borderTop: "1px solid #eef2f7" },
-  label: { display: "block", fontWeight: "bold", marginBottom: "6px", color: "#111827", fontSize: "13px" },
-  textarea: { width: "100%", minHeight: "70px", padding: "10px", borderRadius: "8px", border: "1px solid #ccc", resize: "vertical", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
+  histData: { color: "var(--rv-texto-fraco)", fontSize: "12px" },
+  histQuem: { color: "var(--rv-texto-fraco)", fontSize: "12px" },
+  modalAcoes: { padding: "16px 20px", borderTop: "1px solid var(--rv-borda-suave)" },
+  label: { display: "block", fontWeight: "bold", marginBottom: "6px", color: "var(--rv-tinta)", fontSize: "13px" },
+  textarea: { width: "100%", minHeight: "70px", padding: "10px", borderRadius: "8px", border: "1px solid var(--rv-borda-forte)", resize: "vertical", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
   acoes: { marginTop: "12px", display: "flex", gap: "10px", flexWrap: "wrap" },
   botaoConfirmar: { background: "#198754", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
   botaoRejeitar: { background: "#dc3545", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
-  botaoDesabilitado: { background: "#cbd5e1", color: "#64748b", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "not-allowed", fontWeight: "bold" },
+  botaoDesabilitado: { background: "var(--rv-borda-forte)", color: "var(--rv-texto-suave)", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "not-allowed", fontWeight: "bold" },
   botaoVincular: { background: "#0ea5e9", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
-  botaoCancelar: { background: "#e5e7eb", color: "#374151", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
-  incompleto: { background: "#fff7ed", color: "#9a3412", border: "1px solid #fed7aa", borderRadius: "8px", padding: "10px 12px", fontSize: "13px", marginBottom: "12px" },
-  vincBox: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "14px" },
-  avisoLeve: { color: "#64748b", fontSize: "12px", margin: "4px 0 10px" },
+  botaoCancelar: { background: "var(--rv-borda)", color: "var(--rv-texto-forte)", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  incompleto: { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)", borderRadius: "8px", padding: "10px 12px", fontSize: "13px", marginBottom: "12px" },
+  vincBox: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: "10px", padding: "14px" },
+  avisoLeve: { color: "var(--rv-texto-suave)", fontSize: "12px", margin: "4px 0 10px" },
   linha2: { display: "flex", gap: "10px", flexWrap: "wrap" },
-  preview: { background: "#eef6ff", border: "1px solid #cfe0f5", borderRadius: "8px", padding: "10px 12px", marginTop: "10px", marginBottom: "6px" },
+  preview: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)", borderRadius: "8px", padding: "10px 12px", marginTop: "10px", marginBottom: "6px" },
   botaoPequeno: { display: "inline-block", marginTop: "8px", background: "#0ea5e9", color: "#fff", textDecoration: "none", padding: "8px 14px", borderRadius: "8px", fontWeight: "bold", fontSize: "13px" },
-  aviso: { marginTop: "10px", color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "8px 10px", fontSize: "12px" },
-  alerta: { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5", borderRadius: "10px", padding: "16px" },
+  aviso: { marginTop: "10px", color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: "8px", padding: "8px 10px", fontSize: "12px" },
+  alerta: { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)", borderRadius: "10px", padding: "16px" },
 };

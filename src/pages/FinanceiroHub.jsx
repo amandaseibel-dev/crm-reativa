@@ -3,6 +3,8 @@ import ConsultaFinanceira from "./ConsultaFinanceira";
 import ConferenciaPagamentos from "./ConferenciaPagamentos";
 import PainelAdm from "./PainelAdm";
 import ConferenciaPrime from "./ConferenciaPrime";
+import AcordosSemResponsavel from "../components/AcordosSemResponsavel";
+import ForaDaCobranca from "../components/ForaDaCobranca";
 import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirmacoes from "./HistoricoConfirmacoes";
 import AcordosSemVinculo from "./AcordosSemVinculo";
 
@@ -31,6 +33,12 @@ const ABAS = [
   { chave: "CONFERENCIA_PRIME", rotulo: "Conferência Prime" },
   { chave: "ACORDOS_SEM_VINCULO", rotulo: "Acordos sem vínculo" },
   { chave: "HIST_CONFIRMACOES", rotulo: "Histórico de Confirmações" },
+  // MESMA REGRA, 10/09/2026: as duas nasceram dentro de /central-pagamentos, que
+  // nao tem link em menu nenhum -- so abre por URL digitada. A Amanda foi
+  // procurar e nao achou. Sao conferencia como as outras: olhar um acordo sem
+  // dono, olhar o que esta fora da cobranca. Viraram aba daqui.
+  { chave: "ACORDO_SEM_RESP", rotulo: "Acordos sem responsável" },
+  { chave: "FORA_COBRANCA", rotulo: "Fora da cobrança" },
 ];
 
 export default function FinanceiroHub() {
@@ -65,6 +73,8 @@ export default function FinanceiroHub() {
         {aba === "CONFERENCIA_PRIME" && <ConferenciaPrime />}
         {aba === "ACORDOS_SEM_VINCULO" && <AcordosSemVinculo />}
         {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
+        {aba === "ACORDO_SEM_RESP" && <AcordosSemResponsavel />}
+        {aba === "FORA_COBRANCA" && <ForaDaCobranca />}
       </div>
     </div>
   );
@@ -74,19 +84,19 @@ const estilos = {
   container: {
     padding: "24px 26px 40px",
     fontFamily: "'Inter', system-ui, sans-serif",
-    background: "var(--rv-fundo, #f4f6fa)",
+    background: "var(--rv-fundo, var(--rv-fundo))",
     minHeight: "100%",
   },
   cabecalho: { marginBottom: 16 },
   titulo: {
     margin: 0,
-    color: "var(--rv-tinta, #0d1321)",
+    color: "var(--rv-tinta, var(--rv-tinta))",
     fontFamily: "var(--rv-fonte-titulo, 'Sora', sans-serif)",
     fontSize: 24,
     fontWeight: 800,
     letterSpacing: "-0.02em",
   },
-  subtitulo: { margin: "4px 0 0", color: "var(--rv-texto-suave, #8a93a3)", fontSize: 13 },
+  subtitulo: { margin: "4px 0 0", color: "var(--rv-texto-suave, var(--rv-texto-fraco))", fontSize: 13 },
   abas: {
     display: "flex",
     gap: 8,
@@ -94,13 +104,13 @@ const estilos = {
     flexWrap: "wrap",
   },
   aba: {
-    background: "#fff",
-    border: "1px solid var(--rv-borda, #e3e7ee)",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda, var(--rv-borda))",
     borderRadius: 10,
     padding: "10px 18px",
     fontSize: 13.5,
     fontWeight: 700,
-    color: "#475569",
+    color: "var(--rv-texto)",
     cursor: "pointer",
     boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
     transition: "all 0.15s ease",
@@ -117,7 +127,7 @@ const estilos = {
     boxShadow: "0 4px 14px rgba(15,157,107,0.35)",
   },
   conteudo: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: 16,
     minHeight: 400,
     overflow: "hidden",
