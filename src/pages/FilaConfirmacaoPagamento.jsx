@@ -18,6 +18,8 @@ import ConfirmacoesSemValor from "../components/ConfirmacoesSemValor";
 import CasosSemTelefone from "../components/CasosSemTelefone";
 import MensalidadesAVincular from "../components/MensalidadesAVincular";
 import FilaAcordosConfirmar from "./FilaAcordosConfirmar";
+import AcordosSemResponsavel from "../components/AcordosSemResponsavel";
+import ForaDaCobranca from "../components/ForaDaCobranca";
 import { S as A } from "../ui/estilosFila";
 
 // A tela é a MESMA da fila de acordos: 1 card por aluno, tabela dos pagamentos
@@ -199,6 +201,8 @@ export default function FilaConfirmacaoPagamento() {
   const [qtdSemValor, setQtdSemValor] = useState(null);
   const [qtdAcordoSemValor, setQtdAcordoSemValor] = useState(null);
   const [qtdSemTelefone, setQtdSemTelefone] = useState(null);
+  const [qtdAcordoSemResp, setQtdAcordoSemResp] = useState(null);
+  const [qtdForaCobranca, setQtdForaCobranca] = useState(null);
   const [qtdAVincular, setQtdAVincular] = useState(null);
 
   // Ficha do aluno (modal leve reaproveitando as pecas ja existentes:
@@ -933,6 +937,8 @@ export default function FilaConfirmacaoPagamento() {
     { chave: "SEM_VALOR", rotulo: "Sem valor calculado", badge: qtdSemValor },
     { chave: "A_VINCULAR", rotulo: "Mensalidades a vincular", badge: qtdAVincular },
     { chave: "SEM_TELEFONE", rotulo: "Sem telefone", badge: qtdSemTelefone },
+    { chave: "ACORDO_SEM_RESP", rotulo: "Acordos sem responsável", badge: qtdAcordoSemResp },
+    { chave: "FORA_COBRANCA", rotulo: "Fora da cobrança", badge: qtdForaCobranca },
   ];
   const abasEscopo = (
     <div style={styles.escopo}>
@@ -981,6 +987,15 @@ export default function FilaConfirmacaoPagamento() {
           ficava sempre montada (display:none) so pelo badge, disparando a RPC
           em TODA visita a esta pagina. O contador aparece ao abrir a aba. */}
       {escopo === "SEM_VALOR" && <CasosSemValor aoAtualizarContagem={setQtdSemValor} />}
+      {/* SOB DEMANDA, como as demais abas caras: a RPC varre acordos e parcelas
+          inteiros. So monta quando a aba esta ativa -- o badge fica vazio ate a
+          primeira visita, que e o preco de nao pesar a tela toda. */}
+      {escopo === "ACORDO_SEM_RESP" && (
+        <AcordosSemResponsavel aoAtualizarContagem={setQtdAcordoSemResp} />
+      )}
+      {escopo === "FORA_COBRANCA" && (
+        <ForaDaCobranca aoAtualizarContagem={setQtdForaCobranca} />
+      )}
       {escopo === "NAO_IDENTIFICADOS" && <PagamentosNaoIdentificados />}
       {escopo === "ACORDOS" && <FilaAcordosConfirmar />}
 
