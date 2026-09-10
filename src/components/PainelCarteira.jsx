@@ -771,6 +771,11 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
   const [operadorFiltro, setOperadorFiltro] = useState("TODOS");
   const [casos, setCasos] = useState([]);
+  // Carteira dividida como ela realmente e: divida a cobrar de um lado, acordo a
+  // acompanhar do outro. Conta por CPF (pessoa), nao por ficha. Vem da RPC
+  // minha_carteira_resumo, que devolve so a carteira de quem esta olhando.
+  const [resumoCpf, setResumoCpf] = useState(null);
+
   const [kpis, setKpis] = useState({
     ativos: 0,
     semAcionamento10: 0,
@@ -1011,6 +1016,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     })();
   }, []);
 
+  // Resumo por CPF: divida a cobrar de um lado, acordo a acompanhar do outro.
+  // A gestao pode olhar a carteira de um operador especifico; para o operador
+  // comum o banco ignora o parametro e devolve so a dele.
+  async function carregarResumoCpf() {
+    const alvo = veTudo && operadorFiltro && operadorFiltro !== "TODOS" ? operadorFiltro : null;
+    const { data } = await supabase.rpc("minha_carteira_resumo", { p_operador_email: alvo });
+    setResumoCpf(Array.isArray(data) ? data[0] || null : data || null);
+  }
+
   useEffect(() => {
     if (email === null) return;
     carregar();
@@ -1019,6 +1033,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     carregarFixados();
     carregarBoletosVencendo();
     carregarMinhaMediaVsEquipe();
+    // Mesma carga das demais desta lista; o setState so acontece depois do
+    // await da RPC.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    carregarResumoCpf();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email, veTudo, operadorFiltro]);
 
@@ -2752,6 +2770,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // unico card focado na janela critica (9-11 dias). A Agenda entra como card.
   const kpiCards = [
     { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
+    // Duas frentes de trabalho diferentes, que ate aqui apareciam somadas em
+    // "Casos ativos": cobrar divida em aberto e acompanhar parcela de acordo.
+    { id: "cpfMensalidade", rot: "CPFs a cobrar (mensalidade)", val: resumoCpf?.cpfs_so_mensalidade ?? "—", cor: "#b45309", icone: "💳" },
+    { id: "cpfAcordo", rot: "CPFs com acordo", val: resumoCpf?.cpfs_com_acordo ?? "—", cor: "#15803d", icone: "🤝" },
     { id: "proximosPerder", rot: "Sem acionamento (risco de perder)", val: kpis.proximosPerder, cor: "#dc2626", icone: "⚠️", urgente: true },
     { id: "agenda", rot: "Agenda (retornos)", val: agendaPendentes.length, cor: "#7c3aed", icone: "🗓️" },
     { id: "acordoAVencer", rot: "Acordos a vencer", val: kpis.acordoAVencer, cor: "#0891b2", icone: "📄" },
