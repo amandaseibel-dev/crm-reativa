@@ -47,7 +47,15 @@ export default function ForaDaCobranca({ aoAtualizarContagem }) {
     setLista(linhas || []);
   }, []);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  useEffect(() => {
+    // Carga unica ao montar -- a aba so monta quando esta ativa. A regra
+    // set-state-in-effect existe para evitar renderizacao em cascata; aqui o
+    // setState acontece depois do await da RPC, e buscar os dados ao abrir e
+    // justamente o que a aba precisa fazer.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    carregar();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     if (aoAtualizarContagem) {
