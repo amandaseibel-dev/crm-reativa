@@ -414,7 +414,7 @@ const KPIS_FILTRAVEIS = new Set([
 const KPIS_ESPECIAIS = new Set(["quitados", "recebidosMes", "acordosQuebrados"]);
 
 const COLUNAS_ALUNO =
-  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,saldo_total,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,retorno_origem,hora_retorno,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero";
+  "id,nome,nome_aluno,cpf,telefone,email,valor_em_aberto,status_atual,status_jornada,status_acionamento,nivel_criticidade,situacao_operacional,saldo_vencido,saldo_total,proxima_acao,data_ultimo_acionamento,ultimo_contato,data_retorno,retorno_origem,hora_retorno,retorno_confirmado_em,responsavel_atual_nome,responsavel_atual_email,observacao,unidade,curso,processo_numero,semestre_divida";
 
 // Rotulo amigavel da situacao operacional (recalcular_situacao_aluno).
 const SITUACAO_OPERACIONAL_LABEL = {
@@ -446,6 +446,26 @@ function critCanon(a) {
 }
 function critRank(a) {
   return CRITICIDADE_LABEL[critCanon(a)].rank;
+}
+
+// Prioridade por semestre da divida (regra da gestao, 10/09/2026): o semestre
+// mais recente vem primeiro -- 2026/2 na frente de 2026/1, e assim por diante.
+// Divida recente e a que ainda da para recuperar antes de virar rombo antigo.
+//
+// Entra ABAIXO da faixa de prazo de proposito: quem esta a 11+ dias sem
+// acionamento continua no topo, seja de que semestre for. A regra dos 10 dias
+// nao se negocia; o semestre decide entre casos que estao no mesmo prazo.
+//
+// alunos.semestre_divida vem do vencimento MAIS RECENTE em aberto e e
+// recalculado de hora em hora (atualizar_semestre_divida). Sem rotulo -> por
+// ultimo, nunca no meio da fila.
+function rankSemestre(a) {
+  const s = String(a?.semestre_divida || "").trim();
+  const m = s.match(/^(\d{4})\/([12])$/);
+  if (!m) return Number.MAX_SAFE_INTEGER;
+  // Maior = mais recente; invertido para que o mais recente fique com o menor
+  // rank e suba na fila.
+  return -(Number(m[1]) * 2 + Number(m[2]));
 }
 function critAlta(a) {
   const n = critCanon(a);
@@ -2564,6 +2584,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       };
       arr.sort((a, b) =>
         (faixa(a) - faixa(b)) ||
+        (rankSemestre(a) - rankSemestre(b)) ||
         (critRank(a) - critRank(b)) ||
         (diasParado(b) - diasParado(a)) ||
         (keyDias(b) - keyDias(a)) ||
