@@ -3,9 +3,11 @@ import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { supabase } from "../services/supabase";
-import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL, EQUIPE_9, podeVerRelatorios } from "../utils/operadores";
+import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL, EQUIPE_9, podeVerRelatorios, podeAlterarOperadorProjecao} from "../utils/operadores";
 import { analiticasSuspensas } from "../config/modoContencao";
 import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
+import SugestoesDonoAcordo from "../components/projecao/SugestoesDonoAcordo";
+import AjusteHonorarios from "../components/projecao/AjusteHonorarios";
 import ErrorBoundaryProjecao from "../components/ErrorBoundaryProjecao";
 import GraficoEvolucaoProjecao from "../components/projecao/GraficoEvolucaoProjecao";
 import CentralRelatorios from "../components/projecao/CentralRelatorios";
@@ -775,6 +777,8 @@ function ProjecaoHoraHoraInner() {
     }
   }
 
+  const podeTrocarOperador = podeAlterarOperadorProjecao(usuario?.email);
+
   async function alterarOperador(pagamentoId, operadorAtualEmail) {
     const novoNome = prompt("Nome do novo operador responsável:");
     if (!novoNome) return;
@@ -1000,6 +1004,16 @@ function ProjecaoHoraHoraInner() {
         {usuario?.podeGerir && (
           <button style={aba === "SUSPEITAS_DUPLICADOS" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("SUSPEITAS_DUPLICADOS")}>
             🔁 Suspeitas de pagamentos duplicados
+          </button>
+        )}
+        {usuario?.podeGerir && (
+          <button style={aba === "SUGESTOES_DONO_ACORDO" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("SUGESTOES_DONO_ACORDO")}>
+            🤝 Pagamento x dono do acordo
+          </button>
+        )}
+        {usuario?.podeGerir && (
+          <button style={aba === "HONORARIOS" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("HONORARIOS")}>
+            💰 Honorários
           </button>
         )}
       </div>
@@ -1491,7 +1505,7 @@ function ProjecaoHoraHoraInner() {
                                     </span>
                                   )}
                                   {usuario?.podeGerir && (
-                                    <button style={estilos.botaoLink} onClick={() => alterarOperador(p.id, p.operador_email)}>
+                                    <button style={estilos.botaoLink} disabled={!podeTrocarOperador} title={podeTrocarOperador ? "" : "Só Amanda e Fernanda alteram o operador do pagamento"} onClick={() => alterarOperador(p.id, p.operador_email)}>
                                       Alterar operador
                                     </button>
                                   )}
@@ -1585,7 +1599,7 @@ function ProjecaoHoraHoraInner() {
                               <td style={estilos.td}>{moeda(l.valor_honorario)}</td>
                               {usuario?.podeGerir && (
                                 <td style={estilos.td}>
-                                  <button style={estilos.botaoLink} onClick={() => alterarOperador(l.id, l.operador_email)}>
+                                  <button style={estilos.botaoLink} disabled={!podeTrocarOperador} title={podeTrocarOperador ? "" : "Só Amanda e Fernanda alteram o operador do pagamento"} onClick={() => alterarOperador(l.id, l.operador_email)}>
                                     Alterar operador
                                   </button>
                                 </td>
@@ -1881,6 +1895,20 @@ function ProjecaoHoraHoraInner() {
 
       {aba === "SUSPEITAS_DUPLICADOS" && usuario?.podeGerir && (
         <SuspeitasPagamentosDuplicados />
+      )}
+
+      {/* Credito que foi para uma pessoa e acordo que e de outra -- o caso da
+          Fernanda fechando fora do turno para o operador. SUGERE; quem decide e
+          a gestao, uma linha por vez. */}
+      {aba === "SUGESTOES_DONO_ACORDO" && usuario?.podeGerir && (
+        <SugestoesDonoAcordo />
+      )}
+
+      {/* Honorario vem pronto do arquivo e e a base da comissao: ate 10/09/2026
+          nao havia como corrigir um valor errado. Ajustar e so Amanda e
+          Fernanda -- a propria RPC recusa os demais. */}
+      {aba === "HONORARIOS" && usuario?.podeGerir && (
+        <AjusteHonorarios />
       )}
 
     </div>

@@ -104,6 +104,17 @@ export function podeAcessoRestritoAmanda(email) {
 
 // Fila de envio ao financeiro: so a Amanda ADM mexe nisso no dia a dia,
 // mas a Amanda gestora tambem enxerga para acompanhar.
+// Trocar o operador de um pagamento na Projecao decide para quem vai o
+// honorario -- e, portanto, a comissao. Regra da gestao (10/09/2026): so Amanda
+// e Fernanda. A Amanda ADM continua gerindo o financeiro, mas NAO isto; a RPC
+// projecao_alterar_operador recusa qualquer outro e-mail, e esta funcao existe
+// para a tela nao oferecer um botao que vai dar erro.
+export function podeAlterarOperadorProjecao(email) {
+  const chave = String(email || "").toLowerCase().trim();
+
+  return ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br"].includes(chave);
+}
+
 export function podeGerirFinanceiro(email) {
   const chave = String(email || "").toLowerCase().trim();
 
