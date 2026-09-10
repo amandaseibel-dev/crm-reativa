@@ -2769,7 +2769,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // operacao de fato usa. "Sem acionamento" + "proximos de perder" viraram um
   // unico card focado na janela critica (9-11 dias). A Agenda entra como card.
   const kpiCards = [
-    { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
+    // Mesma regua dos dois cartoes ao lado: PESSOA (CPF) com divida real. Antes
+    // isto contava FICHA nao encerrada, incluindo quem ja estava sem saldo --
+    // por isso o numero nao fechava com a soma de mensalidade + acordo e
+    // rendia discussao sobre qual dos dois estava certo. Cai para o valor
+    // antigo enquanto o resumo nao chega.
+    { id: "ativos", rot: "CPFs na carteira", val: resumoCpf?.cpfs_total ?? kpis.ativos, cor: "#2563eb", icone: "📁" },
     // Os dois lados da carteira, na MESMA regua: pessoa (CPF) com divida real.
     // Um cobra, o outro acompanha. Somados dao exatamente a carteira do
     // operador -- quem tem acordo e mensalidade ao mesmo tempo conta no acordo,
