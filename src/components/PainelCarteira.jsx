@@ -2770,10 +2770,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // unico card focado na janela critica (9-11 dias). A Agenda entra como card.
   const kpiCards = [
     { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "#2563eb", icone: "📁" },
-    // Duas frentes de trabalho diferentes, que ate aqui apareciam somadas em
-    // "Casos ativos": cobrar divida em aberto e acompanhar parcela de acordo.
+    // UM cartao so, de proposito. "Casos ativos" conta ficha pela regua antiga da
+    // tela; este conta PESSOA com divida em aberto e sem acordo -- o trabalho de
+    // cobranca. Um terceiro cartao com os CPFs de acordo foi retirado: acordo ja
+    // tem os tres cards proprios logo abaixo (a vencer, atrasado, quebrado), e
+    // tres numeros com reguas diferentes na mesma tela so gera discussao sobre
+    // qual e o certo.
     { id: "cpfMensalidade", rot: "CPFs a cobrar (mensalidade)", val: resumoCpf?.cpfs_so_mensalidade ?? "—", cor: "#b45309", icone: "💳" },
-    { id: "cpfAcordo", rot: "CPFs com acordo", val: resumoCpf?.cpfs_com_acordo ?? "—", cor: "#15803d", icone: "🤝" },
     { id: "proximosPerder", rot: "Sem acionamento (risco de perder)", val: kpis.proximosPerder, cor: "#dc2626", icone: "⚠️", urgente: true },
     { id: "agenda", rot: "Agenda (retornos)", val: agendaPendentes.length, cor: "#7c3aed", icone: "🗓️" },
     { id: "acordoAVencer", rot: "Acordos a vencer", val: kpis.acordoAVencer, cor: "#0891b2", icone: "📄" },
