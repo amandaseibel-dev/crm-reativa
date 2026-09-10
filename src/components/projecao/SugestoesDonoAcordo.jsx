@@ -28,6 +28,10 @@ export default function SugestoesDonoAcordo() {
   // um nome que nem existe no sistema (STEPHANIE.PAULA, ADEMIR.SANTOS...) vem do
   // arquivo do Santander e nao e de ninguem. A lista abre por esses.
   const [soSemUsuario, setSoSemUsuario] = useState(true);
+  // O dono do acordo e SUGESTAO, nao imposicao: a gestao pode creditar a outra
+  // pessoa. `escolha` guarda o e-mail selecionado por linha; vazio = a sugestao.
+  const [escolha, setEscolha] = useState({});
+  const [pessoas, setPessoas] = useState([]);
 
   const carregar = useCallback(async (m) => {
     setCarregando(true);
@@ -46,28 +50,49 @@ export default function SugestoesDonoAcordo() {
     carregar(mes);
   }, [mes, carregar]);
 
+  useEffect(() => {
+    let vivo = true;
+    supabase
+      .from("usuarios")
+      .select("email, nome, perfil")
+      .eq("ativo", true)
+      .order("nome")
+      .then(({ data }) => {
+        if (vivo && Array.isArray(data)) setPessoas(data);
+      });
+    return () => { vivo = false; };
+  }, []);
+
   async function aplicar(s) {
+    const alvoEmail = escolha[s.pagamento_id] || s.dono_acordo_email;
+    const alvo = pessoas.find((p) => p.email === alvoEmail);
+    const alvoNome = alvo?.nome || s.dono_acordo_nome;
+    const eSugestao = alvoEmail === s.dono_acordo_email;
+
     const ok = window.confirm(
-      `Passar este pagamento para ${s.dono_acordo_nome}?\n\n` +
+      `Passar este pagamento para ${alvoNome}?\n\n` +
         `${s.aluno_nome} — ${moeda(s.valor_pago)}\n` +
-        `Hoje está creditado para ${s.creditado_nome || "(sem operador)"}.\n\n` +
-        `A Projeção do mês é recalculada e a troca fica registrada como ajuste manual.`
+        `Hoje está creditado para ${s.creditado_nome || "(sem operador)"}.\n` +
+        (eSugestao ? `${alvoNome} é quem fechou o acordo.\n` : `O acordo é de ${s.dono_acordo_nome}.\n`) +
+        `\nA Projeção do mês é recalculada e a troca fica registrada como ajuste manual.`
     );
     if (!ok) return;
     setAplicando((a) => ({ ...a, [s.pagamento_id]: true }));
     setAviso("");
     const { error } = await supabase.rpc("projecao_alterar_operador", {
       p_pagamento_id: s.pagamento_id,
-      p_novo_operador_email: s.dono_acordo_email,
-      p_novo_operador_nome: s.dono_acordo_nome,
-      p_motivo: "Pagamento atrelado ao dono do acordo (sugestão da Projeção)",
+      p_novo_operador_email: alvoEmail,
+      p_novo_operador_nome: alvoNome,
+      p_motivo: eSugestao
+        ? "Pagamento atrelado ao dono do acordo (sugestão da Projeção)"
+        : `Crédito direcionado pela gestão para ${alvoNome} (acordo é de ${s.dono_acordo_nome})`,
     });
     setAplicando((a) => ({ ...a, [s.pagamento_id]: false }));
     if (error) {
       setAviso("Não foi possível aplicar: " + (error.message || ""));
       return;
     }
-    setAviso(`Pagamento de ${s.aluno_nome} passou para ${s.dono_acordo_nome}.`);
+    setAviso(`Pagamento de ${s.aluno_nome} passou para ${alvoNome}.`);
     carregar(mes);
   }
 
@@ -132,7 +157,7 @@ export default function SugestoesDonoAcordo() {
                 <th style={S.th}>Aluno</th>
                 <th style={S.thNum}>Valor</th>
                 <th style={S.th}>Creditado hoje</th>
-                <th style={S.th}>Dono do acordo</th>
+                <th style={S.th}>Creditar para</th>
                 <th style={S.th}></th>
               </tr>
             </thead>
@@ -149,7 +174,28 @@ export default function SugestoesDonoAcordo() {
                   </td>
                   <td style={S.tdNum}>{moeda(s.valor_pago)}</td>
                   <td style={S.td}>{s.creditado_nome || "(sem operador)"}</td>
-                  <td style={{ ...S.td, fontWeight: 700 }}>{s.dono_acordo_nome}</td>
+                  <td style={S.td}>
+                    {/* Vem marcado no dono do acordo -- a sugestao --, mas a
+                        gestao pode creditar a outra pessoa. */}
+                    <select
+                      style={S.select}
+                      value={escolha[s.pagamento_id] || s.dono_acordo_email}
+                      onChange={(e) =>
+                        setEscolha((x) => ({ ...x, [s.pagamento_id]: e.target.value }))
+                      }
+                    >
+                      <option value={s.dono_acordo_email}>
+                        {s.dono_acordo_nome} (fechou o acordo)
+                      </option>
+                      {pessoas
+                        .filter((p) => p.email !== s.dono_acordo_email)
+                        .map((p) => (
+                          <option key={p.email} value={p.email}>
+                            {p.nome}
+                          </option>
+                        ))}
+                    </select>
+                  </td>
                   <td style={S.td}>
                     <button
                       type="button"
@@ -157,7 +203,7 @@ export default function SugestoesDonoAcordo() {
                       disabled={!!aplicando[s.pagamento_id]}
                       onClick={() => aplicar(s)}
                     >
-                      Passar para {s.dono_acordo_nome?.split(" ")[0]}
+                      Aplicar
                     </button>
                   </td>
                 </tr>
@@ -190,5 +236,6 @@ const S = {
   tdNum: { padding: "9px 12px", borderBottom: "1px solid var(--rv-borda-suave)", textAlign: "right", fontWeight: 700, color: "var(--rv-tinta)" },
   selo: { marginLeft: 8, fontSize: 11, color: "var(--rv-texto-fraco)" },
   seloAlerta: { marginLeft: 8, fontSize: 11, fontWeight: 700, color: "#b45309", background: "rgba(180,83,9,0.14)", borderRadius: 999, padding: "2px 8px" },
+  select: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "5px 8px", fontSize: 12.5, background: "var(--rv-superficie)", color: "var(--rv-tinta)", maxWidth: 200 },
   btnAplicar: { background: "#15803d", color: "#fff", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
 };
