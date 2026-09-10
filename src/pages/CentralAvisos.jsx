@@ -10,15 +10,42 @@ export default function CentralAvisos() {
   const [msg, setMsg] = useState("");
 
   const [leituras, setLeituras] = useState({});
+
+  // Quem viu cada aviso. Le PAGINADO, de mil em mil: o Supabase devolve no
+  // maximo 1.000 linhas por requisicao, e a tabela ja passou disso (1.588 em
+  // 10/09/2026). Sem paginacao voltavam so as 1.000 primeiras na ordem fisica
+  // -- as mais antigas -- e todo aviso recente aparecia como "0 viram", mesmo
+  // com a equipe inteira tendo lido. Ordena por visto_em para a pagina ser
+  // deterministica; sem `order` o mesmo registro pode vir duas vezes ou sumir.
+  const PAGINA = 1000;
+  async function carregarLeituras() {
+    const map = {};
+    for (let inicio = 0; ; inicio += PAGINA) {
+      const { data: ls, error } = await supabase
+        .from("avisos_leituras")
+        .select("aviso_id, usuario_nome, usuario_email, visto_em")
+        .order("visto_em", { ascending: true })
+        .order("id", { ascending: true })
+        .range(inicio, inicio + PAGINA - 1);
+      if (error) break;
+      (ls || []).forEach((l) => {
+        (map[l.aviso_id] = map[l.aviso_id] || []).push(l.usuario_nome || l.usuario_email);
+      });
+      if (!ls || ls.length < PAGINA) break;
+    }
+    setLeituras(map);
+  }
+
   async function carregar() {
     const { data } = await supabase.from("avisos").select("*").order("criado_em", { ascending: false });
     setAvisos(Array.isArray(data) ? data : []);
-    const { data: ls } = await supabase.from("avisos_leituras").select("aviso_id, usuario_nome, usuario_email");
-    const map = {};
-    (ls || []).forEach((l) => { (map[l.aviso_id] = map[l.aviso_id] || []).push(l.usuario_nome || l.usuario_email); });
-    setLeituras(map);
+    await carregarLeituras();
   }
-  useEffect(() => { carregar(); }, []);
+  useEffect(() => {
+    carregar();
+    // Carga unica ao abrir a tela; `carregar` e estavel.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function criar() {
     if (!titulo.trim()) { setMsg("Informe o título do aviso."); return; }
@@ -83,24 +110,24 @@ export default function CentralAvisos() {
 
 const S = {
   wrap: { padding: 24, maxWidth: 780, margin: "0 auto" },
-  h1: { margin: 0, fontSize: 22, color: "#0f172a" },
-  sub: { color: "#64748b", fontSize: 14, marginTop: 4 },
-  form: { background: "#f8fafc", border: "1px solid #eef2f6", borderRadius: 12, padding: 16, margin: "16px 0", display: "flex", flexDirection: "column", gap: 10 },
+  h1: { margin: 0, fontSize: 22, color: "var(--rv-tinta)" },
+  sub: { color: "var(--rv-texto-suave)", fontSize: 14, marginTop: 4 },
+  form: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda-suave)", borderRadius: 12, padding: 16, margin: "16px 0", display: "flex", flexDirection: "column", gap: 10 },
   linha: { display: "flex", gap: 8 },
-  inEmoji: { width: 56, textAlign: "center", border: "1px solid #cbd5e1", borderRadius: 8, padding: "9px", fontSize: 18 },
-  inTitulo: { flex: 1, border: "1px solid #cbd5e1", borderRadius: 8, padding: "9px 11px", fontSize: 14 },
-  inMsg: { border: "1px solid #cbd5e1", borderRadius: 8, padding: "9px 11px", fontSize: 14, resize: "vertical" },
+  inEmoji: { width: 56, textAlign: "center", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "9px", fontSize: 18 },
+  inTitulo: { flex: 1, border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "9px 11px", fontSize: 14 },
+  inMsg: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "9px 11px", fontSize: 14, resize: "vertical" },
   btnCriar: { background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", fontWeight: 700, cursor: "pointer", alignSelf: "flex-start" },
-  msg: { color: "#166534", fontSize: 13, fontWeight: 600 },
+  msg: { color: "var(--rv-verde-ok-texto)", fontSize: 13, fontWeight: 600 },
   lista: { display: "flex", flexDirection: "column", gap: 10 },
-  item: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, border: "1px solid #eef2f6", borderRadius: 12, padding: 14, background: "#fff" },
+  item: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, border: "1px solid var(--rv-borda-suave)", borderRadius: 12, padding: 14, background: "var(--rv-superficie)" },
   itemTxt: { flex: 1 },
-  itemTit: { fontWeight: 700, color: "#0f172a" },
-  itemMsg: { color: "#64748b", fontSize: 13, marginTop: 3 },
+  itemTit: { fontWeight: 700, color: "var(--rv-tinta)" },
+  itemMsg: { color: "var(--rv-texto-suave)", fontSize: 13, marginTop: 3 },
   itemAcoes: { display: "flex", gap: 8 },
   btnOn: { background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700, cursor: "pointer" },
-  btnOff: { background: "#e2e8f0", color: "#475569", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700, cursor: "pointer" },
-  btnDel: { background: "#fff", color: "#dc2626", border: "1px solid #fecaca", borderRadius: 8, padding: "7px 12px", fontWeight: 700, cursor: "pointer" },
-  viram: { color: "#2563eb", fontSize: 12, marginTop: 5, fontWeight: 600 },
-  vazio: { color: "#94a3b8", fontSize: 14 },
+  btnOff: { background: "var(--rv-borda)", color: "var(--rv-texto)", border: "none", borderRadius: 8, padding: "7px 14px", fontWeight: 700, cursor: "pointer" },
+  btnDel: { background: "var(--rv-superficie)", color: "var(--rv-vermelho)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 8, padding: "7px 12px", fontWeight: 700, cursor: "pointer" },
+  viram: { color: "var(--rv-azul)", fontSize: 12, marginTop: 5, fontWeight: 600 },
+  vazio: { color: "var(--rv-texto-fraco)", fontSize: 14 },
 };
