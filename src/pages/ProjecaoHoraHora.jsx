@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
 import { supabase } from "../services/supabase";
-import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL, EQUIPE_9, podeVerRelatorios } from "../utils/operadores";
+import { podeGerirFinanceiro, emailPorNomeOperador, nomeOperadorPorEmail, OPERADORES_POR_EMAIL, EQUIPE_9, podeVerRelatorios, podeAlterarOperadorProjecao} from "../utils/operadores";
 import { analiticasSuspensas } from "../config/modoContencao";
 import SuspeitasPagamentosDuplicados from "../components/SuspeitasPagamentosDuplicados";
 import SugestoesDonoAcordo from "../components/projecao/SugestoesDonoAcordo";
@@ -777,6 +777,8 @@ function ProjecaoHoraHoraInner() {
     }
   }
 
+  const podeTrocarOperador = podeAlterarOperadorProjecao(usuario?.email);
+
   async function alterarOperador(pagamentoId, operadorAtualEmail) {
     const novoNome = prompt("Nome do novo operador responsável:");
     if (!novoNome) return;
@@ -1503,7 +1505,7 @@ function ProjecaoHoraHoraInner() {
                                     </span>
                                   )}
                                   {usuario?.podeGerir && (
-                                    <button style={estilos.botaoLink} onClick={() => alterarOperador(p.id, p.operador_email)}>
+                                    <button style={estilos.botaoLink} disabled={!podeTrocarOperador} title={podeTrocarOperador ? "" : "Só Amanda e Fernanda alteram o operador do pagamento"} onClick={() => alterarOperador(p.id, p.operador_email)}>
                                       Alterar operador
                                     </button>
                                   )}
@@ -1597,7 +1599,7 @@ function ProjecaoHoraHoraInner() {
                               <td style={estilos.td}>{moeda(l.valor_honorario)}</td>
                               {usuario?.podeGerir && (
                                 <td style={estilos.td}>
-                                  <button style={estilos.botaoLink} onClick={() => alterarOperador(l.id, l.operador_email)}>
+                                  <button style={estilos.botaoLink} disabled={!podeTrocarOperador} title={podeTrocarOperador ? "" : "Só Amanda e Fernanda alteram o operador do pagamento"} onClick={() => alterarOperador(l.id, l.operador_email)}>
                                     Alterar operador
                                   </button>
                                 </td>
