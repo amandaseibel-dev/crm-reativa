@@ -600,7 +600,7 @@ export default function App() {
 
   const menuBase = [
   { rota: "/executivo", label: "📊 Visão Executiva" },
-    { rota: "/carteira-2026-1", label: "🎯 Efetividade 2026/1" },
+    { rota: "/carteira-2026-1", label: "🎯 Efetividade" },
     { rota: "/dre", label: "DRE (gerência)" },
     { rota: "/fechamento-remuneracao", label: "💰 Fechamento de Remuneração", secao: "Gestão" },
     {

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
+import Negociacoes20262 from "../components/Negociacoes20262";
 
 // Efetividade da carteira 2026/1 — leitura da Diretoria/Presidência.
 //
@@ -42,6 +43,7 @@ export default function CarteiraEfetividade() {
   const [detalhe, setDetalhe] = useState(null);
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
   const [notaAberta, setNotaAberta] = useState(false);
+  const [aba, setAba] = useState("2026/1");
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -111,6 +113,25 @@ export default function CarteiraEfetividade() {
 
   return (
     <div style={{ padding: 24, color: "var(--rv-tinta)", maxWidth: 1180, margin: "0 auto" }}>
+      {/* 2026/1 e 2026/2 seguem reguas diferentes: 2026/1 e safra fechada (as
+          quatro faixas somam 100%); 2026/2 esta em curso e so mostra o que ja
+          foi negociado. Separar em abas evita somar uma coisa na outra. */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 18, borderBottom: "1px solid var(--rv-borda-suave)" }}>
+        {["2026/1", "2026/2"].map((k) => (
+          <button key={k} onClick={() => setAba(k)}
+                  style={{
+                    background: "none", border: "none", cursor: "pointer", padding: "8px 14px",
+                    fontSize: 14, fontWeight: aba === k ? 700 : 500,
+                    color: aba === k ? "var(--rv-azul-texto)" : "var(--rv-texto-suave)",
+                    borderBottom: aba === k ? "2px solid var(--rv-azul)" : "2px solid transparent",
+                    marginBottom: -1,
+                  }}>
+            {k}
+          </button>
+        ))}
+      </div>
+
+      {aba === "2026/2" ? <Negociacoes20262 /> : (<>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 22, margin: 0 }}>Efetividade da carteira 2026/1</h1>
@@ -343,6 +364,7 @@ export default function CarteiraEfetividade() {
           )}
         </section>
       ) : null}
+      </>)}
     </div>
   );
 }
