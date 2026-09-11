@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import ComparativoAnos from "../components/ComparativoAnos";
+import AlunosEmAberto20261 from "../components/AlunosEmAberto20261";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -48,7 +49,7 @@ export default function ExecutivoRecuperacao() {
       <div style={S.head}>
         <h1 style={S.h1}>Recuperação ULBRA — Visão Executiva</h1>
         <span style={S.sub}>Resultado consolidado da operação ReATIVA</span>
-        <div style={{ marginTop: 6, fontSize: 12, color: "#64748b" }}>
+        <div style={{ marginTop: 6, fontSize: 12, color: "var(--rv-texto-suave)" }}>
           {snapEm
             ? `📸 Snapshot de ${new Date(snapEm).toLocaleString("pt-BR")} · atualize pela Projeção`
             : "📸 Snapshot — atualize pela Projeção"}
@@ -56,15 +57,17 @@ export default function ExecutivoRecuperacao() {
       </div>
 
       <div style={S.heroRow}>
-        <Hero rot="Total recuperado" val={moeda(d.recuperado_total)} cor="#0f172a" />
-        <Hero rot="Honorários" val={moeda(d.honorarios_total)} cor="#1e40af" destaque />
-        <Hero rot="Alunos pagos" val={num(d.alunos_pagos)} cor="#0f172a" />
-        <Hero rot="% da carteira recuperada" val={(d.pct_recuperado_valor || 0) + "%"} cor="#2563eb" />
+        <Hero rot="Total recuperado" val={moeda(d.recuperado_total)} cor="var(--rv-tinta)" />
+        <Hero rot="Honorários" val={moeda(d.honorarios_total)} cor="var(--rv-azul-texto)" destaque />
+        <Hero rot="Alunos pagos" val={num(d.alunos_pagos)} cor="var(--rv-tinta)" />
+        <Hero rot="% da carteira recuperada" val={(d.pct_recuperado_valor || 0) + "%"} cor="var(--rv-azul)" />
       </div>
 
       <div style={S.statsRow}>
         <Stat rot="Pagamentos processados" val={num(d.pagamentos)} />
       </div>
+
+      <AlunosEmAberto20261 />
 
       <ComparativoAnos />
 
@@ -87,7 +90,7 @@ export default function ExecutivoRecuperacao() {
         <h3 style={S.h3}>Recuperado x a cobrar por unidade</h3>
         <div style={S.legend}>
           <span><span style={{ ...S.dot, background: "#16a34a" }} />Recuperado</span>
-          <span><span style={{ ...S.dot, background: "#cbd5e1" }} />A cobrar</span>
+          <span><span style={{ ...S.dot, background: "var(--rv-borda-forte)" }} />A cobrar</span>
         </div>
         {uni.map((x) => (
           <div key={x.unidade} style={S.linha}>
@@ -97,7 +100,7 @@ export default function ExecutivoRecuperacao() {
             </div>
             <div style={{ ...S.track, display: "flex" }}>
               <div style={{ height: "100%", width: ((Number(x.recuperado) / maxUni) * 100) + "%", background: "#16a34a" }} />
-              <div style={{ height: "100%", width: ((Number(x.a_cobrar) / maxUni) * 100) + "%", background: "#cbd5e1" }} />
+              <div style={{ height: "100%", width: ((Number(x.a_cobrar) / maxUni) * 100) + "%", background: "var(--rv-borda-forte)" }} />
             </div>
           </div>
         ))}
@@ -111,8 +114,8 @@ export default function ExecutivoRecuperacao() {
 function Hero({ rot, val, cor, destaque }) {
   return (
     <div style={{ ...S.hero, ...(destaque ? S.heroDestaque : {}) }}>
-      <span style={{ ...S.heroVal, color: destaque ? "#1e40af" : cor }}>{val}</span>
-      <span style={{ ...S.heroRot, ...(destaque ? { color: "#2563eb" } : {}) }}>{rot}</span>
+      <span style={{ ...S.heroVal, color: destaque ? "var(--rv-azul-texto)" : cor }}>{val}</span>
+      <span style={{ ...S.heroRot, ...(destaque ? { color: "var(--rv-azul)" } : {}) }}>{rot}</span>
     </div>
   );
 }
@@ -128,25 +131,25 @@ function Stat({ rot, val }) {
 const S = {
   wrap: { padding: 24, fontFamily: "Inter, system-ui, sans-serif", maxWidth: 1440, margin: "0 auto" },
   head: { marginBottom: 18 },
-  h1: { margin: 0, fontSize: 25, color: "#0f172a", fontFamily: "'Sora', Inter, sans-serif", fontWeight: 800, letterSpacing: "-0.02em" },
-  sub: { fontSize: 13, color: "#64748b" },
+  h1: { margin: 0, fontSize: 25, color: "var(--rv-tinta)", fontFamily: "'Sora', Inter, sans-serif", fontWeight: 800, letterSpacing: "-0.02em" },
+  sub: { fontSize: 13, color: "var(--rv-texto-suave)" },
   heroRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 14, marginBottom: 16 },
-  hero: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 16, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
-  heroDestaque: { background: "#eff6ff", border: "1px solid #bfdbfe", boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
+  hero: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
+  heroDestaque: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)", boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
   heroVal: { fontSize: 28, fontWeight: 800, lineHeight: 1.1, fontFamily: "'Sora', Inter, sans-serif", letterSpacing: "-0.01em" },
-  heroRot: { fontSize: 13, color: "#64748b", fontWeight: 600 },
+  heroRot: { fontSize: 13, color: "var(--rv-texto-suave)", fontWeight: 600 },
   statsRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 22 },
-  stat: { background: "#f8fafc", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 },
-  statVal: { fontSize: 20, fontWeight: 800, color: "#111827", fontFamily: "'Sora', Inter, sans-serif" },
-  statRot: { fontSize: 12, color: "#64748b", fontWeight: 600 },
-  card: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
-  h3: { margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0f172a", fontFamily: "'Sora', Inter, sans-serif" },
+  stat: { background: "var(--rv-fundo-cartao)", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 },
+  statVal: { fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", fontFamily: "'Sora', Inter, sans-serif" },
+  statRot: { fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 600 },
+  card: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
+  h3: { margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "var(--rv-tinta)", fontFamily: "'Sora', Inter, sans-serif" },
   linha: { marginBottom: 14 },
-  linhaTopo: { display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, color: "#334155", marginBottom: 6 },
-  track: { background: "#f1f5f9", borderRadius: 999, height: 14, overflow: "hidden" },
+  linhaTopo: { display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, color: "var(--rv-texto-forte)", marginBottom: 6 },
+  track: { background: "var(--rv-fundo-suave)", borderRadius: 999, height: 14, overflow: "hidden" },
   fill: { height: "100%", borderRadius: 999, background: "linear-gradient(90deg, #16a34a, #22c55e)" },
-  legend: { display: "flex", gap: 16, fontSize: 12, color: "#64748b", marginBottom: 10 },
+  legend: { display: "flex", gap: 16, fontSize: 12, color: "var(--rv-texto-suave)", marginBottom: 10 },
   dot: { display: "inline-block", width: 10, height: 10, borderRadius: 2, marginRight: 4 },
-  muted: { color: "#64748b" },
-  rodape: { color: "#8a93a3", fontSize: 12, marginTop: 8 },
+  muted: { color: "var(--rv-texto-suave)" },
+  rodape: { color: "var(--rv-texto-fraco)", fontSize: 12, marginTop: 8 },
 };
