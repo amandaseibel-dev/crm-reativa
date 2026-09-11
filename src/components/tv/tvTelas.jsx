@@ -414,10 +414,105 @@ function TelaImagem({ imagem }) {
 // A ordem final do carrossel vem de tv_config.telas_config[id].ordem (asc),
 // com fallback para a ordem deste array.
 const sempre = () => true;
+
+// N) Comparativo ano a ano ----------------------------------------------------
+// Pedido da gestao (11/09/2026): a operacao ver que o MES esta abaixo do ano
+// passado. Cuidado deliberado: comparamos o mes, nao o ano -- em 11/09 o
+// acumulado de 2026 estava 160% ACIMA de 2025 enquanto setembro estava 15,8%
+// abaixo. O periodo vem escrito ("1 a 11 de setembro") porque comparar 11 dias
+// com um mes inteiro seria facil de contestar.
+//
+// A barra e o recado: o trilho inteiro e o que o ano passado fez, a parte cheia
+// e onde estamos, e o vao que sobra e o que falta. De longe le-se a falta antes
+// do numero.
+// eslint-disable-next-line react-refresh/only-export-components
+function BarraAnoAno({ rotulo, dados }) {
+  if (!dados) return null;
+  const acima = dados.acima === true;
+  const cor = acima ? T.verde : T.vermelho;
+  const anterior = Number(dados.anterior || 0);
+  const atual = Number(dados.atual || 0);
+  // Acima do ano passado a barra enche; abaixo, ela mostra a proporcao atingida.
+  const pctBarra = anterior > 0 ? Math.min(100, (atual / anterior) * 100) : 0;
+  const pct = dados.pct == null ? null : Number(dados.pct);
+  const delta = Math.abs(Number(dados.delta || 0));
+
+  return (
+    <div style={est.metrica}>
+      <div style={est.topo}>
+        <span style={est.rotulo}>{rotulo}</span>
+        <span style={{ ...est.queda, color: cor }}>
+          {pct == null ? "—" : `${pct > 0 ? "+" : "−"} ${Math.abs(pct).toLocaleString("pt-BR")}%`}
+        </span>
+      </div>
+      <span style={est.valor}>{moeda(atual)}</span>
+      <div style={{ ...est.trilho, background: acima ? "rgba(74,222,128,.16)" : "rgba(248,113,113,.16)",
+                    border: `1px solid ${acima ? "rgba(74,222,128,.32)" : "rgba(248,113,113,.32)"}` }}>
+        <div style={{ ...est.cheio, width: `${pctBarra}%` }} />
+      </div>
+      <div style={est.pe}>
+        <span style={est.ref}>{dados.rotulo_anterior} fez <b style={{ color: T.texto }}>{moeda(anterior)}</b></span>
+        <span style={{ ...est.falta, color: cor }}>
+          {acima ? `${moeda(delta)} acima` : `faltam ${moeda(delta)}`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// eslint-disable-next-line react-refresh/only-export-components
+function TelaComparativoAno({ snap }) {
+  const c = snap?.comparativo_ano;
+  if (!c) return null;
+  const rec = { ...(c.recuperado || {}), rotulo_anterior: c.ano_anterior };
+  const hon = { ...(c.honorarios || {}), rotulo_anterior: c.ano_anterior };
+  const titulo = `${c.mes_nome ? c.mes_nome[0].toUpperCase() + c.mes_nome.slice(1) : "Mês"} contra ${c.mes_nome || "o mesmo mês"}`;
+  return (
+    // centralizado={false}: a grade precisa esticar na largura toda, senao as
+    // duas colunas encolhem para o conteudo e os numeros perdem tamanho.
+    <Tela titulo={titulo} icone="📈" centralizado={false}>
+      <div style={est.periodo}>{c.periodo} · mesmo período</div>
+      <div style={est.metricas}>
+        <BarraAnoAno rotulo="Recuperado" dados={rec} />
+        <BarraAnoAno rotulo="Honorários" dados={hon} />
+      </div>
+    </Tela>
+  );
+}
+
+const est = {
+  periodo: { fontSize: fs(11, 1.15, 23), fontWeight: 600, color: T.textoMudo,
+             letterSpacing: "0.04em", textAlign: "center" },
+  metricas: { flex: 1, display: "grid", gridTemplateColumns: "1fr 1fr",
+              gap: "clamp(14px, 2.6vw, 52px)", alignContent: "center", padding: "2vh 0" },
+  metrica: { display: "flex", flexDirection: "column", gap: "0.9vh", minWidth: 0,
+             background: "rgba(148,163,184,0.10)", border: "1px solid rgba(148,163,184,0.22)",
+             borderRadius: "clamp(10px, 1vw, 20px)",
+             padding: "clamp(10px, 1.7vh, 26px) clamp(14px, 1.8vw, 36px)" },
+  topo: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 },
+  rotulo: { fontSize: fs(10, 1.1, 21), fontWeight: 700, letterSpacing: "0.14em",
+            textTransform: "uppercase", color: T.textoMudo },
+  queda: { fontSize: fs(15, 2.1, 44), fontWeight: 900, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" },
+  valor: { fontSize: fs(34, 6.1, 128), fontWeight: 900, lineHeight: 0.92, letterSpacing: "-0.035em",
+           color: T.ambar, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap",
+           textShadow: "0 0 38px rgba(251,191,36,0.26)" },
+  trilho: { position: "relative", width: "100%", height: "clamp(14px, 2.3vh, 34px)",
+            borderRadius: 999, overflow: "hidden" },
+  cheio: { position: "absolute", top: 0, bottom: 0, left: 0, borderRadius: 999,
+           background: `linear-gradient(90deg, rgba(251,191,36,0.75), ${T.ambar})`,
+           boxShadow: "0 0 22px rgba(251,191,36,0.45)" },
+  pe: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10 },
+  ref: { fontSize: fs(10, 1.1, 21), fontWeight: 600, color: T.textoSuave, fontVariantNumeric: "tabular-nums", opacity: 0.8 },
+  falta: { fontSize: fs(12, 1.45, 30), fontWeight: 800, fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" },
+};
+
 export const CATALOGO_TELAS = [
   { id: "hoje", nome: "Hoje na Operação", Comp: TelaHoje, ativa: true, grupo: "operacao",
     descricao: "Indicadores do dia: recuperado, honorários e destaques de operadores.",
     temConteudo: (s) => !!s?.hoje },
+  { id: "comparativo_ano", nome: "Mês vs. ano passado", Comp: TelaComparativoAno, ativa: true, grupo: "operacao",
+    descricao: "Recuperado e honorários do mês contra o mesmo período do ano anterior.",
+    temConteudo: (s) => !!s?.comparativo_ano },
   { id: "resultado", nome: "Resultado do Mês", Comp: TelaResultadoMes, ativa: true, grupo: "operacao",
     descricao: "Acumulado do mês, projeção de fechamento e ritmo necessário.",
     temConteudo: (s) => !!s?.mes },
