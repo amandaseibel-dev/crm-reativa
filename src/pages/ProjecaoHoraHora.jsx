@@ -443,6 +443,10 @@ function ProjecaoHoraHoraInner() {
       duracao_ms: data?.duracao_ms,
       erro_resumo: data?.erro_resumo,
       e_gestao: data?.e_gestao === true,
+      // Diretoria (Angela, Gustavo): quem decide e o backend, igual a e_gestao.
+      // Com e_diretoria o payload vem so com o consolidado da empresa -- meta,
+      // ranking e valores nominais de operador nem saem do banco.
+      e_diretoria: data?.e_diretoria === true,
     });
     // Só troca os dados em tela quando há payload; assim uma atualização com
     // erro (dados null) preserva o que já estava sendo exibido.
@@ -821,7 +825,11 @@ function ProjecaoHoraHoraInner() {
   // Não-gestão (Amanda ADM e operadores) visualizam o snapshot da FILIAL
   // (totais + evolução), sem ranking, sem maior pagamento, sem dados de outros
   // operadores, e sem botão de atualização.
-  const veFilialSomente = !vePainelGestao;
+  // DIRETORIA: le o consolidado da empresa (recuperado, honorario, ritmo e
+  // evolucao do mes) e o Ano vs Ano. Nao ve meta, ranking, importacao nem o
+  // botao de atualizar -- tudo isso continua preso a `e_gestao`.
+  const veVisaoDiretoria = snapshotMeta?.e_diretoria === true && !vePainelGestao;
+  const veFilialSomente = !vePainelGestao && !veVisaoDiretoria;
   const maiorValorGrafico = useMemo(
     () => Math.max(1, ...historicoDia.map((d) => Number(d.valor_recuperado) || 0)),
     [historicoDia]
@@ -840,7 +848,11 @@ function ProjecaoHoraHoraInner() {
   //  - não-gestão: o próprio usuário (payload = dashboard);
   //  - gestão: o operador selecionado (payload completo do snapshot); sem
   //    seleção, mostra a visão de Total da Empresa.
-  const emailFoco = vePainelGestao ? operadorSelecionado : (usuario?.email || "");
+  // Foco do grafico: gestao escolhe o operador; diretoria olha o TOTAL DA
+  // EMPRESA (foco vazio); os demais olham os proprios numeros.
+  const emailFoco = vePainelGestao
+    ? operadorSelecionado
+    : (veVisaoDiretoria ? "" : (usuario?.email || ""));
   const payloadFoco = vePainelGestao
     ? (operadorSelecionado ? operadoresPayloadPorEmail[operadorSelecionado] : null)
     : dashboard;
@@ -988,7 +1000,7 @@ function ProjecaoHoraHoraInner() {
         <button style={aba === "DASHBOARD" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("DASHBOARD")}>
           📊 Dashboard
         </button>
-        {snapshotMeta?.e_gestao && (
+        {(snapshotMeta?.e_gestao || snapshotMeta?.e_diretoria) && (
           <button style={aba === "ANO_VS_ANO" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("ANO_VS_ANO")}>
             📉 Ano vs Ano
           </button>
@@ -1180,6 +1192,50 @@ function ProjecaoHoraHoraInner() {
                     <FaixaItem label="Falta p/ meta" valor={moeda(dashboard?.valor_restante_meta)} />
                     <FaixaItem label="Média diária necessária" valor={moeda(dashboard?.media_diaria_necessaria)} />
                     <FaixaItem label="Ritmo (dias úteis)" valor={`${dashboard?.dias_uteis_passados ?? 0} / ${dashboard?.dias_uteis_total_mes ?? 0}`} />
+                  </div>
+                </>
+              )}
+
+              {/* DIRETORIA (Angela, Gustavo): o total da operação, sem meta.
+                  Mesmos números do consolidado que a gestão lê -- recuperado,
+                  honorário, ritmo e projeção pelo ritmo --, porém SEM meta,
+                  SEM % da meta e SEM ranking por operador. A allowlist está no
+                  backend (projecao_snapshot_ler): esses campos não chegam nem
+                  ao navegador deles. A evolução do mês, logo abaixo, já vem no
+                  foco "Total da Empresa". */}
+              {veVisaoDiretoria && (
+                <>
+                  <div style={estilos.hero}>
+                    <div style={estilos.heroTopo}>
+                      <span style={estilos.heroEyebrow}>REATIVA · TOTAL DA OPERAÇÃO · {mesReferencia}</span>
+                      <span style={estilos.heroBadge}>
+                        {dashboard?.dias_uteis_passados ?? 0} de {dashboard?.dias_uteis_total_mes ?? 0} dias úteis
+                      </span>
+                    </div>
+
+                    <div style={estilos.heroNumeroLinha}>
+                      <div>
+                        <div style={estilos.heroNumero}>{moeda(dashboard?.acumulado_mes_filial ?? dashboard?.recuperado_reativa_mes)}</div>
+                        <div style={estilos.heroSubLabel}>Recuperado no mês</div>
+                      </div>
+                      <div>
+                        <div style={estilos.heroNumero}>{moeda(dashboard?.honorario_mes_filial)}</div>
+                        <div style={estilos.heroSubLabel}>Honorário no mês</div>
+                      </div>
+                      <div style={estilos.heroProjBloco}>
+                        <div style={{ ...estilos.heroNumero, color: "#1d4ed8" }}>{moeda(dashboard?.projecao_honorario_filial)}</div>
+                        <div style={{ ...estilos.heroSubLabel, color: "#1d4ed8" }}>
+                          Projeção de fechamento pelo ritmo atual
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={estilos.faixaStats}>
+                    <FaixaItem label="Recuperado hoje" valor={moeda(dashboard?.recuperado_hoje_filial)} />
+                    <FaixaItem label="Honorário hoje" valor={moeda(dashboard?.honorario_hoje_filial ?? dashboard?.honorario_hoje)} />
+                    <FaixaItem label="Pagamentos hoje" valor={String(dashboard?.qtd_pagamentos_hoje_filial ?? 0)} />
+                    <FaixaItem label="Dias úteis restantes" valor={String(dashboard?.dias_uteis_restantes ?? 0)} />
                   </div>
                 </>
               )}
@@ -1406,15 +1462,21 @@ function ProjecaoHoraHoraInner() {
                   {emailFoco ? ` · ${OPERADORES_POR_EMAIL[emailFoco] || emailFoco}` : " · Total da Empresa"}
                 </h3>
                 <BoundaryLocal label="Gráfico de evolução">
+                  {/* Diretoria não abre o dia: a lista de pagamentos daquele
+                      dia é lida da tabela `pagamentos`, onde a RLS só libera
+                      gestão e o próprio operador. Para eles o clique traria
+                      sempre uma lista vazia -- melhor não prometer. */}
                   <GraficoEvolucaoProjecao
                     historico={emailFoco ? historicoFoco : historicoDia}
-                    clicavel={true}
-                    onClickDia={abrirDiaSelecionado}
+                    clicavel={!veVisaoDiretoria}
+                    onClickDia={veVisaoDiretoria ? undefined : abrirDiaSelecionado}
                   />
                 </BoundaryLocal>
-                <p style={{ opacity: 0.6, fontSize: 12, marginTop: 6 }}>
-                  💡 Clique em um dia do gráfico para ver os pagamentos daquele dia aqui embaixo.
-                </p>
+                {!veVisaoDiretoria && (
+                  <p style={{ opacity: 0.6, fontSize: 12, marginTop: 6 }}>
+                    💡 Clique em um dia do gráfico para ver os pagamentos daquele dia aqui embaixo.
+                  </p>
+                )}
                 {/* Pagamentos do dia clicado — inline (sem pop-up). Gestão vê
                     todos os operadores + Sem Operador e pode reatribuir qualquer caso. */}
                 {diaSelecionado && (
@@ -1622,7 +1684,7 @@ function ProjecaoHoraHoraInner() {
         </>
       )}
 
-      {aba === "ANO_VS_ANO" && snapshotMeta?.e_gestao && (
+      {aba === "ANO_VS_ANO" && (snapshotMeta?.e_gestao || snapshotMeta?.e_diretoria) && (
         <BoundaryLocal label="Comparativo ano vs ano">
           <ComparativoAnoAno />
         </BoundaryLocal>
