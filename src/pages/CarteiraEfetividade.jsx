@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import Negociacoes20262 from "../components/Negociacoes20262";
+import CoberturaHistorica from "../components/CoberturaHistorica";
 
 // Efetividade da carteira 2026/1 — leitura da Diretoria/Presidência.
 //
@@ -43,7 +44,8 @@ export default function CarteiraEfetividade() {
   const [detalhe, setDetalhe] = useState(null);
   const [carregandoDetalhe, setCarregandoDetalhe] = useState(false);
   const [notaAberta, setNotaAberta] = useState(false);
-  const [aba, setAba] = useState("2026/1");
+  const [ano, setAno] = useState("2026");
+  const [sem, setSem] = useState("1");
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -113,25 +115,50 @@ export default function CarteiraEfetividade() {
 
   return (
     <div style={{ padding: 24, color: "var(--rv-tinta)", maxWidth: 1180, margin: "0 auto" }}>
-      {/* 2026/1 e 2026/2 seguem reguas diferentes: 2026/1 e safra fechada (as
-          quatro faixas somam 100%); 2026/2 esta em curso e so mostra o que ja
-          foi negociado. Separar em abas evita somar uma coisa na outra. */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 18, borderBottom: "1px solid var(--rv-borda-suave)" }}>
-        {["2026/1", "2026/2"].map((k) => (
-          <button key={k} onClick={() => setAba(k)}
-                  style={{
-                    background: "none", border: "none", cursor: "pointer", padding: "8px 14px",
-                    fontSize: 14, fontWeight: aba === k ? 700 : 500,
-                    color: aba === k ? "var(--rv-azul-texto)" : "var(--rv-texto-suave)",
-                    borderBottom: aba === k ? "2px solid var(--rv-azul)" : "2px solid transparent",
-                    marginBottom: -1,
-                  }}>
-            {k}
-          </button>
-        ))}
+      {/* Cada safra tem regua propria: 2026/1 e carteira consolidada (as quatro
+          faixas somam 100%), 2026/2 esta em curso e so mostra o negociado, e
+          2024/2025 nao tem percentual nenhum -- o CRM nao guarda o que houve
+          antes de julho/2026. Separar na navegacao evita somar uma na outra. */}
+      <div style={{ display: "flex", gap: 18, marginBottom: 20, flexWrap: "wrap", alignItems: "center" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Ano</span>
+          <div style={{ display: "inline-flex", background: "var(--rv-fundo-suave)", borderRadius: 10, padding: 3, gap: 3 }}>
+            {["2024", "2025", "2026"].map((a) => (
+              <button key={a} onClick={() => setAno(a)}
+                      style={{ background: ano === a ? "var(--rv-superficie)" : "none", border: "none", cursor: "pointer",
+                               padding: "7px 18px", borderRadius: 8, fontSize: 14, fontFamily: "inherit",
+                               fontWeight: ano === a ? 700 : 500,
+                               color: ano === a ? "var(--rv-tinta)" : "var(--rv-texto-suave)",
+                               boxShadow: ano === a ? "0 1px 3px rgba(15,23,42,0.10)" : "none" }}>
+                {a}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span style={{ fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" }}>Semestre</span>
+          <div style={{ display: "inline-flex", background: "var(--rv-fundo-suave)", borderRadius: 10, padding: 3, gap: 3 }}>
+            {[["1", "1\u00ba semestre"], ["2", "2\u00ba semestre"]].map(([k, r]) => (
+              <button key={k} onClick={() => setSem(k)}
+                      style={{ background: sem === k ? "var(--rv-superficie)" : "none", border: "none", cursor: "pointer",
+                               padding: "7px 16px", borderRadius: 8, fontSize: 14, fontFamily: "inherit",
+                               fontWeight: sem === k ? 700 : 500,
+                               color: sem === k ? "var(--rv-tinta)" : "var(--rv-texto-suave)",
+                               boxShadow: sem === k ? "0 1px 3px rgba(15,23,42,0.10)" : "none" }}>
+                {r}
+              </button>
+            ))}
+          </div>
+        </div>
+        <span style={{ fontSize: 12.5, color: "var(--rv-texto-suave)" }}>
+          {ano + "/" + sem}{" \u00b7 "}
+          {ano === "2026" && sem === "1" ? "Carteira consolidada"
+            : ano === "2026" ? "Semestre vigente" : "Cobertura hist\u00f3rica"}
+        </span>
       </div>
 
-      {aba === "2026/2" ? <Negociacoes20262 /> : (<>
+      {ano !== "2026" ? <CoberturaHistorica safra={ano + "/" + sem} />
+       : sem === "2" ? <Negociacoes20262 /> : (<>
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
         <div>
           <h1 style={{ fontSize: 22, margin: 0 }}>Efetividade da carteira 2026/1</h1>
