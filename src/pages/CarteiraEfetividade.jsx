@@ -37,6 +37,19 @@ const pctTexto = (parte, todo, casas = 2) =>
         { minimumFractionDigits: casas, maximumFractionDigits: casas }) + "%"
     : "—";
 
+// ---------------------------------------------------------------- LIBERAÇÃO
+// Enquanto a área está sendo finalizada, só a Amanda vê os indicadores. Angela,
+// Gustavo e o resto da diretoria entram pelo menu normalmente e encontram a
+// tela "Em breve" — é preparação de funcionalidade, não bloqueio de segurança
+// (a autorização de verdade segue nas RPCs, que já são de gestão + diretoria).
+//
+// PARA LIBERAR PARA TODA A DIRETORIA: troque o corpo de `podeVerIndicadores`
+// por `return true`. Nada mais na página precisa mudar.
+const EMAILS_COM_ACESSO_TOTAL = ["amanda.seibel@aelbra.com.br"];
+function podeVerIndicadores(email) {
+  return EMAILS_COM_ACESSO_TOTAL.includes(String(email || "").toLowerCase().trim());
+}
+
 const AZUL = "#2563eb", VERDE = "#1f7a3d", VERMELHO = "#b4232a", AMBAR = "#c08a1e", CINZA = "#94a3b8";
 
 export default function CarteiraEfetividade() {
@@ -51,10 +64,15 @@ export default function CarteiraEfetividade() {
   const [erro, setErro] = useState("");
   const [metodologia, setMetodologia] = useState(false);
   const [obraAberta, setObraAberta] = useState(false);
+  const [email, setEmail] = useState(null);
 
   useEffect(() => {
     let ativo = true;
     (async () => {
+      const { data: sessao } = await supabase.auth.getUser();
+      const quem = sessao?.user?.email || "";
+      if (!ativo) return;
+      if (!podeVerIndicadores(quem)) { setEmail(quem); setCarregando(false); return; }
       const [a, b, c, e, f] = await Promise.all([
         supabase.rpc("carteira_2026_1_indicadores"),
         supabase.rpc("carteira_2026_1_academico"),
@@ -70,12 +88,29 @@ export default function CarteiraEfetividade() {
       setVigente(c.data || null);
       setContexto(e.data || null);
       setHistorico(f.data?.safras || null);
+      setEmail(quem);
       setCarregando(false);
     })();
     return () => { ativo = false; };
   }, []);
 
   if (carregando) return <Carregando />;
+
+  if (!podeVerIndicadores(email)) {
+    return (
+      <div style={S.pagina}>
+        <h1 style={S.h1}>Efetividade</h1>
+        <div style={S.emBreve}>
+          <span style={{ fontSize: 30, lineHeight: 1 }} aria-hidden="true">🧭</span>
+          <strong style={{ fontSize: 20, fontWeight: 700 }}>Em breve</strong>
+          <p style={{ margin: 0, fontSize: 14, color: "var(--rv-texto-suave)", lineHeight: 1.6, maxWidth: 520 }}>
+            Estamos finalizando esta nova área de acompanhamento da efetividade da cobrança. Em breve os indicadores
+            estarão disponíveis para consulta.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   const safra = ano + "/" + sem;
   const natureza = safra === "2026/1" ? "Carteira consolidada"
@@ -374,5 +409,8 @@ const S = {
           color: "var(--rv-texto-suave)", borderRadius: 999, padding: "3px 10px", fontSize: 11.5,
           fontWeight: 600, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.02em" },
   seloTexto: { margin: "8px 0 0", fontSize: 12.5, color: "var(--rv-texto-fraco)", maxWidth: 620, lineHeight: 1.5 },
+  emBreve: { marginTop: 28, background: "var(--rv-superficie)", borderRadius: 16, padding: "40px 32px",
+             boxShadow: "0 1px 2px rgba(15,23,42,0.04), 0 4px 16px rgba(15,23,42,0.05)",
+             display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 12 },
   erro: { color: "#b4232a", fontSize: 13, marginTop: 14 },
 };
