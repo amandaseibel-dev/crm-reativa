@@ -33,11 +33,11 @@ const num = (v) => Number(v || 0).toLocaleString("pt-BR");
 const data = (v) => (v ? new Date(v).toLocaleDateString("pt-BR") : "—");
 
 const FAIXAS = [
-  { chave: "efetividade", rotulo: "Efetividade comprovada", drill: "EFETIVIDADE", cor: "#2563eb",
+  { chave: "efetividade", rotulo: "Convertido", drill: "EFETIVIDADE", cor: "#2563eb",
     def: "Valor original da carteira pago ou negociado em algum momento. Atraso, quebra ou cancelamento posteriores não devolvem o valor." },
-  { chave: "inadimplencia", rotulo: "Inadimplência confirmada", drill: "INADIMPLENCIA", cor: "#b4232a",
+  { chave: "inadimplencia", rotulo: "Em aberto sem negociação", drill: "INADIMPLENCIA", cor: "#b4232a",
     def: "Sem pagamento e sem nenhuma evidência de negociação, com o Prime confirmando o título aberto." },
-  { chave: "em_validacao", rotulo: "Em validação", drill: "EM_VALIDACAO", cor: "#c08a1e",
+  { chave: "em_validacao", rotulo: "Em conferência", drill: "EM_VALIDACAO", cor: "#c08a1e",
     def: "Há indício de conversão sem evidência suficiente, ou o Prime não confirma a situação atual. Não aumenta a efetividade." },
   { chave: "academico", rotulo: "Ajuste acadêmico", drill: "ACADEMICO", cor: "#94a3b8",
     def: "Saiu da situação aberta por evento acadêmico — não é resultado de cobrança." },
@@ -52,9 +52,13 @@ const COR_SUB = {
   "Convertido com origem comprovada": "#6d28d9",
 };
 const ROTULO_SUB = {
+  "Pago / Quitado": "Pago / quitado",
   "Negociado regular": "Negociação regular",
   "Negociado em atraso (ate 30 dias)": "Negociação em atraso",
-  "Acordo quebrado (acima de 30 dias)": "Acordo quebrado",
+  // "Acordo quebrado" dentro do convertido soa como sucesso atual. O conceito e
+  // historico: o valor FOI convertido pela cobranca, a situacao e que mudou depois.
+  "Acordo quebrado (acima de 30 dias)": "Negociado, hoje quebrado",
+  "Acordo cancelado": "Negociado, hoje cancelado",
   "Convertido com origem comprovada": "Outras conversões comprovadas",
 };
 
@@ -165,19 +169,19 @@ export default function CarteiraEfetividade() {
           {/* TRÊS NÚMEROS */}
           <div style={S.heroLinha}>
             <div style={S.hero}>
-              <span style={S.heroRotulo}>Efetividade</span>
-              <strong style={{ ...S.heroValor, color: "#2563eb" }}>{fmtPct(efetividade)}</strong>
-              <span style={S.heroApoio}>{moeda(efetividade)}</span>
+              <span style={S.heroRotulo}>Carteira convertida</span>
+              <strong style={{ ...S.heroValor, color: "#2563eb" }}>{moedaCurta(efetividade)}</strong>
+              <span style={S.heroApoio}>{fmtPct(efetividade)} da carteira</span>
             </div>
             <div style={S.hero}>
-              <span style={S.heroRotulo}>Recuperação financeira</span>
+              <span style={S.heroRotulo}>Valor recebido</span>
               <strong style={{ ...S.heroValor, color: "#1f7a3d" }}>{moedaCurta(d.recuperacao?.total)}</strong>
-              <span style={S.heroApoio}>{fmtPct(d.recuperacao?.total)} da carteira · dinheiro recebido</span>
+              <span style={S.heroApoio}>{fmtPct(d.recuperacao?.total)} da carteira</span>
             </div>
             <div style={S.hero}>
-              <span style={S.heroRotulo}>Saldo ainda não efetivado</span>
+              <span style={S.heroRotulo}>Sem conversão confirmada</span>
               <strong style={{ ...S.heroValor, color: "#b4232a" }}>{fmtPct(naoEfetivado)}</strong>
-              <span style={S.heroApoio}>{moeda(naoEfetivado)}</span>
+              <span style={S.heroApoio}>Em aberto sem negociação + valores em conferência</span>
             </div>
           </div>
 
@@ -212,7 +216,7 @@ export default function CarteiraEfetividade() {
 
           {/* RECUPERAÇÃO FINANCEIRA */}
           <section style={S.cartao}>
-            <h2 style={S.h2}>Recuperação financeira</h2>
+            <h2 style={S.h2}>Valor recebido</h2>
             <strong style={{ fontSize: 28, letterSpacing: "-0.5px", color: "#1f7a3d" }}>
               {moeda(d.recuperacao?.total)}
             </strong>
@@ -231,7 +235,7 @@ export default function CarteiraEfetividade() {
 
           {/* COMO ESTÁ COMPOSTA A EFETIVIDADE */}
           <section style={S.cartao}>
-            <h2 style={S.h2}>Como está composta a efetividade</h2>
+            <h2 style={S.h2}>Situação do valor convertido</h2>
             <div style={{ marginTop: 6 }}>
               {(d.composicao || []).map((c) => {
                 const share = efetividade > 0 ? (Number(c.valor) / efetividade) * 100 : 0;
@@ -264,7 +268,8 @@ export default function CarteiraEfetividade() {
             <section style={S.cartao}>
               <div style={S.cartaoTopo}>
                 <h2 style={S.h2}>
-                  {aberta.sub || aberta.faixa.replace(/_/g, " ").toLowerCase()}
+                  {aberta.sub ? (ROTULO_SUB[aberta.sub] || aberta.sub)
+                    : (FAIXAS.find((f) => f.drill === aberta.faixa)?.rotulo || aberta.faixa)}
                   {detalhe ? " · " + num(detalhe.total_titulos) + " títulos · " + moeda(detalhe.total_valor) : ""}
                 </h2>
                 <button onClick={() => { setAberta(null); setDetalhe(null); }} style={S.botaoDiscreto}>fechar</button>
@@ -317,6 +322,13 @@ export default function CarteiraEfetividade() {
             </span>
             {metodologia ? (
               <div style={{ ...S.cartao, marginTop: 10, gap: 10 }}>
+                <p style={S.texto}>
+                  <strong>Como estes nomes se chamam na metodologia.</strong> Carteira convertida ={" "}
+                  <em>efetividade comprovada</em>. Valor recebido = <em>recuperação financeira</em>. Em aberto sem
+                  negociação = <em>inadimplência confirmada</em>. Em conferência = <em>em validação</em>. “Negociado,
+                  hoje quebrado” e “negociado, hoje cancelado” continuam dentro do convertido de propósito: a conversão
+                  é histórica — aquele valor foi alcançado pela cobrança, e o que mudou depois foi a situação do acordo.
+                </p>
                 <p style={S.texto}>
                   <strong>Efetividade comprovada.</strong> Considera somente valores da carteira 2026/1 com evidência
                   rastreável de pagamento ou negociação. A efetividade de um título nunca passa do valor original —
