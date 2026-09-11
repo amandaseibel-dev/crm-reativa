@@ -35,6 +35,14 @@ function converterValor(valorDigitado) {
   return Number.isFinite(numero) ? numero : null;
 }
 
+function somenteDigitos(valor) {
+  return String(valor || "").replace(/\D/g, "");
+}
+
+function cpfFormatado(digitos) {
+  return `${digitos.slice(0, 3)}.${digitos.slice(3, 6)}.${digitos.slice(6, 9)}-${digitos.slice(9)}`;
+}
+
 const vazio = {
   nome: "",
   cpf: "",
@@ -75,7 +83,11 @@ export default function CadastroNovoAluno({ onSucesso }) {
     setErro("");
 
     const nome = campos.nome.trim();
-    const cpf = campos.cpf.trim();
+    // CPF SEMPRE SÓ EM DÍGITOS. A busca da base normaliza o que o operador
+    // digita; se a coluna guardar ponto e traço, o cadastro fica invisível --
+    // foi o que aconteceu em 08/09/2026 com um aluno cadastrado e não
+    // encontrado depois.
+    const cpf = somenteDigitos(campos.cpf);
 
     if (!nome) {
       setErro("Informe o nome do aluno.");
@@ -87,6 +99,18 @@ export default function CadastroNovoAluno({ onSucesso }) {
       return;
     }
 
+    if (cpf.length !== 11) {
+      setErro("CPF inválido: precisa ter 11 dígitos.");
+      return;
+    }
+
+    // O campo nome recebendo o CPF é engano comum, e o cadastro nasce sem nome
+    // de gente nenhum -- ninguém acha depois procurando pelo nome.
+    if (somenteDigitos(nome).length >= 11 && !/[a-zA-ZÀ-ÿ]/.test(nome)) {
+      setErro("O campo Nome está com um número. Escreva o nome do aluno.");
+      return;
+    }
+
     setCarregando(true);
 
     const usuario = await identificarUsuario();
@@ -94,11 +118,15 @@ export default function CadastroNovoAluno({ onSucesso }) {
     const valorEmAberto = converterValor(campos.valorEmAberto);
 
     // Verifica se já existe alguém com esse CPF antes de criar duplicado.
-    const { data: existente, error: erroConsulta } = await supabase
+    // Compara pelos dígitos: há cadastros antigos gravados com ponto e traço,
+    // e `.eq("cpf", ...)` passaria batido por eles e criaria duplicata.
+    const { data: existentes, error: erroConsulta } = await supabase
       .from("alunos")
-      .select("id, nome")
-      .eq("cpf", cpf)
-      .maybeSingle();
+      .select("id, nome, cpf")
+      .or(`cpf.eq.${cpf},cpf.eq.${cpfFormatado(cpf)}`)
+      .limit(1);
+
+    const existente = existentes?.[0] || null;
 
     if (erroConsulta) {
       console.error("Erro ao verificar CPF existente:", erroConsulta);
@@ -296,7 +324,7 @@ export default function CadastroNovoAluno({ onSucesso }) {
 }
 
 const botaoAbrir = {
-  background: "#0f172a",
+  background: "var(--rv-botao-escuro)",
   color: "#fff",
   border: "none",
   borderRadius: "8px",
@@ -334,14 +362,14 @@ const cabecalho = {
 
 const titulo = {
   margin: 0,
-  color: "#0f172a",
+  color: "var(--rv-tinta)",
   fontSize: "22px",
   fontWeight: "900",
 };
 
 const subtitulo = {
   margin: "5px 0 0",
-  color: "#475569",
+  color: "var(--rv-texto)",
   fontWeight: "700",
 };
 
@@ -358,7 +386,7 @@ const campo = {
 const label = {
   display: "block",
   marginBottom: "5px",
-  color: "#334155",
+  color: "var(--rv-texto-forte)",
   fontWeight: "900",
   fontSize: "13px",
 };
@@ -366,7 +394,7 @@ const label = {
 const input = {
   width: "100%",
   padding: "11px",
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--rv-borda-forte)",
   borderRadius: "9px",
   marginBottom: "12px",
   boxSizing: "border-box",
@@ -396,7 +424,7 @@ const botaoConfirmar = {
 };
 
 const botaoFechar = {
-  background: "#0f172a",
+  background: "var(--rv-botao-escuro)",
   color: "#fff",
   border: "none",
   borderRadius: "9px",

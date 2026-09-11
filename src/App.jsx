@@ -71,6 +71,7 @@ const DRE = lazy(() => import("./pages/DRE"));
 const FechamentoRemuneracao = lazy(() => import("./pages/FechamentoRemuneracao"));
 const ImportarRecuperacao = lazy(() => import("./pages/ImportarRecuperacao")); const ImportacaoAcordos = lazy(() => import("./pages/ImportacaoAcordos")); const FilaAcordosConfirmar = lazy(() => import("./pages/FilaAcordosConfirmar")); const Ferramentas = lazy(() => import("./pages/Ferramentas")); const ImportarAcademico = lazy(() => import("./pages/ImportarAcademico"));
 const ExecutivoRecuperacao = lazy(() => import("./pages/ExecutivoRecuperacao"));
+const CarteiraEfetividade = lazy(() => import("./pages/CarteiraEfetividade"));
 const MeuDashboard = lazy(() => import("./pages/MeuDashboard"));
 const ElogiosAtendimento = lazy(() => import("./pages/ElogiosAtendimento"));
 const ExportarContatos = lazy(() => import("./pages/ExportarContatos"));
@@ -109,13 +110,13 @@ function BloqueioAcesso({ info, email, onSair }) {
   const domingo = info && info.motivo === "DOMINGO";
   return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#0f172a", padding: 20 }}>
-      <div style={{ background: "#fff", borderRadius: 16, padding: "32px 28px", maxWidth: 440, textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
+      <div style={{ background: "var(--rv-superficie)", borderRadius: 16, padding: "32px 28px", maxWidth: 440, textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.4)" }}>
         <div style={{ fontSize: 44 }}>⛔</div>
-        <h1 style={{ fontSize: 22, fontWeight: 900, margin: "8px 0", color: "#0f172a" }}>Acesso fora do horario</h1>
-        <p style={{ color: "#475569", fontSize: 15 }}>{domingo ? "O sistema nao libera acesso aos domingos." : "Voce esta tentando acessar fora do horario do seu turno."}</p>
-        {info && info.janela ? <p style={{ color: "#0f172a", fontSize: 15 }}>Seu horario liberado: <strong>{info.janela}</strong></p> : null}
-        <p style={{ color: "#64748b", fontSize: 13, marginTop: 12 }}>Para entrar fora do horario, peca liberacao para a Amanda, a Fernanda ou a Amanda ADM. Esta tentativa foi registrada.</p>
-        <p style={{ color: "#94a3b8", fontSize: 12 }}>{email}</p>
+        <h1 style={{ fontSize: 22, fontWeight: 900, margin: "8px 0", color: "var(--rv-tinta)" }}>Acesso fora do horario</h1>
+        <p style={{ color: "var(--rv-texto)", fontSize: 15 }}>{domingo ? "O sistema nao libera acesso aos domingos." : "Voce esta tentando acessar fora do horario do seu turno."}</p>
+        {info && info.janela ? <p style={{ color: "var(--rv-tinta)", fontSize: 15 }}>Seu horario liberado: <strong>{info.janela}</strong></p> : null}
+        <p style={{ color: "var(--rv-texto-suave)", fontSize: 13, marginTop: 12 }}>Para entrar fora do horario, peca liberacao para a Amanda, a Fernanda ou a Amanda ADM. Esta tentativa foi registrada.</p>
+        <p style={{ color: "var(--rv-texto-fraco)", fontSize: 12 }}>{email}</p>
         <button onClick={async () => { try { await supabase.rpc("pedir_liberacao_acesso"); alert("Pedido de liberacao enviado. Aguarde a autorizacao da Amanda, Fernanda ou Amanda ADM."); } catch (e) { alert("Nao foi possivel enviar o pedido agora."); } }} style={{ marginTop: 16, marginRight: 8, background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontWeight: 800, cursor: "pointer" }}>Pedir liberação</button>
         <button onClick={onSair} style={{ marginTop: 16, background: "#ef4444", color: "#fff", border: "none", borderRadius: 10, padding: "10px 20px", fontWeight: 800, cursor: "pointer" }}>Sair</button>
       </div>
@@ -129,6 +130,7 @@ function BloqueioAcesso({ info, email, onSair }) {
 const DIRETORIA_ROTAS = [
   "/",
   "/executivo",
+  "/carteira-2026-1",
   "/dre",
   // "/painel-carteira" (Panorama 360) SAIU em 03/09/2026: a projeção de redução
   // da carteira está presa a julho e agosto dentro do código
@@ -314,7 +316,7 @@ function RotaProtegida({ usuario, rota, children }) {
 }
 function VisaoAuditor({ usuario, onSair }) {
   return (
-    <div style={{ minHeight: "100vh", background: "#f8fafc" }}>
+    <div style={{ minHeight: "100vh", background: "var(--rv-fundo-cartao)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 20px", background: "#0f172a", color: "#fff" }}>
         <strong>ReATIVA — Auditor (somente leitura)</strong>
         <button onClick={onSair} style={{ background: "#ef4444", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontWeight: 800, cursor: "pointer" }}>Sair</button>
@@ -598,6 +600,7 @@ export default function App() {
 
   const menuBase = [
   { rota: "/executivo", label: "📊 Visão Executiva" },
+    { rota: "/carteira-2026-1", label: "🎯 Efetividade 2026/1" },
     { rota: "/dre", label: "DRE (gerência)" },
     { rota: "/fechamento-remuneracao", label: "💰 Fechamento de Remuneração", secao: "Gestão" },
     {
@@ -663,6 +666,10 @@ export default function App() {
       const em2 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em2) && perfil !== "operador";
     }
+    if (item.rota === "/carteira-2026-1") {
+      const emCe = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return (["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emCe) || perfil === "diretoria") && perfil !== "operador";
+    }
     if (item.rota === "/executivo") {
       const em3 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return (["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em3) || perfil === "diretoria") && perfil !== "operador";
@@ -724,7 +731,7 @@ export default function App() {
             {sidebarRecolhida ? "»" : "«"}
           </button>
           <div className="cabecalho-usuario">
-            <h2 className="marca-reativa">{sidebarRecolhida ? (<><span style={{ color: "#3b82f6" }}>R</span>A</>) : (<><span style={{ color: "#3b82f6" }}>Re</span>ATIVA</>)}</h2>
+            <h2 className="marca-reativa">{sidebarRecolhida ? (<><span style={{ color: "var(--rv-azul)" }}>R</span>A</>) : (<><span style={{ color: "var(--rv-azul)" }}>Re</span>ATIVA</>)}</h2>
             <div style={{ display: "flex", alignItems: "center", gap: 8, justifyContent: "center" }}>
               {usuario.perfil?.id ? (
                 <AvatarFoto
@@ -886,13 +893,13 @@ export default function App() {
               );
             })}
           </nav>
-          <div style={{ marginTop: "auto", padding: "14px 10px 6px", textAlign: "center", color: "#94a3b8", fontSize: 11, fontWeight: 600, letterSpacing: "0.02em", borderTop: "1px solid rgba(148,163,184,0.15)" }}>
+          <div style={{ marginTop: "auto", padding: "14px 10px 6px", textAlign: "center", color: "var(--rv-texto-fraco)", fontSize: 11, fontWeight: 600, letterSpacing: "0.02em", borderTop: "1px solid rgba(148,163,184,0.15)" }}>
             Desenvolvido por Amanda Seibel
           </div>
           {perfil !== "diretoria" ? <AvisosBadge /> : null}
         </aside>
         <main className="content">
-      <Suspense fallback={<div style={{ padding: 40, color: "#94a3b8", fontSize: 14, fontWeight: 600 }}>Carregando…</div>}>
+      <Suspense fallback={<div style={{ padding: 40, color: "var(--rv-texto-fraco)", fontSize: 14, fontWeight: 600 }}>Carregando…</div>}>
       <Routes>
             <Route
               path="/"
@@ -1086,6 +1093,7 @@ export default function App() {
               <Route path="/acoes-massivas" element={<AcoesMassivas />} />
               <Route path="/historico-recuperacao" element={<HistoricoRecuperacao />} />
         <Route path="/executivo" element={<ExecutivoRecuperacao />} />
+        <Route path="/carteira-2026-1" element={<CarteiraEfetividade />} />
               <Route path="/saude-da-base" element={<SaudeDaBase />} />
               <Route path="/saude-completa-carteira" element={<SaudeCompletaCarteira />} />
               <Route path="/revisao-prime" element={<RevisaoPrime />} />

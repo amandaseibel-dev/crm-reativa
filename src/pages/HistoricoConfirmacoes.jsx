@@ -18,9 +18,9 @@ const ACAO_LABEL = {
 };
 
 const ACAO_COR = {
-  CONFIRMADO: { background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534" },
-  SALDO_ZERO: { background: "#eef2ff", border: "1px solid #e0e7ff", color: "#3730a3" },
-  REJEITADO: { background: "#fee2e2", border: "1px solid #fecaca", color: "#991b1b" },
+  CONFIRMADO: { background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", color: "var(--rv-verde-ok-texto)" },
+  SALDO_ZERO: { background: "var(--rv-roxo-fundo)", border: "1px solid var(--rv-roxo-borda)", color: "var(--rv-roxo-texto)" },
+  REJEITADO: { background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)" },
 };
 
 function dataBR(iso) {
@@ -87,7 +87,7 @@ export default function HistoricoConfirmacoes() {
         <div style={S.cards}>
           <div style={S.card}><div style={S.cardNum}>{totalHoje}</div><div style={S.cardRot}>Hoje</div></div>
           <div style={S.card}><div style={S.cardNum}>{totalGeral}</div><div style={S.cardRot}>Total (30 dias)</div></div>
-          <div style={S.card}><div style={{ ...S.cardNum, color: "#8a93a3" }}>{totalAuto}</div><div style={S.cardRot}>Automático</div></div>
+          <div style={S.card}><div style={{ ...S.cardNum, color: "var(--rv-texto-fraco)" }}>{totalAuto}</div><div style={S.cardRot}>Automático</div></div>
         </div>
       </div>
 
@@ -143,24 +143,24 @@ export default function HistoricoConfirmacoes() {
 }
 
 const S = {
-  wrap: { padding: "20px 22px 28px", fontFamily: "'Inter', system-ui, sans-serif", color: "#0f172a" },
+  wrap: { padding: "20px 22px 28px", fontFamily: "'Inter', system-ui, sans-serif", color: "var(--rv-tinta)" },
   topo: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 16 },
-  titulo: { margin: 0, fontFamily: "'Sora', Inter, sans-serif", fontSize: 18, fontWeight: 800, color: "#0d1321" },
-  sub: { margin: "4px 0 0", color: "#8a93a3", fontSize: 13 },
+  titulo: { margin: 0, fontFamily: "'Sora', Inter, sans-serif", fontSize: 18, fontWeight: 800, color: "var(--rv-tinta)" },
+  sub: { margin: "4px 0 0", color: "var(--rv-texto-fraco)", fontSize: 13 },
   cards: { display: "flex", gap: 12 },
-  card: { background: "#f8fafc", border: "1px solid #e6eaf0", borderRadius: 12, padding: "10px 18px", textAlign: "center", minWidth: 100 },
-  cardNum: { fontSize: 24, fontWeight: 800, color: "#0d1321", fontFamily: "'Sora', Inter, sans-serif" },
-  cardRot: { fontSize: 12, color: "#8a93a3", fontWeight: 600, marginTop: 2 },
-  muted: { color: "#8a93a3", fontSize: 14 },
+  card: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: 12, padding: "10px 18px", textAlign: "center", minWidth: 100 },
+  cardNum: { fontSize: 24, fontWeight: 800, color: "var(--rv-tinta)", fontFamily: "'Sora', Inter, sans-serif" },
+  cardRot: { fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 600, marginTop: 2 },
+  muted: { color: "var(--rv-texto-fraco)", fontSize: 14 },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "9px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
-  thNum: { textAlign: "right", padding: "9px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
-  td: { padding: "9px 12px", borderBottom: "1px solid #f2f4f7", color: "#344054", verticalAlign: "top" },
-  tdNum: { padding: "9px 12px", borderBottom: "1px solid #f2f4f7", textAlign: "right", fontWeight: 800, color: "#101828" },
+  th: { textAlign: "left", padding: "9px 12px", color: "var(--rv-texto-fraco)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "var(--rv-fundo-cartao)", borderBottom: "1px solid var(--rv-borda)" },
+  thNum: { textAlign: "right", padding: "9px 12px", color: "var(--rv-texto-fraco)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "var(--rv-fundo-cartao)", borderBottom: "1px solid var(--rv-borda)" },
+  td: { padding: "9px 12px", borderBottom: "1px solid var(--rv-borda-suave)", color: "var(--rv-texto-forte)", verticalAlign: "top" },
+  tdNum: { padding: "9px 12px", borderBottom: "1px solid var(--rv-borda-suave)", textAlign: "right", fontWeight: 800, color: "var(--rv-tinta)" },
   linhasPessoa: { display: "flex", flexDirection: "column", gap: 6 },
   pessoa: { display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
-  pessoaNome: { fontWeight: 700, color: "#101828", minWidth: 120 },
-  tdAuto: { padding: "9px 12px", borderBottom: "1px solid #f2f4f7", textAlign: "right", color: "#8a93a3", fontWeight: 700 },
+  pessoaNome: { fontWeight: 700, color: "var(--rv-tinta)", minWidth: 120 },
+  tdAuto: { padding: "9px 12px", borderBottom: "1px solid var(--rv-borda-suave)", textAlign: "right", color: "var(--rv-texto-fraco)", fontWeight: 700 },
   chips: { display: "flex", gap: 6, flexWrap: "wrap" },
-  chip: { fontSize: 12, background: "#eef2ff", border: "1px solid #e0e7ff", borderRadius: 999, padding: "2px 10px", color: "#3730a3" },
+  chip: { fontSize: 12, background: "var(--rv-roxo-fundo)", border: "1px solid var(--rv-roxo-borda)", borderRadius: 999, padding: "2px 10px", color: "var(--rv-roxo-texto)" },
 };

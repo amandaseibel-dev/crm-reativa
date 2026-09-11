@@ -92,33 +92,33 @@ export default function VisaoGestao360({ dias = 30 }) {
     <div style={s.wrap}>
       {barra}
       <div style={s.statsRow}>
-        <Stat rot="Carteira a cobrar" val={num(base.com_divida)} cor="#111827" />
-        <Stat rot="Já recuperados" val={num(base.quitados)} cor="#16a34a" />
-        <Stat rot="Valor a cobrar" val={moeda(base.valor_total)} cor="#16a34a" />
+        <Stat rot="Carteira a cobrar" val={num(base.com_divida)} cor="var(--rv-tinta)" />
+        <Stat rot="Já recuperados" val={num(base.quitados)} cor="var(--rv-verde-ok)" />
+        <Stat rot="Valor a cobrar" val={moeda(base.valor_total)} cor="var(--rv-verde-ok)" />
       </div>
 
       {projCarteira && (
         <div style={s.bloco}>
           <h3 style={s.h3}>Projeção da carteira — Julho e Agosto (ritmo atual)</h3>
           <div style={s.projRow}>
-            <div style={{ ...s.projCard, background: "#f1f5f9" }}>
-              <div style={{ ...s.projVal, color: "#334155" }}>{moeda(projCarteira.carteiraAtual)}</div>
+            <div style={{ ...s.projCard, background: "var(--rv-fundo-suave)" }}>
+              <div style={{ ...s.projVal, color: "var(--rv-texto-forte)" }}>{moeda(projCarteira.carteiraAtual)}</div>
               <div style={s.projRot}>Carteira hoje</div>
             </div>
             <div style={s.projSeta}>−</div>
-            <div style={{ ...s.projCard, background: "#dbeafe" }}>
-              <div style={{ ...s.projVal, color: "#1d4ed8" }}>{moeda(projCarteira.julFalta)}</div>
+            <div style={{ ...s.projCard, background: "var(--rv-azul-fundo)" }}>
+              <div style={{ ...s.projVal, color: "var(--rv-azul-texto)" }}>{moeda(projCarteira.julFalta)}</div>
               <div style={s.projRot}>Previsto recuperar em julho (a realizar)</div>
               <div style={s.projNota}>Mês fechado: {moeda(projCarteira.julPrev)} · já {moeda(projCarteira.julReal)}</div>
             </div>
             <div style={s.projSeta}>−</div>
-            <div style={{ ...s.projCard, background: "#e0e7ff" }}>
-              <div style={{ ...s.projVal, color: "#4338ca" }}>{moeda(projCarteira.agoPrev)}</div>
+            <div style={{ ...s.projCard, background: "var(--rv-roxo-fundo)" }}>
+              <div style={{ ...s.projVal, color: "var(--rv-roxo-texto)" }}>{moeda(projCarteira.agoPrev)}</div>
               <div style={s.projRot}>Previsto recuperar em agosto</div>
             </div>
             <div style={s.projSeta}>=</div>
-            <div style={{ ...s.projCard, background: "#dcfce7" }}>
-              <div style={{ ...s.projVal, color: "#15803d" }}>{moeda(projCarteira.carteiraProj)}</div>
+            <div style={{ ...s.projCard, background: "var(--rv-verde-ok-fundo)" }}>
+              <div style={{ ...s.projVal, color: "var(--rv-verde-ok-texto)" }}>{moeda(projCarteira.carteiraProj)}</div>
               <div style={s.projRot}>Carteira projetada fim de agosto</div>
             </div>
           </div>
@@ -152,7 +152,7 @@ export default function VisaoGestao360({ dias = 30 }) {
         <div style={s.bloco}>
           <h3 style={s.h3}>Faixa de atraso das mensalidades</h3>
           {atraso.map((x) => (
-            <Bar key={x.faixa} label={x.faixa} sub={(totalAtraso > 0 ? ((Number(x.valor) / totalAtraso) * 100).toFixed(1) : "0") + "% do total · " + num(x.cpfs) + " CPFs"} val={moeda(x.valor)} pct={(Number(x.valor) / maxAtraso) * 100} cor="#ef4444" />
+            <Bar key={x.faixa} label={x.faixa} sub={(totalAtraso > 0 ? ((Number(x.valor) / totalAtraso) * 100).toFixed(1) : "0") + "% do total · " + num(x.cpfs) + " CPFs"} val={moeda(x.valor)} pct={(Number(x.valor) / maxAtraso) * 100} cor="var(--rv-vermelho)" />
           ))}
         </div>
       </div>
@@ -163,19 +163,19 @@ export default function VisaoGestao360({ dias = 30 }) {
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead>
               <tr>
-                <th style={{ textAlign: "left", padding: "9px 10px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>Período</th>
-                <th style={{ textAlign: "right", padding: "9px 10px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>% do total</th>
-                <th style={{ textAlign: "right", padding: "9px 10px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>Operação</th>
-                <th style={{ textAlign: "right", padding: "9px 10px", color: "#94a3b8", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>Ação massiva</th>
+                <th style={{ textAlign: "left", padding: "9px 10px", color: "var(--rv-texto-fraco)", fontWeight: 600, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em" }}>Período</th>
+                <th style={{ textAlign: "right", padding: "9px 10px", color: "var(--rv-texto-fraco)", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>% do total</th>
+                <th style={{ textAlign: "right", padding: "9px 10px", color: "var(--rv-texto-fraco)", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>Operação</th>
+                <th style={{ textAlign: "right", padding: "9px 10px", color: "var(--rv-texto-fraco)", fontWeight: 600, fontSize: 11, textTransform: "uppercase" }}>Ação massiva</th>
               </tr>
             </thead>
             <tbody>
               {periodos.map((x) => (
                 <tr key={x.ano + "/" + x.sem}>
-                  <td style={{ padding: "9px 10px", fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" }}>{x.ano}/{x.sem}</td>
-                  <td style={{ padding: "9px 10px", textAlign: "right", fontWeight: 800, color: "#0f172a" }}>{Number(x.pct).toFixed(1)}%</td>
-                  <td style={{ padding: "9px 10px", textAlign: "right", color: "#1e40af", fontWeight: 700, whiteSpace: "nowrap" }}>{moeda(x.operacao)}</td>
-                  <td style={{ padding: "9px 10px", textAlign: "right", color: "#b45309", whiteSpace: "nowrap" }}>{moeda(x.massiva)}</td>
+                  <td style={{ padding: "9px 10px", fontWeight: 700, color: "var(--rv-tinta)", whiteSpace: "nowrap" }}>{x.ano}/{x.sem}</td>
+                  <td style={{ padding: "9px 10px", textAlign: "right", fontWeight: 800, color: "var(--rv-tinta)" }}>{Number(x.pct).toFixed(1)}%</td>
+                  <td style={{ padding: "9px 10px", textAlign: "right", color: "var(--rv-azul-texto)", fontWeight: 700, whiteSpace: "nowrap" }}>{moeda(x.operacao)}</td>
+                  <td style={{ padding: "9px 10px", textAlign: "right", color: "var(--rv-ambar-texto)", whiteSpace: "nowrap" }}>{moeda(x.massiva)}</td>
                 </tr>
               ))}
             </tbody>
@@ -230,30 +230,30 @@ function Stat({ rot, val, cor }) {
 const s = {
   wrap: { marginBottom: 20 },
   headerRow: { display: "flex", alignItems: "baseline", gap: 10, marginBottom: 12, flexWrap: "wrap" },
-  h2: { margin: 0, fontSize: 20, fontWeight: 800, color: "#0f172a" },
-  sub: { fontSize: 13, color: "#64748b" },
+  h2: { margin: 0, fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)" },
+  sub: { fontSize: 13, color: "var(--rv-texto-suave)" },
   statsRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 },
-  stat: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
+  stat: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
   statVal: { fontSize: 22, fontWeight: 800, lineHeight: 1.1 },
-  statRot: { fontSize: 13, color: "#64748b", fontWeight: 600 },
+  statRot: { fontSize: 13, color: "var(--rv-texto-suave)", fontWeight: 600 },
   grid2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))", gap: 16 },
-  bloco: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
-  h3: { margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "#0f172a" },
+  bloco: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16, padding: 18, marginBottom: 16, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
+  h3: { margin: "0 0 14px", fontSize: 15, fontWeight: 700, color: "var(--rv-tinta)" },
   projRow: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "stretch", marginBottom: 10 },
   projCard: { flex: 1, minWidth: 150, borderRadius: 12, padding: 14, display: "flex", flexDirection: "column", gap: 4 },
   projVal: { fontSize: 21, fontWeight: 800, lineHeight: 1.1 },
-  projRot: { fontSize: 12, color: "#475569", fontWeight: 600 },
-  projNota: { fontSize: 11, color: "#64748b" },
-  projSeta: { display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 800, color: "#94a3b8", minWidth: 16 },
-  legendaPer: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12, color: "#64748b", margin: "0 0 12px" },
+  projRot: { fontSize: 12, color: "var(--rv-texto)", fontWeight: 600 },
+  projNota: { fontSize: 11, color: "var(--rv-texto-suave)" },
+  projSeta: { display: "flex", alignItems: "center", justifyContent: "center", fontSize: 22, fontWeight: 800, color: "var(--rv-texto-fraco)", minWidth: 16 },
+  legendaPer: { display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", fontSize: 12, color: "var(--rv-texto-suave)", margin: "0 0 12px" },
   legDot: { display: "inline-block", width: 10, height: 10, borderRadius: 3, marginRight: 4 },
-  tagRent: { marginLeft: 6, background: "#e0e7ff", color: "#4338ca", borderRadius: 999, padding: "1px 8px", fontSize: 10, fontWeight: 800 },
+  tagRent: { marginLeft: 6, background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)", borderRadius: 999, padding: "1px 8px", fontSize: 10, fontWeight: 800 },
   linha: { marginBottom: 12 },
-  linhaTopo: { display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, color: "#334155", marginBottom: 5 },
-  barTrack: { background: "#f1f5f9", borderRadius: 999, height: 10, overflow: "hidden" },
+  linhaTopo: { display: "flex", justifyContent: "space-between", gap: 10, fontSize: 13, color: "var(--rv-texto-forte)", marginBottom: 5 },
+  barTrack: { background: "var(--rv-fundo-suave)", borderRadius: 999, height: 10, overflow: "hidden" },
   barFill: { height: "100%", borderRadius: 999 },
-  em: { color: "#94a3b8", fontStyle: "normal", fontSize: 12 },
-  recU: { fontSize: 11, color: "#16a34a", fontWeight: 600 },
-  muted: { color: "#64748b", margin: 0, fontSize: 12 },
-  card: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 16, padding: 18, marginBottom: 16 },
+  em: { color: "var(--rv-texto-fraco)", fontStyle: "normal", fontSize: 12 },
+  recU: { fontSize: 11, color: "var(--rv-verde-ok)", fontWeight: 600 },
+  muted: { color: "var(--rv-texto-suave)", margin: 0, fontSize: 12 },
+  card: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16, padding: 18, marginBottom: 16 },
 };

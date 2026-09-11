@@ -97,7 +97,7 @@ export default function Auditoria({ forcarAcesso = false }) {
                 <div style={S.detalhe}>
                   <div style={S.blocoTit}>O que tem</div>
                   <div style={S.blocoTxt}>{c.tem}</div>
-                  <div style={Object.assign({}, S.blocoTit, { color: "#16a34a", marginTop: 10 })}>O que fizemos</div>
+                  <div style={Object.assign({}, S.blocoTit, { color: "var(--rv-verde-ok)", marginTop: 10 })}>O que fizemos</div>
                   <div style={S.blocoTxt}>{c.fizemos}</div>
                 </div>
               )}
@@ -138,13 +138,13 @@ export default function Auditoria({ forcarAcesso = false }) {
                   <td style={S.td}>{fmtData(l.criado_em)}</td>
                   <td style={S.td}>{l.usuario}</td>
                   <td style={S.td}>{l.tabela}</td>
-                  <td style={S.td}><span style={Object.assign({}, S.badge, { background: l.operacao === "DELETE" ? "#fee2e2" : l.operacao === "UPDATE" ? "#fef9c3" : "#dcfce7" })}>{l.operacao}</span></td>
+                  <td style={S.td}><span style={Object.assign({}, S.badge, { background: l.operacao === "DELETE" ? "var(--rv-vermelho-fundo)" : l.operacao === "UPDATE" ? "var(--rv-ambar-fundo)" : "var(--rv-verde-ok-fundo)" })}>{l.operacao}</span></td>
                   <td style={S.td}>{l.registro_id || "-"}</td>
                 </tr>); })}
             </tbody>
           </table>
           {typeof total === "number" && total > logs.length && (
-            <div style={{ padding: "12px", textAlign: "center", borderTop: "1px solid #f1f5f9" }}>
+            <div style={{ padding: "12px", textAlign: "center", borderTop: "1px solid var(--rv-borda-suave)" }}>
               <button style={S.btn} disabled={carregandoMais} onClick={function () { carregar(true); }}>
                 {carregandoMais ? "Carregando..." : "Carregar mais 1000"}
               </button>
@@ -161,26 +161,26 @@ const S = {
   wrap: { padding: "24px", maxWidth: 1100, margin: "0 auto" },
   h1: { fontSize: 26, fontWeight: 900, margin: "0 0 4px" },
   h2: { fontSize: 18, fontWeight: 800, margin: "28px 0 12px" },
-  sub: { color: "#64748b", margin: "0 0 18px" },
-  negado: { background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", padding: 16, borderRadius: 12, fontWeight: 700 },
+  sub: { color: "var(--rv-texto-suave)", margin: "0 0 18px" },
+  negado: { background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", padding: 16, borderRadius: 12, fontWeight: 700 },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 12, marginBottom: 14, alignItems: "start" },
-  card: { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 14, overflow: "hidden" },
+  card: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 14, overflow: "hidden" },
   cardBtn: { width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "14px 16px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" },
   cardIcon: { fontSize: 22 },
-  cardTit: { fontWeight: 800, color: "#0f172a", fontSize: 15, flex: 1 },
-  chev: { color: "#94a3b8", fontSize: 12 },
+  cardTit: { fontWeight: 800, color: "var(--rv-tinta)", fontSize: 15, flex: 1 },
+  chev: { color: "var(--rv-texto-fraco)", fontSize: 12 },
   detalhe: { padding: "0 16px 16px" },
-  blocoTit: { fontSize: 11, fontWeight: 800, color: "#1d4ed8", textTransform: "uppercase", letterSpacing: "0.04em" },
-  blocoTxt: { fontSize: 14, color: "#475569", lineHeight: 1.45, marginTop: 3 },
+  blocoTit: { fontSize: 11, fontWeight: 800, color: "var(--rv-azul-texto)", textTransform: "uppercase", letterSpacing: "0.04em" },
+  blocoTxt: { fontSize: 14, color: "var(--rv-texto)", lineHeight: 1.45, marginTop: 3 },
   faixa: { background: "#0f172a", color: "#fff", borderRadius: 12, padding: "12px 16px", fontWeight: 700, fontSize: 14, textAlign: "center", marginBottom: 22 },
   filtros: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 },
-  inp: { padding: "8px 10px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13 },
+  inp: { padding: "8px 10px", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, fontSize: 13 },
   btn: { background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 700, cursor: "pointer" },
-  btnSec: { background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 700, cursor: "pointer" },
-  tabelaWrap: { background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" },
+  btnSec: { background: "var(--rv-botao-escuro)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 16px", fontWeight: 700, cursor: "pointer" },
+  tabelaWrap: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 12, overflow: "hidden" },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "10px", background: "#f8fafc", color: "#64748b", fontSize: 11, textTransform: "uppercase", borderBottom: "1px solid #e5e7eb" },
-  td: { padding: "9px 10px", borderBottom: "1px solid #f1f5f9", color: "#334155" },
-  badge: { padding: "3px 8px", borderRadius: 999, fontSize: 11, fontWeight: 800, color: "#0f172a" },
-  rodape: { padding: "10px", color: "#64748b", fontSize: 12 },
+  th: { textAlign: "left", padding: "10px", background: "var(--rv-fundo-cartao)", color: "var(--rv-texto-suave)", fontSize: 11, textTransform: "uppercase", borderBottom: "1px solid var(--rv-borda)" },
+  td: { padding: "9px 10px", borderBottom: "1px solid var(--rv-borda-suave)", color: "var(--rv-texto-forte)" },
+  badge: { padding: "3px 8px", borderRadius: 999, fontSize: 11, fontWeight: 800, color: "var(--rv-tinta)" },
+  rodape: { padding: "10px", color: "var(--rv-texto-suave)", fontSize: 12 },
 };

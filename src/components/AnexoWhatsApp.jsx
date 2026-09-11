@@ -190,8 +190,8 @@ const S = {
   documentoAbrindo: { opacity: 0.6, cursor: "progress" },
   documentoInfo: { fontSize: 11, opacity: 0.7 },
   aviso: {
-    fontSize: 12, lineHeight: 1.5, color: "#92400e", background: "#fffbeb",
-    border: "1px solid #fde68a", borderRadius: 8, padding: "7px 9px", marginBottom: 6,
+    fontSize: 12, lineHeight: 1.5, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)",
+    border: "1px solid var(--rv-ambar-borda)", borderRadius: 8, padding: "7px 9px", marginBottom: 6,
   },
   avisoDica: { fontSize: 11, opacity: 0.8, marginTop: 2 },
   carregando: { fontSize: 12, opacity: 0.6, marginBottom: 6 },

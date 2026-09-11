@@ -14,8 +14,8 @@ function diaCurto(iso) {
   return `${d}/${m}`;
 }
 
-const AZUL = "#2563eb";
-const VERDE = "#0f9d6b";
+const AZUL = "var(--rv-azul)";
+const VERDE = "var(--rv-verde-ok)";
 
 // Extrai a data (YYYY-MM-DD) de um clique no gráfico, de forma robusta a como o
 // recharts entrega o argumento. NB: recharts v3 mudou o onClick do gráfico e
@@ -83,8 +83,8 @@ export default function GraficoEvolucaoProjecao({ historico = [], onClickDia, cl
         onClick={onClick}
         style={{
           padding: "6px 12px", borderRadius: 8, fontSize: 12.5, fontWeight: 700, cursor: "pointer",
-          border: `1px solid ${ativo ? cor : "#e3e7ee"}`,
-          background: ativo ? cor : "#fff", color: ativo ? "#fff" : "#475569",
+          border: `1px solid ${ativo ? cor : "var(--rv-borda)"}`,
+          background: ativo ? cor : "var(--rv-superficie)", color: ativo ? "#fff" : "var(--rv-texto)",
         }}
       >
         {children}
@@ -96,8 +96,8 @@ export default function GraficoEvolucaoProjecao({ historico = [], onClickDia, cl
     if (!active || !payload || !payload.length) return null;
     const p = payload[0].payload;
     return (
-      <div style={{ background: "#fff", border: "1px solid #e3e7ee", borderRadius: 10, padding: "10px 12px", boxShadow: "0 4px 14px rgba(15,23,42,0.12)", fontSize: 12.5 }}>
-        <div style={{ fontWeight: 800, color: "#0d1321", marginBottom: 4 }}>{diaCurto(p.dia)}</div>
+      <div style={{ background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "10px 12px", boxShadow: "0 4px 14px rgba(15,23,42,0.12)", fontSize: 12.5 }}>
+        <div style={{ fontWeight: 800, color: "var(--rv-tinta)", marginBottom: 4 }}>{diaCurto(p.dia)}</div>
         <div>{rotuloMetrica} {modo === "acumulado" ? "(acum.)" : "(dia)"}: <strong>{moeda(p.valor)}</strong></div>
         <div>Pagamentos no dia: <strong>{p.qtd}</strong></div>
         {p.faixa && <div style={{ color: cor }}>Faixa: <strong>{p.faixa}</strong></div>}
@@ -129,9 +129,9 @@ export default function GraficoEvolucaoProjecao({ historico = [], onClickDia, cl
               margin={{ top: 24, right: 12, left: 4, bottom: 4 }}
               onClick={aoClicarDia}
             >
-              <CartesianGrid strokeDasharray="3 3" stroke="#eef1f5" vertical={false} />
-              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "#98a2b3" }} interval="preserveStartEnd" />
-              <YAxis tick={{ fontSize: 11, fill: "#98a2b3" }} tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : v)} width={44} />
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--rv-borda-suave)" vertical={false} />
+              <XAxis dataKey="label" tick={{ fontSize: 11, fill: "var(--rv-texto-fraco)" }} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 11, fill: "var(--rv-texto-fraco)" }} tickFormatter={(v) => (v >= 1000 ? `${Math.round(v / 1000)}k` : v)} width={44} />
               <Tooltip content={<TooltipCustom />} cursor={{ fill: "rgba(37,99,235,0.06)" }} />
               {mudancasFaixa.map((m) => (
                 <ReferenceLine
@@ -139,7 +139,7 @@ export default function GraficoEvolucaoProjecao({ historico = [], onClickDia, cl
                   x={diaCurto(m.dia)}
                   stroke="#f59e0b"
                   strokeDasharray="4 3"
-                  label={{ value: `↑ ${String(m.faixa).replace(/\s*\(.*\)/, "")}`, position: "top", fontSize: 10, fill: "#b45309" }}
+                  label={{ value: `↑ ${String(m.faixa).replace(/\s*\(.*\)/, "")}`, position: "top", fontSize: 10, fill: "var(--rv-ambar-texto)" }}
                 />
               ))}
               {modo === "acumulado" ? (

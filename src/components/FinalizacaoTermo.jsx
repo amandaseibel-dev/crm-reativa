@@ -43,31 +43,31 @@ function corStatus(status) {
   if (status === "TERMO_RECEBIDO_LIBERADO") {
     return {
       background: "#d1e7dd",
-      color: "#0f5132",
-      border: "1px solid #badbcc",
+      color: "var(--rv-verde-ok-texto)",
+      border: "1px solid var(--rv-verde-ok-borda)",
     };
   }
 
   if (status === "TERMO_REJEITADO") {
     return {
-      background: "#f8d7da",
-      color: "#842029",
-      border: "1px solid #f5c2c7",
+      background: "var(--rv-vermelho-fundo)",
+      color: "var(--rv-vermelho-texto)",
+      border: "1px solid var(--rv-vermelho-borda)",
     };
   }
 
   if (status === "TERMO_LIBERADO_AUTOMATICO_GOV") {
     return {
-      background: "#e0cffc",
-      color: "#4b1e8f",
-      border: "1px solid #d0bcf5",
+      background: "var(--rv-roxo-fundo)",
+      color: "var(--rv-roxo-texto)",
+      border: "1px solid var(--rv-roxo-borda)",
     };
   }
 
   return {
-    background: "#cff4fc",
-    color: "#055160",
-    border: "1px solid #b6effb",
+    background: "var(--rv-azul-fundo)",
+    color: "var(--rv-azul-texto)",
+    border: "1px solid var(--rv-azul-borda)",
   };
 }
 
@@ -544,7 +544,7 @@ export default function FinalizacaoTermo({ aluno, onEnviado }) {
 
 const styles = {
   card: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "14px",
     padding: "22px",
     marginTop: "24px",
@@ -562,15 +562,15 @@ const styles = {
   titulo: {
     margin: 0,
     marginBottom: "8px",
-    color: "#1f2937",
+    color: "var(--rv-tinta)",
   },
   subtitulo: {
     marginTop: 0,
     marginBottom: "12px",
-    color: "#1f2937",
+    color: "var(--rv-tinta)",
   },
   texto: {
-    color: "#555",
+    color: "var(--rv-texto)",
     margin: 0,
     lineHeight: 1.5,
   },
@@ -582,8 +582,8 @@ const styles = {
     whiteSpace: "nowrap",
   },
   resumo: {
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "12px",
     padding: "14px",
     marginBottom: "16px",
@@ -597,25 +597,25 @@ const styles = {
   labelResumo: {
     display: "block",
     fontSize: "12px",
-    color: "#6b7280",
+    color: "var(--rv-texto-suave)",
     marginBottom: "4px",
   },
   valorResumo: {
     margin: 0,
     fontWeight: "bold",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   caixaAdm: {
     marginTop: "14px",
-    background: "#fff",
-    border: "1px solid #e5e7eb",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "10px",
     padding: "12px",
   },
   alertaPendente: {
-    background: "#fff3cd",
-    color: "#664d03",
-    border: "1px solid #ffecb5",
+    background: "var(--rv-ambar-fundo)",
+    color: "var(--rv-ambar-texto)",
+    border: "1px solid var(--rv-ambar-borda)",
     borderRadius: "10px",
     padding: "12px",
     marginBottom: "16px",
@@ -627,14 +627,14 @@ const styles = {
     display: "block",
     fontWeight: "bold",
     marginBottom: "6px",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   textarea: {
     width: "100%",
     minHeight: "95px",
     padding: "10px",
     borderRadius: "8px",
-    border: "1px solid #ccc",
+    border: "1px solid var(--rv-borda-forte)",
     resize: "vertical",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
@@ -643,20 +643,20 @@ const styles = {
     width: "100%",
     padding: "10px",
     borderRadius: "8px",
-    border: "1px solid #ccc",
+    border: "1px solid var(--rv-borda-forte)",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
     fontSize: "14px",
   },
   dicaTipo: {
     marginTop: "8px",
-    color: "#6b7280",
+    color: "var(--rv-texto-suave)",
     fontSize: "13px",
     lineHeight: 1.4,
   },
   arquivoSelecionado: {
     marginTop: "8px",
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
   },
   botao: {
     marginTop: "16px",
@@ -670,12 +670,12 @@ const styles = {
   },
   historico: {
     marginTop: "24px",
-    borderTop: "1px solid #e5e7eb",
+    borderTop: "1px solid var(--rv-borda)",
     paddingTop: "18px",
   },
   itemHistorico: {
-    background: "#f9fafb",
-    border: "1px solid #e5e7eb",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "10px",
     padding: "12px",
     marginBottom: "10px",
@@ -688,23 +688,23 @@ const styles = {
   },
   dataHistorico: {
     fontSize: "12px",
-    color: "#6b7280",
+    color: "var(--rv-texto-suave)",
   },
   paragrafo: {
     margin: "6px 0",
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
     lineHeight: 1.4,
   },
   linkArquivo: {
     display: "inline-block",
     marginTop: "12px",
-    color: "#0d6efd",
+    color: "var(--rv-azul)",
     fontWeight: "bold",
   },
   linkPequeno: {
     display: "inline-block",
     marginTop: "6px",
-    color: "#0d6efd",
+    color: "var(--rv-azul)",
     fontWeight: "bold",
     fontSize: "14px",
   },
@@ -719,7 +719,7 @@ const styles = {
     padding: "16px",
   },
   modalBox: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "14px",
     padding: "24px",
     maxWidth: "440px",
@@ -735,19 +735,19 @@ const styles = {
   },
   modalTitulo: {
     margin: "0 0 12px",
-    color: "#92400e",
+    color: "var(--rv-ambar-texto)",
     fontSize: "20px",
   },
   modalTexto: {
     margin: "0 0 12px",
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
     lineHeight: 1.5,
     fontSize: "15px",
   },
   modalBotao: {
     marginTop: "8px",
     background: "#f59e0b",
-    color: "#111827",
+    color: "var(--rv-tinta)",
     border: "none",
     padding: "12px 22px",
     borderRadius: "8px",

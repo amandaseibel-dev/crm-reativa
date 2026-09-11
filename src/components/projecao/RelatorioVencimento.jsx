@@ -106,7 +106,7 @@ export default function RelatorioVencimento({ mes }) {
           <div style={estilos.rotulo}>Vencimento (vazio = todos)</div>
           <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
             <input type="date" value={vencDe} onChange={(e) => setVencDe(e.target.value)} style={estilos.data} />
-            <span style={{ fontSize: 12, color: "#64748b" }}>até</span>
+            <span style={{ fontSize: 12, color: "var(--rv-texto-suave)" }}>até</span>
             <input type="date" value={vencAte} onChange={(e) => setVencAte(e.target.value)} style={estilos.data} />
           </div>
           <label style={estilos.check}>
@@ -134,16 +134,16 @@ export default function RelatorioVencimento({ mes }) {
 }
 
 const estilos = {
-  bloco: { border: "1px solid #edf0f5", borderRadius: 10, background: "#f8fafc", overflow: "hidden" },
-  cabecalho: { width: "100%", textAlign: "left", padding: "10px 12px", border: "none", background: "transparent", color: "#0d1321", fontSize: 13, fontWeight: 600, cursor: "pointer" },
+  bloco: { border: "1px solid var(--rv-borda-suave)", borderRadius: 10, background: "var(--rv-fundo-cartao)", overflow: "hidden" },
+  cabecalho: { width: "100%", textAlign: "left", padding: "10px 12px", border: "none", background: "transparent", color: "var(--rv-tinta)", fontSize: 13, fontWeight: 600, cursor: "pointer" },
   corpo: { padding: "0 12px 12px", display: "flex", flexDirection: "column", gap: 8 },
-  rotulo: { fontSize: 12, fontWeight: 700, color: "#475569", marginTop: 4 },
+  rotulo: { fontSize: 12, fontWeight: 700, color: "var(--rv-texto)", marginTop: 4 },
   listaOps: { display: "flex", flexDirection: "column", gap: 4, maxHeight: 160, overflowY: "auto", paddingLeft: 4 },
-  check: { display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "#0d1321", cursor: "pointer" },
-  qtd: { color: "#94a3b8", fontSize: 11.5 },
-  data: { flex: 1, padding: "6px 8px", borderRadius: 8, border: "1px solid #e3e7ee", fontSize: 12.5 },
+  check: { display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, color: "var(--rv-tinta)", cursor: "pointer" },
+  qtd: { color: "var(--rv-texto-fraco)", fontSize: 11.5 },
+  data: { flex: 1, padding: "6px 8px", borderRadius: 8, border: "1px solid var(--rv-borda)", fontSize: 12.5 },
   gerar: { padding: "8px 12px", borderRadius: 8, border: "none", background: "#0f9d6b", color: "#fff", fontWeight: 700, fontSize: 12.5, cursor: "pointer" },
-  aviso: { fontSize: 12, color: "#64748b" },
-  erro: { color: "#b91c1c", fontSize: 12.5 },
-  nota: { fontSize: 11, color: "#94a3b8" },
+  aviso: { fontSize: 12, color: "var(--rv-texto-suave)" },
+  erro: { color: "var(--rv-vermelho-texto)", fontSize: 12.5 },
+  nota: { fontSize: 11, color: "var(--rv-texto-fraco)" },
 };

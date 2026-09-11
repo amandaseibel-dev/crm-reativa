@@ -211,7 +211,7 @@ export default function AgendaAlunoUnificado({ aluno, onAtualizar }) {
 
 const styles = {
   card: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "14px",
     padding: "18px",
     marginBottom: "16px",
@@ -227,11 +227,11 @@ const styles = {
   },
   titulo: {
     margin: 0,
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   texto: {
     margin: "6px 0 0 0",
-    color: "#555",
+    color: "var(--rv-texto)",
   },
   statusBox: {
     background: "#111827",
@@ -241,12 +241,12 @@ const styles = {
     minWidth: "160px",
   },
   resumo: {
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "10px",
     padding: "12px",
     marginBottom: "14px",
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
   },
   grid: {
     display: "grid",
@@ -256,7 +256,7 @@ const styles = {
   input: {
     padding: "11px",
     borderRadius: "8px",
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--rv-borda-forte)",
     fontSize: "14px",
   },
   textarea: {
@@ -265,7 +265,7 @@ const styles = {
     marginTop: "10px",
     padding: "11px",
     borderRadius: "8px",
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--rv-borda-forte)",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
   },

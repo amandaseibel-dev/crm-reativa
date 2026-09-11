@@ -180,7 +180,7 @@ const styles = {
   selo: {
     display: "inline-block",
     background: "#19c37d",
-    color: "#071526",
+    color: "var(--rv-tinta)",
     fontWeight: "bold",
     borderRadius: "999px",
     padding: "6px 12px",
@@ -203,8 +203,8 @@ const styles = {
     justifyContent: "flex-end",
   },
   botaoClaro: {
-    background: "#ffffff",
-    color: "#0b1f3a",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-tinta)",
     border: "none",
     borderRadius: "10px",
     padding: "11px 14px",
@@ -217,7 +217,7 @@ const styles = {
     gap: "16px",
   },
   card: {
-    background: "#ffffff",
+    background: "var(--rv-superficie)",
     borderRadius: "16px",
     padding: "20px",
     boxShadow: "0 8px 24px rgba(0,0,0,0.18)",
@@ -232,14 +232,14 @@ const styles = {
   },
   cardTitulo: {
     margin: "0 0 10px 0",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   cardTituloClaro: {
     margin: "0 0 10px 0",
     color: "#ffffff",
   },
   texto: {
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
     lineHeight: 1.5,
   },
   textoClaro: {
@@ -247,7 +247,7 @@ const styles = {
     lineHeight: 1.5,
   },
   lista: {
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
     lineHeight: 1.7,
     paddingLeft: "20px",
   },
@@ -257,18 +257,18 @@ const styles = {
     paddingLeft: "20px",
   },
   blocoLink: {
-    background: "#eff6ff",
-    color: "#0b1f3a",
-    border: "1px solid #bfdbfe",
+    background: "var(--rv-azul-fundo)",
+    color: "var(--rv-tinta)",
+    border: "1px solid var(--rv-azul-borda)",
     borderRadius: "10px",
     padding: "10px",
     fontWeight: "bold",
     margin: "10px 0",
   },
   alerta: {
-    background: "#eff6ff",
-    color: "#1e3a8a",
-    border: "1px solid #bfdbfe",
+    background: "var(--rv-azul-fundo)",
+    color: "var(--rv-azul-texto)",
+    border: "1px solid var(--rv-azul-borda)",
     borderRadius: "10px",
     padding: "10px",
     marginTop: "10px",

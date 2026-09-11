@@ -895,7 +895,7 @@ export default function GestaoFinanceiraOperadores() {
                         href={f.nota_fiscal_url}
                         target="_blank"
                         rel="noreferrer"
-                        style={{ display: "block", fontSize: 12, marginTop: 6, color: "#0d6efd" }}
+                        style={{ display: "block", fontSize: 12, marginTop: 6, color: "var(--rv-azul)" }}
                       >
                         Ver nota fiscal anexada
                       </a>
@@ -923,40 +923,40 @@ export default function GestaoFinanceiraOperadores() {
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 
 const estilos = {
-  container: { minHeight: "100%", padding: "28px 30px 40px", color: "#334155", fontFamily: "'Inter', system-ui, sans-serif", background: "#f4f6fa" },
+  container: { minHeight: "100%", padding: "28px 30px 40px", color: "var(--rv-texto-forte)", fontFamily: "'Inter', system-ui, sans-serif", background: "var(--rv-fundo)" },
   cabecalhoRestrito: {
-    background: "#fef2f2",
-    color: "#dc2626",
+    background: "var(--rv-vermelho-fundo)",
+    color: "var(--rv-vermelho)",
     padding: "10px 14px",
     borderRadius: 10,
     fontWeight: 700,
     fontSize: 13,
     marginBottom: 16,
-    border: "1px solid #fecaca",
+    border: "1px solid var(--rv-vermelho-borda)",
   },
   alertaRestrito: {
-    background: "#fef2f2",
-    color: "#dc2626",
+    background: "var(--rv-vermelho-fundo)",
+    color: "var(--rv-vermelho)",
     padding: "20px",
     borderRadius: 14,
     fontWeight: 700,
-    border: "1px solid #fecaca",
+    border: "1px solid var(--rv-vermelho-borda)",
   },
-  titulo: { margin: "0 0 16px 0", color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
-  subtitulo: { margin: 0, fontSize: 14, color: "#8a93a3" },
+  titulo: { margin: "0 0 16px 0", color: "var(--rv-tinta)", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
+  subtitulo: { margin: 0, fontSize: 14, color: "var(--rv-texto-fraco)" },
   abas: { display: "flex", gap: 8, marginBottom: 16, flexWrap: "wrap" },
   botaoAba: {
     padding: "8px 14px",
     borderRadius: 10,
-    border: "1px solid #e2e8f0",
-    background: "#fff",
+    border: "1px solid var(--rv-borda)",
+    background: "var(--rv-superficie)",
     cursor: "pointer",
     fontWeight: 700,
     fontSize: 13,
-    color: "#334155",
+    color: "var(--rv-texto-forte)",
   },
   botaoAbaAtiva: { background: "#2563eb", color: "#fff", borderColor: "#2563eb" },
-  card: { background: "#fff", borderRadius: 16, padding: 20, marginBottom: 16, border: "1px solid #edf0f5", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
+  card: { background: "var(--rv-superficie)", borderRadius: 16, padding: 20, marginBottom: 16, border: "1px solid var(--rv-borda-suave)", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
   linhaTopo: {
     display: "flex",
     justifyContent: "space-between",
@@ -966,11 +966,11 @@ const estilos = {
     gap: 10,
   },
   formBox: {
-    background: "#f8fafc",
+    background: "var(--rv-fundo-cartao)",
     padding: 14,
     borderRadius: 12,
     marginBottom: 16,
-    border: "1px solid #e2e8f0",
+    border: "1px solid var(--rv-borda)",
   },
   grid2: {
     display: "grid",
@@ -986,24 +986,24 @@ const estilos = {
   input: {
     padding: "9px 10px",
     borderRadius: 8,
-    border: "1px solid #e2e8f0",
+    border: "1px solid var(--rv-borda)",
     fontSize: 13,
-    color: "#0d1321",
-    background: "#ffffff",
+    color: "var(--rv-tinta)",
+    background: "var(--rv-superficie)",
   },
   inputPequeno: {
     width: "100%",
     padding: "6px 8px",
     borderRadius: 8,
-    border: "1px solid #e2e8f0",
+    border: "1px solid var(--rv-borda)",
     fontSize: 12,
     marginBottom: 6,
     boxSizing: "border-box",
-    color: "#0d1321",
-    background: "#ffffff",
+    color: "var(--rv-tinta)",
+    background: "var(--rv-superficie)",
   },
-  labelPequeno: { fontSize: 10, color: "#8a93a3", display: "block", marginTop: 4 },
-  checkboxLabel: { display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#334155" },
+  labelPequeno: { fontSize: 10, color: "var(--rv-texto-fraco)", display: "block", marginTop: 4 },
+  checkboxLabel: { display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--rv-texto-forte)" },
   botaoAzul: {
     background: "#2563eb",
     color: "#fff",
@@ -1025,8 +1025,8 @@ const estilos = {
     fontSize: 12,
   },
   botaoCinza: {
-    background: "#f1f5f9",
-    color: "#334155",
+    background: "var(--rv-fundo-suave)",
+    color: "var(--rv-texto-forte)",
     border: "none",
     padding: "8px 12px",
     borderRadius: 10,
@@ -1038,18 +1038,18 @@ const estilos = {
   th: {
     textAlign: "left",
     padding: "10px 8px",
-    borderBottom: "1px solid #e3e7ee",
+    borderBottom: "1px solid var(--rv-borda)",
     fontSize: 10.5,
     fontWeight: 700,
     textTransform: "uppercase",
-    color: "#8a93a3",
-    background: "#f8fafc",
+    color: "var(--rv-texto-fraco)",
+    background: "var(--rv-fundo-cartao)",
   },
-  td: { padding: "9px 8px", borderBottom: "1px solid #f2f4f7", fontSize: 13, color: "#0d1321" },
-  textoAuxiliar: { fontSize: 13, color: "#8a93a3" },
+  td: { padding: "9px 8px", borderBottom: "1px solid var(--rv-borda-suave)", fontSize: 13, color: "var(--rv-tinta)" },
+  textoAuxiliar: { fontSize: 13, color: "var(--rv-texto-fraco)" },
   seletorMes: { display: "flex", alignItems: "center", gap: 10, marginBottom: 14 },
   linhaFechamento: {
-    borderBottom: "1px solid #f2f4f7",
+    borderBottom: "1px solid var(--rv-borda-suave)",
     padding: "14px 0",
   },
   resumoTotais: {
@@ -1058,7 +1058,7 @@ const estilos = {
     fontSize: 13,
     marginBottom: 14,
     flexWrap: "wrap",
-    color: "#334155",
+    color: "var(--rv-texto-forte)",
   },
-  aviso: { fontSize: 13, color: "#b45309" },
+  aviso: { fontSize: 13, color: "var(--rv-ambar-texto)" },
 };

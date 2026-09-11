@@ -468,7 +468,7 @@ const S = {
   titulo: { fontSize: 26, fontWeight: 800, margin: 0 },
   sub: { opacity: 0.7, margin: "6px 0 0", maxWidth: 620, fontSize: 14, lineHeight: 1.5 },
   presets: { display: "flex", gap: 6, flexWrap: "wrap" },
-  preset: { padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(148,163,184,0.25)", background: "rgba(148,163,184,0.06)", color: "#94a3b8", cursor: "pointer", fontSize: 13, fontFamily: FONTE },
+  preset: { padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(148,163,184,0.25)", background: "rgba(148,163,184,0.06)", color: "var(--rv-texto-fraco)", cursor: "pointer", fontSize: 13, fontFamily: FONTE },
   presetOn: { background: "rgba(52,211,153,0.16)", border: "1px solid rgba(52,211,153,0.5)", color: "#a7f3d0", fontWeight: 700 },
   erro: { background: "rgba(248,113,113,0.12)", border: "1px solid rgba(248,113,113,0.35)", color: "#fca5a5", padding: "10px 14px", borderRadius: 10, marginBottom: 16, fontSize: 14 },
   totais: { display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 18 },

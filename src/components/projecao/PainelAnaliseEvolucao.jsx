@@ -6,10 +6,10 @@ import { supabase } from "../../services/supabase";
 // visível comparada contra a MÉDIA dos dias do mês (acima/abaixo do normal), e
 // o movimento da PROJEÇÃO vs ontem (a partir do 2º dia gravado no histórico).
 
-const AZUL = "#2563eb";
-const VERDE = "#16a34a";
-const VERM = "#dc2626";
-const BORDA = "#e5e7eb";
+const AZUL = "var(--rv-azul)";
+const VERDE = "var(--rv-verde-ok)";
+const VERM = "var(--rv-vermelho)";
+const BORDA = "var(--rv-borda)";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -69,17 +69,17 @@ export default function PainelAnaliseEvolucao({ dados, mes }) {
         </div>
         <div style={{ ...estilos.heroCard, ...estilos.heroCardProj }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-            <span style={{ ...estilos.heroRot, color: "#1e40af" }}>Projeção de fechamento</span>
+            <span style={{ ...estilos.heroRot, color: "var(--rv-azul-texto)" }}>Projeção de fechamento</span>
             {temVsOntem ? (
-              <span style={{ ...estilos.pill, background: deltaProj >= 0 ? "#dcfce7" : "#fee2e2", color: deltaProj >= 0 ? "#166534" : "#991b1b" }}>
+              <span style={{ ...estilos.pill, background: deltaProj >= 0 ? "var(--rv-verde-ok-fundo)" : "var(--rv-vermelho-fundo)", color: deltaProj >= 0 ? "var(--rv-verde-ok-texto)" : "var(--rv-vermelho-texto)" }}>
                 {deltaProj >= 0 ? "▲ +" : "▼ "}{deltaProj}% vs ontem
               </span>
             ) : (
-              <span style={{ ...estilos.pill, background: "#eef2f7", color: "#64748b" }}>vs ontem: amanhã</span>
+              <span style={{ ...estilos.pill, background: "var(--rv-fundo-suave)", color: "var(--rv-texto-suave)" }}>vs ontem: amanhã</span>
             )}
           </div>
-          <div style={{ ...estilos.heroNum, color: "#1e40af" }}>{moeda(projecao)}</div>
-          <div style={{ ...estilos.heroNota, color: "#1e40af" }}>
+          <div style={{ ...estilos.heroNum, color: "var(--rv-azul-texto)" }}>{moeda(projecao)}</div>
+          <div style={{ ...estilos.heroNota, color: "var(--rv-azul-texto)" }}>
             {pctProj}% da meta{temVsOntem ? ` · ontem projetava ${moeda(hist.projecao_ontem)}` : ""}
           </div>
         </div>
@@ -89,8 +89,8 @@ export default function PainelAnaliseEvolucao({ dados, mes }) {
       <div style={estilos.card}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", flexWrap: "wrap", gap: 8 }}>
           <h3 style={{ margin: 0 }}>📅 Recuperação por dia</h3>
-          <span style={{ fontSize: 12.5, color: "#64748b" }}>
-            Média diária do mês: <strong style={{ color: "#0d1321" }}>{moeda(media)}</strong> · verde acima, vermelho abaixo
+          <span style={{ fontSize: 12.5, color: "var(--rv-texto-suave)" }}>
+            Média diária do mês: <strong style={{ color: "var(--rv-tinta)" }}>{moeda(media)}</strong> · verde acima, vermelho abaixo
           </span>
         </div>
         {diasHist.length === 0 ? (
@@ -107,17 +107,17 @@ export default function PainelAnaliseEvolucao({ dados, mes }) {
                   <div style={{ fontSize: 10.5, fontWeight: 700, color: acima ? VERDE : VERM, height: 14 }}>
                     {v > 0 ? (acima ? "▲" : "▼") + (difPct >= 0 ? "+" : "") + difPct + "%" : ""}
                   </div>
-                  <div style={{ fontSize: 10.5, fontWeight: 600, color: "#0d1321", marginBottom: 4 }}>
+                  <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--rv-tinta)", marginBottom: 4 }}>
                     {v >= 1000 ? "R$" + (v / 1000).toFixed(0) + "k" : v > 0 ? "R$" + v.toFixed(0) : "—"}
                   </div>
                   <div style={{ width: 26, height: h, background: acima ? AZUL : "#f59e0b", borderRadius: "4px 4px 0 0" }} />
-                  <div style={{ fontSize: 11, color: "#64748b", marginTop: 5 }}>{ddmm(d.dia)}</div>
+                  <div style={{ fontSize: 11, color: "var(--rv-texto-suave)", marginTop: 5 }}>{ddmm(d.dia)}</div>
                 </div>
               );
             })}
           </div>
         )}
-        <p style={{ color: "#8a93a3", fontSize: 12, marginTop: 10 }}>
+        <p style={{ color: "var(--rv-texto-fraco)", fontSize: 12, marginTop: 10 }}>
           Barras azuis = dias acima da média do mês; laranja = abaixo. A seta mostra o quanto o dia ficou acima/abaixo do normal.
         </p>
       </div>
@@ -143,9 +143,9 @@ export default function PainelAnaliseEvolucao({ dados, mes }) {
                   return (
                     <div key={s.dia} style={{ flex: "0 0 auto", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-end", minWidth: 54, height: "100%" }} title={`${ddmm(s.dia)}: ${moeda(v)}${meta ? ` (${Math.round((v / meta) * 100)}% da meta)` : ""}`}>
                       <div style={{ fontSize: 10.5, fontWeight: 700, color: subiu ? VERDE : VERM }}>{prev == null ? "" : subiu ? "▲" : "▼"}</div>
-                      <div style={{ fontSize: 10.5, fontWeight: 600, color: "#0d1321", marginBottom: 4 }}>{"R$" + (v / 1000).toFixed(0) + "k"}</div>
+                      <div style={{ fontSize: 10.5, fontWeight: 600, color: "var(--rv-tinta)", marginBottom: 4 }}>{"R$" + (v / 1000).toFixed(0) + "k"}</div>
                       <div style={{ width: 28, height: h, background: subiu ? "#1e40af" : "#f59e0b", borderRadius: "4px 4px 0 0" }} />
-                      <div style={{ fontSize: 11, color: "#64748b", marginTop: 5 }}>{ddmm(s.dia)}</div>
+                      <div style={{ fontSize: 11, color: "var(--rv-texto-suave)", marginTop: 5 }}>{ddmm(s.dia)}</div>
                     </div>
                   );
                 })}
@@ -160,11 +160,11 @@ export default function PainelAnaliseEvolucao({ dados, mes }) {
 
 const estilos = {
   heroRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 14 },
-  heroCard: { background: "#fff", border: `1px solid ${BORDA}`, borderRadius: 14, padding: "18px 20px" },
-  heroCardProj: { background: "#eff6ff", border: "2px solid #2563eb" },
-  heroRot: { fontSize: 13, color: "#64748b", fontWeight: 600, marginBottom: 8 },
-  heroNum: { fontSize: 34, fontWeight: 800, color: "#0d1321", lineHeight: 1, letterSpacing: "-0.02em" },
-  heroNota: { fontSize: 12.5, color: "#94a3b8", marginTop: 8 },
+  heroCard: { background: "var(--rv-superficie)", border: `1px solid ${BORDA}`, borderRadius: 14, padding: "18px 20px" },
+  heroCardProj: { background: "var(--rv-azul-fundo)", border: "2px solid #2563eb" },
+  heroRot: { fontSize: 13, color: "var(--rv-texto-suave)", fontWeight: 600, marginBottom: 8 },
+  heroNum: { fontSize: 34, fontWeight: 800, color: "var(--rv-tinta)", lineHeight: 1, letterSpacing: "-0.02em" },
+  heroNota: { fontSize: 12.5, color: "var(--rv-texto-fraco)", marginTop: 8 },
   pill: { fontSize: 12, fontWeight: 700, padding: "2px 10px", borderRadius: 999, whiteSpace: "nowrap" },
-  card: { background: "#fff", border: `1px solid ${BORDA}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14 },
+  card: { background: "var(--rv-superficie)", border: `1px solid ${BORDA}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14 },
 };

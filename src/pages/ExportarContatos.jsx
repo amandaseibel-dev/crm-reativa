@@ -3,7 +3,7 @@ import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const VERDE = "#1e40af";
+const VERDE = "var(--rv-azul-texto)";
 
 function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -218,9 +218,9 @@ export default function ExportarContatos() {
           <div style={estilos.resumoTopo}>
             <div>
               <strong style={{ fontFamily: FONTE_TITULO, fontSize: 18 }}>{resultados.length}</strong>{" "}
-              <span style={{ color: "#8a93a3" }}>contato(s) encontrado(s)</span>
+              <span style={{ color: "var(--rv-texto-fraco)" }}>contato(s) encontrado(s)</span>
               {resultados.length > 0 && (
-                <span style={{ color: "#8a93a3" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
+                <span style={{ color: "var(--rv-texto-fraco)" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
               )}
             </div>
             {resultados.length > 0 && (
@@ -231,7 +231,7 @@ export default function ExportarContatos() {
           </div>
 
           {resultados.length === 0 ? (
-            <p style={{ color: "#8a93a3" }}>Nenhum resultado com esses filtros.</p>
+            <p style={{ color: "var(--rv-texto-fraco)" }}>Nenhum resultado com esses filtros.</p>
           ) : (
             <div style={{ overflowX: "auto" }}>
               <table style={estilos.tabela}>
@@ -268,39 +268,39 @@ const estilos = {
   container: {
     padding: "28px 30px 40px",
     fontFamily: "'Inter', system-ui, sans-serif",
-    background: "#f4f6fa",
+    background: "var(--rv-fundo)",
     minHeight: "100%",
   },
   cabecalho: { marginBottom: 18 },
   titulo: {
     margin: 0,
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     fontFamily: FONTE_TITULO,
     fontSize: 26,
     fontWeight: 800,
     letterSpacing: "-0.03em",
   },
-  subtitulo: { margin: "5px 0 0", color: "#8a93a3", fontSize: 13.5 },
+  subtitulo: { margin: "5px 0 0", color: "var(--rv-texto-fraco)", fontSize: 13.5 },
   card: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: 16,
     padding: "20px 22px",
     boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)",
-    border: "1px solid #edf0f5",
+    border: "1px solid var(--rv-borda-suave)",
     marginBottom: 18,
   },
   linhaFiltros: { display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 },
   campo: { display: "flex", flexDirection: "column", gap: 5, minWidth: 160 },
-  label: { fontSize: 12, fontWeight: 700, color: "#475569" },
+  label: { fontSize: 12, fontWeight: 700, color: "var(--rv-texto)" },
   input: {
     padding: "9px 12px",
     borderRadius: 10,
-    border: "1px solid #e3e7ee",
+    border: "1px solid var(--rv-borda)",
     fontSize: 13,
   },
   linhaCheckbox: { display: "flex", gap: 20, flexWrap: "wrap", marginBottom: 14 },
-  checkboxLabel: { display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#475569" },
-  erro: { color: "#b91c1c", fontSize: 13, marginBottom: 10 },
+  checkboxLabel: { display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--rv-texto)" },
+  erro: { color: "var(--rv-vermelho-texto)", fontSize: 13, marginBottom: 10 },
   botaoBuscar: {
     background: VERDE,
     color: "#fff",
@@ -320,9 +320,9 @@ const estilos = {
     marginBottom: 14,
   },
   botaoExportar: {
-    background: "#eef6ff",
-    color: "#1d4ed8",
-    border: "1px solid #cfe6ff",
+    background: "var(--rv-azul-fundo)",
+    color: "var(--rv-azul-texto)",
+    border: "1px solid var(--rv-azul-borda)",
     borderRadius: 10,
     padding: "9px 16px",
     fontWeight: 700,
@@ -333,25 +333,25 @@ const estilos = {
   th: {
     textAlign: "left",
     padding: "10px 12px",
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
     fontSize: 10.5,
     fontWeight: 700,
     textTransform: "uppercase",
     letterSpacing: "0.05em",
-    background: "#f8fafc",
-    borderBottom: "1px solid #e3e7ee",
+    background: "var(--rv-fundo-cartao)",
+    borderBottom: "1px solid var(--rv-borda)",
   },
   thNum: {
     textAlign: "right",
     padding: "10px 12px",
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
     fontSize: 10.5,
     fontWeight: 700,
     textTransform: "uppercase",
     letterSpacing: "0.05em",
-    background: "#f8fafc",
-    borderBottom: "1px solid #e3e7ee",
+    background: "var(--rv-fundo-cartao)",
+    borderBottom: "1px solid var(--rv-borda)",
   },
-  td: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", color: "#344054" },
-  tdNum: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", textAlign: "right", fontWeight: 700, color: "#101828" },
+  td: { padding: "10px 12px", borderBottom: "1px solid var(--rv-borda-suave)", color: "var(--rv-texto-forte)" },
+  tdNum: { padding: "10px 12px", borderBottom: "1px solid var(--rv-borda-suave)", textAlign: "right", fontWeight: 700, color: "var(--rv-tinta)" },
 };

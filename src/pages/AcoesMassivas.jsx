@@ -5,7 +5,7 @@ import BotaoAtualizar from "../components/BotaoAtualizar";
 import PenetracaoPorAno from "../components/PenetracaoPorAno";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const VERDE = "#1e40af";
+const VERDE = "var(--rv-azul-texto)";
 // Presets do seletor "Sem acionamento há (mín.)" — valor = nº de dias.
 const PRESETS_DIAS_SEM_ACIONAMENTO = ["7", "12", "15", "21", "30", "45", "60", "90"];
 
@@ -22,15 +22,15 @@ function estiloStatusAcademico(situacao) {
   const s = String(situacao || "").toLowerCase();
   // Encerrados / sem vínculo ativo → vermelho (atenção: cobrança pode ser inócua)
   if (/(cancel|término|termino|desvincul|transfer|falecid|conclu[ií]|formad|saída|saida|reop)/.test(s))
-    return { ...base, background: "#fee2e2", color: "#b91c1c" };
+    return { ...base, background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)" };
   // Aguardando matrícula / trancado → âmbar (pendência acadêmica)
   if (/(aguardando|trancad|trancamento|reabertura|isen|certid)/.test(s))
-    return { ...base, background: "#fef3c7", color: "#92400e" };
+    return { ...base, background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)" };
   // Matriculado / normal → verde
   if (/(matriculad|normal|ativo|curr[ií]cul)/.test(s))
-    return { ...base, background: "#dcfce7", color: "#166534" };
+    return { ...base, background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)" };
   // Demais → cinza neutro
-  return { ...base, background: "#eef1f6", color: "#475569" };
+  return { ...base, background: "var(--rv-fundo-suave)", color: "var(--rv-texto)" };
 }
 
 function converterValor(texto) {
@@ -449,15 +449,15 @@ export default function AcoesMassivas() {
       />
 
       {saude && (saude.sem_valor > 0 || saude.sem_telefone > 0) && (
-        <div style={{ ...estilos.card, background: "#fef7f0", borderColor: "#fde3cc" }}>
+        <div style={{ ...estilos.card, background: "var(--rv-ambar-fundo)", borderColor: "var(--rv-ambar-borda)" }}>
           <strong style={{ fontFamily: FONTE_TITULO, fontSize: 14, display: "block", marginBottom: 6 }}>
             ⚠️ Casos fora do alcance das Ações Massivas
           </strong>
-          <p style={{ margin: 0, fontSize: 13, color: "#7c4a1e" }}>
+          <p style={{ margin: 0, fontSize: 13, color: "var(--rv-ambar-texto)" }}>
             <strong>{saude.sem_valor}</strong> livres sem valor calculado e{" "}
             <strong>{saude.sem_telefone}</strong> sem telefone cadastrado — esses não entram em nenhuma
             remessa automática. Precisam de conferência manual em{" "}
-            <a href="/financeiro-hub" style={{ color: "#c2410c", fontWeight: 700 }}>Confirmação de Pagamento</a>.
+            <a href="/financeiro-hub" style={{ color: "var(--rv-ambar-texto)", fontWeight: 700 }}>Confirmação de Pagamento</a>.
           </p>
         </div>
       )}
@@ -473,17 +473,17 @@ export default function AcoesMassivas() {
                   <strong style={{ fontFamily: FONTE_TITULO, fontSize: 14 }}>
                     {percentualAcionado}% da base já acionada (aguardando retorno)
                   </strong>
-                  <span style={{ color: "#8a93a3", fontSize: 12.5 }}>
+                  <span style={{ color: "var(--rv-texto-fraco)", fontSize: 12.5 }}>
                     {progresso.ja_acionado} enviados · {restante} restantes de {progresso.total_elegivel}
                   </span>
                 </div>
                 {progresso.sem_acionamento != null && (
-                  <div style={{ fontSize: 12.5, color: "#475569", marginBottom: 8 }}>
-                    <strong style={{ color: "#0f172a" }}>{progresso.sem_acionamento}</strong> nunca acionados
+                  <div style={{ fontSize: 12.5, color: "var(--rv-texto)", marginBottom: 8 }}>
+                    <strong style={{ color: "var(--rv-tinta)" }}>{progresso.sem_acionamento}</strong> nunca acionados
                     {" "}— marque <strong>“Só nunca acionados”</strong> abaixo para priorizá-los.
                   </div>
                 )}
-                <div style={{ background: "#f1f5f9", borderRadius: 999, height: 10, overflow: "hidden" }}>
+                <div style={{ background: "var(--rv-fundo-suave)", borderRadius: 999, height: 10, overflow: "hidden" }}>
                   <div
                     style={{
                       width: `${percentualAcionado}%`,
@@ -505,13 +505,13 @@ export default function AcoesMassivas() {
           <h3 style={{ margin: "0 0 4px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800 }}>
             Retorno das ações — conversão em até {retornos.janela_dias} dias
           </h3>
-          <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "#8a93a3" }}>
+          <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-fraco)" }}>
             "Retorno" = houve tabulação operacional no aluno após o envio. Considera só envios cuja janela de {retornos.janela_dias} dias já fechou.
           </p>
           <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
             <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(retornos.envios_avaliados || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Enviados (avaliados)</div></div>
             <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(retornos.com_retorno || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Com retorno</div></div>
-            <div style={{ ...estilos.miniCard, background: "#eef2ff", borderColor: "#c7d2fe" }}><div style={{ ...estilos.miniVal, color: "#1e40af" }}>{(retornos.taxa_conversao ?? 0)}%</div><div style={estilos.miniRot}>Taxa de conversão</div></div>
+            <div style={{ ...estilos.miniCard, background: "var(--rv-roxo-fundo)", borderColor: "var(--rv-roxo-borda)" }}><div style={{ ...estilos.miniVal, color: "var(--rv-azul-texto)" }}>{(retornos.taxa_conversao ?? 0)}%</div><div style={estilos.miniRot}>Taxa de conversão</div></div>
           </div>
           {(retornos.por_canal || []).length > 0 && (
             <table style={{ ...estilos.tabela, marginTop: 14 }}>
@@ -676,7 +676,7 @@ export default function AcoesMassivas() {
                       />
                       <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {(b.arquivo_nome || "Borderô").replace(/\.xlsx?$/i, "")}
-                        <span style={{ color: "#8a93a3" }}> · {b.qtd_alunos} al.</span>
+                        <span style={{ color: "var(--rv-texto-fraco)" }}> · {b.qtd_alunos} al.</span>
                       </span>
                     </label>
                   );
@@ -779,7 +779,7 @@ export default function AcoesMassivas() {
                 onChange={(e) => setDiasMinimoSemContato(e.target.value)}
               />
             )}
-            <span style={{ fontSize: 11, color: "#8a93a3", marginTop: 4 }}>
+            <span style={{ fontSize: 11, color: "var(--rv-texto-fraco)", marginTop: 4 }}>
               Inclui quem nunca foi acionado. Use o filtro “Acionamento” para separar.
             </span>
           </div>
@@ -798,7 +798,7 @@ export default function AcoesMassivas() {
 
           {canal === "EMAIL" && (
             <div style={{ ...estilos.campo, justifyContent: "flex-end" }}>
-              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: "#475569", marginBottom: 9 }}>
+              <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 13, fontWeight: 700, color: "var(--rv-texto)", marginBottom: 9 }}>
                 <input
                   type="checkbox"
                   checked={soSemTelefone}
@@ -819,7 +819,7 @@ export default function AcoesMassivas() {
       </div>
 
       {resultados && excluidosConfirmacao.length > 0 && (
-        <div style={{ ...estilos.card, background: "#fff7ed", borderColor: "#fed7aa", marginBottom: 12 }}>
+        <div style={{ ...estilos.card, background: "var(--rv-ambar-fundo)", borderColor: "var(--rv-ambar-borda)", marginBottom: 12 }}>
           <button
             onClick={() => setMostrarExcluidos((v) => !v)}
             style={{
@@ -827,14 +827,14 @@ export default function AcoesMassivas() {
               display: "flex", alignItems: "center", gap: 8, width: "100%", textAlign: "left",
             }}
           >
-            <span style={{ fontFamily: FONTE_TITULO, fontSize: 14, fontWeight: 800, color: "#9a3412" }}>
+            <span style={{ fontFamily: FONTE_TITULO, fontSize: 14, fontWeight: 800, color: "var(--rv-ambar-texto)" }}>
               🔒 Excluídos por confirmação de pagamento: {excluidosConfirmacao.length}
             </span>
-            <span style={{ color: "#c2410c", fontSize: 12.5, fontWeight: 700 }}>
+            <span style={{ color: "var(--rv-ambar-texto)", fontSize: 12.5, fontWeight: 700 }}>
               {mostrarExcluidos ? "▲ ocultar" : "▼ ver relação"}
             </span>
           </button>
-          <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "#9a3412" }}>
+          <p style={{ margin: "6px 0 0", fontSize: 12.5, color: "var(--rv-ambar-texto)" }}>
             Casos aguardando confirmação financeira. Não entram como elegíveis, não recebem comunicação
             e não são contabilizados como envio.
           </p>
@@ -866,11 +866,11 @@ export default function AcoesMassivas() {
           <div style={estilos.resumoTopo}>
             <div>
               <strong style={{ fontFamily: FONTE_TITULO, fontSize: 18 }}>{resultados.length}</strong>{" "}
-              <span style={{ color: "#8a93a3" }}>
+              <span style={{ color: "var(--rv-texto-fraco)" }}>
                 caso(s) livre(s) com {canal === "WHATSAPP" ? "telefone" : "e-mail"}, prontos pra ação
               </span>
               {resultados.length > 0 && (
-                <span style={{ color: "#8a93a3" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
+                <span style={{ color: "var(--rv-texto-fraco)" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
               )}
               {primeExtratoEm && (
                 <div style={{ color: "#8a93a3", fontSize: 12.5, marginTop: 4 }}>
@@ -891,7 +891,7 @@ export default function AcoesMassivas() {
             <div style={{ marginTop: 12, padding: "12px 14px", border: "1px solid #1e6b3a", borderRadius: 12, background: "#0e2318", display: "flex", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
               <div style={{ color: "#bbf7d0", fontSize: 13 }}>
                 Planilha de <strong>{relatorioPronto.linhas.length}</strong> aluno(s) pronta
-                (<span style={{ color: "#8a93a3" }}>{relatorioPronto.nomeArquivo}</span>).
+                (<span style={{ color: "var(--rv-texto-fraco)" }}>{relatorioPronto.nomeArquivo}</span>).
                 {" "}Se o download não abriu sozinho, clique aqui:
               </div>
               <button
@@ -905,7 +905,7 @@ export default function AcoesMassivas() {
 
 
           {resultados.length === 0 ? (
-            <p style={{ color: "#8a93a3" }}>
+            <p style={{ color: "var(--rv-texto-fraco)" }}>
               Nenhum caso livre com esses filtros (ou sem {canal === "WHATSAPP" ? "telefone" : "e-mail"} cadastrado).
             </p>
           ) : (
@@ -928,14 +928,14 @@ export default function AcoesMassivas() {
                         {r.situacaoAcademica ? (
                           <span style={estiloStatusAcademico(r.situacaoAcademica)}>{r.situacaoAcademica}</span>
                         ) : (
-                          <span style={{ color: "#9aa3b2" }}>—</span>
+                          <span style={{ color: "var(--rv-texto-fraco)" }}>—</span>
                         )}
-                        {r.curso && <div style={{ color: "#8a93a3", fontSize: 11, marginTop: 2 }}>{r.curso}</div>}
+                        {r.curso && <div style={{ color: "var(--rv-texto-fraco)", fontSize: 11, marginTop: 2 }}>{r.curso}</div>}
                       </td>
-                      <td style={estilos.td}>{canal === "WHATSAPP" ? r.telefoneMascarado : (<>{r.emailMascarado}{r.semTelefone && <span style={{ marginLeft: 6, background: "#fee2e2", color: "#b91c1c", borderRadius: 6, padding: "1px 6px", fontSize: 11, fontWeight: 800 }}>sem telefone</span>}</>)}</td>
+                      <td style={estilos.td}>{canal === "WHATSAPP" ? r.telefoneMascarado : (<>{r.emailMascarado}{r.semTelefone && <span style={{ marginLeft: 6, background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", borderRadius: 6, padding: "1px 6px", fontSize: 11, fontWeight: 800 }}>sem telefone</span>}</>)}</td>
                       <td style={estilos.tdNum}>
                         {r.diasSemContato === null ? (
-                          <span style={{ color: "#b91c1c", fontWeight: 800 }}>Nunca acionado</span>
+                          <span style={{ color: "var(--rv-vermelho-texto)", fontWeight: 800 }}>Nunca acionado</span>
                         ) : (
                           `${r.diasSemContato} dia(s)`
                         )}
@@ -957,28 +957,28 @@ const estilos = {
   container: {
     padding: "28px 30px 40px",
     fontFamily: "'Inter', system-ui, sans-serif",
-    background: "var(--rv-fundo, #f4f6fa)",
+    background: "var(--rv-fundo, var(--rv-fundo))",
     minHeight: "100%",
   },
   cabecalho: { marginBottom: 18 },
   titulo: {
     margin: 0,
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     fontFamily: FONTE_TITULO,
     fontSize: 26,
     fontWeight: 800,
     letterSpacing: "-0.03em",
   },
-  subtitulo: { margin: "5px 0 0", color: "#8a93a3", fontSize: 13.5, maxWidth: 640 },
+  subtitulo: { margin: "5px 0 0", color: "var(--rv-texto-fraco)", fontSize: 13.5, maxWidth: 640 },
   abas: { display: "flex", gap: 8, marginBottom: 6 },
   aba: {
-    background: "#fff",
-    border: "1px solid #e3e7ee",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: 10,
     padding: "9px 16px",
     fontSize: 13,
     fontWeight: 700,
-    color: "#475569",
+    color: "var(--rv-texto)",
     cursor: "pointer",
   },
   abaAtiva: {
@@ -993,20 +993,20 @@ const estilos = {
     boxShadow: "0 4px 14px rgba(15,157,107,0.35)",
   },
   card: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: 16,
     padding: "20px 22px",
     boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)",
-    border: "1px solid #edf0f5",
+    border: "1px solid var(--rv-borda-suave)",
     marginBottom: 18,
   },
   linhaFiltros: { display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 },
   campo: { display: "flex", flexDirection: "column", gap: 5, minWidth: 160 },
-  label: { fontSize: 12, fontWeight: 700, color: "#475569" },
+  label: { fontSize: 12, fontWeight: 700, color: "var(--rv-texto)" },
   input: {
     padding: "9px 12px",
     borderRadius: 10,
-    border: "1px solid #e3e7ee",
+    border: "1px solid var(--rv-borda)",
     fontSize: 13,
   },
   caixaBordero: {
@@ -1017,8 +1017,8 @@ const estilos = {
     overflowY: "auto",
     padding: "8px 10px",
     borderRadius: 10,
-    border: "1px solid #e3e7ee",
-    background: "#fafbfc",
+    border: "1px solid var(--rv-borda)",
+    background: "var(--rv-superficie)",
   },
   itemBordero: {
     display: "flex",
@@ -1033,14 +1033,14 @@ const estilos = {
     alignSelf: "flex-start",
     background: "none",
     border: "none",
-    color: "#b91c1c",
+    color: "var(--rv-vermelho-texto)",
     fontSize: 11,
     fontWeight: 700,
     cursor: "pointer",
     padding: 0,
   },
-  erro: { color: "#b91c1c", fontSize: 13, marginBottom: 10 },
-  sucesso: { color: "#0f7a4f", fontSize: 13, marginBottom: 10, fontWeight: 700 },
+  erro: { color: "var(--rv-vermelho-texto)", fontSize: 13, marginBottom: 10 },
+  sucesso: { color: "var(--rv-verde-ok-texto)", fontSize: 13, marginBottom: 10, fontWeight: 700 },
   botaoBuscar: {
     background: VERDE,
     color: "#fff",
@@ -1074,32 +1074,32 @@ const estilos = {
   th: {
     textAlign: "left",
     padding: "10px 12px",
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
     fontSize: 10.5,
     fontWeight: 700,
     textTransform: "uppercase",
     letterSpacing: "0.05em",
-    background: "#f8fafc",
-    borderBottom: "1px solid #e3e7ee",
+    background: "var(--rv-fundo-cartao)",
+    borderBottom: "1px solid var(--rv-borda)",
     position: "sticky",
     top: 0,
   },
   thNum: {
     textAlign: "right",
     padding: "10px 12px",
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
     fontSize: 10.5,
     fontWeight: 700,
     textTransform: "uppercase",
     letterSpacing: "0.05em",
-    background: "#f8fafc",
-    borderBottom: "1px solid #e3e7ee",
+    background: "var(--rv-fundo-cartao)",
+    borderBottom: "1px solid var(--rv-borda)",
     position: "sticky",
     top: 0,
   },
-  td: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", color: "#344054" },
-  tdNum: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", textAlign: "right", fontWeight: 700, color: "#101828" },
-  miniCard: { background: "#f8fafc", border: "1px solid #edf0f5", borderRadius: 12, padding: "12px 16px", minWidth: 150 },
-  miniVal: { fontSize: 26, fontWeight: 800, color: "#101828" },
-  miniRot: { fontSize: 12, color: "#8a93a3", fontWeight: 600, marginTop: 2 },
+  td: { padding: "10px 12px", borderBottom: "1px solid var(--rv-borda-suave)", color: "var(--rv-texto-forte)" },
+  tdNum: { padding: "10px 12px", borderBottom: "1px solid var(--rv-borda-suave)", textAlign: "right", fontWeight: 700, color: "var(--rv-tinta)" },
+  miniCard: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda-suave)", borderRadius: 12, padding: "12px 16px", minWidth: 150 },
+  miniVal: { fontSize: 26, fontWeight: 800, color: "var(--rv-tinta)" },
+  miniRot: { fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 600, marginTop: 2 },
 };

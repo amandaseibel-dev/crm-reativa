@@ -213,13 +213,13 @@ function primeiroNome(nomeCompleto) {
 
 function mensagemIncentivo(qtdFinalizados) {
   if (qtdFinalizados <= 0) {
-    return { texto: "Vamos começar o dia. Você consegue!", cor: "#94a3b8", bg: "#111827" };
+    return { texto: "Vamos começar o dia. Você consegue!", cor: "var(--rv-texto-fraco)", bg: "#111827" };
   }
   if (qtdFinalizados < 5) {
-    return { texto: `Você já finalizou ${qtdFinalizados} caso${qtdFinalizados > 1 ? "s" : ""} hoje. Bom ritmo!`, cor: "#3b82f6", bg: "#052e16" };
+    return { texto: `Você já finalizou ${qtdFinalizados} caso${qtdFinalizados > 1 ? "s" : ""} hoje. Bom ritmo!`, cor: "var(--rv-azul)", bg: "#052e16" };
   }
   if (qtdFinalizados < 10) {
-    return { texto: `${qtdFinalizados} casos finalizados hoje. Ótimo trabalho!`, cor: "#3b82f6", bg: "#052e16" };
+    return { texto: `${qtdFinalizados} casos finalizados hoje. Ótimo trabalho!`, cor: "var(--rv-azul)", bg: "#052e16" };
   }
   return { texto: `${qtdFinalizados} casos finalizados hoje. Você está arrasando!`, cor: "#facc15", bg: "#1c1917" };
 }
@@ -1233,10 +1233,10 @@ export default function FilaOperador() {
                     style={{
                       ...cardAluno,
                       background: bloqueado
-                        ? "#450a0a"
+                        ? "var(--rv-vermelho-texto)"
                         : selecionado
-                        ? "#064e3b"
-                        : "#1f2937",
+                        ? "var(--rv-verde-ok-texto)"
+                        : "var(--rv-tinta)",
                       border: bloqueado
                         ? "1px solid #ef4444"
                         : selecionado
@@ -1330,7 +1330,7 @@ export default function FilaOperador() {
 
 const pagina = {
   minHeight: "100%",
-  background: "#f4f6fa",
+  background: "var(--rv-fundo)",
   color: "#ffffff",
   padding: "24px",
   fontFamily: "Arial, sans-serif",
@@ -1347,7 +1347,7 @@ const cabecalho = {
 
 const titulo = {
   margin: 0,
-  color: "#3b82f6",
+  color: "var(--rv-azul)",
 };
 
 const subtitulo = {
@@ -1357,7 +1357,7 @@ const subtitulo = {
 
 const usuarioTexto = {
   margin: "8px 0 0",
-  color: "#94a3b8",
+  color: "var(--rv-texto-fraco)",
   fontSize: "14px",
 };
 
@@ -1386,7 +1386,7 @@ const tituloSaudacao = {
 
 const subtituloSaudacao = {
   margin: "6px 0 0",
-  color: "#94a3b8",
+  color: "var(--rv-texto-fraco)",
   fontSize: "13px",
 };
 
@@ -1415,7 +1415,7 @@ const cardResumoModerno = {
 
 const rotuloCardModerno = {
   fontSize: "12px",
-  color: "#94a3b8",
+  color: "var(--rv-texto-fraco)",
   fontWeight: "600",
 };
 
@@ -1451,7 +1451,7 @@ const caixaInterna = {
 };
 
 const tituloSecao = {
-  color: "#3b82f6",
+  color: "var(--rv-azul)",
   marginTop: 0,
 };
 
@@ -1463,7 +1463,7 @@ const cardsResumo = {
 };
 
 const cardResumo = {
-  ...cartaoAcentoEscuro("#3b82f6"),
+  ...cartaoAcentoEscuro("var(--rv-azul)"),
   borderRadius: "14px",
   padding: "14px",
   display: "grid",
@@ -1537,7 +1537,7 @@ const textarea = {
 
 const botaoPrincipal = {
   background: "#3b82f6",
-  color: "#020617",
+  color: "var(--rv-tinta)",
   border: "none",
   borderRadius: "10px",
   padding: "12px 16px",
@@ -1688,7 +1688,7 @@ const abaFichaBase = {
 const abaFichaAtiva = {
   ...abaFichaBase,
   background: "#3b82f6",
-  color: "#052e16",
+  color: "var(--rv-verde-ok-texto)",
 };
 
 const abaFichaInativa = {

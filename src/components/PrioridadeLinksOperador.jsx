@@ -189,7 +189,7 @@ export default function PrioridadeLinksOperador() {
 }
 
 const container = {
-  ...cartaoInfo("#fff7ed", "#ef4444", "#7c2d12"),
+  ...cartaoInfo("var(--rv-ambar-fundo)", "#ef4444", "var(--rv-ambar-texto)"),
   animation: "piscarRetornoLink 1.4s infinite",
   marginBottom: "18px"
 };
@@ -204,14 +204,14 @@ const cabecalho = {
 
 const titulo = {
   margin: 0,
-  color: "#991b1b",
+  color: "var(--rv-vermelho-texto)",
   fontSize: "20px",
   fontWeight: "900"
 };
 
 const subtitulo = {
   margin: "4px 0 0",
-  color: "#7c2d12",
+  color: "var(--rv-ambar-texto)",
   fontSize: "14px"
 };
 
@@ -228,7 +228,7 @@ const botaoAtualizar = {
 const erroBox = { ...cartaoErro, marginBottom: "10px" };
 
 const textoAuxiliar = {
-  color: "#7c2d12",
+  color: "var(--rv-ambar-texto)",
   margin: 0
 };
 
@@ -243,14 +243,14 @@ const linhaTopo = {
 
 const nomeAluno = {
   margin: 0,
-  color: "#0f172a",
+  color: "var(--rv-tinta)",
   fontSize: "18px",
   fontWeight: "900"
 };
 
 const detalhe = {
   margin: "4px 0",
-  color: "#475569",
+  color: "var(--rv-texto)",
   fontSize: "13px"
 };
 
@@ -268,7 +268,7 @@ const label = {
   display: "block",
   marginTop: "12px",
   marginBottom: "5px",
-  color: "#334155",
+  color: "var(--rv-texto-forte)",
   fontWeight: "800",
   fontSize: "13px"
 };
@@ -281,7 +281,7 @@ const linhaLink = {
 const input = {
   width: "100%",
   padding: "10px",
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--rv-borda-forte)",
   borderRadius: "8px",
   fontSize: "14px",
   boxSizing: "border-box"
@@ -291,7 +291,7 @@ const textarea = {
   width: "100%",
   minHeight: "150px",
   padding: "10px",
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--rv-borda-forte)",
   borderRadius: "8px",
   fontSize: "14px",
   resize: "vertical",
@@ -300,7 +300,7 @@ const textarea = {
 };
 
 const botaoCopiar = {
-  background: "#0f172a",
+  background: "var(--rv-botao-escuro)",
   color: "#fff",
   border: "none",
   borderRadius: "8px",
@@ -318,7 +318,7 @@ const linhaBotoes = {
 };
 
 const botaoPrincipal = {
-  background: "#0f172a",
+  background: "var(--rv-botao-escuro)",
   color: "#fff",
   border: "none",
   borderRadius: "8px",

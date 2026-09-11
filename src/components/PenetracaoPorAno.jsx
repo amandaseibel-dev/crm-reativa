@@ -11,8 +11,8 @@ import { supabase } from "../services/supabase";
 // ============================================================================
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const AZUL = "#1e40af";
-const COR_MANUAL = "#2563eb", COR_MASSIVO = "#7c3aed", COR_AMBOS = "#0891b2", COR_NUNCA = "#dc2626";
+const AZUL = "var(--rv-azul-texto)";
+const COR_MANUAL = "var(--rv-azul)", COR_MASSIVO = "var(--rv-roxo)", COR_AMBOS = "var(--rv-azul)", COR_NUNCA = "var(--rv-vermelho)";
 
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const pct = (f) => `${(Number(f || 0) * 100).toFixed(1)}%`;
@@ -324,7 +324,7 @@ export default function PenetracaoPorAno({ opcoesUnidade = [], opcoesCurso = [],
                 <div style={{ width: "100%", height: 320 }}>
                   <ResponsiveContainer>
                     <BarChart data={grafico} margin={{ top: 8, right: 12, left: 0, bottom: 4 }}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="#eef2f7" />
+                      <CartesianGrid strokeDasharray="3 3" stroke="var(--rv-borda-suave)" />
                       <XAxis dataKey="ano" tick={{ fontSize: 12 }} /><YAxis tick={{ fontSize: 12 }} />
                       <Tooltip formatter={(v) => num(v)} /><Legend wrapperStyle={{ fontSize: 12 }} />
                       <Bar dataKey="Manual" stackId="a" fill={COR_MANUAL} />
@@ -347,7 +347,7 @@ export default function PenetracaoPorAno({ opcoesUnidade = [], opcoesCurso = [],
                   </tr></thead>
                   <tbody>
                     {matriz.map((l) => (
-                      <tr key={l.ano_label} style={l.ano == null ? { background: "#fafafa" } : undefined}>
+                      <tr key={l.ano_label} style={l.ano == null ? { background: "var(--rv-superficie)" } : undefined}>
                         <td style={est.tdb}>{l.ano_label}</td>
                         <td style={est.tdn}>{num(l.base_ativa)}</td>
                         <td style={est.tdn}>{num(l.base_acionavel)}</td>
@@ -403,10 +403,10 @@ export default function PenetracaoPorAno({ opcoesUnidade = [], opcoesCurso = [],
 
             {det.categoria === "nunca" && onUsarComoFiltro && (
               <div style={est.faixaAcao}>
-                <span style={{ fontSize: 12.5, color: "#475569" }}>
+                <span style={{ fontSize: 12.5, color: "var(--rv-texto)" }}>
                   Transporta os filtros (ano {det.ano_label}, situação, carteira, operador, faixa de atraso…)
                   para a prévia de Ações Massivas. A prévia recalcula toda a elegibilidade e reexclui bloqueios.
-                  {!compat.ok && <strong style={{ color: "#b91c1c" }}> Finalidade incompatível — ajuste antes.</strong>}
+                  {!compat.ok && <strong style={{ color: "var(--rv-vermelho-texto)" }}> Finalidade incompatível — ajuste antes.</strong>}
                 </span>
                 <button style={{ ...est.btnPrim, opacity: compat.ok ? 1 : 0.5, cursor: compat.ok ? "pointer" : "not-allowed" }}
                   disabled={!compat.ok}
@@ -420,7 +420,7 @@ export default function PenetracaoPorAno({ opcoesUnidade = [], opcoesCurso = [],
               {detLoading && <div style={est.vazio}>Carregando…</div>}
               {!detLoading && detData?.erro && <div style={est.erro}>{detData.erro}</div>}
               {!detLoading && detData && !detData.erro && (<>
-                <div style={{ fontSize: 12.5, color: "#8a93a3", marginBottom: 8 }}>{num(detData.total)} aluno(s) · mostrando {detData.itens?.length || 0}</div>
+                <div style={{ fontSize: 12.5, color: "var(--rv-texto-fraco)", marginBottom: 8 }}>{num(detData.total)} aluno(s) · mostrando {detData.itens?.length || 0}</div>
                 <div style={{ overflowX: "auto" }}>
                   <table style={est.tabela}>
                     <thead><tr>
@@ -467,7 +467,7 @@ export default function PenetracaoPorAno({ opcoesUnidade = [], opcoesCurso = [],
 
 function Campo({ rot, children }) { return <label style={est.campo}><span style={est.rot}>{rot}</span>{children}</label>; }
 function Card({ rot, val, sub, cor }) {
-  return <div style={est.cardMini}><div style={est.cardRot}>{rot}</div><div style={{ ...est.cardVal, color: cor || "#0f172a" }}>{val}</div>{sub && <div style={est.cardSub}>{sub}</div>}</div>;
+  return <div style={est.cardMini}><div style={est.cardRot}>{rot}</div><div style={{ ...est.cardVal, color: cor || "var(--rv-tinta)" }}>{val}</div>{sub && <div style={est.cardSub}>{sub}</div>}</div>;
 }
 function RankCard({ titulo, linhas, valor, onIr }) {
   return (
@@ -487,53 +487,53 @@ function RankCard({ titulo, linhas, valor, onIr }) {
 const est = {
   wrap: { marginBottom: 18 },
   cabecalho: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
-  toggle: { display: "inline-flex", alignItems: "center", gap: 8, background: "#eef2ff", border: "1px solid #c7d2fe", color: AZUL, fontFamily: FONTE_TITULO, fontWeight: 800, fontSize: 15, padding: "10px 16px", borderRadius: 12, cursor: "pointer" },
+  toggle: { display: "inline-flex", alignItems: "center", gap: 8, background: "var(--rv-roxo-fundo)", border: "1px solid var(--rv-roxo-borda)", color: AZUL, fontFamily: FONTE_TITULO, fontWeight: 800, fontSize: 15, padding: "10px 16px", borderRadius: 12, cursor: "pointer" },
   badge: { fontSize: 10.5, fontWeight: 800, background: AZUL, color: "#fff", padding: "2px 7px", borderRadius: 999, letterSpacing: 0.4 },
-  hint: { fontSize: 12, color: "#8a93a3" },
-  corpo: { marginTop: 12, background: "#fff", border: "1px solid #e6eaf0", borderRadius: 16, padding: 18 },
-  sub: { margin: "0 0 14px", fontSize: 13, color: "#64748b", lineHeight: 1.5 },
+  hint: { fontSize: 12, color: "var(--rv-texto-fraco)" },
+  corpo: { marginTop: 12, background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 16, padding: 18 },
+  sub: { margin: "0 0 14px", fontSize: 13, color: "var(--rv-texto-suave)", lineHeight: 1.5 },
   rapidos: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 },
-  chip: { padding: "7px 12px", borderRadius: 999, border: "1px solid #c7d2fe", background: "#f5f7ff", color: AZUL, fontWeight: 600, fontSize: 12.5, cursor: "pointer" },
-  chipLimpar: { padding: "7px 12px", borderRadius: 999, border: "1px solid #e2e8f0", background: "#fff", color: "#64748b", fontWeight: 600, fontSize: 12.5, cursor: "pointer" },
+  chip: { padding: "7px 12px", borderRadius: 999, border: "1px solid var(--rv-roxo-borda)", background: "var(--rv-fundo-cartao)", color: AZUL, fontWeight: 600, fontSize: 12.5, cursor: "pointer" },
+  chipLimpar: { padding: "7px 12px", borderRadius: 999, border: "1px solid var(--rv-borda)", background: "var(--rv-superficie)", color: "var(--rv-texto-suave)", fontWeight: 600, fontSize: 12.5, cursor: "pointer" },
   filtros: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 14 },
   campo: { display: "flex", flexDirection: "column", gap: 4, minWidth: 0 },
-  rot: { fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.3 },
-  input: { padding: "9px 11px", borderRadius: 10, border: "1px solid #d7dde7", fontSize: 13.5, background: "#fff", width: "100%", boxSizing: "border-box" },
-  sitBox: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 16, marginBottom: 16, padding: 14, background: "#f8fafc", border: "1px solid #e6eaf0", borderRadius: 12 },
+  rot: { fontSize: 11, fontWeight: 700, color: "var(--rv-texto-suave)", textTransform: "uppercase", letterSpacing: 0.3 },
+  input: { padding: "9px 11px", borderRadius: 10, border: "1px solid var(--rv-borda-forte)", fontSize: 13.5, background: "var(--rv-superficie)", width: "100%", boxSizing: "border-box" },
+  sitBox: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", gap: 16, marginBottom: 16, padding: 14, background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: 12 },
   sitCol: { display: "flex", flexDirection: "column", gap: 6 },
-  sitTit: { fontSize: 11.5, fontWeight: 800, color: "#334155", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 },
-  check: { display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "#334155", cursor: "pointer" },
-  compatErro: { marginTop: 8, fontSize: 12, color: "#b91c1c", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "8px 10px", lineHeight: 1.4 },
-  compatOk: { marginTop: 8, fontSize: 12, color: "#15803d" },
+  sitTit: { fontSize: 11.5, fontWeight: 800, color: "var(--rv-texto-forte)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 2 },
+  check: { display: "flex", alignItems: "center", gap: 7, fontSize: 12.5, color: "var(--rv-texto-forte)", cursor: "pointer" },
+  compatErro: { marginTop: 8, fontSize: 12, color: "var(--rv-vermelho-texto)", background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 8, padding: "8px 10px", lineHeight: 1.4 },
+  compatOk: { marginTop: 8, fontSize: 12, color: "var(--rv-verde-ok-texto)" },
   btnPrim: { padding: "10px 18px", borderRadius: 10, border: "none", background: AZUL, color: "#fff", fontWeight: 700, fontSize: 13.5, cursor: "pointer" },
-  btnSec: { marginTop: 10, padding: "8px 16px", borderRadius: 10, border: "1px solid #c7d2fe", background: "#eef2ff", color: AZUL, fontWeight: 700, fontSize: 13, cursor: "pointer" },
-  erro: { background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12 },
-  vazio: { padding: 18, textAlign: "center", color: "#8a93a3", fontSize: 13 },
+  btnSec: { marginTop: 10, padding: "8px 16px", borderRadius: 10, border: "1px solid var(--rv-roxo-borda)", background: "var(--rv-roxo-fundo)", color: AZUL, fontWeight: 700, fontSize: 13, cursor: "pointer" },
+  erro: { background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", padding: "10px 14px", borderRadius: 10, fontSize: 13, marginBottom: 12 },
+  vazio: { padding: 18, textAlign: "center", color: "var(--rv-texto-fraco)", fontSize: 13 },
   cards: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 14 },
-  cardMini: { background: "#f8fafc", border: "1px solid #e6eaf0", borderRadius: 12, padding: "12px 14px" },
-  cardRot: { fontSize: 11, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 },
+  cardMini: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: 12, padding: "12px 14px" },
+  cardRot: { fontSize: 11, fontWeight: 800, color: "var(--rv-texto-suave)", textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 },
   cardVal: { fontFamily: FONTE_TITULO, fontSize: 21, fontWeight: 800, lineHeight: 1.1 },
-  cardSub: { fontSize: 12, color: "#8a93a3", marginTop: 4 },
-  atrib: { fontSize: 12.5, color: "#475569", background: "#f8fafc", border: "1px solid #e6eaf0", borderRadius: 10, padding: "9px 12px", marginBottom: 14 },
-  card: { background: "#fff", border: "1px solid #e6eaf0", borderRadius: 14, padding: 16, marginBottom: 14 },
-  h3: { margin: "0 0 12px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800, color: "#0f172a" },
+  cardSub: { fontSize: 12, color: "var(--rv-texto-fraco)", marginTop: 4 },
+  atrib: { fontSize: 12.5, color: "var(--rv-texto)", background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "9px 12px", marginBottom: 14 },
+  card: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 14, padding: 16, marginBottom: 14 },
+  h3: { margin: "0 0 12px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800, color: "var(--rv-tinta)" },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 12.5 },
-  th: { textAlign: "left", padding: "8px 10px", borderBottom: "2px solid #eef2f7", color: "#475569", fontWeight: 700, whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" },
-  thNum: { textAlign: "right", padding: "8px 10px", borderBottom: "2px solid #eef2f7", color: "#475569", fontWeight: 700, whiteSpace: "nowrap" },
-  td: { padding: "7px 10px", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdb: { padding: "7px 10px", borderBottom: "1px solid #f1f5f9", fontWeight: 700, whiteSpace: "nowrap" },
-  tdn: { padding: "7px 10px", borderBottom: "1px solid #f1f5f9", textAlign: "right", whiteSpace: "nowrap" },
-  tdVazio: { padding: 16, textAlign: "center", color: "#8a93a3" },
+  th: { textAlign: "left", padding: "8px 10px", borderBottom: "2px solid var(--rv-borda-suave)", color: "var(--rv-texto)", fontWeight: 700, whiteSpace: "nowrap", cursor: "pointer", userSelect: "none" },
+  thNum: { textAlign: "right", padding: "8px 10px", borderBottom: "2px solid var(--rv-borda-suave)", color: "var(--rv-texto)", fontWeight: 700, whiteSpace: "nowrap" },
+  td: { padding: "7px 10px", borderBottom: "1px solid var(--rv-borda-suave)", whiteSpace: "nowrap" },
+  tdb: { padding: "7px 10px", borderBottom: "1px solid var(--rv-borda-suave)", fontWeight: 700, whiteSpace: "nowrap" },
+  tdn: { padding: "7px 10px", borderBottom: "1px solid var(--rv-borda-suave)", textAlign: "right", whiteSpace: "nowrap" },
+  tdVazio: { padding: 16, textAlign: "center", color: "var(--rv-texto-fraco)" },
   link: { background: "none", border: "none", color: AZUL, fontWeight: 700, cursor: "pointer", fontSize: 12.5, padding: 0 },
   rankRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 },
-  rankItem: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid #f1f5f9" },
+  rankItem: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "6px 0", borderBottom: "1px solid var(--rv-borda-suave)" },
   modalBg: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 },
-  modal: { background: "#fff", borderRadius: 16, width: "min(1250px, 97vw)", maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden" },
-  modalTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid #eef2f7" },
-  fechar: { background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#64748b" },
+  modal: { background: "var(--rv-superficie)", borderRadius: 16, width: "min(1250px, 97vw)", maxHeight: "92vh", display: "flex", flexDirection: "column", overflow: "hidden" },
+  modalTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid var(--rv-borda-suave)" },
+  fechar: { background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "var(--rv-texto-suave)" },
   abas: { display: "flex", gap: 6, padding: "10px 18px 0", flexWrap: "wrap" },
-  aba: { padding: "7px 13px", borderRadius: "10px 10px 0 0", border: "1px solid #e6eaf0", borderBottom: "none", background: "#f8fafc", color: "#475569", fontWeight: 700, fontSize: 12.5, cursor: "pointer" },
-  abaAtiva: { padding: "7px 13px", borderRadius: "10px 10px 0 0", border: "1px solid #c7d2fe", borderBottom: "none", background: "#eef2ff", color: AZUL, fontWeight: 800, fontSize: 12.5, cursor: "pointer" },
-  faixaAcao: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 18px", background: "#f8fafc", borderTop: "1px solid #eef2f7", borderBottom: "1px solid #eef2f7" },
+  aba: { padding: "7px 13px", borderRadius: "10px 10px 0 0", border: "1px solid var(--rv-borda)", borderBottom: "none", background: "var(--rv-fundo-cartao)", color: "var(--rv-texto)", fontWeight: 700, fontSize: 12.5, cursor: "pointer" },
+  abaAtiva: { padding: "7px 13px", borderRadius: "10px 10px 0 0", border: "1px solid var(--rv-roxo-borda)", borderBottom: "none", background: "var(--rv-roxo-fundo)", color: AZUL, fontWeight: 800, fontSize: 12.5, cursor: "pointer" },
+  faixaAcao: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap", padding: "10px 18px", background: "var(--rv-fundo-cartao)", borderTop: "1px solid var(--rv-borda-suave)", borderBottom: "1px solid var(--rv-borda-suave)" },
   modalCorpo: { padding: 18, overflow: "auto" },
 };

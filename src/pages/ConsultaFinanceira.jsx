@@ -18,14 +18,14 @@ const FILTROS = [
 ];
 
 const CORES_FAIXA = {
-  "A vencer": "#2563eb",
+  "A vencer": "var(--rv-azul)",
   "1-30 dias": "#60a5fa",
   "31-60 dias": "#93c5fd",
-  "61-90 dias": "#f59e0b",
-  "91-180 dias": "#f97316",
-  "181-365 dias": "#dc2626",
-  "1-2 anos": "#991b1b",
-  "2+ anos": "#7f1d1d",
+  "61-90 dias": "var(--rv-ambar)",
+  "91-180 dias": "var(--rv-ambar)",
+  "181-365 dias": "var(--rv-vermelho)",
+  "1-2 anos": "var(--rv-vermelho-texto)",
+  "2+ anos": "var(--rv-vermelho-texto)",
 };
 
 function formatarData(data) {
@@ -234,19 +234,19 @@ export default function ConsultaFinanceira() {
             <div style={S.label}>Alunos com título</div>
           </div>
           <div style={S.cartao}>
-            <div style={{ ...S.numero, color: "#b45309" }}>{moeda(resumo.valor_em_aberto)}</div>
+            <div style={{ ...S.numero, color: "var(--rv-ambar-texto)" }}>{moeda(resumo.valor_em_aberto)}</div>
             <div style={S.label}>Em aberto ({resumo.total_em_aberto} alunos)</div>
           </div>
           <div style={S.cartao}>
-            <div style={{ ...S.numero, color: "#dc2626" }}>{moeda(resumo.valor_em_atraso)}</div>
+            <div style={{ ...S.numero, color: "var(--rv-vermelho)" }}>{moeda(resumo.valor_em_atraso)}</div>
             <div style={S.label}>Em atraso ({resumo.total_em_atraso} alunos)</div>
           </div>
           <div style={S.cartao}>
-            <div style={{ ...S.numero, color: "#2563eb" }}>{resumo.total_parcial}</div>
+            <div style={{ ...S.numero, color: "var(--rv-azul)" }}>{resumo.total_parcial}</div>
             <div style={S.label}>Parciais</div>
           </div>
           <div style={S.cartao}>
-            <div style={{ ...S.numero, color: "#16a34a" }}>{resumo.total_pagos}</div>
+            <div style={{ ...S.numero, color: "var(--rv-verde-ok)" }}>{resumo.total_pagos}</div>
             <div style={S.label}>Pagos</div>
           </div>
         </div>
@@ -260,19 +260,19 @@ export default function ConsultaFinanceira() {
           </div>
           <div style={S.grade}>
             <div style={S.cartao}>
-              <div style={{ ...S.numero, color: "#16a34a" }}>
+              <div style={{ ...S.numero, color: "var(--rv-verde-ok)" }}>
                 {(gerencial.situacao_carteira || []).find((c) => c.categoria === "Acordo em dia")?.qtd || 0}
               </div>
               <div style={S.label}>Acordos em dia</div>
             </div>
             <div style={S.cartao}>
-              <div style={{ ...S.numero, color: "#f59e0b" }}>
+              <div style={{ ...S.numero, color: "var(--rv-ambar)" }}>
                 {(gerencial.situacao_carteira || []).find((c) => c.categoria === "Acordo em atraso até 30d")?.qtd || 0}
               </div>
               <div style={S.label}>Acordos atrasados (até 30d)</div>
             </div>
             <div style={S.cartao}>
-              <div style={{ ...S.numero, color: "#dc2626" }}>
+              <div style={{ ...S.numero, color: "var(--rv-vermelho)" }}>
                 {(gerencial.situacao_carteira || []).find((c) => c.categoria === "Acordo quebrado")?.qtd || 0}
               </div>
               <div style={S.label}>Acordos quebrados</div>
@@ -370,7 +370,7 @@ export default function ConsultaFinanceira() {
                     onClick={() => setFichaAlunoId(linha.aluno_id)}
                     title="Clique para abrir a ficha do aluno"
                     style={S.tr}
-                    onMouseEnter={(e) => (e.currentTarget.style.background = "#f8fafc")}
+                    onMouseEnter={(e) => (e.currentTarget.style.background = "var(--rv-fundo-cartao)")}
                     onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
                   >
                     <td style={S.td}>
@@ -466,52 +466,52 @@ export default function ConsultaFinanceira() {
 
 const S = {
   fichaOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", zIndex: 1000, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "24px 16px", overflow: "auto" },
-  fichaModal: { background: "#fff", borderRadius: 14, width: "min(1100px, 100%)", maxHeight: "92vh", overflow: "auto", boxShadow: "0 20px 60px rgba(15,23,42,0.3)" },
-  fichaTopo: { position: "sticky", top: 0, background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", borderBottom: "1px solid #e2e8f0", zIndex: 2 },
-  fichaX: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#64748b", lineHeight: 1 },
+  fichaModal: { background: "var(--rv-superficie)", borderRadius: 14, width: "min(1100px, 100%)", maxHeight: "92vh", overflow: "auto", boxShadow: "0 20px 60px rgba(15,23,42,0.3)" },
+  fichaTopo: { position: "sticky", top: 0, background: "var(--rv-superficie)", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--rv-borda)", zIndex: 2 },
+  fichaX: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "var(--rv-texto-suave)", lineHeight: 1 },
   fichaCorpo: { padding: 4 },
-  container: { minHeight: "100%", background: "#f4f6fa", padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif" },
-  titulo: { margin: "0 0 4px", color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
-  subtitulo: { margin: "0 0 22px", color: "#8a93a3", fontSize: 13.5 },
-  secaoTitulo: { display: "flex", alignItems: "center", gap: 8, fontFamily: FONTE_TITULO, fontSize: 14, fontWeight: 800, color: "#0d1321", margin: "26px 0 12px" },
-  linha: { flex: 1, height: 1, background: "#e6eaf0" },
+  container: { minHeight: "100%", background: "var(--rv-fundo)", padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif" },
+  titulo: { margin: "0 0 4px", color: "var(--rv-tinta)", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
+  subtitulo: { margin: "0 0 22px", color: "var(--rv-texto-fraco)", fontSize: 13.5 },
+  secaoTitulo: { display: "flex", alignItems: "center", gap: 8, fontFamily: FONTE_TITULO, fontSize: 14, fontWeight: 800, color: "var(--rv-tinta)", margin: "26px 0 12px" },
+  linha: { flex: 1, height: 1, background: "var(--rv-borda)" },
   hero: {
-    background: "#fff", border: "1px solid #e6eaf0", borderRadius: 18, padding: "22px 24px",
+    background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 18, padding: "22px 24px",
     display: "grid", gridTemplateColumns: "1.3fr 1fr", gap: 24, marginBottom: 16,
     boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
   },
-  heroLabel: { fontSize: 12, color: "#8a93a3", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 },
-  heroNum: { fontFamily: FONTE_TITULO, fontSize: 38, fontWeight: 800, color: "#0d1321", lineHeight: 1 },
-  heroSub: { fontSize: 12.5, color: "#8a93a3", marginTop: 8, fontWeight: 600 },
+  heroLabel: { fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 },
+  heroNum: { fontFamily: FONTE_TITULO, fontSize: 38, fontWeight: 800, color: "var(--rv-tinta)", lineHeight: 1 },
+  heroSub: { fontSize: 12.5, color: "var(--rv-texto-fraco)", marginTop: 8, fontWeight: 600 },
   barrasFaixa: { display: "flex", flexDirection: "column", gap: 8, justifyContent: "center" },
   faixaLinha: { display: "flex", alignItems: "center", gap: 10, fontSize: 12 },
-  faixaNome: { width: 90, color: "#8a93a3", fontWeight: 600 },
-  faixaBarraFundo: { flex: 1, background: "#f1f5f9", borderRadius: 999, height: 10, overflow: "hidden" },
+  faixaNome: { width: 90, color: "var(--rv-texto-fraco)", fontWeight: 600 },
+  faixaBarraFundo: { flex: 1, background: "var(--rv-fundo-suave)", borderRadius: 999, height: 10, overflow: "hidden" },
   faixaBarra: { height: "100%", borderRadius: 999 },
-  faixaValor: { width: 90, textAlign: "right", fontWeight: 700, color: "#334155" },
+  faixaValor: { width: 90, textAlign: "right", fontWeight: 700, color: "var(--rv-texto-forte)" },
   grade: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 14, marginBottom: 8 },
-  cartao: { background: "#fff", border: "1px solid #e6eaf0", borderRadius: 16, padding: "18px 20px", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
-  numero: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "#0d1321", marginBottom: 4 },
-  label: { fontSize: 12.5, color: "#8a93a3", fontWeight: 600 },
+  cartao: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 16, padding: "18px 20px", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
+  numero: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "var(--rv-tinta)", marginBottom: 4 },
+  label: { fontSize: 12.5, color: "var(--rv-texto-fraco)", fontWeight: 600 },
   filtros: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" },
-  chip: { padding: "8px 16px", borderRadius: 10, border: "1px solid #e6eaf0", background: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer", color: "#334155" },
+  chip: { padding: "8px 16px", borderRadius: 10, border: "1px solid var(--rv-borda)", background: "var(--rv-superficie)", fontSize: 12.5, fontWeight: 700, cursor: "pointer", color: "var(--rv-texto-forte)" },
   chipAtivo: { padding: "8px 16px", borderRadius: 10, border: "1px solid #2563eb", background: "#2563eb", fontSize: 12.5, fontWeight: 700, cursor: "pointer", color: "#fff" },
-  input: { padding: "9px 12px", borderRadius: 10, border: "1px solid #e6eaf0", fontSize: 13, background: "#f8fafc" },
+  input: { padding: "9px 12px", borderRadius: 10, border: "1px solid var(--rv-borda)", fontSize: 13, background: "var(--rv-fundo-cartao)" },
   botaoAzul: { background: "#2563eb", color: "#fff", border: "none", borderRadius: 10, padding: "9px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
-  painel: { background: "#fff", border: "1px solid #e6eaf0", borderRadius: 16, padding: 20, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
-  muted: { color: "#8a93a3" },
+  painel: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 16, padding: 20, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
+  muted: { color: "var(--rv-texto-fraco)" },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "11px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: "1px solid #e6eaf0" },
-  thNum: { textAlign: "right", padding: "11px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: "1px solid #e6eaf0" },
-  tr: { borderBottom: "1px solid #f2f4f7", cursor: "pointer", transition: "background 0.12s ease" },
+  th: { textAlign: "left", padding: "11px 12px", color: "var(--rv-texto-fraco)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "var(--rv-fundo-cartao)", borderBottom: "1px solid var(--rv-borda)" },
+  thNum: { textAlign: "right", padding: "11px 12px", color: "var(--rv-texto-fraco)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "var(--rv-fundo-cartao)", borderBottom: "1px solid var(--rv-borda)" },
+  tr: { borderBottom: "1px solid var(--rv-borda-suave)", cursor: "pointer", transition: "background 0.12s ease" },
   td: { padding: "13px 12px" },
-  tdNum: { padding: "13px 12px", fontWeight: 800, color: "#1e40af", textAlign: "right" },
-  nome: { fontWeight: 700, color: "#0d1321" },
-  subCel: { fontSize: 11.5, color: "#98a2b3", marginTop: 2 },
+  tdNum: { padding: "13px 12px", fontWeight: 800, color: "var(--rv-azul-texto)", textAlign: "right" },
+  nome: { fontWeight: 700, color: "var(--rv-tinta)" },
+  subCel: { fontSize: 11.5, color: "var(--rv-texto-fraco)", marginTop: 2 },
   selo: { display: "inline-block", padding: "3px 9px", borderRadius: 999, fontSize: 10.5, fontWeight: 700 },
-  seloAberto: { background: "#fffbeb", color: "#b45309" },
-  seloAtraso: { background: "#fef2f2", color: "#dc2626" },
-  seloPago: { background: "#ecfdf5", color: "#16a34a" },
-  botaoFicha: { background: "#eff6ff", color: "#2563eb", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
-  rodape: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, fontSize: 12.5, color: "#8a93a3" },
+  seloAberto: { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)" },
+  seloAtraso: { background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho)" },
+  seloPago: { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok)" },
+  botaoFicha: { background: "var(--rv-azul-fundo)", color: "var(--rv-azul)", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
+  rodape: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16, fontSize: 12.5, color: "var(--rv-texto-fraco)" },
 };

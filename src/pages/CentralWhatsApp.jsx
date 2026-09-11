@@ -1777,12 +1777,12 @@ function ModalNovaConversa({ canais, onFechar, onCriada }) {
 // ---------------------------------------------------------------------------
 // Estilos. Objeto único no fim do arquivo, no padrão das outras telas do CRM.
 // ---------------------------------------------------------------------------
-const CINZA = "#64748b";
-const BORDA = "#e2e8f0";
-const VERDE = "#16a34a";
-const VERMELHO = "#dc2626";
-const LARANJA = "#ea580c";
-const AZUL = "#2563eb";
+const CINZA = "var(--rv-texto-suave)";
+const BORDA = "var(--rv-borda)";
+const VERDE = "var(--rv-verde-ok)";
+const VERMELHO = "var(--rv-vermelho)";
+const LARANJA = "var(--rv-ambar)";
+const AZUL = "var(--rv-azul)";
 
 const etiquetaBase = {
   fontSize: 11,
@@ -1798,7 +1798,7 @@ const tileBase = {
   minWidth: 92,
   padding: "8px 12px",
   borderRadius: 10,
-  background: "#f8fafc",
+  background: "var(--rv-fundo-cartao)",
   border: `1px solid ${BORDA}`,
 };
 
@@ -1806,7 +1806,7 @@ const botaoBase = {
   padding: "8px 14px",
   borderRadius: 8,
   border: `1px solid ${BORDA}`,
-  background: "#fff",
+  background: "var(--rv-superficie)",
   cursor: "pointer",
   fontSize: 13,
 };
@@ -1833,30 +1833,30 @@ const S = {
   conexoes: {
     display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center",
     margin: "12px 0", padding: "10px 12px", borderRadius: 10,
-    border: `1px solid ${BORDA}`, background: "#f8fafc",
+    border: `1px solid ${BORDA}`, background: "var(--rv-fundo-cartao)",
   },
   conexoesAlerta: {
     display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center",
     margin: "12px 0", padding: "10px 12px", borderRadius: 10,
-    border: "1px solid #fecaca", background: "#fef2f2",
+    border: "1px solid var(--rv-vermelho-borda)", background: "var(--rv-vermelho-fundo)",
   },
   conexao: { display: "flex", alignItems: "center", gap: 8, fontSize: 13 },
   conexaoVazia: { fontSize: 13, color: CINZA },
   conexaoNome: { fontWeight: 600 },
   conexaoNumero: { color: CINZA, fontSize: 12 },
-  conexaoStatusOk: { ...etiquetaBase, background: "#dcfce7", color: "#166534" },
-  conexaoStatusRuim: { ...etiquetaBase, background: "#fee2e2", color: "#991b1b" },
+  conexaoStatusOk: { ...etiquetaBase, background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)" },
+  conexaoStatusRuim: { ...etiquetaBase, background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)" },
   conexaoBotoes: { display: "flex", gap: 6 },
   pontoOk: { width: 8, height: 8, borderRadius: "50%", background: VERDE },
   pontoRuim: { width: 8, height: 8, borderRadius: "50%", background: VERMELHO },
-  avisoSync: { ...etiquetaBase, background: "#fef3c7", color: "#92400e" },
+  avisoSync: { ...etiquetaBase, background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)" },
 
   // ---- painel ----
   painel: { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", margin: "0 0 12px" },
   tile: tileBase,
-  tileAlerta: { ...tileBase, background: "#fff7ed", borderColor: "#fed7aa" },
-  tileCritico: { ...tileBase, background: "#fef2f2", borderColor: "#fecaca" },
-  tileResgate: { ...tileBase, background: "#eff6ff", borderColor: "#bfdbfe" },
+  tileAlerta: { ...tileBase, background: "var(--rv-ambar-fundo)", borderColor: "var(--rv-ambar-borda)" },
+  tileCritico: { ...tileBase, background: "var(--rv-vermelho-fundo)", borderColor: "var(--rv-vermelho-borda)" },
+  tileResgate: { ...tileBase, background: "var(--rv-azul-fundo)", borderColor: "var(--rv-azul-borda)" },
   tileNumero: { fontSize: 20, fontWeight: 700 },
   tileRotulo: { fontSize: 11, color: CINZA, textAlign: "center" },
   tileTexto: { fontSize: 12, color: CINZA },
@@ -1864,44 +1864,44 @@ const S = {
   // ---- supervisão ----
   supervisao: {
     margin: "0 0 12px", padding: 12, borderRadius: 10,
-    border: `1px solid ${BORDA}`, background: "#fff", overflowX: "auto",
+    border: `1px solid ${BORDA}`, background: "var(--rv-superficie)", overflowX: "auto",
   },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
   th: { textAlign: "left", padding: "6px 8px", borderBottom: `1px solid ${BORDA}`, color: CINZA, fontWeight: 600 },
-  td: { padding: "6px 8px", borderBottom: "1px solid #f1f5f9" },
+  td: { padding: "6px 8px", borderBottom: "1px solid var(--rv-borda-suave)" },
   syncLinha: { display: "flex", flexWrap: "wrap", gap: 14, marginTop: 10, fontSize: 12, color: CINZA },
   syncItem: { whiteSpace: "nowrap" },
 
   erro: {
     display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8,
     padding: "9px 12px", marginBottom: 12, borderRadius: 8,
-    background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b", fontSize: 13,
+    background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", fontSize: 13,
   },
-  fecharErro: { border: "none", background: "transparent", cursor: "pointer", fontSize: 18, color: "#991b1b" },
+  fecharErro: { border: "none", background: "transparent", cursor: "pointer", fontSize: 18, color: "var(--rv-vermelho-texto)" },
 
   // ---- corpo ----
   corpo: { display: "grid", gridTemplateColumns: "minmax(300px, 380px) 1fr", gap: 14, alignItems: "start" },
-  coluna: { border: `1px solid ${BORDA}`, borderRadius: 12, background: "#fff", overflow: "hidden" },
+  coluna: { border: `1px solid ${BORDA}`, borderRadius: 12, background: "var(--rv-superficie)", overflow: "hidden" },
 
   filtros: { padding: 10, borderBottom: `1px solid ${BORDA}`, display: "flex", flexDirection: "column", gap: 8 },
   busca: { padding: "8px 10px", borderRadius: 8, border: `1px solid ${BORDA}`, fontSize: 13, width: "100%", boxSizing: "border-box" },
   chips: { display: "flex", flexWrap: "wrap", gap: 6 },
-  chip: { ...etiquetaBase, border: `1px solid ${BORDA}`, background: "#fff", color: CINZA, cursor: "pointer", padding: "4px 9px" },
-  chipAtivo: { ...etiquetaBase, border: `1px solid ${AZUL}`, background: "#eff6ff", color: AZUL, cursor: "pointer", padding: "4px 9px", fontWeight: 600 },
+  chip: { ...etiquetaBase, border: `1px solid ${BORDA}`, background: "var(--rv-superficie)", color: CINZA, cursor: "pointer", padding: "4px 9px" },
+  chipAtivo: { ...etiquetaBase, border: `1px solid ${AZUL}`, background: "var(--rv-azul-fundo)", color: AZUL, cursor: "pointer", padding: "4px 9px", fontWeight: 600 },
   selects: { display: "flex", gap: 6, flexWrap: "wrap" },
-  select: { flex: 1, minWidth: 130, padding: "7px 8px", borderRadius: 8, border: `1px solid ${BORDA}`, fontSize: 12, background: "#fff" },
+  select: { flex: 1, minWidth: 130, padding: "7px 8px", borderRadius: 8, border: `1px solid ${BORDA}`, fontSize: 12, background: "var(--rv-superficie)" },
 
   lista: { maxHeight: "62vh", overflowY: "auto" },
   vazio: { padding: 20, textAlign: "center", color: CINZA, fontSize: 13 },
-  vazioDica: { fontSize: 12, color: "#94a3b8" },
+  vazioDica: { fontSize: 12, color: "var(--rv-texto-fraco)" },
 
   item: {
     display: "block", width: "100%", textAlign: "left", padding: "10px 12px",
-    border: "none", borderBottom: "1px solid #f1f5f9", background: "#fff", cursor: "pointer",
+    border: "none", borderBottom: "1px solid var(--rv-borda-suave)", background: "var(--rv-superficie)", cursor: "pointer",
   },
   itemAtivo: {
     display: "block", width: "100%", textAlign: "left", padding: "10px 12px",
-    border: "none", borderBottom: "1px solid #f1f5f9", background: "#eff6ff",
+    border: "none", borderBottom: "1px solid var(--rv-borda-suave)", background: "var(--rv-azul-fundo)",
     cursor: "pointer", boxShadow: `inset 3px 0 0 ${AZUL}`,
   },
   itemTopo: { display: "flex", justifyContent: "space-between", gap: 8, alignItems: "baseline" },
@@ -1915,24 +1915,24 @@ const S = {
   },
   itemRodape: { display: "flex", flexWrap: "wrap", gap: 5, alignItems: "center", marginTop: 6 },
 
-  etiquetaCanal: { ...etiquetaBase, background: "#f1f5f9", color: "#475569" },
-  etiquetaStatus: { ...etiquetaBase, background: "#f1f5f9", color: CINZA },
-  etiquetaDono: { ...etiquetaBase, background: "#ede9fe", color: "#5b21b6" },
-  etiquetaLivre: { ...etiquetaBase, background: "#fef3c7", color: "#92400e" },
-  etiquetaResgate: { ...etiquetaBase, background: "#eff6ff", color: "#1d4ed8" },
+  etiquetaCanal: { ...etiquetaBase, background: "var(--rv-fundo-suave)", color: "var(--rv-texto)" },
+  etiquetaStatus: { ...etiquetaBase, background: "var(--rv-fundo-suave)", color: CINZA },
+  etiquetaDono: { ...etiquetaBase, background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)" },
+  etiquetaLivre: { ...etiquetaBase, background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)" },
+  etiquetaResgate: { ...etiquetaBase, background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)" },
   badge: {
     ...etiquetaBase, background: VERDE, color: "#fff", fontWeight: 700, minWidth: 18, textAlign: "center",
   },
   // Quanto mais tempo esperando, mais forte a cor. É o que diz por onde começar.
   esperaEstilo: {
-    calmo: { ...etiquetaBase, background: "#f1f5f9", color: CINZA },
-    atencao: { ...etiquetaBase, background: "#fff7ed", color: "#9a3412" },
-    critico: { ...etiquetaBase, background: "#fef2f2", color: "#991b1b", fontWeight: 600 },
+    calmo: { ...etiquetaBase, background: "var(--rv-fundo-suave)", color: CINZA },
+    atencao: { ...etiquetaBase, background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)" },
+    critico: { ...etiquetaBase, background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", fontWeight: 600 },
   },
 
   // ---- thread ----
   thread: {
-    border: `1px solid ${BORDA}`, borderRadius: 12, background: "#fff",
+    border: `1px solid ${BORDA}`, borderRadius: 12, background: "var(--rv-superficie)",
     display: "flex", flexDirection: "column", minHeight: "62vh",
   },
   vazioThread: { padding: 40, textAlign: "center", color: CINZA, fontSize: 14 },
@@ -1942,40 +1942,40 @@ const S = {
   },
   threadNome: { fontWeight: 700, fontSize: 15 },
   threadInfo: { fontSize: 12, color: CINZA, marginTop: 2 },
-  threadDono: { fontSize: 12, color: "#5b21b6", marginTop: 4 },
+  threadDono: { fontSize: 12, color: "var(--rv-roxo-texto)", marginTop: 4 },
   threadAcoes: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" },
-  selectAcao: { padding: "8px 10px", borderRadius: 8, border: `1px solid ${BORDA}`, fontSize: 13, background: "#fff", cursor: "pointer" },
+  selectAcao: { padding: "8px 10px", borderRadius: 8, border: `1px solid ${BORDA}`, fontSize: 13, background: "var(--rv-superficie)", cursor: "pointer" },
 
   blocoAluno: {
     padding: "10px 12px", borderBottom: `1px solid ${BORDA}`,
-    background: "#fffbeb", display: "flex", flexDirection: "column", gap: 8,
+    background: "var(--rv-ambar-fundo)", display: "flex", flexDirection: "column", gap: 8,
   },
-  blocoAlunoTitulo: { fontSize: 12.5, color: "#92400e", fontWeight: 600 },
+  blocoAlunoTitulo: { fontSize: 12.5, color: "var(--rv-ambar-texto)", fontWeight: 600 },
   candidatos: { display: "flex", flexWrap: "wrap", gap: 6 },
   linhaBuscaAluno: { display: "flex", gap: 6 },
   buscaAluno: { flex: 1, padding: "7px 9px", borderRadius: 8, border: `1px solid ${BORDA}`, fontSize: 12.5 },
 
   fichaBox: {
     padding: "10px 12px", borderBottom: `1px solid ${BORDA}`,
-    background: "#f8fafc", display: "flex", flexDirection: "column", gap: 5,
+    background: "var(--rv-fundo-cartao)", display: "flex", flexDirection: "column", gap: 5,
   },
   fichaLinha: { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "center", fontSize: 12.5 },
-  fichaItem: { color: "#475569" },
+  fichaItem: { color: "var(--rv-texto)" },
 
   mensagens: { flex: 1, overflowY: "auto", maxHeight: "48vh", padding: 14, display: "flex", flexDirection: "column", gap: 8 },
   balaoEntradaWrap: { display: "flex", justifyContent: "flex-start" },
   balaoSaidaWrap: { display: "flex", justifyContent: "flex-end" },
-  balaoEntrada: { ...balaoBase, background: "#f1f5f9", color: "#0f172a" },
-  balaoSaida: { ...balaoBase, background: "#dcfce7", color: "#052e16" },
+  balaoEntrada: { ...balaoBase, background: "var(--rv-fundo-suave)", color: "var(--rv-tinta)" },
+  balaoSaida: { ...balaoBase, background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)" },
   balaoRodape: { fontSize: 10.5, color: CINZA, marginTop: 4 },
-  balaoErro: { fontSize: 11, color: "#991b1b", marginTop: 3 },
+  balaoErro: { fontSize: 11, color: "var(--rv-vermelho-texto)", marginTop: 3 },
   midia: { color: CINZA },
 
   composer: { borderTop: `1px solid ${BORDA}`, padding: 12 },
   composerLinha: { display: "flex", gap: 8, alignItems: "flex-end" },
   composerBloqueado: {
-    padding: "10px 12px", borderRadius: 8, background: "#fef2f2",
-    border: "1px solid #fecaca", color: "#991b1b", fontSize: 12.5, lineHeight: 1.5,
+    padding: "10px 12px", borderRadius: 8, background: "var(--rv-vermelho-fundo)",
+    border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", fontSize: 12.5, lineHeight: 1.5,
   },
   campo: {
     flex: 1, padding: "9px 11px", borderRadius: 8, border: `1px solid ${BORDA}`,
@@ -1985,14 +1985,14 @@ const S = {
   // desaparecendo em silêncio é como o operador acha que mandou o boleto.
   anexoEstado: { marginTop: 8, fontSize: 12.5, color: CINZA },
   anexoErro: {
-    marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "#fef2f2",
-    border: "1px solid #fecaca", color: "#991b1b", fontSize: 12.5, lineHeight: 1.5,
+    marginTop: 8, padding: "8px 10px", borderRadius: 8, background: "var(--rv-vermelho-fundo)",
+    border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", fontSize: 12.5, lineHeight: 1.5,
   },
 
   botao: { ...botaoBase, background: VERDE, color: "#fff", border: `1px solid ${VERDE}`, fontWeight: 600 },
-  botaoOff: { ...botaoBase, background: "#e2e8f0", color: "#94a3b8", cursor: "not-allowed" },
+  botaoOff: { ...botaoBase, background: "var(--rv-borda)", color: "var(--rv-texto-fraco)", cursor: "not-allowed" },
   botaoSec: botaoBase,
-  botaoSecAtivo: { ...botaoBase, background: "#eff6ff", borderColor: AZUL, color: AZUL, fontWeight: 600 },
+  botaoSecAtivo: { ...botaoBase, background: "var(--rv-azul-fundo)", borderColor: AZUL, color: AZUL, fontWeight: 600 },
   botaoMini: { ...botaoBase, padding: "4px 9px", fontSize: 12 },
 
   // ---- modal do QR ----
@@ -2001,11 +2001,11 @@ const S = {
     display: "flex", alignItems: "center", justifyContent: "center", padding: 16, zIndex: 60,
   },
   modal: {
-    background: "#fff", borderRadius: 14, padding: 22, maxWidth: 440,
+    background: "var(--rv-superficie)", borderRadius: 14, padding: 22, maxWidth: 440,
     textAlign: "center", display: "flex", flexDirection: "column", gap: 10, alignItems: "center",
   },
   modalLargo: {
-    background: "#fff", borderRadius: 14, padding: 20, width: "min(520px, 94vw)",
+    background: "var(--rv-superficie)", borderRadius: 14, padding: 20, width: "min(520px, 94vw)",
     maxHeight: "92vh", overflowY: "auto",
     display: "flex", flexDirection: "column", gap: 14,
     boxShadow: "0 20px 50px rgba(15,23,42,.25)",
@@ -2023,25 +2023,25 @@ const S = {
     background: VERMELHO, color: "#fff", borderColor: VERMELHO, fontWeight: 600,
   },
   avisoPerigo: {
-    margin: "0 0 10px", fontSize: 12, lineHeight: 1.6, color: "#7f1d1d",
-    background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 9, padding: "9px 12px",
+    margin: "0 0 10px", fontSize: 12, lineHeight: 1.6, color: "var(--rv-vermelho-texto)",
+    background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 9, padding: "9px 12px",
   },
-  rotuloNovo: { fontSize: 12, fontWeight: 600, color: "#334155" },
+  rotuloNovo: { fontSize: 12, fontWeight: 600, color: "var(--rv-texto-forte)" },
   linhaNovo: { display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" },
   achados: { display: "flex", flexDirection: "column", gap: 4, maxHeight: 160, overflowY: "auto" },
   alunoEscolhido: {
-    display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#166534",
-    background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 8, padding: "6px 9px",
+    display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "var(--rv-verde-ok-texto)",
+    background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", borderRadius: 8, padding: "6px 9px",
   },
   dicaOk: { fontSize: 11.5, color: VERDE },
   dicaRuim: { fontSize: 11.5, color: VERMELHO },
   jaExiste: {
-    fontSize: 12, lineHeight: 1.6, color: "#92400e",
-    background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, padding: "9px 11px",
+    fontSize: 12, lineHeight: 1.6, color: "var(--rv-ambar-texto)",
+    background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 8, padding: "9px 11px",
   },
   jaExisteDeOutro: {
-    fontSize: 12, lineHeight: 1.6, color: "#7f1d1d",
-    background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "9px 11px",
+    fontSize: 12, lineHeight: 1.6, color: "var(--rv-vermelho-texto)",
+    background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 8, padding: "9px 11px",
   },
   textoNovo: {
     padding: "9px 11px", borderRadius: 8, border: `1px solid ${BORDA}`,
@@ -2056,13 +2056,13 @@ const S = {
     padding: "3vh 2vw", zIndex: 60,
   },
   fichaCaixa: {
-    background: "#fff", borderRadius: 14, width: "min(1100px, 96vw)",
+    background: "var(--rv-superficie)", borderRadius: 14, width: "min(1100px, 96vw)",
     maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden",
     boxShadow: "0 20px 50px rgba(15,23,42,.25)",
   },
   fichaTopo: {
     display: "flex", justifyContent: "space-between", alignItems: "center",
-    gap: 12, padding: "12px 16px", borderBottom: `1px solid ${BORDA}`, background: "#f8fafc",
+    gap: 12, padding: "12px 16px", borderBottom: `1px solid ${BORDA}`, background: "var(--rv-fundo-cartao)",
   },
   // `overscrollBehavior: contain` para a rolagem NÃO vazar para a Central
   // quando a ficha chega ao fim: sem isso, continuar rolando move a lista de

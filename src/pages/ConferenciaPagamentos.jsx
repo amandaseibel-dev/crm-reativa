@@ -369,7 +369,7 @@ export default function ConferenciaPagamentos() {
         ))}
         <input type="date" value={de} onChange={(e) => setDe(e.target.value)}
                style={inputData} title="Pagamentos a partir desta data" />
-        <span style={{ fontSize: 12, color: "#94a3b8" }}>até</span>
+        <span style={{ fontSize: 12, color: "var(--rv-texto-fraco)" }}>até</span>
         <input type="date" value={ate} onChange={(e) => setAte(e.target.value)}
                style={inputData} title="Pagamentos até esta data, ela inclusive" />
         {(de || ate) ? (
@@ -457,7 +457,7 @@ export default function ConferenciaPagamentos() {
               const semDono = l.tipo === "SEM_VINCULO";
               return (
                 <tr key={chave} onMouseEnter={() => setCursor(i)}
-                    style={destacada ? { background: "#eff6ff", outline: "2px solid #bfdbfe" } : undefined}>
+                    style={destacada ? { background: "var(--rv-azul-fundo)", outline: "2px solid var(--rv-azul-borda)" } : undefined}>
                   <td style={S.td}>
                     {semDono ? (
                       <span style={{ ...linkNome, textDecoration: "none", cursor: "default" }}>{l.nome}</span>
@@ -489,8 +489,8 @@ export default function ConferenciaPagamentos() {
                         : `${curta(l.primeiro_pagamento)} a ${curta(l.ultimo_pagamento)}`}
                     </div>
                   </td>
-                  <td style={{ ...S.tdNum, fontWeight: 800, color: "#166534" }}>
-                    {Number(l.entrou) > 0 ? moeda(l.entrou) : <span style={{ color: "#94a3b8" }}>—</span>}
+                  <td style={{ ...S.tdNum, fontWeight: 800, color: "var(--rv-verde-ok-texto)" }}>
+                    {Number(l.entrou) > 0 ? moeda(l.entrou) : <span style={{ color: "var(--rv-texto-fraco)" }}>—</span>}
                   </td>
                   <td style={S.tdNum}>
                     {semDono ? "—" : Number(l.baixado) > 0 ? (
@@ -508,12 +508,12 @@ export default function ConferenciaPagamentos() {
                           </div>
                         ) : null}
                       </>
-                    ) : <span style={{ color: "#94a3b8" }}>—</span>}
+                    ) : <span style={{ color: "var(--rv-texto-fraco)" }}>—</span>}
                   </td>
                   <td style={{ ...S.tdNum, fontWeight: 800 }}>{semDono ? "—" : moeda(l.saldo_aberto)}</td>
                   <td style={S.tdNum}>{semDono ? "—" : moeda(l.saldo_em_acordo)}</td>
                   <td style={S.tdNum}>{semDono ? "—" : moeda(l.saldo_em_mensalidade)}</td>
-                  <td style={{ ...S.tdNum, color: Number(l.saldo_vencido) > 0 ? "#9f1239" : "#94a3b8" }}>
+                  <td style={{ ...S.tdNum, color: Number(l.saldo_vencido) > 0 ? "var(--rv-vermelho-texto)" : "var(--rv-texto-fraco)" }}>
                     {semDono ? "—" : moeda(l.saldo_vencido)}
                   </td>
                   <td style={S.td}>
@@ -651,75 +651,75 @@ export default function ConferenciaPagamentos() {
 
 const faixas = { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center", marginBottom: 10 };
 const chipFaixa = {
-  background: "#fff", border: "1px solid #cbd5e1", borderRadius: 999,
-  padding: "5px 13px", fontSize: 12.5, fontWeight: 800, color: "#475569", cursor: "pointer",
+  background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-forte)", borderRadius: 999,
+  padding: "5px 13px", fontSize: 12.5, fontWeight: 800, color: "var(--rv-texto)", cursor: "pointer",
 };
 const chipFaixaOn = { background: "#0f172a", borderColor: "#0f172a", color: "#fff" };
 // Cinza de proposito: e uma saida lateral, nao o caminho principal. O verde do
 // "Feito" continua sendo o botao que registra dinheiro.
 const btnJaTratado = {
-  background: "#fff", border: "1px solid #cbd5e1", borderRadius: 8,
-  padding: "6px 12px", fontSize: 12.5, fontWeight: 800, color: "#475569", cursor: "pointer",
+  background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8,
+  padding: "6px 12px", fontSize: 12.5, fontWeight: 800, color: "var(--rv-texto)", cursor: "pointer",
 };
 // Autor da baixa, debaixo do valor. Discreto: e contexto para decidir, nao o
 // numero em si. O laranja marca a baixa que nenhuma pessoa fez.
-const autor = { fontSize: 11, fontWeight: 700, color: "#64748b", marginTop: 2 };
-const autorAuto = { ...autor, color: "#b45309" };
-const dicaTeclado = { fontSize: 11.5, color: "#94a3b8", marginLeft: "auto" };
+const autor = { fontSize: 11, fontWeight: 700, color: "var(--rv-texto-suave)", marginTop: 2 };
+const autorAuto = { ...autor, color: "var(--rv-ambar-texto)" };
+const dicaTeclado = { fontSize: 11.5, color: "var(--rv-texto-fraco)", marginLeft: "auto" };
 const rotuloGrupo = {
   fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: .6,
-  color: "#94a3b8", marginRight: 2,
+  color: "var(--rv-texto-fraco)", marginRight: 2,
 };
 const inputData = {
-  border: "1px solid #cbd5e1", borderRadius: 8, padding: "4px 9px",
-  fontSize: 12, color: "#334155", background: "#fff",
+  border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "4px 9px",
+  fontSize: 12, color: "var(--rv-texto-forte)", background: "var(--rv-superficie)",
 };
 const avisoCorte = {
-  margin: "0 0 10px", fontSize: 12.5, color: "#1e3a8a", background: "#eff6ff",
-  border: "1px solid #bfdbfe", borderRadius: 8, padding: "9px 13px", maxWidth: 900,
+  margin: "0 0 10px", fontSize: 12.5, color: "var(--rv-azul-texto)", background: "var(--rv-azul-fundo)",
+  border: "1px solid var(--rv-azul-borda)", borderRadius: 8, padding: "9px 13px", maxWidth: 900,
 };
 const linkNome = {
   background: "none", border: "none", padding: 0, cursor: "pointer",
-  fontWeight: 800, fontSize: 13.5, color: "#0f172a", textAlign: "left", textDecoration: "underline",
+  fontWeight: 800, fontSize: 13.5, color: "var(--rv-tinta)", textAlign: "left", textDecoration: "underline",
 };
-const sub = { fontSize: 11.5, color: "#64748b", marginTop: 2 };
+const sub = { fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 2 };
 const seloSemDono = {
-  fontSize: 10.5, fontWeight: 800, color: "#9a3412", background: "#ffedd5",
-  border: "1px solid #fed7aa", borderRadius: 999, padding: "1px 8px", marginRight: 6,
+  fontSize: 10.5, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)",
+  border: "1px solid var(--rv-ambar-borda)", borderRadius: 999, padding: "1px 8px", marginRight: 6,
 };
 const seloSoBaixa = {
-  fontSize: 10.5, fontWeight: 800, color: "#7c2d12", background: "#fff7ed",
-  border: "1px solid #fed7aa", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
+  fontSize: 10.5, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)",
+  border: "1px solid var(--rv-ambar-borda)", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
 };
 const seloDiverge = {
-  fontSize: 10.5, fontWeight: 800, color: "#854d0e", background: "#fefce8",
-  border: "1px solid #fde047", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
+  fontSize: 10.5, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)",
+  border: "1px solid var(--rv-ambar-borda)", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
 };
 const seloDepoisDeQuitar = {
-  fontSize: 10.5, fontWeight: 800, color: "#9f1239", background: "#fff1f2",
-  border: "1px solid #fecdd3", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
+  fontSize: 10.5, fontWeight: 800, color: "var(--rv-vermelho-texto)", background: "var(--rv-vermelho-fundo)",
+  border: "1px solid var(--rv-vermelho-borda)", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
 };
 const seloSemAcordo = {
-  fontSize: 10.5, fontWeight: 800, color: "#3730a3", background: "#e0e7ff",
-  border: "1px solid #c7d2fe", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
+  fontSize: 10.5, fontWeight: 800, color: "var(--rv-roxo-texto)", background: "var(--rv-roxo-fundo)",
+  border: "1px solid var(--rv-roxo-borda)", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
 };
 const btnVincular = {
   background: "#9a3412", color: "#fff", border: "none", borderRadius: 8,
   padding: "5px 14px", fontSize: 12, fontWeight: 800, cursor: "pointer",
 };
 const caixaConf = { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" };
-const txtConf = { fontSize: 12, color: "#334155" };
-const inputMotivo = { border: "1px solid #cbd5e1", borderRadius: 8, padding: "4px 9px", fontSize: 12, minWidth: 200 };
+const txtConf = { fontSize: 12, color: "var(--rv-texto-forte)" };
+const inputMotivo = { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "4px 9px", fontSize: 12, minWidth: 200 };
 const btnOk = {
   background: "#16a34a", color: "#fff", border: "none", borderRadius: 8,
   padding: "5px 13px", fontSize: 12, fontWeight: 800, cursor: "pointer",
 };
 const btnNao = {
-  background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8,
+  background: "var(--rv-superficie)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8,
   padding: "5px 11px", fontSize: 12, fontWeight: 700, cursor: "pointer",
 };
 const btnAchado = {
-  background: "#f1f5f9", color: "#0f172a", border: "1px solid #cbd5e1", borderRadius: 8,
+  background: "var(--rv-fundo-suave)", color: "var(--rv-tinta)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8,
   padding: "4px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer",
 };
 const toast = {
@@ -729,6 +729,6 @@ const toast = {
   boxShadow: "0 10px 30px rgba(15,23,42,.35)", zIndex: 200, maxWidth: "92vw",
 };
 const btnDesfazer = {
-  background: "#facc15", color: "#0f172a", border: "none", borderRadius: 8,
+  background: "#facc15", color: "var(--rv-tinta)", border: "none", borderRadius: 8,
   padding: "5px 13px", fontSize: 12, fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap",
 };

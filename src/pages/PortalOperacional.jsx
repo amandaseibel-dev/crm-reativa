@@ -3,13 +3,13 @@ import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 
 const STATUS_ERRO = {
-  NOVA: { rotulo: "Reportado", bg: "#eef2ff", cor: "#4338ca" },
-  EM_ANALISE: { rotulo: "Em análise", bg: "#fff7ed", cor: "#c2410c" },
-  EM_TRATATIVA: { rotulo: "Em tratativa", bg: "#fefce8", cor: "#a16207" },
-  AGUARDANDO_VALIDACAO: { rotulo: "Aguardando sua validação", bg: "#eff6ff", cor: "#1d4ed8" },
-  REABERTO: { rotulo: "Reaberto", bg: "#fef2f2", cor: "#dc2626" },
-  FEITA: { rotulo: "Corrigido", bg: "#ecfdf5", cor: "#15803d" },
-  DESCARTADA: { rotulo: "Descartado", bg: "#f1f5f9", cor: "#64748b" },
+  NOVA: { rotulo: "Reportado", bg: "var(--rv-roxo-fundo)", cor: "var(--rv-roxo-texto)" },
+  EM_ANALISE: { rotulo: "Em análise", bg: "var(--rv-ambar-fundo)", cor: "var(--rv-ambar-texto)" },
+  EM_TRATATIVA: { rotulo: "Em tratativa", bg: "var(--rv-ambar-fundo)", cor: "var(--rv-ambar-texto)" },
+  AGUARDANDO_VALIDACAO: { rotulo: "Aguardando sua validação", bg: "var(--rv-azul-fundo)", cor: "var(--rv-azul-texto)" },
+  REABERTO: { rotulo: "Reaberto", bg: "var(--rv-vermelho-fundo)", cor: "var(--rv-vermelho)" },
+  FEITA: { rotulo: "Corrigido", bg: "var(--rv-verde-ok-fundo)", cor: "var(--rv-verde-ok-texto)" },
+  DESCARTADA: { rotulo: "Descartado", bg: "var(--rv-fundo-suave)", cor: "var(--rv-texto-suave)" },
 };
 
 const SECOES = [
@@ -246,7 +246,7 @@ function SecaoPolitica() {
       <Card>
         <h3 style={S.h3}>💳 Tabela de Negociação — Rematrícula 2026/2</h3>
         <p style={S.observacao}>Condições para acordo novo de mensalidades. Parcela mínima de R$ 100,00. <strong>Vigente até 28/08/2026.</strong></p>
-        <h4 style={{ fontSize: 14, fontWeight: 700, color: "#0d1321", margin: "16px 0 6px" }}>Até 2022 <span style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", background: "#eff6ff", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>sem juros</span></h4>
+        <h4 style={{ fontSize: 14, fontWeight: 700, color: "var(--rv-tinta)", margin: "16px 0 6px" }}>Até 2022 <span style={{ fontSize: 11, fontWeight: 700, color: "var(--rv-azul-texto)", background: "var(--rv-azul-fundo)", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>sem juros</span></h4>
         <table style={S.tabela}>
           <thead><tr><th style={S.th}>Parc.</th><th style={S.th}>Desconto</th><th style={S.th}>Boleto</th><th style={S.th}>Cartão</th></tr></thead>
           <tbody>
@@ -256,7 +256,7 @@ function SecaoPolitica() {
           <tr><td style={S.td}>18x</td><td style={S.td}>100% encargos</td><td style={S.td}>Parcelas iguais</td><td style={S.td}>Não se aplica</td></tr>
           </tbody>
         </table>
-        <h4 style={{ fontSize: 14, fontWeight: 700, color: "#0d1321", margin: "16px 0 6px" }}>2023 a 2024 <span style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", background: "#eff6ff", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>juros 1% a.m.</span></h4>
+        <h4 style={{ fontSize: 14, fontWeight: 700, color: "var(--rv-tinta)", margin: "16px 0 6px" }}>2023 a 2024 <span style={{ fontSize: 11, fontWeight: 700, color: "var(--rv-azul-texto)", background: "var(--rv-azul-fundo)", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>juros 1% a.m.</span></h4>
         <table style={S.tabela}>
           <thead><tr><th style={S.th}>Parc.</th><th style={S.th}>Desconto</th><th style={S.th}>Boleto</th><th style={S.th}>Cartão</th></tr></thead>
           <tbody>
@@ -265,7 +265,7 @@ function SecaoPolitica() {
           <tr><td style={S.td}>12x</td><td style={S.td}>30% encargos</td><td style={S.td}>Entrada 15% + 11x</td><td style={S.td}>Parcelas iguais</td></tr>
           </tbody>
         </table>
-        <h4 style={{ fontSize: 14, fontWeight: 700, color: "#0d1321", margin: "16px 0 6px" }}>2025 <span style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", background: "#eff6ff", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>juros 1% a.m.</span></h4>
+        <h4 style={{ fontSize: 14, fontWeight: 700, color: "var(--rv-tinta)", margin: "16px 0 6px" }}>2025 <span style={{ fontSize: 11, fontWeight: 700, color: "var(--rv-azul-texto)", background: "var(--rv-azul-fundo)", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>juros 1% a.m.</span></h4>
         <table style={S.tabela}>
           <thead><tr><th style={S.th}>Parc.</th><th style={S.th}>Desconto</th><th style={S.th}>Boleto</th><th style={S.th}>Cartão</th></tr></thead>
           <tbody>
@@ -274,7 +274,7 @@ function SecaoPolitica() {
           <tr><td style={S.td}>10x</td><td style={S.td}>—</td><td style={S.td}>Entrada 20% + 9x</td><td style={S.td}>Até 12x (entrada 10% + 11x)</td></tr>
           </tbody>
         </table>
-        <h4 style={{ fontSize: 14, fontWeight: 700, color: "#0d1321", margin: "16px 0 6px" }}>2026/1 <span style={{ fontSize: 11, fontWeight: 700, color: "#1e40af", background: "#eff6ff", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>juros 1% a.m.</span></h4>
+        <h4 style={{ fontSize: 14, fontWeight: 700, color: "var(--rv-tinta)", margin: "16px 0 6px" }}>2026/1 <span style={{ fontSize: 11, fontWeight: 700, color: "var(--rv-azul-texto)", background: "var(--rv-azul-fundo)", borderRadius: 999, padding: "2px 8px", marginLeft: 8 }}>juros 1% a.m.</span></h4>
         <table style={S.tabela}>
           <thead><tr><th style={S.th}>Parc.</th><th style={S.th}>Desconto</th><th style={S.th}>Boleto</th><th style={S.th}>Cartão</th></tr></thead>
           <tbody>
@@ -787,7 +787,7 @@ function SecaoSugestoes() {
           <p style={S.paragrafo}>✅ Sugestão enviada, obrigado!</p>
         ) : (
           <form onSubmit={enviar} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {erro && <p style={{ ...S.paragrafo, color: "#dc2626" }}>{erro}</p>}
+            {erro && <p style={{ ...S.paragrafo, color: "var(--rv-vermelho)" }}>{erro}</p>}
             <Campo label="Nome">
               <input style={S.input} placeholder="Seu nome" value={form.nome} onChange={(e) => atualizar("nome", e.target.value)} />
             </Campo>
@@ -949,12 +949,12 @@ function SecaoHistoria() {
 /* ===================== Estilos ===================== */
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const VERDE = "#2563eb";
-const VERDE_ESCURO = "#1e40af";
-const BORDA = "#e6eaf0";
+const VERDE = "var(--rv-azul)";
+const VERDE_ESCURO = "var(--rv-azul-texto)";
+const BORDA = "var(--rv-borda)";
 
 const S = {
-  pagina: { minHeight: "100%", background: "#f4f6fa", fontFamily: "Inter, system-ui, sans-serif" },
+  pagina: { minHeight: "100%", background: "var(--rv-fundo)", fontFamily: "Inter, system-ui, sans-serif" },
   shell: { display: "flex", minHeight: "100vh" },
 
   sidebar: {
@@ -962,26 +962,26 @@ const S = {
     flexShrink: 0,
     background: "rgba(248, 250, 252, 0.98)",
     borderRight: "1px solid rgba(15, 23, 42, 0.1)",
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     display: "flex",
     flexDirection: "column",
     padding: "26px 18px",
   },
   logoBox: { fontFamily: FONTE_TITULO, fontSize: 22, fontWeight: 800, marginBottom: 2 },
   logoRe: { color: VERDE },
-  logoAtiva: { color: "#0d1321" },
-  logoSub: { fontSize: 12, color: "#64748b", fontWeight: 600, marginBottom: 24 },
+  logoAtiva: { color: "var(--rv-tinta)" },
+  logoSub: { fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 600, marginBottom: 24 },
 
   nav: { flex: 1, overflowY: "auto" },
   navGrupo: { marginBottom: 18 },
-  navGrupoLabel: { fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", color: "#94a3b8", marginBottom: 6, paddingLeft: 10 },
+  navGrupoLabel: { fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", color: "var(--rv-texto-fraco)", marginBottom: 6, paddingLeft: 10 },
   navItem: {
     display: "block",
     width: "100%",
     textAlign: "left",
     background: "transparent",
     border: "none",
-    color: "#475569",
+    color: "var(--rv-texto)",
     padding: "8px 10px",
     borderRadius: 8,
     fontSize: 13,
@@ -989,49 +989,49 @@ const S = {
     cursor: "pointer",
     marginBottom: 2,
   },
-  navItemAtivo: { background: "#eff6ff", color: VERDE_ESCURO },
+  navItemAtivo: { background: "var(--rv-azul-fundo)", color: VERDE_ESCURO },
 
-  sidebarRodape: { fontSize: 11.5, color: "#94a3b8", fontWeight: 600, paddingTop: 14, borderTop: "1px solid rgba(15,23,42,0.08)" },
+  sidebarRodape: { fontSize: 11.5, color: "var(--rv-texto-fraco)", fontWeight: 600, paddingTop: 14, borderTop: "1px solid rgba(15,23,42,0.08)" },
 
   conteudo: { flex: 1, padding: "36px 40px", maxWidth: 900 },
 
   hero: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     border: `1px solid ${BORDA}`,
     borderRadius: 22,
     padding: "32px 34px",
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     marginBottom: 22,
     boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
   },
   heroEyebrow: { fontSize: 11.5, fontWeight: 800, letterSpacing: "0.12em", color: VERDE_ESCURO },
-  heroTitulo: { fontFamily: FONTE_TITULO, fontSize: 28, fontWeight: 800, margin: "10px 0 10px", letterSpacing: "-0.02em", lineHeight: 1.2, color: "#0d1321" },
-  heroTexto: { fontSize: 14.5, color: "#64748b", lineHeight: 1.55, maxWidth: 620 },
+  heroTitulo: { fontFamily: FONTE_TITULO, fontSize: 28, fontWeight: 800, margin: "10px 0 10px", letterSpacing: "-0.02em", lineHeight: 1.2, color: "var(--rv-tinta)" },
+  heroTexto: { fontSize: 14.5, color: "var(--rv-texto-suave)", lineHeight: 1.55, maxWidth: 620 },
 
   tituloSecaoBox: { marginBottom: 18 },
-  tituloSecaoH1: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "#0d1321", margin: 0, letterSpacing: "-0.02em" },
-  tituloSecaoSub: { color: "#64748b", fontSize: 13.5, marginTop: 6 },
+  tituloSecaoH1: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "var(--rv-tinta)", margin: 0, letterSpacing: "-0.02em" },
+  tituloSecaoSub: { color: "var(--rv-texto-suave)", fontSize: 13.5, marginTop: 6 },
 
-  card: { background: "#fff", border: `1px solid ${BORDA}`, borderRadius: 16, padding: "18px 20px", marginBottom: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
-  h3: { fontFamily: FONTE_TITULO, fontSize: 15.5, fontWeight: 700, color: "#0d1321", margin: "0 0 10px" },
-  paragrafo: { color: "#475569", fontSize: 13.5, lineHeight: 1.6, margin: 0 },
-  avisoCanal: { margin: 0, background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", borderRadius: 10, padding: "10px 12px", fontSize: 13, lineHeight: 1.55 },
-  erroItem: { border: "1px solid #eef2f7", borderRadius: 10, padding: "10px 12px", background: "#fbfcfe" },
+  card: { background: "var(--rv-superficie)", border: `1px solid ${BORDA}`, borderRadius: 16, padding: "18px 20px", marginBottom: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
+  h3: { fontFamily: FONTE_TITULO, fontSize: 15.5, fontWeight: 700, color: "var(--rv-tinta)", margin: "0 0 10px" },
+  paragrafo: { color: "var(--rv-texto)", fontSize: 13.5, lineHeight: 1.6, margin: 0 },
+  avisoCanal: { margin: 0, background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", borderRadius: 10, padding: "10px 12px", fontSize: 13, lineHeight: 1.55 },
+  erroItem: { border: "1px solid var(--rv-borda-suave)", borderRadius: 10, padding: "10px 12px", background: "var(--rv-superficie)" },
   erroBadge: { fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 999 },
-  erroTela: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: "#f1f5f9", color: "#64748b" },
-  erroData: { fontSize: 11.5, color: "#94a3b8", marginLeft: "auto" },
-  erroDesc: { margin: 0, fontSize: 13, color: "#334155", lineHeight: 1.5, whiteSpace: "pre-wrap" },
-  tratativaTxt: { margin: "6px 0 0", fontSize: 12.5, color: "#475569", lineHeight: 1.5, background: "#f8fafc", borderRadius: 8, padding: "6px 10px" },
-  avisoValidar: { margin: 0, background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1d4ed8", borderRadius: 10, padding: "9px 12px", fontSize: 13, fontWeight: 700 },
+  erroTela: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: "var(--rv-fundo-suave)", color: "var(--rv-texto-suave)" },
+  erroData: { fontSize: 11.5, color: "var(--rv-texto-fraco)", marginLeft: "auto" },
+  erroDesc: { margin: 0, fontSize: 13, color: "var(--rv-texto-forte)", lineHeight: 1.5, whiteSpace: "pre-wrap" },
+  tratativaTxt: { margin: "6px 0 0", fontSize: 12.5, color: "var(--rv-texto)", lineHeight: 1.5, background: "var(--rv-fundo-cartao)", borderRadius: 8, padding: "6px 10px" },
+  avisoValidar: { margin: 0, background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)", color: "var(--rv-azul-texto)", borderRadius: 10, padding: "9px 12px", fontSize: 13, fontWeight: 700 },
   botaoConfirmar: { background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
-  botaoPersiste: { background: "#fff", color: "#dc2626", border: "1px solid #fecaca", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
-  observacao: { color: "#8a93a3", fontSize: 12, marginTop: 10 },
-  lista: { margin: 0, paddingLeft: 20, color: "#475569", fontSize: 13.5, lineHeight: 1.8 },
-  listaOrdenada: { margin: 0, paddingLeft: 20, color: "#475569", fontSize: 13.5, lineHeight: 1.8 },
+  botaoPersiste: { background: "var(--rv-superficie)", color: "var(--rv-vermelho)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
+  observacao: { color: "var(--rv-texto-fraco)", fontSize: 12, marginTop: 10 },
+  lista: { margin: 0, paddingLeft: 20, color: "var(--rv-texto)", fontSize: 13.5, lineHeight: 1.8 },
+  listaOrdenada: { margin: 0, paddingLeft: 20, color: "var(--rv-texto)", fontSize: 13.5, lineHeight: 1.8 },
 
   aviso: { borderRadius: 14, padding: "14px 18px", marginBottom: 18, fontSize: 13.5, lineHeight: 1.6 },
-  avisoAtencao: { background: "#fff7e6", border: "1px solid #f5c542", color: "#7c4a1e" },
-  avisoInfo: { background: "#eff6ff", border: "1px solid #bfdbfe", color: "#1e40af" },
+  avisoAtencao: { background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)" },
+  avisoInfo: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)", color: "var(--rv-azul-texto)" },
 
   botaoPrimario: {
     display: "inline-flex",
@@ -1050,8 +1050,8 @@ const S = {
     display: "inline-flex",
     alignItems: "center",
     gap: 6,
-    background: "#fff",
-    color: "#334155",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-texto-forte)",
     padding: "10px 18px",
     borderRadius: 10,
     fontWeight: 700,
@@ -1061,8 +1061,8 @@ const S = {
     cursor: "pointer",
   },
   botaoCopiar: {
-    background: "#f1f5f9",
-    color: "#334155",
+    background: "var(--rv-fundo-suave)",
+    color: "var(--rv-texto-forte)",
     border: "none",
     borderRadius: 8,
     padding: "7px 14px",
@@ -1075,7 +1075,7 @@ const S = {
   grade3: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 18 },
 
   cardAtalho: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     border: `1px solid ${BORDA}`,
     borderRadius: 16,
     padding: "18px",
@@ -1087,26 +1087,26 @@ const S = {
     boxShadow: "0 1px 3px rgba(15,23,42,0.05)",
   },
   cardAtalhoEmoji: { fontSize: 24 },
-  cardAtalhoTitulo: { fontFamily: FONTE_TITULO, fontSize: 14.5, color: "#0d1321" },
-  cardAtalhoDesc: { fontSize: 12.5, color: "#8a93a3" },
+  cardAtalhoTitulo: { fontFamily: FONTE_TITULO, fontSize: 14.5, color: "var(--rv-tinta)" },
+  cardAtalhoDesc: { fontSize: 12.5, color: "var(--rv-texto-fraco)" },
 
   numeroGrande: { fontFamily: FONTE_TITULO, fontSize: 32, fontWeight: 800, color: VERDE_ESCURO },
-  labelNumero: { fontSize: 12, fontWeight: 700, color: "#8a93a3", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" },
+  labelNumero: { fontSize: 12, fontWeight: 700, color: "var(--rv-texto-fraco)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" },
 
   tabela: { width: "100%", borderCollapse: "collapse" },
-  th: { textAlign: "left", padding: "10px 12px", color: "#8a93a3", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: `1px solid ${BORDA}` },
-  thNum: { textAlign: "right", padding: "10px 12px", color: "#8a93a3", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: `1px solid ${BORDA}` },
-  td: { padding: "11px 12px", color: "#334155", fontSize: 13.5, borderBottom: "1px solid #f1f5f9" },
-  tdNum: { padding: "11px 12px", color: VERDE_ESCURO, fontSize: 14, textAlign: "right", borderBottom: "1px solid #f1f5f9" },
+  th: { textAlign: "left", padding: "10px 12px", color: "var(--rv-texto-fraco)", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: `1px solid ${BORDA}` },
+  thNum: { textAlign: "right", padding: "10px 12px", color: "var(--rv-texto-fraco)", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: `1px solid ${BORDA}` },
+  td: { padding: "11px 12px", color: "var(--rv-texto-forte)", fontSize: 13.5, borderBottom: "1px solid var(--rv-borda-suave)" },
+  tdNum: { padding: "11px 12px", color: VERDE_ESCURO, fontSize: 14, textAlign: "right", borderBottom: "1px solid var(--rv-borda-suave)" },
 
-  labelCampo: { fontSize: 12.5, fontWeight: 700, color: "#475569" },
+  labelCampo: { fontSize: 12.5, fontWeight: 700, color: "var(--rv-texto)" },
   input: { padding: "9px 12px", borderRadius: 10, border: `1px solid ${BORDA}`, fontSize: 13.5, fontFamily: "inherit" },
 
-  cardFrase: { background: "#eff6ff", border: "1px solid #bfdbfe" },
+  cardFrase: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)" },
   frase: { fontFamily: FONTE_TITULO, fontSize: 14.5, color: VERDE_ESCURO, fontWeight: 700, margin: 0, lineHeight: 1.4 },
 
   cardHistoria: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     border: `1px solid ${BORDA}`,
     borderRadius: 16,
     padding: "26px 16px",
@@ -1114,6 +1114,6 @@ const S = {
     flexDirection: "column",
     alignItems: "center",
     gap: 8,
-    color: "#334155",
+    color: "var(--rv-texto-forte)",
   },
 };

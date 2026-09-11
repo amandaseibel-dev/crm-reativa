@@ -141,7 +141,7 @@ const caixaInterna = {
   marginTop: "12px",
 };
 const tituloSecao = { margin: "0 0 12px", fontSize: "15px", fontWeight: 700, color: "#f3f4f6" };
-const label = { display: "block", fontSize: "12px", fontWeight: 600, color: "#9ca3af", margin: "10px 0 4px" };
+const label = { display: "block", fontSize: "12px", fontWeight: 600, color: "var(--rv-texto-fraco)", margin: "10px 0 4px" };
 const select = {
   width: "100%",
   padding: "8px 10px",
@@ -158,7 +158,7 @@ const botaoPrincipal = {
   borderRadius: "8px",
   border: "none",
   background: "#3b82f6",
-  color: "#052e16",
+  color: "var(--rv-verde-ok-texto)",
   fontWeight: 700,
   cursor: "pointer",
 };

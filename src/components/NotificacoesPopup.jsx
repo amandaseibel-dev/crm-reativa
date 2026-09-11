@@ -137,10 +137,10 @@ export default function NotificacoesPopup() {
 const S = {
   wrap: { position: "fixed", right: 20, bottom: 90, zIndex: 9999, display: "flex", flexDirection: "column", gap: 12, maxWidth: 360 },
   card: { position: "relative", background: "#0f172a", color: "#fff", borderRadius: 14, padding: "14px 16px 14px", boxShadow: "0 14px 40px rgba(2,6,23,0.45)", border: "1px solid rgba(96,165,250,0.4)", animation: "none" },
-  x: { position: "absolute", top: 8, right: 10, background: "transparent", border: "none", color: "#94a3b8", fontSize: 20, cursor: "pointer", lineHeight: 1 },
+  x: { position: "absolute", top: 8, right: 10, background: "transparent", border: "none", color: "var(--rv-texto-fraco)", fontSize: 20, cursor: "pointer", lineHeight: 1 },
   titulo: { fontSize: 15, fontWeight: 800, marginBottom: 4, paddingRight: 18 },
   msg: { fontSize: 13, color: "#cbd5e1", lineHeight: 1.45 },
-  hora: { fontSize: 11, color: "#94a3b8", marginTop: 6 },
+  hora: { fontSize: 11, color: "var(--rv-texto-fraco)", marginTop: 6 },
   acoes: { display: "flex", gap: 8, marginTop: 12 },
   btnAbrir: { flex: 1, background: "#2563eb", color: "#fff", border: "none", borderRadius: 9, padding: "9px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
   btnOk: { background: "transparent", color: "#93c5fd", border: "1px solid rgba(148,163,184,0.35)", borderRadius: 9, padding: "9px 12px", fontWeight: 700, fontSize: 13, cursor: "pointer" },

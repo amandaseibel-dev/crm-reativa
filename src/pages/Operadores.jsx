@@ -174,7 +174,7 @@ async function moverFila(casoId, destino) {
 return (
   <div style={{ padding: 24, background: "#0b001a", minHeight: "100%", color: "#fff" }}>
 
-    <h2 style={{ color: "#a855f7" }}>📞 CRM Operacional</h2>
+    <h2 style={{ color: "var(--rv-roxo)" }}>📞 CRM Operacional</h2>
 
     {/* FILTROS */}
     <div style={{ display: "flex", gap: 10, marginBottom: 20 }}>
@@ -190,7 +190,7 @@ return (
     </div>
 
     {erro && <p style={{ color: "red" }}>{erro}</p>}
-    {sucesso && <p style={{ color: "#3b82f6" }}>{sucesso}</p>}
+    {sucesso && <p style={{ color: "var(--rv-azul)" }}>{sucesso}</p>}
 
     {/* CARDS */}
     {grupos.map((c) => (

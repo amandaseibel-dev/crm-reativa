@@ -151,7 +151,7 @@ export default function FechamentoRemuneracao() {
     <div style={{ padding: 24, maxWidth: 1400, margin: "0 auto" }}>
       <header style={{ display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" }}>
         <h1 style={{ margin: 0 }}>💰 Fechamento Mensal da Remuneração</h1>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>
+        <span style={{ fontSize: 13, color: "var(--rv-texto-suave)" }}>
           Acesso exclusivo — Amanda gestora
         </span>
       </header>
@@ -160,7 +160,7 @@ export default function FechamentoRemuneracao() {
         <label style={{ display: "flex", flexDirection: "column", fontSize: 13 }}>
           Competência (mês)
           <select value={mes} onChange={(e) => setMes(e.target.value)}
-            style={{ padding: 8, borderRadius: 8, border: "1px solid #d1d5db", minWidth: 180, textTransform: "capitalize" }}>
+            style={{ padding: 8, borderRadius: 8, border: "1px solid var(--rv-borda-forte)", minWidth: 180, textTransform: "capitalize" }}>
             {mesesOpcoes().map(([val, label]) => (
               <option key={val} value={val}>{label}</option>
             ))}
@@ -179,8 +179,8 @@ export default function FechamentoRemuneracao() {
         )}
       </div>
 
-      {erro && <Aviso cor="#b91c1c" bg="#fee2e2">{erro}</Aviso>}
-      {msg && <Aviso cor="#065f46" bg="#d1fae5">{msg}</Aviso>}
+      {erro && <Aviso cor="var(--rv-vermelho-texto)" bg="var(--rv-vermelho-fundo)">{erro}</Aviso>}
+      {msg && <Aviso cor="var(--rv-verde-ok-texto)" bg="var(--rv-verde-ok-fundo)">{msg}</Aviso>}
 
       {previa && (
         <BannerReconciliacao recon={recon} faixas={previa.faixas_configuradas} />
@@ -188,7 +188,7 @@ export default function FechamentoRemuneracao() {
 
       {previa && <Indicadores totais={totais} />}
 
-      <nav style={{ display: "flex", gap: 4, marginTop: 20, borderBottom: "1px solid #e5e7eb", flexWrap: "wrap" }}>
+      <nav style={{ display: "flex", gap: 4, marginTop: 20, borderBottom: "1px solid var(--rv-borda)", flexWrap: "wrap" }}>
         {TABS.map(([id, label]) => (
           <button key={id} onClick={() => { setAba(id); if (id === "versoes") carregarVersoes(); }}
             style={tabBtn(aba === id)}>{label}</button>
@@ -212,11 +212,11 @@ export default function FechamentoRemuneracao() {
 const br = (d) => (d ? new Date(d + "T00:00:00").toLocaleDateString("pt-BR") : "");
 const btn = (primary) => ({
   padding: "9px 16px", borderRadius: 8, border: "none", cursor: "pointer", fontWeight: 600,
-  background: primary ? "#1e40af" : "#e5e7eb", color: primary ? "#fff" : "#111827",
+  background: primary ? "#1e40af" : "var(--rv-borda)", color: primary ? "#fff" : "var(--rv-tinta)",
 });
 const tabBtn = (ativo) => ({
   padding: "8px 14px", border: "none", cursor: "pointer", fontWeight: 600, fontSize: 14,
-  background: "transparent", color: ativo ? "#1e40af" : "#6b7280",
+  background: "transparent", color: ativo ? "var(--rv-azul-texto)" : "var(--rv-texto-suave)",
   borderBottom: ativo ? "2px solid #1e40af" : "2px solid transparent",
 });
 function Aviso({ children, cor, bg }) {
@@ -228,12 +228,12 @@ function BannerReconciliacao({ recon, faixas }) {
   return (
     <div style={{
       marginTop: 16, padding: "12px 16px", borderRadius: 10,
-      background: ok ? "#ecfdf5" : "#fef2f2", border: `1px solid ${ok ? "#a7f3d0" : "#fecaca"}`,
+      background: ok ? "var(--rv-verde-ok-fundo)" : "var(--rv-vermelho-fundo)", border: `1px solid ${ok ? "var(--rv-verde-ok-borda)" : "var(--rv-vermelho-borda)"}`,
     }}>
-      <strong style={{ color: ok ? "#065f46" : "#991b1b" }}>
+      <strong style={{ color: ok ? "var(--rv-verde-ok-texto)" : "var(--rv-vermelho-texto)" }}>
         {ok ? "✅ Reconciliação com a Projeção: R$ 0,00 (bate)" : "⚠ Reconciliação/faixas com pendência"}
       </strong>
-      <div style={{ fontSize: 13, color: "#374151", marginTop: 4 }}>
+      <div style={{ fontSize: 13, color: "var(--rv-texto-forte)", marginTop: 4 }}>
         Recuperado — dif {BRL(recon?.diff_recuperado)} · Honorários — dif {BRL(recon?.diff_honorario)}
         {!faixas && " · faixas de comissão NÃO configuradas para o mês"}
       </div>
@@ -253,8 +253,8 @@ function Indicadores({ totais }) {
     <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(150px,1fr))", gap: 10, marginTop: 14 }}>
       {cards.map(([k, v]) => (
         <div key={k} style={{
-          padding: 12, borderRadius: 10, background: k === "TOTAL FINAL" ? "#1e40af" : "#f8fafc",
-          color: k === "TOTAL FINAL" ? "#fff" : "#111827", border: "1px solid #e5e7eb",
+          padding: 12, borderRadius: 10, background: k === "TOTAL FINAL" ? "#1e40af" : "var(--rv-fundo-cartao)",
+          color: k === "TOTAL FINAL" ? "#fff" : "var(--rv-tinta)", border: "1px solid var(--rv-borda)",
         }}>
           <div style={{ fontSize: 12, opacity: 0.8 }}>{k}</div>
           <div style={{ fontSize: 17, fontWeight: 700 }}>{BRL(v)}</div>
@@ -275,9 +275,9 @@ function AbaPrevia({ previa, mes }) {
         </thead>
         <tbody>
           {benef.map((l, i) => (
-            <tr key={l.email} style={{ background: i % 2 ? "#f9fafb" : "#fff" }}>
+            <tr key={l.email} style={{ background: i % 2 ? "var(--rv-fundo-cartao)" : "var(--rv-superficie)" }}>
               <td style={td}>{i + 1}</td>
-              <td style={td}>{l.nome || l.email}<br /><span style={{ fontSize: 11, color: "#9ca3af" }}>{l.email}</span></td>
+              <td style={td}>{l.nome || l.email}<br /><span style={{ fontSize: 11, color: "var(--rv-texto-fraco)" }}>{l.email}</span></td>
               <td style={tdN}>{BRL(l.valor_fixo)}</td>
               <td style={tdC}>{l.qtd_pagamentos}</td>
               <td style={tdN}>{BRL(l.valor_recuperado)}</td>
@@ -293,7 +293,7 @@ function AbaPrevia({ previa, mes }) {
               <td style={tdC}>
                 <button onClick={() => gerarPdfOperador(l, previa, mes)}
                   title="Baixar PDF deste operador"
-                  style={{ cursor: "pointer", border: "1px solid #d1d5db", background: "#fff", borderRadius: 6, padding: "3px 8px", fontSize: 12 }}>
+                  style={{ cursor: "pointer", border: "1px solid var(--rv-borda-forte)", background: "var(--rv-superficie)", borderRadius: 6, padding: "3px 8px", fontSize: 12 }}>
                   ⬇ PDF
                 </button>
               </td>
@@ -302,12 +302,12 @@ function AbaPrevia({ previa, mes }) {
         </tbody>
       </table>
       {(previa.nao_elegiveis || []).length > 0 && (
-        <div style={{ marginTop: 12, fontSize: 13, color: "#6b7280" }}>
+        <div style={{ marginTop: 12, fontSize: 13, color: "var(--rv-texto-suave)" }}>
           <strong>Fora da remuneração (gestão com produção):</strong>{" "}
           {previa.nao_elegiveis.map((n) => `${n.email} (${BRL(n.valor_recuperado)})`).join(", ")}
         </div>
       )}
-      <div style={{ marginTop: 8, fontSize: 13, color: "#6b7280" }}>
+      <div style={{ marginTop: 8, fontSize: 13, color: "var(--rv-texto-suave)" }}>
         Sem operador: {previa.sem_operador?.qtd} pagamento(s) · {BRL(previa.sem_operador?.valor_recuperado)} recuperado — sem comissão.
       </div>
     </div>
@@ -439,7 +439,7 @@ function AbaReconciliacao({ previa }) {
         {linhas.map(([k, f, p, d]) => (
           <tr key={k}>
             <td style={td}>{k}</td><td style={tdN}>{BRL(f)}</td><td style={tdN}>{BRL(p)}</td>
-            <td style={{ ...tdN, color: Number(d) === 0 ? "#065f46" : "#b91c1c", fontWeight: 700 }}>{BRL(d)}</td>
+            <td style={{ ...tdN, color: Number(d) === 0 ? "var(--rv-verde-ok-texto)" : "var(--rv-vermelho-texto)", fontWeight: 700 }}>{BRL(d)}</td>
           </tr>
         ))}
       </tbody>
@@ -609,8 +609,8 @@ function AbaConferenciaPrime({ competencia, mes }) {
   const t = res?.totais || {};
   return (
     <div>
-      <div style={{ background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 16 }}>
-        <p style={{ margin: "0 0 10px", fontSize: 13, color: "#374151" }}>
+      <div style={{ background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: 10, padding: 16 }}>
+        <p style={{ margin: "0 0 10px", fontSize: 13, color: "var(--rv-texto-forte)" }}>
           Exporte o relatório de pagamentos do <b>Prime (Ulbra)</b> do mês <b>{mes}</b> e carregue aqui.
           O sistema confere <b>valor pago</b> e <b>honorário</b>, parcela a parcela. Nada é alterado — apenas aponta divergências.
           O operador exibido é sempre o do sistema.
@@ -625,15 +625,15 @@ function AbaConferenciaPrime({ competencia, mes }) {
         </div>
       </div>
 
-      {erroC && <Aviso cor="#b91c1c" bg="#fee2e2">{erroC}</Aviso>}
-      {msgC && <Aviso cor="#065f46" bg="#d1fae5">{msgC}</Aviso>}
+      {erroC && <Aviso cor="var(--rv-vermelho-texto)" bg="var(--rv-vermelho-fundo)">{erroC}</Aviso>}
+      {msgC && <Aviso cor="var(--rv-verde-ok-texto)" bg="var(--rv-verde-ok-fundo)">{msgC}</Aviso>}
 
       {res && (
         <>
           <div style={{
             marginTop: 16, padding: "14px 18px", borderRadius: 12, fontWeight: 700,
-            background: res.bateu ? "#dcfce7" : "#fef2f2", color: res.bateu ? "#166534" : "#991b1b",
-            border: `1px solid ${res.bateu ? "#86efac" : "#fecaca"}`,
+            background: res.bateu ? "var(--rv-verde-ok-fundo)" : "var(--rv-vermelho-fundo)", color: res.bateu ? "var(--rv-verde-ok-texto)" : "var(--rv-vermelho-texto)",
+            border: `1px solid ${res.bateu ? "var(--rv-verde-ok-borda)" : "var(--rv-vermelho-borda)"}`,
           }}>
             {res.bateu
               ? "✅ BATEU — todos os valores do sistema conferem exatamente com o Prime."
@@ -710,11 +710,11 @@ function TabelaConf({ titulo, cols, linhas }) {
 }
 
 function DivBloco({ titulo, itens, tipo }) {
-  if (!itens?.length) return <p style={{ color: "#16a34a", marginTop: 16, fontSize: 13 }}>✅ {titulo} — nenhuma.</p>;
+  if (!itens?.length) return <p style={{ color: "var(--rv-verde-ok)", marginTop: 16, fontSize: 13 }}>✅ {titulo} — nenhuma.</p>;
   const amostra = itens.slice(0, 200);
   return (
     <div style={{ marginTop: 20, overflowX: "auto" }}>
-      <h4 style={{ color: "#b91c1c" }}>{titulo}</h4>
+      <h4 style={{ color: "var(--rv-vermelho-texto)" }}>{titulo}</h4>
       <table style={tbl}>
         <thead><tr>
           {["Parcela", "Título", "Aluno", "Operador"].map((h) => <th key={h} style={th}>{h}</th>)}
@@ -741,7 +741,7 @@ function DivBloco({ titulo, itens, tipo }) {
           ))}
         </tbody>
       </table>
-      {itens.length > amostra.length && <p style={{ color: "#6b7280", fontSize: 12 }}>Mostrando 200 de {itens.length}. Baixe o Excel para a lista completa.</p>}
+      {itens.length > amostra.length && <p style={{ color: "var(--rv-texto-suave)", fontSize: 12 }}>Mostrando 200 de {itens.length}. Baixe o Excel para a lista completa.</p>}
     </div>
   );
 }
@@ -757,7 +757,7 @@ function Chk({ label, v, on }) {
   return <label style={{ ...lbl, flexDirection: "row", alignItems: "center", gap: 8 }}><input type="checkbox" checked={v} onChange={(e) => on(e.target.checked)} />{label}</label>;
 }
 function Lista({ titulo, itens, cols, onDel }) {
-  if (!itens?.length) return <p style={{ color: "#9ca3af", marginTop: 16 }}>{titulo}: nenhum registro.</p>;
+  if (!itens?.length) return <p style={{ color: "var(--rv-texto-fraco)", marginTop: 16 }}>{titulo}: nenhum registro.</p>;
   return (
     <div style={{ marginTop: 20, overflowX: "auto" }}>
       <h4>{titulo}</h4>
@@ -776,14 +776,14 @@ function Lista({ titulo, itens, cols, onDel }) {
   );
 }
 function Vazio({ children }) {
-  return <p style={{ color: "#9ca3af", padding: 24, textAlign: "center" }}>{children}</p>;
+  return <p style={{ color: "var(--rv-texto-fraco)", padding: 24, textAlign: "center" }}>{children}</p>;
 }
 
 const tbl = { borderCollapse: "collapse", width: "100%", fontSize: 13 };
 const th = { background: "#1e40af", color: "#fff", padding: "8px 10px", textAlign: "left", position: "sticky", top: 0 };
-const td = { padding: "6px 10px", borderBottom: "1px solid #f1f5f9" };
+const td = { padding: "6px 10px", borderBottom: "1px solid var(--rv-borda-suave)" };
 const tdN = { ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" };
 const tdC = { ...td, textAlign: "center" };
 const grid2 = { display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(220px,1fr))", gap: 12, margin: "12px 0" };
-const lbl = { display: "flex", flexDirection: "column", fontSize: 12, gap: 4, color: "#374151" };
-const inp = { padding: 8, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 };
+const lbl = { display: "flex", flexDirection: "column", fontSize: 12, gap: 4, color: "var(--rv-texto-forte)" };
+const inp = { padding: 8, borderRadius: 8, border: "1px solid var(--rv-borda-forte)", fontSize: 13 };

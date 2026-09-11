@@ -141,26 +141,26 @@ export default function Dashboard() {
     {
       titulo: "Base de alunos",
       cartoes: [
-        { rotulo: "Base total de alunos", valor: indicadores.baseTotal, icone: "👥", cor: "#334155" },
-        { rotulo: "Sem responsável", valor: indicadores.semResponsavel, icone: "❔", cor: "#94a3b8" },
-        { rotulo: "Retornos para hoje", valor: indicadores.retornosHoje, icone: "📅", cor: "#d97706" },
+        { rotulo: "Base total de alunos", valor: indicadores.baseTotal, icone: "👥", cor: "var(--rv-texto-forte)" },
+        { rotulo: "Sem responsável", valor: indicadores.semResponsavel, icone: "❔", cor: "var(--rv-texto-fraco)" },
+        { rotulo: "Retornos para hoje", valor: indicadores.retornosHoje, icone: "📅", cor: "var(--rv-ambar)" },
         { rotulo: "Em negociação 24h", valor: indicadores.negociacao24h, icone: "💬", cor: "#db2777" },
       ],
     },
     {
       titulo: "Financeiro",
       cartoes: [
-        { rotulo: "Alunos com baixa realizada", valor: indicadores.alunosPagos, icone: "✅", cor: "#16a34a" },
-        { rotulo: "Valor total recebido", valor: formatarMoeda(indicadores.valorRecebido), icone: "💰", cor: "#16a34a", destaque: true },
-        { rotulo: "Acordos ativos", valor: indicadores.acordosAtivos, icone: "🤝", cor: "#334155" },
+        { rotulo: "Alunos com baixa realizada", valor: indicadores.alunosPagos, icone: "✅", cor: "var(--rv-verde-ok)" },
+        { rotulo: "Valor total recebido", valor: formatarMoeda(indicadores.valorRecebido), icone: "💰", cor: "var(--rv-verde-ok)", destaque: true },
+        { rotulo: "Acordos ativos", valor: indicadores.acordosAtivos, icone: "🤝", cor: "var(--rv-texto-forte)" },
       ],
     },
     {
       titulo: "Filas pendentes",
       cartoes: [
-        { rotulo: "Links aguardando resposta", valor: indicadores.linksAguardando, icone: "🔗", cor: "#0ea5e9" },
-        { rotulo: "Pagamentos aguardando confirmação", valor: indicadores.baixasAguardando, icone: "🧾", cor: "#0ea5e9" },
-        { rotulo: "Termos aguardando ADM", valor: indicadores.termosAguardandoAdm, icone: "📄", cor: "#0ea5e9" },
+        { rotulo: "Links aguardando resposta", valor: indicadores.linksAguardando, icone: "🔗", cor: "var(--rv-azul)" },
+        { rotulo: "Pagamentos aguardando confirmação", valor: indicadores.baixasAguardando, icone: "🧾", cor: "var(--rv-azul)" },
+        { rotulo: "Termos aguardando ADM", valor: indicadores.termosAguardandoAdm, icone: "📄", cor: "var(--rv-azul)" },
       ],
     },
   ];
@@ -218,7 +218,7 @@ export default function Dashboard() {
                       style={{
                         ...estilos.valorCartao,
                         fontSize: c.destaque ? 30 : 26,
-                        color: c.destaque ? c.cor : "#111827",
+                        color: c.destaque ? c.cor : "var(--rv-tinta)",
                       }}
                     >
                       {carregando ? "…" : c.valor}
@@ -240,7 +240,7 @@ const estilos = {
   pagina: {
     padding: "24px 28px 40px",
     fontFamily: "'Inter', Arial, sans-serif",
-    background: "#f8fafc",
+    background: "var(--rv-fundo-cartao)",
     minHeight: "100%",
   },
   cabecalho: {
@@ -260,17 +260,17 @@ const estilos = {
   titulo: {
     margin: 0,
     marginBottom: "4px",
-    color: "#0f172a",
+    color: "var(--rv-tinta)",
     fontSize: "24px",
     fontWeight: 800,
   },
   subtitulo: {
     margin: 0,
-    color: "#64748b",
+    color: "var(--rv-texto-suave)",
     fontSize: "14px",
   },
   botaoAtualizar: {
-    background: "#0f172a",
+    background: "var(--rv-botao-escuro)",
     color: "#fff",
     border: "none",
     padding: "10px 16px",
@@ -281,7 +281,7 @@ const estilos = {
     fontSize: "13.5px",
   },
   erro: {
-    color: "#b91c1c",
+    color: "var(--rv-vermelho-texto)",
     fontWeight: "bold",
     marginBottom: "12px",
   },
@@ -290,7 +290,7 @@ const estilos = {
   },
   tituloSecao: {
     margin: "0 0 12px 0",
-    color: "#334155",
+    color: "var(--rv-texto-forte)",
     fontSize: "14px",
     fontWeight: 700,
     textTransform: "uppercase",
@@ -302,10 +302,10 @@ const estilos = {
     gap: "14px",
   },
   cartao: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "14px",
     boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
-    border: "1px solid #eef2f7",
+    border: "1px solid var(--rv-borda-suave)",
     overflow: "hidden",
     display: "flex",
   },
@@ -330,12 +330,12 @@ const estilos = {
   rotuloCartao: {
     margin: 0,
     fontSize: "12.5px",
-    color: "#64748b",
+    color: "var(--rv-texto-suave)",
     fontWeight: 600,
   },
   valorCartao: {
     margin: 0,
     fontWeight: 800,
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
 };

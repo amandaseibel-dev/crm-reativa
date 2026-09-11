@@ -43,34 +43,34 @@ function dataHora(valor) {
 
 function corStatus(status) {
   if (status === "BAIXA_CONCLUIDA" || status === "BAIXA_REALIZADA" || status === "BAIXADO") {
-    return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
+    return { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-verde-ok-borda)" };
   }
 
   if (status === "AGUARDANDO_BAIXA" || status === "PAGO_AGUARDANDO_BAIXA") {
-    return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
+    return { background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)" };
   }
 
   if (status === "DIVERGENCIA") {
-    return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5" };
+    return { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)" };
   }
 
   if (status === "CANCELADO") {
-    return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
+    return { background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)" };
   }
 
   if (status === "LINK_GERADO" || status === "LINK_PRONTO_PARA_ENVIO") {
-    return { background: "#dcfce7", color: "#166534", border: "1px solid #bfdbfe" };
+    return { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-azul-borda)" };
   }
 
   if (status === "LINK_ENVIADO_ALUNO" || status === "LINK_ENVIADO_AO_ALUNO" || status === "LINK_ENVIADO") {
-    return { background: "#ede9fe", color: "#5b21b6", border: "1px solid #ddd6fe" };
+    return { background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)", border: "1px solid var(--rv-roxo-borda)" };
   }
 
   if (status === "SOLICITADO_LINK" || status === "SOLICITADO") {
-    return { background: "#e0f2fe", color: "#075985", border: "1px solid #bae6fd" };
+    return { background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)" };
   }
 
-  return { background: "#e5e7eb", color: "#374151", border: "1px solid #d1d5db" };
+  return { background: "var(--rv-borda)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda-forte)" };
 }
 
 function podeGerarLink(email) {
@@ -463,12 +463,12 @@ export default function ControleLinksPagamento() {
             <option value="ALUNO">Aluno A-Z</option>
           </select>
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#374151", fontWeight: "bold" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--rv-texto-forte)", fontWeight: "bold" }}>
             De (solicitação)
             <input type="date" style={styles.input} value={dataDe} onChange={(e) => setDataDe(e.target.value)} />
           </label>
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "#374151", fontWeight: "bold" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 4, fontSize: 12, color: "var(--rv-texto-forte)", fontWeight: "bold" }}>
             Até (solicitação)
             <input type="date" style={styles.input} value={dataAte} onChange={(e) => setDataAte(e.target.value)} />
           </label>
@@ -608,34 +608,34 @@ export default function ControleLinksPagamento() {
 }
 
 const styles = {
-  container: { minHeight: "100%", background: "#f4f6f8", padding: "24px", fontFamily: "Arial, sans-serif" },
+  container: { minHeight: "100%", background: "var(--rv-fundo-suave)", padding: "24px", fontFamily: "Arial, sans-serif" },
   cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "18px" },
-  titulo: { margin: 0, color: "#111827" },
-  subtitulo: { margin: "6px 0 0 0", color: "#555" },
-  usuario: { margin: "8px 0 0 0", color: "#374151" },
+  titulo: { margin: 0, color: "var(--rv-tinta)" },
+  subtitulo: { margin: "6px 0 0 0", color: "var(--rv-texto)" },
+  usuario: { margin: "8px 0 0 0", color: "var(--rv-texto-forte)" },
   nav: { display: "flex", gap: "8px", flexWrap: "wrap" },
   indicadores: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: "12px", marginBottom: "16px" },
-  indicador: { background: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  indicador: { background: "var(--rv-superficie)", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
   indicadorValor: { background: "#111827", color: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
-  card: { background: "#fff", borderRadius: "14px", padding: "18px", marginBottom: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
-  cardLink: { background: "#fff", borderRadius: "16px", padding: "20px", marginBottom: "16px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", borderLeft: "6px solid #111827" },
-  subtituloCard: { margin: "0 0 12px 0", color: "#111827" },
+  card: { background: "var(--rv-superficie)", borderRadius: "14px", padding: "18px", marginBottom: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  cardLink: { background: "var(--rv-superficie)", borderRadius: "16px", padding: "20px", marginBottom: "16px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", borderLeft: "6px solid #111827" },
+  subtituloCard: { margin: "0 0 12px 0", color: "var(--rv-tinta)" },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "10px" },
   gridLink: { display: "grid", gridTemplateColumns: "minmax(250px, 1fr) repeat(3, auto)", gap: "8px", alignItems: "center", marginTop: "14px" },
-  input: { padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "14px" },
-  textarea: { width: "100%", minHeight: "70px", marginTop: "10px", padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
+  input: { padding: "11px", borderRadius: "8px", border: "1px solid var(--rv-borda-forte)", fontSize: "14px" },
+  textarea: { width: "100%", minHeight: "70px", marginTop: "10px", padding: "11px", borderRadius: "8px", border: "1px solid var(--rv-borda-forte)", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
   topoCard: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start" },
-  nome: { margin: "0 0 8px 0", color: "#111827" },
-  info: { margin: "5px 0", color: "#555" },
+  nome: { margin: "0 0 8px 0", color: "var(--rv-tinta)" },
+  info: { margin: "5px 0", color: "var(--rv-texto)" },
   status: { padding: "8px 12px", borderRadius: "999px", fontWeight: "bold", fontSize: "13px", whiteSpace: "nowrap" },
-  obs: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px", color: "#374151" },
-  comprovanteBox: { background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: "10px", padding: "12px", marginTop: "14px", display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" },
+  obs: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: "10px", padding: "12px", marginTop: "14px", color: "var(--rv-texto-forte)" },
+  comprovanteBox: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)", borderRadius: "10px", padding: "12px", marginTop: "14px", display: "flex", justifyContent: "space-between", gap: "10px", alignItems: "center", flexWrap: "wrap" },
   acoes: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "12px" },
-  datas: { display: "flex", flexWrap: "wrap", gap: "12px", color: "#6b7280", fontSize: "12px", marginTop: "12px" },
-  botaoEscuro: { background: "#111827", color: "#fff", border: "none", padding: "10px 13px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  datas: { display: "flex", flexWrap: "wrap", gap: "12px", color: "var(--rv-texto-suave)", fontSize: "12px", marginTop: "12px" },
+  botaoEscuro: { background: "var(--rv-botao-escuro)", color: "#fff", border: "none", padding: "10px 13px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
   botaoAzul: { background: "#0d6efd", color: "#fff", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
-  botaoAmarelo: { background: "#ffc107", color: "#111827", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  botaoAmarelo: { background: "#ffc107", color: "var(--rv-tinta)", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
   botaoVermelho: { background: "#dc3545", color: "#fff", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
-  botaoCinza: { background: "#e5e7eb", color: "#111827", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
-  vazio: { background: "#fff", padding: "18px", borderRadius: "10px" },
+  botaoCinza: { background: "var(--rv-borda)", color: "var(--rv-tinta)", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  vazio: { background: "var(--rv-superficie)", padding: "18px", borderRadius: "10px" },
 };

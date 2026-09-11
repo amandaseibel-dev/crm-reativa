@@ -7,9 +7,9 @@ import { supabase } from "../../services/supabase";
 // queda real; por isso decompomos cada mês em volume × ticket médio × honorário.
 
 const ABREV = ["", "Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-const AZUL = "#2563eb";
-const CINZA = "#94a3b8";
-const BORDA = "#e5e7eb";
+const AZUL = "var(--rv-azul)";
+const CINZA = "var(--rv-texto-fraco)";
+const BORDA = "var(--rv-borda)";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -24,9 +24,9 @@ function pct(a, b) {
   const va = Number(a) || 0;
   const vb = Number(b) || 0;
   if (!va && !vb) return null;
-  if (!va) return { texto: "novo", cor: "#16a34a", positivo: true };
+  if (!va) return { texto: "novo", cor: "var(--rv-verde-ok)", positivo: true };
   const p = ((vb - va) / va) * 100;
-  return { texto: (p >= 0 ? "+" : "") + p.toFixed(0) + "%", cor: p >= 0 ? "#16a34a" : "#dc2626", positivo: p >= 0 };
+  return { texto: (p >= 0 ? "+" : "") + p.toFixed(0) + "%", cor: p >= 0 ? "var(--rv-verde-ok)" : "var(--rv-vermelho)", positivo: p >= 0 };
 }
 
 function Delta({ a, b }) {
@@ -76,7 +76,7 @@ export default function ComparativoAnoAno() {
   );
 
   if (carregando) return <p style={{ opacity: 0.7 }}>Carregando comparativo ano vs ano...</p>;
-  if (erro) return <p style={{ color: "#b45309" }}>{erro}</p>;
+  if (erro) return <p style={{ color: "var(--rv-ambar-texto)" }}>{erro}</p>;
   if (!dados) return null;
 
   const mesRefNome = ABREV[dados?.mes_ref] || dados?.mes_ref;
@@ -116,7 +116,7 @@ export default function ComparativoAnoAno() {
       {/* GRÁFICO — barras agrupadas mês a mês (ano anterior x ano atual). */}
       <div style={estilos.card}>
         <h3 style={{ margin: "0 0 10px" }}>📊 Recuperado mês a mês — {anoAnt} vs {anoAtu}</h3>
-        <div style={{ display: "flex", gap: 18, fontSize: 12, color: "#64748b", marginBottom: 12, fontWeight: 600 }}>
+        <div style={{ display: "flex", gap: 18, fontSize: 12, color: "var(--rv-texto-suave)", marginBottom: 12, fontWeight: 600 }}>
           <span><span style={{ ...estilos.legDot, background: CINZA }} /> {anoAnt}</span>
           <span><span style={{ ...estilos.legDot, background: AZUL }} /> {anoAtu}</span>
         </div>
@@ -130,7 +130,7 @@ export default function ComparativoAnoAno() {
                   <div title={`${anoAnt}: ${moeda(m.rec_ant)}`} style={{ width: 16, height: hAnt, background: CINZA, borderRadius: "3px 3px 0 0" }} />
                   <div title={`${anoAtu}: ${moeda(m.rec_atu)}`} style={{ width: 16, height: hAtu, background: AZUL, borderRadius: "3px 3px 0 0" }} />
                 </div>
-                <div style={{ fontSize: 11, color: "#64748b", marginTop: 5 }}>{ABREV[m.mes]}</div>
+                <div style={{ fontSize: 11, color: "var(--rv-texto-suave)", marginTop: 5 }}>{ABREV[m.mes]}</div>
               </div>
             );
           })}
@@ -188,7 +188,7 @@ export default function ComparativoAnoAno() {
             </tfoot>
           </table>
         </div>
-        <p style={{ color: "#8a93a3", fontSize: 12, marginTop: 10 }}>
+        <p style={{ color: "var(--rv-texto-fraco)", fontSize: 12, marginTop: 10 }}>
           Base: pagamentos do mês (Santander) + histórico de recuperação. "novo" = mês sem operação em {anoAnt}. Meses sem dado nos dois anos ficam ocultos.
         </p>
       </div>
@@ -203,7 +203,7 @@ function KpiComparativo({ rotulo, atu, ant, a, b, anoAnt, destaque, alerta }) {
       <div style={estilos.kpiRot}>{rotulo}</div>
       <div style={estilos.kpiVal}>
         {atu}{" "}
-        {d && <span style={{ fontSize: 13, fontWeight: 700, color: alerta && !d.positivo ? "#dc2626" : d.cor }}>{d.texto}</span>}
+        {d && <span style={{ fontSize: 13, fontWeight: 700, color: alerta && !d.positivo ? "var(--rv-vermelho)" : d.cor }}>{d.texto}</span>}
       </div>
       <div style={estilos.kpiNota}>vs {ant} em {anoAnt}</div>
     </div>
@@ -211,22 +211,22 @@ function KpiComparativo({ rotulo, atu, ant, a, b, anoAnt, destaque, alerta }) {
 }
 
 const estilos = {
-  card: { background: "#fff", border: `1px solid ${BORDA}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14 },
+  card: { background: "var(--rv-superficie)", border: `1px solid ${BORDA}`, borderRadius: 12, padding: "16px 18px", marginBottom: 14 },
   kpiRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12 },
-  kpi: { background: "#f8fafc", borderRadius: 10, padding: "12px 14px", border: `1px solid ${BORDA}` },
-  kpiDestaque: { background: "#eff6ff", border: "1px solid #bfdbfe" },
-  kpiRot: { fontSize: 12.5, color: "#64748b", fontWeight: 600, marginBottom: 4 },
-  kpiVal: { fontSize: 21, fontWeight: 800, color: "#0d1321", lineHeight: 1.15 },
-  kpiNota: { fontSize: 11.5, color: "#94a3b8", marginTop: 2 },
+  kpi: { background: "var(--rv-fundo-cartao)", borderRadius: 10, padding: "12px 14px", border: `1px solid ${BORDA}` },
+  kpiDestaque: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)" },
+  kpiRot: { fontSize: 12.5, color: "var(--rv-texto-suave)", fontWeight: 600, marginBottom: 4 },
+  kpiVal: { fontSize: 21, fontWeight: 800, color: "var(--rv-tinta)", lineHeight: 1.15 },
+  kpiNota: { fontSize: 11.5, color: "var(--rv-texto-fraco)", marginTop: 2 },
   legDot: { display: "inline-block", width: 10, height: 10, borderRadius: 3, marginRight: 5, verticalAlign: "middle" },
-  avisoQueda: { marginTop: 12, padding: "10px 14px", borderRadius: 10, background: "#fef2f2", border: "1px solid #fecaca", fontSize: 12.5, color: "#b91c1c" },
+  avisoQueda: { marginTop: 12, padding: "10px 14px", borderRadius: 10, background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", fontSize: 12.5, color: "var(--rv-vermelho-texto)" },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "8px 10px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: `1px solid ${BORDA}`, whiteSpace: "nowrap" },
-  thNum: { textAlign: "right", padding: "8px 10px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: `1px solid ${BORDA}`, whiteSpace: "nowrap" },
-  tdMes: { padding: "8px 10px", fontWeight: 700, color: "#334155", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  td: { padding: "8px 10px", textAlign: "right", color: "#64748b", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdForte: { padding: "8px 10px", textAlign: "right", color: "#0d1321", fontWeight: 700, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdNum: { padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdTotal: { padding: "10px", textAlign: "right", fontWeight: 800, color: "#0d1321", borderTop: `2px solid ${BORDA}`, whiteSpace: "nowrap" },
+  th: { textAlign: "left", padding: "8px 10px", color: "var(--rv-texto-suave)", fontWeight: 700, fontSize: 12, borderBottom: `1px solid ${BORDA}`, whiteSpace: "nowrap" },
+  thNum: { textAlign: "right", padding: "8px 10px", color: "var(--rv-texto-suave)", fontWeight: 700, fontSize: 12, borderBottom: `1px solid ${BORDA}`, whiteSpace: "nowrap" },
+  tdMes: { padding: "8px 10px", fontWeight: 700, color: "var(--rv-texto-forte)", borderBottom: "1px solid var(--rv-borda-suave)", whiteSpace: "nowrap" },
+  td: { padding: "8px 10px", textAlign: "right", color: "var(--rv-texto-suave)", borderBottom: "1px solid var(--rv-borda-suave)", whiteSpace: "nowrap" },
+  tdForte: { padding: "8px 10px", textAlign: "right", color: "var(--rv-tinta)", fontWeight: 700, borderBottom: "1px solid var(--rv-borda-suave)", whiteSpace: "nowrap" },
+  tdNum: { padding: "8px 10px", textAlign: "right", borderBottom: "1px solid var(--rv-borda-suave)", whiteSpace: "nowrap" },
+  tdTotal: { padding: "10px", textAlign: "right", fontWeight: 800, color: "var(--rv-tinta)", borderTop: `2px solid ${BORDA}`, whiteSpace: "nowrap" },
   tdTotalNum: { padding: "10px", textAlign: "right", borderTop: `2px solid ${BORDA}`, whiteSpace: "nowrap" },
 };

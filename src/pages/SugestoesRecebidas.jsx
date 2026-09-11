@@ -10,23 +10,23 @@ function formatarData(dataISO) {
 }
 
 const CORES_TIPO = {
-  Erro: { bg: "#fef2f2", cor: "#dc2626" },
-  Melhoria: { bg: "#eff6ff", cor: "#2563eb" },
-  "Sugestão / Melhoria": { bg: "#eff6ff", cor: "#2563eb" },
-  "Nova ideia": { bg: "#ecfdf5", cor: "#16a34a" },
-  "Ajuste de informação": { bg: "#fffbeb", cor: "#b45309" },
-  Dúvida: { bg: "#f1f5f9", cor: "#475569" },
+  Erro: { bg: "var(--rv-vermelho-fundo)", cor: "var(--rv-vermelho)" },
+  Melhoria: { bg: "var(--rv-azul-fundo)", cor: "var(--rv-azul)" },
+  "Sugestão / Melhoria": { bg: "var(--rv-azul-fundo)", cor: "var(--rv-azul)" },
+  "Nova ideia": { bg: "var(--rv-verde-ok-fundo)", cor: "var(--rv-verde-ok)" },
+  "Ajuste de informação": { bg: "var(--rv-ambar-fundo)", cor: "var(--rv-ambar-texto)" },
+  Dúvida: { bg: "var(--rv-fundo-suave)", cor: "var(--rv-texto)" },
 };
 
 // Fluxo de tratativa. FEITA é tratada como "Corrigido/Feito".
 const STATUS = {
-  NOVA: { label: "Novas", chip: "Nova", bg: "#eef2ff", cor: "#4338ca" },
-  REABERTO: { label: "Reabertas", chip: "Reaberto (persiste)", bg: "#fef2f2", cor: "#dc2626" },
-  EM_ANALISE: { label: "Em análise", chip: "Em análise", bg: "#fff7ed", cor: "#c2410c" },
-  EM_TRATATIVA: { label: "Em tratativa", chip: "Em tratativa", bg: "#fefce8", cor: "#a16207" },
-  AGUARDANDO_VALIDACAO: { label: "Aguardando validação", chip: "Aguardando validação", bg: "#eff6ff", cor: "#1d4ed8" },
-  FEITA: { label: "Corrigidas", chip: "Corrigido / Feito", bg: "#ecfdf5", cor: "#15803d" },
-  DESCARTADA: { label: "Descartadas", chip: "Descartada", bg: "#f1f5f9", cor: "#64748b" },
+  NOVA: { label: "Novas", chip: "Nova", bg: "var(--rv-roxo-fundo)", cor: "var(--rv-roxo-texto)" },
+  REABERTO: { label: "Reabertas", chip: "Reaberto (persiste)", bg: "var(--rv-vermelho-fundo)", cor: "var(--rv-vermelho)" },
+  EM_ANALISE: { label: "Em análise", chip: "Em análise", bg: "var(--rv-ambar-fundo)", cor: "var(--rv-ambar-texto)" },
+  EM_TRATATIVA: { label: "Em tratativa", chip: "Em tratativa", bg: "var(--rv-ambar-fundo)", cor: "var(--rv-ambar-texto)" },
+  AGUARDANDO_VALIDACAO: { label: "Aguardando validação", chip: "Aguardando validação", bg: "var(--rv-azul-fundo)", cor: "var(--rv-azul-texto)" },
+  FEITA: { label: "Corrigidas", chip: "Corrigido / Feito", bg: "var(--rv-verde-ok-fundo)", cor: "var(--rv-verde-ok-texto)" },
+  DESCARTADA: { label: "Descartadas", chip: "Descartada", bg: "var(--rv-fundo-suave)", cor: "var(--rv-texto-suave)" },
 };
 const ORDEM_FILTROS = ["NOVA", "REABERTO", "EM_ANALISE", "EM_TRATATIVA", "AGUARDANDO_VALIDACAO", "FEITA", "DESCARTADA", "TODAS"];
 
@@ -126,7 +126,7 @@ export default function SugestoesRecebidas() {
         <p style={S.muted}>Nenhuma sugestão nesse filtro.</p>
       ) : (
         filtradas.map((s) => {
-          const cores = CORES_TIPO[s.tipo] || { bg: "#f1f5f9", cor: "#475569" };
+          const cores = CORES_TIPO[s.tipo] || { bg: "var(--rv-fundo-suave)", cor: "var(--rv-texto)" };
           const st = STATUS[s.status || "NOVA"] || STATUS.NOVA;
           const atual = s.status || "NOVA";
           return (
@@ -226,35 +226,35 @@ function botaoStatus(atual, alvo) {
 }
 
 const S = {
-  container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "#f4f6fa", minHeight: "100%" },
-  tratativa: { color: "#94a3b8", fontWeight: 500 },
-  badgeVisivel: { fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 999, background: "#ecfeff", color: "#0e7490" },
-  retornoOperador: { margin: "0 0 12px", background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 10, padding: "9px 12px", fontSize: 13, lineHeight: 1.5 },
-  botaoVisibilidade: { background: "#f8fafc", color: "#475569", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
+  container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "var(--rv-fundo)", minHeight: "100%" },
+  tratativa: { color: "var(--rv-texto-fraco)", fontWeight: 500 },
+  badgeVisivel: { fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 999, background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)" },
+  retornoOperador: { margin: "0 0 12px", background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", borderRadius: 10, padding: "9px 12px", fontSize: 13, lineHeight: 1.5 },
+  botaoVisibilidade: { background: "var(--rv-fundo-cartao)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda)", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18, flexWrap: "wrap" },
-  titulo: { margin: 0, color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
-  subtitulo: { margin: "5px 0 0", color: "#8a93a3", fontSize: 13.5 },
+  titulo: { margin: 0, color: "var(--rv-tinta)", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
+  subtitulo: { margin: "5px 0 0", color: "var(--rv-texto-fraco)", fontSize: 13.5 },
   botaoAtualizar: { background: "#2563eb", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
   filtros: { display: "flex", gap: 8, marginBottom: 18, flexWrap: "wrap" },
-  filtro: { background: "#fff", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 10, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer" },
+  filtro: { background: "var(--rv-superficie)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer" },
   filtroAtivo: { background: "#2563eb", color: "#fff", border: "1px solid #2563eb", borderRadius: 10, padding: "8px 14px", fontWeight: 700, fontSize: 12.5, cursor: "pointer" },
-  muted: { color: "#8a93a3" },
-  card: { background: "#fff", border: "1px solid #edf0f5", borderRadius: 16, padding: "18px 20px", marginBottom: 14, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
+  muted: { color: "var(--rv-texto-fraco)" },
+  card: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16, padding: "18px 20px", marginBottom: 14, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
   cardTopo: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10, flexWrap: "wrap", marginBottom: 10 },
   badge: { fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 999 },
-  badgeCinza: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: "#f1f5f9", color: "#64748b" },
-  data: { fontSize: 12, color: "#8a93a3" },
-  descricao: { fontSize: 13.5, color: "#334155", lineHeight: 1.55, margin: "0 0 12px" },
-  botaoAnexo: { background: "#f8fafc", color: "#2563eb", border: "1px solid #dbeafe", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", marginBottom: 12 },
-  blocoObs: { background: "#f8fafc", border: "1px solid #eef2f7", borderRadius: 10, padding: "10px 12px", marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 },
-  obsTexto: { margin: 0, fontSize: 13, color: "#334155", lineHeight: 1.5, whiteSpace: "pre-wrap" },
-  obsInput: { width: "100%", boxSizing: "border-box", minHeight: 64, resize: "vertical", padding: "8px 10px", borderRadius: 8, border: "1px solid #e2e8f0", fontSize: 13, fontFamily: "inherit" },
-  obsEditar: { alignSelf: "flex-start", background: "transparent", color: "#2563eb", border: "none", padding: 0, fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
+  badgeCinza: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: "var(--rv-fundo-suave)", color: "var(--rv-texto-suave)" },
+  data: { fontSize: 12, color: "var(--rv-texto-fraco)" },
+  descricao: { fontSize: 13.5, color: "var(--rv-texto-forte)", lineHeight: 1.55, margin: "0 0 12px" },
+  botaoAnexo: { background: "var(--rv-fundo-cartao)", color: "var(--rv-azul)", border: "1px solid var(--rv-azul-borda)", borderRadius: 8, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", marginBottom: 12 },
+  blocoObs: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda-suave)", borderRadius: 10, padding: "10px 12px", marginBottom: 12, display: "flex", flexDirection: "column", gap: 8 },
+  obsTexto: { margin: 0, fontSize: 13, color: "var(--rv-texto-forte)", lineHeight: 1.5, whiteSpace: "pre-wrap" },
+  obsInput: { width: "100%", boxSizing: "border-box", minHeight: 64, resize: "vertical", padding: "8px 10px", borderRadius: 8, border: "1px solid var(--rv-borda)", fontSize: 13, fontFamily: "inherit" },
+  obsEditar: { alignSelf: "flex-start", background: "transparent", color: "var(--rv-azul)", border: "none", padding: 0, fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
   obsSalvar: { background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  obsCancelar: { background: "#f1f5f9", color: "#64748b", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  obsCancelar: { background: "var(--rv-fundo-suave)", color: "var(--rv-texto-suave)", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
   rodape: { display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10 },
-  autor: { fontSize: 12, color: "#8a93a3", fontWeight: 600 },
-  botaoAcao: { background: "#eff6ff", color: "#2563eb", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
-  botaoAcaoVerde: { background: "#ecfdf5", color: "#16a34a", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
-  botaoAcaoCinza: { background: "#f1f5f9", color: "#64748b", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
+  autor: { fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 600 },
+  botaoAcao: { background: "var(--rv-azul-fundo)", color: "var(--rv-azul)", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
+  botaoAcaoVerde: { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok)", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
+  botaoAcaoCinza: { background: "var(--rv-fundo-suave)", color: "var(--rv-texto-suave)", border: "none", borderRadius: 8, padding: "6px 12px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
 };

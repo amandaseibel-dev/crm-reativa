@@ -419,11 +419,11 @@ export default function FluxoLinksRapido() {
   }
 
   function corHistorico(status) {
-    if (status === "BAIXA_REALIZADA") return "#16a34a";
-    if (status === "BAIXA_DEVOLVIDA") return "#dc2626";
-    if (status === "AGUARDANDO_BAIXA") return "#7c3aed";
-    if (status === "AGUARDANDO_COMPROVANTE" || status === "LINK_ENVIADO_ALUNO") return "#0891b2";
-    return "#2563eb";
+    if (status === "BAIXA_REALIZADA") return "var(--rv-verde-ok)";
+    if (status === "BAIXA_DEVOLVIDA") return "var(--rv-vermelho)";
+    if (status === "AGUARDANDO_BAIXA") return "var(--rv-roxo)";
+    if (status === "AGUARDANDO_COMPROVANTE" || status === "LINK_ENVIADO_ALUNO") return "var(--rv-azul)";
+    return "var(--rv-azul)";
   }
 
   function correspondeABusca(item, termo) {
@@ -598,18 +598,18 @@ export default function FluxoLinksRapido() {
 
 const wrapper = { marginBottom: "18px" };
 
-const boxInfo = { ...cartaoInfo("#e0f2fe", "#7dd3fc", "#075985"), marginBottom: "12px" };
+const boxInfo = { ...cartaoInfo("var(--rv-azul-fundo)", "#7dd3fc", "var(--rv-azul-texto)"), marginBottom: "12px" };
 
 const erroBox = { ...cartaoErro, marginBottom: "10px" };
 
 const boxAdm = {
-  ...cartaoInfo("#fff7ed", "#f97316", "#9a3412"),
+  ...cartaoInfo("var(--rv-ambar-fundo)", "#f97316", "var(--rv-ambar-texto)"),
   marginBottom: "16px",
   animation: "piscarLinkReativa 1.4s infinite"
 };
 
 const boxOperador = {
-  ...cartaoInfo("#fef2f2", "#ef4444", "#991b1b"),
+  ...cartaoInfo("var(--rv-vermelho-fundo)", "#ef4444", "var(--rv-vermelho-texto)"),
   marginBottom: "16px",
   animation: "piscarLinkReativa 1.4s infinite"
 };
@@ -624,21 +624,21 @@ const cabecalho = {
 
 const tituloAdm = {
   margin: 0,
-  color: "#9a3412",
+  color: "var(--rv-ambar-texto)",
   fontSize: "20px",
   fontWeight: "900"
 };
 
 const tituloOperador = {
   margin: 0,
-  color: "#991b1b",
+  color: "var(--rv-vermelho-texto)",
   fontSize: "20px",
   fontWeight: "900"
 };
 
 const subtitulo = {
   margin: "4px 0 0",
-  color: "#475569",
+  color: "var(--rv-texto)",
   fontSize: "14px"
 };
 
@@ -662,9 +662,9 @@ const botaoAtualizarEscuro = {
   cursor: "pointer"
 };
 
-const cardAdm = { ...cartaoAcento("#fdba74"), marginTop: "12px" };
+const cardAdm = { ...cartaoAcento("var(--rv-ambar-borda)"), marginTop: "12px" };
 
-const cardOperador = { ...cartaoAcento("#fca5a5"), marginTop: "12px" };
+const cardOperador = { ...cartaoAcento("var(--rv-vermelho-borda)"), marginTop: "12px" };
 
 const linhaTopo = {
   display: "flex",
@@ -675,14 +675,14 @@ const linhaTopo = {
 
 const nomeAluno = {
   margin: 0,
-  color: "#0f172a",
+  color: "var(--rv-tinta)",
   fontSize: "18px",
   fontWeight: "900"
 };
 
 const detalhe = {
   margin: "4px 0",
-  color: "#475569",
+  color: "var(--rv-texto)",
   fontSize: "13px"
 };
 
@@ -719,9 +719,9 @@ const badgeEnviado = {
 const avisoEnviado = {
   display: "inline-flex",
   alignItems: "center",
-  color: "#166534",
-  background: "#dcfce7",
-  border: "1px solid #86efac",
+  color: "var(--rv-verde-ok-texto)",
+  background: "var(--rv-verde-ok-fundo)",
+  border: "1px solid var(--rv-verde-ok-borda)",
   borderRadius: "8px",
   padding: "8px 12px",
   fontSize: "13px",
@@ -732,7 +732,7 @@ const label = {
   display: "block",
   marginTop: "12px",
   marginBottom: "5px",
-  color: "#334155",
+  color: "var(--rv-texto-forte)",
   fontWeight: "800",
   fontSize: "13px"
 };
@@ -747,7 +747,7 @@ const input = {
   flex: "1 1 280px",
   width: "100%",
   padding: "10px",
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--rv-borda-forte)",
   borderRadius: "8px",
   fontSize: "14px",
   boxSizing: "border-box"
@@ -763,7 +763,7 @@ const botaoDevolver = {
 };
 
 const botaoCopiar = {
-  background: "#0f172a",
+  background: "var(--rv-botao-escuro)",
   color: "#fff",
   border: "none",
   borderRadius: "8px",
@@ -776,7 +776,7 @@ const textarea = {
   width: "100%",
   minHeight: "150px",
   padding: "10px",
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--rv-borda-forte)",
   borderRadius: "8px",
   fontSize: "14px",
   resize: "vertical",
@@ -792,7 +792,7 @@ const linhaBotoes = {
 };
 
 const botaoPrincipal = {
-  background: "#0f172a",
+  background: "var(--rv-botao-escuro)",
   color: "#fff",
   border: "none",
   borderRadius: "8px",
@@ -814,8 +814,8 @@ const botaoConfirmar = {
 const boxIndicadores = {
   padding: "14px",
   borderRadius: "14px",
-  border: "1px solid #e2e8f0",
-  background: "#f8fafc",
+  border: "1px solid var(--rv-borda)",
+  background: "var(--rv-fundo-cartao)",
   marginBottom: "16px"
 };
 
@@ -827,7 +827,7 @@ const linhaIndicadores = {
 };
 
 const indicadorCard = {
-  ...cartaoAcento("#e2e8f0"),
+  ...cartaoAcento("var(--rv-borda)"),
   flex: "1 1 140px",
   display: "flex",
   flexDirection: "column",
@@ -837,7 +837,7 @@ const indicadorCard = {
 const inputBusca = {
   width: "100%",
   padding: "10px",
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--rv-borda-forte)",
   borderRadius: "8px",
   fontSize: "14px",
   boxSizing: "border-box"
@@ -846,14 +846,14 @@ const inputBusca = {
 const boxHistorico = {
   padding: "16px",
   borderRadius: "14px",
-  border: "1px solid #e2e8f0",
-  background: "#ffffff",
+  border: "1px solid var(--rv-borda)",
+  background: "var(--rv-superficie)",
   marginBottom: "16px"
 };
 
 const tituloHistorico = {
   margin: 0,
-  color: "#0f172a",
+  color: "var(--rv-tinta)",
   fontSize: "20px",
   fontWeight: "900"
 };
@@ -864,7 +864,7 @@ const linhaHistorico = {
   alignItems: "flex-start",
   gap: "12px",
   padding: "10px 0",
-  borderTop: "1px solid #f1f5f9"
+  borderTop: "1px solid var(--rv-borda-suave)"
 };
 
 const colunaHistorico = {
@@ -874,12 +874,12 @@ const colunaHistorico = {
 };
 
 const nomeAlunoHistorico = {
-  color: "#0f172a",
+  color: "var(--rv-tinta)",
   fontSize: "14px"
 };
 
 const detalheHistorico = {
-  color: "#64748b",
+  color: "var(--rv-texto-suave)",
   fontSize: "12px"
 };
 

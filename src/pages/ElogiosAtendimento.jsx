@@ -22,11 +22,11 @@ function maisDias(dataISO, dias) {
 }
 
 const STATUS_LABEL = {
-  PENDENTE_ANALISE: { texto: "Aguardando análise", cor: "#b45309", bg: "#fffbeb", borda: "#fde68a" },
-  APROVADO_TV: { texto: "Aprovado (na fila da TV)", cor: "#0f7a4f", bg: "#f0fdf4", borda: "#bfdbfe" },
-  PUBLICADO_TV: { texto: "Publicado na TV", cor: "#1d4ed8", bg: "#eff6ff", borda: "#bfdbfe" },
-  REJEITADO: { texto: "Rejeitado", cor: "#b91c1c", bg: "#fef2f2", borda: "#fecaca" },
-  ARQUIVADO: { texto: "Arquivado", cor: "#475569", bg: "#f8fafc", borda: "#e2e8f0" },
+  PENDENTE_ANALISE: { texto: "Aguardando análise", cor: "var(--rv-ambar-texto)", bg: "var(--rv-ambar-fundo)", borda: "var(--rv-ambar-borda)" },
+  APROVADO_TV: { texto: "Aprovado (na fila da TV)", cor: "var(--rv-verde-ok-texto)", bg: "var(--rv-verde-ok-fundo)", borda: "var(--rv-azul-borda)" },
+  PUBLICADO_TV: { texto: "Publicado na TV", cor: "var(--rv-azul-texto)", bg: "var(--rv-azul-fundo)", borda: "var(--rv-azul-borda)" },
+  REJEITADO: { texto: "Rejeitado", cor: "var(--rv-vermelho-texto)", bg: "var(--rv-vermelho-fundo)", borda: "var(--rv-vermelho-borda)" },
+  ARQUIVADO: { texto: "Arquivado", cor: "var(--rv-texto)", bg: "var(--rv-fundo-cartao)", borda: "var(--rv-borda)" },
 };
 
 export default function ElogiosAtendimento() {
@@ -395,7 +395,7 @@ const estilos = {
   container: {
     padding: "28px 30px 40px",
     fontFamily: "'Inter', system-ui, sans-serif",
-    background: "#f4f6fa",
+    background: "var(--rv-fundo)",
     minHeight: "100%",
   },
   cabecalho: {
@@ -408,7 +408,7 @@ const estilos = {
   },
   titulo: {
     margin: 0,
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     fontFamily: "'Sora', 'Inter', system-ui, sans-serif",
     fontSize: 26,
     fontWeight: 800,
@@ -416,7 +416,7 @@ const estilos = {
   },
   subtitulo: {
     margin: "5px 0 0",
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
     fontSize: 13.5,
     maxWidth: 520,
   },
@@ -438,22 +438,22 @@ const estilos = {
     maxWidth: 620,
   },
   card: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: 16,
     padding: "16px 18px",
     boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)",
-    border: "1px solid #edf0f5",
+    border: "1px solid var(--rv-borda-suave)",
   },
   numero: {
     display: "block",
     fontSize: 26,
     fontWeight: 800,
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     fontFamily: "'Sora', 'Inter', system-ui, sans-serif",
   },
   descricao: {
     fontSize: 12.5,
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
     fontWeight: 600,
   },
   filtros: {
@@ -467,18 +467,18 @@ const estilos = {
     minWidth: 220,
     padding: "10px 13px",
     borderRadius: 10,
-    border: "1px solid #e3e7ee",
+    border: "1px solid var(--rv-borda)",
     fontSize: 13,
   },
   select: {
     padding: "10px 13px",
     borderRadius: 10,
-    border: "1px solid #e3e7ee",
+    border: "1px solid var(--rv-borda)",
     fontSize: 13,
-    background: "#fff",
+    background: "var(--rv-superficie)",
   },
   vazio: {
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
     fontSize: 13.5,
   },
   lista: {
@@ -489,7 +489,7 @@ const estilos = {
   card2: {
     borderRadius: 14,
     padding: "14px 18px",
-    border: "1px solid #edf0f5",
+    border: "1px solid var(--rv-borda-suave)",
     boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
   },
   topoCard: {
@@ -502,29 +502,29 @@ const estilos = {
   nomeAluno: {
     margin: 0,
     fontWeight: 700,
-    color: "#101828",
+    color: "var(--rv-tinta)",
     fontSize: 14.5,
   },
   meta: {
     margin: "4px 0 0",
     fontSize: 12,
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
   },
   descricaoTexto: {
     margin: "10px 0 0",
     fontSize: 13,
-    color: "#475569",
+    color: "var(--rv-texto)",
   },
   textoFinalMostrado: {
     margin: "8px 0 0",
     fontSize: 13,
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     fontStyle: "italic",
   },
   botaoAnexo: {
-    background: "#f0fdf4",
-    border: "1px solid #bfdbfe",
-    color: "#15803d",
+    background: "var(--rv-verde-ok-fundo)",
+    border: "1px solid var(--rv-azul-borda)",
+    color: "var(--rv-verde-ok-texto)",
     borderRadius: 8,
     padding: "6px 10px",
     fontSize: 12,
@@ -550,9 +550,9 @@ const estilos = {
     cursor: "pointer",
   },
   botaoRejeitar: {
-    background: "#fff",
-    color: "#475569",
-    border: "1px solid #cbd5e1",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-texto)",
+    border: "1px solid var(--rv-borda-forte)",
     borderRadius: 8,
     padding: "6px 10px",
     fontSize: 12,
@@ -560,9 +560,9 @@ const estilos = {
     cursor: "pointer",
   },
   botaoDesaprovar: {
-    background: "#fff",
-    color: "#b91c1c",
-    border: "1px solid #fca5a5",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-vermelho-texto)",
+    border: "1px solid var(--rv-vermelho-borda)",
     borderRadius: 8,
     padding: "6px 10px",
     fontSize: 12,
@@ -579,7 +579,7 @@ const estilos = {
     zIndex: 1000,
   },
   modal: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: 16,
     padding: "24px 26px",
     width: "min(480px, 92vw)",
@@ -589,21 +589,21 @@ const estilos = {
     margin: "0 0 4px",
     fontSize: 18,
     fontWeight: 800,
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     fontFamily: "'Sora', 'Inter', system-ui, sans-serif",
   },
   label: {
     display: "block",
     fontSize: 12,
     fontWeight: 700,
-    color: "#475569",
+    color: "var(--rv-texto)",
     margin: "14px 0 6px",
   },
   textarea: {
     width: "100%",
     padding: "10px 12px",
     borderRadius: 10,
-    border: "1px solid #e3e7ee",
+    border: "1px solid var(--rv-borda)",
     fontSize: 13.5,
     fontFamily: "inherit",
     resize: "vertical",
@@ -613,7 +613,7 @@ const estilos = {
     width: "100%",
     padding: "9px 12px",
     borderRadius: 10,
-    border: "1px solid #e3e7ee",
+    border: "1px solid var(--rv-borda)",
     fontSize: 13,
     boxSizing: "border-box",
   },
@@ -624,9 +624,9 @@ const estilos = {
     marginTop: 20,
   },
   botaoCancelar: {
-    background: "#fff",
-    color: "#475569",
-    border: "1px solid #cbd5e1",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-texto)",
+    border: "1px solid var(--rv-borda-forte)",
     borderRadius: 8,
     padding: "8px 16px",
     fontSize: 13,

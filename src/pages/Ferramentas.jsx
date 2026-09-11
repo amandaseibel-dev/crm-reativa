@@ -42,8 +42,8 @@ export default function Ferramentas() {
       <div style={S.grid}>
         {FERRAMENTAS.map((f) => (
           <button key={f.rota} style={S.card} onClick={() => navigate(f.rota)}
-            onMouseOver={(e) => (e.currentTarget.style.borderColor = "#93c5fd")}
-            onMouseOut={(e) => (e.currentTarget.style.borderColor = "#e6eaf0")}>
+            onMouseOver={(e) => (e.currentTarget.style.borderColor = "var(--rv-azul-borda)")}
+            onMouseOut={(e) => (e.currentTarget.style.borderColor = "var(--rv-borda)")}>
             <span style={S.emoji}>{f.emoji}</span>
             <span style={S.cardTitulo}>
               {f.titulo}
@@ -60,13 +60,13 @@ export default function Ferramentas() {
 }
 
 const S = {
-  wrap: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", color: "#0f172a", background: "#f4f6fa", minHeight: "100%" },
-  titulo: { margin: 0, fontFamily: "'Sora', Inter, sans-serif", fontSize: 26, fontWeight: 800, color: "#0d1321", letterSpacing: "-0.03em" },
-  sub: { margin: "6px 0 22px", color: "#64748b", fontSize: 13.5 },
+  wrap: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", color: "var(--rv-tinta)", background: "var(--rv-fundo)", minHeight: "100%" },
+  titulo: { margin: 0, fontFamily: "'Sora', Inter, sans-serif", fontSize: 26, fontWeight: 800, color: "var(--rv-tinta)", letterSpacing: "-0.03em" },
+  sub: { margin: "6px 0 22px", color: "var(--rv-texto-suave)", fontSize: 13.5 },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(250px, 1fr))", gap: 16 },
-  card: { textAlign: "left", background: "#fff", border: "1px solid #e6eaf0", borderRadius: 16, padding: "18px 18px 20px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 6, transition: "border-color 0.15s", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
+  card: { textAlign: "left", background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 16, padding: "18px 18px 20px", cursor: "pointer", display: "flex", flexDirection: "column", gap: 6, transition: "border-color 0.15s", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
   emoji: { fontSize: 30, lineHeight: 1 },
-  cardTitulo: { fontFamily: "'Sora', Inter, sans-serif", fontSize: 16, fontWeight: 800, color: "#0d1321", marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
+  cardTitulo: { fontFamily: "'Sora', Inter, sans-serif", fontSize: 16, fontWeight: 800, color: "var(--rv-tinta)", marginTop: 6, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" },
   badge: { background: "#dc2626", color: "#fff", fontSize: 11, fontWeight: 800, padding: "2px 9px", borderRadius: 999, fontFamily: "'Inter', system-ui, sans-serif" },
-  cardDesc: { fontSize: 12.5, color: "#64748b", lineHeight: 1.45 },
+  cardDesc: { fontSize: 12.5, color: "var(--rv-texto-suave)", lineHeight: 1.45 },
 };

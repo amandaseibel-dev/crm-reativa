@@ -212,41 +212,41 @@ export default function SuspeitasPagamentosDuplicados() {
 }
 
 function corStatus(status) {
-  if (status === STATUS_SUSPEITA.LEGITIMO) return { background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0" };
-  if (status === STATUS_SUSPEITA.DUPLICIDADE) return { background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca" };
-  return { background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a" };
+  if (status === STATUS_SUSPEITA.LEGITIMO) return { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-verde-ok-borda)" };
+  if (status === STATUS_SUSPEITA.DUPLICIDADE) return { background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)" };
+  return { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)" };
 }
 
 const s = {
   head: { display: "flex", justifyContent: "space-between", gap: 12, alignItems: "flex-start", marginBottom: 14, flexWrap: "wrap" },
-  h3: { margin: 0, fontSize: 16, color: "#0f172a" },
-  sub: { margin: "4px 0 0", color: "#64748b", fontSize: 13, maxWidth: 720 },
-  btnAtualizar: { background: "#111827", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontWeight: 700, height: "fit-content" },
-  erro: { background: "#fee2e2", border: "1px solid #fecaca", color: "#991b1b", padding: 10, borderRadius: 8, marginBottom: 12, fontSize: 13 },
-  ok: { background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534", padding: 10, borderRadius: 8, marginBottom: 12, fontSize: 13 },
-  muted: { color: "#94a3b8", fontSize: 12 },
-  card: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 14, padding: 16, marginBottom: 14 },
+  h3: { margin: 0, fontSize: 16, color: "var(--rv-tinta)" },
+  sub: { margin: "4px 0 0", color: "var(--rv-texto-suave)", fontSize: 13, maxWidth: 720 },
+  btnAtualizar: { background: "var(--rv-botao-escuro)", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", cursor: "pointer", fontWeight: 700, height: "fit-content" },
+  erro: { background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", padding: 10, borderRadius: 8, marginBottom: 12, fontSize: 13 },
+  ok: { background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", color: "var(--rv-verde-ok-texto)", padding: 10, borderRadius: 8, marginBottom: 12, fontSize: 13 },
+  muted: { color: "var(--rv-texto-fraco)", fontSize: 12 },
+  card: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14, padding: 16, marginBottom: 14 },
   cardTopo: { display: "flex", justifyContent: "space-between", gap: 10, alignItems: "center", marginBottom: 12, flexWrap: "wrap" },
-  chave: { color: "#64748b", fontSize: 12 },
+  chave: { color: "var(--rv-texto-suave)", fontSize: 12 },
   badges: { display: "flex", gap: 6, flexWrap: "wrap" },
   badge: { borderRadius: 999, padding: "3px 9px", fontSize: 11, fontWeight: 700 },
-  badgeManual: { background: "#ede9fe", color: "#5b21b6", border: "1px solid #ddd6fe" },
+  badgeManual: { background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)", border: "1px solid var(--rv-roxo-borda)" },
   linhasWrap: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 },
-  linha: { border: "1px solid #e5e7eb", borderRadius: 10, padding: 12, position: "relative" },
-  linhaSuspeita: { border: "1px solid #fca5a5", background: "#fff7f7" },
-  tagSuspeita: { position: "absolute", top: 8, right: 8, background: "#fee2e2", color: "#991b1b", borderRadius: 6, padding: "2px 6px", fontSize: 10, fontWeight: 700 },
-  tagManter: { position: "absolute", top: 8, right: 8, background: "#dcfce7", color: "#166534", borderRadius: 6, padding: "2px 6px", fontSize: 10, fontWeight: 700 },
-  linhaAluno: { fontWeight: 700, color: "#0f172a", marginBottom: 6 },
-  kv: { display: "flex", justifyContent: "space-between", gap: 8, fontSize: 13, color: "#374151", padding: "2px 0" },
-  kvId: { display: "flex", justifyContent: "space-between", gap: 8, fontSize: 10, color: "#94a3b8", padding: "4px 0 0", wordBreak: "break-all" },
-  acoes: { marginTop: 14, borderTop: "1px solid #f1f5f9", paddingTop: 12 },
+  linha: { border: "1px solid var(--rv-borda)", borderRadius: 10, padding: 12, position: "relative" },
+  linhaSuspeita: { border: "1px solid var(--rv-vermelho-borda)", background: "var(--rv-vermelho-fundo)" },
+  tagSuspeita: { position: "absolute", top: 8, right: 8, background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", borderRadius: 6, padding: "2px 6px", fontSize: 10, fontWeight: 700 },
+  tagManter: { position: "absolute", top: 8, right: 8, background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", borderRadius: 6, padding: "2px 6px", fontSize: 10, fontWeight: 700 },
+  linhaAluno: { fontWeight: 700, color: "var(--rv-tinta)", marginBottom: 6 },
+  kv: { display: "flex", justifyContent: "space-between", gap: 8, fontSize: 13, color: "var(--rv-texto-forte)", padding: "2px 0" },
+  kvId: { display: "flex", justifyContent: "space-between", gap: 8, fontSize: 10, color: "var(--rv-texto-fraco)", padding: "4px 0 0", wordBreak: "break-all" },
+  acoes: { marginTop: 14, borderTop: "1px solid var(--rv-borda-suave)", paddingTop: 12 },
   linhaBotoes: { display: "flex", gap: 18, flexWrap: "wrap", marginBottom: 8 },
-  radio: { fontSize: 13, color: "#0f172a", display: "flex", gap: 6, alignItems: "center", cursor: "pointer" },
+  radio: { fontSize: 13, color: "var(--rv-tinta)", display: "flex", gap: 6, alignItems: "center", cursor: "pointer" },
   selects: { display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 8 },
-  label: { display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "#0f172a", flex: 1, minWidth: 220 },
-  select: { padding: "8px 10px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13, fontWeight: 400 },
-  textarea: { minHeight: 60, padding: 10, borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13, fontWeight: 400, resize: "vertical", fontFamily: "inherit" },
+  label: { display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--rv-tinta)", flex: 1, minWidth: 220 },
+  select: { padding: "8px 10px", borderRadius: 8, border: "1px solid var(--rv-borda-forte)", fontSize: 13, fontWeight: 400 },
+  textarea: { minHeight: 60, padding: 10, borderRadius: 8, border: "1px solid var(--rv-borda-forte)", fontSize: 13, fontWeight: 400, resize: "vertical", fontFamily: "inherit" },
   btnSalvar: { marginTop: 10, background: "#0ea5e9", color: "#fff", border: "none", borderRadius: 8, padding: "10px 16px", cursor: "pointer", fontWeight: 700 },
-  decidida: { marginTop: 12, borderTop: "1px solid #f1f5f9", paddingTop: 10, fontSize: 13, color: "#374151" },
-  btnReabrir: { marginTop: 8, background: "#e5e7eb", color: "#374151", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontWeight: 700, fontSize: 12 },
+  decidida: { marginTop: 12, borderTop: "1px solid var(--rv-borda-suave)", paddingTop: 10, fontSize: 13, color: "var(--rv-texto-forte)" },
+  btnReabrir: { marginTop: 8, background: "var(--rv-borda)", color: "var(--rv-texto-forte)", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontWeight: 700, fontSize: 12 },
 };

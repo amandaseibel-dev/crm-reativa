@@ -97,7 +97,7 @@ export default function DRE() {
         <div>
           <h1 style={s.h1}>DRE — Demonstrativo mensal</h1>
           <p style={s.sub}>Faturamento (honorários recuperados) − despesas = resultado. Privado.</p>
-          <div style={{ fontSize: 12, color: "#64748b", marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: "var(--rv-texto-suave)", marginTop: 2 }}>
             {snapEm
               ? `📸 Snapshot de ${new Date(snapEm).toLocaleString("pt-BR")} · atualize pela Projeção`
               : "📸 Snapshot — atualize pela Projeção"}
@@ -127,10 +127,10 @@ export default function DRE() {
       {aba === "dre" && (
         <>
           <div style={s.kpis}>
-            <Kpi rot="Faturamento (ano)" val={moeda(totais.fat)} cor="#16a34a" />
-            <Kpi rot="Folha (ano)" val={moeda(totais.folha)} cor="#f59e0b" />
-            <Kpi rot="Despesas (ano)" val={moeda(totais.desp)} cor="#ef4444" />
-            <Kpi rot="Resultado (ano)" val={moeda(totais.lucro)} cor={totais.lucro >= 0 ? "#0ea5e9" : "#ef4444"} />
+            <Kpi rot="Faturamento (ano)" val={moeda(totais.fat)} cor="var(--rv-verde-ok)" />
+            <Kpi rot="Folha (ano)" val={moeda(totais.folha)} cor="var(--rv-ambar)" />
+            <Kpi rot="Despesas (ano)" val={moeda(totais.desp)} cor="var(--rv-vermelho)" />
+            <Kpi rot="Resultado (ano)" val={moeda(totais.lucro)} cor={totais.lucro >= 0 ? "var(--rv-azul)" : "var(--rv-vermelho)"} />
           </div>
           <div style={s.card}>
             <div style={s.tblScroll}>
@@ -156,7 +156,7 @@ export default function DRE() {
                         <td style={s.tdR}>{moeda(m.faturamento)}</td>
                         <td style={s.tdR}>{moeda(m.folha_total)}</td>
                         <td style={s.tdR}>{moeda(m.despesas_total)}</td>
-                        <td style={{ ...s.tdR, color: Number(m.lucro) >= 0 ? "#0f7a4f" : "#b91c1c", fontWeight: 700 }}>{moeda(m.lucro)}</td>
+                        <td style={{ ...s.tdR, color: Number(m.lucro) >= 0 ? "var(--rv-verde-ok-texto)" : "var(--rv-vermelho-texto)", fontWeight: 700 }}>{moeda(m.lucro)}</td>
                         <td style={s.tdR}>{pct(margem)}</td>
                       </tr>
                     );
@@ -166,7 +166,7 @@ export default function DRE() {
                     <td style={s.tdR}><strong>{moeda(totais.fat)}</strong></td>
                     <td style={s.tdR}><strong>{moeda(totais.folha)}</strong></td>
                     <td style={s.tdR}><strong>{moeda(totais.desp)}</strong></td>
-                    <td style={{ ...s.tdR, color: totais.lucro >= 0 ? "#0f7a4f" : "#b91c1c" }}><strong>{moeda(totais.lucro)}</strong></td>
+                    <td style={{ ...s.tdR, color: totais.lucro >= 0 ? "var(--rv-verde-ok-texto)" : "var(--rv-vermelho-texto)" }}><strong>{moeda(totais.lucro)}</strong></td>
                     <td style={s.tdR}><strong>{pct(totais.fat > 0 ? (totais.lucro / totais.fat) * 100 : 0)}</strong></td>
                   </tr>
                 </tbody>
@@ -373,7 +373,7 @@ function MesPicker({ ano, mesSel, setMesSel }) {
       {MESES.map((m, i) => (
         <button key={m} style={mesSel === i + 1 ? s.mesAtivo : s.mes} onClick={() => setMesSel(i + 1)}>{m}</button>
       ))}
-      <span style={{ alignSelf: "center", color: "#64748b", fontSize: 13 }}>de {ano}</span>
+      <span style={{ alignSelf: "center", color: "var(--rv-texto-suave)", fontSize: 13 }}>de {ano}</span>
     </div>
   );
 }
@@ -382,7 +382,7 @@ function Kpi({ rot, val, cor }) {
   return (
     <div style={s.kpi}>
       <span style={{ fontSize: 20, fontWeight: 800, color: cor }}>{val}</span>
-      <span style={{ fontSize: 13, color: "#64748b", fontWeight: 600 }}>{rot}</span>
+      <span style={{ fontSize: 13, color: "var(--rv-texto-suave)", fontWeight: 600 }}>{rot}</span>
     </div>
   );
 }
@@ -390,31 +390,31 @@ function Kpi({ rot, val, cor }) {
 const s = {
   wrap: { padding: 24, fontFamily: "Arial, sans-serif" },
   head: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 16 },
-  h1: { margin: 0, color: "#0f172a" },
-  sub: { margin: "6px 0 0", color: "#64748b", fontSize: 13 },
-  anoBox: { display: "flex", alignItems: "center", gap: 12, background: "#fff", border: "1px solid #e5e7eb", borderRadius: 12, padding: "8px 14px" },
-  botIcon: { background: "#f1f5f9", border: "none", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontWeight: 700 },
+  h1: { margin: 0, color: "var(--rv-tinta)" },
+  sub: { margin: "6px 0 0", color: "var(--rv-texto-suave)", fontSize: 13 },
+  anoBox: { display: "flex", alignItems: "center", gap: 12, background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 12, padding: "8px 14px" },
+  botIcon: { background: "var(--rv-fundo-suave)", border: "none", borderRadius: 8, padding: "6px 10px", cursor: "pointer", fontWeight: 700 },
   abas: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 },
-  aba: { background: "#fff", border: "1px solid #d1d5db", color: "#374151", padding: "8px 14px", borderRadius: 999, cursor: "pointer", fontSize: 13 },
+  aba: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-forte)", color: "var(--rv-texto-forte)", padding: "8px 14px", borderRadius: 999, cursor: "pointer", fontSize: 13 },
   abaAtiva: { background: "#0ea5e9", border: "1px solid #0ea5e9", color: "#fff", padding: "8px 14px", borderRadius: 999, cursor: "pointer", fontSize: 13, fontWeight: 700 },
   kpis: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 },
-  kpi: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 },
-  card: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 16, padding: 18, marginBottom: 16 },
+  kpi: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 },
+  card: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16, padding: 18, marginBottom: 16 },
   tblScroll: { overflowX: "auto" },
   tbl: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "8px 10px", color: "#8a93a3", fontSize: 11, fontWeight: 700, textTransform: "uppercase", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
-  thR: { textAlign: "right", padding: "8px 10px", color: "#8a93a3", fontSize: 11, fontWeight: 700, textTransform: "uppercase", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
-  td: { padding: "8px 10px", borderBottom: "1px solid #f2f4f7" },
-  tdR: { padding: "8px 10px", borderBottom: "1px solid #f2f4f7", textAlign: "right" },
-  totalRow: { background: "#f8fafc" },
-  tag: { marginLeft: 8, fontSize: 10, background: "#fef3c7", color: "#92400e", borderRadius: 6, padding: "1px 6px", fontWeight: 700 },
-  input: { padding: "7px 9px", borderRadius: 8, border: "1px solid #d1d5db", fontSize: 13 },
+  th: { textAlign: "left", padding: "8px 10px", color: "var(--rv-texto-fraco)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", background: "var(--rv-fundo-cartao)", borderBottom: "1px solid var(--rv-borda)" },
+  thR: { textAlign: "right", padding: "8px 10px", color: "var(--rv-texto-fraco)", fontSize: 11, fontWeight: 700, textTransform: "uppercase", background: "var(--rv-fundo-cartao)", borderBottom: "1px solid var(--rv-borda)" },
+  td: { padding: "8px 10px", borderBottom: "1px solid var(--rv-borda-suave)" },
+  tdR: { padding: "8px 10px", borderBottom: "1px solid var(--rv-borda-suave)", textAlign: "right" },
+  totalRow: { background: "var(--rv-fundo-cartao)" },
+  tag: { marginLeft: 8, fontSize: 10, background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", borderRadius: 6, padding: "1px 6px", fontWeight: 700 },
+  input: { padding: "7px 9px", borderRadius: 8, border: "1px solid var(--rv-borda-forte)", fontSize: 13 },
   formLinha: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 },
   botVerde: { background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", cursor: "pointer", fontWeight: 700, fontSize: 12 },
-  botCinza: { background: "#e5e7eb", color: "#374151", border: "none", borderRadius: 8, padding: "7px 12px", cursor: "pointer", fontWeight: 700, fontSize: 12 },
-  mes: { background: "#fff", border: "1px solid #d1d5db", color: "#374151", padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 12 },
+  botCinza: { background: "var(--rv-borda)", color: "var(--rv-texto-forte)", border: "none", borderRadius: 8, padding: "7px 12px", cursor: "pointer", fontWeight: 700, fontSize: 12 },
+  mes: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-forte)", color: "var(--rv-texto-forte)", padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 12 },
   mesAtivo: { background: "#0f172a", border: "1px solid #0f172a", color: "#fff", padding: "5px 10px", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 700 },
-  muted: { color: "#64748b", fontSize: 12.5, margin: "10px 0 0" },
-  aviso: { background: "#fff3cd", border: "1px solid #ffe69c", color: "#664d03", padding: 16, borderRadius: 10 },
-  msg: { background: "#dcfce7", border: "1px solid #bfdbfe", color: "#166534", padding: "10px 14px", borderRadius: 10, marginBottom: 12, fontSize: 13, fontWeight: 600 },
+  muted: { color: "var(--rv-texto-suave)", fontSize: 12.5, margin: "10px 0 0" },
+  aviso: { background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", padding: 16, borderRadius: 10 },
+  msg: { background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-azul-borda)", color: "var(--rv-verde-ok-texto)", padding: "10px 14px", borderRadius: 10, marginBottom: 12, fontSize: 13, fontWeight: 600 },
 };

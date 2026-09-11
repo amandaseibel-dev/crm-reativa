@@ -143,12 +143,12 @@ export default function PainelGeral() {
       ) : aba === "operacional" ? (
         <>
           <div style={S.kpiGrid}>
-            <Kpi cor="#2563eb" rot="Casos ativos" val={num(op.casos_ativos)} />
-            <Kpi cor="#334155" rot="Base total" val={num(op.base_total)} />
-            <Kpi cor="#94a3b8" rot="Sem responsável" val={num(op.sem_responsavel)} />
-            <Kpi cor="#f59e0b" rot="Sem contato +10 dias" val={num(op.sem_contato_10)} />
+            <Kpi cor="var(--rv-azul)" rot="Casos ativos" val={num(op.casos_ativos)} />
+            <Kpi cor="var(--rv-texto-forte)" rot="Base total" val={num(op.base_total)} />
+            <Kpi cor="var(--rv-texto-fraco)" rot="Sem responsável" val={num(op.sem_responsavel)} />
+            <Kpi cor="var(--rv-ambar)" rot="Sem contato +10 dias" val={num(op.sem_contato_10)} />
             <Kpi cor="#db2777" rot="Em negociação 24h" val={num(op.negociacao_24h)} />
-            <Kpi cor="#0ea5e9" rot="Retornos hoje" val={num(op.retornos_hoje)} />
+            <Kpi cor="var(--rv-azul)" rot="Retornos hoje" val={num(op.retornos_hoje)} />
           </div>
           <Tabela
             titulo="Casos ativos por operador"
@@ -159,8 +159,8 @@ export default function PainelGeral() {
       ) : aba === "carteira" ? (
         <>
           <div style={S.kpiGrid}>
-            <Kpi cor="#7c3aed" rot="CPFs com dívida" val={num(ca.cpfs_com_divida)} />
-            <Kpi cor="#16a34a" rot="Valor em aberto" val={moeda(ca.valor_em_aberto)} />
+            <Kpi cor="var(--rv-roxo)" rot="CPFs com dívida" val={num(ca.cpfs_com_divida)} />
+            <Kpi cor="var(--rv-verde-ok)" rot="Valor em aberto" val={moeda(ca.valor_em_aberto)} />
             <Kpi cor="#0d9488" rot="Títulos em aberto" val={num(ca.titulos_em_aberto)} />
           </div>
           <Tabela
@@ -177,12 +177,12 @@ export default function PainelGeral() {
       ) : (
         <>
           <div style={S.kpiGrid}>
-            <Kpi cor="#16a34a" rot={`Recebido no mês (${pg.mes})`} val={moeda(pg.recebido_valor)} />
+            <Kpi cor="var(--rv-verde-ok)" rot={`Recebido no mês (${pg.mes})`} val={moeda(pg.recebido_valor)} />
             <Kpi cor="#0d9488" rot="Honorários no mês" val={moeda(pg.honorarios_valor)} />
-            <Kpi cor="#2563eb" rot="Pagamentos recebidos" val={num(pg.recebidos_qtd)} />
-            <Kpi cor="#0891b2" rot="Acordos ativos" val={num(pg.acordos_ativos)} />
-            <Kpi cor="#0ea5e9" rot="Baixas pendentes" val={num(pg.baixas_pendentes)} />
-            <Kpi cor="#f59e0b" rot="Links aguardando" val={num(pg.links_aguardando)} />
+            <Kpi cor="var(--rv-azul)" rot="Pagamentos recebidos" val={num(pg.recebidos_qtd)} />
+            <Kpi cor="var(--rv-azul)" rot="Acordos ativos" val={num(pg.acordos_ativos)} />
+            <Kpi cor="var(--rv-azul)" rot="Baixas pendentes" val={num(pg.baixas_pendentes)} />
+            <Kpi cor="var(--rv-ambar)" rot="Links aguardando" val={num(pg.links_aguardando)} />
           </div>
           <Tabela
             titulo="Recebido por operador no mês"
@@ -236,29 +236,29 @@ function Tabela({ titulo, colunas, linhas }) {
 }
 
 const S = {
-  pagina: { padding: 24, fontFamily: "Arial, sans-serif", background: "#f1f5f9", minHeight: "100%" },
+  pagina: { padding: 24, fontFamily: "Arial, sans-serif", background: "var(--rv-fundo-suave)", minHeight: "100%" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 16 },
-  titulo: { margin: 0, marginBottom: 4, color: "#0f172a", fontSize: 26 },
-  subtitulo: { margin: 0, color: "#64748b", fontSize: 14 },
+  titulo: { margin: 0, marginBottom: 4, color: "var(--rv-tinta)", fontSize: 26 },
+  subtitulo: { margin: 0, color: "var(--rv-texto-suave)", fontSize: 14 },
   filtrosTopo: { display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" },
-  input: { padding: "9px 12px", borderRadius: 8, border: "1px solid #cbd5e1", background: "#fff", fontSize: 14 },
-  btn: { background: "#0f172a", color: "#fff", border: "none", padding: "10px 16px", borderRadius: 8, cursor: "pointer", fontWeight: "bold" },
-  erro: { color: "#b91c1c", fontWeight: "bold" },
-  alerta: { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c", borderRadius: 10, padding: 16, marginTop: 12 },
+  input: { padding: "9px 12px", borderRadius: 8, border: "1px solid var(--rv-borda-forte)", background: "var(--rv-superficie)", fontSize: 14 },
+  btn: { background: "var(--rv-botao-escuro)", color: "#fff", border: "none", padding: "10px 16px", borderRadius: 8, cursor: "pointer", fontWeight: "bold" },
+  erro: { color: "var(--rv-vermelho-texto)", fontWeight: "bold" },
+  alerta: { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 10, padding: 16, marginTop: 12 },
   abas: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 },
   abaAtiva: { border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", background: "#2563eb", color: "#fff" },
-  abaInativa: { border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", background: "#e2e8f0", color: "#475569" },
+  abaInativa: { border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 14, fontWeight: 700, cursor: "pointer", background: "var(--rv-borda)", color: "var(--rv-texto)" },
   kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 18 },
-  kpiCard: { background: "#fff", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 3px rgba(0,0,0,0.08)" },
-  kpiRot: { margin: "0 0 6px 0", fontSize: 12.5, color: "#64748b", fontWeight: 600 },
+  kpiCard: { background: "var(--rv-superficie)", borderRadius: 12, padding: "14px 16px", boxShadow: "0 1px 3px rgba(0,0,0,0.08)" },
+  kpiRot: { margin: "0 0 6px 0", fontSize: 12.5, color: "var(--rv-texto-suave)", fontWeight: 600 },
   kpiVal: { margin: 0, fontSize: 24, fontWeight: 800 },
-  bloco: { background: "#fff", borderRadius: 12, padding: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", marginBottom: 16 },
-  tituloSecao: { margin: "0 0 12px 0", color: "#0f172a", fontSize: 16 },
+  bloco: { background: "var(--rv-superficie)", borderRadius: 12, padding: 16, boxShadow: "0 1px 3px rgba(0,0,0,0.08)", marginBottom: 16 },
+  tituloSecao: { margin: "0 0 12px 0", color: "var(--rv-tinta)", fontSize: 16 },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13.5 },
-  th: { textAlign: "left", padding: "10px 8px", color: "#64748b", fontSize: 12, borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" },
-  thNum: { textAlign: "right", padding: "10px 8px", color: "#64748b", fontSize: 12, borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" },
-  tr: { borderBottom: "1px solid #f1f5f9" },
-  td: { padding: "10px 8px", color: "#0f172a", fontWeight: 600 },
-  tdNum: { padding: "10px 8px", color: "#334155", textAlign: "right", whiteSpace: "nowrap" },
-  vazio: { padding: 20, textAlign: "center", color: "#94a3b8" },
+  th: { textAlign: "left", padding: "10px 8px", color: "var(--rv-texto-suave)", fontSize: 12, borderBottom: "1px solid var(--rv-borda)", whiteSpace: "nowrap" },
+  thNum: { textAlign: "right", padding: "10px 8px", color: "var(--rv-texto-suave)", fontSize: 12, borderBottom: "1px solid var(--rv-borda)", whiteSpace: "nowrap" },
+  tr: { borderBottom: "1px solid var(--rv-borda-suave)" },
+  td: { padding: "10px 8px", color: "var(--rv-tinta)", fontWeight: 600 },
+  tdNum: { padding: "10px 8px", color: "var(--rv-texto-forte)", textAlign: "right", whiteSpace: "nowrap" },
+  vazio: { padding: 20, textAlign: "center", color: "var(--rv-texto-fraco)" },
 };

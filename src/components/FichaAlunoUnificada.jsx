@@ -64,9 +64,9 @@ function diasSemContato(a) {
 }
 function statusPrazo(a) {
   const sit = a?.status_atual || "";
-  if (sit === "JURIDICO") return { label: "Jurídico", cor: "#7c3aed" };
+  if (sit === "JURIDICO") return { label: "Jurídico", cor: "var(--rv-roxo)" };
   if (["ACORDO_FECHADO", "AGUARDANDO_BAIXA", "AGUARDANDO_COMPROVANTE", "SOLICITADO_LINK", "LINK_ENVIADO_AO_ALUNO"].includes(sit))
-    return { label: "Aguardando pgto", cor: "#2563eb" };
+    return { label: "Aguardando pgto", cor: "var(--rv-azul)" };
   // PREMISSA DO SISTEMA: "Pago" só existe com SALDO ZERADO. Com saldo vencido
   // remanescente é pagamento PARCIAL — a ficha não pode dizer "Pago" para quem
   // ainda deve (mesma regra da Minha Carteira).
@@ -74,16 +74,16 @@ function statusPrazo(a) {
     const sv = Number(a?.saldo_vencido);
     const quitado = Number.isFinite(sv) ? sv <= 0.005 : true;
     return quitado
-      ? { label: "Pago", cor: "#16a34a" }
-      : { label: "Pago parcial", cor: "#f97316" };
+      ? { label: "Pago", cor: "var(--rv-verde-ok)" }
+      : { label: "Pago parcial", cor: "var(--rv-ambar)" };
   }
-  if (["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"].includes(sit)) return { label: "Cancelado", cor: "#6b7280" };
+  if (["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"].includes(sit)) return { label: "Cancelado", cor: "var(--rv-texto-suave)" };
   const dias = diasSemContato(a);
-  if (dias === null) return { label: "Novo", cor: "#94a3b8" };
-  if (dias <= 7) return { label: "Dentro do prazo", cor: "#16a34a" };
-  if (dias === 8) return { label: "Atenção", cor: "#f59e0b" };
-  if (dias <= 10) return { label: "Risco de perder", cor: "#dc2626" };
-  return { label: "Perdendo o caso", cor: "#991b1b" };
+  if (dias === null) return { label: "Novo", cor: "var(--rv-texto-fraco)" };
+  if (dias <= 7) return { label: "Dentro do prazo", cor: "var(--rv-verde-ok)" };
+  if (dias === 8) return { label: "Atenção", cor: "var(--rv-ambar)" };
+  if (dias <= 10) return { label: "Risco de perder", cor: "var(--rv-vermelho)" };
+  return { label: "Perdendo o caso", cor: "var(--rv-vermelho-texto)" };
 }
 
 const ABAS = [
@@ -304,11 +304,11 @@ export default function FichaAlunoUnificada({
                 {(ps.length > 0 || entradaSintetica) && (
                   <div style={S.tabelaParc}>
                     {entradaSintetica && (
-                      <div style={{ ...S.linhaParc, borderBottom: "1px dashed #cbd5e1" }}>
+                      <div style={{ ...S.linhaParc, borderBottom: "1px dashed var(--rv-borda-forte)" }}>
                         <span style={S.parcNum}>Entrada</span>
                         <span>{ac.data_entrada ? data(ac.data_entrada) : "—"}</span>
                         <span>{moeda(ac.valor_entrada)}</span>
-                        <span style={{ color: ac.entrada_paga ? "#16a34a" : "#64748b", fontWeight: 600 }}>
+                        <span style={{ color: ac.entrada_paga ? "var(--rv-verde-ok)" : "var(--rv-texto-suave)", fontWeight: 600 }}>
                           {ac.entrada_paga ? "PAGO" : "EM ABERTO"} · integra o total
                         </span>
                       </div>
@@ -318,7 +318,7 @@ export default function FichaAlunoUnificada({
                         <span style={S.parcNum}>{p.is_entrada ? "Entrada" : `${p.numero}ª`}</span>
                         <span>{data(p.vencimento)}</span>
                         <span>{moeda(p.valor)}</span>
-                        <span style={{ color: p.status === "PAGO" ? "#16a34a" : "#64748b", fontWeight: 600 }}>
+                        <span style={{ color: p.status === "PAGO" ? "var(--rv-verde-ok)" : "var(--rv-texto-suave)", fontWeight: 600 }}>
                           {p.status || "-"}
                         </span>
                       </div>
@@ -380,34 +380,34 @@ function Info({ rot, val }) {
 }
 
 const S = {
-  ficha: { background: "#fff", borderRadius: 14, padding: 18, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" },
-  vazio: { color: "#94a3b8", padding: 20 },
-  topo: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, borderBottom: "1px solid #f1f5f9", paddingBottom: 12, marginBottom: 12 },
-  nome: { margin: 0, fontSize: 18, color: "#0f172a" },
-  subTopo: { display: "flex", gap: 14, alignItems: "center", marginTop: 6, fontSize: 13, color: "#64748b" },
+  ficha: { background: "var(--rv-superficie)", borderRadius: 14, padding: 18, boxShadow: "0 1px 3px rgba(0,0,0,0.08)" },
+  vazio: { color: "var(--rv-texto-fraco)", padding: 20 },
+  topo: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, borderBottom: "1px solid var(--rv-borda-suave)", paddingBottom: 12, marginBottom: 12 },
+  nome: { margin: 0, fontSize: 18, color: "var(--rv-tinta)" },
+  subTopo: { display: "flex", gap: 14, alignItems: "center", marginTop: 6, fontSize: 13, color: "var(--rv-texto-suave)" },
   badgeStatus: { display: "inline-flex", alignItems: "center", gap: 6, fontWeight: 600 },
   bolinha: { width: 8, height: 8, borderRadius: "50%", display: "inline-block" },
-  btnFechar: { border: "none", background: "#f1f5f9", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 14, color: "#475569" },
-  abas: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, borderBottom: "1px solid #e2e8f0", paddingBottom: 10 },
+  btnFechar: { border: "none", background: "var(--rv-fundo-suave)", borderRadius: 8, width: 32, height: 32, cursor: "pointer", fontSize: 14, color: "var(--rv-texto)" },
+  abas: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14, borderBottom: "1px solid var(--rv-borda)", paddingBottom: 10 },
   abaAtiva: { border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", background: "#2563eb", color: "#fff" },
-  abaInativa: { border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", background: "#eef2f7", color: "#475569" },
-  carregando: { color: "#64748b", fontSize: 13 },
+  abaInativa: { border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", background: "var(--rv-fundo-suave)", color: "var(--rv-texto)" },
+  carregando: { color: "var(--rv-texto-suave)", fontSize: 13 },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: "4px 16px", marginBottom: 10 },
-  linhaInfo: { display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", fontSize: 13.5, borderBottom: "1px dashed #f1f5f9" },
-  rot: { color: "#64748b" },
-  val: { color: "#0f172a", fontWeight: 600, textAlign: "right" },
-  obs: { marginTop: 10, background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: 12, color: "#374151", fontSize: 13.5 },
-  contexto: { marginTop: 14, borderTop: "1px solid #f1f5f9", paddingTop: 14 },
-  subInfo: { color: "#94a3b8", fontSize: 13, marginTop: 10 },
-  blocoAcordo: { border: "1px solid #e5e7eb", borderRadius: 10, padding: 14, marginBottom: 12 },
+  linhaInfo: { display: "flex", justifyContent: "space-between", gap: 10, padding: "6px 0", fontSize: 13.5, borderBottom: "1px dashed var(--rv-borda-suave)" },
+  rot: { color: "var(--rv-texto-suave)" },
+  val: { color: "var(--rv-tinta)", fontWeight: 600, textAlign: "right" },
+  obs: { marginTop: 10, background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: 10, padding: 12, color: "var(--rv-texto-forte)", fontSize: 13.5 },
+  contexto: { marginTop: 14, borderTop: "1px solid var(--rv-borda-suave)", paddingTop: 14 },
+  subInfo: { color: "var(--rv-texto-fraco)", fontSize: 13, marginTop: 10 },
+  blocoAcordo: { border: "1px solid var(--rv-borda)", borderRadius: 10, padding: 14, marginBottom: 12 },
   acordoTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 },
-  badgeSituacao: { display: "inline-block", padding: "3px 9px", borderRadius: 999, background: "#e0edff", color: "#1d4ed8", fontSize: 12, fontWeight: 600 },
-  tabelaParc: { marginTop: 10, borderTop: "1px solid #f1f5f9" },
-  linhaParc: { display: "grid", gridTemplateColumns: "40px 1fr 1fr 1fr", gap: 8, padding: "6px 0", fontSize: 13, borderBottom: "1px solid #f8fafc", alignItems: "center" },
-  parcNum: { fontWeight: 700, color: "#475569" },
+  badgeSituacao: { display: "inline-block", padding: "3px 9px", borderRadius: 999, background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)", fontSize: 12, fontWeight: 600 },
+  tabelaParc: { marginTop: 10, borderTop: "1px solid var(--rv-borda-suave)" },
+  linhaParc: { display: "grid", gridTemplateColumns: "40px 1fr 1fr 1fr", gap: 8, padding: "6px 0", fontSize: 13, borderBottom: "1px solid var(--rv-borda-suave)", alignItems: "center" },
+  parcNum: { fontWeight: 700, color: "var(--rv-texto)" },
   historico: { display: "flex", flexDirection: "column", gap: 8, maxHeight: 420, overflowY: "auto" },
-  itemHist: { borderLeft: "2px solid #e2e8f0", paddingLeft: 10 },
-  histData: { fontSize: 11.5, color: "#94a3b8" },
-  histDesc: { fontSize: 13, color: "#334155" },
-  histAutor: { fontSize: 11.5, color: "#94a3b8" },
+  itemHist: { borderLeft: "2px solid var(--rv-borda)", paddingLeft: 10 },
+  histData: { fontSize: 11.5, color: "var(--rv-texto-fraco)" },
+  histDesc: { fontSize: 13, color: "var(--rv-texto-forte)" },
+  histAutor: { fontSize: 11.5, color: "var(--rv-texto-fraco)" },
 };

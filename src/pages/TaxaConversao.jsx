@@ -21,17 +21,17 @@ const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 
 function corTaxa(t) {
   const v = Number(t) || 0;
-  if (v >= 40) return "#16a34a";
-  if (v >= 20) return "#2563eb";
-  if (v >= 10) return "#d97706";
-  return "#dc2626";
+  if (v >= 40) return "var(--rv-verde-ok)";
+  if (v >= 20) return "var(--rv-azul)";
+  if (v >= 10) return "var(--rv-ambar)";
+  return "var(--rv-vermelho)";
 }
 function corConversao(t) {
   const v = Number(t) || 0;
-  if (v >= 3) return "#16a34a";
-  if (v >= 2) return "#2563eb";
-  if (v >= 1) return "#d97706";
-  return "#dc2626";
+  if (v >= 3) return "var(--rv-verde-ok)";
+  if (v >= 2) return "var(--rv-azul)";
+  if (v >= 1) return "var(--rv-ambar)";
+  return "var(--rv-vermelho)";
 }
 
 export default function TaxaConversao() {
@@ -148,30 +148,30 @@ export default function TaxaConversao() {
 }
 
 const s = {
-  container: { minHeight: "100%", background: "#f4f6fa", padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif" },
+  container: { minHeight: "100%", background: "var(--rv-fundo)", padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif" },
   cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", flexWrap: "wrap", marginBottom: "18px" },
-  titulo: { margin: 0, color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
-  subtitulo: { margin: "6px 0 0 0", color: "#8a93a3", maxWidth: 620, fontSize: 13.5 },
+  titulo: { margin: 0, color: "var(--rv-tinta)", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
+  subtitulo: { margin: "6px 0 0 0", color: "var(--rv-texto-fraco)", maxWidth: 620, fontSize: 13.5 },
   periodos: { display: "flex", gap: "8px" },
-  periodo: { background: "#fff", color: "#334155", border: "1px solid #e2e8f0", padding: "9px 14px", borderRadius: "10px", cursor: "pointer", fontWeight: 700, fontSize: 13 },
+  periodo: { background: "var(--rv-superficie)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda)", padding: "9px 14px", borderRadius: "10px", cursor: "pointer", fontWeight: 700, fontSize: 13 },
   periodoAtivo: { background: "#2563eb", color: "#fff", border: "1px solid #2563eb", padding: "9px 14px", borderRadius: "10px", cursor: "pointer", fontWeight: 700, fontSize: 13 },
-  aviso: { background: "#fff", padding: "18px", borderRadius: "14px", color: "#8a93a3" },
-  erro: { background: "#fef2f2", border: "1px solid #fecaca", color: "#dc2626", padding: "14px", borderRadius: "10px" },
-  card: { background: "#fff", borderRadius: "16px", padding: "20px 22px", marginBottom: "16px", border: "1px solid #edf0f5", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
-  h2: { margin: "0 0 14px 0", fontSize: "16px", color: "#0d1321", fontFamily: FONTE_TITULO, fontWeight: 800 },
+  aviso: { background: "var(--rv-superficie)", padding: "18px", borderRadius: "14px", color: "var(--rv-texto-fraco)" },
+  erro: { background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho)", padding: "14px", borderRadius: "10px" },
+  card: { background: "var(--rv-superficie)", borderRadius: "16px", padding: "20px 22px", marginBottom: "16px", border: "1px solid var(--rv-borda-suave)", boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
+  h2: { margin: "0 0 14px 0", fontSize: "16px", color: "var(--rv-tinta)", fontFamily: FONTE_TITULO, fontWeight: 800 },
   funilLista: { display: "flex", flexDirection: "column", gap: "10px" },
   funilLinha: { display: "grid", gridTemplateColumns: "150px 1fr 70px", alignItems: "center", gap: "12px" },
-  funilNome: { fontSize: "14px", fontWeight: 700, color: "#334155" },
-  funilBarraFundo: { background: "#f1f5f9", borderRadius: "8px", height: "30px", overflow: "hidden" },
+  funilNome: { fontSize: "14px", fontWeight: 700, color: "var(--rv-texto-forte)" },
+  funilBarraFundo: { background: "var(--rv-fundo-suave)", borderRadius: "8px", height: "30px", overflow: "hidden" },
   funilBarra: { background: "linear-gradient(90deg, #2563eb, #60a5fa)", height: "100%", display: "flex", alignItems: "center", paddingLeft: "10px", borderRadius: "8px", minWidth: "70px" },
   funilBarraTxt: { color: "#fff", fontSize: "12px", fontWeight: 700, whiteSpace: "nowrap" },
   funilTaxa: { fontSize: "16px", fontWeight: 800, textAlign: "right" },
-  legenda: { fontSize: "12px", color: "#8a93a3", margin: "12px 0 0 0" },
+  legenda: { fontSize: "12px", color: "var(--rv-texto-fraco)", margin: "12px 0 0 0" },
   tabelaWrap: { overflowX: "auto", marginTop: "8px" },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: "13.5px" },
-  th: { textAlign: "left", padding: "10px 12px", borderBottom: "1px solid #e3e7ee", color: "#8a93a3", fontSize: "10.5px", fontWeight: 700, textTransform: "uppercase", background: "#f8fafc" },
-  thNum: { textAlign: "right", padding: "10px 12px", borderBottom: "1px solid #e3e7ee", color: "#8a93a3", fontSize: "10.5px", fontWeight: 700, textTransform: "uppercase", background: "#f8fafc" },
-  td: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", color: "#0d1321", fontWeight: 700 },
-  tdNum: { padding: "10px 12px", borderBottom: "1px solid #f2f4f7", color: "#334155", textAlign: "right" },
-  trAlt: { background: "#f8fafc" },
+  th: { textAlign: "left", padding: "10px 12px", borderBottom: "1px solid var(--rv-borda)", color: "var(--rv-texto-fraco)", fontSize: "10.5px", fontWeight: 700, textTransform: "uppercase", background: "var(--rv-fundo-cartao)" },
+  thNum: { textAlign: "right", padding: "10px 12px", borderBottom: "1px solid var(--rv-borda)", color: "var(--rv-texto-fraco)", fontSize: "10.5px", fontWeight: 700, textTransform: "uppercase", background: "var(--rv-fundo-cartao)" },
+  td: { padding: "10px 12px", borderBottom: "1px solid var(--rv-borda-suave)", color: "var(--rv-tinta)", fontWeight: 700 },
+  tdNum: { padding: "10px 12px", borderBottom: "1px solid var(--rv-borda-suave)", color: "var(--rv-texto-forte)", textAlign: "right" },
+  trAlt: { background: "var(--rv-fundo-cartao)" },
 };

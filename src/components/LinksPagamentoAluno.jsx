@@ -122,14 +122,14 @@ function statusLabel(status) {
 }
 
 function corStatus(status) {
-  if (status === "SOLICITADO_LINK" || status === "SOLICITADO") return "#f97316";
-  if (status === "LINK_GERADO" || status === "LINK_PRONTO_PARA_ENVIO") return "#2563eb";
-  if (status === "AGUARDANDO_COMPROVANTE") return "#0891b2";
-  if (status === "LINK_ENVIADO_ALUNO" || status === "LINK_ENVIADO_AO_ALUNO") return "#0891b2";
-  if (status === "AGUARDANDO_BAIXA" || status === "PAGO_AGUARDANDO_BAIXA") return "#7c3aed";
-  if (status === "BAIXA_REALIZADA") return "#16a34a";
-  if (status === "BAIXA_DEVOLVIDA") return "#dc2626";
-  return "#475569";
+  if (status === "SOLICITADO_LINK" || status === "SOLICITADO") return "var(--rv-ambar)";
+  if (status === "LINK_GERADO" || status === "LINK_PRONTO_PARA_ENVIO") return "var(--rv-azul)";
+  if (status === "AGUARDANDO_COMPROVANTE") return "var(--rv-azul)";
+  if (status === "LINK_ENVIADO_ALUNO" || status === "LINK_ENVIADO_AO_ALUNO") return "var(--rv-azul)";
+  if (status === "AGUARDANDO_BAIXA" || status === "PAGO_AGUARDANDO_BAIXA") return "var(--rv-roxo)";
+  if (status === "BAIXA_REALIZADA") return "var(--rv-verde-ok)";
+  if (status === "BAIXA_DEVOLVIDA") return "var(--rv-vermelho)";
+  return "var(--rv-texto)";
 }
 
 function obterLinkPagamento(item) {
@@ -922,8 +922,8 @@ export default function LinksPagamentoAluno({
           {confirmandoValorLink && (
             <div
               style={{
-                background: "#fff7e6",
-                border: "1px solid #f5c542",
+                background: "var(--rv-ambar-fundo)",
+                border: "1px solid var(--rv-ambar-borda)",
                 borderRadius: 10,
                 padding: "12px 14px",
                 marginBottom: 10,
@@ -948,7 +948,7 @@ export default function LinksPagamentoAluno({
                 <button
                   type="button"
                   onClick={() => setConfirmandoValorLink(false)}
-                  style={{ background: "#fff", border: "1px solid #ccc", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}
+                  style={{ background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "8px 16px", cursor: "pointer" }}
                 >
                   Corrigir
                 </button>
@@ -1086,16 +1086,16 @@ export default function LinksPagamentoAluno({
                   realcado
                     ? {
                         ...historicoItem,
-                        border: "2px solid #2563eb",
+                        border: "2px solid var(--rv-azul)",
                         boxShadow: "0 0 0 4px rgba(37,99,235,0.18)",
-                        background: "#eff6ff",
+                        background: "var(--rv-azul-fundo)",
                         scrollMarginTop: 16,
                       }
                     : historicoItem
                 }
               >
                 {realcado && (
-                  <div style={{ fontSize: 12, fontWeight: 800, color: "#2563eb", marginBottom: 6 }}>
+                  <div style={{ fontSize: 12, fontWeight: 800, color: "var(--rv-azul)", marginBottom: 6 }}>
                     ⬇ Solicitação da notificação
                   </div>
                 )}
@@ -1277,13 +1277,13 @@ const cabecalho = {
 const titulo = {
   margin: 0,
   fontSize: "18px",
-  color: "#0f172a",
+  color: "var(--rv-tinta)",
   fontWeight: "900",
 };
 
 const subtitulo = {
   margin: "4px 0 0",
-  color: "#64748b",
+  color: "var(--rv-texto-suave)",
   fontSize: "13px",
 };
 
@@ -1316,7 +1316,7 @@ const campo = {
 const label = {
   display: "block",
   marginBottom: "5px",
-  color: "#334155",
+  color: "var(--rv-texto-forte)",
   fontWeight: "800",
   fontSize: "13px",
 };
@@ -1324,7 +1324,7 @@ const label = {
 const input = {
   width: "100%",
   padding: "10px",
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--rv-borda-forte)",
   borderRadius: "8px",
   marginBottom: "12px",
   boxSizing: "border-box",
@@ -1332,15 +1332,15 @@ const input = {
 
 const inputBloqueado = {
   ...input,
-  background: "#e5e7eb",
-  color: "#475569",
+  background: "var(--rv-borda)",
+  color: "var(--rv-texto)",
 };
 
 const previewValor = {
   margin: "-6px 0 12px",
   fontSize: "13px",
   fontWeight: "700",
-  color: "#0f172a",
+  color: "var(--rv-tinta)",
 };
 
 const textarea = {
@@ -1374,7 +1374,7 @@ const sucessoBox = {
 };
 
 const botaoConfirmar = {
-  background: "#0f172a",
+  background: "var(--rv-botao-escuro)",
   color: "#fff",
   border: "none",
   borderRadius: "8px",
@@ -1389,12 +1389,12 @@ const historicoBox = {
 
 const tituloHistorico = {
   margin: "0 0 8px",
-  color: "#0f172a",
+  color: "var(--rv-tinta)",
 };
 
 const historicoItem = {
   ...cartao,
-  background: "#fff",
+  background: "var(--rv-superficie)",
   padding: "12px",
   marginBottom: "10px",
 };
@@ -1418,17 +1418,17 @@ const badgeStatus = {
 
 const infoLinha = {
   margin: "4px 0",
-  color: "#334155",
+  color: "var(--rv-texto-forte)",
 };
 
 const infoLinhaAlerta = {
   margin: "4px 0",
-  color: "#b91c1c",
+  color: "var(--rv-vermelho-texto)",
   fontWeight: "800",
 };
 
 const linkBox = {
-  ...cartaoInfo("#eff6ff", "#bfdbfe", "#1e40af"),
+  ...cartaoInfo("var(--rv-azul-fundo)", "var(--rv-azul-borda)", "var(--rv-azul-texto)"),
   marginTop: "8px",
 };
 
@@ -1439,7 +1439,7 @@ const linkTexto = {
 };
 
 const comprovanteBox = {
-  ...cartaoInfo("#f5f3ff", "#ddd6fe", "#5b21b6"),
+  ...cartaoInfo("var(--rv-roxo-fundo)", "var(--rv-roxo-borda)", "var(--rv-roxo-texto)"),
   marginTop: "8px",
 };
 
@@ -1451,8 +1451,8 @@ const acoesBox = {
 };
 
 const botaoSecundario = {
-  background: "#e2e8f0",
-  color: "#0f172a",
+  background: "var(--rv-borda)",
+  color: "var(--rv-tinta)",
   border: "none",
   borderRadius: "8px",
   padding: "9px 12px",

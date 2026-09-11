@@ -29,10 +29,10 @@ const TEMA = {
     },
     // A cor vai no <summary>, nao so no titulo: a seta herda daqui. Sem isto
     // ela ficava invisivel no tema escuro (texto escuro em fundo escuro).
-    sumario: { color: "#0f172a" },
-    titulo: { color: "#0f172a" },
+    sumario: { color: "var(--rv-tinta)" },
+    titulo: { color: "var(--rv-tinta)" },
     resumo: { color: cor.rotulo },
-    contador: { background: "#eef2f6", color: "#475569" },
+    contador: { background: "var(--rv-fundo-suave)", color: "var(--rv-texto)" },
     corpo: { borderTop: `1px solid ${cor.bordaClaraInterna}` },
   },
   escuro: {
@@ -43,17 +43,17 @@ const TEMA = {
     },
     sumario: { color: cor.textoEscuro },
     titulo: { color: cor.textoEscuro },
-    resumo: { color: "#9ca3af" },
+    resumo: { color: "var(--rv-texto-fraco)" },
     contador: { background: "#1f2937", color: "#d1d5db" },
     corpo: { borderTop: `1px solid ${cor.bordaEscuraSuave}` },
   },
   // Sem moldura: para dobrar um pedaco DENTRO de um cartao que ja tem borda.
   embutido: {
     caixa: { background: "transparent", border: "none", borderRadius: 0 },
-    sumario: { color: "#334155" },
-    titulo: { color: "#334155" },
+    sumario: { color: "var(--rv-texto-forte)" },
+    titulo: { color: "var(--rv-texto-forte)" },
     resumo: { color: cor.rotulo },
-    contador: { background: "#eef2f6", color: "#475569" },
+    contador: { background: "var(--rv-fundo-suave)", color: "var(--rv-texto)" },
     corpo: { borderTop: "none" },
   },
 };

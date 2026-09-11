@@ -31,9 +31,9 @@ function dataHora(valor) {
 }
 
 function corStatus(status) {
-  if (status === "BAIXA_REALIZADA") return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
-  if (status === "BAIXA_DEVOLVIDA") return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5" };
-  return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
+  if (status === "BAIXA_REALIZADA") return { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-verde-ok-borda)" };
+  if (status === "BAIXA_DEVOLVIDA") return { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)" };
+  return { background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)" };
 }
 
 const EMAILS_PODE_QUITAR = [
@@ -598,7 +598,7 @@ export default function MinhaFilaPagamentos() {
 
           <Dobra
             titulo="Abrir aluno — conferir comprovante e lançar baixa"
-            estiloSumario={{ color: "#198754" }}
+            estiloSumario={{ color: "var(--rv-verde-ok)" }}
             style={styles.detalhe}
           >
           <ComprovantePagamento item={item} onAtualizar={carregarPagamentos} />
@@ -669,7 +669,7 @@ export default function MinhaFilaPagamentos() {
               <button style={styles.botaoAmarelo} onClick={() => marcarDivergencia(item)}>Marcar divergência</button>
             </div>
           ) : (
-            <p style={{ fontSize: 12, color: "#94a3b8", fontStyle: "italic" }}>
+            <p style={{ fontSize: 12, color: "var(--rv-texto-fraco)", fontStyle: "italic" }}>
               Modo visualização — só a Amanda gestora pode baixar ou marcar divergência.
             </p>
           )}
@@ -692,56 +692,56 @@ export default function MinhaFilaPagamentos() {
 }
 
 const styles = {
-  btnCopiarNome: { marginLeft: 10, background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", verticalAlign: "middle" },
+  btnCopiarNome: { marginLeft: 10, background: "var(--rv-superficie)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer", verticalAlign: "middle" },
   infoGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))", columnGap: "18px", rowGap: "2px", marginTop: "4px" },
-  indNum: { fontSize: "28px", fontWeight: 800, color: "#111827", lineHeight: 1 },
-  indLbl: { fontSize: "13px", color: "#64748b", fontWeight: 600 },
+  indNum: { fontSize: "28px", fontWeight: 800, color: "var(--rv-tinta)", lineHeight: 1 },
+  indLbl: { fontSize: "13px", color: "var(--rv-texto-suave)", fontWeight: 600 },
   indNumV: { fontSize: "22px", fontWeight: 800, color: "#fff", lineHeight: 1.1 },
   indLblV: { fontSize: "13px", color: "#cbd5e1", fontWeight: 600 },
-  container: { minHeight: "100%", background: "#f4f6f8", padding: "24px", fontFamily: "Arial, sans-serif" },
+  container: { minHeight: "100%", background: "var(--rv-fundo-suave)", padding: "24px", fontFamily: "Arial, sans-serif" },
   cabecalho: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "18px" },
-  titulo: { margin: 0, color: "#111827" },
-  subtitulo: { margin: "6px 0 0 0", color: "#555" },
+  titulo: { margin: 0, color: "var(--rv-tinta)" },
+  subtitulo: { margin: "6px 0 0 0", color: "var(--rv-texto)" },
   nav: { display: "flex", gap: "8px", flexWrap: "wrap" },
   indicadores: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(170px, 1fr))", gap: "12px", marginBottom: "16px" },
-  indicador: { display: "flex", flexDirection: "column", gap: "4px", background: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  indicador: { display: "flex", flexDirection: "column", gap: "4px", background: "var(--rv-superficie)", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
   indicadorValor: { display: "flex", flexDirection: "column", gap: "4px", background: "#111827", color: "#fff", borderRadius: "14px", padding: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
-  card: { background: "#fff", borderRadius: "14px", padding: "18px", marginBottom: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
+  card: { background: "var(--rv-superficie)", borderRadius: "14px", padding: "18px", marginBottom: "16px", boxShadow: "0 2px 8px rgba(0,0,0,0.06)" },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: "10px" },
-  input: { padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", fontSize: "14px" },
-  labelData: { display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px", fontWeight: "bold", color: "#374151" },
+  input: { padding: "11px", borderRadius: "8px", border: "1px solid var(--rv-borda-forte)", fontSize: "14px" },
+  labelData: { display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px", fontWeight: "bold", color: "var(--rv-texto-forte)" },
   atalhosData: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "12px", alignItems: "center" },
-  chipData: { background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" },
-  botaoLimparData: { background: "#fff", color: "#374151", border: "1px solid #d1d5db", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" },
-  separadorFiltro: { width: "1px", alignSelf: "stretch", background: "#e5e7eb", margin: "2px 4px" },
-  chipSaldo: { background: "#fff", color: "#92400e", border: "1px solid #fcd34d", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" },
+  chipData: { background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)", border: "1px solid var(--rv-roxo-borda)", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" },
+  botaoLimparData: { background: "var(--rv-superficie)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda-forte)", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" },
+  separadorFiltro: { width: "1px", alignSelf: "stretch", background: "var(--rv-borda)", margin: "2px 4px" },
+  chipSaldo: { background: "var(--rv-superficie)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" },
   chipSaldoAtivo: { background: "#f59e0b", color: "#fff", border: "1px solid #f59e0b", padding: "8px 14px", borderRadius: "999px", cursor: "pointer", fontWeight: "bold", fontSize: "13px" },
-  saldoCarregando: { fontSize: "12px", color: "#94a3b8", fontStyle: "italic", alignSelf: "center" },
-  badgeSaldo: { background: "#fef3c7", color: "#92400e", border: "1px solid #fcd34d", padding: "5px 10px", borderRadius: "999px", fontWeight: "bold", fontSize: "12px", whiteSpace: "nowrap" },
-  detalhe: { marginTop: 10, borderTop: "1px solid #eef2f6", paddingTop: 8 },
-  detalheSum: { cursor: "pointer", fontWeight: 700, color: "#198754", padding: "9px 4px", fontSize: 14 },
-  cardPagamento: { background: "#fff", borderRadius: "16px", padding: "20px", marginBottom: "16px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", borderLeft: "6px solid #198754" },
+  saldoCarregando: { fontSize: "12px", color: "var(--rv-texto-fraco)", fontStyle: "italic", alignSelf: "center" },
+  badgeSaldo: { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)", padding: "5px 10px", borderRadius: "999px", fontWeight: "bold", fontSize: "12px", whiteSpace: "nowrap" },
+  detalhe: { marginTop: 10, borderTop: "1px solid var(--rv-borda-suave)", paddingTop: 8 },
+  detalheSum: { cursor: "pointer", fontWeight: 700, color: "var(--rv-verde-ok)", padding: "9px 4px", fontSize: 14 },
+  cardPagamento: { background: "var(--rv-superficie)", borderRadius: "16px", padding: "20px", marginBottom: "16px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)", borderLeft: "6px solid #198754" },
   topoCard: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start" },
-  nome: { fontSize: "19px", fontWeight: 800, margin: "0 0 8px 0", color: "#111827" },
-  info: { fontSize: "14px", lineHeight: 1.5, margin: "5px 0", color: "#555" },
+  nome: { fontSize: "19px", fontWeight: 800, margin: "0 0 8px 0", color: "var(--rv-tinta)" },
+  info: { fontSize: "14px", lineHeight: 1.5, margin: "5px 0", color: "var(--rv-texto)" },
   status: { padding: "8px 12px", borderRadius: "999px", fontWeight: "bold", fontSize: "13px", whiteSpace: "nowrap" },
   fichaWrap: { marginTop: "14px" },
-  botaoFicha: { width: "100%", textAlign: "left", background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", padding: "12px 14px", borderRadius: "10px", cursor: "pointer", fontWeight: "bold", fontSize: "14px" },
-  fichaEmbed: { marginTop: "10px", border: "1px solid #e5e7eb", borderRadius: "12px", overflow: "hidden", background: "#fff" },
-  linkBox: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px" },
-  obs: { background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: "10px", padding: "12px", marginTop: "14px", color: "#374151" },
-  textarea: { width: "100%", minHeight: "70px", marginTop: "10px", padding: "11px", borderRadius: "8px", border: "1px solid #d1d5db", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
-  boxAcordo: { background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: "10px", padding: "14px", marginTop: "14px" },
-  label: { display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px", fontWeight: "bold", color: "#374151" },
+  botaoFicha: { width: "100%", textAlign: "left", background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)", border: "1px solid var(--rv-roxo-borda)", padding: "12px 14px", borderRadius: "10px", cursor: "pointer", fontWeight: "bold", fontSize: "14px" },
+  fichaEmbed: { marginTop: "10px", border: "1px solid var(--rv-borda)", borderRadius: "12px", overflow: "hidden", background: "var(--rv-superficie)" },
+  linkBox: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: "10px", padding: "12px", marginTop: "14px" },
+  obs: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: "10px", padding: "12px", marginTop: "14px", color: "var(--rv-texto-forte)" },
+  textarea: { width: "100%", minHeight: "70px", marginTop: "10px", padding: "11px", borderRadius: "8px", border: "1px solid var(--rv-borda-forte)", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
+  boxAcordo: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: "10px", padding: "14px", marginTop: "14px" },
+  label: { display: "flex", flexDirection: "column", gap: "4px", fontSize: "12px", fontWeight: "bold", color: "var(--rv-texto-forte)" },
   tabelaParcelas: { marginTop: "12px" },
-  legendaParcelas: { fontSize: "12px", color: "#64748b", margin: "0 0 8px 0" },
+  legendaParcelas: { fontSize: "12px", color: "var(--rv-texto-suave)", margin: "0 0 8px 0" },
   linhaParcela: { display: "flex", alignItems: "center", gap: "8px", marginBottom: "6px" },
-  numeroParcela: { fontSize: "12px", fontWeight: "bold", color: "#374151", minWidth: "26px" },
-  inputParcela: { padding: "8px", borderRadius: "6px", border: "1px solid #d1d5db", fontSize: "13px", flex: 1 },
+  numeroParcela: { fontSize: "12px", fontWeight: "bold", color: "var(--rv-texto-forte)", minWidth: "26px" },
+  inputParcela: { padding: "8px", borderRadius: "6px", border: "1px solid var(--rv-borda-forte)", fontSize: "13px", flex: 1 },
   acoes: { display: "flex", flexWrap: "wrap", gap: "8px", marginTop: "12px" },
-  botaoEscuro: { background: "#111827", color: "#fff", border: "none", padding: "10px 13px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  botaoEscuro: { background: "var(--rv-botao-escuro)", color: "#fff", border: "none", padding: "10px 13px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
   botaoVerde: { background: "#198754", color: "#fff", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
-  botaoAmarelo: { background: "#ffc107", color: "#111827", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
-  alerta: { background: "#fff3cd", border: "1px solid #ffe69c", color: "#664d03", padding: "14px", borderRadius: "8px", marginTop: "14px" },
-  vazio: { background: "#fff", padding: "18px", borderRadius: "10px" },
+  botaoAmarelo: { background: "#ffc107", color: "var(--rv-tinta)", border: "none", padding: "11px 14px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
+  alerta: { background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", padding: "14px", borderRadius: "8px", marginTop: "14px" },
+  vazio: { background: "var(--rv-superficie)", padding: "18px", borderRadius: "10px" },
 };

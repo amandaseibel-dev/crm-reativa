@@ -1359,7 +1359,7 @@ function TagCrit({ valor }) {
       : v === "CRITICO" ? "#f87171"
       : v === "URGENTE" ? "#fb923c"
       : v === "ATENCAO" ? "#fbbf24"
-      : "#94a3b8";
+      : "var(--rv-texto-fraco)";
   return (
     <span style={{ color: cor, fontWeight: 700, fontSize: 12 }}>
       {valor && valor !== "-" ? valor : "—"}
@@ -1425,18 +1425,18 @@ const S = {
   td: { padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.08)" },
   tdMono: { padding: "8px 10px", borderBottom: "1px solid rgba(148,163,184,0.08)", fontFamily: "ui-monospace, monospace", fontSize: 12, opacity: 0.85 },
   tabs: { display: "flex", gap: 4, marginBottom: 18, borderBottom: "1px solid rgba(148,163,184,0.15)" },
-  tab: { padding: "10px 16px", background: "none", border: "none", borderBottom: "2px solid transparent", color: "#94a3b8", fontWeight: 600, cursor: "pointer", fontFamily: FONTE, fontSize: 14 },
+  tab: { padding: "10px 16px", background: "none", border: "none", borderBottom: "2px solid transparent", color: "var(--rv-texto-fraco)", fontWeight: 600, cursor: "pointer", fontFamily: FONTE, fontSize: 14 },
   tabAtiva: { color: "#e2e8f0", borderBottom: "2px solid #34d399" },
   stepper: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 },
-  step: { display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 12, border: "1px solid rgba(148,163,184,0.18)", background: "rgba(148,163,184,0.05)", color: "#94a3b8", cursor: "pointer", fontFamily: FONTE, flex: "1 1 220px", textAlign: "left" },
+  step: { display: "flex", alignItems: "center", gap: 10, padding: "12px 16px", borderRadius: 12, border: "1px solid rgba(148,163,184,0.18)", background: "rgba(148,163,184,0.05)", color: "var(--rv-texto-fraco)", cursor: "pointer", fontFamily: FONTE, flex: "1 1 220px", textAlign: "left" },
   stepAtivo: { border: "1px solid rgba(52,211,153,0.6)", background: "rgba(52,211,153,0.12)", color: "#e2e8f0" },
   stepNum: { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 26, height: 26, borderRadius: 999, background: "rgba(148,163,184,0.2)", color: "#cbd5e1", fontWeight: 800, fontSize: 14, flexShrink: 0 },
-  stepNumAtivo: { background: "#34d399", color: "#052e1c" },
+  stepNumAtivo: { background: "#34d399", color: "var(--rv-verde-ok-texto)" },
   stepTitulo: { display: "block", fontSize: 14, fontWeight: 700 },
   stepDesc: { display: "block", fontSize: 11.5, opacity: 0.7, marginTop: 1 },
   stepSeta: { marginLeft: "auto", opacity: 0.4 },
   subTabs: { display: "flex", gap: 4, marginBottom: 16, flexWrap: "wrap" },
-  subTab: { padding: "7px 14px", borderRadius: 999, background: "rgba(148,163,184,0.06)", border: "1px solid rgba(148,163,184,0.18)", color: "#94a3b8", fontWeight: 600, cursor: "pointer", fontFamily: FONTE, fontSize: 13 },
+  subTab: { padding: "7px 14px", borderRadius: 999, background: "rgba(148,163,184,0.06)", border: "1px solid rgba(148,163,184,0.18)", color: "var(--rv-texto-fraco)", fontWeight: 600, cursor: "pointer", fontFamily: FONTE, fontSize: 13 },
   subTabAtiva: { background: "rgba(56,189,248,0.14)", border: "1px solid rgba(56,189,248,0.5)", color: "#bae6fd" },
   veredito: { display: "flex", alignItems: "center", gap: 16, padding: "16px 18px", borderRadius: 14, marginBottom: 18, flexWrap: "wrap" },
   vereditoBom: { background: "rgba(52,211,153,0.1)", border: "1px solid rgba(52,211,153,0.35)" },
@@ -1449,7 +1449,7 @@ const S = {
   simLabel: { display: "block", fontSize: 12, opacity: 0.65, marginBottom: 6, fontWeight: 600 },
   simSelect: { width: "100%", padding: "9px 10px", borderRadius: 8, background: "#0f172a", color: "#e2e8f0", border: "1px solid rgba(148,163,184,0.25)", fontFamily: FONTE, fontSize: 14 },
   opChips: { display: "flex", flexWrap: "wrap", gap: 6 },
-  opChip: { padding: "6px 10px", borderRadius: 999, border: "1px solid rgba(148,163,184,0.25)", background: "rgba(148,163,184,0.06)", color: "#94a3b8", cursor: "pointer", fontSize: 12, fontFamily: FONTE },
+  opChip: { padding: "6px 10px", borderRadius: 999, border: "1px solid rgba(148,163,184,0.25)", background: "rgba(148,163,184,0.06)", color: "var(--rv-texto-fraco)", cursor: "pointer", fontSize: 12, fontFamily: FONTE },
   opChipOn: { background: "rgba(52,211,153,0.16)", border: "1px solid rgba(52,211,153,0.5)", color: "#a7f3d0", fontWeight: 700 },
   btnSimular: { marginTop: 14, padding: "10px 22px", borderRadius: 10, border: "1px solid rgba(56,189,248,0.5)", background: "rgba(56,189,248,0.15)", color: "#bae6fd", fontWeight: 700, cursor: "pointer", fontSize: 14 },
   simResumo: { display: "flex", gap: 12, flexWrap: "wrap" },
@@ -1466,7 +1466,7 @@ const S = {
   compTrack: { height: 4, background: "rgba(148,163,184,0.15)", borderRadius: 999, overflow: "hidden", marginTop: 3 },
   compFill: { height: "100%", borderRadius: 999 },
   fichaOverlay: { position: "fixed", inset: 0, background: "rgba(0,0,0,0.6)", zIndex: 1100, display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "20px 12px", overflow: "auto" },
-  fichaModal: { background: "#fff", color: "#0f172a", borderRadius: 14, width: "min(1100px, 100%)", maxHeight: "94vh", overflow: "auto", boxShadow: "0 24px 70px rgba(0,0,0,0.5)" },
-  fichaTopo: { position: "sticky", top: 0, background: "#fff", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", borderBottom: "1px solid #e2e8f0", zIndex: 2 },
-  fichaX: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#64748b", lineHeight: 1 },
+  fichaModal: { background: "var(--rv-superficie)", color: "var(--rv-tinta)", borderRadius: 14, width: "min(1100px, 100%)", maxHeight: "94vh", overflow: "auto", boxShadow: "0 24px 70px rgba(0,0,0,0.5)" },
+  fichaTopo: { position: "sticky", top: 0, background: "var(--rv-superficie)", display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 18px", borderBottom: "1px solid var(--rv-borda)", zIndex: 2 },
+  fichaX: { background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "var(--rv-texto-suave)", lineHeight: 1 },
 };

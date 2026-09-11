@@ -207,7 +207,7 @@ export default function MensalidadesSemNegociacao() {
   }
 
   if (carregando) return <div style={{ padding: 24 }}>Carregando…</div>;
-  if (erro) return <div style={{ padding: 24, color: "#b91c1c" }}>{erro}</div>;
+  if (erro) return <div style={{ padding: 24, color: "var(--rv-vermelho-texto)" }}>{erro}</div>;
   if (!dados) return null;
 
   const meses = (dados.meses || []).map((m) => ({ ...m, label: m.mes_nome, qtd: Number(m.alunos_unicos) || 0 }));
@@ -238,15 +238,15 @@ export default function MensalidadesSemNegociacao() {
   const PontoDia = ({ cx, cy, payload }) => {
     if (cx == null || cy == null) return null;
     return payload?.estimado
-      ? <circle cx={cx} cy={cy} r={3.5} fill="#fff" stroke="#b45309" strokeWidth={1.5} />
-      : <circle cx={cx} cy={cy} r={3} fill="#2563eb" />;
+      ? <circle cx={cx} cy={cy} r={3.5} fill="#fff" stroke="var(--rv-ambar-texto)" strokeWidth={1.5} />
+      : <circle cx={cx} cy={cy} r={3} fill="var(--rv-azul)" />;
   };
   const TipDia = ({ active, payload }) => {
     if (!active || !payload?.length) return null;
     const e = payload[0].payload;
     return (
       <div style={tipBox}>
-        <strong>{DIA(e.dia)}</strong>{e.estimado && <span style={{ color: "#b45309" }}> · estimado</span>}
+        <strong>{DIA(e.dia)}</strong>{e.estimado && <span style={{ color: "var(--rv-ambar-texto)" }}> · estimado</span>}
         <div>Saldo: {BRL(e.saldo)}</div>
         <div>Mensalidades: {NUM(e.mensalidades)}</div>
         <div>Alunos: {NUM(e.alunos)}</div>
@@ -261,7 +261,7 @@ export default function MensalidadesSemNegociacao() {
           <h1 style={{ fontSize: 22, fontWeight: 700, marginBottom: 4 }}>
             Alunos com mensalidades vencidas entre janeiro e junho de 2026 ainda sem negociação
           </h1>
-          <p style={{ color: "#6b7280", marginTop: 0, marginBottom: 0, maxWidth: 760 }}>
+          <p style={{ color: "var(--rv-texto-suave)", marginTop: 0, marginBottom: 0, maxWidth: 760 }}>
             Visão baseada na data de vencimento registrada na Base Reativa. Pode incluir mensalidades
             ou matrículas antecipadas referentes a 2026/2. Não contempla o status de matrícula ou
             rematrícula registrado no Prime.
@@ -299,7 +299,7 @@ export default function MensalidadesSemNegociacao() {
               <YAxis allowDecimals={false} />
               <Tooltip content={<TipMes />} />
               <Bar dataKey="qtd" radius={[4, 4, 0, 0]}>
-                {meses.map((_, i) => (<Cell key={i} fill="#2563eb" />))}
+                {meses.map((_, i) => (<Cell key={i} fill="var(--rv-azul)" />))}
               </Bar>
             </BarChart>
           </ResponsiveContainer>
@@ -314,7 +314,7 @@ export default function MensalidadesSemNegociacao() {
 
       <Secao titulo="Evolução diária (conforme as baixas)">
         {evolucao.length <= 1 ? (
-          <p style={{ color: "#6b7280", margin: 0 }}>
+          <p style={{ color: "var(--rv-texto-suave)", margin: 0 }}>
             A curva de evolução começa hoje e cresce a cada atualização diária. Clique em <b>Atualizar</b> uma vez por dia para registrar o ponto do dia.
           </p>
         ) : (
@@ -331,8 +331,8 @@ export default function MensalidadesSemNegociacao() {
               </ResponsiveContainer>
             </div>
             {temEstimado && (
-              <p style={{ color: "#6b7280", fontSize: 12, marginTop: 8, marginBottom: 0 }}>
-                <span style={{ color: "#b45309" }}>●</span> Pontos vazados (04 a 16/08) são <b>estimados</b>: reconstruídos
+              <p style={{ color: "var(--rv-texto-suave)", fontSize: 12, marginTop: 8, marginBottom: 0 }}>
+                <span style={{ color: "var(--rv-ambar-texto)" }}>●</span> Pontos vazados (04 a 16/08) são <b>estimados</b>: reconstruídos
                 pela data real dos eventos que tiraram cada mensalidade do relatório (acordo, baixa, entrada em
                 confirmação de pagamento) e ancorados nos dias medidos de 03/08 e 17/08. Os demais pontos são medição
                 do dia.
@@ -357,7 +357,7 @@ export default function MensalidadesSemNegociacao() {
           linhas={(dados.por_faixa || []).map((f) => [f.faixa, NUM(f.alunos), NUM(f.mensalidades), BRL(f.saldo)])} />
       </Secao>
 
-      <p style={{ marginTop: 16, color: "#6b7280", fontSize: 13 }}>
+      <p style={{ marginTop: 16, color: "var(--rv-texto-suave)", fontSize: 13 }}>
         O relatório considera a data de vencimento dos títulos. Por esse motivo, pode incluir
         mensalidades ou matrículas antecipadas referentes ao período acadêmico 2026/2. No total
         consolidado, cada aluno é contado uma única vez. Atualizado em{" "}
@@ -369,22 +369,22 @@ export default function MensalidadesSemNegociacao() {
 
 const tipBox = cartao;
 const btnPrimary = { background: "#2563eb", color: "#fff", border: "none", borderRadius: 8, padding: "9px 14px", fontWeight: 600, cursor: "pointer" };
-const btnGhost = { background: "#fff", color: "#2563eb", border: "1px solid #2563eb", borderRadius: 8, padding: "9px 14px", fontWeight: 600, cursor: "pointer" };
+const btnGhost = { background: "var(--rv-superficie)", color: "var(--rv-azul)", border: "1px solid #2563eb", borderRadius: 8, padding: "9px 14px", fontWeight: 600, cursor: "pointer" };
 
 function Tot({ label, val, accent }) {
   return (
-    <div style={{ border: accent ? "1px solid transparent" : "1px solid #e5e7eb", background: accent ? "#e8eef6" : "transparent", borderRadius: 10, padding: "12px 14px" }}>
-      <div style={{ fontSize: 12, color: "#6b7280" }}>{label}</div>
+    <div style={{ border: accent ? "1px solid transparent" : "1px solid var(--rv-borda)", background: accent ? "var(--rv-fundo-suave)" : "transparent", borderRadius: 10, padding: "12px 14px" }}>
+      <div style={{ fontSize: 12, color: "var(--rv-texto-suave)" }}>{label}</div>
       <div style={{ fontSize: 20, fontWeight: 700 }}>{val}</div>
     </div>
   );
 }
 function Destaque({ titulo, valor, sub }) {
   return (
-    <div style={{ border: "1px solid #e5e7eb", borderRadius: 10, padding: "12px 14px" }}>
-      <div style={{ fontSize: 11.5, letterSpacing: ".03em", textTransform: "uppercase", color: "#6b7280" }}>{titulo}</div>
+    <div style={{ border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "12px 14px" }}>
+      <div style={{ fontSize: 11.5, letterSpacing: ".03em", textTransform: "uppercase", color: "var(--rv-texto-suave)" }}>{titulo}</div>
       <div style={{ fontSize: 16, fontWeight: 700, marginTop: 2 }}>{valor || "-"}</div>
-      {sub && <div style={{ fontSize: 13, color: "#374151" }}>{sub}</div>}
+      {sub && <div style={{ fontSize: 13, color: "var(--rv-texto-forte)" }}>{sub}</div>}
     </div>
   );
 }
@@ -406,13 +406,13 @@ function Tabela({ cabec, linhas, larguras, centralizar }) {
         )}
         <thead>
           <tr>{cabec.map((c, i) => (
-            <th key={i} style={{ textAlign: alinhar(i), padding: "8px 18px", borderBottom: "2px solid #e5e7eb", color: "#6b7280", fontWeight: 600, whiteSpace: "nowrap" }}>{c}</th>
+            <th key={i} style={{ textAlign: alinhar(i), padding: "8px 18px", borderBottom: "2px solid var(--rv-borda)", color: "var(--rv-texto-suave)", fontWeight: 600, whiteSpace: "nowrap" }}>{c}</th>
           ))}</tr>
         </thead>
         <tbody>
           {linhas.map((l, r) => (
             <tr key={r}>{l.map((cel, i) => (
-              <td key={i} style={{ textAlign: alinhar(i), padding: "7px 18px", borderBottom: "1px solid #f1f5f9", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{cel}</td>
+              <td key={i} style={{ textAlign: alinhar(i), padding: "7px 18px", borderBottom: "1px solid var(--rv-borda-suave)", fontVariantNumeric: "tabular-nums", whiteSpace: "nowrap" }}>{cel}</td>
             ))}</tr>
           ))}
         </tbody>

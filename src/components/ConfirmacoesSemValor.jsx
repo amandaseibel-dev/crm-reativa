@@ -119,7 +119,7 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
 
   return (
     <div style={{ padding: "4px 0" }}>
-      <p style={{ fontSize: 13, color: "#8a93a3", marginBottom: 12 }}>
+      <p style={{ fontSize: 13, color: "var(--rv-texto-fraco)", marginBottom: 12 }}>
         Confirmações de acordo <strong>sem valor informado</strong> que ficaram presas na fila. O caso
         já saiu das filas operacionais — aqui você apenas <strong>conclui</strong> a confirmação como
         saldo zero. O sistema valida o saldo real do aluno antes de concluir; financeiro e histórico
@@ -130,19 +130,19 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
         placeholder="Buscar por nome ou CPF..."
         value={busca}
         onChange={(e) => setBusca(e.target.value)}
-        style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #e3e7ee", fontSize: 13, marginBottom: 12, width: 280 }}
+        style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--rv-borda)", fontSize: 13, marginBottom: 12, width: 280 }}
       />
 
-      <p style={{ fontSize: 12.5, color: "#8a93a3", marginBottom: 10 }}>
+      <p style={{ fontSize: 12.5, color: "var(--rv-texto-fraco)", marginBottom: 10 }}>
         <strong>{filtrada.length}</strong> de {lista.length} confirmação(ões) sem valor
       </p>
 
       {mensagem && (
-        <p style={{ color: "#0f7a4f", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>{mensagem}</p>
+        <p style={{ color: "var(--rv-verde-ok-texto)", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>{mensagem}</p>
       )}
 
       {!podeConcluir && (
-        <p style={{ color: "#b45309", fontSize: 12.5, marginBottom: 10 }}>
+        <p style={{ color: "var(--rv-ambar-texto)", fontSize: 12.5, marginBottom: 10 }}>
           Somente Amanda, Fernanda e Amanda ADM podem concluir como saldo zero.
         </p>
       )}
@@ -173,11 +173,11 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
                 com debito -> disparar pra base; sem debito -> retirar. */}
             <div style={{ margin: "6px 0", fontSize: 13, fontWeight: 700 }}>
               {s.tem_debito ? (
-                <span style={{ background: "rgba(220,38,38,0.12)", color: "#b91c1c", borderRadius: 6, padding: "3px 8px" }}>
+                <span style={{ background: "rgba(220,38,38,0.12)", color: "var(--rv-vermelho-texto)", borderRadius: 6, padding: "3px 8px" }}>
                   Tem débito: {formatarMoeda(s.saldo_real)} — disparar pra base
                 </span>
               ) : (
-                <span style={{ background: "rgba(29,158,117,0.14)", color: "#166534", borderRadius: 6, padding: "3px 8px" }}>
+                <span style={{ background: "rgba(29,158,117,0.14)", color: "var(--rv-verde-ok-texto)", borderRadius: 6, padding: "3px 8px" }}>
                   Sem débito calculado — pode retirar (saldo zero)
                 </span>
               )}
@@ -211,7 +211,7 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
         </p>
       )}
       {filtrada.length === 0 && (
-        <p style={{ color: "#64748b", fontSize: 14 }}>Nenhuma confirmação sem valor pendente.</p>
+        <p style={{ color: "var(--rv-texto-suave)", fontSize: 14 }}>Nenhuma confirmação sem valor pendente.</p>
       )}
 
       {/* Ficha do aluno embutida (abre na mesma tela, sem ir pra outra pagina). */}
@@ -219,7 +219,7 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
         <div style={overlay} onClick={() => setFichaId(null)}>
           <div style={modalBox} onClick={(e) => e.stopPropagation()}>
             <div style={modalTopo}>
-              <span style={{ fontWeight: 800, color: "#0d1321" }}>Ficha do aluno</span>
+              <span style={{ fontWeight: 800, color: "var(--rv-tinta)" }}>Ficha do aluno</span>
               <button type="button" style={modalFechar} onClick={() => setFichaId(null)}>Fechar ✕</button>
             </div>
             <div style={{ overflow: "auto", flex: 1 }}>
@@ -234,16 +234,16 @@ export default function ConfirmacoesSemValor({ aoAtualizarContagem }) {
 
 const card = { ...superficie, marginBottom: 0 };
 const cardTopo = { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, flexWrap: "wrap" };
-const nome = { fontSize: 14.5, fontWeight: 800, color: "#0d1321", marginRight: 10 };
-const cpf = { fontSize: 12.5, color: "#64748b", fontWeight: 600 };
-const btnFicha = { background: "#eef2ff", color: "#3730a3", border: "1px solid #c7d2fe", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" };
-const metaLinha = { display: "flex", gap: 18, flexWrap: "wrap", fontSize: 12.5, color: "#475569", marginTop: 6 };
-const obs = { margin: "6px 0 0", fontSize: 12.5, color: "#64748b" };
+const nome = { fontSize: 14.5, fontWeight: 800, color: "var(--rv-tinta)", marginRight: 10 };
+const cpf = { fontSize: 12.5, color: "var(--rv-texto-suave)", fontWeight: 600 };
+const btnFicha = { background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)", border: "1px solid var(--rv-roxo-borda)", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" };
+const metaLinha = { display: "flex", gap: 18, flexWrap: "wrap", fontSize: 12.5, color: "var(--rv-texto)", marginTop: 6 };
+const obs = { margin: "6px 0 0", fontSize: 12.5, color: "var(--rv-texto-suave)" };
 const acaoLinha = { display: "flex", gap: 8, alignItems: "center", marginTop: 10, flexWrap: "wrap" };
-const inputMotivo = { flex: 1, minWidth: 220, padding: "8px 10px", borderRadius: 8, border: "1px solid #e3e7ee", fontSize: 13 };
+const inputMotivo = { flex: 1, minWidth: 220, padding: "8px 10px", borderRadius: 8, border: "1px solid var(--rv-borda)", fontSize: 13 };
 const btnConcluir = { background: "#0f766e", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" };
 const btnBusy = { opacity: 0.55, cursor: "not-allowed" };
 const overlay = { position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "3vh 2vw", zIndex: 1000 };
 const modalBox = { ...modalBox_import, width: "min(1100px, 96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden" };
-const modalTopo = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #e6eaf0", background: "#f8fafc" };
-const modalFechar = { background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" };
+const modalTopo = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--rv-borda)", background: "var(--rv-fundo-cartao)" };
+const modalFechar = { background: "var(--rv-botao-escuro)", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" };

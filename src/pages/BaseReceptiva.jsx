@@ -91,18 +91,18 @@ function estiloRetorno(aluno) {
   };
 
   if (situacao === "ATRASADO") {
-    return { ...base, background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
+    return { ...base, background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)" };
   }
 
   if (situacao === "HOJE") {
-    return { ...base, background: "#fff3cd", color: "#664d03", border: "1px solid #ffecb5" };
+    return { ...base, background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)" };
   }
 
   if (situacao === "FUTURO") {
-    return { ...base, background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
+    return { ...base, background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-verde-ok-borda)" };
   }
 
-  return { ...base, background: "#e5e7eb", color: "#374151", border: "1px solid #d1d5db" };
+  return { ...base, background: "var(--rv-borda)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda-forte)" };
 }
 
 function casoReceptivo(aluno) {
@@ -517,7 +517,7 @@ export default function BaseReceptiva() {
 const styles = {
   container: {
     minHeight: "100%",
-    background: "#f4f6f8",
+    background: "var(--rv-fundo-suave)",
     padding: "24px",
     fontFamily: "Arial, sans-serif",
   },
@@ -530,11 +530,11 @@ const styles = {
   },
   titulo: {
     margin: 0,
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   subtitulo: {
     margin: "6px 0 0 0",
-    color: "#555",
+    color: "var(--rv-texto)",
   },
   nav: {
     display: "flex",
@@ -542,7 +542,7 @@ const styles = {
     flexWrap: "wrap",
   },
   card: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "14px",
     padding: "18px",
     marginBottom: "16px",
@@ -550,7 +550,7 @@ const styles = {
   },
   subtituloCard: {
     margin: "0 0 12px 0",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   grid: {
     display: "grid",
@@ -560,7 +560,7 @@ const styles = {
   input: {
     padding: "11px",
     borderRadius: "8px",
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--rv-borda-forte)",
     fontSize: "14px",
   },
   textarea: {
@@ -569,16 +569,16 @@ const styles = {
     marginTop: "10px",
     padding: "11px",
     borderRadius: "8px",
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--rv-borda-forte)",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
   },
   resultado: {
     margin: "14px 0",
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
   },
   linha: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "14px",
     padding: "16px",
     marginBottom: "12px",
@@ -590,11 +590,11 @@ const styles = {
   },
   nome: {
     margin: "0 0 6px 0",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   info: {
     margin: "4px 0",
-    color: "#555",
+    color: "var(--rv-texto)",
   },
   acoes: {
     minWidth: "210px",
@@ -606,7 +606,7 @@ const styles = {
   valor: {
     fontSize: "18px",
     fontWeight: "bold",
-    color: "#111827",
+    color: "var(--rv-tinta)",
     textAlign: "right",
     marginBottom: "4px",
   },
@@ -629,7 +629,7 @@ const styles = {
     fontWeight: "bold",
   },
   botaoEscuro: {
-    background: "#111827",
+    background: "var(--rv-botao-escuro)",
     color: "#fff",
     border: "none",
     padding: "10px 13px",
