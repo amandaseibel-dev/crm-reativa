@@ -130,7 +130,9 @@ function BloqueioAcesso({ info, email, onSair }) {
 const DIRETORIA_ROTAS = [
   "/",
   "/executivo",
-  "/carteira-2026-1",
+  // "/carteira-2026-1" FECHADA para a diretoria enquanto a area e finalizada
+  // (11/09/2026). Para reabrir: descomentar aqui E devolver o `|| perfil ===
+  // "diretoria"` no filtro do menu, la embaixo. A tela em si nao foi tocada.
   "/dre",
   // "/painel-carteira" (Panorama 360) SAIU em 03/09/2026: a projeção de redução
   // da carteira está presa a julho e agosto dentro do código
@@ -668,7 +670,9 @@ export default function App() {
     }
     if (item.rota === "/carteira-2026-1") {
       const emCe = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
-      return (["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emCe) || perfil === "diretoria") && perfil !== "operador";
+      // diretoria fora por enquanto: a aba so volta ao menu dela quando a area
+      // for liberada (ver DIRETORIA_ROTAS, no topo).
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emCe) && perfil !== "operador";
     }
     if (item.rota === "/executivo") {
       const em3 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
