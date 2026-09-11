@@ -95,7 +95,10 @@ function TelaResultadoMes({ snap }) {
 
 // 3) Metas --------------------------------------------------------------------
 function TelaMetas({ snap }) {
-  const metas = snap?.metas || [];
+  // So a meta do mes. O "Marco historico" e um acumulado de R$ 3 mi, ja batido
+  // (113%), que nao traz referencia do mes e confundia quem assistia.
+  // Decisao da gestao em 11/09/2026.
+  const metas = (snap?.metas || []).filter((m) => m?.id !== "marco");
   return (
     <Tela titulo="Metas" icone="🎯">
       {metas.length === 0 ? <Vazio>Sem registro no snapshot atual.</Vazio>
@@ -249,16 +252,29 @@ function TelaAvisos({ snap, indiceGiro = 0 }) {
 
 // 7b) Destaque da semana — campeão da semana por pagamentos únicos -----------
 function TelaDestaqueSemana({ snap }) {
-  const semana = snap?.dados?.ranking_semana || [];
+  // Por VALOR, nao por quantidade. Ate 11/09/2026 esta tela coroava quem tinha
+  // MAIS PAGAMENTOS e a tela seguinte ("Melhor do mes") coroava quem trazia
+  // MAIS DINHEIRO -- duas pessoas diferentes seguidas, sem explicar o criterio,
+  // e quem assistia concluia que o sistema estava errado. A gestao decidiu:
+  // "deveria ser por dinheiro que traz".
+  // Cai na chave antiga se o snapshot ainda for anterior a esta mudanca.
+  const semana = snap?.ranking_semana_valor || snap?.dados?.ranking_semana || [];
   if (semana.length === 0) return <Tela titulo="Destaque da Semana" icone="⭐"><Vazio>Sem dados da semana.</Vazio></Tela>;
   const campeao = semana[0];
   const vice = semana.slice(1, 3);
+  const porValor = campeao.valor != null;
   return (
     <Tela titulo="Destaque da Semana" icone="⭐">
       <div style={{ fontSize: fs(30, 3.8, 90) }}>⭐</div>
       <div style={{ fontSize: fs(32, 4, 100), fontWeight: 900, color: T.verde, textAlign: "center", lineHeight: 1 }}>{campeao.operador}</div>
+      {porValor && (
+        <div style={{ fontSize: fs(26, 3.4, 78), fontWeight: 900, color: T.ambar, lineHeight: 1,
+                      fontVariantNumeric: "tabular-nums", textShadow: "0 0 34px rgba(251,191,36,0.26)" }}>
+          {moeda(campeao.valor)}
+        </div>
+      )}
       <div style={{ fontSize: fs(14, 1.5, 34), fontWeight: 700, color: T.textoMudo, textTransform: "uppercase", letterSpacing: "0.08em" }}>
-        Mais pagamentos únicos da semana
+        {porValor ? "Maior valor recuperado na semana" : "Mais pagamentos únicos da semana"}
       </div>
       {vice.length > 0 && (
         <div style={{ display: "flex", gap: "3vw", marginTop: "1vh" }}>
@@ -266,6 +282,11 @@ function TelaDestaqueSemana({ snap }) {
             <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: "0.2vh" }}>
               <span style={{ fontSize: fs(13, 1.3, 28), fontWeight: 800, color: T.textoMudo }}>{i === 0 ? "🥈" : "🥉"}</span>
               <span style={{ fontSize: fs(16, 1.7, 44), fontWeight: 800, color: T.textoSuave }}>{o.operador}</span>
+              {o.valor != null && (
+                <span style={{ fontSize: fs(12, 1.25, 26), fontWeight: 700, color: T.textoMudo, fontVariantNumeric: "tabular-nums" }}>
+                  {moeda(o.valor)}
+                </span>
+              )}
             </div>
           ))}
         </div>
