@@ -18,6 +18,8 @@ import { supabase } from "../services/supabase";
 
 const moeda = (v) =>
   Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 2 });
+const moedaExata = (v) =>
+  Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 2 });
 const num = (v) => Number(v || 0).toLocaleString("pt-BR");
 const data = (v) => (v ? new Date(v + "T12:00:00").toLocaleDateString("pt-BR") : "—");
 const dataHora = (v) => (v ? new Date(v).toLocaleString("pt-BR") : "—");
@@ -88,11 +90,18 @@ export default function Negociacoes20262() {
         <strong style={{ color: "var(--rv-tinta)" }}>
           Semestre vigente · carteira em formação conforme entrada das remessas.
         </strong>
-        <div style={{ marginTop: 6, display: "flex", gap: 22, flexWrap: "wrap", fontSize: 12 }}>
-          <span>Primeira remessa 2026/2: <strong>{data(ctx?.primeira_remessa)}</strong></span>
-          <span>Última remessa: <strong>{data(ctx?.ultima_remessa)}</strong></span>
-          <span>Remessas recebidas: <strong>{num(ctx?.remessas)}</strong></span>
-          <span>Dados atualizados em: <strong>{dataHora(ctx?.atualizado_em || d.gerado_em)}</strong></span>
+        <div style={{ marginTop: 8, display: "grid", gap: 4, fontSize: 12 }}>
+          <span>
+            Carteira recebida até o momento: <strong>{moedaExata(ctx?.carteira_valor)}</strong>
+            {" · "}<strong>{num(ctx?.carteira_titulos)}</strong> títulos
+            {" · "}<strong>{num(ctx?.carteira_cpfs)}</strong> CPFs
+            {" · "}<strong>{num(ctx?.remessas)}</strong> remessas
+          </span>
+          <span>
+            Período das remessas: <strong>{data(ctx?.primeira_remessa)}</strong> a{" "}
+            <strong>{data(ctx?.ultima_remessa)}</strong>
+            {" · "}dados atualizados em {dataHora(ctx?.atualizado_em || d.gerado_em)}
+          </span>
         </div>
         <p style={{ margin: "8px 0 0", fontSize: 12, lineHeight: 1.5 }}>
           O valor negociado abaixo se refere às <strong>remessas de 2026/2 recebidas até agora</strong> — não é a
