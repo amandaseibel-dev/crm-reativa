@@ -56,10 +56,10 @@ export default function ModalConferenciaDia({ mes, dia, operadorEmail, esperado,
       <div style={estilos.modal} onClick={(e) => e.stopPropagation()}>
         <div style={estilos.topo}>
           <div>
-            <div style={{ fontSize: 15, fontWeight: 800, color: "#0d1321" }}>
+            <div style={{ fontSize: 15, fontWeight: 800, color: "var(--rv-tinta)" }}>
               💳 Conferência de {dataBR(dia)}
             </div>
-            <div style={{ fontSize: 12.5, color: "#64748b" }}>
+            <div style={{ fontSize: 12.5, color: "var(--rv-texto-suave)" }}>
               Operador: <strong>{operadorEmail}</strong> · {total} pagamento(s)
             </div>
           </div>
@@ -72,7 +72,7 @@ export default function ModalConferenciaDia({ mes, dia, operadorEmail, esperado,
           {" · "}gráfico: {moeda(esperadoRec)} / {moeda(esperadoHon)}
         </div>
 
-        {erro && <p style={{ color: "#dc2626" }}>{erro}</p>}
+        {erro && <p style={{ color: "var(--rv-vermelho)" }}>{erro}</p>}
 
         <div style={{ overflowX: "auto", maxHeight: "48vh" }}>
           <table style={estilos.tabela}>
@@ -119,7 +119,7 @@ export default function ModalConferenciaDia({ mes, dia, operadorEmail, esperado,
 
         <div style={estilos.paginacao}>
           <button style={estilos.btnPag} disabled={offset === 0 || carregando} onClick={() => carregar(Math.max(0, offset - PAG))}>← Anterior</button>
-          <span style={{ fontSize: 12.5, color: "#64748b" }}>Página {paginaAtual} de {totalPaginas}</span>
+          <span style={{ fontSize: 12.5, color: "var(--rv-texto-suave)" }}>Página {paginaAtual} de {totalPaginas}</span>
           <button style={estilos.btnPag} disabled={paginaAtual >= totalPaginas || carregando} onClick={() => carregar(offset + PAG)}>Próxima →</button>
         </div>
       </div>
@@ -129,16 +129,16 @@ export default function ModalConferenciaDia({ mes, dia, operadorEmail, esperado,
 
 const estilos = {
   overlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 16 },
-  modal: { background: "#fff", borderRadius: 16, padding: 20, width: "min(860px, 96vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 20px 60px rgba(15,23,42,0.35)" },
+  modal: { background: "var(--rv-superficie)", borderRadius: 16, padding: 20, width: "min(860px, 96vw)", maxHeight: "90vh", display: "flex", flexDirection: "column", gap: 12, boxShadow: "0 20px 60px rgba(15,23,42,0.35)" },
   topo: { display: "flex", justifyContent: "space-between", alignItems: "flex-start" },
-  fechar: { background: "transparent", border: "none", fontSize: 18, cursor: "pointer", color: "#64748b" },
+  fechar: { background: "transparent", border: "none", fontSize: 18, cursor: "pointer", color: "var(--rv-texto-suave)" },
   conferencia: { padding: "9px 13px", borderRadius: 10, fontSize: 13, fontWeight: 600 },
-  conferOk: { background: "#e9f9f1", color: "#0f7a4f", border: "1px solid #bdeed4" },
-  conferDiverge: { background: "#fff7e6", color: "#b45309", border: "1px solid #fde3b3" },
+  conferOk: { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-verde-ok-borda)" },
+  conferDiverge: { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)" },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "9px 10px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: "1px solid #e3e7ee", position: "sticky", top: 0 },
-  td: { padding: "9px 10px", borderBottom: "1px solid #edf0f5", color: "#475569" },
-  tf: { padding: "9px 10px", borderTop: "2px solid #e3e7ee", color: "#0d1321", fontWeight: 700 },
+  th: { textAlign: "left", padding: "9px 10px", color: "var(--rv-texto-fraco)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "var(--rv-fundo-cartao)", borderBottom: "1px solid var(--rv-borda)", position: "sticky", top: 0 },
+  td: { padding: "9px 10px", borderBottom: "1px solid var(--rv-borda-suave)", color: "var(--rv-texto)" },
+  tf: { padding: "9px 10px", borderTop: "2px solid var(--rv-borda)", color: "var(--rv-tinta)", fontWeight: 700 },
   paginacao: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 },
-  btnPag: { padding: "7px 14px", borderRadius: 8, border: "1px solid #e3e7ee", background: "#fff", color: "#475569", cursor: "pointer", fontSize: 12.5, fontWeight: 700 },
+  btnPag: { padding: "7px 14px", borderRadius: 8, border: "1px solid var(--rv-borda)", background: "var(--rv-superficie)", color: "var(--rv-texto)", cursor: "pointer", fontSize: 12.5, fontWeight: 700 },
 };

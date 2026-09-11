@@ -131,7 +131,7 @@ export default function QuitacaoSugerida() {
       {erro ? <div style={S.erroBox}>{erro}</div> : null}
 
       {resultado ? (
-        <div style={{ ...S.erroBox, background: "#f0fdf4", color: "#166534", borderColor: "#bbf7d0" }}>
+        <div style={{ ...S.erroBox, background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", borderColor: "var(--rv-verde-ok-borda)" }}>
           {resultado.ok} quitado(s) com sucesso.
           {resultado.falhou.length ? ` ${resultado.falhou.length} falhou: ` +
             resultado.falhou.slice(0, 3).map((f) => `${f.nome} (${f.erro})`).join("; ") : ""}
@@ -207,8 +207,8 @@ export default function QuitacaoSugerida() {
   );
 }
 
-const btnCopiarNome = { background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" };
-const colunaPagou = { fontSize: 12.5, fontWeight: 800, color: "#166534", background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 999, padding: "4px 12px" };
-const colunaDeve = { fontSize: 12.5, fontWeight: 800, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 999, padding: "4px 12px" };
-const colunaSobra = { fontSize: 12, fontWeight: 700, color: "#475569", background: "#f1f5f9", border: "1px solid #e2e8f0", borderRadius: 999, padding: "4px 10px" };
-const linkFicha = { fontSize: 12.5, fontWeight: 700, color: "#1d4ed8", textDecoration: "none", border: "1px solid #bfdbfe", borderRadius: 8, padding: "6px 12px", background: "#eff6ff" };
+const btnCopiarNome = { background: "var(--rv-superficie)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" };
+const colunaPagou = { fontSize: 12.5, fontWeight: 800, color: "var(--rv-verde-ok-texto)", background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", borderRadius: 999, padding: "4px 12px" };
+const colunaDeve = { fontSize: 12.5, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 999, padding: "4px 12px" };
+const colunaSobra = { fontSize: 12, fontWeight: 700, color: "var(--rv-texto)", background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda)", borderRadius: 999, padding: "4px 10px" };
+const linkFicha = { fontSize: 12.5, fontWeight: 700, color: "var(--rv-azul-texto)", textDecoration: "none", border: "1px solid var(--rv-azul-borda)", borderRadius: 8, padding: "6px 12px", background: "var(--rv-azul-fundo)" };

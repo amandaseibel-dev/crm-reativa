@@ -59,5 +59,5 @@ const S = {
   cards: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(120px, 1fr))", gap: 10 },
   card: { background: "#111827", border: "1px solid #1f2937", borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 3 },
   cardVal: { fontSize: 26, fontWeight: 800, lineHeight: 1.1 },
-  cardRot: { fontSize: 12, color: "#94a3b8", fontWeight: 600 },
+  cardRot: { fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 600 },
 };

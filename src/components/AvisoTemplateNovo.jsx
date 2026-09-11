@@ -59,12 +59,12 @@ export default function AvisoTemplateNovo() {
 
 const S = {
   overlay: { position: "fixed", inset: 0, background: "rgba(2,6,23,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 },
-  card: { background: "#fff", borderRadius: 16, padding: "26px 28px", maxWidth: 420, width: "100%", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" },
+  card: { background: "var(--rv-superficie)", borderRadius: 16, padding: "26px 28px", maxWidth: 420, width: "100%", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" },
   emoji: { fontSize: 40 },
-  titulo: { margin: "8px 0 6px", fontSize: 20, color: "#0f172a" },
-  texto: { margin: 0, color: "#475569", fontSize: 14 },
+  titulo: { margin: "8px 0 6px", fontSize: 20, color: "var(--rv-tinta)" },
+  texto: { margin: 0, color: "var(--rv-texto)", fontSize: 14 },
   lista: { display: "flex", flexWrap: "wrap", gap: 8, justifyContent: "center", margin: "12px 0" },
-  chip: { background: "#dbeafe", color: "#1e40af", borderRadius: 999, padding: "6px 14px", fontSize: 13, fontWeight: 700 },
-  dica: { margin: "6px 0 18px", color: "#64748b", fontSize: 13 },
+  chip: { background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)", borderRadius: 999, padding: "6px 14px", fontSize: 13, fontWeight: 700 },
+  dica: { margin: "6px 0 18px", color: "var(--rv-texto-suave)", fontSize: 13 },
   botao: { background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 10, padding: "11px 22px", fontWeight: 700, fontSize: 15, cursor: "pointer" },
 };

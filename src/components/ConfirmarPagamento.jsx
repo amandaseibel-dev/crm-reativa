@@ -26,10 +26,10 @@ function traduzirStatus(status) {
 }
 
 function corStatus(status) {
-  if (status === "PAGAMENTO_CONFIRMADO") return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
-  if (status === "PAGAMENTO_REJEITADO") return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
-  if (status === STATUS_AGUARDANDO_VINCULO) return { background: "#ede9fe", color: "#5b21b6", border: "1px solid #c4b5fd" };
-  return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c" };
+  if (status === "PAGAMENTO_CONFIRMADO") return { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-verde-ok-borda)" };
+  if (status === "PAGAMENTO_REJEITADO") return { background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)" };
+  if (status === STATUS_AGUARDANDO_VINCULO) return { background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)", border: "1px solid var(--rv-roxo-borda)" };
+  return { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)" };
 }
 
 function formatarData(data) {
@@ -415,32 +415,32 @@ export default function ConfirmarPagamento({ aluno, tipoInicial = "", onSucesso 
 }
 
 const styles = {
-  card: { ...cartao, background: "#fff", borderLeft: "6px solid #0ea5e9", borderRadius: "14px", padding: "22px", marginTop: "24px", marginBottom: "24px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)" },
+  card: { ...cartao, background: "var(--rv-superficie)", borderLeft: "6px solid #0ea5e9", borderRadius: "14px", padding: "22px", marginTop: "24px", marginBottom: "24px", boxShadow: "0 2px 10px rgba(0,0,0,0.08)" },
   header: { display: "flex", justifyContent: "space-between", gap: "16px", alignItems: "flex-start", marginBottom: "16px" },
-  titulo: { margin: 0, marginBottom: "8px", color: "#1f2937" },
-  subtitulo: { marginTop: 0, marginBottom: "12px", color: "#1f2937" },
-  texto: { color: "#555", margin: 0, lineHeight: 1.5 },
+  titulo: { margin: 0, marginBottom: "8px", color: "var(--rv-tinta)" },
+  subtitulo: { marginTop: 0, marginBottom: "12px", color: "var(--rv-tinta)" },
+  texto: { color: "var(--rv-texto)", margin: 0, lineHeight: 1.5 },
   status: { padding: "8px 12px", borderRadius: "999px", fontWeight: "bold", fontSize: "13px", whiteSpace: "nowrap" },
   alertaPendente: { ...cartaoAviso, marginBottom: "16px" },
   bloco: { marginTop: "14px" },
   linha2: { display: "flex", gap: "10px", flexWrap: "wrap", marginTop: "14px" },
-  label: { display: "block", fontWeight: "bold", marginBottom: "6px", color: "#111827" },
-  input: { width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid #ccc", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
-  textarea: { width: "100%", minHeight: "80px", padding: "10px", borderRadius: "8px", border: "1px solid #ccc", resize: "vertical", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
-  aviso: { marginTop: "8px", color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: "8px", padding: "8px 10px", fontSize: "12px" },
-  consol: { marginTop: "10px", background: "#eef6ff", border: "1px solid #cfe0f5", borderRadius: "8px", padding: "10px 12px" },
-  consolTitulo: { fontWeight: "bold", color: "#1e3a5f", marginBottom: "4px" },
-  consolLinha: { display: "flex", justifyContent: "space-between", gap: "12px", fontSize: "13px", color: "#1e3a5f", padding: "3px 0" },
-  avisoLeve: { margin: "2px 0 8px", fontSize: "11.5px", color: "#64748b" },
+  label: { display: "block", fontWeight: "bold", marginBottom: "6px", color: "var(--rv-tinta)" },
+  input: { width: "100%", padding: "10px", borderRadius: "8px", border: "1px solid var(--rv-borda-forte)", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
+  textarea: { width: "100%", minHeight: "80px", padding: "10px", borderRadius: "8px", border: "1px solid var(--rv-borda-forte)", resize: "vertical", boxSizing: "border-box", fontFamily: "Arial, sans-serif" },
+  aviso: { marginTop: "8px", color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: "8px", padding: "8px 10px", fontSize: "12px" },
+  consol: { marginTop: "10px", background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)", borderRadius: "8px", padding: "10px 12px" },
+  consolTitulo: { fontWeight: "bold", color: "var(--rv-tinta)", marginBottom: "4px" },
+  consolLinha: { display: "flex", justifyContent: "space-between", gap: "12px", fontSize: "13px", color: "var(--rv-tinta)", padding: "3px 0" },
+  avisoLeve: { margin: "2px 0 8px", fontSize: "11.5px", color: "var(--rv-texto-suave)" },
   linha3: { display: "flex", gap: "8px", flexWrap: "wrap", margin: "6px 0" },
-  labelPeq: { display: "block", fontSize: "12px", color: "#475569", marginBottom: "3px" },
-  conferir: { display: "flex", alignItems: "flex-start", gap: "6px", marginTop: "8px", fontSize: "12.5px", color: "#1e3a5f", cursor: "pointer" },
-  erroConsol: { marginTop: "6px", color: "#842029", background: "#f8d7da", border: "1px solid #f5c2c7", borderRadius: "6px", padding: "6px 8px", fontSize: "12px", fontWeight: "bold" },
+  labelPeq: { display: "block", fontSize: "12px", color: "var(--rv-texto)", marginBottom: "3px" },
+  conferir: { display: "flex", alignItems: "flex-start", gap: "6px", marginTop: "8px", fontSize: "12.5px", color: "var(--rv-tinta)", cursor: "pointer" },
+  erroConsol: { marginTop: "6px", color: "var(--rv-vermelho-texto)", background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: "6px", padding: "6px 8px", fontSize: "12px", fontWeight: "bold" },
   botao: { marginTop: "16px", background: "#0ea5e9", color: "#fff", border: "none", padding: "12px 18px", borderRadius: "8px", cursor: "pointer", fontWeight: "bold" },
-  botaoDesabilitado: { background: "#cbd5e1", color: "#64748b", cursor: "not-allowed" },
-  historico: { marginTop: "24px", borderTop: "1px solid #e5e7eb", paddingTop: "18px" },
+  botaoDesabilitado: { background: "var(--rv-borda-forte)", color: "var(--rv-texto-suave)", cursor: "not-allowed" },
+  historico: { marginTop: "24px", borderTop: "1px solid var(--rv-borda)", paddingTop: "18px" },
   itemHistorico: { ...cartao, padding: "12px", marginBottom: "10px" },
   linhaHistorico: { display: "flex", justifyContent: "space-between", gap: "10px", marginBottom: "8px" },
-  dataHistorico: { fontSize: "12px", color: "#6b7280" },
-  paragrafo: { margin: "6px 0", color: "#374151", lineHeight: 1.4 },
+  dataHistorico: { fontSize: "12px", color: "var(--rv-texto-suave)" },
+  paragrafo: { margin: "6px 0", color: "var(--rv-texto-forte)", lineHeight: 1.4 },
 };

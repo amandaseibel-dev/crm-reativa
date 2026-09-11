@@ -175,7 +175,7 @@ export default function AcordosDuplicados() {
               </div>
 
               <div style={estilos.lado}>
-                <div style={{ ...estilos.coluna, borderColor: "#fde68a", background: "#fffbeb" }}>
+                <div style={{ ...estilos.coluna, borderColor: "var(--rv-ambar-borda)", background: "var(--rv-ambar-fundo)" }}>
                   <span style={estilos.colRot}>A cópia</span>
                   <span style={estilos.colNum}>nº {l.numero_acordo ?? "sem número"}</span>
                   <span style={estilos.colDet}>criado em {dataHora(l.criado_em)}</span>
@@ -184,7 +184,7 @@ export default function AcordosDuplicados() {
                     <b>{l.parcelas_pagas_novo} paga{l.parcelas_pagas_novo === 1 ? "" : "s"}</b>
                   </span>
                 </div>
-                <div style={{ ...estilos.coluna, borderColor: "#e2e8f0", background: "#f8fafc" }}>
+                <div style={{ ...estilos.coluna, borderColor: "var(--rv-borda)", background: "var(--rv-fundo-cartao)" }}>
                   <span style={estilos.colRot}>Já existia</span>
                   <span style={estilos.colNum}>nº {l.existente_numero ?? "sem número"}</span>
                   <span style={estilos.colDet}>criado em {dataHora(l.existente_criado_em)}</span>
@@ -224,29 +224,29 @@ export default function AcordosDuplicados() {
 
 const estilos = {
   aviso: {
-    background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b",
+    background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)",
     borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, marginBottom: 14,
   },
-  cpf: { fontSize: 12.5, color: "#64748b" },
+  cpf: { fontSize: 12.5, color: "var(--rv-texto-suave)" },
   origemImport: {
     fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 9px",
-    background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a", whiteSpace: "nowrap",
+    background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)", whiteSpace: "nowrap",
   },
   origemAntiga: {
     fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 9px",
-    background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", whiteSpace: "nowrap",
+    background: "var(--rv-fundo-suave)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda)", whiteSpace: "nowrap",
   },
   grupoGrande: {
     fontSize: 11, fontWeight: 800, borderRadius: 999, padding: "2px 9px",
-    background: "#fef2f2", color: "#991b1b", border: "1px solid #fecaca", whiteSpace: "nowrap",
+    background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)", whiteSpace: "nowrap",
   },
-  operador: { fontSize: 12.5, color: "#64748b" },
+  operador: { fontSize: 12.5, color: "var(--rv-texto-suave)" },
   lado: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 10, padding: "10px 14px 14px" },
   coluna: {
     border: "1px solid", borderRadius: 10, padding: "10px 12px",
     display: "flex", flexDirection: "column", gap: 3,
   },
-  colRot: { fontSize: 11.5, fontWeight: 800, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em" },
-  colNum: { fontSize: 15, fontWeight: 800, color: "#0d1321" },
-  colDet: { fontSize: 12.5, color: "#475569" },
+  colRot: { fontSize: 11.5, fontWeight: 800, color: "var(--rv-texto-suave)", textTransform: "uppercase", letterSpacing: "0.04em" },
+  colNum: { fontSize: 15, fontWeight: 800, color: "var(--rv-tinta)" },
+  colDet: { fontSize: 12.5, color: "var(--rv-texto)" },
 };

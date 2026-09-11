@@ -93,13 +93,13 @@ function nomeMes(data) {
 }
 
 function corStatus(status) {
-  if (status === "RETORNO_AGENDADO") return "#0ea5e9";
-  if (status === "EM_NEGOCIACAO") return "#8b5cf6";
-  if (status === "AGUARDANDO_LINK") return "#f59e0b";
+  if (status === "RETORNO_AGENDADO") return "var(--rv-azul)";
+  if (status === "EM_NEGOCIACAO") return "var(--rv-roxo)";
+  if (status === "AGUARDANDO_LINK") return "var(--rv-ambar)";
   if (status === "AGUARDANDO_TERMO") return "#ec4899";
-  if (status === "PAGAMENTO_IDENTIFICADO") return "#3b82f6";
-  if (status === "REVISAR_UNIFICACAO") return "#ef4444";
-  return "#64748b";
+  if (status === "PAGAMENTO_IDENTIFICADO") return "var(--rv-azul)";
+  if (status === "REVISAR_UNIFICACAO") return "var(--rv-vermelho)";
+  return "var(--rv-texto-suave)";
 }
 
 
@@ -346,7 +346,7 @@ export default function AgendaOperacional() {
     <div style={styles.container}>
       <BotaoManual />
 
-      {fichaId && (<div style={styles.modalOverlay} onClick={() => setFichaId(null)}><div style={styles.modalBox} onClick={(e) => e.stopPropagation()}><div style={styles.modalTopo}><h3 style={{ margin: 0, color: "#0d1321" }}>Ficha do aluno</h3><button style={styles.modalFechar} onClick={() => setFichaId(null)}>Fechar</button></div><Alunos fichaEmbedId={fichaId} /></div></div>)} <div style={styles.cabecalho}>
+      {fichaId && (<div style={styles.modalOverlay} onClick={() => setFichaId(null)}><div style={styles.modalBox} onClick={(e) => e.stopPropagation()}><div style={styles.modalTopo}><h3 style={{ margin: 0, color: "var(--rv-tinta)" }}>Ficha do aluno</h3><button style={styles.modalFechar} onClick={() => setFichaId(null)}>Fechar</button></div><Alunos fichaEmbedId={fichaId} /></div></div>)} <div style={styles.cabecalho}>
         <div>
           <h1 style={styles.titulo}>Agenda Operacional</h1>
           <p style={styles.subtitulo}>
@@ -543,13 +543,13 @@ export default function AgendaOperacional() {
   );
 }
 
-const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }, modalBox: { background: "#fff", borderRadius: 16, padding: 22, maxWidth: 1100, width: "100%", maxHeight: "88vh", overflowY: "auto" }, modalTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }, modalFechar: { background: "#f1f5f9", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13, fontWeight: 700 },
+const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 }, modalBox: { background: "var(--rv-superficie)", borderRadius: 16, padding: 22, maxWidth: 1100, width: "100%", maxHeight: "88vh", overflowY: "auto" }, modalTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }, modalFechar: { background: "var(--rv-fundo-suave)", border: "none", borderRadius: 8, padding: "6px 12px", cursor: "pointer", fontSize: 13, fontWeight: 700 },
   container: {
     minHeight: "100%",
-    background: "#f4f6fa",
+    background: "var(--rv-fundo)",
     padding: "24px",
     fontFamily: "Inter, system-ui, sans-serif",
-    color: "#334155",
+    color: "var(--rv-texto-forte)",
   },
   cabecalho: {
     display: "flex",
@@ -560,14 +560,14 @@ const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(
   },
   titulo: {
     margin: 0,
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     fontSize: "26px",
     fontFamily: "'Sora', Inter, sans-serif",
     fontWeight: 800,
   },
   subtitulo: {
     margin: "6px 0 0 0",
-    color: "#64748b",
+    color: "var(--rv-texto-suave)",
   },
   botoesTopo: {
     display: "flex",
@@ -581,15 +581,15 @@ const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(
     marginBottom: "16px",
   },
   indicador: {
-    background: "#fff",
-    border: "1px solid #e6eaf0",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "16px",
     padding: "16px",
     boxShadow: "0 1px 3px rgba(15,23,42,0.05)",
   },
   filtros: {
-    background: "#fff",
-    border: "1px solid #e6eaf0",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "16px",
     padding: "16px",
     display: "grid",
@@ -601,17 +601,17 @@ const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(
   input: {
     padding: "12px",
     borderRadius: "10px",
-    border: "1px solid #e2e8f0",
-    background: "#f8fafc",
-    color: "#0d1321",
+    border: "1px solid var(--rv-borda)",
+    background: "var(--rv-fundo-cartao)",
+    color: "var(--rv-tinta)",
     fontSize: "14px",
   },
   avisoAgendaOperador: {
     padding: "12px",
     borderRadius: "10px",
-    border: "1px solid #bdeed4",
-    background: "#eff6ff",
-    color: "#1e40af",
+    border: "1px solid var(--rv-verde-ok-borda)",
+    background: "var(--rv-azul-fundo)",
+    color: "var(--rv-azul-texto)",
     fontSize: "14px",
     fontWeight: "bold",
   },
@@ -622,8 +622,8 @@ const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(
     alignItems: "start",
   },
   calendarioCard: {
-    background: "#fff",
-    border: "1px solid #e6eaf0",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "18px",
     padding: "18px",
     boxShadow: "0 1px 3px rgba(15,23,42,0.05)",
@@ -638,13 +638,13 @@ const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(
   mesTitulo: {
     margin: 0,
     textTransform: "capitalize",
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     fontFamily: "'Sora', Inter, sans-serif",
   },
   botaoMes: {
-    background: "#fff",
-    color: "#334155",
-    border: "1px solid #e2e8f0",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-texto-forte)",
+    border: "1px solid var(--rv-borda)",
     padding: "10px 12px",
     borderRadius: "10px",
     cursor: "pointer",
@@ -655,7 +655,7 @@ const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(
     gridTemplateColumns: "repeat(7, 1fr)",
     gap: "8px",
     marginBottom: "8px",
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
     fontWeight: "bold",
     textAlign: "center",
     fontSize: "13px",
@@ -667,9 +667,9 @@ const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(
   },
   dia: {
     minHeight: "105px",
-    background: "#f8fafc",
-    color: "#334155",
-    border: "1px solid #e6eaf0",
+    background: "var(--rv-fundo-cartao)",
+    color: "var(--rv-texto-forte)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "14px",
     padding: "10px",
     textAlign: "left",
@@ -680,7 +680,7 @@ const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(
     boxShadow: "0 0 0 2px rgba(15,157,107,0.15)",
   },
   diaHoje: {
-    background: "#eff6ff",
+    background: "var(--rv-azul-fundo)",
   },
   numeroDia: {
     display: "block",
@@ -709,8 +709,8 @@ const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(
     borderRadius: "999px",
   },
   listaCard: {
-    background: "#fff",
-    border: "1px solid #e6eaf0",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "18px",
     padding: "18px",
     maxHeight: "calc(100vh - 180px)",
@@ -719,12 +719,12 @@ const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(
   },
   listaTitulo: {
     margin: "0 0 12px 0",
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     fontFamily: "'Sora', Inter, sans-serif",
   },
   cardAluno: {
-    background: "#f8fafc",
-    border: "1px solid #e6eaf0",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "14px",
     padding: "14px",
     marginBottom: "12px",
@@ -741,34 +741,34 @@ const styles = { modalOverlay: { position: "fixed", inset: 0, background: "rgba(
   },
   nomeAluno: {
     margin: "0 0 8px 0",
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
   },
   info: {
     margin: "5px 0",
-    color: "#64748b",
+    color: "var(--rv-texto-suave)",
     fontSize: "14px",
   },
   obs: {
-    background: "#f8fafc",
-    border: "1px solid #e2e8f0",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "10px",
     padding: "10px",
-    color: "#334155",
+    color: "var(--rv-texto-forte)",
     marginTop: "10px",
     marginBottom: "10px",
     fontSize: "14px",
   },
   vazio: {
-    background: "#f8fafc",
-    border: "1px solid #e6eaf0",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "12px",
     padding: "14px",
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
   },
   botaoEscuro: {
-    background: "#fff",
-    color: "#334155",
-    border: "1px solid #e2e8f0",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-texto-forte)",
+    border: "1px solid var(--rv-borda)",
     padding: "10px 13px",
     borderRadius: "10px",
     cursor: "pointer",

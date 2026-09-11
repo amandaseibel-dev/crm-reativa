@@ -34,5 +34,5 @@ const S = {
     cursor: "pointer",
   },
   btnOff: { background: "#94a3b8", cursor: "default" },
-  info: { fontSize: 12, color: "#94a3b8", fontWeight: 600 },
+  info: { fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 600 },
 };

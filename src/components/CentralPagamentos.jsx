@@ -51,12 +51,12 @@ export default function CentralPagamentos() {
       </div>
 
       <div style={S.cards}>
-        <Card rot="Links pendentes" val={c ? num(c.links_pendentes) : "-"} cor="#1d4ed8" />
-        <Card rot="Links pagos" val={c ? num(c.links_pagos) : "-"} cor="#2563eb" />
-        <Card rot="Aguardando confirmação" val={c ? num(c.confirmacao_aguardando) : "-"} cor="#b45309" />
-        <Card rot="Fila de baixa" val={c ? num(c.baixas_aguardando) : "-"} cor="#2563eb" />
-        <Card rot="Sem valor informado" val={c ? num(c.confirmacao_sem_valor) : "-"} cor="#dc2626" />
-        <Card rot="Confirmados no mês" val={c ? num(c.confirmadas_mes) : "-"} cor="#2563eb" />
+        <Card rot="Links pendentes" val={c ? num(c.links_pendentes) : "-"} cor="var(--rv-azul-texto)" />
+        <Card rot="Links pagos" val={c ? num(c.links_pagos) : "-"} cor="var(--rv-azul)" />
+        <Card rot="Aguardando confirmação" val={c ? num(c.confirmacao_aguardando) : "-"} cor="var(--rv-ambar-texto)" />
+        <Card rot="Fila de baixa" val={c ? num(c.baixas_aguardando) : "-"} cor="var(--rv-azul)" />
+        <Card rot="Sem valor informado" val={c ? num(c.confirmacao_sem_valor) : "-"} cor="var(--rv-vermelho)" />
+        <Card rot="Confirmados no mês" val={c ? num(c.confirmadas_mes) : "-"} cor="var(--rv-azul)" />
       </div>
 
       <div style={S.tabs}>
@@ -94,16 +94,16 @@ function Card({ rot, val, cor }) {
 const S = {
   wrap: { padding: 20 },
   head: { marginBottom: 14 },
-  h1: { margin: 0, fontSize: 22, color: "#0f172a" },
-  sub: { fontSize: 13, color: "#64748b" },
+  h1: { margin: 0, fontSize: 22, color: "var(--rv-tinta)" },
+  sub: { fontSize: 13, color: "var(--rv-texto-suave)" },
   cards: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginBottom: 16 },
-  card: { background: "#f8fafc", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 3 },
+  card: { background: "var(--rv-fundo-cartao)", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 3 },
   cardVal: { fontSize: 22, fontWeight: 800, lineHeight: 1.1 },
-  cardRot: { fontSize: 12, color: "#64748b", fontWeight: 600 },
-  tabs: { display: "flex", gap: 6, borderBottom: "1px solid #e5e7eb", marginBottom: 14, flexWrap: "wrap" },
-  tab: { background: "none", border: "none", padding: "9px 16px", fontSize: 14, color: "#64748b", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderBottom: "2px solid transparent" },
-  tabOn: { background: "none", border: "none", padding: "9px 16px", fontSize: 14, color: "#1d4ed8", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderBottom: "2px solid #1d4ed8", fontWeight: 700 },
-  badge: { background: "#f1f5f9", color: "#475569", borderRadius: 999, padding: "1px 8px", fontSize: 12, fontWeight: 700 },
-  badgeOn: { background: "#dbeafe", color: "#1d4ed8", borderRadius: 999, padding: "1px 8px", fontSize: 12, fontWeight: 700 },
-  conteudo: { borderTop: "1px solid #f1f5f9", paddingTop: 6 },
+  cardRot: { fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 600 },
+  tabs: { display: "flex", gap: 6, borderBottom: "1px solid var(--rv-borda)", marginBottom: 14, flexWrap: "wrap" },
+  tab: { background: "none", border: "none", padding: "9px 16px", fontSize: 14, color: "var(--rv-texto-suave)", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderBottom: "2px solid transparent" },
+  tabOn: { background: "none", border: "none", padding: "9px 16px", fontSize: 14, color: "var(--rv-azul-texto)", cursor: "pointer", display: "flex", alignItems: "center", gap: 8, borderBottom: "2px solid #1d4ed8", fontWeight: 700 },
+  badge: { background: "var(--rv-fundo-suave)", color: "var(--rv-texto)", borderRadius: 999, padding: "1px 8px", fontSize: 12, fontWeight: 700 },
+  badgeOn: { background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)", borderRadius: 999, padding: "1px 8px", fontSize: 12, fontWeight: 700 },
+  conteudo: { borderTop: "1px solid var(--rv-borda-suave)", paddingTop: 6 },
 };

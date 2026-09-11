@@ -600,7 +600,7 @@ const cards = {
 };
 
 const card = {
-  ...cartaoAcentoEscuro("#312e81"),
+  ...cartaoAcentoEscuro("var(--rv-roxo-texto)"),
   borderRadius: 16,
   padding: 20,
   color: "#fff",
@@ -726,7 +726,7 @@ const toggleLabel = {
 
 const btnGreen = {
   background: "#3b82f6",
-  color: "#020617",
+  color: "var(--rv-tinta)",
   border: "none",
   borderRadius: 12,
   padding: "12px 18px",
@@ -797,7 +797,7 @@ const badge = {
 
 const activeBadge = {
   background: "#052e16",
-  color: "#3b82f6",
+  color: "var(--rv-azul)",
   padding: "5px 10px",
   borderRadius: 999,
   fontWeight: 800,
@@ -840,6 +840,6 @@ const erroStyle = {
 };
 
 const okStyle = {
-  color: "#3b82f6",
+  color: "var(--rv-azul)",
   fontWeight: 900,
 };

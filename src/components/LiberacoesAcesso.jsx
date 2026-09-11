@@ -56,6 +56,6 @@ const S = {
   painel: { marginTop: 10, width: 320, background: "#0f172a", border: "1px solid #334155", borderRadius: 14, padding: 14, boxShadow: "0 20px 50px rgba(0,0,0,0.5)", color: "#fff" },
   tit: { fontWeight: 800, fontSize: 13, color: "#93c5fd", marginBottom: 10 },
   item: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10, padding: "8px 0", borderTop: "1px solid #1e293b" },
-  sub: { fontSize: 11, color: "#94a3b8" },
-  btn: { background: "#22c55e", color: "#04240f", border: "none", borderRadius: 8, padding: "8px 12px", fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" },
+  sub: { fontSize: 11, color: "var(--rv-texto-fraco)" },
+  btn: { background: "#22c55e", color: "var(--rv-verde-ok-texto)", border: "none", borderRadius: 8, padding: "8px 12px", fontWeight: 800, cursor: "pointer", whiteSpace: "nowrap" },
 };

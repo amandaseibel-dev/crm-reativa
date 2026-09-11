@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import BotaoAtualizar from "../components/BotaoAtualizar";
+import { S as A } from "../ui/estilosFila";
+import Aluno from "./Aluno";
 
 // Acordos vivos por operador: a vencer, vencido e quebrado.
 //
@@ -19,12 +21,12 @@ const data = (v) => (v ? new Date(v).toLocaleDateString("pt-BR") : "—");
 // de 02/09 mantém é a regra do saldo: quando o acordo volta para a fila, volta
 // com o saldo DO ACORDO, e a mensalidade de origem não ressuscita.
 const ESTADOS = {
-  EM_DIA: { rotulo: "Em dia", cor: "#15803d", fundo: "#dcfce7" },
-  ATRASADO: { rotulo: "Atrasado", cor: "#b45309", fundo: "#fef3c7" },
-  QUEBRADO: { rotulo: "Quebrado", cor: "#b91c1c", fundo: "#fee2e2" },
-  VENCE_7: { rotulo: "Vence em 7 dias", cor: "#1d4ed8", fundo: "#dbeafe" },
-  VENCE_30: { rotulo: "Vence em 30 dias", cor: "#1d4ed8", fundo: "#dbeafe" },
-  TODOS: { rotulo: "Todos os acordos", cor: "#334155", fundo: "#e2e8f0" },
+  EM_DIA: { rotulo: "Em dia", cor: "var(--rv-verde-ok-texto)", fundo: "var(--rv-verde-ok-fundo)" },
+  ATRASADO: { rotulo: "Atrasado", cor: "var(--rv-ambar-texto)", fundo: "var(--rv-ambar-fundo)" },
+  QUEBRADO: { rotulo: "Quebrado", cor: "var(--rv-vermelho-texto)", fundo: "var(--rv-vermelho-fundo)" },
+  VENCE_7: { rotulo: "Vence em 7 dias", cor: "var(--rv-azul-texto)", fundo: "var(--rv-azul-fundo)" },
+  VENCE_30: { rotulo: "Vence em 30 dias", cor: "var(--rv-azul-texto)", fundo: "var(--rv-azul-fundo)" },
+  TODOS: { rotulo: "Todos os acordos", cor: "var(--rv-texto-forte)", fundo: "var(--rv-borda)" },
 };
 
 const POR_PAGINA = 100;
@@ -225,7 +227,7 @@ function Card({ rotulo, valor, nota, cor }) {
   return (
     <div style={S.card}>
       <span style={S.cardRot}>{rotulo}</span>
-      <span style={{ ...S.cardVal, color: cor || "#0f172a" }}>{valor}</span>
+      <span style={{ ...S.cardVal, color: cor || "var(--rv-tinta)" }}>{valor}</span>
       <span style={S.cardNota}>{nota}</span>
     </div>
   );
@@ -233,7 +235,7 @@ function Card({ rotulo, valor, nota, cor }) {
 
 function Botao({ children, onClick, cor }) {
   return (
-    <button type="button" onClick={onClick} style={{ ...S.botaoNum, color: cor || "#0f172a" }}>
+    <button type="button" onClick={onClick} style={{ ...S.botaoNum, color: cor || "var(--rv-tinta)" }}>
       {children}
     </button>
   );
@@ -246,6 +248,10 @@ function Ponto({ cor }) {
 // Gaveta: a lista por trás do número. Pagina de 100 em 100 -- a RPC ordena por
 // valor vencido com o id como desempate, então virar página não repete linha.
 function Gaveta({ email, nome, estado, onFechar }) {
+  // Ficha do aluno em popup por cima da gaveta, no mesmo padrão das outras
+  // telas de gestão (`<Aluno fichaEmbedId>`): quem está conferindo a lista de
+  // um operador não deve ser levado embora da tela a cada aluno.
+  const [fichaId, setFichaId] = useState(null);
   const [pagina, setPagina] = useState(0);
   const [dados, setDados] = useState(null);
   const [carregando, setCarregando] = useState(false);
@@ -286,6 +292,13 @@ function Gaveta({ email, nome, estado, onFechar }) {
   const paginas = Math.max(1, Math.ceil(total / POR_PAGINA));
   const est = ESTADOS[estado] || ESTADOS.TODOS;
 
+  function fecharFicha() {
+    setFichaId(null);
+    // Quem abriu a ficha pode ter mexido no acordo (quitar, renegociar):
+    // a página atual da lista volta do banco em vez de ficar com o retrato velho.
+    carregar(pagina);
+  }
+
   return (
     <div style={S.fundoGaveta} onClick={onFechar}>
       <aside style={S.gaveta} onClick={(e) => e.stopPropagation()}>
@@ -323,9 +336,15 @@ function Gaveta({ email, nome, estado, onFechar }) {
                 {itens.map((i) => (
                   <tr key={i.acordo_id}>
                     <td style={S.td}>
-                      <a href={`/aluno?id=${i.aluno_id}`} style={S.link}>
+                      <button
+                        type="button"
+                        style={i.aluno_id ? S.link : S.linkInerte}
+                        onClick={() => setFichaId(i.aluno_id)}
+                        disabled={!i.aluno_id}
+                        title={i.aluno_id ? "Abrir ficha do aluno" : "Acordo sem aluno vinculado"}
+                      >
                         {i.nome || "(sem nome)"}
-                      </a>
+                      </button>
                       <span style={S.nota}>{i.cpf || ""}</span>
                     </td>
                     <td style={S.td}>{i.telefone || "—"}</td>
@@ -361,6 +380,24 @@ function Gaveta({ email, nome, estado, onFechar }) {
           </div>
         )}
       </aside>
+
+      {fichaId && (
+        // Clique fora fecha só a ficha; o stopPropagation impede que o mesmo
+        // clique chegue ao fundo da gaveta e feche a lista junto.
+        <div style={A.modalOverlay} onClick={(e) => { e.stopPropagation(); fecharFicha(); }}>
+          <div style={A.modalBox} onClick={(e) => e.stopPropagation()}>
+            <div style={A.modalTopo}>
+              <span style={A.modalTitulo}>Ficha do aluno</span>
+              <button type="button" style={{ ...A.modalFechar, marginLeft: "auto" }} onClick={fecharFicha}>
+                Fechar ✕
+              </button>
+            </div>
+            <div style={A.modalConteudo}>
+              <Aluno fichaEmbedId={fichaId} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -368,41 +405,42 @@ function Gaveta({ email, nome, estado, onFechar }) {
 const S = {
   pagina: { padding: 20, maxWidth: 1400, margin: "0 auto" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, flexWrap: "wrap", marginBottom: 18 },
-  titulo: { margin: 0, fontSize: 22, fontWeight: 800, color: "#0f172a" },
-  subtitulo: { margin: "6px 0 0", fontSize: 13.5, color: "#64748b", maxWidth: 620 },
+  titulo: { margin: 0, fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)" },
+  subtitulo: { margin: "6px 0 0", fontSize: 13.5, color: "var(--rv-texto-suave)", maxWidth: 620 },
   cards: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 12, marginBottom: 16 },
-  card: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 3, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
-  cardRot: { fontSize: 12, color: "#64748b", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" },
+  card: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 3, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
+  cardRot: { fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" },
   cardVal: { fontSize: 21, fontWeight: 800, lineHeight: 1.1 },
-  cardNota: { fontSize: 12, color: "#94a3b8" },
-  bloco: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 16, padding: 18, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
+  cardNota: { fontSize: 12, color: "var(--rv-texto-fraco)" },
+  bloco: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16, padding: 18, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
   rolagem: { overflowX: "auto" },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "9px 10px", color: "#94a3b8", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" },
-  thNum: { textAlign: "right", padding: "9px 10px", color: "#94a3b8", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid #e2e8f0", whiteSpace: "nowrap" },
-  td: { padding: "8px 10px", borderBottom: "1px solid #f1f5f9", color: "#0f172a" },
-  tdNum: { padding: "8px 10px", borderBottom: "1px solid #f1f5f9", color: "#0f172a", textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" },
-  trAlerta: { background: "#fef2f2" },
-  trTotal: { fontWeight: 800, background: "#f8fafc" },
+  th: { textAlign: "left", padding: "9px 10px", color: "var(--rv-texto-fraco)", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid var(--rv-borda)", whiteSpace: "nowrap" },
+  thNum: { textAlign: "right", padding: "9px 10px", color: "var(--rv-texto-fraco)", fontWeight: 700, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: "1px solid var(--rv-borda)", whiteSpace: "nowrap" },
+  td: { padding: "8px 10px", borderBottom: "1px solid var(--rv-borda-suave)", color: "var(--rv-tinta)" },
+  tdNum: { padding: "8px 10px", borderBottom: "1px solid var(--rv-borda-suave)", color: "var(--rv-tinta)", textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" },
+  trAlerta: { background: "var(--rv-vermelho-fundo)" },
+  trTotal: { fontWeight: 800, background: "var(--rv-fundo-cartao)" },
   nome: { fontWeight: 700 },
-  selo: { marginLeft: 7, fontSize: 10, fontWeight: 800, textTransform: "uppercase", color: "#b91c1c", background: "#fee2e2", borderRadius: 999, padding: "1px 7px" },
-  nota: { fontSize: 11, color: "#94a3b8", marginLeft: 6 },
-  botaoNum: { background: "none", border: "none", padding: 0, font: "inherit", fontWeight: 700, cursor: "pointer", textDecoration: "underline", textDecorationColor: "#cbd5e1", textUnderlineOffset: 3 },
-  trilho: { display: "flex", gap: 2, height: 8, background: "#f1f5f9", borderRadius: 999, overflow: "hidden", minWidth: 120 },
+  selo: { marginLeft: 7, fontSize: 10, fontWeight: 800, textTransform: "uppercase", color: "var(--rv-vermelho-texto)", background: "var(--rv-vermelho-fundo)", borderRadius: 999, padding: "1px 7px" },
+  nota: { fontSize: 11, color: "var(--rv-texto-fraco)", marginLeft: 6 },
+  botaoNum: { background: "none", border: "none", padding: 0, font: "inherit", fontWeight: 700, cursor: "pointer", textDecoration: "underline", textDecorationColor: "var(--rv-borda-forte)", textUnderlineOffset: 3 },
+  trilho: { display: "flex", gap: 2, height: 8, background: "var(--rv-fundo-suave)", borderRadius: 999, overflow: "hidden", minWidth: 120 },
   fatia: { display: "block", height: "100%" },
-  legenda: { display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center", fontSize: 12, color: "#475569", margin: "14px 0 0" },
+  legenda: { display: "flex", flexWrap: "wrap", gap: 16, alignItems: "center", fontSize: 12, color: "var(--rv-texto)", margin: "14px 0 0" },
   ponto: { display: "inline-block", width: 10, height: 10, borderRadius: 3, marginRight: 5, marginLeft: 4 },
-  rodape: { fontSize: 12, color: "#94a3b8", margin: "10px 0 0" },
-  vazio: { background: "#fff", border: "1px solid #eef2f6", borderRadius: 14, padding: 18, color: "#64748b", fontSize: 13.5 },
-  erro: { background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 12, padding: 14, fontSize: 13.5, marginBottom: 12 },
+  rodape: { fontSize: 12, color: "var(--rv-texto-fraco)", margin: "10px 0 0" },
+  vazio: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14, padding: 18, color: "var(--rv-texto-suave)", fontSize: 13.5 },
+  erro: { background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", borderRadius: 12, padding: 14, fontSize: 13.5, marginBottom: 12 },
   fundoGaveta: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.35)", display: "flex", justifyContent: "flex-end", zIndex: 60 },
-  gaveta: { background: "#fff", width: "min(980px, 96vw)", height: "100%", overflowY: "auto", padding: 20, boxShadow: "-8px 0 32px rgba(15,23,42,0.18)" },
+  gaveta: { background: "var(--rv-superficie)", width: "min(980px, 96vw)", height: "100%", overflowY: "auto", padding: 20, boxShadow: "-8px 0 32px rgba(15,23,42,0.18)" },
   gavetaTopo: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, marginBottom: 14 },
-  gavetaTitulo: { margin: "0 0 6px", fontSize: 18, fontWeight: 800, color: "#0f172a" },
-  gavetaTotal: { fontSize: 12.5, color: "#64748b", marginLeft: 8 },
+  gavetaTitulo: { margin: "0 0 6px", fontSize: 18, fontWeight: 800, color: "var(--rv-tinta)" },
+  gavetaTotal: { fontSize: 12.5, color: "var(--rv-texto-suave)", marginLeft: 8 },
   pill: { fontSize: 11, fontWeight: 800, textTransform: "uppercase", borderRadius: 999, padding: "2px 9px" },
-  fechar: { background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "#64748b", lineHeight: 1 },
-  link: { color: "#1d4ed8", fontWeight: 600, textDecoration: "none" },
+  fechar: { background: "none", border: "none", fontSize: 18, cursor: "pointer", color: "var(--rv-texto-suave)", lineHeight: 1 },
+  link: { background: "none", border: "none", padding: 0, font: "inherit", color: "var(--rv-azul-texto)", fontWeight: 600, textDecoration: "none", cursor: "pointer", textAlign: "left" },
+  linkInerte: { background: "none", border: "none", padding: 0, font: "inherit", color: "var(--rv-texto-suave)", fontWeight: 600, textAlign: "left", cursor: "default" },
   paginacao: { display: "flex", alignItems: "center", justifyContent: "center", gap: 14, marginTop: 14 },
-  botaoPag: { background: "#fff", border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 12px", fontSize: 13, cursor: "pointer" },
+  botaoPag: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 8, padding: "6px 12px", fontSize: 13, cursor: "pointer" },
 };

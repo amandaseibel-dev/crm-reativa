@@ -154,7 +154,7 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
 
   return (
     <div style={{ padding: "4px 0" }}>
-      <p style={{ fontSize: 13, color: "#8a93a3", marginBottom: 12 }}>
+      <p style={{ fontSize: 13, color: "var(--rv-texto-fraco)", marginBottom: 12 }}>
         Alunos que estão devendo (base ativa, sem responsável), mas o sistema nunca calculou o
         valor em aberto — normalmente vindos da carga retroativa antiga. Preencha o valor certo pra
         eles voltarem a aparecer nas listas e ações normalmente.
@@ -164,15 +164,15 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
         placeholder="Buscar por nome..."
         value={busca}
         onChange={(e) => setBusca(e.target.value)}
-        style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #e3e7ee", fontSize: 13, marginBottom: 12, width: 280 }}
+        style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--rv-borda)", fontSize: 13, marginBottom: 12, width: 280 }}
       />
 
-      <p style={{ fontSize: 12.5, color: "#8a93a3", marginBottom: 10 }}>
+      <p style={{ fontSize: 12.5, color: "var(--rv-texto-fraco)", marginBottom: 10 }}>
         <strong>{filtrada.length}</strong> de {lista.length} caso(s) sem valor
       </p>
 
       {mensagem && (
-        <p style={{ color: "#0f7a4f", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>{mensagem}</p>
+        <p style={{ color: "var(--rv-verde-ok-texto)", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>{mensagem}</p>
       )}
 
       <div style={{ overflowX: "auto" }}>
@@ -205,7 +205,7 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
                   {a.ultima_movimentacao ? (
                     new Date(a.ultima_movimentacao).toLocaleDateString("pt-BR")
                   ) : (
-                    <span style={{ color: "#b91c1c", fontWeight: 700 }}>Nunca</span>
+                    <span style={{ color: "var(--rv-vermelho-texto)", fontWeight: 700 }}>Nunca</span>
                   )}
                 </td>
                 <td style={td}>{a.status_jornada}</td>
@@ -214,7 +214,7 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
                     placeholder="Ex: 350,00"
                     value={valores[a.id] || ""}
                     onChange={(e) => setValores((v) => ({ ...v, [a.id]: e.target.value }))}
-                    style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #e3e7ee", fontSize: 13, width: 110 }}
+                    style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--rv-borda)", fontSize: 13, width: 110 }}
                   />
                 </td>
                 <td style={td}>
@@ -240,9 +240,9 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
                       onClick={() => setFichaId(a.id)}
                       title="Abrir ficha completa do aluno (histórico, movimentações)"
                       style={{
-                        background: "#fff",
-                        color: "#475569",
-                        border: "1px solid #e3e7ee",
+                        background: "var(--rv-superficie)",
+                        color: "var(--rv-texto)",
+                        border: "1px solid var(--rv-borda)",
                         borderRadius: 8,
                         padding: "6px 10px",
                         fontSize: 12,
@@ -270,7 +270,7 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
         <div style={ovl} onClick={() => setFichaId(null)}>
           <div style={mbox} onClick={(e) => e.stopPropagation()}>
             <div style={mtopo}>
-              <span style={{ fontWeight: 800, color: "#0d1321" }}>Ficha do aluno</span>
+              <span style={{ fontWeight: 800, color: "var(--rv-tinta)" }}>Ficha do aluno</span>
               <button type="button" style={mfechar} onClick={() => setFichaId(null)}>Fechar ✕</button>
             </div>
             <div style={{ overflow: "auto", flex: 1 }}>
@@ -285,22 +285,22 @@ export default function CasosSemValor({ aoAtualizarContagem }) {
 
 const ovl = { position: "fixed", inset: 0, background: "rgba(15,23,42,0.55)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "3vh 2vw", zIndex: 1000 };
 const mbox = { ...modalBox_import, width: "min(1100px, 96vw)", maxHeight: "94vh", display: "flex", flexDirection: "column", overflow: "hidden" };
-const mtopo = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #e6eaf0", background: "#f8fafc" };
-const mfechar = { background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" };
+const mtopo = { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid var(--rv-borda)", background: "var(--rv-fundo-cartao)" };
+const mfechar = { background: "var(--rv-botao-escuro)", color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" };
 
 const th = {
   textAlign: "left",
   padding: "8px 10px",
-  color: "#8a93a3",
+  color: "var(--rv-texto-fraco)",
   fontSize: 10.5,
   fontWeight: 700,
   textTransform: "uppercase",
   letterSpacing: "0.05em",
-  background: "#f8fafc",
-  borderBottom: "1px solid #e3e7ee",
+  background: "var(--rv-fundo-cartao)",
+  borderBottom: "1px solid var(--rv-borda)",
 };
 
 const td = {
   padding: "8px 10px",
-  borderBottom: "1px solid #f2f4f7",
+  borderBottom: "1px solid var(--rv-borda-suave)",
 };

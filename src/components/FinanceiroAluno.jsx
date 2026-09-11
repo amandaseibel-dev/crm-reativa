@@ -91,13 +91,13 @@ const STATUS_PARCELA_LABEL = {
 // texto ficava ilegivel. Selo solido com texto escuro le bem nos dois fundos:
 // no escuro ele vira um badge claro, no claro ele mantem o contraste.
 const CORES_STATUS = {
-  em_aberto: { barra: "#185FA5", bg: "#dbeafe", texto: "#1e40af", label: "Em aberto" },
-  em_dia:    { barra: "#639922", bg: "#dcfce7", texto: "#166534", label: "Em dia" },
-  atraso:    { barra: "#EF9F27", bg: "#fef3c7", texto: "#92400e", label: "Em atraso" },
-  vencida:   { barra: "#E24B4A", bg: "#fee2e2", texto: "#991b1b", label: "Vencida" },
-  quebrado:  { barra: "#E24B4A", bg: "#fee2e2", texto: "#991b1b", label: "Quebrado" },
-  quitado:   { barra: "#1D9E75", bg: "#d1fae5", texto: "#065f46", label: "Quitado" },
-  cancelado: { barra: "#64748b", bg: "#e2e8f0", texto: "#334155", label: "Cancelado" },
+  em_aberto: { barra: "var(--rv-azul-texto)", bg: "var(--rv-azul-fundo)", texto: "var(--rv-azul-texto)", label: "Em aberto" },
+  em_dia:    { barra: "var(--rv-verde-ok)", bg: "var(--rv-verde-ok-fundo)", texto: "var(--rv-verde-ok-texto)", label: "Em dia" },
+  atraso:    { barra: "var(--rv-ambar)", bg: "var(--rv-ambar-fundo)", texto: "var(--rv-ambar-texto)", label: "Em atraso" },
+  vencida:   { barra: "var(--rv-vermelho)", bg: "var(--rv-vermelho-fundo)", texto: "var(--rv-vermelho-texto)", label: "Vencida" },
+  quebrado:  { barra: "var(--rv-vermelho)", bg: "var(--rv-vermelho-fundo)", texto: "var(--rv-vermelho-texto)", label: "Quebrado" },
+  quitado:   { barra: "var(--rv-verde-ok)", bg: "var(--rv-verde-ok-fundo)", texto: "var(--rv-verde-ok-texto)", label: "Quitado" },
+  cancelado: { barra: "var(--rv-texto-suave)", bg: "var(--rv-borda)", texto: "var(--rv-texto-forte)", label: "Cancelado" },
 };
 
 function diasAtraso(venc) {
@@ -1139,7 +1139,7 @@ export default function FinanceiroAluno({ aluno }) {
   const pagoAcordos = parcelasPagas.reduce((soma, p) => soma + Number(p.valor || 0), 0);
   const pagoHonorarios = parcelasPagas.reduce((soma, p) => soma + Number(p.honorarios || 0), 0);
   const pagoTotal = pagoMensalidades + pagoHonorarios + pagoAcordos;
-  const estiloPago = { fontSize: 11.5, color: "#15803d", fontWeight: 700, marginTop: 2 };
+  const estiloPago = { fontSize: 11.5, color: "var(--rv-verde-ok-texto)", fontWeight: 700, marginTop: 2 };
 
   // Contadores por seção (para a área financeira do card).
   const qtdMensalidadesAbertas = emAberto.length;
@@ -1279,7 +1279,7 @@ export default function FinanceiroAluno({ aluno }) {
                       {novo.titulosSel.length > 0 && (
                         <button
                           type="button"
-                          style={{ ...estilos.botaoPequeno, padding: "4px 10px", background: "#e2e8f0", color: "#334155" }}
+                          style={{ ...estilos.botaoPequeno, padding: "4px 10px", background: "var(--rv-borda)", color: "var(--rv-texto-forte)" }}
                           onClick={() => setNovo((atual) => ({ ...atual, titulosSel: [] }))}
                         >
                           Limpar
@@ -1314,7 +1314,7 @@ export default function FinanceiroAluno({ aluno }) {
                       </button>
                     </div>
                     {acordosVinculaveis.length > 0 && novo.titulosSel.length > 0 && (
-                      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, paddingTop: 8, borderTop: "1px solid #eef2f6", flexWrap: "wrap" }}>
+                      <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--rv-borda-suave)", flexWrap: "wrap" }}>
                         <span style={{ fontSize: 12, fontWeight: 700 }}>Ou vincular a um acordo existente:</span>
                         <select value={acordoAlvoId} onChange={(e) => setAcordoAlvoId(e.target.value)} style={estilos.input}>
                           <option value="">Escolha o acordo…</option>
@@ -1574,8 +1574,8 @@ export default function FinanceiroAluno({ aluno }) {
                     <div style={{ fontSize: 13, fontWeight: 700 }}>
                       {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
                     </div>
-                    <span style={{ ...estilos.tagBase, background: duplicada ? "#e2e8f0" : cor.bg,
-                                   color: duplicada ? "#475569" : cor.texto }}>
+                    <span style={{ ...estilos.tagBase, background: duplicada ? "var(--rv-borda)" : cor.bg,
+                                   color: duplicada ? "var(--rv-texto)" : cor.texto }}>
                       {duplicada ? "Fora da conta"
                         : pago ? "Quitada" : negociada ? "Negociado" : "Em aberto"}
                     </span>
@@ -1595,16 +1595,16 @@ export default function FinanceiroAluno({ aluno }) {
                               if (e.key === "Enter") excluirTitulo(titulo.id);
                               if (e.key === "Escape") { setDuplicando(null); setMotivoDup(""); }
                             }}
-                            style={{ border: "1px solid #cbd5e1", borderRadius: 8, padding: "4px 9px", fontSize: 12, minWidth: 230 }}
+                            style={{ border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "4px 9px", fontSize: 12, minWidth: 230 }}
                           />
                           <button type="button" disabled={salvandoDup}
                             onClick={() => excluirTitulo(titulo.id)}
-                            style={{ background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>
+                            style={{ background: "var(--rv-botao-escuro)", color: "#fff", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 800, cursor: "pointer" }}>
                             {salvandoDup ? "…" : "Excluir"}
                           </button>
                           <button type="button"
                             onClick={() => { setDuplicando(null); setMotivoDup(""); }}
-                            style={{ background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}>
+                            style={{ background: "var(--rv-superficie)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "5px 10px", fontSize: 12, cursor: "pointer" }}>
                             Não
                           </button>
                         </div>
@@ -1613,7 +1613,7 @@ export default function FinanceiroAluno({ aluno }) {
                           <button type="button"
                             onClick={() => { setDuplicando(titulo.id); setMotivoDup(""); }}
                             title="Apaga este título. Use quando o boleto não existe — por exemplo o boleto do próprio acordo, que volta a contar quando o acordo é cancelado. Pede motivo, e a linha fica guardada na auditoria."
-                            style={{ background: "#fff", color: "#9f1239", border: "1px solid #fecdd3", borderRadius: 8, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
+                            style={{ background: "var(--rv-superficie)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 8, padding: "3px 9px", fontSize: 11, fontWeight: 700, cursor: "pointer" }}>
                             Excluir
                           </button>
                         </div>
@@ -1946,11 +1946,11 @@ function SeletorResponsavelAcordo({ acordo, operadoresAtivos, onAplicar }) {
   }
   return (
     <span style={{ display: "inline-flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-      <select value={email} onChange={(e) => setEmail(e.target.value)} style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #e6eaf0", fontSize: 12 }}>
+      <select value={email} onChange={(e) => setEmail(e.target.value)} style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--rv-borda)", fontSize: 12 }}>
         <option value="">Selecione</option>
         {operadoresAtivos.map((op) => (<option key={op.email} value={op.email}>{op.nome}</option>))}
       </select>
-      <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (opcional)" style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #e6eaf0", fontSize: 12 }} />
+      <input value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Motivo (opcional)" style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--rv-borda)", fontSize: 12 }} />
       <button type="button" onClick={aplicar} disabled={aplicando} style={{ padding: "6px 10px", borderRadius: 8, border: "none", background: "#2563eb", color: "#fff", fontWeight: 600, cursor: aplicando ? "default" : "pointer", fontSize: 12, opacity: aplicando ? 0.6 : 1 }}>{aplicando ? "Aplicando..." : "Aplicar"}</button>
     </span>
   );
@@ -2537,7 +2537,7 @@ const estilos = {
   chipEmDia: { background: "rgba(99,153,34,0.16)", color: "#a3d15f" },
   chipQuebrado: { background: "rgba(226,75,74,0.16)", color: "#f0999a" },
   chipQuitado: { background: "rgba(29,158,117,0.16)", color: "#6fd7b6" },
-  chipCancelado: { background: "rgba(100,116,139,0.18)", color: "#94a3b8" },
+  chipCancelado: { background: "rgba(100,116,139,0.18)", color: "var(--rv-texto-fraco)" },
   blocoEncerrado: { marginTop: 14, border: "1px solid rgba(148,163,184,0.25)", borderRadius: 10, overflow: "hidden" },
   blocoEncerradoHeader: { width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "10px 12px", background: "rgba(148,163,184,0.10)", border: "none", color: "inherit", cursor: "pointer", fontSize: 13, textAlign: "left" },
   resumoEncerradoItem: { padding: "10px 12px", borderTop: "1px solid rgba(148,163,184,0.15)" },
@@ -2549,12 +2549,12 @@ const estilos = {
   },
   totalAberto: { fontSize: 13, color: "#fcd34d", fontWeight: 700 },
   caixaResumo: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 16px", marginTop: 14, marginBottom: 4, borderRadius: 10, background: "rgba(34,197,94,0.08)", border: "1px solid rgba(34,197,94,0.3)" },
-  totalGeral: { fontSize: 22, fontWeight: 800, color: "#065f46", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" },
+  totalGeral: { fontSize: 22, fontWeight: 800, color: "var(--rv-verde-ok-texto)", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" },
   // O que a regra de data tirou da conta. Fica com cor propria porque nao e
   // "pago" nem "em aberto": e um valor que o sistema decidiu nao somar, e a
   // pessoa precisa saber que ele existe para poder discordar.
-  foraDaConta: { fontSize: 11.5, color: "#92400e", background: "#fffbeb", border: "1px solid #fcd34d", borderRadius: 8, padding: "7px 9px", fontWeight: 600, marginTop: 6, lineHeight: 1.4 },
-  seloVencidas: { fontSize: 11, color: "#b91c1c", fontWeight: 800 },
+  foraDaConta: { fontSize: 11.5, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 8, padding: "7px 9px", fontWeight: 600, marginTop: 6, lineHeight: 1.4 },
+  seloVencidas: { fontSize: 11, color: "var(--rv-vermelho-texto)", fontWeight: 800 },
   bannerSomenteAcordo: { marginTop: 14, marginBottom: 4, padding: "10px 14px", borderRadius: 10, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.4)", color: "#fcd34d", fontSize: 12.5, fontWeight: 700 },
   // CORES DO RESUMO: fundo e texto com cor PROPRIA, nao translucida.
   //
@@ -2567,12 +2567,12 @@ const estilos = {
   // Cor solida resolve nos dois fundos ao mesmo tempo, sem depender de onde o
   // componente foi encaixado.
   resumoFinanceiroTopo: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14, marginBottom: 4 },
-  resumoFinanceiroItem: { flex: "1 1 180px", display: "flex", flexDirection: "column", gap: 4, padding: "12px 16px", borderRadius: 10, background: "#f1f5f9", border: "1px solid #cbd5e1" },
-  resumoFinanceiroItemTotal: { background: "#ecfdf5", border: "1px solid #6ee7b7" },
-  resumoFinanceiroLabel: { fontSize: 12, color: "#475569", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" },
-  resumoFinanceiroValor: { fontSize: 20, fontWeight: 800, color: "#0f172a", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" },
+  resumoFinanceiroItem: { flex: "1 1 180px", display: "flex", flexDirection: "column", gap: 4, padding: "12px 16px", borderRadius: 10, background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda-forte)" },
+  resumoFinanceiroItemTotal: { background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)" },
+  resumoFinanceiroLabel: { fontSize: 12, color: "var(--rv-texto)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.03em" },
+  resumoFinanceiroValor: { fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", fontVariantNumeric: "tabular-nums", letterSpacing: "-0.02em" },
   linha: { display: "flex", alignItems: "center", justifyContent: "space-between", padding: "8px 0", borderTop: "1px solid rgba(148,163,184,0.12)" },
-  subLinha: { fontSize: 11.5, color: "#475569", marginTop: 2 },
+  subLinha: { fontSize: 11.5, color: "var(--rv-texto)", marginTop: 2 },
   parcSoma: { display: "grid", gridTemplateColumns: "40px 1fr 1fr 1fr", gap: 8, alignItems: "center", padding: "8px 10px 2px", marginTop: 4, borderTop: "1px solid rgba(148,163,184,0.25)", fontSize: 12.5, fontWeight: 800, color: "#e2e8f0", fontVariantNumeric: "tabular-nums" },
   avisoConferencia: { marginTop: 10, padding: "10px 14px", borderRadius: 10, background: "rgba(234,179,8,0.12)", border: "1px solid rgba(234,179,8,0.4)", color: "#fcd34d", fontSize: 12.5, fontWeight: 700 },
   // Numero do titulo: tabular para alinhar digito com digito quando ha varias

@@ -72,10 +72,10 @@ function corBadge(status) {
   ];
   const negativos = ["CANCELADO", "DIVERGENCIA", "BAIXA_DEVOLVIDA", "TERMO_REJEITADO"];
 
-  if (pendentes.includes(status)) return { bg: "#fef3c7", texto: "#92400e" };
-  if (positivos.includes(status)) return { bg: "#dcfce7", texto: "#166534" };
-  if (negativos.includes(status)) return { bg: "#fee2e2", texto: "#991b1b" };
-  return { bg: "#e0f2fe", texto: "#075985" };
+  if (pendentes.includes(status)) return { bg: "var(--rv-ambar-fundo)", texto: "var(--rv-ambar-texto)" };
+  if (positivos.includes(status)) return { bg: "var(--rv-verde-ok-fundo)", texto: "var(--rv-verde-ok-texto)" };
+  if (negativos.includes(status)) return { bg: "var(--rv-vermelho-fundo)", texto: "var(--rv-vermelho-texto)" };
+  return { bg: "var(--rv-azul-fundo)", texto: "var(--rv-azul-texto)" };
 }
 
 function formatarTabulacao(valor) {
@@ -1033,14 +1033,14 @@ export default function PainelAdm() {
               <p style={estilos.valorCartao}>{indicadoresLinks.solicitados}</p>
             </div>
 
-            <div style={{ ...estilos.cartao, background: "#fef3c7" }}>
-              <p style={{ ...estilos.rotuloCartao, color: "#92400e" }}>Aguardando resposta agora</p>
-              <p style={{ ...estilos.valorCartao, color: "#92400e" }}>{aguardandoGeral}</p>
+            <div style={{ ...estilos.cartao, background: "var(--rv-ambar-fundo)" }}>
+              <p style={{ ...estilos.rotuloCartao, color: "var(--rv-ambar-texto)" }}>Aguardando resposta agora</p>
+              <p style={{ ...estilos.valorCartao, color: "var(--rv-ambar-texto)" }}>{aguardandoGeral}</p>
             </div>
 
-            <div style={{ ...estilos.cartao, background: "#dcfce7" }}>
-              <p style={{ ...estilos.rotuloCartao, color: "#166534" }}>Respondidos no período</p>
-              <p style={{ ...estilos.valorCartao, color: "#166534" }}>{indicadoresLinks.respondidos}</p>
+            <div style={{ ...estilos.cartao, background: "var(--rv-verde-ok-fundo)" }}>
+              <p style={{ ...estilos.rotuloCartao, color: "var(--rv-verde-ok-texto)" }}>Respondidos no período</p>
+              <p style={{ ...estilos.valorCartao, color: "var(--rv-verde-ok-texto)" }}>{indicadoresLinks.respondidos}</p>
             </div>
 
             <div style={estilos.cartao}>
@@ -1116,7 +1116,7 @@ export default function PainelAdm() {
                             {item.aluno_nome || item.nome_aluno || "-"}
                           </button>
                         </td>
-                        <td style={{ ...estilos.td, color: "#475569" }}>
+                        <td style={{ ...estilos.td, color: "var(--rv-texto)" }}>
                           {item.operador_nome || item.operador_solicitante || "-"}
                         </td>
                         <td style={estilos.td}>{formatarMoeda(item.valor)}</td>
@@ -1124,7 +1124,7 @@ export default function PainelAdm() {
                           <span style={{ ...estilos.badge, background: cores.bg, color: cores.texto }}>
                             {labelTabulacao || STATUS_LABELS_LINKS[item.status] || item.status}
                           </span>
-                          <div style={{ fontSize: "11px", color: atrasado ? "#b91c1c" : "#94a3b8", marginTop: "4px" }}>
+                          <div style={{ fontSize: "11px", color: atrasado ? "var(--rv-vermelho-texto)" : "var(--rv-texto-fraco)", marginTop: "4px" }}>
                             {minutosResposta === null
                               ? ""
                               : item.respondido_em
@@ -1273,9 +1273,9 @@ export default function PainelAdm() {
               <p style={estilos.rotuloCartao}>Aguardando envio</p>
               <p style={estilos.valorCartao}>{indicadoresFinanceiro.pendentes}</p>
             </div>
-            <div style={{ ...estilos.cartao, background: "#dcfce7" }}>
-              <p style={{ ...estilos.rotuloCartao, color: "#166534" }}>Enviados</p>
-              <p style={{ ...estilos.valorCartao, color: "#166534" }}>{indicadoresFinanceiro.enviados}</p>
+            <div style={{ ...estilos.cartao, background: "var(--rv-verde-ok-fundo)" }}>
+              <p style={{ ...estilos.rotuloCartao, color: "var(--rv-verde-ok-texto)" }}>Enviados</p>
+              <p style={{ ...estilos.valorCartao, color: "var(--rv-verde-ok-texto)" }}>{indicadoresFinanceiro.enviados}</p>
             </div>
             <div style={estilos.cartao}>
               <p style={estilos.rotuloCartao}>Total</p>
@@ -1363,13 +1363,13 @@ export default function PainelAdm() {
               <p style={estilos.rotuloCartao}>Pendentes</p>
               <p style={estilos.valorCartao}>{indicadoresTermos.pendentes}</p>
             </div>
-            <div style={{ ...estilos.cartao, background: "#dcfce7" }}>
-              <p style={{ ...estilos.rotuloCartao, color: "#166534" }}>Liberados</p>
-              <p style={{ ...estilos.valorCartao, color: "#166534" }}>{indicadoresTermos.liberados}</p>
+            <div style={{ ...estilos.cartao, background: "var(--rv-verde-ok-fundo)" }}>
+              <p style={{ ...estilos.rotuloCartao, color: "var(--rv-verde-ok-texto)" }}>Liberados</p>
+              <p style={{ ...estilos.valorCartao, color: "var(--rv-verde-ok-texto)" }}>{indicadoresTermos.liberados}</p>
             </div>
-            <div style={{ ...estilos.cartao, background: "#fee2e2" }}>
-              <p style={{ ...estilos.rotuloCartao, color: "#991b1b" }}>Rejeitados</p>
-              <p style={{ ...estilos.valorCartao, color: "#991b1b" }}>{indicadoresTermos.rejeitados}</p>
+            <div style={{ ...estilos.cartao, background: "var(--rv-vermelho-fundo)" }}>
+              <p style={{ ...estilos.rotuloCartao, color: "var(--rv-vermelho-texto)" }}>Rejeitados</p>
+              <p style={{ ...estilos.valorCartao, color: "var(--rv-vermelho-texto)" }}>{indicadoresTermos.rejeitados}</p>
             </div>
             <div style={estilos.cartao}>
               <p style={estilos.rotuloCartao}>Total</p>
@@ -1489,9 +1489,9 @@ const estilos = {
   tab: {
     padding: "10px 16px",
     borderRadius: "999px",
-    border: "1px solid #cbd5e1",
-    background: "#fff",
-    color: "#0f172a",
+    border: "1px solid var(--rv-borda-forte)",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-tinta)",
     fontWeight: "700",
     cursor: "pointer",
     fontSize: "14px",
@@ -1515,10 +1515,10 @@ const estilos = {
   },
   select: {
     padding: "9px 10px",
-    border: "1px solid #cbd5e1",
+    border: "1px solid var(--rv-borda-forte)",
     borderRadius: "8px",
     fontSize: "14px",
-    background: "#fff",
+    background: "var(--rv-superficie)",
   },
   intervalo: {
     display: "flex",
@@ -1531,35 +1531,35 @@ const estilos = {
     alignItems: "center",
     gap: "6px",
     fontSize: "13px",
-    color: "#475569",
+    color: "var(--rv-texto)",
   },
   inputData: {
     padding: "8px 10px",
-    border: "1px solid #cbd5e1",
+    border: "1px solid var(--rv-borda-forte)",
     borderRadius: "8px",
     fontSize: "14px",
-    background: "#fff",
+    background: "var(--rv-superficie)",
   },
   limparDatas: {
     padding: "8px 10px",
-    border: "1px solid #cbd5e1",
+    border: "1px solid var(--rv-borda-forte)",
     borderRadius: "8px",
     fontSize: "13px",
-    background: "#f8fafc",
-    color: "#475569",
+    background: "var(--rv-fundo-cartao)",
+    color: "var(--rv-texto)",
     cursor: "pointer",
   },
   aviso: {
     padding: "10px 12px",
     borderRadius: "8px",
-    background: "#fef3c7",
-    color: "#92400e",
+    background: "var(--rv-ambar-fundo)",
+    color: "var(--rv-ambar-texto)",
     fontSize: "14px",
     marginBottom: "16px",
   },
   busca: {
     padding: "9px 10px",
-    border: "1px solid #cbd5e1",
+    border: "1px solid var(--rv-borda-forte)",
     borderRadius: "8px",
     fontSize: "14px",
     flex: "1",
@@ -1567,7 +1567,7 @@ const estilos = {
   },
   botaoAtualizar: {
     padding: "9px 14px",
-    border: "1px solid #cbd5e1",
+    border: "1px solid var(--rv-borda-forte)",
     borderRadius: "8px",
     background: "#0f172a",
     color: "#fff",
@@ -1575,8 +1575,8 @@ const estilos = {
     cursor: "pointer",
   },
   erro: {
-    background: "#fee2e2",
-    color: "#991b1b",
+    background: "var(--rv-vermelho-fundo)",
+    color: "var(--rv-vermelho-texto)",
     padding: "10px 14px",
     borderRadius: "8px",
     marginBottom: "16px",
@@ -1589,24 +1589,24 @@ const estilos = {
     marginBottom: "20px",
   },
   cartao: {
-    background: "#f1f5f9",
+    background: "var(--rv-fundo-suave)",
     borderRadius: "12px",
     padding: "16px",
   },
   rotuloCartao: {
     margin: "0 0 6px",
     fontSize: "13px",
-    color: "#475569",
+    color: "var(--rv-texto)",
   },
   valorCartao: {
     margin: 0,
     fontSize: "26px",
     fontWeight: "800",
-    color: "#0f172a",
+    color: "var(--rv-tinta)",
   },
   cartaoGrafico: {
-    background: "#ffffff",
-    border: "1px solid #e2e8f0",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "12px",
     padding: "16px 18px",
     marginBottom: "20px",
@@ -1614,7 +1614,7 @@ const estilos = {
   rotuloGrafico: {
     margin: "0 0 14px",
     fontSize: "13px",
-    color: "#475569",
+    color: "var(--rv-texto)",
     fontWeight: "700",
   },
   linhaGrafico: {
@@ -1626,11 +1626,11 @@ const estilos = {
   },
   nomeGrafico: {
     fontSize: "13px",
-    color: "#0f172a",
+    color: "var(--rv-tinta)",
     fontWeight: "700",
   },
   barraFundo: {
-    background: "#f1f5f9",
+    background: "var(--rv-fundo-suave)",
     borderRadius: "6px",
     height: "10px",
     overflow: "hidden",
@@ -1641,12 +1641,12 @@ const estilos = {
   },
   valorGrafico: {
     fontSize: "12px",
-    color: "#475569",
+    color: "var(--rv-texto)",
     textAlign: "right",
   },
   tabelaContainer: {
-    background: "#ffffff",
-    border: "1px solid #e2e8f0",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "12px",
     overflow: "hidden",
   },
@@ -1658,17 +1658,17 @@ const estilos = {
   th: {
     textAlign: "left",
     padding: "12px 14px",
-    color: "#475569",
+    color: "var(--rv-texto)",
     fontWeight: "700",
-    borderBottom: "1px solid #e2e8f0",
-    background: "#f8fafc",
+    borderBottom: "1px solid var(--rv-borda)",
+    background: "var(--rv-fundo-cartao)",
   },
   tr: {
-    borderBottom: "1px solid #f1f5f9",
+    borderBottom: "1px solid var(--rv-borda-suave)",
   },
   td: {
     padding: "10px 14px",
-    color: "#0f172a",
+    color: "var(--rv-tinta)",
     verticalAlign: "top",
   },
   badge: {
@@ -1680,14 +1680,14 @@ const estilos = {
   textoAuxiliar: {
     padding: "24px",
     textAlign: "center",
-    color: "#64748b",
+    color: "var(--rv-texto-suave)",
   },
   nomeClicavel: {
     background: "none",
     border: "none",
     padding: 0,
     margin: 0,
-    color: "#0d6efd",
+    color: "var(--rv-azul)",
     fontWeight: "700",
     fontSize: "inherit",
     fontFamily: "inherit",
@@ -1701,7 +1701,7 @@ const estilos = {
     border: "none",
     padding: 0,
     margin: 0,
-    color: "#0d6efd",
+    color: "var(--rv-azul)",
     fontWeight: "700",
     fontSize: "inherit",
     fontFamily: "inherit",
@@ -1715,12 +1715,12 @@ const estilos = {
     minWidth: "200px",
   },
   trDetalhe: {
-    background: "#f8fafc",
+    background: "var(--rv-fundo-cartao)",
   },
   tdDetalhe: {
     padding: "16px 14px",
-    borderBottom: "1px solid #e2e8f0",
-    borderTop: "1px dashed #cbd5e1",
+    borderBottom: "1px solid var(--rv-borda)",
+    borderTop: "1px dashed var(--rv-borda-forte)",
   },
   detalheGrid: {
     display: "grid",
@@ -1731,21 +1731,21 @@ const estilos = {
   detalheRotulo: {
     fontSize: "11px",
     fontWeight: "700",
-    color: "#64748b",
+    color: "var(--rv-texto-suave)",
     textTransform: "uppercase",
     margin: "0 0 4px 0",
   },
   detalheValor: {
     fontSize: "14px",
     fontWeight: "700",
-    color: "#0f172a",
+    color: "var(--rv-tinta)",
     margin: 0,
   },
   detalheObs: {
     fontSize: "13px",
-    color: "#334155",
-    background: "#fff",
-    border: "1px solid #e2e8f0",
+    color: "var(--rv-texto-forte)",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "6px",
     padding: "8px 10px",
     marginBottom: "12px",
@@ -1758,13 +1758,13 @@ const estilos = {
   },
   inputAcao: {
     padding: "7px 9px",
-    border: "1px solid #cbd5e1",
+    border: "1px solid var(--rv-borda-forte)",
     borderRadius: "6px",
     fontSize: "12px",
   },
   linkComprovante: {
     fontSize: "12px",
-    color: "#0d6efd",
+    color: "var(--rv-azul)",
     fontWeight: "700",
   },
   botaoAzul: {
@@ -1779,7 +1779,7 @@ const estilos = {
   },
   botaoAmarelo: {
     background: "#ffc107",
-    color: "#111827",
+    color: "var(--rv-tinta)",
     border: "none",
     padding: "7px 10px",
     borderRadius: "6px",
@@ -1788,8 +1788,8 @@ const estilos = {
     fontSize: "12px",
   },
   botaoCinza: {
-    background: "#e5e7eb",
-    color: "#111827",
+    background: "var(--rv-borda)",
+    color: "var(--rv-tinta)",
     border: "none",
     padding: "7px 10px",
     borderRadius: "6px",
@@ -1798,7 +1798,7 @@ const estilos = {
     fontSize: "12px",
   },
   card: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "14px",
     padding: "20px",
     marginBottom: "14px",
@@ -1813,11 +1813,11 @@ const estilos = {
   },
   nomeCard: {
     margin: "0 0 6px",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   infoCard: {
     margin: "4px 0",
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
     fontSize: "14px",
   },
   blocoCard: {
@@ -1825,21 +1825,21 @@ const estilos = {
   },
   blocoRetorno: {
     marginTop: "12px",
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "10px",
     padding: "12px",
   },
   paragrafoCard: {
     margin: "6px 0",
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
     lineHeight: 1.4,
   },
   labelCard: {
     display: "block",
     fontWeight: "bold",
     marginBottom: "6px",
-    color: "#111827",
+    color: "var(--rv-tinta)",
     fontSize: "13px",
   },
   textareaCard: {
@@ -1847,7 +1847,7 @@ const estilos = {
     minHeight: "60px",
     padding: "10px",
     borderRadius: "8px",
-    border: "1px solid #ccc",
+    border: "1px solid var(--rv-borda-forte)",
     resize: "vertical",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",

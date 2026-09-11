@@ -10,9 +10,9 @@ export default function AvisoContencao() {
         margin: "12px 0",
         padding: "14px 16px",
         borderRadius: 10,
-        background: "#fff7ed",
-        border: "1px solid #fdba74",
-        color: "#9a3412",
+        background: "var(--rv-ambar-fundo)",
+        border: "1px solid var(--rv-ambar-borda)",
+        color: "var(--rv-ambar-texto)",
         fontSize: 14,
         lineHeight: 1.4,
       }}

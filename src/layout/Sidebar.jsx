@@ -23,7 +23,7 @@ export default function Sidebar({ active, setActive }) {
         color: "#fff",
       }}
     >
-      <h2 style={{ color: "#a855f7", marginBottom: 20 }}>
+      <h2 style={{ color: "var(--rv-roxo)", marginBottom: 20 }}>
         ReATIVA
       </h2>
 

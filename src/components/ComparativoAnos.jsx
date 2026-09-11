@@ -13,11 +13,11 @@ function Variacao({ a, b }) {
   const va = Number(a) || 0;
   const vb = Number(b) || 0;
   if (!va && !vb) return <span style={{ color: "#cbd5e1" }}>—</span>;
-  if (!va) return <span style={{ color: "#16a34a", fontWeight: 700 }}>novo</span>;
+  if (!va) return <span style={{ color: "var(--rv-verde-ok)", fontWeight: 700 }}>novo</span>;
   if (!vb) return <span style={{ color: "#cbd5e1" }}>—</span>;
   const p = ((vb - va) / va) * 100;
   return (
-    <span style={{ color: p >= 0 ? "#16a34a" : "#dc2626", fontWeight: 700 }}>
+    <span style={{ color: p >= 0 ? "var(--rv-verde-ok)" : "var(--rv-vermelho)", fontWeight: 700 }}>
       {(p >= 0 ? "+" : "") + p.toFixed(0) + "%"}
     </span>
   );
@@ -53,19 +53,19 @@ export default function ComparativoAnos() {
       {barra}
       <h2 style={S.tituloSecao}>Recuperação — consolidado</h2>
       <div style={S.kpiRow}>
-        <Kpi rot="Valor total pago" val={moeda(tg.valor_pago)} cor="#16a34a" destaque />
-        <Kpi rot="Honorários" val={moeda(tg.honorarios)} cor="#0ea5e9" />
-        <Kpi rot="Alunos pagos (únicos)" val={num(tg.alunos_unicos)} cor="#7c3aed" />
-        <Kpi rot="Parcelas pagas" val={num(tg.parcelas)} cor="#d97706" />
+        <Kpi rot="Valor total pago" val={moeda(tg.valor_pago)} cor="var(--rv-verde-ok)" destaque />
+        <Kpi rot="Honorários" val={moeda(tg.honorarios)} cor="var(--rv-azul)" />
+        <Kpi rot="Alunos pagos (únicos)" val={num(tg.alunos_unicos)} cor="var(--rv-roxo)" />
+        <Kpi rot="Parcelas pagas" val={num(tg.parcelas)} cor="var(--rv-ambar)" />
       </div>
 
       <h2 style={{ ...S.tituloSecao, marginTop: 24 }}>Recuperação — 2025 x 2026</h2>
 
       <div style={S.heroRow}>
-        <Hero rot="Recuperado 2025 (fechado)" val={moeda(d.total_2025)} cor="#0f172a" destaque nota="abr–dez/2025 · realizado" />
-        <Hero rot="Recuperado 2026 (até hoje)" val={moeda(d.total_2026)} cor="#16a34a"
+        <Hero rot="Recuperado 2025 (fechado)" val={moeda(d.total_2025)} cor="var(--rv-tinta)" destaque nota="abr–dez/2025 · realizado" />
+        <Hero rot="Recuperado 2026 (até hoje)" val={moeda(d.total_2026)} cor="var(--rv-verde-ok)"
               nota={`jan–${MESES[proj.mes_ref]}/2026 · realizado`} />
-        <Hero rot="Projeção fim de 2026" val={moeda(proj.projecao_fim_ano)} cor="#7c3aed" projetado
+        <Hero rot="Projeção fim de 2026" val={moeda(proj.projecao_fim_ano)} cor="var(--rv-roxo)" projetado
               nota={projVs2025 >= 0 ? `+${projVs2025.toFixed(0)}% vs 2025` : `${projVs2025.toFixed(0)}% vs 2025`} />
       </div>
 
@@ -153,7 +153,7 @@ function Kpi({ rot, val, cor, destaque }) {
       <div style={{ ...S.kpiFaixa, background: cor }} />
       <div style={S.kpiCorpo}>
         <span style={S.kpiRot}>{rot}</span>
-        <span style={{ ...S.kpiVal, color: destaque ? cor : "#111827", fontSize: destaque ? 28 : 24 }}>{val}</span>
+        <span style={{ ...S.kpiVal, color: destaque ? cor : "var(--rv-tinta)", fontSize: destaque ? 28 : 24 }}>{val}</span>
       </div>
     </div>
   );
@@ -164,47 +164,47 @@ function Hero({ rot, val, cor, nota, destaque, projetado }) {
     <div style={{ ...S.hero, ...(destaque ? S.heroDestaque : {}), ...(projetado ? S.heroProj : {}) }}>
       <span style={{ ...S.heroVal, color: cor }}>{val}</span>
       <span style={S.heroRot}>{rot}</span>
-      {nota ? <span style={{ ...S.heroNota, ...(projetado ? { color: "#7c3aed" } : {}) }}>{nota}</span> : null}
+      {nota ? <span style={{ ...S.heroNota, ...(projetado ? { color: "var(--rv-roxo)" } : {}) }}>{nota}</span> : null}
     </div>
   );
 }
 
 const S = {
   wrap: { marginBottom: 26 },
-  tituloSecao: { margin: "0 0 12px 0", color: "#334155", fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" },
+  tituloSecao: { margin: "0 0 12px 0", color: "var(--rv-texto-forte)", fontSize: 14, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.04em" },
   kpiRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 6 },
-  kpi: { background: "#fff", borderRadius: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.06)", border: "1px solid #eef2f7", overflow: "hidden", display: "flex" },
+  kpi: { background: "var(--rv-superficie)", borderRadius: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.06)", border: "1px solid var(--rv-borda-suave)", overflow: "hidden", display: "flex" },
   kpiFaixa: { width: 4, flexShrink: 0 },
   kpiCorpo: { padding: "16px 18px", flex: 1, display: "flex", flexDirection: "column", gap: 8 },
-  kpiRot: { fontSize: 12.5, color: "#64748b", fontWeight: 600 },
+  kpiRot: { fontSize: 12.5, color: "var(--rv-texto-suave)", fontWeight: 600 },
   kpiVal: { fontWeight: 800, lineHeight: 1.1 },
   heroRow: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 14 },
-  hero: { background: "#fff", border: "1px solid #eef2f7", borderRadius: 14, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 4, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" },
-  heroDestaque: { background: "#f8fafc", border: "1px solid #cbd5e1" },
-  heroProj: { background: "#faf5ff", border: "1px solid #e9d5ff" },
+  hero: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14, padding: "16px 18px", display: "flex", flexDirection: "column", gap: 4, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" },
+  heroDestaque: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda-forte)" },
+  heroProj: { background: "var(--rv-roxo-fundo)", border: "1px solid var(--rv-roxo-borda)" },
   heroVal: { fontSize: 26, fontWeight: 800, lineHeight: 1.1 },
-  heroRot: { fontSize: 12.5, color: "#64748b", fontWeight: 600 },
-  heroNota: { fontSize: 12, color: "#94a3b8", fontWeight: 600 },
-  card: { background: "#fff", border: "1px solid #eef2f7", borderRadius: 14, padding: 18, marginBottom: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" },
-  h3: { margin: "0 0 8px", fontSize: 15, fontWeight: 700, color: "#0f172a" },
-  legenda: { display: "flex", gap: 18, fontSize: 12, color: "#64748b", marginBottom: 12, fontWeight: 600 },
+  heroRot: { fontSize: 12.5, color: "var(--rv-texto-suave)", fontWeight: 600 },
+  heroNota: { fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 600 },
+  card: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14, padding: 18, marginBottom: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.06)" },
+  h3: { margin: "0 0 8px", fontSize: 15, fontWeight: 700, color: "var(--rv-tinta)" },
+  legenda: { display: "flex", gap: 18, fontSize: 12, color: "var(--rv-texto-suave)", marginBottom: 12, fontWeight: 600 },
   dot: { display: "inline-block", width: 10, height: 10, borderRadius: 3, marginRight: 5 },
   tabelaWrap: { overflowX: "auto" },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "8px 10px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" },
-  thNum: { textAlign: "right", padding: "8px 10px", color: "#64748b", fontWeight: 700, fontSize: 12, borderBottom: "1px solid #e5e7eb", whiteSpace: "nowrap" },
-  trFuturo: { background: "#faf5ff" },
-  tdMes: { padding: "8px 10px", fontWeight: 700, color: "#334155", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tagProj: { marginLeft: 6, background: "#f3e8ff", color: "#7c3aed", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 800 },
-  tagCurso: { marginLeft: 6, background: "#dbeafe", color: "#1d4ed8", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 800 },
-  td: { padding: "8px 10px", textAlign: "right", color: "#64748b", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdForte: { padding: "8px 10px", textAlign: "right", color: "#111827", fontWeight: 700, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdProj: { padding: "8px 10px", textAlign: "right", color: "#7c3aed", fontWeight: 700, borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  subProj: { fontSize: 11, color: "#7c3aed", fontWeight: 600, marginTop: 2 },
-  tdNum: { padding: "8px 10px", textAlign: "right", borderBottom: "1px solid #f1f5f9", whiteSpace: "nowrap" },
-  tdTotal: { padding: "10px", textAlign: "right", fontWeight: 800, color: "#0f172a", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
-  tdTotalNum: { padding: "10px", textAlign: "right", borderTop: "2px solid #e5e7eb", whiteSpace: "nowrap" },
-  tdFecha: { padding: "10px", textAlign: "right", fontWeight: 800, color: "#7c3aed", background: "#faf5ff", whiteSpace: "nowrap" },
-  muted: { color: "#64748b" },
-  rodape: { color: "#8a93a3", fontSize: 12, marginTop: 10 },
+  th: { textAlign: "left", padding: "8px 10px", color: "var(--rv-texto-suave)", fontWeight: 700, fontSize: 12, borderBottom: "1px solid var(--rv-borda)", whiteSpace: "nowrap" },
+  thNum: { textAlign: "right", padding: "8px 10px", color: "var(--rv-texto-suave)", fontWeight: 700, fontSize: 12, borderBottom: "1px solid var(--rv-borda)", whiteSpace: "nowrap" },
+  trFuturo: { background: "var(--rv-roxo-fundo)" },
+  tdMes: { padding: "8px 10px", fontWeight: 700, color: "var(--rv-texto-forte)", borderBottom: "1px solid var(--rv-borda-suave)", whiteSpace: "nowrap" },
+  tagProj: { marginLeft: 6, background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo)", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 800 },
+  tagCurso: { marginLeft: 6, background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)", borderRadius: 999, padding: "1px 7px", fontSize: 10, fontWeight: 800 },
+  td: { padding: "8px 10px", textAlign: "right", color: "var(--rv-texto-suave)", borderBottom: "1px solid var(--rv-borda-suave)", whiteSpace: "nowrap" },
+  tdForte: { padding: "8px 10px", textAlign: "right", color: "var(--rv-tinta)", fontWeight: 700, borderBottom: "1px solid var(--rv-borda-suave)", whiteSpace: "nowrap" },
+  tdProj: { padding: "8px 10px", textAlign: "right", color: "var(--rv-roxo)", fontWeight: 700, borderBottom: "1px solid var(--rv-borda-suave)", whiteSpace: "nowrap" },
+  subProj: { fontSize: 11, color: "var(--rv-roxo)", fontWeight: 600, marginTop: 2 },
+  tdNum: { padding: "8px 10px", textAlign: "right", borderBottom: "1px solid var(--rv-borda-suave)", whiteSpace: "nowrap" },
+  tdTotal: { padding: "10px", textAlign: "right", fontWeight: 800, color: "var(--rv-tinta)", borderTop: "2px solid var(--rv-borda)", whiteSpace: "nowrap" },
+  tdTotalNum: { padding: "10px", textAlign: "right", borderTop: "2px solid var(--rv-borda)", whiteSpace: "nowrap" },
+  tdFecha: { padding: "10px", textAlign: "right", fontWeight: 800, color: "var(--rv-roxo)", background: "var(--rv-roxo-fundo)", whiteSpace: "nowrap" },
+  muted: { color: "var(--rv-texto-suave)" },
+  rodape: { color: "var(--rv-texto-fraco)", fontSize: 12, marginTop: 10 },
 };

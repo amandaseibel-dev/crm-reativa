@@ -52,7 +52,19 @@ export default function CarteiraEfetividade() {
     setCarregando(false);
   }, []);
 
-  useEffect(() => { carregar(); }, [carregar]);
+  // Carga inicial no mesmo formato do resto do sistema: a promise por dentro
+  // do efeito, nada de setState sincrono (é o que a catraca do lint cobra).
+  useEffect(() => {
+    let ativo = true;
+    (async () => {
+      const { data: r, error } = await supabase.rpc("carteira_2026_1_indicadores");
+      if (!ativo) return;
+      if (error) setErro(error.message);
+      else setD(r?.vazio ? null : r);
+      setCarregando(false);
+    })();
+    return () => { ativo = false; };
+  }, []);
 
   async function recalcular() {
     setRecalculando(true);

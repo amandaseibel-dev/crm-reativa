@@ -47,7 +47,7 @@ export default function FunilRecuperacao() {
     return (
       <div style={estilos.card}>
         {barra}
-        <p style={{ color: "#94a3b8", margin: 0, fontSize: 13 }}>
+        <p style={{ color: "var(--rv-texto-fraco)", margin: 0, fontSize: 13 }}>
           {carregando ? "Carregando funil…" : "Clique em Atualizar para carregar o funil da base."}
         </p>
       </div>
@@ -92,8 +92,8 @@ export default function FunilRecuperacao() {
           <span style={estilos.numeroValor}>{moeda(funil.valor_aberto)}</span>
           <span style={estilos.labelValor}>Ainda em aberto (base ativa hoje)</span>
         </div>
-        <div style={{ ...estilos.cardValor, background: "#eff6ff", borderColor: "#c7d7fe" }}>
-          <span style={{ ...estilos.numeroValor, color: "#0f7a4f" }}>{moeda(funil.valor_recuperado_total)}</span>
+        <div style={{ ...estilos.cardValor, background: "var(--rv-azul-fundo)", borderColor: "var(--rv-azul-borda)" }}>
+          <span style={{ ...estilos.numeroValor, color: "var(--rv-verde-ok-texto)" }}>{moeda(funil.valor_recuperado_total)}</span>
           <span style={estilos.labelValor}>Já recuperado (histórico completo)</span>
         </div>
       </div>
@@ -109,8 +109,8 @@ export default function FunilRecuperacao() {
             <span style={estilos.numeroValor}>{acordos.novos_no_mes}</span>
             <span style={estilos.labelValor}>Novos acordos este mês ({moeda(acordos.valor_novos_no_mes)})</span>
           </div>
-          <div style={{ ...estilos.cardValor, background: acordos.em_atraso > 0 ? "#fef7f0" : undefined, borderColor: acordos.em_atraso > 0 ? "#fde3cc" : undefined }}>
-            <span style={{ ...estilos.numeroValor, color: acordos.em_atraso > 0 ? "#c2410c" : undefined }}>
+          <div style={{ ...estilos.cardValor, background: acordos.em_atraso > 0 ? "var(--rv-ambar-fundo)" : undefined, borderColor: acordos.em_atraso > 0 ? "var(--rv-ambar-borda)" : undefined }}>
+            <span style={{ ...estilos.numeroValor, color: acordos.em_atraso > 0 ? "var(--rv-ambar-texto)" : undefined }}>
               {acordos.em_atraso}
             </span>
             <span style={estilos.labelValor}>Acordos com parcela em atraso ({moeda(acordos.valor_em_atraso)})</span>
@@ -127,23 +127,23 @@ export default function FunilRecuperacao() {
 
 const estilos = {
   card: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: 16,
     padding: "20px 22px",
     boxShadow: "0 1px 2px rgba(16,24,40,0.04)",
-    border: "1px solid #edf0f5",
+    border: "1px solid var(--rv-borda-suave)",
     marginBottom: 18,
   },
-  tituloBloco: { margin: "0 0 14px", fontFamily: FONTE_TITULO, fontSize: 16, fontWeight: 800, color: "#0d1321" },
+  tituloBloco: { margin: "0 0 14px", fontFamily: FONTE_TITULO, fontSize: 16, fontWeight: 800, color: "var(--rv-tinta)" },
   funilBarra: { display: "flex", height: 24, borderRadius: 8, overflow: "hidden", marginBottom: 14 },
   barraFunil: { minWidth: 4 },
   gridFunil: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 14 },
-  itemFunil: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#344054" },
+  itemFunil: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--rv-texto-forte)" },
   pontoLegenda: { width: 10, height: 10, borderRadius: "50%", flexShrink: 0 },
   gridValores: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12, marginBottom: 14 },
-  cardValor: { background: "#f8fafc", border: "1px solid #edf0f5", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 },
-  numeroValor: { fontFamily: FONTE_TITULO, fontSize: 20, fontWeight: 800, color: "#0d1321" },
-  labelValor: { fontSize: 11.5, color: "#8a93a3", fontWeight: 600 },
-  destaque: { fontSize: 13, color: "#475569", margin: 0 },
-  link: { color: "#1e40af", fontWeight: 700, textDecoration: "none" },
+  cardValor: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda-suave)", borderRadius: 12, padding: "14px 16px", display: "flex", flexDirection: "column", gap: 4 },
+  numeroValor: { fontFamily: FONTE_TITULO, fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)" },
+  labelValor: { fontSize: 11.5, color: "var(--rv-texto-fraco)", fontWeight: 600 },
+  destaque: { fontSize: 13, color: "var(--rv-texto)", margin: 0 },
+  link: { color: "var(--rv-azul-texto)", fontWeight: 700, textDecoration: "none" },
 };

@@ -275,7 +275,7 @@ const estilos = {
   fechar: {
     background: "none",
     border: "none",
-    color: "#9ca3af",
+    color: "var(--rv-texto-fraco)",
     fontSize: "18px",
     lineHeight: 1,
     cursor: "pointer",

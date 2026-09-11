@@ -148,7 +148,7 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
           </a>
         )}
         {temComprovante && !visualizarUrl && (
-          <span style={{ ...styles.link, color: "#9ca3af", cursor: "default" }}>
+          <span style={{ ...styles.link, color: "var(--rv-texto-fraco)", cursor: "default" }}>
             Carregando…
           </span>
         )}
@@ -166,14 +166,14 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
             maxHeight: 720,
             width: "auto",
             borderRadius: 8,
-            border: "1px solid #e5e7eb",
+            border: "1px solid var(--rv-borda)",
             marginTop: 10,
             display: "block",
             cursor: "zoom-in",
           }}
         />
       ) : /\.pdf$/i.test(String(item.comprovante_nome || "")) ? (
-        <iframe src={visualizarUrl} title="comprovante" style={{ width: "100%", height: 640, border: "1px solid #e5e7eb", borderRadius: 8, marginTop: 10 }} />
+        <iframe src={visualizarUrl} title="comprovante" style={{ width: "100%", height: 640, border: "1px solid var(--rv-borda)", borderRadius: 8, marginTop: 10 }} />
       ) : null)}
 
       {/* Considera anexado quando há comprovante_url, mesmo sem comprovante_nome
@@ -239,8 +239,8 @@ export default function ComprovantePagamento({ item, onAtualizar }) {
 
 const styles = {
   card: {
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "12px",
     padding: "12px",
     marginTop: "12px",
@@ -253,17 +253,17 @@ const styles = {
   },
   texto: {
     margin: "4px 0 0 0",
-    color: "#555",
+    color: "var(--rv-texto)",
     fontSize: "13px",
   },
   link: {
-    color: "#0d6efd",
+    color: "var(--rv-azul)",
     fontWeight: "bold",
     whiteSpace: "nowrap",
   },
   arquivoAtual: {
     margin: "10px 0",
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
   },
   linha: {
     display: "flex",
@@ -283,24 +283,24 @@ const styles = {
   },
   selecionado: {
     margin: "8px 0 0 0",
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
   },
   proximaEtapa: {
     marginTop: "10px",
     padding: "10px 12px",
-    background: "#ecfdf5",
-    border: "1px solid #a7f3d0",
+    background: "var(--rv-verde-ok-fundo)",
+    border: "1px solid var(--rv-verde-ok-borda)",
     borderRadius: "8px",
-    color: "#065f46",
+    color: "var(--rv-verde-ok-texto)",
     fontSize: "13px",
   },
   filaFalhou: {
     marginTop: "10px",
     padding: "10px 12px",
-    background: "#fff7ed",
-    border: "1px solid #fed7aa",
+    background: "var(--rv-ambar-fundo)",
+    border: "1px solid var(--rv-ambar-borda)",
     borderRadius: "8px",
-    color: "#9a3412",
+    color: "var(--rv-ambar-texto)",
     fontSize: "13px",
     display: "flex",
     flexDirection: "column",

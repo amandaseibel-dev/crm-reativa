@@ -15,7 +15,7 @@ export default function AbaBloqueada({ onUsarEstaAba, liderPodeTerEncerrado }) {
     >
       <div
         style={{
-          background: "#fff",
+          background: "var(--rv-superficie)",
           borderRadius: 16,
           padding: "32px 28px",
           maxWidth: 460,
@@ -24,18 +24,18 @@ export default function AbaBloqueada({ onUsarEstaAba, liderPodeTerEncerrado }) {
         }}
       >
         <div style={{ fontSize: 44 }}>🗂️</div>
-        <h1 style={{ fontSize: 22, fontWeight: 900, margin: "8px 0", color: "#0f172a" }}>
+        <h1 style={{ fontSize: 22, fontWeight: 900, margin: "8px 0", color: "var(--rv-tinta)" }}>
           Limite de abas do ReATIVA
         </h1>
-        <p style={{ color: "#475569", fontSize: 15 }}>
+        <p style={{ color: "var(--rv-texto)", fontSize: 15 }}>
           Você já tem 2 abas ativas do ReATIVA (o limite por pessoa). Feche esta aba ou uma das outras para continuar.
         </p>
         {liderPodeTerEncerrado && (
           <p
             style={{
-              color: "#b45309",
-              background: "#fffbeb",
-              border: "1px solid #fde68a",
+              color: "var(--rv-ambar-texto)",
+              background: "var(--rv-ambar-fundo)",
+              border: "1px solid var(--rv-ambar-borda)",
               borderRadius: 10,
               padding: "10px 12px",
               fontSize: 13,
@@ -47,7 +47,7 @@ export default function AbaBloqueada({ onUsarEstaAba, liderPodeTerEncerrado }) {
             para continuar.
           </p>
         )}
-        <p style={{ color: "#64748b", fontSize: 13, marginTop: 12 }}>
+        <p style={{ color: "var(--rv-texto-suave)", fontSize: 13, marginTop: 12 }}>
           Se você quer usar o sistema aqui, clique abaixo. Uma das outras abas será
           bloqueada e esta passará a ser ativa.
         </p>

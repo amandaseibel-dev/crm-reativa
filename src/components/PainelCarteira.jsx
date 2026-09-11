@@ -17,6 +17,7 @@ import ConfirmarPagamento from "./ConfirmarPagamento";
 import CadastroNovoAluno from "./CadastroNovoAluno";
 import PainelDesfazer from "./PainelDesfazer";
 import { listarDesfazer, desfazerAcao, explicarBloqueio } from "../utils/desfazer";
+import { STATUS_CONFIRMACAO_ABERTOS } from "../utils/confirmacaoPagamento";
 import {
   carregarTabulacoes,
   useTabulacoes,
@@ -259,6 +260,11 @@ const MAPA_SITUACAO = {
   BAIXA_REALIZADA: "Pago",
   BAIXA_DEVOLVIDA: "Baixa devolvida",
   ACORDO_FECHADO: "Acordo fechado",
+  ALEGA_FIES: "Alega FIES",
+  ALEGA_CREDIES: "Alega CREDIES",
+  ALEGA_FINANCIAMENTO: "Alega financiamento",
+  ANTECIPACAO_SEMESTRE: "Antecipacao de semestre",
+  AGUARDAR_RETORNO_UNIDADE: "Aguardar retorno da unidade",
   LEMBRETE_PARCELA: "Lembrete de parcela feito",
   TERMO_ENVIADO_ALUNO: "Termo enviado",
   TERMO_ENVIADO_ADM: "Termo no ADM",
@@ -341,42 +347,42 @@ const OPCOES_TABULACAO = [
 function seloTermoLink(a) {
   const s = tabulacaoDoAluno(a);
   if (["TERMO_ENVIADO_ALUNO", "TERMO_ENVIADO_ADM", "TERMO_RECEBIDO_LIBERADO"].includes(s))
-    return { emoji: "📄", texto: MAPA_SITUACAO[s] || "Termo enviado", bg: "#eef2ff", cor: "#4338ca" };
+    return { emoji: "📄", texto: MAPA_SITUACAO[s] || "Termo enviado", bg: "var(--rv-roxo-fundo)", cor: "var(--rv-roxo-texto)" };
   if (["SOLICITADO_LINK", "LINK_PRONTO_PARA_ENVIO", "LINK_ENVIADO_AO_ALUNO"].includes(s))
-    return { emoji: "🔗", texto: MAPA_SITUACAO[s] || "Link enviado", bg: "#ecfeff", cor: "#0e7490" };
+    return { emoji: "🔗", texto: MAPA_SITUACAO[s] || "Link enviado", bg: "var(--rv-azul-fundo)", cor: "var(--rv-azul-texto)" };
   if (["Aguardando envio financeiro", "Enviado ao financeiro"].includes(s))
-    return { emoji: "💰", texto: "No financeiro — aguardando retorno", bg: "#fff7ed", cor: "#b45309" };
+    return { emoji: "💰", texto: "No financeiro — aguardando retorno", bg: "var(--rv-ambar-fundo)", cor: "var(--rv-ambar-texto)" };
   if (s === "Retorno do financeiro recebido")
-    return { emoji: "📩", texto: "Retorno do financeiro recebido", bg: "#ecfdf5", cor: "#047857" };
+    return { emoji: "📩", texto: "Retorno do financeiro recebido", bg: "var(--rv-verde-ok-fundo)", cor: "var(--rv-verde-ok-texto)" };
   return null;
 }
 
 function statusPrazo(a) {
   const sit = a?.status_atual || "";
-  if (sit === "JURIDICO") return { label: "Juridico", cor: "#7c3aed" };
+  if (sit === "JURIDICO") return { label: "Juridico", cor: "var(--rv-roxo)" };
   if (["ACORDO_FECHADO", "AGUARDANDO_BAIXA", "AGUARDANDO_COMPROVANTE", "SOLICITADO_LINK", "LINK_ENVIADO_AO_ALUNO"].includes(sit))
-    return { label: "Aguardando pgto", cor: "#2563eb" };
+    return { label: "Aguardando pgto", cor: "var(--rv-azul)" };
   // PREMISSA DO SISTEMA: "Pago" so existe com SALDO ZERADO. Caso com baixa
   // realizada que ainda carrega saldo vencido e pagamento PARCIAL -- nao pode
   // se apresentar como pago, senao a operadora para de cobrar o que sobrou
   // (a confirmacao de pagamento so quita quando o saldo total zera; sobrando
   // saldo, o caso segue com o operador de proposito).
   if (sit === "BAIXA_REALIZADA") {
-    if (!semSaldoVencido(a)) return { label: "Pago parcial", cor: "#f97316" };
+    if (!semSaldoVencido(a)) return { label: "Pago parcial", cor: "var(--rv-ambar)" };
     // Parcela baixada mas o acordo segue em dia com parcelas futuras: o caso
     // nao esta pago -- esta A VENCER. "Pago" so com saldo TOTAL zerado.
-    if (acordoEmDia(a)) return { label: "A vencer", cor: "#0ea5e9" };
-    return { label: "Pago", cor: "#16a34a" };
+    if (acordoEmDia(a)) return { label: "A vencer", cor: "var(--rv-azul)" };
+    return { label: "Pago", cor: "var(--rv-verde-ok)" };
   }
   if (["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"].includes(sit))
-    return { label: "Cancelado", cor: "#6b7280" };
+    return { label: "Cancelado", cor: "var(--rv-texto-suave)" };
 
   const dias = diasSemContato(a);
-  if (dias === null) return { label: "Novo", cor: "#94a3b8" };
-  if (dias <= 7) return { label: "Dentro do prazo", cor: "#16a34a" };
-  if (dias === 8) return { label: "Atencao", cor: "#f59e0b" };
-  if (dias <= 10) return { label: "Critico", cor: "#dc2626" };
-  return { label: "Perdendo o caso", cor: "#991b1b" };
+  if (dias === null) return { label: "Novo", cor: "var(--rv-texto-fraco)" };
+  if (dias <= 7) return { label: "Dentro do prazo", cor: "var(--rv-verde-ok)" };
+  if (dias === 8) return { label: "Atencao", cor: "var(--rv-ambar)" };
+  if (dias <= 10) return { label: "Critico", cor: "var(--rv-vermelho)" };
+  return { label: "Perdendo o caso", cor: "var(--rv-vermelho-texto)" };
 }
 
 function casoNoKpi(a, kpi) {
@@ -463,8 +469,8 @@ function rankSemestre(a) {
   const s = String(a?.semestre_divida || "").trim();
   const m = s.match(/^(\d{4})\/([12])$/);
   if (!m) return Number.MAX_SAFE_INTEGER;
-  // Maior = mais recente; invertido para que o mais recente fique com o menor
-  // rank e suba na fila.
+  // 2026/2 -> 4053; 2026/1 -> 4052. Maior = mais recente; invertido para que
+  // o mais recente fique com o menor rank e suba na fila.
   return -(Number(m[1]) * 2 + Number(m[2]));
 }
 function critAlta(a) {
@@ -822,6 +828,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Meu desempenho operacional (indicadores pessoais do operador logado).
   const [desempenho, setDesempenho] = useState(null);
   const [acionadosHojeIds, setAcionadosHojeIds] = useState([]);
+  // Aluno do modal tem confirmacao de pagamento PENDENTE. Enquanto tiver, o
+  // caso ja esta tabulado ("Aguardando confirmacao de pagamento") e a tela nao
+  // pode pedir uma segunda tabulacao -- ver tabuladoPelaConfirmacao.
+  const [confirmacaoPendente, setConfirmacaoPendente] = useState(false);
   const [semPrimeiroIds, setSemPrimeiroIds] = useState([]);
   // aluno_ids com solicitacao de confirmacao de pagamento PENDENTE. Enquanto a
   // confirmacao nao e resolvida (validada ou rejeitada), o aluno sai da fila
@@ -1449,6 +1459,16 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   async function carregarDadosModal(id, cpf) {
     setCarregandoModal(true);
     try {
+      const { data: conf, error: erroConf } = await supabase
+        .from("solicitacoes_confirmacao_pagamento")
+        .select("id")
+        .eq("aluno_id", String(id))
+        .in("status", STATUS_CONFIRMACAO_ABERTOS)
+        .limit(1);
+      // So decide com resposta na mao: se a consulta falhar, mantem o que ja
+      // estava -- senao um erro de rede faz a tela pedir a segunda tabulacao.
+      if (!erroConf) setConfirmacaoPendente((conf || []).length > 0);
+
       const { data: mov } = await supabase
         .from("aluno_movimentacoes")
         .select("id,tipo,descricao,status_anterior,status_novo,registrado_por_nome,registrado_em")
@@ -1593,6 +1613,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     setAcaoInline(null);
     setAbrirFormInicial(false);
     setRetornoAluno(null);
+    setConfirmacaoPendente(false);
     // Lembrete de parcela devido (acordo em dia, D-2): a tabulacao ja vem
     // pre-selecionada -- o operador so confirma depois de falar com o aluno.
     setStatusNovo(lembreteParcelaDevido(a) ? "LEMBRETE_PARCELA" : statusTabulavel(a.status_atual));
@@ -1931,7 +1952,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     if (!a?.id) return;
     setAcaoInline(null);
     setResumoConversa("");
-    setStatusNovo("AGUARDANDO_BAIXA");
+    setConfirmacaoPendente(true);
     setFeedback({
       tipo: "ok",
       texto:
@@ -2769,27 +2790,17 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // operacao de fato usa. "Sem acionamento" + "proximos de perder" viraram um
   // unico card focado na janela critica (9-11 dias). A Agenda entra como card.
   const kpiCards = [
-    // Mesma regua dos dois cartoes ao lado: PESSOA (CPF) com divida real. Antes
-    // isto contava FICHA nao encerrada, incluindo quem ja estava sem saldo --
-    // por isso o numero nao fechava com a soma de mensalidade + acordo e
-    // rendia discussao sobre qual dos dois estava certo. Cai para o valor
-    // antigo enquanto o resumo nao chega.
-    { id: "ativos", rot: "CPFs na carteira", val: resumoCpf?.cpfs_total ?? kpis.ativos, cor: "#2563eb", icone: "📁" },
-    // Os dois lados da carteira, na MESMA regua: pessoa (CPF) com divida real.
-    // Um cobra, o outro acompanha. Somados dao exatamente a carteira do
-    // operador -- quem tem acordo e mensalidade ao mesmo tempo conta no acordo,
-    // que e onde o dinheiro ja esta negociado.
-    //
-    // Os cards de acordo logo abaixo (a vencer, atrasado, quebrado) detalham
-    // ESTE numero por situacao da parcela; nao sao outra contagem.
-    { id: "cpfMensalidade", rot: "CPFs a cobrar (mensalidade)", val: resumoCpf?.cpfs_so_mensalidade ?? "—", cor: "#b45309", icone: "💳" },
-    { id: "cpfAcordo", rot: "CPFs com acordo", val: resumoCpf?.cpfs_com_acordo ?? "—", cor: "#15803d", icone: "🤝" },
-    { id: "proximosPerder", rot: "Sem acionamento (risco de perder)", val: kpis.proximosPerder, cor: "#dc2626", icone: "⚠️", urgente: true },
-    { id: "agenda", rot: "Agenda (retornos)", val: agendaPendentes.length, cor: "#7c3aed", icone: "🗓️" },
-    { id: "acordoAVencer", rot: "Acordos a vencer", val: kpis.acordoAVencer, cor: "#0891b2", icone: "📄" },
-    { id: "acordoAtrasado", rot: "Acordos atrasados", val: kpis.acordoAtrasado, cor: "#f97316", icone: "⏰" },
-    { id: "acordoQuebrado", rot: "Acordos quebrados", val: kpis.acordoQuebrado, cor: "#e11d48", icone: "💥" },
-    { id: "retornosAdm", rot: "Retornos do ADM", val: retornosPendentes.length, cor: "#c2410c", icone: "📌" },
+    { id: "ativos", rot: "Casos ativos", val: kpis.ativos, cor: "var(--rv-azul)", icone: "📁" },
+    // Duas frentes de trabalho diferentes, que ate aqui apareciam somadas em
+    // "Casos ativos": cobrar divida em aberto e acompanhar parcela de acordo.
+    { id: "cpfMensalidade", rot: "CPFs a cobrar (mensalidade)", val: resumoCpf?.cpfs_so_mensalidade ?? "—", cor: "var(--rv-ambar)", icone: "💳" },
+    { id: "cpfAcordo", rot: "CPFs com acordo", val: resumoCpf?.cpfs_com_acordo ?? "—", cor: "var(--rv-verde-ok-texto)", icone: "🤝" },
+    { id: "proximosPerder", rot: "Sem acionamento (risco de perder)", val: kpis.proximosPerder, cor: "var(--rv-vermelho)", icone: "⚠️", urgente: true },
+    { id: "agenda", rot: "Agenda (retornos)", val: agendaPendentes.length, cor: "var(--rv-roxo)", icone: "🗓️" },
+    { id: "acordoAVencer", rot: "Acordos a vencer", val: kpis.acordoAVencer, cor: "var(--rv-azul)", icone: "📄" },
+    { id: "acordoAtrasado", rot: "Acordos atrasados", val: kpis.acordoAtrasado, cor: "var(--rv-ambar)", icone: "⏰" },
+    { id: "acordoQuebrado", rot: "Acordos quebrados", val: kpis.acordoQuebrado, cor: "var(--rv-vermelho)", icone: "💥" },
+    { id: "retornosAdm", rot: "Retornos do ADM", val: retornosPendentes.length, cor: "var(--rv-ambar-texto)", icone: "📌" },
   ].filter((c) => (!veTudo || operadorFiltro !== "TODOS") || c.id !== "retornosAdm");
 
   const painelReceptivo = (
@@ -2811,8 +2822,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       {!avisoNovosCasosFechado && novosCasosAutomaticos.length > 0 && (
         <div
           style={{
-            background: "#eff6ff",
-            border: "1px solid #c7d7fe",
+            background: "var(--rv-azul-fundo)",
+            border: "1px solid var(--rv-azul-borda)",
             borderRadius: 14,
             padding: "13px 16px",
             marginBottom: 16,
@@ -2823,11 +2834,11 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           }}
         >
           <div>
-            <strong style={{ color: "#0f7a4f" }}>
+            <strong style={{ color: "var(--rv-verde-ok-texto)" }}>
               🔄 Você recebeu {novosCasosAutomaticos.length} caso{novosCasosAutomaticos.length > 1 ? "s" : ""} novo
               {novosCasosAutomaticos.length > 1 ? "s" : ""} automaticamente nas últimas 24h
             </strong>
-            <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "#0f7a4f" }}>
+            <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--rv-verde-ok-texto)" }}>
               Reposição automática (outro caso seu foi confirmado/fechado): {" "}
               {novosCasosAutomaticos.slice(0, 5).map((c) => c.nome_aluno).join(", ")}
               {novosCasosAutomaticos.length > 5 ? ` e mais ${novosCasosAutomaticos.length - 5}` : ""}.
@@ -2836,7 +2847,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           <button
             type="button"
             onClick={() => setAvisoNovosCasosFechado(true)}
-            style={{ border: "none", background: "transparent", color: "#0f7a4f", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
+            style={{ border: "none", background: "transparent", color: "var(--rv-verde-ok-texto)", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
           >
             Fechar
           </button>
@@ -2847,7 +2858,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
         <div
           style={{
             background: "#fff7e6",
-            border: "1px solid #f5c542",
+            border: "1px solid var(--rv-ambar-borda)",
             borderRadius: 14,
             padding: "13px 16px",
             marginBottom: 16,
@@ -2858,8 +2869,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           }}
         >
           <div>
-            <strong style={{ color: "#7c4a1e" }}>⚖️ Sua carteira está abaixo da média da equipe</strong>
-            <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "#7c4a1e" }}>
+            <strong style={{ color: "var(--rv-ambar-texto)" }}>⚖️ Sua carteira está abaixo da média da equipe</strong>
+            <p style={{ margin: "4px 0 0", fontSize: 12.5, color: "var(--rv-ambar-texto)" }}>
               Seu valor médio por caso: {formatarMoeda(minhaMediaVsEquipe.minha_media)} · Média da equipe:{" "}
               {formatarMoeda(minhaMediaVsEquipe.media_geral)}. O nivelamento automático deve te aproximar da
               média nos próximos dias.
@@ -2868,7 +2879,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
           <button
             type="button"
             onClick={() => setAvisoMediaFechado(true)}
-            style={{ border: "none", background: "transparent", color: "#7c4a1e", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
+            style={{ border: "none", background: "transparent", color: "var(--rv-ambar-texto)", cursor: "pointer", fontSize: 13, fontWeight: 700 }}
           >
             Fechar
           </button>
@@ -2973,14 +2984,14 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             fontWeight: 800,
             cursor: "pointer",
             marginRight: 10,
-            background: somenteFocoDia ? "#dc2626" : "#fef2f2",
-            color: somenteFocoDia ? "#fff" : "#dc2626",
+            background: somenteFocoDia ? "#dc2626" : "var(--rv-vermelho-fundo)",
+            color: somenteFocoDia ? "#fff" : "var(--rv-vermelho)",
             boxShadow: somenteFocoDia ? "0 4px 14px rgba(220,38,38,0.35)" : "none",
           }}
         >
           🎯 Foco do Dia
         </button>
-        <div style={{ display: "flex", background: "#f1f5f9", borderRadius: 10, padding: 3, marginRight: 10 }}>
+        <div style={{ display: "flex", background: "var(--rv-fundo-suave)", borderRadius: 10, padding: 3, marginRight: 10 }}>
           <button
             type="button"
             onClick={() => setVisao("lista")}
@@ -2991,8 +3002,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               fontSize: 12.5,
               fontWeight: 800,
               cursor: "pointer",
-              background: visao === "lista" ? "#fff" : "transparent",
-              color: visao === "lista" ? "#2563eb" : "#64748b",
+              background: visao === "lista" ? "var(--rv-superficie)" : "transparent",
+              color: visao === "lista" ? "var(--rv-azul)" : "var(--rv-texto-suave)",
               boxShadow: visao === "lista" ? "0 1px 2px rgba(16,24,40,0.08)" : "none",
             }}
           >
@@ -3008,8 +3019,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               fontSize: 12.5,
               fontWeight: 800,
               cursor: "pointer",
-              background: visao === "kanban" ? "#fff" : "transparent",
-              color: visao === "kanban" ? "#2563eb" : "#64748b",
+              background: visao === "kanban" ? "var(--rv-superficie)" : "transparent",
+              color: visao === "kanban" ? "var(--rv-azul)" : "var(--rv-texto-suave)",
               boxShadow: visao === "kanban" ? "0 1px 2px rgba(16,24,40,0.08)" : "none",
             }}
           >
@@ -3172,7 +3183,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                             {a.nome_aluno || a.nome || "Aluno"}
                           </button>
                           <div style={S.agendaMeta}>
-                            <span style={{ color: atrasado ? "#dc2626" : ehHoje ? "#7c3aed" : "#475569", fontWeight: 700 }}>
+                            <span style={{ color: atrasado ? "var(--rv-vermelho)" : ehHoje ? "var(--rv-roxo)" : "var(--rv-texto)", fontWeight: 700 }}>
                               {atrasado ? "⚠️ Atrasado · " : ehHoje ? "Hoje · " : ""}
                               {dataBR}
                               {hora ? ` às ${hora}` : ""}
@@ -3269,9 +3280,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   ...S.select,
                   cursor: "pointer",
                   fontWeight: 700,
-                  background: somenteFixados ? "#fff7e6" : "#fff",
-                  borderColor: somenteFixados ? "#f5c542" : undefined,
-                  color: somenteFixados ? "#7c4a1e" : undefined,
+                  background: somenteFixados ? "var(--rv-ambar-fundo)" : "var(--rv-superficie)",
+                  borderColor: somenteFixados ? "var(--rv-ambar-borda)" : undefined,
+                  color: somenteFixados ? "var(--rv-ambar-texto)" : undefined,
                 }}
               >
                 📌 Fixados {fixados.size > 0 ? `(${fixados.size})` : ""}
@@ -3326,15 +3337,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                       if (aluno) await moverParaColuna(aluno, col);
                     }}
                     style={{
-                      background: colunaSobre === col.chave ? "#dbeafe" : "#eef1f6",
+                      background: colunaSobre === col.chave ? "var(--rv-azul-fundo)" : "var(--rv-fundo-suave)",
                       borderRadius: 14, padding: 12, minWidth: 250, flexShrink: 0, maxHeight: 640, display: "flex", flexDirection: "column",
                       transition: "background 0.12s ease",
                       border: colunaSobre === col.chave ? "2px dashed #2563eb" : "2px dashed transparent",
                     }}
                   >
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10, padding: "0 4px" }}>
-                      <span style={{ fontWeight: 800, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.03em", color: "#334155" }}>{col.titulo}</span>
-                      <span style={{ background: "#fff", borderRadius: 999, padding: "2px 9px", fontSize: 11, fontWeight: 800, color: "#2563eb" }}>{col.itens.length}</span>
+                      <span style={{ fontWeight: 800, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.03em", color: "var(--rv-texto-forte)" }}>{col.titulo}</span>
+                      <span style={{ background: "var(--rv-superficie)", borderRadius: 999, padding: "2px 9px", fontSize: 11, fontWeight: 800, color: "var(--rv-azul)" }}>{col.itens.length}</span>
                     </div>
                     <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 8 }}>
                       {col.itens.map((a) => {
@@ -3349,21 +3360,21 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                             onDragEnd={() => { setArrastandoId(null); setColunaSobre(null); }}
                             onClick={() => abrirModal(a)}
                             style={{
-                              background: feitoHoje ? COR_TRABALHADO_HOJE : "#fff", borderRadius: 12, padding: "12px 13px", border: "1px solid #e6eaf0",
+                              background: feitoHoje ? COR_TRABALHADO_HOJE : "var(--rv-superficie)", borderRadius: 12, padding: "12px 13px", border: "1px solid var(--rv-borda)",
                               borderLeft: `3px solid ${sp.cor}`, boxShadow: "0 1px 2px rgba(16,24,40,0.05)", cursor: "grab",
                               opacity: arrastandoId === a.id ? 0.4 : 1,
                             }}
                           >
                             <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>{nomeAluno(a)}</div>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, color: "#64748b" }}>
-                              <span style={{ fontWeight: 800, color: "#1e40af" }}>{formatarMoeda(saldoDe(a))}</span>
+                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: 11.5, color: "var(--rv-texto-suave)" }}>
+                              <span style={{ fontWeight: 800, color: "var(--rv-azul-texto)" }}>{formatarMoeda(saldoDe(a))}</span>
                               <span>{formatarData(a.data_ultimo_acionamento) || "Nunca"}</span>
                             </div>
                           </div>
                         );
                       })}
                       {col.itens.length === 0 && (
-                        <div style={{ fontSize: 12, color: "#94a3b8", textAlign: "center", padding: "16px 0" }}>vazio</div>
+                        <div style={{ fontSize: 12, color: "var(--rv-texto-fraco)", textAlign: "center", padding: "16px 0" }}>vazio</div>
                       )}
                     </div>
                   </div>
@@ -3394,8 +3405,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     const respCaso = a.responsavel_atual_nome || nomeOperadorPorEmail(a.responsavel_atual_email);
                     const respAcordo = fa && fa.acordoResponsavel ? nomeOperadorPorEmail(fa.acordoResponsavel) : null;
                     const corTotal = temDet
-                      ? (fa.temAtraso ? "#b42318" : fa.temAVencer ? "#b54708" : "#101828")
-                      : "#101828";
+                      ? (fa.temAtraso ? "var(--rv-vermelho-texto)" : fa.temAVencer ? "var(--rv-ambar-texto)" : "var(--rv-tinta)")
+                      : "var(--rv-tinta)";
                     const feitoHoje = trabalhadoHoje(a);
                     return (
                       <tr
@@ -3409,7 +3420,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                           background: feitoHoje ? COR_TRABALHADO_HOJE : undefined,
                         }}
                         onMouseEnter={(e) =>
-                          (e.currentTarget.style.background = feitoHoje ? COR_TRABALHADO_HOJE_HOVER : "#f8fafc")
+                          (e.currentTarget.style.background = feitoHoje ? COR_TRABALHADO_HOJE_HOVER : "var(--rv-fundo-cartao)")
                         }
                         onMouseLeave={(e) =>
                           (e.currentTarget.style.background = feitoHoje ? COR_TRABALHADO_HOJE : "")
@@ -3482,7 +3493,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                                 fontSize: 13,
                                 lineHeight: 1,
                                 padding: 0,
-                                color: nomeCopiadoId === a.id ? "#16a34a" : "#94a3b8",
+                                color: nomeCopiadoId === a.id ? "var(--rv-verde-ok)" : "var(--rv-texto-fraco)",
                               }}
                             >
                               {nomeCopiadoId === a.id ? "✓" : "📋"}
@@ -3512,7 +3523,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                             );
                           })()}
                           {String(a.status_atual) === "JURIDICO" && (
-                            <div style={{ ...S.subCel, color: "#7c3aed", fontWeight: 600 }}>
+                            <div style={{ ...S.subCel, color: "var(--rv-roxo)", fontWeight: 600 }}>
                               {a.processo_numero && String(a.processo_numero).trim()
                                 ? `Jurídico · Processo nº ${a.processo_numero}`
                                 : "Jurídico · Processo não informado"}
@@ -3600,7 +3611,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                             </div>
                           )}
                           {a.proxima_acao && (
-                            <div style={{ ...S.subCel, marginTop: 4, color: "#334155", fontWeight: 600 }}>
+                            <div style={{ ...S.subCel, marginTop: 4, color: "var(--rv-texto-forte)", fontWeight: 600 }}>
                               {a.proxima_acao}
                             </div>
                           )}
@@ -3634,7 +3645,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                             </div>
                           ) : fallback > 0 ? (
                             <div style={S.emAbertoBox}>
-                              <div style={{ ...S.emAbertoTotal, color: "#101828" }}>
+                              <div style={{ ...S.emAbertoTotal, color: "var(--rv-tinta)" }}>
                                 Em aberto: {formatarMoeda(fallback)}
                               </div>
                               <div style={S.emAbertoSub}>estimado (sem detalhamento)</div>
@@ -3642,7 +3653,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                             </div>
                           ) : (
                             <div style={S.emAbertoBox}>
-                              <div style={{ ...S.emAbertoTotal, color: "#98a2b3" }}>Valor nao informado</div>
+                              <div style={{ ...S.emAbertoTotal, color: "var(--rv-texto-fraco)" }}>Valor nao informado</div>
                               <div style={S.tagRevisar}>Revisar valor</div>
                               <div style={S.emAbertoSub}>Responsavel: {respCaso || "-"}</div>
                             </div>
@@ -3968,22 +3979,40 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     </div>
                   )}
 
-                  <label style={S.label}>Tabular atendimento (status)</label>
-                  <select style={S.select} value={statusNovo} onChange={(e) => setStatusNovo(e.target.value)}>
-                    <option value="">Selecione o status...</option>
-                    {STATUS_FINALIZACAO.map((s) => (
-                      <option key={s} value={s}>{labelStatus(s)}</option>
-                    ))}
-                  </select>
+                  {/* Mandar para a confirmacao JA E a tabulacao: enquanto ela
+                      estiver pendente a tela nao pede um segundo clique. */}
+                  {confirmacaoPendente ? (
+                    <div style={S.lembreteBox}>
+                      <div style={S.lembreteTitulo}>✅ Já tabulado — aguardando confirmação de pagamento</div>
+                      <div style={S.lembreteTexto}>
+                        Este caso foi enviado para a Confirmação de Pagamento e já conta como
+                        atendimento finalizado. Não precisa tabular de novo.
+                      </div>
+                      <div style={S.lembreteDica}>
+                        Ele fica com o financeiro, sem data de retorno, e volta para a sua fila
+                        quando a conferência for concluída.
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <label style={S.label}>Tabular atendimento (status)</label>
+                      <select style={S.select} value={statusNovo} onChange={(e) => setStatusNovo(e.target.value)}>
+                        <option value="">Selecione o status...</option>
+                        {STATUS_FINALIZACAO.map((s) => (
+                          <option key={s} value={s}>{labelStatus(s)}</option>
+                        ))}
+                      </select>
 
-                  <div style={S.proximaAcao}>
-                    Proxima acao: <strong>{statusNovo ? proximaAcaoDeTabulacao(catalogoTabulacoes, statusNovo) : "-"}</strong>
-                    {statusNovo && (
-                      <>
-                        {" · "}Retorno: <strong>{descreverPrazo(catalogoTabulacoes, statusNovo)}</strong>
-                      </>
-                    )}
-                  </div>
+                      <div style={S.proximaAcao}>
+                        Proxima acao: <strong>{statusNovo ? proximaAcaoDeTabulacao(catalogoTabulacoes, statusNovo) : "-"}</strong>
+                        {statusNovo && (
+                          <>
+                            {" · "}Retorno: <strong>{descreverPrazo(catalogoTabulacoes, statusNovo)}</strong>
+                          </>
+                        )}
+                      </div>
+                    </>
+                  )}
 
                   <label style={S.label}>Resumo da conversa</label>
                   <textarea
@@ -3993,22 +4022,30 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     placeholder="O que foi tratado no atendimento..."
                   />
 
-                  <label style={S.label}>Agendar retorno</label>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <input type="date" style={{ ...S.input, flex: 1 }} value={retornoData} onChange={(e) => setRetornoData(e.target.value)} />
-                    <input type="time" style={{ ...S.input, width: 120 }} value={retornoHora} onChange={(e) => setRetornoHora(e.target.value)} />
-                  </div>
-                  <div style={S.lembreteDica}>
-                    Sem data, o retorno segue a regra da tabulacao (acima). Data digitada e compromisso seu e aparece na Agenda.
-                  </div>
+                  {/* Com confirmacao pendente o recalculo apaga a data de retorno
+                      ate a conferencia terminar -- oferecer o campo seria mentira. */}
+                  {!confirmacaoPendente && (
+                    <>
+                      <label style={S.label}>Agendar retorno</label>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input type="date" style={{ ...S.input, flex: 1 }} value={retornoData} onChange={(e) => setRetornoData(e.target.value)} />
+                        <input type="time" style={{ ...S.input, width: 120 }} value={retornoHora} onChange={(e) => setRetornoHora(e.target.value)} />
+                      </div>
+                      <div style={S.lembreteDica}>
+                        Sem data, o retorno segue a regra da tabulacao (acima). Data digitada e compromisso seu e aparece na Agenda.
+                      </div>
+                    </>
+                  )}
 
                   <div style={S.acoesLinha}>
                     <button style={S.btnSecundario} onClick={registrarResumo} disabled={salvando}>
                       {salvando ? "..." : "Registrar resumo"}
                     </button>
-                    <button style={S.btnPrimario} onClick={finalizarAtendimento} disabled={salvando} title={guiado ? "Ctrl+Enter. No acionamento guiado, salvar abre o proximo aluno." : undefined}>
-                      {salvando ? "Salvando..." : guiado ? "Finalizar e abrir o proximo ▶" : "Finalizar atendimento"}
-                    </button>
+                    {!confirmacaoPendente && (
+                      <button style={S.btnPrimario} onClick={finalizarAtendimento} disabled={salvando} title={guiado ? "Ctrl+Enter. No acionamento guiado, salvar abre o proximo aluno." : undefined}>
+                        {salvando ? "Salvando..." : guiado ? "Finalizar e abrir o proximo ▶" : "Finalizar atendimento"}
+                      </button>
+                    )}
                   </div>
 
                   {/* Acoes operacionais INLINE (nao ha aba Solicitacoes) */}
@@ -4047,13 +4084,13 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                       type="button"
                       onClick={exportarHistoricoPDF}
                       style={{
-                        background: "#fff",
-                        border: "1px solid #cbd5e1",
+                        background: "var(--rv-superficie)",
+                        border: "1px solid var(--rv-borda-forte)",
                         borderRadius: 8,
                         padding: "6px 12px",
                         fontSize: 12,
                         fontWeight: 700,
-                        color: "#334155",
+                        color: "var(--rv-texto-forte)",
                         cursor: "pointer",
                       }}
                     >
@@ -4235,12 +4272,12 @@ function Info({ rot, val }) {
 }
 
 const CSS_RESPONSIVO = `
-  .pc-root { --pc-brand: #1e40af; --pc-ink: #101828; }
+  .pc-root { --pc-brand: var(--rv-azul-texto); --pc-ink: var(--rv-tinta); }
   .pc-root tbody tr { transition: background 0.15s ease; }
-  .pc-root tbody tr:hover { background: #f6fbf9; }
+  .pc-root tbody tr:hover { background: var(--rv-fundo-cartao); }
   .pc-root .pc-kpis > div { transition: box-shadow 0.16s ease, transform 0.16s ease, border-color 0.16s ease; }
   .pc-root .pc-kpis > div:hover { box-shadow: 0 10px 24px rgba(16,24,40,0.10); transform: translateY(-2px); }
-  .pc-root ::placeholder { color: #a6adba; }
+  .pc-root ::placeholder { color: var(--rv-texto-fraco); }
   @keyframes pc-pulso {
     0% { box-shadow: 0 0 0 0 rgba(220,38,38,0.45); }
     70% { box-shadow: 0 0 0 7px rgba(220,38,38,0); }
@@ -4258,8 +4295,8 @@ const CSS_RESPONSIVO = `
     .pc-tabela thead { display: none; }
     .pc-tabela, .pc-tabela tbody, .pc-tabela tr, .pc-tabela td { display: block; width: 100%; }
     .pc-tabela tr {
-      background: #fff;
-      border: 1px solid #edf0f5;
+      background: var(--rv-superficie);
+      border: 1px solid var(--rv-borda-suave);
       border-radius: 14px;
       margin-bottom: 10px;
       padding: 12px 14px;
@@ -4274,12 +4311,12 @@ const CSS_RESPONSIVO = `
       align-items: flex-start;
       gap: 10px;
     }
-    .pc-tabela td[data-label="Nome"] { flex-direction: column; align-items: flex-start; padding-bottom: 8px !important; border-bottom: 1px solid #f2f4f7 !important; margin-bottom: 4px; }
+    .pc-tabela td[data-label="Nome"] { flex-direction: column; align-items: flex-start; padding-bottom: 8px !important; border-bottom: 1px solid var(--rv-borda-suave) !important; margin-bottom: 4px; }
     .pc-tabela td[data-label]::before {
       content: attr(data-label);
       font-size: 10.5px;
       font-weight: 700;
-      color: #98a2b3;
+      color: var(--rv-texto-fraco);
       text-transform: uppercase;
       letter-spacing: 0.04em;
       flex-shrink: 0;
@@ -4290,152 +4327,152 @@ const CSS_RESPONSIVO = `
   }
 `;
 
-const COR_BORDA = "#e3e7ee";
-const COR_BORDA_SUAVE = "#edf0f5";
+const COR_BORDA = "var(--rv-borda)";
+const COR_BORDA_SUAVE = "var(--rv-borda-suave)";
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const FONTE_BASE = "'Inter', system-ui, -apple-system, sans-serif";
 const SOMBRA_CARD = "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)";
 const SOMBRA_ELEVADA = "0 20px 48px rgba(16,24,40,0.16), 0 4px 12px rgba(16,24,40,0.06)";
 
 const S = {
-  pagina: { padding: "30px 32px 44px", fontFamily: FONTE_BASE, background: "#f4f6fa", minHeight: "100%", color: "#344054" },
-  agendaPainel: { background: "#fff", borderRadius: 16, padding: "16px 18px", border: "1px solid #ede9fe", boxShadow: SOMBRA_CARD, marginBottom: 18 },
+  pagina: { padding: "30px 32px 44px", fontFamily: FONTE_BASE, background: "var(--rv-fundo)", minHeight: "100%", color: "var(--rv-texto-forte)" },
+  agendaPainel: { background: "var(--rv-superficie)", borderRadius: 16, padding: "16px 18px", border: "1px solid var(--rv-roxo-borda)", boxShadow: SOMBRA_CARD, marginBottom: 18 },
   agendaHead: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 },
-  agendaTitulo: { fontSize: 14.5, fontWeight: 800, color: "#5b21b6" },
-  agendaFechar: { background: "#f3f4f6", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, color: "#475569", cursor: "pointer" },
-  agendaVazia: { margin: "6px 0", fontSize: 13, color: "#64748b" },
+  agendaTitulo: { fontSize: 14.5, fontWeight: 800, color: "var(--rv-roxo-texto)" },
+  agendaFechar: { background: "var(--rv-fundo-suave)", border: "none", borderRadius: 8, padding: "5px 12px", fontSize: 12, fontWeight: 700, color: "var(--rv-texto)", cursor: "pointer" },
+  agendaVazia: { margin: "6px 0", fontSize: 13, color: "var(--rv-texto-suave)" },
   agendaLista: { display: "flex", flexDirection: "column", gap: 8, maxHeight: 360, overflowY: "auto" },
-  agendaItem: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderRadius: 12, border: "1px solid #eef2f7", background: "#fafbfc" },
-  agendaItemHoje: { border: "1px solid #ddd6fe", background: "#f5f3ff" },
-  agendaItemAtrasado: { border: "1px solid #fecaca", background: "#fef2f2" },
-  agendaNome: { background: "none", border: "none", padding: 0, fontSize: 13.5, fontWeight: 700, color: "#1e293b", cursor: "pointer", textAlign: "left", textDecoration: "underline", textDecorationColor: "#cbd5e1", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" },
+  agendaItem: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "10px 12px", borderRadius: 12, border: "1px solid var(--rv-borda-suave)", background: "var(--rv-superficie)" },
+  agendaItemHoje: { border: "1px solid var(--rv-roxo-borda)", background: "var(--rv-roxo-fundo)" },
+  agendaItemAtrasado: { border: "1px solid var(--rv-vermelho-borda)", background: "var(--rv-vermelho-fundo)" },
+  agendaNome: { background: "none", border: "none", padding: 0, fontSize: 13.5, fontWeight: 700, color: "var(--rv-tinta)", cursor: "pointer", textAlign: "left", textDecoration: "underline", textDecorationColor: "var(--rv-borda-forte)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis", maxWidth: "100%" },
   agendaMeta: { fontSize: 11.5, marginTop: 2 },
   agendaConfirmar: { background: "#7c3aed", color: "#fff", border: "none", borderRadius: 9, padding: "7px 14px", fontSize: 12, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 22, flexWrap: "wrap" },
-  titulo: { margin: 0, marginBottom: 3, color: "#0d1321", fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em", fontFamily: FONTE_TITULO },
-  subtitulo: { margin: 0, color: "#8a93a3", fontSize: 13.5 },
-  userChip: { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.2, padding: "6px 14px", background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 12, boxShadow: SOMBRA_CARD },
-  userNome: { fontWeight: 700, color: "#101828", fontSize: 13 },
-  userRole: { fontSize: 10, color: "#1e40af", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" },
-  select: { padding: "9px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, background: "#fff", fontSize: 13, color: "#344054", fontWeight: 500 },
-  btnAtualizar: { background: "#fff", color: "#475569", border: `1px solid ${COR_BORDA}`, padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: 13 },
-  erro: { color: "#b91c1c", fontWeight: 600, fontSize: 13 },
+  titulo: { margin: 0, marginBottom: 3, color: "var(--rv-tinta)", fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em", fontFamily: FONTE_TITULO },
+  subtitulo: { margin: 0, color: "var(--rv-texto-fraco)", fontSize: 13.5 },
+  userChip: { display: "flex", flexDirection: "column", alignItems: "flex-end", lineHeight: 1.2, padding: "6px 14px", background: "var(--rv-superficie)", border: `1px solid ${COR_BORDA}`, borderRadius: 12, boxShadow: SOMBRA_CARD },
+  userNome: { fontWeight: 700, color: "var(--rv-tinta)", fontSize: 13 },
+  userRole: { fontSize: 10, color: "var(--rv-azul-texto)", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.06em" },
+  select: { padding: "9px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, background: "var(--rv-superficie)", fontSize: 13, color: "var(--rv-texto-forte)", fontWeight: 500 },
+  btnAtualizar: { background: "var(--rv-superficie)", color: "var(--rv-texto)", border: `1px solid ${COR_BORDA}`, padding: "9px 16px", borderRadius: 10, cursor: "pointer", fontWeight: 700, fontSize: 13 },
+  erro: { color: "var(--rv-vermelho-texto)", fontWeight: 600, fontSize: 13 },
 
   abas: { display: "flex", gap: 4, marginBottom: 20, borderBottom: `1px solid ${COR_BORDA}` },
-  aba: { background: "transparent", border: "1px solid transparent", borderBottom: "none", borderTopLeftRadius: 10, borderTopRightRadius: 10, padding: "9px 18px", fontSize: 13.5, fontWeight: 700, color: "#98a2b3", cursor: "pointer", marginBottom: -1 },
-  abaAtiva: { background: "#fff", color: "#0d1321", border: `1px solid ${COR_BORDA}`, borderBottom: "1px solid #fff" },
+  aba: { background: "transparent", border: "1px solid transparent", borderBottom: "none", borderTopLeftRadius: 10, borderTopRightRadius: 10, padding: "9px 18px", fontSize: 13.5, fontWeight: 700, color: "var(--rv-texto-fraco)", cursor: "pointer", marginBottom: -1 },
+  abaAtiva: { background: "var(--rv-superficie)", color: "var(--rv-tinta)", border: `1px solid ${COR_BORDA}`, borderBottom: "1px solid #fff" },
 
   receptivoWrap: { display: "flex", flexDirection: "column", gap: 12, maxWidth: 720 },
-  receptivoInfo: { background: "#fff", border: `1px solid ${COR_BORDA}`, borderRadius: 14, padding: "12px 16px", fontSize: 12.5, color: "#8a93a3", lineHeight: 1.55 },
+  receptivoInfo: { background: "var(--rv-superficie)", border: `1px solid ${COR_BORDA}`, borderRadius: 14, padding: "12px 16px", fontSize: 12.5, color: "var(--rv-texto-fraco)", lineHeight: 1.55 },
 
-  desWrap: { background: "linear-gradient(180deg, #ffffff 0%, #fbfdfc 100%)", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 16, padding: "16px 18px", marginBottom: 18, boxShadow: SOMBRA_CARD },
-  desHeader: { fontSize: 11.5, fontWeight: 800, color: "#667085", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 },
+  desWrap: { background: "linear-gradient(180deg, var(--rv-superficie) 0%, var(--rv-fundo-cartao) 100%)", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 16, padding: "16px 18px", marginBottom: 18, boxShadow: SOMBRA_CARD },
+  desHeader: { fontSize: 11.5, fontWeight: 800, color: "var(--rv-texto-suave)", textTransform: "uppercase", letterSpacing: 0.6, marginBottom: 12 },
   desRow: { display: "flex", flexWrap: "wrap", gap: 10, alignItems: "stretch" },
-  desItem: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "#f8faf9", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: "11px 16px", cursor: "pointer", minWidth: 128, textAlign: "left", transition: "border-color 0.14s ease, background 0.14s ease" },
-  desItemAtivo: { borderColor: "#1e40af", background: "#eff6ff", boxShadow: "0 0 0 2px rgba(15,157,107,0.14)" },
+  desItem: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "var(--rv-fundo-cartao)", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: "11px 16px", cursor: "pointer", minWidth: 128, textAlign: "left", transition: "border-color 0.14s ease, background 0.14s ease" },
+  desItemAtivo: { borderColor: "#1e40af", background: "var(--rv-azul-fundo)", boxShadow: "0 0 0 2px rgba(15,157,107,0.14)" },
   desItemInfo: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "transparent", borderRadius: 12, padding: "11px 16px", minWidth: 128 },
-  desNum: { fontSize: 22, fontWeight: 800, color: "#0d1321", lineHeight: 1, fontFamily: FONTE_TITULO },
-  desRot: { fontSize: 11, color: "#98a2b3", fontWeight: 600 },
+  desNum: { fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", lineHeight: 1, fontFamily: FONTE_TITULO },
+  desRot: { fontSize: 11, color: "var(--rv-texto-fraco)", fontWeight: 600 },
   kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(172px, 1fr))", gap: 14, marginBottom: 22 },
-  kpiCard: { background: "#fff", borderRadius: 16, padding: "16px 18px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD, cursor: "pointer" },
+  kpiCard: { background: "var(--rv-superficie)", borderRadius: 16, padding: "16px 18px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD, cursor: "pointer" },
   kpiIconChip: { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 10, fontSize: 15, marginBottom: 12 },
   kpiPulso: { width: 9, height: 9, borderRadius: "50%", background: "#dc2626", animation: "pc-pulso 1.8s ease-in-out infinite", marginTop: 2 },
-  kpiRot: { margin: "0 0 6px 0", fontSize: 11.5, color: "#8a93a3", fontWeight: 600, lineHeight: 1.35 },
+  kpiRot: { margin: "0 0 6px 0", fontSize: 11.5, color: "var(--rv-texto-fraco)", fontWeight: 600, lineHeight: 1.35 },
   kpiVal: { margin: 0, fontSize: 25, fontWeight: 800, letterSpacing: "-0.02em", fontFamily: FONTE_TITULO },
 
-  painelTabela: { background: "#fff", borderRadius: 18, padding: 20, border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD },
+  painelTabela: { background: "var(--rv-superficie)", borderRadius: 18, padding: 20, border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD },
   filtros: { display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18, alignItems: "center" },
-  inputBusca: { flex: 1, minWidth: 220, padding: "11px 14px", borderRadius: 12, border: `1px solid ${COR_BORDA}`, fontSize: 13, color: "#344054", background: "#f8fafc" },
-  chipFiltro: { display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", background: "#e9f9f1", color: "#1e40af", border: "1px solid #c7d7fe", borderRadius: 999, padding: "6px 13px", fontSize: 11.5, fontWeight: 700 },
+  inputBusca: { flex: 1, minWidth: 220, padding: "11px 14px", borderRadius: 12, border: `1px solid ${COR_BORDA}`, fontSize: 13, color: "var(--rv-texto-forte)", background: "var(--rv-fundo-cartao)" },
+  chipFiltro: { display: "inline-flex", alignItems: "center", gap: 6, cursor: "pointer", background: "var(--rv-verde-ok-fundo)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)", borderRadius: 999, padding: "6px 13px", fontSize: 11.5, fontWeight: 700 },
   tabelaWrap: { overflowX: "auto", borderRadius: 12 },
   tabela: { width: "100%", borderCollapse: "separate", borderSpacing: 0, fontSize: 13 },
-  th: { textAlign: "left", padding: "11px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
-  thNum: { textAlign: "right", padding: "11px 12px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "#f8fafc", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
+  th: { textAlign: "left", padding: "11px 12px", color: "var(--rv-texto-fraco)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "var(--rv-fundo-cartao)", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
+  thNum: { textAlign: "right", padding: "11px 12px", color: "var(--rv-texto-fraco)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em", background: "var(--rv-fundo-cartao)", borderBottom: `1px solid ${COR_BORDA}`, whiteSpace: "nowrap" },
   tr: { cursor: "pointer", borderBottom: `1px solid ${COR_BORDA_SUAVE}`, transition: "background 0.12s ease" },
-  td: { padding: "14px 14px", color: "#475569", verticalAlign: "middle" },
-  tdNum: { padding: "11px 10px", color: "#1e293b", textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 },
-  tdTotal: { padding: "11px 10px", color: "#1e293b", fontWeight: 700, borderTop: `2px solid ${COR_BORDA}`, textAlign: "right" },
-  tdNumTotal: { padding: "11px 10px", color: "#1e40af", textAlign: "right", whiteSpace: "nowrap", fontWeight: 800, borderTop: `2px solid ${COR_BORDA}` },
-  nomeCel: { fontWeight: 700, color: "#101828", fontSize: 13.5 },
-  subCel: { fontSize: 11.5, color: "#98a2b3", marginTop: 2 },
+  td: { padding: "14px 14px", color: "var(--rv-texto)", verticalAlign: "middle" },
+  tdNum: { padding: "11px 10px", color: "var(--rv-tinta)", textAlign: "right", whiteSpace: "nowrap", fontWeight: 600 },
+  tdTotal: { padding: "11px 10px", color: "var(--rv-tinta)", fontWeight: 700, borderTop: `2px solid ${COR_BORDA}`, textAlign: "right" },
+  tdNumTotal: { padding: "11px 10px", color: "var(--rv-azul-texto)", textAlign: "right", whiteSpace: "nowrap", fontWeight: 800, borderTop: `2px solid ${COR_BORDA}` },
+  nomeCel: { fontWeight: 700, color: "var(--rv-tinta)", fontSize: 13.5 },
+  subCel: { fontSize: 11.5, color: "var(--rv-texto-fraco)", marginTop: 2 },
   tdValor: { padding: "11px 10px", textAlign: "right", whiteSpace: "nowrap", verticalAlign: "middle" },
   emAbertoBox: { display: "inline-flex", flexDirection: "column", alignItems: "flex-end", gap: 1 },
   emAbertoTotal: { fontWeight: 800, fontSize: 13.5, fontFamily: FONTE_TITULO },
-  emAbertoSub: { fontSize: 11, color: "#98a2b3" },
-  tagRevisar: { fontSize: 10.5, fontWeight: 700, color: "#b54708", background: "#fff4e6", border: "1px solid #f5c98a", borderRadius: 6, padding: "1px 7px", marginTop: 2 },
-  tagCadastroRepetido: { fontSize: 10, fontWeight: 700, color: "#7c4a1e", background: "#fff7e6", border: "1px solid #f5c542", borderRadius: 6, padding: "1px 6px", whiteSpace: "nowrap" },
-  tagCpfConflitante: { fontSize: 10, fontWeight: 700, color: "#b42318", background: "#fef2f2", border: "1px solid #fca5a5", borderRadius: 6, padding: "1px 6px", whiteSpace: "nowrap" },
-  badgeSituacao: { display: "inline-block", padding: "4px 10px", borderRadius: 999, background: "#eef1ff", color: "#4f46e5", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", letterSpacing: "0.01em" },
+  emAbertoSub: { fontSize: 11, color: "var(--rv-texto-fraco)" },
+  tagRevisar: { fontSize: 10.5, fontWeight: 700, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 6, padding: "1px 7px", marginTop: 2 },
+  tagCadastroRepetido: { fontSize: 10, fontWeight: 700, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 6, padding: "1px 6px", whiteSpace: "nowrap" },
+  tagCpfConflitante: { fontSize: 10, fontWeight: 700, color: "var(--rv-vermelho-texto)", background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 6, padding: "1px 6px", whiteSpace: "nowrap" },
+  badgeSituacao: { display: "inline-block", padding: "4px 10px", borderRadius: 999, background: "var(--rv-roxo-fundo)", color: "var(--rv-azul)", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", letterSpacing: "0.01em" },
   badgeStatus: { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap" },
   bolinha: { width: 7, height: 7, borderRadius: "50%", display: "inline-block" },
-  vazio: { padding: 28, textAlign: "center", color: "#98a2b3" },
-  rodapeTabela: { margin: "12px 0 0 0", fontSize: 11.5, color: "#98a2b3" },
+  vazio: { padding: 28, textAlign: "center", color: "var(--rv-texto-fraco)" },
+  rodapeTabela: { margin: "12px 0 0 0", fontSize: 11.5, color: "var(--rv-texto-fraco)" },
 
   // Modal
   overlay: { position: "fixed", inset: 0, background: "rgba(13,19,33,0.55)", backdropFilter: "blur(2px)", display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", zIndex: 1000, overflowY: "auto" },
-  modal: { width: "100%", maxWidth: 880, background: "#fff", borderRadius: 20, boxShadow: SOMBRA_ELEVADA, overflow: "hidden" },
-  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "22px 24px", borderBottom: `1px solid ${COR_BORDA_SUAVE}`, background: "linear-gradient(180deg, #fbfdfc 0%, #ffffff 100%)" },
-  modalNome: { margin: 0, fontSize: 19, fontWeight: 800, color: "#101828", fontFamily: FONTE_TITULO },
-  modalSub: { fontSize: 12.5, color: "#8a93a3", marginTop: 5 },
-  btnFechar: { background: "#f1f5f9", border: "none", borderRadius: 10, width: 34, height: 34, cursor: "pointer", color: "#475569", fontSize: 14, flexShrink: 0 },
+  modal: { width: "100%", maxWidth: 880, background: "var(--rv-superficie)", borderRadius: 20, boxShadow: SOMBRA_ELEVADA, overflow: "hidden" },
+  modalHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, padding: "22px 24px", borderBottom: `1px solid ${COR_BORDA_SUAVE}`, background: "linear-gradient(180deg, var(--rv-fundo-cartao) 0%, var(--rv-superficie) 100%)" },
+  modalNome: { margin: 0, fontSize: 19, fontWeight: 800, color: "var(--rv-tinta)", fontFamily: FONTE_TITULO },
+  modalSub: { fontSize: 12.5, color: "var(--rv-texto-fraco)", marginTop: 5 },
+  btnFechar: { background: "var(--rv-fundo-suave)", border: "none", borderRadius: 10, width: 34, height: 34, cursor: "pointer", color: "var(--rv-texto)", fontSize: 14, flexShrink: 0 },
   modalAbas: { display: "flex", gap: 4, padding: "0 22px", borderBottom: `1px solid ${COR_BORDA_SUAVE}`, flexWrap: "wrap" },
-  modalAba: { background: "transparent", border: "none", borderBottom: "2px solid transparent", padding: "11px 13px", fontSize: 13, fontWeight: 700, color: "#98a2b3", cursor: "pointer" },
-  modalAbaAtiva: { color: "#1e40af", borderBottom: "2px solid #1e40af" },
-  feedbackOk: { margin: "14px 22px 0", padding: "9px 13px", borderRadius: 10, background: "#eafaf1", color: "#0f7a4f", fontSize: 12.5, fontWeight: 700 },
-  feedbackErro: { margin: "14px 22px 0", padding: "9px 13px", borderRadius: 10, background: "#fef2f2", color: "#b91c1c", fontSize: 12.5, fontWeight: 700 },
+  modalAba: { background: "transparent", border: "none", borderBottom: "2px solid transparent", padding: "11px 13px", fontSize: 13, fontWeight: 700, color: "var(--rv-texto-fraco)", cursor: "pointer" },
+  modalAbaAtiva: { color: "var(--rv-azul-texto)", borderBottom: "2px solid #1e40af" },
+  feedbackOk: { margin: "14px 22px 0", padding: "9px 13px", borderRadius: 10, background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", fontSize: 12.5, fontWeight: 700 },
+  feedbackErro: { margin: "14px 22px 0", padding: "9px 13px", borderRadius: 10, background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", fontSize: 12.5, fontWeight: 700 },
   modalBody: { padding: 22, maxHeight: "62vh", overflowY: "auto" },
   secao: { display: "flex", flexDirection: "column", gap: 12 },
   gridInfo: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 10 },
-  infoBox: { background: "#f9fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: "9px 13px" },
-  infoRot: { fontSize: 11, color: "#98a2b3", marginBottom: 3, fontWeight: 600 },
-  infoVal: { fontSize: 13.5, color: "#101828", fontWeight: 700 },
+  infoBox: { background: "var(--rv-superficie)", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: "9px 13px" },
+  infoRot: { fontSize: 11, color: "var(--rv-texto-fraco)", marginBottom: 3, fontWeight: 600 },
+  infoVal: { fontSize: 13.5, color: "var(--rv-tinta)", fontWeight: 700 },
   btnEditarOperador: { marginLeft: 6, border: "none", background: "transparent", cursor: "pointer", fontSize: 13 },
-  selectOperadorFicha: { padding: "5px 7px", borderRadius: 8, border: "1px solid #cbd5e1", fontSize: 12, maxWidth: 160 },
+  selectOperadorFicha: { padding: "5px 7px", borderRadius: 8, border: "1px solid var(--rv-borda-forte)", fontSize: 12, maxWidth: 160 },
   btnSalvarOperador: { border: "none", background: "#1e40af", color: "#fff", borderRadius: 8, padding: "5px 9px", fontSize: 12, fontWeight: 700, cursor: "pointer" },
-  btnCancelarOperador: { border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 8, padding: "5px 9px", fontSize: 12, cursor: "pointer" },
-  label: { fontSize: 12, fontWeight: 700, color: "#475569", marginTop: 4 },
-  input: { padding: "10px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, background: "#fff", color: "#344054" },
-  textarea: { padding: "10px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, minHeight: 70, resize: "vertical", fontFamily: "inherit", background: "#fff", color: "#344054" },
-  proximaAcao: { fontSize: 12.5, color: "#667085", background: "#f9fafc", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: "9px 13px" },
+  btnCancelarOperador: { border: "1px solid var(--rv-borda-forte)", background: "var(--rv-superficie)", color: "var(--rv-texto)", borderRadius: 8, padding: "5px 9px", fontSize: 12, cursor: "pointer" },
+  label: { fontSize: 12, fontWeight: 700, color: "var(--rv-texto)", marginTop: 4 },
+  input: { padding: "10px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, background: "var(--rv-superficie)", color: "var(--rv-texto-forte)" },
+  textarea: { padding: "10px 12px", borderRadius: 10, border: `1px solid ${COR_BORDA}`, fontSize: 13, minHeight: 70, resize: "vertical", fontFamily: "inherit", background: "var(--rv-superficie)", color: "var(--rv-texto-forte)" },
+  proximaAcao: { fontSize: 12.5, color: "var(--rv-texto-suave)", background: "var(--rv-superficie)", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: "9px 13px" },
   acoesLinha: { display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 },
-  btnCopiarNome: { background: "#eef2ff", color: "#1e40af", border: "1px solid #c7d2fe", borderRadius: 8, padding: "2px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
-  guiadoBanner: { marginTop: 10, padding: "10px 14px", borderRadius: 10, background: "#ecfdf5", border: "1px solid #6ee7b7", color: "#065f46", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 10 },
-  guiadoBannerFechar: { marginLeft: "auto", background: "transparent", border: "none", cursor: "pointer", color: "#065f46", fontWeight: 700 },
+  btnCopiarNome: { background: "var(--rv-roxo-fundo)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-roxo-borda)", borderRadius: 8, padding: "2px 8px", fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" },
+  guiadoBanner: { marginTop: 10, padding: "10px 14px", borderRadius: 10, background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", color: "var(--rv-verde-ok-texto)", fontSize: 13, fontWeight: 700, display: "flex", alignItems: "center", gap: 10 },
+  guiadoBannerFechar: { marginLeft: "auto", background: "transparent", border: "none", cursor: "pointer", color: "var(--rv-verde-ok-texto)", fontWeight: 700 },
   guiadoSelo: { display: "inline-block", marginBottom: 6, padding: "3px 10px", borderRadius: 999, background: "#1e40af", color: "#fff", fontSize: 11, fontWeight: 800, letterSpacing: 0.3 },
-  lembreteBox: { marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: "#ecfdf5", border: "1px solid #6ee7b7" },
-  lembreteTitulo: { fontSize: 13, fontWeight: 800, color: "#065f46" },
-  lembreteTexto: { fontSize: 13, color: "#064e3b", marginTop: 4 },
-  lembreteDica: { fontSize: 11, color: "#047857", marginTop: 6 },
+  lembreteBox: { marginBottom: 12, padding: "10px 12px", borderRadius: 10, background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)" },
+  lembreteTitulo: { fontSize: 13, fontWeight: 800, color: "var(--rv-verde-ok-texto)" },
+  lembreteTexto: { fontSize: 13, color: "var(--rv-verde-ok-texto)", marginTop: 4 },
+  lembreteDica: { fontSize: 11, color: "var(--rv-verde-ok-texto)", marginTop: 6 },
   btnPrimario: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
-  btnSecundario: { background: "#eef2f6", color: "#475569", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
+  btnSecundario: { background: "var(--rv-fundo-suave)", color: "var(--rv-texto)", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
   timeline: { display: "flex", flexDirection: "column", gap: 11 },
   itemHist: { borderLeft: `2px solid ${COR_BORDA}`, paddingLeft: 13 },
-  histData: { fontSize: 11, color: "#98a2b3" },
-  histDesc: { fontSize: 13, color: "#344054" },
-  histStatus: { fontSize: 11.5, color: "#6366f1", fontWeight: 700 },
-  histAutor: { fontSize: 11, color: "#98a2b3" },
+  histData: { fontSize: 11, color: "var(--rv-texto-fraco)" },
+  histDesc: { fontSize: 13, color: "var(--rv-texto-forte)" },
+  histStatus: { fontSize: 11.5, color: "var(--rv-azul)", fontWeight: 700 },
+  histAutor: { fontSize: 11, color: "var(--rv-texto-fraco)" },
 
   // Retorno do ADM — bloco na Tabulacao
-  retornoBox: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 14, padding: 13, display: "flex", flexDirection: "column", gap: 4 },
+  retornoBox: { background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 14, padding: 13, display: "flex", flexDirection: "column", gap: 4 },
   retornoTop: { display: "flex", justifyContent: "space-between", alignItems: "center" },
-  retornoBadge: { fontSize: 12.5, fontWeight: 700, color: "#c2410c" },
-  retornoStatus: { fontSize: 11, fontWeight: 700, color: "#9a3412", background: "#ffedd5", borderRadius: 999, padding: "2px 8px" },
-  retornoLinha: { fontSize: 12.5, color: "#7c2d12" },
-  retornoDica: { fontSize: 11.5, color: "#9a3412", marginTop: 2, fontStyle: "italic" },
-  acoesInlineTitulo: { fontSize: 12, fontWeight: 700, color: "#475569", marginTop: 6 },
+  retornoBadge: { fontSize: 12.5, fontWeight: 700, color: "var(--rv-ambar-texto)" },
+  retornoStatus: { fontSize: 11, fontWeight: 700, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", borderRadius: 999, padding: "2px 8px" },
+  retornoLinha: { fontSize: 12.5, color: "var(--rv-ambar-texto)" },
+  retornoDica: { fontSize: 11.5, color: "var(--rv-ambar-texto)", marginTop: 2, fontStyle: "italic" },
+  acoesInlineTitulo: { fontSize: 12, fontWeight: 700, color: "var(--rv-texto)", marginTop: 6 },
   acoesInlineBotoes: { display: "flex", flexWrap: "wrap", gap: 8 },
-  btnAcaoInline: { background: "#eef2f6", color: "#344054", border: `1px solid ${COR_BORDA}`, borderRadius: 10, padding: "8px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
-  blocoInline: { border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: 4, background: "#fbfcfe" },
+  btnAcaoInline: { background: "var(--rv-fundo-suave)", color: "var(--rv-texto-forte)", border: `1px solid ${COR_BORDA}`, borderRadius: 10, padding: "8px 13px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
+  blocoInline: { border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 12, padding: 4, background: "var(--rv-superficie)" },
 
   // Retorno do ADM — bloco na Carteira
-  retornoCarteira: { background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 14, padding: "11px 15px", marginBottom: 16 },
+  retornoCarteira: { background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 14, padding: "11px 15px", marginBottom: 16 },
   retornoCarteiraTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 9 },
-  retornoCarteiraBadge: { fontSize: 13, fontWeight: 700, color: "#c2410c" },
-  retornoCarteiraCont: { fontSize: 12, fontWeight: 700, color: "#9a3412", background: "#ffedd5", borderRadius: 999, padding: "2px 10px" },
+  retornoCarteiraBadge: { fontSize: 13, fontWeight: 700, color: "var(--rv-ambar-texto)" },
+  retornoCarteiraCont: { fontSize: 12, fontWeight: 700, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", borderRadius: 999, padding: "2px 10px" },
   retornoCarteiraLista: { display: "flex", flexDirection: "column", gap: 6 },
-  retornoCarteiraItem: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", background: "#fff", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: "8px 11px" },
-  retornoCarteiraNome: { flex: 1, fontWeight: 700, color: "#101828", fontSize: 13 },
-  retornoCarteiraTag: { fontSize: 11, fontWeight: 700, color: "#c2410c", background: "#fff7ed", border: "1px solid #fed7aa", borderRadius: 6, padding: "2px 8px" },
-  retornoCarteiraStatus: { fontSize: 11, color: "#98a2b3" },
-  retornoCarteiraForaFila: { fontSize: 11, fontWeight: 700, color: "#475467", background: "#f2f4f7", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 6, padding: "2px 8px" },
+  retornoCarteiraItem: { display: "flex", alignItems: "center", gap: 10, cursor: "pointer", background: "var(--rv-superficie)", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 10, padding: "8px 11px" },
+  retornoCarteiraNome: { flex: 1, fontWeight: 700, color: "var(--rv-tinta)", fontSize: 13 },
+  retornoCarteiraTag: { fontSize: 11, fontWeight: 700, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 6, padding: "2px 8px" },
+  retornoCarteiraStatus: { fontSize: 11, color: "var(--rv-texto-fraco)" },
+  retornoCarteiraForaFila: { fontSize: 11, fontWeight: 700, color: "var(--rv-texto)", background: "var(--rv-fundo)", border: `1px solid ${COR_BORDA_SUAVE}`, borderRadius: 6, padding: "2px 8px" },
 };

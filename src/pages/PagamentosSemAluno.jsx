@@ -251,7 +251,7 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
                 {resultados.slice(0, 12).map((a) => (
                   <div key={a.id} style={resultadoLinha}>
                     <div style={{ minWidth: 0 }}>
-                      <div style={{ fontWeight: 700, color: "#0f172a", fontSize: 13.5 }}>{a.nome}</div>
+                      <div style={{ fontWeight: 700, color: "var(--rv-tinta)", fontSize: 13.5 }}>{a.nome}</div>
                       <div style={S.cardCpf}>
                         CPF {a.cpf || "-"}
                         {a.responsavel_atual_nome ? ` · ${a.responsavel_atual_nome}` : " · sem responsável"}
@@ -262,7 +262,7 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
                       <button
                         type="button"
                         onClick={() => onVerFicha && onVerFicha(a.id)}
-                        style={{ ...S.btnGhost, background: "#eef2ff", color: "#3730a3" }}
+                        style={{ ...S.btnGhost, background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)" }}
                         title="Conferir a ficha antes de vincular, sem sair da fila"
                       >
                         Ver ficha
@@ -287,12 +287,12 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
   );
 }
 
-const btnCopiarNome = { background: "#fff", color: "#475569", border: "1px solid #cbd5e1", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" };
+const btnCopiarNome = { background: "var(--rv-superficie)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" };
 const selo = {
-  repetido: { fontSize: 12, fontWeight: 800, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 999, padding: "4px 12px" },
-  semCadastro: { fontSize: 12, fontWeight: 800, color: "#991b1b", background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 999, padding: "4px 12px" },
+  repetido: { fontSize: 12, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 999, padding: "4px 12px" },
+  semCadastro: { fontSize: 12, fontWeight: 800, color: "var(--rv-vermelho-texto)", background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 999, padding: "4px 12px" },
 };
 const resultadoLinha = {
   display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
-  border: "1px solid #e6eaf0", borderRadius: 10, padding: "10px 12px", background: "#f8fafc",
+  border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "10px 12px", background: "var(--rv-fundo-cartao)",
 };

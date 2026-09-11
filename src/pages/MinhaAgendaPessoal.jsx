@@ -6,9 +6,9 @@ import { supabase } from "../services/supabase";
 // registros operacionais (faltas/trocas/intercorrencias) editaveis.
 
 const TIPOS = [
-  { id: "IMPORTANTE", label: "Importante", emoji: "⭐", cor: "#b45309", bg: "#fffbeb", borda: "#fde68a" },
-  { id: "PENDENCIA", label: "Pendências", emoji: "⏳", cor: "#b91c1c", bg: "#fef2f2", borda: "#fecaca" },
-  { id: "A_FAZER", label: "A fazer", emoji: "✅", cor: "#1d4ed8", bg: "#eff6ff", borda: "#bfdbfe" },
+  { id: "IMPORTANTE", label: "Importante", emoji: "⭐", cor: "var(--rv-ambar-texto)", bg: "var(--rv-ambar-fundo)", borda: "var(--rv-ambar-borda)" },
+  { id: "PENDENCIA", label: "Pendências", emoji: "⏳", cor: "var(--rv-vermelho-texto)", bg: "var(--rv-vermelho-fundo)", borda: "var(--rv-vermelho-borda)" },
+  { id: "A_FAZER", label: "A fazer", emoji: "✅", cor: "var(--rv-azul-texto)", bg: "var(--rv-azul-fundo)", borda: "var(--rv-azul-borda)" },
 ];
 
 const RECOR_LABEL = { NENHUMA: "", DIARIA: "Diária", SEMANAL: "Semanal", MENSAL: "Mensal" };
@@ -19,20 +19,20 @@ const BAIXA_FIM = 18;
 const BAIXA_POR_HORA = 6;
 
 const STATUS_NOTA = [
-  { id: "NOVA", label: "Nova", cor: "#475569", bg: "#f1f5f9" },
-  { id: "MELHORAR", label: "Melhorar", cor: "#b45309", bg: "#fffbeb" },
-  { id: "ANALISAR", label: "Analisar", cor: "#7c3aed", bg: "#f5f3ff" },
-  { id: "EQUIPE", label: "Ver com a equipe", cor: "#1d4ed8", bg: "#eff6ff" },
-  { id: "CONCLUIDO", label: "Concluído", cor: "#15803d", bg: "#f0fdf4" },
+  { id: "NOVA", label: "Nova", cor: "var(--rv-texto)", bg: "var(--rv-fundo-suave)" },
+  { id: "MELHORAR", label: "Melhorar", cor: "var(--rv-ambar-texto)", bg: "var(--rv-ambar-fundo)" },
+  { id: "ANALISAR", label: "Analisar", cor: "var(--rv-roxo)", bg: "var(--rv-roxo-fundo)" },
+  { id: "EQUIPE", label: "Ver com a equipe", cor: "var(--rv-azul-texto)", bg: "var(--rv-azul-fundo)" },
+  { id: "CONCLUIDO", label: "Concluído", cor: "var(--rv-verde-ok-texto)", bg: "var(--rv-verde-ok-fundo)" },
 ];
 function statusNotaInfo(id) {
   return STATUS_NOTA.find((s) => s.id === id) || STATUS_NOTA[0];
 }
 
 const OPERACIONAL = [
-  { id: "FALTA", label: "Falta", cor: "#b91c1c", bg: "#fef2f2" },
-  { id: "TROCA", label: "Troca de turno", cor: "#1d4ed8", bg: "#eff6ff" },
-  { id: "INTERCORRENCIA", label: "Intercorrência", cor: "#b45309", bg: "#fffbeb" },
+  { id: "FALTA", label: "Falta", cor: "var(--rv-vermelho-texto)", bg: "var(--rv-vermelho-fundo)" },
+  { id: "TROCA", label: "Troca de turno", cor: "var(--rv-azul-texto)", bg: "var(--rv-azul-fundo)" },
+  { id: "INTERCORRENCIA", label: "Intercorrência", cor: "var(--rv-ambar-texto)", bg: "var(--rv-ambar-fundo)" },
 ];
 const OP_TIPOS = ["FALTA", "TROCA", "INTERCORRENCIA"];
 function opInfo(id) {
@@ -257,7 +257,7 @@ export default function MinhaAgendaPessoal() {
           {planoBaixas && (
             <div style={S.baixaCard}>
               <div style={S.colunaTopo}>
-                <span style={{ ...S.colunaTitulo, color: "#0f766e" }}>🧾 Plano de baixas de hoje</span>
+                <span style={{ ...S.colunaTitulo, color: "var(--rv-teal-texto)" }}>🧾 Plano de baixas de hoje</span>
                 <span style={S.contador}>{planoBaixas.total} na fila</span>
               </div>
               <div style={S.baixaSub}>Fila de confirmação/baixa · 6 casos por hora (10 min cada), das 9h às 18h. Calculado ao vivo.</div>
@@ -322,7 +322,7 @@ export default function MinhaAgendaPessoal() {
                             <span style={S.itemTexto}>{i.conteudo}</span>
                             {(meta || rec) && (
                               <div style={S.metaLinha}>
-                                {meta && <span style={{ ...S.metaData, color: atrasado ? "#b91c1c" : "#475569" }}>{atrasado ? "Atrasado · " : ""}{meta}</span>}
+                                {meta && <span style={{ ...S.metaData, color: atrasado ? "var(--rv-vermelho-texto)" : "var(--rv-texto)" }}>{atrasado ? "Atrasado · " : ""}{meta}</span>}
                                 {rec && <span style={S.recChip}>🔁 {rec}</span>}
                               </div>
                             )}
@@ -347,7 +347,7 @@ export default function MinhaAgendaPessoal() {
 
           <div style={S.notasCard}>
             <div style={S.colunaTopo}>
-              <span style={{ ...S.colunaTitulo, color: "#4338ca" }}>📝 Notas, pensamentos e ideias</span>
+              <span style={{ ...S.colunaTitulo, color: "var(--rv-roxo-texto)" }}>📝 Notas, pensamentos e ideias</span>
               <span style={S.contador}>{notas.length}</span>
             </div>
             <div style={S.notaAdd}>
@@ -381,7 +381,7 @@ export default function MinhaAgendaPessoal() {
           </div>
           <div style={S.opCard}>
             <div style={S.colunaTopo}>
-              <span style={{ ...S.colunaTitulo, color: "#0f172a" }}>👥 Operação — faltas, trocas de turno e intercorrências</span>
+              <span style={{ ...S.colunaTitulo, color: "var(--rv-tinta)" }}>👥 Operação — faltas, trocas de turno e intercorrências</span>
               <span style={S.contador}>{registrosOp.length}</span>
             </div>
             <div style={S.opForm}>
@@ -418,7 +418,7 @@ export default function MinhaAgendaPessoal() {
                     <span style={{ ...S.statusChip, color: oi.cor, background: oi.bg, borderColor: oi.cor, marginTop: 1 }}>{oi.label}</span>
                     <div style={{ flex: 1, minWidth: 0 }}>
                       <span style={S.itemTexto}><strong>{r.operador_ref || "-"}</strong> — {r.conteudo}</span>
-                      {r.data && <div style={S.metaLinha}><span style={{ ...S.metaData, color: "#475569" }}>{dataBR(r.data)}</span></div>}
+                      {r.data && <div style={S.metaLinha}><span style={{ ...S.metaData, color: "var(--rv-texto)" }}>{dataBR(r.data)}</span></div>}
                     </div>
                     <button style={S.opEditar} title="Editar" onClick={() => editarOperacional(r)}>editar</button>
                     <button style={S.excluir} title="Excluir" onClick={() => excluir(r)}>×</button>
@@ -434,59 +434,59 @@ export default function MinhaAgendaPessoal() {
 }
 
 const S = {
-  container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "#f4f6fa", minHeight: "100%", color: "#0f172a" },
+  container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "var(--rv-fundo)", minHeight: "100%", color: "var(--rv-tinta)" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 20, flexWrap: "wrap" },
-  titulo: { margin: 0, color: "#0d1321", fontFamily: "'Sora', Inter, sans-serif", fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
-  subtitulo: { margin: "6px 0 0", color: "#8a93a3", fontSize: 13.5, maxWidth: 720 },
+  titulo: { margin: 0, color: "var(--rv-tinta)", fontFamily: "'Sora', Inter, sans-serif", fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
+  subtitulo: { margin: "6px 0 0", color: "var(--rv-texto-fraco)", fontSize: 13.5, maxWidth: 720 },
   botaoAtualizar: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
-  muted: { color: "#64748b", fontSize: 14 },
-  baixaCard: { background: "#f0fdfa", border: "1px solid #99f6e4", borderRadius: 16, padding: 16, marginBottom: 18, display: "flex", flexDirection: "column", gap: 10 },
-  baixaSub: { fontSize: 12.5, color: "#5b6b7a" },
+  muted: { color: "var(--rv-texto-suave)", fontSize: 14 },
+  baixaCard: { background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", borderRadius: 16, padding: 16, marginBottom: 18, display: "flex", flexDirection: "column", gap: 10 },
+  baixaSub: { fontSize: 12.5, color: "var(--rv-texto)" },
   baixaBlocos: { display: "flex", gap: 10, flexWrap: "wrap" },
-  baixaBloco: { background: "#fff", border: "1px solid #ccfbf1", borderRadius: 12, padding: "10px 12px", minWidth: 160, maxWidth: 220 },
-  baixaHora: { fontSize: 13, fontWeight: 800, color: "#0f766e" },
-  baixaQtd: { fontSize: 12.5, color: "#334155", marginTop: 3, fontWeight: 600 },
+  baixaBloco: { background: "var(--rv-superficie)", border: "1px solid var(--rv-verde-ok-borda)", borderRadius: 12, padding: "10px 12px", minWidth: 160, maxWidth: 220 },
+  baixaHora: { fontSize: 13, fontWeight: 800, color: "var(--rv-teal-texto)" },
+  baixaQtd: { fontSize: 12.5, color: "var(--rv-texto-forte)", marginTop: 3, fontWeight: 600 },
   baixaNomes: { marginTop: 6, display: "flex", flexDirection: "column", gap: 2 },
-  baixaNome: { fontSize: 12, color: "#334155", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
-  avisoBaixa: { background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e", borderRadius: 12, padding: "12px 16px", marginBottom: 12, fontSize: 13.5, fontWeight: 700 },
-  baixaRestante: { fontSize: 12.5, color: "#b45309", fontWeight: 700 },
+  baixaNome: { fontSize: 12, color: "var(--rv-texto-forte)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
+  avisoBaixa: { background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", borderRadius: 12, padding: "12px 16px", marginBottom: 12, fontSize: 13.5, fontWeight: 700 },
+  baixaRestante: { fontSize: 12.5, color: "var(--rv-ambar-texto)", fontWeight: 700 },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 16, marginBottom: 18 },
   coluna: { border: "1px solid", borderRadius: 16, padding: 16, display: "flex", flexDirection: "column", gap: 12 },
   colunaTopo: { display: "flex", justifyContent: "space-between", alignItems: "center" },
   colunaTitulo: { fontFamily: "'Sora', Inter, sans-serif", fontSize: 15, fontWeight: 800 },
-  contador: { background: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700, color: "#475569", border: "1px solid #e2e8f0" },
+  contador: { background: "var(--rv-superficie)", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700, color: "var(--rv-texto)", border: "1px solid var(--rv-borda)" },
   form: { display: "flex", flexDirection: "column", gap: 8 },
   formLinha: { display: "flex", gap: 6, flexWrap: "wrap", alignItems: "center" },
-  input: { border: "1px solid #cbd5e1", borderRadius: 10, padding: "9px 11px", fontSize: 14, background: "#fff", color: "#0f172a", outline: "none" },
-  inputPeq: { border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 8px", fontSize: 13, background: "#fff", color: "#0f172a", outline: "none" },
-  selectPeq: { border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 8px", fontSize: 13, background: "#fff", color: "#0f172a", outline: "none" },
+  input: { border: "1px solid var(--rv-borda-forte)", borderRadius: 10, padding: "9px 11px", fontSize: 14, background: "var(--rv-superficie)", color: "var(--rv-tinta)", outline: "none" },
+  inputPeq: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "6px 8px", fontSize: 13, background: "var(--rv-superficie)", color: "var(--rv-tinta)", outline: "none" },
+  selectPeq: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "6px 8px", fontSize: 13, background: "var(--rv-superficie)", color: "var(--rv-tinta)", outline: "none" },
   botaoAdd: { color: "#fff", border: "none", borderRadius: 8, padding: "7px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer", marginLeft: "auto" },
   itens: { display: "flex", flexDirection: "column", gap: 8 },
-  item: { display: "flex", alignItems: "flex-start", gap: 8, background: "#fff", border: "1px solid #eef2f6", borderRadius: 10, padding: "9px 11px" },
+  item: { display: "flex", alignItems: "flex-start", gap: 8, background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 10, padding: "9px 11px" },
   check: { marginTop: 3, width: 16, height: 16, cursor: "pointer", flexShrink: 0 },
-  itemTexto: { fontSize: 14, color: "#0f172a", wordBreak: "break-word", lineHeight: 1.4, display: "block" },
+  itemTexto: { fontSize: 14, color: "var(--rv-tinta)", wordBreak: "break-word", lineHeight: 1.4, display: "block" },
   metaLinha: { display: "flex", gap: 8, alignItems: "center", marginTop: 4, flexWrap: "wrap" },
   metaData: { fontSize: 12, fontWeight: 700 },
-  recChip: { fontSize: 11, fontWeight: 700, color: "#4338ca", background: "#eef2ff", border: "1px solid #e0e7ff", borderRadius: 999, padding: "1px 8px" },
-  excluir: { background: "transparent", border: "none", color: "#94a3b8", fontSize: 18, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 },
-  feitosLabel: { fontSize: 11, fontWeight: 700, color: "#94a3b8", textTransform: "uppercase", marginTop: 4 },
-  vazio: { color: "#94a3b8", fontSize: 13, padding: "6px 2px" },
-  notasCard: { background: "#eef2ff", border: "1px solid #c7d2fe", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", gap: 12 },
+  recChip: { fontSize: 11, fontWeight: 700, color: "var(--rv-roxo-texto)", background: "var(--rv-roxo-fundo)", border: "1px solid var(--rv-roxo-borda)", borderRadius: 999, padding: "1px 8px" },
+  excluir: { background: "transparent", border: "none", color: "var(--rv-texto-fraco)", fontSize: 18, cursor: "pointer", lineHeight: 1, padding: 0, flexShrink: 0 },
+  feitosLabel: { fontSize: 11, fontWeight: 700, color: "var(--rv-texto-fraco)", textTransform: "uppercase", marginTop: 4 },
+  vazio: { color: "var(--rv-texto-fraco)", fontSize: 13, padding: "6px 2px" },
+  notasCard: { background: "var(--rv-roxo-fundo)", border: "1px solid var(--rv-roxo-borda)", borderRadius: 16, padding: 18, display: "flex", flexDirection: "column", gap: 12 },
   notaAdd: { display: "flex", gap: 10, alignItems: "flex-start", flexWrap: "wrap" },
-  textarea: { flex: 1, minWidth: 240, minHeight: 70, border: "1px solid #cbd5e1", borderRadius: 10, padding: "10px 12px", fontSize: 14, background: "#fff", color: "#0f172a", outline: "none", resize: "vertical", fontFamily: "inherit" },
+  textarea: { flex: 1, minWidth: 240, minHeight: 70, border: "1px solid var(--rv-borda-forte)", borderRadius: 10, padding: "10px 12px", fontSize: 14, background: "var(--rv-superficie)", color: "var(--rv-tinta)", outline: "none", resize: "vertical", fontFamily: "inherit" },
   botaoNota: { background: "#4338ca", color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontWeight: 700, cursor: "pointer", height: 42 },
   notasGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(240px, 1fr))", gap: 12 },
-  notaCard: { position: "relative", background: "#fff", border: "1px solid #e0e7ff", borderRadius: 12, padding: "12px 14px", boxShadow: "0 1px 2px rgba(16,24,40,0.05)", display: "flex", flexDirection: "column", gap: 8 },
+  notaCard: { position: "relative", background: "var(--rv-superficie)", border: "1px solid var(--rv-roxo-borda)", borderRadius: 12, padding: "12px 14px", boxShadow: "0 1px 2px rgba(16,24,40,0.05)", display: "flex", flexDirection: "column", gap: 8 },
   statusChip: { alignSelf: "flex-start", fontSize: 10.5, fontWeight: 800, border: "1px solid", borderRadius: 999, padding: "1px 9px", textTransform: "uppercase", letterSpacing: "0.02em" },
-  notaTexto: { fontSize: 14, color: "#0f172a", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.45 },
+  notaTexto: { fontSize: 14, color: "var(--rv-tinta)", whiteSpace: "pre-wrap", wordBreak: "break-word", lineHeight: 1.45 },
   notaRodape: { display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginTop: 2 },
-  statusSelect: { border: "1px solid #cbd5e1", borderRadius: 8, padding: "5px 7px", fontSize: 12, background: "#fff", color: "#0f172a", outline: "none" },
-  notaData: { fontSize: 11, color: "#94a3b8" },
-  excluirNota: { position: "absolute", top: 6, right: 8, background: "transparent", border: "none", color: "#c4c9d4", fontSize: 18, cursor: "pointer", lineHeight: 1 },
-  opCard: { background: "#fff", border: "1px solid #e6eaf0", borderRadius: 16, padding: 18, marginTop: 18, display: "flex", flexDirection: "column", gap: 12 },
+  statusSelect: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "5px 7px", fontSize: 12, background: "var(--rv-superficie)", color: "var(--rv-tinta)", outline: "none" },
+  notaData: { fontSize: 11, color: "var(--rv-texto-fraco)" },
+  excluirNota: { position: "absolute", top: 6, right: 8, background: "transparent", border: "none", color: "var(--rv-texto-fraco)", fontSize: 18, cursor: "pointer", lineHeight: 1 },
+  opCard: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 16, padding: 18, marginTop: 18, display: "flex", flexDirection: "column", gap: 12 },
   opForm: { display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" },
-  opInput: { border: "1px solid #cbd5e1", borderRadius: 8, padding: "8px 10px", fontSize: 13, background: "#fff", color: "#0f172a", outline: "none" },
-  opBtn: { background: "#0f172a", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
-  opCancelar: { background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
-  opEditar: { background: "transparent", border: "none", color: "#2563eb", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: "0 4px", flexShrink: 0 },
+  opInput: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "8px 10px", fontSize: 13, background: "var(--rv-superficie)", color: "var(--rv-tinta)", outline: "none" },
+  opBtn: { background: "var(--rv-botao-escuro)", color: "#fff", border: "none", borderRadius: 8, padding: "9px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
+  opCancelar: { background: "var(--rv-fundo-suave)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda)", borderRadius: 8, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" },
+  opEditar: { background: "transparent", border: "none", color: "var(--rv-azul)", fontSize: 12, fontWeight: 700, cursor: "pointer", padding: "0 4px", flexShrink: 0 },
 };

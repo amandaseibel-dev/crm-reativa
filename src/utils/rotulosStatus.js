@@ -38,6 +38,11 @@ export const MAPA_SITUACAO = {
   SUSPENSAO_COBRANCA: "Suspenso",
   QUITADO_MANUAL: "Quitado",
   ELOGIO_ATENDIMENTO: "Elogio de atendimento",
+  ALEGA_FIES: "Alega FIES",
+  ALEGA_CREDIES: "Alega CREDIES",
+  ALEGA_FINANCIAMENTO: "Alega financiamento",
+  ANTECIPACAO_SEMESTRE: "Antecipação de semestre",
+  AGUARDAR_RETORNO_UNIDADE: "Aguardar retorno da unidade",
 };
 
 // Status desconhecido volta legível: SEM_RETORNO_HOJE -> "Sem retorno hoje".

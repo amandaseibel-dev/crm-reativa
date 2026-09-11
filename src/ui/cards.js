@@ -30,13 +30,13 @@ export const cor = {
   fundoCartaoClaro: "#f8fafc",
   bordaClaraExterna: "#eef2f6",
   bordaClaraInterna: "#e6eaf0",
-  textoClaro: "#475569",
-  rotulo: "#94a3b8",
+  textoClaro: "var(--rv-texto)",
+  rotulo: "var(--rv-texto-fraco)",
   // escuro
-  superficieEscura: "#111827",
-  fundoCartaoEscuroFundo: "#020617",
-  bordaEscura: "#374151",
-  bordaEscuraSuave: "#1f2937",
+  superficieEscura: "var(--rv-tinta)",
+  fundoCartaoEscuroFundo: "var(--rv-tinta)",
+  bordaEscura: "var(--rv-texto-forte)",
+  bordaEscuraSuave: "var(--rv-tinta)",
   textoEscuro: "#e5e7eb",
 };
 
@@ -103,7 +103,7 @@ export const itemMini = {
 };
 export const valorMini = {
   fontSize: 12.5,
-  color: "#334155",
+  color: "var(--rv-texto-forte)",
   lineHeight: 1.3,
 };
 
@@ -111,25 +111,25 @@ export const valorMini = {
 // Preservam texto FORTE e em negrito (a cor comunica o estado).
 export const cartaoSucesso = {
   ...cartao,
-  background: "#f0fdf4",
-  border: "1px solid #86efac",
-  color: "#166534",
+  background: "var(--rv-verde-ok-fundo)",
+  border: "1px solid var(--rv-verde-ok-borda)",
+  color: "var(--rv-verde-ok-texto)",
   fontWeight: 700,
   padding: "12px 14px",
 };
 export const cartaoAviso = {
   ...cartao,
-  background: "#fffbeb",
-  border: "1px solid #fde68a",
-  color: "#92400e",
+  background: "var(--rv-ambar-fundo)",
+  border: "1px solid var(--rv-ambar-borda)",
+  color: "var(--rv-ambar-texto)",
   fontWeight: 700,
   padding: "12px 14px",
 };
 export const cartaoErro = {
   ...cartao,
-  background: "#fef2f2",
-  border: "1px solid #fecaca",
-  color: "#991b1b",
+  background: "var(--rv-vermelho-fundo)",
+  border: "1px solid var(--rv-vermelho-borda)",
+  color: "var(--rv-vermelho-texto)",
   fontWeight: 700,
   padding: "12px 14px",
 };

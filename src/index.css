@@ -30,6 +30,41 @@
 
   --rv-raio: 16px;
   --rv-raio-pequeno: 10px;
+
+  /* ===== Tokens de tema (claro aqui, escuro em .app[data-tema="escuro"]) =====
+     As telas usam estes tokens nos estilos inline no lugar de cores fixas. Os
+     valores claros sao as cores que as telas sempre tiveram; o bloco escuro
+     mais abaixo troca so o valor, e o mesmo JSX serve para os dois temas.
+     Papel de cada grupo: texto (cor de letra), fundo (background), borda. */
+  --rv-texto-forte: #334155;
+  --rv-texto-fraco: #8a93a3;
+  --rv-fundo-cartao: #f8fafc;
+  --rv-fundo-suave: #f1f5f9;
+  --rv-borda-forte: #cbd5e1;
+  /* familias de destaque: fundo tintado + borda + texto escuro (chips, avisos) */
+  --rv-vermelho: #dc2626;
+  --rv-vermelho-texto: #b91c1c;
+  --rv-vermelho-fundo: #fef2f2;
+  --rv-vermelho-borda: #fecaca;
+  --rv-ambar: #d97706;
+  --rv-ambar-texto: #92400e;
+  --rv-ambar-fundo: #fffbeb;
+  --rv-ambar-borda: #fde68a;
+  --rv-verde-ok: #16a34a;
+  --rv-verde-ok-texto: #166534;
+  --rv-verde-ok-fundo: #f0fdf4;
+  --rv-verde-ok-borda: #bbf7d0;
+  --rv-azul: #2563eb;
+  --rv-azul-texto: #1e40af;
+  --rv-azul-fundo: #eff6ff;
+  --rv-azul-borda: #bfdbfe;
+  --rv-roxo: #7c3aed;
+  --rv-roxo-texto: #3730a3;
+  --rv-roxo-fundo: #eef2ff;
+  --rv-roxo-borda: #c7d2fe;
+  --rv-teal-texto: #0f766e;
+  /* botao solido escuro (texto branco): no tema escuro clareia para nao sumir no cartao */
+  --rv-botao-escuro: #0f172a;
 }
 
 * {
@@ -414,10 +449,54 @@ button:hover {
   color: #475569;
 }
 
-/* ===== Modo escuro (opcional) — escurece o shell; telas com cards claros
-   continuam legíveis; telas antigas sem card serão refinadas aos poucos ===== */
+/* ===== Modo escuro =====
+   Mesma paleta azul-marinho da barra lateral. As telas nao mudam de JSX: os
+   tokens abaixo trocam de valor e todo estilo inline que usa var(--rv-...)
+   acompanha. Cores de destaque (botoes solidos, selos) continuam as mesmas;
+   os textos coloridos ficam mais claros para seguirem legiveis no escuro. */
 .app[data-tema="escuro"] {
   background: #0b1220;
+  color-scheme: dark;
+
+  --rv-tinta: #f1f5f9;
+  --rv-texto-forte: #d5dde8;
+  --rv-texto: #c0c9d6;
+  --rv-texto-suave: #94a3b8;
+  --rv-texto-fraco: #8b96a8;
+
+  --rv-fundo: #0b1220;
+  --rv-superficie: #111a2b;
+  --rv-fundo-cartao: #0f172a;
+  --rv-fundo-suave: #1b2638;
+  --rv-borda: #263243;
+  --rv-borda-suave: #1e293b;
+  --rv-borda-forte: #34425a;
+  --rv-verde-fundo: #142544;
+  --rv-verde-borda: #1e3a8a;
+  --rv-sombra: 0 1px 2px rgba(0,0,0,0.3), 0 1px 3px rgba(0,0,0,0.35);
+
+  --rv-vermelho: #f87171;
+  --rv-vermelho-texto: #fca5a5;
+  --rv-vermelho-fundo: #3b1b1f;
+  --rv-vermelho-borda: #7f1d1d;
+  --rv-ambar: #fbbf24;
+  --rv-ambar-texto: #fcd34d;
+  --rv-ambar-fundo: #3a2a12;
+  --rv-ambar-borda: #78350f;
+  --rv-verde-ok: #4ade80;
+  --rv-verde-ok-texto: #86efac;
+  --rv-verde-ok-fundo: #12301f;
+  --rv-verde-ok-borda: #166534;
+  --rv-azul: #60a5fa;
+  --rv-azul-texto: #93c5fd;
+  --rv-azul-fundo: #142544;
+  --rv-azul-borda: #1e3a8a;
+  --rv-roxo: #a78bfa;
+  --rv-roxo-texto: #c4b5fd;
+  --rv-roxo-fundo: #241f4a;
+  --rv-roxo-borda: #4338ca;
+  --rv-teal-texto: #5eead4;
+  --rv-botao-escuro: #334155;
 }
 .app[data-tema="escuro"] .content {
   background: #0b1220;
@@ -431,8 +510,17 @@ button:hover {
 .app[data-tema="escuro"] .content h3 {
   color: #f8fafc;
 }
+.app[data-tema="escuro"] .content p {
+  color: #a9b4c4;
+}
 .app[data-tema="escuro"] .cabecalho-usuario span {
   color: #e2e8f0;
+}
+/* Campos sem estilo proprio seguem o tema (color-scheme cuida do nativo). */
+.app[data-tema="escuro"] .content input,
+.app[data-tema="escuro"] .content select,
+.app[data-tema="escuro"] .content textarea {
+  color-scheme: dark;
 }
 
 /* ===== BLOCO DOBRAVEL (padrao unico do CRM) =====

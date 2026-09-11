@@ -132,14 +132,14 @@ export default function CRM() {
     padding: 12,
     borderRadius: 10,
     border: "1px solid #6d28d9",
-    background: "#ffffff",
-    color: "#111827",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-tinta)",
     fontWeight: 700,
   };
 
   const estiloBotao = {
     background: "#3b82f6",
-    color: "#020617",
+    color: "var(--rv-tinta)",
     border: "none",
     borderRadius: 12,
     padding: "13px 22px",
@@ -394,11 +394,11 @@ export default function CRM() {
   function corCriticidade(criticidade) {
     const cr = normalizarTexto(criticidade);
 
-    if (cr.includes("CRIT")) return "#ef4444";
-    if (cr.includes("URG")) return "#f97316";
-    if (cr.includes("ATEN")) return "#eab308";
+    if (cr.includes("CRIT")) return "var(--rv-vermelho)";
+    if (cr.includes("URG")) return "var(--rv-ambar)";
+    if (cr.includes("ATEN")) return "var(--rv-ambar)";
 
-    return "#3b82f6";
+    return "var(--rv-azul)";
   }
 
   function CardInfo({ titulo, valor, destaque }) {
@@ -433,7 +433,7 @@ export default function CRM() {
             margin: "7px 0 0",
             fontSize: destaque ? 18 : 15,
             fontWeight: 900,
-            color: destaque ? "#3b82f6" : vazio ? "#e9d5ff" : "#ffffff",
+            color: destaque ? "var(--rv-azul)" : vazio ? "#e9d5ff" : "#ffffff",
           }}
         >
           {valor || "-"}
@@ -992,7 +992,7 @@ export default function CRM() {
           onClick={() => window.location.href = "/"}
           style={{
             background: "#3b82f6",
-            color: "#111827",
+            color: "var(--rv-tinta)",
             border: "none",
             borderRadius: 12,
             padding: "12px 18px",
@@ -1033,7 +1033,7 @@ export default function CRM() {
             style={{
               marginTop: "18px",
               background: "#3b82f6",
-              color: "#0f172a",
+              color: "var(--rv-tinta)",
               border: "none",
               borderRadius: "12px",
               padding: "12px 18px",
@@ -1093,7 +1093,7 @@ export default function CRM() {
                   cursor: "pointer",
                 }}
               >
-                <strong style={{ color: "#3b82f6", fontSize: 16 }}>
+                <strong style={{ color: "var(--rv-azul)", fontSize: 16 }}>
                   {formatarHora(c.horaRetorno)}
                 </strong>
 
@@ -1107,7 +1107,7 @@ export default function CRM() {
                 <span
                   style={{
                     background: corCriticidade(c.criticidade),
-                    color: "#020617",
+                    color: "var(--rv-tinta)",
                     fontSize: 11,
                     fontWeight: 900,
                     padding: "5px 10px",
@@ -1199,7 +1199,7 @@ export default function CRM() {
 
       {carregando && <Carregando texto="Carregando casos…" tema="escuro" />}
       {erro && <Erro texto={erro} onTentar={buscar} tema="escuro" />}
-      {sucesso && <p style={{ color: "#3b82f6", fontWeight: 800 }}>{sucesso}</p>}
+      {sucesso && <p style={{ color: "var(--rv-azul)", fontWeight: 800 }}>{sucesso}</p>}
 
       <p style={{ fontSize: 14, color: "#e9d5ff" }}>
         Total de casos encontrados: <strong>{grupos.length}</strong>
@@ -1234,7 +1234,7 @@ export default function CRM() {
               <span
                 style={{
                   background: corCriticidade(c.criticidade),
-                  color: "#020617",
+                  color: "var(--rv-tinta)",
                   fontSize: 11,
                   fontWeight: 900,
                   padding: "5px 10px",
@@ -1638,7 +1638,7 @@ export default function CRM() {
                       style={{
                         ...estiloBotaoSecundario,
                         background: "#3b82f6",
-                        color: "#020617",
+                        color: "var(--rv-tinta)",
                       }}
                       onClick={() => abrirAcoesAluno(c, "LINK_PAGAMENTO")}
                     >
@@ -1649,7 +1649,7 @@ export default function CRM() {
                       style={{
                         ...estiloBotaoSecundario,
                         background: "#38bdf8",
-                        color: "#020617",
+                        color: "var(--rv-tinta)",
                       }}
                       onClick={() => abrirAcoesAluno(c, "TERMO_ANEXO")}
                     >
@@ -1735,13 +1735,13 @@ export default function CRM() {
           onClick={() => setQuitacaoModal(null)}
         >
           <div
-            style={{ background: "#fff", borderRadius: 14, width: "100%", maxWidth: 620 }}
+            style={{ background: "var(--rv-superficie)", borderRadius: 14, width: "100%", maxWidth: 620 }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div style={{ display: "flex", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid #eef2f7" }}>
-              <strong style={{ color: "#111827" }}>Confirmar pagamento — {quitacaoModal.caso?.nome || "aluno"}</strong>
+            <div style={{ display: "flex", alignItems: "center", padding: "14px 18px", borderBottom: "1px solid var(--rv-borda-suave)" }}>
+              <strong style={{ color: "var(--rv-tinta)" }}>Confirmar pagamento — {quitacaoModal.caso?.nome || "aluno"}</strong>
               <button
-                style={{ marginLeft: "auto", background: "transparent", border: "none", fontSize: 18, cursor: "pointer", color: "#6b7280" }}
+                style={{ marginLeft: "auto", background: "transparent", border: "none", fontSize: 18, cursor: "pointer", color: "var(--rv-texto-suave)" }}
                 onClick={() => setQuitacaoModal(null)}
                 title="Cancelar (não grava nada)"
               >

@@ -74,18 +74,18 @@ const estilos = {
     padding: "14px 16px",
     marginBottom: 14,
     borderRadius: 12,
-    background: "#fff",
-    border: "1px solid #eef2f6",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda-suave)",
     boxShadow: "0 1px 2px rgba(15,23,42,0.04)",
   },
   titulo: {
     fontSize: 14,
     fontWeight: 600,
-    color: "#1e293b",
+    color: "var(--rv-tinta)",
   },
   subtitulo: {
     fontSize: 12,
-    color: "#94a3b8",
+    color: "var(--rv-texto-fraco)",
     margin: "3px 0 0",
     maxWidth: 420,
     lineHeight: 1.5,
@@ -104,6 +104,6 @@ const estilos = {
   mensagem: {
     marginTop: 10,
     fontSize: 12.5,
-    color: "#475569",
+    color: "var(--rv-texto)",
   },
 };

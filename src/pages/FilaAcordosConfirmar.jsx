@@ -378,7 +378,7 @@ export default function FilaAcordosConfirmar() {
                       style={{
                         border: "none", background: "none", padding: "0 4px", cursor: "pointer",
                         fontSize: 11.5, fontWeight: 700, whiteSpace: "nowrap",
-                        color: nomeCopiado === g.chave ? "#16a34a" : "#94a3b8",
+                        color: nomeCopiado === g.chave ? "var(--rv-verde-ok)" : "var(--rv-texto-fraco)",
                       }}
                     >
                       {nomeCopiado === g.chave ? "✓ copiado" : "📋 copiar nome"}

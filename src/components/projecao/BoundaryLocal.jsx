@@ -20,10 +20,10 @@ export default class BoundaryLocal extends Component {
         import.meta.env?.DEV ||
         String(import.meta.env?.VITE_MODO_CONTENCAO_ANALITICAS).toLowerCase() === "false";
       return (
-        <div style={{ padding: "10px 12px", borderRadius: 10, background: "#fff7ed", border: "1px solid #fed7aa", color: "#9a3412", fontSize: 12.5 }}>
+        <div style={{ padding: "10px 12px", borderRadius: 10, background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", fontSize: 12.5 }}>
           ⚠️ {this.props.label || "Este trecho"} está indisponível no momento.
           {mostrarDetalhe && (
-            <div style={{ marginTop: 6, color: "#b91c1c", fontFamily: "monospace", fontSize: 11, whiteSpace: "pre-wrap" }}>
+            <div style={{ marginTop: 6, color: "var(--rv-vermelho-texto)", fontFamily: "monospace", fontSize: 11, whiteSpace: "pre-wrap" }}>
               {`[${this.props.label}] ${this.state.erro?.name || "Error"}: ${this.state.erro?.message || ""}`}
             </div>
           )}

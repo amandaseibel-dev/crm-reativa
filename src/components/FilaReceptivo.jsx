@@ -240,8 +240,8 @@ export default function FilaReceptivo({ usuarioLogado }) {
 // Paleta clara e neutra, alinhada ao PainelCarteira (fundo branco, bordas
 // finas #e6eaf0, verde discreto para o destaque da vez, azul para a acao
 // principal). Somente aparencia -- nenhuma mudanca de logica.
-const BORDA = "#e6eaf0";
-const BORDA_SUAVE = "#eef2f6";
+const BORDA = "var(--rv-borda)";
+const BORDA_SUAVE = "var(--rv-borda-suave)";
 
 const estilos = {
   espacoReservado: {
@@ -249,7 +249,7 @@ const estilos = {
     marginBottom: 16,
   },
   caixa: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     border: `1px solid ${BORDA_SUAVE}`,
     borderRadius: 14,
     padding: "16px 18px",
@@ -267,7 +267,7 @@ const estilos = {
   titulo: {
     fontSize: 14,
     fontWeight: 600,
-    color: "#1e293b",
+    color: "var(--rv-tinta)",
   },
   online: {
     display: "inline-flex",
@@ -275,9 +275,9 @@ const estilos = {
     gap: 6,
     fontSize: 11.5,
     fontWeight: 600,
-    color: "#16a34a",
-    background: "#eefbf3",
-    border: "1px solid #d6f2e0",
+    color: "var(--rv-verde-ok)",
+    background: "var(--rv-verde-ok-fundo)",
+    border: "1px solid var(--rv-verde-ok-borda)",
     borderRadius: 999,
     padding: "2px 9px",
   },
@@ -295,24 +295,24 @@ const estilos = {
     gap: 12,
     padding: "12px 14px",
     borderRadius: 12,
-    background: "#f9fafc",
+    background: "var(--rv-superficie)",
     border: `1px solid ${BORDA}`,
     marginBottom: 14,
     flexWrap: "wrap",
   },
   destaqueVez: {
-    background: "#eefbf3",
-    border: "1px solid #bbe9cb",
+    background: "var(--rv-verde-ok-fundo)",
+    border: "1px solid var(--rv-verde-ok-borda)",
   },
   destaqueRotulo: {
     fontSize: 11.5,
     fontWeight: 600,
-    color: "#16a34a",
+    color: "var(--rv-verde-ok)",
   },
   destaqueNome: {
     fontSize: 17,
     fontWeight: 700,
-    color: "#1e293b",
+    color: "var(--rv-tinta)",
   },
   botaoAtendi: {
     background: "#16a34a",
@@ -327,7 +327,7 @@ const estilos = {
   },
   rotuloLista: {
     fontSize: 11.5,
-    color: "#94a3b8",
+    color: "var(--rv-texto-fraco)",
     marginBottom: 8,
   },
   lista: {
@@ -341,22 +341,22 @@ const estilos = {
     gap: 10,
     padding: "8px 10px",
     borderRadius: 10,
-    background: "#fff",
+    background: "var(--rv-superficie)",
     border: `1px solid ${BORDA_SUAVE}`,
   },
   itemPrimeiro: {
-    border: "1px solid #bbe9cb",
-    background: "#f4fcf7",
+    border: "1px solid var(--rv-verde-ok-borda)",
+    background: "var(--rv-verde-ok-fundo)",
   },
   itemEu: {
-    boxShadow: "inset 0 0 0 1px #dbe3ec",
+    boxShadow: "inset 0 0 0 1px var(--rv-borda-forte)",
   },
   posicao: {
     width: 22,
     height: 22,
     borderRadius: "50%",
-    background: "#f1f5f9",
-    color: "#64748b",
+    background: "var(--rv-fundo-suave)",
+    color: "var(--rv-texto-suave)",
     fontSize: 11.5,
     fontWeight: 700,
     display: "flex",
@@ -365,13 +365,13 @@ const estilos = {
     flexShrink: 0,
   },
   posicaoPrimeiro: {
-    background: "#dcf5e5",
-    color: "#15803d",
+    background: "var(--rv-verde-ok-fundo)",
+    color: "var(--rv-verde-ok-texto)",
   },
   avatarFallback: {
     borderRadius: "50%",
-    background: "#eef2f6",
-    color: "#475569",
+    background: "var(--rv-fundo-suave)",
+    color: "var(--rv-texto)",
     fontSize: 12.5,
     fontWeight: 700,
     display: "inline-flex",
@@ -381,21 +381,21 @@ const estilos = {
   },
   nomeItem: {
     flex: 1,
-    color: "#1e293b",
+    color: "var(--rv-tinta)",
     fontWeight: 600,
     fontSize: 13.5,
   },
   contador: {
     fontSize: 11.5,
-    color: "#94a3b8",
+    color: "var(--rv-texto-fraco)",
     whiteSpace: "nowrap",
   },
   botaoMarcarLinha: {
     padding: "5px 10px",
     borderRadius: 8,
-    border: "1px solid #bbe9cb",
-    background: "#eefbf3",
-    color: "#15803d",
+    border: "1px solid var(--rv-verde-ok-borda)",
+    background: "var(--rv-verde-ok-fundo)",
+    color: "var(--rv-verde-ok-texto)",
     fontSize: 11.5,
     fontWeight: 600,
     cursor: "pointer",
@@ -409,15 +409,15 @@ const estilos = {
   },
   vazio: {
     fontSize: 12.5,
-    color: "#94a3b8",
+    color: "var(--rv-texto-fraco)",
     margin: 0,
   },
   botaoPausa: {
     padding: "8px 14px",
     borderRadius: 8,
     border: `1px solid ${BORDA}`,
-    background: "#fff",
-    color: "#475569",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-texto)",
     fontWeight: 600,
     cursor: "pointer",
     whiteSpace: "nowrap",
@@ -425,9 +425,9 @@ const estilos = {
   botaoPausaAtiva: {
     padding: "8px 14px",
     borderRadius: 8,
-    border: "1px solid #f6d99a",
-    background: "#fff8ec",
-    color: "#b45309",
+    border: "1px solid var(--rv-ambar-borda)",
+    background: "var(--rv-ambar-fundo)",
+    color: "var(--rv-ambar-texto)",
     fontWeight: 600,
     cursor: "pointer",
     whiteSpace: "nowrap",

@@ -16,24 +16,24 @@ function traduzirStatus(status) {
 function corStatus(status) {
   if (status === "RETORNADO_FINANCEIRO") {
     return {
-      background: "#cff4fc",
-      color: "#055160",
-      border: "1px solid #9eeaf9",
+      background: "var(--rv-azul-fundo)",
+      color: "var(--rv-azul-texto)",
+      border: "1px solid var(--rv-azul-borda)",
     };
   }
 
   if (status === "ENVIADO_FINANCEIRO") {
     return {
-      background: "#d1e7dd",
-      color: "#0f5132",
-      border: "1px solid #badbcc",
+      background: "var(--rv-verde-ok-fundo)",
+      color: "var(--rv-verde-ok-texto)",
+      border: "1px solid var(--rv-verde-ok-borda)",
     };
   }
 
   return {
-    background: "#fff3cd",
-    color: "#664d03",
-    border: "1px solid #ffe69c",
+    background: "var(--rv-ambar-fundo)",
+    color: "var(--rv-ambar-texto)",
+    border: "1px solid var(--rv-ambar-borda)",
   };
 }
 
@@ -438,7 +438,7 @@ export default function EnvioFinanceiro({ aluno }) {
 const styles = {
   card: {
     ...cartao,
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderLeft: "6px solid #198754",
     borderRadius: "14px",
     padding: "22px",
@@ -456,15 +456,15 @@ const styles = {
   titulo: {
     margin: 0,
     marginBottom: "8px",
-    color: "#1f2937",
+    color: "var(--rv-tinta)",
   },
   subtitulo: {
     marginTop: 0,
     marginBottom: "12px",
-    color: "#1f2937",
+    color: "var(--rv-tinta)",
   },
   texto: {
-    color: "#555",
+    color: "var(--rv-texto)",
     margin: 0,
     lineHeight: 1.5,
   },
@@ -489,17 +489,17 @@ const styles = {
   labelResumo: {
     display: "block",
     fontSize: "12px",
-    color: "#6b7280",
+    color: "var(--rv-texto-suave)",
     marginBottom: "4px",
   },
   valorResumo: {
     margin: 0,
     fontWeight: "bold",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   caixaAdm: {
     ...cartao,
-    background: "#fff",
+    background: "var(--rv-superficie)",
     marginTop: "14px",
     padding: "12px",
   },
@@ -508,17 +508,17 @@ const styles = {
     marginBottom: "16px",
   },
   bannerAguardando: {
-    background: "#fff7ed",
-    border: "1px solid #fed7aa",
-    color: "#9a3412",
+    background: "var(--rv-ambar-fundo)",
+    border: "1px solid var(--rv-ambar-borda)",
+    color: "var(--rv-ambar-texto)",
     borderRadius: "10px",
     padding: "14px 16px",
     marginBottom: "16px",
   },
   bannerRetorno: {
-    background: "#ecfdf5",
-    border: "1px solid #a7f3d0",
-    color: "#065f46",
+    background: "var(--rv-verde-ok-fundo)",
+    border: "1px solid var(--rv-verde-ok-borda)",
+    color: "var(--rv-verde-ok-texto)",
     borderRadius: "10px",
     padding: "14px 16px",
     marginBottom: "16px",
@@ -540,14 +540,14 @@ const styles = {
     display: "block",
     fontWeight: "bold",
     marginBottom: "6px",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   textarea: {
     width: "100%",
     minHeight: "95px",
     padding: "10px",
     borderRadius: "8px",
-    border: "1px solid #ccc",
+    border: "1px solid var(--rv-borda-forte)",
     resize: "vertical",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
@@ -558,7 +558,7 @@ const styles = {
   nomeArquivoSelecionado: {
     marginLeft: "10px",
     fontSize: "12px",
-    color: "#198754",
+    color: "var(--rv-verde-ok)",
     fontWeight: "bold",
   },
   linhaAnexos: {
@@ -568,9 +568,9 @@ const styles = {
     margin: "6px 0",
   },
   botaoAnexo: {
-    background: "#f0fdf4",
-    border: "1px solid #bfdbfe",
-    color: "#15803d",
+    background: "var(--rv-verde-ok-fundo)",
+    border: "1px solid var(--rv-azul-borda)",
+    color: "var(--rv-verde-ok-texto)",
     borderRadius: "8px",
     padding: "6px 10px",
     fontSize: "12px",
@@ -589,7 +589,7 @@ const styles = {
   },
   historico: {
     marginTop: "24px",
-    borderTop: "1px solid #e5e7eb",
+    borderTop: "1px solid var(--rv-borda)",
     paddingTop: "18px",
   },
   itemHistorico: {
@@ -605,11 +605,11 @@ const styles = {
   },
   dataHistorico: {
     fontSize: "12px",
-    color: "#6b7280",
+    color: "var(--rv-texto-suave)",
   },
   paragrafo: {
     margin: "6px 0",
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
     lineHeight: 1.4,
   },
 };

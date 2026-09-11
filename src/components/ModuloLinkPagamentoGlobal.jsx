@@ -342,14 +342,14 @@ const cabecalho = {
 
 const titulo = {
   margin: 0,
-  color: "#0f172a",
+  color: "var(--rv-tinta)",
   fontSize: "22px",
   fontWeight: "900"
 };
 
 const subtitulo = {
   margin: "5px 0 0",
-  color: "#475569",
+  color: "var(--rv-texto)",
   fontWeight: "700"
 };
 
@@ -370,7 +370,7 @@ const campoMenor = {
 const label = {
   display: "block",
   marginBottom: "5px",
-  color: "#334155",
+  color: "var(--rv-texto-forte)",
   fontWeight: "900",
   fontSize: "13px"
 };
@@ -378,7 +378,7 @@ const label = {
 const input = {
   width: "100%",
   padding: "11px",
-  border: "1px solid #cbd5e1",
+  border: "1px solid var(--rv-borda-forte)",
   borderRadius: "9px",
   marginBottom: "12px",
   boxSizing: "border-box",
@@ -387,15 +387,15 @@ const input = {
 
 const inputBloqueado = {
   ...input,
-  background: "#e5e7eb",
-  color: "#475569"
+  background: "var(--rv-borda)",
+  color: "var(--rv-texto)"
 };
 
 const previewValor = {
   margin: "-6px 0 12px",
   fontSize: "13px",
   fontWeight: "700",
-  color: "#0f172a"
+  color: "var(--rv-tinta)"
 };
 
 const textarea = {
@@ -421,7 +421,7 @@ const botaoConfirmar = {
 };
 
 const botaoFechar = {
-  background: "#0f172a",
+  background: "var(--rv-botao-escuro)",
   color: "#fff",
   border: "none",
   borderRadius: "9px",

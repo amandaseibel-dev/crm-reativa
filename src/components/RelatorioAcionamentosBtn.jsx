@@ -36,10 +36,10 @@ export default function RelatorioAcionamentosBtn({ aluno }) {
         ".info{font-size:13px;margin:10px 0 4px;}" +
         ".info b{color:#000;}" +
         "table{width:100%;border-collapse:collapse;font-size:12px;margin-top:12px;}" +
-        "th,td{border:1px solid #ddd;padding:6px 8px;text-align:left;vertical-align:top;}" +
+        "th,td{border:1px solid var(--rv-borda);padding:6px 8px;text-align:left;vertical-align:top;}" +
         "th{background:#f1f5f9;}" +
         ".tot{margin:12px 0;font-size:13px;font-weight:bold;}" +
-        ".rod{margin-top:24px;color:#888;font-size:11px;border-top:1px solid #eee;padding-top:8px;}" +
+        ".rod{margin-top:24px;color:#888;font-size:11px;border-top:1px solid var(--rv-borda);padding-top:8px;}" +
         "</style></head><body>" +
         "<h1>Relatorio de Acionamentos</h1>" +
         "<div class='sub'>ReATIVA - Recuperacao ULBRA</div>" +
@@ -71,5 +71,5 @@ export default function RelatorioAcionamentosBtn({ aluno }) {
 }
 
 const S = {
-  btn: { background: "#fff", color: "#1d4ed8", border: "1px solid #1d4ed8", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13, marginTop: 10 },
+  btn: { background: "var(--rv-superficie)", color: "var(--rv-azul-texto)", border: "1px solid #1d4ed8", borderRadius: 8, padding: "8px 14px", fontWeight: 700, cursor: "pointer", fontSize: 13, marginTop: 10 },
 };

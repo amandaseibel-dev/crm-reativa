@@ -27,24 +27,24 @@ function formatarData(data) {
 function corStatus(status) {
   if (status === "RETORNADO_FINANCEIRO") {
     return {
-      background: "#cff4fc",
-      color: "#055160",
-      border: "1px solid #9eeaf9",
+      background: "var(--rv-azul-fundo)",
+      color: "var(--rv-azul-texto)",
+      border: "1px solid var(--rv-azul-borda)",
     };
   }
 
   if (status === "ENVIADO_FINANCEIRO") {
     return {
-      background: "#d1e7dd",
-      color: "#0f5132",
-      border: "1px solid #badbcc",
+      background: "var(--rv-verde-ok-fundo)",
+      color: "var(--rv-verde-ok-texto)",
+      border: "1px solid var(--rv-verde-ok-borda)",
     };
   }
 
   return {
-    background: "#fff3cd",
-    color: "#664d03",
-    border: "1px solid #ffe69c",
+    background: "var(--rv-ambar-fundo)",
+    color: "var(--rv-ambar-texto)",
+    border: "1px solid var(--rv-ambar-borda)",
   };
 }
 
@@ -435,7 +435,7 @@ const styles = {
   container: {
     padding: "24px",
     fontFamily: "Arial, sans-serif",
-    background: "#f4f6f8",
+    background: "var(--rv-fundo-suave)",
     minHeight: "100%",
   },
   cabecalho: {
@@ -448,17 +448,17 @@ const styles = {
   titulo: {
     margin: 0,
     marginBottom: "6px",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   subtitulo: {
-    color: "#555",
+    color: "var(--rv-texto)",
     margin: 0,
   },
   texto: {
-    color: "#555",
+    color: "var(--rv-texto)",
   },
   botaoAtualizar: {
-    background: "#111827",
+    background: "var(--rv-botao-escuro)",
     color: "#fff",
     border: "none",
     padding: "11px 16px",
@@ -473,7 +473,7 @@ const styles = {
     marginBottom: "18px",
   },
   indicador: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "12px",
     padding: "16px",
     boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
@@ -482,11 +482,11 @@ const styles = {
     display: "block",
     fontSize: "28px",
     fontWeight: "bold",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   descricao: {
     display: "block",
-    color: "#6b7280",
+    color: "var(--rv-texto-suave)",
     marginTop: "4px",
   },
   filtros: {
@@ -496,9 +496,9 @@ const styles = {
     marginBottom: "18px",
   },
   filtro: {
-    background: "#fff",
-    color: "#111827",
-    border: "1px solid #d1d5db",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-tinta)",
+    border: "1px solid var(--rv-borda-forte)",
     padding: "9px 14px",
     borderRadius: "999px",
     cursor: "pointer",
@@ -514,20 +514,20 @@ const styles = {
     fontWeight: "bold",
   },
   alerta: {
-    background: "#fff3cd",
-    border: "1px solid #ffe69c",
-    color: "#664d03",
+    background: "var(--rv-ambar-fundo)",
+    border: "1px solid var(--rv-ambar-borda)",
+    color: "var(--rv-ambar-texto)",
     padding: "14px",
     borderRadius: "8px",
     marginBottom: "16px",
   },
   vazio: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     padding: "18px",
     borderRadius: "10px",
   },
   card: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "14px",
     padding: "20px",
     marginBottom: "18px",
@@ -542,11 +542,11 @@ const styles = {
   },
   nome: {
     margin: "0 0 8px 0",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   info: {
     margin: "5px 0",
-    color: "#555",
+    color: "var(--rv-texto)",
   },
   status: {
     padding: "8px 12px",
@@ -560,13 +560,13 @@ const styles = {
   },
   blocoRetorno: {
     marginTop: "14px",
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "10px",
     padding: "12px",
   },
   paragrafo: {
-    color: "#374151",
+    color: "var(--rv-texto-forte)",
     lineHeight: 1.4,
     margin: "8px 0",
   },
@@ -574,35 +574,35 @@ const styles = {
     display: "block",
     fontWeight: "bold",
     marginBottom: "6px",
-    color: "#111827",
+    color: "var(--rv-tinta)",
   },
   textarea: {
     width: "100%",
     minHeight: "60px",
     padding: "10px",
     borderRadius: "8px",
-    border: "1px solid #ccc",
+    border: "1px solid var(--rv-borda-forte)",
     resize: "vertical",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
   },
   blocoRetornoInput: {
     marginTop: "14px",
-    background: "#f0f9ff",
-    border: "1px solid #bae6fd",
+    background: "var(--rv-azul-fundo)",
+    border: "1px solid var(--rv-azul-borda)",
     borderRadius: "10px",
     padding: "12px",
   },
   dicaRetorno: {
-    color: "#0369a1",
+    color: "var(--rv-azul-texto)",
     fontSize: "13px",
     margin: "4px 0 10px 0",
     lineHeight: 1.4,
   },
   blocoRetornoFeito: {
     marginTop: "14px",
-    background: "#ecfdf5",
-    border: "1px solid #a7f3d0",
+    background: "var(--rv-verde-ok-fundo)",
+    border: "1px solid var(--rv-verde-ok-borda)",
     borderRadius: "10px",
     padding: "12px",
   },

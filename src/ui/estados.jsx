@@ -16,7 +16,7 @@ import { cartaoErro } from "./cards";
 
 const KEYFRAMES = "@keyframes rv-spin { to { transform: rotate(360deg); } }";
 
-function Spinner({ cor = "#2563eb", tamanho = 22 }) {
+function Spinner({ cor = "var(--rv-azul)", tamanho = 22 }) {
   return (
     <>
       <style>{KEYFRAMES}</style>
@@ -47,8 +47,8 @@ const wrap = {
 
 // Estado de carregamento. Acessível (role=status + aria-live).
 export function Carregando({ texto = "Carregando…", tema = "claro" }) {
-  const corTexto = tema === "escuro" ? "#94a3b8" : "#64748b";
-  const corSpin = tema === "escuro" ? "#60a5fa" : "#2563eb";
+  const corTexto = tema === "escuro" ? "var(--rv-texto-fraco)" : "var(--rv-texto-suave)";
+  const corSpin = tema === "escuro" ? "#60a5fa" : "var(--rv-azul)";
   return (
     <div role="status" aria-live="polite" style={{ ...wrap, color: corTexto, fontSize: 14, fontWeight: 600 }}>
       <Spinner cor={corSpin} />
@@ -89,8 +89,8 @@ export function Erro({ texto = "Não foi possível carregar. Tente de novo.", on
 
 // Estado vazio (lista sem itens). Neutro, sem alarme.
 export function Vazio({ texto = "Nada por aqui.", detalhe, tema = "claro" }) {
-  const corTexto = tema === "escuro" ? "#94a3b8" : "#64748b";
-  const corDetalhe = tema === "escuro" ? "#64748b" : "#94a3b8";
+  const corTexto = tema === "escuro" ? "var(--rv-texto-fraco)" : "var(--rv-texto-suave)";
+  const corDetalhe = tema === "escuro" ? "var(--rv-texto-suave)" : "var(--rv-texto-fraco)";
   return (
     <div style={{ ...wrap, color: corTexto }}>
       <div style={{ fontSize: 15, fontWeight: 700 }}>{texto}</div>

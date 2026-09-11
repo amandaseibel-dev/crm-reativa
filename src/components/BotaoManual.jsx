@@ -9,7 +9,7 @@ export default function BotaoManual() {
         bottom: "22px",
         zIndex: 999999,
         background: "#19c37d",
-        color: "#071526",
+        color: "var(--rv-tinta)",
         border: "2px solid #ffffff",
         borderRadius: "999px",
         padding: "14px 20px",

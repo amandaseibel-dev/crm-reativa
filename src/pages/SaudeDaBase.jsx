@@ -20,9 +20,9 @@ function StatusChip({ ok, texto }) {
         fontWeight: 700,
         padding: "3px 10px",
         borderRadius: 999,
-        color: ok ? "#0f7a4f" : "#b91c1c",
-        background: ok ? "#eff6ff" : "#fef2f2",
-        border: `1px solid ${ok ? "#c7d7fe" : "#fecaca"}`,
+        color: ok ? "var(--rv-verde-ok-texto)" : "var(--rv-vermelho-texto)",
+        background: ok ? "var(--rv-azul-fundo)" : "var(--rv-vermelho-fundo)",
+        border: `1px solid ${ok ? "var(--rv-azul-borda)" : "var(--rv-vermelho-borda)"}`,
       }}
     >
       {ok ? "✅" : "⚠️"} {texto}
@@ -119,7 +119,7 @@ export default function SaudeDaBase() {
   }
 
   const geradoEm = dados.gerado_em ? new Date(dados.gerado_em).toLocaleString("pt-BR") : "-";
-  const scoreCor = dados.score >= 80 ? "#16a34a" : dados.score >= 50 ? "#d97706" : "#dc2626";
+  const scoreCor = dados.score >= 80 ? "var(--rv-verde-ok)" : dados.score >= 50 ? "var(--rv-ambar)" : "var(--rv-vermelho)";
   const maxTendencia = Math.max(1, ...tendencia.map((t) => Number(t.score) || 0));
 
   return (
@@ -190,10 +190,10 @@ export default function SaudeDaBase() {
         </button>
         <button
           type="button"
-          style={{ ...estilos.cardValor, background: dados.sem_valor > 0 ? "#fef7f0" : undefined, borderColor: dados.sem_valor > 0 ? "#fde3cc" : undefined }}
+          style={{ ...estilos.cardValor, background: dados.sem_valor > 0 ? "var(--rv-ambar-fundo)" : undefined, borderColor: dados.sem_valor > 0 ? "var(--rv-ambar-borda)" : undefined }}
           onClick={() => abrirCategoria("sem_valor", "Livres sem valor calculado")}
         >
-          <span style={{ ...estilos.numeroValor, color: dados.sem_valor > 0 ? "#c2410c" : undefined }}>
+          <span style={{ ...estilos.numeroValor, color: dados.sem_valor > 0 ? "var(--rv-ambar-texto)" : undefined }}>
             {(dados.sem_valor || 0).toLocaleString("pt-BR")}
             {dados.total_alunos > 0 && (
               <span style={estilos.percentual}> ({((dados.sem_valor / dados.total_alunos) * 100).toFixed(1)}%)</span>
@@ -203,10 +203,10 @@ export default function SaudeDaBase() {
         </button>
         <button
           type="button"
-          style={{ ...estilos.cardValor, background: dados.sem_telefone > 0 ? "#fef7f0" : undefined, borderColor: dados.sem_telefone > 0 ? "#fde3cc" : undefined }}
+          style={{ ...estilos.cardValor, background: dados.sem_telefone > 0 ? "var(--rv-ambar-fundo)" : undefined, borderColor: dados.sem_telefone > 0 ? "var(--rv-ambar-borda)" : undefined }}
           onClick={() => abrirCategoria("sem_telefone", "Sem telefone cadastrado")}
         >
-          <span style={{ ...estilos.numeroValor, color: dados.sem_telefone > 0 ? "#c2410c" : undefined }}>
+          <span style={{ ...estilos.numeroValor, color: dados.sem_telefone > 0 ? "var(--rv-ambar-texto)" : undefined }}>
             {(dados.sem_telefone || 0).toLocaleString("pt-BR")}
             {dados.total_alunos > 0 && (
               <span style={estilos.percentual}> ({((dados.sem_telefone / dados.total_alunos) * 100).toFixed(1)}%)</span>
@@ -214,11 +214,11 @@ export default function SaudeDaBase() {
           </span>
           <span style={estilos.labelValor}>Sem telefone cadastrado — clique pra ver a lista</span>
         </button>
-        <div style={{ ...estilos.cardValor, background: "#eff6ff", borderColor: "#c7d7fe" }}>
-          <span style={{ ...estilos.numeroValor, color: "#0f7a4f" }}>
+        <div style={{ ...estilos.cardValor, background: "var(--rv-azul-fundo)", borderColor: "var(--rv-azul-borda)" }}>
+          <span style={{ ...estilos.numeroValor, color: "var(--rv-verde-ok-texto)" }}>
             {(dados.livre_com_valor || 0).toLocaleString("pt-BR")}
             {dados.total_alunos > 0 && (
-              <span style={{ ...estilos.percentual, color: "#0f7a4f" }}> ({((dados.livre_com_valor / dados.total_alunos) * 100).toFixed(1)}%)</span>
+              <span style={{ ...estilos.percentual, color: "var(--rv-verde-ok-texto)" }}> ({((dados.livre_com_valor / dados.total_alunos) * 100).toFixed(1)}%)</span>
             )}
           </span>
           <span style={estilos.labelValor}>
@@ -227,7 +227,7 @@ export default function SaudeDaBase() {
         </div>
       </div>
 
-      <div style={{ ...estilos.card, borderColor: "#fde3cc", background: "#fffaf5" }}>
+      <div style={{ ...estilos.card, borderColor: "var(--rv-ambar-borda)", background: "var(--rv-ambar-fundo)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
           <h3 style={{ ...estilos.tituloBloco, margin: 0 }}>
             🎯 Mais críticos — {(dados.criticos_count || 0).toLocaleString("pt-BR")} casos com 2+ problemas ao mesmo tempo
@@ -266,14 +266,14 @@ export default function SaudeDaBase() {
           </tbody>
         </table>
         {(dados.criticos || []).length > 15 && (
-          <p style={{ fontSize: 12, color: "#8a93a3", marginTop: 8 }}>
+          <p style={{ fontSize: 12, color: "var(--rv-texto-fraco)", marginTop: 8 }}>
             Mostrando os 15 primeiros de {dados.criticos.length}.
           </p>
         )}
       </div>
 
       {fidelizacaoVencida.length > 0 && (
-        <div style={{ ...estilos.card, borderColor: "#fde3cc", background: "#fffaf5" }}>
+        <div style={{ ...estilos.card, borderColor: "var(--rv-ambar-borda)", background: "var(--rv-ambar-fundo)" }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 10, marginBottom: 6 }}>
             <h3 style={{ ...estilos.tituloBloco, margin: 0 }}>
               📅 Fidelização vencida — {fidelizacaoVencida.length} caso(s) sem primeiro acionamento no prazo
@@ -305,7 +305,7 @@ export default function SaudeDaBase() {
             </tbody>
           </table>
           {fidelizacaoVencida.length > 15 && (
-            <p style={{ fontSize: 12, color: "#8a93a3", marginTop: 8 }}>Mostrando os 15 primeiros de {fidelizacaoVencida.length}.</p>
+            <p style={{ fontSize: 12, color: "var(--rv-texto-fraco)", marginTop: 8 }}>Mostrando os 15 primeiros de {fidelizacaoVencida.length}.</p>
           )}
         </div>
       )}
@@ -330,11 +330,11 @@ export default function SaudeDaBase() {
               return (
                 <tr key={op.operador_email}>
                   <td style={estilos.td}>{OPERADORES_POR_EMAIL[op.operador_email] || op.operador_email}</td>
-                  <td style={{ ...estilos.tdNum, color: op.qtd > 500 ? "#b91c1c" : op.qtd < 450 ? "#d97706" : undefined, fontWeight: 700 }}>
+                  <td style={{ ...estilos.tdNum, color: op.qtd > 500 ? "var(--rv-vermelho-texto)" : op.qtd < 450 ? "var(--rv-ambar)" : undefined, fontWeight: 700 }}>
                     {op.qtd}
                   </td>
                   <td style={estilos.tdNum}>{moeda(op.media)}</td>
-                  <td style={{ ...estilos.tdNum, color: Math.abs(desvio) > 500 ? "#b91c1c" : "#8a93a3" }}>
+                  <td style={{ ...estilos.tdNum, color: Math.abs(desvio) > 500 ? "var(--rv-vermelho-texto)" : "var(--rv-texto-fraco)" }}>
                     {desvio >= 0 ? "+" : ""}{moeda(desvio)}
                   </td>
                 </tr>
@@ -374,7 +374,7 @@ export default function SaudeDaBase() {
               </table>
             )}
             {modalLista.length === 300 && (
-              <p style={{ fontSize: 12, color: "#8a93a3", marginTop: 8 }}>Mostrando os primeiros 300.</p>
+              <p style={{ fontSize: 12, color: "var(--rv-texto-fraco)", marginTop: 8 }}>Mostrando os primeiros 300.</p>
             )}
           </div>
         </div>
@@ -384,41 +384,41 @@ export default function SaudeDaBase() {
 }
 
 const estilos = {
-  container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "#f4f6fa", minHeight: "100%" },
+  container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "var(--rv-fundo)", minHeight: "100%" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 6, flexWrap: "wrap" },
-  titulo: { margin: 0, color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
-  subtitulo: { margin: "5px 0 0", color: "#8a93a3", fontSize: 13.5 },
-  geradoEm: { margin: "0 0 18px", color: "#98a2b3", fontSize: 12 },
+  titulo: { margin: 0, color: "var(--rv-tinta)", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
+  subtitulo: { margin: "5px 0 0", color: "var(--rv-texto-fraco)", fontSize: 13.5 },
+  geradoEm: { margin: "0 0 18px", color: "var(--rv-texto-fraco)", fontSize: 12 },
   botaoAtualizar: { background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "10px 18px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
-  card: { background: "#fff", borderRadius: 16, padding: "20px 22px", boxShadow: "0 1px 2px rgba(16,24,40,0.04)", border: "1px solid #edf0f5", marginBottom: 18 },
-  tituloBloco: { margin: "0 0 14px", fontFamily: FONTE_TITULO, fontSize: 16, fontWeight: 800, color: "#0d1321" },
-  subtituloBloco: { margin: "0 0 14px", fontSize: 13, color: "#475569" },
+  card: { background: "var(--rv-superficie)", borderRadius: 16, padding: "20px 22px", boxShadow: "0 1px 2px rgba(16,24,40,0.04)", border: "1px solid var(--rv-borda-suave)", marginBottom: 18 },
+  tituloBloco: { margin: "0 0 14px", fontFamily: FONTE_TITULO, fontSize: 16, fontWeight: 800, color: "var(--rv-tinta)" },
+  subtituloBloco: { margin: "0 0 14px", fontSize: 13, color: "var(--rv-texto)" },
   linhaChips: { display: "flex", gap: 10, flexWrap: "wrap" },
   gridResumo: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 18 },
-  cardValor: { background: "#fff", border: "1px solid #edf0f5", borderRadius: 16, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 2px rgba(16,24,40,0.04)", transition: "box-shadow 0.15s ease, transform 0.15s ease" },
-  numeroValor: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "#0d1321" },
-  labelValor: { fontSize: 12.5, color: "#8a93a3", fontWeight: 600 },
-  percentual: { fontSize: 14, fontWeight: 700, color: "#8a93a3" },
-  link: { color: "#1e40af", fontWeight: 700 },
+  cardValor: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 2px rgba(16,24,40,0.04)", transition: "box-shadow 0.15s ease, transform 0.15s ease" },
+  numeroValor: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "var(--rv-tinta)" },
+  labelValor: { fontSize: 12.5, color: "var(--rv-texto-fraco)", fontWeight: 600 },
+  percentual: { fontSize: 14, fontWeight: 700, color: "var(--rv-texto-fraco)" },
+  link: { color: "var(--rv-azul-texto)", fontWeight: 700 },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "8px 10px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
-  thNum: { textAlign: "right", padding: "8px 10px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
-  td: { padding: "9px 10px", borderBottom: "1px solid #f2f4f7", fontWeight: 700 },
-  tdNum: { padding: "9px 10px", borderBottom: "1px solid #f2f4f7", textAlign: "right" },
-  msg: { background: "#ecfdf5", border: "1px solid #bdeed4", color: "#0b7d54", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, fontWeight: 700 },
-  scoreCard: { background: "#fff", borderRadius: 16, padding: "20px 22px", boxShadow: "0 1px 2px rgba(16,24,40,0.04)", border: "1px solid #edf0f5", marginBottom: 18, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 20 },
+  th: { textAlign: "left", padding: "8px 10px", color: "var(--rv-texto-fraco)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", background: "var(--rv-fundo-cartao)", borderBottom: "1px solid var(--rv-borda)" },
+  thNum: { textAlign: "right", padding: "8px 10px", color: "var(--rv-texto-fraco)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", background: "var(--rv-fundo-cartao)", borderBottom: "1px solid var(--rv-borda)" },
+  td: { padding: "9px 10px", borderBottom: "1px solid var(--rv-borda-suave)", fontWeight: 700 },
+  tdNum: { padding: "9px 10px", borderBottom: "1px solid var(--rv-borda-suave)", textAlign: "right" },
+  msg: { background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", color: "var(--rv-verde-ok-texto)", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontSize: 13, fontWeight: 700 },
+  scoreCard: { background: "var(--rv-superficie)", borderRadius: 16, padding: "20px 22px", boxShadow: "0 1px 2px rgba(16,24,40,0.04)", border: "1px solid var(--rv-borda-suave)", marginBottom: 18, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 20 },
   scoreLado: { display: "flex", flexDirection: "column", gap: 4 },
-  scoreLabel: { fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", color: "#8a93a3" },
+  scoreLabel: { fontSize: 11, fontWeight: 800, letterSpacing: "0.08em", color: "var(--rv-texto-fraco)" },
   scoreNumero: { fontFamily: FONTE_TITULO, fontSize: 42, fontWeight: 800, letterSpacing: "-0.02em" },
-  scoreSub: { fontSize: 12.5, color: "#8a93a3" },
+  scoreSub: { fontSize: 12.5, color: "var(--rv-texto-fraco)" },
   tendenciaWrap: { display: "flex", flexDirection: "column", gap: 6 },
-  tendenciaLabel: { fontSize: 11, fontWeight: 700, color: "#8a93a3" },
+  tendenciaLabel: { fontSize: 11, fontWeight: 700, color: "var(--rv-texto-fraco)" },
   tendenciaBarras: { display: "flex", alignItems: "flex-end", gap: 3, height: 44 },
   tendenciaBarra: { width: 6, borderRadius: 2, background: "#2563eb" },
   botaoAcao: { background: "#2563eb", color: "#fff", border: "none", borderRadius: 10, padding: "9px 16px", fontWeight: 700, fontSize: 12.5, cursor: "pointer" },
-  botaoSecundario: { background: "#fff", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 10, padding: "9px 16px", fontWeight: 700, fontSize: 12.5, cursor: "pointer" },
+  botaoSecundario: { background: "var(--rv-superficie)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "9px 16px", fontWeight: 700, fontSize: 12.5, cursor: "pointer" },
   modalOverlay: { position: "fixed", inset: 0, background: "rgba(15,23,42,0.4)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 100, padding: 20 },
-  modalBox: { background: "#fff", borderRadius: 16, padding: 22, maxWidth: 640, width: "100%", maxHeight: "80vh", overflowY: "auto" },
+  modalBox: { background: "var(--rv-superficie)", borderRadius: 16, padding: 22, maxWidth: 640, width: "100%", maxHeight: "80vh", overflowY: "auto" },
   modalTopo: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 },
-  modalFechar: { background: "#f1f5f9", border: "none", borderRadius: 8, width: 30, height: 30, cursor: "pointer", fontSize: 14 },
+  modalFechar: { background: "var(--rv-fundo-suave)", border: "none", borderRadius: 8, width: 30, height: 30, cursor: "pointer", fontSize: 14 },
 };

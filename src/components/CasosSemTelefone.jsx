@@ -115,7 +115,7 @@ export default function CasosSemTelefone({ aoAtualizarContagem }) {
 
   return (
     <div style={{ padding: "4px 0" }}>
-      <p style={{ fontSize: 13, color: "#8a93a3", marginBottom: 12 }}>
+      <p style={{ fontSize: 13, color: "var(--rv-texto-fraco)", marginBottom: 12 }}>
         Alunos sem telefone cadastrado — precisam de tratativa diferenciada (busca de telefone, e-mail,
         correspondência), já que não entram em nenhum fluxo de WhatsApp/Ações Massivas sem contato.
       </p>
@@ -125,24 +125,24 @@ export default function CasosSemTelefone({ aoAtualizarContagem }) {
           placeholder="Buscar por nome..."
           value={busca}
           onChange={(e) => setBusca(e.target.value)}
-          style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid #e3e7ee", fontSize: 13, width: 260 }}
+          style={{ padding: "8px 12px", borderRadius: 10, border: "1px solid var(--rv-borda)", fontSize: 13, width: 260 }}
         />
-        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "#475569" }}>
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--rv-texto)" }}>
           <input type="checkbox" checked={somenteComValor} onChange={(e) => setSomenteComValor(e.target.checked)} />
           Só com valor em aberto (prioridade)
         </label>
       </div>
 
-      <p style={{ fontSize: 12.5, color: "#8a93a3", marginBottom: 10 }}>
+      <p style={{ fontSize: 12.5, color: "var(--rv-texto-fraco)", marginBottom: 10 }}>
         <strong>{filtrada.length}</strong> de {lista.length} caso(s) sem telefone
       </p>
 
       {erro && (
-        <p style={{ color: "#b91c1c", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>{erro}</p>
+        <p style={{ color: "var(--rv-vermelho-texto)", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>{erro}</p>
       )}
 
       {mensagem && (
-        <p style={{ color: "#0f7a4f", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>{mensagem}</p>
+        <p style={{ color: "var(--rv-verde-ok-texto)", fontWeight: 700, fontSize: 13, marginBottom: 10 }}>{mensagem}</p>
       )}
 
       <div style={{ overflowX: "auto" }}>
@@ -180,7 +180,7 @@ export default function CasosSemTelefone({ aoAtualizarContagem }) {
                     placeholder="(51) 99999-9999"
                     value={telefones[a.id] || ""}
                     onChange={(e) => setTelefones((t) => ({ ...t, [a.id]: e.target.value }))}
-                    style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid #e3e7ee", fontSize: 13, width: 150 }}
+                    style={{ padding: "6px 8px", borderRadius: 8, border: "1px solid var(--rv-borda)", fontSize: 13, width: 150 }}
                   />
                 </td>
                 <td style={td}>
@@ -206,9 +206,9 @@ export default function CasosSemTelefone({ aoAtualizarContagem }) {
                       onClick={() => window.open(`/aluno?alunoId=${a.id}`, "_blank")}
                       title="Abrir ficha completa do aluno (histórico, movimentações)"
                       style={{
-                        background: "#fff",
-                        color: "#475569",
-                        border: "1px solid #e3e7ee",
+                        background: "var(--rv-superficie)",
+                        color: "var(--rv-texto)",
+                        border: "1px solid var(--rv-borda)",
                         borderRadius: 8,
                         padding: "6px 10px",
                         fontSize: 12,
@@ -237,16 +237,16 @@ export default function CasosSemTelefone({ aoAtualizarContagem }) {
 const th = {
   textAlign: "left",
   padding: "8px 10px",
-  color: "#8a93a3",
+  color: "var(--rv-texto-fraco)",
   fontSize: 10.5,
   fontWeight: 700,
   textTransform: "uppercase",
   letterSpacing: "0.05em",
-  background: "#f8fafc",
-  borderBottom: "1px solid #e3e7ee",
+  background: "var(--rv-fundo-cartao)",
+  borderBottom: "1px solid var(--rv-borda)",
 };
 
 const td = {
   padding: "8px 10px",
-  borderBottom: "1px solid #f2f4f7",
+  borderBottom: "1px solid var(--rv-borda-suave)",
 };

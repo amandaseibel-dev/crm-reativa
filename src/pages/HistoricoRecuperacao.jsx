@@ -56,7 +56,7 @@ export default function HistoricoRecuperacao() {
       <div style={estilos.card}>
         <h3 style={estilos.tituloBloco}>Recuperação por mês</h3>
         {porMes.length === 0 ? (
-          <p style={{ color: "#8a93a3" }}>Ainda não há histórico de mais de um mês.</p>
+          <p style={{ color: "var(--rv-texto-fraco)" }}>Ainda não há histórico de mais de um mês.</p>
         ) : (
           <table style={estilos.tabela}>
             <thead>
@@ -83,25 +83,25 @@ export default function HistoricoRecuperacao() {
 }
 
 const estilos = {
-  container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "#f4f6fa", minHeight: "100%" },
+  container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "var(--rv-fundo)", minHeight: "100%" },
   cabecalho: { marginBottom: 18 },
-  titulo: { margin: 0, color: "#0d1321", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
-  subtitulo: { margin: "5px 0 0", color: "#8a93a3", fontSize: 13.5 },
-  card: { background: "#fff", borderRadius: 16, padding: "20px 22px", boxShadow: "0 1px 2px rgba(16,24,40,0.04)", border: "1px solid #edf0f5", marginBottom: 18 },
-  tituloBloco: { margin: "0 0 14px", fontFamily: FONTE_TITULO, fontSize: 16, fontWeight: 800, color: "#0d1321" },
+  titulo: { margin: 0, color: "var(--rv-tinta)", fontFamily: FONTE_TITULO, fontSize: 26, fontWeight: 800, letterSpacing: "-0.03em" },
+  subtitulo: { margin: "5px 0 0", color: "var(--rv-texto-fraco)", fontSize: 13.5 },
+  card: { background: "var(--rv-superficie)", borderRadius: 16, padding: "20px 22px", boxShadow: "0 1px 2px rgba(16,24,40,0.04)", border: "1px solid var(--rv-borda-suave)", marginBottom: 18 },
+  tituloBloco: { margin: "0 0 14px", fontFamily: FONTE_TITULO, fontSize: 16, fontWeight: 800, color: "var(--rv-tinta)" },
   funil: { display: "flex", height: 26, borderRadius: 8, overflow: "hidden", marginBottom: 14 },
   barraFunil: { minWidth: 4 },
   gridFunil: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 10, marginBottom: 14 },
-  itemFunil: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "#344054" },
+  itemFunil: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: "var(--rv-texto-forte)" },
   pontoLegenda: { width: 10, height: 10, borderRadius: "50%", flexShrink: 0 },
-  destaque: { fontSize: 13.5, color: "#475569", margin: 0 },
+  destaque: { fontSize: 13.5, color: "var(--rv-texto)", margin: 0 },
   gridValores: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 14, marginBottom: 18 },
-  cardValor: { background: "#fff", border: "1px solid #edf0f5", borderRadius: 16, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
-  numeroValor: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "#0d1321" },
-  labelValor: { fontSize: 12.5, color: "#8a93a3", fontWeight: 600 },
+  cardValor: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16, padding: "18px 20px", display: "flex", flexDirection: "column", gap: 6, boxShadow: "0 1px 2px rgba(16,24,40,0.04)" },
+  numeroValor: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "var(--rv-tinta)" },
+  labelValor: { fontSize: 12.5, color: "var(--rv-texto-fraco)", fontWeight: 600 },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", padding: "8px 10px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
-  thNum: { textAlign: "right", padding: "8px 10px", color: "#8a93a3", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", background: "#f8fafc", borderBottom: "1px solid #e3e7ee" },
-  td: { padding: "8px 10px", borderBottom: "1px solid #f2f4f7" },
-  tdNum: { padding: "8px 10px", borderBottom: "1px solid #f2f4f7", textAlign: "right", fontWeight: 700 },
+  th: { textAlign: "left", padding: "8px 10px", color: "var(--rv-texto-fraco)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", background: "var(--rv-fundo-cartao)", borderBottom: "1px solid var(--rv-borda)" },
+  thNum: { textAlign: "right", padding: "8px 10px", color: "var(--rv-texto-fraco)", fontSize: 10.5, fontWeight: 700, textTransform: "uppercase", background: "var(--rv-fundo-cartao)", borderBottom: "1px solid var(--rv-borda)" },
+  td: { padding: "8px 10px", borderBottom: "1px solid var(--rv-borda-suave)" },
+  tdNum: { padding: "8px 10px", borderBottom: "1px solid var(--rv-borda-suave)", textAlign: "right", fontWeight: 700 },
 };

@@ -69,10 +69,10 @@ export default function AvisosPopup() {
 
 const S = {
   overlay: { position: "fixed", inset: 0, background: "rgba(2,6,23,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 },
-  card: { background: "#fff", borderRadius: 16, padding: "26px 28px", maxWidth: 440, width: "100%", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" },
+  card: { background: "var(--rv-superficie)", borderRadius: 16, padding: "26px 28px", maxWidth: 440, width: "100%", textAlign: "center", boxShadow: "0 20px 60px rgba(0,0,0,0.35)" },
   emoji: { fontSize: 40 },
-  titulo: { margin: "8px 0 8px", fontSize: 20, color: "#0f172a" },
-  texto: { margin: "0 0 18px", color: "#475569", fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" },
+  titulo: { margin: "8px 0 8px", fontSize: 20, color: "var(--rv-tinta)" },
+  texto: { margin: "0 0 18px", color: "var(--rv-texto)", fontSize: 14, lineHeight: 1.5, whiteSpace: "pre-wrap" },
   botao: { background: "#1d4ed8", color: "#fff", border: "none", borderRadius: 10, padding: "11px 24px", fontWeight: 700, fontSize: 15, cursor: "pointer" },
-  contador: { marginTop: 12, color: "#94a3b8", fontSize: 12 },
+  contador: { marginTop: 12, color: "var(--rv-texto-fraco)", fontSize: 12 },
 };

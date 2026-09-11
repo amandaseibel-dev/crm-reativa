@@ -49,13 +49,13 @@ const CARDS_FIDELIZACAO = [
   ["saldo_livres", "Saldo dos casos livres", moeda],
 ];
 const FIDEL = {
-  ATIVA: { txt: "Fidelização ativa", cor: "#15803d", bg: "#f0fdf4" },
-  ATENCAO: { txt: "Atenção", cor: "#b45309", bg: "#fffbeb" },
-  URGENTE: { txt: "Urgente", cor: "#c2410c", bg: "#fff7ed" },
-  ULTIMO_DIA: { txt: "Último dia", cor: "#b91c1c", bg: "#fef2f2" },
-  EXPIRADA: { txt: "Expirada — livre", cor: "#b91c1c", bg: "#fef2f2" },
-  LIVRE: { txt: "Livre", cor: "#2563eb", bg: "#eff6ff" },
-  PROTEGIDA: { txt: "Protegida", cor: "#6b7280", bg: "#f8fafc" },
+  ATIVA: { txt: "Fidelização ativa", cor: "var(--rv-verde-ok-texto)", bg: "var(--rv-verde-ok-fundo)" },
+  ATENCAO: { txt: "Atenção", cor: "var(--rv-ambar-texto)", bg: "var(--rv-ambar-fundo)" },
+  URGENTE: { txt: "Urgente", cor: "var(--rv-ambar-texto)", bg: "var(--rv-ambar-fundo)" },
+  ULTIMO_DIA: { txt: "Último dia", cor: "var(--rv-vermelho-texto)", bg: "var(--rv-vermelho-fundo)" },
+  EXPIRADA: { txt: "Expirada — livre", cor: "var(--rv-vermelho-texto)", bg: "var(--rv-vermelho-fundo)" },
+  LIVRE: { txt: "Livre", cor: "var(--rv-azul)", bg: "var(--rv-azul-fundo)" },
+  PROTEGIDA: { txt: "Protegida", cor: "var(--rv-texto-suave)", bg: "var(--rv-fundo-cartao)" },
 };
 function fidelTexto(sit, dias) {
   if (sit === "ATIVA") return `Fidelização ativa · ${dias} dias para acionar`;
@@ -221,8 +221,8 @@ export default function SaudeCompletaCarteira() {
     <div style={{ padding: 20, fontFamily: FONTE, maxWidth: 1500, margin: "0 auto" }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 12 }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: 22, color: "#0f172a" }}>Saúde Completa da Carteira</h1>
-          <p style={{ margin: "4px 0 0", fontSize: 13, color: "#64748b" }}>
+          <h1 style={{ margin: 0, fontSize: 22, color: "var(--rv-tinta)" }}>Saúde Completa da Carteira</h1>
+          <p style={{ margin: "4px 0 0", fontSize: 13, color: "var(--rv-texto-suave)" }}>
             Análise somente leitura · {isGestao === false ? "sua carteira" : "visão global"}
             {resumo?.atualizado_em ? ` · base atualizada em ${new Date(resumo.atualizado_em).toLocaleString("pt-BR")}` : ""}
           </p>
@@ -263,9 +263,9 @@ export default function SaudeCompletaCarteira() {
             {CARDS.map(([k, label, fmt, indicador]) => (
               <button key={k} onClick={() => indicador && abrirDrill(label, { indicador })}
                 style={{ ...card, cursor: indicador ? "pointer" : "default" }}>
-                <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>{label}</div>
-                <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{fmt(totais[k])}</div>
-                {indicador && <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>ver lista →</div>}
+                <div style={{ fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 600 }}>{label}</div>
+                <div style={{ fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", marginTop: 4 }}>{fmt(totais[k])}</div>
+                {indicador && <div style={{ fontSize: 10, color: "var(--rv-texto-fraco)", marginTop: 2 }}>ver lista →</div>}
               </button>
             ))}
           </div>
@@ -279,9 +279,9 @@ export default function SaudeCompletaCarteira() {
               {CARDS_FIDELIZACAO.map(([k, label, fmt, indicador]) => (
                 <button key={k} onClick={() => indicador && abrirDrill(label, { indicador })}
                   style={{ ...card, cursor: indicador ? "pointer" : "default" }}>
-                  <div style={{ fontSize: 12, color: "#64748b", fontWeight: 600 }}>{label}</div>
-                  <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{fmt(totais[k])}</div>
-                  {indicador && <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>ver lista →</div>}
+                  <div style={{ fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 600 }}>{label}</div>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", marginTop: 4 }}>{fmt(totais[k])}</div>
+                  {indicador && <div style={{ fontSize: 10, color: "var(--rv-texto-fraco)", marginTop: 2 }}>ver lista →</div>}
                 </button>
               ))}
             </div>
@@ -304,7 +304,7 @@ export default function SaudeCompletaCarteira() {
                 </tr></thead>
                 <tbody>
                   {estabs.map((e) => (
-                    <tr key={e.estabelecimento} style={{ borderTop: "1px solid #eef2f7" }}>
+                    <tr key={e.estabelecimento} style={{ borderTop: "1px solid var(--rv-borda-suave)" }}>
                       <td style={{ ...td, fontWeight: 600, cursor: "pointer" }} onClick={() => abrirDrill(`Estab.: ${e.estabelecimento}`, { estabelecimento: e.estabelecimento })}>{e.estabelecimento}</td>
                       <td style={td}>{num(e.casos_ativos)}</td><td style={td}>{num(e.cpfs_unicos)}</td>
                       <td style={td}>{moeda(e.saldo_vencido)}</td><td style={td}>{moeda(e.saldo_total)}</td>
@@ -316,7 +316,7 @@ export default function SaudeCompletaCarteira() {
                       <td style={td}>{num(e.acordos_quebrados)}</td><td style={td}>{num(e.casos_revisao)}</td>
                     </tr>
                   ))}
-                  <tr style={{ borderTop: "2px solid #cbd5e1", fontWeight: 800, background: "#f8fafc" }}>
+                  <tr style={{ borderTop: "2px solid var(--rv-borda-forte)", fontWeight: 800, background: "var(--rv-fundo-cartao)" }}>
                     <td style={td}>TOTAL DA CARTEIRA</td><td style={td}>{num(totais.casos_ativos)}</td><td style={td}>{num(totais.cpfs_unicos)}</td>
                     <td style={td}>{moeda(totais.saldo_vencido)}</td><td style={td}>{moeda(totais.saldo_total)}</td>
                     <td style={td}>{num(totais.nunca_acionados)}</td><td style={td}>{num(totais.sem_acionamento_limite)}</td>
@@ -349,7 +349,7 @@ export default function SaudeCompletaCarteira() {
                 <thead><tr>{["Operador", "Casos", "CPFs", "Saldo vencido", "Saldo total", "Nunca acion.", "Sem acion.", "%", "Ret. venc.", "S/ tel.", "Crít.", "Urg.", "Ac. dia", "Ac. venc."].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
                 <tbody>
                   {operadores.map((o) => (
-                    <tr key={o.operador_email} style={{ borderTop: "1px solid #eef2f7", ...(o.operador_email === "(SEM RESPONSAVEL)" ? { background: "#fff7ed" } : {}) }}>
+                    <tr key={o.operador_email} style={{ borderTop: "1px solid var(--rv-borda-suave)", ...(o.operador_email === "(SEM RESPONSAVEL)" ? { background: "var(--rv-ambar-fundo)" } : {}) }}>
                       <td style={{ ...td, fontWeight: 600, cursor: "pointer" }} onClick={() => o.operador_email !== "(SEM RESPONSAVEL)" && abrirDrill(`Operador: ${o.operador_email}`, { operador_email: o.operador_email })}>{o.operador_email}</td>
                       <td style={td}>{num(o.casos_ativos)}</td><td style={td}>{num(o.cpfs_unicos)}</td><td style={td}>{moeda(o.saldo_vencido)}</td>
                       <td style={td}>{moeda(o.saldo_total)}</td><td style={td}>{num(o.nunca_acionados)}</td><td style={td}>{num(o.sem_acionamento_limite)}</td>
@@ -367,9 +367,9 @@ export default function SaudeCompletaCarteira() {
             <Secao titulo="Qualidade da carteira">
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 10 }}>
                 {Object.entries(qualidade).map(([k, v]) => (
-                  <div key={k} style={{ ...card, background: v > 0 ? "#fef2f2" : "#f0fdf4" }}>
-                    <div style={{ fontSize: 12, color: "#475569" }}>{QUALIDADE_LABEL[k] || k}</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: v > 0 ? "#b91c1c" : "#15803d" }}>{num(v)}</div>
+                  <div key={k} style={{ ...card, background: v > 0 ? "var(--rv-vermelho-fundo)" : "var(--rv-verde-ok-fundo)" }}>
+                    <div style={{ fontSize: 12, color: "var(--rv-texto)" }}>{QUALIDADE_LABEL[k] || k}</div>
+                    <div style={{ fontSize: 18, fontWeight: 800, color: v > 0 ? "var(--rv-vermelho-texto)" : "var(--rv-verde-ok-texto)" }}>{num(v)}</div>
                   </div>
                 ))}
               </div>
@@ -389,7 +389,7 @@ export default function SaudeCompletaCarteira() {
 function Filtros({ filtros, setFiltros, estabs, operadores, isGestao }) {
   const set = (k, v) => setFiltros((f) => ({ ...f, [k]: v === "" ? undefined : v }));
   return (
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14, padding: 12, background: "#f8fafc", borderRadius: 10, border: "1px solid #e2e8f0" }}>
+    <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 14, padding: 12, background: "var(--rv-fundo-cartao)", borderRadius: 10, border: "1px solid var(--rv-borda)" }}>
       <label style={lbl}>Sem acionamento há ≥
         <input type="number" min={0} value={filtros.min_dias_sem_acionamento ?? 5}
           onChange={(e) => set("min_dias_sem_acionamento", Number(e.target.value))} style={{ ...inp, width: 64 }} /> dias
@@ -511,8 +511,8 @@ function PorCurso({ dados, erro }) {
 function Panorama({ dados, erro }) {
   if (erro) {
     return (
-      <div style={{ marginTop: 16, background: "#fef2f2", border: "1px solid #fecaca",
-                    color: "#991b1b", borderRadius: 10, padding: "12px 14px", fontSize: 13 }}>
+      <div style={{ marginTop: 16, background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)",
+                    color: "var(--rv-vermelho-texto)", borderRadius: 10, padding: "12px 14px", fontSize: 13 }}>
         ⚠️ Não foi possível carregar o panorama da carteira: {erro}
       </div>
     );
@@ -520,21 +520,21 @@ function Panorama({ dados, erro }) {
   if (!dados) return null;
   const t = dados.total || {};
   const barra = (p, cor) => (
-    <div style={{ height: 6, background: "#eef2f7", borderRadius: 4, overflow: "hidden", marginTop: 4 }}>
+    <div style={{ height: 6, background: "var(--rv-fundo-suave)", borderRadius: 4, overflow: "hidden", marginTop: 4 }}>
       <div style={{ width: `${Math.min(100, Number(p) || 0)}%`, height: "100%", background: cor }} />
     </div>
   );
-  const bloco = { background: "#fff", border: "1px solid #e6eaf0", borderRadius: 12, padding: 14 };
-  const titulo = { fontSize: 12.5, fontWeight: 800, color: "#0f172a", marginBottom: 10 };
+  const bloco = { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 12, padding: 14 };
+  const titulo = { fontSize: 12.5, fontWeight: 800, color: "var(--rv-tinta)", marginBottom: 10 };
   const linha = { display: "grid", gridTemplateColumns: "1fr auto", gap: 8, alignItems: "baseline", marginBottom: 9 };
-  const rot = { fontSize: 12.5, color: "#334155" };
-  const val = { fontSize: 12.5, fontWeight: 700, color: "#0f172a", whiteSpace: "nowrap" };
+  const rot = { fontSize: 12.5, color: "var(--rv-texto-forte)" };
+  const val = { fontSize: 12.5, fontWeight: 700, color: "var(--rv-tinta)", whiteSpace: "nowrap" };
 
   return (
     <div style={{ marginTop: 16 }}>
       <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
-        <span style={{ fontSize: 13, fontWeight: 800, color: "#0f172a" }}>De que é feita a carteira</span>
-        <span style={{ fontSize: 12.5, color: "#64748b" }}>
+        <span style={{ fontSize: 13, fontWeight: 800, color: "var(--rv-tinta)" }}>De que é feita a carteira</span>
+        <span style={{ fontSize: 12.5, color: "var(--rv-texto-suave)" }}>
           {num(t.cpfs)} alunos · {num(t.titulos)} títulos · {moeda(t.valor)}
         </span>
       </div>
@@ -547,10 +547,10 @@ function Panorama({ dados, erro }) {
                 <span style={rot}>{r.semestre} · {num(r.cpfs)} alunos</span>
                 <span style={val}>{moeda(r.valor)} · {pct(r.pct_valor)}</span>
               </div>
-              {barra(r.pct_valor, "#1e40af")}
+              {barra(r.pct_valor, "var(--rv-azul-texto)")}
             </div>
           ))}
-          <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 8, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 8, lineHeight: 1.5 }}>
             Semestre pela série de cobrança do Prime — não pelo vencimento, que erra
             por causa da matrícula antecipada.
           </div>
@@ -563,14 +563,14 @@ function Panorama({ dados, erro }) {
               <div style={linha}>
                 <span style={rot}>
                   {r.ano} · {num(r.cpfs)} alunos · {num(r.parcelas)} parcelas
-                  {r.vencido && <b style={{ color: "#b91c1c" }}> · vencido</b>}
+                  {r.vencido && <b style={{ color: "var(--rv-vermelho-texto)" }}> · vencido</b>}
                 </span>
                 <span style={val}>{moeda(r.valor)} · {pct(r.pct_valor)}</span>
               </div>
-              {barra(r.pct_valor, r.vencido ? "#b91c1c" : "#15803d")}
+              {barra(r.pct_valor, r.vencido ? "var(--rv-vermelho-texto)" : "var(--rv-verde-ok-texto)")}
             </div>
           ))}
-          <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 8, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 8, lineHeight: 1.5 }}>
             Acordo não tem semestre de origem — o boleto está no portador 166, que não
             traz a série. Aqui a pergunta é <b>quando o dinheiro negociado deveria entrar</b>.
           </div>
@@ -584,7 +584,7 @@ function Panorama({ dados, erro }) {
                 <span style={rot}>{r.faixa} · <b>{num(r.cpfs)}</b> ({pct(r.pct_cpfs)} da base)</span>
                 <span style={val}>{moeda(r.valor)} · {pct(r.pct_valor)}</span>
               </div>
-              {barra(r.pct_valor, "#b45309")}
+              {barra(r.pct_valor, "var(--rv-ambar-texto)")}
             </div>
           ))}
         </div>
@@ -600,10 +600,10 @@ function Panorama({ dados, erro }) {
                 </span>
                 <span style={val}>{moeda(r.valor)} · {pct(r.pct_valor)}</span>
               </div>
-              {barra(r.pct_valor, r.tipo === "ACORDO" ? "#15803d" : "#b91c1c")}
+              {barra(r.pct_valor, r.tipo === "ACORDO" ? "var(--rv-verde-ok-texto)" : "var(--rv-vermelho-texto)")}
             </div>
           ))}
-          <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 8, lineHeight: 1.5 }}>
+          <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 8, lineHeight: 1.5 }}>
             Mensalidade sem acordo é dívida que ainda não foi negociada.
           </div>
         </div>
@@ -627,11 +627,11 @@ function Matriz({ linhas, colunas, metrica, onCelula }) {
           <th style={th}>{metrica === "casos" ? "Total" : metrica === "cpfs" ? "CPFs" : metrica === "saldo_vencido" ? "Saldo venc." : "Saldo total"}</th></tr></thead>
         <tbody>
           {linhas.map((linha) => (
-            <tr key={linha.estabelecimento} style={{ borderTop: "1px solid #eef2f7" }}>
+            <tr key={linha.estabelecimento} style={{ borderTop: "1px solid var(--rv-borda-suave)" }}>
               <td style={{ ...td, fontWeight: 600 }}>{linha.estabelecimento}</td>
               {colunas.map(([k, , faixaFiltro]) => {
                 const v = valorCelula(linha, k);
-                return <td key={k} style={{ ...td, cursor: v ? "pointer" : "default", color: v ? "#1e40af" : "#cbd5e1" }}
+                return <td key={k} style={{ ...td, cursor: v ? "pointer" : "default", color: v ? "var(--rv-azul-texto)" : "#cbd5e1" }}
                   onClick={() => v && onCelula(linha.estabelecimento, faixaFiltro)}>{num(v)}</td>;
               })}
               <td style={{ ...td, fontWeight: 700 }}>{fmt(metrica === "casos" ? linha.total : linha[metrica])}</td>
@@ -653,7 +653,7 @@ function DetalheDrawer({ titulo, det, loading, pag, setPag, ord, setOrd, onClose
     <div style={overlay} onClick={onClose}>
       <div style={drawer} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-          <h3 style={{ margin: 0, fontSize: 16 }}>{titulo} <span style={{ color: "#64748b", fontWeight: 500 }}>· {num(total)} casos</span></h3>
+          <h3 style={{ margin: 0, fontSize: 16 }}>{titulo} <span style={{ color: "var(--rv-texto-suave)", fontWeight: 500 }}>· {num(total)} casos</span></h3>
           <button onClick={onClose} style={btnSec}>Fechar ✕</button>
         </div>
         {loading ? <div style={vazio}>Carregando…</div> : rows.length === 0 ? <div style={vazio}>Nenhum caso.</div> : (
@@ -672,7 +672,7 @@ function DetalheDrawer({ titulo, det, loading, pag, setPag, ord, setOrd, onClose
               </tr></thead>
               <tbody>
                 {rows.map((rw) => (
-                  <tr key={rw.caso_id} style={{ borderTop: "1px solid #eef2f7" }}>
+                  <tr key={rw.caso_id} style={{ borderTop: "1px solid var(--rv-borda-suave)" }}>
                     <td style={td}>{rw.estabelecimento}</td><td style={td}>{rw.caso_codigo}</td><td style={td}>{rw.aluno_mascarado || "—"}</td>
                     <td style={td}>{rw.operador_email || "—"}</td><td style={td}>{rw.faixa_atraso}</td><td style={td}>{rw.dias_atraso ?? "—"}</td>
                     <td style={td}>{moeda(rw.saldo_vencido)}</td><td style={td}>{moeda(rw.saldo_total)}</td><td style={td}>{rw.acordo_situacao}</td>
@@ -682,8 +682,8 @@ function DetalheDrawer({ titulo, det, loading, pag, setPag, ord, setOrd, onClose
                     <td style={{ ...td, textAlign: "left" }}>
                       <span title={fidelTexto(rw.fidelizacao_situacao, rw.dias_fidelizacao)} style={{
                         display: "inline-block", padding: "2px 8px", borderRadius: 999, fontSize: 11, fontWeight: 700,
-                        color: (FIDEL[rw.fidelizacao_situacao] || {}).cor || "#334155",
-                        background: (FIDEL[rw.fidelizacao_situacao] || {}).bg || "#f1f5f9",
+                        color: (FIDEL[rw.fidelizacao_situacao] || {}).cor || "var(--rv-texto-forte)",
+                        background: (FIDEL[rw.fidelizacao_situacao] || {}).bg || "var(--rv-fundo-suave)",
                       }}>
                         {(FIDEL[rw.fidelizacao_situacao] || {}).txt || rw.fidelizacao_situacao}
                         {["ATIVA", "ATENCAO"].includes(rw.fidelizacao_situacao) && rw.dias_fidelizacao != null ? ` · ${rw.dias_fidelizacao}d` : ""}
@@ -701,7 +701,7 @@ function DetalheDrawer({ titulo, det, loading, pag, setPag, ord, setOrd, onClose
           </div>
         )}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 10 }}>
-          <span style={{ fontSize: 12, color: "#64748b" }}>Página {pagina} de {nPaginas}</span>
+          <span style={{ fontSize: 12, color: "var(--rv-texto-suave)" }}>Página {pagina} de {nPaginas}</span>
           <div style={{ display: "flex", gap: 6 }}>
             <button style={btnSec} disabled={pag.offset === 0} onClick={() => setPag((p) => ({ ...p, offset: Math.max(0, p.offset - p.limite) }))}>← Anterior</button>
             <button style={btnSec} disabled={pagina >= nPaginas} onClick={() => setPag((p) => ({ ...p, offset: p.offset + p.limite }))}>Próxima →</button>
@@ -732,7 +732,7 @@ function SaldoPorOrigem({ origem }) {
   return (
     <Secao
       titulo="Saldo em aberto por origem"
-      extra={calc && <span style={{ fontSize: 11.5, color: "#64748b" }}>posição de {calc}</span>}
+      extra={calc && <span style={{ fontSize: 11.5, color: "var(--rv-texto-suave)" }}>posição de {calc}</span>}
     >
       <div style={{ overflowX: "auto" }}>
         <table style={tabela}>
@@ -747,28 +747,28 @@ function SaldoPorOrigem({ origem }) {
           </thead>
           <tbody>
             {linhas.map(([rotulo, kTot, kVenc, kAv, kAlunos, ajuda]) => (
-              <tr key={rotulo} style={{ borderTop: "1px solid #e2e8f0" }}>
+              <tr key={rotulo} style={{ borderTop: "1px solid var(--rv-borda)" }}>
                 <td style={{ ...td, textAlign: "left" }}>
-                  <div style={{ fontWeight: 700, color: "#0f172a" }}>{rotulo}</div>
-                  <div style={{ fontSize: 11, color: "#94a3b8" }}>{ajuda}</div>
+                  <div style={{ fontWeight: 700, color: "var(--rv-tinta)" }}>{rotulo}</div>
+                  <div style={{ fontSize: 11, color: "var(--rv-texto-fraco)" }}>{ajuda}</div>
                 </td>
                 <td style={{ ...td, fontWeight: 700 }}>{moeda(origem[kTot])}</td>
-                <td style={{ ...td, color: "#b91c1c" }}>{moeda(origem[kVenc])}</td>
-                <td style={{ ...td, color: "#15803d" }}>{moeda(origem[kAv])}</td>
+                <td style={{ ...td, color: "var(--rv-vermelho-texto)" }}>{moeda(origem[kVenc])}</td>
+                <td style={{ ...td, color: "var(--rv-verde-ok-texto)" }}>{moeda(origem[kAv])}</td>
                 <td style={td}>{num(origem[kAlunos])}</td>
               </tr>
             ))}
-            <tr style={{ borderTop: "2px solid #cbd5e1", background: "#f8fafc" }}>
-              <td style={{ ...td, textAlign: "left", fontWeight: 800, color: "#0f172a" }}>Total</td>
+            <tr style={{ borderTop: "2px solid var(--rv-borda-forte)", background: "var(--rv-fundo-cartao)" }}>
+              <td style={{ ...td, textAlign: "left", fontWeight: 800, color: "var(--rv-tinta)" }}>Total</td>
               <td style={{ ...td, fontWeight: 800 }}>{moeda(origem.total)}</td>
-              <td style={{ ...td, fontWeight: 700, color: "#b91c1c" }}>{moeda(origem.vencido)}</td>
-              <td style={{ ...td, fontWeight: 700, color: "#15803d" }}>{moeda(origem.a_vencer)}</td>
+              <td style={{ ...td, fontWeight: 700, color: "var(--rv-vermelho-texto)" }}>{moeda(origem.vencido)}</td>
+              <td style={{ ...td, fontWeight: 700, color: "var(--rv-verde-ok-texto)" }}>{moeda(origem.a_vencer)}</td>
               <td style={td}>—</td>
             </tr>
           </tbody>
         </table>
       </div>
-      <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "#64748b", lineHeight: 1.5 }}>
+      <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
         Lido das tabelas de origem, não do saldo gravado no caso — por isso pode divergir
         do card “Saldo total” acima, que vem da base consolidada.
         “A vencer” em Acordo é dívida negociada com data marcada; em Mensalidade é dívida sem negociação.
@@ -824,7 +824,7 @@ function MovimentoDoPeriodo({ filtros }) {
       extra={
         <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
           <input type="date" value={de} onChange={(ev) => setDe(ev.target.value)} style={inputData} />
-          <span style={{ color: "#94a3b8", fontSize: 12 }}>até</span>
+          <span style={{ color: "var(--rv-texto-fraco)", fontSize: 12 }}>até</span>
           <input type="date" value={ate} onChange={(ev) => setAte(ev.target.value)} style={inputData} />
           <button onClick={buscar} disabled={carregando} style={btnSec}>
             {carregando ? "Carregando…" : "Calcular"}
@@ -832,7 +832,7 @@ function MovimentoDoPeriodo({ filtros }) {
         </div>
       }
     >
-      {erro && <div style={{ ...vazio, color: "#b91c1c" }}>{erro}</div>}
+      {erro && <div style={{ ...vazio, color: "var(--rv-vermelho-texto)" }}>{erro}</div>}
       {!dados && !erro && (
         <div style={vazio}>Escolha o período e clique em <b>Calcular</b>.</div>
       )}
@@ -841,64 +841,64 @@ function MovimentoDoPeriodo({ filtros }) {
         <>
           <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(230px,1fr))", gap: 12 }}>
             <div style={{ ...card, borderLeft: "3px solid #15803d" }}>
-              <div style={{ fontSize: 12, color: "#15803d", fontWeight: 700 }}>Liquidou</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{moeda(l?.total)}</div>
-              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 12, color: "var(--rv-verde-ok-texto)", fontWeight: 700 }}>Liquidou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", marginTop: 4 }}>{moeda(l?.total)}</div>
+              <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 6, lineHeight: 1.5 }}>
                 Acordo {moeda(l?.acordo_valor)} · {num(l?.acordo_qtd)} parcelas<br />
                 Mensalidade {moeda(l?.mensalidade_valor)} · {num(l?.mensalidade_qtd)} títulos
               </div>
-              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>dívida que deixou de existir</div>
+              <div style={{ fontSize: 10.5, color: "var(--rv-texto-fraco)", marginTop: 6 }}>dívida que deixou de existir</div>
             </div>
 
             <div style={{ ...card, borderLeft: "3px solid #b91c1c" }}>
-              <div style={{ fontSize: 12, color: "#b91c1c", fontWeight: 700 }}>Entrou</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>
+              <div style={{ fontSize: 12, color: "var(--rv-vermelho-texto)", fontWeight: 700 }}>Entrou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", marginTop: 4 }}>
                 {moeda(e?.minimo)} a {moeda(e?.maximo)}
               </div>
-              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 6, lineHeight: 1.5 }}>
                 Títulos novos {moeda(e?.titulo_valor)} · {num(e?.titulo_qtd)}<br />
                 Acordos sem vínculo {moeda(e?.acordo_indefinido_valor)} · {num(e?.acordo_indefinido_qtd)}
               </div>
-              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>
+              <div style={{ fontSize: 10.5, color: "var(--rv-texto-fraco)", marginTop: 6 }}>
                 faixa: o acordo sem vínculo pode ser dívida nova ou renegociação
               </div>
             </div>
 
             <div style={{ ...card, borderLeft: "3px solid #64748b" }}>
-              <div style={{ fontSize: 12, color: "#475569", fontWeight: 700 }}>Reclassificou</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{moeda(r?.valor)}</div>
-              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 12, color: "var(--rv-texto)", fontWeight: 700 }}>Reclassificou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", marginTop: 4 }}>{moeda(r?.valor)}</div>
+              <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 6, lineHeight: 1.5 }}>
                 {num(r?.qtd)} mensalidades vinculadas a acordo
               </div>
-              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>saneamento — não reduz a carteira</div>
+              <div style={{ fontSize: 10.5, color: "var(--rv-texto-fraco)", marginTop: 6 }}>saneamento — não reduz a carteira</div>
             </div>
 
             <div style={{ ...card, borderLeft: "3px solid #7c3aed" }}>
-              <div style={{ fontSize: 12, color: "#6d28d9", fontWeight: 700 }}>Renegociou</div>
-              <div style={{ fontSize: 20, fontWeight: 800, color: "#0f172a", marginTop: 4 }}>{moeda(g?.valor)}</div>
-              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 12, color: "var(--rv-roxo-texto)", fontWeight: 700 }}>Renegociou</div>
+              <div style={{ fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", marginTop: 4 }}>{moeda(g?.valor)}</div>
+              <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 6, lineHeight: 1.5 }}>
                 {num(g?.qtd)} acordos importados que substituem dívida já contada
               </div>
-              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>não é entrada — não soma</div>
+              <div style={{ fontSize: 10.5, color: "var(--rv-texto-fraco)", marginTop: 6 }}>não é entrada — não soma</div>
             </div>
 
             <div style={{ ...card, borderLeft: `3px solid ${encolheu ? "#15803d" : "#b45309"}` }}>
-              <div style={{ fontSize: 12, color: encolheu ? "#15803d" : "#b45309", fontWeight: 700 }}>
+              <div style={{ fontSize: 12, color: encolheu ? "var(--rv-verde-ok-texto)" : "var(--rv-ambar-texto)", fontWeight: 700 }}>
                 Resultado
               </div>
-              <div style={{ fontSize: 18, fontWeight: 800, color: encolheu ? "#15803d" : "#b45309", marginTop: 4 }}>
+              <div style={{ fontSize: 18, fontWeight: 800, color: encolheu ? "var(--rv-verde-ok-texto)" : "var(--rv-ambar-texto)", marginTop: 4 }}>
                 {moeda(Math.abs(resMin))} a {moeda(Math.abs(resMax))}
               </div>
-              <div style={{ fontSize: 11.5, color: "#64748b", marginTop: 6, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 6, lineHeight: 1.5 }}>
                 {encolheu
                   ? "a carteira pode ter encolhido no período"
                   : "a remessa repôs mais do que a operação baixou"}
               </div>
-              <div style={{ fontSize: 10.5, color: "#94a3b8", marginTop: 6 }}>liquidou − entrou</div>
+              <div style={{ fontSize: 10.5, color: "var(--rv-texto-fraco)", marginTop: 6 }}>liquidou − entrou</div>
             </div>
           </div>
 
-          <p style={{ margin: "10px 0 0", fontSize: 11.5, color: "#64748b", lineHeight: 1.5 }}>
+          <p style={{ margin: "10px 0 0", fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
             <b>Reclassificar não é liquidar.</b> Vincular mensalidade a acordo tira a mensalidade do saldo em
             aberto, mas a parcela do acordo entra no lugar — a dívida continua. É o que destrava o caso e o
             operador, não o que reduz a carteira.
@@ -922,23 +922,23 @@ function Secao({ titulo, extra, children }) {
   return (
     <div style={{ marginTop: 22 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-        <h2 style={{ margin: 0, fontSize: 16, color: "#0f172a" }}>{titulo}</h2>{extra}
+        <h2 style={{ margin: 0, fontSize: 16, color: "var(--rv-tinta)" }}>{titulo}</h2>{extra}
       </div>
       {children}
     </div>
   );
 }
 
-const card = { textAlign: "left", background: "#fff", border: "1px solid #e2e8f0", borderRadius: 12, padding: "12px 14px" };
-const tabela = { width: "100%", borderCollapse: "collapse", fontSize: 12.5, background: "#fff" };
-const th = { textAlign: "right", padding: "7px 8px", background: "#f1f5f9", color: "#334155", fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0 };
-const td = { textAlign: "right", padding: "6px 8px", color: "#334155", whiteSpace: "nowrap" };
-const btnSec = { background: "#fff", border: "1px solid #cbd5e1", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", color: "#1e40af" };
-const chip = { background: "#fff", border: "1px solid #cbd5e1", borderRadius: 999, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "#475569" };
+const card = { textAlign: "left", background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 12, padding: "12px 14px" };
+const tabela = { width: "100%", borderCollapse: "collapse", fontSize: 12.5, background: "var(--rv-superficie)" };
+const th = { textAlign: "right", padding: "7px 8px", background: "var(--rv-fundo-suave)", color: "var(--rv-texto-forte)", fontWeight: 700, whiteSpace: "nowrap", position: "sticky", top: 0 };
+const td = { textAlign: "right", padding: "6px 8px", color: "var(--rv-texto-forte)", whiteSpace: "nowrap" };
+const btnSec = { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "8px 12px", fontSize: 13, fontWeight: 700, cursor: "pointer", color: "var(--rv-azul-texto)" };
+const chip = { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-forte)", borderRadius: 999, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", color: "var(--rv-texto)" };
 const chipOn = { background: "#1e40af", color: "#fff", borderColor: "#1e40af" };
-const inputData = { border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 8px", fontSize: 12.5, fontFamily: "inherit", color: "#334155" };
-const vazio = { padding: 30, textAlign: "center", color: "#64748b", background: "#f8fafc", borderRadius: 10, marginTop: 16 };
-const lbl = { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "#334155", fontWeight: 600 };
-const inp = { padding: "6px 10px", border: "1px solid #cbd5e1", borderRadius: 8, fontSize: 13, background: "#fff" };
+const inputData = { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "6px 8px", fontSize: 12.5, fontFamily: "inherit", color: "var(--rv-texto-forte)" };
+const vazio = { padding: 30, textAlign: "center", color: "var(--rv-texto-suave)", background: "var(--rv-fundo-cartao)", borderRadius: 10, marginTop: 16 };
+const lbl = { display: "inline-flex", alignItems: "center", gap: 6, fontSize: 13, color: "var(--rv-texto-forte)", fontWeight: 600 };
+const inp = { padding: "6px 10px", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, fontSize: 13, background: "var(--rv-superficie)" };
 const overlay = { position: "fixed", inset: 0, background: "rgba(15,23,42,0.45)", display: "flex", justifyContent: "center", alignItems: "flex-start", padding: 24, zIndex: 1000, overflowY: "auto" };
-const drawer = { background: "#fff", borderRadius: 12, padding: 18, width: "min(1300px,96vw)", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" };
+const drawer = { background: "var(--rv-superficie)", borderRadius: 12, padding: 18, width: "min(1300px,96vw)", boxShadow: "0 20px 60px rgba(0,0,0,0.3)" };

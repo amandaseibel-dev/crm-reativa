@@ -21,9 +21,9 @@ function Item({ rot, val }) {
 // seguinte, e a operação precisa enxergar essa diferença antes de cobrar.
 // "Anulado" não conta como matrícula.
 const COR_STATUS = {
-  Confirmado: { fundo: "rgba(15,118,110,0.12)", cor: "#0f766e", borda: "rgba(15,118,110,0.35)" },
-  Aberto:     { fundo: "rgba(180,83,9,0.12)",   cor: "#b45309", borda: "rgba(180,83,9,0.35)" },
-  Anulado:    { fundo: "rgba(100,116,139,0.12)", cor: "#64748b", borda: "rgba(100,116,139,0.3)" },
+  Confirmado: { fundo: "rgba(15,118,110,0.12)", cor: "var(--rv-teal-texto)", borda: "rgba(15,118,110,0.35)" },
+  Aberto:     { fundo: "rgba(180,83,9,0.12)",   cor: "var(--rv-ambar-texto)", borda: "rgba(180,83,9,0.35)" },
+  Anulado:    { fundo: "rgba(100,116,139,0.12)", cor: "var(--rv-texto-suave)", borda: "rgba(100,116,139,0.3)" },
 };
 
 export default function DadosAcademicos({ aluno }) {

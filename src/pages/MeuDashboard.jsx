@@ -23,7 +23,7 @@ const TIPOS_ACIONAMENTO = [
   "CORRECAO_CADASTRO",
 ];
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
-const VERDE = "#1e40af";
+const VERDE = "var(--rv-azul-texto)";
 
 function diasEntre(dataInicioISO, dataFimISO) {
   const inicio = new Date(dataInicioISO);
@@ -224,8 +224,8 @@ export default function MeuDashboard() {
             Total recuperado esse mês, incluindo todos os tipos de pagamento (não só os principais).
           </p>
           <div style={estilos.gridFinanceiro}>
-            <div style={{ ...estilos.cartaoFinanceiro, background: "#eff6ff", borderColor: "#c7d7fe" }}>
-              <span style={{ ...estilos.numeroFinanceiro, color: "#0f7a4f", fontSize: 30 }}>
+            <div style={{ ...estilos.cartaoFinanceiro, background: "var(--rv-azul-fundo)", borderColor: "var(--rv-azul-borda)" }}>
+              <span style={{ ...estilos.numeroFinanceiro, color: "var(--rv-verde-ok-texto)", fontSize: 30 }}>
                 {moeda(financeiro.honorario_mes)}
               </span>
               <span style={estilos.labelFinanceiro}>Honorário no mês</span>
@@ -244,7 +244,7 @@ export default function MeuDashboard() {
               <span
                 style={{
                   ...estilos.numeroFinanceiro,
-                  color: (financeiro.percentual_projecao_individual ?? 0) >= 100 ? "#1e40af" : "#d97706",
+                  color: (financeiro.percentual_projecao_individual ?? 0) >= 100 ? "var(--rv-azul-texto)" : "var(--rv-ambar)",
                 }}
               >
                 {financeiro.percentual_projecao_individual ?? 0}%
@@ -300,7 +300,7 @@ export default function MeuDashboard() {
                   style={{
                     ...estilos.barra,
                     height: `${Math.max((e.qtd / maiorDia) * 120, e.qtd > 0 ? 4 : 2)}px`,
-                    background: e.qtd > 0 ? VERDE : "#e3e7ee",
+                    background: e.qtd > 0 ? VERDE : "var(--rv-borda)",
                   }}
                 />
                 <span style={estilos.legendaBarra}>{diaLabel(e.dia)}</span>
@@ -323,13 +323,13 @@ export default function MeuDashboard() {
 const estilos = {
   abas: { display: "flex", gap: 8, marginBottom: 18 },
   aba: {
-    background: "#fff",
-    border: "1px solid #e3e7ee",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: 10,
     padding: "9px 16px",
     fontSize: 13,
     fontWeight: 700,
-    color: "#475569",
+    color: "var(--rv-texto)",
     cursor: "pointer",
   },
   abaAtiva: {
@@ -344,35 +344,35 @@ const estilos = {
     boxShadow: "0 4px 14px rgba(15,157,107,0.35)",
   },
   blocoFinanceiro: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: 16,
     padding: "20px 22px",
     boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)",
-    border: "1px solid #edf0f5",
+    border: "1px solid var(--rv-borda-suave)",
     marginBottom: 18,
   },
-  tituloBloco: { margin: 0, fontFamily: FONTE_TITULO, fontSize: 16, fontWeight: 800, color: "#0d1321" },
-  subtituloBloco: { margin: "4px 0 14px", fontSize: 12.5, color: "#8a93a3" },
+  tituloBloco: { margin: 0, fontFamily: FONTE_TITULO, fontSize: 16, fontWeight: 800, color: "var(--rv-tinta)" },
+  subtituloBloco: { margin: "4px 0 14px", fontSize: 12.5, color: "var(--rv-texto-fraco)" },
   gridFinanceiro: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
     gap: 12,
   },
   cartaoFinanceiro: {
-    background: "#f8fafc",
-    border: "1px solid #edf0f5",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda-suave)",
     borderRadius: 12,
     padding: "14px 16px",
     display: "flex",
     flexDirection: "column",
     gap: 4,
   },
-  numeroFinanceiro: { fontFamily: FONTE_TITULO, fontSize: 20, fontWeight: 800, color: "#0d1321" },
-  labelFinanceiro: { fontSize: 11.5, color: "#8a93a3", fontWeight: 600 },
+  numeroFinanceiro: { fontFamily: FONTE_TITULO, fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)" },
+  labelFinanceiro: { fontSize: 11.5, color: "var(--rv-texto-fraco)", fontWeight: 600 },
   container: {
     padding: "28px 30px 40px",
     fontFamily: "'Inter', system-ui, sans-serif",
-    background: "#f4f6fa",
+    background: "var(--rv-fundo)",
     minHeight: "100%",
   },
   cabecalho: {
@@ -385,7 +385,7 @@ const estilos = {
   },
   titulo: {
     margin: 0,
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     fontFamily: FONTE_TITULO,
     fontSize: 26,
     fontWeight: 800,
@@ -393,7 +393,7 @@ const estilos = {
   },
   subtitulo: {
     margin: "5px 0 0",
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
     fontSize: 13.5,
   },
   botaoAtualizar: {
@@ -412,10 +412,10 @@ const estilos = {
     gap: "12px",
   },
   card: {
-    background: "#f8fafc",
+    background: "var(--rv-fundo-cartao)",
     borderRadius: 12,
     padding: "14px 16px",
-    border: "1px solid #edf0f5",
+    border: "1px solid var(--rv-borda-suave)",
     display: "flex",
     flexDirection: "column",
     gap: "4px",
@@ -423,20 +423,20 @@ const estilos = {
   numero: {
     fontSize: 26,
     fontWeight: 800,
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
     fontFamily: FONTE_TITULO,
   },
   descricao: {
     fontSize: 12.5,
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
     fontWeight: 600,
   },
   blocoEvolucao: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: 16,
     padding: "20px 22px",
     boxShadow: "0 1px 2px rgba(16,24,40,0.04), 0 1px 3px rgba(16,24,40,0.05)",
-    border: "1px solid #edf0f5",
+    border: "1px solid var(--rv-borda-suave)",
     marginBottom: "18px",
   },
   tituloEvolucao: {
@@ -444,12 +444,12 @@ const estilos = {
     fontFamily: FONTE_TITULO,
     fontSize: 15,
     fontWeight: 700,
-    color: "#0d1321",
+    color: "var(--rv-tinta)",
   },
   legendaEvolucao: {
     margin: "4px 0 16px",
     fontSize: 12.5,
-    color: "#8a93a3",
+    color: "var(--rv-texto-fraco)",
   },
   barrasWrap: {
     display: "flex",
@@ -475,19 +475,19 @@ const estilos = {
   },
   legendaBarra: {
     fontSize: "9px",
-    color: "#98a2b3",
+    color: "var(--rv-texto-fraco)",
     whiteSpace: "nowrap",
   },
   alerta: {
-    background: "#fff3cd",
-    color: "#664d03",
-    border: "1px solid #ffecb5",
+    background: "var(--rv-ambar-fundo)",
+    color: "var(--rv-ambar-texto)",
+    border: "1px solid var(--rv-ambar-borda)",
     borderRadius: 10,
     padding: "14px",
     marginBottom: "16px",
   },
   rodape: {
     fontSize: 12,
-    color: "#9ca3af",
+    color: "var(--rv-texto-fraco)",
   },
 };

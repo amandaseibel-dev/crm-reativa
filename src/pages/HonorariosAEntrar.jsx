@@ -89,11 +89,11 @@ function contarAcordos(itens) {
 // destaque, porque é onde tem chance de ter alguém intocado.
 function selo(l) {
   const d = l.dias_sem_acionamento;
-  if (d == null) return { txt: "nunca acionado", cor: "#b91c1c", fundo: "#fef2f2", borda: "#fecaca" };
-  if (d === 0) return { txt: "hoje", cor: "#15803d", fundo: "#f0fdf4", borda: "#bbf7d0" };
-  if (d === 1) return { txt: "ontem", cor: "#15803d", fundo: "#f0fdf4", borda: "#bbf7d0" };
-  if (d <= 7) return { txt: `há ${d} dias`, cor: "#92400e", fundo: "#fffbeb", borda: "#fde68a" };
-  return { txt: `há ${d} dias`, cor: "#b91c1c", fundo: "#fef2f2", borda: "#fecaca" };
+  if (d == null) return { txt: "nunca acionado", cor: "var(--rv-vermelho-texto)", fundo: "var(--rv-vermelho-fundo)", borda: "var(--rv-vermelho-borda)" };
+  if (d === 0) return { txt: "hoje", cor: "var(--rv-verde-ok-texto)", fundo: "var(--rv-verde-ok-fundo)", borda: "var(--rv-verde-ok-borda)" };
+  if (d === 1) return { txt: "ontem", cor: "var(--rv-verde-ok-texto)", fundo: "var(--rv-verde-ok-fundo)", borda: "var(--rv-verde-ok-borda)" };
+  if (d <= 7) return { txt: `há ${d} dias`, cor: "var(--rv-ambar-texto)", fundo: "var(--rv-ambar-fundo)", borda: "var(--rv-ambar-borda)" };
+  return { txt: `há ${d} dias`, cor: "var(--rv-vermelho-texto)", fundo: "var(--rv-vermelho-fundo)", borda: "var(--rv-vermelho-borda)" };
 }
 
 const FILTROS_ACIONAMENTO = [
@@ -317,7 +317,7 @@ export default function HonorariosAEntrar() {
           style={{ ...estilos.cartao, ...(estado === "VENCIDO" ? estilos.cartaoAtivo : {}), borderLeft: "4px solid #b91c1c" }}
         >
           <span style={estilos.rotulo}>Vencida — a quebra</span>
-          <span style={{ ...estilos.numero, color: "#b91c1c" }}>{moeda(totais.VENCIDO.valor)}</span>
+          <span style={{ ...estilos.numero, color: "var(--rv-vermelho-texto)" }}>{moeda(totais.VENCIDO.valor)}</span>
           <span style={estilos.detalhe}>
             {totais.VENCIDO.acordos} acordos · {totais.VENCIDO.parcelas} parcelas
           </span>
@@ -552,55 +552,55 @@ export default function HonorariosAEntrar() {
 const estilos = {
   cartoes: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(230px, 320px))", gap: 12, marginBottom: 14 },
   cartao: {
-    textAlign: "left", cursor: "pointer", background: "#fff",
-    border: "1px solid #e6eaf0", borderRadius: 12, padding: "14px 16px",
+    textAlign: "left", cursor: "pointer", background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)", borderRadius: 12, padding: "14px 16px",
     display: "flex", flexDirection: "column", gap: 4,
   },
   cartaoAtivo: { borderColor: "#1e40af", boxShadow: "0 0 0 2px rgba(30,64,175,0.12)" },
-  rotulo: { fontSize: 11.5, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.04em" },
-  numero: { fontFamily: "'Sora', Inter, sans-serif", fontSize: 24, fontWeight: 800, color: "#0d1321" },
-  detalhe: { fontSize: 12.5, color: "#64748b" },
-  honorarioLinha: { fontSize: 12.5, fontWeight: 700, color: "#15803d" },
+  rotulo: { fontSize: 11.5, fontWeight: 700, color: "var(--rv-texto-suave)", textTransform: "uppercase", letterSpacing: "0.04em" },
+  numero: { fontFamily: "'Sora', Inter, sans-serif", fontSize: 24, fontWeight: 800, color: "var(--rv-tinta)" },
+  detalhe: { fontSize: 12.5, color: "var(--rv-texto-suave)" },
+  honorarioLinha: { fontSize: 12.5, fontWeight: 700, color: "var(--rv-verde-ok-texto)" },
   avisoSemHonorario: {
-    background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e",
+    background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)",
     borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, marginBottom: 14,
   },
-  mesDestaque: { background: "#eef2ff" },
+  mesDestaque: { background: "var(--rv-roxo-fundo)" },
   selo: {
     fontSize: 11, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
     background: "#1e40af", color: "#fff", whiteSpace: "nowrap",
   },
   acordosMes: {
     fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
-    background: "#f1f5f9", color: "#334155", border: "1px solid #e2e8f0", whiteSpace: "nowrap",
+    background: "var(--rv-fundo-suave)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda)", whiteSpace: "nowrap",
   },
-  honorarioMes: { fontSize: 13, fontWeight: 800, color: "#15803d" },
-  seta: { fontSize: 13, color: "#64748b", width: 12, display: "inline-block" },
+  honorarioMes: { fontSize: 13, fontWeight: 800, color: "var(--rv-verde-ok-texto)" },
+  seta: { fontSize: 13, color: "var(--rv-texto-suave)", width: 12, display: "inline-block" },
   semDonoSelo: {
     display: "inline-block", fontSize: 11.5, fontWeight: 700, borderRadius: 999,
-    padding: "2px 10px", background: "#fef2f2", color: "#b91c1c", border: "1px solid #fecaca",
+    padding: "2px 10px", background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)",
     whiteSpace: "nowrap",
   },
   avisoSemDono: {
-    background: "#fef2f2", border: "1px solid #fecaca", color: "#991b1b",
+    background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)",
     borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, marginBottom: 14,
   },
   linkSemDono: {
-    border: "none", background: "none", padding: 0, color: "#991b1b",
+    border: "none", background: "none", padding: 0, color: "var(--rv-vermelho-texto)",
     fontWeight: 800, fontSize: 13, cursor: "pointer", textDecoration: "underline",
   },
   pendente: {
     fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
-    background: "#fffbeb", color: "#92400e", border: "1px solid #fde68a", whiteSpace: "nowrap",
+    background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)", whiteSpace: "nowrap",
   },
   semAcionar: {
     fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 10px",
-    background: "#eff6ff", color: "#1e40af", border: "1px solid #bfdbfe", whiteSpace: "nowrap",
+    background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)", whiteSpace: "nowrap",
   },
   seloAcion: {
     display: "inline-block", fontSize: 11.5, fontWeight: 700, borderRadius: 999,
     padding: "2px 10px", border: "1px solid", whiteSpace: "nowrap",
   },
-  tabulacao: { fontSize: 11.5, color: "#64748b", marginTop: 3, maxWidth: 220 },
-  zerado: { fontSize: 12, color: "#b45309", fontStyle: "italic" },
+  tabulacao: { fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 3, maxWidth: 220 },
+  zerado: { fontSize: 12, color: "var(--rv-ambar-texto)", fontStyle: "italic" },
 };

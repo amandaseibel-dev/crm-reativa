@@ -435,7 +435,7 @@ export default function Alunos() {
         }}
       >
         <div>
-          <h1 style={{ margin: 0, color: "#3b82f6" }}>Alunos</h1>
+          <h1 style={{ margin: 0, color: "var(--rv-azul)" }}>Alunos</h1>
           <p style={{ margin: "6px 0 0", color: "#cbd5e1" }}>
             Pesquisa, ficha, registro de responsável e movimentações do aluno.
           </p>
@@ -446,7 +446,7 @@ export default function Alunos() {
           disabled={carregando}
           style={{
             background: "#3b82f6",
-            color: "#020617",
+            color: "var(--rv-tinta)",
             border: "none",
             borderRadius: "10px",
             padding: "12px 16px",
@@ -497,7 +497,7 @@ export default function Alunos() {
             disabled={carregando}
             style={{
               background: "#3b82f6",
-              color: "#020617",
+              color: "var(--rv-tinta)",
               border: "none",
               borderRadius: "10px",
               padding: "12px 18px",
@@ -532,7 +532,7 @@ export default function Alunos() {
             padding: "16px",
           }}
         >
-          <h2 style={{ color: "#3b82f6", marginTop: 0 }}>
+          <h2 style={{ color: "var(--rv-azul)", marginTop: 0 }}>
             Lista de alunos
           </h2>
 
@@ -596,7 +596,7 @@ export default function Alunos() {
         >
           {!alunoSelecionado ? (
             <div style={{ color: "#cbd5e1" }}>
-              <h2 style={{ color: "#3b82f6", marginTop: 0 }}>
+              <h2 style={{ color: "var(--rv-azul)", marginTop: 0 }}>
                 Ficha do aluno
               </h2>
               <p>Selecione um aluno na lista para abrir a ficha.</p>
@@ -614,7 +614,7 @@ export default function Alunos() {
                 }}
               >
                 <div>
-                  <h2 style={{ color: "#3b82f6", margin: 0 }}>
+                  <h2 style={{ color: "var(--rv-azul)", margin: 0 }}>
                     {pegarCampo(alunoSelecionado, ["nome", "nome_aluno", "aluno"], "Aluno sem nome")}
                   </h2>
 
@@ -635,7 +635,7 @@ export default function Alunos() {
                   disabled={salvando}
                   style={{
                     background: "#3b82f6",
-                    color: "#020617",
+                    color: "var(--rv-tinta)",
                     border: "none",
                     borderRadius: "10px",
                     padding: "12px 16px",
@@ -701,7 +701,7 @@ export default function Alunos() {
                   marginBottom: "18px",
                 }}
               >
-                <h3 style={{ color: "#3b82f6", marginTop: 0 }}>
+                <h3 style={{ color: "var(--rv-azul)", marginTop: 0 }}>
                   Informações de registro
                 </h3>
 
@@ -759,7 +759,7 @@ export default function Alunos() {
                   marginBottom: "18px",
                 }}
               >
-                <h3 style={{ color: "#3b82f6", marginTop: 0 }}>
+                <h3 style={{ color: "var(--rv-azul)", marginTop: 0 }}>
                   Ações do atendimento
                 </h3>
 
@@ -808,7 +808,7 @@ export default function Alunos() {
                   disabled={salvando}
                   style={{
                     background: "#3b82f6",
-                    color: "#020617",
+                    color: "var(--rv-tinta)",
                     border: "none",
                     borderRadius: "10px",
                     padding: "12px 16px",
@@ -855,7 +855,7 @@ export default function Alunos() {
                       disabled={salvando}
                       style={{
                         background: "#3b82f6",
-                        color: "#020617",
+                        color: "var(--rv-tinta)",
                         border: "none",
                         borderRadius: "10px",
                         padding: "12px 16px",
@@ -877,7 +877,7 @@ export default function Alunos() {
                   padding: "16px",
                 }}
               >
-                <h3 style={{ color: "#3b82f6", marginTop: 0 }}>
+                <h3 style={{ color: "var(--rv-azul)", marginTop: 0 }}>
                   Movimentações do aluno
                 </h3>
 

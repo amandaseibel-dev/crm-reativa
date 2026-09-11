@@ -176,7 +176,7 @@ export default function EnvioGmailLote() {
       <div style={S.contadorCard}>
         <div style={S.contadorTopo}>
           <span style={S.contadorLabel}>Enviados hoje</span>
-          <span style={S.contadorNum}>{enviadosHoje} <span style={{ color: "#8a93a3", fontWeight: 600, fontSize: 15 }}>/ {limite}</span></span>
+          <span style={S.contadorNum}>{enviadosHoje} <span style={{ color: "var(--rv-texto-fraco)", fontWeight: 600, fontSize: 15 }}>/ {limite}</span></span>
           <label style={S.limiteBox}>Limite diário
             <input style={S.limiteInput} type="number" min="1" max="500" value={limite} onChange={(e) => setLimite(Math.max(1, Math.min(500, Number(e.target.value) || 1)))} />
           </label>
@@ -222,37 +222,37 @@ export default function EnvioGmailLote() {
 }
 
 const S = {
-  container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "#f4f6fa", minHeight: "100%", color: "#0f172a" },
+  container: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", background: "var(--rv-fundo)", minHeight: "100%", color: "var(--rv-tinta)" },
   cabecalho: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 18, flexWrap: "wrap" },
-  titulo: { margin: 0, color: "#0d1321", fontFamily: FONTE, fontSize: 24, fontWeight: 800, letterSpacing: "-0.03em" },
-  subtitulo: { margin: "6px 0 0", color: "#8a93a3", fontSize: 13, maxWidth: 680 },
-  botaoSec: { background: "#fff", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 10, padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
-  contadorCard: { background: "#fff", border: "1px solid #edf0f5", borderRadius: 16, padding: 18, marginBottom: 16, display: "flex", flexDirection: "column", gap: 10 },
+  titulo: { margin: 0, color: "var(--rv-tinta)", fontFamily: FONTE, fontSize: 24, fontWeight: 800, letterSpacing: "-0.03em" },
+  subtitulo: { margin: "6px 0 0", color: "var(--rv-texto-fraco)", fontSize: 13, maxWidth: 680 },
+  botaoSec: { background: "var(--rv-superficie)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "9px 16px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
+  contadorCard: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16, padding: 18, marginBottom: 16, display: "flex", flexDirection: "column", gap: 10 },
   contadorTopo: { display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" },
-  contadorLabel: { fontSize: 12.5, fontWeight: 700, color: "#8a93a3", textTransform: "uppercase", letterSpacing: "0.06em" },
-  contadorNum: { fontFamily: FONTE, fontSize: 30, fontWeight: 800, color: "#0d1321", lineHeight: 1 },
-  limiteBox: { marginLeft: "auto", display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "#475569" },
-  limiteInput: { border: "1px solid #cbd5e1", borderRadius: 8, padding: "6px 8px", fontSize: 13, width: 90, background: "#fff", color: "#0f172a" },
-  barraFundo: { background: "#f1f5f9", borderRadius: 999, height: 10, overflow: "hidden" },
+  contadorLabel: { fontSize: 12.5, fontWeight: 700, color: "var(--rv-texto-fraco)", textTransform: "uppercase", letterSpacing: "0.06em" },
+  contadorNum: { fontFamily: FONTE, fontSize: 30, fontWeight: 800, color: "var(--rv-tinta)", lineHeight: 1 },
+  limiteBox: { marginLeft: "auto", display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--rv-texto)" },
+  limiteInput: { border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "6px 8px", fontSize: 13, width: 90, background: "var(--rv-superficie)", color: "var(--rv-tinta)" },
+  barraFundo: { background: "var(--rv-fundo-suave)", borderRadius: 999, height: 10, overflow: "hidden" },
   barra: { height: "100%", borderRadius: 999, transition: "width 0.25s ease" },
-  contadorSub: { fontSize: 12.5, color: "#5b6b7a" },
+  contadorSub: { fontSize: 12.5, color: "var(--rv-texto)" },
   chips: { display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 14 },
-  chip: { background: "#fff", border: "1px solid #e2e8f0", color: "#334155", borderRadius: 999, padding: "7px 14px", fontSize: 13, cursor: "pointer" },
+  chip: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", color: "var(--rv-texto-forte)", borderRadius: 999, padding: "7px 14px", fontSize: 13, cursor: "pointer" },
   chipOn: { background: "#1d4ed8", border: "1px solid #1d4ed8", color: "#fff", borderRadius: 999, padding: "7px 14px", fontSize: 13, cursor: "pointer", fontWeight: 700 },
-  avisoLimite: { background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 14, padding: 18, fontSize: 14, fontWeight: 700 },
-  vazio: { background: "#fff", border: "1px solid #edf0f5", borderRadius: 14, padding: 18, color: "#8a93a3", fontSize: 14 },
-  cardEnvio: { background: "#fff", border: "1px solid #edf0f5", borderRadius: 16, padding: 20, display: "flex", flexDirection: "column", gap: 14 },
+  avisoLimite: { background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", borderRadius: 14, padding: 18, fontSize: 14, fontWeight: 700 },
+  vazio: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14, padding: 18, color: "var(--rv-texto-fraco)", fontSize: 14 },
+  cardEnvio: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16, padding: 20, display: "flex", flexDirection: "column", gap: 14 },
   alunoTopo: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12, flexWrap: "wrap" },
-  alunoNome: { fontFamily: FONTE, fontSize: 19, fontWeight: 800, color: "#0d1321" },
-  alunoMeta: { fontSize: 13, color: "#5b6b7a", marginTop: 3 },
-  posicao: { fontSize: 12.5, fontWeight: 700, color: "#475569", background: "#f1f5f9", borderRadius: 999, padding: "3px 12px" },
-  rot: { fontSize: 11, color: "#8a93a3", fontWeight: 700, textTransform: "uppercase" },
+  alunoNome: { fontFamily: FONTE, fontSize: 19, fontWeight: 800, color: "var(--rv-tinta)" },
+  alunoMeta: { fontSize: 13, color: "var(--rv-texto)", marginTop: 3 },
+  posicao: { fontSize: 12.5, fontWeight: 700, color: "var(--rv-texto)", background: "var(--rv-fundo-suave)", borderRadius: 999, padding: "3px 12px" },
+  rot: { fontSize: 11, color: "var(--rv-texto-fraco)", fontWeight: 700, textTransform: "uppercase" },
   assuntoBox: {},
-  assunto: { fontSize: 15, fontWeight: 700, color: "#0f172a", marginTop: 4 },
-  preview: { marginTop: 6, border: "1px solid #eef2f6", borderRadius: 10, padding: 14, background: "#fafafa", maxHeight: 320, overflowY: "auto" },
+  assunto: { fontSize: 15, fontWeight: 700, color: "var(--rv-tinta)", marginTop: 4 },
+  preview: { marginTop: 6, border: "1px solid var(--rv-borda-suave)", borderRadius: 10, padding: 14, background: "var(--rv-superficie)", maxHeight: 320, overflowY: "auto" },
   acoes: { display: "flex", gap: 10, flexWrap: "wrap" },
   botaoEnviar: { background: "#16a34a", color: "#fff", border: "none", borderRadius: 10, padding: "12px 20px", fontWeight: 800, fontSize: 14, cursor: "pointer" },
-  botaoPular: { background: "#fff", color: "#334155", border: "1px solid #e2e8f0", borderRadius: 10, padding: "12px 18px", fontWeight: 700, fontSize: 14, cursor: "pointer" },
-  msg: { background: "#dcfce7", border: "1px solid #bbf7d0", color: "#166534", padding: 10, borderRadius: 8, fontSize: 13, fontWeight: 600 },
-  rodape: { color: "#8a93a3", fontSize: 12, marginTop: 16, lineHeight: 1.5 },
+  botaoPular: { background: "var(--rv-superficie)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "12px 18px", fontWeight: 700, fontSize: 14, cursor: "pointer" },
+  msg: { background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", color: "var(--rv-verde-ok-texto)", padding: 10, borderRadius: 8, fontSize: 13, fontWeight: 600 },
+  rodape: { color: "var(--rv-texto-fraco)", fontSize: 12, marginTop: 16, lineHeight: 1.5 },
 };

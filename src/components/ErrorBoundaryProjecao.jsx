@@ -25,7 +25,7 @@ export default class ErrorBoundaryProjecao extends Component {
         <div
           className="main"
           style={{
-            background: "#f4f6fa",
+            background: "var(--rv-fundo)",
             minHeight: "60vh",
             display: "flex",
             alignItems: "center",
@@ -37,25 +37,25 @@ export default class ErrorBoundaryProjecao extends Component {
           <div
             style={{
               maxWidth: 440,
-              background: "#fff",
-              border: "1px solid #e3e7ee",
+              background: "var(--rv-superficie)",
+              border: "1px solid var(--rv-borda)",
               borderRadius: 12,
               padding: "28px 24px",
               textAlign: "center",
             }}
           >
             <div style={{ fontSize: 30, marginBottom: 8 }}>⚠️</div>
-            <p style={{ fontSize: 15, fontWeight: 700, color: "#0d1321", margin: 0 }}>
+            <p style={{ fontSize: 15, fontWeight: 700, color: "var(--rv-tinta)", margin: 0 }}>
               Não foi possível exibir a projeção agora.
             </p>
-            <p style={{ fontSize: 13, color: "#64748b", marginTop: 6 }}>
+            <p style={{ fontSize: 13, color: "var(--rv-texto-suave)", marginTop: 6 }}>
               Os demais atendimentos continuam normais. Recarregue a página para tentar de novo.
             </p>
             {/* Diagnóstico TEMPORÁRIO — só aparece em dev/Preview (staging), nunca
                 em produção (Production não tem VITE_MODO_CONTENCAO_ANALITICAS=false).
                 Mostra apenas mensagem técnica + componente; sem token, sem PII. */}
             {(import.meta.env?.DEV || String(import.meta.env?.VITE_MODO_CONTENCAO_ANALITICAS).toLowerCase() === "false") && (
-              <pre style={{ marginTop: 14, textAlign: "left", fontSize: 11, lineHeight: 1.45, color: "#b91c1c", background: "#fff5f5", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 12px", overflowX: "auto", whiteSpace: "pre-wrap" }}>
+              <pre style={{ marginTop: 14, textAlign: "left", fontSize: 11, lineHeight: 1.45, color: "var(--rv-vermelho-texto)", background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 8, padding: "10px 12px", overflowX: "auto", whiteSpace: "pre-wrap" }}>
 {`[diagnóstico Preview]\n${this.state.erro?.name || "Error"}: ${this.state.erro?.message || "(sem mensagem)"}\n${String(this.state.info?.componentStack || "").split("\n").filter(Boolean).slice(0, 4).join("\n")}`}
               </pre>
             )}

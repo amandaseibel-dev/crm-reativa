@@ -227,7 +227,7 @@ export default function ImportacaoAcordos() {
                 {historico.map((h, idx) => (
                   <tr key={h.importacao_id} style={idx === 0 ? S.trNovo : undefined}>
                     <td style={S.td}>{dataHora(h.importado_em)}{idx === 0 && <span style={S.tagUlt}>última</span>}</td>
-                    <td style={S.td}>{h.arquivo_nome || <span style={{ color: "#94a3b8" }}>— (import antigo)</span>}</td>
+                    <td style={S.td}>{h.arquivo_nome || <span style={{ color: "var(--rv-texto-fraco)" }}>— (import antigo)</span>}</td>
                     <td style={S.td}>{h.importado_por || "—"}</td>
                     <td style={{ ...S.td, textAlign: "right" }}>{h.acordos != null ? Number(h.acordos).toLocaleString("pt-BR") : "—"}</td>
                     <td style={{ ...S.td, textAlign: "right" }}>{h.titulos_inseridos != null ? Number(h.titulos_inseridos).toLocaleString("pt-BR") : "—"}</td>
@@ -245,33 +245,33 @@ export default function ImportacaoAcordos() {
 }
 
 const S = {
-  wrap: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", color: "#0f172a", background: "#f4f6fa", minHeight: "100%" },
-  titulo: { margin: 0, fontFamily: "'Sora', Inter, sans-serif", fontSize: 26, fontWeight: 800, color: "#0d1321", letterSpacing: "-0.03em" },
-  sub: { margin: "6px 0 18px", color: "#64748b", fontSize: 13.5, maxWidth: 720 },
-  card: { background: "#fff", border: "1px solid #e6eaf0", borderRadius: 16, padding: 18, marginBottom: 16, display: "flex", flexDirection: "column", gap: 12 },
-  cardOk: { background: "#f0fdf4", border: "1px solid #86efac", borderRadius: 16, padding: 18, marginBottom: 16 },
-  arq: { fontSize: 12.5, color: "#64748b" },
-  h2: { margin: "0 0 6px", fontFamily: "'Sora', Inter, sans-serif", fontSize: 16, fontWeight: 800, color: "#0d1321" },
+  wrap: { padding: "28px 30px 40px", fontFamily: "'Inter', system-ui, sans-serif", color: "var(--rv-tinta)", background: "var(--rv-fundo)", minHeight: "100%" },
+  titulo: { margin: 0, fontFamily: "'Sora', Inter, sans-serif", fontSize: 26, fontWeight: 800, color: "var(--rv-tinta)", letterSpacing: "-0.03em" },
+  sub: { margin: "6px 0 18px", color: "var(--rv-texto-suave)", fontSize: 13.5, maxWidth: 720 },
+  card: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 16, padding: 18, marginBottom: 16, display: "flex", flexDirection: "column", gap: 12 },
+  cardOk: { background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", borderRadius: 16, padding: 18, marginBottom: 16 },
+  arq: { fontSize: 12.5, color: "var(--rv-texto-suave)" },
+  h2: { margin: "0 0 6px", fontFamily: "'Sora', Inter, sans-serif", fontSize: 16, fontWeight: 800, color: "var(--rv-tinta)" },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 12 },
-  box: { background: "#f8fafc", border: "1px solid #e6eaf0", borderRadius: 12, padding: "12px 14px", textAlign: "center" },
-  num: { fontSize: 22, fontWeight: 800, color: "#0d1321", fontFamily: "'Sora', Inter, sans-serif" },
-  rot: { fontSize: 12, color: "#8a93a3", fontWeight: 600, marginTop: 3 },
+  box: { background: "var(--rv-fundo-cartao)", border: "1px solid var(--rv-borda)", borderRadius: 12, padding: "12px 14px", textAlign: "center" },
+  num: { fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", fontFamily: "'Sora', Inter, sans-serif" },
+  rot: { fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 600, marginTop: 3 },
   btn: { alignSelf: "flex-start", background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "12px 22px", fontWeight: 800, fontSize: 14, cursor: "pointer" },
-  obs: { fontSize: 12, color: "#8a93a3" },
+  obs: { fontSize: 12, color: "var(--rv-texto-fraco)" },
   avisoPulado: {
-    background: "#f0fdf4", border: "1px solid #bbf7d0", color: "#166534",
+    background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", color: "var(--rv-verde-ok-texto)",
     borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, margin: "10px 0",
   },
   avisoDup: {
-    background: "#fffbeb", border: "1px solid #fde68a", color: "#92400e",
+    background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)",
     borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, margin: "10px 0",
   },
-  erro: { background: "#fef2f2", border: "1px solid #fecaca", color: "#b91c1c", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13.5, fontWeight: 600 },
-  lista: { margin: "6px 0 8px", paddingLeft: 18, fontSize: 14, color: "#166534", lineHeight: 1.7 },
-  btnGhost: { background: "#fff", color: "#1e40af", border: "1px solid #c7d2fe", borderRadius: 9, padding: "7px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
+  erro: { background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", color: "var(--rv-vermelho-texto)", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13.5, fontWeight: 600 },
+  lista: { margin: "6px 0 8px", paddingLeft: 18, fontSize: 14, color: "var(--rv-verde-ok-texto)", lineHeight: 1.7 },
+  btnGhost: { background: "var(--rv-superficie)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-roxo-borda)", borderRadius: 9, padding: "7px 14px", fontWeight: 700, fontSize: 13, cursor: "pointer" },
   tab: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
-  th: { textAlign: "left", color: "#64748b", fontWeight: 700, fontSize: 11.5, textTransform: "uppercase", letterSpacing: "0.03em", padding: "8px 10px", borderBottom: "1px solid #e6eaf0", whiteSpace: "nowrap" },
-  td: { padding: "9px 10px", borderBottom: "1px solid #f1f5f9", color: "#0f172a", whiteSpace: "nowrap" },
-  trNovo: { background: "#f0f7ff" },
+  th: { textAlign: "left", color: "var(--rv-texto-suave)", fontWeight: 700, fontSize: 11.5, textTransform: "uppercase", letterSpacing: "0.03em", padding: "8px 10px", borderBottom: "1px solid var(--rv-borda)", whiteSpace: "nowrap" },
+  td: { padding: "9px 10px", borderBottom: "1px solid var(--rv-borda-suave)", color: "var(--rv-tinta)", whiteSpace: "nowrap" },
+  trNovo: { background: "var(--rv-azul-fundo)" },
   tagUlt: { marginLeft: 8, background: "#1e40af", color: "#fff", borderRadius: 6, padding: "1px 7px", fontSize: 10.5, fontWeight: 800, verticalAlign: "middle" },
 };

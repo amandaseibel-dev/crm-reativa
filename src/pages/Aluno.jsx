@@ -233,11 +233,11 @@ function situacaoDoAcordo(a) {
   return a.status || "-";
 }
 function corSituacaoAcordo(sit) {
-  if (sit === "Em dia" || sit === "Quitado") return "#16a34a";
-  if (sit === "Atrasado") return "#b45309";
-  if (sit === "Cancelado") return "#ef4444";
-  if (sit === "Aguardando confirmação") return "#2563eb";
-  return "#475569";
+  if (sit === "Em dia" || sit === "Quitado") return "var(--rv-verde-ok)";
+  if (sit === "Atrasado") return "var(--rv-ambar-texto)";
+  if (sit === "Cancelado") return "var(--rv-vermelho)";
+  if (sit === "Aguardando confirmação") return "var(--rv-azul)";
+  return "var(--rv-texto)";
 }
 // Quanto vale uma mensalidade negociada. Mesma ordem que a Carteira e o
 // Financeiro usam -- se divergir daqui, a ficha passa a contar diferente do
@@ -1684,19 +1684,19 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     style={{
                       ...cardAlunoLista,
                       background: selecionado
-                        ? "#eff6ff"
+                        ? "var(--rv-azul-fundo)"
                         : quitado
-                        ? "#fffbeb"
+                        ? "var(--rv-ambar-fundo)"
                         : bloqueado
-                        ? "#fef2f2"
-                        : "#fff",
+                        ? "var(--rv-vermelho-fundo)"
+                        : "var(--rv-superficie)",
                       borderColor: selecionado
-                        ? "#93c5fd"
+                        ? "var(--rv-azul-borda)"
                         : quitado
-                        ? "#f5c98a"
+                        ? "var(--rv-ambar-borda)"
                         : bloqueado
-                        ? "#fca5a5"
-                        : "#eef2f6",
+                        ? "var(--rv-vermelho-borda)"
+                        : "var(--rv-borda-suave)",
                     }}
                   >
                     <div style={colId}>
@@ -1711,7 +1711,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     </div>
                     <div style={colStatus}>
                       <span style={badgeSituacaoA}>
-                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                        {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                       </span>
                       <div style={subCelA}>
                         Últ. contato: {formatarDataHora(aluno.data_ultimo_acionamento)}
@@ -1720,11 +1720,11 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                         Próx. contato: {formatarDataHora(aluno.data_retorno)}
                       </div>
                       {quitado ? (
-                        <div style={{ ...subCelA, color: "#b45309", fontWeight: 700 }}>
+                        <div style={{ ...subCelA, color: "var(--rv-ambar-texto)", fontWeight: 700 }}>
                           ✓ Quitado
                         </div>
                       ) : bloqueado ? (
-                        <div style={{ ...subCelA, color: "#b42318", fontWeight: 700 }}>
+                        <div style={{ ...subCelA, color: "var(--rv-vermelho-texto)", fontWeight: 700 }}>
                           ⚠️ Não acionar
                         </div>
                       ) : null}
@@ -1795,9 +1795,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   return (
                     <div
                       style={{
-                        background: "#78350f",
+                        background: "var(--rv-ambar-texto)",
                         color: "#fde68a",
-                        border: "1px solid #facc15",
+                        border: "1px solid var(--rv-ambar-borda)",
                         borderRadius: 10,
                         padding: "12px 14px",
                         marginBottom: 14,
@@ -1813,7 +1813,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 return fichaRestrita ? (
                   <div
                     style={{
-                      background: "#7f1d1d",
+                      background: "var(--rv-vermelho-texto)",
                       color: "#fecaca",
                       borderRadius: 10,
                       padding: "12px 14px",
@@ -1937,9 +1937,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                                 padding: "4px 10px",
                                 borderRadius: 8,
                                 cursor: "pointer",
-                                background: copiado ? "#dcfce7" : "#f1f5f9",
-                                color: copiado ? "#166534" : "#334155",
-                                border: `1px solid ${copiado ? "#bbf7d0" : "#e2e8f0"}`,
+                                background: copiado ? "var(--rv-verde-ok-fundo)" : "var(--rv-fundo-suave)",
+                                color: copiado ? "var(--rv-verde-ok-texto)" : "var(--rv-texto-forte)",
+                                border: `1px solid ${copiado ? "var(--rv-verde-ok-borda)" : "var(--rv-borda)"}`,
                               }}
                             >
                               {copiado ? "✓ Copiado" : "📋 Copiar"}
@@ -1950,7 +1950,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       {/* Selos de status (visão rápida). Saldo e responsável ficam
                           no bloco de decisão, à direita -- aqui seria repetição. */}
                       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "8px 0 6px" }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 11px", borderRadius: 999, background: "#f1f5f9", color: "#475569", border: "1px solid #d5dde7" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 11px", borderRadius: 999, background: "var(--rv-fundo-suave)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda-forte)" }}>
                           {rotuloStatusComSaldo(
                             pegarCampo(alunoSelecionado, ["status_jornada", "status_atual", "status"], "CONTATAR"),
                             saldoStatus === "ok" ? !fichaComPendencia : null
@@ -1961,7 +1961,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           // CRITICO/URGENTE vem PREENCHIDO: sao os unicos chips
                           // fortes da ficha, pra serem a primeira coisa lida.
                           // ATENCAO/NORMAL ficam suaves -- nao pedem acao imediata.
-                          const mapa = { CRITICO: ["#b91c1c", "#fff", "#991b1b"], URGENTE: ["#c2410c", "#fff", "#9a3412"], ATENCAO: ["#fef9c3", "#854d0e", "#fde68a"], NORMAL: ["#f1f5f9", "#475569", "#d5dde7"] };
+                          const mapa = { CRITICO: ["var(--rv-vermelho-texto)", "#fff", "var(--rv-vermelho-texto)"], URGENTE: ["var(--rv-ambar-texto)", "#fff", "var(--rv-ambar-texto)"], ATENCAO: ["#fef9c3", "var(--rv-ambar-texto)", "#fde68a"], NORMAL: ["#f1f5f9", "var(--rv-texto)", "#d5dde7"] };
                           const [bg, fg, bd] = mapa[c] || mapa.NORMAL;
                           return <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.03em", padding: "4px 11px", borderRadius: 999, background: bg, color: fg, border: `1px solid ${bd}` }}>{c}</span>;
                         })()}
@@ -1984,7 +1984,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                             marginLeft: 10,
                             background: "none",
                             border: "none",
-                            color: "#1d4ed8",
+                            color: "var(--rv-azul-texto)",
                             cursor: "pointer",
                             textDecoration: "underline",
                             fontSize: 13,
@@ -2017,28 +2017,28 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                         saldoStatus === "erro"
                           ? "#dc2626"
                           : saldoStatus !== "ok"
-                            ? "#cbd5e1"
+                            ? "var(--rv-borda-forte)"
                             : fichaComPendencia
                               ? "#f59e0b"
                               : "#16a34a"
                       }`,
                       background:
-                        saldoStatus === "ok" && fichaComPendencia ? "#fffbeb" : "#f8fafc",
+                        saldoStatus === "ok" && fichaComPendencia ? "var(--rv-ambar-fundo)" : "var(--rv-fundo-cartao)",
                     }}
                   >
                     <span style={cardTitulo}>Valor em aberto</span>
                     {saldoStatus === "carregando" && (
-                      <div style={{ color: "#64748b", fontSize: 13 }}>Carregando saldo…</div>
+                      <div style={{ color: "var(--rv-texto-suave)", fontSize: 13 }}>Carregando saldo…</div>
                     )}
                     {saldoStatus === "erro" && (
                       <div>
-                        <span style={{ color: "#dc2626", fontWeight: 700, fontSize: 13 }}>
+                        <span style={{ color: "var(--rv-vermelho)", fontWeight: 700, fontSize: 13 }}>
                           Saldo indisponível
                         </span>
                         <button
                           type="button"
                           onClick={() => recarregarSaldoFicha(alunoSelecionado?.id)}
-                          style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
+                          style={{ marginLeft: 8, border: "1px solid var(--rv-borda-forte)", background: "var(--rv-superficie)", color: "var(--rv-texto)", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
                         >
                           Tentar novamente
                         </button>
@@ -2051,12 +2051,12 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                             fontSize: 22,
                             fontWeight: 800,
                             lineHeight: 1.15,
-                            color: fichaComPendencia ? "#b45309" : "#15803d",
+                            color: fichaComPendencia ? "var(--rv-ambar-texto)" : "var(--rv-verde-ok-texto)",
                           }}
                         >
                           {moeda(Number(saldoFicha?.total) || 0)}
                         </div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "#475569", marginTop: 2 }}>
+                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--rv-texto)", marginTop: 2 }}>
                           {fichaComPendencia ? "Com saldo em aberto" : "Sem saldo pendente"}
                           {fichaComPendencia &&
                             Number(saldoFicha?.parcelas_abertas_qtd) > 0 &&
@@ -2082,9 +2082,9 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   >
                     <span style={cardTitulo}>Responsável pelo aluno</span>
                     {!editandoOperadorRapido ? (
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "#0f172a" }}>
+                      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--rv-tinta)" }}>
                         {alunoSelecionado.responsavel_atual_nome || (
-                          <span style={{ color: "#64748b", fontWeight: 600 }}>Sem responsável</span>
+                          <span style={{ color: "var(--rv-texto-suave)", fontWeight: 600 }}>Sem responsável</span>
                         )}
                         <button
                           type="button"
@@ -2103,7 +2103,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                         <select
                           value={novoOperadorEmail}
                           onChange={(e) => setNovoOperadorEmail(e.target.value)}
-                          style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12 }}
+                          style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid var(--rv-borda-forte)", fontSize: 12 }}
                         >
                           <option value="">Selecione</option>
                           {OPERADORES_REATIVA.map((op) => (
@@ -2117,7 +2117,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           placeholder="Motivo da troca (opcional)"
                           value={motivoAlteracaoOperador}
                           onChange={(e) => setMotivoAlteracaoOperador(e.target.value)}
-                          style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid #cbd5e1", fontSize: 12 }}
+                          style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid var(--rv-borda-forte)", fontSize: 12 }}
                         />
                         <div style={{ display: "flex", gap: 6 }}>
                           <button
@@ -2137,7 +2137,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                               setEditandoOperadorRapido(false);
                               setMotivoAlteracaoOperador("");
                             }}
-                            style={{ border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}
+                            style={{ border: "1px solid var(--rv-borda-forte)", background: "var(--rv-superficie)", color: "var(--rv-texto)", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}
                           >
                             Cancelar
                           </button>
@@ -2220,7 +2220,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
               </div>
               <div style={caixaTabular}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 13, fontWeight: 800, color: "#1e3a8a", whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: 13, fontWeight: 800, color: "var(--rv-azul-texto)", whiteSpace: "nowrap" }}>
                     Tabular:
                   </span>
                 <select
@@ -2238,7 +2238,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       podeVerTudo(usuarioLogado?.email)
                   ).map((status) => (
                     <option key={status} value={status}>
-                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
+                      {({ CONTATAR: "A contatar", MENSAGEM_ENVIADA: "Mensagem enviada", EM_ATENDIMENTO: "Em atendimento", ALUNO_EM_NEGOCIACAO_24H: "Em negociação", RETORNAR_DEPOIS: "Retornar depois", SEM_RETORNO: "Sem retorno", NAO_LOCALIZADO: "Não localizado", AGUARDANDO_LINK: "Aguardando link", SOLICITADO_LINK: "Link solicitado", LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio", LINK_ENVIADO_AO_ALUNO: "Link enviado ao aluno", AGUARDANDO_COMPROVANTE: "Aguardando comprovante", AGUARDANDO_BAIXA: "Aguardando baixa", BAIXA_REALIZADA: "Baixa realizada", BAIXA_DEVOLVIDA: "Baixa devolvida", ACORDO_FECHADO: "Acordo fechado", LEMBRETE_PARCELA: "Lembrete de parcela feito", TERMO_ENVIADO_ALUNO: "Termo enviado ao aluno", TERMO_ENVIADO_ADM: "Enviado ao ADM", ENVIADO_FINANCEIRO: "Enviado ao financeiro", ALEGA_FIES: "Alega FIES", ALEGA_CREDIES: "Alega CREDIES", ALEGA_FINANCIAMENTO: "Alega financiamento", ANTECIPACAO_SEMESTRE: "Antecipação de semestre" }[status]) || STATUS_BLOQUEADOS_LABEL[status] || status}
                     </option>
                   ))}
                 </select>
@@ -2253,7 +2253,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                       style={inputCheio}
                     />
                     {elogioArquivo && (
-                      <p style={{ fontSize: "12px", color: "#16a34a", margin: "6px 0 0" }}>
+                      <p style={{ fontSize: "12px", color: "var(--rv-verde-ok)", margin: "6px 0 0" }}>
                         Selecionado: {elogioArquivo.name}
                       </p>
                     )}
@@ -2296,7 +2296,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                         style={inputCheio}
                       />
                     ) : (
-                      <p style={{ fontSize: "12px", color: "#f59e0b", margin: 0 }}>
+                      <p style={{ fontSize: "12px", color: "var(--rv-ambar)", margin: 0 }}>
                         Prazo indeterminado: esse caso vai entrar na lista "⚖️ Jurídico - prazo
                         indeterminado" na Fila Operacional pra Amanda cobrar retorno do jurídico.
                       </p>
@@ -2373,22 +2373,22 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                 <div style={{ ...cardInfo, gridColumn: "1 / -1" }}>
                   <span style={cardTitulo}>Responsável pelos acordos</span>
                   {acordosStatus === "carregando" && (
-                    <span style={{ color: "#94a3b8" }}>Carregando…</span>
+                    <span style={{ color: "var(--rv-texto-fraco)" }}>Carregando…</span>
                   )}
                   {acordosStatus === "erro" && (
                     <span>
-                      <span style={{ color: "#ef4444" }}>Acordos indisponíveis</span>
+                      <span style={{ color: "var(--rv-vermelho)" }}>Acordos indisponíveis</span>
                       <button
                         type="button"
                         onClick={() => recarregarAcordosFicha(alunoSelecionado?.id)}
-                        style={{ marginLeft: 8, border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
+                        style={{ marginLeft: 8, border: "1px solid var(--rv-borda-forte)", background: "var(--rv-superficie)", color: "var(--rv-texto)", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
                       >
                         Tentar novamente
                       </button>
                     </span>
                   )}
                   {acordosStatus === "ok" && acordosFicha.length === 0 && (
-                    <span style={{ color: "#64748b" }}>Nenhum acordo registrado</span>
+                    <span style={{ color: "var(--rv-texto-suave)" }}>Nenhum acordo registrado</span>
                   )}
                   {acordosStatus === "ok" && acordosFicha.length > 0 && (
                     <div style={{ marginTop: 6, display: "flex", flexDirection: "column", gap: 8 }}>
@@ -2398,12 +2398,12 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                           return (
                             <div key={a.id}>
                               {acordosFicha.length > 1 && (
-                                <div style={{ fontSize: 12, color: "#94a3b8", fontWeight: 700 }}>
+                                <div style={{ fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 700 }}>
                                   {i === 0 ? "Acordo atual" : "Acordo anterior"}
                                 </div>
                               )}
                               <div>
-                                <strong style={{ color: "#0f172a" }}>
+                                <strong style={{ color: "var(--rv-tinta)" }}>
                                   {responsavelDoAcordo(a)}
                                 </strong>{" "}
                                 · {dataCurta(a.criado_em)} ·{" "}
@@ -2456,7 +2456,7 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                         <button
                           type="button"
                           onClick={() => setVerTodosAcordos((v) => !v)}
-                          style={{ alignSelf: "flex-start", border: "1px solid #cbd5e1", background: "#fff", color: "#475569", borderRadius: 6, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}
+                          style={{ alignSelf: "flex-start", border: "1px solid var(--rv-borda-forte)", background: "var(--rv-superficie)", color: "var(--rv-texto)", borderRadius: 6, padding: "3px 10px", fontSize: 12, cursor: "pointer" }}
                         >
                           {verTodosAcordos
                             ? "Ver menos"
@@ -2561,13 +2561,13 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                     type="button"
                     onClick={exportarHistoricoPDF}
                     style={{
-                      background: "#fff",
-                      border: "1px solid #cbd5e1",
+                      background: "var(--rv-superficie)",
+                      border: "1px solid var(--rv-borda-forte)",
                       borderRadius: 8,
                       padding: "6px 12px",
                       fontSize: 12,
                       fontWeight: 700,
-                      color: "#334155",
+                      color: "var(--rv-texto-forte)",
                       cursor: "pointer",
                     }}
                   >
@@ -2695,8 +2695,8 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
 }
 const pagina = {
   minHeight: "calc(100vh - 56px)",
-  background: "#f4f6fa",
-  color: "#334155",
+  background: "var(--rv-fundo)",
+  color: "var(--rv-texto-forte)",
   // Era 28/40. Numa ficha longa, margem de pagina e o espaco que menos
   // trabalha -- o operador rola por causa dela, nao por causa do conteudo.
   padding: "18px 20px 28px",
@@ -2713,28 +2713,28 @@ const cabecalho = {
 const titulo = {
   margin: 0,
   marginBottom: 2,
-  color: "#0f172a",
+  color: "var(--rv-tinta)",
   fontSize: 24,
   fontWeight: 800,
   letterSpacing: "-0.02em",
 };
 const subtitulo = {
   margin: "6px 0 0",
-  color: "#94a3b8",
+  color: "var(--rv-texto-fraco)",
   fontSize: 13,
 };
 const usuarioTexto = {
   margin: "8px 0 0",
-  color: "#64748b",
+  color: "var(--rv-texto-suave)",
   fontSize: "13px",
 };
 const origemTexto = {
   margin: "8px 0 0",
-  color: "#2563eb",
+  color: "var(--rv-azul)",
   fontSize: "13px",
 };
 const tituloSecao = {
-  color: "#0f172a",
+  color: "var(--rv-tinta)",
   marginTop: 0,
   fontSize: 16,
   fontWeight: 700,
@@ -2757,13 +2757,13 @@ const blocoFicha = { marginBottom: 12, scrollMarginTop: 16 };
 // peso proprio -- borda azul e fundo levemente tintado. Nao e "mais uma caixa".
 const caixaTabular = {
   ...cartao,
-  background: "#f8fbff",
-  border: "1px solid #93c5fd",
+  background: "var(--rv-fundo-cartao)",
+  border: "1px solid var(--rv-azul-borda)",
   borderLeft: "4px solid #2563eb",
   padding: "10px 12px",
   marginBottom: "10px",
 };
-const caixaLinkPronto = { ...cartaoSucesso, border: "1px solid #93c5fd", marginBottom: "16px" };
+const caixaLinkPronto = { ...cartaoSucesso, border: "1px solid var(--rv-azul-borda)", marginBottom: "16px" };
 const caixaInterna = cartaoInterno;
 const layout = {
   display: "grid",
@@ -2789,25 +2789,25 @@ const blocoDecisao = {
   display: "flex",
   flexDirection: "column",
   gap: 8,
-  background: "#fff",
-  border: "1px solid #cbd5e1",
+  background: "var(--rv-superficie)",
+  border: "1px solid var(--rv-borda-forte)",
   borderRadius: 14,
   padding: 10,
   boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
 };
 // Cada item do bloco tem faixa de cor à esquerda, pra ler como bloco separado.
 const blocoDecisaoItem = {
-  background: "#f8fafc",
-  border: "1px solid #e2e8f0",
+  background: "var(--rv-fundo-cartao)",
+  border: "1px solid var(--rv-borda)",
   borderRadius: 10,
   padding: "6px 10px",
 };
 // "Quitar tudo" é ação de gestão (tira o aluno da fila): contorno, não preenchido,
 // pra não competir com "Assumir atendimento".
 const botaoQuitarTudo = {
-  background: "#fff",
-  color: "#6b21a8",
-  border: "1px solid #c4b5fd",
+  background: "var(--rv-superficie)",
+  color: "var(--rv-roxo-texto)",
+  border: "1px solid var(--rv-roxo-borda)",
   borderRadius: "8px",
   padding: "10px 14px",
   fontWeight: 600,
@@ -2825,7 +2825,7 @@ const barraAbasFicha = {
   gap: "8px",
   flexWrap: "wrap",
   marginBottom: "14px",
-  borderBottom: "2px solid #e2e8f0",
+  borderBottom: "2px solid var(--rv-borda)",
   paddingBottom: "10px",
 };
 const abaFichaBase = {
@@ -2844,9 +2844,9 @@ const abaFichaAtiva = {
 };
 const abaFichaInativa = {
   ...abaFichaBase,
-  background: "#fff",
-  color: "#334155",
-  border: "1px solid #cbd5e1",
+  background: "var(--rv-superficie)",
+  color: "var(--rv-texto-forte)",
+  border: "1px solid var(--rv-borda-forte)",
 };
 const gradeCards = {
   display: "grid",
@@ -2867,15 +2867,15 @@ const tabNegGrade = {
 const tabNegHead = {
   ...tabNegGrade,
   fontWeight: 700,
-  color: "#64748b",
+  color: "var(--rv-texto-suave)",
   padding: "0 0 4px",
-  borderBottom: "1px solid #e2e8f0",
+  borderBottom: "1px solid var(--rv-borda)",
 };
 const tabNegLinha = {
   ...tabNegGrade,
   padding: "4px 0",
-  borderBottom: "1px solid #f1f5f9",
-  color: "#0f172a",
+  borderBottom: "1px solid var(--rv-borda-suave)",
+  color: "var(--rv-tinta)",
 };
 const tabNegRodape = {
   display: "flex",
@@ -2883,7 +2883,7 @@ const tabNegRodape = {
   gap: 8,
   paddingTop: 6,
   fontSize: 12,
-  color: "#475569",
+  color: "var(--rv-texto)",
 };
 
 const cardInfo = cartao;
@@ -2893,9 +2893,9 @@ const itemMini = itemMiniUI;
 const valorMini = valorMiniUI;
 const cardAlunoLista = {
   textAlign: "left",
-  color: "#475569",
-  background: "#fff",
-  border: "1px solid #eef2f6",
+  color: "var(--rv-texto)",
+  background: "var(--rv-superficie)",
+  border: "1px solid var(--rv-borda-suave)",
   borderRadius: "12px",
   padding: "12px 16px",
   cursor: "pointer",
@@ -2910,42 +2910,42 @@ const colId = { flex: "2 1 220px", minWidth: 0, display: "flex", flexDirection: 
 const colStatus = { flex: "1 1 150px", display: "flex", flexDirection: "column", gap: 3 };
 const colFin = { flex: "1 1 150px", display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-start" };
 const colOp = { flex: "1 1 160px", display: "flex", flexDirection: "column", gap: 2 };
-const nomeCelA = { fontWeight: 600, color: "#1e293b", fontSize: 13 };
-const subCelA = { fontSize: 11.5, color: "#94a3b8" };
-const badgeSituacaoA = { display: "inline-block", padding: "3px 9px", borderRadius: 999, background: "#eef2ff", color: "#4f46e5", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", alignSelf: "flex-start" };
-const emAbertoTotalA = { fontWeight: 700, fontSize: 13, color: "#101828" };
-const emAbertoSubA = { fontSize: 11, color: "#94a3b8" };
+const nomeCelA = { fontWeight: 600, color: "var(--rv-tinta)", fontSize: 13 };
+const subCelA = { fontSize: 11.5, color: "var(--rv-texto-fraco)" };
+const badgeSituacaoA = { display: "inline-block", padding: "3px 9px", borderRadius: 999, background: "var(--rv-roxo-fundo)", color: "var(--rv-azul)", fontSize: 10.5, fontWeight: 700, whiteSpace: "nowrap", alignSelf: "flex-start" };
+const emAbertoTotalA = { fontWeight: 700, fontSize: 13, color: "var(--rv-tinta)" };
+const emAbertoSubA = { fontSize: 11, color: "var(--rv-texto-fraco)" };
 const cardMov = { ...cartao, borderLeft: "4px solid #2563eb" };
 const textoInfo = {
-  color: "#475569",
+  color: "var(--rv-texto)",
   margin: "3px 0",
   fontSize: 13.5,
   lineHeight: 1.4,
 };
 const textoCinza = {
-  color: "#94a3b8",
+  color: "var(--rv-texto-fraco)",
 };
 const label = {
   display: "block",
   marginBottom: "3px",
-  color: "#475569",
+  color: "var(--rv-texto)",
   fontSize: 11.5,
   fontWeight: 600,
 };
 const input = {
   flex: "1 1 280px",
-  background: "#f8fafc",
-  color: "#334155",
-  border: "1px solid #e6eaf0",
+  background: "var(--rv-fundo-cartao)",
+  color: "var(--rv-texto-forte)",
+  border: "1px solid var(--rv-borda)",
   borderRadius: "10px",
   padding: "11px 13px",
   outline: "none",
 };
 const inputCheio = {
   width: "100%",
-  background: "#f8fafc",
-  color: "#334155",
-  border: "1px solid #e6eaf0",
+  background: "var(--rv-fundo-cartao)",
+  color: "var(--rv-texto-forte)",
+  border: "1px solid var(--rv-borda)",
   borderRadius: "8px",
   padding: "7px 10px",
   fontSize: 13,
@@ -2954,9 +2954,9 @@ const inputCheio = {
 };
 const select = {
   width: "100%",
-  background: "#f8fafc",
-  color: "#334155",
-  border: "1px solid #e6eaf0",
+  background: "var(--rv-fundo-cartao)",
+  color: "var(--rv-texto-forte)",
+  border: "1px solid var(--rv-borda)",
   borderRadius: "8px",
   padding: "7px 10px",
   fontSize: 13,
@@ -2964,9 +2964,9 @@ const select = {
 };
 const textarea = {
   width: "100%",
-  background: "#f8fafc",
-  color: "#334155",
-  border: "1px solid #e6eaf0",
+  background: "var(--rv-fundo-cartao)",
+  color: "var(--rv-texto-forte)",
+  border: "1px solid var(--rv-borda)",
   borderRadius: "10px",
   padding: "12px",
   resize: "vertical",
@@ -2984,9 +2984,9 @@ const botaoPrincipal = {
   cursor: "pointer",
 };
 const botaoSecundario = {
-  background: "#fff",
-  color: "#475569",
-  border: "1px solid #e6eaf0",
+  background: "var(--rv-superficie)",
+  color: "var(--rv-texto)",
+  border: "1px solid var(--rv-borda)",
   borderRadius: "8px",
   padding: "9px 15px",
   fontWeight: 600,
