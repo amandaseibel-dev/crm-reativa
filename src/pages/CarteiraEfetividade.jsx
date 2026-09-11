@@ -28,7 +28,7 @@ const FAIXAS = [
   { chave: "inadimplencia", rotulo: "Inadimplência confirmada", drill: "INADIMPLENCIA", cor: "#b4232a",
     ajuda: "Sem pagamento e sem nenhuma evidência de negociação, com o Prime confirmando o título aberto." },
   { chave: "em_validacao", rotulo: "Em validação", drill: "EM_VALIDACAO", cor: "#b07d16",
-    ajuda: "Há indício de conversão, mas a evidência não é suficiente. Não aumenta a efetividade." },
+    ajuda: "Há indício de conversão sem evidência suficiente, ou o Prime não confirma a situação atual do título. Não aumenta a efetividade." },
   { chave: "academico", rotulo: "Baixa/Ajuste acadêmico", drill: "ACADEMICO", cor: "var(--rv-texto-fraco)",
     ajuda: "Saiu da situação aberta por evento acadêmico — não é resultado de cobrança." },
 ];
@@ -257,6 +257,21 @@ export default function CarteiraEfetividade() {
               <strong style={{ color: "var(--rv-tinta)" }}>Histórico.</strong> O histórico estruturado de pagamentos
               disponível no CRM inicia em julho de 2026. Por isso, vínculos históricos anteriores ou não preservados
               integralmente podem permanecer em validação até sua reconstrução.
+            </p>
+            <p style={{ margin: 0 }}>
+              <strong style={{ color: "var(--rv-tinta)" }}>Precedência das fontes.</strong> A{" "}
+              <strong style={{ color: "var(--rv-tinta)" }}>situação atual</strong> é do Prime — série e semestre do
+              título, título aberto ou liquidado, portador, matrícula e situação acadêmica. O estado do CRM não
+              sobrepõe informação disponível no Prime. Já o{" "}
+              <strong style={{ color: "var(--rv-tinta)" }}>histórico de conversão</strong> — existência de acordos,
+              parcelas, pagamentos recebidos e eventos de cobrança — vem do CRM e das importações operacionais, porque
+              a API do Prime não entrega esses dados. Quando o Prime não tem linha para o título, ninguém confirma que
+              ele segue aberto: o valor fica em validação, nunca em inadimplência confirmada.
+            </p>
+            <p style={{ margin: 0 }}>
+              <strong style={{ color: "var(--rv-tinta)" }}>Por que situação atual não decide histórico.</strong> Está
+              medido que um título negociado pode voltar a aparecer aberto no Prime quando o acordo quebra — em 28,7%
+              dos casos. Por isso “aberto hoje” nunca é lido como “nunca foi negociado”.
             </p>
             <p style={{ margin: 0 }}>
               <strong style={{ color: "var(--rv-tinta)" }}>Fonte atual.</strong> A situação atual dos títulos é
