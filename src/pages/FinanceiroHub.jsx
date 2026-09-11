@@ -5,6 +5,7 @@ import PainelAdm from "./PainelAdm";
 import ConferenciaPrime from "./ConferenciaPrime";
 import AcordosSemResponsavel from "../components/AcordosSemResponsavel";
 import ForaDaCobranca from "../components/ForaDaCobranca";
+import CasosSemResponsavel from "../components/CasosSemResponsavel";
 import MinhaFilaPagamentos from "./MinhaFilaPagamentos"; import HistoricoConfirmacoes from "./HistoricoConfirmacoes";
 import AcordosSemVinculo from "./AcordosSemVinculo";
 
@@ -38,6 +39,11 @@ const ABAS = [
   // procurar e nao achou. Sao conferencia como as outras: olhar um acordo sem
   // dono, olhar o que esta fora da cobranca. Viraram aba daqui.
   { chave: "ACORDO_SEM_RESP", rotulo: "Acordos sem responsável" },
+  // MESMA REGRA, 11/09/2026: a fila de acordos sem responsavel so enxergava
+  // acordo. Dos 95 casos orfaos com divida, 42 tinham so mensalidade e nao
+  // apareciam em tela nenhuma. Amanda: "se nao tiver dono vai para fila sem
+  // responsavel".
+  { chave: "CASO_SEM_RESP", rotulo: "Casos sem responsável" },
   { chave: "FORA_COBRANCA", rotulo: "Fora da cobrança" },
 ];
 
@@ -74,6 +80,7 @@ export default function FinanceiroHub() {
         {aba === "ACORDOS_SEM_VINCULO" && <AcordosSemVinculo />}
         {aba === "HIST_CONFIRMACOES" && <HistoricoConfirmacoes />}
         {aba === "ACORDO_SEM_RESP" && <AcordosSemResponsavel />}
+        {aba === "CASO_SEM_RESP" && <CasosSemResponsavel />}
         {aba === "FORA_COBRANCA" && <ForaDaCobranca />}
       </div>
     </div>

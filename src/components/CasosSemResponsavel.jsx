@@ -5,29 +5,23 @@ import { Carregando } from "../ui/estados";
 import { S as A } from "../ui/estilosFila";
 import { podeAlterarOperadorProjecao } from "../utils/operadores";
 
-// Acordo ATIVO com o responsavel em branco -- o campo
-// acordos.operador_responsavel_email.
+// Caso com divida em aberto e SEM DONO -- nem em `casos.operador_email` nem em
+// `alunos.responsavel_atual_email`.
 //
-// ATENCAO ao mexer aqui: ate 10/09/2026 esta fila filtrava pelo dono do CASO
-// (casos.operador_email), e nao pelo responsavel do ACORDO. Como depois do giro
-// quase todo caso tem dono, ela mostrava 12 de ~930 acordos. Um acordo de
-// R$ 236.929,17 nunca apareceu porque a ficha da aluna tinha dona. Sao campos
-// diferentes: dono da ficha nao e responsavel pelo acordo.
+// Regra da gestao (11/09/2026): "se nao tiver dono vai para fila sem
+// responsavel". Ate entao so existia a fila de ACORDOS sem responsavel, e quem
+// devia mensalidade ficava invisivel: dos 95 casos orfaos, 42 tinham so
+// mensalidade e nao apareciam em tela nenhuma da operacao.
 //
-// A gestao confere caso a caso no Prime para descobrir quem negociou, e so
-// entao vincula. Por isso o seletor e POR LINHA e nao ha "vincular todos":
-// mandar 880 acordos para alguem em lote seria inventar dono, que e justamente
-// o problema que esta fila existe para consertar.
+// Vincular aqui escreve em `alunos` pelo caminho oficial (internal.set_resp_aluno)
+// e o gatilho espelha para `casos` -- nunca o contrario.
 const moeda = (v) =>
   Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
-const dia = (d) => (d ? new Date(d).toLocaleDateString("pt-BR") : "—");
+const dia = (d) => (d ? new Date(d + "T12:00:00").toLocaleDateString("pt-BR") : "nunca");
 
-// ATENCAO: a RPC devolve 880 linhas hoje. O PostgREST corta em 1.000 por
-// padrao e nao avisa -- ja nos mordeu duas vezes em 10/09/2026. Se este numero
-// encostar em 1.000, paginar no servidor em vez de no navegador.
 const POR_PAGINA = 50;
 
-export default function AcordosSemResponsavel({ aoAtualizarContagem }) {
+export default function CasosSemResponsavel({ aoAtualizarContagem }) {
   const [carregando, setCarregando] = useState(true);
   const [lista, setLista] = useState([]);
   const [pessoas, setPessoas] = useState([]);
@@ -37,8 +31,9 @@ export default function AcordosSemResponsavel({ aoAtualizarContagem }) {
   const [escolha, setEscolha] = useState({});
   const [vinculando, setVinculando] = useState({});
   const [pagina, setPagina] = useState(0);
-  const [emailUsuario, setEmailUsuario] = useState("");
   const [busca, setBusca] = useState("");
+  const [soMensalidade, setSoMensalidade] = useState(false);
+  const [emailUsuario, setEmailUsuario] = useState("");
   const emVooRef = useRef(false);
 
   const podeVincular = podeAlterarOperadorProjecao(emailUsuario);
@@ -48,30 +43,25 @@ export default function AcordosSemResponsavel({ aoAtualizarContagem }) {
     emVooRef.current = true;
     setCarregando(true);
     setErro("");
-    const { data, error } = await supabase.rpc("fila_acordos_sem_responsavel");
+    const { data, error } = await supabase.rpc("fila_casos_sem_responsavel");
     emVooRef.current = false;
     setCarregando(false);
     if (error) {
-      setErro("Não foi possível carregar os acordos sem responsável.");
+      setErro("Não foi possível carregar os casos sem responsável.");
       return;
     }
     setLista(data || []);
   }, []);
 
   useEffect(() => {
-    // Carga unica ao montar -- a aba so monta quando esta ativa. A regra
-    // set-state-in-effect existe para evitar renderizacao em cascata; aqui o
-    // setState acontece depois do await da RPC, e buscar os dados ao abrir e
-    // justamente o que a aba precisa fazer.
+    // Carga unica ao montar -- a aba so monta quando esta ativa. O setState
+    // acontece depois do await da RPC.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     carregar();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
-    // O portao do servidor e a RPC; este aqui e so para nao mostrar um botao
-    // que a pessoa nao pode usar. O FinanceiroHub nao carrega o usuario, entao
-    // a tela le a propria sessao em vez de receber prop por tres camadas.
     let vivo = true;
     supabase.auth.getUser().then(({ data }) => {
       if (vivo) setEmailUsuario(data?.user?.email || "");
@@ -87,9 +77,8 @@ export default function AcordosSemResponsavel({ aoAtualizarContagem }) {
       .eq("ativo", true)
       .order("nome")
       .then(({ data }) => {
-        // 'painel' e a TV, nao e pessoa. Em 10/09/2026 o acordo de R$ 236.929,17
-        // da Giovanna foi vinculado ao "Painel TV" por engano -- primeira linha
-        // da lista, clique errado no seletor.
+        // 'painel' e a TV, nao e pessoa. Em 10/09/2026 um acordo de R$ 236.929,17
+        // foi vinculado ao "Painel TV" por engano, porque ele estava na lista.
         if (vivo && Array.isArray(data)) {
           setPessoas(data.filter((p) => p.perfil !== "painel"));
         }
@@ -102,72 +91,75 @@ export default function AcordosSemResponsavel({ aoAtualizarContagem }) {
   }, [lista, aoAtualizarContagem]);
 
   async function vincular(linha) {
-    const email = escolha[linha.acordo_id];
+    const email = escolha[linha.caso_id];
     if (!email) return;
     const pessoa = pessoas.find((p) => p.email === email);
     const ok = window.confirm(
-      `Vincular este acordo a ${pessoa?.nome || email}?\n\n` +
-        `${linha.aluno || linha.cpf} — ${moeda(linha.saldo_aberto)} em aberto\n\n` +
-        `Só o responsável do acordo muda. A carteira e o dono da ficha ficam como estão.`
+      `Passar este caso para ${pessoa?.nome || email}?\n\n` +
+        `${linha.aluno} — ${moeda(linha.total)} em aberto\n\n` +
+        `O aluno entra na carteira dessa pessoa e volta para a fila de acionamento.`
     );
     if (!ok) return;
 
-    setVinculando((s) => ({ ...s, [linha.acordo_id]: true }));
+    setVinculando((s) => ({ ...s, [linha.caso_id]: true }));
     setAviso("");
-    const { data, error } = await supabase.rpc("vincular_responsavel_acordo", {
-      p_acordo_ids: [linha.acordo_id],
+    const { data, error } = await supabase.rpc("vincular_responsavel_caso", {
+      p_aluno_ids: [linha.aluno_id],
       p_email: email,
     });
-    setVinculando((s) => ({ ...s, [linha.acordo_id]: false }));
+    setVinculando((s) => ({ ...s, [linha.caso_id]: false }));
     if (error) {
       setAviso("Não foi possível vincular: " + (error.message || ""));
       return;
     }
     if (!data?.vinculados) {
-      setAviso("Este acordo já tinha responsável — a lista foi atualizada.");
+      setAviso("Este caso já tinha responsável — a lista foi atualizada.");
       carregar();
       return;
     }
-    setAviso(`${linha.aluno || linha.cpf}: acordo vinculado a ${data.operador_nome}.`);
-    // Sai da lista sem recarregar as 880 linhas de novo.
-    setLista((l) => l.filter((x) => x.acordo_id !== linha.acordo_id));
+    setAviso(`${linha.aluno}: caso passou para ${data.operador_nome}.`);
+    setLista((l) => l.filter((x) => x.caso_id !== linha.caso_id));
   }
 
   const filtrada = useMemo(() => {
     const q = busca.trim().toLowerCase();
-    if (!q) return lista;
-    return lista.filter(
-      (l) =>
-        (l.aluno || "").toLowerCase().includes(q) ||
-        (l.cpf || "").includes(q.replace(/\D/g, ""))
-    );
-  }, [lista, busca]);
+    let base = soMensalidade ? lista.filter((l) => !l.tem_acordo_ativo) : lista;
+    if (q) {
+      base = base.filter(
+        (l) =>
+          (l.aluno || "").toLowerCase().includes(q) ||
+          (l.cpf || "").includes(q.replace(/\D/g, "")) ||
+          (l.matricula || "").includes(q)
+      );
+    }
+    return base;
+  }, [lista, busca, soMensalidade]);
 
-  const total = filtrada.reduce((t, l) => t + Number(l.saldo_aberto || 0), 0);
+  const total = filtrada.reduce((t, l) => t + Number(l.total || 0), 0);
   const paginas = Math.max(1, Math.ceil(filtrada.length / POR_PAGINA));
   const p = Math.min(pagina, paginas - 1);
   const visiveis = filtrada.slice(p * POR_PAGINA, (p + 1) * POR_PAGINA);
-  const semCaso = lista.filter((l) => l.situacao !== "COM_CASO").length;
+  const soMens = lista.filter((l) => !l.tem_acordo_ativo).length;
 
   if (carregando && !lista.length) {
-    return <Carregando texto="Carregando acordos sem responsável…" />;
+    return <Carregando texto="Carregando casos sem responsável…" />;
   }
 
   return (
     <div>
       <div style={A.topo}>
         <div>
-          <h2 style={A.titulo}>Acordos sem responsável</h2>
+          <h2 style={A.titulo}>Casos sem responsável</h2>
           <p style={A.sub}>
-            Acordo ativo com o responsável em branco. Confira no Prime quem negociou
-            e vincule caso a caso — só o acordo muda de dono, a carteira não é tocada.
+            Aluno com dívida em aberto e sem dono nenhum — não aparece na carteira
+            de ninguém. Defina o responsável e ele volta para a fila de acionamento.
           </p>
         </div>
         <div style={A.contadores}>
-          <span style={A.contadorAcordos}>{filtrada.length} acordos</span>
+          <span style={A.contadorAlunos}>{filtrada.length} casos</span>
           <span style={A.contadorValor}>{moeda(total)} em aberto</span>
-          {semCaso ? (
-            <span style={A.contadorAlunos}>{semCaso} sem caso no CRM</span>
+          {soMens ? (
+            <span style={A.contadorAcordos}>{soMens} só mensalidade</span>
           ) : null}
         </div>
       </div>
@@ -176,30 +168,26 @@ export default function AcordosSemResponsavel({ aoAtualizarContagem }) {
         <input
           type="search"
           value={busca}
-          placeholder="Buscar por nome ou CPF"
+          placeholder="Buscar por nome, CPF ou matrícula"
           onChange={(e) => { setBusca(e.target.value); setPagina(0); }}
           style={A.input}
         />
+        <label style={{ ...A.muted, display: "flex", alignItems: "center", gap: 6 }}>
+          <input
+            type="checkbox"
+            checked={soMensalidade}
+            onChange={(e) => { setSoMensalidade(e.target.checked); setPagina(0); }}
+          />
+          Só mensalidade (sem acordo)
+        </label>
         <button type="button" style={A.btnGhost} onClick={carregar}>Atualizar</button>
         {paginas > 1 ? (
           <span style={A.muted}>
-            <button
-              type="button"
-              style={A.btnGhostClaro}
-              disabled={p === 0}
-              onClick={() => setPagina(p - 1)}
-            >
-              ‹
-            </button>
+            <button type="button" style={A.btnGhostClaro} disabled={p === 0}
+                    onClick={() => setPagina(p - 1)}>‹</button>
             {" "}página {p + 1} de {paginas}{" "}
-            <button
-              type="button"
-              style={A.btnGhostClaro}
-              disabled={p >= paginas - 1}
-              onClick={() => setPagina(p + 1)}
-            >
-              ›
-            </button>
+            <button type="button" style={A.btnGhostClaro} disabled={p >= paginas - 1}
+                    onClick={() => setPagina(p + 1)}>›</button>
           </span>
         ) : null}
       </div>
@@ -208,13 +196,15 @@ export default function AcordosSemResponsavel({ aoAtualizarContagem }) {
       {aviso ? <div style={A.erroBox}>{aviso}</div> : null}
       {!podeVincular ? (
         <p style={A.muted}>
-          Você pode consultar a lista. Vincular o responsável é da Amanda e da Fernanda.
+          Você pode consultar a lista. Definir o responsável é da Amanda e da Fernanda.
         </p>
       ) : null}
 
       {!filtrada.length ? (
         <p style={A.muted}>
-          {busca ? "Nenhum acordo com esse nome ou CPF." : "Nenhum acordo sem responsável."}
+          {busca || soMensalidade
+            ? "Nenhum caso com esse filtro."
+            : "Nenhum caso sem responsável. Todos têm dono."}
         </p>
       ) : (
         <div style={A.card}>
@@ -223,48 +213,37 @@ export default function AcordosSemResponsavel({ aoAtualizarContagem }) {
               <tr>
                 <th style={A.th}>Aluno</th>
                 <th style={A.th}>CPF</th>
-                <th style={A.thNum}>Em aberto</th>
-                <th style={A.thNum}>Vencidas</th>
-                <th style={A.thNum}>Atraso</th>
-                <th style={A.th}>Acordo de</th>
-                <th style={A.th}>Ficha com</th>
-                <th style={A.th}>Vincular a</th>
+                <th style={A.thNum}>Mensalidade</th>
+                <th style={A.thNum}>Acordo</th>
+                <th style={A.thNum}>Total</th>
+                <th style={A.th}>Semestre</th>
+                <th style={A.th}>Últ. acionamento</th>
+                <th style={A.th}>Passar para</th>
                 <th style={A.th}></th>
               </tr>
             </thead>
             <tbody>
               {visiveis.map((l) => (
-                <tr key={l.acordo_id}>
+                <tr key={l.caso_id}>
                   <td style={A.td}>
                     {l.aluno || "—"}
-                    {/* O aluno existe, o caso nao. Nao impede vincular o acordo,
-                        mas explica por que algumas telas nao acham essa pessoa. */}
-                    {l.situacao === "SEM_CASO" ? (
-                      <span style={{ ...A.chip, ...A.chipPend, marginLeft: 8 }}>sem caso</span>
-                    ) : null}
-                    {l.situacao === "SEM_FICHA" ? (
-                      <span style={{ ...A.chip, ...A.chipRej, marginLeft: 8 }}>sem cadastro</span>
+                    {l.tem_acordo_ativo ? (
+                      <span style={{ ...A.chip, ...A.chipPend, marginLeft: 8 }}>acordo ativo</span>
                     ) : null}
                   </td>
                   <td style={A.td}>{l.cpf || "—"}</td>
-                  <td style={A.tdNum}>{moeda(l.saldo_aberto)}</td>
-                  <td style={A.tdNum}>{l.parcelas_vencidas || 0}</td>
-                  <td style={A.tdNum}>{l.dias_atraso ? `${l.dias_atraso} d` : "—"}</td>
-                  <td style={A.td}>{dia(l.criado_em)}</td>
-                  {/* Informacao, nao filtro: ajuda a decidir a quem vincular,
-                      mas nao determina nada. */}
-                  <td style={A.td}>
-                    {l.dono_caso_nome
-                      ? <span style={A.resp}>{l.dono_caso_nome}</span>
-                      : <span style={A.respVazio}>—</span>}
-                  </td>
+                  <td style={A.tdNum}>{moeda(l.mensalidade)}</td>
+                  <td style={A.tdNum}>{moeda(l.acordo)}</td>
+                  <td style={A.tdNum}>{moeda(l.total)}</td>
+                  <td style={A.td}>{l.semestre_divida || "—"}</td>
+                  <td style={A.td}>{dia(l.data_ultimo_acionamento)}</td>
                   <td style={A.td}>
                     <select
-                      style={A.select || A.input}
+                      style={A.select}
                       disabled={!podeVincular}
-                      value={escolha[l.acordo_id] || ""}
+                      value={escolha[l.caso_id] || ""}
                       onChange={(e) =>
-                        setEscolha((x) => ({ ...x, [l.acordo_id]: e.target.value }))
+                        setEscolha((x) => ({ ...x, [l.caso_id]: e.target.value }))
                       }
                     >
                       <option value="">Escolher…</option>
@@ -284,11 +263,11 @@ export default function AcordosSemResponsavel({ aoAtualizarContagem }) {
                         <button
                           type="button"
                           style={
-                            vinculando[l.acordo_id] || !escolha[l.acordo_id]
+                            vinculando[l.caso_id] || !escolha[l.caso_id]
                               ? { ...A.btnConf, ...A.btnBusy }
                               : A.btnConf
                           }
-                          disabled={!!vinculando[l.acordo_id] || !escolha[l.acordo_id]}
+                          disabled={!!vinculando[l.caso_id] || !escolha[l.caso_id]}
                           onClick={() => vincular(l)}
                         >
                           Vincular
