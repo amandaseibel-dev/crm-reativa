@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import ComparativoAnos from "../components/ComparativoAnos";
-import AlunosEmAberto20261 from "../components/AlunosEmAberto20261";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
@@ -66,8 +65,6 @@ export default function ExecutivoRecuperacao() {
       <div style={S.statsRow}>
         <Stat rot="Pagamentos processados" val={num(d.pagamentos)} />
       </div>
-
-      <AlunosEmAberto20261 />
 
       <ComparativoAnos />
 
