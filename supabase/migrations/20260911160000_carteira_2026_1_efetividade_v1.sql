@@ -39,13 +39,21 @@
 --    portador quando o acordo quebra. Por isso título aberto de CPF que paga
 --    acordo fora do CRM vai para EM VALIDAÇÃO, nunca para inadimplência.
 --
--- 6. CPF NÃO CONVERTE CARTEIRA. Aluno que negociou outra dívida não transforma
+-- 6. PRECEDÊNCIA DAS FONTES. SITUAÇÃO ATUAL é do PRIME (série/semestre,
+--    aberto ou liquidado, portador, matrícula, situação acadêmica) — o estado
+--    do CRM nunca sobrepõe dado disponível no Prime. HISTÓRICO DE CONVERSÃO é
+--    do CRM + importações (acordos, parcelas, pagamentos, eventos de cobrança),
+--    porque a API não entrega nada disso. Quando o Prime não tem linha para o
+--    título, ninguém confirma que ele segue aberto: vai para EM VALIDAÇÃO
+--    (552 títulos, R$ 115.529,46), nunca para inadimplência confirmada.
+--
+-- 7. CPF NÃO CONVERTE CARTEIRA. Aluno que negociou outra dívida não transforma
 --    o título de 2026/1 em efetividade. A conta é por título, sempre.
 --
 -- Números aprovados na V1 (11/09/2026), sobre base de R$ 21.752.304,72:
 --   Efetividade comprovada   11.218.629,14   51,57%
---   Inadimplência confirmada  9.644.603,72   44,34%
---   Em validação                850.131,47    3,91%
+--   Inadimplência confirmada  9.529.074,26   43,81%
+--   Em validação                965.660,93    4,44%
 --   Baixa/Ajuste acadêmico       38.940,39    0,18%
 --   (dentro da efetividade) Recuperação financeira 6.510.891,25 — 29,93%
 --
@@ -200,7 +208,8 @@ returns table (
            coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0) saldo,
            coalesce(t.acordo_id, v.acordo_id) acordo_id,
            s.liq,
-           (s.liq is not null and s.liq > b.vencimento + 30 and s.liq >= b.entrada_em) liq_real
+           (s.liq is not null and s.liq > b.vencimento + 30 and s.liq >= b.entrada_em) liq_real,
+           (s.liq is null) sem_linha
       from public.carteira_2026_1_base b
       join public.acordos_titulos t on t.id = b.titulo_id
       left join public.acordo_titulo_vinculo v on v.titulo_id = b.titulo_id and v.ativo
@@ -231,6 +240,8 @@ returns table (
          when liq_real and academico then 'ACADEMICO'
          when liq_real then 'EM_VALIDACAO'
          when tem_caixa_fora then 'EM_VALIDACAO'
+         -- o Prime não tem linha: ninguém confirma que o título segue aberto
+         when sem_linha then 'EM_VALIDACAO'
          else 'INADIMPLENCIA' end,
     -- SUB-FAIXA (qualidade da conversão)
     case when acordo_id is not null then
@@ -245,6 +256,7 @@ returns table (
          when liq_real and academico then 'Baixa/Ajuste academico'
          when liq_real then 'Liquidado no Prime, origem nao comprovada'
          when tem_caixa_fora then 'Aberto no Prime, mas paga acordo fora do CRM'
+         when sem_linha then 'Sem confirmacao do Prime (titulo nao encontrado)'
          else 'Sem pagamento e sem negociacao' end,
     -- VALORES (cada real em uma coluna só; arredonda só no total)
     coalesce(estado, 'sem_acordo'),
@@ -256,10 +268,12 @@ returns table (
     case when acordo_id is null and liq_real and not origem_provada and not academico
          then (case when situacao = 'PAGO' then saldo else vo end)
          when acordo_id is null and not liq_real and tem_caixa_fora
+         then (case when situacao = 'PAGO' then saldo else vo end)
+         when acordo_id is null and sem_linha and not tem_caixa_fora
          then (case when situacao = 'PAGO' then saldo else vo end) else 0 end,
     case when acordo_id is null and liq_real and not origem_provada and academico
          then (case when situacao = 'PAGO' then saldo else vo end) else 0 end,
-    case when acordo_id is null and not liq_real and not tem_caixa_fora
+    case when acordo_id is null and not liq_real and not tem_caixa_fora and not sem_linha
          then (case when situacao = 'PAGO' then saldo else vo end) else 0 end,
     -- RECUPERAÇÃO FINANCEIRA: só o que virou dinheiro (parcela paga + baixa com
     -- lastro). O caixa de acordo fora do CRM entra à parte, com teto por aluno.
