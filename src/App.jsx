@@ -139,12 +139,19 @@ const DIRETORIA_ROTAS = [
   // (VisaoGestao360.jsx), e desde setembro o painel projeta meses que já
   // fecharam. Enquanto isso não for corrigido, a diretoria não deve ler dali.
   "/relatorios-2026-1-sem-negociacao",
+  // Projeção Hora a Hora: leitura do consolidado da empresa. As ações de
+  // escrita da tela (importar planilha, excluir importação, alterar operador,
+  // definir meta) dependem de allowlist de e-mail — Angela e Gustavo não estão
+  // nela, então não veem nem o botão. O ranking por operador também não: o
+  // backend só o devolve para quem é gestão.
+  "/projecao-hora-a-hora",
   "/meu-perfil",
 ];
 function podeAcessar(perfil, rota) {
-  // DIRETORIA: perfil de leitura executiva, não de operação. Vê SÓ as três
-  // áreas combinadas -- Visão Executiva, DRE e o relatório de 2026/1 sem
-  // negociação (o Panorama 360 saiu em 03/09, ver DIRETORIA_ROTAS). Fica de
+  // DIRETORIA: perfil de leitura executiva, não de operação. Vê SÓ o que está
+  // em DIRETORIA_ROTAS -- Visão Executiva, DRE, o relatório de 2026/1 sem
+  // negociação e a Projeção Hora a Hora (o Panorama 360 saiu em 03/09 e a
+  // Efetividade está fechada até ser finalizada). Fica de
   // fora de fila, base, financeiro operacional,
   // usuários e configurações. Este return vem ANTES de tudo de propósito: os
   // atalhos abaixo liberam rota por "perfil !== operador" e, sem isto, a
