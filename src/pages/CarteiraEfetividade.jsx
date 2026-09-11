@@ -50,6 +50,7 @@ export default function CarteiraEfetividade() {
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
   const [metodologia, setMetodologia] = useState(false);
+  const [obraAberta, setObraAberta] = useState(false);
 
   useEffect(() => {
     let ativo = true;
@@ -146,7 +147,22 @@ export default function CarteiraEfetividade() {
 
   return (
     <div style={S.pagina}>
-      <h1 style={S.h1}>Efetividade da Cobrança</h1>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+        <h1 style={S.h1}>Efetividade da Cobrança</h1>
+        {/* Selo discreto: sinaliza que a AREA ainda esta sendo finalizada -- de
+            proposito nao fala de dados nem de calculo, para nao passar a
+            impressao de que os numeros sao provisorios. */}
+        <button onClick={() => setObraAberta((v) => !v)}
+                title="Esta área ainda está em construção e pode receber ajustes de layout, nomenclatura e visualização."
+                style={S.selo}>
+          Em construção
+        </button>
+      </div>
+      {obraAberta ? (
+        <p style={S.seloTexto}>
+          Esta área ainda está em construção e pode receber ajustes de layout, nomenclatura e visualização.
+        </p>
+      ) : null}
 
       <div style={S.navegacao}>
         <div style={S.navBloco}>
@@ -354,5 +370,9 @@ const S = {
                      color: "var(--rv-azul-texto)", fontSize: 13, fontWeight: 600 },
   texto: { margin: 0, fontSize: 13, color: "var(--rv-texto-suave)", lineHeight: 1.6 },
   discreto: { fontSize: 12.5, color: "var(--rv-texto-fraco)" },
+  selo: { background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda-suave)",
+          color: "var(--rv-texto-suave)", borderRadius: 999, padding: "3px 10px", fontSize: 11.5,
+          fontWeight: 600, cursor: "pointer", fontFamily: "inherit", letterSpacing: "0.02em" },
+  seloTexto: { margin: "8px 0 0", fontSize: 12.5, color: "var(--rv-texto-fraco)", maxWidth: 620, lineHeight: 1.5 },
   erro: { color: "#b4232a", fontSize: 13, marginTop: 14 },
 };
