@@ -105,7 +105,7 @@ export default function Negociacoes20262() {
         <div style={{ ...S.card, borderLeft: "4px solid var(--rv-azul)" }}>
           <span style={S.rotulo}>Valor negociado</span>
           <strong style={{ fontSize: 26 }}>{moeda(t.negociado)}</strong>
-          <span style={S.sub}>{num(t.titulos)} títulos · {num(t.acordos)} acordos</span>
+          <span style={S.sub}>{num(t.titulos)} títulos negociados · {num(t.acordos)} acordos</span>
         </div>
         <div style={S.card}>
           <span style={S.rotulo}>Alunos negociados</span>
