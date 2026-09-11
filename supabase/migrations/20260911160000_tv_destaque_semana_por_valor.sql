@@ -1,0 +1,19 @@
+-- DESTAQUE DA SEMANA POR VALOR (11/09/2026)
+--
+-- A TV coroava duas pessoas diferentes em telas seguidas: "Destaque da Semana"
+-- pela QUANTIDADE de pagamentos (Olga, 22) e "Melhor do mes" pelo VALOR
+-- (Nataly). Os dois criterios estavam certos, e por isso mesmo pareciam erro
+-- para quem assistia. Decisao da gestao: "deveria ser por dinheiro que traz".
+--
+-- No mes: Nataly 23 alunos / R$ 124.822,70; Olga 46 alunos / R$ 39.460,84.
+-- Na semana, por valor: Nataly R$ 118.870, Olga R$ 20.083.
+--
+-- tv_ranking_semana_valor() entra no payload pelo tv_snapshot_atualizar, como o
+-- comparativo. tv_snapshot_calcular (18 mil caracteres) segue intacta, e a
+-- chave antiga por quantidade continua la -- outras telas a usam.
+--
+-- ATENCAO: a lista de operadores (v_ops) esta DUPLICADA de
+-- tv_snapshot_calcular. Mudou la, tem de mudar aqui.
+--
+-- APLICADA EM PRODUCAO em 11/09/2026 pelo MCP. Testada executando antes de
+-- ligar: devolveu Nataly em primeiro com R$ 118.870.
