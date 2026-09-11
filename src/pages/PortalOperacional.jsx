@@ -28,7 +28,7 @@ const SECOES = [
     grupo: "Regras",
     itens: [
       { id: "honorarios", label: "💰 Honorários e Taxas" },
-      { id: "meta", label: "🎯 Meta de Honorários" },
+      { id: "meta", label: "🎯 Meta do Mês" },
       { id: "lgpd", label: "🔐 LGPD e Conduta" },
       { id: "indicadores", label: "📊 Indicadores" },
     ],
@@ -182,7 +182,7 @@ function SecaoInicio({ ir }) {
 
       <div style={S.grade4}>
         <CardAtalho emoji="📁" titulo="Minha Carteira" desc="Ir direto pra sua carteira de casos." onClick={() => (window.location.href = "/painel-carteira")} />
-        <CardAtalho emoji="🎯" titulo="Metas do mês" desc="Faixas de honorários e foco do mês." onClick={() => ir("meta")} />
+        <CardAtalho emoji="🎯" titulo="Meta do mês" desc="Meta operacional, faixas de comissão e foco." onClick={() => ir("meta")} />
         <CardAtalho emoji="💬" titulo="Mensagens Prontas" desc="Modelos de atendimento e orientações." onClick={() => ir("mensagens")} />
         <CardAtalho emoji="💡" titulo="Painel de Sugestões" desc="Melhorias para Sistema e Portal Reativa." onClick={() => ir("sugestoes")} />
       </div>
@@ -508,36 +508,101 @@ function SecaoHonorarios() {
 
 /* ===================== Meta de Honorários ===================== */
 
+// As faixas ficavam ESCRITAS A MAO aqui, e eram as de julho (38.000 / 45.000 /
+// 52.000 / 60.000) -- a operacao leu meta errada de agosto ate 11/09/2026.
+// Agora vem de metas_projecao, pela RPC portal_meta_do_mes: aquela tabela e
+// restrita a gestao pela RLS, e a RPC expoe ao operador so a meta operacional e
+// as faixas.
+//
+// Primeira faixa comeca em ZERO. O cadastro guarda 0,01 apenas para nao empatar
+// com a faixa anterior; a gestao confirmou a regra em 11/09/2026.
+const moedaBR = (v) =>
+  Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+
+const pctBR = (v) =>
+  `${Number(v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
+
+const mesPorExtenso = (mes) => {
+  const nomes = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+  const [ano, m] = String(mes || "").split("-");
+  const i = parseInt(m, 10) - 1;
+  return nomes[i] ? `${nomes[i]} de ${ano}` : mes;
+};
+
 function SecaoMeta() {
-  const faixas = [
-    { faixa: "Até R$ 38.000,00", pct: "4%" },
-    { faixa: "De R$ 38.000,01 a R$ 45.000,00", pct: "8%" },
-    { faixa: "De R$ 45.000,01 a R$ 52.000,00", pct: "9%" },
-    { faixa: "Acima de R$ 60.000,00", pct: "9,5%" },
-  ];
+  const [meta, setMeta] = useState(null);
+  const [carregando, setCarregando] = useState(true);
+  const [erro, setErro] = useState("");
+
+  useEffect(() => {
+    let vivo = true;
+    supabase.rpc("portal_meta_do_mes").then(({ data, error }) => {
+      if (!vivo) return;
+      setCarregando(false);
+      if (error) { setErro("Não foi possível carregar a meta do mês."); return; }
+      setMeta(data || null);
+    });
+    return () => { vivo = false; };
+  }, []);
+
+  if (carregando) return <Carregando texto="Carregando a meta do mês…" />;
+
+  const faixas = meta?.faixas || [];
+  const semMeta = !meta || meta.sem_meta || !faixas.length;
+
   return (
     <>
-      <TituloSecao emoji="🎯" titulo="Meta de Honorários" sub="Faixas de referência para acompanhamento do mês." />
+      <TituloSecao
+        emoji="🎯"
+        titulo="Meta do mês"
+        sub={meta?.mes ? `Referência: ${mesPorExtenso(meta.mes)}.` : "Faixas de comissão do mês."}
+      />
+
+      {erro ? <Card><p style={S.paragrafo}>{erro}</p></Card> : null}
+
+      {!semMeta && meta.meta_operacional != null ? (
+        <Card>
+          <h3 style={S.h3}>Meta operacional da equipe</h3>
+          <p style={{ ...S.paragrafo, fontSize: 30, fontWeight: 800, color: "var(--rv-tinta)", margin: "4px 0 0" }}>
+            {moedaBR(meta.meta_operacional)}
+          </p>
+        </Card>
+      ) : null}
+
       <Card>
-        <table style={S.tabela}>
-          <thead>
-            <tr>
-              <th style={S.th}>Faixa</th>
-              <th style={S.thNum}>Percentual</th>
-            </tr>
-          </thead>
-          <tbody>
-            {faixas.map((f) => (
-              <tr key={f.faixa}>
-                <td style={S.td}>{f.faixa}</td>
-                <td style={S.tdNum}>
-                  <strong>{f.pct}</strong>
-                </td>
+        <h3 style={S.h3}>Faixas de comissão</h3>
+        {semMeta ? (
+          <p style={S.paragrafo}>
+            A meta deste mês ainda não foi cadastrada. Assim que a gestão lançar,
+            ela aparece aqui automaticamente.
+          </p>
+        ) : (
+          <table style={S.tabela}>
+            <thead>
+              <tr>
+                <th style={S.th}>Honorário no mês</th>
+                <th style={S.thNum}>Percentual</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {faixas.map((f) => (
+                <tr key={f.n}>
+                  <td style={S.td}>
+                    {f.ate == null
+                      ? `Acima de ${moedaBR(f.de)}`
+                      : Number(f.de) === 0
+                        ? `Até ${moedaBR(f.ate)}`
+                        : `De ${moedaBR(f.de)} a ${moedaBR(f.ate)}`}
+                  </td>
+                  <td style={S.tdNum}><strong>{pctBR(f.percentual)}</strong></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </Card>
+
       <Card>
         <h3 style={S.h3}>📌 Foco do mês</h3>
         <p style={S.paragrafo}>
