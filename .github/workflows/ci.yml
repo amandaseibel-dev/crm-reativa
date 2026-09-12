@@ -6,6 +6,7 @@
 #   - teste quebrado  (a rede de 447 testes existia e não rodava sozinha)
 #   - build quebrado  (build quebrado = tela branca em produção)
 #   - lint PIORANDO   (ver scripts/ci/catraca-lint.mjs)
+#   - migration PIORANDO o histórico (ver scripts/ci/catraca-migrations.mjs)
 name: CI
 
 on:
@@ -23,12 +24,18 @@ permissions:
 
 jobs:
   verificar:
-    name: testes, build e catraca do lint
+    name: testes, build e catracas
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
     steps:
+      # fetch-depth: 0 porque a catraca das migrations compara este ramo com o
+      # branch base via `git diff`. Com o clone raso (padrão 1) não existe base
+      # para comparar e a verificação não teria o que ler. Nenhum segredo é
+      # usado: só o histórico do próprio repositório.
       - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v5
         with:
@@ -48,3 +55,9 @@ jobs:
 
       - name: Catraca do lint
         run: node scripts/ci/catraca-lint.mjs
+
+      # Não fala com o Supabase, não lê credencial, não consulta produção.
+      # Trabalha só sobre o checkout Git: o legado é tolerado, nenhum PR novo
+      # pode piorá-lo.
+      - name: Catraca das migrations
+        run: npm run check:migrations
