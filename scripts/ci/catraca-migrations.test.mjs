@@ -33,14 +33,21 @@ function commit(mensagem) {
   return git(["rev-parse", "HEAD"]).trim();
 }
 
-/** Roda a catraca. Devolve { ok, saida } — nunca lança, para o teste inspecionar. */
-function catraca() {
+/**
+ * Roda a catraca. Devolve { ok, saida } — nunca lança, para o teste inspecionar.
+ * Sem argumento, simula o caso simples: base explícita no commit-base do teste.
+ * Com `env`, simula os eventos do CI (pull_request, push) sobrescrevendo só o
+ * que interessa — inclusive com string vazia, que é o caso do pull_request.
+ */
+function catraca(env = {}) {
+  const ambiente = {
+    ...process.env,
+    CATRACA_BASE: baseSha,
+    GITHUB_BASE_REF: "",
+    ...env,
+  };
   try {
-    const saida = execFileSync("node", [SCRIPT], {
-      cwd: repo,
-      encoding: "utf8",
-      env: { ...process.env, CATRACA_BASE: baseSha, GITHUB_BASE_REF: "" },
-    });
+    const saida = execFileSync("node", [SCRIPT], { cwd: repo, encoding: "utf8", env: ambiente });
     return { ok: true, saida };
   } catch (e) {
     return { ok: false, saida: `${e.stdout || ""}${e.stderr || ""}` };
@@ -248,6 +255,23 @@ describe("catraca das migrations — o que FALHA", () => {
     expect(r.saida).toContain("L1-NOME-FORA-DO-PADRAO");
   });
 
+  it("base inexistente falha fechado, não passa em silêncio", () => {
+    escrever("README.md", "nada demais\n");
+    commit("commit qualquer");
+    const r = catraca({ CATRACA_BASE: "naoexiste1234567890" });
+    expect(r.ok).toBe(false);
+    expect(r.saida).toContain("não consegui resolver a base");
+    expect(r.saida).toContain("informada em CATRACA_BASE");
+  });
+
+  it("SHA de zeros (push que criou o ref) falha fechado", () => {
+    escrever("README.md", "nada demais\n");
+    commit("commit qualquer");
+    const r = catraca({ CATRACA_BASE: "0".repeat(40) });
+    expect(r.ok).toBe(false);
+    expect(r.saida).toContain("SHA de zeros");
+  });
+
   it("a mensagem de erro diz arquivo, versão, regra e como corrigir", () => {
     escrever("supabase/migrations/20260101120000_reaproveitando.sql", "select 1;\n");
     commit("reusa timestamp");
@@ -257,5 +281,87 @@ describe("catraca das migrations — o que FALHA", () => {
     expect(r.saida).toContain("versão  :");
     expect(r.saida).toContain("motivo  :");
     expect(r.saida).toContain("corrigir:");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// COMO A BASE É DESCOBERTA EM CADA EVENTO DO CI.
+//
+// Era aqui o furo: no evento `push` em main, depois do push `origin/main` já
+// aponta para o próprio HEAD. A catraca concluía `baseSha === headSha` e saía
+// sem olhar o commit que acabou de entrar. O workflow passou a informar
+// `CATRACA_BASE=${{ github.event.before }}`, e em `pull_request` esse valor vem
+// vazio — vazio não pode interceptar o fallback.
+// ---------------------------------------------------------------------------
+describe("catraca das migrations — resolução da base por evento", () => {
+  it("pull_request: base é o branch de destino, e a alteração ruim é detectada", () => {
+    // o CI de PR não define CATRACA_BASE; quem resolve é GITHUB_BASE_REF.
+    // `origin/main` precisa existir como ref remota, como existe no checkout real.
+    git(["update-ref", "refs/remotes/origin/main", baseSha]);
+    git(["checkout", "-q", "-b", "feature"]);
+    escrever("supabase/migrations/20260101120000_reaproveitando.sql", "select 1;\n");
+    commit("migration ruim no branch da feature");
+
+    const r = catraca({ CATRACA_BASE: "", GITHUB_BASE_REF: "main" });
+    expect(r.ok).toBe(false);
+    expect(r.saida).toContain("M5-VERSAO-JA-EXISTE");
+    expect(r.saida).toContain("origin/main");
+  });
+
+  it("pull_request: CATRACA_BASE vazio NÃO intercepta o fallback", () => {
+    git(["update-ref", "refs/remotes/origin/main", baseSha]);
+    git(["checkout", "-q", "-b", "feature"]);
+    escrever("supabase/migrations/20260301090000_valida.sql", "select 1;\n");
+    commit("migration boa");
+
+    // string vazia e string só com espaço têm de cair no fallback, não virar base
+    for (const vazio of ["", "   "]) {
+      const r = catraca({ CATRACA_BASE: vazio, GITHUB_BASE_REF: "main" });
+      expect(r.ok).toBe(true);
+      expect(r.saida).toContain("base origin/main");
+      expect(r.saida).toContain("migrations novas: 1");
+    }
+  });
+
+  it("push em main: migration ruim do commit que acabou de entrar é detectada", () => {
+    // Simula o que o CI vê: HEAD é o commit novo em main, e `origin/main` JÁ
+    // aponta para ele — a situação que antes fazia a catraca sair calada.
+    escrever("supabase/migrations/20260101120000_reaproveitando.sql", "select 1;\n");
+    const shaAnterior = baseSha;
+    const shaNovo = commit("push direto em main com migration ruim");
+    git(["update-ref", "refs/remotes/origin/main", shaNovo]);
+
+    // sem CATRACA_BASE, o fallback acharia origin/main == HEAD e sairia em paz:
+    const semBase = catraca({ CATRACA_BASE: "", GITHUB_BASE_REF: "" });
+    expect(semBase.ok).toBe(true);
+    expect(semBase.saida).toContain("é o próprio HEAD");
+
+    // com github.event.before, o commit novo é de fato verificado:
+    const comBase = catraca({ CATRACA_BASE: shaAnterior, GITHUB_BASE_REF: "" });
+    expect(comBase.ok).toBe(false);
+    expect(comBase.saida).toContain("M5-VERSAO-JA-EXISTE");
+  });
+
+  it("push em main sem mexer em migration nem ledger passa", () => {
+    escrever("src/qualquer.js", "export const x = 1;\n");
+    const shaAnterior = baseSha;
+    const shaNovo = commit("push em main sem migration");
+    git(["update-ref", "refs/remotes/origin/main", shaNovo]);
+
+    const r = catraca({ CATRACA_BASE: shaAnterior, GITHUB_BASE_REF: "" });
+    expect(r.ok).toBe(true);
+    expect(r.saida).toContain("nada piorou");
+    expect(r.saida).toContain("migrations novas: 0");
+  });
+
+  it("push em main que altera migration antiga é detectado", () => {
+    escrever("supabase/migrations/20260101120000_primeira.sql", "select 1; -- mexi em main\n");
+    const shaAnterior = baseSha;
+    const shaNovo = commit("push em main editando migration antiga");
+    git(["update-ref", "refs/remotes/origin/main", shaNovo]);
+
+    const r = catraca({ CATRACA_BASE: shaAnterior, GITHUB_BASE_REF: "" });
+    expect(r.ok).toBe(false);
+    expect(r.saida).toContain("I1-MIGRATION-ALTERADA");
   });
 });

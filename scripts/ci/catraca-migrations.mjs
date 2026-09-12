@@ -19,6 +19,17 @@
 // arquivo novo que reutilize uma delas. Com isso a 23ª duplicidade é bloqueada
 // mesmo que o total geral continue 22 — o que uma contagem não pegaria.
 //
+// QUAL E A BASE, POR EVENTO:
+//   pull_request -> GITHUB_BASE_REF (o branch de destino). Funciona direto.
+//   push em main -> `origin/main` JA APONTA PARA O PROPRIO HEAD depois do push,
+//                   e a catraca sairia sem olhar o commit que acabou de entrar.
+//                   Por isso o workflow passa CATRACA_BASE=${{ github.event.before }},
+//                   o SHA anterior ao push. Em pull_request esse valor vem VAZIO,
+//                   e vazio NAO intercepta o fallback.
+//
+// Base invalida ou inexistente FALHA FECHADO (exit 1). Nunca passa em silencio:
+// verificacao que some sem avisar e pior que verificacao que nao existe.
+//
 // Uso local:   npm run check:migrations
 // Base manual: CATRACA_BASE=origin/main npm run check:migrations
 import { execFileSync } from "node:child_process";
@@ -45,9 +56,16 @@ const COMECA_COM_TIMESTAMP = /^(\d{14})_/;
 function git(args) {
   return execFileSync("git", args, { encoding: "utf8", maxBuffer: 64 * 1024 * 1024 });
 }
+// `stdio` silencia o stderr do git: quando a base não existe, `merge-base`
+// imprime "fatal: ..." e isso apareceria no log do CI antes da nossa mensagem,
+// dando a impressão de dois erros diferentes.
 function gitOuNulo(args) {
   try {
-    return git(args);
+    return execFileSync("git", args, {
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
   } catch {
     return null;
   }
@@ -56,38 +74,64 @@ function gitOuNulo(args) {
 // ---------------------------------------------------------------------------
 // Qual é a base da comparação. Precisa funcionar em PR, em push e na mão.
 // ---------------------------------------------------------------------------
+const SHA_ZERO = /^0{40}$/;
+
 function resolverBase() {
-  if (process.env.CATRACA_BASE) return process.env.CATRACA_BASE.trim();
+  // trim ANTES de decidir: no evento pull_request o workflow passa
+  // CATRACA_BASE="" (github.event.before vem vazio), e string vazia ou só espaço
+  // tem de cair no fallback, não virar uma "base explícita" inválida.
+  const explicita = (process.env.CATRACA_BASE || "").trim();
+  if (explicita) return { ref: explicita, explicita: true };
 
   // Em PR o GitHub Actions expõe o nome do branch de destino.
-  if (process.env.GITHUB_BASE_REF) {
-    const ref = `origin/${process.env.GITHUB_BASE_REF.trim()}`;
-    if (gitOuNulo(["rev-parse", "--verify", "--quiet", ref])) return ref;
+  const baseRef = (process.env.GITHUB_BASE_REF || "").trim();
+  if (baseRef) {
+    const ref = `origin/${baseRef}`;
+    if (gitOuNulo(["rev-parse", "--verify", "--quiet", ref])) return { ref, explicita: false };
   }
   for (const cand of ["origin/main", "main", "HEAD^"]) {
-    if (gitOuNulo(["rev-parse", "--verify", "--quiet", cand])) return cand;
+    if (gitOuNulo(["rev-parse", "--verify", "--quiet", cand])) return { ref: cand, explicita: false };
   }
-  return null;
+  return { ref: null, explicita: false };
 }
 
-const baseBruta = resolverBase();
+const { ref: baseBruta, explicita: baseExplicita } = resolverBase();
+
+// SHA de zeros: o GitHub manda isso quando o push CRIOU o ref — não existe
+// "antes". Falha fechado de propósito: em `main`, que já existe, isso significa
+// algo fora do comum (force-push, branch recriado) e merece olho humano.
+if (baseBruta && SHA_ZERO.test(baseBruta)) {
+  console.error("\n✗ catraca das migrations: a base recebida é o SHA de zeros.");
+  console.error("  Acontece quando o push criou o ref e não existe commit anterior.");
+  console.error("  Rode com base explícita: CATRACA_BASE=<sha ou ref> npm run check:migrations\n");
+  process.exit(1);
+}
+
 if (!baseBruta) {
-  console.log("✓ catraca das migrations: sem base para comparar (repositório sem histórico). Nada a verificar.");
-  process.exit(0);
+  console.error("\n✗ catraca das migrations: não há base para comparar e nenhuma foi informada.");
+  console.error("  Informe uma: CATRACA_BASE=<sha ou ref> npm run check:migrations\n");
+  process.exit(1);
 }
 
 // O ponto de bifurcação é o que importa: sem ele, commits que entraram na base
 // depois do fork apareceriam como se este ramo os tivesse apagado.
-const baseSha = (gitOuNulo(["merge-base", baseBruta, "HEAD"]) || gitOuNulo(["rev-parse", baseBruta]) || "").trim();
+const baseSha = (
+  gitOuNulo(["merge-base", baseBruta, "HEAD"]) ||
+  gitOuNulo(["rev-parse", "--verify", "--quiet", `${baseBruta}^{commit}`]) ||
+  ""
+).trim();
 if (!baseSha) {
-  console.error(`✗ catraca das migrations: não consegui resolver a base "${baseBruta}".`);
-  console.error("  Em CI, garanta `fetch-depth: 0` no checkout. Local: CATRACA_BASE=<ref> npm run check:migrations");
+  console.error(`\n✗ catraca das migrations: não consegui resolver a base "${baseBruta}"${baseExplicita ? " (informada em CATRACA_BASE)" : ""}.`);
+  console.error("  Em CI, garanta `fetch-depth: 0` no checkout — com clone raso o commit anterior pode não existir localmente.");
+  console.error("  Local: CATRACA_BASE=<sha ou ref> npm run check:migrations\n");
   process.exit(1);
 }
 
 const headSha = (gitOuNulo(["rev-parse", "HEAD"]) || "").trim();
 if (baseSha === headSha) {
-  console.log("✓ catraca das migrations: HEAD é a própria base. Nada novo para verificar.");
+  // Acontece de propósito ao rodar na mão estando no próprio branch base. NÃO
+  // deve acontecer no CI: no push em main a base vem de github.event.before.
+  console.log(`✓ catraca das migrations: a base "${baseBruta}" é o próprio HEAD (${headSha.slice(0, 8)}). Nada novo para verificar.`);
   process.exit(0);
 }
 
@@ -271,12 +315,12 @@ const novasMigrations = [...novosPorVersao.entries()].filter(([, a]) => a.some((
 const novosLedger = [...novosPorVersao.entries()].filter(([, a]) => a.some((p) => p.startsWith(LEDGER)));
 
 if (problemas.length === 0) {
-  console.log(`✓ catraca das migrations: nada piorou (base ${baseSha.slice(0, 8)}).`);
+  console.log(`✓ catraca das migrations: nada piorou (base ${baseBruta} = ${baseSha.slice(0, 8)}).`);
   console.log(`  migrations novas: ${novasMigrations.length} · ledger novo: ${novosLedger.length} · versões no índice da base: ${versoesBase.size}`);
   process.exit(0);
 }
 
-console.error(`\n✗ catraca das migrations: ${problemas.length} violação(ões). Base: ${baseSha.slice(0, 8)}\n`);
+console.error(`\n✗ catraca das migrations: ${problemas.length} violação(ões). Base: ${baseBruta} = ${baseSha.slice(0, 8)}\n`);
 for (const p of problemas) {
   console.error(`  ${p.regra}`);
   console.error(`    arquivo : ${p.arquivo}`);

@@ -59,5 +59,13 @@ jobs:
       # Não fala com o Supabase, não lê credencial, não consulta produção.
       # Trabalha só sobre o checkout Git: o legado é tolerado, nenhum PR novo
       # pode piorá-lo.
+      #
+      # CATRACA_BASE existe por causa do evento `push` em main: depois do push,
+      # `origin/main` já aponta para o próprio HEAD, e a catraca sairia sem olhar
+      # o commit que acabou de entrar. `github.event.before` é o SHA anterior ao
+      # push e resolve isso. Em `pull_request` esse valor vem VAZIO, e vazio não
+      # intercepta o fallback por GITHUB_BASE_REF — é o script que garante isso.
       - name: Catraca das migrations
+        env:
+          CATRACA_BASE: ${{ github.event.before }}
         run: npm run check:migrations
