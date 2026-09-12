@@ -1,16 +1,26 @@
-// Fila de pagamentos sem aluno.
+// Fila de pagamentos sem vinculo -- a fila de excecao do dinheiro.
 //
 // POR QUE EXISTE. O extrato de pagamentos nao traz CPF, e ate 28/08/2026 a
 // importacao tambem descartava a matricula (coluna B vem como
 // "2026002333 - Nome"). Resultado: pagamento entrava sem nenhum vinculo com a
-// base. O vinculo automatico casa pelo nome, mas SO quando o nome aparece uma
-// unica vez em toda a base -- nome repetido nao entra, porque e exatamente ali
-// que o casamento por nome erra (a base tem 109 nomes repetidos com CPFs
-// diferentes).
+// base.
 //
-// O que sobra cai aqui, com o motivo separado:
-//   NOME_REPETIDO -> ha mais de um aluno com esse nome; a gestao escolhe
-//   SEM_CADASTRO  -> nao existe aluno com esse nome; a gestao cria ou ignora
+// MUDANCA DE 12/09/2026. O nome deixou de vincular. A regra agora e, em ordem:
+// CPF -> boleto exato -> prefixo UNICO -> numero_ulbra UNICO -> SEM VINCULO.
+// O que nao tem identificador financeiro cai aqui e exige decisao humana.
+// Medido: em lotes reais, 30 a 40% das linhas caem nesta fila. Por isso a fila
+// entrou no menu -- antes a rota existia e ninguem a alcancava.
+//
+// Cada linha mostra DOIS motivos, que respondem perguntas diferentes:
+//   motivo FINANCEIRO  -> por que nenhum identificador resolveu (vem de
+//                         fila_pagamento_sem_vinculo.motivo)
+//   motivo por NOME    -> NOME_REPETIDO / SEM_CADASTRO, so para a pessoa saber
+//                         se existe homonimo antes de decidir
+//
+// Os candidatos por nome sao SUGESTAO. Nenhum deles vincula sozinho, nem aqui
+// nem no banco: quem grava e pagamento_vincular_aluno, que exige gestao,
+// registra origem_vinculo = 'GESTAO_MANUAL' e fecha a linha da fila com quem
+// decidiu e quando.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
@@ -33,6 +43,9 @@ function mesAtual() {
 
 export default function PagamentosSemAluno() {
   const [mes, setMes] = useState(mesAtual());
+  // Os pagamentos sem vinculo que existem hoje sao todos de 2026-07: no filtro
+  // de mes corrente a fila parecia vazia. Pendencia se le por pendencia.
+  const [todosOsMeses, setTodosOsMeses] = useState(false);
   const [linhas, setLinhas] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
@@ -44,11 +57,14 @@ export default function PagamentosSemAluno() {
   const carregar = useCallback(async () => {
     setCarregando(true);
     setErro("");
-    const { data, error } = await supabase.rpc("pagamentos_sem_aluno", { p_mes: mes });
+    const { data, error } = await supabase.rpc("pagamentos_sem_aluno", {
+      p_mes: mes,
+      p_todos_os_meses: todosOsMeses,
+    });
     if (error) setErro(error.message);
     setLinhas(data || []);
     setCarregando(false);
-  }, [mes]);
+  }, [mes, todosOsMeses]);
 
   useEffect(() => { carregar(); }, [carregar]);
 
@@ -74,10 +90,11 @@ export default function PagamentosSemAluno() {
     <div style={S.wrap}>
       <div style={S.topo}>
         <div>
-          <h1 style={S.titulo}>Pagamentos sem aluno</h1>
+          <h1 style={S.titulo}>Pagamentos sem vínculo</h1>
           <p style={S.sub}>
-            O que o vínculo automático não resolveu. Nome repetido e aluno sem cadastro
-            precisam da sua decisão — o valor já está no mês, só falta saber de quem é.
+            O que nenhum identificador financeiro resolveu — CPF, boleto exato, prefixo único
+            ou número Ulbra único. <b>Nome não vincula</b>: aparece só como sugestão, e a
+            decisão é sua. O valor já está no mês; falta saber de quem é.
           </p>
         </div>
         <button type="button" onClick={carregar} style={S.btnGhost} disabled={carregando}>
@@ -90,8 +107,17 @@ export default function PagamentosSemAluno() {
           type="month"
           value={mes}
           onChange={(e) => setMes(e.target.value)}
-          style={S.select}
+          style={{ ...S.select, opacity: todosOsMeses ? 0.5 : 1 }}
+          disabled={todosOsMeses}
         />
+        <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12.5, fontWeight: 700, color: "var(--rv-texto)" }}>
+          <input
+            type="checkbox"
+            checked={todosOsMeses}
+            onChange={(e) => setTodosOsMeses(e.target.checked)}
+          />
+          Toda a pendência, qualquer mês
+        </label>
         <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={S.select}>
           <option value="TODOS">Todos ({linhas.length})</option>
           <option value="NOME_REPETIDO">Nome repetido ({repetidos})</option>
@@ -160,6 +186,8 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
   const [msg, setMsg] = useState("");
 
   const repetido = item.motivo === "NOME_REPETIDO";
+  // sugestoes vem da fila (jsonb). Nunca sao aplicadas: so oferecidas.
+  const sugestoes = Array.isArray(item.sugestoes) ? item.sugestoes.filter((x) => x && x.aluno_id) : [];
 
   async function buscar() {
     const t = termo.trim();
@@ -179,7 +207,9 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
     const { data, error } = await supabase.rpc("pagamento_vincular_aluno", {
       p_pagamento_id: item.pagamento_id,
       p_aluno_id: alunoId,
-      p_observacao: `Fila de pagamentos sem aluno (${item.motivo}).`,
+      p_observacao:
+        `Fila de pagamentos sem vínculo. Boleto ${item.numero_parcela_completo || "(sem)"}. ` +
+        `Motivo: ${item.motivo_financeiro || item.motivo}.`,
     });
     setSalvando(false);
     if (error) { setMsg("Erro: " + error.message); return; }
@@ -203,8 +233,10 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
             </button>
           ) : null}
           <span style={S.cardCpf}>
-            {dataCurta(item.data_pagamento)} · título {item.titulo_numero || "-"}
+            {dataCurta(item.data_pagamento)} · boleto {item.numero_parcela_completo || "(sem)"}
+            {item.titulo_numero ? ` · título ${item.titulo_numero}` : ""}
             {item.matricula ? ` · matrícula ${item.matricula}` : ""}
+            {item.arquivo_nome ? ` · ${item.arquivo_nome}` : ""}
           </span>
         </div>
         <div style={S.cardHeadDir}>
@@ -219,8 +251,54 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
         </div>
       </div>
 
+      <div style={motivoBox}>
+        <span style={motivoRotulo}>por que caiu aqui</span>
+        <span style={motivoTexto}>{item.motivo_financeiro || "—"}</span>
+      </div>
+
       {aberto ? (
         <div style={{ padding: "14px 16px" }}>
+          {sugestoes.length > 0 ? (
+            <div style={sugestaoCaixa}>
+              <div style={sugestaoTopo}>
+                {sugestoes.length === 1 ? "1 sugestão por nome" : `${sugestoes.length} sugestões por nome`}
+                <span style={sugestaoAviso}>
+                  nome não é prova — confira a ficha antes de vincular
+                </span>
+              </div>
+              {sugestoes.map((sg) => (
+                <div key={sg.aluno_id} style={resultadoLinha}>
+                  <div style={{ minWidth: 0 }}>
+                    <div style={{ fontWeight: 700, color: "var(--rv-tinta)", fontSize: 13.5 }}>{sg.nome}</div>
+                    <div style={S.cardCpf}>
+                      CPF {sg.cpf_mascarado || "-"}
+                      {sg.matricula ? ` · matrícula ${sg.matricula}` : ""}
+                      {sg.tem_acordo_ativo ? " · tem acordo ATIVO" : " · sem acordo ativo"}
+                    </div>
+                  </div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => onVerFicha && onVerFicha(sg.aluno_id)}
+                      style={{ ...S.btnGhost, background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)" }}
+                      title="Conferir a ficha antes de vincular, sem sair da fila"
+                    >
+                      Ver ficha
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => vincular(sg.aluno_id, sg.nome)}
+                      disabled={salvando}
+                      style={S.btnGhost}
+                    >
+                      {salvando ? "…" : "Vincular"}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : null}
+
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
             <input
               value={termo}
@@ -287,6 +365,25 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
   );
 }
 
+const motivoBox = {
+  display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap",
+  padding: "8px 16px", borderTop: "1px solid var(--rv-borda)", background: "var(--rv-fundo-cartao)",
+};
+const motivoRotulo = {
+  fontSize: 10.5, fontWeight: 800, letterSpacing: ".06em", textTransform: "uppercase",
+  color: "var(--rv-texto-suave)", whiteSpace: "nowrap",
+};
+const motivoTexto = { fontSize: 12.5, color: "var(--rv-texto)", minWidth: 0 };
+const sugestaoCaixa = {
+  border: "1px solid var(--rv-ambar-borda)", background: "var(--rv-ambar-fundo)",
+  borderRadius: 10, padding: "10px 12px", marginBottom: 12,
+  display: "flex", flexDirection: "column", gap: 8,
+};
+const sugestaoTopo = {
+  display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap",
+  fontSize: 12.5, fontWeight: 800, color: "var(--rv-ambar-texto)",
+};
+const sugestaoAviso = { fontWeight: 600, fontSize: 11.5, color: "var(--rv-ambar-texto)", opacity: 0.85 };
 const btnCopiarNome = { background: "var(--rv-superficie)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" };
 const selo = {
   repetido: { fontSize: 12, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 999, padding: "4px 12px" },
