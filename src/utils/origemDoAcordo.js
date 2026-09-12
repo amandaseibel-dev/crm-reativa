@@ -15,6 +15,14 @@
 // ser. Por isso lemos os títulos direto.
 //
 // Um mesmo acordo pode ter os dois: parte mensalidade, parte renegociação.
+//
+// ACORDO CANCELADO. Quando o acordo é cancelado, a dívida volta a ser cobrada e
+// `acordos_titulos.acordo_id` é zerado — de propósito, é assim que a mensalidade
+// reaparece na carteira. Só que a composição do acordo sumia junto, e é
+// justamente aí que alguém precisa ver o que ele tinha dentro. Por isso, além
+// do `acordo_id`, aceitamos o HISTÓRICO de `acordo_titulo_vinculo`: a linha do
+// vínculo continua lá depois do cancelamento. O item volta marcado com
+// `voltouACobrar`, para a tela poder dizer que aquela mensalidade está de volta.
 
 const TIPO_ACORDO = "Acordo";
 
@@ -25,9 +33,17 @@ function valorDoTitulo(t) {
   return Number.isFinite(v) ? v : 0;
 }
 
-export function origemDoAcordo(titulos, acordoId) {
+export function origemDoAcordo(titulos, acordoId, vinculos) {
+  // Títulos que o histórico diz que passaram por este acordo, mesmo que hoje
+  // não apontem mais para ele.
+  const peloHistorico = new Set(
+    (vinculos || [])
+      .filter((v) => v && v.acordo_id === acordoId && v.titulo_id != null)
+      .map((v) => String(v.titulo_id)),
+  );
+
   const doAcordo = (titulos || [])
-    .filter((t) => t && t.acordo_id === acordoId)
+    .filter((t) => t && (t.acordo_id === acordoId || peloHistorico.has(String(t.id))))
     .filter((t) => t.documento != null && String(t.documento).trim() !== "");
 
   const separar = (deAcordo) =>
@@ -40,6 +56,9 @@ export function origemDoAcordo(titulos, acordoId) {
         vencimento: t.vencimento || null,
         valor: valorDoTitulo(t),
         situacao: t.situacao || null,
+        // Só o histórico liga este título ao acordo: o acordo caiu e a
+        // mensalidade voltou para a carteira.
+        voltouACobrar: t.acordo_id !== acordoId,
       }));
 
   const itensMensalidade = separar(false);

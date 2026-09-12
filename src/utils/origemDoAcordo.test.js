@@ -115,3 +115,48 @@ describe("origem do acordo", () => {
     });
   });
 });
+
+// ACORDO CANCELADO: o cancelamento zera acordos_titulos.acordo_id para a
+// mensalidade voltar a ser cobrada. A composição do acordo não pode sumir junto
+// -- é justamente quando alguém precisa ver o que o acordo tinha dentro.
+describe("acordo cancelado", () => {
+  const titulo = {
+    id: "t1", acordo_id: null, documento: "4266474",
+    vencimento: "2026-04-05", valor_original: 462.93, tipo_boleto: "Mensalidade",
+    situacao: "ABERTO",
+  };
+
+  it("sem o historico, a composicao do acordo cancelado fica vazia", () => {
+    const r = origemDoAcordo([titulo], "a1");
+    expect(r.semOrigem).toBe(true);
+  });
+
+  it("com o historico do vinculo, a composicao continua aparecendo", () => {
+    const r = origemDoAcordo([titulo], "a1", [{ titulo_id: "t1", acordo_id: "a1" }]);
+    expect(r.semOrigem).toBe(false);
+    expect(r.itensMensalidade).toHaveLength(1);
+    expect(r.itensMensalidade[0].documento).toBe("4266474");
+  });
+
+  it("marca que a mensalidade voltou a ser cobrada", () => {
+    const r = origemDoAcordo([titulo], "a1", [{ titulo_id: "t1", acordo_id: "a1" }]);
+    expect(r.itensMensalidade[0].voltouACobrar).toBe(true);
+  });
+
+  it("titulo ainda vinculado nao aparece como voltou a cobrar", () => {
+    const vivo = { ...titulo, acordo_id: "a1", situacao: "NEGOCIADO" };
+    const r = origemDoAcordo([vivo], "a1", [{ titulo_id: "t1", acordo_id: "a1" }]);
+    expect(r.itensMensalidade[0].voltouACobrar).toBe(false);
+  });
+
+  it("o historico de OUTRO acordo nao contamina este", () => {
+    const r = origemDoAcordo([titulo], "a1", [{ titulo_id: "t1", acordo_id: "a2" }]);
+    expect(r.semOrigem).toBe(true);
+  });
+
+  it("nao duplica quando o titulo esta ligado e tambem no historico", () => {
+    const vivo = { ...titulo, acordo_id: "a1" };
+    const r = origemDoAcordo([vivo], "a1", [{ titulo_id: "t1", acordo_id: "a1" }]);
+    expect(r.itensMensalidade).toHaveLength(1);
+  });
+});
