@@ -30,6 +30,7 @@ import {
 import { analiticasSuspensas } from "../config/modoContencao";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import { podeVerTudo, nomeOperadorPorEmail } from "../utils/operadores";
+import { acumularDonos, rotuloDonosDoAcordo } from "../utils/acordoDono";
 import FilaReceptivo from "./FilaReceptivo";
 import jsPDF from "jspdf";
 import ReceberLeads from "./ReceberLeads";
@@ -446,7 +447,14 @@ async function consolidarFinanceiro(ids, hoje) {
       temAtraso: false,
       temAVencer: false,
       menorVencimento: null, // menor vencimento em aberto (YYYY-MM-DD)
-      acordoResponsavel: null,
+      // DONOS DO ACORDO deste aluno (acordos.operador_responsavel_email,
+      // normalizado). Set, nao string: aluno pode ter mais de um acordo ATIVO e
+      // o `||` anterior guardava um qualquer. `acordoSemResponsavel` e um
+      // estado PROPRIO -- antes acordo sem responsavel deixava o campo nulo, a
+      // linha nao dizia nada sobre o acordo e a operadora lia o responsavel da
+      // FICHA como se fosse o dono do acordo.
+      acordoDonos: new Set(),
+      acordoSemResponsavel: false,
     };
   }
   if (!ids.length) return fin;
@@ -489,7 +497,11 @@ async function consolidarFinanceiro(ids, hoje) {
       if (!fin[id]) continue;
       fin[id].acordos += Number(p.valor || 0);
       fin[id].temDetalhe = true;
-      fin[id].acordoResponsavel = ac.operador_responsavel_email || fin[id].acordoResponsavel;
+      const donos = acumularDonos(
+        { donos: fin[id].acordoDonos, semResponsavel: fin[id].acordoSemResponsavel },
+        ac
+      );
+      fin[id].acordoSemResponsavel = donos.semResponsavel;
       if (p.status === "VENCIDA") fin[id].temAtraso = true;
       else fin[id].temAVencer = true;
       const vp = p.vencimento ? String(p.vencimento).slice(0, 10) : null;
@@ -638,7 +650,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [carregandoQuitados, setCarregandoQuitados] = useState(false);
   const [qtdQuitados, setQtdQuitados] = useState(null);
   // Financeiro consolidado por aluno (valor em aberto sem duplicidade).
-  // { [aluno_id]: { mensalidades, acordos, total, temDetalhe, temAtraso, acordoResponsavel } }
+  // { [aluno_id]: { mensalidades, acordos, total, temDetalhe, temAtraso, acordoDonos, acordoSemResponsavel } }
   const [finAlunos, setFinAlunos] = useState({});
   const finAlunosRef = useRef({});
   useEffect(() => { finAlunosRef.current = finAlunos; }, [finAlunos]);
@@ -3124,7 +3136,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     const temDet = !!(fa && fa.temDetalhe);
                     const fallback = Number(a.valor_em_aberto || 0);
                     const respCaso = a.responsavel_atual_nome || nomeOperadorPorEmail(a.responsavel_atual_email);
-                    const respAcordo = fa && fa.acordoResponsavel ? nomeOperadorPorEmail(fa.acordoResponsavel) : null;
+                    // De quem e o ACORDO deste aluno. Pode ser mais de uma
+                    // pessoa, pode nao ser de ninguem -- e pode nao ser de quem
+                    // tem a ficha. Nada aqui e inferido do responsavel da ficha.
+                    const respAcordo = rotuloDonosDoAcordo(fa, respCaso, nomeOperadorPorEmail);
                     const corTotal = temDet
                       ? (fa.temAtraso ? "var(--rv-vermelho-texto)" : fa.temAVencer ? "var(--rv-ambar-texto)" : "var(--rv-tinta)")
                       : "var(--rv-tinta)";
@@ -3360,7 +3375,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                                 </div>
                               )}
                               <div style={S.emAbertoSub}>Responsavel: {respCaso || "-"}</div>
-                              {respAcordo && respAcordo !== respCaso && (
+                              {respAcordo && (
                                 <div style={S.emAbertoSub}>Acordo: {respAcordo}</div>
                               )}
                             </div>
