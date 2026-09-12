@@ -1547,10 +1547,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     for (let tentativa = 0; tentativa < teto; tentativa++) {
       const candId = proximoIdDoGuiado(idAtual);
       if (!candId) {
-        encerrarGuiado(true);
-        setModalAberto(false);
-        setAlunoModal(null);
-        carregar();
+        encerrarGuiadoSemProximo(true);
         return;
       }
       let fresco;
@@ -1577,10 +1574,17 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     }
     // A foto acabou durante as conferencias: encerra, em vez de recomecar de
     // uma lista viva (era por ai que entrava id de fora do recorte).
+    encerrarGuiadoSemProximo(true);
+  }
+
+  // Fim do guiado por falta de proximo caso na FOTO: encerra o selo, fecha o
+  // modal e (opcionalmente) recarrega. Num lugar so -- o mesmo bloco estava
+  // repetido em tres pontos.
+  function encerrarGuiadoSemProximo(recarregar) {
     encerrarGuiado(true);
     setModalAberto(false);
     setAlunoModal(null);
-    carregar();
+    if (recarregar) carregar();
   }
 
   function encerrarGuiado(concluiu) {
@@ -2433,18 +2437,10 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     if (!guiado || !guiadoAvancar || !guiadoPendenteRef.current) return;
     guiadoPendenteRef.current = false; // consome o pedido: trocar filtro/ordem depois nao pula ninguem
     const proxId = proximoIdDoGuiado(null);
-    if (!proxId) {
-      encerrarGuiado(true);
-      setModalAberto(false);
-      setAlunoModal(null);
-      return;
-    }
     // A foto guarda so o id; o objeto vem da lista que estava na tela.
-    const prox = (listaFiltradaRef.current || []).find((a) => String(a.id) === proxId);
+    const prox = proxId ? (listaFiltradaRef.current || []).find((a) => String(a.id) === proxId) : null;
     if (!prox) {
-      encerrarGuiado(true);
-      setModalAberto(false);
-      setAlunoModal(null);
+      encerrarGuiadoSemProximo(false);
       return;
     }
     abrirModal(prox).then(() => setAbaModal("negociacao"));
