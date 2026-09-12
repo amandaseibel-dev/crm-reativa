@@ -296,6 +296,15 @@ function RotaProtegida({ usuario, rota, children }) {
       return <Navigate to="/" replace />;
     }
   }
+  // Pagamentos sem vínculo: decide de quem é o dinheiro. Mesma lista que
+  // usuario_e_gestao() usa no banco -- se divergir, aparece tela que a RPC
+  // recusa, que é pior do que não aparecer.
+  if (rota === "/pagamentos-sem-aluno") {
+    const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+    if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
+      return <Navigate to="/" replace />;
+    }
+  }
   // Acordos por operador: mesma gestão da Calibragem (Amanda gestora, Fernanda,
   // Amanda ADM). A RPC confere de novo por calibragem_e_gestao() -- isto aqui é
   // só para não abrir uma tela que voltaria vazia.
@@ -350,6 +359,9 @@ export default function App() {
   const [parcelasVencendo, setParcelasVencendo] = useState([]);
   const [baixasAguardando, setBaixasAguardando] = useState(0);
   const [elogiosPendentes, setElogiosPendentes] = useState(0);
+  // Pendência da fila de pagamentos sem vínculo. Sem badge, a fila só é
+  // descoberta por quem abre a tela -- e ela recebe 30-40% de certos lotes.
+  const [semVinculo, setSemVinculo] = useState(0);
   const [minhasValidacoesPendentes, setMinhasValidacoesPendentes] = useState(0);
   const [sugestoesNovas, setSugestoesNovas] = useState(0);
   const [tema, setTema] = useState(() => localStorage.getItem("reativa_tema") || "claro"); // tema opcional (claro/escuro)
@@ -415,6 +427,9 @@ export default function App() {
       setLinksAguardando(podeAcessar(perfilAtual, "/painel-adm") ? Number(data.links_aguardando || 0) : 0);
       setBaixasAguardando(podeAcessar(perfilAtual, "/minha-fila-pagamentos") ? Number(data.baixas_aguardando || 0) : 0);
       setElogiosPendentes(podeAcessar(perfilAtual, "/elogios-atendimento") ? Number(data.elogios_pendentes || 0) : 0);
+      // O backend já devolve 0 para quem não é gestão (portão dentro de
+      // pagamentos_sem_vinculo_contar); aqui é só não exibir a quem não vê a rota.
+      setSemVinculo(podeAcessar(perfilAtual, "/pagamentos-sem-aluno") ? Number(data.pagamentos_sem_vinculo || 0) : 0);
       setTermosAguardandoValidacao(ehGestao ? Number(data.termos_aguardando_adm || 0) : 0);
       setTermosRejeitados(Number(data.termos_rejeitados || 0));
       setParcelasVencendo(Array.isArray(data.parcelas_vencendo) ? data.parcelas_vencendo : []);
@@ -647,6 +662,11 @@ export default function App() {
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
     { rota: "/saude-completa-carteira", label: "Saúde Completa da Carteira", icone: "Activity", secao: "Gestão" },
     { rota: "/revisao-prime", label: "Revisão Prime × CRM", icone: "GitCompare", secao: "Gestão" },
+    // Fila de exceção do vínculo de pagamento. Desde 12/09/2026 o nome não
+    // preenche mais aluno_id sozinho, então o que não tem identificador
+    // financeiro cai aqui e PRECISA de decisão humana. Sem item de menu a fila
+    // só acumularia -- a rota existia desde agosto e ninguém a alcançava.
+    { rota: "/pagamentos-sem-aluno", label: "Pagamentos sem vínculo", icone: "Link2", secao: "Gestão" },
     { rota: "/acordos-operador", label: "Acordos por Operador", icone: "TrendingUp", secao: "Operação" },
     
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
@@ -663,6 +683,10 @@ export default function App() {
     if (perfil === "operador" && item.esconderParaOperador) return false; if (["/exportar-contatos","/log-nivelamento","/vincular-operadores","/importar-acordos","/importar-recuperacao","/importacoes","/sugestoes-recebidas"].includes(item.rota)) return false;
     // DRE: Amanda + diretoria. O Fechamento de Remuneração continua SÓ Amanda
     // -- por isso os dois deixaram de dividir a mesma regra.
+    if (item.rota === "/pagamentos-sem-aluno") {
+      const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br", "cobranca07@aelbra.com.br"].includes(em);
+    }
     if (item.rota === "/dre") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return (em === "amanda.seibel@aelbra.com.br" || perfil === "diretoria") && perfil !== "operador";
@@ -872,6 +896,14 @@ export default function App() {
                     title="Comprovantes aguardando baixa"
                   >
                     {baixasAguardando}
+                  </span>
+                )}
+                {item.rota === "/pagamentos-sem-aluno" && semVinculo > 0 && (
+                  <span
+                    className="badge-pendente"
+                    title={`${semVinculo} pagamento(s) sem vínculo aguardando decisão da gestão`}
+                  >
+                    {semVinculo}
                   </span>
                 )}
                 {item.rota === "/elogios-atendimento" && elogiosPendentes > 0 && (
@@ -1115,7 +1147,7 @@ export default function App() {
               <Route path="/projecao-hora-a-hora" element={<ProjecaoHoraHora />} /> <Route path="/tv-mensagem" element={<RotaProtegida usuario={usuario} rota="/tv-mensagem"><TvMensagem /></RotaProtegida>} /> <Route path="/relatorio-receptivo" element={<RelatorioReceptivo />} /> <Route path="/central-whatsapp" element={<RotaProtegida usuario={usuario} rota="/central-whatsapp"><CentralWhatsApp /></RotaProtegida>} /> <Route path="/leads-whatsapp" element={<RotaProtegida usuario={usuario} rota="/leads-whatsapp"><LeadsWhatsApp /></RotaProtegida>} />
               <Route path="/dre" element={(["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) || perfil === "diretoria") ? <DRE /> : <Navigate to="/" replace />} />
               <Route path="/fechamento-remuneracao" element={["amanda.seibel@aelbra.com.br"].includes((usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim()) ? <FechamentoRemuneracao /> : <Navigate to="/" replace />} />
-              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/a-entrar" element={<HonorariosAEntrar />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/acordos-duplicados" element={<AcordosDuplicados />} /> <Route path="/acordos-sem-vinculo" element={<AcordosSemVinculo />} /> <Route path="/pagamentos-sem-aluno" element={<PagamentosSemAluno />} /> <Route path="/quitacao-sugerida" element={<QuitacaoSugerida />} /> <Route path="/conferencia-prime" element={<ConferenciaPrime />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
+              <Route path="/importar-recuperacao" element={<ImportarRecuperacao />} /> <Route path="/minha-agenda" element={<MinhaAgendaPessoal />} /> <Route path="/a-entrar" element={<HonorariosAEntrar />} /> <Route path="/envio-gmail" element={<EnvioGmailLote />} /> <Route path="/importar-acordos" element={<ImportacaoAcordos />} /> <Route path="/fila-acordos" element={<FilaAcordosConfirmar />} /> <Route path="/acordos-duplicados" element={<AcordosDuplicados />} /> <Route path="/acordos-sem-vinculo" element={<AcordosSemVinculo />} /> <Route path="/pagamentos-sem-aluno" element={<RotaProtegida usuario={usuario} rota="/pagamentos-sem-aluno"><PagamentosSemAluno /></RotaProtegida>} /> <Route path="/quitacao-sugerida" element={<QuitacaoSugerida />} /> <Route path="/conferencia-prime" element={<ConferenciaPrime />} /> <Route path="/ferramentas" element={<Ferramentas />} /> <Route path="/importar-academico" element={<ImportarAcademico />} />
       </Routes>
       </Suspense>
         </main>
