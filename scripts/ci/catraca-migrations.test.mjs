@@ -354,6 +354,35 @@ describe("catraca das migrations — resolução da base por evento", () => {
     expect(r.saida).toContain("migrations novas: 0");
   });
 
+  it("PR atualizado: violação de um commit ANTERIOR do mesmo PR continua sendo vista", () => {
+    // Regressão de um defeito real (12/09/2026): o workflow passava
+    // CATRACA_BASE=github.event.before sem condicionar ao evento. O payload de
+    // `pull_request` com action `synchronize` também traz `before`, e ali ele é o
+    // head ANTERIOR DO PR. Resultado: um PR atualizado passava a ser verificado
+    // só a partir do último push, e a violação do primeiro commit sumia.
+    //
+    // A base de um PR é SEMPRE o branch de destino, em qualquer action.
+    git(["update-ref", "refs/remotes/origin/main", baseSha]);
+    git(["checkout", "-q", "-b", "feature"]);
+
+    escrever("supabase/migrations/20260101120000_reaproveitando.sql", "select 1;\n");
+    const commit1 = commit("commit 1 do PR: migration ruim");
+
+    escrever("README.md", "segundo push, sem tocar em migration\n");
+    commit("commit 2 do PR: nada de migration");
+
+    // ERRADO (o que o defeito fazia): base = head anterior do PR -> passa,
+    // porque o ÚLTIMO push não mexeu em migration.
+    const comoEra = catraca({ CATRACA_BASE: commit1, GITHUB_BASE_REF: "main" });
+    expect(comoEra.ok).toBe(true);
+
+    // CERTO: em pull_request o CATRACA_BASE vem vazio e a base é o destino.
+    const comoDeveSer = catraca({ CATRACA_BASE: "", GITHUB_BASE_REF: "main" });
+    expect(comoDeveSer.ok).toBe(false);
+    expect(comoDeveSer.saida).toContain("M5-VERSAO-JA-EXISTE");
+    expect(comoDeveSer.saida).toContain("origin/main");
+  });
+
   it("push em main que altera migration antiga é detectado", () => {
     escrever("supabase/migrations/20260101120000_primeira.sql", "select 1; -- mexi em main\n");
     const shaAnterior = baseSha;

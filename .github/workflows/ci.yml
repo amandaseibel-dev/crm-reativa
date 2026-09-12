@@ -63,9 +63,16 @@ jobs:
       # CATRACA_BASE existe por causa do evento `push` em main: depois do push,
       # `origin/main` já aponta para o próprio HEAD, e a catraca sairia sem olhar
       # o commit que acabou de entrar. `github.event.before` é o SHA anterior ao
-      # push e resolve isso. Em `pull_request` esse valor vem VAZIO, e vazio não
-      # intercepta o fallback por GITHUB_BASE_REF — é o script que garante isso.
+      # push e resolve isso.
+      #
+      # A condição `event_name == 'push'` NÃO é decoração. O payload de
+      # `pull_request` com action `synchronize` TAMBÉM traz `before` -- e ali ele
+      # é o head ANTERIOR do PR, não o branch de destino. Sem a condição, um PR
+      # atualizado passaria a ser verificado só a partir do último push, e uma
+      # violação introduzida num commit anterior do mesmo PR deixaria de ser
+      # vista. Em pull_request o valor tem de ser vazio, para o script cair no
+      # fallback por GITHUB_BASE_REF e comparar com o branch de destino.
       - name: Catraca das migrations
         env:
-          CATRACA_BASE: ${{ github.event.before }}
+          CATRACA_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: npm run check:migrations
