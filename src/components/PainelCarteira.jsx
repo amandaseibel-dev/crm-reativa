@@ -1,7 +1,32 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
-import { umaLinhaPorPessoa } from "../utils/filaSemRepetido";
+import {
+  // Recorte da fila e regra do acionamento guiado -- ver src/utils/carteiraFila.js.
+  // Sairam deste arquivo para poder ser testados (bug do guiado, 12/09/2026).
+  montarListaFiltrada,
+  snapshotDoGuiado,
+  proximoIdDoSnapshot,
+  faltamNoSnapshot,
+  candidatoSegueValido,
+  recorteProntoParaGuiado,
+  seloPrazo,
+  diasParaData,
+  nomeAluno,
+  hojeLocalBR,
+  trabalhadoHoje,
+  ehQuitado,
+  diasSemContato,
+  MAPA_SITUACAO,
+  labelStatus,
+  situacaoLabel,
+  tabulacaoDoAluno,
+  critCanon,
+  critAlta,
+  semSaldoVencido,
+  ehNaoAcionavel,
+  SITUACAO_QUITACAO,
+} from "../utils/carteiraFila";
 import { analiticasSuspensas } from "../config/modoContencao";
 import EmailAlunoUnificado from "./EmailAlunoUnificado";
 import { podeVerTudo, nomeOperadorPorEmail } from "../utils/operadores";
@@ -92,14 +117,6 @@ const STATUS_FINALIZACAO = [
 // e-mail. A tabela fixa que vivia aqui (Mensagem enviada = 2 dias uteis) foi
 // aposentada em 04/09/2026.
 
-// Diferenca em dias entre "hoje" e uma data "YYYY-MM-DD" (alvo - hoje).
-function diasParaData(hojeStr, alvoStr) {
-  const a = new Date(`${String(hojeStr).slice(0, 10)}T00:00:00`);
-  const b = new Date(`${String(alvoStr).slice(0, 10)}T00:00:00`);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
-  return Math.round((b.getTime() - a.getTime()) / 86400000);
-}
-
 // Sugestao de proxima acao para o card, cruzando retorno agendado + vencimento
 // do boleto. Retorna {emoji,texto,bg,cor} ou null.
 function sugestaoDoCaso(a, menorVencimento, hojeStr) {
@@ -126,27 +143,6 @@ function formatarMoeda(valor) {
   return n.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-// Remove acentos pra busca funcionar independente de como a pessoa digitou
-// (ex: "Joao" precisa achar "João").
-function semAcento(texto) {
-  return String(texto || "")
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase();
-}
-
-function nomeAluno(a) {
-  return a?.nome || a?.nome_aluno || a?.aluno || "Aluno sem nome";
-}
-
-function hojeLocalBR() {
-  const d = new Date();
-  const ano = d.getFullYear();
-  const mes = String(d.getMonth() + 1).padStart(2, "0");
-  const dia = String(d.getDate()).padStart(2, "0");
-  return `${ano}-${mes}-${dia}`;
-}
-
 // So entra no <select> de tabulacao o que esta na lista. Status legado ("Novo
 // caso", "Em cobranca") ficava invisivel no select e o "Finalizar" o
 // regravava sem ninguem escolher (124 casos em 3 dias, 09/2026).
@@ -168,27 +164,6 @@ function retornoAgendadoPeloOperador(a) {
 // Azul claro da linha ja trabalhada no dia (e o tom do hover em cima dela).
 const COR_TRABALHADO_HOJE = "#e0f2fe";
 const COR_TRABALHADO_HOJE_HOVER = "#bae6fd";
-
-// Data local (fuso do operador) de um timestamp. Nao da pra fatiar o ISO
-// direto: uma tabulacao das 22h vira o dia seguinte em UTC e a linha
-// deixaria de contar como trabalhada hoje.
-function dataLocalDe(valor) {
-  if (!valor) return null;
-  const bruto = String(valor);
-  if (/^\d{4}-\d{2}-\d{2}$/.test(bruto)) return bruto;
-  const d = new Date(bruto);
-  if (Number.isNaN(d.getTime())) return bruto.slice(0, 10) || null;
-  const ano = d.getFullYear();
-  const mes = String(d.getMonth() + 1).padStart(2, "0");
-  const dia = String(d.getDate()).padStart(2, "0");
-  return `${ano}-${mes}-${dia}`;
-}
-
-// Caso ja acionado hoje. Sai da lista de trabalho (ver listaFiltrada), mas
-// segue na base: busca, card "Acionados hoje" e contadores continuam vendo.
-function trabalhadoHoje(a) {
-  return dataLocalDe(a?.data_ultimo_acionamento) === hojeLocalBR();
-}
 
 function formatarData(data) {
   if (!data) return "-";
@@ -212,16 +187,6 @@ function formatarDataHora(data) {
   }
 }
 
-function ehQuitado(a) {
-  const texto = [a?.status_acionamento, a?.status_jornada, a?.status_atual]
-    .filter(Boolean)
-    .join(" ")
-    .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "")
-    .toUpperCase();
-  return texto.includes("QUITAD") || texto.includes("QUITACAO");
-}
-
 // Rotulo amigavel da origem da quitacao (arquivo de quitados, so gestao).
 function labelOrigemQuitacao(c) {
   const o = String(c?.origem_quitacao || "").toUpperCase();
@@ -232,69 +197,6 @@ function labelOrigemQuitacao(c) {
   if (chave.includes("AUTOMAT")) return "Automatica (saldo zero)";
   if (chave.includes("CONFIRMACAO") || chave.includes("MANUAL")) return "Manual / confirmacao";
   return chave ? chave.charAt(0) + chave.slice(1).toLowerCase().replace(/_/g, " ") : "-";
-}
-
-function diasSemContato(a) {
-  const base = a?.data_ultimo_acionamento || a?.ultimo_contato || a?.responsavel_atual_em || null;
-  if (!base) return null;
-  const d = new Date(base);
-  if (Number.isNaN(d.getTime())) return null;
-  const ms = Date.now() - d.getTime();
-  return Math.floor(ms / (1000 * 60 * 60 * 24));
-}
-
-const MAPA_SITUACAO = {
-  CONTATAR: "A contatar",
-  MENSAGEM_ENVIADA: "Mensagem enviada",
-  EM_ATENDIMENTO: "Em atendimento",
-  ALUNO_EM_NEGOCIACAO_24H: "Em negociacao",
-  RETORNAR_DEPOIS: "Retornar depois",
-  SEM_RETORNO: "Sem retorno",
-  NAO_LOCALIZADO: "Nao localizado",
-  AGUARDANDO_LINK: "Aguardando link",
-  SOLICITADO_LINK: "Link solicitado",
-  LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio",
-  LINK_ENVIADO_AO_ALUNO: "Link enviado",
-  AGUARDANDO_COMPROVANTE: "Aguardando comprovante",
-  AGUARDANDO_BAIXA: "Aguardando baixa",
-  BAIXA_REALIZADA: "Pago",
-  BAIXA_DEVOLVIDA: "Baixa devolvida",
-  ACORDO_FECHADO: "Acordo fechado",
-  ALEGA_FIES: "Alega FIES",
-  ALEGA_CREDIES: "Alega CREDIES",
-  ALEGA_FINANCIAMENTO: "Alega financiamento",
-  ANTECIPACAO_SEMESTRE: "Antecipacao de semestre",
-  AGUARDAR_RETORNO_UNIDADE: "Aguardar retorno da unidade",
-  LEMBRETE_PARCELA: "Lembrete de parcela feito",
-  TERMO_ENVIADO_ALUNO: "Termo enviado",
-  TERMO_ENVIADO_ADM: "Termo no ADM",
-  TERMO_RECEBIDO_LIBERADO: "Termo liberado",
-  TERMO_REJEITADO: "Termo rejeitado",
-  JURIDICO: "Juridico",
-  CANCELAMENTO_COBRANCA: "Cancelado",
-  SUSPENSAO_COBRANCA: "Suspenso",
-};
-
-function labelStatus(s) {
-  return MAPA_SITUACAO[s] || s;
-}
-
-function situacaoLabel(a) {
-  const s = a?.status_atual || a?.status_jornada || "";
-  // Mesma premissa do statusPrazo: baixa realizada que ainda carrega saldo
-  // vencido e pagamento PARCIAL -- a tabulacao nao pode se ler como "Pago".
-  if (s === "BAIXA_REALIZADA" && !semSaldoVencido(a)) return "Pago parcial";
-  // Baixa de parcela com acordo em dia: ainda ha parcelas A VENCER -- nao e "Pago".
-  if (s === "BAIXA_REALIZADA" && acordoEmDia(a)) return "Parcela paga — a vencer";
-  if (MAPA_SITUACAO[s]) return MAPA_SITUACAO[s];
-  if (!s || s === "Novo caso") return "Sem contato";
-  return s;
-}
-
-// Tabulacao (desfecho do acionamento) canonica do aluno -- mesma precedencia
-// usada no resto da tela: status_atual > status_jornada > status_acionamento.
-function tabulacaoDoAluno(a) {
-  return a?.status_atual || a?.status_jornada || a?.status_acionamento || "";
 }
 
 // Opcoes do filtro por tabulacao na Minha Carteira. Pedido operacional: dar aos
@@ -357,32 +259,25 @@ function seloTermoLink(a) {
   return null;
 }
 
-function statusPrazo(a) {
-  const sit = a?.status_atual || "";
-  if (sit === "JURIDICO") return { label: "Juridico", cor: "var(--rv-roxo)" };
-  if (["ACORDO_FECHADO", "AGUARDANDO_BAIXA", "AGUARDANDO_COMPROVANTE", "SOLICITADO_LINK", "LINK_ENVIADO_AO_ALUNO"].includes(sit))
-    return { label: "Aguardando pgto", cor: "var(--rv-azul)" };
-  // PREMISSA DO SISTEMA: "Pago" so existe com SALDO ZERADO. Caso com baixa
-  // realizada que ainda carrega saldo vencido e pagamento PARCIAL -- nao pode
-  // se apresentar como pago, senao a operadora para de cobrar o que sobrou
-  // (a confirmacao de pagamento so quita quando o saldo total zera; sobrando
-  // saldo, o caso segue com o operador de proposito).
-  if (sit === "BAIXA_REALIZADA") {
-    if (!semSaldoVencido(a)) return { label: "Pago parcial", cor: "var(--rv-ambar)" };
-    // Parcela baixada mas o acordo segue em dia com parcelas futuras: o caso
-    // nao esta pago -- esta A VENCER. "Pago" so com saldo TOTAL zerado.
-    if (acordoEmDia(a)) return { label: "A vencer", cor: "var(--rv-azul)" };
-    return { label: "Pago", cor: "var(--rv-verde-ok)" };
-  }
-  if (["CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA"].includes(sit))
-    return { label: "Cancelado", cor: "var(--rv-texto-suave)" };
+// Cor de cada selo de prazo. O ROTULO (a regra) vem de seloPrazo, no modulo
+// testado -- aqui fica so a aparencia, que e o que nao se testa.
+const COR_SELO_PRAZO = {
+  Juridico: "var(--rv-roxo)",
+  "Aguardando pgto": "var(--rv-azul)",
+  "Pago parcial": "var(--rv-ambar)",
+  "A vencer": "var(--rv-azul)",
+  Pago: "var(--rv-verde-ok)",
+  Cancelado: "var(--rv-texto-suave)",
+  Novo: "var(--rv-texto-fraco)",
+  "Dentro do prazo": "var(--rv-verde-ok)",
+  Atencao: "var(--rv-ambar)",
+  Critico: "var(--rv-vermelho)",
+  "Perdendo o caso": "var(--rv-vermelho-texto)",
+};
 
-  const dias = diasSemContato(a);
-  if (dias === null) return { label: "Novo", cor: "var(--rv-texto-fraco)" };
-  if (dias <= 7) return { label: "Dentro do prazo", cor: "var(--rv-verde-ok)" };
-  if (dias === 8) return { label: "Atencao", cor: "var(--rv-ambar)" };
-  if (dias <= 10) return { label: "Critico", cor: "var(--rv-vermelho)" };
-  return { label: "Perdendo o caso", cor: "var(--rv-vermelho-texto)" };
+function statusPrazo(a) {
+  const label = seloPrazo(a);
+  return { label, cor: COR_SELO_PRAZO[label] || "var(--rv-texto-fraco)" };
 }
 
 function casoNoKpi(a, kpi) {
@@ -446,38 +341,6 @@ const CRITICIDADE_LABEL = {
   NORMAL: { texto: "Normal", bg: "rgba(100,116,139,0.16)", cor: "#cbd5e1", rank: 4 },
 };
 
-function critCanon(a) {
-  const n = String(a?.nivel_criticidade || "").toUpperCase();
-  return CRITICIDADE_LABEL[n] ? n : "NORMAL";
-}
-function critRank(a) {
-  return CRITICIDADE_LABEL[critCanon(a)].rank;
-}
-
-// Prioridade por semestre da divida (regra da gestao, 10/09/2026): o semestre
-// mais recente vem primeiro -- 2026/2 na frente de 2026/1, e assim por diante.
-// Divida recente e a que ainda da para recuperar antes de virar rombo antigo.
-//
-// Entra ABAIXO da faixa de prazo de proposito: quem esta a 11+ dias sem
-// acionamento continua no topo, seja de que semestre for. A regra dos 10 dias
-// nao se negocia; o semestre decide entre casos que estao no mesmo prazo.
-//
-// alunos.semestre_divida vem do vencimento MAIS RECENTE em aberto e e
-// recalculado de hora em hora (atualizar_semestre_divida). Sem rotulo -> por
-// ultimo, nunca no meio da fila.
-function rankSemestre(a) {
-  const s = String(a?.semestre_divida || "").trim();
-  const m = s.match(/^(\d{4})\/([12])$/);
-  if (!m) return Number.MAX_SAFE_INTEGER;
-  // 2026/2 -> 4053; 2026/1 -> 4052. Maior = mais recente; invertido para que
-  // o mais recente fique com o menor rank e suba na fila.
-  return -(Number(m[1]) * 2 + Number(m[2]));
-}
-function critAlta(a) {
-  const n = critCanon(a);
-  return n === "PERDENDO" || n === "CRITICO" || n === "URGENTE";
-}
-
 // ---- Fila inteligente ----
 // Dias decorridos desde o ultimo acionamento (ou ultimo contato). null = nunca
 // acionado. Ancora da fidelizacao de 10 dias (data_ultimo_acionamento + 10).
@@ -511,24 +374,6 @@ function seloFila(a, hojeStr) {
 // (ja aplica supersessao de mensalidades). Fallback canonico quando ainda nao
 // populado: a situacao operacional so vale como "sem vencido" nos estados que o
 // backend so atribui com saldo vencido = 0. QUITADO/baixa nunca mostram selo.
-const SITUACAO_QUITACAO = new Set(["QUITADO", "QUITADO_AGUARDANDO_BAIXA"]);
-const SITUACAO_CANONICA_SEM_VENCIDO = new Set([
-  "ACORDO_EM_DIA",
-  "AGUARDANDO_CONFIRMACAO",
-  "QUITADO",
-  "QUITADO_AGUARDANDO_BAIXA",
-  "SEM_PENDENCIA",
-]);
-function acordoEmDia(a) {
-  return String(a?.situacao_operacional || "").toUpperCase() === "ACORDO_EM_DIA";
-}
-function semSaldoVencido(a) {
-  const sv = Number(a?.saldo_vencido);
-  if (Number.isFinite(sv)) return sv <= 0.005; // sinal canonico primario
-  // fallback (saldo_vencido ainda nao persistido): confia so nos estados que o
-  // backend atribui exclusivamente quando o saldo vencido e zero.
-  return SITUACAO_CANONICA_SEM_VENCIDO.has(String(a?.situacao_operacional || "").toUpperCase());
-}
 // Lembrete de parcela devido: acordo em dia com retorno automatico (D-2, dia
 // util) ja vencido ou hoje. E o backend (recalcular_situacao_aluno) quem
 // agenda e quem silencia depois que o operador tabula.
@@ -557,34 +402,6 @@ function mostrarSeloCriticidade(a) {
 // de valor). Fica fora da fila ativa, mas continua consultavel na ficha. Nao confundir
 // com BAIXA_REALIZADA, que pode ter saldo real > 0 (anomalia sob investigacao) e por
 // isso PERMANECE na fila.
-const STATUS_NAO_ACIONAVEIS = ["JURIDICO", "CANCELAMENTO_COBRANCA", "SUSPENSAO_COBRANCA", "AGUARDANDO_BAIXA", "SALDO_ZERO_CONFIRMADO", "SEM_SALDO_EM_ABERTO"];
-
-const SALDO_MINIMO_FILA = 5; // R$ -- abaixo disso o caso nao entra na fila do operador
-
-function ehNaoAcionavel(a, idsEmConfirmacao) {
-  const s = String(a?.status_atual || "").toUpperCase();
-  if (s.startsWith("QUITAD")) return true; // QUITADO / QUITADO_MANUAL / QUITACAO...
-  if (STATUS_NAO_ACIONAVEIS.includes(a?.status_atual)) return true;
-  // Tem solicitacao de confirmacao de pagamento PENDENTE: ja esta no fluxo de
-  // Confirmacao de Pagamento, sai da fila operacional (fonte de verdade =
-  // solicitacoes_confirmacao_pagamento, nao o texto de status).
-  if (idsEmConfirmacao && idsEmConfirmacao.has(String(a?.id))) return true;
-  // "Aguardando confirmacao de pagamento": caso ja foi para a etapa de
-  // confirmacao (operador registrou o valor). Nao ha cobranca a fazer enquanto
-  // a confirmacao nao e resolvida -- sai da fila operacional e segue apenas no
-  // fluxo de confirmacao. Se a confirmacao for rejeitada, o status volta ao
-  // normal e o caso reaparece. O status vem como texto humano em status_jornada.
-  const sj = String(a?.status_jornada || "").toUpperCase();
-  if (sj.includes("AGUARDANDO CONFIRMAÇÃO") || sj.includes("AGUARDANDO CONFIRMACAO")) return true;
-  // Saldo total abaixo de R$ 5,00 (decisao da gestao, 21/08/2026): residuo
-  // nao vale acionamento e so ocupa a fila. Fonte = alunos.saldo_total
-  // (canonico, persistido por recalcular_situacao_aluno). Sem saldo gravado,
-  // o caso continua na fila (nao esconder por falta de dado).
-  const st = Number(a?.saldo_total);
-  if (a?.saldo_total != null && Number.isFinite(st) && st < SALDO_MINIMO_FILA) return true;
-  return false;
-}
-
 // Dias de atraso de uma parcela (hoje - vencimento), em dias inteiros.
 function diasAtraso(vencimentoISO, hojeISO) {
   if (!vencimentoISO) return null;
@@ -850,16 +667,27 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   const [historico, setHistorico] = useState([]);
 
   // ---- Acionamento guiado ----
-  // O operador clica em "Iniciar acionamento" e o sistema abre, um a um, os
-  // casos da fila inteligente. SEM PULO: o proximo so abre depois de tabular
-  // (finalizarAtendimento). Sair e permitido (receptivo, pausa) -- pular o
-  // aluno, nao. A ordem e a da propria fila inteligente, reconsultada a cada
-  // avanco (outro operador pode ter pego o caso; o aluno pode ter pago).
+  // A operadora clica em "Iniciar acionamento" e o sistema abre, um a um, os
+  // casos QUE ESTAVAM NA TELA NAQUELE CLIQUE, na ordem que estavam na tela.
+  // SEM PULO: o proximo so abre depois de tabular (finalizarAtendimento).
+  // Sair e permitido (receptivo, pausa) -- pular o aluno, nao.
+  //
+  // A FOTO (guiadoSnapshotRef) e o escopo do guiado, e nao muda mais depois do
+  // clique. Antes o avanco relia a lista VIVA: a recarga que roda em segundo
+  // plano a cada avanco podia injetar caso novo, e o "Iniciar" trocava a
+  // ordenacao escolhida por "Fila inteligente" sem avisar -- quem pediu "Maior
+  // valor primeiro" recebia outra ordem e casos que nao estavam na tela.
+  // Invariante: ids abertos pelo guiado ⊆ ids visiveis no clique.
+  //
+  // O estado de cada candidato AINDA e reconferido no banco antes de abrir
+  // (ainda e meu? ainda e acionavel? ja foi tabulado hoje?). Quem falha e
+  // pulado e segue-se ao PROXIMO DA FOTO -- nunca se busca substituto fora dela.
   const [guiado, setGuiado] = useState(false);
   const [guiadoAcionados, setGuiadoAcionados] = useState(0);
   const [guiadoAvancar, setGuiadoAvancar] = useState(0); // tick: avancar apos tabular
   const [guiadoConcluido, setGuiadoConcluido] = useState(null); // { acionados }
-  const guiadoFeitosRef = useRef(new Set()); // ids ja tabulados nesta sessao guiada
+  const guiadoFeitosRef = useRef(new Set()); // ids ja tabulados (ou pulados) nesta sessao guiada
+  const guiadoSnapshotRef = useRef([]); // A FOTO: ids visiveis, na ordem visivel, no clique
   const guiadoPendenteRef = useRef(false); // ha um avanco pedido e ainda nao consumido
   const listaFiltradaRef = useRef([]);
 
@@ -1656,37 +1484,57 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     } catch (e) { /* silencioso */ }
   }
 
-  // Proximo caso do acionamento guiado: primeiro da fila inteligente (ordem
-  // viva, recem-recarregada) que ainda nao foi tabulado hoje nem nesta sessao.
-  function proximoDoGuiado(lista) {
-    const hojeSet = new Set((acionadosHojeIds || []).map(String));
-    return (lista || []).find(
-      (a) => a?.id && !guiadoFeitosRef.current.has(String(a.id)) && !hojeSet.has(String(a.id))
-    ) || null;
+  // Proximo id da FOTO que ainda nao foi tabulado hoje nem nesta sessao.
+  // Le guiadoSnapshotRef, NUNCA a lista viva.
+  function proximoIdDoGuiado(idAtual) {
+    return proximoIdDoSnapshot({
+      snapshot: guiadoSnapshotRef.current,
+      feitos: guiadoFeitosRef.current,
+      acionadosHoje: acionadosHojeIds || [],
+      idAtual,
+    });
   }
 
+  // O recorte esta pronto pra virar foto? Enquanto o filtro de ano ou o recorte
+  // do card ainda estao carregando, o botao fica indisponivel -- comecar ali
+  // percorreria a carteira inteira (ano) ou o card ANTERIOR (KPI).
+  const guiadoLiberado = recorteProntoParaGuiado({
+    filtroAnoVencimento,
+    alunosDoAnoVencimento,
+    filtroKpi,
+    casosEspeciais,
+    carregandoEspecial,
+    carregando,
+  });
+
   function iniciarGuiado() {
-    if (ordenacao !== "inteligente") setOrdenacao("inteligente");
+    // NAO troca a ordenacao escolhida pela operadora. A sequencia do guiado e a
+    // sequencia que ela ja esta vendo.
+    if (!guiadoLiberado) return;
+    guiadoSnapshotRef.current = snapshotDoGuiado(listaFiltradaRef.current);
+    if (!guiadoSnapshotRef.current.length) return;
     guiadoFeitosRef.current = new Set();
     setGuiadoAcionados(0);
     setGuiadoConcluido(null);
     setGuiado(true);
-    // A lista ja esta na ordem da fila inteligente quando ordenacao ==
-    // "inteligente"; se acabou de trocar, o efeito de avanco recalcula.
     guiadoPendenteRef.current = true;
     setGuiadoAvancar((t) => t + 1);
   }
 
   // Avanco RAPIDO do guiado: nao recarrega a carteira inteira (isso levava
-  // segundos). Pega o proximo da lista ja ordenada e confere SO ELE no banco
-  // (ainda e meu? ainda e acionavel?). Quem falhar na conferencia e marcado
-  // como feito e passa-se ao seguinte. A recarga completa roda em segundo
-  // plano depois que o proximo ja esta aberto.
+  // segundos). Pega o proximo id DA FOTO e confere SO ELE no banco (ainda e
+  // meu? ainda e acionavel? ja tabulei hoje?). Quem falha e marcado como feito
+  // e passa-se ao seguinte id DA FOTO -- sem nunca puxar substituto de fora
+  // dela. A recarga completa roda em segundo plano depois que o proximo abriu;
+  // ela pode trazer casos novos, e eles NAO entram neste guiado.
   async function avancarGuiadoRapido(idAtual) {
     const meuEmail = emailEscopo();
-    for (let tentativa = 0; tentativa < 25; tentativa++) {
-      const cand = proximoDoGuiado(listaFiltradaRef.current.filter((x) => String(x.id) !== String(idAtual)));
-      if (!cand) {
+    const hoje = hojeLocalBR();
+    // Teto = tamanho da foto: percorrer a foto inteira uma vez, no maximo.
+    const teto = Math.max(1, guiadoSnapshotRef.current.length);
+    for (let tentativa = 0; tentativa < teto; tentativa++) {
+      const candId = proximoIdDoGuiado(idAtual);
+      if (!candId) {
         encerrarGuiado(true);
         setModalAberto(false);
         setAlunoModal(null);
@@ -1695,14 +1543,19 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       }
       let fresco;
       try {
-        const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).eq("id", cand.id).maybeSingle();
+        const { data } = await supabase.from("alunos").select(COLUNAS_ALUNO).eq("id", candId).maybeSingle();
         fresco = data;
       } catch { fresco = null; }
-      const aindaMeu = !meuEmail || String(fresco?.responsavel_atual_email || "").toLowerCase() === String(meuEmail).toLowerCase();
-      const ok = fresco && aindaMeu && !ehNaoAcionavel(fresco, idsEmConfirmacaoRef.current)
-        && !(fresco.data_ultimo_acionamento && String(fresco.data_ultimo_acionamento).slice(0, 10) === hojeLocalBR());
-      if (!ok) {
-        guiadoFeitosRef.current.add(String(cand.id)); // saiu da fila por fora: nao e meu/ja pago/ja acionado
+      const veredito = candidatoSegueValido({
+        fresco,
+        meuEmail,
+        idsEmConfirmacao: idsEmConfirmacaoRef.current,
+        hoje,
+      });
+      if (!veredito.ok) {
+        // saiu por fora (nao e meu / nao acionavel / ja acionado / sumiu):
+        // marca e vai pro proximo DA FOTO.
+        guiadoFeitosRef.current.add(candId);
         continue;
       }
       await abrirModal(fresco);
@@ -1710,10 +1563,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
       carregar(); // recarga completa em segundo plano
       return;
     }
-    // Muitas conferencias seguidas falharam: recarrega tudo e deixa o efeito decidir.
-    await carregar();
-    guiadoPendenteRef.current = true;
-    setGuiadoAvancar((t) => t + 1);
+    // A foto acabou durante as conferencias: encerra, em vez de recomecar de
+    // uma lista viva (era por ai que entrava id de fora do recorte).
+    encerrarGuiado(true);
+    setModalAberto(false);
+    setAlunoModal(null);
+    carregar();
   }
 
   function encerrarGuiado(concluiu) {
@@ -2514,182 +2369,32 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // exibido -> a fila parecia fora de ordem (ex.: um caso de R$ 3.743 caindo
   // abaixo de um de R$ 718 porque o "originais" dele era menor). Fallback pro
   // valor_em_aberto do proprio caso quando nao ha detalhe consolidado.
-  const valorAbertoDe = (a) => {
-    const fa = finAlunos[String(a && a.id)];
-    if (fa && fa.temDetalhe && Number.isFinite(Number(fa.total))) return Number(fa.total);
-    const fb = Number(a && a.valor_em_aberto);
-    return Number.isFinite(fb) ? fb : 0;
+  // O RECORTE que a operadora ve. A regra inteira (9 filtros, 6 ordenacoes,
+  // re-rank do Foco do Dia e uma linha por pessoa) mora em
+  // src/utils/carteiraFila.js, com teste. Aqui so se entrega o estado atual.
+  const recorteAtual = {
+    casos,
+    casosEspeciais,
+    filtroKpi,
+    busca,
+    filtroStatus,
+    filtroTabulacao,
+    somenteFixados,
+    fixados,
+    somenteFocoDia,
+    alunosComBoletoVencendo,
+    filtroValorMin,
+    filtroValorMax,
+    filtroDiasMinSemContato,
+    alunosDoAnoVencimento,
+    ordenacao,
+    finAlunos,
   };
-  const listaFiltrada = useMemo(() => {
-    // Com um card selecionado, a lista vem dos registros carregados do
-    // indicador; sem card, mostra a carteira normal. Busca/status/ordenacao
-    // continuam aplicando por cima.
-    let l = filtroKpi ? casosEspeciais || [] : casos;
-    // Quem ja foi acionado hoje sai da lista de trabalho (ja esta feito) e
-    // a fila volta a mostrar os casos ha mais tempo sem acionamento. O aluno
-    // continua na base do operador: aparece na busca por nome/CPF, no card
-    // "Acionados hoje" e nos contadores da carteira.
-    if (filtroKpi !== "acionadosHoje" && !busca.trim()) {
-      l = l.filter((a) => !trabalhadoHoje(a));
-    }
-    if (filtroStatus !== "TODOS") {
-      l = l.filter((a) => statusPrazo(a).label === filtroStatus);
-    }
-    if (filtroTabulacao !== "TODAS") {
-      l = l.filter((a) => tabulacaoDoAluno(a) === filtroTabulacao);
-    }
-    if (somenteFixados) {
-      l = l.filter((a) => fixados.has(a.id));
-    }
-    if (somenteFocoDia) {
-      const hoje = hojeLocalBR();
-      l = l.filter((a) => {
-        const critico = critAlta(a); // criticidade canonica do backend
-        const retornoHoje = a.data_retorno === hoje;
-        const retornoAtrasado = a.data_retorno && a.data_retorno < hoje;
-        const fixado = fixados.has(a.id);
-        const boletoVencendo = alunosComBoletoVencendo.has(a.id);
-        return critico || retornoHoje || retornoAtrasado || fixado || boletoVencendo;
-      });
-    }
-    const valorMinNum = filtroValorMin.trim() ? Number(filtroValorMin.replace(/\./g, "").replace(",", ".")) : null;
-    const valorMaxNum = filtroValorMax.trim() ? Number(filtroValorMax.replace(/\./g, "").replace(",", ".")) : null;
-    if (valorMinNum !== null && !Number.isNaN(valorMinNum)) {
-      l = l.filter((a) => valorAbertoDe(a) >= valorMinNum);
-    }
-    if (valorMaxNum !== null && !Number.isNaN(valorMaxNum)) {
-      l = l.filter((a) => valorAbertoDe(a) <= valorMaxNum);
-    }
-    if (filtroDiasMinSemContato.trim()) {
-      const diasMin = Number(filtroDiasMinSemContato);
-      if (!Number.isNaN(diasMin)) {
-        l = l.filter((a) => {
-          const d = diasSemContato(a);
-          return d === null ? true : d >= diasMin;
-        });
-      }
-    }
-    if (alunosDoAnoVencimento) {
-      l = l.filter((a) => alunosDoAnoVencimento.has(a.id));
-    }
-    if (busca.trim()) {
-      const t = semAcento(busca);
-      l = l.filter((a) =>
-        [nomeAluno(a), a.cpf, a.telefone, a.responsavel_atual_nome, situacaoLabel(a)]
-          .filter(Boolean)
-          .some((c) => semAcento(c).includes(t))
-      );
-    }
-    // Chave de ordenacao precisa (milissegundos), nao em dias inteiros --
-    // com dias inteiros, varios casos tabulados no mesmo dia empatavam e a
-    // ordem entre eles ficava embaralhada (o que acabou de ser tabulado
-    // nem sempre ia pro fim de verdade). Aqui o mais recente sempre fica
-    // por ultimo, sem empate.
-    const chaveOrdenacao = (a) => {
-      const base = a?.data_ultimo_acionamento || a?.ultimo_contato || a?.responsavel_atual_em || null;
-      if (!base) return null;
-      const t = new Date(base).getTime();
-      return Number.isNaN(t) ? null : t;
-    };
-    const keyDias = (a) => {
-      const t = chaveOrdenacao(a);
-      return t === null ? Infinity : -t;
-    };
-    const arr = [...l];
-    if (ordenacao === "inteligente") {
-      // Fila inteligente (regra da gestao, 21/08/2026): a ordem segue
-      // EXATAMENTE o selo de prazo que o operador ve na linha (statusPrazo):
-      //   0 Perdendo o caso (11+ dias)  -> nunca perder caso
-      //   1 Critico (9-10 dias)
-      //   2 Atencao (8 dias)
-      //   3 Novo (nunca acionado e sem data de entrada)
-      //   4 Retorno devido (hoje/atrasado)
-      //   5 Dentro do prazo (0-7 dias)
-      // Dentro de cada faixa: CRITICIDADE canonica, depois SEMPRE os mais
-      // antigos sem acionamento primeiro (chegando por ultimo nos mais novos);
-      // empate por saldo. Sem rodizio por ano: ordem estrita.
-      const hoje = hojeLocalBR();
-      const RANK_PRAZO = { "Perdendo o caso": 0, Critico: 1, Atencao: 2, Novo: 3 };
-      const faixa = (a) => {
-        const lab = statusPrazo(a).label;
-        if (lab in RANK_PRAZO) return RANK_PRAZO[lab];
-        const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
-        if (ret && ret <= hoje) return 4;
-        return 5;
-      };
-      const diasParado = (a) => {
-        const d = diasSemContato(a);
-        return d === null ? 9999 : d;
-      };
-      arr.sort((a, b) =>
-        (faixa(a) - faixa(b)) ||
-        (rankSemestre(a) - rankSemestre(b)) ||
-        (critRank(a) - critRank(b)) ||
-        (diasParado(b) - diasParado(a)) ||
-        (keyDias(b) - keyDias(a)) ||
-        (valorAbertoDe(b) - valorAbertoDe(a))
-      );
-    }
-    else if (ordenacao === "prioridade") {
-      // O que acionar primeiro: retorno devido (hoje/atrasado) e maior
-      // criticidade canonica no topo; empate por mais tempo sem contato e maior
-      // saldo. Reflete a criticidade correta do backend, nao dias sem contato.
-      const hoje = hojeLocalBR();
-      const retornoDevido = (a) => {
-        const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
-        return ret && ret <= hoje ? 0 : 1;
-      };
-      arr.sort((a, b) =>
-        (retornoDevido(a) - retornoDevido(b)) ||
-        (critRank(a) - critRank(b)) ||
-        (keyDias(b) - keyDias(a)) ||
-        (valorAbertoDe(b) - valorAbertoDe(a))
-      );
-    }
-    else if (ordenacao === "sem_contato_desc") arr.sort((a, b) => keyDias(b) - keyDias(a));
-    else if (ordenacao === "sem_contato_asc") arr.sort((a, b) => keyDias(a) - keyDias(b));
-    else if (ordenacao === "valor_desc") arr.sort((a, b) => valorAbertoDe(b) - valorAbertoDe(a));
-    else if (ordenacao === "valor_asc") arr.sort((a, b) => valorAbertoDe(a) - valorAbertoDe(b));
-
-    // Quando a operadora escolhe explicitamente ordenar por VALOR, essa ordem
-    // manda por cima de tudo: nada de rodizio por ano nem re-rank do Foco do Dia
-    // reembaralhando (era isso que fazia "os 5 primeiros em ordem e depois um de
-    // 300 alternando alto/baixo"). Fica valor puro, decrescente ou crescente.
-    const ordenacaoPorValor = ordenacao === "valor_desc" || ordenacao === "valor_asc";
-
-    // No Foco do Dia, a prioridade manda por cima da ordenacao escolhida:
-    // retorno do dia/atrasado primeiro, depois boleto vencido/vencendo, depois
-    // o resto. Dentro de cada grupo, mantem a ordem ja aplicada acima (sort
-    // estavel). Usa o menor vencimento em aberto ja calculado em finAlunos.
-    // Excecao: se a ordenacao escolhida for por valor, nao re-ranqueia -- a
-    // operadora quer o maior valor no topo sem nada furando a fila.
-    if (somenteFocoDia && !ordenacaoPorValor) {
-      const hoje = hojeLocalBR();
-      const rankFoco = (a) => {
-        const ret = a.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
-        if (ret && ret <= hoje) return 0; // retorno devido
-        const venc = finAlunos[String(a.id)]?.menorVencimento || null;
-        if (venc) {
-          const d = diasParaData(hoje, venc);
-          if (d !== null && d < 0) return 1; // vencido
-          if (d !== null && d <= 3) return 2; // vence em ate 3 dias
-        }
-        return 3;
-      };
-      // Empate por MAIOR saldo dentro de cada faixa: sem esse desempate a ordem
-      // dentro do grupo dependia do sort anterior e parecia "sem ordem".
-      arr.sort((a, b) =>
-        (rankFoco(a) - rankFoco(b)) ||
-        (critRank(a) - critRank(b)) ||
-        (valorAbertoDe(b) - valorAbertoDe(a))
-      );
-    }
-    // Ultimo passo, depois de filtrar e ordenar: a mesma pessoa nunca sai duas
-    // vezes daqui. Fica no fim de proposito -- a linha que sobrevive e a que a
-    // ordenacao ja tinha colocado mais acima, e o rodape ("N casos") conta a
-    // lista deduplicada, o mesmo numero que aparece na tela.
-    return umaLinhaPorPessoa(arr);
-  }, [casos, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, saldoView, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]);
+  const listaFiltrada = useMemo(
+    () => montarListaFiltrada(recorteAtual),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [casos, casosEspeciais, filtroStatus, filtroTabulacao, busca, filtroKpi, ordenacao, filtroValorMin, filtroValorMax, filtroDiasMinSemContato, somenteFixados, fixados, somenteFocoDia, alunosComBoletoVencendo, alunosDoAnoVencimento, finAlunos]
+  );
   listaFiltradaRef.current = listaFiltrada;
 
   // A GESTAO CONSEGUE ABRIR A FILA DE UM OPERADOR.
@@ -2709,13 +2414,21 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // cards, filtros e ordem. Voltar para "Todos" devolve o 360.
   const vendoPanorama360 = veTudo && mostrar360 && operadorFiltro === "TODOS";
 
-  // Avanco do acionamento guiado. Roda depois que a lista foi recarregada
-  // (carregar -> setCasos -> listaFiltrada), por isso le a lista fresca.
+  // Abertura do PRIMEIRO caso do guiado. Le a FOTO, nao a lista viva -- por
+  // isso nao depende mais de `ordenacao` (o guiado nao troca a ordenacao) nem
+  // de uma recarga ter acontecido.
   useEffect(() => {
     if (!guiado || !guiadoAvancar || !guiadoPendenteRef.current) return;
-    if (ordenacao !== "inteligente") return; // iniciarGuiado ja trocou; espera o re-render
     guiadoPendenteRef.current = false; // consome o pedido: trocar filtro/ordem depois nao pula ninguem
-    const prox = proximoDoGuiado(listaFiltradaRef.current);
+    const proxId = proximoIdDoGuiado(null);
+    if (!proxId) {
+      encerrarGuiado(true);
+      setModalAberto(false);
+      setAlunoModal(null);
+      return;
+    }
+    // A foto guarda so o id; o objeto vem da lista que estava na tela.
+    const prox = (listaFiltradaRef.current || []).find((a) => String(a.id) === proxId);
     if (!prox) {
       encerrarGuiado(true);
       setModalAberto(false);
@@ -2724,7 +2437,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     }
     abrirModal(prox).then(() => setAbaModal("negociacao"));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [guiadoAvancar, ordenacao]);
+  }, [guiadoAvancar]);
 
   // Agrupamento pro Kanban: uma coluna fixa "Sem acionamento" (nunca
   // acionados) + as tabulacoes normais mais usadas no dia a dia, com o
@@ -3290,9 +3003,17 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               <button
                 type="button"
                 onClick={iniciarGuiado}
-                disabled={guiado || listaFiltrada.length === 0}
-                title="Abre os casos da fila inteligente um a um. O proximo so abre depois de tabular."
-                style={{ ...S.btnPrimario, padding: "8px 14px", opacity: guiado || listaFiltrada.length === 0 ? 0.6 : 1 }}
+                disabled={guiado || listaFiltrada.length === 0 || !guiadoLiberado}
+                title={
+                  !guiadoLiberado
+                    ? "Aguarde: o recorte da lista ainda esta carregando. Comecar agora abriria casos fora do filtro."
+                    : "Abre, um a um, os casos desta lista -- na ordem que estao na tela. O proximo so abre depois de tabular."
+                }
+                style={{
+                  ...S.btnPrimario,
+                  padding: "8px 14px",
+                  opacity: guiado || listaFiltrada.length === 0 || !guiadoLiberado ? 0.6 : 1,
+                }}
               >
                 ▶ Iniciar acionamento
               </button>
@@ -3750,7 +3471,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
               <div style={{ minWidth: 0 }}>
                 {guiado && (
                   <div style={S.guiadoSelo}>
-                    ▶ Acionamento guiado · {guiadoAcionados} {guiadoAcionados === 1 ? "acionado" : "acionados"} · faltam {Math.max(0, listaFiltrada.filter((x) => !guiadoFeitosRef.current.has(String(x.id)) && !acionadosHojeIds.map(String).includes(String(x.id))).length)}
+                    ▶ Acionamento guiado · {guiadoAcionados} {guiadoAcionados === 1 ? "acionado" : "acionados"} · faltam {faltamNoSnapshot({ snapshot: guiadoSnapshotRef.current, feitos: guiadoFeitosRef.current, acionadosHoje: acionadosHojeIds })}
                   </div>
                 )}
                 <h2 style={{ ...S.modalNome, display: "flex", alignItems: "center", gap: 8 }}>
