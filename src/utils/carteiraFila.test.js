@@ -12,9 +12,13 @@ import {
   candidatoSegueValido,
   recorteProntoParaGuiado,
   seloPrazo,
+  situacaoLabel,
+  labelStatus,
+  MAPA_SITUACAO,
   ORDENACOES,
   CRIT_RANK,
 } from "./carteiraFila";
+import { MAPA_SITUACAO as MAPA_DA_FONTE_UNICA } from "./rotulosStatus";
 
 // Relogio fixo: sem isso "dias sem contato" muda de valor a cada dia que passa
 // e o teste viraria falso-negativo amanha.
@@ -445,5 +449,64 @@ describe("PainelCarteira — fiacao do guiado (trava estrutural)", () => {
   it("o botao Iniciar respeita guiadoLiberado", () => {
     expect(fonte).toContain("disabled={guiado || listaFiltrada.length === 0 || !guiadoLiberado}");
     expect(fonte).toContain("const guiadoLiberado = recorteProntoParaGuiado({");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Fonte unica do mapa de status (13/09/2026).
+//
+// O mapa local deste arquivo foi apagado; agora ele vem de rotulosStatus.js.
+// O delta do MAPA esta travado em rotulosStatus.test.js. Aqui trava-se a outra
+// metade: os SELOS FINANCEIROS da carteira continuam decididos pelo SALDO, do
+// jeito de sempre. O mapa passou a dizer "Baixa realizada" para o EVENTO; isso
+// nao pode vazar para o selo, que segue dizendo "Pago" quando o saldo permite.
+// ---------------------------------------------------------------------------
+describe("mapa de status: fonte unica, selos financeiros intactos", () => {
+  it("o mapa exportado daqui E o de rotulosStatus — nao ha copia", () => {
+    expect(MAPA_SITUACAO).toBe(MAPA_DA_FONTE_UNICA);
+  });
+
+  it("labelStatus passa a dizer `Baixa realizada` — a mudanca autorizada", () => {
+    expect(labelStatus("BAIXA_REALIZADA")).toBe("Baixa realizada");
+  });
+
+  it("labelStatus ganhou os acentos que faltavam", () => {
+    expect(labelStatus("JURIDICO")).toBe("Jurídico");
+    expect(labelStatus("NAO_LOCALIZADO")).toBe("Não localizado");
+    expect(labelStatus("ALUNO_EM_NEGOCIACAO_24H")).toBe("Em negociação");
+    expect(labelStatus("ANTECIPACAO_SEMESTRE")).toBe("Antecipação de semestre");
+  });
+
+  it("labelStatus nao mexe em status fora do mapa", () => {
+    expect(labelStatus("ALGUM_STATUS_NOVO")).toBe("ALGUM_STATUS_NOVO");
+  });
+
+  // ---- os tres selos financeiros, iguais a antes da unificacao ----
+
+  it("SELO: saldo vencido zerado e sem parcela futura -> `Pago`", () => {
+    expect(situacaoLabel({ status_atual: "BAIXA_REALIZADA", saldo_vencido: 0 })).toBe("Pago");
+  });
+
+  it("SELO: ainda ha saldo vencido -> `Pago parcial`", () => {
+    expect(situacaoLabel({ status_atual: "BAIXA_REALIZADA", saldo_vencido: 120.5 })).toBe("Pago parcial");
+  });
+
+  it("SELO: acordo em dia com parcela futura -> `Parcela paga — a vencer`", () => {
+    expect(
+      situacaoLabel({ status_atual: "BAIXA_REALIZADA", saldo_vencido: 0, situacao_operacional: "ACORDO_EM_DIA" })
+    ).toBe("Parcela paga — a vencer");
+  });
+
+  it("SELO: saldo ilegivel NAO vira `Pago` por causa do mapa", () => {
+    // Sem saldo_vencido e sem situacao canonica, semSaldoVencido() e false:
+    // o selo cai em "Pago parcial", nunca em "Pago". Era assim antes e segue.
+    expect(situacaoLabel({ status_atual: "BAIXA_REALIZADA" })).toBe("Pago parcial");
+  });
+
+  it("SELO: os demais status continuam saindo do mapa", () => {
+    expect(situacaoLabel({ status_atual: "CONTATAR" })).toBe("A contatar");
+    expect(situacaoLabel({ status_atual: "TERMO_RECEBIDO_LIBERADO" })).toBe("Termo liberado");
+    expect(situacaoLabel({ status_atual: "" })).toBe("Sem contato");
+    expect(situacaoLabel({ status_atual: "Novo caso" })).toBe("Sem contato");
   });
 });

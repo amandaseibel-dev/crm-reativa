@@ -1847,375 +1847,380 @@ export default function Alunos({ fichaEmbedId = null } = {}) {
                   ← Voltar para a fila
                 </button>
               )}
-              <div style={topoFicha}>
-                <div style={topoFichaIdentificacao}>
-                  {editandoCadastro ? (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 340 }}>
-                      <input
-                        value={nomeEditado}
-                        onChange={(e) => setNomeEditado(e.target.value)}
-                        placeholder="Nome do aluno"
-                        style={inputCheio}
-                      />
-                      <input
-                        value={cpfEditado}
-                        onChange={(e) => setCpfEditado(e.target.value)}
-                        placeholder="CPF do aluno"
-                        style={inputCheio}
-                      />
-                      <input
-                        value={telefoneEditado}
-                        onChange={(e) => setTelefoneEditado(e.target.value)}
-                        placeholder="Telefone (com DDD)"
-                        style={inputCheio}
-                      />
-                      <input
-                        value={emailEditado}
-                        onChange={(e) => setEmailEditado(e.target.value)}
-                        placeholder="E-mail"
-                        style={inputCheio}
-                      />
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button
-                          type="button"
-                          onClick={salvarCadastroAluno}
-                          disabled={salvandoCadastro}
-                          style={botaoPrincipal}
-                        >
-                          {salvandoCadastro ? "Salvando..." : "Salvar"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setEditandoCadastro(false)}
-                          disabled={salvandoCadastro}
-                          style={botaoSecundario}
-                        >
-                          Cancelar
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <>
-                      <h2 style={{ ...nomeAlunoFicha, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                        {pegarCampo(
-                          alunoSelecionado,
-                          ["nome", "nome_aluno", "aluno"],
-                          "Aluno sem nome"
-                        )}
-                        {(() => {
-                          const nomeAluno = pegarCampo(
-                            alunoSelecionado,
-                            ["nome", "nome_aluno", "aluno"],
-                            ""
-                          );
-                          if (!nomeAluno || nomeAluno === "Aluno sem nome") return null;
-                          const copiado = nomeCopiado === nomeAluno;
-                          return (
-                            <button
-                              type="button"
-                              title="Copiar nome"
-                              onClick={async () => {
-                                try {
-                                  await navigator.clipboard.writeText(nomeAluno);
-                                } catch {
-                                  const ta = document.createElement("textarea");
-                                  ta.value = nomeAluno;
-                                  document.body.appendChild(ta);
-                                  ta.select();
-                                  document.execCommand("copy");
-                                  document.body.removeChild(ta);
-                                }
-                                setNomeCopiado(nomeAluno);
-                                setTimeout(() => setNomeCopiado(null), 1500);
-                              }}
-                              style={{
-                                display: "inline-flex",
-                                alignItems: "center",
-                                gap: 4,
-                                fontSize: 12,
-                                fontWeight: 700,
-                                padding: "4px 10px",
-                                borderRadius: 8,
-                                cursor: "pointer",
-                                background: copiado ? "var(--rv-verde-ok-fundo)" : "var(--rv-fundo-suave)",
-                                color: copiado ? "var(--rv-verde-ok-texto)" : "var(--rv-texto-forte)",
-                                border: `1px solid ${copiado ? "var(--rv-verde-ok-borda)" : "var(--rv-borda)"}`,
-                              }}
-                            >
-                              {copiado ? "✓ Copiado" : "📋 Copiar"}
-                            </button>
-                          );
-                        })()}
-                      </h2>
-                      {/* Selos de status (visão rápida). Saldo e responsável ficam
-                          no bloco de decisão, à direita -- aqui seria repetição. */}
-                      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "8px 0 6px" }}>
-                        <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 11px", borderRadius: 999, background: "var(--rv-fundo-suave)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda-forte)" }}>
-                          {rotuloStatusComSaldo(
-                            pegarCampo(alunoSelecionado, ["status_jornada", "status_atual", "status"], "CONTATAR"),
-                            saldoStatus === "ok" ? !fichaComPendencia : null
-                          )}
-                        </span>
-                        {(alunoSelecionado.nivel_criticidade || alunoSelecionado.criticidade) && (() => {
-                          const c = String(alunoSelecionado.nivel_criticidade || alunoSelecionado.criticidade).toUpperCase();
-                          // CRITICO/URGENTE vem PREENCHIDO: sao os unicos chips
-                          // fortes da ficha, pra serem a primeira coisa lida.
-                          // ATENCAO/NORMAL ficam suaves -- nao pedem acao imediata.
-                          const mapa = { CRITICO: ["var(--rv-vermelho-texto)", "#fff", "var(--rv-vermelho-texto)"], URGENTE: ["var(--rv-ambar-texto)", "#fff", "var(--rv-ambar-texto)"], ATENCAO: ["#fef9c3", "var(--rv-ambar-texto)", "#fde68a"], NORMAL: ["#f1f5f9", "var(--rv-texto)", "#d5dde7"] };
-                          const [bg, fg, bd] = mapa[c] || mapa.NORMAL;
-                          return <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.03em", padding: "4px 11px", borderRadius: 999, background: bg, color: fg, border: `1px solid ${bd}` }}>{c}</span>;
-                        })()}
-                      </div>
-                      <PainelDesfazer
-                        alunoId={alunoSelecionado?.id}
-                        atualizarEm={desfazerTick}
-                        onDesfeito={async () => {
-                          await recarregarAlunoSelecionado(alunoSelecionado.id);
-                          await carregarMovimentacoes(alunoSelecionado.id);
-                          await carregarAlunos();
-                        }}
-                      />
-                      <p style={textoInfo}>
-                        CPF: {pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-")}
-                        <button
-                          type="button"
-                          onClick={abrirEdicaoCadastro}
-                          style={{
-                            marginLeft: 10,
-                            background: "none",
-                            border: "none",
-                            color: "var(--rv-azul-texto)",
-                            cursor: "pointer",
-                            textDecoration: "underline",
-                            fontSize: 13,
-                          }}
-                        >
-                          Corrigir nome/CPF
-                        </button>
-                      </p>
-                      {/* Telefone e e-mail saem daqui: o cartao "Contatos do aluno"
-                          logo abaixo e a fonte de verdade -- ele lista TODOS os
-                          numeros, marca o principal e mostra os invalidados. Esta
-                          linha lia o campo antigo do cadastro, que guarda um so
-                          contato, e as duas coisas podiam divergir. */}
-                      {/* Unidade/curso saem daqui: o card Dados Acadêmicos logo
-                          abaixo já traz campus, curso e modalidade. O saldo sai
-                          daqui: vive no bloco de decisão, à direita. */}
-                    </>
-                  )}
-                </div>
-                {/* Bloco de decisão: o que o operador precisa pra agir, sem rolar.
-                    Valor e responsável vivem aqui -- e só aqui. */}
-                <div style={blocoDecisao}>
-                  <div
-                    style={{
-                      ...blocoDecisaoItem,
-                      // A faixa so pode ser ambar quando REALMENTE ha saldo.
-                      // Em erro/carregando ela seria uma mentira: sinalizaria
-                      // divida sem que ninguem tenha conseguido ler o saldo.
-                      borderLeft: `4px solid ${
-                        saldoStatus === "erro"
-                          ? "#dc2626"
-                          : saldoStatus !== "ok"
-                            ? "var(--rv-borda-forte)"
-                            : fichaComPendencia
-                              ? "#f59e0b"
-                              : "#16a34a"
-                      }`,
-                      background:
-                        saldoStatus === "ok" && fichaComPendencia ? "var(--rv-ambar-fundo)" : "var(--rv-fundo-cartao)",
-                    }}
-                  >
-                    <span style={cardTitulo}>Valor em aberto</span>
-                    {saldoStatus === "carregando" && (
-                      <div style={{ color: "var(--rv-texto-suave)", fontSize: 13 }}>Carregando saldo…</div>
-                    )}
-                    {saldoStatus === "erro" && (
-                      <div>
-                        <span style={{ color: "var(--rv-vermelho)", fontWeight: 700, fontSize: 13 }}>
-                          Saldo indisponível
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => recarregarSaldoFicha(alunoSelecionado?.id)}
-                          style={{ marginLeft: 8, border: "1px solid var(--rv-borda-forte)", background: "var(--rv-superficie)", color: "var(--rv-texto)", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
-                        >
-                          Tentar novamente
-                        </button>
-                      </div>
-                    )}
-                    {saldoStatus === "ok" && (
-                      <>
-                        <div
-                          style={{
-                            fontSize: 22,
-                            fontWeight: 800,
-                            lineHeight: 1.15,
-                            color: fichaComPendencia ? "var(--rv-ambar-texto)" : "var(--rv-verde-ok-texto)",
-                          }}
-                        >
-                          {moeda(Number(saldoFicha?.total) || 0)}
-                        </div>
-                        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--rv-texto)", marginTop: 2 }}>
-                          {fichaComPendencia ? "Com saldo em aberto" : "Sem saldo pendente"}
-                          {fichaComPendencia &&
-                            Number(saldoFicha?.parcelas_abertas_qtd) > 0 &&
-                            ` · ${saldoFicha.parcelas_abertas_qtd} ${
-                              Number(saldoFicha.parcelas_abertas_qtd) === 1
-                                ? "parcela"
-                                : "parcelas"
-                            } de acordo em aberto`}
-                          {fichaComPendencia &&
-                            Number(saldoFicha?.confirmacoes_pendentes) > 0 &&
-                            " · confirmação/baixa pendente"}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                  <div
-                    style={{
-                      ...blocoDecisaoItem,
-                      borderLeft: `4px solid ${
-                        alunoSelecionado.responsavel_atual_nome ? "#2563eb" : "#94a3b8"
-                      }`,
-                    }}
-                  >
-                    <span style={cardTitulo}>Responsável pelo aluno</span>
-                    {!editandoOperadorRapido ? (
-                      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--rv-tinta)" }}>
-                        {alunoSelecionado.responsavel_atual_nome || (
-                          <span style={{ color: "var(--rv-texto-suave)", fontWeight: 600 }}>Sem responsável</span>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setNovoOperadorEmail(alunoSelecionado.responsavel_atual_email || "");
-                            setEditandoOperadorRapido(true);
-                          }}
-                          style={{ marginLeft: 8, border: "none", background: "transparent", cursor: "pointer", fontSize: 13 }}
-                          title="Alterar operador responsável"
-                        >
-                          ✏️
-                        </button>
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
-                        <select
-                          value={novoOperadorEmail}
-                          onChange={(e) => setNovoOperadorEmail(e.target.value)}
-                          style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid var(--rv-borda-forte)", fontSize: 12 }}
-                        >
-                          <option value="">Selecione</option>
-                          {OPERADORES_REATIVA.map((op) => (
-                            <option key={op.email} value={op.email}>
-                              {op.nome}
-                            </option>
-                          ))}
-                        </select>
+              <div className="ficha-topo-caixa">
+                <div className="ficha-topo">
+                  <div className="ficha-topo-ident">
+                    {editandoCadastro ? (
+                      <div style={{ display: "flex", flexDirection: "column", gap: 8, maxWidth: 340 }}>
                         <input
-                          type="text"
-                          placeholder="Motivo da troca (opcional)"
-                          value={motivoAlteracaoOperador}
-                          onChange={(e) => setMotivoAlteracaoOperador(e.target.value)}
-                          style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid var(--rv-borda-forte)", fontSize: 12 }}
+                          value={nomeEditado}
+                          onChange={(e) => setNomeEditado(e.target.value)}
+                          placeholder="Nome do aluno"
+                          style={inputCheio}
                         />
-                        <div style={{ display: "flex", gap: 6 }}>
+                        <input
+                          value={cpfEditado}
+                          onChange={(e) => setCpfEditado(e.target.value)}
+                          placeholder="CPF do aluno"
+                          style={inputCheio}
+                        />
+                        <input
+                          value={telefoneEditado}
+                          onChange={(e) => setTelefoneEditado(e.target.value)}
+                          placeholder="Telefone (com DDD)"
+                          style={inputCheio}
+                        />
+                        <input
+                          value={emailEditado}
+                          onChange={(e) => setEmailEditado(e.target.value)}
+                          placeholder="E-mail"
+                          style={inputCheio}
+                        />
+                        <div style={{ display: "flex", gap: 8 }}>
                           <button
                             type="button"
-                            onClick={async () => {
-                              await alterarOperadorResponsavel();
-                              setEditandoOperadorRapido(false);
-                            }}
-                            disabled={salvando || !novoOperadorEmail}
-                            style={{ border: "none", background: "#16a34a", color: "#fff", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                            onClick={salvarCadastroAluno}
+                            disabled={salvandoCadastro}
+                            style={botaoPrincipal}
                           >
-                            {salvando ? "..." : "Salvar"}
+                            {salvandoCadastro ? "Salvando..." : "Salvar"}
                           </button>
                           <button
                             type="button"
-                            onClick={() => {
-                              setEditandoOperadorRapido(false);
-                              setMotivoAlteracaoOperador("");
-                            }}
-                            style={{ border: "1px solid var(--rv-borda-forte)", background: "var(--rv-superficie)", color: "var(--rv-texto)", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}
+                            onClick={() => setEditandoCadastro(false)}
+                            disabled={salvandoCadastro}
+                            style={botaoSecundario}
                           >
                             Cancelar
                           </button>
                         </div>
                       </div>
+                    ) : (
+                      <>
+                        <h2 style={{ ...nomeAlunoFicha, display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                          {pegarCampo(
+                            alunoSelecionado,
+                            ["nome", "nome_aluno", "aluno"],
+                            "Aluno sem nome"
+                          )}
+                          {(() => {
+                            const nomeAluno = pegarCampo(
+                              alunoSelecionado,
+                              ["nome", "nome_aluno", "aluno"],
+                              ""
+                            );
+                            if (!nomeAluno || nomeAluno === "Aluno sem nome") return null;
+                            const copiado = nomeCopiado === nomeAluno;
+                            return (
+                              <button
+                                type="button"
+                                title="Copiar nome"
+                                onClick={async () => {
+                                  try {
+                                    await navigator.clipboard.writeText(nomeAluno);
+                                  } catch {
+                                    const ta = document.createElement("textarea");
+                                    ta.value = nomeAluno;
+                                    document.body.appendChild(ta);
+                                    ta.select();
+                                    document.execCommand("copy");
+                                    document.body.removeChild(ta);
+                                  }
+                                  setNomeCopiado(nomeAluno);
+                                  setTimeout(() => setNomeCopiado(null), 1500);
+                                }}
+                                style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: 4,
+                                  fontSize: 12,
+                                  fontWeight: 700,
+                                  padding: "4px 10px",
+                                  borderRadius: 8,
+                                  cursor: "pointer",
+                                  background: copiado ? "var(--rv-verde-ok-fundo)" : "var(--rv-fundo-suave)",
+                                  color: copiado ? "var(--rv-verde-ok-texto)" : "var(--rv-texto-forte)",
+                                  border: `1px solid ${copiado ? "var(--rv-verde-ok-borda)" : "var(--rv-borda)"}`,
+                                }}
+                              >
+                                {copiado ? "✓ Copiado" : "📋 Copiar"}
+                              </button>
+                            );
+                          })()}
+                        </h2>
+                        {/* Selos de status (visão rápida). Saldo e responsável ficam
+                            no bloco de decisão, à direita -- aqui seria repetição. */}
+                        <div style={{ display: "flex", flexWrap: "wrap", gap: 6, margin: "8px 0 6px" }}>
+                          <span style={{ fontSize: 12, fontWeight: 700, padding: "4px 11px", borderRadius: 999, background: "var(--rv-fundo-suave)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda-forte)" }}>
+                            {rotuloStatusComSaldo(
+                              pegarCampo(alunoSelecionado, ["status_jornada", "status_atual", "status"], "CONTATAR"),
+                              saldoStatus === "ok" ? !fichaComPendencia : null
+                            )}
+                          </span>
+                          {(alunoSelecionado.nivel_criticidade || alunoSelecionado.criticidade) && (() => {
+                            const c = String(alunoSelecionado.nivel_criticidade || alunoSelecionado.criticidade).toUpperCase();
+                            // CRITICO/URGENTE vem PREENCHIDO: sao os unicos chips
+                            // fortes da ficha, pra serem a primeira coisa lida.
+                            // ATENCAO/NORMAL ficam suaves -- nao pedem acao imediata.
+                            const mapa = { CRITICO: ["var(--rv-vermelho-texto)", "#fff", "var(--rv-vermelho-texto)"], URGENTE: ["var(--rv-ambar-texto)", "#fff", "var(--rv-ambar-texto)"], ATENCAO: ["#fef9c3", "var(--rv-ambar-texto)", "#fde68a"], NORMAL: ["#f1f5f9", "var(--rv-texto)", "#d5dde7"] };
+                            const [bg, fg, bd] = mapa[c] || mapa.NORMAL;
+                            return <span style={{ fontSize: 12, fontWeight: 800, letterSpacing: "0.03em", padding: "4px 11px", borderRadius: 999, background: bg, color: fg, border: `1px solid ${bd}` }}>{c}</span>;
+                          })()}
+                        </div>
+                        <PainelDesfazer
+                          alunoId={alunoSelecionado?.id}
+                          atualizarEm={desfazerTick}
+                          onDesfeito={async () => {
+                            await recarregarAlunoSelecionado(alunoSelecionado.id);
+                            await carregarMovimentacoes(alunoSelecionado.id);
+                            await carregarAlunos();
+                          }}
+                        />
+                        <p style={textoInfo}>
+                          CPF: {pegarCampo(alunoSelecionado, ["cpf", "CPF"], "-")}
+                          <button
+                            type="button"
+                            onClick={abrirEdicaoCadastro}
+                            style={{
+                              marginLeft: 10,
+                              background: "none",
+                              border: "none",
+                              color: "var(--rv-azul-texto)",
+                              cursor: "pointer",
+                              textDecoration: "underline",
+                              fontSize: 13,
+                            }}
+                          >
+                            Corrigir nome/CPF
+                          </button>
+                        </p>
+                        {/* Telefone e e-mail saem daqui: o cartao "Contatos do aluno"
+                            logo abaixo e a fonte de verdade -- ele lista TODOS os
+                            numeros, marca o principal e mostra os invalidados. Esta
+                            linha lia o campo antigo do cadastro, que guarda um so
+                            contato, e as duas coisas podiam divergir. */}
+                        {/* Unidade/curso saem daqui: o card Dados Acadêmicos logo
+                            abaixo já traz campus, curso e modalidade. O saldo sai
+                            daqui: vive no bloco de decisão, à direita. */}
+                      </>
                     )}
                   </div>
-                  {(!alunoSelecionado.responsavel_atual_email ||
-                    (podeQuitarManual(usuarioLogado?.email) &&
-                      pegarCampo(
-                        alunoSelecionado,
-                        ["status_jornada", "status_atual", "status"],
-                        "CONTATAR"
-                      ) !== STATUS_QUITADO_MANUAL)) && (
-                    <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
-                      {!alunoSelecionado.responsavel_atual_email && (
-                        <button
-                          type="button"
-                          onClick={assumirAtendimento}
-                          disabled={
-                            salvando ||
-                            (STATUS_BLOQUEADOS_ACIONAMENTO.includes(
-                              pegarCampo(
-                                alunoSelecionado,
-                                ["status_jornada", "status_atual", "status"],
-                                "CONTATAR"
-                              )
-                            ) &&
-                              !podeVerTudo(usuarioLogado?.email))
-                          }
-                          style={{ ...botaoPrincipal, flex: "1 1 auto" }}
-                        >
-                          {salvando ? "Salvando..." : "Assumir atendimento"}
-                        </button>
+                  {/* Bloco de decisão: o que o operador precisa pra agir, sem rolar.
+                      Valor e responsável vivem aqui -- e só aqui. */}
+                  <div className="ficha-topo-decisao" style={blocoDecisao}>
+                    <div
+                      style={{
+                        ...blocoDecisaoItem,
+                        // A faixa so pode ser ambar quando REALMENTE ha saldo.
+                        // Em erro/carregando ela seria uma mentira: sinalizaria
+                        // divida sem que ninguem tenha conseguido ler o saldo.
+                        borderLeft: `4px solid ${
+                          saldoStatus === "erro"
+                            ? "#dc2626"
+                            : saldoStatus !== "ok"
+                              ? "var(--rv-borda-forte)"
+                              : fichaComPendencia
+                                ? "#f59e0b"
+                                : "#16a34a"
+                        }`,
+                        background:
+                          saldoStatus === "ok" && fichaComPendencia ? "var(--rv-ambar-fundo)" : "var(--rv-fundo-cartao)",
+                      }}
+                    >
+                      <span style={cardTitulo}>Valor em aberto</span>
+                      {saldoStatus === "carregando" && (
+                        <div style={{ color: "var(--rv-texto-suave)", fontSize: 13 }}>Carregando saldo…</div>
                       )}
-                      {podeQuitarManual(usuarioLogado?.email) &&
+                      {saldoStatus === "erro" && (
+                        <div>
+                          <span style={{ color: "var(--rv-vermelho)", fontWeight: 700, fontSize: 13 }}>
+                            Saldo indisponível
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => recarregarSaldoFicha(alunoSelecionado?.id)}
+                            style={{ marginLeft: 8, border: "1px solid var(--rv-borda-forte)", background: "var(--rv-superficie)", color: "var(--rv-texto)", borderRadius: 6, padding: "2px 8px", fontSize: 12, cursor: "pointer" }}
+                          >
+                            Tentar novamente
+                          </button>
+                        </div>
+                      )}
+                      {saldoStatus === "ok" && (
+                        <>
+                          <div
+                            style={{
+                              fontSize: 22,
+                              fontWeight: 800,
+                              lineHeight: 1.15,
+                              color: fichaComPendencia ? "var(--rv-ambar-texto)" : "var(--rv-verde-ok-texto)",
+                            }}
+                          >
+                            {moeda(Number(saldoFicha?.total) || 0)}
+                          </div>
+                          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--rv-texto)", marginTop: 2 }}>
+                            {fichaComPendencia ? "Com saldo em aberto" : "Sem saldo pendente"}
+                            {fichaComPendencia &&
+                              Number(saldoFicha?.parcelas_abertas_qtd) > 0 &&
+                              ` · ${saldoFicha.parcelas_abertas_qtd} ${
+                                Number(saldoFicha.parcelas_abertas_qtd) === 1
+                                  ? "parcela"
+                                  : "parcelas"
+                              } de acordo em aberto`}
+                            {fichaComPendencia &&
+                              Number(saldoFicha?.confirmacoes_pendentes) > 0 &&
+                              " · confirmação/baixa pendente"}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                    <div
+                      style={{
+                        ...blocoDecisaoItem,
+                        borderLeft: `4px solid ${
+                          alunoSelecionado.responsavel_atual_nome ? "#2563eb" : "#94a3b8"
+                        }`,
+                      }}
+                    >
+                      <span style={cardTitulo}>Responsável pelo aluno</span>
+                      {!editandoOperadorRapido ? (
+                        <div style={{ fontSize: 14, fontWeight: 700, color: "var(--rv-tinta)" }}>
+                          {alunoSelecionado.responsavel_atual_nome || (
+                            <span style={{ color: "var(--rv-texto-suave)", fontWeight: 600 }}>Sem responsável</span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setNovoOperadorEmail(alunoSelecionado.responsavel_atual_email || "");
+                              setEditandoOperadorRapido(true);
+                            }}
+                            style={{ marginLeft: 8, border: "none", background: "transparent", cursor: "pointer", fontSize: 13 }}
+                            title="Alterar operador responsável"
+                          >
+                            ✏️
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 4 }}>
+                          <select
+                            value={novoOperadorEmail}
+                            onChange={(e) => setNovoOperadorEmail(e.target.value)}
+                            style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid var(--rv-borda-forte)", fontSize: 12 }}
+                          >
+                            <option value="">Selecione</option>
+                            {OPERADORES_REATIVA.map((op) => (
+                              <option key={op.email} value={op.email}>
+                                {op.nome}
+                              </option>
+                            ))}
+                          </select>
+                          <input
+                            type="text"
+                            placeholder="Motivo da troca (opcional)"
+                            value={motivoAlteracaoOperador}
+                            onChange={(e) => setMotivoAlteracaoOperador(e.target.value)}
+                            style={{ padding: "4px 6px", borderRadius: 6, border: "1px solid var(--rv-borda-forte)", fontSize: 12 }}
+                          />
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                await alterarOperadorResponsavel();
+                                setEditandoOperadorRapido(false);
+                              }}
+                              disabled={salvando || !novoOperadorEmail}
+                              style={{ border: "none", background: "#16a34a", color: "#fff", borderRadius: 6, padding: "4px 8px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
+                            >
+                              {salvando ? "..." : "Salvar"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditandoOperadorRapido(false);
+                                setMotivoAlteracaoOperador("");
+                              }}
+                              style={{ border: "1px solid var(--rv-borda-forte)", background: "var(--rv-superficie)", color: "var(--rv-texto)", borderRadius: 6, padding: "4px 8px", fontSize: 12, cursor: "pointer" }}
+                            >
+                              Cancelar
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                    {(!alunoSelecionado.responsavel_atual_email ||
+                      (podeQuitarManual(usuarioLogado?.email) &&
                         pegarCampo(
                           alunoSelecionado,
                           ["status_jornada", "status_atual", "status"],
                           "CONTATAR"
-                        ) !== STATUS_QUITADO_MANUAL && (
+                        ) !== STATUS_QUITADO_MANUAL)) && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                        {!alunoSelecionado.responsavel_atual_email && (
                           <button
                             type="button"
-                            onClick={quitarManual}
-                            disabled={salvando}
-                            title="Tira o aluno da fila (ficha fica amarela). Volta sozinho se subir um título novo dele em bordero."
-                            style={botaoQuitarTudo}
+                            onClick={assumirAtendimento}
+                            disabled={
+                              salvando ||
+                              (STATUS_BLOQUEADOS_ACIONAMENTO.includes(
+                                pegarCampo(
+                                  alunoSelecionado,
+                                  ["status_jornada", "status_atual", "status"],
+                                  "CONTATAR"
+                                )
+                              ) &&
+                                !podeVerTudo(usuarioLogado?.email))
+                            }
+                            style={{ ...botaoPrincipal, flex: "1 1 auto" }}
                           >
-                            💰 Quitar tudo (sai da fila)
+                            {salvando ? "Salvando..." : "Assumir atendimento"}
                           </button>
                         )}
+                        {podeQuitarManual(usuarioLogado?.email) &&
+                          pegarCampo(
+                            alunoSelecionado,
+                            ["status_jornada", "status_atual", "status"],
+                            "CONTATAR"
+                          ) !== STATUS_QUITADO_MANUAL && (
+                            <button
+                              type="button"
+                              onClick={quitarManual}
+                              disabled={salvando}
+                              title="Tira o aluno da fila (ficha fica amarela). Volta sozinho se subir um título novo dele em bordero."
+                              style={botaoQuitarTudo}
+                            >
+                              💰 Quitar tudo (sai da fila)
+                            </button>
+                          )}
+                      </div>
+                    )}
+                  </div>
+                  {/* A faixa diz ONDE o caso esta. Mora aqui, na coluna da
+                      esquerda do cabecalho -- e o que fecha o vazio que sobrava
+                      embaixo do nome. Nao existe copia dela em outro ponto da
+                      ficha: ela mudou de lugar, nao foi duplicada. Depois dela
+                      vem tabular (o que o operador faz o dia inteiro) e, por
+                      ultimo, o academico, que e so referencia. */}
+                  <div className="ficha-topo-faixa" style={{ ...faixaMini, marginBottom: 0 }}>
+                    <div style={{ ...itemMini, borderLeft: "none" }}>
+                      <span style={cardTitulo}>Últ. acionamento</span>
+                      <div style={valorMini}>{formatarDataHora(alunoSelecionado.data_ultimo_acionamento)}</div>
                     </div>
-                  )}
-                </div>
-              </div>
-              {/* Ordem da ficha = frequencia de uso. A faixa diz ONDE o caso
-                  esta, tabular e O QUE o operador faz o dia inteiro, e o
-                  academico e so referencia -- por isso vem por ultimo. */}
-              <div style={faixaMini}>
-                <div style={{ ...itemMini, borderLeft: "none" }}>
-                  <span style={cardTitulo}>Últ. acionamento</span>
-                  <div style={valorMini}>{formatarDataHora(alunoSelecionado.data_ultimo_acionamento)}</div>
-                </div>
-                <div style={itemMini}>
-                  <span style={cardTitulo}>Data de retorno</span>
-                  <div style={valorMini}>{formatarDataHora(alunoSelecionado.data_retorno)}</div>
-                </div>
-                <div style={{ ...itemMini, flex: "2 1 200px" }}>
-                  <span style={cardTitulo}>Próxima ação</span>
-                  <div style={valorMini}>{rotuloStatus(alunoSelecionado.proxima_acao || "CONTATAR")}</div>
-                </div>
-                <div style={itemMini}>
-                  <span style={cardTitulo}>Últ. tabulação</span>
-                  <div style={valorMini}>{formatarDataHora(alunoSelecionado.registrado_em)}</div>
-                </div>
-                <div style={itemMini}>
-                  <span style={cardTitulo}>Status</span>
-                  <div style={valorMini}>{rotuloStatus(alunoSelecionado.status_acionamento) || "-"}</div>
+                    <div style={itemMini}>
+                      <span style={cardTitulo}>Data de retorno</span>
+                      <div style={valorMini}>{formatarDataHora(alunoSelecionado.data_retorno)}</div>
+                    </div>
+                    <div style={{ ...itemMini, flex: "2 1 200px" }}>
+                      <span style={cardTitulo}>Próxima ação</span>
+                      <div style={valorMini}>{rotuloStatus(alunoSelecionado.proxima_acao || "CONTATAR")}</div>
+                    </div>
+                    <div style={itemMini}>
+                      <span style={cardTitulo}>Últ. tabulação</span>
+                      <div style={valorMini}>{formatarDataHora(alunoSelecionado.registrado_em)}</div>
+                    </div>
+                    <div style={itemMini}>
+                      <span style={cardTitulo}>Status</span>
+                      <div style={valorMini}>{rotuloStatus(alunoSelecionado.status_acionamento) || "-"}</div>
+                    </div>
+                  </div>
                 </div>
               </div>
               <div style={caixaTabular}>
@@ -2771,21 +2776,11 @@ const layout = {
   gap: "18px",
   alignItems: "start",
 };
-const topoFicha = {
-  display: "flex",
-  justifyContent: "space-between",
-  gap: "16px",
-  alignItems: "start",
-  flexWrap: "wrap",
-  marginBottom: "10px",
-};
-// Coluna esquerda do topo: identificação do aluno (nome, CPF, contato).
-const topoFichaIdentificacao = { flex: "1 1 340px", minWidth: 0 };
+// O grid do cabeçalho (colunas, áreas e o empilhamento em tela estreita) mora
+// em src/index.css, sob `.ficha-topo` -- media query não cabe em style inline.
 // Coluna direita: bloco de decisão. Painel próprio, com borda visível, pra
 // separar do resto da ficha -- é onde ficam saldo e responsável.
 const blocoDecisao = {
-  flex: "0 1 340px",
-  minWidth: 260,
   display: "flex",
   flexDirection: "column",
   gap: 8,

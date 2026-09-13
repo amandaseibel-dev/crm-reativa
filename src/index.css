@@ -555,3 +555,56 @@ button:hover {
   opacity: 0.7;
 }
 .rv-dobra[open] > summary .rv-dobra-seta { transform: rotate(90deg); }
+
+/* ============================================================
+   Cabecalho da ficha do aluno (src/pages/Aluno.jsx)
+   ============================================================
+   Era um flex de duas colunas com `align-items: start`. O painel de decisao
+   (valor em aberto + responsavel + "Quitar tudo" para a gestao) e mais alto
+   que nome + CPF + selos, entao a coluna da esquerda acabava antes e sobrava
+   espaco morto embaixo dela -- mais espaco na tela da gestao, que ve um botao
+   a mais, do que na do operador.
+
+   Vira grade com area nomeada: a faixa (ultimo acionamento, retorno, proxima
+   acao, ultima tabulacao, status) sai de baixo do cabecalho e passa a ocupar
+   esse vazio, ao lado do painel. A faixa nao e duplicada -- ela so mudou de
+   lugar, e a pagina encurta uma linha inteira.
+
+   POR QUE `@container` E NAO `@media`. A ficha tambem abre DENTRO de modal
+   (PainelCarteira, AcordosPorOperador, notificacoes). Media query mede o
+   VIEWPORT: numa tela larga com a ficha num modal estreito ela mandaria as
+   duas colunas mesmo sem caber. Container query mede o espaco real disponivel.
+
+   A base e EMPILHADA e a grade de duas colunas e o acrescimo. Assim, navegador
+   sem suporte a container query cai no empilhado -- que e o layout seguro, e
+   cuja ordem preserva a hierarquia pedida:
+   aluno -> situacao financeira/responsavel -> o que fazer agora. */
+/* O container e o INVOLUCRO, nunca a propria grade: um elemento nao consulta
+   a si mesmo -- `@container` olha sempre para o ancestral. */
+.ficha-topo-caixa { container-type: inline-size; }
+
+.ficha-topo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-areas:
+    "ident"
+    "decisao"
+    "faixa";
+  align-items: start;
+  gap: 16px;
+  margin-bottom: 10px;
+}
+.ficha-topo-ident   { grid-area: ident;   min-width: 0; }
+.ficha-topo-decisao { grid-area: decisao; min-width: 0; }
+.ficha-topo-faixa   { grid-area: faixa;   min-width: 0; }
+
+@container (min-width: 820px) {
+  .ficha-topo {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 340px);
+    grid-template-areas:
+      "ident decisao"
+      "faixa decisao";
+  }
+  /* A faixa fica colada no fim da coluna esquerda: e ela que fecha o vazio. */
+  .ficha-topo-faixa { align-self: end; }
+}

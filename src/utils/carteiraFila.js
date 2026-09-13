@@ -25,6 +25,13 @@
 // filtros; a sequencia (em que ordem) vem da ordenacao escolhida pela
 // operadora. O guiado nao mexe em nenhum dos dois.
 import { umaLinhaPorPessoa } from "./filaSemRepetido";
+// FONTE UNICA dos rotulos de status. Este arquivo mantinha uma copia do mapa,
+// com 29 chaves, quatro sem acento e `BAIXA_REALIZADA: "Pago"`. O de la tem as
+// mesmas 29 mais cinco, com os acentos certos, e nao afirma "Pago" -- porque
+// "Pago" so pode ser dito com saldo na mao. Ver situacaoLabel abaixo.
+import { MAPA_SITUACAO } from "./rotulosStatus";
+
+export { MAPA_SITUACAO };
 
 // ---------------------------------------------------------------------------
 // Helpers puros (vieram de PainelCarteira.jsx sem alteracao de comportamento)
@@ -99,37 +106,6 @@ export function diasSemContato(a, agoraMs) {
   return Math.floor(ms / (1000 * 60 * 60 * 24));
 }
 
-export const MAPA_SITUACAO = {
-  CONTATAR: "A contatar",
-  MENSAGEM_ENVIADA: "Mensagem enviada",
-  EM_ATENDIMENTO: "Em atendimento",
-  ALUNO_EM_NEGOCIACAO_24H: "Em negociacao",
-  RETORNAR_DEPOIS: "Retornar depois",
-  SEM_RETORNO: "Sem retorno",
-  NAO_LOCALIZADO: "Nao localizado",
-  AGUARDANDO_LINK: "Aguardando link",
-  SOLICITADO_LINK: "Link solicitado",
-  LINK_PRONTO_PARA_ENVIO: "Link pronto p/ envio",
-  LINK_ENVIADO_AO_ALUNO: "Link enviado",
-  AGUARDANDO_COMPROVANTE: "Aguardando comprovante",
-  AGUARDANDO_BAIXA: "Aguardando baixa",
-  BAIXA_REALIZADA: "Pago",
-  BAIXA_DEVOLVIDA: "Baixa devolvida",
-  ACORDO_FECHADO: "Acordo fechado",
-  ALEGA_FIES: "Alega FIES",
-  ALEGA_CREDIES: "Alega CREDIES",
-  ALEGA_FINANCIAMENTO: "Alega financiamento",
-  ANTECIPACAO_SEMESTRE: "Antecipacao de semestre",
-  AGUARDAR_RETORNO_UNIDADE: "Aguardar retorno da unidade",
-  LEMBRETE_PARCELA: "Lembrete de parcela feito",
-  TERMO_ENVIADO_ALUNO: "Termo enviado",
-  TERMO_ENVIADO_ADM: "Termo no ADM",
-  TERMO_RECEBIDO_LIBERADO: "Termo liberado",
-  TERMO_REJEITADO: "Termo rejeitado",
-  JURIDICO: "Juridico",
-  CANCELAMENTO_COBRANCA: "Cancelado",
-  SUSPENSAO_COBRANCA: "Suspenso",
-};
 
 export function labelStatus(s) {
   return MAPA_SITUACAO[s] || s;
@@ -160,9 +136,16 @@ export function situacaoLabel(a) {
   const s = a?.status_atual || a?.status_jornada || "";
   // Mesma premissa do seloPrazo: baixa realizada que ainda carrega saldo
   // vencido e pagamento PARCIAL -- a tabulacao nao pode se ler como "Pago".
-  if (s === "BAIXA_REALIZADA" && !semSaldoVencido(a)) return "Pago parcial";
-  // Baixa de parcela com acordo em dia: ainda ha parcelas A VENCER -- nao e "Pago".
-  if (s === "BAIXA_REALIZADA" && acordoEmDia(a)) return "Parcela paga — a vencer";
+  if (s === "BAIXA_REALIZADA") {
+    if (!semSaldoVencido(a)) return "Pago parcial";
+    // Baixa de parcela com acordo em dia: ainda ha parcelas A VENCER -- nao e "Pago".
+    if (acordoEmDia(a)) return "Parcela paga — a vencer";
+    // Saldo vencido zerado e sem parcela futura: aqui "Pago" e afirmacao
+    // sustentada pelo SALDO, nao pelo rotulo do evento. Por isso fica escrito
+    // aqui e nao vem do mapa -- o mapa unificado diz "Baixa realizada", que e o
+    // correto para o EVENTO. O selo financeiro da carteira nao muda.
+    return "Pago";
+  }
   if (MAPA_SITUACAO[s]) return MAPA_SITUACAO[s];
   if (!s || s === "Novo caso") return "Sem contato";
   return s;
