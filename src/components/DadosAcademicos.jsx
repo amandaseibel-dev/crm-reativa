@@ -7,11 +7,16 @@ import Dobra from "../ui/blocos";
 // do componente pai). Modalidade = alunos.curso; Curso real e Situacao vem do
 // Relatorio de Inadimplencia (import em Ferramentas). Nao altera nada.
 
+// Campo sem valor nao vira linha de "—". O bloco ocupava altura inteira
+// exibindo trace: com aluno sem dado academico importado eram tres tracos de
+// quatro campos, porque `Fonte` nunca e vazio. Quem tem valor continua
+// exatamente onde estava -- nada e escondido, so o vazio deixa de ocupar lugar.
 function Item({ rot, val }) {
+  if (!val) return null;
   return (
     <div style={S.item}>
       <span style={S.rot}>{rot}</span>
-      <span style={S.val}>{val || "—"}</span>
+      <span style={S.val}>{val}</span>
     </div>
   );
 }
@@ -69,6 +74,9 @@ export default function DadosAcademicos({ aluno }) {
   // se cobra. Entao o que decide fica na linha fechada, e a referencia abre
   // com um clique.
   const resumo = [curso || modalidade, situacao].filter(Boolean).join(" · ");
+  // `fonte` fica de fora da conta: ela e derivada, nunca vazia, e sozinha nao
+  // e "dado academico". Sem nenhum dos tres reais, o bloco diz que nao tem.
+  const temAlgumDado = Boolean(modalidade || estab || comp);
 
   const chips = matriculas.length > 0 ? (
     <span style={S.chips}>
@@ -97,13 +105,27 @@ export default function DadosAcademicos({ aluno }) {
     >
       {/* Matricula, Curso e Situacao nao se repetem aqui: os tres ja ficam na
           linha do titulo, que continua visivel com o bloco aberto. Aqui entra
-          so o que nao cabia la. */}
-      <div style={S.grid}>
-        <Item rot="Modalidade" val={modalidade} />
-        <Item rot="Estabelecimento" val={estab} />
-        <Item rot="Competência" val={comp} />
-        <Item rot="Fonte" val={fonte} />
-      </div>
+          so o que nao cabia la.
+
+          `Fonte` sempre aparece -- e ela que diz de ONDE veio (ou nao veio) o
+          dado, e some-la deixaria o bloco mudo. Quando nao ha nenhum dos outros
+          tres, o bloco diz isso com todas as letras em vez de mostrar tracos. */}
+      {temAlgumDado ? (
+        <div style={S.grid}>
+          <Item rot="Modalidade" val={modalidade} />
+          <Item rot="Estabelecimento" val={estab} />
+          <Item rot="Competência" val={comp} />
+          <Item rot="Fonte" val={fonte} />
+        </div>
+      ) : (
+        <div style={S.semDado}>
+          <span style={S.semDadoTexto}>Nenhum dado acadêmico importado</span>
+          <div style={S.item}>
+            <span style={S.rot}>Fonte</span>
+            <span style={S.val}>{fonte}</span>
+          </div>
+        </div>
+      )}
     </Dobra>
   );
 }
@@ -112,8 +134,12 @@ const S = {
   caixa: { marginBottom: 10, background: "rgba(139,92,246,0.07)", border: "1px solid rgba(139,92,246,0.28)" },
   grid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 8 },
   item: { display: "flex", flexDirection: "column", gap: 2 },
-  rot: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.04em", opacity: 0.6, fontWeight: 700 },
-  val: { fontSize: 13, fontWeight: 600 },
+  // A hierarquia do rotulo vem de TAMANHO, CAIXA e PESO -- nao de opacidade.
+  // `opacity: 0.6` sobre o fundo lilas dava ~2,5:1, abaixo do minimo legivel.
+  rot: { fontSize: 10.5, textTransform: "uppercase", letterSpacing: "0.04em", fontWeight: 700, color: "var(--rv-texto)" },
+  val: { fontSize: 13, fontWeight: 600, color: "var(--rv-tinta)" },
+  semDado: { display: "flex", flexDirection: "column", gap: 8 },
+  semDadoTexto: { fontSize: 12.5, color: "var(--rv-texto)" },
   chips: { display: "inline-flex", gap: 6, flexWrap: "wrap" },
   chip: { fontSize: 11.5, fontWeight: 700, borderRadius: 999, padding: "2px 9px", border: "1px solid" },
 };
