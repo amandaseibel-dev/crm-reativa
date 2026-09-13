@@ -3,6 +3,8 @@ import { supabase } from "../services/supabase";
 import BotaoAtualizar from "../components/BotaoAtualizar";
 import { S as A } from "../ui/estilosFila";
 import Aluno from "./Aluno";
+import { nomeOperadorPorEmail } from "../utils/operadores";
+import { qtdQuebrados, vencidoQuebrado, ESTADO_QUEBRADO } from "../utils/acordoDono";
 
 // Acordos vivos por operador: a vencer, vencido e quebrado.
 //
@@ -30,6 +32,7 @@ const ESTADOS = {
 };
 
 const POR_PAGINA = 100;
+
 
 export default function AcordosPorOperador() {
   const [dados, setDados] = useState(null);
@@ -94,8 +97,8 @@ export default function AcordosPorOperador() {
             />
             <Card
               rotulo="Quebrados"
-              valor={num(totais.a_renegociar)}
-              nota={moeda(totais.vencido_renegociar) + " vencidos"}
+              valor={num(qtdQuebrados(totais))}
+              nota={moeda(vencidoQuebrado(totais)) + " vencidos"}
               cor={ESTADOS.QUEBRADO.cor}
             />
             <Card
@@ -134,10 +137,21 @@ export default function AcordosPorOperador() {
                     const t = Number(l.acordos) || 1;
                     const chave = l.sem_dono ? "sem-responsavel" : l.operador_email;
                     return (
-                      <tr key={chave} style={l.sem_dono ? S.trAlerta : undefined}>
+                      <tr key={chave} style={l.sem_dono || l.responsavel_tecnico ? S.trAlerta : undefined}>
                         <td style={S.td}>
                           <span style={S.nome}>{l.operador_nome}</span>
                           {l.sem_dono && <span style={S.selo}>ninguém vê</span>}
+                          {/* Tem responsável gravado, mas não é conta de
+                              operação (conta técnica, usuário inativo, e-mail
+                              fora de `usuarios`). Não é "sem dono": é dono que
+                              ninguém trabalha. Fica rotulado em vez de se
+                              apresentar como operador normal. Nada é
+                              redistribuído por causa do rótulo. */}
+                          {l.responsavel_tecnico && (
+                            <span style={S.selo} title="Responsável gravado que não é conta de operação — exceção de gestão, não redistribuída automaticamente">
+                              Responsável técnico / revisar
+                            </span>
+                          )}
                         </td>
                         <td style={S.tdNum}>
                           <Botao onClick={() => setDrill({ email: chave, nome: l.operador_nome, estado: "TODOS" })}>
@@ -149,7 +163,7 @@ export default function AcordosPorOperador() {
                           <div style={S.trilho}>
                             <i style={{ ...S.fatia, width: pct(l.em_dia, t), background: ESTADOS.EM_DIA.cor }} />
                             <i style={{ ...S.fatia, width: pct(l.atrasados, t), background: ESTADOS.ATRASADO.cor }} />
-                            <i style={{ ...S.fatia, width: pct(l.a_renegociar, t), background: ESTADOS.QUEBRADO.cor }} />
+                            <i style={{ ...S.fatia, width: pct(qtdQuebrados(l), t), background: ESTADOS.QUEBRADO.cor }} />
                           </div>
                         </td>
                         <td style={S.tdNum}>
@@ -163,8 +177,8 @@ export default function AcordosPorOperador() {
                           </Botao>
                         </td>
                         <td style={S.tdNum}>
-                          <Botao cor={ESTADOS.QUEBRADO.cor} onClick={() => setDrill({ email: chave, nome: l.operador_nome, estado: "QUEBRADO" })}>
-                            {num(l.a_renegociar)}
+                          <Botao cor={ESTADOS.QUEBRADO.cor} onClick={() => setDrill({ email: chave, nome: l.operador_nome, estado: ESTADO_QUEBRADO })}>
+                            {num(qtdQuebrados(l))}
                           </Botao>
                           {Number(l.dias_atraso_medio) > 0 && (
                             <span style={S.nota}>{num(l.dias_atraso_medio)}d</span>
@@ -191,7 +205,7 @@ export default function AcordosPorOperador() {
                     <td style={S.td} />
                     <td style={S.tdNum}>{num(totais.em_dia)}</td>
                     <td style={S.tdNum}>{num(totais.atrasados)}</td>
-                    <td style={S.tdNum}>{num(totais.a_renegociar)}</td>
+                    <td style={S.tdNum}>{num(qtdQuebrados(totais))}</td>
                     <td style={S.tdNum}>{moeda(totais.vencido_total)}</td>
                     <td style={S.tdNum}>{moeda(totais.valor_7d)}</td>
                     <td style={S.tdNum}>{moeda(totais.valor_30d)}</td>
@@ -206,8 +220,14 @@ export default function AcordosPorOperador() {
               <Ponto cor={ESTADOS.QUEBRADO.cor} /> Quebrado — 3 ou mais vencidas
             </p>
             <p style={S.rodape}>
-              O dono sai do responsável do aluno; quando o aluno não tem, vale o do acordo. A linha
-              <b> sem responsável</b> continua visível de propósito: ela é o que a próxima remessa precisa corrigir.
+              O dono de cada acordo é <b>acordos.operador_responsavel_email</b> — o responsável do
+              ACORDO. O responsável da ficha do aluno manda na mensalidade e não herda o acordo (nem o
+              contrário): acordo de aluno cuja ficha é de outra pessoa aparece aqui para quem tem o
+              acordo. Acordo sem responsável é <b>Sem responsável</b>, não é de ninguém: continua
+              visível de propósito, porque é o que a próxima remessa precisa corrigir. A linha
+              marcada <b>Responsável técnico / revisar</b> tem responsável gravado, mas numa conta
+              que ninguém trabalha (conta técnica ou usuário inativo): é exceção de gestão, não
+              redistribuição automática.
             </p>
           </div>
         </>
@@ -323,6 +343,7 @@ function Gaveta({ email, nome, estado, onFechar }) {
               <thead>
                 <tr>
                   <th style={S.th}>Aluno</th>
+                  <th style={S.th}>Ficha com</th>
                   <th style={S.th}>Telefone</th>
                   <th style={S.thNum}>Saldo</th>
                   <th style={S.thNum}>Vencidas</th>
@@ -346,6 +367,14 @@ function Gaveta({ email, nome, estado, onFechar }) {
                         {i.nome || "(sem nome)"}
                       </button>
                       <span style={S.nota}>{i.cpf || ""}</span>
+                    </td>
+                    <td style={S.td}>
+                      {/* Quem cobra a MENSALIDADE desse aluno. Fica explicito
+                          quando e outra pessoa -- antes a tela dava a entender
+                          que acordo e ficha eram sempre da mesma operadora. */}
+                      {i.ficha_responsavel_email
+                        ? nomeOperadorPorEmail(i.ficha_responsavel_email)
+                        : "sem responsável"}
                     </td>
                     <td style={S.td}>{i.telefone || "—"}</td>
                     <td style={S.tdNum}>{moeda(i.saldo)}</td>
