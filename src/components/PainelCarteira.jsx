@@ -2430,20 +2430,25 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // cards, filtros e ordem. Voltar para "Todos" devolve o 360.
   const vendoPanorama360 = veTudo && mostrar360 && operadorFiltro === "TODOS";
 
-  // Abertura do PRIMEIRO caso do guiado. Le a FOTO, nao a lista viva -- por
-  // isso nao depende mais de `ordenacao` (o guiado nao troca a ordenacao) nem
-  // de uma recarga ter acontecido.
+  // Abertura do PRIMEIRO caso do guiado -- pelo MESMO caminho do segundo e de
+  // todos os demais: `avancarGuiadoRapido(null)`.
+  //
+  // Antes este efeito abria o primeiro caso procurando o id na lista VIVA e
+  // chamando `abrirModal` direto, sem o SELECT fresco. Resultado: o primeiro
+  // caso era o unico que nao passava pela reconferencia -- aluno que deixou de
+  // ser do operador, que ficou nao acionavel ou que foi tabulado por outra aba
+  // abria do mesmo jeito, com o retrato velho da lista.
+  //
+  // Caminho unico, para o primeiro e para todos:
+  //   FOTO -> proximo id -> SELECT fresco por id -> confere dono / acionavel /
+  //   acionado hoje -> abre. Falhou, pula para o proximo id DA FOTO.
+  //
+  // Nenhuma abertura depende mais de achar o aluno em listaFiltradaRef: a lista
+  // viva serve para TIRAR a foto (em iniciarGuiado) e nada mais.
   useEffect(() => {
     if (!guiado || !guiadoAvancar || !guiadoPendenteRef.current) return;
     guiadoPendenteRef.current = false; // consome o pedido: trocar filtro/ordem depois nao pula ninguem
-    const proxId = proximoIdDoGuiado(null);
-    // A foto guarda so o id; o objeto vem da lista que estava na tela.
-    const prox = proxId ? (listaFiltradaRef.current || []).find((a) => String(a.id) === proxId) : null;
-    if (!prox) {
-      encerrarGuiadoSemProximo(false);
-      return;
-    }
-    abrirModal(prox).then(() => setAbaModal("negociacao"));
+    avancarGuiadoRapido(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [guiadoAvancar]);
 

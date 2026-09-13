@@ -137,10 +137,21 @@ export default function AcordosPorOperador() {
                     const t = Number(l.acordos) || 1;
                     const chave = l.sem_dono ? "sem-responsavel" : l.operador_email;
                     return (
-                      <tr key={chave} style={l.sem_dono ? S.trAlerta : undefined}>
+                      <tr key={chave} style={l.sem_dono || l.responsavel_tecnico ? S.trAlerta : undefined}>
                         <td style={S.td}>
                           <span style={S.nome}>{l.operador_nome}</span>
                           {l.sem_dono && <span style={S.selo}>ninguém vê</span>}
+                          {/* Tem responsável gravado, mas não é conta de
+                              operação (conta técnica, usuário inativo, e-mail
+                              fora de `usuarios`). Não é "sem dono": é dono que
+                              ninguém trabalha. Fica rotulado em vez de se
+                              apresentar como operador normal. Nada é
+                              redistribuído por causa do rótulo. */}
+                          {l.responsavel_tecnico && (
+                            <span style={S.selo} title="Responsável gravado que não é conta de operação — exceção de gestão, não redistribuída automaticamente">
+                              Responsável técnico / revisar
+                            </span>
+                          )}
                         </td>
                         <td style={S.tdNum}>
                           <Botao onClick={() => setDrill({ email: chave, nome: l.operador_nome, estado: "TODOS" })}>
@@ -213,7 +224,10 @@ export default function AcordosPorOperador() {
               ACORDO. O responsável da ficha do aluno manda na mensalidade e não herda o acordo (nem o
               contrário): acordo de aluno cuja ficha é de outra pessoa aparece aqui para quem tem o
               acordo. Acordo sem responsável é <b>Sem responsável</b>, não é de ninguém: continua
-              visível de propósito, porque é o que a próxima remessa precisa corrigir.
+              visível de propósito, porque é o que a próxima remessa precisa corrigir. A linha
+              marcada <b>Responsável técnico / revisar</b> tem responsável gravado, mas numa conta
+              que ninguém trabalha (conta técnica ou usuário inativo): é exceção de gestão, não
+              redistribuição automática.
             </p>
           </div>
         </>

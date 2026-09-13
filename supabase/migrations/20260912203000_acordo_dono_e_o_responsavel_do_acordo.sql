@@ -35,6 +35,15 @@
 -- detalhe). Nada de dado e alterado por esta migration -- ela so muda como as
 -- RPCs LEEM o que ja esta gravado.
 --
+-- EXCECAO TECNICA CONHECIDA. Existe 1 acordo ATIVO cujo responsavel e uma conta
+-- que nao e de operacao: acordo 2371, painel.tv@reativa.local (perfil 'painel'),
+-- R$ 236.929,17. Ele TEM responsavel gravado, so que ninguem trabalha aquela
+-- conta. Nao e redistribuido e o dado nao e alterado: a linha passa a sair
+-- marcada com `responsavel_tecnico`, para a tela de gestao rotular como
+-- "Responsavel tecnico / revisar" em vez de apresentar como operador normal.
+-- O saldo final do item "acordos sem superficie operacional" e, portanto:
+-- 0 responsaveis operacionais invalidos + 1 excecao tecnica conhecida.
+--
 -- Nao toca em nada do fluxo Santander/pagamentos.
 
 -- ---------------------------------------------------------------------------
@@ -102,6 +111,17 @@ begin
         'operador_email', ac.dono_email,
         'operador_nome', coalesce(u.nome, ac.dono_email, 'Sem responsável'),
         'sem_dono', (ac.dono_email is null),
+        -- Tem responsavel gravado, mas nao e conta de operacao (conta tecnica,
+        -- usuario inativo, ou e-mail que nao existe em usuarios). Nao e
+        -- "sem dono" -- e dono que ninguem trabalha. A tela rotula como
+        -- "Responsavel tecnico / revisar"; nada e redistribuido aqui.
+        'responsavel_tecnico', (
+          ac.dono_email is not null and (
+            u.email is null
+            or coalesce(u.ativo, false) = false
+            or u.perfil not in ('operador', 'supervisor', 'gerencia', 'administrativo')
+          )
+        ),
         'acordos', count(*),
         'saldo', round(sum(ac.saldo)::numeric, 2),
         'em_dia', count(*) filter (where ac.vencidas = 0),
@@ -132,7 +152,7 @@ begin
       sum(ac.parcelas_30d) as p30, sum(ac.valor_30d) as v30
     from acordo ac
     left join public.usuarios u on lower(u.email) = ac.dono_email
-    group by ac.dono_email, u.nome
+    group by ac.dono_email, u.nome, u.email, u.ativo, u.perfil
   ) agrupado;
 
   return jsonb_build_object(
@@ -147,7 +167,7 @@ revoke all on function public.carteira_acordos_por_operador() from public, anon;
 grant execute on function public.carteira_acordos_por_operador() to authenticated;
 
 comment on function public.carteira_acordos_por_operador() is
-  'Acordos ATIVO agrupados pelo DONO DO ACORDO (acordos.operador_responsavel_email). Nao usa o responsavel da ficha do aluno. Sem responsavel -> linha "Sem responsavel", visivel so para a gestao.';
+  'Acordos ATIVO agrupados pelo DONO DO ACORDO (acordos.operador_responsavel_email). Nao usa o responsavel da ficha do aluno. Sem responsavel -> linha "Sem responsavel" (sem_dono). Dono que nao e conta de operacao -> responsavel_tecnico = true, para a tela rotular "Responsavel tecnico / revisar". Ambos visiveis so para a gestao.';
 
 -- ---------------------------------------------------------------------------
 -- 2) Detalhe (gaveta) de um operador / do grupo sem responsavel

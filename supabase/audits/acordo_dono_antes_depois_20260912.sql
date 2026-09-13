@@ -78,7 +78,18 @@ select '0_TOTAL_ATIVO', count(*), round(sum(saldo)::numeric, 2) from ac
 
 -- ---------------------------------------------------------------------------
 -- C) Provas de que os 573 FORAM PARA ALGUEM, e nao desapareceram
---    Medido em 12/09/2026: A3 = 573 de 573, A4 = 573, A5 = 0.
+--    Medido em 12/09/2026: A3 = 573 de 573, A4 = 573, A5 = 0, A6 = 1.
+--
+--    SALDO DO ITEM "acordos sem superficie operacional apos a mudanca":
+--      0 responsaveis operacionais invalidos  (A5: dono preenchido sem usuario,
+--                                              ou usuario inativo)
+--    + 1 excecao tecnica conhecida            (A6: acordo 2371,
+--                                              painel.tv@reativa.local,
+--                                              R$ 236.929,17 -- ver bloco D)
+--
+--    Dizer so "zero" apagaria a excecao. Ela nao e corrigida e nao e
+--    redistribuida: e rotulada na tela de gestao como
+--    "Responsavel tecnico / revisar" (flag `responsavel_tecnico` da RPC).
 -- ---------------------------------------------------------------------------
 with ac as (
   select a.id, coalesce(a.saldo, 0) as saldo,
@@ -95,15 +106,21 @@ union all select 'A3 dos que trocam, com dono_depois cadastrado em usuarios',
   (select count(*)::text from trocam t join public.usuarios u on lower(u.email) = t.dono_depois)
 union all select 'A4 dos que trocam, com dono_depois ATIVO',
   (select count(*)::text from trocam t join public.usuarios u on lower(u.email) = t.dono_depois where coalesce(u.ativo, false))
-union all select 'A5 SEM SUPERFICIE: dono_depois preenchido sem usuario, ou usuario inativo',
+union all select 'A5 responsaveis operacionais INVALIDOS (dono preenchido sem usuario, ou inativo)',
   (select count(*)::text from ac left join public.usuarios u on lower(u.email) = ac.dono_depois
     where ac.dono_depois is not null and (u.email is null or coalesce(u.ativo, false) = false))
-union all select 'A6 soma dos saldos (conservada: a mudanca e de leitura, nao de dado)',
+union all select 'A6 EXCECOES TECNICAS conhecidas (dono gravado que nao e conta de operacao)',
+  (select count(*)::text || ' acordo(s), saldo R$ ' || to_char(coalesce(sum(coalesce(ac.saldo, 0)), 0), 'FM999G999G990D00')
+     from ac join public.usuarios u on lower(u.email) = ac.dono_depois
+    where coalesce(u.ativo, false) and u.perfil not in ('operador', 'supervisor', 'gerencia', 'administrativo'))
+union all select 'A7 soma dos saldos (conservada: a mudanca e de leitura, nao de dado)',
   (select to_char(sum(saldo), 'FM999G999G990D00') from ac);
 
 -- ---------------------------------------------------------------------------
--- D) ANOMALIA -- acordo ATIVO cujo responsavel nao e usuario operacional.
---    NAO CORRIGIR. Vira excecao de gestao, nao redistribuicao automatica.
+-- D) ANOMALIA / EXCECAO TECNICA -- acordo ATIVO cujo responsavel nao e conta de
+--    operacao. NAO CORRIGIR e NAO REDISTRIBUIR. Vira excecao de gestao: a RPC
+--    marca a linha com `responsavel_tecnico` e a tela rotula
+--    "Responsavel tecnico / revisar".
 --    Medido em 12/09/2026: 1 acordo, numero 2371, painel.tv@reativa.local
 --    (perfil "painel", ativo), saldo R$ 236.929,17, 6 parcelas VENCIDAS e 0 a
 --    vencer (vencimentos de 28/02/2026 a 31/07/2026). A ficha do aluno e da

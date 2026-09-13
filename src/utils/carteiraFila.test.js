@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import {
   montarListaFiltrada,
   filtrarCasos,
@@ -53,19 +56,38 @@ function entrada(extra) {
 
 const ids = (lista) => lista.map((a) => String(a.id));
 
-// Simula o guiado de ponta a ponta com as MESMAS funcoes que a tela usa.
-// `banco` responde a reconferencia de cada id; `injetarNaListaViva` imita uma
-// recarga da carteira acontecendo no meio do guiado.
-function percorrerGuiado({ listaVisivel, banco, meuEmail = "cobranca05@aelbra.com.br", acionadosHoje = [] }) {
-  const snapshot = snapshotDoGuiado(listaVisivel);
+// O "banco": o que um SELECT por id devolveria. Nasce do fixture, NAO da lista
+// visivel -- e o ponto da correcao: nenhuma abertura pode depender de achar o
+// aluno na lista viva.
+const BANCO_PADRAO = new Map(CASOS.map((a) => [String(a.id), a]));
+
+// Simula o guiado de ponta a ponta com as MESMAS funcoes que a tela usa, pelo
+// MESMO caminho do primeiro ao ultimo caso:
+//
+//   FOTO -> proximo id -> SELECT fresco por id -> confere dono / acionavel /
+//   acionado hoje -> abre; falhou, pula para o proximo id DA FOTO.
+//
+// `listaVisivel` serve so para TIRAR a foto (e o que `iniciarGuiado` faz). Da
+// foto em diante o unico fornecedor de objeto e `banco`. `snapshot` pode vir
+// pronto, para testar foto tirada antes de a lista mudar.
+function percorrerGuiado({
+  listaVisivel,
+  snapshot: snapshotPronto,
+  banco = {},
+  meuEmail = "cobranca05@aelbra.com.br",
+  acionadosHoje = [],
+}) {
+  const snapshot = snapshotPronto || snapshotDoGuiado(listaVisivel);
   const feitos = new Set();
   const abertos = [];
   const pulados = [];
-  let idAtual = null;
+  let idAtual = null; // o PRIMEIRO passo entra por aqui, igual aos demais
   for (let passo = 0; passo < 100; passo++) {
     const proximo = proximoIdDoSnapshot({ snapshot, feitos, acionadosHoje, idAtual });
     if (!proximo) break;
-    const fresco = banco[proximo] === undefined ? listaVisivel.find((a) => String(a.id) === proximo) : banco[proximo];
+    const fresco = Object.prototype.hasOwnProperty.call(banco, proximo)
+      ? banco[proximo]
+      : BANCO_PADRAO.get(proximo) ?? null;
     const veredito = candidatoSegueValido({ fresco, meuEmail, hoje: HOJE });
     if (!veredito.ok) {
       feitos.add(proximo); // saiu por fora: marca e PASSA AO PROXIMO DA FOTO
@@ -210,6 +232,54 @@ describe("acionamento guiado: a foto do recorte", () => {
     }
   });
 
+  it("o PRIMEIRO caso passa pela mesma reconferencia: deixou de ser meu -> pulado, abre o SEGUNDO da foto", () => {
+    // Operadora clica em Iniciar. a2 e o primeiro id da foto. Entre o clique e a
+    // abertura, a2 vai para outra operadora (remanejamento, receptivo).
+    const visivel = montarListaFiltrada(entrada({ ordenacao: "valor_desc" }));
+    const snapshot = snapshotDoGuiado(visivel);
+    expect(snapshot[0]).toBe("a2");
+    const banco = { a2: { ...CASOS[1], responsavel_atual_email: "cobranca03@aelbra.com.br" } };
+    const { abertos, pulados } = percorrerGuiado({ listaVisivel: visivel, banco });
+    expect(pulados).toEqual([["a2", "NAO_E_MAIS_MEU"]]);
+    expect(abertos[0]).toBe("a4");                  // o SEGUNDO id da foto
+    expect(abertos).toEqual(["a4", "a1", "a3"]);
+    expect(abertos).not.toContain("a2");            // o primeiro nao abriu
+    const daFoto = new Set(snapshot);
+    expect(abertos.every((id) => daFoto.has(id))).toBe(true); // nenhum id externo
+  });
+
+  it("o PRIMEIRO caso passa pela mesma reconferencia: virou nao acionavel -> pulado, abre o SEGUNDO da foto", () => {
+    const visivel = montarListaFiltrada(entrada({ ordenacao: "valor_desc" }));
+    const snapshot = snapshotDoGuiado(visivel);
+    expect(snapshot[0]).toBe("a2");
+    // Pagou e a baixa entrou em confirmacao: sai da fila operacional.
+    const banco = { a2: { ...CASOS[1], status_atual: "AGUARDANDO_BAIXA" } };
+    const { abertos, pulados } = percorrerGuiado({ listaVisivel: visivel, banco });
+    expect(pulados).toEqual([["a2", "NAO_ACIONAVEL"]]);
+    expect(abertos).toEqual(["a4", "a1", "a3"]);
+    expect(abertos.every((id) => snapshot.includes(id))).toBe(true);
+  });
+
+  it("o PRIMEIRO caso nao depende da lista viva: a foto tem o id, o objeto vem do SELECT", () => {
+    // A foto foi tirada com a lista cheia; depois a lista viva mudou (recarga,
+    // troca de filtro, outra aba). O guiado abre pelo banco, na ordem da foto.
+    const visivel = montarListaFiltrada(entrada({ ordenacao: "valor_desc" }));
+    const snapshot = snapshotDoGuiado(visivel);
+    const { abertos } = percorrerGuiado({ listaVisivel: [], snapshot });
+    expect(abertos).toEqual(["a2", "a4", "a1", "a3"]);
+  });
+
+  it("todos os ids da foto, do primeiro ao ultimo, passam pela reconferencia", () => {
+    // Se o primeiro escapasse do SELECT, este teste passaria mesmo com o banco
+    // recusando TODO MUNDO -- e o primeiro abriria.
+    const visivel = montarListaFiltrada(entrada({ ordenacao: "valor_desc" }));
+    const banco = { a2: null, a4: null, a1: null, a3: null };
+    const { snapshot, abertos, pulados } = percorrerGuiado({ listaVisivel: visivel, banco });
+    expect(abertos).toEqual([]);
+    expect(pulados.map(([id]) => id)).toEqual(snapshot);
+    expect(pulados.every(([, motivo]) => motivo === "NAO_ENCONTRADO")).toBe(true);
+  });
+
   it("candidato que DEIXOU DE SER MEU e pulado, sem tirar ninguem de fora da foto", () => {
     const visivel = montarListaFiltrada(entrada({ ordenacao: "valor_desc" }));
     const banco = { a4: { ...CASOS[3], responsavel_atual_email: "cobranca03@aelbra.com.br" } };
@@ -311,5 +381,69 @@ describe("filtrarCasos e ordenarCasos isolados", () => {
     const l = ordenarCasos(CASOS, entrada({ ordenacao: "valor_desc" }));
     expect(l).toHaveLength(CASOS.length);
     expect(ids(l)).toEqual(["a2", "a4", "a1", "a5", "a3"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Trava estrutural na fiacao do guiado dentro de PainelCarteira.jsx.
+//
+// Os testes acima provam a REGRA sobre as funcoes puras. Esta parte prova a
+// LIGACAO: que a tela realmente usa um caminho unico. Existe porque o furo de
+// 12/09/2026 era exatamente de fiacao -- o efeito de inicio abria o primeiro
+// caso com o objeto da lista VIVA, sem o SELECT fresco, e nenhum teste de
+// funcao pura podia ver isso. Mesmo motivo do src/utils/naoTraduzir.test.js: a
+// protecao mora numa linha que ninguem olha.
+// ---------------------------------------------------------------------------
+describe("PainelCarteira — fiacao do guiado (trava estrutural)", () => {
+  const raiz = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
+  const fonte = readFileSync(join(raiz, "src", "components", "PainelCarteira.jsx"), "utf8");
+
+  const corpoDe = (abre, fecha) => {
+    const i = fonte.indexOf(abre);
+    expect(i, `nao achei no fonte: ${abre}`).toBeGreaterThan(-1);
+    const j = fonte.indexOf(fecha, i);
+    expect(j, `nao achei o fim: ${fecha}`).toBeGreaterThan(i);
+    return fonte.slice(i, j + fecha.length);
+  };
+
+  it("o efeito de INICIO chama avancarGuiadoRapido(null) e nao abre nada por conta propria", () => {
+    const efeito = corpoDe(
+      "if (!guiado || !guiadoAvancar || !guiadoPendenteRef.current) return;",
+      "}, [guiadoAvancar]);"
+    );
+    expect(efeito).toContain("avancarGuiadoRapido(null)");
+    // Abrir dentro do efeito e o bug: seria uma abertura sem SELECT fresco.
+    expect(efeito).not.toContain("abrirModal");
+  });
+
+  it("so UMA leitura de listaFiltradaRef.current existe, e e a que tira a FOTO", () => {
+    const ocorrencias = [...fonte.matchAll(/listaFiltradaRef\.current(\s*=(?!=))?/g)];
+    const leituras = ocorrencias.filter((m) => !m[1]);
+    const escritas = ocorrencias.filter((m) => m[1]);
+    expect(escritas).toHaveLength(1); // listaFiltradaRef.current = listaFiltrada
+    expect(leituras).toHaveLength(1); // e SO a foto le a lista viva
+    expect(fonte).toContain("guiadoSnapshotRef.current = snapshotDoGuiado(listaFiltradaRef.current)");
+  });
+
+  it("avancarGuiadoRapido faz SELECT por id e abre o objeto FRESCO do banco", () => {
+    const avanco = corpoDe("async function avancarGuiadoRapido(idAtual) {", "\n  }\n");
+    expect(avanco).toContain('.eq("id", candId)');
+    expect(avanco).toContain("candidatoSegueValido(");
+    expect(avanco).toContain("abrirModal(fresco)");
+    // O proximo sai da FOTO, nunca da lista viva.
+    expect(avanco).toContain("proximoIdDoGuiado(idAtual)");
+    expect(avanco).not.toContain("listaFiltradaRef");
+  });
+
+  it("iniciarGuiado NAO troca a ordenacao escolhida pela operadora", () => {
+    const inicio = corpoDe("function iniciarGuiado() {", "\n  }\n");
+    expect(inicio).not.toContain("setOrdenacao");
+    expect(inicio).toContain("snapshotDoGuiado(listaFiltradaRef.current)");
+    expect(inicio).toContain("guiadoLiberado");
+  });
+
+  it("o botao Iniciar respeita guiadoLiberado", () => {
+    expect(fonte).toContain("disabled={guiado || listaFiltrada.length === 0 || !guiadoLiberado}");
+    expect(fonte).toContain("const guiadoLiberado = recorteProntoParaGuiado({");
   });
 });
