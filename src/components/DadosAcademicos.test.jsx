@@ -72,6 +72,62 @@ describe("Dados Acadêmicos", () => {
     });
   });
 
+  // A mensagem de vazio so pode aparecer quando NAO ha informacao academica em
+  // lugar nenhum do bloco -- nem no corpo, nem na linha fechada (resumo, contador
+  // e chips). Contar so modalidade/estabelecimento/competencia deixava o resumo
+  // dizer "Administracao · Matriculado" com o corpo dizendo que nao havia dado.
+  describe("a decisao `tem dado` olha TODAS as fontes do bloco", () => {
+    const naoDizVazio = () =>
+      expect(screen.queryByText("Nenhum dado acadêmico importado")).toBeNull();
+
+    it("(1) so `curso_real` -> NAO diz que esta vazio", async () => {
+      prepara({ colunas: { curso_real: "Administração" } });
+      await montar({ id: "c1" });
+      expect(screen.getByText(/Administração/)).toBeTruthy(); // segue no resumo
+      naoDizVazio();
+    });
+
+    it("(2) so `situacao_academica` -> NAO diz que esta vazio", async () => {
+      prepara({ colunas: { situacao_academica: "Matriculado" } });
+      await montar({ id: "c2" });
+      expect(screen.getByText(/Matriculado/)).toBeTruthy();
+      naoDizVazio();
+    });
+
+    it("(3) so matricula -> NAO diz que esta vazio", async () => {
+      prepara({ colunas: { matricula: "20231045" } });
+      await montar({ id: "c3" });
+      expect(screen.getByText("20231045")).toBeTruthy();
+      naoDizVazio();
+    });
+
+    it("(4) so os chips de semestre -> NAO diz que esta vazio", async () => {
+      prepara({
+        colunas: {},
+        semestres: [{ semestre: "2026/1", status: "Confirmado", cancelado: false, valid_from: "2026-01-01" }],
+      });
+      await montar({ id: "c4" });
+      expect(screen.getByText("2026/1 · Confirmado")).toBeTruthy();
+      naoDizVazio();
+    });
+
+    it("(5) realmente vazio -> ai sim diz", async () => {
+      prepara({ colunas: {}, semestres: [] });
+      await montar({ id: "c5" });
+      expect(screen.getByText("Nenhum dado acadêmico importado")).toBeTruthy();
+    });
+
+    it("curso e situacao NAO sao duplicados no corpo -- seguem so no resumo", async () => {
+      prepara({ colunas: { curso_real: "Administração", situacao_academica: "Matriculado" } });
+      await montar({ id: "c6" });
+      // uma aparicao de cada: a do resumo. O corpo nao ganhou campo novo.
+      expect(screen.getAllByText(/Administração/)).toHaveLength(1);
+      expect(screen.queryByText("Curso")).toBeNull();
+      expect(screen.queryByText("Situação")).toBeNull();
+      naoDizVazio();
+    });
+  });
+
   describe("aluno com dado PARCIAL", () => {
     it("mostra o que tem e omite so o que falta", async () => {
       prepara({ colunas: { curso: "EAD", unidade: null, academico_atualizado_em: null } });

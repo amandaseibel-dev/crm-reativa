@@ -74,9 +74,20 @@ export default function DadosAcademicos({ aluno }) {
   // se cobra. Entao o que decide fica na linha fechada, e a referencia abre
   // com um clique.
   const resumo = [curso || modalidade, situacao].filter(Boolean).join(" · ");
-  // `fonte` fica de fora da conta: ela e derivada, nunca vazia, e sozinha nao
-  // e "dado academico". Sem nenhum dos tres reais, o bloco diz que nao tem.
-  const temAlgumDado = Boolean(modalidade || estab || comp);
+  // "Tem dado academico?" tem de olhar TODAS as fontes do bloco, nao so as tres
+  // que aparecem no corpo. A linha FECHADA ja mostra curso, situacao, matricula
+  // e os chips de semestre: contar so modalidade/estabelecimento/competencia
+  // produzia contradicao -- o resumo dizia "Administracao · Matriculado" e o
+  // corpo, logo abaixo, "Nenhum dado academico importado".
+  //
+  // Curso, situacao e matricula continuam SO no resumo: entram nesta conta, mas
+  // nao sao repetidos no corpo.
+  //
+  // `fonte` fica de fora de proposito: ela e derivada, nunca vazia, e sozinha
+  // nao e dado academico -- se contasse, a mensagem nunca apareceria.
+  const temInfoAcademica = Boolean(
+    modalidade || estab || comp || curso || situacao || matricula || matriculas.length
+  );
 
   const chips = matriculas.length > 0 ? (
     <span style={S.chips}>
@@ -110,7 +121,7 @@ export default function DadosAcademicos({ aluno }) {
           `Fonte` sempre aparece -- e ela que diz de ONDE veio (ou nao veio) o
           dado, e some-la deixaria o bloco mudo. Quando nao ha nenhum dos outros
           tres, o bloco diz isso com todas as letras em vez de mostrar tracos. */}
-      {temAlgumDado ? (
+      {temInfoAcademica ? (
         <div style={S.grid}>
           <Item rot="Modalidade" val={modalidade} />
           <Item rot="Estabelecimento" val={estab} />
