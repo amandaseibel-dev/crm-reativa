@@ -653,74 +653,53 @@ export default function PainelAdm() {
 
   // ===================== AÇÕES: TERMOS =====================
 
-  async function atualizarStatusAlunoTermo(alunoId, novoStatus, statusAcionamento) {
-    if (!alunoId) return;
-
-    await supabase
-      .from("alunos")
-      .update({
-        status_jornada: novoStatus,
-        nivel_criticidade: "URGENTE",
-        status_acionamento: statusAcionamento || novoStatus,
-      })
-      .eq("id", alunoId);
-  }
-
-  async function aprovarTermoPainel(termo) {
+  // Aprovar/rejeitar passam pela MESMA RPC da Fila ADM de Termos. O UPDATE cru
+  // que ficava aqui mudava o status mas não avisava o operador nem registrava a
+  // movimentação -- a rejeição saía calada.
+  async function decidirTermoPainel(termo, decisao) {
     await garantirSessaoValida();
 
-    const observacaoAdm = obsTermos[termo.id] || "Termo conferido e liberado pela ADM.";
+    const observacaoAdm = obsTermos[termo.id] || "";
+    const motivo = (motivosTermos[termo.id] || "").trim();
 
-    const { error } = await supabase
-      .from("termos_acordo")
-      .update({
-        status: "TERMO_RECEBIDO_LIBERADO",
-        observacao_adm: observacaoAdm,
-        validado_por: usuario?.email || "ADM",
-        validado_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString(),
-      })
-      .eq("id", termo.id);
-
-    if (error) {
-      alert("Erro ao aprovar termo: " + error.message);
-      return;
-    }
-
-    await atualizarStatusAlunoTermo(termo.aluno_id, "Termo recebido - liberado", "Termo aprovado pela ADM");
-    alert("Termo aprovado e liberado para operação. O caso vai pro topo da fila do operador.");
-    carregarTermos();
-  }
-
-  async function rejeitarTermoPainel(termo) {
-    await garantirSessaoValida();
-
-    const motivo = motivosTermos[termo.id];
-
-    if (!motivo || motivo.trim() === "") {
+    if (decisao === "REJEITAR" && !motivo) {
       alert("Informe o motivo da rejeição.");
       return;
     }
 
-    const { error } = await supabase
-      .from("termos_acordo")
-      .update({
-        status: "TERMO_REJEITADO",
-        observacao_adm: motivo,
-        validado_por: usuario?.email || "ADM",
-        validado_em: new Date().toISOString(),
-        atualizado_em: new Date().toISOString(),
-      })
-      .eq("id", termo.id);
+    const { data, error } = await supabase.rpc("validar_assinatura_termo", {
+      p_termo_id: termo.id,
+      p_decisao: decisao,
+      p_observacao: decisao === "APROVAR" ? observacaoAdm.trim() || null : null,
+      p_motivo: decisao === "REJEITAR" ? motivo : null,
+      p_abrir_proximo: false,
+    });
 
-    if (error) {
-      alert("Erro ao rejeitar termo: " + error.message);
+    if (error || !data?.ok) {
+      const cod = error?.message || data?.erro || "erro desconhecido";
+      alert(
+        cod === "status_invalido"
+          ? "Este termo já não está aguardando validação. A lista será atualizada."
+          : "Erro ao processar o termo: " + cod,
+      );
+      carregarTermos();
       return;
     }
 
-    await atualizarStatusAlunoTermo(termo.aluno_id, "Termo rejeitado", "Termo rejeitado pela ADM");
-    alert("Termo rejeitado e devolvido para operação. O caso vai pro topo da fila do operador.");
+    alert(
+      decisao === "APROVAR"
+        ? "Termo aprovado e liberado para operação. O operador foi avisado e o caso vai pro topo da fila dele."
+        : "Termo rejeitado e devolvido para operação. O operador foi avisado, com o motivo.",
+    );
     carregarTermos();
+  }
+
+  function aprovarTermoPainel(termo) {
+    return decidirTermoPainel(termo, "APROVAR");
+  }
+
+  function rejeitarTermoPainel(termo) {
+    return decidirTermoPainel(termo, "REJEITAR");
   }
 
   // ===================== INDICADORES E FILTROS =====================

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
 import { Carregando } from "../ui/estados";
@@ -82,12 +83,12 @@ function erroAnexo(codigo) {
 }
 
 function corEtapa(etapa) {
-  if (etapa === "COMPLETO") return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
-  if (etapa === "ENVIADO_ASSINATURA") return { background: "#fff3cd", color: "#664d03", border: "1px solid #ffe69c" };
-  if (etapa === "PENDENTE_ENVIO") return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
-  if (etapa === "NAO_VERIFICADO") return { background: "#e2e3e5", color: "#41464b", border: "1px solid #d3d6d8" };
-  if (etapa === "DISPENSADO") return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
-  return { background: "#f8f9fa", color: "#6c757d", border: "1px solid #e9ecef" };
+  if (etapa === "COMPLETO") return { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-verde-ok-borda)" };
+  if (etapa === "ENVIADO_ASSINATURA") return { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", border: "1px solid var(--rv-ambar-borda)" };
+  if (etapa === "PENDENTE_ENVIO") return { background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)" };
+  if (etapa === "NAO_VERIFICADO") return { background: "var(--rv-fundo-suave)", color: "var(--rv-texto-forte)", border: "1px solid var(--rv-borda-forte)" };
+  if (etapa === "DISPENSADO") return { background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)" };
+  return { background: "var(--rv-fundo-cartao)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda)" };
 }
 
 function formatarData(data) {
@@ -115,15 +116,15 @@ function extensaoDe(nome) {
 
 function corStatus(status) {
   if (status === "TERMO_RECEBIDO_LIBERADO") {
-    return { background: "#d1e7dd", color: "#0f5132", border: "1px solid #badbcc" };
+    return { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", border: "1px solid var(--rv-verde-ok-borda)" };
   }
   if (status === "TERMO_REJEITADO") {
-    return { background: "#f8d7da", color: "#842029", border: "1px solid #f5c2c7" };
+    return { background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)" };
   }
   if (status === "TERMO_LIBERADO_AUTOMATICO_GOV") {
-    return { background: "#e0cffc", color: "#4b1e8f", border: "1px solid #d0bcf5" };
+    return { background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)", border: "1px solid var(--rv-roxo-borda)" };
   }
-  return { background: "#cff4fc", color: "#055160", border: "1px solid #b6effb" };
+  return { background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)", border: "1px solid var(--rv-azul-borda)" };
 }
 
 function mensagemErro(erro) {
@@ -193,18 +194,40 @@ function ehTermoAcionavel(t) {
   return t?.status === "TERMO_ENVIADO_ADM" || ehGovPendenteAuditoria(t);
 }
 
+// Confirmado = termo que a ADM deu por bom. São dois caminhos que terminam no
+// mesmo lugar: a validação manual (TERMO_RECEBIDO_LIBERADO) e a liberação
+// gov.br já conferida ou legada. Medido em 2026-09-09: dos 868 termos, 466 são
+// gov legado — mais da metade dos confirmados só aparecia em "Todos", porque a
+// aba antiga ("Liberados") olhava só o status manual.
+function ehConfirmado(t) {
+  return (
+    t?.status === "TERMO_RECEBIDO_LIBERADO" ||
+    (t?.status === "TERMO_LIBERADO_AUTOMATICO_GOV" && !ehGovPendenteAuditoria(t))
+  );
+}
+
+// Data que ordena os rejeitados: quando a ADM rejeitou.
+function dataRejeicao(t) {
+  const bruto = t?.validado_em || t?.criado_em;
+  const ms = bruto ? new Date(bruto).getTime() : NaN;
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
 export default function FilaAdmTermos() {
+  const navigate = useNavigate();
   const [usuario, setUsuario] = useState(null);
   const [termos, setTermos] = useState([]);
   const [carregando, setCarregando] = useState(true);
   const [filtro, setFiltro] = useState("PENDENTES");
-  // Sub-filtros que só valem na aba Liberados.
+  // Sub-filtros que só valem na aba Confirmados.
   const [tipoLiberado, setTipoLiberado] = useState("TODOS");
   const [ordemLiberados, setOrdemLiberados] = useState("RECENTE");
 
   // --- Aba Assinaturas (testemunhas + Ulbra) ---
   const [etapaFiltro, setEtapaFiltro] = useState("TODAS");
-  const [buscaAssinatura, setBuscaAssinatura] = useState("");
+  // A busca vale para a tela inteira: era exclusiva da aba Assinaturas, e sem
+  // ela achar um termo específico entre os confirmados/rejeitados era rolagem.
+  const [busca, setBusca] = useState("");
   const [selecionados, setSelecionados] = useState([]);
   const [modalAnexo, setModalAnexo] = useState(null);
   const [anexoArquivo, setAnexoArquivo] = useState(null);
@@ -320,6 +343,31 @@ export default function FilaAdmTermos() {
     return compl ? `${motivoSel} — ${compl}` : motivoSel;
   }
 
+  // Toda acao desta tela era `setFlag(true) -> await -> setFlag(false)`, sem
+  // rede de protecao. Se a promise REJEITA (queda de rede, sessao expirada, aba
+  // suspensa), o `setFlag(false)` nunca roda: o flag fica preso em true e a fila
+  // para de responder EM SILENCIO -- todo clique seguinte morre no guard
+  // `if (salvando) return`, sem uma linha de aviso.
+  //
+  // Foi o que sobrou como explicacao em 2026-09-09: a ADM diz ter rejeitado um
+  // termo e o log da API nao registrou NENHUMA chamada de decisao no dia (so as
+  // duas aprovacoes). Sem POST, o clique morreu no navegador.
+  //
+  // `tentar` nunca lanca: devolve null quando a chamada nao chegou ao servidor,
+  // e quem chamou libera o flag e para. O usuario ouve o que houve.
+  async function tentar(rotulo, acao) {
+    try {
+      return await acao();
+    } catch (e) {
+      alert(
+        `${rotulo} NÃO foi registrado: a chamada não chegou ao servidor.\n\n` +
+          `Detalhe técnico: ${e?.message || e}\n\n` +
+          "Verifique a conexão e tente de novo — nada foi alterado."
+      );
+      return null;
+    }
+  }
+
   async function decidir(decisao, abrirProximo = false) {
     if (!modalTermo || salvando) return;
 
@@ -343,14 +391,20 @@ export default function FilaAdmTermos() {
     if (!okConfirm) return;
 
     setSalvando(true);
-    const { data, error } = await supabase.rpc("validar_assinatura_termo", {
-      p_termo_id: modalTermo.id,
-      p_decisao: decisao,
-      p_observacao: decisao === "APROVAR" ? obs.trim() || null : null,
-      p_motivo: motivo,
-      p_abrir_proximo: abrirProximo,
-    });
+    const resp = await tentar(
+      decisao === "APROVAR" ? "A liberação do termo" : "A rejeição do termo",
+      () =>
+        supabase.rpc("validar_assinatura_termo", {
+          p_termo_id: modalTermo.id,
+          p_decisao: decisao,
+          p_observacao: decisao === "APROVAR" ? obs.trim() || null : null,
+          p_motivo: motivo,
+          p_abrir_proximo: abrirProximo,
+        })
+    );
     setSalvando(false);
+    if (!resp) return;
+    const { data, error } = resp;
 
     if (error) {
       alert("Erro ao processar: " + error.message);
@@ -366,6 +420,9 @@ export default function FilaAdmTermos() {
     }
 
     await carregarTermos();
+    // Rejeitado sai do filtro em que a ADM estava. Sem levar a tela junto, o
+    // caso simplesmente some e ela não tem por onde voltar nele.
+    if (decisao !== "APROVAR" && !abrirProximo) setFiltro("REJEITADOS");
     const proximo = data.proximo && data.proximo.id ? data.proximo : null;
     if (abrirProximo && proximo) {
       abrirValidacaoPorId(proximo.id);
@@ -461,8 +518,12 @@ export default function FilaAdmTermos() {
   async function marcarEnviados(ids) {
     if (!ids || ids.length === 0) return;
     setProcessando(true);
-    const { data, error } = await supabase.rpc("termos_marcar_envio_assinatura", { p_ids: ids });
+    const resp = await tentar("A marcação de envio para assinatura", () =>
+      supabase.rpc("termos_marcar_envio_assinatura", { p_ids: ids })
+    );
     setProcessando(false);
+    if (!resp) return;
+    const { data, error } = resp;
     if (error || !data?.ok) {
       alert("Não foi possível marcar o envio: " + (error?.message || data?.erro || "erro desconhecido"));
       return;
@@ -473,8 +534,12 @@ export default function FilaAdmTermos() {
 
   async function desfazerEnvio(termo) {
     setProcessando(true);
-    const { data, error } = await supabase.rpc("termo_desfazer_envio_assinatura", { p_termo_id: termo.id });
+    const resp = await tentar("O desfazer do envio", () =>
+      supabase.rpc("termo_desfazer_envio_assinatura", { p_termo_id: termo.id })
+    );
     setProcessando(false);
+    if (!resp) return;
+    const { data, error } = resp;
     if (error || !data?.ok) {
       alert("Não foi possível desfazer: " + (error?.message || data?.erro || "erro desconhecido"));
       return;
@@ -502,8 +567,11 @@ export default function FilaAdmTermos() {
     );
     if (motivo === null) return;
     setProcessando(true);
-    const res = await desfazerAssinaturaConcluida(termo.id, motivo);
+    const res = await tentar("O desfazer da assinatura", () =>
+      desfazerAssinaturaConcluida(termo.id, motivo)
+    );
     setProcessando(false);
+    if (!res) return;
     if (!res.ok) {
       alert("Não foi possível desfazer: " + (res.erro === "etapa_invalida" ? "Este termo já não está como assinado. A fila será atualizada." : mensagemErro(res.erro)));
       return;
@@ -545,12 +613,16 @@ export default function FilaAdmTermos() {
       return;
     }
     setProcessando(true);
-    const { data, error } = await supabase.rpc("termo_dispensar_assinatura", {
-      p_termo_id: termo.id,
-      p_motivo: decisaoMotivo,
-      p_detalhe: detalhe || null,
-    });
+    const resp = await tentar('A saída da fila de assinatura ("não será assinado")', () =>
+      supabase.rpc("termo_dispensar_assinatura", {
+        p_termo_id: termo.id,
+        p_motivo: decisaoMotivo,
+        p_detalhe: detalhe || null,
+      })
+    );
     setProcessando(false);
+    if (!resp) return;
+    const { data, error } = resp;
     if (error || !data?.ok) {
       const cod = error?.message || data?.erro || "erro desconhecido";
       alert(
@@ -582,11 +654,15 @@ export default function FilaAdmTermos() {
       decisaoMotivo === "Outro" ? compl : compl ? `${decisaoMotivo} — ${compl}` : decisaoMotivo;
 
     setProcessando(true);
-    const { data, error } = await supabase.rpc("termo_devolver_ao_operador", {
-      p_termo_id: termo.id,
-      p_motivo: motivo,
-    });
+    const resp = await tentar("A devolução do termo", () =>
+      supabase.rpc("termo_devolver_ao_operador", {
+        p_termo_id: termo.id,
+        p_motivo: motivo,
+      })
+    );
     setProcessando(false);
+    if (!resp) return;
+    const { data, error } = resp;
     if (error || !data?.ok) {
       const cod = error?.message || data?.erro || "erro desconhecido";
       alert(
@@ -602,8 +678,10 @@ export default function FilaAdmTermos() {
     fecharDecisao();
     alert(
       `Termo de ${termo.aluno_nome || "aluno"} devolvido. O operador ` +
-        `${termo.operador_nome || termo.operador_email || ""} foi avisado e o caso voltou para a fila dele.`,
+        `${termo.operador_nome || termo.operador_email || ""} foi avisado e o caso voltou para a fila dele.\n\n` +
+        'Ele passa a aparecer no filtro "Rejeitados".',
     );
+    setFiltro("REJEITADOS");
     carregarTermos();
   }
 
@@ -621,8 +699,12 @@ export default function FilaAdmTermos() {
     );
     if (!ok) return;
     setProcessando(true);
-    const { data, error } = await supabase.rpc("termo_reativar_assinatura", { p_termo_id: termo.id });
+    const resp = await tentar("A volta do termo para a fila", () =>
+      supabase.rpc("termo_reativar_assinatura", { p_termo_id: termo.id })
+    );
     setProcessando(false);
+    if (!resp) return;
+    const { data, error } = resp;
     if (error || !data?.ok) {
       alert("Não foi possível voltar o termo para a fila: " + (error?.message || data?.erro || "erro desconhecido"));
       return;
@@ -647,7 +729,13 @@ export default function FilaAdmTermos() {
     }
     setProcessando(true);
 
-    const envio = await enviarTermo(modalAnexo.id, "final", anexoArquivo);
+    const envio = await tentar("O envio da via assinada", () =>
+      enviarTermo(modalAnexo.id, "final", anexoArquivo)
+    );
+    if (!envio) {
+      setProcessando(false);
+      return;
+    }
     if (!envio.ok && envio.erro !== "ja_vinculado") {
       setProcessando(false);
       alert(erroAnexo(envio.erro));
@@ -657,12 +745,15 @@ export default function FilaAdmTermos() {
     // O descarte é automático: anexar a via completa É a decisão de descartar a
     // do aluno. A trava que sobra é a do backend — sem o arquivo novo confirmado
     // no bucket, nada é apagado.
-    const res = await concluirAssinaturaTermo(modalAnexo.id, {
-      testemunha1,
-      testemunha2,
-      backupConfirmado: true,
-    });
+    const res = await tentar("A conclusão da assinatura", () =>
+      concluirAssinaturaTermo(modalAnexo.id, {
+        testemunha1,
+        testemunha2,
+        backupConfirmado: true,
+      })
+    );
     setProcessando(false);
+    if (!res) return;
 
     if (!res.ok) {
       alert("A via foi anexada, mas a conclusão falhou (" + res.erro + "). Nada foi apagado.");
@@ -688,8 +779,11 @@ export default function FilaAdmTermos() {
     );
     if (!ok) return;
     setProcessando(true);
-    const res = await descartarViaAluno(termo.id, { backupConfirmado: true });
+    const res = await tentar("O descarte da via do aluno", () =>
+      descartarViaAluno(termo.id, { backupConfirmado: true })
+    );
     setProcessando(false);
+    if (!res) return;
     if (!res.ok) {
       alert("Não foi possível descartar: " + res.erro);
       return;
@@ -718,39 +812,50 @@ export default function FilaAdmTermos() {
   const contadores = useMemo(() => {
     return {
       pendentes: termos.filter((t) => t.status === "TERMO_ENVIADO_ADM").length,
-      liberados: termos.filter((t) => t.status === "TERMO_RECEBIDO_LIBERADO").length,
+      confirmados: termos.filter(ehConfirmado).length,
       rejeitados: termos.filter((t) => t.status === "TERMO_REJEITADO").length,
       auditoria: termos.filter(ehGovPendenteAuditoria).length,
       todos: termos.length,
     };
   }, [termos]);
 
-  const termosLiberados = useMemo(
-    () => termos.filter((t) => t.status === "TERMO_RECEBIDO_LIBERADO"),
-    [termos]
-  );
+  const termosConfirmados = useMemo(() => termos.filter(ehConfirmado), [termos]);
 
   const contadoresLiberados = useMemo(() => {
-    const gov = termosLiberados.filter(ehAssinaturaGov).length;
-    return { todos: termosLiberados.length, gov, manual: termosLiberados.length - gov };
-  }, [termosLiberados]);
+    const gov = termosConfirmados.filter(ehAssinaturaGov).length;
+    return { todos: termosConfirmados.length, gov, manual: termosConfirmados.length - gov };
+  }, [termosConfirmados]);
 
   const termosFiltrados = useMemo(() => {
-    if (filtro === "PENDENTES") return termos.filter((t) => t.status === "TERMO_ENVIADO_ADM");
-    if (filtro === "LIBERADOS") {
+    // A busca é a última peneira e vale em TODOS os filtros — é o que permite
+    // reencontrar um caso já decidido sem varrer a lista inteira na rolagem.
+    const peneirar = (lista) => lista.filter((t) => casaBusca(t, busca));
+
+    if (filtro === "PENDENTES") {
+      return peneirar(termos.filter((t) => t.status === "TERMO_ENVIADO_ADM"));
+    }
+    if (filtro === "CONFIRMADOS") {
       const porTipo =
         tipoLiberado === "TODOS"
-          ? termosLiberados
-          : termosLiberados.filter((t) => ehAssinaturaGov(t) === (tipoLiberado === "GOV_BR"));
+          ? termosConfirmados
+          : termosConfirmados.filter((t) => ehAssinaturaGov(t) === (tipoLiberado === "GOV_BR"));
 
-      return [...porTipo].sort((a, b) =>
+      return peneirar(porTipo).sort((a, b) =>
         ordemLiberados === "RECENTE"
           ? dataLiberacao(b) - dataLiberacao(a)
           : dataLiberacao(a) - dataLiberacao(b)
       );
     }
-    if (filtro === "REJEITADOS") return termos.filter((t) => t.status === "TERMO_REJEITADO");
-    if (filtro === "AUDITORIA") return termos.filter(ehGovPendenteAuditoria);
+    if (filtro === "REJEITADOS") {
+      // Mais recentes primeiro: o que a ADM acabou de rejeitar é o que ela
+      // volta a procurar.
+      return peneirar(termos.filter((t) => t.status === "TERMO_REJEITADO")).sort((a, b) =>
+        ordemLiberados === "RECENTE"
+          ? dataRejeicao(b) - dataRejeicao(a)
+          : dataRejeicao(a) - dataRejeicao(b)
+      );
+    }
+    if (filtro === "AUDITORIA") return peneirar(termos.filter(ehGovPendenteAuditoria));
     if (filtro === "ASSINATURAS") {
       // "Todas" é a trilha viva; o dispensado só aparece no filtro dele.
       const porEtapa =
@@ -759,15 +864,14 @@ export default function FilaAdmTermos() {
           : etapaFiltro === "DISPENSADO"
             ? termos.filter(ehDispensado)
             : termos.filter((t) => etapaDe(t) === etapaFiltro);
-      const porBusca = porEtapa.filter((t) => casaBusca(t, buscaAssinatura));
-      return [...porBusca].sort((a, b) =>
+      return peneirar(porEtapa).sort((a, b) =>
         ordemLiberados === "RECENTE"
           ? dataEtapa(b) - dataEtapa(a)
           : dataEtapa(a) - dataEtapa(b)
       );
     }
-    return termos;
-  }, [termos, termosLiberados, filtro, tipoLiberado, ordemLiberados, etapaFiltro, buscaAssinatura]);
+    return peneirar(termos);
+  }, [termos, termosConfirmados, filtro, tipoLiberado, ordemLiberados, etapaFiltro, busca]);
 
   // Contadores da trilha de assinatura. Valem para TODO termo liberado —
   // manual e gov.br —, porque todos precisam das testemunhas e da Ulbra.
@@ -824,8 +928,8 @@ export default function FilaAdmTermos() {
           <span style={styles.descricao}>Pendentes</span>
         </div>
         <div style={styles.indicador}>
-          <span style={styles.numero}>{contadores.liberados}</span>
-          <span style={styles.descricao}>Liberados</span>
+          <span style={styles.numero}>{contadores.confirmados}</span>
+          <span style={styles.descricao}>Confirmados</span>
         </div>
         <div style={styles.indicador}>
           <span style={styles.numero}>{contadores.rejeitados}</span>
@@ -842,22 +946,70 @@ export default function FilaAdmTermos() {
       </div>
 
       <div style={styles.filtros}>
-        {["PENDENTES", "LIBERADOS", "REJEITADOS", "AUDITORIA", "ASSINATURAS", "TODOS"].map((f) => (
+        {[
+          { chave: "PENDENTES", label: `Pendentes (${contadores.pendentes})` },
+          { chave: "CONFIRMADOS", label: `Confirmados (${contadores.confirmados})` },
+          { chave: "REJEITADOS", label: `Rejeitados (${contadores.rejeitados})` },
+          { chave: "AUDITORIA", label: `Auditoria gov.br (${contadores.auditoria})` },
+          { chave: "ASSINATURAS", label: `Assinaturas (${contadoresEtapa.TODAS})` },
+          { chave: "TODOS", label: `Todos (${contadores.todos})` },
+        ].map((f) => (
           <button
-            key={f}
-            style={filtro === f ? styles.filtroAtivo : styles.filtro}
-            onClick={() => setFiltro(f)}
+            key={f.chave}
+            style={filtro === f.chave ? styles.filtroAtivo : styles.filtro}
+            onClick={() => {
+              setFiltro(f.chave);
+              setSelecionados([]);
+            }}
           >
-            {f === "AUDITORIA"
-              ? "Auditoria (gov.br)"
-              : f === "ASSINATURAS"
-                ? `Assinaturas (${contadoresEtapa.TODAS})`
-                : f.charAt(0) + f.slice(1).toLowerCase()}
+            {f.label}
           </button>
         ))}
       </div>
 
-      {filtro === "LIBERADOS" && (
+      <div style={styles.subFiltros}>
+        <div style={styles.grupoSubFiltro}>
+          <span style={styles.rotuloSubFiltro}>Aluno:</span>
+          <input
+            style={styles.campoBusca}
+            placeholder="Pesquisar por nome ou CPF"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+          {busca.trim() !== "" && (
+            <button style={styles.subFiltro} onClick={() => setBusca("")}>
+              Limpar busca
+            </button>
+          )}
+        </div>
+
+        {["CONFIRMADOS", "REJEITADOS", "ASSINATURAS"].includes(filtro) && (
+          <div style={styles.grupoSubFiltro}>
+            <span style={styles.rotuloSubFiltro}>Ordem:</span>
+            {[
+              { chave: "RECENTE", label: "Mais recentes primeiro" },
+              { chave: "ANTIGO", label: "Mais antigos primeiro" },
+            ].map((op) => (
+              <button
+                key={op.chave}
+                style={ordemLiberados === op.chave ? styles.subFiltroAtivo : styles.subFiltro}
+                onClick={() => setOrdemLiberados(op.chave)}
+              >
+                {op.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {busca.trim() !== "" && (
+        <div style={styles.avisoBusca}>
+          Mostrando <strong>{termosFiltrados.length}</strong> termo(s) neste filtro para
+          "{busca.trim()}". Os contadores acima seguem contando tudo, não só a busca.
+        </div>
+      )}
+
+      {filtro === "CONFIRMADOS" && (
         <div style={styles.subFiltros}>
           <div style={styles.grupoSubFiltro}>
             <span style={styles.rotuloSubFiltro}>Assinatura:</span>
@@ -876,42 +1028,12 @@ export default function FilaAdmTermos() {
             ))}
           </div>
 
-          <div style={styles.grupoSubFiltro}>
-            <span style={styles.rotuloSubFiltro}>Liberação:</span>
-            {[
-              { chave: "RECENTE", label: "Mais recentes primeiro" },
-              { chave: "ANTIGO", label: "Mais antigos primeiro" },
-            ].map((op) => (
-              <button
-                key={op.chave}
-                style={ordemLiberados === op.chave ? styles.subFiltroAtivo : styles.subFiltro}
-                onClick={() => setOrdemLiberados(op.chave)}
-              >
-                {op.label}
-              </button>
-            ))}
-          </div>
         </div>
       )}
 
       {filtro === "ASSINATURAS" && (
         <>
           <div style={styles.subFiltros}>
-            <div style={styles.grupoSubFiltro}>
-              <span style={styles.rotuloSubFiltro}>Aluno:</span>
-              <input
-                style={styles.campoBusca}
-                placeholder="Pesquisar por nome ou CPF"
-                value={buscaAssinatura}
-                onChange={(e) => setBuscaAssinatura(e.target.value)}
-              />
-              {buscaAssinatura.trim() !== "" && (
-                <button style={styles.subFiltro} onClick={() => setBuscaAssinatura("")}>
-                  Limpar busca
-                </button>
-              )}
-            </div>
-
             <div style={styles.grupoSubFiltro}>
               <span style={styles.rotuloSubFiltro}>Etapa:</span>
               {[{ chave: "TODAS", label: `Todas (${contadoresEtapa.TODAS})` }].concat(
@@ -934,30 +1056,7 @@ export default function FilaAdmTermos() {
               ))}
             </div>
 
-            <div style={styles.grupoSubFiltro}>
-              <span style={styles.rotuloSubFiltro}>Ordem:</span>
-              {[
-                { chave: "RECENTE", label: "Mais recentes primeiro" },
-                { chave: "ANTIGO", label: "Mais antigos primeiro" },
-              ].map((op) => (
-                <button
-                  key={op.chave}
-                  style={ordemLiberados === op.chave ? styles.subFiltroAtivo : styles.subFiltro}
-                  onClick={() => setOrdemLiberados(op.chave)}
-                >
-                  {op.label}
-                </button>
-              ))}
-            </div>
           </div>
-
-          {buscaAssinatura.trim() !== "" && (
-            <div style={styles.avisoBusca}>
-              Mostrando <strong>{termosFiltrados.length}</strong> termo(s) de{" "}
-              {etapaFiltro === "TODAS" ? contadoresEtapa.TODAS : contadoresEtapa[etapaFiltro]} nesta
-              etapa. Os contadores acima seguem contando tudo, não só a busca.
-            </div>
-          )}
 
           <div style={styles.barraLote}>
             <span style={styles.rotuloSubFiltro}>
@@ -1203,6 +1302,15 @@ export default function FilaAdmTermos() {
             )}
 
             <div style={styles.acoes}>
+              {termo.aluno_id && (
+                <button
+                  style={styles.botaoVer}
+                  onClick={() => navigate(`/aluno?alunoId=${encodeURIComponent(termo.aluno_id)}`)}
+                  title="Abre a ficha do aluno deste termo."
+                >
+                  Abrir ficha do aluno
+                </button>
+              )}
               {acionavel ? (
                 <button style={styles.botaoValidar} onClick={() => abrirValidacao(termo)}>
                   {ehGov ? "Validar documento (gov.br)" : "Validar assinatura"}
@@ -1611,7 +1719,7 @@ function ModalValidacao(props) {
                 </button>
               )}
               {ehGov ? (
-                <p style={{ color: "#4b1e8f", fontSize: 13, marginTop: 8 }}>
+                <p style={{ color: "var(--rv-roxo-texto)", fontSize: 13, marginTop: 8 }}>
                   Assinatura via gov.br já é validada eletronicamente. Confira os dados do
                   documento e clique em <strong>Validar e liberar ao operador</strong> — só então
                   o operador é avisado para liberar o acordo. Se algo estiver errado, rejeite.
@@ -1619,7 +1727,7 @@ function ModalValidacao(props) {
               ) : (
                 !previewUrl &&
                 !previewLoading && (
-                  <p style={{ color: "#b45309", fontSize: 13, marginTop: 8 }}>
+                  <p style={{ color: "var(--rv-ambar-texto)", fontSize: 13, marginTop: 8 }}>
                     Sem documento carregado: aprovação bloqueada. É possível rejeitar por arquivo
                     ilegível/ausente.
                   </p>
@@ -1648,7 +1756,7 @@ const styles = {
   container: {
     padding: "24px",
     fontFamily: "Arial, sans-serif",
-    background: "#f4f6f8",
+    background: "var(--rv-fundo-suave)",
     minHeight: "100%",
   },
   cabecalho: {
@@ -1658,11 +1766,11 @@ const styles = {
     alignItems: "flex-start",
     marginBottom: "18px",
   },
-  titulo: { margin: 0, marginBottom: "6px", color: "#111827" },
-  subtitulo: { color: "#555", margin: 0 },
-  texto: { color: "#555" },
+  titulo: { margin: 0, marginBottom: "6px", color: "var(--rv-tinta)" },
+  subtitulo: { color: "var(--rv-texto)", margin: 0 },
+  texto: { color: "var(--rv-texto)" },
   botaoAtualizar: {
-    background: "#111827",
+    background: "var(--rv-botao-escuro)",
     color: "#fff",
     border: "none",
     padding: "11px 16px",
@@ -1677,21 +1785,21 @@ const styles = {
     marginBottom: "18px",
   },
   indicador: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "12px",
     padding: "16px",
     boxShadow: "0 2px 8px rgba(0,0,0,0.06)",
   },
-  numero: { display: "block", fontSize: "28px", fontWeight: "bold", color: "#111827" },
-  descricao: { display: "block", color: "#6b7280", marginTop: "4px" },
+  numero: { display: "block", fontSize: "28px", fontWeight: "bold", color: "var(--rv-tinta)" },
+  descricao: { display: "block", color: "var(--rv-texto-suave)", marginTop: "4px" },
   filtros: { display: "flex", flexWrap: "wrap", gap: "8px", marginBottom: "18px" },
   subFiltros: {
     display: "flex",
     flexWrap: "wrap",
     gap: "18px",
     alignItems: "center",
-    background: "#fff",
-    border: "1px solid #e5e7eb",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "12px",
     padding: "12px 14px",
     marginBottom: "18px",
@@ -1700,14 +1808,14 @@ const styles = {
   campoBusca: {
     padding: "7px 12px",
     borderRadius: "999px",
-    border: "1px solid #d1d5db",
+    border: "1px solid var(--rv-borda-forte)",
     fontSize: "13px",
     minWidth: "230px",
   },
   avisoBusca: {
-    background: "#e9f5ff",
-    border: "1px solid #b6effb",
-    color: "#055160",
+    background: "var(--rv-azul-fundo)",
+    border: "1px solid var(--rv-azul-borda)",
+    color: "var(--rv-azul-texto)",
     borderRadius: "10px",
     padding: "10px 14px",
     marginBottom: "12px",
@@ -1718,8 +1826,8 @@ const styles = {
     flexWrap: "wrap",
     gap: "8px",
     alignItems: "center",
-    background: "#fff",
-    border: "1px solid #e5e7eb",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "12px",
     padding: "12px 14px",
     marginBottom: "18px",
@@ -1732,20 +1840,20 @@ const styles = {
     alignItems: "center",
     marginTop: "14px",
     paddingTop: "14px",
-    borderTop: "1px dashed #e5e7eb",
+    borderTop: "1px dashed var(--rv-borda)",
   },
-  checkLinha: { display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "#374151" },
+  checkLinha: { display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "var(--rv-texto-forte)" },
   botaoDescartar: {
-    background: "#fff",
-    color: "#b02a37",
-    border: "1px solid #f1aeb5",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-vermelho-texto)",
+    border: "1px solid var(--rv-vermelho-borda)",
     padding: "10px 14px",
     borderRadius: "8px",
     cursor: "pointer",
     fontWeight: "bold",
   },
   modalAnexo: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "14px",
     padding: "22px",
     width: "min(560px, 96vw)",
@@ -1757,13 +1865,13 @@ const styles = {
     width: "100%",
     padding: "10px",
     borderRadius: "8px",
-    border: "1px solid #ccc",
+    border: "1px solid var(--rv-borda-forte)",
     boxSizing: "border-box",
   },
   avisoBackup: {
     marginTop: "14px",
-    background: "#fff3cd",
-    border: "1px solid #ffe69c",
+    background: "var(--rv-ambar-fundo)",
+    border: "1px solid var(--rv-ambar-borda)",
     borderRadius: "8px",
     padding: "12px",
   },
@@ -1771,19 +1879,19 @@ const styles = {
   // alguém reanexar a via.
   avisoSemArquivo: {
     marginTop: "10px",
-    background: "#fdecea",
-    border: "1px solid #f5c2c0",
+    background: "var(--rv-vermelho-fundo)",
+    border: "1px solid var(--rv-vermelho-borda)",
     borderRadius: "8px",
     padding: "10px 12px",
     fontSize: "13px",
-    color: "#7f1d1d",
+    color: "var(--rv-vermelho-texto)",
     lineHeight: 1.45,
   },
-  rotuloSubFiltro: { fontSize: "13px", fontWeight: "bold", color: "#374151" },
+  rotuloSubFiltro: { fontSize: "13px", fontWeight: "bold", color: "var(--rv-texto-forte)" },
   subFiltro: {
-    background: "#f3f4f6",
-    color: "#374151",
-    border: "1px solid #d1d5db",
+    background: "var(--rv-fundo-suave)",
+    color: "var(--rv-texto-forte)",
+    border: "1px solid var(--rv-borda-forte)",
     padding: "6px 12px",
     borderRadius: "999px",
     cursor: "pointer",
@@ -1800,9 +1908,9 @@ const styles = {
     fontWeight: "bold",
   },
   filtro: {
-    background: "#fff",
-    color: "#111827",
-    border: "1px solid #d1d5db",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-tinta)",
+    border: "1px solid var(--rv-borda-forte)",
     padding: "9px 14px",
     borderRadius: "999px",
     cursor: "pointer",
@@ -1818,16 +1926,16 @@ const styles = {
     fontWeight: "bold",
   },
   alerta: {
-    background: "#fff3cd",
-    border: "1px solid #ffe69c",
-    color: "#664d03",
+    background: "var(--rv-ambar-fundo)",
+    border: "1px solid var(--rv-ambar-borda)",
+    color: "var(--rv-ambar-texto)",
     padding: "14px",
     borderRadius: "8px",
     marginBottom: "16px",
   },
-  vazio: { background: "#fff", padding: "18px", borderRadius: "10px" },
+  vazio: { background: "var(--rv-superficie)", padding: "18px", borderRadius: "10px" },
   card: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "14px",
     padding: "20px",
     marginBottom: "18px",
@@ -1840,8 +1948,8 @@ const styles = {
     alignItems: "flex-start",
     marginBottom: "16px",
   },
-  nome: { margin: "0 0 8px 0", color: "#111827" },
-  info: { margin: "5px 0", color: "#555" },
+  nome: { margin: "0 0 8px 0", color: "var(--rv-tinta)" },
+  info: { margin: "5px 0", color: "var(--rv-texto)" },
   status: {
     padding: "8px 12px",
     borderRadius: "999px",
@@ -1852,19 +1960,19 @@ const styles = {
   bloco: { marginTop: "14px" },
   blocoRetorno: {
     marginTop: "14px",
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "10px",
     padding: "12px",
   },
-  paragrafo: { color: "#374151", lineHeight: 1.4, margin: "8px 0" },
-  label: { display: "block", fontWeight: "bold", marginBottom: "6px", color: "#111827" },
+  paragrafo: { color: "var(--rv-texto-forte)", lineHeight: 1.4, margin: "8px 0" },
+  label: { display: "block", fontWeight: "bold", marginBottom: "6px", color: "var(--rv-tinta)" },
   textarea: {
     width: "100%",
     minHeight: "60px",
     padding: "10px",
     borderRadius: "8px",
-    border: "1px solid #ccc",
+    border: "1px solid var(--rv-borda-forte)",
     resize: "vertical",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
@@ -1873,10 +1981,10 @@ const styles = {
     width: "100%",
     padding: "10px",
     borderRadius: "8px",
-    border: "1px solid #ccc",
+    border: "1px solid var(--rv-borda-forte)",
     boxSizing: "border-box",
     fontFamily: "Arial, sans-serif",
-    background: "#fff",
+    background: "var(--rv-superficie)",
   },
   acoes: { display: "flex", flexWrap: "wrap", gap: "10px", marginTop: "16px" },
   botaoValidar: {
@@ -1889,8 +1997,8 @@ const styles = {
     fontWeight: "bold",
   },
   botaoVer: {
-    background: "#fff",
-    color: "#0d6efd",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-azul)",
     border: "1px solid #0d6efd",
     padding: "10px 16px",
     borderRadius: "8px",
@@ -1931,7 +2039,7 @@ const styles = {
   botaoProximo: {
     marginTop: 10,
     width: "100%",
-    background: "#111827",
+    background: "var(--rv-botao-escuro)",
     color: "#fff",
     border: "none",
     padding: "11px 16px",
@@ -1951,7 +2059,7 @@ const styles = {
     padding: "2vh 2vw",
   },
   modal: {
-    background: "#fff",
+    background: "var(--rv-superficie)",
     borderRadius: "14px",
     width: "100%",
     maxWidth: "1280px",
@@ -1997,8 +2105,8 @@ const styles = {
     fontSize: 13,
   },
   zoomBtn: {
-    background: "#fff",
-    color: "#111827",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-tinta)",
     border: "none",
     width: 30,
     height: 30,
@@ -2015,8 +2123,8 @@ const styles = {
     alignItems: "flex-start",
     padding: 12,
   },
-  docIframe: { width: "100%", height: "100%", minHeight: "70vh", border: "none", background: "#fff" },
-  docImg: { width: "100%", height: "auto", display: "block", background: "#fff" },
+  docIframe: { width: "100%", height: "100%", minHeight: "70vh", border: "none", background: "var(--rv-superficie)" },
+  docImg: { width: "100%", height: "auto", display: "block", background: "var(--rv-superficie)" },
   docEstado: {
     color: "#e5e7eb",
     textAlign: "center",
@@ -2040,7 +2148,7 @@ const styles = {
     gap: 8,
   },
   fechar: {
-    background: "#f3f4f6",
+    background: "var(--rv-fundo-suave)",
     border: "none",
     width: 34,
     height: 34,
@@ -2050,8 +2158,8 @@ const styles = {
     fontWeight: "bold",
   },
   validacaoDados: {
-    background: "#f8fafc",
-    border: "1px solid #e5e7eb",
+    background: "var(--rv-fundo-cartao)",
+    border: "1px solid var(--rv-borda)",
     borderRadius: "10px",
     padding: "12px",
   },
