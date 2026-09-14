@@ -14,9 +14,11 @@ import { fileURLToPath } from "node:url";
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = resolve(AQUI, "..", "..");
 const MIG = resolve(RAIZ, "supabase/migrations/20260915120000_titulo_liquidado_na_origem.sql");
+const FN = resolve(RAIZ, "supabase/functions/prime-portador/index.ts");
 const RB = resolve(RAIZ, "supabase/rollbacks/20260915120000_titulo_liquidado_na_origem.rollback.sql");
 const sql = readFileSync(MIG, "utf8").replace(/\r/g, "");
 const rb = readFileSync(RB, "utf8").replace(/\r/g, "");
+const fn = readFileSync(FN, "utf8").replace(/\r/g, "");
 
 function corpo(texto, nome, tag) {
   const i = texto.indexOf(`function public.${nome}(`);
@@ -74,8 +76,9 @@ describe("2. a trava: liquidado na origem e terminal", () => {
 
   it("as tres marcas nao podem ser apagadas por quem atualizar depois", () => {
     expect(trava).toContain("new.origem_liquidacao     := old.origem_liquidacao");
-    expect(trava).toContain("new.origem_liquidacao_ref := coalesce(new.origem_liquidacao_ref, old.origem_liquidacao_ref)");
-    expect(trava).toContain("new.origem_liquidacao_em  := coalesce(new.origem_liquidacao_em,  old.origem_liquidacao_em)");
+    // e o VELHO vence: ver o teste de proveniencia imutavel em 10.
+    expect(trava).toContain("new.origem_liquidacao_ref := coalesce(old.origem_liquidacao_ref, new.origem_liquidacao_ref)");
+    expect(trava).toContain("new.origem_liquidacao_em  := coalesce(old.origem_liquidacao_em,  new.origem_liquidacao_em)");
   });
 
   it("deixa o acordo futuro ser gravado para historico -- so a divida nao ressuscita", () => {
@@ -146,9 +149,13 @@ describe("5. o liquidador: as travas", () => {
     expect(liq.slice(i, i + 220)).toContain("continue;");
   });
 
-  it("exige as DUAS metades da regra de liquidacao", () => {
+  it("exige as DUAS metades da regra, com os operadores que a casa ja usa", () => {
+    // `liq > vencimento + 30 and liq >= entrada_em`, identico a
+    // carteira_2026_1_efetividade e a acoes_massivas_exclui_liquidados_no_prime
     expect(liq).toContain("if not (v_pago > v_t.vencimento + 30) then");
-    expect(liq).toContain("if not (v_pago > v_t.created_at::date) then");
+    expect(liq).toContain("if not (v_pago >= v_t.created_at::date) then");
+    // o `>=` e deliberado: titulo importado e liquidado no mesmo dia vale
+    expect(liq).not.toContain("if not (v_pago > v_t.created_at::date) then");
   });
 
   it("exige que o titulo seja do MESMO aluno do pagamento", () => {
@@ -202,10 +209,13 @@ describe("6. o liquidador: o que ele NAO faz", () => {
   });
 
   it("previa nao escreve nada", () => {
-    expect(liq).toContain("if p_aplicar then");
-    const i = pos(liq, "update public.acordos_titulos");
-    const antes = liq.slice(0, i);
-    expect(antes.lastIndexOf("if p_aplicar then")).toBeGreaterThan(-1);
+    // a previa sai do laco ANTES da escrita, e o UPDATE fica inalcancavel nela
+    const prev = pos(liq, "if not p_aplicar then");
+    expect(prev).toBeGreaterThan(-1);
+    expect(prev).toBeLessThan(pos(liq, "update public.acordos_titulos t"));
+    expect(liq.slice(prev, pos(liq, "end if;", prev))).toContain("continue;");
+    // e o unico UPDATE de titulo do liquidador e o de aquisicao
+    expect((liq.match(/update public\.acordos_titulos/g) || []).length).toBe(1);
   });
 });
 
@@ -273,5 +283,146 @@ describe("9. impacto medido nos 13", () => {
     expect(CAIXA_SANTANDER).not.toBe(DIVIDA_QUE_SAI);
     // o desenho nao cria parcela, entao a divida sai do saldo UMA vez
     expect(liq).not.toMatch(/insert into public\.parcelas/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 10. A AQUISICAO E ATOMICA -- conta o que a ESCRITA fez
+// ---------------------------------------------------------------------------
+describe("10. corrida e idempotencia no titulo", () => {
+  // o trecho do UPDATE de aquisicao, do `update` ate o `returning`
+  const upd = liq.slice(pos(liq, "update public.acordos_titulos t"),
+                        pos(liq, "get diagnostics v_rows = row_count;"));
+
+  it("a elegibilidade INTEIRA vai no WHERE da escrita, nao so o id", () => {
+    expect(upd).toContain("where t.id = v_t.id");
+    for (const trava of [
+      "and t.aluno_id = v_pag.aluno_id",
+      "and t.origem_liquidacao is null",
+      "and coalesce(t.situacao,'') = 'ABERTO'",
+      "and coalesce(t.status,'')   = 'em_aberto'",
+      "and t.acordo_id is null",
+    ]) expect(upd).toContain(trava);
+    expect(upd).toContain("and not exists (select 1 from public.acordo_titulo_vinculo v");
+    expect(upd).toContain("and coalesce(v.ativo, true)");
+  });
+
+  it("duas execucoes concorrentes nao podem apropriar o mesmo titulo", () => {
+    // a segunda reavalia o predicado contra a linha ja escrita: origem_liquidacao
+    // deixou de ser null, entao o UPDATE afeta zero linhas
+    expect(upd).toContain("and t.origem_liquidacao is null");
+    expect(liq).toContain("get diagnostics v_rows = row_count;");
+    expect(liq).toContain("if v_rows = 0 then");
+    const perdeu = liq.slice(pos(liq, "if v_rows = 0 then"), pos(liq, "v_n := v_n + 1;", pos(liq, "if v_rows = 0 then")));
+    expect(perdeu).toContain("PERDEU_A_CORRIDA");
+    expect(perdeu).toContain("continue;");
+  });
+
+  it("v_n e v_soma so avancam DEPOIS da escrita confirmada", () => {
+    const zero = pos(liq, "if v_rows = 0 then");
+    const conta = pos(liq, "v_n := v_n + 1;", zero);
+    expect(conta).toBeGreaterThan(zero);
+    // e o valor somado vem do RETURNING, nao da leitura de antes
+    expect(liq).toContain("v_soma := v_soma + coalesce(v_escrito, 0);");
+    expect(liq).toContain("returning coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0)");
+    expect(liq).toContain("into v_escrito;");
+  });
+
+  it("o pagamento so vira TITULO_ORIGINAL_LIQUIDADO se algum UPDATE ocorreu", () => {
+    const guarda = pos(liq, "if v_n = 0 then");
+    const marca = pos(liq, "set status_conciliacao = 'TITULO_ORIGINAL_LIQUIDADO'");
+    expect(guarda).toBeGreaterThan(-1);
+    expect(guarda).toBeLessThan(marca);
+    const saida = liq.slice(guarda, pos(liq, "end if;", guarda));
+    expect(saida).toContain("'liquidados', 0");
+    expect(saida).toContain("return jsonb_build_object");
+  });
+
+  it("a segunda execucao nao troca a proveniencia ja gravada", () => {
+    // o VELHO vence -- coalesce(old, new), nunca coalesce(new, old)
+    expect(trava).toContain("coalesce(old.origem_liquidacao_ref, new.origem_liquidacao_ref)");
+    expect(trava).toContain("coalesce(old.origem_liquidacao_em,  new.origem_liquidacao_em)");
+    expect(trava).not.toContain("coalesce(new.origem_liquidacao_ref, old.origem_liquidacao_ref)");
+    expect(trava).not.toContain("coalesce(new.origem_liquidacao_em,  old.origem_liquidacao_em)");
+  });
+
+  it("a previa nao promete a corrida -- e sai antes da escrita", () => {
+    const prev = pos(liq, "if not p_aplicar then");
+    expect(prev).toBeGreaterThan(-1);
+    expect(prev).toBeLessThan(pos(liq, "update public.acordos_titulos t"));
+    expect(liq.slice(prev, pos(liq, "end if;", prev))).toContain("continue;");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 11. A EDGE LIGA O FLUXO REAL AO MOTOR
+// ---------------------------------------------------------------------------
+describe("11. prime-portador chama o liquidador", () => {
+  const trecho = fn.slice(pos(fn, "const dia = (v: unknown)"), pos(fn, "carrierId=166&take=50"));
+  const codigo = trecho.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+
+  it("pede o extrato e chama o liquidador com o que veio dele", () => {
+    expect(fn).toContain("/financial-statement`, chave)");
+    expect(fn).toContain('supa.rpc("conciliacao_liquidar_titulo_por_prime"');
+    expect(trecho).toContain("p_pagamento_id: pagamentoId, p_titulos: titulos195, p_aplicar: true");
+  });
+
+  it("extrai EXCLUSIVAMENTE linhas do portador 195, com boleto e data de pagamento", () => {
+    expect(trecho).toContain("Number(l?.carrier?.id) === 195 && l?.boleto && l?.paymentDate");
+    expect(trecho).toContain("boleto: String(l.boleto)");
+    expect(trecho).toContain("pago_em: dia(l.paymentDate)");
+    expect(trecho).toContain("portador: 195");
+  });
+
+  it("NAO manda paidAmount para o motor", () => {
+    // so o comentario pode citar o campo -- codigo nenhum pode le-lo
+    for (const proibido of ["paidAmount", "grossAmount", "netAmount", "honorariumAmount"]) {
+      expect(codigo, `${proibido} chegou ao codigo`).not.toContain(proibido);
+    }
+    // e o que vai para o motor sao exatamente quatro campos
+    const mapa = codigo.slice(pos(codigo, ".map((l) => ({"), pos(codigo, "}));"));
+    expect([...mapa.matchAll(/^\s*(\w+):/gm)].map((m) => m[1]).sort())
+      .toEqual(["boleto", "pago_em", "portador", "vencimento"]);
+  });
+
+  it("liquidou -> encerra como TITULO_ORIGINAL_LIQUIDADO e nao consulta o 166", () => {
+    const i = pos(trecho, 'Number((liq as any)?.liquidados ?? 0) > 0');
+    expect(i).toBeGreaterThan(-1);
+    const ramo = trecho.slice(i);
+    expect(ramo).toContain('resultado: "TITULO_ORIGINAL_LIQUIDADO"');
+    expect(ramo).toContain("return new Response");
+    expect(ramo).not.toContain("carrierId=166");
+  });
+
+  it("nenhum titulo liquidado -> segue o fluxo do #379", () => {
+    // o caminho do 166 continua existindo DEPOIS do bloco da liquidacao
+    expect(pos(fn, "financial-statement")).toBeLessThan(pos(fn, "carrierId=166&take=50"));
+    // e a chamada ao liquidador e condicional, nao um return incondicional
+    expect(trecho).toContain("if (pagamentoId && titulos195.length > 0) {");
+  });
+
+  it("erro no extrato NUNCA liquida, e nao cai no 166 nesta execucao", () => {
+    const i = pos(trecho, "if (linhas === null) {");
+    expect(i).toBeGreaterThan(-1);
+    const ramo = trecho.slice(i, pos(trecho, "const titulos195"));
+    expect(ramo).toContain('resultado: "ERRO_NO_EXTRATO"');
+    expect(ramo).toContain("return new Response");
+    expect(ramo).not.toContain("conciliacao_liquidar_titulo_por_prime");
+    expect(ramo).not.toContain("carrierId=166");
+    // e o erro e detectado ANTES de montar a lista que vai para o motor
+    expect(i).toBeLessThan(pos(trecho, "const titulos195"));
+  });
+
+  it("4xx/5xx, timeout e JSON de forma desconhecida caem todos no mesmo ERRO", () => {
+    // primeGet ja colapsa 4xx/5xx e timeout em ok:false; forma desconhecida
+    // vira null aqui, e null e a condicao do ramo de erro
+    expect(trecho).toContain("(!fs.ok ? null");
+    expect(trecho).toContain(": (Array.isArray(fs.dados) ? fs.dados");
+    expect(trecho).toContain('(Array.isArray((fs.dados as any)?.items) ? (fs.dados as any).items : null))');
+  });
+
+  it("a ordem e agreements -> extrato -> 166", () => {
+    expect(pos(fn, "/agreements`, chave)")).toBeLessThan(pos(fn, "/financial-statement`, chave)"));
+    expect(pos(fn, "/financial-statement`, chave)")).toBeLessThan(pos(fn, "carrierId=166&take=50"));
   });
 });

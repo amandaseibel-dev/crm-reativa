@@ -95,8 +95,12 @@ begin
 
   -- As tres marcas nao se apagam: sao a prova de POR QUE o titulo fechou.
   new.origem_liquidacao     := old.origem_liquidacao;
-  new.origem_liquidacao_ref := coalesce(new.origem_liquidacao_ref, old.origem_liquidacao_ref);
-  new.origem_liquidacao_em  := coalesce(new.origem_liquidacao_em,  old.origem_liquidacao_em);
+  -- O VELHO VENCE. Nao e coalesce do novo: uma segunda execucao concorrente
+  -- chega com OUTRO pagamento em `new`, e deixar o novo ganhar reescreveria a
+  -- proveniencia -- o titulo passaria a dizer que foi liquidado por um
+  -- pagamento que nao foi o que o liquidou. Gravada uma vez, nao troca mais.
+  new.origem_liquidacao_ref := coalesce(old.origem_liquidacao_ref, new.origem_liquidacao_ref);
+  new.origem_liquidacao_em  := coalesce(old.origem_liquidacao_em,  new.origem_liquidacao_em);
 
   if coalesce(new.situacao,'') = 'PAGO' and coalesce(new.status,'') = 'quitada' then
     return new;   -- nada a coagir; segue a vida (acordo_id, motivo, etc.)
@@ -636,8 +640,14 @@ revoke all on function public.pagamento_conciliar_um(uuid, boolean) from public,
 --   liquidacao validada   -- `paymentDate` sozinho nao serve: ele aparece em
 --                            titulo ABERTO como placeholder. A regra da casa,
 --                            validada em 1.747 pagamentos com zero erro, exige
---                            pago DEPOIS de vencimento+30 E DEPOIS da
---                            importacao do titulo. As duas metades.
+--                            pago DEPOIS de vencimento+30 E NAO ANTES da
+--                            importacao do titulo. As duas metades, com os
+--                            operadores exatos que a casa ja usa em
+--                            `carteira_2026_1_efetividade` e em
+--                            `acoes_massivas_exclui_liquidados_no_prime`:
+--                            `liq > vencimento + 30 and liq >= entrada_em`.
+--                            O segundo e `>=`, nao `>`: titulo importado e
+--                            liquidado no mesmo dia e liquidacao valida.
 --   titulo do MESMO aluno -- a ponte e por numero de documento, e numero se
 --                            repete entre bases. Sem esta trava, um documento
 --                            homonimo fecharia divida de outra pessoa.
@@ -666,6 +676,8 @@ declare
   v_boleto text; v_pago date;
   v_liquidados jsonb := '[]'::jsonb; v_recusados jsonb := '[]'::jsonb;
   v_n int := 0; v_soma numeric := 0; v_motivo text;
+  -- o que a ESCRITA fez -- nunca o que a leitura previu
+  v_rows int := 0; v_escrito numeric;
 begin
   if coalesce(auth.role(),'') <> 'service_role'
      and not coalesce(public.usuario_e_gestao(), false) then
@@ -750,35 +762,70 @@ begin
       v_recusados := v_recusados || jsonb_build_object('boleto', v_boleto, 'porque', 'PAGAMENTO_DENTRO_DE_30_DIAS_DO_VENCIMENTO');
       continue;
     end if;
-    if not (v_pago > v_t.created_at::date) then
+    if not (v_pago >= v_t.created_at::date) then
       v_recusados := v_recusados || jsonb_build_object('boleto', v_boleto, 'porque', 'PAGAMENTO_ANTERIOR_A_IMPORTACAO');
       continue;
     end if;
 
-    v_n := v_n + 1;
-    v_soma := v_soma + v_t.saldo;
-    v_liquidados := v_liquidados || jsonb_build_object('boleto', v_boleto, 'titulo_id', v_t.id,
-                      'vencimento', v_t.vencimento, 'pago_em', v_pago, 'saldo', v_t.saldo);
-
-    if p_aplicar then
-      update public.acordos_titulos
-         set situacao = 'PAGO',
-             status   = 'quitada',
-             -- acordo_id continua NULL de proposito: nao ha acordo no CRM, e
-             -- criar um so para ter onde apontar seria inventar estrutura.
-             origem_liquidacao     = 'PRIME_LIQUIDACAO_OFICIAL',
-             origem_liquidacao_ref = p_pagamento_id::text,
-             origem_liquidacao_em  = now(),
-             motivo_ajuste = coalesce(motivo_ajuste,'')
-               || case when coalesce(motivo_ajuste,'') = '' then '' else ' | ' end
-               || 'liquidada na origem: a Prime registra o documento ' || v_boleto
-               || ' pago em ' || to_char(v_pago,'DD/MM/YYYY') || ' no portador 195'
-               || ', e o Santander pagou o acordo ' || coalesce(nullif(v_pag.titulo_numero,''),'(sem numero)')
-               || ' em ' || coalesce(to_char(v_pag.data_pagamento,'DD/MM/YYYY'),'?')
-               || '. Nenhum acordo ou parcela foi criado a partir disso.',
-             atualizado_em = now()
-       where id = v_t.id;
+    if not p_aplicar then
+      -- PREVIA: nada e escrito, entao o que se reporta e o que PASSARIA nas
+      -- travas agora. Nao promete a corrida -- so a leitura.
+      v_n := v_n + 1;
+      v_soma := v_soma + v_t.saldo;
+      v_liquidados := v_liquidados || jsonb_build_object('boleto', v_boleto, 'titulo_id', v_t.id,
+                        'vencimento', v_t.vencimento, 'pago_em', v_pago, 'saldo', v_t.saldo);
+      continue;
     end if;
+
+    -- AQUISICAO ATOMICA. As checagens acima foram feitas com a foto de antes;
+    -- entre elas e esta escrita outra execucao pode ter levado o mesmo titulo.
+    -- Entao a elegibilidade INTEIRA vai no WHERE do proprio UPDATE: em READ
+    -- COMMITTED, duas transacoes que disputam a linha serializam, e a segunda
+    -- reavalia o predicado contra a linha ja escrita -- encontra
+    -- `origem_liquidacao` preenchida e afeta zero linhas. Compare-and-swap,
+    -- sem lock explicito.
+    --
+    -- E o que conta e o que a ESCRITA fez, nao o que a leitura previu: `v_n`,
+    -- `v_soma` e o estado do pagamento so avancam com linha realmente alterada.
+    update public.acordos_titulos t
+       set situacao = 'PAGO',
+           status   = 'quitada',
+           -- acordo_id continua NULL de proposito: nao ha acordo no CRM, e
+           -- criar um so para ter onde apontar seria inventar estrutura.
+           origem_liquidacao     = 'PRIME_LIQUIDACAO_OFICIAL',
+           origem_liquidacao_ref = p_pagamento_id::text,
+           origem_liquidacao_em  = now(),
+           motivo_ajuste = coalesce(t.motivo_ajuste,'')
+             || case when coalesce(t.motivo_ajuste,'') = '' then '' else ' | ' end
+             || 'liquidada na origem: a Prime registra o documento ' || v_boleto
+             || ' pago em ' || to_char(v_pago,'DD/MM/YYYY') || ' no portador 195'
+             || ', e o Santander pagou o acordo ' || coalesce(nullif(v_pag.titulo_numero,''),'(sem numero)')
+             || ' em ' || coalesce(to_char(v_pag.data_pagamento,'DD/MM/YYYY'),'?')
+             || '. Nenhum acordo ou parcela foi criado a partir disso.',
+           atualizado_em = now()
+     where t.id = v_t.id
+       and t.aluno_id = v_pag.aluno_id
+       and t.origem_liquidacao is null
+       and coalesce(t.situacao,'') = 'ABERTO'
+       and coalesce(t.status,'')   = 'em_aberto'
+       and t.acordo_id is null
+       and not exists (select 1 from public.acordo_titulo_vinculo v
+                        where v.titulo_id = t.id and coalesce(v.ativo, true))
+    returning coalesce(t.saldo_corrigido, t.valor_em_aberto, t.valor_original, 0)
+      into v_escrito;
+    get diagnostics v_rows = row_count;
+
+    if v_rows = 0 then
+      -- Perdeu a corrida, ou a linha deixou de ser elegivel entre a leitura e a
+      -- escrita. Nao e erro: e o caso em que NAO se conta.
+      v_recusados := v_recusados || jsonb_build_object('boleto', v_boleto, 'porque', 'PERDEU_A_CORRIDA');
+      continue;
+    end if;
+
+    v_n := v_n + 1;
+    v_soma := v_soma + coalesce(v_escrito, 0);
+    v_liquidados := v_liquidados || jsonb_build_object('boleto', v_boleto, 'titulo_id', v_t.id,
+                      'vencimento', v_t.vencimento, 'pago_em', v_pago, 'saldo', v_escrito);
   end loop;
 
   if v_n = 0 then
@@ -891,5 +938,24 @@ begin
   end if;
   if v_src not ilike '%t.aluno_id = v_pag.aluno_id%' then
     raise exception 'o liquidador nao exige que o titulo seja do mesmo aluno';
+  end if;
+
+  -- a aquisicao tem de ser atomica: elegibilidade no WHERE da escrita, e
+  -- contagem pelo que a escrita fez
+  if v_src not ilike '%and t.origem_liquidacao is null%' then
+    raise exception 'o UPDATE nao confirma a elegibilidade no momento da escrita';
+  end if;
+  if v_src not ilike '%get diagnostics v_rows = row_count%' then
+    raise exception 'o liquidador nao mede o que a escrita realmente alterou';
+  end if;
+  if v_src not ilike '%if v_rows = 0 then%' then
+    raise exception 'o liquidador nao trata a linha que nao foi alterada';
+  end if;
+
+  -- e a proveniencia, uma vez gravada, nao troca de dono
+  select p.prosrc into v_src from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='titulo_liquidado_na_origem_e_terminal';
+  if v_src not ilike '%coalesce(old.origem_liquidacao_ref, new.origem_liquidacao_ref)%' then
+    raise exception 'a proveniencia pode ser substituida por outra execucao';
   end if;
 end $prova$;

@@ -432,7 +432,7 @@ describe("12. CRM sem acordo -> Prime /agreements -> se vazio -> 166 -> fallback
 
   it("estrutura encontrada devolve ACORDO_ENCONTRADO_NA_API e NAO cai no fallback", () => {
     const i = pos(fn, "if (estrutura) {");
-    const fim = pos(fn, "// 4) veio vazio");
+    const fim = pos(fn, "// 4)");
     const ramo = fn.slice(i, fim);
     expect(ramo).toContain("ACORDO_ENCONTRADO_NA_API");
     expect(ramo).toContain("return new Response");
@@ -574,7 +574,7 @@ describe("13. Edge: cada resposta de /agreements grava o seu resultado", () => {
     expect(i).toBeGreaterThan(-1);
     const ramo = tentativa.slice(i, pos(tentativa, "} else {"));
     expect(ramo).toContain('registraResultado("ENCONTRADA")');
-    const saida = fn.slice(pos(fn, "if (estrutura) {"), pos(fn, "// 4) veio vazio"));
+    const saida = fn.slice(pos(fn, "if (estrutura) {"), pos(fn, "// 4)"));
     expect(saida).toContain("ACORDO_ENCONTRADO_NA_API");
     expect(saida).toContain("return new Response");
     expect(saida).not.toContain("carrierId=166");

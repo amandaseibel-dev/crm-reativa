@@ -47,8 +47,11 @@
 //     2. GET /students/{registration}/agreements   <- a tentativa oficial
 //     3. veio estrutura?  -> ENCONTRADA, ACORDO_ENCONTRADO_NA_API com o payload cru
 //     4. falhou?          -> ERRO, e PARA AQUI -- o 166 não é consultado
-//     5. veio vazio?      -> NAO_ENCONTRADA, aí sim confirma o 166
-//     6. 166 positivo     -> o motor decide o fallback
+//     5. veio vazio?      -> NAO_ENCONTRADA, e então a pergunta seguinte
+//     6. GET /students/{registration}/financial-statement
+//     7. linha do portador 195 liquidada? -> TITULO_ORIGINAL_LIQUIDADO
+//     8. nenhuma?         -> aí sim confirma o 166
+//     9. 166 positivo     -> o motor decide o fallback
 //
 // E o RESULTADO dos passos 3/4/5 é gravado em
 // `fila_pagamento_sem_vinculo.consulta_estrutura_resultado`. Isso não é
@@ -284,7 +287,70 @@ Deno.serve(async (req) => {
       }), { headers: { "Content-Type": "application/json" } });
     }
 
-    // 4) veio vazio, como em 100% dos casos medidos -> aí sim confirma o 166
+    // 4) A API respondeu "não tenho acordo". Antes do fallback do 166, a
+    //    pergunta que a Prime SABE responder: o TÍTULO ORIGINAL foi liquidado?
+    //
+    //    A ponte foi medida: `financialStatement[].boleto` é exatamente
+    //    `acordos_titulos.documento`. Só o portador 195 interessa -- 95 é
+    //    mensalidade corrente da ULBRA e 166 é convênio de acordo; nenhum dos
+    //    dois é título que o CRM cobra.
+    //
+    //    O QUE VAI PARA O MOTOR: boleto, vencimento, data de pagamento e
+    //    portador. `paidAmount` NÃO vai -- lá ele é dívida corrigida
+    //    (R$ 1.110,12 num título de R$ 543,39), e o caixa é o do Santander.
+    // Sem registration nao ha extrato a pedir (a chamada manual so por CPF cai
+    // aqui). Nao e erro: e caso sem esta evidencia, e o fluxo segue para o 166.
+    const dia = (v: unknown) => String(v ?? "").slice(0, 10) || null;
+    const fs = registration
+      ? await primeGet(`/students/${encodeURIComponent(registration)}/financial-statement`, chave)
+      : null;
+
+    // ERRO NO EXTRATO NÃO LIQUIDA NADA, e também não segue para o 166. Não é
+    // excesso de zelo: `ACORDO_CONFIRMADO_SEM_ESTRUTURA` é terminal no motor --
+    // uma vez confirmado, não volta a ser pendência. Se o extrato falhou e a
+    // resposta certa era "o título já foi liquidado", promover pelo 166 agora
+    // trancaria o caso para sempre na conclusão mais fraca. Melhor voltar em 24h.
+    const linhas: any[] | null = !fs
+      ? []                                   // sem registration: sem evidencia, sem erro
+      : (!fs.ok ? null
+         : (Array.isArray(fs.dados) ? fs.dados
+            : (Array.isArray((fs.dados as any)?.items) ? (fs.dados as any).items : null)));
+    if (linhas === null) {
+      return new Response(JSON.stringify({
+        modo: "pontual", resultado: "ERRO_NO_EXTRATO",
+        registration, nome, cpf, status: fs && fs.ok ? 200 : (fs?.status ?? 0),
+        observacao: "o extrato financeiro nao pode ser lido -- nenhum titulo foi liquidado, 166 nao consultado, o caso volta na proxima janela de 24h",
+      }), { status: 502, headers: { "Content-Type": "application/json" } });
+    }
+
+    const titulos195 = linhas
+      .filter((l) => Number(l?.carrier?.id) === 195 && l?.boleto && l?.paymentDate)
+      .map((l) => ({
+        boleto: String(l.boleto),
+        vencimento: dia(l.dueDate),
+        pago_em: dia(l.paymentDate),
+        portador: 195,
+      }));
+
+    if (pagamentoId && titulos195.length > 0) {
+      const { data: liq, error: erroLiq } = await supa.rpc("conciliacao_liquidar_titulo_por_prime", {
+        p_pagamento_id: pagamentoId, p_titulos: titulos195, p_aplicar: true,
+      });
+      // Quem decide se liquidou é o motor, não esta função: ela só entrega o
+      // que a Prime disse. Zero títulos liquidados não é erro -- é o caso em
+      // que o fluxo do 166 continua valendo.
+      if (!erroLiq && Number((liq as any)?.liquidados ?? 0) > 0) {
+        return new Response(JSON.stringify({
+          modo: "pontual", resultado: "TITULO_ORIGINAL_LIQUIDADO",
+          registration, nome, cpf,
+          titulos_195_enviados: titulos195.length,
+          liquidacao: liq,
+          observacao: "o titulo original foi concluido pela liquidacao oficial na Prime -- nenhum acordo ou parcela foi criado",
+        }), { headers: { "Content-Type": "application/json" } });
+      }
+    }
+
+    // 5) nenhum título liquidou -> segue o fluxo do #379: confirma o 166
     const b = await primeGet(
       `/students?search=${encodeURIComponent(formataCpf(cpf))}&carrierId=166&take=50`, chave);
     if (!b.ok) {
