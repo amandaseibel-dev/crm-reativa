@@ -1,0 +1,60 @@
+-- FECHA A EXECUCAO EXTERNA DE public.titulo_reavaliar(uuid).
+--
+-- O QUE ESTAVA ABERTO (medido em producao em 13/09/2026):
+--   ACL: {=X/postgres, postgres=X/postgres, authenticated=X/postgres, service_role=X/postgres}
+--   A primeira entrada, `=X/postgres`, tem grantee vazio: e PUBLIC. Por isso
+--   `anon` tambem tinha EXECUTE, sem nenhum grant proprio.
+--
+-- POR QUE ISSO E RISCO. `titulo_reavaliar` e SECURITY DEFINER com owner
+-- `postgres`, ESCREVE em `acordos_titulos` e NAO tem portao interno nenhum --
+-- nem `usuario_e_gestao()`, nem `auth.uid()/email()/jwt()`, nem `raise
+-- exception`. Como e DEFINER, a RLS de `acordos_titulos` nao protege esse
+-- caminho. E ela esta em `public`, schema exposto pelo PostgREST, e `anon` e
+-- `authenticated` tem USAGE nele -- ou seja, era chamavel como
+-- POST /rest/v1/rpc/titulo_reavaliar com {"p_titulo":"<uuid>"}.
+--
+-- Um operador comum podia, por essa porta, forcar qualquer titulo que visse na
+-- ficha de volta para ABERTO/em_aberto, passando por fora de toda a regra de
+-- negocio (a lista de elegibilidade de `vincular_titulos_acordo`, os portoes de
+-- gestao). Para `anon` o alcance e menor -- `anon` nao tem SELECT em
+-- `acordos_titulos` e nenhuma das 4 policies da tabela o alcanca, entao nao da
+-- para colher UUID pela API -- mas bastava um UUID vazar para a chamada valer.
+--
+-- Entre as 698 funcoes de `public`, esta era a UNICA ao mesmo tempo
+-- SECURITY DEFINER como postgres + EXECUTE para PUBLIC + que escreve + sem
+-- portao interno + que nao e funcao de gatilho (logo, chamavel direto).
+-- 626 funcoes ja estavam fechadas: esta era excecao, nao o padrao.
+--
+-- POR QUE REVOGAR NAO QUEBRA NADA. Os tres unicos chamadores sao
+-- SECURITY DEFINER com owner `postgres`:
+--   _acordo_status_reavalia_titulos()  (gatilho em acordos)
+--   titulo_situacao_por_vinculo()      (gatilho em acordo_titulo_vinculo)
+--   fluxo_acordos_rodar()              (rotina)
+-- Dentro de uma funcao SECURITY DEFINER o usuario efetivo e o OWNER, nao quem
+-- chamou. Prova disso dentro desta propria base: `receber_leads` e DEFINER com
+-- owner postgres e chama `internal.set_resp_aluno`; `authenticated` NAO tem
+-- USAGE no schema `internal`. Se os privilegios do chamador valessem la dentro,
+-- toda chamada de operador falharia com "permission denied for schema
+-- internal" -- e nos ultimos 30 dias 6 leads foram atribuidos por esse caminho.
+--
+-- E nenhuma tela ou Edge Function chama a funcao: `grep -rn titulo_reavaliar
+-- src/ supabase/functions/ services/` nao retorna nada.
+--
+-- POR QUE AS DUAS LINHAS, E NAO UMA. Revogar so de `authenticated` deixaria o
+-- grant de PUBLIC de pe, que alcanca `authenticated` e `anon` do mesmo jeito.
+-- Revogar so de PUBLIC deixaria o grant explicito de `authenticated`. Nao ha
+-- `revoke ... from anon` porque `anon` nunca teve grant proprio: ele cai junto
+-- com PUBLIC.
+--
+-- ESTADO FINAL PRETENDIDO: {postgres=X/postgres, service_role=X/postgres}.
+-- Esse ACL ja existe em producao, identico, em `fluxo_acordos_rodar` -- e la
+-- ele resulta exatamente em PUBLIC/anon/authenticated sem EXECUTE e
+-- postgres/service_role com EXECUTE. E o alvo, verificado num vizinho vivo.
+--
+-- O QUE ESTA MIGRATION NAO FAZ: nao altera o corpo da funcao, nao adiciona
+-- portao interno, nao muda o owner, nao muda SECURITY DEFINER, nao mexe em
+-- service_role, nao toca nos gatilhos nem nos chamadores, nao tem DML e nao
+-- muda nenhum dado.
+
+revoke execute on function public.titulo_reavaliar(uuid) from public;
+revoke execute on function public.titulo_reavaliar(uuid) from authenticated;
