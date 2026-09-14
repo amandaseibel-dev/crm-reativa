@@ -5,6 +5,14 @@
 // "2026002333 - Nome"). Resultado: pagamento entrava sem nenhum vinculo com a
 // base.
 //
+// MUDANCA DE 14/09/2026. A fila deixou de ser "pagamento sem aluno" e passou a
+// ser "pagamento que nao baixou". O eixo antigo era `aluno_id IS NULL`, e ele
+// escondia o caso mais caro: pagamento com aluno JA identificado (por boleto
+// exato ou por numero Ulbra unico) cuja parcela nao baixou. Medido no arquivo
+// de 14/09: 11 linhas / R$ 4.655,12 entravam sem registro nenhum do motivo.
+// Agora entra na fila tudo que `pagamentos.status_conciliacao` diz que nao
+// terminou em BAIXADO, com ou sem aluno.
+//
 // MUDANCA DE 12/09/2026. O nome deixou de vincular. A regra agora e, em ordem:
 // CPF -> boleto exato -> prefixo UNICO -> numero_ulbra UNICO -> SEM VINCULO.
 // O que nao tem identificador financeiro cai aqui e exige decisao humana.
@@ -25,6 +33,13 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import CadastroNovoAluno from "../components/CadastroNovoAluno";
+import {
+  STATUS_CONCILIACAO,
+  estadoDaLinha,
+  podeVincularAluno,
+  contarPorStatus,
+  AVISO_PROJECAO,
+} from "../utils/conciliacaoPagamento";
 import Aluno from "./Aluno";
 import DadosAcademicos from "../components/DadosAcademicos";
 
@@ -68,16 +83,22 @@ export default function PagamentosSemAluno() {
 
   useEffect(() => { carregar(); }, [carregar]);
 
+  // O filtro passou a ser pelo ESTADO da conciliacao. O motivo por nome
+  // (NOME_REPETIDO / SEM_CADASTRO) continua aparecendo na linha, mas nao serve
+  // mais de filtro: ele so existe para as linhas sem aluno, e a fila agora tem
+  // linhas com aluno.
   const visiveis = useMemo(
-    () => (filtro === "TODOS" ? linhas : linhas.filter((l) => l.motivo === filtro)),
+    () =>
+      filtro === "TODOS"
+        ? linhas
+        : linhas.filter((l) => (l.status_conciliacao || "SEM_ESTADO") === filtro),
     [linhas, filtro],
   );
+  const porStatus = useMemo(() => contarPorStatus(linhas), [linhas]);
   const total = useMemo(
     () => visiveis.reduce((s, l) => s + Number(l.valor_pago || 0), 0),
     [visiveis],
   );
-  const repetidos = linhas.filter((l) => l.motivo === "NOME_REPETIDO").length;
-  const semCadastro = linhas.filter((l) => l.motivo === "SEM_CADASTRO").length;
 
   function copiarNome(nome) {
     navigator.clipboard.writeText(nome || "").then(() => {
@@ -90,11 +111,12 @@ export default function PagamentosSemAluno() {
     <div style={S.wrap}>
       <div style={S.topo}>
         <div>
-          <h1 style={S.titulo}>Pagamentos sem vínculo</h1>
+          <h1 style={S.titulo}>Pagamentos a conciliar</h1>
           <p style={S.sub}>
-            O que nenhum identificador financeiro resolveu — CPF, boleto exato, prefixo único
-            ou número Ulbra único. <b>Nome não vincula</b>: aparece só como sugestão, e a
-            decisão é sua. O valor já está no mês; falta saber de quem é.
+            Pagamento que entrou e <b>não baixou parcela</b> — falta o acordo, falta amarrar
+            o boleto, a parcela já estava paga, ou há divergência. Também entra aqui o que
+            nenhum identificador financeiro resolveu. <b>Nome não vincula</b>: aparece só
+            como sugestão, e a decisão é sua. {AVISO_PROJECAO}
           </p>
         </div>
         <button type="button" onClick={carregar} style={S.btnGhost} disabled={carregando}>
@@ -120,8 +142,14 @@ export default function PagamentosSemAluno() {
         </label>
         <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={S.select}>
           <option value="TODOS">Todos ({linhas.length})</option>
-          <option value="NOME_REPETIDO">Nome repetido ({repetidos})</option>
-          <option value="SEM_CADASTRO">Sem cadastro ({semCadastro})</option>
+          {Object.entries(STATUS_CONCILIACAO)
+            .filter(([chave]) => chave !== "BAIXADO")
+            .map(([chave, def]) => (
+              <option key={chave} value={chave}>
+                {def.rotulo} ({porStatus[chave] || 0})
+              </option>
+            ))}
+          <option value="SEM_ESTADO">Anterior à regra ({porStatus.SEM_ESTADO || 0})</option>
         </select>
         <div style={S.contadores}>
           <span style={S.contadorAlunos}>{visiveis.length} pagamentos</span>
@@ -133,7 +161,7 @@ export default function PagamentosSemAluno() {
 
       {!carregando && visiveis.length === 0 ? (
         <p style={S.muted}>
-          Nenhum pagamento pendente de vínculo neste mês. Tudo casado com aluno.
+          Nenhum pagamento pendente de conciliação neste mês. Tudo baixado.
         </p>
       ) : null}
 
@@ -186,6 +214,8 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
   const [msg, setMsg] = useState("");
 
   const repetido = item.motivo === "NOME_REPETIDO";
+  const estado = estadoDaLinha(item);
+  const podeVincular = podeVincularAluno(item);
   // sugestoes vem da fila (jsonb). Nunca sao aplicadas: so oferecidas.
   const sugestoes = Array.isArray(item.sugestoes) ? item.sugestoes.filter((x) => x && x.aluno_id) : [];
 
@@ -240,14 +270,25 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
           </span>
         </div>
         <div style={S.cardHeadDir}>
-          <span style={repetido ? selo.repetido : selo.semCadastro}>
-            {repetido ? `${item.candidatos} alunos com esse nome` : "sem cadastro na base"}
-          </span>
+          <span style={seloEstado} title={estado.explica}>{estado.rotulo}</span>
+          {podeVincular ? (
+            <span style={repetido ? selo.repetido : selo.semCadastro}>
+              {repetido ? `${item.candidatos} alunos com esse nome` : "sem cadastro na base"}
+            </span>
+          ) : null}
           <span style={S.contadorValor}>{moeda(item.valor_pago)}</span>
           <span style={S.cardCpf}>{item.operador_nome || "(sem operador)"}</span>
-          <button type="button" onClick={onAbrir} style={S.btnGhost}>
-            {aberto ? "Fechar" : "Resolver"}
-          </button>
+          {podeVincular ? (
+            <button type="button" onClick={onAbrir} style={S.btnGhost}>
+              {aberto ? "Fechar" : "Resolver"}
+            </button>
+          ) : (
+            // O aluno ja esta identificado. A pendencia e de amarracao, de
+            // acordo ou de revisao -- nenhuma delas se resolve trocando o
+            // aluno, e oferecer "Vincular" aqui so daria a chance de
+            // sobrescrever um vinculo correto.
+            <span style={S.cardCpf} title={estado.explica}>aluno já identificado</span>
+          )}
         </div>
       </div>
 
@@ -256,7 +297,7 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
         <span style={motivoTexto}>{item.motivo_financeiro || "—"}</span>
       </div>
 
-      {aberto ? (
+      {aberto && podeVincular ? (
         <div style={{ padding: "14px 16px" }}>
           {sugestoes.length > 0 ? (
             <div style={sugestaoCaixa}>
@@ -388,6 +429,14 @@ const btnCopiarNome = { background: "var(--rv-superficie)", color: "var(--rv-tex
 const selo = {
   repetido: { fontSize: 12, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", borderRadius: 999, padding: "4px 12px" },
   semCadastro: { fontSize: 12, fontWeight: 800, color: "var(--rv-vermelho-texto)", background: "var(--rv-vermelho-fundo)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 999, padding: "4px 12px" },
+};
+// Selo do estado da conciliacao. Cor por papel (nunca hex inline): roxo e o
+// neutro informativo da casa, e o estado nao e alerta -- alerta e o selo de
+// nome, que so aparece quando falta aluno.
+const seloEstado = {
+  fontSize: 12, fontWeight: 800, color: "var(--rv-roxo-texto)",
+  background: "var(--rv-roxo-fundo)", border: "1px solid var(--rv-borda-forte)",
+  borderRadius: 999, padding: "4px 12px", whiteSpace: "nowrap",
 };
 const resultadoLinha = {
   display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12,
