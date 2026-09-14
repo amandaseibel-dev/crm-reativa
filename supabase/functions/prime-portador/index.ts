@@ -22,6 +22,22 @@
 // A lista só cresce durante a varredura; a limpeza do que saiu do portador é
 // feita no fim do ciclo, comparando pelo carimbo de tempo -- assim ninguém
 // fica sem lista no meio do caminho.
+//
+// MODO PONTUAL (14/09/2026). Além da varredura, aceita UM caso:
+//
+//     { registration: "2026003712", pagamento_id: "..." }   ou
+//     { cpf: "01520322070",         pagamento_id: "..." }
+//
+// Existe porque o espelho é varredura semanal e perde o acordo da semana
+// corrente: medido em 14/09, um dos divergentes está no 166 ao vivo e NÃO está
+// no espelho coletado em 12/09. Duas chamadas resolvem um caso, sem varrer os
+// 26.797 do portador.
+//
+// A confirmação ao vivo GRAVA no espelho -- então o próximo caso do mesmo aluno
+// já se resolve localmente, sem chamada externa.
+//
+// AUSÊNCIA NÃO É PROVA NEGATIVA: não achar no 166 devolve `no166: false` e nada
+// mais. Nunca conclui que não houve acordo.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
@@ -33,6 +49,8 @@ const TAKE = 200;
 const LIMITE_MS = 110_000;
 
 const digitos = (v: unknown) => String(v ?? "").replace(/\D/g, "");
+const formataCpf = (c: string) =>
+  c.length === 11 ? `${c.slice(0, 3)}.${c.slice(3, 6)}.${c.slice(6, 9)}-${c.slice(9)}` : c;
 
 async function primeGet(caminho: string, chave: string) {
   for (let tentativa = 0; tentativa < 4; tentativa++) {
@@ -97,6 +115,73 @@ Deno.serve(async (req) => {
 
   let corpo: any = {};
   try { corpo = await req.json(); } catch { /* usa os padrões */ }
+
+  // -------------------------------------------------------------------------
+  // MODO PONTUAL. Sai antes da varredura -- aqui nunca se varre a base inteira.
+  // -------------------------------------------------------------------------
+  const registration = String(corpo?.registration ?? "").trim();
+  const cpfPedido = digitos(corpo?.cpf);
+  if (registration || cpfPedido) {
+    let cpf = cpfPedido;
+    let nome: string | null = null;
+
+    // 1) registration -> CPF. A matrícula do arquivo Santander É a registration
+    //    do Prime -- conferido em 13 de 13 divergentes em 14/09/2026.
+    if (!cpf && registration) {
+      const r = await primeGet(`/students/${encodeURIComponent(registration)}`, chave);
+      if (!r.ok) {
+        return new Response(JSON.stringify({ erro: "PRIME_FALHOU", status: r.status, registration }),
+          { status: 502, headers: { "Content-Type": "application/json" } });
+      }
+      const rd = (r.dados as any)?.registrationData ?? {};
+      cpf = digitos(rd?.cpf);
+      nome = rd?.fullName ?? null;
+    }
+    if (cpf.length !== 11) {
+      return new Response(JSON.stringify({ erro: "CPF_NAO_RESOLVIDO", registration }),
+        { status: 422, headers: { "Content-Type": "application/json" } });
+    }
+
+    // 2) esse CPF está no portador 166?
+    const b = await primeGet(
+      `/students?search=${encodeURIComponent(formataCpf(cpf))}&carrierId=166&take=50`, chave);
+    if (!b.ok) {
+      return new Response(JSON.stringify({ erro: "PRIME_FALHOU", status: b.status, etapa: "busca166" }),
+        { status: 502, headers: { "Content-Type": "application/json" } });
+    }
+    const achados: any[] = Array.isArray((b.dados as any)?.items) ? (b.dados as any).items : [];
+    const registrations = [...new Set(achados.map((i) => i?.registration).filter(Boolean))];
+    const no166 = registrations.length > 0;
+
+    // 3) confirmado ao vivo alimenta o espelho -- o próximo cai no caminho local.
+    //    Usa o ciclo corrente: gravar com ciclo menor faria a próxima varredura
+    //    apagar justamente a linha que acabou de ser confirmada.
+    if (no166) {
+      const { data: cur } = await supa.from("prime_sync_cursor")
+        .select("ciclo").eq("carrier_id", 166).maybeSingle();
+      await supa.from("prime_portador_membro").upsert(
+        [{ cpf, portador: 166, ciclo: Number(cur?.ciclo) || 1, coletado_em: new Date().toISOString() }],
+        { onConflict: "cpf,portador" },
+      );
+    }
+
+    // 4) e o motor único decide. Identidade só por CPF, dentro da RPC.
+    let conciliacao: unknown = null;
+    const pagamentoId = String(corpo?.pagamento_id ?? "").trim();
+    if (pagamentoId && no166) {
+      const { data, error } = await supa.rpc("conciliacao_confirmar_portador_166", {
+        p_pagamento_id: pagamentoId, p_cpf: cpf, p_origem: "PRIME_API_LIVE",
+      });
+      conciliacao = error ? { erro: error.message } : data;
+    }
+
+    return new Response(JSON.stringify({
+      modo: "pontual", registration: registration || null, nome, cpf,
+      no166, registrations_no_166: registrations, conciliacao,
+      observacao: no166 ? null : "ausencia no 166 e inconclusiva, nao e prova negativa",
+    }), { headers: { "Content-Type": "application/json" } });
+  }
+
   const portador = Number(corpo?.portador) || 195;
   const reiniciar = corpo?.reiniciar === true;
 
