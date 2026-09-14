@@ -197,6 +197,7 @@ Deno.serve(async (req) => {
     //     lista vazia          -> NAO_ENCONTRADA  (segue para o 166)
     //     lista com item       -> ENCONTRADA      (para aqui, payload em auditoria)
     //     4xx/5xx/timeout/JSON -> ERRO            (para aqui, tenta de novo em 24h)
+    //     forma desconhecida   -> ERRO            (200, mas ilegível: não é "vazio")
     const tituloNumero = String(corpo?.titulo_numero ?? "").replace(/\D/g, "").replace(/^0+/, "");
     const pagamentoId = String(corpo?.pagamento_id ?? "").trim() || null;
     let estrutura: Record<string, unknown> | null = null;
@@ -231,8 +232,22 @@ Deno.serve(async (req) => {
         }), { status: 502, headers: { "Content-Type": "application/json" } });
       }
 
+      // FORMA DESCONHECIDA TAMBÉM É ERRO, não "zero itens". A Prime responde
+      // sempre `{items:[],totalItems:0}`; se um dia vier outra coisa -- um
+      // objeto sem `items`, `null`, um número -- não se sabe o que ela disse, e
+      // "não sei" nunca pode ser lido como "não tem".
       const d: any = a.dados;
-      const itens: any[] = Array.isArray(d?.items) ? d.items : (Array.isArray(d) ? d : []);
+      const itens: any[] | null = Array.isArray(d?.items) ? d.items
+        : (Array.isArray(d) ? d : null);
+      if (itens === null) {
+        await registraResultado("ERRO");
+        return new Response(JSON.stringify({
+          modo: "pontual", resultado: "ERRO_NA_CONSULTA_DE_ESTRUTURA",
+          registration, nome, cpf, status: 200,
+          observacao: "/agreements respondeu num formato desconhecido -- 166 nao consultado, nao se conclui ausencia de estrutura a partir de resposta ilegivel",
+        }), { status: 502, headers: { "Content-Type": "application/json" } });
+      }
+
       if (itens.length > 0) {
         const cru = JSON.stringify(d);
         estrutura = {

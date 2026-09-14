@@ -541,6 +541,21 @@ describe("13. Edge: cada resposta de /agreements grava o seu resultado", () => {
     expect(pg).toContain("return { ok: false as const, status: 0 };");
   });
 
+  it("200 com forma desconhecida e ERRO, nao 'zero itens'", () => {
+    // `itens` so e [] quando a API REALMENTE devolveu uma lista; forma que nao
+    // se reconhece vira null, e null cai no mesmo ERRO que a queda da API
+    expect(tentativa).toContain("const itens: any[] | null = Array.isArray(d?.items) ? d.items");
+    expect(tentativa).toContain(": (Array.isArray(d) ? d : null);");
+    const i = pos(tentativa, "if (itens === null) {");
+    expect(i).toBeGreaterThan(-1);
+    const ramo = tentativa.slice(i, pos(tentativa, "if (itens.length > 0) {"));
+    expect(ramo).toContain('registraResultado("ERRO")');
+    expect(ramo).toContain("return new Response");
+    expect(ramo).not.toContain("carrierId=166");
+    // o fallback silencioso para lista vazia nao pode voltar
+    expect(tentativa).not.toContain("Array.isArray(d) ? d : []");
+  });
+
   // (3) lista vazia
   it("lista vazia grava NAO_ENCONTRADA e SEGUE para o 166", () => {
     const i = pos(tentativa, "} else {");
