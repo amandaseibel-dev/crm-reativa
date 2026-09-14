@@ -6,7 +6,7 @@
 -- que esta em producao como 20260914144734.
 --
 -- O QUE ESTE ROLLBACK NAO FAZ, DE PROPOSITO:
---   * nao apaga `evidencia_origem` nem `evidencia_em`. Coluna com evidencia
+--   * nao apaga `evidencia_origem`, `evidencia_em` nem `consulta_portador_em`. Coluna com evidencia
 --     gravada nao se derruba para desfazer regra -- o registro de que a
 --     negociacao foi comprovada continua valendo mesmo sem a regra;
 --   * nao desfaz vinculo de identidade. Quem foi vinculado por CPF continua
@@ -412,6 +412,57 @@ revoke all on function public.pagamento_conciliar_um(uuid, boolean) from public,
 drop function if exists public.conciliacao_confirmar_portador_166(uuid, text, text);
 
 -- ---------------------------------------------------------------------------
+-- 3b. Sai o disparador do caminho ao vivo, e a rodada horaria para de chama-lo
+-- ---------------------------------------------------------------------------
+-- A ordem importa: `conciliacao_reprocessar` tem de deixar de referenciar o
+-- disparador ANTES do drop, senao a proxima rodada horaria quebra.
+
+create or replace function public.conciliacao_reprocessar(
+  p_aplicar boolean default true,
+  p_limite  int default 5000
+)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $fn$
+declare
+  v_id uuid; v_r jsonb; v_res jsonb := '{}'::jsonb; v_n int := 0; v_baixou int := 0;
+  v_conta jsonb := '{}'::jsonb; v_st text;
+begin
+  for v_id in
+    select p.id
+      from public.pagamentos p
+     -- A FRONTEIRA. status_conciliacao NULL = entrou antes de 14/09/2026:
+     -- invisivel para o motor automatico, por decisao. Nao reclassifica, nao
+     -- baixa, nao enfileira.
+     where p.status_conciliacao is not null
+       and p.status_conciliacao <> 'BAIXADO'
+       -- o que a gestao ja decidiu nao volta sozinho para a fila
+       and not exists (select 1 from public.fila_pagamento_sem_vinculo f
+                        where f.pagamento_id = p.id and f.decisao is not null)
+     order by p.data_pagamento, p.id
+     limit greatest(coalesce(p_limite, 5000), 0)
+  loop
+    v_r := public.pagamento_conciliar_um(v_id, p_aplicar);
+    v_n := v_n + 1;
+    v_st := coalesce(v_r->>'status','?');
+    v_conta := jsonb_set(v_conta, array[v_st],
+                         to_jsonb(coalesce((v_conta->>v_st)::int, 0) + 1), true);
+    if coalesce((v_r->>'baixou')::boolean, false) then v_baixou := v_baixou + 1; end if;
+  end loop;
+
+  v_res := jsonb_build_object('modo', case when p_aplicar then 'aplicado' else 'previa' end,
+                              'avaliados', v_n, 'baixados', v_baixou, 'por_status', v_conta);
+  return v_res;
+end;
+$fn$;
+
+revoke all on function public.conciliacao_reprocessar(boolean, int) from public, anon, authenticated;
+
+drop function if exists public.conciliacao_consultar_portador_pendentes(int);
+
+-- ---------------------------------------------------------------------------
 -- 4. PROVA DO ROLLBACK
 -- ---------------------------------------------------------------------------
 
@@ -428,6 +479,14 @@ begin
   end if;
   if exists (select 1 from pg_proc where proname='conciliacao_confirmar_portador_166') then
     raise exception 'a RPC do caminho ao vivo continua no banco';
+  end if;
+  if exists (select 1 from pg_proc where proname='conciliacao_consultar_portador_pendentes') then
+    raise exception 'o disparador continua no banco';
+  end if;
+  if (select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+       where n.nspname='public' and p.proname='conciliacao_reprocessar')
+     ilike '%conciliacao_consultar_portador_pendentes%' then
+    raise exception 'a rodada horaria ainda chama o disparador que foi removido';
   end if;
   if (select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
        where n.nspname='public' and p.proname='pagamento_conciliar_um')

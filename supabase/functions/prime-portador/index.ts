@@ -150,8 +150,21 @@ Deno.serve(async (req) => {
         { status: 502, headers: { "Content-Type": "application/json" } });
     }
     const achados: any[] = Array.isArray((b.dados as any)?.items) ? (b.dados as any).items : [];
-    const registrations = [...new Set(achados.map((i) => i?.registration).filter(Boolean))];
-    const no166 = registrations.length > 0;
+
+    // `search` É SUBSTRING. Pedir 046.176.770-89 pode trazer linhas de OUTRAS
+    // pessoas cujo CPF contenha o trecho -- e aceitar `items.length > 0` seria
+    // confirmar negociação de quem não é o titular. Só conta linha cujo CPF é
+    // exatamente o mesmo, e as registrations saem apenas dessas linhas.
+    const doCpf = achados.filter((i) => digitos(i?.cpf) === cpf);
+    const registrations = [...new Set(doCpf.map((i) => i?.registration).filter(Boolean))];
+    const no166 = doCpf.length > 0;
+
+    // Quando a registration veio do arquivo, ela deveria estar entre as do CPF
+    // no 166. Não estar não invalida a evidência -- o mesmo CPF pode ter outra
+    // matrícula no portador -- mas é divergência e vai registrada.
+    const registrationConfere = registration
+      ? registrations.includes(registration)
+      : null;
 
     // 3) confirmado ao vivo alimenta o espelho -- o próximo cai no caminho local.
     //    Usa o ciclo corrente: gravar com ciclo menor faria a próxima varredura
@@ -177,7 +190,10 @@ Deno.serve(async (req) => {
 
     return new Response(JSON.stringify({
       modo: "pontual", registration: registration || null, nome, cpf,
-      no166, registrations_no_166: registrations, conciliacao,
+      no166, registrations_no_166: registrations,
+      registration_confere: registrationConfere,
+      linhas_recebidas: achados.length, linhas_do_cpf: doCpf.length,
+      conciliacao,
       observacao: no166 ? null : "ausencia no 166 e inconclusiva, nao e prova negativa",
     }), { headers: { "Content-Type": "application/json" } });
   }

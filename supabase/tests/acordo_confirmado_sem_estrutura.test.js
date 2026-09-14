@@ -27,6 +27,8 @@ function corpo(nome, tag) {
 }
 const motor = corpo("pagamento_conciliar_um", "$motor$");
 const rpc = corpo("conciliacao_confirmar_portador_166", "$fn$");
+const disp = corpo("conciliacao_consultar_portador_pendentes", "$fn$");
+const reproc = corpo("conciliacao_reprocessar", "$fn$");
 const pos = (t, s) => t.indexOf(s);
 const esp = (s) => s.replace(/\s+/g, " ").trim();
 
@@ -42,14 +44,16 @@ describe("1. o estado novo", () => {
     ]);
   });
 
-  it("a fila ganha exatamente duas colunas, e a origem e restrita", () => {
-    expect(sql).toContain("add column if not exists evidencia_origem text");
-    expect(sql).toContain("add column if not exists evidencia_em     timestamptz");
+  it("a fila ganha exatamente tres colunas, e a origem e restrita", () => {
+    // alinhamento com espacos multiplos: normalizar antes de comparar
+    expect(esp(sql)).toContain("add column if not exists evidencia_origem text");
+    expect(esp(sql)).toContain("add column if not exists evidencia_em timestamptz");
     const m = sql.match(/evidencia_origem in \(([\s\S]*?)\)\s*\)/);
     const vals = [...m[1].matchAll(/'([A-Z_]+)'/g)].map((x) => x[1]).sort();
     expect(vals).toEqual(["PRIME_API_LIVE", "PRIME_PORTADOR_MEMBRO"]);
-    // nenhuma coluna alem dessas duas
-    expect((sql.match(/add column if not exists/g) || []).length).toBe(2);
+    // a terceira e o controle de tentativa do caminho B -- e nenhuma alem dela
+    expect(esp(sql)).toContain("add column if not exists consulta_portador_em timestamptz");
+    expect((sql.match(/add column if not exists/g) || []).length).toBe(3);
   });
 });
 
@@ -92,10 +96,11 @@ describe("3. idempotencia: nao volta para AGUARDANDO_ACORDO", () => {
   });
 
   it("a evidencia gravada nunca e apagada por uma rodada que nao a recalculou", () => {
+    // o coalesce protege contra apagar; o case, contra rebaixar LIVE (teste 8)
     expect(esp(motor)).toContain(
-      "evidencia_origem = coalesce(excluded.evidencia_origem, fila_pagamento_sem_vinculo.evidencia_origem)");
+      "else coalesce(excluded.evidencia_origem, fila_pagamento_sem_vinculo.evidencia_origem) end");
     expect(esp(motor)).toContain(
-      "evidencia_em = coalesce(excluded.evidencia_em, fila_pagamento_sem_vinculo.evidencia_em)");
+      "else coalesce(excluded.evidencia_em, fila_pagamento_sem_vinculo.evidencia_em) end");
   });
 });
 
@@ -242,5 +247,162 @@ describe("fixture: os 13 em AGUARDANDO_ACORDO", () => {
   it("1 so e confirmavel ao vivo: o espelho semanal nao o alcanca", () => {
     const vivo = CASOS.filter((c) => !c.no166Espelho);
     expect(vivo.map((c) => c.acordo)).toEqual(["71858"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Correcoes da revisao do PR #379
+// ---------------------------------------------------------------------------
+
+describe("7. CPF exato na busca do 166 -- `search` e substring", () => {
+  it("filtra pelo CPF identico antes de concluir no166", () => {
+    expect(fn).toContain("const doCpf = achados.filter((i) => digitos(i?.cpf) === cpf)");
+    expect(fn).toContain("const no166 = doCpf.length > 0");
+    // o erro que isso corrige: aceitar qualquer linha devolvida
+    expect(fn).not.toMatch(/const no166 = (achados|registrations)\.length > 0/);
+  });
+
+  it("as registrations saem apenas das linhas do proprio CPF", () => {
+    expect(fn).toContain("doCpf.map((i) => i?.registration)");
+    expect(fn).not.toMatch(/registrations = \[\.\.\.new Set\(achados\.map/);
+  });
+
+  it("registra se a registration do arquivo esta entre as do CPF", () => {
+    expect(fn).toContain("registrationConfere");
+    expect(fn).toContain("registrations.includes(registration)");
+  });
+});
+
+describe("8. a origem LIVE nunca e rebaixada", () => {
+  it("o ON CONFLICT preserva PRIME_API_LIVE em vez de trocar", () => {
+    expect(esp(motor)).toContain(
+      "evidencia_origem = case when fila_pagamento_sem_vinculo.evidencia_origem = 'PRIME_API_LIVE' then 'PRIME_API_LIVE'");
+    expect(esp(motor)).toContain(
+      "evidencia_em = case when fila_pagamento_sem_vinculo.evidencia_origem = 'PRIME_API_LIVE' then fila_pagamento_sem_vinculo.evidencia_em");
+  });
+
+  it("LIVE -> grava espelho -> motor -> continua LIVE", () => {
+    // a Edge grava o espelho ANTES da RPC; a RPC marca LIVE; o motor roda depois
+    const gravaEspelho = pos(fn, "prime_portador_membro");
+    const chamaRpc = pos(fn, "conciliacao_confirmar_portador_166");
+    expect(gravaEspelho).toBeLessThan(chamaRpc);
+    // e a RPC marca LIVE antes de chamar o motor
+    const marca = pos(rpc, "set evidencia_origem = p_origem");
+    const motorCall = pos(rpc, "public.pagamento_conciliar_um(p_pagamento_id, true)");
+    expect(marca).toBeGreaterThan(-1);
+    expect(marca).toBeLessThan(motorCall);
+    // entao a unica defesa possivel e a precedencia no ON CONFLICT
+    expect(motor).toContain("PRECEDENCIA DA EVIDENCIA");
+  });
+});
+
+describe("9. concordancia Santander antes de promover", () => {
+  it("compara titulo_numero normalizado com o prefixo do boleto", () => {
+    expect(esp(motor)).toContain("v_acordo_do_boleto := ltrim(v_pref, '0')");
+    expect(esp(motor)).toContain(
+      "v_tit := nullif(ltrim(regexp_replace(coalesce(v_pag.titulo_numero,''), '\\D', '', 'g'), '0'), '')");
+    expect(esp(motor)).toContain("v_concorda := (v_tit is not null and v_tit = v_acordo_do_boleto)");
+  });
+
+  it("sem concordancia NAO promove: vai para REVISAO", () => {
+    const i = pos(motor, "if not v_concorda then");
+    expect(i).toBeGreaterThan(-1);
+    const ramo = motor.slice(i, motor.indexOf("else", i));
+    expect(ramo).toContain("v_status := 'REVISAO'");
+    expect(ramo).not.toContain("ACORDO_CONFIRMADO_SEM_ESTRUTURA");
+  });
+
+  it("a promocao so acontece dentro do ramo que concorda", () => {
+    const i = pos(motor, "if not v_concorda then");
+    const fim = pos(motor, "          else\n            -- AUSENCIA NAO E PROVA NEGATIVA");
+    const bloco = motor.slice(i, fim > i ? fim : i + 2000);
+    const promocoes = (bloco.match(/v_status := 'ACORDO_CONFIRMADO_SEM_ESTRUTURA'/g) || []).length;
+    expect(promocoes).toBe(1);
+  });
+
+  it("o sufixo do boleto continua sem virar numero de parcela", () => {
+    expect(motor).not.toMatch(/right\(.*numero_parcela_completo.*4\)/);
+    expect(esp(motor)).toContain("nao e numero de parcela");
+  });
+});
+
+describe("10. o caminho B e automatico", () => {
+  it("o disparador existe e so olha AGUARDANDO_ACORDO", () => {
+    expect(esp(disp)).toContain("p.status_conciliacao = 'AGUARDANDO_ACORDO'");
+  });
+
+  it("pula quem ja tem evidencia local -- o motor resolve de graca", () => {
+    expect(esp(disp)).toContain("f.evidencia_origem is null");
+    expect(esp(disp)).toContain("from public.prime_portador_membro m where m.portador = 166");
+    expect(disp).toContain("not exists");
+  });
+
+  it("so pega quem tem registration utilizavel", () => {
+    expect(disp).toMatch(/~ '\^\\d\{6,12\}\$'/);
+  });
+
+  it("uma tentativa por dia por caso, marcada ANTES da chamada", () => {
+    expect(esp(disp)).toContain("f.consulta_portador_em < now() - interval '24 hours'");
+    const marca = pos(disp, "set consulta_portador_em = now()");
+    const chamada = pos(disp, "net.http_post");
+    expect(marca).toBeGreaterThan(-1);
+    expect(marca).toBeLessThan(chamada);
+  });
+
+  it("teto pequeno por rodada e disjuntor de carga", () => {
+    expect(sql).toContain("p_limite int default 5");
+    expect(disp).toContain("sistema_sob_carga");
+    expect(disp).toContain("limit greatest(coalesce(p_limite, 5), 0)");
+  });
+
+  it("reusa o padrao de net.http_post + x-rotina-token do Vault", () => {
+    expect(disp).toContain("net.http_post");
+    expect(disp).toContain("x-rotina-token");
+    expect(disp).toContain("name = 'projeto_url'");
+    expect(disp).toContain("name = 'prime_cadastro_token'");
+  });
+
+  it("a rodada horaria dispara, e so no modo aplicado", () => {
+    expect(reproc).toContain("conciliacao_consultar_portador_pendentes(5)");
+    const i = pos(reproc, "if p_aplicar then");
+    const j = pos(reproc, "conciliacao_consultar_portador_pendentes");
+    expect(i).toBeGreaterThan(-1);
+    expect(i).toBeLessThan(j);
+  });
+
+  it("NUNCA dentro do gatilho de INSERT nem no motor", () => {
+    expect(motor).not.toContain("net.http");
+    expect(motor).not.toContain("conciliacao_consultar_portador_pendentes");
+    expect(sql).toContain("o gatilho de INSERT faz chamada externa");
+  });
+
+  it("falha do disparo nao derruba a conciliacao", () => {
+    expect(reproc).toContain("exception when others then");
+  });
+});
+
+describe("11. hardening da RPC", () => {
+  it("confere por conta propria a linha do 166 no espelho", () => {
+    const i = pos(rpc, "SEM_EVIDENCIA_166_NO_ESPELHO");
+    const marca = pos(rpc, "set evidencia_origem = p_origem");
+    expect(i).toBeGreaterThan(-1);
+    expect(i).toBeLessThan(marca);
+    expect(esp(rpc)).toContain("from public.prime_portador_membro m where m.portador = 166");
+  });
+
+  it("com aluno ja vinculado, exige que o CPF coincida", () => {
+    const i = pos(rpc, "CPF_DIVERGE_DO_ALUNO_VINCULADO");
+    expect(i).toBeGreaterThan(-1);
+    expect(esp(rpc)).toContain("v_cpf_aluno <> lpad(v_cpf,11,'0')");
+  });
+
+  it("divergindo, para: nao altera identidade nem registra evidencia", () => {
+    const i = pos(rpc, "if v_pag.aluno_id is not null then");
+    const fim = rpc.indexOf("end if;", pos(rpc, "CPF_DIVERGE_DO_ALUNO_VINCULADO"));
+    const ramo = rpc.slice(i, fim);
+    expect(ramo).toContain("return jsonb_build_object('ok', false");
+    expect(ramo).not.toContain("origem_vinculo");
+    // e deixa rastro
+    expect(ramo).toContain("insert into public.auditoria");
   });
 });
