@@ -18,6 +18,11 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = resolve(AQUI, "..", "..");
 const MIGRATION = resolve(RAIZ, "supabase/migrations/20260914170000_motor_unico_de_conciliacao.sql");
 const sql = readFileSync(MIGRATION, "utf8").replace(/\r/g, "");
+const ROLLBACK = resolve(
+  RAIZ,
+  "supabase/rollbacks/20260914170000_motor_unico_de_conciliacao.rollback.sql",
+);
+const rollback = readFileSync(ROLLBACK, "utf8").replace(/\r/g, "");
 
 function corpo(nome, tag) {
   const i = sql.indexOf(`function public.${nome}(`);
@@ -52,13 +57,12 @@ describe("1. histórico com status_conciliacao NULL nunca é reprocessado", () =
     expect(espacos(reproc)).toContain("f.pagamento_id = p.id and f.decisao is not null");
   });
 
-  it("a delegação do relatório não pode virar backfill histórico", () => {
-    expect(relatorio).toContain("p_incluir_historicos");
-    // pedir historico levanta erro em vez de varrer os ~9.000 antigos
-    const i = pos(relatorio, "p_incluir_historicos, false");
-    const j = pos(relatorio, "raise exception 'Varredura historica");
-    expect(i).toBeGreaterThan(-1);
-    expect(j).toBeGreaterThan(i);
+  it("a delegação do relatório não tem porta para o histórico", () => {
+    // Nao existe parametro opcional para incluir historico: a unica varredura
+    // possivel e a prospectiva, porque e a unica que o reprocessador faz.
+    expect(relatorio).toContain("public.conciliacao_reprocessar");
+    expect(relatorio).not.toMatch(/historic/i);
+    expect(sql).not.toContain("p_incluir_historicos");
   });
 });
 
@@ -80,7 +84,7 @@ describe("2. o mesmo pagamento reprocessado duas vezes gera uma baixa só", () =
   });
 
   it("o UPDATE da parcela ainda se protege sozinho contra rebaixar", () => {
-    const upd = motor.match(/update public\.parcelas[\s\S]*?where id = v_parcela\.id[\s\S]*?;/);
+    const upd = motor.match(/update public\.parcelas[\s\S]*?where id = v_parcela_id[\s\S]*?;/);
     expect(upd).toBeTruthy();
     expect(espacos(upd[0])).toContain("upper(coalesce(status,'')) <> 'PAGO'");
   });
@@ -181,11 +185,16 @@ describe("6. acordo ausente → acordo entra sem boleto → AGUARDANDO_AMARRACAO
     expect(espacos(motor)).toContain("and p.boleto is null");
   });
 
-  it("importar_acordos reavalia no fim, por substituição cirúrgica", () => {
-    expect(sql).toContain("do $cirurgia$");
-    expect(sql).toContain("perform public.conciliacao_reprocessar(true, 2000)");
-    // aborta em vez de reescrever a funcao inteira se o marcador nao existir
-    expect(sql).toContain("abortando sem tocar a funcao");
+  it("a migration NÃO redefine nem altera importar_acordos", () => {
+    // Chamar a conciliacao dentro da transacao da importacao faria uma falha de
+    // conciliacao reverter a importacao inteira de acordos. Quem reavalia e o
+    // fluxo horario, depois de parcelas_amarrar_boleto e acordos_pos_importacao.
+    expect(sql).not.toMatch(/create or replace function public\.importar_acordos/);
+    expect(sql).not.toContain("do $cirurgia$");
+    // a unica mencao permitida a importar_acordos e a prova de que ela NAO foi
+    // tocada -- nenhum `execute format` reescrevendo corpo de funcao
+    expect(sql).not.toMatch(/execute\s+format\(\s*\n?\s*'create or replace function/);
+    expect(sql).toContain("esta migration nao deve toca-la");
   });
 
   it("o reprocessamento NÃO força baixa: ele não escreve em parcelas", () => {
@@ -203,7 +212,7 @@ describe("7. acordo entra com boleto seguro → chega a BAIXADO", () => {
   });
 
   it("a baixa carimba a evidência canônica, com o pagamento como referência", () => {
-    const upd = motor.match(/update public\.parcelas[\s\S]*?where id = v_parcela\.id[\s\S]*?;/)[0];
+    const upd = motor.match(/update public\.parcelas[\s\S]*?where id = v_parcela_id[\s\S]*?;/)[0];
     expect(espacos(upd)).toContain("origem_baixa = 'GATILHO_IMPORTACAO'");
     expect(espacos(upd)).toContain("origem_baixa_ref = v_pag.id::text");
     expect(espacos(upd)).toContain("origem_baixa_em = now()");
@@ -287,5 +296,173 @@ describe("o desenho aprovado ficou de pé", () => {
     expect(v).toContain("public.pagamento_conciliar_um(p_pagamento_id, true)");
     // so fecha a fila se a conciliacao terminou
     expect(espacos(v)).toContain("if coalesce(v_r->>'status','') = 'BAIXADO' then");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Correcoes da revisao de 14/09 -- bloqueios de runtime que os testes
+// estruturais anteriores nao detectavam.
+// ---------------------------------------------------------------------------
+
+describe("9. uma única assinatura de baixa_pelo_relatorio_pagamento", () => {
+  it("mantém a assinatura de dois argumentos, sem criar sobrecarga", () => {
+    // Criar (boolean, date, boolean) nao substituiria (boolean, date): o
+    // fluxo_pagamentos_rodar chama com dois argumentos e continuaria caindo no
+    // motor antigo.
+    expect(sql).toContain(
+      "create or replace function public.baixa_pelo_relatorio_pagamento(\n  p_confirmar boolean default false,\n  p_desde date default '2026-07-01'::date\n)",
+    );
+    expect(sql).not.toContain("p_incluir_historicos");
+  });
+
+  it("derruba qualquer sobrecarga de três argumentos antes de recriar", () => {
+    const drop = pos(sql, "drop function if exists public.baixa_pelo_relatorio_pagamento(boolean, date, boolean)");
+    const create = pos(sql, "create or replace function public.baixa_pelo_relatorio_pagamento(");
+    expect(drop).toBeGreaterThan(-1);
+    expect(drop).toBeLessThan(create);
+  });
+
+  it("a prova da migration exige exatamente uma assinatura", () => {
+    expect(sql).toContain("p.proname='baixa_pelo_relatorio_pagamento'");
+    expect(sql).toContain("o cron pode chamar a antiga");
+  });
+
+  it("histórico continua fora, e não há parâmetro para trazê-lo de volta", () => {
+    expect(relatorio).toContain("public.conciliacao_reprocessar");
+    expect(relatorio).not.toContain("historico");
+  });
+});
+
+describe("10. lock → releitura → decisão → UPDATE, nessa ordem", () => {
+  it("relê status e origem_baixa_ref depois do lock e antes do UPDATE", () => {
+    const lock = pos(motor, "pg_advisory_xact_lock");
+    const releitura = pos(motor, "into v_re_status, v_re_ref");
+    const decisao = pos(motor, "if v_re_status = 'PAGO' then");
+    const update = pos(motor, "update public.parcelas");
+    expect(lock).toBeGreaterThan(-1);
+    expect(releitura).toBeGreaterThan(lock);
+    expect(decisao).toBeGreaterThan(releitura);
+    expect(update).toBeGreaterThan(decisao);
+  });
+
+  it("a releitura lê da tabela, não da foto tomada antes do lock", () => {
+    // A LISTA DO SELECT importa tanto quanto o FROM: ler `v_parcela.status`
+    // "from public.parcelas" compila, passa por qualquer checagem de ordem, e
+    // continua usando a foto de ANTES do lock -- ou seja, nao corrige nada.
+    const alvo = pos(motor, "into v_re_status, v_re_ref");
+    expect(alvo, "nao achei a releitura").toBeGreaterThan(-1);
+    // do ULTIMO `select` antes do into: senao a captura engole o select da
+    // parcela la de cima e o teste passa a olhar o texto errado.
+    const ini = motor.lastIndexOf("select", alvo);
+    const lista = espacos(motor.slice(ini + "select".length, alvo));
+    const resto = espacos(motor.slice(alvo, motor.indexOf(";", alvo)));
+    expect(lista).toContain("p.status");
+    expect(lista).toContain("p.origem_baixa_ref");
+    expect(lista).not.toContain("v_parcela.");
+    expect(resto).toContain("from public.parcelas p where p.id = v_parcela_id");
+  });
+
+  it("sob o lock, PAGO por mim mesmo é BAIXADO sem nova escrita", () => {
+    const i = pos(motor, "if v_re_ref = p_pagamento_id::text then");
+    const j = pos(motor, "        v_status := 'PARCELA_JA_PAGA';");
+    expect(i).toBeGreaterThan(-1);
+    expect(motor.slice(i, j)).toContain("v_status := 'BAIXADO'");
+    expect(motor.slice(i, j)).not.toContain("update public.parcelas");
+  });
+});
+
+describe("11. duas baixas concorrentes: a segunda não vira BAIXADO", () => {
+  it("PAGO por outro, sob o lock, vira PARCELA_JA_PAGA — nunca BAIXADO", () => {
+    const ini = pos(motor, "if v_re_ref = p_pagamento_id::text then");
+    const fim = pos(motor, "    else\n      update public.parcelas");
+    const ramo = motor.slice(ini, fim);
+    expect(ramo).toContain("v_status := 'PARCELA_JA_PAGA'");
+    expect(espacos(ramo)).toContain("foi baixada por outro pagamento entre a decisao e a escrita");
+    expect(espacos(ramo)).toContain("Nenhuma segunda baixa foi feita");
+  });
+
+  it("e esse caminho NÃO fecha a fila automaticamente", () => {
+    // so o ramo BAIXADO fecha; PARCELA_JA_PAGA fica para conferencia humana
+    expect(motor).not.toMatch(/CORRIDA_NA_BAIXA[\s\S]{0,600}RESOLVIDO_AUTOMATICO/);
+  });
+
+  it("UPDATE com zero linhas nunca é chamado de BAIXADO", () => {
+    const i = pos(motor, "      if found then");
+    const fim = motor.indexOf("end if;", pos(motor, "estado inesperado, nada foi escrito"));
+    const ramo = motor.slice(i, fim);
+    // o `else` do `if found` tem de classificar como pendencia, nao como baixa
+    const elseIdx = ramo.indexOf("      else");
+    expect(elseIdx).toBeGreaterThan(-1);
+    expect(ramo.slice(elseIdx)).toContain("v_status := 'PARCELA_JA_PAGA'");
+    expect(ramo.slice(elseIdx)).not.toContain("v_status := 'BAIXADO'");
+  });
+});
+
+describe("12. conciliacao_encerrar aceita somente PARCELA_JA_PAGA", () => {
+  const enc = () => corpo("conciliacao_encerrar", "$fn$");
+
+  it("recusa qualquer outro estado, com motivo", () => {
+    expect(espacos(enc())).toContain("if v_st <> 'PARCELA_JA_PAGA' then");
+    expect(enc()).toContain("'SO_PARCELA_JA_PAGA'");
+  });
+
+  it("a recusa vem ANTES de escrever na fila", () => {
+    const guarda = pos(enc(), "v_st <> 'PARCELA_JA_PAGA'");
+    const escrita = pos(enc(), "update public.fila_pagamento_sem_vinculo");
+    expect(guarda).toBeGreaterThan(-1);
+    expect(guarda).toBeLessThan(escrita);
+  });
+
+  it("explica por que os outros estados não podem ser encerrados", () => {
+    expect(espacos(enc())).toContain("tiraria o pagamento do reprocessamento automatico");
+  });
+
+  it("os quatro estados pendentes ficam de fora por construção", () => {
+    for (const st of ["AGUARDANDO_ACORDO", "AGUARDANDO_AMARRACAO", "REVISAO", "SEM_VINCULO"]) {
+      // nenhum deles pode aparecer como valor aceito dentro da funcao
+      expect(enc()).not.toContain(`'${st}'`);
+    }
+  });
+});
+
+describe("13. o rollback é executável", () => {
+  it("não contém meta-comando de psql", () => {
+    expect(rollback).not.toContain("\\echo");
+    expect(rollback).not.toMatch(/reaplique/i);
+  });
+
+  it("restaura os três corpos completos, não referências a eles", () => {
+    for (const f of [
+      "public._pagamento_conciliar()",
+      "public.baixa_pelo_relatorio_pagamento(",
+      "public.pagamento_vincular_aluno(",
+    ]) {
+      expect(rollback).toContain(`create or replace function ${f}`);
+    }
+    // corpo completo: a escada antiga tem de estar de volta no gatilho
+    expect(rollback).toContain("update public.parcelas");
+    expect(rollback).toContain("documento_casa_com_parcela");
+  });
+
+  it("devolve o CHECK da fila aos três valores originais", () => {
+    expect(rollback).toContain("check (decisao is null or decisao in ('VINCULADO','DESCARTADO','AGUARDANDO_TERCEIRO'))");
+    // e normaliza as linhas novas antes, senao o CHECK nao volta
+    const norm = pos(rollback, "set decisao = 'DESCARTADO'");
+    const check = pos(rollback, "add constraint fila_pagamento_sem_vinculo_decisao_check");
+    expect(norm).toBeGreaterThan(-1);
+    expect(norm).toBeLessThan(check);
+  });
+
+  it("não mexe em importar_acordos, que a migration também não toca", () => {
+    expect(rollback).not.toMatch(/create or replace function public\.importar_acordos/);
+    expect(rollback).not.toContain("do $cirurgia$");
+    // `execute format` aparece no corpo restaurado (tabela de backup, drop do
+    // constraint por nome dinamico) -- o que nao pode e reescrever funcao.
+    expect(rollback).not.toMatch(/execute\s+format\(\s*\n?\s*'create or replace function/);
+  });
+
+  it("tem prova própria no fim", () => {
+    expect(rollback).toContain("do $prova$");
+    expect(rollback).toContain("ficou com % assinaturas");
   });
 });

@@ -125,6 +125,8 @@ declare
   v_evid jsonb := '{}'::jsonb;
   v_sug jsonb := '[]'::jsonb; v_arq text;
   v_origem text; v_origem_em timestamptz; v_quem text; v_dup int := 0;
+  -- releitura da parcela DEPOIS do lock, antes de escrever
+  v_re_status text; v_re_ref text;
 begin
   select * into v_pag from public.pagamentos where id = p_pagamento_id;
   if not found then
@@ -313,33 +315,66 @@ begin
         'boleto_confiavel', coalesce(v_parcela.boleto_confiavel,false));
     end if;
 
-    -- O cron das :40 e um clique na tela podem cair na mesma parcela no mesmo
-    -- segundo. O lock morre com a transacao.
-    perform pg_advisory_xact_lock(hashtextextended(v_parcela.id::text, 0));
+    -- O LOCK, E A RELEITURA DEPOIS DELE. A decisao acima foi tomada com a foto
+    -- de ANTES do lock: duas transacoes podem ter decidido BAIXA ao mesmo tempo.
+    -- Quem entra primeiro baixa; quem entra depois TEM de reler a parcela ja
+    -- dentro do lock. Sem isso, o segundo sobrescreveria a baixa do primeiro, ou
+    -- -- pior -- marcaria BAIXADO sem ter escrito nada.
+    perform pg_advisory_xact_lock(hashtextextended(v_parcela_id::text, 0));
 
-    update public.parcelas
-       set status = 'PAGO', pago_em = v_pag.data_pagamento,
-           confirmado_por_email = coalesce(v_pag.operador_email,'extrato_santander'),
-           origem_baixa = 'GATILHO_IMPORTACAO',
-           origem_baixa_ref = v_pag.id::text,
-           origem_baixa_em = now(),
-           honorarios = case when coalesce(honorarios,0) = 0 and coalesce(v_pag.valor_honorario,0) > 0
-                             then v_pag.valor_honorario else honorarios end,
-           observacao = coalesce(observacao,'')
-             || case when coalesce(observacao,'') = '' then '' else ' | ' end
-             || 'baixa automatica na importacao: documento ' || v_chave
-             || ' pago em ' || to_char(v_pag.data_pagamento,'DD/MM/YYYY')
-             || case when v_venc is not null then ' (vencimento ' || to_char(v_venc,'DD/MM/YYYY') || ' conferido)' else '' end,
-           atualizado_em = now()
-     where id = v_parcela.id
-       and upper(coalesce(status,'')) <> 'PAGO';
+    select upper(coalesce(p.status,'')), coalesce(p.origem_baixa_ref,'')
+      into v_re_status, v_re_ref
+      from public.parcelas p
+     where p.id = v_parcela_id;
 
-    if found then
-      v_baixou := true;
-      perform public.recalcular_situacao_aluno(v_parcela.aluno_id);
+    if v_re_status = 'PAGO' then
+      if v_re_ref = p_pagamento_id::text then
+        -- Fui eu mesmo, nesta ou noutra transacao. Nada a escrever.
+        v_status := 'BAIXADO';
+        v_motivo := null;
+      else
+        -- Outro pagamento chegou primeiro. NUNCA uma segunda baixa, e NAO fecha
+        -- sozinho: vai para conferencia humana como qualquer PARCELA_JA_PAGA.
+        v_status := 'PARCELA_JA_PAGA';
+        v_motivo := 'a parcela ' || coalesce(v_parcela.numero::text,'?') || ' do boleto '
+          || v_chave || ' foi baixada por outro pagamento entre a decisao e a escrita'
+          || case when v_re_ref <> '' then ' (referencia ' || v_re_ref || ')' else '' end
+          || '. Nenhuma segunda baixa foi feita.';
+        v_evid := jsonb_build_object('tem_evidencia', v_re_ref <> '',
+                                     'origem', 'CORRIDA_NA_BAIXA',
+                                     'responsavel', nullif(v_re_ref,''), 'quando', now());
+      end if;
+    else
+      update public.parcelas
+         set status = 'PAGO', pago_em = v_pag.data_pagamento,
+             confirmado_por_email = coalesce(v_pag.operador_email,'extrato_santander'),
+             origem_baixa = 'GATILHO_IMPORTACAO',
+             origem_baixa_ref = v_pag.id::text,
+             origem_baixa_em = now(),
+             honorarios = case when coalesce(honorarios,0) = 0 and coalesce(v_pag.valor_honorario,0) > 0
+                               then v_pag.valor_honorario else honorarios end,
+             observacao = coalesce(observacao,'')
+               || case when coalesce(observacao,'') = '' then '' else ' | ' end
+               || 'baixa automatica na importacao: documento ' || v_chave
+               || ' pago em ' || to_char(v_pag.data_pagamento,'DD/MM/YYYY')
+               || case when v_venc is not null then ' (vencimento ' || to_char(v_venc,'DD/MM/YYYY') || ' conferido)' else '' end,
+             atualizado_em = now()
+       where id = v_parcela_id
+         and upper(coalesce(status,'')) <> 'PAGO';
+
+      if found then
+        v_baixou := true;
+        perform public.recalcular_situacao_aluno(v_parcela.aluno_id);
+        v_status := 'BAIXADO';
+        v_motivo := null;
+      else
+        -- Zero linhas com o lock na mao e estado inesperado. O que NAO se pode
+        -- fazer e chamar isso de BAIXADO: nada foi escrito.
+        v_status := 'PARCELA_JA_PAGA';
+        v_motivo := 'o UPDATE da baixa nao alterou nenhuma linha mesmo com o lock da'
+          || ' parcela ' || v_parcela_id::text || ': estado inesperado, nada foi escrito.';
+      end if;
     end if;
-    v_status := 'BAIXADO';
-    v_motivo := null;
   end if;
 
   if not p_aplicar then
@@ -491,20 +526,26 @@ revoke all on function public.conciliacao_reprocessar(boolean, int) from public,
 -- 4. `baixa_pelo_relatorio_pagamento` DEIXA DE TER REGRA PROPRIA
 -- ---------------------------------------------------------------------------
 --
--- Ela continua sendo a etapa `baixa_pelo_relatorio` do fluxo horario -- o cron
--- e o `fluxo_pagamentos_rodar` nao sao tocados. O que sai e a SEGUNDA
--- implementacao da regra de baixa: o corpo vira uma chamada ao motor.
+-- MESMA ASSINATURA, corpo novo. Criar `(boolean, date, boolean)` NAO
+-- substituiria a funcao existente `(boolean, date)`: criaria uma SEGUNDA, e o
+-- `fluxo_pagamentos_rodar` -- que chama com dois argumentos -- continuaria
+-- resolvendo para a antiga. O motor velho seguiria rodando de hora em hora e a
+-- migration nao teria efeito nenhum no cron. Por isso o corpo da de DOIS
+-- argumentos e que e trocado, e uma eventual sobrecarga e derrubada antes.
 --
--- `p_incluir_historicos` existe para que a delegacao NAO vire backfill: no
--- default, a funcao enxerga exatamente o que o motor enxerga. Varrer o
--- historico passa a ser um ato deliberado da gestao, nunca efeito colateral do
--- cron. `p_desde` continua aceito para nao quebrar a chamada existente
--- `baixa_pelo_relatorio_pagamento(true, current_date - 180)`.
+-- O cron, o `fluxo_pagamentos_rodar` e o `fluxo_pagamentos_config` nao sao
+-- tocados: a etapa `baixa_pelo_relatorio` continua ligada e continua sendo
+-- chamada do mesmo jeito -- so que agora ela delega ao motor.
+--
+-- Nao ha parametro para incluir historico. Pagamento com `status_conciliacao`
+-- NULL e anterior a 14/09/2026 e esta inteiramente fora deste motor -- nao ha
+-- porta, nem opcional, para traze-lo de volta por aqui.
+
+drop function if exists public.baixa_pelo_relatorio_pagamento(boolean, date, boolean);
 
 create or replace function public.baixa_pelo_relatorio_pagamento(
   p_confirmar boolean default false,
-  p_desde date default '2026-07-01'::date,
-  p_incluir_historicos boolean default false
+  p_desde date default '2026-07-01'::date
 )
  returns jsonb
  language plpgsql
@@ -520,23 +561,16 @@ begin
     raise exception 'Acesso negado: somente gestao financeira.' using errcode='42501';
   end if;
 
-  if coalesce(p_incluir_historicos, false) then
-    raise exception 'Varredura historica nao e mais efeito colateral do cron. '
-      'Pagamentos com status_conciliacao NULL sao anteriores a 14/09/2026 e '
-      'exigem decisao explicita da gestao, em chamada propria.'
-      using errcode = '0A000';
-  end if;
-
   v_r := public.conciliacao_reprocessar(coalesce(p_confirmar, false), 5000);
   return v_r || jsonb_build_object('delegado_para', 'pagamento_conciliar_um', 'desde', p_desde);
 end;
 $fn$;
 
-comment on function public.baixa_pelo_relatorio_pagamento(boolean, date, boolean) is
-  'Etapa do fluxo horario. Desde 14/09/2026 NAO tem regra propria: delega ao motor unico pagamento_conciliar_um. Escopo prospectivo; historico exige ato deliberado.';
+comment on function public.baixa_pelo_relatorio_pagamento(boolean, date) is
+  'Etapa do fluxo horario. Desde 14/09/2026 NAO tem regra propria: delega ao motor unico pagamento_conciliar_um, no escopo prospectivo. Assinatura preservada de proposito -- criar sobrecarga deixaria o cron chamando o motor antigo.';
 
-revoke all on function public.baixa_pelo_relatorio_pagamento(boolean, date, boolean) from public, anon;
-grant execute on function public.baixa_pelo_relatorio_pagamento(boolean, date, boolean) to authenticated;
+revoke all on function public.baixa_pelo_relatorio_pagamento(boolean, date) from public, anon;
+grant execute on function public.baixa_pelo_relatorio_pagamento(boolean, date) to authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 5. O VINCULO MANUAL TAMBEM TERMINA NO MOTOR
@@ -650,6 +684,18 @@ begin
     return jsonb_build_object('ok', false, 'motivo', 'JA_BAIXADO');
   end if;
 
+  -- SO PARCELA_JA_PAGA. Uma `decisao` na fila faz o reprocessador parar de
+  -- olhar aquele pagamento -- encerrar um AGUARDANDO_ACORDO, um
+  -- AGUARDANDO_AMARRACAO, um REVISAO ou um SEM_VINCULO tiraria do motor
+  -- exatamente o caso que ele ainda resolveria sozinho quando o acordo
+  -- entrasse ou o boleto fosse amarrado. Esses continuam na fila ate serem
+  -- resolvidos de verdade.
+  if v_st <> 'PARCELA_JA_PAGA' then
+    return jsonb_build_object('ok', false, 'motivo', 'SO_PARCELA_JA_PAGA',
+      'status_conciliacao', v_st,
+      'explicacao', 'encerrar este estado tiraria o pagamento do reprocessamento automatico');
+  end if;
+
   update public.fila_pagamento_sem_vinculo
      set decisao = 'ENCERRADO_GESTAO',
          decidido_por = v_email,
@@ -669,53 +715,23 @@ grant execute on function public.conciliacao_encerrar(uuid, text) to authenticat
 revoke all on function public.conciliacao_encerrar(uuid, text) from public, anon;
 
 -- ---------------------------------------------------------------------------
--- 7. ACORDO NOVO REAVALIA OS PAGAMENTOS QUE ESPERAVAM POR ELE
+-- 7. ACORDO NOVO: QUEM REAVALIA E O FLUXO HORARIO, NAO A IMPORTACAO
 -- ---------------------------------------------------------------------------
 --
--- Substituicao CIRURGICA em `importar_acordos`: insere UMA chamada imediatamente
--- antes do UPDATE final, mantendo todo o resto byte a byte. O padrao e o mesmo
--- de 20260912121649 com `invariantes_rodar` -- ler o corpo de producao e trocar
--- um marcador e o que evita reescrever uma funcao de 120 linhas a partir de uma
--- copia do repositorio que pode ter drift.
+-- `importar_acordos` NAO e alterada por esta migration, de proposito. Chamar a
+-- conciliacao dentro da transacao da importacao significa que uma falha de
+-- conciliacao reverteria a importacao inteira de acordos -- o efeito colateral
+-- derrubando o ato principal. E a importacao ja e pesada: `statement_timeout`
+-- de 180s com `completar_parcelas_acordo` dentro.
 --
--- NAO forca baixa. O motor reavalia do zero: se as parcelas do acordo novo
--- nasceram sem boleto, AGUARDANDO_ACORDO vira AGUARDANDO_AMARRACAO, nao BAIXADO.
-
-do $cirurgia$
-declare
-  v_src text; v_novo text;
-  v_marcador text := '  update public.importacoes set qtd_registros=coalesce(qtd_registros,0)+v_titulos where id=p_importacao_id;';
-  v_bloco text;
-begin
-  select p.prosrc into v_src
-    from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public' and p.proname = 'importar_acordos';
-
-  if v_src is null then
-    raise exception 'importar_acordos nao encontrada -- abortando sem tocar nada';
-  end if;
-  if position(v_marcador in v_src) = 0 then
-    raise exception 'marcador do update de importacoes nao encontrado -- abortando sem tocar a funcao';
-  end if;
-  if position('conciliacao_reprocessar' in v_src) > 0 then
-    raise notice 'importar_acordos ja chama a conciliacao; nada a fazer';
-    return;
-  end if;
-
-  v_bloco := E'  -- Acordo novo no CRM pode ser exatamente o que faltava para um pagamento\n'
-          || E'  -- que ja entrou e ficou em AGUARDANDO_ACORDO. Reavalia -- sem forcar baixa:\n'
-          || E'  -- parcela sem boleto vira AGUARDANDO_AMARRACAO, nao BAIXADO.\n'
-          || E'  perform public.conciliacao_reprocessar(true, 2000);\n\n';
-
-  v_novo := replace(v_src, v_marcador, v_bloco || v_marcador);
-
-  execute format(
-    'create or replace function public.importar_acordos(p_linhas jsonb, p_importacao_id uuid)
-       returns json language plpgsql security definer
-       set search_path to ''public''
-       set statement_timeout to ''180000''
-       as %s', quote_literal(v_novo));
-end $cirurgia$;
+-- O reprocessamento fica onde ja existe: a etapa `baixa_pelo_relatorio` do
+-- `fluxo_pagamentos_horario` (`40 * * * *`), que roda DEPOIS de
+-- `parcelas_amarrar_boleto()` e de `acordos_pos_importacao()` -- exatamente a
+-- ordem certa: amarra, completa o acordo, depois concilia.
+--
+-- Custo: ate ~1 hora de atraso para um AGUARDANDO_ACORDO virar
+-- AGUARDANDO_AMARRACAO ou BAIXADO. Aceito: o dinheiro ja esta na projecao desde
+-- o INSERT, e nenhuma dessas transicoes tem urgencia de minuto.
 
 -- ---------------------------------------------------------------------------
 -- 8. PROVA
@@ -778,10 +794,25 @@ begin
     raise exception 'a fila nao aceita RESOLVIDO_AUTOMATICO';
   end if;
 
-  -- importar_acordos tem de reavaliar no fim
+  -- uma unica assinatura de baixa_pelo_relatorio_pagamento: sobrecarga deixaria
+  -- o cron chamando o motor antigo
+  select count(*) into v_n from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='baixa_pelo_relatorio_pagamento';
+  if v_n <> 1 then
+    raise exception 'baixa_pelo_relatorio_pagamento ficou com % assinaturas -- o cron pode chamar a antiga', v_n;
+  end if;
+
+  -- a releitura sob o lock tem de estar antes do UPDATE da baixa
+  if (select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+       where n.nspname='public' and p.proname='pagamento_conciliar_um')
+     !~ 'pg_advisory_xact_lock[\s\S]*into v_re_status, v_re_ref[\s\S]*update public\.parcelas' then
+    raise exception 'a releitura da parcela sob o lock sumiu ou saiu de ordem';
+  end if;
+
+  -- importar_acordos NAO pode ter sido tocada por esta migration
   if (select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
        where n.nspname='public' and p.proname='importar_acordos')
-     not ilike '%conciliacao_reprocessar%' then
-    raise exception 'importar_acordos nao reavalia a conciliacao';
+     ilike '%conciliacao_reprocessar%' then
+    raise exception 'importar_acordos foi alterada -- esta migration nao deve toca-la';
   end if;
 end $prova$;
