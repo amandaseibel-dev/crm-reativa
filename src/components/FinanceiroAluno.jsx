@@ -6,6 +6,12 @@ import { podeGerirFinanceiro, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from 
 // lancamento chamam a MESMA funcao. Ver o comentario de src/utils/lancarAcordo.js:
 // caminho proprio foi como nasceram 88 acordos duplicados na mao.
 import { lancarAcordo, gerarParcelas as gerarParcelasAcordo } from "../utils/lancarAcordo";
+// Valor cobravel ajustado: a formula e a permissao moram em um lugar so.
+// Ver src/utils/ajusteValor.js -- o backend continua sendo quem recusa.
+import {
+  podeAjustarValor, valorOperacionalTitulo, valorBaseTitulo, temAjusteValor,
+  bloqueioAjusteValor, MOTIVO_BLOQUEIO,
+} from "../utils/ajusteValor";
 
 function formatarData(data) {
   if (!data) return "-";
@@ -167,6 +173,8 @@ function maiorAtrasoAcordo(acordo, parcelas) {
 }
 
 function valorTitulo(t) {
+  // Ajuste cobravel na frente; sem ajuste, a regra de sempre.
+  if (temAjusteValor(t)) return Number(t.valor_cobranca_ajustado);
   return Number(t.valor_em_aberto || t.saldo_corrigido || t.valor_original || 0);
 }
 
@@ -225,6 +233,10 @@ export default function FinanceiroAluno({ aluno }) {
   const [recarga, setRecarga] = useState(0);
   const [titulosSelecionaveis, setTitulosSelecionaveis] = useState([]);
   // Excluir titulo -- id do titulo com o painel aberto, e o motivo digitado.
+  const [ajustando, setAjustando] = useState(null);
+  const [valorAjuste, setValorAjuste] = useState("");
+  const [motivoAjuste, setMotivoAjuste] = useState("");
+  const [salvandoAjuste, setSalvandoAjuste] = useState(false);
   const [duplicando, setDuplicando] = useState(null);
   const [motivoDup, setMotivoDup] = useState("");
   const [salvandoDup, setSalvandoDup] = useState(false);
@@ -263,7 +275,7 @@ export default function FinanceiroAluno({ aluno }) {
       setCarregando(true);
       const { data } = await supabase
         .from("acordos_titulos")
-        .select("id, acordo_id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, situacao, tipo_boleto, status")
+        .select("id, acordo_id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, situacao, tipo_boleto, status, valor_cobranca_ajustado, motivo_ajuste_valor, valor_ajustado_por, valor_ajustado_em")
         .eq("aluno_id", String(aluno.id))
         .order("vencimento", { ascending: true });
 
@@ -372,6 +384,45 @@ export default function FinanceiroAluno({ aluno }) {
   // Apagar e seguro: `acordos_titulos` tem gatilho de auditoria que, no DELETE,
   // guarda a LINHA INTEIRA em audit_log.dados_antes, com usuario e data. O rastro
   // nao se perde -- so sai da tabela viva. A movimentacao tambem fica na ficha.
+  // AJUSTE DE VALOR COBRAVEL. A tela so desenha: quem recusa de fato e o
+  // backend (`crm_usuario_pode_ajustar_valor`, `titulo_ajuste_valor_bloqueio` e
+  // o gatilho `trg_titulo_ajuste_valor_protegido`). Por isso o erro do RPC e
+  // mostrado como veio, sem a tela tentar adivinhar o motivo.
+  async function salvarAjusteValor(tituloId) {
+    const valor = paraNumero(valorAjuste);
+    setSalvandoAjuste(true);
+    const { data, error } = await supabase.rpc("titulo_ajustar_valor_cobravel", {
+      p_titulo_id: tituloId,
+      p_valor: valor,
+      p_motivo: motivoAjuste,
+    });
+    setSalvandoAjuste(false);
+    if (error || !data || data.ok === false) {
+      const cod = (data && data.erro) || (error && error.message) || "falha";
+      alert(MOTIVO_BLOQUEIO[cod] || ("Nao foi possivel ajustar: " + cod));
+      return;
+    }
+    setAjustando(null); setValorAjuste(""); setMotivoAjuste("");
+    setRecarga((r) => r + 1);
+  }
+
+  async function removerAjusteValor(tituloId) {
+    if (!window.confirm("Remover o ajuste? O titulo volta a ser cobrado pelo valor padrao. O valor original nao muda.")) return;
+    setSalvandoAjuste(true);
+    const { data, error } = await supabase.rpc("titulo_ajustar_valor_cobravel", {
+      p_titulo_id: tituloId,
+      p_valor: null,
+      p_motivo: null,
+    });
+    setSalvandoAjuste(false);
+    if (error || !data || data.ok === false) {
+      const cod = (data && data.erro) || (error && error.message) || "falha";
+      alert(MOTIVO_BLOQUEIO[cod] || ("Nao foi possivel remover: " + cod));
+      return;
+    }
+    setRecarga((r) => r + 1);
+  }
+
   async function excluirTitulo(tituloId) {
     const motivo = String(motivoDup || "").trim();
     if (motivo.length < 5) { alert("Escreva o motivo — por que este título não existe."); return; }
@@ -1085,8 +1136,10 @@ export default function FinanceiroAluno({ aluno }) {
       t.status !== "quitada" &&
       !t.acordo_id
   );
+  // Valor operacional: o ajuste cobravel quando existir, senao a regra de
+  // sempre. O total do bordero continua no `valor_original` de cada titulo.
   const valorMensalidades = emAberto.reduce(
-    (soma, t) => soma + Number(t.saldo_corrigido ?? t.valor_original ?? 0),
+    (soma, t) => soma + valorOperacionalTitulo(t),
     0
   );
 
@@ -1571,14 +1624,83 @@ export default function FinanceiroAluno({ aluno }) {
                     )}
                   </div>
                   <div style={{ textAlign: "right" }}>
-                    <div style={{ fontSize: 13, fontWeight: 700 }}>
-                      {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
-                    </div>
+                    {temAjusteValor(titulo) ? (
+                      <>
+                        <div style={{ fontSize: 11, color: "var(--rv-texto-fraco)" }}>
+                          Valor original: <span style={{ textDecoration: "line-through" }}>{moeda(valorBaseTitulo(titulo))}</span>
+                        </div>
+                        <div style={{ fontSize: 14, fontWeight: 800, color: "var(--rv-azul-texto)" }}>
+                          {moeda(Number(titulo.valor_cobranca_ajustado))}
+                          <span style={{ fontSize: 10, fontWeight: 700, marginLeft: 5 }}>valor cobrável</span>
+                        </div>
+                      </>
+                    ) : (
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>
+                        {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
+                      </div>
+                    )}
                     <span style={{ ...estilos.tagBase, background: duplicada ? "var(--rv-borda)" : cor.bg,
                                    color: duplicada ? "var(--rv-texto)" : cor.texto }}>
                       {duplicada ? "Fora da conta"
                         : pago ? "Quitada" : negociada ? "Negociado" : "Em aberto"}
                     </span>
+
+                    {/* Ajuste de valor cobravel. Todo mundo VE o motivo e quem
+                        ajustou; so Amanda e Fernanda veem os botoes. */}
+                    {temAjusteValor(titulo) && (
+                      <div style={{ ...estilos.subLinha, textAlign: "right", marginTop: 4 }}>
+                        {titulo.motivo_ajuste_valor || "(sem motivo registrado)"}
+                        {titulo.valor_ajustado_por ? ` — ${nomeOperadorPorEmail(titulo.valor_ajustado_por) || titulo.valor_ajustado_por}` : ""}
+                        {titulo.valor_ajustado_em ? ` em ${formatarData(titulo.valor_ajustado_em)}` : ""}
+                      </div>
+                    )}
+                    {podeAjustarValor(usuario?.email || "") && (
+                      ajustando === titulo.id ? (
+                        <div style={{ marginTop: 6, display: "flex", gap: 5, alignItems: "center", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                          <input
+                            autoFocus
+                            placeholder="Valor cobrável"
+                            value={valorAjuste}
+                            onChange={(e) => setValorAjuste(e.target.value)}
+                            style={{ border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "4px 9px", fontSize: 12, width: 110 }}
+                          />
+                          <input
+                            placeholder="Motivo — por que o valor mudou?"
+                            value={motivoAjuste}
+                            onChange={(e) => setMotivoAjuste(e.target.value)}
+                            onKeyDown={(e) => { if (e.key === "Escape") { setAjustando(null); setValorAjuste(""); setMotivoAjuste(""); } }}
+                            style={{ border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "4px 9px", fontSize: 12, minWidth: 230 }}
+                          />
+                          <button type="button" disabled={salvandoAjuste} style={{ ...estilos.botaoPequeno, padding: "4px 10px" }}
+                            onClick={() => salvarAjusteValor(titulo.id)}>
+                            {salvandoAjuste ? "..." : "Salvar"}
+                          </button>
+                          <button type="button" style={estilos.botaoCancelar}
+                            onClick={() => { setAjustando(null); setValorAjuste(""); setMotivoAjuste(""); }}>
+                            Cancelar
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ marginTop: 6, display: "flex", gap: 5, justifyContent: "flex-end" }}>
+                          {bloqueioAjusteValor(titulo) === null && (
+                            <button type="button" style={{ ...estilos.botaoPequeno, padding: "4px 10px" }}
+                              onClick={() => {
+                                setAjustando(titulo.id);
+                                setValorAjuste(String(titulo.valor_cobranca_ajustado ?? ""));
+                                setMotivoAjuste(titulo.motivo_ajuste_valor || "");
+                              }}>
+                              {temAjusteValor(titulo) ? "Alterar valor" : "Ajustar valor"}
+                            </button>
+                          )}
+                          {temAjusteValor(titulo) && (
+                            <button type="button" disabled={salvandoAjuste} style={estilos.botaoCancelar}
+                              onClick={() => removerAjusteValor(titulo.id)}>
+                              Remover ajuste
+                            </button>
+                          )}
+                        </div>
+                      )
+                    )}
 
                     {/* Excluir titulo que nao existe. So gestao, e so o que nao
                         esta pago -- titulo quitado errado se resolve pelo
