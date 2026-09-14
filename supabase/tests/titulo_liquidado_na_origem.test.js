@@ -30,6 +30,7 @@ function corpo(texto, nome, tag) {
 const trava = corpo(sql, "titulo_liquidado_na_origem_e_terminal", "$fn$");
 const liq = corpo(sql, "conciliacao_liquidar_titulo_por_prime", "$fn$");
 const ident = corpo(sql, "conciliacao_vincular_identidade_por_cpf", "$fn$");
+const disp = corpo(sql, "conciliacao_consultar_portador_pendentes", "$fn$");
 const motor = corpo(sql, "pagamento_conciliar_um", "$motor$");
 const pos = (t, s, from = 0) => t.indexOf(s, from);
 const esp = (s) => s.replace(/\s+/g, " ").trim();
@@ -549,5 +550,94 @@ describe("14. erro do liquidador nao chega ao 166", () => {
       expect(ate, `${r} nao devolve`).toContain("return new Response");
       expect(ate, `${r} promete retentativa`).toContain("24h");
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 15. SEGUNDA CHANCE CURTA, QUE FECHA SOZINHA
+// ---------------------------------------------------------------------------
+describe("15. o confirmado sem estrutura pode evoluir -- mas nao para sempre", () => {
+  // o WHERE do disparador
+  const filtro = disp.slice(pos(disp, "where ("), pos(disp, "order by"));
+
+  it("confirmado sem estrutura volta a ser consultado", () => {
+    expect(filtro).toContain("p.status_conciliacao = 'ACORDO_CONFIRMADO_SEM_ESTRUTURA'");
+    // e NAO exige evidencia nula nesse ramo -- um caso confirmado TEM evidencia
+    const ramo = filtro.slice(pos(filtro, "or (p.status_conciliacao = 'ACORDO_CONFIRMADO_SEM_ESTRUTURA'"));
+    expect(ramo).not.toContain("evidencia_origem is null");
+  });
+
+  it("e o liquidador aceita esse estado, para poder promover", () => {
+    expect(liq).toContain("not in ('AGUARDANDO_ACORDO','ACORDO_CONFIRMADO_SEM_ESTRUTURA')");
+  });
+
+  it("a janela FECHA: 72h a partir de conciliacao_em", () => {
+    expect(filtro).toContain("p.conciliacao_em > now() - interval '72 hours'");
+    // com o teto de 24h por caso, 72h = no maximo 2 reconsultas
+    expect(filtro).toContain("f.consulta_portador_em < now() - interval '24 hours'");
+  });
+
+  it("a ancora da janela e estavel -- senao ela nunca fecharia", () => {
+    // `conciliacao_em` so anda quando o ESTADO muda; antes deslizava a cada
+    // rodada horaria e a janela de 72h se renovaria para sempre
+    expect(motor).toContain("when status_conciliacao is distinct from v_status then now()");
+    expect(motor).toContain("else coalesce(conciliacao_em, now()) end");
+    expect(motor).not.toContain("conciliacao_em     = now()");
+  });
+
+  it("a pendencia normal continua sendo consultada como antes", () => {
+    expect(filtro).toContain("(p.status_conciliacao = 'AGUARDANDO_ACORDO' and f.evidencia_origem is null)");
+  });
+
+  it("NAO retrocede de TITULO_ORIGINAL_LIQUIDADO", () => {
+    // tres camadas independentes
+    expect(filtro).not.toContain("TITULO_ORIGINAL_LIQUIDADO");          // nem e consultado
+    expect(liq).toContain("if coalesce(v_pag.status_conciliacao,'') = 'TITULO_ORIGINAL_LIQUIDADO' then");
+    expect(motor).toContain("= 'TITULO_ORIGINAL_LIQUIDADO' then");      // motor sai antes
+  });
+
+  it("os 8.999 historicos com status_conciliacao NULL continuam fora", () => {
+    // o filtro so casa valores explicitos; NULL nunca e igual a texto nenhum
+    const ramos = [...filtro.matchAll(/p\.status_conciliacao = '([A-Z_]+)'/g)].map((m) => m[1]);
+    expect(ramos.sort()).toEqual(["ACORDO_CONFIRMADO_SEM_ESTRUTURA", "AGUARDANDO_ACORDO"]);
+    expect(filtro).not.toContain("status_conciliacao is null");
+    expect(filtro).not.toContain("coalesce(p.status_conciliacao");
+    // e o liquidador tambem barra NULL: coalesce para '' nunca casa com a lista
+    expect(liq).toContain("if coalesce(v_pag.status_conciliacao,'') not in ('AGUARDANDO_ACORDO','ACORDO_CONFIRMADO_SEM_ESTRUTURA') then");
+    // (o `status_conciliacao is null` que existe no arquivo e do CHECK, que
+    //  precisa aceitar NULL -- o historico continua valido, so nao e processado)
+  });
+
+  it("erro tecnico consome uma chance -- e o codigo diz por que", () => {
+    const i = pos(sql, "ERRO TECNICO CONSOME UMA DAS DUAS CHANCES");
+    expect(i).toBeGreaterThan(-1);
+    const just = sql.slice(i, i + 800);
+    expect(esp(just)).toContain("o #379 fechou de proposito");
+    expect(esp(just)).toContain("permanece em `ACORDO_CONFIRMADO_SEM_ESTRUTURA`");
+  });
+
+  it("nao cria cron nem aumenta frequencia", () => {
+    expect(sql).not.toContain("cron.schedule");
+    expect(sql).not.toContain("cron.unschedule");
+    // a janela de frequencia continua sendo 24h, nao menos
+    expect(disp).not.toMatch(/interval '(\d+) (minutes|hours)'/g.source && /interval '[0-9]+ minutes'/);
+  });
+
+  it("a prova da migration cobre a janela e a ancora", () => {
+    const prova = sql.slice(pos(sql, "do $prova$"));
+    expect(prova).toContain("a segunda chance nao tem janela que feche sozinha");
+    expect(prova).toContain("conciliacao_em volta a deslizar");
+    expect(prova).toContain("o disparador reconsulta quem ja esta liquidado");
+    expect(prova).toContain("o disparador deixou de consultar a pendencia normal");
+  });
+
+  it("o rollback devolve o disparador sem a janela", () => {
+    // a INSTRUCAO, em inicio de linha -- comentar a linha nao pode passar batido
+    const decl = /^create or replace function public\.conciliacao_consultar_portador_pendentes\(/m;
+    expect(rb).toMatch(decl);
+    expect(rb).toContain("o disparador nao voltou: a janela de segunda chance continua");
+    const dispRb = rb.slice(rb.search(decl), pos(rb, "-- 5. PROVA DO ROLLBACK"));
+    expect(dispRb).not.toContain("72 hours");
+    expect(dispRb).not.toContain("ACORDO_CONFIRMADO_SEM_ESTRUTURA");
   });
 });

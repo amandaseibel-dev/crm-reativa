@@ -544,10 +544,19 @@ begin
       'aplicou', false, 'baixou', false, 'evidencia', v_evid);
   end if;
 
+  -- `conciliacao_em` SO ANDA QUANDO O ESTADO MUDA.
+  --
+  -- Antes gravava now() em toda escrita, e a rodada horaria reescreve o mesmo
+  -- estado -- entao a coluna deslizava de hora em hora e nao cumpria o proprio
+  -- comentario ("Quando a conciliacao foi decidida"). Ninguem a le hoje (nem
+  -- tela nem funcao), e o segundo fim disto e dar ao disparador uma ancora
+  -- estavel para a janela de segunda chance: sem ela, a janela nunca fecharia.
   update public.pagamentos
      set status_conciliacao = v_status,
          conciliacao_motivo = v_motivo,
-         conciliacao_em     = now()
+         conciliacao_em     = case
+           when status_conciliacao is distinct from v_status then now()
+           else coalesce(conciliacao_em, now()) end
    where id = p_pagamento_id;
 
   if v_status = 'BAIXADO' then
@@ -1067,6 +1076,29 @@ begin
     raise exception 'a identidade pura nao exige aluno unico pelo CPF';
   end if;
 
+  -- a janela de segunda chance existe, fecha sozinha, e nao alcanca o historico
+  select p.prosrc into v_src from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='conciliacao_consultar_portador_pendentes';
+  if v_src not ilike '%ACORDO_CONFIRMADO_SEM_ESTRUTURA%' then
+    raise exception 'o disparador nao da segunda chance ao estado confirmado';
+  end if;
+  if v_src not ilike '%conciliacao_em > now() - interval ''72 hours''%' then
+    raise exception 'a segunda chance nao tem janela que feche sozinha';
+  end if;
+  if v_src ilike '%TITULO_ORIGINAL_LIQUIDADO%' then
+    raise exception 'o disparador reconsulta quem ja esta liquidado -- nao pode';
+  end if;
+  if v_src not ilike '%p.status_conciliacao = ''AGUARDANDO_ACORDO''%' then
+    raise exception 'o disparador deixou de consultar a pendencia normal';
+  end if;
+
+  -- e a ancora da janela precisa ser estavel, senao ela nunca fecha
+  select p.prosrc into v_src from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='pagamento_conciliar_um';
+  if v_src not ilike '%status_conciliacao is distinct from v_status then now()%' then
+    raise exception 'conciliacao_em volta a deslizar: a janela nunca fecharia';
+  end if;
+
   -- e a proveniencia, uma vez gravada, nao troca de dono
   select p.prosrc into v_src from pg_proc p join pg_namespace n on n.oid=p.pronamespace
    where n.nspname='public' and p.proname='titulo_liquidado_na_origem_e_terminal';
@@ -1074,3 +1106,132 @@ begin
     raise exception 'a proveniencia pode ser substituida por outra execucao';
   end if;
 end $prova$;
+
+
+-- ---------------------------------------------------------------------------
+-- 7. A SEGUNDA CHANCE DO `ACORDO_CONFIRMADO_SEM_ESTRUTURA`
+-- ---------------------------------------------------------------------------
+--
+-- O PROBLEMA: `ACORDO_CONFIRMADO_SEM_ESTRUTURA` e terminal no motor -- de
+-- proposito, para que o espelho do portador, que expira por ciclo, nao
+-- transforme a confirmacao de hoje em pendencia no sabado que vem. Mas terminal
+-- tambem significa que, se a Prime passar a mostrar o titulo-mae liquidado
+-- depois, esse caso nunca mais seria reavaliado. Ficaria congelado numa
+-- conclusao verdadeira, porem menos especifica do que a disponivel.
+--
+-- POR QUE NAO DEU PARA USAR SO O QUE JA EXISTIA -- e foi conferido antes:
+--   * `fila.evidencia_em` e `max(prime_portador_membro.coletado_em)`: e quando o
+--     ESPELHO foi coletado, nao quando se confirmou. E a varredura semanal
+--     re-carimba, entao ele ANDA sozinho -- uma janela ancorada nele reabriria
+--     todo sabado, que e exatamente o retry infinito que nao se quer;
+--   * `pagamentos.conciliacao_em` gravava now() em toda escrita, e a rodada
+--     horaria reescreve o mesmo estado: deslizava de hora em hora.
+--
+-- A CORRECAO E NO SEGUNDO, e ela cabe no contrato que ele ja declara
+-- ("Quando a conciliacao foi decidida"). Ninguem le essa coluna hoje -- nem
+-- tela, nem funcao -- entao faze-la parar de deslizar nao quebra leitor nenhum,
+-- e passa a valer o que o nome diz. A alteracao esta na secao 4, no motor.
+--
+-- NENHUMA COLUNA NOVA, nenhum cron novo, nenhuma frequencia aumentada.
+--
+-- ERRO TECNICO CONSOME UMA DAS DUAS CHANCES, e isto e deliberado. A alternativa
+-- seria nao carimbar `consulta_portador_em` quando a chamada falha -- que e
+-- exatamente o buraco que o #379 fechou de proposito (o caso voltaria de hora
+-- em hora, para sempre). O custo de consumir uma chance e pequeno e nao
+-- destroi nada: o caso permanece em `ACORDO_CONFIRMADO_SEM_ESTRUTURA`, que
+-- continua sendo verdade, e que e o mesmo destino previsto para quem esgota a
+-- janela sem liquidacao.
+
+create or replace function public.conciliacao_consultar_portador_pendentes(
+  p_limite int default 5
+)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $fn$
+declare
+  v_url text; v_token text; v_req bigint; v_carga jsonb;
+  v_n int := 0; v_casos jsonb := '[]'::jsonb; r record;
+begin
+  if coalesce(current_setting('reativa.fluxo_pagamentos', true),'') <> 'on'
+     and coalesce(auth.role(),'') <> 'service_role'
+     and not coalesce(public.usuario_e_gestao(), false) then
+    raise exception 'Consulta pontual ao portador e da gestao ou da rotina.' using errcode = '42501';
+  end if;
+
+  v_carga := public.sistema_sob_carga();
+  if coalesce((v_carga->>'sob_carga')::boolean, false) then
+    return jsonb_build_object('pulou', 'sistema sob carga');
+  end if;
+
+  select decrypted_secret into v_url   from vault.decrypted_secrets where name = 'projeto_url';
+  select decrypted_secret into v_token from vault.decrypted_secrets where name = 'prime_cadastro_token';
+  if v_url is null or v_token is null then
+    return jsonb_build_object('pulou', 'segredo ausente no Vault');
+  end if;
+
+  for r in
+    select p.id,
+           coalesce(nullif(p.matricula,''), f.matricula_recebida) as registration,
+           p.titulo_numero
+      from public.pagamentos p
+      join public.fila_pagamento_sem_vinculo f
+        on f.pagamento_id = p.id and f.decisao is null
+     where (
+             -- a pendencia de sempre
+             (p.status_conciliacao = 'AGUARDANDO_ACORDO' and f.evidencia_origem is null)
+             -- SEGUNDA CHANCE, CURTA E QUE FECHA SOZINHA.
+             --
+             -- `ACORDO_CONFIRMADO_SEM_ESTRUTURA` afirma que houve negociacao --
+             -- e isso continua verdade. Mas o extrato da Prime pode passar a
+             -- mostrar o titulo-mae liquidado depois, e ai existe resposta
+             -- melhor. Sem esta janela o caso ficaria congelado para sempre.
+             --
+             -- A janela e de 72h a partir de `conciliacao_em`, que agora so anda
+             -- quando o ESTADO muda. Com o teto de uma consulta por dia por caso,
+             -- isso da no maximo DUAS reconsultas (~+24h e ~+48h); em +72h a
+             -- janela fecha e o caso para de ser consultado, para sempre.
+             --
+             -- Nao exige `evidencia_origem is null` aqui: um caso confirmado TEM
+             -- evidencia -- e essa e justamente a condicao que o traz de volta.
+             or (p.status_conciliacao = 'ACORDO_CONFIRMADO_SEM_ESTRUTURA'
+                 and p.conciliacao_em > now() - interval '72 hours')
+           )
+       -- NAO exclui quem ja tem linha local do 166. O espelho prova negociacao,
+       -- nao ausencia de estrutura -- e a tentativa oficial precisa acontecer
+       -- antes do fallback. O teto de uma por dia por caso e que segura o volume.
+       and coalesce(nullif(p.matricula,''), f.matricula_recebida) ~ '^\d{6,12}$'
+       and (f.consulta_portador_em is null
+            or f.consulta_portador_em < now() - interval '24 hours')
+     order by p.data_pagamento, p.id
+     limit greatest(coalesce(p_limite, 5), 0)
+  loop
+    -- A marca vem ANTES: se a chamada falhar, o caso nao volta na proxima hora.
+    -- E SO ISSO que ela significa -- frequencia, uma tentativa por dia por caso.
+    -- Nao e resultado: quem responde "o que a API disse" e
+    -- `consulta_estrutura_resultado`, gravado pela Edge DEPOIS da chamada.
+    update public.fila_pagamento_sem_vinculo
+       set consulta_portador_em = now()
+     where pagamento_id = r.id;
+
+    select net.http_post(
+      url := rtrim(v_url,'/') || '/functions/v1/prime-portador',
+      headers := jsonb_build_object('Content-Type','application/json','x-rotina-token', v_token),
+      body := jsonb_build_object('registration', r.registration, 'pagamento_id', r.id,
+                                 'titulo_numero', r.titulo_numero),
+      timeout_milliseconds := 60000) into v_req;
+
+    v_n := v_n + 1;
+    v_casos := v_casos || jsonb_build_object('pagamento_id', r.id,
+                            'registration', r.registration, 'requisicao', v_req);
+  end loop;
+
+  return jsonb_build_object('disparados', v_n, 'limite', p_limite, 'casos', v_casos);
+end;
+$fn$;
+
+comment on function public.conciliacao_consultar_portador_pendentes(int) is
+  'Disparador do caminho ao vivo. Consulta AGUARDANDO_ACORDO sem evidencia e, por no maximo 72h a partir de conciliacao_em, tambem ACORDO_CONFIRMADO_SEM_ESTRUTURA -- segunda chance curta, que com o teto de uma consulta por dia por caso da no maximo duas reconsultas e depois fecha sozinha. Usa consulta_portador_em SOMENTE como controle de frequencia. Chamado pela rodada horaria -- nunca pelo gatilho de INSERT.';
+
+revoke all on function public.conciliacao_consultar_portador_pendentes(int) from public, anon, authenticated;

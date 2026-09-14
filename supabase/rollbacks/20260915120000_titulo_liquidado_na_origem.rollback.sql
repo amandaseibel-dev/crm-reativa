@@ -527,6 +527,88 @@ $motor$;
 revoke all on function public.pagamento_conciliar_um(uuid, boolean) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
+-- 4b. O disparador volta a versao de 20260914190000, byte a byte
+-- ---------------------------------------------------------------------------
+--
+-- Sai a janela de segunda chance. Quem ja esta em TITULO_ORIGINAL_LIQUIDADO nao
+-- volta atras -- esse estado e normalizado na secao 3 e os titulos ficam
+-- concluidos.
+
+create or replace function public.conciliacao_consultar_portador_pendentes(
+  p_limite int default 5
+)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $fn$
+declare
+  v_url text; v_token text; v_req bigint; v_carga jsonb;
+  v_n int := 0; v_casos jsonb := '[]'::jsonb; r record;
+begin
+  if coalesce(current_setting('reativa.fluxo_pagamentos', true),'') <> 'on'
+     and coalesce(auth.role(),'') <> 'service_role'
+     and not coalesce(public.usuario_e_gestao(), false) then
+    raise exception 'Consulta pontual ao portador e da gestao ou da rotina.' using errcode = '42501';
+  end if;
+
+  v_carga := public.sistema_sob_carga();
+  if coalesce((v_carga->>'sob_carga')::boolean, false) then
+    return jsonb_build_object('pulou', 'sistema sob carga');
+  end if;
+
+  select decrypted_secret into v_url   from vault.decrypted_secrets where name = 'projeto_url';
+  select decrypted_secret into v_token from vault.decrypted_secrets where name = 'prime_cadastro_token';
+  if v_url is null or v_token is null then
+    return jsonb_build_object('pulou', 'segredo ausente no Vault');
+  end if;
+
+  for r in
+    select p.id,
+           coalesce(nullif(p.matricula,''), f.matricula_recebida) as registration,
+           p.titulo_numero
+      from public.pagamentos p
+      join public.fila_pagamento_sem_vinculo f
+        on f.pagamento_id = p.id and f.decisao is null
+     where p.status_conciliacao = 'AGUARDANDO_ACORDO'
+       and f.evidencia_origem is null
+       -- NAO exclui mais quem ja tem linha local do 166. O espelho prova
+       -- negociacao, nao ausencia de estrutura -- e a tentativa oficial precisa
+       -- acontecer antes do fallback. O teto de uma por dia por caso e que
+       -- segura o volume.
+       and coalesce(nullif(p.matricula,''), f.matricula_recebida) ~ '^\d{6,12}$'
+       and (f.consulta_portador_em is null
+            or f.consulta_portador_em < now() - interval '24 hours')
+     order by p.data_pagamento, p.id
+     limit greatest(coalesce(p_limite, 5), 0)
+  loop
+    -- A marca vem ANTES: se a chamada falhar, o caso nao volta na proxima hora.
+    -- E SO ISSO que ela significa -- frequencia, uma tentativa por dia por caso.
+    -- Nao e resultado: quem responde "o que a API disse" e
+    -- `consulta_estrutura_resultado`, gravado pela Edge DEPOIS da chamada.
+    update public.fila_pagamento_sem_vinculo
+       set consulta_portador_em = now()
+     where pagamento_id = r.id;
+
+    select net.http_post(
+      url := rtrim(v_url,'/') || '/functions/v1/prime-portador',
+      headers := jsonb_build_object('Content-Type','application/json','x-rotina-token', v_token),
+      body := jsonb_build_object('registration', r.registration, 'pagamento_id', r.id,
+                                 'titulo_numero', r.titulo_numero),
+      timeout_milliseconds := 60000) into v_req;
+
+    v_n := v_n + 1;
+    v_casos := v_casos || jsonb_build_object('pagamento_id', r.id,
+                            'registration', r.registration, 'requisicao', v_req);
+  end loop;
+
+  return jsonb_build_object('disparados', v_n, 'limite', p_limite, 'casos', v_casos);
+end;
+$fn$;
+
+revoke all on function public.conciliacao_consultar_portador_pendentes(int) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
 -- 5. PROVA DO ROLLBACK
 -- ---------------------------------------------------------------------------
 
@@ -552,6 +634,11 @@ begin
        where n.nspname='public' and p.proname='pagamento_conciliar_um')
      ilike '%TITULO_ORIGINAL_LIQUIDADO%' then
     raise exception 'o motor nao voltou: ainda conhece o estado removido';
+  end if;
+  if (select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+       where n.nspname='public' and p.proname='conciliacao_consultar_portador_pendentes')
+     ilike '%72 hours%' then
+    raise exception 'o disparador nao voltou: a janela de segunda chance continua';
   end if;
 
   -- e o que NAO pode ter sido desfeito
