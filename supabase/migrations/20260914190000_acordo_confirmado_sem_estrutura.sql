@@ -26,7 +26,8 @@
 --
 -- O QUE ESTA MIGRATION FAZ:
 --   1. `status_conciliacao` ganha ACORDO_CONFIRMADO_SEM_ESTRUTURA;
---   2. a fila ganha DUAS colunas de evidencia -- e so duas;
+--   2. a fila ganha TRES colunas: duas de evidencia e uma de controle de
+--      tentativa -- nenhuma a mais;
 --   3. o motor passa a consultar `prime_portador_membro` quando nao acha o
 --      acordo, e a manter a confirmacao entre rodadas;
 --   4. entra uma RPC para o caminho ao vivo registrar a confirmacao e o vinculo
@@ -42,14 +43,16 @@
 -- nunca conclui que nao houve acordo. Conclui que aqui nao da para afirmar, e o
 -- caso segue pendente para decisao humana.
 --
--- POR QUE DUAS COLUNAS, E NAO ZERO. Conferido antes de criar: `observacao` e
+-- POR QUE TRES COLUNAS, E NAO ZERO. Conferido antes de criar: `observacao` e
 -- texto livre escrito por gente (`pagamento_vincular_aluno` e
 -- `conciliacao_encerrar` escrevem ali) -- guardar origem de evidencia em prosa
 -- exigiria parsear texto para filtrar e auditar. `sugestoes` e jsonb com
 -- contrato declarado: candidatos por NOME, "nunca aplicados", e a tela le como
 -- lista de alunos. `motivo` ja carrega a evidencia em texto legivel. O que falta
 -- e um campo FILTRAVEL de origem e a data -- e nada existente serve sem quebrar
--- semantica. Todo o resto da evidencia reusa coluna que ja existe:
+-- semantica. A terceira, `consulta_portador_em`, marca a ULTIMA TENTATIVA de
+-- consulta oficial: sem ela o disparador chamaria o mesmo caso de hora em hora
+-- para sempre, e `evidencia_em` nao serve porque significa quando CONFIRMOU. Todo o resto da evidencia reusa coluna que ja existe:
 --   pagamento_id, boleto, valor_pago, valor_honorario e a primeira deteccao na
 --   propria fila; aluno_id, cpf, titulo_numero e operador_email em `pagamentos`;
 --   a registration em `fila.matricula_recebida` -- provado 13/13 que a matricula
@@ -151,7 +154,7 @@ declare
   -- evidencia do portador 166 (negociacao comprovada, sem estrutura de acordo)
   v_cpf_pag text; v_ev_origem text; v_ev_em timestamptz;
   -- concordancia entre o numero do acordo do arquivo e o prefixo do boleto
-  v_tit text; v_acordo_do_boleto text; v_concorda boolean;
+  v_tit text; v_acordo_do_boleto text; v_concorda boolean; v_tentou_oficial boolean;
 begin
   select * into v_pag from public.pagamentos where id = p_pagamento_id;
   if not found then
@@ -216,6 +219,17 @@ begin
           v_tit := nullif(ltrim(regexp_replace(coalesce(v_pag.titulo_numero,''), '\D', '', 'g'), '0'), '');
           v_concorda := (v_tit is not null and v_tit = v_acordo_do_boleto);
 
+          -- O FALLBACK E FALLBACK. Estar no portador 166 prova que houve
+          -- negociacao -- nao prova que a estrutura do acordo nao existe. Antes
+          -- de confirmar "sem estrutura", a API oficial tem de ter sido
+          -- perguntada: `consulta_portador_em` e a marca dessa tentativa,
+          -- gravada pelo disparador antes de chamar a Edge. Sem ela, o caso
+          -- fica pendente e o disparador o pega na proxima rodada.
+          select (f.consulta_portador_em is not null) into v_tentou_oficial
+            from public.fila_pagamento_sem_vinculo f
+           where f.pagamento_id = p_pagamento_id;
+          v_tentou_oficial := coalesce(v_tentou_oficial, false);
+
           if coalesce(v_pag.status_conciliacao,'') = 'ACORDO_CONFIRMADO_SEM_ESTRUTURA' then
             -- IDEMPOTENCIA. Uma vez confirmado, nao volta para AGUARDANDO_ACORDO.
             -- O espelho do portador expira por ciclo (`prime-portador` apaga quem nao
@@ -228,7 +242,8 @@ begin
 
           elsif v_cpf_pag is not null
             and exists (select 1 from public.prime_portador_membro m
-                         where lpad(m.cpf,11,'0') = lpad(v_cpf_pag,11,'0') and m.portador = 166) then
+                         where lpad(m.cpf,11,'0') = lpad(v_cpf_pag,11,'0') and m.portador = 166)
+            and v_tentou_oficial then
 
             if not v_concorda then
               -- Evidencia positiva de negociacao, mas o arquivo se contradiz. Nao se
@@ -262,6 +277,8 @@ begin
               || ' nao existe em parcelas e o acordo ' || v_pref || ' nao esta no CRM'
               || case when v_cpf_pag is null
                       then ' | sem CPF no pagamento: identidade precisa ser resolvida antes'
+                      when not v_tentou_oficial
+                      then ' | a API oficial ainda nao foi consultada para este caso -- a rodada horaria consulta'
                       else ' | sem evidencia local do portador 166 -- inconclusivo, nao e prova de que nao houve acordo' end;
           end if;
         elsif v_livres > 0 then
@@ -693,11 +710,14 @@ revoke all on function public.conciliacao_confirmar_portador_166(uuid, text, tex
 -- `pagamento_conciliar_um` direto e nao passa por aqui: nenhuma chamada externa
 -- no caminho da importacao.
 --
+-- POR QUE TODOS, E NAO SO OS SEM ESPELHO. A primeira versao pulava quem ja
+-- tinha linha local do 166, para economizar chamada. Errado: o espelho prova
+-- NEGOCIACAO, nao ausencia de estrutura. A tentativa oficial precisa acontecer
+-- antes do fallback, inclusive para quem ja esta no espelho.
+--
 -- QUEM ENTRA, e so quem entra:
 --   * `status_conciliacao = 'AGUARDANDO_ACORDO'` -- nenhum outro estado;
 --   * sem evidencia ja registrada na fila;
---   * SEM linha local do 166 -- quem ja tem o motor resolve de graca, e gastar
---     chamada nesse caso seria desperdicio;
 --   * com registration utilizavel;
 --   * e no maximo UMA tentativa por dia por caso. A marca e gravada ANTES da
 --     chamada, entao falha tambem conta -- e o mesmo caso nao volta de hora em
@@ -734,17 +754,17 @@ begin
 
   for r in
     select p.id,
-           coalesce(nullif(p.matricula,''), f.matricula_recebida) as registration
+           coalesce(nullif(p.matricula,''), f.matricula_recebida) as registration,
+           p.titulo_numero
       from public.pagamentos p
       join public.fila_pagamento_sem_vinculo f
         on f.pagamento_id = p.id and f.decisao is null
      where p.status_conciliacao = 'AGUARDANDO_ACORDO'
        and f.evidencia_origem is null
-       and not exists (
-             select 1 from public.prime_portador_membro m
-              where m.portador = 166
-                and lpad(m.cpf,11,'0') = lpad(regexp_replace(coalesce(p.cpf,''),'\D','','g'),11,'0')
-                and coalesce(p.cpf,'') <> '')
+       -- NAO exclui mais quem ja tem linha local do 166. O espelho prova
+       -- negociacao, nao ausencia de estrutura -- e a tentativa oficial precisa
+       -- acontecer antes do fallback. O teto de uma por dia por caso e que
+       -- segura o volume.
        and coalesce(nullif(p.matricula,''), f.matricula_recebida) ~ '^\d{6,12}$'
        and (f.consulta_portador_em is null
             or f.consulta_portador_em < now() - interval '24 hours')
@@ -759,7 +779,8 @@ begin
     select net.http_post(
       url := rtrim(v_url,'/') || '/functions/v1/prime-portador',
       headers := jsonb_build_object('Content-Type','application/json','x-rotina-token', v_token),
-      body := jsonb_build_object('registration', r.registration, 'pagamento_id', r.id),
+      body := jsonb_build_object('registration', r.registration, 'pagamento_id', r.id,
+                                 'titulo_numero', r.titulo_numero),
       timeout_milliseconds := 60000) into v_req;
 
     v_n := v_n + 1;
@@ -887,8 +908,15 @@ begin
 
   select count(*) into v_n from information_schema.columns
    where table_schema='public' and table_name='fila_pagamento_sem_vinculo'
-     and column_name in ('evidencia_origem','evidencia_em');
-  if v_n <> 2 then raise exception 'as duas colunas de evidencia nao ficaram'; end if;
+     and column_name in ('evidencia_origem','evidencia_em','consulta_portador_em');
+  if v_n <> 3 then raise exception 'as tres colunas novas da fila nao ficaram'; end if;
+
+  -- o fallback so pode acontecer depois da tentativa oficial
+  if (select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+       where n.nspname='public' and p.proname='pagamento_conciliar_um')
+     not ilike '%v_tentou_oficial%' then
+    raise exception 'o motor promove o fallback sem exigir a tentativa oficial';
+  end if;
 
   if (select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
        where n.nspname='public' and p.proname='pagamento_conciliar_um')

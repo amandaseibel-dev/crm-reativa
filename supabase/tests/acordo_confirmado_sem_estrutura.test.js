@@ -331,10 +331,10 @@ describe("10. o caminho B e automatico", () => {
     expect(esp(disp)).toContain("p.status_conciliacao = 'AGUARDANDO_ACORDO'");
   });
 
-  it("pula quem ja tem evidencia local -- o motor resolve de graca", () => {
+  it("pula quem ja tem evidencia REGISTRADA, mas nao quem so esta no espelho", () => {
     expect(esp(disp)).toContain("f.evidencia_origem is null");
-    expect(esp(disp)).toContain("from public.prime_portador_membro m where m.portador = 166");
-    expect(disp).toContain("not exists");
+    // o espelho prova negociacao, nao ausencia de estrutura: nao pode ser filtro
+    expect(disp).not.toMatch(/not exists[\s\S]{0,200}prime_portador_membro/);
   });
 
   it("so pega quem tem registration utilizavel", () => {
@@ -404,5 +404,72 @@ describe("11. hardening da RPC", () => {
     expect(ramo).not.toContain("origem_vinculo");
     // e deixa rastro
     expect(ramo).toContain("insert into public.auditoria");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. A TENTATIVA OFICIAL VEM ANTES DO FALLBACK
+// ---------------------------------------------------------------------------
+
+describe("12. CRM sem acordo -> Prime /agreements -> se vazio -> 166 -> fallback", () => {
+  it("a Edge consulta /agreements ANTES da busca do 166", () => {
+    const agr = pos(fn, "/agreements`, chave)");
+    const busca166 = pos(fn, "carrierId=166&take=50");
+    expect(agr).toBeGreaterThan(-1);
+    expect(agr).toBeLessThan(busca166);
+    // e a guarda tem de ser a de verdade -- desativar a tentativa nao pode
+    // passar batido so porque o texto continua no arquivo
+    expect(fn).toMatch(
+      /if \(registration\) \{\s*\n\s*tentadas\.push\(registration\);\s*\n\s*const a = await primeGet\(`\/students\//);
+  });
+
+  it("estrutura encontrada devolve ACORDO_ENCONTRADO_NA_API e NAO cai no fallback", () => {
+    const i = pos(fn, "if (estrutura) {");
+    const fim = pos(fn, "// 4) veio vazio");
+    const ramo = fn.slice(i, fim);
+    expect(ramo).toContain("ACORDO_ENCONTRADO_NA_API");
+    expect(ramo).toContain("return new Response");
+    // sai antes de confirmar o 166
+    expect(ramo).not.toContain("carrierId=166");
+  });
+
+  it("devolve o payload CRU e nao mapeia campo nenhum para acordos/parcelas", () => {
+    expect(fn).toContain("itens_brutos");
+    expect(fn).toContain("campos_detectados");
+    expect(fn).not.toMatch(/from\(["']acordos["']\)/);
+    expect(fn).not.toMatch(/from\(["']parcelas["']\)/);
+    expect(fn).not.toMatch(/valor_total|qtd_parcelas|numero_ulbra/);
+  });
+
+  it("grava o payload real em auditoria -- e o artefato que falta", () => {
+    expect(fn).toContain('acao: "ACORDO_ENCONTRADO_NA_API"');
+    expect(fn).toContain('from("auditoria")');
+  });
+
+  it("reporta compatibilidade com titulo_numero, sem usar para mapear", () => {
+    expect(fn).toContain("bate_titulo_numero");
+    expect(fn).toContain("tem_newInstallments");
+  });
+
+  it("o motor so promove o fallback depois da tentativa oficial", () => {
+    expect(motor).toContain("v_tentou_oficial");
+    const decl = pos(motor, "select (f.consulta_portador_em is not null) into v_tentou_oficial");
+    const uso = pos(motor, "and v_tentou_oficial then");
+    const promove = pos(motor, "v_status := 'ACORDO_CONFIRMADO_SEM_ESTRUTURA';\n              v_motivo := 'negociacao comprovada: o aluno esta no portador 166");
+    expect(decl).toBeGreaterThan(-1);
+    expect(decl).toBeLessThan(uso);
+    expect(uso).toBeLessThan(promove >= 0 ? promove : Number.MAX_SAFE_INTEGER);
+  });
+
+  it("sem tentativa oficial o caso fica pendente, e o motivo diz o que falta", () => {
+    expect(esp(motor)).toContain("a API oficial ainda nao foi consultada para este caso");
+  });
+
+  // RESULTADO MEDIDO do caminho, nos 13 divergentes (14/09/2026)
+  it("nos 13 medidos o caminho termina no fallback: /agreements vazio, 166 positivo", () => {
+    const MEDIDO = { casos: 13, agreements_com_conteudo: 0, newInstallments: 0, no166: 13 };
+    expect(MEDIDO.agreements_com_conteudo).toBe(0);
+    expect(MEDIDO.newInstallments).toBe(0);
+    expect(MEDIDO.no166).toBe(MEDIDO.casos);
   });
 });

@@ -15,6 +15,9 @@
 --   * nao toca `prime_portador_membro`, `importar_acordos`,
 --     `parcelas_amarrar_boleto` nem `acordo_reconstruir_cron`.
 --
+-- As tres colunas da fila ficam: evidencia_origem, evidencia_em e
+-- consulta_portador_em -- registro do que foi confirmado e do que foi tentado.
+--
 -- ATENCAO: depois deste rollback, os pagamentos com negociacao comprovada
 -- voltam a aparecer como `AGUARDANDO_ACORDO` -- pendencia que ninguem consegue
 -- resolver, porque o acordo nunca vira em relatorio nenhum.
