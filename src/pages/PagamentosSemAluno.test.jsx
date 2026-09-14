@@ -7,7 +7,10 @@
 //      (os pagamentos sem vínculo de hoje são todos de um mês antigo);
 //   2. o motivo financeiro aparece na linha, não escondido;
 //   3. candidato por nome é SUGESTÃO -- renderiza, mas nada vincula sem clique;
-//   4. o vínculo só sai por pagamento_vincular_aluno, com o motivo no histórico.
+//   4. o vínculo só sai por pagamento_vincular_aluno, com o motivo no histórico;
+//   5. (14/09/2026) linha com aluno JÁ identificado aparece na fila, mostra o
+//      estado da conciliação e NÃO oferece "Resolver" -- vincular ali só daria
+//      a chance de sobrescrever um vínculo correto por boleto exato.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
 
@@ -40,6 +43,21 @@ const LINHA = {
   detectado_em: "2026-09-12T13:00:00Z",
   importacao_id: "i1",
   arquivo_nome: "parcial 12.09.xlsx",
+  status_conciliacao: "AGUARDANDO_ACORDO",
+  tem_aluno: false,
+};
+
+// O caso que era invisível até 14/09: o boleto resolveu o aluno pelo número
+// Ulbra único, então `aluno_id` não é nulo -- e com o eixo antigo
+// (`aluno_id IS NULL`) esta linha não entrava na fila nenhuma.
+const LINHA_COM_ALUNO = {
+  ...LINHA,
+  pagamento_id: "p2",
+  numero_parcela_completo: "50716630001",
+  status_conciliacao: "AGUARDANDO_AMARRACAO",
+  tem_aluno: true,
+  motivo_financeiro:
+    "o acordo 071663 esta no CRM com 5 parcela(s) sem boleto: falta amarrar o boleto 50716630001 a parcela certa",
 };
 
 beforeEach(() => {
@@ -108,5 +126,40 @@ describe("Fila de pagamentos sem vínculo", () => {
     expect(chamada[1].p_aluno_id).toBe("a9");
     expect(chamada[1].p_observacao).toMatch(/50716220001/);
     expect(chamada[1].p_observacao).toMatch(/nao esta no CRM/);
+  });
+});
+
+describe("pagamento com aluno identificado que não baixou", () => {
+  it("entra na fila, com o estado da conciliação na linha", async () => {
+    rpcMock.mockResolvedValue({ data: [LINHA_COM_ALUNO], error: null });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText("Aguardando amarração")).toBeTruthy();
+    expect(screen.getByText(/falta amarrar o boleto 50716630001/i)).toBeTruthy();
+  });
+
+  it("não oferece Resolver: a pendência não se resolve trocando o aluno", async () => {
+    rpcMock.mockResolvedValue({ data: [LINHA_COM_ALUNO], error: null });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.queryByRole("button", { name: /resolver/i })).toBeNull();
+    expect(screen.getByText(/aluno já identificado/i)).toBeTruthy();
+  });
+
+  it("a linha sem aluno continua oferecendo Resolver", async () => {
+    rpcMock.mockResolvedValue({ data: [LINHA], error: null });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByRole("button", { name: /resolver/i })).toBeTruthy();
+  });
+
+  it("nenhum vínculo sai sem clique, mesmo com as duas linhas na tela", async () => {
+    rpcMock.mockResolvedValue({ data: [LINHA, LINHA_COM_ALUNO], error: null });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    const chamadas = rpcMock.mock.calls.map(([nome]) => nome);
+    expect(chamadas).not.toContain("pagamento_vincular_aluno");
+    // um Resolver só: o da linha sem aluno
+    expect(screen.getAllByRole("button", { name: /resolver/i })).toHaveLength(1);
   });
 });
