@@ -625,6 +625,106 @@ $motor$;
 revoke all on function public.pagamento_conciliar_um(uuid, boolean) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
+-- 4b. IDENTIDADE PURA, SEM DECISAO FINANCEIRA
+-- ---------------------------------------------------------------------------
+--
+-- O liquidador exige `pagamentos.aluno_id`: fechar divida no aluno errado e
+-- pior do que nao fechar. Mas quem resolvia identidade ate agora era
+-- `conciliacao_confirmar_portador_166`, e ela faz MUITO mais do que isso --
+-- grava evidencia do portador 166 e chama o motor. Usa-la so para descobrir de
+-- quem e o pagamento afirmaria negociacao comprovada sem ter consultado o 166.
+--
+-- Entao a identidade ganha superficie propria, e ela e deliberadamente burra:
+-- vincula por CPF quando ha exatamente UM aluno, e para por ai. Nao escreve
+-- evidencia, nao mexe em `status_conciliacao`, nao chama o motor, nao decide
+-- nada sobre dinheiro.
+--
+-- NOME NAO VINCULA -- regra da casa desde 08/09/2026, depois de 10 baixas
+-- erradas por nome. Zero ou dois alunos pelo CPF: nao toca em nada.
+
+create or replace function public.conciliacao_vincular_identidade_por_cpf(
+  p_pagamento_id uuid,
+  p_cpf          text
+)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $fn$
+declare
+  v_pag record; v_cpf text; v_cpf_aluno text; v_n int := 0; v_aluno uuid;
+begin
+  if coalesce(auth.role(),'') <> 'service_role'
+     and not coalesce(public.usuario_e_gestao(), false) then
+    raise exception 'Resolver identidade e da gestao ou da rotina.' using errcode = '42501';
+  end if;
+
+  select p.id, p.aluno_id, p.cpf into v_pag
+    from public.pagamentos p where p.id = p_pagamento_id;
+  if not found then
+    return jsonb_build_object('ok', false, 'motivo', 'PAGAMENTO_NAO_ENCONTRADO');
+  end if;
+
+  v_cpf := nullif(regexp_replace(coalesce(p_cpf, v_pag.cpf, ''), '\D', '', 'g'), '');
+  if v_cpf is null or length(v_cpf) <> 11 then
+    return jsonb_build_object('ok', false, 'motivo', 'SEM_CPF', 'tem_aluno', v_pag.aluno_id is not null);
+  end if;
+
+  -- JA VINCULADO: nao se sobrescreve identidade, e se o CPF diverge daquele
+  -- aluno a registration aponta para outra pessoa -- nao se toca em nada.
+  if v_pag.aluno_id is not null then
+    select lpad(regexp_replace(coalesce(a.cpf,''), '\D', '', 'g'), 11, '0')
+      into v_cpf_aluno from public.alunos a where a.id = v_pag.aluno_id;
+
+    if nullif(v_cpf_aluno,'00000000000') is not null
+       and v_cpf_aluno <> lpad(v_cpf,11,'0') then
+      insert into public.auditoria (usuario, acao, tabela_afetada, registro_id, detalhes)
+      values (coalesce(nullif(auth.email(),''),'rotina'), 'CPF_DIVERGE_DO_ALUNO_VINCULADO',
+              'pagamentos', p_pagamento_id::text,
+              jsonb_build_object('pagamento_id', p_pagamento_id, 'aluno_id', v_pag.aluno_id,
+                                 'cpf_do_aluno', v_cpf_aluno, 'cpf_recebido', lpad(v_cpf,11,'0'),
+                                 'origem', 'IDENTIDADE_PURA'));
+      return jsonb_build_object('ok', false, 'motivo', 'CPF_DIVERGE_DO_ALUNO_VINCULADO',
+        'tem_aluno', true, 'aluno_id', v_pag.aluno_id, 'vinculou', false);
+    end if;
+
+    -- mesmo CPF: preserva origem_vinculo, so completa o que faltava
+    update public.pagamentos set cpf = coalesce(cpf, v_cpf) where id = p_pagamento_id;
+    return jsonb_build_object('ok', true, 'motivo', 'JA_VINCULADO',
+      'tem_aluno', true, 'aluno_id', v_pag.aluno_id, 'vinculou', false);
+  end if;
+
+  select count(*), min(a.id::text)::uuid into v_n, v_aluno
+    from public.alunos a
+   where lpad(regexp_replace(coalesce(a.cpf,''), '\D', '', 'g'), 11, '0') = lpad(v_cpf, 11, '0');
+
+  if v_n <> 1 then
+    -- Zero: o aluno nao existe aqui. Dois: nao da para escolher, e escolher
+    -- errado e baixar divida de outra pessoa. Nos dois casos, nao toca.
+    return jsonb_build_object('ok', false,
+      'motivo', case when v_n = 0 then 'CPF_SEM_ALUNO' else 'CPF_AMBIGUO' end,
+      'alunos_pelo_cpf', v_n, 'tem_aluno', false, 'vinculou', false);
+  end if;
+
+  update public.pagamentos
+     set aluno_id = v_aluno,
+         cpf = coalesce(cpf, v_cpf),
+         origem_vinculo = 'CPF',
+         origem_vinculo_ref = lpad(v_cpf, 11, '0'),
+         origem_vinculo_em = now()
+   where id = p_pagamento_id;
+
+  return jsonb_build_object('ok', true, 'motivo', 'VINCULADO_POR_CPF',
+    'tem_aluno', true, 'aluno_id', v_aluno, 'vinculou', true, 'alunos_pelo_cpf', 1);
+end;
+$fn$;
+
+comment on function public.conciliacao_vincular_identidade_por_cpf(uuid, text) is
+  'Superficie PURA de identidade: vincula o pagamento ao aluno por CPF quando ha exatamente um, e nada mais. Nao grava evidencia de portador, nao altera status_conciliacao, nao chama o motor e nunca vincula por nome. Existe para que o liquidador possa exigir aluno_id sem que descobrir a identidade afirme negociacao comprovada.';
+
+revoke all on function public.conciliacao_vincular_identidade_por_cpf(uuid, text) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
 -- 5. O MOTOR DA LIQUIDACAO
 -- ---------------------------------------------------------------------------
 --
@@ -950,6 +1050,21 @@ begin
   end if;
   if v_src not ilike '%if v_rows = 0 then%' then
     raise exception 'o liquidador nao trata a linha que nao foi alterada';
+  end if;
+
+  -- e a superficie de identidade tem de ser PURA
+  select p.prosrc into v_src from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='conciliacao_vincular_identidade_por_cpf';
+  if v_src is null then raise exception 'a superficie pura de identidade nao existe'; end if;
+  if v_src ilike '%evidencia_origem%' or v_src ilike '%evidencia_em%'
+     or v_src ilike '%prime_portador_membro%' then
+    raise exception 'a identidade pura grava evidencia do portador -- nao pode';
+  end if;
+  if v_src ilike '%pagamento_conciliar_um%' or v_src ilike '%status_conciliacao%' then
+    raise exception 'a identidade pura decide conciliacao -- nao pode';
+  end if;
+  if v_src not ilike '%if v_n <> 1 then%' then
+    raise exception 'a identidade pura nao exige aluno unico pelo CPF';
   end if;
 
   -- e a proveniencia, uma vez gravada, nao troca de dono

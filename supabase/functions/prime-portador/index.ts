@@ -43,7 +43,7 @@
 // negociação -- não prova que a estrutura do acordo não existe. Então a
 // tentativa oficial vem ANTES do fallback:
 //
-//     1. identidade pela registration/CPF
+//     1. identidade pela registration/CPF, e VÍNCULO por CPF (superfície pura)
 //     2. GET /students/{registration}/agreements   <- a tentativa oficial
 //     3. veio estrutura?  -> ENCONTRADA, ACORDO_ENCONTRADO_NA_API com o payload cru
 //     4. falhou?          -> ERRO, e PARA AQUI -- o 166 não é consultado
@@ -189,7 +189,38 @@ Deno.serve(async (req) => {
         { status: 422, headers: { "Content-Type": "application/json" } });
     }
 
-    // 2) TENTATIVA OFICIAL, antes de qualquer fallback: o acordo está na API?
+    // 2) IDENTIDADE, ANTES DE QUALQUER DECISÃO FINANCEIRA.
+    //
+    // O liquidador exige `pagamentos.aluno_id` -- fechar dívida no aluno errado
+    // é pior do que não fechar. E quem resolvia identidade até aqui era
+    // `conciliacao_confirmar_portador_166`, que TAMBÉM grava evidência do
+    // portador 166 e chama o motor: usá-la só para descobrir de quem é o
+    // pagamento afirmaria negociação comprovada sem ter consultado o 166.
+    //
+    // Por isso a chamada é à superfície PURA: vincula por CPF quando há
+    // exatamente um aluno, e nada mais. Zero ou dois: não vincula, não liquida,
+    // e o caso segue para o fluxo de sempre -- nome nunca vincula.
+    const pagamentoId = String(corpo?.pagamento_id ?? "").trim() || null;
+    let identidade: any = null;
+
+    if (pagamentoId) {
+      const { data, error } = await supa.rpc("conciliacao_vincular_identidade_por_cpf", {
+        p_pagamento_id: pagamentoId, p_cpf: cpf,
+      });
+      // Falha técnica não vira conclusão de negócio: sem saber de quem é o
+      // pagamento, promover pelo 166 seria decidir com menos do que se tem.
+      if (error) {
+        return new Response(JSON.stringify({
+          modo: "pontual", resultado: "ERRO_NA_IDENTIDADE",
+          registration: registration || null, nome, cpf, detalhe: error.message,
+          observacao: "a identidade nao pode ser resolvida -- nada liquidado, 166 nao consultado, o caso volta na proxima janela de 24h",
+        }), { status: 502, headers: { "Content-Type": "application/json" } });
+      }
+      identidade = data;
+    }
+    const temAluno = identidade?.tem_aluno === true;
+
+    // 3) TENTATIVA OFICIAL, antes de qualquer fallback: o acordo está na API?
     //
     // O QUE SE GRAVA AQUI É O RESULTADO, NÃO A TENTATIVA. `consulta_portador_em`
     // é carimbada pelo disparador ANTES da chamada -- ela só serve para não
@@ -202,7 +233,6 @@ Deno.serve(async (req) => {
     //     4xx/5xx/timeout/JSON -> ERRO            (para aqui, tenta de novo em 24h)
     //     forma desconhecida   -> ERRO            (200, mas ilegível: não é "vazio")
     const tituloNumero = String(corpo?.titulo_numero ?? "").replace(/\D/g, "").replace(/^0+/, "");
-    const pagamentoId = String(corpo?.pagamento_id ?? "").trim() || null;
     let estrutura: Record<string, unknown> | null = null;
     const tentadas: string[] = [];
 
@@ -271,7 +301,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 3) veio estrutura -> NÃO é caso de fallback. Grava o payload real e devolve.
+    // 4) veio estrutura -> NÃO é caso de fallback. Grava o payload real e devolve.
     if (estrutura) {
       await supa.from("auditoria").insert({
         usuario: "rotina",
@@ -287,7 +317,7 @@ Deno.serve(async (req) => {
       }), { headers: { "Content-Type": "application/json" } });
     }
 
-    // 4) A API respondeu "não tenho acordo". Antes do fallback do 166, a
+    // 5) A API respondeu "não tenho acordo". Antes do fallback do 166, a
     //    pergunta que a Prime SABE responder: o TÍTULO ORIGINAL foi liquidado?
     //
     //    A ponte foi medida: `financialStatement[].boleto` é exatamente
@@ -332,14 +362,28 @@ Deno.serve(async (req) => {
         portador: 195,
       }));
 
-    if (pagamentoId && titulos195.length > 0) {
+    // Sem identidade resolvida não se tenta liquidar: o motor recusaria de
+    // qualquer forma, e chamá-lo mesmo assim esconderia o motivo real.
+    if (pagamentoId && temAluno && titulos195.length > 0) {
       const { data: liq, error: erroLiq } = await supa.rpc("conciliacao_liquidar_titulo_por_prime", {
         p_pagamento_id: pagamentoId, p_titulos: titulos195, p_aplicar: true,
       });
-      // Quem decide se liquidou é o motor, não esta função: ela só entrega o
-      // que a Prime disse. Zero títulos liquidados não é erro -- é o caso em
-      // que o fluxo do 166 continua valendo.
-      if (!erroLiq && Number((liq as any)?.liquidados ?? 0) > 0) {
+
+      // MESMA REGRA DO EXTRATO: falha técnica nunca produz conclusão de
+      // negócio. Havia título para liquidar e o motor não respondeu -- então
+      // não se sabe se a dívida fechou, e promover pelo 166 agora trancaria o
+      // caso em ACORDO_CONFIRMADO_SEM_ESTRUTURA, que é terminal.
+      if (erroLiq) {
+        return new Response(JSON.stringify({
+          modo: "pontual", resultado: "ERRO_NA_LIQUIDACAO",
+          registration, nome, cpf,
+          titulos_195_enviados: titulos195.length, detalhe: erroLiq.message,
+          observacao: "o liquidador falhou -- nenhum titulo concluido, 166 nao consultado, o caso volta na proxima janela de 24h",
+        }), { status: 502, headers: { "Content-Type": "application/json" } });
+      }
+
+      // Zero liquidados não é erro -- é o caso em que o fluxo do 166 vale.
+      if (Number((liq as any)?.liquidados ?? 0) > 0) {
         return new Response(JSON.stringify({
           modo: "pontual", resultado: "TITULO_ORIGINAL_LIQUIDADO",
           registration, nome, cpf,
@@ -350,7 +394,7 @@ Deno.serve(async (req) => {
       }
     }
 
-    // 5) nenhum título liquidou -> segue o fluxo do #379: confirma o 166
+    // 6) nenhum título liquidou -> segue o fluxo do #379: confirma o 166
     const b = await primeGet(
       `/students?search=${encodeURIComponent(formataCpf(cpf))}&carrierId=166&take=50`, chave);
     if (!b.ok) {

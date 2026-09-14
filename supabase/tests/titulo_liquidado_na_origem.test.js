@@ -29,6 +29,7 @@ function corpo(texto, nome, tag) {
 }
 const trava = corpo(sql, "titulo_liquidado_na_origem_e_terminal", "$fn$");
 const liq = corpo(sql, "conciliacao_liquidar_titulo_por_prime", "$fn$");
+const ident = corpo(sql, "conciliacao_vincular_identidade_por_cpf", "$fn$");
 const motor = corpo(sql, "pagamento_conciliar_um", "$motor$");
 const pos = (t, s, from = 0) => t.indexOf(s, from);
 const esp = (s) => s.replace(/\s+/g, " ").trim();
@@ -235,6 +236,9 @@ describe("8. o rollback", () => {
     expect(rb).toContain("drop trigger if exists trg_titulo_liquidado_na_origem_e_terminal");
     expect(rb).toContain("drop function if exists public.titulo_liquidado_na_origem_e_terminal()");
     expect(rb).toContain("drop function if exists public.conciliacao_liquidar_titulo_por_prime(uuid, jsonb, boolean)");
+    expect(rb).toContain("drop function if exists public.conciliacao_vincular_identidade_por_cpf(uuid, text)");
+    // e o vinculo de identidade ja feito NAO se desfaz
+    expect(rb).not.toMatch(/update public\.pagamentos[\s\S]{0,120}set aluno_id = null/);
     // trigger antes da funcao
     expect(pos(rb, "drop trigger if exists trg_titulo_liquidado"))
       .toBeLessThan(pos(rb, "drop function if exists public.titulo_liquidado_na_origem_e_terminal"));
@@ -398,7 +402,7 @@ describe("11. prime-portador chama o liquidador", () => {
     // o caminho do 166 continua existindo DEPOIS do bloco da liquidacao
     expect(pos(fn, "financial-statement")).toBeLessThan(pos(fn, "carrierId=166&take=50"));
     // e a chamada ao liquidador e condicional, nao um return incondicional
-    expect(trecho).toContain("if (pagamentoId && titulos195.length > 0) {");
+    expect(trecho).toContain("if (pagamentoId && temAluno && titulos195.length > 0) {");
   });
 
   it("erro no extrato NUNCA liquida, e nao cai no 166 nesta execucao", () => {
@@ -424,5 +428,126 @@ describe("11. prime-portador chama o liquidador", () => {
   it("a ordem e agreements -> extrato -> 166", () => {
     expect(pos(fn, "/agreements`, chave)")).toBeLessThan(pos(fn, "/financial-statement`, chave)"));
     expect(pos(fn, "/financial-statement`, chave)")).toBeLessThan(pos(fn, "carrierId=166&take=50"));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 12. IDENTIDADE ANTES DA DECISAO FINANCEIRA
+// ---------------------------------------------------------------------------
+describe("12. a superficie pura de identidade", () => {
+  it("vincula por CPF com aluno unico -- zero ou dois nao tocam em nada", () => {
+    expect(ident).toContain("select count(*), min(a.id::text)::uuid into v_n, v_aluno");
+    expect(ident).toContain("if v_n <> 1 then");
+    const recusa = ident.slice(pos(ident, "if v_n <> 1 then"), pos(ident, "update public.pagamentos\n     set aluno_id"));
+    expect(recusa).toContain("'CPF_SEM_ALUNO'");
+    expect(recusa).toContain("'CPF_AMBIGUO'");
+    expect(recusa).toContain("'vinculou', false");
+    expect(recusa).toContain("return jsonb_build_object");
+  });
+
+  it("nunca vincula por nome", () => {
+    expect(ident).not.toMatch(/\ba\.nome\b/);
+    expect(ident).not.toContain("unaccent");
+    expect(ident).not.toContain("ilike");
+  });
+
+  it("NAO escreve evidencia do portador 166", () => {
+    for (const proibido of ["evidencia_origem", "evidencia_em", "prime_portador_membro",
+                            "PRIME_API_LIVE", "PRIME_PORTADOR_MEMBRO", "166"]) {
+      expect(ident, `${proibido} apareceu na identidade pura`).not.toContain(proibido);
+    }
+  });
+
+  it("NAO decide conciliacao: nao chama o motor nem toca status", () => {
+    expect(ident).not.toContain("pagamento_conciliar_um");
+    expect(ident).not.toContain("status_conciliacao");
+    expect(ident).not.toContain("conciliacao_motivo");
+    expect(ident).not.toContain("fila_pagamento_sem_vinculo");
+  });
+
+  it("nao sobrescreve identidade existente, e recusa CPF divergente", () => {
+    expect(ident).toContain("if v_pag.aluno_id is not null then");
+    expect(ident).toContain("'CPF_DIVERGE_DO_ALUNO_VINCULADO'");
+    const ja = ident.slice(pos(ident, "if v_pag.aluno_id is not null then"),
+                           pos(ident, "select count(*), min(a.id::text)"));
+    // ja vinculado: so completa o CPF que faltava, e preserva origem_vinculo
+    expect(ja).toContain("update public.pagamentos set cpf = coalesce(cpf, v_cpf)");
+    expect(ja).not.toContain("origem_vinculo =");
+  });
+
+  it("a prova da migration aborta se ela deixar de ser pura", () => {
+    const prova = sql.slice(pos(sql, "do $prova$"));
+    expect(prova).toContain("a identidade pura grava evidencia do portador");
+    expect(prova).toContain("a identidade pura decide conciliacao");
+    expect(prova).toContain("a identidade pura nao exige aluno unico pelo CPF");
+  });
+});
+
+describe("13. a Edge resolve identidade antes de liquidar", () => {
+  const trechoId = fn.slice(pos(fn, "// 2) IDENTIDADE"), pos(fn, "// 3) TENTATIVA OFICIAL"));
+  const codigoId = trechoId.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+
+  it("chama a superficie PURA, nao a RPC do 166", () => {
+    expect(codigoId).toContain('supa.rpc("conciliacao_vincular_identidade_por_cpf"');
+    // so o comentario explica por que NAO se usa a RPC do 166 aqui
+    expect(codigoId).not.toContain("conciliacao_confirmar_portador_166");
+  });
+
+  it("a identidade vem ANTES de agreements, extrato e liquidador", () => {
+    const id = pos(fn, 'supa.rpc("conciliacao_vincular_identidade_por_cpf"');
+    expect(id).toBeGreaterThan(-1);
+    expect(id).toBeLessThan(pos(fn, "/agreements`, chave)"));
+    expect(id).toBeLessThan(pos(fn, "/financial-statement`, chave)"));
+    expect(id).toBeLessThan(pos(fn, 'supa.rpc("conciliacao_liquidar_titulo_por_prime"'));
+    expect(id).toBeLessThan(pos(fn, "carrierId=166&take=50"));
+  });
+
+  it("CPF ambiguo ou sem aluno NUNCA liquida titulo", () => {
+    // o liquidador so e chamado com identidade resolvida
+    expect(fn).toContain("if (pagamentoId && temAluno && titulos195.length > 0) {");
+    expect(fn).toContain("const temAluno = identidade?.tem_aluno === true;");
+    // e `tem_aluno` so vem true da RPC quando ha aluno de fato
+    expect(ident).not.toMatch(/'tem_aluno', true[\s\S]{0,80}'CPF_AMBIGUO'/);
+  });
+
+  it("erro na RPC de identidade para a execucao, sem 166", () => {
+    const i = pos(trechoId, "if (error) {");
+    expect(i).toBeGreaterThan(-1);
+    const ramo = trechoId.slice(i);
+    expect(ramo).toContain('resultado: "ERRO_NA_IDENTIDADE"');
+    expect(ramo).toContain("return new Response");
+    expect(ramo).not.toContain("carrierId=166");
+  });
+});
+
+describe("14. erro do liquidador nao chega ao 166", () => {
+  const bloco = fn.slice(pos(fn, 'supa.rpc("conciliacao_liquidar_titulo_por_prime"'),
+                         pos(fn, "carrierId=166&take=50"));
+
+  it("erroLiq devolve erro tecnico e encerra a execucao", () => {
+    expect(bloco).toContain("if (erroLiq) {");
+    const ramo = bloco.slice(pos(bloco, "if (erroLiq) {"), pos(bloco, "if (Number((liq as any)?.liquidados"));
+    expect(ramo).toContain('resultado: "ERRO_NA_LIQUIDACAO"');
+    expect(ramo).toContain("return new Response");
+    expect(ramo).toContain("status: 502");
+    expect(ramo).not.toContain("carrierId=166");
+  });
+
+  it("a checagem do erro vem ANTES da contagem de liquidados", () => {
+    expect(pos(bloco, "if (erroLiq) {"))
+      .toBeLessThan(pos(bloco, "if (Number((liq as any)?.liquidados ?? 0) > 0) {"));
+    // e o sucesso nao depende mais de `!erroLiq` -- o erro ja saiu antes
+    expect(bloco).not.toContain("!erroLiq &&");
+  });
+
+  it("nenhuma falha tecnica do fluxo cai no 166", () => {
+    // as tres portas: extrato, identidade e liquidador
+    for (const r of ["ERRO_NO_EXTRATO", "ERRO_NA_IDENTIDADE", "ERRO_NA_LIQUIDACAO"]) {
+      const i = pos(fn, `resultado: "${r}"`);
+      expect(i, `${r} nao existe`).toBeGreaterThan(-1);
+      const ate = fn.slice(Math.max(0, i - 300), i + 700);
+      expect(ate, `${r} nao devolve`).toContain("return new Response");
+      expect(ate, `${r} promete retentativa`).toContain("24h");
+    }
   });
 });

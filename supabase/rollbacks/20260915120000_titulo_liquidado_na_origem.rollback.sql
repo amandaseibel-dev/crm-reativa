@@ -33,6 +33,10 @@ drop function if exists public.titulo_liquidado_na_origem_e_terminal();
 
 drop function if exists public.conciliacao_liquidar_titulo_por_prime(uuid, jsonb, boolean);
 
+-- E a superficie pura de identidade, que so existe para servir ao liquidador.
+-- O VINCULO JA FEITO FICA: o CPF nao deixou de ser verdade porque a regra saiu.
+drop function if exists public.conciliacao_vincular_identidade_por_cpf(uuid, text);
+
 -- ---------------------------------------------------------------------------
 -- 3. Normalizar os pagamentos antes de estreitar o CHECK
 -- ---------------------------------------------------------------------------
@@ -537,6 +541,9 @@ begin
   end if;
   if exists (select 1 from pg_proc where proname='conciliacao_liquidar_titulo_por_prime') then
     raise exception 'o liquidador continua no banco';
+  end if;
+  if exists (select 1 from pg_proc where proname='conciliacao_vincular_identidade_por_cpf') then
+    raise exception 'a superficie de identidade continua no banco';
   end if;
   if exists (select 1 from public.pagamentos where status_conciliacao='TITULO_ORIGINAL_LIQUIDADO') then
     raise exception 'sobrou pagamento no estado que o CHECK antigo nao aceita';
