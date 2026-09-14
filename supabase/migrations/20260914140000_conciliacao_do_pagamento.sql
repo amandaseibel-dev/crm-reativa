@@ -35,11 +35,15 @@
 -- O QUE ELA NAO FAZ. Nao toca `projecao_snapshot_gerar`, nem o calculo da
 -- projecao, nem a deduplicacao de `projecao_importar_pagamentos`, nem a
 -- atribuicao de operador. E, o mais importante: NAO MUDA NENHUMA CONDICAO QUE
--- AUTORIZA A BAIXA. A escada abaixo e copia literal da que esta em producao
--- desde 20260908200000_baixa_pelo_documento_respeita_vencimento.sql -- mesmas
+-- AUTORIZA A BAIXA. A escada abaixo e copia literal da VERSAO VIGENTE em
+-- producao -- supabase/ledger/2026-09/20260912121649__fase2b_origem_baixa_no_
+-- gatilho_e_invariante_novo.sql, de 12/09/2026, que substituiu a de 08/09 e
+-- acrescentou os tres carimbos de origem_baixa ao UPDATE -- mesmas
 -- comparacoes, mesma ordem, mesmo `v_parcela.status = 'PAGO'` sem upper(),
 -- mesma faixa de valor, mesma guarda de vencimento, mesmo registro em
--- `auditoria`, mesmo UPDATE, mesmo recalcular_situacao_aluno. O teste
+-- `auditoria`, mesmo UPDATE (inclusive origem_baixa / origem_baixa_ref /
+-- origem_baixa_em, que o vigia `baixa_sem_evidencia_de_quem_baixou` le como
+-- prova de autoria da baixa), mesmo recalcular_situacao_aluno. O teste
 -- supabase/tests/conciliacao_pagamento.test.js extrai as condicoes dos DOIS
 -- arquivos e falha se divergirem.
 --
@@ -229,6 +233,10 @@ begin
       update public.parcelas
          set status = 'PAGO', pago_em = new.data_pagamento,
              confirmado_por_email = coalesce(new.operador_email,'extrato_santander'),
+             -- NOVO: a origem fica explicita, com o evento que a gerou.
+             origem_baixa = 'GATILHO_IMPORTACAO',
+             origem_baixa_ref = new.id::text,
+             origem_baixa_em = now(),
              honorarios = case when coalesce(honorarios,0) = 0 and coalesce(new.valor_honorario,0) > 0
                                then new.valor_honorario else honorarios end,
              observacao = coalesce(observacao,'')

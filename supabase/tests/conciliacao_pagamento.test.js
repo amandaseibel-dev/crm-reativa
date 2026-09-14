@@ -4,26 +4,59 @@
 // 20260914140000_conciliacao_do_pagamento.sql copiou a escada da baixa sem
 // mudar NENHUMA condicao. Se ele reescrevesse a regra em JS, provaria apenas
 // que eu sei escrever a mesma regra duas vezes. Entao ele EXTRAI as condicoes
-// dos DOIS arquivos .sql -- o que esta em producao desde 08/09 e o novo -- e
-// compara. Trocar um literal (0.05, 1.15, 'PAGO', 'ATIVO') quebra o teste.
+// dos DOIS arquivos .sql -- o vigente e o novo -- e compara. Trocar um literal
+// (0.05, 1.15, 'PAGO', 'ATIVO') quebra o teste.
+//
+// QUAL E A BASELINE, E POR QUE ISSO JA DEU ERRADO UMA VEZ. A primeira versao
+// deste teste comparava com `supabase/migrations/20260908200000_baixa_pelo_-
+// documento_respeita_vencimento.sql`. Aquela funcao NAO e mais a vigente: em
+// 12/09 o ledger `20260912121649__fase2b_origem_baixa_no_gatilho_e_invariante_-
+// novo.sql` a substituiu e acrescentou tres carimbos ao UPDATE da parcela
+// (origem_baixa, origem_baixa_ref, origem_baixa_em). Comparando com a baseline
+// velha, o teste passava enquanto a funcao nova PERDIA os tres carimbos --
+// justamente o que o vigia `baixa_sem_evidencia_de_quem_baixou` le como prova
+// de quem baixou. Por isso existe aqui um teste que escolhe a baseline sozinho,
+// pelo maior timestamp entre todos os arquivos que definem a funcao: ninguem
+// precisa lembrar de trocar o caminho na mao.
 //
 // E prova a propriedade nova: nenhuma saida muda. Toda saida da conciliacao
 // atribui um estado, e todo estado atribuido esta no CHECK da coluna.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = resolve(AQUI, "..", "..");
 
-const PRODUCAO = resolve(
-  RAIZ,
-  "supabase/migrations/20260908200000_baixa_pelo_documento_respeita_vencimento.sql",
-);
+// A funcao de baixa e definida em mais de um arquivo ao longo do tempo. A
+// baseline e SEMPRE a de maior timestamp -- migrations e ledger no mesmo saco,
+// porque o ledger e o que de fato rodou em producao.
+const DIRS = ["supabase/migrations", "supabase/ledger/2026-09"];
+
+function definicoesDaBaixa() {
+  const achados = [];
+  for (const dir of DIRS) {
+    for (const nome of readdirSync(resolve(RAIZ, dir))) {
+      if (!nome.endsWith(".sql")) continue;
+      const caminho = resolve(RAIZ, dir, nome);
+      const texto = readFileSync(caminho, "utf8");
+      // `create ... function` define; `execute function` so aponta.
+      if (!/create or replace\s+function public\._pagamento_baixa_pelo_documento/.test(texto)) continue;
+      const ts = nome.match(/^(\d{14})/);
+      if (!ts) throw new Error(`arquivo sem timestamp de 14 digitos: ${nome}`);
+      achados.push({ nome, caminho, ts: ts[1], texto });
+    }
+  }
+  achados.sort((a, b) => a.ts.localeCompare(b.ts));
+  return achados;
+}
+
+const DEFINICOES = definicoesDaBaixa();
+const VIGENTE = DEFINICOES[DEFINICOES.length - 1];
 const NOVA = resolve(RAIZ, "supabase/migrations/20260914140000_conciliacao_do_pagamento.sql");
 
-const sqlProducao = readFileSync(PRODUCAO, "utf8");
+const sqlVigente = VIGENTE.texto;
 const sqlNova = readFileSync(NOVA, "utf8");
 
 // Corpo de UMA funcao especifica. O arquivo de producao declara quatro funcoes
@@ -39,10 +72,27 @@ function corpo(sql, nomeDaFuncao, marcador) {
   return depois.slice(abre + marcador.length, fecha);
 }
 
-const corpoProducao = corpo(sqlProducao, "_pagamento_baixa_pelo_documento", "$$").replace(/\r/g, "");
+// O marcador do corpo mudou entre as versoes ($$ em 08/09, $fn$ no ledger de
+// 12/09). Descobrir qual e, a partir do proprio `as $tag$`, evita fixar mais
+// um detalhe na mao.
+function marcadorDe(sql, nomeDaFuncao) {
+  const i = sql.indexOf(`function public.${nomeDaFuncao}(`);
+  if (i < 0) throw new Error(`nao achei a funcao ${nomeDaFuncao}`);
+  const m = sql.slice(i).match(/\bas\s+(\$[a-z_]*\$)/i);
+  if (!m) throw new Error(`nao achei o marcador do corpo de ${nomeDaFuncao}`);
+  return m[1];
+}
+
+const corpoVigente = corpo(
+  sqlVigente,
+  "_pagamento_baixa_pelo_documento",
+  marcadorDe(sqlVigente, "_pagamento_baixa_pelo_documento"),
+).replace(/\r/g, "");
 const corpoNova = corpo(sqlNova, "_pagamento_conciliar", "$fn$").replace(/\r/g, "");
 
 const espacos = (s) => s.replace(/\s+/g, " ").trim();
+// Comentario de linha nao e regra: comparar SQL, nao prosa.
+const semComentarios = (s) => espacos(s.replace(/--[^\n]*/g, " "));
 
 // As condicoes que decidem se a baixa acontece. Sao reconhecidas pelos termos
 // que so elas usam -- qualquer condicao NOVA que fale de parcela/valor/acordo
@@ -63,12 +113,30 @@ function condicoesDaBaixa(texto) {
   return achadas;
 }
 
+describe("a baseline e a versao que esta mesmo em producao", () => {
+  it("ha mais de uma definicao da funcao no repositorio", () => {
+    expect(DEFINICOES.length).toBeGreaterThan(1);
+  });
+
+  it("a baseline escolhida e a de maior timestamp", () => {
+    const timestamps = DEFINICOES.map((d) => d.ts);
+    expect(VIGENTE.ts).toBe([...timestamps].sort().at(-1));
+  });
+
+  it("hoje a vigente e o ledger de 12/09, nao a migration de 08/09", () => {
+    expect(VIGENTE.nome).toBe(
+      "20260912121649__fase2b_origem_baixa_no_gatilho_e_invariante_novo.sql",
+    );
+    expect(VIGENTE.caminho).toContain("supabase/ledger/");
+  });
+});
+
 describe("a escada da baixa e a mesma", () => {
-  const naProducao = condicoesDaBaixa(corpoProducao);
+  const naVigente = condicoesDaBaixa(corpoVigente);
   const naNova = condicoesDaBaixa(corpoNova);
 
-  it("reconhece as cinco condicoes da versao em producao", () => {
-    expect(naProducao).toEqual([
+  it("reconhece as cinco condicoes da versao vigente", () => {
+    expect(naVigente).toEqual([
       "v_chave = ''",
       "v_parcela.status = 'PAGO'",
       "upper(coalesce(v_parcela.status_acordo,'')) <> 'ATIVO'",
@@ -78,43 +146,68 @@ describe("a escada da baixa e a mesma", () => {
   });
 
   it("a migration nova tem exatamente as mesmas condicoes, na mesma ordem", () => {
-    expect(naNova).toEqual(naProducao);
+    expect(naNova).toEqual(naVigente);
   });
 
   it("nao inventou condicao nova que restrinja ou afrouxe a baixa", () => {
-    expect(new Set(naNova)).toEqual(new Set(naProducao));
+    expect(new Set(naNova)).toEqual(new Set(naVigente));
   });
 
   // A busca da parcela pelo boleto e o que define QUAL parcela pode baixar.
   it("procura a parcela pelo mesmo boleto, do mesmo jeito", () => {
     const alvo = "where p.boleto = v_chave limit 1";
-    expect(espacos(corpoProducao)).toContain(alvo);
+    expect(espacos(corpoVigente)).toContain(alvo);
     expect(espacos(corpoNova)).toContain(alvo);
   });
 
   it("a chave do boleto e montada do mesmo jeito", () => {
     const alvo = "v_chave := ltrim(coalesce(new.numero_parcela_completo,''),'0');";
-    expect(espacos(corpoProducao)).toContain(espacos(alvo));
+    expect(espacos(corpoVigente)).toContain(espacos(alvo));
     expect(espacos(corpoNova)).toContain(espacos(alvo));
   });
 
-  it("o UPDATE que baixa a parcela e identico", () => {
-    const pegar = (t) => {
-      const m = t.match(/update public\.parcelas[\s\S]*?where id = v_parcela\.id;/);
-      if (!m) throw new Error("nao achei o update da parcela");
-      return espacos(m[0]);
-    };
-    expect(pegar(corpoNova)).toBe(pegar(corpoProducao));
+  const updateDaParcela = (t) => {
+    const m = t.match(/update public\.parcelas[\s\S]*?where id = v_parcela\.id;/);
+    if (!m) throw new Error("nao achei o update da parcela");
+    return m[0];
+  };
+
+  it("o UPDATE que baixa a parcela e identico ao da versao vigente", () => {
+    expect(semComentarios(updateDaParcela(corpoNova))).toBe(
+      semComentarios(updateDaParcela(corpoVigente)),
+    );
+  });
+
+  // O erro que este teste passou a cobrir: a primeira versao do PR #374 perdeu
+  // os tres carimbos porque comparava com a baseline de 08/09, que ainda nao os
+  // tinha. Sem origem_baixa a parcela baixa, mas o vigia
+  // `baixa_sem_evidencia_de_quem_baixou` passa a acusar baixa sem autoria.
+  it("o UPDATE preserva os tres carimbos de origem_baixa", () => {
+    const alvo = semComentarios(updateDaParcela(corpoNova));
+    expect(alvo).toContain("origem_baixa = 'GATILHO_IMPORTACAO'");
+    expect(alvo).toContain("origem_baixa_ref = new.id::text");
+    expect(alvo).toContain("origem_baixa_em = now()");
+  });
+
+  it("os tres carimbos vem da versao vigente, nao de invencao minha", () => {
+    const daVigente = semComentarios(updateDaParcela(corpoVigente));
+    for (const carimbo of [
+      "origem_baixa = 'GATILHO_IMPORTACAO'",
+      "origem_baixa_ref = new.id::text",
+      "origem_baixa_em = now()",
+    ]) {
+      expect(daVigente).toContain(carimbo);
+    }
   });
 
   it("continua recalculando a situacao do aluno depois de baixar", () => {
     const alvo = "perform public.recalcular_situacao_aluno(v_parcela.aluno_id);";
-    expect(espacos(corpoProducao)).toContain(espacos(alvo));
+    expect(espacos(corpoVigente)).toContain(espacos(alvo));
     expect(espacos(corpoNova)).toContain(espacos(alvo));
   });
 
   it("mantem o registro em auditoria da baixa recusada por vencimento", () => {
-    expect(corpoProducao).toContain("BAIXA_DOCUMENTO_RECUSADA");
+    expect(corpoVigente).toContain("BAIXA_DOCUMENTO_RECUSADA");
     expect(corpoNova).toContain("BAIXA_DOCUMENTO_RECUSADA");
   });
 });
@@ -140,7 +233,7 @@ describe("nenhuma saida muda", () => {
     // 6 saidas sem baixa (sem boleto, sem parcela, parcela PAGO, acordo fora de
     // ATIVO, valor fora da faixa, vencimento nao bate) + o `return new` final
     // do caminho que baixou.
-    expect(corpoProducao.match(/return new;/g).length).toBe(7);
+    expect(corpoVigente.match(/return new;/g).length).toBe(7);
     expect(corpoNova).not.toContain("return new;");
   });
 
