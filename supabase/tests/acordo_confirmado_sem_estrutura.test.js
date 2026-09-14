@@ -44,16 +44,23 @@ describe("1. o estado novo", () => {
     ]);
   });
 
-  it("a fila ganha exatamente tres colunas, e a origem e restrita", () => {
+  it("a fila ganha exatamente quatro colunas, e as duas restritas tem CHECK", () => {
     // alinhamento com espacos multiplos: normalizar antes de comparar
     expect(esp(sql)).toContain("add column if not exists evidencia_origem text");
     expect(esp(sql)).toContain("add column if not exists evidencia_em timestamptz");
     const m = sql.match(/evidencia_origem in \(([\s\S]*?)\)\s*\)/);
     const vals = [...m[1].matchAll(/'([A-Z_]+)'/g)].map((x) => x[1]).sort();
     expect(vals).toEqual(["PRIME_API_LIVE", "PRIME_PORTADOR_MEMBRO"]);
-    // a terceira e o controle de tentativa do caminho B -- e nenhuma alem dela
+    // a terceira e o controle de tentativa do caminho B
     expect(esp(sql)).toContain("add column if not exists consulta_portador_em timestamptz");
-    expect((sql.match(/add column if not exists/g) || []).length).toBe(3);
+    // a quarta e o RESULTADO da consulta oficial, restrita a tres valores
+    expect(esp(sql)).toContain("add column if not exists consulta_estrutura_resultado text");
+    const r = sql.match(/consulta_estrutura_resultado in \(([\s\S]*?)\)\s*\)/);
+    expect(r, "nao achei o CHECK de consulta_estrutura_resultado").toBeTruthy();
+    const vr = [...r[1].matchAll(/'([A-Z_]+)'/g)].map((x) => x[1]).sort();
+    expect(vr).toEqual(["ENCONTRADA", "ERRO", "NAO_ENCONTRADA"]);
+    // e nenhuma alem das quatro
+    expect((sql.match(/add column if not exists/g) || []).length).toBe(4);
   });
 });
 
@@ -61,7 +68,7 @@ describe("2. ausencia no 166 NUNCA e prova negativa", () => {
   it("o ramo sem evidencia cai em AGUARDANDO_ACORDO, nao numa conclusao", () => {
     const i = pos(motor, "AUSENCIA NAO E PROVA NEGATIVA");
     expect(i).toBeGreaterThan(-1);
-    const trecho = motor.slice(i, i + 900);
+    const trecho = motor.slice(i, pos(motor, "elsif v_livres > 0"));
     expect(trecho).toContain("v_status := 'AGUARDANDO_ACORDO'");
     expect(esp(trecho)).toContain("nao e prova de que nao houve acordo");
   });
@@ -451,17 +458,17 @@ describe("12. CRM sem acordo -> Prime /agreements -> se vazio -> 166 -> fallback
     expect(fn).toContain("tem_newInstallments");
   });
 
-  it("o motor so promove o fallback depois da tentativa oficial", () => {
-    expect(motor).toContain("v_tentou_oficial");
-    const decl = pos(motor, "select (f.consulta_portador_em is not null) into v_tentou_oficial");
-    const uso = pos(motor, "and v_tentou_oficial then");
+  it("o motor le o RESULTADO da consulta, e o le antes de promover", () => {
+    const decl = pos(motor, "select f.consulta_estrutura_resultado into v_estrutura");
+    const uso = pos(motor, "and coalesce(v_estrutura,'') = 'NAO_ENCONTRADA' then");
     const promove = pos(motor, "v_status := 'ACORDO_CONFIRMADO_SEM_ESTRUTURA';\n              v_motivo := 'negociacao comprovada: o aluno esta no portador 166");
     expect(decl).toBeGreaterThan(-1);
+    expect(uso).toBeGreaterThan(-1);
     expect(decl).toBeLessThan(uso);
     expect(uso).toBeLessThan(promove >= 0 ? promove : Number.MAX_SAFE_INTEGER);
   });
 
-  it("sem tentativa oficial o caso fica pendente, e o motivo diz o que falta", () => {
+  it("sem consulta o caso fica pendente, e o motivo diz o que falta", () => {
     expect(esp(motor)).toContain("a API oficial ainda nao foi consultada para este caso");
   });
 
@@ -471,5 +478,186 @@ describe("12. CRM sem acordo -> Prime /agreements -> se vazio -> 166 -> fallback
     expect(MEDIDO.agreements_com_conteudo).toBe(0);
     expect(MEDIDO.newInstallments).toBe(0);
     expect(MEDIDO.no166).toBe(MEDIDO.casos);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 13. O RESULTADO DA CONSULTA, E NAO A TENTATIVA, DECIDE O FALLBACK
+// ---------------------------------------------------------------------------
+//
+// `consulta_portador_em` e carimbada ANTES da chamada -- ela diz "tentei", e
+// "tentei" nao distingue "a API respondeu que nao tem" de "a API caiu". O
+// fallback so pode nascer do primeiro caso. Os oito testes abaixo sao os oito
+// cenarios pedidos: os quatro da Edge (500, timeout, lista vazia, lista com
+// item) e os quatro do motor (ENCONTRADA / ERRO / NULL nunca promovem; so
+// NAO_ENCONTRADA + 166 + Santander coerente promove).
+
+const recorder = corpo("conciliacao_registrar_consulta_estrutura", "$fn$");
+
+// O trecho da Edge entre a tentativa oficial e a busca do 166.
+const tentativa = fn.slice(pos(fn, "// 2) TENTATIVA OFICIAL"), pos(fn, "carrierId=166&take=50"));
+
+describe("13. Edge: cada resposta de /agreements grava o seu resultado", () => {
+  it("a coluna so e escrita por uma RPC que valida o valor", () => {
+    expect(recorder).toContain("not in ('NAO_ENCONTRADA','ENCONTRADA','ERRO')");
+    expect(recorder).toContain("raise exception 'resultado invalido: %'");
+    expect(recorder).toContain("set consulta_estrutura_resultado = p_resultado");
+    // recorder PURO: nao decide nada, nao chama o motor, nao toca identidade
+    expect(recorder).not.toContain("pagamento_conciliar_um");
+    expect(recorder).not.toContain("update public.pagamentos");
+    expect(recorder).not.toContain("evidencia_origem");
+    // e a Edge escreve por ela, nao por UPDATE direto na tabela
+    expect(fn).toContain('supa.rpc("conciliacao_registrar_consulta_estrutura"');
+    expect(fn).not.toMatch(/from\(["']fila_pagamento_sem_vinculo["']\)/);
+  });
+
+  // (1) /agreements responde 500
+  // (2) /agreements estoura o tempo
+  // `primeGet` colapsa 4xx/5xx, timeout, excecao de rede e JSON invalido no
+  // mesmo `ok: false` -- entao a MESMA guarda cobre os dois cenarios, e o
+  // teste tem de provar que a guarda existe e que ela PARA a execucao.
+  it("500 e timeout caem na mesma guarda, gravam ERRO e NAO consultam o 166", () => {
+    // a guarda literal -- desativa-la tem de quebrar este teste
+    expect(tentativa).toContain("if (!a.ok) {");
+    const i = pos(tentativa, "if (!a.ok) {");
+    const ramo = tentativa.slice(i, pos(tentativa, "const d: any = a.dados;"));
+    expect(ramo).toContain('registraResultado("ERRO")');
+    // PARA AQUI: o ramo devolve antes de qualquer coisa
+    expect(ramo).toContain("return new Response");
+    // e nao ha busca do 166 dentro dele
+    expect(ramo).not.toContain("carrierId=166");
+    // o ERRO e gravado ANTES do return, senao nao e gravado nunca
+    expect(pos(ramo, 'registraResultado("ERRO")')).toBeLessThan(pos(ramo, "return new Response"));
+  });
+
+  it("primeGet devolve ok:false em 4xx/5xx, em excecao e em JSON invalido", () => {
+    const pg = fn.slice(pos(fn, "async function primeGet"), pos(fn, "Deno.serve"));
+    // 4xx/5xx
+    expect(pg).toContain("if (!r.ok) return { ok: false as const, status: r.status };");
+    // excecao de rede E json invalido: `await r.json()` esta DENTRO do try
+    const tentar = pg.slice(pos(pg, "try {"), pos(pg, "} catch"));
+    expect(tentar).toContain("await r.json()");
+    // esgotadas as tentativas, ok:false -- nunca ok:true sem dados
+    expect(pg).toContain("return { ok: false as const, status: 0 };");
+  });
+
+  // (3) lista vazia
+  it("lista vazia grava NAO_ENCONTRADA e SEGUE para o 166", () => {
+    const i = pos(tentativa, "} else {");
+    expect(i).toBeGreaterThan(-1);
+    const ramo = tentativa.slice(i, pos(tentativa, "// 3) veio estrutura"));
+    expect(ramo).toContain('registraResultado("NAO_ENCONTRADA")');
+    // este e o unico ramo que nao devolve: a execucao continua para o 166
+    expect(ramo).not.toContain("return new Response");
+    expect(pos(fn, 'registraResultado("NAO_ENCONTRADA")'))
+      .toBeLessThan(pos(fn, "carrierId=166&take=50"));
+  });
+
+  // (4) lista com item
+  it("lista com item grava ENCONTRADA, devolve o payload e NAO consulta o 166", () => {
+    const i = pos(tentativa, "if (itens.length > 0) {");
+    expect(i).toBeGreaterThan(-1);
+    const ramo = tentativa.slice(i, pos(tentativa, "} else {"));
+    expect(ramo).toContain('registraResultado("ENCONTRADA")');
+    const saida = fn.slice(pos(fn, "if (estrutura) {"), pos(fn, "// 4) veio vazio"));
+    expect(saida).toContain("ACORDO_ENCONTRADO_NA_API");
+    expect(saida).toContain("return new Response");
+    expect(saida).not.toContain("carrierId=166");
+    // e continua sem criar acordo ou parcela
+    expect(saida).not.toMatch(/from\(["'](acordos|parcelas)["']\)/);
+  });
+
+  it("a data de tentativa nunca e usada como resultado", () => {
+    // na Edge a coluna aparece so em comentario -- codigo nenhum a le ou escreve
+    const fnCodigo = fn.split("\n").filter((l) => !l.trim().startsWith("//")).join("\n");
+    expect(fnCodigo).not.toContain("consulta_portador_em");
+    // e o disparador so a usa como janela de 24h
+    expect(disp).toContain("f.consulta_portador_em < now() - interval '24 hours'");
+    expect(disp).toContain("set consulta_portador_em = now()");
+    // e o disparador nunca FILTRA nem ESCREVE o resultado: a coluna so aparece
+    // no comentario que explica de quem e a responsabilidade
+    const dispCodigo = disp.split("\n").filter((l) => !l.trim().startsWith("--")).join("\n");
+    expect(dispCodigo).not.toContain("consulta_estrutura_resultado");
+  });
+});
+
+describe("13b. motor: so NAO_ENCONTRADA promove", () => {
+  // O ramo do fallback, inteiro, do `elsif` ate o `else` da ausencia.
+  const ramo = motor.slice(
+    pos(motor, "elsif v_cpf_pag is not null"),
+    pos(motor, "AUSENCIA NAO E PROVA NEGATIVA"));
+
+  it("a tentativa saiu do motor de vez", () => {
+    expect(motor).not.toContain("v_tentou_oficial");
+    expect(motor).not.toContain("consulta_portador_em is not null");
+    // o motor nem le mais a coluna de tentativa
+    expect(motor).not.toContain("consulta_portador_em");
+  });
+
+  // (5) ENCONTRADA + CPF no espelho do 166 -> nunca promove
+  // (6) ERRO + CPF no espelho -> nunca promove
+  // (7) NULL + CPF no espelho -> nunca promove
+  // Os tres sao o MESMO teste em plpgsql: a guarda e uma igualdade a um unico
+  // valor, entao qualquer outro -- e NULL, por causa do coalesce -- cai fora.
+  it("a guarda e igualdade a NAO_ENCONTRADA, o que exclui ENCONTRADA, ERRO e NULL", () => {
+    expect(ramo).toContain("and coalesce(v_estrutura,'') = 'NAO_ENCONTRADA' then");
+    // coalesce, e nao `= 'NAO_ENCONTRADA'` cru: sem ele NULL daria NULL e o
+    // `and` nao entraria -- correto por acidente, e por acidente nao serve.
+    expect(ramo).not.toMatch(/and v_estrutura = 'NAO_ENCONTRADA'/);
+    // e nao ha nenhum outro caminho para o estado dentro deste ramo
+    expect(ramo).not.toContain("'ENCONTRADA' then");
+    expect(ramo).not.toContain("'ERRO' then");
+    expect(ramo).not.toContain("v_estrutura is not null");
+    expect(ramo).not.toContain("v_estrutura <>");
+  });
+
+  it("ENCONTRADA, ERRO e NULL ficam em AGUARDANDO_ACORDO, cada um com o seu motivo", () => {
+    const pendente = motor.slice(pos(motor, "AUSENCIA NAO E PROVA NEGATIVA"));
+    expect(pendente).toContain("v_status := 'AGUARDANDO_ACORDO'");
+    expect(esp(pendente)).toContain("a API oficial DEVOLVEU estrutura para este acordo");
+    expect(esp(pendente)).toContain("a consulta a API oficial falhou");
+    expect(esp(pendente)).toContain("a API oficial ainda nao foi consultada");
+    // e nenhum deles vira o estado de confirmacao
+    const ate = pendente.slice(0, pos(pendente, "elsif v_livres > 0"));
+    expect(ate).not.toContain("ACORDO_CONFIRMADO_SEM_ESTRUTURA");
+  });
+
+  // (8) NAO_ENCONTRADA + 166 + Santander coerente -> promove
+  it("promover exige as TRES coisas juntas: resultado, 166 e concordancia", () => {
+    const cond = ramo.slice(0, pos(ramo, "if not v_concorda then"));
+    // 166
+    expect(cond).toContain("m.portador = 166");
+    expect(cond).toContain("exists (select 1 from public.prime_portador_membro m");
+    // resultado
+    expect(cond).toContain("'NAO_ENCONTRADA'");
+    // concordancia -- quem discorda vai para REVISAO, nao para o fallback
+    const discorda = ramo.slice(pos(ramo, "if not v_concorda then"), pos(ramo, "else"));
+    expect(discorda).toContain("v_status := 'REVISAO'");
+    expect(discorda).not.toContain("ACORDO_CONFIRMADO_SEM_ESTRUTURA");
+    // ha exatamente UMA promocao neste ramo, e ela mora depois do `else` da
+    // concordancia -- nao existe atalho que chegue nela por fora das tres
+    const ocorrencias = (ramo.match(/ACORDO_CONFIRMADO_SEM_ESTRUTURA/g) || []).length;
+    expect(ocorrencias).toBe(1);
+    expect(pos(ramo, "ACORDO_CONFIRMADO_SEM_ESTRUTURA"))
+      .toBeGreaterThan(pos(ramo, "if not v_concorda then"));
+  });
+
+  it("o bloco de prova da migration aborta se a tentativa voltar a decidir", () => {
+    const prova = sql.slice(pos(sql, "do $prova$"));
+    expect(prova).toContain("ilike '%v_tentou_oficial%' then");
+    expect(prova).toContain("not ilike '%= ''NAO_ENCONTRADA''%' then");
+    expect(prova).toContain("fila_pag_consulta_estrutura_valida");
+    expect(prova).toContain("conciliacao_registrar_consulta_estrutura(uuid, text)");
+    expect(prova).toContain("if v_n <> 4 then");
+  });
+
+  it("o rollback remove o recorder e mantem as quatro colunas", () => {
+    const rb = readFileSync(
+      resolve(RAIZ, "supabase/rollbacks/20260914190000_acordo_confirmado_sem_estrutura.rollback.sql"),
+      "utf8");
+    expect(rb).toContain("drop function if exists public.conciliacao_registrar_consulta_estrutura(uuid, text);");
+    expect(rb).toContain("consulta_estrutura_resultado");
+    expect(rb).not.toMatch(/drop column[^\n]*consulta_estrutura_resultado/);
+    expect(rb).toContain("'alguma das quatro colunas da fila foi apagada -- nao deveria'");
   });
 });

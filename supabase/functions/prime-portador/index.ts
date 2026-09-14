@@ -45,9 +45,17 @@
 //
 //     1. identidade pela registration/CPF
 //     2. GET /students/{registration}/agreements   <- a tentativa oficial
-//     3. veio estrutura?  -> ACORDO_ENCONTRADO_NA_API, com o payload cru
-//     4. veio vazio?      -> aí sim confirma o 166
-//     5. 166 positivo     -> o motor decide o fallback
+//     3. veio estrutura?  -> ENCONTRADA, ACORDO_ENCONTRADO_NA_API com o payload cru
+//     4. falhou?          -> ERRO, e PARA AQUI -- o 166 não é consultado
+//     5. veio vazio?      -> NAO_ENCONTRADA, aí sim confirma o 166
+//     6. 166 positivo     -> o motor decide o fallback
+//
+// E o RESULTADO dos passos 3/4/5 é gravado em
+// `fila_pagamento_sem_vinculo.consulta_estrutura_resultado`. Isso não é
+// redundante com `consulta_portador_em`: aquela coluna é carimbada pelo
+// disparador ANTES da chamada e significa apenas TENTATIVA -- ela não sabe
+// dizer se a API respondeu "não tenho" ou se caiu. Só NAO_ENCONTRADA abre o
+// fallback; ENCONTRADA, ERRO e NULL nunca abrem.
 //
 // O passo 3 NÃO mapeia campo nenhum para `acordos`/`parcelas`. Devolve o que
 // chegou e grava em `auditoria`, porque nunca vimos um payload não vazio -- e
@@ -179,29 +187,69 @@ Deno.serve(async (req) => {
     }
 
     // 2) TENTATIVA OFICIAL, antes de qualquer fallback: o acordo está na API?
+    //
+    // O QUE SE GRAVA AQUI É O RESULTADO, NÃO A TENTATIVA. `consulta_portador_em`
+    // é carimbada pelo disparador ANTES da chamada -- ela só serve para não
+    // repetir o mesmo caso de hora em hora, e não sabe distinguir "perguntei e
+    // não tinha" de "perguntei e deu erro". Quem decide o fallback é
+    // `consulta_estrutura_resultado`, escrito abaixo, depois da resposta:
+    //
+    //     lista vazia          -> NAO_ENCONTRADA  (segue para o 166)
+    //     lista com item       -> ENCONTRADA      (para aqui, payload em auditoria)
+    //     4xx/5xx/timeout/JSON -> ERRO            (para aqui, tenta de novo em 24h)
     const tituloNumero = String(corpo?.titulo_numero ?? "").replace(/\D/g, "").replace(/^0+/, "");
+    const pagamentoId = String(corpo?.pagamento_id ?? "").trim() || null;
     let estrutura: Record<string, unknown> | null = null;
     const tentadas: string[] = [];
+
+    // O recorder é uma RPC, não um UPDATE: ela valida o valor e é a única
+    // superfície de escrita desta coluna. Falha ao gravar não pode inventar
+    // resultado -- sem gravação, a coluna fica NULL e NULL nunca promove.
+    const registraResultado = async (resultado: "NAO_ENCONTRADA" | "ENCONTRADA" | "ERRO") => {
+      if (!pagamentoId) return;
+      await supa.rpc("conciliacao_registrar_consulta_estrutura", {
+        p_pagamento_id: pagamentoId, p_resultado: resultado,
+      });
+    };
 
     if (registration) {
       tentadas.push(registration);
       const a = await primeGet(`/students/${encodeURIComponent(registration)}/agreements`, chave);
-      if (a.ok) {
-        const d: any = a.dados;
-        const itens: any[] = Array.isArray(d?.items) ? d.items : (Array.isArray(d) ? d : []);
-        if (itens.length > 0) {
-          const cru = JSON.stringify(d);
-          estrutura = {
-            registration,
-            total: d?.totalItems ?? itens.length,
-            // o payload CRU, sem mapear: é o artefato que falta para desenhar a captura
-            itens_brutos: itens,
-            campos_detectados: inventario(itens[0]),
-            tem_newInstallments: cru.includes("newInstallments"),
-            // compatibilidade com o titulo do Santander: reportada, nunca usada para mapear
-            bate_titulo_numero: tituloNumero ? cru.includes(tituloNumero) : null,
-          };
-        }
+
+      // ERRO: a API não respondeu, ou respondeu o que não dá para ler.
+      // `primeGet` já colapsa 4xx/5xx, timeout, exceção de rede e JSON inválido
+      // em `ok: false` -- todos são a mesma coisa aqui: não se sabe nada.
+      // NÃO SE CONSULTA O 166 NESTA EXECUÇÃO. Perguntar o portador agora seria
+      // trocar "não sei se existe estrutura" por "está negociado", que é
+      // exatamente o fallback que não pode acontecer sem resposta da API.
+      if (!a.ok) {
+        await registraResultado("ERRO");
+        return new Response(JSON.stringify({
+          modo: "pontual", resultado: "ERRO_NA_CONSULTA_DE_ESTRUTURA",
+          registration, nome, cpf, status: a.status,
+          observacao: "a consulta oficial a /agreements falhou -- 166 nao consultado, caso permanece AGUARDANDO_ACORDO e sera retentado apos 24h",
+        }), { status: 502, headers: { "Content-Type": "application/json" } });
+      }
+
+      const d: any = a.dados;
+      const itens: any[] = Array.isArray(d?.items) ? d.items : (Array.isArray(d) ? d : []);
+      if (itens.length > 0) {
+        const cru = JSON.stringify(d);
+        estrutura = {
+          registration,
+          total: d?.totalItems ?? itens.length,
+          // o payload CRU, sem mapear: é o artefato que falta para desenhar a captura
+          itens_brutos: itens,
+          campos_detectados: inventario(itens[0]),
+          tem_newInstallments: cru.includes("newInstallments"),
+          // compatibilidade com o titulo do Santander: reportada, nunca usada para mapear
+          bate_titulo_numero: tituloNumero ? cru.includes(tituloNumero) : null,
+        };
+        await registraResultado("ENCONTRADA");
+      } else {
+        // A API respondeu, e respondeu "não tenho". É a única resposta que
+        // autoriza, mais adiante, dizer que o acordo existe sem estrutura.
+        await registraResultado("NAO_ENCONTRADA");
       }
     }
 
@@ -211,7 +259,7 @@ Deno.serve(async (req) => {
         usuario: "rotina",
         acao: "ACORDO_ENCONTRADO_NA_API",
         tabela_afetada: "pagamentos",
-        registro_id: String(corpo?.pagamento_id ?? "") || null,
+        registro_id: pagamentoId,
         detalhes: { cpf, titulo_numero: tituloNumero || null, estrutura },
       });
       return new Response(JSON.stringify({
@@ -259,7 +307,6 @@ Deno.serve(async (req) => {
 
     // 4) e o motor único decide. Identidade só por CPF, dentro da RPC.
     let conciliacao: unknown = null;
-    const pagamentoId = String(corpo?.pagamento_id ?? "").trim();
     if (pagamentoId && no166) {
       const { data, error } = await supa.rpc("conciliacao_confirmar_portador_166", {
         p_pagamento_id: pagamentoId, p_cpf: cpf, p_origem: "PRIME_API_LIVE",

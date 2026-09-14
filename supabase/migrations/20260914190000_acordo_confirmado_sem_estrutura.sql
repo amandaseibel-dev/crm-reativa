@@ -26,8 +26,8 @@
 --
 -- O QUE ESTA MIGRATION FAZ:
 --   1. `status_conciliacao` ganha ACORDO_CONFIRMADO_SEM_ESTRUTURA;
---   2. a fila ganha TRES colunas: duas de evidencia e uma de controle de
---      tentativa -- nenhuma a mais;
+--   2. a fila ganha QUATRO colunas: duas de evidencia, uma de controle de
+--      tentativa e uma com o RESULTADO da consulta oficial -- nenhuma a mais;
 --   3. o motor passa a consultar `prime_portador_membro` quando nao acha o
 --      acordo, e a manter a confirmacao entre rodadas;
 --   4. entra uma RPC para o caminho ao vivo registrar a confirmacao e o vinculo
@@ -43,7 +43,7 @@
 -- nunca conclui que nao houve acordo. Conclui que aqui nao da para afirmar, e o
 -- caso segue pendente para decisao humana.
 --
--- POR QUE TRES COLUNAS, E NAO ZERO. Conferido antes de criar: `observacao` e
+-- POR QUE QUATRO COLUNAS, E NAO ZERO. Conferido antes de criar: `observacao` e
 -- texto livre escrito por gente (`pagamento_vincular_aluno` e
 -- `conciliacao_encerrar` escrevem ali) -- guardar origem de evidencia em prosa
 -- exigiria parsear texto para filtrar e auditar. `sugestoes` e jsonb com
@@ -52,7 +52,11 @@
 -- e um campo FILTRAVEL de origem e a data -- e nada existente serve sem quebrar
 -- semantica. A terceira, `consulta_portador_em`, marca a ULTIMA TENTATIVA de
 -- consulta oficial: sem ela o disparador chamaria o mesmo caso de hora em hora
--- para sempre, e `evidencia_em` nao serve porque significa quando CONFIRMOU. Todo o resto da evidencia reusa coluna que ja existe:
+-- para sempre, e `evidencia_em` nao serve porque significa quando CONFIRMOU.
+-- A quarta, `consulta_estrutura_resultado`, e o RESULTADO dessa consulta, e e
+-- ela que autoriza o fallback. Marca de tentativa nao serve para isso: ela e
+-- gravada ANTES da chamada e nao distingue "perguntei e nao tinha" de
+-- "perguntei e deu erro" -- e so o primeiro caso pode virar "sem estrutura". Todo o resto da evidencia reusa coluna que ja existe:
 --   pagamento_id, boleto, valor_pago, valor_honorario e a primeira deteccao na
 --   propria fila; aluno_id, cpf, titulo_numero e operador_email em `pagamentos`;
 --   a registration em `fila.matricula_recebida` -- provado 13/13 que a matricula
@@ -100,7 +104,25 @@ alter table public.fila_pagamento_sem_vinculo
   -- confirma. Marca a ultima tentativa e limita a uma por dia. Nao cabe em
   -- `evidencia_em` (que e quando CONFIRMOU, nao quando tentou) nem em
   -- `observacao` (texto humano).
-  add column if not exists consulta_portador_em timestamptz;
+  add column if not exists consulta_portador_em timestamptz,
+  -- QUARTA coluna, e a que decide o fallback. `consulta_portador_em` marca
+  -- TENTATIVA -- e gravada ANTES da chamada, entao nao distingue "perguntei e
+  -- nao tinha" de "perguntei e deu erro". O fallback precisa do RESULTADO.
+  add column if not exists consulta_estrutura_resultado text;
+
+do $er$
+begin
+  if not exists (select 1 from pg_constraint
+                  where conname = 'fila_pag_consulta_estrutura_valida') then
+    alter table public.fila_pagamento_sem_vinculo
+      add constraint fila_pag_consulta_estrutura_valida check (
+        consulta_estrutura_resultado is null or consulta_estrutura_resultado in (
+          'NAO_ENCONTRADA',  -- /agreements respondeu JSON valido com zero itens
+          'ENCONTRADA',      -- /agreements devolveu estrutura -- payload em auditoria
+          'ERRO'             -- 4xx/5xx, timeout, excecao ou JSON invalido
+        ));
+  end if;
+end $er$;
 
 do $ev$
 begin
@@ -120,7 +142,9 @@ comment on column public.fila_pagamento_sem_vinculo.evidencia_origem is
 comment on column public.fila_pagamento_sem_vinculo.evidencia_em is
   'Quando a evidencia do portador 166 foi coletada (espelho) ou confirmada (ao vivo).';
 comment on column public.fila_pagamento_sem_vinculo.consulta_portador_em is
-  'Ultima tentativa de consulta pontual ao Prime. Marcada ANTES da chamada, para que falha tambem conte: e o que impede a rodada horaria de repetir o mesmo caso indefinidamente.';
+  'Ultima TENTATIVA de consulta pontual ao Prime. Marcada ANTES da chamada, para que falha tambem conte: serve so para controlar frequencia (uma por dia por caso). NUNCA e resultado -- quem diz o resultado e consulta_estrutura_resultado.';
+comment on column public.fila_pagamento_sem_vinculo.consulta_estrutura_resultado is
+  'RESULTADO da consulta oficial a /students/{registration}/agreements. NAO_ENCONTRADA (JSON valido, zero itens) e o UNICO valor que autoriza o fallback ACORDO_CONFIRMADO_SEM_ESTRUTURA. ENCONTRADA, ERRO e NULL nunca promovem.';
 
 -- ---------------------------------------------------------------------------
 -- 3. O MOTOR PASSA A CONSULTAR O ESPELHO, E A MANTER A CONFIRMACAO
@@ -154,7 +178,7 @@ declare
   -- evidencia do portador 166 (negociacao comprovada, sem estrutura de acordo)
   v_cpf_pag text; v_ev_origem text; v_ev_em timestamptz;
   -- concordancia entre o numero do acordo do arquivo e o prefixo do boleto
-  v_tit text; v_acordo_do_boleto text; v_concorda boolean; v_tentou_oficial boolean;
+  v_tit text; v_acordo_do_boleto text; v_concorda boolean; v_estrutura text;
 begin
   select * into v_pag from public.pagamentos where id = p_pagamento_id;
   if not found then
@@ -219,16 +243,16 @@ begin
           v_tit := nullif(ltrim(regexp_replace(coalesce(v_pag.titulo_numero,''), '\D', '', 'g'), '0'), '');
           v_concorda := (v_tit is not null and v_tit = v_acordo_do_boleto);
 
-          -- O FALLBACK E FALLBACK. Estar no portador 166 prova que houve
-          -- negociacao -- nao prova que a estrutura do acordo nao existe. Antes
-          -- de confirmar "sem estrutura", a API oficial tem de ter sido
-          -- perguntada: `consulta_portador_em` e a marca dessa tentativa,
-          -- gravada pelo disparador antes de chamar a Edge. Sem ela, o caso
-          -- fica pendente e o disparador o pega na proxima rodada.
-          select (f.consulta_portador_em is not null) into v_tentou_oficial
+          -- O FALLBACK E FALLBACK, E DEPENDE DO RESULTADO -- NAO DA TENTATIVA.
+          -- Estar no portador 166 prova que houve negociacao; nao prova que a
+          -- estrutura nao existe. E "tentei" nao e resposta: so
+          -- NAO_ENCONTRADA -- /agreements respondeu JSON valido e veio vazio --
+          -- autoriza dizer "sem estrutura". ENCONTRADA significa que ha
+          -- estrutura e ela ainda nao foi capturada; ERRO significa que nao se
+          -- sabe; NULL, que ninguem perguntou. Nenhum dos tres promove.
+          select f.consulta_estrutura_resultado into v_estrutura
             from public.fila_pagamento_sem_vinculo f
            where f.pagamento_id = p_pagamento_id;
-          v_tentou_oficial := coalesce(v_tentou_oficial, false);
 
           if coalesce(v_pag.status_conciliacao,'') = 'ACORDO_CONFIRMADO_SEM_ESTRUTURA' then
             -- IDEMPOTENCIA. Uma vez confirmado, nao volta para AGUARDANDO_ACORDO.
@@ -243,7 +267,7 @@ begin
           elsif v_cpf_pag is not null
             and exists (select 1 from public.prime_portador_membro m
                          where lpad(m.cpf,11,'0') = lpad(v_cpf_pag,11,'0') and m.portador = 166)
-            and v_tentou_oficial then
+            and coalesce(v_estrutura,'') = 'NAO_ENCONTRADA' then
 
             if not v_concorda then
               -- Evidencia positiva de negociacao, mas o arquivo se contradiz. Nao se
@@ -277,7 +301,11 @@ begin
               || ' nao existe em parcelas e o acordo ' || v_pref || ' nao esta no CRM'
               || case when v_cpf_pag is null
                       then ' | sem CPF no pagamento: identidade precisa ser resolvida antes'
-                      when not v_tentou_oficial
+                      when coalesce(v_estrutura,'') = 'ENCONTRADA'
+                      then ' | a API oficial DEVOLVEU estrutura para este acordo: a captura ainda nao existe, e o payload esta em auditoria'
+                      when coalesce(v_estrutura,'') = 'ERRO'
+                      then ' | a consulta a API oficial falhou -- sera repetida na proxima janela de 24h'
+                      when v_estrutura is null
                       then ' | a API oficial ainda nao foi consultada para este caso -- a rodada horaria consulta'
                       else ' | sem evidencia local do portador 166 -- inconclusivo, nao e prova de que nao houve acordo' end;
           end if;
@@ -697,6 +725,57 @@ grant execute on function public.conciliacao_confirmar_portador_166(uuid, text, 
 revoke all on function public.conciliacao_confirmar_portador_166(uuid, text, text) from public, anon;
 
 -- ---------------------------------------------------------------------------
+-- 4b. QUEM GRAVA O RESULTADO DA CONSULTA OFICIAL
+-- ---------------------------------------------------------------------------
+--
+-- A Edge chama /students/{registration}/agreements e vem aqui dizer O QUE
+-- ACONTECEU -- nao que tentou. Tres respostas, e so tres:
+--
+--   NAO_ENCONTRADA  HTTP valido, JSON valido, lista vazia. A API respondeu, e a
+--                   resposta foi "nao tenho". E o UNICO valor que abre o fallback.
+--   ENCONTRADA      a lista veio com item. Existe estrutura; ela ainda nao e
+--                   capturada pelo CRM. Payload vai para `auditoria`.
+--   ERRO            4xx/5xx, timeout, excecao ou JSON invalido. Nao se sabe nada.
+--
+-- Recorder puro: nao chama o motor, nao mexe em identidade, nao toca evidencia.
+-- Quem promove e o motor, na rodada seguinte ou logo apos a confirmacao do 166.
+
+create or replace function public.conciliacao_registrar_consulta_estrutura(
+  p_pagamento_id uuid,
+  p_resultado    text
+)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $fn$
+declare
+  v_n int := 0;
+begin
+  if coalesce(auth.role(),'') <> 'service_role'
+     and not coalesce(public.usuario_e_gestao(), false) then
+    raise exception 'Registrar consulta de estrutura e da gestao ou da rotina.' using errcode = '42501';
+  end if;
+  if coalesce(p_resultado,'') not in ('NAO_ENCONTRADA','ENCONTRADA','ERRO') then
+    raise exception 'resultado invalido: %', p_resultado using errcode = '22023';
+  end if;
+
+  update public.fila_pagamento_sem_vinculo
+     set consulta_estrutura_resultado = p_resultado
+   where pagamento_id = p_pagamento_id and decisao is null;
+  get diagnostics v_n = row_count;
+
+  return jsonb_build_object('ok', true, 'pagamento_id', p_pagamento_id,
+    'resultado', p_resultado, 'linhas', v_n);
+end;
+$fn$;
+
+comment on function public.conciliacao_registrar_consulta_estrutura(uuid, text) is
+  'Grava o RESULTADO da consulta oficial a /students/{registration}/agreements em fila_pagamento_sem_vinculo.consulta_estrutura_resultado. Recorder puro: nao chama o motor, nao vincula identidade, nao grava evidencia de portador. Somente NAO_ENCONTRADA autoriza, mais tarde, o fallback ACORDO_CONFIRMADO_SEM_ESTRUTURA.';
+
+revoke all on function public.conciliacao_registrar_consulta_estrutura(uuid, text) from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
 -- 5. O DISPARADOR DO CAMINHO AO VIVO
 -- ---------------------------------------------------------------------------
 --
@@ -771,7 +850,10 @@ begin
      order by p.data_pagamento, p.id
      limit greatest(coalesce(p_limite, 5), 0)
   loop
-    -- a marca vem ANTES: se a chamada falhar, o caso nao volta na proxima hora
+    -- A marca vem ANTES: se a chamada falhar, o caso nao volta na proxima hora.
+    -- E SO ISSO que ela significa -- frequencia, uma tentativa por dia por caso.
+    -- Nao e resultado: quem responde "o que a API disse" e
+    -- `consulta_estrutura_resultado`, gravado pela Edge DEPOIS da chamada.
     update public.fila_pagamento_sem_vinculo
        set consulta_portador_em = now()
      where pagamento_id = r.id;
@@ -793,7 +875,7 @@ end;
 $fn$;
 
 comment on function public.conciliacao_consultar_portador_pendentes(int) is
-  'Disparador do caminho ao vivo: pede a prime-portador, em modo pontual, a confirmacao do portador 166 dos pagamentos AGUARDANDO_ACORDO que ainda nao tem evidencia e nao estao no espelho. Uma tentativa por dia por caso, teto pequeno por rodada, disjuntor de carga. Chamado pela rodada horaria -- nunca pelo gatilho de INSERT.';
+  'Disparador do caminho ao vivo: pede a prime-portador, em modo pontual, a confirmacao do portador 166 dos pagamentos AGUARDANDO_ACORDO que ainda nao tem evidencia e nao estao no espelho. Uma tentativa por dia por caso, teto pequeno por rodada, disjuntor de carga. Usa consulta_portador_em SOMENTE como controle de frequencia, nunca como resultado da consulta. Chamado pela rodada horaria -- nunca pelo gatilho de INSERT.';
 
 revoke all on function public.conciliacao_consultar_portador_pendentes(int) from public, anon, authenticated;
 
@@ -908,14 +990,29 @@ begin
 
   select count(*) into v_n from information_schema.columns
    where table_schema='public' and table_name='fila_pagamento_sem_vinculo'
-     and column_name in ('evidencia_origem','evidencia_em','consulta_portador_em');
-  if v_n <> 3 then raise exception 'as tres colunas novas da fila nao ficaram'; end if;
+     and column_name in ('evidencia_origem','evidencia_em','consulta_portador_em',
+                         'consulta_estrutura_resultado');
+  if v_n <> 4 then raise exception 'as quatro colunas novas da fila nao ficaram'; end if;
 
-  -- o fallback so pode acontecer depois da tentativa oficial
+  if not exists (select 1 from pg_constraint
+                  where conname = 'fila_pag_consulta_estrutura_valida') then
+    raise exception 'o CHECK de consulta_estrutura_resultado nao entrou';
+  end if;
+
+  if to_regprocedure('public.conciliacao_registrar_consulta_estrutura(uuid, text)') is null then
+    raise exception 'a RPC que grava o resultado da consulta nao existe';
+  end if;
+
+  -- o fallback depende do RESULTADO, nunca da tentativa
   if (select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
        where n.nspname='public' and p.proname='pagamento_conciliar_um')
-     not ilike '%v_tentou_oficial%' then
-    raise exception 'o motor promove o fallback sem exigir a tentativa oficial';
+     ilike '%v_tentou_oficial%' then
+    raise exception 'o motor ainda decide o fallback pela tentativa, nao pelo resultado';
+  end if;
+  if (select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+       where n.nspname='public' and p.proname='pagamento_conciliar_um')
+     not ilike '%= ''NAO_ENCONTRADA''%' then
+    raise exception 'o motor nao exige NAO_ENCONTRADA para promover o fallback';
   end if;
 
   if (select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace

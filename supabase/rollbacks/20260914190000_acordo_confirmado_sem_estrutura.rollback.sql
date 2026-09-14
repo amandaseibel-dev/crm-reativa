@@ -6,17 +6,22 @@
 -- que esta em producao como 20260914144734.
 --
 -- O QUE ESTE ROLLBACK NAO FAZ, DE PROPOSITO:
---   * nao apaga `evidencia_origem`, `evidencia_em` nem `consulta_portador_em`. Coluna com evidencia
---     gravada nao se derruba para desfazer regra -- o registro de que a
---     negociacao foi comprovada continua valendo mesmo sem a regra;
+--   * nao apaga `evidencia_origem`, `evidencia_em`, `consulta_portador_em` nem
+--     `consulta_estrutura_resultado`. Coluna com evidencia gravada nao se
+--     derruba para desfazer regra -- o registro de que a negociacao foi
+--     comprovada, e o de que a API oficial respondeu, continuam valendo mesmo
+--     sem a regra que os lia;
 --   * nao desfaz vinculo de identidade. Quem foi vinculado por CPF continua
 --     vinculado: o CPF nao deixou de ser verdade;
 --   * nao desfaz baixa nenhuma -- esta migration nunca baixou nada;
 --   * nao toca `prime_portador_membro`, `importar_acordos`,
 --     `parcelas_amarrar_boleto` nem `acordo_reconstruir_cron`.
 --
--- As tres colunas da fila ficam: evidencia_origem, evidencia_em e
--- consulta_portador_em -- registro do que foi confirmado e do que foi tentado.
+-- As QUATRO colunas da fila ficam: evidencia_origem, evidencia_em,
+-- consulta_portador_em e consulta_estrutura_resultado -- registro do que foi
+-- confirmado, do que foi tentado e do que a API oficial respondeu. O CHECK
+-- `fila_pag_consulta_estrutura_valida` fica junto: sem ele a coluna que
+-- permanece aceitaria qualquer texto.
 --
 -- ATENCAO: depois deste rollback, os pagamentos com negociacao comprovada
 -- voltam a aparecer como `AGUARDANDO_ACORDO` -- pendencia que ninguem consegue
@@ -414,6 +419,10 @@ revoke all on function public.pagamento_conciliar_um(uuid, boolean) from public,
 
 drop function if exists public.conciliacao_confirmar_portador_166(uuid, text, text);
 
+-- E o recorder do resultado da consulta oficial. Sem o motor que le a coluna,
+-- ele nao tem para que existir -- mas o dado ja gravado fica na tabela.
+drop function if exists public.conciliacao_registrar_consulta_estrutura(uuid, text);
+
 -- ---------------------------------------------------------------------------
 -- 3b. Sai o disparador do caminho ao vivo, e a rodada horaria para de chama-lo
 -- ---------------------------------------------------------------------------
@@ -483,6 +492,14 @@ begin
   if exists (select 1 from pg_proc where proname='conciliacao_confirmar_portador_166') then
     raise exception 'a RPC do caminho ao vivo continua no banco';
   end if;
+  if exists (select 1 from pg_proc where proname='conciliacao_registrar_consulta_estrutura') then
+    raise exception 'o recorder do resultado da consulta continua no banco';
+  end if;
+  if (select p.prosrc from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+       where n.nspname='public' and p.proname='pagamento_conciliar_um')
+     ilike '%consulta_estrutura_resultado%' then
+    raise exception 'o motor nao voltou: ainda le o resultado da consulta oficial';
+  end if;
   if exists (select 1 from pg_proc where proname='conciliacao_consultar_portador_pendentes') then
     raise exception 'o disparador continua no banco';
   end if;
@@ -496,10 +513,15 @@ begin
      ilike '%prime_portador_membro%' then
     raise exception 'o motor nao voltou: ainda consulta o espelho do portador';
   end if;
-  -- a evidencia FICA
-  if not exists (select 1 from information_schema.columns
-                  where table_schema='public' and table_name='fila_pagamento_sem_vinculo'
-                    and column_name='evidencia_origem') then
-    raise exception 'a coluna de evidencia foi apagada -- nao deveria';
+  -- a evidencia FICA -- as quatro colunas, e o CHECK que guarda a quarta
+  if (select count(*) from information_schema.columns
+       where table_schema='public' and table_name='fila_pagamento_sem_vinculo'
+         and column_name in ('evidencia_origem','evidencia_em','consulta_portador_em',
+                             'consulta_estrutura_resultado')) <> 4 then
+    raise exception 'alguma das quatro colunas da fila foi apagada -- nao deveria';
+  end if;
+  if not exists (select 1 from pg_constraint
+                  where conname = 'fila_pag_consulta_estrutura_valida') then
+    raise exception 'o CHECK da coluna que permanece foi removido';
   end if;
 end $prova$;
