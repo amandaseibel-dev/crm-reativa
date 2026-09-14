@@ -58,9 +58,12 @@ function mesAtual() {
 
 export default function PagamentosSemAluno() {
   const [mes, setMes] = useState(mesAtual());
-  // Os pagamentos sem vinculo que existem hoje sao todos de 2026-07: no filtro
-  // de mes corrente a fila parecia vazia. Pendencia se le por pendencia.
-  const [todosOsMeses, setTodosOsMeses] = useState(false);
+  // Pendencia NAO se esconde atras do mes corrente. Os pagamentos em aberto
+  // hoje sao todos de 2026-07: com o filtro no mes corrente a tela abria
+  // dizendo "tudo baixado" com 6 pendencias na base -- pior que uma fila
+  // cheia, porque parece resolvido. O checkbox continua ali para restringir a
+  // um mes quando alguem quiser; o padrao e ver tudo que esta em aberto.
+  const [todosOsMeses, setTodosOsMeses] = useState(true);
   const [linhas, setLinhas] = useState([]);
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
@@ -76,7 +79,18 @@ export default function PagamentosSemAluno() {
       p_mes: mes,
       p_todos_os_meses: todosOsMeses,
     });
-    if (error) setErro(error.message);
+    if (error) {
+      // `permission denied for function` e a ACL do Postgres respondendo: a
+      // requisicao chegou sem JWT valido e o PostgREST usou a chave anonima.
+      // Nao e erro de permissao da pessoa -- e sessao vencida. Jogar o texto
+      // cru do banco na tela nao diz isso a ninguem.
+      if (/permission denied for function/i.test(error.message))
+        setErro("Sua sessão expirou. Recarregue a página e entre novamente.");
+      // O portao interno da RPC, quando quem chama nao e da gestao financeira.
+      else if (/gest[aã]o financeira/i.test(error.message))
+        setErro("Esta fila é da gestão financeira.");
+      else setErro(error.message);
+    }
     setLinhas(data || []);
     setCarregando(false);
   }, [mes, todosOsMeses]);
