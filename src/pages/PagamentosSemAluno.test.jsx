@@ -78,19 +78,26 @@ describe("Fila de pagamentos sem vínculo", () => {
     expect(screen.getByText(/boleto 50716220001 · título 4295892/i)).toBeTruthy();
   });
 
-  it("pede a pendência de todos os meses quando a gestão marca a caixa", async () => {
+  // MUDOU EM 14/09/2026. Antes a tela abria no mes corrente e a caixa "toda a
+  // pendencia" vinha desmarcada -- com os pagamentos em aberto todos em
+  // 2026-07, a tela abria dizendo "tudo baixado" havendo pendencia na base.
+  // Tela vazia que parece resolvida e pior do que fila cheia.
+  it("abre pedindo toda a pendência, não só o mês corrente", async () => {
     await act(async () => { render(<PagamentosSemAluno />); });
     expect(rpcMock).toHaveBeenCalledWith(
       "pagamentos_sem_aluno",
-      expect.objectContaining({ p_todos_os_meses: false }),
+      expect.objectContaining({ p_todos_os_meses: true }),
     );
+  });
 
+  it("desmarcar a caixa restringe ao mês escolhido", async () => {
+    await act(async () => { render(<PagamentosSemAluno />); });
     await act(async () => {
       fireEvent.click(screen.getByLabelText(/toda a pendência/i));
     });
     expect(rpcMock).toHaveBeenCalledWith(
       "pagamentos_sem_aluno",
-      expect.objectContaining({ p_todos_os_meses: true }),
+      expect.objectContaining({ p_todos_os_meses: false }),
     );
   });
 
@@ -161,5 +168,41 @@ describe("pagamento com aluno identificado que não baixou", () => {
     expect(chamadas).not.toContain("pagamento_vincular_aluno");
     // um Resolver só: o da linha sem aluno
     expect(screen.getAllByRole("button", { name: /resolver/i })).toHaveLength(1);
+  });
+});
+
+// O erro cru do Postgres nao diz a ninguem o que fazer. As duas mensagens que
+// esta tela pode receber tem causa e acao diferentes, e a tela precisa separar.
+describe("erro da RPC vira mensagem que a pessoa entende", () => {
+  it("permission denied é sessão vencida, não falta de permissão", async () => {
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { message: "permission denied for function pagamentos_sem_aluno" },
+    });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText(/sua sessão expirou/i)).toBeTruthy();
+    // o texto do banco nao pode vazar para a tela
+    expect(screen.queryByText(/permission denied/i)).toBeNull();
+  });
+
+  it("o portão de gestão vira a explicação do portão", async () => {
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { message: "A fila de pagamentos sem vinculo e da gestao financeira." },
+    });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText(/é da gestão financeira/i)).toBeTruthy();
+  });
+
+  it("erro desconhecido continua aparecendo como veio: não engolir falha nova", async () => {
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { message: "canceling statement due to statement timeout" },
+    });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText(/statement timeout/i)).toBeTruthy();
   });
 });
