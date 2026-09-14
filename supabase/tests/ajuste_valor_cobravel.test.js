@@ -177,6 +177,36 @@ describe("migration: ajuste de valor cobravel", () => {
     expect(updates[0]).toContain("where id = p_titulo_id");
   });
 
+  it("o portao e criado antes de qualquer policy que o invoque", () => {
+    const gate = sql.indexOf("create or replace function public.crm_usuario_pode_ajustar_valor()");
+    expect(gate).toBeGreaterThan(-1);
+    // toda policy que chama o portao tem de vir depois dele
+    for (const m of sql.matchAll(/create policy[\s\S]*?;/gi)) {
+      if (m[0].includes("crm_usuario_pode_ajustar_valor")) {
+        expect(m.index).toBeGreaterThan(gate);
+      }
+    }
+  });
+
+  it("apagar um titulo nao apaga o historico do ajuste", () => {
+    const i = sql.indexOf("create table if not exists public.titulo_valor_ajuste_historico");
+    const tabela = sql.slice(i, sql.indexOf(");", i));
+    expect(tabela).not.toMatch(/on delete cascade/i);
+    expect(tabela).toMatch(/titulo_id\s+uuid references public\.acordos_titulos\(id\) on delete set null/);
+    // sem o vinculo, o evento ainda precisa dizer de que titulo era
+    expect(tabela).toContain("titulo_documento");
+    const rpc = sql.slice(sql.indexOf("function public.titulo_ajustar_valor_cobravel("));
+    expect(rpc.slice(0, rpc.indexOf("$function$;"))).toContain("v_t.documento");
+  });
+
+  it("o recalculo nao pode falhar em silencio", () => {
+    const corpo = semComentarios(sql);
+    expect(corpo).not.toMatch(/exception\s+when\s+others\s+then\s+null/i);
+    const i = corpo.indexOf("function public.titulo_ajustar_valor_cobravel(");
+    const rpc = corpo.slice(i, corpo.indexOf("$function$;", i));
+    expect(rpc).toContain("perform public.recalcular_situacao_aluno(v_t.aluno_id, 'ajuste_valor_cobravel');");
+  });
+
   it("nao le nem escreve os campos de ajuste que ficaram em casos", () => {
     expect(semComentarios(sql)).not.toMatch(/public\.casos[\s\S]{0,200}valor_cobranca_ajustado/i);
   });

@@ -44,41 +44,7 @@ alter table public.acordos_titulos
   not valid;
 
 -- ---------------------------------------------------------------------------
--- 2. HISTORICO -- cada alteracao, nao so o ultimo valor
--- ---------------------------------------------------------------------------
-create table if not exists public.titulo_valor_ajuste_historico (
-  id                   uuid primary key default gen_random_uuid(),
-  titulo_id            uuid not null references public.acordos_titulos(id) on delete cascade,
-  aluno_id             uuid,
-  acao                 text not null check (acao in ('DEFINIR','REMOVER')),
-  valor_base_anterior  numeric,
-  ajuste_anterior      numeric,
-  ajuste_novo          numeric,
-  motivo               text,
-  usuario_email        text not null,
-  criado_em            timestamptz not null default now()
-);
-
-create index if not exists ix_titulo_valor_ajuste_hist_titulo
-  on public.titulo_valor_ajuste_historico (titulo_id, criado_em desc);
-
-comment on table public.titulo_valor_ajuste_historico is
-  'Historico de cada definicao e remocao de valor cobravel ajustado. Remover tambem gera evento.';
-
-alter table public.titulo_valor_ajuste_historico enable row level security;
-revoke all on public.titulo_valor_ajuste_historico from public, anon;
-grant select on public.titulo_valor_ajuste_historico to authenticated;
-
--- Leitura so para quem pode ajustar. Escrita nunca direta: so pelo RPC, que e
--- SECURITY DEFINER e roda como owner.
-drop policy if exists titulo_valor_ajuste_hist_leitura on public.titulo_valor_ajuste_historico;
-create policy titulo_valor_ajuste_hist_leitura
-  on public.titulo_valor_ajuste_historico
-  for select to authenticated
-  using (public.crm_usuario_pode_ajustar_valor());
-
--- ---------------------------------------------------------------------------
--- 3. PORTAO -- quem pode ajustar
+-- 2. PORTAO -- quem pode ajustar
 -- ---------------------------------------------------------------------------
 -- Mesmo formato de `crm_usuario_pode_quitar_baixar`: nega o executor interno,
 -- decide por papel quando nao ha JWT (cron/service_role) e, havendo JWT, quem
@@ -115,6 +81,46 @@ $function$;
 
 revoke all on function public.crm_usuario_pode_ajustar_valor() from public;
 grant execute on function public.crm_usuario_pode_ajustar_valor() to authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
+-- 3. HISTORICO -- cada alteracao, nao so o ultimo valor
+-- ---------------------------------------------------------------------------
+create table if not exists public.titulo_valor_ajuste_historico (
+  id                   uuid primary key default gen_random_uuid(),
+  -- Sem CASCADE: apagar um titulo NAO pode apagar o registro do ajuste. O
+  -- vinculo vira NULL e o evento continua legivel pelo documento, que fica
+  -- gravado aqui. `titulo_excluir` segue funcionando como sempre -- com
+  -- RESTRICT ele passaria a falhar, trocando um sumico silencioso por um
+  -- bloqueio barulhento em fluxo legitimo.
+  titulo_id            uuid references public.acordos_titulos(id) on delete set null,
+  titulo_documento     text,
+  aluno_id             uuid,
+  acao                 text not null check (acao in ('DEFINIR','REMOVER')),
+  valor_base_anterior  numeric,
+  ajuste_anterior      numeric,
+  ajuste_novo          numeric,
+  motivo               text,
+  usuario_email        text not null,
+  criado_em            timestamptz not null default now()
+);
+
+create index if not exists ix_titulo_valor_ajuste_hist_titulo
+  on public.titulo_valor_ajuste_historico (titulo_id, criado_em desc);
+
+comment on table public.titulo_valor_ajuste_historico is
+  'Historico de cada definicao e remocao de valor cobravel ajustado. Remover tambem gera evento. Sobrevive a exclusao do titulo: titulo_id vira NULL e titulo_documento preserva a identificacao.';
+
+alter table public.titulo_valor_ajuste_historico enable row level security;
+revoke all on public.titulo_valor_ajuste_historico from public, anon;
+grant select on public.titulo_valor_ajuste_historico to authenticated;
+
+-- Leitura so para quem pode ajustar. Escrita nunca direta: so pelo RPC, que e
+-- SECURITY DEFINER e roda como owner.
+drop policy if exists titulo_valor_ajuste_hist_leitura on public.titulo_valor_ajuste_historico;
+create policy titulo_valor_ajuste_hist_leitura
+  on public.titulo_valor_ajuste_historico
+  for select to authenticated
+  using (public.crm_usuario_pode_ajustar_valor());
 
 -- ---------------------------------------------------------------------------
 -- 4. ELEGIBILIDADE -- so titulo realmente cobravel
@@ -257,9 +263,9 @@ begin
   v_anterior := v_t.valor_cobranca_ajustado;
 
   insert into public.titulo_valor_ajuste_historico
-    (titulo_id, aluno_id, acao, valor_base_anterior, ajuste_anterior, ajuste_novo, motivo, usuario_email)
+    (titulo_id, titulo_documento, aluno_id, acao, valor_base_anterior, ajuste_anterior, ajuste_novo, motivo, usuario_email)
   values
-    (p_titulo_id, v_t.aluno_id, v_acao, v_base, v_anterior, p_valor, v_motivo, v_email);
+    (p_titulo_id, v_t.documento, v_t.aluno_id, v_acao, v_base, v_anterior, p_valor, v_motivo, v_email);
 
   perform set_config('app.ajuste_valor_ok', 'on', true);
   update public.acordos_titulos
@@ -271,8 +277,11 @@ begin
    where id = p_titulo_id;
   perform set_config('app.ajuste_valor_ok', 'off', true);
 
+  -- Sem `exception when others then null`: se o recalculo falhar, a RPC falha
+  -- e a transacao inteira volta atras. Titulo ajustado com saldo de aluno/caso
+  -- defasado seria pior do que o ajuste nao ter acontecido.
   if v_t.aluno_id is not null then
-    begin perform public.recalcular_situacao_aluno(v_t.aluno_id, 'ajuste_valor_cobravel'); exception when others then null; end;
+    perform public.recalcular_situacao_aluno(v_t.aluno_id, 'ajuste_valor_cobravel');
   end if;
 
   insert into public.auditoria (usuario, acao, tabela_afetada, registro_id, detalhes)
