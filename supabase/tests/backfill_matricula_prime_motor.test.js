@@ -56,8 +56,16 @@ describe("nenhum dado pessoal no repositorio", () => {
   it("nao embute lista de VALUES", () => {
     expect(sqlCodigo).not.toMatch(/insert\s+into\s+_plano\s+values/i);
   });
-  it("o plano chega por argumento, nao por literal", () => {
-    expect(fn).toMatch(/jsonb_array_elements\(p_plano\)/);
+  it("o plano NAO viaja como parametro -- vem da stage", () => {
+    // auto_explain loga parametros por inteiro acima de 10s e nao pode ser
+    // desligado por nao-superusuario. Por isso a assinatura nao tem o plano.
+    expect(fn).not.toMatch(/p_plano|jsonb_array_elements/);
+    expect(fn).toMatch(/from public\.backfill_matricula_stage/);
+  });
+  it("a assinatura tem so lote, hash e contagem", () => {
+    expect(sqlCodigo).toMatch(
+      /function public\.backfill_matricula_aplicar\(\s*\n?\s*p_lote\s+text,\s*\n?\s*p_hash\s+text,\s*\n?\s*p_esperado integer\s*\n?\s*\)/);
+    expect(sqlCodigo).not.toMatch(/p_plano\s+jsonb/);
   });
 });
 
@@ -66,9 +74,9 @@ describe("ACL: fora do alcance do PostgREST", () => {
     expect(sqlCodigo).toMatch(/security invoker/);
     expect(sqlCodigo).not.toMatch(/security definer/);
   });
-  it("revoga EXECUTE de public, anon e authenticated", () => {
+  it("revoga EXECUTE de public, anon, authenticated E service_role", () => {
     expect(sqlCodigo).toMatch(
-      /revoke all on function public\.backfill_matricula_aplicar\(jsonb, text, integer, text\)\s*\n?\s*from public, anon, authenticated/);
+      /revoke all on function public\.backfill_matricula_aplicar\(text, text, integer\)\s*\n?\s*from public, anon, authenticated, service_role/);
   });
   it("revoga as duas tabelas de trilha", () => {
     expect(sqlCodigo).toMatch(/revoke all on table public\.backfill_matricula_lotes\s+from public, anon, authenticated/);
@@ -94,7 +102,7 @@ describe("ACL: fora do alcance do PostgREST", () => {
     expect(fn).not.toMatch(/auth\.role\(\)/);
   });
   it("o gate vem antes de qualquer escrita", () => {
-    expect(pos(fn, "42501")).toBeLessThan(pos(fn, "create temp table"));
+    expect(pos(fn, "42501")).toBeLessThan(pos(fn, "pg_advisory_xact_lock"));
     expect(pos(fn, "42501")).toBeLessThan(pos(fn, "update public.pagamentos"));
   });
 });
@@ -106,12 +114,12 @@ describe("os doze invariantes existem e vem antes da escrita", () => {
     expect(i, `nao achei: ${agulha}`).toBeGreaterThan(-1);
     expect(i, `${agulha} vem depois do update`).toBeLessThan(update());
   };
-  it("1. contagem igual a esperada", () => antes("plano com % registros, esperado %"));
-  it("2. pagamento_id unico no plano", () => antes("plano com pagamento_id repetido"));
-  it("3. boleto unico no plano", () => antes("plano com boleto repetido"));
-  it("4. nenhum campo obrigatorio nulo", () => antes("plano com campo obrigatorio nulo"));
+  it("1. contagem igual a esperada", () => antes("linhas, esperado %"));
+  it("2. pagamento_id unico na stage", () => antes("stage com pagamento_id repetido"));
+  it("3. boleto unico na stage", () => antes("stage com boleto repetido"));
+  it("4. nenhum campo obrigatorio vazio", () => antes("stage com campo obrigatorio vazio"));
   it("5. canonicalizacao bate com o hash", () => antes("nao confere com o artefato auditado"));
-  it("6. todo pagamento_id existe", () => antes("plano referencia pagamento inexistente"));
+  it("6. todo pagamento_id existe", () => antes("stage referencia pagamento inexistente"));
   it("7. boleto atual = boleto esperado", () => antes("boleto do pagamento mudou desde o dry-run"));
   it("8. matricula IS NULL no alvo", () => antes("matricula ja preenchida"));
   it("9. tipo_pagamento = SANTANDER", () => antes("fora de tipo_pagamento SANTANDER"));
@@ -129,10 +137,10 @@ describe("os doze invariantes existem e vem antes da escrita", () => {
 describe("canonicalizacao identica a do dry-run", () => {
   it("usa os cinco campos, na ordem, separados por barra vertical", () => {
     expect(fn).toMatch(
-      /pagamento_id::text \|\| '\|' \|\| numero_parcela_completo \|\| '\|' \|\|\s*\n?\s*matricula \|\| '\|' \|\| arquivo_origem \|\| '\|' \|\| linha_no_arquivo::text/);
+      /s\.pagamento_id::text \|\| '\|' \|\| s\.numero_parcela_completo \|\| '\|' \|\|\s*\n?\s*s\.matricula \|\| '\|' \|\| s\.arquivo_origem \|\| '\|' \|\| s\.linha_no_arquivo::text/);
   });
   it("separa registros por newline, sem newline final (string_agg)", () => {
-    expect(fn).toMatch(/E'\\n' order by pagamento_id::text collate "C"/);
+    expect(fn).toMatch(/E'\\n' order by s\.pagamento_id::text collate "C"/);
   });
   it('ordena com collate "C" -- sem isso a ordem muda e o hash nunca fecha', () => {
     expect(fn).toMatch(/collate "C"/);
@@ -145,16 +153,23 @@ describe("idempotencia", () => {
     expect(fn).toMatch(/'resultado', 'JA_APLICADO'/);
     expect(fn).toMatch(/'alteracoes', 0/);
   });
-  it("a saida JA_APLICADO vem antes de criar a temp e de escrever", () => {
-    expect(pos(fn, "JA_APLICADO")).toBeLessThan(pos(fn, "create temp table"));
+  it("a saida JA_APLICADO vem antes de qualquer escrita", () => {
     expect(pos(fn, "JA_APLICADO")).toBeLessThan(pos(fn, "insert into public.backfill_matricula_lotes"));
     expect(pos(fn, "JA_APLICADO")).toBeLessThan(pos(fn, "update public.pagamentos"));
+    expect(pos(fn, "JA_APLICADO")).toBeLessThan(pos(fn, "delete from public.backfill_matricula_stage"));
+  });
+  it("o lock do lote vem ANTES de ler o lote", () => {
+    expect(pos(fn, "pg_advisory_xact_lock")).toBeGreaterThan(-1);
+    expect(pos(fn, "pg_advisory_xact_lock"))
+      .toBeLessThan(pos(fn, "from public.backfill_matricula_lotes where lote = p_lote"));
   });
   it("mesmo lote com hash diferente aborta", () => {
     expect(fn).toMatch(/ja existe com outro artefato/);
   });
-  it("a temp table morre no commit", () => {
-    expect(fn).toMatch(/on commit drop/);
+  it("a stage so e limpa DEPOIS do update e da conferencia de row_count", () => {
+    const d = pos(fn, "delete from public.backfill_matricula_stage");
+    expect(d).toBeGreaterThan(pos(fn, "update public.pagamentos"));
+    expect(d).toBeGreaterThan(pos(fn, "rollback total"));
   });
   it("o UPDATE carrega a guarda de matricula nula -- e ela que zera o 2o run", () => {
     const u = fn.slice(pos(fn, "update public.pagamentos"));
@@ -168,11 +183,16 @@ describe("escopo: so a matricula, e nada mais", () => {
     const u = fn.slice(pos(fn, "update public.pagamentos"));
     const set = u.slice(u.indexOf("set"), u.indexOf("from"));
     expect(set.match(/=/g)).toHaveLength(1);
-    expect(set).toMatch(/matricula = x\.matricula/);
+    expect(set).toMatch(/matricula = s\.matricula/);
+  });
+  it("o UPDATE filtra pelo lote -- a stage guarda lotes falhados", () => {
+    const u = fn.slice(pos(fn, "update public.pagamentos"));
+    const where = u.slice(u.indexOf("where"), u.indexOf("get diagnostics"));
+    expect(where).toMatch(/and s\.lote = p_lote/);
   });
   it("o UPDATE casa por id, nunca por boleto", () => {
     const u = fn.slice(pos(fn, "update public.pagamentos"));
-    expect(u).toMatch(/where p\.id = x\.pagamento_id/);
+    expect(u).toMatch(/where p\.id = s\.pagamento_id/);
     expect(u.slice(0, u.indexOf("get diagnostics"))).not.toMatch(
       /where[\s\S]*p\.numero_parcela_completo\s*=/);
   });
@@ -217,7 +237,9 @@ describe("auditoria por lote", () => {
 describe("rollback", () => {
   it("existe e derruba funcao e tabelas", () => {
     expect(existsSync(RB)).toBe(true);
-    expect(rb).toMatch(/drop function if exists public\.backfill_matricula_aplicar/);
+    expect(rb).toMatch(
+      /drop function if exists public\.backfill_matricula_aplicar\(text, text, integer\)/);
+    expect(rb).toMatch(/drop table if exists public\.backfill_matricula_stage/);
     expect(rb).toMatch(/drop table if exists public\.backfill_matricula_origem/);
     expect(rb).toMatch(/drop table if exists public\.backfill_matricula_lotes/);
   });
@@ -235,11 +257,21 @@ describe("a migration prova a si mesma no apply", () => {
   it("a prova rejeita SECURITY DEFINER", () => {
     expect(sql).toMatch(/a funcao ficou SECURITY DEFINER/);
   });
-  it("a prova rejeita execucao por anon ou authenticated", () => {
-    expect(sql).toMatch(/executavel por anon ou authenticated/);
+  it("a prova rejeita execucao por anon, authenticated ou service_role", () => {
+    expect(sql).toMatch(/executavel por anon, authenticated ou service_role/);
   });
-  it("a prova rejeita trilha legivel", () => {
-    expect(sql).toMatch(/trilha ficou legivel por anon ou authenticated/);
+  it("a prova rejeita trilha legivel fora do dono", () => {
+    expect(sql).toMatch(/trilha ficou legivel fora do dono/);
+  });
+  it("a prova confere a ACL da stage: service_role so INSERE", () => {
+    expect(sql).toMatch(/service_role perdeu o INSERT na stage/);
+    expect(sql).toMatch(/service_role ganhou mais que INSERT na stage/);
+  });
+  it("a prova impede a volta do plano como parametro", () => {
+    expect(sql).toMatch(/voltou a receber o plano como parametro/);
+  });
+  it("a prova exige o lock do lote", () => {
+    expect(sql).toMatch(/nao adquire lock do lote/);
   });
   it("a prova vem depois de tudo que ela confere", () => {
     expect(pos(sql, "do $prova$")).toBeGreaterThan(pos(sql, "revoke all on function"));
@@ -251,5 +283,37 @@ describe("a migration nao altera nenhuma existente", () => {
     expect(sqlCodigo).not.toMatch(/drop function public\.(?!backfill)/);
     expect(sqlCodigo).not.toMatch(/alter table public\.pagamentos/);
     expect(sqlCodigo).not.toMatch(/drop table public\.(?!backfill)/);
+  });
+});
+
+describe("estagio: onde o plano aterrissa", () => {
+  it("a tabela existe com os sete campos", () => {
+    const t = sqlCodigo.slice(pos(sqlCodigo, "create table if not exists public.backfill_matricula_stage"));
+    for (const c of ["lote", "pagamento_id", "numero_parcela_completo", "matricula",
+                     "arquivo_origem", "linha_no_arquivo", "carregado_em"]) {
+      expect(t.slice(0, 700)).toMatch(new RegExp(`${c}\\s`));
+    }
+  });
+  it("a chave impede carga duplicada do mesmo lote", () => {
+    const t = sqlCodigo.slice(pos(sqlCodigo, "create table if not exists public.backfill_matricula_stage"));
+    expect(t.slice(0, 900)).toMatch(/primary key \(lote, pagamento_id\)/);
+  });
+  it("RLS ligada e sem policy", () => {
+    expect(sqlCodigo).toMatch(/alter table public\.backfill_matricula_stage enable row level security/);
+    expect(sqlCodigo).not.toMatch(/create policy/i);
+  });
+  it("public, anon e authenticated sem acesso", () => {
+    expect(sqlCodigo).toMatch(
+      /revoke all on table public\.backfill_matricula_stage from public, anon, authenticated/);
+  });
+  it("service_role recebe INSERT, e SO INSERT", () => {
+    expect(sqlCodigo).toMatch(
+      /grant insert on table public\.backfill_matricula_stage to service_role/);
+    expect(sqlCodigo).not.toMatch(/grant (select|update|delete|all)[^;]*backfill_matricula_stage/i);
+  });
+  it("a trilha nao e concedida a service_role", () => {
+    expect(sqlCodigo).toMatch(
+      /revoke all on table public\.backfill_matricula_lotes\s+from public, anon, authenticated, service_role/);
+    expect(sqlCodigo).not.toMatch(/grant[^;]*backfill_matricula_(lotes|origem)/i);
   });
 });

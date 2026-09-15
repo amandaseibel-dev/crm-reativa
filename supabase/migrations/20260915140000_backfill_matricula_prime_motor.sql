@@ -1,40 +1,78 @@
--- MOTOR GENERICO DE BACKFILL DA MATRICULA PRIME.
+-- MOTOR GENERICO DE BACKFILL DA MATRICULA PRIME, EM DOIS TEMPOS.
 --
--- O QUE ESTA MIGRATION CONTEM: estrutura de auditoria, uma funcao de aplicacao
--- com invariantes, e os revokes. SO ISSO.
+-- O QUE ESTA MIGRATION CONTEM: uma tabela de estagio, a estrutura de auditoria,
+-- a funcao de aplicacao com seus invariantes, e as ACLs. SO ISSO.
 --
 -- O QUE ELA NAO CONTEM, DE PROPOSITO: nenhum `pagamento_id`, nenhuma matricula,
--- nenhum boleto, nenhum CPF, nenhum nome -- e tambem NENHUM hash de lote. O
--- repositorio e PUBLICO (amandaseibel-dev/crm-reativa, conferido em 15/09/2026).
--- Versionar o plano publicaria 7.401 identificadores de pessoas reais, e
--- versionar o hash publicaria a impressao digital daquele lote. Por isso o Git
--- guarda a REGRA; o plano e o hash chegam como argumento, na execucao.
+-- nenhum boleto, nenhum CPF, nenhum nome, e nenhum hash de lote. O repositorio
+-- e PUBLICO (amandaseibel-dev/crm-reativa, conferido em 15/09/2026).
 --
--- COMO SE APLICA: chamada administrativa, fora da interface. O plano vai em
--- `p_plano`, o hash em `p_hash`, a contagem em `p_esperado` e o nome do lote em
--- `p_lote`. Nada disso trafega pelo frontend nem pelo PostgREST.
+-- POR QUE DOIS TEMPOS, E NAO UM `p_plano jsonb`.
 --
--- POR QUE `SECURITY INVOKER`: a aplicacao acontece em contexto administrativo,
--- que ja tem permissao de escrita em `pagamentos`. Nao ha motivo tecnico para
--- elevar privilegio, e `DEFINER` criaria uma funcao que escreve na tabela de
--- dinheiro com o privilegio do dono -- exatamente o que nao se quer ao lado de
--- um PostgREST publico. Fica INVOKER, mais o gate explicito e mais os revokes.
+-- Medido em 15/09/2026 neste projeto: `auto_explain.log_min_duration` = 10000 ms
+-- e `auto_explain.log_parameter_max_length` = -1. Traduzindo: consulta que passe
+-- de 10 segundos tem o plano de execucao logado COM OS PARAMETROS POR INTEIRO,
+-- em `postgres_logs`. Foi encontrada uma entrada real de 40.864 bytes com a
+-- secao `Query Parameters` preenchida.
 --
--- SOBRE O REVOKE DE `authenticated`: a regra da casa e que restringir a gestao
--- se faz por portao interno, nunca por revoke -- porque revogar derruba a tela
--- da propria gestao. Aqui e diferente e o revoke e correto: NENHUMA tela chama
--- esta funcao, e nenhuma deve chamar. Ela nao tem caminho pela interface.
+-- E nao da para desligar: `auto_explain.*` tem contexto `superuser`, e o papel
+-- `postgres` deste projeto NAO e superusuario (`rolsuper = false`) -- so
+-- `supabase_admin` e. A mitigacao esta fora do nosso alcance.
+--
+-- Entao o desenho separa QUEM CARREGA O DADO de QUEM PODE DEMORAR:
+--
+--   TEMPO 1 (transporte). A Edge administrativa recebe o plano no CORPO da
+--   requisicao -- nunca na URL, que e logada em `request.search` -- e insere em
+--   `backfill_matricula_stage` em blocos pequenos. Cada INSERT e minusculo e
+--   roda em milissegundos: nunca se aproxima dos 10 s, entao nunca e logado.
+--
+--   TEMPO 2 (aplicacao). Esta funcao recebe SO `lote`, `hash` e `esperado`, e
+--   le o plano da stage. E a chamada que pode demorar -- e ela nao carrega
+--   dado nenhum como parametro. Nada a vazar.
+--
+-- Consequencia pratica: a chamada do tempo 2 pode ir por `apply_migration` sem
+-- problema. O historico vai guardar algo como `select ... ('LOTE', '<hash>',
+-- 7401)` -- e so. Nenhuma matricula, nenhum boleto, nenhum UUID.
+--
+-- A SENHA DO BANCO NAO ENTRA NA EDGE. A Edge so INSERE na stage, via PostgREST,
+-- com `service_role`. Aplicar o backfill ela NAO pode: a funcao e postgres-only.
 --
 -- O QUE ELA NAO FAZ: nao cria acordo, nao cria parcela, nao mexe em titulo, nao
 -- altera data, nao chama conciliacao, nao religa `consulta_portador` e nao usa
 -- nada da 20260915120000. Escreve UMA coluna: `pagamentos.matricula`.
 
 -- ---------------------------------------------------------------------------
--- 1. AUDITORIA: o lote e a linha
+-- 1. ESTAGIO: onde o plano aterrissa, e de onde ele some depois do sucesso
 -- ---------------------------------------------------------------------------
 
--- O lote existe para que uma reversao futura seja dirigida a UMA carga, sem
--- tocar nas outras. `artefato_hash` amarra a carga ao artefato revisado.
+-- Chave (lote, pagamento_id): carga repetida do mesmo lote nao duplica linha,
+-- e a Edge pode reenviar um bloco sem medo depois de uma queda de conexao.
+create table if not exists public.backfill_matricula_stage (
+  lote                    text        not null,
+  pagamento_id            uuid        not null,
+  numero_parcela_completo text        not null,
+  matricula               text        not null,
+  arquivo_origem          text        not null,
+  linha_no_arquivo        integer     not null,
+  carregado_em            timestamptz not null default now(),
+  primary key (lote, pagamento_id)
+);
+
+alter table public.backfill_matricula_stage enable row level security;
+revoke all on table public.backfill_matricula_stage from public, anon, authenticated;
+
+-- A Edge administrativa so precisa DEPOSITAR. Ler, apagar e aplicar sao do
+-- dono. `service_role` tem bypassrls, entao o que o segura aqui e o privilegio
+-- da tabela -- e ele e exatamente um: INSERT.
+grant insert on table public.backfill_matricula_stage to service_role;
+
+comment on table public.backfill_matricula_stage is
+  'Aterrissagem do plano de backfill. A Edge administrativa insere em blocos pequenos (service_role, so INSERT); o motor postgres-only le, aplica e limpa. Nenhuma tela do CRM alcanca esta tabela.';
+
+-- ---------------------------------------------------------------------------
+-- 2. AUDITORIA: o lote e a linha
+-- ---------------------------------------------------------------------------
+
 create table if not exists public.backfill_matricula_lotes (
   lote                 text primary key,
   artefato_hash        text        not null,
@@ -44,8 +82,6 @@ create table if not exists public.backfill_matricula_lotes (
   aplicado_em          timestamptz not null default now()
 );
 
--- A chave e (lote, pagamento_id): um mesmo pagamento pode aparecer em lotes
--- diferentes ao longo do tempo sem que o historico do lote anterior se perca.
 create table if not exists public.backfill_matricula_origem (
   lote                    text        not null references public.backfill_matricula_lotes(lote),
   pagamento_id            uuid        not null references public.pagamentos(id),
@@ -60,12 +96,11 @@ create table if not exists public.backfill_matricula_origem (
 create index if not exists backfill_matricula_origem_pagamento_idx
   on public.backfill_matricula_origem (pagamento_id);
 
--- Trilha interna: RLS ligada e SEM policy nenhuma = ninguem le pelo PostgREST.
 alter table public.backfill_matricula_lotes  enable row level security;
 alter table public.backfill_matricula_origem enable row level security;
 
-revoke all on table public.backfill_matricula_lotes  from public, anon, authenticated;
-revoke all on table public.backfill_matricula_origem from public, anon, authenticated;
+revoke all on table public.backfill_matricula_lotes  from public, anon, authenticated, service_role;
+revoke all on table public.backfill_matricula_origem from public, anon, authenticated, service_role;
 
 comment on table public.backfill_matricula_lotes is
   'Um registro por carga de backfill de matricula Prime. artefato_hash amarra a carga ao artefato auditado no dry-run; a reversao e dirigida pelo lote.';
@@ -73,14 +108,13 @@ comment on table public.backfill_matricula_origem is
   'Procedencia por pagamento: de qual arquivo e de qual linha veio a matricula gravada. Chave (lote, pagamento_id) admite lotes futuros sem perder historico.';
 
 -- ---------------------------------------------------------------------------
--- 2. O MOTOR
+-- 3. O MOTOR
 -- ---------------------------------------------------------------------------
 
 create or replace function public.backfill_matricula_aplicar(
-  p_plano    jsonb,
+  p_lote     text,
   p_hash     text,
-  p_esperado integer,
-  p_lote     text
+  p_esperado integer
 )
  returns jsonb
  language plpgsql
@@ -96,12 +130,11 @@ begin
   -- GATE EXPLICITO: SO O DONO. Mesmo com INVOKER e com os revokes, a funcao
   -- declara de quem ela e.
   --
-  -- `service_role` NAO aparece aqui, de proposito. Ele nao tem EXECUTE -- o
-  -- revoke de PUBLIC tirou a unica via que teria -- entao citar `service_role`
-  -- num gate que ele jamais alcanca seria letra morta, e pior: sugeriria ao
-  -- leitor que existe um caminho pelo PostgREST. Nao existe. Esta funcao e
-  -- postgres-only POR DESENHO, e e exatamente assim que `apply_migration` a
-  -- executa: tudo que ele cria tem proowner = postgres.
+  -- `service_role` NAO aparece aqui, de proposito. Ele carrega a stage e nada
+  -- mais: nao tem EXECUTE nesta funcao, entao cita-lo num gate que ele jamais
+  -- alcanca seria letra morta, e sugeriria um caminho pelo PostgREST que nao
+  -- existe. Esta funcao e postgres-only POR DESENHO, e e assim que
+  -- `apply_migration` a executa: tudo que ele cria tem proowner = postgres.
   --
   -- Tambem nao se consulta `auth.role()`: a funcao nao depende do schema `auth`
   -- do Supabase para decidir quem pode chama-la.
@@ -120,7 +153,13 @@ begin
     raise exception 'quantidade esperada tem de ser positiva';
   end if;
 
-  -- IDEMPOTENCIA, ANTES DE QUALQUER COISA.
+  -- 1) LOCK DO LOTE, antes de ler qualquer coisa. Duas aplicacoes concorrentes
+  -- do mesmo lote serializam aqui; a segunda so prossegue depois que a primeira
+  -- commitou, e ai encontra o lote gravado e devolve JA_APLICADO. Lock de
+  -- transacao: solta sozinho no commit ou no rollback, sem `unlock` explicito.
+  perform pg_advisory_xact_lock(hashtext('backfill_matricula:' || p_lote));
+
+  -- IDEMPOTENCIA, logo depois do lock.
   --   mesmo lote + mesmo hash  -> JA_APLICADO, zero mutacao, zero trilha nova;
   --   mesmo lote + hash outro  -> aborta. Um lote nomeia um artefato, so um.
   select * into v_lote from public.backfill_matricula_lotes where lote = p_lote;
@@ -135,95 +174,95 @@ begin
       'aplicado_em', v_lote.aplicado_em, 'alteracoes', 0);
   end if;
 
-  -- O plano vira tabela temporaria. `on commit drop`: nao sobrevive a transacao.
-  create temp table _plano (
-    pagamento_id            uuid,
-    numero_parcela_completo text,
-    matricula               text,
-    arquivo_origem          text,
-    linha_no_arquivo        integer
-  ) on commit drop;
+  -- ---- 2 a 6: INVARIANTES DA STAGE (antes de olhar `pagamentos`) ----
 
-  insert into _plano
-  select (x->>'pagamento_id')::uuid, x->>'numero_parcela_completo',
-         x->>'matricula', x->>'arquivo_origem', (x->>'linha_no_arquivo')::integer
-    from jsonb_array_elements(p_plano) x;
-
-  -- ---- INVARIANTES DO PLANO (antes de olhar o banco) ----
-
-  select count(*) into v_n from _plano;
+  select count(*) into v_n
+    from public.backfill_matricula_stage s where s.lote = p_lote;
   if v_n <> p_esperado then
-    raise exception 'plano com % registros, esperado %', v_n, p_esperado;
+    raise exception 'stage do lote % tem % linhas, esperado %', p_lote, v_n, p_esperado;
   end if;
 
-  if exists (select 1 from _plano
-              where pagamento_id is null or numero_parcela_completo is null
-                 or matricula is null or arquivo_origem is null
-                 or linha_no_arquivo is null) then
-    raise exception 'plano com campo obrigatorio nulo';
+  if exists (select 1 from public.backfill_matricula_stage s
+              where s.lote = p_lote
+                and (btrim(s.numero_parcela_completo) = '' or btrim(s.matricula) = ''
+                     or btrim(s.arquivo_origem) = '')) then
+    raise exception 'stage com campo obrigatorio vazio';
   end if;
 
-  if (select count(distinct pagamento_id) from _plano) <> v_n then
-    raise exception 'plano com pagamento_id repetido';
+  -- pagamento_id unico: garantido pela chave primaria, e conferido assim mesmo
+  if (select count(distinct s.pagamento_id) from public.backfill_matricula_stage s
+       where s.lote = p_lote) <> v_n then
+    raise exception 'stage com pagamento_id repetido';
   end if;
 
-  if (select count(distinct numero_parcela_completo) from _plano) <> v_n then
-    raise exception 'plano com boleto repetido';
+  -- boleto unico dentro do lote
+  if (select count(distinct s.numero_parcela_completo) from public.backfill_matricula_stage s
+       where s.lote = p_lote) <> v_n then
+    raise exception 'stage com boleto repetido';
   end if;
 
-  -- CANONICALIZACAO. Tem de ser identica a do dry-run, ou o hash nunca fecha:
-  -- ordem por pagamento_id textual ascendente, separador '|', registro '\n',
-  -- SEM newline final. `collate "C"` e obrigatorio: sem ele a ordenacao segue a
-  -- collation do banco, que trata o hifen do uuid de outro jeito, e a ordem
-  -- deixaria de ser a mesma que gerou o hash.
+  -- uma unica matricula por pagamento
+  if exists (select 1 from public.backfill_matricula_stage s
+              where s.lote = p_lote
+              group by s.pagamento_id having count(distinct s.matricula) > 1) then
+    raise exception 'stage com mais de uma matricula para o mesmo pagamento';
+  end if;
+
+  -- CANONICALIZACAO. Identica a do dry-run, ou o hash nunca fecha: ordem por
+  -- pagamento_id textual ascendente, separador '|', registro '\n', SEM newline
+  -- final. `collate "C"` e obrigatorio: sem ele a ordenacao segue a collation
+  -- do banco, que trata o hifen do uuid de outro jeito, e a ordem deixaria de
+  -- ser a mesma que gerou o hash.
   select md5(string_agg(
-           pagamento_id::text || '|' || numero_parcela_completo || '|' ||
-           matricula || '|' || arquivo_origem || '|' || linha_no_arquivo::text,
-           E'\n' order by pagamento_id::text collate "C"))
-    into v_hash from _plano;
-  if v_hash <> p_hash then
-    raise exception 'plano nao confere com o artefato auditado (calculado %, esperado %)',
-      v_hash, p_hash;
+           s.pagamento_id::text || '|' || s.numero_parcela_completo || '|' ||
+           s.matricula || '|' || s.arquivo_origem || '|' || s.linha_no_arquivo::text,
+           E'\n' order by s.pagamento_id::text collate "C"))
+    into v_hash
+    from public.backfill_matricula_stage s where s.lote = p_lote;
+  if v_hash is distinct from p_hash then
+    raise exception 'stage nao confere com o artefato auditado (calculado %, esperado %)',
+      coalesce(v_hash, '(vazia)'), p_hash;
   end if;
 
-  -- ---- INVARIANTES CONTRA O BANCO (ainda sem escrever) ----
+  -- ---- 7: INVARIANTES CONTRA `pagamentos` (ainda sem escrever) ----
 
-  if exists (select 1 from _plano x
-              left join public.pagamentos p on p.id = x.pagamento_id
-             where p.id is null) then
-    raise exception 'plano referencia pagamento inexistente';
+  if exists (select 1 from public.backfill_matricula_stage s
+              left join public.pagamentos p on p.id = s.pagamento_id
+             where s.lote = p_lote and p.id is null) then
+    raise exception 'stage referencia pagamento inexistente';
   end if;
 
   -- O VINCULO FOI PROVADO PELO BOLETO. Se o pagamento nao tem mais exatamente
   -- o boleto auditado, a prova do dry-run nao vale mais para ele.
-  if exists (select 1 from _plano x
-              join public.pagamentos p on p.id = x.pagamento_id
-             where coalesce(p.numero_parcela_completo, '') <> x.numero_parcela_completo) then
+  if exists (select 1 from public.backfill_matricula_stage s
+              join public.pagamentos p on p.id = s.pagamento_id
+             where s.lote = p_lote
+               and coalesce(p.numero_parcela_completo, '') <> s.numero_parcela_completo) then
     raise exception 'boleto do pagamento mudou desde o dry-run';
   end if;
 
-  if exists (select 1 from _plano x
-              join public.pagamentos p on p.id = x.pagamento_id
-             where p.matricula is not null) then
+  if exists (select 1 from public.backfill_matricula_stage s
+              join public.pagamentos p on p.id = s.pagamento_id
+             where s.lote = p_lote and p.matricula is not null) then
     raise exception 'alvo com matricula ja preenchida -- nunca sobrescrever';
   end if;
 
-  if exists (select 1 from _plano x
-              join public.pagamentos p on p.id = x.pagamento_id
-             where coalesce(p.tipo_pagamento, '') <> 'SANTANDER') then
+  if exists (select 1 from public.backfill_matricula_stage s
+              join public.pagamentos p on p.id = s.pagamento_id
+             where s.lote = p_lote and coalesce(p.tipo_pagamento, '') <> 'SANTANDER') then
     raise exception 'alvo fora de tipo_pagamento SANTANDER';
   end if;
 
   -- O boleto tem de continuar unico NO BANCO. `numero_parcela_completo` nao e
-  -- unico na tabela -- foi medido: 37 boletos com 2+ pagamentos. Um alvo que
-  -- virou multiplo desde o dry-run sai fora.
-  if exists (select 1 from _plano x
-              join public.pagamentos p on p.numero_parcela_completo = x.numero_parcela_completo
-             group by x.pagamento_id having count(p.id) > 1) then
+  -- unico na tabela -- foi medido: 37 boletos com 2+ pagamentos.
+  if exists (select 1 from public.backfill_matricula_stage s
+              join public.pagamentos p on p.numero_parcela_completo = s.numero_parcela_completo
+             where s.lote = p_lote
+             group by s.pagamento_id having count(p.id) > 1) then
     raise exception 'alvo com boleto multiplo no banco';
   end if;
 
-  -- ---- ESCRITA ----
+  -- ---- 8 a 12: ESCRITA, tudo na mesma transacao ----
 
   insert into public.backfill_matricula_lotes
          (lote, artefato_hash, quantidade_esperada, status)
@@ -231,15 +270,16 @@ begin
 
   insert into public.backfill_matricula_origem
          (lote, pagamento_id, numero_parcela_completo, matricula, arquivo_origem, linha_no_arquivo)
-  select p_lote, x.pagamento_id, x.numero_parcela_completo, x.matricula,
-         x.arquivo_origem, x.linha_no_arquivo
-    from _plano x;
+  select s.lote, s.pagamento_id, s.numero_parcela_completo, s.matricula,
+         s.arquivo_origem, s.linha_no_arquivo
+    from public.backfill_matricula_stage s where s.lote = p_lote;
 
   -- UMA coluna, por id, com a guarda de nulo. Nada mais do pagamento e tocado.
   update public.pagamentos p
-     set matricula = x.matricula
-    from _plano x
-   where p.id = x.pagamento_id
+     set matricula = s.matricula
+    from public.backfill_matricula_stage s
+   where p.id = s.pagamento_id
+     and s.lote = p_lote
      and p.matricula is null;
   get diagnostics v_rows = row_count;
 
@@ -251,20 +291,25 @@ begin
      set quantidade_aplicada = v_rows
    where lote = p_lote;
 
+  -- A STAGE SO E LIMPA DEPOIS DO SUCESSO. Como tudo esta na mesma transacao,
+  -- qualquer falha acima desfaz tambem este delete -- e as linhas ficam la,
+  -- para diagnostico e reexecucao.
+  delete from public.backfill_matricula_stage s where s.lote = p_lote;
+
   return jsonb_build_object(
     'resultado', 'APLICADO', 'lote', p_lote,
     'alteracoes', v_rows, 'artefato_hash', p_hash);
 end;
 $fn$;
 
-comment on function public.backfill_matricula_aplicar(jsonb, text, integer, text) is
-  'Motor generico de backfill da matricula Prime. Recebe o plano, o hash do artefato, a contagem esperada e o lote -- nada disso vive no repositorio. Confere doze invariantes antes de escrever, grava so pagamentos.matricula e exige ROW_COUNT igual ao previsto, senao levanta excecao e desfaz tudo. Chamada administrativa postgres-only: nao tem caminho pela interface, e nem service_role executa.';
+comment on function public.backfill_matricula_aplicar(text, text, integer) is
+  'Motor de backfill da matricula Prime, tempo 2. Recebe SO lote, hash e contagem -- nenhum dado pessoal como parametro, de proposito: auto_explain loga parametros por inteiro acima de 10s e nao pode ser desligado por nao-superusuario. Le o plano de backfill_matricula_stage, confere os invariantes, grava so pagamentos.matricula, exige ROW_COUNT igual ao previsto e limpa a stage apenas no sucesso. Chamada administrativa postgres-only: nem service_role executa.';
 
-revoke all on function public.backfill_matricula_aplicar(jsonb, text, integer, text)
-  from public, anon, authenticated;
+revoke all on function public.backfill_matricula_aplicar(text, text, integer)
+  from public, anon, authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
--- 3. PROVA
+-- 4. PROVA
 -- ---------------------------------------------------------------------------
 
 do $prova$
@@ -277,36 +322,32 @@ begin
     raise exception 'a funcao nao foi criada';
   end if;
 
-  -- INVOKER, nunca DEFINER
+  -- O CODIGO, NAO O COMENTARIO. O comentario do gate explica POR QUE
+  -- service_role nao esta la -- e compararia contra si mesmo.
+  v_codigo := regexp_replace(v_src, '--[^\n]*', '', 'g');
+
   if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
               where n.nspname='public' and p.proname='backfill_matricula_aplicar'
                 and p.prosecdef) then
     raise exception 'a funcao ficou SECURITY DEFINER';
   end if;
 
-  -- a guarda de nulo tem de estar no UPDATE
+  -- a assinatura NAO pode voltar a receber o plano
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+              where n.nspname='public' and p.proname='backfill_matricula_aplicar'
+                and pg_get_function_identity_arguments(p.oid) like '%jsonb%') then
+    raise exception 'a funcao voltou a receber o plano como parametro';
+  end if;
+
+  if v_codigo not like '%pg_advisory_xact_lock%' then
+    raise exception 'o motor nao adquire lock do lote';
+  end if;
   if v_codigo not like '%and p.matricula is null%' then
     raise exception 'o update perdeu a guarda de matricula nula';
   end if;
-
-  -- a conferencia de ROW_COUNT tem de existir
   if v_codigo not like '%get diagnostics v_rows = row_count%' then
     raise exception 'o motor nao mede row_count';
   end if;
-
-  -- nada de anon/authenticated
-  if has_function_privilege('anon',
-       'public.backfill_matricula_aplicar(jsonb, text, integer, text)', 'EXECUTE')
-  or has_function_privilege('authenticated',
-       'public.backfill_matricula_aplicar(jsonb, text, integer, text)', 'EXECUTE') then
-    raise exception 'a funcao ficou executavel por anon ou authenticated';
-  end if;
-
-  -- O CODIGO, NAO O COMENTARIO. O comentario do gate explica POR QUE
-  -- service_role nao esta la -- e compararia contra si mesmo.
-  v_codigo := regexp_replace(v_src, '--[^\n]*', '', 'g');
-
-  -- o gate e do dono, e nao pode citar service_role (que nao tem EXECUTE)
   if v_codigo like '%service_role%' then
     raise exception 'o gate voltou a citar service_role, que nao executa a funcao';
   end if;
@@ -314,9 +355,34 @@ begin
     raise exception 'o gate deixou de ser postgres-only';
   end if;
 
+  -- ACL da funcao
+  if has_function_privilege('anon',
+       'public.backfill_matricula_aplicar(text, text, integer)', 'EXECUTE')
+  or has_function_privilege('authenticated',
+       'public.backfill_matricula_aplicar(text, text, integer)', 'EXECUTE')
+  or has_function_privilege('service_role',
+       'public.backfill_matricula_aplicar(text, text, integer)', 'EXECUTE') then
+    raise exception 'a funcao ficou executavel por anon, authenticated ou service_role';
+  end if;
+
+  -- ACL da stage: service_role INSERE e so
+  if not has_table_privilege('service_role', 'public.backfill_matricula_stage', 'INSERT') then
+    raise exception 'service_role perdeu o INSERT na stage -- a Edge nao carrega';
+  end if;
+  if has_table_privilege('service_role', 'public.backfill_matricula_stage', 'SELECT')
+  or has_table_privilege('service_role', 'public.backfill_matricula_stage', 'DELETE')
+  or has_table_privilege('service_role', 'public.backfill_matricula_stage', 'UPDATE') then
+    raise exception 'service_role ganhou mais que INSERT na stage';
+  end if;
+  if has_table_privilege('anon', 'public.backfill_matricula_stage', 'SELECT')
+  or has_table_privilege('authenticated', 'public.backfill_matricula_stage', 'SELECT') then
+    raise exception 'a stage ficou legivel por anon ou authenticated';
+  end if;
+
   -- a trilha nao pode ser legivel pelo PostgREST
   if has_table_privilege('anon', 'public.backfill_matricula_origem', 'SELECT')
-  or has_table_privilege('authenticated', 'public.backfill_matricula_origem', 'SELECT') then
-    raise exception 'a trilha ficou legivel por anon ou authenticated';
+  or has_table_privilege('authenticated', 'public.backfill_matricula_origem', 'SELECT')
+  or has_table_privilege('service_role', 'public.backfill_matricula_origem', 'SELECT') then
+    raise exception 'a trilha ficou legivel fora do dono';
   end if;
 end $prova$;

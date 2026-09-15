@@ -19,6 +19,10 @@
 -- delete from public.backfill_matricula_lotes  where lote = 'MATRICULA_SANTANDER_JUL_AGO_2026_A';
 
 -- 2) ESTRUTURA
-drop function if exists public.backfill_matricula_aplicar(jsonb, text, integer, text);
+-- A stage sai junto: ela e area de passagem, e o que sobra nela depois de um
+-- lote que falhou e plano nao aplicado -- dado pessoal sem valor de auditoria.
+-- A procedencia do que FOI aplicado vive em backfill_matricula_origem.
+drop function if exists public.backfill_matricula_aplicar(text, text, integer);
+drop table if exists public.backfill_matricula_stage;
 drop table if exists public.backfill_matricula_origem;
 drop table if exists public.backfill_matricula_lotes;
