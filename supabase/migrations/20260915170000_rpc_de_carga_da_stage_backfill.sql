@@ -41,6 +41,36 @@
 -- O QUE ELA NAO FAZ: nao toca em `pagamentos`, nem em `backfill_matricula_lotes`
 -- ou `_origem`, nao chama `backfill_matricula_aplicar`, nao religa
 -- `consulta_portador` e nao usa nada da 20260915120000.
+--
+-- ---------------------------------------------------------------------------
+-- O QUE CONCEDER `EXECUTE` A `service_role` SIGNIFICA, DITO DE FRENTE
+-- ---------------------------------------------------------------------------
+--
+-- Quem tiver a credencial `service_role` pode chamar esta RPC direto, sem
+-- passar pelo token e pelo HMAC da Edge. Isso e aceito, e o limite e este:
+--
+--   A Edge protege o endpoint publico. A RPC considera posse da credencial
+--   `service_role` uma credencial administrativa de carga, mas essa credencial
+--   NAO possui autoridade para aplicar o lote. A integridade financeira
+--   permanece protegida pelo motor postgres-only, pelo hash do artefato e
+--   pelos invariantes.
+--
+-- Traduzindo o alcance maximo de quem tiver essa credencial: escrever linhas
+-- numa tabela de passagem. Nao pode ler o que ja esta la, nao pode alterar nem
+-- apagar, nao pode tocar em `pagamentos`, `_lotes` ou `_origem`, e sobretudo
+-- NAO pode executar `backfill_matricula_aplicar` -- que e postgres-only.
+--
+-- E sujar a stage nao converte em dinheiro: o motor recomputa a canonicalizacao
+-- do lote inteiro e a compara com o hash do artefato auditado. Uma linha
+-- adulterada, uma linha a mais ou uma linha a menos mudam o hash, e a aplicacao
+-- aborta ANTES de qualquer UPDATE. O pior efeito possivel e negar a carga --
+-- barulhento, reversivel, e corrigido apagando o lote como dono.
+--
+-- A analise acima depende de `service_role` NAO poder criar objeto em `public`
+-- (o que permitiria sequestrar uma referencia do search_path). Conferido em
+-- producao, 15/09/2026: `has_schema_privilege('service_role','public','CREATE')`
+-- = false, e o mesmo para `anon`, `authenticated` e `PUBLIC`. Se algum dia isso
+-- mudar, esta analise tem de ser refeita -- e ha teste que falha se mudar.
 
 -- ---------------------------------------------------------------------------
 -- 1. A RPC DE CARGA
