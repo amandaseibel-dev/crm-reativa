@@ -1,8 +1,29 @@
-# Pedido técnico — acesso aos acordos do convênio 272047 (carrier 166)
+> ## ⚠️ RASCUNHO INTERNO — NÃO ENVIADO, NÃO AUTORIZADO
+>
+> **Nada foi solicitado à ULBRA/TI.** Este texto é uma **opção futura**, redigida
+> para estar pronta *caso* a gestão decida abrir frente externa — decisão que
+> **ainda não foi tomada**.
+>
+> Enquanto este aviso existir:
+> - não há solicitação em andamento;
+> - não estamos aguardando resposta de ninguém;
+> - a ULBRA **não** confirmou nem negou nenhuma limitação;
+> - a resolução **não** depende, neste momento, de ação externa.
+>
+> O que está comprovado é apenas: **a superfície acessível pela nossa
+> `X-API-Key` atual não expôs a estrutura financeira do carrier 166 nos testes
+> realizados**. A hipótese de que o dado exista e esteja apenas não exposto é
+> plausível e **não verificada**.
+>
+> Não enviar, encaminhar ou acionar ninguém sem autorização expressa da gestão.
 
-**Para:** TI ULBRA / responsável pela Prime API
-**De:** ReATIVA Recuperação de Crédito — integração CRM
-**Data:** 15/09/2026
+---
+
+# [RASCUNHO] Pedido técnico — acesso aos acordos do convênio 272047 (carrier 166)
+
+**Destinatário previsto (se e quando for enviado):** TI ULBRA / responsável pela Prime API
+**Origem:** ReATIVA Recuperação de Crédito — integração CRM
+**Rascunho de:** 15/09/2026 · **status: não enviado**
 **Chave de integração:** a `X-API-Key` já em uso pela ReATIVA
 
 ---
