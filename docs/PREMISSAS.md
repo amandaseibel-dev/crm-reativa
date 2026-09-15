@@ -11,7 +11,8 @@ Cada premissa diz **onde ela é imposta**. Premissa que só existe em texto é
 premissa que volta a ser violada: a regra tem de morar no banco (gatilho,
 constraint ou função), não na tela.
 
-Estado em 29/08/2026. As dezoito premissas foram fechadas com a gestão.
+Estado em 15/09/2026. As dezoito primeiras premissas foram fechadas com a
+gestão em 29/08/2026; a 19 (Acordo) foi fixada em 15/09/2026.
 
 ---
 
@@ -417,3 +418,70 @@ migration — extrair `create function/trigger/table/view/policy` de
 repetir de tempos em tempos.
 
 Memórias: `prod-tinha-funcoes-que-o-repo-nao-registrava`, `arquivos-locais-podem-estar-atras-da-main`
+
+---
+
+## Acordo
+
+### 19. O `Relatorio Titulos em Aberto` não é fonte histórica de acordos
+
+Ele traz **só acordo que ainda tem título em aberto no instante da extração**.
+Um acordo pago desaparece dele — e some para sempre. Logo:
+
+1. **ausência no relatório nunca significa que o acordo não existiu.** Não é
+   prova negativa, em nenhuma circunstância;
+2. **a estrutura de um acordo não pode depender de ele continuar em aberto.**
+   Quitado, quebrado ou renegociado, ele continua existindo;
+3. **toda estrutura oficial recebida é persistida historicamente.** O que entrou
+   uma vez não se perde porque a fonte parou de mandar;
+4. **acordo quitado permanece no histórico** com parcelas, boletos, títulos de
+   origem e pagamentos;
+5. **pagamento Santander não inventa estrutura de acordo ausente.** Ele prova
+   que entrou dinheiro — não quantas parcelas havia, nem de quanto, nem o
+   desconto;
+6. **liquidação do título original não substitui o entendimento do acordo.** É
+   evidência auxiliar, fallback — nunca o modelo;
+7. **acordo pago antes de ser importado precisa de caminho determinístico de
+   recuperação.** Enquanto não existir, a frente não está pronta;
+8. **importação futura preserva o payload bruto e todas as colunas**, inclusive
+   as que o motor ainda não usa. Coluna descartada na importação é informação
+   perdida para sempre.
+
+**O ciclo obrigatório, e nenhuma solução fecha sem ele:**
+
+```
+título original → acordo efetivado → títulos de origem → parcelas
+              → boletos → pagamentos → saldo → quitado/quebrado/renegociado
+```
+
+**Por quê:** em 14/09/2026, 13 pagamentos Santander ficaram em
+`AGUARDANDO_ACORDO` porque o acordo nunca entrou no CRM — o relatório passou por
+cima deles. A prova de que não era atraso: os números vinham **intercalados**
+com acordos que a importação do mesmo dia trouxe (71643 e 71645 entre 71637 e
+71650; 71803 entre 71765 e 71818). O relatório pulou exatamente quem tinha
+pagado.
+
+E a tentativa de contornar pela API não fecha o buraco: medido em 67 alunos e
+1.625 linhas de extrato, o recurso acessível pela nossa chave nunca devolve o
+portador 166 (convênio 272047, onde mora o boleto do acordo), embora a própria
+API afirme que o aluno está nesse portador. O extrato é uma projeção filtrada —
+não a ausência do dado.
+
+**Onde vive:** hoje, em texto — e é exatamente por isso que esta premissa existe.
+A imposição no banco depende do modelo do acordo, que ainda está sendo mapeado.
+O que já está imposto: `20260915130000` mantém o caminho automático **pausado**
+(`fluxo_pagamentos_config.consulta_portador = false`) até o modelo fechar, e
+`20260915120000` marca a liquidação do título original com
+`origem_liquidacao = 'PRIME_LIQUIDACAO_OFICIAL'` — deliberadamente rotulada como
+evidência auxiliar, com `acordo_id` NULL, para nunca ser confundida com estrutura
+de acordo.
+
+**Decodificação já provada, e que o modelo deve usar:** o boleto de acordo da
+ULBRA é `5 + acordo(6) + parcela(4)` — conferido em 8 de 8 contra
+`acordos.numero_ulbra` (`050308850007` → acordo 30885, parcela 7). O relatório
+**já entrega** parcela de acordo nesse formato; o importador atual guarda quatro
+colunas e descarta o resto, com `acordos_titulos.dados` nulo em 392 de 392.
+
+Memórias: `acordo-pago-some-do-relatorio-de-titulos-em-aberto`,
+`prime-api-superficie-e-acordo-ausente`,
+`titulo-liquidado-na-origem-pelo-prime`
