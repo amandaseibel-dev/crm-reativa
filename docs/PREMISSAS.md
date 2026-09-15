@@ -442,8 +442,8 @@ Um acordo pago desaparece dele — e some para sempre. Logo:
 6. **liquidação do título original não substitui o entendimento do acordo.** É
    evidência auxiliar, fallback — nunca o modelo;
 7. **acordo pago antes de ser importado precisa de caminho determinístico de
-   recuperação.** Enquanto não existir, a frente não está pronta — e o caminho
-   passa por obter a superfície de integração que hoje falta, não por inferir a
+   recuperação.** Enquanto não existir, a frente não está pronta. Qual será esse
+   caminho é decisão em aberto — o que a premissa proíbe é fechá-lo inferindo a
    estrutura a partir do que sobrou;
 8. **importação futura preserva o payload bruto e todas as colunas**, inclusive
    as que o motor ainda não usa. Coluna descartada na importação é informação
@@ -463,21 +463,30 @@ com acordos que a importação do mesmo dia trouxe (71643 e 71645 entre 71637 e
 71650; 71803 entre 71765 e 71818). O relatório pulou exatamente quem tinha
 pagado.
 
-**O DADO HISTÓRICO EXISTE — o que falta é superfície de integração.** Isto não é
-nuance: é a diferença entre "não dá para saber" e "não estamos recebendo". A
-ULBRA/Prime mantém o registro do acordo; a tela do Prime o exibe; e a própria API
-confirma, com controle negativo, que o aluno está filiado ao convênio 272047
-(`carrierId=166` devolve o aluno, e devolve **zero** para portadores sem relação).
+**O QUE ESTÁ COMPROVADO, e só isto.** A superfície acessível pela nossa
+`X-API-Key` atual **não expôs a estrutura financeira do carrier 166 nos testes
+realizados**. Medido em 67 alunos e 1.625 linhas de extrato: o portador 166 não
+aparece em nenhuma linha de `/financial-statement` — inclusive para acordos
+ATIVOS, com parcela em aberto, cujo boleto conhecemos pelo número. A listagem do
+portador (`/students?carrierId=166`) traz filiação e campos acadêmicos, sem
+nenhuma dimensão financeira. 48 rotas candidatas responderam 404, nenhuma 405.
 
-O que está provado é mais estreito, e é sobre NÓS: **a superfície acessível pela
-`X-API-Key` atual não expõe os títulos e parcelas do carrier 166.** Medido em 67
-alunos e 1.625 linhas de extrato, o portador 166 nunca aparece em linha nenhuma —
-inclusive para acordos ATIVOS, com parcela em aberto, cujo boleto conhecemos pelo
-número. `/financial-statement` é uma projeção filtrada, e a listagem do portador
-traz só filiação e campos acadêmicos, sem nenhuma dimensão financeira.
+**O que está comprovado sobre a filiação**, com controle negativo:
+`carrierId=166` devolve o aluno, e devolve **zero** para portadores sem relação
+(100, 102, 202, 133, 149 e um id inexistente). O filtro discrimina de verdade.
 
-Nunca documentar isso como "informação inexistente". A formulação correta é:
-**existe no ecossistema Prime/ULBRA e não está exposta pela integração atual.**
+**HIPÓTESE, não fato:** que a estrutura do acordo exista e esteja registrada em
+algum lugar do ecossistema Prime/ULBRA, apenas não exposta à nossa integração. É
+plausível — a tela do Prime exibe acordo, e a filiação ao convênio é real — mas
+**não foi verificada por nós** e não deve ser escrita como constatação.
+
+**Igualmente não comprovado, e que nunca se deve escrever:** que a ULBRA tenha
+confirmado qualquer limitação, que exista solicitação em andamento, ou que a
+resolução dependa obrigatoriamente de ação externa. Até 15/09/2026 **nenhum
+contato foi feito**, e abrir frente externa é decisão da gestão, ainda não tomada.
+
+**Como formular.** Nunca "a informação não existe" — isso extrapola o medido.
+Sempre: **não foi exposta pela superfície de integração testada.**
 
 **Onde vive:** hoje, em texto — e é exatamente por isso que esta premissa existe.
 A imposição no banco depende do modelo do acordo, que ainda está sendo mapeado.
