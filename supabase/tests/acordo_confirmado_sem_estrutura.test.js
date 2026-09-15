@@ -291,7 +291,9 @@ describe("8. a origem LIVE nunca e rebaixada", () => {
   it("LIVE -> grava espelho -> motor -> continua LIVE", () => {
     // a Edge grava o espelho ANTES da RPC; a RPC marca LIVE; o motor roda depois
     const gravaEspelho = pos(fn, "prime_portador_membro");
-    const chamaRpc = pos(fn, "conciliacao_confirmar_portador_166");
+    // a CHAMADA, nao a mencao: o comentario da etapa de identidade cita a RPC
+    // para explicar por que NAO a usa ali
+    const chamaRpc = pos(fn, 'supa.rpc("conciliacao_confirmar_portador_166"');
     expect(gravaEspelho).toBeLessThan(chamaRpc);
     // e a RPC marca LIVE antes de chamar o motor
     const marca = pos(rpc, "set evidencia_origem = p_origem");
@@ -432,7 +434,7 @@ describe("12. CRM sem acordo -> Prime /agreements -> se vazio -> 166 -> fallback
 
   it("estrutura encontrada devolve ACORDO_ENCONTRADO_NA_API e NAO cai no fallback", () => {
     const i = pos(fn, "if (estrutura) {");
-    const fim = pos(fn, "// 4) veio vazio");
+    const fim = pos(fn, 'A API respondeu "não tenho acordo"');
     const ramo = fn.slice(i, fim);
     expect(ramo).toContain("ACORDO_ENCONTRADO_NA_API");
     expect(ramo).toContain("return new Response");
@@ -495,7 +497,7 @@ describe("12. CRM sem acordo -> Prime /agreements -> se vazio -> 166 -> fallback
 const recorder = corpo("conciliacao_registrar_consulta_estrutura", "$fn$");
 
 // O trecho da Edge entre a tentativa oficial e a busca do 166.
-const tentativa = fn.slice(pos(fn, "// 2) TENTATIVA OFICIAL"), pos(fn, "carrierId=166&take=50"));
+const tentativa = fn.slice(pos(fn, "TENTATIVA OFICIAL, antes de qualquer fallback"), pos(fn, "carrierId=166&take=50"));
 
 describe("13. Edge: cada resposta de /agreements grava o seu resultado", () => {
   it("a coluna so e escrita por uma RPC que valida o valor", () => {
@@ -560,7 +562,7 @@ describe("13. Edge: cada resposta de /agreements grava o seu resultado", () => {
   it("lista vazia grava NAO_ENCONTRADA e SEGUE para o 166", () => {
     const i = pos(tentativa, "} else {");
     expect(i).toBeGreaterThan(-1);
-    const ramo = tentativa.slice(i, pos(tentativa, "// 3) veio estrutura"));
+    const ramo = tentativa.slice(i, pos(tentativa, "veio estrutura -> NÃO é caso de fallback"));
     expect(ramo).toContain('registraResultado("NAO_ENCONTRADA")');
     // este e o unico ramo que nao devolve: a execucao continua para o 166
     expect(ramo).not.toContain("return new Response");
@@ -574,7 +576,7 @@ describe("13. Edge: cada resposta de /agreements grava o seu resultado", () => {
     expect(i).toBeGreaterThan(-1);
     const ramo = tentativa.slice(i, pos(tentativa, "} else {"));
     expect(ramo).toContain('registraResultado("ENCONTRADA")');
-    const saida = fn.slice(pos(fn, "if (estrutura) {"), pos(fn, "// 4) veio vazio"));
+    const saida = fn.slice(pos(fn, "if (estrutura) {"), pos(fn, 'A API respondeu "não tenho acordo"'));
     expect(saida).toContain("ACORDO_ENCONTRADO_NA_API");
     expect(saida).toContain("return new Response");
     expect(saida).not.toContain("carrierId=166");
