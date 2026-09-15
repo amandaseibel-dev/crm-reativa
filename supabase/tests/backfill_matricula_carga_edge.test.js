@@ -28,7 +28,9 @@ import { criarHandler, assinar, sha256Hex, iguaisEmTempoConstante, registroInval
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const RAIZ = resolve(AQUI, "..", "..");
 const EDGE = resolve(RAIZ, "supabase/functions/backfill-matricula-carga/index.ts");
+const PREP = resolve(RAIZ, "supabase/migrations/20260915135959_prepara_acl_da_stage_do_backfill.sql");
 const MIG = resolve(RAIZ, "supabase/migrations/20260915140000_backfill_matricula_prime_motor.sql");
+const RPC = resolve(RAIZ, "supabase/migrations/20260915170000_rpc_de_carga_da_stage_backfill.sql");
 const fonte = readFileSync(EDGE, "utf8").replace(/\r/g, "");
 const semComentario = (t) =>
   t.split("\n").filter((l) => !l.trimStart().startsWith("//") && !l.trimStart().startsWith("*")).join("\n");
@@ -54,17 +56,22 @@ describe("estrutura: o que a Edge nao faz", () => {
     // o CODIGO, nao o comentario: o bloco de ciclo de vida cita a funcao de
     // aplicacao para explicar a ordem dos passos -- e nao e chamada nenhuma.
     expect(codigo).not.toMatch(/backfill_matricula_aplicar/);
-    expect(codigo).not.toMatch(/\.rpc\(/);
   });
-  it("so toca a stage, e so para inserir", () => {
-    expect(codigo).toMatch(/from\("backfill_matricula_stage"\)/);
+  it("a UNICA rpc chamada e a de carga", () => {
+    const chamadas = codigo.match(/\.rpc\(\s*"([^"]+)"/g) || [];
+    expect(chamadas).toHaveLength(1);
+    expect(chamadas[0]).toMatch(/backfill_matricula_stage_carregar/);
+  });
+  it("NAO fala com a tabela -- fala com a rpc de carga", () => {
+    // o PostgREST monta todo insert como CTE+SELECT; gravar pela tabela
+    // exigiria SELECT nela, que service_role nao tem e nao deve ganhar.
+    expect(codigo).not.toMatch(/from\("backfill_matricula_stage"\)/);
+    expect(codigo).not.toMatch(/\.upsert\(|\.insert\(/);
+    expect(codigo).toMatch(/\.rpc\("backfill_matricula_stage_carregar"/);
     expect(codigo).not.toMatch(/\.select\(|\.delete\(|\.update\(/);
-    expect(codigo).toMatch(/ignoreDuplicates: true/);
   });
   it("a carga e CEGA: sem count, sem select, sem representation", () => {
-    // contar ou ler de volta exige RETURNING, que exige SELECT nas colunas --
-    // privilegio que service_role nao tem nesta tabela e nao deve ganhar.
-    expect(codigo).not.toMatch(/count:\s*"exact"|count:\s*"planned"|count:\s*"estimated"/);
+    expect(codigo).not.toMatch(/count:\s*"(exact|planned|estimated)"/);
     expect(codigo).not.toMatch(/return=representation/);
     expect(codigo).not.toMatch(/\.select\(/);
   });
@@ -116,24 +123,22 @@ async function novaBancada() {
   await db.exec(`create role anon; create role authenticated; create role service_role;
     create table public.pagamentos (id uuid primary key, numero_parcela_completo text,
       matricula text, tipo_pagamento text);`);
+  await db.exec(`alter default privileges in schema public grant all on tables to anon, authenticated, service_role;`);
+  await db.exec(readFileSync(PREP, "utf8"));
   await db.exec(readFileSync(MIG, "utf8"));
+  await db.exec(readFileSync(RPC, "utf8"));
   const chamadas = [];
   const handler = criarHandler({
     env: (n) => (n === "BACKFILL_CARGA_TOKEN" ? SEGREDO : undefined),
-    inserir: async (linhas) => {
-      chamadas.push(linhas.length);
-      const vals = linhas.map((_, k) => {
-        const b = k * 6;
-        return `($${b + 1},$${b + 2}::uuid,$${b + 3},$${b + 4},$${b + 5},$${b + 6}::int)`;
-      }).join(",");
-      const args = [];
-      for (const l of linhas) args.push(l.lote, l.pagamento_id, l.numero_parcela_completo,
-        l.matricula, l.arquivo_origem, l.linha_no_arquivo);
-      // sem RETURNING: e exatamente o que o PostgREST fara com service_role,
-      // que so tem INSERT. Ler de volta exigiria SELECT.
-      await db.query(`insert into public.backfill_matricula_stage
-        (lote,pagamento_id,numero_parcela_completo,matricula,arquivo_origem,linha_no_arquivo)
-        values ${vals} on conflict (lote, pagamento_id) do nothing`, args);
+    // O DUBLE CHAMA A RPC DE VERDADE, como service_role -- que e o que o
+    // PostgREST fara. So o salto HTTP fica simulado.
+    inserir: async (lote, registros) => {
+      chamadas.push(registros.length);
+      try {
+        await db.exec(`set role service_role;`);
+        await db.query(`select public.backfill_matricula_stage_carregar($1,$2::jsonb)`,
+          [lote, JSON.stringify(registros)]);
+      } finally { await db.exec(`reset role;`); }
     },
   });
   db.handler = handler;
