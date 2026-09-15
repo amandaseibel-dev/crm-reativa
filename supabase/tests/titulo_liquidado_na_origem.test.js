@@ -7,8 +7,8 @@
 // acontece no apply_migration e o bloco DO de prova aborta a aplicacao se a
 // estrutura mudar.
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
-import { resolve, dirname } from "node:path";
+import { readFileSync, existsSync, readdirSync } from "node:fs";
+import { resolve, dirname, basename } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -16,7 +16,10 @@ const RAIZ = resolve(AQUI, "..", "..");
 const MIG = resolve(RAIZ, "supabase/migrations/20260915120000_titulo_liquidado_na_origem.sql");
 const FN = resolve(RAIZ, "supabase/functions/prime-portador/index.ts");
 const RB = resolve(RAIZ, "supabase/rollbacks/20260915120000_titulo_liquidado_na_origem.rollback.sql");
+const DIR_MIG = resolve(RAIZ, "supabase/migrations");
+const PREP = resolve(DIR_MIG, "20260915115959_prepara_segunda_chance_antes_titulo_liquidado.sql");
 const sql = readFileSync(MIG, "utf8").replace(/\r/g, "");
+const prep = existsSync(PREP) ? readFileSync(PREP, "utf8").replace(/\r/g, "") : "";
 const rb = readFileSync(RB, "utf8").replace(/\r/g, "");
 const fn = readFileSync(FN, "utf8").replace(/\r/g, "");
 
@@ -633,6 +636,106 @@ describe("15. o confirmado sem estrutura pode evoluir -- mas nao para sempre", (
     expect(sql).not.toContain("cron.unschedule");
     // a janela de frequencia continua sendo 24h, nao menos
     expect(disp).not.toMatch(/interval '(\d+) (minutes|hours)'/g.source && /interval '[0-9]+ minutes'/);
+  });
+
+  // ---------------------------------------------------------------------
+  // A SEQUENCIA DE MIGRATIONS, nao a ordem interna de um arquivo.
+  //
+  // Em 15/09/2026 a #380 FALHOU em producao: o `DO $prova$` dela roda ANTES da
+  // secao que redefine `conciliacao_consultar_portador_pendentes` com a janela
+  // de 72h, entao validava a versao da #379 -- sem janela -- e abortava com
+  // "o disparador nao da segunda chance ao estado confirmado".
+  //
+  // O arquivo NAO foi corrigido: ja estava no `main`, e a catraca trata
+  // migration na base como imutavel (I1/I2/I3). A correcao e de ORDEM entre
+  // arquivos: uma migration preparatoria, que ordena antes, instala o
+  // disparador na forma final. Quando a #380 roda, a prova ja encontra a
+  // funcao certa, e a secao 7 dela reaplica o mesmo corpo -- idempotente.
+  //
+  // Estes testes validam a SEQUENCIA. Se a preparatoria sumir, ou passar a
+  // ordenar depois, eles quebram.
+  it("a preparatoria existe e ordena entre a #379 e a #380", () => {
+    expect(existsSync(PREP), "a migration preparatoria nao existe").toBe(true);
+    const v = (f) => basename(f).slice(0, 14);
+    expect(v(PREP) > "20260914190000",
+      "a preparatoria ordena antes da #379: o disparador base ainda nao existiria").toBe(true);
+    expect(v(PREP) < "20260915120000",
+      "a preparatoria ordena depois da #380: a prova da #380 rodaria antes dela").toBe(true);
+  });
+
+  it("o disparador da preparatoria e identico ao da secao 7 da #380", () => {
+    const corpoDe = (texto) => {
+      const i = texto.indexOf("create or replace function public.conciliacao_consultar_portador_pendentes");
+      const a = texto.indexOf("$fn$", i), b = texto.indexOf("$fn$", a + 4);
+      return texto.slice(a + 4, b);
+    };
+    expect(corpoDe(prep)).toBe(corpoDe(sql));
+    // e a preparatoria leva junto o mesmo comment e o mesmo revoke
+    expect(prep).toContain("comment on function public.conciliacao_consultar_portador_pendentes(int) is");
+    expect(prep).toContain("revoke all on function public.conciliacao_consultar_portador_pendentes(int) from public, anon, authenticated;");
+    expect(prep).toContain("conciliacao_em > now() - interval '72 hours'");
+  });
+
+  it("a preparatoria NAO carrega nenhuma outra logica da #380", () => {
+    for (const proibido of ["origem_liquidacao", "titulo_liquidado_na_origem_e_terminal",
+                            "conciliacao_liquidar_titulo_por_prime",
+                            "conciliacao_vincular_identidade_por_cpf",
+                            "pagamento_conciliar_um", "TITULO_ORIGINAL_LIQUIDADO",
+                            "alter table", "create trigger", "do $prova$"]) {
+      expect(prep, `a preparatoria carrega ${proibido}, que e da #380`).not.toContain(proibido);
+    }
+    // so UMA funcao e definida nela
+    expect((prep.match(/create or replace function/g) || []).length).toBe(1);
+  });
+
+  // O TESTE QUE PEGA O BUG DE 15/09, e o proximo do mesmo tipo.
+  //
+  // Simula o que o Postgres faz: aplica as migrations em ordem de nome,
+  // concatenando. Em qualquer `DO $prova$`, toda funcao que ele inspeciona em
+  // pg_proc ja tem de ter sido definida ANTES naquele fluxo.
+  it("aplicadas em ordem de nome, a prova so inspeciona funcao ja definida", () => {
+    // compara pela VERSAO (14 digitos), nao pelo nome inteiro: o nome completo
+    // e maior que o limite e excluiria justamente a #380 do fluxo.
+    const arquivos = readdirSync(DIR_MIG)
+      .filter((f) => f.endsWith(".sql"))
+      .filter((f) => f.slice(0, 14) >= "20260914190000" && f.slice(0, 14) <= "20260915120000")
+      .sort();
+    expect(arquivos.map((f) => f.slice(0, 14)))
+      .toEqual(["20260914190000", "20260915115959", "20260915120000"]);
+    const fluxo = arquivos.map((f) => readFileSync(resolve(DIR_MIG, f), "utf8")).join("\n");
+
+    let achou = 0;
+    // cada bloco DO $prova$ do fluxo
+    for (let i = fluxo.indexOf("do $prova$"); i !== -1; i = fluxo.indexOf("do $prova$", i + 1)) {
+      const fim = fluxo.indexOf("end $prova$;", i);
+      const bloco = fluxo.slice(i, fim);
+      for (const m of bloco.matchAll(/p\.proname\s*=\s*'([a-z_]+)'/g)) {
+        const fn = m[1];
+        const alvo = `create or replace function public.${fn}(`;
+        // NAO e a primeira definicao: e a ULTIMA antes da prova -- que e a que
+        // esta no banco quando ela roda. Foi exatamente isso que faltou em
+        // 15/09: a #379 ja definia o disparador antes da prova, mas SEM a
+        // janela, e olhar so "existe definicao antes" dava verde no bug.
+        const def = fluxo.lastIndexOf(alvo, i);
+        if (def === -1) continue;            // definida noutra migration fora da faixa
+        achou += 1;
+        expect(def, `a prova inspeciona ${fn}, definida DEPOIS dela no fluxo`).toBeLessThan(i);
+      }
+    }
+    expect(achou, "nenhuma funcao inspecionada -- o teste nao esta medindo nada")
+      .toBeGreaterThan(0);
+
+    // E O CASO CONCRETO QUE DERRUBOU A #380: nao basta o disparador existir
+    // antes da prova -- a #379 ja o definia. A versao VIGENTE naquele ponto
+    // tem de ser a que tem a janela, senao a prova acusa e a migration aborta.
+    const prova380 = fluxo.lastIndexOf("do $prova$");
+    const ultimaDef = fluxo.lastIndexOf(
+      "create or replace function public.conciliacao_consultar_portador_pendentes(", prova380);
+    expect(ultimaDef, "o disparador nao e definido antes da ultima prova").toBeGreaterThan(-1);
+    const vigente = fluxo.slice(ultimaDef, fluxo.indexOf("$fn$;", ultimaDef));
+    expect(vigente,
+      "quando o DO $prova$ da #380 roda, o disparador vigente ainda nao tem a janela de 72h")
+      .toContain("conciliacao_em > now() - interval '72 hours'");
   });
 
   it("a prova da migration cobre a janela e a ancora", () => {
