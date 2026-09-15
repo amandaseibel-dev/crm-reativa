@@ -475,10 +475,14 @@ nenhuma dimensão financeira. 48 rotas candidatas responderam 404, nenhuma 405.
 `carrierId=166` devolve o aluno, e devolve **zero** para portadores sem relação
 (100, 102, 202, 133, 149 e um id inexistente). O filtro discrimina de verdade.
 
-**HIPÓTESE, não fato:** que a estrutura do acordo exista e esteja registrada em
-algum lugar do ecossistema Prime/ULBRA, apenas não exposta à nossa integração. É
-plausível — a tela do Prime exibe acordo, e a filiação ao convênio é real — mas
-**não foi verificada por nós** e não deve ser escrita como constatação.
+**VERIFICADO EM 15/09/2026 — o que deixa de ser hipótese, e o que continua
+sendo.** A estrutura do acordo **existe e está visível** na tela do Prime,
+inclusive com o acordo quitado: conferido no acordo 71903, detalhado na
+premissa 20. Deixa de ser hipótese que a estrutura exista em algum lugar.
+**Continua não identificada** a superfície estruturada que alimenta essa tela.
+A formulação correta passa a ser: *o dado existe na interface a que temos acesso
+visualmente, mas ainda não identificamos a superfície estruturada usada por essa
+tela.*
 
 **Igualmente não comprovado, e que nunca se deve escrever:** que a ULBRA tenha
 confirmado qualquer limitação, que exista solicitação em andamento, ou que a
@@ -506,3 +510,160 @@ colunas e descarta o resto, com `acordos_titulos.dados` nulo em 392 de 392.
 Memórias: `acordo-pago-some-do-relatorio-de-titulos-em-aberto`,
 `prime-api-superficie-e-acordo-ausente`,
 `titulo-liquidado-na-origem-pelo-prime`
+
+### 20. A tela do acordo mostra a cadeia inteira; a superfície que a alimenta não foi identificada
+
+**Conclusão em 15/09/2026.** O dado **existe e está visível** na interface do
+Prime a que temos acesso. O que continua **não identificado é a superfície
+estruturada que essa tela consome** — não a existência do dado. Isto substitui a
+formulação anterior da premissa 19, que tratava a existência da estrutura como
+hipótese não verificada.
+
+**O que a interface comprovou, no acordo 71903 (matrícula Prime 2025012024):**
+
+```
+títulos originais específicos → composição financeira → acordo
+                              → títulos/parcelas novas específicas
+```
+
+Não é a forma do ciclo: são os objetos nomeados. Sete títulos identificados um a
+um (`0104270450100` a `0104270450700`, contrato `427045`), a composição em
+quatorze linhas, e dez parcelas identificadas uma a uma (`050719030001` a
+`050719030010`, portador `SANTANDER REATIVA - CONVENIO 272047`).
+
+**"Quais títulos entraram" deixa de ser bloqueante absoluto.** No 71903 a tela
+mostra os sete diretamente, e o cruzamento com `/financial-statement` fecha
+**7 de 7**: o `documentNumber` da API é, caractere a caractere, o Título da tela,
+e o campo `boleto` da **mesma linha** é o nosso `acordos_titulos.documento`
+(`4039712` a `4039718`). Não há aritmética entre os dois formatos, e não precisa
+haver — a API entrega os dois lado a lado. O `/financial-statement` é a tabela de
+conversão.
+
+No 71903 os sete também se separam sozinhos: têm `paymentDate = 14/09/2026`, e a
+regra da casa (`liquidação > vencimento + 30`) descarta os outros dois títulos do
+extrato, cuja liquidação é anterior ao vencimento — os placeholders já
+conhecidos. O acordo é um **subconjunto** do extrato, nunca o extrato inteiro.
+
+#### A identidade de consistência — teste observado, não regra de reconstrução
+
+Medida no 71903, em 7 de 7 títulos, ao centavo:
+
+```
+paidAmount − grossAmount  ==  "Valor Total" da tela  (saldo original + multa + juros)
+```
+
+Somando os sete: R$ 3.975,57, igual ao Total Renegociado da tela. Disso nasce um
+teste que dispensa a tela e dispensa a taxa de honorário:
+
+```
+Σ(paidAmount − grossAmount) dos títulos liquidados na data do acordo
+        ==  Σ(valor_pago Santander) − Σ(honorário)
+```
+
+**Isto é um teste de consistência observado. NÃO é regra universal de
+reconstrução, e não pode ser usado como tal.** Aplicado aos 16 acordos pendentes
+em 15/09/2026, **fechou ao centavo em 8**; nos outros 8, não.
+
+**Quando a identidade não fecha, a reconstrução é NÃO COMPROVADA.** Não é
+aproximação, não é margem, não é arredondamento: é resultado negativo, e o
+sistema deve tratá-lo como tal — sem gravar acordo, sem gravar parcela, sem
+estimar o que falta.
+
+**Os três modos de falha encontrados:**
+
+1. **pagamento parcial** — o acordo tem mais parcelas do que as pagas. Os
+   títulos aparecem por inteiro, o dinheiro não. Assinatura:
+   `Σ(paidAmount − grossAmount) > Σpago − Σhonorário`. Observado em 71858, 71658
+   e 71706;
+2. **títulos ausentes ou sem data de liquidação** — nenhum título, ou títulos de
+   menos, carregam a data do acordo. Assinatura: soma **menor** que a esperada,
+   ou zero títulos selecionados. Observado em 71802, 71853, 71643, 71672 e
+   71724. Em 71802 o único título datado tem `grossAmount = 0,00`;
+3. **acordo contendo título ainda a vencer** — a negociação inclui mensalidade
+   futura, que a regra dos 30 dias exclui por construção. Observado em 71858:
+   três títulos do carrier 95 com vencimento em out/nov/dez 2026, liquidados na
+   data do acordo.
+
+A propriedade que torna o teste utilizável é esta: **todo modo de falha se
+manifesta na própria identidade.** Ela é auto-verificável — fechou, fechou; não
+fechou, não se conclui nada.
+
+#### Diferenças de formatação que não são divergência
+
+- **vencimento do título original**: a tela mostra a data **ajustada para dia
+  útil bancário**; o CRM e a API guardam a nominal. Em 71903, 05/04/2026
+  (domingo) vira 06/04, e 05/06/2026 (sexta emendada do Corpus Christi) vira
+  08/06; os outros cinco batem exatos. **As parcelas novas não recebem esse
+  ajuste** — 16/01/2027 (sábado) e 16/05/2027 (domingo) aparecem sem mover;
+- **rateio**: valor e honorário seguem "n−1 iguais, resíduo na última"
+  (9 × 429,36 + 429,38; 9 × 31,80 + 31,85 = 318,05);
+- **juros futuros**: a coluna existe na tela (R$ 194,78) e **não entra** em
+  nenhuma soma da composição.
+
+#### Três famílias de identificador
+
+| objeto | formato | onde vive |
+|---|---|---|
+| título original | 13 díg. `0104270450100` = base(9) + sequência(4); base = `010` + contrato | tela; `documentNumber` da API |
+| título original | 7 díg. `4039712` | `acordos_titulos.documento`; `boleto` da API |
+| parcela do acordo | 12 díg. `050719030001` = `0` + `5` + acordo(6) + parcela(4) | tela; `pagamentos.numero_parcela_completo`, sem o zero à esquerda |
+
+`pagamentos.titulo_numero` **já contém o número do acordo** (`71903`): não é
+preciso derivá-lo do boleto.
+
+#### O que ainda falta para automação completa
+
+1. **a fonte estruturada dessa tela** — a rota que a interface consome;
+2. **o total de parcelas quando o acordo não está quitado** — vemos só as pagas;
+3. **o status do acordo** — confirmado, quebrado, renegociado, cancelado;
+4. **o desconto quando diferente de zero** — em 71903 é 0,00; sendo > 0, torna-se
+   indistinguível dos encargos;
+5. **multa e juros separados** — a API devolve `penaltyAmount = 0` e
+   `interestAmount = null` em todas as linhas; só a tela separa;
+6. **as parcelas ainda não pagas** — vencimento, valor e boleto;
+7. **evidência explícita de quebra, renegociação ou substituição** — hoje não
+   existe nenhum campo que a afirme.
+
+#### O que a sondagem de 15/09/2026 acrescentou
+
+`/students/{matricula}/agreements` responde **200 com `totalItems: 0`** para um
+aluno cujo acordo está CONFIRMADO na tela no mesmo instante. A rota existe e
+responde: **é escopo, não ausência de endpoint.** Doze rotas testadas com o
+número de acordo real — que até então nunca tivemos — responderam 404
+(`/agreements/71903`, `/agreements/71903/installments`,
+`/students/{m}/agreements/71903`, `/contracts/427045`, entre outras), e todo
+parâmetro de query (`agreementId`, `carrierId`, `includeAgreements`,
+`includePaid`) é **ignorado**: resposta idêntica byte a byte. `/contracts`
+existe, mas é acadêmico — curso, turno, semestre, com `number` vazio.
+
+#### FATO OBSERVADO — 71614 e 71903
+
+Registrado assim, e só assim:
+
+- mesmo aluno;
+- mesmo dia (14/09/2026);
+- mesmo operador;
+- **acordos diferentes**: 71614 no CRM, 71903 na tela do Prime;
+- **estruturas diferentes**: 7 parcelas / R$ 4.193,23 contra 10 parcelas /
+  R$ 4.293,62;
+- os pagamentos pertencem ao **71903**;
+- o **71614 permanece no CRM sem nenhum pagamento**.
+
+**Não se afirma que o 71614 foi substituído, cancelado ou renegociado para o
+71903.** Essa hipótese só vira regra com evidência explícita no Prime — de
+cancelamento, de renegociação, ou de vínculo entre os dois.
+
+**Indício de escala, igualmente sem conclusão.** Dos 2.256 acordos com pagamento
+Santander e sem registro no CRM, em 569 o aluno de mesmo nome tem **outro**
+acordo registrado — 281 com número anterior, 288 posterior, 495 criados a menos
+de 30 dias do primeiro pagamento. É **indício de possível substituição ou
+renegociação**, não constatação: a comparação é por nome e está sujeita a
+homônimo.
+
+#### O próximo passo, e o único que destrava
+
+Identificar o endereço que a tela de detalhe do acordo consome. Até lá, nada
+aqui autoriza reconstruir acordo automaticamente.
+
+Memórias: `acordo-pago-some-do-relatorio-de-titulos-em-aberto`,
+`prime-api-superficie-e-acordo-ausente`
