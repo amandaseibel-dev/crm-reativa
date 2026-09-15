@@ -442,7 +442,9 @@ Um acordo pago desaparece dele — e some para sempre. Logo:
 6. **liquidação do título original não substitui o entendimento do acordo.** É
    evidência auxiliar, fallback — nunca o modelo;
 7. **acordo pago antes de ser importado precisa de caminho determinístico de
-   recuperação.** Enquanto não existir, a frente não está pronta;
+   recuperação.** Enquanto não existir, a frente não está pronta — e o caminho
+   passa por obter a superfície de integração que hoje falta, não por inferir a
+   estrutura a partir do que sobrou;
 8. **importação futura preserva o payload bruto e todas as colunas**, inclusive
    as que o motor ainda não usa. Coluna descartada na importação é informação
    perdida para sempre.
@@ -461,11 +463,21 @@ com acordos que a importação do mesmo dia trouxe (71643 e 71645 entre 71637 e
 71650; 71803 entre 71765 e 71818). O relatório pulou exatamente quem tinha
 pagado.
 
-E a tentativa de contornar pela API não fecha o buraco: medido em 67 alunos e
-1.625 linhas de extrato, o recurso acessível pela nossa chave nunca devolve o
-portador 166 (convênio 272047, onde mora o boleto do acordo), embora a própria
-API afirme que o aluno está nesse portador. O extrato é uma projeção filtrada —
-não a ausência do dado.
+**O DADO HISTÓRICO EXISTE — o que falta é superfície de integração.** Isto não é
+nuance: é a diferença entre "não dá para saber" e "não estamos recebendo". A
+ULBRA/Prime mantém o registro do acordo; a tela do Prime o exibe; e a própria API
+confirma, com controle negativo, que o aluno está filiado ao convênio 272047
+(`carrierId=166` devolve o aluno, e devolve **zero** para portadores sem relação).
+
+O que está provado é mais estreito, e é sobre NÓS: **a superfície acessível pela
+`X-API-Key` atual não expõe os títulos e parcelas do carrier 166.** Medido em 67
+alunos e 1.625 linhas de extrato, o portador 166 nunca aparece em linha nenhuma —
+inclusive para acordos ATIVOS, com parcela em aberto, cujo boleto conhecemos pelo
+número. `/financial-statement` é uma projeção filtrada, e a listagem do portador
+traz só filiação e campos acadêmicos, sem nenhuma dimensão financeira.
+
+Nunca documentar isso como "informação inexistente". A formulação correta é:
+**existe no ecossistema Prime/ULBRA e não está exposta pela integração atual.**
 
 **Onde vive:** hoje, em texto — e é exatamente por isso que esta premissa existe.
 A imposição no banco depende do modelo do acordo, que ainda está sendo mapeado.
