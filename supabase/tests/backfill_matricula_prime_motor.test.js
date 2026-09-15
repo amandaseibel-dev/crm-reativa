@@ -81,10 +81,17 @@ describe("ACL: fora do alcance do PostgREST", () => {
   it("nao cria policy nenhuma -- trilha e interna", () => {
     expect(sqlCodigo).not.toMatch(/create policy/i);
   });
-  it("tem gate explicito de contexto administrativo", () => {
-    expect(fn).toMatch(/auth\.role\(\)/);
+  it("tem gate explicito, e ele e do DONO", () => {
     expect(fn).toMatch(/current_user not in \('postgres', 'supabase_admin'\)/);
     expect(fn).toMatch(/42501/);
+  });
+  it("o gate NAO cita service_role -- ele nao tem EXECUTE", () => {
+    // so o CORPO da funcao; o bloco DO $prova$ cita service_role de proposito,
+    // justamente para impedir que o gate volte a cita-lo.
+    expect(fn).not.toMatch(/service_role/);
+  });
+  it("o gate nao depende do schema auth do Supabase", () => {
+    expect(fn).not.toMatch(/auth\.role\(\)/);
   });
   it("o gate vem antes de qualquer escrita", () => {
     expect(pos(fn, "42501")).toBeLessThan(pos(fn, "create temp table"));

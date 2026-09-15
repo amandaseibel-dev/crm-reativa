@@ -55,11 +55,11 @@ const linha = (n) => ({
 
 async function novaBancada() {
   const db = await PGlite.create();
-  // ambiente minimo: os papeis do Supabase e um stub de auth.role()
+  // ambiente minimo: so os papeis do Supabase. Nao ha stub de `auth`: depois de
+  // 15/09 o gate e postgres-only e nao consulta `auth.role()` -- se voltar a
+  // consultar, a migration nem aplica aqui, e este teste quebra primeiro.
   await db.exec(`
     create role anon; create role authenticated; create role service_role;
-    create schema auth;
-    create function auth.role() returns text language sql stable as $$ select null::text $$;
     create table public.pagamentos (
       id uuid primary key, numero_parcela_completo text, matricula text,
       tipo_pagamento text, titulo_numero text, valor_pago numeric,
@@ -340,6 +340,20 @@ describe("ACL medida no banco, nao no texto", () => {
         'public.backfill_matricula_aplicar(jsonb, text, integer, text)','EXECUTE') x`, [papel]);
       expect(v.rows[0].x).toBe(false);
     });
+  it("o gate recusa quem NAO e o dono, mesmo com EXECUTE concedido", async () => {
+    // Prova que o gate e uma segunda camada de verdade, e nao so decoracao
+    // atras do revoke: concedo EXECUTE a um papel qualquer e mesmo assim a
+    // funcao recusa, porque ele nao e postgres.
+    await db.exec(`create role papel_de_teste;
+      grant execute on function public.backfill_matricula_aplicar(jsonb, text, integer, text)
+        to papel_de_teste;`);
+    let erro = null;
+    try {
+      await db.exec(`set role papel_de_teste;
+        select public.backfill_matricula_aplicar('[]'::jsonb,'x',1,'L');`);
+    } catch (e) { erro = e.message; } finally { await db.exec(`reset role;`); }
+    expect(erro).toMatch(/exclusiva do dono \(postgres\)/);
+  });
   it.each(["anon", "authenticated"])("%s nao le a trilha", async (papel) => {
     for (const t of ["backfill_matricula_origem", "backfill_matricula_lotes"]) {
       const v = await db.query(`select has_table_privilege($1,$2,'SELECT') x`, [papel, `public.${t}`]);

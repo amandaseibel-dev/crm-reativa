@@ -93,12 +93,21 @@ declare
   v_n    integer;
   v_lote public.backfill_matricula_lotes%rowtype;
 begin
-  -- GATE EXPLICITO. Mesmo com INVOKER e com os revokes, a funcao declara de
-  -- quem ela e. Nenhuma tela chama isto.
-  if coalesce(auth.role(), '') <> 'service_role'
-     and current_user not in ('postgres', 'supabase_admin') then
-    raise exception 'backfill_matricula_aplicar e exclusiva de contexto administrativo'
-      using errcode = '42501';
+  -- GATE EXPLICITO: SO O DONO. Mesmo com INVOKER e com os revokes, a funcao
+  -- declara de quem ela e.
+  --
+  -- `service_role` NAO aparece aqui, de proposito. Ele nao tem EXECUTE -- o
+  -- revoke de PUBLIC tirou a unica via que teria -- entao citar `service_role`
+  -- num gate que ele jamais alcanca seria letra morta, e pior: sugeriria ao
+  -- leitor que existe um caminho pelo PostgREST. Nao existe. Esta funcao e
+  -- postgres-only POR DESENHO, e e exatamente assim que `apply_migration` a
+  -- executa: tudo que ele cria tem proowner = postgres.
+  --
+  -- Tambem nao se consulta `auth.role()`: a funcao nao depende do schema `auth`
+  -- do Supabase para decidir quem pode chama-la.
+  if current_user not in ('postgres', 'supabase_admin') then
+    raise exception 'backfill_matricula_aplicar e exclusiva do dono (postgres); current_user = %',
+      current_user using errcode = '42501';
   end if;
 
   if p_lote is null or btrim(p_lote) = '' then
@@ -249,7 +258,7 @@ end;
 $fn$;
 
 comment on function public.backfill_matricula_aplicar(jsonb, text, integer, text) is
-  'Motor generico de backfill da matricula Prime. Recebe o plano, o hash do artefato, a contagem esperada e o lote -- nada disso vive no repositorio. Confere doze invariantes antes de escrever, grava so pagamentos.matricula e exige ROW_COUNT igual ao previsto, senao levanta excecao e desfaz tudo. Chamada administrativa: nao tem caminho pela interface.';
+  'Motor generico de backfill da matricula Prime. Recebe o plano, o hash do artefato, a contagem esperada e o lote -- nada disso vive no repositorio. Confere doze invariantes antes de escrever, grava so pagamentos.matricula e exige ROW_COUNT igual ao previsto, senao levanta excecao e desfaz tudo. Chamada administrativa postgres-only: nao tem caminho pela interface, e nem service_role executa.';
 
 revoke all on function public.backfill_matricula_aplicar(jsonb, text, integer, text)
   from public, anon, authenticated;
@@ -259,7 +268,7 @@ revoke all on function public.backfill_matricula_aplicar(jsonb, text, integer, t
 -- ---------------------------------------------------------------------------
 
 do $prova$
-declare v_src text;
+declare v_src text; v_codigo text;
 begin
   select p.prosrc into v_src
     from pg_proc p join pg_namespace n on n.oid = p.pronamespace
@@ -276,12 +285,12 @@ begin
   end if;
 
   -- a guarda de nulo tem de estar no UPDATE
-  if v_src not like '%and p.matricula is null%' then
+  if v_codigo not like '%and p.matricula is null%' then
     raise exception 'o update perdeu a guarda de matricula nula';
   end if;
 
   -- a conferencia de ROW_COUNT tem de existir
-  if v_src not like '%get diagnostics v_rows = row_count%' then
+  if v_codigo not like '%get diagnostics v_rows = row_count%' then
     raise exception 'o motor nao mede row_count';
   end if;
 
@@ -291,6 +300,18 @@ begin
   or has_function_privilege('authenticated',
        'public.backfill_matricula_aplicar(jsonb, text, integer, text)', 'EXECUTE') then
     raise exception 'a funcao ficou executavel por anon ou authenticated';
+  end if;
+
+  -- O CODIGO, NAO O COMENTARIO. O comentario do gate explica POR QUE
+  -- service_role nao esta la -- e compararia contra si mesmo.
+  v_codigo := regexp_replace(v_src, '--[^\n]*', '', 'g');
+
+  -- o gate e do dono, e nao pode citar service_role (que nao tem EXECUTE)
+  if v_codigo like '%service_role%' then
+    raise exception 'o gate voltou a citar service_role, que nao executa a funcao';
+  end if;
+  if v_codigo not like '%exclusiva do dono (postgres)%' then
+    raise exception 'o gate deixou de ser postgres-only';
   end if;
 
   -- a trilha nao pode ser legivel pelo PostgREST
