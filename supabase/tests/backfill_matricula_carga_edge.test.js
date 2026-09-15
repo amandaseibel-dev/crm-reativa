@@ -61,6 +61,13 @@ describe("estrutura: o que a Edge nao faz", () => {
     expect(codigo).not.toMatch(/\.select\(|\.delete\(|\.update\(/);
     expect(codigo).toMatch(/ignoreDuplicates: true/);
   });
+  it("a carga e CEGA: sem count, sem select, sem representation", () => {
+    // contar ou ler de volta exige RETURNING, que exige SELECT nas colunas --
+    // privilegio que service_role nao tem nesta tabela e nao deve ganhar.
+    expect(codigo).not.toMatch(/count:\s*"exact"|count:\s*"planned"|count:\s*"estimated"/);
+    expect(codigo).not.toMatch(/return=representation/);
+    expect(codigo).not.toMatch(/\.select\(/);
+  });
   it("o segredo vem do ambiente, nunca do codigo", () => {
     expect(codigo).toMatch(/env\("BACKFILL_CARGA_TOKEN"\)/);
     expect(codigo).not.toMatch(/BACKFILL_CARGA_TOKEN\s*=\s*"/);
@@ -122,10 +129,11 @@ async function novaBancada() {
       const args = [];
       for (const l of linhas) args.push(l.lote, l.pagamento_id, l.numero_parcela_completo,
         l.matricula, l.arquivo_origem, l.linha_no_arquivo);
-      const r = await db.query(`insert into public.backfill_matricula_stage
+      // sem RETURNING: e exatamente o que o PostgREST fara com service_role,
+      // que so tem INSERT. Ler de volta exigiria SELECT.
+      await db.query(`insert into public.backfill_matricula_stage
         (lote,pagamento_id,numero_parcela_completo,matricula,arquivo_origem,linha_no_arquivo)
-        values ${vals} on conflict (lote, pagamento_id) do nothing returning 1`, args);
-      return { inseridos: r.rows.length };
+        values ${vals} on conflict (lote, pagamento_id) do nothing`, args);
     },
   });
   db.handler = handler;
@@ -164,13 +172,13 @@ describe("carga: caminho feliz e idempotencia", () => {
     const chunk = Array.from({ length: 100 }, (_, i) => reg(i + 1));
     const r = await db.enviar(chunk, { indice: 0 });
     expect(r.status).toBe(200);
-    expect(r.corpo).toEqual({ lote: LOTE, indice: 0, recebidos: 100, inseridos: 100 });
+    expect(r.corpo).toEqual({ lote: LOTE, indice: 0, recebidos: 100 });
     expect(await db.conta()).toBe(100);
   });
   it("a resposta NAO devolve nenhum registro", async () => {
     const chunk = [reg(101)];
     const r = await db.enviar(chunk, { indice: 1 });
-    expect(Object.keys(r.corpo).sort()).toEqual(["indice", "inseridos", "lote", "recebidos"]);
+    expect(Object.keys(r.corpo).sort()).toEqual(["indice", "lote", "recebidos"]);
     expect(JSON.stringify(r.corpo)).not.toMatch(/900000|590000|00000000-0000/);
   });
   it("reenviar o MESMO pedaco nao duplica nem altera", async () => {
@@ -178,8 +186,9 @@ describe("carga: caminho feliz e idempotencia", () => {
     const antes = await db.conta();
     const r = await db.enviar(chunk, { indice: 0 });
     expect(r.status).toBe(200);
-    expect(r.corpo.inseridos).toBe(0);         // ON CONFLICT DO NOTHING
     expect(r.corpo.recebidos).toBe(100);
+    // a prova da idempotencia esta na STAGE, nao na resposta: o DO NOTHING
+    // absorveu a repeticao e a contagem nao mudou.
     expect(await db.conta()).toBe(antes);
   });
   it("pedaco repetido com matricula trocada NAO sobrescreve o que ja entrou", async () => {
@@ -192,7 +201,7 @@ describe("carga: caminho feliz e idempotencia", () => {
   it("lote diferente e outra gaveta -- nao colide", async () => {
     const chunk = [reg(1)];
     const r = await db.enviar(chunk, { lote: "LOTE_OUTRO", indice: 0 });
-    expect(r.corpo.inseridos).toBe(1);
+    expect(r.status).toBe(200);
     expect(await db.conta(`lote='LOTE_OUTRO'`)).toBe(1);
     expect(await db.conta(`lote='${LOTE}'`)).toBe(101);
   });

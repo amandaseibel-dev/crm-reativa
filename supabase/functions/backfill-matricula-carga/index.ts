@@ -113,8 +113,13 @@ export function registroInvalido(r: unknown): string | null {
 
 export type Dependencias = {
   env: (nome: string) => string | undefined;
-  /** Deposita as linhas na stage. Em producao: upsert ignorando duplicata. */
-  inserir: (linhas: (Registro & { lote: string })[]) => Promise<{ inseridos: number }>;
+  /**
+   * Deposita as linhas na stage. NAO devolve contagem, e isso e deliberado:
+   * contar exigiria `RETURNING`, e `RETURNING` exige privilegio de SELECT nas
+   * colunas -- que `service_role` nao tem, nem deve ter. Quantas linhas de fato
+   * entraram e conferido depois, pelo motor, contra o hash do artefato.
+   */
+  inserir: (linhas: (Registro & { lote: string })[]) => Promise<void>;
   agora?: () => number;
 };
 
@@ -183,22 +188,27 @@ export function criarHandler(deps: Dependencias) {
       linha_no_arquivo: r.linha_no_arquivo,
     }));
 
-    let inseridos = 0;
     try {
-      ({ inseridos } = await deps.inserir(linhas));
+      await deps.inserir(linhas);
     } catch (e) {
       // So a mensagem do banco, que nao carrega o corpo. Nunca as linhas.
       return json({ erro: "falha ao gravar na stage", detalhe: String((e as Error).message) }, 502);
     }
 
-    // SO CONTAGEM. Nenhum registro volta.
-    return json({ lote, indice, recebidos: linhas.length, inseridos });
+    // SO CONTAGEM DO QUE FOI RECEBIDO. Nenhum registro volta, e nenhuma
+    // contagem do banco -- obte-la custaria privilegio de leitura na stage.
+    return json({ lote, indice, recebidos: linhas.length });
   };
 }
 
-// Em producao a dependencia real: `service_role`, e so para INSERT. O upsert
-// com `ignoreDuplicates` e o que torna o reenvio de um pedaco inofensivo --
-// a chave (lote, pagamento_id) absorve a repeticao.
+// Em producao a dependencia real: `service_role`, e SO para INSERT. O upsert
+// com `ignoreDuplicates` traduz para `ON CONFLICT (lote, pagamento_id) DO
+// NOTHING` -- e o que torna o reenvio de um pedaco inofensivo.
+//
+// SEM `count`, SEM `.select()`, SEM `return=representation`. Qualquer um dos
+// tres faria o PostgREST pedir as linhas de volta, e ler de volta um INSERT
+// exige `RETURNING`, que por sua vez exige SELECT nas colunas. `service_role`
+// nao tem SELECT nesta tabela e nao deve ganhar: a carga e cega de proposito.
 declare const Deno: { env: { get(n: string): string | undefined }; serve(h: unknown): void };
 
 if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
@@ -210,11 +220,10 @@ if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
   Deno.serve(criarHandler({
     env: (n) => Deno.env.get(n),
     inserir: async (linhas) => {
-      const { error, count } = await supa
+      const { error } = await supa
         .from("backfill_matricula_stage")
-        .upsert(linhas, { onConflict: "lote,pagamento_id", ignoreDuplicates: true, count: "exact" });
+        .upsert(linhas, { onConflict: "lote,pagamento_id", ignoreDuplicates: true });
       if (error) throw new Error(error.message);
-      return { inseridos: count ?? 0 };
     },
   }));
 }
