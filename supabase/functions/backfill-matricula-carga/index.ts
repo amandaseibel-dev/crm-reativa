@@ -114,12 +114,12 @@ export function registroInvalido(r: unknown): string | null {
 export type Dependencias = {
   env: (nome: string) => string | undefined;
   /**
-   * Deposita as linhas na stage. NAO devolve contagem, e isso e deliberado:
-   * contar exigiria `RETURNING`, e `RETURNING` exige privilegio de SELECT nas
-   * colunas -- que `service_role` nao tem, nem deve ter. Quantas linhas de fato
+   * Deposita o pedaco na stage, pela RPC de carga. NAO devolve contagem do
+   * banco, e isso e deliberado: ler de volta exigiria privilegio de SELECT na
+   * stage, que `service_role` nao tem e nao deve ganhar. Quantas linhas de fato
    * entraram e conferido depois, pelo motor, contra o hash do artefato.
    */
-  inserir: (linhas: (Registro & { lote: string })[]) => Promise<void>;
+  inserir: (lote: string, registros: Registro[]) => Promise<void>;
   agora?: () => number;
 };
 
@@ -179,8 +179,10 @@ export function criarHandler(deps: Dependencias) {
       if (motivo) return json({ erro: `registro ${i}: ${motivo}` }, 400);
     }
 
+    // Exatamente os cinco campos, na ordem que a RPC espera. Qualquer campo
+    // extra que viesse no corpo e descartado aqui, e a RPC recusaria de todo
+    // jeito: ela exige que cada registro tenha exatamente cinco chaves.
     const linhas = (registros as Registro[]).map((r) => ({
-      lote,
       pagamento_id: r.pagamento_id,
       numero_parcela_completo: r.numero_parcela_completo,
       matricula: r.matricula,
@@ -189,7 +191,7 @@ export function criarHandler(deps: Dependencias) {
     }));
 
     try {
-      await deps.inserir(linhas);
+      await deps.inserir(lote, linhas);
     } catch (e) {
       // So a mensagem do banco, que nao carrega o corpo. Nunca as linhas.
       return json({ erro: "falha ao gravar na stage", detalhe: String((e as Error).message) }, 502);
@@ -201,14 +203,18 @@ export function criarHandler(deps: Dependencias) {
   };
 }
 
-// Em producao a dependencia real: `service_role`, e SO para INSERT. O upsert
-// com `ignoreDuplicates` traduz para `ON CONFLICT (lote, pagamento_id) DO
-// NOTHING` -- e o que torna o reenvio de um pedaco inofensivo.
+// A EDGE NAO FALA COM A TABELA. Fala com a RPC de carga, e so.
 //
-// SEM `count`, SEM `.select()`, SEM `return=representation`. Qualquer um dos
-// tres faria o PostgREST pedir as linhas de volta, e ler de volta um INSERT
-// exige `RETURNING`, que por sua vez exige SELECT nas colunas. `service_role`
-// nao tem SELECT nesta tabela e nao deve ganhar: a carga e cega de proposito.
+// POR QUE. O smoke sintetico em producao, 15/09/2026, provou com 42501 que o
+// PostgREST 14.5 envolve TODO insert num CTE e faz SELECT dele -- o command tag
+// vem como `SELECT`, e o proprio Postgres sugeriu
+// `GRANT SELECT ON public.backfill_matricula_stage TO service_role`.
+// `return=minimal` nao muda isso, e tirar `count` tambem nao bastou: e a forma
+// da query que o PostgREST monta.
+//
+// Conceder esse SELECT daria ao backend leitura do plano inteiro. Em vez disso,
+// a porta virou uma funcao `SECURITY DEFINER` do `postgres`, e `service_role`
+// ficou SEM privilegio algum sobre a stage -- so com EXECUTE nessa funcao.
 declare const Deno: { env: { get(n: string): string | undefined }; serve(h: unknown): void };
 
 if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
@@ -219,10 +225,10 @@ if (typeof Deno !== "undefined" && typeof Deno.serve === "function") {
   );
   Deno.serve(criarHandler({
     env: (n) => Deno.env.get(n),
-    inserir: async (linhas) => {
-      const { error } = await supa
-        .from("backfill_matricula_stage")
-        .upsert(linhas, { onConflict: "lote,pagamento_id", ignoreDuplicates: true });
+    inserir: async (lote, registros) => {
+      const { error } = await supa.rpc("backfill_matricula_stage_carregar", {
+        p_lote: lote, p_registros: registros,
+      });
       if (error) throw new Error(error.message);
     },
   }));
