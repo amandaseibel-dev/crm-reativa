@@ -1127,6 +1127,13 @@ end $prova$;
 --   * `pagamentos.conciliacao_em` gravava now() em toda escrita, e a rodada
 --     horaria reescreve o mesmo estado: deslizava de hora em hora.
 --
+-- O LIMITE E O RELOGIO, NAO UMA CONTAGEM. A garantia do codigo e "janela de
+-- 72h + no maximo uma tentativa por 24h" -- nao "exatamente duas reconsultas".
+-- As duas sao o que o fluxo automatico normal produz; um caminho excepcional
+-- com `consulta_portador_em` nula ou antiga cabe uma tentativa a mais. Isso e
+-- aceito de proposito: contar tentativas exigiria coluna nova, e a janela ja
+-- garante que acaba.
+--
 -- A CORRECAO E NO SEGUNDO, e ela cabe no contrato que ele ja declara
 -- ("Quando a conciliacao foi decidida"). Ninguem le essa coluna hoje -- nem
 -- tela, nem funcao -- entao faze-la parar de deslizar nao quebra leitor nenhum,
@@ -1188,10 +1195,19 @@ begin
              -- mostrar o titulo-mae liquidado depois, e ai existe resposta
              -- melhor. Sem esta janela o caso ficaria congelado para sempre.
              --
-             -- A janela e de 72h a partir de `conciliacao_em`, que agora so anda
-             -- quando o ESTADO muda. Com o teto de uma consulta por dia por caso,
-             -- isso da no maximo DUAS reconsultas (~+24h e ~+48h); em +72h a
+             -- O QUE O CODIGO GARANTE, e so isso: janela FINITA de 72h a
+             -- partir de `conciliacao_em`, que agora so anda quando o ESTADO
+             -- muda, mais no maximo UMA tentativa por 24h por caso. Em +72h a
              -- janela fecha e o caso para de ser consultado, para sempre.
+             --
+             -- No fluxo automatico normal isso produz DUAS reconsultas (~+24h e
+             -- ~+48h), porque a confirmacao vem logo depois de um disparo e
+             -- `consulta_portador_em` esta fresca. Mas nao e invariante: num
+             -- caminho excepcional -- `consulta_portador_em` nula ou antiga,
+             -- por confirmacao vinda da rodada em lote e nao do disparador --
+             -- cabe uma tentativa adicional imediata. O limite continua sendo o
+             -- relogio, nao uma contagem, e de proposito: contar exigiria
+             -- coluna nova para um ganho que a janela ja entrega.
              --
              -- Nao exige `evidencia_origem is null` aqui: um caso confirmado TEM
              -- evidencia -- e essa e justamente a condicao que o traz de volta.
@@ -1232,6 +1248,6 @@ end;
 $fn$;
 
 comment on function public.conciliacao_consultar_portador_pendentes(int) is
-  'Disparador do caminho ao vivo. Consulta AGUARDANDO_ACORDO sem evidencia e, por no maximo 72h a partir de conciliacao_em, tambem ACORDO_CONFIRMADO_SEM_ESTRUTURA -- segunda chance curta, que com o teto de uma consulta por dia por caso da no maximo duas reconsultas e depois fecha sozinha. Usa consulta_portador_em SOMENTE como controle de frequencia. Chamado pela rodada horaria -- nunca pelo gatilho de INSERT.';
+  'Disparador do caminho ao vivo. Consulta AGUARDANDO_ACORDO sem evidencia e, por no maximo 72h a partir de conciliacao_em, tambem ACORDO_CONFIRMADO_SEM_ESTRUTURA. O que o codigo garante na segunda chance e janela finita de 72h mais no maximo uma tentativa por 24h por caso -- no fluxo normal isso da duas reconsultas, mas nao e invariante: com consulta_portador_em nula ou antiga cabe uma tentativa adicional. Depois de 72h a janela fecha sozinha. Usa consulta_portador_em SOMENTE como controle de frequencia. Chamado pela rodada horaria -- nunca pelo gatilho de INSERT.';
 
 revoke all on function public.conciliacao_consultar_portador_pendentes(int) from public, anon, authenticated;

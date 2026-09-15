@@ -571,10 +571,22 @@ describe("15. o confirmado sem estrutura pode evoluir -- mas nao para sempre", (
     expect(liq).toContain("not in ('AGUARDANDO_ACORDO','ACORDO_CONFIRMADO_SEM_ESTRUTURA')");
   });
 
-  it("a janela FECHA: 72h a partir de conciliacao_em", () => {
+  it("a janela FECHA: 72h a partir de conciliacao_em, mais teto de 24h", () => {
+    // O QUE SE PROVA AQUI e o que o codigo garante: janela finita mais teto de
+    // frequencia. NAO se prova "exatamente duas reconsultas" -- isso e o que o
+    // fluxo normal produz, nao invariante do codigo (com consulta_portador_em
+    // nula ou antiga cabe uma tentativa a mais, e isso e aceito).
     expect(filtro).toContain("p.conciliacao_em > now() - interval '72 hours'");
-    // com o teto de 24h por caso, 72h = no maximo 2 reconsultas
     expect(filtro).toContain("f.consulta_portador_em < now() - interval '24 hours'");
+  });
+
+  it("a documentacao nao promete contagem que o codigo nao garante", () => {
+    const disparador = sql.slice(pos(sql, "A SEGUNDA CHANCE DO"));
+    expect(esp(disparador)).toContain("O LIMITE E O RELOGIO, NAO UMA CONTAGEM");
+    expect(esp(disparador)).toContain("nao \"exatamente duas reconsultas\"");
+    // e o comentario da funcao tambem nao promete
+    const c = sql.slice(pos(sql, "comment on function public.conciliacao_consultar_portador_pendentes"));
+    expect(c.slice(0, 900)).toContain("nao e invariante");
   });
 
   it("a ancora da janela e estavel -- senao ela nunca fecharia", () => {
