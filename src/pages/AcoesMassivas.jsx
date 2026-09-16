@@ -8,6 +8,23 @@ const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const VERDE = "var(--rv-azul-texto)";
 // Presets do seletor "Sem acionamento há (mín.)" — valor = nº de dias.
 const PRESETS_DIAS_SEM_ACIONAMENTO = ["7", "12", "15", "21", "30", "45", "60", "90"];
+// Tipo de cobrança. A regra mora no banco (acoes_massivas_tipo_cobranca_alunos
+// e _corresponde): a tela só escolhe. Não existe "Todos": a opção que junta
+// tudo é "Mensalidades e acordos". Acordo em dia fica fora de todas.
+const TIPOS_COBRANCA = [
+  { valor: "MENSALIDADES", rotulo: "Somente mensalidades" },
+  { valor: "ACORDOS_VENCIDOS", rotulo: "Somente acordos vencidos" },
+  { valor: "MENSALIDADES_E_ACORDOS", rotulo: "Mensalidades e acordos" },
+];
+const AJUDA_TIPO_COBRANCA = {
+  MENSALIDADES: "Alunos com mensalidade original em aberto e sem acordo vencido. Quem tem os dois está em “Somente acordos vencidos”. Acordo em dia fica fora.",
+  ACORDOS_VENCIDOS: "Alunos com acordo quebrado ou parcela vencida, tenham ou não mensalidade em aberto. Acordo em dia fica fora.",
+  MENSALIDADES_E_ACORDOS: "Os dois grupos juntos: somente mensalidades + acordos vencidos. Cada aluno aparece uma vez. Acordo em dia fica fora.",
+};
+function rotuloTipoCobranca(valor) {
+  if (!valor || valor === "REGRA_ANTERIOR") return "Sem tipo (tela anterior)";
+  return TIPOS_COBRANCA.find((t) => t.valor === valor)?.rotulo || valor;
+}
 
 function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -103,6 +120,20 @@ export default function AcoesMassivas() {
   // Carteiras importadas (borderôs). borderosSel = ids selecionados no filtro.
   const [opcoesBordero, setOpcoesBordero] = useState([]);
   const [borderosSel, setBorderosSel] = useState([]);
+  // Operador responsável: "" = base livre / regra atual. Com um e-mail, a
+  // prévia e o registro recortam SÓ a carteira atual daquele operador. A chave
+  // é o e-mail (vem do cadastro via acoes_massivas_filtros), nunca o nome.
+  const [operadorEmail, setOperadorEmail] = useState("");
+  const [opcoesOperador, setOpcoesOperador] = useState([]);
+  // Recorte que o BANCO confirmou na última prévia. É ele que vai para o
+  // registro: planilha e prévia saem sempre da mesma carteira.
+  const [operadorDaPrevia, setOperadorDaPrevia] = useState(null);
+  // Tipo de cobrança escolhido e o que o BANCO confirmou na última prévia (é
+  // este que vai para a planilha e para o lote).
+  // Sem padrão: a gestão escolhe o tipo antes de buscar. Nenhuma base é
+  // ampliada ou reduzida sem uma escolha explícita.
+  const [tipoCobranca, setTipoCobranca] = useState("");
+  const [tipoDaPrevia, setTipoDaPrevia] = useState(null);
   const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
   const [diasPersonalizado, setDiasPersonalizado] = useState(false);
   // "todos" | "nunca" (nunca acionados) | "ja" (já acionados)
@@ -123,12 +154,21 @@ export default function AcoesMassivas() {
   // Data do extrato do Prime que a prévia usou para tirar quem já pagou lá.
   // A relação NÃO vem para a tela: quem consta liquidado não deve nem aparecer.
   const [primeExtratoEm, setPrimeExtratoEm] = useState(null);
+  // Quantos alunos por tipo atendem aos filtros enviados ao banco (antes do
+  // limite de Quantidade e dos filtros de canal/valor que a tela aplica depois).
+  const [contagemTipo, setContagemTipo] = useState(null);
   const [mostrarExcluidos, setMostrarExcluidos] = useState(false);
   const [excluidosNoEnvio, setExcluidosNoEnvio] = useState(0);
   // Guarda o último relatório gerado p/ permitir baixar manualmente caso o
   // download automático seja bloqueado pelo navegador (perda de "user gesture"
   // após os awaits do registrar — comum no Safari).
   const [relatorioPronto, setRelatorioPronto] = useState(null); // { linhas, nomeArquivo }
+  // Planilhas exportadas que ainda não foram confirmadas nem descartadas. Ficam
+  // no banco: o disparo externo pode levar horas e a página pode recarregar.
+  const [lotesPendentes, setLotesPendentes] = useState([]);
+  // Lote + ação ("CONFIRMAR" | "DESCARTAR") aguardando o "sim" explícito.
+  const [acaoLote, setAcaoLote] = useState(null);
+  const [concluindoLote, setConcluindoLote] = useState(false);
 
   // SOB DEMANDA: o painel analítico (saúde/retornos/por dia/elegíveis) não
   // carrega sozinho. Só roda no clique de Atualizar painel. A busca e a geração
@@ -160,10 +200,18 @@ export default function AcoesMassivas() {
       setOpcoesUnidade(data?.unidades || []);
       setOpcoesCurso(data?.cursos || []);
       setOpcoesSituacaoAcad(data?.situacoes_academicas || []);
+      setOpcoesOperador(data?.operadores || []);
       const { data: bords } = await supabase.rpc("acoes_massivas_borderos");
       setOpcoesBordero(bords || []);
+      const { data: lotes } = await supabase.rpc("acoes_massivas_lotes_pendentes");
+      setLotesPendentes(Array.isArray(lotes) ? lotes : []);
     })();
   }, []);
+
+  async function carregarLotesPendentes() {
+    const { data: lotes } = await supabase.rpc("acoes_massivas_lotes_pendentes");
+    setLotesPendentes(Array.isArray(lotes) ? lotes : []);
+  }
 
   async function carregarSaude() {
     const { data } = await supabase.rpc("saude_da_base");
@@ -185,6 +233,25 @@ export default function AcoesMassivas() {
     setProgresso(data);
   }
 
+  // Some com a prévia na tela. Usado quando o recorte muda: uma lista de um
+  // operador nunca pode ficar à mostra (nem ser registrada) com outro escolhido.
+  function limparPrevia() {
+    setResultados(null);
+    setOperadorDaPrevia(null);
+    setTipoDaPrevia(null);
+    setContagemTipo(null);
+    setRelatorioPronto(null);
+    setExcluidosConfirmacao([]);
+    setPrimeExtratoEm(null);
+    setMostrarExcluidos(false);
+    setExcluidosNoEnvio(0);
+    setSucesso("");
+  }
+
+  function nomeDoOperador(email) {
+    return opcoesOperador.find((o) => o.email === email)?.nome || email;
+  }
+
   async function buscar(over = {}) {
     setErro("");
     setSucesso("");
@@ -200,6 +267,10 @@ export default function AcoesMassivas() {
       setErro("Valor máximo inválido.");
       return;
     }
+    if (!tipoCobranca) {
+      setErro("Escolha o tipo de cobrança antes de buscar a prévia.");
+      return;
+    }
 
     // Regra fixa: nunca gera ação pra caso com valor em aberto abaixo de
     // R$100 -- mesmo que o campo fique em branco ou alguém digite menos.
@@ -207,6 +278,9 @@ export default function AcoesMassivas() {
 
     setCarregando(true);
     setResultados(null);
+    setOperadorDaPrevia(null);
+    setTipoDaPrevia(null);
+    setContagemTipo(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
@@ -218,24 +292,43 @@ export default function AcoesMassivas() {
       //
       // A prévia já separa, no backend, os casos em CONFIRMAÇÃO DE PAGAMENTO:
       // eles vêm em `excluidos_confirmacao` (mascarados) e NUNCA em `elegiveis`.
-      const { data: previa, error: erroAlunos } = await supabase.rpc(
-        "acoes_massivas_previa",
-        {
-          p_ano_vencimento: (over.ano ?? anoVencimento) || null,
-          p_limite: Math.min(qtd * 3, 6000),
-          p_dias_minimo_sem_contato: diasMinimoSemContato ? Number(diasMinimoSemContato) : null,
-          p_apenas_nunca_acionado: (over.acionamento ?? acionamentoFiltro) === "nunca",
-          p_apenas_ja_acionado: (over.acionamento ?? acionamentoFiltro) === "ja",
-          p_unidade: ((over.unidades ?? unidadesSel) || []).join("|") || null,
-          p_matricula: (over.matricula ?? matricula) || null,
-          p_curso: (over.curso ?? curso) || null,
-          p_situacao_academica: ((over.situacoesAcad ?? situacoesAcadSel) || []).join("|") || null,
-          p_importacao_ids: (over.borderosSel ?? borderosSel).length
-            ? (over.borderosSel ?? borderosSel)
-            : null,
-        }
-      );
+      const operadorPedido = operadorEmail || null;
+      const argsPrevia = {
+        p_ano_vencimento: (over.ano ?? anoVencimento) || null,
+        p_limite: Math.min(qtd * 3, 6000),
+        p_dias_minimo_sem_contato: diasMinimoSemContato ? Number(diasMinimoSemContato) : null,
+        p_apenas_nunca_acionado: (over.acionamento ?? acionamentoFiltro) === "nunca",
+        p_apenas_ja_acionado: (over.acionamento ?? acionamentoFiltro) === "ja",
+        p_unidade: ((over.unidades ?? unidadesSel) || []).join("|") || null,
+        p_matricula: (over.matricula ?? matricula) || null,
+        p_curso: (over.curso ?? curso) || null,
+        p_situacao_academica: ((over.situacoesAcad ?? situacoesAcadSel) || []).join("|") || null,
+        p_importacao_ids: (over.borderosSel ?? borderosSel).length
+          ? (over.borderosSel ?? borderosSel)
+          : null,
+      };
+      // Sem operador a chamada fica IDÊNTICA à de antes (a chave nem vai):
+      // base livre / regra atual, sem depender da versão do banco.
+      if (operadorPedido) argsPrevia.p_operador_email = operadorPedido;
+      argsPrevia.p_tipo_cobranca = tipoCobranca;
+      const { data: previa, error: erroAlunos } = await supabase.rpc("acoes_massivas_previa", argsPrevia);
       if (erroAlunos) throw erroAlunos;
+
+      // O banco devolve o recorte que aplicou. Se não bater com o pedido, a
+      // lista pode ser de outra carteira: não mostra nada.
+      if ((previa?.operador_email ?? null) !== operadorPedido) {
+        throw new Error(
+          operadorPedido
+            ? "o banco não aplicou o filtro de operador. Nada foi listado."
+            : "o banco devolveu uma carteira filtrada sem operador escolhido. Nada foi listado."
+        );
+      }
+      if (previa?.tipo_cobranca !== tipoCobranca) {
+        throw new Error("o banco não aplicou o tipo de cobrança escolhido. Nada foi listado.");
+      }
+      setOperadorDaPrevia(operadorPedido);
+      setTipoDaPrevia(tipoCobranca);
+      setContagemTipo(previa?.contagem_tipo || null);
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
       setPrimeExtratoEm(previa?.prime_extrato_em || null);
@@ -249,7 +342,7 @@ export default function AcoesMassivas() {
 
       // A prévia NÃO retorna telefone/e-mail completos (anti-enumeração): vêm
       // mascarados só pra exibição + flags tem_telefone/tem_email pra filtrar.
-      // Os contatos reais só são devolvidos por registrar_acao_massiva (gestão).
+      // Os contatos reais só são devolvidos por acoes_massivas_exportar (gestão).
       let lista = (alunosBrutos || [])
         .map((a) => ({
           alunoId: a.id,
@@ -297,7 +390,11 @@ export default function AcoesMassivas() {
     XLSX.writeFile(livro, rel.nomeArquivo);
   }
 
-  async function gerarEregistrar() {
+  // EXPORTAR NÃO É CONTATO REALIZADO. O disparo acontece numa ferramenta
+  // externa; baixar a planilha não muda nada no aluno (tabulação, retorno,
+  // fidelização, acionamento). O banco revalida, devolve os contatos e guarda um
+  // LOTE de auditoria. O registro só acontece em "Confirmar ação realizada".
+  async function exportarPlanilha() {
     if (!resultados || resultados.length === 0) return;
 
     setGerando(true);
@@ -306,42 +403,33 @@ export default function AcoesMassivas() {
     setExcluidosNoEnvio(0);
 
     try {
-      const { data: userData } = await supabase.auth.getUser();
-      const email = userData?.user?.email || "";
-      const { data: perfil } = await supabase
-        .from("usuarios")
-        .select("nome")
-        .eq("email", email)
-        .maybeSingle();
-      const nomeUsuario = perfil?.nome || email;
+      const sufixoOperador = operadorDaPrevia ? `-${operadorDaPrevia.split("@")[0]}` : "";
+      const tipoLote = tipoDaPrevia;
+      const sufixoTipo = tipoLote ? `-${tipoLote.toLowerCase().replace(/_/g, "-")}` : "";
+      const nomeArquivo = `acao-massiva-${canal.toLowerCase()}${sufixoOperador}${sufixoTipo}-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
-      const nomeArquivo = `acao-massiva-${canal.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`;
-
-      // 1) REVALIDA E REGISTRA no backend (fonte única de verdade). A RPC
-      // recheca, aluno por aluno, se entrou em CONFIRMAÇÃO DE PAGAMENTO depois
-      // da prévia; quem entrou é removido aqui — sem update, sem movimentação,
-      // sem perder operador, sem contar como envio. Devolve só os ids que
-      // realmente foram registrados.
-      const { data: reg, error: erroReg } = await supabase.rpc("registrar_acao_massiva", {
+      const argsExportar = {
         p_aluno_ids: resultados.map((r) => String(r.alunoId)),
         p_canal: canal,
         p_arquivo: nomeArquivo,
-        p_registrado_por_nome: nomeUsuario,
-        p_registrado_por_email: email,
-      });
-      if (erroReg) throw erroReg;
+      };
+      // Mesmo recorte da prévia: só sai quem CONTINUA na carteira do operador.
+      if (operadorDaPrevia) argsExportar.p_operador_email = operadorDaPrevia;
+      // O banco revalida o tipo e o grava no lote; a confirmação revalida de novo.
+      if (tipoLote) argsExportar.p_tipo_cobranca = tipoLote;
+      const { data: exp, error: erroExp } = await supabase.rpc("acoes_massivas_exportar", argsExportar);
+      if (erroExp) throw erroExp;
 
-      const excluidosEnvio = Number(reg?.excluidos_confirmacao || 0);
-      const excluidosPrime = Number(reg?.excluidos_liquidados_prime || 0);
+      const excluidosEnvio = Number(exp?.excluidos_confirmacao || 0);
+      const excluidosPrime = Number(exp?.excluidos_liquidados_prime || 0);
+      const excluidosOutroOperador = Number(exp?.excluidos_outro_operador || 0);
+      const excluidosJaAcionados = Number(exp?.excluidos_ja_acionados || 0);
+      const excluidosTipo = Number(exp?.excluidos_tipo_cobranca || 0);
       setExcluidosNoEnvio(excluidosEnvio);
 
-      // 2) Gera o Excel APENAS com quem passou na revalidação. Os contatos
-      // completos (nome/telefone/e-mail) vêm exclusivamente de registrar_acao_massiva
-      // (backend gestão-gated e auditado) — a prévia nunca os expõe. Casos que
-      // entraram em confirmação depois da prévia não aparecem aqui.
-      const contatos = reg?.contatos || [];
-
-      let relGerado = null;
+      // Os contatos completos só vêm desta RPC (gestão, auditada pelo lote); a
+      // prévia nunca os expõe.
+      const contatos = exp?.contatos || [];
       if (contatos.length > 0) {
         const linhas = contatos.map((c) => {
           const telFmt = normalizarTelefone(c.telefone);
@@ -349,9 +437,7 @@ export default function AcoesMassivas() {
             ? { "Nome do aluno": c.nome, Telefone: telFmt }
             : { "Nome do aluno": c.nome, "E-mail": (c.email || "").trim(), Telefone: telFmt || "" };
         });
-        relGerado = { linhas, nomeArquivo };
-        // Guarda para o botão manual de fallback (caso o auto-download seja
-        // bloqueado, a planilha não se perde: os alunos já foram registrados).
+        const relGerado = { linhas, nomeArquivo };
         setRelatorioPronto(relGerado);
         try {
           baixarPlanilha(relGerado);
@@ -359,31 +445,78 @@ export default function AcoesMassivas() {
           console.warn("Download automático falhou; use o botão Baixar planilha.", e);
         }
       }
-      const registrados = contatos;
 
-      const retorno = new Date();
-      retorno.setDate(retorno.getDate() + 10);
       const sufixoExcluidos = (excluidosEnvio > 0
-        ? ` ${excluidosEnvio} caso(s) foram removidos na revalidação por entrarem em confirmação de pagamento.`
+        ? ` ${excluidosEnvio} caso(s) ficaram fora por entrarem em confirmação de pagamento.`
         : "")
         + (excluidosPrime > 0
         ? ` ${excluidosPrime} caso(s) foram removidos por já constarem liquidados no Prime.`
+        : "")
+        + (excluidosOutroOperador > 0
+        ? ` ${excluidosOutroOperador} caso(s) foram removidos por não estarem mais na carteira do operador selecionado.`
+        : "")
+        + (excluidosJaAcionados > 0
+        ? ` ${excluidosJaAcionados} caso(s) ficaram fora por já terem sido acionados por operador.`
+        : "")
+        + (excluidosTipo > 0
+        ? ` ${excluidosTipo} caso(s) ficaram fora por não corresponderem mais ao tipo de cobrança.`
         : "");
 
-      if (registrados.length === 0) {
-        setSucesso(`Nenhum caso registrado.${sufixoExcluidos}`);
+      if (contatos.length === 0) {
+        setSucesso(`Nenhum aluno na planilha.${sufixoExcluidos}`);
       } else {
         setSucesso(
-          `Planilha gerada e ${registrados.length} aluno(s) registrados com retorno agendado para ${retorno.toLocaleDateString("pt-BR")}. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
+          `Planilha exportada com ${contatos.length} aluno(s). Nada foi registrado nos alunos: tabulação, retorno, fidelização e acionamento só mudam quando você confirmar a ação realizada, depois que o disparo na ferramenta externa terminar. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
         );
       }
-      carregarProgresso();
-      carregarPorDia();
+      carregarLotesPendentes();
     } catch (e) {
-      console.error("Erro ao gerar/registrar ação massiva:", e);
-      setErro("Erro ao gerar/registrar: " + (e.message || "tente novamente"));
+      console.error("Erro ao exportar planilha da ação massiva:", e);
+      setErro("Erro ao exportar planilha: " + (e.message || "tente novamente"));
     } finally {
       setGerando(false);
+    }
+  }
+
+  // CONFIRMAR AÇÃO REALIZADA (ou DESCARTAR lote não enviado). Só aqui o aluno
+  // passa a contar como acionado: o banco revalida e grava tabulação, retorno e
+  // movimentação pelo registro de sempre. Um lote confirma uma vez só.
+  async function concluirLote(lote, acao) {
+    setConcluindoLote(true);
+    setErro("");
+    setSucesso("");
+    try {
+      const { data: res, error } = await supabase.rpc("acoes_massivas_concluir_lote", {
+        p_lote_id: lote.id,
+        p_acao: acao,
+      });
+      if (error) throw error;
+      if (acao === "DESCARTAR") {
+        setSucesso(`Lote ${lote.arquivo || ""} descartado. Nada foi registrado nos alunos.`);
+      } else {
+        const registrados = Number(res?.registrados || 0);
+        const retorno = new Date();
+        retorno.setDate(retorno.getDate() + 10);
+        const partes = [
+          [Number(res?.excluidos_acionados_apos_exportacao || 0), "foram acionados depois da exportação e mantiveram o contato mais novo"],
+          [Number(res?.excluidos_confirmacao || 0), "entraram em confirmação de pagamento"],
+          [Number(res?.excluidos_liquidados_prime || 0), "já constam liquidados no Prime"],
+          [Number(res?.excluidos_outro_operador || 0), "não estão mais na carteira do operador do lote"],
+          [Number(res?.excluidos_tipo_cobranca || 0), "não correspondem mais ao tipo de cobrança do lote"],
+        ].filter(([n]) => n > 0).map(([n, t]) => ` ${n} caso(s) ${t} e não foram registrados.`).join("");
+        setSucesso(
+          `Ação confirmada: ${registrados} aluno(s) registrados como acionados, com retorno agendado para ${retorno.toLocaleDateString("pt-BR")}.${partes}`
+        );
+        carregarProgresso();
+        carregarPorDia();
+      }
+    } catch (e) {
+      console.error("Erro ao concluir lote da ação massiva:", e);
+      setErro("Erro ao concluir o lote: " + (e.message || "tente novamente"));
+    } finally {
+      setAcaoLote(null);
+      setConcluindoLote(false);
+      carregarLotesPendentes();
     }
   }
 
@@ -563,6 +696,53 @@ export default function AcoesMassivas() {
 
       <div style={estilos.card}>
         <div style={estilos.linhaFiltros}>
+          <div style={{ ...estilos.campo, minWidth: 240 }}>
+            <label style={estilos.label} htmlFor="filtro-operador-responsavel">Operador responsável</label>
+            <select
+              id="filtro-operador-responsavel"
+              style={estilos.input}
+              value={operadorEmail}
+              // Trocar no meio da busca ou da geração deixaria a lista de um
+              // operador à mostra com outro escolhido.
+              disabled={carregando || gerando}
+              onChange={(e) => {
+                setOperadorEmail(e.target.value);
+                limparPrevia();
+              }}
+            >
+              <option value="">Base livre / regra atual</option>
+              {opcoesOperador.map((o) => (
+                <option key={o.email} value={o.email}>{o.nome} ({o.email})</option>
+              ))}
+            </select>
+            {operadorEmail && (
+              <span style={estilos.ajudaCampo}>
+                Só alunos da carteira atual de {nomeDoOperador(operadorEmail)}. O filtro “Sem acionamento há”
+                continua opcional e não é aplicado sozinho. Exportar a planilha não muda nada no aluno.
+              </span>
+            )}
+          </div>
+          <div style={{ ...estilos.campo, minWidth: 220 }}>
+            <label style={estilos.label} htmlFor="filtro-tipo-cobranca">Tipo de cobrança</label>
+            <select
+              id="filtro-tipo-cobranca"
+              style={estilos.input}
+              value={tipoCobranca}
+              disabled={carregando || gerando}
+              onChange={(e) => {
+                setTipoCobranca(e.target.value);
+                limparPrevia();
+              }}
+            >
+              <option value="" disabled>Selecione o tipo de cobrança</option>
+              {TIPOS_COBRANCA.map((t) => (
+                <option key={t.valor} value={t.valor}>{t.rotulo}</option>
+              ))}
+            </select>
+            {AJUDA_TIPO_COBRANCA[tipoCobranca] && (
+              <span style={estilos.ajudaCampo}>{AJUDA_TIPO_COBRANCA[tipoCobranca]}</span>
+            )}
+          </div>
           <div style={estilos.campo}>
             <label style={estilos.label}>Valor mínimo (nunca abaixo de R$ 100,00)</label>
             <input
@@ -818,6 +998,80 @@ export default function AcoesMassivas() {
         </button>
       </div>
 
+      {lotesPendentes.length > 0 && (
+        <div style={estilos.card}>
+          <h3 style={{ margin: "0 0 4px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800 }}>
+            Planilhas exportadas aguardando confirmação
+          </h3>
+          <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-fraco)" }}>
+            Exportar não registra contato. Depois que o disparo na ferramenta externa terminar, confirme a
+            ação realizada — só então os alunos contam como acionados. Se a planilha não foi enviada, descarte.
+          </p>
+          <div style={{ overflowX: "auto" }}>
+            <table style={estilos.tabela}>
+              <thead>
+                <tr>
+                  <th style={estilos.th}>Planilha</th>
+                  <th style={estilos.th}>Canal</th>
+                  <th style={estilos.th}>Carteira</th>
+                  <th style={estilos.th}>Tipo de cobrança</th>
+                  <th style={estilos.thNum}>Alunos</th>
+                  <th style={estilos.th}>Exportada</th>
+                  <th style={estilos.th}></th>
+                </tr>
+              </thead>
+              <tbody>
+                {lotesPendentes.map((l) => (
+                  <tr key={l.id}>
+                    <td style={estilos.td}>{l.arquivo || "—"}</td>
+                    <td style={estilos.td}>{l.canal === "EMAIL" ? "E-mail" : "WhatsApp"}</td>
+                    <td style={estilos.td}>{l.operador_email ? (l.operador_nome || l.operador_email) : "Base livre"}</td>
+                    <td style={estilos.td}>{rotuloTipoCobranca(l.tipo_cobranca)}</td>
+                    <td style={estilos.tdNum}>{l.total}</td>
+                    <td style={estilos.td}>
+                      {new Date(l.exportado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
+                      <div style={{ color: "var(--rv-texto-fraco)", fontSize: 11 }}>{l.exportado_por_email}</div>
+                    </td>
+                    <td style={estilos.td}>
+                      {acaoLote?.id === l.id ? (
+                        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 360 }}>
+                          <span style={{ fontSize: 12, color: "var(--rv-texto)" }}>
+                            {acaoLote.acao === "CONFIRMAR"
+                              ? `Confirme só se o disparo já foi concluído. Os ${l.total} aluno(s) passam a contar como acionados: tabulação “Ação massiva externa enviada”, retorno em 10 dias e fidelização reiniciada. Quem foi acionado depois da exportação ou não corresponde mais ao tipo de cobrança do lote fica de fora.`
+                              : "Descartar: a planilha não foi enviada. Nada é registrado nos alunos."}
+                          </span>
+                          <div style={{ display: "flex", gap: 6 }}>
+                            <button
+                              style={estilos.botaoGerar}
+                              disabled={concluindoLote}
+                              onClick={() => concluirLote(l, acaoLote.acao)}
+                            >
+                              {acaoLote.acao === "CONFIRMAR" ? "Sim, o disparo foi concluído" : "Sim, descartar"}
+                            </button>
+                            <button style={estilos.botaoSecundario} disabled={concluindoLote} onClick={() => setAcaoLote(null)}>
+                              Voltar
+                            </button>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                          <button style={estilos.botaoGerar} onClick={() => setAcaoLote({ id: l.id, acao: "CONFIRMAR" })}>
+                            ✅ Confirmar ação realizada
+                          </button>
+                          <button style={estilos.botaoSecundario} onClick={() => setAcaoLote({ id: l.id, acao: "DESCARTAR" })}>
+                            Descartar
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
       {resultados && excluidosConfirmacao.length > 0 && (
         <div style={{ ...estilos.card, background: "var(--rv-ambar-fundo)", borderColor: "var(--rv-ambar-borda)", marginBottom: 12 }}>
           <button
@@ -867,10 +1121,35 @@ export default function AcoesMassivas() {
             <div>
               <strong style={{ fontFamily: FONTE_TITULO, fontSize: 18 }}>{resultados.length}</strong>{" "}
               <span style={{ color: "var(--rv-texto-fraco)" }}>
-                caso(s) livre(s) com {canal === "WHATSAPP" ? "telefone" : "e-mail"}, prontos pra ação
+                {operadorDaPrevia
+                  ? `caso(s) da carteira de ${nomeDoOperador(operadorDaPrevia)}`
+                  : "caso(s) livre(s)"}{" "}
+                com {canal === "WHATSAPP" ? "telefone" : "e-mail"}, prontos pra ação
               </span>
               {resultados.length > 0 && (
                 <span style={{ color: "var(--rv-texto-fraco)" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
+              )}
+              <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }}>
+                {operadorDaPrevia ? (
+                  <>
+                    Operador filtrado: <strong>{nomeDoOperador(operadorDaPrevia)}</strong> ({operadorDaPrevia}) —
+                    só alunos com esse responsável atual.
+                  </>
+                ) : (
+                  <>Sem operador filtrado: base livre / regra atual.</>
+                )}
+                {" "}· Tipo de cobrança: <strong>{rotuloTipoCobranca(tipoDaPrevia)}</strong>
+              </div>
+              {contagemTipo && (
+                <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }} data-testid="contagem-tipo">
+                  Mensalidades: <strong>{contagemTipo.mensalidades}</strong>
+                  {" "}· Acordos vencidos: <strong>{contagemTipo.acordos_vencidos}</strong>
+                  {" "}· Total único de alunos: <strong>{contagemTipo.total_unico}</strong>
+                  {contagemTipo.mensalidades_e_acordos_vencidos > 0 && (
+                    <> ({contagemTipo.mensalidades_e_acordos_vencidos} dos acordos vencidos também têm mensalidade)</>
+                  )}
+                  {" "}— antes do canal, do valor mínimo e da Quantidade.
+                </div>
               )}
               {primeExtratoEm && (
                 <div style={{ color: "#8a93a3", fontSize: 12.5, marginTop: 4 }}>
@@ -881,8 +1160,8 @@ export default function AcoesMassivas() {
               )}
             </div>
             {resultados.length > 0 && (
-              <button style={estilos.botaoGerar} onClick={gerarEregistrar} disabled={gerando}>
-                {gerando ? "Gerando..." : "⬇️ Gerar Excel e registrar ação"}
+              <button style={estilos.botaoGerar} onClick={exportarPlanilha} disabled={gerando}>
+                {gerando ? "Exportando..." : "⬇️ Exportar planilha (não registra contato)"}
               </button>
             )}
           </div>
@@ -906,7 +1185,8 @@ export default function AcoesMassivas() {
 
           {resultados.length === 0 ? (
             <p style={{ color: "var(--rv-texto-fraco)" }}>
-              Nenhum caso livre com esses filtros (ou sem {canal === "WHATSAPP" ? "telefone" : "e-mail"} cadastrado).
+              Nenhum caso {operadorDaPrevia ? `da carteira de ${nomeDoOperador(operadorDaPrevia)}` : "livre"} com
+              esses filtros (ou sem {canal === "WHATSAPP" ? "telefone" : "e-mail"} cadastrado).
             </p>
           ) : (
             <div style={{ overflowX: "auto", maxHeight: 420, overflowY: "auto" }}>
@@ -1003,6 +1283,7 @@ const estilos = {
   linhaFiltros: { display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 },
   campo: { display: "flex", flexDirection: "column", gap: 5, minWidth: 160 },
   label: { fontSize: 12, fontWeight: 700, color: "var(--rv-texto)" },
+  ajudaCampo: { fontSize: 11, color: "var(--rv-texto-fraco)", marginTop: 4, maxWidth: 420 },
   input: {
     padding: "9px 12px",
     borderRadius: 10,
@@ -1069,6 +1350,16 @@ const estilos = {
     fontSize: 13,
     cursor: "pointer",
     boxShadow: "0 4px 14px rgba(0,0,0,0.2)",
+  },
+  botaoSecundario: {
+    background: "var(--rv-superficie)",
+    color: "var(--rv-texto)",
+    border: "1px solid var(--rv-borda)",
+    borderRadius: 10,
+    padding: "9px 14px",
+    fontWeight: 700,
+    fontSize: 13,
+    cursor: "pointer",
   },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
   th: {
