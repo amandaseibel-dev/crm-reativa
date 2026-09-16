@@ -173,9 +173,9 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     const previa = ultimaChamada("acoes_massivas_previa");
     expect("p_operador_email" in previa).toBe(false);
     expect(Object.keys(previa).sort()).toEqual([
-      "p_ano_vencimento", "p_apenas_ja_acionado", "p_apenas_nunca_acionado", "p_curso",
+      "p_ano_vencimento", "p_apenas_ja_acionado", "p_apenas_nunca_acionado", "p_canal", "p_curso",
       "p_dias_minimo_sem_contato", "p_importacao_ids", "p_limite", "p_matricula",
-      "p_situacao_academica", "p_tipo_cobranca", "p_unidade",
+      "p_situacao_academica", "p_tipo_cobranca", "p_unidade", "p_valor_max", "p_valor_min",
     ]);
     expect(screen.getByText(/Sem operador filtrado: base livre \/ regra atual/)).toBeTruthy();
     expect(screen.getByText(/caso\(s\) livre\(s\)/)).toBeTruthy();
@@ -463,5 +463,38 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     expect(screen.getByText(/não corresponde mais ao tipo de cobrança do lote fica de fora/)).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, o disparo foi concluído/ })); });
     expect(screen.getByText(/2 caso\(s\) não correspondem mais ao tipo de cobrança do lote/)).toBeTruthy();
+  });
+});
+
+describe("Ações Massivas — canal e valor filtrados no banco, antes do corte da Quantidade", () => {
+  const ultimaPrevia = () => rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_previa").at(-1)[1];
+
+  it("a prévia recebe canal e faixa de valor (com o piso de R$ 100)", async () => {
+    await montar();
+    await buscar();
+    expect(ultimaPrevia()).toMatchObject({ p_canal: "WHATSAPP", p_valor_min: 100, p_valor_max: null });
+    fireEvent.change(screen.getByPlaceholderText("Ex: 500,00"), { target: { value: "50" } });
+    fireEvent.change(screen.getByPlaceholderText("Ex: 3000,00"), { target: { value: "3.000,00" } });
+    await buscar();
+    expect(ultimaPrevia()).toMatchObject({ p_canal: "WHATSAPP", p_valor_min: 100, p_valor_max: 3000 });
+    fireEvent.change(screen.getByPlaceholderText("Ex: 500,00"), { target: { value: "500,00" } });
+    fireEvent.click(screen.getByRole("button", { name: /E-mail/ }));
+    await buscar();
+    expect(ultimaPrevia()).toMatchObject({ p_canal: "EMAIL", p_valor_min: 500, p_valor_max: 3000 });
+  });
+
+  it("quando a opção tem mais alunos que a lista, a tela diz que é a fatia da Quantidade", async () => {
+    previaExtra = { contagem_tipo: { mensalidades: 2431, acordos_vencidos: 2, mensalidades_e_acordos_vencidos: 0, total_unico: 2433 } };
+    await montar({ tipo: "MENSALIDADES" });
+    await buscar();
+    const linha = screen.getByTestId("contagem-tipo").textContent;
+    expect(linha).toContain("já com telefone e na faixa de valor");
+    expect(linha).toContain("A lista traz os primeiros 1 de 2431: aumente a Quantidade para ver mais.");
+  });
+
+  it("quando a lista já traz todos, não fala em Quantidade", async () => {
+    await montar({ tipo: "MENSALIDADES" });
+    await buscar();
+    expect(screen.getByTestId("contagem-tipo").textContent).not.toContain("aumente a Quantidade");
   });
 });

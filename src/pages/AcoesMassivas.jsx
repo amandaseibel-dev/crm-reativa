@@ -154,8 +154,8 @@ export default function AcoesMassivas() {
   // Data do extrato do Prime que a prévia usou para tirar quem já pagou lá.
   // A relação NÃO vem para a tela: quem consta liquidado não deve nem aparecer.
   const [primeExtratoEm, setPrimeExtratoEm] = useState(null);
-  // Quantos alunos por tipo atendem aos filtros enviados ao banco (antes do
-  // limite de Quantidade e dos filtros de canal/valor que a tela aplica depois).
+  // Quantos alunos por tipo atendem aos filtros enviados ao banco -- já com o
+  // contato do canal e a faixa de valor. Só a Quantidade limita a lista.
   const [contagemTipo, setContagemTipo] = useState(null);
   const [mostrarExcluidos, setMostrarExcluidos] = useState(false);
   const [excluidosNoEnvio, setExcluidosNoEnvio] = useState(0);
@@ -306,6 +306,15 @@ export default function AcoesMassivas() {
         p_importacao_ids: (over.borderosSel ?? borderosSel).length
           ? (over.borderosSel ?? borderosSel)
           : null,
+        // Canal e faixa de valor vão para o BANCO, antes do corte de p_limite.
+        // Filtrados só aqui na tela, o banco devolvia Quantidade × 3 linhas e a
+        // tela jogava fora quem não tem contato ou está abaixo do valor: a
+        // lista saía com menos que a Quantidade enquanto a contagem mostrava
+        // milhares. Os predicados do banco são os mesmos de tem_telefone,
+        // tem_email e valor; os filtros abaixo continuam, agora sem efeito.
+        p_canal: canal,
+        p_valor_min: minEfetivo,
+        p_valor_max: max,
       };
       // Sem operador a chamada fica IDÊNTICA à de antes (a chave nem vai):
       // base livre / regra atual, sem depender da versão do banco.
@@ -521,6 +530,15 @@ export default function AcoesMassivas() {
   }
 
   const valorTotal = resultados ? resultados.reduce((s, r) => s + r.valor, 0) : 0;
+  // Quantos atendem à opção escolhida (mesma conta do banco), para dizer quando
+  // a lista é só a fatia da Quantidade.
+  const totalDaOpcao = contagemTipo
+    ? {
+        MENSALIDADES: contagemTipo.mensalidades,
+        ACORDOS_VENCIDOS: contagemTipo.acordos_vencidos,
+        MENSALIDADES_E_ACORDOS: contagemTipo.total_unico,
+      }[tipoDaPrevia] ?? null
+    : null;
 
   // Transporta os filtros do painel de penetração para a prévia oficial e
   // recalcula. NÃO congela lista, NÃO cria/agenda/envia campanha — a prévia
@@ -1148,7 +1166,10 @@ export default function AcoesMassivas() {
                   {contagemTipo.mensalidades_e_acordos_vencidos > 0 && (
                     <> ({contagemTipo.mensalidades_e_acordos_vencidos} dos acordos vencidos também têm mensalidade)</>
                   )}
-                  {" "}— antes do canal, do valor mínimo e da Quantidade.
+                  {" "}— já com {canal === "WHATSAPP" ? "telefone" : "e-mail"} e na faixa de valor.
+                  {totalDaOpcao != null && resultados.length < totalDaOpcao && !(canal === "EMAIL" && soSemTelefone) && (
+                    <> A lista traz os primeiros {resultados.length} de {totalDaOpcao}: aumente a Quantidade para ver mais.</>
+                  )}
                 </div>
               )}
               {primeExtratoEm && (
