@@ -1,47 +1,56 @@
 -- Acoes Massivas: filtro "Tipo de cobranca".
 --
--- Amanda, 16/09/2026: incluir o filtro Tipo de cobranca, funcionando junto com
--- todos os filtros (inclusive operador), igual na previa, na exportacao e na
--- confirmacao do lote.
+-- Amanda, 16/09/2026. Regra final, sem ambiguidade:
+--   MENSALIDADES            "Somente mensalidades": alunos elegiveis com
+--                           mensalidade original em aberto.
+--   ACORDOS_VENCIDOS        "Somente acordos vencidos": alunos elegiveis com
+--                           acordo quebrado ou parcela vencida.
+--   MENSALIDADES_E_ACORDOS  "Mensalidades e acordos": UNIAO das duas. O aluno nao
+--                           precisa ter os dois tipos e nunca aparece duplicado.
+-- Acordo em dia fica fora de TODAS as opcoes. Nao existe opcao "Todos": ela so
+-- poderia existir se incluisse mensalidades e acordos vencidos, e isso ja e
+-- "Mensalidades e acordos".
 --
--- OPCOES (decididas por ela em 16/09, com os numeros na mao)
---   TODOS                   a regra de sempre, sem filtrar pelo tipo.
---   MENSALIDADES            tem mensalidade em aberto e NAO tem acordo ativo.
---   ACORDOS                 tem acordo ATIVO com parcela VENCIDA e NAO tem
---                           mensalidade em aberto.
---   MENSALIDADES_E_ACORDOS  tem as duas coisas ao mesmo tempo.
--- As opcoes sao EXCLUSIVAS: ninguem cai em duas.
---
--- A TRAVA DO ACORDO ATIVO. A previa sempre tirou quem tem acordo ATIVO -- e
--- parcela de acordo em aberto so existe em acordo ATIVO (medido em 16/09: 9.343
--- parcelas A_VENCER/VENCIDA em acordo ATIVO, 6 em CANCELADO). Mantida a trava,
--- "Somente acordos" sairia sempre vazia. Decisao dela: nas opcoes ACORDOS e
--- MENSALIDADES_E_ACORDOS entra so o acordo ATIVO com parcela VENCIDA; acordo em
--- dia continua fora. TODOS e MENSALIDADES mantem a trava exatamente como hoje.
--- Medido em 16/09 (leitura, com as demais travas): 845 alunos saiam pela trava;
--- 801 com parcela vencida, 44 em dia ou sem parcela aberta.
+-- AS DEMAIS TRAVAS NAO MUDAM: quitado ou encerrado, liquidado no Prime,
+-- confirmacao de pagamento, RETORNO AGENDADO (decisao expressa dela: quem tem
+-- retorno futuro continua fora) e os demais bloqueios da previa.
 --
 -- DEFINICOES (as mesmas do saldo canonico, aluno_saldo_pendente_detalhe):
---   mensalidade em aberto = acordos_titulos com situacao ABERTO ou NEGOCIADO,
---     status diferente de quitada, tipo_boleto diferente de 'Acordo', saldo
---     cobravel > 0 e SEM vinculo ativo com acordo nao cancelado;
---   acordo com parcela vencida = acordo ATIVO com parcela em status VENCIDA.
--- A regra mora numa funcao so, `acoes_massivas_tipo_cobranca_confere`, usada
--- pela previa, pela exportacao e pela confirmacao.
+--   mensalidade original em aberto = acordos_titulos ABERTO ou NEGOCIADO, nao
+--     quitado, que nao e o boleto do acordo (tipo_boleto 'Acordo'), com saldo
+--     cobravel > 0 e sem vinculo ativo com acordo nao cancelado;
+--   acordo vencido = acordo ATIVO com parcela VENCIDA. "Quebrado" no CRM e
+--     parcela vencida ha mais tempo, entao ja esta dentro. Nao existe status
+--     QUEBRADO em acordos (so ATIVO, QUITADO, CANCELADO);
+--   acordo em dia = acordo ATIVO sem parcela VENCIDA. Quem tem acordo em dia sai
+--     de todas as opcoes, mesmo com mensalidade em aberto -- a mesma trava de
+--     hoje. Com um acordo em dia E outro vencido, conta como acordo vencido.
+-- A populacao e as marcas moram em `acoes_massivas_tipo_cobranca_alunos`; o que
+-- cada opcao aceita, em `acoes_massivas_tipo_cobranca_corresponde`. Previa,
+-- exportacao e confirmacao usam as duas.
+--
+-- MEDIDO EM 16/09 (leitura, carteiras dos 8 operadores, todas as travas):
+--   mensalidades 1.782 (1.501 sem acordo + 281 com acordo vencido), acordos
+--   vencidos 762, total unico 2.263. A regra anterior dava 1.523: os 1.501 com
+--   mensalidade mais 22 alunos SEM divida canonica (10 sem titulo, 12 so com
+--   titulos pagos), que agora saem.
+--
+-- SEM p_tipo_cobranca (NULL ou vazio) a previa, a exportacao e a confirmacao
+-- fazem exatamente o que faziam antes -- so para a tela ANTERIOR continuar
+-- funcionando entre a aplicacao desta migration e a publicacao do front. A tela
+-- nova sempre manda o tipo. O valor devolvido nesse caso e 'REGRA_ANTERIOR'; ele
+-- nao pode ser pedido explicitamente, e 'TODOS' e recusado.
 --
 -- O QUE MUDA
---   * acoes_massivas_previa ganha `p_tipo_cobranca text default null` (NULL,
---     vazio ou TODOS = regra atual) e devolve `tipo_cobranca`;
---   * acoes_massivas_exportar ganha o mesmo parametro, revalida o tipo e grava
---     o tipo no lote;
---   * acoes_massivas_lotes ganha a coluna `tipo_cobranca` (TODOS para os lotes
---     que ja existirem);
---   * acoes_massivas_concluir_lote REVALIDA o tipo do lote no banco antes de
---     registrar: quem nao corresponde mais fica de fora e e contado;
---   * acoes_massivas_lotes_pendentes mostra o tipo.
+--   * acoes_massivas_previa: `p_tipo_cobranca text default null`; devolve
+--     `tipo_cobranca` e `contagem_tipo` {mensalidades, acordos_vencidos,
+--     mensalidades_e_acordos_vencidos, total_unico};
+--   * acoes_massivas_exportar: mesmo parametro, revalida o tipo, grava no lote;
+--   * acoes_massivas_lotes: coluna `tipo_cobranca`;
+--   * acoes_massivas_concluir_lote: REVALIDA o tipo do lote no banco;
+--   * acoes_massivas_lotes_pendentes: mostra o tipo.
 --
--- NAO MUDA: titulos, acordos, parcelas, valores e responsaveis. Tudo aqui so le
--- essas tabelas.
+-- NAO MUDA: titulos, acordos, parcelas, valores e responsaveis (so leitura).
 --
 -- Cirurgia sobre a definicao viva, como em 20260916200000: falha alto se uma
 -- ancora nao aparecer exatamente uma vez, rodar de novo e inocuo, assinatura
@@ -56,9 +65,9 @@ begin
   end if;
 end $pre$;
 
--- 1) A regra, num lugar so. Devolve so ids.
-create or replace function public.acoes_massivas_tipo_cobranca_confere(p_tipo text, p_aluno_ids uuid[] default null)
-returns table(aluno_id uuid)
+-- 1) Populacao e marcas por aluno. Devolve so ids e booleanos.
+create or replace function public.acoes_massivas_tipo_cobranca_alunos(p_aluno_ids uuid[] default null)
+returns table(aluno_id uuid, tem_mensalidade boolean, tem_acordo_vencido boolean)
 language sql
 stable
 set search_path to 'public'
@@ -90,36 +99,54 @@ as $function$
      where (p_aluno_ids is null or a.aluno_id = any(p_aluno_ids))
        and a.status = 'ATIVO'
        and p.status = 'VENCIDA'
+  ),
+  -- acordo vencido, ou mensalidade sem acordo em dia (acordo ativo sem vencida)
+  populacao as (
+    select v.aluno_id from vencido v
+    union
+    select m.aluno_id from mens m
+     where not exists (select 1 from ativo x where x.aluno_id = m.aluno_id)
   )
-  select m.aluno_id from mens m
-   where upper(p_tipo) = 'MENSALIDADES'
-     and not exists (select 1 from ativo x where x.aluno_id = m.aluno_id)
-  union
-  select v.aluno_id from vencido v
-   where upper(p_tipo) = 'ACORDOS'
-     and not exists (select 1 from mens m where m.aluno_id = v.aluno_id)
-  union
-  select v.aluno_id from vencido v
-   where upper(p_tipo) = 'MENSALIDADES_E_ACORDOS'
-     and exists (select 1 from mens m where m.aluno_id = v.aluno_id);
+  select p.aluno_id,
+         exists (select 1 from mens m where m.aluno_id = p.aluno_id),
+         exists (select 1 from vencido v where v.aluno_id = p.aluno_id)
+    from populacao p;
 $function$;
 
-revoke all on function public.acoes_massivas_tipo_cobranca_confere(text, uuid[]) from public, anon, authenticated;
-grant execute on function public.acoes_massivas_tipo_cobranca_confere(text, uuid[]) to service_role;
+-- 2) O que cada opcao aceita. Sem opcao valida, nada.
+create or replace function public.acoes_massivas_tipo_cobranca_corresponde(
+  p_tipo text, p_tem_mensalidade boolean, p_tem_acordo_vencido boolean)
+returns boolean
+language sql
+immutable
+set search_path to 'public'
+as $function$
+  select case upper(coalesce(p_tipo, ''))
+           when 'MENSALIDADES' then coalesce(p_tem_mensalidade, false)
+           when 'ACORDOS_VENCIDOS' then coalesce(p_tem_acordo_vencido, false)
+           when 'MENSALIDADES_E_ACORDOS' then coalesce(p_tem_mensalidade, false) or coalesce(p_tem_acordo_vencido, false)
+           else false
+         end;
+$function$;
 
--- 2) O lote guarda o tipo.
+revoke all on function public.acoes_massivas_tipo_cobranca_alunos(uuid[]) from public, anon, authenticated;
+grant execute on function public.acoes_massivas_tipo_cobranca_alunos(uuid[]) to service_role;
+revoke all on function public.acoes_massivas_tipo_cobranca_corresponde(text, boolean, boolean) from public, anon, authenticated;
+grant execute on function public.acoes_massivas_tipo_cobranca_corresponde(text, boolean, boolean) to service_role;
+
+-- 3) O lote guarda o tipo.
 alter table public.acoes_massivas_lotes
-  add column if not exists tipo_cobranca text not null default 'TODOS';
+  add column if not exists tipo_cobranca text not null default 'REGRA_ANTERIOR';
 do $chk$
 begin
   if not exists (select 1 from pg_constraint where conname = 'acoes_massivas_lotes_tipo_cobranca_valido') then
     alter table public.acoes_massivas_lotes
       add constraint acoes_massivas_lotes_tipo_cobranca_valido
-      check (tipo_cobranca in ('TODOS', 'MENSALIDADES', 'ACORDOS', 'MENSALIDADES_E_ACORDOS'));
+      check (tipo_cobranca in ('REGRA_ANTERIOR', 'MENSALIDADES', 'ACORDOS_VENCIDOS', 'MENSALIDADES_E_ACORDOS'));
   end if;
 end $chk$;
 
--- 3) Cirurgia nas quatro funcoes.
+-- 4) Cirurgia nas quatro funcoes.
 do $migration$
 declare
   v_fn          text;
@@ -142,8 +169,8 @@ $a$p_operador_email text DEFAULT NULL::text, p_tipo_cobranca text DEFAULT NULL::
   ('acoes_massivas_previa', 2,
 $a$  v_operador text := lower(nullif(btrim(p_operador_email), ''));$a$,
 $a$  v_operador text := lower(nullif(btrim(p_operador_email), ''));
-  -- Tipo de cobranca escolhido na tela. NULL, vazio ou TODOS = regra atual.
-  v_tipo text := upper(coalesce(nullif(btrim(p_tipo_cobranca), ''), 'TODOS'));$a$),
+  -- Tipo de cobranca. Sem tipo = tela anterior (REGRA_ANTERIOR).
+  v_tipo text := coalesce(upper(nullif(btrim(p_tipo_cobranca), '')), 'REGRA_ANTERIOR');$a$),
   ('acoes_massivas_previa', 3,
 $a$  IF NOT v_sistema AND NOT public.usuario_e_gestao() THEN
     RAISE EXCEPTION 'Acesso negado: previa de acao massiva restrita a gestao.' USING ERRCODE = '42501';
@@ -151,7 +178,8 @@ $a$  IF NOT v_sistema AND NOT public.usuario_e_gestao() THEN
 $a$  IF NOT v_sistema AND NOT public.usuario_e_gestao() THEN
     RAISE EXCEPTION 'Acesso negado: previa de acao massiva restrita a gestao.' USING ERRCODE = '42501';
   END IF;
-  IF v_tipo NOT IN ('TODOS', 'MENSALIDADES', 'ACORDOS', 'MENSALIDADES_E_ACORDOS') THEN
+  IF nullif(btrim(p_tipo_cobranca), '') IS NOT NULL
+     AND v_tipo NOT IN ('MENSALIDADES', 'ACORDOS_VENCIDOS', 'MENSALIDADES_E_ACORDOS') THEN
     RAISE EXCEPTION 'Tipo de cobranca invalido: %', p_tipo_cobranca USING ERRCODE = '22023';
   END IF;$a$),
   ('acoes_massivas_previa', 4,
@@ -161,24 +189,57 @@ $a$  liq_prime AS MATERIALIZED (
 $a$  liq_prime AS MATERIALIZED (
     SELECT lp.aluno_id FROM public.acoes_massivas_liquidados_prime() lp
   ),
-  -- Alunos que correspondem ao tipo de cobranca. Em TODOS nem e calculado.
-  tipo_ok AS MATERIALIZED (
-    SELECT tc.aluno_id FROM public.acoes_massivas_tipo_cobranca_confere(v_tipo) tc
-     WHERE v_tipo <> 'TODOS'
+  -- Populacao do tipo de cobranca (mensalidade sem acordo em dia, ou acordo
+  -- vencido) com as marcas. Sem tipo nem e calculada.
+  tipo_cob AS MATERIALIZED (
+    SELECT tc.aluno_id, tc.tem_mensalidade, tc.tem_acordo_vencido
+      FROM public.acoes_massivas_tipo_cobranca_alunos() tc
+     WHERE v_tipo <> 'REGRA_ANTERIOR'
   ),$a$),
   ('acoes_massivas_previa', 5,
-$a$      AND NOT EXISTS (SELECT 1 FROM public.acordos ac WHERE ac.aluno_id = a.id AND ac.status = 'ATIVO')$a$,
-$a$      -- Acordo ativo fica fora em TODOS e MENSALIDADES, como sempre. Em ACORDOS e
-      -- MENSALIDADES_E_ACORDOS entra so o acordo ativo com parcela vencida -- e
-      -- isso quem garante e tipo_ok, abaixo.
-      AND (v_tipo IN ('ACORDOS', 'MENSALIDADES_E_ACORDOS')
-           OR NOT EXISTS (SELECT 1 FROM public.acordos ac WHERE ac.aluno_id = a.id AND ac.status = 'ATIVO'))
-      AND (v_tipo = 'TODOS' OR EXISTS (SELECT 1 FROM tipo_ok tk WHERE tk.aluno_id = a.id))$a$),
+$a$           nullif(btrim(a.curso),'')              AS curso,
+           a.unidade,$a$,
+$a$           nullif(btrim(a.curso),'')              AS curso,
+           a.unidade,
+           coalesce(tc.tem_mensalidade, false)    AS tem_mensalidade,
+           coalesce(tc.tem_acordo_vencido, false) AS tem_acordo_vencido,
+           -- a opcao escolhida aceita este aluno? (sem tipo: sempre)
+           (v_tipo = 'REGRA_ANTERIOR'
+            OR public.acoes_massivas_tipo_cobranca_corresponde(v_tipo, tc.tem_mensalidade, tc.tem_acordo_vencido)) AS no_tipo,$a$),
   ('acoes_massivas_previa', 6,
+$a$    ) c ON true$a$,
+$a$    ) c ON true
+    LEFT JOIN tipo_cob tc ON tc.aluno_id = a.id$a$),
+  ('acoes_massivas_previa', 7,
+$a$      AND NOT EXISTS (SELECT 1 FROM public.acordos ac WHERE ac.aluno_id = a.id AND ac.status = 'ATIVO')$a$,
+$a$      -- Sem tipo (tela anterior): acordo ativo fica fora, como sempre.
+      -- Com tipo: so a populacao de tipo_cob. Acordo em dia fica fora de todas.
+      AND (v_tipo <> 'REGRA_ANTERIOR'
+           OR NOT EXISTS (SELECT 1 FROM public.acordos ac WHERE ac.aluno_id = a.id AND ac.status = 'ATIVO'))
+      AND (v_tipo = 'REGRA_ANTERIOR' OR tc.aluno_id IS NOT NULL)$a$),
+  ('acoes_massivas_previa', 8,
+$a$    SELECT * FROM filtrado
+    ORDER BY data_ultimo_acionamento ASC NULLS FIRST$a$,
+$a$    SELECT * FROM filtrado
+    WHERE no_tipo
+    ORDER BY data_ultimo_acionamento ASC NULLS FIRST$a$),
+  ('acoes_massivas_previa', 9,
+$a$(SELECT count(*) FROM filtrado WHERE motivo_conf IS NULL)$a$,
+$a$(SELECT count(*) FROM filtrado WHERE motivo_conf IS NULL AND no_tipo)$a$),
+  ('acoes_massivas_previa', 10,
 $a$    'operador_email', v_operador$a$,
 $a$    'operador_email', v_operador,
-    -- Tipo de cobranca que a previa aplicou.
-    'tipo_cobranca', v_tipo$a$),
+    -- Tipo de cobranca aplicado.
+    'tipo_cobranca', v_tipo,
+    -- Quantidade por tipo, com todos os demais filtros enviados ao banco e sem
+    -- o limite da lista. Quem tem os dois tipos conta uma vez no total unico.
+    'contagem_tipo', CASE WHEN v_tipo = 'REGRA_ANTERIOR' THEN NULL ELSE (
+      SELECT jsonb_build_object(
+        'mensalidades', count(*) FILTER (WHERE tem_mensalidade),
+        'acordos_vencidos', count(*) FILTER (WHERE tem_acordo_vencido),
+        'mensalidades_e_acordos_vencidos', count(*) FILTER (WHERE tem_mensalidade AND tem_acordo_vencido),
+        'total_unico', count(*))
+      FROM filtrado WHERE motivo_conf IS NULL) END$a$),
   -- -------------------------------------------------------------- exportar
   ('acoes_massivas_exportar', 1,
 $a$p_operador_email text DEFAULT NULL::text)$a$,
@@ -186,26 +247,28 @@ $a$p_operador_email text DEFAULT NULL::text, p_tipo_cobranca text DEFAULT NULL::
   ('acoes_massivas_exportar', 2,
 $a$  v_operador text := lower(nullif(btrim(p_operador_email), ''));$a$,
 $a$  v_operador text := lower(nullif(btrim(p_operador_email), ''));
-  v_tipo text := upper(coalesce(nullif(btrim(p_tipo_cobranca), ''), 'TODOS'));
+  v_tipo text := coalesce(upper(nullif(btrim(p_tipo_cobranca), '')), 'REGRA_ANTERIOR');
   v_tipo_ids text[] := '{}';
   v_exc_tipo int := 0;$a$),
   ('acoes_massivas_exportar', 3,
 $a$  v_autor := case when v_sistema then 'SISTEMA' else lower(coalesce(auth.email(), '')) end;$a$,
-$a$  if v_tipo not in ('TODOS', 'MENSALIDADES', 'ACORDOS', 'MENSALIDADES_E_ACORDOS') then
+$a$  if nullif(btrim(p_tipo_cobranca), '') is not null
+     and v_tipo not in ('MENSALIDADES', 'ACORDOS_VENCIDOS', 'MENSALIDADES_E_ACORDOS') then
     raise exception 'Tipo de cobranca invalido: %', p_tipo_cobranca using errcode = '22023';
   end if;
   v_autor := case when v_sistema then 'SISTEMA' else lower(coalesce(auth.email(), '')) end;
 
   -- Tipo de cobranca: a mesma regra da previa, conferida agora.
-  if v_tipo <> 'TODOS' then
+  if v_tipo <> 'REGRA_ANTERIOR' then
     select coalesce(array_agg(tc.aluno_id::text), '{}') into v_tipo_ids
-      from public.acoes_massivas_tipo_cobranca_confere(v_tipo, v_ids::uuid[]) tc;
+      from public.acoes_massivas_tipo_cobranca_alunos(v_ids::uuid[]) tc
+     where public.acoes_massivas_tipo_cobranca_corresponde(v_tipo, tc.tem_mensalidade, tc.tem_acordo_vencido);
   end if;$a$),
   ('acoes_massivas_exportar', 4,
 $a$    if exists (
       select 1 from public.alunos a
        where a.id = v_id::uuid$a$,
-$a$    if v_tipo <> 'TODOS' and not (v_id = any(v_tipo_ids)) then
+$a$    if v_tipo <> 'REGRA_ANTERIOR' and not (v_id = any(v_tipo_ids)) then
       v_exc_tipo := v_exc_tipo + 1;
       v_excluidos := v_excluidos || jsonb_build_object('aluno_id', v_id, 'motivo', 'Não corresponde ao tipo de cobrança selecionado');
       continue;
@@ -233,10 +296,11 @@ $a$  v_reg jsonb;
   ('acoes_massivas_concluir_lote', 2,
 $a$  v_reg := public.registrar_acao_massiva(v_ids, v_lote.canal, v_lote.arquivo, null, null, v_lote.operador_email);$a$,
 $a$  -- Tipo de cobranca do lote, REVALIDADO agora no banco: quem nao corresponde
-  -- mais (pagou a mensalidade, acertou a parcela, fez acordo) fica de fora.
-  if v_lote.tipo_cobranca <> 'TODOS' then
+  -- mais (pagou a mensalidade, acertou a parcela, ficou com acordo em dia) sai.
+  if v_lote.tipo_cobranca <> 'REGRA_ANTERIOR' then
     select coalesce(array_agg(tc.aluno_id::text), '{}') into v_tipo_ids
-      from public.acoes_massivas_tipo_cobranca_confere(v_lote.tipo_cobranca, v_ids::uuid[]) tc;
+      from public.acoes_massivas_tipo_cobranca_alunos(v_ids::uuid[]) tc
+     where public.acoes_massivas_tipo_cobranca_corresponde(v_lote.tipo_cobranca, tc.tem_mensalidade, tc.tem_acordo_vencido);
     v_fora_tipo := array(select x from unnest(v_ids) with ordinality as u(x, o)
                           where not (x = any(v_tipo_ids)) order by o);
     v_ids := array(select x from unnest(v_ids) with ordinality as u(x, o)

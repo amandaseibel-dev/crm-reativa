@@ -64,7 +64,11 @@ beforeEach(() => {
         data: {
           elegiveis: [ELEGIVEL], excluidos_confirmacao: [],
           operador_email: args.p_operador_email ?? null,
-          tipo_cobranca: args.p_tipo_cobranca ?? "TODOS", ...previaExtra,
+          tipo_cobranca: args.p_tipo_cobranca ?? "REGRA_ANTERIOR",
+          contagem_tipo: args.p_tipo_cobranca
+            ? { mensalidades: 1, acordos_vencidos: 0, mensalidades_e_acordos_vencidos: 0, total_unico: 1 }
+            : null,
+          ...previaExtra,
         },
       };
     }
@@ -73,7 +77,7 @@ beforeEach(() => {
         data: {
           lote_id: "lote-novo", exportados: 1, ids_exportados: [args.p_aluno_ids[0]], excluidos_confirmacao: 0,
           operador_email: args.p_operador_email ?? null,
-          tipo_cobranca: args.p_tipo_cobranca ?? "TODOS",
+          tipo_cobranca: args.p_tipo_cobranca ?? "REGRA_ANTERIOR",
           contatos: [{ aluno_id: "a1", nome: "Ana", telefone: "51999999999", email: "a@x.com" }],
           ...regExtra,
         },
@@ -88,9 +92,12 @@ beforeEach(() => {
 });
 afterEach(cleanup);
 
-async function montar() {
+// Por padrão escolhe "Somente mensalidades": a tela não busca sem tipo de
+// cobrança. `montar({ tipo: null })` deixa sem escolher.
+async function montar({ tipo = "MENSALIDADES" } = {}) {
   await act(async () => { render(<AcoesMassivas />); });
   await screen.findByLabelText("Matriculado");
+  if (tipo) fireEvent.change(screen.getByLabelText("Tipo de cobrança"), { target: { value: tipo } });
 }
 async function buscar() {
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
@@ -160,7 +167,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     ]);
   });
 
-  it("sem operador, prévia e exportação saem sem a chave nova", async () => {
+  it("sem operador, prévia e exportação não mandam operador", async () => {
     await montar();
     await buscar();
     const previa = ultimaChamada("acoes_massivas_previa");
@@ -168,14 +175,14 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     expect(Object.keys(previa).sort()).toEqual([
       "p_ano_vencimento", "p_apenas_ja_acionado", "p_apenas_nunca_acionado", "p_curso",
       "p_dias_minimo_sem_contato", "p_importacao_ids", "p_limite", "p_matricula",
-      "p_situacao_academica", "p_unidade",
+      "p_situacao_academica", "p_tipo_cobranca", "p_unidade",
     ]);
     expect(screen.getByText(/Sem operador filtrado: base livre \/ regra atual/)).toBeTruthy();
     expect(screen.getByText(/caso\(s\) livre\(s\)/)).toBeTruthy();
     await gerar();
     const reg = ultimaChamada("acoes_massivas_exportar");
     expect("p_operador_email" in reg).toBe(false);
-    expect(reg.p_arquivo).toMatch(/^acao-massiva-whatsapp-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    expect(reg.p_arquivo).toMatch(/^acao-massiva-whatsapp-mensalidades-\d{4}-\d{2}-\d{2}\.xlsx$/);
   });
 
   it("com operador, a prévia manda o e-mail e mostra qual carteira foi filtrada", async () => {
@@ -338,37 +345,33 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
   const escolherTipo = (valor) =>
     fireEvent.change(screen.getByLabelText("Tipo de cobrança"), { target: { value: valor } });
 
-  it("quatro opções, começando em Todos (regra atual)", async () => {
-    await montar();
+  it("três opções, sem “Todos”, e nenhuma escolhida no começo", async () => {
+    await montar({ tipo: null });
     const sel = screen.getByLabelText("Tipo de cobrança");
-    expect(sel.value).toBe("TODOS");
+    expect(sel.value).toBe("");
     expect([...sel.querySelectorAll("option")].map((o) => [o.value, o.textContent])).toEqual([
-      ["TODOS", "Todos (regra atual)"],
+      ["", "Selecione o tipo de cobrança"],
       ["MENSALIDADES", "Somente mensalidades"],
-      ["ACORDOS", "Somente acordos"],
+      ["ACORDOS_VENCIDOS", "Somente acordos vencidos"],
       ["MENSALIDADES_E_ACORDOS", "Mensalidades e acordos"],
     ]);
+    expect(sel.textContent).not.toMatch(/Todos/);
   });
 
-  it("Todos: nem prévia nem exportação mandam a chave; a prévia diz o tipo", async () => {
-    await montar();
-    escolherTipo("ACORDOS");
-    escolherTipo("TODOS");
+  it("sem tipo escolhido a prévia não é buscada", async () => {
+    await montar({ tipo: null });
     await buscar();
-    expect("p_tipo_cobranca" in ultima("acoes_massivas_previa")).toBe(false);
-    expect(screen.getByText(/Operador filtrado|Sem operador filtrado/).textContent).toMatch(/Tipo de cobrança: Todos \(regra atual\)/);
-    await gerar();
-    expect("p_tipo_cobranca" in ultima("acoes_massivas_exportar")).toBe(false);
+    expect(screen.getByText("Escolha o tipo de cobrança antes de buscar a prévia.")).toBeTruthy();
+    expect(rpcMock.mock.calls.some(([n]) => n === "acoes_massivas_previa")).toBe(false);
   });
 
   for (const [valor, rotulo, sufixo] of [
     ["MENSALIDADES", "Somente mensalidades", "-mensalidades-"],
-    ["ACORDOS", "Somente acordos", "-acordos-"],
+    ["ACORDOS_VENCIDOS", "Somente acordos vencidos", "-acordos-vencidos-"],
     ["MENSALIDADES_E_ACORDOS", "Mensalidades e acordos", "-mensalidades-e-acordos-"],
   ]) {
     it(`${rotulo}: vai na prévia e na exportação, aparece no resumo e no nome do arquivo`, async () => {
-      await montar();
-      escolherTipo(valor);
+      await montar({ tipo: valor });
       await buscar();
       expect(ultima("acoes_massivas_previa").p_tipo_cobranca).toBe(valor);
       expect(screen.getByText(/filtrado/).textContent).toContain(`Tipo de cobrança: ${rotulo}`);
@@ -379,10 +382,22 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     });
   }
 
+  it("a prévia mostra a quantidade por tipo e o total único", async () => {
+    previaExtra = {
+      contagem_tipo: { mensalidades: 1782, acordos_vencidos: 762, mensalidades_e_acordos_vencidos: 281, total_unico: 2263 },
+    };
+    await montar({ tipo: "MENSALIDADES_E_ACORDOS" });
+    await buscar();
+    const linha = screen.getByTestId("contagem-tipo").textContent;
+    expect(linha).toContain("Mensalidades: 1782");
+    expect(linha).toContain("Acordos vencidos: 762");
+    expect(linha).toContain("Total único de alunos: 2263");
+    expect(linha).toContain("281 têm os dois e contam uma vez");
+  });
+
   it("combina com operador, borderô, nunca acionados, unidade, modalidade e prazo", async () => {
-    await montar();
+    await montar({ tipo: "ACORDOS_VENCIDOS" });
     fireEvent.change(screen.getByLabelText("Operador responsável"), { target: { value: "cobranca03@teste.local" } });
-    escolherTipo("MENSALIDADES_E_ACORDOS");
     fireEvent.click(await screen.findByLabelText(/bordero-ead/));
     fireEvent.change(screen.getByDisplayValue("Todos"), { target: { value: "nunca" } });
     fireEvent.click(screen.getByLabelText("CANOAS"));
@@ -390,13 +405,13 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     fireEvent.change(screen.getByDisplayValue("Qualquer período"), { target: { value: "30" } });
     await buscar();
     expect(ultima("acoes_massivas_previa")).toMatchObject({
-      p_tipo_cobranca: "MENSALIDADES_E_ACORDOS", p_operador_email: "cobranca03@teste.local",
+      p_tipo_cobranca: "ACORDOS_VENCIDOS", p_operador_email: "cobranca03@teste.local",
       p_importacao_ids: ["imp-1"], p_apenas_nunca_acionado: true, p_unidade: "CANOAS", p_curso: "EAD",
       p_dias_minimo_sem_contato: 30,
     });
     await gerar();
     expect(ultima("acoes_massivas_exportar")).toMatchObject({
-      p_tipo_cobranca: "MENSALIDADES_E_ACORDOS", p_operador_email: "cobranca03@teste.local",
+      p_tipo_cobranca: "ACORDOS_VENCIDOS", p_operador_email: "cobranca03@teste.local",
     });
   });
 
@@ -406,9 +421,10 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     await gerar();
     expect(screen.getByRole("button", { name: /Baixar planilha novamente/ })).toBeTruthy();
     const antes = rpcMock.mock.calls.length;
-    escolherTipo("ACORDOS");
+    escolherTipo("ACORDOS_VENCIDOS");
     expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Baixar planilha novamente/ })).toBeNull();
+    expect(screen.queryByTestId("contagem-tipo")).toBeNull();
     expect(rpcMock.mock.calls.length).toBe(antes);
     // a planilha do tipo anterior não volta com a prévia nova
     await buscar();
@@ -417,26 +433,33 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
   });
 
   it("se o banco não confirmar o tipo aplicado, nada é listado", async () => {
-    previaExtra = { tipo_cobranca: "TODOS" };
-    await montar();
-    escolherTipo("ACORDOS");
+    previaExtra = { tipo_cobranca: "REGRA_ANTERIOR" };
+    await montar({ tipo: "ACORDOS_VENCIDOS" });
     await buscar();
     expect(screen.getByText(/o banco não aplicou o tipo de cobrança escolhido/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
   });
 
   it("o lote aguardando confirmação mostra o tipo; a confirmação conta quem saiu do tipo", async () => {
-    lotes = [{
-      id: "lote-9", canal: "WHATSAPP", operador_email: null, operador_nome: null, tipo_cobranca: "ACORDOS",
-      arquivo: "acao-massiva-whatsapp-acordos-2026-09-16.xlsx", total: 4,
-      exportado_por_email: "gestao@reativa", exportado_em: "2026-09-16T14:00:00Z",
-    }];
-    concluirExtra = { excluidos_tipo_cobranca: 2, tipo_cobranca: "ACORDOS" };
+    lotes = [
+      {
+        id: "lote-9", canal: "WHATSAPP", operador_email: null, operador_nome: null, tipo_cobranca: "ACORDOS_VENCIDOS",
+        arquivo: "acao-massiva-whatsapp-acordos-vencidos-2026-09-16.xlsx", total: 4,
+        exportado_por_email: "gestao@reativa", exportado_em: "2026-09-16T14:00:00Z",
+      },
+      {
+        id: "lote-8", canal: "WHATSAPP", operador_email: null, operador_nome: null, tipo_cobranca: "REGRA_ANTERIOR",
+        arquivo: "acao-massiva-whatsapp-2026-09-16.xlsx", total: 2,
+        exportado_por_email: "gestao@reativa", exportado_em: "2026-09-16T13:00:00Z",
+      },
+    ];
+    concluirExtra = { excluidos_tipo_cobranca: 2, tipo_cobranca: "ACORDOS_VENCIDOS" };
     await montar();
     await screen.findByText("Planilhas exportadas aguardando confirmação");
     expect(screen.getByRole("columnheader", { name: "Tipo de cobrança" })).toBeTruthy();
-    expect(screen.getByRole("cell", { name: "Somente acordos" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: /Confirmar ação realizada/ }));
+    expect(screen.getByRole("cell", { name: "Somente acordos vencidos" })).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "Sem tipo (tela anterior)" })).toBeTruthy();
+    fireEvent.click(screen.getAllByRole("button", { name: /Confirmar ação realizada/ })[0]);
     expect(screen.getByText(/não corresponde mais ao tipo de cobrança do lote fica de fora/)).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, o disparo foi concluído/ })); });
     expect(screen.getByText(/2 caso\(s\) não correspondem mais ao tipo de cobrança do lote/)).toBeTruthy();

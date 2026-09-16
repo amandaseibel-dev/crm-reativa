@@ -8,21 +8,22 @@ const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const VERDE = "var(--rv-azul-texto)";
 // Presets do seletor "Sem acionamento há (mín.)" — valor = nº de dias.
 const PRESETS_DIAS_SEM_ACIONAMENTO = ["7", "12", "15", "21", "30", "45", "60", "90"];
-// Tipo de cobrança. As opções são exclusivas e a regra mora no banco
-// (acoes_massivas_tipo_cobranca_confere): a tela só escolhe.
+// Tipo de cobrança. A regra mora no banco (acoes_massivas_tipo_cobranca_alunos
+// e _corresponde): a tela só escolhe. Não existe "Todos": a opção que junta
+// tudo é "Mensalidades e acordos". Acordo em dia fica fora de todas.
 const TIPOS_COBRANCA = [
-  { valor: "TODOS", rotulo: "Todos (regra atual)" },
   { valor: "MENSALIDADES", rotulo: "Somente mensalidades" },
-  { valor: "ACORDOS", rotulo: "Somente acordos" },
+  { valor: "ACORDOS_VENCIDOS", rotulo: "Somente acordos vencidos" },
   { valor: "MENSALIDADES_E_ACORDOS", rotulo: "Mensalidades e acordos" },
 ];
 const AJUDA_TIPO_COBRANCA = {
-  MENSALIDADES: "Quem tem mensalidade em aberto e não tem acordo ativo.",
-  ACORDOS: "Quem tem acordo ativo com parcela vencida e não tem mensalidade em aberto. Acordo em dia fica fora.",
-  MENSALIDADES_E_ACORDOS: "Quem tem mensalidade em aberto e, ao mesmo tempo, acordo ativo com parcela vencida. Acordo em dia fica fora.",
+  MENSALIDADES: "Alunos com mensalidade original em aberto (quem também tem acordo vencido entra). Acordo em dia fica fora.",
+  ACORDOS_VENCIDOS: "Alunos com acordo quebrado ou parcela vencida (quem também tem mensalidade entra). Acordo em dia fica fora.",
+  MENSALIDADES_E_ACORDOS: "Os dois grupos juntos: mensalidade em aberto, acordo vencido ou os dois. Cada aluno aparece uma vez. Acordo em dia fica fora.",
 };
 function rotuloTipoCobranca(valor) {
-  return TIPOS_COBRANCA.find((t) => t.valor === (valor || "TODOS"))?.rotulo || valor;
+  if (!valor || valor === "REGRA_ANTERIOR") return "Sem tipo (tela anterior)";
+  return TIPOS_COBRANCA.find((t) => t.valor === valor)?.rotulo || valor;
 }
 
 function formatarMoeda(valor) {
@@ -129,7 +130,9 @@ export default function AcoesMassivas() {
   const [operadorDaPrevia, setOperadorDaPrevia] = useState(null);
   // Tipo de cobrança escolhido e o que o BANCO confirmou na última prévia (é
   // este que vai para a planilha e para o lote).
-  const [tipoCobranca, setTipoCobranca] = useState("TODOS");
+  // Sem padrão: a gestão escolhe o tipo antes de buscar. Nenhuma base é
+  // ampliada ou reduzida sem uma escolha explícita.
+  const [tipoCobranca, setTipoCobranca] = useState("");
   const [tipoDaPrevia, setTipoDaPrevia] = useState(null);
   const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
   const [diasPersonalizado, setDiasPersonalizado] = useState(false);
@@ -151,6 +154,9 @@ export default function AcoesMassivas() {
   // Data do extrato do Prime que a prévia usou para tirar quem já pagou lá.
   // A relação NÃO vem para a tela: quem consta liquidado não deve nem aparecer.
   const [primeExtratoEm, setPrimeExtratoEm] = useState(null);
+  // Quantos alunos por tipo atendem aos filtros enviados ao banco (antes do
+  // limite de Quantidade e dos filtros de canal/valor que a tela aplica depois).
+  const [contagemTipo, setContagemTipo] = useState(null);
   const [mostrarExcluidos, setMostrarExcluidos] = useState(false);
   const [excluidosNoEnvio, setExcluidosNoEnvio] = useState(0);
   // Guarda o último relatório gerado p/ permitir baixar manualmente caso o
@@ -233,6 +239,7 @@ export default function AcoesMassivas() {
     setResultados(null);
     setOperadorDaPrevia(null);
     setTipoDaPrevia(null);
+    setContagemTipo(null);
     setRelatorioPronto(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
@@ -260,6 +267,10 @@ export default function AcoesMassivas() {
       setErro("Valor máximo inválido.");
       return;
     }
+    if (!tipoCobranca) {
+      setErro("Escolha o tipo de cobrança antes de buscar a prévia.");
+      return;
+    }
 
     // Regra fixa: nunca gera ação pra caso com valor em aberto abaixo de
     // R$100 -- mesmo que o campo fique em branco ou alguém digite menos.
@@ -269,6 +280,7 @@ export default function AcoesMassivas() {
     setResultados(null);
     setOperadorDaPrevia(null);
     setTipoDaPrevia(null);
+    setContagemTipo(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
@@ -298,8 +310,7 @@ export default function AcoesMassivas() {
       // Sem operador a chamada fica IDÊNTICA à de antes (a chave nem vai):
       // base livre / regra atual, sem depender da versão do banco.
       if (operadorPedido) argsPrevia.p_operador_email = operadorPedido;
-      // Idem para o tipo de cobrança: "Todos" não manda a chave.
-      if (tipoCobranca !== "TODOS") argsPrevia.p_tipo_cobranca = tipoCobranca;
+      argsPrevia.p_tipo_cobranca = tipoCobranca;
       const { data: previa, error: erroAlunos } = await supabase.rpc("acoes_massivas_previa", argsPrevia);
       if (erroAlunos) throw erroAlunos;
 
@@ -312,11 +323,12 @@ export default function AcoesMassivas() {
             : "o banco devolveu uma carteira filtrada sem operador escolhido. Nada foi listado."
         );
       }
-      if ((previa?.tipo_cobranca ?? "TODOS") !== tipoCobranca) {
+      if (previa?.tipo_cobranca !== tipoCobranca) {
         throw new Error("o banco não aplicou o tipo de cobrança escolhido. Nada foi listado.");
       }
       setOperadorDaPrevia(operadorPedido);
       setTipoDaPrevia(tipoCobranca);
+      setContagemTipo(previa?.contagem_tipo || null);
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
       setPrimeExtratoEm(previa?.prime_extrato_em || null);
@@ -392,8 +404,8 @@ export default function AcoesMassivas() {
 
     try {
       const sufixoOperador = operadorDaPrevia ? `-${operadorDaPrevia.split("@")[0]}` : "";
-      const tipoLote = tipoDaPrevia || "TODOS";
-      const sufixoTipo = tipoLote !== "TODOS" ? `-${tipoLote.toLowerCase().replace(/_/g, "-")}` : "";
+      const tipoLote = tipoDaPrevia;
+      const sufixoTipo = tipoLote ? `-${tipoLote.toLowerCase().replace(/_/g, "-")}` : "";
       const nomeArquivo = `acao-massiva-${canal.toLowerCase()}${sufixoOperador}${sufixoTipo}-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
       const argsExportar = {
@@ -404,7 +416,7 @@ export default function AcoesMassivas() {
       // Mesmo recorte da prévia: só sai quem CONTINUA na carteira do operador.
       if (operadorDaPrevia) argsExportar.p_operador_email = operadorDaPrevia;
       // O banco revalida o tipo e o grava no lote; a confirmação revalida de novo.
-      if (tipoLote !== "TODOS") argsExportar.p_tipo_cobranca = tipoLote;
+      if (tipoLote) argsExportar.p_tipo_cobranca = tipoLote;
       const { data: exp, error: erroExp } = await supabase.rpc("acoes_massivas_exportar", argsExportar);
       if (erroExp) throw erroExp;
 
@@ -722,6 +734,7 @@ export default function AcoesMassivas() {
                 limparPrevia();
               }}
             >
+              <option value="" disabled>Selecione o tipo de cobrança</option>
               {TIPOS_COBRANCA.map((t) => (
                 <option key={t.valor} value={t.valor}>{t.rotulo}</option>
               ))}
@@ -1127,6 +1140,17 @@ export default function AcoesMassivas() {
                 )}
                 {" "}· Tipo de cobrança: <strong>{rotuloTipoCobranca(tipoDaPrevia)}</strong>
               </div>
+              {contagemTipo && (
+                <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }} data-testid="contagem-tipo">
+                  Mensalidades: <strong>{contagemTipo.mensalidades}</strong>
+                  {" "}· Acordos vencidos: <strong>{contagemTipo.acordos_vencidos}</strong>
+                  {" "}· Total único de alunos: <strong>{contagemTipo.total_unico}</strong>
+                  {contagemTipo.mensalidades_e_acordos_vencidos > 0 && (
+                    <> ({contagemTipo.mensalidades_e_acordos_vencidos} têm os dois e contam uma vez)</>
+                  )}
+                  {" "}— antes do canal, do valor mínimo e da Quantidade.
+                </div>
+              )}
               {primeExtratoEm && (
                 <div style={{ color: "#8a93a3", fontSize: 12.5, marginTop: 4 }}>
                   Quem já consta liquidado no Prime não entra nesta lista. Extrato de{" "}
