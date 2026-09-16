@@ -99,9 +99,16 @@ declare
   c_sem_status   constant integer  := 95;
   c_fila_outros  constant text     := 'AGUARDANDO_ACORDO=38;PARCELA_JA_PAGA=6';
   c_motor_md5    constant text     := 'fa3d64add73e0e73e587e16f0c0624d1';
+  c_trg_recalc_def constant text   := 'CREATE TRIGGER trg_recalc_parcela AFTER INSERT OR DELETE OR UPDATE ON public.parcelas FOR EACH ROW EXECUTE FUNCTION _trg_recalc_por_parcela()';
+  c_trg_recalc_md5 constant text   := '8632b2fcc49b7899fd48dc3801f6a309';
+  c_trg_fecha_def  constant text   := 'CREATE TRIGGER trg_acordo_fecha_com_a_ultima_parcela AFTER UPDATE OF status ON public.parcelas FOR EACH ROW EXECUTE FUNCTION _acordo_fecha_com_a_ultima_parcela()';
+  c_trg_fecha_md5  constant text   := '9a2301342f99c312e7bfa971ac621a1e';
   -- <<< VALORES APROVADOS ----------------------------------------------------
 
   v_x int; v_txt text; v_md5 text; r record; v_res jsonb;
+  v_estado text; v_def text;
+  v_fila_n int; v_fila_sem_decisao int; v_fila_aguardando int;
+  v_fila_alvo_pre text;      v_fila_alvo_pos text;
   v_n int; v_distintos int; v_parcelas int; v_acordos int; v_alunos int; v_valor numeric;
   v_config_pre text;         v_config_pos text;
   v_lote_boleto_pre text;    v_lote_boleto_pos text;
@@ -126,6 +133,42 @@ begin
   end if;
   if v_md5 is distinct from c_motor_md5 then
     raise exception 'ABORTADO: corpo de pagamento_conciliar_um mudou (md5 %)', v_md5;
+  end if;
+
+  -- os gatilhos essenciais da baixa: presentes, habilitados, com a definicao e o
+  -- corpo aprovados. Nenhum gatilho e desligado por esta migration.
+  select count(*), min(t.tgenabled::text), min(pg_get_triggerdef(t.oid)), min(md5(p.prosrc))
+    into v_x, v_estado, v_def, v_md5
+    from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+   where t.tgrelid = 'public.parcelas'::regclass and t.tgname = 'trg_recalc_parcela' and not t.tgisinternal;
+  if v_x <> 1 then
+    raise exception 'ABORTADO: trg_recalc_parcela ausente em public.parcelas';
+  end if;
+  if v_estado is distinct from 'O' then
+    raise exception 'ABORTADO: trg_recalc_parcela nao esta habilitado (tgenabled=%)', v_estado;
+  end if;
+  if v_def is distinct from c_trg_recalc_def then
+    raise exception 'ABORTADO: definicao de trg_recalc_parcela diferente da aprovada: %', v_def;
+  end if;
+  if v_md5 is distinct from c_trg_recalc_md5 then
+    raise exception 'ABORTADO: corpo de _trg_recalc_por_parcela mudou (md5 %)', v_md5;
+  end if;
+
+  select count(*), min(t.tgenabled::text), min(pg_get_triggerdef(t.oid)), min(md5(p.prosrc))
+    into v_x, v_estado, v_def, v_md5
+    from pg_trigger t join pg_proc p on p.oid = t.tgfoid
+   where t.tgrelid = 'public.parcelas'::regclass and t.tgname = 'trg_acordo_fecha_com_a_ultima_parcela' and not t.tgisinternal;
+  if v_x <> 1 then
+    raise exception 'ABORTADO: trg_acordo_fecha_com_a_ultima_parcela ausente em public.parcelas';
+  end if;
+  if v_estado is distinct from 'O' then
+    raise exception 'ABORTADO: trg_acordo_fecha_com_a_ultima_parcela nao esta habilitado (tgenabled=%)', v_estado;
+  end if;
+  if v_def is distinct from c_trg_fecha_def then
+    raise exception 'ABORTADO: definicao de trg_acordo_fecha_com_a_ultima_parcela diferente da aprovada: %', v_def;
+  end if;
+  if v_md5 is distinct from c_trg_fecha_md5 then
+    raise exception 'ABORTADO: corpo de _acordo_fecha_com_a_ultima_parcela mudou (md5 %)', v_md5;
   end if;
 
   if coalesce((select ligado from public.fluxo_pagamentos_config where etapa = 'baixa_pelo_relatorio'), true) then
@@ -185,6 +228,17 @@ begin
      and not exists (select 1 from public.fila_pagamento_sem_vinculo f
                       where f.pagamento_id = g.id and f.decisao is not null);
 
+  -- pagamento do lote AGUARDANDO_AMARRACAO que a gestao ja decidiu na fila nao e
+  -- reprocessado aqui: aborta em vez de seguir com um conjunto menor
+  select count(*) into v_x
+    from public.pagamentos g
+    join _lote l on l.boleto_novo = ltrim(coalesce(g.numero_parcela_completo,''),'0')
+    join public.fila_pagamento_sem_vinculo f on f.pagamento_id = g.id
+   where g.status_conciliacao = 'AGUARDANDO_AMARRACAO' and f.decisao is not null;
+  if v_x > 0 then
+    raise exception 'ABORTADO: % pagamentos AGUARDANDO_AMARRACAO do lote ja tem decisao na fila', v_x;
+  end if;
+
   select count(*), count(distinct pagamento_id), count(distinct parcela_id),
          count(distinct acordo_id), count(distinct aluno_id), coalesce(sum(valor_pago),0)
     into v_n, v_distintos, v_parcelas, v_acordos, v_alunos, v_valor from _alvo;
@@ -241,6 +295,18 @@ begin
            group by 1) t;
   if v_txt is distinct from c_fila_outros then
     raise exception 'ABORTADO: restante da fila % difere do aprovado %', v_txt, c_fila_outros;
+  end if;
+
+  -- a fila de pendencias dos alvos: exatamente uma linha por alvo, sem decisao,
+  -- em AGUARDANDO_AMARRACAO
+  select count(*), count(*) filter (where f.decisao is null),
+         count(*) filter (where f.status_conciliacao = 'AGUARDANDO_AMARRACAO')
+    into v_fila_n, v_fila_sem_decisao, v_fila_aguardando
+    from public.fila_pagamento_sem_vinculo f
+   where f.pagamento_id in (select pagamento_id from _alvo);
+  if v_fila_n <> c_qtd or v_fila_sem_decisao <> c_qtd or v_fila_aguardando <> c_qtd then
+    raise exception 'ABORTADO: fila dos alvos com % linhas / % sem decisao / % AGUARDANDO_AMARRACAO, aprovado % em cada',
+      v_fila_n, v_fila_sem_decisao, v_fila_aguardando, c_qtd;
   end if;
 
   -- 5. trava as linhas pertinentes
@@ -311,6 +377,12 @@ begin
            order by x.pagamento_id::text collate "C"),''),'UTF8')),'hex')
     into v_fila_vinc_pre from public.fila_pagamento_sem_vinculo x
    where x.pagamento_id not in (select pagamento_id from _alvo);
+  -- a fila dos alvos, sem as 5 colunas que a resolucao automatica do motor grava
+  select encode(sha256(convert_to(string_agg((to_jsonb(x) - 'decisao' - 'decidido_por' - 'decidido_em'
+           - 'status_conciliacao' - 'observacao')::text, E'\n'
+           order by x.pagamento_id::text collate "C"),'UTF8')),'hex')
+    into v_fila_alvo_pre from public.fila_pagamento_sem_vinculo x
+   where x.pagamento_id in (select pagamento_id from _alvo);
 
   -- 8. previa do proprio motor: os 69 tem de sair BAIXADO, sem gravar nada
   for r in select * from _alvo order by ordem loop
@@ -345,6 +417,33 @@ begin
      and p.origem_baixa_ref = t.pagamento_id::text
      and p.origem_baixa = 'GATILHO_IMPORTACAO';
   if v_x <> c_parcelas then raise exception 'ABORTADO: %/% parcelas PAGO por este pagamento', v_x, c_parcelas; end if;
+
+  -- a fila dos alvos foi resolvida pelo proprio motor
+  select count(*) into v_x
+    from _alvo t
+   where not exists (select 1 from public.fila_pagamento_sem_vinculo f where f.pagamento_id = t.pagamento_id);
+  if v_x > 0 then
+    raise exception 'ABORTADO: % alvos sem linha na fila depois do motor', v_x;
+  end if;
+  select count(*),
+         count(*) filter (where f.decisao = 'RESOLVIDO_AUTOMATICO'
+                            and f.status_conciliacao = 'BAIXADO'
+                            and f.decidido_por = 'conciliacao@sistema')
+    into v_fila_n, v_x
+    from public.fila_pagamento_sem_vinculo f
+   where f.pagamento_id in (select pagamento_id from _alvo);
+  if v_fila_n <> c_qtd or v_x <> c_qtd then
+    raise exception 'ABORTADO: fila dos alvos com % linhas e % resolvidas pelo motor como BAIXADO, aprovado %',
+      v_fila_n, v_x, c_qtd;
+  end if;
+  select encode(sha256(convert_to(string_agg((to_jsonb(x) - 'decisao' - 'decidido_por' - 'decidido_em'
+           - 'status_conciliacao' - 'observacao')::text, E'\n'
+           order by x.pagamento_id::text collate "C"),'UTF8')),'hex')
+    into v_fila_alvo_pos from public.fila_pagamento_sem_vinculo x
+   where x.pagamento_id in (select pagamento_id from _alvo);
+  if v_fila_alvo_pos is distinct from v_fila_alvo_pre then
+    raise exception 'ABORTADO: coluna da fila dos alvos alem da resolucao mudou';
+  end if;
 
   select string_agg(a.id::text, ',' order by a.id::text collate "C"), count(*)
     into v_quitados_pos, v_x

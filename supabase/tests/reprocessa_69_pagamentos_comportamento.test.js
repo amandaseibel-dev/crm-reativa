@@ -405,6 +405,89 @@ describe("alteracao fora do conjunto durante a execucao aborta tudo", () => {
   });
 });
 
+describe("fila de pendencias dos alvos", () => {
+  it("o caminho feliz resolve exatamente as linhas dos alvos, como o motor faz", async () => {
+    const db = await novoBanco();
+    await db.exec(migracao());
+    const fila = (await db.query(`select pagamento_id, decisao, status_conciliacao, decidido_por
+                                    from public.fila_pagamento_sem_vinculo order by pagamento_id`)).rows;
+    expect(fila).toEqual([
+      { pagamento_id: G(1), decisao: "RESOLVIDO_AUTOMATICO", status_conciliacao: "BAIXADO", decidido_por: "conciliacao@sistema" },
+      { pagamento_id: G(2), decisao: "RESOLVIDO_AUTOMATICO", status_conciliacao: "BAIXADO", decidido_por: "conciliacao@sistema" },
+      { pagamento_id: G(3), decisao: "RESOLVIDO_AUTOMATICO", status_conciliacao: "BAIXADO", decidido_por: "conciliacao@sistema" },
+      { pagamento_id: G(6), decisao: null, status_conciliacao: "AGUARDANDO_ACORDO", decidido_por: null },
+      { pagamento_id: G(7), decisao: null, status_conciliacao: "PARCELA_JA_PAGA", decidido_por: null },
+    ]);
+  });
+  it("uma das linhas da fila dos alvos ausente -> aborta sem efeito", async () => {
+    const db = await novoBanco();
+    await db.query(`delete from public.fila_pagamento_sem_vinculo where pagamento_id = $1`, [G(2)]);
+    await falhaSemEfeito(db, migracao(), /fila dos alvos com 2 linhas \/ 2 sem decisao \/ 2 AGUARDANDO_AMARRACAO, aprovado 3/);
+    expect(await chamadasRecalc(db)).toBe(0);
+  });
+  it("linha da fila de um alvo com status diferente de AGUARDANDO_AMARRACAO -> aborta sem efeito", async () => {
+    const db = await novoBanco();
+    await db.query(`update public.fila_pagamento_sem_vinculo set status_conciliacao = 'REVISAO' where pagamento_id = $1`, [G(2)]);
+    await falhaSemEfeito(db, migracao(), /fila dos alvos com 3 linhas \/ 3 sem decisao \/ 2 AGUARDANDO_AMARRACAO/);
+  });
+  it("um dos alvos ja decidido na fila -> aborta sem efeito", async () => {
+    const db = await novoBanco();
+    await db.query(`update public.fila_pagamento_sem_vinculo set decisao = 'MANTER_PENDENTE', decidido_por = 'gestao' where pagamento_id = $1`, [G(2)]);
+    await falhaSemEfeito(db, migracao(), /1 pagamentos AGUARDANDO_AMARRACAO do lote ja tem decisao na fila/);
+    expect(await chamadasRecalc(db)).toBe(0);
+  });
+  it("o motor baixa pagamento e parcela mas a fila nao e resolvida -> rollback total", async () => {
+    const db = await novoBanco();
+    await db.exec(`create function public._teste_segura_fila() returns trigger language plpgsql as $t$
+      begin return null; end $t$;
+      create trigger zz_teste_segura_fila before update on public.fila_pagamento_sem_vinculo
+        for each row when (new.decisao = 'RESOLVIDO_AUTOMATICO') execute function _teste_segura_fila();`);
+    await falhaSemEfeito(db, migracao(), /fila dos alvos com 3 linhas e 0 resolvidas pelo motor como BAIXADO, aprovado 3/);
+    // pagamento e parcela chegaram a ser baixados (o motor recalculou) -- e foi tudo desfeito
+    expect(await chamadasRecalc(db)).toBeGreaterThan(0);
+  });
+});
+
+describe("gatilhos essenciais: conferidos antes do motor, nunca desligados", () => {
+  const abortaAntesDoMotor = async (preparo, motivo) => {
+    const db = await novoBanco();
+    await db.exec(preparo);
+    await falhaSemEfeito(db, migracao(), motivo);
+    expect(await chamadasRecalc(db)).toBe(0);
+  };
+  it("trg_recalc_parcela ausente -> aborta", () =>
+    abortaAntesDoMotor(`drop trigger trg_recalc_parcela on public.parcelas`, /trg_recalc_parcela ausente/));
+  it("trg_recalc_parcela desabilitado -> aborta", () =>
+    abortaAntesDoMotor(`alter table public.parcelas disable trigger trg_recalc_parcela`, /trg_recalc_parcela nao esta habilitado \(tgenabled=D\)/));
+  it("trg_recalc_parcela com definicao alterada -> aborta", () =>
+    abortaAntesDoMotor(`drop trigger trg_recalc_parcela on public.parcelas;
+      create trigger trg_recalc_parcela after update on public.parcelas for each row execute function _trg_recalc_por_parcela();`,
+    /definicao de trg_recalc_parcela diferente da aprovada/));
+  it("_trg_recalc_por_parcela com corpo alterado -> aborta", () =>
+    abortaAntesDoMotor(`create or replace function public._trg_recalc_por_parcela() returns trigger language plpgsql as $b$${CORPO_RECALC}-- alterado\n$b$`,
+      /corpo de _trg_recalc_por_parcela mudou/));
+  it("trg_acordo_fecha_com_a_ultima_parcela ausente -> aborta", () =>
+    abortaAntesDoMotor(`drop trigger trg_acordo_fecha_com_a_ultima_parcela on public.parcelas`, /trg_acordo_fecha_com_a_ultima_parcela ausente/));
+  it("trg_acordo_fecha_com_a_ultima_parcela desabilitado -> aborta", () =>
+    abortaAntesDoMotor(`alter table public.parcelas disable trigger trg_acordo_fecha_com_a_ultima_parcela`,
+      /trg_acordo_fecha_com_a_ultima_parcela nao esta habilitado \(tgenabled=D\)/));
+  it("trg_acordo_fecha_com_a_ultima_parcela com definicao alterada -> aborta", () =>
+    abortaAntesDoMotor(`drop trigger trg_acordo_fecha_com_a_ultima_parcela on public.parcelas;
+      create trigger trg_acordo_fecha_com_a_ultima_parcela after update on public.parcelas for each row execute function _acordo_fecha_com_a_ultima_parcela();`,
+    /definicao de trg_acordo_fecha_com_a_ultima_parcela diferente da aprovada/));
+  it("_acordo_fecha_com_a_ultima_parcela com corpo alterado -> aborta", () =>
+    abortaAntesDoMotor(`create or replace function public._acordo_fecha_com_a_ultima_parcela() returns trigger language plpgsql as $b$${CORPO_FECHA}-- alterado\n$b$`,
+      /corpo de _acordo_fecha_com_a_ultima_parcela mudou/));
+  it("a migration nao muda o estado de nenhum gatilho", async () => {
+    const db = await novoBanco();
+    const gatilhos = async () => JSON.stringify((await db.query(
+      `select tgname, tgenabled::text e, pg_get_triggerdef(oid) d from pg_trigger where not tgisinternal order by tgname`)).rows);
+    const antes = await gatilhos();
+    await db.exec(migracao());
+    expect(await gatilhos()).toBe(antes);
+  });
+});
+
 describe("segunda execucao", () => {
   it("depois de aplicada, uma nova execucao encontra zero e aborta sem gravar", async () => {
     const db = await novoBanco();

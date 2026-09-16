@@ -55,6 +55,10 @@ describe("valores aprovados pela gestao", () => {
     ["c_sem_status", "95"],
     ["c_fila_outros", "'AGUARDANDO_ACORDO=38;PARCELA_JA_PAGA=6'"],
     ["c_motor_md5", "'fa3d64add73e0e73e587e16f0c0624d1'"],
+    ["c_trg_recalc_def", "'CREATE TRIGGER trg_recalc_parcela AFTER INSERT OR DELETE OR UPDATE ON public.parcelas FOR EACH ROW EXECUTE FUNCTION _trg_recalc_por_parcela()'"],
+    ["c_trg_recalc_md5", "'8632b2fcc49b7899fd48dc3801f6a309'"],
+    ["c_trg_fecha_def", "'CREATE TRIGGER trg_acordo_fecha_com_a_ultima_parcela AFTER UPDATE OF status ON public.parcelas FOR EACH ROW EXECUTE FUNCTION _acordo_fecha_com_a_ultima_parcela()'"],
+    ["c_trg_fecha_md5", "'9a2301342f99c312e7bfa971ac621a1e'"],
   ])("%s = %s", (nome, valor) => {
     expect(constante(nome)).toBe(valor);
   });
@@ -136,11 +140,32 @@ describe("ordem das protecoes", () => {
     expect(pos("baixa_por_documento nao esta desligada")).toBeLessThan(pos("create temp table _lote"));
     expect(pos("consulta_portador nao esta desligada")).toBeLessThan(pos("create temp table _lote"));
   });
+  it("gatilhos essenciais conferidos (existencia, O, definicao e corpo) antes de montar o conjunto e antes do motor", () => {
+    const lote = pos("create temp table _lote");
+    for (const t of ["trg_recalc_parcela ausente", "trg_recalc_parcela nao esta habilitado",
+      "definicao de trg_recalc_parcela diferente", "corpo de _trg_recalc_por_parcela mudou",
+      "trg_acordo_fecha_com_a_ultima_parcela ausente", "trg_acordo_fecha_com_a_ultima_parcela nao esta habilitado",
+      "definicao de trg_acordo_fecha_com_a_ultima_parcela diferente", "corpo de _acordo_fecha_com_a_ultima_parcela mudou"]) {
+      expect(pos(t)).toBeLessThan(lote);
+    }
+    expect(CODIGO).toMatch(/v_estado is distinct from 'O'[\s\S]*v_def is distinct from c_trg_recalc_def[\s\S]*v_md5 is distinct from c_trg_recalc_md5/);
+    expect(CODIGO).toMatch(/v_estado is distinct from 'O'[\s\S]*v_def is distinct from c_trg_fecha_def[\s\S]*v_md5 is distinct from c_trg_fecha_md5/);
+  });
+  it("a fila dos alvos e exigida no PRE (uma linha por alvo, sem decisao, AGUARDANDO_AMARRACAO)", () => {
+    expect(CODIGO).toMatch(/count\(\*\) filter \(where f\.decisao is null\),\s+count\(\*\) filter \(where f\.status_conciliacao = 'AGUARDANDO_AMARRACAO'\)/);
+    expect(CODIGO).toMatch(/if v_fila_n <> c_qtd or v_fila_sem_decisao <> c_qtd or v_fila_aguardando <> c_qtd then/);
+  });
+  it("a fila dos alvos e exigida no POS (resolvida pelo motor, nenhuma ausente)", () => {
+    const aplica = pos("pagamento_conciliar_um(r.pagamento_id, true)");
+    expect(pos("alvos sem linha na fila depois do motor")).toBeGreaterThan(aplica);
+    expect(CODIGO).toMatch(/f\.decisao = 'RESOLVIDO_AUTOMATICO'\s+and f\.status_conciliacao = 'BAIXADO'\s+and f\.decidido_por = 'conciliacao@sistema'/);
+    expect(pos("resolvidas pelo motor como BAIXADO")).toBeGreaterThan(aplica);
+  });
   it("todas as travas de conjunto vem antes das travas de linha, e estas antes do motor", () => {
     const travaLinha = pos("for no key update of g");
-    for (const t of ["SHA256 do lote", "pagamentos no conjunto (% distintos)", "valor do conjunto",
+    for (const t of ["SHA256 do lote", "ja tem decisao na fila", "pagamentos no conjunto (% distintos)", "valor do conjunto",
       "SHA256 do conjunto", "fora do conjunto aprovado", "pagamentos do lote sem status_conciliacao",
-      "restante da fila"]) {
+      "restante da fila", "fila dos alvos com % linhas / % sem decisao"]) {
       expect(pos(t)).toBeLessThan(travaLinha);
     }
     expect(travaLinha).toBeLessThan(pos("pagamento_conciliar_um(r.pagamento_id, false)"));
@@ -155,10 +180,10 @@ describe("ordem das protecoes", () => {
   it("os PRE sao capturados antes da previa, e os POS conferidos depois da aplicacao", () => {
     const previa = pos("pagamento_conciliar_um(r.pagamento_id, false)");
     const aplica = pos("pagamento_conciliar_um(r.pagamento_id, true)");
-    for (const pre of ["into v_sem_status_pre", "into v_fila_outros_pre", "into v_config_pre", "into v_alvo_parc_pre", "into v_parc_acordo_pre"]) {
+    for (const pre of ["into v_sem_status_pre", "into v_fila_outros_pre", "into v_config_pre", "into v_alvo_parc_pre", "into v_parc_acordo_pre", "into v_fila_alvo_pre", "into v_fila_vinc_pre"]) {
       expect(pos(pre)).toBeLessThan(previa);
     }
-    for (const posv of ["into v_sem_status_pos", "into v_fila_outros_pos", "into v_config_pos", "into v_alvo_parc_pos", "into v_parc_acordo_pos", "into v_quitados_pos"]) {
+    for (const posv of ["into v_sem_status_pos", "into v_fila_outros_pos", "into v_config_pos", "into v_alvo_parc_pos", "into v_parc_acordo_pos", "into v_quitados_pos", "into v_fila_alvo_pos", "into v_fila_vinc_pos"]) {
       expect(pos(posv)).toBeGreaterThan(aplica);
     }
   });
