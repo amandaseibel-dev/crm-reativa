@@ -504,7 +504,7 @@ describe("Ações Massivas — canal e valor filtrados no banco, antes do corte 
     expect(linha).not.toContain("amostra");
   });
 
-  it("e-mail com 'Só sem telefone': explica que a lista é filtrada depois e limitada pela Quantidade", async () => {
+  it("e-mail com 'Só sem telefone': avisa que o filtro roda depois do limite (limitação conhecida), sem culpar a Quantidade", async () => {
     previaExtra = { total_elegivel_filtros: 40 };
     await montar({ tipo: "MENSALIDADES" });
     fireEvent.click(screen.getByRole("button", { name: /E-mail/ }));
@@ -513,7 +513,9 @@ describe("Ações Massivas — canal e valor filtrados no banco, antes do corte 
     const linha = screen.getByTestId("total-elegivel").textContent;
     expect(linha).toContain("Total elegível após os filtros: 40 (com e-mail e na faixa de valor)");
     expect(linha).toContain("Exibindo 0 de 40");
-    expect(linha).toContain("só quem não tem telefone");
+    expect(linha).toContain("“Só sem telefone” é aplicado depois do limite da prévia");
+    expect(linha).toContain("pode haver mais alunos sem telefone fora desta lista (limitação conhecida)");
+    expect(linha).not.toContain("Quantidade escolhida");
   });
 
   it("lista abaixo da Quantidade sem 'Só sem telefone': aponta a limitação conhecida da confirmação", async () => {

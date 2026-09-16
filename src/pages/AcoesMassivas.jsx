@@ -1169,7 +1169,7 @@ export default function AcoesMassivas() {
                   {" "}· Exibindo <strong>{resultados.length}</strong> de <strong>{totalElegivelFiltros}</strong>
                   {resultados.length < totalElegivelFiltros && (
                     canal === "EMAIL" && soSemTelefone ? (
-                      <> — a lista mostra só quem não tem telefone e é limitada pela Quantidade escolhida ({quantidadeDaPrevia}).</>
+                      <> — “Só sem telefone” é aplicado depois do limite da prévia: pode haver mais alunos sem telefone fora desta lista (limitação conhecida).</>
                     ) : resultados.length >= Math.min(quantidadeDaPrevia ?? 0, totalElegivelFiltros) ? (
                       <> — amostra limitada pela Quantidade escolhida ({quantidadeDaPrevia}). Aumente a Quantidade para exibir mais.</>
                     ) : (
