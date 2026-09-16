@@ -98,14 +98,15 @@ $a$    'operador_email', v_operador$a$,
 $a$    'operador_email', v_operador,
     -- Tipo de cobranca aplicado.
     'tipo_cobranca', v_tipo,
-    -- Quantidade por tipo, com todos os demais filtros enviados ao banco e sem
-    -- o limite da lista. Quem tem os dois tipos conta uma vez no total unico.
+    -- Quantidade por opcao, com todos os demais filtros enviados ao banco e
+    -- sem o limite da lista -- pela MESMA regra das opcoes. Mais quantos acordos
+    -- vencidos tambem tem mensalidade (so informativo; ja estao nos acordos).
     'contagem_tipo', CASE WHEN v_tipo = 'REGRA_ANTERIOR' THEN NULL ELSE (
       SELECT jsonb_build_object(
-        'mensalidades', count(*) FILTER (WHERE tem_mensalidade),
-        'acordos_vencidos', count(*) FILTER (WHERE tem_acordo_vencido),
+        'mensalidades', count(*) FILTER (WHERE public.acoes_massivas_tipo_cobranca_corresponde('MENSALIDADES', tem_mensalidade, tem_acordo_vencido)),
+        'acordos_vencidos', count(*) FILTER (WHERE public.acoes_massivas_tipo_cobranca_corresponde('ACORDOS_VENCIDOS', tem_mensalidade, tem_acordo_vencido)),
         'mensalidades_e_acordos_vencidos', count(*) FILTER (WHERE tem_mensalidade AND tem_acordo_vencido),
-        'total_unico', count(*))
+        'total_unico', count(*) FILTER (WHERE public.acoes_massivas_tipo_cobranca_corresponde('MENSALIDADES_E_ACORDOS', tem_mensalidade, tem_acordo_vencido)))
       FROM filtrado WHERE motivo_conf IS NULL) END$a$),
   -- -------------------------------------------------------------- exportar
   ('acoes_massivas_exportar', 1,

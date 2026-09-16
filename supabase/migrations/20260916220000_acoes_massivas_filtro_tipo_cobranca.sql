@@ -2,11 +2,15 @@
 --
 -- Amanda, 16/09/2026. Regra final, sem ambiguidade:
 --   MENSALIDADES            "Somente mensalidades": alunos elegiveis com
---                           mensalidade original em aberto.
+--                           mensalidade original em aberto e SEM acordo vencido.
 --   ACORDOS_VENCIDOS        "Somente acordos vencidos": alunos elegiveis com
---                           acordo quebrado ou parcela vencida.
+--                           acordo quebrado ou parcela vencida -- com ou sem
+--                           mensalidade em aberto.
 --   MENSALIDADES_E_ACORDOS  "Mensalidades e acordos": UNIAO das duas. O aluno nao
 --                           precisa ter os dois tipos e nunca aparece duplicado.
+-- Quem tem mensalidade E acordo vencido fica em "Somente acordos vencidos" e na
+-- uniao, nunca em "Somente mensalidades" (Amanda, 16/09). As duas primeiras
+-- opcoes nao se sobrepoem; a uniao e a soma delas.
 -- Acordo em dia fica fora de TODAS as opcoes. Nao existe opcao "Todos": ela so
 -- poderia existir se incluisse mensalidades e acordos vencidos, e isso ja e
 -- "Mensalidades e acordos".
@@ -30,9 +34,9 @@
 -- exportacao e confirmacao usam as duas.
 --
 -- MEDIDO EM 16/09 (leitura, carteiras dos 8 operadores, todas as travas):
---   mensalidades 1.782 (1.501 sem acordo + 281 com acordo vencido), acordos
---   vencidos 762, total unico 2.263. A regra anterior dava 1.523: os 1.501 com
---   mensalidade mais 22 alunos SEM divida canonica (10 sem titulo, 12 so com
+--   somente mensalidades 1.501, acordos vencidos 762 (281 deles tambem com
+--   mensalidade), total unico 2.263 = 1.501 + 762. A regra anterior dava 1.523:
+--   os 1.501 mais 22 alunos SEM divida canonica (10 sem titulo, 12 so com
 --   titulos pagos), que agora saem.
 --
 -- SEM p_tipo_cobranca (NULL ou vazio) a previa, a exportacao e a confirmacao
@@ -44,7 +48,9 @@
 -- O QUE MUDA
 --   * acoes_massivas_previa: `p_tipo_cobranca text default null`; devolve
 --     `tipo_cobranca` e `contagem_tipo` {mensalidades, acordos_vencidos,
---     mensalidades_e_acordos_vencidos, total_unico};
+--     mensalidades_e_acordos_vencidos, total_unico} -- mensalidades e
+--     acordos_vencidos contam exatamente o que cada opcao traz; o terceiro diz
+--     quantos acordos vencidos tambem tem mensalidade;
 --   * acoes_massivas_exportar: mesmo parametro, revalida o tipo, grava no lote;
 --   * acoes_massivas_lotes: coluna `tipo_cobranca`;
 --   * acoes_massivas_concluir_lote: REVALIDA o tipo do lote no banco;
@@ -122,7 +128,8 @@ immutable
 set search_path to 'public'
 as $function$
   select case upper(coalesce(p_tipo, ''))
-           when 'MENSALIDADES' then coalesce(p_tem_mensalidade, false)
+           -- mensalidade SEM acordo vencido: quem tem os dois fica nos acordos
+           when 'MENSALIDADES' then coalesce(p_tem_mensalidade, false) and not coalesce(p_tem_acordo_vencido, false)
            when 'ACORDOS_VENCIDOS' then coalesce(p_tem_acordo_vencido, false)
            when 'MENSALIDADES_E_ACORDOS' then coalesce(p_tem_mensalidade, false) or coalesce(p_tem_acordo_vencido, false)
            else false
@@ -231,14 +238,15 @@ $a$    'operador_email', v_operador$a$,
 $a$    'operador_email', v_operador,
     -- Tipo de cobranca aplicado.
     'tipo_cobranca', v_tipo,
-    -- Quantidade por tipo, com todos os demais filtros enviados ao banco e sem
-    -- o limite da lista. Quem tem os dois tipos conta uma vez no total unico.
+    -- Quantidade por opcao, com todos os demais filtros enviados ao banco e
+    -- sem o limite da lista -- pela MESMA regra das opcoes. Mais quantos acordos
+    -- vencidos tambem tem mensalidade (so informativo; ja estao nos acordos).
     'contagem_tipo', CASE WHEN v_tipo = 'REGRA_ANTERIOR' THEN NULL ELSE (
       SELECT jsonb_build_object(
-        'mensalidades', count(*) FILTER (WHERE tem_mensalidade),
-        'acordos_vencidos', count(*) FILTER (WHERE tem_acordo_vencido),
+        'mensalidades', count(*) FILTER (WHERE public.acoes_massivas_tipo_cobranca_corresponde('MENSALIDADES', tem_mensalidade, tem_acordo_vencido)),
+        'acordos_vencidos', count(*) FILTER (WHERE public.acoes_massivas_tipo_cobranca_corresponde('ACORDOS_VENCIDOS', tem_mensalidade, tem_acordo_vencido)),
         'mensalidades_e_acordos_vencidos', count(*) FILTER (WHERE tem_mensalidade AND tem_acordo_vencido),
-        'total_unico', count(*))
+        'total_unico', count(*) FILTER (WHERE public.acoes_massivas_tipo_cobranca_corresponde('MENSALIDADES_E_ACORDOS', tem_mensalidade, tem_acordo_vencido)))
       FROM filtrado WHERE motivo_conf IS NULL) END$a$),
   -- -------------------------------------------------------------- exportar
   ('acoes_massivas_exportar', 1,

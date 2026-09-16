@@ -17,9 +17,9 @@ const TIPOS_COBRANCA = [
   { valor: "MENSALIDADES_E_ACORDOS", rotulo: "Mensalidades e acordos" },
 ];
 const AJUDA_TIPO_COBRANCA = {
-  MENSALIDADES: "Alunos com mensalidade original em aberto (quem também tem acordo vencido entra). Acordo em dia fica fora.",
-  ACORDOS_VENCIDOS: "Alunos com acordo quebrado ou parcela vencida (quem também tem mensalidade entra). Acordo em dia fica fora.",
-  MENSALIDADES_E_ACORDOS: "Os dois grupos juntos: mensalidade em aberto, acordo vencido ou os dois. Cada aluno aparece uma vez. Acordo em dia fica fora.",
+  MENSALIDADES: "Alunos com mensalidade original em aberto e sem acordo vencido. Quem tem os dois está em “Somente acordos vencidos”. Acordo em dia fica fora.",
+  ACORDOS_VENCIDOS: "Alunos com acordo quebrado ou parcela vencida, tenham ou não mensalidade em aberto. Acordo em dia fica fora.",
+  MENSALIDADES_E_ACORDOS: "Os dois grupos juntos: somente mensalidades + acordos vencidos. Cada aluno aparece uma vez. Acordo em dia fica fora.",
 };
 function rotuloTipoCobranca(valor) {
   if (!valor || valor === "REGRA_ANTERIOR") return "Sem tipo (tela anterior)";
@@ -1146,7 +1146,7 @@ export default function AcoesMassivas() {
                   {" "}· Acordos vencidos: <strong>{contagemTipo.acordos_vencidos}</strong>
                   {" "}· Total único de alunos: <strong>{contagemTipo.total_unico}</strong>
                   {contagemTipo.mensalidades_e_acordos_vencidos > 0 && (
-                    <> ({contagemTipo.mensalidades_e_acordos_vencidos} têm os dois e contam uma vez)</>
+                    <> ({contagemTipo.mensalidades_e_acordos_vencidos} dos acordos vencidos também têm mensalidade)</>
                   )}
                   {" "}— antes do canal, do valor mínimo e da Quantidade.
                 </div>

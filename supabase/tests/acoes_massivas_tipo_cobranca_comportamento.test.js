@@ -5,9 +5,10 @@
 // (tipo de cobranca).
 //
 // REGRA (gestao, 16/09):
-//   MENSALIDADES            alunos elegiveis com mensalidade original em aberto;
-//   ACORDOS_VENCIDOS        alunos elegiveis com acordo ATIVO com parcela VENCIDA;
+//   MENSALIDADES            mensalidade original em aberto e SEM acordo vencido;
+//   ACORDOS_VENCIDOS        acordo ATIVO com parcela VENCIDA (com ou sem mensalidade);
 //   MENSALIDADES_E_ACORDOS  uniao das duas, sem duplicar.
+// As duas primeiras nao se sobrepoem: quem tem os dois fica nos acordos.
 // Acordo em dia fora de todas. Demais travas (inclusive retorno agendado) iguais.
 // Sem tipo: a tela anterior, identica a antes.
 //
@@ -71,19 +72,21 @@ describe("previa: cada opcao, com e sem operador", () => {
   beforeAll(async () => { db = await novoBanco({ tipo: true }); });
   const caso = (tipo, extra = {}) => ({ p_tipo_cobranca: tipo, ...extra });
 
-  it("operador A: mensalidades, acordos vencidos e a uniao sem duplicar", async () => {
+  it("operador A: mensalidades sem acordo vencido, acordos vencidos e a uniao sem duplicar", async () => {
     const o = { p_operador_email: OP_A };
     const m = await previa(db, caso("MENSALIDADES", o));
     const v = await previa(db, caso("ACORDOS_VENCIDOS", o));
     const u = await previa(db, caso("MENSALIDADES_E_ACORDOS", o));
-    expect(ord(m)).toEqual(["A1", "A10", "A11", "A14", "A2", "A3"]);
+    // A14 tem mensalidade E acordo vencido: fica nos acordos e na uniao, nunca
+    // em "Somente mensalidades"
+    expect(ord(m)).toEqual(["A1", "A10", "A11", "A2", "A3"]);
     expect(ord(v)).toEqual(["A13", "A14", "A16"]);
     expect(ord(u)).toEqual(["A1", "A10", "A11", "A13", "A14", "A16", "A2", "A3"]);
-    // A14 tem os dois tipos: aparece nas duas listas e UMA vez na uniao
+    expect(chaves(m)).not.toContain("A14");
     expect(chaves(u).filter((k) => k === "A14").length).toBe(1);
-    const contagem = { mensalidades: 6, acordos_vencidos: 3, mensalidades_e_acordos_vencidos: 1, total_unico: 8 };
+    const contagem = { mensalidades: 5, acordos_vencidos: 3, mensalidades_e_acordos_vencidos: 1, total_unico: 8 };
     for (const r of [m, v, u]) expect(r.contagem_tipo).toEqual(contagem);
-    expect([m.total_elegivel_filtros, v.total_elegivel_filtros, u.total_elegivel_filtros]).toEqual([6, 3, 8]);
+    expect([m.total_elegivel_filtros, v.total_elegivel_filtros, u.total_elegivel_filtros]).toEqual([5, 3, 8]);
     expect(m.tipo_cobranca).toBe("MENSALIDADES");
   });
 
@@ -94,14 +97,14 @@ describe("previa: cada opcao, com e sem operador", () => {
     const ub = await previa(db, caso("MENSALIDADES_E_ACORDOS", B));
     expect(ord(ub)).toEqual(["B1", "B2", "B3", "B4"]);
     expect(ub.contagem_tipo).toEqual({ mensalidades: 3, acordos_vencidos: 1, mensalidades_e_acordos_vencidos: 0, total_unico: 4 });
-    expect(ord(await previa(db, caso("MENSALIDADES")))).toEqual(["L1", "L2", "L4"]);
+    expect(ord(await previa(db, caso("MENSALIDADES")))).toEqual(["L1", "L2"]);
     expect(ord(await previa(db, caso("ACORDOS_VENCIDOS")))).toEqual(["L4"]);
     expect(ord(await previa(db, caso("MENSALIDADES_E_ACORDOS")))).toEqual(["L1", "L2", "L4"]);
   });
 
   it("sem operador, so nunca acionados (entra quem tem dono e nunca foi acionado)", async () => {
     const n = { p_apenas_nunca_acionado: true };
-    expect(ord(await previa(db, caso("MENSALIDADES", n)))).toEqual(["A1", "A11", "A14", "B1", "G1", "L1", "L4"]);
+    expect(ord(await previa(db, caso("MENSALIDADES", n)))).toEqual(["A1", "A11", "B1", "G1", "L1"]);
     expect(ord(await previa(db, caso("ACORDOS_VENCIDOS", n)))).toEqual(["A14", "B4", "L4"]);
     expect(ord(await previa(db, caso("MENSALIDADES_E_ACORDOS", n)))).toEqual(["A1", "A11", "A14", "B1", "B4", "G1", "L1", "L4"]);
   });
@@ -132,13 +135,13 @@ describe("previa: cada opcao, com e sem operador", () => {
     expect(ord(await previa(db, caso("MENSALIDADES_E_ACORDOS", { ...A, p_apenas_nunca_acionado: true })))).toEqual(["A1", "A11", "A14"]);
     expect(ord(await previa(db, caso("ACORDOS_VENCIDOS", { ...A, p_unidade: "U1" })))).toEqual(["A14", "A16"]);
     expect(ord(await previa(db, caso("ACORDOS_VENCIDOS", { ...A, p_curso: "EAD" })))).toEqual(["A13"]);
-    expect(ord(await previa(db, caso("MENSALIDADES", { ...A, p_unidade: "U1" })))).toEqual(["A1", "A10", "A14", "A3"]);
+    expect(ord(await previa(db, caso("MENSALIDADES", { ...A, p_unidade: "U1" })))).toEqual(["A1", "A10", "A3"]);
     expect(ord(await previa(db, caso("MENSALIDADES", { ...A, p_importacao_ids: [IMP1] })))).toEqual(["A1"]);
     expect(ord(await previa(db, caso("ACORDOS_VENCIDOS", { p_operador_email: OP_B, p_importacao_ids: [IMP1] })))).toEqual(["B4"]);
     expect(ord(await previa(db, caso("ACORDOS_VENCIDOS", { ...A, p_canal: "WHATSAPP", p_valor_min: 500 })))).toEqual(["A13", "A14"]);
     const u1 = await previa(db, caso("MENSALIDADES_E_ACORDOS", { p_unidade: "U1" }));
     expect(ord(u1)).toEqual(["L1", "L4"]);
-    expect(u1.contagem_tipo).toEqual({ mensalidades: 2, acordos_vencidos: 1, mensalidades_e_acordos_vencidos: 1, total_unico: 2 });
+    expect(u1.contagem_tipo).toEqual({ mensalidades: 1, acordos_vencidos: 1, mensalidades_e_acordos_vencidos: 1, total_unico: 2 });
   });
 
   it("valores aceitos e recusados: sem 'Todos', sem pedir a regra anterior", async () => {
@@ -148,7 +151,7 @@ describe("previa: cada opcao, com e sem operador", () => {
     }
   });
 
-  it("propriedades em toda a matriz x operador: uniao exata, sem duplicar, contagem coerente, dono", async () => {
+  it("propriedades em toda a matriz x operador: mensalidades e acordos disjuntos, uniao exata, contagem coerente, dono", async () => {
     const dono = Object.fromEntries((await db.query(`select id::text, responsavel_atual_email d from public.alunos`)).rows.map((x) => [x.id, x.d]));
     for (const op of [null, OP_A, OP_B]) {
       for (const args of MATRIZ) {
@@ -166,11 +169,13 @@ describe("previa: cada opcao, com e sem operador", () => {
         expect(r.MENSALIDADES.total_elegivel_filtros).toBe(c.mensalidades);
         expect(r.ACORDOS_VENCIDOS.total_elegivel_filtros).toBe(c.acordos_vencidos);
         expect(r.MENSALIDADES_E_ACORDOS.total_elegivel_filtros).toBe(c.total_unico);
-        expect(c.total_unico).toBe(c.mensalidades + c.acordos_vencidos - c.mensalidades_e_acordos_vencidos);
+        // disjuntas: o total unico e a soma, e quem tem os dois ja esta nos acordos
+        expect(c.total_unico).toBe(c.mensalidades + c.acordos_vencidos);
+        expect(c.mensalidades_e_acordos_vencidos).toBeLessThanOrEqual(c.acordos_vencidos);
+        expect(lista("MENSALIDADES").filter((k) => lista("ACORDOS_VENCIDOS").includes(k))).toEqual([]);
         if (args.p_limite == null) {
           const uniao = new Set([...lista("MENSALIDADES"), ...lista("ACORDOS_VENCIDOS")]);
           expect([...uniao].sort()).toEqual([...lista("MENSALIDADES_E_ACORDOS")].sort());
-          expect(lista("MENSALIDADES").filter((k) => lista("ACORDOS_VENCIDOS").includes(k)).length).toBe(c.mensalidades_e_acordos_vencidos);
         }
       }
     }
@@ -248,6 +253,10 @@ describe("mesma populacao na previa, na planilha e na confirmacao", () => {
     expect(e.ids_excluidos.map((x) => x.motivo)).toEqual(Array(2).fill("Não corresponde ao tipo de cobrança selecionado"));
     const u = await exportar(db, [ID.A1, ID.A13, ID.A14, ID.A15, ID.A6], { operador: OP_A, tipo: "MENSALIDADES_E_ACORDOS" });
     expect(nomes(u.ids_exportados)).toEqual(["A1", "A13", "A14"]);
+    // quem tem mensalidade E acordo vencido nao sai em "Somente mensalidades"
+    const m = await exportar(db, [ID.A1, ID.A14, ID.L4], { tipo: "MENSALIDADES", operador: undefined });
+    expect(nomes(m.ids_exportados)).toEqual(["A1"]);
+    expect(m.excluidos_tipo_cobranca).toBe(2);
     await expect(exportar(db, [ID.A1], { tipo: "TODOS" })).rejects.toThrow(/Tipo de cobranca invalido/);
   });
 });
@@ -279,13 +288,19 @@ describe("a confirmacao revalida o tipo no banco", () => {
     expect(c.ids_registrados).toEqual([ID.A14]);
   });
 
-  it("'Somente mensalidades': quem pagou a mensalidade ou ficou com acordo em dia sai", async () => {
+  it("'Somente mensalidades': quem pagou, ficou com acordo em dia ou passou a ter acordo vencido sai", async () => {
     const db = await novoBanco({ tipo: true });
-    const e = await exportar(db, [ID.A1, ID.A2, ID.A14], { operador: OP_A, tipo: "MENSALIDADES" });
+    const e = await exportar(db, [ID.A1, ID.A2, ID.A10, ID.A11], { operador: OP_A, tipo: "MENSALIDADES" });
+    expect(e.exportados).toBe(4);
+    // A2 fecha acordo (em dia)
     await db.query(`insert into public.acordos (aluno_id, status) values ($1, 'ATIVO')`, [ID.A2]);
-    await db.query(`update public.acordos_titulos set situacao = 'PAGO', status = 'quitada' where aluno_id = $1`, [ID.A14]);
+    // A10 passa a ter acordo vencido: agora e "Somente acordos vencidos"
+    const ac = (await db.query(`insert into public.acordos (aluno_id, status) values ($1, 'ATIVO') returning id`, [ID.A10])).rows[0].id;
+    await db.query(`insert into public.parcelas (acordo_id, status, vencimento) values ($1, 'VENCIDA', current_date)`, [ac]);
+    // A11 paga a mensalidade
+    await db.query(`update public.acordos_titulos set situacao = 'PAGO', status = 'quitada' where aluno_id = $1`, [ID.A11]);
     const c = await concluir(db, e.lote_id);
-    expect(nomes(c.ids_fora_do_tipo_cobranca)).toEqual(["A14", "A2"]);
+    expect(nomes(c.ids_fora_do_tipo_cobranca)).toEqual(["A10", "A11", "A2"]);
     expect(c.ids_registrados).toEqual([ID.A1]);
   });
 });

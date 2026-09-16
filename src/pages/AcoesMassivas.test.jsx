@@ -384,15 +384,15 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
 
   it("a prévia mostra a quantidade por tipo e o total único", async () => {
     previaExtra = {
-      contagem_tipo: { mensalidades: 1782, acordos_vencidos: 762, mensalidades_e_acordos_vencidos: 281, total_unico: 2263 },
+      contagem_tipo: { mensalidades: 1501, acordos_vencidos: 762, mensalidades_e_acordos_vencidos: 281, total_unico: 2263 },
     };
     await montar({ tipo: "MENSALIDADES_E_ACORDOS" });
     await buscar();
     const linha = screen.getByTestId("contagem-tipo").textContent;
-    expect(linha).toContain("Mensalidades: 1782");
+    expect(linha).toContain("Mensalidades: 1501");
     expect(linha).toContain("Acordos vencidos: 762");
     expect(linha).toContain("Total único de alunos: 2263");
-    expect(linha).toContain("281 têm os dois e contam uma vez");
+    expect(linha).toContain("281 dos acordos vencidos também têm mensalidade");
   });
 
   it("combina com operador, borderô, nunca acionados, unidade, modalidade e prazo", async () => {
