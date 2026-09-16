@@ -3,9 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
 
 // Dublê só da RPC. O que se prova aqui: a tela diz de quando é o extrato do
-// Prime usado para tirar quem já pagou, e a mensagem do registro conta quantos
+// Prime usado para tirar quem já pagou, e a mensagem da exportação conta quantos
 // saíram por isso. A RELAÇÃO desses alunos não chega à tela de propósito —
-// quem consta liquidado não deve nem aparecer.
+// quem consta liquidado não deve nem aparecer. E: exportar a planilha nunca
+// registra contato; só "Confirmar ação realizada" registra.
 const rpcMock = vi.fn();
 vi.mock("../services/supabase", () => ({
   supabase: {
@@ -35,10 +36,14 @@ const OPERADORES = [
 
 let previaExtra = {};
 let regExtra = {};
+let lotes = [];
+let concluirExtra = {};
 
 beforeEach(() => {
   previaExtra = { prime_extrato_em: "2026-09-05" };
   regExtra = {};
+  lotes = [];
+  concluirExtra = {};
   rpcMock.mockReset();
   rpcMock.mockImplementation(async (nome, args) => {
     if (nome === "acoes_massivas_filtros") {
@@ -62,14 +67,19 @@ beforeEach(() => {
         },
       };
     }
-    if (nome === "registrar_acao_massiva") {
+    if (nome === "acoes_massivas_exportar") {
       return {
         data: {
-          registrados: 1, ids_registrados: [args.p_aluno_ids[0]], excluidos_confirmacao: 0,
+          lote_id: "lote-novo", exportados: 1, ids_exportados: [args.p_aluno_ids[0]], excluidos_confirmacao: 0,
+          operador_email: args.p_operador_email ?? null,
           contatos: [{ aluno_id: "a1", nome: "Ana", telefone: "51999999999", email: "a@x.com" }],
           ...regExtra,
         },
       };
+    }
+    if (nome === "acoes_massivas_lotes_pendentes") return { data: lotes };
+    if (nome === "acoes_massivas_concluir_lote") {
+      return { data: { lote_id: args.p_lote_id, registrados: 3, ...concluirExtra } };
     }
     return { data: null };
   });
@@ -84,8 +94,9 @@ async function buscar() {
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
 }
 async function gerar() {
-  await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Gerar Excel/ })); });
+  await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Exportar planilha/ })); });
 }
+const nomesChamados = () => rpcMock.mock.calls.map(([n]) => n);
 
 describe("Ações Massivas — liquidados no Prime", () => {
   it("diz a regra e a data do extrato do Prime usado na prévia", async () => {
@@ -102,7 +113,7 @@ describe("Ações Massivas — liquidados no Prime", () => {
     expect(screen.queryByText(/liquidado no Prime não entra/)).toBeNull();
   });
 
-  it("o registro conta quantos saíram por já constarem liquidados", async () => {
+  it("a exportação conta quantos saíram por já constarem liquidados", async () => {
     regExtra = { excluidos_liquidados_prime: 3 };
     await montar();
     await buscar();
@@ -115,7 +126,7 @@ describe("Ações Massivas — liquidados no Prime", () => {
     await buscar();
     await gerar();
     expect(screen.queryByText(/liquidados no Prime\./)).toBeNull();
-    expect(screen.getByText(/1 aluno\(s\) registrados/)).toBeTruthy();
+    expect(screen.getByText(/Planilha exportada com 1 aluno\(s\)/)).toBeTruthy();
   });
 });
 
@@ -147,7 +158,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     ]);
   });
 
-  it("sem operador, prévia e registro saem exatamente como antes (sem a chave nova)", async () => {
+  it("sem operador, prévia e exportação saem sem a chave nova", async () => {
     await montar();
     await buscar();
     const previa = ultimaChamada("acoes_massivas_previa");
@@ -160,7 +171,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     expect(screen.getByText(/Sem operador filtrado: base livre \/ regra atual/)).toBeTruthy();
     expect(screen.getByText(/caso\(s\) livre\(s\)/)).toBeTruthy();
     await gerar();
-    const reg = ultimaChamada("registrar_acao_massiva");
+    const reg = ultimaChamada("acoes_massivas_exportar");
     expect("p_operador_email" in reg).toBe(false);
     expect(reg.p_arquivo).toMatch(/^acao-massiva-whatsapp-\d{4}-\d{2}-\d{2}\.xlsx$/);
   });
@@ -174,13 +185,13 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     expect(screen.getByText(/caso\(s\) da carteira de Olga/)).toBeTruthy();
   });
 
-  it("a geração final usa o mesmo operador da prévia e avisa quem saiu da carteira", async () => {
+  it("a exportação usa o mesmo operador da prévia e avisa quem saiu da carteira", async () => {
     regExtra = { excluidos_outro_operador: 2 };
     await montar();
     escolherOperador("cobranca05@teste.local");
     await buscar();
     await gerar();
-    const reg = ultimaChamada("registrar_acao_massiva");
+    const reg = ultimaChamada("acoes_massivas_exportar");
     expect(reg.p_operador_email).toBe("cobranca05@teste.local");
     expect(reg.p_aluno_ids).toEqual(["a1"]);
     expect(reg.p_arquivo).toMatch(/^acao-massiva-whatsapp-cobranca05-/);
@@ -191,15 +202,15 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     await montar();
     escolherOperador("cobranca03@teste.local");
     await buscar();
-    expect(screen.getByRole("button", { name: /Gerar Excel/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /Exportar planilha/ })).toBeTruthy();
     const chamadasAntes = rpcMock.mock.calls.length;
     escolherOperador("cobranca05@teste.local");
-    expect(screen.queryByRole("button", { name: /Gerar Excel/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
     expect(screen.queryByText(/Operador filtrado:/)).toBeNull();
     // nenhuma RPC foi chamada pela troca (nada de registrar/atribuir)
     expect(rpcMock.mock.calls.length).toBe(chamadasAntes);
     escolherOperador("");
-    expect(screen.queryByRole("button", { name: /Gerar Excel/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
   });
 
   it("se o banco não confirmar o recorte do operador, nada é listado", async () => {
@@ -208,7 +219,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     escolherOperador("cobranca03@teste.local");
     await buscar();
     expect(screen.getByText(/o banco não aplicou o filtro de operador/)).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Gerar Excel/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
   });
 
   it("operador + borderô + só nunca acionados vão juntos ao banco", async () => {
@@ -235,3 +246,87 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     expect(c.p_curso).toBe("EAD");
   });
 });
+
+describe("Ações Massivas — exportar não é contato; confirmar é uma etapa à parte", () => {
+  const LOTE = {
+    id: "lote-1", canal: "WHATSAPP", operador_email: "cobranca03@teste.local", operador_nome: "Olga",
+    arquivo: "acao-massiva-whatsapp-cobranca03-2026-09-16.xlsx", total: 3,
+    exportado_por_email: "gestao@reativa", exportado_em: "2026-09-16T14:00:00Z",
+  };
+
+  it("exportar só chama a exportação: nenhum registro, nenhuma confirmação", async () => {
+    await montar();
+    await buscar();
+    await gerar();
+    expect(nomesChamados()).toContain("acoes_massivas_exportar");
+    expect(nomesChamados()).not.toContain("registrar_acao_massiva");
+    expect(nomesChamados()).not.toContain("acoes_massivas_concluir_lote");
+    expect(screen.getByText(/Nada foi registrado nos alunos/)).toBeTruthy();
+    // a lista de lotes abertos é recarregada para mostrar o que falta confirmar
+    expect(nomesChamados().filter((n) => n === "acoes_massivas_lotes_pendentes").length).toBe(2);
+  });
+
+  it("nenhum caminho da tela chama o registro direto", async () => {
+    lotes = [LOTE];
+    await montar();
+    await buscar();
+    await gerar();
+    fireEvent.click(await screen.findByRole("button", { name: /Confirmar ação realizada/ }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, o disparo foi concluído/ })); });
+    expect(nomesChamados()).not.toContain("registrar_acao_massiva");
+  });
+
+  it("confirmar pede o sim explícito antes de chamar o banco", async () => {
+    lotes = [LOTE];
+    concluirExtra = { excluidos_acionados_apos_exportacao: 1 };
+    await montar();
+    expect(await screen.findByText("Planilhas exportadas aguardando confirmação")).toBeTruthy();
+    expect(screen.getByText("Olga")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Confirmar ação realizada/ }));
+    expect(nomesChamados()).not.toContain("acoes_massivas_concluir_lote");
+    expect(screen.getByText(/Confirme só se o disparo já foi concluído/)).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, o disparo foi concluído/ })); });
+    const c = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_concluir_lote").at(-1)[1];
+    expect(c).toEqual({ p_lote_id: "lote-1", p_acao: "CONFIRMAR" });
+    expect(screen.getByText(/Ação confirmada: 3 aluno\(s\) registrados como acionados/)).toBeTruthy();
+    expect(screen.getByText(/1 caso\(s\) foram acionados depois da exportação/)).toBeTruthy();
+  });
+
+  it("voltar não chama nada; descartar manda DESCARTAR", async () => {
+    lotes = [LOTE];
+    await montar();
+    fireEvent.click(await screen.findByRole("button", { name: /Confirmar ação realizada/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Voltar" }));
+    expect(nomesChamados()).not.toContain("acoes_massivas_concluir_lote");
+    fireEvent.click(screen.getByRole("button", { name: "Descartar" }));
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, descartar/ })); });
+    const c = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_concluir_lote").at(-1)[1];
+    expect(c).toEqual({ p_lote_id: "lote-1", p_acao: "DESCARTAR" });
+    expect(screen.getByText(/descartado. Nada foi registrado/)).toBeTruthy();
+  });
+
+  it("trocar de operador não esconde os lotes aguardando confirmação", async () => {
+    lotes = [LOTE];
+    await montar();
+    await screen.findByText("Planilhas exportadas aguardando confirmação");
+    fireEvent.change(screen.getByLabelText("Operador responsável"), { target: { value: "cobranca05@teste.local" } });
+    expect(screen.getByText("Planilhas exportadas aguardando confirmação")).toBeTruthy();
+  });
+
+  it("escolher operador NÃO aplica “Sem acionamento há” sozinho; o filtro segue opcional", async () => {
+    await montar();
+    fireEvent.change(screen.getByLabelText("Operador responsável"), { target: { value: "cobranca03@teste.local" } });
+    expect(screen.getByDisplayValue("Qualquer período")).toBeTruthy();
+    await buscar();
+    expect(ultimaChamadaPrevia().p_dias_minimo_sem_contato).toBeNull();
+    // e quem quiser, escolhe
+    fireEvent.change(screen.getByDisplayValue("Qualquer período"), { target: { value: "15" } });
+    await buscar();
+    expect(ultimaChamadaPrevia().p_dias_minimo_sem_contato).toBe(15);
+    expect(ultimaChamadaPrevia().p_operador_email).toBe("cobranca03@teste.local");
+  });
+});
+
+function ultimaChamadaPrevia() {
+  return rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_previa").at(-1)[1];
+}
