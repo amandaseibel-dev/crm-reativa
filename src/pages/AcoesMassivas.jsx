@@ -950,7 +950,7 @@ export default function AcoesMassivas() {
               {resultados.length > 0 && (
                 <span style={{ color: "var(--rv-texto-fraco)" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
               )}
-              <div style={estilos.ajudaCampo}>
+              <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }}>
                 {operadorDaPrevia ? (
                   <>
                     Operador filtrado: <strong>{nomeDoOperador(operadorDaPrevia)}</strong> ({operadorDaPrevia}) —
