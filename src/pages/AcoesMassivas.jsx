@@ -154,9 +154,14 @@ export default function AcoesMassivas() {
   // Data do extrato do Prime que a prévia usou para tirar quem já pagou lá.
   // A relação NÃO vem para a tela: quem consta liquidado não deve nem aparecer.
   const [primeExtratoEm, setPrimeExtratoEm] = useState(null);
-  // Quantos alunos por tipo atendem aos filtros enviados ao banco (antes do
-  // limite de Quantidade e dos filtros de canal/valor que a tela aplica depois).
+  // Quantos alunos por tipo atendem aos filtros enviados ao banco -- já com o
+  // contato do canal e a faixa de valor.
   const [contagemTipo, setContagemTipo] = useState(null);
+  // "Total elegível após os filtros": a população que o banco encontrou para a
+  // opção escolhida (total_elegivel_filtros). A lista é uma amostra dela,
+  // limitada pela Quantidade usada nesta prévia.
+  const [totalElegivelFiltros, setTotalElegivelFiltros] = useState(null);
+  const [quantidadeDaPrevia, setQuantidadeDaPrevia] = useState(null);
   const [mostrarExcluidos, setMostrarExcluidos] = useState(false);
   const [excluidosNoEnvio, setExcluidosNoEnvio] = useState(0);
   // Guarda o último relatório gerado p/ permitir baixar manualmente caso o
@@ -240,6 +245,8 @@ export default function AcoesMassivas() {
     setOperadorDaPrevia(null);
     setTipoDaPrevia(null);
     setContagemTipo(null);
+    setTotalElegivelFiltros(null);
+    setQuantidadeDaPrevia(null);
     setRelatorioPronto(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
@@ -281,6 +288,8 @@ export default function AcoesMassivas() {
     setOperadorDaPrevia(null);
     setTipoDaPrevia(null);
     setContagemTipo(null);
+    setTotalElegivelFiltros(null);
+    setQuantidadeDaPrevia(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
@@ -306,6 +315,15 @@ export default function AcoesMassivas() {
         p_importacao_ids: (over.borderosSel ?? borderosSel).length
           ? (over.borderosSel ?? borderosSel)
           : null,
+        // Canal e faixa de valor vão para o BANCO, antes do corte de p_limite.
+        // Filtrados só aqui na tela, o banco devolvia Quantidade × 3 linhas e a
+        // tela jogava fora quem não tem contato ou está abaixo do valor: a
+        // lista saía com menos que a Quantidade enquanto a contagem mostrava
+        // milhares. Os predicados do banco são os mesmos de tem_telefone,
+        // tem_email e valor; os filtros abaixo continuam, agora sem efeito.
+        p_canal: canal,
+        p_valor_min: minEfetivo,
+        p_valor_max: max,
       };
       // Sem operador a chamada fica IDÊNTICA à de antes (a chave nem vai):
       // base livre / regra atual, sem depender da versão do banco.
@@ -329,6 +347,10 @@ export default function AcoesMassivas() {
       setOperadorDaPrevia(operadorPedido);
       setTipoDaPrevia(tipoCobranca);
       setContagemTipo(previa?.contagem_tipo || null);
+      setTotalElegivelFiltros(
+        previa?.total_elegivel_filtros == null ? null : Number(previa.total_elegivel_filtros),
+      );
+      setQuantidadeDaPrevia(qtd);
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
       setPrimeExtratoEm(previa?.prime_extrato_em || null);
@@ -1140,15 +1162,30 @@ export default function AcoesMassivas() {
                 )}
                 {" "}· Tipo de cobrança: <strong>{rotuloTipoCobranca(tipoDaPrevia)}</strong>
               </div>
+              {totalElegivelFiltros != null && (
+                <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }} data-testid="total-elegivel">
+                  Total elegível após os filtros: <strong>{totalElegivelFiltros}</strong>
+                  {" "}(com {canal === "WHATSAPP" ? "telefone" : "e-mail"} e na faixa de valor)
+                  {" "}· Exibindo <strong>{resultados.length}</strong> de <strong>{totalElegivelFiltros}</strong>
+                  {resultados.length < totalElegivelFiltros && (
+                    canal === "EMAIL" && soSemTelefone ? (
+                      <> — “Só sem telefone” é aplicado depois do limite da prévia: pode haver mais alunos sem telefone fora desta lista (limitação conhecida).</>
+                    ) : resultados.length >= Math.min(quantidadeDaPrevia ?? 0, totalElegivelFiltros) ? (
+                      <> — amostra limitada pela Quantidade escolhida ({quantidadeDaPrevia}). Aumente a Quantidade para exibir mais.</>
+                    ) : (
+                      <> — abaixo da Quantidade: posições do limite foram ocupadas por alunos em confirmação de pagamento (limitação conhecida).</>
+                    )
+                  )}
+                </div>
+              )}
               {contagemTipo && (
                 <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }} data-testid="contagem-tipo">
-                  Mensalidades: <strong>{contagemTipo.mensalidades}</strong>
-                  {" "}· Acordos vencidos: <strong>{contagemTipo.acordos_vencidos}</strong>
-                  {" "}· Total único de alunos: <strong>{contagemTipo.total_unico}</strong>
+                  Por tipo, após os filtros: Mensalidades <strong>{contagemTipo.mensalidades}</strong>
+                  {" "}· Acordos vencidos <strong>{contagemTipo.acordos_vencidos}</strong>
+                  {" "}· Total único <strong>{contagemTipo.total_unico}</strong>
                   {contagemTipo.mensalidades_e_acordos_vencidos > 0 && (
                     <> ({contagemTipo.mensalidades_e_acordos_vencidos} dos acordos vencidos também têm mensalidade)</>
                   )}
-                  {" "}— antes do canal, do valor mínimo e da Quantidade.
                 </div>
               )}
               {primeExtratoEm && (

@@ -65,6 +65,7 @@ beforeEach(() => {
           elegiveis: [ELEGIVEL], excluidos_confirmacao: [],
           operador_email: args.p_operador_email ?? null,
           tipo_cobranca: args.p_tipo_cobranca ?? "REGRA_ANTERIOR",
+          total_elegivel_filtros: 1,
           contagem_tipo: args.p_tipo_cobranca
             ? { mensalidades: 1, acordos_vencidos: 0, mensalidades_e_acordos_vencidos: 0, total_unico: 1 }
             : null,
@@ -173,9 +174,9 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     const previa = ultimaChamada("acoes_massivas_previa");
     expect("p_operador_email" in previa).toBe(false);
     expect(Object.keys(previa).sort()).toEqual([
-      "p_ano_vencimento", "p_apenas_ja_acionado", "p_apenas_nunca_acionado", "p_curso",
+      "p_ano_vencimento", "p_apenas_ja_acionado", "p_apenas_nunca_acionado", "p_canal", "p_curso",
       "p_dias_minimo_sem_contato", "p_importacao_ids", "p_limite", "p_matricula",
-      "p_situacao_academica", "p_tipo_cobranca", "p_unidade",
+      "p_situacao_academica", "p_tipo_cobranca", "p_unidade", "p_valor_max", "p_valor_min",
     ]);
     expect(screen.getByText(/Sem operador filtrado: base livre \/ regra atual/)).toBeTruthy();
     expect(screen.getByText(/caso\(s\) livre\(s\)/)).toBeTruthy();
@@ -389,9 +390,9 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     await montar({ tipo: "MENSALIDADES_E_ACORDOS" });
     await buscar();
     const linha = screen.getByTestId("contagem-tipo").textContent;
-    expect(linha).toContain("Mensalidades: 1501");
-    expect(linha).toContain("Acordos vencidos: 762");
-    expect(linha).toContain("Total único de alunos: 2263");
+    expect(linha).toContain("Por tipo, após os filtros: Mensalidades 1501");
+    expect(linha).toContain("Acordos vencidos 762");
+    expect(linha).toContain("Total único 2263");
     expect(linha).toContain("281 dos acordos vencidos também têm mensalidade");
   });
 
@@ -463,5 +464,67 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     expect(screen.getByText(/não corresponde mais ao tipo de cobrança do lote fica de fora/)).toBeTruthy();
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, o disparo foi concluído/ })); });
     expect(screen.getByText(/2 caso\(s\) não correspondem mais ao tipo de cobrança do lote/)).toBeTruthy();
+  });
+});
+
+describe("Ações Massivas — canal e valor filtrados no banco, antes do corte da Quantidade", () => {
+  const ultimaPrevia = () => rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_previa").at(-1)[1];
+
+  it("a prévia recebe canal e faixa de valor (com o piso de R$ 100)", async () => {
+    await montar();
+    await buscar();
+    expect(ultimaPrevia()).toMatchObject({ p_canal: "WHATSAPP", p_valor_min: 100, p_valor_max: null });
+    fireEvent.change(screen.getByPlaceholderText("Ex: 500,00"), { target: { value: "50" } });
+    fireEvent.change(screen.getByPlaceholderText("Ex: 3000,00"), { target: { value: "3.000,00" } });
+    await buscar();
+    expect(ultimaPrevia()).toMatchObject({ p_canal: "WHATSAPP", p_valor_min: 100, p_valor_max: 3000 });
+    fireEvent.change(screen.getByPlaceholderText("Ex: 500,00"), { target: { value: "500,00" } });
+    fireEvent.click(screen.getByRole("button", { name: /E-mail/ }));
+    await buscar();
+    expect(ultimaPrevia()).toMatchObject({ p_canal: "EMAIL", p_valor_min: 500, p_valor_max: 3000 });
+  });
+
+  it("distingue o total elegível após os filtros da amostra exibida pela Quantidade", async () => {
+    previaExtra = { total_elegivel_filtros: 2431 };
+    await montar({ tipo: "MENSALIDADES" });
+    fireEvent.change(screen.getByDisplayValue("100"), { target: { value: "1" } });
+    await buscar();
+    const linha = screen.getByTestId("total-elegivel").textContent;
+    expect(linha).toContain("Total elegível após os filtros: 2431 (com telefone e na faixa de valor)");
+    expect(linha).toContain("Exibindo 1 de 2431");
+    expect(linha).toContain("amostra limitada pela Quantidade escolhida (1)");
+    expect(linha).not.toMatch(/bate/);
+  });
+
+  it("quando exibe todos, diz 'Exibindo N de N' sem falar em amostra", async () => {
+    await montar({ tipo: "MENSALIDADES" });
+    await buscar();
+    const linha = screen.getByTestId("total-elegivel").textContent;
+    expect(linha).toContain("Exibindo 1 de 1");
+    expect(linha).not.toContain("amostra");
+  });
+
+  it("e-mail com 'Só sem telefone': avisa que o filtro roda depois do limite (limitação conhecida), sem culpar a Quantidade", async () => {
+    previaExtra = { total_elegivel_filtros: 40 };
+    await montar({ tipo: "MENSALIDADES" });
+    fireEvent.click(screen.getByRole("button", { name: /E-mail/ }));
+    fireEvent.click(screen.getByLabelText(/Só sem telefone/));
+    await buscar();
+    const linha = screen.getByTestId("total-elegivel").textContent;
+    expect(linha).toContain("Total elegível após os filtros: 40 (com e-mail e na faixa de valor)");
+    expect(linha).toContain("Exibindo 0 de 40");
+    expect(linha).toContain("“Só sem telefone” é aplicado depois do limite da prévia");
+    expect(linha).toContain("pode haver mais alunos sem telefone fora desta lista (limitação conhecida)");
+    expect(linha).not.toContain("Quantidade escolhida");
+  });
+
+  it("lista abaixo da Quantidade sem 'Só sem telefone': aponta a limitação conhecida da confirmação", async () => {
+    previaExtra = { total_elegivel_filtros: 5 };
+    await montar({ tipo: "MENSALIDADES" });
+    await buscar();
+    const linha = screen.getByTestId("total-elegivel").textContent;
+    expect(linha).toContain("Exibindo 1 de 5");
+    expect(linha).toContain("alunos em confirmação de pagamento (limitação conhecida)");
+    expect(linha).not.toContain("amostra limitada");
   });
 });
