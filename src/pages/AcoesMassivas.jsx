@@ -155,8 +155,13 @@ export default function AcoesMassivas() {
   // A relação NÃO vem para a tela: quem consta liquidado não deve nem aparecer.
   const [primeExtratoEm, setPrimeExtratoEm] = useState(null);
   // Quantos alunos por tipo atendem aos filtros enviados ao banco -- já com o
-  // contato do canal e a faixa de valor. Só a Quantidade limita a lista.
+  // contato do canal e a faixa de valor.
   const [contagemTipo, setContagemTipo] = useState(null);
+  // "Total elegível após os filtros": a população que o banco encontrou para a
+  // opção escolhida (total_elegivel_filtros). A lista é uma amostra dela,
+  // limitada pela Quantidade usada nesta prévia.
+  const [totalElegivelFiltros, setTotalElegivelFiltros] = useState(null);
+  const [quantidadeDaPrevia, setQuantidadeDaPrevia] = useState(null);
   const [mostrarExcluidos, setMostrarExcluidos] = useState(false);
   const [excluidosNoEnvio, setExcluidosNoEnvio] = useState(0);
   // Guarda o último relatório gerado p/ permitir baixar manualmente caso o
@@ -240,6 +245,8 @@ export default function AcoesMassivas() {
     setOperadorDaPrevia(null);
     setTipoDaPrevia(null);
     setContagemTipo(null);
+    setTotalElegivelFiltros(null);
+    setQuantidadeDaPrevia(null);
     setRelatorioPronto(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
@@ -281,6 +288,8 @@ export default function AcoesMassivas() {
     setOperadorDaPrevia(null);
     setTipoDaPrevia(null);
     setContagemTipo(null);
+    setTotalElegivelFiltros(null);
+    setQuantidadeDaPrevia(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
@@ -338,6 +347,10 @@ export default function AcoesMassivas() {
       setOperadorDaPrevia(operadorPedido);
       setTipoDaPrevia(tipoCobranca);
       setContagemTipo(previa?.contagem_tipo || null);
+      setTotalElegivelFiltros(
+        previa?.total_elegivel_filtros == null ? null : Number(previa.total_elegivel_filtros),
+      );
+      setQuantidadeDaPrevia(qtd);
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
       setPrimeExtratoEm(previa?.prime_extrato_em || null);
@@ -530,15 +543,6 @@ export default function AcoesMassivas() {
   }
 
   const valorTotal = resultados ? resultados.reduce((s, r) => s + r.valor, 0) : 0;
-  // Quantos atendem à opção escolhida (mesma conta do banco), para dizer quando
-  // a lista é só a fatia da Quantidade.
-  const totalDaOpcao = contagemTipo
-    ? {
-        MENSALIDADES: contagemTipo.mensalidades,
-        ACORDOS_VENCIDOS: contagemTipo.acordos_vencidos,
-        MENSALIDADES_E_ACORDOS: contagemTipo.total_unico,
-      }[tipoDaPrevia] ?? null
-    : null;
 
   // Transporta os filtros do painel de penetração para a prévia oficial e
   // recalcula. NÃO congela lista, NÃO cria/agenda/envia campanha — a prévia
@@ -1158,17 +1162,29 @@ export default function AcoesMassivas() {
                 )}
                 {" "}· Tipo de cobrança: <strong>{rotuloTipoCobranca(tipoDaPrevia)}</strong>
               </div>
+              {totalElegivelFiltros != null && (
+                <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }} data-testid="total-elegivel">
+                  Total elegível após os filtros: <strong>{totalElegivelFiltros}</strong>
+                  {" "}(com {canal === "WHATSAPP" ? "telefone" : "e-mail"} e na faixa de valor)
+                  {" "}· Exibindo <strong>{resultados.length}</strong> de <strong>{totalElegivelFiltros}</strong>
+                  {resultados.length < totalElegivelFiltros && (
+                    canal === "EMAIL" && soSemTelefone ? (
+                      <> — a lista mostra só quem não tem telefone e é limitada pela Quantidade escolhida ({quantidadeDaPrevia}).</>
+                    ) : resultados.length >= Math.min(quantidadeDaPrevia ?? 0, totalElegivelFiltros) ? (
+                      <> — amostra limitada pela Quantidade escolhida ({quantidadeDaPrevia}). Aumente a Quantidade para exibir mais.</>
+                    ) : (
+                      <> — abaixo da Quantidade: posições do limite foram ocupadas por alunos em confirmação de pagamento (limitação conhecida).</>
+                    )
+                  )}
+                </div>
+              )}
               {contagemTipo && (
                 <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }} data-testid="contagem-tipo">
-                  Mensalidades: <strong>{contagemTipo.mensalidades}</strong>
-                  {" "}· Acordos vencidos: <strong>{contagemTipo.acordos_vencidos}</strong>
-                  {" "}· Total único de alunos: <strong>{contagemTipo.total_unico}</strong>
+                  Por tipo, após os filtros: Mensalidades <strong>{contagemTipo.mensalidades}</strong>
+                  {" "}· Acordos vencidos <strong>{contagemTipo.acordos_vencidos}</strong>
+                  {" "}· Total único <strong>{contagemTipo.total_unico}</strong>
                   {contagemTipo.mensalidades_e_acordos_vencidos > 0 && (
                     <> ({contagemTipo.mensalidades_e_acordos_vencidos} dos acordos vencidos também têm mensalidade)</>
-                  )}
-                  {" "}— já com {canal === "WHATSAPP" ? "telefone" : "e-mail"} e na faixa de valor.
-                  {totalDaOpcao != null && resultados.length < totalDaOpcao && !(canal === "EMAIL" && soSemTelefone) && (
-                    <> A lista traz os primeiros {resultados.length} de {totalDaOpcao}: aumente a Quantidade para ver mais.</>
                   )}
                 </div>
               )}

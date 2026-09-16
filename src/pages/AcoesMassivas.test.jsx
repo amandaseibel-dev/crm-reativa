@@ -65,6 +65,7 @@ beforeEach(() => {
           elegiveis: [ELEGIVEL], excluidos_confirmacao: [],
           operador_email: args.p_operador_email ?? null,
           tipo_cobranca: args.p_tipo_cobranca ?? "REGRA_ANTERIOR",
+          total_elegivel_filtros: 1,
           contagem_tipo: args.p_tipo_cobranca
             ? { mensalidades: 1, acordos_vencidos: 0, mensalidades_e_acordos_vencidos: 0, total_unico: 1 }
             : null,
@@ -389,9 +390,9 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     await montar({ tipo: "MENSALIDADES_E_ACORDOS" });
     await buscar();
     const linha = screen.getByTestId("contagem-tipo").textContent;
-    expect(linha).toContain("Mensalidades: 1501");
-    expect(linha).toContain("Acordos vencidos: 762");
-    expect(linha).toContain("Total único de alunos: 2263");
+    expect(linha).toContain("Por tipo, após os filtros: Mensalidades 1501");
+    expect(linha).toContain("Acordos vencidos 762");
+    expect(linha).toContain("Total único 2263");
     expect(linha).toContain("281 dos acordos vencidos também têm mensalidade");
   });
 
@@ -483,18 +484,45 @@ describe("Ações Massivas — canal e valor filtrados no banco, antes do corte 
     expect(ultimaPrevia()).toMatchObject({ p_canal: "EMAIL", p_valor_min: 500, p_valor_max: 3000 });
   });
 
-  it("quando a opção tem mais alunos que a lista, a tela diz que é a fatia da Quantidade", async () => {
-    previaExtra = { contagem_tipo: { mensalidades: 2431, acordos_vencidos: 2, mensalidades_e_acordos_vencidos: 0, total_unico: 2433 } };
+  it("distingue o total elegível após os filtros da amostra exibida pela Quantidade", async () => {
+    previaExtra = { total_elegivel_filtros: 2431 };
     await montar({ tipo: "MENSALIDADES" });
+    fireEvent.change(screen.getByDisplayValue("100"), { target: { value: "1" } });
     await buscar();
-    const linha = screen.getByTestId("contagem-tipo").textContent;
-    expect(linha).toContain("já com telefone e na faixa de valor");
-    expect(linha).toContain("A lista traz os primeiros 1 de 2431: aumente a Quantidade para ver mais.");
+    const linha = screen.getByTestId("total-elegivel").textContent;
+    expect(linha).toContain("Total elegível após os filtros: 2431 (com telefone e na faixa de valor)");
+    expect(linha).toContain("Exibindo 1 de 2431");
+    expect(linha).toContain("amostra limitada pela Quantidade escolhida (1)");
+    expect(linha).not.toMatch(/bate/);
   });
 
-  it("quando a lista já traz todos, não fala em Quantidade", async () => {
+  it("quando exibe todos, diz 'Exibindo N de N' sem falar em amostra", async () => {
     await montar({ tipo: "MENSALIDADES" });
     await buscar();
-    expect(screen.getByTestId("contagem-tipo").textContent).not.toContain("aumente a Quantidade");
+    const linha = screen.getByTestId("total-elegivel").textContent;
+    expect(linha).toContain("Exibindo 1 de 1");
+    expect(linha).not.toContain("amostra");
+  });
+
+  it("e-mail com 'Só sem telefone': explica que a lista é filtrada depois e limitada pela Quantidade", async () => {
+    previaExtra = { total_elegivel_filtros: 40 };
+    await montar({ tipo: "MENSALIDADES" });
+    fireEvent.click(screen.getByRole("button", { name: /E-mail/ }));
+    fireEvent.click(screen.getByLabelText(/Só sem telefone/));
+    await buscar();
+    const linha = screen.getByTestId("total-elegivel").textContent;
+    expect(linha).toContain("Total elegível após os filtros: 40 (com e-mail e na faixa de valor)");
+    expect(linha).toContain("Exibindo 0 de 40");
+    expect(linha).toContain("só quem não tem telefone");
+  });
+
+  it("lista abaixo da Quantidade sem 'Só sem telefone': aponta a limitação conhecida da confirmação", async () => {
+    previaExtra = { total_elegivel_filtros: 5 };
+    await montar({ tipo: "MENSALIDADES" });
+    await buscar();
+    const linha = screen.getByTestId("total-elegivel").textContent;
+    expect(linha).toContain("Exibindo 1 de 5");
+    expect(linha).toContain("alunos em confirmação de pagamento (limitação conhecida)");
+    expect(linha).not.toContain("amostra limitada");
   });
 });
