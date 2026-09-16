@@ -28,6 +28,11 @@ const ELEGIVEL = {
   data_ultimo_acionamento: null, valor: 1500,
 };
 
+const OPERADORES = [
+  { email: "cobranca03@teste.local", nome: "Olga" },
+  { email: "cobranca05@teste.local", nome: "Luana" },
+];
+
 let previaExtra = {};
 let regExtra = {};
 
@@ -37,11 +42,25 @@ beforeEach(() => {
   rpcMock.mockReset();
   rpcMock.mockImplementation(async (nome, args) => {
     if (nome === "acoes_massivas_filtros") {
-      return { data: { unidades: [], cursos: [], situacoes_academicas: ["Matriculado", "Trancado"] } };
+      return {
+        data: {
+          unidades: ["CANOAS", "GRAVATAI"], cursos: ["EAD", "PRESENCIAL"],
+          situacoes_academicas: ["Matriculado", "Trancado"],
+          operadores: OPERADORES,
+        },
+      };
     }
-    if (nome === "acoes_massivas_borderos") return { data: [] };
+    if (nome === "acoes_massivas_borderos") {
+      return { data: [{ importacao_id: "imp-1", arquivo_nome: "bordero-ead.xlsx", qtd_alunos: 10 }] };
+    }
     if (nome === "acoes_massivas_previa") {
-      return { data: { elegiveis: [ELEGIVEL], excluidos_confirmacao: [], ...previaExtra } };
+      // O banco devolve o recorte que aplicou (NULL = base livre / regra atual).
+      return {
+        data: {
+          elegiveis: [ELEGIVEL], excluidos_confirmacao: [],
+          operador_email: args.p_operador_email ?? null, ...previaExtra,
+        },
+      };
     }
     if (nome === "registrar_acao_massiva") {
       return {
@@ -108,5 +127,111 @@ describe("Ações Massivas — filtro de status acadêmico (multi)", () => {
     await buscar();
     const c = rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_previa").at(-1);
     expect(c[1].p_situacao_academica).toBe("Matriculado|Trancado");
+  });
+});
+
+describe("Ações Massivas — filtro por operador responsável", () => {
+  const ultimaChamada = (nome) => rpcMock.mock.calls.filter(([n]) => n === nome).at(-1)[1];
+  const escolherOperador = (email) =>
+    fireEvent.change(screen.getByLabelText("Operador responsável"), { target: { value: email } });
+
+  it("lista os operadores do cadastro e começa em Base livre / regra atual", async () => {
+    await montar();
+    const seletor = screen.getByLabelText("Operador responsável");
+    expect(seletor.value).toBe("");
+    const opcoes = [...seletor.querySelectorAll("option")].map((o) => [o.value, o.textContent]);
+    expect(opcoes).toEqual([
+      ["", "Base livre / regra atual"],
+      ["cobranca03@teste.local", "Olga (cobranca03@teste.local)"],
+      ["cobranca05@teste.local", "Luana (cobranca05@teste.local)"],
+    ]);
+  });
+
+  it("sem operador, prévia e registro saem exatamente como antes (sem a chave nova)", async () => {
+    await montar();
+    await buscar();
+    const previa = ultimaChamada("acoes_massivas_previa");
+    expect("p_operador_email" in previa).toBe(false);
+    expect(Object.keys(previa).sort()).toEqual([
+      "p_ano_vencimento", "p_apenas_ja_acionado", "p_apenas_nunca_acionado", "p_curso",
+      "p_dias_minimo_sem_contato", "p_importacao_ids", "p_limite", "p_matricula",
+      "p_situacao_academica", "p_unidade",
+    ]);
+    expect(screen.getByText(/Sem operador filtrado: base livre \/ regra atual/)).toBeTruthy();
+    expect(screen.getByText(/caso\(s\) livre\(s\)/)).toBeTruthy();
+    await gerar();
+    const reg = ultimaChamada("registrar_acao_massiva");
+    expect("p_operador_email" in reg).toBe(false);
+    expect(reg.p_arquivo).toMatch(/^acao-massiva-whatsapp-\d{4}-\d{2}-\d{2}\.xlsx$/);
+  });
+
+  it("com operador, a prévia manda o e-mail e mostra qual carteira foi filtrada", async () => {
+    await montar();
+    escolherOperador("cobranca03@teste.local");
+    await buscar();
+    expect(ultimaChamada("acoes_massivas_previa").p_operador_email).toBe("cobranca03@teste.local");
+    expect(screen.getByText(/Operador filtrado:/).textContent).toMatch(/Olga.*cobranca03@teste\.local/);
+    expect(screen.getByText(/caso\(s\) da carteira de Olga/)).toBeTruthy();
+  });
+
+  it("a geração final usa o mesmo operador da prévia e avisa quem saiu da carteira", async () => {
+    regExtra = { excluidos_outro_operador: 2 };
+    await montar();
+    escolherOperador("cobranca05@teste.local");
+    await buscar();
+    await gerar();
+    const reg = ultimaChamada("registrar_acao_massiva");
+    expect(reg.p_operador_email).toBe("cobranca05@teste.local");
+    expect(reg.p_aluno_ids).toEqual(["a1"]);
+    expect(reg.p_arquivo).toMatch(/^acao-massiva-whatsapp-cobranca05-/);
+    expect(screen.getByText(/2 caso\(s\) foram removidos por não estarem mais na carteira do operador selecionado/)).toBeTruthy();
+  });
+
+  it("trocar o operador limpa a prévia e não escreve nada", async () => {
+    await montar();
+    escolherOperador("cobranca03@teste.local");
+    await buscar();
+    expect(screen.getByRole("button", { name: /Gerar Excel/ })).toBeTruthy();
+    const chamadasAntes = rpcMock.mock.calls.length;
+    escolherOperador("cobranca05@teste.local");
+    expect(screen.queryByRole("button", { name: /Gerar Excel/ })).toBeNull();
+    expect(screen.queryByText(/Operador filtrado:/)).toBeNull();
+    // nenhuma RPC foi chamada pela troca (nada de registrar/atribuir)
+    expect(rpcMock.mock.calls.length).toBe(chamadasAntes);
+    escolherOperador("");
+    expect(screen.queryByRole("button", { name: /Gerar Excel/ })).toBeNull();
+  });
+
+  it("se o banco não confirmar o recorte do operador, nada é listado", async () => {
+    previaExtra = { operador_email: null };
+    await montar();
+    escolherOperador("cobranca03@teste.local");
+    await buscar();
+    expect(screen.getByText(/o banco não aplicou o filtro de operador/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Gerar Excel/ })).toBeNull();
+  });
+
+  it("operador + borderô + só nunca acionados vão juntos ao banco", async () => {
+    await montar();
+    escolherOperador("cobranca03@teste.local");
+    fireEvent.click(await screen.findByLabelText(/bordero-ead/));
+    fireEvent.change(screen.getByDisplayValue("Todos"), { target: { value: "nunca" } });
+    await buscar();
+    const c = ultimaChamada("acoes_massivas_previa");
+    expect(c.p_operador_email).toBe("cobranca03@teste.local");
+    expect(c.p_importacao_ids).toEqual(["imp-1"]);
+    expect(c.p_apenas_nunca_acionado).toBe(true);
+  });
+
+  it("operador + unidade + modalidade vão juntos ao banco", async () => {
+    await montar();
+    escolherOperador("cobranca05@teste.local");
+    fireEvent.click(screen.getByLabelText("CANOAS"));
+    fireEvent.change(screen.getByDisplayValue("Todas as modalidades"), { target: { value: "EAD" } });
+    await buscar();
+    const c = ultimaChamada("acoes_massivas_previa");
+    expect(c.p_operador_email).toBe("cobranca05@teste.local");
+    expect(c.p_unidade).toBe("CANOAS");
+    expect(c.p_curso).toBe("EAD");
   });
 });

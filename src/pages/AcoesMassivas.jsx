@@ -103,6 +103,14 @@ export default function AcoesMassivas() {
   // Carteiras importadas (borderôs). borderosSel = ids selecionados no filtro.
   const [opcoesBordero, setOpcoesBordero] = useState([]);
   const [borderosSel, setBorderosSel] = useState([]);
+  // Operador responsável: "" = base livre / regra atual. Com um e-mail, a
+  // prévia e o registro recortam SÓ a carteira atual daquele operador. A chave
+  // é o e-mail (vem do cadastro via acoes_massivas_filtros), nunca o nome.
+  const [operadorEmail, setOperadorEmail] = useState("");
+  const [opcoesOperador, setOpcoesOperador] = useState([]);
+  // Recorte que o BANCO confirmou na última prévia. É ele que vai para o
+  // registro: planilha e prévia saem sempre da mesma carteira.
+  const [operadorDaPrevia, setOperadorDaPrevia] = useState(null);
   const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
   const [diasPersonalizado, setDiasPersonalizado] = useState(false);
   // "todos" | "nunca" (nunca acionados) | "ja" (já acionados)
@@ -160,6 +168,7 @@ export default function AcoesMassivas() {
       setOpcoesUnidade(data?.unidades || []);
       setOpcoesCurso(data?.cursos || []);
       setOpcoesSituacaoAcad(data?.situacoes_academicas || []);
+      setOpcoesOperador(data?.operadores || []);
       const { data: bords } = await supabase.rpc("acoes_massivas_borderos");
       setOpcoesBordero(bords || []);
     })();
@@ -185,6 +194,22 @@ export default function AcoesMassivas() {
     setProgresso(data);
   }
 
+  // Some com a prévia na tela. Usado quando o recorte muda: uma lista de um
+  // operador nunca pode ficar à mostra (nem ser registrada) com outro escolhido.
+  function limparPrevia() {
+    setResultados(null);
+    setOperadorDaPrevia(null);
+    setExcluidosConfirmacao([]);
+    setPrimeExtratoEm(null);
+    setMostrarExcluidos(false);
+    setExcluidosNoEnvio(0);
+    setSucesso("");
+  }
+
+  function nomeDoOperador(email) {
+    return opcoesOperador.find((o) => o.email === email)?.nome || email;
+  }
+
   async function buscar(over = {}) {
     setErro("");
     setSucesso("");
@@ -207,6 +232,7 @@ export default function AcoesMassivas() {
 
     setCarregando(true);
     setResultados(null);
+    setOperadorDaPrevia(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
@@ -218,24 +244,37 @@ export default function AcoesMassivas() {
       //
       // A prévia já separa, no backend, os casos em CONFIRMAÇÃO DE PAGAMENTO:
       // eles vêm em `excluidos_confirmacao` (mascarados) e NUNCA em `elegiveis`.
-      const { data: previa, error: erroAlunos } = await supabase.rpc(
-        "acoes_massivas_previa",
-        {
-          p_ano_vencimento: (over.ano ?? anoVencimento) || null,
-          p_limite: Math.min(qtd * 3, 6000),
-          p_dias_minimo_sem_contato: diasMinimoSemContato ? Number(diasMinimoSemContato) : null,
-          p_apenas_nunca_acionado: (over.acionamento ?? acionamentoFiltro) === "nunca",
-          p_apenas_ja_acionado: (over.acionamento ?? acionamentoFiltro) === "ja",
-          p_unidade: ((over.unidades ?? unidadesSel) || []).join("|") || null,
-          p_matricula: (over.matricula ?? matricula) || null,
-          p_curso: (over.curso ?? curso) || null,
-          p_situacao_academica: ((over.situacoesAcad ?? situacoesAcadSel) || []).join("|") || null,
-          p_importacao_ids: (over.borderosSel ?? borderosSel).length
-            ? (over.borderosSel ?? borderosSel)
-            : null,
-        }
-      );
+      const operadorPedido = operadorEmail || null;
+      const argsPrevia = {
+        p_ano_vencimento: (over.ano ?? anoVencimento) || null,
+        p_limite: Math.min(qtd * 3, 6000),
+        p_dias_minimo_sem_contato: diasMinimoSemContato ? Number(diasMinimoSemContato) : null,
+        p_apenas_nunca_acionado: (over.acionamento ?? acionamentoFiltro) === "nunca",
+        p_apenas_ja_acionado: (over.acionamento ?? acionamentoFiltro) === "ja",
+        p_unidade: ((over.unidades ?? unidadesSel) || []).join("|") || null,
+        p_matricula: (over.matricula ?? matricula) || null,
+        p_curso: (over.curso ?? curso) || null,
+        p_situacao_academica: ((over.situacoesAcad ?? situacoesAcadSel) || []).join("|") || null,
+        p_importacao_ids: (over.borderosSel ?? borderosSel).length
+          ? (over.borderosSel ?? borderosSel)
+          : null,
+      };
+      // Sem operador a chamada fica IDÊNTICA à de antes (a chave nem vai):
+      // base livre / regra atual, sem depender da versão do banco.
+      if (operadorPedido) argsPrevia.p_operador_email = operadorPedido;
+      const { data: previa, error: erroAlunos } = await supabase.rpc("acoes_massivas_previa", argsPrevia);
       if (erroAlunos) throw erroAlunos;
+
+      // O banco devolve o recorte que aplicou. Se não bater com o pedido, a
+      // lista pode ser de outra carteira: não mostra nada.
+      if ((previa?.operador_email ?? null) !== operadorPedido) {
+        throw new Error(
+          operadorPedido
+            ? "o banco não aplicou o filtro de operador. Nada foi listado."
+            : "o banco devolveu uma carteira filtrada sem operador escolhido. Nada foi listado."
+        );
+      }
+      setOperadorDaPrevia(operadorPedido);
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
       setPrimeExtratoEm(previa?.prime_extrato_em || null);
@@ -315,24 +354,30 @@ export default function AcoesMassivas() {
         .maybeSingle();
       const nomeUsuario = perfil?.nome || email;
 
-      const nomeArquivo = `acao-massiva-${canal.toLowerCase()}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const sufixoOperador = operadorDaPrevia ? `-${operadorDaPrevia.split("@")[0]}` : "";
+      const nomeArquivo = `acao-massiva-${canal.toLowerCase()}${sufixoOperador}-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
       // 1) REVALIDA E REGISTRA no backend (fonte única de verdade). A RPC
       // recheca, aluno por aluno, se entrou em CONFIRMAÇÃO DE PAGAMENTO depois
       // da prévia; quem entrou é removido aqui — sem update, sem movimentação,
       // sem perder operador, sem contar como envio. Devolve só os ids que
       // realmente foram registrados.
-      const { data: reg, error: erroReg } = await supabase.rpc("registrar_acao_massiva", {
+      const argsRegistro = {
         p_aluno_ids: resultados.map((r) => String(r.alunoId)),
         p_canal: canal,
         p_arquivo: nomeArquivo,
         p_registrado_por_nome: nomeUsuario,
         p_registrado_por_email: email,
-      });
+      };
+      // Mesmo recorte da prévia: o banco só grava quem CONTINUA na carteira
+      // do operador. Sem operador, a chamada é a de sempre.
+      if (operadorDaPrevia) argsRegistro.p_operador_email = operadorDaPrevia;
+      const { data: reg, error: erroReg } = await supabase.rpc("registrar_acao_massiva", argsRegistro);
       if (erroReg) throw erroReg;
 
       const excluidosEnvio = Number(reg?.excluidos_confirmacao || 0);
       const excluidosPrime = Number(reg?.excluidos_liquidados_prime || 0);
+      const excluidosOutroOperador = Number(reg?.excluidos_outro_operador || 0);
       setExcluidosNoEnvio(excluidosEnvio);
 
       // 2) Gera o Excel APENAS com quem passou na revalidação. Os contatos
@@ -368,6 +413,9 @@ export default function AcoesMassivas() {
         : "")
         + (excluidosPrime > 0
         ? ` ${excluidosPrime} caso(s) foram removidos por já constarem liquidados no Prime.`
+        : "")
+        + (excluidosOutroOperador > 0
+        ? ` ${excluidosOutroOperador} caso(s) foram removidos por não estarem mais na carteira do operador selecionado.`
         : "");
 
       if (registrados.length === 0) {
@@ -563,6 +611,33 @@ export default function AcoesMassivas() {
 
       <div style={estilos.card}>
         <div style={estilos.linhaFiltros}>
+          <div style={{ ...estilos.campo, minWidth: 240 }}>
+            <label style={estilos.label} htmlFor="filtro-operador-responsavel">Operador responsável</label>
+            <select
+              id="filtro-operador-responsavel"
+              style={estilos.input}
+              value={operadorEmail}
+              // Trocar no meio da busca ou da geração deixaria a lista de um
+              // operador à mostra com outro escolhido.
+              disabled={carregando || gerando}
+              onChange={(e) => {
+                setOperadorEmail(e.target.value);
+                limparPrevia();
+              }}
+            >
+              <option value="">Base livre / regra atual</option>
+              {opcoesOperador.map((o) => (
+                <option key={o.email} value={o.email}>{o.nome} ({o.email})</option>
+              ))}
+            </select>
+            {operadorEmail && (
+              <span style={estilos.ajudaCampo}>
+                Só alunos da carteira atual de {nomeDoOperador(operadorEmail)}. Entram também os que o
+                operador acionou há pouco: a ação regrava a tabulação e agenda retorno em 10 dias. Use
+                “Sem acionamento há” para poupar o trabalho recente.
+              </span>
+            )}
+          </div>
           <div style={estilos.campo}>
             <label style={estilos.label}>Valor mínimo (nunca abaixo de R$ 100,00)</label>
             <input
@@ -867,11 +942,24 @@ export default function AcoesMassivas() {
             <div>
               <strong style={{ fontFamily: FONTE_TITULO, fontSize: 18 }}>{resultados.length}</strong>{" "}
               <span style={{ color: "var(--rv-texto-fraco)" }}>
-                caso(s) livre(s) com {canal === "WHATSAPP" ? "telefone" : "e-mail"}, prontos pra ação
+                {operadorDaPrevia
+                  ? `caso(s) da carteira de ${nomeDoOperador(operadorDaPrevia)}`
+                  : "caso(s) livre(s)"}{" "}
+                com {canal === "WHATSAPP" ? "telefone" : "e-mail"}, prontos pra ação
               </span>
               {resultados.length > 0 && (
                 <span style={{ color: "var(--rv-texto-fraco)" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
               )}
+              <div style={estilos.ajudaCampo}>
+                {operadorDaPrevia ? (
+                  <>
+                    Operador filtrado: <strong>{nomeDoOperador(operadorDaPrevia)}</strong> ({operadorDaPrevia}) —
+                    só alunos com esse responsável atual.
+                  </>
+                ) : (
+                  <>Sem operador filtrado: base livre / regra atual.</>
+                )}
+              </div>
               {primeExtratoEm && (
                 <div style={{ color: "#8a93a3", fontSize: 12.5, marginTop: 4 }}>
                   Quem já consta liquidado no Prime não entra nesta lista. Extrato de{" "}
@@ -906,7 +994,8 @@ export default function AcoesMassivas() {
 
           {resultados.length === 0 ? (
             <p style={{ color: "var(--rv-texto-fraco)" }}>
-              Nenhum caso livre com esses filtros (ou sem {canal === "WHATSAPP" ? "telefone" : "e-mail"} cadastrado).
+              Nenhum caso {operadorDaPrevia ? `da carteira de ${nomeDoOperador(operadorDaPrevia)}` : "livre"} com
+              esses filtros (ou sem {canal === "WHATSAPP" ? "telefone" : "e-mail"} cadastrado).
             </p>
           ) : (
             <div style={{ overflowX: "auto", maxHeight: 420, overflowY: "auto" }}>
@@ -1003,6 +1092,7 @@ const estilos = {
   linhaFiltros: { display: "flex", gap: 14, flexWrap: "wrap", marginBottom: 14 },
   campo: { display: "flex", flexDirection: "column", gap: 5, minWidth: 160 },
   label: { fontSize: 12, fontWeight: 700, color: "var(--rv-texto)" },
+  ajudaCampo: { fontSize: 11, color: "var(--rv-texto-fraco)", marginTop: 4, maxWidth: 420 },
   input: {
     padding: "9px 12px",
     borderRadius: 10,
