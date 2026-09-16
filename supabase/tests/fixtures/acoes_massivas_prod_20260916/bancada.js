@@ -26,6 +26,8 @@ const MIGRATION = ler("supabase/migrations/20260916200000_acoes_massivas_filtro_
 const ROLLBACK = ler("supabase/rollbacks/20260916200000_acoes_massivas_filtro_operador.rollback.sql");
 const MIGRATION_EXPORTAR = ler("supabase/migrations/20260916210000_acoes_massivas_exportar_sem_registrar.sql");
 const ROLLBACK_EXPORTAR = ler("supabase/rollbacks/20260916210000_acoes_massivas_exportar_sem_registrar.rollback.sql");
+const MIGRATION_TIPO = ler("supabase/migrations/20260916220000_acoes_massivas_filtro_tipo_cobranca.sql");
+const ROLLBACK_TIPO = ler("supabase/rollbacks/20260916220000_acoes_massivas_filtro_tipo_cobranca.rollback.sql");
 
 // md5(pg_get_functiondef(oid)) lido em producao em 16/09/2026.
 const MD5_PROD = {
@@ -50,8 +52,9 @@ const U = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const ID = {
   A1: U(1), A2: U(2), A3: U(3), A4: U(4), A5: U(5), A6: U(6), A7: U(7), A8: U(8),
   A9: U(9), A10: U(10), A11: U(11), A12: U(12),
-  B1: U(21), B2: U(22), B3: U(23),
-  L1: U(31), L2: U(32), L3: U(33),
+  A13: U(13), A14: U(14), A15: U(15), A16: U(16), A17: U(17), A18: U(18),
+  B1: U(21), B2: U(22), B3: U(23), B4: U(24),
+  L1: U(31), L2: U(32), L3: U(33), L4: U(34),
   G1: U(41), X1: U(51),
 };
 const NOME_POR_ID = Object.fromEntries(Object.entries(ID).map(([k, v]) => [v, k]));
@@ -80,8 +83,16 @@ const ESQUEMA = `
   create table public.solicitacoes_confirmacao_pagamento (aluno_id text, status text);
   create table public.prime_contratos (cpf text, valid_from date, status text);
   create table public.prime_extrato (coletado_em timestamptz);
-  create table public.acordos (aluno_id uuid, status text);
-  create table public.acordos_titulos (aluno_id uuid, situacao text, vencimento date, importacao_id uuid);
+  create table public.acordos (aluno_id uuid, status text, id uuid primary key default gen_random_uuid());
+  create table public.acordos_titulos (
+    aluno_id uuid, situacao text, vencimento date, importacao_id uuid,
+    id uuid primary key default gen_random_uuid(), status text default 'em_aberto', tipo_boleto text,
+    valor_cobranca_ajustado numeric, saldo_corrigido numeric, valor_em_aberto numeric,
+    valor_original numeric default 100);
+  create table public.parcelas (
+    id uuid primary key default gen_random_uuid(), acordo_id uuid, status text,
+    valor numeric default 100, vencimento date);
+  create table public.acordo_titulo_vinculo (titulo_id uuid, acordo_id uuid, ativo boolean default true);
   create table public.aluno_movimentacoes (
     aluno_id text, tipo text, descricao text, registrado_por_nome text,
     registrado_por_email text, registrado_em timestamptz);
@@ -150,10 +161,17 @@ async function semear(db) {
     insert into public.prime_extrato values ('2026-09-05 10:00:00+00');
   `);
   // [chave, dono, acionado há (dias|null), valor, extras]
+  // Tipo de cobrança: `titulo` descreve a mensalidade do aluno (padrão: uma
+  // ABERTO de R$ 100) e `acordo` o acordo com suas parcelas.
+  const ACORDO_VENCIDO = { status: "ATIVO", parcelas: ["VENCIDA", "A_VENCER"] };
+  const TITULO_PAGO = { situacao: "PAGO", status: "quitada" };
   const alunos = [
     ["A1", OP_A, null, 500, { unidade: "U1", curso: "EAD", situacao_academica: "Matriculado", imp: IMP1 }],
     ["A2", OP_A, 20, 800, { unidade: "U2", curso: "PRESENCIAL", situacao_academica: "Trancado" }],
-    ["A3", OP_A, 2, 300, { unidade: "U1", curso: "EAD" }],
+    // acordo CANCELADO com parcela vencida nao conta; o titulo NEGOCIADO ligado a
+    // ele volta a ser mensalidade em aberto
+    ["A3", OP_A, 2, 300, { unidade: "U1", curso: "EAD", acordo: { status: "CANCELADO", parcelas: ["VENCIDA"] },
+      titulo: { situacao: "NEGOCIADO", status: "vinculada", vinculado: true } }],
     ["A4", OP_A, null, 400, { conf: true }],
     ["A5", OP_A, null, 400, { status_jornada: "QUITADO" }],
     ["A6", OP_A, null, 400, { acordo: "ATIVO" }],
@@ -162,13 +180,23 @@ async function semear(db) {
     ["A9", OP_A, null, 400, { liquidado: true }],
     ["A10", OP_A, 30, 250, { caso_orfao_de: OP_B, valor_orfao: 9000, unidade: "U1" }],
     ["A11", OP_A, null, 700, { sem_telefone: true, imp: IMP2 }],
-    ["A12", OP_A, 40, 50, {}],
+    // saldo cobravel ajustado para zero: nao e mensalidade em aberto
+    ["A12", OP_A, 40, 50, { titulo: { valor_cobranca_ajustado: 0 } }],
+    // --- tipo de cobranca (todos com acordo ATIVO: fora de "Todos", como hoje)
+    ["A13", OP_A, 20, 700, { unidade: "U2", curso: "EAD", acordo: ACORDO_VENCIDO, titulo: { tipo_boleto: "Acordo" } }],
+    ["A14", OP_A, null, 1200, { unidade: "U1", acordo: { status: "ATIVO", parcelas: ["VENCIDA"] } }],
+    ["A15", OP_A, null, 900, { acordo: { status: "ATIVO", parcelas: ["A_VENCER"] } }],
+    ["A16", OP_A, 30, 400, { unidade: "U1", curso: "PRESENCIAL", acordo: ACORDO_VENCIDO, titulo: { vinculado: true } }],
+    ["A17", OP_A, null, 500, { conf: true, acordo: ACORDO_VENCIDO, titulo: TITULO_PAGO }],
+    ["A18", OP_A, null, 500, { status_jornada: "QUITADO", acordo: ACORDO_VENCIDO, titulo: TITULO_PAGO }],
     ["B1", OP_B, null, 600, { unidade: "U1", curso: "EAD", situacao_academica: "Matriculado", imp: IMP1 }],
     ["B2", OP_B, 30, 900, { unidade: "U1", curso: "EAD" }],
     ["B3", OP_B, 1, 350, { unidade: "U2" }],
+    ["B4", OP_B, null, 650, { unidade: "U1", curso: "EAD", imp: IMP1, acordo: ACORDO_VENCIDO, titulo: TITULO_PAGO }],
     ["L1", null, null, 450, { unidade: "U1", curso: "EAD", imp: IMP1, ano: 2025 }],
     ["L2", null, 5, 350, { unidade: "U2", ano: 2024 }],
     ["L3", null, null, 380, { situacao_operacional: "AGUARDANDO_CONFIRMACAO" }],
+    ["L4", null, null, 800, { unidade: "U1", acordo: ACORDO_VENCIDO }],
     ["G1", GESTAO, null, 500, { unidade: "U1" }],
     ["X1", OP_INATIVO, 40, 700, { unidade: "U2" }],
   ];
@@ -195,10 +223,26 @@ async function semear(db) {
     if (x.conf) {
       await db.query(`insert into public.solicitacoes_confirmacao_pagamento values ($1, 'AGUARDANDO_CONFIRMACAO')`, [id]);
     }
-    if (x.acordo) await db.query(`insert into public.acordos values ($1, $2)`, [id, x.acordo]);
+    let acordoId = null;
+    if (x.acordo) {
+      const ac = typeof x.acordo === "string" ? { status: x.acordo, parcelas: [] } : x.acordo;
+      acordoId = (await db.query(`insert into public.acordos (aluno_id, status) values ($1, $2) returning id`,
+        [id, ac.status])).rows[0].id;
+      for (const st of ac.parcelas) {
+        await db.query(`insert into public.parcelas (acordo_id, status, vencimento) values ($1, $2, current_date)`,
+          [acordoId, st]);
+      }
+    }
     if (x.liquidado) await db.query(`insert into public._liq_stub values ($1)`, [id]);
-    await db.query(`insert into public.acordos_titulos values ($1, 'ABERTO', $2, $3)`,
-      [id, `${x.ano ?? 2026}-03-10`, x.imp ?? null]);
+    const t = x.titulo || {};
+    const tituloId = (await db.query(
+      `insert into public.acordos_titulos (aluno_id, situacao, vencimento, importacao_id, status, tipo_boleto,
+         valor_cobranca_ajustado) values ($1, $2, $3, $4, $5, $6, $7) returning id`,
+      [id, t.situacao ?? "ABERTO", `${x.ano ?? 2026}-03-10`, x.imp ?? null, t.status ?? "em_aberto",
+       t.tipo_boleto ?? null, t.valor_cobranca_ajustado ?? null])).rows[0].id;
+    if (t.vinculado) {
+      await db.query(`insert into public.acordo_titulo_vinculo (titulo_id, acordo_id) values ($1, $2)`, [tituloId, acordoId]);
+    }
   }
 }
 
@@ -207,7 +251,7 @@ const TIPOS = {
   p_apenas_nunca_acionado: "boolean", p_unidade: "text", p_curso: "text",
   p_apenas_ja_acionado: "boolean", p_situacao_academica: "text", p_importacao_ids: "uuid[]",
   p_matricula: "text", p_canal: "text", p_valor_min: "numeric", p_valor_max: "numeric",
-  p_operador_email: "text",
+  p_operador_email: "text", p_tipo_cobranca: "text",
 };
 const TIPOS_REG = {
   p_aluno_ids: "text[]", p_canal: "text", p_arquivo: "text", p_registrado_por_nome: "text",
@@ -274,13 +318,14 @@ async function titularidade(db) {
   return JSON.stringify([a.rows, c.rows]);
 }
 
-async function novoBanco({ migrar = false, exportar = false } = {}) {
+async function novoBanco({ migrar = false, exportar = false, tipo = false } = {}) {
   const db = await PGlite.create();
   await db.exec(ESQUEMA);
   await db.exec(INSTALA_PROD);
   await semear(db);
-  if (migrar || exportar) await db.exec(MIGRATION);
-  if (exportar) await db.exec(MIGRATION_EXPORTAR);
+  if (migrar || exportar || tipo) await db.exec(MIGRATION);
+  if (exportar || tipo) await db.exec(MIGRATION_EXPORTAR);
+  if (tipo) await db.exec(MIGRATION_TIPO);
   await comoGestao(db);
   return db;
 }
@@ -307,6 +352,7 @@ export const MATRIZ = [
 
 export {
   md5, DEF_PREVIA, DEF_REGISTRAR, DEF_FILTROS, MIGRATION, ROLLBACK, MIGRATION_EXPORTAR, ROLLBACK_EXPORTAR,
+  MIGRATION_TIPO, ROLLBACK_TIPO,
   MD5_PROD, COMENTARIO_REGISTRAR, OP_A, OP_B, OP_INATIVO, GESTAO, IMP1, IMP2, ID, NOME_POR_ID,
   TIPOS, TIPOS_REG, chamada, comoGestao, comoOperador, comoSistema, previa, registrar, chaves, normal,
   defs, titularidade, novoBanco,

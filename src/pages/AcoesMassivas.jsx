@@ -8,6 +8,22 @@ const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const VERDE = "var(--rv-azul-texto)";
 // Presets do seletor "Sem acionamento há (mín.)" — valor = nº de dias.
 const PRESETS_DIAS_SEM_ACIONAMENTO = ["7", "12", "15", "21", "30", "45", "60", "90"];
+// Tipo de cobrança. As opções são exclusivas e a regra mora no banco
+// (acoes_massivas_tipo_cobranca_confere): a tela só escolhe.
+const TIPOS_COBRANCA = [
+  { valor: "TODOS", rotulo: "Todos (regra atual)" },
+  { valor: "MENSALIDADES", rotulo: "Somente mensalidades" },
+  { valor: "ACORDOS", rotulo: "Somente acordos" },
+  { valor: "MENSALIDADES_E_ACORDOS", rotulo: "Mensalidades e acordos" },
+];
+const AJUDA_TIPO_COBRANCA = {
+  MENSALIDADES: "Quem tem mensalidade em aberto e não tem acordo ativo.",
+  ACORDOS: "Quem tem acordo ativo com parcela vencida e não tem mensalidade em aberto. Acordo em dia fica fora.",
+  MENSALIDADES_E_ACORDOS: "Quem tem mensalidade em aberto e, ao mesmo tempo, acordo ativo com parcela vencida. Acordo em dia fica fora.",
+};
+function rotuloTipoCobranca(valor) {
+  return TIPOS_COBRANCA.find((t) => t.valor === (valor || "TODOS"))?.rotulo || valor;
+}
 
 function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -111,6 +127,10 @@ export default function AcoesMassivas() {
   // Recorte que o BANCO confirmou na última prévia. É ele que vai para o
   // registro: planilha e prévia saem sempre da mesma carteira.
   const [operadorDaPrevia, setOperadorDaPrevia] = useState(null);
+  // Tipo de cobrança escolhido e o que o BANCO confirmou na última prévia (é
+  // este que vai para a planilha e para o lote).
+  const [tipoCobranca, setTipoCobranca] = useState("TODOS");
+  const [tipoDaPrevia, setTipoDaPrevia] = useState(null);
   const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
   const [diasPersonalizado, setDiasPersonalizado] = useState(false);
   // "todos" | "nunca" (nunca acionados) | "ja" (já acionados)
@@ -212,6 +232,8 @@ export default function AcoesMassivas() {
   function limparPrevia() {
     setResultados(null);
     setOperadorDaPrevia(null);
+    setTipoDaPrevia(null);
+    setRelatorioPronto(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
@@ -246,6 +268,7 @@ export default function AcoesMassivas() {
     setCarregando(true);
     setResultados(null);
     setOperadorDaPrevia(null);
+    setTipoDaPrevia(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
@@ -275,6 +298,8 @@ export default function AcoesMassivas() {
       // Sem operador a chamada fica IDÊNTICA à de antes (a chave nem vai):
       // base livre / regra atual, sem depender da versão do banco.
       if (operadorPedido) argsPrevia.p_operador_email = operadorPedido;
+      // Idem para o tipo de cobrança: "Todos" não manda a chave.
+      if (tipoCobranca !== "TODOS") argsPrevia.p_tipo_cobranca = tipoCobranca;
       const { data: previa, error: erroAlunos } = await supabase.rpc("acoes_massivas_previa", argsPrevia);
       if (erroAlunos) throw erroAlunos;
 
@@ -287,7 +312,11 @@ export default function AcoesMassivas() {
             : "o banco devolveu uma carteira filtrada sem operador escolhido. Nada foi listado."
         );
       }
+      if ((previa?.tipo_cobranca ?? "TODOS") !== tipoCobranca) {
+        throw new Error("o banco não aplicou o tipo de cobrança escolhido. Nada foi listado.");
+      }
       setOperadorDaPrevia(operadorPedido);
+      setTipoDaPrevia(tipoCobranca);
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
       setPrimeExtratoEm(previa?.prime_extrato_em || null);
@@ -363,7 +392,9 @@ export default function AcoesMassivas() {
 
     try {
       const sufixoOperador = operadorDaPrevia ? `-${operadorDaPrevia.split("@")[0]}` : "";
-      const nomeArquivo = `acao-massiva-${canal.toLowerCase()}${sufixoOperador}-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      const tipoLote = tipoDaPrevia || "TODOS";
+      const sufixoTipo = tipoLote !== "TODOS" ? `-${tipoLote.toLowerCase().replace(/_/g, "-")}` : "";
+      const nomeArquivo = `acao-massiva-${canal.toLowerCase()}${sufixoOperador}${sufixoTipo}-${new Date().toISOString().slice(0, 10)}.xlsx`;
 
       const argsExportar = {
         p_aluno_ids: resultados.map((r) => String(r.alunoId)),
@@ -372,6 +403,8 @@ export default function AcoesMassivas() {
       };
       // Mesmo recorte da prévia: só sai quem CONTINUA na carteira do operador.
       if (operadorDaPrevia) argsExportar.p_operador_email = operadorDaPrevia;
+      // O banco revalida o tipo e o grava no lote; a confirmação revalida de novo.
+      if (tipoLote !== "TODOS") argsExportar.p_tipo_cobranca = tipoLote;
       const { data: exp, error: erroExp } = await supabase.rpc("acoes_massivas_exportar", argsExportar);
       if (erroExp) throw erroExp;
 
@@ -379,6 +412,7 @@ export default function AcoesMassivas() {
       const excluidosPrime = Number(exp?.excluidos_liquidados_prime || 0);
       const excluidosOutroOperador = Number(exp?.excluidos_outro_operador || 0);
       const excluidosJaAcionados = Number(exp?.excluidos_ja_acionados || 0);
+      const excluidosTipo = Number(exp?.excluidos_tipo_cobranca || 0);
       setExcluidosNoEnvio(excluidosEnvio);
 
       // Os contatos completos só vêm desta RPC (gestão, auditada pelo lote); a
@@ -411,6 +445,9 @@ export default function AcoesMassivas() {
         : "")
         + (excluidosJaAcionados > 0
         ? ` ${excluidosJaAcionados} caso(s) ficaram fora por já terem sido acionados por operador.`
+        : "")
+        + (excluidosTipo > 0
+        ? ` ${excluidosTipo} caso(s) ficaram fora por não corresponderem mais ao tipo de cobrança.`
         : "");
 
       if (contatos.length === 0) {
@@ -453,6 +490,7 @@ export default function AcoesMassivas() {
           [Number(res?.excluidos_confirmacao || 0), "entraram em confirmação de pagamento"],
           [Number(res?.excluidos_liquidados_prime || 0), "já constam liquidados no Prime"],
           [Number(res?.excluidos_outro_operador || 0), "não estão mais na carteira do operador do lote"],
+          [Number(res?.excluidos_tipo_cobranca || 0), "não correspondem mais ao tipo de cobrança do lote"],
         ].filter(([n]) => n > 0).map(([n, t]) => ` ${n} caso(s) ${t} e não foram registrados.`).join("");
         setSucesso(
           `Ação confirmada: ${registrados} aluno(s) registrados como acionados, com retorno agendado para ${retorno.toLocaleDateString("pt-BR")}.${partes}`
@@ -670,6 +708,26 @@ export default function AcoesMassivas() {
                 Só alunos da carteira atual de {nomeDoOperador(operadorEmail)}. O filtro “Sem acionamento há”
                 continua opcional e não é aplicado sozinho. Exportar a planilha não muda nada no aluno.
               </span>
+            )}
+          </div>
+          <div style={{ ...estilos.campo, minWidth: 220 }}>
+            <label style={estilos.label} htmlFor="filtro-tipo-cobranca">Tipo de cobrança</label>
+            <select
+              id="filtro-tipo-cobranca"
+              style={estilos.input}
+              value={tipoCobranca}
+              disabled={carregando || gerando}
+              onChange={(e) => {
+                setTipoCobranca(e.target.value);
+                limparPrevia();
+              }}
+            >
+              {TIPOS_COBRANCA.map((t) => (
+                <option key={t.valor} value={t.valor}>{t.rotulo}</option>
+              ))}
+            </select>
+            {AJUDA_TIPO_COBRANCA[tipoCobranca] && (
+              <span style={estilos.ajudaCampo}>{AJUDA_TIPO_COBRANCA[tipoCobranca]}</span>
             )}
           </div>
           <div style={estilos.campo}>
@@ -943,6 +1001,7 @@ export default function AcoesMassivas() {
                   <th style={estilos.th}>Planilha</th>
                   <th style={estilos.th}>Canal</th>
                   <th style={estilos.th}>Carteira</th>
+                  <th style={estilos.th}>Tipo de cobrança</th>
                   <th style={estilos.thNum}>Alunos</th>
                   <th style={estilos.th}>Exportada</th>
                   <th style={estilos.th}></th>
@@ -954,6 +1013,7 @@ export default function AcoesMassivas() {
                     <td style={estilos.td}>{l.arquivo || "—"}</td>
                     <td style={estilos.td}>{l.canal === "EMAIL" ? "E-mail" : "WhatsApp"}</td>
                     <td style={estilos.td}>{l.operador_email ? (l.operador_nome || l.operador_email) : "Base livre"}</td>
+                    <td style={estilos.td}>{rotuloTipoCobranca(l.tipo_cobranca)}</td>
                     <td style={estilos.tdNum}>{l.total}</td>
                     <td style={estilos.td}>
                       {new Date(l.exportado_em).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}
@@ -964,7 +1024,7 @@ export default function AcoesMassivas() {
                         <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 360 }}>
                           <span style={{ fontSize: 12, color: "var(--rv-texto)" }}>
                             {acaoLote.acao === "CONFIRMAR"
-                              ? `Confirme só se o disparo já foi concluído. Os ${l.total} aluno(s) passam a contar como acionados: tabulação “Ação massiva externa enviada”, retorno em 10 dias e fidelização reiniciada. Quem foi acionado depois da exportação fica de fora.`
+                              ? `Confirme só se o disparo já foi concluído. Os ${l.total} aluno(s) passam a contar como acionados: tabulação “Ação massiva externa enviada”, retorno em 10 dias e fidelização reiniciada. Quem foi acionado depois da exportação ou não corresponde mais ao tipo de cobrança do lote fica de fora.`
                               : "Descartar: a planilha não foi enviada. Nada é registrado nos alunos."}
                           </span>
                           <div style={{ display: "flex", gap: 6 }}>
@@ -1065,6 +1125,7 @@ export default function AcoesMassivas() {
                 ) : (
                   <>Sem operador filtrado: base livre / regra atual.</>
                 )}
+                {" "}· Tipo de cobrança: <strong>{rotuloTipoCobranca(tipoDaPrevia)}</strong>
               </div>
               {primeExtratoEm && (
                 <div style={{ color: "#8a93a3", fontSize: 12.5, marginTop: 4 }}>

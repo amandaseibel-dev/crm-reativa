@@ -16,11 +16,15 @@
 //     idempotencia e rollback.
 //
 // Bancada (esquema, dubles, carteira inventada): fixtures/acoes_massivas_prod_20260916/bancada.js
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   MIGRATION_EXPORTAR, ROLLBACK_EXPORTAR, OP_A, OP_B, GESTAO, ID, NOME_POR_ID,
   comoGestao, comoOperador, previa, registrar, novoBanco,
 } from "./fixtures/acoes_massivas_prod_20260916/bancada.js";
+
+// Cada teste sobe um PostgreSQL inteiro (alguns, dois). No runner do CI e com a
+// suite toda em paralelo, 5 s nao bastam.
+vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 });
 
 const STATUS_MASSIVA = "Ação massiva externa enviada — aguardando retorno";
 const nomes = (ids) => ids.map((i) => NOME_POR_ID[i]).sort();

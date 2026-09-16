@@ -17,12 +17,16 @@
 //   * gate de gestao, ACL, comentario, idempotencia, falha alta e rollback.
 //
 // Bancada (esquema, dubles, carteira inventada): fixtures/acoes_massivas_prod_20260916/bancada.js
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import {
   md5, DEF_PREVIA, DEF_REGISTRAR, DEF_FILTROS, MIGRATION, ROLLBACK, MD5_PROD, COMENTARIO_REGISTRAR,
   OP_A, OP_B, IMP1, IMP2, ID, NOME_POR_ID, MATRIZ, comoGestao, comoSistema, previa, registrar,
   chaves, normal, defs, titularidade, novoBanco,
 } from "./fixtures/acoes_massivas_prod_20260916/bancada.js";
+
+// Cada teste sobe um PostgreSQL inteiro (alguns, dois). No runner do CI e com a
+// suite toda em paralelo, 5 s nao bastam.
+vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 });
 
 describe("fixtures = producao em 16/09/2026", () => {
   it("o texto das tres funcoes bate com o md5 lido em producao", () => {

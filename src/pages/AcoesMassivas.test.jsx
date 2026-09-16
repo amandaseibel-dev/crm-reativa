@@ -63,7 +63,8 @@ beforeEach(() => {
       return {
         data: {
           elegiveis: [ELEGIVEL], excluidos_confirmacao: [],
-          operador_email: args.p_operador_email ?? null, ...previaExtra,
+          operador_email: args.p_operador_email ?? null,
+          tipo_cobranca: args.p_tipo_cobranca ?? "TODOS", ...previaExtra,
         },
       };
     }
@@ -72,6 +73,7 @@ beforeEach(() => {
         data: {
           lote_id: "lote-novo", exportados: 1, ids_exportados: [args.p_aluno_ids[0]], excluidos_confirmacao: 0,
           operador_email: args.p_operador_email ?? null,
+          tipo_cobranca: args.p_tipo_cobranca ?? "TODOS",
           contatos: [{ aluno_id: "a1", nome: "Ana", telefone: "51999999999", email: "a@x.com" }],
           ...regExtra,
         },
@@ -330,3 +332,113 @@ describe("Ações Massivas — exportar não é contato; confirmar é uma etapa 
 function ultimaChamadaPrevia() {
   return rpcMock.mock.calls.filter(([n]) => n === "acoes_massivas_previa").at(-1)[1];
 }
+
+describe("Ações Massivas — filtro Tipo de cobrança", () => {
+  const ultima = (nome) => rpcMock.mock.calls.filter(([n]) => n === nome).at(-1)[1];
+  const escolherTipo = (valor) =>
+    fireEvent.change(screen.getByLabelText("Tipo de cobrança"), { target: { value: valor } });
+
+  it("quatro opções, começando em Todos (regra atual)", async () => {
+    await montar();
+    const sel = screen.getByLabelText("Tipo de cobrança");
+    expect(sel.value).toBe("TODOS");
+    expect([...sel.querySelectorAll("option")].map((o) => [o.value, o.textContent])).toEqual([
+      ["TODOS", "Todos (regra atual)"],
+      ["MENSALIDADES", "Somente mensalidades"],
+      ["ACORDOS", "Somente acordos"],
+      ["MENSALIDADES_E_ACORDOS", "Mensalidades e acordos"],
+    ]);
+  });
+
+  it("Todos: nem prévia nem exportação mandam a chave; a prévia diz o tipo", async () => {
+    await montar();
+    escolherTipo("ACORDOS");
+    escolherTipo("TODOS");
+    await buscar();
+    expect("p_tipo_cobranca" in ultima("acoes_massivas_previa")).toBe(false);
+    expect(screen.getByText(/Operador filtrado|Sem operador filtrado/).textContent).toMatch(/Tipo de cobrança: Todos \(regra atual\)/);
+    await gerar();
+    expect("p_tipo_cobranca" in ultima("acoes_massivas_exportar")).toBe(false);
+  });
+
+  for (const [valor, rotulo, sufixo] of [
+    ["MENSALIDADES", "Somente mensalidades", "-mensalidades-"],
+    ["ACORDOS", "Somente acordos", "-acordos-"],
+    ["MENSALIDADES_E_ACORDOS", "Mensalidades e acordos", "-mensalidades-e-acordos-"],
+  ]) {
+    it(`${rotulo}: vai na prévia e na exportação, aparece no resumo e no nome do arquivo`, async () => {
+      await montar();
+      escolherTipo(valor);
+      await buscar();
+      expect(ultima("acoes_massivas_previa").p_tipo_cobranca).toBe(valor);
+      expect(screen.getByText(/filtrado/).textContent).toContain(`Tipo de cobrança: ${rotulo}`);
+      await gerar();
+      const exp = ultima("acoes_massivas_exportar");
+      expect(exp.p_tipo_cobranca).toBe(valor);
+      expect(exp.p_arquivo).toContain(sufixo);
+    });
+  }
+
+  it("combina com operador, borderô, nunca acionados, unidade, modalidade e prazo", async () => {
+    await montar();
+    fireEvent.change(screen.getByLabelText("Operador responsável"), { target: { value: "cobranca03@teste.local" } });
+    escolherTipo("MENSALIDADES_E_ACORDOS");
+    fireEvent.click(await screen.findByLabelText(/bordero-ead/));
+    fireEvent.change(screen.getByDisplayValue("Todos"), { target: { value: "nunca" } });
+    fireEvent.click(screen.getByLabelText("CANOAS"));
+    fireEvent.change(screen.getByDisplayValue("Todas as modalidades"), { target: { value: "EAD" } });
+    fireEvent.change(screen.getByDisplayValue("Qualquer período"), { target: { value: "30" } });
+    await buscar();
+    expect(ultima("acoes_massivas_previa")).toMatchObject({
+      p_tipo_cobranca: "MENSALIDADES_E_ACORDOS", p_operador_email: "cobranca03@teste.local",
+      p_importacao_ids: ["imp-1"], p_apenas_nunca_acionado: true, p_unidade: "CANOAS", p_curso: "EAD",
+      p_dias_minimo_sem_contato: 30,
+    });
+    await gerar();
+    expect(ultima("acoes_massivas_exportar")).toMatchObject({
+      p_tipo_cobranca: "MENSALIDADES_E_ACORDOS", p_operador_email: "cobranca03@teste.local",
+    });
+  });
+
+  it("trocar o tipo limpa a prévia e a planilha anterior, sem chamar o banco", async () => {
+    await montar();
+    await buscar();
+    await gerar();
+    expect(screen.getByRole("button", { name: /Baixar planilha novamente/ })).toBeTruthy();
+    const antes = rpcMock.mock.calls.length;
+    escolherTipo("ACORDOS");
+    expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Baixar planilha novamente/ })).toBeNull();
+    expect(rpcMock.mock.calls.length).toBe(antes);
+    // a planilha do tipo anterior não volta com a prévia nova
+    await buscar();
+    expect(screen.getByRole("button", { name: /Exportar planilha/ })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Baixar planilha novamente/ })).toBeNull();
+  });
+
+  it("se o banco não confirmar o tipo aplicado, nada é listado", async () => {
+    previaExtra = { tipo_cobranca: "TODOS" };
+    await montar();
+    escolherTipo("ACORDOS");
+    await buscar();
+    expect(screen.getByText(/o banco não aplicou o tipo de cobrança escolhido/)).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
+  });
+
+  it("o lote aguardando confirmação mostra o tipo; a confirmação conta quem saiu do tipo", async () => {
+    lotes = [{
+      id: "lote-9", canal: "WHATSAPP", operador_email: null, operador_nome: null, tipo_cobranca: "ACORDOS",
+      arquivo: "acao-massiva-whatsapp-acordos-2026-09-16.xlsx", total: 4,
+      exportado_por_email: "gestao@reativa", exportado_em: "2026-09-16T14:00:00Z",
+    }];
+    concluirExtra = { excluidos_tipo_cobranca: 2, tipo_cobranca: "ACORDOS" };
+    await montar();
+    await screen.findByText("Planilhas exportadas aguardando confirmação");
+    expect(screen.getByRole("columnheader", { name: "Tipo de cobrança" })).toBeTruthy();
+    expect(screen.getByRole("cell", { name: "Somente acordos" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Confirmar ação realizada/ }));
+    expect(screen.getByText(/não corresponde mais ao tipo de cobrança do lote fica de fora/)).toBeTruthy();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Sim, o disparo foi concluído/ })); });
+    expect(screen.getByText(/2 caso\(s\) não correspondem mais ao tipo de cobrança do lote/)).toBeTruthy();
+  });
+});
