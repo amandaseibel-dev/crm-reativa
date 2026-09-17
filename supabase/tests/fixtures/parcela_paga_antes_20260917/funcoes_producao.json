@@ -1,0 +1,9 @@
+{
+ "_leia": "Corpos EXATOS de producao (pg_proc.prosrc) lidos em 17/09/2026; md5 conferido pela bancada.",
+ "funcoes": {
+  "baixa_pelo_relatorio_pagamento": {
+   "md5": "de838dc87a5497addaf4442de5337c2d",
+   "corpo": "\ndeclare v_r jsonb;\nbegin\n  if coalesce(current_setting('reativa.fluxo_pagamentos', true),'') <> 'on'\n     and coalesce(auth.role(),'') <> 'service_role'\n     and not public.usuario_e_gestao() then\n    raise exception 'Acesso negado: somente gestao financeira.' using errcode='42501';\n  end if;\n\n  v_r := public.conciliacao_reprocessar(coalesce(p_confirmar, false), 5000);\n  return v_r || jsonb_build_object('delegado_para', 'pagamento_conciliar_um', 'desde', p_desde);\nend;\n"
+  }
+ }
+}
