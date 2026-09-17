@@ -11,6 +11,9 @@ import {
   estadoDaLinha,
   podeVincularAluno,
   contarPorStatus,
+  acaoDaLinha,
+  ACOES_DA_FILA,
+  TRAVAS_AGUARDANDO_ACORDO,
 } from "./conciliacaoPagamento";
 
 // Uma linha por classe apurada, com o que a RPC devolve para a tela.
@@ -86,5 +89,48 @@ describe("contagem por estado", () => {
   it("lista vazia nao quebra", () => {
     expect(contarPorStatus([])).toEqual({});
     expect(contarPorStatus(null)).toEqual({});
+  });
+});
+
+// 16/09/2026: a acao da linha corresponde ao ponto exato em que o pagamento
+// travou. Aguardando acordo com aluno provado nao pode oferecer vincular.
+describe("acaoDaLinha", () => {
+  const aguardando = { pagamento_id: "x", status_conciliacao: "AGUARDANDO_ACORDO", tem_aluno: false };
+
+  it("aluno provado e acordo à vista ausente: registrar, nunca vincular", () => {
+    const a = acaoDaLinha(aguardando, { x: { pagamento_id: "x", trava: "ACORDO_AVISTA_AUSENTE" } });
+    expect(a.rotulo).toBe("Aluno identificado · acordo não encontrado");
+    expect(a.acao).toBe("REGISTRAR_ACORDO_AVISTA");
+  });
+
+  it("identidade sem prova dupla: vincular aluno", () => {
+    expect(acaoDaLinha(aguardando, { x: { trava: "ALUNO_NAO_IDENTIFICADO" } }).acao).toBe("VINCULAR_ALUNO");
+    expect(acaoDaLinha(aguardando, { x: { trava: "IDENTIDADE_DIVERGENTE" } }).acao).toBe("VINCULAR_ALUNO");
+  });
+
+  it("parcelado, rodada pendente e aluno sem prova dupla não têm ação manual", () => {
+    for (const trava of ["ACORDO_PARCELADO_AUSENTE", "ACORDO_CHEGOU_AGUARDANDO_RODADA", "ALUNO_VINCULADO_SEM_PROVA_DUPLA",
+      "ACORDO_AVISTA_AUSENCIA_NAO_EXPLICADA"]) {
+      expect(acaoDaLinha(aguardando, { x: { trava } }).acao).toBeNull();
+    }
+  });
+
+  it("sem diagnóstico (carregando ou falhou): nenhuma ação genérica", () => {
+    expect(acaoDaLinha(aguardando, null).acao).toBeNull();
+    expect(acaoDaLinha(aguardando, {}).acao).toBeNull();
+    expect(acaoDaLinha(aguardando, { x: { trava: "DESCONHECIDA" } }).acao).toBeNull();
+  });
+
+  it("os outros estados seguem a regra anterior: vincular só sem aluno", () => {
+    expect(acaoDaLinha({ status_conciliacao: "AGUARDANDO_AMARRACAO", tem_aluno: true }, {}).acao).toBeNull();
+    expect(acaoDaLinha({ status_conciliacao: "SEM_VINCULO", tem_aluno: false }, {}).acao).toBe("VINCULAR_ALUNO");
+  });
+
+  it("toda trava com ação usa uma ação conhecida", () => {
+    for (const def of Object.values(TRAVAS_AGUARDANDO_ACORDO)) {
+      if (def.acao) expect(ACOES_DA_FILA[def.acao]).toBeTruthy();
+      expect(def.rotulo).toBeTruthy();
+      expect(def.explica).toBeTruthy();
+    }
   });
 });

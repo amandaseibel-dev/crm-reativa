@@ -9,8 +9,11 @@
 //   3. candidato por nome é SUGESTÃO -- renderiza, mas nada vincula sem clique;
 //   4. o vínculo só sai por pagamento_vincular_aluno, com o motivo no histórico;
 //   5. (14/09/2026) linha com aluno JÁ identificado aparece na fila, mostra o
-//      estado da conciliação e NÃO oferece "Resolver" -- vincular ali só daria
-//      a chance de sobrescrever um vínculo correto por boleto exato.
+//      estado da conciliação e NÃO oferece "Vincular aluno" -- vincular ali só
+//      daria a chance de sobrescrever um vínculo correto por boleto exato;
+//   6. (16/09/2026) a ação corresponde ao ponto exato em que o pagamento
+//      travou: aluno provado por matrícula + nome com acordo ausente oferece
+//      "Registrar acordo à vista", nunca "Vincular aluno".
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
 
@@ -19,6 +22,9 @@ vi.mock("../services/supabase", () => ({ supabase: { rpc: (...a) => rpcMock(...a
 vi.mock("../components/CadastroNovoAluno", () => ({ default: () => null }));
 vi.mock("../components/DadosAcademicos", () => ({ default: () => null }));
 vi.mock("./Aluno", () => ({ default: () => null }));
+vi.mock("../components/RegistrarAcordoAvista", () => ({
+  default: ({ item }) => <div>modal registrar {item.pagamento_id}</div>,
+}));
 
 import PagamentosSemAluno from "./PagamentosSemAluno";
 
@@ -60,9 +66,25 @@ const LINHA_COM_ALUNO = {
     "o acordo 071663 esta no CRM com 5 parcela(s) sem boleto: falta amarrar o boleto 50716630001 a parcela certa",
 };
 
+// Cada RPC responde o que é dela. `pagamentos_trava` diz em que ponto cada
+// "aguardando acordo" travou; por padrão, LINHA é aluno não identificado.
+const TRAVA_P1 = [{ pagamento_id: "p1", trava: "ALUNO_NAO_IDENTIFICADO" }];
+function rotear({ lista = [LINHA], travas = TRAVA_P1, outras = {} } = {}) {
+  rpcMock.mockImplementation((nome) => {
+    if (nome === "pagamentos_sem_aluno") return Promise.resolve({ data: lista, error: null });
+    if (nome === "pagamentos_trava") {
+      return Promise.resolve(travas === "ERRO"
+        ? { data: null, error: { message: "falhou" } }
+        : { data: travas, error: null });
+    }
+    if (outras[nome]) return Promise.resolve(outras[nome]);
+    return Promise.resolve({ data: null, error: null });
+  });
+}
+
 beforeEach(() => {
   rpcMock.mockReset();
-  rpcMock.mockResolvedValue({ data: [LINHA], error: null });
+  rotear();
 });
 afterEach(cleanup);
 
@@ -103,7 +125,7 @@ describe("Fila de pagamentos sem vínculo", () => {
 
   it("candidato por nome é sugestão: aparece rotulado, e não vincula sozinho", async () => {
     await act(async () => { render(<PagamentosSemAluno />); });
-    await act(async () => { fireEvent.click(screen.getByText("Resolver")); });
+    await act(async () => { fireEvent.click(screen.getByText("Vincular aluno")); });
 
     expect(screen.getByText(/1 sugestão por nome/i)).toBeTruthy();
     expect(screen.getByText(/nome não é prova/i)).toBeTruthy();
@@ -117,14 +139,14 @@ describe("Fila de pagamentos sem vínculo", () => {
 
   it("o vínculo sai por pagamento_vincular_aluno e leva o motivo para o histórico", async () => {
     vi.spyOn(window, "confirm").mockReturnValue(true);
-    rpcMock.mockImplementation((nome) =>
-      nome === "pagamento_vincular_aluno"
-        ? Promise.resolve({ data: { ok: true, aluno_nome: "José da Silva" }, error: null })
-        : Promise.resolve({ data: [LINHA], error: null }),
-    );
+    rotear({
+      outras: {
+        pagamento_vincular_aluno: { data: { ok: true, aluno_nome: "José da Silva" }, error: null },
+      },
+    });
 
     await act(async () => { render(<PagamentosSemAluno />); });
-    await act(async () => { fireEvent.click(screen.getByText("Resolver")); });
+    await act(async () => { fireEvent.click(screen.getByText("Vincular aluno")); });
     await act(async () => { fireEvent.click(screen.getByText("Vincular")); });
 
     const chamada = rpcMock.mock.calls.find((c) => c[0] === "pagamento_vincular_aluno");
@@ -138,36 +160,95 @@ describe("Fila de pagamentos sem vínculo", () => {
 
 describe("pagamento com aluno identificado que não baixou", () => {
   it("entra na fila, com o estado da conciliação na linha", async () => {
-    rpcMock.mockResolvedValue({ data: [LINHA_COM_ALUNO], error: null });
+    rotear({ lista: [LINHA_COM_ALUNO], travas: [] });
     await act(async () => { render(<PagamentosSemAluno />); });
 
     expect(screen.getByText("Aguardando amarração")).toBeTruthy();
     expect(screen.getByText(/falta amarrar o boleto 50716630001/i)).toBeTruthy();
   });
 
-  it("não oferece Resolver: a pendência não se resolve trocando o aluno", async () => {
-    rpcMock.mockResolvedValue({ data: [LINHA_COM_ALUNO], error: null });
+  it("não oferece Vincular aluno: a pendência não se resolve trocando o aluno", async () => {
+    rotear({ lista: [LINHA_COM_ALUNO], travas: [] });
     await act(async () => { render(<PagamentosSemAluno />); });
 
-    expect(screen.queryByRole("button", { name: /resolver/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
     expect(screen.getByText(/aluno já identificado/i)).toBeTruthy();
   });
 
-  it("a linha sem aluno continua oferecendo Resolver", async () => {
-    rpcMock.mockResolvedValue({ data: [LINHA], error: null });
+  it("a linha com aluno não identificado continua oferecendo Vincular aluno", async () => {
+    rotear();
     await act(async () => { render(<PagamentosSemAluno />); });
 
-    expect(screen.getByRole("button", { name: /resolver/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /vincular aluno/i })).toBeTruthy();
   });
 
   it("nenhum vínculo sai sem clique, mesmo com as duas linhas na tela", async () => {
-    rpcMock.mockResolvedValue({ data: [LINHA, LINHA_COM_ALUNO], error: null });
+    rotear({ lista: [LINHA, LINHA_COM_ALUNO] });
     await act(async () => { render(<PagamentosSemAluno />); });
 
     const chamadas = rpcMock.mock.calls.map(([nome]) => nome);
     expect(chamadas).not.toContain("pagamento_vincular_aluno");
-    // um Resolver só: o da linha sem aluno
-    expect(screen.getAllByRole("button", { name: /resolver/i })).toHaveLength(1);
+    // um Vincular aluno só: o da linha sem aluno
+    expect(screen.getAllByRole("button", { name: /vincular aluno/i })).toHaveLength(1);
+  });
+});
+
+describe("a ação corresponde ao ponto em que o pagamento travou", () => {
+  it("aluno provado por matrícula + nome e acordo ausente: diz isso e oferece só Registrar acordo à vista", async () => {
+    rotear({ travas: [{ pagamento_id: "p1", trava: "ACORDO_AVISTA_AUSENTE" }] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText("Aluno identificado · acordo não encontrado")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Registrar acordo à vista" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
+    // o selo de nome é da trava de identidade; aqui ele confundiria
+    expect(screen.queryByText(/sem cadastro na base/i)).toBeNull();
+    expect(rpcMock).toHaveBeenCalledWith("pagamentos_trava", { p_pagamento_ids: ["p1"] });
+  });
+
+  it("abrir a ação não grava nada: só abre o registro com o pagamento da linha", async () => {
+    rotear({ travas: [{ pagamento_id: "p1", trava: "ACORDO_AVISTA_AUSENTE" }] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Registrar acordo à vista" })); });
+
+    expect(screen.getByText("modal registrar p1")).toBeTruthy();
+    const chamadas = rpcMock.mock.calls.map(([nome]) => nome);
+    expect(chamadas).not.toContain("pagamento_vincular_aluno");
+  });
+
+  it("acordo parcelado ausente não tem ação manual", async () => {
+    rotear({ travas: [{ pagamento_id: "p1", trava: "ACORDO_PARCELADO_AUSENTE" }] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText("Aluno identificado · acordo parcelado não encontrado")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
+  });
+
+  it("ausência não explicada (o 71752) fica fora do fluxo normal: sem ação", async () => {
+    rotear({ travas: [{ pagamento_id: "p1", trava: "ACORDO_AVISTA_AUSENCIA_NAO_EXPLICADA" }] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText("Aluno identificado · ausência do acordo não explicada")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
+  });
+
+  it("identidade divergente oferece Vincular aluno", async () => {
+    rotear({ travas: [{ pagamento_id: "p1", trava: "IDENTIDADE_DIVERGENTE" }] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText("Matrícula e nome divergem · acordo não encontrado")).toBeTruthy();
+    expect(screen.getByRole("button", { name: /vincular aluno/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
+  });
+
+  it("sem diagnóstico da trava, a linha fica sem ação nenhuma", async () => {
+    rotear({ travas: "ERRO" });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
   });
 });
 

@@ -29,17 +29,24 @@
 // nem no banco: quem grava e pagamento_vincular_aluno, que exige gestao,
 // registra origem_vinculo = 'GESTAO_MANUAL' e fecha a linha da fila com quem
 // decidiu e quando.
+//
+// MUDANCA DE 16/09/2026. A acao da linha corresponde ao ponto exato em que o
+// pagamento travou (`pagamentos_trava`). Em AGUARDANDO_ACORDO com aluno provado
+// por matricula + nome, a trava e o acordo, nao o aluno: a linha diz "Aluno
+// identificado · acordo nao encontrado" e oferece "Registrar acordo a vista" --
+// nunca "Vincular aluno".
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import CadastroNovoAluno from "../components/CadastroNovoAluno";
 import {
   STATUS_CONCILIACAO,
-  estadoDaLinha,
-  podeVincularAluno,
+  acaoDaLinha,
+  ACOES_DA_FILA,
   contarPorStatus,
   AVISO_PROJECAO,
 } from "../utils/conciliacaoPagamento";
+import RegistrarAcordoAvista from "../components/RegistrarAcordoAvista";
 import Aluno from "./Aluno";
 import DadosAcademicos from "../components/DadosAcademicos";
 
@@ -71,6 +78,8 @@ export default function PagamentosSemAluno() {
   const [abertoId, setAbertoId] = useState(null);
   const [fichaId, setFichaId] = useState(null);
   const [nomeCopiado, setNomeCopiado] = useState("");
+  const [travas, setTravas] = useState(null);
+  const [registrando, setRegistrando] = useState(null);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -93,6 +102,18 @@ export default function PagamentosSemAluno() {
     }
     setLinhas(data || []);
     setCarregando(false);
+
+    // Em que ponto cada "aguardando acordo" travou. Sem esta resposta a linha
+    // fica sem acao -- acao generica e o que a regra da tela proibe.
+    const ids = (data || [])
+      .filter((l) => l.status_conciliacao === "AGUARDANDO_ACORDO")
+      .map((l) => l.pagamento_id);
+    if (ids.length === 0) { setTravas({}); return; }
+    setTravas(null);
+    const { data: t, error: erroTrava } = await supabase.rpc("pagamentos_trava", { p_pagamento_ids: ids });
+    const mapa = {};
+    if (!erroTrava) for (const x of t || []) if (x && x.pagamento_id) mapa[x.pagamento_id] = x;
+    setTravas(mapa);
   }, [mes, todosOsMeses]);
 
   useEffect(() => { carregar(); }, [carregar]);
@@ -184,6 +205,8 @@ export default function PagamentosSemAluno() {
           <Linha
             key={l.pagamento_id}
             item={l}
+            acao={acaoDaLinha(l, travas)}
+            onRegistrar={() => setRegistrando(l)}
             aberto={abertoId === l.pagamento_id}
             onAbrir={() => setAbertoId(abertoId === l.pagamento_id ? null : l.pagamento_id)}
             onVinculado={carregar}
@@ -193,6 +216,14 @@ export default function PagamentosSemAluno() {
           />
         ))}
       </div>
+
+      {registrando ? (
+        <RegistrarAcordoAvista
+          item={registrando}
+          onFechar={() => setRegistrando(null)}
+          onRegistrado={carregar}
+        />
+      ) : null}
 
       {fichaId && (
         <div style={S.modalOverlay} onClick={() => setFichaId(null)}>
@@ -220,7 +251,7 @@ export default function PagamentosSemAluno() {
   );
 }
 
-function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeCopiado }) {
+function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeCopiado }) {
   const [termo, setTermo] = useState("");
   const [resultados, setResultados] = useState(null);
   const [buscando, setBuscando] = useState(false);
@@ -228,8 +259,7 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
   const [msg, setMsg] = useState("");
 
   const repetido = item.motivo === "NOME_REPETIDO";
-  const estado = estadoDaLinha(item);
-  const podeVincular = podeVincularAluno(item);
+  const podeVincular = acao.acao === "VINCULAR_ALUNO";
   // sugestoes vem da fila (jsonb). Nunca sao aplicadas: so oferecidas.
   const sugestoes = Array.isArray(item.sugestoes) ? item.sugestoes.filter((x) => x && x.aluno_id) : [];
 
@@ -284,7 +314,7 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
           </span>
         </div>
         <div style={S.cardHeadDir}>
-          <span style={seloEstado} title={estado.explica}>{estado.rotulo}</span>
+          <span style={seloEstado} title={acao.explica}>{acao.rotulo}</span>
           {podeVincular ? (
             <span style={repetido ? selo.repetido : selo.semCadastro}>
               {repetido ? `${item.candidatos} alunos com esse nome` : "sem cadastro na base"}
@@ -292,23 +322,40 @@ function Linha({ item, aberto, onAbrir, onVinculado, onVerFicha, onCopiar, nomeC
           ) : null}
           <span style={S.contadorValor}>{moeda(item.valor_pago)}</span>
           <span style={S.cardCpf}>{item.operador_nome || "(sem operador)"}</span>
-          {podeVincular ? (
+          {acao.acao === "REGISTRAR_ACORDO_AVISTA" ? (
+            <button type="button" onClick={onRegistrar} style={S.btnGhost}>
+              {ACOES_DA_FILA.REGISTRAR_ACORDO_AVISTA}
+            </button>
+          ) : podeVincular ? (
             <button type="button" onClick={onAbrir} style={S.btnGhost}>
-              {aberto ? "Fechar" : "Resolver"}
+              {aberto ? "Fechar" : ACOES_DA_FILA.VINCULAR_ALUNO}
             </button>
           ) : (
-            // O aluno ja esta identificado. A pendencia e de amarracao, de
-            // acordo ou de revisao -- nenhuma delas se resolve trocando o
-            // aluno, e oferecer "Vincular" aqui so daria a chance de
-            // sobrescrever um vinculo correto.
-            <span style={S.cardCpf} title={estado.explica}>aluno já identificado</span>
+            // Sem acao manual para este ponto. A pendencia e de amarracao, de
+            // estrutura do acordo, de rodada ou de revisao -- nenhuma delas se
+            // resolve trocando o aluno, e oferecer "Vincular" aqui so daria a
+            // chance de sobrescrever um vinculo correto.
+            <span style={S.cardCpf} title={acao.explica}>
+              {item.tem_aluno ? "aluno já identificado" : "sem ação manual"}
+            </span>
           )}
         </div>
       </div>
 
       <div style={motivoBox}>
         <span style={motivoRotulo}>por que caiu aqui</span>
-        <span style={motivoTexto}>{item.motivo_financeiro || "—"}</span>
+        {acao.trava ? (
+          // O motor so sabe que o boleto nao achou parcela; a trava diz o que
+          // falta de fato. O texto do motor fica como registro, em segundo plano.
+          <span style={motivoTexto}>
+            {acao.explica}
+            <span style={{ display: "block", color: "var(--rv-texto-suave)", fontSize: 11.5 }}>
+              motor: {item.motivo_financeiro || "—"}
+            </span>
+          </span>
+        ) : (
+          <span style={motivoTexto}>{item.motivo_financeiro || "—"}</span>
+        )}
       </div>
 
       {aberto && podeVincular ? (
