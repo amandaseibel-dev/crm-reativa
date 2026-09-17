@@ -82,6 +82,39 @@ export const TRAVAS_AGUARDANDO_ACORDO = {
     explica: "um acordo de número maior já veio antes do dia do pagamento: este acordo existia e não apareceu no relatório. Fora do fluxo normal",
     acao: null,
   },
+  // A PREVIA RECUSOU (17/09/2026). A trava vem do banco com o motivo que a
+  // propria previa do registro deu; a tela so traduz o codigo. Nenhuma destas
+  // tem acao: oferecer "Registrar" aqui seria oferecer o que o registro recusa.
+  ACORDO_AVISTA_FORA_DA_MARGEM: {
+    rotulo: "Aluno identificado · acordo não encontrado · valor fora da margem segura",
+    explica: "o valor pago excede a margem segura sobre as mensalidades em aberto: a simulação recusa o registro",
+    acao: null,
+  },
+  ACORDO_AVISTA_ALUNO_ENCERRADO: {
+    rotulo: "Aluno identificado · acordo não encontrado · aluno já encerrado",
+    explica: "o aluno já foi encerrado (quitado, baixa realizada ou saldo zero confirmado): abrir acordo nele não cabe neste fluxo",
+    acao: null,
+  },
+  ACORDO_AVISTA_OPERADOR_NAO_CADASTRADO: {
+    rotulo: "Aluno identificado · acordo não encontrado · operador do pagamento não cadastrado",
+    explica: "a recuperação depende de cadastrar ou resolver o operador do pagamento, que fica com o crédito do acordo",
+    acao: null,
+  },
+  ACORDO_AVISTA_SEM_MENSALIDADE_ELEGIVEL: {
+    rotulo: "Aluno identificado · acordo não encontrado · nenhuma mensalidade elegível em aberto",
+    explica: "o aluno não tem mensalidade em aberto e livre para este acordo quitar",
+    acao: null,
+  },
+  ACORDO_AVISTA_SEM_COMBINACAO_SEGURA: {
+    rotulo: "Aluno identificado · acordo não encontrado · sem combinação segura de mensalidades",
+    explica: "as mensalidades em aberto passam do valor pago: não há combinação segura para registrar",
+    acao: null,
+  },
+  ACORDO_AVISTA_OUTRO_BLOQUEIO: {
+    rotulo: "Aluno identificado · acordo não encontrado · registro bloqueado pela simulação",
+    explica: "a simulação do registro recusa este pagamento por outra validação",
+    acao: null,
+  },
   ACORDO_PARCELADO_AUSENTE: {
     rotulo: "Aluno identificado · acordo parcelado não encontrado",
     explica: "há outro boleto deste acordo ou não é a parcela 1: a estrutura só chega pela importação do relatório",

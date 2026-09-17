@@ -5,6 +5,9 @@
 //
 // O fixture sao as seis classes reais do arquivo Santander de 14/09/2026.
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   STATUS_CONCILIACAO,
   SEM_ESTADO,
@@ -135,6 +138,45 @@ describe("acaoDaLinha", () => {
       if (def.acao) expect(ACOES_DA_FILA[def.acao]).toBeTruthy();
       expect(def.rotulo).toBeTruthy();
       expect(def.explica).toBeTruthy();
+    }
+  });
+});
+
+// 17/09/2026: o banco so devolve ACORDO_AVISTA_AUSENTE quando a previa do
+// registro aprova; recusada, devolve o motivo. A tela so traduz o codigo.
+describe("a ação de registro só existe quando o banco diz que é registrável", () => {
+  const aguardando = { pagamento_id: "x", status_conciliacao: "AGUARDANDO_ACORDO", tem_aluno: true };
+  const RECUSADAS = {
+    ACORDO_AVISTA_FORA_DA_MARGEM: "Aluno identificado · acordo não encontrado · valor fora da margem segura",
+    ACORDO_AVISTA_ALUNO_ENCERRADO: "Aluno identificado · acordo não encontrado · aluno já encerrado",
+    ACORDO_AVISTA_OPERADOR_NAO_CADASTRADO: "Aluno identificado · acordo não encontrado · operador do pagamento não cadastrado",
+    ACORDO_AVISTA_SEM_MENSALIDADE_ELEGIVEL: "Aluno identificado · acordo não encontrado · nenhuma mensalidade elegível em aberto",
+    ACORDO_AVISTA_SEM_COMBINACAO_SEGURA: "Aluno identificado · acordo não encontrado · sem combinação segura de mensalidades",
+    ACORDO_AVISTA_OUTRO_BLOQUEIO: "Aluno identificado · acordo não encontrado · registro bloqueado pela simulação",
+  };
+
+  it("cada recusa da prévia tem rótulo próprio e nenhuma ação", () => {
+    for (const [trava, rotulo] of Object.entries(RECUSADAS)) {
+      const a = acaoDaLinha(aguardando, { x: { pagamento_id: "x", trava } });
+      expect(a.rotulo).toBe(rotulo);
+      expect(a.acao).toBeNull();
+    }
+  });
+
+  it("Registrar acordo à vista pertence a uma trava só: a aprovada pela prévia", () => {
+    const comRegistro = Object.entries(TRAVAS_AGUARDANDO_ACORDO)
+      .filter(([, def]) => def.acao === "REGISTRAR_ACORDO_AVISTA").map(([k]) => k);
+    expect(comRegistro).toEqual(["ACORDO_AVISTA_AUSENTE"]);
+  });
+
+  it("nenhuma regra financeira no front: a fila não compara valor, margem nem resultado da prévia", () => {
+    const AQUI = dirname(fileURLToPath(import.meta.url));
+    const semComentario = (t) => t.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/\/\/.*$/, "")).join("\n");
+    for (const arquivo of ["./conciliacaoPagamento.js", "../pages/PagamentosSemAluno.jsx"]) {
+      const codigo = semComentario(readFileSync(resolve(AQUI, arquivo), "utf8"));
+      expect(codigo).not.toMatch(/1[.,]15/);
+      expect(codigo).not.toMatch(/\baprovado\b|\bbloqueios\b|margem_segura|soma_minima|faixa_valor_pago/);
+      expect(codigo).not.toMatch(/valor_pago\s*(\)|\|\|\s*0\))?\s*(<|>|\*|\/)/);
     }
   });
 });

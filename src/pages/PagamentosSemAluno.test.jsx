@@ -235,6 +235,26 @@ describe("a ação corresponde ao ponto em que o pagamento travou", () => {
     expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
   });
 
+  // 17/09/2026: recusada pela prévia, a trava diz o motivo e a linha fica sem
+  // ação. Os seis casos da auditoria das 27 linhas.
+  for (const [trava, rotulo] of [
+    ["ACORDO_AVISTA_FORA_DA_MARGEM", "Aluno identificado · acordo não encontrado · valor fora da margem segura"],
+    ["ACORDO_AVISTA_ALUNO_ENCERRADO", "Aluno identificado · acordo não encontrado · aluno já encerrado"],
+    ["ACORDO_AVISTA_OPERADOR_NAO_CADASTRADO", "Aluno identificado · acordo não encontrado · operador do pagamento não cadastrado"],
+    ["ACORDO_AVISTA_SEM_MENSALIDADE_ELEGIVEL", "Aluno identificado · acordo não encontrado · nenhuma mensalidade elegível em aberto"],
+    ["ACORDO_AVISTA_SEM_COMBINACAO_SEGURA", "Aluno identificado · acordo não encontrado · sem combinação segura de mensalidades"],
+    ["ACORDO_AVISTA_OUTRO_BLOQUEIO", "Aluno identificado · acordo não encontrado · registro bloqueado pela simulação"],
+  ]) {
+    it(`${trava}: diz o motivo e não oferece registro nem vínculo`, async () => {
+      rotear({ travas: [{ pagamento_id: "p1", trava }] });
+      await act(async () => { render(<PagamentosSemAluno />); });
+
+      expect(screen.getByText(rotulo)).toBeTruthy();
+      expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
+    });
+  }
+
   it("identidade divergente oferece Vincular aluno", async () => {
     rotear({ travas: [{ pagamento_id: "p1", trava: "IDENTIDADE_DIVERGENTE" }] });
     await act(async () => { render(<PagamentosSemAluno />); });

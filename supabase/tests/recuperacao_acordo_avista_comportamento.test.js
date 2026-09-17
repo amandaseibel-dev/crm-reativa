@@ -28,6 +28,10 @@ const ler = (p) => readFileSync(resolve(AQUI, "..", "..", p), "utf8");
 const md5 = (s) => createHash("md5").update(s, "utf8").digest("hex");
 
 const MIGRATION = ler("supabase/migrations/20260916230000_recuperacao_acordo_pago_sem_importacao.sql");
+// 17/09/2026: pagamentos_trava passa a usar `aprovado` e `bloqueios` da previa.
+// Os testes rodam no estado que producao tera depois das duas migrations.
+const MIGRATION_TRAVA = ler("supabase/migrations/20260917100000_pagamentos_trava_usa_resultado_da_previa.sql");
+const ROLLBACK_TRAVA = ler("supabase/rollbacks/20260917100000_pagamentos_trava_usa_resultado_da_previa.rollback.sql");
 
 // Ultima definicao de public.<nome> no arquivo: comando inteiro e corpo.
 function funcao(arquivo, nome, md5Producao) {
@@ -178,6 +182,7 @@ async function novoBanco() {
   `);
 
   await db.exec(MIGRATION);
+  await db.exec(MIGRATION_TRAVA);
 
   // --- fixture ----------------------------------------------------------------
   await db.query(`insert into public.usuarios (nome, email, perfil, ativo) values
@@ -494,5 +499,84 @@ describe("pagamentos_trava", () => {
     await db.query(`update public.pagamentos set aluno_nome = 'JOÃO SOUZA' where id = $1`, [G2]);
     const r = await db.query(`select trava from public.pagamentos_trava($1::uuid[])`, [[G2]]);
     expect(r.rows[0].trava).toBe("IDENTIDADE_DIVERGENTE");
+  });
+});
+
+// A ACAO SO APARECE QUANDO A PREVIA APROVA (17/09/2026). Cada caso abaixo
+// repete um motivo real da auditoria das 27 linhas. Em todos, a trava e a
+// simulacao do registro tem de concordar: ACORDO_AVISTA_AUSENTE se, e so se,
+// a previa aprova.
+describe("pagamentos_trava só oferece a ação quando a prévia aprova", () => {
+  const CASOS = [
+    ["aprovado", async () => {}, "ACORDO_AVISTA_AUSENTE"],
+    // 1131,10 / 975 = 1,1601
+    ["valor fora da margem segura", (db) => db.query(`update public.acordos_titulos set saldo_corrigido = 975 where id = $1`, [T1]),
+      "ACORDO_AVISTA_FORA_DA_MARGEM"],
+    // o 71658: aluno em BAIXA_REALIZADA
+    ["aluno já encerrado", (db) => db.query(`update public.alunos set status_atual = 'BAIXA_REALIZADA' where id = $1`, [A1]),
+      "ACORDO_AVISTA_ALUNO_ENCERRADO"],
+    // o 71803: operador do arquivo fora de usuarios
+    ["operador do pagamento não cadastrado", (db) => db.query(`update public.pagamentos set operador_email = 'osvaldina.alves@aelbra.com.br' where id = $1`, [G1]),
+      "ACORDO_AVISTA_OPERADOR_NAO_CADASTRADO"],
+    // o 71988 e o 71999: nenhuma mensalidade em aberto
+    ["nenhuma mensalidade elegível", (db) => db.query(`update public.acordos_titulos set situacao = 'PAGO', status = 'quitada' where id = $1`, [T1]),
+      "ACORDO_AVISTA_SEM_MENSALIDADE_ELEGIVEL"],
+    // o 72049: a mensalidade em aberto vale mais que o valor pago
+    ["mensalidade maior que o valor pago", (db) => db.query(`update public.acordos_titulos set saldo_corrigido = 1200 where id = $1`, [T1]),
+      "ACORDO_AVISTA_SEM_COMBINACAO_SEGURA"],
+    ["outra validação da prévia (vencimento ausente no arquivo)",
+      (db) => db.query(`update public.pagamentos set dados = dados - 'vencimento' where id = $1`, [G1]),
+      "ACORDO_AVISTA_OUTRO_BLOQUEIO"],
+  ];
+
+  for (const [nome, preparar, esperada] of CASOS) {
+    it(`${nome}: ${esperada}`, async () => {
+      const db = await novoBanco();
+      await db.query(`delete from public.pagamentos where id = $1`, [G3]);
+      await preparar(db);
+      const trava = (await db.query(`select trava from public.pagamentos_trava($1::uuid[])`, [[G1]])).rows[0].trava;
+      const previa = await registrar(db, G1, null);
+      expect(trava).toBe(esperada);
+      expect(trava === "ACORDO_AVISTA_AUSENTE").toBe(previa.aprovado === true);
+    });
+  }
+
+  it("sem busca de combinação menor: a sugestão passa do valor pago, a linha fica sem ação", async () => {
+    const db = await novoBanco();
+    await db.query(`delete from public.pagamentos where id = $1`, [G3]);
+    // T1 (1000) sozinha caberia na margem, mas a sugestao e T1 + T6 = 1400 > 1131,10
+    await db.query(`insert into public.acordos_titulos (id, aluno_id, documento, vencimento, valor_original, saldo_corrigido, situacao, status, tipo_boleto)
+                    values ($1, $2, '4527060', '2026-07-05', 400, 400, 'ABERTO', 'em_aberto', 'Cursos de Graduação')`, [U(16), A1]);
+    const trava = (await db.query(`select trava from public.pagamentos_trava($1::uuid[])`, [[G1]])).rows[0].trava;
+    expect(trava).toBe("ACORDO_AVISTA_SEM_COMBINACAO_SEGURA");
+    expect((await registrar(db, G1, null)).aprovado).toBe(false);
+  });
+
+  it("continua sem escrever nada, com a mesma assinatura, as mesmas permissões e o portão da gestão", async () => {
+    const db = await novoBanco();
+    await db.query(`update public.acordos_titulos set saldo_corrigido = 975 where id = $1`, [T1]);
+    const antes = await foto(db);
+    await db.query(`select * from public.pagamentos_trava($1::uuid[])`, [[G1, G2, G3, G4, G5]]);
+    expect(await foto(db)).toEqual(antes);
+
+    const f = (await db.query(`select pg_get_function_identity_arguments(p.oid) args, pg_get_function_result(p.oid) ret,
+        has_function_privilege('authenticated', p.oid, 'EXECUTE') auth, has_function_privilege('anon', p.oid, 'EXECUTE') anon,
+        (select count(*)::int from pg_proc q where q.proname = 'pagamentos_trava') n
+      from pg_proc p where p.proname = 'pagamentos_trava'`)).rows[0];
+    expect(f).toEqual({ args: "p_pagamento_ids uuid[]",
+      ret: "TABLE(pagamento_id uuid, trava text, aluno_id uuid, aluno_nome text, numero_ulbra text)",
+      auth: true, anon: false, n: 1 });
+
+    await comoUsuario(db, OPERADOR);
+    await expect(db.query(`select * from public.pagamentos_trava($1::uuid[])`, [[G1]])).rejects.toThrow(/gestao financeira/);
+  });
+
+  it("o rollback volta ao comportamento anterior", async () => {
+    const db = await novoBanco();
+    await db.query(`delete from public.pagamentos where id = $1`, [G3]);
+    await db.query(`update public.acordos_titulos set saldo_corrigido = 975 where id = $1`, [T1]);
+    await db.exec(ROLLBACK_TRAVA);
+    const trava = (await db.query(`select trava from public.pagamentos_trava($1::uuid[])`, [[G1]])).rows[0].trava;
+    expect(trava).toBe("ACORDO_AVISTA_AUSENTE");
   });
 });
