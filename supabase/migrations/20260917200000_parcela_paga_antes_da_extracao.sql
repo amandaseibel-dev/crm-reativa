@@ -20,7 +20,14 @@
 --                                          mesma transacao e entrega de novo ao
 --                                          MOTOR, que vincula e baixa. Qualquer
 --                                          desvio aborta tudo.
---   parcela_paga_antes_reconstruir_pendentes  percorre os pendentes elegiveis.
+--   parcela_paga_antes_reconstruir_pendentes  percorre os pendentes elegiveis;
+--                                          na recusa, grava codigo e descricao
+--                                          curta em fila_pagamento_sem_vinculo.
+--                                          motivo (o "por que caiu aqui" da
+--                                          tela Pagamentos a conciliar).
+--   parcela_paga_antes_apos_importar_acordos  logo depois da importacao de
+--                                          acordos: motor e reconstrucao so para
+--                                          os acordos que acabaram de entrar.
 --   _pagamentos_baixar_lote ............. depois da reconciliacao normal da
 --                                          importacao, chama a reconstrucao.
 --   fluxo_pagamentos_rodar .............. etapa nova, logo depois da
@@ -29,6 +36,8 @@
 --                                          documento do titulo nasce confiavel
 --                                          quando o prefixo e o numero do acordo.
 --                                          So novas importacoes.
+--   importar_acordos .................... chama a funcao acima no fim, dentro
+--                                          de bloco que nao derruba a importacao.
 --   fluxo_pagamentos_config ............. etapa `reconstruir_parcela_paga_antes`,
 --                                          DESLIGADA ao entrar.
 --
@@ -215,11 +224,52 @@ v as (
           'parcelas pagas sem pagamento do proprio boleto: ' || (select est.pagas_sem_prova::text from est)
           || ' · baixas manuais no acordo: ' || (select ctx.baixas_registradas::text from ctx))
     ) as x(ordem, codigo, ok, detalhe)
+),
+-- O MOTIVO QUE VAI PARA A FILA. Um so, o primeiro por ordem de causa (o que
+-- impede avaliar vem antes do que reprova), com codigo estavel e descricao curta.
+diag_mapa as (
+  select * from (values
+    (1, 'PAGAMENTO_PENDENTE', 'PARCELA_PAGA_ANTES_PAGAMENTO_NAO_PENDENTE', 'pagamento estornado, retroativo, ja baixado ou com decisao na fila'),
+    (2, 'NUMERO_DO_ACORDO_CONFERE', 'PARCELA_PAGA_ANTES_NUMERO_DIVERGENTE', 'numero do acordo no arquivo difere do boleto'),
+    (3, 'ACORDO_IMPORTADO_E_ATIVO', 'PARCELA_PAGA_ANTES_ACORDO_NAO_IMPORTADO', 'acordo nao veio da importacao ou nao esta ativo'),
+    (4, 'BOLETO_SEM_PARCELA', 'PARCELA_PAGA_ANTES_BOLETO_JA_TEM_PARCELA', 'o boleto do pagamento ja esta em uma parcela'),
+    (5, 'PREFIXO_DO_BOLETO_CONFERE', 'PARCELA_PAGA_ANTES_PREFIXO_DIVERGENTE', 'parcela do acordo com prefixo de outro acordo'),
+    (6, 'ALUNO_IDENTIFICADO', 'PARCELA_PAGA_ANTES_ALUNO_DIVERGENTE', 'matricula e nome nao identificam o aluno do acordo'),
+    (7, 'IMPORTADO_NO_DIA_DO_PAGAMENTO_OU_DEPOIS', 'PARCELA_PAGA_ANTES_ACORDO_JA_EXISTIA', 'acordo importado antes do pagamento: a parcela deveria ter vindo'),
+    (8, 'ESTRUTURA_IMPORTADA_INTACTA', 'PARCELA_PAGA_ANTES_ESTRUTURA_INCOMPATIVEL', 'parcelas do acordo nao batem com quantidade e total'),
+    (9, 'SEQUENCIA_COERENTE', 'PARCELA_PAGA_ANTES_SEQUENCIA_INCOERENTE', 'parcelas importadas com buraco ou vencimento fora de ordem'),
+    (10, 'PARCELA_IMEDIATAMENTE_ANTERIOR', 'PARCELA_PAGA_ANTES_BOLETO_NAO_SEQUENCIAL', 'boleto nao e o imediatamente anterior a primeira parcela importada'),
+    (11, 'VENCIMENTO_ANTERIOR_A_PRIMEIRA', 'PARCELA_PAGA_ANTES_VENCIMENTO_INCOMPATIVEL', 'vencimento ausente ou nao anterior ao da primeira parcela importada'),
+    (12, 'VALOR_COMPATIVEL', 'PARCELA_PAGA_ANTES_VALOR_INCOMPATIVEL', 'valor pago fora da faixa do valor do boleto'),
+    (13, 'SEM_OUTRA_CANDIDATA', 'PARCELA_PAGA_ANTES_OUTRA_CANDIDATA', 'outro pagamento com o mesmo boleto ou parcela sem boleto no aluno'),
+    (14, 'SEM_BAIXA_INCOMPATIVEL', 'PARCELA_PAGA_ANTES_BAIXA_INCOMPATIVEL', 'acordo com parcela paga por outro documento ou baixa manual')
+  ) as d(prioridade, validacao, codigo, descricao)
+),
+diag as (
+  select case when m.validacao = 'NUMERO_DO_ACORDO_CONFERE' and not coalesce((select b.no_padrao from b), false)
+                then 'PARCELA_PAGA_ANTES_BOLETO_FORA_DO_PADRAO'
+              when m.validacao = 'NUMERO_DO_ACORDO_CONFERE' and (select ctx.acordos_com_numero from ctx) = 0
+                then 'PARCELA_PAGA_ANTES_ACORDO_AUSENTE'
+              when m.validacao = 'NUMERO_DO_ACORDO_CONFERE' and (select ctx.acordos_com_numero from ctx) > 1
+                then 'PARCELA_PAGA_ANTES_ACORDO_DUPLICADO'
+              else m.codigo end as codigo,
+         case when m.validacao = 'NUMERO_DO_ACORDO_CONFERE' and not coalesce((select b.no_padrao from b), false)
+                then 'boleto fora do padrao 5 + acordo + parcela'
+              when m.validacao = 'NUMERO_DO_ACORDO_CONFERE' and (select ctx.acordos_com_numero from ctx) = 0
+                then 'nenhum acordo no CRM com o numero do boleto'
+              when m.validacao = 'NUMERO_DO_ACORDO_CONFERE' and (select ctx.acordos_com_numero from ctx) > 1
+                then 'mais de um acordo no CRM com o numero do boleto'
+              else m.descricao end as descricao
+    from v join diag_mapa m on m.validacao = v.codigo
+   where not v.ok
+   order by m.prioridade
+   limit 1
 )
 select jsonb_build_object(
   'origem', 'PARCELA_PAGA_ANTES_DA_EXTRACAO',
   'aprovado', (select bool_and(v.ok) from v),
   'bloqueios', coalesce((select jsonb_agg(v.codigo order by v.ordem) from v where not v.ok), '[]'::jsonb),
+  'diagnostico', (select jsonb_build_object('codigo', diag.codigo, 'descricao', diag.descricao) from diag),
   'validacoes', (select jsonb_agg(jsonb_build_object('codigo', v.codigo, 'ok', v.ok, 'detalhe', v.detalhe) order by v.ordem) from v),
   'pagamento', (select jsonb_build_object('id', b.id, 'boleto', b.boleto, 'titulo_numero', b.titulo_numero,
                  'data_pagamento', b.data_pagamento, 'vencimento', b.vencimento, 'valor_pago', b.valor_pago,
@@ -368,7 +418,7 @@ comment on function public.parcela_paga_antes_reconstruir(uuid, boolean) is
 -- ---------------------------------------------------------------------------
 -- 3. OS PENDENTES ELEGIVEIS
 -- ---------------------------------------------------------------------------
-create or replace function public.parcela_paga_antes_reconstruir_pendentes(p_limite integer default 50)
+create or replace function public.parcela_paga_antes_reconstruir_pendentes(p_limite integer default 50, p_acordo_ids uuid[] default null)
  returns jsonb
  language plpgsql
  security definer
@@ -378,6 +428,7 @@ declare
   v_id uuid;
   v_r jsonb;
   v_cod text;
+  v_prefixo text;
   v_n int := 0;
   v_ok int := 0;
   v_err int := 0;
@@ -394,10 +445,12 @@ begin
        and exists (select 1 from public.acordos a
                     where a.numero_ulbra is not null
                       and lpad(a.numero_ulbra, 6, '0') = substr(ltrim(g.numero_parcela_completo, '0'), 2, 6)
-                      and upper(coalesce(a.status, '')) = 'ATIVO')
+                      and upper(coalesce(a.status, '')) = 'ATIVO'
+                      and (p_acordo_ids is null or a.id = any(p_acordo_ids)))
        and not exists (select 1 from public.fila_pagamento_sem_vinculo f
                         where f.pagamento_id = g.id and f.decisao is not null)
-     order by g.data_pagamento, g.id
+     -- o mais novo primeiro: recusa antiga parada nao segura o pagamento que acabou de chegar
+     order by g.data_pagamento desc, g.id
      limit greatest(coalesce(p_limite, 50), 0)
   loop
     v_n := v_n + 1;
@@ -405,14 +458,28 @@ begin
       v_r := public.parcela_paga_antes_reconstruir(v_id, true);
       if coalesce((v_r ->> 'gravou')::boolean, false) then
         v_ok := v_ok + 1;
+        -- resolvido: sai o diagnostico de uma recusa anterior
+        update public.fila_pagamento_sem_vinculo f
+           set motivo = regexp_replace(f.motivo, '^PARCELA_PAGA_ANTES_[A-Z_]+: [^|]* \| ', '')
+         where f.pagamento_id = v_id
+           and f.motivo ~ '^PARCELA_PAGA_ANTES_[A-Z_]+: ';
       else
-        for v_cod in select jsonb_array_elements_text(coalesce(v_r -> 'bloqueios', '[]'::jsonb)) loop
-          v_bloq := jsonb_set(v_bloq, array[v_cod], to_jsonb(coalesce((v_bloq ->> v_cod)::int, 0) + 1), true);
-        end loop;
+        v_cod := coalesce(v_r -> 'diagnostico' ->> 'codigo', 'PARCELA_PAGA_ANTES_SEM_DIAGNOSTICO');
+        v_bloq := jsonb_set(v_bloq, array[v_cod], to_jsonb(coalesce((v_bloq ->> v_cod)::int, 0) + 1), true);
+        -- O MOTIVO EM PAGAMENTOS A CONCILIAR: codigo estavel e descricao curta na
+        -- frente do texto do motor. O motor reescreve `motivo` a cada passada; esta
+        -- etapa roda sempre depois dele, e so troca o proprio prefixo.
+        v_prefixo := v_cod || ': ' || coalesce(v_r -> 'diagnostico' ->> 'descricao', 'recusado pela previa') || ' | ';
+        update public.fila_pagamento_sem_vinculo f
+           set motivo = v_prefixo || regexp_replace(f.motivo, '^PARCELA_PAGA_ANTES_[A-Z_]+: [^|]* \| ', '')
+         where f.pagamento_id = v_id
+           and f.decisao is null
+           and not starts_with(f.motivo, v_prefixo);
       end if;
       v_itens := v_itens || jsonb_build_array(jsonb_build_object(
         'pagamento_id', v_id, 'boleto', v_r -> 'pagamento' ->> 'boleto',
-        'gravou', coalesce((v_r ->> 'gravou')::boolean, false), 'bloqueios', v_r -> 'bloqueios'));
+        'gravou', coalesce((v_r ->> 'gravou')::boolean, false),
+        'diagnostico', v_r -> 'diagnostico' ->> 'codigo', 'bloqueios', v_r -> 'bloqueios'));
     exception when others then
       -- um pagamento nao derruba os outros; o erro fica registrado
       v_err := v_err + 1;
@@ -428,9 +495,79 @@ begin
 end;
 $fn$;
 
+-- ---------------------------------------------------------------------------
+-- 3b. DEPOIS DA IMPORTACAO DE ACORDOS -- O PAGAMENTO NAO ESPERA A RODADA DAS :40
+-- ---------------------------------------------------------------------------
+create or replace function public.parcela_paga_antes_apos_importar_acordos(p_importacao_id uuid)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public'
+as $fn$
+declare
+  v_liga boolean;
+  v_acordos uuid[];
+  v_id uuid;
+  v_r jsonb;
+  v_n int := 0;
+  v_baixou int := 0;
+begin
+  select ligado into v_liga from public.fluxo_pagamentos_config where etapa = 'reconstruir_parcela_paga_antes';
+  if not coalesce(v_liga, false) or p_importacao_id is null then
+    return jsonb_build_object('ligado', false);
+  end if;
+
+  -- os acordos que ESTA importacao criou ou completou
+  select coalesce(array_agg(a.id), '{}'::uuid[]) into v_acordos
+    from public.acordos a
+   where a.numero_ulbra is not null
+     and upper(coalesce(a.status, '')) = 'ATIVO'
+     and ((a.criado_por_email = 'importacao@sistema' and a.observacao like '%' || p_importacao_id::text)
+          or exists (select 1 from public._backup_completar_parcelas_lote l
+                      where l.acordo_id = a.id and l.lote = 'import_' || p_importacao_id::text));
+  if cardinality(v_acordos) = 0 then
+    return jsonb_build_object('ligado', true, 'acordos', 0);
+  end if;
+
+  -- 1. O MOTOR recebe de novo os pagamentos que esperavam estes acordos: a
+  --    mesma selecao da reconciliacao horaria, restrita a eles, e so se ela
+  --    estiver ligada.
+  select ligado into v_liga from public.fluxo_pagamentos_config where etapa = 'baixa_pelo_relatorio';
+  if coalesce(v_liga, false) then
+    for v_id in
+      select g.id
+        from public.pagamentos g
+       where g.status_conciliacao is not null
+         and g.status_conciliacao <> 'BAIXADO'
+         and ltrim(coalesce(g.numero_parcela_completo, ''), '0') ~ '^5\d{10}$'
+         and exists (select 1 from public.acordos a
+                      where a.id = any(v_acordos)
+                        and lpad(a.numero_ulbra, 6, '0') = substr(ltrim(g.numero_parcela_completo, '0'), 2, 6))
+         and not exists (select 1 from public.fila_pagamento_sem_vinculo f
+                          where f.pagamento_id = g.id and f.decisao is not null)
+       order by g.data_pagamento, g.id
+       limit 500
+    loop
+      v_r := public.pagamento_conciliar_um(v_id, true);
+      v_n := v_n + 1;
+      if coalesce((v_r ->> 'baixou')::boolean, false) then v_baixou := v_baixou + 1; end if;
+    end loop;
+  end if;
+
+  -- 2. a parcela paga antes da extracao, so nestes acordos
+  return jsonb_build_object('ligado', true, 'acordos', cardinality(v_acordos),
+                            'motor_avaliados', v_n, 'motor_baixados', v_baixou,
+                            'reconstrucao', public.parcela_paga_antes_reconstruir_pendentes(50, v_acordos));
+end;
+$fn$;
+
+comment on function public.parcela_paga_antes_apos_importar_acordos(uuid) is
+  'Chamada no fim de importar_acordos. Com a etapa reconstruir_parcela_paga_antes ligada, entrega ao motor os pagamentos pendentes dos acordos que a importacao criou ou completou (se baixa_pelo_relatorio estiver ligada) e depois roda a reconstrucao so para esses acordos. Desligada, nao faz nada.';
+
 revoke all on function public.parcela_paga_antes_previa(uuid) from public, anon, authenticated;
 revoke all on function public.parcela_paga_antes_reconstruir(uuid, boolean) from public, anon, authenticated;
-revoke all on function public.parcela_paga_antes_reconstruir_pendentes(integer) from public, anon, authenticated;
+revoke all on function public.parcela_paga_antes_reconstruir_pendentes(integer, uuid[]) from public, anon, authenticated;
+revoke all on function public.parcela_paga_antes_apos_importar_acordos(uuid) from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
 -- 4. _pagamentos_baixar_lote: reconcilia e depois reconstroi
@@ -650,11 +787,149 @@ end;
 $fn$;
 
 -- ---------------------------------------------------------------------------
+-- 6b. importar_acordos: no fim, o reprocessamento dos acordos que entraram
+-- ---------------------------------------------------------------------------
+create or replace function public.importar_acordos(p_linhas jsonb, p_importacao_id uuid)
+ returns json
+ language plpgsql
+ security definer
+ set search_path to 'public'
+ set statement_timeout to '180000'
+as $fn$
+declare v_alunos_novos int:=0; v_titulos int:=0; v_fila int:=0; v_usuario text;
+        v_completados int:=0; v_dup int:=0; v_pulados int:=0; v_linhas_puladas int:=0;
+        v_ja_representados int:=0;
+begin
+  if not public.app_pode_borderos_importacoes() then
+    raise exception 'SEM_PERMISSAO_IMPORTACAO_BORDERO';
+  end if;
+
+  perform set_config('reativa.importando', 'on', true);
+  perform pg_advisory_xact_lock(hashtextextended(p_importacao_id::text, 0));
+
+  v_usuario := coalesce(nullif(auth.jwt()->>'email',''), 'sistema');
+  insert into public.importacoes (id,tipo,referencia,arquivo_nome,usuario,status,retroativo)
+  values (p_importacao_id,'ACORDOS','Relatorio de Titulos em Aberto (Acordo)','Relatorio Titulos em Aberto',v_usuario,'Concluída',false)
+  on conflict (id) do nothing;
+
+  create temp table _imp on commit drop as
+  with base as (
+    select regexp_replace(coalesce(l->>'cpf',''),'\D','','g') as cpf, nullif(trim(l->>'nome'),'') as nome,
+           regexp_replace(coalesce(l->>'documento',''),'\D','','g') as documento, nullif(l->>'venc','')::date as venc,
+           nullif(l->>'valor','')::numeric as valor, nullif(trim(l->>'unidade'),'') as unidade, nullif(trim(l->>'situacao'),'') as situacao
+    from jsonb_array_elements(p_linhas) l)
+  select cpf,nome,documento,venc,valor,unidade,situacao, left(documento,greatest(length(documento)-2,1)) as acordo_base
+  from base where documento <> '';
+  create index on _imp(cpf);
+
+  create temp table _pular on commit drop as
+  select distinct regexp_replace(coalesce(al.cpf,''),'\D','','g') as cpf_n
+  from public.casos c
+  join public.alunos al on al.id = c.aluno_id
+  where c.quitado_em is not null and c.quitado_em >= current_date - 7
+    and exists (select 1 from public.acordos a where a.aluno_id = c.aluno_id)
+    and coalesce(al.cpf,'') <> '';
+  create index on _pular(cpf_n);
+
+  select count(*) into v_linhas_puladas from _imp i join _pular p on p.cpf_n = i.cpf;
+  select count(distinct i.cpf) into v_pulados from _imp i join _pular p on p.cpf_n = i.cpf;
+  delete from _imp i using _pular p where p.cpf_n = i.cpf;
+
+  create temp table _al on commit drop as select id, regexp_replace(coalesce(cpf,''),'\D','','g') as cpf_n from public.alunos;
+  create index on _al(cpf_n);
+
+  insert into public.alunos (nome,cpf,unidade,situacao_academica,status_jornada,tipo_base,origem,observacao)
+  select distinct on (i.cpf) coalesce(i.nome,'(sem nome)'),i.cpf,i.unidade,i.situacao,'Em cobrança','ACORDO_IMPORTADO','IMPORT_ACORDOS',
+         'Importado do Relatorio de Titulos em Aberto (Acordo) — lote '||p_importacao_id::text
+  from _imp i where i.cpf<>'' and not exists (select 1 from _al a where a.cpf_n=i.cpf) order by i.cpf;
+  get diagnostics v_alunos_novos = row_count;
+  insert into _al (id,cpf_n) select id, regexp_replace(coalesce(cpf,''),'\D','','g')
+  from public.alunos where origem='IMPORT_ACORDOS' and observacao like '%'||p_importacao_id::text;
+
+  -- A divida ja representada no CRM nao vira titulo de novo.
+  select count(*) into v_ja_representados from _imp i
+   where exists (select 1 from public.parcelas p where p.boleto = ltrim(i.documento,'0'))
+      or (i.documento ~ '^\d{12}$'
+          and exists (select 1 from public.acordos a
+                       where a.numero_ulbra = substr(i.documento,4,5)
+                         and upper(coalesce(a.status,'')) <> 'CANCELADO'));
+
+  -- saldo_corrigido nasce junto, com o MESMO valor de valor_original e
+  -- valor_em_aberto. Sem isto, o titulo fica invisivel para as cinco rotinas
+  -- que leem `coalesce(saldo_corrigido, 0)` no dia em que o acordo for
+  -- cancelado e ele voltar para 'em_aberto'. E o que o borderô ja faz.
+  insert into public.acordos_titulos (aluno_id,cpf,documento,vencimento,valor_original,valor_em_aberto,saldo_corrigido,situacao,status,tipo_boleto,importacao_id)
+  select (select a.id from _al a where a.cpf_n=i.cpf limit 1), i.cpf,i.documento,i.venc,i.valor,i.valor,i.valor,'ABERTO','vinculada','Acordo',p_importacao_id
+  from _imp i
+  where not exists (select 1 from public.acordos_titulos t where t.documento=i.documento)
+    -- ja existe parcela com esse documento: a parcela representa a divida
+    and not exists (select 1 from public.parcelas p where p.boleto = ltrim(i.documento,'0'))
+    -- o acordo ja existe no CRM: as parcelas dele cobrem a divida
+    and not (i.documento ~ '^\d{12}$'
+             and exists (select 1 from public.acordos a
+                          where a.numero_ulbra = substr(i.documento,4,5)
+                            and upper(coalesce(a.status,'')) <> 'CANCELADO'));
+  get diagnostics v_titulos = row_count;
+
+  insert into public.fila_acordos_confirmar (aluno_id,cpf,nome,acordo_base,qtd_parcelas,valor_total,unidade,situacao_aluno,importacao_id)
+  select (select a.id from _al a where a.cpf_n=i.cpf limit 1), i.cpf, max(i.nome), i.acordo_base, count(*), round(sum(coalesce(i.valor,0)),2), max(i.unidade), max(i.situacao), p_importacao_id
+  from _imp i group by i.cpf, i.acordo_base
+  on conflict (cpf,acordo_base) do nothing;
+  get diagnostics v_fila = row_count;
+
+  update public.fila_acordos_confirmar f set qtd_parcelas=a.qtd, valor_total=a.total
+  from (select regexp_replace(coalesce(cpf,''),'\D','','g') cpf_n, left(documento,greatest(length(documento)-2,1)) acordo_base,
+               count(*) qtd, round(sum(coalesce(valor_em_aberto,valor_original,0)),2) total
+        from public.acordos_titulos where importacao_id=p_importacao_id and tipo_boleto='Acordo' group by 1,2) a
+  where regexp_replace(coalesce(f.cpf,''),'\D','','g')=a.cpf_n and f.acordo_base=a.acordo_base;
+
+  -- Acordo novo so nasce se aquele numero da Ulbra ainda nao existe no CRM.
+  insert into public.acordos (aluno_id,cpf,tipo,forma_pagamento,valor_total,qtd_parcelas,status,unidade,saldo,observacao,criado_por_email,criado_por_nome,numero_ulbra,criado_em,atualizado_em)
+  select f.aluno_id,f.cpf,'ACORDO','PARCELADO',f.valor_total,f.qtd_parcelas,'ATIVO',f.unidade,f.valor_total,
+         'Importado do Relatorio de Titulos em Aberto (Acordo) — lote '||p_importacao_id::text,
+         'importacao@sistema','Importacao Acordos', substr(f.acordo_base,4,5), now(),now()
+  from public.fila_acordos_confirmar f
+  where f.importacao_id=p_importacao_id
+    and f.acordo_base ~ '^\d{10}$'
+    and not exists (select 1 from public.acordos a where a.numero_ulbra = substr(f.acordo_base,4,5))
+    and not exists (select 1 from public.acordos a where a.aluno_id=f.aluno_id
+                    and a.valor_total=f.valor_total and a.observacao like '%'||p_importacao_id::text)
+  on conflict do nothing;
+
+  select count(*) into v_dup from public.acordos a
+   where a.duplicado_de is not null and a.observacao like '%'||p_importacao_id::text;
+
+  select count(*) into v_completados
+  from public.completar_parcelas_acordo(
+         p_limite => 100000, p_dry_run => false,
+         p_lote => 'import_'||p_importacao_id::text, p_executado_por=> v_usuario);
+
+  update public.importacoes set qtd_registros=coalesce(qtd_registros,0)+v_titulos where id=p_importacao_id;
+
+  -- 17/09/2026: o pagamento que esperava um destes acordos nao espera a rodada
+  -- das :40. Nao faz nada com a etapa reconstruir_parcela_paga_antes desligada,
+  -- e falha aqui nao derruba a importacao.
+  begin
+    perform public.parcela_paga_antes_apos_importar_acordos(p_importacao_id);
+  exception when others then
+    insert into public.auditoria (usuario, acao, tabela_afetada, registro_id, detalhes)
+    values ('rotina', 'RECONSTRUCAO_POS_IMPORTACAO_ACORDOS_FALHOU', 'importacoes', p_importacao_id,
+            jsonb_build_object('erro', SQLERRM));
+  end;
+  return json_build_object('alunos_novos',v_alunos_novos,'titulos_inseridos',v_titulos,'acordos_na_fila',v_fila,
+                           'acordos_completados',v_completados,'acordos_duplicados_sinalizados',v_dup,
+                           'cpfs_pulados_quitados',v_pulados,'linhas_puladas_quitados',v_linhas_puladas,
+                           'linhas_ja_representadas_no_crm',v_ja_representados,
+                           'importacao_id',p_importacao_id);
+end; 
+$fn$;
+
+-- ---------------------------------------------------------------------------
 -- 7. A ETAPA NASCE DESLIGADA
 -- ---------------------------------------------------------------------------
 insert into public.fluxo_pagamentos_config (etapa, ligado, observacao, alterado_em, alterado_por)
 values ('reconstruir_parcela_paga_antes', false,
-        'DESLIGADA ao entrar (17/09/2026). Recria a parcela paga antes da extracao quando o acordo ja existe no CRM e as 14 evidencias da previa fecham; a baixa continua do motor. Ligar so por decisao da gestao, depois da validacao dos acordos 72113 e 72153.',
+        'DESLIGADA ao entrar (17/09/2026). Recria a parcela paga antes da extracao quando o acordo ja existe no CRM e as 14 evidencias da previa fecham; a baixa continua do motor. Com ela ligada, importacao de pagamentos, importacao de acordos e rodada das :40 usam o mesmo mecanismo. Ligar so por decisao da gestao, depois da validacao dos acordos 72113 e 72153.',
         now(), 'migration_20260917200000')
 on conflict (etapa) do nothing;
 
@@ -681,7 +956,8 @@ begin
   end if;
   if has_function_privilege('authenticated', 'public.parcela_paga_antes_previa(uuid)', 'EXECUTE')
      or has_function_privilege('authenticated', 'public.parcela_paga_antes_reconstruir(uuid,boolean)', 'EXECUTE')
-     or has_function_privilege('authenticated', 'public.parcela_paga_antes_reconstruir_pendentes(integer)', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.parcela_paga_antes_reconstruir_pendentes(integer,uuid[])', 'EXECUTE')
+     or has_function_privilege('authenticated', 'public.parcela_paga_antes_apos_importar_acordos(uuid)', 'EXECUTE')
      or has_function_privilege('anon', 'public.parcela_paga_antes_reconstruir(uuid,boolean)', 'EXECUTE') then
     raise exception 'PROVA: funcao da reconstrucao chamavel de fora';
   end if;
@@ -708,6 +984,11 @@ begin
   select prosrc into v_src from pg_proc where oid = 'public.completar_parcelas_acordo(integer,boolean,text,text)'::regprocedure;
   if v_src not like '%is_entrada,boleto,boleto_confiavel,observacao%' then
     raise exception 'PROVA: completar_parcelas_acordo nao grava boleto_confiavel';
+  end if;
+
+  select prosrc into v_src from pg_proc where oid = 'public.importar_acordos(jsonb,uuid)'::regprocedure;
+  if position('parcela_paga_antes_apos_importar_acordos' in v_src) < position('completar_parcelas_acordo' in v_src) then
+    raise exception 'PROVA: importar_acordos nao completa as parcelas antes de reprocessar';
   end if;
 
   if not exists (select 1 from public.fluxo_pagamentos_config where etapa = 'reconstruir_parcela_paga_antes') then

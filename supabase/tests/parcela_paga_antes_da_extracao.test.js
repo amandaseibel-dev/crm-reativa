@@ -36,13 +36,15 @@ const PRODUCAO = {
   _pagamentos_baixar_lote: "6a0a351ce133c8d5e1ab89050a12f456",
   fluxo_pagamentos_rodar: "8255c8d416683c59ddcaa28b5c5195a2",
   completar_parcelas_acordo: "1e4c6853005940da5048bb5e052f9153",
+  importar_acordos: "1bb69aed2ed0b263ff43009e6b744691",
 };
 
 describe("o que a migration define", () => {
-  it("só as três funções novas e as três trocadas; motor, à vista e reposição ficam de fora", () => {
+  it("só as quatro funções novas e as quatro trocadas; motor, à vista e reposição ficam de fora", () => {
     const nomes = [...MIGRATION.matchAll(/create\s+or\s+replace\s+function\s+public\.(\w+)/gi)].map((m) => m[1]).sort();
-    expect(nomes).toEqual(["_pagamentos_baixar_lote", "completar_parcelas_acordo", "fluxo_pagamentos_rodar",
-      "parcela_paga_antes_previa", "parcela_paga_antes_reconstruir", "parcela_paga_antes_reconstruir_pendentes"]);
+    expect(nomes).toEqual(["_pagamentos_baixar_lote", "completar_parcelas_acordo", "fluxo_pagamentos_rodar", "importar_acordos",
+      "parcela_paga_antes_apos_importar_acordos", "parcela_paga_antes_previa", "parcela_paga_antes_reconstruir",
+      "parcela_paga_antes_reconstruir_pendentes"]);
     expect(semComentario(MIGRATION)).not.toMatch(/function\s+public\.(pagamento_conciliar_um|acordo_avista_\w+|reposicao_\w+|parcelas_amarrar_boleto)\s*\(/i);
     expect(semComentario(MIGRATION)).not.toMatch(/create\s+(or\s+replace\s+)?trigger|alter\s+table|cron\./i);
   });
@@ -55,14 +57,16 @@ describe("o que a migration define", () => {
     expect(semComentario(MIGRATION)).not.toMatch(/update\s+public\.parcelas/i);
     expect(fora).toMatch(/revoke all on function public\.parcela_paga_antes_previa\(uuid\) from public, anon, authenticated;/);
     expect(fora).toMatch(/revoke all on function public\.parcela_paga_antes_reconstruir\(uuid, boolean\) from public, anon, authenticated;/);
-    expect(fora).toMatch(/revoke all on function public\.parcela_paga_antes_reconstruir_pendentes\(integer\) from public, anon, authenticated;/);
+    expect(fora).toMatch(/revoke all on function public\.parcela_paga_antes_reconstruir_pendentes\(integer, uuid\[\]\) from public, anon, authenticated;/);
+    expect(fora).toMatch(/revoke all on function public\.parcela_paga_antes_apos_importar_acordos\(uuid\) from public, anon, authenticated;/);
   });
 });
 
 describe("diff mínimo contra produção", () => {
   it("o rollback carrega os corpos exatos de produção", () => {
     for (const [nome, h] of Object.entries(PRODUCAO)) expect(md5(corpo(ROLLBACK, nome)), nome).toBe(h);
-    expect(ROLLBACK).toMatch(/drop function if exists public\.parcela_paga_antes_reconstruir_pendentes\(integer\);/);
+    expect(ROLLBACK).toMatch(/drop function if exists public\.parcela_paga_antes_apos_importar_acordos\(uuid\);/);
+    expect(ROLLBACK).toMatch(/drop function if exists public\.parcela_paga_antes_reconstruir_pendentes\(integer, uuid\[\]\);/);
     expect(ROLLBACK).toMatch(/drop function if exists public\.parcela_paga_antes_reconstruir\(uuid, boolean\);/);
     expect(ROLLBACK).toMatch(/drop function if exists public\.parcela_paga_antes_previa\(uuid\);/);
   });
@@ -78,6 +82,17 @@ describe("diff mínimo contra produção", () => {
       expect(s.indexOf("parcela_paga_antes_reconstruir_pendentes(50)")).toBeGreaterThan(s.lastIndexOf("baixa_pelo_relatorio_pagamento(true"));
       expect(s).toMatch(/etapa\s*=\s*'reconstruir_parcela_paga_antes'/);
     }
+  });
+
+  it("importar_acordos só ganha o bloco final, depois de completar as parcelas e sem derrubar a importação", () => {
+    const novo = corpo(MIGRATION, "importar_acordos");
+    expect(removidas(corpo(ROLLBACK, "importar_acordos"), novo)).toEqual([]);
+    const s = semComentario(novo);
+    const gancho = s.indexOf("perform public.parcela_paga_antes_apos_importar_acordos(p_importacao_id);");
+    expect(gancho).toBeGreaterThan(s.indexOf("public.completar_parcelas_acordo("));
+    expect(s.slice(s.lastIndexOf("begin", gancho), s.indexOf("return json_build_object(", gancho)))
+      .toMatch(/^begin\s+perform public\.parcela_paga_antes_apos_importar_acordos\(p_importacao_id\);\s+exception when others then\s+insert into public\.auditoria/);
+    expect(MIGRATION).toMatch(/create or replace function public\.importar_acordos\(p_linhas jsonb, p_importacao_id uuid\)\n returns json\n language plpgsql\n security definer\n set search_path to 'public'\n set statement_timeout to '180000'\nas \$fn\$/);
   });
 
   it("completar_parcelas_acordo só troca o INSERT e o SELECT para gravar boleto_confiavel com a guarda do prefixo", () => {
@@ -112,7 +127,29 @@ describe("a reconstrução não baixa por conta própria", () => {
     expect(r.indexOf("pg_advisory_xact_lock")).toBeLessThan(r.lastIndexOf("public.parcela_paga_antes_previa(p_pagamento_id)"));
 
     const p = semComentario(corpo(MIGRATION, "parcela_paga_antes_reconstruir_pendentes"));
-    expect(p.match(/\b(insert\s+into|update|delete\s+from)\s+public\.\w+/gi)).toEqual(["insert into public.auditoria"]);
+    expect(p.match(/\b(insert\s+into|update|delete\s+from)\s+public\.\w+/gi)).toEqual([
+      "update public.fila_pagamento_sem_vinculo", "update public.fila_pagamento_sem_vinculo", "insert into public.auditoria"]);
+    // na fila, so o motivo, e so linha sem decisao quando e recusa
+    expect(p.match(/update public\.fila_pagamento_sem_vinculo f\s+set motivo = [^;]*?\s+where f\.pagamento_id = v_id\s+and /g)).toHaveLength(2);
+    expect(p).not.toMatch(/set\s+(decisao|status_conciliacao|decidido_\w+|observacao)\b/i);
+    expect(p).toMatch(/and f\.decisao is null\s+and not starts_with\(f\.motivo, v_prefixo\);/);
     expect(p).toMatch(/public\.parcela_paga_antes_reconstruir\(v_id, true\)/);
+
+    const h = semComentario(corpo(MIGRATION, "parcela_paga_antes_apos_importar_acordos"));
+    expect(h.match(/\b(insert\s+into|update|delete\s+from)\s+public\.\w+/gi)).toBeNull();
+    expect(h.match(/public\.pagamento_conciliar_um\(v_id, true\)/g)).toHaveLength(1);
+    expect(h).toMatch(/public\.parcela_paga_antes_reconstruir_pendentes\(50, v_acordos\)/);
+    expect(h.indexOf("etapa = 'reconstruir_parcela_paga_antes'")).toBeLessThan(h.indexOf("return jsonb_build_object('ligado', false)"));
+    expect(h.indexOf("etapa = 'baixa_pelo_relatorio'")).toBeLessThan(h.indexOf("public.pagamento_conciliar_um("));
+  });
+
+  it("a prévia devolve um diagnóstico com código estável e descrição curta, sem barra vertical", () => {
+    const previa = corpo(MIGRATION, "parcela_paga_antes_previa");
+    const mapa = [...previa.matchAll(/\((\d+), '([A-Z_]+)', '(PARCELA_PAGA_ANTES_[A-Z_]+)', '([^']+)'\)/g)];
+    expect(mapa.map((m) => Number(m[1]))).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]);
+    const validacoes = [...previa.matchAll(/\((\d+), '([A-Z_]+)',\n/g)].map((m) => m[2]).sort();
+    expect(mapa.map((m) => m[2]).sort()).toEqual(validacoes);
+    for (const m of mapa) expect(m[4]).not.toContain("|");
+    expect(previa).toContain("'diagnostico', (select jsonb_build_object('codigo', diag.codigo, 'descricao', diag.descricao) from diag)");
   });
 });

@@ -5,8 +5,9 @@
 // gatilhos de parcela e acordo, previa -- corpos de PRODUCAO conferidos por md5)
 // e acrescenta o caminho da importacao: `trg_pagamento_conciliar` por linha,
 // `_pagamentos_baixar_lote` por comando, `baixa_pelo_relatorio_pagamento`,
-// `conciliacao_reprocessar` e `fluxo_pagamentos_rodar`. As tres funcoes que a
-// migration troca entram no estado de producao pelo PROPRIO rollback.
+// `conciliacao_reprocessar`, `fluxo_pagamentos_rodar` e `importar_acordos`. As
+// quatro funcoes que a migration troca entram no estado de producao pelo
+// PROPRIO rollback.
 //
 // NENHUM DADO REAL: nomes, CPFs e matriculas sao inventados; os numeros dos
 // acordos e os valores sao os dos casos de referencia 72113 e 72153.
@@ -193,6 +194,18 @@ export async function montarBase() {
     create function public.sistema_sob_carga() returns jsonb language sql as $$ select '{"sob_carga": false}'::jsonb $$;
     create function public.baixa_por_documento_aplicar(p_desde date, p_confirmar boolean) returns jsonb language sql as $$ select '{}'::jsonb $$;
     create function public.conciliacao_consultar_portador_pendentes(p_limite integer default 5) returns jsonb language sql as $$ select '{}'::jsonb $$;
+
+    -- importar_acordos (corpo de producao, pelo rollback)
+    alter table public.alunos add column if not exists situacao_academica text, add column if not exists tipo_base text,
+      add column if not exists origem text, add column if not exists observacao text;
+    alter table public.importacoes add column if not exists tipo text, add column if not exists referencia text,
+      add column if not exists usuario text, add column if not exists status text, add column if not exists retroativo boolean,
+      add column if not exists qtd_registros int, add column if not exists created_at timestamptz default now();
+    alter table public.acordos_titulos alter column id set default gen_random_uuid();
+    create table public.casos (id uuid primary key default gen_random_uuid(), aluno_id uuid, quitado_em timestamptz);
+    create table public.fila_acordos_confirmar (id bigserial primary key, aluno_id uuid, cpf text, nome text, acordo_base text,
+      qtd_parcelas int, valor_total numeric, unidade text, situacao_aluno text, importacao_id uuid, unique (cpf, acordo_base));
+    create function public.app_pode_borderos_importacoes() returns boolean language sql as $$ select true $$;
   `);
   for (const [nome, f] of Object.entries(PRODUCAO)) {
     if (md5(f.corpo) !== f.md5) throw new Error(`corpo de producao alterado na fixture: ${nome}`);
@@ -202,7 +215,7 @@ export async function montarBase() {
     as $b$${PRODUCAO.baixa_pelo_relatorio_pagamento.corpo}$b$`);
   await db.exec(REPROCESSAR);
   await db.exec(GATILHO_CONCILIAR);
-  // estado de PRODUCAO de _pagamentos_baixar_lote, fluxo_pagamentos_rodar e completar_parcelas_acordo
+  // estado de PRODUCAO de _pagamentos_baixar_lote, fluxo_pagamentos_rodar, completar_parcelas_acordo e importar_acordos
   await db.exec(ROLLBACK_NOVA);
   await db.exec(`
     create trigger trg_pagamento_conciliar after insert on public.pagamentos

@@ -152,60 +152,61 @@ describe("reprocessar duas vezes não duplica nada", () => {
 });
 
 // Cada evidencia falhando SOZINHA: nada e criado, o pagamento continua em
-// Pagamentos a conciliar e o motivo sai da previa e do lote.
+// Pagamentos a conciliar e o motivo (codigo estavel + descricao curta) vai para
+// fila_pagamento_sem_vinculo.motivo, o "por que caiu aqui" da tela.
 const EVIDENCIAS = [
-  ["PAGAMENTO_PENDENTE", "decisão já registrada na fila", {},
+  ["PAGAMENTO_PENDENTE", "PARCELA_PAGA_ANTES_PAGAMENTO_NAO_PENDENTE", "decisão já registrada na fila", {},
     (db, pid) => db.query(`update public.fila_pagamento_sem_vinculo set decisao = 'MANTER_EM_REVISAO', decidido_por = 'gestao' where pagamento_id = $1`, [pid])],
-  ["PAGAMENTO_PENDENTE", "pagamento estornado", { dadosExtra: { estornado_em: "2026-09-17" } }],
-  ["ALUNO_IDENTIFICADO", "homônimo na base", {},
+  ["PAGAMENTO_PENDENTE", "PARCELA_PAGA_ANTES_PAGAMENTO_NAO_PENDENTE", "pagamento estornado", { dadosExtra: { estornado_em: "2026-09-17" } }],
+  ["ALUNO_IDENTIFICADO", "PARCELA_PAGA_ANTES_ALUNO_DIVERGENTE", "homônimo na base", {},
     (db) => db.query(`insert into public.alunos (id, nome, cpf, status_atual) values (gen_random_uuid(), 'ALUNA DE TESTE UM', '70000000001', 'EM_COBRANCA')`)],
-  ["ALUNO_IDENTIFICADO", "matrícula aponta dois CPFs", {},
+  ["ALUNO_IDENTIFICADO", "PARCELA_PAGA_ANTES_ALUNO_DIVERGENTE", "matrícula aponta dois CPFs", {},
     (db) => db.query(`insert into public.prime_contratos (cpf, registration) values ('70000000002', '2026001113')`)],
-  ["ALUNO_IDENTIFICADO", "pagamento já ligado a outro aluno", {},
+  ["ALUNO_IDENTIFICADO", "PARCELA_PAGA_ANTES_ALUNO_DIVERGENTE", "pagamento já ligado a outro aluno", {},
     async (db, pid) => {
       await db.query(`insert into public.alunos (id, nome, cpf, status_atual) values ('00000000-0000-4000-8000-000000000001', 'OUTRA PESSOA', '70000000003', 'EM_COBRANCA')`);
       await db.query(`update public.pagamentos set aluno_id = '00000000-0000-4000-8000-000000000001' where id = $1`, [pid]);
     }],
-  ["NUMERO_DO_ACORDO_CONFERE", "número do acordo no arquivo diferente do boleto", { tituloNumero: "72114" }],
-  ["PREFIXO_DO_BOLETO_CONFERE", "parcela importada com prefixo de outro acordo", {},
+  ["NUMERO_DO_ACORDO_CONFERE", "PARCELA_PAGA_ANTES_NUMERO_DIVERGENTE", "número do acordo no arquivo diferente do boleto", { tituloNumero: "72114" }],
+  ["PREFIXO_DO_BOLETO_CONFERE", "PARCELA_PAGA_ANTES_PREFIXO_DIVERGENTE", "parcela importada com prefixo de outro acordo", {},
     (db, _pid, acordoId) => db.query(`update public.parcelas set boleto = '50799990005' where acordo_id = $1 and boleto = '50721130005'`, [acordoId])],
-  ["BOLETO_SEM_PARCELA", "o boleto já está numa parcela (de outro acordo)", {},
+  ["BOLETO_SEM_PARCELA", "PARCELA_PAGA_ANTES_BOLETO_JA_TEM_PARCELA", "o boleto já está numa parcela (de outro acordo)", {},
     async (db) => {
       const outro = await um(db, `insert into public.acordos (aluno_id, numero_ulbra, status, valor_total, qtd_parcelas, criado_por_email)
                                   values (gen_random_uuid(), '70001', 'CANCELADO', 2000, 1, 'importacao@sistema') returning id`);
       await db.query(`insert into public.parcelas (acordo_id, numero, valor, vencimento, boleto, status) values ($1, 1, 2000, '2026-09-18', '50721130001', 'CANCELADA')`, [outro]);
     }],
-  ["ACORDO_IMPORTADO_E_ATIVO", "acordo lançado à mão", { criadoPor: "cobranca12@aelbra.com.br" }],
-  ["IMPORTADO_NO_DIA_DO_PAGAMENTO_OU_DEPOIS", "acordo importado antes do pagamento", { importadoEm: "2026-09-10 12:00:00+00" }],
-  ["ESTRUTURA_IMPORTADA_INTACTA", "acordo diz 5 parcelas e vieram 4", { qtd: 5 }],
-  ["ESTRUTURA_IMPORTADA_INTACTA", "total do acordo diferente da soma", { valorTotal: 3400 }],
-  ["SEQUENCIA_COERENTE", "buraco na sequência importada", { pular: [3] }],
-  ["SEQUENCIA_COERENTE", "vencimento fora de ordem", {},
+  ["ACORDO_IMPORTADO_E_ATIVO", "PARCELA_PAGA_ANTES_ACORDO_NAO_IMPORTADO", "acordo lançado à mão", { criadoPor: "cobranca12@aelbra.com.br" }],
+  ["IMPORTADO_NO_DIA_DO_PAGAMENTO_OU_DEPOIS", "PARCELA_PAGA_ANTES_ACORDO_JA_EXISTIA", "acordo importado antes do pagamento", { importadoEm: "2026-09-10 12:00:00+00" }],
+  ["ESTRUTURA_IMPORTADA_INTACTA", "PARCELA_PAGA_ANTES_ESTRUTURA_INCOMPATIVEL", "acordo diz 5 parcelas e vieram 4", { qtd: 5 }],
+  ["ESTRUTURA_IMPORTADA_INTACTA", "PARCELA_PAGA_ANTES_ESTRUTURA_INCOMPATIVEL", "total do acordo diferente da soma", { valorTotal: 3400 }],
+  ["SEQUENCIA_COERENTE", "PARCELA_PAGA_ANTES_SEQUENCIA_INCOERENTE", "buraco na sequência importada", { pular: [3] }],
+  ["SEQUENCIA_COERENTE", "PARCELA_PAGA_ANTES_SEQUENCIA_INCOERENTE", "vencimento fora de ordem", {},
     (db, _pid, acordoId) => db.query(`update public.parcelas set vencimento = '2026-12-25' where acordo_id = $1 and boleto = '50721130003'`, [acordoId])],
-  ["PARCELA_IMEDIATAMENTE_ANTERIOR", "falta mais de uma parcela antes da primeira importada", { primeiroSufixo: 3 }],
-  ["PARCELA_IMEDIATAMENTE_ANTERIOR", "boleto depois da última importada", { boleto: "50721130006", vencEntrada: "2026-09-18" }],
-  ["VENCIMENTO_ANTERIOR_A_PRIMEIRA", "vencimento igual ao da primeira importada", { vencEntrada: "2026-10-18" }],
-  ["VENCIMENTO_ANTERIOR_A_PRIMEIRA", "arquivo sem vencimento", { vencEntrada: null }],
-  ["VALOR_COMPATIVEL", "pago acima de +15%", { valorPago: 2400 }],
-  ["VALOR_COMPATIVEL", "pago abaixo do boleto", { valorPago: 1990 }],
-  ["VALOR_COMPATIVEL", "arquivo sem valor do boleto", { valorOriginal: null }],
-  ["SEM_OUTRA_CANDIDATA", "dois pagamentos com o mesmo boleto", {},
+  ["PARCELA_IMEDIATAMENTE_ANTERIOR", "PARCELA_PAGA_ANTES_BOLETO_NAO_SEQUENCIAL", "falta mais de uma parcela antes da primeira importada", { primeiroSufixo: 3 }],
+  ["PARCELA_IMEDIATAMENTE_ANTERIOR", "PARCELA_PAGA_ANTES_BOLETO_NAO_SEQUENCIAL", "boleto depois da última importada", { boleto: "50721130006", vencEntrada: "2026-09-18" }],
+  ["VENCIMENTO_ANTERIOR_A_PRIMEIRA", "PARCELA_PAGA_ANTES_VENCIMENTO_INCOMPATIVEL", "vencimento igual ao da primeira importada", { vencEntrada: "2026-10-18" }],
+  ["VENCIMENTO_ANTERIOR_A_PRIMEIRA", "PARCELA_PAGA_ANTES_VENCIMENTO_INCOMPATIVEL", "arquivo sem vencimento", { vencEntrada: null }],
+  ["VALOR_COMPATIVEL", "PARCELA_PAGA_ANTES_VALOR_INCOMPATIVEL", "pago acima de +15%", { valorPago: 2400 }],
+  ["VALOR_COMPATIVEL", "PARCELA_PAGA_ANTES_VALOR_INCOMPATIVEL", "pago abaixo do boleto", { valorPago: 1990 }],
+  ["VALOR_COMPATIVEL", "PARCELA_PAGA_ANTES_VALOR_INCOMPATIVEL", "arquivo sem valor do boleto", { valorOriginal: null }],
+  ["SEM_OUTRA_CANDIDATA", "PARCELA_PAGA_ANTES_OUTRA_CANDIDATA", "dois pagamentos com o mesmo boleto", {},
     (db) => pagarEntrada(db, "72113", { pagamentoId: "00000000-0000-4000-9000-000000000998" })],
-  ["SEM_OUTRA_CANDIDATA", "parcela sem boleto em outro acordo do aluno", {},
+  ["SEM_OUTRA_CANDIDATA", "PARCELA_PAGA_ANTES_OUTRA_CANDIDATA", "parcela sem boleto em outro acordo do aluno", {},
     async (db) => {
       const outro = await um(db, `insert into public.acordos (aluno_id, numero_ulbra, status, valor_total, qtd_parcelas, criado_por_email)
                                   values ($1, '55557', 'ATIVO', 500, 1, 'importacao@sistema') returning id`, [CASOS["72113"].aluno]);
       await db.query(`insert into public.parcelas (acordo_id, numero, valor, vencimento, status) values ($1, 1, 500, '2026-11-10', 'A_VENCER')`, [outro]);
     }],
-  ["SEM_BAIXA_INCOMPATIVEL", "parcela importada paga sem o pagamento do próprio boleto", {},
+  ["SEM_BAIXA_INCOMPATIVEL", "PARCELA_PAGA_ANTES_BAIXA_INCOMPATIVEL", "parcela importada paga sem o pagamento do próprio boleto", {},
     (db, _pid, acordoId) => db.query(`update public.parcelas set status = 'PAGO', confirmado_por_email = 'gestao' where acordo_id = $1 and boleto = '50721130002'`, [acordoId])],
-  ["SEM_BAIXA_INCOMPATIVEL", "baixa manual registrada no acordo", {},
+  ["SEM_BAIXA_INCOMPATIVEL", "PARCELA_PAGA_ANTES_BAIXA_INCOMPATIVEL", "baixa manual registrada no acordo", {},
     (db, _pid, acordoId) => db.query(`insert into public.baixas_pagamento (parcela_id, baixado_por_email, baixado_em)
                                       select id, 'gestao', now() from public.parcelas where acordo_id = $1 and boleto = '50721130004'`, [acordoId])],
 ];
 
 describe("evidência que falha: não cria e deixa em Pagamentos a conciliar", () => {
-  it.each(EVIDENCIAS)("%s — %s", async (codigo, _nome, opcoes, preparar) => {
+  it.each(EVIDENCIAS)("%s → %s — %s", async (codigo, diagnostico, _nome, opcoes, preparar) => {
     const { db, acordoId, pid } = await cenario("72113", opcoes);
     if (preparar) await preparar(db, pid, acordoId);
     const parcelasAntes = await linhas(db, `select * from public.parcelas order by id`);
@@ -216,6 +217,8 @@ describe("evidência que falha: não cria e deixa em Pagamentos a conciliar", ()
     expect(r).toMatchObject({ ok: false, modo: "RECUSADO", gravou: false, aprovado: false });
     expect(r.bloqueios).toEqual([codigo]);
     expect(r.validacoes.find((v) => v.codigo === codigo)).toMatchObject({ ok: false });
+    expect(r.diagnostico.codigo).toBe(diagnostico);
+    expect(r.diagnostico.descricao).toMatch(/^[a-z][^|]{10,80}$/);
     expect(await foto(db)).toEqual(antes);
 
     // com a etapa ligada, nem o lote nem a rodada horaria criam nada
@@ -227,8 +230,36 @@ describe("evidência que falha: não cria e deixa em Pagamentos a conciliar", ()
     expect((await pagamento(db, pid)).status_conciliacao).not.toBe("BAIXADO");
     expect((await fila(db, pid))?.decisao ?? null).toBe(codigo === "PAGAMENTO_PENDENTE" && preparar ? "MANTER_EM_REVISAO" : null);
     expect(await um(db, `select count(*)::int from public.auditoria where acao like 'RECONSTRUCAO%'`)).toBe(0);
-    // o motivo da recusa sai no resultado do lote (quando o pagamento e elegivel a avaliacao)
-    if (lote.avaliados > 0) expect(lote.recusados_por_motivo[codigo]).toBeGreaterThanOrEqual(1);
+    // o motivo da recusa: no resultado do lote e na fila, uma vez so, na frente do texto
+    // do motor -- depois do lote E de uma rodada horaria (o motor reescreve, a etapa repoe)
+    const motivo = await um(db, `select motivo from public.fila_pagamento_sem_vinculo where pagamento_id = $1`, [pid]);
+    const foraDoAlcance = ["decisão já registrada na fila", "o boleto já está numa parcela (de outro acordo)"].includes(_nome);
+    expect(lote.avaliados > 0).toBe(!foraDoAlcance);
+    if (lote.avaliados > 0) {
+      expect(lote.recusados_por_motivo[diagnostico]).toBeGreaterThanOrEqual(1);
+      expect(motivo.startsWith(`${diagnostico}: ${r.diagnostico.descricao} | `)).toBe(true);
+      expect(motivo.match(/PARCELA_PAGA_ANTES_/g)).toHaveLength(1);
+    } else if (motivo !== undefined) {
+      // fora do alcance da etapa (decisao ja tomada, boleto ja em parcela): a fila nao e tocada
+      expect(motivo).not.toMatch(/PARCELA_PAGA_ANTES_/);
+    }
+  }, T);
+});
+
+describe("motivo na fila", () => {
+  it("sai sozinho quando a recusa deixa de existir e a parcela é reconstruída", async () => {
+    const { db, acordoId, pid } = await cenario("72113", { valorTotal: 3400 });
+    await ligarEtapa(db);
+    await pendentes(db);
+    const motivo = () => um(db, `select motivo from public.fila_pagamento_sem_vinculo where pagamento_id = $1`, [pid]);
+    expect(await motivo()).toBe("PARCELA_PAGA_ANTES_ESTRUTURA_INCOMPATIVEL: parcelas do acordo nao batem com quantidade e total"
+      + " | o acordo 072113 esta no CRM e nao tem parcela livre para receber o boleto 50721130001 | 1 sugestao(oes) por nome, para conferencia humana");
+
+    // a gestao corrige o total; a proxima passada reconstroi e limpa o diagnostico
+    await db.query(`update public.acordos set valor_total = 3356.23 where id = $1`, [acordoId]);
+    expect(await pendentes(db)).toMatchObject({ reconstruidas: 1 });
+    expect(await fila(db, pid)).toMatchObject({ decisao: "RESOLVIDO_AUTOMATICO" });
+    expect(await motivo()).toBe("o acordo 072113 esta no CRM e nao tem parcela livre para receber o boleto 50721130001 | 1 sugestao(oes) por nome, para conferencia humana");
   }, T);
 });
 
@@ -300,6 +331,81 @@ describe("importação de pagamentos e rodada horária", () => {
     const antes = await foto(db);
     await expect(reconstruir(db, pid, true)).rejects.toThrow(/RECONSTRUCAO_ABORTADA/);
     expect(await foto(db)).toEqual(antes);
+  }, T);
+});
+
+describe("importação de acordos: quem esperava o acordo não espera a rodada das :40", () => {
+  const IMPORTACAO = "00000000-0000-4000-a000-000000072113";
+  async function antesDoAcordo(db) {
+    const c = CASOS["72113"];
+    await db.query(`insert into public.usuarios (nome, email, perfil, ativo) values ('Operadora', $1, 'operador', true)`, [c.operador]);
+    await db.query(`insert into public.alunos (id, nome, cpf, cpf_mascarado, matricula, unidade, status_atual, responsavel_atual_email, saldo_total)
+                    values ($1, $2, $3, '***', $4, 'CANOAS', 'AGUARDANDO_BAIXA', $5, 0)`, [c.aluno, c.nome, c.cpf, c.matricula, c.operador]);
+    await db.query(`insert into public.prime_contratos (cpf, registration) values ($1, $2)`, [c.cpf, c.matricula]);
+    // a entrada, paga antes da extracao, e a 0002, paga depois dela: os dois chegam antes do acordo
+    const entrada = await pagarEntrada(db, "72113");
+    const segunda = await pagarEntrada(db, "72113", { boleto: boletoDe("72113", 2), vencEntrada: "2026-10-18", valorOriginal: 839.05,
+      valorPago: 839.05, dataPagamento: "2026-09-17", pagamentoId: "00000000-0000-4000-9000-000000000002" });
+    for (const pid of [entrada, segunda]) expect((await pagamento(db, pid)).status_conciliacao).toBe("AGUARDANDO_ACORDO");
+    return { entrada, segunda };
+  }
+  const importar = (db) => um(db, `select public.importar_acordos($1::jsonb, $2)`, [JSON.stringify(
+    CASOS["72113"].parcelas.map((valor, i) => ({ cpf: CASOS["72113"].cpf, nome: CASOS["72113"].nome, documento: "0" + boletoDe("72113", i + 2),
+      venc: `20${26 + Math.floor((9 + i) / 12)}-${String(((9 + i) % 12) + 1).padStart(2, "0")}-18`, valor, unidade: "CANOAS", situacao: "Ativo" }))), IMPORTACAO]);
+  const acordo72113 = (db) => um(db, `select id from public.acordos where numero_ulbra = '72113'`);
+
+  it("etapa ligada: o próprio import do acordo baixa a 0002 e reconstrói a entrada", async () => {
+    const db = await novoBanco({ etapaLigada: true });
+    const { entrada, segunda } = await antesDoAcordo(db);
+    const r = await importar(db);
+    expect(r).toMatchObject({ acordos_completados: 1 });
+
+    const acordoId = await acordo72113(db);
+    expect(await acordo(db, acordoId)).toMatchObject({ qtd_parcelas: 5, valor_total: 5356.23, status: "ATIVO" });
+    expect(await linhas(db, `select boleto, status, boleto_confiavel from public.parcelas where acordo_id = $1 order by boleto`, [acordoId])).toEqual([
+      { boleto: boletoDe("72113", 1), status: "PAGO", boleto_confiavel: true },
+      { boleto: boletoDe("72113", 2), status: "PAGO", boleto_confiavel: true },
+      { boleto: boletoDe("72113", 3), status: "A_VENCER", boleto_confiavel: true },
+      { boleto: boletoDe("72113", 4), status: "A_VENCER", boleto_confiavel: true },
+      { boleto: boletoDe("72113", 5), status: "A_VENCER", boleto_confiavel: true },
+    ]);
+    for (const pid of [entrada, segunda]) {
+      expect(await pagamento(db, pid)).toEqual({ status_conciliacao: "BAIXADO", conciliacao_motivo: null });
+      expect((await fila(db, pid)).decisao).toBe("RESOLVIDO_AUTOMATICO");
+    }
+    expect(await um(db, `select string_agg(acao, ',' order by acao) from public.auditoria`)).toBe("RECONSTRUCAO_PARCELA_PAGA_ANTES_DA_EXTRACAO");
+  }, T);
+
+  it("baixa_pelo_relatorio pausada: o motor não roda para a 0002; a reconstrução, com chave própria, segue", async () => {
+    const db = await novoBanco({ etapaLigada: true });
+    await db.query(`update public.fluxo_pagamentos_config set ligado = false where etapa = 'baixa_pelo_relatorio'`);
+    const { entrada, segunda } = await antesDoAcordo(db);
+    await importar(db);
+    expect((await pagamento(db, segunda)).status_conciliacao).toBe("AGUARDANDO_ACORDO");
+    expect((await pagamento(db, entrada)).status_conciliacao).toBe("BAIXADO");
+  }, T);
+
+  it("etapa desligada: a importação de acordos segue como em produção hoje", async () => {
+    const db = await novoBanco();
+    const { entrada, segunda } = await antesDoAcordo(db);
+    await importar(db);
+    const acordoId = await acordo72113(db);
+    expect(await acordo(db, acordoId)).toMatchObject({ qtd_parcelas: 4, valor_total: 3356.23 });
+    for (const pid of [entrada, segunda]) expect((await pagamento(db, pid)).status_conciliacao).toBe("AGUARDANDO_ACORDO");
+    expect(await um(db, `select count(*)::int from public.auditoria`)).toBe(0);
+  }, T);
+
+  it("falha no reprocessamento não derruba a importação e fica registrada", async () => {
+    const db = await novoBanco({ etapaLigada: true });
+    const { entrada, segunda } = await antesDoAcordo(db);
+    await db.exec(`create or replace function public.parcela_paga_antes_reconstruir_pendentes(p_limite integer default 50, p_acordo_ids uuid[] default null)
+                   returns jsonb language plpgsql as $$ begin raise exception 'falha simulada'; end $$;`);
+    expect(await importar(db)).toMatchObject({ acordos_completados: 1 });
+    expect(await acordo(db, await acordo72113(db))).toMatchObject({ qtd_parcelas: 4, valor_total: 3356.23 });
+    // o bloco inteiro volta: nem a baixa da 0002 fica pela metade
+    for (const pid of [entrada, segunda]) expect((await pagamento(db, pid)).status_conciliacao).toBe("AGUARDANDO_ACORDO");
+    expect(await linhas(db, `select acao, registro_id, detalhes->>'erro' as erro from public.auditoria`))
+      .toEqual([{ acao: "RECONSTRUCAO_POS_IMPORTACAO_ACORDOS_FALHOU", registro_id: IMPORTACAO, erro: "falha simulada" }]);
   }, T);
 });
 
@@ -385,13 +491,14 @@ describe("instalação e rollback", () => {
     _pagamentos_baixar_lote: "6a0a351ce133c8d5e1ab89050a12f456",
     fluxo_pagamentos_rodar: "8255c8d416683c59ddcaa28b5c5195a2",
     completar_parcelas_acordo: "1e4c6853005940da5048bb5e052f9153",
+    importar_acordos: "1bb69aed2ed0b263ff43009e6b744691",
     pagamento_conciliar_um: "fa3d64add73e0e73e587e16f0c0624d1",
     acordo_avista_previa: "9e062e7600cd7b04a17fb9db65469bfe",
   };
   const corpos = async (db) => Object.fromEntries((await linhas(db,
     `select p.proname, md5(p.prosrc) as h from pg_proc p join pg_namespace n on n.oid = p.pronamespace
       where n.nspname = 'public' and p.proname = any($1)`, [[...Object.keys(MD5_PRODUCAO), "parcela_paga_antes_previa",
-      "parcela_paga_antes_reconstruir", "parcela_paga_antes_reconstruir_pendentes"]])).map((r) => [r.proname, r.h]));
+      "parcela_paga_antes_reconstruir", "parcela_paga_antes_reconstruir_pendentes", "parcela_paga_antes_apos_importar_acordos"]])).map((r) => [r.proname, r.h]));
 
   it("sem o patch a bancada está no estado de produção; o patch não toca motor nem prévia do à vista", async () => {
     const semPatch = await corpos(await novoBanco({ patch: false }));
@@ -399,12 +506,13 @@ describe("instalação e rollback", () => {
     const comPatch = await corpos(await novoBanco());
     expect(comPatch.pagamento_conciliar_um).toBe(MD5_PRODUCAO.pagamento_conciliar_um);
     expect(comPatch.acordo_avista_previa).toBe(MD5_PRODUCAO.acordo_avista_previa);
-    expect(Object.keys(comPatch)).toHaveLength(8);
+    expect(Object.keys(comPatch)).toHaveLength(10);
   }, T);
 
   it("as funções novas não são chamáveis por anon nem authenticated; a migration roda de novo sem erro", async () => {
     const db = await novoBanco();
-    for (const f of ["parcela_paga_antes_previa(uuid)", "parcela_paga_antes_reconstruir(uuid,boolean)", "parcela_paga_antes_reconstruir_pendentes(integer)"]) {
+    for (const f of ["parcela_paga_antes_previa(uuid)", "parcela_paga_antes_reconstruir(uuid,boolean)",
+      "parcela_paga_antes_reconstruir_pendentes(integer,uuid[])", "parcela_paga_antes_apos_importar_acordos(uuid)"]) {
       for (const papel of ["anon", "authenticated"]) {
         expect(await um(db, `select has_function_privilege($1, $2, 'EXECUTE')`, [papel, `public.${f}`])).toBe(false);
       }
@@ -413,7 +521,7 @@ describe("instalação e rollback", () => {
     expect(await um(db, `select count(*)::int from public.fluxo_pagamentos_config where etapa = 'reconstruir_parcela_paga_antes'`)).toBe(1);
   }, T);
 
-  it("rollback devolve os três corpos de produção e remove as funções novas", async () => {
+  it("rollback devolve os quatro corpos de produção e remove as funções novas", async () => {
     const db = await novoBanco();
     await db.exec(ROLLBACK_NOVA);
     expect(await corpos(db)).toEqual(MD5_PRODUCAO);
