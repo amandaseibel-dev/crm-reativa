@@ -9,6 +9,7 @@
 //   4. ausência não explicada e diferença acima da margem segura (1,15)
 //      bloqueiam, sem campo nenhum de liberação manual;
 //   5. recusa do banco na confirmação não vira sucesso na tela.
+//   6. o CPF aparece mascarado: o número completo não chega ao DOM.
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
 
@@ -23,7 +24,8 @@ const PREVIA_OK = {
   ok: true, modo: "SIMULACAO", gravou: false, aprovado: true, bloqueios: [],
   pagamento: { id: "p1", boleto: "50720660001", matricula: "2023000752", nome_no_arquivo: "Maria da Silva",
     valor_pago: 1236.38, data_pagamento: "2026-09-15", vencimento: "2026-09-18", operador_email: "cobranca11@aelbra.com.br" },
-  aluno: { id: "a1", nome: "Maria da Silva", cpf_mascarado: "***.826.041-**" },
+  // em produção esta coluna chega com o CPF completo, apesar do nome
+  aluno: { id: "a1", nome: "Maria da Silva", cpf_mascarado: "123.456.789-09" },
   boleto: { numero_ulbra: "72066", parcela: "0001", evidencia_existia_antes: null },
   acordo_a_criar: { numero_ulbra: "72066", valor_total: 1236.38, operador_responsavel_nome: "Allan",
     operador_responsavel_email: "cobranca11@aelbra.com.br" },
@@ -83,6 +85,18 @@ describe("Registrar acordo à vista", () => {
     expect(screen.getByText(/Decisão da gestão: quais mensalidades/)).toBeTruthy();
     expect(screen.getByText(/Simulação aprovada\. Nada foi gravado ainda\./)).toBeTruthy();
     expect(screen.getByRole("button", { name: "Confirmar registro" }).disabled).toBe(false);
+  });
+
+  it("o CPF aparece mascarado e o número completo não chega ao DOM", async () => {
+    responder(PREVIA_OK);
+    const { container } = await act(async () => render(<RegistrarAcordoAvista item={ITEM} onFechar={() => {}} />));
+
+    expect(screen.getByText("***.***.***-09")).toBeTruthy();
+    const html = container.ownerDocument.body.innerHTML;
+    expect(html).not.toContain("123.456.789-09");
+    expect(html).not.toContain("123.456.789");
+    expect(html).not.toContain("456.789");
+    expect(html).not.toContain("12345678909");
   });
 
   it("mudar a escolha refaz a simulação, e a recusa desabilita a confirmação", async () => {

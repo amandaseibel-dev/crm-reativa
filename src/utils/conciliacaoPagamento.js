@@ -82,6 +82,39 @@ export const TRAVAS_AGUARDANDO_ACORDO = {
     explica: "um acordo de número maior já veio antes do dia do pagamento: este acordo existia e não apareceu no relatório. Fora do fluxo normal",
     acao: null,
   },
+  // A PREVIA RECUSOU (17/09/2026). A trava vem do banco com o motivo que a
+  // propria previa do registro deu; a tela so traduz o codigo. Nenhuma destas
+  // tem acao: oferecer "Registrar" aqui seria oferecer o que o registro recusa.
+  ACORDO_AVISTA_FORA_DA_MARGEM: {
+    rotulo: "Aluno identificado · acordo não encontrado · valor fora da margem segura",
+    explica: "o valor pago excede a margem segura sobre as mensalidades em aberto: a simulação recusa o registro",
+    acao: null,
+  },
+  ACORDO_AVISTA_ALUNO_ENCERRADO: {
+    rotulo: "Aluno identificado · acordo não encontrado · aluno já encerrado",
+    explica: "o aluno já foi encerrado (quitado, baixa realizada ou saldo zero confirmado): abrir acordo nele não cabe neste fluxo",
+    acao: null,
+  },
+  ACORDO_AVISTA_OPERADOR_NAO_CADASTRADO: {
+    rotulo: "Aluno identificado · acordo não encontrado · operador do pagamento não cadastrado",
+    explica: "a recuperação depende de cadastrar ou resolver o operador do pagamento, que fica com o crédito do acordo",
+    acao: null,
+  },
+  ACORDO_AVISTA_SEM_MENSALIDADE_ELEGIVEL: {
+    rotulo: "Aluno identificado · acordo não encontrado · nenhuma mensalidade elegível em aberto",
+    explica: "o aluno não tem mensalidade em aberto e livre para este acordo quitar",
+    acao: null,
+  },
+  ACORDO_AVISTA_SEM_COMBINACAO_SEGURA: {
+    rotulo: "Aluno identificado · acordo não encontrado · sem combinação segura de mensalidades",
+    explica: "as mensalidades em aberto passam do valor pago: não há combinação segura para registrar",
+    acao: null,
+  },
+  ACORDO_AVISTA_OUTRO_BLOQUEIO: {
+    rotulo: "Aluno identificado · acordo não encontrado · registro bloqueado pela simulação",
+    explica: "a simulação do registro recusa este pagamento por outra validação",
+    acao: null,
+  },
   ACORDO_PARCELADO_AUSENTE: {
     rotulo: "Aluno identificado · acordo parcelado não encontrado",
     explica: "há outro boleto deste acordo ou não é a parcela 1: a estrutura só chega pela importação do relatório",
@@ -109,6 +142,11 @@ export const TRAVAS_AGUARDANDO_ACORDO = {
   },
 };
 
+// Enquanto `pagamentos_trava` nao respondeu, "Aguardando acordo · sem acao
+// manual" parece diagnostico definitivo e nao e (17/09/2026). A linha diz que
+// ainda esta analisando e fica sem acao ate o diagnostico chegar.
+export const ANALISANDO_PENDENCIA = "Analisando pendência…";
+
 // `travas` e o mapa pagamento_id -> linha de `pagamentos_trava`, ou null
 // enquanto carrega. Sem diagnostico, a linha em AGUARDANDO_ACORDO fica SEM
 // acao: acao generica e justamente o que esta regra proibe.
@@ -116,7 +154,13 @@ export function acaoDaLinha(item, travas) {
   const estado = estadoDaLinha(item);
   if (item && item.status_conciliacao === "AGUARDANDO_ACORDO") {
     if (!travas) {
-      return { rotulo: estado.rotulo, explica: "verificando em que ponto o pagamento travou", acao: null, trava: null };
+      return {
+        rotulo: ANALISANDO_PENDENCIA,
+        explica: "verificando em que ponto o pagamento travou",
+        acao: null,
+        trava: null,
+        carregando: true,
+      };
     }
     const linha = travas[item.pagamento_id];
     const def = linha && TRAVAS_AGUARDANDO_ACORDO[linha.trava];
