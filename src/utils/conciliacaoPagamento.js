@@ -109,6 +109,11 @@ export const TRAVAS_AGUARDANDO_ACORDO = {
   },
 };
 
+// Enquanto `pagamentos_trava` nao respondeu, "Aguardando acordo · sem acao
+// manual" parece diagnostico definitivo e nao e (17/09/2026). A linha diz que
+// ainda esta analisando e fica sem acao ate o diagnostico chegar.
+export const ANALISANDO_PENDENCIA = "Analisando pendência…";
+
 // `travas` e o mapa pagamento_id -> linha de `pagamentos_trava`, ou null
 // enquanto carrega. Sem diagnostico, a linha em AGUARDANDO_ACORDO fica SEM
 // acao: acao generica e justamente o que esta regra proibe.
@@ -116,7 +121,13 @@ export function acaoDaLinha(item, travas) {
   const estado = estadoDaLinha(item);
   if (item && item.status_conciliacao === "AGUARDANDO_ACORDO") {
     if (!travas) {
-      return { rotulo: estado.rotulo, explica: "verificando em que ponto o pagamento travou", acao: null, trava: null };
+      return {
+        rotulo: ANALISANDO_PENDENCIA,
+        explica: "verificando em que ponto o pagamento travou",
+        acao: null,
+        trava: null,
+        carregando: true,
+      };
     }
     const linha = travas[item.pagamento_id];
     const def = linha && TRAVAS_AGUARDANDO_ACORDO[linha.trava];

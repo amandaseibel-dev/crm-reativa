@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import { VALIDACOES_ACORDO_AVISTA, IMPEDIMENTOS_DE_TITULO } from "../utils/conciliacaoPagamento";
+import { mascararCpf } from "../utils/mascararCpf";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -152,7 +153,7 @@ export default function RegistrarAcordoAvista({ item, onFechar, onRegistrado }) 
                 <h3 style={secao}>O que já sabemos (vem do pagamento)</h3>
                 <div style={grade}>
                   <Campo rotulo="Aluno" valor={al.nome || "—"} />
-                  <Campo rotulo="CPF" valor={al.cpf_mascarado || "—"} />
+                  <Campo rotulo="CPF" valor={mascararCpf(al.cpf_mascarado)} />
                   <Campo rotulo="Matrícula (arquivo)" valor={p.matricula || "—"} />
                   <Campo rotulo="Nome no arquivo" valor={p.nome_no_arquivo || "—"} />
                   <Campo rotulo="Acordo ULBRA" valor={ac.numero_ulbra || "—"} />

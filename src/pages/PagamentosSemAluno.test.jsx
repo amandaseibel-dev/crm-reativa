@@ -73,6 +73,7 @@ function rotear({ lista = [LINHA], travas = TRAVA_P1, outras = {} } = {}) {
   rpcMock.mockImplementation((nome) => {
     if (nome === "pagamentos_sem_aluno") return Promise.resolve({ data: lista, error: null });
     if (nome === "pagamentos_trava") {
+      if (travas && typeof travas.then === "function") return travas;
       return Promise.resolve(travas === "ERRO"
         ? { data: null, error: { message: "falhou" } }
         : { data: travas, error: null });
@@ -241,6 +242,25 @@ describe("a ação corresponde ao ponto em que o pagamento travou", () => {
     expect(screen.getByText("Matrícula e nome divergem · acordo não encontrado")).toBeTruthy();
     expect(screen.getByRole("button", { name: /vincular aluno/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
+  });
+
+  it("enquanto o diagnóstico não chega: Analisando pendência, sem ação e sem \"sem ação manual\"", async () => {
+    let responderTrava;
+    const pendente = new Promise((r) => { responderTrava = r; });
+    rotear({ travas: pendente });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText("Analisando pendência…")).toBeTruthy();
+    expect(screen.queryByText("Aguardando acordo")).toBeNull();
+    expect(screen.queryByText("sem ação manual")).toBeNull();
+    expect(screen.queryByRole("button", { name: /vincular aluno/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /registrar acordo/i })).toBeNull();
+
+    await act(async () => { responderTrava({ data: [{ pagamento_id: "p1", trava: "ACORDO_AVISTA_AUSENTE" }], error: null }); });
+
+    expect(screen.queryByText("Analisando pendência…")).toBeNull();
+    expect(screen.getByText("Aluno identificado · acordo não encontrado")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Registrar acordo à vista" })).toBeTruthy();
   });
 
   it("sem diagnóstico da trava, a linha fica sem ação nenhuma", async () => {

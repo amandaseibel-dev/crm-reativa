@@ -117,6 +117,10 @@ describe("acaoDaLinha", () => {
 
   it("sem diagnóstico (carregando ou falhou): nenhuma ação genérica", () => {
     expect(acaoDaLinha(aguardando, null).acao).toBeNull();
+    // carregando não é diagnóstico: o rótulo diz que ainda está analisando
+    expect(acaoDaLinha(aguardando, null).rotulo).toBe("Analisando pendência…");
+    expect(acaoDaLinha(aguardando, null).carregando).toBe(true);
+    expect(acaoDaLinha(aguardando, {}).carregando).toBeUndefined();
     expect(acaoDaLinha(aguardando, {}).acao).toBeNull();
     expect(acaoDaLinha(aguardando, { x: { trava: "DESCONHECIDA" } }).acao).toBeNull();
   });

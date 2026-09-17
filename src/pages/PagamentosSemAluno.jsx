@@ -330,11 +330,12 @@ function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFic
             <button type="button" onClick={onAbrir} style={S.btnGhost}>
               {aberto ? "Fechar" : ACOES_DA_FILA.VINCULAR_ALUNO}
             </button>
-          ) : (
+          ) : acao.carregando ? null : (
             // Sem acao manual para este ponto. A pendencia e de amarracao, de
             // estrutura do acordo, de rodada ou de revisao -- nenhuma delas se
             // resolve trocando o aluno, e oferecer "Vincular" aqui so daria a
-            // chance de sobrescrever um vinculo correto.
+            // chance de sobrescrever um vinculo correto. Enquanto o diagnostico
+            // carrega, nada aqui: "sem acao manual" ainda nao e verdade.
             <span style={S.cardCpf} title={acao.explica}>
               {item.tem_aluno ? "aluno já identificado" : "sem ação manual"}
             </span>
