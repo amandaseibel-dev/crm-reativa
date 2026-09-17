@@ -17,6 +17,8 @@ import {
   acaoDaLinha,
   ACOES_DA_FILA,
   TRAVAS_AGUARDANDO_ACORDO,
+  ENCERRAR_PENDENCIA_AVISO,
+  podeEncerrarPendencia,
 } from "./conciliacaoPagamento";
 
 // Uma linha por classe apurada, com o que a RPC devolve para a tela.
@@ -178,5 +180,32 @@ describe("a ação de registro só existe quando o banco diz que é registrável
       expect(codigo).not.toMatch(/\baprovado\b|\bbloqueios\b|margem_segura|soma_minima|faixa_valor_pago/);
       expect(codigo).not.toMatch(/valor_pago\s*(\)|\|\|\s*0\))?\s*(<|>|\*|\/)/);
     }
+  });
+});
+
+// 17/09/2026: a fila ganhou saida. Encerrar e decisao da gestao -- nao entra na
+// lista de travas, nao vira acao tecnica e nao promete conserto financeiro.
+describe("encerrar pendência é saída da gestão, não ação técnica", () => {
+  it("cabe em qualquer pendência, menos em baixado e em linha anterior à regra", () => {
+    expect(ACOES_DA_FILA.ENCERRAR_PENDENCIA).toBe("Encerrar pendência");
+    for (const estado of ["AGUARDANDO_ACORDO", "AGUARDANDO_AMARRACAO", "PARCELA_JA_PAGA", "REVISAO", "SEM_VINCULO"]) {
+      expect(podeEncerrarPendencia({ status_conciliacao: estado }), estado).toBe(true);
+    }
+    expect(podeEncerrarPendencia({ status_conciliacao: "BAIXADO" })).toBe(false);
+    expect(podeEncerrarPendencia({})).toBe(false);
+    expect(podeEncerrarPendencia(null)).toBe(false);
+  });
+
+  it("não substitui a ação técnica da linha", () => {
+    const aguardando = { pagamento_id: "x", status_conciliacao: "AGUARDANDO_ACORDO", tem_aluno: true };
+    expect(acaoDaLinha(aguardando, { x: { pagamento_id: "x", trava: "ACORDO_AVISTA_AUSENTE" } }).acao).toBe("REGISTRAR_ACORDO_AVISTA");
+    expect(acaoDaLinha({ status_conciliacao: "PARCELA_JA_PAGA", tem_aluno: false }, {}).acao).toBe("VINCULAR_ALUNO");
+    expect(Object.values(TRAVAS_AGUARDANDO_ACORDO).some((def) => def.acao === "ENCERRAR_PENDENCIA")).toBe(false);
+  });
+
+  it("o aviso diz, na tela, que nada financeiro muda", () => {
+    expect(ENCERRAR_PENDENCIA_AVISO).toMatch(/Não baixa parcela/);
+    expect(ENCERRAR_PENDENCIA_AVISO).toMatch(/não altera acordo, saldo nem mensalidade/i);
+    expect(ENCERRAR_PENDENCIA_AVISO).toMatch(/para o reprocessamento/);
   });
 });
