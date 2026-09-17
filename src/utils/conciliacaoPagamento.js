@@ -67,7 +67,22 @@ export function podeVincularAluno(item) {
 export const ACOES_DA_FILA = {
   REGISTRAR_ACORDO_AVISTA: "Registrar acordo à vista",
   VINCULAR_ALUNO: "Vincular aluno",
+  ENCERRAR_PENDENCIA: "Encerrar pendência",
 };
+
+// ENCERRAR NAO E ACAO TECNICA (17/09/2026). E a saida da gestao para a linha
+// que nao tem mais o que o sistema resolva sozinho: tira da fila ativa e para
+// o reprocessamento, sem tocar em parcela, acordo, saldo ou mensalidade. Por
+// isso ela NAO substitui a acao tecnica -- aparece ao lado dela.
+export const ENCERRAR_PENDENCIA_AVISO =
+  "Só tira a linha da fila e para o reprocessamento. Não baixa parcela, não altera acordo, saldo nem mensalidade.";
+
+// BAIXADO nao esta na fila, e linha anterior a regra (sem estado) nao tem
+// pendencia de conciliacao para encerrar -- o banco recusa as duas.
+export function podeEncerrarPendencia(item) {
+  const estado = item && item.status_conciliacao;
+  return Boolean(estado) && estado !== "BAIXADO";
+}
 
 export const TRAVAS_AGUARDANDO_ACORDO = {
   ACORDO_AVISTA_AUSENTE: {

@@ -45,6 +45,8 @@ import {
   ACOES_DA_FILA,
   contarPorStatus,
   AVISO_PROJECAO,
+  ENCERRAR_PENDENCIA_AVISO,
+  podeEncerrarPendencia,
 } from "../utils/conciliacaoPagamento";
 import RegistrarAcordoAvista from "../components/RegistrarAcordoAvista";
 import Aluno from "./Aluno";
@@ -257,6 +259,8 @@ function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFic
   const [buscando, setBuscando] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [msg, setMsg] = useState("");
+  const [encerrando, setEncerrando] = useState(false);
+  const [observacao, setObservacao] = useState("");
 
   const repetido = item.motivo === "NOME_REPETIDO";
   const podeVincular = acao.acao === "VINCULAR_ALUNO";
@@ -288,6 +292,24 @@ function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFic
     setSalvando(false);
     if (error) { setMsg("Erro: " + error.message); return; }
     if (!data?.ok) { setMsg("Não foi possível: " + (data?.motivo || "desconhecido")); return; }
+    onVinculado();
+  }
+
+  // Encerrar e decisao da gestao, nao correcao financeira: o banco so grava a
+  // decisao da fila e a auditoria com o estado anterior.
+  async function encerrar() {
+    if (!window.confirm(
+      `Encerrar a pendência do pagamento de ${moeda(item.valor_pago)} (${dataCurta(item.data_pagamento)})? ${ENCERRAR_PENDENCIA_AVISO}`
+    )) return;
+    setSalvando(true); setMsg("");
+    const { data, error } = await supabase.rpc("conciliacao_encerrar", {
+      p_pagamento_id: item.pagamento_id,
+      p_observacao: observacao.trim() === "" ? null : observacao.trim(),
+    });
+    setSalvando(false);
+    if (error) { setMsg("Erro: " + error.message); return; }
+    if (!data?.ok) { setMsg("Não foi possível: " + (data?.motivo || "desconhecido")); return; }
+    setEncerrando(false);
     onVinculado();
   }
 
@@ -340,8 +362,38 @@ function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFic
               {item.tem_aluno ? "aluno já identificado" : "sem ação manual"}
             </span>
           )}
+          {podeEncerrarPendencia(item) ? (
+            <button
+              type="button"
+              onClick={() => setEncerrando((v) => !v)}
+              style={btnEncerrar}
+              title={ENCERRAR_PENDENCIA_AVISO}
+            >
+              {encerrando ? "Fechar" : ACOES_DA_FILA.ENCERRAR_PENDENCIA}
+            </button>
+          ) : null}
         </div>
       </div>
+
+      {encerrando ? (
+        <div style={encerrarCaixa}>
+          <div style={{ fontWeight: 700, color: "var(--rv-tinta)", fontSize: 13 }}>
+            {ACOES_DA_FILA.ENCERRAR_PENDENCIA}
+          </div>
+          <p style={{ ...S.muted, margin: "6px 0 10px" }}>{ENCERRAR_PENDENCIA_AVISO}</p>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+            <input
+              value={observacao}
+              onChange={(e) => setObservacao(e.target.value)}
+              placeholder="Observação (opcional)"
+              style={S.input}
+            />
+            <button type="button" onClick={encerrar} disabled={salvando} style={S.btnGhost}>
+              {salvando ? "…" : "Confirmar encerramento"}
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <div style={motivoBox}>
         <span style={motivoRotulo}>por que caiu aqui</span>
@@ -468,6 +520,21 @@ function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFic
   );
 }
 
+const btnEncerrar = {
+  border: "1px solid var(--rv-borda)",
+  background: "transparent",
+  color: "var(--rv-texto-suave)",
+  borderRadius: 8,
+  padding: "6px 10px",
+  fontSize: 12,
+  fontWeight: 700,
+  cursor: "pointer",
+};
+const encerrarCaixa = {
+  padding: "12px 16px",
+  borderTop: "1px solid var(--rv-borda)",
+  background: "var(--rv-fundo-suave)",
+};
 const motivoBox = {
   display: "flex", gap: 10, alignItems: "baseline", flexWrap: "wrap",
   padding: "8px 16px", borderTop: "1px solid var(--rv-borda)", background: "var(--rv-fundo-cartao)",

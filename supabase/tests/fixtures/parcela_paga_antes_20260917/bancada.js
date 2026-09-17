@@ -73,6 +73,8 @@ const MD5_CORPO = {
 
 export const MIGRATION_NOVA = ler("supabase/migrations/20260917200000_parcela_paga_antes_da_extracao.sql");
 export const ROLLBACK_NOVA = ler("supabase/rollbacks/20260917200000_parcela_paga_antes_da_extracao.rollback.sql");
+export const MIGRATION_ENCERRAR = ler("supabase/migrations/20260917210000_encerrar_pendencia_de_conciliacao.sql");
+export const ROLLBACK_ENCERRAR = ler("supabase/rollbacks/20260917210000_encerrar_pendencia_de_conciliacao.rollback.sql");
 const REPROCESSAR = funcao("supabase/migrations/20260914190000_acordo_confirmado_sem_estrutura.sql", "conciliacao_reprocessar", "e1475551d63d41dea9b93144524de4ac");
 const GATILHO_CONCILIAR = funcao("supabase/migrations/20260914170000_motor_unico_de_conciliacao.sql", "_pagamento_conciliar", "fb72abd1a9ea25a16772e2f126de7a63");
 const PRODUCAO = JSON.parse(ler("supabase/tests/fixtures/parcela_paga_antes_20260917/funcoes_producao.json")).funcoes;
@@ -122,7 +124,8 @@ export async function montarBase() {
     create table public.fila_pagamento_sem_vinculo (id bigserial primary key, pagamento_id uuid not null unique,
       importacao_id uuid, arquivo_nome text, boleto text, data_pagamento date, valor_pago numeric, valor_honorario numeric,
       nome_recebido text, cpf_recebido text, matricula_recebida text, sugestoes jsonb not null default '[]',
-      motivo text not null default '', decisao text, decidido_por text, decidido_em timestamptz, observacao text,
+      motivo text not null default '', detectado_em timestamptz not null default now(),
+      decisao text, decidido_por text, decidido_em timestamptz, observacao text,
       status_conciliacao text, evidencia_origem text, evidencia_em timestamptz, consulta_estrutura_resultado text,
       aluno_escolhido_id uuid);
     create table public.baixas_pagamento (parcela_id uuid, baixado_por_email text, baixado_em timestamptz, devolvido_em timestamptz);
@@ -213,6 +216,23 @@ export async function montarBase() {
   await db.query(`create function public.baixa_pelo_relatorio_pagamento(p_confirmar boolean default false, p_desde date default '2026-07-01'::date)
     returns jsonb language plpgsql security definer set search_path to 'public' set statement_timeout to '600s'
     as $b$${PRODUCAO.baixa_pelo_relatorio_pagamento.corpo}$b$`);
+  await db.query(`create function public.conciliacao_encerrar(p_pagamento_id uuid, p_observacao text default null)
+    returns jsonb language plpgsql security definer set search_path to 'public'
+    as $b$${PRODUCAO.conciliacao_encerrar.corpo}$b$`);
+  await db.query(`create function public.pagamentos_sem_aluno(p_mes text default null, p_todos_os_meses boolean default false)
+    returns table (pagamento_id uuid, data_pagamento date, aluno_nome text, matricula text, titulo_numero text,
+      numero_parcela_completo text, valor_pago numeric, valor_honorario numeric, operador_nome text, operador_email text,
+      motivo text, candidatos integer, motivo_financeiro text, sugestoes jsonb, detectado_em timestamptz,
+      importacao_id uuid, arquivo_nome text, status_conciliacao text, tem_aluno boolean)
+    language plpgsql security definer set search_path to 'public'
+    as $b$${PRODUCAO.pagamentos_sem_aluno.corpo}$b$`);
+  // a ACL de producao: a gestao chama pelo PostgREST, anon e PUBLIC nao
+  await db.exec(`
+    revoke all on function public.conciliacao_encerrar(uuid, text) from public, anon;
+    revoke all on function public.pagamentos_sem_aluno(text, boolean) from public, anon;
+    grant execute on function public.conciliacao_encerrar(uuid, text) to authenticated;
+    grant execute on function public.pagamentos_sem_aluno(text, boolean) to authenticated;
+  `);
   await db.exec(REPROCESSAR);
   await db.exec(GATILHO_CONCILIAR);
   // estado de PRODUCAO de _pagamentos_baixar_lote, fluxo_pagamentos_rodar, completar_parcelas_acordo e importar_acordos
@@ -226,12 +246,20 @@ export async function montarBase() {
   return db;
 }
 
-export async function novoBanco({ patch = true, etapaLigada = false } = {}) {
+export async function novoBanco({ patch = true, etapaLigada = false, encerrar = false, etapaEncerrarLigada = false } = {}) {
   const db = await montarBase();
   if (patch) await db.exec(MIGRATION_NOVA);
   if (patch && etapaLigada) await ligarEtapa(db);
+  if (encerrar) await db.exec(MIGRATION_ENCERRAR);
+  if (encerrar && etapaEncerrarLigada) {
+    await db.query(`update public.fluxo_pagamentos_config set ligado = true where etapa = 'encerrar_ja_paga_conferida'`);
+  }
   return db;
 }
+
+// A gestao da tela; sem isto, o portao de conciliacao_encerrar barra.
+export const comoGestao = (db, email = "amanda.seibel@aelbra.com.br") =>
+  db.query(`select set_config('request.jwt.claims', $1, false)`, [JSON.stringify({ email, role: "authenticated" })]);
 
 export const ligarEtapa = (db) =>
   db.query(`update public.fluxo_pagamentos_config set ligado = true where etapa = 'reconstruir_parcela_paga_antes'`);
