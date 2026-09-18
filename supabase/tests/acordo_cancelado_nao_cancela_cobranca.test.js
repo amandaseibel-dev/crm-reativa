@@ -63,7 +63,7 @@ async function novoBanco() {
     create table public.log_quitacao_bloqueada (aluno_id uuid, origem text, saldo_pendente numeric, detalhe jsonb);
 
     -- lista de trabalho de 10/09 que a migration promove a tabela estavel
-    create table public._cancelamento_cobranca_20260910 (cpf text, motivo text, aluno text);
+    create table public._cancelamento_cobranca_20260910 (cpf text, motivo text, aluno text, status_acionamento text);
 
     -- saldo por aluno: fixado por cada cenario
     create table public._saldo (aluno_id uuid primary key, total numeric not null);
@@ -224,13 +224,22 @@ describe("acordo cancelado nao e cobranca cancelada", () => {
     expect(await encerrado(db, caso)).toBe(true);
   });
 
-  it("H2. a migration promove a lista de 10/09 para cobranca_nao_reabrir", async () => {
+  // Banco minimo para exercitar SO a semente da migration. `comLista` decide se
+  // a lista de trabalho de 10/09 existe (em producao existe; fora dela, nao).
+  async function bancoDaSemente(comLista) {
     const db2 = new PGlite({ extensions: { unaccent } });
-    // recria o minimo e semeia a lista ANTES da migration
     await db2.exec(`create extension if not exists unaccent; create role anon; create role authenticated;`);
-    await db2.exec(`create table public._cancelamento_cobranca_20260910 (cpf text, motivo text, aluno text);`);
-    await db2.query(`insert into public._cancelamento_cobranca_20260910 (cpf, motivo) values
-      ('123.456.789-01','acordo judicial'), ('98765432100', null), ('123.456.789-01','duplicado')`);
+    if (comLista) {
+      await db2.exec(`create table public._cancelamento_cobranca_20260910
+        (cpf text, motivo text, aluno text, status_acionamento text);`);
+      await db2.query(`insert into public._cancelamento_cobranca_20260910 (cpf, motivo, status_acionamento) values
+        ('111.111.111-11', 'Cancelamento de cobranca', 'CANCELADO'),
+        ('222.222.222-22', 'Cancelamento de cobranca', 'cancelado'),
+        ('123.456.789-01', 'Juridico', 'JURIDICO'),
+        ('98765432100', null, 'MENSAGEM ENVIADA'),
+        ('123.456.789-01', 'Juridico', 'JURIDICO'),
+        (null, 'Nao acionar', 'EM ABERTO')`);
+    }
     await db2.exec(`
       create table public.alunos (id uuid primary key, cpf text, status_atual text, status_jornada text, status_acionamento text);
       create table public.casos (id uuid primary key, aluno_id uuid, cpf text, cpf_limpo text, status_atual text,
@@ -247,11 +256,29 @@ describe("acordo cancelado nao e cobranca cancelada", () => {
       create function public.retirar_zerados_reais_sem_saldo(a uuid default null, b text default null) returns int language sql as $$ select 0 $$;
     `);
     await db2.exec(MIGRATION);
+    return db2;
+  }
+
+  it("H2. a semente NAO tranca as vitimas do defeito: linha com status_acionamento CANCELADO fica de fora", async () => {
+    const db2 = await bancoDaSemente(true);
     const linhas = (await db2.query(`select cpf, motivo from public.cobranca_nao_reabrir order by cpf`)).rows;
-    expect(linhas).toHaveLength(2);                       // deduplicado
-    expect(linhas[0].cpf).toBe("12345678901");            // so digitos, 11 posicoes
-    expect(linhas[1].cpf).toBe("98765432100");
+    // so as duas linhas que NAO vieram de status_acionamento = CANCELADO (em qualquer caixa),
+    // deduplicadas; a sem CPF nao entra
+    expect(linhas.map((l) => l.cpf)).toEqual(["12345678901", "98765432100"]);
+    expect(linhas[0].motivo).toBe("Juridico");
     expect(linhas[1].motivo).toBe("cancelamento de cobranca"); // motivo vazio ganha padrao
+    // reaplicar a migration nao duplica nem reintroduz nada
+    await db2.exec(MIGRATION);
+    expect((await db2.query(`select count(*)::int n from public.cobranca_nao_reabrir`)).rows[0].n).toBe(2);
+  });
+
+  it("H3. fora de producao a lista de 10/09 nao existe e a migration roda do mesmo jeito", async () => {
+    const db2 = await bancoDaSemente(false);
+    const n = (await db2.query(`select count(*)::int n from public.cobranca_nao_reabrir`)).rows[0].n;
+    expect(n).toBe(0); // tabela criada, vazia, sem erro
+    const rls = (await db2.query(
+      `select relrowsecurity r from pg_class where oid = 'public.cobranca_nao_reabrir'::regclass`)).rows[0].r;
+    expect(rls).toBe(true);
   });
 
   it("I. aluno sem divida real nao reabre", async () => {

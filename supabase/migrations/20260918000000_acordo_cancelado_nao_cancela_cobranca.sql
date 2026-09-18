@@ -99,10 +99,9 @@ end;
 $function$;
 
 -- 3. A CASA DA DECISAO DE NAO COBRAR ----------------------------------------
--- A lista de cancelamento de 10/09/2026 vivia numa tabela de trabalho
--- (`_cancelamento_cobranca_20260910`), que qualquer limpeza apaga. Decisao de
--- gestao precisa de casa estavel: o reabridor passa a consultar esta tabela, e
--- quem estiver aqui nao volta para a fila por automatismo nenhum.
+-- Decisao de gestao de nao cobrar precisa de casa estavel: o reabridor passa a
+-- consultar esta tabela, e quem estiver aqui nao volta para a fila por
+-- automatismo nenhum. Sair daqui e ato da gestao.
 create table if not exists public.cobranca_nao_reabrir (
   cpf text primary key,
   motivo text not null,
@@ -123,15 +122,34 @@ begin
   end if;
 end $$;
 
--- Semeia com a lista de 10/09. `on conflict do nothing` mantem a migration
--- reaplicavel e nao sobrescreve decisao posterior.
-insert into public.cobranca_nao_reabrir (cpf, motivo, origem, registrado_por)
-select distinct lpad(regexp_replace(coalesce(x.cpf,''), '\D', '', 'g'), 11, '0'),
-       coalesce(nullif(trim(x.motivo), ''), 'cancelamento de cobranca'),
-       '_cancelamento_cobranca_20260910', 'migracao_20260918000000'
-  from public._cancelamento_cobranca_20260910 x
- where regexp_replace(coalesce(x.cpf,''), '\D', '', 'g') <> ''
-on conflict (cpf) do nothing;
+-- Semente a partir da lista de trabalho de 10/09 (`_cancelamento_cobranca_20260910`).
+--
+-- ATENCAO: aquela lista e DIAGNOSTICO, nao decisao. A coluna `motivo` foi
+-- derivada do estado do caso naquele dia: "Cancelamento de cobranca" sao os
+-- casos com status_acionamento = 'CANCELADO' -- justamente as vitimas do
+-- defeito que esta migration corrige. Semear essas linhas trancaria fora da
+-- fila quem deve voltar (foi o que aconteceu em producao em 18/09: 13 linhas,
+-- 5 alunos presos, removidos no mesmo dia -- ver o ledger 20260918).
+-- Por isso so entra o que NAO veio de status_acionamento = 'CANCELADO'.
+--
+-- A lista so existe em producao. Em qualquer outro ambiente ela nao existe e a
+-- semente simplesmente nao roda. `on conflict do nothing` mantem a migration
+-- reaplicavel e nao sobrescreve decisao posterior da gestao.
+do $$
+begin
+  if to_regclass('public._cancelamento_cobranca_20260910') is not null then
+    execute $semente$
+      insert into public.cobranca_nao_reabrir (cpf, motivo, origem, registrado_por)
+      select distinct lpad(regexp_replace(coalesce(x.cpf,''), '\D', '', 'g'), 11, '0'),
+             coalesce(nullif(trim(x.motivo), ''), 'cancelamento de cobranca'),
+             '_cancelamento_cobranca_20260910', 'migracao_20260918000000'
+        from public._cancelamento_cobranca_20260910 x
+       where regexp_replace(coalesce(x.cpf,''), '\D', '', 'g') <> ''
+         and upper(coalesce(x.status_acionamento,'')) <> 'CANCELADO'
+      on conflict (cpf) do nothing
+    $semente$;
+  end if;
+end $$;
 
 -- 4. O REABRIDOR ------------------------------------------------------------
 -- Mesmo ajuste no v_bloq para status_acionamento, mais duas travas que a
