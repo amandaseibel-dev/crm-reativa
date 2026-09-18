@@ -1128,10 +1128,13 @@ export default function FinanceiroAluno({ aluno }) {
   // representada pelas parcelas do acordo (evita dupla contagem). O
   // acordo_id entra no filtro porque ha uma janela em que ele e o unico
   // sinal do vinculo.
+  // Titulo EM_CONFIRMACAO (Conferencia Prime) tambem fica fora: saiu da
+  // cobranca enquanto a gestao decide se a liquidacao da Prime vale.
   const emAberto = titulos.filter(
     (t) =>
       t.situacao !== "PAGO" &&
       t.situacao !== "NEGOCIADO" &&
+      t.situacao !== "EM_CONFIRMACAO" &&
       t.status !== "vinculada" &&
       t.status !== "quitada" &&
       !t.acordo_id
@@ -1584,6 +1587,7 @@ export default function FinanceiroAluno({ aluno }) {
             {titulos.map((titulo) => {
               const pago = titulo.situacao === "PAGO" || titulo.status === "quitada";
               const duplicada = String(titulo.situacao || "").toUpperCase() === "DUPLICADA";
+              const emConfirmacao = String(titulo.situacao || "").toUpperCase() === "EM_CONFIRMACAO";
               // Reconhece o vinculo por qualquer um dos tres sinais: o
               // gatilho grava situacao=NEGOCIADO + status=vinculada, mas ha
               // uma janela em que so o acordo_id esta preenchido.
@@ -1595,7 +1599,7 @@ export default function FinanceiroAluno({ aluno }) {
               const acordoDoTitulo = titulo.acordo_id
                 ? acordos.find((a) => String(a.id) === String(titulo.acordo_id))
                 : null;
-              const vencida = !pago && !negociada && diasAtraso(titulo.vencimento) > 0;
+              const vencida = !pago && !negociada && !emConfirmacao && diasAtraso(titulo.vencimento) > 0;
               const cor = pago ? CORES_STATUS.quitado : negociada ? CORES_STATUS.em_dia : CORES_STATUS.em_aberto;
               return (
                 <div
@@ -1611,6 +1615,12 @@ export default function FinanceiroAluno({ aluno }) {
                       Vencimento: {formatarData(titulo.vencimento)}
                       {vencida ? <span style={estilos.marcaVencida}>• vencida</span> : null}
                     </div>
+                    {emConfirmacao && (
+                      <div style={estilos.subLinha}>
+                        Fora da cobrança: a Prime registra liquidação e a Conferência Prime
+                        ainda vai decidir — não somada no total
+                      </div>
+                    )}
                     {negociada && (
                       <div style={estilos.subLinha}>
                         Vinculada ao acordo{" "}
@@ -1639,9 +1649,10 @@ export default function FinanceiroAluno({ aluno }) {
                         {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
                       </div>
                     )}
-                    <span style={{ ...estilos.tagBase, background: duplicada ? "var(--rv-borda)" : cor.bg,
-                                   color: duplicada ? "var(--rv-texto)" : cor.texto }}>
+                    <span style={{ ...estilos.tagBase, background: duplicada || emConfirmacao ? "var(--rv-borda)" : cor.bg,
+                                   color: duplicada || emConfirmacao ? "var(--rv-texto)" : cor.texto }}>
                       {duplicada ? "Fora da conta"
+                        : emConfirmacao ? "Em confirmação"
                         : pago ? "Quitada" : negociada ? "Negociado" : "Em aberto"}
                     </span>
 

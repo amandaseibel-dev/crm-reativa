@@ -346,7 +346,9 @@ export default function Borderos() {
       const registrosTitulos = [];
 
       for (const linha of preview.linhas) {
-        if (linha.jaExiste && linha.situacaoAtual === "PAGO") {
+        // PAGO nao reabre; EM_CONFIRMACAO (Conferencia Prime) tambem nao --
+        // o banco recusaria de qualquer jeito, mas nem se tenta.
+        if (linha.jaExiste && (linha.situacaoAtual === "PAGO" || linha.situacaoAtual === "EM_CONFIRMACAO")) {
           ignorados += 1;
           continue;
         }
