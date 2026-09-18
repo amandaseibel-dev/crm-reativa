@@ -75,6 +75,8 @@ export const MIGRATION_NOVA = ler("supabase/migrations/20260917200000_parcela_pa
 export const ROLLBACK_NOVA = ler("supabase/rollbacks/20260917200000_parcela_paga_antes_da_extracao.rollback.sql");
 export const MIGRATION_ENCERRAR = ler("supabase/migrations/20260917210000_encerrar_pendencia_de_conciliacao.sql");
 export const ROLLBACK_ENCERRAR = ler("supabase/rollbacks/20260917210000_encerrar_pendencia_de_conciliacao.rollback.sql");
+export const MIGRATION_AVISTA = ler("supabase/migrations/20260917230000_recuperar_acordo_avista_automatico.sql");
+export const ROLLBACK_AVISTA = ler("supabase/rollbacks/20260917230000_recuperar_acordo_avista_automatico.rollback.sql");
 const REPROCESSAR = funcao("supabase/migrations/20260914190000_acordo_confirmado_sem_estrutura.sql", "conciliacao_reprocessar", "e1475551d63d41dea9b93144524de4ac");
 const GATILHO_CONCILIAR = funcao("supabase/migrations/20260914170000_motor_unico_de_conciliacao.sql", "_pagamento_conciliar", "fb72abd1a9ea25a16772e2f126de7a63");
 const PRODUCAO = JSON.parse(ler("supabase/tests/fixtures/parcela_paga_antes_20260917/funcoes_producao.json")).funcoes;
@@ -246,13 +248,20 @@ export async function montarBase() {
   return db;
 }
 
-export async function novoBanco({ patch = true, etapaLigada = false, encerrar = false, etapaEncerrarLigada = false } = {}) {
+export async function novoBanco({ patch = true, etapaLigada = false, encerrar = false, etapaEncerrarLigada = false,
+                                 avista = false, etapaAvistaLigada = false } = {}) {
   const db = await montarBase();
   if (patch) await db.exec(MIGRATION_NOVA);
   if (patch && etapaLigada) await ligarEtapa(db);
   if (encerrar) await db.exec(MIGRATION_ENCERRAR);
   if (encerrar && etapaEncerrarLigada) {
     await db.query(`update public.fluxo_pagamentos_config set ligado = true where etapa = 'encerrar_ja_paga_conferida'`);
+  }
+  // a recuperacao do a vista assume as duas anteriores (a prova da migration
+  // confere o md5 das funcoes que elas deixam)
+  if (avista) await db.exec(MIGRATION_AVISTA);
+  if (avista && etapaAvistaLigada) {
+    await db.query(`update public.fluxo_pagamentos_config set ligado = true where etapa = 'recuperar_acordo_avista'`);
   }
   return db;
 }
