@@ -49,6 +49,51 @@ const CORROBORACAO = {
   NENHUMA: "sem corroboração",
 };
 
+// TRIAGEM OPERACIONAL (19/09/2026): snapshot horário (cron :55) + botão
+// Recalcular. Só organiza: prioridade, origem provável e grupo histórico. A
+// classe humana registra o que a gestão viu no Prime e NÃO executa efeito
+// financeiro: a decisão continua PENDENTE e segue pelas rotas oficiais.
+const PRIORIDADES = ["CRITICO", "ALTO", "NORMAL", "BAIXO"];
+const PRIORIDADE = {
+  CRITICO: { rotulo: "CRÍTICO", cor: "vermelho" },
+  ALTO: { rotulo: "ALTO", cor: "ambar" },
+  NORMAL: { rotulo: "NORMAL", cor: "roxo" },
+  BAIXO: { rotulo: "BAIXO", cor: "neutro" },
+};
+const ORIGEM = {
+  PAGAMENTO_COMPROVADO: "pagamento comprovado",
+  ACORDO_COMPROVADO: "acordo comprovado",
+  NAO_COMPROVADA: "origem não comprovada",
+  INSTITUCIONAL_PROVAVEL: "institucional provável",
+  CANCELAMENTO_PROVAVEL: "cancelamento provável",
+  FIES_ISENCAO_PROVAVEL: "FIES/isenção provável",
+  RESIDUO: "resíduo",
+};
+const GRUPO_HIST = {
+  NOVO_APOS_CORTE: "novo após o corte",
+  D2_OUTRA_DIVIDA: "D2 (outra dívida)",
+  D_LOTE_48: "D lote 48",
+  D3: "D3",
+  C_166: "C (portador 166)",
+  C_PARCIAL: "C parcial",
+  A1_HISTORICO: "A1 histórico",
+  A2_HISTORICO: "A2 histórico",
+};
+const CLASSES_HUMANAS = [
+  ["PAGAMENTO_REAL", "Pagamento real"],
+  ["ACORDO", "Acordo"],
+  ["LIQUIDACAO_INSTITUCIONAL", "Liquidação institucional"],
+  ["CANCELAMENTO_ESTORNO", "Cancelamento / estorno"],
+  ["ISENCAO_FIES_BOLSA", "Isenção / FIES / bolsa"],
+  ["SUBSTITUICAO_TITULO", "Substituição de título"],
+  ["INCONCLUSIVO", "Inconclusivo"],
+];
+const FAIXAS_VALOR = [
+  ["TODAS", "Qualquer valor"], ["<200", "até R$ 200"], ["200-1000", "R$ 200 a 1.000"],
+  ["1000-5000", "R$ 1.000 a 5.000"], [">=5000", "R$ 5.000 ou mais"],
+];
+const TEMPOS = [["TODOS", "Qualquer tempo"], [">1", "mais de 1 dia"], [">3", "mais de 3 dias"], [">7", "mais de 7 dias"]];
+
 const REGRA_NOVA = new Set(["A_PAGAMENTO_COMPROVADO", "B_ACORDO_COMPROVADO", "C_SEM_PROVA"]);
 const VINCULA_DIRETO = new Set(["A2_COBRE", "A_PAGAMENTO_COMPROVADO", "B_ACORDO_COMPROVADO"]);
 
@@ -130,6 +175,14 @@ export default function ConferenciaPrime() {
   const [nomeCopiado, setNomeCopiado] = useState("");
   // Ficha do aluno: conferir o caso antes de decidir é o que se pede aqui.
   const [fichaId, setFichaId] = useState(null);
+  // Triagem operacional
+  const [painel, setPainel] = useState(null);
+  const [filtro, setFiltro] = useState({ prioridade: "TODAS", campus: "TODOS", curso: "TODOS", grupoHist: "TODOS",
+    origem: "TODAS", faixa: "TODAS", liqDe: "", liqAte: "", tempo: "TODOS", classe: "TODAS" });
+  const [recalculando, setRecalculando] = useState(false);
+  // Ficha de decisão (o que a gestão vê antes de classificar)
+  const [decisao, setDecisao] = useState(null); // { titulo, dados }
+  const [decisaoCarregando, setDecisaoCarregando] = useState(false);
 
   useEffect(() => {
     carregar();
@@ -144,6 +197,8 @@ export default function ConferenciaPrime() {
       const data = (bruto || []).map((i) => ({ ...i, subgrupo: subgrupoEfetivo(i) }));
       if (error) throw error;
       setItens(data || []);
+      const { data: p } = await supabase.rpc("prime_conferencia_painel");
+      setPainel(p || null);
     } catch (e) {
       // O portão está dentro da RPC: quem não é da gestão recebe 42501.
       if (e?.code === "42501") setSemPermissao(true);
@@ -161,6 +216,68 @@ export default function ConferenciaPrime() {
       else delete n[chave];
       return n;
     });
+  }
+
+  async function recalcular() {
+    if (recalculando) return;
+    setRecalculando(true);
+    try {
+      const { data, error } = await supabase.rpc("prime_conferencia_triagem_recalcular", { p_titulos: null });
+      if (error) throw error;
+      await carregar();
+      alert(`Triagem recalculada: ${data?.triados ?? 0} títulos em ${data?.segundos ?? "?"}s. Nenhuma decisão humana foi alterada.`);
+    } catch (e) {
+      alert("Não deu para recalcular a triagem: " + (e?.message || e));
+    } finally {
+      setRecalculando(false);
+    }
+  }
+
+  async function abrirDecisao(t) {
+    setDecisao({ titulo: t, dados: null });
+    setDecisaoCarregando(true);
+    try {
+      const { data, error } = await supabase.rpc("prime_conferencia_ficha", { p_titulo_id: t.titulo_id });
+      if (error) throw error;
+      setDecisao({ titulo: t, dados: data });
+    } catch (e) {
+      setDecisao({ titulo: t, dados: null, erro: e?.message || String(e) });
+    } finally {
+      setDecisaoCarregando(false);
+    }
+  }
+
+  // Registra o que a gestão viu no Prime. SÓ REGISTRO: nada financeiro muda.
+  async function classificarHumano(t, classe) {
+    const rotulo = (CLASSES_HUMANAS.find(([c]) => c === classe) || [])[1] || classe;
+    const obs = pedirMotivo(
+      `Classificar o boleto ${t.documento} como "${rotulo}".\n\n` +
+        "Escreva o que apareceu no Prime (motivo/tipo da baixa, pagamento, acordo, estorno, isenção...).\n" +
+        "Isto só registra a conferência: a decisão financeira continua pendente.",
+      10,
+      t.classe_humana_obs || ""
+    );
+    if (obs === null) return;
+    const chave = `classe:${t.titulo_id}`;
+    if (processando[chave]) return;
+    marcar(chave, true);
+    try {
+      const { data, error } = await supabase.rpc("prime_conferencia_classificar_humano", {
+        p_titulo_id: t.titulo_id, p_classe: classe, p_obs: obs,
+      });
+      if (error) throw error;
+      const agora = new Date().toISOString();
+      const patch = { classe_humana: classe, classe_humana_obs: obs, classe_humana_em: agora };
+      setItens((prev) => prev.map((x) => (x.titulo_id === t.titulo_id ? { ...x, ...patch } : x)));
+      setDecisao((d) => (d && d.titulo.titulo_id === t.titulo_id
+        ? { ...d, titulo: { ...d.titulo, ...patch }, dados: d.dados ? { ...d.dados, decisao: { ...d.dados.decisao, ...patch } } : d.dados }
+        : d));
+      if (data?.efeito_financeiro !== "nenhum") alert("Atenção: resposta inesperada da classificação.");
+    } catch (e) {
+      alert("Não deu para classificar: " + (e?.message || e));
+    } finally {
+      marcar(chave, false);
+    }
   }
 
   function tirarDaTela(ids) {
@@ -341,6 +458,28 @@ export default function ConferenciaPrime() {
       if (grupo === "COMPROVADOS") return i.subgrupo === "A_PAGAMENTO_COMPROVADO" || i.subgrupo === "B_ACORDO_COMPROVADO";
       return i.subgrupo === grupo;
     });
+    const f = filtro;
+    lista = lista.filter((i) => {
+      if (f.prioridade !== "TODAS" && (i.prioridade || "SEM") !== f.prioridade) return false;
+      if (f.campus !== "TODOS" && (i.campus || "-") !== f.campus) return false;
+      if (f.curso !== "TODOS" && (i.curso || "-") !== f.curso) return false;
+      if (f.grupoHist !== "TODOS" && (i.grupo_historico || "-") !== f.grupoHist) return false;
+      if (f.origem !== "TODAS" && (i.origem_provavel || "-") !== f.origem) return false;
+      if (f.classe !== "TODAS" && (f.classe === "SEM" ? !!i.classe_humana : i.classe_humana !== f.classe)) return false;
+      const v = Number(i.valor) || 0;
+      if (f.faixa === "<200" && !(v < 200)) return false;
+      if (f.faixa === "200-1000" && !(v >= 200 && v < 1000)) return false;
+      if (f.faixa === "1000-5000" && !(v >= 1000 && v < 5000)) return false;
+      if (f.faixa === ">=5000" && !(v >= 5000)) return false;
+      const liq = i.liquidado_em || "";
+      if (f.liqDe && liq < f.liqDe) return false;
+      if (f.liqAte && liq > f.liqAte) return false;
+      const d = Number(i.dias_pendente) || 0;
+      if (f.tempo === ">1" && !(d > 1)) return false;
+      if (f.tempo === ">3" && !(d > 3)) return false;
+      if (f.tempo === ">7" && !(d > 7)) return false;
+      return true;
+    });
     const t = busca.trim().toLowerCase();
     if (t) {
       const digitos = t.replace(/\D/g, "");
@@ -352,7 +491,13 @@ export default function ConferenciaPrime() {
       });
     }
     return lista;
-  }, [itens, grupo, busca]);
+  }, [itens, grupo, busca, filtro]);
+
+  const opcoes = useMemo(() => {
+    const uniq = (k) => Array.from(new Set(itens.map((i) => i[k] || "-"))).sort();
+    return { campus: uniq("campus"), curso: uniq("curso"), grupoHist: uniq("grupo_historico"), origem: uniq("origem_provavel") };
+  }, [itens]);
+  const setF = (k, v) => setFiltro((f) => ({ ...f, [k]: v }));
 
   // 1 card por aluno, como nas outras filas. A2 primeiro: é onde mora o risco
   // de cobrar a mesma dívida duas vezes.
@@ -377,8 +522,9 @@ export default function ConferenciaPrime() {
     for (const g of arr) {
       g.total = g.titulos.reduce((s, t) => s + (Number(t.valor) || 0), 0);
       g.temA2 = g.titulos.some((t) => String(t.subgrupo || "").startsWith("A2"));
+      g.prio = Math.min(...g.titulos.map((t) => { const k = PRIORIDADES.indexOf(t.prioridade); return k < 0 ? 9 : k; }));
     }
-    arr.sort((a, b) => Number(b.temA2) - Number(a.temA2) || b.total - a.total);
+    arr.sort((a, b) => a.prio - b.prio || Number(b.temA2) - Number(a.temA2) || b.total - a.total);
     return arr;
   }, [filtrados]);
 
@@ -412,10 +558,55 @@ export default function ConferenciaPrime() {
             Títulos fora da cobrança por liquidação corroborada na Prime, aguardando sua decisão.
           </p>
         </div>
-        <button type="button" style={A.btnGhost} onClick={carregar}>Atualizar</button>
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            type="button"
+            style={{ ...A.btnGhost, ...(recalculando ? A.btnBusy : {}) }}
+            disabled={recalculando}
+            onClick={recalcular}
+            title="Recalcula prioridade e origem provável de todos os pendentes. Não altera nenhuma classificação humana."
+          >
+            {recalculando ? "Recalculando…" : "Recalcular triagem"}
+          </button>
+          <button type="button" style={A.btnGhost} onClick={carregar}>Atualizar</button>
+        </div>
       </div>
 
       {erro && <div style={A.erroBox}>⚠️ {erro}</div>}
+
+      {painel && !semPermissao && (
+        <div style={estilos.painel} title={painel.triagem_em ? `Triagem de ${new Date(painel.triagem_em).toLocaleString("pt-BR")}` : "Sem triagem ainda"}>
+          {[
+            ["Em confirmação", painel.total],
+            ["Valor", moeda(painel.valor)],
+            ["Novos após o corte", painel.novos_apos_corte],
+            ["Históricos", painel.historicos],
+            ["Resolvidos hoje", painel.resolvidos_hoje],
+            ["Classificados hoje", painel.classificados_hoje],
+            ["> 1 dia", painel.pendentes_mais_1_dia],
+            ["> 3 dias", painel.pendentes_mais_3_dias],
+            ["> 7 dias", painel.pendentes_mais_7_dias],
+            ["Conferência manual", painel.necessita_manual],
+          ].map(([r, v]) => (
+            <div key={r} style={estilos.painelCard}>
+              <span style={estilos.painelNum}>{v ?? "-"}</span>
+              <span style={estilos.painelRotulo}>{r}</span>
+            </div>
+          ))}
+          <div style={estilos.painelOrigens}>
+            {Object.keys(ORIGEM).map((k) => (
+              <span key={k} style={estilos.painelOrigem}>
+                <b>{painel.por_origem?.[k] ?? 0}</b> {ORIGEM[k]}
+              </span>
+            ))}
+            {PRIORIDADES.map((k) => (
+              <span key={k} style={{ ...estilos.painelOrigem, ...corSelo(PRIORIDADE[k].cor) }}>
+                <b>{painel.por_prioridade?.[k] ?? 0}</b> {PRIORIDADE[k].rotulo}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
 
       {semPermissao ? (
         <p style={A.muted}>A Conferência Prime é decisão da gestão.</p>
@@ -445,6 +636,46 @@ export default function ConferenciaPrime() {
             </div>
           </div>
 
+          <div style={estilos.filtros}>
+            <select style={A.select} value={filtro.prioridade} onChange={(e) => setF("prioridade", e.target.value)}>
+              <option value="TODAS">Prioridade: todas</option>
+              {PRIORIDADES.map((k) => <option key={k} value={k}>{PRIORIDADE[k].rotulo}</option>)}
+            </select>
+            <select style={A.select} value={filtro.origem} onChange={(e) => setF("origem", e.target.value)}>
+              <option value="TODAS">Origem provável: todas</option>
+              {opcoes.origem.map((k) => <option key={k} value={k}>{ORIGEM[k] || k}</option>)}
+            </select>
+            <select style={A.select} value={filtro.grupoHist} onChange={(e) => setF("grupoHist", e.target.value)}>
+              <option value="TODOS">Grupo: todos</option>
+              {opcoes.grupoHist.map((k) => <option key={k} value={k}>{GRUPO_HIST[k] || k}</option>)}
+            </select>
+            <select style={A.select} value={filtro.campus} onChange={(e) => setF("campus", e.target.value)}>
+              <option value="TODOS">Campus: todos</option>
+              {opcoes.campus.map((k) => <option key={k} value={k}>{k}</option>)}
+            </select>
+            <select style={A.select} value={filtro.curso} onChange={(e) => setF("curso", e.target.value)}>
+              <option value="TODOS">Curso: todos</option>
+              {opcoes.curso.map((k) => <option key={k} value={k}>{k}</option>)}
+            </select>
+            <select style={A.select} value={filtro.faixa} onChange={(e) => setF("faixa", e.target.value)}>
+              {FAIXAS_VALOR.map(([k, r]) => <option key={k} value={k}>{r}</option>)}
+            </select>
+            <select style={A.select} value={filtro.tempo} onChange={(e) => setF("tempo", e.target.value)}>
+              {TEMPOS.map(([k, r]) => <option key={k} value={k}>{r}</option>)}
+            </select>
+            <select style={A.select} value={filtro.classe} onChange={(e) => setF("classe", e.target.value)}>
+              <option value="TODAS">Classe humana: todas</option>
+              <option value="SEM">sem classe</option>
+              {CLASSES_HUMANAS.map(([k, r]) => <option key={k} value={k}>{r}</option>)}
+            </select>
+            <label style={estilos.rotuloData}>Liquidação de
+              <input type="date" style={A.input} value={filtro.liqDe} onChange={(e) => setF("liqDe", e.target.value)} />
+            </label>
+            <label style={estilos.rotuloData}>até
+              <input type="date" style={A.input} value={filtro.liqAte} onChange={(e) => setF("liqAte", e.target.value)} />
+            </label>
+          </div>
+
           <div style={estilos.aviso}>
             Estes títulos <b>não estão sendo cobrados</b> e <b>não foram baixados</b>: o valor segue
             igual e o responsável continua o mesmo. <b>Liquidado na Prime não é pagamento</b>: sem
@@ -471,6 +702,8 @@ export default function ConferenciaPrime() {
                         {nomeCopiado === g.nome ? "✓ Copiado" : "📋 Copiar"}
                       </button>
                       <span style={A.cardCpf}>CPF {formatCpf(g.cpf)}</span>
+                      {g.titulos[0]?.matricula && <span style={A.cardCpf}>mat. {g.titulos[0].matricula}</span>}
+                      {g.titulos[0]?.campus && <span style={A.cardCpf}>{g.titulos[0].campus}</span>}
                       {g.outrasDividas ? (
                         <span style={estilos.seloAtencao} title="O aluno segue em cobrança pelas outras dívidas">
                           tem outras dívidas
@@ -566,10 +799,41 @@ export default function ConferenciaPrime() {
                                   acordo cancelado no histórico
                                 </span>
                               )}
+                              <div style={estilos.triagemLinha}>
+                                {t.prioridade && (
+                                  <span style={{ ...estilos.seloTriagem, ...corSelo(PRIORIDADE[t.prioridade]?.cor) }} title={(t.triagem?.motivos || []).join(" · ") || "sem motivo registrado"}>
+                                    {PRIORIDADE[t.prioridade]?.rotulo || t.prioridade}
+                                  </span>
+                                )}
+                                {t.origem_provavel && (
+                                  <span style={estilos.seloTriagem} title="Origem provável pela triagem automática (não é prova)">
+                                    {ORIGEM[t.origem_provavel] || t.origem_provavel}
+                                  </span>
+                                )}
+                                {t.grupo_historico && (
+                                  <span style={estilos.seloTriagem}>{GRUPO_HIST[t.grupo_historico] || t.grupo_historico}</span>
+                                )}
+                                {Number(t.dias_pendente) > 0 && (
+                                  <span style={estilos.seloTriagem}>{t.dias_pendente} dia{t.dias_pendente > 1 ? "s" : ""} pendente</span>
+                                )}
+                                {t.classe_humana && (
+                                  <span style={{ ...estilos.seloTriagem, ...corSelo("verde") }} title={`${t.classe_humana_obs || ""} (${t.classe_humana_por || "?"}, ${dia(t.classe_humana_em)})`}>
+                                    ✓ {(CLASSES_HUMANAS.find(([c]) => c === t.classe_humana) || [])[1] || t.classe_humana}
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td style={A.tdNum}>{moeda(t.valor)}</td>
                             <td style={A.td}>
                               <div style={A.acoes}>
+                                <button
+                                  type="button"
+                                  style={A.btnFicha}
+                                  onClick={() => abrirDecisao(t)}
+                                  title="Abre a ficha de decisão: evidências, pagamentos, acordos, contrato, narrativas e o mesmo evento na Prime"
+                                >
+                                  Decidir
+                                </button>
                                 {semProva ? (
                                   <>
                                     <span style={estilos.manter} title="Sem prova, o título fica em confirmação: não é pago, não é negociado, não é cobrado">
@@ -655,6 +919,44 @@ export default function ConferenciaPrime() {
         </>
       )}
 
+      {decisao && (
+        <div style={A.modalOverlay} onClick={() => setDecisao(null)}>
+          <div style={{ ...A.modalBox, maxWidth: 980 }} onClick={(e) => e.stopPropagation()}>
+            <div style={A.modalTopo}>
+              <span style={A.modalTitulo}>Ficha de decisão · boleto {decisao.titulo.documento} · {moeda(decisao.titulo.valor)}</span>
+              <button type="button" style={{ ...A.modalFechar, marginLeft: "auto" }} onClick={() => setDecisao(null)}>Fechar ✕</button>
+            </div>
+            <div style={{ ...A.modalConteudo, padding: 16 }}>
+              {decisaoCarregando && <Carregando texto="Reunindo evidências…" />}
+              {decisao.erro && <div style={A.erroBox}>⚠️ {decisao.erro}</div>}
+              {decisao.dados && <FichaDecisao dados={decisao.dados} />}
+              <div style={estilos.classeBox}>
+                <div style={estilos.classeTitulo}>O que apareceu no Prime? <span style={A.muted}>(só registra; nenhum efeito financeiro)</span></div>
+                <div style={estilos.classeBotoes}>
+                  {CLASSES_HUMANAS.map(([c, r]) => (
+                    <button
+                      key={c}
+                      type="button"
+                      style={{ ...(decisao.titulo.classe_humana === c ? A.btnConf : A.btnGhost), ...(processando[`classe:${decisao.titulo.titulo_id}`] ? A.btnBusy : {}) }}
+                      disabled={!!processando[`classe:${decisao.titulo.titulo_id}`]}
+                      onClick={() => classificarHumano(decisao.titulo, c)}
+                    >
+                      {r}
+                    </button>
+                  ))}
+                </div>
+                {decisao.titulo.classe_humana && (
+                  <p style={A.muted}>
+                    Classificado como <b>{(CLASSES_HUMANAS.find(([c]) => c === decisao.titulo.classe_humana) || [])[1]}</b>
+                    {decisao.titulo.classe_humana_por ? ` por ${decisao.titulo.classe_humana_por}` : ""} em {dia(decisao.titulo.classe_humana_em)}: {decisao.titulo.classe_humana_obs}
+                  </p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {fichaId && (
         <div style={A.modalOverlay} onClick={() => setFichaId(null)}>
           <div style={A.modalBox} onClick={(e) => e.stopPropagation()}>
@@ -681,7 +983,152 @@ export default function ConferenciaPrime() {
   );
 }
 
+function corSelo(cor) {
+  if (cor === "vermelho") return { background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", borderColor: "var(--rv-vermelho-borda)" };
+  if (cor === "ambar") return { background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", borderColor: "var(--rv-ambar-borda)" };
+  if (cor === "roxo") return { background: "var(--rv-roxo-fundo)", color: "var(--rv-roxo-texto)", borderColor: "var(--rv-roxo-borda)" };
+  if (cor === "verde") return { background: "var(--rv-verde-ok-fundo)", color: "var(--rv-verde-ok-texto)", borderColor: "var(--rv-verde-ok-borda)" };
+  return {};
+}
+
+function Bloco({ titulo, children }) {
+  return (
+    <div style={estilos.bloco}>
+      <div style={estilos.blocoTitulo}>{titulo}</div>
+      {children}
+    </div>
+  );
+}
+
+function FichaDecisao({ dados }) {
+  const t = dados.titulo || {};
+  const a = dados.aluno || {};
+  const d = dados.decisao || {};
+  const ev = dados.evidencias || {};
+  const tri = d.triagem || {};
+  const prime = ev.prime || {};
+  const linha = (r, v) => (
+    <div style={estilos.kv}><span style={estilos.k}>{r}</span><span>{v ?? "-"}</span></div>
+  );
+  return (
+    <div style={estilos.ficha}>
+      <Bloco titulo="Título">
+        {linha("Boleto", t.documento)}
+        {linha("Vencimento", dia(t.vencimento))}
+        {linha("Valor", moeda(t.valor))}
+        {linha("Situação", `${t.situacao || "-"} / ${t.status || "-"}`)}
+        {linha("Importado em", dia(t.importado_em))}
+        {linha("Grupo histórico", GRUPO_HIST[tri.grupo_historico] || tri.grupo_historico)}
+        {linha("Motivo de entrada", d.motivo_entrada)}
+      </Bloco>
+      <Bloco titulo="Aluno">
+        {linha("Nome", a.nome)}
+        {linha("CPF", formatCpf(a.cpf))}
+        {linha("Matrícula", a.matricula)}
+        {linha("Campus / curso", `${a.campus || "-"} · ${a.curso || "-"}`)}
+        {linha("Situação operacional", a.situacao_operacional)}
+        {linha("Situação acadêmica", a.situacao_academica)}
+        {linha("Responsável", a.responsavel)}
+      </Bloco>
+      <Bloco titulo="Triagem automática (não é prova)">
+        {linha("Prioridade", PRIORIDADE[tri.prioridade]?.rotulo || tri.prioridade)}
+        {linha("Origem provável", ORIGEM[tri.origem_provavel] || tri.origem_provavel)}
+        {linha("Motivos", (tri.motivos || []).join(" · ") || "-")}
+        {linha("Triada em", d.triagem_em ? new Date(d.triagem_em).toLocaleString("pt-BR") : "-")}
+      </Bloco>
+      <Bloco titulo="Evidência Prime">
+        {linha("Liquidado em", dia(prime.liquidado_em))}
+        {linha("Portador", prime.portador)}
+        {linha("Valor bruto / valor pago", `${moeda(prime.valor_bruto)} / ${moeda(prime.valor_pago)} (valor pago não é caixa)`)}
+        {linha("CPF confere", prime.cpf_confere === undefined ? "-" : prime.cpf_confere ? "sim" : "NÃO")}
+        {linha("Liquidação real", prime.liquidacao_real === undefined ? "-" : prime.liquidacao_real ? "sim" : "não")}
+        {linha("Portador 166", ev.no_portador_166 === undefined ? "-" : ev.no_portador_166 ? "sim" : "não")}
+      </Bloco>
+      <Bloco titulo={`Pagamentos ReATIVA próximos (${(ev.pagamentos_proximos || []).length})`}>
+        {(ev.pagamentos_proximos || []).length === 0 ? <p style={A.muted}>Nenhum pagamento até 10 dias da liquidação.</p> : (
+          <ul style={estilos.lista}>
+            {(ev.pagamentos_proximos || []).map((p, i) => (
+              <li key={i}>{dia(p.data)} · {moeda(p.valor)} · {p.status_conciliacao || "-"} · boleto {p.boleto || "-"}{p.cobre_o_titulo ? " · cobre o título" : ""}</li>
+            ))}
+          </ul>
+        )}
+      </Bloco>
+      <Bloco titulo="Acordos">
+        {ev.vinculo_ativo && linha("Vínculo ativo", `acordo ${ev.vinculo_ativo.numero} (${ev.vinculo_ativo.status})`)}
+        {ev.acordo_composicao && linha("Composição documental", `acordo ${ev.acordo_composicao.numero} (${ev.acordo_composicao.status}) · pago de verdade: ${ev.acordo_composicao.pago_de_verdade?.suficiente ? "sim" : "não"}`)}
+        {ev.acordo_candidato && linha("Acordo perto da data", `acordo ${ev.acordo_candidato.numero} (${ev.acordo_candidato.status}) · criado ${dia(ev.acordo_candidato.criado_em)}`)}
+        {linha("Acordos no CRM", tri.evidencias_resumo?.acordos_crm || "nenhum")}
+        {linha("Acordo cancelado no histórico", ev.acordo_cancelado_no_historico ? "sim" : "não")}
+      </Bloco>
+      <Bloco titulo={`Contratos Prime (${(dados.contratos || []).length})`}>
+        {(dados.contratos || []).length === 0 ? <p style={A.muted}>Sem contrato coletado.</p> : (
+          <ul style={estilos.lista}>
+            {(dados.contratos || []).map((c, i) => (
+              <li key={i}>{c.status} · {c.tipo || "-"} · {c.turno || "-"} · {dia(c.valid_from)} a {dia(c.valid_to)}{c.cancelado_em ? ` · cancelado em ${dia(c.cancelado_em)}` : ""} · mat. {c.registration || "-"}</li>
+            ))}
+          </ul>
+        )}
+      </Bloco>
+      <Bloco titulo={`Mesmo evento na Prime (${(dados.mesmo_evento || []).length} outros boletos liquidados no mesmo dia)`}>
+        {(dados.mesmo_evento || []).length === 0 ? <p style={A.muted}>Nenhum outro boleto do aluno liquidado nesse dia.</p> : (
+          <ul style={estilos.lista}>
+            {(dados.mesmo_evento || []).map((x, i) => (
+              <li key={i}>boleto {x.boleto} · portador {x.portador} {x.portador_nome ? `(${x.portador_nome})` : ""} · venc. {dia(x.vencimento)} · {moeda(x.valor_bruto)}</li>
+            ))}
+          </ul>
+        )}
+      </Bloco>
+      <Bloco titulo={`Outros títulos do aluno na fila (${(dados.outros_na_fila || []).length})`}>
+        {(dados.outros_na_fila || []).length === 0 ? <p style={A.muted}>Nenhum.</p> : (
+          <ul style={estilos.lista}>
+            {(dados.outros_na_fila || []).map((x, i) => (
+              <li key={i}>boleto {x.documento} · {moeda(x.valor)} · liq. {dia(x.liquidado_em)} · {PRIORIDADE[x.prioridade]?.rotulo || x.prioridade || "-"}{x.classe_humana ? ` · ✓ ${x.classe_humana}` : ""}</li>
+            ))}
+          </ul>
+        )}
+      </Bloco>
+      <Bloco titulo={`Solicitações ao financeiro (${(dados.solicitacoes || []).length})`}>
+        {(dados.solicitacoes || []).length === 0 ? <p style={A.muted}>Nenhuma.</p> : (
+          <ul style={estilos.lista}>
+            {(dados.solicitacoes || []).map((x, i) => (
+              <li key={i}>{dia(x.em)} · {x.tipo} · {x.status} · {x.motivo || "-"}{x.retorno ? ` → ${x.retorno}` : ""}</li>
+            ))}
+          </ul>
+        )}
+      </Bloco>
+      <Bloco titulo={`Narrativas recentes (${(dados.narrativas || []).length})`}>
+        {(dados.narrativas || []).length === 0 ? <p style={A.muted}>Nenhuma.</p> : (
+          <ul style={estilos.lista}>
+            {(dados.narrativas || []).map((x, i) => (
+              <li key={i}>{dia(x.em)} · {x.tipo} · {x.texto}</li>
+            ))}
+          </ul>
+        )}
+      </Bloco>
+    </div>
+  );
+}
+
 const estilos = {
+  painel: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 },
+  painelCard: { display: "flex", flexDirection: "column", minWidth: 92, padding: "8px 12px", borderRadius: 10, background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)" },
+  painelNum: { fontSize: 20, fontWeight: 800, color: "var(--rv-texto)" },
+  painelRotulo: { fontSize: 11, color: "var(--rv-texto-suave)" },
+  painelOrigens: { flexBasis: "100%", display: "flex", flexWrap: "wrap", gap: 6 },
+  painelOrigem: { fontSize: 11.5, border: "1px solid var(--rv-borda)", borderRadius: 999, padding: "3px 10px", color: "var(--rv-texto)", background: "var(--rv-superficie)" },
+  filtros: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12, alignItems: "center" },
+  rotuloData: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--rv-texto-suave)" },
+  triagemLinha: { display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 },
+  seloTriagem: { fontSize: 10.5, fontWeight: 700, borderRadius: 999, padding: "2px 8px", border: "1px solid var(--rv-borda)", background: "var(--rv-superficie)", color: "var(--rv-texto-suave)", whiteSpace: "nowrap" },
+  ficha: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 10 },
+  bloco: { border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "10px 12px", background: "var(--rv-superficie)", fontSize: 12.5 },
+  blocoTitulo: { fontWeight: 800, fontSize: 12, marginBottom: 6, color: "var(--rv-texto)" },
+  kv: { display: "flex", gap: 8, lineHeight: 1.5 },
+  k: { minWidth: 150, color: "var(--rv-texto-suave)" },
+  lista: { margin: 0, paddingLeft: 18, lineHeight: 1.5 },
+  classeBox: { marginTop: 14, borderTop: "1px solid var(--rv-borda)", paddingTop: 12 },
+  classeTitulo: { fontWeight: 800, fontSize: 13, marginBottom: 8 },
+  classeBotoes: { display: "flex", flexWrap: "wrap", gap: 8 },
   // evidências da regra de entrada: o que foi encontrado e o que falta
   evidencias: { listStyle: "none", margin: "6px 0 0", padding: 0, fontSize: 11.5, lineHeight: 1.45, color: "var(--rv-texto-suave)" },
   evOk: { color: "var(--rv-verde-ok-texto)" },
