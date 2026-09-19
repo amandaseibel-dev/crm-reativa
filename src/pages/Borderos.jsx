@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { naoReabreNoBordero } from "../utils/bordero";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import Dobra from "../ui/blocos";
@@ -346,9 +347,10 @@ export default function Borderos() {
       const registrosTitulos = [];
 
       for (const linha of preview.linhas) {
-        // PAGO nao reabre; EM_CONFIRMACAO (Conferencia Prime) tambem nao --
-        // o banco recusaria de qualquer jeito, mas nem se tenta.
-        if (linha.jaExiste && (linha.situacaoAtual === "PAGO" || linha.situacaoAtual === "EM_CONFIRMACAO")) {
+        // PAGO nao reabre; EM_CONFIRMACAO (Conferencia Prime) e CANCELADA
+        // (encerramento administrativo) tambem nao -- o banco recusaria de
+        // qualquer jeito, mas nem se tenta.
+        if (linha.jaExiste && naoReabreNoBordero(linha.situacaoAtual)) {
           ignorados += 1;
           continue;
         }
