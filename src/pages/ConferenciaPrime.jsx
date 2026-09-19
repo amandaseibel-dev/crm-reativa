@@ -63,6 +63,8 @@ const PRIORIDADE = {
 const ORIGEM = {
   PAGAMENTO_COMPROVADO: "pagamento comprovado",
   ACORDO_COMPROVADO: "acordo comprovado",
+  PAGAMENTO_CANDIDATO: "pagamento candidato",
+  ACORDO_CANDIDATO: "acordo candidato",
   NAO_COMPROVADA: "origem não comprovada",
   INSTITUCIONAL_PROVAVEL: "institucional provável",
   CANCELAMENTO_PROVAVEL: "cancelamento provável",
