@@ -96,6 +96,9 @@ const FAIXAS_VALOR = [
 ];
 const TEMPOS = [["TODOS", "Qualquer tempo"], [">1", "mais de 1 dia"], [">3", "mais de 3 dias"], [">7", "mais de 7 dias"]];
 
+// Classes humanas que admitem a saída administrativa (título vira CANCELADA).
+const ADMINISTRATIVAS = new Set(["CANCELAMENTO_ESTORNO", "ISENCAO_FIES_BOLSA"]);
+
 const REGRA_NOVA = new Set(["A_PAGAMENTO_COMPROVADO", "B_ACORDO_COMPROVADO", "C_SEM_PROVA"]);
 const VINCULA_DIRETO = new Set(["A2_COBRE", "A_PAGAMENTO_COMPROVADO", "B_ACORDO_COMPROVADO"]);
 
@@ -277,6 +280,38 @@ export default function ConferenciaPrime() {
       if (data?.efeito_financeiro !== "nenhum") alert("Atenção: resposta inesperada da classificação.");
     } catch (e) {
       alert("Não deu para classificar: " + (e?.message || e));
+    } finally {
+      marcar(chave, false);
+    }
+  }
+
+  // Saida definitiva ADMINISTRATIVA: so com classe humana CANCELAMENTO_ESTORNO
+  // ou ISENCAO_FIES_BOLSA. O titulo sai da base (CANCELADA), a decisao vira
+  // ENCERRADO_ADMINISTRATIVO; nada de pagamento, acordo ou recuperacao.
+  async function encerrarAdministrativo(t) {
+    const rotulo = (CLASSES_HUMANAS.find(([c]) => c === t.classe_humana) || [])[1] || t.classe_humana;
+    const obs = pedirMotivo(
+      `Encerrar administrativamente o boleto ${t.documento} (${moeda(t.valor)})?\n\n` +
+        `Aluno: ${t.aluno_nome}\nClasse humana: ${rotulo}\nEvidência: ${t.classe_humana_obs || "-"}\n\n` +
+        "O título sai da base como CANCELADA e deixa de ser exigível por motivo administrativo/acadêmico. " +
+        "Não é pagamento, não é acordo, não conta como recuperação. Escreva a observação do encerramento.",
+      10
+    );
+    if (obs === null) return;
+    const chave = `enc:${t.titulo_id}`;
+    if (processando[chave]) return;
+    marcar(chave, true);
+    try {
+      const { data, error } = await supabase.rpc("prime_conferencia_encerrar_administrativo", {
+        p_titulo_id: t.titulo_id, p_observacao: obs,
+      });
+      if (error) throw error;
+      tirarDaTela([t.titulo_id]);
+      setDecisao((d) => (d && d.titulo.titulo_id === t.titulo_id ? null : d));
+      const caso = data?.caso?.encerrado ? "caso encerrado como SEM_SALDO_EM_ABERTO" : `aluno ${data?.aluno || "-"}`;
+      alert(`Boleto ${t.documento} encerrado administrativamente (${caso}). Sem efeito financeiro.`);
+    } catch (e) {
+      alert("Não deu para encerrar: " + (e?.message || e));
     } finally {
       marcar(chave, false);
     }
@@ -828,6 +863,17 @@ export default function ConferenciaPrime() {
                             <td style={A.tdNum}>{moeda(t.valor)}</td>
                             <td style={A.td}>
                               <div style={A.acoes}>
+                                {ADMINISTRATIVAS.has(t.classe_humana) && (
+                                  <button
+                                    type="button"
+                                    style={{ ...estilos.btnRejeitar, ...(processando[`enc:${t.titulo_id}`] ? A.btnBusy : {}) }}
+                                    disabled={!!processando[`enc:${t.titulo_id}`]}
+                                    onClick={() => encerrarAdministrativo(t)}
+                                    title="Saída administrativa: o título sai da base (CANCELADA), sem pagamento, acordo ou recuperação"
+                                  >
+                                    Encerrar administrativamente
+                                  </button>
+                                )}
                                 <button
                                   type="button"
                                   style={A.btnFicha}
@@ -947,6 +993,18 @@ export default function ConferenciaPrime() {
                     </button>
                   ))}
                 </div>
+                {ADMINISTRATIVAS.has(decisao.titulo.classe_humana) && (
+                  <div style={{ marginTop: 10 }}>
+                    <button
+                      type="button"
+                      style={{ ...estilos.btnRejeitar, ...(processando[`enc:${decisao.titulo.titulo_id}`] ? A.btnBusy : {}) }}
+                      disabled={!!processando[`enc:${decisao.titulo.titulo_id}`]}
+                      onClick={() => encerrarAdministrativo(decisao.titulo)}
+                    >
+                      Encerrar administrativamente (sai da base, sem efeito financeiro)
+                    </button>
+                  </div>
+                )}
                 {decisao.titulo.classe_humana && (
                   <p style={A.muted}>
                     Classificado como <b>{(CLASSES_HUMANAS.find(([c]) => c === decisao.titulo.classe_humana) || [])[1]}</b>
