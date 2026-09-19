@@ -1,0 +1,12 @@
+-- ONDA 1 DA DECISAO OPERACIONAL (19/09/2026): CLASSE HUMANA, SEM EFEITO FINANCEIRO
+-- Versao prod 20260919143704. Registro da classe humana via prime_conferencia_classificar_humano
+-- (assinada pela gestao) nos 87 titulos com evidencia objetiva:
+--   CANCELAMENTO_ESTORNO 83: contrato cancelado ate 7 dias da liquidacao (16), ou contrato 2026
+--     cancelado/anulado sem 2026/2 vivo + situacao academica Cancelado/Trancado/Termino (66),
+--     + Vitoria Cristina (trancamento de matricula isento + contrato cancelado).
+--   ISENCAO_FIES_BOLSA 4: Paola 3 (e-mail da ULBRA isentando mai-jul), Melina 1 (Prime sem debitos + FIES).
+-- Ficaram sem classe: 7 residuos, 40 FIES apenas alegado, 26 cancelamento sem evidencia academica, Lais.
+-- Prova na transacao: md5 de decisoes (sem classe_humana), titulos, alunos, casos e movimentacoes dos
+-- alunos alvo iguais; pagamentos/acordos/parcelas/vinculos/reposicao iguais; auditoria +87.
+-- Texto executado: ver auditoria ONDA1_CLASSE_HUMANA_CONFERENCIA_PRIME (bloco DO com selecao por
+-- triagem.motivos + situacao_academica + narrativas, loop chamando a funcao oficial).
