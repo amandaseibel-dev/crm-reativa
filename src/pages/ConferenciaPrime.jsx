@@ -23,18 +23,68 @@ import DadosAcademicos from "../components/DadosAcademicos";
 //     o traz de volta para cá; só fato novo.
 // A2 inconclusivo ou que o acordo não cobre, e aluno com acordo cancelado no
 // histórico, exigem motivo escrito.
+//
+// REGRA DE ENTRADA (18/09/2026): toda liquidação NOVA da Prime chega por
+// classificação de origem, nunca pela data. "Prime liquidado" não é pagamento.
+//   - A_PAGAMENTO_COMPROVADO / B_ACORDO_COMPROVADO -> a ação é VINCULAR ao
+//     acordo comprovado (acordo QUITADO só vira PAGO com dinheiro real).
+//   - C_SEM_PROVA -> LIQUIDAÇÃO SEM ORIGEM COMPROVADA: o padrão é manter em
+//     confirmação. Com acordo perto da data, vincular com motivo; com
+//     pagamento identificado, seguir o pagamento (o motor conclui). Nunca há
+//     "Confirmar PAGO" aqui.
 
 const SUBGRUPO = {
-  A1: { rotulo: "sem acordo na janela", dica: "A Prime liquidou e não há acordo vivo perto da data: confirmar = baixa oficial." },
+  A1: { rotulo: "sem acordo na janela", dica: "A Prime liquidou e não há acordo vivo perto da data: confirmar = baixa oficial (só com pagamento ReATIVA no dia)." },
   A2_COBRE: { rotulo: "acordo cobre", dica: "O acordo feito na data da liquidação cobre este título: confirmar = vincular ao acordo." },
   A2_NAO_COBRE: { rotulo: "acordo não cobre", dica: "Há acordo perto da data, mas ele não cobre este título. Decida com motivo." },
   A2_INCONCLUSIVO: { rotulo: "inconclusivo", dica: "Há acordo perto da data e não dá para afirmar se cobre este título. Decida com motivo." },
+  A_PAGAMENTO_COMPROVADO: { rotulo: "pagamento comprovado", dica: "O boleto está na composição de um acordo quitado com pagamentos baixados que cobrem o acordo: vincular deixa o título pago." },
+  B_ACORDO_COMPROVADO: { rotulo: "acordo comprovado", dica: "O boleto está na composição de um acordo ativo do aluno: vincular deixa o título negociado (a dívida fica nas parcelas)." },
+  C_SEM_PROVA: { rotulo: "LIQUIDAÇÃO SEM ORIGEM COMPROVADA", dica: "A Prime liquidou, mas não há pagamento ReATIVA que cubra o título nem acordo comprovado. Padrão: manter em confirmação." },
 };
 
 const CORROBORACAO = {
   PAGAMENTO_REATIVA: "pagamento ReATIVA no dia",
-  VALOR_PAGO_ACIMA_DO_BRUTO: "valor pago acima do bruto",
+  VALOR_PAGO_ACIMA_DO_BRUTO: "valor pago acima do bruto (não é caixa)",
+  NENHUMA: "sem corroboração",
 };
+
+const REGRA_NOVA = new Set(["A_PAGAMENTO_COMPROVADO", "B_ACORDO_COMPROVADO", "C_SEM_PROVA"]);
+const VINCULA_DIRETO = new Set(["A2_COBRE", "A_PAGAMENTO_COMPROVADO", "B_ACORDO_COMPROVADO"]);
+
+// Os 37 do recorte D2 (18/09) entraram sem subgrupo, antes do CHECK aceitar
+// C_SEM_PROVA; o motivo de entrada diz o que eles são.
+function subgrupoEfetivo(t) {
+  if (t.subgrupo) return t.subgrupo;
+  return /^PRIME_LIQUIDA/.test(String(t.motivo_entrada || "")) ? "C_SEM_PROVA" : t.subgrupo;
+}
+
+// As evidências que a regra de entrada guardou para o título (item 13):
+// pagamento, acordo, portador, data, valor, ou a ausência de cada um.
+function evidencias(t) {
+  const ev = t.evidencia || {};
+  const prime = ev.prime || {};
+  const itens = [];
+  itens.push({ ok: null, texto: `Prime: liquidado em ${dia(prime.liquidado_em || t.liquidado_em)} · portador ${prime.portador ?? t.portador ?? "-"} · bruto ${moeda(prime.valor_bruto)} · "pago" ${moeda(prime.valor_pago)} (dívida corrigida, não caixa)` });
+  if (prime.cpf_confere === false) itens.push({ ok: false, texto: "CPF do boleto na Prime não confere com a ficha" });
+  if (ev.pagamento_candidato_id) {
+    itens.push({ ok: true, texto: `pagamento ReATIVA próximo (${ev.pagamento_candidato_status || "sem conciliação"})${ev.pagamento_cobre_o_titulo ? ", cobre o título" : ", NÃO cobre o título"}` });
+  } else {
+    itens.push({ ok: false, texto: "nenhum pagamento ReATIVA até 10 dias da liquidação" });
+  }
+  if (ev.acordo_composicao) {
+    const a = ev.acordo_composicao;
+    itens.push({ ok: true, texto: `boleto na composição do acordo ${a.numero} (${a.status})${a.status === "QUITADO" ? (a.pago_de_verdade?.suficiente ? ", pago de verdade" : ", SEM pagamentos que cubram") : ""}` });
+  } else if (ev.acordo_candidato) {
+    const a = ev.acordo_candidato;
+    itens.push({ ok: null, texto: `acordo ${a.numero} (${a.status}) criado em ${dia(a.criado_em)}, sem composição que cite o boleto` });
+  } else {
+    itens.push({ ok: false, texto: "nenhum acordo no CRM perto da data" });
+  }
+  if (ev.no_portador_166 === true) itens.push({ ok: null, texto: "CPF listado no portador 166 (só indica que negociou algum dia; não prova este título)" });
+  if (ev.acordo_cancelado_no_historico) itens.push({ ok: null, texto: "aluno tem acordo cancelado no histórico" });
+  return itens;
+}
 
 function moeda(v) {
   return (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -90,7 +140,8 @@ export default function ConferenciaPrime() {
     setErro("");
     setSemPermissao(false);
     try {
-      const { data, error } = await supabase.rpc("prime_conferencia_fila");
+      const { data: bruto, error } = await supabase.rpc("prime_conferencia_fila");
+      const data = (bruto || []).map((i) => ({ ...i, subgrupo: subgrupoEfetivo(i) }));
       if (error) throw error;
       setItens(data || []);
     } catch (e) {
@@ -118,12 +169,15 @@ export default function ConferenciaPrime() {
   }
 
   async function confirmar(t) {
-    const vinculo = t.subgrupo === "A2_COBRE";
+    const vinculo = VINCULA_DIRETO.has(t.subgrupo);
     const pergunta = vinculo
       ? `Vincular o boleto ${t.documento} ao acordo ${t.acordo_numero || "?"}?\n\n` +
         `Aluno: ${t.aluno_nome}\nValor do título: ${moeda(t.valor)}\n\n` +
         "O título passa a fazer parte do acordo: a dívida fica só nas parcelas dele. " +
-        "Nada é baixado, nenhum acordo ou parcela é criado."
+        (t.acordo_status === "QUITADO"
+          ? "O acordo está quitado com pagamentos reais: o título fica pago. "
+          : "Acordo ativo: o título fica negociado. ") +
+        "Nada é baixado por fora, nenhum acordo ou parcela é criado."
       : `Confirmar a liquidação do boleto ${t.documento}?\n\n` +
         `Aluno: ${t.aluno_nome}\nVencimento: ${dia(t.vencimento)}\nValor: ${moeda(t.valor)}\n` +
         `Liquidado na Prime em ${dia(t.liquidado_em)} (${CORROBORACAO[t.corroboracao] || t.corroboracao}).\n\n` +
@@ -154,14 +208,17 @@ export default function ConferenciaPrime() {
     }
   }
 
-  // A2 inconclusivo / que o acordo não cobre: gente decide, com motivo.
-  async function vincularComMotivo(t) {
-    if (!t.acordo_id) {
-      alert("Nenhum acordo sugerido para este título. Vincule pela ficha do aluno ou rejeite.");
+  // A2 inconclusivo / que o acordo não cobre, e C sem prova com acordo perto
+  // da data: gente decide, com motivo.
+  async function vincularComMotivo(t, acordo = null) {
+    const acordoId = acordo?.acordo_id || t.acordo_id;
+    const numero = acordo?.numero || t.acordo_numero || "?";
+    if (!acordoId) {
+      alert("Nenhum acordo sugerido para este título. Vincule pela ficha do aluno ou mantenha em confirmação.");
       return;
     }
     const motivo = pedirMotivo(
-      `Vincular o boleto ${t.documento} ao acordo ${t.acordo_numero || "?"}?\n\n` +
+      `Vincular o boleto ${t.documento} ao acordo ${numero}?\n\n` +
         `${SUBGRUPO[t.subgrupo]?.dica || ""}\n\nPor que este acordo cobre o título?`,
       10
     );
@@ -170,7 +227,7 @@ export default function ConferenciaPrime() {
     try {
       const { error } = await supabase.rpc("prime_conferencia_vincular", {
         p_titulo_id: t.titulo_id,
-        p_acordo_id: t.acordo_id,
+        p_acordo_id: acordoId,
         p_observacao: motivo,
       });
       if (error) throw error;
@@ -199,6 +256,40 @@ export default function ConferenciaPrime() {
       tirarDaTela([t.titulo_id]);
     } catch (e) {
       alert("Não foi possível baixar: " + (e?.message || String(e)));
+    } finally {
+      marcar(t.titulo_id, false);
+    }
+  }
+
+  // ROTA A pela tela: o pagamento está identificado mas ainda pendente no
+  // motor. O título volta para o fluxo oficial, que conclui pela cadeia
+  // pagamento -> acordo/parcela -> título. Nada é marcado pago aqui.
+  async function seguirPagamento(t) {
+    const ev = t.evidencia || {};
+    const pg = (ev.pagamentos_proximos || [])[0];
+    if (!ev.pagamento_candidato_id) {
+      alert("Nenhum pagamento identificado para este título.");
+      return;
+    }
+    const motivo = pedirMotivo(
+      `Seguir o pagamento de ${dia(pg?.data)} (${moeda(pg?.valor)}, ${pg?.status_conciliacao || "sem conciliação"}) para o boleto ${t.documento}?\n\n` +
+        "O título volta para o fluxo oficial de pagamento e sai desta fila; o motor conclui " +
+        "(à vista quita; parcela de parcelado deixa negociado). Nada é marcado pago por aqui.\n\n" +
+        "Por que este pagamento é deste título?",
+      10
+    );
+    if (motivo === null) return;
+    marcar(t.titulo_id, true);
+    try {
+      const { error } = await supabase.rpc("prime_conferencia_seguir_pagamento", {
+        p_titulo_id: t.titulo_id,
+        p_pagamento_id: ev.pagamento_candidato_id,
+        p_motivo: motivo,
+      });
+      if (error) throw error;
+      tirarDaTela([t.titulo_id]);
+    } catch (e) {
+      alert("Não foi possível seguir o pagamento: " + (e?.message || String(e)));
     } finally {
       marcar(t.titulo_id, false);
     }
@@ -247,6 +338,7 @@ export default function ConferenciaPrime() {
       if (grupo === "TODOS") return true;
       if (grupo === "A2") return String(i.subgrupo || "").startsWith("A2");
       if (grupo === "REVISAO") return exigeMotivo(i);
+      if (grupo === "COMPROVADOS") return i.subgrupo === "A_PAGAMENTO_COMPROVADO" || i.subgrupo === "B_ACORDO_COMPROVADO";
       return i.subgrupo === grupo;
     });
     const t = busca.trim().toLowerCase();
@@ -295,6 +387,8 @@ export default function ConferenciaPrime() {
       a1: itens.filter((i) => i.subgrupo === "A1").length,
       a2: itens.filter((i) => String(i.subgrupo || "").startsWith("A2")).length,
       revisao: itens.filter(exigeMotivo).length,
+      semProva: itens.filter((i) => i.subgrupo === "C_SEM_PROVA").length,
+      comprovados: itens.filter((i) => i.subgrupo === "A_PAGAMENTO_COMPROVADO" || i.subgrupo === "B_ACORDO_COMPROVADO").length,
     }),
     [itens]
   );
@@ -332,8 +426,10 @@ export default function ConferenciaPrime() {
           <div style={A.barra}>
             <select style={A.select} value={grupo} onChange={(e) => setGrupo(e.target.value)}>
               <option value="TODOS">Todos ({itens.length})</option>
-              <option value="A2">Com acordo na janela — A2 ({contagens.a2})</option>
-              <option value="A1">Sem acordo na janela — A1 ({contagens.a1})</option>
+              <option value="C_SEM_PROVA">Liquidação sem origem comprovada ({contagens.semProva})</option>
+              <option value="COMPROVADOS">Pagamento/acordo comprovado — vincular ({contagens.comprovados})</option>
+              <option value="A2">Histórico: com acordo na janela — A2 ({contagens.a2})</option>
+              <option value="A1">Histórico: sem acordo na janela — A1 ({contagens.a1})</option>
               <option value="REVISAO">Exigem motivo ({contagens.revisao})</option>
             </select>
             <input
@@ -351,8 +447,10 @@ export default function ConferenciaPrime() {
 
           <div style={estilos.aviso}>
             Estes títulos <b>não estão sendo cobrados</b> e <b>não foram baixados</b>: o valor segue
-            igual e o responsável continua o mesmo. Confirmar dá baixa (ou vincula ao acordo, quando
-            o acordo cobre o título); rejeitar devolve o título para a cobrança.
+            igual e o responsável continua o mesmo. <b>Liquidado na Prime não é pagamento</b>: sem
+            pagamento ReATIVA ou acordo comprovado, o título fica em confirmação. Vincular usa o
+            acordo comprovado; seguir pagamento devolve o título ao fluxo oficial; rejeitar devolve
+            o título para a cobrança.
           </div>
 
           {grupos.length === 0 ? (
@@ -428,24 +526,38 @@ export default function ConferenciaPrime() {
                         const busy = !!processando[t.titulo_id];
                         const sub = SUBGRUPO[t.subgrupo] || { rotulo: t.subgrupo, dica: "" };
                         const decideComMotivo = t.subgrupo === "A2_NAO_COBRE" || t.subgrupo === "A2_INCONCLUSIVO";
+                        const regraNova = REGRA_NOVA.has(t.subgrupo);
+                        const semProva = t.subgrupo === "C_SEM_PROVA";
+                        const ev = t.evidencia || {};
                         return (
                           <tr key={t.titulo_id}>
                             <td style={A.td}>{t.documento || "-"}</td>
                             <td style={A.td}>{dia(t.vencimento)}</td>
                             <td style={A.td}>
                               {dia(t.liquidado_em)}
-                              <span style={estilos.seloComDinheiro}>
-                                {CORROBORACAO[t.corroboracao] || t.corroboracao}
-                              </span>
+                              {!regraNova && (
+                                <span style={estilos.seloComDinheiro}>
+                                  {CORROBORACAO[t.corroboracao] || t.corroboracao}
+                                </span>
+                              )}
                             </td>
                             <td style={A.td}>
                               <span
-                                style={String(t.subgrupo || "").startsWith("A2") ? estilos.seloAtencao : estilos.selo}
+                                style={semProva ? estilos.seloAlerta : String(t.subgrupo || "").startsWith("A2") ? estilos.seloAtencao : estilos.selo}
                                 title={sub.dica}
                               >
                                 {sub.rotulo}
                                 {t.acordo_numero ? ` · acordo ${t.acordo_numero}` : ""}
                               </span>
+                              {regraNova && (
+                                <ul style={estilos.evidencias} title="Evidências encontradas pela regra de entrada">
+                                  {evidencias(t).map((e, i) => (
+                                    <li key={i} style={e.ok === true ? estilos.evOk : e.ok === false ? estilos.evFalta : estilos.evNeutra}>
+                                      {e.ok === true ? "✓ " : e.ok === false ? "✗ " : "· "}{e.texto}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                               {t.revisao_obrigatoria && (
                                 <span
                                   style={estilos.seloAlerta}
@@ -458,7 +570,35 @@ export default function ConferenciaPrime() {
                             <td style={A.tdNum}>{moeda(t.valor)}</td>
                             <td style={A.td}>
                               <div style={A.acoes}>
-                                {decideComMotivo ? (
+                                {semProva ? (
+                                  <>
+                                    <span style={estilos.manter} title="Sem prova, o título fica em confirmação: não é pago, não é negociado, não é cobrado">
+                                      mantido em confirmação
+                                    </span>
+                                    {ev.acordo_candidato && (
+                                      <button
+                                        type="button"
+                                        style={{ ...A.btnConf, ...(busy ? A.btnBusy : {}) }}
+                                        disabled={busy}
+                                        onClick={() => vincularComMotivo(t, ev.acordo_candidato)}
+                                        title={`Vincula ao acordo ${ev.acordo_candidato.numero}, com motivo`}
+                                      >
+                                        Vincular acordo {ev.acordo_candidato.numero}
+                                      </button>
+                                    )}
+                                    {ev.pagamento_candidato_id && (
+                                      <button
+                                        type="button"
+                                        style={{ ...A.btnConf, ...(busy ? A.btnBusy : {}) }}
+                                        disabled={busy}
+                                        onClick={() => seguirPagamento(t)}
+                                        title="O título volta ao fluxo oficial de pagamento; o motor conclui"
+                                      >
+                                        Seguir pagamento
+                                      </button>
+                                    )}
+                                  </>
+                                ) : decideComMotivo ? (
                                   <>
                                     {t.acordo_id && (
                                       <button
@@ -489,7 +629,7 @@ export default function ConferenciaPrime() {
                                     onClick={() => confirmar(t)}
                                     title={sub.dica}
                                   >
-                                    {busy ? "Processando..." : t.subgrupo === "A2_COBRE" ? "Vincular ao acordo" : "Confirmar"}
+                                    {busy ? "Processando..." : VINCULA_DIRETO.has(t.subgrupo) ? "Vincular ao acordo" : "Confirmar"}
                                   </button>
                                 )}
                                 <button
@@ -542,6 +682,12 @@ export default function ConferenciaPrime() {
 }
 
 const estilos = {
+  // evidências da regra de entrada: o que foi encontrado e o que falta
+  evidencias: { listStyle: "none", margin: "6px 0 0", padding: 0, fontSize: 11.5, lineHeight: 1.45, color: "var(--rv-texto-suave)" },
+  evOk: { color: "var(--rv-verde-ok-texto)" },
+  evFalta: { color: "var(--rv-vermelho-texto)" },
+  evNeutra: { color: "var(--rv-texto-suave)" },
+  manter: { fontSize: 11.5, fontWeight: 700, color: "var(--rv-texto-suave)", border: "1px dashed var(--rv-borda-forte)", borderRadius: 8, padding: "5px 10px", whiteSpace: "nowrap" },
   seloComDinheiro: { marginLeft: 6, fontSize: 11, fontWeight: 800, color: "var(--rv-verde-ok-texto)", background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", borderRadius: 999, padding: "2px 8px" },
   btnCopiar: { background: "var(--rv-superficie)", color: "var(--rv-texto)", border: "1px solid var(--rv-borda-forte)", borderRadius: 8, padding: "3px 10px", fontSize: 11.5, fontWeight: 700, cursor: "pointer" },
   btnRejeitar: { background: "var(--rv-superficie)", color: "var(--rv-vermelho-texto)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 8, padding: "6px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
