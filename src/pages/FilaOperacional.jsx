@@ -3,6 +3,13 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { carregarTabulacoes, desfechoDaTabulacao } from "../utils/tabulacoes";
 import { buscarTudo } from "../utils/paginado";
+import {
+  carregarIdsEmConfirmacao,
+  alunoEmConfirmacao,
+  separarPorConfirmacao,
+  MENSAGEM_ERRO_PROTECAO_CONFIRMACAO,
+  ROTULO_EM_CONFIRMACAO,
+} from "../utils/filaConfirmacao";
 import FluxoLinksRapido from "../components/FluxoLinksRapido";
 import ModuloLinkPagamentoGlobal from "../components/ModuloLinkPagamentoGlobal";
 import LinksPagamentoAluno from "../components/LinksPagamentoAluno";
@@ -230,6 +237,8 @@ export default function FilaOperador() {
   const [usuarioLogado, setUsuarioLogado] = useState(null);
   const [alunos, setAlunos] = useState([]);
   const [saldosPorCpf, setSaldosPorCpf] = useState({});
+  // aluno_id de quem tem confirmacao financeira aberta (fonte unica: RPC alunos_em_confirmacao_pendente)
+  const [idsEmConfirmacao, setIdsEmConfirmacao] = useState(() => new Set());
   const [alunoSelecionado, setAlunoSelecionado] = useState(null);
   const [abaFicha, setAbaFicha] = useState("dados");
   const [movimentacoes, setMovimentacoes] = useState([]);
@@ -500,17 +509,34 @@ export default function FilaOperador() {
       // de prioridade normal entre os dois grupos. Quitado nem isso --
       // sai completamente da Fila Operacional.
       const dados = (data || []).filter((a) => !ehQuitado(a));
-      const emCobranca = dados.filter(
+
+      // Confirmacao financeira aberta = NAO acionavel. Fail-closed: sem a lista
+      // de protegidos nao ha fila (nunca listar casos potencialmente acionaveis).
+      const protecao = await carregarIdsEmConfirmacao(supabase);
+      if (!protecao.ok) {
+        console.error("Erro ao carregar alunos em confirmação de pagamento:", protecao.erro);
+        setErro(MENSAGEM_ERRO_PROTECAO_CONFIRMACAO);
+        setIdsEmConfirmacao(new Set());
+        setAlunos([]);
+        return;
+      }
+      setIdsEmConfirmacao(protecao.ids);
+      const { acionaveis, protegidos } = separarPorConfirmacao(dados, protecao.ids);
+
+      const emCobranca = acionaveis.filter(
         (a) =>
           !STATUS_BLOQUEADOS_ACIONAMENTO.includes(
             pegarCampo(a, ["status_jornada", "status_atual", "status"], "CONTATAR")
           )
       );
-      const foraDaCobranca = dados.filter((a) =>
-        STATUS_BLOQUEADOS_ACIONAMENTO.includes(
-          pegarCampo(a, ["status_jornada", "status_atual", "status"], "CONTATAR")
-        )
-      );
+      const foraDaCobranca = [
+        ...acionaveis.filter((a) =>
+          STATUS_BLOQUEADOS_ACIONAMENTO.includes(
+            pegarCampo(a, ["status_jornada", "status_atual", "status"], "CONTATAR")
+          )
+        ),
+        ...protegidos,
+      ];
 
       // Link respondido (nivel_criticidade "URGENTE") sempre no topo de
       // tudo, na frente até da ordenação normal por tempo sem acionamento.
@@ -1223,7 +1249,10 @@ export default function FilaOperador() {
 
                 const selecionado = alunoSelecionado?.id === aluno.id;
 
-                const bloqueado = STATUS_BLOQUEADOS_ACIONAMENTO.includes(status);
+                const bloqueadoPorStatus = STATUS_BLOQUEADOS_ACIONAMENTO.includes(status);
+                // o rotulo de jurídico/cancelamento/suspensão prevalece; a confirmação só rotula quem não tem esse status
+                const emConfirmacao = !bloqueadoPorStatus && alunoEmConfirmacao(aluno, idsEmConfirmacao);
+                const bloqueado = bloqueadoPorStatus || emConfirmacao;
 
                 return (
                   <button
@@ -1258,7 +1287,7 @@ export default function FilaOperador() {
                             : {}),
                         }}
                       >
-                        {STATUS_BLOQUEADOS_LABEL[status] || status}
+                        {emConfirmacao ? ROTULO_EM_CONFIRMACAO : STATUS_BLOQUEADOS_LABEL[status] || status}
                       </span>
                     </div>
 
@@ -1274,7 +1303,7 @@ export default function FilaOperador() {
                           fontSize: 13,
                         }}
                       >
-                        ⚠️ {STATUS_BLOQUEADOS_LABEL[status]} — não acionar.
+                        ⚠️ {emConfirmacao ? `${ROTULO_EM_CONFIRMACAO}` : STATUS_BLOQUEADOS_LABEL[status]} — não acionar.
                         {aluno.observacao ? ` ${aluno.observacao}` : ""}
                       </div>
                     )}
