@@ -3,6 +3,7 @@ import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
 import BotaoAtualizar from "../components/BotaoAtualizar";
 import PenetracaoPorAno from "../components/PenetracaoPorAno";
+import { rotuloMotivo } from "../utils/motivosAcaoMassiva";
 
 const FONTE_TITULO = "'Sora', 'Inter', system-ui, sans-serif";
 const VERDE = "var(--rv-azul-texto)";
@@ -25,6 +26,17 @@ function rotuloTipoCobranca(valor) {
   if (!valor || valor === "REGRA_ANTERIOR") return "Sem tipo (tela anterior)";
   return TIPOS_COBRANCA.find((t) => t.valor === valor)?.rotulo || valor;
 }
+
+// Filtro de acionamento (valores do banco). "Não acionados no mês" é o principal.
+const OPCOES_ACIONAMENTO = [
+  { valor: "TODOS", rotulo: "Todos" },
+  { valor: "NAO_MES", rotulo: "Não acionados no mês (principal)" },
+  { valor: "MES", rotulo: "Acionados no mês" },
+  { valor: "NAO_HOJE", rotulo: "Não acionados hoje" },
+  { valor: "HOJE", rotulo: "Acionados hoje" },
+  { valor: "NUNCA", rotulo: "Nunca acionados" },
+];
+const ROTULO_ACIONAMENTO = Object.fromEntries(OPCOES_ACIONAMENTO.map((o) => [o.valor, o.rotulo]));
 
 function formatarMoeda(valor) {
   return Number(valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -99,7 +111,7 @@ function normalizarTelefone(bruto) {
 
 export default function AcoesMassivas() {
   const [canal, setCanal] = useState("WHATSAPP"); // WHATSAPP | EMAIL
-  const [valorMin, setValorMin] = useState("100,00");
+  const [valorMin, setValorMin] = useState("0");
   const [valorMax, setValorMax] = useState("");
   const [quantidade, setQuantidade] = useState("100");
   const [anoVencimento, setAnoVencimento] = useState("");
@@ -123,7 +135,8 @@ export default function AcoesMassivas() {
   // Operador responsável: "" = base livre / regra atual. Com um e-mail, a
   // prévia e o registro recortam SÓ a carteira atual daquele operador. A chave
   // é o e-mail (vem do cadastro via acoes_massivas_filtros), nunca o nome.
-  const [operadorEmail, setOperadorEmail] = useState("");
+  // "TODOS" | "LIVRES" | e-mail. Nunca vazio/null: o banco recebe sempre um valor.
+  const [operadorEmail, setOperadorEmail] = useState("LIVRES");
   const [opcoesOperador, setOpcoesOperador] = useState([]);
   // Recorte que o BANCO confirmou na última prévia. É ele que vai para o
   // registro: planilha e prévia saem sempre da mesma carteira.
@@ -136,15 +149,19 @@ export default function AcoesMassivas() {
   const [tipoDaPrevia, setTipoDaPrevia] = useState(null);
   const [diasMinimoSemContato, setDiasMinimoSemContato] = useState("");
   const [diasPersonalizado, setDiasPersonalizado] = useState(false);
-  // "todos" | "nunca" (nunca acionados) | "ja" (já acionados)
-  const [acionamentoFiltro, setAcionamentoFiltro] = useState("todos");
+  // TODOS | NAO_MES | MES | NAO_HOJE | HOJE | NUNCA
+  const [acionamentoFiltro, setAcionamentoFiltro] = useState("TODOS");
+  // Recência da ação massiva por canal, em dias (0–60).
+  const [recenciaDias, setRecenciaDias] = useState("10");
+  // O que o banco explicou na última prévia (painel) e o id dela (vai à exportação).
+  const [resumoPrevia, setResumoPrevia] = useState(null);
+  const [previaId, setPreviaId] = useState(null);
   const [soSemTelefone, setSoSemTelefone] = useState(false);
   const [carregando, setCarregando] = useState(false);
   const [gerando, setGerando] = useState(false);
   const [resultados, setResultados] = useState(null);
   const [erro, setErro] = useState("");
   const [sucesso, setSucesso] = useState("");
-  const [progresso, setProgresso] = useState(null);
   const [porDia, setPorDia] = useState([]);
   const [saude, setSaude] = useState(null);
   const [retornos, setRetornos] = useState(null);
@@ -157,11 +174,6 @@ export default function AcoesMassivas() {
   // Quantos alunos por tipo atendem aos filtros enviados ao banco -- já com o
   // contato do canal e a faixa de valor.
   const [contagemTipo, setContagemTipo] = useState(null);
-  // "Total elegível após os filtros": a população que o banco encontrou para a
-  // opção escolhida (total_elegivel_filtros). A lista é uma amostra dela,
-  // limitada pela Quantidade usada nesta prévia.
-  const [totalElegivelFiltros, setTotalElegivelFiltros] = useState(null);
-  const [quantidadeDaPrevia, setQuantidadeDaPrevia] = useState(null);
   const [mostrarExcluidos, setMostrarExcluidos] = useState(false);
   const [excluidosNoEnvio, setExcluidosNoEnvio] = useState(0);
   // Guarda o último relatório gerado p/ permitir baixar manualmente caso o
@@ -190,7 +202,7 @@ export default function AcoesMassivas() {
     bloqueadoAtePainel.current = agora + 15000;
     setCarregandoPainel(true);
     try {
-      await Promise.all([carregarProgresso(), carregarPorDia(), carregarSaude(), carregarRetornos()]);
+      await Promise.all([carregarPorDia(), carregarSaude(), carregarRetornos()]);
       setPainelEm(new Date());
     } finally {
       emVooPainel.current = false;
@@ -233,11 +245,6 @@ export default function AcoesMassivas() {
     setPorDia(data || []);
   }
 
-  async function carregarProgresso() {
-    const { data } = await supabase.rpc("total_elegiveis_acoes_massivas", { p_canal: canal });
-    setProgresso(data);
-  }
-
   // Some com a prévia na tela. Usado quando o recorte muda: uma lista de um
   // operador nunca pode ficar à mostra (nem ser registrada) com outro escolhido.
   function limparPrevia() {
@@ -245,8 +252,8 @@ export default function AcoesMassivas() {
     setOperadorDaPrevia(null);
     setTipoDaPrevia(null);
     setContagemTipo(null);
-    setTotalElegivelFiltros(null);
-    setQuantidadeDaPrevia(null);
+    setResumoPrevia(null);
+    setPreviaId(null);
     setRelatorioPronto(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
@@ -256,15 +263,18 @@ export default function AcoesMassivas() {
   }
 
   function nomeDoOperador(email) {
+    if (String(email).toUpperCase() === "TODOS") return "Todos os operadores";
+    if (String(email).toUpperCase() === "LIVRES") return "Sem responsável / livres";
     return opcoesOperador.find((o) => o.email === email)?.nome || email;
   }
 
   async function buscar(over = {}) {
     setErro("");
     setSucesso("");
-    const min = valorMin.trim() ? converterValor(valorMin) : null;
+    const min = valorMin.trim() ? converterValor(valorMin) : 0;
     const max = valorMax.trim() ? converterValor(valorMax) : null;
     const qtd = Math.max(1, Math.min(5000, Number(quantidade) || 100));
+    const recencia = Math.max(0, Math.min(60, Number.parseInt(recenciaDias, 10) || 0));
 
     if (valorMin.trim() && min === null) {
       setErro("Valor mínimo inválido.");
@@ -279,67 +289,51 @@ export default function AcoesMassivas() {
       return;
     }
 
-    // Regra fixa: nunca gera ação pra caso com valor em aberto abaixo de
-    // R$100 -- mesmo que o campo fique em branco ou alguém digite menos.
-    const minEfetivo = Math.max(min ?? 0, 100);
-
     setCarregando(true);
     setResultados(null);
     setOperadorDaPrevia(null);
     setTipoDaPrevia(null);
     setContagemTipo(null);
-    setTotalElegivelFiltros(null);
-    setQuantidadeDaPrevia(null);
+    setResumoPrevia(null);
+    setPreviaId(null);
     setExcluidosConfirmacao([]);
     setPrimeExtratoEm(null);
     setMostrarExcluidos(false);
     setExcluidosNoEnvio(0);
 
     try {
-      // Busca a prévia direto no banco (funcao SQL, ja traz o valor junto),
-      // evitando montar uma lista gigante de IDs na URL da requisicao.
-      //
-      // A prévia já separa, no backend, os casos em CONFIRMAÇÃO DE PAGAMENTO:
-      // eles vêm em `excluidos_confirmacao` (mascarados) e NUNCA em `elegiveis`.
-      const operadorPedido = operadorEmail || null;
+      // TODOS os filtros (canal, valor, contato, acionamento, recência, operador)
+      // vão ao BANCO, que aplica o limite exato só depois deles. A tela não corta,
+      // não reordena e não filtra a lista devolvida.
+      const operadorPedido = over.operador ?? operadorEmail;
       const argsPrevia = {
         p_ano_vencimento: (over.ano ?? anoVencimento) || null,
-        p_limite: Math.min(qtd * 3, 6000),
+        p_limite: qtd,
         p_dias_minimo_sem_contato: diasMinimoSemContato ? Number(diasMinimoSemContato) : null,
-        p_apenas_nunca_acionado: (over.acionamento ?? acionamentoFiltro) === "nunca",
-        p_apenas_ja_acionado: (over.acionamento ?? acionamentoFiltro) === "ja",
         p_unidade: ((over.unidades ?? unidadesSel) || []).join("|") || null,
         p_matricula: (over.matricula ?? matricula) || null,
         p_curso: (over.curso ?? curso) || null,
+        // vazio = TODAS as situações
         p_situacao_academica: ((over.situacoesAcad ?? situacoesAcadSel) || []).join("|") || null,
         p_importacao_ids: (over.borderosSel ?? borderosSel).length
           ? (over.borderosSel ?? borderosSel)
           : null,
-        // Canal e faixa de valor vão para o BANCO, antes do corte de p_limite.
-        // Filtrados só aqui na tela, o banco devolvia Quantidade × 3 linhas e a
-        // tela jogava fora quem não tem contato ou está abaixo do valor: a
-        // lista saía com menos que a Quantidade enquanto a contagem mostrava
-        // milhares. Os predicados do banco são os mesmos de tem_telefone,
-        // tem_email e valor; os filtros abaixo continuam, agora sem efeito.
         p_canal: canal,
-        p_valor_min: minEfetivo,
+        p_valor_min: min,
         p_valor_max: max,
+        p_operador_email: operadorPedido,
+        p_tipo_cobranca: tipoCobranca,
+        p_acionamento: over.acionamento ?? acionamentoFiltro,
+        p_recencia_dias: recencia,
+        p_sem_telefone: canal === "EMAIL" && soSemTelefone,
       };
-      // Sem operador a chamada fica IDÊNTICA à de antes (a chave nem vai):
-      // base livre / regra atual, sem depender da versão do banco.
-      if (operadorPedido) argsPrevia.p_operador_email = operadorPedido;
-      argsPrevia.p_tipo_cobranca = tipoCobranca;
       const { data: previa, error: erroAlunos } = await supabase.rpc("acoes_massivas_previa", argsPrevia);
       if (erroAlunos) throw erroAlunos;
 
-      // O banco devolve o recorte que aplicou. Se não bater com o pedido, a
-      // lista pode ser de outra carteira: não mostra nada.
-      if ((previa?.operador_email ?? null) !== operadorPedido) {
-        throw new Error(
-          operadorPedido
-            ? "o banco não aplicou o filtro de operador. Nada foi listado."
-            : "o banco devolveu uma carteira filtrada sem operador escolhido. Nada foi listado."
-        );
+      // O banco devolve o recorte que aplicou (em minúsculas: 'todos'/'livres').
+      // Se não bater com o pedido, a lista pode ser de outra carteira: não mostra nada.
+      if (String(previa?.operador_email ?? "").toLowerCase() !== String(operadorPedido).toLowerCase()) {
+        throw new Error("o banco não aplicou o filtro de operador. Nada foi listado.");
       }
       if (previa?.tipo_cobranca !== tipoCobranca) {
         throw new Error("o banco não aplicou o tipo de cobrança escolhido. Nada foi listado.");
@@ -347,53 +341,33 @@ export default function AcoesMassivas() {
       setOperadorDaPrevia(operadorPedido);
       setTipoDaPrevia(tipoCobranca);
       setContagemTipo(previa?.contagem_tipo || null);
-      setTotalElegivelFiltros(
-        previa?.total_elegivel_filtros == null ? null : Number(previa.total_elegivel_filtros),
-      );
-      setQuantidadeDaPrevia(qtd);
+      setResumoPrevia(previa?.resumo || null);
+      setPreviaId(previa?.previa_id || null);
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
       setPrimeExtratoEm(previa?.prime_extrato_em || null);
 
-      const alunosBrutos = previa?.elegiveis || [];
-      if (alunosBrutos.length === 0) {
-        setResultados([]);
-        setCarregando(false);
-        return;
-      }
-
       // A prévia NÃO retorna telefone/e-mail completos (anti-enumeração): vêm
-      // mascarados só pra exibição + flags tem_telefone/tem_email pra filtrar.
-      // Os contatos reais só são devolvidos por acoes_massivas_exportar (gestão).
-      let lista = (alunosBrutos || [])
-        .map((a) => ({
-          alunoId: a.id,
-          nome: a.nome || "-",                       // já mascarado no backend (ex.: "Ana ***")
-          situacaoAcademica: a.situacao_academica || null,
-          curso: a.curso || null,
-          unidade: a.unidade || null,
-          telefoneMascarado: a.telefone_mascarado || "",
-          emailMascarado: a.email_mascarado || "",
-          temTelefone: !!a.tem_telefone,
-          temEmail: !!a.tem_email,
-          semTelefone: !a.tem_telefone,
-          valor: Number(a.valor || 0),
-          diasSemContato: a.data_ultimo_acionamento
-            ? Math.floor((Date.now() - new Date(a.data_ultimo_acionamento).getTime()) / 86400000)
-            : null,
-        }))
-        .filter((l) => (canal === "WHATSAPP" ? l.temTelefone : l.temEmail)) // precisa do contato certo pro canal escolhido
-        .filter((l) => l.valor >= minEfetivo)
-        .filter((l) => (max === null ? true : l.valor <= max));
-
-      if (canal === "EMAIL") {
-        if (soSemTelefone) lista = lista.filter((l) => l.semTelefone);
-        // Sem telefone = prioridade no e-mail (nao da pra alcancar por WhatsApp)
-        lista = lista.slice().sort((a, b) => (b.semTelefone ? 1 : 0) - (a.semTelefone ? 1 : 0));
-      }
-
-      lista = lista.slice(0, qtd);
-      setResultados(lista);
+      // mascarados só pra exibição. Os contatos reais só são devolvidos por
+      // acoes_massivas_exportar (gestão). A lista é exibida exatamente como veio.
+      setResultados((previa?.elegiveis || []).map((a) => ({
+        alunoId: a.id,
+        nome: a.nome || "-",                       // já mascarado no backend (ex.: "Ana ***")
+        situacaoAcademica: a.situacao_academica || null,
+        curso: a.curso || null,
+        unidade: a.unidade || null,
+        telefoneMascarado: a.telefone_mascarado || "",
+        emailMascarado: a.email_mascarado || "",
+        semTelefone: !a.tem_telefone,
+        valor: Number(a.valor || 0),
+        temResponsavel: !!a.tem_responsavel,
+        responsavelEmail: a.responsavel_email || null,
+        fidelizacaoAtiva: !!a.fidelizacao_ativa,
+        acionadoMes: !!a.acionado_mes,
+        diasSemContato: a.data_ultimo_acionamento
+          ? Math.floor((Date.now() - new Date(a.data_ultimo_acionamento).getTime()) / 86400000)
+          : null,
+      })));
     } catch (e) {
       console.error("Erro ao buscar casos livres:", e);
       setErro("Erro ao buscar: " + (e.message || "tente novamente"));
@@ -425,7 +399,7 @@ export default function AcoesMassivas() {
     setExcluidosNoEnvio(0);
 
     try {
-      const sufixoOperador = operadorDaPrevia ? `-${operadorDaPrevia.split("@")[0]}` : "";
+      const sufixoOperador = operadorDaPrevia && operadorDaPrevia.includes("@") ? `-${operadorDaPrevia.split("@")[0]}` : "";
       const tipoLote = tipoDaPrevia;
       const sufixoTipo = tipoLote ? `-${tipoLote.toLowerCase().replace(/_/g, "-")}` : "";
       const nomeArquivo = `acao-massiva-${canal.toLowerCase()}${sufixoOperador}${sufixoTipo}-${new Date().toISOString().slice(0, 10)}.xlsx`;
@@ -435,8 +409,9 @@ export default function AcoesMassivas() {
         p_canal: canal,
         p_arquivo: nomeArquivo,
       };
-      // Mesmo recorte da prévia: só sai quem CONTINUA na carteira do operador.
-      if (operadorDaPrevia) argsExportar.p_operador_email = operadorDaPrevia;
+      // Mesmo recorte da prévia ('TODOS' | 'LIVRES' | e-mail) e a mesma prévia.
+      argsExportar.p_operador_email = operadorDaPrevia;
+      if (previaId) argsExportar.p_previa_id = previaId;
       // O banco revalida o tipo e o grava no lote; a confirmação revalida de novo.
       if (tipoLote) argsExportar.p_tipo_cobranca = tipoLote;
       const { data: exp, error: erroExp } = await supabase.rpc("acoes_massivas_exportar", argsExportar);
@@ -517,19 +492,21 @@ export default function AcoesMassivas() {
         setSucesso(`Lote ${lote.arquivo || ""} descartado. Nada foi registrado nos alunos.`);
       } else {
         const registrados = Number(res?.registrados || 0);
-        const retorno = new Date();
-        retorno.setDate(retorno.getDate() + 10);
+        const jaListados = ["confirmacao_pendente", "liquidado_prime", "outro_responsavel", "fora_tipo_cobranca"];
+        const outrosMotivos = Object.entries(res?.excluidos_por_motivo || {})
+          .filter(([codigo]) => !jaListados.includes(codigo))
+          .map(([codigo, n]) => [Number(n || 0), `estavam indisponíveis (${rotuloMotivo(codigo).toLowerCase()})`]);
         const partes = [
           [Number(res?.excluidos_acionados_apos_exportacao || 0), "foram acionados depois da exportação e mantiveram o contato mais novo"],
           [Number(res?.excluidos_confirmacao || 0), "entraram em confirmação de pagamento"],
           [Number(res?.excluidos_liquidados_prime || 0), "já constam liquidados no Prime"],
           [Number(res?.excluidos_outro_operador || 0), "não estão mais na carteira do operador do lote"],
           [Number(res?.excluidos_tipo_cobranca || 0), "não correspondem mais ao tipo de cobrança do lote"],
+          ...outrosMotivos,
         ].filter(([n]) => n > 0).map(([n, t]) => ` ${n} caso(s) ${t} e não foram registrados.`).join("");
         setSucesso(
-          `Ação confirmada: ${registrados} aluno(s) registrados como acionados, com retorno agendado para ${retorno.toLocaleDateString("pt-BR")}.${partes}`
+          `Ação confirmada: ${registrados} aluno(s) registrados como ação massiva e contados na cobertura. Responsável, fidelização e retorno dos alunos não foram alterados.${partes}`
         );
-        carregarProgresso();
         carregarPorDia();
       }
     } catch (e) {
@@ -542,6 +519,23 @@ export default function AcoesMassivas() {
     }
   }
 
+  // Filtros de população/operação enviados ao painel de cobertura (o painel
+  // ignora 'ano'). Mesmas chaves que o banco lê em acoes_massivas_universo.
+  const filtrosCobertura = {
+    unidade: unidadesSel.join("|") || null,
+    curso: curso || null,
+    situacao_academica: situacoesAcadSel.join("|") || null,
+    matricula: matricula || null,
+    importacao_ids: borderosSel.length ? borderosSel : null,
+    operador: operadorEmail,
+    tipo_cobranca: tipoCobranca || null,
+    canal,
+    sem_telefone: canal === "EMAIL" && soSemTelefone,
+    valor_min: converterValor(valorMin) ?? 0,
+    valor_max: valorMax.trim() ? converterValor(valorMax) : null,
+    recencia_dias: Math.max(0, Math.min(60, Number.parseInt(recenciaDias, 10) || 0)),
+  };
+
   const valorTotal = resultados ? resultados.reduce((s, r) => s + r.valor, 0) : 0;
 
   // Transporta os filtros do painel de penetração para a prévia oficial e
@@ -552,9 +546,9 @@ export default function AcoesMassivas() {
     setAnoVencimento(anoStr);
     setUnidadesSel(uni ? [uni] : []);
     setCurso(cur || "");
-    setAcionamentoFiltro("nunca");
+    setAcionamentoFiltro("NUNCA");
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
-    buscar({ ano: anoStr, unidades: uni ? [uni] : [], curso: cur || "", acionamento: "nunca" });
+    buscar({ ano: anoStr, unidades: uni ? [uni] : [], curso: cur || "", acionamento: "NUNCA" });
   }
 
   return (
@@ -563,9 +557,9 @@ export default function AcoesMassivas() {
         <div>
           <h1 style={estilos.titulo}>⚡ Ações Massivas</h1>
           <p style={estilos.subtitulo}>
-            Estimula por fora (fora do CRM) casos livres, sem operador vinculado — priorizado por
-            tempo sem contato (quem nunca foi acionado, ou faz mais tempo, vem primeiro), sem depender
-            de operador pra fazer o acionamento manual.
+            Estimula por fora (fora do CRM) alunos com dívida ativa — da carteira livre, de um operador ou de
+            todos. Prioriza quem ainda não foi acionado no mês, depois quem está há mais tempo sem contato.
+            A ação nunca altera o responsável do aluno.
           </p>
         </div>
         <BotaoAtualizar carregando={carregandoPainel} ultimaEm={painelEm} onClick={atualizarPainel} rotulo="Atualizar painel" />
@@ -601,6 +595,7 @@ export default function AcoesMassivas() {
         opcoesUnidade={opcoesUnidade}
         opcoesCurso={opcoesCurso}
         onUsarComoFiltro={usarComoFiltroDaPenetracao}
+        filtrosCobertura={filtrosCobertura}
       />
 
       {saude && (saude.sem_valor > 0 || saude.sem_telefone > 0) && (
@@ -614,44 +609,6 @@ export default function AcoesMassivas() {
             remessa automática. Precisam de conferência manual em{" "}
             <a href="/financeiro-hub" style={{ color: "var(--rv-ambar-texto)", fontWeight: 700 }}>Confirmação de Pagamento</a>.
           </p>
-        </div>
-      )}
-
-      {progresso && progresso.total_elegivel > 0 && (
-        <div style={estilos.card}>
-          {(() => {
-            const restante = Math.max(progresso.total_elegivel - progresso.ja_acionado, 0);
-            const percentualAcionado = ((progresso.ja_acionado / progresso.total_elegivel) * 100).toFixed(1);
-            return (
-              <>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
-                  <strong style={{ fontFamily: FONTE_TITULO, fontSize: 14 }}>
-                    {percentualAcionado}% da base já acionada (aguardando retorno)
-                  </strong>
-                  <span style={{ color: "var(--rv-texto-fraco)", fontSize: 12.5 }}>
-                    {progresso.ja_acionado} enviados · {restante} restantes de {progresso.total_elegivel}
-                  </span>
-                </div>
-                {progresso.sem_acionamento != null && (
-                  <div style={{ fontSize: 12.5, color: "var(--rv-texto)", marginBottom: 8 }}>
-                    <strong style={{ color: "var(--rv-tinta)" }}>{progresso.sem_acionamento}</strong> nunca acionados
-                    {" "}— marque <strong>“Só nunca acionados”</strong> abaixo para priorizá-los.
-                  </div>
-                )}
-                <div style={{ background: "var(--rv-fundo-suave)", borderRadius: 999, height: 10, overflow: "hidden" }}>
-                  <div
-                    style={{
-                      width: `${percentualAcionado}%`,
-                      background: VERDE,
-                      height: "100%",
-                      borderRadius: 999,
-                      transition: "width 0.3s ease",
-                    }}
-                  />
-                </div>
-              </>
-            );
-          })()}
         </div>
       )}
 
@@ -732,12 +689,13 @@ export default function AcoesMassivas() {
                 limparPrevia();
               }}
             >
-              <option value="">Base livre / regra atual</option>
+              <option value="LIVRES">Sem responsável / livres</option>
+              <option value="TODOS">Todos os operadores</option>
               {opcoesOperador.map((o) => (
                 <option key={o.email} value={o.email}>{o.nome} ({o.email})</option>
               ))}
             </select>
-            {operadorEmail && (
+            {operadorEmail.includes("@") && (
               <span style={estilos.ajudaCampo}>
                 Só alunos da carteira atual de {nomeDoOperador(operadorEmail)}. O filtro “Sem acionamento há”
                 continua opcional e não é aplicado sozinho. Exportar a planilha não muda nada no aluno.
@@ -766,8 +724,9 @@ export default function AcoesMassivas() {
             )}
           </div>
           <div style={estilos.campo}>
-            <label style={estilos.label}>Valor mínimo (nunca abaixo de R$ 100,00)</label>
+            <label style={estilos.label} htmlFor="filtro-valor-min">Valor mínimo (R$)</label>
             <input
+              id="filtro-valor-min"
               style={estilos.input}
               placeholder="Ex: 500,00"
               value={valorMin}
@@ -775,7 +734,7 @@ export default function AcoesMassivas() {
             />
           </div>
           <div style={estilos.campo}>
-            <label style={estilos.label}>Valor máximo</label>
+            <label style={estilos.label}>Valor máximo (R$, opcional)</label>
             <input
               style={estilos.input}
               placeholder="Ex: 3000,00"
@@ -871,7 +830,7 @@ export default function AcoesMassivas() {
                               : [...prev, b.importacao_id];
                             // Carteira nova = ninguém foi acionado; não faz sentido
                             // travar por "já acionado". Solta o filtro de acionamento.
-                            if (proximo.length) setAcionamentoFiltro("todos");
+                            if (proximo.length) setAcionamentoFiltro("TODOS");
                             return proximo;
                           });
                         }}
@@ -910,7 +869,7 @@ export default function AcoesMassivas() {
           </div>
           <div style={{ ...estilos.campo, minWidth: 260 }}>
             <label style={estilos.label}>
-              Status acadêmico{situacoesAcadSel.length ? ` · ${situacoesAcadSel.length} selec.` : " · todos"}
+              Status acadêmico{situacoesAcadSel.length ? ` · ${situacoesAcadSel.length} selec.` : " · todas as situações"}
             </label>
             <div style={estilos.caixaBordero}>
               {opcoesSituacaoAcad.map((s) => {
@@ -986,16 +945,32 @@ export default function AcoesMassivas() {
             </span>
           </div>
           <div style={estilos.campo}>
-            <label style={estilos.label}>Acionamento</label>
+            <label style={estilos.label} htmlFor="filtro-acionamento">Acionamento</label>
             <select
+              id="filtro-acionamento"
               style={estilos.input}
               value={acionamentoFiltro}
               onChange={(e) => setAcionamentoFiltro(e.target.value)}
             >
-              <option value="todos">Todos</option>
-              <option value="nunca">Só nunca acionados</option>
-              <option value="ja">Só já acionados</option>
+              {OPCOES_ACIONAMENTO.map((o) => (
+                <option key={o.valor} value={o.valor}>{o.rotulo}</option>
+              ))}
             </select>
+          </div>
+          <div style={estilos.campo}>
+            <label style={estilos.label} htmlFor="filtro-recencia">Recência da ação massiva (dias, por canal)</label>
+            <input
+              id="filtro-recencia"
+              style={estilos.input}
+              type="number"
+              min="0"
+              max="60"
+              value={recenciaDias}
+              onChange={(e) => setRecenciaDias(e.target.value)}
+            />
+            <span style={estilos.ajudaCampo}>
+              Não repete ação massiva no mesmo canal dentro deste prazo. Não cria retorno nem altera fidelização.
+            </span>
           </div>
 
           {canal === "EMAIL" && (
@@ -1006,7 +981,7 @@ export default function AcoesMassivas() {
                   checked={soSemTelefone}
                   onChange={(e) => setSoSemTelefone(e.target.checked)}
                 />
-                Só sem telefone (prioridade)
+                Só sem telefone
               </label>
             </div>
           )}
@@ -1059,7 +1034,7 @@ export default function AcoesMassivas() {
                         <div style={{ display: "flex", flexDirection: "column", gap: 6, maxWidth: 360 }}>
                           <span style={{ fontSize: 12, color: "var(--rv-texto)" }}>
                             {acaoLote.acao === "CONFIRMAR"
-                              ? `Confirme só se o disparo já foi concluído. Os ${l.total} aluno(s) passam a contar como acionados: tabulação “Ação massiva externa enviada”, retorno em 10 dias e fidelização reiniciada. Quem foi acionado depois da exportação ou não corresponde mais ao tipo de cobrança do lote fica de fora.`
+                              ? `Confirme só se o disparo já foi concluído. Os ${l.total} aluno(s) passam a contar como acionados na cobertura e ficam registrados no histórico do lote. Não altera responsável, não cria retorno e não renova fidelização. Quem foi acionado por um operador depois da exportação, ou deixou de estar disponível, fica de fora.`
                               : "Descartar: a planilha não foi enviada. Nada é registrado nos alunos."}
                           </span>
                           <div style={{ display: "flex", gap: 6 }}>
@@ -1137,47 +1112,74 @@ export default function AcoesMassivas() {
         </div>
       )}
 
+      {resultados && resumoPrevia && (
+        <div style={estilos.card} data-testid="painel-previa">
+          <h3 style={{ margin: "0 0 10px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800 }}>
+            Painel da prévia <span style={{ fontSize: 11, fontWeight: 800, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", borderRadius: 6, padding: "1px 8px", marginLeft: 6 }}>PRÉVIA — nada foi enviado nem registrado</span>
+          </h3>
+          <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
+            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.solicitado || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Solicitado</div></div>
+            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.universo_base || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>No universo</div></div>
+            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.disponiveis || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Disponíveis</div></div>
+            <div style={{ ...estilos.miniCard, background: "var(--rv-roxo-fundo)", borderColor: "var(--rv-roxo-borda)" }}><div style={{ ...estilos.miniVal, color: "var(--rv-azul-texto)" }}>{Number(resumoPrevia.selecionado || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Serão selecionados</div></div>
+            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.indisponiveis || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Indisponíveis</div></div>
+          </div>
+          {resumoPrevia.menos_que_solicitado && (
+            <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "var(--rv-ambar-texto)" }} data-testid="menos-que-solicitado">
+              Somente {Number(resumoPrevia.selecionado || 0)} disponíveis dentro dos filtros atuais (solicitado {Number(resumoPrevia.solicitado || 0)})
+            </p>
+          )}
+          {Number(resumoPrevia.fora_do_filtro_acionamento || 0) > 0 && (
+            <p style={{ margin: "0 0 10px", fontSize: 12.5, color: "var(--rv-texto-fraco)" }}>
+              {Number(resumoPrevia.fora_do_filtro_acionamento)} disponível(is) ficaram fora pelo filtro de acionamento.
+            </p>
+          )}
+          {Object.keys(resumoPrevia.motivos || {}).length > 0 && (
+            <div style={{ marginBottom: 10 }} data-testid="motivos-previa">
+              <div style={{ ...estilos.label, marginBottom: 4 }}>Indisponíveis por motivo</div>
+              <ul style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "var(--rv-texto)" }}>
+                {Object.entries(resumoPrevia.motivos).map(([m, n]) => (
+                  <li key={m}>{rotuloMotivo(m)}: <strong>{Number(n).toLocaleString("pt-BR")}</strong></li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <p style={{ margin: "0 0 6px", fontSize: 12.5, color: "var(--rv-texto)" }} data-testid="resp-fidelizacao">
+            Entre os selecionados: <strong>{Number(resumoPrevia.com_responsavel || 0)}</strong> com responsável e{" "}
+            <strong>{Number(resumoPrevia.com_fidelizacao_ativa || 0)}</strong> com fidelização ativa.
+            A ação massiva <strong>não altera</strong> o responsável nem a fidelização.
+          </p>
+          {resumoPrevia.filtros && (
+            <p style={{ margin: 0, fontSize: 12, color: "var(--rv-texto-fraco)" }} data-testid="filtros-aplicados">
+              Filtros aplicados: valor mínimo {formatarMoeda(resumoPrevia.filtros.valor_min)}
+              {" "}· valor máximo {resumoPrevia.filtros.valor_max != null ? formatarMoeda(resumoPrevia.filtros.valor_max) : "sem limite"}
+              {" "}· recência {resumoPrevia.filtros.recencia_dias} dia(s)
+              {" "}· acionamento {ROTULO_ACIONAMENTO[resumoPrevia.filtros.acionamento] || resumoPrevia.filtros.acionamento}
+              {resumoPrevia.filtros.canal ? <> · canal {resumoPrevia.filtros.canal}</> : null}
+            </p>
+          )}
+        </div>
+      )}
+
       {resultados && (
         <div style={estilos.card}>
           <div style={estilos.resumoTopo}>
             <div>
               <strong style={{ fontFamily: FONTE_TITULO, fontSize: 18 }}>{resultados.length}</strong>{" "}
               <span style={{ color: "var(--rv-texto-fraco)" }}>
-                {operadorDaPrevia
+                {operadorDaPrevia.includes("@")
                   ? `caso(s) da carteira de ${nomeDoOperador(operadorDaPrevia)}`
-                  : "caso(s) livre(s)"}{" "}
+                  : `caso(s) — ${nomeDoOperador(operadorDaPrevia).toLowerCase()}`}{" "}
                 com {canal === "WHATSAPP" ? "telefone" : "e-mail"}, prontos pra ação
               </span>
               {resultados.length > 0 && (
                 <span style={{ color: "var(--rv-texto-fraco)" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
               )}
               <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }}>
-                {operadorDaPrevia ? (
-                  <>
-                    Operador filtrado: <strong>{nomeDoOperador(operadorDaPrevia)}</strong> ({operadorDaPrevia}) —
-                    só alunos com esse responsável atual.
-                  </>
-                ) : (
-                  <>Sem operador filtrado: base livre / regra atual.</>
-                )}
+                Operador filtrado: <strong>{nomeDoOperador(operadorDaPrevia)}</strong>
+                {operadorDaPrevia.includes("@") ? <> ({operadorDaPrevia}) — só alunos com esse responsável atual.</> : null}
                 {" "}· Tipo de cobrança: <strong>{rotuloTipoCobranca(tipoDaPrevia)}</strong>
               </div>
-              {totalElegivelFiltros != null && (
-                <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }} data-testid="total-elegivel">
-                  Total elegível após os filtros: <strong>{totalElegivelFiltros}</strong>
-                  {" "}(com {canal === "WHATSAPP" ? "telefone" : "e-mail"} e na faixa de valor)
-                  {" "}· Exibindo <strong>{resultados.length}</strong> de <strong>{totalElegivelFiltros}</strong>
-                  {resultados.length < totalElegivelFiltros && (
-                    canal === "EMAIL" && soSemTelefone ? (
-                      <> — “Só sem telefone” é aplicado depois do limite da prévia: pode haver mais alunos sem telefone fora desta lista (limitação conhecida).</>
-                    ) : resultados.length >= Math.min(quantidadeDaPrevia ?? 0, totalElegivelFiltros) ? (
-                      <> — amostra limitada pela Quantidade escolhida ({quantidadeDaPrevia}). Aumente a Quantidade para exibir mais.</>
-                    ) : (
-                      <> — abaixo da Quantidade: posições do limite foram ocupadas por alunos em confirmação de pagamento (limitação conhecida).</>
-                    )
-                  )}
-                </div>
-              )}
               {contagemTipo && (
                 <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }} data-testid="contagem-tipo">
                   Por tipo, após os filtros: Mensalidades <strong>{contagemTipo.mensalidades}</strong>
@@ -1222,8 +1224,7 @@ export default function AcoesMassivas() {
 
           {resultados.length === 0 ? (
             <p style={{ color: "var(--rv-texto-fraco)" }}>
-              Nenhum caso {operadorDaPrevia ? `da carteira de ${nomeDoOperador(operadorDaPrevia)}` : "livre"} com
-              esses filtros (ou sem {canal === "WHATSAPP" ? "telefone" : "e-mail"} cadastrado).
+              Nenhum caso com esses filtros. Veja no painel acima quantos ficaram indisponíveis e por quê.
             </p>
           ) : (
             <div style={{ overflowX: "auto", maxHeight: 420, overflowY: "auto" }}>
@@ -1233,6 +1234,7 @@ export default function AcoesMassivas() {
                     <th style={estilos.th}>Nome do aluno</th>
                     <th style={estilos.th}>Status acadêmico</th>
                     <th style={estilos.th}>{canal === "WHATSAPP" ? "Telefone (formatado)" : "E-mail"}</th>
+                    {resultados.some((r) => r.temResponsavel) && <th style={estilos.th}>Responsável</th>}
                     <th style={estilos.thNum}>Sem contato há</th>
                     <th style={estilos.thNum}>Valor em aberto</th>
                   </tr>
@@ -1250,6 +1252,22 @@ export default function AcoesMassivas() {
                         {r.curso && <div style={{ color: "var(--rv-texto-fraco)", fontSize: 11, marginTop: 2 }}>{r.curso}</div>}
                       </td>
                       <td style={estilos.td}>{canal === "WHATSAPP" ? r.telefoneMascarado : (<>{r.emailMascarado}{r.semTelefone && <span style={{ marginLeft: 6, background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", borderRadius: 6, padding: "1px 6px", fontSize: 11, fontWeight: 800 }}>sem telefone</span>}</>)}</td>
+                      {resultados.some((rr) => rr.temResponsavel) && (
+                        <td style={estilos.td}>
+                          {r.temResponsavel ? (
+                            <>
+                              {nomeDoOperador(r.responsavelEmail)}
+                              {r.fidelizacaoAtiva && (
+                                <span style={{ marginLeft: 6, background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", borderRadius: 6, padding: "1px 6px", fontSize: 11, fontWeight: 800 }}>
+                                  fidelizado
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span style={{ color: "var(--rv-texto-fraco)" }}>Livre</span>
+                          )}
+                        </td>
+                      )}
                       <td style={estilos.tdNum}>
                         {r.diasSemContato === null ? (
                           <span style={{ color: "var(--rv-vermelho-texto)", fontWeight: 800 }}>Nunca acionado</span>
@@ -1326,6 +1344,9 @@ const estilos = {
     borderRadius: 10,
     border: "1px solid var(--rv-borda)",
     fontSize: 13,
+    // o CSS global de <input> é escuro (legado); sem isto o campo destoa dos seletores da tela
+    background: "var(--rv-superficie)",
+    color: "var(--rv-texto)",
   },
   caixaBordero: {
     display: "flex",

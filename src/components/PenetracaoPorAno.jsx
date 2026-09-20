@@ -3,6 +3,7 @@ import {
   BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid,
 } from "recharts";
 import { supabase } from "../services/supabase";
+import CoberturaPorAno from "./CoberturaDrilldown";
 
 // ============================================================================
 // PENETRAÇÃO POR ANO DA DÍVIDA + SITUAÇÃO DE MENSALIDADES E ACORDOS (gerencial).
@@ -89,8 +90,10 @@ const COLS = [
   ["pen_total", "Pen. total"],
 ];
 
-export default function PenetracaoPorAno({ opcoesUnidade = [], opcoesCurso = [], onUsarComoFiltro }) {
+export default function PenetracaoPorAno({ opcoesUnidade = [], opcoesCurso = [], onUsarComoFiltro, filtrosCobertura = {} }) {
   const [aberto, setAberto] = useState(false);
+  // "cobertura" (principal, cobertura do mês) | "penetracao" (visão anterior, preservada)
+  const [aba, setAba] = useState("cobertura");
   const [carregando, setCarregando] = useState(false);
   const [erro, setErro] = useState("");
   const [dados, setDados] = useState(null);
@@ -230,7 +233,20 @@ export default function PenetracaoPorAno({ opcoesUnidade = [], opcoesCurso = [],
       </div>
 
       {aberto && (
-        <div style={est.corpo}>
+        <div style={{ ...est.abas, marginTop: 12 }}>
+          <button style={aba === "cobertura" ? est.abaAtiva : est.aba} onClick={() => setAba("cobertura")}>Cobertura do mês por ano</button>
+          <button style={aba === "penetracao" ? est.abaAtiva : est.aba} onClick={() => setAba("penetracao")}>Penetração por ano da dívida</button>
+        </div>
+      )}
+
+      {aberto && aba === "cobertura" && (
+        <div style={{ ...est.corpo, marginTop: 0 }}>
+          <CoberturaPorAno filtros={filtrosCobertura} />
+        </div>
+      )}
+
+      {aberto && aba === "penetracao" && (
+        <div style={{ ...est.corpo, marginTop: 0 }}>
           <p style={est.sub}>
             Carteira ativa completa (atribuídos + livres, fidelização ativa ou expirada). Situação de
             mensalidades e acordos calculada pelas parcelas reais. Base = ativa atual; acionamentos no
