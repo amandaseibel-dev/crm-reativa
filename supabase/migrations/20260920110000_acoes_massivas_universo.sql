@@ -19,6 +19,7 @@
 -- Administrativos (QUITADO_MANUAL, TERMO_ENVIADO_ADM, RETORNO_ADM_*,
 -- COMPROVANTE_ENVIADO_BAIXA) NAO contam. Acao massiva so existe em
 -- aluno_movimentacoes depois da CONFIRMACAO; previa e exportacao nao contam.
+-- Finalizacao DESFEITA (par movimentacao <-> acoes_desfazer.desfeito_em) nao conta.
 --
 -- FUSO: "hoje" e "mes" em America/Sao_Paulo.
 --
@@ -190,6 +191,15 @@ begin
       from public.aluno_movimentacoes m
      where public.acoes_massivas_tipo_cobertura(m.tipo)
        and (v_ids_txt is null or m.aluno_id = any(v_ids_txt))
+       -- FINALIZACAO DESFEITA nao conta. Regra restrita ao par deterministico:
+       -- acoes_desfazer.movimentacao_id aponta para ESTA movimentacao e a acao
+       -- foi desfeita (desfeito_em preenchido). Hoje desfazer_acao ja retipa a
+       -- movimentacao para FINALIZACAO_ATENDIMENTO_DESFEITA (que nao esta na
+       -- lista); este filtro garante o mesmo resultado se algum desfazer futuro
+       -- nao retipar. Uma ACAO_DESFEITA generica, sem vinculo, NAO invalida nada.
+       and not exists (
+         select 1 from public.acoes_desfazer ad
+          where ad.movimentacao_id = m.id and ad.desfeito_em is not null)
      group by m.aluno_id
   ),
   -- POPULACAO: filtros que definem a base.

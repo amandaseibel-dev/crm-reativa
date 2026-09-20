@@ -114,6 +114,88 @@ describe("cobertura: so acionamento valido; administrativo, previa e exportacao 
 });
 
 // ---------------------------------------------------------------------------
+describe("finalizacao DESFEITA nao conta como acionamento; so o par deterministico invalida", () => {
+  async function inserirMov(db, alunoId, tipo, diasAtras = 0) {
+    return (await db.query(
+      `insert into public.aluno_movimentacoes (aluno_id, tipo, registrado_em)
+       values ($1, $2, now() - ($3::numeric || ' days')::interval) returning id`, [String(alunoId), tipo, diasAtras])).rows[0].id;
+  }
+  const desfeita = (db, movId, quando = "now()") =>
+    db.query(`insert into public.acoes_desfazer (tipo, movimentacao_id, desfeito_em, desfeito_por) values ('TABULACAO', $1, ${quando}, 'x')`, [movId]);
+  const acionado = async (db, id) => (await universo(db, {})).find((u) => u.aluno_id === id);
+
+  it("como o sistema faz hoje (movimentacao retipada para FINALIZACAO_ATENDIMENTO_DESFEITA): nao conta", async () => {
+    const db = await novoBanco();
+    const [a] = await alunos(db, 1, {});
+    const id = await inserirMov(db, a, "FINALIZACAO_ATENDIMENTO_DESFEITA");
+    await db.query(`insert into public.aluno_movimentacoes (aluno_id, tipo) values ($1, 'ACAO_DESFEITA')`, [a]);
+    await desfeita(db, id);
+    expect(await acionado(db, a)).toMatchObject({ acionado_mes: false, nunca_acionado: true });
+  });
+
+  it("par deterministico: FINALIZACAO_ATENDIMENTO referenciada por acoes_desfazer DESFEITA nao conta, mesmo sem ser retipada", async () => {
+    const db = await novoBanco();
+    const [a] = await alunos(db, 1, {});
+    const id = await inserirMov(db, a, "FINALIZACAO_ATENDIMENTO");
+    expect((await acionado(db, a)).acionado_mes).toBe(true);
+    await desfeita(db, id);
+    expect(await acionado(db, a)).toMatchObject({ acionado_mes: false, nunca_acionado: true });
+  });
+
+  it("vale para FINALIZACAO e SOLICITACAO_LINK_PAGAMENTO tambem, quando ha o par", async () => {
+    const db = await novoBanco();
+    const [a, b] = await alunos(db, 2, {});
+    await desfeita(db, await inserirMov(db, a, "FINALIZACAO"));
+    await desfeita(db, await inserirMov(db, b, "SOLICITACAO_LINK_PAGAMENTO"));
+    for (const id of [a, b]) expect((await acionado(db, id)).acionado_mes).toBe(false);
+  });
+
+  it("so invalida A finalizacao desfeita: outra finalizacao valida do mesmo aluno continua contando", async () => {
+    const db = await novoBanco();
+    const [a] = await alunos(db, 1, {});
+    await desfeita(db, await inserirMov(db, a, "FINALIZACAO_ATENDIMENTO", 3));
+    expect((await acionado(db, a)).acionado_mes).toBe(false);
+    await inserirMov(db, a, "FINALIZACAO_ATENDIMENTO", 1);   // uma segunda, valida
+    expect((await acionado(db, a)).acionado_mes).toBe(true);
+  });
+
+  it("ACAO_DESFEITA generica, sem vinculo, NAO invalida nenhuma finalizacao", async () => {
+    const db = await novoBanco();
+    const [a] = await alunos(db, 1, {});
+    await inserirMov(db, a, "FINALIZACAO_ATENDIMENTO");
+    await inserirMov(db, a, "ACAO_DESFEITA");
+    expect((await acionado(db, a)).acionado_mes).toBe(true);
+  });
+
+  it("acao ainda NAO desfeita (desfeito_em nulo) nao invalida; desfeita de outro aluno nao afeta este", async () => {
+    const db = await novoBanco();
+    const [a, b] = await alunos(db, 2, {});
+    const ida = await inserirMov(db, a, "FINALIZACAO_ATENDIMENTO");
+    const idb = await inserirMov(db, b, "FINALIZACAO_ATENDIMENTO");
+    await db.query(`insert into public.acoes_desfazer (tipo, movimentacao_id, desfeito_em) values ('TABULACAO', $1, null)`, [ida]);
+    await desfeita(db, idb);
+    expect((await acionado(db, a)).acionado_mes).toBe(true);
+    expect((await acionado(db, b)).acionado_mes).toBe(false);
+  });
+
+  it("as invariantes continuam valendo com finalizacoes desfeitas na base (reconciliacao e drill-down)", async () => {
+    const db = await novoBanco();
+    const a = await alunos(db, 30, {});
+    for (const id of a.slice(0, 12)) await mov(db, id, "FINALIZACAO_ATENDIMENTO", 0);
+    for (const id of a.slice(0, 5)) {
+      const m = (await db.query(`select id from public.aluno_movimentacoes where aluno_id = $1 limit 1`, [id])).rows[0].id;
+      await desfeita(db, m);
+    }
+    const c = await cobertura(db, {});
+    expect(c.total.acionados).toBe(7);                       // 12 acionados - 5 desfeitos
+    expect(c.total.acionados + c.total.sem_acionamento).toBe(c.total.base);
+    expect(c.total.disponiveis + SOMA(c.total.motivos)).toBe(c.total.sem_acionamento);
+    expect(c.total.reconcilia).toBe(true);
+    expect((await drill(db, {}, null, "acionados")).total).toBe(7);
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe("RECONCILIACAO matematica: base, acionados, sem acionamento, disponiveis, motivos, drill-down", () => {
   async function carteiraCompleta() {
     const db = await novoBanco();

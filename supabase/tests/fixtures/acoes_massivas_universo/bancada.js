@@ -66,7 +66,7 @@ const ESQUEMA = `
     valor numeric default 100, vencimento date);
   create table public.acordo_titulo_vinculo (titulo_id uuid, acordo_id uuid, ativo boolean default true);
   create table public.aluno_movimentacoes (
-    id uuid primary key default gen_random_uuid(),
+    id bigint generated always as identity primary key,
     aluno_id text, tipo text, descricao text, registrado_por_nome text,
     registrado_por_email text, registrado_em timestamptz);
   create table public.acoes_massivas_lotes (
@@ -74,6 +74,9 @@ const ESQUEMA = `
     aluno_ids text[], total integer, exportado_por_email text, exportado_em timestamptz default now(),
     confirmado_por_email text, confirmado_em timestamptz, descartado_por_email text, descartado_em timestamptz,
     resultado jsonb, tipo_cobranca text default 'REGRA_ANTERIOR');
+  create table public.acoes_desfazer (
+    id uuid primary key default gen_random_uuid(), tipo text, aluno_id uuid, movimentacao_id bigint,
+    desfeito_em timestamptz, desfeito_por text);
   create table public._liq_stub (aluno_id uuid);
   create table public._recalc_log (aluno_id uuid, motivo text);
 
