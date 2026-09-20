@@ -116,8 +116,8 @@ export default function CoberturaPorAno({ filtros }) {
             <thead><tr>
               <th style={est.th}>Ano</th><th style={est.thNum}>Base</th><th style={est.thNum}>Acionados no mês</th>
               <th style={est.thNum}>Sem acionamento</th><th style={est.thNum}>% acionado</th>
-              <th style={est.thNum}>Disponíveis agora</th><th style={est.thNum}>Disponíveis (total)</th>
-              <th style={est.thNum}>Indisponíveis</th><th style={est.th}></th>
+              <th style={est.thNum} title="Sem acionamento no mês e disponíveis para uma nova ação">Disponíveis agora</th><th style={est.thNum} title="Todos os disponíveis, inclusive quem já foi acionado no mês">Disponíveis (total)</th>
+              <th style={est.thNum} title="Sem acionamento no mês e indisponíveis (soma dos motivos)">Indisponíveis (sem acionam.)</th><th style={est.th}></th>
             </tr></thead>
             <tbody>
               {linhas.map((l) => renderLinha(l, String(l.ano), false))}

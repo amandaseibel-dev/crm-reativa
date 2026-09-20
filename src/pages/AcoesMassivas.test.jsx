@@ -219,6 +219,28 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     expect(ultimaChamada("acoes_massivas_exportar").p_operador_email).toBe("TODOS");
   });
 
+  it("em 'Todos os operadores' a lista mostra o responsável, marca quem está fidelizado e o livre aparece como Livre", async () => {
+    previaExtra = {
+      elegiveis: [
+        { ...ELEGIVEL, id: "a1", tem_responsavel: true, responsavel_email: "op1@x.com", fidelizacao_ativa: true },
+        { ...ELEGIVEL, id: "a2", nome: "Bia ***", tem_responsavel: false },
+      ],
+    };
+    await montar();
+    escolherOperador("TODOS");
+    await buscar();
+    expect(screen.getByRole("columnheader", { name: "Responsável" })).toBeTruthy();
+    expect(screen.getByText("op1@x.com")).toBeTruthy();
+    expect(screen.getByText("fidelizado")).toBeTruthy();
+    expect(screen.getByText("Livre")).toBeTruthy();
+  });
+
+  it("sem nenhum responsável na lista, a coluna Responsável não aparece", async () => {
+    await montar();
+    await buscar();
+    expect(screen.queryByRole("columnheader", { name: "Responsável" })).toBeNull();
+  });
+
   it("a exportação usa o mesmo operador da prévia e avisa quem saiu da carteira", async () => {
     regExtra = { excluidos_outro_operador: 2 };
     await montar();

@@ -277,6 +277,123 @@ describe("SEPARACAO da fidelizacao: ANTES (producao hoje) x DEPOIS (migrations)"
 });
 
 // ---------------------------------------------------------------------------
+describe("RECENCIA POR CANAL: bloqueia so a ACAO MASSIVA do mesmo canal, nunca o operador", () => {
+  // aluno de OP_A com fidelizacao VENCIDA (ultimo contato do operador ha 30 dias)
+  async function base() {
+    const db = await novoBanco();
+    const [a] = await alunos(db, 1, { dono: OP_A, acionadoDias: 30 });
+    return { db, a };
+  }
+  const motivo = async (db, a, canal) => (await universo(db, { operador: "todos", canal })).find((u) => u.aluno_id === a).motivo;
+
+  it("WhatsApp massivo ha 5 dias: bloqueia novo WhatsApp massivo, NAO bloqueia e-mail massivo, NAO bloqueia o operador", async () => {
+    const { db, a } = await base();
+    await mov(db, a, "ACAO_MASSIVA_EXTERNA", 5);
+    expect(await motivo(db, a, "WHATSAPP")).toBe("acao_massiva_recente");
+    expect(await motivo(db, a, "EMAIL")).toBeNull();
+    // o operador continua trabalhando o aluno normalmente: o contato dele e registrado e renova a SUA fidelizacao
+    await mov(db, a, "FINALIZACAO_ATENDIMENTO", 0);
+    expect((await alunoRow(db, a)).data_ultimo_acionamento).not.toBeNull();
+    expect(new Date((await alunoRow(db, a)).data_ultimo_acionamento).getTime()).toBeGreaterThan(Date.now() - 60000);
+    // e a recencia nao criou retorno nem trocou o dono
+    const r = await alunoRow(db, a);
+    expect(r.data_retorno).toBeNull();
+    expect(r.responsavel_atual_email).toBe(OP_A);
+  });
+
+  it("E-mail massivo ha 5 dias: bloqueia novo e-mail massivo, NAO bloqueia WhatsApp massivo, NAO bloqueia o operador", async () => {
+    const { db, a } = await base();
+    await mov(db, a, "ACAO_MASSIVA_EXTERNA_EMAIL", 5);
+    expect(await motivo(db, a, "EMAIL")).toBe("acao_massiva_recente");
+    expect(await motivo(db, a, "WHATSAPP")).toBeNull();
+    await mov(db, a, "CONTATO", 0);
+    expect((await universo(db, { operador: "todos" })).find((u) => u.aluno_id === a).acionado_mes).toBe(true);
+    expect((await alunoRow(db, a)).data_retorno).toBeNull();
+  });
+
+  it("a recencia nao segura o aluno para o nivelamento: a fidelizacao vencida segue elegivel a liberacao", async () => {
+    const { db, a } = await base();
+    await mov(db, a, "ACAO_MASSIVA_EXTERNA", 5);
+    await mov(db, a, "ACAO_MASSIVA_EXTERNA_EMAIL", 5);
+    expect(await elegiveisLiberacao(db)).toEqual([a]);
+  });
+
+  it("contato individual do operador NAO e 'acao massiva recente': libera os dois canais massivos e MANTEM a fidelizacao do operador", async () => {
+    const { db, a } = await base();
+    await mov(db, a, "FINALIZACAO_ATENDIMENTO", 5);       // operador falou com o aluno ha 5 dias
+    expect(await motivo(db, a, "WHATSAPP")).toBeNull();
+    expect(await motivo(db, a, "EMAIL")).toBeNull();
+    // fidelizacao do operador (regra existente) respeitada: dentro dos 10 dias, fora da liberacao
+    const u = (await universo(db, { operador: "todos" })).find((x) => x.aluno_id === a);
+    expect(u.fidelizacao_ativa).toBe(true);
+    expect(await elegiveisLiberacao(db)).toEqual([]);
+    // e o aluno continua com o operador
+    expect((await alunoRow(db, a)).responsavel_atual_email).toBe(OP_A);
+  });
+
+  it("todas as combinacoes cruzadas (canal x tipo do evento) num unico cenario", async () => {
+    const db = await novoBanco();
+    const [wa, em, op, nada] = await alunos(db, 4, {});
+    await mov(db, wa, "ACAO_MASSIVA_EXTERNA", 5);
+    await mov(db, em, "ACAO_MASSIVA_EXTERNA_EMAIL", 5);
+    await mov(db, op, "FINALIZACAO_ATENDIMENTO", 5);
+    const de = async (canal) => Object.fromEntries((await universo(db, { canal })).map((u) => [u.aluno_id, u.motivo]));
+    expect(await de("WHATSAPP")).toEqual({ [wa]: "acao_massiva_recente", [em]: null, [op]: null, [nada]: null });
+    expect(await de("EMAIL")).toEqual({ [wa]: null, [em]: "acao_massiva_recente", [op]: null, [nada]: null });
+  });
+});
+
+// ---------------------------------------------------------------------------
+describe("PROVA ANTES x DEPOIS: a acao massiva confirmada deixa de mexer em retorno, acionamento operacional, dono, fidelizacao e status", () => {
+  async function cenario(fase) {
+    const db = await novoBanco({ fase });
+    const [a] = await alunos(db, 1, { dono: OP_A, acionadoDias: 30, situacaoOperacional: "COBRANCA_VENCIDA" });
+    return { db, a };
+  }
+  const campos = async (db, a) => {
+    const x = (await db.query(
+      `select responsavel_atual_email, data_ultimo_acionamento, data_retorno, retorno_origem, status_acionamento, situacao_operacional
+         from public.alunos where id = $1`, [a])).rows[0];
+    const c = (await db.query(`select operador_email, data_ultimo_acionamento from public.casos where aluno_id = $1`, [a])).rows[0];
+    return { ...x, caso_operador: c.operador_email, caso_dua: c.data_ultimo_acionamento };
+  };
+
+  it("ANTES muda cinco coisas; DEPOIS nao muda nenhuma e ainda registra movimentacao + lote_id + cobertura", async () => {
+    // ---- ANTES (producao hoje)
+    const A = await cenario("antes");
+    const a0 = await campos(A.db, A.a);
+    const ex = (await A.db.query(`select public.acoes_massivas_exportar($1::text[], 'WHATSAPP', 'x.xlsx', $2, null) r`, [`{${A.a}}`, OP_A])).rows[0].r;
+    await A.db.query(`select public.acoes_massivas_concluir_lote($1::uuid, 'CONFIRMAR')`, [ex.lote_id]);
+    const a1 = await campos(A.db, A.a);
+    expect(a1.data_ultimo_acionamento).not.toEqual(a0.data_ultimo_acionamento);            // 1. acionamento operacional renovado
+    expect(a0.data_retorno).toBeNull();
+    expect(a1.data_retorno).not.toBeNull();                                                 // 2. retorno +10 criado
+    expect(a1.status_acionamento).toMatch(/Ação massiva externa enviada/);                  // 3. status massivo gravado
+    expect(a1.caso_dua).not.toEqual(a0.caso_dua);                                           // 4. fidelizacao renovada (caso)
+    expect(await elegiveisLiberacao(A.db)).toEqual([]);                                     //    e saiu da liberacao
+    expect(a1.responsavel_atual_email).toBe(OP_A);                                          // (dono nunca mudou, nem antes)
+
+    // ---- DEPOIS (migrations)
+    const D = await cenario("depois");
+    const d0 = await campos(D.db, D.a);
+    const antesLib = await elegiveisLiberacao(D.db);
+    expect(antesLib).toEqual([D.a]);
+    const x = await executar(D.db, { p_limite: 10, p_operador_email: OP_A });
+    expect(x.confirmacao.registrados).toBe(1);
+    const d1 = await campos(D.db, D.a);
+    expect(d1).toEqual(d0);                                                                 // NADA mudou: retorno, acionamento, dono, status, situacao, caso
+    expect(d1.data_retorno).toBeNull();
+    expect(d1.status_acionamento).toBeNull();
+    expect(d1.situacao_operacional).toBe("COBRANCA_VENCIDA");
+    expect(await elegiveisLiberacao(D.db)).toEqual(antesLib);                               // fidelizacao/liberacao identicas
+    // ...e ainda assim: movimentacao + lote_id + cobertura
+    const m = (await D.db.query(`select tipo, lote_id from public.aluno_movimentacoes where aluno_id = $1`, [D.a])).rows;
+    expect(m).toEqual([{ tipo: "ACAO_MASSIVA_EXTERNA", lote_id: x.exportacao.lote_id }]);
+    expect((await universo(D.db, { operador: "todos" })).find((u) => u.aluno_id === D.a).acionado_mes).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
 describe("rollback e reaplicacao", () => {
   it("rollback devolve o estado de producao (gatilho renova de novo, registrar antigo, previa de 15 parametros) e as migrations reaplicam", async () => {
     const db = await novoBanco();

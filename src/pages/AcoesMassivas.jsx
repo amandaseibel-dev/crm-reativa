@@ -361,6 +361,7 @@ export default function AcoesMassivas() {
         semTelefone: !a.tem_telefone,
         valor: Number(a.valor || 0),
         temResponsavel: !!a.tem_responsavel,
+        responsavelEmail: a.responsavel_email || null,
         fidelizacaoAtiva: !!a.fidelizacao_ativa,
         acionadoMes: !!a.acionado_mes,
         diasSemContato: a.data_ultimo_acionamento
@@ -494,7 +495,7 @@ export default function AcoesMassivas() {
         const jaListados = ["confirmacao_pendente", "liquidado_prime", "outro_responsavel", "fora_tipo_cobranca"];
         const outrosMotivos = Object.entries(res?.excluidos_por_motivo || {})
           .filter(([codigo]) => !jaListados.includes(codigo))
-          .map(([codigo, n]) => [Number(n || 0), `saíram da lista: ${rotuloMotivo(codigo).toLowerCase()}`]);
+          .map(([codigo, n]) => [Number(n || 0), `estavam indisponíveis (${rotuloMotivo(codigo).toLowerCase()})`]);
         const partes = [
           [Number(res?.excluidos_acionados_apos_exportacao || 0), "foram acionados depois da exportação e mantiveram o contato mais novo"],
           [Number(res?.excluidos_confirmacao || 0), "entraram em confirmação de pagamento"],
@@ -556,9 +557,9 @@ export default function AcoesMassivas() {
         <div>
           <h1 style={estilos.titulo}>⚡ Ações Massivas</h1>
           <p style={estilos.subtitulo}>
-            Estimula por fora (fora do CRM) casos livres, sem operador vinculado — priorizado por
-            tempo sem contato (quem nunca foi acionado, ou faz mais tempo, vem primeiro), sem depender
-            de operador pra fazer o acionamento manual.
+            Estimula por fora (fora do CRM) alunos com dívida ativa — da carteira livre, de um operador ou de
+            todos. Prioriza quem ainda não foi acionado no mês, depois quem está há mais tempo sem contato.
+            A ação nunca altera o responsável do aluno.
           </p>
         </div>
         <BotaoAtualizar carregando={carregandoPainel} ultimaEm={painelEm} onClick={atualizarPainel} rotulo="Atualizar painel" />
@@ -1233,6 +1234,7 @@ export default function AcoesMassivas() {
                     <th style={estilos.th}>Nome do aluno</th>
                     <th style={estilos.th}>Status acadêmico</th>
                     <th style={estilos.th}>{canal === "WHATSAPP" ? "Telefone (formatado)" : "E-mail"}</th>
+                    {resultados.some((r) => r.temResponsavel) && <th style={estilos.th}>Responsável</th>}
                     <th style={estilos.thNum}>Sem contato há</th>
                     <th style={estilos.thNum}>Valor em aberto</th>
                   </tr>
@@ -1250,6 +1252,22 @@ export default function AcoesMassivas() {
                         {r.curso && <div style={{ color: "var(--rv-texto-fraco)", fontSize: 11, marginTop: 2 }}>{r.curso}</div>}
                       </td>
                       <td style={estilos.td}>{canal === "WHATSAPP" ? r.telefoneMascarado : (<>{r.emailMascarado}{r.semTelefone && <span style={{ marginLeft: 6, background: "var(--rv-vermelho-fundo)", color: "var(--rv-vermelho-texto)", borderRadius: 6, padding: "1px 6px", fontSize: 11, fontWeight: 800 }}>sem telefone</span>}</>)}</td>
+                      {resultados.some((rr) => rr.temResponsavel) && (
+                        <td style={estilos.td}>
+                          {r.temResponsavel ? (
+                            <>
+                              {nomeDoOperador(r.responsavelEmail)}
+                              {r.fidelizacaoAtiva && (
+                                <span style={{ marginLeft: 6, background: "var(--rv-ambar-fundo)", color: "var(--rv-ambar-texto)", borderRadius: 6, padding: "1px 6px", fontSize: 11, fontWeight: 800 }}>
+                                  fidelizado
+                                </span>
+                              )}
+                            </>
+                          ) : (
+                            <span style={{ color: "var(--rv-texto-fraco)" }}>Livre</span>
+                          )}
+                        </td>
+                      )}
                       <td style={estilos.tdNum}>
                         {r.diasSemContato === null ? (
                           <span style={{ color: "var(--rv-vermelho-texto)", fontWeight: 800 }}>Nunca acionado</span>
@@ -1326,6 +1344,9 @@ const estilos = {
     borderRadius: 10,
     border: "1px solid var(--rv-borda)",
     fontSize: 13,
+    // o CSS global de <input> é escuro (legado); sem isto o campo destoa dos seletores da tela
+    background: "var(--rv-superficie)",
+    color: "var(--rv-texto)",
   },
   caixaBordero: {
     display: "flex",
