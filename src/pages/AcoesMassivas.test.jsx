@@ -573,7 +573,11 @@ describe("Ações Massivas — universo no banco: limite exato, sem corte no cli
     await buscar();
     const painel = screen.getByTestId("painel-previa").textContent;
     expect(painel).toContain("Solicitado");
-    expect(painel).toContain("No universo");
+    expect(painel).toContain("No universo (base)");
+    expect(painel).toContain("Disponíveis para WhatsApp");
+    expect(painel).toContain("Indisponíveis para WhatsApp");
+    expect(screen.getByTestId("legenda-disponibilidade-previa").textContent).toMatch(/considera todos os filtros atuais, inclusive o canal/);
+    expect(screen.getByTestId("legenda-disponibilidade-previa").textContent).toContain("Sem contato válido para o canal");
     expect(painel).toContain("Serão selecionados");
     expect(screen.getByTestId("motivos-previa").textContent).toContain("Quitado: 4");
     expect(screen.getByTestId("motivos-previa").textContent).toContain("Ação massiva recente neste canal: 2");
@@ -581,6 +585,16 @@ describe("Ações Massivas — universo no banco: limite exato, sem corte no cli
     expect(screen.getByTestId("resp-fidelizacao").textContent).toContain("não altera");
     expect(screen.getByTestId("filtros-aplicados").textContent).toMatch(/valor mínimo R\$\s*0,00.*recência 10 dia/);
     expect(screen.queryByTestId("menos-que-solicitado")).toBeNull();
+  });
+
+  it("no canal E-mail os cartões da prévia dizem 'para E-mail'", async () => {
+    await montar();
+    fireEvent.click(screen.getByRole("button", { name: /E-mail/ }));
+    await buscar();
+    const painel = screen.getByTestId("painel-previa").textContent;
+    expect(painel).toContain("Disponíveis para E-mail");
+    expect(painel).toContain("Indisponíveis para E-mail");
+    expect(painel).not.toContain("para WhatsApp");
   });
 
   it("menos_que_solicitado mostra a frase 'Somente N disponíveis dentro dos filtros atuais'", async () => {

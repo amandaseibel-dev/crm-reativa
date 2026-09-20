@@ -58,7 +58,7 @@ describe("Cobertura do mês por ano", () => {
     expect(screen.getByTestId("drill-total").textContent).toContain("85 alunos");
   });
 
-  it("'Disponíveis agora' usa disponiveis_sem_acionamento e o total secundário usa disponiveis", async () => {
+  it("a coluna de disponíveis (sem acionamento) usa disponiveis_sem_acionamento e o total da seleção usa disponiveis", async () => {
     await carregar();
     const l2025 = screen.getAllByRole("row").find((r) => r.textContent.startsWith("2025"));
     await act(async () => { fireEvent.click(within(l2025).getByRole("button", { name: "50" })); });
@@ -84,5 +84,85 @@ describe("Cobertura do mês por ano", () => {
     await act(async () => { fireEvent.click(within(total).getByRole("button", { name: "35" })); });
     await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Próxima" })); });
     expect(ultimoDrill()).toMatchObject({ p_indicador: "acionados", p_offset: 50 });
+  });
+});
+
+describe("clareza da disponibilidade: nomes explícitos, canal e legenda", () => {
+  const cabecalhos = () => screen.getAllByRole("columnheader").map((h) => h.textContent);
+
+  it("com canal WhatsApp, cada universo tem um nome próprio (nenhum 'Disponíveis' solto)", async () => {
+    await carregar();
+    const c = cabecalhos().join(" | ");
+    expect(c).toContain("Base");
+    expect(c).toContain("Sem acionamento no mês");
+    expect(c).toContain("Disponíveis para WhatsApp");
+    expect(c).toContain("sem acionamento no mês");
+    expect(c).toContain("Disponíveis para WhatsApp — total");
+    expect(c).toContain("seleção atual, inclui já acionados");
+    expect(c).toContain("Indisponíveis para WhatsApp");
+    // os dois números de "disponíveis" têm cabeçalhos DIFERENTES
+    const disp = cabecalhos().filter((h) => h.startsWith("Disponíveis"));
+    expect(disp.length).toBe(2);
+    expect(new Set(disp).size).toBe(2);
+    expect(cabecalhos().some((h) => h === "Disponíveis agora" || h === "Disponíveis (total)")).toBe(false);
+  });
+
+  it("tooltips dizem o universo e que a disponibilidade considera os filtros, inclusive o canal", async () => {
+    await carregar();
+    const th = screen.getAllByRole("columnheader").find((h) => h.textContent.startsWith("Disponíveis para WhatsApp — total"));
+    expect(th.getAttribute("title")).toMatch(/inclui quem já foi acionado no mês/);
+    expect(th.getAttribute("title")).toMatch(/inclusive o canal \(WhatsApp\)/);
+    const thSem = screen.getAllByRole("columnheader").find((h) => h.textContent.startsWith("Disponíveis para WhatsApp") && !h.textContent.includes("— total"));
+    expect(thSem.getAttribute("title")).toMatch(/entre os que estão sem acionamento/);
+  });
+
+  it("legenda mostra a conta que fecha e explica o motivo 'sem contato válido' do canal", async () => {
+    await carregar();
+    const l = screen.getByTestId("legenda-disponibilidade").textContent;
+    expect(l).toContain("Disponíveis para WhatsApp + Indisponíveis para WhatsApp = Sem acionamento no mês");
+    expect(l).toContain("Sem contato válido para o canal");
+  });
+
+  it("sem canal, os nomes falam em 'filtros atuais' (sem inventar canal)", async () => {
+    render(<CoberturaPorAno filtros={{ ...FILTROS, canal: null }} />);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Carregar cobertura/ })); });
+    const c = cabecalhos().join(" | ");
+    expect(c).toContain("Disponíveis nos filtros atuais");
+    expect(c).toContain("Indisponíveis nos filtros atuais");
+    expect(c).not.toContain("WhatsApp");
+    expect(screen.getByTestId("legenda-disponibilidade").textContent).not.toContain("Sem contato válido");
+  });
+
+  it("canal E-mail troca o nome nos cabeçalhos", async () => {
+    render(<CoberturaPorAno filtros={{ ...FILTROS, canal: "EMAIL" }} />);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Carregar cobertura/ })); });
+    expect(cabecalhos().join(" | ")).toContain("Disponíveis para E-mail");
+    expect(cabecalhos().join(" | ")).not.toContain("WhatsApp");
+  });
+
+  it("o drill-down de disponibilidade tem título explícito e o aviso de filtros/canal; o de base não tem aviso", async () => {
+    await carregar();
+    const l2025 = screen.getAllByRole("row").find((r) => r.textContent.startsWith("2025"));
+    await act(async () => { fireEvent.click(within(l2025).getByRole("button", { name: "50" })); });
+    const modal = screen.getByRole("dialog");
+    expect(modal.textContent).toContain("Disponíveis para WhatsApp — sem acionamento no mês — ano 2025");
+    expect(screen.getByTestId("drill-aviso-filtros").textContent).toMatch(/considera os filtros atuais da tela, inclusive o canal \(WhatsApp\)/);
+    expect(modal.textContent).toContain("Disponibilidade (WhatsApp)");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Fechar" })); });
+    await act(async () => { fireEvent.click(within(l2025).getByRole("button", { name: "60" })); });
+    expect(screen.getByRole("dialog").textContent).toContain("Disponíveis para WhatsApp — total da seleção atual (inclui quem já foi acionado no mês)");
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Fechar" })); });
+    await act(async () => { fireEvent.click(within(l2025).getByRole("button", { name: "100" })); });
+    expect(screen.queryByTestId("drill-aviso-filtros")).toBeNull();
+    expect(screen.getByRole("dialog").textContent).toContain("Base — ano 2025");
+  });
+
+  it("os números NÃO mudam: só os nomes (as RPCs recebem os mesmos parâmetros de antes)", async () => {
+    await carregar();
+    expect(rpcMock).toHaveBeenCalledWith("acoes_massivas_cobertura_por_ano", { p_filtros: FILTROS });
+    const total = screen.getAllByRole("row").find((r) => r.textContent.startsWith("TOTAL"));
+    expect(within(total).getByRole("button", { name: "70" })).toBeTruthy();   // disponíveis (sem acionamento)
+    expect(within(total).getByRole("button", { name: "80" })).toBeTruthy();   // total da seleção
+    expect(within(total).getByRole("button", { name: "15" })).toBeTruthy();   // indisponíveis
   });
 });

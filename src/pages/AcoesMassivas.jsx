@@ -551,6 +551,11 @@ export default function AcoesMassivas() {
     buscar({ ano: anoStr, unidades: uni ? [uni] : [], curso: cur || "", acionamento: "NUNCA" });
   }
 
+  // Nomes explícitos dos cartões da prévia: a disponibilidade sempre considera o canal.
+  const rotuloCanalPrevia = String(resumoPrevia?.filtros?.canal || canal || "").toUpperCase() === "EMAIL" ? "E-mail" : "WhatsApp";
+  const nomeDispPrevia = `Disponíveis para ${rotuloCanalPrevia}`;
+  const nomeIndispPrevia = `Indisponíveis para ${rotuloCanalPrevia}`;
+
   return (
     <div style={estilos.container}>
       <div style={estilos.cabecalho}>
@@ -1119,11 +1124,15 @@ export default function AcoesMassivas() {
           </h3>
           <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 10 }}>
             <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.solicitado || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Solicitado</div></div>
-            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.universo_base || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>No universo</div></div>
-            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.disponiveis || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Disponíveis</div></div>
+            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.universo_base || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot} title="Base: alunos com dívida ativa dentro dos filtros de população">No universo (base)</div></div>
+            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.disponiveis || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot} title="Podem entrar numa ação agora, considerando TODOS os filtros atuais, inclusive o canal">{nomeDispPrevia}</div></div>
             <div style={{ ...estilos.miniCard, background: "var(--rv-roxo-fundo)", borderColor: "var(--rv-roxo-borda)" }}><div style={{ ...estilos.miniVal, color: "var(--rv-azul-texto)" }}>{Number(resumoPrevia.selecionado || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Serão selecionados</div></div>
-            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.indisponiveis || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot}>Indisponíveis</div></div>
+            <div style={estilos.miniCard}><div style={estilos.miniVal}>{Number(resumoPrevia.indisponiveis || 0).toLocaleString("pt-BR")}</div><div style={estilos.miniRot} title="Base menos disponíveis. O motivo de cada um está na lista abaixo">{nomeIndispPrevia}</div></div>
           </div>
+          <p style={{ margin: "0 0 10px", fontSize: 12, color: "var(--rv-texto-fraco)" }} data-testid="legenda-disponibilidade-previa">
+            “{nomeDispPrevia}” considera todos os filtros atuais, inclusive o canal: quem não tem contato válido para {rotuloCanalPrevia} aparece
+            como indisponível (“Sem contato válido para o canal”). Trocar o canal muda estes números; a base não muda.
+          </p>
           {resumoPrevia.menos_que_solicitado && (
             <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "var(--rv-ambar-texto)" }} data-testid="menos-que-solicitado">
               Somente {Number(resumoPrevia.selecionado || 0)} disponíveis dentro dos filtros atuais (solicitado {Number(resumoPrevia.solicitado || 0)})

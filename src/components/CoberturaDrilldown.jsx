@@ -18,15 +18,29 @@ const num = (v) => Number(v || 0).toLocaleString("pt-BR");
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const dataBR = (iso) => { if (!iso) return "—"; try { return new Date(iso).toLocaleDateString("pt-BR"); } catch { return "—"; } };
 
-const TITULO_INDICADOR = {
-  base: "Base",
-  acionados: "Acionados no mês",
-  sem_acionamento: "Sem acionamento no mês",
-  disponiveis_sem_acionamento: "Disponíveis agora (sem acionamento)",
-  disponiveis: "Disponíveis (total)",
-  indisponiveis: "Indisponíveis (sem acionamento)",
-  indisponiveis_total: "Indisponíveis (total)",
-};
+const CANAIS = { WHATSAPP: "WhatsApp", EMAIL: "E-mail" };
+
+// Nomes explícitos: "Disponíveis" sempre diz PARA QUÊ (canal) e sobre QUAL universo.
+// Não é outra conta: são os mesmos números da RPC, só com o nome do que representam.
+function nomesDisponibilidade(canal) {
+  return {
+    disp: canal ? `Disponíveis para ${canal}` : "Disponíveis nos filtros atuais",
+    indisp: canal ? `Indisponíveis para ${canal}` : "Indisponíveis nos filtros atuais",
+  };
+}
+
+function tituloIndicador(ind, canal) {
+  const { disp, indisp } = nomesDisponibilidade(canal);
+  return {
+    base: "Base",
+    acionados: "Acionados no mês",
+    sem_acionamento: "Sem acionamento no mês",
+    disponiveis_sem_acionamento: `${disp} — sem acionamento no mês`,
+    disponiveis: `${disp} — total da seleção atual (inclui quem já foi acionado no mês)`,
+    indisponiveis: `${indisp} — sem acionamento no mês`,
+    indisponiveis_total: `${indisp} — total da seleção atual`,
+  }[ind];
+}
 
 export default function CoberturaPorAno({ filtros }) {
   const [dados, setDados] = useState(null);
@@ -37,6 +51,9 @@ export default function CoberturaPorAno({ filtros }) {
   const [drillLoading, setDrillLoading] = useState(false);
   const [offset, setOffset] = useState(0);
   const emVoo = useRef(false);
+  const canal = CANAIS[String(filtros?.canal || "").toUpperCase()] || null;
+  const { disp: nomeDisp, indisp: nomeIndisp } = nomesDisponibilidade(canal);
+  const ondeCanal = canal ? `, inclusive o canal (${canal})` : "";
 
   async function carregar() {
     if (emVoo.current) return;
@@ -85,7 +102,7 @@ export default function CoberturaPorAno({ filtros }) {
         <td style={est.tdn}>{cel(l.sem_acionamento, "sem_acionamento")}</td>
         <td style={est.tdn}>{Number(l.pct_acionado || 0).toLocaleString("pt-BR", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%</td>
         <td style={est.tdn}>{cel(l.disponiveis, "disponiveis_sem_acionamento")}</td>
-        <td style={{ ...est.tdn, color: "var(--rv-texto-fraco)" }} title="Disponíveis no total (inclui quem já foi acionado no mês)">{cel(l.disponiveis_total, "disponiveis")}</td>
+        <td style={{ ...est.tdn, color: "var(--rv-texto-fraco)" }} title={`${nomeDisp}: total da seleção atual, inclui quem já foi acionado no mês`}>{cel(l.disponiveis_total, "disponiveis")}</td>
         <td style={est.tdn}>{cel(l.indisponiveis, "indisponiveis")}</td>
         <td style={est.td}>
           {l.reconcilia
@@ -102,8 +119,10 @@ export default function CoberturaPorAno({ filtros }) {
     <div>
       <p style={est.sub}>
         Cobertura do mês: quem já foi acionado neste mês e quem ainda está sem acionamento, por ano da dívida,
-        com os mesmos filtros da tela de ação (o filtro de ano não se aplica). “Disponíveis agora” são os sem
-        acionamento que podem receber ação. Clique em qualquer número para ver os alunos.
+        com os mesmos filtros da tela de ação (o filtro de ano não se aplica). <strong>Base</strong>, <strong>Acionados</strong> e{" "}
+        <strong>Sem acionamento</strong> não dependem de canal, operador nem valor. <strong>Disponibilidade</strong> depende dos
+        filtros atuais{ondeCanal}: mudar o canal ou os filtros muda só os números de disponíveis e indisponíveis.
+        Clique em qualquer número para ver os alunos.
       </p>
       <button style={est.btnPrim} onClick={carregar} disabled={carregando}>
         {carregando ? "Calculando…" : dados ? "Recalcular cobertura" : "Carregar cobertura"}
@@ -114,10 +133,19 @@ export default function CoberturaPorAno({ filtros }) {
         <div style={{ overflowX: "auto", marginTop: 14 }}>
           <table style={est.tabela}>
             <thead><tr>
-              <th style={est.th}>Ano</th><th style={est.thNum}>Base</th><th style={est.thNum}>Acionados no mês</th>
-              <th style={est.thNum}>Sem acionamento</th><th style={est.thNum}>% acionado</th>
-              <th style={est.thNum} title="Sem acionamento no mês e disponíveis para uma nova ação">Disponíveis agora</th><th style={est.thNum} title="Todos os disponíveis, inclusive quem já foi acionado no mês">Disponíveis (total)</th>
-              <th style={est.thNum} title="Sem acionamento no mês e indisponíveis (soma dos motivos)">Indisponíveis (sem acionam.)</th><th style={est.th}></th>
+              <th style={est.th}>Ano</th><th style={est.thNum} title="Alunos com dívida ativa (CPF único no TOTAL)">Base</th>
+              <th style={est.thNum} title="Alunos com pelo menos um acionamento válido no mês">Acionados no mês</th>
+              <th style={est.thNum} title="Base menos acionados no mês. Não depende de canal nem de outros filtros de disponibilidade">Sem acionamento no mês</th>
+              <th style={est.thNum}>% acionado</th>
+              <th style={est.thNum} title={`${nomeDisp}, entre os que estão sem acionamento no mês. Considera os filtros atuais${ondeCanal}.`}>
+                {nomeDisp}<div style={est.thSub}>sem acionamento no mês</div>
+              </th>
+              <th style={est.thNum} title={`${nomeDisp}: total da seleção atual, inclui quem já foi acionado no mês. Considera os filtros atuais${ondeCanal}.`}>
+                {nomeDisp} — total<div style={est.thSub}>seleção atual, inclui já acionados</div>
+              </th>
+              <th style={est.thNum} title={`${nomeIndisp}, entre os que estão sem acionamento no mês (soma dos motivos). Sem acionamento = ${nomeDisp.toLowerCase()} + ${nomeIndisp.toLowerCase()}.`}>
+                {nomeIndisp}<div style={est.thSub}>sem acionamento no mês</div>
+              </th><th style={est.th}></th>
             </tr></thead>
             <tbody>
               {linhas.map((l) => renderLinha(l, String(l.ano), false))}
@@ -125,7 +153,11 @@ export default function CoberturaPorAno({ filtros }) {
               {total && renderLinha(total, "TOTAL", true)}
             </tbody>
           </table>
-          <div style={{ fontSize: 11.5, color: "var(--rv-texto-fraco)", marginTop: 8 }}>
+          <div style={{ fontSize: 11.5, color: "var(--rv-texto-fraco)", marginTop: 8 }} data-testid="legenda-disponibilidade">
+            <strong>Conta que fecha:</strong> {nomeDisp} + {nomeIndisp} = Sem acionamento no mês (na mesma linha).
+            {canal ? ` Quem não tem contato válido para ${canal} aparece como indisponível (“Sem contato válido para o canal”).` : ""}
+          </div>
+          <div style={{ fontSize: 11.5, color: "var(--rv-texto-fraco)", marginTop: 4 }}>
             A linha TOTAL conta cada aluno uma só vez (não é a soma dos anos: um aluno pode ter dívida em mais de um ano).
             Mês de referência: {dados.mes_referencia || "—"}.
           </div>
@@ -137,7 +169,7 @@ export default function CoberturaPorAno({ filtros }) {
           <div style={est.modal} role="dialog" aria-label="Alunos do indicador" onClick={(e) => e.stopPropagation()}>
             <div style={est.modalTopo}>
               <strong style={{ fontFamily: FONTE_TITULO, fontSize: 16 }}>
-                {TITULO_INDICADOR[drill.indicador]} — {drill.anoLabel === "TOTAL" ? "TOTAL" : `ano ${drill.anoLabel}`}
+                {tituloIndicador(drill.indicador, canal)} — {drill.anoLabel === "TOTAL" ? "TOTAL" : `ano ${drill.anoLabel}`}
                 {drill.motivo ? ` — ${rotuloMotivo(drill.motivo)}` : ""}
               </strong>
               <button type="button" style={est.fechar} aria-label="Fechar" onClick={() => setDrill(null)}>✕</button>
@@ -155,6 +187,11 @@ export default function CoberturaPorAno({ filtros }) {
                   ))}
                 </div>
               )}
+              {["disponiveis", "disponiveis_sem_acionamento", "indisponiveis", "indisponiveis_total"].includes(drill.indicador) && (
+                <div style={{ fontSize: 12, color: "var(--rv-texto-fraco)", marginBottom: 8 }} data-testid="drill-aviso-filtros">
+                  A disponibilidade considera os filtros atuais da tela{ondeCanal}. Com outro canal ou outros filtros, esta lista muda.
+                </div>
+              )}
               {drillLoading && <div style={est.vazio}>Carregando…</div>}
               {!drillLoading && drillData?.erro && <div style={est.erro}>{drillData.erro}</div>}
               {!drillLoading && drillData && !drillData.erro && (<>
@@ -170,7 +207,7 @@ export default function CoberturaPorAno({ filtros }) {
                       <th style={est.th}>Aluno</th><th style={est.th}>CPF (final)</th><th style={est.th}>Anos</th>
                       <th style={est.th}>Unidade</th><th style={est.th}>Curso</th><th style={est.th}>Situação</th>
                       <th style={est.th}>Responsável</th><th style={est.thNum}>Valor</th>
-                      <th style={est.th}>Último acionamento</th><th style={est.th}>Disponibilidade</th>
+                      <th style={est.th}>Último acionamento</th><th style={est.th}>{canal ? `Disponibilidade (${canal})` : "Disponibilidade"}</th>
                     </tr></thead>
                     <tbody>
                       {(drillData.itens || []).map((it) => (
@@ -212,6 +249,7 @@ const est = {
   vazio: { padding: 18, textAlign: "center", color: "var(--rv-texto-fraco)", fontSize: 13 },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 12.5 },
   th: { textAlign: "left", padding: "8px 10px", borderBottom: "2px solid var(--rv-borda-suave)", color: "var(--rv-texto)", fontWeight: 700, whiteSpace: "nowrap" },
+  thSub: { fontSize: 10.5, fontWeight: 400, color: "var(--rv-texto-fraco)", whiteSpace: "normal", lineHeight: 1.2 },
   thNum: { textAlign: "right", padding: "8px 10px", borderBottom: "2px solid var(--rv-borda-suave)", color: "var(--rv-texto)", fontWeight: 700, whiteSpace: "nowrap" },
   td: { padding: "7px 10px", borderBottom: "1px solid var(--rv-borda-suave)", whiteSpace: "nowrap" },
   tdb: { padding: "7px 10px", borderBottom: "1px solid var(--rv-borda-suave)", fontWeight: 700, whiteSpace: "nowrap" },
