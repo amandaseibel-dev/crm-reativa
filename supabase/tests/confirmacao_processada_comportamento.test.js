@@ -9,7 +9,7 @@ import * as H from "./fixtures/confirmacao_d2/harness.js";
 import { ehNaoAcionavel, ehQuitado } from "../../src/utils/carteiraFila.js";
 
 vi.setConfig({ testTimeout: 180000, hookTimeout: 600000 });
-const M = ["20260922100000_confirmacao_vinculo_pagamentos", "20260922100100_confirmacao_processada_resolver", "20260922100200_confirmacao_encerramento_processado"];
+const M = ["20260922100000_confirmacao_vinculo_pagamentos", "20260922100100_confirmacao_processada_resolver", "20260922100150_confirmacao_processada_acl", "20260922100200_confirmacao_encerramento_processado", "20260922100250_acl_gatilho_confirmacao_encerra"];
 const FLAG_ON = "update public.fluxo_pagamentos_config set ligado = true where etapa = 'encerrar_confirmacao_processada'";
 let PROD, MIGRADO, POSCRON;
 const U = (n) => `90000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -103,6 +103,17 @@ describe("Bloco 1a: vinculo gravado na origem", () => {
     await expect(db.query("insert into solicitacao_confirmacao_pagamentos(confirmacao_id,pagamento_id) values ($1,$2)", [U(9998), antes[0]])).rejects.toThrow(/unique|duplicate/i);
     await db.close();
   });
+  it("ACL: funcoes internas da confirmacao sem PUBLIC/anon/authenticated; so service_role (menor privilegio)", async () => {
+    const db = await abrirDump(MIGRADO);
+    const fns = ["_nome_norm(text)", "confirmacao_utc_provada(int)", "confirmacao_pagamentos_resolver(uuid)", "confirmacao_pagamento_processado(uuid)",
+      "confirmacao_encerrar_uma(uuid)", "confirmacao_encerrar_por_pagamento(uuid)", "confirmacao_encerrar_processadas(int)", "tg_pagamento_baixado_encerra_confirmacao()"];
+    for (const f of fns) {
+      const r = (await db.query(`select has_function_privilege('anon','public.${f}','execute') a, has_function_privilege('authenticated','public.${f}','execute') u,
+        has_function_privilege('service_role','public.${f}','execute') s, exists (select 1 from pg_proc p where p.oid = 'public.${f}'::regprocedure and p.proacl::text like '%=X/%' and p.proacl::text ~ '(^\\{|,)=X/') pub`)).rows[0];
+      expect([f, r.a, r.u, r.pub]).toEqual([f, false, false, false]);
+    }
+  });
+
   it("RLS: operador nao le nem escreve; gestao le; anon sem acesso; o trigger definer grava com RLS ligada", async () => {
     const db = await abrirDump(MIGRADO);
     const a = await massa(db, { n: 40, nome: "Aluno Rls Quatro", cpf: "10000000040", parcelas: [{ boleto: "50888880031", valor: 100, venc: -2 }] });
@@ -401,7 +412,7 @@ describe("Bloco 1c: fluxo de import com vinculo (automatico, flag ligada) e caso
 describe("rollback restaura EXATAMENTE a producao", () => {
   it("apos os 3 rollbacks: md5 do pg_get_functiondef == producao; tabela e funcoes novas somem", async () => {
     const db = H.abrir(MIGRADO);
-    await db.exec(H.ROLL(M[2])); await db.exec(H.ROLL(M[1])); await db.exec(H.ROLL(M[0]));
+    await db.exec(H.ROLL(M[4])); await db.exec(H.ROLL(M[3])); await db.exec(H.ROLL(M[2])); await db.exec(H.ROLL(M[1])); await db.exec(H.ROLL(M[0]));
     const md5 = async (assin) => (await H.q1(db, "select md5(pg_get_functiondef($1::regprocedure)) m", [assin])).m;
     expect(await md5("public.confirmar_pagamento_solicitacao(uuid,text)")).toBe("1d9c24aa48fe34b7385a1b2627d73a88");
     expect(await md5("public._pagamentos_baixar_lote()")).toBe("34ad52699f58e2657c0a5eb21d84821e");
