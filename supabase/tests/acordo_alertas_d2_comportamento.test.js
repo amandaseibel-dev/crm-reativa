@@ -18,6 +18,7 @@ beforeAll(async () => {
   for (const m of MC) await db.exec(H.MIG(m));
   await db.exec(H.MIG(MA));
   await db.exec(H.MIG("20260922110100_acl_gatilhos_d2"));
+  for (const m of ["20260922120000_acordo_alertas_triggers_failsafe", "20260922130000_d2_bloqueio_operacional", "20260922140000_d2_geracao_exata"]) await db.exec(H.MIG(m));
   BASE = await db.dumpDataDir();
   await H.posCron(db);
   BASE_POSCRON = await db.dumpDataDir();
@@ -88,11 +89,11 @@ describe("A-M: geracao, resolucao e idempotencia", () => {
     expect(a).toHaveLength(1); expect(a[0]).toMatchObject({ da: "2026-10-17", r: "op1@x", n: 1 });
     await db.close();
   });
-  it("C) D-1 sem rodada anterior: alerta criado (janela, nao data exata); D) vence hoje: criado; venceu ontem: sem D2", async () => {
+  it("C) D-1 sem rodada anterior: NAO gera (D-2 exato, dia perdido nao e recuperado); D) vence hoje: NAO gera; venceu ontem: sem D2", async () => {
     const db = await novo(); const c = await mk(db, { nome: "Teste C", resp: "op1@x", parcelas: [{ venc: D }] });
-    await gerar(db, "2026-10-18"); expect(await alertas(db, c.ac)).toHaveLength(1);
+    await gerar(db, "2026-10-18"); expect(await alertas(db, c.ac)).toHaveLength(0);
     const d = await novo(); const e = await mk(d, { nome: "Teste D", resp: "op1@x", parcelas: [{ venc: D }] });
-    await gerar(d, D); expect(await alertas(d, e.ac)).toHaveLength(1);
+    await gerar(d, D); expect(await alertas(d, e.ac)).toHaveLength(0);
     const f = await novo(); const g = await mk(f, { nome: "Teste D2", resp: "op1@x", parcelas: [{ venc: D }] });
     await gerar(f, "2026-10-20"); expect(await alertas(f, g.ac)).toHaveLength(0);
     await db.close(); await d.close(); await f.close();
@@ -129,7 +130,7 @@ describe("A-M: geracao, resolucao e idempotencia", () => {
   });
   it("varredura: parcela que passou do vencimento sem pagar => VENCIDA", async () => {
     const db = await novo(); const { ac } = await mk(db, { nome: "Teste V", resp: "op1@x", parcelas: [{ venc: D }] });
-    await gerar(db, "2026-10-18"); await gerar(db, "2026-10-21");
+    await gerar(db, "2026-10-17"); await gerar(db, "2026-10-21");
     expect((await alertas(db, ac))[0].res).toBe("VENCIDA");
     await db.close();
   });
@@ -194,7 +195,7 @@ describe("RPCs de consumo (RLS/JWT)", () => {
     const hoje = iso(new Date()); const dia = (n) => iso(new Date(fixo(hoje).getTime() + n * 86400000));
     const a1 = await mk(db, { nome: "Aluno Rpc Um", resp: H.OP6, parcelas: [{ venc: dia(2), valor: 111.11 }] });
     await db.query("insert into acordos(id,aluno_id,cpf,status,valor_total,saldo,qtd_parcelas,numero_ulbra,numero_acordo,operador_responsavel_email) select $1,aluno_id,cpf,'ATIVO',500,500,1,'88777',9903,$3 from acordos where id=$2", [U(902, 1), a1.ac, H.OP6]);
-    await db.query("insert into parcelas(id,acordo_id,numero,valor,vencimento,status) values ($1,$2,1,50,$3::date,'A_VENCER')", [U(902, 2), U(902, 1), dia(1)]);
+    await db.query("insert into parcelas(id,acordo_id,numero,valor,vencimento,status) values ($1,$2,1,50,$3::date,'A_VENCER')", [U(902, 2), U(902, 1), dia(2)]);
     const b = await mk(db, { nome: "Aluno Rpc Dois", resp: "outro@aelbra.com.br", parcelas: [{ venc: dia(2) }] });
     await gerar(db, hoje);
     await db.exec("set role authenticated");
@@ -203,7 +204,7 @@ describe("RPCs de consumo (RLS/JWT)", () => {
     expect(meus).toHaveLength(2);
     expect(meus.every((x) => x.responsavel_email === H.OP6)).toBe(true);
     expect(Object.keys(meus[0]).sort()).toEqual(["acordo_id", "aluno_id", "aluno_nome", "data_alerta", "dias_restantes", "numero_acordo", "numero_parcela", "parcela_id", "responsavel_email", "valor", "vencimento"]);
-    expect(meus.map((x) => x.dias_restantes).sort()).toEqual([1, 2]);
+    expect(meus.map((x) => x.dias_restantes).sort()).toEqual([2, 2]);
     expect(await H.qn(db, "select * from public.acordo_alertas_do_operador($1)", [b.al])).toHaveLength(0);
     expect(await H.qn(db, "select * from public.acordo_alertas_do_operador($1)", [a1.al])).toHaveLength(2);
     await H.como(db, "naoresp@aelbra.com.br");
