@@ -12,6 +12,11 @@ describe("rotuloStatus", () => {
     expect(rotuloStatus("ALGUM_STATUS_NOVO")).toBe("Algum status novo");
   });
 
+  it("ACORDO_EM_DIA (escrito pelo encerramento da confirmacao processada) tem rotulo proprio, distinto de Acordo fechado", () => {
+    expect(rotuloStatus("ACORDO_EM_DIA")).toBe("Acordo em dia");
+    expect(rotuloStatus("ACORDO_FECHADO")).toBe("Acordo fechado");
+  });
+
   it("nao mexe em texto que ja e humano", () => {
     expect(rotuloStatus("A contatar")).toBe("A contatar");
   });

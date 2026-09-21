@@ -25,6 +25,9 @@ export const MAPA_SITUACAO = {
   BAIXA_REALIZADA: "Baixa realizada",
   BAIXA_DEVOLVIDA: "Baixa devolvida",
   ACORDO_FECHADO: "Acordo fechado",
+  // Estado operacional escrito pelo encerramento de confirmacao processada (acordo ativo, parcela futura, nada vencido).
+  // Nao e tabulacao: o operador nao escolhe este status.
+  ACORDO_EM_DIA: "Acordo em dia",
   LEMBRETE_PARCELA: "Lembrete de parcela feito",
   TERMO_ENVIADO_ALUNO: "Termo enviado",
   TERMO_ENVIADO_ADM: "Termo no ADM",
