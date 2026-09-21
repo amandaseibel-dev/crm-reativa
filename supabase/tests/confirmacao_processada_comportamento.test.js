@@ -9,7 +9,7 @@ import * as H from "./fixtures/confirmacao_d2/harness.js";
 import { ehNaoAcionavel, ehQuitado } from "../../src/utils/carteiraFila.js";
 
 vi.setConfig({ testTimeout: 180000, hookTimeout: 600000 });
-const M = ["20260922100000_confirmacao_vinculo_pagamentos", "20260922100100_confirmacao_processada_resolver", "20260922100150_confirmacao_processada_acl", "20260922100200_confirmacao_encerramento_processado", "20260922100250_acl_gatilho_confirmacao_encerra"];
+const M = ["20260922100000_confirmacao_vinculo_pagamentos", "20260922100100_confirmacao_processada_resolver", "20260922100150_confirmacao_processada_acl", "20260922100200_confirmacao_encerramento_processado", "20260922100250_acl_gatilho_confirmacao_encerra", "20260922160000_confirmacao_auto_saldo_zero_gestao"];
 const FLAG_ON = "update public.fluxo_pagamentos_config set ligado = true where etapa = 'encerrar_confirmacao_processada'";
 let PROD, MIGRADO, POSCRON;
 const U = (n) => `90000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -191,14 +191,13 @@ describe("Bloco 1c/2: a Ivina (fictícia) pos-cron, legado sem vinculo, fuso pro
     expect((await H.q1(db, "select count(*)::int n from public.casos_elegiveis_liberacao_fidelizacao() where aluno_id=$1", [H.ALUNO_A])).n).toBe(0);
     await db.close();
   });
-  it("B) saldo zero: mesma confirmacao encerra e a quitacao segue o fluxo existente (aluno/caso QUITADO); nenhuma parcela/baixa/pagamento muda", async () => {
+  it("B) saldo zero: o CLIQUE MANUAL da gestao segue o fluxo existente (aluno/caso QUITADO, QUITACAO_CONFIRMADA); nenhuma parcela/baixa/pagamento muda", async () => {
     const db = await abrirDump(POSCRON);
     await db.query("delete from parcelas where numero = 4 and acordo_id in (select id from acordos where aluno_id=$1)", [H.ALUNO_A]);
     await db.query("select public.recalcular_situacao_aluno($1)", [H.ALUNO_A]);
     const a = await H.snap(db);
-    const res = await lote(db);
+    await clicar(db, H.CONF_A);
     const d = await H.snap(db);
-    expect(res.encerradas).toBe(1);
     expect(semFinanceiro(H.diff(a, d))).toBe(true);
     expect(d.alunos.find((x) => x.id === H.ALUNO_A).status_atual).toBe("QUITADO");
     expect(d.casos.find((x) => x.aluno_id === H.ALUNO_A).status_financeiro).toBe("QUITADO_CONFIRMACAO");
@@ -409,10 +408,113 @@ describe("Bloco 1c: fluxo de import com vinculo (automatico, flag ligada) e caso
   });
 });
 
+// ---------------------------------------------------------------------------------------------------------------------------------
+// SALDO ZERO NAO ENCERRA SOZINHO (migration 20260922160000): PROCESSADO + saldo > 0 encerra como antes; PROCESSADO + saldo zero devolve
+// encerrou=false/PROCESSADO/SALDO_ZERO_REQUER_CONFIRMACAO_GESTAO e NAO escreve nada (nem responsavel, nem fila de reposicao).
+const encerrarUma = async (db, id) => (await db.query("select public.confirmacao_encerrar_uma($1) j", [id])).rows[0].j;
+const extras = async (db) => (await db.query(`select (select count(*)::int from reposicao_carteira_fila) fila, (select count(*)::int from historico_operadores_alunos) hist,
+  (select md5(coalesce(string_agg(t::text,'|' order by id),'')) from alunos t) alunos_full, (select md5(coalesce(string_agg(t::text,'|' order by id),'')) from casos t) casos_full,
+  (select md5(coalesce(string_agg(t::text,'|' order by id),'')) from solicitacoes_confirmacao_pagamento t) conf_full,
+  (select md5(coalesce(string_agg(t::text,'|' order by id),'')) from acordos t) acordos_full, (select md5(coalesce(string_agg(t::text,'|' order by id),'')) from parcelas t) parcelas_full,
+  (select md5(coalesce(string_agg(t::text,'|' order by id),'')) from pagamentos t) pag_full, (select count(*)::int from aluno_movimentacoes) movs`)).rows[0];
+describe("saldo zero: o encerramento automatico deixa para a gestao", () => {
+  it("1) PROCESSADO + saldo > 0: encerra normalmente (saldo restante), responsavel preservado, sem quitacao", async () => {
+    const db = await abrirDump(POSCRON);
+    const a = await H.snap(db);
+    const r = await encerrarUma(db, H.CONF_A);
+    expect(r.encerrou).toBe(true);
+    const d = await H.snap(db);
+    expect(semFinanceiro(H.diff(a, d))).toBe(true);
+    expect(d.solicitacoes.find((x) => x.id === H.CONF_A).status).toBe("PAGAMENTO_CONFIRMADO");
+    const al = d.alunos.find((x) => x.id === H.ALUNO_A);
+    expect(al.status_atual).toBe("ACORDO_EM_DIA");
+    expect(al.responsavel_atual_email).toBe(H.OP6);
+    expect(d.aluno_movimentacoes.some((m) => m.tipo === "QUITACAO_CONFIRMADA")).toBe(false);
+    await db.close();
+  });
+  it("2 e 3) PROCESSADO + saldo zero: encerrou=false, PROCESSADO, SALDO_ZERO_REQUER_CONFIRMACAO_GESTAO; NADA e escrito (confirmacao, aluno, responsavel, caso, movimentacoes, fila de reposicao, financeiro)", async () => {
+    const db = await abrirDump(POSCRON);
+    await db.query("delete from parcelas where numero = 4 and acordo_id in (select id from acordos where aluno_id=$1)", [H.ALUNO_A]);
+    await db.query("select public.recalcular_situacao_aluno($1)", [H.ALUNO_A]);
+    expect((await proc(db, H.CONF_A)).estado).toBe("PROCESSADO");
+    const a = await H.snap(db), ea = await extras(db);
+    const r = await encerrarUma(db, H.CONF_A);
+    expect(r).toEqual({ encerrou: false, estado: "PROCESSADO", motivo: "SALDO_ZERO_REQUER_CONFIRMACAO_GESTAO" });
+    expect(H.diff(a, await H.snap(db))).toEqual([]);
+    expect(await extras(db)).toEqual(ea);
+    const d = await H.snap(db);
+    expect(d.solicitacoes.find((x) => x.id === H.CONF_A).status).toBe("AGUARDANDO_CONFIRMACAO");
+    expect(d.alunos.find((x) => x.id === H.ALUNO_A).responsavel_atual_email).toBe(H.OP6);
+    expect(d.aluno_movimentacoes.some((m) => m.tipo === "QUITACAO_CONFIRMADA" || m.tipo === "REDISTRIBUICAO_SINCRONIZACAO")).toBe(false);
+    // repetir: idempotente (mesmo retorno, ainda sem escrita)
+    expect(await encerrarUma(db, H.CONF_A)).toEqual(r);
+    expect(H.diff(a, await H.snap(db))).toEqual([]);
+    // o lote agendavel tambem nao escreve nada nesse caminho (chama a mesma funcao)
+    await lote(db);
+    expect(await extras(db)).toEqual(ea);
+    // e o clique manual da gestao continua exatamente como hoje (quita e segue o fluxo existente)
+    await clicar(db, H.CONF_A);
+    const m = await H.snap(db);
+    expect(m.alunos.find((x) => x.id === H.ALUNO_A).status_atual).toBe("QUITADO");
+    expect(m.aluno_movimentacoes.some((x) => x.tipo === "QUITACAO_CONFIRMADA")).toBe(true);
+    await db.close();
+  });
+  it("4) agrupada COMPLETAMENTE processada + saldo > 0: continua encerrando", async () => {
+    const db = await abrirDump(MIGRADO, { auto: true, min: 1 });
+    const a = await massa(db, { n: 200, nome: "Aluno Grupo Completo", cpf: "10000000200", parcelas: [{ boleto: "50888880201", valor: 100, venc: -2 }, { boleto: "50888880202", valor: 150, venc: -1 }] });
+    await db.query("update fluxo_pagamentos_config set ligado = false where etapa = 'encerrar_confirmacao_processada'");
+    await importar(db, "Aluno Grupo Completo", a.al, [{ boleto: "50888880201", valor: 100 }, { boleto: "50888880202", valor: 150 }]);
+    const [c] = await confDe(db, a.al);
+    expect((await proc(db, c.id)).estado).toBe("PROCESSADO");
+    const r = await encerrarUma(db, c.id);
+    expect(r.encerrou).toBe(true);
+    expect((await confDe(db, a.al))[0].status).toBe("PAGAMENTO_CONFIRMADO");
+    await db.close();
+  });
+  it("5) agrupada PARCIAL: continua sem encerrar e sem escrever; 6) ambigua/nao processada: continua sem encerrar", async () => {
+    const db = await abrirDump(MIGRADO, { auto: false, min: 1 });
+    const a = await massa(db, { n: 210, nome: "Aluno Grupo Parcial", cpf: "10000000210", parcelas: [{ boleto: "50888880211", valor: 100, venc: -2 }, { boleto: "50888880212", valor: 150, venc: -1 }] });
+    await importar(db, "Aluno Grupo Parcial", a.al, [{ boleto: "50888880211", valor: 100 }, { boleto: "50888889998", valor: 150 }]);
+    const [c] = await confDe(db, a.al);
+    expect((await proc(db, c.id)).estado).toBe("REVISAO");
+    const ant = await H.snap(db), ea = await extras(db);
+    const r = await encerrarUma(db, c.id);
+    expect(r.encerrou).toBe(false); expect(r.estado).toBe("REVISAO");
+    expect(H.diff(ant, await H.snap(db))).toEqual([]);
+    expect(await extras(db)).toEqual(ea);
+    // ambigua: soma nao confere
+    await db.query("update solicitacoes_confirmacao_pagamento set valor_informado = 999 where id=$1", [c.id]);
+    const r2 = await encerrarUma(db, c.id);
+    expect(r2.encerrou).toBe(false);
+    // nao processada: sem vinculo / pagamento nao baixado
+    const b = await massa(db, { n: 220, nome: "Aluno Nao Processado", cpf: "10000000220", parcelas: [{ boleto: "50888880221", valor: 100, venc: -2 }] });
+    await db.query("insert into solicitacoes_confirmacao_pagamento(id,aluno_id,aluno_nome,valor_informado,data_pagamento,status,motivo) values ($1,$2,'Aluno Nao Processado',100,current_date,'AGUARDANDO_CONFIRMACAO','manual')", [U(9991), b.al]);
+    const e = await extras(db);
+    const r3 = await encerrarUma(db, U(9991));
+    expect(r3.encerrou).toBe(false);
+    expect(await extras(db)).toEqual(e);
+    await db.close();
+  });
+  it("ACL: confirmacao_encerrar_uma continua sem PUBLIC/anon/authenticated", async () => {
+    const db = await abrirDump(MIGRADO);
+    const r = (await db.query(`select has_function_privilege('anon','public.confirmacao_encerrar_uma(uuid)','execute') a, has_function_privilege('authenticated','public.confirmacao_encerrar_uma(uuid)','execute') u,
+      (select coalesce(p.proacl::text ~ '(^\\{|,)=X/', false) from pg_proc p where p.oid='public.confirmacao_encerrar_uma(uuid)'::regprocedure) pub`)).rows[0];
+    expect(r).toEqual({ a: false, u: false, pub: false });
+    await db.close();
+  });
+  it("a migration nao altera confirmar_pagamento_solicitacao, gatilhos de reposicao/sincronizacao nem cria alertas/cron; flag OFF", async () => {
+    const sql = H.MIG("20260922160000_confirmacao_auto_saldo_zero_gestao").replace(/--.*$/gm, "").replace(/\$function\$[\s\S]*?\$function\$/g, "");
+    expect(sql).not.toMatch(/cron\.|insert\s|update\s|delete\s|confirmar_pagamento_solicitacao|trg_repor|reposicao|acordo_alertas/i);
+    const db = await abrirDump(MIGRADO);
+    expect((await db.query("select ligado from fluxo_pagamentos_config where etapa='encerrar_confirmacao_processada'")).rows[0].ligado).toBe(false);
+    await db.close();
+  });
+});
+
 describe("rollback restaura EXATAMENTE a producao", () => {
   it("apos os 3 rollbacks: md5 do pg_get_functiondef == producao; tabela e funcoes novas somem", async () => {
     const db = H.abrir(MIGRADO);
-    await db.exec(H.ROLL(M[4])); await db.exec(H.ROLL(M[3])); await db.exec(H.ROLL(M[2])); await db.exec(H.ROLL(M[1])); await db.exec(H.ROLL(M[0]));
+    await db.exec(H.ROLL(M[5])); await db.exec(H.ROLL(M[4])); await db.exec(H.ROLL(M[3])); await db.exec(H.ROLL(M[2])); await db.exec(H.ROLL(M[1])); await db.exec(H.ROLL(M[0]));
     const md5 = async (assin) => (await H.q1(db, "select md5(pg_get_functiondef($1::regprocedure)) m", [assin])).m;
     expect(await md5("public.confirmar_pagamento_solicitacao(uuid,text)")).toBe("1d9c24aa48fe34b7385a1b2627d73a88");
     expect(await md5("public._pagamentos_baixar_lote()")).toBe("34ad52699f58e2657c0a5eb21d84821e");
