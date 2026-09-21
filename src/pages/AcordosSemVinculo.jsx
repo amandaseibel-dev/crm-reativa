@@ -26,6 +26,7 @@ import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import Aluno from "./Aluno";
 import DadosAcademicos from "../components/DadosAcademicos";
+import SugestoesVinculoAcordo from "../components/SugestoesVinculoAcordo";
 
 function moeda(v) {
   return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -54,6 +55,9 @@ export default function AcordosSemVinculo() {
   // Começa nas duas faixas de dinheiro que já entrou -- é onde o erro dói.
   const [filtro, setFiltro] = useState("PAGO_E_COBRADO");
   const [fichaId, setFichaId] = useState(null);
+  // Sugestoes assistidas (evidencia Prime 195) ou a fila por faixa de sempre. Nenhuma das duas vincula sozinha.
+  const [modo, setModo] = useState("sugestoes");
+  const [tick, setTick] = useState(0);
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -88,6 +92,7 @@ export default function AcordosSemVinculo() {
   // Fecha a ficha e recarrega: se o vínculo foi feito lá dentro, a linha sai da fila.
   function fecharFicha() {
     setFichaId(null);
+    setTick((n) => n + 1);
     carregar();
   }
 
@@ -107,6 +112,15 @@ export default function AcordosSemVinculo() {
         </button>
       </div>
 
+      <div style={S.barra}>
+        <button type="button" style={{ ...S.btnGhostClaro, ...(modo === "sugestoes" ? { background: "#1e40af", color: "#fff" } : null) }} onClick={() => setModo("sugestoes")}>Sugestões (Prime 195)</button>
+        <button type="button" style={{ ...S.btnGhostClaro, ...(modo === "faixas" ? { background: "#1e40af", color: "#fff" } : null) }} onClick={() => setModo("faixas")}>Fila por faixa</button>
+      </div>
+
+      {modo === "sugestoes" ? (
+        <SugestoesVinculoAcordo onAbrirFicha={setFichaId} recarregar={tick} />
+      ) : (
+      <>
       <div style={S.barra}>
         <select value={filtro} onChange={(e) => setFiltro(e.target.value)} style={S.select}>
           <option value="TODOS">Todas as faixas ({linhas.length})</option>
@@ -193,6 +207,9 @@ export default function AcordosSemVinculo() {
           </div>
         ))}
       </div>
+
+      </>
+      )}
 
       {fichaId && (
         <div style={S.modalOverlay} onClick={fecharFicha}>
