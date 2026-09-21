@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
+import AlertasParcelaAcordo from "./AlertasParcelaAcordo";
+import { normalizarAlertas } from "../utils/alertasParcela";
 import {
   // Recorte da fila e regra do acionamento guiado -- ver src/utils/carteiraFila.js.
   // Sairam deste arquivo para poder ser testados (bug do guiado, 12/09/2026).
@@ -375,16 +377,6 @@ function seloFila(a, hojeStr) {
 // (ja aplica supersessao de mensalidades). Fallback canonico quando ainda nao
 // populado: a situacao operacional so vale como "sem vencido" nos estados que o
 // backend so atribui com saldo vencido = 0. QUITADO/baixa nunca mostram selo.
-// Lembrete de parcela devido: acordo em dia com retorno automatico (D-2, dia
-// util) ja vencido ou hoje. E o backend (recalcular_situacao_aluno) quem
-// agenda e quem silencia depois que o operador tabula.
-function lembreteParcelaDevido(a, hojeStr) {
-  if (String(a?.situacao_operacional || "").toUpperCase() !== "ACORDO_EM_DIA") return false;
-  const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
-  if (!ret) return false;
-  return ret <= (hojeStr || hojeLocalBR());
-}
-
 function mostrarSeloCriticidade(a) {
   if (critCanon(a) === "NORMAL") return false;
   // quitacao nunca exibe criticidade financeira, independentemente de valor antigo.
@@ -610,6 +602,8 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // acompanhar do outro. Conta por CPF (pessoa), nao por ficha. Vem da RPC
   // minha_carteira_resumo, que devolve so a carteira de quem esta olhando.
   const [resumoCpf, setResumoCpf] = useState(null);
+  // D-2 de parcela de acordo: fonte unica = RPC acordo_alertas_do_operador (tabela acordo_alertas_parcela). So leitura.
+  const [alertasParcela, setAlertasParcela] = useState([]);
 
   const [kpis, setKpis] = useState({
     ativos: 0,
@@ -869,6 +863,15 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
   // Resumo por CPF: divida a cobrar de um lado, acordo a acompanhar do outro.
   // A gestao pode olhar a carteira de um operador especifico; para o operador
   // comum o banco ignora o parametro e devolve so a dele.
+  async function carregarAlertasParcela() {
+    try {
+      const { data, error } = await supabase.rpc("acordo_alertas_do_operador");
+      setAlertasParcela(error ? [] : normalizarAlertas(data));
+    } catch {
+      setAlertasParcela([]);
+    }
+  }
+
   async function carregarResumoCpf() {
     const alvo = veTudo && operadorFiltro && operadorFiltro !== "TODOS" ? operadorFiltro : null;
     const { data } = await supabase.rpc("minha_carteira_resumo", { p_operador_email: alvo });
@@ -887,6 +890,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     // await da RPC.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     carregarResumoCpf();
+    carregarAlertasParcela();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [email, veTudo, operadorFiltro]);
 
@@ -1454,9 +1458,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     setAbrirFormInicial(false);
     setRetornoAluno(null);
     setConfirmacaoPendente(false);
-    // Lembrete de parcela devido (acordo em dia, D-2): a tabulacao ja vem
-    // pre-selecionada -- o operador so confirma depois de falar com o aluno.
-    setStatusNovo(lembreteParcelaDevido(a) ? "LEMBRETE_PARCELA" : statusTabulavel(a.status_atual));
+    // D-2 de parcela de acordo e acompanhamento preventivo (acordo_alertas_parcela), nao status:
+    // abrir a ficha pelo card NAO pre-seleciona nem induz nenhum status; o aluno mantem a situacao real.
+    setStatusNovo(statusTabulavel(a.status_atual));
     setResumoConversa("");
     setRetornoData(retornoAgendadoPeloOperador(a));
     setRetornoHora(retornoAgendadoPeloOperador(a) ? (a.hora_retorno || "") : "");
@@ -2876,6 +2880,12 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
             })}
           </div>
 
+          <AlertasParcelaAcordo
+            alertas={alertasParcela}
+            mostrarResponsavel={veTudo}
+            onAbrirFicha={(al) => abrirModal(casos.find((c) => String(c.id) === String(al.aluno_id)) || { id: al.aluno_id, nome_aluno: al.aluno_nome, nome: al.aluno_nome })}
+          />
+
           {mostrarAgenda && (
             <div style={S.agendaPainel}>
               <div style={S.agendaHead}>
@@ -3704,17 +3714,7 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                     </div>
                   )}
 
-                  {lembreteParcelaDevido(alunoModal) && (
-                    <div style={S.lembreteBox}>
-                      <div style={S.lembreteTitulo}>🔔 Lembrete de parcela</div>
-                      <div style={S.lembreteTexto}>
-                        {alunoModal.proxima_acao || "Acordo em dia: lembrar o aluno da proxima parcela."}
-                      </div>
-                      <div style={S.lembreteDica}>
-                        Agendado automaticamente 2 dias antes do vencimento. Depois de tabular, o caso fica em silencio ate a parcela vencer.
-                      </div>
-                    </div>
-                  )}
+                  {/* Card antigo "Lembrete de parcela" (D-2 por data_retorno) removido: o D-2 vem do alerta por acordo+parcela (AlertasParcelaAcordo). */}
 
                   {/* Mandar para a confirmacao JA E a tabulacao: enquanto ela
                       estiver pendente a tela nao pede um segundo clique. */}
