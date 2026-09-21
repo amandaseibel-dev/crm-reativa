@@ -7,6 +7,7 @@ vi.setConfig({ testTimeout: 180000, hookTimeout: 600000 });
 const CADEIA = ["20260922100000_confirmacao_vinculo_pagamentos", "20260922100100_confirmacao_processada_resolver", "20260922100150_confirmacao_processada_acl",
   "20260922100200_confirmacao_encerramento_processado", "20260922100250_acl_gatilho_confirmacao_encerra", "20260922110000_acordo_alertas_parcela",
   "20260922110100_acl_gatilhos_d2", "20260922120000_acordo_alertas_triggers_failsafe"];
+const MEXATO = "20260922140000_d2_geracao_exata";
 const MB = "20260922130000_d2_bloqueio_operacional";
 const D = "2026-10-19", HOJE = "2026-10-17";
 let PRE, POS, seq = 0;
@@ -15,6 +16,7 @@ beforeAll(async () => {
   for (const m of CADEIA) await db.exec(H.MIG(m));
   PRE = await db.dumpDataDir();
   await db.exec(H.MIG(MB));
+  await db.exec(H.MIG(MEXATO));
   POS = await db.dumpDataDir();
   await db.close();
 });
