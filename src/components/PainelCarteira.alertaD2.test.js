@@ -15,6 +15,14 @@ describe("PainelCarteira: D-2 vem so do alerta novo", () => {
     expect(SRC).not.toMatch(/🔔 Lembrete de parcela/);
     expect(SRC).not.toMatch(/\{lembreteParcelaDevido\(alunoModal\)\s*&&/);
   });
+  it("abrir o aluno pelo card nao pre-seleciona nem induz status: setStatusNovo so usa statusTabulavel do status real", () => {
+    expect(SRC).not.toMatch(/lembreteParcelaDevido/);
+    expect(SRC).not.toMatch(/\?\s*"LEMBRETE_PARCELA"\s*:/);
+    expect(SRC).toMatch(/setStatusNovo\(statusTabulavel\(a\.status_atual\)\);/);
+    const card = SRC.slice(SRC.indexOf("<AlertasParcelaAcordo"), SRC.indexOf("<AlertasParcelaAcordo") + 700);
+    expect(card).toMatch(/abrirModal\(/);
+    expect(card).not.toMatch(/setStatusNovo|LEMBRETE_PARCELA|supabase\.(from|rpc)/);
+  });
   it("nao cria status LEMBRETE_PARCELA novo nem ACORDO_FECHADO para o alerta", () => {
     const trecho = SRC.slice(SRC.indexOf("carregarAlertasParcela"), SRC.indexOf("carregarAlertasParcela") + 400);
     expect(trecho).not.toMatch(/LEMBRETE_PARCELA|ACORDO_FECHADO/);

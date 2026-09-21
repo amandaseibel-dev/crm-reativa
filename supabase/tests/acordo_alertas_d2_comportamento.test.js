@@ -208,25 +208,17 @@ describe("RPCs de consumo (RLS/JWT)", () => {
   });
 });
 
-describe("parametro retorno_antecedencia_dias 3 -> 2 (migration separada, data-only, reversivel)", () => {
-  const MP = "20260922110100_param_retorno_antecedencia_2";
-  it("muda so a linha do parametro (3 -> 2), nao toca outra linha, e o rollback devolve {dias:3}", async () => {
-    const db = await novo();
-    await db.query("insert into calibragem_parametros (chave, valor) values ('retorno_antecedencia_dias', '{\"dias\": 3}'::jsonb) on conflict (chave) do update set valor = excluded.valor");
-    const outras = (await H.qn(db, "select chave, valor from calibragem_parametros where chave <> 'retorno_antecedencia_dias' order by chave"));
-    await db.exec(H.MIG(MP));
-    expect((await H.q1(db, "select valor from calibragem_parametros where chave='retorno_antecedencia_dias'")).valor).toEqual({ dias: 2 });
-    expect(await H.qn(db, "select chave, valor from calibragem_parametros where chave <> 'retorno_antecedencia_dias' order by chave")).toEqual(outras);
-    await db.exec(H.ROLL(MP));
-    expect((await H.q1(db, "select valor from calibragem_parametros where chave='retorno_antecedencia_dias'")).valor).toEqual({ dias: 3 });
-    // idempotente: rodar de novo nao muda nada de errado
-    await db.exec(H.MIG(MP)); await db.exec(H.MIG(MP));
-    expect((await H.q1(db, "select valor from calibragem_parametros where chave='retorno_antecedencia_dias'")).valor).toEqual({ dias: 2 });
-    await db.close();
-  });
-  it("e data-only: sem DDL nem funcao", () => {
-    const sql = H.MIG(MP).replace(/--.*$/gm, "");
-    expect(sql).not.toMatch(/create\s+(or\s+replace\s+)?(function|table|trigger)|alter\s+table|drop\s+/i);
+describe("mecanismo antigo do retorno (retorno_antecedencia_dias) NAO e alterado por este PR", () => {
+  it("nenhuma migration/rollback do PR mexe em retorno_antecedencia_dias nem em recalcular_situacao_aluno", async () => {
+    const { readdirSync, readFileSync } = await import("node:fs");
+    const arquivos = [...readdirSync("supabase/migrations"), ...readdirSync("supabase/rollbacks")].filter((f) => f.startsWith("202609221"));
+    expect(arquivos.length).toBeGreaterThan(0);
+    for (const f of arquivos) {
+      const dir = readdirSync("supabase/migrations").includes(f) ? "supabase/migrations" : "supabase/rollbacks";
+      const sql = readFileSync(`${dir}/${f}`, "utf8").replace(/--.*$/gm, "");
+      expect(sql, f).not.toMatch(/retorno_antecedencia_dias/);
+      expect(sql, f).not.toMatch(/function\s+public\.recalcular_situacao_aluno/i);
+    }
   });
 });
 

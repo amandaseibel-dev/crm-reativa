@@ -377,16 +377,6 @@ function seloFila(a, hojeStr) {
 // (ja aplica supersessao de mensalidades). Fallback canonico quando ainda nao
 // populado: a situacao operacional so vale como "sem vencido" nos estados que o
 // backend so atribui com saldo vencido = 0. QUITADO/baixa nunca mostram selo.
-// Lembrete de parcela devido: acordo em dia com retorno automatico (D-2, dia
-// util) ja vencido ou hoje. E o backend (recalcular_situacao_aluno) quem
-// agenda e quem silencia depois que o operador tabula.
-function lembreteParcelaDevido(a, hojeStr) {
-  if (String(a?.situacao_operacional || "").toUpperCase() !== "ACORDO_EM_DIA") return false;
-  const ret = a?.data_retorno ? String(a.data_retorno).slice(0, 10) : null;
-  if (!ret) return false;
-  return ret <= (hojeStr || hojeLocalBR());
-}
-
 function mostrarSeloCriticidade(a) {
   if (critCanon(a) === "NORMAL") return false;
   // quitacao nunca exibe criticidade financeira, independentemente de valor antigo.
@@ -1468,9 +1458,9 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
     setAbrirFormInicial(false);
     setRetornoAluno(null);
     setConfirmacaoPendente(false);
-    // Lembrete de parcela devido (acordo em dia, D-2): a tabulacao ja vem
-    // pre-selecionada -- o operador so confirma depois de falar com o aluno.
-    setStatusNovo(lembreteParcelaDevido(a) ? "LEMBRETE_PARCELA" : statusTabulavel(a.status_atual));
+    // D-2 de parcela de acordo e acompanhamento preventivo (acordo_alertas_parcela), nao status:
+    // abrir a ficha pelo card NAO pre-seleciona nem induz nenhum status; o aluno mantem a situacao real.
+    setStatusNovo(statusTabulavel(a.status_atual));
     setResumoConversa("");
     setRetornoData(retornoAgendadoPeloOperador(a));
     setRetornoHora(retornoAgendadoPeloOperador(a) ? (a.hora_retorno || "") : "");
