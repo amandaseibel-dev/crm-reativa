@@ -8,7 +8,7 @@ import * as H from "./fixtures/confirmacao_d2/harness.js";
 
 vi.setConfig({ testTimeout: 180000, hookTimeout: 600000 });
 const MA = "20260922110000_acordo_alertas_parcela";
-const MC = ["20260922100000_confirmacao_vinculo_pagamentos", "20260922100100_confirmacao_processada_resolver", "20260922100200_confirmacao_encerramento_processado"];
+const MC = ["20260922100000_confirmacao_vinculo_pagamentos", "20260922100100_confirmacao_processada_resolver", "20260922100150_confirmacao_processada_acl", "20260922100200_confirmacao_encerramento_processado", "20260922100250_acl_gatilho_confirmacao_encerra"];
 const D = "2026-10-19"; // segunda
 let BASE, BASE_POSCRON;
 let seq = 0;
@@ -17,6 +17,7 @@ beforeAll(async () => {
   const db = await H.montarProd();
   for (const m of MC) await db.exec(H.MIG(m));
   await db.exec(H.MIG(MA));
+  await db.exec(H.MIG("20260922110100_acl_gatilhos_d2"));
   BASE = await db.dumpDataDir();
   await H.posCron(db);
   BASE_POSCRON = await db.dumpDataDir();
@@ -56,6 +57,23 @@ describe("parametro e data do alerta (D-2 corrido)", () => {
   });
 });
 
+describe("ACL das funcoes do D-2 (menor privilegio)", () => {
+  it("anon nunca executa; authenticated so as 2 RPCs de consumo; rotina so service_role; triggers sem EXECUTE direto", async () => {
+    const db = await novo();
+    const f = {
+      "acordo_alertas_do_operador(uuid)": [false, true], "acordo_alertas_sem_responsavel()": [false, true],
+      "acordo_alertas_gerar(date,int,text)": [false, false], "acordo_alertas_resolver(date)": [false, false],
+      "acordo_classificar(uuid,date)": [false, false], "acordo_alerta_data(date,int,text)": [false, false],
+      "tg_acordo_alerta_resolve_parcela()": [false, false], "tg_acordo_alerta_resolve_acordo()": [false, false],
+    };
+    for (const [n, [a, u]] of Object.entries(f)) {
+      const r = (await db.query(`select has_function_privilege('anon','public.${n}','execute') a, has_function_privilege('authenticated','public.${n}','execute') u,
+        (select coalesce(p.proacl::text ~ '(^\\{|,)=X/', false) from pg_proc p where p.oid='public.${n}'::regprocedure) pub`)).rows[0];
+      expect([n, r.a, r.u, r.pub]).toEqual([n, a, u, false]);
+    }
+    await db.close();
+  });
+});
 describe("A-M: geracao, resolucao e idempotencia", () => {
   it("A) parcela futura (> D-2): nenhum alerta", async () => {
     const db = await novo(); const { ac } = await mk(db, { nome: "Teste A", resp: "op1@x", parcelas: [{ venc: D }] });
