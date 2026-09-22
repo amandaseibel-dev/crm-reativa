@@ -1959,6 +1959,4 @@ const S = {
     color: "var(--rv-texto-forte)",
     boxShadow: "0 4px 16px rgba(15,23,42,0.04)",
   },
-}
-
 };
