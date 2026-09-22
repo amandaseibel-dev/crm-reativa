@@ -3,14 +3,41 @@ import { supabase } from "../services/supabase";
 
 function moeda(v) { return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" }); }
 function dataBR(v) { if (!v) return "-"; const p = String(v).slice(0, 10).split("-"); return p.length === 3 ? p[2] + "/" + p[1] + "/" + p[0] : v; }
-function valTit(t) { return Number(t.valor_em_aberto != null ? t.valor_em_aberto : (t.saldo_corrigido != null ? t.saldo_corrigido : (t.valor_original || 0))); }
+
+// Motivos que acordo_saldo_residual devolve quando o residual NAO e
+// confiavel (22/09/2026) -- nunca aproxima, nunca deixa o operador decidir
+// o valor na tela.
+const MOTIVO_RESIDUAL_TEXTO = {
+  RESIDUAL_DIVERGENCIA_ESTRUTURAL: "Saldo residual não confiável (divergência estrutural) — revisão da gestão",
+  RESIDUAL_PAGAMENTO_FORA_DA_ESTRUTURA: "Saldo residual não confiável (pagamento fora da estrutura) — revisão da gestão",
+  RESIDUAL_MULTIPLOS_TITULOS: "Saldo residual não confiável (várias mensalidades no acordo anterior) — revisão da gestão",
+  RESIDUAL_ZERO: "Sem saldo residual: nada a renegociar",
+  RESIDUAL_ACORDO_NAO_ENCONTRADO: "Acordo anterior não encontrado",
+};
+
+// `residuos`: mapa acordo_id -> retorno de acordo_saldo_residual(acordo_id),
+// so preenchido para acordos CANCELADO/CANCELADA que tem mensalidade NEGOCIADA
+// deste aluno (re-acordo). Pra titulo comum (acordo_id null) fica sem entrada.
+function valTit(t, residuos = {}) {
+  const r = t.acordo_id ? residuos[t.acordo_id] : null;
+  if (r && r.confiavel) return Number(r.residual);
+  return Number(t.valor_em_aberto != null ? t.valor_em_aberto : (t.saldo_corrigido != null ? t.saldo_corrigido : (t.valor_original || 0)));
+}
 
 // Elegibilidade de uma mensalidade pra entrar num acordo novo. Espelha a
-// funcao de backend vincular_titulos_acordo/titulos_disponiveis_para_acordo
-// (o backend e a fonte de verdade; aqui e so pra habilitar/desabilitar e
-// explicar o motivo). Retorna null quando elegivel, ou o motivo do bloqueio.
-function motivoInelegivel(t) {
-  if (t.acordo_id) return "Já vinculada a acordo ativo";
+// funcao de backend vincular_titulos_acordo (o backend e a fonte de verdade;
+// aqui e so pra habilitar/desabilitar e explicar o motivo). Retorna null
+// quando elegivel, ou o motivo do bloqueio.
+function motivoInelegivel(t, residuos = {}) {
+  if (t.acordo_id) {
+    // RE-ACORDO (22/09/2026): mensalidade NEGOCIADA cujo acordo anterior foi
+    // cancelado. So aparece aqui (nao em "Já vinculada") quando `residuos` tem
+    // entrada pra esse acordo -- ou seja, quando o acordo esta CANCELADO e a
+    // mensalidade e NEGOCIADA (carregar() so busca residual nesse caso).
+    const r = residuos[t.acordo_id];
+    if (r) return r.confiavel ? null : (MOTIVO_RESIDUAL_TEXTO[r.motivo] || r.motivo || "Saldo residual não confiável");
+    return "Já vinculada a acordo ativo";
+  }
   const status = String(t.status || "").toLowerCase();
   const situacao = String(t.situacao || "").toUpperCase();
   // "Quitado" e decidido por status + saldo, NAO pela etiqueta situacao='PAGO'
@@ -20,7 +47,7 @@ function motivoInelegivel(t) {
   if (["quitada", "quitado", "paga", "pago"].includes(status)) return "Parcela quitada";
   if (["cancelada", "cancelado"].includes(status)) return "Parcela cancelada";
   if (situacao === "DUPLICADA") return "Parcela duplicada";
-  if (valTit(t) <= 0) return "Saldo zero";
+  if (valTit(t, residuos) <= 0) return "Saldo zero";
   return null;
 }
 
@@ -30,6 +57,7 @@ function motivoInelegivel(t) {
 export default function VincularMensalidadesAcordo({ alunoId }) {
   const [acordos, setAcordos] = useState([]);
   const [titulos, setTitulos] = useState([]);
+  const [residuos, setResiduos] = useState({});
   const [acordoSel, setAcordoSel] = useState("");
   const [sel, setSel] = useState({});
   const [carregando, setCarregando] = useState(true);
@@ -43,12 +71,32 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
     const [{ data: acs }, { data: tits }] = await Promise.all([
       supabase.from("acordos").select("id, numero_acordo, valor_total, saldo, status, qtd_parcelas, criado_em").eq("aluno_id", alunoId).order("criado_em", { ascending: false }),
       // Carrega mensalidades nao vinculadas (pra mostrar elegiveis e inelegiveis)
-      // + as ja vinculadas (pra secao de desvincular).
+      // + as ja vinculadas (pra secao de desvincular) + as NEGOCIADAS de acordo
+      // ja CANCELADO (candidatas a re-acordo, 22/09/2026: nao reabrem mais
+      // sozinhas pra ABERTO, precisam aparecer aqui pra virarem elegiveis).
       supabase.from("acordos_titulos").select("id, competencia, vencimento, valor_em_aberto, valor_original, saldo_corrigido, situacao, status, acordo_id").eq("aluno_id", alunoId).order("vencimento", { ascending: true }),
     ]);
     const lista = acs || [];
     setAcordos(lista);
     setTitulos(tits || []);
+
+    // Saldo residual so faz sentido pra titulo NEGOCIADO cujo acordo_id
+    // aponta pra um acordo hoje CANCELADO/CANCELADA -- essa e a populacao de
+    // re-acordo. `acordo_saldo_residual` e a mesma fonte de verdade que
+    // vincular_titulos_acordo usa pra aceitar ou recusar.
+    const acordosPorId = Object.fromEntries(lista.map((a) => [a.id, a]));
+    const idsCancelados = [...new Set(
+      (tits || [])
+        .filter((t) => t.acordo_id && String(t.situacao || "").toUpperCase() === "NEGOCIADO")
+        .map((t) => t.acordo_id)
+        .filter((id) => ["CANCELADO", "CANCELADA"].includes(String(acordosPorId[id]?.status || "").toUpperCase()))
+    )];
+    const entradas = await Promise.all(idsCancelados.map(async (id) => {
+      const { data } = await supabase.rpc("acordo_saldo_residual", { p_acordo_id: id });
+      return [id, data];
+    }));
+    setResiduos(Object.fromEntries(entradas));
+
     const ativos = lista.filter((a) => a.status === "ATIVO");
     setAcordoSel((prev) => (prev && ativos.some((a) => a.id === prev)) ? prev : (ativos[0] ? ativos[0].id : ""));
     setSel({});
@@ -58,11 +106,13 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
   useEffect(() => { carregar(); }, [alunoId]);
 
   const acordosAtivos = acordos.filter((a) => a.status === "ATIVO");
-  // Nao vinculados = candidatos exibidos (elegiveis marcaveis, inelegiveis desabilitados).
-  const naoVinculados = titulos.filter((t) => !t.acordo_id);
-  const vinculados = titulos.filter((t) => t.acordo_id);
-  const elegiveis = useMemo(() => naoVinculados.filter((t) => !motivoInelegivel(t)), [naoVinculados]);
-  const inelegiveis = useMemo(() => naoVinculados.filter((t) => motivoInelegivel(t)), [naoVinculados]);
+  // Nao vinculados = candidatos exibidos (elegiveis marcaveis, inelegiveis
+  // desabilitados) -- inclui tanto titulo sem acordo quanto titulo NEGOCIADO
+  // de acordo cancelado (re-acordo, tem entrada em `residuos`).
+  const naoVinculados = titulos.filter((t) => !t.acordo_id || residuos[t.acordo_id] !== undefined);
+  const vinculados = titulos.filter((t) => t.acordo_id && residuos[t.acordo_id] === undefined);
+  const elegiveis = useMemo(() => naoVinculados.filter((t) => !motivoInelegivel(t, residuos)), [naoVinculados, residuos]);
+  const inelegiveis = useMemo(() => naoVinculados.filter((t) => motivoInelegivel(t, residuos)), [naoVinculados, residuos]);
   const idsSel = Object.keys(sel).filter((k) => sel[k]);
   const selecionados = elegiveis.filter((t) => sel[t.id]);
 
@@ -70,16 +120,16 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
 
   // Resumo da selecao.
   const resumo = useMemo(() => {
-    const valores = selecionados.map((t) => valTit(t));
+    const valores = selecionados.map((t) => valTit(t, residuos));
     const vencs = selecionados.map((t) => String(t.vencimento || "").slice(0, 10)).filter(Boolean).sort();
     return {
       qtd: selecionados.length,
       valor: valores.reduce((s, v) => s + v, 0),
       maisAntiga: vencs[0] || null,
       maisRecente: vencs[vencs.length - 1] || null,
-      valorBloqueado: inelegiveis.reduce((s, t) => s + valTit(t), 0),
+      valorBloqueado: inelegiveis.reduce((s, t) => s + valTit(t, residuos), 0),
     };
-  }, [selecionados, inelegiveis]);
+  }, [selecionados, inelegiveis, residuos]);
 
   function marcarTodas(e) {
     if (e.target.checked) {
@@ -198,9 +248,10 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
                 </thead>
                 <tbody>
                   {naoVinculados.map((t) => {
-                    const motivo = motivoInelegivel(t);
+                    const motivo = motivoInelegivel(t, residuos);
                     const elegivel = !motivo;
                     const bloqSrv = bloqueadosServidor.includes(t.id);
+                    const reAcordo = !!t.acordo_id; // so vem aqui com acordo_id quando e re-acordo
                     return (
                       <tr key={t.id} style={elegivel ? undefined : S.linhaInelegivel}>
                         <td style={S.td}>
@@ -211,9 +262,9 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
                             onChange={(e) => setSel((s) => ({ ...s, [t.id]: e.target.checked }))}
                           />
                         </td>
-                        <td style={S.td}>{t.competencia || "-"}</td>
+                        <td style={S.td}>{t.competencia || "-"}{reAcordo ? <span style={S.tagReAcordo}>saldo residual</span> : null}</td>
                         <td style={S.td}>{dataBR(t.vencimento)}</td>
-                        <td style={S.tdNum}>{moeda(valTit(t))}</td>
+                        <td style={S.tdNum}>{moeda(valTit(t, residuos))}</td>
                         <td style={S.td}>
                           {elegivel
                             ? (bloqSrv ? <span style={S.tagBloq}>revalidar</span> : <span style={S.tagOk}>elegível</span>)
@@ -241,7 +292,7 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
                 <tr key={t.id}>
                   <td style={S.td}>{t.competencia || "-"}</td>
                   <td style={S.td}>{dataBR(t.vencimento)}</td>
-                  <td style={S.tdNum}>{moeda(valTit(t))}</td>
+                  <td style={S.tdNum}>{moeda(valTit(t, residuos))}</td>
                   <td style={S.td}><button style={S.btnLink} onClick={() => desvincular(t.id)} disabled={salvando}>desvincular</button></td>
                 </tr>
               ))}
@@ -276,6 +327,7 @@ const S = {
   linhaInelegivel: { opacity: 0.55, background: "var(--rv-superficie)" },
   tagOk: { fontSize: 11, fontWeight: 700, color: "var(--rv-verde-ok-texto)", background: "var(--rv-verde-ok-fundo)", borderRadius: 999, padding: "2px 8px" },
   tagBloq: { fontSize: 11, fontWeight: 700, color: "var(--rv-ambar-texto)", background: "var(--rv-ambar-fundo)", borderRadius: 999, padding: "2px 8px" },
+  tagReAcordo: { fontSize: 10, fontWeight: 700, color: "var(--rv-texto-fraco)", marginLeft: 6, textTransform: "uppercase" },
   vazio: { fontSize: 13, color: "var(--rv-texto-fraco)", margin: "6px 0" },
   msg: { fontSize: 13, color: "var(--rv-verde-ok-texto)", fontWeight: 600, marginTop: 10 },
 };
