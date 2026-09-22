@@ -2,7 +2,8 @@
 // RENEGOCIAVEL, SO PELO SALDO RESIDUAL DETERMINISTICO -- COMPORTAMENTO.
 //
 // Continuacao de acordo_cancelado_nao_reabre_mensalidade_comportamento.test.js.
-// Roda as migrations REAIS (20260922260000 + 20260922270000) num PostgreSQL
+// Roda as migrations REAIS (20260922265000 + 20260922270000 + 20260922275000,
+// nesta ordem -- a 275000 substitui a regra de elegibilidade da 270000) num PostgreSQL
 // real (PGlite), sobre a mesma bancada minima daquele arquivo, acrescida do
 // que vincular_titulos_acordo/acordo_saldo_residual precisam: auditoria,
 // acordo_avista_porta_interna (dublado false -- so importa a porta humana
@@ -22,6 +23,8 @@ const ler = (p) => readFileSync(resolve(AQUI, "..", "..", p), "utf8");
 const MIGRATION_1 = ler("supabase/migrations/20260922265000_acordo_cancelado_nao_reabre_mensalidade_negociada.sql");
 const ROLLBACK_B = ler("supabase/rollbacks/20260922270000_reacordo_saldo_residual_deterministico.rollback.sql");
 const MIGRATION_2 = ler("supabase/migrations/20260922270000_reacordo_saldo_residual_deterministico.sql");
+const MIGRATION_3 = ler("supabase/migrations/20260922275000_reacordo_cardinalidade_nao_bloqueia_residual.sql");
+const ROLLBACK_C = ler("supabase/rollbacks/20260922275000_reacordo_cardinalidade_nao_bloqueia_residual.rollback.sql");
 
 async function um(db, sql, params = []) {
   const r = await db.query(sql, params);
@@ -122,6 +125,7 @@ async function novoBanco() {
 
   await db.exec(MIGRATION_1);
   await db.exec(MIGRATION_2);
+  await db.exec(MIGRATION_3);
 
   await db.exec(`
     create trigger trg_acordo_status_reavalia_titulos after update of status on public.acordos
@@ -198,6 +202,28 @@ async function acordoCanceladoComTitulo(db, n, { valorTotal = 1000, parcelasValo
   return { aluno_id: al, acordo_id: ac, titulo_id: t };
 }
 
+// Acordo CANCELADO com N mensalidades de origem, todas preservadas como
+// NEGOCIADO pela 20260922265000 (vinculo inativo, nunca apagado). Mesma ordem
+// da RPC viva: status do ACORDO primeiro, vinculo depois.
+async function acordoCanceladoMulti(db, n, { titulos = [500, 500], parcelasValores, pagaIndices = [] } = {}) {
+  const valorTotal = titulos.reduce((a, b) => a + b, 0);
+  parcelasValores = parcelasValores ?? [valorTotal];
+  const al = A(n);
+  const ac = await acordoFn(db, al, { valor_total: valorTotal, qtd_parcelas: parcelasValores.length });
+  const ids = [];
+  for (const v of titulos) {
+    const t = await titulo(db, al, { valor_original: v, valor_em_aberto: v });
+    await negociar(db, t, ac);
+    ids.push(t);
+  }
+  for (let i = 0; i < parcelasValores.length; i++) {
+    await parcela(db, ac, pagaIndices.includes(i) ? "PAGO" : "CANCELADA", parcelasValores[i]);
+  }
+  await db.query(`update public.acordos set status='CANCELADO', saldo=0 where id=$1`, [ac]);
+  await db.query(`update public.acordo_titulo_vinculo set ativo=false where acordo_id=$1`, [ac]);
+  return { aluno_id: al, acordo_id: ac, titulo_ids: ids, valorTotal };
+}
+
 describe("re-acordo: saldo residual deterministico", () => {
   let db;
   beforeEach(async () => { db = await novoBanco(); await comoGestao(db); });
@@ -231,18 +257,203 @@ describe("re-acordo: saldo residual deterministico", () => {
     expect(Number(await um(db, `select valor_original from public.acordos_titulos where id=$1`, [titulo_id]))).toBe(1000);
   });
 
-  it("C. acordo com VARIAS mensalidades originais: nao ratear -- inelegivel", async () => {
-    const { acordo_id, titulo_id, aluno_id } = await acordoCanceladoComTitulo(db, 3, {
-      valorTotal: 1001, parcelasValores: [1001], comVinculoExtra: true,
-    });
+  // A REGRA QUE MUDOU (22/09/2026): a quantidade de mensalidades de origem nao
+  // torna o residual do acordo incerto. O que seria aproximacao e reparti-lo
+  // entre elas -- e nada reparte. O risco real (re-acordo PARCIAL) esta coberto
+  // pela trava tudo-ou-nada, testada em E.
+  it("B. DUAS mensalidades de origem + residual confiavel: ELEGIVEL, sem rateio", async () => {
+    const { acordo_id, titulo_ids, aluno_id } = await acordoCanceladoMulti(db, 3, { titulos: [600, 400] });
     const r = await residual(db, acordo_id);
-    expect(r.confiavel).toBe(false);
-    expect(r.motivo).toBe("RESIDUAL_MULTIPLOS_TITULOS");
+    expect(r).toMatchObject({ confiavel: true, residual: 1000, motivo: null, titulos: 2 });
 
-    const novo = await acordoFn(db, aluno_id, { valor_total: 1001 });
-    const resp = await vincular(db, [titulo_id], novo);
-    expect(resp).toMatchObject({ ok: false, erro: "PARCELAS_INELEGIVEIS" });
-    expect(resp.bloqueados).toContain(titulo_id);
+    const novo = await acordoFn(db, aluno_id, { valor_total: 1000 });
+    expect(await vincular(db, [titulo_ids[0], titulo_ids[1]], novo)).toMatchObject({ ok: true, vinculados: 2 });
+
+    // o residual foi tratado como UM valor do acordo: nenhuma mensalidade
+    // recebeu fatia gravada em lugar nenhum
+    for (const t of titulo_ids) {
+      const l = await um(db, `select to_jsonb(t) from public.acordos_titulos t where id=$1`, [t]);
+      expect(Number(l.valor_original)).toBeGreaterThan(0);
+      expect(l.valor_em_aberto).toBe(l.valor_em_aberto); // nao foi sobrescrito por rateio
+    }
+    expect(Number(await um(db, `select valor_original from public.acordos_titulos where id=$1`, [titulo_ids[0]]))).toBe(600);
+    expect(Number(await um(db, `select valor_original from public.acordos_titulos where id=$1`, [titulo_ids[1]]))).toBe(400);
+  });
+
+  it("C. VARIAS mensalidades + pagamento parcial totalmente conhecido: elegivel pelo residual TOTAL", async () => {
+    // 3 mensalidades somando 1200; 1 parcela de 700 PAGA, 1 de 500 CANCELADA.
+    // pago+cancelado = 1200 = valor_total -> reconcilia. Residual = 500, que e
+    // do ACORDO -- nao "500/3" nem "500 da mensalidade X".
+    const { acordo_id, titulo_ids, aluno_id } = await acordoCanceladoMulti(db, 4, {
+      titulos: [400, 400, 400], parcelasValores: [700, 500], pagaIndices: [0],
+    });
+    expect(await residual(db, acordo_id)).toMatchObject({ confiavel: true, residual: 500, titulos: 3 });
+
+    const novo = await acordoFn(db, aluno_id, { valor_total: 500 });
+    expect(await vincular(db, titulo_ids, novo)).toMatchObject({ ok: true, vinculados: 3 });
+  });
+
+  it("D. multi-titulo com TODOS os titulos enviados: re-acordo permitido", async () => {
+    const { titulo_ids, aluno_id } = await acordoCanceladoMulti(db, 5, { titulos: [300, 300, 300] });
+    const novo = await acordoFn(db, aluno_id, { valor_total: 900 });
+    expect(await vincular(db, titulo_ids, novo)).toMatchObject({ ok: true, vinculados: 3 });
+    for (const t of titulo_ids) {
+      expect((await estado(db, t)).acordo_id).toBe(novo);
+    }
+  });
+
+  it("E. multi-titulo com apenas PARTE dos titulos: bloqueado, e nada e escrito", async () => {
+    const { acordo_id, titulo_ids, aluno_id } = await acordoCanceladoMulti(db, 6, { titulos: [300, 300, 300] });
+    const novo = await acordoFn(db, aluno_id, { valor_total: 600 });
+
+    const r = await vincular(db, [titulo_ids[0], titulo_ids[1]], novo);
+    expect(r.ok).toBe(false);
+    expect(r.erro).toBe("REACORDO_PARCIAL");
+    // diz QUAL acordo anterior e QUAL mensalidade ficou de fora
+    expect(JSON.stringify(r.pendencias)).toContain(acordo_id);
+    expect(JSON.stringify(r.pendencias)).toContain(titulo_ids[2]);
+
+    // NADA foi escrito: os tres continuam no acordo anterior, sem vinculo novo
+    for (const t of titulo_ids) {
+      expect(await estado(db, t)).toEqual({ situacao: "NEGOCIADO", status: "vinculada", acordo_id });
+    }
+    expect(await um(db, `select count(*)::int from public.acordo_titulo_vinculo where acordo_id=$1`, [novo])).toBe(0);
+  });
+
+  it("F. titulo EXTRA que nunca pertenceu ao acordo anterior: permitido, e a cadeia historica nao e contaminada", async () => {
+    const { acordo_id, titulo_ids, aluno_id } = await acordoCanceladoMulti(db, 7, { titulos: [500, 500] });
+    // mensalidade nova, ABERTO, que nunca passou pelo acordo cancelado
+    const extra = await titulo(db, aluno_id, { valor_original: 250, valor_em_aberto: 250 });
+
+    const novo = await acordoFn(db, aluno_id, { valor_total: 1250 });
+    expect(await vincular(db, [...titulo_ids, extra], novo)).toMatchObject({ ok: true, vinculados: 3 });
+
+    // o extra NAO ganhou vinculo com o acordo anterior -- so com o novo
+    expect(await um(db, `select count(*)::int from public.acordo_titulo_vinculo
+                          where titulo_id=$1 and acordo_id=$2`, [extra, acordo_id])).toBe(0);
+    const v = await vinculosDe(db, extra);
+    expect(v).toHaveLength(1);
+    expect(v[0]).toMatchObject({ acordo: novo, ativo: true });
+  });
+
+  it("G. acordo cancelado SEM vinculo historico: residual conhecido, mas re-acordo automatico bloqueado", async () => {
+    // orfao do DELETE antigo: parcelas intactas, nenhuma linha de vinculo
+    const al = A(8);
+    const ac = await acordoFn(db, al, { valor_total: 800 });
+    await parcela(db, ac, "CANCELADA", 800);
+    await db.query(`update public.acordos set status='CANCELADO', saldo=0 where id=$1`, [ac]);
+
+    const r = await residual(db, ac);
+    expect(r.motivo).toBe("RESIDUAL_SEM_VINCULO_HISTORICO");
+    expect(r.confiavel).toBe(false);
+    // o numero esta certo e e devolvido -- o que falta e a cadeia, nao a conta
+    expect(r.residual).toBe(800);
+    expect(r.titulos).toBe(0);
+
+    // nenhuma mensalidade de origem e inventada
+    const t = await titulo(db, al, { situacao: "NEGOCIADO", status: "vinculada", acordo_id: ac });
+    const novo = await acordoFn(db, al, { valor_total: 800 });
+    expect(await vincular(db, [t], novo)).toMatchObject({ ok: false, erro: "PARCELAS_INELEGIVEIS" });
+  });
+
+  it("K. depois do re-acordo multi-titulo: historico inteiro de pe, nada reaberto, pagamento fica no acordo antigo", async () => {
+    const { acordo_id, titulo_ids, aluno_id } = await acordoCanceladoMulti(db, 9, {
+      titulos: [400, 400], parcelasValores: [300, 500], pagaIndices: [0],
+    });
+    const novo = await acordoFn(db, aluno_id, { valor_total: 500 });
+    expect(await vincular(db, titulo_ids, novo)).toMatchObject({ ok: true });
+
+    for (const t of titulo_ids) {
+      // mensalidade continua NEGOCIADO -- nunca voltou a ABERTO pra viabilizar o re-acordo
+      expect(await estado(db, t)).toEqual({ situacao: "NEGOCIADO", status: "vinculada", acordo_id: novo });
+      const v = await vinculosDe(db, t);
+      expect(v).toHaveLength(2);
+      expect(v[0]).toMatchObject({ acordo: acordo_id, ativo: false }); // anterior: existe e inativo
+      expect(v[1]).toMatchObject({ acordo: novo, ativo: true });       // novo: ativo
+    }
+    // o pagamento anterior continua no acordo anterior, nao migrou
+    expect(await um(db, `select count(*)::int from public.parcelas where acordo_id=$1 and status='PAGO'`, [acordo_id])).toBe(1);
+    expect(await um(db, `select count(*)::int from public.parcelas where acordo_id=$1`, [novo])).toBe(0);
+  });
+
+  it("L. re-acordo multi-titulo repetido: idempotente, sem vinculo duplicado", async () => {
+    const { titulo_ids, aluno_id } = await acordoCanceladoMulti(db, 10, { titulos: [200, 200] });
+    const novo = await acordoFn(db, aluno_id, { valor_total: 400 });
+
+    const r1 = await vincular(db, titulo_ids, novo);
+    expect(r1).toMatchObject({ ok: true, vinculados: 2 });
+    const r2 = await vincular(db, titulo_ids, novo);
+    expect(r2).toMatchObject({ ok: true, vinculados: 0, ja_estavam: 2 });
+
+    for (const t of titulo_ids) {
+      expect(await um(db, `select count(*)::int from public.acordo_titulo_vinculo
+                            where titulo_id=$1 and acordo_id=$2`, [t, novo])).toBe(1);
+      expect(await um(db, `select count(*)::int from public.acordo_titulo_vinculo
+                            where titulo_id=$1 and coalesce(ativo,true)`, [t])).toBe(1);
+    }
+  });
+
+  // REGRESSAO: a trava tudo-ou-nada nao pode alcancar o LEGADO. Ate a
+  // 20260922265000, cancelar reabria a mensalidade pra ABERTO mas deixava a
+  // LINHA de vinculo apontando pro acordo cancelado. Essas mensalidades sao
+  // divida comum hoje, com valor proprio -- nao carregam residual de acordo.
+  // Sao os 10 acordos multi-titulo legados medidos em producao.
+  it("legado (titulo ABERTO com vinculo velho de acordo cancelado): renegociar UM so continua permitido", async () => {
+    const al = A(12);
+    const ac = await acordoFn(db, al, { valor_total: 1000, qtd_parcelas: 1 });
+    const t1 = await titulo(db, al, { valor_original: 600, valor_em_aberto: 600 });
+    const t2 = await titulo(db, al, { valor_original: 400, valor_em_aberto: 400 });
+    await negociar(db, t1, ac); await negociar(db, t2, ac);
+    await parcela(db, ac, "CANCELADA", 1000);
+    await db.query(`update public.acordos set status='CANCELADO', saldo=0 where id=$1`, [ac]);
+    await db.query(`update public.acordo_titulo_vinculo set ativo=false where acordo_id=$1`, [ac]);
+    // estado LEGADO: a regra antiga reabriu as duas e soltou o acordo_id,
+    // mas a linha de vinculo com o acordo cancelado continua la
+    await db.query(`update public.acordos_titulos set situacao='ABERTO', status='em_aberto', acordo_id=null
+                     where id = any($1::uuid[])`, [[t1, t2]]);
+    expect(await um(db, `select count(*)::int from public.acordo_titulo_vinculo where acordo_id=$1`, [ac])).toBe(2);
+
+    // renegociar SO a t1 e operacao corriqueira -- a trava nao pode exigir a t2
+    const novo = await acordoFn(db, al, { valor_total: 600 });
+    const r = await vincular(db, [t1], novo);
+    expect(r.erro).not.toBe("REACORDO_PARCIAL");
+    expect(r).toMatchObject({ ok: true, vinculados: 1 });
+    // e a t2 continua intocada, ABERTO, sem vinculo novo
+    expect(await estado(db, t2)).toEqual({ situacao: "ABERTO", status: "em_aberto", acordo_id: null });
+  });
+
+  // PROVA DE QUE `acordo_anterior_id` E DESNECESSARIA: a sequencia cronologica
+  // da cadeia sai inteira de acordo_titulo_vinculo + criado_em, sem ambiguidade.
+  it("cadeia A -> B -> C: ordem cronologica reconstruida so pelos vinculos, sem coluna nova", async () => {
+    const { acordo_id: acA, titulo_ids, aluno_id } = await acordoCanceladoMulti(db, 11, { titulos: [1000] });
+    const t = titulo_ids[0];
+
+    // re-acordo em B, que tambem e cancelado depois
+    const acB = await acordoFn(db, aluno_id, { valor_total: 1000 });
+    expect(await vincular(db, [t], acB)).toMatchObject({ ok: true });
+    await parcela(db, acB, "CANCELADA", 1000);
+    await db.query(`update public.acordos set status='CANCELADO', saldo=0 where id=$1`, [acB]);
+    await db.query(`update public.acordo_titulo_vinculo set ativo=false where acordo_id=$1`, [acB]);
+
+    // re-acordo em C
+    const acC = await acordoFn(db, aluno_id, { valor_total: 1000 });
+    expect(await vincular(db, [t], acC)).toMatchObject({ ok: true });
+
+    const cadeia = await um(db, `select jsonb_agg(jsonb_build_object('acordo', v.acordo_id,
+        'ativo', v.ativo, 'criado_em', v.criado_em) order by v.criado_em)
+      from public.acordo_titulo_vinculo v where v.titulo_id=$1`, [t]);
+
+    // 1. a ordem sai certa, e e exatamente a ordem real dos fatos
+    expect(cadeia.map((x) => x.acordo)).toEqual([acA, acB, acC]);
+    // 2. sem empate de timestamp -- se houvesse, a ordem seria ambigua e a
+    //    coluna acordo_anterior_id passaria a ser necessaria
+    const marcas = cadeia.map((x) => x.criado_em);
+    expect(new Set(marcas).size).toBe(3);
+    // 3. exatamente um elo ativo, e e o ultimo
+    expect(cadeia.filter((x) => x.ativo)).toHaveLength(1);
+    expect(cadeia[cadeia.length - 1].ativo).toBe(true);
+    // 4. nada do historico foi apagado
+    expect(cadeia).toHaveLength(3);
   });
 
   it("D. re-acordo: cadeia historica consultavel de ponta a ponta", async () => {
@@ -430,6 +641,51 @@ describe("rollback de 20260922270000: codigo volta, dado fica", () => {
                           ('acordos','acordos_titulos','parcelas','baixas_pagamento')`)).toBe(4);
     expect(ac).toBeTruthy();
     await db.close();
+  });
+
+  it("5. rollback da 275000: a regra de cardinalidade volta, o re-acordo ja feito FICA", async () => {
+    const db = await novoBanco();
+    await comoGestao(db);
+    // re-acordo multi-titulo feito ENQUANTO a regra nova valia
+    const al = A(880);
+    const ac = await acordoFn(db, al, { valor_total: 1000, qtd_parcelas: 1 });
+    const t1 = await titulo(db, al, { valor_original: 500, valor_em_aberto: 500 });
+    const t2 = await titulo(db, al, { valor_original: 500, valor_em_aberto: 500 });
+    await negociar(db, t1, ac); await negociar(db, t2, ac);
+    await parcela(db, ac, "CANCELADA", 1000);
+    await db.query(`update public.acordos set status='CANCELADO', saldo=0 where id=$1`, [ac]);
+    await db.query(`update public.acordo_titulo_vinculo set ativo=false where acordo_id=$1`, [ac]);
+    const novo = await acordoFn(db, al, { valor_total: 1000 });
+    expect(await vincular(db, [t1, t2], novo)).toMatchObject({ ok: true, vinculados: 2 });
+
+    await db.exec(ROLLBACK_C);
+
+    // o dado do re-acordo continua intacto -- rollback e de codigo, nao de dado
+    for (const t of [t1, t2]) {
+      expect(await estado(db, t)).toEqual({ situacao: "NEGOCIADO", status: "vinculada", acordo_id: novo });
+      expect(await vinculosDe(db, t)).toHaveLength(2);
+    }
+    // e a regra antiga esta de volta: multi-titulo volta a ser inelegivel
+    expect((await residual(db, ac)).motivo).toBe("RESIDUAL_MULTIPLOS_TITULOS");
+    await db.close();
+  });
+
+  it("6. rollback da 275000 depois da 270000: a funcao some e nada sobra referenciando-a", async () => {
+    const db = await novoBanco();
+    await db.exec(ROLLBACK_C);
+    expect(await existe(db, "acordo_saldo_residual")).toBe(1);
+    await db.exec(ROLLBACK_B);
+    expect(await existe(db, "acordo_saldo_residual")).toBe(0);
+    const src = await um(db, `select prosrc from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+                               where n.nspname='public' and p.proname='vincular_titulos_acordo'`);
+    expect(src).not.toMatch(/acordo_saldo_residual/i);
+    await db.close();
+  });
+
+  it("7. o rollback da 275000 tambem nao contem DML de nivel superior", () => {
+    const semCorpos = ROLLBACK_C.replace(/\$(function|fn|prova)\$[\s\S]*?\$\1\$/g, " ")
+                                .replace(/--[^\n]*/g, " ");
+    expect(semCorpos).not.toMatch(/\b(insert\s+into|update\s+\w|delete\s+from|truncate|drop\s+table|alter\s+table)\b/i);
   });
 
   it("5. o arquivo de rollback nao contem DML de nivel superior", () => {
