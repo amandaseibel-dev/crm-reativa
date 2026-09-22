@@ -24,7 +24,7 @@ begin
   return jsonb_build_object('coletados', 1, 'erros', 0);
 end $$;
 `;
-let BASE, seq = 0;
+let BASE;
 beforeAll(async () => {
   const db = await H.montarProd();
   await db.exec(STUB);
