@@ -1,0 +1,367 @@
+{
+  "$comment": "Catálogo machine-readable da integração Prime/ULBRA. Ver docs/integracoes/prime-api.md para o manual humano e docs/integracoes/README.md para o índice. NÃO editar sem atualizar os três juntos (manual, mapa de fontes, este catálogo).",
+  "base_url": "https://prime-api.ulbra.ai/api",
+  "server": "Kestrel (ASP.NET Core) — cabeçalho Server observado em produção",
+  "auth": {
+    "type": "api_key_header",
+    "header": "X-API-Key",
+    "secret_location": "Supabase Vault, segredo 'prime_api_key' — lido só por service_role, via RPC prime_api_key_backend() ou prime_chave_api() (duas RPCs equivalentes, ver gaps)",
+    "never": "a chave nunca chega ao navegador, nunca é logada, nunca aparece em resposta de Edge Function"
+  },
+  "last_verified_at": "2026-09-22",
+  "resources": [
+    {
+      "resource": "carriers",
+      "purpose": "Lista os portadores (carteiras/convênios) que a Prime conhece — quem cobra o quê.",
+      "method": "GET",
+      "path": "/carriers",
+      "identifiers": [],
+      "parameters": [
+        {
+          "name": "take",
+          "type": "int",
+          "required": false,
+          "behavior": "limite de itens; sem paginação de skip observada em uso — chamado sempre com take alto (200-500) numa única página"
+        }
+      ],
+      "response_fields": {
+        "id": "int — o identificador que importa; o nome varia",
+        "name": "string",
+        "covenant": "string, com zero à esquerda (ex. '0272047'); null em alguns portadores (195)",
+        "isCollectionAgency": "boolean — true nos portadores de cobrança terceirizada (195, 202); false nos convênios bancários (95, 160, 166)"
+      },
+      "source_of_truth_for": [
+        "existência e nome de um portador",
+        "distinguir convênio bancário de agência de cobrança"
+      ],
+      "read_only": true,
+      "financial_effect": "NENHUM",
+      "automation_allowed": "SIM",
+      "fallback": "nenhum necessário — é a única fonte de portadores",
+      "limitations": [
+        "124 portadores no total; só 166 e 195 são carteira da Reativa por decisão da gestão (165 e 202 são judiciais, fora de escopo)"
+      ],
+      "last_verified_at": "2026-09-15"
+    },
+    {
+      "resource": "students_search",
+      "purpose": "Busca alunos por CPF ou nome, opcionalmente filtrado por portador. É a porta de entrada: resolve CPF/nome → registration (matrícula Prime).",
+      "method": "GET",
+      "path": "/students",
+      "identifiers": [
+        "cpf (formatado) OU nome (texto livre)"
+      ],
+      "parameters": [
+        {
+          "name": "search",
+          "type": "string",
+          "required": false,
+          "behavior": "substring, não exato — pode trazer outras pessoas cujo CPF/nome contenha o trecho. CPF só é encontrado FORMATADO ('052.961.800-11'); em dígitos puros devolve totalItems:0 SEM ERRO (falha silenciosa)"
+        },
+        {
+          "name": "carrierId",
+          "type": "int",
+          "required": false,
+          "behavior": "filtra por portador; discrimina de verdade (testado com portadores sem relação — devolve zero)"
+        },
+        {
+          "name": "take",
+          "type": "int",
+          "required": false,
+          "behavior": "página; padrão observado 50 quando omitido"
+        },
+        {
+          "name": "skip",
+          "type": "int",
+          "required": false,
+          "behavior": "offset de paginação"
+        }
+      ],
+      "response_fields": {
+        "items": "array de aluno resumido: registration, name, cpf, course, campus, shift, status",
+        "totalItems": "int"
+      },
+      "source_of_truth_for": [
+        "resolver CPF/nome → registration (matrícula Prime)",
+        "filiação a um portador (pertence à carteira X?)"
+      ],
+      "read_only": true,
+      "financial_effect": "NENHUM",
+      "automation_allowed": "CONDICIONAL",
+      "fallback": "nenhum — é a única forma de resolver identidade por CPF",
+      "limitations": [
+        "search é substring: sempre conferir o CPF exato na linha retornada antes de aceitar (nome NUNCA decide vínculo financeiro)",
+        "o mesmo aluno pode repetir linha por curso/matrícula diferente",
+        "CPF sem formatação = resultado vazio sem erro, não sem dado"
+      ],
+      "last_verified_at": "2026-09-15"
+    },
+    {
+      "resource": "student_composite",
+      "purpose": "Detalhe completo de UM aluno: cadastro, contratos, extrato financeiro e (nominalmente) acordos, tudo num objeto só, sem paginação.",
+      "method": "GET",
+      "path": "/students/{registration}",
+      "identifiers": [
+        "registration (matrícula Prime, resolvida via students_search ou já conhecida)"
+      ],
+      "parameters": [],
+      "response_fields": {
+        "registrationData": "objeto: cpf, fullName, socialName, originalName, rg, phones[], address, email, institutionalEmail",
+        "contracts": "array: validFrom, validTo, status, type, course, establishment, shift, referenceSemester (período do curso, NÃO semestre-calendário), cancelledAt, number (vazio para acordo)",
+        "financialStatement": "array — ver recurso financial_statement (mesmos campos, aqui sem paginação, inteiro)",
+        "agreements": "array — SEMPRE VAZIO em todos os testes realizados (ver gaps: estrutura financeira dos acordos)"
+      },
+      "source_of_truth_for": [
+        "cadastro (telefone, endereço, e-mail, nome)",
+        "contratos acadêmicos vigentes",
+        "extrato financeiro completo sem paginar"
+      ],
+      "read_only": true,
+      "financial_effect": "NENHUM",
+      "automation_allowed": "SIM para cadastro e extrato; NÃO para acordo (campo sempre vazio)",
+      "fallback": "para acordo: nenhuma fonte automatizada encontrada — ver docs/PREMISSAS.md Premissa 19/20",
+      "limitations": [
+        "preferir este endpoint a /financial-statement isolado: evita a paginação padrão de 50 (medido: aluno com 61 parcelas trazia 50 pelo endpoint paginado e 61 por aqui)",
+        "agreements[] vazio não é prova de que o acordo não existe — é ausência de exposição pela API (medido inclusive para acordo ATIVO confirmado na tela do Prime no mesmo instante)"
+      ],
+      "last_verified_at": "2026-09-15"
+    },
+    {
+      "resource": "student_contracts",
+      "purpose": "Contratos acadêmicos do aluno, isolados (mesmo conteúdo do bloco contracts do composto).",
+      "method": "GET",
+      "path": "/students/{registration}/contracts",
+      "identifiers": [
+        "registration"
+      ],
+      "parameters": [],
+      "response_fields": {
+        "...": "igual ao bloco contracts do student_composite"
+      },
+      "source_of_truth_for": [
+        "contratos acadêmicos"
+      ],
+      "read_only": true,
+      "financial_effect": "NENHUM",
+      "automation_allowed": "SIM",
+      "fallback": "student_composite (traz o mesmo bloco)",
+      "limitations": [
+        "number (número de contrato) vem vazio — não serve para vincular acordo"
+      ],
+      "last_verified_at": "2026-09-15"
+    },
+    {
+      "resource": "financial_statement",
+      "purpose": "Extrato financeiro do aluno: todo título (mensalidade ou parcela) que passou por qualquer portador, com valores decompostos.",
+      "method": "GET",
+      "path": "/students/{registration}/financial-statement",
+      "identifiers": [
+        "registration"
+      ],
+      "parameters": [
+        {
+          "name": "take",
+          "type": "int",
+          "required": false,
+          "behavior": "padrão 50 — usar student_composite para o extrato inteiro sem paginar"
+        },
+        {
+          "name": "carrierId",
+          "type": "int",
+          "required": false,
+          "behavior": "IGNORADO neste endpoint — resposta idêntica com ou sem o parâmetro (medido)"
+        }
+      ],
+      "response_fields": {
+        "boleto": "string, 7 dígitos — é acordos_titulos.documento no CRM (ponte medida e confiável para portador 195)",
+        "documentNumber": "string, 13 dígitos — documento interno ULBRA; para mensalidade: base(9)=010+contrato + sequência(4)=parcela fracionária (ex. terminado em 990 = parcela 9,9); para acordo: 0+5+acordo(6)+parcela(4)",
+        "carrier": "{ id, name } — o portador DO TÍTULO (não do aluno); decide se ainda está em cobrança",
+        "dueDate": "date — vencimento",
+        "paymentDate": "date — presente em ~100% das linhas do portador 195, inclusive títulos que o CRM mantém ABERTO; NÃO É PROVA DE PAGAMENTO isolada (ver limitations)",
+        "grossAmount": "decimal — o principal (a mensalidade original)",
+        "discountAmount": "decimal",
+        "penaltyAmount": "decimal — observado 0 em todas as linhas de acordo testadas",
+        "interestAmount": "decimal ou null — observado null em todas as linhas de acordo testadas",
+        "honorariumAmount": "decimal",
+        "netAmount": "decimal — soma dos anteriores",
+        "paidAmount": "decimal — dívida corrigida na data da consulta, NÃO é caixa (pode superar o valor pago real; ver docs/integracoes/prime-mapa-fontes-verdade.md)",
+        "isAgreementInstallment": "boolean — existe no schema mas medido `false` em 388.446 linhas / 17.211 alunos (2026-09-09) e reconfirmado em 1.327 linhas / 53 alunos (2026-09-15); nunca observado true"
+      },
+      "source_of_truth_for": [
+        "mensalidade liquidada (com a regra de entrada — ver docs/PREMISSAS.md e regra-entrada-prime-liquidado-nao-e-pagamento)",
+        "decomposição de valor (principal/desconto/multa/juros/honorário)",
+        "ponte boleto (7 díg.) ↔ acordos_titulos.documento"
+      ],
+      "read_only": true,
+      "financial_effect": "NENHUM",
+      "automation_allowed": "CONDICIONAL — só dentro da regra de entrada em prod (corte 23:57:13 UTC de 18/09/2026, venc.+30, ≠ dia da importação, portador 195); paidAmount NUNCA automatiza nada (não é caixa)",
+      "fallback": "nenhum equivalente; para acordo, ver Premissa 19/20 em docs/PREMISSAS.md",
+      "limitations": [
+        "paymentDate sozinho NÃO distingue negociado de aberto (regra testada e invalidada em 2026-09-01 — ver memória portador-195-com-data-igual-e-negociacao)",
+        "isAgreementInstallment nunca vem true: não usar para achar parcela de acordo",
+        "carrier 166 (convênio de acordo) NUNCA aparece numa linha de extrato, mesmo para acordo ATIVO com parcela em aberto conhecida (medido em 67 alunos / 1.625 linhas)",
+        "carrierId como filtro deste endpoint é ignorado silenciosamente"
+      ],
+      "last_verified_at": "2026-09-18"
+    },
+    {
+      "resource": "agreements",
+      "purpose": "Nominalmente: os acordos do aluno. Na prática: superfície testada e sempre vazia.",
+      "method": "GET",
+      "path": "/students/{registration}/agreements",
+      "identifiers": [
+        "registration"
+      ],
+      "parameters": [
+        {
+          "name": "carrierId | includeSettled | status | onlyAgreements | includeAgreements | includeInactive | agreementId",
+          "type": "vários",
+          "required": false,
+          "behavior": "TODOS ignorados — resposta idêntica byte a byte com ou sem eles (sweep de parâmetros testado)"
+        }
+      ],
+      "response_fields": {
+        "items": "array — SEMPRE VAZIO em todos os testes",
+        "totalItems": "0 em todos os testes"
+      },
+      "source_of_truth_for": [],
+      "read_only": true,
+      "financial_effect": "NENHUM",
+      "automation_allowed": "NÃO — não há dado para automatizar",
+      "fallback": "NENHUM ENCONTRADO ainda pela API. A estrutura é visível na TELA do Prime (confirmado 2026-09-15 no acordo 71903), mas a rota/URL estruturada que a tela consome não foi identificada. Ver docs/PREMISSAS.md Premissa 19 e 20, e docs/integracoes/README.md seção 'Estrutura financeira dos acordos'.",
+      "limitations": [
+        "200 com totalItems:0 é resposta válida da API, não erro — e foi medida inclusive para acordo confirmado como ATIVO na tela do Prime no mesmo instante em que a chamada foi feita (2026-09-15). Isto prova que é limite de ESCOPO da superfície pública, não ausência do dado em algum lugar da ULBRA.",
+        "NÃO ESCREVER 'a informação não existe'. Escrever: 'não foi exposta pela superfície de integração testada com a X-API-Key atual.'"
+      ],
+      "last_verified_at": "2026-09-15"
+    }
+  ],
+  "rotas_testadas_sem_sucesso": {
+    "404": [
+      "/agreements",
+      "/agreements/{id}",
+      "/agreements/{numero_real_do_acordo}",
+      "/agreements/{numero_real_do_acordo}/installments",
+      "/students/{reg}/agreements/{numero_real_do_acordo}",
+      "/contracts/{numero_do_contrato}",
+      "/titles",
+      "/bills",
+      "/installments",
+      "/negotiations",
+      "/payments",
+      "/students/{reg}/titles",
+      "/v1/*"
+    ],
+    "404_documentacao": [
+      "/swagger",
+      "/swagger/index.html",
+      "/openapi.json",
+      "/docs",
+      "/health"
+    ],
+    "nota": "48 rotas candidatas testadas em 15/09/2026 com o número de um acordo real conhecido (71903) — todas 404, nenhuma 405 (405 indicaria rota existente com método errado; 404 uniforme não distingue 'rota não existe' de 'rota existe mas não aceita GET nesta forma')."
+  },
+  "edge_functions": {
+    "no_repositorio": [
+      "prime-sync",
+      "prime-cadastro",
+      "prime-portador",
+      "prime-diagnostico"
+    ],
+    "somente_producao_agora_versionadas_neste_commit": [
+      "prime-acordo",
+      "prime-extrato",
+      "prime-titular",
+      "prime-buscar-nome",
+      "prime-sonda"
+    ],
+    "adjacente_nao_especifica_do_prime": [
+      "exportar-gestao"
+    ],
+    "ver": "docs/integracoes/prime-edge-functions.md para o inventário completo com endpoint chamado, secrets, leitura/escrita e tabelas"
+  },
+  "banco_fora_do_repositorio": {
+    "rpcs": [
+      "public.prime_chave_api() — duplicata funcional de prime_api_key_backend(), só em produção"
+    ],
+    "tabelas": [
+      "public.prime_extrato — sem CREATE TABLE nas migrations versionadas",
+      "public.prime_extrato_fila — idem",
+      "public.prime_mensalidades_sync — órfã, vazia, zero referências no repositório"
+    ],
+    "ver": "docs/integracoes/prime-gaps.md"
+  },
+  "rastreamento_proveniencia_2026_09_22": {
+    "pergunta": "De onde vem originalmente a estrutura financeira de um acordo Prime?",
+    "caso_de_rastreamento": "acordo 71643",
+    "classificacao": "D_FONTE_AINDA_NAO_LOCALIZADA",
+    "ressalva": "D nao e 'nao existe'. O dado e visivel na tela do Prime (acordo 71903, conferido 2026-09-15). D significa: esgotado do lado de ca.",
+    "censo_de_producao": {
+      "auditoria_ACORDO_ENCONTRADO_NA_API": 0,
+      "observacao": "prime-portador grava o payload cru sempre que /agreements vier preenchido. Nunca disparou.",
+      "coletas_independentes_sem_portador_166": [
+        {
+          "tabela": "prime_extrato",
+          "linhas": 399506,
+          "portador_166": 0
+        },
+        {
+          "tabela": "prime_titulo_semestre",
+          "linhas": 400325,
+          "portador_166": 0
+        }
+      ]
+    },
+    "defeito_de_instrumentacao": {
+      "coluna": "fila_pagamento_sem_vinculo.consulta_estrutura_resultado",
+      "estado": "NULL em 182 de 182 linhas",
+      "impacto": "a cadeia da Premissa 19/20 opera sempre no ramo NULL; NULL e o lado seguro, mas a evidencia que a coluna deveria produzir nao existe",
+      "corrigido": false,
+      "motivo": "toca o motor de conciliacao, fora do escopo desta rodada de proveniencia"
+    },
+    "payload_historico": {
+      "net._http_response": 0,
+      "net.http_request_queue": 0,
+      "prime_alunos_sync": {
+        "linhas": 0,
+        "tem_coluna_raw": true,
+        "nota": "segunda tabela orfa, alem de prime_mensalidades_sync"
+      },
+      "importacoes_acordos": {
+        "linhas": 134,
+        "guarda_conteudo_bruto": false,
+        "nota": "so contadores; o arquivo do relatorio nao e retido em lugar nenhum"
+      },
+      "conclusao": "nenhum payload de resposta da Prime foi retido no ambiente"
+    },
+    "call_graph": {
+      "base_urls_distintas": 1,
+      "base_url": "https://prime-api.ulbra.ai/api",
+      "funcoes_que_a_usam": 9,
+      "formas_de_caminho": [
+        "GET /carriers?take=N",
+        "GET /students?search={cpf|nome}&carrierId=&take=",
+        "GET /students?carrierId=N&take=&skip=",
+        "GET /students/{registration}",
+        "GET /students/{registration}/financial-statement",
+        "GET /students/{registration}/agreements"
+      ],
+      "exportar_gestao": "100 linhas, nenhuma chamada externa; le revisao_prime_aluno por allowlist e devolve URL assinada"
+    },
+    "outros_hosts_descartados": {
+      "testados": [
+        "prime.ulbra.ai",
+        "app.ulbra.ai",
+        "portal.ulbra.ai",
+        "api.ulbra.ai",
+        "web.ulbra.ai",
+        "prime-web.ulbra.ai",
+        "cobranca.ulbra.ai",
+        "ulbra.ai"
+      ],
+      "resultado": "todos no mesmo IP 187.60.192.201 (registro coringa), nenhum responde em HTTPS",
+      "documentacao_publica": "404 em /swagger*, /openapi.json, /api-docs, /.well-known/openapi"
+    },
+    "proveniencia_do_71643": "interna. auditoria.acao = RECUPERACAO_ACORDO_PAGO_SEM_IMPORTACAO, por conciliacao@sistema. Nenhuma ocorrencia em payload externo."
+  }
+}
