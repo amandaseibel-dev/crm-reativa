@@ -47,20 +47,20 @@ begin
   end if;
   select * into v_pag from public.pagamentos where id = p_pagamento_id;
   if not found then return jsonb_build_object('ok', false, 'motivo', 'PAGAMENTO_NAO_ENCONTRADO'); end if;
-  v_cpf := nullif(regexp_replace(coalesce(p_cpf, v_pag.cpf, ''), '\D', '', 'g'), '');
+  v_cpf := nullif(regexp_replace(coalesce(p_cpf, v_pag.cpf, ''), '\\D', '', 'g'), '');
   if v_cpf is null then return jsonb_build_object('ok', false, 'motivo', 'SEM_CPF'); end if;
   if not exists (select 1 from public.prime_portador_membro m where m.portador = 166 and lpad(m.cpf,11,'0') = lpad(v_cpf,11,'0')) then
     return jsonb_build_object('ok', false, 'motivo', 'SEM_EVIDENCIA_166_NO_ESPELHO');
   end if;
   if v_pag.aluno_id is not null then
-    select lpad(regexp_replace(coalesce(a.cpf,''), '\D', '', 'g'), 11, '0') into v_cpf_aluno from public.alunos a where a.id = v_pag.aluno_id;
+    select lpad(regexp_replace(coalesce(a.cpf,''), '\\D', '', 'g'), 11, '0') into v_cpf_aluno from public.alunos a where a.id = v_pag.aluno_id;
     if nullif(v_cpf_aluno,'00000000000') is not null and v_cpf_aluno <> lpad(v_cpf,11,'0') then
       return jsonb_build_object('ok', false, 'motivo', 'CPF_DIVERGE_DO_ALUNO_VINCULADO', 'aluno_id', v_pag.aluno_id);
     end if;
   end if;
   if v_pag.aluno_id is null then
     select count(*), min(a.id::text)::uuid into v_n, v_aluno from public.alunos a
-     where lpad(regexp_replace(coalesce(a.cpf,''), '\D', '', 'g'), 11, '0') = lpad(v_cpf, 11, '0');
+     where lpad(regexp_replace(coalesce(a.cpf,''), '\\D', '', 'g'), 11, '0') = lpad(v_cpf, 11, '0');
     if v_n = 1 then
       update public.pagamentos set aluno_id = v_aluno, cpf = coalesce(cpf, v_cpf), origem_vinculo = 'CPF',
         origem_vinculo_ref = lpad(v_cpf, 11, '0'), origem_vinculo_em = now() where id = p_pagamento_id;
@@ -89,7 +89,7 @@ beforeAll(async () => {
 const novo = async () => { const db = H.abrir(BASE); await db.exec("set timezone = 'UTC'"); await H.como(db, "confirmacao-166@sistema", "service_role"); return db; };
 const U = (a, b) => `ac000000-0000-4000-8000-${String(a).padStart(6, "0")}${String(b).padStart(6, "0")}`;
 
-async function cenario(db, { com166 = true, comAcordoOutro = false, valorPago = 300, valorParcelaFutura = 300 } = {}) {
+async function cenario(db, { com166 = true, comAcordoOutro = false, valorPago = 300 } = {}) {
   const n = ++seq, al = U(n, 1);
   const cpf = String(93000000000 + n);
   const titulo = String(80000 + n);
@@ -157,7 +157,7 @@ describe("Fluxo A: acordo confirmado sem estrutura (166), separado do Fluxo B", 
     await db.close();
   });
   it("5) idempotente: repetir nao reprocessa quem ja saiu de AGUARDANDO_ACORDO", async () => {
-    const db = await novo(); const c = await cenario(db, { com166: true });
+    const db = await novo(); await cenario(db, { com166: true });
     const r1 = await rodar(db); expect(r1.confirmados_sem_estrutura).toBe(1);
     const r2 = await rodar(db); expect(r2.confirmados_sem_estrutura).toBe(0);
     await db.close();
