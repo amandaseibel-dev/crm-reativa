@@ -251,6 +251,14 @@ export default function FinanceiroAluno({ aluno }) {
   const [formMensalidadeAberto, setFormMensalidadeAberto] = useState(false);
   const [novaMensalidade, setNovaMensalidade] = useState(mensalidadeManualInicial());
   const [salvandoMensalidade, setSalvandoMensalidade] = useState(false);
+  // Mesma trava do lancamento de mensalidade, agora na BAIXA: o botao ficava
+  // sem `disabled` e o formulario fechava ANTES da resposta, entao a operadora
+  // nao via sinal nenhum durante os segundos da RPC e clicava de novo. Foram
+  // 11 parcelas com duas baixas vivas (R$ 17.069,30 em dobro), com 3 a 8
+  // segundos entre uma e outra. O banco tambem trava (20260922290000); isto
+  // aqui e para o erro nao chegar a acontecer.
+  const [baixandoParcela, setBaixandoParcela] = useState(null);
+  const baixandoParcelaRef = useRef(false);
   const [erroMensalidade, setErroMensalidade] = useState("");
   // Trava de execução única: garante que um duplo-clique (ou clique enquanto
   // o insert ainda está em voo) não crie dois títulos. O disabled do botão
@@ -475,8 +483,8 @@ export default function FinanceiroAluno({ aluno }) {
     // Baixa/confirmação/estorno de pagamento: SOMENTE gestão financeira
     // (Amanda, Fernanda/supervisão, Amanda ADM). O operador envia o comprovante
     // para a Fila de Confirmação; não efetiva baixa direta em baixas_pagamento.
-    if (!podeBaixar) { alert("Baixa de pagamento é exclusiva da gestão financeira. Envie o comprovante para a Fila de Confirmação."); return; }
-    if (!acordoPermiteAcaoFinanceira(acordo)) { alert("Este acordo está " + (String(acordo.status).toUpperCase() === "CANCELADO" ? "cancelado" : "quitado") + " — não é possível registrar baixa."); return; }
+    if (!podeBaixar) { alert("Baixa de pagamento é exclusiva da gestão financeira. Envie o comprovante para a Fila de Confirmação."); return false; }
+    if (!acordoPermiteAcaoFinanceira(acordo)) { alert("Este acordo está " + (String(acordo.status).toUpperCase() === "CANCELADO" ? "cancelado" : "quitado") + " — não é possível registrar baixa."); return false; }
     // A baixa é feita no banco, em uma transação só (parcela PAGO + registro
     // em baixas_pagamento), pela RPC baixar_parcela_acordo. Antes era um PATCH
     // solto em `parcelas`: quando a parcela era a última do acordo, os
@@ -487,26 +495,41 @@ export default function FinanceiroAluno({ aluno }) {
     // pago_em usa a data real informada no formulário (não a data em que a
     // baixa foi processada no sistema) -- isso importa pra lançamentos
     // retroativos não entrarem na visão "deste mês" do operador.
-    const { error: erroBaixa } = await supabase.rpc("baixar_parcela_acordo", {
-      p_parcela_id: parcela.id,
-      p_data: dados.data || null,
-      p_valor: dados.valor,
-      p_honorarios: dados.honorarios,
-    });
+    // Trava de execucao unica: o `disabled` do botao cobre o caso normal; o ref
+    // cobre a corrida antes do setState propagar. Retorna false quando nao
+    // executou, para a tela saber que NAO deve fechar o formulario.
+    if (baixandoParcelaRef.current) return false;
+    baixandoParcelaRef.current = true;
+    setBaixandoParcela(parcela.id);
 
-    if (erroBaixa) {
-      alert("Erro ao dar baixa na parcela: " + erroBaixa.message);
-      return;
+    try {
+      const { error: erroBaixa } = await supabase.rpc("baixar_parcela_acordo", {
+        p_parcela_id: parcela.id,
+        p_data: dados.data || null,
+        p_valor: dados.valor,
+        p_honorarios: dados.honorarios,
+      });
+
+      if (erroBaixa) {
+        alert("Erro ao dar baixa na parcela: " + erroBaixa.message);
+        return false;
+      }
+
+      const res = await checarQuitacao(acordo.id);
+      setRecarga((r) => r + 1);
+      alert(
+        res && res.quitou_aluno === false
+          ? "Baixa registrada. O aluno continua na carteira: ainda ha saldo em aberto de " +
+            moeda(Number(res.detalhe?.total || 0)) + "."
+          : "Baixa registrada."
+      );
+      return true;
+    } finally {
+      // Sempre libera, inclusive no erro: senao a parcela ficaria travada ate
+      // recarregar a pagina.
+      baixandoParcelaRef.current = false;
+      setBaixandoParcela(null);
     }
-
-    const res = await checarQuitacao(acordo.id);
-    setRecarga((r) => r + 1);
-    alert(
-      res && res.quitou_aluno === false
-        ? "Baixa registrada. O aluno continua na carteira: ainda ha saldo em aberto de " +
-          moeda(Number(res.detalhe?.total || 0)) + "."
-        : "Baixa registrada."
-    );
   }
 
   async function quitarCartao(acordo, parcelasAbertas, dados) {
@@ -1768,6 +1791,7 @@ export default function FinanceiroAluno({ aluno }) {
         parcelasPorAcordo={parcelasPorAcordo}
         titulos={titulos}
         podeBaixar={podeBaixar}
+        baixandoParcela={baixandoParcela}
         onBaixarParcela={baixarParcela}
         onQuitarCartao={quitarCartao}
         onExcluirAcordo={excluirAcordo}
@@ -2091,7 +2115,7 @@ function SeletorResponsavelAcordo({ acordo, operadoresAtivos, onAplicar }) {
   );
 }
 
-function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios, onDefinirHonorarioParcela, onReplicarHonorarioParcela }) {
+function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, baixandoParcela, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios, onDefinirHonorarioParcela, onReplicarHonorarioParcela }) {
   const [formParcela, setFormParcela] = useState(null);
   const [formHonParcela, setFormHonParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
@@ -2526,11 +2550,15 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, on
                         </div>
                         <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
                           <button style={estilos.botaoConfirmar}
-                            onClick={() => {
-                              onBaixarParcela(acordo, p, { data: campos.data, valor: Number(campos.valor) || 0, honorarios: Number(campos.honorarios) || 0 });
-                              setFormParcela(null);
+                            disabled={baixandoParcela === p.id}
+                            onClick={async () => {
+                              // Fecha SO depois da resposta: fechar antes era o
+                              // que deixava a operadora sem sinal nenhum e
+                              // levava ao segundo clique.
+                              const ok = await onBaixarParcela(acordo, p, { data: campos.data, valor: Number(campos.valor) || 0, honorarios: Number(campos.honorarios) || 0 });
+                              if (ok) setFormParcela(null);
                             }}>
-                            Confirmar baixa
+                            {baixandoParcela === p.id ? "Registrando..." : "Confirmar baixa"}
                           </button>
                           <button style={estilos.botaoCancelar} onClick={() => setFormParcela(null)}>Cancelar</button>
                         </div>
