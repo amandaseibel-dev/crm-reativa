@@ -13,38 +13,46 @@ const STATUS_ERRO = {
 };
 
 const SECOES = [
-  { grupo: "Início", itens: [{ id: "inicio", label: "🏠 Início" }] },
+  { grupo: "Início", itens: [{ id: "inicio", label: "🏠 Visão Geral" }] },
   {
-    grupo: "Negociação",
+    grupo: "Atendimento",
     itens: [
-      { id: "politica", label: "📄 Política" },
-      { id: "excecao", label: "📝 Proposta de Exceção" },
-      { id: "mensagens", label: "💬 Mensagens Prontas" },
-      { id: "objecoes", label: "🔥 Objeções" },
+      { id: "rotina", label: "📌 Pontos do Dia a Dia" },
       { id: "duvidas", label: "❓ Dúvidas Frequentes" },
+      { id: "mensagens", label: "💬 Mensagens Prontas" },
+      { id: "objecoes", label: "🔥 Quebras de Objeção" },
     ],
   },
   {
-    grupo: "Regras",
+    grupo: "Negociação",
     itens: [
+      { id: "politica", label: "📄 Política de Negociação" },
+      { id: "excecao", label: "📝 Proposta de Exceção" },
       { id: "honorarios", label: "💰 Honorários e Taxas" },
-      { id: "meta", label: "🎯 Meta do Mês" },
-      { id: "lgpd", label: "🔐 LGPD e Conduta" },
-      { id: "indicadores", label: "📊 Indicadores" },
+      { id: "beneficios", label: "🎟️ Bolsas e Financiamentos" },
+    ],
+  },
+  {
+    grupo: "Vida Acadêmica",
+    itens: [
+      { id: "academico", label: "🎓 Matrícula e WebAluno" },
+      { id: "cursos", label: "📚 Cursos Ulbra" },
     ],
   },
   {
     grupo: "Operação",
     itens: [
-      { id: "rotina", label: "📌 Pontos do Dia a Dia" },
-      { id: "cursos", label: "🎓 Cursos Ulbra" },
-      { id: "beneficios", label: "🎟️ Bolsas e Financiamentos" },
       { id: "sistemas", label: "🚀 Sistemas e Planilhas" },
       { id: "links", label: "🔗 Links Úteis" },
-      { id: "biblioteca", label: "📚 Biblioteca" },
       { id: "contatos", label: "☎️ Contatos Úteis" },
-      { id: "sugestoes", label: "💡 Painel de Sugestões" },
+      { id: "meta", label: "🎯 Meta do Mês" },
+      { id: "indicadores", label: "📊 Indicadores" },
+      { id: "sugestoes", label: "💡 Sugestões e Erros" },
     ],
+  },
+  {
+    grupo: "Segurança",
+    itens: [{ id: "lgpd", label: "🔐 LGPD e Conduta" }],
   },
   {
     grupo: "Equipe",
@@ -55,62 +63,110 @@ const SECOES = [
   },
 ];
 
+
+
 export default function PortalOperacional() {
   const [secao, setSecao] = useState("inicio");
+  const [busca, setBusca] = useState("");
+
+  const termoBusca = busca
+    .trim()
+    .toLocaleLowerCase("pt-BR")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  const secoesFiltradas = !termoBusca
+    ? SECOES
+    : SECOES.map((grupo) => ({
+        ...grupo,
+        itens: grupo.itens.filter((item) =>
+          item.label
+            .toLocaleLowerCase("pt-BR")
+            .normalize("NFD")
+            .replace(/[\u0300-\u036f]/g, "")
+            .includes(termoBusca)
+        ),
+      })).filter((grupo) => grupo.itens.length);
+
+  function navegar(id) {
+    setSecao(id);
+    setBusca("");
+    window.scrollTo?.({ top: 0, behavior: "smooth" });
+  }
 
   return (
     <div style={S.pagina}>
       <div style={S.shell}>
         <aside style={S.sidebar}>
-          <div style={S.logoBox}>
-            <span style={S.logoRe}>Re</span>
-            <span style={S.logoAtiva}>ATIVA</span>
+          <div style={S.logoArea}>
+            <div style={S.logoBox}>
+              <span style={S.logoRe}>Re</span>
+              <span style={S.logoAtiva}>ATIVA</span>
+            </div>
+            <div style={S.logoSub}>Portal Operacional</div>
           </div>
-          <div style={S.logoSub}>Portal Operacional</div>
+
+          <div style={S.buscaBox}>
+            <span style={S.buscaIcone}>⌕</span>
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar no menu..."
+              style={S.buscaInput}
+              aria-label="Buscar seção no Portal"
+            />
+          </div>
 
           <nav style={S.nav}>
-            {SECOES.map((g) => (
-              <div key={g.grupo} style={S.navGrupo}>
-                <div style={S.navGrupoLabel}>{g.grupo}</div>
-                {g.itens.map((it) => (
-                  <button
-                    key={it.id}
-                    type="button"
-                    onClick={() => setSecao(it.id)}
-                    style={{
-                      ...S.navItem,
-                      ...(secao === it.id ? S.navItemAtivo : {}),
-                    }}
-                  >
-                    {it.label}
-                  </button>
-                ))}
-              </div>
-            ))}
+            {secoesFiltradas.length === 0 ? (
+              <div style={S.semResultado}>Nenhuma seção encontrada.</div>
+            ) : (
+              secoesFiltradas.map((g) => (
+                <div key={g.grupo} style={S.navGrupo}>
+                  <div style={S.navGrupoLabel}>{g.grupo}</div>
+                  {g.itens.map((it) => (
+                    <button
+                      key={it.id}
+                      type="button"
+                      onClick={() => navegar(it.id)}
+                      style={{
+                        ...S.navItem,
+                        ...(secao === it.id ? S.navItemAtivo : {}),
+                      }}
+                    >
+                      {it.label}
+                    </button>
+                  ))}
+                </div>
+              ))
+            )}
           </nav>
 
-          <div style={S.sidebarRodape}>💚 Central oficial da operação</div>
+          <div style={S.sidebarRodape}>
+            <strong>Central oficial da operação</strong>
+            <span>Consulta rápida • Regras • Apoio</span>
+          </div>
         </aside>
 
         <main style={S.conteudo}>
-          {secao === "inicio" && <SecaoInicio ir={setSecao} />}
-          {secao === "politica" && <SecaoPolitica />}
-          {secao === "excecao" && <SecaoExcecao />}
+          {secao === "inicio" && <SecaoInicio ir={navegar} />}
+          {secao === "rotina" && <SecaoRotina />}
+          {secao === "duvidas" && <SecaoDuvidas />}
           {secao === "mensagens" && <SecaoMensagens />}
           {secao === "objecoes" && <SecaoObjecoes />}
-          {secao === "duvidas" && <SecaoDuvidas />}
+          {secao === "politica" && <SecaoPolitica />}
+          {secao === "excecao" && <SecaoExcecao />}
           {secao === "honorarios" && <SecaoHonorarios />}
-          {secao === "meta" && <SecaoMeta />}
-          {secao === "lgpd" && <SecaoLgpd />}
-          {secao === "indicadores" && <SecaoIndicadores />}
-          {secao === "rotina" && <SecaoRotina />}
-          {secao === "cursos" && <SecaoCursos />}
           {secao === "beneficios" && <SecaoBeneficios />}
+          {secao === "academico" && <SecaoAcademico />}
+          {secao === "cursos" && <SecaoCursos />}
           {secao === "sistemas" && <SecaoSistemas />}
           {secao === "links" && <SecaoLinks />}
-          {secao === "biblioteca" && <SecaoBiblioteca ir={setSecao} />}
           {secao === "contatos" && <SecaoContatos />}
+          {secao === "meta" && <SecaoMeta />}
+          {secao === "indicadores" && <SecaoIndicadores />}
           {secao === "sugestoes" && <SecaoSugestoes />}
+          {secao === "lgpd" && <SecaoLgpd />}
           {secao === "cultura" && <SecaoCultura />}
           {secao === "historia" && <SecaoHistoria />}
         </main>
@@ -165,61 +221,103 @@ function BotaoSecundario({ children, onClick, href }) {
 /* ===================== Início ===================== */
 
 function SecaoInicio({ ir }) {
+  const atalhos = [
+    { emoji: "📌", titulo: "Pontos do dia a dia", desc: "Regras rápidas para não errar no atendimento.", id: "rotina" },
+    { emoji: "📄", titulo: "Política vigente", desc: "Condições e regras de negociação.", id: "politica" },
+    { emoji: "🔥", titulo: "Quebras de objeção", desc: "Argumentos organizados por situação.", id: "objecoes" },
+    { emoji: "💬", titulo: "Mensagens prontas", desc: "Textos de apoio para copiar e adaptar.", id: "mensagens" },
+    { emoji: "🎓", titulo: "Matrícula e WebAluno", desc: "Documentos, rematrícula e vida acadêmica.", id: "academico" },
+    { emoji: "☎️", titulo: "Contatos úteis", desc: "Ramais, unidades, jurídico e apoio.", id: "contatos" },
+  ];
+
   return (
     <>
       <div style={S.hero}>
-        <span style={S.heroEyebrow}>PORTAL OPERACIONAL REATIVA</span>
-        <h1 style={S.heroTitulo}>Regras, sistemas, metas e orientações em um só lugar.</h1>
-        <p style={S.heroTexto}>
-          Tudo o que a equipe precisa para a rotina de negociação e cobrança com consistência.
-        </p>
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
-          <BotaoSecundario onClick={() => ir("politica")}>📄 Ver Política</BotaoSecundario>
-          <BotaoSecundario onClick={() => ir("sugestoes")}>💡 Enviar sugestão</BotaoSecundario>
+        <div style={S.heroConteudo}>
+          <span style={S.heroEyebrow}>CENTRAL OPERACIONAL REATIVA</span>
+          <h1 style={S.heroTitulo}>Tudo o que o operador precisa, no lugar certo.</h1>
+          <p style={S.heroTexto}>
+            Consulte regras, negociação, mensagens, objeções, sistemas, contatos e orientações acadêmicas
+            sem sair do Portal.
+          </p>
+          <div style={S.heroAcoes}>
+            <BotaoPrimario onClick={() => ir("rotina")}>📌 Ver regras do dia a dia</BotaoPrimario>
+            <BotaoSecundario onClick={() => ir("politica")}>📄 Política vigente</BotaoSecundario>
+          </div>
         </div>
       </div>
 
-      <Aviso>
-        <strong>⚠️ Antes de acionar, consulte o CRM.</strong> Verifique histórico, observações, jurídico,
-        cancelamento, restrição de contato ou qualquer informação que impeça o acionamento.
-      </Aviso>
-
-      <Card style={S.cardCompetencia}>
-        <div style={S.competenciaTopo}>📅 Competência em cobrança</div>
-        <div style={S.competenciaValor}>2026/2 — até agosto/2026</div>
-        <p style={S.paragrafo}>
-          No momento, a operação está cobrando mensalidades de 2026/2 com vencimento até agosto de 2026.
-        </p>
-      </Card>
-
-      <div style={S.grade4}>
-        <CardAtalho emoji="📁" titulo="Minha Carteira" desc="Ir direto para sua carteira de casos." onClick={() => (window.location.href = "/painel-carteira")} />
-        <CardAtalho emoji="🎯" titulo="Meta do mês" desc="Meta operacional, faixas de comissão e foco." onClick={() => ir("meta")} />
-        <CardAtalho emoji="💬" titulo="Mensagens Prontas" desc="Modelos de atendimento e orientações." onClick={() => ir("mensagens")} />
-        <CardAtalho emoji="💡" titulo="Painel de Sugestões" desc="Melhorias para Sistema e Portal Reativa." onClick={() => ir("sugestoes")} />
+      <div style={S.statusGrid}>
+        <Card style={{ ...S.statusCard, ...S.statusCardDestaque }}>
+          <span style={S.statusRotulo}>Competência em cobrança</span>
+          <strong style={S.statusValor}>2026/2 • até agosto/2026</strong>
+          <span style={S.statusDescricao}>Mensalidades atualmente elegíveis na base de 2026/2.</span>
+        </Card>
+        <Card style={S.statusCard}>
+          <span style={S.statusRotulo}>Prioridade de negociação</span>
+          <strong style={S.statusValorMenor}>Mensalidades primeiro</strong>
+          <span style={S.statusDescricao}>Depois, acordos e demais situações aplicáveis.</span>
+        </Card>
+        <Card style={S.statusCard}>
+          <span style={S.statusRotulo}>Regra de ouro</span>
+          <strong style={S.statusValorMenor}>Registre tudo no CRM</strong>
+          <span style={S.statusDescricao}>Proposta, objeção, retorno, encaminhamento e informação relevante.</span>
+        </Card>
       </div>
 
-      <Card>
-        <h3 style={S.h3}>🎯 Meta do mês</h3>
-        <p style={S.paragrafo}>
-          <strong>Foco em acordos confirmados, termos corretos e baixas ágeis.</strong> Acompanhar
-          diariamente os resultados, priorizando procedimentos completos e registros corretos no CRM.
-        </p>
-        <BotaoSecundario onClick={() => ir("meta")}>Ver faixas</BotaoSecundario>
-      </Card>
+      <Aviso>
+        <strong>Antes de qualquer acionamento:</strong> consulte o CRM, confirme histórico, restrições,
+        jurídico, cancelamento e dados de contato. Se a informação puder impactar o próximo atendimento,
+        ela precisa estar registrada.
+      </Aviso>
 
-      <Card>
-        <h3 style={S.h3}>📢 Últimas Atualizações</h3>
-        <ul style={S.lista}>
-          <li>Incluído card de competência em cobrança: 2026/2 até agosto/2026.</li>
-          <li>Contatos úteis ampliados com telefones, ramais e e-mails por unidade.</li>
-          <li>Sistemas e acessos organizados com ReATIVA One, CRM de Mensageria, Gmail e Prime.</li>
-          <li>Incluída área de Links Úteis.</li>
-          <li>LGPD, mensagens, objeções e dúvidas frequentes ampliadas.</li>
-          <li>Incluídos Cursos Ulbra, Bolsas e Financiamentos e Pontos Importantes do Dia a Dia.</li>
-          <li>Sistemas e Planilhas atualizados com WebAluno e planilhas operacionais.</li>
-        </ul>
-      </Card>
+      <div style={S.blocoCabecalho}>
+        <div>
+          <span style={S.secaoEyebrow}>ACESSO RÁPIDO</span>
+          <h2 style={S.h2}>O que você precisa consultar agora?</h2>
+        </div>
+        <button type="button" onClick={() => (window.location.href = "/painel-carteira")} style={S.linkAcao}>
+          Abrir Minha Carteira →
+        </button>
+      </div>
+
+      <div style={S.grade3}>
+        {atalhos.map((item) => (
+          <CardAtalho
+            key={item.id}
+            emoji={item.emoji}
+            titulo={item.titulo}
+            desc={item.desc}
+            onClick={() => ir(item.id)}
+          />
+        ))}
+      </div>
+
+      <div style={S.homeDuasColunas}>
+        <Card>
+          <span style={S.secaoEyebrow}>REGRAS DE OURO</span>
+          <h3 style={{ ...S.h3, marginTop: 6 }}>Antes de finalizar um atendimento</h3>
+          <ul style={S.listaChecklist}>
+            <li>Confirmou a identidade do aluno?</li>
+            <li>Conferiu histórico e restrições no CRM?</li>
+            <li>Registrou proposta, objeção e retorno?</li>
+            <li>Confirmou telefone e outros canais disponíveis?</li>
+            <li>Direcionou assuntos de outras áreas ao setor correto?</li>
+          </ul>
+        </Card>
+
+        <Card>
+          <span style={S.secaoEyebrow}>ATUALIZAÇÕES</span>
+          <h3 style={{ ...S.h3, marginTop: 6 }}>O que mudou no Portal</h3>
+          <ul style={S.listaCompacta}>
+            <li>Manual reorganizado por assunto.</li>
+            <li>Biblioteca completa de quebras de objeção.</li>
+            <li>Cursos, benefícios e orientações de matrícula.</li>
+            <li>Sistemas, planilhas e contatos centralizados.</li>
+            <li>Competência em cobrança destacada na tela inicial.</li>
+          </ul>
+        </Card>
+      </div>
     </>
   );
 }
@@ -708,23 +806,27 @@ function SecaoDuvidas() {
     { p: "Quando não posso acionar?", r: "Quando houver jurídico, cancelamento, bloqueio, restrição de contato ou orientação registrada impedindo acionamento." },
     { p: "Comprovante de cartão deve ir onde?", r: "O comprovante deve ser salvo e sinalizado conforme o procedimento operacional vigente." },
     { p: "E se o termo não funcionar?", r: "Encaminhe para a área responsável e sinalize no canal combinado para ajuste." },
-    { p: "Onde o aluno encontra a Declaração de IRPF?", r: "No WebAluno: Posição Financeira → Declaração IRPF → selecionar o ano-base correspondente." },
-    { p: "Onde o aluno encontra o Contrato Educacional?", r: "No WebAluno: Posição Financeira → Contrato Educacional." },
     { p: "Por que existe 1% de parcelamento se no link aparece “sem taxa de parcelamento”?", r: "Nas negociações parceladas, o sistema aplica 1% de encargo de parcelamento por parcela, conforme a condição da negociação. Quando o link informa “sem taxa de parcelamento”, significa que o próprio link não acrescentará uma nova taxa sobre o valor já negociado. Não informar que esse percentual é taxa do banco, da operadora ou do estabelecimento." },
-    { p: "O aluno diz que possui bolsa, FIES, Prouni ou outro financiamento. O que fazer?", r: "Não validar ou negar o benefício pelo atendimento. Encaminhar o caso ao ADM, que solicitará a avaliação do Financeiro da Ulbra." },
-    { p: "O aluno diz que está processando a Ulbra. O que fazer?", r: "Solicitar sempre o número do processo e encaminhar a informação para Amanda ADM. Não discutir o processo nem emitir opinião jurídica." },
-    { p: "O aluno alega antecipação do semestre. Como conferir?", r: "Primeiro verificar em Títulos a Receber se consta um valor pago em uma única parcela, exibido em azul. Depois encaminhar o caso ao ADM para redirecionamento à unidade do aluno." },
-    { p: "O aluno pede comprovante de pagamento. O que orientar?", r: "O próprio boleto pago pode ser utilizado como comprovante; em pagamento via Pix, utilizar o comprovante do Pix. Se precisar de documento emitido pela instituição, o aluno pode solicitar por protocolo no WebAluno." },
     { p: "Qual a prioridade de negociação: mensalidades ou acordos?", r: "Sempre priorizar as mensalidades." },
     { p: "Enviei um template no CRM. Como confirmar o envio?", r: "Feche o cadastro do aluno, abra novamente e confirme se a mensagem ficou registrada como enviada." },
-    { p: "O aluno quer fazer matrícula/rematrícula. O que fazer?", r: "Se não houver pendências impeditivas, ele pode realizar diretamente pelo WebAluno. Se solicitar atendimento ou auxílio, direcionar o caso para a coluna Rematrícula no Kanban." },
-    { p: "Existe trancamento retroativo?", r: "Não. O trancamento possui prazo máximo conforme o calendário acadêmico. Se cancelamento ou trancamento ocorrer após o vencimento de uma parcela, essa parcela é considerada devida. Oriente o aluno a acompanhar o parecer do protocolo realizado." },
-    { p: "A matrícula está bloqueada com saldo pequeno. Devo cobrar?", r: "Se o saldo for inferior a R$ 20,00, não cobrar e encaminhar ao Financeiro. Acima desse valor, a cobrança pode ser realizada." },
+    { p: "O aluno diz que está processando a Ulbra. O que fazer?", r: "Solicitar sempre o número do processo e encaminhar para Amanda ADM. Não discutir o processo nem emitir opinião jurídica." },
   ];
+
   return (
     <>
-      <TituloSecao emoji="❓" titulo="Dúvidas Frequentes" />
-      {itens.map((it) => <Card key={it.p}><h3 style={S.h3}>{it.p}</h3><p style={S.paragrafo}>{it.r}</p></Card>)}
+      <TituloSecao
+        emoji="❓"
+        titulo="Dúvidas Frequentes"
+        sub="Respostas rápidas para situações operacionais recorrentes."
+      />
+      <div style={S.grade2}>
+        {itens.map((it) => (
+          <Card key={it.p}>
+            <h3 style={S.h3}>{it.p}</h3>
+            <p style={S.paragrafo}>{it.r}</p>
+          </Card>
+        ))}
+      </div>
     </>
   );
 }
@@ -896,67 +998,167 @@ function SecaoIndicadores() {
 /* ===================== Pontos do Dia a Dia ===================== */
 
 function SecaoRotina() {
-  const pontos = [
+  const grupos = [
     {
-      titulo: "Registro obrigatório no CRM",
-      texto: "Toda movimentação ou informação importante deve ser registrada no CRM: proposta apresentada, contraproposta, objeção do aluno, retorno combinado, documento solicitado, encaminhamento e qualquer fato relevante. O registro permite acompanhamento pelo operacional, supervisão, ADM e gestão."
+      titulo: "Registro no CRM",
+      itens: [
+        "Toda movimentação ou informação importante deve ser registrada.",
+        "Registrar proposta, contraproposta, objeção, retorno combinado, encaminhamento e documentos solicitados.",
+        "O registro deve permitir acompanhamento pelo operacional, supervisão, ADM e gestão.",
+      ],
     },
     {
-      titulo: "Prioridade da negociação",
-      texto: "Sempre priorizar mensalidades antes de acordos."
-    },
-    {
-      titulo: "Parcelas de matrícula",
-      texto: "Nunca incluir parcelas de matrícula nas negociações. No campo Tipo de Parcela, identifique sempre uma das três classificações: Acordo, Matrícula ou Mensalidade."
+      titulo: "Negociação",
+      itens: [
+        "Priorizar sempre mensalidades antes de acordos.",
+        "Nunca incluir parcelas de matrícula nas negociações.",
+        "No Tipo de Parcela, diferenciar corretamente: Acordo, Matrícula ou Mensalidade.",
+      ],
     },
     {
       titulo: "Acordos e honorários",
-      texto: "Ao revisar acordo antigo, confira se o honorário foi incluído. Se não houver honorário registrado, incluir conforme o procedimento, pois caso contrário o honorário ficará zerado. Se já houver honorário no acordo, é expressamente proibido incluir novamente. Evite duplicidade de honorários/encargos."
+      itens: [
+        "Ao revisar acordo antigo, conferir se o honorário já foi incluído.",
+        "Se não houver honorário registrado, incluir conforme o procedimento aplicável.",
+        "Se já houver honorário, é expressamente proibido incluir novamente.",
+      ],
     },
     {
-      titulo: "Saldo de matrícula bloqueada",
-      texto: "Saldo inferior a R$ 20,00: não cobrar e encaminhar ao Financeiro. Saldo acima de R$ 20,00: a cobrança pode ser realizada."
+      titulo: "Encaminhamentos",
+      itens: [
+        "Bolsa ou financiamento: ADM → avaliação do Financeiro.",
+        "Aluno menciona processo contra a Ulbra: pedir número do processo → Amanda ADM.",
+        "Saldo de matrícula inferior a R$ 20,00: não cobrar → Financeiro.",
+        "Saldo de matrícula acima de R$ 20,00: a cobrança pode ser realizada.",
+      ],
     },
     {
-      titulo: "Aluno alega bolsa ou financiamento",
-      texto: "Encaminhar ao ADM. O ADM solicitará a avaliação do Financeiro da Ulbra. O operador não deve confirmar, negar, lançar ou retirar bolsa/financiamento."
-    },
-    {
-      titulo: "Aluno alega processo contra a Ulbra",
-      texto: "Solicitar sempre o número do processo e encaminhar para Amanda ADM. Não discutir mérito, prazo, responsabilidade ou qualquer questão jurídica com o aluno."
-    },
-    {
-      titulo: "Aluno alega antecipação do semestre",
-      texto: "Verifique primeiro em Títulos a Receber se consta um valor pago em uma única parcela, exibido em azul. Depois encaminhe ao ADM, que fará o redirecionamento para a unidade do aluno."
-    },
-    {
-      titulo: "Template enviado pelo CRM",
-      texto: "Após enviar um template, feche o cadastro do aluno, abra novamente e confirme se a mensagem realmente ficou registrada como enviada."
-    },
-    {
-      titulo: "Telefone e tentativa de contato",
-      texto: "Sempre confirme se o telefone do aluno está correto no CRM. O ReATIVA One pode possuir números mais atualizados. Se não conseguir contato por telefone/WhatsApp, envie e-mail e registre a tentativa no CRM."
-    },
-    {
-      titulo: "Limite de atuação da ReATIVA",
-      texto: "A ReATIVA realiza cobrança e negociação financeira. Assuntos acadêmicos, matrícula, documentos, bolsas, protocolos ou temas de outras áreas devem ser direcionados ao setor responsável, mantendo o registro da orientação no CRM."
+      titulo: "Contato com o aluno",
+      itens: [
+        "Confirmar se o telefone está correto no CRM.",
+        "Consultar números mais atualizados disponíveis no ReATIVA One.",
+        "Sem contato por telefone/WhatsApp: enviar e-mail e registrar a tentativa.",
+        "Após envio de template, fechar e reabrir o cadastro para confirmar que a mensagem foi enviada.",
+      ],
     },
   ];
 
   return (
     <>
-      <TituloSecao emoji="📌" titulo="Pontos Importantes do Dia a Dia" sub="Regras rápidas para consulta durante o atendimento." />
+      <TituloSecao
+        emoji="📌"
+        titulo="Pontos Importantes do Dia a Dia"
+        sub="Regras operacionais que precisam estar presentes em todo atendimento."
+      />
       <Aviso tom="info">
-        <strong>Registro é obrigatório.</strong> Se uma informação pode influenciar o próximo atendimento, a negociação ou uma decisão da supervisão/ADM/gestão, ela precisa estar no CRM.
+        <strong>Regra central:</strong> se uma informação pode influenciar o próximo atendimento, a negociação
+        ou uma decisão de supervisão/ADM/gestão, registre no CRM.
       </Aviso>
-      {pontos.map((p) => (
-        <Card key={p.titulo}>
-          <details>
-            <summary style={{ cursor: "pointer", fontWeight: 800, color: "var(--rv-tinta)", fontSize: 14 }}>{p.titulo}</summary>
-            <p style={{ ...S.paragrafo, marginTop: 10 }}>{p.texto}</p>
-          </details>
+
+      <div style={S.grade2}>
+        {grupos.map((grupo) => (
+          <Card key={grupo.titulo}>
+            <h3 style={S.h3}>{grupo.titulo}</h3>
+            <ul style={S.listaChecklist}>
+              {grupo.itens.map((item) => <li key={item}>{item}</li>)}
+            </ul>
+          </Card>
+        ))}
+      </div>
+
+      <Card style={S.cardLimiteAtuacao}>
+        <span style={S.cardTag}>LIMITE DE ATUAÇÃO</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>A ReATIVA realiza cobrança e negociação financeira</h3>
+        <p style={S.paragrafo}>
+          Assuntos de matrícula, documentos, bolsas, protocolos, questões acadêmicas ou demandas de outras
+          áreas devem ser direcionados ao setor correspondente. Registre no CRM a orientação e o encaminhamento.
+        </p>
+      </Card>
+    </>
+  );
+}
+
+/* ===================== Matrícula e WebAluno ===================== */
+
+function SecaoAcademico() {
+  return (
+    <>
+      <TituloSecao
+        emoji="🎓"
+        titulo="Matrícula, WebAluno e Documentos"
+        sub="Orientações acadêmicas de apoio. A ReATIVA trata a parte financeira; demais decisões pertencem às áreas responsáveis da Ulbra."
+      />
+
+      <div style={S.grade2}>
+        <Card>
+          <span style={S.cardTag}>MATRÍCULA / REMATRÍCULA</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Aluno deseja realizar matrícula</h3>
+          <p style={S.paragrafo}>
+            Sem pendências impeditivas, o aluno pode realizar a matrícula diretamente pelo WebAluno.
+            Se solicitar atendimento ou auxílio, direcionar o caso para a coluna <strong>Rematrícula</strong> no Kanban.
+          </p>
         </Card>
-      ))}
+
+        <Card>
+          <span style={S.cardTag}>ANTECIPAÇÃO</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Antecipação de semestre</h3>
+          <p style={S.paragrafo}>
+            A matrícula de um próximo semestre pode ser aberta antes do início das aulas. Ao efetivar a matrícula,
+            as parcelas daquele semestre podem começar a ser geradas antecipadamente.
+          </p>
+          <p style={{ ...S.paragrafo, marginTop: 8 }}>
+            Se o aluno alegar antecipação, verifique em <strong>Títulos a Receber</strong> se consta um valor pago
+            em uma única parcela, exibido em azul. Depois encaminhe ao ADM para redirecionamento à unidade.
+          </p>
+        </Card>
+
+        <Card>
+          <span style={S.cardTag}>TRANCAMENTO</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Existe trancamento retroativo?</h3>
+          <p style={S.paragrafo}>
+            Não. O trancamento possui prazo máximo conforme o calendário acadêmico. Se o cancelamento ou
+            trancamento ocorrer após o vencimento de uma parcela, essa parcela é considerada devida.
+            Oriente o aluno a acompanhar o parecer do protocolo realizado.
+          </p>
+        </Card>
+
+        <Card>
+          <span style={S.cardTag}>DOCUMENTOS</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Declaração IRPF e Contrato Educacional</h3>
+          <ul style={S.listaCompacta}>
+            <li><strong>Declaração IRPF:</strong> WebAluno → Posição Financeira → Declaração IRPF → ano-base.</li>
+            <li><strong>Contrato Educacional:</strong> WebAluno → Posição Financeira → Contrato Educacional.</li>
+          </ul>
+        </Card>
+
+        <Card>
+          <span style={S.cardTag}>COMPROVANTE</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Aluno solicita comprovante de pagamento</h3>
+          <p style={S.paragrafo}>
+            O próprio boleto pago pode ser usado como comprovante; em pagamento via Pix, utilizar o comprovante
+            do Pix. Se precisar de documento emitido pela instituição, orientar solicitação via protocolo no WebAluno.
+          </p>
+        </Card>
+
+        <Card>
+          <span style={S.cardTag}>CONTATO</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Confirme os dados do aluno</h3>
+          <p style={S.paragrafo}>
+            Sempre confirme se o telefone está correto. O ReATIVA One pode possuir números mais atualizados.
+            Se não conseguir contato por telefone ou WhatsApp, envie e-mail e registre a tentativa no CRM.
+          </p>
+        </Card>
+      </div>
+
+      <TituloSecao emoji="💬" titulo="Frases prontas" sub="Modelos para adaptar conforme o caso." />
+      <BlocoCopiar
+        titulo="Matrícula / rematrícula"
+        texto="Você pode realizar sua matrícula diretamente pelo WebAluno, desde que não existam pendências impeditivas. Caso precise de atendimento ou auxílio no processo, posso encaminhar sua solicitação para o setor responsável pela rematrícula."
+      />
+      <BlocoCopiar
+        titulo="Antecipação de matrícula"
+        texto="A matrícula do próximo semestre pode ser disponibilizada antecipadamente. Quando ela é efetivada, as parcelas referentes ao semestre futuro podem ser geradas antes do início das aulas. Por isso, é possível visualizar cobranças do próximo período ainda no semestre atual."
+      />
     </>
   );
 }
@@ -1004,38 +1206,55 @@ function SecaoCursos() {
 
 function SecaoBeneficios() {
   const oficiais = [
-    ["Novo Fies", "Financiamento estudantil para graduação presencial. Elegibilidade, percentual, prazo e contratação dependem das regras oficiais vigentes."],
-    ["Prouni", "Programa de bolsas do Governo Federal. A participação e a concessão dependem do processo seletivo e das regras do MEC."],
-    ["CredIES Ulbra", "Crédito educativo divulgado pela Ulbra em parceria com a Fundacred, sujeito às regras e condições vigentes."],
-    ["Mais Acesso", "Alternativa de crédito divulgada pela Ulbra em parceria com a Fundacred, sujeita às condições vigentes."],
+    ["Novo Fies", "Financiamento estudantil para graduação presencial, sujeito às regras oficiais vigentes."],
+    ["Prouni", "Programa de bolsas do Governo Federal, sujeito ao processo seletivo e às regras do MEC."],
+    ["CredIES Ulbra", "Crédito educativo divulgado pela Ulbra em parceria com a Fundacred."],
+    ["Mais Acesso", "Alternativa de crédito divulgada pela Ulbra em parceria com a Fundacred."],
   ];
-  const citados = ["Quero Bolsa", "UDEBANK", "EDUCRED"];
 
   return (
     <>
-      <TituloSecao emoji="🎟️" titulo="Bolsas, Créditos e Financiamentos" sub="Orientação de atendimento — o operador não valida benefício financeiro." />
+      <TituloSecao
+        emoji="🎟️"
+        titulo="Bolsas, Créditos e Financiamentos"
+        sub="O operador identifica a alegação e encaminha; a validação do benefício é feita pelo ADM/Financeiro."
+      />
+
       <Aviso>
-        <strong>Aluno alega possuir bolsa ou financiamento?</strong> Encaminhe o caso ao ADM. O ADM solicitará a avaliação do Financeiro da Ulbra. Não confirme percentual, vigência, cobertura ou elegibilidade no atendimento.
+        <strong>Regra operacional:</strong> se o aluno alegar bolsa, FIES, Prouni, Quero Bolsa, UDEBANK,
+        EDUCRED ou qualquer outro benefício, registre a informação no CRM e encaminhe ao ADM.
+        O ADM solicitará a avaliação do Financeiro da Ulbra.
       </Aviso>
 
-      <Card>
-        <h3 style={S.h3}>Programas encontrados nos canais institucionais da Ulbra</h3>
+      <div style={S.grade2}>
         {oficiais.map(([nome, desc]) => (
-          <div key={nome} style={{ marginBottom: 12 }}>
-            <strong style={{ color: "var(--rv-tinta)" }}>{nome}</strong>
-            <p style={{ ...S.paragrafo, marginTop: 3 }}>{desc}</p>
-          </div>
+          <Card key={nome}>
+            <span style={S.cardTag}>PROGRAMA / CRÉDITO</span>
+            <h3 style={{ ...S.h3, marginTop: 8 }}>{nome}</h3>
+            <p style={S.paragrafo}>{desc}</p>
+          </Card>
         ))}
-      </Card>
+        <Card>
+          <span style={S.cardTag}>OUTROS NOMES NO ATENDIMENTO</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Quero Bolsa • UDEBANK • EDUCRED</h3>
+          <p style={S.paragrafo}>
+            O nome informado pelo aluno não confirma que o benefício esteja ativo ou aplicado ao contrato.
+            Registrar e encaminhar ao ADM para validação pelo Financeiro.
+          </p>
+        </Card>
+      </div>
 
       <Card>
-        <h3 style={S.h3}>Outros benefícios que podem aparecer no atendimento</h3>
-        <p style={S.paragrafo}>
-          {citados.join(", ")}. Quando o aluno mencionar qualquer um deles, registre no CRM e encaminhe ao ADM para validação pelo Financeiro. Não considere o nome do benefício como prova de que ele está ativo ou aplicado ao contrato.
-        </p>
+        <h3 style={S.h3}>O que o operador não deve fazer</h3>
+        <ul style={S.listaCompacta}>
+          <li>Não confirmar percentual de bolsa sem validação.</li>
+          <li>Não informar que o benefício foi perdido ou cancelado.</li>
+          <li>Não lançar, retirar ou alterar benefício.</li>
+          <li>Não prometer regularização automática do saldo.</li>
+        </ul>
       </Card>
 
-      <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+      <div style={S.botoesLinha}>
         <a href="https://www.ulbra.br/beneficios" target="_blank" rel="noreferrer" style={S.botaoSecundario}>Benefícios Ulbra</a>
         <a href="https://www.ulbra.br/fies" target="_blank" rel="noreferrer" style={S.botaoSecundario}>FIES</a>
         <a href="https://www.ulbra.br/prouni" target="_blank" rel="noreferrer" style={S.botaoSecundario}>Prouni</a>
@@ -1048,44 +1267,67 @@ function SecaoBeneficios() {
 
 function SecaoSistemas() {
   const sistemas = [
-    { emoji: "🟢", titulo: "ReATIVA One", desc: "Sistema operacional da ReATIVA para carteira, atendimentos, negociações, retornos, registros e procedimentos.", href: "/" },
-    { emoji: "💬", titulo: "CRM de Mensageria", desc: "Utilizado para mensageria e consultas relacionadas aos contatos da operação.", href: "https://crm.ulbra.ai/" },
-    { emoji: "✉️", titulo: "Gmail", desc: "E-mail institucional e canal alternativo de contato quando não for possível falar com o aluno pelos demais meios.", href: "https://mail.google.com/" },
-    { emoji: "📌", titulo: "Prime", desc: "Consulta e confirmação de informações financeiras e de acordos.", href: null },
-    { emoji: "🎓", titulo: "WebAluno", desc: "Portal acadêmico do aluno para posição financeira, protocolos, documentos, matrícula e demais serviços acadêmicos.", href: "https://www.ulbra.br/webaluno/" },
+    { emoji: "🟢", titulo: "ReATIVA One", tipo: "CRM OPERACIONAL", desc: "Carteira, atendimentos, negociações, retornos, registros e acompanhamento da operação.", href: "/" },
+    { emoji: "💬", titulo: "CRM de Mensageria", tipo: "MENSAGERIA", desc: "Envio e consulta de mensagens e contatos relacionados à operação.", href: "https://crm.ulbra.ai/" },
+    { emoji: "✉️", titulo: "Gmail", tipo: "E-MAIL", desc: "Canal institucional e alternativa de contato quando necessário.", href: "https://mail.google.com/" },
+    { emoji: "📌", titulo: "Prime", tipo: "FINANCEIRO", desc: "Consulta e confirmação de informações financeiras e de acordos.", href: null },
+    { emoji: "🎓", titulo: "WebAluno", tipo: "PORTAL DO ALUNO", desc: "Posição financeira, documentos, protocolos, matrícula e serviços acadêmicos.", href: "https://www.ulbra.br/webaluno/" },
   ];
 
   return (
     <>
-      <TituloSecao emoji="🚀" titulo="Sistemas e Planilhas" sub="Ferramentas utilizadas ou consultadas na rotina da operação." />
+      <TituloSecao
+        emoji="🚀"
+        titulo="Sistemas e Planilhas"
+        sub="Para que serve cada ferramenta e onde consultar."
+      />
+
       <div style={S.grade3}>
         {sistemas.map((s) => (
-          <Card key={s.titulo}>
-            <div style={{ fontSize: 24, marginBottom: 8 }}>{s.emoji}</div>
-            <h3 style={S.h3}>{s.titulo}</h3>
+          <Card key={s.titulo} style={S.cardFerramenta}>
+            <div style={S.ferramentaTopo}>
+              <span style={S.ferramentaEmoji}>{s.emoji}</span>
+              <span style={S.cardTag}>{s.tipo}</span>
+            </div>
+            <h3 style={{ ...S.h3, marginTop: 12 }}>{s.titulo}</h3>
             <p style={S.paragrafo}>{s.desc}</p>
-            {s.href ? <a href={s.href} target={s.href.startsWith("http") ? "_blank" : undefined} rel="noreferrer" style={{ ...S.botaoSecundario, marginTop: 12 }}>Abrir</a> : <p style={S.observacao}>Utilize o acesso oficial disponibilizado para a equipe.</p>}
+            {s.href ? (
+              <a
+                href={s.href}
+                target={s.href.startsWith("http") ? "_blank" : undefined}
+                rel="noreferrer"
+                style={{ ...S.botaoSecundario, marginTop: 14 }}
+              >
+                Abrir sistema
+              </a>
+            ) : (
+              <p style={S.observacao}>Utilize o acesso oficial disponibilizado para a equipe.</p>
+            )}
           </Card>
         ))}
       </div>
 
-      <Card>
-        <h3 style={S.h3}>📊 Planilhas utilizadas</h3>
-        <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          <div>
-            <strong style={{ color: "var(--rv-tinta)" }}>Cálculo de desconto</strong>
-            <p style={S.paragrafo}>Planilha de apoio para cálculo quando aplicável.</p>
-            <a href="https://docs.google.com/spreadsheets/d/19g0v1kikqvMLTHEIZHTg8NKUt6TOxdv2Aiyk41L1Tf4/edit?usp=sharing" target="_blank" rel="noreferrer" style={{ ...S.botaoSecundario, marginTop: 8 }}>Abrir planilha</a>
-          </div>
-          <div>
-            <strong style={{ color: "var(--rv-tinta)" }}>Planilha Base</strong>
-            <p style={S.paragrafo}>Base de apoio operacional compartilhada pela gestão. Utilize sempre a versão oficial disponibilizada à equipe.</p>
-          </div>
-        </div>
-      </Card>
+      <TituloSecao emoji="📊" titulo="Planilhas utilizadas" sub="Materiais de apoio operacional." />
+      <div style={S.grade2}>
+        <Card>
+          <span style={S.cardTag}>PLANILHA OFICIAL</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Cálculo de desconto</h3>
+          <p style={S.paragrafo}>Apoio para cálculo quando aplicável. Utilize sempre dentro das regras vigentes.</p>
+          <a href="https://docs.google.com/spreadsheets/d/19g0v1kikqvMLTHEIZHTg8NKUt6TOxdv2Aiyk41L1Tf4/edit?usp=sharing" target="_blank" rel="noreferrer" style={{ ...S.botaoSecundario, marginTop: 12 }}>
+            Abrir planilha
+          </a>
+        </Card>
+        <Card>
+          <span style={S.cardTag}>BASE DE APOIO</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Planilha Base</h3>
+          <p style={S.paragrafo}>Base operacional compartilhada pela gestão. Utilize somente a versão oficial disponibilizada à equipe.</p>
+        </Card>
+      </div>
     </>
   );
 }
+
+
 
 function SecaoLinks() {
   const links = [
@@ -1429,69 +1671,179 @@ const VERDE_ESCURO = "var(--rv-azul-texto)";
 const BORDA = "var(--rv-borda)";
 
 const S = {
-  pagina: { minHeight: "100%", background: "var(--rv-fundo)", fontFamily: "Inter, system-ui, sans-serif" },
-  shell: { display: "flex", minHeight: "100vh" },
+  pagina: {
+    minHeight: "100%",
+    background: "var(--rv-fundo)",
+    fontFamily: "Inter, system-ui, sans-serif",
+    color: "var(--rv-texto)",
+  },
+  shell: { display: "flex", minHeight: "100vh", width: "100%" },
 
   sidebar: {
-    width: 260,
+    width: 286,
+    height: "100vh",
+    position: "sticky",
+    top: 0,
     flexShrink: 0,
-    background: "rgba(248, 250, 252, 0.98)",
-    borderRight: "1px solid rgba(15, 23, 42, 0.1)",
-    color: "var(--rv-tinta)",
+    background: "var(--rv-superficie)",
+    borderRight: `1px solid ${BORDA}`,
     display: "flex",
     flexDirection: "column",
-    padding: "26px 18px",
+    padding: "22px 16px 16px",
+    boxSizing: "border-box",
+    boxShadow: "4px 0 18px rgba(15,23,42,0.035)",
   },
-  logoBox: { fontFamily: FONTE_TITULO, fontSize: 22, fontWeight: 800, marginBottom: 2 },
+  logoArea: { padding: "2px 8px 18px" },
+  logoBox: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 900, letterSpacing: "-0.03em" },
   logoRe: { color: VERDE },
   logoAtiva: { color: "var(--rv-tinta)" },
-  logoSub: { fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 600, marginBottom: 24 },
+  logoSub: { fontSize: 11.5, color: "var(--rv-texto-suave)", fontWeight: 700, marginTop: 2, letterSpacing: "0.03em" },
 
-  nav: { flex: 1, overflowY: "auto" },
-  navGrupo: { marginBottom: 18 },
-  navGrupoLabel: { fontSize: 10.5, fontWeight: 800, letterSpacing: "0.1em", color: "var(--rv-texto-fraco)", marginBottom: 6, paddingLeft: 10 },
+  buscaBox: {
+    position: "relative",
+    display: "flex",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  buscaIcone: { position: "absolute", left: 12, color: "var(--rv-texto-fraco)", fontSize: 17, pointerEvents: "none" },
+  buscaInput: {
+    width: "100%",
+    boxSizing: "border-box",
+    padding: "10px 12px 10px 36px",
+    borderRadius: 12,
+    border: `1px solid ${BORDA}`,
+    background: "var(--rv-fundo-suave)",
+    color: "var(--rv-texto-forte)",
+    fontFamily: "inherit",
+    fontSize: 13,
+    outline: "none",
+  },
+  semResultado: { color: "var(--rv-texto-fraco)", fontSize: 12.5, padding: "12px 10px" },
+
+  nav: { flex: 1, overflowY: "auto", paddingRight: 2 },
+  navGrupo: { marginBottom: 17 },
+  navGrupoLabel: {
+    fontSize: 10,
+    fontWeight: 900,
+    letterSpacing: "0.12em",
+    color: "var(--rv-texto-fraco)",
+    marginBottom: 6,
+    paddingLeft: 10,
+    textTransform: "uppercase",
+  },
   navItem: {
     display: "block",
     width: "100%",
     textAlign: "left",
     background: "transparent",
-    border: "none",
+    border: "1px solid transparent",
     color: "var(--rv-texto)",
-    padding: "8px 10px",
-    borderRadius: 8,
-    fontSize: 13,
-    fontWeight: 600,
+    padding: "9px 11px",
+    borderRadius: 10,
+    fontSize: 12.8,
+    fontWeight: 650,
     cursor: "pointer",
     marginBottom: 2,
+    transition: "all .15s ease",
   },
-  navItemAtivo: { background: "var(--rv-azul-fundo)", color: VERDE_ESCURO },
+  navItemAtivo: {
+    background: "var(--rv-azul-fundo)",
+    color: VERDE_ESCURO,
+    border: "1px solid var(--rv-azul-borda)",
+    fontWeight: 800,
+  },
+  sidebarRodape: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 3,
+    fontSize: 10.5,
+    color: "var(--rv-texto-fraco)",
+    padding: "14px 8px 2px",
+    borderTop: "1px solid var(--rv-borda-suave)",
+  },
 
-  sidebarRodape: { fontSize: 11.5, color: "var(--rv-texto-fraco)", fontWeight: 600, paddingTop: 14, borderTop: "1px solid rgba(15,23,42,0.08)" },
-
-  conteudo: { flex: 1, padding: "36px 40px", maxWidth: 900 },
+  conteudo: {
+    flex: 1,
+    width: "100%",
+    maxWidth: 1180,
+    margin: "0 auto",
+    padding: "34px 42px 56px",
+    boxSizing: "border-box",
+  },
 
   hero: {
+    background: "linear-gradient(135deg, var(--rv-superficie) 0%, var(--rv-azul-fundo) 100%)",
+    border: "1px solid var(--rv-azul-borda)",
+    borderRadius: 24,
+    padding: "38px 40px",
+    color: "var(--rv-tinta)",
+    marginBottom: 18,
+    boxShadow: "0 12px 36px rgba(15,23,42,0.06)",
+    overflow: "hidden",
+  },
+  heroConteudo: { maxWidth: 760 },
+  heroEyebrow: { fontSize: 10.5, fontWeight: 900, letterSpacing: "0.15em", color: VERDE_ESCURO },
+  heroTitulo: {
+    fontFamily: FONTE_TITULO,
+    fontSize: 32,
+    fontWeight: 850,
+    margin: "10px 0 10px",
+    letterSpacing: "-0.035em",
+    lineHeight: 1.15,
+    color: "var(--rv-tinta)",
+  },
+  heroTexto: { fontSize: 15, color: "var(--rv-texto-suave)", lineHeight: 1.65, maxWidth: 700 },
+  heroAcoes: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 },
+
+  statusGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
+    gap: 12,
+    marginBottom: 18,
+  },
+  statusCard: { marginBottom: 0, minHeight: 115, display: "flex", flexDirection: "column", justifyContent: "center" },
+  statusCardDestaque: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)" },
+  statusRotulo: { fontSize: 10.5, fontWeight: 900, color: "var(--rv-texto-fraco)", textTransform: "uppercase", letterSpacing: "0.07em" },
+  statusValor: { fontFamily: FONTE_TITULO, fontSize: 20, color: "var(--rv-tinta)", marginTop: 5 },
+  statusValorMenor: { fontFamily: FONTE_TITULO, fontSize: 17, color: "var(--rv-tinta)", marginTop: 5 },
+  statusDescricao: { fontSize: 11.8, color: "var(--rv-texto-suave)", lineHeight: 1.45, marginTop: 5 },
+
+  tituloSecaoBox: { marginBottom: 18, marginTop: 2 },
+  tituloSecaoH1: { fontFamily: FONTE_TITULO, fontSize: 25, fontWeight: 850, color: "var(--rv-tinta)", margin: 0, letterSpacing: "-0.025em" },
+  tituloSecaoSub: { color: "var(--rv-texto-suave)", fontSize: 13.5, marginTop: 6, lineHeight: 1.55 },
+  secaoEyebrow: { fontSize: 10.5, fontWeight: 900, color: VERDE_ESCURO, letterSpacing: "0.1em" },
+  h2: { fontFamily: FONTE_TITULO, fontSize: 20, color: "var(--rv-tinta)", margin: "5px 0 0", letterSpacing: "-0.02em" },
+  blocoCabecalho: { display: "flex", justifyContent: "space-between", alignItems: "end", gap: 18, margin: "26px 0 14px" },
+  linkAcao: { border: "none", background: "transparent", color: VERDE_ESCURO, fontWeight: 800, fontSize: 12.5, cursor: "pointer", padding: 0 },
+
+  card: {
     background: "var(--rv-superficie)",
     border: `1px solid ${BORDA}`,
-    borderRadius: 22,
-    padding: "32px 34px",
-    color: "var(--rv-tinta)",
-    marginBottom: 22,
-    boxShadow: "0 1px 3px rgba(15,23,42,0.06)",
+    borderRadius: 18,
+    padding: "20px 22px",
+    marginBottom: 14,
+    boxShadow: "0 4px 18px rgba(15,23,42,0.04)",
   },
-  heroEyebrow: { fontSize: 11.5, fontWeight: 800, letterSpacing: "0.12em", color: VERDE_ESCURO },
-  heroTitulo: { fontFamily: FONTE_TITULO, fontSize: 28, fontWeight: 800, margin: "10px 0 10px", letterSpacing: "-0.02em", lineHeight: 1.2, color: "var(--rv-tinta)" },
-  heroTexto: { fontSize: 14.5, color: "var(--rv-texto-suave)", lineHeight: 1.55, maxWidth: 620 },
+  h3: { fontFamily: FONTE_TITULO, fontSize: 15.5, fontWeight: 750, color: "var(--rv-tinta)", margin: "0 0 9px" },
+  paragrafo: { color: "var(--rv-texto)", fontSize: 13.5, lineHeight: 1.65, margin: 0 },
+  cardTag: {
+    display: "inline-flex",
+    fontSize: 9.5,
+    fontWeight: 900,
+    letterSpacing: "0.08em",
+    color: VERDE_ESCURO,
+    background: "var(--rv-azul-fundo)",
+    border: "1px solid var(--rv-azul-borda)",
+    borderRadius: 999,
+    padding: "4px 8px",
+  },
+  cardFerramenta: { minHeight: 195 },
+  ferramentaTopo: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 },
+  ferramentaEmoji: { fontSize: 26 },
+  cardLimiteAtuacao: { border: "1px solid var(--rv-azul-borda)", background: "var(--rv-azul-fundo)" },
 
-  tituloSecaoBox: { marginBottom: 18 },
-  tituloSecaoH1: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 800, color: "var(--rv-tinta)", margin: 0, letterSpacing: "-0.02em" },
-  tituloSecaoSub: { color: "var(--rv-texto-suave)", fontSize: 13.5, marginTop: 6 },
-
-  card: { background: "var(--rv-superficie)", border: `1px solid ${BORDA}`, borderRadius: 16, padding: "18px 20px", marginBottom: 14, boxShadow: "0 1px 3px rgba(15,23,42,0.05)" },
-  h3: { fontFamily: FONTE_TITULO, fontSize: 15.5, fontWeight: 700, color: "var(--rv-tinta)", margin: "0 0 10px" },
-  paragrafo: { color: "var(--rv-texto)", fontSize: 13.5, lineHeight: 1.6, margin: 0 },
-  avisoCanal: { margin: 0, background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", borderRadius: 10, padding: "10px 12px", fontSize: 13, lineHeight: 1.55 },
-  erroItem: { border: "1px solid var(--rv-borda-suave)", borderRadius: 10, padding: "10px 12px", background: "var(--rv-superficie)" },
+  avisoCanal: { margin: 0, background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", borderRadius: 12, padding: "11px 13px", fontSize: 13, lineHeight: 1.55 },
+  erroItem: { border: "1px solid var(--rv-borda-suave)", borderRadius: 12, padding: "11px 13px", background: "var(--rv-superficie)" },
   erroBadge: { fontSize: 11, fontWeight: 800, padding: "3px 10px", borderRadius: 999 },
   erroTela: { fontSize: 11, fontWeight: 700, padding: "3px 10px", borderRadius: 999, background: "var(--rv-fundo-suave)", color: "var(--rv-texto-suave)" },
   erroData: { fontSize: 11.5, color: "var(--rv-texto-fraco)", marginLeft: "auto" },
@@ -1503,6 +1855,8 @@ const S = {
   observacao: { color: "var(--rv-texto-fraco)", fontSize: 12, marginTop: 10 },
   lista: { margin: 0, paddingLeft: 20, color: "var(--rv-texto)", fontSize: 13.5, lineHeight: 1.8 },
   listaOrdenada: { margin: 0, paddingLeft: 20, color: "var(--rv-texto)", fontSize: 13.5, lineHeight: 1.8 },
+  listaChecklist: { margin: 0, paddingLeft: 20, color: "var(--rv-texto)", fontSize: 13.2, lineHeight: 1.8 },
+  listaCompacta: { margin: 0, paddingLeft: 19, color: "var(--rv-texto)", fontSize: 13, lineHeight: 1.65 },
 
   aviso: { borderRadius: 14, padding: "14px 18px", marginBottom: 18, fontSize: 13.5, lineHeight: 1.6 },
   avisoAtencao: { background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)" },
@@ -1514,12 +1868,14 @@ const S = {
     gap: 6,
     background: VERDE,
     color: "#fff",
-    padding: "10px 18px",
+    padding: "10px 17px",
     borderRadius: 10,
-    fontWeight: 700,
-    fontSize: 13.5,
+    fontWeight: 800,
+    fontSize: 13,
     textDecoration: "none",
-    boxShadow: `0 10px 24px rgba(15,157,107,0.3)`,
+    border: "none",
+    cursor: "pointer",
+    boxShadow: "0 8px 20px rgba(15,157,107,0.18)",
   },
   botaoSecundario: {
     display: "inline-flex",
@@ -1527,43 +1883,47 @@ const S = {
     gap: 6,
     background: "var(--rv-superficie)",
     color: "var(--rv-texto-forte)",
-    padding: "10px 18px",
+    padding: "9px 15px",
     borderRadius: 10,
-    fontWeight: 700,
-    fontSize: 13.5,
+    fontWeight: 750,
+    fontSize: 12.5,
     textDecoration: "none",
     border: `1px solid ${BORDA}`,
     cursor: "pointer",
   },
+  botoesLinha: { display: "flex", gap: 10, flexWrap: "wrap" },
   botaoCopiar: {
     background: "var(--rv-fundo-suave)",
     color: "var(--rv-texto-forte)",
-    border: "none",
-    borderRadius: 8,
-    padding: "7px 14px",
-    fontSize: 12.5,
-    fontWeight: 700,
+    border: `1px solid ${BORDA}`,
+    borderRadius: 9,
+    padding: "7px 13px",
+    fontSize: 12,
+    fontWeight: 750,
     cursor: "pointer",
   },
 
   grade4: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginBottom: 18 },
-  grade3: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 14, marginBottom: 18 },
+  grade3: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginBottom: 18 },
+  grade2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))", gap: 14, marginBottom: 18 },
+  homeDuasColunas: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginTop: 4 },
 
   cardAtalho: {
     background: "var(--rv-superficie)",
     border: `1px solid ${BORDA}`,
-    borderRadius: 16,
-    padding: "18px",
+    borderRadius: 17,
+    padding: "19px",
     display: "flex",
     flexDirection: "column",
-    gap: 6,
+    gap: 7,
     textAlign: "left",
     cursor: "pointer",
-    boxShadow: "0 1px 3px rgba(15,23,42,0.05)",
+    boxShadow: "0 4px 16px rgba(15,23,42,0.04)",
+    minHeight: 142,
   },
-  cardAtalhoEmoji: { fontSize: 24 },
-  cardAtalhoTitulo: { fontFamily: FONTE_TITULO, fontSize: 14.5, color: "var(--rv-tinta)" },
-  cardAtalhoDesc: { fontSize: 12.5, color: "var(--rv-texto-fraco)" },
+  cardAtalhoEmoji: { fontSize: 25 },
+  cardAtalhoTitulo: { fontFamily: FONTE_TITULO, fontSize: 14.5, color: "var(--rv-tinta)", fontWeight: 780 },
+  cardAtalhoDesc: { fontSize: 12.2, color: "var(--rv-texto-fraco)", lineHeight: 1.5 },
 
   numeroGrande: { fontFamily: FONTE_TITULO, fontSize: 32, fontWeight: 800, color: VERDE_ESCURO },
   labelNumero: { fontSize: 12, fontWeight: 700, color: "var(--rv-texto-fraco)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" },
@@ -1576,10 +1936,12 @@ const S = {
 
   labelCampo: { fontSize: 12.5, fontWeight: 700, color: "var(--rv-texto)" },
   input: { padding: "9px 12px", borderRadius: 10, border: `1px solid ${BORDA}`, fontSize: 13.5, fontFamily: "inherit" },
+
   cardCompetencia: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)" },
   competenciaTopo: { fontSize: 12, fontWeight: 800, color: "var(--rv-azul-texto)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 },
   competenciaValor: { fontFamily: FONTE_TITULO, fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", marginBottom: 6 },
-  contatoUnidade: { border: "1px solid var(--rv-borda-suave)", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 5, background: "var(--rv-superficie)" },
+
+  contatoUnidade: { border: "1px solid var(--rv-borda-suave)", borderRadius: 11, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 5, background: "var(--rv-superficie)" },
   linkContato: { color: VERDE_ESCURO, fontSize: 12.5, textDecoration: "none", wordBreak: "break-word" },
 
   cardFrase: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)" },
@@ -1588,12 +1950,15 @@ const S = {
   cardHistoria: {
     background: "var(--rv-superficie)",
     border: `1px solid ${BORDA}`,
-    borderRadius: 16,
+    borderRadius: 17,
     padding: "26px 16px",
     display: "flex",
     flexDirection: "column",
     alignItems: "center",
     gap: 8,
     color: "var(--rv-texto-forte)",
+    boxShadow: "0 4px 16px rgba(15,23,42,0.04)",
   },
+}
+
 };
