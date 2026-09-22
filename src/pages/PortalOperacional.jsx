@@ -36,7 +36,8 @@ const SECOES = [
   {
     grupo: "Operação",
     itens: [
-      { id: "sistemas", label: "🚀 Sistemas Utilizados" },
+      { id: "sistemas", label: "🚀 Sistemas e Acessos" },
+      { id: "links", label: "🔗 Links Úteis" },
       { id: "biblioteca", label: "📚 Biblioteca" },
       { id: "contatos", label: "☎️ Contatos Úteis" },
       { id: "sugestoes", label: "💡 Painel de Sugestões" },
@@ -100,6 +101,7 @@ export default function PortalOperacional() {
           {secao === "lgpd" && <SecaoLgpd />}
           {secao === "indicadores" && <SecaoIndicadores />}
           {secao === "sistemas" && <SecaoSistemas />}
+          {secao === "links" && <SecaoLinks />}
           {secao === "biblioteca" && <SecaoBiblioteca ir={setSecao} />}
           {secao === "contatos" && <SecaoContatos />}
           {secao === "sugestoes" && <SecaoSugestoes />}
@@ -163,8 +165,7 @@ function SecaoInicio({ ir }) {
         <span style={S.heroEyebrow}>PORTAL OPERACIONAL REATIVA</span>
         <h1 style={S.heroTitulo}>Regras, sistemas, metas e orientações em um só lugar.</h1>
         <p style={S.heroTexto}>
-          Tudo o que a equipe precisa pra tocar a rotina de negociação e cobrança com consistência —
-          política, mensagens prontas, metas do mês e os sistemas usados no dia a dia.
+          Tudo o que a equipe precisa para a rotina de negociação e cobrança com consistência.
         </p>
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 18 }}>
           <BotaoSecundario onClick={() => ir("politica")}>📄 Ver Política</BotaoSecundario>
@@ -173,15 +174,20 @@ function SecaoInicio({ ir }) {
       </div>
 
       <Aviso>
-        <strong>⚠️ Antes de acionar, consulte o CRM.</strong> Verifique se há tabulação anterior,
-        observações importantes, jurídico, cancelamento, restrição de contato ou qualquer informação que
-        impeça o acionamento. <strong>Não envie várias mensagens para somente depois tabular</strong> —
-        primeiro confira se o caso pode ser acionado, depois realize o contato e registre corretamente a
-        tratativa.
+        <strong>⚠️ Antes de acionar, consulte o CRM.</strong> Verifique histórico, observações, jurídico,
+        cancelamento, restrição de contato ou qualquer informação que impeça o acionamento.
       </Aviso>
 
+      <Card style={S.cardCompetencia}>
+        <div style={S.competenciaTopo}>📅 Competência em cobrança</div>
+        <div style={S.competenciaValor}>2026/2 — até agosto/2026</div>
+        <p style={S.paragrafo}>
+          No momento, a operação está cobrando mensalidades de 2026/2 com vencimento até agosto de 2026.
+        </p>
+      </Card>
+
       <div style={S.grade4}>
-        <CardAtalho emoji="📁" titulo="Minha Carteira" desc="Ir direto pra sua carteira de casos." onClick={() => (window.location.href = "/painel-carteira")} />
+        <CardAtalho emoji="📁" titulo="Minha Carteira" desc="Ir direto para sua carteira de casos." onClick={() => (window.location.href = "/painel-carteira")} />
         <CardAtalho emoji="🎯" titulo="Meta do mês" desc="Meta operacional, faixas de comissão e foco." onClick={() => ir("meta")} />
         <CardAtalho emoji="💬" titulo="Mensagens Prontas" desc="Modelos de atendimento e orientações." onClick={() => ir("mensagens")} />
         <CardAtalho emoji="💡" titulo="Painel de Sugestões" desc="Melhorias para Sistema e Portal Reativa." onClick={() => ir("sugestoes")} />
@@ -199,9 +205,11 @@ function SecaoInicio({ ir }) {
       <Card>
         <h3 style={S.h3}>📢 Últimas Atualizações</h3>
         <ul style={S.lista}>
-          <li>Incluído acesso ao Novo Sistema ReATIVA em Sistemas Utilizados.</li>
-          <li>Removido comunicado da Copa e reorganizada a tela inicial.</li>
-          <li>Incluído alerta obrigatório de conferência no CRM antes do acionamento.</li>
+          <li>Incluído card de competência em cobrança: 2026/2 até agosto/2026.</li>
+          <li>Contatos úteis ampliados com telefones, ramais e e-mails por unidade.</li>
+          <li>Sistemas e acessos organizados com ReATIVA One, CRM de Mensageria, Gmail e Prime.</li>
+          <li>Incluída área de Links Úteis.</li>
+          <li>LGPD, mensagens, objeções e dúvidas frequentes ampliadas.</li>
         </ul>
       </Card>
     </>
@@ -352,63 +360,36 @@ function SecaoMensagens() {
     <>
       <TituloSecao emoji="💬" titulo="Mensagens Prontas" sub="Modelos para apoiar a comunicação. Revise o caso no CRM antes de qualquer envio." />
       <Aviso>
-        <strong>⚠️ Antes de enviar:</strong> nunca envie mensagem sem conferir se há tabulação, jurídico,
-        cancelamento ou restrição de contato. A conferência no CRM vem antes do acionamento.
-        <br />
-        <strong>✍️ Escreva por completo</strong>, sem abreviações, e revise a ortografia antes de enviar.
-        <br />
-        <strong>🔐 A LGPD precisa ser sempre respeitada</strong> — confirme identificação antes de tratar
-        dados financeiros e não compartilhe informações do aluno fora dos canais autorizados.
+        <strong>⚠️ Antes de enviar:</strong> confira histórico, jurídico, cancelamento e restrições de contato.
+        <br /><strong>✍️ Escreva por completo</strong>, sem abreviações, e revise a ortografia.
+        <br /><strong>🔐 Confirme a identificação</strong> antes de tratar dados financeiros.
       </Aviso>
-
       <Card>
         <h3 style={S.h3}>✍️ Assinatura Gov.br</h3>
-        <p style={S.paragrafo}>Como assinar um documento no Gov.br:</p>
         <ol style={S.listaOrdenada}>
           <li>Acesse o portal de assinatura do Gov.br.</li>
-          <li>Faça login com seu CPF e senha da conta Gov.br.</li>
-          <li>Clique em "Selecionar arquivo" e escolha o documento em PDF.</li>
-          <li>Se desejar, escolha onde a assinatura ficará visível no documento.</li>
-          <li>Clique em "Assinar documento" e confirme a operação.</li>
-          <li>Após a assinatura, clique em "Baixar documento assinado" para salvar o arquivo.</li>
+          <li>Faça login com seu CPF e senha.</li>
+          <li>Selecione o documento em PDF.</li>
+          <li>Escolha a posição da assinatura, se desejar.</li>
+          <li>Assine e baixe o documento assinado.</li>
         </ol>
-        <p style={S.observacao}>
-          Observação: para utilizar a assinatura eletrônica, sua conta Gov.br deve ser nível Prata ou Ouro.
-        </p>
+        <p style={S.observacao}>A conta Gov.br deve ser nível Prata ou Ouro.</p>
       </Card>
-
-      <BlocoCopiar
-        titulo="📌 Confirmação de acordo"
-        texto="Olá! Para darmos andamento corretamente, pedimos que confirme o acordo conforme orientação enviada. A confirmação é necessária para seguirmos com agilidade no procedimento."
-      />
-      <BlocoCopiar
-        titulo="📎 Envio de comprovante"
-        texto="Olá! Após realizar o pagamento, por gentileza encaminhe o comprovante para que possamos registrar e seguir com a baixa conforme o procedimento."
-      />
-      <BlocoCopiar
-        titulo="⏳ Aguardando comprovante"
-        texto="Olá! Ainda estamos aguardando o envio do comprovante de pagamento para dar sequência à baixa. Assim que possível, encaminhe pra gente concluir o procedimento."
-      />
-      <BlocoCopiar
-        titulo="📄 Aguardando termo"
-        texto="Olá! Precisamos que o termo de acordo seja assinado e devolvido para darmos continuidade. Qualquer dúvida na assinatura, estamos à disposição pra ajudar."
-      />
-      <BlocoCopiar
-        titulo="🔗 Link de pagamento enviado"
-        texto="Olá! Encaminhamos o link de pagamento referente ao seu acordo. Qualquer dificuldade para acessar ou concluir o pagamento, é só nos avisar."
-      />
-      <BlocoCopiar
-        titulo="✅ Acordo fechado"
-        texto="Olá! Seu acordo foi registrado com sucesso. Fique atento às datas de vencimento das parcelas para manter tudo em dia."
-      />
-      <BlocoCopiar
-        titulo="🔁 Retomando contato"
-        texto="Olá! Estamos retomando o contato sobre a sua pendência. Vamos juntos encontrar a melhor forma de regularizar a situação."
-      />
-      <BlocoCopiar
-        titulo="⚠️ Boleto vencendo em breve"
-        texto="Olá! Passando pra lembrar que o seu boleto vence em breve. Fique atento pra evitar juros e manter o acordo em dia."
-      />
+      <BlocoCopiar titulo="📌 Confirmação de acordo" texto="Olá! Para darmos andamento corretamente, pedimos que confirme o acordo conforme orientação enviada. A confirmação é necessária para seguirmos com agilidade no procedimento." />
+      <BlocoCopiar titulo="📎 Envio de comprovante" texto="Olá! Após realizar o pagamento, por gentileza encaminhe o comprovante para que possamos registrar e seguir com a baixa conforme o procedimento." />
+      <BlocoCopiar titulo="⏳ Aguardando comprovante" texto="Olá! Ainda estamos aguardando o envio do comprovante de pagamento para dar sequência à baixa. Assim que possível, encaminhe para concluirmos o procedimento." />
+      <BlocoCopiar titulo="📄 Aguardando termo" texto="Olá! Precisamos que o termo de acordo seja assinado e devolvido para darmos continuidade. Qualquer dúvida na assinatura, estamos à disposição para ajudar." />
+      <BlocoCopiar titulo="🔗 Link de pagamento enviado" texto="Olá! Encaminhamos o link de pagamento referente ao seu acordo. Qualquer dificuldade para acessar ou concluir o pagamento, é só nos avisar." />
+      <BlocoCopiar titulo="✅ Acordo fechado" texto="Olá! Seu acordo foi registrado com sucesso. Fique atento às datas de vencimento das parcelas para manter tudo em dia." />
+      <BlocoCopiar titulo="🔁 Retomando contato" texto="Olá! Estamos retomando o contato sobre a sua pendência. Vamos verificar a melhor forma de regularizar a situação." />
+      <BlocoCopiar titulo="⚠️ Boleto vencendo em breve" texto="Olá! Passando para lembrar que o seu boleto vence em breve. Fique atento para evitar encargos e manter o acordo em dia." />
+      <BlocoCopiar titulo="👋 Saudação / validação inicial" texto="Olá! Seja bem-vindo(a) à ReATIVA. Para darmos sequência ao seu atendimento, por gentileza, informe seu nome completo e os 3 primeiros dígitos do CPF. Ficamos no aguardo para prosseguir. Equipe ReATIVA." />
+      <BlocoCopiar titulo="✅ Sem parcelas em aberto" texto="Verificamos em nosso sistema e, no momento, não há parcelas em aberto. Pedimos que desconsidere nosso contato. Tenha um ótimo dia!" />
+      <BlocoCopiar titulo="💬 Falta de interação" texto="Olá! Como não tivemos retorno, este atendimento poderá ser encerrado. Quando desejar continuar, basta enviar uma nova mensagem para retomarmos." />
+      <BlocoCopiar titulo="⏱️ Alta demanda" texto="Devido à alta demanda, nosso tempo de resposta pode estar maior do que o habitual. Agradecemos sua compreensão e estamos trabalhando para atendê-lo o mais breve possível." />
+      <BlocoCopiar titulo="📅 Vencimento hoje" texto="Olá! Passando para lembrar que o vencimento do seu boleto é hoje. Para evitar encargos e manter o acordo em dia, orientamos que o pagamento seja realizado dentro do vencimento. Qualquer dúvida, estamos à disposição." />
+      <BlocoCopiar titulo="💰 Solicitação de desconto" texto="Entendemos sua solicitação. As condições disponíveis seguem a política de negociação vigente. Vou verificar a melhor possibilidade disponível para o seu caso." />
+      <BlocoCopiar titulo="📝 Proposta de exceção em análise" texto="Olá! Recebemos sua solicitação e a proposta foi encaminhada para análise. Assim que houver retorno, informaremos se a condição foi aprovada. Caso aprovada, seguiremos com as próximas etapas necessárias para conclusão do acordo." />
     </>
   );
 }
@@ -417,37 +398,31 @@ function SecaoMensagens() {
 
 function SecaoObjecoes() {
   const itens = [
-    { pergunta: "\u201cNão consigo pagar agora\u201d", resposta: "Entendo. Podemos avaliar a melhor alternativa dentro da política disponível para regularizar a situação." },
-    { pergunta: "\u201cDepois eu vejo isso\u201d", resposta: "Compreendo, mas quanto antes resolvermos, mais controle você terá sobre valores, prazos e regularização." },
-    { pergunta: "\u201cAchei o valor alto\u201d", resposta: "Vamos revisar a composição do débito e verificar a condição disponível conforme a política vigente." },
-    { pergunta: "\u201cQuero pensar\u201d", resposta: "Claro. Apenas reforço que a condição pode depender da política e do prazo vigente." },
-    { pergunta: "\u201cJá paguei, deve ser engano\u201d", resposta: "Sem problema, vou verificar o histórico no sistema. Pode me enviar o comprovante pra eu confirmar e regularizar rapidinho?" },
-    { pergunta: "\u201cNão fui eu quem fez o acordo\u201d", resposta: "Entendo a dúvida. Vou confirmar os dados cadastrais com você antes de seguir, pra garantir que estamos falando com a pessoa certa." },
-    { pergunta: "\u201cVou falar com meu advogado\u201d", resposta: "Sem problema, é um direito seu. Fico à disposição pra esclarecer qualquer ponto da negociação sempre que precisar." },
-    { pergunta: "\u201cA universidade não me atendeu direito\u201d", resposta: "Sinto muito por isso. Posso registrar essa observação e, enquanto isso, seguir te ajudando a resolver a pendência financeira." },
-    { pergunta: "\u201cNão reconheço essa dívida\u201d", resposta: "Entendo. Vou te passar os detalhes do débito (curso, período, valor) pra você conferir com calma antes de decidirmos o próximo passo." },
-    { pergunta: "\u201cQuero desconto maior do que o oferecido\u201d", resposta: "Consigo trabalhar dentro da política vigente. Se for um caso específico, posso encaminhar como proposta de exceção pra análise." },
-    { pergunta: "\u201cEstou desempregado(a)\u201d", resposta: "Sinto muito pela situação. Vamos ver juntos uma condição de prazo ou parcelamento que caiba no seu momento agora." },
-    { pergunta: "\u201cJá fiz acordo antes e não deu certo\u201d", resposta: "Entendo a desconfiança. Dessa vez posso te acompanhar de perto pra garantir que tudo seja registrado e cumprido corretamente." },
-    { pergunta: "\u201cPor que estou pagando 8% a mais?\u201d", resposta: "Esse valor é o honorário de cobrança, previsto em contrato quando o débito passa de 30 dias em atraso — não é uma cobrança extra criada agora, faz parte da condição já vigente." },
+    { pergunta: "“Não consigo pagar agora”", resposta: "Entendo. Podemos avaliar a melhor alternativa dentro da política disponível para regularizar a situação." },
+    { pergunta: "“Depois eu vejo isso”", resposta: "Compreendo. Quanto antes resolvermos, mais controle você terá sobre valores, prazos e regularização." },
+    { pergunta: "“Achei o valor alto”", resposta: "Vamos revisar a composição do débito e verificar a condição disponível conforme a política vigente." },
+    { pergunta: "“Quero pensar”", resposta: "Claro. Apenas reforço que a condição pode depender da política e do prazo vigente." },
+    { pergunta: "“Já paguei, deve ser engano”", resposta: "Sem problema. Vou verificar o histórico. Pode me enviar o comprovante para validarmos?" },
+    { pergunta: "“Não fui eu quem fez o acordo”", resposta: "Entendo a dúvida. Vou confirmar os dados cadastrais antes de seguir." },
+    { pergunta: "“Vou falar com meu advogado”", resposta: "Sem problema, é um direito seu. Fico à disposição para esclarecer os pontos da negociação." },
+    { pergunta: "“A universidade não me atendeu direito”", resposta: "Entendo. Posso registrar essa observação e seguir ajudando na parte financeira." },
+    { pergunta: "“Não reconheço essa dívida”", resposta: "Entendo. Vou detalhar curso, período e valores para você conferir antes de seguirmos." },
+    { pergunta: "“Quero desconto maior”", resposta: "Consigo trabalhar dentro da política vigente. Se for um caso específico, posso encaminhar como proposta de exceção para análise." },
+    { pergunta: "“Estou desempregado(a)”", resposta: "Entendo a situação. Vamos verificar uma condição possível dentro da política vigente." },
+    { pergunta: "“Já fiz acordo antes e não deu certo”", resposta: "Entendo. Vamos revisar o cenário atual e verificar o que é possível dentro das regras vigentes." },
+    { pergunta: "“Por que estou pagando 8% a mais?”", resposta: "Esse valor corresponde aos honorários de cobrança previstos para débitos acima de 30 dias, conforme a regra vigente." },
+    { pergunta: "“Não tenho cartão”", resposta: "Sem problema. Podemos verificar outras possibilidades disponíveis dentro da política vigente. Não é necessário insistir no uso de cartão de terceiros." },
+    { pergunta: "“Me chama depois”", resposta: "Claro. Qual seria o melhor horário para eu retornar e verificarmos isso com mais calma?" },
+    { pergunta: "“Achei que estava trancado/cancelado”", resposta: "Entendo. Vamos verificar como ficou a situação para orientar corretamente. Não confirme cancelamento ou trancamento sem validação." },
+    { pergunta: "“Não estou estudando mais”", resposta: "Entendo. Mesmo sem vínculo ativo, podem existir valores anteriores em aberto. Vamos verificar sua situação." },
+    { pergunta: "“Não sabia que tinha débito”", resposta: "Sem problema. Estou entrando em contato justamente para atualizar você sobre a situação e explicar os valores." },
+    { pergunta: "“Não confio em negociação por WhatsApp”", resposta: "Entendo. O atendimento deve ocorrer pelos canais oficiais da ReATIVA. Podemos confirmar os dados e orientar o procedimento pelos meios oficiais." },
   ];
   return (
     <>
-      <TituloSecao emoji="🔥" titulo="Objeções" sub="Respostas base para contornar dúvidas e objeções durante a negociação." />
-      <Aviso>
-        <strong>⚠️ Não responda de forma abreviada.</strong> Escreva as respostas por completo, com
-        atenção à ortografia — mensagens abreviadas ou com erros passam falta de profissionalismo.
-        <br />
-        <strong>🔐 A LGPD precisa ser sempre respeitada.</strong> Confirme identificação antes de tratar
-        dados financeiros, não compartilhe informações do aluno fora dos canais autorizados e siga essa
-        regra em toda e qualquer conversa, sem exceção.
-      </Aviso>
-      {itens.map((it) => (
-        <Card key={it.pergunta}>
-          <h3 style={S.h3}>{it.pergunta}</h3>
-          <p style={S.paragrafo}>{it.resposta}</p>
-        </Card>
-      ))}
+      <TituloSecao emoji="🔥" titulo="Objeções" sub="Respostas base para apoiar a negociação sem ultrapassar a política vigente." />
+      <Aviso><strong>⚠️ Use como apoio, não como texto automático.</strong> Adapte a resposta ao caso e mantenha linguagem profissional.</Aviso>
+      {itens.map((it) => <Card key={it.pergunta}><h3 style={S.h3}>{it.pergunta}</h3><p style={S.paragrafo}>{it.resposta}</p></Card>)}
     </>
   );
 }
@@ -458,18 +433,15 @@ function SecaoDuvidas() {
   const itens = [
     { p: "Posso acionar sem conferir o CRM?", r: "Não. A conferência do CRM é obrigatória antes de qualquer mensagem ou contato." },
     { p: "Quando não posso acionar?", r: "Quando houver jurídico, cancelamento, bloqueio, restrição de contato ou orientação registrada impedindo acionamento." },
-    { p: "Comprovante de cartão deve ir onde?", r: "O comprovante deve ser salvo na pasta indicada e sinalizado conforme orientação operacional vigente." },
-    { p: "E se o termo não funcionar?", r: "Encaminhe para a área responsável e sinalize no canal combinado para mapeamento e ajuste." },
+    { p: "Comprovante de cartão deve ir onde?", r: "O comprovante deve ser salvo e sinalizado conforme o procedimento operacional vigente." },
+    { p: "E se o termo não funcionar?", r: "Encaminhe para a área responsável e sinalize no canal combinado para ajuste." },
+    { p: "Onde o aluno encontra o Contrato Educacional e a Declaração de Imposto de Renda?", r: "No WebAluno: Menu → Posição Financeira → Contrato Educacional e Declaração de Imposto de Renda." },
+    { p: "Por que existe 1% de parcelamento se no link aparece “sem taxa de parcelamento”?", r: "Nas negociações parceladas, o sistema aplica 1% de encargo de parcelamento por parcela, conforme a condição da negociação. Quando o link informa “sem taxa de parcelamento”, significa que o próprio link não acrescentará uma nova taxa sobre o valor já negociado. O encargo de 1% já faz parte da condição do acordo. Não informar que esse percentual é taxa do banco, da operadora ou do estabelecimento." },
   ];
   return (
     <>
       <TituloSecao emoji="❓" titulo="Dúvidas Frequentes" />
-      {itens.map((it) => (
-        <Card key={it.p}>
-          <h3 style={S.h3}>{it.p}</h3>
-          <p style={S.paragrafo}>{it.r}</p>
-        </Card>
-      ))}
+      {itens.map((it) => <Card key={it.p}><h3 style={S.h3}>{it.p}</h3><p style={S.paragrafo}>{it.r}</p></Card>)}
     </>
   );
 }
@@ -481,27 +453,12 @@ function SecaoHonorarios() {
     <>
       <TituloSecao emoji="💰" titulo="Honorários e Taxas" />
       <div style={S.grade3}>
-        <Card style={{ textAlign: "center" }}>
-          <div style={S.numeroGrande}>8%</div>
-          <div style={S.labelNumero}>Honorários</div>
-          <p style={S.paragrafo}>Conforme política vigente para débitos acima de 30 dias.</p>
-        </Card>
-        <Card style={{ textAlign: "center" }}>
-          <div style={S.numeroGrande}>1% a.m.</div>
-          <div style={S.labelNumero}>Juros</div>
-          <p style={S.paragrafo}>Conforme regra vigente.</p>
-        </Card>
-        <Card style={{ textAlign: "center" }}>
-          <div style={S.numeroGrande}>2%</div>
-          <div style={S.labelNumero}>Multa</div>
-          <p style={S.paragrafo}>Conforme regra vigente.</p>
-        </Card>
-        <Card style={{ textAlign: "center" }}>
-          <div style={S.numeroGrande}>IGPM</div>
-          <div style={S.labelNumero}>Correção monetária</div>
-          <p style={S.paragrafo}>Aplicado conforme regra vigente do contrato.</p>
-        </Card>
+        <Card style={{ textAlign: "center" }}><div style={S.numeroGrande}>8%</div><div style={S.labelNumero}>Honorários</div><p style={S.paragrafo}>Conforme política vigente para débitos acima de 30 dias.</p></Card>
+        <Card style={{ textAlign: "center" }}><div style={S.numeroGrande}>1% a.m.</div><div style={S.labelNumero}>Juros</div><p style={S.paragrafo}>Conforme regra vigente.</p></Card>
+        <Card style={{ textAlign: "center" }}><div style={S.numeroGrande}>2%</div><div style={S.labelNumero}>Multa</div><p style={S.paragrafo}>Conforme regra vigente.</p></Card>
+        <Card style={{ textAlign: "center" }}><div style={S.numeroGrande}>IGPM</div><div style={S.labelNumero}>Correção monetária</div><p style={S.paragrafo}>Aplicado conforme regra vigente do contrato.</p></Card>
       </div>
+      <Card><h3 style={S.h3}>Como funciona a composição</h3><p style={S.paragrafo}>Quando aplicável, a composição do débito considera principal, juros, multa, correção e honorários de cobrança.</p><ul style={{...S.lista,marginTop:10}}><li><strong>À vista:</strong> honorários entram na quitação conforme a composição do pagamento.</li><li><strong>Cartão:</strong> honorários fazem parte da negociação conforme a regra vigente.</li><li><strong>Parcelamento:</strong> os honorários acompanham a composição do acordo quando aplicável.</li></ul></Card>
     </>
   );
 }
@@ -620,22 +577,10 @@ function SecaoLgpd() {
   return (
     <>
       <TituloSecao emoji="🔐" titulo="LGPD e Conduta" />
-      <Card>
-        <h3 style={S.h3}>Proteção de dados</h3>
-        <ul style={S.lista}>
-          <li>Não compartilhar dados do aluno fora dos canais autorizados.</li>
-          <li>Confirmar identificação antes de tratar informações financeiras.</li>
-          <li>Não usar número pessoal para atendimento.</li>
-        </ul>
-      </Card>
-      <Card>
-        <h3 style={S.h3}>Conduta no acionamento</h3>
-        <ul style={S.lista}>
-          <li>Verificar histórico antes de acionar.</li>
-          <li>Não acionar casos com jurídico, cancelamento ou bloqueio.</li>
-          <li>Registrar a tratativa no CRM.</li>
-        </ul>
-      </Card>
+      <Card><h3 style={S.h3}>Confirmação e proteção de dados</h3><ul style={S.lista}><li>Confirmar os 3 primeiros dígitos do CPF antes de tratar informações financeiras ou acadêmicas.</li><li>Não compartilhar dados do aluno fora dos canais autorizados.</li><li>Não expor CPF completo.</li><li>Não usar número pessoal para atendimento.</li></ul></Card>
+      <Card><h3 style={S.h3}>Atendimento a terceiros</h3><p style={S.paragrafo}>Informações devem ser tratadas diretamente com o titular. Não informar a terceiros valores, boletos, contratos, dados acadêmicos, acordos, telefones, e-mails cadastrados ou outras informações financeiras.</p><p style={{...S.paragrafo,marginTop:10}}><strong>Resposta de apoio:</strong> “Por questões de segurança e proteção de dados, as informações podem ser tratadas apenas diretamente com o titular.”</p></Card>
+      <Card><h3 style={S.h3}>Segurança da informação</h3><ul style={S.lista}><li>Não compartilhar acessos internos.</li><li>Não salvar dados em aparelhos pessoais.</li><li>Não enviar dados em grupos.</li><li>Conferir o destinatário antes de enviar documentos.</li><li>Bloquear a tela ao se afastar.</li></ul></Card>
+      <Card><h3 style={S.h3}>Conduta no acionamento</h3><ul style={S.lista}><li>Verificar histórico antes de acionar.</li><li>Não acionar casos com jurídico, cancelamento ou bloqueio.</li><li>Registrar a tratativa no CRM.</li><li>Não prometer condições sem aprovação.</li><li>Não utilizar linguagem agressiva ou constrangedora.</li></ul></Card>
     </>
   );
 }
@@ -665,16 +610,33 @@ function SecaoIndicadores() {
   );
 }
 
-/* ===================== Sistemas Utilizados ===================== */
+/* ===================== Sistemas e Acessos ===================== */
 
 function SecaoSistemas() {
+  const sistemas = [
+    { emoji: "🟢", titulo: "ReATIVA One", desc: "Sistema operacional da ReATIVA para carteira, atendimentos, negociações, retornos e procedimentos.", href: "/" },
+    { emoji: "💬", titulo: "CRM de Mensageria", desc: "CRM utilizado para mensageria e consultas relacionadas aos contatos da operação.", href: "https://crm.ulbra.ai/" },
+    { emoji: "✉️", titulo: "Gmail", desc: "Acesso ao e-mail institucional e aos envios realizados pela conta Google autorizada.", href: "https://mail.google.com/" },
+    { emoji: "📌", titulo: "Prime", desc: "Utilizado para consulta, confirmação de acordos e procedimentos relacionados.", href: null },
+  ];
   return (
     <>
-      <TituloSecao emoji="🚀" titulo="Sistemas Utilizados" />
-      <Card>
-        <h3 style={S.h3}>📌 Prime</h3>
-        <p style={S.paragrafo}>Utilizado para confirmação de acordos e procedimentos relacionados.</p>
-      </Card>
+      <TituloSecao emoji="🚀" titulo="Sistemas e Acessos" sub="Acessos utilizados no dia a dia da operação." />
+      <div style={S.grade3}>{sistemas.map((s)=><Card key={s.titulo}><div style={{fontSize:24,marginBottom:8}}>{s.emoji}</div><h3 style={S.h3}>{s.titulo}</h3><p style={S.paragrafo}>{s.desc}</p>{s.href?<a href={s.href} target={s.href.startsWith("http")?"_blank":undefined} rel="noreferrer" style={{...S.botaoSecundario,marginTop:12}}>Abrir</a>:<p style={S.observacao}>Utilize o acesso oficial disponibilizado para a equipe.</p>}</Card>)}</div>
+    </>
+  );
+}
+
+function SecaoLinks() {
+  const links = [
+    {titulo:"CRM de Mensageria",href:"https://crm.ulbra.ai/"},
+    {titulo:"Gmail",href:"https://mail.google.com/"},
+    {titulo:"Cálculo de desconto",href:"https://docs.google.com/spreadsheets/d/19g0v1kikqvMLTHEIZHTg8NKUt6TOxdv2Aiyk41L1Tf4/edit?usp=sharing"},
+  ];
+  return (
+    <>
+      <TituloSecao emoji="🔗" titulo="Links Úteis" />
+      <div style={S.grade3}>{links.map(l=><Card key={l.titulo}><h3 style={S.h3}>{l.titulo}</h3><a href={l.href} target="_blank" rel="noreferrer" style={S.botaoSecundario}>Abrir</a></Card>)}</div>
     </>
   );
 }
@@ -714,17 +676,14 @@ function SecaoBiblioteca({ ir }) {
 /* ===================== Contatos Úteis ===================== */
 
 function SecaoContatos() {
+  const telefones = [["ReATIVA","(51) 99274-1192"],["J.A. Rezende","(51) 2117-9521"],["Cobrafix","0800 888 0097"],["Central de Relacionamento","Mesmo número da ReATIVA"],["Ramal Central de Relacionamento","101"],["Portaria Prédio 10","2278"],["Comercial","102"],["Central de Relacionamento presencial","3576"]];
+  const unidades = [["Cachoeira do Sul",["ulbracachoeiradosul@ulbra.br"]],["Canoas",["financeiroacademico.canoas@ulbra.br"]],["Carazinho",["financeiro.czo@ulbra.br","secgeral.czo@ulbra.br"]],["EAD",["financeiro.ead@ulbra.br"]],["Gravataí",["financeiroacademico.canoas@ulbra.br"]],["Guaíba",["tanisa.nogueira@ulbra.br"]],["Itumbiara",["guilherme.nascimento@ulbra.br","coordfinanc.itb@ulbra.br"]],["Manaus",["financeiro.ceulm@ulbra.br","secretariamao@ulbra.br"]],["Palmas",["patricia.dasilva@ulbra.br"]],["Porto Alegre",["financeiroacademico.canoas@ulbra.br"]],["Santa Maria",["cristiane.rodrigues@ulbra.br"]],["Santarém",["eunice.silva@ulbra.br","tesouraria.stm@ulbra.br"]],["São Jerônimo",["daniel.geremias@ulbra.br"]],["Torres",["tesourariator@ulbra.br"]]];
   return (
     <>
-      <TituloSecao emoji="☎️" titulo="Contatos Úteis" />
-      <Card>
-        <h3 style={S.h3}>Supervisão / Gestão</h3>
-        <p style={S.paragrafo}>Dúvidas de política, exceções, conduta e direcionamentos operacionais.</p>
-      </Card>
-      <Card>
-        <h3 style={S.h3}>Administrativo</h3>
-        <p style={S.paragrafo}>Termos, links, comprovantes, ajustes e procedimentos administrativos.</p>
-      </Card>
+      <TituloSecao emoji="☎️" titulo="Contatos Úteis" sub="Telefones, ramais e e-mails de apoio à operação." />
+      <div style={S.grade3}><Card><h3 style={S.h3}>Supervisão / Gestão</h3><p style={S.paragrafo}>Dúvidas de política, exceções, conduta e direcionamentos operacionais.</p></Card><Card><h3 style={S.h3}>Administrativo</h3><p style={S.paragrafo}>Termos, links, comprovantes, ajustes e procedimentos administrativos.</p></Card></div>
+      <Card><h3 style={S.h3}>Telefones e ramais</h3><table style={S.tabela}><tbody>{telefones.map(([n,c])=><tr key={n}><td style={S.td}><strong>{n}</strong></td><td style={S.td}>{c}</td></tr>)}</tbody></table></Card>
+      <Card><h3 style={S.h3}>E-mails por unidade</h3><div style={S.grade3}>{unidades.map(([u,emails])=><div key={u} style={S.contatoUnidade}><strong>{u}</strong>{emails.map(e=><a key={e} href={`mailto:${e}`} style={S.linkContato}>{e}</a>)}</div>)}</div></Card>
     </>
   );
 }
@@ -1101,6 +1060,11 @@ const S = {
 
   labelCampo: { fontSize: 12.5, fontWeight: 700, color: "var(--rv-texto)" },
   input: { padding: "9px 12px", borderRadius: 10, border: `1px solid ${BORDA}`, fontSize: 13.5, fontFamily: "inherit" },
+  cardCompetencia: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)" },
+  competenciaTopo: { fontSize: 12, fontWeight: 800, color: "var(--rv-azul-texto)", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 6 },
+  competenciaValor: { fontFamily: FONTE_TITULO, fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", marginBottom: 6 },
+  contatoUnidade: { border: "1px solid var(--rv-borda-suave)", borderRadius: 10, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 5, background: "var(--rv-superficie)" },
+  linkContato: { color: VERDE_ESCURO, fontSize: 12.5, textDecoration: "none", wordBreak: "break-word" },
 
   cardFrase: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)" },
   frase: { fontFamily: FONTE_TITULO, fontSize: 14.5, color: VERDE_ESCURO, fontWeight: 700, margin: 0, lineHeight: 1.4 },
