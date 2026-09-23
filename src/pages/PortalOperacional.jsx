@@ -255,8 +255,8 @@ function SecaoInicio({ ir }) {
         </Card>
         <Card style={S.statusCard}>
           <span style={S.statusRotulo}>Prioridade de negociação</span>
-          <strong style={S.statusValorMenor}>Mensalidades primeiro</strong>
-          <span style={S.statusDescricao}>Depois, acordos e demais situações aplicáveis.</span>
+          <strong style={S.statusValorMenor}>Acordos primeiro</strong>
+          <span style={S.statusDescricao}>Sempre priorize acordos antes das mensalidades.</span>
         </Card>
         <Card style={S.statusCard}>
           <span style={S.statusRotulo}>Regra de ouro</span>
@@ -495,6 +495,10 @@ function SecaoMensagens() {
       <BlocoCopiar titulo="⏱️ Alta demanda" texto="Devido à alta demanda, nosso tempo de resposta pode estar maior do que o habitual. Agradecemos sua compreensão e estamos trabalhando para atendê-lo o mais breve possível." />
       <BlocoCopiar titulo="📅 Vencimento hoje" texto="Olá! Passando para lembrar que o vencimento do seu boleto é hoje. Para evitar encargos e manter o acordo em dia, orientamos que o pagamento seja realizado dentro do vencimento. Qualquer dúvida, estamos à disposição." />
       <BlocoCopiar titulo="💰 Solicitação de desconto" texto="Entendemos sua solicitação. As condições disponíveis seguem a política de negociação vigente. Vou verificar a melhor possibilidade disponível para o seu caso." />
+      <BlocoCopiar
+        titulo="💳 Acordo em aberto / sem condição de quitação"
+        texto="Identificamos parcelas em aberto do seu acordo. Para regularização, as condições disponíveis são pagamento à vista ou no cartão de crédito, conforme a política vigente. Não realizamos novo parcelamento do acordo em boleto. Caso você não consiga quitar o saldo total agora, podemos seguir com o pagamento das parcelas individualmente, uma a uma. Importante: enquanto houver parcelas vencidas, a matrícula não será liberada."
+      />
       <BlocoCopiar titulo="📝 Proposta de exceção em análise" texto="Olá! Recebemos sua solicitação e a proposta foi encaminhada para análise. Assim que houver retorno, informaremos se a condição foi aprovada. Caso aprovada, seguiremos com as próximas etapas necessárias para conclusão do acordo." />
       <BlocoCopiar
         titulo="🎓 Matrícula / rematrícula"
@@ -528,11 +532,11 @@ function SecaoObjecoes() {
     },
     {
       pergunta: "Não tenho cartão",
-      principal: "Sem problema. Podemos verificar outras possibilidades de negociação dentro da política vigente.",
-      alternativa: "Vamos avaliar qual forma de pagamento disponível pode funcionar melhor para o seu caso.",
-      firme: "O importante é encontrarmos uma alternativa viável dentro das condições disponíveis.",
-      objetivo: "Identificar alternativas sem gerar desconforto.",
-      atencao: "Não insistir no uso de cartão de terceiros."
+      principal: "Entendo. Para acordos, o parcelamento em boleto não é permitido. As condições são pagamento à vista ou cartão de crédito, conforme a política vigente.",
+      alternativa: "Se você não conseguir quitar o saldo total agora, podemos verificar o pagamento das parcelas individualmente, uma a uma.",
+      firme: "Enquanto houver parcelas vencidas do acordo, a matrícula não será liberada.",
+      objetivo: "Apresentar a alternativa permitida sem criar uma condição fora da política.",
+      atencao: "Não oferecer reparcelamento do acordo em boleto e não insistir no uso de cartão de terceiros."
     },
     {
       pergunta: "Me chama depois",
@@ -621,10 +625,10 @@ function SecaoObjecoes() {
     },
     {
       pergunta: "Só consigo parcelado",
-      principal: "Sem problema. Posso verificar as possibilidades de parcelamento disponíveis para o seu caso.",
-      alternativa: "Vamos avaliar as opções previstas na política vigente.",
-      objetivo: "Direcionar para uma solução viável.",
-      atencao: "Respeitar a política de negociação."
+      principal: "Vamos verificar primeiro se a pendência é de mensalidade ou de acordo, porque as condições são diferentes.",
+      alternativa: "Se for acordo, não podemos reparcelar em boleto. A regularização é à vista ou no cartão; sem condição de quitação total, podemos oferecer o pagamento das parcelas individualmente.",
+      objetivo: "Aplicar a condição correta conforme o tipo da dívida.",
+      atencao: "Em acordos, não oferecer novo parcelamento em boleto. Havendo parcelas vencidas, sinalizar que a matrícula não será liberada."
     },
     {
       pergunta: "Não tenho limite",
@@ -807,7 +811,8 @@ function SecaoDuvidas() {
     { p: "Comprovante de cartão deve ir onde?", r: "O comprovante deve ser salvo e sinalizado conforme o procedimento operacional vigente." },
     { p: "E se o termo não funcionar?", r: "Encaminhe para a área responsável e sinalize no canal combinado para ajuste." },
     { p: "Por que existe 1% de parcelamento se no link aparece “sem taxa de parcelamento”?", r: "Nas negociações parceladas, o sistema aplica 1% de encargo de parcelamento por parcela, conforme a condição da negociação. Quando o link informa “sem taxa de parcelamento”, significa que o próprio link não acrescentará uma nova taxa sobre o valor já negociado. Não informar que esse percentual é taxa do banco, da operadora ou do estabelecimento." },
-    { p: "Qual a prioridade de negociação: mensalidades ou acordos?", r: "Sempre priorizar as mensalidades." },
+    { p: "Qual a prioridade de negociação: mensalidades ou acordos?", r: "Sempre priorizar os acordos. Se houver acordo em aberto ou vencido, trate o acordo antes das mensalidades." },
+    { p: "Como negociar um acordo em aberto ou vencido?", r: "Primeiro consulte a Política de Negociação. Acordos não podem ser reparcelados em boleto: a regularização deve ser à vista ou no cartão de crédito. Se o aluno não tiver condição de quitar o saldo nessas modalidades, ofereça o pagamento das parcelas individualmente, uma a uma. Enquanto houver parcelas vencidas, a matrícula não será liberada." },
     { p: "Enviei um template no CRM. Como confirmar o envio?", r: "Feche o cadastro do aluno, abra novamente e confirme se a mensagem ficou registrada como enviada." },
     { p: "O aluno diz que está processando a Ulbra. O que fazer?", r: "Solicitar sempre o número do processo e encaminhar para Amanda ADM. Não discutir o processo nem emitir opinião jurídica." },
   ];
@@ -1010,7 +1015,11 @@ function SecaoRotina() {
     {
       titulo: "Negociação",
       itens: [
-        "Priorizar sempre mensalidades antes de acordos.",
+        "Priorizar sempre acordos antes de mensalidades.",
+        "Na negociação de acordos, consultar a Política de Negociação antes de apresentar qualquer condição.",
+        "Acordos não podem ser reparcelados em boleto: somente pagamento à vista ou cartão de crédito.",
+        "Se o aluno não tiver condição, oferecer o pagamento das parcelas individualmente, uma a uma.",
+        "Enquanto houver parcelas vencidas do acordo, a matrícula não será liberada.",
         "Nunca incluir parcelas de matrícula nas negociações.",
         "No Tipo de Parcela, diferenciar corretamente: Acordo, Matrícula ou Mensalidade.",
       ],
