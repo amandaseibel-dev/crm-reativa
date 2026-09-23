@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import ResolverEmConfirmacao from "./ResolverEmConfirmacao";
+import { pedirMotivo } from "../utils/emConfirmacao";
 import { origemDoAcordo } from "../utils/origemDoAcordo";
 import { podeGerirFinanceiro, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
 // A regra de lancar acordo mora em um lugar so -- a ficha e a tela de
@@ -862,6 +864,21 @@ export default function FinanceiroAluno({ aluno }) {
     });
   }
 
+  // TIRAR DE DUPLICADA. `titulo_desfazer_duplicada` existe no banco desde a
+  // marcacao de duplicidade e nunca teve botao em tela nenhuma -- o titulo
+  // entrava em "Fora da conta" e nao havia, em lugar algum do sistema, como
+  // tirar. Ela exige gestao, so age em titulo DUPLICADA, escreve o motivo no
+  // historico do titulo e registra a movimentacao.
+  async function desfazerDuplicada(titulo) {
+    const motivo = pedirMotivo(
+      `Tirar o boleto ${titulo.documento} de duplicada?\n\nEle volta a contar como dívida e pode entrar em acordo.\n\nPor que ele não é duplicado?`);
+    if (!motivo) return;
+    const { error } = await supabase.rpc("titulo_desfazer_duplicada",
+      { p_titulo_id: titulo.id, p_motivo: motivo });
+    if (error) { alert("Não foi possível tirar de duplicada: " + error.message); return; }
+    setRecarga((r) => r + 1);
+  }
+
   function gerarParcelasNovo() {
     const r = gerarParcelasAcordo(novo);
     if (r.erro) { alert(r.erro); return; }
@@ -1155,13 +1172,21 @@ export default function FinanceiroAluno({ aluno }) {
   // sinal do vinculo.
   // Titulo EM_CONFIRMACAO (Conferencia Prime) tambem fica fora: saiu da
   // cobranca enquanto a gestao decide se a liquidacao da Prime vale.
+  // CANCELADA e DUPLICADA saem do total (23/09/2026). A fonte canonica --
+  // `aluno_saldo_pendente_detalhe` -- so conta ABERTO e NEGOCIADO, mas esta
+  // lista somava as duas: 349 titulos cancelados (R$ 2.477.168,16) e 135
+  // duplicados (R$ 130.669,12), em 184 alunos. O duplicado chegava a exibir a
+  // etiqueta "Fora da conta" e entrar na conta na mesma linha.
   const emAberto = titulos.filter(
     (t) =>
       t.situacao !== "PAGO" &&
       t.situacao !== "NEGOCIADO" &&
       t.situacao !== "EM_CONFIRMACAO" &&
+      t.situacao !== "CANCELADA" &&
+      t.situacao !== "DUPLICADA" &&
       t.status !== "vinculada" &&
       t.status !== "quitada" &&
+      t.status !== "cancelada" &&
       !t.acordo_id
   );
   // Valor operacional: o ajuste cobravel quando existir, senao a regra de
@@ -1612,6 +1637,10 @@ export default function FinanceiroAluno({ aluno }) {
             {titulos.map((titulo) => {
               const pago = titulo.situacao === "PAGO" || titulo.status === "quitada";
               const duplicada = String(titulo.situacao || "").toUpperCase() === "DUPLICADA";
+              // Cancelada caia no "else" e aparecia como "Em aberto" -- 349
+              // titulos, R$ 2.477.168,16, com a etiqueta de quem ainda deve.
+              const cancelada = String(titulo.situacao || "").toUpperCase() === "CANCELADA"
+                || String(titulo.status || "").toLowerCase() === "cancelada";
               const emConfirmacao = String(titulo.situacao || "").toUpperCase() === "EM_CONFIRMACAO";
               // Reconhece o vinculo por qualquer um dos tres sinais: o
               // gatilho grava situacao=NEGOCIADO + status=vinculada, mas ha
@@ -1640,10 +1669,35 @@ export default function FinanceiroAluno({ aluno }) {
                       Vencimento: {formatarData(titulo.vencimento)}
                       {vencida ? <span style={estilos.marcaVencida}>• vencida</span> : null}
                     </div>
+                    {/* A SAIDA, NA PROPRIA LINHA (23/09/2026). Antes havia so
+                        um aviso dizendo que OUTRA tela ia decidir -- sem dizer
+                        qual, sem link e sem botao. Amanda: "nao conseguir
+                        movimentar os titulos do aluno preso em algo que nao sei
+                        onde corrigir e preciso andar em circulos". As acoes sao
+                        as mesmas RPCs da Conferencia Prime, com as mesmas
+                        travas: nada decide por aqui. */}
                     {emConfirmacao && (
                       <div style={estilos.subLinha}>
-                        Fora da cobrança: a Prime registra liquidação e a Conferência Prime
-                        ainda vai decidir — não somada no total
+                        <div>Fora da cobrança enquanto a liquidação da Prime não for decidida — não somada no total.</div>
+                        <ResolverEmConfirmacao
+                          alunoId={aluno?.id}
+                          tituloId={titulo.id}
+                          podeDecidir={podeBaixar}
+                          compacto
+                          onResolvido={() => setRecarga((r) => r + 1)}
+                        />
+                      </div>
+                    )}
+                    {duplicada && (
+                      <div style={estilos.subLinha}>
+                        <div>Marcada como duplicada: fora da conta e fora de qualquer acordo.</div>
+                        {podeBaixar && (
+                          <button type="button" style={{ ...estilos.botaoPequeno, padding: "4px 10px", marginTop: 4 }}
+                            onClick={() => desfazerDuplicada(titulo)}
+                            title="Volta a contar como dívida e passa a poder entrar em acordo. Pede o motivo, que fica no histórico.">
+                            Tirar de duplicada
+                          </button>
+                        )}
                       </div>
                     )}
                     {negociada && (
@@ -1674,9 +1728,10 @@ export default function FinanceiroAluno({ aluno }) {
                         {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
                       </div>
                     )}
-                    <span style={{ ...estilos.tagBase, background: duplicada || emConfirmacao ? "var(--rv-borda)" : cor.bg,
-                                   color: duplicada || emConfirmacao ? "var(--rv-texto)" : cor.texto }}>
+                    <span style={{ ...estilos.tagBase, background: duplicada || emConfirmacao || cancelada ? "var(--rv-borda)" : cor.bg,
+                                   color: duplicada || emConfirmacao || cancelada ? "var(--rv-texto)" : cor.texto }}>
                       {duplicada ? "Fora da conta"
+                        : cancelada ? "Cancelada"
                         : emConfirmacao ? "Em confirmação"
                         : pago ? "Quitada" : negociada ? "Negociado" : "Em aberto"}
                     </span>

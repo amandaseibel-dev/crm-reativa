@@ -30,6 +30,7 @@ import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import { listarMeses } from "../utils/mesesConferencia";
 import Aluno from "./Aluno";
+import ResolverEmConfirmacao from "../components/ResolverEmConfirmacao";
 
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const curta = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "-");
@@ -56,10 +57,6 @@ const TIPOS = [
   { chave: "TUDO",        rotulo: "Tudo",            dica: "Inclui tambem quem ja esta resolvido, para conferir o conjunto." },
 ];
 
-// O efeito que o backend vai produzir. So estes dois aceitam vinculo: oferecer
-// o botao em ACORDO_SEM_DINHEIRO_REAL ou ACORDO_CANCELADO seria prometer o que
-// `prime_conferencia_vincular` recusa.
-const EFEITO_VINCULA = new Set(["VIRA_PAGO", "VIRA_NEGOCIADO"]);
 
 const FAIXAS = [
   { min: 0, rotulo: "Qualquer valor" },
@@ -94,10 +91,9 @@ export default function ConferenciaPagamentos() {
   const [desfazer, setDesfazer] = useState(null);
   const [placar, setPlacar] = useState({ n: 0, valor: 0 });
   const [fichaId, setFichaId] = useState(null);
-  // Titulo EM_CONFIRMACAO aberto na propria linha -- sem trocar de tela.
+  // So qual linha esta aberta. Carregar, decidir e recarregar sao do
+  // componente ResolverEmConfirmacao -- o mesmo que a ficha do aluno usa.
   const [emConfAberto, setEmConfAberto] = useState(null);
-  const [emConf, setEmConf] = useState({});
-  const [decidindo, setDecidindo] = useState(null);
   const buscaRef = useRef(null);
 
   const carregar = useCallback(async () => {
@@ -348,86 +344,18 @@ export default function ConferenciaPagamentos() {
     return () => window.removeEventListener("keydown", onKey);
   }, [visiveis, alvo, fichaId, desfazer, desfazerAgora]);
 
-  // RESOLVER O TITULO EM CONFIRMACAO AQUI.
-  //
-  // Amanda, 23/09/2026: "precisa ser facil fazer as coisas, em um lugar so".
-  // O caso do Gabriel Malaman exigia tres telas -- e o aluno nem aparecia aqui,
-  // porque o titulo em confirmacao zera o saldo e o saldo zerado excluia a
-  // linha. A fila passou a mostrar; estes botoes fazem a decisao acontecer sem
-  // sair dela.
-  //
-  // NENHUMA REGRA NOVA: sao as mesmas RPCs da Conferencia Prime, com as mesmas
-  // travas (acordo quitado sem dinheiro real e recusado; pagamento ja baixado
-  // nao pode ser "seguido") e o mesmo motivo obrigatorio, que fica na auditoria.
-  const carregarEmConf = useCallback(async (alunoId) => {
-    const { data, error } = await supabase.rpc("conferencia_em_confirmacao_do_aluno", { p_aluno_id: alunoId });
-    setEmConf((m) => ({ ...m, [alunoId]: { carregando: false, itens: data || [], erro: error?.message || "" } }));
-    return data || [];
+  // Abrir/fechar o caso na linha; a decisao em si e do componente.
+  const abrirEmConf = useCallback((l) => {
+    const chave = chaveDe(l);
+    setEmConfAberto((atual) => (atual === chave ? null : chave));
   }, []);
 
-  const abrirEmConf = useCallback(async (l) => {
-    const chave = chaveDe(l);
-    if (emConfAberto === chave) { setEmConfAberto(null); return; }
-    setEmConfAberto(chave);
-    if (!l.aluno_id || emConf[l.aluno_id]?.itens) return;
-    setEmConf((m) => ({ ...m, [l.aluno_id]: { carregando: true } }));
-    await carregarEmConf(l.aluno_id);
-  }, [emConfAberto, emConf, carregarEmConf]);
-
-  // Motivo escrito: as RPCs recusam abaixo de 10 caracteres, entao a tela pede
-  // antes de gastar a ida ao banco -- e o texto e o que fica registrado.
-  function pedirMotivo(pergunta, minimo) {
-    const t = window.prompt(pergunta);
-    if (t === null) return null;
-    const limpo = String(t).trim();
-    if (limpo.length < minimo) {
-      alert(`Escreva o motivo com pelo menos ${minimo} caracteres — é ele que fica na auditoria.`);
-      return null;
-    }
-    return limpo;
-  }
-
-  async function decidirEmConf(l, item, acao) {
-    if (decidindo) return;
-    let motivo = null;
-    if (acao === "VINCULAR") {
-      const pergunta = `${item.efeito_texto}\n\nVincular o boleto ${item.documento} (${moeda(item.valor)}) ao acordo ${item.acordo_numero}?\n\nPor que este acordo cobre esta mensalidade?`;
-      if (item.exige_motivo) { motivo = pedirMotivo(pergunta, 10); if (!motivo) return; }
-      else if (!window.confirm(pergunta)) return;
-    } else if (acao === "SEGUIR") {
-      motivo = pedirMotivo(
-        `O boleto ${item.documento} volta ao fluxo oficial de pagamento e sai desta fila; o motor conclui. Nada é marcado pago aqui.\n\nPor que este pagamento é deste título?`, 10);
-      if (!motivo) return;
-    } else {
-      motivo = pedirMotivo(
-        `Rejeitar: o boleto ${item.documento} (${moeda(item.valor)}) volta a ser cobrado, em aberto. A mesma evidência não o traz de volta.\n\nPor que a liquidação não vale?`, 10);
-      if (!motivo) return;
-    }
-    setDecidindo(item.titulo_id);
-    try {
-      let r;
-      if (acao === "VINCULAR") {
-        r = await supabase.rpc("prime_conferencia_vincular",
-          { p_titulo_id: item.titulo_id, p_acordo_id: item.acordo_id, p_observacao: motivo });
-      } else if (acao === "SEGUIR") {
-        r = await supabase.rpc("prime_conferencia_seguir_pagamento",
-          { p_titulo_id: item.titulo_id, p_pagamento_id: item.pagamento_id, p_motivo: motivo });
-      } else {
-        r = await supabase.rpc("prime_conferencia_rejeitar",
-          { p_titulo_id: item.titulo_id, p_motivo: motivo });
-      }
-      if (r.error) throw r.error;
-      // A linha acompanha: o que saiu da pendencia sai do contador, sem F5.
-      const restantes = await carregarEmConf(l.aluno_id);
-      const v = restantes.reduce((soma, x) => soma + Number(x.valor || 0), 0);
-      setLinhas((ls) => ls.map((x) => (x.aluno_id === l.aluno_id
-        ? { ...x, qtd_em_confirmacao: restantes.length, em_confirmacao: v } : x)));
-    } catch (e) {
-      alert("Não foi possível concluir: " + (e?.message || String(e)));
-    } finally {
-      setDecidindo(null);
-    }
-  }
+  // Quando o componente resolve, a linha acompanha sem F5.
+  const aoResolverEmConf = useCallback((alunoId, restantes) => {
+    const v = restantes.reduce((soma, x) => soma + Number(x.valor || 0), 0);
+    setLinhas((ls) => ls.map((x) => (x.aluno_id === alunoId
+      ? { ...x, qtd_em_confirmacao: restantes.length, em_confirmacao: v } : x)));
+  }, []);
 
   const rotuloFaixa = FAIXAS.find((f) => f.min === faixa)?.rotulo || "Tudo";
 
@@ -550,7 +478,6 @@ export default function ConferenciaPagamentos() {
               const conf = confirmando?.chave === chave ? confirmando.acao : null;
               const vinc = vinculando?.chave === chave ? vinculando : null;
               const semDono = l.tipo === "SEM_VINCULO";
-              const det = l.aluno_id ? emConf[l.aluno_id] : null;
               const abertoEmConf = emConfAberto === chave && !semDono;
               return (
                 <Fragment key={chave}>
@@ -726,56 +653,10 @@ export default function ConferenciaPagamentos() {
                 {abertoEmConf ? (
                   <tr>
                     <td colSpan={8} style={celulaEmConf}>
-                      {det?.carregando ? (
-                        <span style={sub}>Carregando o que está em confirmação…</span>
-                      ) : det?.erro ? (
-                        <span style={{ ...sub, color: "var(--rv-vermelho-texto)" }}>{det.erro}</span>
-                      ) : !det?.itens?.length ? (
-                        <span style={sub}>Nada em confirmação para esta pessoa.</span>
-                      ) : (
-                        det.itens.map((item) => (
-                          <div key={item.titulo_id} style={itemEmConf}>
-                            <div style={{ minWidth: 260, flex: 1 }}>
-                              <div style={{ fontSize: 12.5, fontWeight: 800, color: "var(--rv-texto-forte)" }}>
-                                Boleto {item.documento} · venc. {curta(item.vencimento)} · {moeda(item.valor)}
-                              </div>
-                              {/* O que o clique VAI fazer, dito pelo banco e nao pela tela:
-                                  quem decide e vincular_titulos_acordo + a trava do acordo
-                                  quitado sem dinheiro real. */}
-                              <div style={sub}>{item.efeito_texto}</div>
-                              <div style={sub}>
-                                {item.dias_pendente} dia{item.dias_pendente === 1 ? "" : "s"} parado
-                                {item.pagamento_data
-                                  ? ` · pagamento ${curta(item.pagamento_data)} de ${moeda(item.pagamento_valor)}${item.pagamento_status ? ` (${String(item.pagamento_status).toLowerCase()})` : ""}`
-                                  : ""}
-                              </div>
-                            </div>
-                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                              {EFEITO_VINCULA.has(item.efeito) ? (
-                                <button type="button"
-                                  style={decidindo === item.titulo_id ? S.btnBusy : btnResolver}
-                                  disabled={!!decidindo}
-                                  onClick={() => decidirEmConf(l, item, "VINCULAR")}
-                                  title={item.efeito_texto}>
-                                  {item.efeito === "VIRA_PAGO" ? "Vincular e quitar" : "Vincular"} acordo {item.acordo_numero}
-                                </button>
-                              ) : null}
-                              {item.pode_seguir_pagamento ? (
-                                <button type="button" style={btnJaTratado} disabled={!!decidindo}
-                                  onClick={() => decidirEmConf(l, item, "SEGUIR")}
-                                  title="O título volta ao fluxo oficial de pagamento e o motor conclui. Nada é marcado pago aqui.">
-                                  Seguir pagamento
-                                </button>
-                              ) : null}
-                              <button type="button" style={btnNao} disabled={!!decidindo}
-                                onClick={() => decidirEmConf(l, item, "REJEITAR")}
-                                title="A liquidação não vale: o título volta a ser cobrado, em aberto.">
-                                Rejeitar
-                              </button>
-                            </div>
-                          </div>
-                        ))
-                      )}
+                      <ResolverEmConfirmacao
+                        alunoId={l.aluno_id}
+                        onResolvido={(restantes) => aoResolverEmConf(l.aluno_id, restantes)}
+                      />
                     </td>
                   </tr>
                 ) : null}
@@ -877,14 +758,6 @@ const seloEmConf = {
 const celulaEmConf = {
   padding: "8px 14px 10px", background: "var(--rv-fundo-suave)",
   borderTop: "1px solid var(--rv-borda-forte)",
-};
-const itemEmConf = {
-  display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
-  padding: "7px 0", borderTop: "1px solid var(--rv-borda-forte)",
-};
-const btnResolver = {
-  background: "#0f766e", color: "#fff", border: "none", borderRadius: 8,
-  padding: "5px 13px", fontSize: 12, fontWeight: 800, cursor: "pointer",
 };
 const btnVincular = {
   background: "#9a3412", color: "#fff", border: "none", borderRadius: 8,
