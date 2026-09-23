@@ -44,7 +44,7 @@ const SECOES = [
   {
     grupo: "Operação",
     itens: [
-      { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime planilha sistema acesso link ferramenta" },
+      { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime folya nota fiscal prestação serviços comissão pix conta planilha sistema acesso link ferramenta" },
       { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico giovana bruno unidade adm financeiro contato" },
       { id: "meta", label: "🎯 Meta do Mês", keywords: "meta comissão honorário projeção resultado mês" },
       { id: "indicadores", label: "📊 Indicadores", keywords: "indicador contato acordo link termo baixa resultado" },
@@ -1659,6 +1659,7 @@ function SecaoSistemas() {
     { emoji: "💬", titulo: "CRM de Mensageria", tipo: "MENSAGERIA", desc: "Envio e consulta de mensagens e contatos relacionados à operação.", href: "https://crm.ulbra.ai/" },
     { emoji: "✉️", titulo: "Gmail", tipo: "E-MAIL", desc: "Canal institucional e alternativa de contato quando necessário.", href: "https://mail.google.com/" },
     { emoji: "📌", titulo: "Prime", tipo: "FINANCEIRO", desc: "Consulta e confirmação de informações financeiras e de acordos.", href: null },
+    { emoji: "🧾", titulo: "Folya", tipo: "NOTAS DE SERVIÇO", desc: "Sistema utilizado pelo prestador para envio das informações da comissão, documento assinado e nota fiscal de prestação de serviços.", href: "https://app.getfolya.com/prestador" },
   ];
 
   return (
@@ -1693,6 +1694,79 @@ function SecaoSistemas() {
           </Card>
         ))}
       </div>
+
+      <TituloSecao
+        emoji="🧾"
+        titulo="Folya — envio da nota de prestação de serviços"
+        sub="Procedimento mensal para validação da comissão, assinatura do documento e envio da nota."
+      />
+
+      <Aviso>
+        <strong>Regra principal:</strong> não emita nem envie a nota fiscal antes de receber o documento da comissão
+        validado e assinado digitalmente pela Angela.
+      </Aviso>
+
+      <Card>
+        <span style={S.cardTag}>FLUXO DO FECHAMENTO</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>1. Validar o fechamento enviado pela gestão</h3>
+        <ol style={S.listaOrdenada}>
+          <li>Ao final do mês, a gestão encaminha o fechamento da comissão.</li>
+          <li>Confira os valores e valide se o fechamento está correto.</li>
+          <li>Se houver divergência, informe a gestão antes de qualquer envio no Folya.</li>
+          <li>A gestão fará o ajuste necessário e encaminhará novamente para validação.</li>
+          <li>Depois de validado, o documento da comissão será enviado à Angela para assinatura digital.</li>
+        </ol>
+      </Card>
+
+      <Card>
+        <span style={S.cardTag}>PREENCHIMENTO NO FOLYA</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>2. Enviar as informações no sistema</h3>
+        <p style={S.paragrafo}>
+          O <strong>valor contratual já consta no Folya</strong>. Por isso, no primeiro campo deve ser informado
+          somente o <strong>valor da comissão</strong>.
+        </p>
+        <ol style={{ ...S.listaOrdenada, marginTop: 12 }}>
+          <li>
+            No primeiro campo, informe o <strong>valor da comissão</strong>.
+          </li>
+          <li>
+            Anexe o <strong>documento da comissão já validado e assinado digitalmente pela Angela</strong>.
+          </li>
+          <li>
+            No próximo anexo, envie a sua <strong>nota fiscal de prestação de serviços</strong>.
+          </li>
+          <li>
+            A nota deve ser emitida pelo <strong>valor total: valor base contratual + comissão</strong>.
+          </li>
+        </ol>
+      </Card>
+
+      <Card style={S.cardLimiteAtuacao}>
+        <span style={S.cardTag}>CONFERÊNCIA DE VALORES</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>3. O total precisa fechar exatamente</h3>
+        <p style={S.paragrafo}>
+          O valor da nota deve corresponder ao total esperado no Folya:
+          <strong> valor contratual + comissão</strong>. Se os valores não baterem, o sistema rejeita o envio.
+          Nesse caso, confira os valores e faça o ajuste antes de reenviar.
+        </p>
+      </Card>
+
+      <Card>
+        <span style={S.cardTag}>RESPONSABILIDADE DO PRESTADOR</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>4. Acompanhar o processo até a conclusão</h3>
+        <ul style={S.lista}>
+          <li>O acompanhamento do <strong>status no Folya</strong> é responsabilidade do prestador.</li>
+          <li>Manter <strong>dados bancários, conta e chave Pix</strong> atualizados também é responsabilidade do prestador.</li>
+          <li>A gestão informa os valores e comunica quando as informações já podem ser enviadas no aplicativo.</li>
+          <li>A gestão não é responsável por acompanhar o status individual do envio ou manter os dados bancários do prestador atualizados.</li>
+        </ul>
+      </Card>
+
+      <Aviso tom="info">
+        <strong>Resumo:</strong> fechamento da comissão → validação pelo prestador → correção de divergências, se houver
+        → assinatura digital da Angela → informar comissão no Folya → anexar documento assinado → emitir e anexar nota
+        pelo valor base + comissão → acompanhar o status até a conclusão.
+      </Aviso>
 
       <TituloSecao emoji="📊" titulo="Planilhas utilizadas" sub="Materiais de apoio operacional." />
       <div style={S.grade2}>
