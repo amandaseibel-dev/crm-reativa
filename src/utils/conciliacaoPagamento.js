@@ -304,3 +304,96 @@ export function contarPorStatus(linhas) {
   }
   return conta;
 }
+
+// CONFERENCIA MANUAL DA LINHA (23/09/2026). A gestao decidiu NAO reclassificar
+// os 34 `AGUARDANDO_ACORDO` por rotina e conferir um a um -- entao a linha
+// precisa mostrar, sem sair da fila, o que existe de fato sobre o pagamento.
+//
+// Tudo aqui e LEITURA de `pagamentos_sem_aluno.evidencias`, que o banco monta
+// a partir do que ja esta gravado. Nenhum item sugere acao nem vira vinculo:
+// sao fatos, e quem conclui e a pessoa.
+//
+// Item sem resposta NAO vira linha. "Não" e um fato; ausencia de dado nao e --
+// e mostrar "—" ao lado de um rotulo afirmativo faria parecer resposta.
+export function evidenciasDaLinha(item) {
+  const e = (item && item.evidencias) || {};
+  const linhas = [];
+
+  if (e.acordo_prefixo) {
+    linhas.push({
+      chave: "acordo_no_crm",
+      rotulo: "Acordo no CRM",
+      valor: e.acordo_no_crm
+        ? `sim · ${e.acordo_status || "sem status"}`
+        : "não — o acordo deste boleto não existe aqui",
+      alerta: !e.acordo_no_crm,
+    });
+  }
+  if (typeof e.parcela_com_este_boleto === "boolean") {
+    linhas.push({
+      chave: "parcela",
+      rotulo: "Parcela com este boleto",
+      valor: e.parcela_com_este_boleto ? `sim · ${e.parcela_status || "sem status"}` : "não",
+      // Alerta so quando a AUSENCIA e noticia: com o acordo no CRM, faltar a
+      // parcela e o problema em si (falta amarrar). Sem o acordo no CRM, a
+      // parcela nao existir e consequencia -- pintar as duas de vermelho faria
+      // o estado normal de "aguardando acordo" parecer duas falhas.
+      alerta: !e.parcela_com_este_boleto && e.acordo_no_crm === true,
+    });
+  }
+  if (typeof e.cpf_no_portador_166 === "boolean") {
+    linhas.push({
+      chave: "portador_166",
+      rotulo: "CPF no portador 166",
+      // O 166 e a carteira de negociacao: o CPF estar la prova que houve
+      // acordo, mesmo quando a estrutura dele nunca chegou ao CRM.
+      valor: e.cpf_no_portador_166 ? "sim — negociação confirmada" : "não",
+    });
+  }
+  if (e.consulta_estrutura) {
+    linhas.push({
+      chave: "estrutura",
+      rotulo: "Consulta de estrutura no Prime",
+      valor: ROTULO_CONSULTA_ESTRUTURA[e.consulta_estrutura] || e.consulta_estrutura,
+    });
+  }
+  if (e.documento) {
+    linhas.push({ chave: "documento", rotulo: "Documento", valor: e.documento });
+  }
+  if (Number(e.tentativas) > 0) {
+    linhas.push({
+      chave: "tentativas",
+      rotulo: "Avaliações automáticas",
+      valor: `${e.tentativas}${e.ultima_tentativa_em ? ` · última em ${dataHoraCurta(e.ultima_tentativa_em)}` : ""}`,
+    });
+  }
+  if (e.evidencia_origem) {
+    linhas.push({
+      chave: "origem",
+      rotulo: "Origem da evidência",
+      valor: ROTULO_EVIDENCIA_ORIGEM[e.evidencia_origem] || e.evidencia_origem,
+    });
+  }
+  if (linhas.length === 0) {
+    return [{ chave: "nenhuma", rotulo: "Evidências", valor: "nenhuma registrada até agora" }];
+  }
+  return linhas;
+}
+
+export const ROTULO_CONSULTA_ESTRUTURA = {
+  NAO_ENCONTRADA: "não encontrada — a API do Prime não devolve a estrutura",
+  ENCONTRADA: "encontrada",
+  ERRO: "erro na consulta",
+};
+
+export const ROTULO_EVIDENCIA_ORIGEM = {
+  PRIME_PORTADOR_MEMBRO: "espelho do portador 166",
+  PRIME_API_LIVE: "consulta ao vivo à API do Prime",
+};
+
+function dataHoraCurta(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
+}

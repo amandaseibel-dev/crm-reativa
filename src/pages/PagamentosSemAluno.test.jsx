@@ -327,3 +327,75 @@ describe("erro da RPC vira mensagem que a pessoa entende", () => {
     expect(screen.getByText(/statement timeout/i)).toBeTruthy();
   });
 });
+
+// CONFERENCIA MANUAL NA PROPRIA LINHA (23/09/2026). A gestao decidiu conferir
+// os `AGUARDANDO_ACORDO` um a um em vez de reclassificar por rotina -- entao a
+// linha tem de mostrar, sem abrir outra tela, o acordo que o boleto aponta, as
+// evidencias que existem e o saldo de hoje. O que se prova aqui:
+//   1. os tres aparecem na linha, sem clique nenhum;
+//   2. "acordo nao esta no CRM" aparece como FATO, em destaque de alerta;
+//   3. boleto fora do padrao nao inventa acordo;
+//   4. nada disso chama RPC de escrita.
+const LINHA_CONFERENCIA = {
+  ...LINHA,
+  pagamento_id: "p9",
+  numero_parcela_completo: "50725290001",
+  titulo_numero: "72529",
+  valor_pago: 3945.53,
+  tem_aluno: true,
+  acordo_identificado: "072529",
+  saldo_total: 5000,
+  saldo_vencido: 2000,
+  evidencias: {
+    acordo_prefixo: "072529",
+    acordo_no_crm: false,
+    acordo_status: null,
+    parcela_com_este_boleto: false,
+    parcela_status: null,
+    documento: "72529",
+    cpf_no_portador_166: true,
+    consulta_estrutura: "NAO_ENCONTRADA",
+    evidencia_origem: "PRIME_PORTADOR_MEMBRO",
+    tentativas: 4,
+    ultima_tentativa_em: "2026-09-22T09:00:00Z",
+  },
+};
+
+describe("conferência manual na própria linha", () => {
+  it("mostra acordo identificado, evidências e saldo sem sair da fila", async () => {
+    rotear({ lista: [LINHA_CONFERENCIA], travas: [{ pagamento_id: "p9", trava: "ACORDO_PARCELADO_AUSENTE" }] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+
+    expect(screen.getByText("acordo 072529")).toBeTruthy();
+    expect(screen.getByText(/saldo atual/)).toBeTruthy();
+    expect(screen.getAllByText((t) => t.replace(/ /g, " ") === "R$ 5.000,00").length).toBeGreaterThan(0);
+
+    expect(screen.getByText("Acordo no CRM")).toBeTruthy();
+    expect(screen.getByText("não — o acordo deste boleto não existe aqui")).toBeTruthy();
+    expect(screen.getByText("CPF no portador 166")).toBeTruthy();
+    expect(screen.getByText("sim — negociação confirmada")).toBeTruthy();
+    expect(screen.getByText(/não encontrada — a API do Prime/)).toBeTruthy();
+    expect(screen.getByText("4 · última em 22/09/2026, 06:00")).toBeTruthy();
+    expect(screen.getByText("espelho do portador 166")).toBeTruthy();
+  });
+
+  it("boleto fora do padrão não inventa acordo", async () => {
+    rotear({
+      lista: [{ ...LINHA_CONFERENCIA, acordo_identificado: null, saldo_total: null,
+                evidencias: { acordo_prefixo: null, parcela_com_este_boleto: false, tentativas: 1 } }],
+      travas: [],
+    });
+    await act(async () => { render(<PagamentosSemAluno />); });
+    expect(screen.getByText(/boleto fora do padrão: sem acordo identificável/)).toBeTruthy();
+    expect(screen.queryByText("Acordo no CRM")).toBeNull();
+  });
+
+  it("conferir não chama nenhuma RPC de escrita", async () => {
+    rotear({ lista: [LINHA_CONFERENCIA], travas: [] });
+    await act(async () => { render(<PagamentosSemAluno />); });
+    const escrita = ["conciliacao_feito", "conciliacao_rejeitar", "conciliacao_encerrar",
+                     "pagamento_vincular_aluno", "acordo_avista_registrar"];
+    const chamadas = rpcMock.mock.calls.map((c) => c[0]);
+    expect(chamadas.some((n) => escrita.includes(n))).toBe(false);
+  });
+});
