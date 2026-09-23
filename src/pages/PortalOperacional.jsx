@@ -44,8 +44,7 @@ const SECOES = [
   {
     grupo: "Operação",
     itens: [
-      { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime planilha sistema acesso" },
-      { id: "links", label: "🔗 Links Úteis", keywords: "atalho acesso link site sistema planilha" },
+      { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime planilha sistema acesso link ferramenta" },
       { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico giovana bruno unidade adm financeiro contato" },
       { id: "meta", label: "🎯 Meta do Mês", keywords: "meta comissão honorário projeção resultado mês" },
       { id: "indicadores", label: "📊 Indicadores", keywords: "indicador contato acordo link termo baixa resultado" },
@@ -165,7 +164,6 @@ export default function PortalOperacional() {
           {secao === "documentos" && <SecaoDocumentos />}
           {secao === "cursos" && <SecaoCursos />}
           {secao === "sistemas" && <SecaoSistemas />}
-          {secao === "links" && <SecaoLinks />}
           {secao === "contatos" && <SecaoContatos />}
           {secao === "meta" && <SecaoMeta />}
           {secao === "indicadores" && <SecaoIndicadores />}
@@ -1668,7 +1666,7 @@ function SecaoSistemas() {
       <TituloSecao
         emoji="🚀"
         titulo="Sistemas e Planilhas"
-        sub="Para que serve cada ferramenta e onde consultar."
+        sub="Acessos e ferramentas realmente utilizados pela operação, reunidos em um único lugar."
       />
 
       <div style={S.grade3}>
@@ -1727,24 +1725,6 @@ function SecaoSistemas() {
 }
 
 
-
-function SecaoLinks() {
-  const links = [
-    {titulo:"CRM de Mensageria",href:"https://crm.ulbra.ai/"},
-    {titulo:"Gmail",href:"https://mail.google.com/"},
-    {titulo:"Vestibular / Cursos Ulbra",href:"https://www.ulbra.br/vestibular"},
-    {titulo:"Benefícios Ulbra",href:"https://www.ulbra.br/beneficios"},
-    {titulo:"FIES",href:"https://www.ulbra.br/fies"},
-    {titulo:"Prouni",href:"https://www.ulbra.br/prouni"},
-    {titulo:"Cálculo de desconto",href:"https://docs.google.com/spreadsheets/d/19g0v1kikqvMLTHEIZHTg8NKUt6TOxdv2Aiyk41L1Tf4/edit?usp=sharing"},
-  ];
-  return (
-    <>
-      <TituloSecao emoji="🔗" titulo="Links Úteis" />
-      <div style={S.grade3}>{links.map(l=><Card key={l.titulo}><h3 style={S.h3}>{l.titulo}</h3><a href={l.href} target="_blank" rel="noreferrer" style={S.botaoSecundario}>Abrir</a></Card>)}</div>
-    </>
-  );
-}
 
 /* ===================== Biblioteca ===================== */
 
