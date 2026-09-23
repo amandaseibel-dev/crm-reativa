@@ -1558,6 +1558,7 @@ function SecaoRotina() {
         "Toda negociação parcelada exige Termo de Acordo assinado pelo Gov.br, legível e validado pelo ADM.",
         "Não fechar/concluir acordo parcelado no sistema antes da validação do termo pelo ADM.",
         "Após a validação do ADM, liberar o acordo no Prime e comunicar o aluno conforme o fluxo.",
+        "Após anexar o comprovante de pagamento para baixa, não esqueça de confirmar o acordo.",
         "Ao revisar acordo antigo, conferir se o honorário já foi incluído.",
         "Se não houver honorário registrado, incluir conforme o procedimento aplicável.",
         "Se já houver honorário, é expressamente proibido incluir novamente.",
