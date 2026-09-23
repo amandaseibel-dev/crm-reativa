@@ -18,6 +18,7 @@ const SECOES = [
     grupo: "Atendimento",
     itens: [
       { id: "rotina", label: "📌 Pontos do Dia a Dia", keywords: "registro crm proposta objeção contato prioridade acordo cobrança regras rotina" },
+      { id: "script", label: "🧭 Script do Atendimento", keywords: "aluno respondeu template roteiro atendimento início apresentação dívida fechar sem interesse sem condições falta interação negociação" },
       { id: "duvidas", label: "❓ Dúvidas Frequentes", keywords: "taxa parcelamento processo template acordo mensalidade cartão boleto dúvida recorrente" },
       { id: "mensagens", label: "💬 Mensagens Prontas", keywords: "frase pronta texto whatsapp email resposta aluno copiar mensagem" },
       { id: "objecoes", label: "🔥 Quebras de Objeção", keywords: "argumentação argumento não tenho dinheiro cartão pensar desconto objeção resposta" },
@@ -153,6 +154,7 @@ export default function PortalOperacional() {
         <main style={S.conteudo}>
           {secao === "inicio" && <SecaoInicio ir={navegar} />}
           {secao === "rotina" && <SecaoRotina />}
+          {secao === "script" && <SecaoScript ir={navegar} />}
           {secao === "duvidas" && <SecaoDuvidas />}
           {secao === "mensagens" && <SecaoMensagens />}
           {secao === "objecoes" && <SecaoObjecoes />}
@@ -226,6 +228,13 @@ function BotaoSecundario({ children, onClick, href }) {
 
 function SecaoInicio({ ir }) {
   const atalhos = [
+    {
+      emoji: "🧭",
+      titulo: "O aluno respondeu ao template",
+      desc: "Siga o atendimento completo: validação, apresentação da dívida, negociação e encerramento.",
+      id: "script",
+      acao: "Abrir script do atendimento",
+    },
     {
       emoji: "💳",
       titulo: "Preciso negociar",
@@ -353,6 +362,7 @@ function SecaoInicio({ ir }) {
           <span style={S.secaoEyebrow}>MAIS CONSULTADOS</span>
           <h3 style={{ ...S.h3, marginTop: 8 }}>Atalhos que vale deixar à mão</h3>
           <div style={S.listaAtalhosInternos}>
+            <button type="button" onClick={() => ir("script")} style={S.atalhoInterno}>Script do Atendimento <span>→</span></button>
             <button type="button" onClick={() => ir("politica")} style={S.atalhoInterno}>Política de Negociação <span>→</span></button>
             <button type="button" onClick={() => ir("objecoes")} style={S.atalhoInterno}>Quebras de Objeção <span>→</span></button>
             <button type="button" onClick={() => ir("mensagens")} style={S.atalhoInterno}>Mensagens Prontas <span>→</span></button>
@@ -586,6 +596,221 @@ function SecaoExcecao() {
           <li>Contexto relevante do caso.</li>
         </ul>
       </Card>
+    </>
+  );
+}
+
+/* ===================== Script do Atendimento ===================== */
+
+function SecaoScript({ ir }) {
+  return (
+    <>
+      <TituloSecao
+        emoji="🧭"
+        titulo="Script do Atendimento"
+        sub="Roteiro completo para quando o aluno responde ao template enviado pelo CRM de Mensageria."
+      />
+
+      <Aviso>
+        <strong>Antes de responder ao aluno:</strong> a conferência no <strong>Prime é obrigatória</strong>.
+        Confira também o histórico no CRM, jurídico, cancelamento, bloqueios, restrição de contato e o tipo da dívida.
+        Não apresente valores ou informações financeiras antes da validação de identidade.
+      </Aviso>
+
+      <Card>
+        <span style={S.cardTag}>MAPA DO ATENDIMENTO</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>Siga sempre esta ordem</h3>
+        <ol style={S.listaOrdenada}>
+          <li><strong>Validar o caso:</strong> Prime + CRM + restrições.</li>
+          <li><strong>Confirmar o aluno:</strong> nome e 3 primeiros dígitos do CPF.</li>
+          <li><strong>Apresentar a dívida:</strong> tipo, período e valor correto.</li>
+          <li><strong>Abrir a negociação:</strong> perguntar se deseja verificar as condições disponíveis.</li>
+          <li><strong>Entender a resposta:</strong> fechar, sem interesse, sem condições ou falta de interação.</li>
+          <li><strong>Registrar o resultado no CRM</strong> antes de finalizar o atendimento.</li>
+        </ol>
+      </Card>
+
+      <TituloSecao emoji="1️⃣" titulo="Início — aluno respondeu ao template" sub="Primeiro valide a identidade; depois avance para a situação financeira." />
+      <BlocoCopiar
+        titulo="Validação inicial"
+        texto="Olá! Obrigado pelo retorno. Para darmos continuidade com segurança, por gentileza confirme seu nome completo e os 3 primeiros dígitos do CPF."
+      />
+      <BlocoCopiar
+        titulo="Após a validação"
+        texto="Perfeito, obrigado pela confirmação. Vou te explicar a situação registrada e verificar como podemos ajudar na regularização."
+      />
+
+      <TituloSecao emoji="2️⃣" titulo="Apresentação da dívida" sub="Seja objetivo: informe o que está em aberto e abra espaço para a negociação." />
+      <Card>
+        <h3 style={S.h3}>Antes de apresentar</h3>
+        <ul style={S.lista}>
+          <li>Confirme no Prime o valor atualizado e o tipo da pendência.</li>
+          <li>Se houver <strong>acordo em aberto ou vencido, priorize o acordo antes das mensalidades</strong>.</li>
+          <li>Não inclua parcela de matrícula em negociação quando houver regra de bloqueio.</li>
+          <li>Não faça simulação ou ofereça condição fora da política.</li>
+        </ul>
+      </Card>
+      <BlocoCopiar
+        titulo="Apresentação — mensalidades em aberto"
+        texto="Identificamos parcelas em aberto referentes a [PERÍODO], com saldo atualizado de R$ [VALOR]. Você tem interesse que eu verifique as condições disponíveis para regularizarmos essa situação hoje?"
+      />
+      <BlocoCopiar
+        titulo="Apresentação — existe acordo em aberto ou vencido"
+        texto="Identificamos parcelas em aberto do seu acordo. Como existe um acordo pendente, precisamos tratar essa situação primeiro. Posso verificar com você as formas disponíveis para regularização?"
+      />
+      <BlocoCopiar
+        titulo="Se o aluno pedir explicação do valor"
+        texto="Posso explicar a origem da pendência e os encargos aplicáveis. Vou considerar as informações registradas no sistema para te orientar corretamente."
+      />
+
+      <TituloSecao emoji="3️⃣" titulo="Abra o diálogo" sub="Não comece oferecendo várias condições. Primeiro descubra o que o aluno precisa." />
+      <BlocoCopiar
+        titulo="Aluno demonstra interesse"
+        texto="Perfeito. Antes de seguirmos, existe alguma forma de pagamento ou condição que hoje seja mais viável para você? Com isso, verifico o que está disponível dentro da política."
+      />
+      <BlocoCopiar
+        titulo="Aluno responde com resistência"
+        texto="Entendo. Posso saber qual é o principal ponto que está dificultando a regularização hoje? Dependendo da situação, podemos verificar uma alternativa dentro das condições disponíveis."
+      />
+
+      <div style={S.botoesLinha}>
+        <BotaoSecundario onClick={() => ir("politica")}>📄 Consultar Política de Negociação</BotaoSecundario>
+        <BotaoSecundario onClick={() => ir("objecoes")}>🔥 Consultar Quebras de Objeção</BotaoSecundario>
+        <BotaoSecundario onClick={() => ir("honorarios")}>💰 Honorários e Taxas</BotaoSecundario>
+      </div>
+
+      <TituloSecao emoji="✅" titulo="Rota 1 — Vamos fechar" sub="Quando o aluno aceita avançar com uma condição permitida." />
+      <Card>
+        <h3 style={S.h3}>Fluxo do fechamento</h3>
+        <ol style={S.listaOrdenada}>
+          <li>Confirme a condição conforme a Política de Negociação.</li>
+          <li>Repita ao aluno forma de pagamento, entrada, parcelas e vencimentos antes de concluir.</li>
+          <li>Se a negociação for parcelada, envie o Termo de Acordo para assinatura pelo Gov.br.</li>
+          <li>Receba o termo completo e legível e encaminhe para validação do ADM.</li>
+          <li>Somente após a validação do ADM, libere/conclua o acordo no Prime conforme o fluxo.</li>
+          <li>Quando houver pagamento por cartão, o comprovante deve ser anexado no CRM para a baixa.</li>
+          <li>Registre no CRM tudo o que foi negociado e combinado.</li>
+        </ol>
+      </Card>
+      <BlocoCopiar
+        titulo="Confirmar a condição antes de concluir"
+        texto="Perfeito. A condição ficou da seguinte forma: [FORMA DE PAGAMENTO / ENTRADA / PARCELAS / VENCIMENTOS]. Está de acordo para seguirmos com essa condição?"
+      />
+      <BlocoCopiar
+        titulo="Negociação parcelada — envio do termo"
+        texto="Para concluirmos a negociação parcelada, vou encaminhar o Termo de Acordo. Ele deve ser assinado pelo Gov.br e devolvido completo e legível. Após o recebimento, o documento passa pela validação do nosso Administrativo antes da conclusão do acordo."
+      />
+      <BlocoCopiar
+        titulo="Fechamento concluído"
+        texto="Seu acordo foi registrado conforme as condições negociadas. Fique atento aos vencimentos para manter o acordo em dia. Se precisar de alguma orientação, seguimos à disposição."
+      />
+      <Aviso tom="info">
+        <strong>Rematrícula:</strong> em novo acordo formalizado e regular, o benefício vigente permite a rematrícula
+        após a confirmação do pagamento da entrada. Isso não se aplica a acordo quebrado ou com parcelas vencidas.
+      </Aviso>
+
+      <TituloSecao emoji="🚫" titulo="Rota 2 — Sem interesse" sub="Não encerre na primeira negativa. Primeiro tente entender o motivo." />
+      <BlocoCopiar
+        titulo="Primeira resposta — entender a negativa"
+        texto="Entendo. Posso saber qual é o principal motivo para você não ter interesse em negociar neste momento? É uma questão de valor, forma de pagamento, momento financeiro ou existe outro ponto?"
+      />
+      <BlocoCopiar
+        titulo="Tentar manter o diálogo"
+        texto="Obrigado por me explicar. Dependendo desse ponto, podemos verificar se existe alguma alternativa prevista que ajude a resolver a situação. Posso conferir para você?"
+      />
+      <BlocoCopiar
+        titulo="Aluno mantém que não tem interesse"
+        texto="Entendo. Vou registrar que, neste momento, você optou por não seguir com a negociação. Caso queira retomar e verificar as condições disponíveis em outro momento, seguimos à disposição."
+      />
+      <Card>
+        <h3 style={S.h3}>O que registrar</h3>
+        <ul style={S.listaCompacta}>
+          <li>Motivo informado pelo aluno.</li>
+          <li>Se foi apresentada alguma alternativa.</li>
+          <li>Que o aluno manteve a decisão de não negociar.</li>
+          <li>Retorno combinado, somente se houver uma data definida com o aluno.</li>
+        </ul>
+      </Card>
+
+      <TituloSecao emoji="💬" titulo="Rota 3 — Sem condições de pagamento" sub="Descubra o impedimento e tente uma saída permitida antes de encerrar." />
+      <BlocoCopiar
+        titulo="Entender a dificuldade"
+        texto="Entendo. O que hoje impede o pagamento: o valor total, a entrada, a quantidade de parcelas, a forma de pagamento ou o momento financeiro? Se eu entender melhor, consigo verificar o que pode ser feito dentro das condições disponíveis."
+      />
+      <Card>
+        <h3 style={S.h3}>Se for acordo em aberto/vencido</h3>
+        <ul style={S.lista}>
+          <li>Não reparcelar o acordo em boleto.</li>
+          <li>Regularização do acordo: à vista ou cartão, conforme a política vigente.</li>
+          <li>Sem condição de quitar todo o saldo, oferecer o pagamento das parcelas individualmente, uma a uma.</li>
+          <li>Enquanto houver parcelas vencidas do acordo, a matrícula permanece bloqueada.</li>
+        </ul>
+      </Card>
+      <Card>
+        <h3 style={S.h3}>Se forem mensalidades</h3>
+        <ul style={S.lista}>
+          <li>Consulte a Política de Negociação e apresente somente condições permitidas.</li>
+          <li>Se a necessidade ultrapassar a política, não prometa: encaminhe para análise de exceção quando aplicável.</li>
+          <li>Se houver desconto condicional perdido por atraso, o cálculo deve ser solicitado à supervisão; o operador não informa valores por conta própria.</li>
+        </ul>
+      </Card>
+      <BlocoCopiar
+        titulo="Ainda sem condição após as alternativas"
+        texto="Entendo. Neste momento você me informa que realmente não consegue assumir nenhuma das condições disponíveis. Existe alguma data em que faça sentido retomarmos esse contato para verificar novamente sua situação?"
+      />
+      <BlocoCopiar
+        titulo="Sem previsão de pagamento"
+        texto="Certo. Vou registrar que, neste momento, você não possui condição de pagamento e não tem uma previsão definida. Caso sua situação mude, podemos verificar novamente as condições disponíveis."
+      />
+
+      <TituloSecao emoji="⏳" titulo="Rota 4 — Falta de interação" sub="Quando o aluno respondeu inicialmente, mas deixou de interagir durante o atendimento." />
+      <BlocoCopiar
+        titulo="Retomar a conversa"
+        texto="Olá! Ainda está por aqui? Se desejar, podemos continuar o atendimento e verificar sua situação."
+      />
+      <BlocoCopiar
+        titulo="Última mensagem antes do encerramento"
+        texto="Olá! Como não tivemos continuidade no atendimento, este contato será encerrado. Quando desejar retomar, basta enviar uma nova mensagem para continuarmos de onde paramos."
+      />
+      <Card>
+        <h3 style={S.h3}>Antes de encerrar por falta de interação</h3>
+        <ul style={S.listaCompacta}>
+          <li>Registre no CRM que o aluno respondeu inicialmente, mas não deu continuidade.</li>
+          <li>Registre as mensagens e orientações já apresentadas.</li>
+          <li>Não registre como “sem interesse” se o aluno simplesmente parou de responder.</li>
+          <li>Se houver retorno combinado, agende-o corretamente.</li>
+        </ul>
+      </Card>
+
+      <TituloSecao emoji="📌" titulo="Resultado final do atendimento" sub="O registro precisa deixar claro o que aconteceu para o próximo operador." />
+      <div style={S.grade2}>
+        <Card>
+          <span style={S.cardTag}>FECHADO</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Negociação concluída</h3>
+          <p style={S.paragrafo}>Registrar condição, forma de pagamento, vencimentos, termo, comprovantes e próximos passos.</p>
+        </Card>
+        <Card>
+          <span style={S.cardTag}>SEM INTERESSE</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Aluno recusou negociar</h3>
+          <p style={S.paragrafo}>Registrar o motivo real informado e as alternativas apresentadas.</p>
+        </Card>
+        <Card>
+          <span style={S.cardTag}>SEM CONDIÇÕES</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Aluno quer, mas não consegue pagar</h3>
+          <p style={S.paragrafo}>Registrar a dificuldade, alternativas verificadas e eventual data de retorno.</p>
+        </Card>
+        <Card>
+          <span style={S.cardTag}>SEM INTERAÇÃO</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Aluno parou de responder</h3>
+          <p style={S.paragrafo}>Registrar a interrupção sem confundir com recusa de negociação.</p>
+        </Card>
+      </div>
+
+      <Aviso tom="info">
+        <strong>Regra de qualidade:</strong> o atendimento não deve terminar apenas com “não”, “depois” ou “não consigo”.
+        Sempre que houver diálogo, tente entender o motivo real com perguntas abertas e verificar uma solução permitida,
+        sem pressionar o aluno e sem criar condição fora da política.
+      </Aviso>
     </>
   );
 }
