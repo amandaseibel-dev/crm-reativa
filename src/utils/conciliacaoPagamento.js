@@ -397,3 +397,32 @@ function dataHoraCurta(iso) {
   if (Number.isNaN(d.getTime())) return "";
   return d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
+
+// REGRA DE CONFERENCIA, registrada pela gestao em 23/09/2026:
+//
+//   "se o numero do acordo identificado no boleto for mais novo que o maior
+//    acordo existente do aluno no CRM, nao forcar vinculo com acordo antigo"
+//
+// POR QUE ELA EXISTE. O boleto de acordo e 5 + acordo(6) + parcela(4), entao o
+// prefixo diz de QUAL acordo aquele pagamento e. Quando esse numero e maior que
+// todos os que o aluno tem aqui, o pagamento e de um acordo que o CRM ainda nao
+// recebeu -- re-acordo. A parcela antiga que "quase bate" no valor e de outro
+// acordo, e casar as duas seria inventar um vinculo.
+//
+// MEDIDO na fila de 23/09/2026: dos 39 pendentes, 34 caem nesta situacao --
+// 21 alunos sem acordo nenhum no CRM e 13 com acordo do boleto mais novo. So 2
+// eram conciliacao de verdade. Nao e excecao: e a maioria.
+//
+// COMO DECIDIR. Classificar como acordo/re-acordo AUSENTE do CRM -- FEITO com
+// "Confirmado como entrada de acordo" ou "Confirmado como parcela de acordo",
+// conforme a tela do Prime mostrar -- e escrever o NUMERO IDENTIFICADO na
+// observacao. E esse numero que permite reencontrar o caso quando o acordo
+// finalmente entrar; sem ele a decisao vira um "conferido" sem rastro.
+//
+// O que NAO fazer: vincular ao acordo antigo, criar parcela para receber o
+// pagamento, ou baixar contra a parcela de outro acordo porque o valor parece.
+// Valor parecido nao e prova -- aqui as duas variaveis independentes (numero do
+// acordo e vencimento) dizem que sao coisas diferentes.
+export const REGRA_ACORDO_MAIS_NOVO =
+  "Se o acordo do boleto for mais novo que o maior acordo do aluno no CRM, é re-acordo ausente: " +
+  "não vincular ao acordo antigo. Concluir como entrada/parcela de acordo e anotar o número na observação.";
