@@ -2444,12 +2444,14 @@ function SecaoCultura() {
 
 function SecaoElogios() {
   const elogios = [
-    {
-      data: "23/09/2026",
-      operador: "Diego",
-      aluno: "Olinda",
-      texto: "Tu é muito querido.",
-    },
+    { data: "23/09/2026", operador: "Diego", aluno: "Olinda", genero: "Aluna", observacao: "Elogio registrado por print enviado pela gestão." },
+    { data: "23/09/2026", operador: "Allan", aluno: "Ramon", genero: "Aluno", observacao: "Elogio registrado por print enviado pela gestão." },
+    { data: "23/09/2026", operador: "Diego", aluno: "Suyanne", genero: "Aluna", observacao: "Elogio registrado por print enviado pela gestão." },
+    { data: "23/09/2026", operador: "Maurício", aluno: "Guilherme", genero: "Aluno", observacao: "Elogio registrado em dois prints do mesmo atendimento." },
+    { data: "23/09/2026", operador: "João", aluno: "Kenendy", genero: "Aluno", observacao: "Elogio registrado por print enviado pela gestão." },
+    { data: "23/09/2026", operador: null, aluno: "Luciana", genero: "Aluna", observacao: "Elogio geral aos atendentes, sem operador identificado no registro." },
+    { data: "23/09/2026", operador: "João Vitor", aluno: "Gabriele", genero: "Aluna", observacao: "Elogio registrado por print enviado pela gestão." },
+    { data: "23/09/2026", operador: "Maurício", aluno: "Kellen", genero: "Aluna", observacao: "Elogio registrado por print enviado pela gestão." },
   ];
 
   return (
@@ -2466,19 +2468,22 @@ function SecaoElogios() {
 
       <div style={S.elogiosGrid}>
         {elogios.map((e, index) => (
-          <Card key={`${e.data}-${e.operador}-${index}`} style={S.elogioCard}>
+          <Card key={`${e.data}-${e.operador || "equipe"}-${e.aluno}-${index}`} style={S.elogioCard}>
             <div style={S.elogioTopo}>
               <div>
                 <span style={S.cardTag}>ELOGIO RECEBIDO</span>
-                <h3 style={{ ...S.h3, marginTop: 10, marginBottom: 4 }}>Operador {e.operador}</h3>
-                <p style={S.elogioMeta}>Aluna {e.aluno} • {e.data}</p>
+                <h3 style={{ ...S.h3, marginTop: 10, marginBottom: 4 }}>
+                  {e.operador ? `Operador ${e.operador}` : "Elogio à equipe de atendimento"}
+                </h3>
+                <p style={S.elogioMeta}>{e.genero} {e.aluno} • {e.data}</p>
               </div>
               <span style={S.elogioIcone}>💬</span>
             </div>
 
-            <blockquote style={S.elogioTexto}>
-              “{e.texto}”
-            </blockquote>
+            <div style={S.elogioRegistro}>
+              <strong>Registro do atendimento</strong>
+              <span>{e.observacao}</span>
+            </div>
           </Card>
         ))}
       </div>
@@ -3073,5 +3078,19 @@ const S = {
     lineHeight: 1.5,
     fontWeight: 700,
   },
+  elogioRegistro: {
+    marginTop: 18,
+    padding: "15px 17px",
+    borderRadius: 14,
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda-suave)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 5,
+    color: "var(--rv-texto)",
+    fontSize: 13.5,
+    lineHeight: 1.5,
+  },
+
 
 };
