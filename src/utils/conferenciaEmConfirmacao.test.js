@@ -45,6 +45,7 @@ const componenteCodigo = componente
   .replace(/\/\*[\s\S]*?\*\//g, "")
   .split("\n").filter((l) => !l.trimStart().startsWith("//")).join("\n");
 const regra = readFileSync(REGRA, "utf8");
+const estadoUtil = readFileSync(join(RAIZ, "src", "utils", "estadoTitulo.js"), "utf8");
 
 const EFEITOS_QUE_VINCULAM = ["VIRA_NEGOCIADO", "VIRA_PAGO"];
 const EFEITOS_QUE_O_BANCO_RECUSA = ["ACORDO_SEM_DINHEIRO_REAL", "ACORDO_CANCELADO", "SEM_ACORDO_SUGERIDO"];
@@ -131,19 +132,27 @@ describe("Confirmacao de Pagamento resolve o titulo em confirmacao", () => {
     expect(ficha).toMatch(/Tirar de duplicada/);
   });
 
-  it("o total da ficha nao soma o que a fonte canonica exclui", () => {
-    // `aluno_saldo_pendente_detalhe` so conta ABERTO e NEGOCIADO. A lista da
-    // ficha somava CANCELADA (349 titulos, R$ 2.477.168,16) e DUPLICADA (135,
-    // R$ 130.669,12) -- esta ultima exibindo "Fora da conta" na mesma linha.
-    const bloco = (ficha.match(/const emAberto = titulos\.filter\(([\s\S]*?)\);/) || [])[1] || "";
-    expect(bloco, "o filtro do total nao foi encontrado").not.toBe("");
-    for (const fora of ["PAGO", "NEGOCIADO", "EM_CONFIRMACAO", "CANCELADA", "DUPLICADA"]) {
-      expect(bloco, `${fora} nao pode entrar no total em aberto`).toContain(fora);
-    }
-    expect(bloco).toContain('t.status !== "cancelada"');
+  it("a contagem da ficha usa a regra unica, nao um filtro escrito na tela", () => {
+    // O comportamento por estado tem teste proprio em estadoTitulo.test.js.
+    // Aqui a trava e outra: a ficha nao pode voltar a decidir sozinha.
+    expect(ficha).toMatch(/const emAberto = titulos\.filter\(contaComoAberta\)/);
+    const manual = /const emAberto = titulos\.filter\(\s*\(t\)\s*=>/;
+    expect(ficha, "o filtro manual voltou a ficha").not.toMatch(manual);
   });
 
-  it("titulo cancelado nao se passa por em aberto", () => {
-    expect(ficha).toMatch(/cancelada \? "Cancelada"/);
+  it("o rotulo do titulo vem da regra unica", () => {
+    expect(ficha).toMatch(/\{rotuloDoTitulo\(titulo\)\}/);
+    // a cadeia de ternarios que fazia CANCELADA virar "Em aberto" nao volta
+    expect(ficha).not.toMatch(/pago \? "Quitada"\s*:\s*negociada \? "Negociado"/);
+  });
+
+  it("a regra unica espelha a fonte canonica ABERTO/NEGOCIADO", () => {
+    // `aluno_saldo_pendente_detalhe` conta como divida apenas ABERTO e
+    // NEGOCIADO; CANCELADA e DUPLICADA ficam fora de saldo, fila e acordo.
+    for (const estado of ["EM_CONFIRMACAO", "CANCELADA", "DUPLICADA", "PAGO", "NEGOCIADO", "ABERTO"]) {
+      expect(estadoUtil, `${estado} precisa ser um estado nomeado`).toContain(estado);
+    }
+    // so ABERTO conta
+    expect(estadoUtil).toMatch(/estadoDoTitulo\(t\) === ESTADO\.ABERTO/);
   });
 });
