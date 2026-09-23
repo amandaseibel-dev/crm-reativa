@@ -13,52 +13,52 @@ const STATUS_ERRO = {
 };
 
 const SECOES = [
-  { grupo: "Início", itens: [{ id: "inicio", label: "🏠 Visão Geral" }] },
+  { grupo: "Início", itens: [{ id: "inicio", label: "🏠 Visão Geral", keywords: "início home resumo começo portal" }] },
   {
     grupo: "Atendimento",
     itens: [
-      { id: "rotina", label: "📌 Pontos do Dia a Dia" },
-      { id: "duvidas", label: "❓ Dúvidas Frequentes" },
-      { id: "mensagens", label: "💬 Mensagens Prontas" },
-      { id: "objecoes", label: "🔥 Quebras de Objeção" },
+      { id: "rotina", label: "📌 Pontos do Dia a Dia", keywords: "registro crm proposta objeção contato prioridade acordo cobrança regras rotina" },
+      { id: "duvidas", label: "❓ Dúvidas Frequentes", keywords: "taxa parcelamento processo template acordo mensalidade cartão boleto dúvida recorrente" },
+      { id: "mensagens", label: "💬 Mensagens Prontas", keywords: "frase pronta texto whatsapp email resposta aluno copiar mensagem" },
+      { id: "objecoes", label: "🔥 Quebras de Objeção", keywords: "argumentação argumento não tenho dinheiro cartão pensar desconto objeção resposta" },
     ],
   },
   {
     grupo: "Negociação",
     itens: [
-      { id: "politica", label: "📄 Política de Negociação" },
-      { id: "excecao", label: "📝 Proposta de Exceção" },
-      { id: "honorarios", label: "💰 Honorários e Taxas" },
-      { id: "beneficios", label: "🎟️ Bolsas e Financiamentos" },
+      { id: "politica", label: "📄 Política de Negociação", keywords: "à vista cartão boleto acordo parcelamento entrada condição negociação regra" },
+      { id: "excecao", label: "📝 Proposta de Exceção", keywords: "proposta exceção desconto aprovação condição especial" },
+      { id: "honorarios", label: "💰 Honorários e Taxas", keywords: "8% juros multa igpm taxa honorário encargos" },
+      { id: "beneficios", label: "🎟️ Bolsas e Financiamentos", keywords: "bolsa fies prouni udebank educred quero bolsa credies financiamento" },
     ],
   },
   {
     grupo: "Vida Acadêmica",
     itens: [
-      { id: "academico", label: "🎓 Matrícula e WebAluno" },
-      { id: "cursos", label: "📚 Cursos Ulbra" },
+      { id: "academico", label: "🎓 Matrícula e WebAluno", keywords: "matrícula rematrícula webaluno irpf contrato trancamento antecipação comprovante protocolo" },
+      { id: "cursos", label: "📚 Cursos Ulbra", keywords: "curso graduação medicina ead presencial semipresencial faculdade" },
     ],
   },
   {
     grupo: "Operação",
     itens: [
-      { id: "sistemas", label: "🚀 Sistemas e Planilhas" },
-      { id: "links", label: "🔗 Links Úteis" },
-      { id: "contatos", label: "☎️ Contatos Úteis" },
-      { id: "meta", label: "🎯 Meta do Mês" },
-      { id: "indicadores", label: "📊 Indicadores" },
-      { id: "sugestoes", label: "💡 Sugestões e Erros" },
+      { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime webaluno planilha sistema acesso" },
+      { id: "links", label: "🔗 Links Úteis", keywords: "atalho acesso link site sistema planilha" },
+      { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico giovana bruno unidade adm financeiro contato" },
+      { id: "meta", label: "🎯 Meta do Mês", keywords: "meta comissão honorário projeção resultado mês" },
+      { id: "indicadores", label: "📊 Indicadores", keywords: "indicador contato acordo link termo baixa resultado" },
+      { id: "sugestoes", label: "💡 Sugestões e Erros", keywords: "erro melhoria ideia ajuste sistema portal reportar problema" },
     ],
   },
   {
     grupo: "Segurança",
-    itens: [{ id: "lgpd", label: "🔐 LGPD e Conduta" }],
+    itens: [{ id: "lgpd", label: "🔐 LGPD e Conduta", keywords: "cpf dados terceiro segurança privacidade conduta titular" }],
   },
   {
     grupo: "Equipe",
     itens: [
-      { id: "cultura", label: "💚 Cultura Reativa" },
-      { id: "historia", label: "📸 Nossa História" },
+      { id: "cultura", label: "💚 Cultura Reativa", keywords: "equipe cultura valores reativa" },
+      { id: "historia", label: "📸 Nossa História", keywords: "história equipe fotos reativa" },
     ],
   },
 ];
@@ -80,7 +80,7 @@ export default function PortalOperacional() {
     : SECOES.map((grupo) => ({
         ...grupo,
         itens: grupo.itens.filter((item) =>
-          item.label
+          `${item.label} ${item.keywords || ""}`
             .toLocaleLowerCase("pt-BR")
             .normalize("NFD")
             .replace(/[\u0300-\u036f]/g, "")
@@ -111,7 +111,7 @@ export default function PortalOperacional() {
             <input
               value={busca}
               onChange={(e) => setBusca(e.target.value)}
-              placeholder="Buscar no menu..."
+              placeholder="Buscar: acordo, bolsa, matrícula..."
               style={S.buscaInput}
               aria-label="Buscar seção no Portal"
             />
@@ -222,12 +222,48 @@ function BotaoSecundario({ children, onClick, href }) {
 
 function SecaoInicio({ ir }) {
   const atalhos = [
-    { emoji: "📌", titulo: "Pontos do dia a dia", desc: "Regras rápidas para não errar no atendimento.", id: "rotina" },
-    { emoji: "📄", titulo: "Política vigente", desc: "Condições e regras de negociação.", id: "politica" },
-    { emoji: "🔥", titulo: "Quebras de objeção", desc: "Argumentos organizados por situação.", id: "objecoes" },
-    { emoji: "💬", titulo: "Mensagens prontas", desc: "Textos de apoio para copiar e adaptar.", id: "mensagens" },
-    { emoji: "🎓", titulo: "Matrícula e WebAluno", desc: "Documentos, rematrícula e vida acadêmica.", id: "academico" },
-    { emoji: "☎️", titulo: "Contatos úteis", desc: "Ramais, unidades, jurídico e apoio.", id: "contatos" },
+    {
+      emoji: "💳",
+      titulo: "Preciso negociar",
+      desc: "Consulte a política, formas de pagamento e regras para acordos.",
+      id: "politica",
+      acao: "Ver regras de negociação",
+    },
+    {
+      emoji: "🔥",
+      titulo: "O aluno apresentou uma objeção",
+      desc: "Encontre argumentos e respostas para as situações mais recorrentes.",
+      id: "objecoes",
+      acao: "Abrir quebras de objeção",
+    },
+    {
+      emoji: "💬",
+      titulo: "Quero uma resposta pronta",
+      desc: "Use modelos para WhatsApp e orientações que podem ser copiadas.",
+      id: "mensagens",
+      acao: "Ver mensagens prontas",
+    },
+    {
+      emoji: "❓",
+      titulo: "Tenho uma dúvida durante o atendimento",
+      desc: "Consulte respostas rápidas antes de encaminhar o caso.",
+      id: "duvidas",
+      acao: "Consultar dúvidas",
+    },
+    {
+      emoji: "🎓",
+      titulo: "É assunto de matrícula ou WebAluno",
+      desc: "Veja trancamento, documentos, rematrícula, antecipação e comprovantes.",
+      id: "academico",
+      acao: "Abrir vida acadêmica",
+    },
+    {
+      emoji: "☎️",
+      titulo: "Preciso encaminhar ou falar com alguém",
+      desc: "Encontre ADM, Financeiro, Jurídico, unidades, telefones e e-mails.",
+      id: "contatos",
+      acao: "Abrir contatos",
+    },
   ];
 
   return (
@@ -235,14 +271,15 @@ function SecaoInicio({ ir }) {
       <div style={S.hero}>
         <div style={S.heroConteudo}>
           <span style={S.heroEyebrow}>CENTRAL OPERACIONAL REATIVA</span>
-          <h1 style={S.heroTitulo}>Tudo o que o operador precisa, no lugar certo.</h1>
+          <h1 style={S.heroTitulo}>Encontre a orientação certa sem perder tempo.</h1>
           <p style={S.heroTexto}>
-            Consulte regras, negociação, mensagens, objeções, sistemas, contatos e orientações acadêmicas
-            sem sair do Portal.
+            Use o Portal durante o atendimento para consultar regras, mensagens, objeções,
+            contatos, sistemas e orientações acadêmicas em poucos cliques.
           </p>
           <div style={S.heroAcoes}>
-            <BotaoPrimario onClick={() => ir("rotina")}>📌 Ver regras do dia a dia</BotaoPrimario>
-            <BotaoSecundario onClick={() => ir("politica")}>📄 Política vigente</BotaoSecundario>
+            <BotaoPrimario onClick={() => ir("rotina")}>📌 Regras do dia a dia</BotaoPrimario>
+            <BotaoSecundario onClick={() => ir("politica")}>📄 Política de negociação</BotaoSecundario>
+            <BotaoSecundario onClick={() => ir("contatos")}>☎️ Contatos úteis</BotaoSecundario>
           </div>
         </div>
       </div>
@@ -256,7 +293,7 @@ function SecaoInicio({ ir }) {
         <Card style={S.statusCard}>
           <span style={S.statusRotulo}>Prioridade de negociação</span>
           <strong style={S.statusValorMenor}>Acordos primeiro</strong>
-          <span style={S.statusDescricao}>Sempre priorize acordos antes das mensalidades.</span>
+          <span style={S.statusDescricao}>Sempre trate acordos antes das mensalidades.</span>
         </Card>
         <Card style={S.statusCard}>
           <span style={S.statusRotulo}>Regra de ouro</span>
@@ -273,8 +310,9 @@ function SecaoInicio({ ir }) {
 
       <div style={S.blocoCabecalho}>
         <div>
-          <span style={S.secaoEyebrow}>ACESSO RÁPIDO</span>
-          <h2 style={S.h2}>O que você precisa consultar agora?</h2>
+          <span style={S.secaoEyebrow}>O QUE VOCÊ PRECISA FAZER?</span>
+          <h2 style={S.h2}>Escolha a situação do atendimento</h2>
+          <p style={S.blocoDescricao}>Os atalhos abaixo levam direto ao conteúdo mais provável para cada situação.</p>
         </div>
         <button type="button" onClick={() => (window.location.href = "/painel-carteira")} style={S.linkAcao}>
           Abrir Minha Carteira →
@@ -288,6 +326,7 @@ function SecaoInicio({ ir }) {
             emoji={item.emoji}
             titulo={item.titulo}
             desc={item.desc}
+            acao={item.acao}
             onClick={() => ir(item.id)}
           />
         ))}
@@ -295,39 +334,39 @@ function SecaoInicio({ ir }) {
 
       <div style={S.homeDuasColunas}>
         <Card>
-          <span style={S.secaoEyebrow}>REGRAS DE OURO</span>
-          <h3 style={{ ...S.h3, marginTop: 6 }}>Antes de finalizar um atendimento</h3>
+          <span style={S.secaoEyebrow}>ANTES DE FINALIZAR</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Checklist rápido do atendimento</h3>
           <ul style={S.listaChecklist}>
-            <li>Confirmou a identidade do aluno?</li>
-            <li>Conferiu histórico e restrições no CRM?</li>
-            <li>Registrou proposta, objeção e retorno?</li>
-            <li>Confirmou telefone e outros canais disponíveis?</li>
-            <li>Direcionou assuntos de outras áreas ao setor correto?</li>
+            <li>Confirmei a identidade do aluno.</li>
+            <li>Conferi histórico e restrições no CRM.</li>
+            <li>Registrei proposta, objeção e retorno.</li>
+            <li>Confirmei telefone e outros canais disponíveis.</li>
+            <li>Direcionei assuntos de outras áreas ao setor correto.</li>
           </ul>
         </Card>
 
         <Card>
-          <span style={S.secaoEyebrow}>ATUALIZAÇÕES</span>
-          <h3 style={{ ...S.h3, marginTop: 6 }}>O que mudou no Portal</h3>
-          <ul style={S.listaCompacta}>
-            <li>Manual reorganizado por assunto.</li>
-            <li>Biblioteca completa de quebras de objeção.</li>
-            <li>Cursos, benefícios e orientações de matrícula.</li>
-            <li>Sistemas, planilhas e contatos centralizados.</li>
-            <li>Competência em cobrança destacada na tela inicial.</li>
-          </ul>
+          <span style={S.secaoEyebrow}>MAIS CONSULTADOS</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Atalhos que vale deixar à mão</h3>
+          <div style={S.listaAtalhosInternos}>
+            <button type="button" onClick={() => ir("politica")} style={S.atalhoInterno}>Política de Negociação <span>→</span></button>
+            <button type="button" onClick={() => ir("objecoes")} style={S.atalhoInterno}>Quebras de Objeção <span>→</span></button>
+            <button type="button" onClick={() => ir("mensagens")} style={S.atalhoInterno}>Mensagens Prontas <span>→</span></button>
+            <button type="button" onClick={() => ir("contatos")} style={S.atalhoInterno}>Contatos Úteis <span>→</span></button>
+          </div>
         </Card>
       </div>
     </>
   );
 }
 
-function CardAtalho({ emoji, titulo, desc, onClick }) {
+function CardAtalho({ emoji, titulo, desc, acao, onClick }) {
   return (
     <button type="button" onClick={onClick} style={S.cardAtalho}>
       <span style={S.cardAtalhoEmoji}>{emoji}</span>
       <strong style={S.cardAtalhoTitulo}>{titulo}</strong>
       <span style={S.cardAtalhoDesc}>{desc}</span>
+      <span style={S.cardAtalhoAcao}>{acao || "Abrir"} →</span>
     </button>
   );
 }
@@ -1689,7 +1728,7 @@ const S = {
   shell: { display: "flex", minHeight: "100vh", width: "100%" },
 
   sidebar: {
-    width: 286,
+    width: 322,
     height: "100vh",
     position: "sticky",
     top: 0,
@@ -1698,46 +1737,46 @@ const S = {
     borderRight: `1px solid ${BORDA}`,
     display: "flex",
     flexDirection: "column",
-    padding: "22px 16px 16px",
+    padding: "26px 18px 18px",
     boxSizing: "border-box",
     boxShadow: "4px 0 18px rgba(15,23,42,0.035)",
   },
-  logoArea: { padding: "2px 8px 18px" },
-  logoBox: { fontFamily: FONTE_TITULO, fontSize: 24, fontWeight: 900, letterSpacing: "-0.03em" },
+  logoArea: { padding: "2px 10px 22px" },
+  logoBox: { fontFamily: FONTE_TITULO, fontSize: 29, fontWeight: 900, letterSpacing: "-0.035em" },
   logoRe: { color: VERDE },
   logoAtiva: { color: "var(--rv-tinta)" },
-  logoSub: { fontSize: 11.5, color: "var(--rv-texto-suave)", fontWeight: 700, marginTop: 2, letterSpacing: "0.03em" },
+  logoSub: { fontSize: 13, color: "var(--rv-texto-suave)", fontWeight: 700, marginTop: 3, letterSpacing: "0.03em" },
 
   buscaBox: {
     position: "relative",
     display: "flex",
     alignItems: "center",
-    marginBottom: 18,
+    marginBottom: 22,
   },
   buscaIcone: { position: "absolute", left: 12, color: "var(--rv-texto-fraco)", fontSize: 17, pointerEvents: "none" },
   buscaInput: {
     width: "100%",
     boxSizing: "border-box",
-    padding: "10px 12px 10px 36px",
+    padding: "12px 14px 12px 39px",
     borderRadius: 12,
     border: `1px solid ${BORDA}`,
     background: "var(--rv-fundo-suave)",
     color: "var(--rv-texto-forte)",
     fontFamily: "inherit",
-    fontSize: 13,
+    fontSize: 14.5,
     outline: "none",
   },
-  semResultado: { color: "var(--rv-texto-fraco)", fontSize: 12.5, padding: "12px 10px" },
+  semResultado: { color: "var(--rv-texto-fraco)", fontSize: 13.5, padding: "14px 10px" },
 
   nav: { flex: 1, overflowY: "auto", paddingRight: 2 },
-  navGrupo: { marginBottom: 17 },
+  navGrupo: { marginBottom: 21 },
   navGrupoLabel: {
-    fontSize: 10,
+    fontSize: 11.5,
     fontWeight: 900,
     letterSpacing: "0.12em",
     color: "var(--rv-texto-fraco)",
-    marginBottom: 6,
-    paddingLeft: 10,
+    marginBottom: 8,
+    paddingLeft: 12,
     textTransform: "uppercase",
   },
   navItem: {
@@ -1747,12 +1786,12 @@ const S = {
     background: "transparent",
     border: "1px solid transparent",
     color: "var(--rv-texto)",
-    padding: "9px 11px",
-    borderRadius: 10,
-    fontSize: 12.8,
+    padding: "11px 13px",
+    borderRadius: 12,
+    fontSize: 14.3,
     fontWeight: 650,
     cursor: "pointer",
-    marginBottom: 2,
+    marginBottom: 4,
     transition: "all .15s ease",
   },
   navItemAtivo: {
@@ -1765,79 +1804,80 @@ const S = {
     display: "flex",
     flexDirection: "column",
     gap: 3,
-    fontSize: 10.5,
+    fontSize: 13.5,
     color: "var(--rv-texto-fraco)",
-    padding: "14px 8px 2px",
+    padding: "16px 10px 2px",
     borderTop: "1px solid var(--rv-borda-suave)",
   },
 
   conteudo: {
     flex: 1,
     width: "100%",
-    maxWidth: 1180,
+    maxWidth: 1360,
     margin: "0 auto",
-    padding: "34px 42px 56px",
+    padding: "42px 52px 72px",
     boxSizing: "border-box",
   },
 
   hero: {
     background: "linear-gradient(135deg, var(--rv-superficie) 0%, var(--rv-azul-fundo) 100%)",
     border: "1px solid var(--rv-azul-borda)",
-    borderRadius: 24,
-    padding: "38px 40px",
+    borderRadius: 28,
+    padding: "48px 50px",
     color: "var(--rv-tinta)",
     marginBottom: 18,
     boxShadow: "0 12px 36px rgba(15,23,42,0.06)",
     overflow: "hidden",
   },
-  heroConteudo: { maxWidth: 760 },
-  heroEyebrow: { fontSize: 10.5, fontWeight: 900, letterSpacing: "0.15em", color: VERDE_ESCURO },
+  heroConteudo: { maxWidth: 860 },
+  heroEyebrow: { fontSize: 12, fontWeight: 900, letterSpacing: "0.14em", color: VERDE_ESCURO },
   heroTitulo: {
     fontFamily: FONTE_TITULO,
-    fontSize: 32,
+    fontSize: 40,
     fontWeight: 850,
     margin: "10px 0 10px",
     letterSpacing: "-0.035em",
     lineHeight: 1.15,
     color: "var(--rv-tinta)",
   },
-  heroTexto: { fontSize: 15, color: "var(--rv-texto-suave)", lineHeight: 1.65, maxWidth: 700 },
-  heroAcoes: { display: "flex", gap: 10, flexWrap: "wrap", marginTop: 20 },
+  heroTexto: { fontSize: 17, color: "var(--rv-texto-suave)", lineHeight: 1.65, maxWidth: 800 },
+  heroAcoes: { display: "flex", gap: 12, flexWrap: "wrap", marginTop: 24 },
 
   statusGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(230px, 1fr))",
-    gap: 12,
+    gridTemplateColumns: "repeat(auto-fit, minmax(270px, 1fr))",
+    gap: 16,
     marginBottom: 18,
   },
-  statusCard: { marginBottom: 0, minHeight: 115, display: "flex", flexDirection: "column", justifyContent: "center" },
+  statusCard: { marginBottom: 0, minHeight: 145, display: "flex", flexDirection: "column", justifyContent: "center" },
   statusCardDestaque: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)" },
-  statusRotulo: { fontSize: 10.5, fontWeight: 900, color: "var(--rv-texto-fraco)", textTransform: "uppercase", letterSpacing: "0.07em" },
-  statusValor: { fontFamily: FONTE_TITULO, fontSize: 20, color: "var(--rv-tinta)", marginTop: 5 },
-  statusValorMenor: { fontFamily: FONTE_TITULO, fontSize: 17, color: "var(--rv-tinta)", marginTop: 5 },
-  statusDescricao: { fontSize: 11.8, color: "var(--rv-texto-suave)", lineHeight: 1.45, marginTop: 5 },
+  statusRotulo: { fontSize: 11.5, fontWeight: 900, color: "var(--rv-texto-fraco)", textTransform: "uppercase", letterSpacing: "0.07em" },
+  statusValor: { fontFamily: FONTE_TITULO, fontSize: 24, color: "var(--rv-tinta)", marginTop: 7 },
+  statusValorMenor: { fontFamily: FONTE_TITULO, fontSize: 21, color: "var(--rv-tinta)", marginTop: 7 },
+  statusDescricao: { fontSize: 13.5, color: "var(--rv-texto-suave)", lineHeight: 1.5, marginTop: 7 },
 
-  tituloSecaoBox: { marginBottom: 18, marginTop: 2 },
-  tituloSecaoH1: { fontFamily: FONTE_TITULO, fontSize: 25, fontWeight: 850, color: "var(--rv-tinta)", margin: 0, letterSpacing: "-0.025em" },
-  tituloSecaoSub: { color: "var(--rv-texto-suave)", fontSize: 13.5, marginTop: 6, lineHeight: 1.55 },
-  secaoEyebrow: { fontSize: 10.5, fontWeight: 900, color: VERDE_ESCURO, letterSpacing: "0.1em" },
-  h2: { fontFamily: FONTE_TITULO, fontSize: 20, color: "var(--rv-tinta)", margin: "5px 0 0", letterSpacing: "-0.02em" },
-  blocoCabecalho: { display: "flex", justifyContent: "space-between", alignItems: "end", gap: 18, margin: "26px 0 14px" },
-  linkAcao: { border: "none", background: "transparent", color: VERDE_ESCURO, fontWeight: 800, fontSize: 12.5, cursor: "pointer", padding: 0 },
+  tituloSecaoBox: { marginBottom: 24, marginTop: 2 },
+  tituloSecaoH1: { fontFamily: FONTE_TITULO, fontSize: 30, fontWeight: 850, color: "var(--rv-tinta)", margin: 0, letterSpacing: "-0.025em" },
+  tituloSecaoSub: { color: "var(--rv-texto-suave)", fontSize: 15.5, marginTop: 8, lineHeight: 1.6 },
+  secaoEyebrow: { fontSize: 11.5, fontWeight: 900, color: VERDE_ESCURO, letterSpacing: "0.1em" },
+  h2: { fontFamily: FONTE_TITULO, fontSize: 25, color: "var(--rv-tinta)", margin: "6px 0 0", letterSpacing: "-0.02em" },
+  blocoCabecalho: { display: "flex", justifyContent: "space-between", alignItems: "end", gap: 22, margin: "32px 0 18px" },
+  blocoDescricao: { margin: "7px 0 0", color: "var(--rv-texto-suave)", fontSize: 14.5, lineHeight: 1.55 },
+  linkAcao: { border: "none", background: "transparent", color: VERDE_ESCURO, fontWeight: 800, fontSize: 14, cursor: "pointer", padding: 0 },
 
   card: {
     background: "var(--rv-superficie)",
     border: `1px solid ${BORDA}`,
-    borderRadius: 18,
-    padding: "20px 22px",
-    marginBottom: 14,
+    borderRadius: 21,
+    padding: "25px 27px",
+    marginBottom: 18,
     boxShadow: "0 4px 18px rgba(15,23,42,0.04)",
   },
-  h3: { fontFamily: FONTE_TITULO, fontSize: 15.5, fontWeight: 750, color: "var(--rv-tinta)", margin: "0 0 9px" },
-  paragrafo: { color: "var(--rv-texto)", fontSize: 13.5, lineHeight: 1.65, margin: 0 },
+  h3: { fontFamily: FONTE_TITULO, fontSize: 18, fontWeight: 760, color: "var(--rv-tinta)", margin: "0 0 11px" },
+  paragrafo: { color: "var(--rv-texto)", fontSize: 15, lineHeight: 1.68, margin: 0 },
   cardTag: {
     display: "inline-flex",
-    fontSize: 9.5,
+    fontSize: 10.5,
     fontWeight: 900,
     letterSpacing: "0.08em",
     color: VERDE_ESCURO,
@@ -1846,9 +1886,9 @@ const S = {
     borderRadius: 999,
     padding: "4px 8px",
   },
-  cardFerramenta: { minHeight: 195 },
+  cardFerramenta: { minHeight: 225 },
   ferramentaTopo: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 },
-  ferramentaEmoji: { fontSize: 26 },
+  ferramentaEmoji: { fontSize: 32 },
   cardLimiteAtuacao: { border: "1px solid var(--rv-azul-borda)", background: "var(--rv-azul-fundo)" },
 
   avisoCanal: { margin: 0, background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)", borderRadius: 12, padding: "11px 13px", fontSize: 13, lineHeight: 1.55 },
@@ -1861,13 +1901,13 @@ const S = {
   avisoValidar: { margin: 0, background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)", color: "var(--rv-azul-texto)", borderRadius: 10, padding: "9px 12px", fontSize: 13, fontWeight: 700 },
   botaoConfirmar: { background: "#16a34a", color: "#fff", border: "none", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
   botaoPersiste: { background: "var(--rv-superficie)", color: "var(--rv-vermelho)", border: "1px solid var(--rv-vermelho-borda)", borderRadius: 8, padding: "8px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer" },
-  observacao: { color: "var(--rv-texto-fraco)", fontSize: 12, marginTop: 10 },
-  lista: { margin: 0, paddingLeft: 20, color: "var(--rv-texto)", fontSize: 13.5, lineHeight: 1.8 },
-  listaOrdenada: { margin: 0, paddingLeft: 20, color: "var(--rv-texto)", fontSize: 13.5, lineHeight: 1.8 },
-  listaChecklist: { margin: 0, paddingLeft: 20, color: "var(--rv-texto)", fontSize: 13.2, lineHeight: 1.8 },
-  listaCompacta: { margin: 0, paddingLeft: 19, color: "var(--rv-texto)", fontSize: 13, lineHeight: 1.65 },
+  observacao: { color: "var(--rv-texto-fraco)", fontSize: 13.5, marginTop: 12 },
+  lista: { margin: 0, paddingLeft: 22, color: "var(--rv-texto)", fontSize: 14.8, lineHeight: 1.85 },
+  listaOrdenada: { margin: 0, paddingLeft: 22, color: "var(--rv-texto)", fontSize: 14.8, lineHeight: 1.85 },
+  listaChecklist: { margin: 0, paddingLeft: 22, color: "var(--rv-texto)", fontSize: 14.5, lineHeight: 1.85 },
+  listaCompacta: { margin: 0, paddingLeft: 21, color: "var(--rv-texto)", fontSize: 14.3, lineHeight: 1.75 },
 
-  aviso: { borderRadius: 14, padding: "14px 18px", marginBottom: 18, fontSize: 13.5, lineHeight: 1.6 },
+  aviso: { borderRadius: 16, padding: "17px 20px", marginBottom: 22, fontSize: 14.8, lineHeight: 1.65 },
   avisoAtencao: { background: "var(--rv-ambar-fundo)", border: "1px solid var(--rv-ambar-borda)", color: "var(--rv-ambar-texto)" },
   avisoInfo: { background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)", color: "var(--rv-azul-texto)" },
 
@@ -1877,10 +1917,10 @@ const S = {
     gap: 6,
     background: VERDE,
     color: "#fff",
-    padding: "10px 17px",
+    padding: "12px 19px",
     borderRadius: 10,
     fontWeight: 800,
-    fontSize: 13,
+    fontSize: 14.5,
     textDecoration: "none",
     border: "none",
     cursor: "pointer",
@@ -1892,10 +1932,10 @@ const S = {
     gap: 6,
     background: "var(--rv-superficie)",
     color: "var(--rv-texto-forte)",
-    padding: "9px 15px",
+    padding: "11px 17px",
     borderRadius: 10,
     fontWeight: 750,
-    fontSize: 12.5,
+    fontSize: 14,
     textDecoration: "none",
     border: `1px solid ${BORDA}`,
     cursor: "pointer",
@@ -1906,42 +1946,59 @@ const S = {
     color: "var(--rv-texto-forte)",
     border: `1px solid ${BORDA}`,
     borderRadius: 9,
-    padding: "7px 13px",
+    padding: "9px 15px",
     fontSize: 12,
     fontWeight: 750,
     cursor: "pointer",
   },
 
   grade4: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))", gap: 14, marginBottom: 18 },
-  grade3: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginBottom: 18 },
-  grade2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(330px, 1fr))", gap: 14, marginBottom: 18 },
-  homeDuasColunas: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14, marginTop: 4 },
+  grade3: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(285px, 1fr))", gap: 18, marginBottom: 22 },
+  grade2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(380px, 1fr))", gap: 18, marginBottom: 22 },
+  homeDuasColunas: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 18, marginTop: 8 },
 
   cardAtalho: {
     background: "var(--rv-superficie)",
     border: `1px solid ${BORDA}`,
-    borderRadius: 17,
-    padding: "19px",
+    borderRadius: 20,
+    padding: "25px",
     display: "flex",
     flexDirection: "column",
-    gap: 7,
+    gap: 10,
     textAlign: "left",
     cursor: "pointer",
     boxShadow: "0 4px 16px rgba(15,23,42,0.04)",
-    minHeight: 142,
+    minHeight: 190,
   },
-  cardAtalhoEmoji: { fontSize: 25 },
-  cardAtalhoTitulo: { fontFamily: FONTE_TITULO, fontSize: 14.5, color: "var(--rv-tinta)", fontWeight: 780 },
-  cardAtalhoDesc: { fontSize: 12.2, color: "var(--rv-texto-fraco)", lineHeight: 1.5 },
+  cardAtalhoEmoji: { fontSize: 36 },
+  cardAtalhoTitulo: { fontFamily: FONTE_TITULO, fontSize: 18, color: "var(--rv-tinta)", fontWeight: 800, lineHeight: 1.3 },
+  cardAtalhoDesc: { fontSize: 14.2, color: "var(--rv-texto-suave)", lineHeight: 1.55 },
+  cardAtalhoAcao: { marginTop: "auto", paddingTop: 8, fontSize: 13.5, fontWeight: 850, color: VERDE_ESCURO },
+  listaAtalhosInternos: { display: "flex", flexDirection: "column", gap: 8, marginTop: 6 },
+  atalhoInterno: {
+    width: "100%",
+    border: "1px solid var(--rv-borda-suave)",
+    background: "var(--rv-fundo-suave)",
+    color: "var(--rv-texto-forte)",
+    borderRadius: 12,
+    padding: "11px 13px",
+    fontSize: 14,
+    fontWeight: 750,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    cursor: "pointer",
+    textAlign: "left",
+  },
 
-  numeroGrande: { fontFamily: FONTE_TITULO, fontSize: 32, fontWeight: 800, color: VERDE_ESCURO },
-  labelNumero: { fontSize: 12, fontWeight: 700, color: "var(--rv-texto-fraco)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" },
+  numeroGrande: { fontFamily: FONTE_TITULO, fontSize: 38, fontWeight: 800, color: VERDE_ESCURO },
+  labelNumero: { fontSize: 13, fontWeight: 700, color: "var(--rv-texto-fraco)", marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.04em" },
 
   tabela: { width: "100%", borderCollapse: "collapse" },
   th: { textAlign: "left", padding: "10px 12px", color: "var(--rv-texto-fraco)", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: `1px solid ${BORDA}` },
   thNum: { textAlign: "right", padding: "10px 12px", color: "var(--rv-texto-fraco)", fontSize: 11, fontWeight: 800, textTransform: "uppercase", letterSpacing: "0.05em", borderBottom: `1px solid ${BORDA}` },
-  td: { padding: "11px 12px", color: "var(--rv-texto-forte)", fontSize: 13.5, borderBottom: "1px solid var(--rv-borda-suave)" },
-  tdNum: { padding: "11px 12px", color: VERDE_ESCURO, fontSize: 14, textAlign: "right", borderBottom: "1px solid var(--rv-borda-suave)" },
+  td: { padding: "13px 14px", color: "var(--rv-texto-forte)", fontSize: 14.5, borderBottom: "1px solid var(--rv-borda-suave)" },
+  tdNum: { padding: "13px 14px", color: VERDE_ESCURO, fontSize: 15, textAlign: "right", borderBottom: "1px solid var(--rv-borda-suave)" },
 
   labelCampo: { fontSize: 12.5, fontWeight: 700, color: "var(--rv-texto)" },
   input: { padding: "9px 12px", borderRadius: 10, border: `1px solid ${BORDA}`, fontSize: 13.5, fontFamily: "inherit" },
