@@ -1,6 +1,15 @@
 import { useState, useEffect, Fragment } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
+import printOlinda from "../data/elogios/olinda";
+import printRamon from "../data/elogios/ramon";
+import printSuyanne from "../data/elogios/suyanne";
+import printGuilherme1 from "../data/elogios/guilherme-1";
+import printGuilherme2 from "../data/elogios/guilherme-2";
+import printKenendy from "../data/elogios/kenendy";
+import printLuciana from "../data/elogios/luciana";
+import printGabriele from "../data/elogios/gabriele";
+import printKellen from "../data/elogios/kellen";
 
 
 
@@ -2443,15 +2452,17 @@ function SecaoCultura() {
 /* ===================== Elogios de Atendimento ===================== */
 
 function SecaoElogios() {
+  const [printAberto, setPrintAberto] = useState(null);
+
   const elogios = [
-    { data: "23/09/2026", operador: "Diego", aluno: "Olinda", genero: "Aluna", observacao: "Elogio registrado por print enviado pela gestão." },
-    { data: "23/09/2026", operador: "Allan", aluno: "Ramon", genero: "Aluno", observacao: "Elogio registrado por print enviado pela gestão." },
-    { data: "23/09/2026", operador: "Diego", aluno: "Suyanne", genero: "Aluna", observacao: "Elogio registrado por print enviado pela gestão." },
-    { data: "23/09/2026", operador: "Maurício", aluno: "Guilherme", genero: "Aluno", observacao: "Elogio registrado em dois prints do mesmo atendimento." },
-    { data: "23/09/2026", operador: "João", aluno: "Kenendy", genero: "Aluno", observacao: "Elogio registrado por print enviado pela gestão." },
-    { data: "23/09/2026", operador: null, aluno: "Luciana", genero: "Aluna", observacao: "Elogio geral aos atendentes, sem operador identificado no registro." },
-    { data: "23/09/2026", operador: "João Vitor", aluno: "Gabriele", genero: "Aluna", observacao: "Elogio registrado por print enviado pela gestão." },
-    { data: "23/09/2026", operador: "Maurício", aluno: "Kellen", genero: "Aluna", observacao: "Elogio registrado por print enviado pela gestão." },
+    { data: "23/09/2026", operador: "Diego", aluno: "Olinda", genero: "Aluna", prints: [printOlinda] },
+    { data: "15/09/2026", operador: "Allan", aluno: "Ramon", genero: "Aluno", prints: [printRamon] },
+    { data: "09/09/2026", operador: "Diego", aluno: "Suyanne", genero: "Aluna", prints: [printSuyanne] },
+    { data: "14 e 15/08/2026", operador: "Maurício", aluno: "Guilherme", genero: "Aluno", prints: [printGuilherme1, printGuilherme2] },
+    { data: "13/08/2026", operador: "João", aluno: "Kenendy", genero: "Aluno", prints: [printKenendy] },
+    { data: "05/08/2026", operador: null, aluno: "Luciana", genero: "Aluna", prints: [printLuciana] },
+    { data: "23/09/2026", operador: "João Vitor", aluno: "Gabriele", genero: "Aluna", prints: [printGabriele] },
+    { data: "14/07/2026", operador: "Maurício", aluno: "Kellen", genero: "Aluna", prints: [printKellen] },
   ];
 
   return (
@@ -2480,13 +2491,50 @@ function SecaoElogios() {
               <span style={S.elogioIcone}>💬</span>
             </div>
 
-            <div style={S.elogioRegistro}>
-              <strong>Registro do atendimento</strong>
-              <span>{e.observacao}</span>
+            <div style={S.elogioPrints}>
+              {e.prints.map((print, printIndex) => (
+                <button
+                  key={printIndex}
+                  type="button"
+                  onClick={() => setPrintAberto({ src: print, aluno: e.aluno })}
+                  style={S.elogioPrintBotao}
+                  aria-label={`Abrir print do elogio de ${e.aluno}`}
+                >
+                  <img
+                    src={print}
+                    alt={`Print do elogio de ${e.aluno}`}
+                    style={S.elogioPrint}
+                    draggable={false}
+                    onContextMenu={(evento) => evento.preventDefault()}
+                  />
+                  <span style={S.elogioAbrir}>Clique para ampliar</span>
+                </button>
+              ))}
             </div>
           </Card>
         ))}
       </div>
+
+      {printAberto ? (
+        <div style={S.elogioModal} onClick={() => setPrintAberto(null)} role="presentation">
+          <button
+            type="button"
+            style={S.elogioModalFechar}
+            onClick={() => setPrintAberto(null)}
+            aria-label="Fechar print"
+          >
+            ×
+          </button>
+          <img
+            src={printAberto.src}
+            alt={`Print ampliado do elogio de ${printAberto.aluno}`}
+            style={S.elogioModalImagem}
+            draggable={false}
+            onContextMenu={(evento) => evento.preventDefault()}
+            onClick={(evento) => evento.stopPropagation()}
+          />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -3035,7 +3083,7 @@ const S = {
 
   elogiosGrid: {
     display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+    gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
     gap: 16,
   },
   elogioCard: {
@@ -3066,31 +3114,70 @@ const S = {
     fontSize: 20,
     flexShrink: 0,
   },
-  elogioTexto: {
-    margin: "20px 0 0",
-    padding: "18px 20px",
-    borderRadius: 16,
-    background: "var(--rv-superficie)",
-    border: "1px solid var(--rv-borda-suave)",
-    color: "var(--rv-tinta)",
-    fontFamily: FONTE_TITULO,
-    fontSize: 20,
-    lineHeight: 1.5,
-    fontWeight: 700,
-  },
-  elogioRegistro: {
+  elogioPrints: {
+    display: "grid",
+    gap: 10,
     marginTop: 18,
-    padding: "15px 17px",
-    borderRadius: 14,
-    background: "var(--rv-superficie)",
-    border: "1px solid var(--rv-borda-suave)",
-    display: "flex",
-    flexDirection: "column",
-    gap: 5,
-    color: "var(--rv-texto)",
-    fontSize: 13.5,
-    lineHeight: 1.5,
   },
-
+  elogioPrintBotao: {
+    border: "1px solid var(--rv-borda-suave)",
+    borderRadius: 14,
+    padding: 10,
+    background: "var(--rv-superficie)",
+    cursor: "zoom-in",
+    textAlign: "left",
+    overflow: "hidden",
+    fontFamily: "inherit",
+  },
+  elogioPrint: {
+    width: "100%",
+    maxHeight: 280,
+    objectFit: "contain",
+    display: "block",
+    borderRadius: 10,
+    userSelect: "none",
+    WebkitUserDrag: "none",
+  },
+  elogioAbrir: {
+    display: "block",
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: 800,
+    color: "var(--rv-texto-suave)",
+  },
+  elogioModal: {
+    position: "fixed",
+    inset: 0,
+    zIndex: 9999,
+    background: "rgba(10,16,30,.86)",
+    display: "grid",
+    placeItems: "center",
+    padding: 24,
+  },
+  elogioModalImagem: {
+    maxWidth: "min(1200px, 94vw)",
+    maxHeight: "88vh",
+    width: "auto",
+    height: "auto",
+    borderRadius: 14,
+    boxShadow: "0 24px 80px rgba(0,0,0,.35)",
+    userSelect: "none",
+    WebkitUserDrag: "none",
+  },
+  elogioModalFechar: {
+    position: "fixed",
+    top: 20,
+    right: 22,
+    zIndex: 10000,
+    width: 44,
+    height: 44,
+    borderRadius: 999,
+    border: "1px solid rgba(255,255,255,.35)",
+    background: "rgba(255,255,255,.12)",
+    color: "#fff",
+    fontSize: 30,
+    lineHeight: 1,
+    cursor: "pointer",
+  },
 
 };
