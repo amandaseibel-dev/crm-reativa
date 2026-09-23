@@ -1219,6 +1219,7 @@ function SecaoDuvidas() {
     { p: "Qual a prioridade de negociação: mensalidades ou acordos?", r: "Sempre priorizar os acordos. Se houver acordo em aberto ou vencido, trate o acordo antes das mensalidades." },
     { p: "Como negociar um acordo em aberto ou vencido?", r: "Primeiro consulte a Política de Negociação. Acordos não podem ser reparcelados em boleto: a regularização deve ser à vista ou no cartão de crédito. Se o aluno não tiver condição de quitar o saldo nessas modalidades, ofereça o pagamento das parcelas individualmente, uma a uma. Enquanto houver parcelas vencidas, a matrícula não será liberada." },
     { p: "Posso realizar a rematrícula pagando somente a entrada do acordo?", r: "Sim, quando se tratar de um novo acordo formalizado e regular. Como benefício operacional vigente da Ulbra, a rematrícula pode ser realizada após a confirmação do pagamento da entrada, sem necessidade de aguardar a quitação integral. Essa regra não se aplica a acordo quebrado ou com parcelas vencidas, que precisa ser regularizado." },
+    { p: "Por quanto tempo um aluno fica fidelizado ao operador?", r: "A fidelização é de 10 dias. Durante esse período, o operador é responsável pela continuidade do atendimento. Após os 10 dias, o aluno volta a ficar disponível para ações massivas e atendimento receptivo. Em faltas, ausências ou mudanças de horário sem agendamento prévio, os casos pendentes podem ser redistribuídos via CRM para outros colegas concluírem; nesses casos, a prioridade é não deixar o aluno sem retorno e a fidelização do operador anterior não deve impedir a continuidade." },
     { p: "O aluno perdeu um desconto condicional por atraso e diz que não sabia que precisava pagar em dia. O que fazer?", r: "Quando o desconto for condicionado ao pagamento em dia, podemos avaliar o restabelecimento do benefício para a regularização atual. O operador não deve informar valores nem fazer o cálculo diretamente: encaminhe o caso à supervisão para cálculo da condição. Depois, confirme com o aluno se essa possibilidade ajudaria a colocar os valores em dia. Após a regularização, reforce que o desconto não será restabelecido novamente em caso de novo atraso e que as próximas parcelas precisam ser mantidas em dia para preservar o benefício." },
     { p: "Enviei um template no CRM. Como confirmar o envio?", r: "Feche o cadastro do aluno, abra novamente e confirme se a mensagem ficou registrada como enviada." },
     { p: "O aluno diz que está processando a Ulbra. O que fazer?", r: "Solicitar sempre o número do processo e encaminhar para Amanda ADM. Não discutir o processo nem emitir opinião jurídica." },
@@ -1603,6 +1604,18 @@ function SecaoRotina() {
         "Após envio de template, fechar e reabrir o cadastro para confirmar que a mensagem foi enviada.",
       ],
     },
+    {
+      titulo: "Fidelização e continuidade do atendimento",
+      itens: [
+        "O operador mantém a responsabilidade pelo aluno durante 10 dias de fidelização.",
+        "Após os 10 dias, o aluno fica disponível novamente para ações massivas e para atendimento receptivo.",
+        "A fidelização não pode impedir a continuidade do atendimento nem deixar o aluno sem retorno.",
+        "Em caso de falta, ausência ou mudança de horário sem agendamento prévio, os atendimentos pendentes podem ser enviados pelo CRM para outros colegas concluírem.",
+        "Nos casos redistribuídos por ausência ou mudança de horário, não haverá fidelização para o operador anterior: a prioridade é concluir o atendimento do aluno.",
+        "Se houver retorno previamente agendado e devidamente registrado, respeitar o agendamento conforme o fluxo operacional.",
+        "Premissa da operação: nenhum aluno deve ficar sem atendimento ou sem retorno por causa da titularidade do caso.",
+      ],
+    },
   ];
 
   return (
@@ -1615,6 +1628,7 @@ function SecaoRotina() {
       <Aviso tom="info">
         <strong>Regra central:</strong> se uma informação pode influenciar o próximo atendimento, a negociação
         ou uma decisão de supervisão/ADM/gestão, registre no CRM.
+        <br /><strong>Premissa de atendimento:</strong> a fidelização organiza a responsabilidade do operador, mas nunca pode deixar um aluno sem retorno ou sem continuidade.
       </Aviso>
 
       <div style={S.grade2}>
