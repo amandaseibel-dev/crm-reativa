@@ -45,6 +45,7 @@ const SECOES = [
     grupo: "Operação",
     itens: [
       { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime folya nota fiscal prestação serviços comissão pix conta planilha sistema acesso link ferramenta" },
+      { id: "ddds", label: "📞 DDDs das Unidades", keywords: "ddd código área telefone unidade cidade cachoeira canoas carazinho gravataí guaíba itumbiara manaus palmas porto alegre santa maria santarém são jerônimo torres ead" },
       { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico giovana bruno unidade adm financeiro contato" },
       { id: "meta", label: "🎯 Meta do Mês", keywords: "meta comissão honorário projeção resultado mês" },
       { id: "indicadores", label: "📊 Indicadores", keywords: "indicador contato acordo link termo baixa resultado" },
@@ -164,6 +165,7 @@ export default function PortalOperacional() {
           {secao === "documentos" && <SecaoDocumentos />}
           {secao === "cursos" && <SecaoCursos />}
           {secao === "sistemas" && <SecaoSistemas />}
+          {secao === "ddds" && <SecaoDdds />}
           {secao === "contatos" && <SecaoContatos />}
           {secao === "meta" && <SecaoMeta />}
           {secao === "indicadores" && <SecaoIndicadores />}
@@ -637,6 +639,18 @@ function SecaoMensagens() {
       <BlocoCopiar titulo="🔗 Link de pagamento enviado" texto="Olá! Encaminhamos o link de pagamento referente ao seu acordo. Qualquer dificuldade para acessar ou concluir o pagamento, é só nos avisar." />
       <BlocoCopiar titulo="✅ Acordo fechado" texto="Olá! Seu acordo foi registrado com sucesso. Fique atento às datas de vencimento das parcelas para manter tudo em dia." />
       <BlocoCopiar titulo="🔁 Retomando contato" texto="Olá! Estamos retomando o contato sobre a sua pendência. Vamos verificar a melhor forma de regularizar a situação." />
+      <BlocoCopiar
+        titulo="📆 Vou pagar no final do semestre"
+        texto="Entendo. Posso saber por qual motivo você prefere deixar o pagamento para o final do semestre? Dependendo da sua situação, podemos verificar se existe alguma alternativa para ajudar você a regularizar ou encaminhar isso hoje."
+      />
+      <BlocoCopiar
+        titulo="💬 Não tenho interesse em negociar"
+        texto="Entendo. Posso saber qual é o principal motivo que hoje impede o pagamento ou uma negociação? Se você me explicar a situação, podemos verificar se existe alguma possibilidade dentro das condições disponíveis que ajude a resolver isso hoje."
+      />
+      <BlocoCopiar
+        titulo="🎟️ Desconto condicional perdido por atraso"
+        texto="Entendo. Esse desconto é condicionado ao pagamento das parcelas em dia. Para esta regularização, podemos solicitar à supervisão o cálculo com o restabelecimento do benefício. Se essa condição for possível, ela ajudaria você a colocar os valores em dia? Após a regularização, é importante manter as próximas parcelas em dia, pois o desconto não poderá ser restabelecido novamente em caso de novo atraso."
+      />
       <BlocoCopiar titulo="⚠️ Boleto vencendo em breve" texto="Olá! Passando para lembrar que o seu boleto vence em breve. Fique atento para evitar encargos e manter o acordo em dia." />
       <BlocoCopiar titulo="👋 Saudação / validação inicial" texto="Olá! Seja bem-vindo(a) à ReATIVA. Para darmos sequência ao seu atendimento, por gentileza, informe seu nome completo e os 3 primeiros dígitos do CPF. Ficamos no aguardo para prosseguir. Equipe ReATIVA." />
       <BlocoCopiar titulo="✅ Sem parcelas em aberto" texto="Verificamos em nosso sistema e, no momento, não há parcelas em aberto. Pedimos que desconsidere nosso contato. Tenha um ótimo dia!" />
@@ -747,6 +761,20 @@ function SecaoObjecoes() {
       alternativa: "Posso te apresentar as condições disponíveis neste momento.",
       objetivo: "Antecipar a análise da pendência.",
       atencao: "Não prometer benefício acadêmico."
+    },
+    {
+      pergunta: "Vou pagar no final do semestre",
+      principal: "Entendo. Posso saber por qual motivo você prefere deixar o pagamento para o final do semestre?",
+      alternativa: "Dependendo da sua situação, podemos verificar se existe alguma alternativa para ajudar você a regularizar ou encaminhar isso hoje.",
+      objetivo: "Entender o motivo real do adiamento e manter o diálogo aberto.",
+      atencao: "Não encerrar a conversa apenas aceitando o adiamento. Fazer perguntas abertas, sem pressionar."
+    },
+    {
+      pergunta: "Não tenho interesse em negociar",
+      principal: "Entendo. Posso saber qual é o principal motivo que hoje impede o pagamento ou uma negociação?",
+      alternativa: "Existe algum ponto específico, como valor, forma de pagamento ou momento financeiro, que esteja dificultando? Podemos verificar se há algo que ajude a resolver sua situação hoje.",
+      objetivo: "Identificar a objeção real e verificar se existe uma alternativa aplicável.",
+      atencao: "Manter tom respeitoso e aberto. Se o aluno não quiser continuar a conversa, não pressionar."
     },
     {
       pergunta: "Estou desempregado(a)",
@@ -966,6 +994,7 @@ function SecaoDuvidas() {
     { p: "Qual a prioridade de negociação: mensalidades ou acordos?", r: "Sempre priorizar os acordos. Se houver acordo em aberto ou vencido, trate o acordo antes das mensalidades." },
     { p: "Como negociar um acordo em aberto ou vencido?", r: "Primeiro consulte a Política de Negociação. Acordos não podem ser reparcelados em boleto: a regularização deve ser à vista ou no cartão de crédito. Se o aluno não tiver condição de quitar o saldo nessas modalidades, ofereça o pagamento das parcelas individualmente, uma a uma. Enquanto houver parcelas vencidas, a matrícula não será liberada." },
     { p: "Posso realizar a rematrícula pagando somente a entrada do acordo?", r: "Sim, quando se tratar de um novo acordo formalizado e regular. Como benefício operacional vigente da Ulbra, a rematrícula pode ser realizada após a confirmação do pagamento da entrada, sem necessidade de aguardar a quitação integral. Essa regra não se aplica a acordo quebrado ou com parcelas vencidas, que precisa ser regularizado." },
+    { p: "O aluno perdeu um desconto condicional por atraso e diz que não sabia que precisava pagar em dia. O que fazer?", r: "Quando o desconto for condicionado ao pagamento em dia, podemos avaliar o restabelecimento do benefício para a regularização atual. O operador não deve informar valores nem fazer o cálculo diretamente: encaminhe o caso à supervisão para cálculo da condição. Depois, confirme com o aluno se essa possibilidade ajudaria a colocar os valores em dia. Após a regularização, reforce que o desconto não será restabelecido novamente em caso de novo atraso e que as próximas parcelas precisam ser mantidas em dia para preservar o benefício." },
     { p: "Enviei um template no CRM. Como confirmar o envio?", r: "Feche o cadastro do aluno, abra novamente e confirme se a mensagem ficou registrada como enviada." },
     { p: "O aluno diz que está processando a Ulbra. O que fazer?", r: "Solicitar sempre o número do processo e encaminhar para Amanda ADM. Não discutir o processo nem emitir opinião jurídica." },
   ];
@@ -1843,6 +1872,63 @@ function SecaoBiblioteca({ ir }) {
           </button>
         ))}
       </div>
+    </>
+  );
+}
+
+/* ===================== DDDs das Unidades ===================== */
+
+function SecaoDdds() {
+  const unidades = [
+    ["Cachoeira do Sul", "RS", "51"],
+    ["Canoas", "RS", "51"],
+    ["Carazinho", "RS", "54"],
+    ["EAD", "-", "Conforme polo/unidade do aluno"],
+    ["Gravataí", "RS", "51"],
+    ["Guaíba", "RS", "51"],
+    ["Itumbiara", "GO", "64"],
+    ["Manaus", "AM", "92"],
+    ["Palmas", "TO", "63"],
+    ["Porto Alegre", "RS", "51"],
+    ["Santa Maria", "RS", "55"],
+    ["Santarém", "PA", "93"],
+    ["São Jerônimo", "RS", "51"],
+    ["Torres", "RS", "51"],
+  ];
+
+  return (
+    <>
+      <TituloSecao
+        emoji="📞"
+        titulo="DDDs das Unidades"
+        sub="Consulta rápida do código de área das cidades onde a Ulbra possui unidades atendidas pela operação."
+      />
+
+      <Aviso tom="info">
+        <strong>Importante:</strong> o DDD ajuda a identificar a região de origem do número, mas não confirma sozinho
+        a unidade do aluno. Sempre valide a unidade e os dados cadastrais no sistema antes de concluir.
+      </Aviso>
+
+      <Card>
+        <table style={S.tabela}>
+          <thead>
+            <tr>
+              <th style={S.th}>Unidade</th>
+              <th style={S.th}>UF</th>
+              <th style={S.th}>DDD</th>
+            </tr>
+          </thead>
+          <tbody>
+            {unidades.map(([unidade, uf, ddd]) => (
+              <tr key={unidade}>
+                <td style={S.td}><strong>{unidade}</strong></td>
+                <td style={S.td}>{uf}</td>
+                <td style={S.td}>{ddd}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Card>
     </>
   );
 }
