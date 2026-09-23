@@ -52,7 +52,8 @@ const SECOES = [
     grupo: "Equipe",
     itens: [
       { id: "cultura", label: "💚 Cultura Reativa", keywords: "equipe cultura valores reativa" },
-      { id: "historia", label: "📸 Nossa História", keywords: "história equipe fotos reativa" },
+      { id: "elogios", label: "💬 Elogios de Atendimento", keywords: "elogio atendimento aluno operador reconhecimento qualidade" },
+      { id: "historia", label: "📸 Nossa História", keywords: "história equipe fotos reativa conquistas" },
     ],
   },
 ];
@@ -164,6 +165,7 @@ export default function PortalOperacional() {
           {secao === "meta" && <SecaoMeta />}
           {secao === "lgpd" && <SecaoLgpd />}
           {secao === "cultura" && <SecaoCultura />}
+          {secao === "elogios" && <SecaoElogios />}
           {secao === "historia" && <SecaoHistoria />}
         </main>
       </div>
@@ -2438,6 +2440,52 @@ function SecaoCultura() {
   );
 }
 
+/* ===================== Elogios de Atendimento ===================== */
+
+function SecaoElogios() {
+  const elogios = [
+    {
+      data: "23/09/2026",
+      operador: "Diego",
+      aluno: "Olinda",
+      texto: "Tu é muito querido.",
+    },
+  ];
+
+  return (
+    <>
+      <TituloSecao
+        emoji="💬"
+        titulo="Elogios de Atendimento"
+        sub="Reconhecimentos recebidos diretamente dos alunos durante os atendimentos."
+      />
+
+      <Aviso tom="info">
+        <strong>Objetivo:</strong> registrar elogios espontâneos dos alunos e reconhecer boas experiências de atendimento.
+      </Aviso>
+
+      <div style={S.elogiosGrid}>
+        {elogios.map((e, index) => (
+          <Card key={`${e.data}-${e.operador}-${index}`} style={S.elogioCard}>
+            <div style={S.elogioTopo}>
+              <div>
+                <span style={S.cardTag}>ELOGIO RECEBIDO</span>
+                <h3 style={{ ...S.h3, marginTop: 10, marginBottom: 4 }}>Operador {e.operador}</h3>
+                <p style={S.elogioMeta}>Aluna {e.aluno} • {e.data}</p>
+              </div>
+              <span style={S.elogioIcone}>💬</span>
+            </div>
+
+            <blockquote style={S.elogioTexto}>
+              “{e.texto}”
+            </blockquote>
+          </Card>
+        ))}
+      </div>
+    </>
+  );
+}
+
 /* ===================== Nossa História ===================== */
 
 function SecaoHistoria() {
@@ -2979,5 +3027,51 @@ const S = {
     border: "1px solid var(--rv-borda)",
   },
   primeResumoBotoes: { display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" },
+
+  elogiosGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
+    gap: 16,
+  },
+  elogioCard: {
+    marginBottom: 0,
+    border: "1px solid var(--rv-azul-borda)",
+    background: "linear-gradient(135deg, var(--rv-superficie) 0%, var(--rv-azul-fundo) 100%)",
+  },
+  elogioTopo: {
+    display: "flex",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: 16,
+  },
+  elogioMeta: {
+    margin: 0,
+    color: "var(--rv-texto-suave)",
+    fontSize: 13.5,
+    fontWeight: 650,
+  },
+  elogioIcone: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    display: "grid",
+    placeItems: "center",
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
+    fontSize: 20,
+    flexShrink: 0,
+  },
+  elogioTexto: {
+    margin: "20px 0 0",
+    padding: "18px 20px",
+    borderRadius: 16,
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda-suave)",
+    color: "var(--rv-tinta)",
+    fontFamily: FONTE_TITULO,
+    fontSize: 20,
+    lineHeight: 1.5,
+    fontWeight: 700,
+  },
 
 };
