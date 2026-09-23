@@ -51,6 +51,7 @@ import {
   FEITO_AVISO,
   REJEITAR_AVISO,
   finalizacaoInvalida,
+  evidenciasDaLinha,
 } from "../utils/conciliacaoPagamento";
 import RegistrarAcordoAvista from "../components/RegistrarAcordoAvista";
 import Aluno from "./Aluno";
@@ -467,6 +468,40 @@ function Linha({ item, acao, onRegistrar, aberto, onAbrir, onVinculado, onVerFic
         )}
       </div>
 
+      {/* CONFERENCIA MANUAL (23/09/2026). A gestao decidiu conferir os
+          AGUARDANDO_ACORDO um a um em vez de reclassificar por rotina -- entao
+          o que ela precisa olhar fica aqui, na propria linha: o acordo que o
+          boleto aponta, as evidencias que existem e o saldo de hoje. Tudo
+          leitura; nada aqui vincula, cria ou baixa. */}
+      <div style={conferenciaBox}>
+        <div style={conferenciaTopo}>
+          <span style={motivoRotulo}>conferência</span>
+          {item.acordo_identificado ? (
+            <span style={conferenciaAcordo}>acordo {item.acordo_identificado}</span>
+          ) : (
+            <span style={S.cardCpf}>boleto fora do padrão: sem acordo identificável</span>
+          )}
+          <span style={{ flex: 1 }} />
+          <span style={S.cardCpf}>
+            saldo atual{" "}
+            <b style={{ color: "var(--rv-tinta)" }}>
+              {item.saldo_total == null ? "—" : moeda(item.saldo_total)}
+            </b>
+            {item.saldo_vencido != null && Number(item.saldo_vencido) > 0
+              ? ` · vencido ${moeda(item.saldo_vencido)}`
+              : ""}
+          </span>
+        </div>
+        <div style={conferenciaGrade}>
+          {evidenciasDaLinha(item).map((e) => (
+            <div key={e.chave} style={conferenciaItem}>
+              <span style={conferenciaRotulo}>{e.rotulo}</span>
+              <span style={e.alerta ? conferenciaValorAlerta : conferenciaValor}>{e.valor}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
       {aberto && podeVincular ? (
         <div style={{ padding: "14px 16px" }}>
           {sugestoes.length > 0 ? (
@@ -586,6 +621,26 @@ const btnEncerrar = {
   fontWeight: 700,
   cursor: "pointer",
 };
+const conferenciaBox = {
+  margin: "8px 0 0", padding: "10px 12px", borderRadius: 10,
+  background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda-suave)",
+};
+const conferenciaTopo = { display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", marginBottom: 8 };
+const conferenciaAcordo = {
+  fontSize: 12, fontWeight: 800, color: "var(--rv-roxo-texto)", background: "var(--rv-roxo-fundo)",
+  border: "1px solid var(--rv-roxo-borda)", borderRadius: 999, padding: "2px 10px",
+};
+const conferenciaGrade = {
+  display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(210px, 1fr))", gap: "6px 16px",
+};
+const conferenciaItem = { display: "flex", flexDirection: "column", gap: 1 };
+const conferenciaRotulo = {
+  fontSize: 10, fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em",
+  color: "var(--rv-texto-fraco)",
+};
+const conferenciaValor = { fontSize: 12.5, color: "var(--rv-texto-forte)" };
+const conferenciaValorAlerta = { fontSize: 12.5, color: "var(--rv-vermelho-texto)", fontWeight: 700 };
+
 const encerrarCaixa = {
   padding: "12px 16px",
   borderTop: "1px solid var(--rv-borda)",
