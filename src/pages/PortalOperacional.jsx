@@ -46,6 +46,7 @@ const SECOES = [
     grupo: "Operação",
     itens: [
       { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime folya nota fiscal prestação serviços comissão pix conta planilha sistema acesso link ferramenta" },
+      { id: "manualprime", label: "📘 Manual do Prime", keywords: "prime manual painel atendimento títulos receber acordos condições especiais desconto atalho financeiro" },
       { id: "ddds", label: "📞 DDDs das Unidades", keywords: "ddd código área telefone unidade cidade cachoeira canoas carazinho gravataí guaíba itumbiara manaus palmas porto alegre santa maria santarém são jerônimo torres ead" },
       { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico giovana bruno unidade adm financeiro contato" },
       { id: "meta", label: "🎯 Meta do Mês", keywords: "meta comissão honorário projeção resultado mês" },
@@ -166,7 +167,8 @@ export default function PortalOperacional() {
           {secao === "academico" && <SecaoAcademico />}
           {secao === "documentos" && <SecaoDocumentos />}
           {secao === "cursos" && <SecaoCursos />}
-          {secao === "sistemas" && <SecaoSistemas />}
+          {secao === "sistemas" && <SecaoSistemas ir={navegar} />}
+          {secao === "manualprime" && <SecaoManualPrime ir={navegar} />}
           {secao === "ddds" && <SecaoDdds />}
           {secao === "contatos" && <SecaoContatos />}
           {secao === "meta" && <SecaoMeta />}
@@ -1920,7 +1922,7 @@ function SecaoBeneficios() {
 
 /* ===================== Sistemas e Planilhas ===================== */
 
-function SecaoSistemas() {
+function SecaoSistemas({ ir }) {
   const sistemas = [
     { emoji: "🟢", titulo: "ReATIVA One", tipo: "CRM OPERACIONAL", desc: "Carteira, atendimentos, negociações, retornos, registros e acompanhamento da operação.", href: "/" },
     { emoji: "💬", titulo: "CRM de Mensageria", tipo: "MENSAGERIA", desc: "Envio e consulta de mensagens e contatos relacionados à operação.", href: "https://crm.ulbra.ai/" },
@@ -1955,6 +1957,10 @@ function SecaoSistemas() {
               >
                 Abrir sistema
               </a>
+            ) : s.titulo === "Prime" ? (
+              <button type="button" onClick={() => ir("manualprime")} style={{ ...S.botaoSecundario, marginTop: 14 }}>
+                Abrir manual do Prime
+              </button>
             ) : (
               <p style={S.observacao}>Utilize o acesso oficial disponibilizado para a equipe.</p>
             )}
@@ -2095,6 +2101,223 @@ function SecaoBiblioteca({ ir }) {
           </button>
         ))}
       </div>
+    </>
+  );
+}
+
+/* ===================== Manual do Prime ===================== */
+
+function CaminhoPrime({ itens }) {
+  return (
+    <div style={S.primeCaminho}>
+      {itens.map((item, i) => (
+        <React.Fragment key={item}>
+          <span style={i === itens.length - 1 ? S.primeCaminhoAtual : S.primeCaminhoItem}>{item}</span>
+          {i < itens.length - 1 ? <span style={S.primeCaminhoSeta}>→</span> : null}
+        </React.Fragment>
+      ))}
+    </div>
+  );
+}
+
+function PassoPrime({ numero, titulo, children }) {
+  return (
+    <div style={S.primePasso}>
+      <div style={S.primePassoNumero}>{numero}</div>
+      <div>
+        <strong style={S.primePassoTitulo}>{titulo}</strong>
+        <div style={S.primePassoTexto}>{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function SecaoManualPrime({ ir }) {
+  const irPara = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  return (
+    <>
+      <div style={S.primeHero}>
+        <div style={S.primeHeroTexto}>
+          <span style={S.heroEyebrow}>MANUAL OPERACIONAL</span>
+          <h1 style={S.primeHeroTitulo}>Prime, sem complicação.</h1>
+          <p style={S.primeHeroSub}>
+            Consulte os caminhos usados pela ReATIVA para atendimento, títulos, acordos e aplicação de condições especiais.
+            O objetivo é encontrar o que você precisa durante o atendimento em poucos segundos.
+          </p>
+          <div style={S.heroAcoes}>
+            <button type="button" onClick={() => irPara("prime-painel")} style={S.botaoPrimario}>Começar pelo atendimento</button>
+            <button type="button" onClick={() => irPara("prime-desconto")} style={S.botaoSecundario}>Aplicar desconto</button>
+          </div>
+        </div>
+        <div style={S.primeHeroBadge}>
+          <span style={S.primeHeroBadgeIcon}>P</span>
+          <strong>PRIME</strong>
+          <span>Guia rápido ReATIVA</span>
+        </div>
+      </div>
+
+      <div style={S.primeAtalhos}>
+        {[
+          ["01", "Painel de Atendimento", "prime-painel"],
+          ["02", "Títulos a Receber", "prime-titulos"],
+          ["03", "Acordos", "prime-acordos"],
+          ["04", "Condições Especiais", "prime-condicoes"],
+          ["05", "Aplicar desconto", "prime-desconto"],
+        ].map(([n, titulo, alvo]) => (
+          <button key={alvo} type="button" onClick={() => irPara(alvo)} style={S.primeAtalhoCard}>
+            <span style={S.primeAtalhoNumero}>{n}</span>
+            <strong>{titulo}</strong>
+            <span style={S.primeAtalhoSeta}>↓</span>
+          </button>
+        ))}
+      </div>
+
+      <Aviso tom="info">
+        <strong>Use este manual como mapa de navegação.</strong> Ele organiza somente os procedimentos que já estão
+        documentados no material operacional fornecido pela gestão. Para informações financeiras do aluno, siga as regras
+        de validação e conferência vigentes antes de qualquer tratativa.
+      </Aviso>
+
+      <section id="prime-painel" style={S.primeSecao}>
+        <div style={S.primeSecaoCabecalho}>
+          <div>
+            <span style={S.cardTag}>01 · ATENDIMENTO</span>
+            <h2 style={S.primeSecaoTitulo}>Acessar o Painel de Atendimento</h2>
+            <p style={S.paragrafo}>É o ponto de entrada para localizar e acompanhar o atendimento do aluno no Prime.</p>
+          </div>
+          <span style={S.primeIconeGrande}>◫</span>
+        </div>
+        <Card style={S.primeCardDestaque}>
+          <span style={S.primeMiniLabel}>CAMINHO NO MENU</span>
+          <CaminhoPrime itens={["☰ Menu", "Atendimento", "Painel de Atendimento"]} />
+        </Card>
+        <div style={S.grade2}>
+          <PassoPrime numero="1" titulo="Abra o menu principal">Clique no ícone de três linhas no canto superior do Prime.</PassoPrime>
+          <PassoPrime numero="2" titulo="Entre em Atendimento">No menu, localize a área Atendimento.</PassoPrime>
+          <PassoPrime numero="3" titulo="Abra o Painel de Atendimento">Selecione Painel de Atendimento para iniciar a consulta.</PassoPrime>
+        </div>
+      </section>
+
+      <section id="prime-titulos" style={S.primeSecao}>
+        <div style={S.primeSecaoCabecalho}>
+          <div>
+            <span style={S.cardTag}>02 · FINANCEIRO</span>
+            <h2 style={S.primeSecaoTitulo}>Consultar Títulos a Receber</h2>
+            <p style={S.paragrafo}>Use essa área para acessar os títulos financeiros do aluno.</p>
+          </div>
+          <span style={S.primeIconeGrande}>▤</span>
+        </div>
+        <Card style={S.primeCardDestaque}>
+          <span style={S.primeMiniLabel}>CAMINHO NO MENU</span>
+          <CaminhoPrime itens={["☰ Menu", "RECEBER", "Títulos a Receber"]} />
+        </Card>
+        <div style={S.grade2}>
+          <PassoPrime numero="1" titulo="Abra o menu">Acesse o menu lateral do Prime.</PassoPrime>
+          <PassoPrime numero="2" titulo="Localize RECEBER">Expanda a área RECEBER.</PassoPrime>
+          <PassoPrime numero="3" titulo="Selecione Títulos a Receber">Entre na opção para consultar os títulos financeiros disponíveis.</PassoPrime>
+        </div>
+      </section>
+
+      <section id="prime-acordos" style={S.primeSecao}>
+        <div style={S.primeSecaoCabecalho}>
+          <div>
+            <span style={S.cardTag}>03 · ACORDOS</span>
+            <h2 style={S.primeSecaoTitulo}>Acessar os Acordos</h2>
+            <p style={S.paragrafo}>O acesso pode ser feito pelo menu RECEBER ou pelo botão Acordos disponível na ficha financeira do aluno.</p>
+          </div>
+          <span style={S.primeIconeGrande}>◇</span>
+        </div>
+        <div style={S.grade2}>
+          <Card style={S.primeCardDestaque}>
+            <span style={S.primeMiniLabel}>PELO MENU</span>
+            <CaminhoPrime itens={["☰ Menu", "RECEBER", "Acordos", "Acordos"]} />
+          </Card>
+          <Card style={S.primeCardDestaque}>
+            <span style={S.primeMiniLabel}>PELA FICHA DO ALUNO</span>
+            <CaminhoPrime itens={["Ficha financeira", "Botão Acordos"]} />
+          </Card>
+        </div>
+        <Aviso tom="info">
+          <strong>Lembrete operacional:</strong> se houver acordo em aberto ou vencido, a negociação do acordo é prioridade
+          antes das mensalidades.
+        </Aviso>
+      </section>
+
+      <section id="prime-condicoes" style={S.primeSecao}>
+        <div style={S.primeSecaoCabecalho}>
+          <div>
+            <span style={S.cardTag}>04 · CONDIÇÕES ESPECIAIS</span>
+            <h2 style={S.primeSecaoTitulo}>Acessar Condições Especiais para Acordo</h2>
+            <p style={S.paragrafo}>É o caminho utilizado no material para cadastrar a condição que será usada na aplicação de desconto.</p>
+          </div>
+          <span style={S.primeIconeGrande}>%</span>
+        </div>
+        <Card style={S.primeCardDestaque}>
+          <span style={S.primeMiniLabel}>CAMINHO NO MENU</span>
+          <CaminhoPrime itens={["☰ Menu", "RECEBER", "Acordos", "Condições Especiais para Acordo"]} />
+        </Card>
+        <PassoPrime numero="1" titulo="Entre em Condições Especiais para Acordo">
+          Na tela de seleção, clique em <strong>Incluir condição de acordo</strong>.
+        </PassoPrime>
+      </section>
+
+      <section id="prime-desconto" style={S.primeSecao}>
+        <div style={S.primeSecaoCabecalho}>
+          <div>
+            <span style={S.cardTag}>05 · APLICAÇÃO DE DESCONTO</span>
+            <h2 style={S.primeSecaoTitulo}>Cadastrar a condição corretamente</h2>
+            <p style={S.paragrafo}>O material define duas regras obrigatórias para o preenchimento.</p>
+          </div>
+          <span style={S.primeIconeGrande}>✓</span>
+        </div>
+
+        <div style={S.primeRegraGrid}>
+          <Card style={S.primeRegraCard}>
+            <span style={S.primeRegraNumero}>01</span>
+            <h3 style={S.h3}>Nome completo do aluno</h3>
+            <p style={S.paragrafo}>No campo <strong>Aluno</strong>, informe o nome completo.</p>
+          </Card>
+          <Card style={S.primeRegraCard}>
+            <span style={S.primeRegraNumero}>02</span>
+            <h3 style={S.h3}>Validade dentro do mês vigente</h3>
+            <p style={S.paragrafo}>O período informado deve começar e terminar dentro do mesmo mês vigente.</p>
+          </Card>
+        </div>
+
+        <Card style={S.primeExemplo}>
+          <span style={S.primeMiniLabel}>EXEMPLO DO MATERIAL</span>
+          <div style={S.primeExemploLinha}>
+            <span>Válido de</span>
+            <strong>01/09</strong>
+            <span>até</span>
+            <strong>30/09</strong>
+          </div>
+          <p style={{ ...S.paragrafo, margin: "10px 0 0" }}>
+            Após preencher aluno, validade e texto da condição, utilize <strong>Gravar</strong>.
+          </p>
+        </Card>
+
+        <Aviso>
+          <strong>Atenção:</strong> este manual ensina o caminho e o preenchimento documentados no Prime.
+          Ele não substitui a Política de Negociação e não autoriza desconto fora das regras vigentes.
+        </Aviso>
+      </section>
+
+      <section style={S.primeSecao}>
+        <div style={S.primeResumoFinal}>
+          <div>
+            <span style={S.cardTag}>CONSULTA RÁPIDA</span>
+            <h2 style={S.primeSecaoTitulo}>Qual caminho você precisa agora?</h2>
+          </div>
+          <div style={S.primeResumoBotoes}>
+            <button type="button" onClick={() => irPara("prime-titulos")} style={S.botaoSecundario}>Títulos</button>
+            <button type="button" onClick={() => irPara("prime-acordos")} style={S.botaoSecundario}>Acordos</button>
+            <button type="button" onClick={() => irPara("prime-desconto")} style={S.botaoPrimario}>Desconto</button>
+            <button type="button" onClick={() => ir("politica")} style={S.botaoSecundario}>Política de Negociação</button>
+          </div>
+        </div>
+      </section>
     </>
   );
 }
@@ -2753,4 +2976,208 @@ const S = {
     color: "var(--rv-texto-forte)",
     boxShadow: "0 4px 16px rgba(15,23,42,0.04)",
   },
+  primeHero: {
+    display: "grid",
+    gridTemplateColumns: "minmax(0, 1fr) auto",
+    gap: 28,
+    alignItems: "center",
+    background: "linear-gradient(135deg, var(--rv-superficie) 0%, var(--rv-azul-fundo) 100%)",
+    border: "1px solid var(--rv-azul-borda)",
+    borderRadius: 28,
+    padding: "44px 46px",
+    marginBottom: 18,
+    boxShadow: "0 16px 44px rgba(15,23,42,0.07)",
+  },
+  primeHeroTexto: { maxWidth: 830 },
+  primeHeroTitulo: {
+    fontFamily: FONTE_TITULO,
+    fontSize: 40,
+    lineHeight: 1.08,
+    letterSpacing: "-0.04em",
+    margin: "9px 0 12px",
+    color: "var(--rv-tinta)",
+  },
+  primeHeroSub: { fontSize: 16.5, lineHeight: 1.65, color: "var(--rv-texto-suave)", margin: 0 },
+  primeHeroBadge: {
+    width: 176,
+    minHeight: 176,
+    borderRadius: 24,
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-azul-borda)",
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 5,
+    boxShadow: "0 10px 30px rgba(15,23,42,0.06)",
+    color: "var(--rv-tinta)",
+  },
+  primeHeroBadgeIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    display: "grid",
+    placeItems: "center",
+    background: "var(--rv-azul)",
+    color: "#fff",
+    fontFamily: FONTE_TITULO,
+    fontSize: 28,
+    fontWeight: 900,
+    marginBottom: 5,
+  },
+  primeAtalhos: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: 12,
+    margin: "18px 0",
+  },
+  primeAtalhoCard: {
+    border: "1px solid var(--rv-borda)",
+    background: "var(--rv-superficie)",
+    color: "var(--rv-tinta)",
+    borderRadius: 16,
+    padding: "16px",
+    display: "grid",
+    gridTemplateColumns: "auto 1fr auto",
+    alignItems: "center",
+    gap: 10,
+    textAlign: "left",
+    cursor: "pointer",
+    fontFamily: "inherit",
+  },
+  primeAtalhoNumero: { fontSize: 11, fontWeight: 900, color: VERDE_ESCURO, letterSpacing: "0.08em" },
+  primeAtalhoSeta: { color: "var(--rv-texto-fraco)", fontSize: 16 },
+  primeSecao: {
+    scrollMarginTop: 24,
+    paddingTop: 28,
+    marginTop: 14,
+    borderTop: "1px solid var(--rv-borda-suave)",
+  },
+  primeSecaoCabecalho: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 20,
+    marginBottom: 16,
+  },
+  primeSecaoTitulo: {
+    fontFamily: FONTE_TITULO,
+    fontSize: 25,
+    color: "var(--rv-tinta)",
+    margin: "7px 0 5px",
+    letterSpacing: "-0.025em",
+  },
+  primeIconeGrande: {
+    minWidth: 56,
+    height: 56,
+    borderRadius: 18,
+    display: "grid",
+    placeItems: "center",
+    border: "1px solid var(--rv-azul-borda)",
+    background: "var(--rv-azul-fundo)",
+    color: VERDE_ESCURO,
+    fontSize: 24,
+    fontWeight: 900,
+  },
+  primeCardDestaque: {
+    background: "var(--rv-fundo-suave)",
+    border: "1px solid var(--rv-borda)",
+  },
+  primeMiniLabel: {
+    display: "block",
+    fontSize: 10.5,
+    fontWeight: 900,
+    color: "var(--rv-texto-fraco)",
+    letterSpacing: "0.1em",
+    marginBottom: 10,
+  },
+  primeCaminho: {
+    display: "flex",
+    gap: 8,
+    alignItems: "center",
+    flexWrap: "wrap",
+  },
+  primeCaminhoItem: {
+    padding: "9px 12px",
+    borderRadius: 10,
+    background: "var(--rv-superficie)",
+    border: "1px solid var(--rv-borda)",
+    fontSize: 13.5,
+    fontWeight: 750,
+    color: "var(--rv-texto)",
+  },
+  primeCaminhoAtual: {
+    padding: "9px 12px",
+    borderRadius: 10,
+    background: "var(--rv-azul-fundo)",
+    border: "1px solid var(--rv-azul-borda)",
+    fontSize: 13.5,
+    fontWeight: 850,
+    color: VERDE_ESCURO,
+  },
+  primeCaminhoSeta: { color: "var(--rv-texto-fraco)", fontWeight: 900 },
+  primePasso: {
+    display: "grid",
+    gridTemplateColumns: "42px 1fr",
+    gap: 13,
+    alignItems: "start",
+    padding: "17px 0",
+  },
+  primePassoNumero: {
+    width: 38,
+    height: 38,
+    display: "grid",
+    placeItems: "center",
+    borderRadius: 12,
+    background: "var(--rv-azul-fundo)",
+    border: "1px solid var(--rv-azul-borda)",
+    color: VERDE_ESCURO,
+    fontWeight: 900,
+    fontSize: 12,
+  },
+  primePassoTitulo: { display: "block", fontSize: 15, color: "var(--rv-tinta)", marginBottom: 5 },
+  primePassoTexto: { fontSize: 14.2, lineHeight: 1.55, color: "var(--rv-texto-suave)" },
+  primeRegraGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
+    gap: 16,
+  },
+  primeRegraCard: {
+    position: "relative",
+    overflow: "hidden",
+    minHeight: 150,
+  },
+  primeRegraNumero: {
+    display: "inline-flex",
+    padding: "5px 8px",
+    borderRadius: 8,
+    background: "var(--rv-azul-fundo)",
+    color: VERDE_ESCURO,
+    fontSize: 11,
+    fontWeight: 900,
+    marginBottom: 9,
+  },
+  primeExemplo: {
+    marginTop: 16,
+    background: "linear-gradient(135deg, var(--rv-superficie), var(--rv-fundo-suave))",
+  },
+  primeExemploLinha: {
+    display: "flex",
+    gap: 10,
+    flexWrap: "wrap",
+    alignItems: "center",
+    fontSize: 15,
+  },
+  primeResumoFinal: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 24,
+    padding: "24px",
+    borderRadius: 20,
+    background: "var(--rv-fundo-suave)",
+    border: "1px solid var(--rv-borda)",
+  },
+  primeResumoBotoes: { display: "flex", gap: 10, flexWrap: "wrap", justifyContent: "flex-end" },
+
 };
