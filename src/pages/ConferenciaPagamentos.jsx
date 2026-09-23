@@ -25,7 +25,7 @@
 //
 // Estado ao ligar: 2.679 linhas (1.365 com aluno + 1.314 so com nome),
 // 5.572 pagamentos, R$ 9.026.477,20 que entraram, R$ 6.323.939,30 em aberto.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import { listarMeses } from "../utils/mesesConferencia";
@@ -48,8 +48,18 @@ const TIPOS = [
   { chave: null,          rotulo: "A fazer",        dica: "Esconde quem nao tem mensalidade, esta com as parcelas em dia e ja tem operador — nao ha o que decidir." },
   { chave: "MENSALIDADE", rotulo: "Com mensalidade", dica: "So quem tem mensalidade em aberto: e onde o vinculo mensalidade x acordo precisa ser feito." },
   { chave: "ACORDO",      rotulo: "Só acordo",       dica: "So quem nao tem mensalidade em aberto — o dinheiro so precisa ser registrado." },
+  // A pendencia represada da Conferencia Prime. Fica FORA do corte de periodo
+  // de proposito: 316 dos 388 alunos nao tem pagamento recente -- eles nunca
+  // entrariam pela porta do extrato, e e justamente onde o trabalho estava
+  // parado (0 decisoes desde 19/09 com 668 titulos esperando).
+  { chave: "EM_CONFIRMACAO", rotulo: "Em confirmação", dica: "Mensalidade que a Conferência Prime tirou da cobrança e ainda espera decisão. Traz o acumulado inteiro, sem filtro de mês." },
   { chave: "TUDO",        rotulo: "Tudo",            dica: "Inclui tambem quem ja esta resolvido, para conferir o conjunto." },
 ];
+
+// O efeito que o backend vai produzir. So estes dois aceitam vinculo: oferecer
+// o botao em ACORDO_SEM_DINHEIRO_REAL ou ACORDO_CANCELADO seria prometer o que
+// `prime_conferencia_vincular` recusa.
+const EFEITO_VINCULA = new Set(["VIRA_PAGO", "VIRA_NEGOCIADO"]);
 
 const FAIXAS = [
   { min: 0, rotulo: "Qualquer valor" },
@@ -84,6 +94,10 @@ export default function ConferenciaPagamentos() {
   const [desfazer, setDesfazer] = useState(null);
   const [placar, setPlacar] = useState({ n: 0, valor: 0 });
   const [fichaId, setFichaId] = useState(null);
+  // Titulo EM_CONFIRMACAO aberto na propria linha -- sem trocar de tela.
+  const [emConfAberto, setEmConfAberto] = useState(null);
+  const [emConf, setEmConf] = useState({});
+  const [decidindo, setDecidindo] = useState(null);
   const buscaRef = useRef(null);
 
   const carregar = useCallback(async () => {
@@ -334,6 +348,87 @@ export default function ConferenciaPagamentos() {
     return () => window.removeEventListener("keydown", onKey);
   }, [visiveis, alvo, fichaId, desfazer, desfazerAgora]);
 
+  // RESOLVER O TITULO EM CONFIRMACAO AQUI.
+  //
+  // Amanda, 23/09/2026: "precisa ser facil fazer as coisas, em um lugar so".
+  // O caso do Gabriel Malaman exigia tres telas -- e o aluno nem aparecia aqui,
+  // porque o titulo em confirmacao zera o saldo e o saldo zerado excluia a
+  // linha. A fila passou a mostrar; estes botoes fazem a decisao acontecer sem
+  // sair dela.
+  //
+  // NENHUMA REGRA NOVA: sao as mesmas RPCs da Conferencia Prime, com as mesmas
+  // travas (acordo quitado sem dinheiro real e recusado; pagamento ja baixado
+  // nao pode ser "seguido") e o mesmo motivo obrigatorio, que fica na auditoria.
+  const carregarEmConf = useCallback(async (alunoId) => {
+    const { data, error } = await supabase.rpc("conferencia_em_confirmacao_do_aluno", { p_aluno_id: alunoId });
+    setEmConf((m) => ({ ...m, [alunoId]: { carregando: false, itens: data || [], erro: error?.message || "" } }));
+    return data || [];
+  }, []);
+
+  const abrirEmConf = useCallback(async (l) => {
+    const chave = chaveDe(l);
+    if (emConfAberto === chave) { setEmConfAberto(null); return; }
+    setEmConfAberto(chave);
+    if (!l.aluno_id || emConf[l.aluno_id]?.itens) return;
+    setEmConf((m) => ({ ...m, [l.aluno_id]: { carregando: true } }));
+    await carregarEmConf(l.aluno_id);
+  }, [emConfAberto, emConf, carregarEmConf]);
+
+  // Motivo escrito: as RPCs recusam abaixo de 10 caracteres, entao a tela pede
+  // antes de gastar a ida ao banco -- e o texto e o que fica registrado.
+  function pedirMotivo(pergunta, minimo) {
+    const t = window.prompt(pergunta);
+    if (t === null) return null;
+    const limpo = String(t).trim();
+    if (limpo.length < minimo) {
+      alert(`Escreva o motivo com pelo menos ${minimo} caracteres — é ele que fica na auditoria.`);
+      return null;
+    }
+    return limpo;
+  }
+
+  async function decidirEmConf(l, item, acao) {
+    if (decidindo) return;
+    let motivo = null;
+    if (acao === "VINCULAR") {
+      const pergunta = `${item.efeito_texto}\n\nVincular o boleto ${item.documento} (${moeda(item.valor)}) ao acordo ${item.acordo_numero}?\n\nPor que este acordo cobre esta mensalidade?`;
+      if (item.exige_motivo) { motivo = pedirMotivo(pergunta, 10); if (!motivo) return; }
+      else if (!window.confirm(pergunta)) return;
+    } else if (acao === "SEGUIR") {
+      motivo = pedirMotivo(
+        `O boleto ${item.documento} volta ao fluxo oficial de pagamento e sai desta fila; o motor conclui. Nada é marcado pago aqui.\n\nPor que este pagamento é deste título?`, 10);
+      if (!motivo) return;
+    } else {
+      motivo = pedirMotivo(
+        `Rejeitar: o boleto ${item.documento} (${moeda(item.valor)}) volta a ser cobrado, em aberto. A mesma evidência não o traz de volta.\n\nPor que a liquidação não vale?`, 10);
+      if (!motivo) return;
+    }
+    setDecidindo(item.titulo_id);
+    try {
+      let r;
+      if (acao === "VINCULAR") {
+        r = await supabase.rpc("prime_conferencia_vincular",
+          { p_titulo_id: item.titulo_id, p_acordo_id: item.acordo_id, p_observacao: motivo });
+      } else if (acao === "SEGUIR") {
+        r = await supabase.rpc("prime_conferencia_seguir_pagamento",
+          { p_titulo_id: item.titulo_id, p_pagamento_id: item.pagamento_id, p_motivo: motivo });
+      } else {
+        r = await supabase.rpc("prime_conferencia_rejeitar",
+          { p_titulo_id: item.titulo_id, p_motivo: motivo });
+      }
+      if (r.error) throw r.error;
+      // A linha acompanha: o que saiu da pendencia sai do contador, sem F5.
+      const restantes = await carregarEmConf(l.aluno_id);
+      const v = restantes.reduce((soma, x) => soma + Number(x.valor || 0), 0);
+      setLinhas((ls) => ls.map((x) => (x.aluno_id === l.aluno_id
+        ? { ...x, qtd_em_confirmacao: restantes.length, em_confirmacao: v } : x)));
+    } catch (e) {
+      alert("Não foi possível concluir: " + (e?.message || String(e)));
+    } finally {
+      setDecidindo(null);
+    }
+  }
+
   const rotuloFaixa = FAIXAS.find((f) => f.min === faixa)?.rotulo || "Tudo";
 
   return (
@@ -455,8 +550,11 @@ export default function ConferenciaPagamentos() {
               const conf = confirmando?.chave === chave ? confirmando.acao : null;
               const vinc = vinculando?.chave === chave ? vinculando : null;
               const semDono = l.tipo === "SEM_VINCULO";
+              const det = l.aluno_id ? emConf[l.aluno_id] : null;
+              const abertoEmConf = emConfAberto === chave && !semDono;
               return (
-                <tr key={chave} onMouseEnter={() => setCursor(i)}
+                <Fragment key={chave}>
+                <tr onMouseEnter={() => setCursor(i)}
                     style={destacada ? { background: "var(--rv-azul-fundo)", outline: "2px solid var(--rv-azul-borda)" } : undefined}>
                   <td style={S.td}>
                     {semDono ? (
@@ -482,6 +580,15 @@ export default function ConferenciaPagamentos() {
                         <span style={seloDepoisDeQuitar} title={`Quitado em ${curta(l.quitado_em)} e o pagamento entrou depois. Pode ser duplicidade, estorno a fazer ou dívida nova.`}>
                           pagou depois de quitar
                         </span>
+                      ) : null}
+                      {/* A pendencia que estava invisivel: o titulo em confirmacao zera o
+                          saldo do aluno, e saldo zerado excluia a linha inteira da fila.
+                          Agora ela aparece aqui e abre no lugar. */}
+                      {!semDono && Number(l.em_confirmacao) > 0.005 ? (
+                        <button type="button" style={seloEmConf} onClick={() => abrirEmConf(l)}
+                          title="Mensalidade que a Conferência Prime tirou da cobrança e ainda espera decisão. Clique para resolver aqui mesmo.">
+                          {abertoEmConf ? "▾" : "▸"} {l.qtd_em_confirmacao} em confirmação · {moeda(l.em_confirmacao)}
+                        </button>
                       ) : null}
                       {" · "}{l.qtd_pagamentos} pagamento{l.qtd_pagamentos === 1 ? "" : "s"}
                       {" · "}{l.primeiro_pagamento === l.ultimo_pagamento
@@ -616,6 +723,63 @@ export default function ConferenciaPagamentos() {
                     )}
                   </td>
                 </tr>
+                {abertoEmConf ? (
+                  <tr>
+                    <td colSpan={8} style={celulaEmConf}>
+                      {det?.carregando ? (
+                        <span style={sub}>Carregando o que está em confirmação…</span>
+                      ) : det?.erro ? (
+                        <span style={{ ...sub, color: "var(--rv-vermelho-texto)" }}>{det.erro}</span>
+                      ) : !det?.itens?.length ? (
+                        <span style={sub}>Nada em confirmação para esta pessoa.</span>
+                      ) : (
+                        det.itens.map((item) => (
+                          <div key={item.titulo_id} style={itemEmConf}>
+                            <div style={{ minWidth: 260, flex: 1 }}>
+                              <div style={{ fontSize: 12.5, fontWeight: 800, color: "var(--rv-texto-forte)" }}>
+                                Boleto {item.documento} · venc. {curta(item.vencimento)} · {moeda(item.valor)}
+                              </div>
+                              {/* O que o clique VAI fazer, dito pelo banco e nao pela tela:
+                                  quem decide e vincular_titulos_acordo + a trava do acordo
+                                  quitado sem dinheiro real. */}
+                              <div style={sub}>{item.efeito_texto}</div>
+                              <div style={sub}>
+                                {item.dias_pendente} dia{item.dias_pendente === 1 ? "" : "s"} parado
+                                {item.pagamento_data
+                                  ? ` · pagamento ${curta(item.pagamento_data)} de ${moeda(item.pagamento_valor)}${item.pagamento_status ? ` (${String(item.pagamento_status).toLowerCase()})` : ""}`
+                                  : ""}
+                              </div>
+                            </div>
+                            <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                              {EFEITO_VINCULA.has(item.efeito) ? (
+                                <button type="button"
+                                  style={decidindo === item.titulo_id ? S.btnBusy : btnResolver}
+                                  disabled={!!decidindo}
+                                  onClick={() => decidirEmConf(l, item, "VINCULAR")}
+                                  title={item.efeito_texto}>
+                                  {item.efeito === "VIRA_PAGO" ? "Vincular e quitar" : "Vincular"} acordo {item.acordo_numero}
+                                </button>
+                              ) : null}
+                              {item.pode_seguir_pagamento ? (
+                                <button type="button" style={btnJaTratado} disabled={!!decidindo}
+                                  onClick={() => decidirEmConf(l, item, "SEGUIR")}
+                                  title="O título volta ao fluxo oficial de pagamento e o motor conclui. Nada é marcado pago aqui.">
+                                  Seguir pagamento
+                                </button>
+                              ) : null}
+                              <button type="button" style={btnNao} disabled={!!decidindo}
+                                onClick={() => decidirEmConf(l, item, "REJEITAR")}
+                                title="A liquidação não vale: o título volta a ser cobrado, em aberto.">
+                                Rejeitar
+                              </button>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
               );
             })}
           </tbody>
@@ -702,6 +866,25 @@ const seloDepoisDeQuitar = {
 const seloSemAcordo = {
   fontSize: 10.5, fontWeight: 800, color: "var(--rv-roxo-texto)", background: "var(--rv-roxo-fundo)",
   border: "1px solid var(--rv-roxo-borda)", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
+};
+// A pendencia da Conferencia Prime na linha. Roxo de proposito: nao e dinheiro
+// que entrou (verde) nem atraso (vermelho) -- e decisao parada.
+const seloEmConf = {
+  fontSize: 10.5, fontWeight: 800, color: "var(--rv-roxo-texto)", background: "var(--rv-roxo-fundo)",
+  border: "1px solid var(--rv-roxo-borda)", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
+  cursor: "pointer",
+};
+const celulaEmConf = {
+  padding: "8px 14px 10px", background: "var(--rv-fundo-suave)",
+  borderTop: "1px solid var(--rv-borda-forte)",
+};
+const itemEmConf = {
+  display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap",
+  padding: "7px 0", borderTop: "1px solid var(--rv-borda-forte)",
+};
+const btnResolver = {
+  background: "#0f766e", color: "#fff", border: "none", borderRadius: 8,
+  padding: "5px 13px", fontSize: 12, fontWeight: 800, cursor: "pointer",
 };
 const btnVincular = {
   background: "#9a3412", color: "#fff", border: "none", borderRadius: 8,
