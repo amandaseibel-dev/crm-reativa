@@ -1220,6 +1220,7 @@ function SecaoDuvidas() {
     { p: "Como negociar um acordo em aberto ou vencido?", r: "Primeiro consulte a Política de Negociação. Acordos não podem ser reparcelados em boleto: a regularização deve ser à vista ou no cartão de crédito. Se o aluno não tiver condição de quitar o saldo nessas modalidades, ofereça o pagamento das parcelas individualmente, uma a uma. Enquanto houver parcelas vencidas, a matrícula não será liberada." },
     { p: "Posso realizar a rematrícula pagando somente a entrada do acordo?", r: "Sim, quando se tratar de um novo acordo formalizado e regular. Como benefício operacional vigente da Ulbra, a rematrícula pode ser realizada após a confirmação do pagamento da entrada, sem necessidade de aguardar a quitação integral. Essa regra não se aplica a acordo quebrado ou com parcelas vencidas, que precisa ser regularizado." },
     { p: "Por quanto tempo um aluno fica fidelizado ao operador?", r: "A fidelização é de 10 dias. Durante esse período, o operador é responsável pela continuidade do atendimento. Após os 10 dias, o aluno volta a ficar disponível para ações massivas e atendimento receptivo. Em faltas, ausências ou mudanças de horário sem agendamento prévio, os casos pendentes podem ser redistribuídos via CRM para outros colegas concluírem; nesses casos, a prioridade é não deixar o aluno sem retorno e a fidelização do operador anterior não deve impedir a continuidade." },
+    { p: "Quando acontece o giro de carteira?", r: "O giro de carteira acontece sempre após a inclusão de novas remessas de parcelas e/ou novos alunos. A ReATIVA recebe para cobrança parcelas que já atingiram 31 dias de atraso na contagem operacional, sem contabilizar sábados e domingos. Após a entrada da nova remessa, a carteira é atualizada para redistribuição e continuidade das ações conforme as regras vigentes." },
     { p: "O aluno perdeu um desconto condicional por atraso e diz que não sabia que precisava pagar em dia. O que fazer?", r: "Quando o desconto for condicionado ao pagamento em dia, podemos avaliar o restabelecimento do benefício para a regularização atual. O operador não deve informar valores nem fazer o cálculo diretamente: encaminhe o caso à supervisão para cálculo da condição. Depois, confirme com o aluno se essa possibilidade ajudaria a colocar os valores em dia. Após a regularização, reforce que o desconto não será restabelecido novamente em caso de novo atraso e que as próximas parcelas precisam ser mantidas em dia para preservar o benefício." },
     { p: "Enviei um template no CRM. Como confirmar o envio?", r: "Feche o cadastro do aluno, abra novamente e confirme se a mensagem ficou registrada como enviada." },
     { p: "O aluno diz que está processando a Ulbra. O que fazer?", r: "Solicitar sempre o número do processo e encaminhar para Amanda ADM. Não discutir o processo nem emitir opinião jurídica." },
@@ -1614,6 +1615,15 @@ function SecaoRotina() {
         "Nos casos redistribuídos por ausência ou mudança de horário, não haverá fidelização para o operador anterior: a prioridade é concluir o atendimento do aluno.",
         "Se houver retorno previamente agendado e devidamente registrado, respeitar o agendamento conforme o fluxo operacional.",
         "Premissa da operação: nenhum aluno deve ficar sem atendimento ou sem retorno por causa da titularidade do caso.",
+      ],
+    },
+    {
+      titulo: "Giro de carteira e novas remessas",
+      itens: [
+        "O giro de carteira acontece sempre após a inclusão de novas remessas de parcelas e/ou novos alunos.",
+        "A operação recebe para cobrança somente parcelas que já atingiram 31 dias de atraso na contagem operacional.",
+        "Na contagem desses 31 dias, sábados e domingos não são contabilizados.",
+        "Após a entrada da nova remessa, a carteira é atualizada para redistribuição e continuidade das ações conforme as regras vigentes.",
       ],
     },
   ];
