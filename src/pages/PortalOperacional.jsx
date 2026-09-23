@@ -1360,58 +1360,59 @@ const moedaBR = (v) =>
   Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
 function SecaoMeta() {
-  const [dados, setDados] = useState(null);
+  const [meta, setMeta] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
 
-  const agora = new Date();
-  const mesAtual = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`;
-
   useEffect(() => {
     let vivo = true;
-    supabase.rpc("projecao_snapshot_ler", { p_mes: mesAtual }).then(({ data, error }) => {
+    supabase.rpc("portal_meta_do_mes").then(({ data, error }) => {
       if (!vivo) return;
       setCarregando(false);
       if (error) {
         setErro("Não foi possível carregar a meta do mês.");
         return;
       }
-      setDados(data?.dados || null);
+      setMeta(data || null);
     });
     return () => { vivo = false; };
-  }, [mesAtual]);
+  }, []);
 
   if (carregando) return <Carregando texto="Carregando a meta do mês…" />;
 
-  const honorario = Number(
-    dados?.honorario_mes_filial ??
-    dados?.honorario_mes ??
-    0
-  );
-
-  const percentual = Number(
-    dados?.percentual_meta_filial ??
-    dados?.percentual_meta_individual_realizado ??
-    dados?.percentual_meta ??
-    0
-  );
+  const faixas = (meta?.faixas || []).slice(0, 4);
 
   return (
     <>
-      <TituloSecao emoji="🎯" titulo="Meta do mês" />
+      <TituloSecao
+        emoji="🎯"
+        titulo="Meta do mês"
+        sub="Faixas de honorários e respectivos percentuais."
+      />
 
       {erro ? <Card><p style={S.paragrafo}>{erro}</p></Card> : null}
 
-      {!erro ? (
-        <Card>
-          <h3 style={S.h3}>Honorário {mesAtual}</h3>
-          <p style={{ ...S.paragrafo, fontSize: 30, fontWeight: 800, color: "var(--rv-tinta)", margin: "8px 0 4px" }}>
-            {moedaBR(honorario)}
-          </p>
-          <p style={{ ...S.paragrafo, fontWeight: 800, margin: 0 }}>
-            {percentual.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% da meta
-          </p>
-        </Card>
+      {!erro && faixas.length ? (
+        <div style={S.grade4}>
+          {faixas.map((f, index) => {
+            const valorFaixa = index === 0 && Number(f.de) === 0 ? 0.01 : Number(f.de || 0);
+            return (
+              <Card key={f.n || index} style={{ textAlign: "center", marginBottom: 0 }}>
+                <span style={S.cardTag}>M{index + 1}</span>
+                <div style={{ ...S.numeroGrande, marginTop: 10 }}>{moedaBR(valorFaixa)}</div>
+                <div style={{ ...S.labelNumero, marginTop: 4 }}>Valor</div>
+                <div style={{ fontSize: 24, fontWeight: 900, color: "var(--rv-tinta)", marginTop: 14 }}>
+                  {Number(f.percentual || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%
+                </div>
+                <div style={S.labelNumero}>Percentual</div>
+              </Card>
+            );
+          })}
+        </div>
+      ) : null}
+
+      {!erro && !faixas.length ? (
+        <Card><p style={S.paragrafo}>A meta deste mês ainda não foi cadastrada.</p></Card>
       ) : null}
     </>
   );
