@@ -34,6 +34,17 @@ export const STATUS_CONCILIACAO = {
     rotulo: "Sem vínculo",
     explica: "a linha não trouxe boleto utilizável",
   },
+  // Os dois estados abaixo entraram no CHECK do banco depois (20260914190000 e
+  // 20260915120000) e continuavam sem rotulo aqui: a tela caia em SEM_ESTADO e
+  // dizia "Anterior à regra" para uma linha que TEM estado, e recente.
+  ACORDO_CONFIRMADO_SEM_ESTRUTURA: {
+    rotulo: "Acordo confirmado, sem estrutura",
+    explica: "a negociação está provada no portador 166, mas o acordo não existe no CRM e a estrutura não veio pela API",
+  },
+  TITULO_ORIGINAL_LIQUIDADO: {
+    rotulo: "Título liquidado na origem",
+    explica: "a dívida-mãe fechou na Prime; nenhum acordo ou parcela foi criado deste lado",
+  },
 };
 
 // Linha anterior a 14/09/2026 nao tem estado, e a tela diz isso em vez de
