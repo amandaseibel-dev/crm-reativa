@@ -1701,8 +1701,23 @@ function SecaoSistemas() {
         <Card>
           <span style={S.cardTag}>PLANILHA OFICIAL</span>
           <h3 style={{ ...S.h3, marginTop: 8 }}>Cálculo de desconto</h3>
-          <p style={S.paragrafo}>Apoio para cálculo quando aplicável. Utilize sempre dentro das regras vigentes.</p>
-          <a href="https://docs.google.com/spreadsheets/d/19g0v1kikqvMLTHEIZHTg8NKUt6TOxdv2Aiyk41L1Tf4/edit?usp=sharing" target="_blank" rel="noreferrer" style={{ ...S.botaoSecundario, marginTop: 12 }}>
+          <p style={S.paragrafo}>
+            A planilha é uma ferramenta de apoio para montar a condição de negociação conforme a política vigente.
+            Ela ajuda o operador a conferir os valores da proposta antes de apresentá-la ao aluno.
+          </p>
+          <h4 style={{ fontSize: 14, fontWeight: 800, color: "var(--rv-tinta)", margin: "16px 0 6px" }}>Como utilizar</h4>
+          <ol style={S.listaOrdenada}>
+            <li>Confira primeiro no Prime os valores e a situação correta do débito.</li>
+            <li>Consulte a Política de Negociação e identifique qual condição pode ser aplicada ao caso.</li>
+            <li>Utilize a planilha para apoiar o cálculo da condição permitida.</li>
+            <li>Confira o resultado antes de apresentar a proposta ao aluno.</li>
+            <li>Registre no CRM a proposta efetivamente apresentada.</li>
+          </ol>
+          <p style={{ ...S.paragrafo, marginTop: 12 }}>
+            <strong>Importante:</strong> a planilha não cria autorização para desconto ou condição fora da política.
+            Se a proposta ultrapassar a regra vigente, deve seguir para análise de exceção.
+          </p>
+          <a href="https://docs.google.com/spreadsheets/d/19g0v1kikqvMLTHEIZHTg8NKUt6TOxdv2Aiyk41L1Tf4/edit?usp=sharing" target="_blank" rel="noreferrer" style={{ ...S.botaoSecundario, marginTop: 14 }}>
             Abrir planilha
           </a>
         </Card>
