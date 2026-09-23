@@ -1005,11 +1005,83 @@ function SecaoMeta() {
 function SecaoLgpd() {
   return (
     <>
-      <TituloSecao emoji="🔐" titulo="LGPD e Conduta" />
-      <Card><h3 style={S.h3}>Confirmação e proteção de dados</h3><ul style={S.lista}><li>Confirmar os 3 primeiros dígitos do CPF antes de tratar informações financeiras ou acadêmicas.</li><li>Não compartilhar dados do aluno fora dos canais autorizados.</li><li>Não expor CPF completo.</li><li>Não usar número pessoal para atendimento.</li></ul></Card>
-      <Card><h3 style={S.h3}>Atendimento a terceiros</h3><p style={S.paragrafo}>Informações devem ser tratadas diretamente com o titular. Não informar a terceiros valores, boletos, contratos, dados acadêmicos, acordos, telefones, e-mails cadastrados ou outras informações financeiras.</p><p style={{...S.paragrafo,marginTop:10}}><strong>Resposta de apoio:</strong> “Por questões de segurança e proteção de dados, as informações podem ser tratadas apenas diretamente com o titular.”</p></Card>
-      <Card><h3 style={S.h3}>Segurança da informação</h3><ul style={S.lista}><li>Não compartilhar acessos internos.</li><li>Não salvar dados em aparelhos pessoais.</li><li>Não enviar dados em grupos.</li><li>Conferir o destinatário antes de enviar documentos.</li><li>Bloquear a tela ao se afastar.</li></ul></Card>
-      <Card><h3 style={S.h3}>Conduta no acionamento</h3><ul style={S.lista}><li>Verificar histórico antes de acionar.</li><li>Não acionar casos com jurídico, cancelamento ou bloqueio.</li><li>Registrar a tratativa no CRM.</li><li>Não prometer condições sem aprovação.</li><li>Não utilizar linguagem agressiva ou constrangedora.</li></ul></Card>
+      <TituloSecao
+        emoji="🔐"
+        titulo="LGPD e Conduta"
+        sub="Procedimentos obrigatórios para proteger os dados do aluno, a operação e a instituição."
+      />
+
+      <Aviso tom="info">
+        <strong>Por que este procedimento é necessário?</strong><br />
+        A validação de identidade e os cuidados com os dados não são apenas uma formalidade.
+        Eles existem para garantir que informações financeiras e acadêmicas sejam tratadas somente com a pessoa correta,
+        reduzir o risco de exposição indevida, evitar erros de identificação e fraude, proteger o aluno e a instituição
+        e manter rastreabilidade sobre o que foi informado durante o atendimento.
+      </Aviso>
+
+      <Card>
+        <h3 style={S.h3}>O que esse cuidado evita</h3>
+        <ul style={S.lista}>
+          <li>Envio de valores, boletos, contratos ou dados acadêmicos para a pessoa errada.</li>
+          <li>Exposição de informações financeiras a familiares, terceiros ou contatos não autorizados.</li>
+          <li>Fraudes ou tratativas realizadas com alguém que não seja o titular.</li>
+          <li>Retrabalho causado por identificação incorreta do aluno.</li>
+          <li>Riscos operacionais, reputacionais e de descumprimento das regras de proteção de dados.</li>
+        </ul>
+      </Card>
+
+      <Card>
+        <h3 style={S.h3}>Confirmação e proteção de dados</h3>
+        <ul style={S.lista}>
+          <li>Confirmar os 3 primeiros dígitos do CPF antes de tratar informações financeiras ou acadêmicas.</li>
+          <li>Somente após a validação iniciar a tratativa de valores, acordos, boletos, contratos ou dados acadêmicos.</li>
+          <li>Não compartilhar dados do aluno fora dos canais autorizados.</li>
+          <li>Não expor CPF completo desnecessariamente.</li>
+          <li>Não usar número pessoal para atendimento.</li>
+        </ul>
+      </Card>
+
+      <Card>
+        <h3 style={S.h3}>Atendimento a terceiros</h3>
+        <p style={S.paragrafo}>
+          Informações devem ser tratadas diretamente com o titular. Não informar a terceiros valores, boletos,
+          contratos, dados acadêmicos, acordos, telefones, e-mails cadastrados ou outras informações financeiras.
+        </p>
+        <p style={{ ...S.paragrafo, marginTop: 12 }}>
+          <strong>Resposta de apoio:</strong> “Por questões de segurança e proteção de dados, as informações podem ser tratadas apenas diretamente com o titular.”
+        </p>
+      </Card>
+
+      <Card>
+        <h3 style={S.h3}>Segurança da informação</h3>
+        <ul style={S.lista}>
+          <li>Não compartilhar acessos internos.</li>
+          <li>Não salvar dados em aparelhos pessoais.</li>
+          <li>Não enviar dados em grupos.</li>
+          <li>Conferir o destinatário antes de enviar documentos.</li>
+          <li>Bloquear a tela ao se afastar.</li>
+        </ul>
+      </Card>
+
+      <Card>
+        <h3 style={S.h3}>Conduta no acionamento</h3>
+        <ul style={S.lista}>
+          <li>Verificar histórico antes de acionar.</li>
+          <li>Não acionar casos com jurídico, cancelamento ou bloqueio.</li>
+          <li>Registrar a tratativa no CRM para manter histórico e rastreabilidade.</li>
+          <li>Não prometer condições sem aprovação.</li>
+          <li>Não utilizar linguagem agressiva ou constrangedora.</li>
+        </ul>
+      </Card>
+
+      <Card style={S.cardLimiteAtuacao}>
+        <span style={S.cardTag}>LEMBRETE</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>Proteção de dados também é parte da qualidade do atendimento</h3>
+        <p style={S.paragrafo}>
+          Um atendimento correto precisa ser seguro, identificável e registrado. Em caso de dúvida sobre a identidade
+          do aluno ou sobre o que pode ser informado, não avance com a tratativa até confirmar o procedimento adequado.
+        </p>
+      </Card>
     </>
   );
 }
