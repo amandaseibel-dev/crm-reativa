@@ -895,10 +895,9 @@ function SecaoObjecoes() {
     },
     {
       pergunta: "Por que estou pagando 8% a mais?",
-      principal: "Esse percentual corresponde aos honorários de cobrança previstos para débitos acima de 30 dias, conforme a regra vigente.",
-      alternativa: "Posso detalhar a composição do valor para você conferir como os honorários aparecem no débito.",
-      objetivo: "Explicar a composição de forma simples.",
-      atencao: "Não chamar de taxa bancária, taxa da operadora ou taxa do estabelecimento."
+      principal: "Esse percentual corresponde aos honorários de cobrança previstos no Contrato de Prestação de Serviços para débitos acima de 30 dias.",
+      objetivo: "Informar de forma objetiva a origem dos honorários, sem gerar uma tratativa adicional desnecessária.",
+      atencao: "Não chamar de taxa bancária, taxa da operadora ou taxa do estabelecimento. A previsão dos honorários consta no contrato de prestação de serviços."
     }
   ];
 
