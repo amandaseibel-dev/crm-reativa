@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import ResolverEmConfirmacao from "./ResolverEmConfirmacao";
 import { pedirMotivo } from "../utils/emConfirmacao";
+import { ESTADO, estadoDoTitulo, rotuloDoTitulo, contaComoAberta } from "../utils/estadoTitulo";
 import { origemDoAcordo } from "../utils/origemDoAcordo";
 import { podeGerirFinanceiro, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
 // A regra de lancar acordo mora em um lugar so -- a ficha e a tela de
@@ -1172,23 +1173,13 @@ export default function FinanceiroAluno({ aluno }) {
   // sinal do vinculo.
   // Titulo EM_CONFIRMACAO (Conferencia Prime) tambem fica fora: saiu da
   // cobranca enquanto a gestao decide se a liquidacao da Prime vale.
-  // CANCELADA e DUPLICADA saem do total (23/09/2026). A fonte canonica --
-  // `aluno_saldo_pendente_detalhe` -- so conta ABERTO e NEGOCIADO, mas esta
-  // lista somava as duas: 349 titulos cancelados (R$ 2.477.168,16) e 135
-  // duplicados (R$ 130.669,12), em 184 alunos. O duplicado chegava a exibir a
-  // etiqueta "Fora da conta" e entrar na conta na mesma linha.
-  const emAberto = titulos.filter(
-    (t) =>
-      t.situacao !== "PAGO" &&
-      t.situacao !== "NEGOCIADO" &&
-      t.situacao !== "EM_CONFIRMACAO" &&
-      t.situacao !== "CANCELADA" &&
-      t.situacao !== "DUPLICADA" &&
-      t.status !== "vinculada" &&
-      t.status !== "quitada" &&
-      t.status !== "cancelada" &&
-      !t.acordo_id
-  );
+  // UMA REGRA SO, em src/utils/estadoTitulo.js, espelhando a fonte canonica
+  // (`aluno_saldo_pendente_detalhe` conta como divida apenas ABERTO e
+  // NEGOCIADO). Esta lista somava CANCELADA (349 titulos) e DUPLICADA (135) --
+  // a duplicada exibindo "Fora da conta" e entrando na contagem na mesma linha.
+  // O VALOR exibido ao lado sempre veio do RPC; o que estava errado aqui era a
+  // CONTAGEM (183 alunos) e o aviso "somente parcelas de acordo".
+  const emAberto = titulos.filter(contaComoAberta);
   // Valor operacional: o ajuste cobravel quando existir, senao a regra de
   // sempre. O total do bordero continua no `valor_original` de cada titulo.
   const valorMensalidades = emAberto.reduce(
@@ -1635,21 +1626,18 @@ export default function FinanceiroAluno({ aluno }) {
 
           <div style={{ marginTop: 10 }}>
             {titulos.map((titulo) => {
-              const pago = titulo.situacao === "PAGO" || titulo.status === "quitada";
-              const duplicada = String(titulo.situacao || "").toUpperCase() === "DUPLICADA";
-              // Cancelada caia no "else" e aparecia como "Em aberto" -- 349
-              // titulos, R$ 2.477.168,16, com a etiqueta de quem ainda deve.
-              const cancelada = String(titulo.situacao || "").toUpperCase() === "CANCELADA"
-                || String(titulo.status || "").toLowerCase() === "cancelada";
-              const emConfirmacao = String(titulo.situacao || "").toUpperCase() === "EM_CONFIRMACAO";
+              // Um estado so, calculado num lugar so. Antes eram cinco
+              // ternarios encadeados, e CANCELADA nao tinha ramo nenhum: caia
+              // no fim da cadeia e aparecia como "Em aberto".
+              const estado = estadoDoTitulo(titulo);
+              const pago = estado === ESTADO.PAGO;
+              const duplicada = estado === ESTADO.DUPLICADA;
+              const cancelada = estado === ESTADO.CANCELADA;
+              const emConfirmacao = estado === ESTADO.EM_CONFIRMACAO;
               // Reconhece o vinculo por qualquer um dos tres sinais: o
               // gatilho grava situacao=NEGOCIADO + status=vinculada, mas ha
               // uma janela em que so o acordo_id esta preenchido.
-              const negociada =
-                !pago &&
-                (titulo.status === "vinculada" ||
-                  titulo.situacao === "NEGOCIADO" ||
-                  !!titulo.acordo_id);
+              const negociada = estado === ESTADO.NEGOCIADO;
               const acordoDoTitulo = titulo.acordo_id
                 ? acordos.find((a) => String(a.id) === String(titulo.acordo_id))
                 : null;
@@ -1730,10 +1718,7 @@ export default function FinanceiroAluno({ aluno }) {
                     )}
                     <span style={{ ...estilos.tagBase, background: duplicada || emConfirmacao || cancelada ? "var(--rv-borda)" : cor.bg,
                                    color: duplicada || emConfirmacao || cancelada ? "var(--rv-texto)" : cor.texto }}>
-                      {duplicada ? "Fora da conta"
-                        : cancelada ? "Cancelada"
-                        : emConfirmacao ? "Em confirmação"
-                        : pago ? "Quitada" : negociada ? "Negociado" : "Em aberto"}
+                      {rotuloDoTitulo(titulo)}
                     </span>
 
                     {/* Ajuste de valor cobravel. Todo mundo VE o motivo e quem
