@@ -44,7 +44,7 @@ const SECOES = [
   {
     grupo: "Operação",
     itens: [
-      { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime webaluno planilha sistema acesso" },
+      { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime planilha sistema acesso" },
       { id: "links", label: "🔗 Links Úteis", keywords: "atalho acesso link site sistema planilha" },
       { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico giovana bruno unidade adm financeiro contato" },
       { id: "meta", label: "🎯 Meta do Mês", keywords: "meta comissão honorário projeção resultado mês" },
@@ -1661,7 +1661,6 @@ function SecaoSistemas() {
     { emoji: "💬", titulo: "CRM de Mensageria", tipo: "MENSAGERIA", desc: "Envio e consulta de mensagens e contatos relacionados à operação.", href: "https://crm.ulbra.ai/" },
     { emoji: "✉️", titulo: "Gmail", tipo: "E-MAIL", desc: "Canal institucional e alternativa de contato quando necessário.", href: "https://mail.google.com/" },
     { emoji: "📌", titulo: "Prime", tipo: "FINANCEIRO", desc: "Consulta e confirmação de informações financeiras e de acordos.", href: null },
-    { emoji: "🎓", titulo: "WebAluno", tipo: "PORTAL DO ALUNO", desc: "Posição financeira, documentos, protocolos, matrícula e serviços acadêmicos.", href: "https://www.ulbra.br/webaluno/" },
   ];
 
   return (
@@ -1707,11 +1706,6 @@ function SecaoSistemas() {
             Abrir planilha
           </a>
         </Card>
-        <Card>
-          <span style={S.cardTag}>BASE DE APOIO</span>
-          <h3 style={{ ...S.h3, marginTop: 8 }}>Planilha Base</h3>
-          <p style={S.paragrafo}>Base operacional compartilhada pela gestão. Utilize somente a versão oficial disponibilizada à equipe.</p>
-        </Card>
       </div>
     </>
   );
@@ -1723,7 +1717,6 @@ function SecaoLinks() {
   const links = [
     {titulo:"CRM de Mensageria",href:"https://crm.ulbra.ai/"},
     {titulo:"Gmail",href:"https://mail.google.com/"},
-    {titulo:"WebAluno",href:"https://www.ulbra.br/webaluno/"},
     {titulo:"Vestibular / Cursos Ulbra",href:"https://www.ulbra.br/vestibular"},
     {titulo:"Benefícios Ulbra",href:"https://www.ulbra.br/beneficios"},
     {titulo:"FIES",href:"https://www.ulbra.br/fies"},
