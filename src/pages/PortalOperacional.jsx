@@ -44,7 +44,7 @@ const SECOES = [
   {
     grupo: "Operação",
     itens: [
-      { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime webaluno planilha sistema acesso" },
+      { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime planilha sistema acesso" },
       { id: "links", label: "🔗 Links Úteis", keywords: "atalho acesso link site sistema planilha" },
       { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico giovana bruno unidade adm financeiro contato" },
       { id: "meta", label: "🎯 Meta do Mês", keywords: "meta comissão honorário projeção resultado mês" },
@@ -1661,7 +1661,6 @@ function SecaoSistemas() {
     { emoji: "💬", titulo: "CRM de Mensageria", tipo: "MENSAGERIA", desc: "Envio e consulta de mensagens e contatos relacionados à operação.", href: "https://crm.ulbra.ai/" },
     { emoji: "✉️", titulo: "Gmail", tipo: "E-MAIL", desc: "Canal institucional e alternativa de contato quando necessário.", href: "https://mail.google.com/" },
     { emoji: "📌", titulo: "Prime", tipo: "FINANCEIRO", desc: "Consulta e confirmação de informações financeiras e de acordos.", href: null },
-    { emoji: "🎓", titulo: "WebAluno", tipo: "PORTAL DO ALUNO", desc: "Posição financeira, documentos, protocolos, matrícula e serviços acadêmicos.", href: "https://www.ulbra.br/webaluno/" },
   ];
 
   return (
@@ -1702,15 +1701,25 @@ function SecaoSistemas() {
         <Card>
           <span style={S.cardTag}>PLANILHA OFICIAL</span>
           <h3 style={{ ...S.h3, marginTop: 8 }}>Cálculo de desconto</h3>
-          <p style={S.paragrafo}>Apoio para cálculo quando aplicável. Utilize sempre dentro das regras vigentes.</p>
-          <a href="https://docs.google.com/spreadsheets/d/19g0v1kikqvMLTHEIZHTg8NKUt6TOxdv2Aiyk41L1Tf4/edit?usp=sharing" target="_blank" rel="noreferrer" style={{ ...S.botaoSecundario, marginTop: 12 }}>
+          <p style={S.paragrafo}>
+            A planilha é uma ferramenta de apoio para montar a condição de negociação conforme a política vigente.
+            Ela ajuda o operador a conferir os valores da proposta antes de apresentá-la ao aluno.
+          </p>
+          <h4 style={{ fontSize: 14, fontWeight: 800, color: "var(--rv-tinta)", margin: "16px 0 6px" }}>Como utilizar</h4>
+          <ol style={S.listaOrdenada}>
+            <li>Confira primeiro no Prime os valores e a situação correta do débito.</li>
+            <li>Consulte a Política de Negociação e identifique qual condição pode ser aplicada ao caso.</li>
+            <li>Utilize a planilha para apoiar o cálculo da condição permitida.</li>
+            <li>Confira o resultado antes de apresentar a proposta ao aluno.</li>
+            <li>Registre no CRM a proposta efetivamente apresentada.</li>
+          </ol>
+          <p style={{ ...S.paragrafo, marginTop: 12 }}>
+            <strong>Importante:</strong> a planilha não cria autorização para desconto ou condição fora da política.
+            Se a proposta ultrapassar a regra vigente, deve seguir para análise de exceção.
+          </p>
+          <a href="https://docs.google.com/spreadsheets/d/19g0v1kikqvMLTHEIZHTg8NKUt6TOxdv2Aiyk41L1Tf4/edit?usp=sharing" target="_blank" rel="noreferrer" style={{ ...S.botaoSecundario, marginTop: 14 }}>
             Abrir planilha
           </a>
-        </Card>
-        <Card>
-          <span style={S.cardTag}>BASE DE APOIO</span>
-          <h3 style={{ ...S.h3, marginTop: 8 }}>Planilha Base</h3>
-          <p style={S.paragrafo}>Base operacional compartilhada pela gestão. Utilize somente a versão oficial disponibilizada à equipe.</p>
         </Card>
       </div>
     </>
@@ -1723,7 +1732,6 @@ function SecaoLinks() {
   const links = [
     {titulo:"CRM de Mensageria",href:"https://crm.ulbra.ai/"},
     {titulo:"Gmail",href:"https://mail.google.com/"},
-    {titulo:"WebAluno",href:"https://www.ulbra.br/webaluno/"},
     {titulo:"Vestibular / Cursos Ulbra",href:"https://www.ulbra.br/vestibular"},
     {titulo:"Benefícios Ulbra",href:"https://www.ulbra.br/beneficios"},
     {titulo:"FIES",href:"https://www.ulbra.br/fies"},
