@@ -2,15 +2,7 @@ import { useState, useEffect, Fragment } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 
-const STATUS_ERRO = {
-  NOVA: { rotulo: "Reportado", bg: "var(--rv-roxo-fundo)", cor: "var(--rv-roxo-texto)" },
-  EM_ANALISE: { rotulo: "Em análise", bg: "var(--rv-ambar-fundo)", cor: "var(--rv-ambar-texto)" },
-  EM_TRATATIVA: { rotulo: "Em tratativa", bg: "var(--rv-ambar-fundo)", cor: "var(--rv-ambar-texto)" },
-  AGUARDANDO_VALIDACAO: { rotulo: "Aguardando sua validação", bg: "var(--rv-azul-fundo)", cor: "var(--rv-azul-texto)" },
-  REABERTO: { rotulo: "Reaberto", bg: "var(--rv-vermelho-fundo)", cor: "var(--rv-vermelho)" },
-  FEITA: { rotulo: "Corrigido", bg: "var(--rv-verde-ok-fundo)", cor: "var(--rv-verde-ok-texto)" },
-  DESCARTADA: { rotulo: "Descartado", bg: "var(--rv-fundo-suave)", cor: "var(--rv-texto-suave)" },
-};
+
 
 const SECOES = [
   { grupo: "Início", itens: [{ id: "inicio", label: "🏠 Visão Geral", keywords: "início home resumo começo portal" }] },
@@ -50,7 +42,6 @@ const SECOES = [
       { id: "ddds", label: "📞 DDDs das Unidades", keywords: "ddd código área telefone unidade cidade cachoeira canoas carazinho gravataí guaíba itumbiara manaus palmas porto alegre santa maria santarém são jerônimo torres ead" },
       { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico giovana bruno unidade adm financeiro contato" },
       { id: "meta", label: "🎯 Meta do Mês", keywords: "meta comissão honorário projeção resultado mês" },
-      { id: "sugestoes", label: "💡 Sugestões e Erros", keywords: "erro melhoria ideia ajuste sistema portal reportar problema" },
     ],
   },
   {
@@ -171,7 +162,6 @@ export default function PortalOperacional() {
           {secao === "ddds" && <SecaoDdds />}
           {secao === "contatos" && <SecaoContatos />}
           {secao === "meta" && <SecaoMeta />}
-          {secao === "sugestoes" && <SecaoSugestoes />}
           {secao === "lgpd" && <SecaoLgpd />}
           {secao === "cultura" && <SecaoCultura />}
           {secao === "historia" && <SecaoHistoria />}
@@ -2417,171 +2407,6 @@ function SecaoContatos() {
         <div style={S.grade3}>{unidades.map(([u,emails])=><div key={u} style={S.contatoUnidade}><strong>{u}</strong>{emails.map(e=><a key={e} href={`mailto:${e}`} style={S.linkContato}>{e}</a>)}</div>)}</div>
       </Card>
     </>
-  );
-}
-
-/* ===================== Painel de Sugestões ===================== */
-
-function SecaoSugestoes() {
-  const [enviado, setEnviado] = useState(false);
-  const [enviando, setEnviando] = useState(false);
-  const [erro, setErro] = useState("");
-  const [form, setForm] = useState({
-    nome: "",
-    area: "",
-    tipo: "",
-    prioridade: "",
-    tela: "",
-    descricao: "",
-  });
-
-  function atualizar(campo, valor) {
-    setForm((f) => ({ ...f, [campo]: valor }));
-  }
-
-  async function enviar(e) {
-    e.preventDefault();
-    if (!form.area || !form.tipo || !form.descricao.trim()) {
-      setErro("Preencha ao menos Área, Tipo e Descrição.");
-      return;
-    }
-    setErro("");
-    setEnviando(true);
-    const { data: userData } = await supabase.auth.getUser();
-    const { error } = await supabase.from("sugestoes").insert({
-      nome: form.nome.trim() || null,
-      autor_email: userData?.user?.email || null,
-      area: form.area,
-      tipo: form.tipo,
-      prioridade: form.prioridade || null,
-      tela: form.tela.trim() || null,
-      descricao: form.descricao.trim(),
-    });
-    setEnviando(false);
-    if (error) {
-      setErro("Não foi possível enviar agora. Tente novamente.");
-      return;
-    }
-    setEnviado(true);
-  }
-
-  return (
-    <>
-      <TituloSecao emoji="💡" titulo="Painel de Sugestões" sub="Envie ideias, ajustes e melhorias para o Sistema ReATIVA ou para o Portal Reativa." />
-      <Card>
-        <p style={S.avisoCanal}>
-          ⚠️ <strong>Canal oficial.</strong> Registre erros, dúvidas e sugestões só por aqui — é assim que a demanda entra na fila e é acompanhada. Pedidos por WhatsApp, e-mail ou verbais não entram para tratativa.
-        </p>
-      </Card>
-      <Card>
-        {enviado ? (
-          <p style={S.paragrafo}>✅ Sugestão enviada, obrigado!</p>
-        ) : (
-          <form onSubmit={enviar} style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            {erro && <p style={{ ...S.paragrafo, color: "var(--rv-vermelho)" }}>{erro}</p>}
-            <Campo label="Nome">
-              <input style={S.input} placeholder="Seu nome" value={form.nome} onChange={(e) => atualizar("nome", e.target.value)} />
-            </Campo>
-            <Campo label="Área">
-              <select style={S.input} value={form.area} onChange={(e) => atualizar("area", e.target.value)}>
-                <option value="">Selecione</option>
-                <option>Sistema ReATIVA</option>
-                <option>CRM Mensageria</option>
-                <option>Portal Reativa</option>
-              </select>
-            </Campo>
-            <Campo label="Tipo">
-              <select style={S.input} value={form.tipo} onChange={(e) => atualizar("tipo", e.target.value)}>
-                <option value="">Selecione</option>
-                <option>Erro</option>
-                <option>Melhoria</option>
-                <option>Nova ideia</option>
-                <option>Ajuste de informação</option>
-                <option>Dúvida</option>
-              </select>
-            </Campo>
-            <Campo label="Prioridade">
-              <select style={S.input} value={form.prioridade} onChange={(e) => atualizar("prioridade", e.target.value)}>
-                <option value="">Selecione</option>
-                <option>Baixa</option>
-                <option>Média</option>
-                <option>Alta</option>
-              </select>
-            </Campo>
-            <Campo label="Tela ou seção relacionada">
-              <input style={S.input} placeholder="Ex: Minha Carteira" value={form.tela} onChange={(e) => atualizar("tela", e.target.value)} />
-            </Campo>
-            <Campo label="Descrição da sugestão">
-              <textarea style={{ ...S.input, minHeight: 90 }} placeholder="Descreva sua sugestão..." value={form.descricao} onChange={(e) => atualizar("descricao", e.target.value)} />
-            </Campo>
-            <button type="submit" disabled={enviando} style={{ ...S.botaoPrimario, border: "none", cursor: "pointer" }}>
-              {enviando ? "Enviando..." : "Enviar sugestão"}
-            </button>
-          </form>
-        )}
-      </Card>
-
-      <ErrosReportados />
-    </>
-  );
-}
-
-function ErrosReportados() {
-  const [lista, setLista] = useState([]);
-  const [carregando, setCarregando] = useState(true);
-
-  async function carregar() {
-    setCarregando(true);
-    const { data } = await supabase.rpc("listar_erros_reportados");
-    setLista(data || []);
-    setCarregando(false);
-  }
-
-  useEffect(() => {
-    carregar();
-  }, []);
-
-  return (
-    <>
-      <TituloSecao
-        emoji="🐞"
-        titulo="Erros já reportados"
-        sub="Erros marcados como visíveis pela equipe. Antes de reportar, confira se já está aqui."
-      />
-      <Card>
-        <button style={{ ...S.botaoSecundario, marginBottom: 12 }} onClick={carregar}>Atualizar</button>
-        {carregando ? (
-          <Carregando texto="Carregando…" />
-        ) : lista.length === 0 ? (
-          <p style={S.paragrafo}>Nenhum erro reportado no momento.</p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-            {lista.map((e) => {
-              const st = STATUS_ERRO[e.status] || STATUS_ERRO.NOVA;
-              return (
-                <div key={e.id} style={S.erroItem}>
-                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 4 }}>
-                    <span style={{ ...S.erroBadge, background: st.bg, color: st.cor }}>{st.rotulo}</span>
-                    {e.tela && <span style={S.erroTela}>{e.tela}</span>}
-                    <span style={S.erroData}>{new Date(e.criado_em).toLocaleDateString("pt-BR")}</span>
-                  </div>
-                  <p style={S.erroDesc}>{e.descricao}</p>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Card>
-    </>
-  );
-}
-
-function Campo({ label, children }) {
-  return (
-    <label style={{ display: "flex", flexDirection: "column", gap: 5 }}>
-      <span style={S.labelCampo}>{label}</span>
-      {children}
-    </label>
   );
 }
 
