@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Fragment } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 
@@ -2111,10 +2111,10 @@ function CaminhoPrime({ itens }) {
   return (
     <div style={S.primeCaminho}>
       {itens.map((item, i) => (
-        <React.Fragment key={item}>
+        <Fragment key={item}>
           <span style={i === itens.length - 1 ? S.primeCaminhoAtual : S.primeCaminhoItem}>{item}</span>
           {i < itens.length - 1 ? <span style={S.primeCaminhoSeta}>→</span> : null}
-        </React.Fragment>
+        </Fragment>
       ))}
     </div>
   );
