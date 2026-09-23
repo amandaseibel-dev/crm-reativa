@@ -1354,108 +1354,63 @@ function SecaoHonorarios() {
 
 /* ===================== Meta de Honorários ===================== */
 
-// As faixas ficavam ESCRITAS A MAO aqui, e eram as de julho (38.000 / 45.000 /
-// 52.000 / 60.000) -- a operacao leu meta errada de agosto ate 11/09/2026.
-// Agora vem de metas_projecao, pela RPC portal_meta_do_mes: aquela tabela e
-// restrita a gestao pela RLS, e a RPC expoe ao operador so a meta operacional e
-// as faixas.
-//
-// Primeira faixa comeca em ZERO. O cadastro guarda 0,01 apenas para nao empatar
-// com a faixa anterior; a gestao confirmou a regra em 11/09/2026.
 const moedaBR = (v) =>
   Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
-const pctBR = (v) =>
-  `${Number(v || 0).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
-
-const mesPorExtenso = (mes) => {
-  const nomes = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
-    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
-  const [ano, m] = String(mes || "").split("-");
-  const i = parseInt(m, 10) - 1;
-  return nomes[i] ? `${nomes[i]} de ${ano}` : mes;
-};
-
 function SecaoMeta() {
-  const [meta, setMeta] = useState(null);
+  const [dados, setDados] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
 
+  const agora = new Date();
+  const mesAtual = `${agora.getFullYear()}-${String(agora.getMonth() + 1).padStart(2, "0")}`;
+
   useEffect(() => {
     let vivo = true;
-    supabase.rpc("portal_meta_do_mes").then(({ data, error }) => {
+    supabase.rpc("projecao_snapshot_ler", { p_mes: mesAtual }).then(({ data, error }) => {
       if (!vivo) return;
       setCarregando(false);
-      if (error) { setErro("Não foi possível carregar a meta do mês."); return; }
-      setMeta(data || null);
+      if (error) {
+        setErro("Não foi possível carregar a meta do mês.");
+        return;
+      }
+      setDados(data?.dados || null);
     });
     return () => { vivo = false; };
-  }, []);
+  }, [mesAtual]);
 
   if (carregando) return <Carregando texto="Carregando a meta do mês…" />;
 
-  const faixas = meta?.faixas || [];
-  const semMeta = !meta || meta.sem_meta || !faixas.length;
+  const honorario = Number(
+    dados?.honorario_mes_filial ??
+    dados?.honorario_mes ??
+    0
+  );
+
+  const percentual = Number(
+    dados?.percentual_meta_filial ??
+    dados?.percentual_meta_individual_realizado ??
+    dados?.percentual_meta ??
+    0
+  );
 
   return (
     <>
-      <TituloSecao
-        emoji="🎯"
-        titulo="Meta do mês"
-        sub={meta?.mes ? `Referência: ${mesPorExtenso(meta.mes)}.` : "Faixas de comissão do mês."}
-      />
+      <TituloSecao emoji="🎯" titulo="Meta do mês" />
 
       {erro ? <Card><p style={S.paragrafo}>{erro}</p></Card> : null}
 
-      {!semMeta && meta.meta_operacional != null ? (
+      {!erro ? (
         <Card>
-          <h3 style={S.h3}>Meta operacional da equipe</h3>
-          <p style={{ ...S.paragrafo, fontSize: 30, fontWeight: 800, color: "var(--rv-tinta)", margin: "4px 0 0" }}>
-            {moedaBR(meta.meta_operacional)}
+          <h3 style={S.h3}>Honorário {mesAtual}</h3>
+          <p style={{ ...S.paragrafo, fontSize: 30, fontWeight: 800, color: "var(--rv-tinta)", margin: "8px 0 4px" }}>
+            {moedaBR(honorario)}
+          </p>
+          <p style={{ ...S.paragrafo, fontWeight: 800, margin: 0 }}>
+            {percentual.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% da meta
           </p>
         </Card>
       ) : null}
-
-      <Card>
-        <h3 style={S.h3}>Faixas de comissão</h3>
-        {semMeta ? (
-          <p style={S.paragrafo}>
-            A meta deste mês ainda não foi cadastrada. Assim que a gestão lançar,
-            ela aparece aqui automaticamente.
-          </p>
-        ) : (
-          <table style={S.tabela}>
-            <thead>
-              <tr>
-                <th style={S.th}>Honorário no mês</th>
-                <th style={S.thNum}>Percentual</th>
-              </tr>
-            </thead>
-            <tbody>
-              {faixas.map((f) => (
-                <tr key={f.n}>
-                  <td style={S.td}>
-                    {f.ate == null
-                      ? `Acima de ${moedaBR(f.de)}`
-                      : Number(f.de) === 0
-                        ? `Até ${moedaBR(f.ate)}`
-                        : `De ${moedaBR(f.de)} a ${moedaBR(f.ate)}`}
-                  </td>
-                  <td style={S.tdNum}><strong>{pctBR(f.percentual)}</strong></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </Card>
-
-      <Card>
-        <h3 style={S.h3}>📌 Foco do mês</h3>
-        <p style={S.paragrafo}>
-          Trabalhar com organização, confirmar acordos, seguir os procedimentos corretos no Prime e manter
-          registros completos no CRM para dar agilidade às baixas.
-        </p>
-      </Card>
     </>
   );
 }
