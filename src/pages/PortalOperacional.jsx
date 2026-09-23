@@ -36,7 +36,8 @@ const SECOES = [
   {
     grupo: "Vida Acadêmica",
     itens: [
-      { id: "academico", label: "🎓 Matrícula e WebAluno", keywords: "matrícula rematrícula webaluno irpf contrato trancamento antecipação comprovante protocolo" },
+      { id: "academico", label: "🎓 Matrícula e Rematrícula", keywords: "matrícula rematrícula webaluno trancamento antecipação consultor" },
+      { id: "documentos", label: "📑 Documentos e Protocolos", keywords: "irpf imposto renda declaração contrato educacional comprovante protocolo webaluno parecer solicitação" },
       { id: "cursos", label: "📚 Cursos Ulbra", keywords: "curso graduação medicina ead presencial semipresencial faculdade" },
     ],
   },
@@ -161,6 +162,7 @@ export default function PortalOperacional() {
           {secao === "honorarios" && <SecaoHonorarios />}
           {secao === "beneficios" && <SecaoBeneficios />}
           {secao === "academico" && <SecaoAcademico />}
+          {secao === "documentos" && <SecaoDocumentos />}
           {secao === "cursos" && <SecaoCursos />}
           {secao === "sistemas" && <SecaoSistemas />}
           {secao === "links" && <SecaoLinks />}
@@ -254,10 +256,10 @@ function SecaoInicio({ ir }) {
     },
     {
       emoji: "🎓",
-      titulo: "É assunto de matrícula ou WebAluno",
-      desc: "Veja trancamento, documentos, rematrícula, antecipação e comprovantes.",
+      titulo: "É assunto de matrícula ou rematrícula",
+      desc: "Veja rematrícula, antecipação, trancamento e atendimento com consultor.",
       id: "academico",
-      acao: "Abrir vida acadêmica",
+      acao: "Abrir matrícula e rematrícula",
     },
     {
       emoji: "☎️",
@@ -354,6 +356,7 @@ function SecaoInicio({ ir }) {
             <button type="button" onClick={() => ir("politica")} style={S.atalhoInterno}>Política de Negociação <span>→</span></button>
             <button type="button" onClick={() => ir("objecoes")} style={S.atalhoInterno}>Quebras de Objeção <span>→</span></button>
             <button type="button" onClick={() => ir("mensagens")} style={S.atalhoInterno}>Mensagens Prontas <span>→</span></button>
+            <button type="button" onClick={() => ir("documentos")} style={S.atalhoInterno}>Documentos e Protocolos <span>→</span></button>
             <button type="button" onClick={() => ir("contatos")} style={S.atalhoInterno}>Contatos Úteis <span>→</span></button>
           </div>
         </Card>
@@ -648,12 +651,12 @@ function SecaoMensagens() {
       />
       <BlocoCopiar titulo="📝 Proposta de exceção em análise" texto="Olá! Recebemos sua solicitação e a proposta foi encaminhada para análise. Assim que houver retorno, informaremos se a condição foi aprovada. Caso aprovada, seguiremos com as próximas etapas necessárias para conclusão do acordo." />
       <BlocoCopiar
-        titulo="🎓 Matrícula / rematrícula"
-        texto="Você pode realizar sua matrícula diretamente pelo WebAluno, desde que não existam pendências impeditivas. Caso precise de atendimento ou auxílio no processo, posso encaminhar sua solicitação para o setor responsável pela rematrícula."
+        titulo="🎓 Rematrícula — WebAluno ou consultor"
+        texto="Você pode realizar sua rematrícula diretamente pelo WebAluno. Se preferir, também podemos encaminhar sua solicitação para atendimento com um dos nossos consultores. Deseja realizar a rematrícula pelo WebAluno ou prefere o auxílio de um consultor?"
       />
       <BlocoCopiar
-        titulo="📆 Antecipação de matrícula 2027/1"
-        texto="A matrícula de 2027/1 já pode ser realizada antecipadamente. Ao efetivar a matrícula, as parcelas referentes ao próximo semestre podem começar a ser geradas antes do início das aulas. Por isso, é possível visualizar cobranças de 2027/1 ainda em 2026."
+        titulo="📆 Rematrícula antecipada"
+        texto="Como sua rematrícula foi realizada de forma antecipada, o valor correspondente ao semestre foi distribuído em um número maior de parcelas. Não se preocupe: o valor total do semestre permanece o mesmo. O que mudou foi apenas a quantidade de parcelas, permitindo que o pagamento do semestre seja diluído por um período maior."
       />
     </>
   );
@@ -1316,30 +1319,31 @@ function SecaoAcademico() {
     <>
       <TituloSecao
         emoji="🎓"
-        titulo="Matrícula, WebAluno e Documentos"
-        sub="Orientações acadêmicas de apoio. A ReATIVA trata a parte financeira; demais decisões pertencem às áreas responsáveis da Ulbra."
+        titulo="Matrícula e Rematrícula"
+        sub="Orientações para rematrícula, antecipação e trancamento. Documentos e protocolos possuem uma seção própria no menu."
       />
 
       <div style={S.grade2}>
         <Card>
-          <span style={S.cardTag}>MATRÍCULA / REMATRÍCULA</span>
-          <h3 style={{ ...S.h3, marginTop: 8 }}>Aluno deseja realizar matrícula</h3>
+          <span style={S.cardTag}>REMATRÍCULA</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Aluno deseja realizar a rematrícula</h3>
           <p style={S.paragrafo}>
-            Sem pendências impeditivas, o aluno pode realizar a matrícula diretamente pelo WebAluno.
-            Se solicitar atendimento ou auxílio, direcionar o caso para a coluna <strong>Rematrícula</strong> no Kanban.
+            Se não houver pendências impeditivas, o aluno pode realizar a rematrícula diretamente pelo WebAluno.
+            Se preferir atendimento ou auxílio, encaminhe a solicitação para um consultor e direcione o caso para a
+            coluna <strong>Rematrícula</strong> no Kanban.
           </p>
         </Card>
 
         <Card>
           <span style={S.cardTag}>ANTECIPAÇÃO</span>
-          <h3 style={{ ...S.h3, marginTop: 8 }}>Antecipação de semestre</h3>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Rematrícula antecipada</h3>
           <p style={S.paragrafo}>
-            A matrícula de um próximo semestre pode ser aberta antes do início das aulas. Ao efetivar a matrícula,
-            as parcelas daquele semestre podem começar a ser geradas antecipadamente.
+            Quando a rematrícula é realizada antecipadamente, o valor total do semestre pode ser distribuído em um
+            número maior de parcelas. O valor final do semestre permanece o mesmo; muda apenas a quantidade de parcelas.
           </p>
-          <p style={{ ...S.paragrafo, marginTop: 8 }}>
+          <p style={{ ...S.paragrafo, marginTop: 10 }}>
             Se o aluno alegar antecipação, verifique em <strong>Títulos a Receber</strong> se consta um valor pago
-            em uma única parcela, exibido em azul. Depois encaminhe ao ADM para redirecionamento à unidade.
+            em uma única parcela, exibido em azul. Depois encaminhe ao ADM para redirecionamento à unidade quando necessário.
           </p>
         </Card>
 
@@ -1349,46 +1353,105 @@ function SecaoAcademico() {
           <p style={S.paragrafo}>
             Não. O trancamento possui prazo máximo conforme o calendário acadêmico. Se o cancelamento ou
             trancamento ocorrer após o vencimento de uma parcela, essa parcela é considerada devida.
-            Oriente o aluno a acompanhar o parecer do protocolo realizado.
+            Oriente sempre o aluno a verificar o parecer do protocolo realizado no WebAluno.
           </p>
         </Card>
 
-        <Card>
-          <span style={S.cardTag}>DOCUMENTOS</span>
-          <h3 style={{ ...S.h3, marginTop: 8 }}>Declaração IRPF e Contrato Educacional</h3>
-          <ul style={S.listaCompacta}>
-            <li><strong>Declaração IRPF:</strong> WebAluno → Posição Financeira → Declaração IRPF → ano-base.</li>
-            <li><strong>Contrato Educacional:</strong> WebAluno → Posição Financeira → Contrato Educacional.</li>
-          </ul>
-        </Card>
-
-        <Card>
-          <span style={S.cardTag}>COMPROVANTE</span>
-          <h3 style={{ ...S.h3, marginTop: 8 }}>Aluno solicita comprovante de pagamento</h3>
+        <Card style={S.cardLimiteAtuacao}>
+          <span style={S.cardTag}>LIMITE DE ATUAÇÃO</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Questões acadêmicas devem seguir para a área responsável</h3>
           <p style={S.paragrafo}>
-            O próprio boleto pago pode ser usado como comprovante; em pagamento via Pix, utilizar o comprovante
-            do Pix. Se precisar de documento emitido pela instituição, orientar solicitação via protocolo no WebAluno.
-          </p>
-        </Card>
-
-        <Card>
-          <span style={S.cardTag}>CONTATO</span>
-          <h3 style={{ ...S.h3, marginTop: 8 }}>Confirme os dados do aluno</h3>
-          <p style={S.paragrafo}>
-            Sempre confirme se o telefone está correto. O ReATIVA One pode possuir números mais atualizados.
-            Se não conseguir contato por telefone ou WhatsApp, envie e-mail e registre a tentativa no CRM.
+            A ReATIVA orienta sobre a parte financeira. Decisões acadêmicas, pareceres, deferimentos e procedimentos
+            de matrícula/rematrícula são tratados pelas áreas responsáveis da Ulbra.
           </p>
         </Card>
       </div>
 
-      <TituloSecao emoji="💬" titulo="Frases prontas" sub="Modelos para adaptar conforme o caso." />
+      <TituloSecao emoji="💬" titulo="Frases prontas" sub="Modelos para usar no atendimento." />
       <BlocoCopiar
-        titulo="Matrícula / rematrícula"
-        texto="Você pode realizar sua matrícula diretamente pelo WebAluno, desde que não existam pendências impeditivas. Caso precise de atendimento ou auxílio no processo, posso encaminhar sua solicitação para o setor responsável pela rematrícula."
+        titulo="Rematrícula — WebAluno ou consultor"
+        texto="Você pode realizar sua rematrícula diretamente pelo WebAluno. Se preferir, também podemos encaminhar sua solicitação para atendimento com um dos nossos consultores. Deseja realizar a rematrícula pelo WebAluno ou prefere o auxílio de um consultor?"
       />
       <BlocoCopiar
-        titulo="Antecipação de matrícula"
-        texto="A matrícula do próximo semestre pode ser disponibilizada antecipadamente. Quando ela é efetivada, as parcelas referentes ao semestre futuro podem ser geradas antes do início das aulas. Por isso, é possível visualizar cobranças do próximo período ainda no semestre atual."
+        titulo="Rematrícula antecipada"
+        texto="Como sua rematrícula foi realizada de forma antecipada, o valor correspondente ao semestre foi distribuído em um número maior de parcelas. Não se preocupe: o valor total do semestre permanece o mesmo. O que mudou foi apenas a quantidade de parcelas, permitindo que o pagamento do semestre seja diluído por um período maior."
+      />
+    </>
+  );
+}
+
+/* ===================== Documentos e Protocolos ===================== */
+
+function SecaoDocumentos() {
+  return (
+    <>
+      <TituloSecao
+        emoji="📑"
+        titulo="Documentos e Protocolos"
+        sub="Onde localizar documentos no WebAluno e como orientar o aluno em solicitações e protocolos."
+      />
+
+      <div style={S.grade2}>
+        <Card>
+          <span style={S.cardTag}>IMPOSTO DE RENDA</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Declaração de IRPF</h3>
+          <p style={S.paragrafo}>
+            No WebAluno, acessar <strong>Posição Financeira → Declaração IRPF → selecionar o Ano-base correspondente</strong>.
+          </p>
+        </Card>
+
+        <Card>
+          <span style={S.cardTag}>CONTRATO</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Contrato Educacional</h3>
+          <p style={S.paragrafo}>
+            No WebAluno, acessar <strong>Posição Financeira → Contrato Educacional</strong>.
+          </p>
+        </Card>
+
+        <Card>
+          <span style={S.cardTag}>COMPROVANTE</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Comprovante de pagamento</h3>
+          <p style={S.paragrafo}>
+            O boleto pago pode ser utilizado como comprovante. Para pagamento via Pix, utilizar o comprovante do Pix.
+            Caso o aluno precise de um documento emitido pela instituição, orientar a abertura de protocolo no WebAluno.
+          </p>
+        </Card>
+
+        <Card>
+          <span style={S.cardTag}>PROTOCOLOS</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Acompanhamento e parecer</h3>
+          <p style={S.paragrafo}>
+            Sempre orientar o aluno a acompanhar no WebAluno o andamento e o <strong>parecer</strong> dos protocolos realizados.
+            A abertura do protocolo não significa aprovação da solicitação.
+          </p>
+        </Card>
+
+        <Card>
+          <span style={S.cardTag}>TRANCAMENTO / CANCELAMENTO</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Solicitações acadêmicas</h3>
+          <p style={S.paragrafo}>
+            Para pedidos de trancamento, cancelamento ou outras solicitações acadêmicas, orientar o aluno a seguir o
+            procedimento institucional e acompanhar o parecer do protocolo. O operador não deve antecipar o resultado.
+          </p>
+        </Card>
+      </div>
+
+      <TituloSecao emoji="💬" titulo="Frases prontas" sub="Respostas rápidas para documentos e protocolos." />
+      <BlocoCopiar
+        titulo="Declaração de Imposto de Renda"
+        texto="Você pode acessar sua Declaração de IRPF diretamente pelo WebAluno. Entre em Posição Financeira, selecione Declaração IRPF e escolha o ano-base desejado."
+      />
+      <BlocoCopiar
+        titulo="Contrato Educacional"
+        texto="O seu Contrato Educacional pode ser consultado pelo WebAluno, em Posição Financeira → Contrato Educacional."
+      />
+      <BlocoCopiar
+        titulo="Acompanhar protocolo"
+        texto="Orientamos que acompanhe o andamento da sua solicitação diretamente pelo WebAluno e verifique o parecer do protocolo. A abertura do protocolo não significa aprovação automática; é necessário aguardar a análise da área responsável."
+      />
+      <BlocoCopiar
+        titulo="Comprovante de pagamento"
+        texto="O boleto pago ou o comprovante do Pix pode ser utilizado como comprovante de pagamento. Caso necessite de um documento emitido pela instituição, a solicitação pode ser realizada por meio de protocolo no WebAluno."
       />
     </>
   );
