@@ -630,6 +630,7 @@ function SecaoMensagens() {
       </Card>
       <BlocoCopiar titulo="📌 Confirmação de acordo" texto="Olá! Para darmos andamento corretamente, pedimos que confirme o acordo conforme orientação enviada. A confirmação é necessária para seguirmos com agilidade no procedimento." />
       <BlocoCopiar titulo="📎 Envio de comprovante" texto="Olá! Após realizar o pagamento, por gentileza encaminhe o comprovante para que possamos registrar e seguir com a baixa conforme o procedimento." />
+      <BlocoCopiar titulo="📑 Parcelas em aberto" texto="Você pode consultar suas parcelas em aberto diretamente pelo WebAluno, em Posição Financeira. Caso precise de um documento mais detalhado ou emitido pela instituição, a solicitação deve ser realizada por meio de protocolo no próprio WebAluno." />
       <BlocoCopiar titulo="⏳ Aguardando comprovante" texto="Olá! Ainda estamos aguardando o envio do comprovante de pagamento para dar sequência à baixa. Assim que possível, encaminhe para concluirmos o procedimento." />
       <BlocoCopiar titulo="📄 Aguardando termo" texto="Olá! Para concluirmos sua negociação parcelada, precisamos receber o Termo de Acordo assinado pelo Gov.br, completo e legível. Assim que recebermos o documento, ele seguirá para validação do ADM antes da conclusão do acordo." />
       <BlocoCopiar titulo="✅ Termo recebido / aguardando validação do ADM" texto="Recebemos o seu Termo de Acordo assinado. O documento está em validação com a equipe administrativa. O acordo somente será concluído após essa validação e a liberação no Prime." />
@@ -1503,6 +1504,16 @@ function SecaoDocumentos() {
         </Card>
 
         <Card>
+          <span style={S.cardTag}>PARCELAS EM ABERTO</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Aluno solicita documento das parcelas em aberto</h3>
+          <p style={S.paragrafo}>
+            Primeiro, oriente o aluno a consultar diretamente no <strong>WebAluno → Posição Financeira</strong>,
+            onde poderá visualizar as parcelas em aberto. Se precisar de um documento mais detalhado ou emitido
+            pela instituição, a solicitação deve ser realizada por meio de <strong>protocolo no WebAluno</strong>.
+          </p>
+        </Card>
+
+        <Card>
           <span style={S.cardTag}>COMPROVANTE</span>
           <h3 style={{ ...S.h3, marginTop: 8 }}>Comprovante de pagamento</h3>
           <p style={S.paragrafo}>
@@ -1538,6 +1549,10 @@ function SecaoDocumentos() {
       <BlocoCopiar
         titulo="Contrato Educacional"
         texto="O seu Contrato Educacional pode ser consultado pelo WebAluno, em Posição Financeira → Contrato Educacional."
+      />
+      <BlocoCopiar
+        titulo="Parcelas em aberto"
+        texto="Você pode consultar suas parcelas em aberto diretamente pelo WebAluno, em Posição Financeira. Caso precise de um documento mais detalhado ou emitido pela instituição, a solicitação deve ser realizada por meio de protocolo no próprio WebAluno."
       />
       <BlocoCopiar
         titulo="Acompanhar protocolo"
