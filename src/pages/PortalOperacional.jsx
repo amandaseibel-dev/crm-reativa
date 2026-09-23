@@ -990,14 +990,85 @@ function SecaoDuvidas() {
 function SecaoHonorarios() {
   return (
     <>
-      <TituloSecao emoji="💰" titulo="Honorários e Taxas" />
+      <TituloSecao
+        emoji="💰"
+        titulo="Honorários e Taxas"
+        sub="Entenda a ordem correta do cálculo e como os honorários acompanham a negociação."
+      />
+
       <div style={S.grade3}>
-        <Card style={{ textAlign: "center" }}><div style={S.numeroGrande}>8%</div><div style={S.labelNumero}>Honorários</div><p style={S.paragrafo}>Conforme política vigente para débitos acima de 30 dias.</p></Card>
-        <Card style={{ textAlign: "center" }}><div style={S.numeroGrande}>1% a.m.</div><div style={S.labelNumero}>Juros</div><p style={S.paragrafo}>Conforme regra vigente.</p></Card>
-        <Card style={{ textAlign: "center" }}><div style={S.numeroGrande}>2%</div><div style={S.labelNumero}>Multa</div><p style={S.paragrafo}>Conforme regra vigente.</p></Card>
-        <Card style={{ textAlign: "center" }}><div style={S.numeroGrande}>IGPM</div><div style={S.labelNumero}>Correção monetária</div><p style={S.paragrafo}>Aplicado conforme regra vigente do contrato.</p></Card>
+        <Card style={{ textAlign: "center" }}>
+          <div style={S.numeroGrande}>8%</div>
+          <div style={S.labelNumero}>Honorários</div>
+          <p style={S.paragrafo}>Aplicados sobre a base atualizada do débito, após juros, multa e IGPM.</p>
+        </Card>
+        <Card style={{ textAlign: "center" }}>
+          <div style={S.numeroGrande}>1% a.m.</div>
+          <div style={S.labelNumero}>Juros</div>
+          <p style={S.paragrafo}>Conforme regra vigente.</p>
+        </Card>
+        <Card style={{ textAlign: "center" }}>
+          <div style={S.numeroGrande}>2%</div>
+          <div style={S.labelNumero}>Multa</div>
+          <p style={S.paragrafo}>Conforme regra vigente.</p>
+        </Card>
+        <Card style={{ textAlign: "center" }}>
+          <div style={S.numeroGrande}>IGPM</div>
+          <div style={S.labelNumero}>Correção monetária</div>
+          <p style={S.paragrafo}>Aplicado conforme regra vigente do contrato.</p>
+        </Card>
       </div>
-      <Card><h3 style={S.h3}>Como funciona a composição</h3><p style={S.paragrafo}>Quando aplicável, a composição do débito considera principal, juros, multa, correção e honorários de cobrança.</p><ul style={{...S.lista,marginTop:10}}><li><strong>À vista:</strong> honorários entram na quitação conforme a composição do pagamento.</li><li><strong>Cartão:</strong> honorários fazem parte da negociação conforme a regra vigente.</li><li><strong>Parcelamento:</strong> os honorários acompanham a composição do acordo quando aplicável.</li></ul></Card>
+
+      <Card>
+        <span style={S.cardTag}>ORDEM DO CÁLCULO</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>Como calcular os 8% de honorários</h3>
+        <ol style={S.listaOrdenada}>
+          <li>Comece pelo <strong>valor principal</strong>.</li>
+          <li>Some os <strong>juros</strong>.</li>
+          <li>Some a <strong>multa</strong>.</li>
+          <li>Some a <strong>correção pelo IGPM</strong>.</li>
+          <li>O resultado será a <strong>base atualizada do débito</strong>.</li>
+          <li>Somente depois aplique <strong>8% de honorários</strong> sobre essa base.</li>
+          <li>Some os honorários à base atualizada para chegar ao <strong>valor total da negociação</strong>.</li>
+        </ol>
+      </Card>
+
+      <Card style={S.cardLimiteAtuacao}>
+        <span style={S.cardTag}>ATENÇÃO</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>Não aplique 8% sobre o valor já fechado</h3>
+        <p style={S.paragrafo}>
+          Se o valor consultado já estiver com os honorários incluídos, não aplique 8% novamente.
+          O percentual deve ser calculado sobre a base formada por <strong>principal + juros + multa + IGPM</strong>.
+          Aplicar 8% sobre um valor que já contém os honorários gera um valor incorreto.
+        </p>
+      </Card>
+
+      <Card>
+        <span style={S.cardTag}>PARCELAMENTO</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>Como os honorários são distribuídos no acordo</h3>
+        <p style={S.paragrafo}>
+          Os honorários são calculados antes do parcelamento e depois acompanham a mesma proporção do acordo.
+        </p>
+        <ul style={{ ...S.lista, marginTop: 12 }}>
+          <li>
+            <strong>Exemplo de condição: 30% de entrada + 6x.</strong>
+          </li>
+          <li>
+            A entrada de 30% deve carregar também <strong>30% do valor dos honorários</strong>.
+          </li>
+          <li>
+            O saldo restante dos honorários acompanha o saldo restante da negociação e é diluído nas <strong>6 parcelas</strong>.
+          </li>
+          <li>
+            Não separar os honorários do fluxo do acordo: eles acompanham proporcionalmente entrada e parcelas.
+          </li>
+        </ul>
+      </Card>
+
+      <Aviso tom="info">
+        <strong>Resumo:</strong> principal + juros + multa + IGPM = base atualizada. Sobre essa base, calcular 8% de honorários.
+        Depois, se houver parcelamento, distribuir os honorários na mesma proporção da entrada e das parcelas do acordo.
+      </Aviso>
     </>
   );
 }
