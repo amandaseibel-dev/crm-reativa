@@ -1407,27 +1407,16 @@ function SecaoMeta() {
 
       {erro ? <Card><p style={S.paragrafo}>{erro}</p></Card> : null}
 
-      {!semMeta && meta.meta_operacional != null ? (
-        <Card>
-          <h3 style={S.h3}>Meta operacional da equipe</h3>
-          <p style={{ ...S.paragrafo, fontSize: 30, fontWeight: 800, color: "var(--rv-tinta)", margin: "4px 0 0" }}>
-            {moedaBR(meta.meta_operacional)}
-          </p>
-        </Card>
-      ) : null}
-
       <Card>
-        <h3 style={S.h3}>Faixas de comissão</h3>
         {semMeta ? (
           <p style={S.paragrafo}>
-            A meta deste mês ainda não foi cadastrada. Assim que a gestão lançar,
-            ela aparece aqui automaticamente.
+            A meta deste mês ainda não foi cadastrada.
           </p>
         ) : (
           <table style={S.tabela}>
             <thead>
               <tr>
-                <th style={S.th}>Honorário no mês</th>
+                <th style={S.th}>Valor</th>
                 <th style={S.thNum}>Percentual</th>
               </tr>
             </thead>
@@ -1447,14 +1436,6 @@ function SecaoMeta() {
             </tbody>
           </table>
         )}
-      </Card>
-
-      <Card>
-        <h3 style={S.h3}>📌 Foco do mês</h3>
-        <p style={S.paragrafo}>
-          Trabalhar com organização, confirmar acordos, seguir os procedimentos corretos no Prime e manter
-          registros completos no CRM para dar agilidade às baixas.
-        </p>
       </Card>
     </>
   );
