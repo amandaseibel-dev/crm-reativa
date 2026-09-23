@@ -624,8 +624,9 @@ function SecaoScript({ ir }) {
           <li><strong>Validar o caso:</strong> Prime + CRM + restrições.</li>
           <li><strong>Confirmar o aluno:</strong> nome e 3 primeiros dígitos do CPF.</li>
           <li><strong>Apresentar a dívida:</strong> tipo, período e valor correto.</li>
-          <li><strong>Abrir a negociação:</strong> perguntar se deseja verificar as condições disponíveis.</li>
-          <li><strong>Entender a resposta:</strong> fechar, sem interesse, sem condições ou falta de interação.</li>
+          <li><strong>Tentar a finalização:</strong> perguntar primeiro se podemos seguir com o pagamento hoje.</li>
+          <li><strong>Somente se houver negativa:</strong> entender o motivo, apresentar a próxima alternativa e tentar o fechamento novamente.</li>
+          <li><strong>Definir o resultado:</strong> fechar, sem interesse, sem condições ou falta de interação.</li>
           <li><strong>Registrar o resultado no CRM</strong> antes de finalizar o atendimento.</li>
         </ol>
       </Card>
@@ -640,7 +641,7 @@ function SecaoScript({ ir }) {
         texto="Perfeito, obrigado pela confirmação. Vou te explicar a situação registrada e verificar como podemos ajudar na regularização."
       />
 
-      <TituloSecao emoji="2️⃣" titulo="Apresentação da dívida" sub="Seja objetivo: informe o que está em aberto e abra espaço para a negociação." />
+      <TituloSecao emoji="2️⃣" titulo="Apresentação da dívida" sub="Seja objetivo e conduza primeiro para a finalização. Só avance para alternativas se houver negativa." />
       <Card>
         <h3 style={S.h3}>Antes de apresentar</h3>
         <ul style={S.lista}>
@@ -652,25 +653,38 @@ function SecaoScript({ ir }) {
       </Card>
       <BlocoCopiar
         titulo="Apresentação — mensalidades em aberto"
-        texto="Identificamos parcelas em aberto referentes a [PERÍODO], com saldo atualizado de R$ [VALOR]. Você tem interesse que eu verifique as condições disponíveis para regularizarmos essa situação hoje?"
+        texto="Identificamos parcelas em aberto referentes a [PERÍODO], com saldo atualizado de R$ [VALOR]. Podemos gerar o boleto para pagamento hoje?"
       />
       <BlocoCopiar
         titulo="Apresentação — existe acordo em aberto ou vencido"
-        texto="Identificamos parcelas em aberto do seu acordo. Como existe um acordo pendente, precisamos tratar essa situação primeiro. Posso verificar com você as formas disponíveis para regularização?"
+        texto="Identificamos parcelas em aberto do seu acordo. Como existe um acordo pendente, precisamos tratar essa situação primeiro. Podemos seguir com a regularização hoje pelas formas permitidas para acordo?"
       />
       <BlocoCopiar
         titulo="Se o aluno pedir explicação do valor"
         texto="Posso explicar a origem da pendência e os encargos aplicáveis. Vou considerar as informações registradas no sistema para te orientar corretamente."
       />
 
-      <TituloSecao emoji="3️⃣" titulo="Abra o diálogo" sub="Não comece oferecendo várias condições. Primeiro descubra o que o aluno precisa." />
+      <Card style={S.cardLimiteAtuacao}>
+        <span style={S.cardTag}>REGRA DE CONDUÇÃO</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>Sempre tente concluir antes de avançar</h3>
+        <p style={S.paragrafo}>
+          A sequência do atendimento deve ser: <strong>apresentar → tentar fechar → ouvir a negativa → entender o motivo → apresentar a próxima alternativa → tentar fechar novamente</strong>.
+          Não pule direto para várias opções sem antes verificar se o aluno consegue concluir na condição mais simples disponível.
+        </p>
+      </Card>
+
+      <TituloSecao emoji="3️⃣" titulo="Negativa — entenda o motivo e avance para a próxima alternativa" sub="A conversa só avança para outras condições quando o aluno disser que não consegue concluir na primeira opção." />
       <BlocoCopiar
-        titulo="Aluno demonstra interesse"
-        texto="Perfeito. Antes de seguirmos, existe alguma forma de pagamento ou condição que hoje seja mais viável para você? Com isso, verifico o que está disponível dentro da política."
+        titulo="Aluno aceita pagar hoje"
+        texto="Perfeito. Vou seguir com a condição para concluirmos o pagamento hoje."
       />
       <BlocoCopiar
-        titulo="Aluno responde com resistência"
-        texto="Entendo. Posso saber qual é o principal ponto que está dificultando a regularização hoje? Dependendo da situação, podemos verificar uma alternativa dentro das condições disponíveis."
+        titulo="Aluno diz que não consegue pagar hoje"
+        texto="Entendo. Posso saber o que impede o pagamento hoje: o valor, a forma de pagamento, a entrada, a quantidade de parcelas ou outro motivo?"
+      />
+      <BlocoCopiar
+        titulo="Depois de apresentar uma alternativa"
+        texto="Com essa condição, conseguimos seguir com a regularização hoje?"
       />
 
       <div style={S.botoesLinha}>
@@ -716,7 +730,7 @@ function SecaoScript({ ir }) {
       />
       <BlocoCopiar
         titulo="Tentar manter o diálogo"
-        texto="Obrigado por me explicar. Dependendo desse ponto, podemos verificar se existe alguma alternativa prevista que ajude a resolver a situação. Posso conferir para você?"
+        texto="Obrigado por me explicar. Dependendo desse ponto, podemos verificar uma alternativa prevista. Se encontrarmos uma condição que resolva esse impedimento, conseguimos seguir com a regularização hoje?"
       />
       <BlocoCopiar
         titulo="Aluno mantém que não tem interesse"
@@ -754,6 +768,10 @@ function SecaoScript({ ir }) {
           <li>Se houver desconto condicional perdido por atraso, o cálculo deve ser solicitado à supervisão; o operador não informa valores por conta própria.</li>
         </ul>
       </Card>
+      <BlocoCopiar
+        titulo="Após encontrar uma condição possível"
+        texto="Com essa condição, conseguimos seguir com o pagamento e concluir a regularização hoje?"
+      />
       <BlocoCopiar
         titulo="Ainda sem condição após as alternativas"
         texto="Entendo. Neste momento você me informa que realmente não consegue assumir nenhuma das condições disponíveis. Existe alguma data em que faça sentido retomarmos esse contato para verificar novamente sua situação?"
@@ -807,9 +825,10 @@ function SecaoScript({ ir }) {
       </div>
 
       <Aviso tom="info">
-        <strong>Regra de qualidade:</strong> o atendimento não deve terminar apenas com “não”, “depois” ou “não consigo”.
-        Sempre que houver diálogo, tente entender o motivo real com perguntas abertas e verificar uma solução permitida,
-        sem pressionar o aluno e sem criar condição fora da política.
+        <strong>Regra de qualidade:</strong> todo ponto do atendimento deve buscar a finalização do caso antes de avançar.
+        Primeiro tente concluir o pagamento; diante da negativa, entenda o motivo, apresente a próxima alternativa permitida
+        e tente o fechamento novamente. O atendimento não deve terminar apenas com “não”, “depois” ou “não consigo” sem explorar
+        de forma respeitosa uma possibilidade real de solução.
       </Aviso>
     </>
   );
