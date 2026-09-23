@@ -67,8 +67,57 @@ export function podeVincularAluno(item) {
 export const ACOES_DA_FILA = {
   REGISTRAR_ACORDO_AVISTA: "Registrar acordo à vista",
   VINCULAR_ALUNO: "Vincular aluno",
+  // Continua aqui porque `conciliacao_encerrar` segue no banco para as rotinas
+  // e para os casos ja encerrados por ela. Saiu da TELA em 23/09/2026.
   ENCERRAR_PENDENCIA: "Encerrar pendência",
+  FEITO: "Feito",
+  REJEITAR: "Rejeitar",
 };
+
+// AS DUAS SAIDAS DA FILA MANUAL (23/09/2026). Substituem "Encerrar pendência"
+// na tela: a gestao pediu duas decisoes distintas, cada uma com categoria.
+// Os valores espelham o catalogo fechado da migration 20260923020000 -- se um
+// lado mudar sem o outro, o banco recusa.
+export const CONCLUSOES_FEITO = [
+  { valor: "ENTRADA_DE_ACORDO", rotulo: "Confirmado como entrada de acordo" },
+  { valor: "PARCELA_DE_ACORDO", rotulo: "Confirmado como parcela de acordo" },
+  { valor: "JA_TRATADO", rotulo: "Pagamento já tratado corretamente" },
+  { valor: "SEM_IMPACTO_FINANCEIRO", rotulo: "Sem impacto financeiro atual" },
+  { valor: "OUTRO_CONFIRMADO", rotulo: "Outro motivo confirmado" },
+];
+
+export const MOTIVOS_REJEICAO = [
+  { valor: "NAO_E_ENTRADA_DE_ACORDO", rotulo: "Não é entrada de acordo" },
+  { valor: "NAO_PERTENCE_AO_ACORDO", rotulo: "Não pertence ao acordo indicado" },
+  { valor: "SEM_ESTRUTURA_SUFICIENTE", rotulo: "Pagamento sem estrutura suficiente" },
+  { valor: "DOCUMENTO_INCOMPATIVEL", rotulo: "Boleto/documento incompatível" },
+  { valor: "VALOR_INCOMPATIVEL", rotulo: "Valor incompatível" },
+  { valor: "OUTRO", rotulo: "Outro" },
+];
+
+// "Outro" sem explicacao encerra a linha sem deixar como relê-la depois. O
+// banco recusa dos dois lados; aqui a tela avisa antes de tentar.
+const EXIGE_OBSERVACAO = new Set(["OUTRO_CONFIRMADO", "OUTRO"]);
+
+export const FEITO_AVISO =
+  "Conclui a conferência e tira a linha da fila. Não baixa parcela, não altera acordo, saldo nem mensalidade.";
+
+export const REJEITAR_AVISO =
+  "Decisão de revisão: NÃO apaga nada e NÃO desfaz o pagamento. Só registra o motivo e tira a linha da fila.";
+
+// Uma regra so, usada pelo botao e pelo teste -- para a tela nunca discordar
+// do que o banco vai aceitar.
+export function finalizacaoInvalida({ acao, escolha, observacao }) {
+  const obs = (observacao || "").trim();
+  if (acao === "REJEITAR" && !escolha) return "Escolha o motivo da rejeição.";
+  if (acao === "FEITO" && !escolha) return "Escolha a conclusão.";
+  if (EXIGE_OBSERVACAO.has(escolha) && obs === "") {
+    return acao === "REJEITAR"
+      ? 'O motivo "Outro" exige observação.'
+      : 'A conclusão "Outro motivo confirmado" exige observação.';
+  }
+  return null;
+}
 
 // ENCERRAR NAO E ACAO TECNICA (17/09/2026). E a saida da gestao para a linha
 // que nao tem mais o que o sistema resolva sozinho: tira da fila ativa e para
