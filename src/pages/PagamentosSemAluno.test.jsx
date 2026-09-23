@@ -375,7 +375,10 @@ describe("conferência manual na própria linha", () => {
     expect(screen.getByText("CPF no portador 166")).toBeTruthy();
     expect(screen.getByText("sim — negociação confirmada")).toBeTruthy();
     expect(screen.getByText(/não encontrada — a API do Prime/)).toBeTruthy();
-    expect(screen.getByText("4 · última em 22/09/2026, 06:00")).toBeTruthy();
+    // SEM O RELOGIO NA ASSERCAO. `toLocaleString` usa o fuso de quem roda: aqui
+    // e America/Sao_Paulo e no CI e UTC, entao fixar "06:00" passava na maquina
+    // e quebrava no CI. O que importa e a contagem e a data.
+    expect(screen.getByText(/^4 · última em 22\/09\/2026/)).toBeTruthy();
     expect(screen.getByText("espelho do portador 166")).toBeTruthy();
   });
 
