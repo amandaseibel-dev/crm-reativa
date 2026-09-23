@@ -50,7 +50,6 @@ const SECOES = [
       { id: "ddds", label: "📞 DDDs das Unidades", keywords: "ddd código área telefone unidade cidade cachoeira canoas carazinho gravataí guaíba itumbiara manaus palmas porto alegre santa maria santarém são jerônimo torres ead" },
       { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico giovana bruno unidade adm financeiro contato" },
       { id: "meta", label: "🎯 Meta do Mês", keywords: "meta comissão honorário projeção resultado mês" },
-      { id: "indicadores", label: "📊 Indicadores", keywords: "indicador contato acordo link termo baixa resultado" },
       { id: "sugestoes", label: "💡 Sugestões e Erros", keywords: "erro melhoria ideia ajuste sistema portal reportar problema" },
     ],
   },
@@ -172,7 +171,6 @@ export default function PortalOperacional() {
           {secao === "ddds" && <SecaoDdds />}
           {secao === "contatos" && <SecaoContatos />}
           {secao === "meta" && <SecaoMeta />}
-          {secao === "indicadores" && <SecaoIndicadores />}
           {secao === "sugestoes" && <SecaoSugestoes />}
           {secao === "lgpd" && <SecaoLgpd />}
           {secao === "cultura" && <SecaoCultura />}
@@ -1500,31 +1498,6 @@ function SecaoLgpd() {
           do aluno ou sobre o que pode ser informado, não avance com a tratativa até confirmar o procedimento adequado.
         </p>
       </Card>
-    </>
-  );
-}
-
-/* ===================== Indicadores ===================== */
-
-function SecaoIndicadores() {
-  const itens = [
-    { emoji: "☎️", titulo: "Contatos", desc: "Volume e qualidade dos acionamentos." },
-    { emoji: "🤝", titulo: "Acordos", desc: "Acordos confirmados e registrados." },
-    { emoji: "🔗", titulo: "Links e termos", desc: "Pendências e retornos administrativos." },
-    { emoji: "✅", titulo: "Baixas", desc: "Comprovantes e finalizações corretas." },
-  ];
-  return (
-    <>
-      <TituloSecao emoji="📊" titulo="Indicadores" />
-      <div style={S.grade4}>
-        {itens.map((it) => (
-          <Card key={it.titulo} style={{ textAlign: "center" }}>
-            <div style={{ fontSize: 28, marginBottom: 8 }}>{it.emoji}</div>
-            <h3 style={{ ...S.h3, marginBottom: 6 }}>{it.titulo}</h3>
-            <p style={S.paragrafo}>{it.desc}</p>
-          </Card>
-        ))}
-      </div>
     </>
   );
 }
