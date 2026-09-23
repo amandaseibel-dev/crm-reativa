@@ -845,7 +845,7 @@ function SecaoObjecoes() {
 
 function SecaoDuvidas() {
   const itens = [
-    { p: "Posso acionar sem conferir o CRM?", r: "Não. A conferência do CRM é obrigatória antes de qualquer mensagem ou contato." },
+    { p: "Posso acionar sem conferir o Prime?", r: "Não. A conferência no Prime é obrigatória antes de qualquer mensagem ou contato. Ainda estamos ajustando o CRM para que concentre 100% das informações necessárias; por isso, a validação no Prime continua sendo indispensável para evitar retrabalho, contatos indevidos e custos desnecessários de tempo e de acionamento." },
     { p: "Quando não posso acionar?", r: "Quando houver jurídico, cancelamento, bloqueio, restrição de contato ou orientação registrada impedindo acionamento." },
     { p: "Comprovante de cartão deve ir onde?", r: "O comprovante deve ser salvo e sinalizado conforme o procedimento operacional vigente." },
     { p: "E se o termo não funcionar?", r: "Encaminhe para a área responsável e sinalize no canal combinado para ajuste." },
