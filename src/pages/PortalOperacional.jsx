@@ -27,6 +27,7 @@ const SECOES = [
     grupo: "Negociação",
     itens: [
       { id: "politica", label: "📄 Política de Negociação", keywords: "à vista cartão boleto acordo parcelamento entrada condição negociação regra" },
+      { id: "termo", label: "✍️ Termo de Acordo", keywords: "termo assinatura gov.br adm validação validar prime acordo parcelado documento legível" },
       { id: "excecao", label: "📝 Proposta de Exceção", keywords: "proposta exceção desconto aprovação condição especial" },
       { id: "honorarios", label: "💰 Honorários e Taxas", keywords: "8% juros multa igpm taxa honorário encargos" },
       { id: "beneficios", label: "🎟️ Bolsas e Financiamentos", keywords: "bolsa fies prouni udebank educred quero bolsa credies financiamento" },
@@ -155,6 +156,7 @@ export default function PortalOperacional() {
           {secao === "mensagens" && <SecaoMensagens />}
           {secao === "objecoes" && <SecaoObjecoes />}
           {secao === "politica" && <SecaoPolitica />}
+          {secao === "termo" && <SecaoTermoAcordo />}
           {secao === "excecao" && <SecaoExcecao />}
           {secao === "honorarios" && <SecaoHonorarios />}
           {secao === "beneficios" && <SecaoBeneficios />}
@@ -452,6 +454,111 @@ function SecaoPolitica() {
   );
 }
 
+/* ===================== Termo de Acordo ===================== */
+
+function SecaoTermoAcordo() {
+  const etapas = [
+    {
+      n: "1",
+      titulo: "Negociação parcelada definida",
+      texto: "Toda negociação parcelada exige Termo de Acordo. O termo deve ser enviado ao aluno para assinatura antes da conclusão do acordo."
+    },
+    {
+      n: "2",
+      titulo: "Assinatura via Gov.br",
+      texto: "O aluno deve assinar o documento pelo Gov.br. Não considerar assinatura informal, imagem de assinatura ou documento sem validação adequada."
+    },
+    {
+      n: "3",
+      titulo: "Conferir legibilidade",
+      texto: "O documento devolvido precisa estar completo e legível. Se houver páginas cortadas, informações ilegíveis ou arquivo incompleto, solicitar novo envio."
+    },
+    {
+      n: "4",
+      titulo: "Enviar para validação do ADM",
+      texto: "O termo assinado deve ser encaminhado ao ADM para conferência e validação. Enquanto o ADM não validar, o acordo não pode ser fechado no sistema."
+    },
+    {
+      n: "5",
+      titulo: "Liberar no Prime",
+      texto: "Somente após a validação do ADM o acordo pode seguir para liberação/confirmação no Prime, conforme o procedimento operacional."
+    },
+    {
+      n: "6",
+      titulo: "Comunicar o aluno",
+      texto: "Após a validação e a liberação no Prime, comunicar ao aluno que o acordo foi processado e que o termo está disponível conforme o fluxo."
+    }
+  ];
+
+  return (
+    <>
+      <TituloSecao
+        emoji="✍️"
+        titulo="Termo de Acordo"
+        sub="Fluxo obrigatório para todas as negociações parceladas."
+      />
+
+      <Aviso>
+        <strong>Regra obrigatória:</strong> nenhum acordo parcelado pode ser fechado/concluído no sistema sem
+        o Termo de Acordo assinado pelo Gov.br, com documento legível e validado pelo ADM.
+      </Aviso>
+
+      <div style={S.grade2}>
+        {etapas.map((etapa) => (
+          <Card key={etapa.n}>
+            <div style={{ display: "flex", gap: 14, alignItems: "flex-start" }}>
+              <div style={{
+                width: 34,
+                height: 34,
+                minWidth: 34,
+                borderRadius: 999,
+                background: "var(--rv-azul-fundo)",
+                border: "1px solid var(--rv-azul-borda)",
+                color: "var(--rv-azul-texto)",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontWeight: 900
+              }}>
+                {etapa.n}
+              </div>
+              <div>
+                <h3 style={S.h3}>{etapa.titulo}</h3>
+                <p style={S.paragrafo}>{etapa.texto}</p>
+              </div>
+            </div>
+          </Card>
+        ))}
+      </div>
+
+      <Card style={S.cardLimiteAtuacao}>
+        <span style={S.cardTag}>NÃO PODE FECHAR</span>
+        <h3 style={{ ...S.h3, marginTop: 8 }}>O acordo permanece pendente enquanto faltar qualquer requisito</h3>
+        <ul style={S.lista}>
+          <li>Termo ainda não enviado ao aluno.</li>
+          <li>Termo não assinado pelo Gov.br.</li>
+          <li>Documento ilegível, incompleto ou com problema de leitura.</li>
+          <li>Termo ainda não validado pelo ADM.</li>
+        </ul>
+      </Card>
+
+      <TituloSecao emoji="💬" titulo="Frases prontas" sub="Mensagens para usar durante o fluxo do termo." />
+      <BlocoCopiar
+        titulo="📄 Envio do termo para assinatura"
+        texto="Olá! Para concluirmos sua negociação parcelada, é necessário assinar o Termo de Acordo pelo Gov.br. Após a assinatura, por favor nos envie o documento completo e legível para validação. O acordo somente poderá ser concluído após essa etapa."
+      />
+      <BlocoCopiar
+        titulo="✅ Termo recebido e em validação"
+        texto="Recebemos o seu Termo de Acordo assinado. O documento será validado pela nossa equipe administrativa antes da conclusão do acordo. Assim que a validação for finalizada, daremos continuidade ao procedimento e retornaremos com a confirmação."
+      />
+      <BlocoCopiar
+        titulo="✅ Termo validado / acordo liberado"
+        texto="Seu Termo de Acordo foi validado e o procedimento foi concluído conforme as condições negociadas. O termo fica disponível como registro da negociação. Em caso de dúvida, estamos à disposição."
+      />
+    </>
+  );
+}
+
 /* ===================== Proposta de Exceção ===================== */
 
 function SecaoExcecao() {
@@ -523,7 +630,8 @@ function SecaoMensagens() {
       <BlocoCopiar titulo="📌 Confirmação de acordo" texto="Olá! Para darmos andamento corretamente, pedimos que confirme o acordo conforme orientação enviada. A confirmação é necessária para seguirmos com agilidade no procedimento." />
       <BlocoCopiar titulo="📎 Envio de comprovante" texto="Olá! Após realizar o pagamento, por gentileza encaminhe o comprovante para que possamos registrar e seguir com a baixa conforme o procedimento." />
       <BlocoCopiar titulo="⏳ Aguardando comprovante" texto="Olá! Ainda estamos aguardando o envio do comprovante de pagamento para dar sequência à baixa. Assim que possível, encaminhe para concluirmos o procedimento." />
-      <BlocoCopiar titulo="📄 Aguardando termo" texto="Olá! Precisamos que o termo de acordo seja assinado e devolvido para darmos continuidade. Qualquer dúvida na assinatura, estamos à disposição para ajudar." />
+      <BlocoCopiar titulo="📄 Aguardando termo" texto="Olá! Para concluirmos sua negociação parcelada, precisamos receber o Termo de Acordo assinado pelo Gov.br, completo e legível. Assim que recebermos o documento, ele seguirá para validação do ADM antes da conclusão do acordo." />
+      <BlocoCopiar titulo="✅ Termo recebido / aguardando validação do ADM" texto="Recebemos o seu Termo de Acordo assinado. O documento está em validação com a equipe administrativa. O acordo somente será concluído após essa validação e a liberação no Prime." />
       <BlocoCopiar titulo="🔗 Link de pagamento enviado" texto="Olá! Encaminhamos o link de pagamento referente ao seu acordo. Qualquer dificuldade para acessar ou concluir o pagamento, é só nos avisar." />
       <BlocoCopiar titulo="✅ Acordo fechado" texto="Olá! Seu acordo foi registrado com sucesso. Fique atento às datas de vencimento das parcelas para manter tudo em dia." />
       <BlocoCopiar titulo="🔁 Retomando contato" texto="Olá! Estamos retomando o contato sobre a sua pendência. Vamos verificar a melhor forma de regularizar a situação." />
@@ -848,7 +956,7 @@ function SecaoDuvidas() {
     { p: "Posso acionar sem conferir o Prime?", r: "Não. A conferência no Prime é obrigatória antes de qualquer mensagem ou contato. Ainda estamos ajustando o CRM para que concentre 100% das informações necessárias; por isso, a validação no Prime continua sendo indispensável para evitar retrabalho, contatos indevidos e custos desnecessários de tempo e de acionamento." },
     { p: "Quando não posso acionar?", r: "Quando houver jurídico, cancelamento, bloqueio, restrição de contato ou orientação registrada impedindo acionamento." },
     { p: "Comprovante de cartão deve ir onde?", r: "Sempre no CRM. O comprovante de pagamento no cartão deve ser anexado e registrado no CRM para que a baixa seja realizada corretamente." },
-    { p: "E se o termo não funcionar?", r: "Encaminhe para a área responsável e sinalize no canal combinado para ajuste." },
+    { p: "Como funciona o Termo de Acordo nas negociações parceladas?", r: "O Termo de Acordo é obrigatório em toda negociação parcelada. O aluno deve assinar pelo Gov.br e devolver o documento completo e legível. O termo deve ser validado pelo ADM antes de qualquer fechamento no sistema. Somente após a validação do ADM o acordo pode ser liberado no Prime e concluído. Não fechar nenhum acordo parcelado sem o termo assinado, legível e validado." },
     { p: "Por que existe 1% de parcelamento se no link aparece “sem taxa de parcelamento”?", r: "Nas negociações parceladas, o sistema aplica 1% de encargo de parcelamento por parcela, conforme a condição da negociação. Quando o link informa “sem taxa de parcelamento”, significa que o próprio link não acrescentará uma nova taxa sobre o valor já negociado. Não informar que esse percentual é taxa do banco, da operadora ou do estabelecimento." },
     { p: "Qual a prioridade de negociação: mensalidades ou acordos?", r: "Sempre priorizar os acordos. Se houver acordo em aberto ou vencido, trate o acordo antes das mensalidades." },
     { p: "Como negociar um acordo em aberto ou vencido?", r: "Primeiro consulte a Política de Negociação. Acordos não podem ser reparcelados em boleto: a regularização deve ser à vista ou no cartão de crédito. Se o aluno não tiver condição de quitar o saldo nessas modalidades, ofereça o pagamento das parcelas individualmente, uma a uma. Enquanto houver parcelas vencidas, a matrícula não será liberada." },
@@ -1136,8 +1244,11 @@ function SecaoRotina() {
       ],
     },
     {
-      titulo: "Acordos e honorários",
+      titulo: "Acordos, termos e honorários",
       itens: [
+        "Toda negociação parcelada exige Termo de Acordo assinado pelo Gov.br, legível e validado pelo ADM.",
+        "Não fechar/concluir acordo parcelado no sistema antes da validação do termo pelo ADM.",
+        "Após a validação do ADM, liberar o acordo no Prime e comunicar o aluno conforme o fluxo.",
         "Ao revisar acordo antigo, conferir se o honorário já foi incluído.",
         "Se não houver honorário registrado, incluir conforme o procedimento aplicável.",
         "Se já houver honorário, é expressamente proibido incluir novamente.",
