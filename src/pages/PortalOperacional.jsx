@@ -847,7 +847,7 @@ function SecaoDuvidas() {
   const itens = [
     { p: "Posso acionar sem conferir o Prime?", r: "Não. A conferência no Prime é obrigatória antes de qualquer mensagem ou contato. Ainda estamos ajustando o CRM para que concentre 100% das informações necessárias; por isso, a validação no Prime continua sendo indispensável para evitar retrabalho, contatos indevidos e custos desnecessários de tempo e de acionamento." },
     { p: "Quando não posso acionar?", r: "Quando houver jurídico, cancelamento, bloqueio, restrição de contato ou orientação registrada impedindo acionamento." },
-    { p: "Comprovante de cartão deve ir onde?", r: "O comprovante deve ser salvo e sinalizado conforme o procedimento operacional vigente." },
+    { p: "Comprovante de cartão deve ir onde?", r: "Sempre no CRM. O comprovante de pagamento no cartão deve ser anexado e registrado no CRM para que a baixa seja realizada corretamente." },
     { p: "E se o termo não funcionar?", r: "Encaminhe para a área responsável e sinalize no canal combinado para ajuste." },
     { p: "Por que existe 1% de parcelamento se no link aparece “sem taxa de parcelamento”?", r: "Nas negociações parceladas, o sistema aplica 1% de encargo de parcelamento por parcela, conforme a condição da negociação. Quando o link informa “sem taxa de parcelamento”, significa que o próprio link não acrescentará uma nova taxa sobre o valor já negociado. Não informar que esse percentual é taxa do banco, da operadora ou do estabelecimento." },
     { p: "Qual a prioridade de negociação: mensalidades ou acordos?", r: "Sempre priorizar os acordos. Se houver acordo em aberto ou vencido, trate o acordo antes das mensalidades." },
