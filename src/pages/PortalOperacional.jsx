@@ -655,6 +655,10 @@ function SecaoMensagens() {
         texto="Você pode realizar sua rematrícula diretamente pelo WebAluno. Se preferir, também podemos encaminhar sua solicitação para atendimento com um dos nossos consultores. Deseja realizar a rematrícula pelo WebAluno ou prefere o auxílio de um consultor?"
       />
       <BlocoCopiar
+        titulo="🎓 Rematrícula após pagamento da entrada do acordo"
+        texto="Como benefício vigente da Ulbra, após a confirmação do pagamento da entrada do seu acordo e a conclusão do procedimento de formalização, você poderá realizar sua rematrícula sem precisar aguardar a quitação total do acordo. Depois dessa etapa, você poderá seguir pelo WebAluno ou, se preferir, podemos encaminhar seu atendimento para um de nossos consultores."
+      />
+      <BlocoCopiar
         titulo="📆 Rematrícula antecipada"
         texto="Como sua rematrícula foi realizada de forma antecipada, o valor correspondente ao semestre foi distribuído em um número maior de parcelas. Não se preocupe: o valor total do semestre permanece o mesmo. O que mudou foi apenas a quantidade de parcelas, permitindo que o pagamento do semestre seja diluído por um período maior."
       />
@@ -962,6 +966,7 @@ function SecaoDuvidas() {
     { p: "Por que existe 1% de parcelamento se no link aparece “sem taxa de parcelamento”?", r: "Nas negociações parceladas, o sistema aplica 1% de encargo de parcelamento por parcela, conforme a condição da negociação. Quando o link informa “sem taxa de parcelamento”, significa que o próprio link não acrescentará uma nova taxa sobre o valor já negociado. Não informar que esse percentual é taxa do banco, da operadora ou do estabelecimento." },
     { p: "Qual a prioridade de negociação: mensalidades ou acordos?", r: "Sempre priorizar os acordos. Se houver acordo em aberto ou vencido, trate o acordo antes das mensalidades." },
     { p: "Como negociar um acordo em aberto ou vencido?", r: "Primeiro consulte a Política de Negociação. Acordos não podem ser reparcelados em boleto: a regularização deve ser à vista ou no cartão de crédito. Se o aluno não tiver condição de quitar o saldo nessas modalidades, ofereça o pagamento das parcelas individualmente, uma a uma. Enquanto houver parcelas vencidas, a matrícula não será liberada." },
+    { p: "Posso realizar a rematrícula pagando somente a entrada do acordo?", r: "Sim, quando se tratar de um novo acordo formalizado e regular. Como benefício operacional vigente da Ulbra, a rematrícula pode ser realizada após a confirmação do pagamento da entrada, sem necessidade de aguardar a quitação integral. Essa regra não se aplica a acordo quebrado ou com parcelas vencidas, que precisa ser regularizado." },
     { p: "Enviei um template no CRM. Como confirmar o envio?", r: "Feche o cadastro do aluno, abra novamente e confirme se a mensagem ficou registrada como enviada." },
     { p: "O aluno diz que está processando a Ulbra. O que fazer?", r: "Solicitar sempre o número do processo e encaminhar para Amanda ADM. Não discutir o processo nem emitir opinião jurídica." },
   ];
@@ -1398,9 +1403,26 @@ function SecaoAcademico() {
           <span style={S.cardTag}>REMATRÍCULA</span>
           <h3 style={{ ...S.h3, marginTop: 8 }}>Aluno deseja realizar a rematrícula</h3>
           <p style={S.paragrafo}>
-            Se não houver pendências impeditivas, o aluno pode realizar a rematrícula diretamente pelo WebAluno.
-            Se preferir atendimento ou auxílio, encaminhe a solicitação para um consultor e direcione o caso para a
-            coluna <strong>Rematrícula</strong> no Kanban.
+            Se não houver pendências impeditivas, o aluno pode realizar a rematrícula diretamente pelo WebAluno ou
+            solicitar auxílio de um consultor.
+          </p>
+          <p style={{ ...S.paragrafo, marginTop: 10 }}>
+            <strong>Quando houver um novo acordo:</strong> como benefício operacional vigente da Ulbra, a rematrícula
+            pode ser realizada após a confirmação do pagamento da entrada do acordo, sem necessidade de aguardar a
+            quitação integral. O acordo deve estar formalizado conforme o fluxo vigente antes da liberação.
+          </p>
+          <p style={{ ...S.paragrafo, marginTop: 10 }}>
+            Se precisar de atendimento ou auxílio, direcione o caso para a coluna <strong>Rematrícula</strong> no Kanban.
+          </p>
+        </Card>
+
+        <Card style={S.cardLimiteAtuacao}>
+          <span style={S.cardTag}>IMPORTANTE</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Entrada do acordo × acordo vencido</h3>
+          <p style={S.paragrafo}>
+            O benefício da rematrícula após o pagamento da entrada se aplica ao novo acordo formalizado e regular.
+            Se já houver parcelas vencidas de um acordo anterior ou acordo quebrado, permanece a regra de bloqueio
+            até a regularização da pendência.
           </p>
         </Card>
 
@@ -1441,6 +1463,10 @@ function SecaoAcademico() {
       <BlocoCopiar
         titulo="Rematrícula — WebAluno ou consultor"
         texto="Você pode realizar sua rematrícula diretamente pelo WebAluno. Se preferir, também podemos encaminhar sua solicitação para atendimento com um dos nossos consultores. Deseja realizar a rematrícula pelo WebAluno ou prefere o auxílio de um consultor?"
+      />
+      <BlocoCopiar
+        titulo="Rematrícula após pagamento da entrada do acordo"
+        texto="Como benefício vigente da Ulbra, após a confirmação do pagamento da entrada do seu acordo e a conclusão do procedimento de formalização, você poderá realizar sua rematrícula sem precisar aguardar a quitação total do acordo. Depois dessa etapa, você poderá seguir pelo WebAluno ou, se preferir, podemos encaminhar seu atendimento para um de nossos consultores."
       />
       <BlocoCopiar
         titulo="Rematrícula antecipada"
