@@ -379,11 +379,14 @@ export async function buscarGeral(mes) {
 }
 
 // --- download helpers -------------------------------------------------------
-function wbParaBlob(wb) {
+// Exportados desde 23/09/2026 para o relatorio "Nao baixados / Rejeitados" da
+// Projecao usar a MESMA saida .xlsx destes relatorios, em vez de repetir a
+// montagem do Blob e do <a download> em outro arquivo.
+export function wbParaBlob(wb) {
   const buf = XLSX.write(wb, { bookType: "xlsx", type: "array" });
   return new Blob([buf], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" });
 }
-function baixarBlob(nome, blob) {
+export function baixarBlob(nome, blob) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url; a.download = nome; document.body.appendChild(a); a.click();
