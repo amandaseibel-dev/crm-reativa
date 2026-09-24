@@ -99,6 +99,40 @@ const TEMPOS = [["TODOS", "Qualquer tempo"], [">1", "mais de 1 dia"], [">3", "ma
 // Classes humanas que admitem a saída administrativa (título vira CANCELADA).
 const ADMINISTRATIVAS = new Set(["CANCELAMENTO_ESTORNO", "ISENCAO_FIES_BOLSA"]);
 
+// VALIDAÇÃO DA GESTÃO: o que você viu na tela do Prime é a evidência.
+//
+// A conferência automática só aceita prova de máquina -- `baixar` exige
+// corroboração por pagamento ReATIVA, `confirmar` recusa C_SEM_PROVA e o
+// encerramento administrativo só aceita 2 destas classes, e só depois de uma
+// classificação gravada antes. Quando a gestão abre o Prime e vê o que
+// aconteceu, essa leitura passa a valer: a classe escolhida decide o destino
+// do título, e o que foi visto fica registrado título a título.
+const CLASSES_VALIDAVEIS = [
+  ["PAGAMENTO_REAL", "Pagamento real", "PAGO"],
+  ["LIQUIDACAO_INSTITUCIONAL", "Liquidação institucional", "CANCELADA"],
+  ["CANCELAMENTO_ESTORNO", "Cancelamento / estorno", "CANCELADA"],
+  ["ISENCAO_FIES_BOLSA", "Isenção / FIES / bolsa", "CANCELADA"],
+  ["SUBSTITUICAO_TITULO", "Substituição de título", "CANCELADA"],
+];
+
+// Pergunta a classe pelo número, já sugerindo a que a gestão registrou antes.
+function escolherClasseValidacao(sugestao) {
+  const lista = CLASSES_VALIDAVEIS.map(([, r], i) => `${i + 1}) ${r}`).join("\n");
+  const padrao = CLASSES_VALIDAVEIS.findIndex(([c]) => c === sugestao);
+  for (;;) {
+    const r = window.prompt(
+      "O que você viu na tela do Prime?\n\n" +
+        lista +
+        "\n\n(1 marca o título como PAGO; 2 a 5 encerram o título como CANCELADA, sem efeito financeiro.)\n\nDigite o número:",
+      padrao >= 0 ? String(padrao + 1) : ""
+    );
+    if (r === null) return null;
+    const n = parseInt(String(r).trim(), 10);
+    if (n >= 1 && n <= CLASSES_VALIDAVEIS.length) return CLASSES_VALIDAVEIS[n - 1];
+    alert(`Digite um número de 1 a ${CLASSES_VALIDAVEIS.length}.`);
+  }
+}
+
 const REGRA_NOVA = new Set(["A_PAGAMENTO_COMPROVADO", "B_ACORDO_COMPROVADO", "C_SEM_PROVA"]);
 const VINCULA_DIRETO = new Set(["A2_COBRE", "A_PAGAMENTO_COMPROVADO", "B_ACORDO_COMPROVADO"]);
 
@@ -480,6 +514,58 @@ export default function ConferenciaPrime() {
     }
   }
 
+  // VALIDAR: a leitura da gestão na tela do Prime vira a decisão -- em lote.
+  //
+  // Não existe caminho automático para estes títulos: a estrutura do acordo
+  // não é exposta pela API da Prime (docs/integracoes/prime-gaps.md, VERMELHO),
+  // então a prova que a conferência espera não vai chegar. Quem decide é quem
+  // abriu a tela. O que sustenta a decisão é o que essa pessoa escreve aqui, e
+  // isso fica em auditoria, movimentação e classificação, título a título.
+  async function validarComoGestao(lista, descricao) {
+    if (!lista.length) return;
+    const escolha = escolherClasseValidacao(lista.length === 1 ? lista[0].classe_humana : null);
+    if (!escolha) return;
+    const [classe, rotulo, destino] = escolha;
+    const total = lista.reduce((s, x) => s + (Number(x.valor) || 0), 0);
+    const obs = pedirMotivo(
+      `Validar ${lista.length} título(s) — ${descricao} — ${moeda(total)} como "${rotulo}".\n\n` +
+        (destino === "PAGO"
+          ? "O título passa a PAGO. Nenhum pagamento é criado: é a sua leitura do Prime que sustenta a baixa."
+          : "O título sai da base como CANCELADA e deixa de ser exigível. Não é pagamento, não conta como recuperação.") +
+        "\n\nEscreva o que você viu no Prime (mínimo 15 caracteres) — isto fica no lugar da prova automática:",
+      15,
+      lista.length === 1 ? lista[0].classe_humana_obs || "" : ""
+    );
+    if (obs === null) return;
+    const chave = lista.length === 1 ? `val:${lista[0].titulo_id}` : `val-lote:${descricao}`;
+    if (processando[chave]) return;
+    marcar(chave, true);
+    try {
+      const { data, error } = await supabase.rpc("prime_conferencia_validar_lote", {
+        p_titulo_ids: lista.map((x) => x.titulo_id),
+        p_classe: classe,
+        p_observacao: obs,
+      });
+      if (error) throw error;
+      const aplicados = Number(data?.aplicados || 0);
+      const ignorados = Number(data?.ignorados || 0);
+      tirarDaTela(lista.map((x) => x.titulo_id));
+      setDecisao((d) => (d && lista.some((x) => x.titulo_id === d.titulo.titulo_id) ? null : d));
+      alert(
+        `${aplicados} título(s) validado(s) como ${rotulo} (${destino}) — ${moeda(Number(data?.valor_total || 0))}.` +
+          (ignorados
+            ? `\n\n${ignorados} não entraram (já decididos ou fora da confirmação) — a lista foi recarregada.`
+            : "")
+      );
+      if (ignorados) carregar();
+    } catch (e) {
+      alert("Não deu para validar: " + (e?.message || String(e)));
+      carregar();
+    } finally {
+      marcar(chave, false);
+    }
+  }
+
   function copiarNome(nome) {
     navigator.clipboard.writeText(nome || "").then(() => {
       setNomeCopiado(nome);
@@ -759,6 +845,17 @@ export default function ConferenciaPrime() {
                       {g.titulos.length > 1 && (
                         <button
                           type="button"
+                          style={{ ...A.btnConf, ...(processando[`val-lote:${g.chave}`] ? A.btnBusy : {}) }}
+                          disabled={!!processando[`val-lote:${g.chave}`]}
+                          onClick={() => validarComoGestao(g.titulos, g.chave)}
+                          title="Você conferiu na tela do Prime: aplica a sua decisão a todos os títulos deste aluno"
+                        >
+                          Validar os {g.titulos.length}
+                        </button>
+                      )}
+                      {g.titulos.length > 1 && (
+                        <button
+                          type="button"
                           style={{ ...estilos.btnRejeitar, ...(processando[`lote:${g.chave}`] ? A.btnBusy : {}) }}
                           disabled={!!processando[`lote:${g.chave}`]}
                           onClick={() => rejeitar(g.titulos, g.chave)}
@@ -944,6 +1041,15 @@ export default function ConferenciaPrime() {
                                     {busy ? "Processando..." : VINCULA_DIRETO.has(t.subgrupo) ? "Vincular ao acordo" : "Confirmar"}
                                   </button>
                                 )}
+                                <button
+                                  type="button"
+                                  style={{ ...A.btnConf, ...(busy ? A.btnBusy : {}) }}
+                                  disabled={busy}
+                                  onClick={() => validarComoGestao([t], `boleto ${t.documento}`)}
+                                  title="Você conferiu na tela do Prime: aplica a sua decisão, com o que viu registrado"
+                                >
+                                  Validar
+                                </button>
                                 <button
                                   type="button"
                                   style={{ ...estilos.btnRejeitar, ...(busy ? A.btnBusy : {}) }}
