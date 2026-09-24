@@ -49,6 +49,7 @@ const SECOES = [
     itens: [
       { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime folya nota fiscal prestação serviços comissão pix conta planilha sistema acesso link ferramenta" },
       { id: "manualprime", label: "📘 Manual do Prime", keywords: "prime manual painel atendimento títulos receber acordos condições especiais desconto atalho financeiro" },
+      { id: "manualmensageria", label: "💬 Manual do CRM Mensageria", keywords: "crm mensageria manual whatsapp mensagens atendimento template resposta aluno comprovante baixa acordo" },
       { id: "ddds", label: "📞 DDDs das Unidades", keywords: "ddd código área telefone unidade cidade cachoeira canoas carazinho gravataí guaíba itumbiara manaus palmas porto alegre santa maria santarém são jerônimo torres ead" },
       { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico giovana bruno unidade adm financeiro contato" },
       { id: "meta", label: "🎯 Meta do Mês", keywords: "meta comissão honorário projeção resultado mês" },
@@ -170,6 +171,7 @@ export default function PortalOperacional() {
           {secao === "cursos" && <SecaoCursos />}
           {secao === "sistemas" && <SecaoSistemas ir={navegar} />}
           {secao === "manualprime" && <SecaoManualPrime ir={navegar} />}
+          {secao === "manualmensageria" && <SecaoManualMensageria ir={navegar} />}
           {secao === "ddds" && <SecaoDdds />}
           {secao === "contatos" && <SecaoContatos />}
           {secao === "meta" && <SecaoMeta />}
@@ -1925,7 +1927,21 @@ function SecaoSistemas({ ir }) {
             </div>
             <h3 style={{ ...S.h3, marginTop: 12 }}>{s.titulo}</h3>
             <p style={S.paragrafo}>{s.desc}</p>
-            {s.href ? (
+            {s.titulo === "CRM de Mensageria" ? (
+              <div style={{ ...S.botoesLinha, marginTop: 14 }}>
+                <a
+                  href={s.href}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={S.botaoPrimario}
+                >
+                  Abrir sistema
+                </a>
+                <button type="button" onClick={() => ir("manualmensageria")} style={S.botaoSecundario}>
+                  Abrir manual do CRM
+                </button>
+              </div>
+            ) : s.href ? (
               <a
                 href={s.href}
                 target={s.href.startsWith("http") ? "_blank" : undefined}
@@ -2292,6 +2308,291 @@ function SecaoManualPrime({ ir }) {
             <button type="button" onClick={() => irPara("prime-acordos")} style={S.botaoSecundario}>Acordos</button>
             <button type="button" onClick={() => irPara("prime-desconto")} style={S.botaoPrimario}>Desconto</button>
             <button type="button" onClick={() => ir("politica")} style={S.botaoSecundario}>Política de Negociação</button>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/* ===================== Manual do CRM Mensageria ===================== */
+
+function SecaoManualMensageria({ ir }) {
+  const irPara = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+
+  return (
+    <>
+      <div style={S.primeHero}>
+        <div style={S.primeHeroTexto}>
+          <span style={S.heroEyebrow}>MANUAL OPERACIONAL</span>
+          <h1 style={S.primeHeroTitulo}>CRM Mensageria, passo a passo.</h1>
+          <p style={S.primeHeroSub}>
+            Guia rápido para conduzir o contato com o aluno desde a validação do caso até o registro,
+            negociação, comprovante e encerramento do atendimento.
+          </p>
+          <div style={S.heroAcoes}>
+            <a
+              href="https://crm.ulbra.ai/"
+              target="_blank"
+              rel="noreferrer"
+              style={S.botaoPrimario}
+            >
+              Abrir CRM Mensageria
+            </a>
+            <button type="button" onClick={() => irPara("mensageria-resposta")} style={S.botaoSecundario}>
+              Aluno respondeu
+            </button>
+          </div>
+        </div>
+        <div style={S.primeHeroBadge}>
+          <span style={S.primeHeroBadgeIcon}>M</span>
+          <strong>CRM</strong>
+          <span>Mensageria ReATIVA</span>
+        </div>
+      </div>
+
+      <div style={S.primeAtalhos}>
+        {[
+          ["01", "Antes do contato", "mensageria-validacao"],
+          ["02", "Abrir atendimento", "mensageria-atendimento"],
+          ["03", "Aluno respondeu", "mensageria-resposta"],
+          ["04", "Negociação", "mensageria-negociacao"],
+          ["05", "Comprovante e baixa", "mensageria-baixa"],
+          ["06", "Encerramento", "mensageria-encerramento"],
+        ].map(([n, titulo, alvo]) => (
+          <button key={alvo} type="button" onClick={() => irPara(alvo)} style={S.primeAtalhoCard}>
+            <span style={S.primeAtalhoNumero}>{n}</span>
+            <strong>{titulo}</strong>
+            <span style={S.primeAtalhoSeta}>↓</span>
+          </button>
+        ))}
+      </div>
+
+      <Aviso tom="info">
+        <strong>Regra central:</strong> o CRM Mensageria é o canal de comunicação. Antes de apresentar valores ou
+        seguir com a cobrança, valide o caso no <strong>Prime</strong> e confira o histórico e as restrições disponíveis
+        no CRM ReATIVA One.
+      </Aviso>
+
+      <section id="mensageria-validacao" style={S.primeSecao}>
+        <div style={S.primeSecaoCabecalho}>
+          <div>
+            <span style={S.cardTag}>01 · ANTES DO CONTATO</span>
+            <h2 style={S.primeSecaoTitulo}>Valide antes de acionar</h2>
+            <p style={S.paragrafo}>A mensagem só deve avançar depois da conferência mínima do caso.</p>
+          </div>
+          <span style={S.primeIconeGrande}>✓</span>
+        </div>
+
+        <div style={S.grade2}>
+          <PassoPrime numero="1" titulo="Confira o Prime">
+            Valide a situação financeira atual antes de informar valores, parcelas ou condição de regularização.
+          </PassoPrime>
+          <PassoPrime numero="2" titulo="Confira o CRM ReATIVA One">
+            Veja histórico, retornos, negociação em andamento, restrições, jurídico, cancelamento e informações relevantes.
+          </PassoPrime>
+          <PassoPrime numero="3" titulo="Priorize acordos">
+            Se houver acordo pendente, ele deve ser tratado antes das mensalidades.
+          </PassoPrime>
+          <PassoPrime numero="4" titulo="Use somente canal institucional">
+            Nunca utilize número pessoal para realizar cobrança ou continuar a tratativa.
+          </PassoPrime>
+        </div>
+
+        <Aviso>
+          <strong>Não apresente simulação sem autorização.</strong> O operador deve trabalhar dentro das condições
+          permitidas na Política de Negociação.
+        </Aviso>
+      </section>
+
+      <section id="mensageria-atendimento" style={S.primeSecao}>
+        <div style={S.primeSecaoCabecalho}>
+          <div>
+            <span style={S.cardTag}>02 · ABRIR ATENDIMENTO</span>
+            <h2 style={S.primeSecaoTitulo}>Localize a conversa e leia o histórico</h2>
+            <p style={S.paragrafo}>Antes de responder, entenda o que já foi tratado com o aluno.</p>
+          </div>
+          <span style={S.primeIconeGrande}>💬</span>
+        </div>
+
+        <Card style={S.primeCardDestaque}>
+          <span style={S.primeMiniLabel}>FLUXO</span>
+          <CaminhoPrime itens={["CRM Mensageria", "Atendimento do aluno", "Histórico da conversa", "Responder"]} />
+        </Card>
+
+        <div style={S.grade2}>
+          <PassoPrime numero="1" titulo="Abra o atendimento">
+            Localize o atendimento correto no CRM Mensageria.
+          </PassoPrime>
+          <PassoPrime numero="2" titulo="Leia as mensagens anteriores">
+            Verifique se já houve proposta, promessa de pagamento, encaminhamento ou orientação anterior.
+          </PassoPrime>
+          <PassoPrime numero="3" titulo="Evite tratativa sobre tratativa">
+            Se existe uma negociação em andamento, respeite o fluxo já iniciado e não crie uma segunda condição paralela.
+          </PassoPrime>
+          <PassoPrime numero="4" titulo="Mantenha continuidade">
+            Se o caso veio de outro operador por ausência ou redistribuição, dê continuidade sem deixar o aluno sem retorno.
+          </PassoPrime>
+        </div>
+      </section>
+
+      <section id="mensageria-resposta" style={S.primeSecao}>
+        <div style={S.primeSecaoCabecalho}>
+          <div>
+            <span style={S.cardTag}>03 · O ALUNO RESPONDEU</span>
+            <h2 style={S.primeSecaoTitulo}>Confirme a identidade e conduza para fechamento</h2>
+            <p style={S.paragrafo}>A resposta ao template inicia o atendimento, mas ainda exige validação antes da tratativa financeira.</p>
+          </div>
+          <span style={S.primeIconeGrande}>◉</span>
+        </div>
+
+        <div style={S.grade2}>
+          <PassoPrime numero="1" titulo="Confirme o aluno">
+            Antes de expor dados financeiros, confirme <strong>3 dígitos do CPF</strong>.
+          </PassoPrime>
+          <PassoPrime numero="2" titulo="Apresente a pendência">
+            Informe o que está em aberto de forma objetiva, usando somente dados já conferidos.
+          </PassoPrime>
+          <PassoPrime numero="3" titulo="Tente fechar agora">
+            Depois de apresentar a situação, conduza primeiro para a regularização no atendimento atual.
+          </PassoPrime>
+          <PassoPrime numero="4" titulo="Se houver negativa, descubra o motivo">
+            Entenda se a dificuldade é valor, forma de pagamento, entrada, quantidade de parcelas ou outra situação.
+          </PassoPrime>
+        </div>
+
+        <Card style={S.primeCardDestaque}>
+          <span style={S.primeMiniLabel}>ORDEM DO ATENDIMENTO</span>
+          <CaminhoPrime itens={["Validar", "Confirmar CPF", "Apresentar dívida", "Tentar fechar", "Entender objeção", "Nova alternativa permitida", "Tentar fechar novamente"]} />
+        </Card>
+
+        <button type="button" onClick={() => ir("script")} style={S.botaoSecundario}>
+          Abrir Script completo do Atendimento
+        </button>
+      </section>
+
+      <section id="mensageria-negociacao" style={S.primeSecao}>
+        <div style={S.primeSecaoCabecalho}>
+          <div>
+            <span style={S.cardTag}>04 · NEGOCIAÇÃO</span>
+            <h2 style={S.primeSecaoTitulo}>Use a condição correta para cada tipo de dívida</h2>
+            <p style={S.paragrafo}>O CRM é o canal da conversa; a condição apresentada deve seguir a política vigente.</p>
+          </div>
+          <span style={S.primeIconeGrande}>◇</span>
+        </div>
+
+        <div style={S.grade2}>
+          <Card>
+            <span style={S.cardTag}>ACORDO PENDENTE</span>
+            <h3 style={S.h3}>Trate primeiro</h3>
+            <p style={S.paragrafo}>
+              Acordos não são reparcelados em boleto. A regularização segue as modalidades permitidas para acordo.
+              Quando necessário, pode ser tratado parcela por parcela, uma de cada vez.
+            </p>
+          </Card>
+
+          <Card>
+            <span style={S.cardTag}>MENSALIDADES</span>
+            <h3 style={S.h3}>Siga a Política de Negociação</h3>
+            <p style={S.paragrafo}>
+              Trabalhe somente com as condições autorizadas. Se a necessidade ultrapassar a regra, encaminhe como exceção.
+            </p>
+          </Card>
+        </div>
+
+        <Aviso>
+          <strong>Acordo parcelado exige Termo de Acordo.</strong> O termo deve estar assinado via Gov.br,
+          legível e validado pelo ADM antes da conclusão no sistema.
+        </Aviso>
+
+        <div style={S.botoesLinha}>
+          <button type="button" onClick={() => ir("politica")} style={S.botaoSecundario}>Política de Negociação</button>
+          <button type="button" onClick={() => ir("termo")} style={S.botaoSecundario}>Termo de Acordo</button>
+          <button type="button" onClick={() => ir("excecao")} style={S.botaoSecundario}>Proposta de Exceção</button>
+        </div>
+      </section>
+
+      <section id="mensageria-baixa" style={S.primeSecao}>
+        <div style={S.primeSecaoCabecalho}>
+          <div>
+            <span style={S.cardTag}>05 · COMPROVANTE E BAIXA</span>
+            <h2 style={S.primeSecaoTitulo}>Pagamento recebido: finalize o fluxo corretamente</h2>
+            <p style={S.paragrafo}>O comprovante precisa ficar registrado no CRM para que a baixa seja processada corretamente.</p>
+          </div>
+          <span style={S.primeIconeGrande}>✓</span>
+        </div>
+
+        <Card style={{ ...S.primeCardDestaque, border: "2px solid var(--rv-verde-borda)" }}>
+          <span style={S.primeMiniLabel}>INFORMAÇÃO IMPORTANTE</span>
+          <h3 style={{ ...S.h3, marginTop: 8 }}>Depois de colocar o comprovante para baixa, confirme o acordo.</h3>
+          <p style={S.paragrafo}>
+            Não encerre o fluxo apenas com o envio do comprovante. Após registrar/anexar o comprovante para baixa,
+            <strong> confirme também o acordo</strong> para que o procedimento fique completo.
+          </p>
+        </Card>
+
+        <div style={S.grade2}>
+          <PassoPrime numero="1" titulo="Receba o comprovante">
+            Confira se o comprovante corresponde ao pagamento informado pelo aluno.
+          </PassoPrime>
+          <PassoPrime numero="2" titulo="Anexe no CRM">
+            Comprovante de pagamento no cartão deve ser anexado e registrado no CRM para a baixa.
+          </PassoPrime>
+          <PassoPrime numero="3" titulo="Encaminhe para baixa">
+            Siga o fluxo administrativo de baixa conforme o caso.
+          </PassoPrime>
+          <PassoPrime numero="4" titulo="Confirme o acordo">
+            Depois do comprovante para baixa, não esqueça de confirmar o acordo.
+          </PassoPrime>
+        </div>
+      </section>
+
+      <section id="mensageria-encerramento" style={S.primeSecao}>
+        <div style={S.primeSecaoCabecalho}>
+          <div>
+            <span style={S.cardTag}>06 · ENCERRAMENTO</span>
+            <h2 style={S.primeSecaoTitulo}>Registre o resultado real do atendimento</h2>
+            <p style={S.paragrafo}>O encerramento deve refletir o que realmente aconteceu na conversa.</p>
+          </div>
+          <span style={S.primeIconeGrande}>▣</span>
+        </div>
+
+        <div style={S.grade2}>
+          <Card>
+            <span style={S.cardTag}>FECHADO</span>
+            <p style={S.paragrafo}>Registre condição, pagamento, datas, termo quando aplicável e encaminhamentos realizados.</p>
+          </Card>
+          <Card>
+            <span style={S.cardTag}>SEM INTERESSE</span>
+            <p style={S.paragrafo}>Use somente quando o aluno efetivamente recusou após a tentativa de atendimento e alternativas permitidas.</p>
+          </Card>
+          <Card>
+            <span style={S.cardTag}>SEM CONDIÇÕES</span>
+            <p style={S.paragrafo}>Registre o impedimento real e, quando necessário, a data de retorno combinada.</p>
+          </Card>
+          <Card>
+            <span style={S.cardTag}>SEM INTERAÇÃO</span>
+            <p style={S.paragrafo}>Se o aluno respondeu e depois parou de interagir, não classifique como sem interesse.</p>
+          </Card>
+        </div>
+
+        <Aviso tom="info">
+          <strong>Registre tudo no CRM ReATIVA One:</strong> proposta, objeção, retorno, encaminhamento,
+          comprovante e qualquer informação relevante para continuidade do atendimento.
+        </Aviso>
+      </section>
+
+      <section style={S.primeSecao}>
+        <div style={S.primeResumoFinal}>
+          <div>
+            <span style={S.cardTag}>CONSULTA RÁPIDA</span>
+            <h2 style={S.primeSecaoTitulo}>Precisa continuar o atendimento?</h2>
+          </div>
+          <div style={S.primeResumoBotoes}>
+            <a href="https://crm.ulbra.ai/" target="_blank" rel="noreferrer" style={S.botaoPrimario}>Abrir CRM Mensageria</a>
+            <button type="button" onClick={() => ir("script")} style={S.botaoSecundario}>Script do Atendimento</button>
+            <button type="button" onClick={() => ir("politica")} style={S.botaoSecundario}>Política</button>
+            <button type="button" onClick={() => ir("manualprime")} style={S.botaoSecundario}>Manual do Prime</button>
           </div>
         </div>
       </section>
