@@ -81,8 +81,20 @@ begin
 end;
 $function$;
 
+-- MENOR PRIVILEGIO DESDE O NASCIMENTO. O schema `public` deste projeto tem
+-- default privileges que concedem EXECUTE a `authenticated`, e uma funcao nova
+-- nasce acessivel sem que ninguem tenha decidido isso -- por isso cada papel e
+-- revogado por nome, nao so PUBLIC.
+--
+-- O UNICO chamador e `prime_portador_202_vigia`, que e SECURITY DEFINER com
+-- owner `postgres`: a chamada interna e verificada contra o OWNER, entao
+-- conceder so a postgres nao quebra a cadeia.
+revoke all on function public.prime_portador_202_anomalias(timestamptz, timestamptz, timestamptz, bigint, text, bigint, text, jsonb) from public;
+revoke all on function public.prime_portador_202_anomalias(timestamptz, timestamptz, timestamptz, bigint, text, bigint, text, jsonb) from anon;
+revoke all on function public.prime_portador_202_anomalias(timestamptz, timestamptz, timestamptz, bigint, text, bigint, text, jsonb) from authenticated;
+revoke all on function public.prime_portador_202_anomalias(timestamptz, timestamptz, timestamptz, bigint, text, bigint, text, jsonb) from service_role;
 grant execute on function public.prime_portador_202_anomalias(timestamptz, timestamptz, timestamptz, bigint, text, bigint, text, jsonb)
-  to authenticated, service_role;
+  to postgres;
 
 -- 2) O VIGIA. Coleta os fatos, chama a regra pura e grava no MESMO lugar que
 --    as outras invariantes. So leitura -- nao escreve em titulo, acordo,
@@ -159,9 +171,12 @@ begin
 end;
 $function$;
 
+-- Quem chama e o cron, como postgres. Nao ha consumidor autenticado: o painel
+-- do vigia le `invariante_resultado`, nao executa a funcao.
 revoke all on function public.prime_portador_202_vigia() from public;
 revoke all on function public.prime_portador_202_vigia() from anon;
-grant execute on function public.prime_portador_202_vigia() to postgres, service_role, authenticated;
+revoke all on function public.prime_portador_202_vigia() from authenticated;
+grant execute on function public.prime_portador_202_vigia() to postgres, service_role;
 
 -- 3) As duas invariantes entram no catalogo do vigia, como as outras 29.
 insert into public.invariante_config (nome, ligado)
