@@ -145,7 +145,12 @@ export default function VincularMensalidadesAcordo({ alunoId }) {
     if (!acordoSel) { setMsg("Selecione o acordo."); return; }
     if (idsSel.length === 0) { setMsg("Selecione ao menos uma mensalidade."); return; }
     setSalvando(true); setMsg(""); setBloqueadosServidor([]);
-    const { data, error } = await supabase.rpc("vincular_titulos_acordo", { p_titulo_ids: idsSel, p_acordo_id: acordoSel });
+    // `_gestao` e a MESMA funcao com um envelope: ela abre a porta da
+    // Conferencia Prime na propria transacao para que a mensalidade presa em
+    // EM_CONFIRMACAO tambem possa ser vinculada -- ela nao esta vinculada a
+    // acordo nenhum, entao esta disponivel -- e fecha a decisao pendente junto.
+    // Toda a regra de elegibilidade continua em vincular_titulos_acordo.
+    const { data, error } = await supabase.rpc("vincular_titulos_acordo_gestao", { p_titulo_ids: idsSel, p_acordo_id: acordoSel });
     setSalvando(false);
     if (error || !data || !data.ok) {
       const erro = (data && data.erro) || (error && error.message) || "";
