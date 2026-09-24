@@ -1,7 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
-import printOlinda from "../data/elogios/olinda";
+import printOlinda from "../assets/elogios/olinda-nitida.webp";
 import printRamon from "../data/elogios/ramon";
 import printSuyanne from "../data/elogios/suyanne";
 import printGuilherme1 from "../data/elogios/guilherme-1";
