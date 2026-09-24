@@ -2,14 +2,14 @@ import { useState, useEffect, Fragment } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import printOlinda from "../assets/elogios/olinda-nitida.webp";
-import printRamon from "../data/elogios/ramon";
-import printSuyanne from "../data/elogios/suyanne";
-import printGuilherme1 from "../data/elogios/guilherme-1";
-import printGuilherme2 from "../data/elogios/guilherme-2";
-import printKenendy from "../data/elogios/kenendy";
-import printLuciana from "../data/elogios/luciana";
-import printGabriele from "../data/elogios/gabriele";
-import printKellen from "../data/elogios/kellen";
+import printRamon from "../data/elogios/suyanne";
+import printSuyanne from "../data/elogios/guilherme-1";
+import printGuilherme1 from "../data/elogios/guilherme-2";
+import printGuilherme2 from "../data/elogios/kenendy";
+import printKenendy from "../data/elogios/luciana";
+import printLuciana from "../data/elogios/luciana-correto";
+import printGabriele from "../data/elogios/kellen";
+import printKellen from "../data/elogios/kellen-correto";
 
 
 
@@ -2458,11 +2458,11 @@ function SecaoElogios() {
     { data: "23/09/2026", operador: "Diego", aluno: "Olinda", genero: "Aluna", prints: [printOlinda] },
     { data: "15/09/2026", operador: "Allan", aluno: "Ramon", genero: "Aluno", prints: [printRamon] },
     { data: "09/09/2026", operador: "Diego", aluno: "Suyanne", genero: "Aluna", prints: [printSuyanne] },
-    { data: "14 e 15/08/2026", operador: "Maurício", aluno: "Guilherme", genero: "Aluno", prints: [printGuilherme1, printGuilherme2] },
-    { data: "13/08/2026", operador: "João", aluno: "Kenendy", genero: "Aluno", prints: [printKenendy] },
-    { data: "05/08/2026", operador: null, aluno: "Luciana", genero: "Aluna", prints: [printLuciana] },
-    { data: "23/09/2026", operador: "João Vitor", aluno: "Gabriele", genero: "Aluna", prints: [printGabriele] },
+    { data: "15/08/2026 e 14/08/2026", operador: "Maurício", aluno: "Guilherme", genero: "Aluno", prints: [printGuilherme1, printGuilherme2] },
+    { data: "13/08/2026", operador: "João Vitor", aluno: "Kenendy", genero: "Aluno", prints: [printKenendy] },
+    { data: "05/08/2026", operador: "Fernanda, Allan e equipe do prédio 6", aluno: "Luciana", genero: "Aluna", prints: [printLuciana] },
     { data: "14/07/2026", operador: "Maurício", aluno: "Kellen", genero: "Aluna", prints: [printKellen] },
+    { data: "Data não visível no print", operador: "João Vitor", aluno: "Gabriele", genero: "Aluna", prints: [printGabriele] },
   ];
 
   return (
