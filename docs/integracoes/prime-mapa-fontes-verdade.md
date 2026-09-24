@@ -12,7 +12,7 @@ de criar fallback, consultar este mapa").
 | Curso, campus, turno, situação acadêmica | Prime | `student_composite` (topo) e `contracts[]` | `registration` | SIM |
 | Contrato vigente (aluno estuda hoje?) | Prime | `contracts[]` sem `cancelledAt` e `validTo >= hoje` | `registration` | SIM |
 | Matrícula Prime a partir de CPF/nome | Prime | `students_search` | CPF formatado ou nome | CONDICIONAL — nome nunca decide, só CPF exato |
-| Filiação a um portador (166 ou 195) | Prime | `students_search?carrierId=N` (varredura) ou consulta pontual | CPF | SIM |
+| Filiação a um portador (166, 195 ou **202 judicial**) | Prime | `students_search?carrierId=N` (varredura) ou consulta pontual | CPF | SIM — **do CPF, nunca de um título**: ver RESTRIÇÃO DE ARQUITETURA em `prime-mapa-identificadores.md` |
 | Título original (mensalidade) — existência | Prime | `financial_statement` (via `student_composite`) | `registration` | SIM |
 | Título original — boleto (7 díg.) | Prime | `financial_statement[].boleto` | `registration` | SIM — é `acordos_titulos.documento` |
 | Mensalidade liquidada (portador 195) | Prime | `financial_statement[].paymentDate` **+ regra de entrada em prod** (venc.+30, ≠ dia da importação) | `registration` + corte 23:57:13 UTC de 18/09/2026 | CONDICIONAL — nunca `paymentDate` isolado |

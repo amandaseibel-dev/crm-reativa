@@ -213,3 +213,16 @@ cá**:
 possuímos contém a rota. As duas únicas portas que sobram são a captura na
 interface do Prime e o contato formal com a TI da ULBRA — ambas decisão da
 gestão, e nenhuma delas é trabalho que este ambiente consiga fazer sozinho.
+
+---
+
+## Granularidade do portador: CPF, não título (2026-09-24)
+
+| informação | status | por quê |
+|---|---|---|
+| aluno/CPF está no portador N | **VERDE** | `students_search?carrierId=N`, snapshot por ciclo com remoção de quem saiu |
+| **título X está em condição jurídica** | **VERMELHO** | a fonte não tem essa granularidade — ver `prime-mapa-identificadores.md`, "RESTRIÇÃO DE ARQUITETURA" |
+
+Impacto direto: a reversão de títulos `CANCELADA` por causa judicial (262
+títulos, 60 CPFs, R$ 2.399.695,89) não pode ser decidida só pela saída do CPF
+do portador 202.

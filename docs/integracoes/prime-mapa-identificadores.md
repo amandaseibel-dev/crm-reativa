@@ -32,6 +32,32 @@ usar o ID errado já causou dobra de dívida (ver memórias
 | 165 | (judicial) | — | true | fora de escopo por decisão da gestão |
 | 202 | REATIVA COBRANÇA JUDICIAL | — | true | fora de escopo por decisão da gestão |
 
+## RESTRIÇÃO DE ARQUITETURA — a filiação ao portador é por CPF, nunca por título
+
+**Descoberta em 2026-09-24, registrada por decisão da gestão.**
+
+`prime_portador_membro` guarda `(cpf, portador, ciclo, coletado_em)`. Não existe
+coluna de título, boleto ou matrícula: a varredura
+`students_search?carrierId=N` devolve alunos, e a Edge deduplica por CPF (no
+195, 41.194 itens da API viram 20.318 CPFs).
+
+**Consequência, que vale mesmo com o snapshot 202 completo e válido:** sair do
+portador 202 é um fato do **CPF**, não de cada título daquele CPF. Nos 262
+títulos judiciais cancelados em 01/09/2026 são 60 CPFs para 262 títulos —
+média de 4,4 e máximo de 7 títulos por CPF.
+
+**Portanto, antes de qualquer `titulo_reativar`:** não se pode assumir que a
+saída do CPF do portador 202 prova que *cada* título daquele CPF deixou de
+estar em condição jurídica. É preciso uma de duas coisas:
+
+1. uma **evidência adicional em nível de título**; ou
+2. comprovar, pela regra oficial da Prime/ULBRA, que o portador jurídico é
+   necessariamente uma condição aplicada ao **aluno/CPF inteiro** — e nesse
+   caso a prova documental entra aqui.
+
+Enquanto nenhuma das duas existir, a reversão de `CANCELADA` por causa judicial
+fica bloqueada por desenho, não por falta de dado.
+
 ## Regra de leitura da dívida (decidida pela gestão em 25/08/2026)
 
 ```

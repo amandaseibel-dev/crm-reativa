@@ -363,5 +363,19 @@
       "documentacao_publica": "404 em /swagger*, /openapi.json, /api-docs, /.well-known/openapi"
     },
     "proveniencia_do_71643": "interna. auditoria.acao = RECUPERACAO_ACORDO_PAGO_SEM_IMPORTACAO, por conciliacao@sistema. Nenhuma ocorrencia em payload externo."
-  }
+  },
+  "restricoes_de_arquitetura": [
+    {
+      "id": "PORTADOR_GRANULARIDADE_CPF",
+      "descoberta_em": "2026-09-24",
+      "resumo": "A filiacao a um portador e por CPF, nunca por titulo.",
+      "fonte": "prime_portador_membro(cpf, portador, ciclo, coletado_em); students_search?carrierId=N devolve alunos",
+      "consequencia": "Sair do portador 202 nao prova que cada titulo daquele CPF deixou a condicao juridica. 262 titulos judiciais para 60 CPFs (media 4,4, maximo 7).",
+      "exige_antes_de_reativar": [
+        "evidencia adicional em nivel de titulo",
+        "ou prova oficial de que o portador juridico se aplica ao aluno/CPF inteiro"
+      ],
+      "ver": "prime-mapa-identificadores.md#restricao-de-arquitetura"
+    }
+  ]
 }
