@@ -2319,6 +2319,9 @@ function SecaoManualPrime({ ir }) {
 
 function SecaoManualMensageria({ ir }) {
   const irPara = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const [printManualAberto, setPrintManualAberto] = useState(null);
+
+  const abrirPrint = (srcImagem, titulo) => setPrintManualAberto({ src: srcImagem, titulo });
 
   return (
     <>
@@ -2434,6 +2437,25 @@ function SecaoManualMensageria({ ir }) {
             Se o caso veio de outro operador por ausência ou redistribuição, dê continuidade sem deixar o aluno sem retorno.
           </PassoPrime>
         </div>
+
+        <div style={S.manualPrintBloco}>
+          <div style={S.manualPrintTexto}>
+            <span style={S.primeMiniLabel}>PRINT DO CRM</span>
+            <h3 style={S.h3}>Conversa, histórico e continuidade</h3>
+            <p style={S.paragrafo}>
+              Use o histórico visível na conversa para entender o que já foi tratado antes de responder.
+              O exemplo abaixo mostra a continuidade do atendimento dentro do CRM.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => abrirPrint(printKenendy, "Conversa e histórico no CRM Mensageria")}
+            style={S.manualPrintBotao}
+          >
+            <img src={printKenendy} alt="Print real de conversa no CRM Mensageria" style={S.manualPrintImagem} />
+            <span style={S.manualPrintLegenda}>Clique para ampliar</span>
+          </button>
+        </div>
       </section>
 
       <section id="mensageria-resposta" style={S.primeSecao}>
@@ -2465,6 +2487,24 @@ function SecaoManualMensageria({ ir }) {
           <span style={S.primeMiniLabel}>ORDEM DO ATENDIMENTO</span>
           <CaminhoPrime itens={["Validar", "Confirmar CPF", "Apresentar dívida", "Tentar fechar", "Entender objeção", "Nova alternativa permitida", "Tentar fechar novamente"]} />
         </Card>
+
+        <div style={S.manualPrintBloco}>
+          <div style={S.manualPrintTexto}>
+            <span style={S.primeMiniLabel}>PRINT DO CRM</span>
+            <h3 style={S.h3}>Resposta do operador e campo de mensagem</h3>
+            <p style={S.paragrafo}>
+              No atendimento, confira a identificação do operador, a resposta enviada e o campo de digitação antes de seguir a conversa.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => abrirPrint(printSuyanne, "Resposta e campo de mensagem no CRM Mensageria")}
+            style={S.manualPrintBotao}
+          >
+            <img src={printSuyanne} alt="Print real com resposta do operador e campo de mensagem no CRM" style={S.manualPrintImagem} />
+            <span style={S.manualPrintLegenda}>Clique para ampliar</span>
+          </button>
+        </div>
 
         <button type="button" onClick={() => ir("script")} style={S.botaoSecundario}>
           Abrir Script completo do Atendimento
@@ -2504,6 +2544,24 @@ function SecaoManualMensageria({ ir }) {
           <strong>Acordo parcelado exige Termo de Acordo.</strong> O termo deve estar assinado via Gov.br,
           legível e validado pelo ADM antes da conclusão no sistema.
         </Aviso>
+
+        <div style={S.manualPrintBloco}>
+          <div style={S.manualPrintTexto}>
+            <span style={S.primeMiniLabel}>PRINT DO CRM</span>
+            <h3 style={S.h3}>Negociação dentro da conversa</h3>
+            <p style={S.paragrafo}>
+              O diálogo deve permanecer no canal institucional, com a condição negociada registrada de forma clara.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => abrirPrint(printOlinda, "Exemplo de negociação no CRM Mensageria")}
+            style={S.manualPrintBotao}
+          >
+            <img src={printOlinda} alt="Print real de negociação no CRM Mensageria" style={S.manualPrintImagem} />
+            <span style={S.manualPrintLegenda}>Clique para ampliar</span>
+          </button>
+        </div>
 
         <div style={S.botoesLinha}>
           <button type="button" onClick={() => ir("politica")} style={S.botaoSecundario}>Política de Negociação</button>
@@ -2596,6 +2654,29 @@ function SecaoManualMensageria({ ir }) {
           </div>
         </div>
       </section>
+
+      {printManualAberto ? (
+        <div style={S.elogioModal} onClick={() => setPrintManualAberto(null)} role="presentation">
+          <button
+            type="button"
+            style={S.elogioModalFechar}
+            onClick={() => setPrintManualAberto(null)}
+            aria-label="Fechar print"
+          >
+            ×
+          </button>
+          <div style={S.manualPrintModalConteudo} onClick={(evento) => evento.stopPropagation()}>
+            <div style={S.manualPrintModalTitulo}>{printManualAberto.titulo}</div>
+            <img
+              src={printManualAberto.src}
+              alt={printManualAberto.titulo}
+              style={S.manualPrintModalImagem}
+              draggable={false}
+              onContextMenu={(evento) => evento.preventDefault()}
+            />
+          </div>
+        </div>
+      ) : null}
     </>
   );
 }
@@ -3270,6 +3351,71 @@ const S = {
   historiaModalImagem: {
     maxWidth: "min(1400px, 96vw)",
     maxHeight: "91vh",
+    width: "auto",
+    height: "auto",
+    borderRadius: 14,
+    boxShadow: "0 24px 80px rgba(0,0,0,.35)",
+    userSelect: "none",
+    WebkitUserDrag: "none",
+  },
+  manualPrintBloco: {
+    marginTop: 18,
+    display: "grid",
+    gridTemplateColumns: "minmax(220px, 0.7fr) minmax(320px, 1.3fr)",
+    gap: 18,
+    alignItems: "center",
+    padding: 18,
+    border: "1px solid var(--rv-borda)",
+    borderRadius: 18,
+    background: "var(--rv-superficie)",
+  },
+  manualPrintTexto: {
+    minWidth: 0,
+  },
+  manualPrintBotao: {
+    border: "1px solid var(--rv-borda-suave)",
+    borderRadius: 14,
+    padding: 10,
+    background: "var(--rv-fundo-suave)",
+    cursor: "zoom-in",
+    textAlign: "left",
+    overflow: "hidden",
+    fontFamily: "inherit",
+  },
+  manualPrintImagem: {
+    display: "block",
+    width: "100%",
+    maxHeight: 360,
+    objectFit: "contain",
+    borderRadius: 10,
+    background: "#fff",
+    userSelect: "none",
+    WebkitUserDrag: "none",
+  },
+  manualPrintLegenda: {
+    display: "block",
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: 800,
+    color: "var(--rv-texto-suave)",
+  },
+  manualPrintModalConteudo: {
+    maxWidth: "96vw",
+    maxHeight: "92vh",
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    alignItems: "center",
+  },
+  manualPrintModalTitulo: {
+    color: "#fff",
+    fontWeight: 800,
+    fontSize: 15,
+    textAlign: "center",
+  },
+  manualPrintModalImagem: {
+    maxWidth: "96vw",
+    maxHeight: "86vh",
     width: "auto",
     height: "auto",
     borderRadius: 14,
