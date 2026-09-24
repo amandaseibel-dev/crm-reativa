@@ -343,11 +343,21 @@ export default function FinanceiroAluno({ aluno }) {
         setParcelasPorAcordo({});
       }
 
+      // MENSALIDADE NAO VINCULADA E MENSALIDADE DISPONIVEL.
+      //
+      // Amanda, 24/09/2026: "as parcelas, se nao foram vinculadas, elas
+      // precisam ficar disponiveis para que eu valide e faca o vinculo".
+      //
+      // `em_confirmacao` entra aqui junto com `em_aberto` porque a mensalidade
+      // que a Conferencia Prime marcou NAO esta vinculada a acordo nenhum --
+      // `acordo_id` e nulo e nao ha linha em `acordo_titulo_vinculo`. Some-la
+      // da lista era esconder da gestao a decisao que e dela; o backend
+      // (`vincular_titulos_acordo_gestao`) aceita as duas.
       const { data: titulosData } = await supabase
         .from("acordos_titulos")
-        .select("id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, status")
+        .select("id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, status, situacao")
         .eq("aluno_id", String(aluno.id))
-        .eq("status", "em_aberto")
+        .in("status", ["em_aberto", "em_confirmacao"])
         .order("vencimento", { ascending: true });
       setTitulosSelecionaveis(titulosData || []);
     }
@@ -901,7 +911,11 @@ export default function FinanceiroAluno({ aluno }) {
     // RPC unica: marca a mensalidade como NEGOCIADO (sai do "a cobrar"), liga ao
     // acordo e registra auditoria. Funciona mesmo com o acordo JA PAGO/QUITADO
     // (vincular mensalidades a parcelas ja pagas). Nao altera pagamento.
-    const { data, error } = await supabase.rpc("vincular_titulos_acordo", {
+    // `_gestao`: mesma funcao, com a porta da Conferencia Prime aberta na
+    // propria transacao para que a mensalidade em confirmacao -- que nao esta
+    // vinculada a acordo nenhum -- tambem possa ser vinculada, fechando a
+    // decisao pendente junto. A regra de elegibilidade nao mudou de lugar.
+    const { data, error } = await supabase.rpc("vincular_titulos_acordo_gestao", {
       p_titulo_ids: novo.titulosSel,
       p_acordo_id: acordoAlvoId,
     });
@@ -967,7 +981,7 @@ export default function FinanceiroAluno({ aluno }) {
     // problema.
     let avisoVinculo = "";
     if (novo.titulosSel.length && r.acordo?.id) {
-      const { data: vinc, error: erroVinc } = await supabase.rpc("vincular_titulos_acordo", {
+      const { data: vinc, error: erroVinc } = await supabase.rpc("vincular_titulos_acordo_gestao", {
         p_titulo_ids: novo.titulosSel,
         p_acordo_id: r.acordo.id,
       });
@@ -1400,6 +1414,21 @@ export default function FinanceiroAluno({ aluno }) {
                         />
                         <span style={{ flex: 1 }}>
                           Título {t.documento || "-"} — venc. {formatarDataSimples(t.vencimento)}
+                          {/* Continua selecionável: não está vinculada a acordo
+                              nenhum. A etiqueta é só para a conferência saber
+                              que a Prime marcou este boleto como liquidado. */}
+                          {String(t.situacao || "").toUpperCase() === "EM_CONFIRMACAO" && (
+                            <span
+                              style={{
+                                marginLeft: 6, fontSize: 10, fontWeight: 800,
+                                padding: "1px 6px", borderRadius: 6,
+                                background: "var(--rv-borda)", color: "var(--rv-texto)",
+                              }}
+                              title="A Prime marcou este boleto como liquidado e a conferência ainda não decidiu. Vincular aqui resolve a pendência junto."
+                            >
+                              em confirmação
+                            </span>
+                          )}
                         </span>
                         <span style={{ fontWeight: 700 }}>{moeda(valorTitulo(t))}</span>
                       </label>
