@@ -1,7 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
-import printOlinda from "../assets/elogios/olinda-nitida.webp";
+import printOlinda from "../data/elogios/ramon";
 import printRamon from "../data/elogios/suyanne";
 import printSuyanne from "../data/elogios/guilherme-1";
 import printGuilherme1 from "../data/elogios/guilherme-2";
@@ -10,7 +10,7 @@ import printKenendy from "../data/elogios/luciana";
 import printLuciana from "../data/elogios/luciana-correto";
 import printGabriele from "../data/elogios/kellen";
 import printKellen from "../data/elogios/kellen-correto";
-import fotoNossaHistoria from "../assets/historia/nossa-historia.webp";
+import fotoNossaHistoria from "../assets/historia/nossa-historia-correta.webp";
 import crmLocalizarAluno from "../assets/manual-mensageria/01-localizar-aluno.webp";
 import crmCadastrarAluno from "../assets/manual-mensageria/02-cadastrar-aluno.webp";
 import crmGestaoLeads from "../assets/manual-mensageria/03-gestao-leads.webp";
@@ -2874,7 +2874,7 @@ function SecaoHistoria() {
         <span style={S.historiaFotoRodape}>
           <span>
             <strong style={{ display: "block", color: "var(--rv-tinta)", fontSize: 15 }}>
-              Nossas conquistas e momentos
+              Nossas conquistas e momentos da equipe
             </strong>
             <span style={{ color: "var(--rv-texto-suave)", fontSize: 13 }}>
               Equipe • comemorações • aniversários • bastidores
