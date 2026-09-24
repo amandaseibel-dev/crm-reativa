@@ -1,21 +1,23 @@
 -- ---------------------------------------------------------------------------
 -- CARTEIRA GERAL — execucao do remanejamento e desfazer
 --
--- SO SE MOVE O QUE ESTA NA PREVIA. A funcao nao refaz a consulta: ela le a
--- lista congelada em carteira_geral_previas.itens. Se o dono de um aluno mudou
--- entre a previa e o clique, o item e RECUSADO e volta no resultado — nunca
--- reinterpretado.
+-- SO SE EXECUTA O PLANO DA PREVIA. A funcao nao decide nada e nao refaz
+-- consulta: le a lista congelada em carteira_geral_previas.itens, inclusive a
+-- decisao `mover` de cada acordo. Antes de tocar em qualquer linha, CONFERE que
+-- o mundo continua como estava na previa. O que mudou e RECUSADO e volta no
+-- resultado — nunca reinterpretado.
 --
 -- O QUE MUDA: a custodia (quem trabalha o caso hoje).
 --   . casos.operador_email / operador_nome / operador
 --   . alunos.responsavel_atual_email / _nome
---   . acordos.operador_responsavel_email  (opcional, p_mover_acordos)
+--   . acordos.operador_responsavel_email — SOMENTE os que a previa marcou
 --
 -- O QUE NAO MUDA, NUNCA:
 --   . acordos.criado_por_email / criado_por_nome / confirmado_por_email
 --   . pagamentos.operador_email  (e o que define honorario e comissao)
 --   . baixas_pagamento, parcelas, titulos, valores, status financeiro
 --   . historico_operadores_alunos e aluno_movimentacoes ja gravados
+--   . O AGENDAMENTO DE RETORNO — ver abaixo
 -- Quem negociou continua sendo quem negociou. Isto aqui e mudanca de fila, nao
 -- reescrita de historia.
 --
@@ -33,10 +35,108 @@
 -- responsavel aqui, nem GUC de bypass.
 -- ---------------------------------------------------------------------------
 
+-- ---------------------------------------------------------------------------
+-- A troca de dono, com o AGENDAMENTO PRESERVADO.
+--
+-- `internal.set_resp_aluno` zera o agendamento sempre que o responsavel muda:
+-- data_retorno, hora_retorno, proxima_acao (e, por tabela,
+-- `limpar_retorno_origem` zera retorno_origem e
+-- `tg_aluno_reset_retorno_confirmado` zera retorno_confirmado_em).
+-- Faz sentido quando o caso vai para outra pessoa comecar do zero. NAO faz
+-- sentido aqui: um retorno agendado e compromisso assumido com o aluno, e a
+-- data e a hora tem de continuar valendo — so mudando a quem elas respondem.
+--
+-- Nao se mexe em set_resp_aluno (17 funcoes escrevem por ela). O agendamento e
+-- lido ANTES, e devolvido DEPOIS, e a agenda do operador e reapontada para o
+-- novo responsavel. `data_ultimo_acionamento` e `status_acionamento` ja estao
+-- protegidos pelo gatilho _acionamento_nao_volta_para_nulo.
+-- ---------------------------------------------------------------------------
+create or replace function internal.carteira_geral_trocar_dono(
+  p_aluno_id uuid,
+  p_novo_email text,
+  p_novo_nome text,
+  p_tipo text,
+  p_descricao text,
+  p_autor_email text,
+  p_autor_nome text
+) returns void
+language plpgsql
+security definer
+set search_path to 'public', 'internal'
+as $fn$
+declare
+  v_data  date;
+  v_hora  text;
+  v_origem text;
+  v_prox  text;
+  v_conf  timestamptz;
+  v_email text := case when p_novo_email is null then null else lower(p_novo_email) end;
+begin
+  select data_retorno, hora_retorno, retorno_origem, proxima_acao, retorno_confirmado_em
+    into v_data, v_hora, v_origem, v_prox, v_conf
+    from public.alunos where id = p_aluno_id;
+
+  perform internal.set_resp_aluno(p_aluno_id, p_novo_email, p_novo_nome,
+                                  p_tipo, p_descricao, p_autor_email, p_autor_nome);
+
+  -- Devolve o compromisso exatamente como estava. `limpar_retorno_origem` so
+  -- apaga a origem quando a data e nula — com a data de volta, a origem fica.
+  if v_data is not null then
+    update public.alunos
+       set data_retorno = v_data,
+           hora_retorno = v_hora,
+           retorno_origem = v_origem,
+           proxima_acao = coalesce(v_prox, proxima_acao)
+     where id = p_aluno_id;
+
+    -- Em UPDATE separado, e de proposito. `tg_aluno_reset_retorno_confirmado`
+    -- e BEFORE UPDATE OF data_retorno e zera retorno_confirmado_em sempre que a
+    -- data muda — entao devolver os dois na mesma linha perderia a confirmacao.
+    -- Mexendo so nesta coluna, aquele gatilho nao dispara.
+    if v_conf is not null then
+      update public.alunos set retorno_confirmado_em = v_conf where id = p_aluno_id;
+    end if;
+  end if;
+
+  -- O caso tambem carrega a data; o UPDATE de titularidade nao a toca, mas a
+  -- garantia fica explicita para quem ler depois.
+  update public.casos
+     set data_retorno = coalesce(data_retorno, v_data)
+   where aluno_id = p_aluno_id;
+
+  -- A agenda e do operador, nao do aluno: sem reapontar, o compromisso
+  -- continuaria na lista de quem perdeu o caso. Data e hora (`retorno_em`)
+  -- ficam intactas; so o dono muda.
+  --
+  -- Destino FILA LIVRE nao tem dono: manter a linha na agenda de quem perdeu o
+  -- caso seria pior do que apaga-la. Ela e encerrada com o mesmo marcador que
+  -- `assumir_caso_livre_aluno` ja usa ao liberar por troca. O compromisso em si
+  -- NAO se perde: data, hora e origem ficam no aluno, e quem assumir o herda.
+  if v_email is null then
+    update public.operador_agenda
+       set status = 'CANCELADO_LIBERACAO', atualizado_em = now()
+     where aluno_id = p_aluno_id::text
+       and coalesce(status,'') not in ('CONCLUIDO','CANCELADO','CANCELADO_LIBERACAO');
+  else
+    update public.operador_agenda
+       set operador_email = v_email,
+           operador_nome = p_novo_nome,
+           atualizado_em = now()
+     where aluno_id = p_aluno_id::text
+       and coalesce(status,'') not in ('CONCLUIDO','CANCELADO','CANCELADO_LIBERACAO');
+  end if;
+end;
+$fn$;
+
+comment on function internal.carteira_geral_trocar_dono(uuid,text,text,text,text,text,text) is
+  'Troca o responsavel do aluno preservando data, hora e origem do retorno agendado, e reaponta a agenda para o novo responsavel.';
+
+-- ---------------------------------------------------------------------------
+-- EXECUCAO
+-- ---------------------------------------------------------------------------
 create or replace function public.carteira_geral_mover(
   p_previa_id uuid,
-  p_motivo text,
-  p_mover_acordos boolean default true
+  p_motivo text
 ) returns jsonb
 language plpgsql
 security definer
@@ -55,11 +155,15 @@ declare
   ac            jsonb;
   v_caso_agora  text;
   v_aluno_agora text;
+  v_ac_email    text;
+  v_ac_status   text;
   v_movidos     int := 0;
   v_recusados   jsonb := '[]'::jsonb;
   v_acordos_mov int := 0;
+  v_acordos_rec int := 0;
   v_ac_detalhe  jsonb;
   v_ac_n        int;
+  v_retornos    int := 0;
 begin
   if v_autor = '' then raise exception 'Sessao expirada.' using errcode = '42501'; end if;
   if not public.calibragem_e_gestao() then
@@ -87,7 +191,7 @@ begin
   end if;
 
   for it in select * from jsonb_array_elements(v_previa.itens) loop
-    -- O mundo mudou desde a previa? Entao este item nao entra.
+    -- ---------------- revalidacao do ALUNO ----------------
     select lower(nullif(btrim(coalesce(c.operador_email,'')),'')),
            lower(nullif(btrim(coalesce(al.responsavel_atual_email,'')),''))
       into v_caso_agora, v_aluno_agora
@@ -99,22 +203,86 @@ begin
     if coalesce(v_caso_agora,'') is distinct from coalesce(it->>'caso_de_email','')
        or coalesce(v_aluno_agora,'') is distinct from coalesce(it->>'aluno_de_email','') then
       v_recusados := v_recusados || jsonb_build_object(
+        'nivel', 'ALUNO',
         'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
         'motivo', 'O dono mudou depois da previa (previa: '||coalesce(nullif(it->>'caso_de_email',''),'ninguem')||
                   ', agora: '||coalesce(v_caso_agora,'ninguem')||').');
       continue;
     end if;
 
-    -- 1. ficha do aluno (caminho oficial, com movimentacao registrada)
-    perform internal.set_resp_aluno(
+    -- ---------------- acordos: revalida um por um ----------------
+    -- So entram os que a previa marcou `mover`. De cada um se confere o
+    -- responsavel E o status: um acordo que virou QUITADO ou CANCELADO depois
+    -- da previa nao e mais o mesmo objeto e nao viaja em silencio.
+    v_ac_n := 0;
+    v_ac_detalhe := '[]'::jsonb;
+
+    for ac in select * from jsonb_array_elements(it->'acordos') loop
+      if not coalesce((ac->>'mover')::boolean, false) then
+        continue;
+      end if;
+
+      select lower(coalesce(a.operador_responsavel_email,'')), upper(coalesce(a.status,''))
+        into v_ac_email, v_ac_status
+        from public.acordos a where a.id = (ac->>'acordo_id')::uuid;
+
+      if v_ac_email is null then
+        v_recusados := v_recusados || jsonb_build_object(
+          'nivel', 'ACORDO', 'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
+          'acordo_id', ac->>'acordo_id',
+          'motivo', 'Acordo nao existe mais.');
+        v_acordos_rec := v_acordos_rec + 1;
+        continue;
+      end if;
+
+      if v_ac_email is distinct from coalesce(ac->>'de_email','') then
+        v_recusados := v_recusados || jsonb_build_object(
+          'nivel', 'ACORDO', 'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
+          'acordo_id', ac->>'acordo_id', 'numero', ac->>'numero',
+          'motivo', 'O responsavel do acordo mudou depois da previa (previa: '||
+                    coalesce(nullif(ac->>'de_email',''),'ninguem')||', agora: '||
+                    coalesce(nullif(v_ac_email,''),'ninguem')||').');
+        v_acordos_rec := v_acordos_rec + 1;
+        continue;
+      end if;
+
+      if v_ac_status is distinct from coalesce(ac->>'status','') then
+        v_recusados := v_recusados || jsonb_build_object(
+          'nivel', 'ACORDO', 'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
+          'acordo_id', ac->>'acordo_id', 'numero', ac->>'numero',
+          'motivo', 'O status do acordo mudou depois da previa (previa: '||
+                    coalesce(ac->>'status','-')||', agora: '||coalesce(v_ac_status,'-')||').');
+        v_acordos_rec := v_acordos_rec + 1;
+        continue;
+      end if;
+
+      perform internal.set_resp_acordo(
+        (ac->>'acordo_id')::uuid, v_destino_email, v_destino_nome,
+        'CARTEIRA_GERAL_REMANEJAMENTO',
+        'Acordo segue o aluno no remanejamento -> '||coalesce(v_destino_nome,'fila livre')||
+        '. Motivo: '||v_motivo||'. Lote: '||v_lote::text||'. (autoria do acordo NAO muda)',
+        v_autor, coalesce(v_autor_nome, v_autor));
+
+      v_ac_n := v_ac_n + 1;
+      v_ac_detalhe := v_ac_detalhe || jsonb_build_object(
+        'acordo_id', ac->>'acordo_id',
+        'numero', ac->>'numero',
+        'de_email', ac->>'de_email',
+        'status_no_lote', ac->>'status',
+        'de_terceiro', coalesce((ac->>'de_terceiro')::boolean, false),
+        'para_email', v_destino_email);
+    end loop;
+
+    v_acordos_mov := v_acordos_mov + v_ac_n;
+
+    -- ---------------- troca de dono, com o retorno preservado ----------------
+    perform internal.carteira_geral_trocar_dono(
       (it->>'aluno_id')::uuid, v_destino_email, v_destino_nome,
       'CARTEIRA_GERAL_REMANEJAMENTO',
-      'Remanejamento em lote -> '||coalesce(v_destino_nome,'fila livre')||'. Motivo: '||v_motivo||'. Lote: '||v_lote::text||'.',
+      'Remanejamento em lote -> '||coalesce(v_destino_nome,'fila livre')||'. Motivo: '||v_motivo||
+      '. Lote: '||v_lote::text||'. Agendamento de retorno preservado.',
       v_autor, coalesce(v_autor_nome, v_autor));
 
-    -- 2. caso. O gatilho _sync_casos_resp_aluno ja espelha o e-mail, mas o
-    -- update explicito garante nome/operador e a marca de quem mexeu — mesmo
-    -- padrao de alterar_responsavel_aluno.
     update public.casos
        set operador_email = lower(v_destino_email),
            operador_nome  = v_destino_nome,
@@ -123,25 +291,8 @@ begin
            caso_atualizado_em  = now()
      where aluno_id = (it->>'aluno_id')::uuid;
 
-    -- 3. acordos (opcional). Sem isto, um acordo que continua com o dono
-    -- antigo devolve o aluno para ele: o gatilho _aluno_segue_dono_do_acordo
-    -- realinha a ficha ao dono do acordo ATIVO quando nao ha mensalidade em
-    -- aberto. Recolher sem levar o acordo nao se sustenta.
-    v_ac_n := 0;
-    v_ac_detalhe := '[]'::jsonb;
-    if p_mover_acordos then
-      for ac in select * from jsonb_array_elements(it->'acordos') loop
-        perform internal.set_resp_acordo(
-          (ac->>'acordo_id')::uuid, v_destino_email, v_destino_nome,
-          'CARTEIRA_GERAL_REMANEJAMENTO',
-          'Acordo segue o aluno no remanejamento -> '||coalesce(v_destino_nome,'fila livre')||
-          '. Motivo: '||v_motivo||'. Lote: '||v_lote::text||'. (autoria do acordo NAO muda)',
-          v_autor, coalesce(v_autor_nome, v_autor));
-        v_ac_n := v_ac_n + 1;
-        v_ac_detalhe := v_ac_detalhe || jsonb_build_object(
-          'acordo_id', ac->>'acordo_id', 'de_email', ac->>'de_email', 'para_email', v_destino_email);
-      end loop;
-      v_acordos_mov := v_acordos_mov + v_ac_n;
+    if nullif(it->>'retorno_data','') is not null then
+      v_retornos := v_retornos + 1;
     end if;
 
     insert into public.carteira_geral_auditoria
@@ -174,21 +325,38 @@ begin
     'destino_nome', coalesce(v_destino_nome, 'Fila livre'),
     'alunos_movidos', v_movidos,
     'acordos_movidos', v_acordos_mov,
+    'acordos_recusados', v_acordos_rec,
+    'retornos_preservados', v_retornos,
     'recusados', v_recusados,
     'total_recusados', jsonb_array_length(v_recusados));
 end;
 $fn$;
 
-revoke all on function public.carteira_geral_mover(uuid, text, boolean) from public, anon;
-grant execute on function public.carteira_geral_mover(uuid, text, boolean) to authenticated;
+-- A assinatura antiga decidia acordo na hora da execucao (p_mover_acordos).
+-- Agora quem decide e a previa, acordo por acordo. Deixar a antiga viva
+-- permitiria mover acordo de terceiro sem ninguem ter olhado.
+drop function if exists public.carteira_geral_mover(uuid, text, boolean);
+
+revoke all on function public.carteira_geral_mover(uuid, text) from public, anon;
+grant execute on function public.carteira_geral_mover(uuid, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
--- DESFAZER — devolve um lote inteiro a titularidade anterior.
+-- DESFAZER — devolve um lote a titularidade anterior, SEM ATROPELAR O QUE VEIO
+-- DEPOIS.
 --
 -- Este projeto NAO tem PITR. Todo rollback tem de ser reconstruido a partir do
--- que foi gravado, por id exato, sem tocar no que entrou depois. E o que esta
--- funcao faz: le a auditoria do lote e devolve cada aluno/acordo exatamente ao
--- e-mail registrado como anterior. Linha ja desfeita e ignorada.
+-- que foi gravado, por id exato. E, entre o lote e o desfazer, a operacao
+-- continuou trabalhando: alguem pode ter assumido o caso da fila livre, a
+-- gestao pode ter movido de novo, um acordo pode ter sido quitado. Desfazer
+-- cegamente jogaria esse trabalho fora.
+--
+-- Por isso cada item so volta se TUDO ainda estiver como o lote deixou:
+--   . casos.operador_email  == o destino gravado
+--   . alunos.responsavel_atual_email == o destino gravado
+--   . cada acordo movido: responsavel == destino E status == o do lote
+-- Qualquer divergencia RECUSA o aluno inteiro (nao desfaz pela metade) e volta
+-- no resultado com o motivo. A linha de auditoria fica intacta, sem marca de
+-- desfeito — o lote continua parcialmente vivo, e isso e visivel.
 -- ---------------------------------------------------------------------------
 create or replace function public.carteira_geral_desfazer_lote(
   p_lote_id uuid,
@@ -205,7 +373,11 @@ declare
   v_motivo text := coalesce(nullif(btrim(coalesce(p_motivo,'')),''), 'Desfazer remanejamento');
   r record; ac jsonb;
   v_nome_de text;
+  v_caso_agora text; v_aluno_agora text;
+  v_ac_email text; v_ac_status text;
+  v_bloqueio text;
   v_n int := 0; v_ac int := 0;
+  v_recusados jsonb := '[]'::jsonb;
 begin
   if v_autor = '' then raise exception 'Sessao expirada.' using errcode = '42501'; end if;
   if not public.calibragem_e_gestao() then
@@ -218,23 +390,58 @@ begin
             where lote_id = p_lote_id and desfeito_em is null
             order by registrado_em
   loop
+    v_bloqueio := null;
+
+    select lower(nullif(btrim(coalesce(c.operador_email,'')),'')),
+           lower(nullif(btrim(coalesce(al.responsavel_atual_email,'')),''))
+      into v_caso_agora, v_aluno_agora
+      from public.casos c
+      join public.alunos al on al.id = c.aluno_id
+     where c.aluno_id = r.aluno_id
+     limit 1;
+
+    if v_caso_agora is distinct from lower(nullif(r.caso_para_email,'')) then
+      v_bloqueio := 'O caso saiu de '||coalesce(nullif(r.caso_para_email,''),'fila livre')||
+                    ' depois do lote (agora: '||coalesce(v_caso_agora,'fila livre')||
+                    '). Foi assumido ou movido de novo — desfazer apagaria esse trabalho.';
+    elsif v_aluno_agora is distinct from lower(nullif(r.aluno_para_email,'')) then
+      v_bloqueio := 'A ficha do aluno saiu de '||coalesce(nullif(r.aluno_para_email,''),'fila livre')||
+                    ' depois do lote (agora: '||coalesce(v_aluno_agora,'fila livre')||').';
+    else
+      for ac in select * from jsonb_array_elements(r.acordos_detalhe) loop
+        select lower(coalesce(a.operador_responsavel_email,'')), upper(coalesce(a.status,''))
+          into v_ac_email, v_ac_status
+          from public.acordos a where a.id = (ac->>'acordo_id')::uuid;
+
+        if v_ac_email is null then
+          v_bloqueio := 'O acordo '||coalesce(nullif(ac->>'numero',''),ac->>'acordo_id')||' nao existe mais.';
+          exit;
+        end if;
+        if v_ac_email is distinct from lower(coalesce(ac->>'para_email','')) then
+          v_bloqueio := 'O acordo '||coalesce(nullif(ac->>'numero',''),ac->>'acordo_id')||
+                        ' mudou de responsavel depois do lote (agora: '||
+                        coalesce(nullif(v_ac_email,''),'ninguem')||').';
+          exit;
+        end if;
+        if v_ac_status is distinct from upper(coalesce(ac->>'status_no_lote','')) then
+          v_bloqueio := 'O acordo '||coalesce(nullif(ac->>'numero',''),ac->>'acordo_id')||
+                        ' mudou de status depois do lote ('||coalesce(ac->>'status_no_lote','-')||
+                        ' -> '||coalesce(v_ac_status,'-')||').';
+          exit;
+        end if;
+      end loop;
+    end if;
+
+    if v_bloqueio is not null then
+      v_recusados := v_recusados || jsonb_build_object(
+        'aluno_id', r.aluno_id, 'nome', r.nome_aluno, 'motivo', v_bloqueio);
+      continue;
+    end if;
+
     select coalesce(u.nome, r.aluno_de_email) into v_nome_de
       from public.usuarios u where lower(u.email) = lower(r.aluno_de_email);
 
-    perform internal.set_resp_aluno(
-      r.aluno_id, r.aluno_de_email, v_nome_de,
-      'CARTEIRA_GERAL_DESFAZER',
-      'Desfeito o lote '||p_lote_id::text||'. Motivo: '||v_motivo||'.',
-      v_autor, coalesce(v_autor_nome, v_autor));
-
-    update public.casos
-       set operador_email = lower(r.caso_de_email),
-           operador_nome  = v_nome_de,
-           operador       = upper(coalesce(v_nome_de,'')),
-           caso_atualizado_por = v_autor,
-           caso_atualizado_em  = now()
-     where aluno_id = r.aluno_id;
-
+    -- Devolve os acordos primeiro: se algo falhar, a transacao inteira volta.
     for ac in select * from jsonb_array_elements(r.acordos_detalhe) loop
       perform internal.set_resp_acordo(
         (ac->>'acordo_id')::uuid, nullif(ac->>'de_email',''),
@@ -246,6 +453,21 @@ begin
       v_ac := v_ac + 1;
     end loop;
 
+    -- Mesma troca de dono da ida: o agendamento tambem e preservado na volta.
+    perform internal.carteira_geral_trocar_dono(
+      r.aluno_id, r.aluno_de_email, v_nome_de,
+      'CARTEIRA_GERAL_DESFAZER',
+      'Desfeito o lote '||p_lote_id::text||'. Motivo: '||v_motivo||'. Agendamento preservado.',
+      v_autor, coalesce(v_autor_nome, v_autor));
+
+    update public.casos
+       set operador_email = lower(r.caso_de_email),
+           operador_nome  = v_nome_de,
+           operador       = upper(coalesce(v_nome_de,'')),
+           caso_atualizado_por = v_autor,
+           caso_atualizado_em  = now()
+     where aluno_id = r.aluno_id;
+
     update public.carteira_geral_auditoria
        set desfeito_em = now(), desfeito_por_email = v_autor
      where id = r.id;
@@ -254,7 +476,9 @@ begin
   end loop;
 
   return jsonb_build_object('ok', true, 'lote_id', p_lote_id,
-                            'alunos_devolvidos', v_n, 'acordos_devolvidos', v_ac);
+                            'alunos_devolvidos', v_n, 'acordos_devolvidos', v_ac,
+                            'recusados', v_recusados,
+                            'total_recusados', jsonb_array_length(v_recusados));
 end;
 $fn$;
 
@@ -262,11 +486,11 @@ revoke all on function public.carteira_geral_desfazer_lote(uuid, text) from publ
 grant execute on function public.carteira_geral_desfazer_lote(uuid, text) to authenticated;
 
 -- ---------------------------------------------------------------------------
--- Interruptor de distribuicao automatica por operador.
--- Recolher a carteira de alguem sem desligar isto e inutil: a rotina das 09:20
--- devolve casos novos para a mesma pessoa na manha seguinte.
+-- Interruptor de entrada de caso novo por operador.
+-- Fecha as duas portas de uma vez: distribuicao automatica e auto-atribuicao da
+-- fila livre. Recolher a carteira de alguem sem desligar isto e inutil.
 -- ---------------------------------------------------------------------------
-create or replace function public.carteira_geral_definir_distribuicao(
+create or replace function public.carteira_geral_definir_recebimento(
   p_operador_email text,
   p_recebe boolean,
   p_motivo text default null
@@ -283,7 +507,7 @@ begin
   end if;
 
   update public.usuarios
-     set recebe_distribuicao_automatica = coalesce(p_recebe, true)
+     set recebe_novos_casos = coalesce(p_recebe, true)
    where lower(email) = lower(btrim(coalesce(p_operador_email,'')))
      and perfil = 'operador'
   returning nome into v_nome;
@@ -295,16 +519,18 @@ begin
   -- `aluno_movimentacoes` exige aluno_id (NOT NULL) e isto nao e sobre um
   -- aluno: e sobre um operador. Vai na auditoria generica.
   insert into public.auditoria (usuario, acao, tabela_afetada, detalhes)
-  values (v_autor, 'CARTEIRA_GERAL_DISTRIBUICAO', 'usuarios',
+  values (v_autor, 'CARTEIRA_GERAL_RECEBIMENTO', 'usuarios',
           jsonb_build_object(
             'operador', v_nome,
             'operador_email', lower(btrim(p_operador_email)),
-            'recebe_distribuicao_automatica', coalesce(p_recebe, true),
+            'recebe_novos_casos', coalesce(p_recebe, true),
             'motivo', coalesce(nullif(btrim(coalesce(p_motivo,'')),''),'nao informado')));
 
   return jsonb_build_object('ok', true, 'operador', v_nome, 'recebe', coalesce(p_recebe, true));
 end;
 $fn$;
 
-revoke all on function public.carteira_geral_definir_distribuicao(text, boolean, text) from public, anon;
-grant execute on function public.carteira_geral_definir_distribuicao(text, boolean, text) to authenticated;
+drop function if exists public.carteira_geral_definir_distribuicao(text, boolean, text);
+
+revoke all on function public.carteira_geral_definir_recebimento(text, boolean, text) from public, anon;
+grant execute on function public.carteira_geral_definir_recebimento(text, boolean, text) to authenticated;

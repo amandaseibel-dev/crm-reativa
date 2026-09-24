@@ -6,6 +6,7 @@ import {
   DESTINOS,
   O_QUE_MUDA,
   O_QUE_NAO_MUDA,
+  acordosDeTerceiros,
   agruparConflitos,
   classeEmAlerta,
   consolidarPorAno,
@@ -44,6 +45,8 @@ export default function CarteiraGeral() {
   const [destinoTipo, setDestinoTipo] = useState("CARTEIRA_GERAL");
   const [destinoEmail, setDestinoEmail] = useState("");
   const [moverAcordos, setMoverAcordos] = useState(true);
+  // Acordo de terceiro só vai se o id estiver aqui. Decisão item a item.
+  const [acordosEscolhidos, setAcordosEscolhidos] = useState(() => new Set());
   const [motivo, setMotivo] = useState("");
 
   const [previa, setPrevia] = useState(null);
@@ -93,7 +96,7 @@ export default function CarteiraGeral() {
     let vivo = true;
     supabase
       .from("usuarios")
-      .select("email, nome, perfil, ativo, recebe_distribuicao_automatica")
+      .select("email, nome, perfil, ativo, recebe_novos_casos")
       .eq("ativo", true)
       .eq("perfil", "operador")
       .order("nome")
@@ -107,6 +110,16 @@ export default function CarteiraGeral() {
 
   const porAno = useMemo(() => consolidarPorAno(painel?.por_ano), [painel]);
   const conflitos = useMemo(() => agruparConflitos(previa?.conflitos), [previa]);
+  const terceiros = useMemo(() => acordosDeTerceiros(previa?.conflitos), [previa]);
+
+  function alternarAcordo(acordoId) {
+    setAcordosEscolhidos((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(acordoId)) novo.delete(acordoId);
+      else novo.add(acordoId);
+      return novo;
+    });
+  }
 
   function alternar(alunoId) {
     setSelecionados((atual) => {
@@ -145,6 +158,7 @@ export default function CarteiraGeral() {
       p_destino_email: destinoTipo === "OPERADOR" ? destinoEmail : null,
       p_mover_acordos: moverAcordos,
       p_filtros: filtrosRpc,
+      p_acordo_ids: [...acordosEscolhidos],
     });
     setOcupado(false);
 
@@ -173,7 +187,11 @@ export default function CarteiraGeral() {
 
     const ok = window.confirm(
       `Mover ${previa.total_alunos} aluno(s) — ${moeda(previa.total_valor)} — para ${previa.destino_nome}?\n\n` +
-        `Acordos junto: ${previa.mover_acordos ? "sim" : "não"}.\n` +
+        `Acordos que vão junto: ${previa.total_acordos}` +
+        (previa.acordos_de_terceiros
+          ? ` (${previa.acordos_de_terceiros_selecionados} de ${previa.acordos_de_terceiros} de terceiros, selecionados por você)`
+          : "") + ".\n" +
+        `Retornos agendados preservados: ${previa.retornos_preservados}.\n\n` +
         "Isso muda de quem é o caso. Não muda pagamento, baixa, valor nem quem negociou."
     );
     if (!ok) return;
@@ -182,7 +200,6 @@ export default function CarteiraGeral() {
     const { data, error } = await supabase.rpc("carteira_geral_mover", {
       p_previa_id: previa.previa_id,
       p_motivo: motivo,
-      p_mover_acordos: moverAcordos,
     });
     setOcupado(false);
 
@@ -194,10 +211,12 @@ export default function CarteiraGeral() {
     const recusados = Number(data?.total_recusados || 0);
     setAviso(
       `${data?.alunos_movidos || 0} aluno(s) e ${data?.acordos_movidos || 0} acordo(s) movidos para ` +
-        `${data?.destino_nome}. Lote ${data?.lote_id}.` +
-        (recusados ? ` ${recusados} recusado(s): o dono mudou depois da prévia.` : "")
+        `${data?.destino_nome}. ${data?.retornos_preservados || 0} retorno(s) preservado(s). ` +
+        `Lote ${data?.lote_id}.` +
+        (recusados ? ` ${recusados} item(ns) recusado(s) porque mudaram depois da prévia.` : "")
     );
     setMotivo("");
+    setAcordosEscolhidos(new Set());
     carregar();
   }
 
@@ -317,7 +336,7 @@ export default function CarteiraGeral() {
               {operadores.map((o) => (
                 <option key={o.email} value={o.email}>
                   {o.nome}
-                  {o.recebe_distribuicao_automatica === false ? " (não recebe distribuição)" : ""}
+                  {o.recebe_novos_casos === false ? " (fechada para casos novos)" : ""}
                 </option>
               ))}
             </select>
@@ -450,14 +469,17 @@ export default function CarteiraGeral() {
               checked={moverAcordos}
               onChange={(e) => { setMoverAcordos(e.target.checked); setPrevia(null); }}
             />
-            <span style={rotulo}>Levar os acordos junto</span>
+            <span style={rotulo}>Levar os acordos do próprio dono</span>
           </label>
         </div>
 
         <p style={nota}>
-          Desmarcar “levar os acordos junto” deixa o acordo com o dono atual. Quando o aluno não tem
-          mensalidade em aberto, o sistema realinha a ficha ao dono do acordo ativo — ou seja, o
-          aluno volta para o responsável antigo. A prévia avisa caso a caso.
+          Esta opção vale só para os acordos <strong>do dono do caso</strong>. Desmarcar deixa o
+          acordo com ele — e, quando o aluno não tem mensalidade em aberto, o sistema realinha a
+          ficha ao dono do acordo ativo, ou seja, o aluno volta para o responsável antigo.
+          <br />
+          <strong>Acordo de terceiro nunca vai junto por padrão.</strong> Ele aparece um a um na
+          prévia e só se move se você marcar.
         </p>
 
         <label style={{ ...campo, maxWidth: 640 }}>
@@ -494,7 +516,14 @@ export default function CarteiraGeral() {
 
           <div style={grade}>
             <Bloco titulo="Alunos" valor={String(previa.total_alunos)} />
-            <Bloco titulo="Acordos" valor={String(previa.total_acordos)} />
+            <Bloco titulo="Acordos que vão junto" valor={String(previa.total_acordos)} />
+            <Bloco
+              titulo="Acordos de terceiros"
+              valor={`${previa.acordos_de_terceiros_selecionados || 0} de ${previa.acordos_de_terceiros || 0}`}
+              nota="só por seleção"
+              alerta={Number(previa.acordos_de_terceiros || 0) > 0}
+            />
+            <Bloco titulo="Retornos preservados" valor={String(previa.retornos_preservados || 0)} />
             <Bloco titulo="Valor total" valor={moeda(previa.total_valor)} />
             <Bloco titulo="Destino" valor={previa.destino_nome} />
           </div>
@@ -517,6 +546,53 @@ export default function CarteiraGeral() {
               </ul>
             </div>
           </div>
+
+          {terceiros.length > 0 && (
+            <>
+              <h3 style={secaoMenor}>
+                Acordos de terceiros ({previa.acordos_de_terceiros_selecionados} de{" "}
+                {previa.acordos_de_terceiros} selecionados)
+              </h3>
+              <p style={nota}>
+                Cada um destes acordos é de outra pessoa. Marque só os que devem acompanhar o
+                aluno; os demais ficam com quem os negociou. Marcar ou desmarcar refaz a prévia.
+              </p>
+              <table style={tabela}>
+                <thead>
+                  <tr>
+                    <th style={th}>Levar</th>
+                    <th style={th}>Acordo</th>
+                    <th style={th}>Aluno</th>
+                    <th style={th}>Responsável hoje</th>
+                    <th style={th}>Status</th>
+                    <th style={thNum}>Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {terceiros.map((t) => (
+                    <tr key={t.acordo_id}>
+                      <td style={td}>
+                        <input
+                          type="checkbox"
+                          aria-label={`Levar acordo ${t.numero} de ${t.aluno}`}
+                          checked={acordosEscolhidos.has(t.acordo_id)}
+                          onChange={() => alternarAcordo(t.acordo_id)}
+                        />
+                      </td>
+                      <td style={td}>{t.numero || "sem número"}</td>
+                      <td style={td}>{t.aluno}</td>
+                      <td style={td}>{t.de_email || "ninguém"}</td>
+                      <td style={td}>{t.status}</td>
+                      <td style={tdNum}>{moeda(t.valor)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <button type="button" onClick={gerarPrevia} disabled={ocupado} style={{ ...botao, marginTop: 10 }}>
+                Recalcular prévia com esta seleção
+              </button>
+            </>
+          )}
 
           <h3 style={secaoMenor}>Conflitos e avisos</h3>
           {conflitos.length === 0 ? (

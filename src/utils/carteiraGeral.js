@@ -89,12 +89,34 @@ export function consolidarPorAno(porAno) {
 // 217 linhas iguais não são.
 export const ROTULO_CONFLITO = {
   TITULARIDADE_DIVERGENTE: "Titularidade divergente entre caso e ficha do aluno",
-  ACORDO_DE_OUTRO_DONO: "Acordo de outro responsável indo junto",
-  ACORDO_FICA_COM_O_DONO_ATUAL: "Acordo que NÃO vai junto (fica com o dono atual)",
-  RETORNO_AGENDADO_SERA_LIMPO: "Retorno agendado que será limpo",
+  ACORDO_DE_TERCEIRO_FICA: "Acordo de terceiro que FICA (não selecionado)",
+  ACORDO_DE_TERCEIRO_SELECIONADO: "Acordo de terceiro selecionado para ir junto",
+  ACORDO_DO_DONO_FICA: "Acordo do próprio dono que NÃO vai junto",
+  RETORNO_AGENDADO_SEGUE: "Retorno agendado que segue com o aluno",
   CASO_ENCERRADO: "Caso já encerrado operacionalmente",
   TETO_DO_OPERADOR: "Teto do operador de destino",
 };
+
+// Acordo de terceiro é decisão item a item: a tela lista um por um, com
+// número, valor, status e de quem é. Nunca agregado — agregar é o que
+// transformaria 155 decisões numa só.
+export const TIPOS_ACORDO_TERCEIRO = ["ACORDO_DE_TERCEIRO_FICA", "ACORDO_DE_TERCEIRO_SELECIONADO"];
+
+export function acordosDeTerceiros(conflitos) {
+  return (Array.isArray(conflitos) ? conflitos : [])
+    .filter((c) => TIPOS_ACORDO_TERCEIRO.includes(c?.tipo))
+    .map((c) => ({
+      acordo_id: c.acordo_id,
+      aluno_id: c.aluno_id,
+      aluno: c.nome,
+      numero: c.numero,
+      status: c.status,
+      valor: Number(c.valor || 0),
+      de_email: c.de_email,
+      selecionado: c.tipo === "ACORDO_DE_TERCEIRO_SELECIONADO",
+    }))
+    .sort((a, b) => b.valor - a.valor);
+}
 
 export function agruparConflitos(conflitos) {
   const lista = Array.isArray(conflitos) ? conflitos : [];
@@ -113,10 +135,11 @@ export function agruparConflitos(conflitos) {
   // Mais grave primeiro: o que muda dinheiro/atribuição antes do que é aviso.
   const ordem = [
     "TETO_DO_OPERADOR",
-    "ACORDO_FICA_COM_O_DONO_ATUAL",
+    "ACORDO_DO_DONO_FICA",
     "TITULARIDADE_DIVERGENTE",
-    "ACORDO_DE_OUTRO_DONO",
-    "RETORNO_AGENDADO_SERA_LIMPO",
+    "ACORDO_DE_TERCEIRO_SELECIONADO",
+    "ACORDO_DE_TERCEIRO_FICA",
+    "RETORNO_AGENDADO_SEGUE",
     "CASO_ENCERRADO",
   ];
   return [...mapa.values()].sort(
@@ -147,7 +170,8 @@ export function validarConfirmacao({ destinoTipo, destinoEmail, motivo, selecion
 export const O_QUE_MUDA = [
   "Quem trabalha o caso hoje (casos.operador_email)",
   "O responsável na ficha do aluno",
-  "O responsável dos acordos vivos, quando a opção estiver marcada",
+  "O responsável dos acordos do próprio dono, quando a opção estiver marcada",
+  "O responsável dos acordos de terceiros que você selecionar, um a um",
 ];
 
 export const O_QUE_NAO_MUDA = [
@@ -155,4 +179,5 @@ export const O_QUE_NAO_MUDA = [
   "O operador de cada pagamento — é ele que define honorário e comissão",
   "Baixas, parcelas, títulos, valores e status financeiro",
   "O histórico de acionamentos e movimentações já registrado",
+  "O retorno agendado: data, hora e origem seguem com o aluno",
 ];

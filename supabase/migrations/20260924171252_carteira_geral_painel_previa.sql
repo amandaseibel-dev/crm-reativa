@@ -267,19 +267,38 @@ $fn$;
 revoke all on function public.carteira_geral_listar(jsonb, integer, integer) from public, anon;
 grant execute on function public.carteira_geral_listar(jsonb, integer, integer) to authenticated;
 
+
 -- ---------------------------------------------------------------------------
 -- PREVIA — a fotografia do que seria movido. NAO move nada.
 --
--- Congela a lista de alunos e registra os conflitos. A execucao (migration
--- seguinte) so aceita esta previa; se algo mudou no meio do caminho, o item e
--- recusado e aparece no resultado. Nunca "reinterpreta".
+-- CONGELA a decisao inteira: quais alunos, quais acordos e, para cada acordo,
+-- se ele vai ou nao. A execucao nao decide nada — ela executa este plano. Se o
+-- mundo mudar entre a previa e o clique, o item divergente e RECUSADO, nunca
+-- reinterpretado.
+--
+-- ACORDO DE TERCEIRO NAO VAI JUNTO POR PADRAO.
+-- Um acordo cujo responsavel ja e OUTRA pessoa (nao o dono do caso) representa
+-- trabalho de negociacao de alguem que nao esta sendo remanejado. Levar isso
+-- embutido num lote de 545 alunos e mover 155 acordos de nove pessoas sem que
+-- ninguem tenha olhado um por um. A regra passa a ser explicita:
+--
+--   . acordo cujo responsavel E o dono do caso  -> vai junto (coerencia: e a
+--     mesma custodia; deixar para tras faz o gatilho _aluno_segue_dono_do_acordo
+--     devolver o aluno ao dono antigo quando nao ha mensalidade em aberto);
+--   . acordo de TERCEIRO                        -> fica, a menos que o id esteja
+--     em p_acordo_ids. Cada um aparece individualmente na previa, com numero,
+--     valor, status e de quem e.
+--
+-- p_mover_acordos so governa o primeiro grupo. Nao existe forma de mover um
+-- acordo de terceiro sem citar o id dele.
 -- ---------------------------------------------------------------------------
 create or replace function public.carteira_geral_previa(
   p_aluno_ids uuid[],
   p_destino_tipo text,
   p_destino_email text default null,
   p_mover_acordos boolean default true,
-  p_filtros jsonb default '{}'::jsonb
+  p_filtros jsonb default '{}'::jsonb,
+  p_acordo_ids uuid[] default '{}'::uuid[]
 ) returns jsonb
 language plpgsql
 security definer
@@ -293,6 +312,7 @@ declare
   v_itens jsonb;
   v_conflitos jsonb;
   v_res jsonb;
+  v_sel uuid[] := coalesce(p_acordo_ids, '{}'::uuid[]);
 begin
   if v_autor = '' then raise exception 'Sessao expirada.' using errcode = '42501'; end if;
   if not public.calibragem_e_gestao() then
@@ -323,6 +343,10 @@ begin
   -- Fotografia por aluno. Le a titularidade nas TRES fontes, porque elas podem
   -- divergir: `casos.operador_email`, `alunos.responsavel_atual_email` e
   -- `acordos.operador_responsavel_email`.
+  --
+  -- O agendamento (data, hora e origem do retorno) tambem e congelado: ele
+  -- SEGUE o aluno para o novo responsavel, e a execucao confere depois que
+  -- continua igual ao que esta aqui.
   select coalesce(jsonb_agg(to_jsonb(t) order by t.saldo_total desc), '[]'::jsonb)
     into v_itens
     from (
@@ -335,13 +359,27 @@ begin
              round(coalesce(s.saldo_mensalidade,0),2) as saldo_mensalidade,
              round(coalesce(s.saldo_acordo,0),2)      as saldo_acordo,
              round(coalesce(s.saldo_total,0),2)       as saldo_total,
-             c.data_retorno,
+             al.data_retorno   as retorno_data,
+             al.hora_retorno   as retorno_hora,
+             al.retorno_origem as retorno_origem,
              c.status_acionamento,
              c.encerrado_operacional as encerrado,
              (select coalesce(jsonb_agg(jsonb_build_object(
-                        'acordo_id', a.id, 'numero', a.numero_acordo, 'status', a.status,
+                        'acordo_id', a.id,
+                        'numero', a.numero_acordo,
+                        'status', upper(coalesce(a.status,'')),
                         'de_email', lower(coalesce(a.operador_responsavel_email,'')),
-                        'valor', round(coalesce(a.valor_total,0),2))), '[]'::jsonb)
+                        'valor', round(coalesce(a.valor_total,0),2),
+                        'de_terceiro', (lower(coalesce(a.operador_responsavel_email,''))
+                                        is distinct from lower(coalesce(c.operador_email,''))),
+                        -- A decisao, congelada. A execucao le daqui e nao recalcula.
+                        'mover', case
+                          when lower(coalesce(a.operador_responsavel_email,''))
+                               is distinct from lower(coalesce(c.operador_email,''))
+                            then a.id = any(v_sel)          -- terceiro: so por escolha explicita
+                          else coalesce(p_mover_acordos, true)  -- do proprio dono
+                        end)
+                      order by a.numero_acordo), '[]'::jsonb)
                 from public.acordos a
                where a.aluno_id = c.aluno_id
                  and lower(coalesce(a.status,'')) not in ('cancelado','cancelada')) as acordos
@@ -351,7 +389,8 @@ begin
        where c.aluno_id = any(p_aluno_ids)
     ) t;
 
-  -- Conflitos: nao bloqueiam, mas aparecem na tela antes do OK.
+  -- Conflitos e avisos. Acordo de terceiro aparece UM A UM, com tudo que a
+  -- gestao precisa para decidir; os demais sao agregados na tela.
   select coalesce(jsonb_agg(x), '[]'::jsonb) into v_conflitos from (
     select jsonb_build_object(
              'tipo', 'TITULARIDADE_DIVERGENTE',
@@ -360,23 +399,53 @@ begin
                         ' e a ficha do aluno e de '||coalesce(nullif(it->>'aluno_de_email',''),'ninguem')||'.') as x
       from jsonb_array_elements(v_itens) it
      where coalesce(it->>'caso_de_email','') is distinct from coalesce(it->>'aluno_de_email','')
+
     union all
+    -- Um conflito POR ACORDO DE TERCEIRO. Nunca agregado: e a decisao que a
+    -- gestao tem de tomar item a item.
     select jsonb_build_object(
-             'tipo', case when p_mover_acordos then 'ACORDO_DE_OUTRO_DONO' else 'ACORDO_FICA_COM_O_DONO_ATUAL' end,
+             'tipo', case when (ac->>'mover')::boolean
+                          then 'ACORDO_DE_TERCEIRO_SELECIONADO'
+                          else 'ACORDO_DE_TERCEIRO_FICA' end,
              'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
-             'detalhe', 'Acordo '||coalesce(ac->>'numero','sem numero')||' esta com '||
-                        coalesce(nullif(ac->>'de_email',''),'ninguem')||
-                        case when p_mover_acordos then ' e vai junto.' else ' e NAO vai junto.' end)
+             'acordo_id', ac->>'acordo_id',
+             'numero', ac->>'numero',
+             'status', ac->>'status',
+             'valor', ac->>'valor',
+             'de_email', ac->>'de_email',
+             'detalhe', 'Acordo '||coalesce(nullif(ac->>'numero',''),'sem numero')||
+                        ' ('||coalesce(nullif(ac->>'status',''),'sem status')||', R$ '||coalesce(ac->>'valor','0')||')'||
+                        ' e de '||coalesce(nullif(ac->>'de_email',''),'ninguem')||
+                        case when (ac->>'mover')::boolean
+                             then ' e VAI JUNTO porque foi selecionado.'
+                             else ' e FICA com essa pessoa. Selecione o acordo se quiser leva-lo.' end)
       from jsonb_array_elements(v_itens) it, jsonb_array_elements(it->'acordos') ac
-     where coalesce(ac->>'de_email','') is distinct from coalesce(it->>'caso_de_email','')
+     where (ac->>'de_terceiro')::boolean
+
     union all
+    -- Acordo do proprio dono que NAO vai junto: aviso de consequencia.
     select jsonb_build_object(
-             'tipo', 'RETORNO_AGENDADO_SERA_LIMPO',
+             'tipo', 'ACORDO_DO_DONO_FICA',
              'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
-             'detalhe', 'Tem retorno agendado para '||(it->>'data_retorno')||
-                        '. Trocar de dono limpa o agendamento (regra de internal.set_resp_aluno).')
+             'acordo_id', ac->>'acordo_id',
+             'detalhe', 'Acordo '||coalesce(nullif(ac->>'numero',''),'sem numero')||
+                        ' fica com o dono atual. Sem mensalidade em aberto, o gatilho'||
+                        ' _aluno_segue_dono_do_acordo devolve o aluno para ele.')
+      from jsonb_array_elements(v_itens) it, jsonb_array_elements(it->'acordos') ac
+     where not (ac->>'de_terceiro')::boolean and not (ac->>'mover')::boolean
+
+    union all
+    -- Nao e mais perda: o agendamento viaja com o aluno. Fica como aviso
+    -- positivo para a gestao saber quantos compromissos mudam de mao.
+    select jsonb_build_object(
+             'tipo', 'RETORNO_AGENDADO_SEGUE',
+             'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
+             'detalhe', 'Retorno de '||(it->>'retorno_data')||
+                        coalesce(' as '||nullif(it->>'retorno_hora',''), '')||
+                        ' e preservado e passa a responder ao novo responsavel.')
       from jsonb_array_elements(v_itens) it
-     where nullif(it->>'data_retorno','') is not null
+     where nullif(it->>'retorno_data','') is not null
+
     union all
     select jsonb_build_object(
              'tipo', 'CASO_ENCERRADO',
@@ -416,7 +485,8 @@ begin
   values
     (v_autor, coalesce(p_filtros,'{}'::jsonb), p_destino_tipo, v_destino_email, v_itens,
      jsonb_array_length(v_itens),
-     (select count(*)::int from jsonb_array_elements(v_itens) it, jsonb_array_elements(it->'acordos')),
+     (select count(*)::int from jsonb_array_elements(v_itens) it, jsonb_array_elements(it->'acordos') ac
+       where (ac->>'mover')::boolean),
      (select coalesce(sum((it->>'saldo_total')::numeric),0) from jsonb_array_elements(v_itens) it),
      v_conflitos)
   returning id into v_previa_id;
@@ -426,9 +496,17 @@ begin
     'destino_tipo', p_destino_tipo,
     'destino_email', v_destino_email,
     'destino_nome', coalesce(v_destino_nome, 'Fila livre'),
-    'mover_acordos', p_mover_acordos,
+    'mover_acordos', coalesce(p_mover_acordos, true),
     'total_alunos', jsonb_array_length(v_itens),
-    'total_acordos', (select count(*)::int from jsonb_array_elements(v_itens) it, jsonb_array_elements(it->'acordos')),
+    -- acordos que REALMENTE vao
+    'total_acordos', (select count(*)::int from jsonb_array_elements(v_itens) it, jsonb_array_elements(it->'acordos') ac
+                       where (ac->>'mover')::boolean),
+    'acordos_de_terceiros', (select count(*)::int from jsonb_array_elements(v_itens) it, jsonb_array_elements(it->'acordos') ac
+                              where (ac->>'de_terceiro')::boolean),
+    'acordos_de_terceiros_selecionados', (select count(*)::int from jsonb_array_elements(v_itens) it, jsonb_array_elements(it->'acordos') ac
+                              where (ac->>'de_terceiro')::boolean and (ac->>'mover')::boolean),
+    'retornos_preservados', (select count(*)::int from jsonb_array_elements(v_itens) it
+                              where nullif(it->>'retorno_data','') is not null),
     'total_valor', (select coalesce(sum((it->>'saldo_total')::numeric),0) from jsonb_array_elements(v_itens) it),
     'total_mensalidade', (select coalesce(sum((it->>'saldo_mensalidade')::numeric),0) from jsonb_array_elements(v_itens) it),
     'total_acordo_valor', (select coalesce(sum((it->>'saldo_acordo')::numeric),0) from jsonb_array_elements(v_itens) it),
@@ -440,5 +518,10 @@ begin
 end;
 $fn$;
 
-revoke all on function public.carteira_geral_previa(uuid[], text, text, boolean, jsonb) from public, anon;
-grant execute on function public.carteira_geral_previa(uuid[], text, text, boolean, jsonb) to authenticated;
+-- A assinatura de 5 argumentos ficou para tras: sem p_acordo_ids nao ha como
+-- escolher acordo de terceiro, e deixa-la viva permitiria chamar a versao que
+-- nao pergunta.
+drop function if exists public.carteira_geral_previa(uuid[], text, text, boolean, jsonb);
+
+revoke all on function public.carteira_geral_previa(uuid[], text, text, boolean, jsonb, uuid[]) from public, anon;
+grant execute on function public.carteira_geral_previa(uuid[], text, text, boolean, jsonb, uuid[]) to authenticated;

@@ -18,6 +18,7 @@ export const MIGRATIONS = [
   "20260924171251_carteira_geral_destino",
   "20260924171252_carteira_geral_painel_previa",
   "20260924171254_carteira_geral_mover",
+  "20260924171255_carteira_geral_blindar_automacoes",
 ];
 
 export const GESTAO = "amanda.seibel@aelbra.com.br";
@@ -63,7 +64,7 @@ create table public.alunos (
   nome text, cpf text,
   responsavel_atual_email text, responsavel_atual_nome text, responsavel_atual_em timestamptz,
   data_ultimo_acionamento timestamptz, status_acionamento text, proxima_acao text,
-  data_retorno date, hora_retorno text
+  data_retorno date, hora_retorno text, retorno_origem text, retorno_confirmado_em timestamptz
 );
 
 create table public.casos (
@@ -95,6 +96,14 @@ create table public.acordos_titulos (
 );
 
 create table public.acordo_titulo_vinculo (titulo_id uuid, ativo boolean default true);
+
+create table public.operador_agenda (
+  id uuid primary key default gen_random_uuid(),
+  aluno_id text, aluno_nome text not null, operador_email text not null, operador_nome text,
+  retorno_em timestamptz not null, titulo text not null default 'Retorno de atendimento',
+  tipo text not null default 'RETORNO', status text not null default 'PENDENTE',
+  criado_em timestamptz not null default now(), atualizado_em timestamptz not null default now()
+);
 
 create table public.aluno_movimentacoes (
   id bigserial primary key, aluno_id text not null, tipo text not null, descricao text,
@@ -200,6 +209,43 @@ begin
           coalesce(p_autor_nome,p_autor_email), p_autor_email, now());
 end; $$;
 
+-- Gatilhos de produção em volta do agendamento. Sem eles o teste de
+-- preservação passaria por acaso: são eles que apagam retorno_origem e
+-- retorno_confirmado_em, e que já protegem o acionamento.
+create or replace function public._acionamento_nao_volta_para_nulo() returns trigger
+language plpgsql as $$
+begin
+  if old.data_ultimo_acionamento is not null and new.data_ultimo_acionamento is null then
+    new.data_ultimo_acionamento := old.data_ultimo_acionamento;
+  end if;
+  if old.status_acionamento is not null and nullif(btrim(old.status_acionamento),'') is not null
+     and new.status_acionamento is null then
+    new.status_acionamento := old.status_acionamento;
+  end if;
+  return new;
+end; $$;
+create trigger trg_acionamento_nao_volta_para_nulo
+  before update of data_ultimo_acionamento, status_acionamento on public.alunos
+  for each row execute function public._acionamento_nao_volta_para_nulo();
+
+create or replace function public.limpar_retorno_origem() returns trigger
+language plpgsql as $$
+begin
+  if new.data_retorno is null then new.retorno_origem := null; end if;
+  return new;
+end; $$;
+create trigger trg_alunos_retorno_origem
+  before insert or update of data_retorno, retorno_origem on public.alunos
+  for each row execute function public.limpar_retorno_origem();
+
+create or replace function public.tg_aluno_reset_retorno_confirmado() returns trigger
+language plpgsql as $$
+begin new.retorno_confirmado_em := null; return new; end $$;
+create trigger trg_aluno_reset_retorno_confirmado
+  before update of data_retorno on public.alunos
+  for each row when (new.data_retorno is distinct from old.data_retorno)
+  execute function public.tg_aluno_reset_retorno_confirmado();
+
 -- Gatilho de produção: casos segue a ficha do aluno.
 create or replace function public._sync_casos_resp_aluno() returns trigger
 language plpgsql as $$
@@ -219,26 +265,164 @@ create trigger trg_sync_casos_resp_aluno after update of responsavel_atual_email
 // As rotinas automáticas de produção, no essencial: TODAS pescam em
 // operador_email IS NULL. É o que a Carteira Geral precisa driblar.
 const ROTINAS = `
+-- As rotinas de produção, reduzidas ao que decide -- mas com as ÂNCORAS do
+-- patch da migration 20260924171255 escritas exatamente como estão em
+-- produção (conferidas em 24/09/2026). Se alguém mudar a âncora na migration
+-- sem mudar aqui, a migration falha neste teste antes de falhar em produção.
+
 create or replace function public.pool_da_fila_livre() returns setof uuid
 language sql stable as $$
   select id from public.casos where operador_email is null
 $$;
 
--- assumir_caso_livre_aluno de produção, reduzido ao que decide: só pega caso
--- cujo operador_email é nulo.
+-- as duas portas de auto-atribuição da fila livre
 create or replace function public.assumir_caso_livre_aluno(p_aluno_id uuid)
-returns table (sucesso boolean, mensagem text)
-language plpgsql as $$
-declare v_email text := lower(coalesce(auth.jwt() ->> 'email','')); v_id uuid;
+returns table (sucesso boolean, mensagem text, a uuid, b uuid)
+language plpgsql security definer set search_path to 'public' as $$
+declare v_email text := lower(coalesce(auth.jwt() ->> 'email','')); v_nome text; v_id uuid;
 begin
+  v_nome := public.nome_operador_por_email(v_email); if v_nome is null then return query select false,'Operador nao ativo.',null::uuid,null::uuid; return; end if;
   select c.id into v_id from public.casos c
    where c.aluno_id = p_aluno_id and c.operador_email is null limit 1;
   if v_id is null then
-    return query select false, 'Este caso ja foi assumido por outro operador.'; return;
+    return query select false, 'Este caso ja foi assumido por outro operador.',null::uuid,null::uuid; return;
   end if;
   update public.casos set operador_email = v_email where id = v_id;
-  return query select true, 'Atendimento assumido.';
+  return query select true, 'Atendimento assumido.',null::uuid,null::uuid;
 end; $$;
+
+create or replace function public.assumir_caso_livre(p_caso_id uuid)
+returns table (sucesso boolean, mensagem text, caso_liberado uuid)
+language plpgsql security definer set search_path to 'public' as $$
+declare v_email text := lower(coalesce(auth.jwt() ->> 'email','')); v_nome text;
+begin
+  v_nome := public.nome_operador_por_email(v_email);
+  if v_nome is null then return query select false,'Operador nao ativo ou nao identificado.',null::uuid; return; end if;
+  update public.casos set operador_email = v_email where id = p_caso_id and operador_email is null;
+  return query select true, 'Atendimento assumido.', null::uuid;
+end; $$;
+
+create or replace function public.sistema_assumir_atendimento(p_aluno_id uuid)
+returns jsonb language plpgsql security definer set search_path to 'public','internal' as $$
+declare v_email text := lower(coalesce(auth.jwt()->>'email','')); v_nome text;
+begin
+  v_nome := internal.nome_operador_ativo(v_email); if v_nome is null then return jsonb_build_object('ok',false,'erro','NAO_E_OPERADOR_ATIVO'); end if;
+  perform internal.set_resp_aluno(p_aluno_id, v_email, v_nome, 'ASSUMIU_ATENDIMENTO', 'x', v_email, v_nome);
+  return jsonb_build_object('ok',true,'aluno_id',p_aluno_id);
+end; $$;
+
+create or replace function public.assumir_atendimento_aluno(p_chave_unificacao text, p_observacao text default null)
+returns table (sucesso boolean, mensagem text)
+language plpgsql security definer set search_path to 'public' as $$
+declare v_email text; v_nome text;
+begin
+  v_email := lower(coalesce(auth.jwt() ->> 'email', ''));
+  v_nome := public.nome_operador_por_email(v_email);
+  return query select true, 'Atendimento assumido por ' || v_nome || '.';
+end; $$;
+
+create or replace function public.nome_operador_por_email(p_email text) returns text
+language sql stable as $$ select upper(split_part(lower(coalesce(p_email,'')), '@', 1)) $$;
+
+create or replace function internal.nome_operador_ativo(p_email text) returns text
+language sql stable security definer set search_path to 'public' as $$
+  select u.nome from public.usuarios u
+   where lower(u.email)=lower(p_email) and u.ativo=true and u.perfil='operador' limit 1
+$$;
+
+-- as quatro rotinas automáticas, só com as âncoras
+create or replace function public.nivelamento_automatico_gestao(
+  p_dias integer default 10, p_aplicar boolean default true,
+  p_origens text[] default array['amanda.seibel@aelbra.com.br'::text])
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare v_n int;
+begin
+  create temp table _op on commit drop as
+  select u.email, u.nome
+    from public.usuarios u
+   where u.ativo and u.perfil = 'operador' and not (u.email = any(p_origens));
+  select count(*) into v_n from _op;
+  return jsonb_build_object('destinos', v_n);
+end; $$;
+
+create or replace function public.calibragem_simular_nivelamento_impl(p_criterio jsonb)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare v_n int;
+begin
+  create temp table _op on commit drop as
+    select u.email op_email, u.nome op_nome
+    from public.usuarios u
+    where u.ativo and u.perfil = 'operador';
+  select count(*) into v_n from _op;
+  return jsonb_build_object('operadores', v_n);
+end; $$;
+
+create or replace function public.reforcar_teto_operadores() returns integer
+language plpgsql security definer set search_path to 'public' as $$
+DECLARE v_op RECORD; v_total INT := 0;
+BEGIN
+  FOR v_op IN
+    SELECT operador_email, count(*) AS qtd
+    FROM public.casos
+    WHERE operador_email IS NOT NULL AND operador_email <> 'amanda.seibel@aelbra.com.br'
+    GROUP BY operador_email HAVING count(*) > 0
+  LOOP
+    v_total := v_total + 1;
+  END LOOP;
+  RETURN v_total;
+END; $$;
+
+create or replace function public.nivelar_medias_progressivo() returns integer
+language plpgsql security definer set search_path to 'public' as $$
+DECLARE v_media numeric; v_op RECORD; v_total INT := 0;
+BEGIN
+  SELECT round(avg(coalesce(total,0))::numeric,2) INTO v_media FROM public.casos WHERE operador_email IS NOT NULL AND operador_email <> 'amanda.seibel@aelbra.com.br';
+  FOR v_op IN SELECT operador_email, count(*) AS qtd FROM public.casos WHERE operador_email IS NOT NULL AND operador_email <> 'amanda.seibel@aelbra.com.br' GROUP BY operador_email LOOP
+    v_total := v_total + 1;
+  END LOOP;
+  RETURN v_total;
+END; $$;
+
+create or replace function public.reposicao_carteira_processar(p_max_pedidos integer default 5)
+returns jsonb language plpgsql security definer set search_path to 'public' as $$
+declare ped record; v_pulados int := 0;
+begin
+  for ped in select f.* from public.reposicao_carteira_fila f where f.processado_em is null loop
+    if not exists (select 1 from public.usuarios u where u.email = ped.operador_email and u.perfil = 'operador' and u.ativo = true) then
+      update public.reposicao_carteira_fila
+         set processado_em = now(), repostos = 0, erro = 'operador nao esta mais ativo'
+       where id = ped.id;
+      v_pulados := v_pulados + 1;
+      continue;
+    end if;
+    update public.reposicao_carteira_fila set processado_em = now(), repostos = 1 where id = ped.id;
+  end loop;
+  return jsonb_build_object('pulados', v_pulados);
+end; $$;
+
+create table public.reposicao_carteira_fila (
+  id bigserial primary key, operador_email text not null, operador_nome text,
+  tipo text not null default 'QUITADO', processado_em timestamptz, repostos int, erro text,
+  criado_em timestamptz not null default now()
+);
+
+create or replace function public.atribuir_responsavel_por_acordo() returns trigger
+language plpgsql security definer set search_path to 'public' as $$
+declare v_nome text;
+begin
+  if coalesce(new.operador_responsavel_email,'') = '' then return new; end if;
+  select nome into v_nome from public.usuarios where lower(email) = lower(new.operador_responsavel_email) limit 1;
+  insert into public.notificacoes (usuario_destino_email, titulo) values (new.operador_responsavel_email, 'Novo acordo');
+  return new;
+end; $$;
+
+create table public.notificacoes (
+  id uuid primary key default gen_random_uuid(),
+  usuario_destino_email text, titulo text, criado_em timestamptz default now()
+);
+create trigger trg_atribuir_responsavel_por_acordo
+  after insert or update of operador_responsavel_email, status on public.acordos
+  for each row execute function public.atribuir_responsavel_por_acordo();
 `;
 
 export async function montar() {
@@ -260,12 +444,38 @@ export async function montar() {
   return db;
 }
 
-// Um aluno com caso, mensalidade em aberto, acordo vivo e retorno agendado.
-export async function semear(db, { nome, dono, retorno = "2026-10-01", mensalidade = 1000, parcela = 2000, donoAcordo = null }) {
-  const aluno = (await q1(db, "insert into public.alunos (nome, responsavel_atual_email, responsavel_atual_nome, data_retorno) values ($1,$2,$3,$4) returning id", [nome, dono, dono, retorno])).id;
-  const caso = (await q1(db, "insert into public.casos (aluno_id,nome,cpf_limpo,operador_email,operador_nome,data_retorno) values ($1,$2,$3,$4,$5,$6) returning id", [aluno, nome, "11122233344", dono, dono, retorno])).id;
-  await db.query("insert into public.acordos_titulos (aluno_id,vencimento,valor_original,saldo_corrigido,situacao,status) values ($1,'2026-03-10',$2,$2,'ABERTO','em_aberto')", [aluno, mensalidade]);
-  const acordo = (await q1(db, "insert into public.acordos (aluno_id,status,numero_acordo,operador_responsavel_email,valor_total) values ($1,'ATIVO',777,$2,$3) returning id", [aluno, donoAcordo ?? dono, parcela])).id;
+// Um aluno com caso, mensalidade em aberto, acordo vivo, retorno agendado
+// (data + hora + origem) e a agenda do operador apontando para o dono.
+export async function semear(db, {
+  nome, dono, retorno = "2026-10-01", hora = "14:30", mensalidade = 1000,
+  parcela = 2000, donoAcordo = null, statusAcordo = "ATIVO",
+}) {
+  const aluno = (await q1(db,
+    `insert into public.alunos (nome, responsavel_atual_email, responsavel_atual_nome,
+        data_retorno, hora_retorno, retorno_origem, proxima_acao, retorno_confirmado_em,
+        data_ultimo_acionamento, status_acionamento)
+     values ($1,$2,$3,$4,$5,'OPERADOR','CONTATAR', now(), now(), 'MENSAGEM ENVIADA') returning id`,
+    [nome, dono, dono, retorno, hora])).id;
+
+  const caso = (await q1(db,
+    "insert into public.casos (aluno_id,nome,cpf_limpo,operador_email,operador_nome,data_retorno) values ($1,$2,$3,$4,$5,$6) returning id",
+    [aluno, nome, "11122233344", dono, dono, retorno])).id;
+
+  await db.query(
+    "insert into public.acordos_titulos (aluno_id,vencimento,valor_original,saldo_corrigido,situacao,status) values ($1,'2026-03-10',$2,$2,'ABERTO','em_aberto')",
+    [aluno, mensalidade]);
+
+  const acordo = (await q1(db,
+    "insert into public.acordos (aluno_id,status,numero_acordo,operador_responsavel_email,valor_total) values ($1,$2,777,$3,$4) returning id",
+    [aluno, statusAcordo, donoAcordo ?? dono, parcela])).id;
+
   await db.query("insert into public.parcelas (acordo_id,valor,vencimento,status) values ($1,$2,'2026-11-10','A_VENCER')", [acordo, parcela]);
+
+  if (dono) {
+    await db.query(
+      "insert into public.operador_agenda (aluno_id, aluno_nome, operador_email, operador_nome, retorno_em) values ($1,$2,$3,$4,$5)",
+      [aluno, nome, dono, dono, `${retorno}T${hora}:00Z`]);
+  }
+
   return { aluno, caso, acordo };
 }

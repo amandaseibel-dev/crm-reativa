@@ -59,12 +59,18 @@ const PREVIA = {
   destino_nome: "CARTEIRA GERAL",
   mover_acordos: true,
   total_alunos: 1,
-  total_acordos: 2,
+  total_acordos: 1,
+  acordos_de_terceiros: 1,
+  acordos_de_terceiros_selecionados: 0,
+  retornos_preservados: 1,
   total_valor: 3000,
   itens: [],
   conflitos: [
-    { tipo: "RETORNO_AGENDADO_SERA_LIMPO", nome: "MARIA DE TESTE", detalhe: "retorno em 2026-10-01" },
-    { tipo: "ACORDO_DE_OUTRO_DONO", nome: "MARIA DE TESTE", detalhe: "Acordo 123 está com cobranca05@aelbra.com.br e vai junto." },
+    { tipo: "RETORNO_AGENDADO_SEGUE", nome: "MARIA DE TESTE", detalhe: "Retorno de 2026-10-01 as 14:30 e preservado e passa a responder ao novo responsavel." },
+    { tipo: "ACORDO_DE_TERCEIRO_FICA", acordo_id: "ac-123", aluno_id: "11111111-1111-1111-1111-111111111111",
+      nome: "MARIA DE TESTE", numero: "123", status: "ATIVO", valor: "4500.00",
+      de_email: "cobranca05@aelbra.com.br",
+      detalhe: "Acordo 123 (ATIVO, R$ 4500.00) e de cobranca05@aelbra.com.br e FICA com essa pessoa. Selecione o acordo se quiser leva-lo." },
   ],
 };
 
@@ -79,7 +85,7 @@ vi.mock("../services/supabase", () => ({
       if (fn === "carteira_geral_previa") return Promise.resolve({ data: PREVIA, error: null });
       if (fn === "carteira_geral_mover")
         return Promise.resolve({
-          data: { alunos_movidos: 1, acordos_movidos: 2, destino_nome: "CARTEIRA GERAL", lote_id: "lote-1", total_recusados: 0 },
+          data: { alunos_movidos: 1, acordos_movidos: 1, retornos_preservados: 1, destino_nome: "CARTEIRA GERAL", lote_id: "lote-1", total_recusados: 0 },
           error: null,
         });
       return Promise.resolve({ data: null, error: null });
@@ -88,7 +94,7 @@ vi.mock("../services/supabase", () => ({
       select: () => ({
         eq: () => ({
           eq: () => ({
-            order: () => Promise.resolve({ data: [{ email: "cobranca05@aelbra.com.br", nome: "Luana", perfil: "operador", ativo: true, recebe_distribuicao_automatica: true }], error: null }),
+            order: () => Promise.resolve({ data: [{ email: "cobranca05@aelbra.com.br", nome: "Luana", perfil: "operador", ativo: true, recebe_novos_casos: true }], error: null }),
           }),
         }),
       }),
@@ -159,12 +165,47 @@ describe("Carteira Geral — remanejamento", () => {
     fireEvent.click(screen.getByLabelText("Selecionar MARIA DE TESTE"));
     fireEvent.click(screen.getByRole("button", { name: /Ver prévia/ }));
 
-    await waitFor(() => expect(screen.getByText("Retorno agendado que será limpo")).toBeTruthy());
-    expect(screen.getByText("Acordo de outro responsável indo junto")).toBeTruthy();
-    // a promessa que a gestão precisa ler antes de clicar
+    await waitFor(() => expect(screen.getByText("Retorno agendado que segue com o aluno")).toBeTruthy());
+    // as promessas que a gestão precisa ler antes de clicar
     expect(
       screen.getByText("O operador de cada pagamento — é ele que define honorário e comissão")
     ).toBeTruthy();
+    expect(
+      screen.getByText("O retorno agendado: data, hora e origem seguem com o aluno")
+    ).toBeTruthy();
+  });
+
+  it("lista o acordo de terceiro um a um, desmarcado, e não o manda junto", async () => {
+    await montar();
+    fireEvent.click(screen.getByLabelText("Selecionar MARIA DE TESTE"));
+    fireEvent.click(screen.getByRole("button", { name: /Ver prévia/ }));
+    await waitFor(() => expect(screen.getByText(/Acordos de terceiros \(0 de 1 selecionados\)/)).toBeTruthy());
+
+    // a linha traz número, dono, status e valor — tudo que decide
+    const linha = screen.getByLabelText("Levar acordo 123 de MARIA DE TESTE").closest("tr");
+    expect(linha.textContent).toMatch(/123/);
+    expect(linha.textContent).toMatch(/cobranca05@aelbra.com.br/);
+    expect(linha.textContent).toMatch(/ATIVO/);
+    expect(linha.textContent).toMatch(/4\.500,00/);
+
+    // desmarcado: a prévia foi pedida sem nenhum acordo de terceiro
+    const args = chamadas.rpc.find((c) => c.fn === "carteira_geral_previa").args;
+    expect(args.p_acordo_ids).toEqual([]);
+  });
+
+  it("marcar o acordo de terceiro o envia na próxima prévia", async () => {
+    await montar();
+    fireEvent.click(screen.getByLabelText("Selecionar MARIA DE TESTE"));
+    fireEvent.click(screen.getByRole("button", { name: /Ver prévia/ }));
+    await waitFor(() => expect(screen.getByLabelText("Levar acordo 123 de MARIA DE TESTE")).toBeTruthy());
+
+    fireEvent.click(screen.getByLabelText("Levar acordo 123 de MARIA DE TESTE"));
+    fireEvent.click(screen.getByRole("button", { name: /Recalcular prévia com esta seleção/ }));
+
+    await waitFor(() => {
+      const chamadasPrevia = chamadas.rpc.filter((c) => c.fn === "carteira_geral_previa");
+      expect(chamadasPrevia[chamadasPrevia.length - 1].args.p_acordo_ids).toEqual(["ac-123"]);
+    });
   });
 
   it("manda para a prévia exatamente os alunos marcados e o destino escolhido", async () => {
@@ -197,6 +238,9 @@ describe("Carteira Geral — remanejamento", () => {
     expect(args.p_previa_id).toBe("99999999-9999-9999-9999-999999999999");
     expect(args.p_motivo).toBe("saída da Olga");
     expect(args).not.toHaveProperty("p_aluno_ids");
+    // a execução não decide mais nada sobre acordo: quem decidiu foi a prévia
+    expect(args).not.toHaveProperty("p_mover_acordos");
+    expect(args).not.toHaveProperty("p_acordo_ids");
   });
 
   it("trocar o destino invalida a prévia já gerada", async () => {

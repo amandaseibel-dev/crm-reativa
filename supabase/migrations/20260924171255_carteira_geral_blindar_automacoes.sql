@@ -20,6 +20,11 @@
 --  (c) reposicao_carteira_processar repoe ate 500 para quem fecha um caso.
 --      Sem um interruptor, repor e outra porta de volta.
 --
+--  (c2) E a porta mais larga de todas: `assumir_caso_livre` e irmas. Nenhuma
+--      distribuicao precisa acontecer para a carteira voltar — basta a propria
+--      pessoa clicar em "assumir" na fila livre. Recolher a carteira de alguem
+--      e deixar essa porta aberta e teatro.
+--
 --  (d) atribuir_responsavel_por_acordo dispara notificacao a cada troca de dono
 --      de acordo. Recolher a carteira da Olga geraria ~356 notificacoes para uma
 --      caixa que nao existe.
@@ -89,7 +94,7 @@ begin
   perform internal.patch_funcao_ancorada(
     'public', 'nivelamento_automatico_gestao',
     'where u.ativo and u.perfil = ''operador'' and not (u.email = any(p_origens));',
-    'where u.ativo and u.perfil = ''operador'' and coalesce(u.recebe_distribuicao_automatica, true) and not (u.email = any(p_origens));',
+    'where u.ativo and u.perfil = ''operador'' and coalesce(u.recebe_novos_casos, true) and not (u.email = any(p_origens));',
     1);
 
   -- (a2) A calibragem que a gestao roda na tela usa a mesma regra, para que a
@@ -98,7 +103,7 @@ begin
   perform internal.patch_funcao_ancorada(
     'public', 'calibragem_simular_nivelamento_impl',
     'where u.ativo and u.perfil = ''operador''',
-    'where u.ativo and u.perfil = ''operador'' and coalesce(u.recebe_distribuicao_automatica, true)',
+    'where u.ativo and u.perfil = ''operador'' and coalesce(u.recebe_novos_casos, true)',
     1);
 
   -- (b) Teto e nivelamento por media so olham OPERADOR ATIVO de verdade.
@@ -121,13 +126,50 @@ begin
   perform internal.patch_funcao_ancorada(
     'public', 'reposicao_carteira_processar',
     'where u.email = ped.operador_email and u.perfil = ''operador'' and u.ativo = true) then',
-    'where u.email = ped.operador_email and u.perfil = ''operador'' and u.ativo = true and coalesce(u.recebe_distribuicao_automatica, true)) then',
+    'where u.email = ped.operador_email and u.perfil = ''operador'' and u.ativo = true and coalesce(u.recebe_novos_casos, true)) then',
     1);
 
   perform internal.patch_funcao_ancorada(
     'public', 'reposicao_carteira_processar',
     'erro = ''operador nao esta mais ativo''',
-    'erro = ''operador inativo ou fora da distribuicao automatica''',
+    'erro = ''operador inativo ou fora da entrada de casos novos''',
+    1);
+
+  -- (c2) As quatro portas de auto-atribuicao passam pelo mesmo flag. A regra
+  -- mora em internal.operador_recebe_novos_casos() -- uma leitura so, para nao
+  -- existirem quatro versoes dela. Nenhuma delas ganha permissao nova: o que
+  -- muda e que o operador desligado recebe a mesma recusa que ja recebia
+  -- quando nao era operador ativo.
+  --
+  -- Fica de fora, de proposito, `sistema_assumir_receptivo`: ali o aluno esta
+  -- no telefone. Recusar o atendimento receptivo por causa de um interruptor
+  -- de carteira deixaria a pessoa sem quem a atendesse.
+  perform internal.patch_funcao_ancorada(
+    'public', 'assumir_caso_livre',
+    'if v_nome is null then return query select false,''Operador nao ativo ou nao identificado.'',null::uuid; return; end if;',
+    'if v_nome is null then return query select false,''Operador nao ativo ou nao identificado.'',null::uuid; return; end if;'
+      || E'\n  if not internal.operador_recebe_novos_casos(v_email) then return query select false,''Sua carteira esta fechada para casos novos. Fale com a gestao.'',null::uuid; return; end if;',
+    1);
+
+  perform internal.patch_funcao_ancorada(
+    'public', 'assumir_caso_livre_aluno',
+    'if v_nome is null then return query select false,''Operador nao ativo.'',null::uuid,null::uuid; return; end if;',
+    'if v_nome is null then return query select false,''Operador nao ativo.'',null::uuid,null::uuid; return; end if;'
+      || E'\n  if not internal.operador_recebe_novos_casos(v_email) then return query select false,''Sua carteira esta fechada para casos novos. Fale com a gestao.'',null::uuid,null::uuid; return; end if;',
+    1);
+
+  perform internal.patch_funcao_ancorada(
+    'public', 'sistema_assumir_atendimento',
+    'if v_nome is null then return jsonb_build_object(''ok'',false,''erro'',''NAO_E_OPERADOR_ATIVO''); end if;',
+    'if v_nome is null then return jsonb_build_object(''ok'',false,''erro'',''NAO_E_OPERADOR_ATIVO''); end if;'
+      || E'\n  if not internal.operador_recebe_novos_casos(v_email) then return jsonb_build_object(''ok'',false,''erro'',''CARTEIRA_FECHADA_PARA_NOVOS'',''mensagem'',''Sua carteira esta fechada para casos novos. Fale com a gestao.''); end if;',
+    1);
+
+  perform internal.patch_funcao_ancorada(
+    'public', 'assumir_atendimento_aluno',
+    'v_nome := public.nome_operador_por_email(v_email);',
+    'v_nome := public.nome_operador_por_email(v_email);'
+      || E'\n  if not internal.operador_recebe_novos_casos(v_email) then return query select false, ''Sua carteira esta fechada para casos novos. Fale com a gestao.''; return; end if;',
     1);
 
   -- (d) Sem notificacao para a caixa da Carteira Geral, que nao existe.
@@ -141,8 +183,15 @@ begin
 end;
 $patch$;
 
--- O gatilho (d) passou a depender do schema internal: garante o search_path.
+-- Todas as funcoes tocadas passaram a chamar algo do schema `internal`:
+-- garante o search_path de cada uma. (assumir_caso_livre_aluno e
+-- sistema_assumir_atendimento ja o tinham; repetir e inofensivo e deixa a
+-- lista completa para quem ler depois.)
 alter function public.atribuir_responsavel_por_acordo() set search_path to 'public', 'internal';
+alter function public.assumir_caso_livre(uuid) set search_path to 'public', 'internal';
+alter function public.assumir_caso_livre_aluno(uuid) set search_path to 'public', 'internal';
+alter function public.sistema_assumir_atendimento(uuid) set search_path to 'public', 'internal';
+alter function public.assumir_atendimento_aluno(text, text) set search_path to 'public', 'internal';
 
 -- ---------------------------------------------------------------------------
 -- Vigia: uma consulta que responde "a Carteira Geral vazou?".
@@ -160,10 +209,10 @@ as $fn$
                            where lower(coalesce(operador_email,'')) = internal.carteira_geral_email()),
     'acordos_na_carteira_geral', (select count(*) from public.acordos
                                    where lower(coalesce(operador_responsavel_email,'')) = internal.carteira_geral_email()),
-    'operadores_sem_distribuicao', (select coalesce(jsonb_agg(nome order by nome), '[]'::jsonb)
+    'operadores_sem_entrada_de_casos', (select coalesce(jsonb_agg(nome order by nome), '[]'::jsonb)
                                       from public.usuarios
                                      where perfil = 'operador' and ativo
-                                       and not coalesce(recebe_distribuicao_automatica, true)),
+                                       and not coalesce(recebe_novos_casos, true)),
     -- casos que sairam da Carteira Geral sem passar por carteira_geral_mover:
     -- a auditoria registra toda saida legitima.
     'saidas_sem_auditoria', (

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   CARTEIRA_GERAL_EMAIL,
+  acordosDeTerceiros,
   agruparConflitos,
   classeEmAlerta,
   consolidarPorAno,
@@ -68,14 +69,14 @@ describe("Carteira Geral — consolidação por ano", () => {
 describe("Carteira Geral — conflitos", () => {
   it("agrupa por tipo e conta, em vez de repetir a mesma linha", () => {
     const grupos = agruparConflitos([
-      { tipo: "RETORNO_AGENDADO_SERA_LIMPO", nome: "A", detalhe: "a" },
-      { tipo: "RETORNO_AGENDADO_SERA_LIMPO", nome: "B", detalhe: "b" },
-      { tipo: "RETORNO_AGENDADO_SERA_LIMPO", nome: "C", detalhe: "c" },
-      { tipo: "RETORNO_AGENDADO_SERA_LIMPO", nome: "D", detalhe: "d" },
+      { tipo: "RETORNO_AGENDADO_SEGUE", nome: "A", detalhe: "a" },
+      { tipo: "RETORNO_AGENDADO_SEGUE", nome: "B", detalhe: "b" },
+      { tipo: "RETORNO_AGENDADO_SEGUE", nome: "C", detalhe: "c" },
+      { tipo: "RETORNO_AGENDADO_SEGUE", nome: "D", detalhe: "d" },
       { tipo: "TITULARIDADE_DIVERGENTE", nome: "E", detalhe: "e" },
     ]);
 
-    const retorno = grupos.find((g) => g.tipo === "RETORNO_AGENDADO_SERA_LIMPO");
+    const retorno = grupos.find((g) => g.tipo === "RETORNO_AGENDADO_SEGUE");
     expect(retorno.total).toBe(4);
     expect(retorno.exemplos).toHaveLength(3); // amostra, não a lista inteira
   });
@@ -84,15 +85,48 @@ describe("Carteira Geral — conflitos", () => {
     const grupos = agruparConflitos([
       { tipo: "CASO_ENCERRADO", detalhe: "x" },
       { tipo: "TETO_DO_OPERADOR", detalhe: "y" },
-      { tipo: "RETORNO_AGENDADO_SERA_LIMPO", detalhe: "z" },
+      { tipo: "RETORNO_AGENDADO_SEGUE", detalhe: "z" },
     ]);
     expect(grupos[0].tipo).toBe("TETO_DO_OPERADOR");
     expect(grupos[grupos.length - 1].tipo).toBe("CASO_ENCERRADO");
   });
 
   it("dá nome em português para o acordo que fica para trás", () => {
-    const [grupo] = agruparConflitos([{ tipo: "ACORDO_FICA_COM_O_DONO_ATUAL", detalhe: "x" }]);
+    const [grupo] = agruparConflitos([{ tipo: "ACORDO_DO_DONO_FICA", detalhe: "x" }]);
     expect(grupo.rotulo).toMatch(/NÃO vai junto/);
+  });
+});
+
+describe("Carteira Geral — acordos de terceiros", () => {
+  const CONFLITOS = [
+    { tipo: "RETORNO_AGENDADO_SEGUE", nome: "A", detalhe: "x" },
+    { tipo: "ACORDO_DE_TERCEIRO_FICA", acordo_id: "ac-1", aluno_id: "al-1", nome: "MARIA",
+      numero: "777", status: "ATIVO", valor: "1500.00", de_email: "cobranca05@aelbra.com.br" },
+    { tipo: "ACORDO_DE_TERCEIRO_SELECIONADO", acordo_id: "ac-2", aluno_id: "al-2", nome: "JOAO",
+      numero: "888", status: "ATIVO", valor: "9000.00", de_email: "cobranca06@aelbra.com.br" },
+  ];
+
+  it("extrai um item por acordo, com tudo que a gestão precisa para decidir", () => {
+    const lista = acordosDeTerceiros(CONFLITOS);
+    expect(lista).toHaveLength(2);
+    // maior valor primeiro: é onde a decisão pesa
+    expect(lista[0]).toMatchObject({
+      acordo_id: "ac-2", aluno: "JOAO", numero: "888", status: "ATIVO",
+      valor: 9000, de_email: "cobranca06@aelbra.com.br", selecionado: true,
+    });
+    expect(lista[1].selecionado).toBe(false);
+  });
+
+  it("não é agregado: 155 acordos viram 155 decisões, não uma", () => {
+    const muitos = Array.from({ length: 155 }, (_, i) => ({
+      tipo: "ACORDO_DE_TERCEIRO_FICA", acordo_id: `ac-${i}`, nome: "X", valor: String(i),
+    }));
+    expect(acordosDeTerceiros(muitos)).toHaveLength(155);
+  });
+
+  it("ignora conflito que não é de acordo de terceiro", () => {
+    expect(acordosDeTerceiros([{ tipo: "CASO_ENCERRADO" }])).toEqual([]);
+    expect(acordosDeTerceiros(null)).toEqual([]);
   });
 });
 

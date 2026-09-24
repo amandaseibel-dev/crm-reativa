@@ -222,12 +222,24 @@ A execução **não refaz a consulta**: lê a lista gravada em
 `carteira_geral_previas.itens`. Item cujo dono mudou entre a prévia e o clique é
 **recusado** e volta no resultado. Mesmo contrato das Ações Massivas.
 
-### D4 — Interruptor de distribuição automática
+### D4 — Interruptor de entrada de casos novos
 
-Coluna nova `usuarios.recebe_distribuicao_automatica` (default `true`).
-Desligada, o operador **para de receber** por rotina automática — mas continua
-ativo, mantém o que já é dele e continua podendo assumir da fila livre.
-É o que faz "não devolver os casos à Olga" valer no dia seguinte.
+Coluna nova `usuarios.recebe_novos_casos` (default `true`), lida por
+`internal.operador_recebe_novos_casos()` — uma leitura só, para não existirem
+versões diferentes da regra espalhadas.
+
+Desligada, fecha as **duas** portas de entrada:
+
+1. distribuição automática (nivelamento das 09:20, reposição, calibragem);
+2. auto-atribuição da fila livre (`assumir_caso_livre`, `assumir_caso_livre_aluno`,
+   `sistema_assumir_atendimento`, `assumir_atendimento_aluno`).
+
+A segunda é a mais larga: nenhuma distribuição precisa acontecer para a carteira
+voltar — basta a própria pessoa clicar em "assumir".
+
+O que **não** faz: não desativa o operador, não tira o que já é dele e não
+impede a gestão de atribuir manualmente. `sistema_assumir_receptivo` fica de
+fora de propósito: ali o aluno está no telefone.
 
 ### D5 — Patch ancorado, não reescrita
 
@@ -238,11 +250,24 @@ bater, **a migration falha**, não aplica pela metade. O repositório tem drift
 conhecido entre migrations e banco (`docs/RUNBOOK-MIGRATIONS.md`); retypar 200
 linhas com regex e escape seria a forma mais fácil de introduzir bug silencioso.
 
-### D6 — Acordo vai junto por padrão
+### D6 — Acordo do dono vai junto; acordo de TERCEIRO, só escolhido um a um
 
-Sem levar o acordo, `_aluno_segue_dono_do_acordo` devolve o aluno ao dono do
-acordo ativo quando não há mensalidade em aberto. A opção existe e pode ser
-desmarcada, mas a prévia avisa caso a caso.
+Dois grupos, duas regras:
+
+- **Acordo cujo responsável é o dono do caso** → vai junto (opção ligada por
+  padrão). Deixá-lo para trás faz `_aluno_segue_dono_do_acordo` devolver o aluno
+  ao dono antigo quando não há mensalidade em aberto.
+- **Acordo de terceiro** → **fica**, a menos que o id esteja em `p_acordo_ids`.
+  Cada um aparece na prévia numa linha própria, com número, valor, status e de
+  quem é.
+
+Um acordo de terceiro é trabalho de negociação de alguém que não está sendo
+remanejado. Levar 159 deles embutidos num lote de 545 alunos seria mover a
+custódia de nove pessoas sem que ninguém olhasse um por um. **Não existe forma
+de mover acordo de terceiro sem citar o id dele.**
+
+Consequência medida de deixá-los: o gatilho realinha **2** dos 545 alunos ao
+dono do acordo. Nos outros há mensalidade em aberto e ele não age.
 
 **Isso não reescreve autoria.** Muda `acordos.operador_responsavel_email`
 (custódia). Não toca em `criado_por_email`, `confirmado_por_email`,
@@ -257,12 +282,56 @@ em dois anos conta nos dois. A tela diz isso em texto.
 (`alunos.semestre_divida` é `venc_max` e não serve para corte por período —
 `docs/DIAGNOSTICO-ESTRUTURAL-2026-09-23.md`.)
 
-### D8 — Desfazer por reconstrução
+### D8 — Desfazer por reconstrução, sem atropelar trabalho posterior
 
 Este projeto **não tem PITR**. `carteira_geral_desfazer_lote` devolve cada
-aluno/acordo ao e-mail registrado na auditoria, por id exato, sem tocar no que
-entrou depois. A auditoria é append-only: só `desfeito_em`/`desfeito_por_email`
-mudam, nada é apagado.
+aluno/acordo ao e-mail registrado na auditoria, por id exato.
+
+E entre o lote e o desfazer a operação continuou trabalhando: alguém pode ter
+assumido o caso da fila livre, a gestão pode ter movido de novo, um acordo pode
+ter sido quitado. Cada item só volta se **tudo** ainda estiver como o lote
+deixou — `casos.operador_email`, `alunos.responsavel_atual_email` e, para cada
+acordo movido, responsável **e** status. Qualquer divergência **recusa o aluno
+inteiro** (não desfaz pela metade) e volta no resultado com o motivo; a linha da
+auditoria fica sem marca de desfeito, e o lote aparece como parcialmente vivo.
+
+A auditoria é append-only: só `desfeito_em`/`desfeito_por_email` mudam.
+
+### D9 — O retorno agendado sobrevive à troca de custódia
+
+`internal.set_resp_aluno` zera `data_retorno`, `hora_retorno` e `proxima_acao`
+em toda troca de dono; por tabela, `limpar_retorno_origem` apaga
+`retorno_origem` e `tg_aluno_reset_retorno_confirmado` apaga
+`retorno_confirmado_em`. Faz sentido quando o caso vai para outra pessoa começar
+do zero — **não** faz quando é a gestão recolhendo uma carteira: um retorno
+agendado é compromisso assumido com o aluno.
+
+`internal.set_resp_aluno` **não foi alterada** (17 funções escrevem por ela).
+`internal.carteira_geral_trocar_dono` lê o agendamento antes, devolve depois e
+reaponta `operador_agenda` para o novo responsável, mantendo `retorno_em`.
+Vale na ida e na volta do desfazer.
+
+`data_ultimo_acionamento` e `status_acionamento` já estavam protegidos pelo
+gatilho `_acionamento_nao_volta_para_nulo` — o teste cobre isso para o caso de
+alguém mexer nele.
+
+**Exceção, na fila livre:** ali não há novo responsável. O compromisso continua
+no aluno (data, hora e origem), e quem assumir depois o herda — mas a linha de
+`operador_agenda` é encerrada com `CANCELADO_LIBERACAO`, o mesmo marcador que
+`assumir_caso_livre_aluno` já usa. Manter o compromisso na agenda de quem perdeu
+o caso seria pior do que encerrá-lo.
+
+### D10 — A execução não decide nada
+
+`carteira_geral_mover` perdeu o parâmetro `p_mover_acordos`: quem decide é a
+prévia, acordo por acordo, e a execução só honra o plano congelado. A assinatura
+antiga foi removida (`drop function`) — deixá-la viva permitiria mover acordo de
+terceiro sem ninguém ter olhado.
+
+Antes de tocar em qualquer linha, a execução **revalida**: o dono do caso e da
+ficha, e de cada acordo marcado o responsável **e** o status. Um acordo que
+virou QUITADO ou CANCELADO depois da prévia não é mais o mesmo objeto e não
+viaja em silêncio — é recusado, e o aluno segue.
 
 ---
 
@@ -275,7 +344,10 @@ mudam, nada é apagado.
   não depende dele. Mudar isso é decisão à parte.
 - Os três defeitos do §3 (nomes trocados em `nome_operador_por_email`,
   `if (false)` em `AlterarOperadorResponsavel.jsx`) não foram tocados.
-- Um operador com distribuição automática desligada **continua podendo assumir
-  da fila livre**, porque essa é a regra que você definiu ("operadores só
-  assumem o que está explicitamente na fila livre"). Se quiser bloquear também
-  isso, é um segundo interruptor.
+- `sistema_assumir_receptivo` **não** foi bloqueado pelo interruptor: no
+  receptivo o aluno está no telefone, e recusar o atendimento por causa de um
+  flag de carteira deixaria a pessoa sem quem a atendesse.
+- Os 8 alunos cuja ficha aponta para a Olga **sem caso** não aparecem na
+  Carteira Geral (a tela parte de `casos`). É correção de cadastro.
+- Os 83 acordos da Olga que vivem em casos de **outros** operadores não entram
+  no lote dela: mover o acordo exigiria mover o caso do outro operador.

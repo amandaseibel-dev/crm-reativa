@@ -45,18 +45,41 @@ on conflict (email) do update
        ativo = excluded.ativo,
        operador_nome = excluded.operador_nome;
 
--- 2. Quem nao recebe distribuicao automatica ------------------------------
+-- 2. Quem nao recebe caso novo -------------------------------------------
 --
--- Recolher a carteira de alguem para a Carteira Geral nao adianta nada se a
--- rotina das 09:20 (nivelamento_automatico_gestao) devolver casos novos para a
--- mesma pessoa na manha seguinte. Este flag e o interruptor: o operador
--- continua ativo, continua com o que ja tem e continua podendo assumir da fila
--- livre — so para de RECEBER automaticamente.
+-- Recolher a carteira de alguem nao adianta nada se a rotina das 09:20
+-- (nivelamento_automatico_gestao) devolver casos novos na manha seguinte — nem
+-- se a propria pessoa puder se servir da fila livre no minuto seguinte. Este
+-- flag fecha as DUAS portas de entrada:
+--   . distribuicao automatica (nivelamento, reposicao, calibragem)
+--   . auto-atribuicao da fila livre (assumir_caso_livre e irmas)
+--
+-- O que ele NAO faz: nao desativa o operador, nao tira o que ja e dele e nao
+-- impede a gestao de atribuir manualmente. E "parou de entrar coisa nova", nao
+-- "saiu do ar" — para isso existe `usuarios.ativo`.
 alter table public.usuarios
-  add column if not exists recebe_distribuicao_automatica boolean not null default true;
+  add column if not exists recebe_novos_casos boolean not null default true;
 
-comment on column public.usuarios.recebe_distribuicao_automatica is
-  'false = operador nao recebe caso por rotina automatica (nivelamento, reposicao, calibragem). Nao bloqueia assumir da fila livre nem tira o que ja e dele.';
+comment on column public.usuarios.recebe_novos_casos is
+  'false = operador nao recebe caso novo: nem por rotina automatica (nivelamento, reposicao, calibragem) nem assumindo da fila livre. Nao desativa o operador e nao tira o que ja e dele.';
+
+-- Leitura unica da regra, para nao existirem duas versoes dela espalhadas
+-- pelas funcoes de assumir. Responde: esta pessoa pode receber caso novo?
+create or replace function internal.operador_recebe_novos_casos(p_email text)
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public'
+as $fn$
+  select coalesce((select u.recebe_novos_casos
+                     from public.usuarios u
+                    where lower(u.email) = lower(btrim(coalesce(p_email,'')))
+                    limit 1), true);
+$fn$;
+
+comment on function internal.operador_recebe_novos_casos(text) is
+  'Porta unica do flag recebe_novos_casos. Default true: e-mail desconhecido nunca e bloqueado por engano.';
 
 -- 3. Previa (o que a gestao ve ANTES de confirmar) ------------------------
 
