@@ -170,8 +170,24 @@ values ('portador_202_ciclo_diario', true),
 on conflict (nome) do nothing;
 
 -- 4) O cron do vigia passa a rodar as duas coisas, na mesma janela de 09h10.
+--
+-- ATENCAO AO CORPO. O comando deste cron NAO e `select invariantes_rodar()`:
+-- e um bloco `do` que consulta `sistema_sob_carga()` e DESISTE quando o banco
+-- esta sob carga. Reagendar com um `select` simples apagaria essa protecao sem
+-- ninguem perceber -- o vigia passaria a rodar 29 invariantes em cima de um
+-- banco ja sofrendo. O bloco e preservado na integra; a unica mudanca e o
+-- `perform` novo na ultima linha.
 select cron.unschedule('vigia_invariantes_diario')
  where exists (select 1 from cron.job where jobname = 'vigia_invariantes_diario');
 
-select cron.schedule('vigia_invariantes_diario', '10 9 * * *',
-  'select public.invariantes_rodar(); select public.prime_portador_202_vigia();');
+select cron.schedule('vigia_invariantes_diario', '10 9 * * *', $cron$
+  do $inner$
+  declare v_carga jsonb;
+  begin
+    v_carga := public.sistema_sob_carga();
+    if coalesce((v_carga->>'sob_carga')::boolean, false) then return; end if;
+    perform public.invariantes_rodar();
+    perform public.prime_portador_202_vigia();
+  end
+  $inner$;
+  $cron$);

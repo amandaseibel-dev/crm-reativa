@@ -106,7 +106,17 @@ describe("vigia do ciclo diario do portador 202", () => {
 
   it("o cron do vigia roda as duas coisas, no mesmo horario", () => {
     expect(codigo).toMatch(/cron\.schedule\('vigia_invariantes_diario',\s*'10 9 \* \* \*'/);
-    expect(codigo).toMatch(/invariantes_rodar\(\);\s*select public\.prime_portador_202_vigia\(\)/);
+    expect(codigo).toMatch(/perform public\.invariantes_rodar\(\);[\s\S]{0,120}perform public\.prime_portador_202_vigia\(\)/);
+  });
+
+  it("o reagendamento preserva a guarda de carga do vigia", () => {
+    // O comando do cron NAO e um `select` simples: e um bloco `do` que desiste
+    // quando `sistema_sob_carga()` acusa carga. Reagendar sem ele apagaria a
+    // protecao silenciosamente.
+    const i = codigo.indexOf("cron.schedule('vigia_invariantes_diario'");
+    const bloco = codigo.slice(i);
+    expect(bloco).toMatch(/sistema_sob_carga\(\)/);
+    expect(bloco).toMatch(/if coalesce\(\(v_carga->>'sob_carga'\)::boolean, false\) then return; end if;/);
   });
 
   it("nao reescreve invariantes_rodar", () => {
