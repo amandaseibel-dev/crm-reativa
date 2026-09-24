@@ -53,6 +53,40 @@ export default function CarteiraGeral() {
   const [ocupado, setOcupado] = useState(false);
   const emVooRef = useRef(false);
 
+  const carregarOperadores = useCallback(async () => {
+    const { data } = await supabase
+      .from("usuarios")
+      .select("email, nome, perfil, ativo, recebe_novos_casos")
+      .eq("ativo", true)
+      .eq("perfil", "operador")
+      .order("nome");
+    if (Array.isArray(data)) setOperadores(data);
+  }, []);
+
+  async function alternarRecebimento(op) {
+    const fechar = op.recebe_novos_casos !== false;
+    const motivoEntrada = window.prompt(
+      fechar
+        ? `Fechar a entrada de casos novos de ${op.nome}?\n\nEla para de receber por rotina automática E de assumir da fila livre.\nNão perde o que já é dela. Motivo:`
+        : `Reabrir a entrada de casos novos de ${op.nome}? Motivo:`
+    );
+    if (motivoEntrada === null) return;
+
+    setOcupado(true);
+    const { error } = await supabase.rpc("carteira_geral_definir_recebimento", {
+      p_operador_email: op.email,
+      p_recebe: !fechar,
+      p_motivo: motivoEntrada,
+    });
+    setOcupado(false);
+    if (error) {
+      setAviso("Não foi possível mudar: " + (error.message || ""));
+      return;
+    }
+    setAviso(`${op.nome}: entrada de casos novos ${fechar ? "fechada" : "reaberta"}.`);
+    carregarOperadores();
+  }
+
   const filtrosRpc = useMemo(
     () => ({
       responsavel: filtros.responsavel || null,
@@ -93,20 +127,9 @@ export default function CarteiraGeral() {
   }, [carregar]);
 
   useEffect(() => {
-    let vivo = true;
-    supabase
-      .from("usuarios")
-      .select("email, nome, perfil, ativo, recebe_novos_casos")
-      .eq("ativo", true)
-      .eq("perfil", "operador")
-      .order("nome")
-      .then(({ data }) => {
-        if (vivo && Array.isArray(data)) setOperadores(data);
-      });
-    return () => {
-      vivo = false;
-    };
-  }, []);
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    carregarOperadores();
+  }, [carregarOperadores]);
 
   const porAno = useMemo(() => consolidarPorAno(painel?.por_ano), [painel]);
   const conflitos = useMemo(() => agruparConflitos(previa?.conflitos), [previa]);
@@ -430,6 +453,50 @@ export default function CarteiraGeral() {
             </tbody>
           </table>
         )}
+      </section>
+
+      {/* ---------------- entrada de casos novos ---------------- */}
+      <section style={cartao}>
+        <h2 style={secao}>Entrada de casos novos</h2>
+        <p style={nota}>
+          Recolher a carteira de alguém não adianta se a máquina devolver casos na manhã seguinte —
+          nem se a própria pessoa se servir da fila livre. Fechar aqui corta as duas portas:
+          distribuição automática (nivelamento das 09:20, reposição, calibragem) e auto-atribuição
+          (fila livre, atendimento e receptivo). <strong>Não desativa a pessoa</strong> e não tira o
+          que já é dela — para desligar de vez, é o cadastro em Usuários.
+        </p>
+        <table style={tabela}>
+          <thead>
+            <tr>
+              <th style={th}>Operador</th>
+              <th style={th}>Entrada</th>
+              <th style={th} />
+            </tr>
+          </thead>
+          <tbody>
+            {operadores.map((o) => {
+              const fechada = o.recebe_novos_casos === false;
+              return (
+                <tr key={o.email}>
+                  <td style={td}>{o.nome}</td>
+                  <td style={{ ...td, color: fechada ? "var(--rv-ambar-texto)" : undefined }}>
+                    {fechada ? "Fechada" : "Aberta"}
+                  </td>
+                  <td style={td}>
+                    <button
+                      type="button"
+                      onClick={() => alternarRecebimento(o)}
+                      disabled={ocupado}
+                      style={{ ...botao, padding: "5px 12px", background: fechada ? "#374151" : "var(--rv-azul)" }}
+                    >
+                      {fechada ? `Reabrir ${o.nome}` : `Fechar ${o.nome}`}
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
       </section>
 
       {/* ---------------- movimentar ---------------- */}

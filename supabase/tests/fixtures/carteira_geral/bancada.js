@@ -64,7 +64,8 @@ create table public.alunos (
   nome text, cpf text,
   responsavel_atual_email text, responsavel_atual_nome text, responsavel_atual_em timestamptz,
   data_ultimo_acionamento timestamptz, status_acionamento text, proxima_acao text,
-  data_retorno date, hora_retorno text, retorno_origem text, retorno_confirmado_em timestamptz
+  data_retorno date, hora_retorno text, retorno_origem text, retorno_confirmado_em timestamptz,
+  operador_email text, operador_nome text, operador text
 );
 
 create table public.casos (
@@ -324,11 +325,97 @@ end; $$;
 create or replace function public.nome_operador_por_email(p_email text) returns text
 language sql stable as $$ select upper(split_part(lower(coalesce(p_email,'')), '@', 1)) $$;
 
+-- Igual a produção: exige ativo, e abre exceção para os três e-mails da gestão.
 create or replace function internal.nome_operador_ativo(p_email text) returns text
 language sql stable security definer set search_path to 'public' as $$
   select u.nome from public.usuarios u
-   where lower(u.email)=lower(p_email) and u.ativo=true and u.perfil='operador' limit 1
+   where lower(u.email)=lower(p_email) and u.ativo=true
+     and (u.perfil='operador' or lower(u.email) in
+          ('cobranca07@aelbra.com.br','amanda.seibel@aelbra.com.br','cobranca04@aelbra.com.br'))
+   limit 1
 $$;
+
+-- Receptivo: o aluno está no telefone e quem atende leva o caso. Reduzido ao
+-- que decide, com a âncora exata de produção.
+create or replace function public.sistema_assumir_receptivo(
+  p_aluno_id uuid, p_status text, p_observacao text,
+  p_data_retorno date default null, p_hora_retorno text default null)
+returns jsonb language plpgsql security definer set search_path to 'public','internal' as $$
+declare v_email text; v_nome text;
+begin
+  v_email := lower(coalesce(auth.jwt()->>'email','')); if v_email='' then return jsonb_build_object('ok',false,'erro','NAO_AUTENTICADO'); end if;
+  v_nome := internal.nome_operador_ativo(v_email); if v_nome is null then return jsonb_build_object('ok',false,'erro','NAO_E_OPERADOR_ATIVO'); end if;
+  update public.alunos set operador_email=v_email, operador_nome=v_nome where id=p_aluno_id;
+  perform internal.set_resp_aluno(p_aluno_id, v_email, v_nome, 'ASSUMIU_ATENDIMENTO', 'Assumiu pela Base Receptiva.', v_email, v_nome);
+  return jsonb_build_object('ok',true,'aluno_id',p_aluno_id);
+end; $$;
+
+-- Rodízio do receptivo: quem está aqui recebe ligação.
+create table public.fila_receptivo (
+  operador_email text primary key, operador_nome text, em_pausa boolean default false,
+  visto_em timestamptz default now()
+);
+create or replace function public.fila_receptivo_heartbeat(p_email text, p_nome text, p_em_pausa boolean default false)
+returns void language plpgsql set search_path to 'public' as $$
+begin
+  insert into public.fila_receptivo (operador_email, operador_nome, em_pausa, visto_em)
+  values (lower(p_email), p_nome, coalesce(p_em_pausa,false), now())
+  on conflict (operador_email) do update set operador_nome=excluded.operador_nome,
+    em_pausa=excluded.em_pausa, visto_em=now();
+end; $$;
+
+-- Fidelização: o cron das 08:20 solta o que passou de 10 dias sem acionamento.
+create or replace function public.casos_elegiveis_liberacao_fidelizacao()
+returns table(caso_id uuid, aluno_id uuid, operador_email text)
+language sql stable security definer set search_path to 'public' as $$
+  select c.id, c.aluno_id, c.operador_email
+  from public.casos c
+  where c.operador_email is not null
+    and (c.data_ultimo_acionamento is null or c.data_ultimo_acionamento + 10 < current_date);
+$$;
+create or replace function public.liberar_casos_fidelizacao_vencida()
+returns integer language plpgsql security definer set search_path to 'public' as $$
+declare r record; n int := 0;
+begin
+  for r in select * from public.casos_elegiveis_liberacao_fidelizacao() loop
+    update public.casos set operador_email=null, operador_nome=null, operador=null where id=r.caso_id;
+    update public.alunos set responsavel_atual_email=null, responsavel_atual_nome=null where id=r.aluno_id;
+    n := n + 1;
+  end loop;
+  return n;
+end; $$;
+
+-- O gatilho que realinha a ficha ao dono do acordo ATIVO.
+create or replace function public._aluno_segue_dono_do_acordo() returns trigger
+language plpgsql security definer set search_path to 'public' as $$
+declare v_mensalidade numeric; v_e_operador boolean;
+begin
+  if nullif(trim(coalesce(new.operador_responsavel_email,'')),'') is null then return new; end if;
+  if upper(coalesce(new.status,'')) <> 'ATIVO' then return new; end if;
+  select (u.perfil = 'operador' and u.ativo) into v_e_operador
+    from public.usuarios u where lower(u.email) = lower(new.operador_responsavel_email);
+  if coalesce(v_e_operador, false) = false then return new; end if;
+  select coalesce(sum(coalesce(t.saldo_corrigido,t.valor_original,0)),0) into v_mensalidade
+    from public.acordos_titulos t
+   where t.aluno_id = new.aluno_id and upper(coalesce(t.situacao,'')) = 'ABERTO'
+     and lower(coalesce(t.status,'')) = 'em_aberto' and t.acordo_id is null;
+  if coalesce(v_mensalidade, 0) > 0.005 then return new; end if;
+  begin
+    perform set_config('reativa.dono_por_acordo', '1', true);
+    update public.alunos
+       set responsavel_atual_email = new.operador_responsavel_email,
+           responsavel_atual_nome = coalesce(new.operador_responsavel_nome, responsavel_atual_nome)
+     where id = new.aluno_id
+       and lower(coalesce(responsavel_atual_email,'')) is distinct from lower(new.operador_responsavel_email);
+    perform set_config('reativa.dono_por_acordo', '0', true);
+  exception when others then
+    perform set_config('reativa.dono_por_acordo', '0', true);
+  end;
+  return new;
+end; $$;
+create trigger trg_aluno_segue_dono_do_acordo
+  after insert or update of operador_responsavel_email, status on public.acordos
+  for each row execute function public._aluno_segue_dono_do_acordo();
 
 -- as quatro rotinas automáticas, só com as âncoras
 create or replace function public.nivelamento_automatico_gestao(
@@ -425,7 +512,13 @@ create trigger trg_atribuir_responsavel_por_acordo
   for each row execute function public.atribuir_responsavel_por_acordo();
 `;
 
-export async function montar() {
+// Montar o banco do zero custa ~700ms: esqueleto + rotinas + quatro migrations.
+// Multiplicado pelos casos de teste isso dobrava a duração da suíte inteira e
+// fazia OUTROS arquivos estourarem o timeout padrão por falta de CPU. O banco
+// é montado UMA vez e despejado; cada teste abre uma cópia limpa do despejo.
+let DESPEJO = null;
+
+async function construir() {
   const db = new PGlite();
   await db.exec(ESQUELETO);
   await db.exec(ROTINAS);
@@ -441,6 +534,17 @@ export async function montar() {
   `);
 
   for (const nome of MIGRATIONS) await db.exec(MIG(nome));
+  return db;
+}
+
+export async function montar() {
+  if (!DESPEJO) {
+    const base = await construir();
+    DESPEJO = await base.dumpDataDir();
+    await base.close();
+  }
+  const db = new PGlite({ loadDataDir: DESPEJO });
+  await db.exec("set timezone = 'UTC'");
   return db;
 }
 

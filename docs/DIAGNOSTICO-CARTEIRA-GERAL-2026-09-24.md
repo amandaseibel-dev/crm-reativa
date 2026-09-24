@@ -225,8 +225,9 @@ A execução **não refaz a consulta**: lê a lista gravada em
 ### D4 — Interruptor de entrada de casos novos
 
 Coluna nova `usuarios.recebe_novos_casos` (default `true`), lida por
-`internal.operador_recebe_novos_casos()` — uma leitura só, para não existirem
-versões diferentes da regra espalhadas.
+`internal.operador_pode_receber_caso()` — uma porta só, para não existirem
+versões diferentes da regra espalhadas. Ela reusa `internal.nome_operador_ativo`
+(que já exige `ativo` e perfil) e soma o flag; ver D13.
 
 Desligada, fecha as **duas** portas de entrada:
 
@@ -333,6 +334,65 @@ ficha, e de cada acordo marcado o responsável **e** o status. Um acordo que
 virou QUITADO ou CANCELADO depois da prévia não é mais o mesmo objeto e não
 viaja em silêncio — é recusado, e o aluno segue.
 
+
+### D11 — O gatilho do acordo não desfaz a decisão da gestão
+
+`_aluno_segue_dono_do_acordo` realinha a ficha ao dono do acordo ATIVO quando o
+aluno não tem mensalidade em aberto. Depois de um recolhimento isso é um
+contra-sentido: os acordos de terceiros ficam com terceiros **de propósito**, e
+no dia em que um deles mudar de status ou de dono o gatilho puxaria o aluno para
+fora da Carteira Geral sozinho.
+
+Medido em 24/09/2026: atinge **2 dos 545** alunos da Olga — Cainã Costa
+Demeneghi (acordo 3071, da Rafaella) e Leônidas Araújo de Mesquita Melo (acordo
+1271, do Allan). Nos outros 143 com acordo de terceiro há mensalidade em aberto
+e o gatilho não age.
+
+O gatilho passa a sair cedo quando o aluno está na Carteira Geral. A trava é
+específica: para qualquer outro aluno ele continua agindo como sempre, e o teste
+prova os dois lados.
+
+### D12 — A fidelização não esvazia a Carteira Geral
+
+`casos_elegiveis_liberacao_fidelizacao` pega **todo** caso com dono não nulo, sem
+olhar perfil, e o cron das 08:20 (job 8, **ativo**) solta o que passou de 10 dias
+sem acionamento. A Carteira Geral tem dono não nulo e, por definição, ninguém a
+aciona: **no 11º dia ela inteira cairia na fila livre.**
+
+Era o vazamento mais perigoso do desenho, e não aparecia em nenhuma das rotinas
+que eu havia mapeado, porque ela não "distribui" — ela solta.
+
+### D13 — Desligar alguém é `usuarios.ativo = false`, e isso não bastava
+
+O interruptor de verdade para quem sai da equipe já existe: `usuarios.ativo`.
+O problema é que ele **não era respeitado** nas portas de auto-atribuição:
+`assumir_caso_livre`, `assumir_caso_livre_aluno` e `assumir_atendimento_aluno`
+se protegem com `if public.nome_operador_por_email(v_email) is null`, e essa
+função **nunca devolve null** — cai em `upper(split_part(email,'@',1))` para
+qualquer e-mail. Guarda morta: uma pessoa desligada, com sessão válida,
+conseguia assumir da fila livre.
+
+`internal.operador_pode_receber_caso()` reusa `internal.nome_operador_ativo`
+(que já exige `ativo` e perfil) e soma o flag `recebe_novos_casos`. Passou a
+valer nas cinco portas de auto-atribuição, no rodízio do receptivo e nas três
+rotinas automáticas.
+
+**O receptivo não é autorização para reassumir.** `sistema_assumir_receptivo`
+grava o operador direto em `alunos` e chama `set_resp_aluno`: quem atende leva o
+caso. Agora quem não pode receber caso atende mas não leva, e **ninguém** tira
+aluno da Carteira Geral por telefone — nem operador ativo. O resto do fluxo
+receptivo não mudou.
+
+### D14 — `auth.users` fica FORA deste PR
+
+`usuarios.ativo = false` tira as permissões dentro do CRM, mas **não impede o
+login**. Em 24/09/2026 a conta da Olga em `auth.users` está viva: não banida,
+não apagada, último acesso em 11/09/2026.
+
+`auth.users` é gerido pelo Supabase Auth e escrita direta por migration não é
+suportada — pode quebrar o serviço. Banir a conta e revogar as sessões é ação
+administrativa no painel (Authentication → Users) ou pela Admin API.
+
 ---
 
 ## 7. O que ficou de fora
@@ -344,9 +404,10 @@ viaja em silêncio — é recusado, e o aluno segue.
   não depende dele. Mudar isso é decisão à parte.
 - Os três defeitos do §3 (nomes trocados em `nome_operador_por_email`,
   `if (false)` em `AlterarOperadorResponsavel.jsx`) não foram tocados.
-- `sistema_assumir_receptivo` **não** foi bloqueado pelo interruptor: no
-  receptivo o aluno está no telefone, e recusar o atendimento por causa de um
-  flag de carteira deixaria a pessoa sem quem a atendesse.
+- Banir a conta em `auth.users` e revogar as sessões (ver D14).
+- `whatsapp_assumir_conversa` e `assumir_link_pagamento` não foram bloqueados:
+  são atendimento e fila administrativa, não custódia de caso — nenhum dos dois
+  muda `casos.operador_email` nem `alunos.responsavel_atual_email`.
 - Os 8 alunos cuja ficha aponta para a Olga **sem caso** não aparecem na
   Carteira Geral (a tela parte de `casos`). É correção de cadastro.
 - Os 83 acordos da Olga que vivem em casos de **outros** operadores não entram

@@ -83,6 +83,8 @@ vi.mock("../services/supabase", () => ({
       if (fn === "carteira_geral_painel") return Promise.resolve({ data: PAINEL, error: null });
       if (fn === "carteira_geral_listar") return Promise.resolve({ data: LISTA, error: null });
       if (fn === "carteira_geral_previa") return Promise.resolve({ data: PREVIA, error: null });
+      if (fn === "carteira_geral_definir_recebimento")
+        return Promise.resolve({ data: { ok: true, operador: "Olga", recebe: false }, error: null });
       if (fn === "carteira_geral_mover")
         return Promise.resolve({
           data: { alunos_movidos: 1, acordos_movidos: 1, retornos_preservados: 1, destino_nome: "CARTEIRA GERAL", lote_id: "lote-1", total_recusados: 0 },
@@ -94,7 +96,13 @@ vi.mock("../services/supabase", () => ({
       select: () => ({
         eq: () => ({
           eq: () => ({
-            order: () => Promise.resolve({ data: [{ email: "cobranca05@aelbra.com.br", nome: "Luana", perfil: "operador", ativo: true, recebe_novos_casos: true }], error: null }),
+            order: () => Promise.resolve({
+              data: [
+                { email: "cobranca03@aelbra.com.br", nome: "Olga", perfil: "operador", ativo: true, recebe_novos_casos: true },
+                { email: "cobranca05@aelbra.com.br", nome: "Luana", perfil: "operador", ativo: true, recebe_novos_casos: false },
+              ],
+              error: null,
+            }),
           }),
         }),
       }),
@@ -131,6 +139,53 @@ describe("Carteira Geral — painel", () => {
     const linha = screen.getByText("JOAO SEM DONO").closest("tr");
     const celulaDono = within(linha).getByText("Sem operador");
     expect(celulaDono.style.color).toBe("var(--rv-ambar-texto)");
+  });
+});
+
+describe("Carteira Geral — entrada de casos novos", () => {
+  beforeEach(() => {
+    chamadas.rpc = [];
+  });
+  afterEach(cleanup);
+
+  it("mostra quem está com a entrada fechada", async () => {
+    await montar();
+    // "Olga" e "Luana" também aparecem no seletor de destino: ancora na linha
+    // pelo botão, que é único.
+    const linhaLuana = screen.getByRole("button", { name: "Reabrir Luana" }).closest("tr");
+    expect(within(linhaLuana).getByText("Fechada")).toBeTruthy();
+    const linhaOlga = screen.getByRole("button", { name: "Fechar Olga" }).closest("tr");
+    expect(within(linhaOlga).getByText("Aberta")).toBeTruthy();
+  });
+
+  it("fechar pede motivo e manda para a RPC", async () => {
+    vi.spyOn(window, "prompt").mockReturnValue("saiu da equipe");
+    await montar();
+
+    fireEvent.click(screen.getByRole("button", { name: "Fechar Olga" }));
+    await waitFor(() => expect(chamadas.rpc.some((c) => c.fn === "carteira_geral_definir_recebimento")).toBe(true));
+
+    const args = chamadas.rpc.find((c) => c.fn === "carteira_geral_definir_recebimento").args;
+    expect(args).toEqual({
+      p_operador_email: "cobranca03@aelbra.com.br",
+      p_recebe: false,
+      p_motivo: "saiu da equipe",
+    });
+  });
+
+  it("cancelar o motivo não muda nada", async () => {
+    vi.spyOn(window, "prompt").mockReturnValue(null);
+    await montar();
+    fireEvent.click(screen.getByRole("button", { name: "Fechar Olga" }));
+    await waitFor(() => expect(chamadas.rpc.some((c) => c.fn === "carteira_geral_definir_recebimento")).toBe(false));
+  });
+
+  it("quem está fechada é reaberta, não fechada de novo", async () => {
+    vi.spyOn(window, "prompt").mockReturnValue("voltou");
+    await montar();
+    fireEvent.click(screen.getByRole("button", { name: "Reabrir Luana" }));
+    await waitFor(() => expect(chamadas.rpc.some((c) => c.fn === "carteira_geral_definir_recebimento")).toBe(true));
+    expect(chamadas.rpc.find((c) => c.fn === "carteira_geral_definir_recebimento").args.p_recebe).toBe(true);
   });
 });
 

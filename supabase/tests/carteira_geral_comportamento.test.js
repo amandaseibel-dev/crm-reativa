@@ -128,6 +128,35 @@ describe("Carteira Geral — o retorno agendado sobrevive à troca de custódia"
     expect(depois.operador_email).toBe(CG);
     // o horário não se mexe: só o dono
     expect(new Date(depois.retorno_em).toISOString()).toBe(new Date(antes.retorno_em).toISOString());
+
+    // e não sobra NADA aberto na agenda da Olga: o compromisso não pode
+    // continuar na lista de quem saiu da equipe.
+    const sobrouComOlga = await qn(db,
+      "select * from public.operador_agenda where operador_email=$1 and coalesce(status,'') not in ('CONCLUIDO','CANCELADO','CANCELADO_LIBERACAO')",
+      [OLGA]);
+    expect(sobrouComOlga).toHaveLength(0);
+  });
+
+  it("depois do lote inteiro, a Olga não tem nenhum retorno nem caso", async () => {
+    const a = await semear(db, { nome: "ALUNO 1", dono: OLGA, retorno: "2026-10-05", hora: "10:00" });
+    const b = await semear(db, { nome: "ALUNO 2", dono: OLGA, retorno: "2026-10-06", hora: "11:00" });
+    await como(db, GESTAO);
+    const p = await previa([a.aluno, b.aluno], "CARTEIRA_GERAL");
+    const { r } = await mover(p.r.previa_id, "saída da Olga");
+    expect(r.retornos_preservados).toBe(2);
+
+    expect(await qn(db, "select * from public.casos where operador_email=$1", [OLGA])).toHaveLength(0);
+    expect(await qn(db, "select * from public.alunos where responsavel_atual_email=$1", [OLGA])).toHaveLength(0);
+    expect(await qn(db,
+      "select * from public.operador_agenda where operador_email=$1 and coalesce(status,'') not in ('CONCLUIDO','CANCELADO','CANCELADO_LIBERACAO')",
+      [OLGA])).toHaveLength(0);
+
+    // os dois compromissos continuam existindo, na agenda do novo responsável
+    const agenda = await qn(db,
+      "select operador_email, retorno_em::text from public.operador_agenda where operador_email=$1 order by retorno_em", [CG]);
+    expect(agenda).toHaveLength(2);
+    expect(agenda[0].retorno_em).toMatch(/^2026-10-05 10:00/);
+    expect(agenda[1].retorno_em).toMatch(/^2026-10-06 11:00/);
   });
 
   it("na FILA LIVRE o compromisso fica no aluno e a agenda do antigo dono é encerrada", async () => {
@@ -547,6 +576,180 @@ describe("Carteira Geral — desfazer sem sobrescrever trabalho posterior", () =
     await expect(db.query("delete from public.carteira_geral_auditoria where lote_id=$1", [r.lote_id])).rejects.toThrow(/append-only/);
     await expect(db.query("update public.carteira_geral_auditoria set motivo='outro' where lote_id=$1", [r.lote_id])).rejects.toThrow(/append-only/);
     await db.query("update public.carteira_geral_auditoria set desfeito_em=now() where lote_id=$1", [r.lote_id]);
+  });
+});
+
+
+// ---------------------------------------------------------------------------
+// Os 2 cenários medidos em produção (24/09/2026): aluno da Olga cuja dívida
+// inteira é um acordo de OUTRA pessoa, sem mensalidade em aberto. Depois do
+// recolhimento o acordo fica com o terceiro de propósito — e é aí que
+// `_aluno_segue_dono_do_acordo` puxaria o aluno de volta.
+//   . Cainã Costa Demeneghi  — acordo 3071, R$ 463,43, da Rafaella
+//   . Leônidas A. de M. Melo — acordo 1271, R$ 441,73, do Allan
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — o gatilho do acordo não desfaz a decisão da gestão", () => {
+  // Reproduz o caso: sem mensalidade em aberto, todo o saldo no acordo de terceiro.
+  async function cenarioDosDois(nome, terceiro) {
+    // Nasce COM mensalidade: senão `_aluno_segue_dono_do_acordo` já levaria o
+    // aluno para o terceiro no INSERT do acordo, e ele nem chegaria à Olga.
+    // A mensalidade some depois — é assim que estes 2 casos reais ficaram.
+    const a = await semear(db, { nome, dono: OLGA, mensalidade: 1000, parcela: 463.43, donoAcordo: terceiro });
+    await db.query("delete from public.acordos_titulos where aluno_id=$1", [a.aluno]);
+    // o caso ainda é da Olga e o acordo é do terceiro: é este o ponto de partida
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [a.caso])).e).toBe(OLGA);
+    expect((await q1(db, "select operador_responsavel_email e from public.acordos where id=$1", [a.acordo])).e).toBe(terceiro);
+    await como(db, GESTAO);
+    const { r: p } = await previa([a.aluno], "CARTEIRA_GERAL");
+    await mover(p.previa_id, "saída da Olga");
+    return a;
+  }
+
+  it("o aluno fica na Carteira Geral quando o acordo de terceiro muda de status", async () => {
+    const a = await cenarioDosDois("CAINA COSTA DEMENEGHI", LUANA);
+    expect((await q1(db, "select responsavel_atual_email e from public.alunos where id=$1", [a.aluno])).e).toBe(CG);
+
+    // a Luana reativa o acordo dela — o gatilho dispara
+    await db.query("update public.acordos set status='ATIVO' where id=$1", [a.acordo]);
+
+    expect((await q1(db, "select responsavel_atual_email e from public.alunos where id=$1", [a.aluno])).e).toBe(CG);
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [a.caso])).e).toBe(CG);
+    // e o acordo continua com quem negociou
+    expect((await q1(db, "select operador_responsavel_email e from public.acordos where id=$1", [a.acordo])).e).toBe(LUANA);
+  });
+
+  it("o aluno fica na Carteira Geral quando o acordo de terceiro troca de dono", async () => {
+    const a = await cenarioDosDois("LEONIDAS ARAUJO", LUANA);
+    await db.query("select internal.set_resp_acordo($1,$2,'Olga','X','y','sistema','sistema')", [a.acordo, OLGA]);
+
+    // nem mesmo passando o acordo de volta para a Olga o aluno a segue
+    expect((await q1(db, "select responsavel_atual_email e from public.alunos where id=$1", [a.aluno])).e).toBe(CG);
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [a.caso])).e).toBe(CG);
+  });
+
+  it("sem a trava, o gatilho levaria o aluno embora — é isto que ela impede", async () => {
+    // Mesmo cenário, mas o aluno NÃO está na Carteira Geral: o gatilho age
+    // normalmente. Prova que a trava é específica, e não um desligamento geral.
+    const a = await semear(db, { nome: "ALUNO SOLTO", dono: OLGA, mensalidade: 1000, parcela: 500, donoAcordo: LUANA });
+    await db.query("delete from public.acordos_titulos where aluno_id=$1", [a.aluno]);
+    await db.query("update public.acordos set status='ATIVO' where id=$1", [a.acordo]);
+    expect((await q1(db, "select responsavel_atual_email e from public.alunos where id=$1", [a.aluno])).e).toBe(LUANA);
+  });
+
+  it("o recolhimento não mexe em autoria nem em valor do acordo de terceiro", async () => {
+    const a = await cenarioDosDois("CAINA VALOR", LUANA);
+    const ac = await q1(db, "select status, valor_total, numero_acordo from public.acordos where id=$1", [a.acordo]);
+    expect(ac.status).toBe("ATIVO");
+    expect(Number(ac.valor_total)).toBe(463.43);
+    expect(Number(ac.numero_acordo)).toBe(777);
+    const par = await q1(db, "select round(sum(valor),2) v from public.parcelas where acordo_id=$1", [a.acordo]);
+    expect(Number(par.v)).toBe(463.43);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A fidelização é o vazamento mais perigoso: cron diário às 08:20 que solta
+// TODO caso com dono não nulo passado de 10 dias sem acionamento. A Carteira
+// Geral tem dono não nulo e, por definição, ninguém a aciona.
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — a fidelização não a esvazia", () => {
+  it("o job das 08:20 solta o caso do operador e NÃO solta o da Carteira Geral", async () => {
+    const naCG = await semear(db, { nome: "ALUNO NA CG", dono: OLGA });
+    const doOperador = await semear(db, { nome: "ALUNO DA LUANA", dono: LUANA });
+    // ambos parados há mais de 10 dias
+    await db.query("update public.casos set data_ultimo_acionamento = current_date - 30");
+
+    await como(db, GESTAO);
+    const { r: p } = await previa([naCG.aluno], "CARTEIRA_GERAL");
+    await mover(p.previa_id, "recolhimento");
+    await db.query("update public.casos set data_ultimo_acionamento = current_date - 30");
+
+    await db.query("select public.liberar_casos_fidelizacao_vencida()");
+
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [naCG.caso])).e).toBe(CG);
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [doOperador.caso])).e).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Olga saiu da equipe. O desligamento de verdade é `usuarios.ativo = false`.
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — ex-operadora não recebe nem assume por nenhuma porta", () => {
+  async function desligarDaEquipe() {
+    await db.query("update public.usuarios set ativo = false where email = $1", [OLGA]);
+  }
+
+  it("hoje a guarda de operador ativo é letra morta na fila livre — a nova porta fecha isso", async () => {
+    // nome_operador_por_email NUNCA devolve null (cai em upper(split_part(...))),
+    // então `if v_nome is null` nunca dispara. Só a checagem nova barra.
+    const morta = await q1(db, "select public.nome_operador_por_email($1) n", ["quem.saiu@aelbra.com.br"]);
+    expect(morta.n).not.toBeNull();
+
+    const a = await semear(db, { nome: "ALUNO LIVRE X", dono: null });
+    await desligarDaEquipe();
+    await como(db, OLGA);
+    const r = await q1(db, "select * from public.assumir_caso_livre_aluno($1)", [a.aluno]);
+    expect(r.sucesso).toBe(false);
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [a.caso])).e).toBeNull();
+  });
+
+  it("não assume por caso, por aluno nem por atendimento", async () => {
+    const a = await semear(db, { nome: "ALUNO LIVRE Y", dono: null });
+    await desligarDaEquipe();
+    await como(db, OLGA);
+
+    expect((await q1(db, "select * from public.assumir_caso_livre($1)", [a.caso])).sucesso).toBe(false);
+    expect((await q1(db, "select * from public.assumir_caso_livre_aluno($1)", [a.aluno])).sucesso).toBe(false);
+    expect((await q1(db, "select public.sistema_assumir_atendimento($1) r", [a.aluno])).r.ok).toBe(false);
+    expect((await q1(db, "select * from public.assumir_atendimento_aluno('x')")).sucesso).toBe(false);
+  });
+
+  it("uma ligação receptiva NÃO a autoriza a reassumir o aluno", async () => {
+    const a = await semear(db, { nome: "ALUNO QUE LIGOU", dono: null });
+    await desligarDaEquipe();
+    await como(db, OLGA);
+
+    const r = await q1(db, "select public.sistema_assumir_receptivo($1,'CONTATAR','atendeu',null,null) r", [a.aluno]);
+    expect(r.r.ok).toBe(false);
+    expect((await q1(db, "select responsavel_atual_email e from public.alunos where id=$1", [a.aluno])).e).toBeNull();
+    expect((await q1(db, "select operador_email e from public.alunos where id=$1", [a.aluno])).e).toBeNull();
+  });
+
+  it("nem entra no rodízio do receptivo, então a ligação não é roteada para ela", async () => {
+    await desligarDaEquipe();
+    await db.query("select public.fila_receptivo_heartbeat($1,'Olga',false)", [OLGA]);
+    expect(await qn(db, "select * from public.fila_receptivo where operador_email=$1", [OLGA])).toHaveLength(0);
+
+    // operadora ativa continua entrando normalmente
+    await db.query("select public.fila_receptivo_heartbeat($1,'Luana',false)", [LUANA]);
+    expect(await qn(db, "select * from public.fila_receptivo where operador_email=$1", [LUANA])).toHaveLength(1);
+  });
+
+  it("a gestão também não consegue mais atribuir para ela pelo caminho oficial", async () => {
+    await desligarDaEquipe();
+    await como(db, GESTAO);
+    const a = await semear(db, { nome: "ALUNO PARA A OLGA", dono: null });
+    await expect(previa([a.aluno], "OPERADOR", { email: OLGA })).rejects.toThrow(/invalido ou inativo/);
+  });
+
+  it("operadora ATIVA continua atendendo pelo receptivo — o fluxo legítimo não quebra", async () => {
+    const a = await semear(db, { nome: "ALUNO DO RECEPTIVO", dono: null });
+    await como(db, LUANA);
+    const r = await q1(db, "select public.sistema_assumir_receptivo($1,'CONTATAR','atendeu',null,null) r", [a.aluno]);
+    expect(r.r.ok).toBe(true);
+    expect((await q1(db, "select responsavel_atual_email e from public.alunos where id=$1", [a.aluno])).e).toBe(LUANA);
+  });
+
+  it("nem a operadora ativa tira aluno da Carteira Geral por telefone", async () => {
+    const a = await semear(db, { nome: "ALUNO NA CG RECEPTIVO", dono: OLGA });
+    await como(db, GESTAO);
+    const { r: p } = await previa([a.aluno], "CARTEIRA_GERAL");
+    await mover(p.previa_id, "recolhimento");
+
+    await como(db, LUANA);
+    const r = await q1(db, "select public.sistema_assumir_receptivo($1,'CONTATAR','atendeu',null,null) r", [a.aluno]);
+    expect(r.r.erro).toBe("NA_CARTEIRA_GERAL");
+    expect((await q1(db, "select responsavel_atual_email e from public.alunos where id=$1", [a.aluno])).e).toBe(CG);
   });
 });
 

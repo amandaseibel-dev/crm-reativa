@@ -136,7 +136,7 @@ begin
     1);
 
   -- (c2) As quatro portas de auto-atribuicao passam pelo mesmo flag. A regra
-  -- mora em internal.operador_recebe_novos_casos() -- uma leitura so, para nao
+  -- mora em internal.operador_pode_receber_caso() -- uma leitura so, para nao
   -- existirem quatro versoes dela. Nenhuma delas ganha permissao nova: o que
   -- muda e que o operador desligado recebe a mesma recusa que ja recebia
   -- quando nao era operador ativo.
@@ -148,28 +148,79 @@ begin
     'public', 'assumir_caso_livre',
     'if v_nome is null then return query select false,''Operador nao ativo ou nao identificado.'',null::uuid; return; end if;',
     'if v_nome is null then return query select false,''Operador nao ativo ou nao identificado.'',null::uuid; return; end if;'
-      || E'\n  if not internal.operador_recebe_novos_casos(v_email) then return query select false,''Sua carteira esta fechada para casos novos. Fale com a gestao.'',null::uuid; return; end if;',
+      || E'\n  if not internal.operador_pode_receber_caso(v_email) then return query select false,''Sua carteira esta fechada para casos novos. Fale com a gestao.'',null::uuid; return; end if;',
     1);
 
   perform internal.patch_funcao_ancorada(
     'public', 'assumir_caso_livre_aluno',
     'if v_nome is null then return query select false,''Operador nao ativo.'',null::uuid,null::uuid; return; end if;',
     'if v_nome is null then return query select false,''Operador nao ativo.'',null::uuid,null::uuid; return; end if;'
-      || E'\n  if not internal.operador_recebe_novos_casos(v_email) then return query select false,''Sua carteira esta fechada para casos novos. Fale com a gestao.'',null::uuid,null::uuid; return; end if;',
+      || E'\n  if not internal.operador_pode_receber_caso(v_email) then return query select false,''Sua carteira esta fechada para casos novos. Fale com a gestao.'',null::uuid,null::uuid; return; end if;',
     1);
 
   perform internal.patch_funcao_ancorada(
     'public', 'sistema_assumir_atendimento',
     'if v_nome is null then return jsonb_build_object(''ok'',false,''erro'',''NAO_E_OPERADOR_ATIVO''); end if;',
     'if v_nome is null then return jsonb_build_object(''ok'',false,''erro'',''NAO_E_OPERADOR_ATIVO''); end if;'
-      || E'\n  if not internal.operador_recebe_novos_casos(v_email) then return jsonb_build_object(''ok'',false,''erro'',''CARTEIRA_FECHADA_PARA_NOVOS'',''mensagem'',''Sua carteira esta fechada para casos novos. Fale com a gestao.''); end if;',
+      || E'\n  if not internal.operador_pode_receber_caso(v_email) then return jsonb_build_object(''ok'',false,''erro'',''CARTEIRA_FECHADA_PARA_NOVOS'',''mensagem'',''Sua carteira esta fechada para casos novos. Fale com a gestao.''); end if;',
     1);
 
   perform internal.patch_funcao_ancorada(
     'public', 'assumir_atendimento_aluno',
     'v_nome := public.nome_operador_por_email(v_email);',
     'v_nome := public.nome_operador_por_email(v_email);'
-      || E'\n  if not internal.operador_recebe_novos_casos(v_email) then return query select false, ''Sua carteira esta fechada para casos novos. Fale com a gestao.''; return; end if;',
+      || E'\n  if not internal.operador_pode_receber_caso(v_email) then return query select false, ''Sua carteira esta fechada para casos novos. Fale com a gestao.''; return; end if;',
+    1);
+
+  -- (e) O RECEPTIVO nao e autorizacao para reassumir. Uma ligacao do aluno faz
+  -- `sistema_assumir_receptivo` gravar o operador direto em `alunos` e chamar
+  -- set_resp_aluno logo depois -- ou seja, quem atende leva o caso. Para quem
+  -- saiu da equipe isso vira a porta dos fundos: basta o aluno ligar.
+  -- Duas guardas: quem nao pode receber caso nao leva, e ninguem tira aluno da
+  -- Carteira Geral por telefone -- a gestao solta para a fila livre primeiro.
+  perform internal.patch_funcao_ancorada(
+    'public', 'sistema_assumir_receptivo',
+    'v_nome := internal.nome_operador_ativo(v_email); if v_nome is null then return jsonb_build_object(''ok'',false,''erro'',''NAO_E_OPERADOR_ATIVO''); end if;',
+    'v_nome := internal.nome_operador_ativo(v_email); if v_nome is null then return jsonb_build_object(''ok'',false,''erro'',''NAO_E_OPERADOR_ATIVO''); end if;'
+      || E'\n  if not internal.operador_pode_receber_caso(v_email) then return jsonb_build_object(''ok'',false,''erro'',''CARTEIRA_FECHADA_PARA_NOVOS'',''mensagem'',''Sua carteira esta fechada para casos novos. Voce pode atender, mas o caso nao passa para voce.''); end if;'
+      || E'\n  if exists (select 1 from public.alunos al where al.id = p_aluno_id and lower(coalesce(al.responsavel_atual_email,'''')) = internal.carteira_geral_email()) then return jsonb_build_object(''ok'',false,''erro'',''NA_CARTEIRA_GERAL'',''mensagem'',''Este aluno esta na Carteira Geral. Atenda e registre, mas a gestao precisa liberar para a fila livre antes de alguem assumir.''); end if;',
+    1);
+
+  -- (e2) E ela nem entra no rodizio do receptivo: sem isto a ligacao seria
+  -- roteada para quem ja saiu.
+  perform internal.patch_funcao_ancorada(
+    'public', 'fila_receptivo_heartbeat',
+    'begin',
+    'begin'
+      || E'\n  if not internal.operador_pode_receber_caso(p_email) then return; end if;',
+    1);
+
+  -- (f) O GATILHO DO ACORDO nao desfaz a decisao da gestao.
+  -- `_aluno_segue_dono_do_acordo` realinha a ficha ao dono do acordo ATIVO
+  -- quando o aluno nao tem mensalidade em aberto. Depois de um recolhimento, os
+  -- acordos de terceiros ficam com terceiros de proposito -- e no dia em que um
+  -- deles mudar de status ou de dono, o gatilho puxaria o aluno para fora da
+  -- Carteira Geral sozinho. Medido em 24/09/2026: 2 dos 545 alunos da Olga
+  -- (Caina Costa Demeneghi, acordo 3071 da Rafaella; Leonidas Araujo de
+  -- Mesquita Melo, acordo 1271 do Allan). Custodia da gestao nao e acidente a
+  -- corrigir.
+  perform internal.patch_funcao_ancorada(
+    'public', '_aluno_segue_dono_do_acordo',
+    'if upper(coalesce(new.status,'''')) <> ''ATIVO'' then return new; end if;',
+    'if upper(coalesce(new.status,'''')) <> ''ATIVO'' then return new; end if;'
+      || E'\n  if exists (select 1 from public.alunos al where al.id = new.aluno_id and lower(coalesce(al.responsavel_atual_email,'''')) = internal.carteira_geral_email()) then return new; end if;',
+    1);
+
+  -- (g) A FIDELIZACAO nao esvazia a Carteira Geral.
+  -- `casos_elegiveis_liberacao_fidelizacao` pega TODO caso com dono nao nulo,
+  -- sem olhar perfil, e o cron das 08:20 (job 8, ATIVO) solta o que passou de
+  -- 10 dias sem acionamento. A Carteira Geral tem dono nao nulo e, por
+  -- definicao, ninguem a aciona: no 11o dia ela inteira cairia na fila livre.
+  -- Era o vazamento mais perigoso de todos.
+  perform internal.patch_funcao_ancorada(
+    'public', 'casos_elegiveis_liberacao_fidelizacao',
+    'where c.operador_email is not null',
+    'where c.operador_email is not null and lower(c.operador_email) <> internal.carteira_geral_email()',
     1);
 
   -- (d) Sem notificacao para a caixa da Carteira Geral, que nao existe.
@@ -192,6 +243,10 @@ alter function public.assumir_caso_livre(uuid) set search_path to 'public', 'int
 alter function public.assumir_caso_livre_aluno(uuid) set search_path to 'public', 'internal';
 alter function public.sistema_assumir_atendimento(uuid) set search_path to 'public', 'internal';
 alter function public.assumir_atendimento_aluno(text, text) set search_path to 'public', 'internal';
+alter function public.sistema_assumir_receptivo(uuid, text, text, date, text) set search_path to 'public', 'internal';
+alter function public.fila_receptivo_heartbeat(text, text, boolean) set search_path to 'public', 'internal';
+alter function public._aluno_segue_dono_do_acordo() set search_path to 'public', 'internal';
+alter function public.casos_elegiveis_liberacao_fidelizacao() set search_path to 'public', 'internal';
 
 -- ---------------------------------------------------------------------------
 -- Vigia: uma consulta que responde "a Carteira Geral vazou?".
@@ -211,8 +266,8 @@ as $fn$
                                    where lower(coalesce(operador_responsavel_email,'')) = internal.carteira_geral_email()),
     'operadores_sem_entrada_de_casos', (select coalesce(jsonb_agg(nome order by nome), '[]'::jsonb)
                                       from public.usuarios
-                                     where perfil = 'operador' and ativo
-                                       and not coalesce(recebe_novos_casos, true)),
+                                     where perfil = 'operador'
+                                       and (not ativo or not coalesce(recebe_novos_casos, true))),
     -- casos que sairam da Carteira Geral sem passar por carteira_geral_mover:
     -- a auditoria registra toda saida legitima.
     'saidas_sem_auditoria', (

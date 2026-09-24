@@ -63,23 +63,39 @@ alter table public.usuarios
 comment on column public.usuarios.recebe_novos_casos is
   'false = operador nao recebe caso novo: nem por rotina automatica (nivelamento, reposicao, calibragem) nem assumindo da fila livre. Nao desativa o operador e nao tira o que ja e dele.';
 
--- Leitura unica da regra, para nao existirem duas versoes dela espalhadas
--- pelas funcoes de assumir. Responde: esta pessoa pode receber caso novo?
-create or replace function internal.operador_recebe_novos_casos(p_email text)
+-- Leitura unica de "esta pessoa pode receber um caso novo?", para nao existirem
+-- versoes diferentes da regra espalhadas pelas funcoes de assumir.
+--
+-- Reusa a definicao que JA EXISTE de operador ativo -- internal.nome_operador_ativo,
+-- que exige `ativo` e perfil 'operador' (ou um dos tres e-mails da gestao) -- e
+-- soma o flag novo. Ou seja: desligar alguem em `usuarios.ativo` passa a valer
+-- aqui tambem, o que hoje NAO acontece.
+--
+-- POR QUE ISSO IMPORTA: `assumir_caso_livre` e `assumir_caso_livre_aluno`
+-- protegem-se com `if public.nome_operador_por_email(v_email) is null`, mas
+-- aquela funcao NUNCA devolve null -- ela cai em
+-- `upper(split_part(email,'@',1))` para qualquer e-mail. A guarda e letra morta:
+-- hoje um operador ja desligado (ativo=false), com a sessao ainda valida,
+-- consegue assumir da fila livre. Esta funcao fecha isso.
+--
+-- Default agora e FALSE para e-mail desconhecido: quem nao esta em `usuarios`
+-- nao deve estar pegando caso.
+create or replace function internal.operador_pode_receber_caso(p_email text)
 returns boolean
 language sql
 stable
 security definer
 set search_path to 'public'
 as $fn$
-  select coalesce((select u.recebe_novos_casos
+  select internal.nome_operador_ativo(p_email) is not null
+     and coalesce((select u.recebe_novos_casos
                      from public.usuarios u
                     where lower(u.email) = lower(btrim(coalesce(p_email,'')))
-                    limit 1), true);
+                    limit 1), false);
 $fn$;
 
-comment on function internal.operador_recebe_novos_casos(text) is
-  'Porta unica do flag recebe_novos_casos. Default true: e-mail desconhecido nunca e bloqueado por engano.';
+comment on function internal.operador_pode_receber_caso(text) is
+  'Porta unica: operador ativo (internal.nome_operador_ativo) E recebe_novos_casos. Falso para desligado, para quem nao esta em usuarios e para quem a gestao fechou.';
 
 -- 3. Previa (o que a gestao ve ANTES de confirmar) ------------------------
 
