@@ -10,6 +10,7 @@ import printKenendy from "../data/elogios/luciana";
 import printLuciana from "../data/elogios/luciana-correto";
 import printGabriele from "../data/elogios/kellen";
 import printKellen from "../data/elogios/kellen-correto";
+import fotoNossaHistoria from "../assets/historia/nossa-historia.webp";
 
 
 
@@ -2542,23 +2543,73 @@ function SecaoElogios() {
 /* ===================== Nossa História ===================== */
 
 function SecaoHistoria() {
-  const cards = [
-    { emoji: "📸", titulo: "Momento da equipe" },
-    { emoji: "💚", titulo: "Campanha Reativa" },
-    { emoji: "🏆", titulo: "Conquistas do mês" },
-    { emoji: "✨", titulo: "Bastidores da operação" },
-  ];
+  const [fotoAberta, setFotoAberta] = useState(false);
+
   return (
     <>
-      <TituloSecao emoji="📸" titulo="Nossa História" sub="Momentos da equipe Reativa, conquistas, campanhas e bastidores." />
-      <div style={S.grade4}>
-        {cards.map((c) => (
-          <div key={c.titulo} style={S.cardHistoria}>
-            <span style={{ fontSize: 30 }}>{c.emoji}</span>
-            <strong style={{ fontSize: 13 }}>{c.titulo}</strong>
-          </div>
-        ))}
-      </div>
+      <TituloSecao
+        emoji="📸"
+        titulo="Nossa História"
+        sub="Momentos da equipe Reativa, conquistas, campanhas, aniversários e bastidores que fazem parte da nossa trajetória."
+      />
+
+      <Card style={S.historiaDestaque}>
+        <span style={S.cardTag}>NOSSAS CONQUISTAS</span>
+        <h3 style={{ ...S.h3, fontSize: 22, marginTop: 12 }}>
+          Uma história feita em equipe
+        </h3>
+        <p style={S.paragrafo}>
+          Resultados importantes também são construídos nos momentos que compartilhamos.
+          Aqui ficam alguns registros da equipe, das comemorações e das conquistas da ReATIVA.
+        </p>
+      </Card>
+
+      <button
+        type="button"
+        onClick={() => setFotoAberta(true)}
+        style={S.historiaFotoBotao}
+        aria-label="Abrir fotos da Nossa História"
+      >
+        <img
+          src={fotoNossaHistoria}
+          alt="Momentos, comemorações e conquistas da equipe ReATIVA"
+          style={S.historiaFoto}
+          draggable={false}
+          onContextMenu={(evento) => evento.preventDefault()}
+        />
+        <span style={S.historiaFotoRodape}>
+          <span>
+            <strong style={{ display: "block", color: "var(--rv-tinta)", fontSize: 15 }}>
+              Nossas conquistas e momentos
+            </strong>
+            <span style={{ color: "var(--rv-texto-suave)", fontSize: 13 }}>
+              Equipe • comemorações • aniversários • bastidores
+            </span>
+          </span>
+          <span style={S.historiaAmpliar}>Clique para ampliar ↗</span>
+        </span>
+      </button>
+
+      {fotoAberta ? (
+        <div style={S.elogioModal} onClick={() => setFotoAberta(false)} role="presentation">
+          <button
+            type="button"
+            style={S.elogioModalFechar}
+            onClick={() => setFotoAberta(false)}
+            aria-label="Fechar fotos"
+          >
+            ×
+          </button>
+          <img
+            src={fotoNossaHistoria}
+            alt="Fotos ampliadas da Nossa História da equipe ReATIVA"
+            style={S.historiaModalImagem}
+            draggable={false}
+            onContextMenu={(evento) => evento.preventDefault()}
+            onClick={(evento) => evento.stopPropagation()}
+          />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -2876,6 +2927,54 @@ const S = {
     gap: 8,
     color: "var(--rv-texto-forte)",
     boxShadow: "0 4px 16px rgba(15,23,42,0.04)",
+  },
+  historiaDestaque: {
+    background: "linear-gradient(135deg, var(--rv-superficie) 0%, var(--rv-azul-fundo) 100%)",
+    border: "1px solid var(--rv-azul-borda)",
+  },
+  historiaFotoBotao: {
+    width: "100%",
+    padding: 0,
+    border: "1px solid var(--rv-borda)",
+    borderRadius: 22,
+    overflow: "hidden",
+    background: "var(--rv-superficie)",
+    cursor: "zoom-in",
+    textAlign: "left",
+    boxShadow: "0 8px 28px rgba(15,23,42,0.07)",
+    fontFamily: "inherit",
+  },
+  historiaFoto: {
+    width: "100%",
+    display: "block",
+    maxHeight: 760,
+    objectFit: "contain",
+    background: "var(--rv-fundo-suave)",
+    userSelect: "none",
+    WebkitUserDrag: "none",
+  },
+  historiaFotoRodape: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 18,
+    padding: "18px 20px",
+  },
+  historiaAmpliar: {
+    color: VERDE_ESCURO,
+    fontSize: 13,
+    fontWeight: 850,
+    whiteSpace: "nowrap",
+  },
+  historiaModalImagem: {
+    maxWidth: "min(1400px, 96vw)",
+    maxHeight: "91vh",
+    width: "auto",
+    height: "auto",
+    borderRadius: 14,
+    boxShadow: "0 24px 80px rgba(0,0,0,.35)",
+    userSelect: "none",
+    WebkitUserDrag: "none",
   },
   primeHero: {
     display: "grid",
