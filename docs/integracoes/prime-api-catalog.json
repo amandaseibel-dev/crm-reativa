@@ -385,6 +385,19 @@
       "risco_evitado": "usar o 195 como evidencia teria reativado 147 titulos / R$ 1.329.471,33 de alunos em cobranca judicial",
       "fonte_correta": "prime_aluno_no_juridico(cpf) = 'NAO', que exige snapshot 202 completo e valido",
       "ver": "prime-mapa-identificadores.md"
+    },
+    {
+      "id": "SNAPSHOT_202_TOLERANCIA",
+      "descoberta_em": "2026-09-24",
+      "resumo": "prime_aluno_no_juridico usa o default de 720h; inadequado para embasar reativacao.",
+      "limites": {
+        "leitura_informativa_h": 720,
+        "alerta_degradacao_h": 72,
+        "decisao_de_reativacao_h": 24
+      },
+      "status": "24h NAO IMPLEMENTADO -- a funcao nao tem parametro de tolerancia",
+      "bloqueia": "titulo_reativar nao pode ser criada antes da trava de 24h",
+      "ver": "prime-mapa-identificadores.md"
     }
   ]
 }

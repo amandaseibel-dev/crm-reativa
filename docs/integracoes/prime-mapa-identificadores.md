@@ -93,6 +93,22 @@ afirmada por `prime_aluno_no_juridico(cpf) = 'NAO'`, que exige snapshot do 202
 completo e válido — e mesmo esse é um fato do CPF, não de um título
 (ver "RESTRIÇÃO DE ARQUITETURA" acima).
 
+### ⚠️ O limite de 720h de `prime_aluno_no_juridico` é INADEQUADO para reativação
+
+`prime_aluno_no_juridico(cpf)` chama `prime_portador_snapshot_estado(202)` com o
+**default de 720h (30 dias)**. Isso serve para leitura informativa, e **não
+serve** para embasar reativação de título: um snapshot de três semanas pode
+devolver `NAO` para um CPF que voltou ao jurídico nesse intervalo.
+
+A função **não tem parâmetro de tolerância** hoje. Registrado em 2026-09-24 como
+pendência conhecida, deliberadamente **não corrigida** para não antecipar
+funcionalidade inexistente.
+
+**Regra:** nenhuma `titulo_reativar` pode ser criada antes de existir trava
+explícita de **no máximo 24h** na consulta que embasa a decisão. O limite de
+**72h** do vigia é apenas para graduar alerta de degradação — **nunca** libera
+título nem serve como evidência de saída do jurídico.
+
 ## Regras de matching, por ordem de confiabilidade
 
 1. **CPF exato** (formatado na busca, comparado em dígitos puros no retorno)

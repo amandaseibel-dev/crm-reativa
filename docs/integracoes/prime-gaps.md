@@ -237,3 +237,13 @@ do portador 202.
 
 A ausência do jurídico só é afirmável por `prime_aluno_no_juridico(cpf) = 'NAO'`,
 que exige snapshot 202 completo e válido.
+
+## Tolerância de idade do snapshot 202 (2026-09-24)
+
+| uso | limite | status |
+|---|---|---|
+| leitura informativa | 720h (default de `prime_aluno_no_juridico`) | aceitável |
+| alerta de degradação (vigia nível 2) | 72h | aceitável — **só gradua alerta** |
+| **decisão de reativação** | **24h** | **NÃO IMPLEMENTADO** — a função não tem parâmetro de tolerância |
+
+Bloqueia `titulo_reativar` até existir a trava explícita de 24h.
