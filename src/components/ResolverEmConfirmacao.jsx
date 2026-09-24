@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
-import { EFEITO_VINCULA, pedirMotivo } from "../utils/emConfirmacao";
+import { EFEITO_VINCULA, motivoSugerido, pedirMotivo } from "../utils/emConfirmacao";
 
 // RESOLVER O TITULO QUE ESTA "EM CONFIRMACAO", ONDE ELE APARECE.
 //
@@ -40,6 +40,21 @@ export default function ResolverEmConfirmacao({
   const [itens, setItens] = useState(null);
   const [erro, setErro] = useState("");
   const [decidindo, setDecidindo] = useState(null);
+  // QUEM ESCOLHE O ACORDO E A GESTAO, NAO A SUGESTAO.
+  //
+  // Amanda, 24/09/2026: "eu quero decidir onde vincular, como era antes". Ate
+  // aqui este bloco mandava sempre `item.acordo_id` -- o acordo que a deteccao
+  // sugeriu -- e nao havia por onde trocar. Quando a sugestao erra, sobrava
+  // rejeitar o titulo e vincular pela ficha: duas etapas para uma decisao so.
+  // E a sugestao erra: no boleto 4445066 (R$ 3.987,54) ela aponta o acordo
+  // 4691, de R$ 981,08.
+  //
+  // `acordos` vem de `conferencia_acordos_do_aluno`, que calcula o efeito de
+  // cada acordo lendo as MESMAS funcoes que vao executar -- a lista nunca
+  // oferece o que a trava recusa. `escolha` guarda, por titulo, o acordo que a
+  // pessoa marcou; sem marcacao, vale a sugestao.
+  const [acordos, setAcordos] = useState([]);
+  const [escolha, setEscolha] = useState({});
 
   // `buscar` nao mexe em estado: quem guarda e o efeito (com a trava `vivo`,
   // porque na ficha este bloco monta e desmonta a cada troca de aba) e o
@@ -57,17 +72,39 @@ export default function ResolverEmConfirmacao({
       if (!vivo) return;
       setErro(r.erro);
       setItens(r.itens);
+      // A lista de acordos nao bloqueia o bloco: se ela falhar, continua
+      // valendo a sugestao, como antes. O que se perde e a escolha, nao a
+      // saida do titulo.
+      const { data } = await supabase.rpc("conferencia_acordos_do_aluno", { p_aluno_id: alunoId });
+      if (vivo) setAcordos(data || []);
     })();
     return () => { vivo = false; };
   }, [alunoId, buscar]);
+
+  // O acordo que vale para este titulo: o marcado pela pessoa ou, na ausencia,
+  // o sugerido pela deteccao.
+  function acordoDe(item) {
+    const id = escolha[item.titulo_id] || item.acordo_id;
+    return acordos.find((a) => String(a.acordo_id) === String(id)) || null;
+  }
 
   async function decidir(item, acao) {
     if (decidindo) return;
     let motivo = null;
     if (acao === "VINCULAR") {
-      const pergunta = `${item.efeito_texto}\n\nVincular o boleto ${item.documento} (${moeda(item.valor)}) ao acordo ${item.acordo_numero}?\n\nPor que este acordo cobre esta mensalidade?`;
-      if (item.exige_motivo) { motivo = pedirMotivo(pergunta); if (!motivo) return; }
-      else if (!window.confirm(pergunta)) return;
+      const alvo = acordoDe(item);
+      const numero = alvo?.numero || item.acordo_numero;
+      const efeito = alvo?.efeito_texto || item.efeito_texto;
+      const pergunta =
+        `${efeito}\n\nVincular o boleto ${item.documento} (${moeda(item.valor)}) ao acordo ${numero}` +
+        `${alvo?.valor_total != null ? ` (${moeda(alvo.valor_total)})` : ""}?\n\n` +
+        "Por que este acordo cobre esta mensalidade?";
+      // O motivo vem pronto, com os dois valores: so confirmar. O banco recusa
+      // abaixo de 10 caracteres, mas digitar nao e o que a auditoria precisa.
+      if (item.exige_motivo) {
+        motivo = pedirMotivo(pergunta, undefined, motivoSugerido(item, alvo));
+        if (!motivo) return;
+      } else if (!window.confirm(pergunta)) return;
     } else if (acao === "SEGUIR") {
       motivo = pedirMotivo(
         `O boleto ${item.documento} volta ao fluxo oficial de pagamento e sai desta fila; o motor conclui. Nada é marcado pago aqui.\n\nPor que este pagamento é deste título?`);
@@ -82,7 +119,9 @@ export default function ResolverEmConfirmacao({
       let r;
       if (acao === "VINCULAR") {
         r = await supabase.rpc("prime_conferencia_vincular",
-          { p_titulo_id: item.titulo_id, p_acordo_id: item.acordo_id, p_observacao: motivo });
+          { p_titulo_id: item.titulo_id,
+            p_acordo_id: acordoDe(item)?.acordo_id || item.acordo_id,
+            p_observacao: motivo });
       } else if (acao === "SEGUIR") {
         r = await supabase.rpc("prime_conferencia_seguir_pagamento",
           { p_titulo_id: item.titulo_id, p_pagamento_id: item.pagamento_id, p_motivo: motivo });
@@ -113,6 +152,11 @@ export default function ResolverEmConfirmacao({
     <div>
       {lista.map((item) => {
         const ocupado = decidindo === item.titulo_id;
+        // O acordo que vale agora e o efeito DELE -- nao o da sugestao.
+        const alvo = acordoDe(item);
+        const efeitoAtual = alvo?.efeito || item.efeito;
+        const efeitoTextoAtual = alvo?.efeito_texto || item.efeito_texto;
+        const numeroAtual = alvo?.numero || item.acordo_numero;
         return (
           <div key={item.titulo_id} style={compacto ? estilos.itemCompacto : estilos.item}>
             <div style={{ minWidth: 240, flex: 1 }}>
@@ -124,7 +168,34 @@ export default function ResolverEmConfirmacao({
               {/* O que o clique VAI fazer, dito pelo banco: quem decide e
                   vincular_titulos_acordo mais a trava do acordo quitado sem
                   dinheiro real, nao um texto escrito aqui. */}
-              <div style={estilos.explica}>{item.efeito_texto}</div>
+              <div style={estilos.explica}>{efeitoTextoAtual}</div>
+              {/* A ESCOLHA DO ACORDO. Cada opcao traz o VALOR ao lado do
+                  numero: e a conferencia que nenhuma rota de vinculo fazia --
+                  a sugestao deste boleto pode ser um acordo de um quarto do
+                  valor da mensalidade. O que a trava recusa aparece desabilitado
+                  com o motivo, em vez de falhar depois do clique. */}
+              {podeDecidir && acordos.length > 0 && (
+                <label style={estilos.escolhaLinha}>
+                  <span style={estilos.escolhaRotulo}>Vincular ao acordo:</span>
+                  <select
+                    style={estilos.escolhaSelect}
+                    value={escolha[item.titulo_id] || item.acordo_id || ""}
+                    disabled={!!decidindo}
+                    onChange={(e) =>
+                      setEscolha((a) => ({ ...a, [item.titulo_id]: e.target.value }))
+                    }
+                  >
+                    {!item.acordo_id && <option value="">— escolha o acordo —</option>}
+                    {acordos.map((a) => (
+                      <option key={a.acordo_id} value={a.acordo_id} disabled={!a.aceita_vinculo}>
+                        {`nº ${a.numero} · ${moeda(a.valor_total)} · ${a.qtd_parcelas}x · ${a.status}`}
+                        {a.aceita_vinculo ? "" : ` — ${a.efeito_texto}`}
+                        {String(a.acordo_id) === String(item.acordo_id) ? " (sugerido)" : ""}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
               <div style={estilos.detalhe}>
                 {item.dias_pendente} dia{item.dias_pendente === 1 ? "" : "s"} parado
                 {item.pagamento_data
@@ -139,12 +210,12 @@ export default function ResolverEmConfirmacao({
             </div>
             {podeDecidir && (
               <div style={estilos.acoes}>
-                {EFEITO_VINCULA.has(item.efeito) ? (
+                {EFEITO_VINCULA.has(efeitoAtual) ? (
                   <button type="button" style={ocupado ? estilos.btnOcupado : estilos.btnResolver}
                     disabled={!!decidindo} onClick={() => decidir(item, "VINCULAR")}
-                    title={item.efeito_texto}>
+                    title={efeitoTextoAtual}>
                     {ocupado ? "Processando…"
-                      : `${item.efeito === "VIRA_PAGO" ? "Vincular e quitar" : "Vincular"} acordo ${item.acordo_numero}`}
+                      : `${efeitoAtual === "VIRA_PAGO" ? "Vincular e quitar" : "Vincular"} acordo ${numeroAtual}`}
                   </button>
                 ) : null}
                 {item.pode_seguir_pagamento ? (
@@ -179,6 +250,13 @@ const estilos = {
   explica: { fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 2 },
   detalhe: { fontSize: 11, color: "var(--rv-texto-fraco)", marginTop: 2 },
   acoes: { display: "flex", gap: 6, flexWrap: "wrap" },
+  escolhaLinha: { display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap", marginTop: 4 },
+  escolhaRotulo: { fontSize: 11, color: "var(--rv-texto-fraco)", fontWeight: 700 },
+  escolhaSelect: {
+    background: "var(--rv-superficie)", color: "var(--rv-texto)",
+    border: "1px solid var(--rv-borda-forte)", borderRadius: 8,
+    padding: "3px 7px", fontSize: 11.5, fontWeight: 600, maxWidth: 420,
+  },
   btnResolver: {
     background: "#0f766e", color: "#fff", border: "none", borderRadius: 8,
     padding: "5px 13px", fontSize: 12, fontWeight: 800, cursor: "pointer",
