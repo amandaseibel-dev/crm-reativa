@@ -89,6 +89,7 @@ const CentralAvisos = lazy(() => import("./pages/CentralAvisos"));
 const TaxaConversao = lazy(() => import("./pages/TaxaConversao"));
 const Calibragem = lazy(() => import("./pages/Calibragem"));
 const CalibragemNivelamento = lazy(() => import("./pages/CalibragemNivelamento"));
+const CarteiraGeral = lazy(() => import("./pages/CarteiraGeral"));
 const Efetividade = lazy(() => import("./pages/Efetividade"));
 const PainelGeral = lazy(() => import("./pages/PainelGeral"));
 const CentralWhatsApp = lazy(() => import("./pages/CentralWhatsApp"));
@@ -160,6 +161,9 @@ function podeAcessar(perfil, rota) {
     return DIRETORIA_ROTAS.includes(rota);
   }
   if (rota === "/calibragem") return perfil !== "operador";
+  // Carteira Geral: destino de gestao. Operador nunca entra -- ele so pode
+  // assumir o que a gestao mandou para a FILA LIVRE, pela tela dele.
+  if (rota === "/carteira-geral") return perfil !== "operador";
   if (rota === "/efetividade") return true; // operador vê o próprio; gestão vê todos
   // Central WhatsApp: central ÚNICA e compartilhada — todo perfil ativo atende
   // por ela. Ainda não há distribuição/fidelização (fase 1 é só receber e
@@ -309,6 +313,16 @@ function RotaProtegida({ usuario, rota, children }) {
   // Amanda ADM). A RPC confere de novo por calibragem_e_gestao() -- isto aqui é
   // só para não abrir uma tela que voltaria vazia.
   if (rota === "/acordos-operador") {
+    const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+    if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
+      return <Navigate to="/" replace />;
+    }
+  }
+  // Carteira Geral: os mesmos três logins individuais da Calibragem
+  // (Amanda gestora, Fernanda, Amanda ADM). Não existe login "Carteira Geral":
+  // ela é um destino, não uma pessoa. O portão definitivo é do banco
+  // (public.calibragem_e_gestao, checado em toda RPC da tela).
+  if (rota === "/carteira-geral") {
     const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
     if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
       return <Navigate to="/" replace />;
@@ -657,6 +671,7 @@ export default function App() {
     { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Gestão" }, { rota: "/tv", label: "📺 TV ReATIVA", icone: "LayoutPanelTop", secao: "Gestão", externo: true },
     { rota: "/tv-mensagem", label: "📝 Mensagem da TV", icone: "MessageSquare", secao: "Gestão" },
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
+    { rota: "/carteira-geral", label: "Carteira Geral", icone: "Folder", secao: "Gestão" },
     { rota: "/envio-gmail", label: "Envio pelo meu Gmail", icone: "Contact", secao: "Gestão" },
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
@@ -703,6 +718,10 @@ export default function App() {
     if (item.rota === "/executivo") {
       const em3 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return (["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em3) || perfil === "diretoria") && perfil !== "operador";
+    }
+    if (item.rota === "/carteira-geral") {
+      const emCG = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emCG) && perfil !== "operador";
     }
     if (item.rota === "/calibragem") {
       const emC = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -1020,6 +1039,14 @@ export default function App() {
               element={
                 <RotaProtegida usuario={usuario} rota="/vincular-operadores">
                   <VincularBaseOperacional />
+                </RotaProtegida>
+              }
+            />
+            <Route
+              path="/carteira-geral"
+              element={
+                <RotaProtegida usuario={usuario} rota="/carteira-geral">
+                  <CarteiraGeral />
                 </RotaProtegida>
               }
             />
