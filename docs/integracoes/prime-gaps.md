@@ -226,3 +226,14 @@ gestão, e nenhuma delas é trabalho que este ambiente consiga fazer sozinho.
 Impacto direto: a reversão de títulos `CANCELADA` por causa judicial (262
 títulos, 60 CPFs, R$ 2.399.695,89) não pode ser decidida só pela saída do CPF
 do portador 202.
+
+## 195 e 202 não são exclusivos (2026-09-24)
+
+| afirmação | vale? |
+|---|---|
+| CPF está no 195 | VERDE — snapshot por ciclo |
+| CPF está no 202 (jurídico) | VERDE — desde 24/09/2026 |
+| **CPF está no 195, logo saiu do jurídico** | **FALSO** — 37 dos 72 CPFs do 202 estão também no 195 |
+
+A ausência do jurídico só é afirmável por `prime_aluno_no_juridico(cpf) = 'NAO'`,
+que exige snapshot 202 completo e válido.

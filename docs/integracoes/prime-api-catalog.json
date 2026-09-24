@@ -376,6 +376,15 @@
         "ou prova oficial de que o portador juridico se aplica ao aluno/CPF inteiro"
       ],
       "ver": "prime-mapa-identificadores.md#restricao-de-arquitetura"
+    },
+    {
+      "id": "PORTADORES_NAO_EXCLUSIVOS",
+      "descoberta_em": "2026-09-24",
+      "resumo": "Presenca no portador 195 nao significa ausencia de condicao juridica; um CPF pode estar em 195 e 202 ao mesmo tempo.",
+      "medicao": "37 dos 72 CPFs do portador 202 estao tambem no 195",
+      "risco_evitado": "usar o 195 como evidencia teria reativado 147 titulos / R$ 1.329.471,33 de alunos em cobranca judicial",
+      "fonte_correta": "prime_aluno_no_juridico(cpf) = 'NAO', que exige snapshot 202 completo e valido",
+      "ver": "prime-mapa-identificadores.md"
     }
   ]
 }

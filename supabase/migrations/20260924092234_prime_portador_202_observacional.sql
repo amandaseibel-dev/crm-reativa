@@ -60,7 +60,7 @@ as $function$
   base as (
     select c.proximo_skip, c.total_itens, c.ciclo as ciclo_cursor, c.atualizado_em,
            coalesce(l.cpfs,0) as cpfs, l.ciclo_linhas, l.coletado_em,
-           (c.carrier_existe) as tem_cursor
+           c.carrier_existe as tem_cursor
       from (select *, true as carrier_existe from cur) c
       full join lin l on true
   ),
@@ -101,6 +101,13 @@ grant execute on function public.prime_portador_snapshot_estado(int, int)
 
 -- 2) A RESPOSTA DE TRES VALORES. Nunca booleana: 'NAO' e uma afirmacao forte e
 -- so pode sair de um snapshot que se sabe completo.
+-- A RESPOSTA DE TRES VALORES, e a ordem dela e a regra:
+--   1. CPF ilegivel nao vira 'NAO' por descuido: vira INDETERMINADO;
+--   2. PRESENCA no 202 vale mesmo com snapshot parcial -- achar e achar;
+--   3. AUSENCIA so conclui 'NAO' com snapshot completo e valido.
+-- (Estes comentarios ficam FORA do corpo de proposito: texto dentro de
+--  $function$ entra no `prosrc` e faria o arquivo divergir do objeto aplicado
+--  em producao -- foi exatamente o drift corrigido em 24/09/2026.)
 create or replace function public.prime_aluno_no_juridico(p_cpf text)
 returns text
 language plpgsql
@@ -112,12 +119,10 @@ declare
   v_cpf text := lpad(regexp_replace(coalesce(p_cpf,''), '\D', '', 'g'), 11, '0');
   v_estado jsonb;
 begin
-  -- CPF ilegivel nao vira 'NAO' por descuido: vira indeterminado.
   if length(v_cpf) <> 11 or v_cpf !~ '^[0-9]{11}$' or v_cpf = '00000000000' then
     return 'INDETERMINADO';
   end if;
 
-  -- PRESENCA vale mesmo com snapshot parcial.
   if exists (
     select 1 from public.prime_portador_membro m
      where m.portador = 202
@@ -126,7 +131,6 @@ begin
     return 'SIM';
   end if;
 
-  -- AUSENCIA so conclui com snapshot completo e valido.
   v_estado := public.prime_portador_snapshot_estado(202);
   if not coalesce((v_estado->>'valido')::boolean, false) then
     return 'INDETERMINADO';

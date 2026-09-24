@@ -71,6 +71,28 @@ aparece em linha de extrato financeiro**, só na filiação (`students_search
 ?carrierId=166`). Por isso "está no 166" se confirma pela **listagem**, nunca
 pelo extrato.
 
+### ⚠️ Estar no 195 NÃO significa estar fora do jurídico
+
+**Regra de negócio, medida em 2026-09-24.** Um CPF pode estar **simultaneamente**
+nos portadores 195 (cobrança ReATIVA) e 202 (cobrança judicial). A filiação é
+por CPF e não é exclusiva entre carteiras.
+
+**Medição:** dos 72 CPFs no portador 202, **37 estão também no 195** — mais da
+metade.
+
+**Por que isso importa:** os 262 títulos cancelados por causa judicial pertencem
+a 60 CPFs, e 35 deles apareciam no 195. Se a presença no 195 tivesse sido aceita
+como evidência de que a condição jurídica acabou, **147 títulos / R$ 1.329.471,33
+teriam sido reativados para cobrança de alunos que continuam em processo
+judicial**. A coleta do 202 mostrou que os 262 seguem no portador judicial:
+`prime_aluno_no_juridico` devolveu `SIM` para 262 de 262.
+
+**Consequência para qualquer regra futura:** presença no 195 é, no máximo,
+condição necessária. Nunca suficiente. A ausência do jurídico só pode ser
+afirmada por `prime_aluno_no_juridico(cpf) = 'NAO'`, que exige snapshot do 202
+completo e válido — e mesmo esse é um fato do CPF, não de um título
+(ver "RESTRIÇÃO DE ARQUITETURA" acima).
+
 ## Regras de matching, por ordem de confiabilidade
 
 1. **CPF exato** (formatado na busca, comparado em dígitos puros no retorno)
