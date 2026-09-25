@@ -82,6 +82,15 @@ crons de :30 a :41.
 
 ## 20260924_1..5 — mensalidade vinculada: QUITADO ou NEGOCIADO
 
+> **REBASEADO SOBRE O #523 EM 25/09/2026.** O arquivo 1 (e o rollback dele)
+> partem agora de producao na versao `20260925123852` (#523): `titulo_reavaliar`
+> carrega a guarda do #523 byte a byte (NEGOCIADO orfao so fica NEGOCIADO se
+> algum acordo da cadeia recebeu dinheiro; sem pagamento volta para ABERTO) e
+> acrescenta so a proveniencia e a porta PAGO -> NEGOCIADO. O rollback devolve
+> `titulo_reavaliar` ao corpo do #523 (`efdf3fd1...`), nao ao de 24/09. Prova:
+> `supabase/tests/mensalidade_segue_status_do_acordo_sobre_523.test.js`.
+> Arquivos 2, 3 e 4 nao redefinem funcao e nao mudaram.
+
 Pacote de 24/09/2026, **nada aplicado**. Diagnóstico completo, com IDs e prova
 título a título, em
 [`docs/DIAGNOSTICO-MENSALIDADE-STATUS-ACORDO-2026-09-24.md`](../../docs/DIAGNOSTICO-MENSALIDADE-STATUS-ACORDO-2026-09-24.md).

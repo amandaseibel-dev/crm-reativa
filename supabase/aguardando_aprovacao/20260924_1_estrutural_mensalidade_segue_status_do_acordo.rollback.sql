@@ -1,6 +1,10 @@
 -- ============================================================================
 -- ROLLBACK do arquivo 1 (estrutural) -- volta as 3 funcoes a definicao EXATA
--- que estava em producao em 24/09/2026, antes da alteracao.
+-- que esta em producao ANTES deste arquivo. REBASEADO EM 25/09/2026:
+-- titulo_reavaliar volta para o corpo do #523 (versao 20260925123852,
+-- md5(prosrc) efdf3fd198a56198223ade82e4991d40) -- NAO para o de 24/09, que
+-- desfaria o #523. _titulo_quita_com_o_acordo (bde4388c...) e
+-- titulos_por_status_acordo (67e21573...) nao mudaram em producao desde 24/09.
 -- ============================================================================
 -- Os corpos abaixo foram copiados de `pg_get_functiondef()` em producao em
 -- 24/09/2026, nao reescritos de memoria.
@@ -127,14 +131,26 @@ begin
    order by v.criado_em desc nulls last
    limit 1;
 
-  -- Mensalidade NEGOCIADA cujo acordo caiu (CANCELADO/QUEBRADO/INATIVO): o
-  -- cancelamento e uma mudanca de estado do ACORDO, nao uma decisao sobre a
-  -- mensalidade original. A negociacao fica preservada no historico -- a
-  -- reavaliacao automatica nao desfaz retroativamente o que foi negociado, nem
-  -- soma de novo o valor como mensalidade em aberto. So entra aqui quando a
-  -- situacao ATUAL do titulo ja e NEGOCIADO: se nunca foi negociado, ou se o
-  -- motivo de nao achar vinculo vivo e outro, o caminho de baixo decide, como
-  -- sempre decidiu.
+  -- Mensalidade NEGOCIADA cujo acordo caiu (CANCELADO/QUEBRADO/INATIVO) SO
+  -- continua NEGOCIADA quando algum acordo da cadeia dela chegou a receber
+  -- dinheiro (parcela PAGO ou baixa viva): ai a divida passou a ser o saldo
+  -- residual DO ACORDO (re-acordo, 22/09/2026), e reabrir a mensalidade pelo
+  -- valor cheio cobraria de novo o que ja entrou.
+  --
+  -- Acordo que caiu SEM NENHUM pagamento na cadeia -- cancelado por falta de
+  -- pagamento, o unico que o botao "Cancelar acordo" da ficha aceita -- nao
+  -- negociou nada de fato: a mensalidade desce para o caminho de baixo, volta
+  -- para ABERTO e fica livre para um acordo novo (Amanda, 25/09/2026). O
+  -- vinculo inativo continua na tabela: a composicao do acordo cancelado nao
+  -- se perde.
+  --
+  -- A cadeia e todo acordo pelo qual a mensalidade passou (vinculos ativos ou
+  -- nao, mais o acordo_id que o titulo guarda), nao so o ultimo: no re-acordo
+  -- A (pago em parte) -> B (cancelado sem pagar), o dinheiro entrou em A.
+  --
+  -- So entra aqui quando a situacao ATUAL do titulo ja e NEGOCIADO: se nunca
+  -- foi negociado, ou se o motivo de nao achar vinculo vivo e outro, o caminho
+  -- de baixo decide, como sempre decidiu.
   if v_acordo is null and upper(coalesce(v_situacao,'')) = 'NEGOCIADO' then
     select coalesce(
         (select v.acordo_id from public.acordo_titulo_vinculo v
@@ -148,7 +164,20 @@ begin
         from public.acordos where id = v_acordo_bloqueio;
     end if;
 
-    if v_status_bloqueio in ('CANCELADO','CANCELADA','QUEBRADO','INATIVO') then
+    if v_status_bloqueio in ('CANCELADO','CANCELADA','QUEBRADO','INATIVO')
+       and exists (
+         select 1
+           from (select v.acordo_id from public.acordo_titulo_vinculo v
+                  where v.titulo_id = p_titulo
+                 union
+                 select v_acordo_atual) c
+          where c.acordo_id is not null
+            and (exists (select 1 from public.parcelas p
+                          where p.acordo_id = c.acordo_id
+                            and upper(coalesce(p.status,'')) = 'PAGO')
+                 or exists (select 1 from public.baixas_pagamento b
+                             where b.acordo_id = c.acordo_id
+                               and b.devolvido_em is null))) then
       return;
     end if;
   end if;
@@ -195,6 +224,9 @@ begin
   end if;
 end;
 $function$;
+
+comment on function public.titulo_reavaliar(uuid) is
+  'Reavalia um titulo contra o acordo vivo dele. PAGO/quitada e CANCELADA/cancelada sao estados terminais. Mensalidade NEGOCIADA cujo acordo caiu (CANCELADO/CANCELADA/QUEBRADO/INATIVO) so continua NEGOCIADA quando algum acordo da cadeia dela recebeu pagamento (re-acordo pelo saldo residual, 22/09/2026); sem nenhum pagamento na cadeia volta para ABERTO (25/09/2026).';
 
 commit;
 
