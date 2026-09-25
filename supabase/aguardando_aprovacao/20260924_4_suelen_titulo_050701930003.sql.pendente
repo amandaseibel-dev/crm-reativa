@@ -329,3 +329,64 @@ commit;
 --  where t.id = 'caa99e1e-4f70-48c6-9a37-0993e75fa306'
 --    and coalesce(t.tipo_boleto,'') = 'Acordo';
 -- commit;
+
+-- ============================================================================
+-- 5) FOTOGRAFIA DO ESTADO DEIXADO -- COMENTADA, como o resto
+-- ============================================================================
+-- Vale para QUALQUER das duas opcoes: ela so registra como o titulo e os
+-- vinculos ficaram. Descomente junto com a opcao escolhida, DENTRO da mesma
+-- transacao, logo depois da validacao.
+--
+-- Sem este bloco, o rollback da Suelen nao tem com o que comparar e ABORTA de
+-- proposito, em vez de restaurar por cima de trabalho posterior.
+--
+-- alter table public._backup_saneamento_suelen_20260924
+--   add column if not exists registro_pos jsonb,
+--   add column if not exists vinculos_pos jsonb,
+--   add column if not exists situacao_pos text,
+--   add column if not exists status_pos text,
+--   add column if not exists acordo_id_pos uuid,
+--   add column if not exists motivo_ajuste_pos text,
+--   add column if not exists quitacao_origem_pos text,
+--   add column if not exists quitacao_origem_acordo_id_pos uuid,
+--   add column if not exists origem_liquidacao_pos text,
+--   add column if not exists origem_encerramento_pos text,
+--   add column if not exists saldo_corrigido_pos numeric,
+--   add column if not exists valor_em_aberto_pos numeric,
+--   add column if not exists audit_log_id_pos bigint,
+--   add column if not exists opcao_aplicada text,
+--   add column if not exists fotografado_em timestamptz;
+--
+-- update public._backup_saneamento_suelen_20260924 b
+--    set registro_pos = to_jsonb(t),
+--        vinculos_pos = coalesce((select jsonb_agg(to_jsonb(v) order by v.acordo_id)
+--                                   from public.acordo_titulo_vinculo v
+--                                  where v.titulo_id = t.id), '[]'::jsonb),
+--        situacao_pos = t.situacao,
+--        status_pos = t.status,
+--        acordo_id_pos = t.acordo_id,
+--        motivo_ajuste_pos = t.motivo_ajuste,
+--        quitacao_origem_pos = t.quitacao_origem,
+--        quitacao_origem_acordo_id_pos = t.quitacao_origem_acordo_id,
+--        origem_liquidacao_pos = t.origem_liquidacao,
+--        origem_encerramento_pos = t.origem_encerramento,
+--        saldo_corrigido_pos = t.saldo_corrigido,
+--        valor_em_aberto_pos = t.valor_em_aberto,
+--        audit_log_id_pos = (select max(l.id) from public.audit_log l
+--                             where l.tabela = 'acordos_titulos'
+--                               and l.registro_id = t.id::text),
+--        -- TROQUE pela opcao que foi de fato aplicada: 'OPCAO_1_MOVER_VINCULO',
+--        -- 'OPCAO_2_DUPLICADA' ou 'OPCAO_1_E_2'
+--        opcao_aplicada = 'DEFINA_A_OPCAO',
+--        fotografado_em = now()
+--   from public.acordos_titulos t
+--  where t.id = b.titulo_id;
+--
+-- do $$
+-- begin
+--   if exists (select 1 from public._backup_saneamento_suelen_20260924
+--               where registro_pos is null or audit_log_id_pos is null
+--                  or coalesce(opcao_aplicada,'DEFINA_A_OPCAO') = 'DEFINA_A_OPCAO') then
+--     raise exception 'ABORTA: fotografia posterior incompleta (ou opcao_aplicada nao preenchida) -- o rollback nao teria com o que comparar';
+--   end if;
+-- end $$;

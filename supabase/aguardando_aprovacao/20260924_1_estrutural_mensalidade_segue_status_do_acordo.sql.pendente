@@ -329,7 +329,17 @@ begin
   -- Quitado de verdade e acordo sem parcela viva. Acordo marcado QUITADO com
   -- parcela em aberto nao quita mensalidade nenhuma (guarda de 20260831140000).
   -- RENEGOCIADA nao entra aqui: parcela renegociada nao e parcela paga.
+  -- NOVO 24/09 (achado na revisao de 25/09): o BOLETO DO PROPRIO ACORDO nunca
+  -- e quitado como mensalidade. As duas funcoes irmas ja excluiam
+  -- `tipo_boleto = 'Acordo'` -- `_titulo_quita_com_o_acordo` desde 20260831140000
+  -- e `titulos_por_status_acordo` a partir deste arquivo -- mas o MOTOR nao. Como
+  -- os tres gatilhos disparam na mesma transicao de status, o motor desfazia o
+  -- filtro das outras duas e o boleto voltava a ser marcado "quitada": era a
+  -- segunda porta dos 17 titulos do grupo C, e ela continuaria aberta.
+  -- Sem quitar, o caminho de baixo deixa o boleto em NEGOCIADO/vinculada, que e
+  -- exatamente onde as irmas o deixam.
   v_quitado := v_status_acordo = 'QUITADO'
+    and coalesce(v_tipo,'') <> 'Acordo'
     and not exists (
       select 1 from public.parcelas p
        where p.acordo_id = v_acordo

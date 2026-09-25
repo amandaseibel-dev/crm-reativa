@@ -1025,4 +1025,70 @@ begin
   raise notice 'VALIDACAO OK: 492 NEGOCIADO/vinculada; vinculos, valores, parcelas e acordos intactos; 46 excecoes preservadas';
 end $$;
 
+
+-- ---------------------------------------------------------------------------
+-- 5) FOTOGRAFIA DO ESTADO DEIXADO -- o que o rollback vai conferir depois
+-- ---------------------------------------------------------------------------
+-- Sem isto, o rollback so consegue perguntar "o titulo esta no estado que eu
+-- esperava deixar?", e essa pergunta e fraca: outra coisa pode ter reescrito o
+-- registro e chegado no mesmo par (situacao, status) com motivo, acordo ou
+-- proveniencia diferentes -- e o rollback sobrescreveria por cima.
+--
+-- Aqui, ainda DENTRO da transacao da correcao, gravamos:
+--   . o registro inteiro depois (`registro_pos`) e cada campo que o rollback
+--     vai sobrescrever (`*_pos`);
+--   . a MARCA-D'AGUA do audit_log (`audit_log_id_pos`): o maior audit_log.id
+--     deste titulo neste instante. Os eventos da propria correcao ja estao
+--     gravados, entao qualquer id MAIOR que este veio depois de nos.
+--
+-- O rollback exige os dois: igualdade campo a campo E ausencia de evento
+-- posterior relevante. Se `audit_log_id_pos` vier nulo, ele aborta inteiro em
+-- vez de cair no teste fraco.
+alter table public._backup_saneamento_g2a_20260924
+  add column if not exists registro_pos jsonb,
+  add column if not exists situacao_pos text,
+  add column if not exists status_pos text,
+  add column if not exists acordo_id_pos uuid,
+  add column if not exists motivo_ajuste_pos text,
+  add column if not exists quitacao_origem_pos text,
+  add column if not exists quitacao_origem_acordo_id_pos uuid,
+  add column if not exists quitacao_origem_em_pos timestamptz,
+  add column if not exists origem_liquidacao_pos text,
+  add column if not exists origem_encerramento_pos text,
+  add column if not exists saldo_corrigido_pos numeric,
+  add column if not exists valor_em_aberto_pos numeric,
+  add column if not exists audit_log_id_pos bigint,
+  add column if not exists fotografado_em timestamptz;
+
+update public._backup_saneamento_g2a_20260924 b
+   set registro_pos = to_jsonb(t),
+       situacao_pos = t.situacao,
+       status_pos = t.status,
+       acordo_id_pos = t.acordo_id,
+       motivo_ajuste_pos = t.motivo_ajuste,
+       quitacao_origem_pos = t.quitacao_origem,
+       quitacao_origem_acordo_id_pos = t.quitacao_origem_acordo_id,
+       quitacao_origem_em_pos = t.quitacao_origem_em,
+       origem_liquidacao_pos = t.origem_liquidacao,
+       origem_encerramento_pos = t.origem_encerramento,
+       saldo_corrigido_pos = t.saldo_corrigido,
+       valor_em_aberto_pos = t.valor_em_aberto,
+       audit_log_id_pos = (
+         select max(l.id) from public.audit_log l
+          where l.tabela = 'acordos_titulos' and l.registro_id = t.id::text),
+       fotografado_em = now()
+  from public.acordos_titulos t
+ where t.id = b.titulo_id;
+
+do $$
+declare v_sem int;
+begin
+  select count(*) into v_sem from public._backup_saneamento_g2a_20260924
+   where registro_pos is null or audit_log_id_pos is null;
+  if v_sem > 0 then
+    raise exception 'ABORTA: % linha(s) do backup ficaram sem fotografia posterior -- o rollback nao teria com o que comparar', v_sem;
+  end if;
+  raise notice 'fotografia posterior gravada para % titulo(s)', (select count(*) from public._backup_saneamento_g2a_20260924);
+end $$;
+
 commit;

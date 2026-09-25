@@ -279,6 +279,15 @@ Vai junto a correção de `titulos_por_status_acordo`, que estava mais frouxa qu
 as irmãs (sem guarda de parcela viva, sem excluir o boleto do próprio acordo) —
 a origem dos 17 do grupo C.
 
+> **Revisão de 25/09 — eram DUAS portas, não uma.** Os três gatilhos de `acordos`
+> disparam na mesma transição de status, e o **motor** (`titulo_reavaliar`)
+> também não excluía `tipo_boleto = 'Acordo'`: ele remarcava como "quitada" o
+> boleto que as irmãs acabavam de poupar. Corrigir só
+> `titulos_por_status_acordo` deixaria o defeito do grupo C produzindo casos
+> novos. O arquivo 1 passou a exigir `coalesce(v_tipo,'') <> 'Acordo'` também em
+> `v_quitado`, e há teste para os dois lados. Matriz completa por status do
+> acordo: [`REGRA-TITULO-REAVALIAR-POR-STATUS-DO-ACORDO.md`](REGRA-TITULO-REAVALIAR-POR-STATUS-DO-ACORDO.md).
+
 ## 7. Caso Suelen Rossi Machado — separado, e sem escolha feita
 
 Título `050701930003` (`caa99e1e-4f70-48c6-9a37-0993e75fa306`), R$ 428,72,
@@ -364,6 +373,10 @@ exceções continuam fora.
 
 **Backup por ID** (sem PITR, é a única volta): `_backup_saneamento_g1_20260924`,
 `_backup_saneamento_g2a_20260924`, `_backup_saneamento_suelen_20260924` —
+agora com **fotografia do estado posterior** (`*_pos`) e a **marca-d'água do
+`audit_log`**, que é o que permite ao rollback comparar campo a campo com o que a
+correção deixou, em vez de aceitar qualquer linha que pareça estar no estado
+esperado (ver o `LEIA-ME.md` da pasta) —
 guardam `to_jsonb(titulo)` inteiro, os vínculos, o acordo e seu status,
 situação, status, `acordo_id`, `origem_liquidacao` (+ref/em),
 `origem_encerramento`, proveniência, `motivo_ajuste`, o `audit_log.id` e o
