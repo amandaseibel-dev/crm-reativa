@@ -1,16 +1,16 @@
 import { useState, useEffect, Fragment } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
-import printOlinda from "../data/elogios/ramon";
+import printOlinda from "../data/elogios/diego-olinda";
 import printRamon from "../data/elogios/suyanne";
-import printSuyanne from "../data/elogios/guilherme-1";
+import printSuyanne from "../data/elogios/diego-suyanne";
 import printGuilherme1 from "../data/elogios/guilherme-2";
 import printGuilherme2 from "../data/elogios/kenendy";
 import printKenendy from "../data/elogios/luciana";
 import printLuciana from "../data/elogios/luciana-correto";
 import printGabriele from "../data/elogios/kellen";
 import printKellen from "../data/elogios/kellen-correto";
-import fotoNossaHistoria from "../assets/historia/nossa-historia-correta.webp";
+import fotoNossaHistoria from "../data/historia/nossa-historia";
 import crmLocalizarAluno from "../assets/manual-mensageria/01-localizar-aluno.webp";
 import crmCadastrarAluno from "../assets/manual-mensageria/02-cadastrar-aluno.webp";
 import crmGestaoLeads from "../assets/manual-mensageria/03-gestao-leads.webp";
@@ -2877,7 +2877,7 @@ function SecaoHistoria() {
               Nossas conquistas e momentos da equipe
             </strong>
             <span style={{ color: "var(--rv-texto-suave)", fontSize: 13 }}>
-              Equipe • comemorações • aniversários • bastidores
+              Equipe • comemorações • aniversários • conquistas • bastidores
             </span>
           </span>
           <span style={S.historiaAmpliar}>Clique para ampliar ↗</span>
