@@ -251,3 +251,124 @@ Registro explícito, para não se perder na próxima leitura:
    aplicação.** Se a base tiver mudado entre 25/09 e a execução, a transação
    aborta. Isto vale mais do que a lista: a lista é a fotografia, o guard é a
    regra.
+
+---
+
+## 7. Validação do estado atual de produção — 25/09/2026
+
+Leitura **100% `SELECT`**. Nenhum script foi executado, nenhuma migration
+aplicada. Confere o estado de hoje contra todos os guards e números esperados dos
+arquivos pendentes.
+
+### 7.1 Nada foi aplicado — confirmado pelo banco
+
+| verificação | esperado | hoje |
+|---|---|---|
+| colunas `quitacao_origem*` em `acordos_titulos` | 0 (arquivo 1 não aplicado) | **0** |
+| tabelas `_backup_saneamento_*` | 0 (nada aplicado) | **0** |
+
+### 7.2 As listas são idênticas — por md5, não por contagem
+
+O conjunto de `titulo_id` de cada arquivo foi comparado com o que o predicado
+devolve **hoje**, pelo md5 dos ids ordenados e concatenados:
+
+| grupo | qtd na lista | qtd hoje | md5 da lista | md5 de hoje | igual? |
+|---|---:|---:|---|---|---|
+| **G1** | 65 | 65 | `d10addd0…08ff1` | `d10addd0…08ff1` | **sim** |
+| **A** | 492 | 492 | `6eb184c3…d648b` | `6eb184c3…d648b` | **sim** |
+
+Contagem igual não provaria nada (poderia ser outro título entrando e um saindo).
+**Os md5 idênticos provam igualdade de conjunto, id por id.**
+
+### 7.3 G1 — todos os guards
+
+| guard | esperado | hoje |
+|---|---|---|
+| títulos | 65 | **65** |
+| valor | R$ 41.642,41 | **R$ 41.642,41** |
+| acordos | 44 | **44** |
+| fora de NEGOCIADO/vinculada | 0 | **0** |
+| `tipo_boleto = 'Acordo'` | 0 | **0** |
+| com `origem_liquidacao`/`origem_encerramento` | 0 | **0** |
+| sem vínculo vivo único no acordo esperado | 0 | **0** |
+| acordo com parcela viva | 0 | **0** |
+| com pagamento próprio / conferência / solicitação | 0 / 0 / 0 | **0 / 0 / 0** |
+| parcelas nos 44 acordos | 58, todas PAGO | **58, todas PAGO** |
+
+### 7.4 Grupo A e as 46 exceções
+
+| grupo | títulos | valor | fora de `quitada` | com liquidação | sem vínculo vivo único | com pagamento |
+|---|---:|---:|---:|---:|---:|---:|
+| **A** | **492** | **R$ 830.042,13** | 0 | 0 | **0** | 0 |
+| C | 17 | R$ 6.030,79 | 0 | 0 | 0 | 0 |
+| D | 21 | R$ 8.181,97 | 0 | 0 | **4** | 0 |
+| E1 | 5 | R$ 0,00 | 0 | 0 | 0 | 0 |
+| E2 | 3 | R$ 0,00 | 0 | 0 | 0 | 0 |
+| | **538** | **R$ 844.254,89** | | | | |
+
+Os **4 do grupo D sem vínculo vivo** são conhecidos e já documentados: docs
+4093469, 4093471, 4093472 e 4093473 (acordo 1522) têm só `acordo_id`, sem linha
+em `acordo_titulo_vinculo`. **Não é divergência nova** — e eles são exceção, não
+entram no lote.
+
+### 7.5 Divergência: os contadores globais andaram
+
+**Aqui há diferença real em relação a 24/09**, e ela é declarada, não acomodada:
+
+| medida | 24/09 | 25/09 | Δ |
+|---|---:|---:|---:|
+| `saldo_total` global | R$ 43.137.668,05 | R$ 43.150.942,10 | **+R$ 13.274,05** |
+| `saldo_vencido` global | R$ 37.435.537,87 | R$ 37.557.324,44 | **+R$ 121.786,57** |
+| alunos com saldo | 12.896 | 12.915 | +19 |
+| NEGOCIADO × acordo ATIVO | 3.059 | 3.057 | −2 |
+| PAGO × acordo QUITADO | 1.081 | 1.160 | +79 |
+| títulos PAGO (total) | 5.341 | 5.421 | +80 |
+| títulos NEGOCIADO (total) | 3.140 | 3.122 | −18 |
+
+### 7.6 E a divergência NÃO toca as populações do saneamento
+
+| medida | resultado |
+|---|---|
+| títulos com evento em `audit_log` desde 24/09 20:00 UTC | **150** |
+| — destes, dentro do G1 (65) | **0** |
+| — destes, dentro do G2 (538) | **0** |
+| acordos que mudaram de status desde 24/09 | **17** |
+| — destes, algum é acordo do G1? | **0** |
+| — destes, algum é acordo do G2? | **0** |
+
+É operação normal de um dia: pagamentos entraram, acordos foram quitados. **Nada
+disso atravessou as fronteiras dos grupos** — o que os md5 idênticos da §7.2 já
+haviam provado por outro caminho.
+
+**Nenhum guard dos arquivos depende dos contadores globais.** Eles conferem a
+lista (492 / 65), a soma financeira (R$ 830.042,13 / R$ 41.642,41), o estado
+anterior de cada título, o vínculo vivo único, o status do acordo, a ausência de
+pagamento próprio e as 46 exceções fora do lote — tudo intacto. **Se os arquivos
+fossem executados hoje, nenhum guard abortaria.**
+
+O que ficou desatualizado é a **tabela antes/depois** do diagnóstico, que serve de
+referência para o arquivo 5. Ela foi atualizada com as **duas** leituras, lado a
+lado, e os valores "depois" recalculados sobre a base de 25/09 — a aritmética é a
+mesma, só o ponto de partida mudou:
+
+| medida | antes (25/09) | depois |
+|---|---:|---:|
+| NEGOCIADO × acordo QUITADO | 65 | **0** |
+| PAGO × acordo ATIVO | 538 | **46** |
+| NEGOCIADO × acordo ATIVO | 3.057 | 3.549 |
+| PAGO × acordo QUITADO | 1.160 | 1.225 |
+| títulos PAGO (total) | 5.421 | 4.994 |
+| títulos NEGOCIADO (total) | 3.122 | 3.549 |
+
+**Nenhuma lista foi adaptada.** Os 65 e os 492 são exatamente os mesmos ids de
+24/09, e as 46 exceções continuam sendo as mesmas 46.
+
+### 7.7 Caso Suelen — inalterado
+
+| verificação | esperado | hoje |
+|---|---|---|
+| situação / status | NEGOCIADO / vinculada | **NEGOCIADO / vinculada** |
+| `acordo_titulo_vinculo` aponta para | 3609 (CANCELADO) | **3609 (CANCELADO)** |
+| coluna `acordo_id` aponta para | 3528 (ATIVO) | **3528 (ATIVO)** |
+
+A divergência segue exatamente como diagnosticada, e nenhuma opção foi aplicada.

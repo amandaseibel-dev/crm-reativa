@@ -385,16 +385,22 @@ o motivo da correção e o timestamp.
 
 ## 10. Resultado esperado da validação antes/depois
 
-| medida | antes | depois |
-|---|---|---|
-| NEGOCIADO × acordo QUITADO | 65 | **0** |
-| PAGO × acordo ATIVO | 538 | **46** (C 17 + D 21 + E1 5 + E2 3) |
-| NEGOCIADO × acordo ATIVO | 3.059 | 3.551 |
-| PAGO × acordo QUITADO | 1.081 | 1.146 |
-| títulos PAGO (total) | 5.341 | 4.914 |
-| títulos NEGOCIADO (total) | 3.140 | 3.567 |
-| `saldo_total` global | R$ 43.137.668,05 | igual |
-| `saldo_vencido` global | R$ 37.435.537,87 | igual |
+> **Baseline relido em 25/09.** A base é viva: os contadores globais andaram em
+> um dia. As **populações do saneamento não** — ver
+> [`REVISAO-PROVENIENCIA-GRUPO-A-2026-09-25.md`](REVISAO-PROVENIENCIA-GRUPO-A-2026-09-25.md), §7.
+> A coluna "antes" abaixo traz as duas leituras; **nenhum guard depende dos
+> contadores globais**, só da lista e da soma dos grupos, que estão idênticas.
+
+| medida | antes (24/09) | antes (25/09) | depois |
+|---|---|---|---|
+| NEGOCIADO × acordo QUITADO | 65 | **65** | **0** |
+| PAGO × acordo ATIVO | 538 | **538** | **46** (C 17 + D 21 + E1 5 + E2 3) |
+| NEGOCIADO × acordo ATIVO | 3.059 | 3.057 | 3.549 |
+| PAGO × acordo QUITADO | 1.081 | 1.160 | 1.225 |
+| títulos PAGO (total) | 5.341 | 5.421 | 4.994 |
+| títulos NEGOCIADO (total) | 3.140 | 3.122 | 3.549 |
+| `saldo_total` global | R$ 43.137.668,05 | R$ 43.150.942,10 | igual ao de antes |
+| `saldo_vencido` global | R$ 37.435.537,87 | R$ 37.557.324,44 | igual ao de antes |
 | negociado órfão (dobra) | 17 / R$ 3.841,62 | 16 / R$ 3.412,90 *(só se a Suelen for tratada)* |
 | pagamentos, parcelas, vínculos, acordos | — | **iguais, item a item** |
 
