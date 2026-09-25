@@ -788,18 +788,19 @@ export default function FinanceiroAluno({ aluno }) {
     }
 
     const confirmado = window.confirm(
-      `Cancelar esse acordo de ${moeda(acordo.valor_total)} em ${acordo.qtd_parcelas}x? As mensalidades negociadas nele continuam registradas como negociadas (não voltam a ficar em aberto) -- se precisar cobrar de novo, monte um acordo novo com elas.`
+      `Cancelar esse acordo de ${moeda(acordo.valor_total)} em ${acordo.qtd_parcelas}x? As mensalidades vinculadas a ele voltam a ficar em aberto, pra poderem entrar num acordo novo. Se alguma delas já tiver recebido pagamento em um acordo anterior, ela continua negociada pelo saldo que sobrou.`
     );
     if (!confirmado) return;
 
     // Tudo no banco, em uma transação (RPC cancelar_acordo_ficha): as
-    // mensalidades negociadas continuam NEGOCIADAS (o cancelamento muda o
-    // estado do acordo, não desfaz a negociação original -- regra de
-    // 22/09/2026), os vínculos só ficam inativos (nunca apagados, preserva o
-    // histórico), parcelas viram CANCELADA, o acordo vira CANCELADO (acordos e
-    // parcelas não têm DELETE -- cancela em vez de apagar) e o caso é liberado
-    // da carteira ativa. As duas travas de cima (parcela paga / baixa viva)
-    // são conferidas de novo no banco, no momento da gravação.
+    // mensalidades voltam para ABERTO (acordo cancelado sem nenhum pagamento
+    // não negociou nada -- regra de 25/09/2026; só continuam NEGOCIADAS se
+    // outro acordo da cadeia delas recebeu dinheiro, caso de re-acordo), os
+    // vínculos só ficam inativos (nunca apagados, preserva o histórico),
+    // parcelas viram CANCELADA, o acordo vira CANCELADO (acordos e parcelas
+    // não têm DELETE -- cancela em vez de apagar) e o caso é liberado da
+    // carteira ativa. As duas travas de cima (parcela paga / baixa viva) são
+    // conferidas de novo no banco, no momento da gravação.
     const { error: erroCancelar } = await supabase.rpc("cancelar_acordo_ficha", {
       p_acordo_id: acordo.id,
     });
