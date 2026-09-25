@@ -236,7 +236,9 @@ export default function CarteiraGeral() {
       `${data?.alunos_movidos || 0} aluno(s) e ${data?.acordos_movidos || 0} acordo(s) movidos para ` +
         `${data?.destino_nome}. ${data?.retornos_preservados || 0} retorno(s) preservado(s). ` +
         `Lote ${data?.lote_id}.` +
-        (recusados ? ` ${recusados} item(ns) recusado(s) porque mudaram depois da prévia.` : "")
+        (recusados
+          ? ` ${recusados} aluno(s) recusado(s) — nada deles foi movido, porque algo mudou depois da prévia.`
+          : "")
     );
     setMotivo("");
     setAcordosEscolhidos(new Set());

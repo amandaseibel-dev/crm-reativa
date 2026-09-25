@@ -160,7 +160,8 @@ declare
   v_movidos     int := 0;
   v_recusados   jsonb := '[]'::jsonb;
   v_acordos_mov int := 0;
-  v_acordos_rec int := 0;
+  v_rec_por_acordo int := 0;
+  v_ac_falha    text;
   v_ac_detalhe  jsonb;
   v_ac_n        int;
   v_retornos    int := 0;
@@ -210,12 +211,22 @@ begin
       continue;
     end if;
 
-    -- ---------------- acordos: revalida um por um ----------------
+    -- ---------------- PASSO 1: revalida TODOS os acordos, SEM ESCREVER ----
     -- So entram os que a previa marcou `mover`. De cada um se confere o
-    -- responsavel E o status: um acordo que virou QUITADO ou CANCELADO depois
-    -- da previa nao e mais o mesmo objeto e nao viaja em silencio.
-    v_ac_n := 0;
-    v_ac_detalhe := '[]'::jsonb;
+    -- responsavel E o status: um acordo que virou QUITADO ou CANCELADO depois da
+    -- previa nao e mais o mesmo objeto.
+    --
+    -- POR QUE ESTE PASSO EXISTE SEPARADO (achado na revisao de 25/09)
+    -- A versao anterior validava e escrevia no mesmo laco: um acordo divergente
+    -- era recusado, mas caso, ficha e agenda do aluno seguiam sendo movidos. O
+    -- resultado era pior do que nao mover nada -- titularidade divergente
+    -- criada pelo proprio remanejamento: o aluno na Carteira Geral e um acordo
+    -- dele com outra pessoa, sem ninguem ter decidido isso.
+    --
+    -- Agora a regra e tudo-ou-nada POR ALUNO: se qualquer acordo selecionado
+    -- falhar, o ALUNO INTEIRO e recusado ANTES de qualquer escrita. Os demais
+    -- alunos do lote seguem normalmente -- o lote nao cai por causa de um.
+    v_ac_falha := null;
 
     for ac in select * from jsonb_array_elements(it->'acordos') loop
       if not coalesce((ac->>'mover')::boolean, false) then
@@ -226,33 +237,39 @@ begin
         into v_ac_email, v_ac_status
         from public.acordos a where a.id = (ac->>'acordo_id')::uuid;
 
-      if v_ac_email is null then
-        v_recusados := v_recusados || jsonb_build_object(
-          'nivel', 'ACORDO', 'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
-          'acordo_id', ac->>'acordo_id',
-          'motivo', 'Acordo nao existe mais.');
-        v_acordos_rec := v_acordos_rec + 1;
-        continue;
+      if not found then
+        v_ac_falha := 'o acordo '||coalesce(nullif(ac->>'numero',''), ac->>'acordo_id')||
+                      ' nao existe mais';
+      elsif v_ac_email is distinct from coalesce(ac->>'de_email','') then
+        v_ac_falha := 'o responsavel do acordo '||coalesce(nullif(ac->>'numero',''), ac->>'acordo_id')||
+                      ' mudou depois da previa (previa: '||
+                      coalesce(nullif(ac->>'de_email',''),'ninguem')||', agora: '||
+                      coalesce(nullif(v_ac_email,''),'ninguem')||')';
+      elsif v_ac_status is distinct from coalesce(ac->>'status','') then
+        v_ac_falha := 'o status do acordo '||coalesce(nullif(ac->>'numero',''), ac->>'acordo_id')||
+                      ' mudou depois da previa ('||coalesce(ac->>'status','-')||
+                      ' -> '||coalesce(v_ac_status,'-')||')';
       end if;
 
-      if v_ac_email is distinct from coalesce(ac->>'de_email','') then
-        v_recusados := v_recusados || jsonb_build_object(
-          'nivel', 'ACORDO', 'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
-          'acordo_id', ac->>'acordo_id', 'numero', ac->>'numero',
-          'motivo', 'O responsavel do acordo mudou depois da previa (previa: '||
-                    coalesce(nullif(ac->>'de_email',''),'ninguem')||', agora: '||
-                    coalesce(nullif(v_ac_email,''),'ninguem')||').');
-        v_acordos_rec := v_acordos_rec + 1;
-        continue;
-      end if;
+      exit when v_ac_falha is not null;
+    end loop;
 
-      if v_ac_status is distinct from coalesce(ac->>'status','') then
-        v_recusados := v_recusados || jsonb_build_object(
-          'nivel', 'ACORDO', 'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
-          'acordo_id', ac->>'acordo_id', 'numero', ac->>'numero',
-          'motivo', 'O status do acordo mudou depois da previa (previa: '||
-                    coalesce(ac->>'status','-')||', agora: '||coalesce(v_ac_status,'-')||').');
-        v_acordos_rec := v_acordos_rec + 1;
+    if v_ac_falha is not null then
+      v_recusados := v_recusados || jsonb_build_object(
+        'nivel', 'ALUNO',
+        'aluno_id', it->>'aluno_id', 'nome', it->>'nome',
+        'motivo', 'NADA deste aluno foi movido -- caso, ficha, acordos e agenda '||
+                  'ficaram como estavam: '||v_ac_falha||'.');
+      v_rec_por_acordo := v_rec_por_acordo + 1;
+      continue;
+    end if;
+
+    -- ---------------- PASSO 2: dai sim, escreve ---------------------------
+    v_ac_n := 0;
+    v_ac_detalhe := '[]'::jsonb;
+
+    for ac in select * from jsonb_array_elements(it->'acordos') loop
+      if not coalesce((ac->>'mover')::boolean, false) then
         continue;
       end if;
 
@@ -325,7 +342,7 @@ begin
     'destino_nome', coalesce(v_destino_nome, 'Fila livre'),
     'alunos_movidos', v_movidos,
     'acordos_movidos', v_acordos_mov,
-    'acordos_recusados', v_acordos_rec,
+    'alunos_recusados_por_acordo', v_rec_por_acordo,
     'retornos_preservados', v_retornos,
     'recusados', v_recusados,
     'total_recusados', jsonb_array_length(v_recusados));

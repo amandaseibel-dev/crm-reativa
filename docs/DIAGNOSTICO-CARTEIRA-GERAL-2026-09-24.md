@@ -330,9 +330,16 @@ antiga foi removida (`drop function`) — deixá-la viva permitiria mover acordo
 terceiro sem ninguém ter olhado.
 
 Antes de tocar em qualquer linha, a execução **revalida**: o dono do caso e da
-ficha, e de cada acordo marcado o responsável **e** o status. Um acordo que
-virou QUITADO ou CANCELADO depois da prévia não é mais o mesmo objeto e não
-viaja em silêncio — é recusado, e o aluno segue.
+ficha, e de cada acordo marcado o responsável **e** o status.
+
+**Tudo-ou-nada por aluno** (corrigido em 25/09). A revalidação de **todos** os
+acordos selecionados roda **antes de qualquer escrita** daquele aluno. Se um
+acordo falhar, o aluno inteiro é recusado e **nada dele é tocado** — nem caso,
+nem ficha, nem agenda, nem os outros acordos. A versão anterior recusava o
+acordo e seguia movendo caso e ficha: o resultado era pior do que não mover
+nada, porque o próprio remanejamento criava a titularidade divergente que este
+PR existe para acabar. Os demais alunos do lote seguem — o lote não cai por
+causa de um.
 
 
 ### D11 — O gatilho do acordo não desfaz a decisão da gestão

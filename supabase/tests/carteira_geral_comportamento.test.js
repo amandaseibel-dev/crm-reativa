@@ -394,8 +394,12 @@ describe("Carteira Geral — execução revalida o que congelou", () => {
     expect((await q1(db, "select operador_email e from public.casos where id=$1", [a.caso])).e).toBe(LUANA);
   });
 
-  it("recusa o ACORDO cujo responsável mudou depois da prévia, e move o resto", async () => {
-    const a = await semear(db, { nome: "ALUNO DEZESSEIS", dono: OLGA });
+  // -------------------------------------------------------------------------
+  // TUDO-OU-NADA POR ALUNO. Mover o caso e deixar um acordo para trás criaria
+  // justamente a titularidade divergente que este PR existe para acabar.
+  // -------------------------------------------------------------------------
+  it("acordo com responsável mudado recusa o ALUNO INTEIRO: nada dele é tocado", async () => {
+    const a = await semear(db, { nome: "ALUNO DEZESSEIS", dono: OLGA, retorno: "2026-10-09", hora: "13:00" });
     await como(db, GESTAO);
     const { r: p } = await previa([a.aluno], "CARTEIRA_GERAL");
 
@@ -403,25 +407,86 @@ describe("Carteira Geral — execução revalida o que congelou", () => {
     await db.query("select internal.set_resp_acordo($1,$2,'Luana','X','y','sistema','sistema')", [a.acordo, LUANA]);
 
     const { r } = await mover(p.previa_id, "lote");
-    expect(r.alunos_movidos).toBe(1);      // o aluno vai
-    expect(r.acordos_movidos).toBe(0);     // o acordo não
-    expect(r.acordos_recusados).toBe(1);
-    expect(r.recusados[0]).toMatchObject({ nivel: "ACORDO" });
-    expect(r.recusados[0].motivo).toMatch(/responsavel do acordo mudou/);
+    expect(r.alunos_movidos).toBe(0);
+    expect(r.acordos_movidos).toBe(0);
+    expect(r.alunos_recusados_por_acordo).toBe(1);
+    expect(r.recusados[0]).toMatchObject({ nivel: "ALUNO" });
+    expect(r.recusados[0].motivo).toMatch(/NADA deste aluno foi movido/);
+    expect(r.recusados[0].motivo).toMatch(/responsavel do acordo .* mudou/);
+
+    // e NADA do aluno mudou — caso, ficha, agenda e o acordo
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [a.caso])).e).toBe(OLGA);
+    expect((await q1(db, "select responsavel_atual_email e from public.alunos where id=$1", [a.aluno])).e).toBe(OLGA);
+    expect((await q1(db, "select operador_email e from public.operador_agenda where aluno_id=$1", [a.aluno])).e).toBe(OLGA);
     expect((await q1(db, "select operador_responsavel_email e from public.acordos where id=$1", [a.acordo])).e).toBe(LUANA);
+    // nem a auditoria registra o aluno recusado
+    expect(await qn(db, "select * from public.carteira_geral_auditoria where aluno_id=$1", [a.aluno])).toHaveLength(0);
   });
 
-  it("recusa o ACORDO cujo status mudou depois da prévia", async () => {
+  it("acordo com status mudado recusa o ALUNO INTEIRO", async () => {
     const a = await semear(db, { nome: "ALUNO DEZESSETE", dono: OLGA });
     await como(db, GESTAO);
     const { r: p } = await previa([a.aluno], "CARTEIRA_GERAL");
 
-    // o acordo foi quitado no intervalo: não é mais o mesmo objeto
     await db.query("update public.acordos set status='QUITADO' where id=$1", [a.acordo]);
 
     const { r } = await mover(p.previa_id, "lote");
-    expect(r.acordos_movidos).toBe(0);
-    expect(r.recusados[0].motivo).toMatch(/status do acordo mudou/);
+    expect(r.alunos_movidos).toBe(0);
+    expect(r.recusados[0].motivo).toMatch(/status do acordo .* mudou/);
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [a.caso])).e).toBe(OLGA);
+  });
+
+  it("acordo que deixou de existir recusa o ALUNO INTEIRO", async () => {
+    const a = await semear(db, { nome: "ALUNO SUMIU O ACORDO", dono: OLGA });
+    await como(db, GESTAO);
+    const { r: p } = await previa([a.aluno], "CARTEIRA_GERAL");
+
+    await db.query("delete from public.parcelas where acordo_id=$1", [a.acordo]);
+    await db.query("delete from public.acordos where id=$1", [a.acordo]);
+
+    const { r } = await mover(p.previa_id, "lote");
+    expect(r.alunos_movidos).toBe(0);
+    expect(r.recusados[0].motivo).toMatch(/nao existe mais/);
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [a.caso])).e).toBe(OLGA);
+  });
+
+  it("um aluno recusado NÃO derruba o lote: os válidos seguem", async () => {
+    const ruim = await semear(db, { nome: "ALUNO RUIM", dono: OLGA });
+    const bom1 = await semear(db, { nome: "ALUNO BOM 1", dono: OLGA });
+    const bom2 = await semear(db, { nome: "ALUNO BOM 2", dono: OLGA });
+    await como(db, GESTAO);
+    const { r: p } = await previa([ruim.aluno, bom1.aluno, bom2.aluno], "CARTEIRA_GERAL");
+
+    await db.query("update public.acordos set status='CANCELADO' where id=$1", [ruim.acordo]);
+
+    const { r } = await mover(p.previa_id, "lote");
+    expect(r.alunos_movidos).toBe(2);
+    expect(r.total_recusados).toBe(1);
+    expect(r.acordos_movidos).toBe(2);
+
+    // o recusado ficou inteiro onde estava
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [ruim.caso])).e).toBe(OLGA);
+    // os bons foram, com acordo e tudo
+    for (const b of [bom1, bom2]) {
+      expect((await q1(db, "select operador_email e from public.casos where id=$1", [b.caso])).e).toBe(CG);
+      expect((await q1(db, "select operador_responsavel_email e from public.acordos where id=$1", [b.acordo])).e).toBe(CG);
+    }
+  });
+
+  it("acordo de terceiro NÃO selecionado não bloqueia o aluno, mesmo se mudar", async () => {
+    // Só o que a prévia marcou `mover` é revalidado. Um acordo de terceiro que
+    // ficou de fora pode mudar à vontade: ele não faz parte do plano.
+    const a = await semear(db, { nome: "ALUNO TERCEIRO LIVRE", dono: OLGA, donoAcordo: LUANA });
+    await como(db, GESTAO);
+    const { r: p } = await previa([a.aluno], "CARTEIRA_GERAL");
+    expect(p.total_acordos).toBe(0);
+
+    await db.query("update public.acordos set status='QUITADO' where id=$1", [a.acordo]);
+
+    const { r } = await mover(p.previa_id, "lote");
+    expect(r.alunos_movidos).toBe(1);
+    expect(r.total_recusados).toBe(0);
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [a.caso])).e).toBe(CG);
   });
 });
 
