@@ -420,6 +420,7 @@ function SecaoPolitica() {
         <h3 style={S.h3}>Acordos e pagamentos</h3>
         <ul style={S.lista}>
           <li>Priorizar pagamento à vista ou cartão.</li>
+          <li><strong>Acordos novos:</strong> a entrada pode ser paga à vista, por boleto ou no cartão de crédito em 1x. Não é necessário solicitar link, pois essas opções já ficam disponíveis diretamente no WebAluno.</li>
           <li>Acordos quebrados: somente à vista/cartão, salvo exceção aprovada.</li>
           <li>Termo obrigatório quando aplicável.</li>
           <li>Não incluir matrícula quando houver regra de bloqueio vigente.</li>
@@ -926,6 +927,10 @@ function SecaoMensagens() {
         texto="Você pode realizar sua rematrícula diretamente pelo WebAluno. Se preferir, também podemos encaminhar sua solicitação para atendimento com um dos nossos consultores. Deseja realizar a rematrícula pelo WebAluno ou prefere o auxílio de um consultor?"
       />
       <BlocoCopiar
+        titulo="💳 Entrada de acordo novo"
+        texto="A entrada do seu novo acordo pode ser paga à vista, por boleto ou no cartão de crédito em 1x. Não é necessário solicitar link de pagamento: essas opções já estão disponíveis diretamente no seu WebAluno."
+      />
+      <BlocoCopiar
         titulo="🎓 Rematrícula após pagamento da entrada do acordo"
         texto="Como benefício vigente da Ulbra, após a confirmação do pagamento da entrada do seu acordo e a conclusão do procedimento de formalização, você poderá realizar sua rematrícula sem precisar aguardar a quitação total do acordo. Depois dessa etapa, você poderá seguir pelo WebAluno ou, se preferir, podemos encaminhar seu atendimento para um de nossos consultores."
       />
@@ -1251,6 +1256,7 @@ function SecaoDuvidas() {
     { p: "Por que existe 1% de parcelamento se no link aparece “sem taxa de parcelamento”?", r: "Nas negociações parceladas, o sistema aplica 1% de encargo de parcelamento por parcela, conforme a condição da negociação. Quando o link informa “sem taxa de parcelamento”, significa que o próprio link não acrescentará uma nova taxa sobre o valor já negociado. Não informar que esse percentual é taxa do banco, da operadora ou do estabelecimento." },
     { p: "Qual a prioridade de negociação: mensalidades ou acordos?", r: "Sempre priorizar os acordos. Se houver acordo em aberto ou vencido, trate o acordo antes das mensalidades." },
     { p: "Como negociar um acordo em aberto ou vencido?", r: "Primeiro consulte a Política de Negociação. Acordos não podem ser reparcelados em boleto: a regularização deve ser à vista ou no cartão de crédito. Se o aluno não tiver condição de quitar o saldo nessas modalidades, ofereça o pagamento das parcelas individualmente, uma a uma. Enquanto houver parcelas vencidas, a matrícula não será liberada." },
+    { p: "Como o aluno paga a entrada de um acordo novo?", r: "Nos acordos novos, a entrada pode ser paga à vista, por boleto ou no cartão de crédito em 1x. Não é necessário solicitar link de pagamento, pois essas opções já ficam disponíveis diretamente no WebAluno." },
     { p: "Posso realizar a rematrícula pagando somente a entrada do acordo?", r: "Sim, quando se tratar de um novo acordo formalizado e regular. Como benefício operacional vigente da Ulbra, a rematrícula pode ser realizada após a confirmação do pagamento da entrada, sem necessidade de aguardar a quitação integral. Essa regra não se aplica a acordo quebrado ou com parcelas vencidas, que precisa ser regularizado." },
     { p: "Por quanto tempo um aluno fica fidelizado ao operador?", r: "A fidelização é de 10 dias. Durante esse período, o operador é responsável pela continuidade do atendimento. Após os 10 dias, o aluno volta a ficar disponível para ações massivas e atendimento receptivo. Em faltas, ausências ou mudanças de horário sem agendamento prévio, os casos pendentes podem ser redistribuídos via CRM para outros colegas concluírem; nesses casos, a prioridade é não deixar o aluno sem retorno e a fidelização do operador anterior não deve impedir a continuidade." },
     { p: "Quando acontece o giro de carteira?", r: "O giro de carteira acontece sempre após a inclusão de novas remessas de parcelas e/ou novos alunos. A ReATIVA recebe para cobrança parcelas que já atingiram 31 dias de atraso na contagem operacional, sem contabilizar sábados e domingos. Após a entrada da nova remessa, a carteira é atualizada para redistribuição e continuidade das ações conforme as regras vigentes." },
