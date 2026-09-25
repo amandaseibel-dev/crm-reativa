@@ -2327,13 +2327,12 @@ function SecaoManualPrime({ ir }) {
 
 /* ===================== Manual do CRM Mensageria ===================== */
 
-function SecaoManualMensageria({ ir }) {
-  const irPara = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
-  const [printManualAberto, setPrintManualAberto] = useState(null);
-
-  const abrirPrint = (srcImagem, titulo) => setPrintManualAberto({ src: srcImagem, titulo });
-
-  const PrintManual = ({ srcImagem, titulo, legenda }) => (
+// Fora do componente de propósito: definir um componente durante o render cria
+// um tipo novo a cada passada, o React remonta a subárvore e perde estado —
+// react-hooks/static-components acusa isso em cada uso. O corpo é o mesmo de
+// antes; só o `abrirPrint`, que era fechado pelo escopo, passou a vir por prop.
+function PrintManual({ srcImagem, titulo, legenda, onAmpliar }) {
+  return (
     <div style={{ ...S.manualPrintBloco, gridTemplateColumns: "1fr", alignItems: "stretch" }}>
       <div style={S.manualPrintTexto}>
         <span style={S.primeMiniLabel}>PRINT DO MANUAL</span>
@@ -2342,7 +2341,7 @@ function SecaoManualMensageria({ ir }) {
       </div>
       <button
         type="button"
-        onClick={() => abrirPrint(srcImagem, titulo)}
+        onClick={() => onAmpliar(srcImagem, titulo)}
         style={S.manualPrintBotao}
         aria-label={`Ampliar print: ${titulo}`}
       >
@@ -2357,6 +2356,13 @@ function SecaoManualMensageria({ ir }) {
       </button>
     </div>
   );
+}
+
+function SecaoManualMensageria({ ir }) {
+  const irPara = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const [printManualAberto, setPrintManualAberto] = useState(null);
+
+  const abrirPrint = (srcImagem, titulo) => setPrintManualAberto({ src: srcImagem, titulo });
 
   return (
     <>
@@ -2415,6 +2421,7 @@ function SecaoManualMensageria({ ir }) {
           <CaminhoPrime itens={["CRM Ulbra", "Clientes", "Pesquisar aluno"]} />
         </Card>
         <PrintManual
+          onAmpliar={abrirPrint}
           srcImagem={crmLocalizarAluno}
           titulo="Atalho para encontrar alunos fora do Kanban"
           legenda="O print original do manual mostra o acesso por Clientes e a área de pesquisa."
@@ -2448,16 +2455,19 @@ function SecaoManualMensageria({ ir }) {
           </PassoPrime>
         </div>
         <PrintManual
+          onAmpliar={abrirPrint}
           srcImagem={crmNovoAluno}
           titulo="Iniciar um novo cadastro"
           legenda="O print original mostra o botão + Novo na área de Clientes."
         />
         <PrintManual
+          onAmpliar={abrirPrint}
           srcImagem={crmCadastrarAluno}
           titulo="Cadastro guiado de novo aluno"
           legenda="O print original mostra os campos do cadastro, incluindo Nome, E-mail, Status CLIENTE e Estágio LEAD."
         />
         <PrintManual
+          onAmpliar={abrirPrint}
           srcImagem={crmCpfAluno}
           titulo="Dados pessoais e CPF"
           legenda="Na etapa de Dados Pessoais, confira e preencha o CPF do aluno conforme o cadastro institucional."
@@ -2495,16 +2505,19 @@ function SecaoManualMensageria({ ir }) {
           </PassoPrime>
         </div>
         <PrintManual
+          onAmpliar={abrirPrint}
           srcImagem={crmAcessoGestaoLeads}
           titulo="Acesso à Gestão de Leads"
           legenda="O print original mostra onde acessar Gestão de Leads no CRM."
         />
         <PrintManual
+          onAmpliar={abrirPrint}
           srcImagem={crmGestaoLeads}
           titulo="Gestão de Leads e Geração interna"
           legenda="O print original do manual mostra os filtros usados para localizar o aluno nessa etapa."
         />
         <PrintManual
+          onAmpliar={abrirPrint}
           srcImagem={crmAcoesGestaoLeads}
           titulo="Menu Ações"
           legenda="Depois de localizar o aluno, use Ações para atribuir equipe, operador e atualizar o status."
@@ -2525,6 +2538,7 @@ function SecaoManualMensageria({ ir }) {
           <CaminhoPrime itens={["Detalhes", "Editar Cliente"]} />
         </Card>
         <PrintManual
+          onAmpliar={abrirPrint}
           srcImagem={crmEditarCliente}
           titulo="Detalhes → Editar Cliente"
           legenda="O print original destaca o botão Editar Cliente dentro da tela de detalhes."
@@ -2548,6 +2562,7 @@ function SecaoManualMensageria({ ir }) {
           ))}
         </div>
         <PrintManual
+          onAmpliar={abrirPrint}
           srcImagem={crmConferirCadastro}
           titulo="Dados que devem ser conferidos"
           legenda="O print original destaca os principais dados do cliente que precisam ser revisados quando há falha no envio."
@@ -2571,6 +2586,7 @@ function SecaoManualMensageria({ ir }) {
           faça a unificação para manter o cadastro concentrado corretamente.
         </Aviso>
         <PrintManual
+          onAmpliar={abrirPrint}
           srcImagem={crmUnificarLeads}
           titulo="Opção Unificar"
           legenda="O print original mostra a opção Unificar na tela do cliente."
