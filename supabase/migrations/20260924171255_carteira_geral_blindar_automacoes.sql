@@ -188,11 +188,20 @@ begin
 
   -- (e2) E ela nem entra no rodizio do receptivo: sem isto a ligacao seria
   -- roteada para quem ja saiu.
+  --
+  -- ATENCAO -- esta e a UNICA das 14 que chama `public.`, nao `internal.`:
+  -- `fila_receptivo_heartbeat` e SECURITY INVOKER (prosecdef = false), entao
+  -- roda como o operador logado, e `authenticated` nao tem USAGE no schema
+  -- `internal`. Chamar `internal.` aqui derrubaria o heartbeat de todo operador
+  -- ativo com 42501 permission denied for schema internal. O involucro
+  -- `public.operador_pode_receber_caso` (criado em 20260924171251) atravessa o
+  -- `internal` como SECURITY DEFINER e e a porta certa para este caso. As
+  -- outras 13 funcoes sao DEFINER e seguem chamando `internal.` direto.
   perform internal.patch_funcao_ancorada(
     'public', 'fila_receptivo_heartbeat',
     'begin',
     'begin'
-      || E'\n  if not internal.operador_pode_receber_caso(p_email) then return; end if;',
+      || E'\n  if not public.operador_pode_receber_caso(p_email) then return; end if;',
     1);
 
   -- (f) O GATILHO DO ACORDO nao desfaz a decisao da gestao.
@@ -234,17 +243,21 @@ begin
 end;
 $patch$;
 
--- Todas as funcoes tocadas passaram a chamar algo do schema `internal`:
--- garante o search_path de cada uma. (assumir_caso_livre_aluno e
+-- As funcoes tocadas que passaram a chamar algo do schema `internal` precisam
+-- do search_path garantido. Sao OITO. (assumir_caso_livre_aluno e
 -- sistema_assumir_atendimento ja o tinham; repetir e inofensivo e deixa a
 -- lista completa para quem ler depois.)
+--
+-- `fila_receptivo_heartbeat` NAO esta na lista de proposito: ela e a unica
+-- SECURITY INVOKER e chama o involucro em `public`, nao o `internal`. Poria
+-- 'internal' no search_path de um papel que nao tem USAGE nele -- inofensivo,
+-- mas mentiria sobre o que a funcao alcanca.
 alter function public.atribuir_responsavel_por_acordo() set search_path to 'public', 'internal';
 alter function public.assumir_caso_livre(uuid) set search_path to 'public', 'internal';
 alter function public.assumir_caso_livre_aluno(uuid) set search_path to 'public', 'internal';
 alter function public.sistema_assumir_atendimento(uuid) set search_path to 'public', 'internal';
 alter function public.assumir_atendimento_aluno(text, text) set search_path to 'public', 'internal';
 alter function public.sistema_assumir_receptivo(uuid, text, text, date, text) set search_path to 'public', 'internal';
-alter function public.fila_receptivo_heartbeat(text, text, boolean) set search_path to 'public', 'internal';
 alter function public._aluno_segue_dono_do_acordo() set search_path to 'public', 'internal';
 alter function public.casos_elegiveis_liberacao_fidelizacao() set search_path to 'public', 'internal';
 

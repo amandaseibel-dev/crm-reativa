@@ -97,6 +97,54 @@ $fn$;
 comment on function internal.operador_pode_receber_caso(text) is
   'Porta unica: operador ativo (internal.nome_operador_ativo) E recebe_novos_casos. Falso para desligado, para quem nao esta em usuarios e para quem a gestao fechou.';
 
+-- PORTA EM `public` PARA QUEM NAO ENTRA NO SCHEMA `internal` ---------------
+--
+-- `authenticated` NAO tem USAGE no schema `internal`, e isso e de proposito: e
+-- la que vivem os executores de titularidade (internal.set_resp_aluno e
+-- internal.set_resp_acordo, do papel reativa_responsavel_executor). Medido em
+-- producao em 25/09/2026:
+--   has_schema_privilege('authenticated','internal','USAGE') -> false
+--
+-- Das 14 funcoes que 20260924171255 patcheia, 13 sao SECURITY DEFINER e rodam
+-- como `postgres`, que tem UC no `internal`. UMA nao e:
+-- `public.fila_receptivo_heartbeat` e SECURITY INVOKER (prosecdef = false) e e
+-- chamada pela tela de todo operador logado, a cada 20s. Se o patch dela
+-- chamasse `internal.operador_pode_receber_caso` direto, TODO heartbeat do
+-- receptivo passaria a falhar com
+--   42501 permission denied for schema internal
+-- e a fila do receptivo pararia de atualizar para os operadores ativos.
+-- `alter function ... set search_path to 'public','internal'` NAO resolve:
+-- search_path nao concede USAGE.
+--
+-- A saida NAO e `grant usage on schema internal to authenticated`, que abriria o
+-- schema inteiro -- ha funcao ali com EXECUTE para PUBLIC por padrao
+-- (internal.matricula_em_fidelizacao), que passaria a ser chamavel de fora.
+--
+-- A saida e este involucro: SECURITY DEFINER, dono `postgres`, que atravessa o
+-- `internal` por conta propria e expoe SO esta pergunta. A validacao do
+-- operador continua sendo uma unica -- ativo, perfil operador e
+-- recebe_novos_casos -- porque o corpo aqui e so a delegacao.
+--
+-- PERMISSAO MINIMA: nada para `public` nem para `anon`; EXECUTE apenas para
+-- `authenticated` e `service_role`, que e exatamente o alcance que
+-- `fila_receptivo_heartbeat` ja tem hoje (acl postgres=X | authenticated=X |
+-- service_role=X). Sem isto, chamar o heartbeat como service_role quebraria.
+create or replace function public.operador_pode_receber_caso(p_email text)
+returns boolean
+language sql
+stable
+security definer
+set search_path to 'public', 'internal'
+as $fn$
+  select internal.operador_pode_receber_caso(p_email);
+$fn$;
+
+comment on function public.operador_pode_receber_caso(text) is
+  'Involucro SECURITY DEFINER de internal.operador_pode_receber_caso. Existe para as funcoes SECURITY INVOKER (hoje so fila_receptivo_heartbeat) poderem consultar a porta sem que authenticated ganhe USAGE no schema internal. Nao decide nada: a regra e a de internal.';
+
+revoke all on function public.operador_pode_receber_caso(text) from public, anon;
+grant execute on function public.operador_pode_receber_caso(text) to authenticated, service_role;
+
 -- 3. Previa (o que a gestao ve ANTES de confirmar) ------------------------
 
 create table if not exists public.carteira_geral_previas (

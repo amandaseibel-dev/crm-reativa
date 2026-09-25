@@ -35,6 +35,15 @@ export const como = (db, email) =>
     email ? JSON.stringify({ email, role: "authenticated" }) : "",
   ]);
 
+// `como` troca so a identidade (o JWT). Para provar PERMISSAO e preciso trocar
+// o PAPEL do Postgres: o vitest roda como dono do banco, que ignora ACL. Sempre
+// em par com `voltarDono`, porque o papel vale para a sessao inteira.
+export const comoPapel = async (db, email, papel = "authenticated") => {
+  await como(db, email);
+  await db.query(`set role ${papel}`);
+};
+export const voltarDono = (db) => db.query("reset role");
+
 const ESQUELETO = `
 -- Papéis do Supabase. PGlite não os traz, e as migrations fazem grant/revoke e
 -- criam policy "to authenticated" — sem eles nada aplica.
@@ -363,6 +372,20 @@ begin
   on conflict (operador_email) do update set operador_nome=excluded.operador_nome,
     em_pausa=excluded.em_pausa, visto_em=now();
 end; $$;
+
+-- PRIVILEGIOS REAIS DE PRODUCAO. Sem eles o teste de ACL seria teatro: o vitest
+-- roda como dono do banco, que atravessa tudo e nunca veria o 42501.
+-- Medido em producao em 25/09/2026:
+--   has_schema_privilege('authenticated','internal','USAGE')  -> false
+--   public.fila_receptivo                     acl authenticated=arwdm
+--   public.fila_receptivo_heartbeat(...)      acl authenticated=X, service_role=X
+--                                             e prosecdef = false (INVOKER)
+-- O revoke de usage no schema internal e redundante (schema novo nao concede nada
+-- a PUBLIC), mas fica escrito para que a intencao nao dependa de um default.
+revoke usage on schema internal from public;
+revoke all on function public.fila_receptivo_heartbeat(text, text, boolean) from public;
+grant execute on function public.fila_receptivo_heartbeat(text, text, boolean) to authenticated, service_role;
+grant select, insert, update on public.fila_receptivo to authenticated;
 
 -- Fidelização: o cron das 08:20 solta o que passou de 10 dias sem acionamento.
 create or replace function public.casos_elegiveis_liberacao_fidelizacao()

@@ -10,11 +10,13 @@
 //  4. acordo de terceiro NÃO vai junto por padrão: só por seleção explícita;
 //  5. a execução revalida titularidade E estado dos acordos congelados;
 //  6. o desfazer recusa o que foi mexido depois do lote, sem atropelar;
-//  7. o operador desligado não recebe distribuição NEM assume da fila livre.
+//  7. o operador desligado não recebe distribuição NEM assume da fila livre;
+//  8. a PERMISSÃO fecha: rodando como `authenticated` (não como dono do banco),
+//     o heartbeat do receptivo funciona e o schema `internal` segue fechado.
 //
 // Dados fictícios. Bancada: fixtures/carteira_geral/bancada.js
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { montar, semear, como, q1, qn, GESTAO, ADM, OLGA, LUANA, CG } from "./fixtures/carteira_geral/bancada.js";
+import { montar, semear, como, comoPapel, voltarDono, q1, qn, GESTAO, ADM, OLGA, LUANA, CG } from "./fixtures/carteira_geral/bancada.js";
 
 vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 });
 
@@ -894,5 +896,125 @@ describe("Carteira Geral — operador fora da entrada de casos novos", () => {
   it("operador não mexe nisso", async () => {
     await como(db, OLGA);
     await expect(db.query("select public.carteira_geral_definir_recebimento($1,false,'x')", [OLGA])).rejects.toThrow(/Sem permissao/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PERMISSÃO — o que o preflight de 25/09/2026 pegou em produção.
+//
+// `public.fila_receptivo_heartbeat` é a ÚNICA das 14 funções patcheadas que é
+// SECURITY INVOKER: ela roda como o operador logado, e `authenticated` NÃO tem
+// USAGE no schema `internal`. A primeira versão do patch a fazia chamar
+// `internal.operador_pode_receber_caso` direto — o que derrubaria o heartbeat de
+// todo operador ativo com `42501 permission denied for schema internal`.
+//
+// Os testes de comportamento não pegaram isso porque o vitest roda como dono do
+// banco, que ignora ACL. Estes rodam `set role authenticated`.
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — permissão: heartbeat como authenticated, internal fechado", () => {
+  let db;
+  beforeEach(async () => { db = await montar(); });
+
+  it("o schema internal continua fechado para authenticated", async () => {
+    const p = await q1(db, `select
+      has_schema_privilege('authenticated','internal','USAGE') usa_internal,
+      has_schema_privilege('anon','internal','USAGE')          anon_usa_internal`);
+    expect(p.usa_internal).toBe(false);
+    expect(p.anon_usa_internal).toBe(false);
+  });
+
+  it("chamar internal.operador_pode_receber_caso como authenticated é recusado", async () => {
+    await comoPapel(db, LUANA);
+    try {
+      await expect(
+        db.query("select internal.operador_pode_receber_caso($1)", [LUANA])
+      ).rejects.toThrow(/permission denied for schema internal/i);
+    } finally {
+      await voltarDono(db);
+    }
+  });
+
+  it("o invólucro em public é a porta: responde para authenticated", async () => {
+    await comoPapel(db, LUANA);
+    try {
+      const r = await q1(db, "select public.operador_pode_receber_caso($1) pode", [LUANA]);
+      expect(r.pode).toBe(true);
+    } finally {
+      await voltarDono(db);
+    }
+  });
+
+  it("o invólucro tem permissão mínima: authenticated e service_role, nunca anon nem public", async () => {
+    const p = await q1(db, `select
+      has_function_privilege('authenticated','public.operador_pode_receber_caso(text)','EXECUTE') auth,
+      has_function_privilege('service_role','public.operador_pode_receber_caso(text)','EXECUTE')  svc,
+      has_function_privilege('anon','public.operador_pode_receber_caso(text)','EXECUTE')          anon,
+      (select p.prosecdef from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='operador_pode_receber_caso')                      definer`);
+    expect(p.auth).toBe(true);
+    expect(p.svc).toBe(true);
+    expect(p.anon).toBe(false);
+    expect(p.definer).toBe(true);
+  });
+
+  it("o heartbeat patcheado NÃO cita o schema internal — é o que quebraria em produção", async () => {
+    const d = await q1(db, `select pg_get_functiondef(p.oid) def
+      from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+     where n.nspname='public' and p.proname='fila_receptivo_heartbeat'`);
+    expect(d.def).toContain("public.operador_pode_receber_caso(p_email)");
+    expect(d.def).not.toContain("internal.");
+  });
+
+  it("OPERADORA ATIVA: o heartbeat funciona rodando como authenticated", async () => {
+    await comoPapel(db, LUANA);
+    try {
+      await db.query("select public.fila_receptivo_heartbeat($1,'Luana',false)", [LUANA]);
+    } finally {
+      await voltarDono(db);
+    }
+    expect(await qn(db, "select * from public.fila_receptivo where operador_email=$1", [LUANA]))
+      .toHaveLength(1);
+  });
+
+  it("EX-OPERADORA: como authenticated, o heartbeat passa sem erro e sem entrar na fila", async () => {
+    await db.query("update public.usuarios set ativo = false where email = $1", [OLGA]);
+    await comoPapel(db, OLGA);
+    try {
+      // não lança: a guarda devolve em silêncio, que é o desenho -- a tela dela
+      // não pode explodir por causa do desligamento.
+      await db.query("select public.fila_receptivo_heartbeat($1,'Olga',false)", [OLGA]);
+    } finally {
+      await voltarDono(db);
+    }
+    expect(await qn(db, "select * from public.fila_receptivo where operador_email=$1", [OLGA]))
+      .toHaveLength(0);
+  });
+
+  it("EX-OPERADORA como authenticated também não assume por nenhuma porta", async () => {
+    const a = await semear(db, { nome: "ALUNO LIVRE ACL", dono: null });
+    await db.query("update public.usuarios set ativo = false where email = $1", [OLGA]);
+    await comoPapel(db, OLGA);
+    try {
+      expect((await q1(db, "select * from public.assumir_caso_livre($1)", [a.caso])).sucesso).toBe(false);
+      expect((await q1(db, "select * from public.assumir_caso_livre_aluno($1)", [a.aluno])).sucesso).toBe(false);
+      expect((await q1(db, "select public.sistema_assumir_atendimento($1) r", [a.aluno])).r.ok).toBe(false);
+      expect((await q1(db, "select public.sistema_assumir_receptivo($1,'CONTATAR','x',null,null) r", [a.aluno])).r.ok).toBe(false);
+    } finally {
+      await voltarDono(db);
+    }
+    expect((await q1(db, "select operador_email e from public.casos where id=$1", [a.caso])).e).toBeNull();
+  });
+
+  it("recebe_novos_casos=false barra o heartbeat mesmo com a operadora ATIVA", async () => {
+    await db.query("update public.usuarios set recebe_novos_casos = false where email = $1", [LUANA]);
+    await comoPapel(db, LUANA);
+    try {
+      await db.query("select public.fila_receptivo_heartbeat($1,'Luana',false)", [LUANA]);
+    } finally {
+      await voltarDono(db);
+    }
+    expect(await qn(db, "select * from public.fila_receptivo where operador_email=$1", [LUANA]))
+      .toHaveLength(0);
+    expect((await q1(db, "select ativo a from public.usuarios where email=$1", [LUANA])).a).toBe(true);
   });
 });
