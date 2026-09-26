@@ -922,72 +922,80 @@ Ordem da desinstalação completa, se chegar a isso: **4 → 3 → 2 → 1**. A 
 última porque a coluna `recebe_novos_casos` e
 `internal.operador_pode_receber_caso` são o que os patches consultam.
 
-## Proposta, NÃO aplicada: portão de gestão no `carteira_geral_vigia`
+## Portão de gestão no `carteira_geral_vigia` — APLICADO em 26/09
 
-Medido em produção em 26/09:
+Versão **`20260926143256`**, aplicada em produção às **14:32:56 UTC**.
+Arquivo: `supabase/migrations/20260926143256_trava_vigia_carteira_geral.sql`
+(md5 dos statements `a50a3ad67234633d019c7a71fd9c160f`, 5.923 bytes).
 
-```
-prosecdef = true         acl: postgres=X | authenticated=X | service_role=X
-portão calibragem_e_gestao() no corpo:  NÃO
-has_function_privilege('authenticated', ..., 'EXECUTE') -> true
-has_function_privilege('anon',          ..., 'EXECUTE') -> false
-```
+**O buraco que ela fecha.** `20260925181823` criou o vigia `SECURITY DEFINER`
+com grant para `authenticated` e **sem portão**. Qualquer pessoa logada —
+inclusive operador comum — lia `operadores_sem_entrada_de_casos`: os **nomes** de
+quem a gestão desligou. Informação de pessoal. As outras seis funções do pacote
+já tinham o portão; o vigia ficou de fora.
 
-Ou seja: **qualquer pessoa logada** — inclusive um operador comum — pode chamar
-`public.carteira_geral_vigia()` e ler quantos casos e acordos estão na Carteira
-Geral, quantas saídas ocorreram sem auditoria e, o que mais importa, a lista
-`operadores_sem_entrada_de_casos` — **os nomes de quem está inativo ou com a
-entrada de casos novos fechada pela gestão**.
+**O que muda:** `language sql` vira `plpgsql`, só para caber
+`if not public.calibragem_e_gestao() then raise ... errcode '42501'`. O miolo do
+`jsonb_build_object` é **idêntico** — provado: a saída da gestão tem o mesmo md5
+antes e depois, `bb7433e1e86204d3749b79ef09703186`.
 
-Os números da carteira seriam um vazamento pequeno. A lista de nomes não é:
-é informação de pessoal, e ela responde "quem a gestão desligou" para qualquer
-colega que saiba chamar a função. É o mesmo tipo de portão que `carteira_geral_painel`,
-`_listar`, `_previa`, `_mover`, `_desfazer_lote` e `_definir_recebimento` já têm.
+**O grant para `authenticated` ficou.** Portão interno, nunca `revoke` de
+`authenticated` — a regra que existe desde o erro de 12/09.
 
-**Correção proposta** — `sql` vira `plpgsql` só para caber o portão; o miolo do
-`jsonb_build_object` fica **idêntico**:
+**Precondição por md5 exato.** Recusa aplicar se o corpo vivo não for
+`c3ed8f59…` (o de antes, 1.240 chars) ou `ed04170d…` (o que ela instala, 1.533
+chars). A primeira versão desta proposta aceitava qualquer corpo que *contivesse*
+a palavra `calibragem_e_gestao`, até num comentário — um corpo de terceiro
+passaria e seria sobrescrito em silêncio. Localiza por `regprocedure`, não por
+nome. Idempotente pelo segundo md5.
 
-```sql
-create or replace function public.carteira_geral_vigia()
-returns jsonb
-language plpgsql
-stable
-security definer
-set search_path to 'public', 'internal'
-as $fn$
-begin
-  if not public.calibragem_e_gestao() then
-    raise exception 'Sem permissao para ver o vigia da Carteira Geral.' using errcode = '42501';
-  end if;
-  return (
-    -- ... o mesmo jsonb_build_object de 20260925181823, sem uma vírgula mudada
-  );
-end;
-$fn$;
-```
+### Validado em produção, 26/09
 
-**Mantendo o `grant execute ... to authenticated`.** Isso é deliberado e segue a
-regra da casa: restringir à gestão é portão **interno**, nunca `revoke` de
-`authenticated` — foi assim que eu já derrubei uma tela para a própria gestão em
-12/09.
+| verificação | resultado |
+|---|---|
+| corpo vivo | `ed04170d…`, 1.533 chars — o esperado |
+| ACL antes e depois | `postgres=X \| authenticated=X \| service_role=X` — inalterada |
+| `authenticated` / `anon` / `service_role` executam | true / **false** / true |
+| saída da gestão | md5 `bb7433e1e86204d3749b79ef09703186` — **igual à de antes** |
+| funções em `public` | 819 antes, 819 depois |
+| os 15 patches de `20260925181823` | 16 fragmentos, todos intactos |
+| **chamada real pela API pública como `anon`** | **HTTP 401, `42501`** |
+| predicado do portão | os 3 e-mails da gestão passam; Luana, Olga e um `authenticated` comum não; sem JWT não |
 
-**Efeito colateral que precisa entrar no roteiro junto:** com o portão, chamar o
-vigia pelo SQL Editor **sem** a claim de gestão passa a dar `42501`. O Passo 1.5
-e qualquer conferência posterior precisam abrir com
+**O que eu não consegui provar sozinha, e é honesto dizer:** meu papel de leitura
+não executa a função nem consegue `set role authenticated`, então os casos
+*Amanda acessa / Fernanda acessa / ADM acessa / Luana recebe 42501* foram
+provados pelo **predicado** do portão e pelos testes em PostgreSQL real, não por
+chamada de ponta a ponta em produção com o JWT de cada pessoa. O caso `anon`
+esse sim foi ponta a ponta. Para fechar os outros, basta abrir a tela com cada
+login, ou rodar no SQL Editor:
 
 ```sql
-set local request.jwt.claims = '{"email":"amanda.seibel@aelbra.com.br","role":"authenticated"}';
+begin;
+set local role authenticated;
+set local request.jwt.claims = '{"email":"cobranca05@aelbra.com.br","role":"authenticated"}';
+select public.carteira_geral_vigia();   -- esperado: 42501
+rollback;
 ```
 
-dentro de transação explícita — o mesmo procedimento já documentado em §3.7 para
-o `carteira_geral_desfazer_lote`.
+trocando o e-mail por cada um dos seis.
 
-**Não apliquei, e não deve entrar junto com este pacote.** A migration
-`20260925181823` já está em produção e conferida; mexer nela agora quebraria a
-igualdade byte a byte entre o arquivo e o que o banco executou, que é a base de
-toda a reconciliação da §Reconciliação. Isto é uma migration nova, pequena, para
-uma etapa própria — com teste que prove negativo para operador, `anon` e sessão
-sem JWT, e positivo para os três e-mails da gestão com saída idêntica à de hoje.
+### Consequências que já estão no roteiro
+
+Chamar o vigia pelo SQL Editor **sem claim de gestão** agora dá `42501` — os
+pontos afetados (Passo 1.5, Fase 3.2 e os dois da simulação) já abrem transação
+com a claim. E se um dia o vigia entrar em `invariantes_rodar()` (job diário, sem
+JWT), o job **não** pode chamar a função pública: precisaria de uma versão
+interna sem portão.
+
+**O que ela não resolve:** protege a RPC, não o dado. `usuarios` é lida
+amplamente pelo app, então um operador determinado provavelmente reproduz
+`operadores_sem_entrada_de_casos` por consulta direta. Fechar isso é outra
+frente (RLS em `usuarios`), maior e com risco próprio.
+
+Rollback em `supabase/rollbacks/20260926143256_trava_vigia_carteira_geral.rollback.sql`
+— devolve o corpo de `20260925181823`, com precondição própria, e avisa no
+cabeçalho que reverter reabre a leitura para qualquer `authenticated`.
 
 ## Resumo do que este preflight deixa em aberto
 
@@ -998,5 +1006,5 @@ sem JWT, e positivo para os três e-mails da gestão com saída idêntica à de 
 | 3 | `carteira_geral_vigia()` não entra na rodada diária — hoje é comando manual | decidir se vale patch em `invariantes_rodar()` |
 | 4 | `carteira_geral_desfazer_lote` não tem botão; a porta é o SQL Editor com a claim | decidir se vale botão na tela |
 | 5 | O teste de "só pode perguntar por você mesmo" no invólucro — deixei fora de propósito (§3.3) | sua decisão |
-| 6 | **Portão de gestão no `carteira_geral_vigia`** — hoje qualquer operador logado lê a lista de quem a gestão desligou. Proposta escrita, **não aplicada** | sua decisão, em migration própria |
+| 6 | ~~Portão de gestão no `carteira_geral_vigia`~~ — **aplicado** em 26/09, versão `20260926143256` | feito |
 | 7 | Abertura do painel custa ~2,7 s na 1ª chamada (§3.6). Cabe nos 8 s, mas não no alvo de 1 s | sua decisão se vale otimizar |

@@ -1023,21 +1023,23 @@ describe("Carteira Geral — permissão: heartbeat como authenticated, internal 
 });
 
 // ---------------------------------------------------------------------------
-// PROPOSTA (NÃO APLICADA EM PRODUÇÃO): portão de gestão no carteira_geral_vigia.
+// Portão de gestão no carteira_geral_vigia — migration 20260926143256,
+// APLICADA em produção em 26/09/2026 às 14:32:56 UTC.
 //
-// O arquivo vive em supabase/aguardando_aprovacao/ e é lido daqui pelo caminho
-// do repositório — se ele mudar, estes testes acusam.
+// O teste lê a própria migration pelo caminho do repositório: se ela mudar,
+// estes casos acusam.
 //
-// Hoje, em produção, o vigia é SECURITY DEFINER com grant para `authenticated` e
-// SEM portão: qualquer operador logado lê a lista de quem a gestão desligou.
+// Antes dela, o vigia era SECURITY DEFINER com grant para `authenticated` e SEM
+// portão: qualquer operador logado lia a lista de quem a gestão desligou. Os
+// casos abaixo aplicam a migration sobre a bancada e provam os dois lados.
 // ---------------------------------------------------------------------------
 const AQUI_T = dirname(fileURLToPath(import.meta.url));
 const TRAVA_VIGIA = readFileSync(
-  resolve(AQUI_T, "..", "aguardando_aprovacao", "20260926_trava_vigia_carteira_geral.sql"),
+  resolve(AQUI_T, "..", "migrations", "20260926143256_trava_vigia_carteira_geral.sql"),
   "utf8",
 );
 
-describe("Carteira Geral — proposta do portão no vigia (aguardando aprovação)", () => {
+describe("Carteira Geral — portão de gestão no vigia (20260926143256)", () => {
   let db;
   const NAO_GESTAO = "cobranca99@aelbra.com.br";
 

@@ -1,58 +1,48 @@
 -- ---------------------------------------------------------------------------
--- PROPOSTA -- NAO APLICADA EM PRODUCAO
---
 -- Portao de gestao em public.carteira_geral_vigia().
 --
 -- POR QUE
--- Medido em producao em 26/09/2026:
---   prosecdef = true
---   acl       = postgres=X | authenticated=X | service_role=X
---   portao calibragem_e_gestao() no corpo: NAO
---   has_function_privilege('authenticated', 'public.carteira_geral_vigia()', 'EXECUTE') -> true
+-- 20260925181823 criou o vigia SECURITY DEFINER com grant para `authenticated` e
+-- SEM portao. Medido em producao em 26/09/2026, antes desta migration:
+--   md5(prosrc) = c3ed8f59a439440536677ba3660e12f4  (1.240 chars)
+--   acl         = postgres=X | authenticated=X | service_role=X
+--   has_function_privilege('authenticated', ..., 'EXECUTE') -> true
 --
--- Ou seja: qualquer pessoa logada -- inclusive operador comum -- le hoje quantos
+-- Com isso qualquer pessoa logada -- inclusive operador comum -- lia quantos
 -- casos e acordos estao na Carteira Geral, quantas saidas ocorreram sem
--- auditoria e, o que mais pesa, a lista `operadores_sem_entrada_de_casos`: os
--- NOMES de quem esta inativo ou com a entrada de casos novos fechada pela
--- gestao. Isso e informacao de pessoal, e responde "quem a gestao desligou"
--- para qualquer colega que saiba chamar a funcao.
---
--- As outras seis funcoes do pacote (painel, listar, previa, mover,
--- desfazer_lote, definir_recebimento) ja tem esse portao. O vigia ficou sem.
+-- auditoria e, o que mais pesa, `operadores_sem_entrada_de_casos`: os NOMES de
+-- quem esta inativo ou com a entrada de casos novos fechada pela gestao. Isso e
+-- informacao de pessoal. As outras seis funcoes do pacote (painel, listar,
+-- previa, mover, desfazer_lote, definir_recebimento) ja tinham o portao.
 --
 -- O QUE MUDA E O QUE NAO MUDA
 -- Muda: `language sql` vira `language plpgsql`, so para caber o portao.
 -- NAO muda: o miolo do jsonb_build_object e identico, sem uma virgula
--- diferente; a assinatura, o tipo de retorno, STABLE, SECURITY DEFINER e o
+-- diferente; assinatura, tipo de retorno, STABLE, SECURITY DEFINER e
 -- search_path continuam os mesmos.
 --
 -- O GRANT PARA `authenticated` FICA.
 -- Restringir a gestao e portao INTERNO, nunca `revoke` de `authenticated` --
--- foi exatamente assim que uma tela caiu para a propria gestao em 12/09/2026.
+-- foi assim que uma tela caiu para a propria gestao em 12/09/2026.
 --
--- EFEITO COLATERAL QUE PRECISA IR JUNTO PARA O ROTEIRO
--- Depois desta trava, chamar o vigia pelo SQL Editor SEM claim de gestao passa a
--- dar 42501. Os pontos afetados estao listados na secao "Proposta, NAO aplicada"
--- de docs/PREFLIGHT-CARTEIRA-GERAL-2026-09-25.md. Todos precisam abrir com
---   begin;
---   set local request.jwt.claims = '{"email":"amanda.seibel@aelbra.com.br","role":"authenticated"}';
---   ...
---   rollback;
+-- IDEMPOTENTE: a precondicao devolve sem erro quando o corpo vivo ja e o desta
+-- migration, e o `create or replace` abaixo reescreve o mesmo texto.
 --
--- E UM ALERTA PARA O FUTURO: se um dia o vigia entrar em invariantes_rodar()
--- (o job diario das 09:10, que roda SEM JWT), ele NAO pode chamar esta funcao
--- publica -- daria 42501 e derrubaria a rodada. Nesse dia, o job chama uma
--- versao interna sem portao, e a publica continua sendo a da tela.
+-- ATENCAO PARA DEPOIS: chamar o vigia pelo SQL Editor sem claim de gestao passa
+-- a dar 42501. E, se um dia ele entrar em invariantes_rodar() (job diario, sem
+-- JWT), o job NAO pode chamar esta funcao publica -- precisaria de uma versao
+-- interna sem portao.
 --
--- O QUE ESTA TRAVA NAO RESOLVE, e nao adianta fingir que resolve:
--- ela protege a RPC, nao o dado. `usuarios` e lida amplamente pelo app, entao um
--- operador determinado provavelmente reproduz `operadores_sem_entrada_de_casos`
--- por consulta direta. Fechar isso e outra frente (RLS em usuarios), maior e
--- com risco proprio.
+-- O QUE ESTA TRAVA NAO RESOLVE: ela protege a RPC, nao o dado. `usuarios` e
+-- lida amplamente pelo app, entao um operador determinado provavelmente
+-- reproduz `operadores_sem_entrada_de_casos` por consulta direta. Fechar isso e
+-- outra frente (RLS em usuarios), maior e com risco proprio.
+--
+-- Rollback em supabase/rollbacks/.
 -- ---------------------------------------------------------------------------
 
 -- PRECONDICAO: recusa aplicar se o corpo vivo nao for um dos DOIS que esta
--- proposta conhece -- o de hoje, ou o que ela mesma instala.
+-- migration conhece -- o de antes, ou o que ela mesma instala.
 --
 -- Nao basta procurar a palavra 'calibragem_e_gestao' no corpo: um corpo de
 -- terceiro que apenas mencione o nome (ate num comentario) passaria, e o
