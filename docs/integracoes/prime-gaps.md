@@ -213,3 +213,37 @@ cá**:
 possuímos contém a rota. As duas únicas portas que sobram são a captura na
 interface do Prime e o contato formal com a TI da ULBRA — ambas decisão da
 gestão, e nenhuma delas é trabalho que este ambiente consiga fazer sozinho.
+
+---
+
+## Granularidade do portador: CPF, não título (2026-09-24)
+
+| informação | status | por quê |
+|---|---|---|
+| aluno/CPF está no portador N | **VERDE** | `students_search?carrierId=N`, snapshot por ciclo com remoção de quem saiu |
+| **título X está em condição jurídica** | **VERMELHO** | a fonte não tem essa granularidade — ver `prime-mapa-identificadores.md`, "RESTRIÇÃO DE ARQUITETURA" |
+
+Impacto direto: a reversão de títulos `CANCELADA` por causa judicial (262
+títulos, 60 CPFs, R$ 2.399.695,89) não pode ser decidida só pela saída do CPF
+do portador 202.
+
+## 195 e 202 não são exclusivos (2026-09-24)
+
+| afirmação | vale? |
+|---|---|
+| CPF está no 195 | VERDE — snapshot por ciclo |
+| CPF está no 202 (jurídico) | VERDE — desde 24/09/2026 |
+| **CPF está no 195, logo saiu do jurídico** | **FALSO** — 37 dos 72 CPFs do 202 estão também no 195 |
+
+A ausência do jurídico só é afirmável por `prime_aluno_no_juridico(cpf) = 'NAO'`,
+que exige snapshot 202 completo e válido.
+
+## Tolerância de idade do snapshot 202 (2026-09-24)
+
+| uso | limite | status |
+|---|---|---|
+| leitura informativa | 720h (default de `prime_aluno_no_juridico`) | aceitável |
+| alerta de degradação (vigia nível 2) | 72h | aceitável — **só gradua alerta** |
+| **decisão de reativação** | **24h** | **NÃO IMPLEMENTADO** — a função não tem parâmetro de tolerância |
+
+Bloqueia `titulo_reativar` até existir a trava explícita de 24h.

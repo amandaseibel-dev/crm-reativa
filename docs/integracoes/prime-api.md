@@ -77,6 +77,8 @@ ReATIVA convênio 0272047") e 195 (mensalidades, "Reativa Recuperação de
 Crédito") são carteira da Reativa, por decisão da gestão. 165 e 202 são
 judiciais e ficam fora de escopo por decisão, não por limitação técnica.
 
+**Atualização 2026-09-24:** o **202 (REATIVA COBRANÇA JUDICIAL)** passou a ter coleta observacional própria (`prime_portador_202_coletar`). **Os portadores não são exclusivos**: 37 dos 72 CPFs do 202 estão também no 195, então presença no 195 nunca prova ausência de condição jurídica, para tornar a condição jurídica atual verificável. A filiação continua sendo do **CPF**, nunca de um título — ver RESTRIÇÃO DE ARQUITETURA em `prime-mapa-identificadores.md`.
+
 **Segurança:** READ ONLY
 
 **Pode automatizar?** SIM

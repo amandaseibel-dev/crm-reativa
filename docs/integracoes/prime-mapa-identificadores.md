@@ -32,6 +32,32 @@ usar o ID errado já causou dobra de dívida (ver memórias
 | 165 | (judicial) | — | true | fora de escopo por decisão da gestão |
 | 202 | REATIVA COBRANÇA JUDICIAL | — | true | fora de escopo por decisão da gestão |
 
+## RESTRIÇÃO DE ARQUITETURA — a filiação ao portador é por CPF, nunca por título
+
+**Descoberta em 2026-09-24, registrada por decisão da gestão.**
+
+`prime_portador_membro` guarda `(cpf, portador, ciclo, coletado_em)`. Não existe
+coluna de título, boleto ou matrícula: a varredura
+`students_search?carrierId=N` devolve alunos, e a Edge deduplica por CPF (no
+195, 41.194 itens da API viram 20.318 CPFs).
+
+**Consequência, que vale mesmo com o snapshot 202 completo e válido:** sair do
+portador 202 é um fato do **CPF**, não de cada título daquele CPF. Nos 262
+títulos judiciais cancelados em 01/09/2026 são 60 CPFs para 262 títulos —
+média de 4,4 e máximo de 7 títulos por CPF.
+
+**Portanto, antes de qualquer `titulo_reativar`:** não se pode assumir que a
+saída do CPF do portador 202 prova que *cada* título daquele CPF deixou de
+estar em condição jurídica. É preciso uma de duas coisas:
+
+1. uma **evidência adicional em nível de título**; ou
+2. comprovar, pela regra oficial da Prime/ULBRA, que o portador jurídico é
+   necessariamente uma condição aplicada ao **aluno/CPF inteiro** — e nesse
+   caso a prova documental entra aqui.
+
+Enquanto nenhuma das duas existir, a reversão de `CANCELADA` por causa judicial
+fica bloqueada por desenho, não por falta de dado.
+
 ## Regra de leitura da dívida (decidida pela gestão em 25/08/2026)
 
 ```
@@ -44,6 +70,44 @@ Regra simples e não depende de adivinhar padrão de pagamento — mas **166 nun
 aparece em linha de extrato financeiro**, só na filiação (`students_search
 ?carrierId=166`). Por isso "está no 166" se confirma pela **listagem**, nunca
 pelo extrato.
+
+### ⚠️ Estar no 195 NÃO significa estar fora do jurídico
+
+**Regra de negócio, medida em 2026-09-24.** Um CPF pode estar **simultaneamente**
+nos portadores 195 (cobrança ReATIVA) e 202 (cobrança judicial). A filiação é
+por CPF e não é exclusiva entre carteiras.
+
+**Medição:** dos 72 CPFs no portador 202, **37 estão também no 195** — mais da
+metade.
+
+**Por que isso importa:** os 262 títulos cancelados por causa judicial pertencem
+a 60 CPFs, e 35 deles apareciam no 195. Se a presença no 195 tivesse sido aceita
+como evidência de que a condição jurídica acabou, **147 títulos / R$ 1.329.471,33
+teriam sido reativados para cobrança de alunos que continuam em processo
+judicial**. A coleta do 202 mostrou que os 262 seguem no portador judicial:
+`prime_aluno_no_juridico` devolveu `SIM` para 262 de 262.
+
+**Consequência para qualquer regra futura:** presença no 195 é, no máximo,
+condição necessária. Nunca suficiente. A ausência do jurídico só pode ser
+afirmada por `prime_aluno_no_juridico(cpf) = 'NAO'`, que exige snapshot do 202
+completo e válido — e mesmo esse é um fato do CPF, não de um título
+(ver "RESTRIÇÃO DE ARQUITETURA" acima).
+
+### ⚠️ O limite de 720h de `prime_aluno_no_juridico` é INADEQUADO para reativação
+
+`prime_aluno_no_juridico(cpf)` chama `prime_portador_snapshot_estado(202)` com o
+**default de 720h (30 dias)**. Isso serve para leitura informativa, e **não
+serve** para embasar reativação de título: um snapshot de três semanas pode
+devolver `NAO` para um CPF que voltou ao jurídico nesse intervalo.
+
+A função **não tem parâmetro de tolerância** hoje. Registrado em 2026-09-24 como
+pendência conhecida, deliberadamente **não corrigida** para não antecipar
+funcionalidade inexistente.
+
+**Regra:** nenhuma `titulo_reativar` pode ser criada antes de existir trava
+explícita de **no máximo 24h** na consulta que embasa a decisão. O limite de
+**72h** do vigia é apenas para graduar alerta de degradação — **nunca** libera
+título nem serve como evidência de saída do jurídico.
 
 ## Regras de matching, por ordem de confiabilidade
 
