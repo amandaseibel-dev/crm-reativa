@@ -1,6 +1,14 @@
 # Preflight da Carteira Geral — PR #517, commit 7cb382c
 
-**25/09/2026 · somente leitura · NADA aplicado, NADA mesclado, nenhum lote executado**
+**25/09/2026, revisado em 26/09 · NADA mesclado, nenhum lote executado**
+
+> **Estado em 26/09/2026.** As quatro migrations **estão aplicadas em produção**,
+> junto com o backup das 14 funções — cinco versões, `20260925180638` a
+> `20260925181823`, todas conferidas byte a byte contra os arquivos deste PR.
+> O que **não** aconteceu: o PR não foi mesclado (a tela não existe em
+> produção), nenhum aluno foi movido (0 casos, 0 fichas, 0 acordos, 0 auditoria)
+> e a Olga não foi tocada. As Fases 1 e 2 abaixo ficam como **registro do que
+> foi feito**; a Fase 3 continua sendo o que falta.
 
 ## Veredito
 
@@ -16,8 +24,9 @@ ativos.
 rodam como `authenticated`**, não como dono do banco, porque foi exatamente isso
 que deixou o furo passar. O commit `7cb382c` **não** é mais o commit a aplicar.
 
-Tudo o mais do preflight segue valendo, inclusive as medições de tempo em
-produção e a reconferência das 15 âncoras, refeita depois da correção.
+A reconferência das 15 âncoras foi refeita depois da correção e depois de cada
+mudança: 15 de 15, sempre. **As medições de tempo daquele preflight estavam
+erradas e foram refeitas** — ver §3.6.
 
 ---
 
@@ -243,7 +252,11 @@ Consequência para o roteiro: **os dois ativos rodam de manhã, entre 08:20 e
 próxima passada automática. E como o lote da Olga só roda **depois** da
 migration 4, a janela de exposição é zero.
 
-`public.carteira_geral_vigia()` **não entra em cron**. O vigia diário é o job 45,
+`public.carteira_geral_vigia()` **não entra em cron**. Se um dia entrar, atenção:
+o job roda **sem JWT**, então ele não pode chamar a função pública caso a trava
+proposta no fim deste documento seja aplicada — daria `42501` e derrubaria a
+rodada diária. Nesse dia, o job chama uma versão interna sem portão. O vigia
+diário é o job 45,
 que chama `public.invariantes_rodar()` às 09:10 UTC; a função nova não é chamada
 por ele. Hoje ela é um **comando de conferência manual** — está no roteiro. Se
 quiser que entre na rodada diária, é um patch à parte em `invariantes_rodar()`.
@@ -267,7 +280,7 @@ reproduzindo a lógica exata com `explain analyze`:
 | `count(*) from carteira_geral_base('{}')` | 12.803 linhas | **642 ms** | sessão "Sistema travando", 25/09 |
 | `carteira_geral_painel('{}')` — **1ª chamada** | carteira inteira | **2.678 ms** | idem, `clock_timestamp()` em volta da chamada, dentro de bloco que dá `raise` no fim |
 | `carteira_geral_painel('{}')` — **quente** | carteira inteira | **945 ms** | idem |
-| itens da prévia | os 555 casos vivos da Olga | 239 ms | eu, `explain analyze` |
+| itens da prévia | os 555 casos vivos da Olga | 239 ms | eu, `explain analyze` da lógica replicada — não da função |
 
 **Leia assim, e não como "aprovado":** o teto funcional é o `statement_timeout`
 de 8 s do papel `authenticated`, e mesmo a pior medição (2,7 s) cabe — com folga
@@ -280,11 +293,16 @@ Uma armadilha para quem for medir: `carteira_geral_painel` faz
 `create temp table _cg on commit drop`. Chamar a função **duas vezes na mesma
 transação** dá `relation "_cg" already exists`. Meça uma vez por transação.
 
-A escrita é a incógnita: não posso medir sem executar. Cada aluno move caso +
-ficha + acordos + agenda, e cada `update` em `casos` acorda o gatilho do teto.
-O limite prático não é o `statement_timeout` de 300s, é o gateway HTTP (~60s).
-Por isso o roteiro manda calibrar o tamanho do lote com o primeiro lote pequeno,
-em vez de adivinhar.
+Sobre o `972 ms` contra o `642 ms`: não se contradizem, são consultas
+diferentes. O meu devolve todas as colunas das 12.740 linhas; o outro é um
+`count(*)`, que o planejador resolve mais barato. Ambos dizem a mesma coisa —
+a base sozinha custa perto de **um segundo**.
+
+A escrita continua sendo a incógnita: não dá para medir sem executar. Cada aluno
+move caso + ficha + acordos + agenda, e cada `update` em `casos` acorda o gatilho
+do teto. O limite prático não é o `statement_timeout` de 300s, é o gateway HTTP
+(~60s). Por isso o roteiro manda calibrar o tamanho do lote com o primeiro lote
+pequeno, em vez de adivinhar.
 
 ### 3.7 Reversão — o que existe e o que precisa ser feito à mão
 
@@ -496,7 +514,7 @@ que você for aplicar, nada da Fase 1 começa.
 
 ## Fase 1 — instalar a funcionalidade (nenhum aluno muda de mão)
 
-Aplique **na ordem**, uma por vez, conferindo entre elas. O caminho é
+**Feito em 25/09, entre 18:06 e 18:18 UTC**, na ordem, uma por vez. O caminho foi
 `apply_migration` (o mesmo que funcionou em 23/09), não `db push`.
 
 ### Passo 1.1 — backup da reversão (antes de qualquer migration) — FEITO
@@ -657,7 +675,8 @@ ausência da âncora:
 
 > **Correção de 26/09.** A consulta que estava aqui procurava
 > `operador_pode_receber_caso|carteira_geral_email` e **dava falso divergente**:
-> cinco dos quinze patches não injetam nenhuma das duas — injetam
+> **seis** dos quinze patches, em **cinco** funções (`reposicao_carteira_processar`
+> tem dois), não injetam nenhuma das duas — injetam
 > `coalesce(u.recebe_novos_casos, true)` ou um `EXISTS` sobre `usuarios`. Usando
 > ela eu cheguei a "6 de 14" e depois a "5 faltando", e quase reportei uma
 > instalação pela metade que nunca existiu. **O certo é contar o TEXTO NOVO de
@@ -687,7 +706,7 @@ select a.i, a.fn, a.esperado,
        (select count(*) from regexp_matches(pg_get_functiondef(p.oid),
           regexp_replace(a.novo_texto,'([\^$.|?*+()\[\]{}\\])','\\\1','g'),'g')) as achou,
        case when (select count(*) from regexp_matches(pg_get_functiondef(p.oid),
-          regexp_replace(a.novo_texto,'([\^$.|?*+()\[\]{}\\])','\\\1','g'),'g')) >= a.esperado
+          regexp_replace(a.novo_texto,'([\^$.|?*+()\[\]{}\\])','\\\1','g'),'g')) = a.esperado
             then 'OK' else 'FALTANDO' end as veredito
   from alvo a
   join pg_proc p on p.proname = a.fn
@@ -695,10 +714,13 @@ select a.i, a.fn, a.esperado,
  order by a.i;
 ```
 
-**Esperado: 16 linhas, todas `OK`.** São 16 e não 15 porque o patch de
-`sistema_assumir_receptivo` injeta duas linhas (itens 11 e 12), e
-`nivelar_medias_progressivo` tem a mesma inserção em 2 lugares.
-**Medido em produção em 26/09: 16 de 16.**
+**Esperado: 16 linhas, todas `OK`.** Cuidado com a contagem: são **15 patches**
+sobre **14 funções**, e 16 linhas aqui. A diferença não é erro — é que o patch de
+`sistema_assumir_receptivo` injeta **duas** linhas independentes (itens 11 e 12),
+que eu confiro separadamente; e `nivelar_medias_progressivo` é **um** patch cujo
+fragmento aparece em **2** lugares (por isso `esperado = 2` numa linha só).
+A comparação é `=`, não `>=`: contagem exata, para uma inserção duplicada
+acidental também reprovar. **Medido em produção em 26/09: 16 de 16.**
 
 > **Correção de 26/09.** A consulta anterior não filtrava pelas 14 funções e
 > devolvia **29** linhas — todas as funções de `public` que têm `internal` no
@@ -754,10 +776,19 @@ pelo backup antes de sair.
 E o vigia, que não tem cron (§3.5):
 
 ```sql
+begin;
+set local request.jwt.claims = '{"email":"amanda.seibel@aelbra.com.br","role":"authenticated"}';
 select jsonb_pretty(public.carteira_geral_vigia());
+rollback;
 ```
 
 **Esperado:** com a Carteira Geral ainda vazia, todos os contadores em 0.
+
+A claim é obrigatória **se** a trava proposta mais abaixo for aplicada; hoje o
+vigia não tem portão e responde sem ela. Deixo com a claim nos dois casos, para
+o roteiro não precisar mudar depois — e porque o bloco anterior deste passo põe
+a claim de um operador e dá `rollback`, o que deixaria este `select` sem claim
+nenhuma.
 
 ### Passo 1.6 — merge e deploy
 
@@ -787,7 +818,7 @@ select email, ativo, recebe_novos_casos from public.usuarios
 select internal.operador_pode_receber_caso('cobranca03@aelbra.com.br');  -- false
 select count(*) from public.auditoria
  where tabela_afetada='usuarios' and detalhes::text ilike '%cobranca03%'
-   and criado_em > now() - interval '5 min';                      -- >= 1
+   and created_at > now() - interval '5 min';                     -- >= 1
 ```
 
 **Parar se:** `operador_pode_receber_caso` não vier `false`. É essa função que os
@@ -830,11 +861,15 @@ select destino_tipo, count(*) alunos, count(distinct lote_id) lotes
  where registrado_em > now() - interval '30 min'
  group by 1;
 
+begin;
+set local request.jwt.claims = '{"email":"amanda.seibel@aelbra.com.br","role":"authenticated"}';
 select jsonb_pretty(public.carteira_geral_vigia());
+rollback;
 ```
 
 **Esperado:** o número de alunos igual ao que a tela disse ter movido, e o vigia
-sem nenhuma inconsistência apontada.
+sem nenhuma inconsistência apontada. Rode o vigia em bloco **separado** da
+contagem da auditoria: se ele falhar, o erro não pode esconder o outro número.
 
 E a prova de que o agendamento sobreviveu (é a promessa mais delicada do PR):
 

@@ -51,31 +51,37 @@
 -- com risco proprio.
 -- ---------------------------------------------------------------------------
 
--- PRECONDICAO: recusa aplicar se o corpo vivo nao for o que esta proposta leu.
+-- PRECONDICAO: recusa aplicar se o corpo vivo nao for um dos DOIS que esta
+-- proposta conhece -- o de hoje, ou o que ela mesma instala.
+--
+-- Nao basta procurar a palavra 'calibragem_e_gestao' no corpo: um corpo de
+-- terceiro que apenas mencione o nome (ate num comentario) passaria, e o
+-- `create or replace` abaixo o sobrescreveria em silencio. So md5 exato serve.
 do $precondicao$
 declare
   v_md5 text;
-  v_tem_portao boolean;
+  v_oid oid;
+  c_hoje  constant text := 'c3ed8f59a439440536677ba3660e12f4';  -- 1.240 chars, medido em producao 26/09/2026
+  c_novo  constant text := 'ed04170d2f95876ed2dcf4ae15c6d770';  -- 1.533 chars, o corpo instalado por este arquivo
 begin
-  select md5(p.prosrc), position('calibragem_e_gestao' in p.prosrc) > 0
-    into v_md5, v_tem_portao
-    from pg_proc p
-    join pg_namespace n on n.oid = p.pronamespace
-   where n.nspname = 'public' and p.proname = 'carteira_geral_vigia';
-
-  if v_md5 is null then
+  -- Por regprocedure, nao por nome: assinatura errada nao passa despercebida.
+  begin
+    v_oid := 'public.carteira_geral_vigia()'::regprocedure;
+  exception when undefined_function then
     raise exception 'public.carteira_geral_vigia() nao existe -- aplique 20260925181823 antes desta.';
-  end if;
+  end;
 
-  if v_tem_portao then
-    raise notice 'trava ja aplicada: o corpo vivo ja chama calibragem_e_gestao(). O create or replace abaixo e inofensivo.';
+  select md5(p.prosrc) into v_md5 from pg_proc p where p.oid = v_oid;
+
+  if v_md5 = c_novo then
+    raise notice 'trava ja aplicada: o corpo vivo e exatamente o desta proposta. O create or replace abaixo e inofensivo.';
     return;
   end if;
 
-  if v_md5 <> 'c3ed8f59a439440536677ba3660e12f4' then
+  if v_md5 <> c_hoje then
     raise exception
-      'o corpo de carteira_geral_vigia() mudou desde 26/09/2026 (md5 vivo %, esperado c3ed8f59a439440536677ba3660e12f4, 1240 chars). Leia a funcao viva e refaca esta proposta: aplicar as cegas sobrescreveria a mudanca de outra pessoa.',
-      v_md5;
+      'o corpo de carteira_geral_vigia() nao e nenhum dos dois que esta proposta conhece (md5 vivo %, esperado % antes ou % depois). Leia a funcao viva e refaca esta proposta: aplicar as cegas sobrescreveria a mudanca de outra pessoa.',
+      v_md5, c_hoje, c_novo;
   end if;
 end
 $precondicao$;
@@ -88,7 +94,8 @@ security definer
 set search_path to 'public', 'internal'
 as $fn$
 begin
-  -- A UNICA linha nova. Tudo abaixo e o corpo de 20260925181823, intacto.
+  -- O portao e o `return (` sao o que muda. O jsonb_build_object abaixo e o
+  -- corpo de 20260925181823, intacto.
   if not public.calibragem_e_gestao() then
     raise exception 'Sem permissao para ver o vigia da Carteira Geral.' using errcode = '42501';
   end if;

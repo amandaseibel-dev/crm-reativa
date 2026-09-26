@@ -288,7 +288,10 @@ o que ainda referencia o `auth.uid` dela.
 ## 8. Checklist de execução (depois da sua conferência)
 
 1. Aplicar as 4 migrations por `apply_migration`, na ordem do timestamp.
-2. `select public.carteira_geral_vigia();` — deve vir tudo zerado.
+2. O vigia, **dentro de transação com a claim da gestão** (obrigatório se a
+   trava proposta em `supabase/aguardando_aprovacao/` for aplicada):
+   `begin; set local request.jwt.claims = '{"email":"amanda.seibel@aelbra.com.br","role":"authenticated"}'; select public.carteira_geral_vigia(); rollback;`
+   — deve vir tudo zerado.
 3. **Marcar a Olga como inativa em Usuários** e, no Supabase Auth, banir a conta
    e revogar as sessões (§7 — fora deste PR).
 4. Na Carteira Geral, fechar a entrada de casos novos dela.
@@ -301,5 +304,6 @@ o que ainda referencia o `auth.uid` dela.
    O desfazer **recusa** qualquer item que tenha sido assumido, movido de novo
    ou cujo acordo tenha mudado de status desde o lote; nesse caso a linha da
    auditoria fica sem marca de desfeito, e o lote aparece como parcialmente vivo.
-10. No dia seguinte, depois das 09:20, rodar `carteira_geral_vigia()` de novo:
+10. No dia seguinte, depois das 09:20, rodar `carteira_geral_vigia()` de novo
+    (mesma transação com claim do item 2):
     `na_carteira_geral` tem de continuar igual e `saidas_sem_auditoria` em zero.

@@ -1080,57 +1080,88 @@ describe("Carteira Geral — proposta do portão no vigia (aguardando aprovaçã
   });
 
   it("Amanda (gestão) continua autorizada", async () => {
+    await cenario();
     await db.exec(TRAVA_VIGIA);
     await como(db, GESTAO);
-    expect((await q1(db, "select public.carteira_geral_vigia() v")).v).toHaveProperty("na_carteira_geral");
+    const v = (await q1(db, "select public.carteira_geral_vigia() v")).v;
+    expect(v.na_carteira_geral).toBe(1);
+    expect(v.operadores_sem_entrada_de_casos).toContain("Olga");
   });
 
-  it("Fernanda continua autorizada", async () => {
-    await db.exec(TRAVA_VIGIA);
+  it("Fernanda continua autorizada, com a MESMA saída de antes", async () => {
+    await cenario();
     await como(db, FERNANDA);
-    expect((await q1(db, "select public.carteira_geral_vigia() v")).v).toHaveProperty("na_carteira_geral");
+    const antes = await q1(db, "select public.carteira_geral_vigia()::text t");
+    await db.exec(TRAVA_VIGIA);
+    const depois = await q1(db, "select public.carteira_geral_vigia()::text t");
+    expect(depois.t).toBe(antes.t);
+    expect((await q1(db, "select public.carteira_geral_vigia() v")).v.na_carteira_geral).toBe(1);
   });
 
-  it("Amanda ADM continua autorizada", async () => {
-    await db.exec(TRAVA_VIGIA);
+  it("Amanda ADM continua autorizada, com a MESMA saída de antes", async () => {
+    await cenario();
     await como(db, ADM);
-    expect((await q1(db, "select public.carteira_geral_vigia() v")).v).toHaveProperty("na_carteira_geral");
+    const antes = await q1(db, "select public.carteira_geral_vigia()::text t");
+    await db.exec(TRAVA_VIGIA);
+    const depois = await q1(db, "select public.carteira_geral_vigia()::text t");
+    expect(depois.t).toBe(antes.t);
+    expect((await q1(db, "select public.carteira_geral_vigia() v")).v.na_carteira_geral).toBe(1);
   });
+
+  // Não basta a mensagem: o código 42501 é o que a tela e o PostgREST leem.
+  async function recusaCom42501(email) {
+    await como(db, email);
+    let erro = null;
+    try { await db.query("select public.carteira_geral_vigia()"); } catch (e) { erro = e; }
+    expect(erro).not.toBeNull();
+    expect(String(erro.message)).toMatch(/Sem permissao para ver o vigia da Carteira Geral/);
+    expect(erro.code).toBe("42501");
+  }
 
   it("Luana (operadora ativa) é recusada com 42501", async () => {
     await db.exec(TRAVA_VIGIA);
-    await como(db, LUANA);
-    await expect(db.query("select public.carteira_geral_vigia()"))
-      .rejects.toThrow(/Sem permissao para ver o vigia da Carteira Geral/);
+    await recusaCom42501(LUANA);
   });
 
   it("Olga é recusada", async () => {
     await db.exec(TRAVA_VIGIA);
-    await como(db, OLGA);
-    await expect(db.query("select public.carteira_geral_vigia()"))
-      .rejects.toThrow(/Sem permissao para ver o vigia da Carteira Geral/);
+    await recusaCom42501(OLGA);
   });
 
   it("authenticated sem gestão é recusado", async () => {
     await db.exec(TRAVA_VIGIA);
-    await como(db, NAO_GESTAO);
-    await expect(db.query("select public.carteira_geral_vigia()"))
-      .rejects.toThrow(/Sem permissao para ver o vigia da Carteira Geral/);
+    await recusaCom42501(NAO_GESTAO);
   });
 
   it("sem JWT nenhum é recusado", async () => {
     await db.exec(TRAVA_VIGIA);
-    await como(db, null);
-    await expect(db.query("select public.carteira_geral_vigia()"))
-      .rejects.toThrow(/Sem permissao para ver o vigia da Carteira Geral/);
+    await recusaCom42501(null);
   });
 
-  it("a precondição RECUSA aplicar se o corpo do vigia tiver mudado", async () => {
+  const md5Vigia = async () => (await q1(db, `select md5(p.prosrc) m from pg_proc p
+      join pg_namespace n on n.oid=p.pronamespace
+     where n.nspname='public' and p.proname='carteira_geral_vigia'`)).m;
+
+  it("a precondição RECUSA aplicar se o corpo do vigia tiver mudado — e não sobrescreve", async () => {
     await db.query(`create or replace function public.carteira_geral_vigia()
       returns jsonb language sql stable security definer set search_path to 'public','internal'
       as $x$ select jsonb_build_object('na_carteira_geral', 0) $x$;`);
-    await expect(db.exec(TRAVA_VIGIA))
-      .rejects.toThrow(/mudou desde 26\/09\/2026/);
+    const antes = await md5Vigia();
+    await expect(db.exec(TRAVA_VIGIA)).rejects.toThrow(/nao e nenhum dos dois/);
+    expect(await md5Vigia()).toBe(antes); // o corpo de terceiro continua intacto
+  });
+
+  // A falha que a primeira versão desta proposta tinha: ela aceitava QUALQUER
+  // corpo que contivesse a palavra `calibragem_e_gestao`, até num comentário, e
+  // o `create or replace` o sobrescrevia em silêncio. Agora só md5 exato passa.
+  it("corpo de terceiro que apenas MENCIONA calibragem_e_gestao também é recusado", async () => {
+    await db.query(`create or replace function public.carteira_geral_vigia()
+      returns jsonb language sql stable security definer set search_path to 'public','internal'
+      as $x$ select jsonb_build_object('outra_coisa', 1) -- calibragem_e_gestao
+      $x$;`);
+    const antes = await md5Vigia();
+    await expect(db.exec(TRAVA_VIGIA)).rejects.toThrow(/nao e nenhum dos dois/);
+    expect(await md5Vigia()).toBe(antes);
   });
 
   it("a trava é idempotente: rodar de novo não quebra nem muda a saída", async () => {
