@@ -22,7 +22,7 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const MIG = (n) => readFileSync(resolve(AQUI, "..", "migrations", `${n}.sql`), "utf8");
 
 // Só o bloco do helper, sem os `perform` que dependem das funções de produção.
-const MIGRACAO = MIG("20260924171255_carteira_geral_blindar_automacoes");
+const MIGRACAO = MIG("20260925181823_carteira_geral_blindar_automacoes");
 const SO_O_HELPER = MIGRACAO.slice(0, MIGRACAO.indexOf("do $patch$"));
 
 let db;

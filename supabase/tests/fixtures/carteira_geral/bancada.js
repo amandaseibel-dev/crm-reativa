@@ -15,10 +15,10 @@ const lerRepo = (p) => readFileSync(resolve(AQUI, "..", "..", "..", "..", p), "u
 export const MIG = (n) => lerRepo(`supabase/migrations/${n}.sql`);
 
 export const MIGRATIONS = [
-  "20260924171251_carteira_geral_destino",
-  "20260924171252_carteira_geral_painel_previa",
-  "20260924171254_carteira_geral_mover",
-  "20260924171255_carteira_geral_blindar_automacoes",
+  "20260925180744_carteira_geral_destino",
+  "20260925181117_carteira_geral_painel_previa",
+  "20260925181554_carteira_geral_mover",
+  "20260925181823_carteira_geral_blindar_automacoes",
 ];
 
 export const GESTAO = "amanda.seibel@aelbra.com.br";

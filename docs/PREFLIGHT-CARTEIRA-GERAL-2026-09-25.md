@@ -86,10 +86,10 @@ Ordem obrigatória, pela dependência real:
 
 | # | Migration | Cria | Depende de |
 |---|---|---|---|
-| 1 | `20260924171251_carteira_geral_destino` | `internal.carteira_geral_email()`, a linha em `usuarios`, a coluna `usuarios.recebe_novos_casos`, `internal.operador_pode_receber_caso()`, tabelas `carteira_geral_previas` e `carteira_geral_auditoria` + RLS + gatilho append-only | schema `internal`, `calibragem_e_gestao()` |
-| 2 | `20260924171252_carteira_geral_painel_previa` | `carteira_geral_base`, `_painel`, `_listar`, `_previa` | **1** (`carteira_geral_email`, `carteira_geral_previas`) |
-| 3 | `20260924171254_carteira_geral_mover` | `internal.carteira_geral_trocar_dono`, `carteira_geral_mover`, `_desfazer_lote`, `_definir_recebimento` | **1** e **2** (lê a prévia gravada) |
-| 4 | `20260924171255_carteira_geral_blindar_automacoes` | `internal.patch_funcao_ancorada`, os 15 patches, `carteira_geral_vigia()` | **1** (`operador_pode_receber_caso`, `carteira_geral_email`) |
+| 1 | `20260925180744_carteira_geral_destino` | `internal.carteira_geral_email()`, a linha em `usuarios`, a coluna `usuarios.recebe_novos_casos`, `internal.operador_pode_receber_caso()`, tabelas `carteira_geral_previas` e `carteira_geral_auditoria` + RLS + gatilho append-only | schema `internal`, `calibragem_e_gestao()` |
+| 2 | `20260925181117_carteira_geral_painel_previa` | `carteira_geral_base`, `_painel`, `_listar`, `_previa` | **1** (`carteira_geral_email`, `carteira_geral_previas`) |
+| 3 | `20260925181554_carteira_geral_mover` | `internal.carteira_geral_trocar_dono`, `carteira_geral_mover`, `_desfazer_lote`, `_definir_recebimento` | **1** e **2** (lê a prévia gravada) |
+| 4 | `20260925181823_carteira_geral_blindar_automacoes` | `internal.patch_funcao_ancorada`, os 15 patches, `carteira_geral_vigia()` | **1** (`operador_pode_receber_caso`, `carteira_geral_email`) |
 
 Não há salto de numeração faltando: `...53` não existe de propósito.
 
@@ -400,6 +400,57 @@ Regra geral de parada, válida em todo o roteiro:
 E uma trava de horário: **os dois cron ativos que tocam função patchada rodam
 08:20 e 09:20 UTC.** Aplique depois das 09:30 UTC (06:30 BRT) e você tem o dia
 inteiro de margem.
+
+## Reconciliação do histórico — 26/09/2026
+
+As quatro migrations foram aplicadas em produção em **25/09, entre 18:07 e
+18:18 UTC**. Quem aplicou usou `apply_migration`, que **gera a versão no momento
+da aplicação** e ignora o nome do arquivo. Resultado: o repositório e o
+`schema_migrations` passaram a discordar nos números.
+
+**Conciliado renomeando os arquivos para as versões que produção registrou** —
+zero SQL executado, zero conteúdo alterado:
+
+| arquivo antes | versão registrada em produção | md5 do arquivo = md5 aplicado |
+|---|---|---|
+| `20260924171251_carteira_geral_destino` | **`20260925180744`** | `85856d78…` ✔ |
+| `20260924171252_carteira_geral_painel_previa` | **`20260925181117`** | `446d96dd…` ✔ |
+| `20260924171254_carteira_geral_mover` | **`20260925181554`** | `ce62ee0e…` ✔ |
+| `20260924171255_carteira_geral_blindar_automacoes` | **`20260925181823`** | `e2fe786d…` ✔ |
+
+Os nomes já batiam; só o carimbo mudou. E o conteúdo **não foi tocado**: é
+literalmente o que o banco executou.
+
+Duas consequências que ficam registradas de propósito:
+
+- O comentário na linha 197 da migration 4 ainda cita `20260924171251`. **Não
+  corrigi**: mexer no texto mudaria o md5 e o arquivo deixaria de ser o que
+  produção rodou. A fidelidade ao aplicado vale mais que um comentário atual.
+- `20260925180638_backup_carteira_geral_funcoes_20260925` está em produção e
+  **não tem arquivo aqui** — é o backup das 14 funções, e backup é matéria de
+  **ledger**, não de migration (mesmo tratamento dado a `20260925125311`). Fica
+  para o PR do ledger.
+
+### Risco de reaplicação: nenhum pelo caminho automático
+
+| caminho | fala com o banco? |
+|---|---|
+| CI (`testes, build e catracas`) | **não** — o cabeçalho do workflow diz isso, e a catraca das migrations só lê o checkout |
+| build | `vite build`, só isso |
+| Vercel | `vercel.json` é só `rewrites` |
+| `supabase db push` local | **sim, e aponta para PRODUÇÃO** (`supabase/.temp/linked-project.json` = `ahattpqrjmhkzsmnbdzs`) |
+
+Antes do rename, um `db push` veria as quatro como pendentes e — por serem mais
+antigas que a última aplicada — recusaria com *"found local migration files to
+be inserted before the last migration on remote database"*, ou as reaplicaria
+com `--include-all`. **Depois do rename, ele as vê como aplicadas.**
+
+E mesmo uma reaplicação seria inofensiva: conferi statement a statement, todos
+idempotentes — `create or replace function`, `add column if not exists`,
+`create table if not exists`, `drop policy/trigger if exists` + create, o único
+`insert` com `on conflict (email) do update`, `drop function if exists` das
+assinaturas antigas, e os 15 patches, que são idempotentes **pelo texto novo**
+(há teste para isso).
 
 ## Fase 0 — a correção do bloqueador: FEITA
 
