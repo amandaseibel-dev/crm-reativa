@@ -456,8 +456,9 @@ Duas consequências que ficam registradas de propósito:
   **não tem arquivo aqui** — é o backup das 14 funções, e backup é matéria de
   **ledger**, não de migration. **Está no ledger deste PR**, junto das quatro
   (seção de ledger abaixo). O mesmo tratamento foi dado ao backup
-  `20260925125311`, da frente do acordo cancelado — mas atenção: aquele está no
-  PR #526, ainda **aberto**, não na `main`.
+  `20260925125311`, da frente do acordo cancelado, que entrou na `main` em 26/09
+  pelo PR #530 — com isso o PR #526, que eu havia aberto para as mesmas três
+  versões, ficou redundante e deve ser fechado.
 
 ### Risco de reaplicação: nenhum pelo caminho automático
 
