@@ -14,7 +14,7 @@ const PAINEL = {
   na_carteira_geral: { alunos: 0, valor: 0 },
   responsavel_inativo: { alunos: 0, valor: 0 },
   por_responsavel: [
-    { email: "cobranca03@aelbra.com.br", nome: "Olga", classe: "OPERADOR", alunos: 545, valor: 2546943.15, mensalidade: 819405.33, acordo: 1727537.82 },
+    { email: "cobranca03@aelbra.com.br", nome: "Olga", classe: "INATIVO", alunos: 545, valor: 2546943.15, mensalidade: 819405.33, acordo: 1727537.82 },
     { email: "juridico@aelbra.com.br", nome: "Jurídico", classe: "NAO_OPERADOR", alunos: 58, valor: 0, mensalidade: 0, acordo: 0 },
   ],
   por_ano: [
@@ -308,5 +308,98 @@ describe("Carteira Geral — remanejamento", () => {
 
     await waitFor(() => expect(screen.queryByText(/Prévia — nada foi movido ainda/)).toBeNull());
     expect(screen.getByRole("button", { name: /Confirmar remanejamento/ }).disabled).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O defeito de 26/09/2026: a gestão desligou a Olga ANTES de recolher a
+// carteira dela. O filtro Responsável era alimentado por
+// `usuarios where ativo = true`, então ela sumiu do seletor e a carteira de 501
+// alunos ficou inalcançável — a única opção que a pegava era SEM_DONO_ATIVO,
+// que a mistura com os 8.754 da fila livre.
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — filtro por responsável desligado", () => {
+  beforeEach(() => { chamadas.rpc = []; });
+  afterEach(cleanup);
+
+  // O texto "Responsável" também é cabeçalho de duas tabelas; o seletor é o
+  // primeiro <select> da seção Filtrar.
+  function seletorResponsavel() {
+    return screen.getByText("Filtrar").closest("section").querySelector("select");
+  }
+
+  it("lista a operadora INATIVA que ainda tem casos, e diz que está inativa", async () => {
+    await montar();
+    const opcoes = [...seletorResponsavel().options].map((o) => o.textContent);
+    expect(opcoes.some((t) => /Olga/.test(t) && /inativo/.test(t))).toBe(true);
+  });
+
+  it("a opção da Olga vale o e-mail exato, não um agrupamento", async () => {
+    await montar();
+    const olga = [...seletorResponsavel().options].find((o) => /Olga/.test(o.textContent));
+    expect(olga.value).toBe("cobranca03@aelbra.com.br");
+  });
+
+  it("'Sem operador' continua sendo só quem não tem responsável — não mistura com a Olga", async () => {
+    await montar();
+    const opcoes = [...seletorResponsavel().options];
+    const semOperador = opcoes.find((o) => o.value === "SEM_OPERADOR");
+    expect(semOperador).toBeTruthy();
+    expect(semOperador.value).not.toBe("cobranca03@aelbra.com.br");
+    // e o agrupamento continua existindo, com nome que não engana
+    const agrupado = opcoes.find((o) => o.value === "SEM_DONO_ATIVO");
+    expect(agrupado.textContent).toMatch(/agrupa/i);
+  });
+
+  it("escolher a Olga manda o e-mail exato para o painel E para a lista", async () => {
+    await montar();
+    chamadas.rpc = [];
+    fireEvent.change(seletorResponsavel(), { target: { value: "cobranca03@aelbra.com.br" } });
+    await waitFor(() => expect(chamadas.rpc.some((c) => c.fn === "carteira_geral_listar")).toBe(true));
+
+    const painel = chamadas.rpc.find((c) => c.fn === "carteira_geral_painel");
+    const listar = chamadas.rpc.find((c) => c.fn === "carteira_geral_listar");
+    expect(painel.args.p_filtros.responsavel).toBe("cobranca03@aelbra.com.br");
+    expect(listar.args.p_filtros.responsavel).toBe("cobranca03@aelbra.com.br");
+  });
+
+  it("com a Olga filtrada, o seletor NÃO encolhe para uma opção só", async () => {
+    await montar();
+    const antes = seletorResponsavel().options.length;
+    fireEvent.change(seletorResponsavel(), { target: { value: "cobranca03@aelbra.com.br" } });
+    await waitFor(() => expect(chamadas.rpc.some((c) => c.fn === "carteira_geral_listar")).toBe(true));
+    expect(seletorResponsavel().options.length).toBe(antes);
+  });
+});
+
+describe("Carteira Geral — o que está selecionado, antes da prévia", () => {
+  beforeEach(() => { chamadas.rpc = []; });
+  afterEach(cleanup);
+
+  it("não mostra resumo com nada marcado", async () => {
+    await montar();
+    expect(screen.queryByTestId("resumo-selecao")).toBeNull();
+  });
+
+  it("marcando a aluna da Olga, diz alunos, valor, retornos e a divisão dos acordos", async () => {
+    await montar();
+    fireEvent.click(screen.getByLabelText("Selecionar MARIA DE TESTE"));
+    const resumo = await screen.findByTestId("resumo-selecao");
+    const texto = resumo.textContent.replace(/\s+/g, " ");
+    expect(texto).toMatch(/1 aluno\(s\) selecionado/);
+    expect(texto).toContain("R$ 3.000,00");
+    expect(texto).toContain("R$ 1.000,00");   // mensalidade
+    expect(texto).toContain("R$ 2.000,00");   // acordo
+    // 2 acordos vivos, 1 de outro dono -> 1 vai junto, 1 fica
+    expect(texto).toMatch(/1 acordo\(s\) do dono atual v[aã]o junto/);
+    expect(texto).toMatch(/1 de terceiros ficam/);
+  });
+
+  it("soma os dois alunos quando marco os dois", async () => {
+    await montar();
+    fireEvent.click(screen.getByLabelText("Selecionar MARIA DE TESTE"));
+    fireEvent.click(screen.getByLabelText("Selecionar JOAO SEM DONO"));
+    const resumo = await screen.findByTestId("resumo-selecao");
+    expect(resumo.textContent.replace(/\s+/g, " ")).toContain("R$ 3.500,00");
   });
 });

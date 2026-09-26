@@ -1191,3 +1191,82 @@ describe("Carteira Geral — portão de gestão no vigia (20260926143256)", () =
     expect(p.volatilidade).toBe("s"); // continua STABLE
   });
 });
+
+// ---------------------------------------------------------------------------
+// FILTRO POR RESPONSÁVEL — a carteira de quem foi desligado não pode sumir.
+//
+// Em 26/09/2026 a gestão desligou a Olga antes de recolher a carteira dela. A
+// tela alimentava o filtro com `usuarios where ativo = true`, então ela sumiu
+// do seletor; a única opção que a alcançava era SEM_DONO_ATIVO, que agrupa os
+// casos dela com TODA a fila livre. Estes casos fixam a diferença no banco, que
+// é onde ela precisa ser verdadeira.
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — filtrar por um responsável desligado", () => {
+  let db;
+  let daOlga;
+
+  beforeEach(async () => {
+    db = await montar();
+    daOlga = [
+      await semear(db, { nome: "ALUNA DA OLGA 1", dono: OLGA }),
+      await semear(db, { nome: "ALUNA DA OLGA 2", dono: OLGA }),
+    ];
+    await semear(db, { nome: "ALUNO SEM DONO", dono: null });
+    await semear(db, { nome: "ALUNA DA LUANA", dono: LUANA });
+    // o desligamento: é a partir daqui que o defeito aparecia
+    await db.query("update public.usuarios set ativo=false, recebe_novos_casos=false where email=$1", [OLGA]);
+    await como(db, GESTAO);
+  });
+
+  const painel = async (filtros) =>
+    (await q1(db, "select public.carteira_geral_painel($1::jsonb) p", [JSON.stringify(filtros)])).p;
+
+  it("filtrar pelo e-mail exato traz só a carteira dela, mesmo inativa", async () => {
+    const p = await painel({ responsavel: OLGA });
+    expect(p.total_alunos).toBe(2);
+    expect(p.por_responsavel).toHaveLength(1);
+    expect(p.por_responsavel[0].email).toBe(OLGA);
+    expect(p.por_responsavel[0].classe).toBe("INATIVO");
+  });
+
+  it("'Sem operador' NÃO traz os casos dela — é só quem não tem responsável", async () => {
+    const p = await painel({ responsavel: "SEM_OPERADOR" });
+    expect(p.total_alunos).toBe(1);
+    const emails = p.por_responsavel.map((r) => r.email);
+    expect(emails).not.toContain(OLGA);
+  });
+
+  it("SEM_DONO_ATIVO agrupa os dois — por isso não serve para isolar a Olga", async () => {
+    const p = await painel({ responsavel: "SEM_DONO_ATIVO" });
+    expect(p.total_alunos).toBe(3); // as 2 dela + o sem dono
+    expect(p.por_responsavel.map((r) => r.email)).toContain(OLGA);
+  });
+
+  it("a listagem com o e-mail exato devolve só os alunos dela", async () => {
+    const l = (await q1(db, `select public.carteira_geral_listar($1::jsonb, 200, 0) l`,
+      [JSON.stringify({ responsavel: OLGA })])).l;
+    expect(l).toHaveLength(2);
+    expect(l.every((x) => x.dono_email === OLGA)).toBe(true);
+    expect(l.map((x) => x.nome).sort()).toEqual(["ALUNA DA OLGA 1", "ALUNA DA OLGA 2"]);
+  });
+
+  it("a operadora ATIVA continua filtrando normalmente", async () => {
+    const p = await painel({ responsavel: LUANA });
+    expect(p.total_alunos).toBe(1);
+    expect(p.por_responsavel[0].classe).toBe("OPERADOR");
+  });
+
+  it("a prévia aceita os alunos dela e não recusa por ela estar inativa", async () => {
+    const r = await q1(db, `select public.carteira_geral_previa($1::uuid[],'CARTEIRA_GERAL',null,true,'{}'::jsonb,null) p`,
+      [`{${daOlga.map((a) => a.aluno).join(",")}}`]);
+    expect(r.p.total_alunos).toBe(2);
+    expect(r.p.destino_tipo).toBe("CARTEIRA_GERAL");
+  });
+
+  it("mover PARA um operador inativo continua recusado — o portão do destino não afrouxou", async () => {
+    await expect(
+      db.query(`select public.carteira_geral_previa($1::uuid[],'OPERADOR',$2,true,'{}'::jsonb,null)`,
+        [`{${daOlga[0].aluno}}`, OLGA])
+    ).rejects.toThrow(/invalido ou inativo/);
+  });
+});
