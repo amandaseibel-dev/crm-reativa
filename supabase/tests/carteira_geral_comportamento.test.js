@@ -15,7 +15,7 @@
 //     o heartbeat do receptivo funciona e o schema `internal` segue fechado.
 //
 // Dados fictícios. Bancada: fixtures/carteira_geral/bancada.js
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,17 @@ vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 });
 let db;
 beforeEach(async () => {
   db = await montar();
+});
+
+// Cada teste abre um PGlite proprio (um Postgres WASM inteiro). Sem este
+// fechamento eles ficavam todos vivos no mesmo processo ate o fim do arquivo:
+// 91 instancias, pico medido de 1,8 GB so neste arquivo. No CI sao 4 workers
+// em paralelo, e o runner morria no meio da suite -- o job aparecia como
+// "cancelled", sem nenhum teste vermelho, que e a cara de falta de memoria e
+// nao de teste quebrado.
+afterEach(async () => {
+  await db?.close();
+  db = null;
 });
 
 // A prévia congela o plano; a execução só o executa.
@@ -918,6 +929,13 @@ describe("Carteira Geral — permissão: heartbeat como authenticated, internal 
   let db;
   beforeEach(async () => { db = await montar(); });
 
+  // Este describe tem `db` proprio, que sombreia o de fora: sem fechar aqui,
+  // sobrava um PGlite por teste alem do que o afterEach de cima ja fecha.
+  afterEach(async () => {
+    await db?.close();
+    db = null;
+  });
+
   it("o schema internal continua fechado para authenticated", async () => {
     const p = await q1(db, `select
       has_schema_privilege('authenticated','internal','USAGE') usa_internal,
@@ -1057,6 +1075,13 @@ describe("Carteira Geral — portão de gestão no vigia (20260926143256)", () =
       "insert into public.usuarios (nome,email,perfil,ativo) values ('Quem',$1,'operador',true)",
       [NAO_GESTAO],
     );
+  });
+
+  // Este describe tem `db` proprio, que sombreia o de fora: sem fechar aqui,
+  // sobrava um PGlite por teste alem do que o afterEach de cima ja fecha.
+  afterEach(async () => {
+    await db?.close();
+    db = null;
   });
 
   it("ANTES da trava: operador comum lê o vigia — é o buraco que ela fecha", async () => {
@@ -1216,6 +1241,13 @@ describe("Carteira Geral — filtrar por um responsável desligado", () => {
     // o desligamento: é a partir daqui que o defeito aparecia
     await db.query("update public.usuarios set ativo=false, recebe_novos_casos=false where email=$1", [OLGA]);
     await como(db, GESTAO);
+  });
+
+  // Este describe tem `db` proprio, que sombreia o de fora: sem fechar aqui,
+  // sobrava um PGlite por teste alem do que o afterEach de cima ja fecha.
+  afterEach(async () => {
+    await db?.close();
+    db = null;
   });
 
   const painel = async (filtros) =>
