@@ -244,3 +244,66 @@ export function resumoSelecao(lista, selecionados) {
     acordosTerceiros,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Seleção que sobrevive à troca de página.
+//
+// `resumoSelecao` acima só sabe somar o que está na página atual: ela cruza
+// `lista` com os ids marcados. Com paginação real isso passaria a mentir — quem
+// marcasse 30 na página 1 e fosse para a 2 veria "0 selecionados".
+//
+// Por isso a tela guarda a LINHA inteira de cada aluno marcado, não só o id, e
+// o resumo passa a ser calculado sobre essas linhas guardadas.
+//
+// A linha é por CASO, mas a chave é o aluno: a RPC move por aluno. Aluno com
+// duas fichas entra uma vez aqui e leva os dois casos — é isso que
+// `casosPorAluno` deixa visível.
+// ---------------------------------------------------------------------------
+export function resumoDeLinhas(linhas) {
+  const marcados = Array.isArray(linhas) ? linhas.filter(Boolean) : [];
+  const soma = (campo) => marcados.reduce((total, l) => total + Number(l[campo] || 0), 0);
+  const acordosTotal = soma("acordos_vivos");
+  const acordosTerceiros = soma("acordos_de_outro_dono");
+  return {
+    alunos: marcados.length,
+    valor: soma("saldo_total"),
+    mensalidade: soma("saldo_mensalidade"),
+    acordo: soma("saldo_acordo"),
+    retornos: marcados.filter((l) => l.data_retorno).length,
+    acordosProprios: acordosTotal - acordosTerceiros,
+    acordosTerceiros,
+  };
+}
+
+// Quantos casos cada aluno tem DENTRO da lista carregada. Serve para avisar que
+// marcar uma linha leva a ficha gêmea junto.
+export function casosPorAluno(lista) {
+  const conta = new Map();
+  for (const l of Array.isArray(lista) ? lista : []) {
+    if (!l?.aluno_id) continue;
+    conta.set(l.aluno_id, (conta.get(l.aluno_id) || 0) + 1);
+  }
+  return conta;
+}
+
+// Casos que a prévia vai mover e que NÃO estavam marcados na lista: entram por
+// pertencerem a um aluno marcado. É o aviso que faltava na confirmação — foi
+// assim que 2 casos encerrados entraram no lote 559b20bb sem aparecer na tela.
+export function casosNaoMarcados(previa, casoIdsMarcados) {
+  const itens = Array.isArray(previa?.itens) ? previa.itens : [];
+  const marcados = casoIdsMarcados instanceof Set ? casoIdsMarcados : new Set(casoIdsMarcados || []);
+  const extras = itens.filter((it) => it?.caso_id && !marcados.has(it.caso_id));
+  return {
+    total: extras.length,
+    encerrados: extras.filter((it) => it.encerrado === true || it.encerrado === "true").length,
+    nomes: [...new Set(extras.map((it) => it.nome).filter(Boolean))],
+  };
+}
+
+// Quantas páginas, dado o total de CASOS (a lista é por caso).
+export function totalPaginas(totalCasos, porPagina) {
+  const t = Number(totalCasos || 0);
+  const p = Number(porPagina || 0);
+  if (!(t > 0) || !(p > 0)) return 1;
+  return Math.ceil(t / p);
+}

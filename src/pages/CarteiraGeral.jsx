@@ -11,7 +11,10 @@ import {
   classeEmAlerta,
   opcoesResponsavel,
   rotuloResponsavel,
-  resumoSelecao,
+  resumoDeLinhas,
+  casosPorAluno,
+  casosNaoMarcados,
+  totalPaginas,
   consolidarPorAno,
   moeda,
   rotuloClasse,
@@ -46,8 +49,14 @@ export default function CarteiraGeral() {
   // dele fica inalcançável (ver opcoesResponsavel em utils/carteiraGeral.js).
   const [donosComCaso, setDonosComCaso] = useState([]);
 
-  const [filtros, setFiltros] = useState({ responsavel: "", ano: "", tipo: "", busca: "" });
-  const [selecionados, setSelecionados] = useState(() => new Set());
+  const [filtros, setFiltros] = useState({
+    responsavel: "", ano: "", tipo: "", busca: "", incluirEncerrados: false,
+  });
+  // Página da lista. A lista é por CASO, e o offset vai para a RPC.
+  const [paginaAtual, setPaginaAtual] = useState(0);
+  // aluno_id -> a LINHA inteira. Guardar a linha (e não só o id) é o que
+  // mantém o total de selecionados correto depois de trocar de página.
+  const [selecionados, setSelecionados] = useState(() => new Map());
 
   const [destinoTipo, setDestinoTipo] = useState("CARTEIRA_GERAL");
   const [destinoEmail, setDestinoEmail] = useState("");
@@ -100,6 +109,7 @@ export default function CarteiraGeral() {
       ano: filtros.ano ? Number(filtros.ano) : null,
       tipo: filtros.tipo || null,
       busca: filtros.busca || null,
+      incluir_encerrados: filtros.incluirEncerrados === true,
     }),
     [filtros]
   );
@@ -112,7 +122,9 @@ export default function CarteiraGeral() {
 
     const [{ data: p, error: e1 }, { data: l, error: e2 }] = await Promise.all([
       supabase.rpc("carteira_geral_painel", { p_filtros: filtrosRpc }),
-      supabase.rpc("carteira_geral_listar", { p_filtros: filtrosRpc, p_limite: POR_PAGINA, p_offset: 0 }),
+      supabase.rpc("carteira_geral_listar", {
+        p_filtros: filtrosRpc, p_limite: POR_PAGINA, p_offset: paginaAtual * POR_PAGINA,
+      }),
     ]);
 
     emVooRef.current = false;
@@ -128,9 +140,12 @@ export default function CarteiraGeral() {
     // ficaria com uma opção só, sem volta.
     if (!filtrosRpc.responsavel) setDonosComCaso(opcoesResponsavel(p?.por_responsavel));
     setLista(Array.isArray(l) ? l : []);
-    setSelecionados(new Set());
+    // A seleção NÃO é limpa aqui: trocar de página tem de preservá-la. Quem
+    // limpa é o efeito abaixo, que observa `filtrosRpc` — filtro novo é outro
+    // universo, e seleção de um universo não vale no outro.
     setPrevia(null);
-  }, [filtrosRpc]);
+  }, [filtrosRpc, paginaAtual]);
+
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
@@ -155,20 +170,41 @@ export default function CarteiraGeral() {
     });
   }
 
+  // Trocar filtro é trocar de universo: volta para a primeira página e esvazia
+  // a seleção. Fica aqui, no evento, e não num efeito sobre `filtrosRpc` --
+  // setState dentro de efeito é o que derrubou o CI da main em 25/09.
+  function mudarFiltro(patch) {
+    setFiltros((atual) => ({ ...atual, ...patch }));
+    setPaginaAtual(0);
+    setSelecionados(new Map());
+    setPrevia(null);
+  }
+
   function alternar(alunoId) {
     setSelecionados((atual) => {
-      const novo = new Set(atual);
+      const novo = new Map(atual);
       if (novo.has(alunoId)) novo.delete(alunoId);
-      else novo.add(alunoId);
+      else {
+        const linha = lista.find((l) => l.aluno_id === alunoId);
+        if (linha) novo.set(alunoId, linha);
+      }
       return novo;
     });
     setPrevia(null);
   }
 
+  // "Selecionar todos" vale só para ESTA página: marcar 30 mil casos de uma vez
+  // não é uma decisão que a gestão deva tomar num clique.
   function alternarTodos() {
-    setSelecionados((atual) =>
-      atual.size === lista.length ? new Set() : new Set(lista.map((l) => l.aluno_id))
-    );
+    setSelecionados((atual) => {
+      const novo = new Map(atual);
+      const todosDaPagina = lista.every((l) => novo.has(l.aluno_id)) && lista.length > 0;
+      for (const l of lista) {
+        if (todosDaPagina) novo.delete(l.aluno_id);
+        else novo.set(l.aluno_id, l);
+      }
+      return novo;
+    });
     setPrevia(null);
   }
 
@@ -177,7 +213,7 @@ export default function CarteiraGeral() {
       destinoTipo,
       destinoEmail,
       motivo: motivo || "conferência",
-      selecionados: [...selecionados],
+      selecionados: [...selecionados.keys()],
     });
     if (!check.ok) {
       setAviso(check.erro);
@@ -187,7 +223,7 @@ export default function CarteiraGeral() {
     setOcupado(true);
     setAviso("");
     const { data, error } = await supabase.rpc("carteira_geral_previa", {
-      p_aluno_ids: [...selecionados],
+      p_aluno_ids: [...selecionados.keys()],
       p_destino_tipo: destinoTipo,
       p_destino_email: destinoTipo === "OPERADOR" ? destinoEmail : null,
       p_mover_acordos: moverAcordos,
@@ -208,7 +244,7 @@ export default function CarteiraGeral() {
       destinoTipo,
       destinoEmail,
       motivo,
-      selecionados: [...selecionados],
+      selecionados: [...selecionados.keys()],
     });
     if (!check.ok) {
       setAviso(check.erro);
@@ -219,8 +255,21 @@ export default function CarteiraGeral() {
       return;
     }
 
+    // Casos que entram por pertencerem a um aluno marcado, sem terem sido
+    // marcados na lista. Foi assim que 2 casos encerrados entraram no lote
+    // 559b20bb sem aparecer na tela: a confirmação não dizia.
+    const marcadosIds = new Set([...selecionados.values()].map((l) => l.caso_id).filter(Boolean));
+    const extras = casosNaoMarcados(previa, marcadosIds);
+
     const ok = window.confirm(
-      `Mover ${previa.total_alunos} aluno(s) — ${moeda(previa.total_valor)} — para ${previa.destino_nome}?\n\n` +
+      `Mover ${previa.total_alunos} aluno(s) — ${previa.total_casos ?? previa.total_alunos} caso(s) — ` +
+        `${moeda(previa.total_valor)} — para ${previa.destino_nome}?\n\n` +
+        (extras.total
+          ? `ATENÇÃO: ${extras.total} caso(s) NÃO marcado(s) na lista vão junto, por serem do mesmo ` +
+            `aluno` +
+            (extras.encerrados ? ` (${extras.encerrados} encerrado(s), que a lista não mostra)` : "") +
+            `.\nAlunos: ${extras.nomes.join(", ")}\n\n`
+          : "") +
         `Acordos que vão junto: ${previa.total_acordos}` +
         (previa.acordos_de_terceiros
           ? ` (${previa.acordos_de_terceiros_selecionados} de ${previa.acordos_de_terceiros} de terceiros, selecionados por você)`
@@ -253,14 +302,20 @@ export default function CarteiraGeral() {
     );
     setMotivo("");
     setAcordosEscolhidos(new Set());
+    setSelecionados(new Map());
     carregar();
   }
 
   if (carregando) return <Carregando tema="escuro" />;
   if (erro) return <Erro texto={erro} onTentar={carregar} tema="escuro" />;
 
-  const selecao = [...selecionados];
-  const resumo = resumoSelecao(lista, selecionados);
+  const selecao = [...selecionados.keys()];
+  // Resumo sobre as LINHAS guardadas, não sobre a página atual: continua certo
+  // depois de trocar de página.
+  const resumo = resumoDeLinhas([...selecionados.values()]);
+  const fichasPorAluno = casosPorAluno(lista);
+  const paginas = totalPaginas(painel?.total_casos ?? painel?.total_alunos, POR_PAGINA);
+  const marcadosNestaPagina = lista.filter((l) => selecionados.has(l.aluno_id)).length;
 
   return (
     <div style={pagina}>
@@ -363,7 +418,7 @@ export default function CarteiraGeral() {
             <span style={rotulo}>Responsável</span>
             <select
               value={filtros.responsavel}
-              onChange={(e) => setFiltros({ ...filtros, responsavel: e.target.value })}
+              onChange={(e) => mudarFiltro({ responsavel: e.target.value })}
               style={input}
             >
               <option value="">Todos</option>
@@ -380,7 +435,7 @@ export default function CarteiraGeral() {
 
           <label style={campo}>
             <span style={rotulo}>Ano de vencimento</span>
-            <select value={filtros.ano} onChange={(e) => setFiltros({ ...filtros, ano: e.target.value })} style={input}>
+            <select value={filtros.ano} onChange={(e) => mudarFiltro({ ano: e.target.value })} style={input}>
               <option value="">Todos</option>
               {porAno.map((l) => (
                 <option key={l.ano} value={l.ano ?? ""}>
@@ -392,7 +447,7 @@ export default function CarteiraGeral() {
 
           <label style={campo}>
             <span style={rotulo}>Tipo de dívida</span>
-            <select value={filtros.tipo} onChange={(e) => setFiltros({ ...filtros, tipo: e.target.value })} style={input}>
+            <select value={filtros.tipo} onChange={(e) => mudarFiltro({ tipo: e.target.value })} style={input}>
               <option value="">Mensalidade e acordo</option>
               <option value="MENSALIDADE">Somente mensalidade</option>
               <option value="ACORDO">Somente acordo</option>
@@ -403,10 +458,23 @@ export default function CarteiraGeral() {
             <span style={rotulo}>Nome, CPF ou matrícula</span>
             <input
               value={filtros.busca}
-              onChange={(e) => setFiltros({ ...filtros, busca: e.target.value })}
+              onChange={(e) => mudarFiltro({ busca: e.target.value })}
               style={input}
               placeholder="buscar"
             />
+          </label>
+
+          {/* Caso encerrado fica FORA da lista por padrão. Sem este controle a
+              gestão não tinha como vê-lo — e ele vai junto no remanejamento
+              quando pertence a um aluno marcado. */}
+          <label style={{ ...campo, flexDirection: "row", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              data-testid="incluir-encerrados"
+              checked={filtros.incluirEncerrados}
+              onChange={(e) => mudarFiltro({ incluirEncerrados: e.target.checked })}
+            />
+            <span style={rotulo}>Mostrar também casos encerrados</span>
           </label>
         </div>
       </section>
@@ -414,7 +482,11 @@ export default function CarteiraGeral() {
       {/* ---------------- lista ---------------- */}
       <section style={cartao}>
         <h2 style={secao}>
-          Selecionar <span style={nota}>({selecao.length} de {lista.length} nesta página)</span>
+          Selecionar{" "}
+          <span style={nota} data-testid="contagem-selecao">
+            ({selecao.length} aluno(s) selecionado(s) no total · {marcadosNestaPagina} de{" "}
+            {lista.length} nesta página)
+          </span>
         </h2>
 
         {resumo.alunos > 0 && (
@@ -451,7 +523,9 @@ export default function CarteiraGeral() {
             </thead>
             <tbody>
               {lista.map((l) => (
-                <tr key={l.aluno_id}>
+                // chave pelo CASO: um aluno com duas fichas rende duas linhas,
+                // e com a chave no aluno elas colidiriam.
+                <tr key={l.caso_id || l.aluno_id}>
                   <td style={td}>
                     <input
                       type="checkbox"
@@ -460,7 +534,15 @@ export default function CarteiraGeral() {
                       onChange={() => alternar(l.aluno_id)}
                     />
                   </td>
-                  <td style={td}>{l.nome}</td>
+                  <td style={td}>
+                    {l.nome}
+                    {fichasPorAluno.get(l.aluno_id) > 1 && (
+                      <span style={nota} data-testid="marca-ficha-gemea">
+                        {" "}· {fichasPorAluno.get(l.aluno_id)} fichas deste aluno — marcar uma leva
+                        todas
+                      </span>
+                    )}
+                  </td>
                   <td style={{ ...td, color: classeEmAlerta(l.dono_classe) ? "var(--rv-ambar-texto)" : undefined }}>
                     {l.dono_classe === "SEM_OPERADOR" ? "Sem operador" : l.dono_nome || l.dono_email}
                   </td>
@@ -475,6 +557,35 @@ export default function CarteiraGeral() {
               ))}
             </tbody>
           </table>
+        )}
+
+        {/* Paginação real. Antes o offset era fixo em 0 e tudo acima de 200
+            casos era inalcançável pela tela. A seleção atravessa as páginas. */}
+        {paginas > 1 && (
+          <div style={{ display: "flex", gap: 10, alignItems: "center", marginTop: 12, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              onClick={() => setPaginaAtual((n) => Math.max(n - 1, 0))}
+              disabled={paginaAtual === 0 || ocupado}
+              style={botao}
+            >
+              Anterior
+            </button>
+            <span style={nota} data-testid="paginacao">
+              Página {paginaAtual + 1} de {paginas} · {painel?.total_casos ?? lista.length} caso(s) no filtro
+            </span>
+            <button
+              type="button"
+              onClick={() => setPaginaAtual((n) => Math.min(n + 1, paginas - 1))}
+              disabled={paginaAtual >= paginas - 1 || ocupado}
+              style={botao}
+            >
+              Próxima
+            </button>
+            {selecao.length > 0 && (
+              <span style={nota}>A seleção é mantida ao trocar de página.</span>
+            )}
+          </div>
         )}
       </section>
 
@@ -605,7 +716,24 @@ export default function CarteiraGeral() {
           <h2 style={secao}>Prévia — nada foi movido ainda</h2>
 
           <div style={grade}>
-            <Bloco titulo="Alunos" valor={String(previa.total_alunos)} />
+            <Bloco titulo="Alunos" valor={String(previa.total_alunos)} nota="distintos" />
+            {/* CASO é o que se move de fato. Aluno com duas fichas conta 1 aluno
+                e 2 casos — e o encerrado não aparece na lista acima. */}
+            <Bloco
+              titulo="Casos que se movem"
+              valor={String(previa.total_casos ?? previa.total_alunos)}
+              nota={
+                Number(previa.total_casos ?? 0) > Number(previa.total_alunos ?? 0)
+                  ? "mais casos que alunos: há ficha repetida"
+                  : "um por aluno"
+              }
+            />
+            <Bloco
+              titulo="Casos encerrados incluídos"
+              valor={String(previa.total_casos_encerrados || 0)}
+              nota="não aparecem na lista"
+              alerta={Number(previa.total_casos_encerrados || 0) > 0}
+            />
             <Bloco titulo="Acordos que vão junto" valor={String(previa.total_acordos)} />
             <Bloco
               titulo="Acordos de terceiros"

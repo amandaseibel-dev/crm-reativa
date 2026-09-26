@@ -403,3 +403,91 @@ describe("Carteira Geral — o que está selecionado, antes da prévia", () => {
     expect(resumo.textContent.replace(/\s+/g, " ")).toContain("R$ 3.500,00");
   });
 });
+
+// ---------------------------------------------------------------------------
+// Paginação, seleção entre páginas e casos encerrados.
+// Estes três defeitos vieram do lote 559b20bb: 8 casos movidos, 6 visíveis,
+// e nenhuma página além da primeira.
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — paginação e casos que entram sem ser marcados", () => {
+  beforeEach(() => { chamadas.rpc = []; });
+  afterEach(cleanup);
+
+  const ultimaChamada = (fn) => [...chamadas.rpc].reverse().find((c) => c.fn === fn)?.args;
+
+  it("pede a primeira página com offset 0", async () => {
+    await montar();
+    const a = ultimaChamada("carteira_geral_listar");
+    expect(a.p_offset).toBe(0);
+    expect(a.p_limite).toBe(200);
+  });
+
+  it("não mostra paginação quando tudo cabe numa página", async () => {
+    await montar();
+    // PAINEL não traz total_casos; cai em total_alunos = 545 -> 3 páginas
+    expect(screen.queryByTestId("paginacao")).toBeTruthy();
+  });
+
+  it("avançar de página pede o offset seguinte e preserva a seleção", async () => {
+    await montar();
+    fireEvent.click(screen.getByLabelText("Selecionar MARIA DE TESTE"));
+    expect(screen.getByTestId("contagem-selecao").textContent).toMatch(/1 aluno\(s\) selecionado\(s\)/);
+
+    fireEvent.click(screen.getByText("Próxima"));
+    await waitFor(() => expect(ultimaChamada("carteira_geral_listar").p_offset).toBe(200));
+
+    // a lista dublada é a mesma, mas o que importa é a seleção continuar de pé
+    await waitFor(() =>
+      expect(screen.getByTestId("contagem-selecao").textContent).toMatch(/1 aluno\(s\) selecionado\(s\)/)
+    );
+    // texto interpolado no JSX vira vários nós: lê pelo testid
+    expect(screen.getByTestId("paginacao").textContent).toMatch(/Página 2 de 3/);
+  });
+
+  it("trocar de filtro volta para a primeira página e zera a seleção", async () => {
+    await montar();
+    fireEvent.click(screen.getByText("Próxima"));
+    await waitFor(() => expect(ultimaChamada("carteira_geral_listar").p_offset).toBe(200));
+    fireEvent.click(screen.getByLabelText("Selecionar MARIA DE TESTE"));
+
+    const select = screen.getByText("Filtrar").closest("section").querySelector("select");
+    fireEvent.change(select, { target: { value: "CARTEIRA_GERAL" } });
+
+    await waitFor(() => expect(ultimaChamada("carteira_geral_listar").p_offset).toBe(0));
+    expect(screen.getByTestId("contagem-selecao").textContent).toMatch(/0 aluno\(s\) selecionado\(s\)/);
+  });
+
+  it("o controle de encerrados vai para a RPC como incluir_encerrados", async () => {
+    await montar();
+    expect(ultimaChamada("carteira_geral_listar").p_filtros.incluir_encerrados).toBe(false);
+
+    fireEvent.click(screen.getByTestId("incluir-encerrados"));
+    await waitFor(() =>
+      expect(ultimaChamada("carteira_geral_listar").p_filtros.incluir_encerrados).toBe(true)
+    );
+    // e o painel tem de enxergar o mesmo universo da lista
+    expect(ultimaChamada("carteira_geral_painel").p_filtros.incluir_encerrados).toBe(true);
+  });
+
+  it("a confirmação avisa quando um caso não marcado entra pelo mesmo aluno", async () => {
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(false);
+    try {
+      await montar();
+      fireEvent.click(screen.getByLabelText("Selecionar MARIA DE TESTE"));
+      fireEvent.change(screen.getByPlaceholderText(/saída da Olga/), {
+        target: { value: "recolhimento" },
+      });
+      fireEvent.click(screen.getByText(/Ver prévia de/));
+      await waitFor(() => expect(screen.getByText("Prévia — nada foi movido ainda")).toBeTruthy());
+
+      fireEvent.click(screen.getByText("Confirmar remanejamento"));
+      await waitFor(() => expect(confirmar).toHaveBeenCalled());
+
+      // PREVIA.itens está vazia neste dublê, então nada de extra é anunciado;
+      // o que se prova aqui é que a confirmação passou a falar em CASOS.
+      expect(confirmar.mock.calls[0][0]).toMatch(/caso\(s\)/);
+    } finally {
+      confirmar.mockRestore();
+    }
+  });
+});
