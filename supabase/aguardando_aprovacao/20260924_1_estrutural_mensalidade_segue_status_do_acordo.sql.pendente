@@ -1,0 +1,380 @@
+-- ============================================================================
+-- 1/4 -- ESTRUTURAL: a mensalidade segue o status do acordo, nos DOIS sentidos
+-- ============================================================================
+-- NAO APLICAR SEM APROVACAO. Extensao .pendente de proposito.
+--
+-- Amanda, 24/09/2026: "acordo QUITADO -> mensalidade PAGO/quitada; acordo ATIVO
+-- -> mensalidade NEGOCIADO/vinculada. Se um acordo sair de QUITADO e voltar
+-- para ATIVO, somente a mensalidade que foi marcada como quitada POR
+-- CONSEQUENCIA DESSE ACORDO pode voltar para NEGOCIADO."
+--
+-- ESTE ARQUIVO NAO CORRIGE NENHUM DADO HISTORICO. E regra permanente.
+-- O saneamento do que ja esta torto vive nos arquivos 2, 3 e 4, separados de
+-- proposito para poderem ser validados populacao por populacao.
+--
+-- ---------------------------------------------------------------------------
+-- O QUE FALTA HOJE (medido em producao, 24/09/2026)
+-- ---------------------------------------------------------------------------
+-- A regra de 02/09 (20260902114613) so age no INSTANTE DA VIRADA. Quando o
+-- acordo sai de QUITADO e volta para ATIVO, `trg_acordo_status_reavalia_titulos`
+-- dispara e chama `titulo_reavaliar` -- que desiste na PRIMEIRA LINHA, porque
+-- PAGO e estado terminal desde 20260914081816. Resultado em producao: 500
+-- mensalidades de 147 acordos ATIVOS seguem marcadas "quitada" (R$ 830.042,13).
+--
+-- PAGO ser terminal esta CERTO: protege mensalidade paga de verdade. O que
+-- falta e saber POR QUE ela virou PAGO. Hoje nao existe esse campo -- por isso
+-- so da para provar a origem olhando `audit_log` para tras, e regra permanente
+-- nao pode depender de auditoria (que e prova historica, nao contrato).
+--
+-- ---------------------------------------------------------------------------
+-- A SOLUCAO: PROVENIENCIA GRAVADA, NAO INFERIDA
+-- ---------------------------------------------------------------------------
+-- `quitacao_origem = 'ACORDO'` + `quitacao_origem_acordo_id` passam a ser
+-- escritos NO MESMO UPDATE que marca a mensalidade como paga por causa do
+-- acordo. A porta de reabertura le esse campo -- nunca data, valor, proximidade
+-- ou ausencia de evidencia contraria.
+--
+-- Fora isso a porta exige, cumulativamente:
+--   . o acordo gravado na proveniencia e o MESMO acordo vivo do vinculo hoje;
+--   . esse acordo NAO esta QUITADO agora;
+--   . o titulo nao e o boleto do proprio acordo (tipo_boleto = 'Acordo');
+--   . `origem_liquidacao` nula (nada de liquidacao oficial da Prime);
+--   . `origem_encerramento` nula (nada de encerramento administrativo);
+--   . nenhum pagamento proprio em `pagamentos.titulo_numero`;
+--   . nenhuma conferencia propria em `conferencia_pagamentos.titulo_numero`;
+--   . nenhuma solicitacao de confirmacao apontando para o titulo.
+-- Qualquer uma dessas falhando, PAGO continua terminal, como hoje.
+--
+-- INERTE PARA O PASSADO, POR CONSTRUCAO: as 500 linhas de hoje tem
+-- `quitacao_origem` NULA, entao esta migration sozinha nao reabre nenhuma.
+-- Quem reabre e o arquivo 3, com lista de IDs e guards.
+--
+-- ---------------------------------------------------------------------------
+-- BONUS: `titulos_por_status_acordo` estava mais frouxa que as irmas
+-- ---------------------------------------------------------------------------
+-- Ela quita por vinculo SEM a guarda de parcela viva e SEM excluir o boleto do
+-- proprio acordo -- guardas que `_titulo_quita_com_o_acordo` tem desde
+-- 20260831140000. E a origem dos 17 titulos `tipo_boleto = 'Acordo'` hoje
+-- marcados "quitada" em acordo ATIVO. Aqui ela fica igual as irmas.
+--
+-- ROLLBACK: 20260924_1_estrutural_..._rollback.sql (mesma pasta)
+-- ============================================================================
+
+begin;
+
+-- ---------------------------------------------------------------------------
+-- 1) Proveniencia da quitacao
+-- ---------------------------------------------------------------------------
+alter table public.acordos_titulos
+  add column if not exists quitacao_origem text,
+  add column if not exists quitacao_origem_acordo_id uuid,
+  add column if not exists quitacao_origem_em timestamptz;
+
+do $$
+begin
+  if not exists (select 1 from pg_constraint where conname = 'acordos_titulos_quitacao_origem_check') then
+    alter table public.acordos_titulos
+      add constraint acordos_titulos_quitacao_origem_check
+      check (quitacao_origem is null or quitacao_origem in ('ACORDO'));
+  end if;
+end $$;
+
+comment on column public.acordos_titulos.quitacao_origem is
+  'Por que esta mensalidade esta PAGO. ACORDO = foi quitada por consequencia do acordo em quitacao_origem_acordo_id, nao por pagamento proprio. NULL = quitacao de outra origem (pagamento, baixa, liquidacao Prime, historico anterior a 24/09/2026) e PAGO segue terminal.';
+
+create index if not exists idx_acordos_titulos_quitacao_origem
+  on public.acordos_titulos (quitacao_origem_acordo_id)
+  where quitacao_origem = 'ACORDO';
+
+-- ---------------------------------------------------------------------------
+-- 2) `_titulo_quita_com_o_acordo`: mesma regra, agora deixando a prova escrita
+--    (corpo identico ao de producao 24/09/2026 + as tres colunas novas)
+-- ---------------------------------------------------------------------------
+create or replace function public._titulo_quita_com_o_acordo()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+begin
+  if upper(coalesce(new.status,'')) <> 'QUITADO'
+     or upper(coalesce(old.status,'')) = 'QUITADO' then
+    return new;
+  end if;
+
+  -- acordo marcado quitado mas com parcela viva nao quita mensalidade nenhuma
+  if exists (select 1 from public.parcelas p
+              where p.acordo_id = new.id
+                and upper(coalesce(p.status,'')) not in ('PAGO','CANCELADA')) then
+    return new;
+  end if;
+
+  update public.acordos_titulos t
+     set situacao = 'PAGO', status = 'quitada',
+         quitacao_origem = 'ACORDO',
+         quitacao_origem_acordo_id = new.id,
+         quitacao_origem_em = now(),
+         motivo_ajuste = coalesce(t.motivo_ajuste,'')
+           || case when coalesce(t.motivo_ajuste,'')='' then '' else ' | ' end
+           || 'quitada junto com o acordo ' || coalesce(new.numero_acordo::text,'')
+           || ': a divida desta mensalidade foi negociada nele e o acordo foi pago',
+         atualizado_em = now()
+   where t.acordo_id = new.id
+     and coalesce(t.tipo_boleto,'') <> 'Acordo'
+     and upper(coalesce(t.situacao,'')) in ('ABERTO','NEGOCIADO');
+
+  return new;
+end;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 3) `titulos_por_status_acordo`: ganha as guardas que faltavam
+--    (corpo de producao 24/09/2026 + guarda de parcela viva + boleto do
+--     proprio acordo + proveniencia)
+-- ---------------------------------------------------------------------------
+create or replace function public.titulos_por_status_acordo()
+returns trigger
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+begin
+  if new.status = 'QUITADO' then
+    -- MESMA GUARDA de `_titulo_quita_com_o_acordo` (20260831140000): acordo
+    -- marcado QUITADO com parcela viva nao quita mensalidade nenhuma. Ate
+    -- 24/09/2026 esta funcao nao tinha essa guarda, nem excluia o boleto do
+    -- proprio acordo -- foi por aqui que passaram os 17 titulos
+    -- `tipo_boleto = 'Acordo'` marcados "quitada" em acordo ATIVO.
+    if exists (select 1 from public.parcelas p
+                where p.acordo_id = new.id
+                  and upper(coalesce(p.status,'')) not in ('PAGO','CANCELADA')) then
+      return new;
+    end if;
+
+    update public.acordos_titulos t
+       set situacao = 'PAGO', status = 'quitada',
+           quitacao_origem = 'ACORDO',
+           quitacao_origem_acordo_id = new.id,
+           quitacao_origem_em = now(),
+           atualizado_em = now()
+      from public.acordo_titulo_vinculo v
+     where v.titulo_id = t.id and v.acordo_id = new.id and coalesce(v.ativo, true)
+       and t.situacao in ('ABERTO','NEGOCIADO')
+       and coalesce(t.tipo_boleto,'') <> 'Acordo';
+
+  elsif new.status = 'CANCELADO' then
+    -- A MENSALIDADE NEGOCIADA NAO VOLTA A SER ABERTA AQUI (branch removida em
+    -- 22/09/2026): cancelar o acordo muda o estado do ACORDO, nao desfaz
+    -- retroativamente a negociacao das mensalidades originais. Quem decide o
+    -- destino do titulo e titulo_reavaliar, chamado pelo outro gatilho desta
+    -- mesma tabela (trg_acordo_status_reavalia_titulos) -- ele preserva
+    -- NEGOCIADO quando o motivo e so o acordo ter caido.
+
+    -- o BOLETO DO PROPRIO ACORDO morre junto com ele, tendo mensalidade
+    -- vinculada ou nao. Ele nunca foi divida: e o numero do documento.
+    update public.acordos_titulos t
+       set situacao = 'CANCELADA',
+           motivo_ajuste = coalesce(t.motivo_ajuste,'')
+             || case when coalesce(t.motivo_ajuste,'') = '' then '' else ' | ' end
+             || 'boleto do proprio acordo, cancelado junto com o acordo em '
+             || to_char(now(),'DD/MM/YYYY'),
+           atualizado_em = now()
+      from public.acordo_titulo_vinculo v
+     where v.titulo_id = t.id and v.acordo_id = new.id and coalesce(v.ativo, true)
+       and t.situacao in ('NEGOCIADO','ABERTO')
+       and coalesce(t.tipo_boleto,'') = 'Acordo';
+  end if;
+
+  return new;
+end;
+$function$;
+
+-- ---------------------------------------------------------------------------
+-- 4) `titulo_reavaliar`: o motor unico ganha a porta de volta
+--    (corpo de producao 24/09/2026; o que muda esta marcado NOVO 24/09)
+-- ---------------------------------------------------------------------------
+create or replace function public.titulo_reavaliar(p_titulo uuid)
+returns void
+language plpgsql
+security definer
+set search_path to 'public'
+as $function$
+declare
+  v_situacao text; v_status text; v_acordo_atual uuid;
+  v_acordo uuid; v_status_acordo text; v_numero text; v_quitado boolean;
+  v_acordo_bloqueio uuid; v_status_bloqueio text;
+  -- NOVO 24/09
+  v_quit_origem text; v_quit_acordo uuid; v_doc text; v_tipo text;
+  v_origem_liq text; v_origem_enc text; v_num_reabre text;
+begin
+  select situacao, status, acordo_id,
+         quitacao_origem, quitacao_origem_acordo_id,
+         regexp_replace(coalesce(documento,''), '\D', '', 'g'), tipo_boleto,
+         origem_liquidacao, origem_encerramento
+    into v_situacao, v_status, v_acordo_atual,
+         v_quit_origem, v_quit_acordo, v_doc, v_tipo,
+         v_origem_liq, v_origem_enc
+    from public.acordos_titulos where id = p_titulo;
+  if not found then return; end if;
+
+  -- NOVO 24/09: o acordo vivo do vinculo passa a ser lido ANTES do teste de
+  -- terminalidade, porque a porta de reabertura precisa dele. E o mesmo SELECT
+  -- que ja existia mais abaixo, so subiu de lugar.
+  select v.acordo_id, upper(coalesce(a.status,'')), coalesce(a.numero_acordo::text,'')
+    into v_acordo, v_status_acordo, v_numero
+    from public.acordo_titulo_vinculo v
+    join public.acordos a on a.id = v.acordo_id
+   where v.titulo_id = p_titulo
+     and coalesce(v.ativo, true)
+     and upper(coalesce(a.status,'')) not in ('CANCELADO','CANCELADA')
+   order by v.criado_em desc nulls last
+   limit 1;
+
+  -- Ja paga: nada aqui reabre mensalidade quitada.
+  if upper(coalesce(v_situacao,'')) = 'PAGO'
+     or lower(coalesce(v_status,'')) in ('quitada','paga') then
+
+    -- NOVO 24/09 -- A UNICA EXCECAO, E ELA E PROVADA, NAO INFERIDA.
+    -- So volta para NEGOCIADO a mensalidade cuja quitacao foi ESCRITA como
+    -- consequencia deste mesmo acordo (quitacao_origem = 'ACORDO' e
+    -- quitacao_origem_acordo_id = o acordo vivo de hoje) e cujo acordo deixou
+    -- de estar quitado. Ausencia de prova NAO abre a porta: titulo sem
+    -- proveniencia gravada (tudo que e anterior a 24/09/2026) continua terminal.
+    if coalesce(v_quit_origem,'') = 'ACORDO'
+       and v_quit_acordo is not null
+       and v_acordo is not null
+       and v_acordo = v_quit_acordo
+       and v_status_acordo <> 'QUITADO'
+       and coalesce(v_tipo,'') <> 'Acordo'
+       and v_origem_liq is null
+       and v_origem_enc is null
+       and not exists (
+         select 1 from public.pagamentos pg
+          where v_doc <> ''
+            and regexp_replace(coalesce(pg.titulo_numero,''), '\D', '', 'g') = v_doc)
+       and not exists (
+         select 1 from public.conferencia_pagamentos cp
+          where v_doc <> ''
+            and regexp_replace(coalesce(cp.titulo_numero,''), '\D', '', 'g') = v_doc)
+       and not exists (
+         select 1 from public.solicitacoes_confirmacao_pagamento s
+          where s.titulo_id = p_titulo)
+    then
+      v_num_reabre := v_numero;
+      update public.acordos_titulos
+         set situacao = 'NEGOCIADO', status = 'vinculada', acordo_id = v_acordo,
+             quitacao_origem = null,
+             quitacao_origem_acordo_id = null,
+             quitacao_origem_em = null,
+             motivo_ajuste = coalesce(motivo_ajuste,'')
+               || case when coalesce(motivo_ajuste,'') = '' then '' else ' | ' end
+               || 'reaberta como NEGOCIADA em ' || to_char(now(),'DD/MM/YYYY')
+               || ': o acordo ' || v_num_reabre || ' deixou de estar quitado e a '
+               || 'quitacao desta mensalidade era consequencia dele, nao pagamento proprio',
+             atualizado_em = now()
+       where id = p_titulo;
+    end if;
+
+    return;
+  end if;
+
+  -- Ja cancelada: nada aqui ressuscita titulo cancelado. Cancelar e uma decisao
+  -- deliberada (rotina ou gestao); a reavaliacao automatica nao desfaz decisao.
+  -- Voltar a cobrar exige um caminho explicito, que hoje nao existe -- e quando
+  -- existir sera um "desfazer" com registro, nao um efeito colateral daqui.
+  if upper(coalesce(v_situacao,'')) = 'CANCELADA'
+     or lower(coalesce(v_status,'')) = 'cancelada' then
+    return;
+  end if;
+
+  -- Mensalidade NEGOCIADA cujo acordo caiu (CANCELADO/QUEBRADO/INATIVO): o
+  -- cancelamento e uma mudanca de estado do ACORDO, nao uma decisao sobre a
+  -- mensalidade original. A negociacao fica preservada no historico -- a
+  -- reavaliacao automatica nao desfaz retroativamente o que foi negociado, nem
+  -- soma de novo o valor como mensalidade em aberto. So entra aqui quando a
+  -- situacao ATUAL do titulo ja e NEGOCIADO: se nunca foi negociado, ou se o
+  -- motivo de nao achar vinculo vivo e outro, o caminho de baixo decide, como
+  -- sempre decidiu.
+  if v_acordo is null and upper(coalesce(v_situacao,'')) = 'NEGOCIADO' then
+    select coalesce(
+        (select v.acordo_id from public.acordo_titulo_vinculo v
+          where v.titulo_id = p_titulo
+          order by v.criado_em desc nulls last limit 1),
+        v_acordo_atual)
+      into v_acordo_bloqueio;
+
+    if v_acordo_bloqueio is not null then
+      select upper(coalesce(status,'')) into v_status_bloqueio
+        from public.acordos where id = v_acordo_bloqueio;
+    end if;
+
+    if v_status_bloqueio in ('CANCELADO','CANCELADA','QUEBRADO','INATIVO') then
+      return;
+    end if;
+  end if;
+
+  -- Sem acordo vivo: a divida volta a ser cobrada. O vinculo continua na
+  -- tabela, entao a composicao do acordo nao se perde -- ver a tela do acordo.
+  if v_acordo is null then
+    update public.acordos_titulos
+       set situacao = 'ABERTO', status = 'em_aberto',
+           acordo_id = null, atualizado_em = now()
+     where id = p_titulo
+       and (coalesce(situacao,'') <> 'ABERTO'
+            or coalesce(status,'') <> 'em_aberto'
+            or acordo_id is not null);
+    return;
+  end if;
+
+  -- Quitado de verdade e acordo sem parcela viva. Acordo marcado QUITADO com
+  -- parcela em aberto nao quita mensalidade nenhuma (guarda de 20260831140000).
+  -- RENEGOCIADA nao entra aqui: parcela renegociada nao e parcela paga.
+  -- NOVO 24/09 (achado na revisao de 25/09): o BOLETO DO PROPRIO ACORDO nunca
+  -- e quitado como mensalidade. As duas funcoes irmas ja excluiam
+  -- `tipo_boleto = 'Acordo'` -- `_titulo_quita_com_o_acordo` desde 20260831140000
+  -- e `titulos_por_status_acordo` a partir deste arquivo -- mas o MOTOR nao. Como
+  -- os tres gatilhos disparam na mesma transicao de status, o motor desfazia o
+  -- filtro das outras duas e o boleto voltava a ser marcado "quitada": era a
+  -- segunda porta dos 17 titulos do grupo C, e ela continuaria aberta.
+  -- Sem quitar, o caminho de baixo deixa o boleto em NEGOCIADO/vinculada, que e
+  -- exatamente onde as irmas o deixam.
+  v_quitado := v_status_acordo = 'QUITADO'
+    and coalesce(v_tipo,'') <> 'Acordo'
+    and not exists (
+      select 1 from public.parcelas p
+       where p.acordo_id = v_acordo
+         and upper(coalesce(p.status,'')) not in ('PAGO','CANCELADA','RENEGOCIADA'));
+
+  if v_quitado then
+    update public.acordos_titulos
+       set situacao = 'PAGO', status = 'quitada', acordo_id = v_acordo,
+           -- NOVO 24/09: deixa escrito POR QUE ficou pago
+           quitacao_origem = 'ACORDO',
+           quitacao_origem_acordo_id = v_acordo,
+           quitacao_origem_em = now(),
+           motivo_ajuste = coalesce(motivo_ajuste,'')
+             || case when coalesce(motivo_ajuste,'') = '' then '' else ' | ' end
+             || 'quitada junto com o acordo ' || v_numero
+             || ': a divida desta mensalidade foi negociada nele e o acordo foi pago',
+           atualizado_em = now()
+     where id = p_titulo;
+  else
+    update public.acordos_titulos
+       set situacao = 'NEGOCIADO', status = 'vinculada',
+           acordo_id = v_acordo, atualizado_em = now()
+     where id = p_titulo
+       and (coalesce(situacao,'') <> 'NEGOCIADO'
+            or coalesce(status,'') <> 'vinculada'
+            or acordo_id is distinct from v_acordo);
+  end if;
+end;
+$function$;
+
+commit;
+
+-- ============================================================================
+-- PROVA DE QUE A MIGRATION E INERTE PARA O HISTORICO (rodar depois, 100% SELECT)
+-- ============================================================================
+-- Tem de dar 0: nenhuma linha antiga tem proveniencia gravada, entao a porta
+-- nova nao abre para ninguem sem que o arquivo 3 rode.
+--   select count(*) from public.acordos_titulos where quitacao_origem is not null;
