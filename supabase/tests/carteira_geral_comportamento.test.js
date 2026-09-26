@@ -16,7 +16,10 @@
 //
 // Dados fictícios. Bancada: fixtures/carteira_geral/bancada.js
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { montar, semear, como, comoPapel, voltarDono, q1, qn, GESTAO, ADM, OLGA, LUANA, CG } from "./fixtures/carteira_geral/bancada.js";
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { montar, semear, como, comoPapel, voltarDono, q1, qn, GESTAO, FERNANDA, ADM, OLGA, LUANA, CG } from "./fixtures/carteira_geral/bancada.js";
 
 vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 });
 
@@ -1016,5 +1019,142 @@ describe("Carteira Geral — permissão: heartbeat como authenticated, internal 
     expect(await qn(db, "select * from public.fila_receptivo where operador_email=$1", [LUANA]))
       .toHaveLength(0);
     expect((await q1(db, "select ativo a from public.usuarios where email=$1", [LUANA])).a).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PROPOSTA (NÃO APLICADA EM PRODUÇÃO): portão de gestão no carteira_geral_vigia.
+//
+// O arquivo vive em supabase/aguardando_aprovacao/ e é lido daqui pelo caminho
+// do repositório — se ele mudar, estes testes acusam.
+//
+// Hoje, em produção, o vigia é SECURITY DEFINER com grant para `authenticated` e
+// SEM portão: qualquer operador logado lê a lista de quem a gestão desligou.
+// ---------------------------------------------------------------------------
+const AQUI_T = dirname(fileURLToPath(import.meta.url));
+const TRAVA_VIGIA = readFileSync(
+  resolve(AQUI_T, "..", "aguardando_aprovacao", "20260926_trava_vigia_carteira_geral.sql"),
+  "utf8",
+);
+
+describe("Carteira Geral — proposta do portão no vigia (aguardando aprovação)", () => {
+  let db;
+  const NAO_GESTAO = "cobranca99@aelbra.com.br";
+
+  // Dados não triviais, para "idêntico" significar alguma coisa.
+  async function cenario() {
+    const a = await semear(db, { nome: "ALUNA NA CG", dono: CG });
+    await db.query("update public.acordos set operador_responsavel_email=$1 where aluno_id=$2", [CG, a.aluno]);
+    await db.query("update public.usuarios set ativo=false where email=$1", [OLGA]);
+    return a;
+  }
+
+  beforeEach(async () => {
+    db = await montar();
+    await db.query(
+      "insert into public.usuarios (nome,email,perfil,ativo) values ('Quem',$1,'operador',true)",
+      [NAO_GESTAO],
+    );
+  });
+
+  it("ANTES da trava: operador comum lê o vigia — é o buraco que ela fecha", async () => {
+    await cenario();
+    await como(db, LUANA);
+    const r = await q1(db, "select public.carteira_geral_vigia() v");
+    expect(r.v.na_carteira_geral).toBe(1);
+    expect(r.v.operadores_sem_entrada_de_casos).toContain("Olga");
+  });
+
+  it("a saída para a gestão é IDÊNTICA antes e depois da trava", async () => {
+    await cenario();
+    await como(db, GESTAO);
+    const antes = await q1(db, "select public.carteira_geral_vigia()::text t");
+    await db.exec(TRAVA_VIGIA);
+    const depois = await q1(db, "select public.carteira_geral_vigia()::text t");
+    expect(depois.t).toBe(antes.t);
+    // e o conteúdo não é trivial, senão a igualdade não provaria nada
+    const v = (await q1(db, "select public.carteira_geral_vigia() v")).v;
+    expect(v.na_carteira_geral).toBe(1);
+    expect(v.acordos_na_carteira_geral).toBe(1);
+    expect(v.operadores_sem_entrada_de_casos).toContain("Olga");
+  });
+
+  it("Amanda (gestão) continua autorizada", async () => {
+    await db.exec(TRAVA_VIGIA);
+    await como(db, GESTAO);
+    expect((await q1(db, "select public.carteira_geral_vigia() v")).v).toHaveProperty("na_carteira_geral");
+  });
+
+  it("Fernanda continua autorizada", async () => {
+    await db.exec(TRAVA_VIGIA);
+    await como(db, FERNANDA);
+    expect((await q1(db, "select public.carteira_geral_vigia() v")).v).toHaveProperty("na_carteira_geral");
+  });
+
+  it("Amanda ADM continua autorizada", async () => {
+    await db.exec(TRAVA_VIGIA);
+    await como(db, ADM);
+    expect((await q1(db, "select public.carteira_geral_vigia() v")).v).toHaveProperty("na_carteira_geral");
+  });
+
+  it("Luana (operadora ativa) é recusada com 42501", async () => {
+    await db.exec(TRAVA_VIGIA);
+    await como(db, LUANA);
+    await expect(db.query("select public.carteira_geral_vigia()"))
+      .rejects.toThrow(/Sem permissao para ver o vigia da Carteira Geral/);
+  });
+
+  it("Olga é recusada", async () => {
+    await db.exec(TRAVA_VIGIA);
+    await como(db, OLGA);
+    await expect(db.query("select public.carteira_geral_vigia()"))
+      .rejects.toThrow(/Sem permissao para ver o vigia da Carteira Geral/);
+  });
+
+  it("authenticated sem gestão é recusado", async () => {
+    await db.exec(TRAVA_VIGIA);
+    await como(db, NAO_GESTAO);
+    await expect(db.query("select public.carteira_geral_vigia()"))
+      .rejects.toThrow(/Sem permissao para ver o vigia da Carteira Geral/);
+  });
+
+  it("sem JWT nenhum é recusado", async () => {
+    await db.exec(TRAVA_VIGIA);
+    await como(db, null);
+    await expect(db.query("select public.carteira_geral_vigia()"))
+      .rejects.toThrow(/Sem permissao para ver o vigia da Carteira Geral/);
+  });
+
+  it("a precondição RECUSA aplicar se o corpo do vigia tiver mudado", async () => {
+    await db.query(`create or replace function public.carteira_geral_vigia()
+      returns jsonb language sql stable security definer set search_path to 'public','internal'
+      as $x$ select jsonb_build_object('na_carteira_geral', 0) $x$;`);
+    await expect(db.exec(TRAVA_VIGIA))
+      .rejects.toThrow(/mudou desde 26\/09\/2026/);
+  });
+
+  it("a trava é idempotente: rodar de novo não quebra nem muda a saída", async () => {
+    await cenario();
+    await db.exec(TRAVA_VIGIA);
+    await como(db, GESTAO);
+    const uma = await q1(db, "select public.carteira_geral_vigia()::text t");
+    await db.exec(TRAVA_VIGIA);
+    const duas = await q1(db, "select public.carteira_geral_vigia()::text t");
+    expect(duas.t).toBe(uma.t);
+  });
+
+  it("o grant para authenticated é PRESERVADO — portão interno, nunca revoke", async () => {
+    await db.exec(TRAVA_VIGIA);
+    const p = await q1(db, `select
+      has_function_privilege('authenticated','public.carteira_geral_vigia()','EXECUTE') auth,
+      has_function_privilege('anon','public.carteira_geral_vigia()','EXECUTE') anon,
+      (select prosecdef from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='carteira_geral_vigia') definer,
+      (select provolatile from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+        where n.nspname='public' and p.proname='carteira_geral_vigia') volatilidade`);
+    expect(p.auth).toBe(true);
+    expect(p.anon).toBe(false);
+    expect(p.definer).toBe(true);
+    expect(p.volatilidade).toBe("s"); // continua STABLE
   });
 });

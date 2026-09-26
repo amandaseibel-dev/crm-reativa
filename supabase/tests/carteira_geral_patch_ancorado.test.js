@@ -1,6 +1,6 @@
 // CARTEIRA GERAL — o patch ancorado das rotinas automáticas.
 //
-// A migration 20260924171255 não reescreve as funções automáticas: ela lê a
+// A migration 20260925181823 não reescreve as funções automáticas: ela lê a
 // definição viva, exige a âncora na contagem exata e troca só aquele trecho.
 // Este teste prova o mecanismo em PostgreSQL real — inclusive que ele FALHA
 // quando a função mudou, em vez de aplicar pela metade.

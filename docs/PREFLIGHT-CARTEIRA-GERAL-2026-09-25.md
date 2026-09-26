@@ -46,17 +46,16 @@ aparecem, e nenhum dos dois está na lista do #517. Sem sobreposição.
 22/09 — *acordo cancelado não reabre mensalidade* — que é premissa do #521. Não
 investiguei; fica anotado para quando o #521 voltar.)
 
-**Versão fora de ordem.** Os arquivos do PR são `2026092417125x`, abaixo da
-última aplicada em produção (`20260925125350`). Isso **não** é problema:
+**Versão fora de ordem — resolvido em 26/09, ver §Reconciliação.** Os arquivos
+do PR nasceram como `2026092417125x`, abaixo da última versão aplicada em
+produção. Enquanto foi assim, isso não quebrava nada (a catraca do CI só olha o
+checkout e `supabase db push` não é o caminho daqui), mas deixava o repositório
+e o `schema_migrations` discordando.
 
-- a catraca do CI (`scripts/ci/catraca-migrations.mjs`) só olha o checkout Git —
-  recusa reuso de versão, não compara com produção;
-- `supabase db push` não é o caminho daqui (produção tem 1.238 versões contra 451
-  arquivos no repositório, interseção 41 — as trilhas são quase disjuntas);
-- `apply_migration` aceita a versão como identificador.
-
-Recomendação: **aplicar como está**, sem renomear. Renomear custaria commit e CI
-novos sem ganhar nada.
+Quando as migrations foram efetivamente aplicadas, em 25/09 às 18h, o
+`apply_migration` gerou versões novas no momento da aplicação. **Os arquivos
+foram renomeados para essas versões**, sem tocar o conteúdo — a reconciliação
+está documentada na seção própria, mais abaixo.
 
 ## 2. As 15 âncoras contra produção
 
@@ -91,7 +90,6 @@ Ordem obrigatória, pela dependência real:
 | 3 | `20260925181554_carteira_geral_mover` | `internal.carteira_geral_trocar_dono`, `carteira_geral_mover`, `_desfazer_lote`, `_definir_recebimento` | **1** e **2** (lê a prévia gravada) |
 | 4 | `20260925181823_carteira_geral_blindar_automacoes` | `internal.patch_funcao_ancorada`, os 15 patches, `carteira_geral_vigia()` | **1** (`operador_pode_receber_caso`, `carteira_geral_email`) |
 
-Não há salto de numeração faltando: `...53` não existe de propósito.
 
 ### 3.2 Pré-requisitos, medidos em produção hoje
 
@@ -257,12 +255,30 @@ quiser que entre na rodada diária, é um patch à parte em `invariantes_rodar()
 `_painel` e `_listar` não** — herdam os 8s. Então medi as duas leituras pesadas,
 reproduzindo a lógica exata com `explain analyze`:
 
-| leitura | escopo | tempo |
-|---|---|---|
-| base do painel | carteira inteira, 12.809 casos vivos com saldo | **296 ms** |
-| itens da prévia | os 555 casos vivos da Olga, com o subselect de acordos | **239 ms** |
+> **Correção de 26/09.** A primeira versão desta seção dizia "base do painel:
+> 296 ms, folga de mais de 20×". **Estava errado, e o erro era meu:** ao
+> reproduzir `carteira_geral_base` eu omiti o CTE `alvo` (o filtro "o aluno tem
+> alguma dívida"), que é justamente a parte cara. Refeita a medição com a função
+> fiel, a base custa **~1 s sozinha**. Os números abaixo são os corretos.
 
-Folga de mais de 20×. As leituras cabem.
+| leitura | escopo | tempo | medido por |
+|---|---|---|---|
+| `carteira_geral_base('{}')` | carteira inteira, 12.740 linhas | **972 ms** (plano 14,7 ms) | eu, `explain analyze` da função replicada fielmente, 26/09 |
+| `count(*) from carteira_geral_base('{}')` | 12.803 linhas | **642 ms** | sessão "Sistema travando", 25/09 |
+| `carteira_geral_painel('{}')` — **1ª chamada** | carteira inteira | **2.678 ms** | idem, `clock_timestamp()` em volta da chamada, dentro de bloco que dá `raise` no fim |
+| `carteira_geral_painel('{}')` — **quente** | carteira inteira | **945 ms** | idem |
+| itens da prévia | os 555 casos vivos da Olga | 239 ms | eu, `explain analyze` |
+
+**Leia assim, e não como "aprovado":** o teto funcional é o `statement_timeout`
+de 8 s do papel `authenticated`, e mesmo a pior medição (2,7 s) cabe — com folga
+de ~3×, não de 20×. Mas **o alvo de "abrir em menos de 1 s" só é atendido com
+cache quente**. A primeira abertura do dia, ou depois de um período parado,
+custa perto de 3 s. Se isso incomodar na prática, o caminho é a mesma lição de
+23/09 (filtrar antes de enriquecer, `CTE as materialized`), não subir o teto.
+
+Uma armadilha para quem for medir: `carteira_geral_painel` faz
+`create temp table _cg on commit drop`. Chamar a função **duas vezes na mesma
+transação** dá `relation "_cg" already exists`. Meça uma vez por transação.
 
 A escrita é a incógnita: não posso medir sem executar. Cada aluno move caso +
 ficha + acordos + agenda, e cada `update` em `casos` acorda o gatilho do teto.
@@ -411,25 +427,37 @@ da aplicação** e ignora o nome do arquivo. Resultado: o repositório e o
 **Conciliado renomeando os arquivos para as versões que produção registrou** —
 zero SQL executado, zero conteúdo alterado:
 
-| arquivo antes | versão registrada em produção | md5 do arquivo = md5 aplicado |
-|---|---|---|
-| `20260924171251_carteira_geral_destino` | **`20260925180744`** | `85856d78…` ✔ |
-| `20260924171252_carteira_geral_painel_previa` | **`20260925181117`** | `446d96dd…` ✔ |
-| `20260924171254_carteira_geral_mover` | **`20260925181554`** | `ce62ee0e…` ✔ |
-| `20260924171255_carteira_geral_blindar_automacoes` | **`20260925181823`** | `e2fe786d…` ✔ |
+A igualdade é **do arquivo sem o newline final** contra
+`md5(array_to_string(statements, E'\n'))` em produção — o arquivo do repositório
+termina com `\n`, o texto guardado em `schema_migrations` não. Fingerprint
+completo, conferido em 26/09:
+
+| arquivo antes | versão registrada | md5 do arquivo **sem o newline final** = md5 dos statements | md5 do arquivo inteiro |
+|---|---|---|---|
+| `20260924171251_carteira_geral_destino` | **`20260925180744`** | `85856d786fd95176e3687f06cfb5c5c1` ✔ | `baa3a94305dd71b7c3c8d55e065cdc4e` |
+| `20260924171252_carteira_geral_painel_previa` | **`20260925181117`** | `446d96dd1b1ec2d2ccbec0e89e3d23bc` ✔ | `6b37a55c2db3e510ef3f7d95ca3484cc` |
+| `20260924171254_carteira_geral_mover` | **`20260925181554`** | `ce62ee0e3a987a3b9e24d4e2d742659f` ✔ | `3307ffda0a9d81cfb75d3560eff0d128` |
+| `20260924171255_carteira_geral_blindar_automacoes` | **`20260925181823`** | `e2fe786d29f2548c93e62a85f329c544` ✔ | `030050980a0a93a71f43587ac50f5d91` |
+
+E o backup, que não tem arquivo em `migrations/` mas tem no ledger:
+`20260925180638`, md5 dos statements `735f3567bbb716cb6e0e47cf8aab56b6`.
 
 Os nomes já batiam; só o carimbo mudou. E o conteúdo **não foi tocado**: é
 literalmente o que o banco executou.
 
 Duas consequências que ficam registradas de propósito:
 
-- O comentário na linha 197 da migration 4 ainda cita `20260924171251`. **Não
-  corrigi**: mexer no texto mudaria o md5 e o arquivo deixaria de ser o que
-  produção rodou. A fidelidade ao aplicado vale mais que um comentário atual.
+- **Dois** comentários internos ficaram citando as versões antigas: a migration 4
+  na linha 197 cita `20260924171251`, e a migration 1 na linha 108 cita
+  `20260924171255`. **Não corrigi nenhum dos dois**: mexer no texto mudaria o
+  md5 e o arquivo deixaria de ser o que produção rodou. A fidelidade ao aplicado
+  vale mais que um comentário atual — e é ela que sustenta a tabela acima.
 - `20260925180638_backup_carteira_geral_funcoes_20260925` está em produção e
   **não tem arquivo aqui** — é o backup das 14 funções, e backup é matéria de
-  **ledger**, não de migration (mesmo tratamento dado a `20260925125311`). Fica
-  para o PR do ledger.
+  **ledger**, não de migration. **Está no ledger deste PR**, junto das quatro
+  (seção de ledger abaixo). O mesmo tratamento foi dado ao backup
+  `20260925125311`, da frente do acordo cancelado — mas atenção: aquele está no
+  PR #526, ainda **aberto**, não na `main`.
 
 ### Risco de reaplicação: nenhum pelo caminho automático
 
@@ -470,7 +498,10 @@ que você for aplicar, nada da Fase 1 começa.
 Aplique **na ordem**, uma por vez, conferindo entre elas. O caminho é
 `apply_migration` (o mesmo que funcionou em 23/09), não `db push`.
 
-### Passo 1.1 — backup da reversão (antes de qualquer migration)
+### Passo 1.1 — backup da reversão (antes de qualquer migration) — FEITO
+
+Aplicado em **25/09 18:06:38 UTC**, versão `20260925180638`. O que rodou de
+verdade — e **não** é exatamente o que este roteiro pedia:
 
 ```sql
 create table public._backup_carteira_geral_funcoes_20260925 as
@@ -486,15 +517,36 @@ select n.nspname as schema, p.proname as funcao,
        'assumir_atendimento_aluno','sistema_assumir_receptivo','fila_receptivo_heartbeat',
        '_aluno_segue_dono_do_acordo','casos_elegiveis_liberacao_fidelizacao',
        'atribuir_responsavel_por_acordo');
+
+alter table public._backup_carteira_geral_funcoes_20260925 enable row level security;
+revoke all on table public._backup_carteira_geral_funcoes_20260925 from anon, authenticated;
 ```
 
-**Esperado: 14 linhas.** Confira:
+As duas últimas linhas (`enable row level security` e o `revoke` de `anon` e
+`authenticated`) **não estavam** no bloco que eu tinha escrito aqui; quem aplicou
+as acrescentou, e com razão: definição de função não é leitura para o app. O
+bloco antigo daria md5 `31ef84b7…`; o que produção registrou é
+`735f3567bbb716cb6e0e47cf8aab56b6`. **O ledger foi montado a partir de
+`schema_migrations.statements`, não deste roteiro** — é a única fonte que
+descreve o que o banco executou.
+
+Conferência (feita em 26/09, tudo bateu):
 
 ```sql
-select count(*) from public._backup_carteira_geral_funcoes_20260925;  -- = 14
+select count(*)                                            as linhas,          -- 14
+       count(*) filter (where coalesce(definicao_antes,'') <> '') as com_corpo, -- 14
+       count(*) filter (where b.funcao::text in (
+         'nivelamento_automatico_gestao','calibragem_simular_nivelamento_impl',
+         'reforcar_teto_operadores','nivelar_medias_progressivo','reposicao_carteira_processar',
+         'assumir_caso_livre','assumir_caso_livre_aluno','sistema_assumir_atendimento',
+         'assumir_atendimento_aluno','sistema_assumir_receptivo','fila_receptivo_heartbeat',
+         '_aluno_segue_dono_do_acordo','casos_elegiveis_liberacao_fidelizacao',
+         'atribuir_responsavel_por_acordo'))                as sao_as_certas     -- 14
+  from public._backup_carteira_geral_funcoes_20260925 b;
 ```
 
-**Parar se:** vier diferente de 14. Sem as 14 não há reversão dos patches.
+**Parar se:** vier diferente de 14 em qualquer coluna. Sem as 14 não há reversão
+dos patches.
 
 ### Passo 1.2 — migration 1 (`..._destino`)
 
@@ -566,7 +618,8 @@ select jsonb_pretty(public.carteira_geral_painel('{}'::jsonb));
 rollback;
 ```
 
-**Esperado:** responde em menos de 1s (medi 296 ms na base) e a soma de
+**Esperado:** responde dentro dos 8 s do papel (medido: 2,7 s na 1ª chamada,
+0,9 s quente — ver §3.6) e a soma de
 `por_responsavel` traz a Olga com ~539 alunos e ~R$ 2,53 mi.
 
 **Parar se:** der timeout, ou se a Olga não aparecer no painel.
@@ -601,12 +654,59 @@ o que permite voltar.
 Verificação de que os 15 patches entraram — conta o **texto novo**, não a
 ausência da âncora:
 
+> **Correção de 26/09.** A consulta que estava aqui procurava
+> `operador_pode_receber_caso|carteira_geral_email` e **dava falso divergente**:
+> cinco dos quinze patches não injetam nenhuma das duas — injetam
+> `coalesce(u.recebe_novos_casos, true)` ou um `EXISTS` sobre `usuarios`. Usando
+> ela eu cheguei a "6 de 14" e depois a "5 faltando", e quase reportei uma
+> instalação pela metade que nunca existiu. **O certo é contar o TEXTO NOVO de
+> cada patch**, que é o que a própria `patch_funcao_ancorada` usa para ser
+> idempotente:
+
 ```sql
-select p.proname,
+with alvo(i, fn, novo_texto, esperado) as (values
+  (1,'nivelamento_automatico_gestao',$q$coalesce(u.recebe_novos_casos, true) and not (u.email = any(p_origens))$q$,1),
+  (2,'calibragem_simular_nivelamento_impl',$q$u.perfil = 'operador' and coalesce(u.recebe_novos_casos, true)$q$,1),
+  (3,'reforcar_teto_operadores',$q$AND EXISTS (SELECT 1 FROM public.usuarios u WHERE lower(u.email) = lower(casos.operador_email) AND u.ativo AND u.perfil = 'operador')$q$,1),
+  (4,'nivelar_medias_progressivo',$q$AND EXISTS (SELECT 1 FROM public.usuarios u WHERE lower(u.email) = lower(casos.operador_email) AND u.ativo AND u.perfil = 'operador')$q$,2),
+  (5,'reposicao_carteira_processar',$q$u.ativo = true and coalesce(u.recebe_novos_casos, true)) then$q$,1),
+  (6,'reposicao_carteira_processar',$q$erro = 'operador inativo ou fora da entrada de casos novos'$q$,1),
+  (7,'assumir_caso_livre',$q$internal.operador_pode_receber_caso(v_email)$q$,1),
+  (8,'assumir_caso_livre_aluno',$q$internal.operador_pode_receber_caso(v_email)$q$,1),
+  (9,'sistema_assumir_atendimento',$q$internal.operador_pode_receber_caso(v_email)$q$,1),
+  (10,'assumir_atendimento_aluno',$q$internal.operador_pode_receber_caso(v_email)$q$,1),
+  (11,'sistema_assumir_receptivo',$q$internal.operador_pode_receber_caso(v_email)$q$,1),
+  (12,'sistema_assumir_receptivo',$q$internal.carteira_geral_email()$q$,1),
+  (13,'fila_receptivo_heartbeat',$q$public.operador_pode_receber_caso(p_email)$q$,1),
+  (14,'_aluno_segue_dono_do_acordo',$q$internal.carteira_geral_email()$q$,1),
+  (15,'casos_elegiveis_liberacao_fidelizacao',$q$lower(c.operador_email) <> internal.carteira_geral_email()$q$,1),
+  (16,'atribuir_responsavel_por_acordo',$q$lower(new.operador_responsavel_email) = internal.carteira_geral_email()$q$,1)
+)
+select a.i, a.fn, a.esperado,
        (select count(*) from regexp_matches(pg_get_functiondef(p.oid),
-               'operador_pode_receber_caso|carteira_geral_email', 'g')) as chamadas_novas
+          regexp_replace(a.novo_texto,'([\^$.|?*+()\[\]{}\\])','\\\1','g'),'g')) as achou,
+       case when (select count(*) from regexp_matches(pg_get_functiondef(p.oid),
+          regexp_replace(a.novo_texto,'([\^$.|?*+()\[\]{}\\])','\\\1','g'),'g')) >= a.esperado
+            then 'OK' else 'FALTANDO' end as veredito
+  from alvo a
+  join pg_proc p on p.proname = a.fn
+  join pg_namespace n on n.oid = p.pronamespace and n.nspname='public'
+ order by a.i;
+```
+
+**Esperado: 16 linhas, todas `OK`.** São 16 e não 15 porque o patch de
+`sistema_assumir_receptivo` injeta duas linhas (itens 11 e 12), e
+`nivelar_medias_progressivo` tem a mesma inserção em 2 lugares.
+**Medido em produção em 26/09: 16 de 16.**
+
+> **Correção de 26/09.** A consulta anterior não filtrava pelas 14 funções e
+> devolvia **29** linhas — todas as funções de `public` que têm `internal` no
+> `search_path`, a maioria anterior a este pacote. Filtrada, dá exatamente 8.
+
+```sql
+select p.proname, p.proconfig
   from pg_proc p join pg_namespace n on n.oid=p.pronamespace
- where n.nspname='public'
+ where n.nspname='public' and p.proconfig::text like '%internal%'
    and p.proname in ('nivelamento_automatico_gestao','calibragem_simular_nivelamento_impl',
        'reforcar_teto_operadores','nivelar_medias_progressivo','reposicao_carteira_processar',
        'assumir_caso_livre','assumir_caso_livre_aluno','sistema_assumir_atendimento',
@@ -616,16 +716,9 @@ select p.proname,
  order by 1;
 ```
 
-**Esperado:** 14 linhas, **nenhuma com 0**, e `nivelar_medias_progressivo` com 2.
-
-```sql
--- as 8 funcoes que passam a ver o schema internal
-select p.proname, p.proconfig
-  from pg_proc p join pg_namespace n on n.oid=p.pronamespace
- where n.nspname='public' and p.proconfig::text like '%internal%' order by 1;
--- esperado: as 8 da migration, todas com search_path=public, internal
--- e fila_receptivo_heartbeat NAO deve aparecer nesta lista (ver 3.3)
-```
+**Esperado: exatamente 8 linhas**, todas com `search_path=public, internal`, e
+`fila_receptivo_heartbeat` **fora** da lista (ver §3.3 — ela chama o invólucro em
+`public`, não alcança o `internal`).
 
 E o corpo patchado do heartbeat não pode citar o `internal`:
 
@@ -793,6 +886,73 @@ Ordem da desinstalação completa, se chegar a isso: **4 → 3 → 2 → 1**. A 
 última porque a coluna `recebe_novos_casos` e
 `internal.operador_pode_receber_caso` são o que os patches consultam.
 
+## Proposta, NÃO aplicada: portão de gestão no `carteira_geral_vigia`
+
+Medido em produção em 26/09:
+
+```
+prosecdef = true         acl: postgres=X | authenticated=X | service_role=X
+portão calibragem_e_gestao() no corpo:  NÃO
+has_function_privilege('authenticated', ..., 'EXECUTE') -> true
+has_function_privilege('anon',          ..., 'EXECUTE') -> false
+```
+
+Ou seja: **qualquer pessoa logada** — inclusive um operador comum — pode chamar
+`public.carteira_geral_vigia()` e ler quantos casos e acordos estão na Carteira
+Geral, quantas saídas ocorreram sem auditoria e, o que mais importa, a lista
+`operadores_sem_entrada_de_casos` — **os nomes de quem está inativo ou com a
+entrada de casos novos fechada pela gestão**.
+
+Os números da carteira seriam um vazamento pequeno. A lista de nomes não é:
+é informação de pessoal, e ela responde "quem a gestão desligou" para qualquer
+colega que saiba chamar a função. É o mesmo tipo de portão que `carteira_geral_painel`,
+`_listar`, `_previa`, `_mover`, `_desfazer_lote` e `_definir_recebimento` já têm.
+
+**Correção proposta** — `sql` vira `plpgsql` só para caber o portão; o miolo do
+`jsonb_build_object` fica **idêntico**:
+
+```sql
+create or replace function public.carteira_geral_vigia()
+returns jsonb
+language plpgsql
+stable
+security definer
+set search_path to 'public', 'internal'
+as $fn$
+begin
+  if not public.calibragem_e_gestao() then
+    raise exception 'Sem permissao para ver o vigia da Carteira Geral.' using errcode = '42501';
+  end if;
+  return (
+    -- ... o mesmo jsonb_build_object de 20260925181823, sem uma vírgula mudada
+  );
+end;
+$fn$;
+```
+
+**Mantendo o `grant execute ... to authenticated`.** Isso é deliberado e segue a
+regra da casa: restringir à gestão é portão **interno**, nunca `revoke` de
+`authenticated` — foi assim que eu já derrubei uma tela para a própria gestão em
+12/09.
+
+**Efeito colateral que precisa entrar no roteiro junto:** com o portão, chamar o
+vigia pelo SQL Editor **sem** a claim de gestão passa a dar `42501`. O Passo 1.5
+e qualquer conferência posterior precisam abrir com
+
+```sql
+set local request.jwt.claims = '{"email":"amanda.seibel@aelbra.com.br","role":"authenticated"}';
+```
+
+dentro de transação explícita — o mesmo procedimento já documentado em §3.7 para
+o `carteira_geral_desfazer_lote`.
+
+**Não apliquei, e não deve entrar junto com este pacote.** A migration
+`20260925181823` já está em produção e conferida; mexer nela agora quebraria a
+igualdade byte a byte entre o arquivo e o que o banco executou, que é a base de
+toda a reconciliação da §Reconciliação. Isto é uma migration nova, pequena, para
+uma etapa própria — com teste que prove negativo para operador, `anon` e sessão
+sem JWT, e positivo para os três e-mails da gestão com saída idêntica à de hoje.
+
 ## Resumo do que este preflight deixa em aberto
 
 | # | Pendência | De quem |
@@ -802,3 +962,5 @@ Ordem da desinstalação completa, se chegar a isso: **4 → 3 → 2 → 1**. A 
 | 3 | `carteira_geral_vigia()` não entra na rodada diária — hoje é comando manual | decidir se vale patch em `invariantes_rodar()` |
 | 4 | `carteira_geral_desfazer_lote` não tem botão; a porta é o SQL Editor com a claim | decidir se vale botão na tela |
 | 5 | O teste de "só pode perguntar por você mesmo" no invólucro — deixei fora de propósito (§3.3) | sua decisão |
+| 6 | **Portão de gestão no `carteira_geral_vigia`** — hoje qualquer operador logado lê a lista de quem a gestão desligou. Proposta escrita, **não aplicada** | sua decisão, em migration própria |
+| 7 | Abertura do painel custa ~2,7 s na 1ª chamada (§3.6). Cabe nos 8 s, mas não no alvo de 1 s | sua decisão se vale otimizar |

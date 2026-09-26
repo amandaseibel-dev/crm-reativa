@@ -276,7 +276,7 @@ create trigger trg_sync_casos_resp_aluno after update of responsavel_atual_email
 // operador_email IS NULL. É o que a Carteira Geral precisa driblar.
 const ROTINAS = `
 -- As rotinas de produção, reduzidas ao que decide -- mas com as ÂNCORAS do
--- patch da migration 20260924171255 escritas exatamente como estão em
+-- patch da migration 20260925181823 escritas exatamente como estão em
 -- produção (conferidas em 24/09/2026). Se alguém mudar a âncora na migration
 -- sem mudar aqui, a migration falha neste teste antes de falhar em produção.
 
