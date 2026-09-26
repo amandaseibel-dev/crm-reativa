@@ -320,17 +320,19 @@ export function MensagemInstitucional({ badge, titulo, texto }) {
 // 7) Aviso — MESMO sistema visual dos demais cards (sem cor exclusiva de fundo).
 //    A prioridade é indicada por um detalhe DISCRETO: uma borda-esquerda fina e
 //    um selo pequeno. Fundo, tipografia, bordas e sombra são os padrão da TV.
-export function Aviso({ nivel = "info", titulo, texto }) {
+// compacto=true quando há vários avisos no mesmo slide (fontes/espaços menores
+// para caber 3–5 cartões sem cortar).
+export function Aviso({ nivel = "info", titulo, texto, compacto = false }) {
   const cfg = {
     info: { cor: T.azulClaro, rot: "Aviso" },
     atencao: { cor: T.ambar, rot: "Prioridade" },
     critico: { cor: T.vermelho, rot: "Importante" },
   }[nivel] || { cor: T.azulClaro, rot: "Aviso" };
   return (
-    <div style={{ ...s.card, width: "min(78vw,1300px)", alignItems: "stretch", gap: "1.2vh", borderLeft: `5px solid ${cfg.cor}` }}>
+    <div style={{ ...s.card, width: "min(78vw,1300px)", alignItems: "stretch", gap: compacto ? "0.5vh" : "1.2vh", padding: compacto ? "1.1vh 1.6vw" : s.card.padding, borderLeft: `5px solid ${cfg.cor}` }}>
       <span style={{ ...s.selo, alignSelf: "flex-start", color: cfg.cor, borderColor: cfg.cor }}>{cfg.rot}</span>
-      <div style={{ fontSize: fs(22, 2.6, 60), fontWeight: 900, color: T.texto, lineHeight: 1.1 }}>{titulo}</div>
-      {texto && <div style={{ fontSize: fs(16, 1.7, 42), fontWeight: 600, color: T.textoSuave, lineHeight: 1.35 }}>{texto}</div>}
+      <div style={{ fontSize: compacto ? fs(16, 1.8, 40) : fs(22, 2.6, 60), fontWeight: 900, color: T.texto, lineHeight: 1.1 }}>{titulo}</div>
+      {texto && <div style={{ fontSize: compacto ? fs(12, 1.25, 28) : fs(16, 1.7, 42), fontWeight: 600, color: T.textoSuave, lineHeight: 1.3 }}>{texto}</div>}
     </div>
   );
 }
