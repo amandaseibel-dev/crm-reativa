@@ -1302,3 +1302,192 @@ describe("Carteira Geral — filtrar por um responsável desligado", () => {
     ).rejects.toThrow(/invalido ou inativo/);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Os 136 casos: acordo ATIVO de terceiro e nenhuma mensalidade em aberto. Nessa
+// combinacao o gatilho trg_aluno_segue_dono_do_acordo realinhava a ficha ao dono
+// do acordo. A pergunta e se a Carteira Geral aguenta isso DEPOIS da migration 4
+// -- e a resposta tem de vir de comportamento, nao da leitura da regra antiga.
+//
+// A bancada instala o gatilho SEM o guarda (o texto de antes); quem insere o
+// guarda e a propria 20260925181823. Entao o controle abaixo nao e decorativo:
+// ele prova que o cenario realmente realinha quando a ficha NAO esta protegida.
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — acordo de terceiro nao puxa de volta o caso recolhido", () => {
+  // Usa o `db` do arquivo de proposito: os ajudantes previa()/mover() fecham
+  // sobre ele. Declarar um `db` local aqui sombreia o de fora e a previa iria
+  // para OUTRA instancia, sem o JWT -- da "Sessao expirada".
+
+  const donoDaFicha = async (aluno) =>
+    (await q1(db, "select responsavel_atual_email e from public.alunos where id=$1", [aluno])).e;
+
+  // O cenario exato dos 136: caso da OLGA, acordo ATIVO da LUANA, e nenhuma
+  // mensalidade em aberto.
+  //
+  // A ORDEM IMPORTA. Semear com mensalidade 0 nao produz este estado: o gatilho
+  // dispara na propria insercao do acordo e leva a ficha -- e o caso atras dela
+  // -- para a Luana na hora. O caso nunca chegaria a ser da Olga, e o teste
+  // estaria medindo outra coisa.
+  //
+  // Entao: nasce COM mensalidade aberta (o gatilho sai pela porta do saldo e o
+  // caso fica com a Olga), e a mensalidade e liquidada DEPOIS, sem tocar no
+  // acordo -- nada dispara. E assim que os 136 ficaram assim na producao: a
+  // mensalidade foi paga muito depois do acordo ter dono.
+  const cenario136 = async (nome) => {
+    const s = await semear(db, {
+      nome, dono: OLGA, donoAcordo: LUANA, statusAcordo: "ATIVO", mensalidade: 1000,
+    });
+    // confere que o gatilho NAO agiu: o caso e a ficha continuam com a Olga
+    const antes = await q1(db, `select
+        (select operador_email from public.casos where id=$1) caso,
+        (select responsavel_atual_email from public.alunos where id=$2) ficha,
+        (select operador_responsavel_email from public.acordos where id=$3) acordo`,
+      [s.caso, s.aluno, s.acordo]);
+    expect(antes.caso).toBe(OLGA);
+    expect(antes.ficha).toBe(OLGA);
+    expect(antes.acordo).toBe(LUANA);
+
+    // a mensalidade sai de aberto sem passar pelo acordo: nenhum gatilho roda
+    await db.query(
+      "update public.acordos_titulos set situacao='LIQUIDADO', status='pago' where aluno_id=$1 and acordo_id is null",
+      [s.aluno]);
+    const m = await q1(db,
+      `select coalesce(sum(coalesce(t.saldo_corrigido,t.valor_original,0)),0) v
+         from public.acordos_titulos t
+        where t.aluno_id=$1 and upper(coalesce(t.situacao,''))='ABERTO'
+          and lower(coalesce(t.status,''))='em_aberto' and t.acordo_id is null`, [s.aluno]);
+    expect(Number(m.v)).toBe(0);       // sem mensalidade em aberto, como nos 136
+    expect(await donoDaFicha(s.aluno)).toBe(OLGA); // e ainda da Olga
+    return s;
+  };
+
+  // mexer no acordo e o que dispara: AFTER INSERT OR UPDATE OF
+  // operador_responsavel_email, status
+  const mexerNoAcordo = (acordo, dono = LUANA) =>
+    db.query("update public.acordos set status='ATIVO', operador_responsavel_email=$2 where id=$1",
+             [acordo, dono]);
+
+  it("CONTROLE: sem recolhimento, o acordo de terceiro puxa a ficha (o gatilho esta vivo)", async () => {
+    const s = await cenario136("CONTROLE SEM RECOLHER");
+    expect(await donoDaFicha(s.aluno)).toBe(OLGA);
+
+    await mexerNoAcordo(s.acordo);
+
+    // e isto que eu temia para os 136 -- e acontece MESMO, quando nao ha protecao
+    expect(await donoDaFicha(s.aluno)).toBe(LUANA);
+  });
+
+  it("recolhido para a Carteira Geral, a ficha NAO volta para o dono do acordo", async () => {
+    const s = await cenario136("RECOLHIDA COM ACORDO DE TERCEIRO");
+
+    await como(db, GESTAO);
+    const p = await previa([s.aluno], "CARTEIRA_GERAL");
+    await mover(p.r.previa_id, "recolhimento");
+
+    expect(await donoDaFicha(s.aluno)).toBe(CG);
+    const antes = await q1(db, "select operador_email e from public.casos where id=$1", [s.caso]);
+    expect(antes.e).toBe(CG);
+
+    await mexerNoAcordo(s.acordo);
+
+    // o guarda da migration 4: ficha na Carteira Geral sai do gatilho sem mexer
+    expect(await donoDaFicha(s.aluno)).toBe(CG);
+    const depois = await q1(db, "select operador_email e from public.casos where id=$1", [s.caso]);
+    expect(depois.e).toBe(CG);
+  });
+
+  it("o acordo de terceiro continua com o titular — nao foi levado nem alterado", async () => {
+    const s = await cenario136("ACORDO FICA COM O TITULAR");
+
+    await como(db, GESTAO);
+    const p = await previa([s.aluno], "CARTEIRA_GERAL");
+    await mover(p.r.previa_id, "recolhimento");
+
+    const a = await q1(db, "select operador_responsavel_email e, status s from public.acordos where id=$1", [s.acordo]);
+    expect(a.e).toBe(LUANA);
+    expect(a.s).toBe("ATIVO");
+  });
+
+  it("nem por insercao de um acordo novo de terceiro depois do recolhimento", async () => {
+    const s = await cenario136("ACORDO NOVO DEPOIS");
+    await como(db, GESTAO);
+    const p = await previa([s.aluno], "CARTEIRA_GERAL");
+    await mover(p.r.previa_id, "recolhimento");
+
+    // INSERT tambem dispara o gatilho
+    await db.query(
+      "insert into public.acordos (aluno_id,status,numero_acordo,operador_responsavel_email,valor_total) values ($1,'ATIVO',888,$2,500)",
+      [s.aluno, LUANA]);
+
+    expect(await donoDaFicha(s.aluno)).toBe(CG);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Contagem: ALUNO onde diz aluno, CASO onde diz caso, dinheiro uma vez por
+// aluno. O lote 559b20bb dizia "8 alunos / R$ 21.751,29" para 6 alunos e 8
+// casos; o valor distinto era R$ 15.876,10.
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — aluno com duas fichas conta 1 aluno e 2 casos", () => {
+  // idem: sem `let db` local, para os ajudantes do arquivo verem esta instancia
+  let gemeo;
+
+  beforeEach(async () => {
+    // um aluno, duas fichas (dois casos) -- o padrao dos gemeos do lote real
+    gemeo = await semear(db, { nome: "ALUNA COM DUAS FICHAS", dono: OLGA, mensalidade: 1000, parcela: 0 });
+    await db.query(
+      "insert into public.casos (aluno_id,nome,cpf_limpo,operador_email,operador_nome) values ($1,'ALUNA COM DUAS FICHAS','11122233344',$2,$2)",
+      [gemeo.aluno, OLGA]);
+    await como(db, GESTAO);
+  });
+
+  it("a previa separa alunos, casos e casos encerrados", async () => {
+    const p = (await previa([gemeo.aluno], "CARTEIRA_GERAL")).r;
+    expect(p.total_alunos).toBe(1);
+    expect(p.total_casos).toBe(2);
+    expect(p.total_casos_encerrados).toBe(0);
+  });
+
+  it("o saldo nao e somado em dobro, e o retorno tambem nao", async () => {
+    const p = (await previa([gemeo.aluno], "CARTEIRA_GERAL")).r;
+    const umaFicha = (await q1(db,
+      "select round(coalesce(saldo_total,0),2) v from public.calibragem_saldo_aluno where aluno_id=$1",
+      [gemeo.aluno]))?.v;
+    expect(Number(p.total_valor)).toBeCloseTo(Number(umaFicha), 2);
+    // o retorno mora na FICHA do aluno: um agendamento, nao dois
+    expect(p.retornos_preservados).toBe(1);
+  });
+
+  it("caso encerrado entra pela expansao e e contado a parte", async () => {
+    await db.query("update public.casos set encerrado_operacional=true where id=$1", [gemeo.caso]);
+    const p = (await previa([gemeo.aluno], "CARTEIRA_GERAL")).r;
+    expect(p.total_alunos).toBe(1);
+    expect(p.total_casos).toBe(2);
+    expect(p.total_casos_encerrados).toBe(1);
+  });
+
+  it("o que fica GRAVADO na previa tambem conta aluno, nao caso", async () => {
+    const p = (await previa([gemeo.aluno], "CARTEIRA_GERAL")).r;
+    const linha = await q1(db,
+      "select total_alunos, total_valor, jsonb_array_length(itens) itens from public.carteira_geral_previas where id=$1",
+      [p.previa_id]);
+    expect(Number(linha.total_alunos)).toBe(1);
+    expect(Number(linha.itens)).toBe(2);
+    expect(Number(linha.total_valor)).toBeCloseTo(Number(p.total_valor), 2);
+  });
+
+  it("o painel conta aluno distinto e expoe os casos a parte", async () => {
+    const pa = (await q1(db, "select public.carteira_geral_painel($1::jsonb) p",
+                         [JSON.stringify({ responsavel: OLGA })])).p;
+    expect(pa.total_alunos).toBe(1);
+    expect(pa.total_casos).toBe(2);
+  });
+
+  it("e os dois casos realmente se movem", async () => {
+    const p = (await previa([gemeo.aluno], "CARTEIRA_GERAL")).r;
+    await mover(p.previa_id, "recolhimento");
+    const n = await q1(db,
+      "select count(*) c from public.casos where aluno_id=$1 and operador_email=$2", [gemeo.aluno, CG]);
+    expect(Number(n.c)).toBe(2);
+  });
+});

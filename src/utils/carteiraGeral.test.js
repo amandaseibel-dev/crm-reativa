@@ -10,6 +10,10 @@ import {
   opcoesResponsavel,
   rotuloResponsavel,
   resumoSelecao,
+  resumoDeLinhas,
+  casosPorAluno,
+  casosNaoMarcados,
+  totalPaginas,
 } from "./carteiraGeral";
 
 describe("Carteira Geral — destino", () => {
@@ -256,5 +260,94 @@ describe("resumoSelecao", () => {
   it("sem nada marcado, tudo zero", () => {
     const r = resumoSelecao(LISTA, new Set());
     expect(r).toMatchObject({ alunos: 0, valor: 0, retornos: 0, acordosProprios: 0, acordosTerceiros: 0 });
+  });
+});
+
+describe("seleção que atravessa a página", () => {
+  const linha = (id, extra = {}) => ({
+    aluno_id: id, caso_id: `c-${id}`, nome: `A${id}`,
+    saldo_total: 100, saldo_mensalidade: 60, saldo_acordo: 40,
+    acordos_vivos: 1, acordos_de_outro_dono: 0, data_retorno: "2026-10-01", ...extra,
+  });
+
+  it("soma as linhas guardadas, não a página atual", () => {
+    const r = resumoDeLinhas([linha("1"), linha("2")]);
+    expect(r.alunos).toBe(2);
+    expect(r.valor).toBe(200);
+    expect(r.retornos).toBe(2);
+    expect(r.acordosProprios).toBe(2);
+    expect(r.acordosTerceiros).toBe(0);
+  });
+
+  it("lista vazia ou inválida não quebra", () => {
+    expect(resumoDeLinhas([]).alunos).toBe(0);
+    expect(resumoDeLinhas(null).alunos).toBe(0);
+    expect(resumoDeLinhas([null, undefined]).alunos).toBe(0);
+  });
+
+  it("separa acordo de terceiro do acordo do próprio dono", () => {
+    const r = resumoDeLinhas([linha("1", { acordos_vivos: 3, acordos_de_outro_dono: 2 })]);
+    expect(r.acordosProprios).toBe(1);
+    expect(r.acordosTerceiros).toBe(2);
+  });
+});
+
+describe("fichas do mesmo aluno", () => {
+  it("conta quantos casos cada aluno tem na lista", () => {
+    const c = casosPorAluno([
+      { aluno_id: "x", caso_id: "1" }, { aluno_id: "x", caso_id: "2" }, { aluno_id: "y", caso_id: "3" },
+    ]);
+    expect(c.get("x")).toBe(2);
+    expect(c.get("y")).toBe(1);
+  });
+
+  it("ignora linha sem aluno_id", () => {
+    expect(casosPorAluno([{ caso_id: "1" }, null]).size).toBe(0);
+  });
+});
+
+describe("casos que entram sem ter sido marcados", () => {
+  const previa = {
+    itens: [
+      { caso_id: "c1", nome: "ANA", encerrado: false },
+      { caso_id: "c2", nome: "ANA", encerrado: true },
+      { caso_id: "c3", nome: "BIA", encerrado: false },
+    ],
+  };
+
+  it("acusa o caso gêmeo encerrado que a lista não mostra", () => {
+    const r = casosNaoMarcados(previa, new Set(["c1", "c3"]));
+    expect(r.total).toBe(1);
+    expect(r.encerrados).toBe(1);
+    expect(r.nomes).toEqual(["ANA"]);
+  });
+
+  it("nada a avisar quando tudo que se move foi marcado", () => {
+    const r = casosNaoMarcados(previa, new Set(["c1", "c2", "c3"]));
+    expect(r.total).toBe(0);
+    expect(r.nomes).toEqual([]);
+  });
+
+  it("prévia sem itens não quebra", () => {
+    expect(casosNaoMarcados(null, new Set()).total).toBe(0);
+    expect(casosNaoMarcados({}, []).total).toBe(0);
+  });
+
+  it("aceita array no lugar de Set", () => {
+    expect(casosNaoMarcados(previa, ["c1"]).total).toBe(2);
+  });
+});
+
+describe("contagem de páginas", () => {
+  it("divide pelo total de CASOS, não de alunos", () => {
+    expect(totalPaginas(200, 200)).toBe(1);
+    expect(totalPaginas(201, 200)).toBe(2);
+    expect(totalPaginas(501, 200)).toBe(3);
+  });
+
+  it("degrada para uma página quando o total não é utilizável", () => {
+    expect(totalPaginas(0, 200)).toBe(1);
+    expect(totalPaginas(null, 200)).toBe(1);
+    expect(totalPaginas(100, 0)).toBe(1);
   });
 });
