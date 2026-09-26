@@ -181,3 +181,66 @@ export const O_QUE_NAO_MUDA = [
   "O histórico de acionamentos e movimentações já registrado",
   "O retorno agendado: data, hora e origem seguem com o aluno",
 ];
+
+// ---------------------------------------------------------------------------
+// Filtro por responsável: quem tem caso aparece, mesmo desligado.
+//
+// A lista do filtro NÃO pode sair de `usuarios where ativo = true`: no dia em
+// que a gestão desliga alguém, a carteira dessa pessoa some do filtro e não há
+// como recolhê-la. Foi o que aconteceu com a Olga em 26/09/2026 — desativada
+// antes do recolhimento, ela sumiu do seletor e a única opção que a alcançava
+// era SEM_DONO_ATIVO, que mistura os casos dela com os milhares da fila livre.
+//
+// A fonte certa é o próprio painel: `por_responsavel` já lista exatamente quem
+// tem caso no universo, com a classe de cada um. Zero consulta a mais.
+//
+// SEM_OPERADOR e CARTEIRA_GERAL saem daqui porque já têm opção fixa e
+// significado próprio — "Sem operador" é, e continua sendo, só quem não tem
+// responsável nenhum.
+export function opcoesResponsavel(porResponsavel) {
+  return (Array.isArray(porResponsavel) ? porResponsavel : [])
+    .filter((r) => r && r.email && r.classe !== "SEM_OPERADOR" && r.classe !== "CARTEIRA_GERAL")
+    .map((r) => ({
+      email: r.email,
+      nome: r.nome || r.email,
+      classe: r.classe,
+      alunos: Number(r.alunos || 0),
+    }));
+}
+
+// O rótulo diz por que a pessoa está na lista. Sem isso, um operador desligado
+// fica indistinguível de um ativo no seletor.
+export function rotuloResponsavel(dono, operadoresAtivos = []) {
+  if (!dono) return "";
+  const base = `${dono.nome || dono.email} (${dono.alunos || 0})`;
+  if (dono.classe === "INATIVO") return `${base} — inativo`;
+  if (dono.classe === "NAO_OPERADOR") return `${base} — fora da fila`;
+  if (dono.classe === "DESCONHECIDO") return `${base} — sem cadastro`;
+  const ativo = (operadoresAtivos || []).find(
+    (o) => String(o.email || "").toLowerCase() === String(dono.email || "").toLowerCase()
+  );
+  if (ativo && ativo.recebe_novos_casos === false) return `${base} — fechada para casos novos`;
+  return base;
+}
+
+// O que está selecionado AGORA, antes de gerar a prévia. A prévia é a verdade
+// congelada; isto é só para a gestão ver o tamanho do que marcou sem ter de
+// gerar prévia a cada clique.
+export function resumoSelecao(lista, selecionados) {
+  const marcados = (Array.isArray(lista) ? lista : []).filter((l) =>
+    selecionados && typeof selecionados.has === "function" ? selecionados.has(l.aluno_id) : false
+  );
+  const soma = (campo) => marcados.reduce((total, l) => total + Number(l[campo] || 0), 0);
+  const acordosTotal = soma("acordos_vivos");
+  const acordosTerceiros = soma("acordos_de_outro_dono");
+  return {
+    alunos: marcados.length,
+    valor: soma("saldo_total"),
+    mensalidade: soma("saldo_mensalidade"),
+    acordo: soma("saldo_acordo"),
+    retornos: marcados.filter((l) => l.data_retorno).length,
+    // "do próprio dono" é o complemento: os que NÃO são de terceiro.
+    acordosProprios: acordosTotal - acordosTerceiros,
+    acordosTerceiros,
+  };
+}

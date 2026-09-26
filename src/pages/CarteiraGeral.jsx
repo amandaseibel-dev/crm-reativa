@@ -9,6 +9,9 @@ import {
   acordosDeTerceiros,
   agruparConflitos,
   classeEmAlerta,
+  opcoesResponsavel,
+  rotuloResponsavel,
+  resumoSelecao,
   consolidarPorAno,
   moeda,
   rotuloClasse,
@@ -38,6 +41,10 @@ export default function CarteiraGeral() {
   const [painel, setPainel] = useState(null);
   const [lista, setLista] = useState([]);
   const [operadores, setOperadores] = useState([]);
+  // Quem aparece no filtro Responsável. Vem do painel, não de `usuarios`:
+  // operador desligado que ainda tem caso PRECISA aparecer, senão a carteira
+  // dele fica inalcançável (ver opcoesResponsavel em utils/carteiraGeral.js).
+  const [donosComCaso, setDonosComCaso] = useState([]);
 
   const [filtros, setFiltros] = useState({ responsavel: "", ano: "", tipo: "", busca: "" });
   const [selecionados, setSelecionados] = useState(() => new Set());
@@ -116,6 +123,10 @@ export default function CarteiraGeral() {
       return;
     }
     setPainel(p || null);
+    // Só atualiza a lista de opções quando o painel veio do universo inteiro.
+    // Com um responsável filtrado, `por_responsavel` traz só ele — e o seletor
+    // ficaria com uma opção só, sem volta.
+    if (!filtrosRpc.responsavel) setDonosComCaso(opcoesResponsavel(p?.por_responsavel));
     setLista(Array.isArray(l) ? l : []);
     setSelecionados(new Set());
     setPrevia(null);
@@ -249,6 +260,7 @@ export default function CarteiraGeral() {
   if (erro) return <Erro texto={erro} onTentar={carregar} tema="escuro" />;
 
   const selecao = [...selecionados];
+  const resumo = resumoSelecao(lista, selecionados);
 
   return (
     <div style={pagina}>
@@ -355,13 +367,12 @@ export default function CarteiraGeral() {
               style={input}
             >
               <option value="">Todos</option>
-              <option value="SEM_OPERADOR">Sem operador</option>
-              <option value="SEM_DONO_ATIVO">Sem operador ativo (inclui inativo e fora da fila)</option>
+              <option value="SEM_OPERADOR">Sem operador (sem responsável nenhum)</option>
+              <option value="SEM_DONO_ATIVO">Qualquer um sem operador ativo (agrupa vários)</option>
               <option value="CARTEIRA_GERAL">Carteira Geral</option>
-              {operadores.map((o) => (
+              {donosComCaso.map((o) => (
                 <option key={o.email} value={o.email}>
-                  {o.nome}
-                  {o.recebe_novos_casos === false ? " (fechada para casos novos)" : ""}
+                  {rotuloResponsavel(o, operadores)}
                 </option>
               ))}
             </select>
@@ -405,6 +416,16 @@ export default function CarteiraGeral() {
         <h2 style={secao}>
           Selecionar <span style={nota}>({selecao.length} de {lista.length} nesta página)</span>
         </h2>
+
+        {resumo.alunos > 0 && (
+          <p style={nota} data-testid="resumo-selecao">
+            <strong>{resumo.alunos}</strong> aluno(s) selecionado(s) · <strong>{moeda(resumo.valor)}</strong>{" "}
+            ({moeda(resumo.mensalidade)} de mensalidade + {moeda(resumo.acordo)} de acordo) ·{" "}
+            <strong>{resumo.retornos}</strong> retorno(s) preservado(s) ·{" "}
+            <strong>{resumo.acordosProprios}</strong> acordo(s) do dono atual vão junto ·{" "}
+            <strong>{resumo.acordosTerceiros}</strong> de terceiros ficam (só vão se você marcar um a um na prévia).
+          </p>
+        )}
 
         {lista.length === 0 ? (
           <Vazio texto="Nenhum aluno com este filtro." tema="escuro" />

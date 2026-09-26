@@ -7,6 +7,9 @@ import {
   consolidarPorAno,
   rotuloClasse,
   validarConfirmacao,
+  opcoesResponsavel,
+  rotuloResponsavel,
+  resumoSelecao,
 } from "./carteiraGeral";
 
 describe("Carteira Geral — destino", () => {
@@ -158,5 +161,100 @@ describe("Carteira Geral — trava antes de confirmar", () => {
 
   it("recusa destino que não existe", () => {
     expect(validarConfirmacao({ ...base, destinoTipo: "OLGA" }).ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 26/09/2026: a gestão desligou a Olga antes de recolher a carteira. O filtro
+// vinha de `usuarios where ativo = true` e ela sumiu do seletor — 501 alunos
+// inalcançáveis. A lista do filtro passou a sair do painel, que já sabe quem
+// tem caso.
+// ---------------------------------------------------------------------------
+describe("opcoesResponsavel", () => {
+  const PAINEL = [
+    { email: "cobranca03@aelbra.com.br", nome: "Olga", classe: "INATIVO", alunos: 501 },
+    { email: "cobranca05@aelbra.com.br", nome: "Luana", classe: "OPERADOR", alunos: 430 },
+    { email: "juridico@aelbra.com.br", nome: "Jurídico", classe: "NAO_OPERADOR", alunos: 58 },
+    { email: "", nome: "Sem operador", classe: "SEM_OPERADOR", alunos: 8754 },
+    { email: "carteira.geral@reativa.local", nome: "Carteira Geral", classe: "CARTEIRA_GERAL", alunos: 0 },
+  ];
+
+  it("mantém o operador INATIVO que ainda tem casos", () => {
+    expect(opcoesResponsavel(PAINEL).map((o) => o.email)).toContain("cobranca03@aelbra.com.br");
+  });
+
+  it("tira 'Sem operador' e 'Carteira Geral' — essas têm opção própria", () => {
+    const classes = opcoesResponsavel(PAINEL).map((o) => o.classe);
+    expect(classes).not.toContain("SEM_OPERADOR");
+    expect(classes).not.toContain("CARTEIRA_GERAL");
+  });
+
+  it("nunca devolve opção sem e-mail — seria um filtro que não filtra nada", () => {
+    expect(opcoesResponsavel(PAINEL).every((o) => o.email)).toBe(true);
+  });
+
+  it("aguenta entrada vazia ou inválida", () => {
+    expect(opcoesResponsavel(null)).toEqual([]);
+    expect(opcoesResponsavel([null, undefined, {}])).toEqual([]);
+  });
+});
+
+describe("rotuloResponsavel", () => {
+  it("diz que a pessoa está inativa, com a contagem", () => {
+    expect(rotuloResponsavel({ email: "x", nome: "Olga", classe: "INATIVO", alunos: 501 }))
+      .toBe("Olga (501) — inativo");
+  });
+
+  it("distingue fora da fila e sem cadastro", () => {
+    expect(rotuloResponsavel({ email: "x", nome: "Jurídico", classe: "NAO_OPERADOR", alunos: 58 }))
+      .toMatch(/fora da fila/);
+    expect(rotuloResponsavel({ email: "x", nome: "quem?", classe: "DESCONHECIDO", alunos: 3 }))
+      .toMatch(/sem cadastro/);
+  });
+
+  it("no operador ativo, mostra se a entrada está fechada", () => {
+    const ativos = [{ email: "cobranca05@aelbra.com.br", recebe_novos_casos: false }];
+    expect(rotuloResponsavel({ email: "cobranca05@aelbra.com.br", nome: "Luana", classe: "OPERADOR", alunos: 430 }, ativos))
+      .toMatch(/fechada para casos novos/);
+  });
+
+  it("operador ativo e aberto fica só com nome e contagem", () => {
+    const ativos = [{ email: "cobranca05@aelbra.com.br", recebe_novos_casos: true }];
+    expect(rotuloResponsavel({ email: "cobranca05@aelbra.com.br", nome: "Luana", classe: "OPERADOR", alunos: 430 }, ativos))
+      .toBe("Luana (430)");
+  });
+});
+
+describe("resumoSelecao", () => {
+  const LISTA = [
+    { aluno_id: "a", saldo_total: 3000, saldo_mensalidade: 1000, saldo_acordo: 2000, data_retorno: "2026-10-01", acordos_vivos: 2, acordos_de_outro_dono: 1 },
+    { aluno_id: "b", saldo_total: 500, saldo_mensalidade: 500, saldo_acordo: 0, data_retorno: null, acordos_vivos: 0, acordos_de_outro_dono: 0 },
+    { aluno_id: "c", saldo_total: 9999, saldo_mensalidade: 9999, saldo_acordo: 0, data_retorno: "2026-10-02", acordos_vivos: 5, acordos_de_outro_dono: 5 },
+  ];
+
+  it("soma só o que está marcado", () => {
+    const r = resumoSelecao(LISTA, new Set(["a", "b"]));
+    expect(r.alunos).toBe(2);
+    expect(r.valor).toBe(3500);
+    expect(r.mensalidade).toBe(1500);
+    expect(r.acordo).toBe(2000);
+    expect(r.retornos).toBe(1);
+  });
+
+  it("separa acordo do dono atual de acordo de terceiro", () => {
+    const r = resumoSelecao(LISTA, new Set(["a"]));
+    expect(r.acordosProprios).toBe(1);
+    expect(r.acordosTerceiros).toBe(1);
+  });
+
+  it("aluno cujos acordos são TODOS de terceiro não conta nenhum como próprio", () => {
+    const r = resumoSelecao(LISTA, new Set(["c"]));
+    expect(r.acordosProprios).toBe(0);
+    expect(r.acordosTerceiros).toBe(5);
+  });
+
+  it("sem nada marcado, tudo zero", () => {
+    const r = resumoSelecao(LISTA, new Set());
+    expect(r).toMatchObject({ alunos: 0, valor: 0, retornos: 0, acordosProprios: 0, acordosTerceiros: 0 });
   });
 });
