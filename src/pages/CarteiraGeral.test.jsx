@@ -78,11 +78,54 @@ const chamadas = vi.hoisted(() => ({ rpc: [] }));
 
 vi.mock("../services/supabase", () => ({
   supabase: {
+    // a seção "Acordos por responsável" abre em "Meus acordos" e precisa saber
+    // quem está logado
+    auth: {
+      getUser: () =>
+        Promise.resolve({ data: { user: { email: "amanda.seibel@aelbra.com.br" } }, error: null }),
+    },
     rpc: (fn, args) => {
       chamadas.rpc.push({ fn, args });
       if (fn === "carteira_geral_painel") return Promise.resolve({ data: PAINEL, error: null });
       if (fn === "carteira_geral_listar") return Promise.resolve({ data: LISTA, error: null });
       if (fn === "carteira_geral_previa") return Promise.resolve({ data: PREVIA, error: null });
+      if (fn === "carteira_geral_acordos_responsaveis")
+        return Promise.resolve({
+          data: [
+            { email: "cobranca03@aelbra.com.br", nome: "Olga", acordos: 127, ativos: 119, ativo: false, existe_em_usuarios: true },
+            { email: "amanda.seibel@aelbra.com.br", nome: "Amanda", acordos: 753, ativos: 653, ativo: true, existe_em_usuarios: true },
+          ],
+          error: null,
+        });
+      if (fn === "carteira_geral_acordos_painel")
+        return Promise.resolve({
+          data: {
+            responsavel: "amanda.seibel@aelbra.com.br",
+            total_acordos: 753, total_valor: 2683032.45, alunos: 699, em_caso_de_outro: 726,
+            por_status: [
+              { status: "ATIVO", acordos: 653, valor: 2361760.32 },
+              { status: "QUITADO", acordos: 82, valor: 0 },
+              { status: "CANCELADO", acordos: 18, valor: 0 },
+            ],
+            por_dono_do_caso: [
+              { classe: "EU", acordos: 27, valor: 89951.76, ativos: 11 },
+              { classe: "OUTRO", acordos: 563, valor: 1808715.87, ativos: 519 },
+            ],
+          },
+          error: null,
+        });
+      if (fn === "carteira_geral_acordos_listar")
+        return Promise.resolve({
+          data: [
+            {
+              acordo_id: "ac-1", aluno_id: "al-1", nome: "ALUNA NO CASO DA OLGA",
+              numero_acordo: "9001", status: "ATIVO", valor: 4500,
+              caso_dono_email: "cobranca03@aelbra.com.br", caso_dono_nome: "Olga",
+              caso_dono_classe: "OUTRO",
+            },
+          ],
+          error: null,
+        });
       if (fn === "carteira_geral_definir_recebimento")
         return Promise.resolve({ data: { ok: true, operador: "Olga", recebe: false }, error: null });
       if (fn === "carteira_geral_mover")
@@ -433,7 +476,8 @@ describe("Carteira Geral — paginação e casos que entram sem ser marcados", (
     fireEvent.click(screen.getByLabelText("Selecionar MARIA DE TESTE"));
     expect(screen.getByTestId("contagem-selecao").textContent).toMatch(/1 aluno\(s\) selecionado\(s\)/);
 
-    fireEvent.click(screen.getByText("Próxima"));
+    // a página tem dois paginadores (casos e acordos): mira o de casos
+    fireEvent.click(within(screen.getByTestId("paginacao").parentElement).getByText("Próxima"));
     await waitFor(() => expect(ultimaChamada("carteira_geral_listar").p_offset).toBe(200));
 
     // a lista dublada é a mesma, mas o que importa é a seleção continuar de pé
@@ -446,7 +490,8 @@ describe("Carteira Geral — paginação e casos que entram sem ser marcados", (
 
   it("trocar de filtro volta para a primeira página e zera a seleção", async () => {
     await montar();
-    fireEvent.click(screen.getByText("Próxima"));
+    // a página tem dois paginadores (casos e acordos): mira o de casos
+    fireEvent.click(within(screen.getByTestId("paginacao").parentElement).getByText("Próxima"));
     await waitFor(() => expect(ultimaChamada("carteira_geral_listar").p_offset).toBe(200));
     fireEvent.click(screen.getByLabelText("Selecionar MARIA DE TESTE"));
 

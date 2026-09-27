@@ -307,3 +307,64 @@ export function totalPaginas(totalCasos, porPagina) {
   if (!(t > 0) || !(p > 0)) return 1;
   return Math.ceil(t / p);
 }
+
+// ---------------------------------------------------------------------------
+// ACORDOS POR RESPONSÁVEL
+//
+// Dono do CASO e dono do ACORDO são coisas diferentes, e a tela tratava só a
+// primeira. Medido em produção em 27/09/2026 para a gestora: 11 casos contra
+// 753 acordos sob a responsabilidade dela — 726 deles em casos de OUTRAS
+// pessoas. Estes rótulos existem para que ninguém leia um pelo outro.
+// ---------------------------------------------------------------------------
+export const CLASSES_CASO = [
+  { valor: "TODOS", rotulo: "Qualquer dono de caso" },
+  { valor: "EU", rotulo: "O caso também é do responsável" },
+  { valor: "OUTRO", rotulo: "O caso é de outro operador" },
+  { valor: "CARTEIRA_GERAL", rotulo: "O caso está na Carteira Geral" },
+  { valor: "FILA_LIVRE", rotulo: "O caso está na fila livre" },
+  { valor: "SEM_CASO", rotulo: "O aluno não tem caso" },
+];
+
+export const STATUS_ACORDO = [
+  { valor: "ATIVO", rotulo: "Somente ATIVO" },
+  { valor: "TODOS", rotulo: "Todos os status" },
+  { valor: "QUITADO", rotulo: "Somente QUITADO" },
+  { valor: "CANCELADO", rotulo: "Somente CANCELADO" },
+];
+
+export function rotuloClasseCaso(classe) {
+  return CLASSES_CASO.find((c) => c.valor === classe)?.rotulo || classe || "—";
+}
+
+// Como a linha descreve o dono do caso, em uma frase curta.
+export function donoDoCaso(linha) {
+  if (!linha) return "—";
+  if (linha.caso_dono_classe === "SEM_CASO") return "sem caso";
+  if (linha.caso_dono_classe === "FILA_LIVRE") return "fila livre";
+  if (linha.caso_dono_classe === "CARTEIRA_GERAL") return "Carteira Geral";
+  return linha.caso_dono_nome || linha.caso_dono_email || "—";
+}
+
+// Resumo da seleção de ACORDOS. Conta acordo, não aluno e não caso.
+export function resumoAcordos(linhas) {
+  const l = Array.isArray(linhas) ? linhas.filter(Boolean) : [];
+  return {
+    acordos: l.length,
+    valor: l.reduce((t, x) => t + Number(x.valor || 0), 0),
+    alunos: new Set(l.map((x) => x.aluno_id)).size,
+    emCasoDeOutro: l.filter((x) => x.caso_dono_classe !== "EU").length,
+    naoAtivos: l.filter((x) => x.status !== "ATIVO").length,
+  };
+}
+
+// Recusa antes de chamar o banco: destino obrigatório e motivo obrigatório.
+export function validarMovimentoAcordos({ destinoEmail, motivo, selecionados }) {
+  if (!Array.isArray(selecionados) || selecionados.length === 0) {
+    return { ok: false, erro: "Selecione ao menos um acordo." };
+  }
+  if (!destinoEmail) return { ok: false, erro: "Escolha o operador de destino." };
+  if (!String(motivo || "").trim()) {
+    return { ok: false, erro: "Escreva o motivo — ele fica na auditoria." };
+  }
+  return { ok: true };
+}

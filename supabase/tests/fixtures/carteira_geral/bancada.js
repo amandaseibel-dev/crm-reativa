@@ -21,6 +21,7 @@ export const MIGRATIONS = [
   "20260925181823_carteira_geral_blindar_automacoes",
   "20260926225541_carteira_geral_contar_por_aluno",
   "20260927104440_carteira_geral_mover_por_aluno_auditar_por_caso",
+  "20260927150000_carteira_geral_acordos_por_responsavel",
 ];
 
 export const GESTAO = "amanda.seibel@aelbra.com.br";
@@ -92,7 +93,12 @@ create table public.acordos (
   id uuid primary key default gen_random_uuid(),
   aluno_id uuid, cpf text, status text, numero_acordo bigint,
   operador_responsavel_email text, operador_responsavel_nome text,
-  valor_total numeric, atualizado_em timestamptz
+  valor_total numeric, atualizado_em timestamptz,
+  -- espelham producao: sao o que o remanejamento de ACORDO NAO pode tocar
+  criado_em timestamptz default now(),
+  criado_por_email text, criado_por_nome text,
+  confirmado_por_email text, confirmado_em timestamptz,
+  honorarios_percentual numeric, honorarios_valor numeric
 );
 
 create table public.parcelas (

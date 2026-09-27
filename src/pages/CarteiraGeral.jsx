@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando, Erro, Vazio } from "../ui/estados";
 import { cartaoEscuro } from "../ui/cards";
+import AcordosPorResponsavel from "../components/AcordosPorResponsavel";
 import {
   DESTINOS,
   O_QUE_MUDA,
@@ -48,6 +49,8 @@ export default function CarteiraGeral() {
   // operador desligado que ainda tem caso PRECISA aparecer, senão a carteira
   // dele fica inalcançável (ver opcoesResponsavel em utils/carteiraGeral.js).
   const [donosComCaso, setDonosComCaso] = useState([]);
+  // quem está logado, para a seção de acordos abrir em "Meus acordos"
+  const [meuEmail, setMeuEmail] = useState("");
 
   const [filtros, setFiltros] = useState({
     responsavel: "", ano: "", tipo: "", busca: "", incluirEncerrados: false,
@@ -68,6 +71,15 @@ export default function CarteiraGeral() {
   const [previa, setPrevia] = useState(null);
   const [ocupado, setOcupado] = useState(false);
   const emVooRef = useRef(false);
+
+  useEffect(() => {
+    let vivo = true;
+    supabase.auth.getUser().then(({ data }) => {
+      const e = data?.user?.email;
+      if (vivo && e) setMeuEmail(String(e).toLowerCase());
+    });
+    return () => { vivo = false; };
+  }, []);
 
   const carregarOperadores = useCallback(async () => {
     const { data } = await supabase
@@ -632,6 +644,12 @@ export default function CarteiraGeral() {
           </tbody>
         </table>
       </section>
+
+      {/* ---------------- acordos por responsável ----------------
+           Fica ANTES do remanejamento de caso de propósito: são duas
+           titularidades diferentes, e quem chega procurando "meus acordos" não
+           deve esbarrar antes no lote de casos. */}
+      <AcordosPorResponsavel meuEmail={meuEmail} />
 
       {/* ---------------- movimentar ---------------- */}
       <section style={cartao}>
