@@ -193,6 +193,31 @@ describe("Efetividade 2026/2 por borderô", () => {
     expect(screen.getByText(/160 títulos \(R\$ 42\.574,66, 1,0% do valor original\)/)).toBeTruthy();
   });
 
+  // Achado ao medir a RPC em producao em 27/09: `borderos` traz 16 blocos (15
+  // remessas + 1 titulo sem importacao_id) enquanto total.borderos traz 15. A
+  // tela nao pode mostrar um numero no seletor e outro no cabecalho.
+  it("o título sem borderô não conta como remessa, mas aparece", async () => {
+    const ORFAO = { importacao_id: null, bordero_ref: null, bordero_arquivo: null,
+      bordero_entrada: null, titulos: 1, alunos: 1, valor_original: 13643.33,
+      recuperado: 0, titulos_com_pagamento: 0, titulos_liquidados: 0,
+      convertido_titulos: 0, convertido_valor: 0, conferencia_titulos: 1,
+      conferencia_valor: 13643.33, academico_titulos: 0, academico_valor: 0,
+      sem_negociacao_titulos: 0, sem_negociacao_valor: 0, cancelado_titulos: 0,
+      cancelado_valor: 0, acordos_cancelados: 0, acordos_cancelados_valor: 0,
+      saldo_titulos: 1, saldo_valor: 13643.33, fallback_titulos: 0, fallback_valor: 0 };
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_borderos"
+        ? Promise.resolve({ data: { ...PAINEL, borderos: [B706, B698, ORFAO] } })
+        : Promise.resolve({ data: null }));
+    await abrir();
+    // total.borderos continua 2: o órfão NÃO entra na contagem, nos dois lugares
+    expect(screen.getByText("2 remessas + títulos sem borderô")).toBeTruthy();
+    expect(screen.getByRole("option", { name: /Todos os borderôs do semestre \(2\)/ })).toBeTruthy();
+    // mas o valor dele é visível, com card próprio e explicação
+    expect(screen.getByText("Sem borderô")).toBeTruthy();
+    expect(screen.getByText(/1 título de 2026\/2 \(R\$ 13\.643,33\) entrou sem borderô de origem/)).toBeTruthy();
+  });
+
   it("sem borderô nenhum, avisa em vez de desenhar cards vazios", async () => {
     rpcMock.mockImplementation((nome) =>
       nome === "carteira_2026_2_borderos"

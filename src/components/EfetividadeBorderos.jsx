@@ -134,6 +134,12 @@ export default function EfetividadeBorderos() {
   }, []);
 
   const borderos = useMemo(() => dados?.borderos || [], [dados]);
+  // A lista do banco traz também o grupo dos títulos SEM importacao_id — ele
+  // aparece como card ("Sem borderô") porque o valor existe e tem de ser visto,
+  // mas NÃO é remessa e não pode entrar na contagem de borderôs. Medido em
+  // produção em 27/09: 15 borderôs + 1 título órfão = 16 blocos.
+  const orfao = useMemo(() => borderos.find((b) => !b.importacao_id) || null, [borderos]);
+  const qtdBorderos = Number(dados?.total?.borderos || 0);
   const escolhido = selecionado === "todos"
     ? null
     : borderos.find((b) => (b.importacao_id || "sem-bordero") === selecionado) || null;
@@ -178,7 +184,7 @@ export default function EfetividadeBorderos() {
           <select value={selecionado} onChange={(e) => setSelecionado(e.target.value)}
                   aria-label="Borderô de 2026/2" style={S.select}>
             <option value="todos">
-              Todos os borderôs do semestre ({num(dados.total?.borderos)})
+              Todos os borderôs do semestre ({num(qtdBorderos)})
             </option>
             {borderos.map((b) => (
               <option key={b.importacao_id || "sem-bordero"} value={b.importacao_id || "sem-bordero"}>
@@ -197,13 +203,23 @@ export default function EfetividadeBorderos() {
           ? "Borderô " + (escolhido.bordero_ref || "sem número") + " · entrada em " + dia(escolhido.bordero_entrada)
             + " · " + num(escolhido.titulos) + " títulos · " + num(escolhido.alunos) + " alunos"
             + " · " + moeda(escolhido.valor_original) + " de valor original"
-          : num(dados.total?.borderos) + " borderôs · " + num(dados.total?.titulos) + " títulos · "
+          : num(qtdBorderos) + " borderôs · " + num(dados.total?.titulos) + " títulos · "
             + num(dados.total?.alunos) + " alunos · " + moeda(dados.total?.valor_original)
             + " de valor original"}
         {" · dados atualizados em " + horario(dados.gerado_em)
           + " (situação no Prime coletada em " + horario(at.prime_coletado_em)
           + "; último borderô importado em " + dia(at.ultimo_bordero) + ")"}
       </p>
+
+      {/* O título que entrou sem borderô: não dá para atribuí-lo a remessa
+          nenhuma, então ele tem card próprio e sai da contagem de borderôs. */}
+      {orfao && !escolhido ? (
+        <p style={S.rodapeDiscreto}>
+          {num(orfao.titulos)} título{Number(orfao.titulos) === 1 ? "" : "s"} de 2026/2
+          ({moeda(orfao.valor_original)}) entrou sem borderô de origem: não há importação registrada para
+          atribuí-lo a uma remessa. Aparece no card “Sem borderô”, dentro dos totais do semestre.
+        </p>
+      ) : null}
 
       {/* Onde o semestre é INFERIDO em vez de vir do Prime. Fica à vista porque
           é o único ponto do recorte que não é prova: sem série, o título entra
@@ -268,7 +284,10 @@ export default function EfetividadeBorderos() {
         <div style={S.cartaoCabecalho}>
           <h2 style={S.h2}>{escolhido ? "Borderô selecionado" : "Borderô a borderô"}</h2>
           <span style={S.cartaoApoio}>
-            {escolhido ? "mostre “Todos” no seletor para comparar" : num(borderos.length) + " remessas"}
+            {escolhido
+              ? "mostre “Todos” no seletor para comparar"
+              : num(qtdBorderos) + (qtdBorderos === 1 ? " remessa" : " remessas")
+                + (orfao ? " + títulos sem borderô" : "")}
           </span>
         </div>
         <div style={S.gradeBorderos}>
