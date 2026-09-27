@@ -1491,3 +1491,175 @@ describe("Carteira Geral — aluno com duas fichas conta 1 aluno e 2 casos", () 
     expect(Number(n.c)).toBe(2);
   });
 });
+
+// ---------------------------------------------------------------------------
+// O executor recusava a si mesmo. No lote 559b20bb a previa tinha 8 itens (6
+// alunos, 2 com ficha gemea), a auditoria ficou com 6 linhas e a tela informou
+// 2 recusas: na segunda ficha do mesmo aluno a revalidacao lia o dono JA como
+// Carteira Geral -- porque a escrita e `where aluno_id` -- e recusava.
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — aluno com duas fichas: uma volta, duas linhas", () => {
+  let gemeo;
+
+  beforeEach(async () => {
+    gemeo = await semear(db, { nome: "ALUNA DUAS FICHAS", dono: OLGA, parcela: 0 });
+    await db.query(
+      "insert into public.casos (aluno_id,nome,cpf_limpo,operador_email,operador_nome) values ($1,'ALUNA DUAS FICHAS','11122233344',$2,$2)",
+      [gemeo.aluno, OLGA]);
+    await como(db, GESTAO);
+  });
+
+  it("nao recusa o proprio aluno na segunda ficha", async () => {
+    const p = (await previa([gemeo.aluno], "CARTEIRA_GERAL")).r;
+    expect(p.total_casos).toBe(2);
+
+    const m = (await mover(p.previa_id, "recolhimento")).r;
+    expect(m.total_recusados).toBe(0);
+    expect(m.recusados).toEqual([]);
+    expect(m.alunos_movidos).toBe(1);   // ALUNO
+    expect(m.casos_movidos).toBe(2);    // CASO
+  });
+
+  it("grava uma linha de auditoria POR CASO, com aluno e lote preservados", async () => {
+    const p = (await previa([gemeo.aluno], "CARTEIRA_GERAL")).r;
+    const m = (await mover(p.previa_id, "recolhimento")).r;
+
+    const a = await qn(db,
+      "select caso_id, aluno_id, lote_id, previa_id from public.carteira_geral_auditoria where lote_id=$1 order by caso_id",
+      [m.lote_id]);
+    expect(a).toHaveLength(2);
+    expect(new Set(a.map((x) => x.caso_id)).size).toBe(2);
+    expect(new Set(a.map((x) => x.aluno_id))).toEqual(new Set([gemeo.aluno]));
+    expect(a.every((x) => x.lote_id === m.lote_id)).toBe(true);
+    expect(a.every((x) => x.previa_id === p.previa_id)).toBe(true);
+  });
+
+  it("o retorno preservado conta uma vez por aluno, nao por ficha", async () => {
+    const p = (await previa([gemeo.aluno], "CARTEIRA_GERAL")).r;
+    const m = (await mover(p.previa_id, "recolhimento")).r;
+    expect(m.retornos_preservados).toBe(1);
+  });
+
+  it("desfazer devolve as DUAS fichas", async () => {
+    const p = (await previa([gemeo.aluno], "CARTEIRA_GERAL")).r;
+    const m = (await mover(p.previa_id, "recolhimento")).r;
+
+    const d = (await q1(db, "select public.carteira_geral_desfazer_lote($1,$2) r",
+                        [m.lote_id, "engano"])).r;
+    expect(d.total_recusados).toBe(0);
+    expect(d.alunos_devolvidos).toBe(1);
+
+    const volta = await q1(db,
+      "select count(*) c from public.casos where aluno_id=$1 and operador_email=$2", [gemeo.aluno, OLGA]);
+    expect(Number(volta.c)).toBe(2);
+  });
+
+  // O cenario que ela pediu explicitamente.
+  it("dois casos e SO UM mudou depois: recusa o aluno INTEIRO, sem devolver nada", async () => {
+    const p = (await previa([gemeo.aluno], "CARTEIRA_GERAL")).r;
+    const m = (await mover(p.previa_id, "recolhimento")).r;
+    expect(m.casos_movidos).toBe(2);
+
+    // alguem assume UMA das duas fichas depois do lote
+    const casos = await qn(db,
+      "select id from public.casos where aluno_id=$1 order by id", [gemeo.aluno]);
+    await db.query("update public.casos set operador_email=$2, operador_nome=$2 where id=$1",
+                   [casos[0].id, LUANA]);
+
+    const d = (await q1(db, "select public.carteira_geral_desfazer_lote($1,$2) r",
+                        [m.lote_id, "tentativa"])).r;
+
+    expect(d.total_recusados).toBe(1);
+    expect(d.alunos_devolvidos).toBe(0);
+    expect(d.recusados[0].motivo).toMatch(/saiu de/);
+
+    // nada foi devolvido: a ficha intacta continua na Carteira Geral
+    const ainda = await q1(db,
+      "select operador_email e from public.casos where id=$1", [casos[1].id]);
+    expect(ainda.e).toBe(CG);
+
+    // e nenhuma linha do aluno foi marcada como desfeita
+    const naoDesfeitas = await q1(db,
+      "select count(*) c from public.carteira_geral_auditoria where lote_id=$1 and desfeito_em is null",
+      [m.lote_id]);
+    expect(Number(naoDesfeitas.c)).toBe(2);
+  });
+
+  it("caso NOVO depois da previa recusa o aluno — a escrita e por aluno", async () => {
+    const p = (await previa([gemeo.aluno], "CARTEIRA_GERAL")).r;
+    await db.query(
+      "insert into public.casos (aluno_id,nome,cpf_limpo,operador_email,operador_nome) values ($1,'ALUNA DUAS FICHAS','11122233344',$2,$2)",
+      [gemeo.aluno, OLGA]);
+
+    const m = (await mover(p.previa_id, "recolhimento")).r;
+    expect(m.total_recusados).toBe(1);
+    expect(m.recusados[0].motivo).toMatch(/caso novo depois da previa/);
+    expect(m.casos_movidos).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Item 3: a origem da mudanca do retorno do Rodrigo (26/09 -> 27/09) NAO foi
+// provada -- ver docs/CARTEIRA-GERAL-RETORNO-RODRIGO-2026-09-27.md. O que da
+// para fixar e o invariante: trocar de dono preserva data, hora e origem.
+//
+// Nao e teste decorativo: internal.set_resp_aluno ZERA data_retorno,
+// proxima_acao e status_acionamento quando o responsavel muda, e o
+// carteira_geral_trocar_dono existe justamente para devolver o agendamento
+// depois disso. Se alguem simplificar aquela funcao, isto quebra.
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — troca de dono preserva o agendamento exatamente", () => {
+  beforeEach(async () => { await como(db, GESTAO); });
+
+  const agendamento = async (aluno) =>
+    q1(db, `select data_retorno::text d, hora_retorno::text h, retorno_origem o
+              from public.alunos where id=$1`, [aluno]);
+
+  it("data, hora e origem voltam identicas depois do recolhimento", async () => {
+    const s = await semear(db, { nome: "COM AGENDA", dono: OLGA, retorno: "2026-10-09", hora: "09:45" });
+    const antes = await agendamento(s.aluno);
+    expect(antes.d).toBe("2026-10-09");
+    expect(antes.h).toBe("09:45");   // hora_retorno e text, aqui e em producao
+
+    const p = (await previa([s.aluno], "CARTEIRA_GERAL")).r;
+    await mover(p.previa_id, "recolhimento");
+
+    const depois = await agendamento(s.aluno);
+    expect(depois).toEqual(antes);
+  });
+
+  it("e voltam identicas tambem no desfazer", async () => {
+    const s = await semear(db, { nome: "AGENDA IDA E VOLTA", dono: OLGA, retorno: "2026-11-03", hora: "16:20" });
+    const antes = await agendamento(s.aluno);
+
+    const p = (await previa([s.aluno], "CARTEIRA_GERAL")).r;
+    const m = (await mover(p.previa_id, "recolhimento")).r;
+    await q1(db, "select public.carteira_geral_desfazer_lote($1,$2) r", [m.lote_id, "volta"]);
+
+    expect(await agendamento(s.aluno)).toEqual(antes);
+  });
+
+  it("nao inventa agendamento para quem nao tinha", async () => {
+    const s = await semear(db, { nome: "SEM AGENDA", dono: OLGA });
+    await db.query("update public.alunos set data_retorno=null, hora_retorno=null, retorno_origem=null where id=$1",
+                   [s.aluno]);
+
+    const p = (await previa([s.aluno], "CARTEIRA_GERAL")).r;
+    await mover(p.previa_id, "recolhimento");
+
+    const depois = await agendamento(s.aluno);
+    expect(depois.d).toBe(null);
+    expect(depois.o).toBe(null);
+  });
+
+  it("a data NAO e empurrada para hoje", async () => {
+    const ontem = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+    const s = await semear(db, { nome: "RETORNO DE ONTEM", dono: OLGA, retorno: ontem, hora: "11:00" });
+
+    const p = (await previa([s.aluno], "CARTEIRA_GERAL")).r;
+    await mover(p.previa_id, "recolhimento");
+
+    // exatamente o padrao do Rodrigo: retorno vencido nao pode virar "hoje"
+    expect((await agendamento(s.aluno)).d).toBe(ontem);
+  });
+});

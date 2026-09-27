@@ -20,6 +20,7 @@ export const MIGRATIONS = [
   "20260925181554_carteira_geral_mover",
   "20260925181823_carteira_geral_blindar_automacoes",
   "20260926225541_carteira_geral_contar_por_aluno",
+  "20260927104440_carteira_geral_mover_por_aluno_auditar_por_caso",
 ];
 
 export const GESTAO = "amanda.seibel@aelbra.com.br";
