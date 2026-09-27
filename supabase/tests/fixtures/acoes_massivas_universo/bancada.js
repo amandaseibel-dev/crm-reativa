@@ -20,6 +20,7 @@ export const MIG1 = ler("supabase/migrations/20260920100000_acoes_massivas_cober
 export const MIG2 = ler("supabase/migrations/20260920110000_acoes_massivas_universo.sql");
 export const MIG3 = ler("supabase/migrations/20260920120000_acoes_massivas_registro_sem_fidelizacao.sql");
 export const MIG4 = ler("supabase/migrations/20260927143351_acoes_massivas_responsavel_caso_e_acordo.sql");
+export const MIG5 = ler("supabase/migrations/20260927190000_acoes_massivas_exigir_dono_acordo.sql");
 
 // O schema `internal` e as duas pecas que a MIG4 usa, tiradas dos ARQUIVOS DE
 // MIGRATION reais -- nao sao dubles. patch_funcao_ancorada e o mesmo patcher de
@@ -253,6 +254,7 @@ export async function novoBanco({ fase = "depois" } = {}) {
     await db.exec(MIG3);
     await db.exec(INTERNAL);
     await db.exec(MIG4);
+    await db.exec(MIG5);
   }
   await db.exec(`insert into public.prime_extrato values ('2026-09-05 10:00:00+00');
                  insert into public.usuarios values ('${GESTAO}','Gestao','gerencia',true),
@@ -355,7 +357,17 @@ const TIPOS_PREVIA = {
   p_valor_min: "numeric", p_valor_max: "numeric", p_operador_email: "text", p_tipo_cobranca: "text",
   p_acionamento: "text", p_recencia_dias: "integer", p_sem_telefone: "boolean",
 };
+// A partir de 20260927190000, as modalidades que olham ACORDO exigem pelo menos
+// um "Responsável pelo acordo". Os testes desta bancada são sobre o UNIVERSO e a
+// confirmação -- eles caíam em MENSALIDADES_E_ACORDOS por acidente, não por
+// assunto, e seus dados semeiam título (mensalidade). Então o default aqui é
+// MENSALIDADES. Quem testa modalidade de acordo passa `p_tipo_cobranca` E o
+// dono do acordo, explicitamente.
+const PRECISA_DONO_ACORDO = (t) =>
+  ["ACORDOS_VENCIDOS", "MENSALIDADES_E_ACORDOS"].includes(String(t ?? "").toUpperCase());
+
 export async function previa(db, args = {}) {
+  if (args.p_tipo_cobranca === undefined) args = { ...args, p_tipo_cobranca: "MENSALIDADES" };
   const ch = Object.keys(args);
   const sql = `select public.acoes_massivas_previa(${ch.map((k, i) => `${k} => $${i + 1}::${TIPOS_PREVIA[k]}`).join(", ")}) as r`;
   return (await db.query(sql, ch.map((k) => (Array.isArray(args[k]) ? `{${args[k].join(",")}}` : args[k])))).rows[0].r;
@@ -369,6 +381,7 @@ export async function drill(db, f, ano, indicador, motivo = null, limit = 2000, 
     [JSON.stringify(f ?? {}), ano, indicador, motivo, limit, offset])).rows[0].r;
 }
 export async function exportar(db, ids, { canal = "WHATSAPP", operador = null, tipo = null, previa_id = null } = {}) {
+  if (tipo === null) tipo = "MENSALIDADES";
   return (await db.query(
     `select public.acoes_massivas_exportar(p_aluno_ids => $1::text[], p_canal => $2, p_arquivo => 'x.xlsx',
        p_operador_email => $3, p_tipo_cobranca => $4, p_previa_id => $5::uuid) r`,
@@ -382,7 +395,10 @@ export async function executar(db, args, { canal = "WHATSAPP" } = {}) {
   const p = await previa(db, { p_canal: canal, ...args });
   const ids = p.elegiveis.map((e) => e.id);
   const ex = await exportar(db, ids, {
-    canal, operador: args.p_operador_email ?? null, tipo: args.p_tipo_cobranca ?? null, previa_id: p.previa_id });
+    canal, operador: args.p_operador_email ?? null,
+    // o exportar tem de repetir o MESMO tipo da previa, senao a exigencia de
+    // dono de acordo pega um e nao o outro
+    tipo: args.p_tipo_cobranca ?? "MENSALIDADES", previa_id: p.previa_id });
   const cf = ex.lote_id ? await concluir(db, ex.lote_id) : null;
   return { previa: p, exportacao: ex, confirmacao: cf, ids };
 }

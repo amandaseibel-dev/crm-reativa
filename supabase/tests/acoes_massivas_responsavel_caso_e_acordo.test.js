@@ -14,7 +14,7 @@
 //   * sem selecao, NADA muda -- o comportamento antigo fica intacto.
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
-  novoBanco, comoGestao, alunos, acordoVencido, universo,
+  novoBanco, comoGestao, alunos, acordoVencido, universo, previa, exportar,
   GESTAO, OP_A, OP_B, OP_INATIVA, CG,
 } from "./fixtures/acoes_massivas_universo/bancada.js";
 
@@ -209,5 +209,137 @@ describe("a lista de quem pode ser escolhido", () => {
     await alunos(db, 1, { dono: OP_A, ini: 1 });
     const r = (await db.query("select public.acoes_massivas_responsaveis() r")).rows[0].r;
     expect(r.map((o) => o.email)).not.toContain(OP_B);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A LACUNA DO #537: campo de "Responsavel pelo acordo" VAZIO significava
+// "acordo de qualquer pessoa". Nas modalidades que olham acordo, escolher de
+// quem e o acordo passa a ser OBRIGATORIO -- na previa, no exportar e no
+// registrar. MENSALIDADES segue sem a exigencia.
+// ---------------------------------------------------------------------------
+describe("acordo sem dono explicito e recusado nos tres caminhos", () => {
+  const SO_CASO = `CASO:${OP_INATIVA}`;
+  const COM_ACORDO = `CASO:${OP_INATIVA};ACORDO:${GESTAO}`;
+
+  // o cenario que ela pediu: acordo da GESTORA em caso da OLGA
+  const cenario = async () => {
+    const [aluno] = await alunos(db, 1, { dono: OP_INATIVA, ini: 1 });
+    await acordoVencido(db, aluno, GESTAO);
+    return aluno;
+  };
+
+  it("PREVIA: ACORDOS_VENCIDOS sem dono de acordo é recusado", async () => {
+    await cenario();
+    await expect(previa(db, {
+      p_operador_email: SO_CASO, p_tipo_cobranca: "ACORDOS_VENCIDOS", p_limite: 50,
+    })).rejects.toThrow(/exige pelo menos um "Responsavel pelo acordo"/);
+  });
+
+  it("PREVIA: MENSALIDADES_E_ACORDOS sem dono de acordo é recusado", async () => {
+    await cenario();
+    await expect(previa(db, {
+      p_operador_email: SO_CASO, p_tipo_cobranca: "MENSALIDADES_E_ACORDOS", p_limite: 50,
+    })).rejects.toThrow(/Campo vazio NAO significa acordo de qualquer pessoa/);
+  });
+
+  it("PREVIA: MENSALIDADES segue SEM a exigência", async () => {
+    await cenario();
+    const p = await previa(db, {
+      p_operador_email: SO_CASO, p_tipo_cobranca: "MENSALIDADES", p_limite: 50,
+    });
+    expect(p.previa_id).toBeTruthy();
+  });
+
+  it("PREVIA: com o dono do acordo escolhido, passa — e diz quem foi escolhido", async () => {
+    const aluno = await cenario();
+    const p = await previa(db, {
+      p_operador_email: COM_ACORDO, p_tipo_cobranca: "ACORDOS_VENCIDOS", p_limite: 50,
+    });
+    expect(p.responsaveis_acordo).toEqual([GESTAO]);
+    expect(p.elegiveis.map((e) => e.id)).toEqual([aluno]);
+  });
+
+  it("PREVIA: escolhendo OUTRO dono de acordo, o aluno não entra", async () => {
+    await cenario();
+    const p = await previa(db, {
+      p_operador_email: `CASO:${OP_INATIVA};ACORDO:${OP_A}`,
+      p_tipo_cobranca: "ACORDOS_VENCIDOS", p_limite: 50,
+    });
+    expect(p.elegiveis).toEqual([]);
+  });
+
+  it("CHAMADA ANTIGA também cai: 'todos', e-mail solto e vazio", async () => {
+    await cenario();
+    for (const op of ["todos", "livres", OP_INATIVA, "", null]) {
+      await expect(previa(db, {
+        p_operador_email: op, p_tipo_cobranca: "ACORDOS_VENCIDOS", p_limite: 50,
+      })).rejects.toThrow(/Responsavel pelo acordo/);
+    }
+  });
+
+  it("tipo AUSENTE vale MENSALIDADES_E_ACORDOS, e também é recusado", async () => {
+    await cenario();
+    // p_tipo_cobranca: null passa direto -- o default MENSALIDADES da bancada
+    // só entra quando a chave vem `undefined`, e aqui o assunto É o tipo ausente
+    await expect(previa(db, { p_operador_email: SO_CASO, p_limite: 50, p_tipo_cobranca: null }))
+      .rejects.toThrow(/Responsavel pelo acordo/);
+  });
+
+  it("EXPORTAR recusa sozinho, mesmo com previa válida de outra modalidade", async () => {
+    const aluno = await cenario();
+    const p = await previa(db, {
+      p_operador_email: SO_CASO, p_tipo_cobranca: "MENSALIDADES", p_limite: 50,
+    });
+    // a previa de mensalidades passou; exportar como ACORDOS_VENCIDOS sem dono não
+    await expect(exportar(db, [aluno], {
+      operador: SO_CASO, tipo: "ACORDOS_VENCIDOS", previa_id: p.previa_id,
+    })).rejects.toThrow(/Responsavel pelo acordo/);
+  });
+
+  it("EXPORTAR passa com o dono escolhido", async () => {
+    const aluno = await cenario();
+    const p = await previa(db, {
+      p_operador_email: COM_ACORDO, p_tipo_cobranca: "ACORDOS_VENCIDOS", p_limite: 50,
+    });
+    const ex = await exportar(db, [aluno], {
+      operador: COM_ACORDO, tipo: "ACORDOS_VENCIDOS", previa_id: p.previa_id,
+    });
+    expect(ex.lote_id).toBeTruthy();
+  });
+
+  it("REGISTRAR recusa sem dono de acordo — o disparo não passa", async () => {
+    const aluno = await cenario();
+    await expect(db.query(
+      `select public.registrar_acao_massiva(
+         p_aluno_ids => $1::text[], p_canal => 'WHATSAPP', p_arquivo => 'x.xlsx',
+         p_registrado_por_nome => 'G', p_registrado_por_email => $2,
+         p_operador_email => $3, p_lote_id => null,
+         p_filtros => $4::jsonb) r`,
+      [`{${aluno}}`, GESTAO, SO_CASO, JSON.stringify({ tipo_cobranca: "ACORDOS_VENCIDOS" })]
+    )).rejects.toThrow(/Responsavel pelo acordo/);
+  });
+
+  it("REGISTRAR sem tipo nos filtros também cai (default é MENSALIDADES_E_ACORDOS)", async () => {
+    const aluno = await cenario();
+    await expect(db.query(
+      `select public.registrar_acao_massiva(
+         p_aluno_ids => $1::text[], p_canal => 'WHATSAPP', p_arquivo => 'x.xlsx',
+         p_registrado_por_nome => 'G', p_registrado_por_email => $2,
+         p_operador_email => $3, p_lote_id => null, p_filtros => '{}'::jsonb) r`,
+      [`{${aluno}}`, GESTAO, SO_CASO]
+    )).rejects.toThrow(/Responsavel pelo acordo/);
+  });
+
+  it("REGISTRAR de MENSALIDADES segue passando", async () => {
+    const aluno = await cenario();
+    const r = await db.query(
+      `select public.registrar_acao_massiva(
+         p_aluno_ids => $1::text[], p_canal => 'WHATSAPP', p_arquivo => 'x.xlsx',
+         p_registrado_por_nome => 'G', p_registrado_por_email => $2,
+         p_operador_email => $3, p_lote_id => null,
+         p_filtros => $4::jsonb) r`,
+      [`{${aluno}}`, GESTAO, SO_CASO, JSON.stringify({ tipo_cobranca: "MENSALIDADES" })]);
+    expect(r.rows[0].r).toBeTruthy();
   });
 });
