@@ -97,6 +97,32 @@ function Icone({ nome, cor }) {
 
 // Os seis indicadores. `grandeza` é o que o card mede; `base` é o denominador
 // declarado do percentual — percentual sem base declarada se lê errado.
+// O SALDO NÃO É DÍVIDA LIMPA. O classificador calcula saldo = valor original -
+// recuperado para TODO título não cancelado, então tudo que não foi pago entra
+// aqui — inclusive o que está em conferência e o ajuste acadêmico, que ainda
+// dependem de conciliação. As quatro parcelas abaixo somam o saldo exatamente,
+// e três delas saem direto do painel; a quarta é o resíduo ainda não pago dos
+// títulos já convertidos (negociado que não virou dinheiro).
+// MEDIDO em produção em 27/09: 2.780.543,16 + 1.529.222,65 + 167.027,63 +
+// 140.360,83 = 4.617.154,27, o saldo total.
+function composicaoDoSaldo(t) {
+  const residuo = Number(t?.convertido_valor || 0) - Number(t?.recuperado || 0);
+  return [
+    { chave: "sem_negociacao", rotulo: "Sem nenhuma negociação", papel: "saldo",
+      indicador: "sem_negociacao", valor: Number(t?.sem_negociacao_valor || 0),
+      apoio: conta(t?.sem_negociacao_titulos, "mensalidade", "mensalidades") },
+    { chave: "conferencia", rotulo: "Em conferência, a conciliar", papel: "conferencia",
+      indicador: "em_conferencia", valor: Number(t?.conferencia_valor || 0),
+      apoio: conta(t?.conferencia_titulos, "mensalidade", "mensalidades") },
+    { chave: "residuo", rotulo: "Negociado ainda não pago", papel: "convertido",
+      indicador: "convertido", valor: residuo,
+      apoio: "resíduo dos títulos já convertidos" },
+    { chave: "academico", rotulo: "Ajuste acadêmico, a conciliar", papel: "cancelado",
+      indicador: "academico", valor: Number(t?.academico_valor || 0),
+      apoio: conta(t?.academico_titulos, "mensalidade", "mensalidades") },
+  ];
+}
+
 function montarCards(t) {
   const entrada = Number(t?.valor_original || 0);
   return [
@@ -109,10 +135,11 @@ function montarCards(t) {
     },
     {
       chave: "recuperado", indicador: "recuperado", papel: "recuperado",
-      titulo: "Recuperado", valor: moedaCurta(t?.recuperado),
+      titulo: "Recuperado por rateio", valor: moedaCurta(t?.recuperado),
       linhas: [conta(t?.titulos_com_pagamento, "mensalidade com pagamento", "mensalidades com pagamento"),
                conta(t?.titulos_liquidados, "totalmente liquidado", "totalmente liquidados")],
       nota: pct(t?.recuperado, entrada) + " do valor original que entrou",
+      aviso: "principal proporcional às parcelas pagas do acordo — não é caixa recebido",
     },
     {
       chave: "convertido", indicador: "convertido", papel: "convertido",
@@ -125,8 +152,9 @@ function montarCards(t) {
       chave: "conferencia", indicador: "em_conferencia", papel: "conferencia",
       titulo: "Em conferência", valor: moedaCurta(t?.conferencia_valor),
       linhas: [conta(t?.conferencia_titulos, "sem prova suficiente", "sem prova suficiente"),
-               "não entram em Convertido nem no saldo"],
+               "não entram em Convertido"],
       nota: pct(t?.conferencia_valor, entrada) + " do valor original que entrou",
+      aviso: "continuam dentro do saldo residual, porque ninguém confirmou o pagamento",
     },
     {
       chave: "cancelado", indicador: "cancelado", papel: "cancelado",
@@ -139,10 +167,12 @@ function montarCards(t) {
     },
     {
       chave: "saldo", indicador: "saldo", papel: "saldo",
-      titulo: "Saldo a recuperar", valor: moedaCurta(t?.saldo_valor),
+      titulo: "Saldo residual da carteira", valor: moedaCurta(t?.saldo_valor),
       linhas: [conta(t?.saldo_titulos, "mensalidade com saldo", "mensalidades com saldo"),
-               moedaCurta(t?.sem_negociacao_valor) + " sem nenhuma negociação"],
+               "só " + moedaCurta(t?.sem_negociacao_valor) + " sem nenhuma negociação"],
       nota: pct(t?.saldo_valor, entrada) + " do valor original que entrou",
+      aviso: "inclui conferência e ajuste acadêmico pendentes de conciliação — "
+           + "não é saldo confirmado para cobrança",
     },
   ];
 }
@@ -164,7 +194,7 @@ const APOIO_DO_CARD = {
   saldo: (b) => conta(b.saldo_titulos, "com saldo", "com saldo"),
 };
 const tituloDetalhe = (c, b) =>
-  "Ver os títulos de " + c.titulo + " de " + competenciaLonga(b.competencia);
+  "Ver os títulos de " + c.titulo + " com vencimento em " + competenciaLonga(b.competencia);
 
 export default function EfetividadeCompetencias() {
   const [dados, setDados] = useState(null);
@@ -206,8 +236,8 @@ export default function EfetividadeCompetencias() {
   async function abrirDetalhe(card, competencia) {
     const alvo = competencia || escolhido;
     const ondeTexto = alvo
-      ? "Mensalidades de " + competenciaLonga(alvo.competencia)
-      : "todas as competências de 2026/2";
+      ? "Vencimento em " + competenciaLonga(alvo.competencia)
+      : "todos os meses de vencimento de 2026/2";
     setDetalhe({ titulo: card.titulo, onde: ondeTexto, papel: card.papel, carregando: true, dados: null });
     const { data, error } = await supabase.rpc("carteira_2026_2_competencia_detalhe", {
       p_competencia: alvo ? String(alvo.competencia).slice(0, 10) : null,
@@ -228,17 +258,20 @@ export default function EfetividadeCompetencias() {
   }
 
   const at = dados.atualizado_em || {};
+  // Mês anterior ao início do semestre (julho) presente na lista.
+  const temVencimentoAntesDoSemestre = competencias.some(
+    (b) => String(b.competencia).slice(0, 10) < "2026-07-01");
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
       {/* ---- escolha da competência + identidade do recorte ---- */}
       <div style={S.painelSeletor}>
         <div style={S.seletorBloco}>
-          <span style={S.navRotulo}>Competência</span>
+          <span style={S.navRotulo}>Mês de vencimento</span>
           <select value={selecionado} onChange={(e) => setSelecionado(e.target.value)}
-                  aria-label="Competência de 2026/2" style={S.select}>
+                  aria-label="Mês de vencimento de 2026/2" style={S.select}>
             <option value="todos">
-              Todas as competências do semestre ({num(qtdCompetencias)})
+              Todos os meses de vencimento ({num(qtdCompetencias)})
             </option>
             {competencias.map((b) => (
               <option key={String(b.competencia)} value={String(b.competencia).slice(0, 10)}>
@@ -249,17 +282,17 @@ export default function EfetividadeCompetencias() {
             ))}
           </select>
         </div>
-        <span style={S.chip}>2026/2 · competência = mês do vencimento</span>
+        <span style={S.chip}>2026/2 · agrupado pelo mês de vencimento</span>
       </div>
 
       {/* Identidade do recorte escolhido, sempre no mesmo lugar. */}
       <p style={S.rodapeDiscreto}>
         {escolhido
-          ? "Mensalidades de " + competenciaLonga(escolhido.competencia) + " · " + faixaVencimento(escolhido)
+          ? "Vencimento em " + competenciaLonga(escolhido.competencia) + " · " + faixaVencimento(escolhido)
             + " · " + conta(escolhido.titulos, "mensalidade", "mensalidades")
             + " · " + conta(escolhido.alunos, "aluno", "alunos")
             + " · " + moeda(escolhido.valor_original) + " de valor original"
-          : conta(qtdCompetencias, "competência", "competências")
+          : conta(qtdCompetencias, "mês de vencimento", "meses de vencimento")
             + " (" + competenciaCurta(dados.total?.vencimento_de) + " a "
             + competenciaCurta(dados.total?.vencimento_ate) + ") · "
             + conta(dados.total?.titulos, "mensalidade", "mensalidades") + " · "
@@ -269,6 +302,19 @@ export default function EfetividadeCompetencias() {
           + " (situação no Prime coletada em " + horario(at.prime_coletado_em)
           + "; última entrada na carteira em " + dia(at.ultima_entrada) + ")"}
       </p>
+
+      {/* Por que um semestre que começa em julho tem mensalidade vencendo em
+          abril. Sem isto a lista parece erro de recorte e alguém "conserta"
+          excluindo os meses, tirando dívida real da carteira. */}
+      {temVencimentoAntesDoSemestre ? (
+        <p style={S.rodapeDiscreto}>
+          O semestre 2026/2 começa em julho, mas a lista tem mensalidades vencendo antes disso. Não é erro de
+          recorte: quem diz a que semestre a mensalidade pertence é a <strong>série de cobrança do Prime</strong>,
+          não a data de vencimento. Medido em 27/09/2026: as 218 mensalidades com vencimento entre abril e junho
+          (R$ 394.089,85) estão em 2026/2 porque a série do Prime as coloca lá — nenhuma entrou pela regra de
+          vencimento. São dívida real do semestre e por isso não são excluídas.
+        </p>
+      ) : null}
 
       {/* Onde o semestre é INFERIDO em vez de vir do Prime. Fica à vista porque
           é o único ponto do recorte que não é prova: sem série, o título entra
@@ -294,6 +340,7 @@ export default function EfetividadeCompetencias() {
             <strong style={{ ...S.cardValor, color: COR[c.papel] }}>{c.valor}</strong>
             {c.linhas.map((l) => <span key={l} style={S.cardLinha}>{l}</span>)}
             <span style={S.cardNota}>{c.nota}</span>
+            {c.aviso ? <span style={S.cardAviso}>{c.aviso}</span> : null}
             <span style={S.cardVer}>Ver títulos →</span>
           </button>
         ))}
@@ -328,13 +375,57 @@ export default function EfetividadeCompetencias() {
         </p>
       </section>
 
-      {/* ---- 2. UM CARD POR BORDERÔ ---- */}
+      {/* Composição do saldo residual: o card de cima diz que não é dívida
+          limpa; aqui se mostra de que ele é feito, com cada parte clicável. */}
+      <section style={S.cartao}>
+        <div style={S.cartaoCabecalho}>
+          <h2 style={S.h2}>Composição do saldo residual</h2>
+          <span style={S.cartaoApoio}>
+            {moeda(topo?.saldo_valor)} · as quatro parcelas somam o saldo
+          </span>
+        </div>
+        <div>
+          {composicaoDoSaldo(topo).map((l) => {
+            const base = Number(topo?.saldo_valor || 0);
+            const share = base > 0 ? (l.valor / base) * 100 : 0;
+            return (
+              <button key={l.chave} type="button" style={S.linhaSaldo}
+                      onClick={() => abrirDetalhe(
+                        { titulo: l.rotulo, indicador: l.indicador, papel: l.papel }, null)}
+                      title={"Ver os títulos de " + l.rotulo}>
+                <span style={S.linhaTopoSaldo}>
+                  <span style={S.linhaRotulo}>
+                    <span style={{ ...S.ponto, background: COR[l.papel] }} />{l.rotulo}
+                  </span>
+                  <strong style={S.linhaValor}>{moeda(l.valor)}</strong>
+                  <span style={{ ...S.linhaPctSaldo, color: COR[l.papel] }}>
+                    {share.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
+                  </span>
+                </span>
+                <span style={S.linhaApoio}>{l.apoio}</span>
+                <span style={S.trilho}>
+                  <span style={{ ...S.barra, position: "relative", display: "block",
+                                 width: Math.max(Math.min(share, 100), l.valor > 0 ? 0.6 : 0) + "%",
+                                 height: "100%", background: COR[l.papel] }} />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        <p style={S.discreto}>
+          Só {pct(topo?.sem_negociacao_valor, topo?.saldo_valor)} do saldo é dívida sem nenhuma negociação. O
+          restante depende de conciliação (conferência e ajuste acadêmico) ou já foi negociado e ainda não virou
+          pagamento. Por isso o total não é saldo confirmado para cobrança.
+        </p>
+      </section>
+
+      {/* ---- 2. UM CARD POR MÊS DE VENCIMENTO ---- */}
       <section>
         <div style={S.cartaoCabecalho}>
-          <h2 style={S.h2}>{escolhido ? "Competência selecionada" : "Mês a mês"}</h2>
+          <h2 style={S.h2}>{escolhido ? "Mês selecionado" : "Mês a mês"}</h2>
           <span style={S.cartaoApoio}>
-            {escolhido ? "mostre “Todas” no seletor para comparar"
-                       : conta(qtdCompetencias, "competência", "competências")}
+            {escolhido ? "mostre “Todos” no seletor para comparar"
+                       : conta(qtdCompetencias, "mês de vencimento", "meses de vencimento")}
           </span>
         </div>
         <div style={S.gradeBorderos}>
@@ -345,7 +436,7 @@ export default function EfetividadeCompetencias() {
             const cards = montarCards(b);
             return (
               <article key={String(b.competencia)} style={S.cartaoCompetencia}
-                       aria-label={"Mensalidades de " + competenciaLonga(b.competencia)}>
+                       aria-label={"Mensalidades com vencimento em " + competenciaLonga(b.competencia)}>
                 <header style={S.compCabecalho}>
                   <div>
                     <strong style={S.compNumero}>{competenciaLonga(b.competencia)}</strong>
@@ -422,6 +513,10 @@ export default function EfetividadeCompetencias() {
 function PainelDetalhe({ detalhe, onFechar }) {
   const d = detalhe.dados;
   const ind = d?.indicador;
+  // O campo `origem_importacao` depende da migration 20260928…; até ela ser
+  // aplicada a coluna simplesmente não aparece, em vez de a tela mostrar vazio
+  // e passar a impressão de que ninguém tem origem.
+  const temOrigem = (d?.linhas || []).some((l) => "origem_importacao" in l);
   const colunaValor = ind === "recuperado" ? "recuperado" : ind === "saldo" ? "saldo" : "valor_original";
   const rotuloValor = ind === "recuperado" ? "Recuperado" : ind === "saldo" ? "Saldo" : "Valor original";
   return (
@@ -452,7 +547,8 @@ function PainelDetalhe({ detalhe, onFechar }) {
                       <th style={S.th}>CPF</th>
                       <th style={S.th}>Título</th>
                       <th style={S.th}>Venc.</th>
-                      <th style={S.th}>Competência</th>
+                      <th style={S.th}>Mês venc.</th>
+                      {temOrigem ? <th style={S.th}>Origem</th> : null}
                       <th style={S.th}>Situação</th>
                       <th style={{ ...S.th, textAlign: "right" }}>{rotuloValor}</th>
                     </tr>
@@ -465,6 +561,11 @@ function PainelDetalhe({ detalhe, onFechar }) {
                         <td style={S.tdFraco}>{l.documento}</td>
                         <td style={S.tdFraco}>{dia(l.vencimento)}</td>
                         <td style={S.tdFraco}>{competenciaCurta(l.competencia)}</td>
+                        {temOrigem ? (
+                          <td style={l.origem_importacao ? S.tdFraco : S.tdSemOrigem}>
+                            {l.origem_importacao || "Sem importação de origem identificada"}
+                          </td>
+                        ) : null}
                         <td style={S.td}>
                           {l.situacao}
                           {l.motivo_cancelamento ? " · " + l.motivo_cancelamento : ""}
@@ -480,7 +581,11 @@ function PainelDetalhe({ detalhe, onFechar }) {
             ) : <p style={S.discreto}>Nenhum título neste indicador.</p>}
             <p style={S.discreto}>
               CPF parcialmente oculto de propósito. O semestre de cada título vem da série do Prime; onde a série
-              não existe, do vencimento.
+              não existe, do vencimento.{" "}
+              {temOrigem
+                ? "A coluna Origem mostra a importação que trouxe o título para a carteira; agrupar pelo mês de "
+                  + "vencimento não substitui essa rastreabilidade."
+                : ""}
             </p>
           </>
         )}
@@ -524,6 +629,10 @@ const S = {
                fontFamily: "'Sora', Inter, sans-serif", whiteSpace: "nowrap" },
   cardLinha: { fontSize: 12.5, color: "var(--rv-texto)", lineHeight: 1.5 },
   cardNota: { fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5, marginTop: 4 },
+  // A ressalva não pode competir com o número, mas também não pode sumir: é ela
+  // que impede a leitura errada do card.
+  cardAviso: { fontSize: 11, color: "var(--rv-ambar-texto)", lineHeight: 1.45, marginTop: 4,
+               borderTop: "1px dashed var(--rv-borda-suave)", paddingTop: 4 },
   cardVer: { fontSize: 11.5, color: "var(--rv-azul)", fontWeight: 700, marginTop: 6 },
 
   cartao: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14,
@@ -536,6 +645,11 @@ const S = {
   linhaRotulo: { display: "flex", alignItems: "center", gap: 8, fontSize: 13.5, flex: "1 1 200px", minWidth: 0 },
   linhaApoio: { fontSize: 12, color: "var(--rv-texto-suave)" },
   linhaValor: { fontSize: 13.5, fontWeight: 700, fontVariantNumeric: "tabular-nums" },
+  linhaSaldo: { display: "flex", flexDirection: "column", gap: 3, width: "100%", textAlign: "left",
+                background: "none", border: "none", borderBottom: "1px solid var(--rv-borda-suave)",
+                padding: "8px 0", margin: 0, cursor: "pointer", font: "inherit", color: "inherit" },
+  linhaTopoSaldo: { display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" },
+  linhaPctSaldo: { fontSize: 12.5, fontWeight: 700, fontVariantNumeric: "tabular-nums" },
 
   // ---- um card por competência ----
   gradeBorderos: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 },
@@ -599,4 +713,7 @@ const S = {
   td: { padding: "7px 8px", borderBottom: "1px solid var(--rv-borda-suave)", verticalAlign: "top" },
   tdFraco: { padding: "7px 8px", borderBottom: "1px solid var(--rv-borda-suave)", verticalAlign: "top",
              color: "var(--rv-texto-suave)", whiteSpace: "nowrap" },
+  // Falta de rastreabilidade não é dado neutro: fica em âmbar para ser vista.
+  tdSemOrigem: { padding: "7px 8px", borderBottom: "1px solid var(--rv-borda-suave)", verticalAlign: "top",
+                 color: "var(--rv-ambar-texto)", whiteSpace: "nowrap", fontWeight: 600 },
 };

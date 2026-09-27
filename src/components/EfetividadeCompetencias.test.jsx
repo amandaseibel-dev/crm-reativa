@@ -105,8 +105,8 @@ const topo = () => within(screen.getByRole("group", { name: "Indicadores do reco
 describe("Efetividade 2026/2 por competência", () => {
   it("abre em todas as competências e os seis cards medem o semestre inteiro", async () => {
     await abrir();
-    for (const t of ["Entradas", "Recuperado", "Convertido", "Em conferência",
-                     "Cancelados", "Saldo a recuperar"]) {
+    for (const t of ["Entradas", "Recuperado por rateio", "Convertido", "Em conferência",
+                     "Cancelados", "Saldo residual da carteira"]) {
       expect(topo().getByText(t)).toBeTruthy();
     }
     expect(topo().getByText("R$ 4,76 mi")).toBeTruthy();
@@ -130,9 +130,9 @@ describe("Efetividade 2026/2 por competência", () => {
     await abrir();
     const nomes = screen.getAllByRole("article").map((a) => a.getAttribute("aria-label"));
     expect(nomes).toEqual([
-      "Mensalidades de julho/2026",
-      "Mensalidades de agosto/2026",
-      "Mensalidades de dezembro/2026",
+      "Mensalidades com vencimento em julho/2026",
+      "Mensalidades com vencimento em agosto/2026",
+      "Mensalidades com vencimento em dezembro/2026",
     ]);
   });
 
@@ -165,7 +165,7 @@ describe("Efetividade 2026/2 por competência", () => {
   it("o singular não vira plural: dezembro tem UMA mensalidade", async () => {
     await abrir();
     await act(async () => {
-      fireEvent.change(screen.getByLabelText("Competência de 2026/2"),
+      fireEvent.change(screen.getByLabelText("Mês de vencimento de 2026/2"),
                        { target: { value: "2026-12-01" } });
     });
     expect(topo().getByText("1 mensalidade recebida para cobrança")).toBeTruthy();
@@ -183,19 +183,19 @@ describe("Efetividade 2026/2 por competência", () => {
   it("escolher uma competência troca o que os cards de cima medem", async () => {
     await abrir();
     await act(async () => {
-      fireEvent.change(screen.getByLabelText("Competência de 2026/2"),
+      fireEvent.change(screen.getByLabelText("Mês de vencimento de 2026/2"),
                        { target: { value: "2026-07-01" } });
     });
     expect(topo().getByText("793 mensalidades recebidas para cobrança")).toBeTruthy();
     expect(topo().getByText("790 alunos únicos")).toBeTruthy();
     expect(screen.getByText("julho/2026")).toBeTruthy();
     expect(screen.queryByText("agosto/2026")).toBeNull();
-    expect(screen.getByRole("heading", { name: "Competência selecionada" })).toBeTruthy();
+    expect(screen.getByRole("heading", { name: "Mês selecionado" })).toBeTruthy();
   });
 
   it("clicar em um card do topo pede o indicador certo, sem competência", async () => {
     await abrir();
-    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Recuperado")); });
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Recuperado por rateio")); });
     expect(rpcMock).toHaveBeenCalledWith("carteira_2026_2_competencia_detalhe", {
       p_competencia: null, p_indicador: "recuperado", p_limite: 200, p_offset: 0,
     });
@@ -205,14 +205,14 @@ describe("Efetividade 2026/2 por competência", () => {
     expect(painel.getByRole("columnheader", { name: "Recuperado" })).toBeTruthy();
     expect(painel.getByText("R$ 500,00")).toBeTruthy();
     // e a coluna de origem mostra a competência, não borderô
-    expect(painel.getByRole("columnheader", { name: "Competência" })).toBeTruthy();
+    expect(painel.getByRole("columnheader", { name: "Mês venc." })).toBeTruthy();
     expect(painel.getByText("ago/2026")).toBeTruthy();
   });
 
   it("o botão dentro do card do mês manda a competência daquele mês", async () => {
     await abrir();
     await act(async () => {
-      fireEvent.click(screen.getByTitle("Ver os títulos de Saldo a recuperar de agosto/2026"));
+      fireEvent.click(screen.getByTitle("Ver os títulos de Saldo residual da carteira com vencimento em agosto/2026"));
     });
     expect(rpcMock).toHaveBeenCalledWith("carteira_2026_2_competencia_detalhe", {
       p_competencia: "2026-08-01", p_indicador: "saldo", p_limite: 200, p_offset: 0,
@@ -222,6 +222,99 @@ describe("Efetividade 2026/2 por competência", () => {
   it("diz quanto do recorte entrou pelo vencimento em vez da série do Prime", async () => {
     await abrir();
     expect(screen.getByText(/160 mensalidades \(R\$ 42\.574,66, 0,9% do valor original\)/)).toBeTruthy();
+  });
+
+
+  // REVISAO 27/09: o card dizia que os titulos em conferencia "nao entram no
+  // saldo", mas o classificador calcula saldo para TODO titulo nao cancelado.
+  // Os R$ 1,53 mi em conferencia estavam la o tempo todo.
+  it("o saldo é apresentado como RESIDUAL e diz o que inclui", async () => {
+    await abrir();
+    const card = within(topo().getByText("Saldo residual da carteira").closest("button"));
+    expect(card.getByText(/inclui conferência e ajuste acadêmico pendentes de conciliação/)).toBeTruthy();
+    expect(card.getByText(/não é saldo confirmado para cobrança/)).toBeTruthy();
+    // e o card de conferência não afirma mais que está fora do saldo
+    expect(screen.queryByText("não entram em Convertido nem no saldo")).toBeNull();
+    const conf = within(topo().getByText("Em conferência").closest("button"));
+    expect(conf.getByText(/continuam dentro do saldo residual/)).toBeTruthy();
+  });
+
+  it("a composição do saldo soma exatamente o saldo, com as quatro parcelas", async () => {
+    await abrir();
+    const sec = within(screen.getByRole("heading", { name: "Composição do saldo residual" }).closest("section"));
+    // sem negociação 2.629.573,60 + conferência 1.409.354,51
+    // + resíduo (615.307,07 − 454.592,38 = 160.714,69) + acadêmico 99.075,88
+    // = 4.298.718,68, exatamente o saldo do painel
+    expect(sec.getByText("R$ 2.629.573,60")).toBeTruthy();
+    expect(sec.getByText("R$ 1.409.354,51")).toBeTruthy();
+    expect(sec.getByText("R$ 160.714,69")).toBeTruthy();
+    expect(sec.getByText("R$ 99.075,88")).toBeTruthy();
+    expect(sec.getByText(/as quatro parcelas somam o saldo/)).toBeTruthy();
+    expect(sec.getByText(/R\$ 4\.298\.718,68/)).toBeTruthy();
+    expect(sec.getByText(/Só 61,2% do saldo é dívida sem nenhuma negociação/)).toBeTruthy();
+  });
+
+  it("cada parcela da composição abre o detalhe do próprio indicador", async () => {
+    await abrir();
+    const sec = within(screen.getByRole("heading", { name: "Composição do saldo residual" }).closest("section"));
+    await act(async () => { fireEvent.click(sec.getByTitle("Ver os títulos de Em conferência, a conciliar")); });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_2026_2_competencia_detalhe", {
+      p_competencia: null, p_indicador: "em_conferencia", p_limite: 200, p_offset: 0,
+    });
+  });
+
+  it("o card de recuperado diz que é rateio, não caixa", async () => {
+    await abrir();
+    const card = within(topo().getByText("Recuperado por rateio").closest("button"));
+    expect(card.getByText(/principal proporcional às parcelas pagas do acordo/)).toBeTruthy();
+    expect(card.getByText(/não é caixa recebido/)).toBeTruthy();
+    expect(screen.queryByText(/valor efetivamente recebido/)).toBeNull();
+  });
+
+  it("explica por que 2026/2 tem mensalidade vencendo antes de julho", async () => {
+    // Sem mês anterior a julho o aviso NÃO deve existir...
+    await abrir();
+    expect(screen.queryByText(/série de cobrança do Prime/)).toBeNull();
+    cleanup();
+    // ...e com abril na lista, ele aparece e diz por quê.
+    const ABRIL = { ...DEZEMBRO, competencia: "2026-04-01",
+                    vencimento_de: "2026-04-05", vencimento_ate: "2026-04-05",
+                    titulos: 3, alunos: 3, valor_original: 2680.77 };
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: { ...PAINEL, competencias: [ABRIL, AGOSTO, JULHO, DEZEMBRO] } })
+        : Promise.resolve({ data: DETALHE }));
+    await abrir();
+    expect(screen.getByText(/série de cobrança do Prime/)).toBeTruthy();
+    expect(screen.getByText(/218 mensalidades com vencimento entre abril e junho/)).toBeTruthy();
+    expect(screen.getByText(/não são excluídas/)).toBeTruthy();
+  });
+
+  // Agrupar pelo vencimento resolveu o recorte, NAO a rastreabilidade.
+  it("o detalhamento marca quem entrou sem importação de origem", async () => {
+    rpcMock.mockImplementation((nome) => {
+      if (nome === "carteira_2026_2_competencias") return Promise.resolve({ data: PAINEL });
+      return Promise.resolve({ data: { ...DETALHE, linhas: [
+        { ...DETALHE.linhas[0], origem_importacao: "Borderô 706" },
+        { ...DETALHE.linhas[0], aluno: "ORFAO", origem_importacao: null },
+      ] } });
+    });
+    await abrir();
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Entradas")); });
+    const p = within(screen.getByRole("dialog"));
+    expect(p.getByRole("columnheader", { name: "Origem" })).toBeTruthy();
+    expect(p.getByText("Borderô 706")).toBeTruthy();
+    expect(p.getByText("Sem importação de origem identificada")).toBeTruthy();
+  });
+
+  // Enquanto a migration da origem nao for aplicada a coluna nao existe: uma
+  // coluna vazia diria que NINGUEM tem origem, que e falso.
+  it("sem o campo no banco, a coluna Origem simplesmente não aparece", async () => {
+    await abrir();
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Entradas")); });
+    const p = within(screen.getByRole("dialog"));
+    expect(p.queryByRole("columnheader", { name: "Origem" })).toBeNull();
+    expect(p.queryByText("Sem importação de origem identificada")).toBeNull();
   });
 
   it("sem competência nenhuma, avisa em vez de desenhar cards vazios", async () => {
