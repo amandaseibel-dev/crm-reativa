@@ -214,7 +214,7 @@ describe("Efetividade 2026/2 por borderô", () => {
     expect(screen.getByText("2 remessas + títulos sem borderô")).toBeTruthy();
     expect(screen.getByRole("option", { name: /Todos os borderôs do semestre \(2\)/ })).toBeTruthy();
     // mas o valor dele é visível, com card próprio e explicação
-    expect(screen.getByText("Sem borderô")).toBeTruthy();
+    expect(screen.getByText("Sem borderô identificado")).toBeTruthy();
     expect(screen.getByText(/1 título de 2026\/2 \(R\$ 13\.643,33\) entrou sem borderô de origem/)).toBeTruthy();
   });
 

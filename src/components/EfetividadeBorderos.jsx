@@ -135,8 +135,8 @@ export default function EfetividadeBorderos() {
 
   const borderos = useMemo(() => dados?.borderos || [], [dados]);
   // A lista do banco traz também o grupo dos títulos SEM importacao_id — ele
-  // aparece como card ("Sem borderô") porque o valor existe e tem de ser visto,
-  // mas NÃO é remessa e não pode entrar na contagem de borderôs. Medido em
+  // aparece como card ("Sem borderô identificado") porque o valor existe e tem de ser visto,
+  // de ser visto, mas NÃO é remessa e não entra na contagem de borderôs. Medido em
   // produção em 27/09: 15 borderôs + 1 título órfão = 16 blocos.
   const orfao = useMemo(() => borderos.find((b) => !b.importacao_id) || null, [borderos]);
   const qtdBorderos = Number(dados?.total?.borderos || 0);
@@ -188,7 +188,7 @@ export default function EfetividadeBorderos() {
             </option>
             {borderos.map((b) => (
               <option key={b.importacao_id || "sem-bordero"} value={b.importacao_id || "sem-bordero"}>
-                {b.bordero_ref ? "Borderô " + b.bordero_ref : "Sem borderô"}
+                {b.bordero_ref ? "Borderô " + b.bordero_ref : "Sem borderô identificado"}
                 {" · " + dia(b.bordero_entrada) + " · " + num(b.titulos) + " títulos · " + moedaCurta(b.valor_original)}
               </option>
             ))}
@@ -217,7 +217,8 @@ export default function EfetividadeBorderos() {
         <p style={S.rodapeDiscreto}>
           {num(orfao.titulos)} título{Number(orfao.titulos) === 1 ? "" : "s"} de 2026/2
           ({moeda(orfao.valor_original)}) entrou sem borderô de origem: não há importação registrada para
-          atribuí-lo a uma remessa. Aparece no card “Sem borderô”, dentro dos totais do semestre.
+          atribuí-lo a uma remessa. Aparece no card “Sem borderô identificado”, dentro dos totais do
+          semestre — a origem não é inventada.
         </p>
       ) : null}
 
@@ -297,10 +298,10 @@ export default function EfetividadeBorderos() {
             const convPct = entrada > 0 ? (Number(b.convertido_valor || 0) / entrada) * 100 : 0;
             return (
               <article key={b.importacao_id || "sem-bordero"} style={S.bordero}
-                       aria-label={b.bordero_ref ? "Borderô " + b.bordero_ref : "Sem borderô"}>
+                       aria-label={b.bordero_ref ? "Borderô " + b.bordero_ref : "Sem borderô identificado"}>
                 <header style={S.bordCabecalho}>
                   <div>
-                    <strong style={S.bordNumero}>{b.bordero_ref ? "Borderô " + b.bordero_ref : "Sem borderô"}</strong>
+                    <strong style={S.bordNumero}>{b.bordero_ref ? "Borderô " + b.bordero_ref : "Sem borderô identificado"}</strong>
                     <span style={S.bordSelo}>2026/2</span>
                   </div>
                   <span style={S.bordEntrada}>entrou em {dia(b.bordero_entrada)}</span>
