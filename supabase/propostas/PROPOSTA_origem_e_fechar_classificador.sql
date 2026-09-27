@@ -198,39 +198,117 @@ $function$;
 comment on function public.carteira_2026_2_classificar() is
 'Efetividade 2026/2 titulo a titulo, com a competencia (mes do vencimento) e a importacao de origem. Regua de faixas identica a carteira_2026_1_classificar. Só leitura. INTERNA: nao conceder a authenticated -- devolve CPF sem mascara.';
 
--- ACL: ESTA PROPOSTA NAO CONCEDE NADA A `authenticated`. NUNCA.
+-- ACL -- LEIA ANTES DE MEXER. ESTA PROPOSTA NAO CONCEDE NADA A
+-- `authenticated`, `anon` OU `PUBLIC`. NUNCA.
 --
--- O DROP/CREATE e inevitavel (acrescentar coluna a um RETURNS TABLE exige) e
--- recria a funcao SEM acl, herdando o default do Postgres, que e EXECUTE para
--- PUBLIC. As duas linhas abaixo existem SO para restabelecer o estado que
--- 20260927224458 deixou -- nao concedem nada novo:
+-- O DROP/CREATE e inevitavel: acrescentar coluna a um RETURNS TABLE exige.
 --
---   revoke all ... from public   tira o default e, com ele, o acesso que anon e
---                                authenticated teriam por heranca de PUBLIC
---   grant ... to service_role     devolve o unico papel que precisa
---   postgres                      mantem EXECUTE por ser o DONO, implicitamente
+-- E AQUI ESTAVA UM ERRO, corrigido em 27/09/2026 depois de a gestao apontar
+-- que a ausencia de GRANT no arquivo nao garante a ACL final. NAO GARANTE
+-- MESMO, e neste banco a armadilha e real. MEDIDO em pg_default_acl:
+--
+--   dono postgres, schema public, tipo FUNCTION:
+--     postgres=X/postgres | authenticated=X/postgres | service_role=X/postgres
+--
+-- Ou seja: TODA funcao criada por postgres em public NASCE com EXECUTE para
+-- `authenticated`, por ALTER DEFAULT PRIVILEGES. Foi assim que a exposicao
+-- surgiu. E o `revoke all ... from public` NAO a remove, porque authenticated
+-- recebe o privilegio como concessao DIRETA do default, nao por heranca de
+-- PUBLIC. A versao anterior deste arquivo reabriria o buraco no CREATE.
+--
+-- (`anon` nao esta no default do postgres -- so no do supabase_admin, que nao
+-- se aplica a funcoes criadas pelas nossas migrations. Por isso anon nunca
+-- teve acesso. Revogamos dele assim mesmo: e barato e sobrevive a mudanca do
+-- default.)
+--
+-- NAO MEXER NOS DEFAULT PRIVILEGES GLOBAIS para resolver isto. Eles valem para
+-- o schema public inteiro e para toda funcao nova do projeto; altera-los para
+-- consertar UMA funcao quebraria dezenas de RPCs que dependem do default.
+-- A correcao e local, e e a que esta abaixo.
 --
 -- ESTADO ALVO, identico ao de hoje e ao de carteira_2026_1_classificar:
 --   acl = postgres=X/postgres | service_role=X/postgres
 --
 -- PROIBIDO acrescentar aqui, em qualquer momento futuro:
 --   grant execute on function public.carteira_2026_2_classificar() to authenticated;
--- A funcao devolve CPF SEM MASCARA e nao tem portao. A porta e
+-- A funcao devolve CPF SEM MASCARA e nao tem portao de permissao. A porta e
 -- carteira_2026_2_competencia_detalhe, que mascara e checa permissao.
 --
 -- carteira_2026_2_competencia_detalhe usa CREATE OR REPLACE (sem DROP), entao
--- a ACL dela e PRESERVADA pelo Postgres e segue com authenticated, que e o
--- correto: ela e a porta.
+-- o Postgres PRESERVA a ACL dela e ela segue com authenticated, que e o
+-- correto: ela e a porta. A guarda abaixo confere isso tambem.
+
 revoke all on function public.carteira_2026_2_classificar() from public;
+revoke all on function public.carteira_2026_2_classificar() from anon;
+revoke all on function public.carteira_2026_2_classificar() from authenticated;
 grant execute on function public.carteira_2026_2_classificar() to service_role;
 
--- CONFERIR OBRIGATORIAMENTE depois de aplicar, e so dar por encerrado se:
---   has_function_privilege('authenticated', 'public.carteira_2026_2_classificar()', 'EXECUTE') = false
---   has_function_privilege('anon',          'public.carteira_2026_2_classificar()', 'EXECUTE') = false
---   has_function_privilege('service_role',  'public.carteira_2026_2_classificar()', 'EXECUTE') = true
---   has_function_privilege('postgres',      'public.carteira_2026_2_classificar()', 'EXECUTE') = true
---   concessoes a PUBLIC = 0
---   has_function_privilege('authenticated', 'public.carteira_2026_2_competencia_detalhe(date,text,integer,integer)', 'EXECUTE') = true
+-- ===========================================================================
+-- GUARDA TRANSACIONAL. Conferir DEPOIS do commit nao serve: entre o CREATE e o
+-- commit a funcao ja existiria com a ACL errada, e verificar depois so
+-- descobre a exposicao, nao a impede.
+--
+-- Aqui a checagem roda DENTRO da mesma transacao do DROP/CREATE/REVOKE. Duas
+-- consequencias, e as duas importam:
+--   1. o catalogo alterado NAO e visivel a outras sessoes ate o commit, entao
+--      nao existe janela de exposicao temporaria;
+--   2. se qualquer acesso indevido sobrar, o RAISE aborta a transacao INTEIRA
+--      -- o DROP e o CREATE sao desfeitos e a funcao antiga continua no lugar,
+--      com a ACL que ja estava correta.
+--
+-- POR ISSO ESTE ARQUIVO SO PODE SER APLICADO COMO UMA TRANSACAO UNICA.
+-- apply_migration ja faz isso. Se for aplicado a mao, envolver em
+-- BEGIN; ... COMMIT; -- e conferir que nenhuma ferramenta esta em autocommit
+-- por instrucao. Nao ha BEGIN/COMMIT escrito no arquivo de proposito, para nao
+-- conflitar com a transacao que apply_migration ja abre.
+-- ===========================================================================
+do $guarda$
+declare
+  v_fn    regprocedure := 'public.carteira_2026_2_classificar()'::regprocedure;
+  v_porta regprocedure := 'public.carteira_2026_2_competencia_detalhe(date,text,integer,integer)'::regprocedure;
+  v_public int;
+begin
+  -- 1. ninguem indevido pode executar o classificador
+  if has_function_privilege('authenticated', v_fn, 'EXECUTE') then
+    raise exception 'ABORTADO: authenticated ficou com EXECUTE em %. A transacao foi desfeita.', v_fn;
+  end if;
+  if has_function_privilege('anon', v_fn, 'EXECUTE') then
+    raise exception 'ABORTADO: anon ficou com EXECUTE em %. A transacao foi desfeita.', v_fn;
+  end if;
+  -- proacl NULO nao e "sem ninguem": e "vale o default", e o default de
+  -- FUNCTION no Postgres e EXECUTE para PUBLIC. Contar so as linhas de
+  -- aclexplode daria zero justamente no caso mais aberto de todos.
+  if (select proacl is null from pg_proc where oid = v_fn::oid) then
+    raise exception 'ABORTADO: % ficou com proacl NULO, o que significa EXECUTE para PUBLIC pelo default. A transacao foi desfeita.', v_fn;
+  end if;
+  select count(*) into v_public
+    from pg_proc p, aclexplode(p.proacl) a
+   where p.oid = v_fn::oid and a.grantee = 0;      -- grantee 0 = PUBLIC
+  if v_public > 0 then
+    raise exception 'ABORTADO: PUBLIC ficou com % concessao(oes) em %. A transacao foi desfeita.', v_public, v_fn;
+  end if;
+
+  -- 2. quem PRECISA executar continua podendo
+  if not has_function_privilege('service_role', v_fn, 'EXECUTE') then
+    raise exception 'ABORTADO: service_role perdeu EXECUTE em %. A transacao foi desfeita.', v_fn;
+  end if;
+  if not has_function_privilege('postgres', v_fn, 'EXECUTE') then
+    raise exception 'ABORTADO: postgres perdeu EXECUTE em %. A transacao foi desfeita.', v_fn;
+  end if;
+
+  -- 3. a PORTA nao pode ter sido fechada junto: e ela que a tela chama
+  if not has_function_privilege('authenticated', v_porta, 'EXECUTE') then
+    raise exception 'ABORTADO: authenticated perdeu EXECUTE em %, e a tela deixaria de funcionar. A transacao foi desfeita.', v_porta;
+  end if;
+
+  -- 4. o classificador segue SECURITY DEFINER (o CREATE poderia ter perdido)
+  if not exists (select 1 from pg_proc where oid = v_fn::oid and prosecdef) then
+    raise exception 'ABORTADO: % deixou de ser SECURITY DEFINER. A transacao foi desfeita.', v_fn;
+  end if;
+
+  raise notice 'Permissoes conferidas na mesma transacao: classificador fechado para authenticated, anon e PUBLIC; service_role e postgres preservados; porta intacta.';
+end
+$guarda$;
 
 -- (B) O detalhe passa a carregar a origem em cada linha.
 -- Apenas UMA chave nova no jsonb_build_object; nada mais muda.
