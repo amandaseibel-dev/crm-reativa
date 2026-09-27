@@ -19,6 +19,25 @@ const ler = (p) => readFileSync(resolve(RAIZ, p), "utf8");
 export const MIG1 = ler("supabase/migrations/20260920100000_acoes_massivas_cobertura_estrutura.sql");
 export const MIG2 = ler("supabase/migrations/20260920110000_acoes_massivas_universo.sql");
 export const MIG3 = ler("supabase/migrations/20260920120000_acoes_massivas_registro_sem_fidelizacao.sql");
+export const MIG4 = ler("supabase/migrations/20260927180000_acoes_massivas_responsavel_caso_e_acordo.sql");
+
+// O schema `internal` e as duas pecas que a MIG4 usa, tiradas dos ARQUIVOS DE
+// MIGRATION reais -- nao sao dubles. patch_funcao_ancorada e o mesmo patcher de
+// producao (exige a ancora no numero exato de ocorrencias e falha alto), e
+// carteira_geral_email e a mesma constante.
+const trecho = (sql, nome) => {
+  const m = sql.match(
+    new RegExp("create or replace function " + nome + "\\([\\s\\S]*?\\$fn\\$[\\s\\S]*?\\$fn\\$;")
+  );
+  if (!m) throw new Error("nao achei " + nome + " no arquivo de migration");
+  return m[0];
+};
+export const INTERNAL =
+  "create schema if not exists internal;\n" +
+  trecho(ler("supabase/migrations/20260925180744_carteira_geral_destino.sql"),
+         "internal\\.carteira_geral_email") + "\n" +
+  trecho(ler("supabase/migrations/20260925181823_carteira_geral_blindar_automacoes.sql"),
+         "internal\\.patch_funcao_ancorada");
 export const RB1 = ler("supabase/rollbacks/20260920100000_acoes_massivas_cobertura_estrutura.rollback.sql");
 export const RB2 = ler("supabase/rollbacks/20260920110000_acoes_massivas_universo.rollback.sql");
 export const RB3 = ler("supabase/rollbacks/20260920120000_acoes_massivas_registro_sem_fidelizacao.rollback.sql");
@@ -28,6 +47,10 @@ export const GESTAO = "gestao@teste.local";
 export const OP_A = "op.a@teste.local";
 export const OP_B = "op.b@teste.local";
 export const OP_C = "op.c@teste.local";
+// operadora DESLIGADA que ainda responde por caso e acordo (o caso da Olga)
+export const OP_INATIVA = "op.inativa@teste.local";
+// o destino de gestao: perfil "carteira", ativo=false de proposito
+export const CG = "carteira.geral@reativa.local";
 
 export const U = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
@@ -51,11 +74,17 @@ const ESQUEMA = `
     id uuid primary key default gen_random_uuid(), aluno_id uuid, operador_email text, operador_nome text,
     total_em_aberto numeric, data_ultimo_acionamento date, cpf_limpo text, status_acionamento text,
     nao_acionar boolean, status_financeiro text, valor_pago numeric, quitado_em date, valor_quitado numeric,
-    status_atual text, status_jornada text);
+    status_atual text, status_jornada text,
+    -- espelha producao: caso encerrado nao conta na lista de responsaveis
+    encerrado_operacional boolean default false);
   create table public.solicitacoes_confirmacao_pagamento (aluno_id text, status text);
   create table public.prime_contratos (cpf text, valid_from date, status text);
   create table public.prime_extrato (coletado_em timestamptz);
-  create table public.acordos (aluno_id uuid, status text, id uuid primary key default gen_random_uuid());
+  -- operador_responsavel_email espelha producao: e o DONO DO ACORDO, que
+  -- nao e o dono do caso nem o da ficha. Sem ele a dimensao de acordo do
+  -- filtro nao teria o que recortar.
+  create table public.acordos (aluno_id uuid, status text, operador_responsavel_email text,
+    id uuid primary key default gen_random_uuid());
   create table public.acordos_titulos (
     aluno_id uuid, situacao text, vencimento date, importacao_id uuid,
     id uuid primary key default gen_random_uuid(), status text default 'em_aberto', tipo_boleto text,
@@ -222,10 +251,15 @@ export async function novoBanco({ fase = "depois" } = {}) {
     await db.exec(MIG1);
     await db.exec(MIG2);
     await db.exec(MIG3);
+    await db.exec(INTERNAL);
+    await db.exec(MIG4);
   }
   await db.exec(`insert into public.prime_extrato values ('2026-09-05 10:00:00+00');
                  insert into public.usuarios values ('${GESTAO}','Gestao','gerencia',true),
-                   ('${OP_A}','Ana','operador',true), ('${OP_B}','Bruno','operador',true)`);
+                   ('${OP_A}','Ana','operador',true), ('${OP_B}','Bruno','operador',true),
+                   -- as classes que o filtro antigo escondia
+                   ('${OP_INATIVA}','Olga','operador',false),
+                   ('${CG}','Carteira Geral','carteira',false)`);
   await comoGestao(db);
   return db;
 }
@@ -284,6 +318,20 @@ export async function alunos(db, n, o = {}) {
     await db.query(`insert into public.acordos (aluno_id, status) select id, 'ATIVO' from unnest($1::uuid[]) id`, [ids]);
   }
   return ids;
+}
+
+/**
+ * Acordo ATIVO com parcela VENCIDA, com DONO DO ACORDO proprio.
+ * E a forma do problema real: o caso e de um, o acordo e de outro.
+ */
+export async function acordoVencido(db, alunoId, donoAcordo) {
+  const r = await db.query(
+    `insert into public.acordos (aluno_id, status, operador_responsavel_email)
+     values ($1, 'ATIVO', $2) returning id`, [alunoId, donoAcordo]);
+  await db.query(
+    `insert into public.parcelas (acordo_id, status, vencimento)
+     values ($1, 'VENCIDA', current_date - 30)`, [r.rows[0].id]);
+  return r.rows[0].id;
 }
 
 /** Movimentacao "de verdade" (sem passar por lote): tipo, dias atras. */

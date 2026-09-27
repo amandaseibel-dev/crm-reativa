@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, cleanup } from "@testing-library/react";
+import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
 
 // Dublê só da RPC. O que se prova aqui: a tela diz de quando é o extrato do
 // Prime usado para tirar quem já pagou, e a mensagem da exportação conta quantos
@@ -35,6 +35,17 @@ const OPERADORES = [
   { email: "cobranca05@teste.local", nome: "Luana" },
 ];
 
+// acoes_massivas_responsaveis: quem TEM caso ou acordo. Inclui o que
+// acoes_massivas_filtros nunca trouxe, porque só lista `ativo and
+// perfil='operador'`: a Olga desligada, a gestão e a Carteira Geral.
+const RESPONSAVEIS = [
+  { email: "SEM_RESPONSAVEL", nome: "Sem responsável", classe: "SEM_RESPONSAVEL", casos: 13, acordos: 34, acordos_ativos: 4 },
+  { email: "cobranca05@teste.local", nome: "Luana", classe: "OPERADOR_ATIVO", casos: 234, acordos: 40, acordos_ativos: 33 },
+  { email: "cobranca03@teste.local", nome: "Olga", classe: "INATIVO", casos: 681, acordos: 130, acordos_ativos: 119 },
+  { email: "amanda.seibel@teste.local", nome: "Amanda Gestora", classe: "NAO_OPERADOR", casos: 11, acordos: 753, acordos_ativos: 653 },
+  { email: "carteira.geral@reativa.local", nome: "Carteira Geral", classe: "CARTEIRA_GERAL", casos: 8, acordos: 189, acordos_ativos: 150 },
+];
+
 let previaExtra = {};
 let resumoExtra = {};
 let regExtra = {};
@@ -57,6 +68,9 @@ beforeEach(() => {
           operadores: OPERADORES,
         },
       };
+    }
+    if (nome === "acoes_massivas_responsaveis") {
+      return { data: RESPONSAVEIS };
     }
     if (nome === "acoes_massivas_borderos") {
       return { data: [{ importacao_id: "imp-1", arquivo_nome: "bordero-ead.xlsx", qtd_alunos: 10 }] };
@@ -107,11 +121,30 @@ afterEach(cleanup);
 
 // Por padrão escolhe "Somente mensalidades": a tela não busca sem tipo de
 // cobrança. `montar({ tipo: null })` deixa sem escolher.
-async function montar({ tipo = "MENSALIDADES" } = {}) {
+async function montar({ tipo = "MENSALIDADES", responsavel = "SEM_RESPONSAVEL" } = {}) {
   await act(async () => { render(<AcoesMassivas />); });
   await screen.findByLabelText("Matriculado");
+  await screen.findByTestId("resp-caso");
+  // O default antigo era o <select> em "LIVRES"; o equivalente agora e marcar
+  // "Sem responsável". A acao em massa nao gera previa sem recorte explicito,
+  // entao sem isto todo teste que gera previa cairia na guarda.
+  if (responsavel) {
+    await act(async () => { fireEvent.click(document.getElementById(`resp-caso-${responsavel}`)); });
+  }
   if (tipo) fireEvent.change(screen.getByLabelText("Tipo de cobrança"), { target: { value: tipo } });
 }
+// O controle deixou de ser <select> e virou lista de marcação, com duas
+// dimensões independentes. Marcar é o equivalente a escolher.
+function escolherOperador(email) {
+  // tira o "Sem responsável" que `montar` marcou, para o recorte ser só dele
+  const livre = document.getElementById("resp-caso-SEM_RESPONSAVEL");
+  if (livre?.checked) fireEvent.click(livre);
+  fireEvent.click(document.getElementById(`resp-caso-${email}`));
+}
+function escolherDonoAcordo(email) {
+  fireEvent.click(document.getElementById(`resp-acordo-${email}`));
+}
+
 async function buscar() {
   await act(async () => { fireEvent.click(screen.getByRole("button", { name: /Buscar/ })); });
 }
@@ -165,58 +198,83 @@ describe("Ações Massivas — filtro de status acadêmico (multi)", () => {
 
 describe("Ações Massivas — filtro por operador responsável", () => {
   const ultimaChamada = (nome) => rpcMock.mock.calls.filter(([n]) => n === nome).at(-1)[1];
-  const escolherOperador = (email) =>
-    fireEvent.change(screen.getByLabelText("Operador responsável"), { target: { value: email } });
 
-  it("lista os operadores do cadastro e começa em Base livre / regra atual", async () => {
-    await montar();
-    const seletor = screen.getByLabelText("Operador responsável");
-    expect(seletor.value).toBe("LIVRES");
-    const opcoes = [...seletor.querySelectorAll("option")].map((o) => [o.value, o.textContent]);
-    expect(opcoes).toEqual([
-      ["LIVRES", "Sem responsável / livres"],
-      ["TODOS", "Todos os operadores"],
-      ["cobranca03@teste.local", "Olga (cobranca03@teste.local)"],
-      ["cobranca05@teste.local", "Luana (cobranca05@teste.local)"],
-    ]);
+  it("lista QUEM TEM caso ou acordo, com a classe, e sem opção 'todos'", async () => {
+    await montar({ responsavel: null });
+    const lista = await screen.findByTestId("resp-caso");
+    // acoes_massivas_filtros só trazia `ativo and perfil='operador'`: a Olga
+    // desligada, a gestão e a Carteira Geral ficavam de fora do filtro.
+    expect(lista.textContent).toMatch(/Olga.*desligado/);
+    expect(lista.textContent).toMatch(/Amanda Gestora.*não é da fila/);
+    expect(lista.textContent).toMatch(/Carteira Geral.*gestão/);
+    expect(lista.textContent).toMatch(/Sem responsável.*fila livre/);
+    // e NÃO existe um "todos" que dispare sem recorte
+    expect(lista.textContent).not.toMatch(/todos/i);
+  });
+
+  it("sem nenhum responsável marcado, não gera prévia", async () => {
+    await montar({ responsavel: null });
+    await buscar();
+    expect(rpcMock.mock.calls.some(([n]) => n === "acoes_massivas_previa")).toBe(false);
+    expect(screen.getAllByText(/não dispara sem recorte explícito/i).length)
+      .toBeGreaterThan(0);
   });
 
   it("por padrão manda LIVRES (nunca null) e a exportação repete o mesmo valor e a prévia", async () => {
     await montar();
     await buscar();
     const previa = ultimaChamada("acoes_massivas_previa");
-    expect(previa.p_operador_email).toBe("LIVRES");
+    expect(previa.p_operador_email).toBe("CASO:SEM_RESPONSAVEL");
     expect(Object.keys(previa).sort()).toEqual([
       "p_acionamento", "p_ano_vencimento", "p_canal", "p_curso",
       "p_dias_minimo_sem_contato", "p_importacao_ids", "p_limite", "p_matricula", "p_operador_email",
       "p_recencia_dias", "p_sem_telefone", "p_situacao_academica", "p_tipo_cobranca", "p_unidade",
       "p_valor_max", "p_valor_min",
     ]);
-    expect(screen.getByText(/Operador filtrado:/).textContent).toContain("Sem responsável / livres");
+    expect(screen.getByText(/Responsável filtrado:/).textContent).toContain("sem responsável / livres");
     await gerar();
     const reg = ultimaChamada("acoes_massivas_exportar");
-    expect(reg.p_operador_email).toBe("LIVRES");
+    expect(reg.p_operador_email).toBe("CASO:SEM_RESPONSAVEL");
     expect(reg.p_previa_id).toBe("previa-1");
-    expect(reg.p_arquivo).toMatch(/^acao-massiva-whatsapp-mensalidades-\d{4}-\d{2}-\d{2}\.xlsx$/);
+    // o recorte passa a aparecer no nome, inclusive a fila livre
+    expect(reg.p_arquivo).toMatch(/^acao-massiva-whatsapp-sem-responsavel-mensalidades-\d{4}-\d{2}-\d{2}\.xlsx$/);
   });
 
   it("com operador, a prévia manda o e-mail e mostra qual carteira foi filtrada", async () => {
     await montar();
     escolherOperador("cobranca03@teste.local");
     await buscar();
-    expect(ultimaChamada("acoes_massivas_previa").p_operador_email).toBe("cobranca03@teste.local");
-    expect(screen.getByText(/Operador filtrado:/).textContent).toMatch(/Olga.*cobranca03@teste\.local/);
-    expect(screen.getByText(/caso\(s\) da carteira de Olga/)).toBeTruthy();
+    expect(ultimaChamada("acoes_massivas_previa").p_operador_email).toBe("CASO:cobranca03@teste.local");
+    expect(screen.getByText(/Responsável filtrado:/).textContent).toContain("Olga");
+    // sem a dimensão de acordo marcada, a tela diz que entra acordo de qualquer um
+    expect(screen.getByText(/Responsável filtrado:/).textContent).toMatch(/Acordos de.*qualquer responsável/);
+    expect(screen.getByText(/caso\(s\) de Olga/)).toBeTruthy();
   });
 
-  it("'Todos os operadores' envia TODOS como p_operador_email e aceita o retorno em minúsculas", async () => {
-    await montar();
-    escolherOperador("TODOS");
+  it("vários responsáveis viram uma lista explícita — não um 'todos'", async () => {
+    await montar({ responsavel: null });
+    await screen.findByTestId("resp-caso");
+    escolherOperador("cobranca03@teste.local");
+    fireEvent.click(document.getElementById("resp-caso-cobranca05@teste.local"));
     await buscar();
-    expect(ultimaChamada("acoes_massivas_previa").p_operador_email).toBe("TODOS");
-    expect(screen.getByText(/Operador filtrado:/).textContent).toContain("Todos os operadores");
+    expect(ultimaChamada("acoes_massivas_previa").p_operador_email)
+      .toBe("CASO:cobranca03@teste.local|cobranca05@teste.local");
     await gerar();
-    expect(ultimaChamada("acoes_massivas_exportar").p_operador_email).toBe("TODOS");
+    // o nome do arquivo não pode levar ':' nem '|'
+    const arq = ultimaChamada("acoes_massivas_exportar").p_arquivo;
+    expect(arq).toMatch(/-2responsaveis-/);
+    expect(arq).not.toMatch(/[:|]/);
+  });
+
+  it("a dimensão de ACORDO vai separada, e a tela diz que ela recorta", async () => {
+    await montar({ responsavel: null, tipo: "ACORDOS_VENCIDOS" });
+    await screen.findByTestId("resp-caso");
+    escolherOperador("cobranca03@teste.local");
+    escolherDonoAcordo("amanda.seibel@teste.local");
+    await buscar();
+    expect(ultimaChamada("acoes_massivas_previa").p_operador_email)
+      .toBe("CASO:cobranca03@teste.local;ACORDO:amanda.seibel@teste.local");
+    expect(screen.getByText(/Responsável filtrado:/).textContent).toMatch(/Acordos só de/);
   });
 
   it("em 'Todos os operadores' a lista mostra o responsável, marca quem está fidelizado e o livre aparece como Livre", async () => {
@@ -226,8 +284,11 @@ describe("Ações Massivas — filtro por operador responsável", () => {
         { ...ELEGIVEL, id: "a2", nome: "Bia ***", tem_responsavel: false },
       ],
     };
-    await montar();
-    escolherOperador("TODOS");
+    await montar({ responsavel: null });
+    await screen.findByTestId("resp-caso");
+    // o equivalente do antigo "todos": marcar explicitamente quem se quer
+    escolherOperador("cobranca03@teste.local");
+    fireEvent.click(document.getElementById("resp-caso-cobranca05@teste.local"));
     await buscar();
     expect(screen.getByRole("columnheader", { name: "Responsável" })).toBeTruthy();
     expect(screen.getByText("op1@x.com")).toBeTruthy();
@@ -248,7 +309,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     await buscar();
     await gerar();
     const reg = ultimaChamada("acoes_massivas_exportar");
-    expect(reg.p_operador_email).toBe("cobranca05@teste.local");
+    expect(reg.p_operador_email).toBe("CASO:cobranca05@teste.local");
     expect(reg.p_aluno_ids).toEqual(["a1"]);
     expect(reg.p_arquivo).toMatch(/^acao-massiva-whatsapp-cobranca05-/);
     expect(screen.getByText(/2 caso\(s\) foram removidos por não estarem mais na carteira do operador selecionado/)).toBeTruthy();
@@ -262,10 +323,10 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     const chamadasAntes = rpcMock.mock.calls.length;
     escolherOperador("cobranca05@teste.local");
     expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
-    expect(screen.queryByText(/Operador filtrado:/)).toBeNull();
+    expect(screen.queryByText(/Responsável filtrado:/)).toBeNull();
     // nenhuma RPC foi chamada pela troca (nada de registrar/atribuir)
     expect(rpcMock.mock.calls.length).toBe(chamadasAntes);
-    escolherOperador("LIVRES");
+    escolherOperador("SEM_RESPONSAVEL");
     expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
   });
 
@@ -285,7 +346,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     fireEvent.change(screen.getByLabelText("Acionamento"), { target: { value: "NUNCA" } });
     await buscar();
     const c = ultimaChamada("acoes_massivas_previa");
-    expect(c.p_operador_email).toBe("cobranca03@teste.local");
+    expect(c.p_operador_email).toBe("CASO:cobranca03@teste.local");
     expect(c.p_importacao_ids).toEqual(["imp-1"]);
     expect(c.p_acionamento).toBe("NUNCA");
   });
@@ -297,7 +358,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     fireEvent.change(screen.getByDisplayValue("Todas as modalidades"), { target: { value: "EAD" } });
     await buscar();
     const c = ultimaChamada("acoes_massivas_previa");
-    expect(c.p_operador_email).toBe("cobranca05@teste.local");
+    expect(c.p_operador_email).toBe("CASO:cobranca05@teste.local");
     expect(c.p_unidade).toBe("CANOAS");
     expect(c.p_curso).toBe("EAD");
   });
@@ -337,7 +398,7 @@ describe("Ações Massivas — exportar não é contato; confirmar é uma etapa 
     concluirExtra = { excluidos_acionados_apos_exportacao: 1 };
     await montar();
     expect(await screen.findByText("Planilhas exportadas aguardando confirmação")).toBeTruthy();
-    expect(screen.getByText("Olga")).toBeTruthy();
+    expect(within(screen.getByTestId("resp-caso")).getByText(/Olga/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Confirmar ação realizada/ }));
     expect(nomesChamados()).not.toContain("acoes_massivas_concluir_lote");
     expect(screen.getByText(/Confirme só se o disparo já foi concluído/)).toBeTruthy();
@@ -365,13 +426,13 @@ describe("Ações Massivas — exportar não é contato; confirmar é uma etapa 
     lotes = [LOTE];
     await montar();
     await screen.findByText("Planilhas exportadas aguardando confirmação");
-    fireEvent.change(screen.getByLabelText("Operador responsável"), { target: { value: "cobranca05@teste.local" } });
+    escolherOperador("cobranca05@teste.local");
     expect(screen.getByText("Planilhas exportadas aguardando confirmação")).toBeTruthy();
   });
 
   it("escolher operador NÃO aplica “Sem acionamento há” sozinho; o filtro segue opcional", async () => {
     await montar();
-    fireEvent.change(screen.getByLabelText("Operador responsável"), { target: { value: "cobranca03@teste.local" } });
+    escolherOperador("cobranca03@teste.local");
     expect(screen.getByDisplayValue("Qualquer período")).toBeTruthy();
     await buscar();
     expect(ultimaChamadaPrevia().p_dias_minimo_sem_contato).toBeNull();
@@ -379,7 +440,7 @@ describe("Ações Massivas — exportar não é contato; confirmar é uma etapa 
     fireEvent.change(screen.getByDisplayValue("Qualquer período"), { target: { value: "15" } });
     await buscar();
     expect(ultimaChamadaPrevia().p_dias_minimo_sem_contato).toBe(15);
-    expect(ultimaChamadaPrevia().p_operador_email).toBe("cobranca03@teste.local");
+    expect(ultimaChamadaPrevia().p_operador_email).toBe("CASO:cobranca03@teste.local");
   });
 });
 
@@ -444,7 +505,7 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
 
   it("combina com operador, borderô, nunca acionados, unidade, modalidade e prazo", async () => {
     await montar({ tipo: "ACORDOS_VENCIDOS" });
-    fireEvent.change(screen.getByLabelText("Operador responsável"), { target: { value: "cobranca03@teste.local" } });
+    escolherOperador("cobranca03@teste.local");
     fireEvent.click(await screen.findByLabelText(/bordero-ead/));
     fireEvent.change(screen.getByLabelText("Acionamento"), { target: { value: "NUNCA" } });
     fireEvent.click(screen.getByLabelText("CANOAS"));
@@ -452,13 +513,13 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     fireEvent.change(screen.getByDisplayValue("Qualquer período"), { target: { value: "30" } });
     await buscar();
     expect(ultima("acoes_massivas_previa")).toMatchObject({
-      p_tipo_cobranca: "ACORDOS_VENCIDOS", p_operador_email: "cobranca03@teste.local",
+      p_tipo_cobranca: "ACORDOS_VENCIDOS", p_operador_email: "CASO:cobranca03@teste.local",
       p_importacao_ids: ["imp-1"], p_acionamento: "NUNCA", p_unidade: "CANOAS", p_curso: "EAD",
       p_dias_minimo_sem_contato: 30,
     });
     await gerar();
     expect(ultima("acoes_massivas_exportar")).toMatchObject({
-      p_tipo_cobranca: "ACORDOS_VENCIDOS", p_operador_email: "cobranca03@teste.local",
+      p_tipo_cobranca: "ACORDOS_VENCIDOS", p_operador_email: "CASO:cobranca03@teste.local",
     });
   });
 
@@ -606,11 +667,16 @@ describe("Ações Massivas — universo no banco: limite exato, sem corte no cli
   });
 
   it("passa ao painel de cobertura os filtros de população/operação", async () => {
-    await montar();
-    fireEvent.change(screen.getByLabelText("Operador responsável"), { target: { value: "TODOS" } });
+    await montar({ responsavel: null });
+    await screen.findByTestId("resp-caso");
+    escolherOperador("cobranca03@teste.local");
+    escolherDonoAcordo("amanda.seibel@teste.local");
     fireEvent.click(screen.getByLabelText("CANOAS"));
+    // o painel de cobertura recebe as MESMAS chaves que o universo lê
     expect(propsPenetracao.filtrosCobertura).toMatchObject({
-      operador: "TODOS", unidade: "CANOAS", canal: "WHATSAPP", valor_min: 0, valor_max: null, recencia_dias: 10,
+      responsaveis_caso: ["cobranca03@teste.local"],
+      responsaveis_acordo: ["amanda.seibel@teste.local"],
+      unidade: "CANOAS", canal: "WHATSAPP", valor_min: 0, valor_max: null, recencia_dias: 10,
       tipo_cobranca: "MENSALIDADES", sem_telefone: false,
     });
   });
