@@ -198,12 +198,39 @@ $function$;
 comment on function public.carteira_2026_2_classificar() is
 'Efetividade 2026/2 titulo a titulo, com a competencia (mes do vencimento) e a importacao de origem. Regua de faixas identica a carteira_2026_1_classificar. Só leitura. INTERNA: nao conceder a authenticated -- devolve CPF sem mascara.';
 
--- A ACL NAO E MEXIDA AQUI. Um DROP/CREATE recria a funcao SEM acl, herdando o
--- default (EXECUTE para PUBLIC). Por isso, e SO por isso, esta linha existe:
--- ela RESTABELECE o estado que 20260927224458 deixou, nao concede nada novo.
+-- ACL: ESTA PROPOSTA NAO CONCEDE NADA A `authenticated`. NUNCA.
+--
+-- O DROP/CREATE e inevitavel (acrescentar coluna a um RETURNS TABLE exige) e
+-- recria a funcao SEM acl, herdando o default do Postgres, que e EXECUTE para
+-- PUBLIC. As duas linhas abaixo existem SO para restabelecer o estado que
+-- 20260927224458 deixou -- nao concedem nada novo:
+--
+--   revoke all ... from public   tira o default e, com ele, o acesso que anon e
+--                                authenticated teriam por heranca de PUBLIC
+--   grant ... to service_role     devolve o unico papel que precisa
+--   postgres                      mantem EXECUTE por ser o DONO, implicitamente
+--
+-- ESTADO ALVO, identico ao de hoje e ao de carteira_2026_1_classificar:
+--   acl = postgres=X/postgres | service_role=X/postgres
+--
+-- PROIBIDO acrescentar aqui, em qualquer momento futuro:
+--   grant execute on function public.carteira_2026_2_classificar() to authenticated;
+-- A funcao devolve CPF SEM MASCARA e nao tem portao. A porta e
+-- carteira_2026_2_competencia_detalhe, que mascara e checa permissao.
+--
+-- carteira_2026_2_competencia_detalhe usa CREATE OR REPLACE (sem DROP), entao
+-- a ACL dela e PRESERVADA pelo Postgres e segue com authenticated, que e o
+-- correto: ela e a porta.
 revoke all on function public.carteira_2026_2_classificar() from public;
 grant execute on function public.carteira_2026_2_classificar() to service_role;
--- CONFERIR depois de aplicar: authenticated e anon com EXECUTE = false.
+
+-- CONFERIR OBRIGATORIAMENTE depois de aplicar, e so dar por encerrado se:
+--   has_function_privilege('authenticated', 'public.carteira_2026_2_classificar()', 'EXECUTE') = false
+--   has_function_privilege('anon',          'public.carteira_2026_2_classificar()', 'EXECUTE') = false
+--   has_function_privilege('service_role',  'public.carteira_2026_2_classificar()', 'EXECUTE') = true
+--   has_function_privilege('postgres',      'public.carteira_2026_2_classificar()', 'EXECUTE') = true
+--   concessoes a PUBLIC = 0
+--   has_function_privilege('authenticated', 'public.carteira_2026_2_competencia_detalhe(date,text,integer,integer)', 'EXECUTE') = true
 
 -- (B) O detalhe passa a carregar a origem em cada linha.
 -- Apenas UMA chave nova no jsonb_build_object; nada mais muda.
