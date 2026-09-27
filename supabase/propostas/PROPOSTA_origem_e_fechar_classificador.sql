@@ -4,31 +4,14 @@
 -- daquele diretorio e exatamente o que o Gate 1 esta limpando. Ao aprovar,
 -- mover para supabase/migrations/ com a versao que o apply_migration registrar.
 --
--- DUAS CORRECOES, achadas na revisao de 27/09/2026.
+-- UMA CORRECAO PENDENTE, achada na revisao de 27/09/2026.
 --
 -- ============================================================================
--- A) SEGURANCA -- URGENTE. carteira_2026_2_classificar esta ABERTA a qualquer
---    usuario logado e devolve CPF SEM MASCARA.
---
---    Medido em 27/09 chamando a RPC pelo PostgREST com sessao comum: HTTP 200,
---    1.000 linhas (teto do PostgREST) com cpf em texto puro, aluno_id,
---    documento e valor. A funcao e SECURITY DEFINER, NAO tem portao de
---    permissao e NAO mascara CPF -- mascarar e trabalho de
---    carteira_2026_2_competencia_detalhe, que e quem deveria ser a porta.
---
---    FOI ERRO MEU NA 20260927221825: concedi EXECUTE a `authenticated` no
---    classificador. O equivalente de 2026/1 ja fazia certo --
---    carteira_2026_1_classificar tem ACL `postgres | service_role`, sem
---    authenticated -- e eu divergi do padrao que ja existia no proprio codigo.
---
---    REVOGAR NAO QUEBRA NADA. carteira_2026_2_competencias e
---    _competencia_detalhe sao SECURITY DEFINER de postgres, que e dono do
---    classificador: elas o chamam como postgres, nao como quem ligou. PROVA em
---    producao hoje: carteira_2026_1_academico e concedida a authenticated,
---    chama carteira_2026_1_classificar, e esse classificador NAO e concedido a
---    authenticated -- e funciona.
---
---    IMPACTO: nenhuma tela, nenhum total, nenhum agrupamento. So fecha a porta.
+-- (A) JA FOI. A parte de seguranca desta proposta foi aplicada em producao em
+--     27/09/2026 as 22:44:58 UTC, sozinha e com autorizacao explicita, na
+--     migration 20260927224458_fechar_carteira_2026_2_classificar_para_
+--     authenticated.sql. Ela SAIU daqui para nao ser reaplicada por engano.
+--     O que segue e SO a parte (B).
 --
 -- ============================================================================
 -- B) RASTREABILIDADE. O classificador passa a devolver `origem_importacao`, e
@@ -56,7 +39,7 @@
 --
 -- A TELA JA ACEITA OS DOIS ESTADOS: a coluna Origem so aparece quando o campo
 -- vem no JSON. Sem esta migration a tela funciona e apenas nao mostra a coluna.
--- Por isso ela NAO bloqueia o PR #540 -- mas a parte (A) e exposicao viva.
+-- Por isso ela NAO bloqueia o PR #540.
 
 drop function if exists public.carteira_2026_2_classificar();
 
@@ -215,10 +198,12 @@ $function$;
 comment on function public.carteira_2026_2_classificar() is
 'Efetividade 2026/2 titulo a titulo, com a competencia (mes do vencimento) e a importacao de origem. Regua de faixas identica a carteira_2026_1_classificar. Só leitura. INTERNA: nao conceder a authenticated -- devolve CPF sem mascara.';
 
--- (A) A PORTA. Mesma ACL de carteira_2026_1_classificar.
+-- A ACL NAO E MEXIDA AQUI. Um DROP/CREATE recria a funcao SEM acl, herdando o
+-- default (EXECUTE para PUBLIC). Por isso, e SO por isso, esta linha existe:
+-- ela RESTABELECE o estado que 20260927224458 deixou, nao concede nada novo.
 revoke all on function public.carteira_2026_2_classificar() from public;
-revoke all on function public.carteira_2026_2_classificar() from authenticated;
 grant execute on function public.carteira_2026_2_classificar() to service_role;
+-- CONFERIR depois de aplicar: authenticated e anon com EXECUTE = false.
 
 -- (B) O detalhe passa a carregar a origem em cada linha.
 -- Apenas UMA chave nova no jsonb_build_object; nada mais muda.
