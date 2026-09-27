@@ -21,6 +21,7 @@ export const MIG2 = ler("supabase/migrations/20260920110000_acoes_massivas_unive
 export const MIG3 = ler("supabase/migrations/20260920120000_acoes_massivas_registro_sem_fidelizacao.sql");
 export const MIG4 = ler("supabase/migrations/20260927143351_acoes_massivas_responsavel_caso_e_acordo.sql");
 export const MIG5 = ler("supabase/migrations/20260927154422_acoes_massivas_exigir_dono_acordo.sql");
+export const MIG6 = ler("supabase/migrations/20260927200000_acoes_massivas_previa_caso_divergente.sql");
 
 // O schema `internal` e as duas pecas que a MIG4 usa, tiradas dos ARQUIVOS DE
 // MIGRATION reais -- nao sao dubles. patch_funcao_ancorada e o mesmo patcher de
@@ -255,6 +256,7 @@ export async function novoBanco({ fase = "depois" } = {}) {
     await db.exec(INTERNAL);
     await db.exec(MIG4);
     await db.exec(MIG5);
+    await db.exec(MIG6);
   }
   await db.exec(`insert into public.prime_extrato values ('2026-09-05 10:00:00+00');
                  insert into public.usuarios values ('${GESTAO}','Gestao','gerencia',true),

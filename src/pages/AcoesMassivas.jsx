@@ -791,7 +791,7 @@ export default function AcoesMassivas() {
       <div style={estilos.card}>
         <div style={estilos.linhaFiltros}>
           <div style={{ ...estilos.campo, minWidth: 240 }}>
-            <label style={estilos.label}>Responsável pelo caso</label>
+            <label style={estilos.label}>Responsável pela ficha do aluno</label>
             <ListaResponsaveis
               idPrefixo="resp-caso"
               itens={responsaveis}
@@ -808,9 +808,13 @@ export default function AcoesMassivas() {
               contar={(o) => o.casos}
             />
             <span style={estilos.ajudaCampo}>
-              Recorta pelo <strong>dono da ficha do aluno</strong>. Vale para as três modalidades.
-              Marque um ou mais. <strong>Sem nenhum marcado não gera prévia</strong> — ação em massa
-              não dispara sem recorte explícito.
+              Recorta por <strong>alunos.responsavel_atual_email</strong> — o dono da{" "}
+              <strong>ficha</strong>, que <strong>não</strong> é o mesmo campo que o dono do{" "}
+              <strong>caso</strong>. Na Carteira Geral o filtro é pelo caso; aqui é pela ficha.
+              Medido em 27/09/2026: elas divergem em <strong>20</strong> alunos de 13.041 — todos
+              com ficha atribuída e caso sem dono. A prévia mostra quantos, por responsável.
+              Vale para as três modalidades. Marque um ou mais;{" "}
+              <strong>sem nenhum marcado não gera prévia</strong>.
             </span>
           </div>
           <div style={{ ...estilos.campo, minWidth: 260 }}>
@@ -1279,6 +1283,9 @@ export default function AcoesMassivas() {
                     <th style={estilos.thNum}>Casos</th>
                     <th style={estilos.thNum}>Acordos</th>
                     <th style={estilos.thNum}>Acordos de outro dono</th>
+                    <th style={estilos.thNum} title="O filtro recorta pela FICHA; aqui estão os alunos cujo CASO está com outra pessoa, ou sem dono">
+                      Caso em outra mão
+                    </th>
                     <th style={estilos.thNum}>Valor</th>
                   </tr>
                 </thead>
@@ -1295,6 +1302,11 @@ export default function AcoesMassivas() {
                                    color: Number(r.acordos_de_outro_dono || 0) > 0 ? "var(--rv-ambar-texto)" : undefined,
                                    fontWeight: Number(r.acordos_de_outro_dono || 0) > 0 ? 700 : undefined }}>
                         {Number(r.acordos_de_outro_dono || 0).toLocaleString("pt-BR")}
+                      </td>
+                      <td style={{ ...estilos.tdNum,
+                                   color: Number(r.casos_em_outra_mao || 0) > 0 ? "var(--rv-ambar-texto)" : undefined,
+                                   fontWeight: Number(r.casos_em_outra_mao || 0) > 0 ? 700 : undefined }}>
+                        {Number(r.casos_em_outra_mao || 0).toLocaleString("pt-BR")}
                       </td>
                       <td style={estilos.tdNum}>
                         {Number(r.valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
@@ -1356,7 +1368,7 @@ export default function AcoesMassivas() {
                 <span style={{ color: "var(--rv-texto-fraco)" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
               )}
               <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }}>
-                Responsável filtrado: <strong>{detalheSelecao(operadorDaPrevia, nomeDoOperador).caso}</strong>
+                Responsável filtrado (da <strong>ficha</strong>): <strong>{detalheSelecao(operadorDaPrevia, nomeDoOperador).caso}</strong>
                 {detalheSelecao(operadorDaPrevia, nomeDoOperador).acordo
                   ? <> · Acordos <strong>só de {detalheSelecao(operadorDaPrevia, nomeDoOperador).acordo}</strong>
                       {" "}— qualquer acordo fora dessa lista foi recusado.</>

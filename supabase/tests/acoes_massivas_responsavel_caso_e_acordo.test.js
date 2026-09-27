@@ -343,3 +343,69 @@ describe("acordo sem dono explicito e recusado nos tres caminhos", () => {
     expect(r.rows[0].r).toBeTruthy();
   });
 });
+
+// ---------------------------------------------------------------------------
+// FICHA x CASO: o filtro recorta alunos.responsavel_atual_email, e a tela
+// rotulava isso como "Responsavel pelo caso". Medido em producao em 27/09/2026:
+// 20 alunos de 13.041 divergem, TODOS com ficha atribuida e caso sem dono.
+// Estes testes fixam o comportamento nesses divergentes -- que nao e obvio e
+// erra nas duas direcoes se alguem ler o rotulo antigo.
+// ---------------------------------------------------------------------------
+describe("registros divergentes: ficha de um, caso de outro", () => {
+  // o padrao real: ficha com dono, caso SEM dono
+  const fichaComDonoCasoLivre = async (dono, ini) => {
+    const [aluno] = await alunos(db, 1, { dono, ini });
+    await db.query("update public.casos set operador_email=null, operador_nome=null where aluno_id=$1", [aluno]);
+    return aluno;
+  };
+
+  it("filtrar pela PESSOA traz o aluno, embora o caso esteja na fila livre", async () => {
+    const divergente = await fichaComDonoCasoLivre(OP_INATIVA, 1);
+    const normal = await alunos(db, 1, { dono: OP_INATIVA, ini: 11 });
+
+    const r = await universo(db, { responsaveis_caso: [OP_INATIVA] });
+    expect(disp(r)).toEqual([divergente, ...normal].sort());
+  });
+
+  it("filtrar por SEM_RESPONSAVEL NAO traz o divergente, embora o caso esteja sem dono", async () => {
+    const divergente = await fichaComDonoCasoLivre(OP_INATIVA, 1);
+    const livreDeVerdade = await alunos(db, 1, { dono: null, ini: 11 });
+
+    const r = await universo(db, { responsaveis_caso: ["SEM_RESPONSAVEL"] });
+    expect(disp(r)).toEqual([...livreDeVerdade]);
+    expect(disp(r)).not.toContain(divergente);
+  });
+
+  it("a PREVIA conta o divergente e avisa que o caso esta em outra mao", async () => {
+    await fichaComDonoCasoLivre(OP_INATIVA, 1);
+    await alunos(db, 2, { dono: OP_INATIVA, ini: 11 });
+
+    const p = await previa(db, {
+      p_operador_email: `CASO:${OP_INATIVA}`, p_tipo_cobranca: "MENSALIDADES", p_limite: 50,
+    });
+    const linha = p.por_responsavel.find((x) => x.responsavel === OP_INATIVA);
+    expect(linha.alunos).toBe(3);
+    // so o divergente tem o caso em outra mao
+    expect(linha.casos_em_outra_mao).toBe(1);
+  });
+
+  it("sem divergencia, a contagem e zero", async () => {
+    await alunos(db, 2, { dono: OP_INATIVA, ini: 1 });
+    const p = await previa(db, {
+      p_operador_email: `CASO:${OP_INATIVA}`, p_tipo_cobranca: "MENSALIDADES", p_limite: 50,
+    });
+    expect(p.por_responsavel.find((x) => x.responsavel === OP_INATIVA).casos_em_outra_mao).toBe(0);
+  });
+
+  it("caso com dono DIFERENTE (não só sem dono) também é contado", async () => {
+    const [aluno] = await alunos(db, 1, { dono: OP_INATIVA, ini: 1 });
+    await db.query("update public.casos set operador_email=$2 where aluno_id=$1", [aluno, OP_A]);
+
+    const p = await previa(db, {
+      p_operador_email: `CASO:${OP_INATIVA}`, p_tipo_cobranca: "MENSALIDADES", p_limite: 50,
+    });
+    const linha = p.por_responsavel.find((x) => x.responsavel === OP_INATIVA);
+    expect(linha.alunos).toBe(1);          // a ficha ainda é dela
+    expect(linha.casos_em_outra_mao).toBe(1);
+  });
+});
