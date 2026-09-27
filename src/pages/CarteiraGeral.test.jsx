@@ -14,7 +14,8 @@ const PAINEL = {
   na_carteira_geral: { alunos: 0, valor: 0 },
   responsavel_inativo: { alunos: 0, valor: 0 },
   por_responsavel: [
-    { email: "cobranca03@aelbra.com.br", nome: "Olga", classe: "INATIVO", alunos: 545, valor: 2546943.15, mensalidade: 819405.33, acordo: 1727537.82 },
+    { email: "cobranca03@aelbra.com.br", nome: "Olga", classe: "INATIVO", casos: 545, alunos: 545, valor: 2546943.15, mensalidade: 819405.33, acordo: 1727537.82 },
+    { email: "amanda.seibel@aelbra.com.br", nome: "Amanda Gestora", classe: "NAO_OPERADOR", casos: 11, alunos: 11, valor: 25762.69, mensalidade: 0, acordo: 0 },
     { email: "juridico@aelbra.com.br", nome: "Jurídico", classe: "NAO_OPERADOR", alunos: 58, valor: 0, mensalidade: 0, acordo: 0 },
   ],
   por_ano: [
@@ -176,7 +177,9 @@ describe("Carteira Geral — painel", () => {
     await montar();
     // juridico@ segura 58 casos e não é da fila: a tela nomeia isso em vez de
     // mostrar como se fosse um operador qualquer.
-    expect(screen.getByText("Responsável não é da fila")).toBeTruthy();
+    // a gestora também é NAO_OPERADOR agora: mira a linha do jurídico
+    const linhaJuridico = screen.getByText("Jurídico").closest("tr");
+    expect(within(linhaJuridico).getByText("Responsável não é da fila")).toBeTruthy();
 
     // A linha do aluno órfão diz "Sem operador" e vem em cor de alerta.
     const linha = screen.getByText("JOAO SEM DONO").closest("tr");
@@ -452,6 +455,49 @@ describe("Carteira Geral — o que está selecionado, antes da prévia", () => {
 // Estes três defeitos vieram do lote 559b20bb: 8 casos movidos, 6 visíveis,
 // e nenhuma página além da primeira.
 // ---------------------------------------------------------------------------
+// "Amanda Gestora: 11" era contagem de CASO sob a coluna "Alunos", e ela leu
+// como "respondo por 11 coisas" — quando responde por 753 acordos (653 ATIVO),
+// medido em produção em 27/09/2026. Os dois números passam a aparecer juntos.
+describe("Carteira Geral — casos e acordos lado a lado, sem se substituírem", () => {
+  beforeEach(() => { chamadas.rpc = []; });
+  afterEach(cleanup);
+
+  it("mostra MEUS CASOS e MEUS ACORDOS ao mesmo tempo", async () => {
+    await montar();
+    const bloco = await screen.findByTestId("meus-numeros");
+    expect(bloco.textContent).toMatch(/Meus casos/);
+    expect(bloco.textContent).toMatch(/Meus acordos ativos/);
+    expect(bloco.textContent).toMatch(/Meus acordos em todos os status/);
+  });
+
+  it("os números são os de produção: 11 casos, 653 ativos, 753 no total", async () => {
+    await montar();
+    const bloco = await screen.findByTestId("meus-numeros");
+    await waitFor(() => expect(bloco.textContent).toMatch(/653/));
+    expect(bloco.textContent).toMatch(/11/);
+    expect(bloco.textContent).toMatch(/753/);
+    expect(bloco.textContent).toMatch(/726/);
+  });
+
+  it("o painel de acordos é consultado com o MEU e-mail", async () => {
+    await montar();
+    await waitFor(() => {
+      const c = chamadas.rpc.find((x) => x.fn === "carteira_geral_acordos_painel" && x.args?.p_filtros?.responsavel);
+      expect(c.args.p_filtros.responsavel).toBe("amanda.seibel@aelbra.com.br");
+    });
+  });
+
+  it("a tabela Por responsável separa Casos de Alunos", async () => {
+    await montar();
+    const sec = screen.getByText("Por responsável").closest("section");
+    const cabecalhos = [...sec.querySelectorAll("th")].map((t) => t.textContent);
+    expect(cabecalhos).toContain("Casos");
+    expect(cabecalhos).toContain("Alunos");
+    // e diz, em texto, que caso não é acordo
+    expect(sec.textContent).toMatch(/Não é a mesma\s+coisa que/);
+  });
+});
+
 describe("Carteira Geral — paginação e casos que entram sem ser marcados", () => {
   beforeEach(() => { chamadas.rpc = []; });
   afterEach(cleanup);

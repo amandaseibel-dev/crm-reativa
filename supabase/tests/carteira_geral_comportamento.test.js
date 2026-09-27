@@ -1663,3 +1663,42 @@ describe("Carteira Geral — troca de dono preserva o agendamento exatamente", (
     expect((await agendamento(s.aluno)).d).toBe(ontem);
   });
 });
+
+// ---------------------------------------------------------------------------
+// "Amanda Gestora: 11" vinha de `'alunos', count(*)` sobre linhas de CASO: era
+// contagem de caso com rotulo de aluno. Agora o painel devolve os dois.
+// ---------------------------------------------------------------------------
+describe("Carteira Geral — por responsável separa casos de alunos", () => {
+  beforeEach(async () => { await como(db, GESTAO); });
+
+  const porResp = async (email) => {
+    const p = (await q1(db, "select public.carteira_geral_painel($1::jsonb) p",
+                        [JSON.stringify({ responsavel: email })])).p;
+    return (p.por_responsavel || [])[0];
+  };
+
+  it("um caso por aluno: casos e alunos coincidem", async () => {
+    await semear(db, { nome: "UM", dono: OLGA });
+    await semear(db, { nome: "DOIS", dono: OLGA });
+    const r = await porResp(OLGA);
+    expect(r.casos).toBe(2);
+    expect(r.alunos).toBe(2);
+  });
+
+  it("ficha gêmea: 2 casos para 1 aluno — e é isso que o rótulo antigo escondia", async () => {
+    const g = await semear(db, { nome: "GEMEA", dono: OLGA });
+    await db.query(
+      "insert into public.casos (aluno_id,nome,cpf_limpo,operador_email,operador_nome) values ($1,'GEMEA','11122233344',$2,$2)",
+      [g.aluno, OLGA]);
+    const r = await porResp(OLGA);
+    expect(r.casos).toBe(2);
+    expect(r.alunos).toBe(1);
+  });
+
+  it("o campo casos existe mesmo quando ninguém tem ficha repetida", async () => {
+    await semear(db, { nome: "SOZINHA", dono: LUANA });
+    const r = await porResp(LUANA);
+    expect(r).toHaveProperty("casos");
+    expect(r).toHaveProperty("alunos");
+  });
+});
