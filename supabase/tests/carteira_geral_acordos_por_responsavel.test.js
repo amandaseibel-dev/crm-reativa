@@ -255,7 +255,8 @@ describe("Remanejamento de ACORDO — o caso e a ficha nao vao junto", () => {
 
   it("a previa recusa destino inativo, e so a gestao move", async () => {
     await db.query("update public.usuarios set ativo=false where email=$1", [LUANA]);
-    await expect(previa([s.acordo], LUANA)).rejects.toThrow(/inativo/);
+    // a mensagem passou a nomear a regra inteira em 20260927160000
+    await expect(previa([s.acordo], LUANA)).rejects.toThrow(/So operador ATIVO ou a Carteira Geral/);
 
     await db.query("update public.usuarios set ativo=true where email=$1", [LUANA]);
     const p = await previa([s.acordo], LUANA);
@@ -337,5 +338,185 @@ describe("Remanejamento de ACORDO — o portao contra o gatilho", () => {
     expect((await acordo(s.acordo)).email).toBe(GESTAO);
     expect(await donoFicha(s.aluno)).toBe(OLGA);
     expect(await donoCaso(s.aluno)).toBe(OLGA);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Destino: operador ATIVO **ou** a Carteira Geral.
+//
+// A Carteira Geral e perfil='carteira', ativo=false -- assim de proposito,
+// para nao aparecer em seletor de PESSOA. Mas o destino de um acordo nao e
+// seletor de pessoa: ela e justamente o destino de gestao, e ja responde por
+// 189 acordos em producao (medido em 27/09/2026).
+// ---------------------------------------------------------------------------
+describe("Acordos — a Carteira Geral e destino valido, outro inativo nao", () => {
+  const destinos = async () =>
+    (await q1(db, "select public.carteira_geral_acordos_destinos() d")).d;
+
+  beforeEach(async () => { await como(db, GESTAO); });
+
+  it("a lista de destinos traz a Carteira Geral em primeiro, e os operadores ativos", async () => {
+    const d = await destinos();
+    expect(d[0].email).toBe(CG);
+    expect(d[0].tipo).toBe("CARTEIRA_GERAL");
+    const emails = d.map((x) => x.email);
+    expect(emails).toContain(OLGA ? LUANA : LUANA);
+    expect(new Set(emails).size).toBe(emails.length);   // sem repetir a CG
+  });
+
+  it("operador DESLIGADO nao entra na lista de destinos", async () => {
+    await db.query("update public.usuarios set ativo=false where email=$1", [OLGA]);
+    const d = await destinos();
+    expect(d.map((x) => x.email)).not.toContain(OLGA);
+    // e a Carteira Geral continua la, mesmo sendo ativo=false
+    expect(d.map((x) => x.email)).toContain(CG);
+  });
+
+  it("operador ATIVO sem acordo nenhum tambem pode receber", async () => {
+    await db.query(
+      "insert into public.usuarios (nome,email,perfil,ativo) values ('Nova','nova@aelbra.com.br','operador',true)");
+    const d = await destinos();
+    expect(d.map((x) => x.email)).toContain("nova@aelbra.com.br");
+  });
+
+  it("a previa RECUSA um inativo comum como destino", async () => {
+    const s = await semear(db, { nome: "X", dono: LUANA, donoAcordo: OLGA });
+    await db.query("update public.usuarios set ativo=false where email=$1", [OLGA]);
+    await expect(previa([s.acordo], OLGA)).rejects.toThrow(/So operador ATIVO ou a Carteira Geral/);
+  });
+
+  it("a previa RECUSA destino vazio e desconhecido", async () => {
+    const s = await semear(db, { nome: "Y", dono: LUANA, donoAcordo: OLGA });
+    await expect(previa([s.acordo], "")).rejects.toThrow(/Destino invalido/);
+    await expect(previa([s.acordo], "ninguem@aelbra.com.br")).rejects.toThrow(/Destino invalido/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O cenario que ela pediu: acordo da OLGA em caso de OUTRO operador, movido
+// para a Carteira Geral. So o responsavel pelo acordo muda.
+// ---------------------------------------------------------------------------
+describe("Acordo da Olga em caso da Luana -> Carteira Geral", () => {
+  let s;
+  let parcelasAntes;
+
+  beforeEach(async () => {
+    // caso da LUANA, acordo da OLGA -- o padrao dos 726
+    s = await semear(db, { nome: "ALUNA CASO LUANA ACORDO OLGA", dono: LUANA, donoAcordo: OLGA });
+    await db.query(
+      `update public.acordos set criado_por_email=$2, criado_por_nome='Quem Negociou',
+              confirmado_por_email=$2, confirmado_em=now(),
+              honorarios_percentual=15, honorarios_valor=675.00
+         where id=$1`, [s.acordo, FERNANDA]);
+    parcelasAntes = await qn(db,
+      "select id, valor, vencimento, status from public.parcelas where acordo_id=$1 order by id", [s.acordo]);
+    await como(db, GESTAO);
+  });
+
+  const estado = async () => ({
+    acordoDono: (await q1(db, "select lower(coalesce(operador_responsavel_email,'')) e from public.acordos where id=$1", [s.acordo])).e,
+    acordoNome: (await q1(db, "select operador_responsavel_nome n from public.acordos where id=$1", [s.acordo])).n,
+    caso: (await q1(db, "select lower(coalesce(operador_email,'')) e from public.casos where id=$1", [s.caso])).e,
+    ficha: (await q1(db, "select responsavel_atual_email e from public.alunos where id=$1", [s.aluno])).e,
+  });
+
+  it("a previa avisa que o caso e a ficha continuam com a Luana", async () => {
+    const p = await previa([s.acordo], CG);
+    expect(p.destino_nome).toMatch(/Carteira Geral/i);
+    expect(p.total_acordos).toBe(1);
+    expect(p.total_em_caso_de_outro).toBe(1);
+    const c = p.conflitos.find((x) => x.tipo === "CASO_FICA_COM_OUTRO");
+    expect(c.detalhe).toMatch(new RegExp(LUANA));
+    expect(c.detalhe).toMatch(/o CASO e a FICHA/);
+  });
+
+  it("move SO o responsavel do acordo; caso e ficha ficam com a Luana", async () => {
+    const antes = await estado();
+    expect(antes.acordoDono).toBe(OLGA);
+    expect(antes.caso).toBe(LUANA);
+    expect(antes.ficha).toBe(LUANA);
+
+    const p = await previa([s.acordo], CG);
+    const m = await mover(p.previa_id, "acordos da Olga vao para a gestao");
+
+    expect(m.acordos_movidos).toBe(1);
+    expect(m.total_recusados).toBe(0);
+    expect(m.casos_movidos).toBe(0);
+    expect(m.fichas_movidas).toBe(0);
+
+    const depois = await estado();
+    expect(depois.acordoDono).toBe(CG);
+    expect(depois.caso).toBe(LUANA);      // intacto
+    expect(depois.ficha).toBe(LUANA);     // intacto
+  });
+
+  it("parcelas, pagamentos, honorarios e autoria ficam intactos", async () => {
+    const a1 = await acordo(s.acordo);
+    const p = await previa([s.acordo], CG);
+    await mover(p.previa_id, "so o acordo");
+    const a2 = await acordo(s.acordo);
+
+    expect(a2.status).toBe(a1.status);
+    expect(Number(a2.valor_total)).toBe(Number(a1.valor_total));
+    expect(a2.criado_por_email).toBe(FERNANDA);
+    expect(a2.criado_por_nome).toBe("Quem Negociou");
+    expect(a2.confirmado_por_email).toBe(FERNANDA);
+    expect(String(a2.confirmado_em)).toBe(String(a1.confirmado_em));
+    expect(Number(a2.honorarios_percentual)).toBe(15);
+    expect(Number(a2.honorarios_valor)).toBe(675);
+    expect(String(a2.criado_em)).toBe(String(a1.criado_em));
+
+    const parcelasDepois = await qn(db,
+      "select id, valor, vencimento, status from public.parcelas where acordo_id=$1 order by id", [s.acordo]);
+    expect(parcelasDepois).toEqual(parcelasAntes);
+  });
+
+  it("a auditoria guarda de quem era, para quem foi, e o caso que ficou", async () => {
+    const p = await previa([s.acordo], CG);
+    const m = await mover(p.previa_id, "recolhimento de acordos");
+
+    const a = await qn(db,
+      "select * from public.carteira_geral_acordo_auditoria where lote_id=$1", [m.lote_id]);
+    expect(a).toHaveLength(1);
+    expect(a[0].acordo_id).toBe(s.acordo);
+    expect(a[0].de_email).toBe(OLGA);
+    expect(a[0].para_email).toBe(CG);
+    expect(a[0].caso_dono_email).toBe(LUANA);   // o que NAO se moveu
+    expect(a[0].aluno_resp_email).toBe(LUANA);
+    expect(a[0].motivo).toBe("recolhimento de acordos");
+  });
+
+  it("desfazer devolve o acordo para a Olga, sem tocar o caso da Luana", async () => {
+    const p = await previa([s.acordo], CG);
+    const m = await mover(p.previa_id, "ida");
+    expect((await estado()).acordoDono).toBe(CG);
+
+    const d = await desfazer(m.lote_id);
+    expect(d.acordos_devolvidos).toBe(1);
+    expect(d.total_recusados).toBe(0);
+
+    const depois = await estado();
+    expect(depois.acordoDono).toBe(OLGA);
+    expect(depois.caso).toBe(LUANA);
+    expect(depois.ficha).toBe(LUANA);
+  });
+
+  it("desfazer RECUSA se alguem mexeu no acordo depois do lote", async () => {
+    const p = await previa([s.acordo], CG);
+    const m = await mover(p.previa_id, "ida");
+    await db.query("update public.acordos set status='QUITADO' where id=$1", [s.acordo]);
+
+    const d = await desfazer(m.lote_id);
+    expect(d.acordos_devolvidos).toBe(0);
+    expect(d.recusados[0].motivo).toMatch(/status mudou depois do lote/);
+    expect((await estado()).acordoDono).toBe(CG);   // nao voltou
+  });
+
+  it("mover para a Carteira Geral funciona mesmo com a Olga ja DESLIGADA", async () => {
+    await db.query("update public.usuarios set ativo=false, recebe_novos_casos=false where email=$1", [OLGA]);
+    const p = await previa([s.acordo], CG);
+    const m = await mover(p.previa_id, "ela saiu da equipe");
+    expect(m.acordos_movidos).toBe(1);
+    expect((await estado()).acordoDono).toBe(CG);
   });
 });
