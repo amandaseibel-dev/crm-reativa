@@ -21,7 +21,7 @@ export const MIG2 = ler("supabase/migrations/20260920110000_acoes_massivas_unive
 export const MIG3 = ler("supabase/migrations/20260920120000_acoes_massivas_registro_sem_fidelizacao.sql");
 export const MIG4 = ler("supabase/migrations/20260927143351_acoes_massivas_responsavel_caso_e_acordo.sql");
 export const MIG5 = ler("supabase/migrations/20260927154422_acoes_massivas_exigir_dono_acordo.sql");
-export const MIG6 = ler("supabase/migrations/20260927200000_acoes_massivas_previa_caso_divergente.sql");
+export const MIG6 = ler("supabase/migrations/20260927164511_acoes_massivas_previa_caso_divergente.sql");
 
 // O schema `internal` e as duas pecas que a MIG4 usa, tiradas dos ARQUIVOS DE
 // MIGRATION reais -- nao sao dubles. patch_funcao_ancorada e o mesmo patcher de
