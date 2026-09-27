@@ -131,6 +131,10 @@ function rotuloSelecao(filtro, nomeDoOperador) {
 }
 
 
+// As modalidades que olham ACORDO. Em "Somente mensalidades" o controle fica
+// desabilitado e a exigência não vale.
+const PRECISA_DONO_ACORDO = ["ACORDOS_VENCIDOS", "MENSALIDADES_E_ACORDOS"];
+
 const CLASSE_ROTULO = {
   SEM_RESPONSAVEL: "fila livre",
   CARTEIRA_GERAL: "gestão",
@@ -336,7 +340,16 @@ export default function AcoesMassivas() {
   function nomeDoOperador(email) {
     if (String(email).toUpperCase() === "TODOS") return "Todos os operadores";
     if (String(email).toUpperCase() === "LIVRES") return "Sem responsável / livres";
-    return opcoesOperador.find((o) => o.email === email)?.nome || email;
+    if (String(email).toUpperCase() === "SEM_RESPONSAVEL") return "sem responsável / livres";
+    // `opcoesOperador` vem de acoes_massivas_filtros, que só lista operador
+    // ATIVO — a gestão, a supervisão, a ADM, a Carteira Geral e quem foi
+    // desligado não estão lá. `responsaveis` tem todo mundo que tem caso ou
+    // acordo, e é de onde o nome tem de sair.
+    return (
+      opcoesOperador.find((o) => o.email === email)?.nome ||
+      responsaveis.find((o) => o.email === email)?.nome ||
+      email
+    );
   }
 
   async function buscar(over = {}) {
@@ -387,6 +400,15 @@ export default function AcoesMassivas() {
         );
       }
       const selAcordo = [...(over.respAcordo ?? respAcordo)];
+      // Campo de acordo VAZIO não é "de qualquer pessoa". Nas modalidades que
+      // olham acordo, escolher de quem é o acordo é obrigatório — o banco
+      // recusa igual, esta guarda só evita a ida à toa.
+      if (PRECISA_DONO_ACORDO.includes(tipoCobranca) && selAcordo.length === 0) {
+        throw new Error(
+          `A modalidade “${rotuloTipoCobranca(tipoCobranca)}” exige escolher ao menos um ` +
+          "“Responsável pelo acordo”. Campo vazio não significa acordo de qualquer pessoa."
+        );
+      }
       const operadorPedido =
         `CASO:${selCaso.join("|")}` + (selAcordo.length ? `;ACORDO:${selAcordo.join("|")}` : "");
       const argsPrevia = {
@@ -812,7 +834,7 @@ export default function AcoesMassivas() {
               {tipoCobranca === "MENSALIDADES"
                 ? "Não se aplica: “Somente mensalidades” não olha acordo."
                 : respAcordo.size === 0
-                  ? "Sem marcação, entra acordo de QUALQUER responsável — inclusive de outra pessoa."
+                  ? "Obrigatório nesta modalidade: escolha de quem são os acordos. Campo vazio NÃO significa acordo de qualquer pessoa."
                   : "Só entra acordo vencido de quem está marcado aqui. O caso continua sendo recortado acima."}
             </span>
           </div>
@@ -1336,8 +1358,9 @@ export default function AcoesMassivas() {
               <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }}>
                 Responsável filtrado: <strong>{detalheSelecao(operadorDaPrevia, nomeDoOperador).caso}</strong>
                 {detalheSelecao(operadorDaPrevia, nomeDoOperador).acordo
-                  ? <> · Acordos só de <strong>{detalheSelecao(operadorDaPrevia, nomeDoOperador).acordo}</strong></>
-                  : <> · Acordos de <strong>qualquer responsável</strong></>}
+                  ? <> · Acordos <strong>só de {detalheSelecao(operadorDaPrevia, nomeDoOperador).acordo}</strong>
+                      {" "}— qualquer acordo fora dessa lista foi recusado.</>
+                  : <> · <strong>Sem acordo</strong> nesta modalidade.</>}
                 {" "}· Tipo de cobrança: <strong>{rotuloTipoCobranca(tipoDaPrevia)}</strong>
               </div>
               {contagemTipo && (

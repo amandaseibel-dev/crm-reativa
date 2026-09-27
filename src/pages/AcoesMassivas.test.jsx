@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
+import { render, screen, fireEvent, act, cleanup, within, waitFor } from "@testing-library/react";
 
 // Dublê só da RPC. O que se prova aqui: a tela diz de quando é o extrato do
 // Prime usado para tirar quem já pagou, e a mensagem da exportação conta quantos
@@ -121,7 +121,8 @@ afterEach(cleanup);
 
 // Por padrão escolhe "Somente mensalidades": a tela não busca sem tipo de
 // cobrança. `montar({ tipo: null })` deixa sem escolher.
-async function montar({ tipo = "MENSALIDADES", responsavel = "SEM_RESPONSAVEL" } = {}) {
+async function montar({ tipo = "MENSALIDADES", responsavel = "SEM_RESPONSAVEL",
+                        donoAcordo = "amanda.seibel@teste.local" } = {}) {
   await act(async () => { render(<AcoesMassivas />); });
   await screen.findByLabelText("Matriculado");
   await screen.findByTestId("resp-caso");
@@ -131,7 +132,7 @@ async function montar({ tipo = "MENSALIDADES", responsavel = "SEM_RESPONSAVEL" }
   if (responsavel) {
     await act(async () => { fireEvent.click(document.getElementById(`resp-caso-${responsavel}`)); });
   }
-  if (tipo) fireEvent.change(screen.getByLabelText("Tipo de cobrança"), { target: { value: tipo } });
+  if (tipo) await escolherTipo(tipo, { donoAcordo });
 }
 // O controle deixou de ser <select> e virou lista de marcação, com duas
 // dimensões independentes. Marcar é o equivalente a escolher.
@@ -143,6 +144,26 @@ function escolherOperador(email) {
 }
 function escolherDonoAcordo(email) {
   fireEvent.click(document.getElementById(`resp-acordo-${email}`));
+}
+
+// Trocar a modalidade pode passar a exigir dono de acordo. Este ajudante marca
+// um por padrão, para o teste seguir sendo sobre o seu assunto; passe
+// `donoAcordo: null` quando o assunto FOR a exigência.
+async function escolherTipo(tipo, { donoAcordo = "amanda.seibel@teste.local" } = {}) {
+  await act(async () => {
+    fireEvent.change(screen.getByLabelText("Tipo de cobrança"), { target: { value: tipo } });
+  });
+  // o controle de acordo fica `disabled` enquanto carrega E em MENSALIDADES:
+  // esperar em vez de pular, senão o clique some em silêncio
+  if (donoAcordo && ["ACORDOS_VENCIDOS", "MENSALIDADES_E_ACORDOS"].includes(tipo)) {
+    const id = `resp-acordo-${donoAcordo}`;
+    await waitFor(() => {
+      const c = document.getElementById(id);
+      if (!c || c.disabled) throw new Error("controle de acordo ainda desabilitado");
+    });
+    const c = document.getElementById(id);
+    if (!c.checked) await act(async () => { fireEvent.click(c); });
+  }
 }
 
 async function buscar() {
@@ -247,7 +268,8 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     expect(ultimaChamada("acoes_massivas_previa").p_operador_email).toBe("CASO:cobranca03@teste.local");
     expect(screen.getByText(/Responsável filtrado:/).textContent).toContain("Olga");
     // sem a dimensão de acordo marcada, a tela diz que entra acordo de qualquer um
-    expect(screen.getByText(/Responsável filtrado:/).textContent).toMatch(/Acordos de.*qualquer responsável/);
+    // em MENSALIDADES a tela diz que acordo não entra nesta modalidade
+    expect(screen.getByText(/Responsável filtrado:/).textContent).toMatch(/Sem acordo/);
     expect(screen.getByText(/caso\(s\) de Olga/)).toBeTruthy();
   });
 
@@ -267,7 +289,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
   });
 
   it("a dimensão de ACORDO vai separada, e a tela diz que ela recorta", async () => {
-    await montar({ responsavel: null, tipo: "ACORDOS_VENCIDOS" });
+    await montar({ responsavel: null, tipo: "ACORDOS_VENCIDOS", donoAcordo: null });
     await screen.findByTestId("resp-caso");
     escolherOperador("cobranca03@teste.local");
     escolherDonoAcordo("amanda.seibel@teste.local");
@@ -450,8 +472,7 @@ function ultimaChamadaPrevia() {
 
 describe("Ações Massivas — filtro Tipo de cobrança", () => {
   const ultima = (nome) => rpcMock.mock.calls.filter(([n]) => n === nome).at(-1)[1];
-  const escolherTipo = (valor) =>
-    fireEvent.change(screen.getByLabelText("Tipo de cobrança"), { target: { value: valor } });
+  // usa o escolherTipo do módulo: ele marca o dono do acordo quando exigido
 
   it("três opções, sem “Todos”, e nenhuma escolhida no começo", async () => {
     await montar({ tipo: null });
@@ -513,13 +534,16 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     fireEvent.change(screen.getByDisplayValue("Qualquer período"), { target: { value: "30" } });
     await buscar();
     expect(ultima("acoes_massivas_previa")).toMatchObject({
-      p_tipo_cobranca: "ACORDOS_VENCIDOS", p_operador_email: "CASO:cobranca03@teste.local",
+      p_tipo_cobranca: "ACORDOS_VENCIDOS",
+      // a modalidade de acordo exige o dono do acordo: ele vai junto
+      p_operador_email: "CASO:cobranca03@teste.local;ACORDO:amanda.seibel@teste.local",
       p_importacao_ids: ["imp-1"], p_acionamento: "NUNCA", p_unidade: "CANOAS", p_curso: "EAD",
       p_dias_minimo_sem_contato: 30,
     });
     await gerar();
     expect(ultima("acoes_massivas_exportar")).toMatchObject({
-      p_tipo_cobranca: "ACORDOS_VENCIDOS", p_operador_email: "CASO:cobranca03@teste.local",
+      p_tipo_cobranca: "ACORDOS_VENCIDOS",
+      p_operador_email: "CASO:cobranca03@teste.local;ACORDO:amanda.seibel@teste.local",
     });
   });
 
@@ -529,7 +553,7 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     await gerar();
     expect(screen.getByRole("button", { name: /Baixar planilha novamente/ })).toBeTruthy();
     const antes = rpcMock.mock.calls.length;
-    escolherTipo("ACORDOS_VENCIDOS");
+    await escolherTipo("ACORDOS_VENCIDOS");
     expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Baixar planilha novamente/ })).toBeNull();
     expect(screen.queryByTestId("contagem-tipo")).toBeNull();
@@ -679,5 +703,53 @@ describe("Ações Massivas — universo no banco: limite exato, sem corte no cli
       unidade: "CANOAS", canal: "WHATSAPP", valor_min: 0, valor_max: null, recencia_dias: 10,
       tipo_cobranca: "MENSALIDADES", sem_telefone: false,
     });
+  });
+});
+
+// A lacuna do #537: campo de acordo vazio significava "acordo de qualquer
+// pessoa". Nas modalidades que olham acordo, escolher passa a ser obrigatório.
+describe("Ações Massivas — acordo exige dono explícito", () => {
+  beforeEach(() => { rpcMock.mockClear(); });
+  afterEach(cleanup);
+  const ultimaChamada = (nome) => rpcMock.mock.calls.filter(([n]) => n === nome).at(-1)[1];
+
+  it("ACORDOS_VENCIDOS sem dono de acordo não chega ao banco", async () => {
+    await montar({ responsavel: null, tipo: "ACORDOS_VENCIDOS", donoAcordo: null });
+    await screen.findByTestId("resp-caso");
+    escolherOperador("cobranca03@teste.local");
+    await buscar();
+    expect(rpcMock.mock.calls.some(([n]) => n === "acoes_massivas_previa")).toBe(false);
+    expect(screen.getByText(/exige escolher ao menos um/)).toBeTruthy();
+  });
+
+  it("MENSALIDADES_E_ACORDOS também exige", async () => {
+    await montar({ responsavel: null, tipo: "MENSALIDADES_E_ACORDOS", donoAcordo: null });
+    await screen.findByTestId("resp-caso");
+    escolherOperador("cobranca03@teste.local");
+    await buscar();
+    expect(rpcMock.mock.calls.some(([n]) => n === "acoes_massivas_previa")).toBe(false);
+  });
+
+  it("SOMENTE MENSALIDADES não exige, e o controle fica desabilitado", async () => {
+    await montar({ responsavel: null, tipo: "MENSALIDADES" });
+    await screen.findByTestId("resp-caso");
+    escolherOperador("cobranca03@teste.local");
+    const caixa = document.getElementById("resp-acordo-amanda.seibel@teste.local");
+    expect(caixa.disabled).toBe(true);
+    await buscar();
+    expect(ultimaChamada("acoes_massivas_previa").p_operador_email).toBe("CASO:cobranca03@teste.local");
+  });
+
+  // o cenário que ela pediu: acordo da Amanda em caso da Olga
+  it("com o dono do acordo escolhido, passa e a prévia diz quem foi", async () => {
+    await montar({ responsavel: null, tipo: "ACORDOS_VENCIDOS", donoAcordo: null });
+    await screen.findByTestId("resp-caso");
+    escolherOperador("cobranca03@teste.local");
+    escolherDonoAcordo("amanda.seibel@teste.local");
+    await buscar();
+    expect(ultimaChamada("acoes_massivas_previa").p_operador_email)
+      .toBe("CASO:cobranca03@teste.local;ACORDO:amanda.seibel@teste.local");
+    expect(screen.getByText(/Responsável filtrado:/).textContent)
+      .toMatch(/Acordos só de Amanda Gestora.*fora dessa lista foi recusado/);
   });
 });
