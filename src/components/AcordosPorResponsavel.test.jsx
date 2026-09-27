@@ -51,6 +51,14 @@ vi.mock("../services/supabase", () => ({
           ],
           error: null,
         });
+      if (fn === "carteira_geral_acordos_destinos")
+        return Promise.resolve({
+          data: [
+            { email: "carteira.geral@reativa.local", nome: "Carteira Geral", tipo: "CARTEIRA_GERAL" },
+            { email: "cobranca05@aelbra.com.br", nome: "Luana", tipo: "OPERADOR" },
+          ],
+          error: null,
+        });
       if (fn === "carteira_geral_acordos_painel") return Promise.resolve({ data: PAINEL, error: null });
       if (fn === "carteira_geral_acordos_listar") return Promise.resolve({ data: LISTA, error: null });
       if (fn === "carteira_geral_acordos_previa")
@@ -167,6 +175,25 @@ describe("Acordos por responsável — a tela", () => {
     } finally {
       confirmar.mockRestore();
     }
+  });
+
+  it("a Carteira Geral aparece como destino, marcada como gestão", async () => {
+    await montar();
+    const sel = screen.getByText("Novo responsável pelo acordo").closest("label").querySelector("select");
+    const opcoes = [...sel.querySelectorAll("option")].map((o) => o.textContent);
+    expect(opcoes).toContain("Carteira Geral (gestão)");
+    expect(opcoes).toContain("Luana");
+    // a Olga tem 127 acordos e aparece como ORIGEM, mas nunca como destino
+    expect(opcoes.some((t) => /Olga/.test(t))).toBe(false);
+  });
+
+  it("o destino NAO sai da lista de quem tem acordo", async () => {
+    await montar();
+    const origem = screen.getByText("Responsável pelo acordo").closest("label").querySelector("select");
+    const destino = screen.getByText("Novo responsável pelo acordo").closest("label").querySelector("select");
+    // a origem lista a Olga (inativa, com acordo); o destino nao
+    expect([...origem.querySelectorAll("option")].some((o) => /Olga/.test(o.textContent))).toBe(true);
+    expect([...destino.querySelectorAll("option")].some((o) => /Olga/.test(o.textContent))).toBe(false);
   });
 
   it("não deixa gerar prévia sem destino e sem motivo", async () => {

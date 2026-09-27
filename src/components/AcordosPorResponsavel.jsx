@@ -33,6 +33,12 @@ export default function AcordosPorResponsavel({ meuEmail }) {
   // gestão, que não tem perfil "operador". Usar a lista de operadores ativos
   // deixaria essas carteiras inalcançáveis, que foi o defeito do PR #531.
   const [responsaveis, setResponsaveis] = useState([]);
+  // Destinos validos, vindos da MESMA regra que a RPC aplica
+  // (internal.acordo_destino_valido): operador ATIVO ou a Carteira Geral.
+  // Nao sai de `responsaveis`: aquela lista e de quem TEM acordo, e (a) a
+  // Carteira Geral cairia no filtro de ativo, (b) operador ativo sem acordo
+  // nenhum nao poderia receber.
+  const [destinos, setDestinos] = useState([]);
   const [painel, setPainel] = useState(null);
   const [lista, setLista] = useState([]);
   const [carregando, setCarregando] = useState(true);
@@ -84,6 +90,9 @@ export default function AcordosPorResponsavel({ meuEmail }) {
     let vivo = true;
     supabase.rpc("carteira_geral_acordos_responsaveis").then(({ data }) => {
       if (vivo && Array.isArray(data)) setResponsaveis(data);
+    });
+    supabase.rpc("carteira_geral_acordos_destinos").then(({ data }) => {
+      if (vivo && Array.isArray(data)) setDestinos(data);
     });
     return () => { vivo = false; };
   }, []);
@@ -369,11 +378,11 @@ export default function AcordosPorResponsavel({ meuEmail }) {
           <span style={rotulo}>Novo responsável pelo acordo</span>
           <select value={destinoEmail} onChange={(e) => { setDestinoEmail(e.target.value); setPrevia(null); }} style={input}>
             <option value="">Selecione…</option>
-            {responsaveis
-              .filter((o) => o.ativo)
-              .map((o) => (
-                <option key={o.email} value={o.email}>{o.nome || o.email}</option>
-              ))}
+            {destinos.map((o) => (
+              <option key={o.email} value={o.email}>
+                {o.tipo === "CARTEIRA_GERAL" ? `${o.nome} (gestão)` : o.nome || o.email}
+              </option>
+            ))}
           </select>
         </label>
 
