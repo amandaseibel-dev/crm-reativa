@@ -252,7 +252,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
       "p_recencia_dias", "p_sem_telefone", "p_situacao_academica", "p_tipo_cobranca", "p_unidade",
       "p_valor_max", "p_valor_min",
     ]);
-    expect(screen.getByText(/Responsável filtrado:/).textContent).toContain("sem responsável / livres");
+    expect(screen.getByText(/Responsável filtrado/).textContent).toContain("sem responsável / livres");
     await gerar();
     const reg = ultimaChamada("acoes_massivas_exportar");
     expect(reg.p_operador_email).toBe("CASO:SEM_RESPONSAVEL");
@@ -266,10 +266,10 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     escolherOperador("cobranca03@teste.local");
     await buscar();
     expect(ultimaChamada("acoes_massivas_previa").p_operador_email).toBe("CASO:cobranca03@teste.local");
-    expect(screen.getByText(/Responsável filtrado:/).textContent).toContain("Olga");
+    expect(screen.getByText(/Responsável filtrado/).textContent).toContain("Olga");
     // sem a dimensão de acordo marcada, a tela diz que entra acordo de qualquer um
     // em MENSALIDADES a tela diz que acordo não entra nesta modalidade
-    expect(screen.getByText(/Responsável filtrado:/).textContent).toMatch(/Sem acordo/);
+    expect(screen.getByText(/Responsável filtrado/).textContent).toMatch(/Sem acordo/);
     expect(screen.getByText(/caso\(s\) de Olga/)).toBeTruthy();
   });
 
@@ -296,7 +296,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     await buscar();
     expect(ultimaChamada("acoes_massivas_previa").p_operador_email)
       .toBe("CASO:cobranca03@teste.local;ACORDO:amanda.seibel@teste.local");
-    expect(screen.getByText(/Responsável filtrado:/).textContent).toMatch(/Acordos só de/);
+    expect(screen.getByText(/Responsável filtrado/).textContent).toMatch(/Acordos só de/);
   });
 
   it("em 'Todos os operadores' a lista mostra o responsável, marca quem está fidelizado e o livre aparece como Livre", async () => {
@@ -345,7 +345,7 @@ describe("Ações Massivas — filtro por operador responsável", () => {
     const chamadasAntes = rpcMock.mock.calls.length;
     escolherOperador("cobranca05@teste.local");
     expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
-    expect(screen.queryByText(/Responsável filtrado:/)).toBeNull();
+    expect(screen.queryByText(/Responsável filtrado/)).toBeNull();
     // nenhuma RPC foi chamada pela troca (nada de registrar/atribuir)
     expect(rpcMock.mock.calls.length).toBe(chamadasAntes);
     escolherOperador("SEM_RESPONSAVEL");
@@ -749,7 +749,41 @@ describe("Ações Massivas — acordo exige dono explícito", () => {
     await buscar();
     expect(ultimaChamada("acoes_massivas_previa").p_operador_email)
       .toBe("CASO:cobranca03@teste.local;ACORDO:amanda.seibel@teste.local");
-    expect(screen.getByText(/Responsável filtrado:/).textContent)
+    expect(screen.getByText(/Responsável filtrado/).textContent)
       .toMatch(/Acordos só de Amanda Gestora.*fora dessa lista foi recusado/);
+  });
+});
+
+// O rótulo dizia "Responsável pelo caso" mas a consulta filtra
+// alunos.responsavel_atual_email — a FICHA. Medido em 27/09/2026: divergem em
+// 20 alunos de 13.041.
+describe("Ações Massivas — o rótulo diz qual titularidade é", () => {
+  beforeEach(() => { rpcMock.mockClear(); });
+  afterEach(cleanup);
+
+  it("o campo nomeia a FICHA, não o caso, e explica a diferença", async () => {
+    await montar({ responsavel: null });
+    await screen.findByTestId("resp-caso");
+    expect(screen.getByText("Responsável pela ficha do aluno")).toBeTruthy();
+    const ajuda = screen.getByText(/alunos\.responsavel_atual_email/).closest("span").textContent;
+    expect(ajuda).toMatch(/dono da\s+ficha/);
+    expect(ajuda).toMatch(/Na Carteira Geral o filtro é pelo caso; aqui é pela ficha/);
+    expect(ajuda).toMatch(/20.*13\.041/);
+  });
+
+  it("a prévia tem a coluna 'Caso em outra mão' e a destaca quando > 0", async () => {
+    previaExtra = {
+      por_responsavel: [
+        { responsavel: "cobranca03@teste.local", alunos: 3, casos: 3, acordos: 2,
+          acordos_de_outro_dono: 1, casos_em_outra_mao: 1, valor: 900 },
+      ],
+    };
+    await montar();
+    await buscar();
+    const tabela = screen.getByTestId("previa-por-responsavel");
+    expect(within(tabela).getByText("Caso em outra mão")).toBeTruthy();
+    const linha = within(tabela).getByText("cobranca03@teste.local").closest("tr");
+    // alunos 3 · casos 3 · acordos 2 · de outro dono 1 · caso em outra mão 1
+    expect(linha.textContent).toMatch(/3.*3.*2.*1.*1/);
   });
 });
