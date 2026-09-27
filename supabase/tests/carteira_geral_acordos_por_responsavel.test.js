@@ -285,7 +285,12 @@ describe("Remanejamento de ACORDO — o portao contra o gatilho", () => {
     return x;
   };
 
-  beforeEach(async () => { s = await cenarioPerigoso("PERIGO"); await como(db, GESTAO); });
+  let s2;
+  beforeEach(async () => {
+    s = await cenarioPerigoso("PERIGO");
+    s2 = await cenarioPerigoso("PERIGO FORJADO");
+    await como(db, GESTAO);
+  });
 
   it("CONTROLE: mexer no acordo FORA da RPC arrasta a ficha (o gatilho esta vivo)", async () => {
     await db.query("update public.acordos set operador_responsavel_email=$2 where id=$1", [s.acordo, LUANA]);
@@ -311,6 +316,16 @@ describe("Remanejamento de ACORDO — o portao contra o gatilho", () => {
     const outro = await cenarioPerigoso("PERIGO 2");
     await db.query("update public.acordos set operador_responsavel_email=$2 where id=$1", [outro.acordo, LUANA]);
     expect(await donoFicha(outro.aluno)).toBe(LUANA);
+  });
+
+  it("a chave FORJADA de fora nao suprime o gatilho — a pilha e que prova", async () => {
+    // qualquer um pode chamar set_config na propria sessao; o que ele nao pode
+    // e falsificar a pilha do PL/pgSQL, porque nao consegue criar funcao.
+    await db.query("select set_config('reativa.remanejando_acordo','1',true)");
+    await db.query("update public.acordos set operador_responsavel_email=$2 where id=$1", [s2.acordo, LUANA]);
+
+    // a ficha seguiu assim mesmo: a flag sozinha nao vale nada
+    expect(await donoFicha(s2.aluno)).toBe(LUANA);
   });
 
   it("desfazer tambem nao arrasta a ficha de volta", async () => {

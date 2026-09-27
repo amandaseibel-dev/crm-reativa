@@ -93,8 +93,24 @@ $novo$begin
   -- Remanejamento de ACORDO em curso: quem move o acordo decidiu mover SO o
   -- acordo. A ficha e o caso ficam onde estao -- e a propria funcao que move
   -- confere isso depois, comparando o antes e o depois.
+  --
+  -- A CHAVE SOZINHA NAO BASTA. `authenticated` tem UPDATE em acordos (RLS
+  -- permite os proprios e os sem dono), e qualquer um pode chamar set_config
+  -- na propria sessao -- a flag seria forjavel. Ela nao daria acesso novo (o
+  -- efeito de forjar e a ficha NAO vir junto, ou seja, ganhar menos), mas
+  -- tambem nao e de graca: desacopla acordo e ficha fora do fluxo previsto.
+  -- Entao a flag so vale se a PILHA provar que a chamada veio de dentro das
+  -- funcoes de remanejamento de acordo. pg_context nao e forjavel por quem nao
+  -- pode criar funcao, e `authenticated` nao pode.
   if coalesce(current_setting('reativa.remanejando_acordo', true), '') = '1' then
-    return new;
+    declare v_ctx text;
+    begin
+      get diagnostics v_ctx = pg_context;
+      if v_ctx like '%carteira_geral_acordos_mover%'
+         or v_ctx like '%carteira_geral_acordos_desfazer_lote%' then
+        return new;
+      end if;
+    end;
   end if;
 
   if nullif(trim(coalesce(new.operador_responsavel_email,'')),'') is null then return new; end if;$novo$,
