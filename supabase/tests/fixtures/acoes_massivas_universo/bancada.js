@@ -19,7 +19,7 @@ const ler = (p) => readFileSync(resolve(RAIZ, p), "utf8");
 export const MIG1 = ler("supabase/migrations/20260920100000_acoes_massivas_cobertura_estrutura.sql");
 export const MIG2 = ler("supabase/migrations/20260920110000_acoes_massivas_universo.sql");
 export const MIG3 = ler("supabase/migrations/20260920120000_acoes_massivas_registro_sem_fidelizacao.sql");
-export const MIG4 = ler("supabase/migrations/20260927180000_acoes_massivas_responsavel_caso_e_acordo.sql");
+export const MIG4 = ler("supabase/migrations/20260927143351_acoes_massivas_responsavel_caso_e_acordo.sql");
 
 // O schema `internal` e as duas pecas que a MIG4 usa, tiradas dos ARQUIVOS DE
 // MIGRATION reais -- nao sao dubles. patch_funcao_ancorada e o mesmo patcher de
