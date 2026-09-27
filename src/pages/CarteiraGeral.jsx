@@ -51,6 +51,10 @@ export default function CarteiraGeral() {
   const [donosComCaso, setDonosComCaso] = useState([]);
   // quem está logado, para a seção de acordos abrir em "Meus acordos"
   const [meuEmail, setMeuEmail] = useState("");
+  // Os DOIS numeros da minha carteira de ACORDO, ao lado do de CASO.
+  // Vem de carteira_geral_acordos_painel com o meu e-mail, nao do painel
+  // de casos: sao titularidades diferentes e nao podem sair da mesma conta.
+  const [meusAcordos, setMeusAcordos] = useState(null);
 
   const [filtros, setFiltros] = useState({
     responsavel: "", ano: "", tipo: "", busca: "", incluirEncerrados: false,
@@ -80,6 +84,17 @@ export default function CarteiraGeral() {
     });
     return () => { vivo = false; };
   }, []);
+
+  useEffect(() => {
+    if (!meuEmail) return undefined;
+    let vivo = true;
+    supabase
+      .rpc("carteira_geral_acordos_painel", { p_filtros: { responsavel: meuEmail } })
+      .then(({ data }) => {
+        if (vivo && data) setMeusAcordos(data);
+      });
+    return () => { vivo = false; };
+  }, [meuEmail]);
 
   const carregarOperadores = useCallback(async () => {
     const { data } = await supabase
@@ -328,6 +343,13 @@ export default function CarteiraGeral() {
   const fichasPorAluno = casosPorAluno(lista);
   const paginas = totalPaginas(painel?.total_casos ?? painel?.total_alunos, POR_PAGINA);
   const marcadosNestaPagina = lista.filter((l) => selecionados.has(l.aluno_id)).length;
+  // a MINHA linha na tabela de casos, e os meus numeros de acordo
+  const meuCaso = (painel?.por_responsavel || []).find(
+    (r) => (r.email || "").toLowerCase() === meuEmail
+  );
+  const ativosMeus = Number(
+    (meusAcordos?.por_status || []).find((x) => x.status === "ATIVO")?.acordos || 0
+  );
 
   return (
     <div style={pagina}>
@@ -394,11 +416,51 @@ export default function CarteiraGeral() {
 
       <section style={cartao}>
         <h2 style={secao}>Por responsável</h2>
+        <span style={nota}>
+          Esta tabela conta <strong>caso</strong> — de quem é o aluno na operação. Não é a mesma
+          coisa que <strong>acordo</strong>, que tem responsável próprio e pode estar no caso de
+          outra pessoa.
+        </span>
+
+        {/* Os dois lados, lado a lado. Sem isto, "11" ao lado do próprio nome
+            se lia como "respondo por 11 coisas" — quando são 11 CASOS e
+            centenas de ACORDOS. Um número não substitui o outro. */}
+        {meuEmail && (
+          <div style={grade} data-testid="meus-numeros">
+            <Bloco
+              titulo="Meus casos"
+              valor={String(meuCaso?.casos ?? meuCaso?.alunos ?? 0)}
+              nota="de quem é o aluno"
+            />
+            <Bloco
+              titulo="Meus acordos ativos"
+              valor={String(ativosMeus)}
+              nota="responsável pelo acordo"
+              alerta={ativosMeus > 0}
+            />
+            <Bloco
+              titulo="Meus acordos em todos os status"
+              valor={String(meusAcordos?.total_acordos ?? 0)}
+              nota="ATIVO, QUITADO e CANCELADO"
+            />
+            <Bloco
+              titulo="Meus acordos em caso de outra pessoa"
+              valor={String(meusAcordos?.em_caso_de_outro ?? 0)}
+              nota="o caso não é meu"
+              alerta={Number(meusAcordos?.em_caso_de_outro || 0) > 0}
+            />
+          </div>
+        )}
+
         <table style={tabela}>
           <thead>
             <tr>
               <th style={th}>Responsável</th>
               <th style={th}>Situação</th>
+              {/* CASOS e ALUNOS separados: a coluna dizia "Alunos" e trazia
+                  contagem de caso — foi o que fez "Amanda Gestora: 11" ser lido
+                  como "11 coisas minhas". */}
+              <th style={thNum}>Casos</th>
               <th style={thNum}>Alunos</th>
               <th style={thNum}>Mensalidade</th>
               <th style={thNum}>Acordo</th>
@@ -412,6 +474,7 @@ export default function CarteiraGeral() {
                 <td style={{ ...td, color: classeEmAlerta(r.classe) ? "var(--rv-ambar-texto)" : "var(--rv-texto-fraco)" }}>
                   {rotuloClasse(r.classe)}
                 </td>
+                <td style={tdNum}>{r.casos ?? r.alunos}</td>
                 <td style={tdNum}>{r.alunos}</td>
                 <td style={tdNum}>{moeda(r.mensalidade)}</td>
                 <td style={tdNum}>{moeda(r.acordo)}</td>
