@@ -2,13 +2,19 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 
-// EFETIVIDADE 2026/2 POR BORDERÔ
+// EFETIVIDADE 2026/2 POR COMPETÊNCIA
 //
-// Mesmo dado da visão consolidada de 2026/2, quebrado pelo BORDERÔ que trouxe o
-// título para a cobrança. Uma pergunta só: cada remessa que entrou, o que virou?
+// Mesmo dado da visão consolidada de 2026/2, quebrado pelo MÊS DE COMPETÊNCIA
+// da mensalidade. Uma pergunta só: de cada mês que entrou em cobrança, o que
+// virou?
 //
-// ENTRADA aqui é entrada NA CARTEIRA (a remessa que trouxe o título), nunca
-// entrada financeira de acordo.
+// COMPETÊNCIA = mês do VENCIMENTO da mensalidade. Não é o borderô, que é
+// artefato interno de importação e não identifica nada para quem lê (quatro
+// borderôs caem em agosto/2026, quatro em julho), e não é a coluna
+// `acordos_titulos.competencia`, que está nula em todos os títulos de 2026/2.
+//
+// ENTRADA aqui é entrada NA CARTEIRA de cobrança, nunca entrada financeira de
+// acordo.
 //
 // O recorte é do TÍTULO, pelo semestre do título (série do Prime, com o
 // vencimento como retaguarda) — nunca pela data de importação nem pelo semestre
@@ -16,7 +22,7 @@ import { Carregando } from "../ui/estados";
 // Quem decide tudo isso é o banco: esta tela não calcula, só desenha.
 //
 // CANCELADO e ACORDO CANCELADO são dois conceitos e nunca se somam:
-//   Cancelados        = a COBRANÇA do título saiu da base.
+//   Cancelados         = a COBRANÇA do título saiu da base.
 //   Acordos cancelados = o acordo caiu; o título segue na carteira e o que já
 //                        havia sido convertido continua convertido.
 
@@ -29,7 +35,31 @@ const moedaCurta = (v) => {
   return moeda(n);
 };
 const num = (v) => Number(v || 0).toLocaleString("pt-BR");
+// Contagem com o substantivo no número certo: com o dado real de produção a
+// tela mostrava "1 títulos" e "1 acordos".
+const conta = (v, um, varios) =>
+  num(v) + " " + (Math.abs(Number(v || 0)) === 1 ? um : varios);
 const dia = (v) => (v ? new Date(String(v).length === 10 ? v + "T12:00:00" : v).toLocaleDateString("pt-BR") : "—");
+// Competência por extenso. Sempre com o ano: 2026/2 tem mensalidade vencendo em
+// abril e em dezembro, e "agosto" sem ano convida a erro de leitura.
+const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
+               "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const competenciaLonga = (v) => {
+  if (!v) return "Sem competência";
+  const d = new Date(String(v).slice(0, 10) + "T12:00:00");
+  return MESES[d.getMonth()] + "/" + d.getFullYear();
+};
+const competenciaCurta = (v) => {
+  if (!v) return "—";
+  const d = new Date(String(v).slice(0, 10) + "T12:00:00");
+  return MESES[d.getMonth()].slice(0, 3) + "/" + d.getFullYear();
+};
+// "venc. 05/08" quando o mês tem uma data só; "venc. 01/07 a 30/07" quando tem
+// várias. O intervalo é informação real: julho tem 19 datas distintas.
+const faixaVencimento = (b) =>
+  Number(b?.datas_de_vencimento || 0) <= 1
+    ? "venc. " + dia(b?.vencimento_de)
+    : "venc. " + dia(b?.vencimento_de) + " a " + dia(b?.vencimento_ate);
 const horario = (v) =>
   v ? new Date(v).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" }) : "—";
 const pct = (parte, todo, casas = 1) =>
@@ -73,58 +103,80 @@ function montarCards(t) {
     {
       chave: "entradas", indicador: "entradas", papel: "entradas",
       titulo: "Entradas", valor: moedaCurta(t?.valor_original),
-      linhas: [num(t?.titulos) + " títulos recebidos para cobrança", num(t?.alunos) + " alunos únicos"],
+      linhas: [conta(t?.titulos, "mensalidade recebida", "mensalidades recebidas") + " para cobrança",
+               conta(t?.alunos, "aluno único", "alunos únicos")],
       nota: "valor original · entrada na carteira, não entrada de acordo",
     },
     {
       chave: "recuperado", indicador: "recuperado", papel: "recuperado",
       titulo: "Recuperado", valor: moedaCurta(t?.recuperado),
-      linhas: [num(t?.titulos_com_pagamento) + " títulos com pagamento",
-               num(t?.titulos_liquidados) + " totalmente liquidados"],
+      linhas: [conta(t?.titulos_com_pagamento, "mensalidade com pagamento", "mensalidades com pagamento"),
+               conta(t?.titulos_liquidados, "totalmente liquidado", "totalmente liquidados")],
       nota: pct(t?.recuperado, entrada) + " do valor original que entrou",
     },
     {
       chave: "convertido", indicador: "convertido", papel: "convertido",
       titulo: "Convertido", valor: moedaCurta(t?.convertido_valor),
-      linhas: [num(t?.convertido_titulos) + " títulos convertidos",
+      linhas: [conta(t?.convertido_titulos, "mensalidade convertida", "mensalidades convertidas"),
                "por pagamento ou negociação"],
       nota: pct(t?.convertido_valor, entrada) + " do valor original que entrou",
     },
     {
       chave: "conferencia", indicador: "em_conferencia", papel: "conferencia",
       titulo: "Em conferência", valor: moedaCurta(t?.conferencia_valor),
-      linhas: [num(t?.conferencia_titulos) + " títulos sem prova suficiente",
+      linhas: [conta(t?.conferencia_titulos, "sem prova suficiente", "sem prova suficiente"),
                "não entram em Convertido nem no saldo"],
       nota: pct(t?.conferencia_valor, entrada) + " do valor original que entrou",
     },
     {
       chave: "cancelado", indicador: "cancelado", papel: "cancelado",
       titulo: "Cancelados", valor: moedaCurta(t?.cancelado_valor),
-      linhas: [num(t?.cancelado_titulos) + " títulos com a cobrança cancelada",
-               num(t?.acordos_cancelados) + " acordos cancelados (conceito separado)"],
+      linhas: [conta(t?.cancelado_titulos, "mensalidade com a cobrança cancelada",
+                     "mensalidades com a cobrança cancelada"),
+               conta(t?.acordos_cancelados, "acordo cancelado", "acordos cancelados")
+                 + " (conceito separado)"],
       nota: "cobrança cancelada sai da base; acordo cancelado não",
     },
     {
       chave: "saldo", indicador: "saldo", papel: "saldo",
       titulo: "Saldo a recuperar", valor: moedaCurta(t?.saldo_valor),
-      linhas: [num(t?.saldo_titulos) + " títulos com saldo",
+      linhas: [conta(t?.saldo_titulos, "mensalidade com saldo", "mensalidades com saldo"),
                moedaCurta(t?.sem_negociacao_valor) + " sem nenhuma negociação"],
       nota: pct(t?.saldo_valor, entrada) + " do valor original que entrou",
     },
   ];
 }
 
-export default function EfetividadeBorderos() {
+// Qual campo da competência cada card mede, e a linha de apoio de cada um.
+// Ficam fora do componente para o card do mês ler a MESMA definição dos cards
+// do topo, sem repetir rótulo nem fórmula.
+const VALOR_DO_CARD = {
+  entradas: "valor_original", recuperado: "recuperado", convertido: "convertido_valor",
+  conferencia: "conferencia_valor", cancelado: "cancelado_valor", saldo: "saldo_valor",
+};
+const APOIO_DO_CARD = {
+  entradas: (b) => conta(b.titulos, "mensalidade", "mensalidades"),
+  recuperado: (b) => conta(b.titulos_com_pagamento, "com pagamento", "com pagamento"),
+  convertido: (b) => conta(b.convertido_titulos, "mensalidade", "mensalidades"),
+  conferencia: (b) => conta(b.conferencia_titulos, "mensalidade", "mensalidades"),
+  cancelado: (b) => conta(b.cancelado_titulos, "mensalidade", "mensalidades") + " · "
+                  + conta(b.acordos_cancelados, "acordo cancelado", "acordos cancelados"),
+  saldo: (b) => conta(b.saldo_titulos, "com saldo", "com saldo"),
+};
+const tituloDetalhe = (c, b) =>
+  "Ver os títulos de " + c.titulo + " de " + competenciaLonga(b.competencia);
+
+export default function EfetividadeCompetencias() {
   const [dados, setDados] = useState(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState("");
-  const [selecionado, setSelecionado] = useState("todos");   // importacao_id ou "todos"
+  const [selecionado, setSelecionado] = useState("todos");   // competência (AAAA-MM-DD) ou "todos"
   const [detalhe, setDetalhe] = useState(null);              // { titulo, indicador, importacao_id, dados }
 
   useEffect(() => {
     let ativo = true;
     (async () => {
-      const { data, error } = await supabase.rpc("carteira_2026_2_borderos");
+      const { data, error } = await supabase.rpc("carteira_2026_2_competencias");
       if (!ativo) return;
       if (error) setErro(error.message);
       setDados(data || null);
@@ -133,30 +185,32 @@ export default function EfetividadeBorderos() {
     return () => { ativo = false; };
   }, []);
 
-  const borderos = useMemo(() => dados?.borderos || [], [dados]);
-  // A lista do banco traz também o grupo dos títulos SEM importacao_id — ele
-  // aparece como card ("Sem borderô identificado") porque o valor existe e tem de ser visto,
-  // de ser visto, mas NÃO é remessa e não entra na contagem de borderôs. Medido em
-  // produção em 27/09: 15 borderôs + 1 título órfão = 16 blocos.
-  const orfao = useMemo(() => borderos.find((b) => !b.importacao_id) || null, [borderos]);
-  const qtdBorderos = Number(dados?.total?.borderos || 0);
+  // Ordem CRONOLÓGICA crescente, decidida aqui e não no banco: é apresentação,
+  // não regra. O painel devolve do mais recente para o mais antigo, o que
+  // colocava dezembro/2026 (1 mensalidade) na frente de agosto (R$ 2,8 mi).
+  // Lido como linha do tempo, o semestre se explica sozinho.
+  const competencias = useMemo(
+    () => [...(dados?.competencias || [])].sort(
+      (x, y) => String(x.competencia).localeCompare(String(y.competencia))),
+    [dados]);
+  const qtdCompetencias = Number(dados?.total?.competencias || 0);
   const escolhido = selecionado === "todos"
     ? null
-    : borderos.find((b) => (b.importacao_id || "sem-bordero") === selecionado) || null;
-  // Selecionar um borderô troca o que os cards de cima medem: sem isso o
+    : competencias.find((b) => String(b.competencia).slice(0, 10) === selecionado) || null;
+  // Selecionar uma competência troca o que os cards de cima medem: sem isso o
   // seletor mudaria a lista de baixo e deixaria o topo falando do semestre todo.
   const topo = escolhido || dados?.total;
   const cards = montarCards(topo);
-  const visiveis = escolhido ? [escolhido] : borderos;
+  const visiveis = escolhido ? [escolhido] : competencias;
 
-  async function abrirDetalhe(card, bordero) {
-    const importacaoId = bordero ? bordero.importacao_id : (escolhido ? escolhido.importacao_id : null);
-    const ondeTexto = bordero
-      ? "Borderô " + (bordero.bordero_ref || "sem número")
-      : escolhido ? "Borderô " + (escolhido.bordero_ref || "sem número") : "todos os borderôs de 2026/2";
+  async function abrirDetalhe(card, competencia) {
+    const alvo = competencia || escolhido;
+    const ondeTexto = alvo
+      ? "Mensalidades de " + competenciaLonga(alvo.competencia)
+      : "todas as competências de 2026/2";
     setDetalhe({ titulo: card.titulo, onde: ondeTexto, papel: card.papel, carregando: true, dados: null });
-    const { data, error } = await supabase.rpc("carteira_2026_2_bordero_detalhe", {
-      p_importacao_id: importacaoId,
+    const { data, error } = await supabase.rpc("carteira_2026_2_competencia_detalhe", {
+      p_competencia: alvo ? String(alvo.competencia).slice(0, 10) : null,
       p_indicador: card.indicador,
       p_limite: 200,
       p_offset: 0,
@@ -169,65 +223,59 @@ export default function EfetividadeBorderos() {
 
   if (carregando) return <Carregando />;
   if (erro) return <p style={S.erro}>{erro}</p>;
-  if (!dados || !borderos.length) {
-    return <p style={S.discreto}>Nenhum borderô com título de 2026/2.</p>;
+  if (!dados || !competencias.length) {
+    return <p style={S.discreto}>Nenhuma mensalidade de 2026/2 em cobrança.</p>;
   }
 
   const at = dados.atualizado_em || {};
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-      {/* ---- escolha do borderô + identidade do recorte ---- */}
+      {/* ---- escolha da competência + identidade do recorte ---- */}
       <div style={S.painelSeletor}>
         <div style={S.seletorBloco}>
-          <span style={S.navRotulo}>Borderô</span>
+          <span style={S.navRotulo}>Competência</span>
           <select value={selecionado} onChange={(e) => setSelecionado(e.target.value)}
-                  aria-label="Borderô de 2026/2" style={S.select}>
+                  aria-label="Competência de 2026/2" style={S.select}>
             <option value="todos">
-              Todos os borderôs do semestre ({num(qtdBorderos)})
+              Todas as competências do semestre ({num(qtdCompetencias)})
             </option>
-            {borderos.map((b) => (
-              <option key={b.importacao_id || "sem-bordero"} value={b.importacao_id || "sem-bordero"}>
-                {b.bordero_ref ? "Borderô " + b.bordero_ref : "Sem borderô identificado"}
-                {" · " + dia(b.bordero_entrada) + " · " + num(b.titulos) + " títulos · " + moedaCurta(b.valor_original)}
+            {competencias.map((b) => (
+              <option key={String(b.competencia)} value={String(b.competencia).slice(0, 10)}>
+                {competenciaLonga(b.competencia)
+                 + " · " + conta(b.titulos, "mensalidade", "mensalidades")
+                 + " · " + moedaCurta(b.valor_original)}
               </option>
             ))}
           </select>
         </div>
-        <span style={S.chip}>2026/2 · semestre do título</span>
+        <span style={S.chip}>2026/2 · competência = mês do vencimento</span>
       </div>
 
       {/* Identidade do recorte escolhido, sempre no mesmo lugar. */}
       <p style={S.rodapeDiscreto}>
         {escolhido
-          ? "Borderô " + (escolhido.bordero_ref || "sem número") + " · entrada em " + dia(escolhido.bordero_entrada)
-            + " · " + num(escolhido.titulos) + " títulos · " + num(escolhido.alunos) + " alunos"
+          ? "Mensalidades de " + competenciaLonga(escolhido.competencia) + " · " + faixaVencimento(escolhido)
+            + " · " + conta(escolhido.titulos, "mensalidade", "mensalidades")
+            + " · " + conta(escolhido.alunos, "aluno", "alunos")
             + " · " + moeda(escolhido.valor_original) + " de valor original"
-          : num(qtdBorderos) + " borderôs · " + num(dados.total?.titulos) + " títulos · "
-            + num(dados.total?.alunos) + " alunos · " + moeda(dados.total?.valor_original)
-            + " de valor original"}
+          : conta(qtdCompetencias, "competência", "competências")
+            + " (" + competenciaCurta(dados.total?.vencimento_de) + " a "
+            + competenciaCurta(dados.total?.vencimento_ate) + ") · "
+            + conta(dados.total?.titulos, "mensalidade", "mensalidades") + " · "
+            + conta(dados.total?.alunos, "aluno", "alunos") + " · "
+            + moeda(dados.total?.valor_original) + " de valor original"}
         {" · dados atualizados em " + horario(dados.gerado_em)
           + " (situação no Prime coletada em " + horario(at.prime_coletado_em)
-          + "; último borderô importado em " + dia(at.ultimo_bordero) + ")"}
+          + "; última entrada na carteira em " + dia(at.ultima_entrada) + ")"}
       </p>
-
-      {/* O título que entrou sem borderô: não dá para atribuí-lo a remessa
-          nenhuma, então ele tem card próprio e sai da contagem de borderôs. */}
-      {orfao && !escolhido ? (
-        <p style={S.rodapeDiscreto}>
-          {num(orfao.titulos)} título{Number(orfao.titulos) === 1 ? "" : "s"} de 2026/2
-          ({moeda(orfao.valor_original)}) entrou sem borderô de origem: não há importação registrada para
-          atribuí-lo a uma remessa. Aparece no card “Sem borderô identificado”, dentro dos totais do
-          semestre — a origem não é inventada.
-        </p>
-      ) : null}
 
       {/* Onde o semestre é INFERIDO em vez de vir do Prime. Fica à vista porque
           é o único ponto do recorte que não é prova: sem série, o título entra
           em 2026/2 pelo vencimento. */}
       {Number(dados.total?.fallback_titulos || 0) > 0 ? (
         <p style={S.rodapeDiscreto}>
-          {num(dados.total.fallback_titulos)} títulos ({moeda(dados.total.fallback_valor)},{" "}
+          {conta(dados.total.fallback_titulos, "mensalidade", "mensalidades")} ({moeda(dados.total.fallback_valor)},{" "}
           {pct(dados.total.fallback_valor, dados.total.valor_original)} do valor original) entram em 2026/2 pelo
           vencimento, por não terem série de cobrança no Prime. Nos demais o semestre vem da série.
         </p>
@@ -255,7 +303,7 @@ export default function EfetividadeBorderos() {
       <section style={S.cartao}>
         <div style={S.cartaoCabecalho}>
           <h2 style={S.h2}>Cancelados por motivo</h2>
-          <span style={S.cartaoApoio}>cobrança cancelada · {num(dados.total?.cancelado_titulos)} títulos</span>
+          <span style={S.cartaoApoio}>cobrança cancelada · {conta(dados.total?.cancelado_titulos, "título", "títulos")}</span>
         </div>
         {(dados.cancelados_por_motivo || []).length ? (
           <div>
@@ -264,7 +312,7 @@ export default function EfetividadeBorderos() {
                 <span style={S.linhaRotulo}>
                   <span style={{ ...S.ponto, background: COR.cancelado }} />{m.motivo}
                 </span>
-                <span style={S.linhaApoio}>{num(m.titulos)} títulos</span>
+                <span style={S.linhaApoio}>{conta(m.titulos, "título", "títulos")}</span>
                 <strong style={S.linhaValor}>{moeda(m.valor)}</strong>
               </div>
             ))}
@@ -273,7 +321,7 @@ export default function EfetividadeBorderos() {
           <p style={S.discreto}>Nenhum título de 2026/2 com a cobrança cancelada.</p>
         )}
         <p style={S.discreto}>
-          {num(dados.total?.acordos_cancelados)} acordos cancelados neste semestre
+          {conta(dados.total?.acordos_cancelados, "acordo cancelado", "acordos cancelados")} neste semestre
           ({moeda(dados.total?.acordos_cancelados_valor)} de valor original de títulos ligados a eles). Acordo
           cancelado não é cobrança cancelada: o título continua na carteira, e o que já havia sido convertido
           continua convertido — a conversão é histórica.
@@ -283,12 +331,10 @@ export default function EfetividadeBorderos() {
       {/* ---- 2. UM CARD POR BORDERÔ ---- */}
       <section>
         <div style={S.cartaoCabecalho}>
-          <h2 style={S.h2}>{escolhido ? "Borderô selecionado" : "Borderô a borderô"}</h2>
+          <h2 style={S.h2}>{escolhido ? "Competência selecionada" : "Mês a mês"}</h2>
           <span style={S.cartaoApoio}>
-            {escolhido
-              ? "mostre “Todos” no seletor para comparar"
-              : num(qtdBorderos) + (qtdBorderos === 1 ? " remessa" : " remessas")
-                + (orfao ? " + títulos sem borderô" : "")}
+            {escolhido ? "mostre “Todas” no seletor para comparar"
+                       : conta(qtdCompetencias, "competência", "competências")}
           </span>
         </div>
         <div style={S.gradeBorderos}>
@@ -296,31 +342,35 @@ export default function EfetividadeBorderos() {
             const entrada = Number(b.valor_original || 0);
             const recPct = entrada > 0 ? (Number(b.recuperado || 0) / entrada) * 100 : 0;
             const convPct = entrada > 0 ? (Number(b.convertido_valor || 0) / entrada) * 100 : 0;
+            const cards = montarCards(b);
             return (
-              <article key={b.importacao_id || "sem-bordero"} style={S.bordero}
-                       aria-label={b.bordero_ref ? "Borderô " + b.bordero_ref : "Sem borderô identificado"}>
-                <header style={S.bordCabecalho}>
+              <article key={String(b.competencia)} style={S.cartaoCompetencia}
+                       aria-label={"Mensalidades de " + competenciaLonga(b.competencia)}>
+                <header style={S.compCabecalho}>
                   <div>
-                    <strong style={S.bordNumero}>{b.bordero_ref ? "Borderô " + b.bordero_ref : "Sem borderô identificado"}</strong>
-                    <span style={S.bordSelo}>2026/2</span>
+                    <strong style={S.compNumero}>{competenciaLonga(b.competencia)}</strong>
+                    <span style={S.compSelo}>2026/2</span>
                   </div>
-                  <span style={S.bordEntrada}>entrou em {dia(b.bordero_entrada)}</span>
+                  <span style={S.compEntrada}>{faixaVencimento(b)}</span>
                 </header>
 
-                <div style={S.bordEntradaLinha}>
-                  <span style={S.bordRotulo}>Entraram</span>
-                  <span style={S.bordTexto}>
-                    {num(b.titulos)} títulos · {num(b.alunos)} alunos · <strong>{moeda(b.valor_original)}</strong>
+                <button type="button" style={S.compLinhaBotao} onClick={() => abrirDetalhe(cards[0], b)}
+                        title={tituloDetalhe(cards[0], b)}>
+                  <span style={S.compRotulo}>Entraram</span>
+                  <span style={S.compTexto}>
+                    {conta(b.titulos, "mensalidade", "mensalidades")} · {conta(b.alunos, "aluno", "alunos")} ·{" "}
+                    <strong>{moeda(b.valor_original)}</strong>
                   </span>
-                </div>
+                </button>
 
-                <div style={S.bordDestaque}>
-                  <span style={S.bordRotulo}>Recuperado</span>
-                  <strong style={{ ...S.bordValorGrande, color: COR.recuperado }}>{moedaCurta(b.recuperado)}</strong>
-                  <span style={S.bordApoio}>
+                <button type="button" style={S.compLinhaBotao} onClick={() => abrirDetalhe(cards[1], b)}
+                        title={tituloDetalhe(cards[1], b)}>
+                  <span style={S.compRotulo}>Recuperado</span>
+                  <strong style={{ ...S.compValorGrande, color: COR.recuperado }}>{moedaCurta(b.recuperado)}</strong>
+                  <span style={S.compApoio}>
                     {num(b.titulos_com_pagamento)} com pagamento · {num(b.titulos_liquidados)} liquidados
                   </span>
-                </div>
+                </button>
 
                 {/* Barra dupla: recuperação sobre conversão, mesma base declarada. */}
                 <div style={S.trilho} role="img"
@@ -330,7 +380,7 @@ export default function EfetividadeBorderos() {
                                 opacity: 0.35 }} />
                   <div style={{ ...S.barra, width: Math.min(recPct, 100) + "%", background: COR.recuperado }} />
                 </div>
-                <div style={S.bordPcts}>
+                <div style={S.compPcts}>
                   <span style={{ color: COR.recuperado }}>
                     <strong>{pct(b.recuperado, entrada)}</strong> recuperado
                   </span>
@@ -338,39 +388,20 @@ export default function EfetividadeBorderos() {
                     <strong>{pct(b.convertido_valor, entrada)}</strong> convertido
                   </span>
                 </div>
-                <span style={S.bordBase}>base dos dois percentuais: {moeda(entrada)} de valor original que entrou</span>
+                <span style={S.compBase}>base dos dois percentuais: {moeda(entrada)} de valor original que entrou</span>
 
-                <dl style={S.bordGrade}>
-                  <div style={S.bordItem}>
-                    <dt style={S.bordItemRotulo}>Convertido</dt>
-                    <dd style={{ ...S.bordItemValor, color: COR.convertido }}>{moedaCurta(b.convertido_valor)}</dd>
-                    <dd style={S.bordItemApoio}>{num(b.convertido_titulos)} títulos</dd>
-                  </div>
-                  <div style={S.bordItem}>
-                    <dt style={S.bordItemRotulo}>Em conferência</dt>
-                    <dd style={{ ...S.bordItemValor, color: COR.conferencia }}>{moedaCurta(b.conferencia_valor)}</dd>
-                    <dd style={S.bordItemApoio}>{num(b.conferencia_titulos)} títulos</dd>
-                  </div>
-                  <div style={S.bordItem}>
-                    <dt style={S.bordItemRotulo}>Cancelados</dt>
-                    <dd style={{ ...S.bordItemValor, color: COR.cancelado }}>{moedaCurta(b.cancelado_valor)}</dd>
-                    <dd style={S.bordItemApoio}>
-                      {num(b.cancelado_titulos)} títulos · {num(b.acordos_cancelados)} acordos cancelados
-                    </dd>
-                  </div>
-                  <div style={S.bordItem}>
-                    <dt style={S.bordItemRotulo}>Saldo a recuperar</dt>
-                    <dd style={{ ...S.bordItemValor, color: COR.saldo }}>{moedaCurta(b.saldo_valor)}</dd>
-                    <dd style={S.bordItemApoio}>{num(b.saldo_titulos)} títulos com saldo</dd>
-                  </div>
-                </dl>
-
-                <div style={S.bordAcoes}>
-                  {montarCards(b).map((c) => (
-                    <button key={c.chave} type="button" onClick={() => abrirDetalhe(c, b)} style={S.bordBotao}
-                            title={"Ver os títulos de " + c.titulo + " do borderô "
-                                   + (b.bordero_ref || "sem número")}>
-                      <span style={{ ...S.ponto, background: COR[c.papel] }} />{c.titulo}
+                {/* O próprio número abre o detalhe. Antes havia uma fileira de
+                    seis chips abaixo repetindo os mesmos rótulos: com 16 cards na
+                    tela viravam 96 chips de ruído, e o número é o alvo natural. */}
+                <div style={S.compGrade}>
+                  {cards.slice(2).map((cc) => (
+                    <button key={cc.chave} type="button" style={S.compItem}
+                            onClick={() => abrirDetalhe(cc, b)} title={tituloDetalhe(cc, b)}>
+                      <span style={S.compItemRotulo}>{cc.titulo}</span>
+                      <strong style={{ ...S.compItemValor, color: COR[cc.papel] }}>
+                        {moedaCurta(b[VALOR_DO_CARD[cc.chave]])}
+                      </strong>
+                      <span style={S.compItemApoio}>{APOIO_DO_CARD[cc.chave](b)}</span>
                     </button>
                   ))}
                 </div>
@@ -421,7 +452,7 @@ function PainelDetalhe({ detalhe, onFechar }) {
                       <th style={S.th}>CPF</th>
                       <th style={S.th}>Título</th>
                       <th style={S.th}>Venc.</th>
-                      <th style={S.th}>Borderô</th>
+                      <th style={S.th}>Competência</th>
                       <th style={S.th}>Situação</th>
                       <th style={{ ...S.th, textAlign: "right" }}>{rotuloValor}</th>
                     </tr>
@@ -433,7 +464,7 @@ function PainelDetalhe({ detalhe, onFechar }) {
                         <td style={S.tdFraco}>{l.cpf}</td>
                         <td style={S.tdFraco}>{l.documento}</td>
                         <td style={S.tdFraco}>{dia(l.vencimento)}</td>
-                        <td style={S.tdFraco}>{l.bordero}</td>
+                        <td style={S.tdFraco}>{competenciaCurta(l.competencia)}</td>
                         <td style={S.td}>
                           {l.situacao}
                           {l.motivo_cancelamento ? " · " + l.motivo_cancelamento : ""}
@@ -481,16 +512,16 @@ const S = {
   // ---- seis cards do recorte ----
   // minmax(200px, 1fr): em 375px de largura cai para uma coluna sem rolagem
   // horizontal, em vez de esticar o card para fora da tela.
-  gradeCards: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 },
+  gradeCards: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(168px, 1fr))", gap: 12 },
   card: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, textAlign: "left",
           background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14,
           padding: "14px 16px 12px", boxShadow: "var(--rv-sombra)", cursor: "pointer",
           fontFamily: "inherit", color: "var(--rv-tinta)" },
-  cardTopo: { display: "flex", alignItems: "center", gap: 7 },
-  cardTitulo: { fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
-                color: "var(--rv-texto-fraco)" },
-  cardValor: { fontSize: 27, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.15, marginTop: 4,
-               fontFamily: "'Sora', Inter, sans-serif" },
+  cardTopo: { display: "flex", alignItems: "flex-start", gap: 7, minHeight: 30 },
+  cardTitulo: { fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
+                color: "var(--rv-texto-fraco)", lineHeight: 1.3 },
+  cardValor: { fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.15, marginTop: 2,
+               fontFamily: "'Sora', Inter, sans-serif", whiteSpace: "nowrap" },
   cardLinha: { fontSize: 12.5, color: "var(--rv-texto)", lineHeight: 1.5 },
   cardNota: { fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5, marginTop: 4 },
   cardVer: { fontSize: 11.5, color: "var(--rv-azul)", fontWeight: 700, marginTop: 6 },
@@ -506,45 +537,46 @@ const S = {
   linhaApoio: { fontSize: 12, color: "var(--rv-texto-suave)" },
   linhaValor: { fontSize: 13.5, fontWeight: 700, fontVariantNumeric: "tabular-nums" },
 
-  // ---- um card por borderô ----
+  // ---- um card por competência ----
   gradeBorderos: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 14 },
-  bordero: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16,
+  cartaoCompetencia: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 16,
              padding: "16px 18px 14px", boxShadow: "var(--rv-sombra)", display: "flex",
              flexDirection: "column", gap: 10 },
-  bordCabecalho: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10,
+  compCabecalho: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 10,
                    flexWrap: "wrap" },
-  bordNumero: { fontSize: 19, fontWeight: 800, letterSpacing: "-0.01em",
+  compNumero: { fontSize: 19, fontWeight: 800, letterSpacing: "-0.01em",
                 fontFamily: "'Sora', Inter, sans-serif" },
-  bordSelo: { marginLeft: 8, fontSize: 11, fontWeight: 700, color: "var(--rv-azul-texto)",
+  compSelo: { marginLeft: 8, fontSize: 11, fontWeight: 700, color: "var(--rv-azul-texto)",
               background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-azul-borda)",
               borderRadius: 999, padding: "2px 8px" },
-  bordEntrada: { fontSize: 12, color: "var(--rv-texto-suave)" },
-  bordEntradaLinha: { display: "flex", flexDirection: "column", gap: 2 },
-  bordRotulo: { fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase",
+  compEntrada: { fontSize: 12, color: "var(--rv-texto-suave)" },
+  // "Entraram" e "Recuperado" são botões, mas não devem PARECER botões: o card
+  // inteiro já é uma superfície: só o cursor e o título mudam.
+  compLinhaBotao: { display: "flex", flexDirection: "column", gap: 2, alignItems: "flex-start",
+                    textAlign: "left", background: "none", border: "none", padding: 0,
+                    margin: 0, cursor: "pointer", font: "inherit", color: "inherit", width: "100%" },
+  compRotulo: { fontSize: 11, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase",
                 color: "var(--rv-texto-fraco)" },
-  bordTexto: { fontSize: 13.5, color: "var(--rv-texto)" },
-  bordDestaque: { display: "flex", flexDirection: "column", gap: 2 },
-  bordValorGrande: { fontSize: 30, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.1,
-                     fontFamily: "'Sora', Inter, sans-serif" },
-  bordApoio: { fontSize: 12.5, color: "var(--rv-texto-suave)" },
+  compTexto: { fontSize: 13.5, color: "var(--rv-texto)" },
+
+  compValorGrande: { fontSize: 30, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.1,
+                     fontFamily: "'Sora', Inter, sans-serif", whiteSpace: "nowrap" },
+  compApoio: { fontSize: 12.5, color: "var(--rv-texto-suave)" },
   trilho: { position: "relative", height: 9, borderRadius: 999, background: "var(--rv-fundo-suave)",
             overflow: "hidden" },
   barra: { position: "absolute", left: 0, top: 0, bottom: 0, borderRadius: 999 },
-  bordPcts: { display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12.5 },
-  bordBase: { fontSize: 11.5, color: "var(--rv-texto-suave)" },
-  bordGrade: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))", gap: 10,
-               margin: 0, paddingTop: 4, borderTop: "1px solid var(--rv-borda-suave)" },
-  bordItem: { display: "flex", flexDirection: "column", gap: 1 },
-  bordItemRotulo: { fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
+  compPcts: { display: "flex", gap: 16, flexWrap: "wrap", fontSize: 12.5 },
+  compBase: { fontSize: 11.5, color: "var(--rv-texto-suave)" },
+  compGrade: { display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: 10,
+               paddingTop: 8, borderTop: "1px solid var(--rv-borda-suave)" },
+  compItem: { display: "flex", flexDirection: "column", gap: 1, alignItems: "flex-start",
+              textAlign: "left", background: "none", border: "none", padding: 0, margin: 0,
+              cursor: "pointer", font: "inherit", color: "inherit" },
+  compItemRotulo: { fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
                     color: "var(--rv-texto-fraco)" },
-  bordItemValor: { margin: 0, fontSize: 16.5, fontWeight: 800, fontVariantNumeric: "tabular-nums" },
-  bordItemApoio: { margin: 0, fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.45 },
-  bordAcoes: { display: "flex", gap: 6, flexWrap: "wrap", paddingTop: 4,
-               borderTop: "1px solid var(--rv-borda-suave)" },
-  bordBotao: { display: "inline-flex", alignItems: "center", gap: 6, background: "var(--rv-fundo-suave)",
-               border: "1px solid var(--rv-borda-suave)", borderRadius: 999, padding: "5px 11px",
-               fontSize: 11.5, fontWeight: 600, color: "var(--rv-texto)", cursor: "pointer",
-               fontFamily: "inherit" },
+  compItemValor: { fontSize: 16.5, fontWeight: 800, fontVariantNumeric: "tabular-nums",
+                   whiteSpace: "nowrap" },
+  compItemApoio: { fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.45 },
 
   // ---- painel de detalhe ----
   sobreposicao: { position: "fixed", inset: 0, background: "rgba(15, 23, 42, 0.55)", display: "flex",
