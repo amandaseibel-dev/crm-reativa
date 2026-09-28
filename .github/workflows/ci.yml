@@ -76,3 +76,66 @@ jobs:
         env:
           CATRACA_BASE: ${{ github.event_name == 'push' && github.event.before || '' }}
         run: npm run check:migrations
+
+  # ---------------------------------------------------------------------------
+  # Valida a proposta de banco num POSTGRES DE VERDADE, descartavel.
+  #
+  # Por que existe: teste de interface com RPC simulada nao prova que o SQL
+  # funciona. Aqui a migration roda inteira -- CREATE TABLE, CREATE OR REPLACE,
+  # revoke/grant e a guarda -- e a RPC de gravacao e chamada de verdade.
+  #
+  # Nao e producao, nao e servico pago e nao usa segredo: e um container que
+  # nasce e morre com o job. Repositorio publico, minuto a US$ 0,00.
+  #
+  # Se a proposta nao existir mais (porque virou migration aplicada), o job sai
+  # verde sem rodar nada, em vez de travar merges para sempre.
+  # ---------------------------------------------------------------------------
+  proposta-conferido:
+    name: proposta conferido em aberto (postgres isolado)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+      DIR: supabase/tests/conferido_em_aberto
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: A proposta ainda existe?
+        id: existe
+        run: |
+          if [ -f supabase/propostas/PROPOSTA_conferido_em_aberto.sql ]; then
+            echo "roda=sim" >> "$GITHUB_OUTPUT"
+          else
+            echo "roda=nao" >> "$GITHUB_OUTPUT"
+            echo "Proposta não está mais em supabase/propostas/ — nada a validar."
+          fi
+
+      # 1. ambiente  2. estado de produção  3. A PROPOSTA  4. os casos.
+      # ON_ERROR_STOP em todos: o primeiro erro derruba o job.
+      - name: Montar ambiente, aplicar a proposta e rodar os casos
+        if: steps.existe.outputs.roda == 'sim'
+        run: |
+          set -euo pipefail
+          psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
+          psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
+          psql -v ON_ERROR_STOP=1 -f supabase/propostas/PROPOSTA_conferido_em_aberto.sql
+          psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
