@@ -214,12 +214,12 @@ export default function AbaAcoes({ carteira }) {
               {a.envio_confirmado_em && (
                 <div style={{ padding: "0 16px 14px" }}>
                   <strong style={{ fontSize: 13 }}>
-                    Depois do envio: {a.movimento_apos_envio?.titulos || 0} título(s),{" "}
-                    {moeda(a.movimento_apos_envio?.valor || 0)} de queda do valor na fonte.
+                    Depois do envio: {a.alteracao_apos_envio?.titulos || 0} título(s),{" "}
+                    {moeda(a.alteracao_apos_envio?.valor || 0)} de queda do valor na fonte.
                   </strong>
                   <p style={{ ...S.muted, marginTop: 4, fontSize: 12 }}>
-                    Queda de valor não é pagamento, e queda posterior ao envio não prova que o
-                    envio causou coisa alguma. E o mesmo título pode estar em mais de uma ação
+                    Queda do valor na fonte não é recebimento, e queda posterior ao envio não
+                    prova que o envio causou coisa alguma. E o mesmo título pode estar em mais de uma ação
                     — o consolidado da carteira conta cada alteração uma vez só.
                   </p>
                 </div>

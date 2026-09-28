@@ -6,8 +6,8 @@ a pagar a mensalidade no WebAluno antes de ela virar dívida.
 > **Acompanhamento automático de pagamento: PENDENTE.** Não é uma escolha de
 > desenho — é ausência de fonte. A seção 3 traz a prova, e a seção 4 traz o
 > pedido técnico exato a fazer ao responsável pelo Prime. Enquanto isso não
-> existir, o sistema mede **alteração do valor do título na fonte**, que não é
-> saldo nem recebimento, e diz isso na tela.
+> existir, o sistema mede **alteração do valor do título na fonte**
+> (`netAmount`), que não é valor em aberto nem recebimento, e diz isso na tela.
 
 ---
 
@@ -191,8 +191,8 @@ teste.
 O `financialStatement` tem **13 campos**: `documentNumber`, `dueDate`,
 `grossAmount`, `discountAmount`, `penaltyAmount`, `interestAmount`,
 `honorariumAmount`, `netAmount`, `paymentDate`, `paidAmount`, `boleto`,
-`isAgreementInstallment`, `carrier`. **Nenhum é situação, status, saldo em
-aberto ou evento de pagamento.** Conferido ao vivo em 28/09/2026.
+`isAgreementInstallment`, `carrier`. **Nenhum informa situação, status, valor
+em aberto ou recebimento.** Conferido ao vivo em 28/09/2026.
 
 A prova de que `paymentDate` e `paidAmount` não indicam pagamento **não usa o
 próprio campo**: usa uma variável independente, o **seu relatório de
@@ -235,15 +235,17 @@ Registra **alteração do valor do título na fonte** (`netAmount`) entre dois
 ciclos, com nome literal: `VALOR_FONTE_CAIU`, `VALOR_FONTE_ZEROU`,
 `VALOR_FONTE_SUBIU`, `AUSENTE_NO_EXTRATO`, `MUDANCA_DE_PORTADOR`,
 `VINCULO_AMBIGUO`. Há teste que lê a restrição da tabela e reprova se as
-palavras "saldo", "pagamento" ou "quita" aparecerem num tipo de evento.
+palavras "saldo", "pagamento", "liquid", "receb" ou "quita" aparecerem num tipo
+de evento.
 
 O painel mostra **duas grandezas que não se somam**: o **saldo informado pelo
-arquivo** (ali a palavra saldo tem dono e definição) e o **valor na fonte**
-(`netAmount`, que não é saldo). E, no lugar de "valor recebido", mostra o motivo
-pelo qual esse número não existe.
+arquivo** — ali a palavra saldo tem dono e definição, é a coluna "Saldo
+Original" do relatório da ULBRA — e o **valor do título na fonte**
+(`netAmount`), que é o valor do título e não um valor em aberto. E, no lugar de
+"valor recebido", mostra o motivo pelo qual esse número não existe.
 
-**Sumir do extrato não é pagamento**: o último valor conhecido é preservado, o
-título vira `NAO_ENCONTRADO` e fica **fora** da conta.
+**Sumir do extrato não é recebimento**: o último valor conhecido é preservado,
+o título vira `NAO_ENCONTRADO` e fica **fora** da conta.
 
 ---
 

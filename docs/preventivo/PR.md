@@ -95,12 +95,12 @@ testadas, não implantadas. Reversão em
   número do **acordo** da Reativa —, incapaz de carregar pagamento de
   mensalidade do portador 95.
 
-  **Por isso a classificação financeira foi retirada.** Não há "movimento de
-  saldo": há `VALOR_FONTE_CAIU` / `VALOR_FONTE_ZEROU` / `VALOR_FONTE_SUBIU`,
-  que é alteração do `netAmount` — o valor do título, não um saldo. Um teste lê
-  a restrição da tabela e reprova se as palavras "saldo", "pagamento" ou "quita"
-  aparecerem num tipo de evento. No painel, no lugar de "valor recebido", está
-  escrito o motivo pelo qual esse número não existe.
+  **Por isso a classificação financeira foi retirada.** Os eventos são
+  `VALOR_FONTE_CAIU` / `VALOR_FONTE_ZEROU` / `VALOR_FONTE_SUBIU`: alteração do
+  `netAmount`, que é o valor do título na fonte, não um valor em aberto. Um
+  teste lê a restrição da tabela e reprova se "saldo", "pagamento", "liquid",
+  "receb" ou "quita" aparecerem num tipo de evento. No painel, no lugar de
+  "valor recebido", está escrito o motivo pelo qual esse número não existe.
 
   **O pedido técnico exato ao responsável pelo Prime**, pronto para encaminhar,
   está em `docs/preventivo/README.md` §4 — com as três opções de fonte, o

@@ -128,7 +128,7 @@ const ACOES = [
       OUTRO_TITULO_DO_MESMO_ALUNO_JA_NO_PUBLICO: 1,
     },
     conferencia_financeira: { UNICO: 2, AMBIGUO: 1 },
-    movimento_apos_envio: { titulos: 2, valor: 1020.41 },
+    alteracao_apos_envio: { titulos: 2, valor: 1020.41 },
   },
   {
     id: "a-2", nome: "Aviso por e-mail — vencimento 20/10", canal: "EMAIL", estado: "PREPARADA",
@@ -139,7 +139,7 @@ const ACOES = [
     incluidos: 4, alunos: 4,
     separados: { EMAIL_MULTIPLO_NO_ARQUIVO: 1, VALOR_NA_FONTE_ZERADO: 1 },
     conferencia_financeira: { UNICO: 4 },
-    movimento_apos_envio: { titulos: 0, valor: 0 },
+    alteracao_apos_envio: { titulos: 0, valor: 0 },
   },
 ];
 
@@ -166,9 +166,10 @@ const RESPOSTAS = {
   preventivo_carteiras: () => [CARTEIRA],
   preventivo_titulos: (a) => {
     let l = TITULOS;
-    if (a?.p_movimento === "quitado") l = l.filter((t) => t.saldo_atual <= 0);
-    if (a?.p_movimento === "com_reducao") l = l.filter((t) => t.saldo_atual < t.valor_inicial);
-    if (a?.p_movimento === "pendente") l = l.filter((t) => t.saldo_atual >= t.valor_inicial);
+    if (a?.p_alteracao === "zerado") l = l.filter((t) => t.valor_fonte !== null && t.valor_fonte <= 0);
+    if (a?.p_alteracao === "caiu") l = l.filter((t) => t.ultima_alteracao);
+    if (a?.p_alteracao === "sem_alteracao") l = l.filter((t) => !t.ultima_alteracao);
+    if (a?.p_vinculo) l = l.filter((t) => t.vinculo === a.p_vinculo);
     if (a?.p_faixa_atraso === "a_vencer") l = l.filter((t) => t.dias_atraso < 0);
     return l;
   },

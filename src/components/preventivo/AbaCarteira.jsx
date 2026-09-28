@@ -20,7 +20,7 @@ const FAIXAS = [
 
 // A palavra escolhida importa: o que a API entrega é o VALOR do título
 // (netAmount), não um saldo em aberto. Os rótulos dizem exatamente isso.
-const MOVIMENTOS = [
+const ALTERACOES = [
   { id: "", rotulo: "Qualquer alteração" },
   { id: "sem_alteracao", rotulo: "Sem alteração de valor na fonte" },
   { id: "caiu", rotulo: "Valor caiu na fonte" },
@@ -62,7 +62,7 @@ export default function AbaCarteira({ carteira }) {
   const [situacao, setSituacao] = useState(null);
   const [erro, setErro] = useState("");
   const [atualizando, setAtualizando] = useState(false);
-  const [filtros, setFiltros] = useState({ status: "", faixa: "", movimento: "", vinculo: "" });
+  const [filtros, setFiltros] = useState({ status: "", faixa: "", alteracao: "", vinculo: "" });
 
   // Buscar não mexe em estado: quem aplica é o efeito (ou o botão). Com os
   // filtros mudando rápido, uma resposta atrasada não pode sobrescrever a
@@ -72,7 +72,7 @@ export default function AbaCarteira({ carteira }) {
       p_carteira_id: carteira.id,
       p_status: filtros.status || null,
       p_faixa_atraso: filtros.faixa || null,
-      p_movimento: filtros.movimento || null,
+      p_alteracao: filtros.alteracao || null,
     }),
     supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
   ]), [carteira.id, filtros]);
@@ -127,9 +127,9 @@ export default function AbaCarteira({ carteira }) {
                 onChange={(e) => setFiltros({ ...filtros, faixa: e.target.value })}>
           {FAIXAS.map((f) => <option key={f.id} value={f.id}>{f.rotulo}</option>)}
         </select>
-        <select style={S.select} value={filtros.movimento}
-                onChange={(e) => setFiltros({ ...filtros, movimento: e.target.value })}>
-          {MOVIMENTOS.map((m) => <option key={m.id} value={m.id}>{m.rotulo}</option>)}
+        <select style={S.select} value={filtros.alteracao}
+                onChange={(e) => setFiltros({ ...filtros, alteracao: e.target.value })}>
+          {ALTERACOES.map((m) => <option key={m.id} value={m.id}>{m.rotulo}</option>)}
         </select>
         <select style={S.select} value={filtros.vinculo}
                 onChange={(e) => setFiltros({ ...filtros, vinculo: e.target.value })}>

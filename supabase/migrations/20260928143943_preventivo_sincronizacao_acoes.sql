@@ -5,7 +5,7 @@
 -- O QUE A API DO PRIME DÁ E O QUE NÃO DÁ (conferido AO VIVO em 28/09/2026,
 -- `GET /students/{registration}`, via a Edge Function `prime-acordo`):
 --
---   `financialStatement` tem 13 campos e NENHUM é situação, status ou saldo
+--   `financialStatement` tem 13 campos e NENHUM é situação, status ou valor
 --   em aberto: documentNumber, dueDate, grossAmount, discountAmount,
 --   penaltyAmount, interestAmount, honorariumAmount, netAmount, paymentDate,
 --   paidAmount, boleto, isAgreementInstallment, carrier.
@@ -129,7 +129,7 @@ $$;
 -- Original" igual ao netAmount do Prime.
 --
 -- p_extrato: [{documento, documento_alt, vencimento, valor_liquido,
---              valor_bruto, valor_corrigido, liquidado_em, portador,
+--              valor_bruto, valor_corrigido, payment_date, portador,
 --              portador_nome}]
 --
 -- UMA entrada por linha do extrato, com os dois identificadores do Prime
@@ -172,7 +172,7 @@ begin
     case when (l->>'valor_liquido')   ~ '^-?\d+(\.\d+)?$' then (l->>'valor_liquido')::numeric end   as valor_liquido,
     case when (l->>'valor_bruto')     ~ '^-?\d+(\.\d+)?$' then (l->>'valor_bruto')::numeric end     as valor_bruto,
     case when (l->>'valor_corrigido') ~ '^-?\d+(\.\d+)?$' then (l->>'valor_corrigido')::numeric end as valor_corrigido,
-    case when (l->>'liquidado_em') ~ '^\d{4}-\d{2}-\d{2}$' then (l->>'liquidado_em')::date end      as liquidado_em,
+    case when (l->>'payment_date') ~ '^\d{4}-\d{2}-\d{2}$' then (l->>'payment_date')::date end     as payment_date,
     case when (l->>'portador') ~ '^\d+$' then (l->>'portador')::int end            as portador,
     nullif(trim(l->>'portador_nome'), '')                                          as portador_nome
   from jsonb_array_elements(p_extrato) as e(l)
@@ -224,10 +224,10 @@ begin
   with foto as (
     insert into public.prev_titulo_snapshot (
       sinc_id, titulo_id, observado_em, presente_no_extrato, valor_fonte,
-      valor_fonte_bruto, valor_fonte_corrigido, vencimento, portador, liquidado_em_prime)
+      valor_fonte_bruto, valor_fonte_corrigido, vencimento, portador, payment_date_cru)
     select p_sinc_id, a.id, v_agora, (a.vinculo = 'UNICO'),
            e.valor_liquido, e.valor_bruto, e.valor_corrigido, e.vencimento,
-           e.portador, e.liquidado_em
+           e.portador, e.payment_date
       from _prev_alvo a
       left join _prev_ext e on a.vinculo = 'UNICO' and e.documento = a.doc_final
     on conflict (sinc_id, titulo_id) do nothing
@@ -466,7 +466,7 @@ begin
                group by ev.tipo) m),
     'recebido', jsonb_build_object(
       'valor', null,
-      'motivo', 'Não há como afirmar recebimento com a fonte autorizada de hoje. Medido em 28/09/2026 contra variável independente (o relatório de inadimplência do próprio dia): dos 101 títulos comprovadamente EM ABERTO, 101 tinham paymentDate preenchido, 19 com data posterior ao vencimento, e 61 tinham paidAmount igual ao netAmount. O financialStatement tem 13 campos e nenhum de situação, saldo ou pagamento. O que está medido abaixo é ALTERAÇÃO DE VALOR NA FONTE, que não é recebimento.'),
+      'motivo', 'Não há como afirmar recebimento com a fonte autorizada de hoje. Medido em 28/09/2026 contra variável independente (o relatório de inadimplência do próprio dia): dos 101 títulos comprovadamente EM ABERTO, 101 tinham paymentDate preenchido, 19 com data posterior ao vencimento, e 61 tinham paidAmount igual ao netAmount. O financialStatement tem 13 campos e nenhum deles informa situação ou valor em aberto. O que está medido abaixo é ALTERAÇÃO DO VALOR DO TÍTULO NA FONTE (netAmount), que não é recebimento.'),
     'conferencia', (
       select jsonb_build_object(
         'valor_na_fonte_no_primeiro_ciclo', coalesce(sum(p.primeiro), 0),
@@ -520,7 +520,7 @@ create or replace function public.preventivo_titulos(
   p_venc_de date default null,
   p_venc_ate date default null,
   p_faixa_atraso text default null,
-  p_movimento text default null,
+  p_alteracao text default null,
   p_vinculo text default null,
   p_limite int default 500)
 returns jsonb
@@ -574,13 +574,13 @@ begin
               when p_faixa_atraso = '16_31'     then (v_hoje - t.vencimento) between 16 and 31
               when p_faixa_atraso = 'acima_31'  then (v_hoje - t.vencimento) > 31
               else true end))
-      and (p_movimento is null or (
+      and (p_alteracao is null or (
             case
-              when p_movimento = 'caiu'    then exists (select 1 from public.prev_evento ev
+              when p_alteracao = 'caiu'    then exists (select 1 from public.prev_evento ev
                                                          where ev.titulo_id = t.id
                                                            and ev.tipo in ('VALOR_FONTE_ZEROU','VALOR_FONTE_CAIU'))
-              when p_movimento = 'zerado'  then t.valor_fonte is not null and t.valor_fonte <= 0
-              when p_movimento = 'sem_alteracao' then not exists (select 1 from public.prev_evento ev
+              when p_alteracao = 'zerado'  then t.valor_fonte is not null and t.valor_fonte <= 0
+              when p_alteracao = 'sem_alteracao' then not exists (select 1 from public.prev_evento ev
                                                          where ev.titulo_id = t.id
                                                            and ev.tipo in ('VALOR_FONTE_ZEROU','VALOR_FONTE_CAIU'))
               else true end))
@@ -809,10 +809,11 @@ begin
   end if;
   select coalesce(jsonb_agg(x order by x->>'criada_em' desc), '[]'::jsonb) into v from (
     select public.preventivo_acao_resumo(a.id)
-           -- movimento POSTERIOR ao envio confirmado. Cada título entra uma vez
-           -- por ação; no consolidado da carteira o mesmo pagamento nunca é
-           -- somado duas vezes porque a soma é feita por título, não por ação.
-           || jsonb_build_object('movimento_apos_envio', (
+           -- Queda do VALOR NA FONTE observada depois do envio confirmado.
+           -- Cada título entra uma vez por ação; no consolidado da carteira a
+           -- mesma alteração nunca é somada duas vezes, porque a soma é feita
+           -- por título, não por ação.
+           || jsonb_build_object('alteracao_apos_envio', (
                 select jsonb_build_object(
                   'titulos', count(distinct ev.titulo_id),
                   'valor', coalesce(sum(ev.valor_delta), 0))
@@ -829,7 +830,7 @@ end;
 $$;
 
 comment on function public.preventivo_acoes(uuid) is
-  'Resultado por ação. `movimento_apos_envio` é QUEDA DO VALOR NA FONTE depois do envio confirmado — não é pagamento e não prova que o envio causou coisa alguma. A tela diz isso com todas as letras.';
+  'Resultado por ação. `alteracao_apos_envio` é a QUEDA DO VALOR DO TÍTULO NA FONTE observada depois do envio confirmado — não é recebimento e não prova que o envio causou coisa alguma. A tela diz isso com todas as letras.';
 
 do $$
 declare f text;

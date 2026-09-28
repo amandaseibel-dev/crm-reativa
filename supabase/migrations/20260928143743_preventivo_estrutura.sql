@@ -219,8 +219,9 @@ create table if not exists public.prev_titulo (
   documento_prime   text,
   candidatos_prime  integer,
 
-  -- VALORES LIDOS DA API, com o nome do campo da API. Nenhum deles é saldo:
-  -- a API não expõe saldo em aberto (ver migration de sincronização).
+  -- VALORES LIDOS DA API, com o nome do campo da API. A API não expõe saldo
+  -- em aberto nem situação; o que ela dá é o VALOR DO TÍTULO (ver a migration
+  -- de sincronização).
   valor_fonte           numeric(14,2),
   valor_fonte_bruto     numeric(14,2),
   valor_fonte_corrigido numeric(14,2),
@@ -251,7 +252,7 @@ comment on column public.prev_titulo.saldo_informado is
 comment on column public.prev_titulo.vinculo_prime is
   'PENDENTE (ainda não consultado) · UNICO (exatamente um título do aluno com aquele vencimento no extrato) · AMBIGUO (mais de um candidato — fica pendente, NUNCA se escolhe por suposição) · NAO_ENCONTRADO. Só UNICO entra em público de ação e em conta de variação.';
 comment on column public.prev_titulo.valor_fonte is
-  'netAmount do título na API, na última consulta. NÃO É SALDO EM ABERTO: é o valor do título (principal − desconto + multa + juros + honorário). A API não expõe saldo nem situação. NULL = nunca consultado com vínculo único.';
+  '`netAmount` do título na API, na última consulta: o VALOR DO TÍTULO NA FONTE (principal − desconto + multa + juros + honorário). Não é saldo em aberto — a API não expõe saldo em aberto nem situação. NULL = nunca consultado com vínculo único.';
 comment on column public.prev_titulo.valor_fonte_corrigido is
   'paidAmount cru. GUARDADO PARA ESTUDO, NUNCA SOMADO COMO CAIXA. Medido 28/09/2026 contra variável independente (o relatório de inadimplência do dia): entre 101 títulos COMPROVADAMENTE EM ABERTO, 61 tinham paidAmount IGUAL ao netAmount — a assinatura que alguém leria como "pagou o valor cheio".';
 comment on column public.prev_titulo.status is
@@ -327,25 +328,29 @@ create table if not exists public.prev_titulo_snapshot (
   valor_fonte_corrigido numeric(14,2),
   vencimento          date,
   portador            integer,
-  liquidado_em_prime  date,
+  payment_date_cru    date,
   constraint prev_snapshot_unico unique (sinc_id, titulo_id)
 );
 
 comment on column public.prev_titulo_snapshot.valor_fonte_corrigido is
   'paidAmount cru do Prime. GUARDADO PARA ESTUDO, NUNCA SOMADO COMO CAIXA: medido em 28/09/2026 que paidAmount é valor de tabela/dívida corrigida — aparece como o DOBRO exato do principal em títulos vencidos e MAIOR que o principal em títulos ainda a vencer. Ver docs/integracoes/prime-api.md.';
-comment on column public.prev_titulo_snapshot.liquidado_em_prime is
-  'paymentDate cru do Prime. GUARDADO, NUNCA INTERPRETADO COMO PAGAMENTO: medido em 28/09/2026 que 100% das linhas do extrato têm paymentDate preenchido, inclusive títulos a vencer (0 de 302.477 linhas do portador 95 com paymentDate nulo). Ver docs/integracoes/prime-api.md.';
+comment on column public.prev_titulo_snapshot.payment_date_cru is
+  'Campo `paymentDate` copiado cru da API, sem interpretação. O nome da coluna repete o nome do campo de propósito: chamá-la de "liquidado" já seria uma leitura financeira que o dado não sustenta. Medido em 28/09/2026: 100% das linhas do extrato têm `paymentDate` preenchido, inclusive títulos a vencer (0 de 302.477 linhas do portador 95 com o campo nulo). Ver docs/integracoes/prime-api.md.';
 
 -- -----------------------------------------------------------------------------
--- 6. EVENTO FINANCEIRO OBSERVADO
+-- 6. ALTERAÇÃO DE VALOR NA FONTE
 -- -----------------------------------------------------------------------------
--- NENHUM destes tipos é "pagamento" por si. A API do Prime não expõe evento de
--- pagamento, situação do título nem saldo em aberto (conferido ao vivo em
--- 28/09/2026: `financialStatement` tem 13 campos, nenhum de situação). O que
--- observamos é MOVIMENTO DE SALDO. Redução de saldo NÃO é dinheiro recebido:
--- pode ser cancelamento, bolsa, renegociação ou ajuste. Por isso o tipo vem
--- separado e `e_pagamento_comprovado` existe, começa sempre falso, e só muda
--- quando houver fonte que prove data e valor do pagamento.
+-- O que esta tabela registra é uma coisa só: o `netAmount` do título mudou
+-- entre duas consultas à API. `netAmount` é o VALOR DO TÍTULO (principal −
+-- desconto + multa + juros + honorário). Não é saldo em aberto, e a API não
+-- expõe saldo em aberto nem situação — conferido ao vivo em 28/09/2026, o
+-- `financialStatement` tem 13 campos e nenhum deles é situação.
+--
+-- Uma queda desse valor pode vir de pagamento, mas também de cancelamento,
+-- bolsa, renegociação ou ajuste, e a API não diz qual. Por isso os tipos têm
+-- nome literal (`VALOR_FONTE_CAIU`, `VALOR_FONTE_ZEROU`, `VALOR_FONTE_SUBIU`)
+-- e `e_pagamento_comprovado` existe, começa sempre falso, e só poderá mudar
+-- quando houver fonte que traga data e valor do recebimento.
 create table if not exists public.prev_evento (
   id                     bigserial primary key,
   titulo_id              uuid not null references public.prev_titulo(id) on delete cascade,
@@ -370,9 +375,9 @@ create table if not exists public.prev_evento (
 );
 
 comment on table public.prev_evento is
-  'ALTERAÇÃO DE VALOR NA FONTE, título a título, entre duas consultas à API. Não é registro de pagamento e não é movimento de saldo: o que muda é o `netAmount` do título, que é o VALOR do título, não um saldo em aberto — a API não expõe saldo. Reconsultar não duplica: `chave` é única.';
+  'Alteração do VALOR DO TÍTULO NA FONTE (`netAmount`), título a título, entre duas consultas à API. `netAmount` é o valor do título, não saldo em aberto — a API não expõe saldo em aberto nem situação. Reconsultar não duplica: `chave` é única.';
 comment on column public.prev_evento.valor_fonte_antes is
-  'netAmount na consulta anterior. A palavra saldo não aparece aqui de propósito.';
+  '`netAmount` na consulta anterior, copiado cru.';
 comment on column public.prev_evento.e_pagamento_comprovado is
   'Sempre falso hoje, e não há caminho no código que o torne verdadeiro. Provado em 28/09/2026 com variável independente (o relatório de inadimplência do próprio dia, que diz quem está EM ABERTO): dos 101 títulos comprovadamente em aberto, 101 tinham paymentDate preenchido, 19 com data POSTERIOR ao vencimento, e 61 tinham paidAmount igual ao netAmount. Nenhum campo da API separa aberto de pago.';
 
@@ -421,7 +426,7 @@ create table if not exists public.prev_acao_destinatario (
 );
 
 comment on column public.prev_acao_destinatario.incluido is
-  'Falso = separado do público, com o motivo ao lado (sem celular válido, telefone fixo, e-mail inválido, número compartilhado com outro aluno, fora da janela, saldo zerado). Nada é corrigido em silêncio.';
+  'Falso = separado do público, com o motivo ao lado: sem celular válido, telefone fixo, mais de um contato diferente na linha do arquivo, e-mail inválido, contato compartilhado com outro aluno, fora da janela de 31 dias, situação cancelada na origem, ou VALOR_NA_FONTE_ZERADO. Nada é corrigido em silêncio.';
 
 create index if not exists prev_acao_dest_acao_idx on public.prev_acao_destinatario (acao_id, incluido);
 

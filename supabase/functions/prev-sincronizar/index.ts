@@ -1,6 +1,6 @@
 // Edge Function: prev-sincronizar
 // -----------------------------------------------------------------------------
-// Atualiza a situação financeira dos títulos de uma CARTEIRA PREVENTIVA lendo a
+// Atualiza o VALOR NA FONTE dos títulos de uma CARTEIRA PREVENTIVA lendo a
 // API do Prime. SÓ LÊ. Não dá baixa, não cria acordo, não toca em caso, fila,
 // saldo operacional nem em qualquer tabela da cobrança — tudo que ela escreve
 // passa por `preventivo_sinc_gravar`, que só mexe em tabelas `prev_`.
@@ -18,8 +18,9 @@
 // docs/integracoes/prime-api.md, `student_composite`).
 //
 // O QUE NÃO SE INVENTA AQUI:
-//   - `paymentDate` é copiado cru e NUNCA lido como pagamento (vem preenchido
-//     em 100% das linhas, inclusive em título a vencer);
+//   - `paymentDate` é copiado cru, com o nome do campo, e NUNCA lido como
+//     data de pagamento (vem preenchido em 100% das linhas, inclusive em
+//     título que ainda vai vencer);
 //   - `paidAmount` é copiado cru e NUNCA somado como caixa (é valor de tabela);
 //   - resposta com forma inesperada é ERRO, nunca "extrato vazio" — concluir
 //     ausência a partir de falha técnica é o erro que esta função não comete;
@@ -150,7 +151,7 @@ Deno.serve(async (req) => {
         valor_liquido: num(l.netAmount),
         valor_bruto: num(l.grossAmount),
         valor_corrigido: num(l.paidAmount),
-        liquidado_em: dia(l.paymentDate),
+        payment_date: dia(l.paymentDate),
         portador: c.id ? String(c.id) : null,
         portador_nome: c.name ? String(c.name).slice(0, 120) : null,
       });
@@ -177,7 +178,7 @@ Deno.serve(async (req) => {
 
   // Só conclui quando não falta ninguém. Chamar de novo com o mesmo `sinc_id`
   // continua de onde parou — nada é reconsultado à toa e nada é duplicado (a
-  // idempotência do movimento é garantida no banco, por `prev_evento.chave`).
+  // idempotência da alteração é garantida no banco, por `prev_evento.chave`).
   let status = "EM_ANDAMENTO";
   if (faltam === 0) {
     const { data: fim } = await supa.rpc("preventivo_sinc_concluir",

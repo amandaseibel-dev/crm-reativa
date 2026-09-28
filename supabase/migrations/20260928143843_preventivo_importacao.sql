@@ -12,9 +12,15 @@
 -- prometer um resultado diferente do que a confirmação faz.
 --
 -- REIMPORTAR O MESMO ARQUIVO NÃO DUPLICA NADA: a identidade do título é
--- (carteira, matrícula Prime, documento) e a gravação é `on conflict do
--- update`. `saldo_informado` e `criado_em` nunca são reescritos — são o valor de
--- entrada da carteira, e é sobre eles que o painel calcula percentual.
+-- (carteira, matrícula Prime, chave do arquivo) e a gravação é `on conflict do
+-- update`. `saldo_informado` e `criado_em` nunca são reescritos.
+--
+-- SOBRE A PALAVRA "SALDO" NESTE ARQUIVO: ela aparece só em `saldo_informado` e
+-- `saldo_informado_atualizado`, que vêm das colunas "Saldo Original" e "Saldo
+-- Atualizado" do relatório da ULBRA. Ali o termo tem dono e definição: é o
+-- ARQUIVO que chama aquilo de saldo em aberto. Nada vindo da API é chamado de
+-- saldo em lugar nenhum — o que a API dá é `netAmount`, o VALOR DO TÍTULO NA
+-- FONTE.
 -- =============================================================================
 
 -- -----------------------------------------------------------------------------

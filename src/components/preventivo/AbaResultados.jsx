@@ -1,14 +1,18 @@
 // Aba Resultados do Preventivo.
 //
 // A honestidade desta tela é a parte mais importante dela. A API do Prime não
-// entrega evento de pagamento, data de pagamento nem saldo em aberto — os 13
-// campos do extrato foram conferidos ao vivo em 28/09/2026 e nenhum é situação.
-// O que medimos é REDUÇÃO DE SALDO, que mistura pagamento, cancelamento, bolsa
-// e renegociação.
+// entrega evento de recebimento, data de recebimento nem valor em aberto — os
+// 13 campos do extrato foram conferidos ao vivo em 28/09/2026 e nenhum deles
+// informa situação.
+//
+// O que medimos é ALTERAÇÃO DO VALOR DO TÍTULO NA FONTE (`netAmount`). Uma
+// queda desse valor pode vir de um recebimento, mas também de cancelamento,
+// bolsa ou renegociação — e a API não diz qual.
 //
 // Por isso "valor recebido" aparece como indisponível, com o motivo, em vez de
-// ser preenchido com a redução de saldo. Trocar um pelo outro transformaria
-// cancelamento em recuperação — é o mesmo erro que já custou caro na cobrança.
+// ser preenchido com a queda do valor na fonte. Trocar um pelo outro
+// transformaria cancelamento em recuperação — é o mesmo erro que já custou caro
+// na cobrança.
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../services/supabase";
 import { S } from "../../ui/estilosFila";
@@ -63,9 +67,9 @@ export default function AbaResultados({ carteira }) {
     return () => { vivo = false; };
   }, [buscar, aplicar]);
 
-  async function exportar(movimento, nome) {
+  async function exportar(alteracao, nome) {
     const { data, error } = await supabase.rpc("preventivo_titulos", {
-      p_carteira_id: carteira.id, p_movimento: movimento, p_limite: 5000,
+      p_carteira_id: carteira.id, p_alteracao: alteracao, p_limite: 5000,
     });
     if (error) { setErro(error.message); return; }
     baixar(nome, csv(data || [], [

@@ -85,13 +85,14 @@ correspondente no repositório.
 | Item | Valor |
 |---|---|
 | Endpoint do Prime que chama | `GET /students/{registration}` (`student_composite`) |
+| O que grava | `netAmount`, `grossAmount`, `paidAmount`, `paymentDate`, `dueDate` e `carrier`, todos com o nome do campo de origem, em tabelas `prev_*` |
 | Escreve no Prime? | Não — a API não aceita escrita (`allow: GET`) |
 | Escreve no CRM? | Só em tabelas `prev_*`, e só através da RPC `preventivo_sinc_gravar`. Zero escrita em tabela da cobrança |
 | Secrets | `PRIME_API_KEY` (ou Vault via `prime_chave_api`), `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` |
 | Acesso | exige JWT de usuário **e** `public.preventivo_e_gestao()` verdadeiro no banco — a lista de quem pode não mora no código da função |
 | Granularidade | uma chamada **por aluno** da carteira preventiva, nunca por título (a API não tem rota em lote) |
 | Fila própria | `prev_sinc_fila` — **não** reusa `prime_extrato_fila`, que varre os ~17,7 mil alunos da base e é drenada só no mutirão de sábado (`prime_extrato_mutirao`, `*/2 2-23 * * 6`) |
-| O que nunca infere | `paymentDate` e `paidAmount` são copiados crus e nunca lidos como pagamento; resposta com forma inesperada é ERRO, nunca "extrato vazio" |
+| O que nunca infere | `paymentDate` e `paidAmount` são copiados crus, com o nome do campo, e nunca lidos como data ou valor de recebimento; `netAmount` é tratado sempre como VALOR DO TÍTULO NA FONTE, nunca como valor em aberto; resposta com forma inesperada é ERRO, nunca "extrato vazio" |
 
 Ver `docs/preventivo/README.md` para o desenho da frente e para o que ainda
 falta de acesso.

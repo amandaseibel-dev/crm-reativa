@@ -22,7 +22,7 @@ drop function if exists public.preventivo_acao_marcar(uuid, text);
 drop function if exists public.preventivo_acao_publico(uuid, boolean);
 drop function if exists public.preventivo_acao_preparar(uuid, text, text, jsonb);
 drop function if exists public.preventivo_acao_resumo(uuid);
-drop function if exists public.preventivo_titulos(uuid, uuid, text, date, date, text, text, integer);
+drop function if exists public.preventivo_titulos(uuid, uuid, text, date, date, text, text, text, integer);
 drop function if exists public.preventivo_resultados(uuid);
 drop function if exists public.preventivo_sinc_situacao(uuid);
 drop function if exists public.preventivo_sinc_concluir(uuid, text);

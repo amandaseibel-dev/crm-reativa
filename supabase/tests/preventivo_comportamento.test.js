@@ -7,11 +7,11 @@
 //   2. importar e reimportar o mesmo arquivo não duplica título nem valor,
 //      e não reescreve o valor de entrada da carteira;
 //   3. a prévia não grava nada;
-//   4. alteração de valor na fonte NÃO vira pagamento nem saldo, e
-//      reconsultar o Prime não duplica nada;
-//   5. sumir do extrato não vira recebimento e não apaga o saldo anterior;
+//   4. alteração do valor na fonte NÃO vira recebimento, e reconsultar o
+//      Prime não duplica nada;
+//   5. sumir do extrato não vira recebimento e não apaga o valor anterior;
 //   6. falha de consulta preserva o dado anterior;
-//   7. a exportação respeita janela, saldo, situação e contato válido, e
+//   7. a exportação respeita janela, valor na fonte, situação e contato, e
 //      "exportada" nunca vira "enviada" sozinha;
 //   8. a conta do painel fecha.
 //
@@ -87,7 +87,7 @@ const linha = (over = {}) => ({
 // Extrato do Prime como a Edge Function entrega: já reduzido aos campos usados.
 const extrato = (over = {}) => ({
   documento: "9000001", vencimento: "2026-09-25", valor_liquido: "500.00",
-  valor_bruto: "500.00", valor_corrigido: "1000.00", liquidado_em: "2026-09-20",
+  valor_bruto: "500.00", valor_corrigido: "1000.00", payment_date: "2026-09-20",
   portador: "95", portador_nome: "SANTANDER CC", ...over,
 });
 
@@ -262,7 +262,7 @@ describe("Preventivo — sincronização com o Prime", () => {
     return sinc;
   };
 
-  it("o primeiro ciclo é linha de base: grava foto e não inventa movimento", async () => {
+  it("o primeiro ciclo é linha de base: grava foto e não inventa alteração", async () => {
     await ciclo([extrato()]);
     expect(await um(db, `select count(*)::int from public.prev_titulo_snapshot`)).toBe(1);
     expect(await um(db, `select count(*)::int from public.prev_evento`)).toBe(0);
@@ -270,7 +270,7 @@ describe("Preventivo — sincronização com o Prime", () => {
     expect(Number(await um(db, `select valor_fonte from public.prev_titulo`))).toBe(500);
   });
 
-  it("queda do valor na fonte é registrada pelo nome do campo, nunca como pagamento nem como saldo", async () => {
+  it("queda do valor na fonte é registrada pelo nome do campo, nunca como recebimento", async () => {
     await ciclo([extrato()]);
     await ciclo([extrato({ valor_liquido: "200.00" })]);
     const ev = (await db.query(`select tipo, valor_delta, e_pagamento_comprovado from public.prev_evento`)).rows;
@@ -280,7 +280,7 @@ describe("Preventivo — sincronização com o Prime", () => {
     expect(ev[0].e_pagamento_comprovado).toBe(false);
   });
 
-  it("nenhum tipo de evento usa a palavra saldo ou pagamento", async () => {
+  it("nenhum tipo de evento usa a palavra saldo, pagamento, liquidação ou quitação", async () => {
     // lê a própria restrição gravada na tabela: é ela que define os tipos
     const tipos = await um(db, `
       select pg_get_constraintdef(c.oid)
@@ -293,6 +293,8 @@ describe("Preventivo — sincronização com o Prime", () => {
     expect(texto).not.toMatch(/SALDO/);
     expect(texto).not.toMatch(/PAGAMENTO/);
     expect(texto).not.toMatch(/QUITA/);
+    expect(texto).not.toMatch(/LIQUID/);
+    expect(texto).not.toMatch(/RECEB/);
   });
 
   it("valor zerado na fonte não é chamado de quitação nem de recebimento", async () => {
@@ -305,7 +307,7 @@ describe("Preventivo — sincronização com o Prime", () => {
     expect(Number(res.alteracoes.VALOR_FONTE_ZEROU.valor)).toBe(500);
   });
 
-  it("consultar de novo sem mudança não duplica movimento", async () => {
+  it("consultar de novo sem mudança não duplica alteração", async () => {
     await ciclo([extrato()]);
     await ciclo([extrato({ valor_liquido: "200.00" })]);
     await ciclo([extrato({ valor_liquido: "200.00" })]);
@@ -480,7 +482,7 @@ describe("Preventivo — ações e exportação", () => {
     expect(r.atualizacao_financeira.em).not.toBe(null);
   });
 
-  it("o mesmo pagamento não é somado duas vezes quando o título está em duas ações", async () => {
+  it("a mesma alteração não é somada duas vezes quando o título está em duas ações", async () => {
     const a1 = await preparar("Aviso A", "WHATSAPP");
     const a2 = await preparar("Aviso B", "WHATSAPP");
     for (const a of [a1, a2]) {
@@ -497,10 +499,10 @@ describe("Preventivo — ações e exportação", () => {
 
     const acoes = await um(db, `select public.preventivo_acoes($1::uuid)`, [carteira]);
     const porAcao = acoes.filter((a) => a.nome.startsWith("Aviso "))
-      .reduce((s, a) => s + Number(a.movimento_apos_envio?.valor || 0), 0);
+      .reduce((s, a) => s + Number(a.alteracao_apos_envio?.valor || 0), 0);
     const consolidado = Number((await um(db, `select public.preventivo_resultados($1::uuid)`, [carteira]))
       .conferencia.queda_registrada);
-    // as duas ações mostram o mesmo movimento; o consolidado conta uma vez só
+    // as duas ações mostram a mesma alteração; o consolidado conta uma vez só
     expect(porAcao).toBe(1000);
     expect(consolidado).toBe(500);
   });
