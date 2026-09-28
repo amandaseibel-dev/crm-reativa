@@ -13,13 +13,18 @@ testadas, não implantadas. Reversão em
 ## ✅ Funcional e validado
 
 - **Importação com o arquivo REAL** (`relatorio_inadimplencia 28.09.csv`,
-  3.495 linhas), ponta a ponta: 3.480 títulos / 3.471 alunos /
-  R$ 5.679.282,71; 15 recusadas (14 duplicadas no arquivo, 1 sem nome).
+  3.495 linhas), ponta a ponta: 3.485 títulos / 3.471 alunos /
+  R$ 5.689.824,38; 10 recusadas (9 duplicadas no arquivo, 1 sem nome).
   **Reimportar o mesmo arquivo não duplicou nada.** O mapeamento das colunas foi
   reconhecido sozinho, incluindo `Código` → matrícula e `Dt Vcto` → vencimento.
-- **Duas correções que só o arquivo real revelou:** o CSV vem em LATIN-1 e tem
+- **Três correções que só o arquivo real revelou:** o CSV vem em LATIN-1 e tem
   `;` dentro de campo entre aspas (leitura ingênua descartava 2.742 de 3.495
-  linhas); e `Tipo de Boleto` estava sendo lida como identificador do título.
+  linhas); `Tipo de Boleto` estava sendo lida como identificador do título; e
+  `Vcto Origem`/`Saldo Atualizado` eram mapeados e depois descartados antes do
+  payload — sem `vencimento_origem` a chave do título colidia e **5 títulos /
+  R$ 10.541,67 sumiam calados** (matrícula 2026003068 entrava com um título em
+  vez de quatro). Coberto por um teste que percorre CSV → cabeçalho →
+  mapeamento → payload → RPC.
 - **Chave de identificação definida com medição**, não com suposição: o
   relatório **não traz identificador de título**. A identidade na carteira é
   `matrícula + Dt Vcto + Vcto Origem`; a ligação com o Prime é

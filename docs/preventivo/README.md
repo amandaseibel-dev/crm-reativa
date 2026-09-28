@@ -101,22 +101,31 @@ A prévia não grava nada e roda exatamente a mesma validação da confirmação
 | | |
 |---|---|
 | Linhas lidas | 3.495 |
-| Aceitas | 3.480 (3.471 alunos) |
-| Recusadas | 15 — 14 duplicadas no próprio arquivo, 1 sem nome (a linha final) |
-| Saldo informado | R$ 5.679.282,71 |
-| Reimportando o MESMO arquivo | 3.480 títulos e R$ 5.679.282,71 — **nada duplicou** |
+| Aceitas | 3.485 (3.471 alunos) |
+| Recusadas | 10 — 9 duplicadas no próprio arquivo, 1 sem nome (a linha final) |
+| Saldo informado | R$ 5.689.824,38 |
+| Reimportando o MESMO arquivo | 3.485 títulos e R$ 5.689.824,38 — **nada duplicou** |
 | Fora da janela de 31 dias | 0 (o vencimento 05/09 tinha 23 dias em 28/09) |
 
 **O mapeamento das colunas foi reconhecido sozinho**, incluindo "Código" →
 matrícula e "Dt Vcto" → vencimento; nenhum campo obrigatório ficou faltando. Você
 confere e troca na tela antes da prévia.
 
-**Duas correções que o arquivo real obrigou a fazer**, e que valem registro:
+**Três correções que o arquivo real obrigou a fazer**, e que valem registro:
 
 - o CSV vem em **LATIN-1** e tem **ponto e vírgula dentro de campo entre
   aspas** (a coluna E-mail traz dois endereços separados por `;`). Lendo de
   forma ingênua, 2.742 das 3.495 linhas eram descartadas;
-- "Tipo de Boleto" estava sendo reconhecida como identificador do título.
+- "Tipo de Boleto" estava sendo reconhecida como identificador do título;
+- **`Vcto Origem` e `Saldo Atualizado` eram reconhecidos no mapeamento e
+  descartados antes de chegar ao banco.** Sem `vencimento_origem`, a chave do
+  título virava `"<Dt Vcto>|"` para todos, e dois títulos do mesmo aluno com o
+  mesmo vencimento atual colidiam: **5 títulos e R$ 10.541,67 sumiam calados**.
+  O caso mais claro é a matrícula 2026003068 — quatro mensalidades com o mesmo
+  `Dt Vcto` (18/09) e origens 05/06, 05/07, 05/08 e 05/09 — que entrava como
+  **uma só**. Coberto agora por
+  `supabase/tests/preventivo_importacao_ponta_a_ponta.test.js`, que percorre o
+  caminho inteiro a partir do texto do CSV.
 
 ### c) Contatos: o que entra e o que fica de fora
 

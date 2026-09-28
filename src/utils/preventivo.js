@@ -211,14 +211,24 @@ export function paraDataISO(v) {
 // Uma linha do arquivo vira o registro que a RPC espera. Só normaliza forma —
 // quem decide o que é aceito é o banco, e a prévia usa a MESMA função que a
 // confirmação para que as duas nunca discordem.
+//
+// TODO CAMPO DE `CAMPOS` PRECISA SAIR DAQUI. Já falhou uma vez: `Vcto Origem`
+// e `Saldo Atualizado` eram reconhecidos no mapeamento e descartados aqui,
+// silenciosamente. Sem `vencimento_origem`, a chave do título vira
+// "<Dt Vcto>|" para todo mundo, e dois títulos do mesmo aluno com o mesmo
+// vencimento atual colidem: no arquivo de 28/09/2026 isso apagava 5 títulos e
+// R$ 16.680,23. O teste `preventivo_importacao_ponta_a_ponta.test.js` percorre
+// `CAMPOS` e reprova se algum campo mapeado não chegar ao payload.
 export function linhaParaRegistro(linha, mapa) {
   const pega = (id) => (mapa?.[id] === undefined ? null : linha[mapa[id]]);
   const texto = (id) => {
     const v = pega(id);
     return v === null || v === undefined ? null : String(v).trim() || null;
   };
-  const valor = paraNumero(pega("valor"));
-  const saldo = paraNumero(pega("saldo"));
+  const numeroTexto = (id) => {
+    const n = paraNumero(pega(id));
+    return n === null ? null : String(n);
+  };
   return {
     matricula: texto("matricula"),
     aluno_nome: texto("aluno_nome"),
@@ -229,12 +239,35 @@ export function linhaParaRegistro(linha, mapa) {
     contrato: texto("contrato"),
     situacao: texto("situacao"),
     vencimento: paraDataISO(pega("vencimento")),
-    valor: valor === null ? null : String(valor),
-    saldo: saldo === null ? null : String(saldo),
+    vencimento_origem: paraDataISO(pega("vencimento_origem")),
+    valor: numeroTexto("valor"),
+    saldo: numeroTexto("saldo"),
+    saldo_atualizado: numeroTexto("saldo_atualizado"),
     celular: texto("celular"),
     email: texto("email"),
   };
 }
+
+// A ponte entre `CAMPOS` (o que a tela mapeia) e o payload (o que a RPC
+// recebe). Existe para ser percorrida por teste: campo mapeado que não esteja
+// aqui é campo que se perde no caminho.
+export const CAMPO_NO_PAYLOAD = {
+  matricula: "matricula",
+  aluno_nome: "aluno_nome",
+  documento: "documento",
+  cpf: "cpf",
+  competencia: "competencia",
+  unidade: "unidade",
+  contrato: "contrato",
+  situacao: "situacao",
+  vencimento: "vencimento",
+  vencimento_origem: "vencimento_origem",
+  valor: "valor",
+  saldo: "saldo",
+  saldo_atualizado: "saldo_atualizado",
+  celular: "celular",
+  email: "email",
+};
 
 // -----------------------------------------------------------------------------
 // Arquivos para a mensageria
