@@ -42,6 +42,11 @@ const conta = (v, um, varios) =>
 const dia = (v) => (v ? new Date(String(v).length === 10 ? v + "T12:00:00" : v).toLocaleDateString("pt-BR") : "—");
 // Competência por extenso. Sempre com o ano: 2026/2 tem mensalidade vencendo em
 // abril e em dezembro, e "agosto" sem ano convida a erro de leitura.
+// Acima disto o documento e tratado como longo e ganha o botao de revelar.
+// Um numero de boleto normal tem 7 digitos; o que estoura a coluna e
+// identificador sintetico (ex.: "MANUAL-<uuid>-...", 70 caracteres).
+const LIMITE_DOCUMENTO = 18;
+
 const MESES = ["janeiro", "fevereiro", "março", "abril", "maio", "junho",
                "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
 const competenciaLonga = (v) => {
@@ -517,6 +522,18 @@ function PainelDetalhe({ detalhe, onFechar }) {
   // aplicada a coluna simplesmente não aparece, em vez de a tela mostrar vazio
   // e passar a impressão de que ninguém tem origem.
   const temOrigem = (d?.linhas || []).some((l) => "origem_importacao" in l);
+  // Documento longo escondia a coluna de valor. Truncar sozinho nao serve: o
+  // identificador tem de continuar consultavel E copiavel, tambem no celular,
+  // onde nao existe hover para ler um `title`. Entao cada linha longa ganha um
+  // botao que revela o texto inteiro, e o texto e sempre `user-select: all` --
+  // um clique (ou um toque) seleciona o identificador completo de uma vez.
+  const [docsAbertos, setDocsAbertos] = useState(() => new Set());
+  const alternarDoc = (i) =>
+    setDocsAbertos((atual) => {
+      const novo = new Set(atual);
+      if (novo.has(i)) novo.delete(i); else novo.add(i);
+      return novo;
+    });
   const colunaValor = ind === "recuperado" ? "recuperado" : ind === "saldo" ? "saldo" : "valor_original";
   const rotuloValor = ind === "recuperado" ? "Recuperado" : ind === "saldo" ? "Saldo" : "Valor original";
   return (
@@ -533,7 +550,7 @@ function PainelDetalhe({ detalhe, onFechar }) {
         {detalhe.carregando ? <Carregando /> : detalhe.erro ? <p style={S.erro}>{detalhe.erro}</p> : (
           <>
             <p style={S.painelResumo}>
-              {num(d?.total_titulos)} títulos · {moeda(d?.total_valor)}
+              {conta(d?.total_titulos, "título", "títulos")} · {moeda(d?.total_valor)}
               {Number(d?.total_titulos || 0) > (d?.linhas?.length || 0)
                 ? " · mostrando os " + num(d?.linhas?.length) + " de maior valor original"
                 : ""}
@@ -558,7 +575,25 @@ function PainelDetalhe({ detalhe, onFechar }) {
                       <tr key={(l.documento || "") + "-" + i}>
                         <td style={S.td}>{l.aluno}</td>
                         <td style={S.tdFraco}>{l.cpf}</td>
-                        <td style={S.tdFraco}>{l.documento}</td>
+                        <td style={S.tdDocumento}>
+                          {(() => {
+                            const doc = l.documento || "—";
+                            const longo = doc.length > LIMITE_DOCUMENTO;
+                            const aberto = docsAbertos.has(i);
+                            return (
+                              <>
+                                <span style={longo && !aberto ? S.docCurto : S.docInteiro}>{doc}</span>
+                                {longo ? (
+                                  <button type="button" onClick={() => alternarDoc(i)}
+                                          aria-expanded={aberto} style={S.docAlternar}
+                                          title={aberto ? "Ocultar o restante" : "Mostrar o identificador completo"}>
+                                    {aberto ? "ocultar" : "ver completo"}
+                                  </button>
+                                ) : null}
+                              </>
+                            );
+                          })()}
+                        </td>
                         <td style={S.tdFraco}>{dia(l.vencimento)}</td>
                         <td style={S.tdFraco}>{competenciaCurta(l.competencia)}</td>
                         {temOrigem ? (
@@ -615,17 +650,30 @@ const S = {
             fontSize: 13.5, fontFamily: "inherit", fontWeight: 600 },
 
   // ---- seis cards do recorte ----
-  // minmax(200px, 1fr): em 375px de largura cai para uma coluna sem rolagem
-  // horizontal, em vez de esticar o card para fora da tela.
-  gradeCards: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(168px, 1fr))", gap: 12 },
+  // GRADE 3+3. O `auto-fit` resolve os tres tamanhos sem media query, que
+  // estilo inline nao tem: o numero de colunas sai da largura disponivel.
+//   area util do CRM com a lateral aberta ~1.072px -> 3 colunas
+  //     (3x300+2x12 = 924 cabe; 4x300+3x12 = 1.236 nao)
+  //   area ~612px a ~923px  -> 2 colunas
+  //   abaixo de 612px       -> 1 coluna (celular: 343 uteis em 375px)
+  // O contêiner da pagina tem maxWidth 1120, entao nunca chega a 4 colunas.
+  //
+  // auto-fit e NAO media query de proposito: a largura que importa e a que
+  // sobra depois da barra lateral, e media query enxerga so a janela. Com a
+  // lateral aberta ou recolhida, a grade se ajusta sozinha.
+  //
+  // ANTES era minmax(168px) com fonte reduzida para caber seis numa linha; em
+  // producao a lateral comia a largura e quebrava 5+1, com o sexto card
+  // sozinho. Aqui a fonte volta ao tamanho de leitura e quem cede e a grade.
+  gradeCards: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 12 },
   card: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, textAlign: "left",
           background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14,
           padding: "14px 16px 12px", boxShadow: "var(--rv-sombra)", cursor: "pointer",
           fontFamily: "inherit", color: "var(--rv-tinta)" },
-  cardTopo: { display: "flex", alignItems: "flex-start", gap: 7, minHeight: 30 },
-  cardTitulo: { fontSize: 11, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
+  cardTopo: { display: "flex", alignItems: "center", gap: 7 },
+  cardTitulo: { fontSize: 12, fontWeight: 700, letterSpacing: "0.04em", textTransform: "uppercase",
                 color: "var(--rv-texto-fraco)", lineHeight: 1.3 },
-  cardValor: { fontSize: 24, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.15, marginTop: 2,
+  cardValor: { fontSize: 28, fontWeight: 800, letterSpacing: "-0.02em", lineHeight: 1.15, marginTop: 4,
                fontFamily: "'Sora', Inter, sans-serif", whiteSpace: "nowrap" },
   cardLinha: { fontSize: 12.5, color: "var(--rv-texto)", lineHeight: 1.5 },
   cardNota: { fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5, marginTop: 4 },
@@ -713,6 +761,19 @@ const S = {
   td: { padding: "7px 8px", borderBottom: "1px solid var(--rv-borda-suave)", verticalAlign: "top" },
   tdFraco: { padding: "7px 8px", borderBottom: "1px solid var(--rv-borda-suave)", verticalAlign: "top",
              color: "var(--rv-texto-suave)", whiteSpace: "nowrap" },
+  // maxWidth na CELULA: sem isto o conteudo manda na largura da coluna e um
+  // identificador de 70 caracteres empurra o valor para fora da tela.
+  tdDocumento: { padding: "7px 8px", borderBottom: "1px solid var(--rv-borda-suave)",
+                 verticalAlign: "top", color: "var(--rv-texto-suave)",
+                 maxWidth: 190, width: 190 },
+  docCurto: { display: "block", maxWidth: "100%", overflow: "hidden", textOverflow: "ellipsis",
+              whiteSpace: "nowrap", userSelect: "all" },
+  // `break-all` de proposito: identificador nao tem ponto de quebra natural.
+  docInteiro: { display: "block", maxWidth: "100%", whiteSpace: "normal", wordBreak: "break-all",
+                userSelect: "all" },
+  docAlternar: { display: "inline-block", marginTop: 2, padding: 0, background: "none", border: "none",
+                 color: "var(--rv-azul)", fontSize: 11, fontWeight: 700, cursor: "pointer",
+                 fontFamily: "inherit", textDecoration: "underline" },
   // Falta de rastreabilidade não é dado neutro: fica em âmbar para ser vista.
   tdSemOrigem: { padding: "7px 8px", borderBottom: "1px solid var(--rv-borda-suave)", verticalAlign: "top",
                  color: "var(--rv-ambar-texto)", whiteSpace: "nowrap", fontWeight: 600 },

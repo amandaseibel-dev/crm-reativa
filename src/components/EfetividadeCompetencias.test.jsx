@@ -317,6 +317,85 @@ describe("Efetividade 2026/2 por competência", () => {
     expect(p.queryByText("Sem importação de origem identificada")).toBeNull();
   });
 
+
+  // ---- REVISAO VISUAL 28/09: os tres defeitos vistos em producao ----
+
+  // Em producao o painel escrevia "1 titulos" ao abrir Cancelados, que tem
+  // exatamente um titulo em 2026/2.
+  it("o resumo do detalhe usa singular quando há um único título", async () => {
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: PAINEL })
+        : Promise.resolve({ data: { ...DETALHE, indicador: "cancelado", total_titulos: 1,
+            total_valor: 10399.64, linhas: [DETALHE.linhas[0]] } }));
+    await abrir();
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Cancelados")); });
+    const p = within(screen.getByRole("dialog"));
+    expect(p.getByText(/^1 título · R\$ 10\.399,64/)).toBeTruthy();
+    expect(p.queryByText(/1 títulos/)).toBeNull();
+  });
+
+  it("o resumo do detalhe usa plural quando há mais de um", async () => {
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: PAINEL })
+        : Promise.resolve({ data: { ...DETALHE, total_titulos: 2, total_valor: 3000 } }));
+    await abrir();
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Entradas")); });
+    expect(within(screen.getByRole("dialog")).getByText(/^2 títulos · /)).toBeTruthy();
+  });
+
+  // Um unico titulo com documento de 70 caracteres empurrava a coluna de valor
+  // para fora da tela. Truncar sozinho nao basta: o identificador tem de seguir
+  // consultavel e copiavel, inclusive no celular, onde nao ha hover.
+  it("documento longo é truncado, mas o valor completo fica no DOM e é selecionável", async () => {
+    const LONGO = "MANUAL-9419c3bc-942b-43dd-a20c-bd491f925fee-2026/01-2026-12-05-1364333";
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: PAINEL })
+        : Promise.resolve({ data: { ...DETALHE, linhas: [
+            { ...DETALHE.linhas[0], documento: LONGO },
+            { ...DETALHE.linhas[0], aluno: "CURTO", documento: "4533631" }] } }));
+    await abrir();
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Entradas")); });
+    const p = within(screen.getByRole("dialog"));
+
+    // o texto INTEIRO está no DOM mesmo truncado: o dado não se perde
+    const celula = p.getByText(LONGO);
+    expect(celula).toBeTruthy();
+    expect(celula.style.userSelect).toBe("all");        // um clique seleciona tudo
+    expect(celula.style.textOverflow).toBe("ellipsis"); // truncado visualmente
+    expect(celula.style.whiteSpace).toBe("nowrap");
+
+    // e existe um caminho de leitura que NAO depende de hover/title
+    const botao = p.getByRole("button", { name: "ver completo" });
+    expect(botao.getAttribute("aria-expanded")).toBe("false");
+    await act(async () => { fireEvent.click(botao); });
+    expect(p.getByRole("button", { name: "ocultar" }).getAttribute("aria-expanded")).toBe("true");
+    const aberto = p.getByText(LONGO);
+    expect(aberto.style.whiteSpace).toBe("normal");
+    expect(aberto.style.wordBreak).toBe("break-all");
+    expect(aberto.style.userSelect).toBe("all");
+
+    // documento curto não ganha botão nenhum
+    expect(p.queryAllByRole("button", { name: /ver completo|ocultar/ }).length).toBe(1);
+  });
+
+  // A grade 5+1 nasceu de um minimo pequeno demais combinado com a barra
+  // lateral. Este teste prende a decisao: 300px garante 3 colunas na area util
+  // do CRM (1.072px) e impede 4 (o container tem maxWidth 1120).
+  it("a grade dos cards usa o mínimo que dá 3 colunas na largura do CRM", async () => {
+    await abrir();
+    const grade = screen.getByRole("group", { name: "Indicadores do recorte" });
+    expect(grade.style.gridTemplateColumns).toBe("repeat(auto-fit, minmax(300px, 1fr))");
+    const AREA_CRM = 1072, MIN = 300, GAP = 12;
+    const cabem = (area) => Math.max(1, Math.floor((area + GAP) / (MIN + GAP)));
+    expect(cabem(AREA_CRM)).toBe(3);   // 3+3, nunca 5+1
+    expect(cabem(896)).toBe(2);        // lateral recolhida
+    expect(cabem(664)).toBe(2);        // tablet
+    expect(cabem(343)).toBe(1);        // celular 375px
+  });
+
   it("sem competência nenhuma, avisa em vez de desenhar cards vazios", async () => {
     rpcMock.mockImplementation((nome) =>
       nome === "carteira_2026_2_competencias"
