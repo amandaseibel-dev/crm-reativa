@@ -7,7 +7,7 @@
 // ficar aberta a PUBLIC, e nenhuma pode perder `authenticated`/`service_role`
 // no caminho (revogar de `authenticated` já derrubou a tela da própria gestão
 // em 12/09/2026).
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -27,7 +27,14 @@ const ROLLBACK = "supabase/rollbacks/20260928175656_preventivo_fechar_execute_pu
 // A interna só precisa de service_role; as demais precisam de authenticated.
 const SO_SERVICE_ROLE = "preventivo_lote_processar";
 
-async function novoBanco({ aplicarQuarta = true } = {}) {
+// Estes testes só LEEM o catálogo, então um banco por configuração basta —
+// exceto o do rollback, que altera privilégios e por isso pede o seu próprio.
+// Recriar o PGlite a cada teste custava 92 s neste arquivo.
+const cache = new Map();
+
+async function novoBanco({ aplicarQuarta = true, isolado = false } = {}) {
+  const chave = String(aplicarQuarta);
+  if (!isolado && cache.has(chave)) return cache.get(chave);
   const db = new PGlite();
   await db.exec(`
     create role anon; create role authenticated; create role service_role;
@@ -37,6 +44,7 @@ async function novoBanco({ aplicarQuarta = true } = {}) {
   `);
   for (const f of TRES) await db.exec(ler(f));
   if (aplicarQuarta) await db.exec(ler(QUARTA));
+  if (!isolado) cache.set(chave, db);
   return db;
 }
 
@@ -58,7 +66,7 @@ const SEM_PAPEL = (papel) => `
 
 describe("as 3 migrations aplicadas sozinhas", () => {
   let db;
-  beforeEach(async () => { db = await novoBanco({ aplicarQuarta: false }); });
+  beforeAll(async () => { db = await novoBanco({ aplicarQuarta: false }); });
 
   it("deixam exatamente 8 funções utilitárias abertas a PUBLIC", async () => {
     // É o defeito medido em produção. Fica registrado aqui para que a 4ª
@@ -110,7 +118,7 @@ describe("as 3 migrations aplicadas sozinhas", () => {
 
 describe("a 4ª migration, só de privilégios", () => {
   let db;
-  beforeEach(async () => { db = await novoBanco(); });
+  beforeAll(async () => { db = await novoBanco(); });
 
   it("fecha PUBLIC em TODAS as funções do módulo", async () => {
     expect(await lista(db, COM_PUBLIC)).toEqual([]);
@@ -126,7 +134,7 @@ describe("a 4ª migration, só de privilégios", () => {
   });
 
   it("não cria, não altera e não apaga objeto nenhum", async () => {
-    const antes = await novoBanco({ aplicarQuarta: false });
+    const antes = await novoBanco({ aplicarQuarta: false, isolado: true });
     const impressao = async (d) => (await d.query(`
       select md5(string_agg(t, ',' order by t)) v from (
         select c.relname || ':' || c.relkind::text t from pg_class c
@@ -142,6 +150,9 @@ describe("a 4ª migration, só de privilégios", () => {
   });
 
   it("o rollback devolve exatamente o estado anterior", async () => {
+    // banco próprio: este teste ALTERA privilégios e não pode sujar o
+    // compartilhado dos testes acima.
+    const db = await novoBanco({ isolado: true });
     await db.exec(ler(ROLLBACK));
     expect(await lista(db, COM_PUBLIC)).toEqual([
       "preventivo_celulares(text)",

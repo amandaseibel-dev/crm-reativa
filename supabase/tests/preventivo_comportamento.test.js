@@ -16,7 +16,7 @@
 //   8. a conta do painel fecha.
 //
 // `auth.jwt()` e `public.usuarios` são DUBLÊS. NENHUM DADO REAL.
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -39,7 +39,31 @@ async function um(db, sql, params = []) {
   return r.rows[0] ? Object.values(r.rows[0])[0] : undefined;
 }
 
+// UM banco por arquivo, limpo entre os testes. Recriar o PGlite e rodar as três
+// migrations a cada teste custava 403 s neste arquivo sozinho e estourava o
+// teto de 15 min do CI. O que os testes precisam é de DADO limpo, não de
+// catálogo novo: `limpar()` esvazia as tabelas e devolve os dublês ao estado
+// inicial. Os poucos testes que dependem do catálogo (o de RLS com `set role`)
+// desfazem o que fazem.
+let bancoDoArquivo = null;
+
+const TABELAS = [
+  "prev_acao_destinatario", "prev_acao", "prev_evento", "prev_titulo_snapshot",
+  "prev_sinc_fila", "prev_sinc", "prev_titulo_lote", "prev_titulo",
+  "prev_lote_recusa", "prev_lote", "prev_carteira",
+];
+
+async function limpar(db) {
+  await db.exec(`
+    truncate ${TABELAS.map((t) => "public." + t).join(", ")} restart identity cascade;
+    update public.usuarios set ativo = true;
+    update public._jwt set email = '${GESTAO}';
+    reset role;
+  `);
+}
+
 async function novoBanco() {
+  if (bancoDoArquivo) { await limpar(bancoDoArquivo); return bancoDoArquivo; }
   const db = new PGlite();
   await db.exec(`
     create role anon; create role authenticated; create role service_role;
@@ -58,8 +82,11 @@ async function novoBanco() {
     grant select on public.usuarios to authenticated;
   `);
   for (const m of MIGRATIONS) await db.exec(m);
+  bancoDoArquivo = db;
   return db;
 }
+
+beforeAll(async () => { await novoBanco(); });
 
 const entrar = (db, email) => db.exec(`update public._jwt set email = '${email}'`);
 

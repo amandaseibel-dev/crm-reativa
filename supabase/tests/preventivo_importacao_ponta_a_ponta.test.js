@@ -19,7 +19,7 @@
 // gestão mandou cobrir — quatro mensalidades com o MESMO `Dt Vcto` (18/09) e
 // quatro `Vcto Origem` diferentes, que precisam continuar sendo quatro
 // títulos.
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, beforeAll } from "vitest";
 import { PGlite } from "@electric-sql/pglite";
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
@@ -61,7 +61,23 @@ const CSV = [
   }),
 ].join("\r\n") + "\r\n";
 
+// UM banco por arquivo, limpo entre os testes: o que muda de um teste para o
+// outro é o DADO, não o catálogo. Recriar o PGlite e rodar as três migrations a
+// cada teste custava 50 s aqui.
+let bancoDoArquivo = null;
+
+const TABELAS = [
+  "prev_acao_destinatario", "prev_acao", "prev_evento", "prev_titulo_snapshot",
+  "prev_sinc_fila", "prev_sinc", "prev_titulo_lote", "prev_titulo",
+  "prev_lote_recusa", "prev_lote", "prev_carteira",
+];
+
 async function novoBanco() {
+  if (bancoDoArquivo) {
+    await bancoDoArquivo.exec(
+      `truncate ${TABELAS.map((t) => "public." + t).join(", ")} restart identity cascade`);
+    return bancoDoArquivo;
+  }
   const db = new PGlite();
   await db.exec(`
     create role anon; create role authenticated; create role service_role;
@@ -78,8 +94,11 @@ async function novoBanco() {
     "supabase/migrations/20260928143843_preventivo_importacao.sql",
     "supabase/migrations/20260928143943_preventivo_sincronizacao_acoes.sql",
   ]) await db.exec(ler(f));
+  bancoDoArquivo = db;
   return db;
 }
+
+beforeAll(async () => { await novoBanco(); });
 
 const um = async (db, sql, p = []) => {
   const r = await db.query(sql, p);
