@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
 // O que se prova aqui é o ENQUADRAMENTO do recorte por competência: os seis
 // cards medem o recorte escolhido, cada percentual declara a base, cancelado e
@@ -98,7 +99,9 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 async function abrir() {
-  await act(async () => { render(<EfetividadeCompetencias />); });
+  await act(async () => {
+    render(<MemoryRouter><EfetividadeCompetencias /></MemoryRouter>);
+  });
 }
 const topo = () => within(screen.getByRole("group", { name: "Indicadores do recorte" }));
 
@@ -497,6 +500,91 @@ describe("Efetividade 2026/2 por competência", () => {
     expect(rpcMock).toHaveBeenCalledWith("carteira_2026_2_competencia_detalhe", {
       p_competencia: null, p_indicador: "tab_suspensao", p_limite: 200, p_offset: 0,
     });
+  });
+
+
+  // ---- 28/09: orientacao de conferencia e caminho ate a ficha ----
+
+  it("o card Em conferência orienta o que fazer e para onde ir", async () => {
+    await abrir();
+    const card = within(topo().getByText("Em conferência").closest("button"));
+    expect(card.getByText(/precisam de validação antes de confirmar sua situação/)).toBeTruthy();
+    expect(card.getByText(/Clique em “Ver títulos” para consultar o motivo/)).toBeTruthy();
+    expect(card.getByText(/no Prime e no CRM antes de realizar qualquer ajuste/)).toBeTruthy();
+  });
+
+  const COM_MOTIVOS = {
+    ...DETALHE, indicador: "em_conferencia",
+    linhas: [
+      { ...DETALHE.linhas[0], aluno: "A", aluno_id: "aaaa-1111",
+        situacao: "Liquidado no Prime, origem não comprovada" },
+      { ...DETALHE.linhas[0], aluno: "B", aluno_id: "bbbb-2222",
+        situacao: "Aberto no Prime, mas paga acordo fora do CRM" },
+      { ...DETALHE.linhas[0], aluno: "C", aluno_id: null,
+        situacao: "Sem confirmação do Prime (título não encontrado)" },
+    ],
+  };
+  const comMotivos = () => rpcMock.mockImplementation((nome) =>
+    nome === "carteira_2026_2_competencias"
+      ? Promise.resolve({ data: PAINEL })
+      : Promise.resolve({ data: COM_MOTIVOS }));
+
+  it("o detalhamento mostra o motivo de cada título e onde tratá-lo", async () => {
+    comMotivos();
+    await abrir();
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Em conferência")); });
+    const p = within(screen.getByRole("dialog"));
+    // motivo por título, na tabela
+    expect(p.getAllByText("Liquidado no Prime, origem não comprovada").length).toBeGreaterThan(0);
+    // e o guia, com a rota que JA existe
+    expect(p.getByText("Onde tratar cada motivo")).toBeTruthy();
+    expect(p.getByText(/Financeiro → Conferência Prime/)).toBeTruthy();
+    expect(p.getByText(/Confirmação de Pagamento/)).toBeTruthy();
+  });
+
+  // Motivo sem fluxo no CRM tem de ser DECLARADO, com o procedimento manual.
+  it("declara o motivo que não tem fluxo de resolução no CRM", async () => {
+    comMotivos();
+    await abrir();
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Em conferência")); });
+    const p = within(screen.getByRole("dialog"));
+    expect(p.getByText(/Sem fluxo no CRM:/)).toBeTruthy();
+    expect(p.getByText(/não há fluxo de resolução no CRM/)).toBeTruthy();
+    expect(p.getByText(/consultar o título na tela do Prime/)).toBeTruthy();
+  });
+
+  it("conferir não baixa, não cancela, não vincula e não libera", async () => {
+    comMotivos();
+    await abrir();
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Em conferência")); });
+    expect(within(screen.getByRole("dialog"))
+      .getByText(/não baixa, não cancela, não vincula e não libera/)).toBeTruthy();
+  });
+
+  it("abre a ficha pela rota existente, e só quando há identificador", async () => {
+    const abrirJanela = vi.fn();
+    const original = window.open;
+    window.open = abrirJanela;
+    try {
+      comMotivos();
+      await abrir();
+      await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Em conferência")); });
+      const p = within(screen.getByRole("dialog"));
+      const botoes = p.getAllByRole("button", { name: "Abrir ficha do aluno" });
+      // 3 linhas, mas só 2 têm aluno_id
+      expect(botoes.length).toBe(2);
+      await act(async () => { fireEvent.click(botoes[0]); });
+      expect(abrirJanela).toHaveBeenCalledWith(
+        "/aluno?alunoId=aaaa-1111&origem=efetividade-2026-2", "_blank", "noopener");
+    } finally { window.open = original; }
+  });
+
+  it("sem aluno_id no payload, a coluna de ação nem aparece", async () => {
+    await abrir();   // DETALHE padrão não tem aluno_id
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Entradas")); });
+    const p = within(screen.getByRole("dialog"));
+    expect(p.queryByRole("columnheader", { name: "Ação" })).toBeNull();
+    expect(p.queryByRole("button", { name: "Abrir ficha do aluno" })).toBeNull();
   });
 
   it("sem competência nenhuma, avisa em vez de desenhar cards vazios", async () => {

@@ -107,11 +107,30 @@
 --   R$ 2.780.543,16, saldo residual R$ 4.617.154,27. NENHUM se move.
 --
 -- ============================================================================
+-- TAMBEM NESTA MIGRATION: aluno_id no DETALHE, para "Abrir ficha do aluno".
+--
+-- A gestao pediu que o detalhamento da conferencia leve a ficha certa. A rota
+-- ja existe e e a que o CRM usa: /aluno?alunoId=<uuid> (Aluno.jsx le `alunoId`
+-- ou `id` da query; FilaOperacional e PainelAdm ja navegam assim). O que falta
+-- e o IDENTIFICADOR: carteira_2026_2_competencia_detalhe devolve nome e CPF
+-- MASCARADO, e mascara nao serve para localizar ninguem.
+--
+-- Entao o detalhe passa a devolver `aluno_id`. E so isso: nenhum dado pessoal
+-- novo, nenhum CPF desmascarado -- um uuid que a propria tela de ficha exige.
+--
+-- "ABRIR CASO" NAO E POSSIVEL, e a limitacao fica registrada: NAO EXISTE rota
+-- de caso no CRM (zero rotas com "caso" em App.jsx) e NAO EXISTE vinculo
+-- caso->titulo no banco. A propria tela de CRM abre a FICHA
+-- (navigate("/aluno?id=" + caso.aluno_id)). A ficha e onde o caso se trata,
+-- entao o botao leva a ficha -- inventar uma tela de caso seria inventar fluxo.
+--
+-- ============================================================================
 -- O QUE MUDA NO BANCO
 --
 --   carteira_2026_2_classificar()        + encerramento_tabulacao text
 --   carteira_2026_2_competencias()       + 4 contadores por competencia
---   carteira_2026_2_competencia_detalhe()+ 2 indicadores e o campo na linha
+--   carteira_2026_2_competencia_detalhe()+ 2 indicadores, o campo na linha
+--                                          e `aluno_id` em cada linha
 --
 -- O classificador retorna TABLE, entao acrescentar coluna exige DROP + CREATE.
 -- Valem as MESMAS cautelas da outra proposta, e pelo mesmo motivo medido:
@@ -193,6 +212,7 @@ grant execute on function public.carteira_2026_2_classificar() to service_role;
 --       'tab_cancelamento', 'tab_suspensao'
 --   - filtrar por encerramento_tabulacao no `case v_ind`
 --   - devolver 'encerramento_tabulacao' em cada linha
+--   - devolver 'aluno_id' em cada linha (z.aluno_id), para o botao de ficha
 -- ---------------------------------------------------------------------------
 
 -- ============================================================================
