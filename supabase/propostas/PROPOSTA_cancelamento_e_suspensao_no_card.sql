@@ -1,0 +1,209 @@
+-- PROPOSTA DE MIGRATION -- NAO APLICADA. Aguarda decisao.
+--
+-- Fica FORA de supabase/migrations/ de proposito: versao nao aplicada dentro
+-- daquele diretorio e o que o Gate 1 esta limpando. Ao aprovar, mover para
+-- supabase/migrations/ com a versao que o apply_migration registrar.
+--
+-- ============================================================================
+-- O QUE E. Cancelamento e suspensao de cobranca passam a aparecer no card de
+-- Cancelados da Efetividade 2026/2, ao lado do titulo com situacao CANCELADA.
+--
+-- NADA SAI DO SALDO -- decisao da gestao em 28/09/2026. As faixas continuam
+-- EXATAMENTE como estao: os titulos marcados seguem contados onde ja estao
+-- (sem negociacao, em conferencia, convertido). Esta migration so EXPOE a
+-- tabulacao; nenhuma conta muda, nenhum total se move.
+--
+-- Por isso o card tem de dizer, em texto, que os numeros dele NAO foram
+-- retirados das outras faixas -- senao a leitura fica ambigua. Isso e trabalho
+-- da tela, nao do banco, e vai no mesmo PR.
+--
+-- ============================================================================
+-- A FONTE E A TABULACAO, e ela mora em DOIS lugares que DIVERGEM.
+--
+-- O catalogo oficial (src/utils/tabulacoes.js, grupo ENCERRAMENTO) define:
+--     CANCELAMENTO_COBRANCA  "Cancelamento definitivo de cobranca"
+--     SUSPENSAO_COBRANCA     "Suspensao de cobranca"
+--
+-- `alunos.status_atual` guarda os codigos do catalogo. `casos.status_atual`
+-- guarda tambem GRAFIAS ANTIGAS, em texto livre: "SUSPENSAO COBRANCA",
+-- "CANCELAMENTO COBRANCA", "CANCELAMENTO DE COBRANCA", "Cobranca Cancelada",
+-- "Cobranca cancelada", "CESSAR COBRANCA".
+--
+-- MEDIDO em 28/09/2026 nos 2.525 titulos de 2026/2:
+--     marcado na FICHA do aluno ........ 85 titulos
+--     marcado no CASO ..................  96 titulos
+--     os dois concordam ................  81
+--     so a ficha marca .................   4
+--     SO O CASO marca ..................  15 titulos / R$ 57.193,55
+--     uniao ............................ 100 titulos / R$ 235.593,39
+--
+-- E OS 15 NAO SAO RESIDUO: todos estao em caso VIVO (nao ENCERRADO) -- ZERO
+-- vem apenas de caso encerrado. E marca de operador que a ficha nao recebeu.
+-- Ler so a ficha perderia 15 titulos e R$ 57.193,55, entao a fonte e a UNIAO.
+--
+-- Caso ENCERRADO fica de fora de proposito: tabulacao de caso ja encerrado nao
+-- descreve a cobranca de hoje.
+--
+-- ============================================================================
+-- ALCANCE DA TABULACAO -- a pergunta que a gestao levantou, e a resposta
+-- MEDIDA em 28/09/2026. A marca vale para o ALUNO, nao para o TITULO.
+--
+--   1. NAO EXISTE vinculo caso->titulo no banco. Nenhuma FK de `casos` para
+--      `acordos_titulos`, nenhuma tabela de ligacao. As unicas colunas de
+--      `casos` que poderiam recortar sao `semestre` e `acordo_em_aberto`.
+--   2. `casos.semestre` NAO RECORTA: nos 63 alunos afetados, os 63 casos vivos
+--      tem semestre NULO.
+--   3. Logo, NENHUMA das duas fontes consegue apontar um titulo especifico.
+--
+-- CONSEQUENCIA, e ela vai escrita na tela: o que se mostra e ABRANGENCIA --
+-- "mensalidades de alunos marcados" --, nao prova de cancelamento titulo a
+-- titulo. O rotulo diz "abrangidas por", nunca "canceladas".
+--
+-- PROVA DE QUE A MARCA E MESMO DO ALUNO: os mesmos 63 alunos tem 231 titulos
+-- FORA de 2026/2 (R$ 443.289,21) igualmente abrangidos. O card de 2026/2 nao
+-- os conta, mas eles existem -- a marca nao conhece semestre nem titulo.
+--
+-- AMBIGUIDADE ENTRE CASOS, hoje inexistente mas estruturalmente possivel:
+--   MEDIDO: dos 63 alunos afetados, ZERO tem mais de um caso e ZERO tem casos
+--   vivos que discordam entre si. Mas na base inteira 536 alunos tem mais de um
+--   caso (522 com 2, 12 com 3, 1 com 4 e um aluno com 83), entao a regra
+--   PRECISA definir o desempate mesmo com zero ocorrencias hoje.
+--
+-- PRECEDENCIA, nesta ordem, e vale tanto entre fontes quanto entre casos:
+--   1. CANCELAMENTO_COBRANCA  (definitivo vence temporario)
+--   2. SUSPENSAO_COBRANCA
+--   3. nenhuma
+--   Basta UM caso vivo marcar para o aluno ficar marcado (bool_or). Se um caso
+--   diz cancelamento e outro diz suspensao, vale cancelamento.
+--   Pela norma do projeto (docs/REGRA-SALDO-COBRAVEL.md) cancelamento e saida
+--   em definitivo e suspensao VOLTA -- por isso o definitivo manda.
+--
+-- UMA SO CONTAGEM POR TITULO: a precedencia devolve UM rotulo por titulo, e o
+-- titulo com situacao CANCELADA nao carrega tabulacao (medido: sobreposicao
+-- ZERO). As tres marcas do card sao exclusivas entre si.
+--
+-- NENHUM STATUS DE ORIGEM E ALTERADO. `alunos.status_atual` e
+-- `casos.status_atual` sao lidos, nunca escritos. A divergencia entre ficha e
+-- caso NAO e escondida nem "corrigida": ela e a razao de a fonte ser a uniao,
+-- e esta registrada aqui em numero.
+--
+-- ============================================================================
+-- IMPACTO MEDIDO em 28/09/2026, com a uniao e a precedencia:
+--
+--   CANCELAMENTO_COBRANCA .... 29 titulos / 20 alunos / R$  99.160,73
+--                              (18 ABERTO, 11 EM_CONFIRMACAO, 0 PAGO)
+--   SUSPENSAO_COBRANCA ....... 71 titulos / 47 alunos / R$ 136.432,66
+--                              (43 ABERTO, 23 EM_CONFIRMACAO, 5 PAGO)
+--   juntas ................... 100 titulos / R$ 235.593,39
+--
+--   O titulo com situacao CANCELADA (1 / R$ 10.399,64) NAO tem tabulacao:
+--   sobreposicao ZERO. O card vai de 1 para 101 titulos.
+--
+--   Meses: cancelamento so em jul e ago/2026; suspensao em jun, jul e ago.
+--
+--   TOTAIS QUE NAO MUDAM: 2.525 titulos, 1.913 alunos, R$ 5.157.800,55 de
+--   entrada, recuperado R$ 530.246,64, convertido R$ 697.274,27, em
+--   conferencia R$ 1.529.222,65, academico R$ 140.360,83, sem negociacao
+--   R$ 2.780.543,16, saldo residual R$ 4.617.154,27. NENHUM se move.
+--
+-- ============================================================================
+-- O QUE MUDA NO BANCO
+--
+--   carteira_2026_2_classificar()        + encerramento_tabulacao text
+--   carteira_2026_2_competencias()       + 4 contadores por competencia
+--   carteira_2026_2_competencia_detalhe()+ 2 indicadores e o campo na linha
+--
+-- O classificador retorna TABLE, entao acrescentar coluna exige DROP + CREATE.
+-- Valem as MESMAS cautelas da outra proposta, e pelo mesmo motivo medido:
+-- pg_default_acl concede EXECUTE a `authenticated` em toda funcao nova criada
+-- por postgres em public. Sem revogacao explicita, o CREATE reabre a exposicao
+-- de CPF fechada em 20260927224458.
+--
+-- ============================================================================
+
+drop function if exists public.carteira_2026_2_classificar();
+
+-- CORPO: identico ao de 20260927221825, com DUAS diferencas.
+--
+-- (1) um CTE novo, antes de `base`:
+--
+--     encerramento as (
+--       select t2.id titulo_id,
+--              case
+--                when upper(coalesce(al.status_atual,'')) = 'CANCELAMENTO_COBRANCA'
+--                  or exists (select 1 from public.casos c
+--                              where c.aluno_id = t2.aluno_id
+--                                and upper(coalesce(c.status_atual,'')) <> 'ENCERRADO'
+--                                and translate(upper(regexp_replace(
+--                                      coalesce(c.status_atual,''),'[^A-Za-z]+','_','g')),
+--                                      'AAAAEEIOOOUC','AAAAEEIOOOUC')
+--                                    ~ '(CANCEL.*COBRANC|COBRANCA_CANCELADA|CESSAR_COBRANC)')
+--                  then 'CANCELAMENTO_COBRANCA'
+--                when upper(coalesce(al.status_atual,'')) = 'SUSPENSAO_COBRANCA'
+--                  or exists (select 1 from public.casos c
+--                              where c.aluno_id = t2.aluno_id
+--                                and upper(coalesce(c.status_atual,'')) <> 'ENCERRADO'
+--                                and translate(upper(regexp_replace(
+--                                      coalesce(c.status_atual,''),'[^A-Za-z]+','_','g')),
+--                                      'AAAAEEIOOOUC','AAAAEEIOOOUC')
+--                                    ~ 'SUSPENSAO.*COBRANC')
+--                  then 'SUSPENSAO_COBRANCA'
+--              end tabulacao
+--         from public.acordos_titulos t2
+--         left join public.alunos al on al.id = t2.aluno_id
+--     )
+--
+--     ATENCAO ao `translate`: a normalizacao de acento precisa ser escrita com
+--     os caracteres acentuados REAIS na primeira lista. Foi deixada aqui sem
+--     acento de proposito, para nao depender do encoding deste arquivo de
+--     proposta -- na hora de aplicar, gerar a partir de 20260927221825 e
+--     escrever 'ÁÀÃÂÉÊÍÓÕÔÚÇ' -> 'AAAAEEIOOOUC'.
+--
+-- (2) no RETURNS TABLE e no SELECT final, acrescentar ao fim:
+--       encerramento_tabulacao text
+--       ... , e.tabulacao
+--     com `left join encerramento e on e.titulo_id = c.id`.
+--
+-- A FAIXA NAO MUDA. `encerramento_tabulacao` e informacao ao lado; nenhum
+-- `case when` de faixa, recuperado ou saldo olha para ela.
+
+-- ---------------------------------------------------------------------------
+-- ACL: NAO CONCEDE NADA A authenticated, anon OU PUBLIC. Mesmas razoes e
+-- mesma guarda transacional da outra proposta -- ver
+-- PROPOSTA_origem_e_fechar_classificador.sql, secao ACL, e repetir aqui a
+-- guarda inteira. Conferir DEPOIS do commit nao serve: entre o CREATE e o
+-- commit a funcao ja existiria com a ACL errada.
+-- ---------------------------------------------------------------------------
+revoke all on function public.carteira_2026_2_classificar() from public;
+revoke all on function public.carteira_2026_2_classificar() from anon;
+revoke all on function public.carteira_2026_2_classificar() from authenticated;
+grant execute on function public.carteira_2026_2_classificar() to service_role;
+
+-- ---------------------------------------------------------------------------
+-- carteira_2026_2_competencias(): CREATE OR REPLACE (a ACL e preservada).
+-- No CTE `agregado`, acrescentar:
+--     count(*) filter (where encerramento_tabulacao = 'CANCELAMENTO_COBRANCA') tab_cancelamento_titulos,
+--     round(coalesce(sum(valor_original) filter (where encerramento_tabulacao = 'CANCELAMENTO_COBRANCA'),0),2) tab_cancelamento_valor,
+--     count(*) filter (where encerramento_tabulacao = 'SUSPENSAO_COBRANCA') tab_suspensao_titulos,
+--     round(coalesce(sum(valor_original) filter (where encerramento_tabulacao = 'SUSPENSAO_COBRANCA'),0),2) tab_suspensao_valor
+-- e somar os quatro no objeto 'total', como os demais.
+--
+-- carteira_2026_2_competencia_detalhe(): CREATE OR REPLACE.
+--   - aceitar dois indicadores novos na lista permitida:
+--       'tab_cancelamento', 'tab_suspensao'
+--   - filtrar por encerramento_tabulacao no `case v_ind`
+--   - devolver 'encerramento_tabulacao' em cada linha
+-- ---------------------------------------------------------------------------
+
+-- ============================================================================
+-- CONFERIR DEPOIS DE APLICAR, e so dar por encerrado se:
+--   authenticated / anon / PUBLIC sem EXECUTE no classificador
+--   postgres e service_role COM EXECUTE
+--   _competencia_detalhe ainda com authenticated
+--   os totais do painel IDENTICOS aos de antes (nada saiu de faixa nenhuma):
+--     titulos 2.525 · valor_original 5.157.800,55 · recuperado 530.246,64
+--     convertido 697.274,27 · conferencia 1.529.222,65 · academico 140.360,83
+--     sem_negociacao 2.780.543,16 · saldo 4.617.154,27
+--   e os contadores novos batendo com o medido em 28/09:
+--     tab_cancelamento 29 / R$ 99.160,73 · tab_suspensao 71 / R$ 136.432,66
+-- ============================================================================

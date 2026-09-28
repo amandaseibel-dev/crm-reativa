@@ -112,8 +112,8 @@ describe("Efetividade 2026/2 por competência", () => {
     expect(topo().getByText("R$ 4,76 mi")).toBeTruthy();
     expect(topo().getByText("2.307 mensalidades recebidas para cobrança")).toBeTruthy();
     expect(topo().getByText("2.292 alunos únicos")).toBeTruthy();
-    expect(topo().getByText("270 mensalidades com pagamento")).toBeTruthy();
-    expect(topo().getByText("239 totalmente liquidados")).toBeTruthy();
+    expect(topo().getByText("270 mensalidades com pagamento identificado")).toBeTruthy();
+    expect(topo().getByText("239 integralmente recuperadas pelo critério de rateio")).toBeTruthy();
   });
 
   it("o card é o MÊS, não o borderô — e nenhum número de borderô aparece", async () => {
@@ -394,6 +394,109 @@ describe("Efetividade 2026/2 por competência", () => {
     expect(cabem(896)).toBe(2);        // lateral recolhida
     expect(cabem(664)).toBe(2);        // tablet
     expect(cabem(343)).toBe(1);        // celular 375px
+  });
+
+
+  // ---- 28/09: cancelamento e suspensao entram no card, SEM mexer em calculo ----
+
+  // Os campos de tabulacao so existem depois da migration proposta. Sem eles a
+  // tela tem de se comportar como hoje -- nada vazio, nada sugerindo ausencia.
+  it("sem os campos de tabulação, o card segue sendo só Cancelados", async () => {
+    await abrir();
+    expect(topo().getByText("Cancelados")).toBeTruthy();
+    expect(topo().queryByText("Cancelados e suspensos")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Cancelados por motivo" })).toBeTruthy();
+    expect(screen.queryByText(/Abrangidas por suspensão temporária/)).toBeNull();
+    // e o valor continua sendo só o do título CANCELADA
+    expect(within(topo().getByText("Cancelados").closest("button")).getByText("R$ 10 mil")).toBeTruthy();
+  });
+
+  const COM_TAB = {
+    ...PAINEL,
+    total: { ...PAINEL.total,
+      tab_cancelamento_titulos: 29, tab_cancelamento_valor: 99160.73,
+      tab_suspensao_titulos: 71, tab_suspensao_valor: 136432.66 },
+  };
+
+  it("com a tabulação, o card separa as três marcas e soma sem duplicidade", async () => {
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: COM_TAB })
+        : Promise.resolve({ data: DETALHE }));
+    await abrir();
+    const card = within(topo().getByText("Cancelados e suspensos").closest("button"));
+    // 10.399,64 + 99.160,73 + 136.432,66 = 245.993,03 -> "R$ 246 mil"
+    expect(card.getByText("R$ 246 mil")).toBeTruthy();
+    expect(card.getByText("101 mensalidades, sem duplicidade")).toBeTruthy();
+
+    const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
+    expect(sec.getByText("Situação CANCELADA no título")).toBeTruthy();
+    expect(sec.getByText("Abrangidas por cancelamento definitivo")).toBeTruthy();
+    expect(sec.getByText("Abrangidas por suspensão temporária")).toBeTruthy();
+    expect(sec.getByText("R$ 99.160,73")).toBeTruthy();
+    expect(sec.getByText("R$ 136.432,66")).toBeTruthy();
+    expect(sec.getByText(/Total sem duplicidade: 101 mensalidades/)).toBeTruthy();
+  });
+
+  it("suspensão não é apresentada como cancelamento definitivo", async () => {
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: COM_TAB })
+        : Promise.resolve({ data: DETALHE }));
+    await abrir();
+    const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
+    const susp = sec.getByText("Abrangidas por suspensão temporária").closest("button");
+    expect(within(susp).getByText(/suspensão volta; não é cancelamento definitivo/)).toBeTruthy();
+    // e a linha do cancelamento é outra, com valor próprio
+    const canc = sec.getByText("Abrangidas por cancelamento definitivo").closest("button");
+    expect(within(canc).getByText("R$ 99.160,73")).toBeTruthy();
+    expect(within(susp).getByText("R$ 136.432,66")).toBeTruthy();
+    expect(canc).not.toBe(susp);
+  });
+
+  it("declara que a tabulação não reduz o saldo e que o alcance é do aluno", async () => {
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: COM_TAB })
+        : Promise.resolve({ data: DETALHE }));
+    await abrir();
+    const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
+    expect(sec.getByText(/não reduzem o saldo residual nesta entrega/)).toBeTruthy();
+    expect(sec.getByText(/continuam contados nas faixas de origem/)).toBeTruthy();
+    expect(sec.getByText(/a tabulação é do/)).toBeTruthy();
+    expect(sec.getByText(/não há vínculo/i)).toBeTruthy();
+  });
+
+  // O PONTO CENTRAL: os indicadores financeiros nao podem se mexer.
+  it("os indicadores financeiros são idênticos com e sem tabulação", async () => {
+    const ler = () => ["Entradas", "Recuperado por rateio", "Convertido",
+                       "Em conferência", "Saldo residual da carteira"]
+      .map((t) => within(topo().getByText(t).closest("button")).getAllByText(/^R\$/)[0].textContent);
+    await abrir();
+    const sem = ler();
+    cleanup();
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: COM_TAB })
+        : Promise.resolve({ data: DETALHE }));
+    await abrir();
+    const com = ler();
+    expect(com).toEqual(sem);
+  });
+
+  it("cada marca abre o detalhe do próprio indicador", async () => {
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: COM_TAB })
+        : Promise.resolve({ data: DETALHE }));
+    await abrir();
+    const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
+    await act(async () => {
+      fireEvent.click(sec.getByTitle("Ver os títulos de Abrangidas por suspensão temporária"));
+    });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_2026_2_competencia_detalhe", {
+      p_competencia: null, p_indicador: "tab_suspensao", p_limite: 200, p_offset: 0,
+    });
   });
 
   it("sem competência nenhuma, avisa em vez de desenhar cards vazios", async () => {

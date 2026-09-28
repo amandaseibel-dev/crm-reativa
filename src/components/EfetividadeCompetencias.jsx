@@ -128,6 +128,52 @@ function composicaoDoSaldo(t) {
   ];
 }
 
+// ENCERRAMENTO DA COBRANÇA -- três marcas que NÃO se somam duas vezes.
+//
+// A tabulação (cancelamento definitivo, suspensão temporária) só existe no
+// payload depois da migration proposta em
+// supabase/propostas/PROPOSTA_cancelamento_e_suspensao_no_card.sql. Enquanto
+// ela não for aplicada, `temTabulacao` é falso e a tela se comporta como hoje:
+// mostra só o título com situação CANCELADA. Nada quebra, e nada aparece vazio
+// sugerindo que ninguém tem tabulação.
+const temTabulacao = (t) => t && "tab_cancelamento_titulos" in t;
+
+// ALCANCE DA TABULAÇÃO -- medido em 28/09/2026, e é uma ressalva, não detalhe:
+// a marca é do ALUNO, não do título. Não existe vínculo caso->título no banco
+// (nenhuma FK, nenhuma tabela de ligação) e `casos.semestre` está nulo nos 63
+// alunos afetados. Logo, nenhuma fonte consegue apontar UM título. O que a tela
+// mostra é ABRANGÊNCIA: títulos de alunos marcados, não títulos provadamente
+// cancelados. Por isso o rótulo diz "abrangidas por".
+function encerramentos(t) {
+  const linhas = [
+    { chave: "cancelado", rotulo: "Situação CANCELADA no título", indicador: "cancelado",
+      papel: "cancelado", titulos: Number(t?.cancelado_titulos || 0),
+      valor: Number(t?.cancelado_valor || 0),
+      apoio: "saiu da base; é o único que já não conta como cobrança" },
+  ];
+  if (temTabulacao(t)) {
+    linhas.push(
+      { chave: "tab_cancelamento", rotulo: "Abrangidas por cancelamento definitivo",
+        indicador: "tab_cancelamento", papel: "cancelado",
+        titulos: Number(t?.tab_cancelamento_titulos || 0),
+        valor: Number(t?.tab_cancelamento_valor || 0),
+        apoio: "tabulação do aluno; continuam no saldo residual" },
+      { chave: "tab_suspensao", rotulo: "Abrangidas por suspensão temporária",
+        indicador: "tab_suspensao", papel: "conferencia",
+        titulos: Number(t?.tab_suspensao_titulos || 0),
+        valor: Number(t?.tab_suspensao_valor || 0),
+        apoio: "suspensão volta; não é cancelamento definitivo" },
+    );
+  }
+  return linhas;
+}
+// Total SEM DUPLICIDADE: as três marcas são exclusivas entre si por construção
+// -- a precedência do banco garante um só rótulo por título, e o título com
+// situação CANCELADA não carrega tabulação. Medido em 28/09: sobreposição zero.
+const totalEncerramento = (t) =>
+  encerramentos(t).reduce((a, l) => ({ titulos: a.titulos + l.titulos, valor: a.valor + l.valor }),
+                          { titulos: 0, valor: 0 });
+
 function montarCards(t) {
   const entrada = Number(t?.valor_original || 0);
   return [
@@ -141,8 +187,14 @@ function montarCards(t) {
     {
       chave: "recuperado", indicador: "recuperado", papel: "recuperado",
       titulo: "Recuperado por rateio", valor: moedaCurta(t?.recuperado),
-      linhas: [conta(t?.titulos_com_pagamento, "mensalidade com pagamento", "mensalidades com pagamento"),
-               conta(t?.titulos_liquidados, "totalmente liquidado", "totalmente liquidados")],
+      // "pagamento identificado" e nao "paga": o pagamento foi identificado no
+      // ACORDO, nao conciliado titulo a titulo. E "pelo critério de rateio"
+      // porque o resultado vem da proporcao de parcelas pagas -- afirmar
+      // pagamento integral individual seria dizer mais do que se sabe.
+      linhas: [conta(t?.titulos_com_pagamento, "mensalidade com pagamento identificado",
+                     "mensalidades com pagamento identificado"),
+               conta(t?.titulos_liquidados, "integralmente recuperada pelo critério de rateio",
+                     "integralmente recuperadas pelo critério de rateio")],
       nota: pct(t?.recuperado, entrada) + " do valor original que entrou",
       aviso: "principal proporcional às parcelas pagas do acordo — não é caixa recebido",
     },
@@ -163,12 +215,21 @@ function montarCards(t) {
     },
     {
       chave: "cancelado", indicador: "cancelado", papel: "cancelado",
-      titulo: "Cancelados", valor: moedaCurta(t?.cancelado_valor),
-      linhas: [conta(t?.cancelado_titulos, "mensalidade com a cobrança cancelada",
-                     "mensalidades com a cobrança cancelada"),
-               conta(t?.acordos_cancelados, "acordo cancelado", "acordos cancelados")
-                 + " (conceito separado)"],
+      titulo: temTabulacao(t) ? "Cancelados e suspensos" : "Cancelados",
+      valor: moedaCurta(temTabulacao(t) ? totalEncerramento(t).valor : t?.cancelado_valor),
+      linhas: temTabulacao(t)
+        ? [conta(totalEncerramento(t).titulos, "mensalidade", "mensalidades") + ", sem duplicidade",
+           conta(t?.acordos_cancelados, "acordo cancelado", "acordos cancelados")
+             + " (conceito separado)"]
+        : [conta(t?.cancelado_titulos, "mensalidade com a cobrança cancelada",
+                 "mensalidades com a cobrança cancelada"),
+           conta(t?.acordos_cancelados, "acordo cancelado", "acordos cancelados")
+             + " (conceito separado)"],
       nota: "cobrança cancelada sai da base; acordo cancelado não",
+      aviso: temTabulacao(t)
+        ? "as tabulações NÃO reduzem o saldo residual nesta entrega — os títulos "
+          + "delas seguem contados nas demais faixas"
+        : undefined,
     },
     {
       chave: "saldo", indicador: "saldo", papel: "saldo",
@@ -189,9 +250,11 @@ const VALOR_DO_CARD = {
   entradas: "valor_original", recuperado: "recuperado", convertido: "convertido_valor",
   conferencia: "conferencia_valor", cancelado: "cancelado_valor", saldo: "saldo_valor",
 };
+// So as chaves que o card do mes REALMENTE desenha: ele renderiza
+// cards.slice(2), entao `entradas` e `recuperado` nunca chegariam aqui --
+// tinham entradas neste mapa que eram codigo morto, e quem fosse ajustar o
+// rotulo por elas nao veria efeito nenhum na tela.
 const APOIO_DO_CARD = {
-  entradas: (b) => conta(b.titulos, "mensalidade", "mensalidades"),
-  recuperado: (b) => conta(b.titulos_com_pagamento, "com pagamento", "com pagamento"),
   convertido: (b) => conta(b.convertido_titulos, "mensalidade", "mensalidades"),
   conferencia: (b) => conta(b.conferencia_titulos, "mensalidade", "mensalidades"),
   cancelado: (b) => conta(b.cancelado_titulos, "mensalidade", "mensalidades") + " · "
@@ -354,10 +417,10 @@ export default function EfetividadeCompetencias() {
       {/* Motivo do cancelamento da cobrança — separado do acordo cancelado. */}
       <section style={S.cartao}>
         <div style={S.cartaoCabecalho}>
-          <h2 style={S.h2}>Cancelados por motivo</h2>
+          <h2 style={S.h2}>{temTabulacao(topo) ? "Cancelamentos e suspensões" : "Cancelados por motivo"}</h2>
           <span style={S.cartaoApoio}>cobrança cancelada · {conta(dados.total?.cancelado_titulos, "título", "títulos")}</span>
         </div>
-        {(dados.cancelados_por_motivo || []).length ? (
+        {temTabulacao(topo) ? null : (dados.cancelados_por_motivo || []).length ? (
           <div>
             {dados.cancelados_por_motivo.map((m) => (
               <div key={m.motivo} style={S.linhaMotivo}>
@@ -372,6 +435,60 @@ export default function EfetividadeCompetencias() {
         ) : (
           <p style={S.discreto}>Nenhum título de 2026/2 com a cobrança cancelada.</p>
         )}
+        {temTabulacao(topo) ? (
+          <div style={{ marginTop: 4 }}>
+            {encerramentos(topo).map((l) => (
+              <button key={l.chave} type="button" style={S.linhaSaldo}
+                      onClick={() => abrirDetalhe(
+                        { titulo: l.rotulo, indicador: l.indicador, papel: l.papel }, null)}
+                      title={"Ver os títulos de " + l.rotulo}>
+                <span style={S.linhaTopoSaldo}>
+                  <span style={S.linhaRotulo}>
+                    <span style={{ ...S.ponto, background: COR[l.papel] }} />{l.rotulo}
+                  </span>
+                  <span style={S.linhaApoio}>{conta(l.titulos, "mensalidade", "mensalidades")}</span>
+                  <strong style={S.linhaValor}>{moeda(l.valor)}</strong>
+                </span>
+                <span style={S.linhaApoio}>{l.apoio}</span>
+              </button>
+            ))}
+            <p style={S.discreto}>
+              <strong>Total sem duplicidade: {conta(totalEncerramento(topo).titulos, "mensalidade", "mensalidades")}
+              {" · "}{moeda(totalEncerramento(topo).valor)}.</strong> As três marcas são exclusivas entre si —
+              cancelamento definitivo tem precedência sobre suspensão, e o título com situação CANCELADA não
+              carrega tabulação —, então nenhuma mensalidade é contada duas vezes aqui.
+            </p>
+            <p style={S.discreto}>
+              <strong>Estas tabulações não reduzem o saldo residual nesta entrega.</strong> Os títulos abrangidos
+              por elas continuam contados nas faixas de origem — sem negociação, em conferência ou convertido —,
+              e os pagamentos já identificados seguem preservados. A sobreposição é intencional e está declarada
+              aqui para que os dois números possam ser lidos juntos sem se somarem.
+            </p>
+            <p style={S.discreto}>
+              <strong>Alcance:</strong> a tabulação é do <strong>aluno</strong>, não do título. Não há vínculo
+              entre caso e título no banco, então nenhuma fonte aponta uma mensalidade específica. O que se mostra
+              é abrangência — mensalidades de alunos marcados —, não prova de cancelamento título a título.
+              Suspensão é temporária e volta; cancelamento definitivo não.
+            </p>
+            {/* Os motivos detalham a PRIMEIRA linha, não são um quarto grupo:
+                sem este rótulo o mesmo valor aparece duas vezes e se lê como
+                se houvesse mais uma marca. */}
+            {(dados.cancelados_por_motivo || []).length ? (
+              <div style={{ marginTop: 6 }}>
+                <span style={S.navRotulo}>Motivo da situação CANCELADA, detalhe da primeira linha</span>
+                {dados.cancelados_por_motivo.map((m) => (
+                  <div key={m.motivo} style={S.linhaMotivo}>
+                    <span style={S.linhaRotulo}>
+                      <span style={{ ...S.ponto, background: COR.cancelado }} />{m.motivo}
+                    </span>
+                    <span style={S.linhaApoio}>{conta(m.titulos, "título", "títulos")}</span>
+                    <strong style={S.linhaValor}>{moeda(m.valor)}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <p style={S.discreto}>
           {conta(dados.total?.acordos_cancelados, "acordo cancelado", "acordos cancelados")} neste semestre
           ({moeda(dados.total?.acordos_cancelados_valor)} de valor original de títulos ligados a eles). Acordo
