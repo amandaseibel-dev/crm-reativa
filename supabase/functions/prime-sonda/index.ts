@@ -14,8 +14,12 @@
 // concreto quando a estrutura ja e conhecida.
 //
 // A chave da Ulbra da acesso a CPF e dados financeiros de ~400 mil pessoas:
-// vive so no Vault, nunca no navegador, nunca no repositorio. O acesso a esta
-// funcao exige o token de rotina OU uma sessao de gestao (ver portao abaixo).
+// vive so no Vault, nunca no navegador, nunca no repositorio.
+//
+// ACESSO: o gateway exige JWT valido (`verify_jwt = true`, em
+// supabase/config.toml) e, ALEM DISSO, o portao desta funcao exige o token de
+// rotina OU uma sessao de gestao. Nenhuma das duas portas dispensa o gateway --
+// nem a da rotina.
 //
 // VERSIONADA em 2026-09-22 a partir de produção (versão 4) -- existia só em
 // produção até esta data. É o instrumento recomendado para qualquer sondagem
@@ -50,46 +54,40 @@ function forma(v: unknown, prof = 0): unknown {
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
 
-  // PORTAO DE ACESSO -- duas portas, as mesmas duas que `prime-cadastro` ja
-  // usa. Nada aqui afrouxa o que existia: a porta da rotina continua igual, e a
-  // porta nova exige sessao de gestao validada NO SERVIDOR, pelo banco.
+  // PORTAO DE ACESSO -- duas portas.
   //
-  // POR QUE PRECISOU MUDAR. A sonda e o instrumento oficial para confirmar um
-  // endpoint novo (README de docs/integracoes). So que ela aceitava unicamente
-  // o token da rotina -- e o token vive no Vault. Na pratica, toda sondagem
-  // exigia alguem tirando segredo do Vault e colando numa tela ou num chat,
-  // que e exatamente o que o desenho tenta evitar.
+  // ANTES DAS DUAS, O GATEWAY. Esta funcao roda com `verify_jwt = true`
+  // (registrado em supabase/config.toml): o gateway do Supabase exige um JWT
+  // valido no header `Authorization` antes de executar uma linha daqui. Vale
+  // inclusive para a rotina -- so `x-rotina-token`, sem `Authorization`, e
+  // recusado pelo gateway com 401 e NAO chega neste codigo. O token de rotina e
+  // a segunda tranca, nunca a unica.
+  //
+  //  1. ROTINA -- `x-rotina-token` conferido contra o segredo de AMBIENTE, como
+  //     sempre foi. Esta entrega nao troca essa validacao pela do Vault (opcao
+  //     da gestao em 28/09): trocar quem valida E contra o que se valida na
+  //     mesma alteracao e mudanca demais para um PR que destrava uma sondagem.
+  //
+  //  2. GESTAO -- novidade desta alteracao. Sessao da pessoa, validada NO
+  //     SERVIDOR por `usuario_e_gestao`, a mesma funcao que as politicas de RLS
+  //     usam. Existe porque a sonda e o instrumento oficial para confirmar um
+  //     endpoint novo (README de docs/integracoes), e ate aqui toda sondagem
+  //     exigia alguem copiando o segredo da rotina para uma tela ou um chat.
   //
   // E FECHA UM FALHA-ABERTO. O portao antigo era:
   //     if (esperado && recebido !== esperado) { 401 }
-  // Repare no `esperado &&`. Com o secret AUSENTE do ambiente, `esperado` e
+  // Repare no `esperado &&`. Com o segredo AUSENTE do ambiente, `esperado` e
   // string vazia, a condicao inteira e falsa, e a funcao seguia adiante sem
-  // exigir token nenhum. Em producao o estrago era contido pelo
-  // `verify_jwt: true` do gateway (confirmado na versao 4 implantada), que
-  // barra quem nao tem sessao -- mas QUALQUER usuario logado, operador comum
-  // inclusive, atravessava e ficava com a chave da Ulbra trabalhando para ele.
-  // Agora a ausencia do secret FECHA a porta da rotina, em vez de abrir todas.
-  const supa = createClient(
-    Deno.env.get("SUPABASE_URL")!,
-    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
-  );
-
-  // A decisao vive em ./portao.ts, testada em portao.test.js. Aqui so entram as
-  // duas verificacoes REAIS -- ambas resolvidas pelo banco, nunca por
-  // comparacao local de string.
+  // exigir token nenhum. O `verify_jwt: true` continha o estrago para quem nao
+  // tem sessao -- mas qualquer usuario logado, operador comum inclusive,
+  // atravessava e ficava com a chave da Ulbra trabalhando para ele. Agora
+  // segredo ausente FECHA a porta da rotina, em vez de abrir todas.
   const decisao = await decidirAcesso({
     tokenRecebido: req.headers.get("x-rotina-token") ?? "",
+    segredoRotina: Deno.env.get("ROTINA_TOKEN") ?? Deno.env.get("PRIME_CADASTRO_TOKEN") ?? "",
     autorizacao: req.headers.get("Authorization") ?? "",
-    // Mesma RPC que `prime-cadastro` usa: a comparacao acontece dentro do
-    // banco, com digest (nao vaza o segredo pelo tempo de resposta), e o
-    // segredo continua vivendo num lugar so -- o Vault. Erro na RPC devolve
-    // false: falha de verificacao nunca vira autorizacao.
-    validarToken: async (t) => {
-      const { data, error } = await supa.rpc("prime_cadastro_token_valido", { p_token: t });
-      return !error && data === true;
-    },
-    // Quem decide e o banco, pela mesma funcao que as politicas de RLS usam.
-    // Sessao invalida ou expirada faz a RPC devolver erro -> false -> 403.
+    // Quem decide e o banco. Sessao invalida ou expirada faz a RPC devolver
+    // erro -> false -> 403. Falha de verificacao nunca vira autorizacao.
     validarGestao: async (auth) => {
       const supaChamador = createClient(
         Deno.env.get("SUPABASE_URL")!,
