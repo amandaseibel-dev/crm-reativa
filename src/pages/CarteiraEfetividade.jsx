@@ -159,7 +159,23 @@ export default function CarteiraEfetividade() {
     const t = vigente.total || {};
     referencia = Number(t.negociado || 0);
     indicadores = [
-      { rotulo: "Valor negociado", valor: moedaCurta(t.negociado), apoio: num(t.titulos) + " títulos negociados", cor: AZUL },
+      // "268 títulos negociados" era verdade e ainda assim confundia: a outra
+      // visão da MESMA tela conta 2.522 mensalidades, e ninguém sabia que uma é
+      // recorte da outra. Medido em 29/09: as duas consultas usam o MESMO
+      // recorte de 2026/2 -- mesma série do Prime, mesmo fallback por
+      // vencimento, mesmas exclusões -- e diferem numa linha só, o INNER JOIN
+      // em acordo aqui. O Consolidado é subconjunto perfeito: zero títulos só
+      // nele. Declarar a base resolve a leitura sem tocar em conta nenhuma.
+      //
+      // Os dois números vêm das consultas, nunca escritos à mão: se a carteira
+      // crescer, o texto acompanha. Sem o contexto carregado, some a segunda
+      // metade em vez de mostrar "de 0".
+      { rotulo: "Valor negociado", valor: moedaCurta(t.negociado),
+        apoio: "Mensalidades com acordo: " + num(t.titulos)
+             + (Number(contexto?.carteira_titulos) > 0
+                  ? " de " + num(contexto.carteira_titulos) + " da carteira"
+                  : ""),
+        cor: AZUL },
       { rotulo: "Valor recebido", valor: moedaCurta(t.recebido), apoio: pctTexto(t.recebido, t.negociado, 1) + " do negociado", cor: VERDE },
       { rotulo: "Alunos negociados", valor: num(t.cpfs) + " alunos", apoio: num(t.acordos) + " acordos", cor: "var(--rv-tinta)" },
       { rotulo: "Saldo negociado", valor: moedaCurta(t.saldo), apoio: "ainda a receber", cor: AMBAR },
