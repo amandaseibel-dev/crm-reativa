@@ -153,6 +153,44 @@ const PUBLICO_FORA = [{
   vencimento: dia(2), saldo_informado: 780, valor_fonte: 380, incluido: false, motivo: "SEM_CELULAR_VALIDO",
 }];
 
+const REMESSAS = [
+  {
+    id: "l-2", carteira_id: CARTEIRA.id, nome: "Remessa 08/10", arquivo: "relatorio_inadimplencia.csv",
+    importada_em: new Date(Date.now() - 864e5).toISOString(), importada_por: "amanda.seibel@aelbra.com.br",
+    alunos: 5, titulos: 6, valor: 3780.5,
+    whatsapp_disponivel: 4, email_disponivel: 3, para_revisao: 2,
+    recusas: 3, recusas_por_motivo: { DUPLICADA_NO_ARQUIVO: 2, SEM_NOME: 1 },
+    acoes: [{ id: "a-1", nome: "Lembrete D-3 outubro", canal: "WHATSAPP", estado: "ENVIO_CONFIRMADO" }],
+    comparacao: {
+      primeira_remessa: false,
+      continua_em_aberto: { titulos: 4, valor: 2580.5 },
+      regularizados_entre_remessas: { titulos: 2, valor: 1199.96 },
+      novos_na_remessa: { titulos: 2, valor: 1200 },
+    },
+  },
+  {
+    id: "l-1", carteira_id: CARTEIRA.id, nome: "Remessa 01/10", arquivo: "relatorio_inadimplencia.csv",
+    importada_em: new Date(Date.now() - 864e5 * 8).toISOString(), importada_por: "amanda.seibel@aelbra.com.br",
+    alunos: 5, titulos: 6, valor: 3600.0,
+    whatsapp_disponivel: 4, email_disponivel: 3, para_revisao: 2,
+    recusas: 0, recusas_por_motivo: {}, acoes: [],
+    comparacao: { primeira_remessa: true },
+  },
+];
+
+const RESULTADO_ACAO = {
+  "a-1": {
+    acao: "a-1", remessa: "l-1", remessa_seguinte: "l-2",
+    alunos_acionados: 3, titulos_acionados: 3, valor_acionado: 1800.41,
+    continuam_em_aberto: 2, regularizados_entre_remessas: 1,
+    valor_regularizado: 620.41, taxa_regularizacao: 33.3,
+    aguardando_proxima_remessa: false,
+    definicao: "Regularizado entre remessas = o título acionado não voltou no relatório de inadimplência seguinte. NÃO é pagamento confirmado.",
+  },
+  "a-2": { acao: "a-2", remessa: "l-2", remessa_seguinte: null,
+           titulos_acionados: 4, valor_acionado: 2580.5, aguardando_proxima_remessa: true },
+};
+
 const LOTES = [
   { id: "l-1", nome: "Remessa 01/10", arquivo: "titulos-outubro.xlsx", status: "CONFIRMADO",
     criado_em: new Date(Date.now() - 864e5 * 3).toISOString(), criado_por: "amanda.seibel@aelbra.com.br",
@@ -177,6 +215,10 @@ const RESPOSTAS = {
   preventivo_resultados: () => RESULTADOS,
   preventivo_acoes: () => ACOES,
   preventivo_lotes: () => LOTES,
+  preventivo_remessas: () => REMESSAS,
+  preventivo_remessa_resumo: (a) => REMESSAS.find((r) => r.id === a?.p_lote_id) || REMESSAS[0],
+  preventivo_remessa_comparar: (a) => (REMESSAS.find((r) => r.id === a?.p_lote_id) || REMESSAS[0]).comparacao,
+  preventivo_acao_resultado: (a) => RESULTADO_ACAO[a?.p_acao_id] || RESULTADO_ACAO["a-2"],
   preventivo_acao_publico: (a) => (a?.p_incluidos === false ? PUBLICO_FORA : PUBLICO_DENTRO),
   preventivo_acao_resumo: () => ACOES[0],
   preventivo_carteira_criar: () => CARTEIRA.id,
@@ -191,7 +233,7 @@ const RESPOSTAS = {
     recusas_por_motivo: { SEM_MATRICULA: 2, VENCIMENTO_INVALIDO: 1, FORA_DO_PERIODO: 4, DUPLICADA_NO_ARQUIVO: 1 },
     exemplos_recusa: [{ linha: 7, motivo: "SEM_MATRICULA" }, { linha: 19, motivo: "FORA_DO_PERIODO" }],
   }),
-  preventivo_lote_confirmar: () => ({ lote_id: "l-3", linhas_lidas: 128, linhas_aceitas: 120, linhas_recusadas: 8 }),
+  preventivo_lote_confirmar: () => ({ lote_id: "l-2", linhas_lidas: 128, linhas_aceitas: 120, linhas_recusadas: 8 }),
 };
 
 export const supabase = {

@@ -1,7 +1,13 @@
-// Aba Importações do Preventivo.
+// Aba Remessas do Preventivo.
 //
-// Fluxo, na ordem: escolher arquivo → nomear o lote → conferir o mapeamento
-// das colunas → PRÉVIA → confirmar → resumo.
+// A REMESSA É A UNIDADE DE TRABALHO. Cada ação preventiva começa com um
+// arquivo novo, importado na hora — a remessa anterior nunca vira carteira
+// ativa sozinha. Por isso esta aba não termina na importação: ela termina no
+// RESUMO DA REMESSA, com os três botões que continuam o trabalho
+// (Atualizar dados · Gerar WhatsApp · Gerar E-mail).
+//
+// Fluxo, na ordem: escolher arquivo → nomear a remessa → conferir o mapeamento
+// das colunas → PRÉVIA → confirmar → resumo da remessa.
 //
 // A prévia e a confirmação mandam as MESMAS linhas para o banco, e lá rodam a
 // mesma função de validação — a prévia não pode prometer um resultado que a
@@ -32,7 +38,7 @@ const MOTIVOS = {
   DOCUMENTO_EM_OUTRA_MATRICULA: "o mesmo título já está em outra matrícula nesta carteira",
 };
 
-export default function AbaImportacoes({ carteira, aoImportar }) {
+export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
   // o estado já nasce certo quando a biblioteca veio de outra tela — evita
   // um setState síncrono dentro do efeito só para descobrir isso.
   const [libOk, setLibOk] = useState(() => typeof window !== "undefined" && !!window.XLSX);
@@ -44,7 +50,10 @@ export default function AbaImportacoes({ carteira, aoImportar }) {
   const [nomeLote, setNomeLote] = useState("");
   const [previa, setPrevia] = useState(null);
   const [ocupado, setOcupado] = useState("");
-  const [lotes, setLotes] = useState([]);
+  const [remessas, setRemessas] = useState([]);
+  const [remessaNova, setRemessaNova] = useState(null);
+  const [atualizando, setAtualizando] = useState(false);
+  const [situacao, setSituacao] = useState(null);
 
   useEffect(() => {
     if (window.XLSX) return;
@@ -56,8 +65,16 @@ export default function AbaImportacoes({ carteira, aoImportar }) {
   }, []);
 
   useEffect(() => {
-    supabase.rpc("preventivo_lotes", { p_carteira_id: carteira.id })
-      .then(({ data }) => setLotes(data || []));
+    let vivo = true;
+    Promise.all([
+      supabase.rpc("preventivo_remessas", { p_carteira_id: carteira.id }),
+      supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
+    ]).then(([r, s2]) => {
+      if (!vivo) return;
+      setRemessas(r.data || []);
+      if (!s2.error) setSituacao(s2.data);
+    });
+    return () => { vivo = false; };
   }, [carteira.id, previa]);
 
   const faltando = useMemo(() => camposObrigatoriosFaltando(mapa), [mapa]);
@@ -118,6 +135,36 @@ export default function AbaImportacoes({ carteira, aoImportar }) {
     if (error) { setErro(error.message); return; }
     setPrevia({ ...data, confirmado: true });
     aoImportar?.();
+    if (data?.lote_id) {
+      const { data: r } = await supabase.rpc("preventivo_remessa_resumo", { p_lote_id: data.lote_id });
+      setRemessaNova(r);
+    }
+  }
+
+  // ATUALIZAR DADOS. Só quando a gestão pede — não existe cron, por decisão.
+  // Não chama nada de pagamento: consulta o Prime e registra alteração de
+  // valor na fonte.
+  async function atualizarDados() {
+    setErro(""); setAtualizando(true);
+    try {
+      let sincId = null;
+      for (let volta = 0; volta < 40; volta++) {
+        const { data, error } = await supabase.functions.invoke("prev-sincronizar", {
+          body: sincId ? { sinc_id: sincId } : { carteira_id: carteira.id, origem: "manual" },
+        });
+        if (error) throw error;
+        sincId = data?.sinc_id;
+        if (data?.concluido) break;
+      }
+    } catch (e) {
+      setErro("Não consegui concluir a atualização com o Prime agora. Os valores anteriores continuam válidos. " + (e?.message || ""));
+    }
+    setAtualizando(false);
+    const [{ data: s2 }, { data: r }] = await Promise.all([
+      supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
+      supabase.rpc("preventivo_remessas", { p_carteira_id: carteira.id }),
+    ]);
+    setSituacao(s2); setRemessas(r || []);
   }
 
   return (
@@ -253,30 +300,91 @@ export default function AbaImportacoes({ carteira, aoImportar }) {
         </div>
       )}
 
+      {remessaNova && <ResumoDaRemessa remessa={remessaNova} situacao={situacao}
+                                        atualizando={atualizando}
+                                        onAtualizar={atualizarDados} onIr={onIr} />}
+
       <div style={{ ...S.card, padding: 20 }}>
-        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Lotes desta carteira</h2>
-        {lotes.length === 0 ? (
-          <p style={{ ...S.muted, marginTop: 8 }}>Nenhum lote importado ainda.</p>
+        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Histórico de remessas</h2>
+        <p style={{ ...S.muted, marginTop: 6 }}>
+          Cada remessa é comparada com a anterior pela chave{" "}
+          <strong>matrícula + vencimento atual + vencimento de origem</strong>.
+        </p>
+        {remessas.length === 0 ? (
+          <p style={{ ...S.muted, marginTop: 8 }}>Nenhuma remessa importada ainda.</p>
         ) : (
           <table style={{ ...S.tabela, marginTop: 12 }}>
             <thead><tr>
-              <th style={S.th}>Lote</th><th style={S.th}>Arquivo</th><th style={S.th}>Importado em</th>
-              <th style={S.thNum}>Títulos</th><th style={S.thNum}>Recusas</th>
+              <th style={S.th}>Remessa</th><th style={S.th}>Importada em</th><th style={S.th}>Por</th>
+              <th style={S.thNum}>Alunos</th><th style={S.thNum}>Títulos</th><th style={S.thNum}>Valor</th>
+              <th style={S.thNum}>Continuam</th><th style={S.thNum}>Regularizados</th>
+              <th style={S.thNum}>Novos</th><th style={S.thNum}>Ações</th>
             </tr></thead>
             <tbody>
-              {lotes.map((l) => (
-                <tr key={l.id}>
-                  <td style={S.td}>{l.nome}</td>
-                  <td style={S.td}>{l.arquivo || "—"}</td>
-                  <td style={S.td}>{dataHora(l.criado_em)}</td>
-                  <td style={S.tdNum}>{l.titulos}</td>
-                  <td style={S.tdNum}>{l.recusas}</td>
+              {remessas.map((r) => (
+                <tr key={r.id}>
+                  <td style={S.td}>{r.nome}</td>
+                  <td style={S.td}>{dataHora(r.importada_em)}</td>
+                  <td style={S.td}>{r.importada_por}</td>
+                  <td style={S.tdNum}>{r.alunos}</td>
+                  <td style={S.tdNum}>{r.titulos}</td>
+                  <td style={S.tdNum}>{moeda(r.valor)}</td>
+                  <td style={S.tdNum}>{r.comparacao?.primeira_remessa ? "—" : r.comparacao?.continua_em_aberto?.titulos}</td>
+                  <td style={S.tdNum}>{r.comparacao?.primeira_remessa ? "—" : r.comparacao?.regularizados_entre_remessas?.titulos}</td>
+                  <td style={S.tdNum}>{r.comparacao?.primeira_remessa ? "—" : r.comparacao?.novos_na_remessa?.titulos}</td>
+                  <td style={S.tdNum}>{r.acoes?.length || 0}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         )}
+        <p style={{ ...S.muted, marginTop: 10, fontSize: 12 }}>
+          <strong>Regularizados entre remessas</strong> = título que estava na remessa
+          anterior e deixou de aparecer no relatório seguinte. <strong>Não é pagamento
+          confirmado</strong>: pode ser pagamento, cancelamento, renegociação, bolsa ou
+          mudança do recorte do relatório — a fonte não distingue.
+        </p>
       </div>
+    </div>
+  );
+}
+
+// O RESUMO DA REMESSA. É onde o trabalho continua depois de importar.
+function ResumoDaRemessa({ remessa, situacao, atualizando, onAtualizar, onIr }) {
+  const completa = situacao?.ultima_completa;
+  return (
+    <div style={{ ...S.card, padding: 20, borderLeft: "4px solid var(--rv-azul)" }}>
+      <h2 style={{ ...S.cardNome, fontSize: 17, margin: 0 }}>Remessa {remessa.nome}</h2>
+      <p style={{ ...S.muted, marginTop: 4 }}>
+        Importada em {dataHora(remessa.importada_em)} por {remessa.importada_por}.
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(190px, 1fr))", gap: 12, marginTop: 14 }}>
+        <Numero rotulo="Alunos" valor={remessa.alunos} />
+        <Numero rotulo="Títulos" valor={remessa.titulos} />
+        <Numero rotulo="Valor da remessa" valor={moeda(remessa.valor)} />
+        <Numero rotulo="WhatsApp disponível" valor={remessa.whatsapp_disponivel} />
+        <Numero rotulo="E-mail disponível" valor={remessa.email_disponivel} />
+        <Numero rotulo="Registros para revisão" valor={remessa.para_revisao} />
+      </div>
+
+      <div style={{ ...S.barra, marginTop: 18 }}>
+        <button style={S.btnGhost} disabled={atualizando} onClick={onAtualizar}>
+          {atualizando ? "Consultando o Prime…" : "Atualizar dados"}
+        </button>
+        <button style={S.btnGhost} onClick={() => onIr?.("acoes")}>Gerar WhatsApp</button>
+        <button style={S.btnGhost} onClick={() => onIr?.("acoes")}>Gerar E-mail</button>
+      </div>
+
+      <p style={{ ...S.muted, marginTop: 12, fontSize: 12.5 }}>
+        {completa
+          ? `Última atualização com o Prime: ${dataHora(completa.concluido_em)} — ${completa.consultados} de ${completa.alvos} alunos consultados.`
+          : "Esta carteira ainda não foi atualizada com o Prime."}
+        {situacao?.titulos_nunca_sincronizados > 0
+          ? ` ${situacao.titulos_nunca_sincronizados} título(s) ainda não foram localizados no Prime.`
+          : ""}
+        {" "}A atualização é manual, por decisão: não existe rotina automática.
+      </p>
     </div>
   );
 }

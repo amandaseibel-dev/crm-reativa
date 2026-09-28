@@ -13,9 +13,20 @@ a pagar a mensalidade no WebAluno antes de ela virar dívida.
 
 ## 1. O que o Preventivo faz e o que ele não faz
 
+> **Fluxo operacional (definido pela gestão em 28/09/2026).** Até 3 ações por
+> mês. **Cada ação começa com uma remessa nova**, importada na hora — a remessa
+> anterior nunca vira carteira ativa sozinha. A atualização com o Prime é
+> **manual**, no botão, quando você pedir: não existe cron.
+>
+> A remessa seguinte é o que diz o que aconteceu com quem foi acionado. Um
+> título que estava na remessa anterior e não aparece na seguinte é
+> **REGULARIZADO ENTRE REMESSAS** — nunca pagamento confirmado.
+
 | Faz | Não faz |
 |---|---|
 | Importa a carteira **que você escolher**, do arquivo que você importar | Não monta carteira sozinho, nem por portador, nem por varredura |
+| Trata cada **remessa** como a unidade de trabalho | Não reaproveita a remessa anterior como carteira ativa |
+| Compara a remessa nova com a anterior | Não chama "sumiu do relatório" de pagamento |
 | Consulta o Prime para ver o que mudou em cada título | Não afirma que alguém pagou — a fonte não permite |
 | Separa públicos para o CRM de mensageria (WhatsApp e e-mail) | Não envia mensagem: quem envia é a mensageria |
 | Tira das ações novas quem passou de 31 dias de atraso | Não transfere título para a cobrança |
@@ -167,6 +178,35 @@ falha, os valores anteriores ficam de pé e o aviso diz isso.
 
 **Leia a seção 3 antes de interpretar os números.**
 
+### d.1) O resumo da remessa
+
+Terminada a importação, a aba **Remessas** mostra o resumo daquela remessa —
+alunos, títulos, valor, WhatsApp disponível, e-mail disponível, registros para
+revisão, data e quem importou — com três botões: **Atualizar dados**,
+**Gerar WhatsApp** e **Gerar E-mail**.
+
+O histórico logo abaixo lista todas as remessas da carteira, da mais nova para
+a mais velha, já com a comparação: **continuam em aberto**, **regularizados
+entre remessas** e **novos na remessa**.
+
+### d.2) Comparação entre remessas
+
+A chave é a validada em 28/09: **matrícula + Dt Vcto + Vcto Origem**. Cada
+título da remessa anterior cai num de três baldes:
+
+| Classificação | O que quer dizer |
+|---|---|
+| `CONTINUA_EM_ABERTO` | estava na anterior e está na nova |
+| `REGULARIZADO_ENTRE_REMESSAS` | estava na anterior e **não** está na nova |
+| `NOVO_NA_REMESSA` | não estava na anterior |
+
+> **`REGULARIZADO ENTRE REMESSAS` não é pagamento confirmado.** A definição é
+> literal: *título que estava na remessa anterior e deixou de aparecer no
+> relatório de inadimplência seguinte*. Pode ser pagamento, mas também
+> cancelamento, renegociação, bolsa ou mudança do recorte do relatório. A fonte
+> não distingue, e o sistema não finge que distingue — há teste que reprova se
+> a palavra "pago" ou "recebido" aparecer nessa classificação.
+
 ### e) Exportar e registrar o envio
 
 `Preventivo → Ações`: nomear → canal → **revisar elegibilidade** → **exportar**
@@ -178,6 +218,24 @@ DDD + celular, só dígitos.
 **Exportar não é enviar.** `Preparada → Exportada → Envio confirmado` é ordem
 obrigatória, e nada nesta frente dispara mensagem — nem em produção, nem em
 teste.
+
+A ação nasce **da remessa**: fica gravado de qual remessa saiu, a data, o canal,
+exatamente quais alunos e títulos entraram e quem ficou de fora, com o motivo.
+
+### f) O resultado da ação
+
+Aparece quando a **próxima remessa** for importada — é ela que diz quem saiu do
+relatório. Antes disso a tela diz que está esperando, em vez de mostrar zero
+como se fosse resultado.
+
+| Campo | Como é calculado |
+|---|---|
+| Alunos / títulos acionados | destinatários incluídos na ação |
+| Valor acionado | saldo do título **na remessa em que ele foi acionado** |
+| Continuam em aberto | acionados que voltaram na remessa seguinte |
+| Regularizados entre remessas | acionados que **não** voltaram |
+| Valor regularizado | saldo desses títulos **na remessa em que foram acionados** |
+| Taxa de regularização | regularizados ÷ títulos acionados |
 
 ---
 

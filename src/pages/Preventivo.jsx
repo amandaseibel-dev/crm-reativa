@@ -24,7 +24,7 @@ import { moeda, dataCurta } from "../utils/preventivoFormato";
 
 const ABAS = [
   { id: "carteira", rotulo: "Carteira" },
-  { id: "importacoes", rotulo: "Importações" },
+  { id: "importacoes", rotulo: "Remessas" },
   { id: "acoes", rotulo: "Ações" },
   { id: "resultados", rotulo: "Resultados" },
 ];
@@ -98,7 +98,8 @@ export default function Preventivo() {
           <h1 style={S.titulo}>Preventivo</h1>
           <p style={S.sub}>
             Mensalidade antes de virar dívida. Orientação de pagamento pelo WebAluno,
-            sem honorário e sem negociação. Nada aqui altera a cobrança.
+            sem honorário e sem negociação. Cada ação começa com uma remessa nova;
+            a atualização com o Prime é manual. Nada aqui altera a cobrança.
           </p>
         </div>
       </div>
@@ -158,7 +159,7 @@ export default function Preventivo() {
           {carteira ? (
             <>
               {aba === "carteira" && <AbaCarteira carteira={carteira} onIr={irPara} />}
-              {aba === "importacoes" && <AbaImportacoes carteira={carteira} aoImportar={carregar} />}
+              {aba === "importacoes" && <AbaImportacoes carteira={carteira} aoImportar={carregar} onIr={irPara} />}
               {aba === "acoes" && <AbaAcoes carteira={carteira} />}
               {aba === "resultados" && <AbaResultados carteira={carteira} />}
             </>

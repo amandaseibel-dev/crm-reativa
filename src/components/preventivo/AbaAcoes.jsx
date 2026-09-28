@@ -56,10 +56,18 @@ export default function AbaAcoes({ carteira }) {
   const [ocupado, setOcupado] = useState("");
   const [aberta, setAberta] = useState(null);
 
-  const buscar = useCallback(() => Promise.all([
-    supabase.rpc("preventivo_acoes", { p_carteira_id: carteira.id }),
-    supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
-  ]), [carteira.id]);
+  const buscar = useCallback(async () => {
+    const [a, s] = await Promise.all([
+      supabase.rpc("preventivo_acoes", { p_carteira_id: carteira.id }),
+      supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
+    ]);
+    // O resultado de cada ação depende da remessa SEGUINTE, então vem por ação.
+    const comResultado = await Promise.all((a.data || []).map(async (x) => {
+      const { data } = await supabase.rpc("preventivo_acao_resultado", { p_acao_id: x.id });
+      return { ...x, resultado: data };
+    }));
+    return [{ ...a, data: comResultado }, s];
+  }, [carteira.id]);
 
   const aplicar = useCallback(([a, s]) => {
     if (a.error) { setErro(a.error.message); setAcoes([]); } else { setErro(""); setAcoes(a.data || []); }
@@ -125,7 +133,8 @@ export default function AbaAcoes({ carteira }) {
       <div style={{ ...S.card, padding: 20 }}>
         <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Montar um público</h2>
         <p style={{ ...S.muted, marginTop: 6, maxWidth: 820 }}>
-          O público sai da carteira que você importou — nada é acrescentado de fora dela.
+          O público sai da <strong>última remessa importada</strong> — nada é acrescentado
+          de fora dela, e a remessa anterior não é reaproveitada.
           Ficam de fora, com o motivo ao lado: título fora da janela de 31 dias, valor já
           zerado na fonte, situação cancelada, contato inválido, contato ambíguo no arquivo
           e contato repetido entre alunos diferentes. Vínculo pendente com o Prime{" "}
@@ -211,6 +220,8 @@ export default function AbaAcoes({ carteira }) {
                 {a.envio_confirmado_em ? <span>Envio confirmado em {dataHora(a.envio_confirmado_em)}</span> : null}
               </div>
 
+              {a.resultado && <ResultadoDaAcao r={a.resultado} />}
+
               {a.envio_confirmado_em && (
                 <div style={{ padding: "0 16px 14px" }}>
                   <strong style={{ fontSize: 13 }}>
@@ -230,6 +241,52 @@ export default function AbaAcoes({ carteira }) {
             </div>
           ))}
       </div>
+    </div>
+  );
+}
+
+// O RESULTADO DA AÇÃO. Só existe quando a remessa SEGUINTE chega: é ela que
+// diz o que aconteceu com quem foi acionado. Antes disso, a tela diz que está
+// esperando, em vez de mostrar zero como se fosse resultado.
+function ResultadoDaAcao({ r }) {
+  if (r.sem_remessa) return null;
+  if (r.aguardando_proxima_remessa) {
+    return (
+      <div style={{ padding: "0 16px 14px" }}>
+        <p style={{ ...S.muted, fontSize: 12.5, margin: 0 }}>
+          <strong>{r.titulos_acionados} título(s)</strong> acionados,{" "}
+          {moeda(r.valor_acionado)}. O resultado aparece quando a próxima remessa
+          for importada — é ela que diz quem saiu do relatório.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div style={{ padding: "0 16px 14px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(165px, 1fr))", gap: 10 }}>
+        <Mini rotulo="Alunos acionados" valor={r.alunos_acionados} />
+        <Mini rotulo="Títulos acionados" valor={r.titulos_acionados} />
+        <Mini rotulo="Valor acionado" valor={moeda(r.valor_acionado)} />
+        <Mini rotulo="Continuam em aberto" valor={r.continuam_em_aberto} />
+        <Mini rotulo="Regularizados entre remessas" valor={r.regularizados_entre_remessas} />
+        <Mini rotulo="Valor regularizado" valor={moeda(r.valor_regularizado)} />
+        <Mini rotulo="Taxa de regularização" valor={`${r.taxa_regularizacao}%`} />
+      </div>
+      <p style={{ ...S.muted, marginTop: 8, fontSize: 12 }}>
+        <strong>Regularizado entre remessas</strong> = o título acionado não voltou no
+        relatório de inadimplência seguinte. <strong>Não é pagamento confirmado</strong> —
+        pode ser pagamento, cancelamento, renegociação, bolsa ou mudança do recorte do
+        relatório. O valor usa o saldo do título <em>na remessa em que ele foi acionado</em>.
+      </p>
+    </div>
+  );
+}
+
+function Mini({ rotulo, valor }) {
+  return (
+    <div style={{ background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda)", borderRadius: 10, padding: "8px 12px" }}>
+      <div style={{ fontSize: 10.5, fontWeight: 700, color: "var(--rv-texto-fraco)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{rotulo}</div>
+      <div style={{ fontSize: 16, fontWeight: 800, color: "var(--rv-tinta)" }}>{valor ?? "—"}</div>
     </div>
   );
 }
