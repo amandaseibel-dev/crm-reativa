@@ -217,7 +217,7 @@ export function paraDataISO(v) {
 // silenciosamente. Sem `vencimento_origem`, a chave do título vira
 // "<Dt Vcto>|" para todo mundo, e dois títulos do mesmo aluno com o mesmo
 // vencimento atual colidem: no arquivo de 28/09/2026 isso apagava 5 títulos e
-// R$ 16.680,23. O teste `preventivo_importacao_ponta_a_ponta.test.js` percorre
+// R$ 10.541,67. O teste `preventivo_importacao_ponta_a_ponta.test.js` percorre
 // `CAMPOS` e reprova se algum campo mapeado não chegar ao payload.
 export function linhaParaRegistro(linha, mapa) {
   const pega = (id) => (mapa?.[id] === undefined ? null : linha[mapa[id]]);

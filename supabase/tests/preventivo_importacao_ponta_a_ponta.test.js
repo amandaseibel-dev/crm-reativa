@@ -5,7 +5,7 @@
 // POR QUE ESTE ARQUIVO EXISTE. Em 28/09/2026, `Vcto Origem` e `Saldo
 // Atualizado` eram reconhecidos no mapeamento e **descartados** por
 // `linhaParaRegistro`. Nada quebrava: a importação rodava, o número fechava, e
-// 5 títulos sumiam calados (R$ 16.680,23 no arquivo real), porque sem
+// 5 títulos sumiam calados (R$ 10.541,67 no arquivo real), porque sem
 // `vencimento_origem` a chave do título vira "<Dt Vcto>|" para todo mundo e
 // dois títulos do mesmo aluno com o mesmo vencimento atual colidem.
 //
