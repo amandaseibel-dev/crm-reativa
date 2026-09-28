@@ -109,8 +109,30 @@ em texto livre.
 | `take` | int | não | página; padrão observado 50 |
 | `skip` | int | não | offset |
 
-**Retorno:** `items[]` com `registration`, `name`, `cpf`, `course`, `campus`,
-`shift`, `status`; `totalItems`.
+**Retorno:** `items[]` com `registration`, `name`, `cpf`, `course`, `status`,
+`admissionYear`, `graduated`, `campus`, `shift`; `totalItems`.
+
+**`admissionYear`, `graduated` e `status` foram confirmados em 28/09/2026**
+(amostra de 6 alunos devedores, 35 vínculos). Os dois primeiros não estavam
+documentados aqui, e nenhum dos três está em `ESPEC_STUDENT_SEARCH_ITEM`
+(`src/utils/primeApiContrato.js`), que exige só `registration`, `name` e `cpf`.
+
+**CADA ITEM É UM VÍNCULO DE CURSO, NÃO UMA MATRÍCULA.** Nos 6 alunos da amostra,
+`registration` repetiu-se idêntico em todas as linhas do mesmo aluno: as linhas
+se distinguem por `course`/`campus`/`shift`, não por matrícula. Isto **não**
+autoriza afirmar que uma pessoa tenha sempre uma matrícula só — a amostra é de
+seis; autoriza apenas afirmar que **`items[]` não pode ser lido como lista de
+matrículas**, e que `status` é atributo do vínculo.
+
+**`status` — valores observados** (10, mais `null`): `Formado`, `Trancado`,
+`Cancelado`, `Desvinculado`, `Desistente`, `Reopção de Curso`,
+`Mudança de Campus`, `Matriculado Curso Normal`, `TRANSFERENCIA DE CURRICULOS`,
+`Entrada via Reabertura`. Lista de observação, não de domínio fechado: outros
+valores podem existir fora da amostra.
+
+**`graduated` é variável independente de `status`**, não sinônimo de
+`status == 'Formado'`: na matrícula `201008325` uma linha com
+`status: "Mudança de Campus"` veio com `graduated: true`.
 
 **Exemplo sanitizado:**
 
@@ -134,6 +156,13 @@ uma pessoa está num portador específico.
 - CPF **só é encontrado formatado**. Em dígitos puros, `totalItems: 0` sem
   nenhum sinal de erro — quem não souber disso conclui "não está na Prime"
   quando na verdade é "busquei errado";
+- **`status` vem nulo com frequência: 14 dos 35 vínculos da amostra.** O vínculo
+  `Disciplinas Isoladas` veio nulo nos 6 alunos (e com `admissionYear: 2000`).
+  `campus` e `shift` vieram nulos em 10 dos 35. Ausência de status **não** é
+  ausência de vínculo, e não deve ser preenchida por inferência;
+- **o vínculo não tem identificador.** Nenhum campo de id/código/sequência no
+  item — ver
+  [prime-mapa-identificadores.md](prime-mapa-identificadores.md#vínculo-acadêmico-curso--campus--turno);
 - a **matrícula do CRM não é necessariamente a `registration` do Prime**
   (medido: aluno com matrícula 180 no CRM é `2025001442` na Prime). A matrícula
   do **arquivo Santander**, por outro lado, bateu 13 de 13 com `registration`
@@ -185,6 +214,13 @@ abaixo — os blocos são idênticos, só que compostos num objeto.
 **Fonte de verdade para:** cadastro (telefone, endereço, e-mail, nome social);
 contratos acadêmicos vigentes; extrato financeiro completo de um aluno.
 
+**NÃO é fonte de situação acadêmica.** Medido em 28/09/2026 nos 6 alunos da
+amostra: as chaves de topo do objeto são exatamente `registrationData`,
+`contracts`, `financialStatement` e `agreements` — **nenhum campo de situação**,
+em nenhum dos seis. Situação acadêmica só vem por `students_search`
+(`items[].status`). Versões anteriores deste diretório diziam
+"`student_composite` (topo)"; estava errado.
+
 **Limitações conhecidas:** ver limitações de `financial_statement` e
 `agreements` — valem aqui integralmente. `socialName` deve prevalecer sobre
 `fullName` quando presente (é como o operador chama a pessoa ao telefone).
@@ -210,13 +246,21 @@ tela do Prime no mesmo instante da chamada.
 **Fonte:** Prime/ULBRA · **Finalidade:** mesmo conteúdo do bloco `contracts`
 do composto, isolado.
 
-**Retorno:** igual ao bloco `contracts[]` acima.
+**Retorno:** envelope paginado `{ items[], totalItems, totalPages }` — **não** um
+array nu (confirmado em 28/09/2026; o bloco `contracts[]` do composto, sim, é
+array). Cada item tem `number`, `status`, `type`, `establishment`, `course`,
+`shift`, `referenceSemester`, `validFrom`, `validTo`, `cancelledAt` e
+`cancellationReason`.
+
+`cancellationReason` não estava documentado. Valores observados na amostra:
+`Mudança de Curso`, `Cancelamento`, `Trancamento`, e `null`.
 
 **Fonte de verdade para:** contratos acadêmicos, quando não se quer o
 composto inteiro.
 
-**Limitações conhecidas:** `number` (número de contrato) vem vazio — não serve
-para vincular acordo a contrato.
+**Limitações conhecidas:** `number` (número de contrato) vem **string vazia** —
+confirmado em 111 contratos dos 6 alunos da amostra, sem uma única exceção. Não
+serve para vincular acordo a contrato, nem para identificar vínculo de curso.
 
 **Segurança:** READ ONLY · **Pode automatizar?** SIM · **Fallback:**
 `student_composite` traz o mesmo bloco.

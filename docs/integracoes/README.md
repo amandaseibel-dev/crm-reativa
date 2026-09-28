@@ -51,6 +51,31 @@ vive a evidência medida, título a título, da investigação da estrutura do
 acordo. Os documentos deste diretório resumem e apontam para lá em vez de
 duplicar.
 
+## Resposta direta: onde está a situação acadêmica
+
+**`students_search` → `items[].status`, e só aí** (sondado em 28/09/2026 pela
+`prime-sonda`, numa amostra de 6 alunos devedores / 35 vínculos). Duas
+correções que esta sondagem impôs a versões anteriores deste diretório:
+
+1. o **`student_composite` NÃO traz situação acadêmica** — as chaves de topo são
+   apenas `registrationData`, `contracts`, `financialStatement`, `agreements`;
+2. **`contracts[].status`** (Confirmado/Anulado/Cancelado/Aberto) é status de
+   **contrato por semestre**, não situação acadêmica, e **nunca** substitui.
+
+**O status é por VÍNCULO DE CURSO.** Nos 6 alunos da amostra, `registration`
+repetiu-se idêntico em todas as linhas do mesmo aluno — `items[]` não é lista de
+matrículas. A amostra é de seis e **não** autoriza generalizar que toda pessoa
+tenha uma matrícula só; autoriza dizer que o status pertence ao vínculo, e que
+os vínculos de uma mesma pessoa discordam entre si.
+
+**Não existe identificador estável do vínculo**, e a chave composta
+(curso + campus + turno) não o separa. Detalhe medido em
+[`prime-mapa-identificadores.md`](prime-mapa-identificadores.md#vínculo-acadêmico-curso--campus--turno).
+Por isso **associar situação acadêmica ao curso de uma dívida não é possível
+hoje com prova** — quem precisar do dado exibe os vínculos e declara a não
+identificação, sem escolher linha e sem promover o status de um curso a status
+da pessoa.
+
 ## Resposta direta: onde está a estrutura financeira dos acordos
 
 **Não localizada em nenhuma rota da API Prime/ULBRA testada.** A tela do
