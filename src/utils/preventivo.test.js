@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
   normalizarCelular, emailValido, sugerirMapeamento, camposObrigatoriosFaltando,
   paraNumero, paraDataISO, linhaParaRegistro, csv, COLUNAS_WHATSAPP,
-  frescorDaAtualizacao,
+  frescorDaAtualizacao, celularesDoCampo, emailsDoCampo, lerCsv, decodificar,
 } from "./preventivo";
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -64,8 +64,40 @@ describe("e-mail", () => {
   });
 });
 
+// O cabeçalho REAL do relatório de inadimplência da ULBRA, exatamente como
+// veio no arquivo de 28/09/2026. Se a ULBRA mudar o relatório, é aqui que
+// aparece primeiro.
+const CABECALHO_REAL = [
+  "Código", "Nome do Aluno", "Curso", "Dt Vcto ", "Vcto Origem ", "Responsável",
+  "E-mail", "Telefone", "Endereço", "Saldo Original", "Saldo Atualizado",
+  "Estabelecimento", "Processo", "Escola", "Situação Acadêmica", "Tipo de Boleto",
+];
+
 describe("mapeamento de colunas", () => {
-  it("reconhece o cabeçalho do relatório sem depender de acento nem de caixa", () => {
+  it("reconhece o relatório REAL da ULBRA", () => {
+    const m = sugerirMapeamento(CABECALHO_REAL);
+    expect(CABECALHO_REAL[m.matricula]).toBe("Código");
+    expect(CABECALHO_REAL[m.aluno_nome]).toBe("Nome do Aluno");
+    expect(CABECALHO_REAL[m.vencimento].trim()).toBe("Dt Vcto");
+    expect(CABECALHO_REAL[m.vencimento_origem].trim()).toBe("Vcto Origem");
+    expect(CABECALHO_REAL[m.saldo]).toBe("Saldo Original");
+    expect(CABECALHO_REAL[m.saldo_atualizado]).toBe("Saldo Atualizado");
+    expect(camposObrigatoriosFaltando(m)).toEqual([]);
+  });
+
+  it("'Tipo de Boleto' NÃO é o identificador do título", () => {
+    // No relatório real essa coluna vale "Mensalidade" ou "Matrícula".
+    // Casá-la com o documento faria a carteira inteira entrar errada.
+    const m = sugerirMapeamento(CABECALHO_REAL);
+    expect(m.documento).toBeUndefined();
+  });
+
+  it("quando o arquivo TEM número de boleto, ele é usado", () => {
+    const m = sugerirMapeamento(["Matrícula", "Nome", "Nosso Número", "Vencimento", "Saldo"]);
+    expect(m.documento).toBe(2);
+  });
+
+  it("reconhece cabeçalho sem depender de acento nem de caixa", () => {
     const m = sugerirMapeamento([
       "Matrícula", "NOME DO ALUNO", "Boleto", "Data de Vencimento",
       "Valor", "Saldo em Aberto", "Situação", "Celular", "E-mail",
@@ -90,11 +122,10 @@ describe("mapeamento de colunas", () => {
   it("um arquivo só com nome e telefone não serve de carteira financeira", () => {
     // é exatamente o arquivo de contatos que já existe: não tem título.
     const m = sugerirMapeamento(["Nome do Aluno", "Telefone"]);
-    const faltam = camposObrigatoriosFaltando(m);
-    expect(faltam).toContain("Matrícula / identificador do aluno");
-    expect(faltam).toContain("Identificador do título (boleto / documento)");
-    expect(faltam).toContain("Vencimento");
-    expect(faltam).toContain("Valor do título");
+    const faltam = camposObrigatoriosFaltando(m).join(" | ");
+    expect(faltam).toMatch(/Matrícula/);
+    expect(faltam).toMatch(/Vencimento atual/);
+    expect(faltam).toMatch(/Saldo em aberto/);
   });
 });
 
@@ -128,20 +159,20 @@ describe("conversões", () => {
 describe("arquivo para a mensageria", () => {
   it("escapa aspas e ponto e vírgula sem corromper a linha", () => {
     const saida = csv(
-      [{ aluno: 'Fulana "da" Silva; Jr', contato: "5551999990001", matricula: "1", vencimento: "2026-09-25", valor_inicial: 500 }],
+      [{ aluno: 'Fulana "da" Silva; Jr', contato: "5551999990001", matricula: "1", vencimento: "2026-09-25", saldo_informado: 500 }],
       COLUNAS_WHATSAPP);
     const linhas = saida.split("\r\n");
     expect(linhas[0]).toBe("nome;telefone;matricula;vencimento;valor");
     expect(linhas[1]).toBe('"Fulana ""da"" Silva; Jr";5551999990001;1;2026-09-25;500');
   });
 
-  it("mostra o saldo atual quando existe, e o de entrada quando não existe", () => {
+  it("o valor exportado é o saldo INFORMADO pelo arquivo, não um número da API", () => {
+    // O que a mensageria manda para o aluno é o que a ULBRA disse que ele
+    // deve. O netAmount da API não é saldo e não pode ir numa mensagem.
     const linhas = csv([
-      { aluno: "A", contato: "1", matricula: "1", vencimento: "2026-09-25", valor_inicial: 500, saldo_atual: 200 },
-      { aluno: "B", contato: "2", matricula: "2", vencimento: "2026-09-25", valor_inicial: 500, saldo_atual: null },
+      { aluno: "A", contato: "1", matricula: "1", vencimento: "2026-09-25", saldo_informado: 500, valor_fonte: 200 },
     ], COLUNAS_WHATSAPP).split("\r\n");
-    expect(linhas[1].endsWith(";200")).toBe(true);
-    expect(linhas[2].endsWith(";500")).toBe(true);
+    expect(linhas[1].endsWith(";500")).toBe(true);
   });
 });
 
@@ -161,5 +192,57 @@ describe("frescor da atualização", () => {
 
   it("dentro da janela é atual", () => {
     expect(frescorDaAtualizacao({ ultima_completa: { concluido_em: "2026-09-28T06:00:00Z" } }, agora).nivel).toBe("atual");
+  });
+});
+
+describe("leitura do CSV real", () => {
+  it("não corta a linha no ponto e vírgula que está DENTRO das aspas", () => {
+    // A coluna E-mail do relatório real traz dois endereços separados por `;`.
+    // Ler com split(";") jogava 2.742 das 3.495 linhas fora.
+    const texto = '"Código";"E-mail";"Saldo"\r\n"2024007267";"a@x.com;b@rede.ulbra.br";"831,66"\r\n';
+    const linhas = lerCsv(texto);
+    expect(linhas[0]).toEqual(["Código", "E-mail", "Saldo"]);
+    expect(linhas[1]).toEqual(["2024007267", "a@x.com;b@rede.ulbra.br", "831,66"]);
+  });
+
+  it("aspas duplas escapadas viram uma aspa só", () => {
+    expect(lerCsv('"a""b";"c"')[0]).toEqual(['a"b', "c"]);
+  });
+
+  it("linha em branco não vira registro", () => {
+    expect(lerCsv("a;b\r\n\r\nc;d\r\n").length).toBe(2);
+  });
+
+  it("o arquivo real vem em LATIN-1 e é decodificado sem estragar acento", () => {
+    // "Situação" em latin1
+    const latin1 = new Uint8Array([0x53, 0x69, 0x74, 0x75, 0x61, 0xe7, 0xe3, 0x6f]);
+    expect(decodificar(latin1.buffer)).toBe("Situação");
+    const utf8 = new TextEncoder().encode("Situação");
+    expect(decodificar(utf8.buffer)).toBe("Situação");
+  });
+});
+
+describe("contatos multivalorados do relatório real", () => {
+  it("lê todos os celulares do campo, sem escolher nenhum", () => {
+    const campo = "(51) 99547-2585, CEL:(51) 991859609, CEL:5192568106, RES:51991859609";
+    expect(celularesDoCampo(campo)).toEqual(["5551991859609", "5551995472585"]);
+  });
+
+  it("um celular repetido em formatos diferentes conta como um só", () => {
+    expect(celularesDoCampo("(51) 98054-2650, CEL:51980542650, RES:34041289"))
+      .toEqual(["5551980542650"]);
+  });
+
+  it("campo só com fixo não devolve celular nenhum", () => {
+    expect(celularesDoCampo("(51) 3333-4444, RES:5133334444")).toEqual([]);
+  });
+
+  it("lê todos os e-mails do campo, sem escolher nenhum", () => {
+    expect(emailsDoCampo("adalberons10@gmail.com;adalberon.silva@rede.ulbra.br"))
+      .toEqual(["adalberon.silva@rede.ulbra.br", "adalberons10@gmail.com"]);
+  });
+
+  it("o mesmo e-mail em caixas diferentes conta como um só", () => {
+    expect(emailsDoCampo("Fulana@Exemplo.com fulana@exemplo.com")).toEqual(["fulana@exemplo.com"]);
   });
 });

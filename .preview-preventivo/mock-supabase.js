@@ -3,6 +3,17 @@
 // aparece na tela é o componente de verdade do PR.
 //
 // NENHUM DADO REAL. Alunos, matrículas, títulos e telefones são inventados.
+//
+// TRAVA: este arquivo só entra em cena pela config exclusiva do preview
+// (vite.preview-preventivo.config.js). Se algum dia ele for arrastado para um
+// build de produção por engano, a aplicação quebra AQUI, alto e cedo, em vez
+// de subir no ar servindo dados de mentira como se fossem do banco.
+if (import.meta.env && import.meta.env.PROD) {
+  throw new Error(
+    "mock-supabase do preview do Preventivo foi carregado num build de produção. " +
+    "Ele serve dados de exemplo e nunca pode ir ao ar."
+  );
+}
 
 const hoje = new Date();
 const dia = (n) => {
@@ -22,8 +33,8 @@ const CARTEIRA = {
   encerrada_em: null,
   titulos: 6,
   alunos: 5,
-  valor_inicial: 3780.5,
-  saldo_atual: 2580.5,
+  saldo_informado: 3780.5,
+  com_vinculo_unico: 5,
   ultima_sinc: new Date(Date.now() - 36e5 * 5).toISOString(),
 };
 
@@ -36,8 +47,11 @@ const T = (i, over = {}) => ({
   unidade: "Sede",
   vencimento: dia([-9, -4, 2, 12, 25, -2][i] ?? 5),
   dias_atraso: -([-9, -4, 2, 12, 25, -2][i] ?? 5),
-  valor_inicial: [620.41, 482.54, 780.0, 550.0, 900.0, 447.55][i] ?? 500,
-  saldo_atual: [0, 482.54, 380.0, 550.0, 900.0, 268.0][i] ?? 500,
+  vencimento_origem: dia([-9, -34, 2, 12, 25, -2][i] ?? 5),
+  saldo_informado: [620.41, 482.54, 780.0, 550.0, 900.0, 447.55][i] ?? 500,
+  valor_fonte: [0, 482.54, 380.0, 550.0, null, 268.0][i] ?? 500,
+  vinculo: ["UNICO", "UNICO", "UNICO", "UNICO", "AMBIGUO", "UNICO"][i] ?? "PENDENTE",
+  candidatos: i === 4 ? 2 : 1,
   situacao_origem: "EM ABERTO",
   status: "ATIVO",
   portador: 95,
@@ -47,18 +61,18 @@ const T = (i, over = {}) => ({
   celular: ["5551999990001", "5551988887777", null, "5551977770004", "5551966660005", "5551999990001"][i] ?? null,
   email: ["ana@exemplo.com", "bruno@exemplo.com", "carla@exemplo.com", null, "elisa@exemplo.com", "ana@exemplo.com"][i] ?? null,
   lote: i < 4 ? "Remessa 01/10" : "Remessa 08/10",
-  ultimo_movimento: null,
+  ultima_alteracao: null,
   ultima_acao: i < 3 ? { nome: "Lembrete D-3 outubro", canal: "WHATSAPP", estado: "ENVIO_CONFIRMADO", em: new Date(Date.now() - 864e5).toISOString() } : null,
   ...over,
 });
 
 const TITULOS = [
-  T(0, { ultimo_movimento: { tipo: "QUITACAO_OBSERVADA", em: new Date(Date.now() - 36e5 * 6).toISOString(), valor: 620.41 } }),
+  T(0, { ultima_alteracao: { tipo: "VALOR_FONTE_ZEROU", em: new Date(Date.now() - 36e5 * 6).toISOString(), valor: 620.41 } }),
   T(1),
-  T(2, { ultimo_movimento: { tipo: "REDUCAO_SALDO_OBSERVADA", em: new Date(Date.now() - 36e5 * 6).toISOString(), valor: 400 } }),
+  T(2, { ultima_alteracao: { tipo: "VALOR_FONTE_CAIU", em: new Date(Date.now() - 36e5 * 6).toISOString(), valor: 400 } }),
   T(3),
   T(4),
-  T(5, { ultimo_movimento: { tipo: "REDUCAO_SALDO_OBSERVADA", em: new Date(Date.now() - 36e5 * 30).toISOString(), valor: 179.55 } }),
+  T(5, { ultima_alteracao: { tipo: "VALOR_FONTE_CAIU", em: new Date(Date.now() - 36e5 * 30).toISOString(), valor: 179.55 } }),
 ];
 
 const SITUACAO = {
@@ -73,23 +87,29 @@ const RESULTADOS = {
   hoje: dia(0),
   carteira: { id: CARTEIRA.id, nome: CARTEIRA.nome, venc_de: CARTEIRA.venc_de, venc_ate: CARTEIRA.venc_ate },
   totais: {
-    alunos: 5, titulos: 6, valor_inicial: 3780.5, saldo_atual: 2580.5,
-    sem_sinc: 0, na_janela: 6, fora_da_janela: 0, ausentes_no_extrato: 0,
+    alunos: 5, titulos: 6, saldo_informado: 3780.5,
+    sem_sinc: 0, na_janela: 6, fora_da_janela: 0,
   },
-  movimento: {
-    QUITACAO_OBSERVADA: { titulos: 1, valor: 620.41 },
-    REDUCAO_SALDO_OBSERVADA: { titulos: 2, valor: 579.55 },
+  vinculo: { UNICO: 5, AMBIGUO: 1 },
+  valor_na_fonte: { titulos_com_vinculo_unico: 5, soma_atual: 1680.54 },
+  alteracoes: {
+    VALOR_FONTE_ZEROU: { titulos: 1, valor: 620.41 },
+    VALOR_FONTE_CAIU: { titulos: 2, valor: 579.55 },
+    VINCULO_AMBIGUO: { titulos: 1, valor: 0 },
   },
   recebido: {
     valor: null,
-    motivo: "A API do Prime não expõe evento, data nem valor de pagamento (13 campos do financialStatement conferidos ao vivo em 28/09/2026, nenhum de situação; paymentDate vem preenchido inclusive em título a vencer; paidAmount é valor de tabela). O que está medido aqui é redução de saldo, que não é sinônimo de dinheiro recebido.",
+    motivo: "Não há como afirmar recebimento com a fonte autorizada de hoje. Medido em 28/09/2026 contra variável independente (o relatório de inadimplência do próprio dia): dos 101 títulos comprovadamente EM ABERTO, 101 tinham paymentDate preenchido, 19 com data posterior ao vencimento, e 61 tinham paidAmount igual ao netAmount.",
   },
-  reconciliacao: { valor_inicial: 3780.5, reducao_observada: 1199.96, aumento_observado: 0, saldo_atual: 2580.54 },
+  conferencia: {
+    valor_na_fonte_no_primeiro_ciclo: 2880.5, queda_registrada: 1199.96,
+    alta_registrada: 0, valor_na_fonte_agora: 1680.54,
+  },
   por_dia: [
     { dia: dia(-2), titulos: 1, valor: 179.55 },
     { dia: dia(0), titulos: 2, valor: 1020.41 },
   ],
-  alunos: { com_alguma_reducao: 2, com_todos_quitados: 1, sem_movimento: 2 },
+  alunos: { com_alguma_queda: 2, com_todos_zerados: 1, sem_alteracao: 2 },
 };
 
 const ACOES = [
@@ -104,9 +124,10 @@ const ACOES = [
     incluidos: 3, alunos: 3,
     separados: {
       SEM_CELULAR_VALIDO: 1,
-      CONTATO_COMPARTILHADO_COM_OUTRO_ALUNO: 1,
+      CELULAR_AMBIGUO_NO_ARQUIVO: 1,
       OUTRO_TITULO_DO_MESMO_ALUNO_JA_NO_PUBLICO: 1,
     },
+    conferencia_financeira: { UNICO: 2, AMBIGUO: 1 },
     movimento_apos_envio: { titulos: 2, valor: 1020.41 },
   },
   {
@@ -116,19 +137,20 @@ const ACOES = [
     exportada_em: null, envio_confirmado_em: null, cancelada_em: null,
     atualizacao_financeira: { sinc_id: "s-1", em: SITUACAO.ultima_completa.concluido_em },
     incluidos: 4, alunos: 4,
-    separados: { SEM_EMAIL_VALIDO: 1, SALDO_ZERADO: 1 },
+    separados: { EMAIL_MULTIPLO_NO_ARQUIVO: 1, VALOR_NA_FONTE_ZERADO: 1 },
+    conferencia_financeira: { UNICO: 4 },
     movimento_apos_envio: { titulos: 0, valor: 0 },
   },
 ];
 
-const PUBLICO_DENTRO = TITULOS.filter((t) => t.celular && t.saldo_atual > 0).slice(0, 3).map((t) => ({
+const PUBLICO_DENTRO = TITULOS.filter((t) => t.celular && t.saldo_informado > 0).slice(0, 3).map((t) => ({
   matricula: t.matricula, aluno: t.aluno, contato: t.celular, documento: t.documento,
-  vencimento: t.vencimento, valor_inicial: t.valor_inicial, saldo_atual: t.saldo_atual,
+  vencimento: t.vencimento, saldo_informado: t.saldo_informado, valor_fonte: t.valor_fonte,
   incluido: true, motivo: null,
 }));
 const PUBLICO_FORA = [{
-  matricula: "2026001002", aluno: "Carla Menezes", contato: null, documento: "9000012",
-  vencimento: dia(2), valor_inicial: 780, saldo_atual: 380, incluido: false, motivo: "SEM_CELULAR_VALIDO",
+  matricula: "2026001002", aluno: "Carla Menezes", contato: null, documento: null,
+  vencimento: dia(2), saldo_informado: 780, valor_fonte: 380, incluido: false, motivo: "SEM_CELULAR_VALIDO",
 }];
 
 const LOTES = [
@@ -163,6 +185,8 @@ const RESPOSTAS = {
     linhas_lidas: 128, linhas_aceitas: 120, linhas_recusadas: 8, alunos: 97, titulos: 120,
     valor_total: 74320.18, novos: 111, atualizados: 9, fora_da_janela: 3,
     sem_celular_valido: 11, sem_email_valido: 6, celular_compartilhado: 4,
+    celular_ambiguo: 9, email_multiplo: 74, sem_identificador_de_titulo: 120,
+    mesmo_vencimento_no_arquivo: 2,
     recusas_por_motivo: { SEM_MATRICULA: 2, VENCIMENTO_INVALIDO: 1, FORA_DO_PERIODO: 4, DUPLICADA_NO_ARQUIVO: 1 },
     exemplos_recusa: [{ linha: 7, motivo: "SEM_MATRICULA" }, { linha: 19, motivo: "FORA_DO_PERIODO" }],
   }),

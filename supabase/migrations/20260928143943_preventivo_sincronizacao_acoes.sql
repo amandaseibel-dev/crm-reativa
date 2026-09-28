@@ -19,12 +19,18 @@
 --   título a vencer.
 --
 -- CONSEQUÊNCIA DIRETA, E ELA ESTÁ CODIFICADA AQUI: esta rotina NÃO registra
--- pagamento. Ela registra MOVIMENTO DE SALDO observado título a título entre
--- dois ciclos. Redução de saldo não vira dinheiro recebido; vira
--- `REDUCAO_SALDO_OBSERVADA`, que o painel mostra em coluna própria, separada
--- de "recebido". Enquanto não houver fonte com data e valor de pagamento,
--- "valor recebido" do painel fica explicitamente indisponível em vez de ser
--- preenchido com um número que ninguém pode defender.
+-- pagamento e NÃO fala em saldo. Ela registra ALTERAÇÃO DO VALOR DO TÍTULO NA
+-- FONTE (`netAmount`) entre dois ciclos, em tipos com nome literal
+-- (`VALOR_FONTE_CAIU`, `VALOR_FONTE_ZEROU`, `VALOR_FONTE_SUBIU`). Nenhum deles
+-- é interpretado como dinheiro recebido, e o painel diz por escrito que
+-- "valor recebido" não está disponível pela fonte.
+--
+-- A PROVA, com variável independente, de 28/09/2026: o relatório de
+-- inadimplência do próprio dia diz quem está EM ABERTO. Dos 101 títulos
+-- comprovadamente em aberto e presentes no espelho, 101 tinham `paymentDate`
+-- preenchido, 19 com data POSTERIOR ao vencimento, e 61 tinham `paidAmount`
+-- IGUAL ao `netAmount`. Ou seja: as duas assinaturas que alguém usaria como
+-- "pagou" aparecem em massa em títulos que estão abertos.
 --
 -- SÓ LÊ O PRIME. Nenhuma função deste arquivo escreve em tabela da cobrança,
 -- dá baixa, altera acordo, caso, fila ou saldo operacional.
@@ -104,11 +110,33 @@ $$;
 
 -- -----------------------------------------------------------------------------
 -- Gravação de um aluno. Recebe o `financialStatement` cru do Prime, já
--- reduzido aos campos usados, e faz três coisas na MESMA transação: snapshot,
--- evento e estado do título.
+-- reduzido aos campos usados, e faz quatro coisas na MESMA transação:
+-- resolve o vínculo do título, grava a foto, deriva o evento e atualiza o
+-- estado.
 --
--- p_extrato: [{documento, vencimento, valor_liquido, valor_bruto,
---              valor_corrigido, liquidado_em, portador, portador_nome}]
+-- COMO O TÍTULO DO ARQUIVO ENCONTRA O TÍTULO DO PRIME. O relatório de
+-- inadimplência da ULBRA não traz identificador de título (medido no arquivo
+-- real de 28/09/2026). Então o casamento é por `matrícula + vencimento
+-- atual`, e SÓ vale quando é inequívoco:
+--
+--   exatamente 1 candidato  -> UNICO          (vincula e passa a usar o boleto)
+--   mais de 1 candidato     -> AMBIGUO        (fica pendente; NÃO se escolhe)
+--   nenhum candidato        -> NAO_ENCONTRADO (fica pendente)
+--
+-- Medido na amostra de 120 linhas do arquivo real contra o espelho de
+-- produção: 101 alunos presentes, 101 casaram por vencimento, 5 com mais de
+-- um candidato. O valor NÃO desempata — só 23 das 120 linhas tinham "Saldo
+-- Original" igual ao netAmount do Prime.
+--
+-- p_extrato: [{documento, documento_alt, vencimento, valor_liquido,
+--              valor_bruto, valor_corrigido, liquidado_em, portador,
+--              portador_nome}]
+--
+-- UMA entrada por linha do extrato, com os dois identificadores do Prime
+-- (`documento` = boleto de 7 dígitos, `documento_alt` = documentNumber de 13)
+-- na MESMA entrada. Mandar a mesma linha duas vezes, uma por identificador,
+-- faria cada título ter dois candidatos e marcaria a carteira inteira como
+-- ambígua.
 -- -----------------------------------------------------------------------------
 create or replace function public.preventivo_sinc_gravar(
   p_sinc_id uuid, p_matricula text, p_extrato jsonb)
@@ -139,6 +167,7 @@ begin
   create temp table _prev_ext on commit drop as
   select
     nullif(trim(l->>'documento'), '')                                              as documento,
+    nullif(trim(l->>'documento_alt'), '')                                          as documento_alt,
     case when (l->>'vencimento') ~ '^\d{4}-\d{2}-\d{2}$' then (l->>'vencimento')::date end as vencimento,
     case when (l->>'valor_liquido')   ~ '^-?\d+(\.\d+)?$' then (l->>'valor_liquido')::numeric end   as valor_liquido,
     case when (l->>'valor_bruto')     ~ '^-?\d+(\.\d+)?$' then (l->>'valor_bruto')::numeric end     as valor_bruto,
@@ -149,70 +178,95 @@ begin
   from jsonb_array_elements(p_extrato) as e(l)
   where nullif(trim(l->>'documento'), '') is not null;
 
-  -- Um título de cada vez, sempre pelo DOCUMENTO. Nunca "atualiza todas as
-  -- pendências do aluno": o mesmo aluno pode ter título no Preventivo e outro
-  -- na cobrança, e o que acontece com um não decide nada sobre o outro.
-  with alvo as (
-    select t.id, t.saldo_atual, t.portador_atual, t.presente_no_extrato,
-           e.documento, e.vencimento, e.valor_liquido, e.valor_bruto,
-           e.valor_corrigido, e.liquidado_em, e.portador, e.portador_nome,
-           (e.documento is not null) as presente
+  -- 1. VÍNCULO, título a título. Nunca "atualiza todas as pendências do
+  --    aluno": o mesmo aluno pode ter título no Preventivo e outro na
+  --    cobrança, e o que acontece com um não decide nada sobre o outro.
+  create temp table _prev_alvo on commit drop as
+  with base as (
+    select t.id, t.documento, t.documento_prime, t.vencimento,
+           t.valor_fonte as antes, t.portador_atual as portador_antes,
+           t.presente_no_extrato as presente_antes, t.vinculo_prime as vinculo_antes
       from public.prev_titulo t
-      left join _prev_ext e on e.documento = t.documento
      where t.matricula_prime = p_matricula
        and (v_carteira is null or t.carteira_id = v_carteira)
-  ), foto as (
+  ), resolvido as (
+    select b.*,
+      -- identificador que já foi resolvido antes, ou o que o arquivo trouxe
+      -- identificador já resolvido antes, ou o que o arquivo trouxe; vale
+      -- tanto o boleto quanto o documentNumber da mesma linha
+      coalesce(
+        (select e.documento from _prev_ext e
+          where b.documento_prime is not null
+            and (e.documento = b.documento_prime or e.documento_alt = b.documento_prime)),
+        (select e.documento from _prev_ext e
+          where b.documento is not null
+            and (e.documento = b.documento or e.documento_alt = b.documento))
+      ) as doc_direto,
+      (select count(*) from _prev_ext e where e.vencimento = b.vencimento) as candidatos,
+      (select min(e.documento) from _prev_ext e where e.vencimento = b.vencimento) as doc_por_vencimento
+    from base b
+  )
+  select r.*,
+    case
+      when r.doc_direto is not null then r.doc_direto
+      when r.candidatos = 1        then r.doc_por_vencimento
+    end as doc_final,
+    case
+      when r.doc_direto is not null then 'UNICO'
+      when r.candidatos = 1        then 'UNICO'
+      when r.candidatos > 1        then 'AMBIGUO'
+      else 'NAO_ENCONTRADO'
+    end as vinculo
+  from resolvido r;
+
+  -- 2. FOTO. Título sem vínculo único entra na foto como ausente e SEM valor:
+  --    não se copia número de um candidato que talvez não seja o certo.
+  with foto as (
     insert into public.prev_titulo_snapshot (
-      sinc_id, titulo_id, observado_em, presente_no_extrato, saldo, valor_bruto,
-      valor_corrigido, vencimento, portador, liquidado_em_prime)
-    select p_sinc_id, a.id, v_agora, a.presente, a.valor_liquido, a.valor_bruto,
-           a.valor_corrigido, a.vencimento, a.portador, a.liquidado_em
-      from alvo a
+      sinc_id, titulo_id, observado_em, presente_no_extrato, valor_fonte,
+      valor_fonte_bruto, valor_fonte_corrigido, vencimento, portador, liquidado_em_prime)
+    select p_sinc_id, a.id, v_agora, (a.vinculo = 'UNICO'),
+           e.valor_liquido, e.valor_bruto, e.valor_corrigido, e.vencimento,
+           e.portador, e.liquidado_em
+      from _prev_alvo a
+      left join _prev_ext e on a.vinculo = 'UNICO' and e.documento = a.doc_final
     on conflict (sinc_id, titulo_id) do nothing
     returning titulo_id
   )
   select count(*) into v_titulos from foto;
 
-  -- ---------------------------------------------------------------------------
-  -- EVENTOS. `chave` única garante que reconsultar o Prime não duplique
-  -- recebimento nem movimento nenhum: o mesmo movimento, no mesmo dia, com os
-  -- mesmos saldos, é o mesmo evento.
-  -- ---------------------------------------------------------------------------
-  with alvo as (
-    select t.id, t.saldo_atual as antes, t.portador_atual as portador_antes,
-           t.presente_no_extrato as presente_antes,
-           e.documento is not null as presente,
-           e.valor_liquido as depois, e.portador as portador_depois
-      from public.prev_titulo t
-      left join _prev_ext e on e.documento = t.documento
-     where t.matricula_prime = p_matricula
-       and (v_carteira is null or t.carteira_id = v_carteira)
-  ), classificado as (
-    select a.*,
+  -- 3. EVENTOS. `chave` única garante que reconsultar o Prime não duplique
+  --    nada: o mesmo fato, no mesmo dia, com os mesmos valores, é um evento só.
+  with classificado as (
+    select a.*, e.valor_liquido as depois, e.portador as portador_depois,
       case
-        when a.presente_antes is true and not a.presente then 'AUSENTE_NO_EXTRATO'
-        when a.presente_antes is false and a.presente     then 'RETORNO_AO_EXTRATO'
-        when a.presente and a.antes is not null and a.depois is not null
-             and a.depois < a.antes and a.depois <= 0                  then 'QUITACAO_OBSERVADA'
-        when a.presente and a.antes is not null and a.depois is not null
-             and a.depois < a.antes                                    then 'REDUCAO_SALDO_OBSERVADA'
-        when a.presente and a.antes is not null and a.depois is not null
-             and a.depois > a.antes                                    then 'AUMENTO_SALDO_OBSERVADO'
-        when a.presente and a.portador_antes is not null
-             and a.portador_depois is distinct from a.portador_antes   then 'MUDANCA_DE_PORTADOR'
+        when a.vinculo = 'AMBIGUO' and a.vinculo_antes is distinct from 'AMBIGUO' then 'VINCULO_AMBIGUO'
+        when a.vinculo = 'UNICO'   and a.vinculo_antes is distinct from 'UNICO'
+             and a.vinculo_antes <> 'PENDENTE'                                    then 'VINCULO_RESOLVIDO'
+        when a.vinculo <> 'UNICO'  and a.presente_antes is true                   then 'AUSENTE_NO_EXTRATO'
+        when a.vinculo = 'UNICO'   and a.presente_antes is false                  then 'RETORNO_AO_EXTRATO'
+        when a.vinculo = 'UNICO' and a.antes is not null and e.valor_liquido is not null
+             and e.valor_liquido < a.antes and e.valor_liquido <= 0               then 'VALOR_FONTE_ZEROU'
+        when a.vinculo = 'UNICO' and a.antes is not null and e.valor_liquido is not null
+             and e.valor_liquido < a.antes                                        then 'VALOR_FONTE_CAIU'
+        when a.vinculo = 'UNICO' and a.antes is not null and e.valor_liquido is not null
+             and e.valor_liquido > a.antes                                        then 'VALOR_FONTE_SUBIU'
+        when a.vinculo = 'UNICO' and a.portador_antes is not null
+             and e.portador is distinct from a.portador_antes                     then 'MUDANCA_DE_PORTADOR'
       end as tipo
-    from alvo a
+      from _prev_alvo a
+      left join _prev_ext e on a.vinculo = 'UNICO' and e.documento = a.doc_final
   ), gravado as (
     insert into public.prev_evento (
-      titulo_id, sinc_id, tipo, saldo_antes, saldo_depois, valor_delta,
+      titulo_id, sinc_id, tipo, valor_fonte_antes, valor_fonte_depois, valor_delta,
       observado_em, detalhe, chave)
     select c.id, p_sinc_id, c.tipo, c.antes, c.depois,
-           case when c.tipo in ('QUITACAO_OBSERVADA', 'REDUCAO_SALDO_OBSERVADA',
-                                'AUMENTO_SALDO_OBSERVADO')
+           case when c.tipo in ('VALOR_FONTE_ZEROU', 'VALOR_FONTE_CAIU', 'VALOR_FONTE_SUBIU')
                 then abs(coalesce(c.antes, 0) - coalesce(c.depois, 0)) end,
            v_agora,
            jsonb_build_object('portador_antes', c.portador_antes,
                               'portador_depois', c.portador_depois,
+                              'candidatos', c.candidatos,
                               'matricula', p_matricula),
            c.id::text || '|' || c.tipo || '|' || coalesce(c.antes::text, '-') || '|'
              || coalesce(c.depois::text, '-') || '|'
@@ -224,29 +278,24 @@ begin
   )
   select count(*) into v_eventos from gravado;
 
-  -- Estado corrente do título. Título que sumiu do extrato PRESERVA o último
-  -- saldo conhecido — ausência não zera nada e não é recebimento.
+  -- 4. ESTADO. Título sem vínculo único PRESERVA o último valor conhecido:
+  --    ausência e ambiguidade não zeram nada e não são recebimento.
   update public.prev_titulo t
-     set saldo_atual        = coalesce(e.valor_liquido, t.saldo_atual),
-         valor_bruto_prime  = coalesce(e.valor_bruto, t.valor_bruto_prime),
-         valor_corrigido_prime = coalesce(e.valor_corrigido, t.valor_corrigido_prime),
+     set vinculo_prime      = a.vinculo,
+         candidatos_prime   = a.candidatos,
+         documento_prime    = coalesce(a.doc_final, t.documento_prime),
+         valor_fonte           = coalesce(e.valor_liquido, t.valor_fonte),
+         valor_fonte_bruto     = coalesce(e.valor_bruto, t.valor_fonte_bruto),
+         valor_fonte_corrigido = coalesce(e.valor_corrigido, t.valor_fonte_corrigido),
          portador_atual     = coalesce(e.portador, t.portador_atual),
          portador_nome      = coalesce(e.portador_nome, t.portador_nome),
-         presente_no_extrato = (e.documento is not null),
+         presente_no_extrato = (a.vinculo = 'UNICO'),
          sinc_em            = v_agora,
          sinc_id            = p_sinc_id,
          atualizado_em      = v_agora
-    from (select * from _prev_ext) e
-   where t.matricula_prime = p_matricula
-     and (v_carteira is null or t.carteira_id = v_carteira)
-     and e.documento = t.documento;
-
-  update public.prev_titulo t
-     set presente_no_extrato = false, sinc_em = v_agora, sinc_id = p_sinc_id,
-         atualizado_em = v_agora
-   where t.matricula_prime = p_matricula
-     and (v_carteira is null or t.carteira_id = v_carteira)
-     and not exists (select 1 from _prev_ext e where e.documento = t.documento);
+    from _prev_alvo a
+    left join _prev_ext e on a.vinculo = 'UNICO' and e.documento = a.doc_final
+   where t.id = a.id;
 
   update public.prev_sinc_fila
      set coletado_em = v_agora
@@ -255,6 +304,7 @@ begin
   update public.prev_sinc set consultados = consultados + 1 where id = p_sinc_id;
 
   drop table if exists _prev_ext;
+  drop table if exists _prev_alvo;
   return jsonb_build_object('titulos', v_titulos, 'eventos', v_eventos);
 end;
 $$;
@@ -349,14 +399,23 @@ $$;
 -- -----------------------------------------------------------------------------
 -- PAINEL DE RESULTADOS
 -- -----------------------------------------------------------------------------
--- A conta fecha assim, e está escrita na tela do mesmo jeito:
+-- DUAS GRANDEZAS DIFERENTES, E ELAS NÃO SE SOMAM:
 --
---   saldo_inicial  −  reducao_observada  +  aumento_observado  =  saldo_atual
+--   `saldo_informado`  -> veio do ARQUIVO ("Saldo Original" do relatório de
+--                         inadimplência). Ali a palavra saldo tem dono e
+--                         definição: é o que a ULBRA chama de saldo em aberto
+--                         na data da extração.
+--   `valor_fonte`      -> veio da API (`netAmount`). É o VALOR do título, não
+--                         um saldo: a API não expõe saldo em aberto nem
+--                         situação. Por isso tudo que se mede sobre ele é
+--                         chamado de "variação do valor na fonte" — nunca de
+--                         saldo, nunca de recebimento.
 --
--- `recebido` NÃO aparece como número porque a fonte autorizada não entrega
--- data nem valor de pagamento. `reducao_observada` é o que de fato medimos, e
--- ela inclui pagamento, cancelamento, bolsa e renegociação misturados — por
--- isso tem nome próprio e nunca é chamada de recebimento.
+-- `recebido` não é um número aqui. Provado em 28/09/2026 com variável
+-- independente (o relatório de inadimplência do próprio dia, que diz quem
+-- está EM ABERTO): dos 101 títulos comprovadamente em aberto, 101 tinham
+-- paymentDate preenchido, 19 com data POSTERIOR ao vencimento, e 61 tinham
+-- paidAmount IGUAL ao netAmount. Nenhum campo da API separa aberto de pago.
 -- -----------------------------------------------------------------------------
 create or replace function public.preventivo_resultados(p_carteira_id uuid)
 returns jsonb
@@ -377,18 +436,28 @@ begin
                    from public.prev_carteira where id = p_carteira_id),
     'totais', (
       select jsonb_build_object(
-        'alunos',        count(distinct matricula_prime),
-        'titulos',       count(*),
-        'valor_inicial', coalesce(sum(saldo_inicial), 0),
-        'saldo_atual',   case when count(*) filter (where saldo_atual is not null) = 0
-                              then null else coalesce(sum(coalesce(saldo_atual, saldo_inicial)), 0) end,
-        'sem_sinc',      count(*) filter (where sinc_em is null),
-        'na_janela',     count(*) filter (where status = 'ATIVO'),
-        'fora_da_janela',count(*) filter (where status = 'FORA_DA_JANELA'),
-        'ausentes_no_extrato', count(*) filter (where presente_no_extrato is false)
+        'alunos',          count(distinct matricula_prime),
+        'titulos',         count(*),
+        'saldo_informado', coalesce(sum(saldo_informado), 0),
+        'sem_sinc',        count(*) filter (where sinc_em is null),
+        'na_janela',       count(*) filter (where status = 'ATIVO'),
+        'fora_da_janela',  count(*) filter (where status = 'FORA_DA_JANELA')
       ) from public.prev_titulo where carteira_id = p_carteira_id),
-    -- movimento por tipo, SEMPRE separado. Nenhum destes números é "recebido".
-    'movimento', (
+    -- Estado do vínculo com o Prime. Sem vínculo único não há número da fonte,
+    -- e a tela precisa dizer de quantos títulos ela NÃO consegue falar.
+    'vinculo', (
+      select coalesce(jsonb_object_agg(vinculo_prime, n), '{}'::jsonb)
+        from (select vinculo_prime, count(*) n from public.prev_titulo
+               where carteira_id = p_carteira_id group by 1) x),
+    'valor_na_fonte', (
+      select jsonb_build_object(
+        'titulos_com_vinculo_unico', count(*),
+        'soma_atual', coalesce(sum(valor_fonte), 0),
+        'observacao', 'Soma do netAmount dos títulos com vínculo único. netAmount é o VALOR do título, não saldo em aberto — a API não expõe saldo.')
+        from public.prev_titulo
+       where carteira_id = p_carteira_id and vinculo_prime = 'UNICO' and valor_fonte is not null),
+    -- Alteração de valor na fonte, por tipo. Nenhum destes números é dinheiro.
+    'alteracoes', (
       select coalesce(jsonb_object_agg(tipo, jsonb_build_object('titulos', n, 'valor', valor)), '{}'::jsonb)
         from (select ev.tipo, count(distinct ev.titulo_id) n, coalesce(sum(ev.valor_delta), 0) valor
                 from public.prev_evento ev
@@ -397,20 +466,27 @@ begin
                group by ev.tipo) m),
     'recebido', jsonb_build_object(
       'valor', null,
-      'motivo', 'A API do Prime não expõe evento, data nem valor de pagamento (13 campos do financialStatement conferidos ao vivo em 28/09/2026, nenhum de situação; paymentDate vem preenchido inclusive em título a vencer; paidAmount é valor de tabela). O que está medido aqui é redução de saldo, que não é sinônimo de dinheiro recebido.'),
-    'reconciliacao', (
+      'motivo', 'Não há como afirmar recebimento com a fonte autorizada de hoje. Medido em 28/09/2026 contra variável independente (o relatório de inadimplência do próprio dia): dos 101 títulos comprovadamente EM ABERTO, 101 tinham paymentDate preenchido, 19 com data posterior ao vencimento, e 61 tinham paidAmount igual ao netAmount. O financialStatement tem 13 campos e nenhum de situação, saldo ou pagamento. O que está medido abaixo é ALTERAÇÃO DE VALOR NA FONTE, que não é recebimento.'),
+    'conferencia', (
       select jsonb_build_object(
-        'valor_inicial', coalesce(sum(t.saldo_inicial), 0),
-        'reducao_observada', coalesce((select sum(valor_delta) from public.prev_evento ev
-                                        join public.prev_titulo t2 on t2.id = ev.titulo_id
-                                       where t2.carteira_id = p_carteira_id
-                                         and ev.tipo in ('QUITACAO_OBSERVADA', 'REDUCAO_SALDO_OBSERVADA')), 0),
-        'aumento_observado', coalesce((select sum(valor_delta) from public.prev_evento ev
-                                        join public.prev_titulo t2 on t2.id = ev.titulo_id
-                                       where t2.carteira_id = p_carteira_id
-                                         and ev.tipo = 'AUMENTO_SALDO_OBSERVADO'), 0),
-        'saldo_atual', coalesce(sum(coalesce(t.saldo_atual, t.saldo_inicial)), 0)
-      ) from public.prev_titulo t where t.carteira_id = p_carteira_id),
+        'valor_na_fonte_no_primeiro_ciclo', coalesce(sum(p.primeiro), 0),
+        'queda_registrada', coalesce((select sum(valor_delta) from public.prev_evento ev
+                                       join public.prev_titulo t2 on t2.id = ev.titulo_id
+                                      where t2.carteira_id = p_carteira_id
+                                        and ev.tipo in ('VALOR_FONTE_ZEROU', 'VALOR_FONTE_CAIU')), 0),
+        'alta_registrada', coalesce((select sum(valor_delta) from public.prev_evento ev
+                                      join public.prev_titulo t2 on t2.id = ev.titulo_id
+                                     where t2.carteira_id = p_carteira_id
+                                       and ev.tipo = 'VALOR_FONTE_SUBIU'), 0),
+        'valor_na_fonte_agora', coalesce(sum(p.agora), 0))
+        from (select
+                (select sn.valor_fonte from public.prev_titulo_snapshot sn
+                  where sn.titulo_id = t.id and sn.valor_fonte is not null
+                  order by sn.observado_em limit 1) primeiro,
+                t.valor_fonte agora
+              from public.prev_titulo t
+             where t.carteira_id = p_carteira_id and t.vinculo_prime = 'UNICO'
+               and t.valor_fonte is not null) p),
     'por_dia', (
       select coalesce(jsonb_agg(jsonb_build_object('dia', dia, 'titulos', n, 'valor', valor) order by dia), '[]'::jsonb)
         from (select (ev.observado_em at time zone 'America/Sao_Paulo')::date dia,
@@ -418,16 +494,18 @@ begin
                 from public.prev_evento ev
                 join public.prev_titulo t on t.id = ev.titulo_id
                where t.carteira_id = p_carteira_id
-                 and ev.tipo in ('QUITACAO_OBSERVADA', 'REDUCAO_SALDO_OBSERVADA')
+                 and ev.tipo in ('VALOR_FONTE_ZEROU', 'VALOR_FONTE_CAIU')
                group by 1) d),
     'alunos', (
       select jsonb_build_object(
-        'com_alguma_reducao', count(*) filter (where reduzidos > 0 and reduzidos < titulos),
-        'com_todos_quitados', count(*) filter (where zerados = titulos and titulos > 0),
-        'sem_movimento',      count(*) filter (where reduzidos = 0))
+        'com_alguma_queda', count(*) filter (where caiu > 0 and caiu < titulos),
+        'com_todos_zerados', count(*) filter (where zerados = titulos and titulos > 0),
+        'sem_alteracao',    count(*) filter (where caiu = 0))
         from (select t.matricula_prime, count(*) titulos,
-                     count(*) filter (where t.saldo_atual is not null and t.saldo_atual < t.saldo_inicial) reduzidos,
-                     count(*) filter (where t.saldo_atual is not null and t.saldo_atual <= 0) zerados
+                     count(*) filter (where exists (select 1 from public.prev_evento ev
+                                                     where ev.titulo_id = t.id
+                                                       and ev.tipo in ('VALOR_FONTE_ZEROU','VALOR_FONTE_CAIU'))) caiu,
+                     count(*) filter (where t.valor_fonte is not null and t.valor_fonte <= 0) zerados
                 from public.prev_titulo t where t.carteira_id = p_carteira_id
                group by 1) a)
   ) into v;
@@ -443,6 +521,7 @@ create or replace function public.preventivo_titulos(
   p_venc_ate date default null,
   p_faixa_atraso text default null,
   p_movimento text default null,
+  p_vinculo text default null,
   p_limite int default 500)
 returns jsonb
 language plpgsql
@@ -458,16 +537,18 @@ begin
   select coalesce(jsonb_agg(x order by x->>'vencimento'), '[]'::jsonb) into v from (
     select jsonb_build_object(
       'id', t.id, 'aluno', t.aluno_nome, 'matricula', t.matricula_prime,
-      'documento', t.documento, 'competencia', t.competencia, 'unidade', t.unidade,
-      'vencimento', t.vencimento, 'dias_atraso', (v_hoje - t.vencimento),
-      'valor_inicial', t.saldo_inicial, 'saldo_atual', t.saldo_atual,
-      'reducao', case when t.saldo_atual is null then null else t.saldo_inicial - t.saldo_atual end,
+      'documento', coalesce(t.documento_prime, t.documento),
+      'competencia', t.competencia, 'unidade', t.unidade,
+      'vencimento', t.vencimento, 'vencimento_origem', t.vencimento_origem,
+      'dias_atraso', (v_hoje - t.vencimento),
+      'saldo_informado', t.saldo_informado,
+      'valor_fonte', t.valor_fonte,
+      'vinculo', t.vinculo_prime, 'candidatos', t.candidatos_prime,
       'situacao_origem', t.situacao_origem, 'status', t.status,
       'portador', t.portador_atual, 'portador_nome', t.portador_nome,
-      'presente_no_extrato', t.presente_no_extrato,
-      'sinc_em', t.sinc_em, 'celular', t.celular, 'email', t.email,
+      'sinc_em', t.sinc_em, 'celular', t.celular_aluno, 'email', t.email_aluno,
       'lote', (select l.nome from public.prev_lote l where l.id = t.lote_origem_id),
-      'ultimo_movimento', (select jsonb_build_object('tipo', ev.tipo, 'em', ev.observado_em, 'valor', ev.valor_delta)
+      'ultima_alteracao', (select jsonb_build_object('tipo', ev.tipo, 'em', ev.observado_em, 'valor', ev.valor_delta)
                              from public.prev_evento ev where ev.titulo_id = t.id
                             order by ev.observado_em desc limit 1),
       'ultima_acao', (select jsonb_build_object('nome', a.nome, 'canal', a.canal, 'estado', a.estado,
@@ -482,6 +563,7 @@ begin
       and (p_lote_id is null or exists (select 1 from public.prev_titulo_lote tl
                                          where tl.titulo_id = t.id and tl.lote_id = p_lote_id))
       and (p_status is null or t.status = p_status)
+      and (p_vinculo is null or t.vinculo_prime = p_vinculo)
       and (p_venc_de is null or t.vencimento >= p_venc_de)
       and (p_venc_ate is null or t.vencimento <= p_venc_ate)
       and (p_faixa_atraso is null or (
@@ -494,9 +576,13 @@ begin
               else true end))
       and (p_movimento is null or (
             case
-              when p_movimento = 'com_reducao' then t.saldo_atual is not null and t.saldo_atual < t.saldo_inicial
-              when p_movimento = 'quitado'     then t.saldo_atual is not null and t.saldo_atual <= 0
-              when p_movimento = 'pendente'    then t.saldo_atual is null or t.saldo_atual >= t.saldo_inicial
+              when p_movimento = 'caiu'    then exists (select 1 from public.prev_evento ev
+                                                         where ev.titulo_id = t.id
+                                                           and ev.tipo in ('VALOR_FONTE_ZEROU','VALOR_FONTE_CAIU'))
+              when p_movimento = 'zerado'  then t.valor_fonte is not null and t.valor_fonte <= 0
+              when p_movimento = 'sem_alteracao' then not exists (select 1 from public.prev_evento ev
+                                                         where ev.titulo_id = t.id
+                                                           and ev.tipo in ('VALOR_FONTE_ZEROU','VALOR_FONTE_CAIU'))
               else true end))
     limit greatest(1, least(coalesce(p_limite, 500), 5000))
   ) q;
@@ -543,7 +629,7 @@ begin
   -- Um destinatário por TÍTULO elegível, e um contato por aluno no público.
   insert into public.prev_acao_destinatario (acao_id, titulo_id, matricula, aluno_nome, contato, incluido, motivo)
   select v_acao, t.id, t.matricula_prime, t.aluno_nome,
-         case when p_canal = 'WHATSAPP' then t.celular else t.email end,
+         case when p_canal = 'WHATSAPP' then t.celular_aluno else t.email_aluno end,
          false, null
     from public.prev_titulo t
    where t.carteira_id = p_carteira_id
@@ -561,11 +647,23 @@ begin
         case
           when t.status <> 'ATIVO'                      then 'FORA_DA_JANELA_PREVENTIVA'
           when (v_hoje - t.vencimento) > public.preventivo_limite_dias() then 'FORA_DA_JANELA_PREVENTIVA'
-          when t.saldo_atual is not null and t.saldo_atual <= 0 then 'SALDO_ZERADO'
-          when t.presente_no_extrato is false           then 'AUSENTE_NO_EXTRATO_DO_PRIME'
+          -- Só sai do público o que tem PROVA de que não deve ser cobrado.
+          -- Vínculo pendente ou ambíguo NÃO exclui ninguém: ele é mostrado no
+          -- resumo da ação, porque a alternativa (bloquear) deixaria a frente
+          -- parada enquanto o acesso de pagamento não existir, e o arquivo da
+          -- gestão já é a fonte que diz quem está inadimplente.
+          when t.valor_fonte is not null and t.valor_fonte <= 0 then 'VALOR_NA_FONTE_ZERADO'
           when upper(coalesce(t.situacao_origem, '')) like '%CANCEL%' then 'SITUACAO_CANCELADA_NA_ORIGEM'
-          when p_canal = 'WHATSAPP' and t.celular is null then 'SEM_CELULAR_VALIDO'
-          when p_canal = 'EMAIL'    and t.email is null   then 'SEM_EMAIL_VALIDO'
+          when p_canal = 'WHATSAPP' and t.celulares_no_arquivo > 1 then 'CELULAR_AMBIGUO_NO_ARQUIVO'
+          when p_canal = 'WHATSAPP' and t.celular_aluno is null then 'SEM_CELULAR_VALIDO'
+          when p_canal = 'EMAIL'    and t.emails_no_arquivo > 1
+               and coalesce((p_filtros->>'usar_primeiro_email')::boolean, false) is not true
+                                                                then 'EMAIL_MULTIPLO_NO_ARQUIVO'
+          when p_canal = 'EMAIL'    and t.email_aluno is null
+               and coalesce((p_filtros->>'usar_primeiro_email')::boolean, false) is not true
+                                                                then 'SEM_EMAIL_VALIDO'
+          when p_canal = 'EMAIL'    and t.email_aluno is null
+               and coalesce(t.emails_no_arquivo, 0) = 0         then 'SEM_EMAIL_VALIDO'
         end as motivo
       from public.prev_acao_destinatario d2
       join public.prev_titulo t on t.id = d2.titulo_id
@@ -621,7 +719,16 @@ begin
     'alunos', (select count(distinct d.matricula) from public.prev_acao_destinatario d where d.acao_id = a.id and d.incluido),
     'separados', (select coalesce(jsonb_object_agg(motivo, n), '{}'::jsonb)
                     from (select motivo, count(*) n from public.prev_acao_destinatario
-                           where acao_id = a.id and not incluido and motivo is not null group by 1) s)
+                           where acao_id = a.id and not incluido and motivo is not null group by 1) s),
+    -- CONFERÊNCIA FINANCEIRA DO PÚBLICO. Não bloqueia, mas não deixa a lista
+    -- passar por conferida: diz de quantos destinatários o Prime conseguiu
+    -- falar e de quantos não.
+    'conferencia_financeira', (
+      select coalesce(jsonb_object_agg(vinculo_prime, n), '{}'::jsonb)
+        from (select t.vinculo_prime, count(*) n
+                from public.prev_acao_destinatario d
+                join public.prev_titulo t on t.id = d.titulo_id
+               where d.acao_id = a.id and d.incluido group by 1) c)
   ) into v from public.prev_acao a where a.id = p_acao_id;
   return v;
 end;
@@ -642,7 +749,7 @@ begin
   select coalesce(jsonb_agg(jsonb_build_object(
     'matricula', d.matricula, 'aluno', d.aluno_nome, 'contato', d.contato,
     'documento', t.documento, 'vencimento', t.vencimento,
-    'valor_inicial', t.saldo_inicial, 'saldo_atual', t.saldo_atual,
+    'saldo_informado', t.saldo_informado, 'valor_fonte', t.valor_fonte,
     'incluido', d.incluido, 'motivo', d.motivo) order by d.aluno_nome), '[]'::jsonb)
     into v
     from public.prev_acao_destinatario d
@@ -714,7 +821,7 @@ begin
                     on d.titulo_id = ev.titulo_id and d.acao_id = a.id and d.incluido
                  where a.envio_confirmado_em is not null
                    and ev.observado_em > a.envio_confirmado_em
-                   and ev.tipo in ('QUITACAO_OBSERVADA', 'REDUCAO_SALDO_OBSERVADA'))) as x
+                   and ev.tipo in ('VALOR_FONTE_ZEROU', 'VALOR_FONTE_CAIU'))) as x
       from public.prev_acao a where a.carteira_id = p_carteira_id
   ) q;
   return v;
@@ -722,7 +829,7 @@ end;
 $$;
 
 comment on function public.preventivo_acoes(uuid) is
-  'Resultado por ação. `movimento_apos_envio` é movimento de saldo DEPOIS do envio confirmado — não prova que o envio causou o pagamento, e a tela diz isso com todas as letras.';
+  'Resultado por ação. `movimento_apos_envio` é QUEDA DO VALOR NA FONTE depois do envio confirmado — não é pagamento e não prova que o envio causou coisa alguma. A tela diz isso com todas as letras.';
 
 do $$
 declare f text;
@@ -735,7 +842,7 @@ begin
     'preventivo_sinc_concluir(uuid, text)',
     'preventivo_sinc_situacao(uuid)',
     'preventivo_resultados(uuid)',
-    'preventivo_titulos(uuid, uuid, text, date, date, text, text, integer)',
+    'preventivo_titulos(uuid, uuid, text, date, date, text, text, text, integer)',
     'preventivo_acao_preparar(uuid, text, text, jsonb)',
     'preventivo_acao_resumo(uuid)',
     'preventivo_acao_publico(uuid, boolean)',

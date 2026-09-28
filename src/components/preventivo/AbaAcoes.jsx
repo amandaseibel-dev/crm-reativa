@@ -17,13 +17,21 @@ import { csv, COLUNAS_WHATSAPP, COLUNAS_EMAIL, COLUNAS_SEPARADOS } from "../../u
 
 const MOTIVOS = {
   FORA_DA_JANELA_PREVENTIVA: "fora da janela de 31 dias",
-  SALDO_ZERADO: "saldo já está zerado",
-  AUSENTE_NO_EXTRATO_DO_PRIME: "sumiu do extrato do Prime (não é o mesmo que pago)",
+  VALOR_NA_FONTE_ZERADO: "o valor do título já está zerado na fonte",
   SITUACAO_CANCELADA_NA_ORIGEM: "situação cancelada na origem",
   SEM_CELULAR_VALIDO: "sem celular válido (fixo ou número incompleto não entram)",
+  CELULAR_AMBIGUO_NO_ARQUIVO: "o arquivo traz mais de um celular diferente — não se escolhe um",
   SEM_EMAIL_VALIDO: "sem e-mail válido",
+  EMAIL_MULTIPLO_NO_ARQUIVO: "o arquivo traz mais de um e-mail — não se escolhe um sozinho",
   CONTATO_COMPARTILHADO_COM_OUTRO_ALUNO: "mesmo contato aparece para outro aluno",
   OUTRO_TITULO_DO_MESMO_ALUNO_JA_NO_PUBLICO: "o aluno já está no público por outro título",
+};
+
+const ROTULO_VINCULO = {
+  UNICO: "conferido no Prime",
+  AMBIGUO: "vínculo ambíguo no Prime",
+  NAO_ENCONTRADO: "não encontrado no Prime",
+  PENDENTE: "ainda não consultado no Prime",
 };
 
 const ESTADOS = {
@@ -44,7 +52,7 @@ export default function AbaAcoes({ carteira }) {
   const [acoes, setAcoes] = useState(null);
   const [situacao, setSituacao] = useState(null);
   const [erro, setErro] = useState("");
-  const [nova, setNova] = useState({ nome: "", canal: "WHATSAPP", venc_de: "", venc_ate: "" });
+  const [nova, setNova] = useState({ nome: "", canal: "WHATSAPP", venc_de: "", venc_ate: "", usarPrimeiroEmail: false });
   const [ocupado, setOcupado] = useState("");
   const [aberta, setAberta] = useState(null);
 
@@ -73,6 +81,8 @@ export default function AbaAcoes({ carteira }) {
     const filtros = {};
     if (nova.venc_de) filtros.venc_de = nova.venc_de;
     if (nova.venc_ate) filtros.venc_ate = nova.venc_ate;
+    // A escolha fica registrada na própria ação — não é um padrão escondido.
+    if (nova.canal === "EMAIL" && nova.usarPrimeiroEmail) filtros.usar_primeiro_email = true;
     const { data, error } = await supabase.rpc("preventivo_acao_preparar", {
       p_carteira_id: carteira.id, p_nome: nova.nome.trim(), p_canal: nova.canal, p_filtros: filtros,
     });
@@ -115,9 +125,12 @@ export default function AbaAcoes({ carteira }) {
       <div style={{ ...S.card, padding: 20 }}>
         <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Montar um público</h2>
         <p style={{ ...S.muted, marginTop: 6, maxWidth: 820 }}>
-          O público sai da carteira atual, com a última atualização financeira disponível.
-          Ficam de fora, com o motivo ao lado: título fora da janela, saldo zerado, situação
-          cancelada, contato inválido e contato repetido entre alunos diferentes.
+          O público sai da carteira que você importou — nada é acrescentado de fora dela.
+          Ficam de fora, com o motivo ao lado: título fora da janela de 31 dias, valor já
+          zerado na fonte, situação cancelada, contato inválido, contato ambíguo no arquivo
+          e contato repetido entre alunos diferentes. Vínculo pendente com o Prime{" "}
+          <strong>não</strong> exclui ninguém — mas aparece no resumo, para a lista nunca
+          passar por conferida.
         </p>
         <form onSubmit={preparar} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 12 }}>
           <div>
@@ -142,6 +155,13 @@ export default function AbaAcoes({ carteira }) {
             <input type="date" style={{ ...S.input, minWidth: 0 }} value={nova.venc_ate}
                    onChange={(e) => setNova({ ...nova, venc_ate: e.target.value })} />
           </div>
+          {nova.canal === "EMAIL" && (
+            <label style={{ ...S.muted, display: "flex", alignItems: "center", gap: 6, fontSize: 12.5 }}>
+              <input type="checkbox" checked={nova.usarPrimeiroEmail}
+                     onChange={(e) => setNova({ ...nova, usarPrimeiroEmail: e.target.checked })} />
+              usar o primeiro e-mail quando a linha trouxer mais de um
+            </label>
+          )}
           <button type="submit" disabled={ocupado === "preparar"} style={S.btnGhost}>
             {ocupado === "preparar" ? "Montando…" : "Revisar elegibilidade"}
           </button>
@@ -195,17 +215,18 @@ export default function AbaAcoes({ carteira }) {
                 <div style={{ padding: "0 16px 14px" }}>
                   <strong style={{ fontSize: 13 }}>
                     Depois do envio: {a.movimento_apos_envio?.titulos || 0} título(s),{" "}
-                    {moeda(a.movimento_apos_envio?.valor || 0)} de redução de saldo.
+                    {moeda(a.movimento_apos_envio?.valor || 0)} de queda do valor na fonte.
                   </strong>
                   <p style={{ ...S.muted, marginTop: 4, fontSize: 12 }}>
-                    Pagamento posterior ao envio não prova que o envio causou o pagamento. E o
-                    mesmo título pode estar em mais de uma ação — o consolidado da carteira
-                    conta cada movimento uma vez só.
+                    Queda de valor não é pagamento, e queda posterior ao envio não prova que o
+                    envio causou coisa alguma. E o mesmo título pode estar em mais de uma ação
+                    — o consolidado da carteira conta cada alteração uma vez só.
                   </p>
                 </div>
               )}
 
-              {aberta === a.id && <Detalhe acaoId={a.id} separados={a.separados} />}
+              {aberta === a.id && <Detalhe acaoId={a.id} separados={a.separados}
+                                   conferencia={a.conferencia_financeira} />}
             </div>
           ))}
       </div>
@@ -213,7 +234,7 @@ export default function AbaAcoes({ carteira }) {
   );
 }
 
-function Detalhe({ acaoId, separados }) {
+function Detalhe({ acaoId, separados, conferencia }) {
   const [publico, setPublico] = useState(null);
   useEffect(() => {
     supabase.rpc("preventivo_acao_publico", { p_acao_id: acaoId, p_incluidos: true })
@@ -222,6 +243,18 @@ function Detalhe({ acaoId, separados }) {
 
   return (
     <div style={{ padding: "0 16px 16px" }}>
+      {Object.keys(conferencia || {}).length > 0 && (
+        <div style={{ marginBottom: 12 }}>
+          <h4 style={{ ...S.cardResumo, margin: "0 0 6px" }}>
+            Conferência financeira de quem ESTÁ no público
+          </h4>
+          <ul style={{ ...S.muted, margin: 0, paddingLeft: 18 }}>
+            {Object.entries(conferencia).map(([k, n]) => (
+              <li key={k}>{n} — {ROTULO_VINCULO[k] || k}</li>
+            ))}
+          </ul>
+        </div>
+      )}
       {Object.keys(separados || {}).length > 0 && (
         <div style={{ marginBottom: 12 }}>
           <h4 style={{ ...S.cardResumo, margin: "0 0 6px" }}>Quem ficou de fora, e por quê</h4>
@@ -236,7 +269,7 @@ function Detalhe({ acaoId, separados }) {
         <table style={S.tabela}>
           <thead><tr>
             <th style={S.th}>Aluno</th><th style={S.th}>Matrícula</th>
-            <th style={S.th}>Contato</th><th style={S.th}>Título</th><th style={S.thNum}>Saldo</th>
+            <th style={S.th}>Contato</th><th style={S.th}>Venc.</th><th style={S.thNum}>Saldo informado</th>
           </tr></thead>
           <tbody>
             {publico.slice(0, 50).map((p, i) => (
@@ -244,8 +277,8 @@ function Detalhe({ acaoId, separados }) {
                 <td style={S.td}>{p.aluno}</td>
                 <td style={S.td}>{p.matricula}</td>
                 <td style={S.td}>{p.contato}</td>
-                <td style={S.td}>{p.documento}</td>
-                <td style={S.tdNum}>{moeda(p.saldo_atual ?? p.valor_inicial)}</td>
+                <td style={S.td}>{p.vencimento}</td>
+                <td style={S.tdNum}>{moeda(p.saldo_informado)}</td>
               </tr>
             ))}
           </tbody>

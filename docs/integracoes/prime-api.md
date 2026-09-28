@@ -77,10 +77,18 @@ ReATIVA convênio 0272047") e 195 (mensalidades, "Reativa Recuperação de
 Crédito") são carteira da Reativa, por decisão da gestão. O portador **95**
 ("SANTANDER CC 13050976-6 - CONVENIO 272036") **não é carteira da Reativa**:
 é onde vive a mensalidade CORRENTE da ULBRA — a que ainda vai vencer e a que
-está em atraso inicial. Medido em 28/09/2026: 302.477 linhas, 17.718 alunos,
-19.795 títulos a vencer e 7.182 com 1 a 31 dias de atraso. É o universo da
-frente PREVENTIVO (`docs/preventivo/README.md`), e ler dele **não** coloca
-ninguém em cobrança. 165 e 202 são
+está em atraso inicial. Medido em 28/09/2026 **no espelho `prime_extrato`**: 302.477 linhas, 17.718
+alunos, 19.795 títulos a vencer e 7.182 com 1 a 31 dias de atraso.
+
+**Abrangência, com a ressalva que importa:** esses números descrevem os 17.744
+alunos que estão na fila do espelho, **não** a base inteira da ULBRA. O
+portador 95 é onde a mensalidade corrente vive, e foi confirmado como o portador
+dos títulos do relatório de inadimplência (de 120 linhas conferidas, 101 tinham
+o aluno no espelho e as 101 casaram com título no portador 95; zero no 195). Mas
+**o portador 95 não é, e não pode virar, um público automático**: a carteira do
+Preventivo é sempre o arquivo que a gestão importa. Aqui ele é informação
+técnica — serve para saber onde procurar o título, nunca para escolher quem
+receberá mensagem. Ver `docs/preventivo/README.md`. 165 e 202 são
 judiciais e ficam fora de escopo por decisão, não por limitação técnica.
 
 **Segurança:** READ ONLY
@@ -290,9 +298,24 @@ ver `regra-entrada-prime-liquidado-nao-e-pagamento` e `docs/PREMISSAS.md`);
 decomposição de valor; ponte `boleto` (7 díg.) ↔ `acordos_titulos.documento`.
 
 **Limitações conhecidas:**
-- **NÃO HÁ CAMPO DE SITUAÇÃO.** Conferido ao vivo em 28/09/2026 (`GET
-  /students/{registration}`, pela Edge Function `prime-acordo`, que devolve a
-  lista de chaves do bloco): os 13 campos acima são todos os que existem.
+- **NÃO HÁ CAMPO DE SITUAÇÃO — e isso foi provado, não deduzido.** Conferido ao
+  vivo em 28/09/2026 (`GET /students/{registration}`, pela Edge Function
+  `prime-acordo`, que devolve a lista de chaves do bloco): os 13 campos acima
+  são todos os que existem.
+- **A prova usa variável independente**, não o próprio campo (regra de
+  `regra-revisar-duas-vezes-antes-de-aplicar`): o relatório de inadimplência da
+  ULBRA de 28/09/2026 diz, por fora da API, quem está EM ABERTO naquele dia.
+  Cruzando 120 linhas dele com o espelho, 101 títulos ficaram confirmados como
+  ABERTOS. **Desses 101 títulos abertos:** 101 tinham `paymentDate` preenchido,
+  19 com data POSTERIOR ao vencimento, 61 tinham `paidAmount` IGUAL ao
+  `netAmount` e 27 tinham `paidAmount` MENOR que o `netAmount`. As duas
+  assinaturas que qualquer um leria como "pagou" aparecem em massa em títulos
+  que estão abertos;
+- comparando três grupos dos MESMOS alunos no mesmo instante — 101 abertos, 24
+  mensalidades de jul/ago e 315 títulos futuros — **nenhum campo separa os
+  grupos**: `paymentDate` nulo = 0 nos três, `isAgreementInstallment` = false
+  nos três, portador = 95 nos três. Nos futuros, `paymentDate <= dueDate` em
+  315 de 315, o que confirma que é data de processamento;
   Nenhum diz se o título está pago, em aberto, cancelado ou renegociado, e não
   há saldo em aberto. Qualquer acompanhamento de pagamento por esta API é
   comparação entre duas consultas, e **redução de saldo não é sinônimo de
@@ -322,7 +345,13 @@ decomposição de valor; ponte `boleto` (7 díg.) ↔ `acordos_titulos.documento
 com corte de data e travas de corroboração (ver `docs/PREMISSAS.md`).
 `paidAmount` nunca automatiza nada: não é caixa.
 
-**Fallback:** nenhum equivalente para o que este endpoint não cobre (acordo).
+**Fallback:** nenhum. Verificado em 28/09/2026 que **não existe outra
+integração autorizada** com situação de título ou recebimento da mensalidade
+corrente: `public.pagamentos` (9.584 linhas, o extrato Santander da Reativa)
+tem `titulo_numero` de **5 dígitos**, que é o número do ACORDO da Reativa — não
+é boleto de 7 dígitos e não tem como carregar pagamento de título do portador
+95. As rotas `/payments`, `/titles`, `/bills`, `/installments` e
+`/students/{reg}/titles` seguem 404 desde 15/09/2026.
 
 **Não inferir:** presença de `paymentDate` = pagamento. Mesma paymentDate em
 duas linhas = mesmo acordo (regra testada e invalidada).

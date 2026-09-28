@@ -134,7 +134,7 @@ export default function Preventivo() {
             <div style={S.contadores}>
               <span style={S.contadorAlunos}>{carteira?.alunos || 0} alunos</span>
               <span style={S.contadorAcordos}>{carteira?.titulos || 0} títulos</span>
-              <span style={S.contadorValor}>{moeda(carteira?.valor_inicial)} na entrada</span>
+              <span style={S.contadorValor}>{moeda(carteira?.saldo_informado)} de saldo informado</span>
             </div>
           </div>
 

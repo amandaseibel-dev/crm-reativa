@@ -121,7 +121,7 @@ create table if not exists public.prev_carteira (
 );
 
 comment on table public.prev_carteira is
-  'Carteira preventiva: um recorte nomeado de títulos por janela de vencimento. O valor inicial em aberto é preservado título a título (prev_titulo.saldo_inicial), não recalculado.';
+  'Carteira preventiva: um recorte nomeado de títulos por janela de vencimento. O saldo em aberto informado pelo arquivo é preservado título a título (prev_titulo.saldo_informado), nunca recalculado.';
 
 -- -----------------------------------------------------------------------------
 -- 3. LOTE DE IMPORTAÇÃO
@@ -166,27 +166,64 @@ create table if not exists public.prev_titulo (
   id                uuid primary key default gen_random_uuid(),
   carteira_id       uuid not null references public.prev_carteira(id) on delete cascade,
   matricula_prime   text not null,
-  documento         text not null,
+
+  -- IDENTIDADE DENTRO DA CARTEIRA. Medido no relatório real de 28/09/2026
+  -- ("relatorio_inadimplencia 28.09.csv", 3.494 linhas): o relatório de
+  -- inadimplência da ULBRA NÃO traz identificador de título — não tem boleto
+  -- nem documentNumber. Traz `Código` (= matrícula), `Dt Vcto` e
+  -- `Vcto Origem`. Então a identidade do título DENTRO da carteira é o que o
+  -- arquivo sabe dizer: `chave_arquivo`. Quando o arquivo trouxer um
+  -- identificador de título, `documento` é preenchido e vira a chave.
+  documento         text,
+  vencimento        date not null,
+  vencimento_origem date,
+  chave_arquivo     text not null,
+
   unidade           text,
   contrato          text,
   aluno_nome        text not null,
   cpf               text,
   competencia       text,
-  vencimento        date not null,
+
+  -- VALOR INFORMADO PELO ARQUIVO. `saldo_informado` é o "Saldo Original" do
+  -- relatório: ali a palavra saldo tem dono e definição (é o relatório de
+  -- inadimplência da ULBRA que a chama assim). NÃO confundir com nada vindo
+  -- da API — ver os campos `valor_fonte_*` abaixo.
   valor_original    numeric(14,2) not null,
-  saldo_inicial     numeric(14,2) not null,
+  saldo_informado   numeric(14,2) not null,
+  saldo_informado_atualizado numeric(14,2),
   situacao_origem   text,
-  celular           text,
-  email             text,
+  -- O sufixo `_aluno` NÃO é enfeite. `public.propagar_nome_usuario()` (rotina
+  -- viva em produção) varre `information_schema` atrás de qualquer coluna com
+  -- "email" no nome que tenha uma irmã "nome", e sobrescreve a irmã com o nome
+  -- de um OPERADOR. Ela pula o que tem "aluno" no nome da coluna. Sem este
+  -- sufixo, uma coluna `nome` acrescentada aqui no futuro faria uma rotina da
+  -- cobrança escrever dentro do Preventivo. Mesma razão para nunca existir
+  -- `aluno_id` aqui: `public.mesclar_aluno_duplicado()` varre todas as tabelas
+  -- com essa coluna exata.
+  celular_aluno     text,
+  email_aluno       text,
+  -- quantos contatos DIFERENTES a linha do arquivo trazia. > 1 significa
+  -- ambíguo: o contato fica vazio e o aluno é separado do público com motivo.
+  celulares_no_arquivo integer not null default 0,
+  emails_no_arquivo    integer not null default 0,
   lote_origem_id    uuid references public.prev_lote(id) on delete set null,
   lote_ultimo_id    uuid references public.prev_lote(id) on delete set null,
   criado_em         timestamptz not null default now(),
   atualizado_em     timestamptz not null default now(),
 
-  -- estado financeiro observado na última sincronização bem-sucedida
-  saldo_atual       numeric(14,2),
-  valor_bruto_prime numeric(14,2),
-  valor_corrigido_prime numeric(14,2),
+  -- VÍNCULO COM O TÍTULO DO PRIME. Não é suposição: só vira UNICO quando
+  -- existe exatamente UM título do aluno com aquele vencimento no extrato.
+  vinculo_prime     text not null default 'PENDENTE'
+                    check (vinculo_prime in ('PENDENTE', 'UNICO', 'AMBIGUO', 'NAO_ENCONTRADO')),
+  documento_prime   text,
+  candidatos_prime  integer,
+
+  -- VALORES LIDOS DA API, com o nome do campo da API. Nenhum deles é saldo:
+  -- a API não expõe saldo em aberto (ver migration de sincronização).
+  valor_fonte           numeric(14,2),
+  valor_fonte_bruto     numeric(14,2),
+  valor_fonte_corrigido numeric(14,2),
   portador_atual    integer,
   portador_nome     text,
   sinc_em           timestamptz,
@@ -198,20 +235,33 @@ create table if not exists public.prev_titulo (
   saiu_em           date,
   saida_motivo      text,
 
-  constraint prev_titulo_chave unique (carteira_id, matricula_prime, documento)
+  constraint prev_titulo_chave unique (carteira_id, matricula_prime, chave_arquivo)
 );
 
 comment on table public.prev_titulo is
-  'Um título de mensalidade dentro de uma carteira preventiva. saldo_inicial é o valor em aberto na ENTRADA e nunca é reescrito por sincronização — é o denominador do painel.';
-comment on column public.prev_titulo.saldo_atual is
-  'Último saldo observado no Prime. NULL = nunca sincronizado com sucesso. Falha de consulta NÃO zera nem apaga este valor: preserva o anterior e a tela mostra que está desatualizado (prev_titulo.sinc_em).';
+  'Um título de mensalidade dentro de uma carteira preventiva, do jeito que o ARQUIVO importado o descreve. A carteira é definida pelo arquivo da gestão — nada entra aqui por varredura de portador.';
+comment on column public.prev_titulo.chave_arquivo is
+  'Identidade do título dentro da carteira. É `documento` quando o arquivo traz identificador de título; senão é vencimento|vencimento_origem, que foi o que o relatório real de 28/09/2026 tinha para distinguir dois títulos do mesmo aluno.';
+comment on column public.prev_titulo.vencimento is
+  'O vencimento ATUAL do boleto ("Dt Vcto" no relatório). É ele que rege a janela de 31 dias e é ele que casa com o `dueDate` da API. MEDIDO em 28/09/2026 nas 35 linhas do relatório em que as duas datas divergem: 21 tinham o aluno no espelho e 21 casaram por Dt Vcto; só 3 casaram por Vcto Origem, e nenhuma casou SÓ por Vcto Origem.';
+comment on column public.prev_titulo.vencimento_origem is
+  'O vencimento original da mensalidade ("Vcto Origem"). Serve para distinguir linhas do mesmo aluno e como competência. NÃO rege a janela e NÃO casa com a API quando o boleto foi reemitido.';
+comment on column public.prev_titulo.saldo_informado is
+  'Saldo em aberto conforme o ARQUIVO importado, na data da extração. Nunca é reescrito por sincronização — é o valor de entrada da carteira.';
+comment on column public.prev_titulo.vinculo_prime is
+  'PENDENTE (ainda não consultado) · UNICO (exatamente um título do aluno com aquele vencimento no extrato) · AMBIGUO (mais de um candidato — fica pendente, NUNCA se escolhe por suposição) · NAO_ENCONTRADO. Só UNICO entra em público de ação e em conta de variação.';
+comment on column public.prev_titulo.valor_fonte is
+  'netAmount do título na API, na última consulta. NÃO É SALDO EM ABERTO: é o valor do título (principal − desconto + multa + juros + honorário). A API não expõe saldo nem situação. NULL = nunca consultado com vínculo único.';
+comment on column public.prev_titulo.valor_fonte_corrigido is
+  'paidAmount cru. GUARDADO PARA ESTUDO, NUNCA SOMADO COMO CAIXA. Medido 28/09/2026 contra variável independente (o relatório de inadimplência do dia): entre 101 títulos COMPROVADAMENTE EM ABERTO, 61 tinham paidAmount IGUAL ao netAmount — a assinatura que alguém leria como "pagou o valor cheio".';
 comment on column public.prev_titulo.status is
-  'ATIVO enquanto na janela (atraso <= 31 dias corridos, America/Sao_Paulo). FORA_DA_JANELA sai das ações NOVAS e mantém todo o histórico para consulta. O título NÃO é transferido para a cobrança por esta rotina.';
+  'ATIVO enquanto na janela (atraso <= 31 dias corridos sobre o VENCIMENTO ATUAL, America/Sao_Paulo). FORA_DA_JANELA sai das ações NOVAS e mantém todo o histórico para consulta. O título NÃO é transferido para a cobrança por esta rotina.';
 
 create index if not exists prev_titulo_carteira_status_idx on public.prev_titulo (carteira_id, status);
 create index if not exists prev_titulo_vencimento_idx      on public.prev_titulo (carteira_id, vencimento);
 create index if not exists prev_titulo_matricula_idx       on public.prev_titulo (matricula_prime);
-create index if not exists prev_titulo_documento_idx       on public.prev_titulo (documento);
+create index if not exists prev_titulo_documento_idx       on public.prev_titulo (documento_prime);
+create index if not exists prev_titulo_vinculo_idx         on public.prev_titulo (carteira_id, vinculo_prime);
 
 -- Qual lote trouxe qual título. O mesmo título pode aparecer em vários lotes;
 -- o consolidado conta pelo TÍTULO, nunca pela linha de lote — é o que impede
@@ -272,16 +322,16 @@ create table if not exists public.prev_titulo_snapshot (
   titulo_id           uuid not null references public.prev_titulo(id) on delete cascade,
   observado_em        timestamptz not null default now(),
   presente_no_extrato boolean not null,
-  saldo               numeric(14,2),
-  valor_bruto         numeric(14,2),
-  valor_corrigido     numeric(14,2),
+  valor_fonte           numeric(14,2),
+  valor_fonte_bruto     numeric(14,2),
+  valor_fonte_corrigido numeric(14,2),
   vencimento          date,
   portador            integer,
   liquidado_em_prime  date,
   constraint prev_snapshot_unico unique (sinc_id, titulo_id)
 );
 
-comment on column public.prev_titulo_snapshot.valor_corrigido is
+comment on column public.prev_titulo_snapshot.valor_fonte_corrigido is
   'paidAmount cru do Prime. GUARDADO PARA ESTUDO, NUNCA SOMADO COMO CAIXA: medido em 28/09/2026 que paidAmount é valor de tabela/dívida corrigida — aparece como o DOBRO exato do principal em títulos vencidos e MAIOR que o principal em títulos ainda a vencer. Ver docs/integracoes/prime-api.md.';
 comment on column public.prev_titulo_snapshot.liquidado_em_prime is
   'paymentDate cru do Prime. GUARDADO, NUNCA INTERPRETADO COMO PAGAMENTO: medido em 28/09/2026 que 100% das linhas do extrato têm paymentDate preenchido, inclusive títulos a vencer (0 de 302.477 linhas do portador 95 com paymentDate nulo). Ver docs/integracoes/prime-api.md.';
@@ -301,27 +351,30 @@ create table if not exists public.prev_evento (
   titulo_id              uuid not null references public.prev_titulo(id) on delete cascade,
   sinc_id                uuid not null references public.prev_sinc(id) on delete cascade,
   tipo                   text not null check (tipo in (
-                           'QUITACAO_OBSERVADA',
-                           'REDUCAO_SALDO_OBSERVADA',
-                           'AUMENTO_SALDO_OBSERVADO',
+                           'VALOR_FONTE_ZEROU',
+                           'VALOR_FONTE_CAIU',
+                           'VALOR_FONTE_SUBIU',
                            'MUDANCA_DE_PORTADOR',
                            'AUSENTE_NO_EXTRATO',
-                           'RETORNO_AO_EXTRATO')),
-  saldo_antes            numeric(14,2),
-  saldo_depois           numeric(14,2),
+                           'RETORNO_AO_EXTRATO',
+                           'VINCULO_AMBIGUO',
+                           'VINCULO_RESOLVIDO')),
+  valor_fonte_antes      numeric(14,2),
+  valor_fonte_depois     numeric(14,2),
   valor_delta            numeric(14,2),
   observado_em           timestamptz not null default now(),
   e_pagamento_comprovado boolean not null default false,
   detalhe                jsonb not null default '{}'::jsonb,
-  -- idempotência: o mesmo movimento observado de novo não vira segundo evento
   chave                  text not null,
   constraint prev_evento_chave_unica unique (chave)
 );
 
 comment on table public.prev_evento is
-  'Movimento de saldo observado título a título entre duas sincronizações. NÃO é registro de pagamento. Reconsultar o Prime não duplica evento: a coluna `chave` é única e carrega titulo + tipo + saldos + dia.';
+  'ALTERAÇÃO DE VALOR NA FONTE, título a título, entre duas consultas à API. Não é registro de pagamento e não é movimento de saldo: o que muda é o `netAmount` do título, que é o VALOR do título, não um saldo em aberto — a API não expõe saldo. Reconsultar não duplica: `chave` é única.';
+comment on column public.prev_evento.valor_fonte_antes is
+  'netAmount na consulta anterior. A palavra saldo não aparece aqui de propósito.';
 comment on column public.prev_evento.e_pagamento_comprovado is
-  'Sempre falso hoje. Só pode virar verdadeiro com fonte que traga DATA e VALOR do pagamento — a API do Prime não traz nenhuma das duas (paidAmount é dívida corrigida/valor de tabela, não caixa). Ver docs/integracoes/prime-gaps.md.';
+  'Sempre falso hoje, e não há caminho no código que o torne verdadeiro. Provado em 28/09/2026 com variável independente (o relatório de inadimplência do próprio dia, que diz quem está EM ABERTO): dos 101 títulos comprovadamente em aberto, 101 tinham paymentDate preenchido, 19 com data POSTERIOR ao vencimento, e 61 tinham paidAmount igual ao netAmount. Nenhum campo da API separa aberto de pago.';
 
 create index if not exists prev_evento_titulo_idx on public.prev_evento (titulo_id, observado_em desc);
 create index if not exists prev_evento_tipo_idx   on public.prev_evento (tipo, observado_em desc);

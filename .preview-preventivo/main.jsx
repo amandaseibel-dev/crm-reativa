@@ -13,8 +13,11 @@ createRoot(document.getElementById("root")).render(
   <>
     <div style={{ background: "#0f172a", color: "#fff", padding: "8px 16px",
                   fontSize: 13, fontFamily: "system-ui, sans-serif" }}>
-      <strong>PREVIEW</strong>{" "}
-      <span style={{ color: "#94a3b8" }}>dados de exemplo · sem banco · sem login · nada é enviado</span>
+      <strong>PREVIEW — DADOS DE EXEMPLO, INVENTADOS</strong>{" "}
+      <span style={{ color: "#94a3b8" }}>
+        nenhum aluno, título, telefone ou valor desta tela é real · sem banco · sem login ·
+        nada é enviado a ninguém
+      </span>
     </div>
     <BrowserRouter>
       <Routes>

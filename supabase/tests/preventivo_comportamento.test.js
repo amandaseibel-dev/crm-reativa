@@ -7,8 +7,8 @@
 //   2. importar e reimportar o mesmo arquivo não duplica título nem valor,
 //      e não reescreve o valor de entrada da carteira;
 //   3. a prévia não grava nada;
-//   4. redução de saldo NÃO vira pagamento, e reconsultar o Prime não
-//      duplica movimento;
+//   4. alteração de valor na fonte NÃO vira pagamento nem saldo, e
+//      reconsultar o Prime não duplica nada;
 //   5. sumir do extrato não vira recebimento e não apaga o saldo anterior;
 //   6. falha de consulta preserva o dado anterior;
 //   7. a exportação respeita janela, saldo, situação e contato válido, e
@@ -73,9 +73,13 @@ async function carteiraCom(db, linhas, { venc_de = "2020-01-01", venc_ate = "203
 }
 
 // Uma linha de arquivo com tudo válido; cada teste muda só o que interessa.
+// O relatório REAL da ULBRA não traz identificador de título (medido em
+// 28/09/2026), então `documento` é opcional aqui de propósito: quem identifica
+// o título dentro da carteira é `vencimento` + `vencimento_origem`.
 const linha = (over = {}) => ({
-  matricula: "2026000001", documento: "9000001", aluno_nome: "Fulana de Tal",
-  cpf: "00000000191", competencia: "2026/2", vencimento: "2026-09-25",
+  matricula: "2026000001", aluno_nome: "Fulana de Tal",
+  cpf: "00000000191", competencia: "2026/2",
+  vencimento: "2026-09-25", vencimento_origem: "2026-09-05",
   valor: "500.00", saldo: "500.00", situacao: "EM ABERTO",
   celular: "(51) 99999-0001", email: "fulana@exemplo.com", ...over,
 });
@@ -138,14 +142,14 @@ describe("Preventivo — importação", () => {
     await um(db, `select public.preventivo_lote_confirmar($1::uuid, 'Lote 2', 'arquivo.xlsx', '{}'::jsonb, null, $2::jsonb)`,
       [id, JSON.stringify([linha(), linha({ documento: "9000002", valor: "300.00", saldo: "300.00" })])]);
     expect(await um(db, `select count(*)::int from public.prev_titulo`)).toBe(2);
-    expect(Number(await um(db, `select sum(saldo_inicial) from public.prev_titulo`))).toBe(800);
+    expect(Number(await um(db, `select sum(saldo_informado) from public.prev_titulo`))).toBe(800);
   });
 
   it("o valor de entrada da carteira não é reescrito por reimportação com outro valor", async () => {
     const { id } = await carteiraCom(db, [linha()]);
     await um(db, `select public.preventivo_lote_confirmar($1::uuid, 'Lote 2', 'a.xlsx', '{}'::jsonb, null, $2::jsonb)`,
       [id, JSON.stringify([linha({ valor: "777.00", saldo: "777.00" })])]);
-    expect(Number(await um(db, `select saldo_inicial from public.prev_titulo`))).toBe(500);
+    expect(Number(await um(db, `select saldo_informado from public.prev_titulo`))).toBe(500);
     expect(Number(await um(db, `select valor_original from public.prev_titulo`))).toBe(777);
   });
 
@@ -156,7 +160,7 @@ describe("Preventivo — importação", () => {
     expect(await um(db, `select count(*)::int from public.prev_titulo_lote`)).toBe(2);
     const res = await um(db, `select public.preventivo_resultados($1::uuid)`, [id]);
     expect(res.totais.titulos).toBe(1);
-    expect(Number(res.totais.valor_inicial)).toBe(500);
+    expect(Number(res.totais.saldo_informado)).toBe(500);
   });
 
   it("linha sem matrícula é recusada com motivo, e o nome nunca vira chave", async () => {
@@ -172,9 +176,9 @@ describe("Preventivo — importação", () => {
   });
 
   it("mesmo documento em outra matrícula não funde título: recusa", async () => {
-    const { id } = await carteiraCom(db, [linha()]);
+    const { id } = await carteiraCom(db, [linha({ documento: "9000001" })]);
     const r = await um(db, `select public.preventivo_lote_previa($1::uuid, $2::jsonb)`,
-      [id, JSON.stringify([linha({ matricula: "2026000999" })])]);
+      [id, JSON.stringify([linha({ documento: "9000001", matricula: "2026000999" })])]);
     expect(r.recusas_por_motivo.DOCUMENTO_EM_OUTRA_MATRICULA).toBe(1);
   });
 
@@ -191,13 +195,13 @@ describe("Preventivo — importação", () => {
       linha({ documento: "9000003", celular: "+55 51 98888-7777" }),
     ]);
     expect(resumo.sem_celular_valido).toBe(2);
-    expect(await um(db, `select celular from public.prev_titulo where documento = '9000003'`)).toBe("5551988887777");
+    expect(await um(db, `select celular_aluno from public.prev_titulo where documento = '9000003'`)).toBe("5551988887777");
   });
 
   it("e-mail inválido é separado, não corrigido", async () => {
     const { resumo } = await carteiraCom(db, [linha({ email: "fulana(arroba)exemplo" })]);
     expect(resumo.sem_email_valido).toBe(1);
-    expect(await um(db, `select email from public.prev_titulo`)).toBe(null);
+    expect(await um(db, `select email_aluno from public.prev_titulo`)).toBe(null);
   });
 
   it("a prévia avisa quando o mesmo número aparece para alunos diferentes", async () => {
@@ -262,27 +266,43 @@ describe("Preventivo — sincronização com o Prime", () => {
     await ciclo([extrato()]);
     expect(await um(db, `select count(*)::int from public.prev_titulo_snapshot`)).toBe(1);
     expect(await um(db, `select count(*)::int from public.prev_evento`)).toBe(0);
-    expect(Number(await um(db, `select saldo_atual from public.prev_titulo`))).toBe(500);
+    expect(await um(db, `select vinculo_prime from public.prev_titulo`)).toBe("UNICO");
+    expect(Number(await um(db, `select valor_fonte from public.prev_titulo`))).toBe(500);
   });
 
-  it("queda de saldo vira REDUÇÃO OBSERVADA, nunca pagamento", async () => {
+  it("queda do valor na fonte é registrada pelo nome do campo, nunca como pagamento nem como saldo", async () => {
     await ciclo([extrato()]);
     await ciclo([extrato({ valor_liquido: "200.00" })]);
     const ev = (await db.query(`select tipo, valor_delta, e_pagamento_comprovado from public.prev_evento`)).rows;
     expect(ev).toHaveLength(1);
-    expect(ev[0].tipo).toBe("REDUCAO_SALDO_OBSERVADA");
+    expect(ev[0].tipo).toBe("VALOR_FONTE_CAIU");
     expect(Number(ev[0].valor_delta)).toBe(300);
     expect(ev[0].e_pagamento_comprovado).toBe(false);
   });
 
-  it("saldo zerado é QUITAÇÃO OBSERVADA, e o painel não a chama de recebimento", async () => {
+  it("nenhum tipo de evento usa a palavra saldo ou pagamento", async () => {
+    // lê a própria restrição gravada na tabela: é ela que define os tipos
+    const tipos = await um(db, `
+      select pg_get_constraintdef(c.oid)
+        from pg_constraint c
+        join pg_class t on t.oid = c.conrelid
+       where t.relname = 'prev_evento' and c.contype = 'c'
+         and pg_get_constraintdef(c.oid) ilike '%tipo%'`);
+    const texto = String(tipos).toUpperCase();
+    expect(texto).toMatch(/VALOR_FONTE_CAIU/);
+    expect(texto).not.toMatch(/SALDO/);
+    expect(texto).not.toMatch(/PAGAMENTO/);
+    expect(texto).not.toMatch(/QUITA/);
+  });
+
+  it("valor zerado na fonte não é chamado de quitação nem de recebimento", async () => {
     await ciclo([extrato()]);
     await ciclo([extrato({ valor_liquido: "0" })]);
-    expect(await um(db, `select tipo from public.prev_evento`)).toBe("QUITACAO_OBSERVADA");
+    expect(await um(db, `select tipo from public.prev_evento`)).toBe("VALOR_FONTE_ZEROU");
     const res = await um(db, `select public.preventivo_resultados($1::uuid)`, [carteira]);
     expect(res.recebido.valor).toBe(null);
-    expect(res.recebido.motivo).toMatch(/não expõe evento, data nem valor de pagamento/);
-    expect(Number(res.movimento.QUITACAO_OBSERVADA.valor)).toBe(500);
+    expect(res.recebido.motivo).toMatch(/comprovadamente EM ABERTO/);
+    expect(Number(res.alteracoes.VALOR_FONTE_ZEROU.valor)).toBe(500);
   });
 
   it("consultar de novo sem mudança não duplica movimento", async () => {
@@ -292,26 +312,27 @@ describe("Preventivo — sincronização com o Prime", () => {
     await ciclo([extrato({ valor_liquido: "200.00" })]);
     expect(await um(db, `select count(*)::int from public.prev_evento`)).toBe(1);
     const res = await um(db, `select public.preventivo_resultados($1::uuid)`, [carteira]);
-    expect(Number(res.reconciliacao.reducao_observada)).toBe(300);
+    expect(Number(res.conferencia.queda_registrada)).toBe(300);
   });
 
-  it("sumir do extrato não é recebimento e não apaga o saldo conhecido", async () => {
+  it("sumir do extrato não é recebimento e não apaga o valor conhecido", async () => {
     await ciclo([extrato()]);
     await ciclo([]);
     expect(await um(db, `select tipo from public.prev_evento`)).toBe("AUSENTE_NO_EXTRATO");
-    expect(Number(await um(db, `select saldo_atual from public.prev_titulo`))).toBe(500);
+    expect(Number(await um(db, `select valor_fonte from public.prev_titulo`))).toBe(500);
+    expect(await um(db, `select vinculo_prime from public.prev_titulo`)).toBe("NAO_ENCONTRADO");
     const res = await um(db, `select public.preventivo_resultados($1::uuid)`, [carteira]);
-    expect(res.movimento.REDUCAO_SALDO_OBSERVADA).toBeUndefined();
-    expect(res.movimento.QUITACAO_OBSERVADA).toBeUndefined();
-    expect(res.totais.ausentes_no_extrato).toBe(1);
+    expect(res.alteracoes.VALOR_FONTE_CAIU).toBeUndefined();
+    expect(res.alteracoes.VALOR_FONTE_ZEROU).toBeUndefined();
+    expect(res.vinculo.NAO_ENCONTRADO).toBe(1);
   });
 
-  it("aumento de saldo entra separado, não abate recebimento", async () => {
+  it("alta do valor na fonte entra separada", async () => {
     await ciclo([extrato()]);
     await ciclo([extrato({ valor_liquido: "560.00" })]);
     const res = await um(db, `select public.preventivo_resultados($1::uuid)`, [carteira]);
-    expect(Number(res.movimento.AUMENTO_SALDO_OBSERVADO.valor)).toBe(60);
-    expect(res.movimento.REDUCAO_SALDO_OBSERVADA).toBeUndefined();
+    expect(Number(res.alteracoes.VALOR_FONTE_SUBIU.valor)).toBe(60);
+    expect(res.alteracoes.VALOR_FONTE_CAIU).toBeUndefined();
   });
 
   it("falha de consulta preserva o dado anterior e não conclui o ciclo como sucesso", async () => {
@@ -320,7 +341,7 @@ describe("Preventivo — sincronização com o Prime", () => {
     await um(db, `select public.preventivo_sinc_falhou($1::uuid, '2026000001', 'prime 503')`, [sinc]);
     const fim = await um(db, `select public.preventivo_sinc_concluir($1::uuid, null)`, [sinc]);
     expect(fim.status).toBe("FALHOU");
-    expect(Number(await um(db, `select saldo_atual from public.prev_titulo`))).toBe(500);
+    expect(Number(await um(db, `select valor_fonte from public.prev_titulo`))).toBe(500);
     const sit = await um(db, `select public.preventivo_sinc_situacao($1::uuid)`, [carteira]);
     expect(sit.ultima_completa).not.toBe(null);
     expect(sit.ultima_tentativa.status).toBe("FALHOU");
@@ -340,21 +361,22 @@ describe("Preventivo — sincronização com o Prime", () => {
     ).rejects.toThrow(/já existe uma atualização em andamento/i);
   });
 
-  it("o movimento é por TÍTULO: pagar um não mexe no outro do mesmo aluno", async () => {
+  it("a alteração é por TÍTULO: um zerar não mexe no outro do mesmo aluno", async () => {
     await um(db, `select public.preventivo_lote_confirmar($1::uuid, 'Lote 2', 'a.xlsx', '{}'::jsonb, null, $2::jsonb)`,
-      [carteira, JSON.stringify([linha({ documento: "9000002", valor: "400.00", saldo: "400.00" })])]);
-    await ciclo([extrato(), extrato({ documento: "9000002", valor_liquido: "400.00" })]);
-    await ciclo([extrato({ valor_liquido: "0" }), extrato({ documento: "9000002", valor_liquido: "400.00" })]);
-    expect(Number(await um(db, `select saldo_atual from public.prev_titulo where documento = '9000002'`))).toBe(400);
+      [carteira, JSON.stringify([linha({ documento: "9000002", vencimento: "2026-10-25", valor: "400.00", saldo: "400.00" })])]);
+    await ciclo([extrato(), extrato({ documento: "9000002", vencimento: "2026-10-25", valor_liquido: "400.00" })]);
+    await ciclo([extrato({ valor_liquido: "0" }), extrato({ documento: "9000002", vencimento: "2026-10-25", valor_liquido: "400.00" })]);
+    expect(Number(await um(db, `select valor_fonte from public.prev_titulo where documento = '9000002'`))).toBe(400);
     expect(await um(db, `select count(*)::int from public.prev_evento`)).toBe(1);
   });
 
-  it("a conta do painel fecha: inicial − redução + aumento = saldo atual", async () => {
+  it("a conferência fecha: valor no primeiro ciclo − quedas + altas = valor agora", async () => {
     await ciclo([extrato()]);
     await ciclo([extrato({ valor_liquido: "120.00" })]);
-    const r = (await um(db, `select public.preventivo_resultados($1::uuid)`, [carteira])).reconciliacao;
-    const fechamento = Number(r.valor_inicial) - Number(r.reducao_observada) + Number(r.aumento_observado);
-    expect(fechamento).toBeCloseTo(Number(r.saldo_atual), 2);
+    const r = (await um(db, `select public.preventivo_resultados($1::uuid)`, [carteira])).conferencia;
+    const fechamento = Number(r.valor_na_fonte_no_primeiro_ciclo)
+      - Number(r.queda_registrada) + Number(r.alta_registrada);
+    expect(fechamento).toBeCloseTo(Number(r.valor_na_fonte_agora), 2);
   });
 });
 
@@ -364,7 +386,7 @@ describe("Preventivo — ações e exportação", () => {
   beforeEach(async () => {
     db = await novoBanco();
     const c = await carteiraCom(db, [
-      linha(),
+      linha({ documento: "9000001" }),
       linha({ matricula: "2026000002", documento: "9000002", aluno_nome: "Sicrano",
               celular: "(51) 3333-4444", email: "sicrano@exemplo.com" }),
       linha({ matricula: "2026000003", documento: "9000003", aluno_nome: "Beltrana",
@@ -386,7 +408,7 @@ describe("Preventivo — ações e exportação", () => {
   });
 
   it("número compartilhado por alunos diferentes não entra para nenhum dos dois", async () => {
-    await um(db, `update public.prev_titulo set celular = '5551977770003' where documento = '9000001'`);
+    await um(db, `update public.prev_titulo set celular_aluno = '5551977770003' where documento = '9000001'`);
     const r = await preparar("Aviso 2", "WHATSAPP");
     expect(r.separados.CONTATO_COMPARTILHADO_COM_OUTRO_ALUNO).toBe(2);
     expect(r.incluidos).toBe(0);
@@ -414,10 +436,10 @@ describe("Preventivo — ações e exportação", () => {
     expect(r.separados.FORA_DA_JANELA_PREVENTIVA).toBe(1);
   });
 
-  it("título com saldo zerado não é cobrado de novo", async () => {
-    await um(db, `update public.prev_titulo set saldo_atual = 0 where documento = '9000003'`);
+  it("título com valor zerado na fonte não é cobrado de novo", async () => {
+    await um(db, `update public.prev_titulo set valor_fonte = 0 where documento = '9000003'`);
     const r = await preparar("Aviso 6", "WHATSAPP");
-    expect(r.separados.SALDO_ZERADO).toBe(1);
+    expect(r.separados.VALOR_NA_FONTE_ZERADO).toBe(1);
   });
 
   it("situação cancelada na origem fica de fora", async () => {
@@ -427,7 +449,7 @@ describe("Preventivo — ações e exportação", () => {
   });
 
   it("no e-mail o corte é o e-mail, não o celular", async () => {
-    await um(db, `update public.prev_titulo set email = null where documento = '9000003'`);
+    await um(db, `update public.prev_titulo set email_aluno = null where documento = '9000003'`);
     const r = await preparar("Aviso 8", "EMAIL");
     expect(r.separados.SEM_EMAIL_VALIDO).toBe(1);
     expect(r.separados.SEM_CELULAR_VALIDO).toBeUndefined();
@@ -477,7 +499,7 @@ describe("Preventivo — ações e exportação", () => {
     const porAcao = acoes.filter((a) => a.nome.startsWith("Aviso "))
       .reduce((s, a) => s + Number(a.movimento_apos_envio?.valor || 0), 0);
     const consolidado = Number((await um(db, `select public.preventivo_resultados($1::uuid)`, [carteira]))
-      .reconciliacao.reducao_observada);
+      .conferencia.queda_registrada);
     // as duas ações mostram o mesmo movimento; o consolidado conta uma vez só
     expect(porAcao).toBe(1000);
     expect(consolidado).toBe(500);
@@ -509,5 +531,216 @@ describe("Preventivo — isolamento da cobrança", () => {
       .map((m) => m[1].toLowerCase())
       .filter((t) => !t.startsWith("prev_") && !t.startsWith("_prev_"));
     expect([...new Set(escritas)]).toEqual([]);
+  });
+});
+
+describe("Preventivo — vínculo com o título do Prime", () => {
+  let db, carteira;
+
+  // O relatório real da ULBRA não traz identificador de título (medido em
+  // 28/09/2026). O casamento é por matrícula + vencimento ATUAL e só vale
+  // quando é inequívoco.
+  beforeEach(async () => {
+    db = await novoBanco();
+    const c = await carteiraCom(db, [linha()]);
+    carteira = c.id;
+  });
+
+  const sincronizar = async (linhas) => {
+    const sinc = await um(db, `select public.preventivo_sinc_abrir($1::uuid, 'manual')`, [carteira]);
+    await um(db, `select public.preventivo_sinc_gravar($1::uuid, '2026000001', $2::jsonb)`,
+      [sinc, JSON.stringify(linhas)]);
+    await um(db, `select public.preventivo_sinc_concluir($1::uuid, null)`, [sinc]);
+  };
+
+  it("um único candidato no vencimento vincula e passa a usar o boleto do Prime", async () => {
+    await sincronizar([extrato({ documento: "4444444" })]);
+    expect(await um(db, `select vinculo_prime from public.prev_titulo`)).toBe("UNICO");
+    expect(await um(db, `select documento_prime from public.prev_titulo`)).toBe("4444444");
+    expect(Number(await um(db, `select valor_fonte from public.prev_titulo`))).toBe(500);
+  });
+
+  it("dois candidatos no mesmo vencimento ficam AMBÍGUOS — não se escolhe nenhum", async () => {
+    await sincronizar([
+      extrato({ documento: "4444444", valor_liquido: "500.00" }),
+      extrato({ documento: "5555555", valor_liquido: "900.00" }),
+    ]);
+    expect(await um(db, `select vinculo_prime from public.prev_titulo`)).toBe("AMBIGUO");
+    expect(await um(db, `select documento_prime from public.prev_titulo`)).toBe(null);
+    expect(await um(db, `select valor_fonte from public.prev_titulo`)).toBe(null);
+    expect(await um(db, `select candidatos_prime::int from public.prev_titulo`)).toBe(2);
+  });
+
+  it("o valor NÃO desempata: candidato com valor igual ao do arquivo não vence a ambiguidade", async () => {
+    // Medido em 28/09/2026: só 23 de 120 linhas do relatório real tinham
+    // "Saldo Original" igual ao netAmount do Prime. Valor não é critério.
+    await sincronizar([
+      extrato({ documento: "4444444", valor_liquido: "500.00" }),
+      extrato({ documento: "5555555", valor_liquido: "777.00" }),
+    ]);
+    expect(await um(db, `select vinculo_prime from public.prev_titulo`)).toBe("AMBIGUO");
+    expect(await um(db, `select documento_prime from public.prev_titulo`)).toBe(null);
+  });
+
+  it("nenhum candidato fica NAO_ENCONTRADO, e isso não é pagamento", async () => {
+    await sincronizar([extrato({ documento: "4444444", vencimento: "2027-01-01" })]);
+    expect(await um(db, `select vinculo_prime from public.prev_titulo`)).toBe("NAO_ENCONTRADO");
+    const res = await um(db, `select public.preventivo_resultados($1::uuid)`, [carteira]);
+    expect(res.recebido.valor).toBe(null);
+    expect(Object.keys(res.alteracoes)).not.toContain("VALOR_FONTE_CAIU");
+  });
+
+  it("o público da ação declara de quantos destinatários o Prime conseguiu falar", async () => {
+    await sincronizar([
+      extrato({ documento: "4444444", valor_liquido: "500.00" }),
+      extrato({ documento: "5555555", valor_liquido: "900.00" }),
+    ]);
+    const a = await um(db, `select public.preventivo_acao_preparar($1::uuid, 'Aviso', 'WHATSAPP', '{}'::jsonb)`, [carteira]);
+    // ambíguo NÃO bloqueia o envio — mas a lista não passa por conferida
+    expect(a.incluidos).toBe(1);
+    expect(a.conferencia_financeira.AMBIGUO).toBe(1);
+    expect(a.conferencia_financeira.UNICO).toBeUndefined();
+  });
+});
+
+describe("Preventivo — a janela conta pelo vencimento ATUAL", () => {
+  let db;
+  beforeEach(async () => { db = await novoBanco(); });
+
+  // MEDIDO em 28/09/2026 no relatório real: nas 35 linhas em que "Dt Vcto" e
+  // "Vcto Origem" divergem, 21 tinham o aluno no espelho de produção e 21
+  // casaram com o Prime por "Dt Vcto". Nenhuma casou SÓ por "Vcto Origem".
+  it("origem velha e vencimento novo: continua na janela", async () => {
+    const hoje = await um(db, `select public.preventivo_hoje()`);
+    const d = (n) => { const x = new Date(hoje); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+    const { id } = await carteiraCom(db, [linha({ vencimento: d(-3), vencimento_origem: d(-120) })]);
+    await um(db, `select public.preventivo_janela_aplicar()`);
+    expect(await um(db, `select status from public.prev_titulo`)).toBe("ATIVO");
+    const t = await um(db, `select public.preventivo_titulos($1::uuid)`, [id]);
+    expect(t[0].dias_atraso).toBe(3);
+  });
+
+  it("origem recente e vencimento velho: sai da janela", async () => {
+    const hoje = await um(db, `select public.preventivo_hoje()`);
+    const d = (n) => { const x = new Date(hoje); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+    await carteiraCom(db, [linha({ vencimento: d(-40), vencimento_origem: d(-5) })]);
+    await um(db, `select public.preventivo_janela_aplicar()`);
+    expect(await um(db, `select status from public.prev_titulo`)).toBe("FORA_DA_JANELA");
+  });
+
+  it("sair da janela não transfere nada: o título continua só no Preventivo", async () => {
+    const hoje = await um(db, `select public.preventivo_hoje()`);
+    const d = (n) => { const x = new Date(hoje); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+    // entra na janela e só depois envelhece: é a passagem de ATIVO para
+    // FORA_DA_JANELA que precisa ser inofensiva.
+    const { id } = await carteiraCom(db, [linha({ vencimento: d(-10) })]);
+    await um(db, `update public.prev_titulo set vencimento = $1::date`, [d(-40)]);
+    const antes = await um(db, `select to_jsonb(t) from public.prev_titulo t`);
+    await um(db, `select public.preventivo_janela_aplicar()`);
+    const depois = await um(db, `select to_jsonb(t) from public.prev_titulo t`);
+    // o que muda é SÓ o status e a marca de saída
+    const mudou = Object.keys(depois).filter((k) => JSON.stringify(depois[k]) !== JSON.stringify(antes[k]));
+    expect(mudou.sort()).toEqual(["atualizado_em", "saida_motivo", "saiu_em", "status"]);
+    expect(depois.status).toBe("FORA_DA_JANELA");
+    // e ele continua inteiro na carteira, para consulta
+    const res = await um(db, `select public.preventivo_resultados($1::uuid)`, [id]);
+    expect(res.totais.titulos).toBe(1);
+    expect(res.totais.fora_da_janela).toBe(1);
+  });
+});
+
+describe("Preventivo — negativa de acesso em todas as portas", () => {
+  let db, carteira;
+  beforeEach(async () => {
+    db = await novoBanco();
+    const c = await carteiraCom(db, [linha()]);
+    carteira = c.id;
+    await entrar(db, OUTRA);
+  });
+
+  const CHAMADAS = [
+    ["preventivo_carteiras", "select public.preventivo_carteiras()"],
+    ["preventivo_lote_previa", "select public.preventivo_lote_previa($1::uuid, '[]'::jsonb)"],
+    ["preventivo_lote_confirmar", "select public.preventivo_lote_confirmar($1::uuid, 'x', null, '{}'::jsonb, null, '[]'::jsonb)"],
+    ["preventivo_lotes", "select public.preventivo_lotes($1::uuid)"],
+    ["preventivo_janela_aplicar", "select public.preventivo_janela_aplicar()"],
+    ["preventivo_sinc_abrir", "select public.preventivo_sinc_abrir($1::uuid, 'manual')"],
+    ["preventivo_sinc_alvos", "select * from public.preventivo_sinc_alvos($1::uuid, 10)"],
+    ["preventivo_sinc_gravar", "select public.preventivo_sinc_gravar($1::uuid, 'x', '[]'::jsonb)"],
+    ["preventivo_sinc_falhou", "select public.preventivo_sinc_falhou($1::uuid, 'x', 'e')"],
+    ["preventivo_sinc_concluir", "select public.preventivo_sinc_concluir($1::uuid, null)"],
+    ["preventivo_sinc_situacao", "select public.preventivo_sinc_situacao($1::uuid)"],
+    ["preventivo_resultados", "select public.preventivo_resultados($1::uuid)"],
+    ["preventivo_titulos", "select public.preventivo_titulos($1::uuid)"],
+    ["preventivo_acao_preparar", "select public.preventivo_acao_preparar($1::uuid, 'x', 'WHATSAPP', '{}'::jsonb)"],
+    ["preventivo_acao_resumo", "select public.preventivo_acao_resumo($1::uuid)"],
+    ["preventivo_acao_publico", "select public.preventivo_acao_publico($1::uuid, true)"],
+    ["preventivo_acao_marcar", "select public.preventivo_acao_marcar($1::uuid, 'EXPORTADA')"],
+    ["preventivo_acoes", "select public.preventivo_acoes($1::uuid)"],
+  ];
+
+  it.each(CHAMADAS)("%s recusa outro usuário", async (_nome, sql) => {
+    const params = sql.includes("$1") ? [carteira] : [];
+    await expect(um(db, sql, params)).rejects.toThrow(/restrito à gestão/);
+  });
+
+  it("nenhuma tabela do Preventivo responde a outro usuário", async () => {
+    await db.exec(`set role authenticated`);
+    for (const t of ["prev_carteira", "prev_lote", "prev_lote_recusa", "prev_titulo",
+                     "prev_titulo_lote", "prev_sinc", "prev_sinc_fila",
+                     "prev_titulo_snapshot", "prev_evento", "prev_acao",
+                     "prev_acao_destinatario"]) {
+      expect([t, await um(db, `select count(*)::int from public.${t}`)]).toEqual([t, 0]);
+    }
+    await db.exec(`reset role`);
+  });
+
+  it("outro usuário também não consegue ESCREVER", async () => {
+    await db.exec(`set role authenticated`);
+    await expect(
+      db.query(`insert into public.prev_carteira (nome, venc_de, venc_ate, criada_por)
+                values ('invasao', current_date, current_date, 'x')`)
+    ).rejects.toThrow(/row-level security|violates/i);
+    await db.exec(`reset role`);
+  });
+});
+
+describe("Preventivo — o contrato entre a Edge Function e a RPC", () => {
+  let db, carteira;
+  beforeEach(async () => {
+    db = await novoBanco();
+    const c = await carteiraCom(db, [linha()]);
+    carteira = c.id;
+  });
+
+  it("boleto e documentNumber da MESMA linha não viram dois candidatos", async () => {
+    // Defeito real encontrado antes de aplicar: a Edge Function mandava uma
+    // entrada por identificador. Cada título passava a ter dois candidatos e a
+    // carteira inteira ficava marcada como ambígua.
+    const sinc = await um(db, `select public.preventivo_sinc_abrir($1::uuid, 'manual')`, [carteira]);
+    await um(db, `select public.preventivo_sinc_gravar($1::uuid, '2026000001', $2::jsonb)`,
+      [sinc, JSON.stringify([extrato({ documento: "4039712", documento_alt: "0104270450100" })])]);
+    await um(db, `select public.preventivo_sinc_concluir($1::uuid, null)`, [sinc]);
+    expect(await um(db, `select vinculo_prime from public.prev_titulo`)).toBe("UNICO");
+    expect(await um(db, `select candidatos_prime::int from public.prev_titulo`)).toBe(1);
+    expect(await um(db, `select documento_prime from public.prev_titulo`)).toBe("4039712");
+  });
+
+  it("um arquivo que trouxe o documentNumber casa pelo identificador alternativo", async () => {
+    const { id } = await carteiraCom(db, [linha({ documento: "0104270450100" })],
+      { nome: "Com documento", lote: "L1" });
+    const sinc = await um(db, `select public.preventivo_sinc_abrir($1::uuid, 'manual')`, [id]);
+    await um(db, `select public.preventivo_sinc_gravar($1::uuid, '2026000001', $2::jsonb)`,
+      [sinc, JSON.stringify([
+        extrato({ documento: "4039712", documento_alt: "0104270450100" }),
+        extrato({ documento: "4039713", documento_alt: "0104270450101" }),
+      ])]);
+    await um(db, `select public.preventivo_sinc_concluir($1::uuid, null)`, [sinc]);
+    // dois candidatos pelo vencimento, mas o arquivo trouxe o identificador:
+    // o identificador manda, e não há ambiguidade.
+    const t = (await db.query(
+      `select vinculo_prime, documento_prime from public.prev_titulo where carteira_id = $1`, [id])).rows[0];
+    expect(t.vinculo_prime).toBe("UNICO");
+    expect(t.documento_prime).toBe("4039712");
   });
 });

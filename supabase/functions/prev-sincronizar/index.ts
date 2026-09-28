@@ -126,16 +126,26 @@ Deno.serve(async (req) => {
       return;
     }
 
-    // Cada linha entra pelos DOIS identificadores estáveis que a Prime dá
-    // (boleto de 7 dígitos e documentNumber de 13), porque o relatório de
-    // origem pode ter trazido qualquer um dos dois como identificador do
-    // título. O casamento no banco é por igualdade exata de `documento` —
-    // nunca por nome, nunca por valor, nunca por proximidade de data.
+    // UMA entrada por linha do extrato, com os DOIS identificadores que a
+    // Prime dá (boleto de 7 dígitos e documentNumber de 13) na mesma entrada.
+    //
+    // Isto é crítico: o casamento do título conta CANDIDATOS por vencimento.
+    // Se a mesma linha entrasse duas vezes, uma por identificador, todo título
+    // teria dois candidatos e a carteira inteira ficaria marcada como ambígua.
+    // O casamento no banco é por igualdade exata — nunca por nome, nunca por
+    // valor, nunca por proximidade de data.
     const vistos = new Set<string>();
     const linhas: Record<string, string | null>[] = [];
     for (const l of fin as Record<string, unknown>[]) {
       const c = (l.carrier ?? {}) as Record<string, unknown>;
-      const comum = {
+      const boleto = String(l.boleto ?? "").trim();
+      const interno = String(l.documentNumber ?? "").trim();
+      const doc = boleto || interno;
+      if (!doc || vistos.has(doc)) continue;
+      vistos.add(doc);
+      linhas.push({
+        documento: doc,
+        documento_alt: interno && interno !== doc ? interno : null,
         vencimento: dia(l.dueDate),
         valor_liquido: num(l.netAmount),
         valor_bruto: num(l.grossAmount),
@@ -143,13 +153,7 @@ Deno.serve(async (req) => {
         liquidado_em: dia(l.paymentDate),
         portador: c.id ? String(c.id) : null,
         portador_nome: c.name ? String(c.name).slice(0, 120) : null,
-      };
-      for (const id of [l.boleto, l.documentNumber]) {
-        const doc = String(id ?? "").trim();
-        if (!doc || vistos.has(doc)) continue;
-        vistos.add(doc);
-        linhas.push({ documento: doc, ...comum });
-      }
+      });
     }
 
     const { error } = await supa.rpc("preventivo_sinc_gravar",

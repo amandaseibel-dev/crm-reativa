@@ -16,13 +16,22 @@ import { moeda, dataCurta } from "../../utils/preventivoFormato";
 import { AvisoAtualizacao } from "./AbaCarteira";
 import { csv } from "../../utils/preventivo";
 
-const ROTULO_MOVIMENTO = {
-  QUITACAO_OBSERVADA: "Saldo foi a zero",
-  REDUCAO_SALDO_OBSERVADA: "Saldo diminuiu",
-  AUMENTO_SALDO_OBSERVADO: "Saldo aumentou (encargo)",
+const ROTULO_ALTERACAO = {
+  VALOR_FONTE_ZEROU: "O valor do título zerou na fonte",
+  VALOR_FONTE_CAIU: "O valor do título caiu na fonte",
+  VALOR_FONTE_SUBIU: "O valor do título subiu na fonte (encargo)",
   MUDANCA_DE_PORTADOR: "Mudou de portador",
   AUSENTE_NO_EXTRATO: "Sumiu do extrato",
   RETORNO_AO_EXTRATO: "Voltou ao extrato",
+  VINCULO_AMBIGUO: "Mais de um candidato no Prime",
+  VINCULO_RESOLVIDO: "Vínculo com o Prime resolvido",
+};
+
+const ROTULO_VINCULO = {
+  UNICO: "Com vínculo único no Prime",
+  AMBIGUO: "Ambíguo (mais de um candidato)",
+  NAO_ENCONTRADO: "Não encontrado no Prime",
+  PENDENTE: "Ainda não consultado",
 };
 
 function baixar(nome, conteudo) {
@@ -65,9 +74,10 @@ export default function AbaResultados({ carteira }) {
       { rotulo: "titulo", valor: (l) => l.documento },
       { rotulo: "competencia", valor: (l) => l.competencia },
       { rotulo: "vencimento", valor: (l) => l.vencimento },
-      { rotulo: "valor_entrada", valor: (l) => l.valor_inicial },
-      { rotulo: "saldo_atual", valor: (l) => l.saldo_atual },
-      { rotulo: "reducao_observada", valor: (l) => l.reducao },
+      { rotulo: "venc_origem", valor: (l) => l.vencimento_origem },
+      { rotulo: "saldo_informado_pelo_arquivo", valor: (l) => l.saldo_informado },
+      { rotulo: "valor_na_fonte", valor: (l) => l.valor_fonte },
+      { rotulo: "vinculo_com_o_prime", valor: (l) => l.vinculo },
       { rotulo: "situacao_origem", valor: (l) => l.situacao_origem },
       { rotulo: "lote", valor: (l) => l.lote },
     ]));
@@ -77,11 +87,9 @@ export default function AbaResultados({ carteira }) {
   if (!res) return <p style={S.muted}>Carregando…</p>;
 
   const t = res.totais;
-  const rec = res.reconciliacao;
-  const fechamento = Number(rec.valor_inicial) - Number(rec.reducao_observada)
-    + Number(rec.aumento_observado) - Number(rec.saldo_atual);
-  const percentual = Number(rec.valor_inicial) > 0
-    ? (Number(rec.reducao_observada) / Number(rec.valor_inicial)) * 100 : 0;
+  const c = res.conferencia;
+  const fechamento = Number(c.valor_na_fonte_no_primeiro_ciclo) - Number(c.queda_registrada)
+    + Number(c.alta_registrada) - Number(c.valor_na_fonte_agora);
 
   return (
     <div>
@@ -90,42 +98,67 @@ export default function AbaResultados({ carteira }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12 }}>
         <Cartao rotulo="Alunos na carteira" valor={t.alunos} />
         <Cartao rotulo="Títulos" valor={t.titulos} />
-        <Cartao rotulo="Valor em aberto na entrada" valor={moeda(t.valor_inicial)} />
-        <Cartao rotulo="Saldo atual" valor={t.saldo_atual === null ? "não consultado" : moeda(t.saldo_atual)} />
+        <Cartao rotulo="Saldo informado pelo arquivo" valor={moeda(t.saldo_informado)} />
         <Cartao rotulo="Na janela preventiva" valor={t.na_janela} />
         <Cartao rotulo="Fora da janela (histórico)" valor={t.fora_da_janela} />
+        <Cartao rotulo="Nunca consultados no Prime" valor={t.sem_sinc} />
       </div>
 
       {/* O número que a gestão mais quer é o que a fonte não dá. Está escrito. */}
       <div style={{ ...S.card, padding: 20, marginTop: 18, borderLeft: "4px solid var(--rv-ambar-borda)" }}>
-        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Valor recebido: não disponível pela fonte</h2>
-        <p style={{ ...S.muted, marginTop: 8, maxWidth: 820 }}>{res.recebido.motivo}</p>
-        <p style={{ ...S.muted, marginTop: 8, maxWidth: 820 }}>
-          O que está medido abaixo é <strong>redução de saldo observada</strong>. Ela inclui
-          pagamento, mas também cancelamento, bolsa e renegociação — por isso não é
-          apresentada como dinheiro recebido.
+        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>
+          Confirmação de pagamento: não disponível pela fonte
+        </h2>
+        <p style={{ ...S.muted, marginTop: 8, maxWidth: 860 }}>{res.recebido.motivo}</p>
+        <p style={{ ...S.muted, marginTop: 8, maxWidth: 860 }}>
+          O que está medido abaixo é <strong>alteração do valor do título na fonte</strong>{" "}
+          (<code>netAmount</code>). Isso <strong>não é saldo em aberto</strong> e{" "}
+          <strong>não é dinheiro recebido</strong>: a queda pode vir de pagamento, mas também
+          de cancelamento, bolsa ou renegociação.
         </p>
       </div>
 
       <div style={{ ...S.card, padding: 20, marginTop: 14 }}>
-        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Movimento observado, por tipo</h2>
+        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>
+          De quantos títulos o Prime consegue falar
+        </h2>
+        <p style={{ ...S.muted, marginTop: 6, maxWidth: 860 }}>
+          O relatório da ULBRA não traz identificador de título, então o vínculo é resolvido
+          por matrícula + vencimento atual. Onde há mais de um candidato, o título fica
+          pendente — nada é escolhido por suposição.
+        </p>
+        <table style={{ ...S.tabela, marginTop: 12 }}>
+          <thead><tr><th style={S.th}>Vínculo com o Prime</th><th style={S.thNum}>Títulos</th></tr></thead>
+          <tbody>
+            {Object.entries(res.vinculo || {}).map(([k, n]) => (
+              <tr key={k}>
+                <td style={S.td}>{ROTULO_VINCULO[k] || k}</td>
+                <td style={S.tdNum}>{n}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div style={{ ...S.card, padding: 20, marginTop: 14 }}>
+        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Alteração de valor na fonte, por tipo</h2>
         <table style={{ ...S.tabela, marginTop: 12 }}>
           <thead><tr>
             <th style={S.th}>O que foi observado</th><th style={S.thNum}>Títulos</th><th style={S.thNum}>Valor</th>
           </tr></thead>
           <tbody>
-            {Object.keys(res.movimento).length === 0 ? (
+            {Object.keys(res.alteracoes || {}).length === 0 ? (
               <tr><td style={S.td} colSpan={3}>
-                Nenhum movimento ainda. O primeiro ciclo de atualização é só a foto
-                inicial — movimento aparece a partir do segundo.
+                Nenhuma alteração ainda. O primeiro ciclo é só a foto inicial — alteração
+                aparece a partir do segundo.
               </td></tr>
-            ) : Object.entries(res.movimento).map(([tipo, m]) => (
+            ) : Object.entries(res.alteracoes).map(([tipo, m]) => (
               <tr key={tipo}>
-                <td style={S.td}>{ROTULO_MOVIMENTO[tipo] || tipo}</td>
+                <td style={S.td}>{ROTULO_ALTERACAO[tipo] || tipo}</td>
                 <td style={S.tdNum}>{m.titulos}</td>
                 <td style={S.tdNum}>
-                  {["MUDANCA_DE_PORTADOR", "AUSENTE_NO_EXTRATO", "RETORNO_AO_EXTRATO"].includes(tipo)
-                    ? "—" : moeda(m.valor)}
+                  {["MUDANCA_DE_PORTADOR", "AUSENTE_NO_EXTRATO", "RETORNO_AO_EXTRATO",
+                    "VINCULO_AMBIGUO", "VINCULO_RESOLVIDO"].includes(tipo) ? "—" : moeda(m.valor)}
                 </td>
               </tr>
             ))}
@@ -134,16 +167,19 @@ export default function AbaResultados({ carteira }) {
       </div>
 
       <div style={{ ...S.card, padding: 20, marginTop: 14 }}>
-        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>A conta fecha</h2>
+        <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>A conferência fecha</h2>
         <p style={{ ...S.muted, marginTop: 6 }}>
-          entrada − redução observada + aumento observado = saldo atual
+          Só entram os títulos com vínculo único. É uma conferência do que a FONTE diz,
+          não um demonstrativo financeiro.
         </p>
         <table style={{ ...S.tabela, marginTop: 12 }}>
           <tbody>
-            <tr><td style={S.td}>Valor em aberto na entrada</td><td style={S.tdNum}>{moeda(rec.valor_inicial)}</td></tr>
-            <tr><td style={S.td}>− Redução de saldo observada</td><td style={S.tdNum}>{moeda(rec.reducao_observada)}</td></tr>
-            <tr><td style={S.td}>+ Aumento de saldo observado</td><td style={S.tdNum}>{moeda(rec.aumento_observado)}</td></tr>
-            <tr><td style={{ ...S.td, fontWeight: 800 }}>= Saldo atual</td><td style={{ ...S.tdNum, fontWeight: 800 }}>{moeda(rec.saldo_atual)}</td></tr>
+            <tr><td style={S.td}>Valor na fonte no primeiro ciclo</td>
+                <td style={S.tdNum}>{moeda(c.valor_na_fonte_no_primeiro_ciclo)}</td></tr>
+            <tr><td style={S.td}>− Quedas registradas</td><td style={S.tdNum}>{moeda(c.queda_registrada)}</td></tr>
+            <tr><td style={S.td}>+ Altas registradas</td><td style={S.tdNum}>{moeda(c.alta_registrada)}</td></tr>
+            <tr><td style={{ ...S.td, fontWeight: 800 }}>= Valor na fonte agora</td>
+                <td style={{ ...S.tdNum, fontWeight: 800 }}>{moeda(c.valor_na_fonte_agora)}</td></tr>
             <tr>
               <td style={S.td}>Diferença</td>
               <td style={{ ...S.tdNum, color: Math.abs(fechamento) < 0.01 ? "var(--rv-verde-escuro)" : "var(--rv-erro)" }}>
@@ -153,24 +189,22 @@ export default function AbaResultados({ carteira }) {
           </tbody>
         </table>
         <p style={{ ...S.muted, marginTop: 10 }}>
-          Redução sobre a entrada: <strong>{percentual.toFixed(1)}%</strong> — medida sobre o
-          valor em aberto de {dataCurta(res.carteira?.venc_de)} a {dataCurta(res.carteira?.venc_ate)},
-          desde a entrada de cada título na carteira até hoje ({dataCurta(res.hoje)}).
-          {t.ausentes_no_extrato > 0
-            ? ` ${t.ausentes_no_extrato} título(s) sumiram do extrato do Prime e ficaram FORA desta conta — sumir não é pagar.`
-            : ""}
+          Saldo informado pelo arquivo na entrada: <strong>{moeda(t.saldo_informado)}</strong>,
+          para vencimentos de {dataCurta(res.carteira?.venc_de)} a {dataCurta(res.carteira?.venc_ate)}.
+          Esse número e o valor na fonte <strong>não se somam nem se subtraem</strong>: vêm de
+          fontes diferentes, com definições diferentes.
         </p>
       </div>
 
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(210px, 1fr))", gap: 12, marginTop: 14 }}>
-        <Cartao rotulo="Alunos com algum título reduzido" valor={res.alunos.com_alguma_reducao} />
-        <Cartao rotulo="Alunos com todos os títulos zerados" valor={res.alunos.com_todos_quitados} />
-        <Cartao rotulo="Alunos sem nenhum movimento" valor={res.alunos.sem_movimento} />
+        <Cartao rotulo="Alunos com algum título que caiu" valor={res.alunos.com_alguma_queda} />
+        <Cartao rotulo="Alunos com todos os títulos zerados na fonte" valor={res.alunos.com_todos_zerados} />
+        <Cartao rotulo="Alunos sem nenhuma alteração" valor={res.alunos.sem_alteracao} />
       </div>
 
       {res.por_dia?.length > 0 && (
         <div style={{ ...S.card, padding: 20, marginTop: 14 }}>
-          <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Redução de saldo por dia</h2>
+          <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Queda de valor na fonte, por dia</h2>
           <table style={{ ...S.tabela, marginTop: 12 }}>
             <thead><tr><th style={S.th}>Dia</th><th style={S.thNum}>Títulos</th><th style={S.thNum}>Valor</th></tr></thead>
             <tbody>
@@ -184,18 +218,18 @@ export default function AbaResultados({ carteira }) {
             </tbody>
           </table>
           <p style={{ ...S.muted, marginTop: 8, fontSize: 12 }}>
-            O dia é o da <strong>observação</strong>, não o do pagamento: a fonte não informa
+            O dia é o da <strong>observação</strong>, não o de um pagamento: a fonte não informa
             data de pagamento.
           </p>
         </div>
       )}
 
       <div style={{ ...S.barra, marginTop: 16 }}>
-        <button style={S.btnGhost} onClick={() => exportar("com_reducao", "preventivo-com-reducao.csv")}>
-          Exportar quem teve redução
+        <button style={S.btnGhost} onClick={() => exportar("caiu", "preventivo-valor-caiu.csv")}>
+          Exportar quem teve queda de valor
         </button>
-        <button style={S.btnGhost} onClick={() => exportar("pendente", "preventivo-pendentes.csv")}>
-          Exportar pendentes
+        <button style={S.btnGhost} onClick={() => exportar("sem_alteracao", "preventivo-sem-alteracao.csv")}>
+          Exportar quem não teve alteração
         </button>
       </div>
     </div>

@@ -13,7 +13,7 @@
 --
 -- REIMPORTAR O MESMO ARQUIVO NÃO DUPLICA NADA: a identidade do título é
 -- (carteira, matrícula Prime, documento) e a gravação é `on conflict do
--- update`. `saldo_inicial` e `criado_em` nunca são reescritos — são o valor de
+-- update`. `saldo_informado` e `criado_em` nunca são reescritos — são o valor de
 -- entrada da carteira, e é sobre eles que o painel calcula percentual.
 -- =============================================================================
 
@@ -55,6 +55,40 @@ as $$
   select coalesce(p_bruto, '') ~* '^[^@[:space:]]+@[^@[:space:]]+\.[a-z]{2,}$'
 $$;
 
+-- O campo Telefone do relatório real traz VÁRIOS números numa string só:
+--   "(51) 99547-2585, CEL:(51) 991859609, CEL:5192568106, RES:51991859609"
+-- Ler todos e devolver os DISTINTOS não é adivinhar. Adivinhar seria escolher
+-- um quando há dois diferentes — e é por isso que, quando há mais de um, o
+-- aluno é SEPARADO do público em vez de receber mensagem num número sorteado.
+-- Medido em 28/09/2026: 2.688 linhas com exatamente um celular válido, 402 com
+-- mais de um, 405 com nenhum.
+create or replace function public.preventivo_celulares(p_bruto text)
+returns text[]
+language sql
+immutable
+set search_path to 'public'
+as $$
+  select coalesce(array_agg(distinct c order by c), '{}'::text[])
+    from (select public.preventivo_normalizar_celular(m[1]) c
+            from regexp_matches(coalesce(p_bruto, ''), '[0-9()\s.-]{8,}', 'g') m) x
+   where c is not null
+$$;
+
+-- Mesma ideia para e-mail. Medido em 28/09/2026: 2.725 linhas do relatório
+-- trazem mais de um endereço, 742 trazem um só, 28 nenhum válido.
+create or replace function public.preventivo_emails(p_bruto text)
+returns text[]
+language sql
+immutable
+set search_path to 'public'
+as $$
+  select coalesce(array_agg(distinct lower(e) order by lower(e)), '{}'::text[])
+    from regexp_split_to_table(coalesce(p_bruto, ''), '[;,[:space:]]+') e
+   where public.preventivo_email_valido(e)
+$$;
+
+grant execute on function public.preventivo_celulares(text) to authenticated, service_role;
+grant execute on function public.preventivo_emails(text) to authenticated, service_role;
 grant execute on function public.preventivo_normalizar_celular(text) to authenticated, service_role;
 grant execute on function public.preventivo_email_valido(text) to authenticated, service_role;
 
@@ -108,16 +142,15 @@ begin
       'criada_em', c.criada_em, 'criada_por', c.criada_por,
       'encerrada_em', c.encerrada_em,
       'titulos', coalesce(t.n, 0), 'alunos', coalesce(t.alunos, 0),
-      'valor_inicial', coalesce(t.valor_inicial, 0),
-      'saldo_atual', t.saldo_atual,
+      'saldo_informado', coalesce(t.saldo_informado, 0),
+      'com_vinculo_unico', coalesce(t.com_vinculo, 0),
       'ultima_sinc', s.concluido_em
     ) as x
     from public.prev_carteira c
     left join lateral (
       select count(*) n, count(distinct matricula_prime) alunos,
-             sum(saldo_inicial) valor_inicial,
-             case when count(*) filter (where saldo_atual is not null) = 0
-                  then null else sum(coalesce(saldo_atual, saldo_inicial)) end saldo_atual
+             sum(saldo_informado) saldo_informado,
+             count(*) filter (where vinculo_prime = 'UNICO') com_vinculo
       from public.prev_titulo where carteira_id = c.id
     ) t on true
     left join lateral (
@@ -171,37 +204,56 @@ begin
     nullif(regexp_replace(coalesce(l->>'cpf',''), '\D', '', 'g'), '') as cpf,
     nullif(trim(l->>'competencia'), '')                as competencia,
     case when (l->>'vencimento') ~ '^\d{4}-\d{2}-\d{2}$' then (l->>'vencimento')::date end as vencimento,
+    case when (l->>'vencimento_origem') ~ '^\d{4}-\d{2}-\d{2}$' then (l->>'vencimento_origem')::date end as vencimento_origem,
     case when (l->>'valor') ~ '^-?\d+(\.\d+)?$' then (l->>'valor')::numeric end            as valor,
     case when (l->>'saldo') ~ '^-?\d+(\.\d+)?$' then (l->>'saldo')::numeric end            as saldo,
+    case when (l->>'saldo_atualizado') ~ '^-?\d+(\.\d+)?$' then (l->>'saldo_atualizado')::numeric end as saldo_atualizado,
     nullif(trim(l->>'situacao'), '')                   as situacao,
-    public.preventivo_normalizar_celular(l->>'celular') as celular,
-    case when public.preventivo_email_valido(l->>'email') then lower(trim(l->>'email')) end as email,
+    public.preventivo_celulares(l->>'celular')         as celulares,
+    public.preventivo_emails(l->>'email')              as emails,
     l                                                  as bruto
   from jsonb_array_elements(p_linhas) with ordinality as e(l, ord);
 
-  -- motivo de recusa, na ordem em que a gestão precisa ler
+  -- CHAVE DO TÍTULO DENTRO DA CARTEIRA. O relatório real de inadimplência da
+  -- ULBRA (medido em 28/09/2026) não traz identificador de título: traz
+  -- matrícula, vencimento atual e vencimento de origem. Quando o arquivo
+  -- trouxer um identificador, ele manda; senão, a chave é o par de datas.
+  -- Um número só, e sem escolher: quando há mais de um celular DIFERENTE na
+  -- linha, nenhum é adotado — o aluno fica marcado como ambíguo e é separado
+  -- na hora de montar o público.
+  alter table _prev_in add column celular_aluno text;
+  alter table _prev_in add column email_aluno text;
+  update _prev_in set
+    celular_aluno = case when array_length(celulares, 1) = 1 then celulares[1] end,
+    email_aluno   = case when array_length(emails, 1) = 1 then emails[1] end;
+
+  alter table _prev_in add column chave text;
+  update _prev_in set chave = coalesce(
+    documento,
+    coalesce(vencimento::text, '?') || '|' || coalesce(vencimento_origem::text, ''));
+
   alter table _prev_in add column motivo text;
   update _prev_in set motivo =
     case
       when matricula  is null then 'SEM_MATRICULA'
-      when documento  is null then 'SEM_DOCUMENTO'
       when aluno_nome is null then 'SEM_NOME'
       when vencimento is null then 'VENCIMENTO_INVALIDO'
-      when valor is null or valor <= 0 then 'VALOR_INVALIDO'
+      when coalesce(valor, saldo) is null or coalesce(valor, saldo) <= 0 then 'VALOR_INVALIDO'
       when vencimento < v_carteira.venc_de or vencimento > v_carteira.venc_ate then 'FORA_DO_PERIODO'
     end;
 
-  -- duplicidade DENTRO do arquivo: a primeira ocorrência entra, a repetida é
+  -- Duplicidade DENTRO do arquivo: a primeira ocorrência entra, a repetida é
   -- separada. Reimportar o arquivo inteiro continua sem duplicar título.
   update _prev_in a set motivo = 'DUPLICADA_NO_ARQUIVO'
   where a.motivo is null
     and exists (select 1 from _prev_in b
                 where b.motivo is null and b.matricula = a.matricula
-                  and b.documento = a.documento and b.linha < a.linha);
+                  and b.chave = a.chave and b.linha < a.linha);
 
-  -- mesmo documento em duas matrículas: não se funde título, recusa-se a linha
+  -- Quando o arquivo TEM identificador de título, o mesmo identificador em
+  -- duas matrículas não funde nada: recusa a linha.
   update _prev_in a set motivo = 'DOCUMENTO_EM_OUTRA_MATRICULA'
-  where a.motivo is null
+  where a.motivo is null and a.documento is not null
     and exists (select 1 from public.prev_titulo t
                 where t.carteira_id = p_carteira_id and t.documento = a.documento
                   and t.matricula_prime <> a.matricula);
@@ -214,30 +266,40 @@ begin
     insert into public.prev_lote_recusa (lote_id, linha, motivo, dados)
     select p_lote_id, linha, motivo, bruto from _prev_in where motivo is not null;
 
-    -- Gravação idempotente. `saldo_inicial` e `lote_origem_id` só valem na
+    -- Gravação idempotente. `saldo_informado` e `lote_origem_id` só valem na
     -- primeira entrada do título na carteira; depois disso são história.
     with gravados as (
       insert into public.prev_titulo as t (
-        carteira_id, matricula_prime, documento, unidade, contrato, aluno_nome, cpf,
-        competencia, vencimento, valor_original, saldo_inicial, situacao_origem,
-        celular, email, lote_origem_id, lote_ultimo_id, status)
+        carteira_id, matricula_prime, documento, vencimento, vencimento_origem,
+        chave_arquivo, unidade, contrato, aluno_nome, cpf, competencia,
+        valor_original, saldo_informado, saldo_informado_atualizado, situacao_origem,
+        celular_aluno, email_aluno, celulares_no_arquivo, emails_no_arquivo,
+        lote_origem_id, lote_ultimo_id, status)
       select
-        p_carteira_id, i.matricula, i.documento, i.unidade, i.contrato, i.aluno_nome, i.cpf,
-        i.competencia, i.vencimento, i.valor, coalesce(i.saldo, i.valor), i.situacao,
-        i.celular, i.email, p_lote_id, p_lote_id,
+        p_carteira_id, i.matricula, i.documento, i.vencimento, i.vencimento_origem,
+        i.chave, i.unidade, i.contrato, i.aluno_nome, i.cpf, i.competencia,
+        coalesce(i.valor, i.saldo), coalesce(i.saldo, i.valor), i.saldo_atualizado, i.situacao,
+        i.celular_aluno, i.email_aluno,
+        coalesce(array_length(i.celulares, 1), 0), coalesce(array_length(i.emails, 1), 0),
+        p_lote_id, p_lote_id,
         case when (v_hoje - i.vencimento) > v_limite then 'FORA_DA_JANELA' else 'ATIVO' end
       from _prev_in i where i.motivo is null
-      on conflict (carteira_id, matricula_prime, documento) do update set
+      on conflict (carteira_id, matricula_prime, chave_arquivo) do update set
         aluno_nome     = excluded.aluno_nome,
         cpf            = coalesce(excluded.cpf, t.cpf),
+        documento      = coalesce(excluded.documento, t.documento),
         unidade        = coalesce(excluded.unidade, t.unidade),
         contrato       = coalesce(excluded.contrato, t.contrato),
         competencia    = coalesce(excluded.competencia, t.competencia),
         vencimento     = excluded.vencimento,
+        vencimento_origem = coalesce(excluded.vencimento_origem, t.vencimento_origem),
         valor_original = excluded.valor_original,
+        saldo_informado_atualizado = coalesce(excluded.saldo_informado_atualizado, t.saldo_informado_atualizado),
         situacao_origem= coalesce(excluded.situacao_origem, t.situacao_origem),
-        celular        = coalesce(excluded.celular, t.celular),
-        email          = coalesce(excluded.email, t.email),
+        celular_aluno  = coalesce(excluded.celular_aluno, t.celular_aluno),
+        email_aluno    = coalesce(excluded.email_aluno, t.email_aluno),
+        celulares_no_arquivo = greatest(excluded.celulares_no_arquivo, t.celulares_no_arquivo),
+        emails_no_arquivo    = greatest(excluded.emails_no_arquivo, t.emails_no_arquivo),
         lote_ultimo_id = excluded.lote_ultimo_id,
         atualizado_em  = now()
       returning t.id, (xmax = 0) as nasceu
@@ -258,18 +320,25 @@ begin
                               and not exists (select 1 from public.prev_titulo t
                                               where t.carteira_id = p_carteira_id
                                                 and t.matricula_prime = i.matricula
-                                                and t.documento = i.documento)),
+                                                and t.chave_arquivo = i.chave)),
     'atualizados',         (select count(*) from _prev_in i where i.motivo is null
                               and exists (select 1 from public.prev_titulo t
                                           where t.carteira_id = p_carteira_id
                                             and t.matricula_prime = i.matricula
-                                            and t.documento = i.documento)),
+                                            and t.chave_arquivo = i.chave)),
+    'sem_identificador_de_titulo', (select count(*) from _prev_in where motivo is null and documento is null),
+    'mesmo_vencimento_no_arquivo', (select count(*) from _prev_in a where a.motivo is null
+                                      and exists (select 1 from _prev_in b where b.motivo is null
+                                                  and b.matricula = a.matricula and b.vencimento = a.vencimento
+                                                  and b.chave <> a.chave)),
     'fora_da_janela',      (select count(*) from _prev_in where motivo is null and (v_hoje - vencimento) > v_limite),
-    'sem_celular_valido',  (select count(*) from _prev_in where motivo is null and celular is null),
-    'sem_email_valido',    (select count(*) from _prev_in where motivo is null and email is null),
-    'celular_compartilhado', (select count(*) from _prev_in a where a.motivo is null and a.celular is not null
+    'sem_celular_valido',  (select count(*) from _prev_in where motivo is null and coalesce(array_length(celulares,1),0) = 0),
+    'celular_ambiguo',     (select count(*) from _prev_in where motivo is null and coalesce(array_length(celulares,1),0) > 1),
+    'sem_email_valido',    (select count(*) from _prev_in where motivo is null and coalesce(array_length(emails,1),0) = 0),
+    'email_multiplo',      (select count(*) from _prev_in where motivo is null and coalesce(array_length(emails,1),0) > 1),
+    'celular_compartilhado', (select count(*) from _prev_in a where a.motivo is null and a.celular_aluno is not null
                                 and exists (select 1 from _prev_in b where b.motivo is null
-                                            and b.celular = a.celular and b.matricula <> a.matricula)),
+                                            and b.celular_aluno = a.celular_aluno and b.matricula <> a.matricula)),
     'recusas_por_motivo',  (select coalesce(jsonb_object_agg(motivo, n), '{}'::jsonb)
                               from (select motivo, count(*) n from _prev_in where motivo is not null group by 1) r),
     'exemplos_recusa',     (select coalesce(jsonb_agg(jsonb_build_object('linha', linha, 'motivo', motivo)), '[]'::jsonb)
@@ -367,7 +436,7 @@ begin
 
   update public.prev_titulo
      set status = 'FORA_DA_JANELA', saiu_em = v_hoje,
-         saida_motivo = 'Passou de ' || public.preventivo_limite_dias() || ' dias de atraso',
+         saida_motivo = 'Passou de ' || public.preventivo_limite_dias() || ' dias de atraso sobre o vencimento atual',
          atualizado_em = now()
    where status = 'ATIVO' and (v_hoje - vencimento) > public.preventivo_limite_dias();
   get diagnostics v_saiu = row_count;

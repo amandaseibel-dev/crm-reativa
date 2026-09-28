@@ -16,6 +16,7 @@ import { S } from "../../ui/estilosFila";
 import { moeda, dataHora } from "../../utils/preventivoFormato";
 import {
   CAMPOS, sugerirMapeamento, camposObrigatoriosFaltando, linhaParaRegistro,
+  decodificar, lerCsv,
 } from "../../utils/preventivo";
 
 const CDN_XLSX = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js";
@@ -69,9 +70,16 @@ export default function AbaImportacoes({ carteira, aoImportar }) {
     if (!nomeLote) setNomeLote(f.name.replace(/\.[^.]+$/, ""));
     try {
       const buf = await f.arrayBuffer();
-      const wb = window.XLSX.read(buf, { type: "array", cellDates: true });
-      const ws = wb.Sheets[wb.SheetNames[0]];
-      const linhasCruas = window.XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
+      let linhasCruas;
+      if (/\.csv$/i.test(f.name)) {
+        // CSV vai por leitor próprio: o relatório real vem em LATIN-1 e tem
+        // ponto e vírgula dentro de campo entre aspas.
+        linhasCruas = lerCsv(decodificar(buf));
+      } else {
+        const wb = window.XLSX.read(buf, { type: "array", cellDates: true });
+        const ws = wb.Sheets[wb.SheetNames[0]];
+        linhasCruas = window.XLSX.utils.sheet_to_json(ws, { header: 1, raw: true });
+      }
       const cab = (linhasCruas[0] || []).map((c) => String(c ?? ""));
       const corpo = linhasCruas.slice(1).filter((l) => l.some((c) => c !== null && c !== undefined && c !== ""));
       setCabecalho(cab);
@@ -119,10 +127,14 @@ export default function AbaImportacoes({ carteira, aoImportar }) {
       <div style={{ ...S.card, padding: 20 }}>
         <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>1. Escolher o arquivo</h2>
         <p style={{ ...S.muted, marginTop: 6 }}>
-          O relatório precisa trazer, no mínimo: <strong>matrícula</strong>, <strong>nome</strong>,
-          {" "}<strong>identificador do título</strong>, <strong>vencimento</strong> e <strong>valor</strong>.
-          Um arquivo só com nome e telefone não é carteira financeira — não dá para
-          acompanhar pagamento sem o título.
+          O relatório precisa trazer, no mínimo: <strong>matrícula</strong> (a coluna
+          {" "}<em>Código</em> do relatório de inadimplência), <strong>nome</strong>,
+          {" "}<strong>vencimento</strong> e <strong>saldo em aberto</strong>. Um arquivo só
+          com nome e telefone não é carteira financeira.
+          <br />
+          O relatório de inadimplência da ULBRA <strong>não traz identificador de título</strong>.
+          Sem ele, cada linha é ligada ao Prime por matrícula + vencimento atual; onde houver
+          mais de um candidato, o título fica pendente em vez de ser ligado no chute.
         </p>
         <input type="file" accept=".xlsx,.xls,.csv" disabled={!libOk} onChange={aoEscolher}
                style={{ marginTop: 12 }} />
@@ -204,8 +216,11 @@ export default function AbaImportacoes({ carteira, aoImportar }) {
             <Numero rotulo="Linhas recusadas" valor={previa.linhas_recusadas} />
             <Numero rotulo="Já fora da janela de 31 dias" valor={previa.fora_da_janela} />
             <Numero rotulo="Sem celular válido" valor={previa.sem_celular_valido} />
+            <Numero rotulo="Mais de um celular na linha" valor={previa.celular_ambiguo} />
             <Numero rotulo="Sem e-mail válido" valor={previa.sem_email_valido} />
+            <Numero rotulo="Mais de um e-mail na linha" valor={previa.email_multiplo} />
             <Numero rotulo="Celular repetido entre alunos" valor={previa.celular_compartilhado} />
+            <Numero rotulo="Sem identificador de título no arquivo" valor={previa.sem_identificador_de_titulo} />
           </div>
 
           {Object.keys(previa.recusas_por_motivo || {}).length > 0 && (

@@ -18,11 +18,21 @@ const FAIXAS = [
   { id: "acima_31", rotulo: "Acima de 31 (fora da janela)" },
 ];
 
+// A palavra escolhida importa: o que a API entrega é o VALOR do título
+// (netAmount), não um saldo em aberto. Os rótulos dizem exatamente isso.
 const MOVIMENTOS = [
-  { id: "", rotulo: "Qualquer situação" },
-  { id: "pendente", rotulo: "Sem redução de saldo" },
-  { id: "com_reducao", rotulo: "Com redução de saldo" },
-  { id: "quitado", rotulo: "Saldo zerado" },
+  { id: "", rotulo: "Qualquer alteração" },
+  { id: "sem_alteracao", rotulo: "Sem alteração de valor na fonte" },
+  { id: "caiu", rotulo: "Valor caiu na fonte" },
+  { id: "zerado", rotulo: "Valor zerado na fonte" },
+];
+
+const VINCULOS = [
+  { id: "", rotulo: "Qualquer vínculo com o Prime" },
+  { id: "UNICO", rotulo: "Vínculo único (confere)" },
+  { id: "AMBIGUO", rotulo: "Ambíguo (mais de um candidato)" },
+  { id: "NAO_ENCONTRADO", rotulo: "Não encontrado no Prime" },
+  { id: "PENDENTE", rotulo: "Ainda não consultado" },
 ];
 
 export function AvisoAtualizacao({ situacao }) {
@@ -52,7 +62,7 @@ export default function AbaCarteira({ carteira }) {
   const [situacao, setSituacao] = useState(null);
   const [erro, setErro] = useState("");
   const [atualizando, setAtualizando] = useState(false);
-  const [filtros, setFiltros] = useState({ status: "", faixa: "", movimento: "" });
+  const [filtros, setFiltros] = useState({ status: "", faixa: "", movimento: "", vinculo: "" });
 
   // Buscar não mexe em estado: quem aplica é o efeito (ou o botão). Com os
   // filtros mudando rápido, uma resposta atrasada não pode sobrescrever a
@@ -121,6 +131,10 @@ export default function AbaCarteira({ carteira }) {
                 onChange={(e) => setFiltros({ ...filtros, movimento: e.target.value })}>
           {MOVIMENTOS.map((m) => <option key={m.id} value={m.id}>{m.rotulo}</option>)}
         </select>
+        <select style={S.select} value={filtros.vinculo}
+                onChange={(e) => setFiltros({ ...filtros, vinculo: e.target.value })}>
+          {VINCULOS.map((m) => <option key={m.id} value={m.id}>{m.rotulo}</option>)}
+        </select>
         <button onClick={atualizarAgora} disabled={atualizando} style={S.btnGhost}>
           {atualizando ? "Consultando o Prime…" : "Atualizar agora"}
         </button>
@@ -144,11 +158,13 @@ export default function AbaCarteira({ carteira }) {
                 <th style={S.th}>Matrícula</th>
                 <th style={S.th}>Título</th>
                 <th style={S.th}>Comp.</th>
-                <th style={S.th}>Vencimento</th>
+                <th style={S.th}>Venc. atual</th>
+                <th style={S.th}>Venc. origem</th>
                 <th style={S.thNum}>Atraso</th>
-                <th style={S.thNum}>Entrada</th>
-                <th style={S.thNum}>Saldo</th>
-                <th style={S.th}>Situação</th>
+                <th style={S.thNum}>Saldo informado</th>
+                <th style={S.thNum}>Valor na fonte</th>
+                <th style={S.th}>Vínculo</th>
+                <th style={S.th}>Alteração</th>
                 <th style={S.th}>Lote</th>
                 <th style={S.th}>Última ação</th>
               </tr></thead>
@@ -160,14 +176,16 @@ export default function AbaCarteira({ carteira }) {
                     <td style={S.td}>{t.documento}</td>
                     <td style={S.td}>{t.competencia || "—"}</td>
                     <td style={S.td}>{dataCurta(t.vencimento)}</td>
+                    <td style={S.td}>{dataCurta(t.vencimento_origem)}</td>
                     <td style={S.tdNum}>{t.dias_atraso < 0 ? `em ${-t.dias_atraso}d` : `${t.dias_atraso}d`}</td>
-                    <td style={S.tdNum}>{moeda(t.valor_inicial)}</td>
+                    <td style={S.tdNum}>{moeda(t.saldo_informado)}</td>
                     <td style={S.tdNum}>
-                      {t.saldo_atual === null
-                        ? <span style={{ color: "var(--rv-texto-fraco)", fontWeight: 600 }}>não consultado</span>
-                        : moeda(t.saldo_atual)}
+                      {t.valor_fonte === null
+                        ? <span style={{ color: "var(--rv-texto-fraco)", fontWeight: 600 }}>—</span>
+                        : moeda(t.valor_fonte)}
                     </td>
-                    <td style={S.td}><Situacao t={t} /></td>
+                    <td style={S.td}><Vinculo t={t} /></td>
+                    <td style={S.td}><Alteracao t={t} /></td>
                     <td style={S.td}>{t.lote || "—"}</td>
                     <td style={S.td}>
                       {t.ultima_acao
@@ -184,14 +202,26 @@ export default function AbaCarteira({ carteira }) {
   );
 }
 
-// A palavra escolhida importa: "redução de saldo" não é "pagou".
-function Situacao({ t }) {
+// O relatório não traz identificador de título, então o vínculo com o Prime é
+// resolvido por matrícula + vencimento. Quando há mais de um candidato, fica
+// ambíguo — e ambíguo aparece na tela, não é resolvido no escuro.
+function Vinculo({ t }) {
+  if (t.vinculo === "UNICO") return <Marca cor="verde">confere</Marca>;
+  if (t.vinculo === "AMBIGUO") return <Marca cor="ambar">{t.candidatos} candidatos</Marca>;
+  if (t.vinculo === "NAO_ENCONTRADO") return <Marca cor="ambar">não achado</Marca>;
+  return <Marca cor="cinza">não consultado</Marca>;
+}
+
+// "caiu o valor na fonte" NÃO é "pagou". O rótulo diz o que foi medido.
+function Alteracao({ t }) {
   if (t.status === "FORA_DA_JANELA") return <Marca cor="cinza">fora da janela</Marca>;
-  if (t.presente_no_extrato === false) return <Marca cor="ambar">sumiu do extrato</Marca>;
-  if (t.saldo_atual === null) return <Marca cor="cinza">sem consulta</Marca>;
-  if (Number(t.saldo_atual) <= 0) return <Marca cor="verde">saldo zerado</Marca>;
-  if (Number(t.reducao) > 0) return <Marca cor="azul">saldo reduziu</Marca>;
-  return <Marca cor="cinza">em aberto</Marca>;
+  const m = t.ultima_alteracao;
+  if (!m) return <Marca cor="cinza">sem alteração</Marca>;
+  if (m.tipo === "VALOR_FONTE_ZEROU") return <Marca cor="verde">valor zerou</Marca>;
+  if (m.tipo === "VALOR_FONTE_CAIU") return <Marca cor="azul">valor caiu</Marca>;
+  if (m.tipo === "VALOR_FONTE_SUBIU") return <Marca cor="cinza">valor subiu</Marca>;
+  if (m.tipo === "AUSENTE_NO_EXTRATO") return <Marca cor="ambar">sumiu do extrato</Marca>;
+  return <Marca cor="cinza">{String(m.tipo).toLowerCase().replace(/_/g, " ")}</Marca>;
 }
 
 function Marca({ cor, children }) {

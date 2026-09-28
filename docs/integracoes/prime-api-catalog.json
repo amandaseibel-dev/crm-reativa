@@ -202,7 +202,9 @@
         "carrier 166 (convênio de acordo) NUNCA aparece numa linha de extrato, mesmo para acordo ATIVO com parcela em aberto conhecida (medido em 67 alunos / 1.625 linhas)",
         "carrierId como filtro deste endpoint é ignorado silenciosamente",
         "MEDIDO AO VIVO 2026-09-28 (GET /students/{registration} via Edge Function prime-acordo): o objeto de financialStatement tem EXATAMENTE 13 campos — documentNumber, dueDate, grossAmount, discountAmount, penaltyAmount, interestAmount, honorariumAmount, netAmount, paymentDate, paidAmount, boleto, isAgreementInstallment, carrier. NENHUM campo de situação, status, saldo em aberto ou evento de pagamento.",
-        "Consequência: não existe, na superfície testada com a chave atual, forma de saber pela API se um título está pago, em aberto, cancelado ou renegociado. Movimento só é observável comparando duas consultas — e redução de saldo mistura pagamento, cancelamento, bolsa e renegociação."
+        "Consequência: não existe, na superfície testada com a chave atual, forma de saber pela API se um título está pago, em aberto, cancelado ou renegociado. Movimento só é observável comparando duas consultas — e redução de saldo mistura pagamento, cancelamento, bolsa e renegociação.",
+        "PROVA COM VARIÁVEL INDEPENDENTE, 2026-09-28: o relatório de inadimplência da ULBRA do próprio dia diz quem está EM ABERTO. Cruzando 120 linhas dele com o espelho: 101 títulos comprovadamente em aberto; DESSES, 101 tinham paymentDate preenchido, 19 com data POSTERIOR ao vencimento, 61 tinham paidAmount IGUAL ao netAmount e 27 tinham paidAmount MENOR que o netAmount. Ou seja, as assinaturas que alguém leria como 'pagou' aparecem em massa em títulos abertos. Nenhum dos 13 campos separa aberto de pago.",
+        "Comparação entre grupos (mesmos alunos, 2026-09-28): EM ABERTO (101 títulos) x mensalidades de jul/ago do mesmo aluno (24) x títulos futuros (315). Nenhum campo separa os grupos: paymentDate nulo = 0 nos três; isAgreementInstallment = false nos três; portador = 95 nos três. Nos futuros, paymentDate <= vencimento em 315 de 315 — é data de processamento."
       ],
       "last_verified_at": "2026-09-28"
     },
@@ -261,7 +263,8 @@
       "/docs",
       "/health"
     ],
-    "nota": "48 rotas candidatas testadas em 15/09/2026 com o número de um acordo real conhecido (71903) — todas 404, nenhuma 405 (405 indicaria rota existente com método errado; 404 uniforme não distingue 'rota não existe' de 'rota existe mas não aceita GET nesta forma')."
+    "nota": "48 rotas candidatas testadas em 15/09/2026 com o número de um acordo real conhecido (71903) — todas 404, nenhuma 405 (405 indicaria rota existente com método errado; 404 uniforme não distingue 'rota não existe' de 'rota existe mas não aceita GET nesta forma').",
+    "nota_2026_09_28": "Reconferido em 28/09/2026 para a frente PREVENTIVO: as rotas de pagamento/título (/payments, /titles, /bills, /installments, /students/{reg}/titles) continuam sendo as testadas em 15/09 e nenhuma delas respondeu. Também foi verificado que NÃO existe outra integração autorizada com essa informação: `public.pagamentos` (9.584 linhas, extrato Santander da Reativa) tem `titulo_numero` de 5 dígitos, que é o NÚMERO DO ACORDO da Reativa — estruturalmente incapaz de carregar pagamento de mensalidade do portador 95."
   },
   "edge_functions": {
     "no_repositorio": [
