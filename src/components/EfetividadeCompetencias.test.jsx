@@ -585,3 +585,30 @@ describe("Conferir em aberto", () => {
     expect(screen.queryByRole("button", { name: "Conferir em aberto" })).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// O QUE O CARD "CANCELADOS" NAO COBRE
+//
+// Medido em 29/09: 103 mensalidades de 2026/2 sao de alunos tabulados como
+// cancelamento ou suspensao de cobranca, e NENHUMA entra neste card por causa
+// disso -- seguem em sem negociacao, em conferencia ou convertido. Duas
+// aparecem aqui, mas pela SITUACAO do titulo. Sem a frase, o card e lido como
+// se ja cobrisse as tabulacoes.
+// ---------------------------------------------------------------------------
+describe("Card Cancelados: diz o que NÃO considera", () => {
+  it("avisa que conta só situação CANCELADA e não as tabulações do aluno", async () => {
+    await abrir();
+    const card = topo().getByText("Cancelados").closest("button");
+    expect(card).toBeTruthy();
+    expect(within(card).getByText(/Considera somente títulos com situação CANCELADA/)).toBeTruthy();
+    expect(within(card).getByText(/Não inclui, por si só, tabulações de cancelamento ou suspensão do aluno/))
+      .toBeTruthy();
+  });
+
+  it("o aviso é do card de cancelados, não de outro", async () => {
+    await abrir();
+    const recuperado = topo().getByText("Recuperado por rateio").closest("button");
+    expect(within(recuperado).queryByText(/situação CANCELADA/)).toBeNull();
+  });
+});
+

@@ -169,6 +169,14 @@ function montarCards(t) {
                conta(t?.acordos_cancelados, "acordo cancelado", "acordos cancelados")
                  + " (conceito separado)"],
       nota: "cobrança cancelada sai da base; acordo cancelado não",
+      // Medido em 29/09: 103 mensalidades de 2026/2 são de alunos tabulados
+      // como cancelamento ou suspensão de cobrança, e NENHUMA delas entra aqui
+      // por causa disso -- elas seguem em sem negociação, em conferência ou
+      // convertido. Duas aparecem neste card, mas pela SITUAÇÃO do título, não
+      // pela tabulação. Sem esta frase o card é lido como se já cobrisse as
+      // tabulações, e ele não cobre.
+      aviso: "Considera somente títulos com situação CANCELADA. Não inclui, por si só, "
+           + "tabulações de cancelamento ou suspensão do aluno.",
     },
     {
       chave: "saldo", indicador: "saldo", papel: "saldo",
