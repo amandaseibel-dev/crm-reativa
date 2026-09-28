@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
+import EfetividadeCompetencias from "../components/EfetividadeCompetencias";
 
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
 //
@@ -59,6 +60,10 @@ const AZUL = "var(--rv-azul)", VERDE = "var(--rv-verde-ok)", VERMELHO = "var(--r
 export default function CarteiraEfetividade() {
   const [ano, setAno] = useState("2026");
   const [sem, setSem] = useState("1");
+  // 2026/2 tem duas leituras do MESMO dado: o consolidado do semestre e o
+  // recorte por competência (mês de vencimento da mensalidade). As outras
+  // safras têm só o consolidado.
+  const [vista, setVista] = useState("consolidado");
   const [consolidada, setConsolidada] = useState(null);
   const [academico, setAcademico] = useState(null);
   const [vigente, setVigente] = useState(null);
@@ -246,6 +251,19 @@ export default function CarteiraEfetividade() {
           ) : (
             <span style={S.chip}>Ano inteiro: em 2024 e 2025 os dois semestres são lidos juntos.</span>
           )}
+          {/* Só 2026/2 tem recorte por competência: é a safra em curso, em que
+              as mensalidades do mês ainda estão entrando em cobrança. */}
+          {ano === "2026" && sem === "2" ? (
+            <div style={S.navBloco}>
+              <span style={S.navRotulo}>Visão</span>
+              <div style={S.grupo} role="group" aria-label="Visão de 2026/2">
+                {[["consolidado", "Consolidado"], ["competencia", "Por competência"]].map(([k, r]) => (
+                  <button key={k} onClick={() => setVista(k)} aria-pressed={vista === k}
+                          style={{ ...S.opcao, ...(vista === k ? S.opcaoAtiva : null) }}>{r}</button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
         <div style={S.periodo}>
           <strong style={S.periodoValor}>{periodo}</strong>
@@ -255,7 +273,11 @@ export default function CarteiraEfetividade() {
 
       {erro ? <p style={S.erro}>{erro}</p> : null}
 
-      {indicadores.length === 0 ? (
+      {safra === "2026/2" && vista === "competencia" ? (
+        <div style={{ marginTop: 18 }}>
+          <EfetividadeCompetencias />
+        </div>
+      ) : indicadores.length === 0 ? (
         <p style={{ ...S.discreto, marginTop: 24 }}>Sem dados para {periodo}.</p>
       ) : (
         <>
@@ -375,7 +397,11 @@ export default function CarteiraEfetividade() {
             )}
           </section>
 
-          {/* 4. METODOLOGIA — tudo o que é técnico mora aqui */}
+        </>
+      )}
+
+      {/* 4. METODOLOGIA — tudo o que é técnico mora aqui, e vale para as duas
+          visões de 2026/2: consolidado e por competência. */}
           <div style={{ marginTop: 20 }}>
             <button onClick={() => setMetodologia((v) => !v)} aria-expanded={metodologia}
                     style={S.linkMetodologia}>
@@ -449,11 +475,26 @@ export default function CarteiraEfetividade() {
                   que ainda têm pendência na carteira. Matrícula confirmada com dívida aberta aparece como exceção — o
                   aluno só efetiva matrícula com a ficha regularizada — e o painel não afirma a razão da exceção.
                 </p>
+                <p style={S.texto}>
+                  <strong>2026/2 por competência.</strong> Mesmo dado do consolidado, quebrado pelo mês de
+                  competência da mensalidade — o mês do vencimento. Não é o borderô, que é artefato interno de
+                  importação e não identifica nada para quem lê: quatro borderôs caem em agosto de 2026 e quatro em
+                  julho, e o que os separa é a modalidade, que só existe dentro do nome do arquivo. Também não é a
+                  coluna de competência do título, que está nula em toda a safra. O título pertence ao semestre pela
+                  série de cobrança do Prime e, só onde a série não existe, pelo vencimento — nunca pela data em que o
+                  arquivo foi importado nem pelo semestre do cadastro do aluno, que rotula o aluno inteiro e não serve
+                  como dimensão de carteira.
+                  <em>Entradas</em> é entrada na carteira, não entrada financeira de acordo. <em>Recuperado</em> é a
+                  mesma recuperação financeira do consolidado: o valor original rateado pelo percentual de parcelas
+                  pagas do acordo, ou o valor original menos o saldo quando o próprio título está pago — nunca acima do
+                  valor original. <em>Cancelados</em> conta o título cuja cobrança saiu da base; acordo cancelado é
+                  outro conceito, fica em campo próprio e não retira o que já havia sido convertido, porque a conversão
+                  é histórica. Recuperação e conversão têm a mesma base declarada em cada card: o valor original que
+                  entrou naquela competência.
+                </p>
               </div>
             ) : null}
           </div>
-        </>
-      )}
     </div>
   );
 }

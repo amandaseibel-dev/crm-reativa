@@ -124,3 +124,39 @@ describe("Efetividade — 2024 e 2025 por ano", () => {
     expect(screen.getByText("2026/1")).toBeTruthy();
   });
 });
+
+// O alternador de visão existe SÓ em 2026/2: é a safra em curso. O conteúdo da
+// visão por competência tem teste próprio em
+// src/components/EfetividadeCompetencias.test.jsx.
+describe("Efetividade — alternador de visão de 2026/2", () => {
+  async function ir2026_2() {
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "2º semestre" })); });
+  }
+
+  it("2026/1 não oferece a visão por borderô", async () => {
+    await abrir();
+    expect(screen.queryByRole("button", { name: "Por competência" })).toBeNull();
+  });
+
+  it("2026/2 oferece Consolidado e Por competência, começando no consolidado", async () => {
+    await abrir();
+    await ir2026_2();
+    const consolidado = screen.getByRole("button", { name: "Consolidado" });
+    expect(consolidado.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Por competência" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("2024 esconde o alternador junto com o semestre", async () => {
+    await abrir();
+    await ir2026_2();
+    await irPara("2024");
+    expect(screen.queryByRole("button", { name: "Por competência" })).toBeNull();
+  });
+
+  it("a metodologia continua acessível na visão por competência", async () => {
+    await abrir();
+    await ir2026_2();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Por competência" })); });
+    expect(screen.getByRole("button", { name: /Ver metodologia/ })).toBeTruthy();
+  });
+});
