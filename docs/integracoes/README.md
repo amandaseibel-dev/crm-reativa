@@ -68,11 +68,11 @@ matrículas. A amostra é de seis e **não** autoriza generalizar que toda pesso
 tenha uma matrícula só; autoriza dizer que o status pertence ao vínculo, e que
 os vínculos de uma mesma pessoa discordam entre si.
 
-**Não existe identificador estável do vínculo**, e a chave composta
-(curso + campus + turno) não o separa. Detalhe medido em
+**Não foi encontrado identificador estável do vínculo nos endpoints e na
+amostra consultados**, e a chave composta (curso + campus + turno) não o separa. Detalhe medido em
 [`prime-mapa-identificadores.md`](prime-mapa-identificadores.md#vínculo-acadêmico-curso--campus--turno).
-Por isso **associar situação acadêmica ao curso de uma dívida não é possível
-hoje com prova** — quem precisar do dado exibe os vínculos e declara a não
+Por isso, **com o que foi consultado, associar situação acadêmica ao curso de
+uma dívida não é possível com prova** — quem precisar do dado exibe os vínculos e declara a não
 identificação, sem escolher linha e sem promover o status de um curso a status
 da pessoa.
 

@@ -115,7 +115,7 @@
       ],
       "graduated_nota": "boolean INDEPENDENTE de status -- nao e sinonimo de status=='Formado'. Linha com status 'Mudança de Campus' veio graduated:true na matricula 201008325",
       "nulos_observados": "status nulo em 14 de 35 vinculos; campus e shift nulos em 10 de 35; o vinculo 'Disciplinas Isoladas' veio com status nulo nos 6 alunos e admissionYear 2000",
-      "sem_identificador_estavel": "nenhum campo de id/codigo/sequencia no item; a chave course+campus+shift NAO separa vinculos (3 linhas com chave identica e status Reopção de Curso / Cancelado / null na matricula 222007757). Ver prime-mapa-identificadores.md"
+      "sem_identificador_estavel": "NAO FOI ENCONTRADO identificador estavel nos endpoints e na amostra consultados: nenhum campo de id/codigo/sequencia no item; a chave course+campus+shift NAO separa vinculos (3 linhas com chave identica e status Reopção de Curso / Cancelado / null na matricula 222007757). Ver prime-mapa-identificadores.md"
     },
     {
       "resource": "student_composite",
@@ -185,7 +185,8 @@
         null
       ],
       "number_vazio": "string vazia em 111 de 111 contratos dos 6 alunos da amostra, sem excecao",
-      "status_e_de_contrato": "Confirmado/Anulado/Cancelado/Aberto e status de CONTRATO por semestre, vocabulario distinto da situacao academica. NUNCA usar como substituto"
+      "status_e_de_contrato": "Confirmado/Anulado/Cancelado/Aberto e status de CONTRATO por semestre, vocabulario distinto da situacao academica. NUNCA usar como substituto",
+      "contrato_vigente_nao_e_estudando": "contrato vigente NAO equivale a 'aluno estudando': o contrato e o instrumento financeiro do periodo. Na amostra de 2026-09-28 ha contrato Confirmado vigente em vinculo com situacao 'Formado', e vinculo com situacao 'Matriculado Curso Normal' sem contrato vigente"
     },
     {
       "resource": "financial_statement",

@@ -47,7 +47,8 @@ pelo extrato.
 
 ## Vínculo acadêmico (curso + campus + turno)
 
-**NÃO EXISTE IDENTIFICADOR ESTÁVEL.** Medido em 28/09/2026 numa amostra de 6
+**NÃO FOI ENCONTRADO IDENTIFICADOR ESTÁVEL nos endpoints e na amostra
+consultados.** Medido em 28/09/2026 numa amostra de 6
 alunos devedores (35 vínculos, 111 contratos):
 
 | candidato | resultado |
@@ -79,8 +80,10 @@ suficiente para invalidá-la:
 casam com nenhum**. Não há, na superfície atual da API, caminho para dizer
 "este vínculo é o do contrato que gerou esta dívida".
 
-**Portanto:** associar situação acadêmica ao curso de uma dívida **não é
-possível hoje com prova**. Quem precisar do dado exibe os vínculos encontrados e
+**Portanto:** com os endpoints e a amostra consultados, associar situação
+acadêmica ao curso de uma dívida **não é possível com prova**. Não é afirmação
+sobre a API inteira: é o alcance do que foi medido, e um endpoint ou campo ainda
+não sondado pode mudar a conclusão. Quem precisar do dado exibe os vínculos encontrados e
 declara a não identificação — nunca escolhe uma linha, nunca promove o status de
 um curso a status da pessoa, e nunca usa `contracts[].status` como substituto.
 
