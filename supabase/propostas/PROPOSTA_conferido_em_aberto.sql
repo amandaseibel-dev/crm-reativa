@@ -364,6 +364,21 @@ as $function$
   from classificado c;
 $function$;
 
+-- CREATE OR REPLACE preserva a ACL, entao em producao o classificador continua
+-- fechado sem precisar destas linhas. Elas estao aqui mesmo assim, por dois
+-- motivos concretos:
+--   1. tornam a migration correta a partir de QUALQUER estado inicial -- se um
+--      dia ela rodar sobre um banco onde a funcao nao foi fechada, ela fecha;
+--   2. em Postgres funcao nasce com EXECUTE para PUBLIC, e PUBLIC nao aparece
+--      em nenhum ALTER DEFAULT PRIVILEGES -- e o privilegio mais facil de
+--      esquecer. O teste em Postgres isolado abortou exatamente por isso.
+-- A guarda no fim CONFERE o resultado; estas linhas so garantem que ha o que
+-- conferir.
+revoke all on function public.carteira_2026_2_classificar() from public;
+revoke all on function public.carteira_2026_2_classificar() from anon;
+revoke all on function public.carteira_2026_2_classificar() from authenticated;
+grant execute on function public.carteira_2026_2_classificar() to service_role;
+
 -- ---------------------------------------------------------------------------
 -- 4. O DETALHE passa a devolver o que a tela precisa para conferir.
 --
@@ -466,6 +481,13 @@ begin
 
   return v_out;
 end; $function$;
+
+-- Mesma razao do classificador: PUBLIC e o privilegio esquecido. `authenticated`
+-- NAO e revogado aqui -- e sem ele o painel morre para a propria gestao.
+revoke all on function public.carteira_2026_2_competencia_detalhe(date,text,integer,integer) from public;
+revoke all on function public.carteira_2026_2_competencia_detalhe(date,text,integer,integer) from anon;
+grant execute on function public.carteira_2026_2_competencia_detalhe(date,text,integer,integer)
+  to authenticated, service_role;
 
 -- ---------------------------------------------------------------------------
 -- 5. A RPC QUE REGISTRA. E o unico caminho de escrita.

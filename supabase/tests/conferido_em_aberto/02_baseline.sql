@@ -137,6 +137,13 @@ $function$;
 -- faria a guarda passar por sorte.
 revoke execute on function public.carteira_2026_2_classificar() from authenticated;
 revoke execute on function public.carteira_2026_2_classificar() from anon;
+-- E PUBLIC, que NAO e detalhe: em Postgres funcao nasce com EXECUTE para
+-- PUBLIC, independente do ALTER DEFAULT PRIVILEGES. Medido em producao em
+-- 28/09/2026, o classificador tem exatamente postgres e service_role -- nada
+-- mais. A primeira versao deste fixture esquecia PUBLIC e a guarda da proposta
+-- ABORTOU no CI, que e o comportamento correto dela. O fixture e que estava
+-- mais folgado que a realidade.
+revoke all on function public.carteira_2026_2_classificar() from public;
 
 create or replace function public.carteira_2026_2_competencia_detalhe(
   p_competencia date default null::date, p_indicador text default 'entradas'::text,
@@ -157,3 +164,7 @@ end; $function$;
 -- O detalhe e aberto para a gestao logada (authenticated) e fechado para anon,
 -- como em producao. A proposta usa CREATE OR REPLACE e tem de PRESERVAR isso.
 revoke execute on function public.carteira_2026_2_competencia_detalhe(date,text,integer,integer) from anon;
+revoke all     on function public.carteira_2026_2_competencia_detalhe(date,text,integer,integer) from public;
+-- Estado final deste fixture, igual ao medido em producao em 28/09/2026:
+--   carteira_2026_2_classificar ........ postgres, service_role
+--   carteira_2026_2_competencia_detalhe  postgres, service_role, authenticated
