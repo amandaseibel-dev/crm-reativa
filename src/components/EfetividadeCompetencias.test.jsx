@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act, cleanup, within } from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
 
 // O que se prova aqui é o ENQUADRAMENTO do recorte por competência: os seis
 // cards medem o recorte escolhido, cada percentual declara a base, cancelado e
@@ -98,7 +99,9 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 async function abrir() {
-  await act(async () => { render(<EfetividadeCompetencias />); });
+  await act(async () => {
+    render(<MemoryRouter><EfetividadeCompetencias /></MemoryRouter>);
+  });
 }
 const topo = () => within(screen.getByRole("group", { name: "Indicadores do recorte" }));
 
@@ -112,8 +115,8 @@ describe("Efetividade 2026/2 por competência", () => {
     expect(topo().getByText("R$ 4,76 mi")).toBeTruthy();
     expect(topo().getByText("2.307 mensalidades recebidas para cobrança")).toBeTruthy();
     expect(topo().getByText("2.292 alunos únicos")).toBeTruthy();
-    expect(topo().getByText("270 mensalidades com pagamento")).toBeTruthy();
-    expect(topo().getByText("239 totalmente liquidados")).toBeTruthy();
+    expect(topo().getByText("270 mensalidades com pagamento identificado")).toBeTruthy();
+    expect(topo().getByText("239 integralmente recuperadas pelo critério de rateio")).toBeTruthy();
   });
 
   it("o card é o MÊS, não o borderô — e nenhum número de borderô aparece", async () => {
@@ -394,6 +397,201 @@ describe("Efetividade 2026/2 por competência", () => {
     expect(cabem(896)).toBe(2);        // lateral recolhida
     expect(cabem(664)).toBe(2);        // tablet
     expect(cabem(343)).toBe(1);        // celular 375px
+  });
+
+
+  // ---- 28/09: cancelamento e suspensao entram no card, SEM mexer em calculo ----
+
+  // Os campos de tabulacao so existem depois da migration proposta. Sem eles a
+  // tela tem de se comportar como hoje -- nada vazio, nada sugerindo ausencia.
+  it("sem os campos de tabulação, o card segue sendo só Cancelados", async () => {
+    await abrir();
+    expect(topo().getByText("Cancelados")).toBeTruthy();
+    expect(topo().queryByText("Cancelados e suspensos")).toBeNull();
+    expect(screen.getByRole("heading", { name: "Cancelados por motivo" })).toBeTruthy();
+    expect(screen.queryByText(/Mensalidades de alunos com registro de suspensão temporária/)).toBeNull();
+    // e o valor continua sendo só o do título CANCELADA
+    expect(within(topo().getByText("Cancelados").closest("button")).getByText("R$ 10 mil")).toBeTruthy();
+  });
+
+  const COM_TAB = {
+    ...PAINEL,
+    total: { ...PAINEL.total,
+      tab_cancelamento_titulos: 29, tab_cancelamento_valor: 99160.73,
+      tab_suspensao_titulos: 71, tab_suspensao_valor: 136432.66 },
+  };
+
+  it("com a tabulação, o card separa as três marcas e soma sem duplicidade", async () => {
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: COM_TAB })
+        : Promise.resolve({ data: DETALHE }));
+    await abrir();
+    const card = within(topo().getByText("Cancelados e suspensos").closest("button"));
+    // 10.399,64 + 99.160,73 + 136.432,66 = 245.993,03 -> "R$ 246 mil"
+    expect(card.getByText("R$ 246 mil")).toBeTruthy();
+    expect(card.getByText("101 mensalidades, sem duplicidade")).toBeTruthy();
+
+    const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
+    expect(sec.getByText("Situação CANCELADA no título")).toBeTruthy();
+    expect(sec.getByText("Mensalidades de alunos com registro de cancelamento definitivo")).toBeTruthy();
+    expect(sec.getByText("Mensalidades de alunos com registro de suspensão temporária")).toBeTruthy();
+    expect(sec.getByText("R$ 99.160,73")).toBeTruthy();
+    expect(sec.getByText("R$ 136.432,66")).toBeTruthy();
+    expect(sec.getByText(/Total sem duplicidade: 101 mensalidades/)).toBeTruthy();
+  });
+
+  it("suspensão não é apresentada como cancelamento definitivo", async () => {
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: COM_TAB })
+        : Promise.resolve({ data: DETALHE }));
+    await abrir();
+    const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
+    const susp = sec.getByText("Mensalidades de alunos com registro de suspensão temporária").closest("button");
+    expect(within(susp).getByText(/suspensão volta; não é cancelamento definitivo/)).toBeTruthy();
+    // e a linha do cancelamento é outra, com valor próprio
+    const canc = sec.getByText("Mensalidades de alunos com registro de cancelamento definitivo").closest("button");
+    expect(within(canc).getByText("R$ 99.160,73")).toBeTruthy();
+    expect(within(susp).getByText("R$ 136.432,66")).toBeTruthy();
+    expect(canc).not.toBe(susp);
+  });
+
+  it("declara que a tabulação não reduz o saldo, que o registro é do aluno e que não se afirma alcance", async () => {
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: COM_TAB })
+        : Promise.resolve({ data: DETALHE }));
+    await abrir();
+    const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
+    expect(sec.getByText(/não reduzem o saldo residual nesta entrega/)).toBeTruthy();
+    expect(sec.getByText(/continuam contados nas faixas de origem/)).toBeTruthy();
+    // A ressalva mais forte: a tela NÃO pode afirmar que o registro alcança
+    // todas as mensalidades do aluno. Asserir o "não se afirma" é o que impede
+    // alguém reescrever isso como se a abrangência estivesse provada.
+    expect(sec.getByText(/não se afirma que o registro alcance/i)).toBeTruthy();
+    expect(sec.getByText(/não há vínculo entre caso e título/i)).toBeTruthy();
+    expect(sec.getByText(/impede tanto afirmar quanto negar/i)).toBeTruthy();
+    // E a divergência entre as duas fontes fica registrada, não escondida.
+    expect(sec.getByText(/união/i)).toBeTruthy();
+    expect(sec.getByText(/marcadas\s+só no caso/i)).toBeTruthy();
+  });
+
+  // O PONTO CENTRAL: os indicadores financeiros nao podem se mexer.
+  it("os indicadores financeiros são idênticos com e sem tabulação", async () => {
+    const ler = () => ["Entradas", "Recuperado por rateio", "Convertido",
+                       "Em conferência", "Saldo residual da carteira"]
+      .map((t) => within(topo().getByText(t).closest("button")).getAllByText(/^R\$/)[0].textContent);
+    await abrir();
+    const sem = ler();
+    cleanup();
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: COM_TAB })
+        : Promise.resolve({ data: DETALHE }));
+    await abrir();
+    const com = ler();
+    expect(com).toEqual(sem);
+  });
+
+  it("cada marca abre o detalhe do próprio indicador", async () => {
+    rpcMock.mockImplementation((nome) =>
+      nome === "carteira_2026_2_competencias"
+        ? Promise.resolve({ data: COM_TAB })
+        : Promise.resolve({ data: DETALHE }));
+    await abrir();
+    const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
+    await act(async () => {
+      fireEvent.click(sec.getByTitle("Ver os títulos de Mensalidades de alunos com registro de suspensão temporária"));
+    });
+    expect(rpcMock).toHaveBeenCalledWith("carteira_2026_2_competencia_detalhe", {
+      p_competencia: null, p_indicador: "tab_suspensao", p_limite: 200, p_offset: 0,
+    });
+  });
+
+
+  // ---- 28/09: orientacao de conferencia e caminho ate a ficha ----
+
+  it("o card Em conferência orienta o que fazer e para onde ir", async () => {
+    await abrir();
+    const card = within(topo().getByText("Em conferência").closest("button"));
+    expect(card.getByText(/precisam de validação antes de confirmar sua situação/)).toBeTruthy();
+    expect(card.getByText(/Clique em “Ver títulos” para consultar o motivo/)).toBeTruthy();
+    expect(card.getByText(/no Prime e no CRM antes de realizar qualquer ajuste/)).toBeTruthy();
+  });
+
+  const COM_MOTIVOS = {
+    ...DETALHE, indicador: "em_conferencia",
+    linhas: [
+      { ...DETALHE.linhas[0], aluno: "A", aluno_id: "aaaa-1111",
+        situacao: "Liquidado no Prime, origem não comprovada" },
+      { ...DETALHE.linhas[0], aluno: "B", aluno_id: "bbbb-2222",
+        situacao: "Aberto no Prime, mas paga acordo fora do CRM" },
+      { ...DETALHE.linhas[0], aluno: "C", aluno_id: null,
+        situacao: "Sem confirmação do Prime (título não encontrado)" },
+    ],
+  };
+  const comMotivos = () => rpcMock.mockImplementation((nome) =>
+    nome === "carteira_2026_2_competencias"
+      ? Promise.resolve({ data: PAINEL })
+      : Promise.resolve({ data: COM_MOTIVOS }));
+
+  it("o detalhamento mostra o motivo de cada título e onde tratá-lo", async () => {
+    comMotivos();
+    await abrir();
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Em conferência")); });
+    const p = within(screen.getByRole("dialog"));
+    // motivo por título, na tabela
+    expect(p.getAllByText("Liquidado no Prime, origem não comprovada").length).toBeGreaterThan(0);
+    // e o guia, com a rota que JA existe
+    expect(p.getByText("Onde tratar cada motivo")).toBeTruthy();
+    expect(p.getByText(/Financeiro → Conferência Prime/)).toBeTruthy();
+    expect(p.getByText(/Confirmação de Pagamento/)).toBeTruthy();
+  });
+
+  // Motivo sem fluxo no CRM tem de ser DECLARADO, com o procedimento manual.
+  it("declara o motivo que não tem fluxo de resolução no CRM", async () => {
+    comMotivos();
+    await abrir();
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Em conferência")); });
+    const p = within(screen.getByRole("dialog"));
+    expect(p.getByText(/Sem fluxo no CRM:/)).toBeTruthy();
+    expect(p.getByText(/não há fluxo de resolução no CRM/)).toBeTruthy();
+    expect(p.getByText(/consultar o título na tela do Prime/)).toBeTruthy();
+  });
+
+  it("conferir não baixa, não cancela, não vincula e não libera", async () => {
+    comMotivos();
+    await abrir();
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Em conferência")); });
+    expect(within(screen.getByRole("dialog"))
+      .getByText(/não baixa, não cancela, não vincula e não libera/)).toBeTruthy();
+  });
+
+  it("abre a ficha pela rota existente, e só quando há identificador", async () => {
+    const abrirJanela = vi.fn();
+    const original = window.open;
+    window.open = abrirJanela;
+    try {
+      comMotivos();
+      await abrir();
+      await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Em conferência")); });
+      const p = within(screen.getByRole("dialog"));
+      const botoes = p.getAllByRole("button", { name: "Abrir ficha do aluno" });
+      // 3 linhas, mas só 2 têm aluno_id
+      expect(botoes.length).toBe(2);
+      await act(async () => { fireEvent.click(botoes[0]); });
+      expect(abrirJanela).toHaveBeenCalledWith(
+        "/aluno?alunoId=aaaa-1111&origem=efetividade-2026-2", "_blank", "noopener");
+    } finally { window.open = original; }
+  });
+
+  it("sem aluno_id no payload, a coluna de ação nem aparece", async () => {
+    await abrir();   // DETALHE padrão não tem aluno_id
+    await act(async () => { fireEvent.click(topo().getByTitle("Ver os títulos que compõem Entradas")); });
+    const p = within(screen.getByRole("dialog"));
+    expect(p.queryByRole("columnheader", { name: "Ação" })).toBeNull();
+    expect(p.queryByRole("button", { name: "Abrir ficha do aluno" })).toBeNull();
   });
 
   it("sem competência nenhuma, avisa em vez de desenhar cards vazios", async () => {

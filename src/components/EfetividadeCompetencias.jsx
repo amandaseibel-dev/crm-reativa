@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 
@@ -128,6 +129,95 @@ function composicaoDoSaldo(t) {
   ];
 }
 
+// ENCERRAMENTO DA COBRANÇA -- três marcas que NÃO se somam duas vezes.
+//
+// A tabulação (cancelamento definitivo, suspensão temporária) só existe no
+// payload depois da migration proposta em
+// supabase/propostas/PROPOSTA_cancelamento_e_suspensao_no_card.sql. Enquanto
+// ela não for aplicada, `temTabulacao` é falso e a tela se comporta como hoje:
+// mostra só o título com situação CANCELADA. Nada quebra, e nada aparece vazio
+// sugerindo que ninguém tem tabulação.
+const temTabulacao = (t) => t && "tab_cancelamento_titulos" in t;
+
+// ONDE SE TRATA CADA MOTIVO DE CONFERÊNCIA.
+//
+// O motivo de cada título já vem do banco em `situacao` (a sub-faixa do
+// classificador). Aqui só se diz, para cada um, qual fluxo JÁ EXISTENTE do CRM
+// resolve — nenhuma tela de ajuste nova foi inventada, e conferir não baixa,
+// não cancela, não vincula e não libera nada: cada operação segue exigindo a
+// sua própria autorização, na tela dela.
+//
+// MEDIDO em 28/09/2026 nos 585 títulos em conferência de 2026/2:
+//   264 (R$ 1.237.518,21) liquidado no Prime, origem não comprovada
+//   182 (R$   252.908,44) aberto no Prime, mas paga acordo fora do CRM
+//   139 (R$    38.796,00) sem confirmação do Prime
+const ONDE_TRATAR = [
+  { casa: /origem n[ãa]o comprovada/i,
+    motivo: "Liquidado no Prime, origem não comprovada",
+    porque: "o Prime registra o título como liquidado, mas não há no CRM pagamento ou acordo que "
+          + "explique a origem desse dinheiro.",
+    onde: "Financeiro → Conferência Prime",
+    rota: "/conferencia-prime" },
+  { casa: /paga acordo fora do CRM/i,
+    motivo: "Aberto no Prime, mas paga acordo fora do CRM",
+    porque: "o aluno tem pagamento registrado cujo boleto não é de nenhuma parcela do CRM — "
+          + "negociação fechada por fora.",
+    onde: "Financeiro → aba “Confirmação de Pagamento”",
+    rota: "/financeiro-hub",
+    nota: "a aba é escolhida dentro da tela; não há link direto para ela." },
+  { casa: /Sem confirma[çc][ãa]o do Prime/i,
+    motivo: "Sem confirmação do Prime (título não encontrado)",
+    porque: "o título não aparece na extração do Prime, então ninguém confirma que ele siga aberto. "
+          + "Ausência no relatório nunca é prova de que foi pago.",
+    onde: "não há fluxo de resolução no CRM",
+    rota: null,
+    nota: "procedimento disponível: consultar o título na tela do Prime e, se ele existir lá, "
+        + "pedir a inclusão na próxima extração. O CRM não tem onde registrar essa checagem hoje." },
+];
+
+// O QUE A MARCA SIGNIFICA -- medido em 28/09/2026, e é ressalva, não detalhe.
+//
+// A tabulação é do ALUNO, não do título. Não existe vínculo caso->título no
+// banco (nenhuma FK, nenhuma tabela de ligação) e `casos.semestre` está nulo
+// nos alunos afetados. Logo nenhuma fonte aponta UM título.
+//
+// O rótulo diz então exatamente o que se sabe: "Mensalidades de alunos com
+// registro de cancelamento/suspensão". Não diz "abrangidas por" -- a falta de
+// vínculo caso->título não prova que a marca alcance TODAS as mensalidades
+// daquele aluno; ela impede tanto afirmar quanto negar. O que a lista traz é a
+// identificação de quem tem o registro, não a extensão dele.
+function encerramentos(t) {
+  const linhas = [
+    { chave: "cancelado", rotulo: "Situação CANCELADA no título", indicador: "cancelado",
+      papel: "cancelado", titulos: Number(t?.cancelado_titulos || 0),
+      valor: Number(t?.cancelado_valor || 0),
+      apoio: "saiu da base; é o único que já não conta como cobrança" },
+  ];
+  if (temTabulacao(t)) {
+    linhas.push(
+      { chave: "tab_cancelamento",
+        rotulo: "Mensalidades de alunos com registro de cancelamento definitivo",
+        indicador: "tab_cancelamento", papel: "cancelado",
+        titulos: Number(t?.tab_cancelamento_titulos || 0),
+        valor: Number(t?.tab_cancelamento_valor || 0),
+        apoio: "registro na ficha ou no caso do aluno; continuam no saldo residual" },
+      { chave: "tab_suspensao",
+        rotulo: "Mensalidades de alunos com registro de suspensão temporária",
+        indicador: "tab_suspensao", papel: "conferencia",
+        titulos: Number(t?.tab_suspensao_titulos || 0),
+        valor: Number(t?.tab_suspensao_valor || 0),
+        apoio: "suspensão volta; não é cancelamento definitivo" },
+    );
+  }
+  return linhas;
+}
+// Total SEM DUPLICIDADE: as três marcas são exclusivas entre si por construção
+// -- a precedência do banco garante um só rótulo por título, e o título com
+// situação CANCELADA não carrega tabulação. Medido em 28/09: sobreposição zero.
+const totalEncerramento = (t) =>
+  encerramentos(t).reduce((a, l) => ({ titulos: a.titulos + l.titulos, valor: a.valor + l.valor }),
+                          { titulos: 0, valor: 0 });
+
 function montarCards(t) {
   const entrada = Number(t?.valor_original || 0);
   return [
@@ -141,8 +231,14 @@ function montarCards(t) {
     {
       chave: "recuperado", indicador: "recuperado", papel: "recuperado",
       titulo: "Recuperado por rateio", valor: moedaCurta(t?.recuperado),
-      linhas: [conta(t?.titulos_com_pagamento, "mensalidade com pagamento", "mensalidades com pagamento"),
-               conta(t?.titulos_liquidados, "totalmente liquidado", "totalmente liquidados")],
+      // "pagamento identificado" e nao "paga": o pagamento foi identificado no
+      // ACORDO, nao conciliado titulo a titulo. E "pelo critério de rateio"
+      // porque o resultado vem da proporcao de parcelas pagas -- afirmar
+      // pagamento integral individual seria dizer mais do que se sabe.
+      linhas: [conta(t?.titulos_com_pagamento, "mensalidade com pagamento identificado",
+                     "mensalidades com pagamento identificado"),
+               conta(t?.titulos_liquidados, "integralmente recuperada pelo critério de rateio",
+                     "integralmente recuperadas pelo critério de rateio")],
       nota: pct(t?.recuperado, entrada) + " do valor original que entrou",
       aviso: "principal proporcional às parcelas pagas do acordo — não é caixa recebido",
     },
@@ -160,15 +256,27 @@ function montarCards(t) {
                "não entram em Convertido"],
       nota: pct(t?.conferencia_valor, entrada) + " do valor original que entrou",
       aviso: "continuam dentro do saldo residual, porque ninguém confirmou o pagamento",
+      orientacao: "Estes títulos precisam de validação antes de confirmar sua situação. Clique em "
+                + "“Ver títulos” para consultar o motivo e acessar a ficha correspondente. Confira o "
+                + "título, os pagamentos e os acordos no Prime e no CRM antes de realizar qualquer ajuste.",
     },
     {
       chave: "cancelado", indicador: "cancelado", papel: "cancelado",
-      titulo: "Cancelados", valor: moedaCurta(t?.cancelado_valor),
-      linhas: [conta(t?.cancelado_titulos, "mensalidade com a cobrança cancelada",
-                     "mensalidades com a cobrança cancelada"),
-               conta(t?.acordos_cancelados, "acordo cancelado", "acordos cancelados")
-                 + " (conceito separado)"],
+      titulo: temTabulacao(t) ? "Cancelados e suspensos" : "Cancelados",
+      valor: moedaCurta(temTabulacao(t) ? totalEncerramento(t).valor : t?.cancelado_valor),
+      linhas: temTabulacao(t)
+        ? [conta(totalEncerramento(t).titulos, "mensalidade", "mensalidades") + ", sem duplicidade",
+           conta(t?.acordos_cancelados, "acordo cancelado", "acordos cancelados")
+             + " (conceito separado)"]
+        : [conta(t?.cancelado_titulos, "mensalidade com a cobrança cancelada",
+                 "mensalidades com a cobrança cancelada"),
+           conta(t?.acordos_cancelados, "acordo cancelado", "acordos cancelados")
+             + " (conceito separado)"],
       nota: "cobrança cancelada sai da base; acordo cancelado não",
+      aviso: temTabulacao(t)
+        ? "as tabulações NÃO reduzem o saldo residual nesta entrega — os títulos "
+          + "delas seguem contados nas demais faixas"
+        : undefined,
     },
     {
       chave: "saldo", indicador: "saldo", papel: "saldo",
@@ -189,9 +297,11 @@ const VALOR_DO_CARD = {
   entradas: "valor_original", recuperado: "recuperado", convertido: "convertido_valor",
   conferencia: "conferencia_valor", cancelado: "cancelado_valor", saldo: "saldo_valor",
 };
+// So as chaves que o card do mes REALMENTE desenha: ele renderiza
+// cards.slice(2), entao `entradas` e `recuperado` nunca chegariam aqui --
+// tinham entradas neste mapa que eram codigo morto, e quem fosse ajustar o
+// rotulo por elas nao veria efeito nenhum na tela.
 const APOIO_DO_CARD = {
-  entradas: (b) => conta(b.titulos, "mensalidade", "mensalidades"),
-  recuperado: (b) => conta(b.titulos_com_pagamento, "com pagamento", "com pagamento"),
   convertido: (b) => conta(b.convertido_titulos, "mensalidade", "mensalidades"),
   conferencia: (b) => conta(b.conferencia_titulos, "mensalidade", "mensalidades"),
   cancelado: (b) => conta(b.cancelado_titulos, "mensalidade", "mensalidades") + " · "
@@ -346,6 +456,7 @@ export default function EfetividadeCompetencias() {
             {c.linhas.map((l) => <span key={l} style={S.cardLinha}>{l}</span>)}
             <span style={S.cardNota}>{c.nota}</span>
             {c.aviso ? <span style={S.cardAviso}>{c.aviso}</span> : null}
+            {c.orientacao ? <span style={S.cardOrientacao}>{c.orientacao}</span> : null}
             <span style={S.cardVer}>Ver títulos →</span>
           </button>
         ))}
@@ -354,10 +465,10 @@ export default function EfetividadeCompetencias() {
       {/* Motivo do cancelamento da cobrança — separado do acordo cancelado. */}
       <section style={S.cartao}>
         <div style={S.cartaoCabecalho}>
-          <h2 style={S.h2}>Cancelados por motivo</h2>
+          <h2 style={S.h2}>{temTabulacao(topo) ? "Cancelamentos e suspensões" : "Cancelados por motivo"}</h2>
           <span style={S.cartaoApoio}>cobrança cancelada · {conta(dados.total?.cancelado_titulos, "título", "títulos")}</span>
         </div>
-        {(dados.cancelados_por_motivo || []).length ? (
+        {temTabulacao(topo) ? null : (dados.cancelados_por_motivo || []).length ? (
           <div>
             {dados.cancelados_por_motivo.map((m) => (
               <div key={m.motivo} style={S.linhaMotivo}>
@@ -372,6 +483,70 @@ export default function EfetividadeCompetencias() {
         ) : (
           <p style={S.discreto}>Nenhum título de 2026/2 com a cobrança cancelada.</p>
         )}
+        {temTabulacao(topo) ? (
+          <div style={{ marginTop: 4 }}>
+            {encerramentos(topo).map((l) => (
+              <button key={l.chave} type="button" style={S.linhaSaldo}
+                      onClick={() => abrirDetalhe(
+                        { titulo: l.rotulo, indicador: l.indicador, papel: l.papel }, null)}
+                      title={"Ver os títulos de " + l.rotulo}>
+                <span style={S.linhaTopoSaldo}>
+                  <span style={S.linhaRotulo}>
+                    <span style={{ ...S.ponto, background: COR[l.papel] }} />{l.rotulo}
+                  </span>
+                  <span style={S.linhaApoio}>{conta(l.titulos, "mensalidade", "mensalidades")}</span>
+                  <strong style={S.linhaValor}>{moeda(l.valor)}</strong>
+                </span>
+                <span style={S.linhaApoio}>{l.apoio}</span>
+              </button>
+            ))}
+            <p style={S.discreto}>
+              <strong>Total sem duplicidade: {conta(totalEncerramento(topo).titulos, "mensalidade", "mensalidades")}
+              {" · "}{moeda(totalEncerramento(topo).valor)}.</strong> As três marcas são exclusivas entre si —
+              cancelamento definitivo tem precedência sobre suspensão, e o título com situação CANCELADA não
+              carrega tabulação —, então nenhuma mensalidade é contada duas vezes aqui.
+            </p>
+            <p style={S.discreto}>
+              <strong>Estas tabulações não reduzem o saldo residual nesta entrega.</strong> Os títulos abrangidos
+              por elas continuam contados nas faixas de origem — sem negociação, em conferência ou convertido —,
+              e os pagamentos já identificados seguem preservados. A sobreposição é intencional e está declarada
+              aqui para que os dois números possam ser lidos juntos sem se somarem.
+            </p>
+            <p style={S.discreto}>
+              <strong>O que estas duas linhas são:</strong> mensalidades de alunos que têm o registro de
+              cancelamento ou de suspensão — na ficha, no caso vivo, ou nos dois. A tabulação é do
+              <strong> aluno</strong>, não do título, e não há vínculo entre caso e título no banco. Por isso
+              nenhuma fonte aponta uma mensalidade específica: <strong>não se afirma que o registro alcance
+              todas as mensalidades daquele aluno</strong>, nem que cada mensalidade listada foi cancelada.
+              A ausência desse vínculo impede tanto afirmar quanto negar. Suspensão é temporária e volta;
+              cancelamento definitivo não.
+            </p>
+            <p style={S.discreto}>
+              <strong>Fontes, e elas divergem:</strong> a marca é lida da ficha (<code>alunos.status_atual</code>,
+              códigos do catálogo) e do caso vivo (<code>casos.status_atual</code>, que guarda também grafias
+              antigas em texto livre). Lê-se a <strong>união</strong> das duas porque há mensalidades marcadas
+              só no caso, que a ficha nunca recebeu — desprezá-las esconderia parte do registro. Caso já
+              encerrado fica de fora: não descreve a cobrança de hoje.
+            </p>
+            {/* Os motivos detalham a PRIMEIRA linha, não são um quarto grupo:
+                sem este rótulo o mesmo valor aparece duas vezes e se lê como
+                se houvesse mais uma marca. */}
+            {(dados.cancelados_por_motivo || []).length ? (
+              <div style={{ marginTop: 6 }}>
+                <span style={S.navRotulo}>Motivo da situação CANCELADA, detalhe da primeira linha</span>
+                {dados.cancelados_por_motivo.map((m) => (
+                  <div key={m.motivo} style={S.linhaMotivo}>
+                    <span style={S.linhaRotulo}>
+                      <span style={{ ...S.ponto, background: COR.cancelado }} />{m.motivo}
+                    </span>
+                    <span style={S.linhaApoio}>{conta(m.titulos, "título", "títulos")}</span>
+                    <strong style={S.linhaValor}>{moeda(m.valor)}</strong>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <p style={S.discreto}>
           {conta(dados.total?.acordos_cancelados, "acordo cancelado", "acordos cancelados")} neste semestre
           ({moeda(dados.total?.acordos_cancelados_valor)} de valor original de títulos ligados a eles). Acordo
@@ -522,6 +697,15 @@ function PainelDetalhe({ detalhe, onFechar }) {
   // aplicada a coluna simplesmente não aparece, em vez de a tela mostrar vazio
   // e passar a impressão de que ninguém tem origem.
   const temOrigem = (d?.linhas || []).some((l) => "origem_importacao" in l);
+  const navegar = useNavigate();
+  // `aluno_id` depende da migration proposta. Sem ele a coluna de ação não
+  // aparece, em vez de render um botão que não leva a lugar nenhum.
+  const temFicha = (d?.linhas || []).some((l) => l.aluno_id);
+  // Quais motivos de conferência aparecem NESTA lista -- só se mostra o guia
+  // dos que estão na tela.
+  const guias = ind === "em_conferencia"
+    ? ONDE_TRATAR.filter((o) => (d?.linhas || []).some((l) => o.casa.test(String(l.situacao || ""))))
+    : [];
   // Documento longo escondia a coluna de valor. Truncar sozinho nao serve: o
   // identificador tem de continuar consultavel E copiavel, tambem no celular,
   // onde nao existe hover para ler um `title`. Entao cada linha longa ganha um
@@ -555,6 +739,33 @@ function PainelDetalhe({ detalhe, onFechar }) {
                 ? " · mostrando os " + num(d?.linhas?.length) + " de maior valor original"
                 : ""}
             </p>
+            {guias.length ? (
+              <div style={S.guiaConferencia}>
+                <span style={S.navRotulo}>Onde tratar cada motivo</span>
+                {guias.map((g) => (
+                  <div key={g.motivo} style={S.guiaLinha}>
+                    <strong style={S.guiaMotivo}>{g.motivo}</strong>
+                    <span style={S.guiaTexto}>{g.porque}</span>
+                    <span style={S.guiaTexto}>
+                      <strong>{g.rota ? "Onde tratar: " : "Sem fluxo no CRM: "}</strong>
+                      {g.onde}
+                      {g.rota ? (
+                        <button type="button" style={S.guiaBotao}
+                                onClick={() => { onFechar(); navegar(g.rota); }}>
+                          abrir →
+                        </button>
+                      ) : null}
+                      {g.nota ? <em style={{ display: "block", marginTop: 2 }}>{g.nota}</em> : null}
+                    </span>
+                  </div>
+                ))}
+                <p style={S.discreto}>
+                  Conferir aqui <strong>não baixa, não cancela, não vincula e não libera</strong> título para
+                  cobrança: esta tela é de leitura. Cada uma dessas operações continua sendo feita na tela
+                  própria, com as validações e autorizações dela.
+                </p>
+              </div>
+            ) : null}
             {(d?.linhas || []).length ? (
               <div style={S.tabelaRolagem}>
                 <table style={S.tabela}>
@@ -566,6 +777,7 @@ function PainelDetalhe({ detalhe, onFechar }) {
                       <th style={S.th}>Venc.</th>
                       <th style={S.th}>Mês venc.</th>
                       {temOrigem ? <th style={S.th}>Origem</th> : null}
+                      {temFicha ? <th style={S.th}>Ação</th> : null}
                       <th style={S.th}>Situação</th>
                       <th style={{ ...S.th, textAlign: "right" }}>{rotuloValor}</th>
                     </tr>
@@ -608,6 +820,19 @@ function PainelDetalhe({ detalhe, onFechar }) {
                         <td style={{ ...S.td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                           {moeda(l[colunaValor])}
                         </td>
+                        {temFicha ? (
+                          <td style={S.td}>
+                            {l.aluno_id ? (
+                              <button type="button" style={S.acaoFicha}
+                                      title={"Abrir a ficha de " + l.aluno + " numa aba nova"}
+                                      onClick={() => window.open(
+                                        "/aluno?alunoId=" + encodeURIComponent(l.aluno_id)
+                                        + "&origem=efetividade-2026-2", "_blank", "noopener")}>
+                                Abrir ficha do aluno
+                              </button>
+                            ) : <span style={S.discreto}>—</span>}
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
@@ -681,6 +906,10 @@ const S = {
   // que impede a leitura errada do card.
   cardAviso: { fontSize: 11, color: "var(--rv-ambar-texto)", lineHeight: 1.45, marginTop: 4,
                borderTop: "1px dashed var(--rv-borda-suave)", paddingTop: 4 },
+  // Orientação de operação: diz o que fazer, então é texto de leitura, não
+  // ressalva -- fica em tom neutro para não competir com o aviso em âmbar.
+  cardOrientacao: { fontSize: 11, color: "var(--rv-texto-suave)", lineHeight: 1.5, marginTop: 6,
+                    borderTop: "1px dashed var(--rv-borda-suave)", paddingTop: 6 },
   cardVer: { fontSize: 11.5, color: "var(--rv-azul)", fontWeight: 700, marginTop: 6 },
 
   cartao: { background: "var(--rv-superficie)", border: "1px solid var(--rv-borda-suave)", borderRadius: 14,
@@ -775,6 +1004,19 @@ const S = {
                  color: "var(--rv-azul)", fontSize: 11, fontWeight: 700, cursor: "pointer",
                  fontFamily: "inherit", textDecoration: "underline" },
   // Falta de rastreabilidade não é dado neutro: fica em âmbar para ser vista.
+  guiaConferencia: { background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda-suave)",
+                     borderRadius: 12, padding: "10px 12px", marginTop: 6, marginBottom: 4,
+                     display: "flex", flexDirection: "column", gap: 8 },
+  guiaLinha: { display: "flex", flexDirection: "column", gap: 2,
+               paddingBottom: 6, borderBottom: "1px solid var(--rv-borda-suave)" },
+  guiaMotivo: { fontSize: 12.5, fontWeight: 700 },
+  guiaTexto: { fontSize: 12, color: "var(--rv-texto-suave)", lineHeight: 1.5 },
+  guiaBotao: { marginLeft: 6, padding: 0, background: "none", border: "none", color: "var(--rv-azul)",
+               fontSize: 12, fontWeight: 700, cursor: "pointer", fontFamily: "inherit",
+               textDecoration: "underline" },
+  acaoFicha: { background: "none", border: "1px solid var(--rv-azul-borda)", borderRadius: 8,
+               padding: "4px 9px", fontSize: 11.5, fontWeight: 700, color: "var(--rv-azul-texto)",
+               cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" },
   tdSemOrigem: { padding: "7px 8px", borderBottom: "1px solid var(--rv-borda-suave)", verticalAlign: "top",
                  color: "var(--rv-ambar-texto)", whiteSpace: "nowrap", fontWeight: 600 },
 };
