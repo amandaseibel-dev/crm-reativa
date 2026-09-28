@@ -263,9 +263,9 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
             <Numero rotulo="Linhas recusadas" valor={previa.linhas_recusadas} />
             <Numero rotulo="Já fora da janela de 31 dias" valor={previa.fora_da_janela} />
             <Numero rotulo="Sem celular válido" valor={previa.sem_celular_valido} />
-            <Numero rotulo="Mais de um celular na linha" valor={previa.celular_ambiguo} />
+            <Numero rotulo="Celular precisa de revisão" valor={previa.celular_ambiguo} />
             <Numero rotulo="Sem e-mail válido" valor={previa.sem_email_valido} />
-            <Numero rotulo="Mais de um e-mail na linha" valor={previa.email_multiplo} />
+            <Numero rotulo="E-mail precisa de revisão" valor={previa.email_multiplo} />
             <Numero rotulo="Celular repetido entre alunos" valor={previa.celular_compartilhado} />
             <Numero rotulo="Sem identificador de título no arquivo" valor={previa.sem_identificador_de_titulo} />
           </div>
@@ -307,43 +307,76 @@ export default function AbaImportacoes({ carteira, aoImportar, onIr }) {
       <div style={{ ...S.card, padding: 20 }}>
         <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Histórico de remessas</h2>
         <p style={{ ...S.muted, marginTop: 6 }}>
-          Cada remessa é comparada com a anterior pela chave{" "}
-          <strong>matrícula + vencimento atual + vencimento de origem</strong>.
+          Da mais nova para a mais antiga. Nenhuma remessa é apagada: cada uma fica
+          com o que tinha no dia em que foi importada.
         </p>
         {remessas.length === 0 ? (
           <p style={{ ...S.muted, marginTop: 8 }}>Nenhuma remessa importada ainda.</p>
         ) : (
-          <table style={{ ...S.tabela, marginTop: 12 }}>
-            <thead><tr>
-              <th style={S.th}>Remessa</th><th style={S.th}>Importada em</th><th style={S.th}>Por</th>
-              <th style={S.thNum}>Alunos</th><th style={S.thNum}>Títulos</th><th style={S.thNum}>Valor</th>
-              <th style={S.thNum}>Continuam</th><th style={S.thNum}>Regularizados</th>
-              <th style={S.thNum}>Novos</th><th style={S.thNum}>Ações</th>
-            </tr></thead>
-            <tbody>
-              {remessas.map((r) => (
-                <tr key={r.id}>
-                  <td style={S.td}>{r.nome}</td>
-                  <td style={S.td}>{dataHora(r.importada_em)}</td>
-                  <td style={S.td}>{r.importada_por}</td>
-                  <td style={S.tdNum}>{r.alunos}</td>
-                  <td style={S.tdNum}>{r.titulos}</td>
-                  <td style={S.tdNum}>{moeda(r.valor)}</td>
-                  <td style={S.tdNum}>{r.comparacao?.primeira_remessa ? "—" : r.comparacao?.continua_em_aberto?.titulos}</td>
-                  <td style={S.tdNum}>{r.comparacao?.primeira_remessa ? "—" : r.comparacao?.regularizados_entre_remessas?.titulos}</td>
-                  <td style={S.tdNum}>{r.comparacao?.primeira_remessa ? "—" : r.comparacao?.novos_na_remessa?.titulos}</td>
-                  <td style={S.tdNum}>{r.acoes?.length || 0}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12, marginTop: 14 }}>
+            {remessas.map((r) => <CartaoRemessa key={r.id} r={r} />)}
+          </div>
         )}
-        <p style={{ ...S.muted, marginTop: 10, fontSize: 12 }}>
+        <p style={{ ...S.muted, marginTop: 14, fontSize: 12 }}>
           <strong>Regularizados entre remessas</strong> = título que estava na remessa
           anterior e deixou de aparecer no relatório seguinte. <strong>Não é pagamento
           confirmado</strong>: pode ser pagamento, cancelamento, renegociação, bolsa ou
           mudança do recorte do relatório — a fonte não distingue.
         </p>
+      </div>
+    </div>
+  );
+}
+
+// O HISTÓRICO, no formato que a gestão pediu: uma remessa por bloco, com o que
+// ela tinha e o que aconteceu até a remessa seguinte.
+function CartaoRemessa({ r }) {
+  const c = r.comparacao || {};
+  return (
+    <div style={{ border: "1px solid var(--rv-borda)", borderRadius: 12, padding: "14px 16px",
+                  background: "var(--rv-fundo-suave)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+        <div>
+          <div style={{ ...S.cardNome, fontSize: 15 }}>{r.nome}</div>
+          <div style={{ ...S.muted, fontSize: 12.5 }}>
+            {dataHora(r.importada_em)} · {r.importada_por}
+          </div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: "var(--rv-tinta)" }}>{moeda(r.valor)}</div>
+          <div style={{ ...S.muted, fontSize: 12.5 }}>{r.alunos} alunos · {r.titulos} títulos</div>
+        </div>
+      </div>
+
+      <div style={{ ...S.muted, fontSize: 12.5, marginTop: 10, display: "flex", gap: 16, flexWrap: "wrap" }}>
+        <span>WhatsApp: <strong>{r.whatsapp_disponivel}</strong></span>
+        <span>E-mail: <strong>{r.email_disponivel}</strong></span>
+        <span>Precisa de revisão: <strong>{r.para_revisao}</strong></span>
+        {r.recusas > 0 ? <span>Recusadas: <strong>{r.recusas}</strong></span> : null}
+      </div>
+
+      {r.acoes?.length > 0 && (
+        <div style={{ ...S.muted, fontSize: 12.5, marginTop: 8 }}>
+          {r.acoes.map((a) => (
+            <div key={a.id}>
+              Ação: <strong>{a.canal === "WHATSAPP" ? "WhatsApp" : "E-mail"}</strong>
+              {" — "}{a.nome} ({a.estado === "ENVIO_CONFIRMADO" ? "envio confirmado" : a.estado.toLowerCase()})
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed var(--rv-borda)",
+                    ...S.muted, fontSize: 12.5 }}>
+        {c.primeira_remessa
+          ? "Primeira remessa do período: não há anterior para comparar."
+          : (<>
+              Comparada com a remessa anterior:{" "}
+              <strong>{c.continua_em_aberto?.titulos}</strong> continuam em aberto ·{" "}
+              <strong>{c.regularizados_entre_remessas?.titulos}</strong> regularizados
+              {" "}({moeda(c.regularizados_entre_remessas?.valor)}) ·{" "}
+              <strong>{c.novos_na_remessa?.titulos}</strong> novos
+            </>)}
       </div>
     </div>
   );
@@ -376,15 +409,23 @@ function ResumoDaRemessa({ remessa, situacao, atualizando, onAtualizar, onIr }) 
         <button style={S.btnGhost} onClick={() => onIr?.("acoes")}>Gerar E-mail</button>
       </div>
 
-      <p style={{ ...S.muted, marginTop: 12, fontSize: 12.5 }}>
-        {completa
-          ? `Última atualização com o Prime: ${dataHora(completa.concluido_em)} — ${completa.consultados} de ${completa.alvos} alunos consultados.`
-          : "Esta carteira ainda não foi atualizada com o Prime."}
-        {situacao?.titulos_nunca_sincronizados > 0
-          ? ` ${situacao.titulos_nunca_sincronizados} título(s) ainda não foram localizados no Prime.`
-          : ""}
-        {" "}A atualização é manual, por decisão: não existe rotina automática.
-      </p>
+      <div style={{ marginTop: 14, paddingTop: 12, borderTop: "1px dashed var(--rv-borda)" }}>
+        <div style={{ ...S.muted, fontSize: 12.5 }}>
+          {completa
+            ? `Última atualização: ${dataHora(completa.concluido_em)} — ${completa.consultados} de ${completa.alvos} alunos consultados.`
+            : "Ainda não foi feita nenhuma atualização com o Prime."}
+        </div>
+        <div style={{ display: "flex", gap: 16, flexWrap: "wrap", marginTop: 6, ...S.muted, fontSize: 12.5 }}>
+          <span>Localizados no Prime: <strong>{remessa.localizados ?? "—"}</strong></span>
+          <span>Precisam de revisão: <strong>{remessa.precisam_revisao ?? "—"}</strong></span>
+          <span>Tiveram alteração de valor na fonte: <strong>{remessa.com_alteracao ?? "—"}</strong></span>
+        </div>
+        <p style={{ ...S.muted, marginTop: 8, fontSize: 12 }}>
+          A atualização é manual, por decisão: não existe rotina automática. Ela lê o
+          Prime e registra <strong>alteração do valor do título na fonte</strong> — não
+          registra pagamento, porque a fonte não informa pagamento.
+        </p>
+      </div>
     </div>
   );
 }

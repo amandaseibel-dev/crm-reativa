@@ -281,6 +281,24 @@ begin
                        join public.prev_titulo t on t.id = tl.titulo_id
                       where tl.lote_id = l.id
                         and (t.celulares_no_arquivo <> 1 or t.emails_no_arquivo <> 1)),
+    -- O QUE A ATUALIZAÇÃO MANUAL PRECISA MOSTRAR. Os nomes aqui são os do
+    -- banco; a tela traduz para a língua da operação ("precisa de revisão",
+    -- "localizado"). Nenhum deles fala em pagamento — a fonte não informa
+    -- pagamento, e o que se mede é alteração do valor do título na fonte.
+    'localizados', (select count(*) from public.prev_titulo_lote tl
+                      join public.prev_titulo t on t.id = tl.titulo_id
+                     where tl.lote_id = l.id and t.vinculo_prime = 'UNICO'),
+    'precisam_revisao', (select count(*) from public.prev_titulo_lote tl
+                           join public.prev_titulo t on t.id = tl.titulo_id
+                          where tl.lote_id = l.id
+                            and t.vinculo_prime in ('AMBIGUO', 'NAO_ENCONTRADO')),
+    'nao_consultados', (select count(*) from public.prev_titulo_lote tl
+                          join public.prev_titulo t on t.id = tl.titulo_id
+                         where tl.lote_id = l.id and t.vinculo_prime = 'PENDENTE'),
+    'com_alteracao', (select count(distinct ev.titulo_id) from public.prev_evento ev
+                        join public.prev_titulo_lote tl on tl.titulo_id = ev.titulo_id
+                       where tl.lote_id = l.id
+                         and ev.tipo in ('VALOR_FONTE_ZEROU', 'VALOR_FONTE_CAIU', 'VALOR_FONTE_SUBIU')),
     'recusas', (select count(*) from public.prev_lote_recusa r where r.lote_id = l.id),
     'recusas_por_motivo', (select coalesce(jsonb_object_agg(motivo, n), '{}'::jsonb)
                              from (select motivo, count(*) n from public.prev_lote_recusa

@@ -1,5 +1,5 @@
-// Aba Carteira: a lista de títulos preventivos, com filtros e o botão de
-// atualizar com o Prime.
+// Aba Títulos: a lista de títulos da remessa, com filtros e o botão
+// "Atualizar dados".
 //
 // A tela NUNCA apresenta a lista como conferida quando a última atualização
 // completa falhou ou está velha — o aviso vem antes da tabela, não depois.
@@ -28,10 +28,10 @@ const ALTERACOES = [
 ];
 
 const VINCULOS = [
-  { id: "", rotulo: "Qualquer vínculo com o Prime" },
-  { id: "UNICO", rotulo: "Vínculo único (confere)" },
-  { id: "AMBIGUO", rotulo: "Ambíguo (mais de um candidato)" },
-  { id: "NAO_ENCONTRADO", rotulo: "Não encontrado no Prime" },
+  { id: "", rotulo: "Qualquer situação no Prime" },
+  { id: "UNICO", rotulo: "Localizado no Prime" },
+  { id: "AMBIGUO", rotulo: "Precisa de revisão (mais de um candidato)" },
+  { id: "NAO_ENCONTRADO", rotulo: "Não localizado no Prime" },
   { id: "PENDENTE", rotulo: "Ainda não consultado" },
 ];
 
@@ -136,7 +136,7 @@ export default function AbaCarteira({ carteira }) {
           {VINCULOS.map((m) => <option key={m.id} value={m.id}>{m.rotulo}</option>)}
         </select>
         <button onClick={atualizarAgora} disabled={atualizando} style={S.btnGhost}>
-          {atualizando ? "Consultando o Prime…" : "Atualizar agora"}
+          {atualizando ? "Consultando o Prime…" : "Atualizar dados"}
         </button>
       </div>
 
@@ -146,8 +146,8 @@ export default function AbaCarteira({ carteira }) {
         : titulos.length === 0 ? (
           <div style={{ ...S.card, padding: 22 }}>
             <p style={S.muted}>
-              Nenhum título com esses filtros. Se a carteira está vazia, o próximo passo
-              é a aba <strong>Importações</strong>.
+              Nenhum título com esses filtros. Se ainda não há nada aqui, o próximo passo
+              é importar uma remessa na aba <strong>Remessas</strong>.
             </p>
           </div>
         ) : (
@@ -163,7 +163,7 @@ export default function AbaCarteira({ carteira }) {
                 <th style={S.thNum}>Atraso</th>
                 <th style={S.thNum}>Saldo informado</th>
                 <th style={S.thNum}>Valor na fonte</th>
-                <th style={S.th}>Vínculo</th>
+                <th style={S.th}>No Prime</th>
                 <th style={S.th}>Alteração</th>
                 <th style={S.th}>Lote</th>
                 <th style={S.th}>Última ação</th>
@@ -202,13 +202,15 @@ export default function AbaCarteira({ carteira }) {
   );
 }
 
-// O relatório não traz identificador de título, então o vínculo com o Prime é
-// resolvido por matrícula + vencimento. Quando há mais de um candidato, fica
-// ambíguo — e ambíguo aparece na tela, não é resolvido no escuro.
+// O relatório não traz identificador de título, então o título é localizado no
+// Prime por matrícula + vencimento. Quando há mais de um candidato, ele fica
+// marcado como "precisa de revisão" — e isso aparece na tela, não é resolvido
+// no escuro.
 function Vinculo({ t }) {
-  if (t.vinculo === "UNICO") return <Marca cor="verde">confere</Marca>;
-  if (t.vinculo === "AMBIGUO") return <Marca cor="ambar">{t.candidatos} candidatos</Marca>;
-  if (t.vinculo === "NAO_ENCONTRADO") return <Marca cor="ambar">não achado</Marca>;
+  if (t.vinculo === "UNICO") return <Marca cor="verde">localizado</Marca>;
+  // "AMBIGUO" é o nome no banco; na operação, é o que precisa de revisão.
+  if (t.vinculo === "AMBIGUO") return <Marca cor="ambar">precisa de revisão</Marca>;
+  if (t.vinculo === "NAO_ENCONTRADO") return <Marca cor="ambar">não localizado</Marca>;
   return <Marca cor="cinza">não consultado</Marca>;
 }
 

@@ -22,16 +22,21 @@ import AbaAcoes from "../components/preventivo/AbaAcoes";
 import AbaResultados from "../components/preventivo/AbaResultados";
 import { moeda, dataCurta } from "../utils/preventivoFormato";
 
+// NOMENCLATURA OPERACIONAL, pedida pela gestão em 28/09/2026: a tela fala a
+// língua de quem opera, não a do banco. "Remessa" no lugar de "carteira",
+// "Atualizar dados" no lugar de sincronização, "Precisa de revisão" no lugar
+// de AMBIGUO, "Regularizados" no lugar de pagamentos. Os nomes técnicos
+// continuam existindo no banco — só não aparecem aqui.
 const ABAS = [
-  { id: "carteira", rotulo: "Carteira" },
   { id: "importacoes", rotulo: "Remessas" },
+  { id: "carteira", rotulo: "Títulos" },
   { id: "acoes", rotulo: "Ações" },
   { id: "resultados", rotulo: "Resultados" },
 ];
 
 export default function Preventivo() {
   const [params, setParams] = useSearchParams();
-  const aba = ABAS.some((a) => a.id === params.get("aba")) ? params.get("aba") : "carteira";
+  const aba = ABAS.some((a) => a.id === params.get("aba")) ? params.get("aba") : "importacoes";
   const carteiraDaUrl = params.get("carteira") || "";
 
   const [carteiras, setCarteiras] = useState(null);
@@ -72,7 +77,7 @@ export default function Preventivo() {
     e.preventDefault();
     setErro("");
     if (!nova.nome.trim() || !nova.venc_de || !nova.venc_ate) {
-      setErro("Dê um nome à carteira e escolha a janela de vencimento.");
+      setErro("Dê um nome ao período e escolha as datas de vencimento.");
       return;
     }
     setCriando(true);
@@ -109,18 +114,18 @@ export default function Preventivo() {
       {/* Carteira vazia: o próximo passo é criar a primeira, e a tela diz isso. */}
       {carteiras.length === 0 ? (
         <div style={{ ...S.card, padding: 22, maxWidth: 620 }}>
-          <h2 style={{ ...S.cardNome, fontSize: 17, margin: 0 }}>Comece pela primeira carteira</h2>
+          <h2 style={{ ...S.cardNome, fontSize: 17, margin: 0 }}>Comece pelo período</h2>
           <p style={{ ...S.muted, marginTop: 8 }}>
-            Uma carteira é um recorte de títulos por janela de vencimento — você escolhe
-            o período, sem antecedência fixa. Depois de criar, a aba <strong>Importações</strong>
-            recebe o relatório do Prime.
+            O período agrupa as remessas de um mesmo recorte de vencimento — você escolhe
+            as datas, sem antecedência fixa. Criado o período, a aba <strong>Remessas</strong>
+            recebe o relatório de inadimplência.
           </p>
           <FormularioNova nova={nova} setNova={setNova} criando={criando} onSubmit={criarCarteira} />
         </div>
       ) : (
         <>
           <div style={{ ...S.barra, alignItems: "center" }}>
-            <label style={{ ...S.muted, fontWeight: 700 }}>Carteira</label>
+            <label style={{ ...S.muted, fontWeight: 700 }}>Período</label>
             <select
               style={S.select}
               value={carteira?.id || ""}
@@ -135,7 +140,7 @@ export default function Preventivo() {
             <div style={S.contadores}>
               <span style={S.contadorAlunos}>{carteira?.alunos || 0} alunos</span>
               <span style={S.contadorAcordos}>{carteira?.titulos || 0} títulos</span>
-              <span style={S.contadorValor}>{moeda(carteira?.saldo_informado)} de saldo informado</span>
+              <span style={S.contadorValor}>{moeda(carteira?.saldo_informado)} no período</span>
             </div>
           </div>
 
@@ -166,7 +171,7 @@ export default function Preventivo() {
           ) : null}
 
           <details style={{ marginTop: 28 }}>
-            <summary style={{ ...S.muted, cursor: "pointer", fontWeight: 700 }}>Criar outra carteira</summary>
+            <summary style={{ ...S.muted, cursor: "pointer", fontWeight: 700 }}>Criar outro período</summary>
             <div style={{ ...S.card, padding: 18, maxWidth: 620, marginTop: 10 }}>
               <FormularioNova nova={nova} setNova={setNova} criando={criando} onSubmit={criarCarteira} />
             </div>
@@ -181,7 +186,7 @@ function FormularioNova({ nova, setNova, criando, onSubmit }) {
   return (
     <form onSubmit={onSubmit} style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end", marginTop: 14 }}>
       <div>
-        <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Nome da carteira</label>
+        <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Nome do período</label>
         <input style={S.input} value={nova.nome} placeholder="Ex.: Vencimentos de outubro"
                onChange={(e) => setNova({ ...nova, nome: e.target.value })} />
       </div>
@@ -196,7 +201,7 @@ function FormularioNova({ nova, setNova, criando, onSubmit }) {
                onChange={(e) => setNova({ ...nova, venc_ate: e.target.value })} />
       </div>
       <button type="submit" disabled={criando} style={S.btnGhost}>
-        {criando ? "Criando…" : "Criar carteira"}
+        {criando ? "Criando…" : "Criar período"}
       </button>
     </form>
   );

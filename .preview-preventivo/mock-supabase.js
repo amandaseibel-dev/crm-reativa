@@ -160,6 +160,7 @@ const REMESSAS = [
     alunos: 5, titulos: 6, valor: 3780.5,
     whatsapp_disponivel: 4, email_disponivel: 3, para_revisao: 2,
     recusas: 3, recusas_por_motivo: { DUPLICADA_NO_ARQUIVO: 2, SEM_NOME: 1 },
+    localizados: 5, precisam_revisao: 1, nao_consultados: 0, com_alteracao: 3,
     acoes: [{ id: "a-1", nome: "Lembrete D-3 outubro", canal: "WHATSAPP", estado: "ENVIO_CONFIRMADO" }],
     comparacao: {
       primeira_remessa: false,
@@ -174,6 +175,7 @@ const REMESSAS = [
     alunos: 5, titulos: 6, valor: 3600.0,
     whatsapp_disponivel: 4, email_disponivel: 3, para_revisao: 2,
     recusas: 0, recusas_por_motivo: {}, acoes: [],
+    localizados: 6, precisam_revisao: 0, nao_consultados: 0, com_alteracao: 0,
     comparacao: { primeira_remessa: true },
   },
 ];
