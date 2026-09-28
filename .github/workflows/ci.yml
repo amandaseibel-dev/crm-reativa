@@ -87,8 +87,11 @@ jobs:
   # Nao e producao, nao e servico pago e nao usa segredo: e um container que
   # nasce e morre com o job. Repositorio publico, minuto a US$ 0,00.
   #
-  # Se a proposta nao existir mais (porque virou migration aplicada), o job sai
-  # verde sem rodar nada, em vez de travar merges para sempre.
+  # Depois de aplicada, o arquivo vive em supabase/migrations/ -- e o job passa a
+  # rodar A MIGRATION. Isso nao e detalhe: e o que impede o PR #542, que
+  # redefine o mesmo classificador por DROP+CREATE, apagar esta correcao em
+  # silencio. Se alguem reescrever o classificador sem o ramo conferido, o caso
+  # 1 quebra aqui antes de chegar em producao.
   # ---------------------------------------------------------------------------
   proposta-conferido:
     name: proposta conferido em aberto (postgres isolado)
@@ -119,23 +122,33 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - name: A proposta ainda existe?
+      - name: Onde está o SQL a validar?
         id: existe
         run: |
-          if [ -f supabase/propostas/PROPOSTA_conferido_em_aberto.sql ]; then
-            echo "roda=sim" >> "$GITHUB_OUTPUT"
+          APLICADA=supabase/migrations/20260928180725_conferido_em_aberto_efetividade_2026_2.sql
+          PROPOSTA=supabase/propostas/PROPOSTA_conferido_em_aberto.sql
+          if   [ -f "$APLICADA" ]; then ALVO="$APLICADA"
+          elif [ -f "$PROPOSTA" ]; then ALVO="$PROPOSTA"
+          else ALVO=""
+          fi
+          if [ -n "$ALVO" ]; then
+            echo "roda=sim"      >> "$GITHUB_OUTPUT"
+            echo "alvo=$ALVO"    >> "$GITHUB_OUTPUT"
+            echo "Validando: $ALVO"
           else
             echo "roda=nao" >> "$GITHUB_OUTPUT"
-            echo "Proposta não está mais em supabase/propostas/ — nada a validar."
+            echo "Nem a migration nem a proposta existem — nada a validar."
           fi
 
       # 1. ambiente  2. estado de produção  3. A PROPOSTA  4. os casos.
       # ON_ERROR_STOP em todos: o primeiro erro derruba o job.
-      - name: Montar ambiente, aplicar a proposta e rodar os casos
+      - name: Montar ambiente, aplicar o SQL e rodar os casos
         if: steps.existe.outputs.roda == 'sim'
+        env:
+          ALVO: ${{ steps.existe.outputs.alvo }}
         run: |
           set -euo pipefail
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
-          psql -v ON_ERROR_STOP=1 -f supabase/propostas/PROPOSTA_conferido_em_aberto.sql
+          psql -v ON_ERROR_STOP=1 -f "$ALVO"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"

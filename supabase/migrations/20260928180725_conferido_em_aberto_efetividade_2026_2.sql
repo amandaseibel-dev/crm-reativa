@@ -1,8 +1,9 @@
--- PROPOSTA DE MIGRATION -- NAO APLICADA. Aguarda autorizacao.
+-- APLICADA EM PRODUCAO em 28/09/2026 18:07:25 UTC, versao 20260928180725.
 --
--- Fica FORA de supabase/migrations/ de proposito: versao nao aplicada dentro
--- daquele diretorio e o que o Gate 1 esta limpando. Ao aprovar, mover para
--- supabase/migrations/ com a versao que o apply_migration registrar.
+-- O arquivo aqui carrega a documentacao inteira; o que rodou foram os mesmos
+-- comandos sem os comentarios (md5 54c49541740aa173c5eb88b4ab8408ad, 23452
+-- bytes, registrado em schema_migrations). Comentario nao muda comportamento,
+-- entao rodar este arquivo num ambiente novo produz o mesmo resultado.
 --
 -- ============================================================================
 -- O PROBLEMA, medido em 28/09/2026 nos 583 titulos de 2026/2 em "Em conferencia":
@@ -686,22 +687,33 @@ $guarda$;
 commit;
 
 -- ============================================================================
--- VALIDACAO -- o que foi feito e o que NAO foi.
+-- VALIDACAO.
 --
--- FEITO, 28/09/2026, SOMENTE LEITURA contra producao, nada criado nem escrito:
---   - o corpo novo rodou INLINE contra a producao, com a tabela de conferencia
---     simulada VAZIA, e foi comparado titulo a titulo com a logica de hoje:
---     2.525 linhas dos dois lados, ZERO diferenca. Aplicar nao move ninguem.
---   - com uma conferencia simulada em um titulo de cada um dos tres motivos, os
---     tres sairam de EM_CONFERENCIA para SEM_NEGOCIACAO, com recuperado 0 e
---     saldo igual ao valor original -- ou seja, saldo preservado.
---   - com acordo, com situacao PAGO, com valor diferente e com liquidacao nova
---     no Prime, a validade cai e o titulo VOLTA para EM_CONFERENCIA.
---   Os numeros exatos estao no corpo do PR.
+-- 1. POSTGRES ISOLADO, no CI (servico do GitHub Actions, container descartavel,
+--    sem segredo, sem producao, sem servico pago). O job
+--    "proposta conferido em aberto (postgres isolado)" monta o ambiente,
+--    recria o classificador de producao, aplica ESTE arquivo inteiro e roda
+--    supabase/tests/conferido_em_aberto/03_casos.sql. Todos os casos passaram:
+--      0. 8 titulos, um por ramo, saldo 36.000,00
+--      1. gestao registra: grava autor, data, justificativa e evidencia,
+--         auditoria na ficha, SO o titulo esperado muda, saldo identico
+--      2. sem permissao: 42501 e nenhum rastro gravado
+--      3. recusa pagamento, acordo, decisao REJEITADO, valor desatualizado,
+--         liquidacao desatualizada, justificativa curta e evidencia vazia
+--      4. liquidacao nova, acordo, pagamento e valor novo derrubam a
+--         confirmacao; o registro sobrevive como historico
+--      5. classificador fechado, RPC so para authenticated, tabela fechada
+--    A primeira execucao ABORTOU em "PUBLIC ainda tem EXECUTE no classificador"
+--    -- a guarda funcionou e o fixture e que estava mais folgado que producao.
+--    Dai vieram os revokes explicitos de PUBLIC acima.
 --
--- NAO FOI POSSIVEL: banco isolado. Esta maquina nao tem Docker nem Postgres
--- local e criar branch/projeto Supabase e proibido por custo. Logo NAO foram
--- exercitados: o CREATE TABLE, o CREATE OR REPLACE, as ACLs resultantes, a
--- guarda acima e a RPC de escrita (que depende de auth.jwt(), inexistente fora
--- do app). Tudo escrito para falhar fechado, mas nao executado.
+-- 2. SOMENTE LEITURA contra producao, nada criado nem escrito: a logica antes e
+--    a depois rodaram INLINE, no mesmo instante e sobre o mesmo snapshot --
+--    2.525 linhas dos dois lados, ZERO diferenca com a tabela vazia; com tres
+--    conferencias simuladas, exatamente tres titulos saem de EM_CONFERENCIA
+--    para SEM_NEGOCIACAO; com a assinatura quebrada, nenhum sai. Saldo total
+--    identico nos tres cenarios.
+--
+-- O QUE NAO FOI EXERCITADO: o volume de producao. O teste isolado usa 8 titulos,
+-- nao 2.525 -- ele prova comportamento, nao desempenho.
 -- ============================================================================
