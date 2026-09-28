@@ -175,12 +175,17 @@ const ONDE_TRATAR = [
         + "pedir a inclusão na próxima extração. O CRM não tem onde registrar essa checagem hoje." },
 ];
 
-// ALCANCE DA TABULAÇÃO -- medido em 28/09/2026, e é uma ressalva, não detalhe:
-// a marca é do ALUNO, não do título. Não existe vínculo caso->título no banco
-// (nenhuma FK, nenhuma tabela de ligação) e `casos.semestre` está nulo nos 63
-// alunos afetados. Logo, nenhuma fonte consegue apontar UM título. O que a tela
-// mostra é ABRANGÊNCIA: títulos de alunos marcados, não títulos provadamente
-// cancelados. Por isso o rótulo diz "abrangidas por".
+// O QUE A MARCA SIGNIFICA -- medido em 28/09/2026, e é ressalva, não detalhe.
+//
+// A tabulação é do ALUNO, não do título. Não existe vínculo caso->título no
+// banco (nenhuma FK, nenhuma tabela de ligação) e `casos.semestre` está nulo
+// nos alunos afetados. Logo nenhuma fonte aponta UM título.
+//
+// O rótulo diz então exatamente o que se sabe: "Mensalidades de alunos com
+// registro de cancelamento/suspensão". Não diz "abrangidas por" -- a falta de
+// vínculo caso->título não prova que a marca alcance TODAS as mensalidades
+// daquele aluno; ela impede tanto afirmar quanto negar. O que a lista traz é a
+// identificação de quem tem o registro, não a extensão dele.
 function encerramentos(t) {
   const linhas = [
     { chave: "cancelado", rotulo: "Situação CANCELADA no título", indicador: "cancelado",
@@ -190,12 +195,14 @@ function encerramentos(t) {
   ];
   if (temTabulacao(t)) {
     linhas.push(
-      { chave: "tab_cancelamento", rotulo: "Abrangidas por cancelamento definitivo",
+      { chave: "tab_cancelamento",
+        rotulo: "Mensalidades de alunos com registro de cancelamento definitivo",
         indicador: "tab_cancelamento", papel: "cancelado",
         titulos: Number(t?.tab_cancelamento_titulos || 0),
         valor: Number(t?.tab_cancelamento_valor || 0),
-        apoio: "tabulação do aluno; continuam no saldo residual" },
-      { chave: "tab_suspensao", rotulo: "Abrangidas por suspensão temporária",
+        apoio: "registro na ficha ou no caso do aluno; continuam no saldo residual" },
+      { chave: "tab_suspensao",
+        rotulo: "Mensalidades de alunos com registro de suspensão temporária",
         indicador: "tab_suspensao", papel: "conferencia",
         titulos: Number(t?.tab_suspensao_titulos || 0),
         valor: Number(t?.tab_suspensao_valor || 0),
@@ -506,10 +513,20 @@ export default function EfetividadeCompetencias() {
               aqui para que os dois números possam ser lidos juntos sem se somarem.
             </p>
             <p style={S.discreto}>
-              <strong>Alcance:</strong> a tabulação é do <strong>aluno</strong>, não do título. Não há vínculo
-              entre caso e título no banco, então nenhuma fonte aponta uma mensalidade específica. O que se mostra
-              é abrangência — mensalidades de alunos marcados —, não prova de cancelamento título a título.
-              Suspensão é temporária e volta; cancelamento definitivo não.
+              <strong>O que estas duas linhas são:</strong> mensalidades de alunos que têm o registro de
+              cancelamento ou de suspensão — na ficha, no caso vivo, ou nos dois. A tabulação é do
+              <strong> aluno</strong>, não do título, e não há vínculo entre caso e título no banco. Por isso
+              nenhuma fonte aponta uma mensalidade específica: <strong>não se afirma que o registro alcance
+              todas as mensalidades daquele aluno</strong>, nem que cada mensalidade listada foi cancelada.
+              A ausência desse vínculo impede tanto afirmar quanto negar. Suspensão é temporária e volta;
+              cancelamento definitivo não.
+            </p>
+            <p style={S.discreto}>
+              <strong>Fontes, e elas divergem:</strong> a marca é lida da ficha (<code>alunos.status_atual</code>,
+              códigos do catálogo) e do caso vivo (<code>casos.status_atual</code>, que guarda também grafias
+              antigas em texto livre). Lê-se a <strong>união</strong> das duas porque há mensalidades marcadas
+              só no caso, que a ficha nunca recebeu — desprezá-las esconderia parte do registro. Caso já
+              encerrado fica de fora: não descreve a cobrança de hoje.
             </p>
             {/* Os motivos detalham a PRIMEIRA linha, não são um quarto grupo:
                 sem este rótulo o mesmo valor aparece duas vezes e se lê como

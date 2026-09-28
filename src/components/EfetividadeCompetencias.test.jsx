@@ -409,7 +409,7 @@ describe("Efetividade 2026/2 por competência", () => {
     expect(topo().getByText("Cancelados")).toBeTruthy();
     expect(topo().queryByText("Cancelados e suspensos")).toBeNull();
     expect(screen.getByRole("heading", { name: "Cancelados por motivo" })).toBeTruthy();
-    expect(screen.queryByText(/Abrangidas por suspensão temporária/)).toBeNull();
+    expect(screen.queryByText(/Mensalidades de alunos com registro de suspensão temporária/)).toBeNull();
     // e o valor continua sendo só o do título CANCELADA
     expect(within(topo().getByText("Cancelados").closest("button")).getByText("R$ 10 mil")).toBeTruthy();
   });
@@ -434,8 +434,8 @@ describe("Efetividade 2026/2 por competência", () => {
 
     const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
     expect(sec.getByText("Situação CANCELADA no título")).toBeTruthy();
-    expect(sec.getByText("Abrangidas por cancelamento definitivo")).toBeTruthy();
-    expect(sec.getByText("Abrangidas por suspensão temporária")).toBeTruthy();
+    expect(sec.getByText("Mensalidades de alunos com registro de cancelamento definitivo")).toBeTruthy();
+    expect(sec.getByText("Mensalidades de alunos com registro de suspensão temporária")).toBeTruthy();
     expect(sec.getByText("R$ 99.160,73")).toBeTruthy();
     expect(sec.getByText("R$ 136.432,66")).toBeTruthy();
     expect(sec.getByText(/Total sem duplicidade: 101 mensalidades/)).toBeTruthy();
@@ -448,16 +448,16 @@ describe("Efetividade 2026/2 por competência", () => {
         : Promise.resolve({ data: DETALHE }));
     await abrir();
     const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
-    const susp = sec.getByText("Abrangidas por suspensão temporária").closest("button");
+    const susp = sec.getByText("Mensalidades de alunos com registro de suspensão temporária").closest("button");
     expect(within(susp).getByText(/suspensão volta; não é cancelamento definitivo/)).toBeTruthy();
     // e a linha do cancelamento é outra, com valor próprio
-    const canc = sec.getByText("Abrangidas por cancelamento definitivo").closest("button");
+    const canc = sec.getByText("Mensalidades de alunos com registro de cancelamento definitivo").closest("button");
     expect(within(canc).getByText("R$ 99.160,73")).toBeTruthy();
     expect(within(susp).getByText("R$ 136.432,66")).toBeTruthy();
     expect(canc).not.toBe(susp);
   });
 
-  it("declara que a tabulação não reduz o saldo e que o alcance é do aluno", async () => {
+  it("declara que a tabulação não reduz o saldo, que o registro é do aluno e que não se afirma alcance", async () => {
     rpcMock.mockImplementation((nome) =>
       nome === "carteira_2026_2_competencias"
         ? Promise.resolve({ data: COM_TAB })
@@ -466,8 +466,15 @@ describe("Efetividade 2026/2 por competência", () => {
     const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
     expect(sec.getByText(/não reduzem o saldo residual nesta entrega/)).toBeTruthy();
     expect(sec.getByText(/continuam contados nas faixas de origem/)).toBeTruthy();
-    expect(sec.getByText(/a tabulação é do/)).toBeTruthy();
-    expect(sec.getByText(/não há vínculo/i)).toBeTruthy();
+    // A ressalva mais forte: a tela NÃO pode afirmar que o registro alcança
+    // todas as mensalidades do aluno. Asserir o "não se afirma" é o que impede
+    // alguém reescrever isso como se a abrangência estivesse provada.
+    expect(sec.getByText(/não se afirma que o registro alcance/i)).toBeTruthy();
+    expect(sec.getByText(/não há vínculo entre caso e título/i)).toBeTruthy();
+    expect(sec.getByText(/impede tanto afirmar quanto negar/i)).toBeTruthy();
+    // E a divergência entre as duas fontes fica registrada, não escondida.
+    expect(sec.getByText(/união/i)).toBeTruthy();
+    expect(sec.getByText(/marcadas\s+só no caso/i)).toBeTruthy();
   });
 
   // O PONTO CENTRAL: os indicadores financeiros nao podem se mexer.
@@ -495,7 +502,7 @@ describe("Efetividade 2026/2 por competência", () => {
     await abrir();
     const sec = within(screen.getByRole("heading", { name: "Cancelamentos e suspensões" }).closest("section"));
     await act(async () => {
-      fireEvent.click(sec.getByTitle("Ver os títulos de Abrangidas por suspensão temporária"));
+      fireEvent.click(sec.getByTitle("Ver os títulos de Mensalidades de alunos com registro de suspensão temporária"));
     });
     expect(rpcMock).toHaveBeenCalledWith("carteira_2026_2_competencia_detalhe", {
       p_competencia: null, p_indicador: "tab_suspensao", p_limite: 200, p_offset: 0,
