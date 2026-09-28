@@ -74,7 +74,13 @@ convênio bancário (boleto emitido pelo banco) ou agência de cobrança.
 
 **Limitações conhecidas:** 124 portadores ao todo; só 166 (acordos, "Santander
 ReATIVA convênio 0272047") e 195 (mensalidades, "Reativa Recuperação de
-Crédito") são carteira da Reativa, por decisão da gestão. 165 e 202 são
+Crédito") são carteira da Reativa, por decisão da gestão. O portador **95**
+("SANTANDER CC 13050976-6 - CONVENIO 272036") **não é carteira da Reativa**:
+é onde vive a mensalidade CORRENTE da ULBRA — a que ainda vai vencer e a que
+está em atraso inicial. Medido em 28/09/2026: 302.477 linhas, 17.718 alunos,
+19.795 títulos a vencer e 7.182 com 1 a 31 dias de atraso. É o universo da
+frente PREVENTIVO (`docs/preventivo/README.md`), e ler dele **não** coloca
+ninguém em cobrança. 165 e 202 são
 judiciais e ficam fora de escopo por decisão, não por limitação técnica.
 
 **Segurança:** READ ONLY
@@ -284,6 +290,21 @@ ver `regra-entrada-prime-liquidado-nao-e-pagamento` e `docs/PREMISSAS.md`);
 decomposição de valor; ponte `boleto` (7 díg.) ↔ `acordos_titulos.documento`.
 
 **Limitações conhecidas:**
+- **NÃO HÁ CAMPO DE SITUAÇÃO.** Conferido ao vivo em 28/09/2026 (`GET
+  /students/{registration}`, pela Edge Function `prime-acordo`, que devolve a
+  lista de chaves do bloco): os 13 campos acima são todos os que existem.
+  Nenhum diz se o título está pago, em aberto, cancelado ou renegociado, e não
+  há saldo em aberto. Qualquer acompanhamento de pagamento por esta API é
+  comparação entre duas consultas, e **redução de saldo não é sinônimo de
+  dinheiro recebido** — mistura pagamento, cancelamento, bolsa e renegociação;
+- `paymentDate` vem preenchido em **100% das linhas de todo portador**, não só
+  do 195: medido em 28/09/2026 no espelho `prime_extrato`, 0 de 302.477 linhas
+  do portador 95 têm `paymentDate` nulo, **inclusive os 19.795 títulos que
+  ainda vão vencer**. Para um título a vencer, a data vem ANTES do vencimento
+  em 19.705 de 19.705 casos — é data de processamento, não de pagamento;
+- `paidAmount` no portador 95 é **valor de tabela**: aparece como o dobro exato
+  do principal em título vencido e maior que o principal em 3.852 dos 19.705
+  títulos a vencer. Nunca somar como recebimento;
 - `paymentDate` sozinho **não** distingue negociado de aberto — regra testada
   e formalmente invalidada em 2026-09-01 (100% das linhas do portador 195 têm
   `paymentDate`, inclusive as ABERTAS no CRM);

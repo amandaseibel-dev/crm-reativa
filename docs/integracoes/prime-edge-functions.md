@@ -79,3 +79,19 @@ que fazem a mesma coisa; ver `docs/integracoes/prime-gaps.md`).
 Ver `docs/integracoes/prime-gaps.md` para o detalhe de `prime_chave_api()`,
 `prime_extrato` e `prime_extrato_fila` — existem em produção sem migration
 correspondente no repositório.
+
+## `prev-sincronizar` (criada em 28/09/2026 — frente PREVENTIVO)
+
+| Item | Valor |
+|---|---|
+| Endpoint do Prime que chama | `GET /students/{registration}` (`student_composite`) |
+| Escreve no Prime? | Não — a API não aceita escrita (`allow: GET`) |
+| Escreve no CRM? | Só em tabelas `prev_*`, e só através da RPC `preventivo_sinc_gravar`. Zero escrita em tabela da cobrança |
+| Secrets | `PRIME_API_KEY` (ou Vault via `prime_chave_api`), `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_ANON_KEY` |
+| Acesso | exige JWT de usuário **e** `public.preventivo_e_gestao()` verdadeiro no banco — a lista de quem pode não mora no código da função |
+| Granularidade | uma chamada **por aluno** da carteira preventiva, nunca por título (a API não tem rota em lote) |
+| Fila própria | `prev_sinc_fila` — **não** reusa `prime_extrato_fila`, que varre os ~17,7 mil alunos da base e é drenada só no mutirão de sábado (`prime_extrato_mutirao`, `*/2 2-23 * * 6`) |
+| O que nunca infere | `paymentDate` e `paidAmount` são copiados crus e nunca lidos como pagamento; resposta com forma inesperada é ERRO, nunca "extrato vazio" |
+
+Ver `docs/preventivo/README.md` para o desenho da frente e para o que ainda
+falta de acesso.

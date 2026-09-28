@@ -17,6 +17,9 @@ outra via" (VERMELHO com evidência). Ver a formulação completa em
 | Curso, campus, turno, situação acadêmica | 🟢 VERDE | Sim | `student_composite`/`contracts` | Sim | nenhum |
 | Contrato vigente | 🟢 VERDE | Sim | `contracts[]` | Sim | nenhum |
 | Filiação a portador (166/195) | 🟢 VERDE | Sim | `students_search?carrierId=` | Sim | nenhum |
+| Título a vencer e atraso inicial (0–31 dias) — existência, vencimento, valor | 🟢 VERDE | Sim | `financial_statement`, `carrier.id = 95` | Sim | nenhum — medido 28/09/2026: 19.795 a vencer, 7.182 em 1–31 dias |
+| **Situação do título (pago/aberto/cancelado) e saldo em aberto** | 🔴 VERMELHO | Não | — | **Não** | **Medido ao vivo 28/09/2026: `financialStatement` tem 13 campos e nenhum é situação, status ou saldo.** `paymentDate` preenchido em 100% das linhas (0 de 302.477 nulos no portador 95), inclusive em título a vencer; `paidAmount` é valor de tabela. Sem isso, "quem pagou" não é respondível pela API — só redução de saldo entre consultas, que não é recebimento |
+| **Evento de pagamento (data + valor) da mensalidade corrente** | 🔴 VERMELHO | Não | — | **Não** | O que falta pedir ao responsável pelo Prime está listado em `docs/preventivo/README.md`, seção "O que falta" |
 | Existência de título original (mensalidade) | 🟢 VERDE | Sim | `financial_statement` | Sim | nenhum |
 | Boleto (7 díg.) ↔ `acordos_titulos.documento` | 🟢 VERDE | Sim | `financial_statement[].boleto` | Sim | nenhum |
 | Decomposição de valor (principal/multa/juros/honorário) | 🟢 VERDE | Sim | `financial_statement[]` | Sim | nenhum |

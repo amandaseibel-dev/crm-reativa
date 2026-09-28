@@ -32,7 +32,8 @@ begin
   if d = '' then return null; end if;
   -- tira o 0 de operadora e o +55 quando vierem na frente
   if length(d) > 11 and left(d, 2) = '55' then d := substr(d, 3); end if;
-  if length(d) = 11 and left(d, 1) = '0' then d := substr(d, 2); end if;
+  -- 0 de operadora na frente do DDD (0 51 9 9999-0001)
+  if length(d) = 12 and left(d, 1) = '0' then d := substr(d, 2); end if;
   -- celular brasileiro: DDD (2) + 9 + 8 dígitos. Fixo (10 dígitos) NÃO passa:
   -- WhatsApp de linha fixa não existe para este uso, e completar o 9 na mão
   -- seria inventar número.
