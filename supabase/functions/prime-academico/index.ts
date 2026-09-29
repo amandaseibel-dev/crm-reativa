@@ -23,7 +23,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcesso } from "../prime-sonda/portao.ts";
 import {
-  desfecho, devePedirMaisUma, formatarCpf, lerPagina, paginouAteOFim,
+  desfecho, formatarCpf, paginarComAutorizacao,
   registrationDoCabecalho, vinculosDaResposta,
 } from "./academico.ts";
 
@@ -70,6 +70,7 @@ Deno.serve(async (req) => {
   // isso o mesmo endpoint serve aos dois sem a tela precisar saber do piloto.
   const pilotoItem = String(corpo?.piloto_item_id ?? "").trim();
   const noPiloto = /^[0-9a-f-]{36}$/i.test(pilotoItem);
+  const pilotoExec = String(corpo?.piloto_execucao ?? "").trim() || null;
 
   // O CPF vem DO BANCO, não do chamador. Quem manda o CPF na requisição
   // decide de quem é a consulta; quem manda o id do aluno pergunta sobre uma
@@ -98,7 +99,9 @@ Deno.serve(async (req) => {
   // ORÇAMENTO E PAR ITEM↔ALUNO vêm do SERVIDOR, nunca do corpo do pedido:
   // quem chama não pode escolher o próprio teto nem mandar consultar um aluno
   // que não é o do item reservado.
-  let orcamento = Number.POSITIVE_INFINITY;
+  // Pré-checagem: recusa cedo o que nem deveria começar (item de outro aluno,
+  // item não reservado, lote interrompido). O ORÇAMENTO em si não vem daqui --
+  // quem controla é a autorização de cada página, mais abaixo.
   if (noPiloto) {
     const { data: val, error: erroVal } = await supa.rpc("prime_academico_piloto_validar", {
       p_item: pilotoItem, p_aluno_id: alunoId,
@@ -106,10 +109,7 @@ Deno.serve(async (req) => {
     if (erroVal) return json({ erro: "PILOTO_VALIDACAO_FALHOU", detalhe: erroVal.message }, 502);
     const v = val as { ok?: boolean; motivo?: string; orcamento?: number } | null;
     if (!v?.ok) return json({ erro: "PILOTO_ITEM_INVALIDO", detalhe: v?.motivo ?? "?" }, 409);
-    orcamento = Number(v.orcamento ?? 0);
-    // Zero orçamento nem começa: gastar uma requisição para descobrir que não
-    // podia é exatamente o que o teto existe para evitar.
-    if (orcamento <= 0) {
+    if (Number(v.orcamento ?? 0) <= 0) {
       return json({ erro: "PILOTO_SEM_ORCAMENTO", detalhe: "teto de requisicoes esgotado" }, 409);
     }
   }
@@ -132,52 +132,43 @@ Deno.serve(async (req) => {
   // "sem informação" viraria "o aluno não tem vínculo".
   // ---------------------------------------------------------------------------
   const TAKE = 50;
-  const TETO = 500; // trava de segurança: nunca girar para sempre
+  const TETO = 500; // trava de seguranca: nunca girar para sempre
 
-  let httpStatus: number | null = null;
-  // PAGINACAO CONTA. Um aluno com 120 vinculos gasta 3 requisicoes, nao 1 --
-  // e o teto do piloto e de requisicoes, nao de alunos.
-  let requisicoes = 0;
-  let falha: string | null = null;
-  let paginaIlegivel = false;
-  let totalItems: number | null = null;
-  // Começa falso: sem nenhuma página lida, não há prova de fim nenhuma.
-  let chegouAoFim = false;
-  const brutos: Record<string, unknown>[] = [];
+  const pag = await paginarComAutorizacao({
+    take: TAKE, teto: TETO,
+    // AUTORIZAR É DEBITAR. Sem lote, não há orçamento a controlar e a ficha
+    // segue como sempre seguiu.
+    autorizar: noPiloto
+      ? async () => {
+          const { data, error } = await supa.rpc("prime_academico_piloto_autorizar_pagina", {
+            p_item: pilotoItem, p_aluno_id: alunoId, p_execucao: pilotoExec,
+          });
+          if (error) return { ok: false, motivo: "AUTORIZACAO_FALHOU: " + error.message };
+          const d = data as { ok?: boolean; motivo?: string } | null;
+          return { ok: d?.ok === true, motivo: d?.motivo };
+        }
+      : null,
+    buscar: async (skip) => {
+      try {
+        const r = await fetch(
+          `${BASE}/students?search=${encodeURIComponent(cpf)}&take=${TAKE}&skip=${skip}`,
+          { method: "GET", headers: { "X-API-Key": chave } },
+        );
+        return { http: r.status, ok: r.ok, texto: await r.text() };
+      } catch (e) {
+        // rede, DNS, timeout -- nunca vaza a chave: so a classe do erro.
+        return { erro: `falha de rede: ${(e as Error)?.name ?? "erro"}` };
+      }
+    },
+  });
 
-  let orcamentoEstourou = false;
-  for (let skip = 0; ; skip += TAKE) {
-    // ANTES DE CADA PÁGINA, e não só antes do aluno. Uma paginação longa
-    // passava por cima do teto quando ele era conferido uma vez só.
-    if (requisicoes >= orcamento) { orcamentoEstourou = true; break; }
-    let pagina;
-    try {
-      requisicoes += 1;
-      const r = await fetch(
-        `${BASE}/students?search=${encodeURIComponent(cpf)}&take=${TAKE}&skip=${skip}`,
-        { method: "GET", headers: { "X-API-Key": chave } },
-      );
-      httpStatus = r.status;
-      const texto = await r.text();
-      if (!r.ok) { falha = `HTTP ${r.status}`; break; }
-      let json: unknown = null;
-      try { json = JSON.parse(texto); } catch { paginaIlegivel = true; break; }
-      pagina = lerPagina(json);
-    } catch (e) {
-      // rede, DNS, timeout -- nunca vaza a chave: só a classe do erro.
-      falha = `falha de rede: ${(e as Error)?.name ?? "erro"}`;
-      break;
-    }
-
-    // 200 com corpo sem `items` array: não se entendeu a resposta. Não é
-    // "acabaram as páginas" -- é falha, e parar como se tivesse acabado
-    // gravaria uma lista incompleta como se fosse completa.
-    if (pagina.items === null) { paginaIlegivel = true; break; }
-    if (pagina.totalItems !== null) totalItems = pagina.totalItems;
-    brutos.push(...pagina.items);
-    chegouAoFim = paginouAteOFim(brutos.length, pagina.items.length, TAKE, totalItems);
-    if (!devePedirMaisUma(brutos.length, pagina.items.length, TAKE, totalItems, TETO)) break;
-  }
+  const brutos = pag.brutos;
+  const requisicoes = pag.requisicoes;
+  const httpStatus = pag.httpStatus;
+  const paginaIlegivel = pag.paginaIlegivel;
+  const chegouAoFim = pag.chegouAoFim;
+  let falha = pag.falha;
+  const orcamentoEstourou = pag.negou !== null;
 
   // O FILTRO VEM ANTES DO DESFECHO. Uma busca que traga só linhas de OUTRA
   // pessoa (o `search` é substring) tem items > 0 e zero vínculos desta ficha:
@@ -192,7 +183,7 @@ Deno.serve(async (req) => {
   // incompleta, e "bateu no teto" é diferente de "a API caiu".
   if (resultado === "PAGINACAO_INCOMPLETA" && !falha) {
     falha = orcamentoEstourou
-      ? `orcamento de requisicoes do lote esgotado (${requisicoes}) -- a lista pode estar incompleta`
+      ? `paginacao interrompida: ${pag.negou} (${requisicoes} requisicao(oes)) -- a lista pode estar incompleta`
       : `paginacao interrompida no teto de ${TETO} linhas -- a lista pode estar incompleta`;
   }
 
@@ -214,16 +205,29 @@ Deno.serve(async (req) => {
     // senão o orçamento passa a contar menos do que a Ulbra realmente recebeu.
     // Por isso o item é fechado como FALHOU com o gasto REAL, antes de
     // devolver o erro.
+    let contabilizado = false;
+    let erroContingencia: string | null = null;
     if (noPiloto) {
-      await supa.rpc("prime_academico_piloto_registrar", {
+      const { data: cont, error: erroCont } = await supa.rpc("prime_academico_piloto_registrar", {
         p_item: pilotoItem, p_consulta_id: null, p_requisicoes: requisicoes,
         p_http: httpStatus, p_erro: "gravacao da consulta falhou: " + erroGravar.message,
-        p_aluno_id: alunoId,
+        p_aluno_id: alunoId, p_execucao: pilotoExec,
       });
+      // AS DUAS GRAVAÇÕES PODEM FALHAR. Dizer "gasto contabilizado" sem
+      // confirmar seria a pior saída: quem lê acredita que o teto está certo.
+      const c = cont as { recusado?: boolean; motivo?: string } | null;
+      erroContingencia = erroCont ? erroCont.message
+        : (c?.recusado ? (c.motivo ?? "registro recusado") : null);
+      contabilizado = erroContingencia === null;
     }
     return json({
       erro: "GRAVACAO_FALHOU", detalhe: erroGravar.message, requisicoes,
-      aviso: "as requisicoes gastas foram contabilizadas no lote",
+      gasto_contabilizado: contabilizado,
+      ...(contabilizado
+        ? { aviso: "as requisicoes gastas foram contabilizadas no lote" }
+        : { aviso: "ATENCAO: o gasto NAO foi contabilizado (" + (erroContingencia ?? "?")
+                   + "); as paginas autorizadas ja debitaram, mas o item nao foi fechado",
+            erro_contingencia: erroContingencia }),
     }, 502);
   }
 
@@ -243,6 +247,7 @@ Deno.serve(async (req) => {
       p_http: httpStatus,
       p_erro: falha,
       p_aluno_id: alunoId,
+      p_execucao: pilotoExec,
     });
     if (erroReg) {
       // A CONSULTA JÁ FOI GRAVADA -- e já foi paga em requisições. Seguir o
@@ -259,8 +264,16 @@ Deno.serve(async (req) => {
         aviso: "a consulta FOI gravada; retomar o lote reconcilia este item sem consultar de novo",
       }, 502);
     }
-    pararLote = (reg as { parar?: boolean } | null)?.parar === true;
-    motivoLote = (reg as { motivo?: string } | null)?.motivo ?? null;
+    const rr = reg as { parar?: boolean; recusado?: boolean; motivo?: string } | null;
+    if (rr?.recusado) {
+      // Outra aba assumiu o lote enquanto esta consultava. O resultado foi
+      // gravado na consulta (nao se perde), mas o item nao e fechado por uma
+      // execucao que ja nao conduz nada.
+      return json({ erro: "PILOTO_EXECUCAO_SUPERADA", detalhe: rr.motivo ?? "?",
+                    consulta_id: consultaId, requisicoes }, 409);
+    }
+    pararLote = rr?.parar === true;
+    motivoLote = rr?.motivo ?? null;
   }
 
   // Devolve o mesmo formato que a tela lê do banco, para ela não precisar de

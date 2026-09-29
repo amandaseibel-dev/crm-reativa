@@ -152,3 +152,36 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
           psql -v ON_ERROR_STOP=1 -f "$ALVO"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
+
+  piloto-concorrencia:
+    name: piloto academico com duas conexoes (postgres real)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: teste
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: '5432'
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: teste
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # O PGlite tem UMA conexao: `for update` e `skip locked` so se provam com
+      # duas sessoes concorrentes de verdade. Por isso este job existe.
+      - name: Concorrencia real do piloto
+        run: bash supabase/tests/piloto_concorrencia/rodar.sh

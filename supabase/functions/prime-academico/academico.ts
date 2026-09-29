@@ -122,3 +122,65 @@ export function registrationDoCabecalho(vinculos: { registration: string | null 
   const regs = [...new Set(vinculos.map((v) => v.registration).filter(Boolean))];
   return regs.length === 1 ? (regs[0] as string) : null;
 }
+
+// ---------------------------------------------------------------------------
+// O LAÇO DE PAGINAÇÃO, isolado para poder ser testado
+// ---------------------------------------------------------------------------
+// `index.ts` não é testável pelo vitest (Deno.serve, Deno.env, import remoto),
+// e este laço é onde mora a decisão mais cara: quando parar, e se o que se tem
+// é lista completa ou pedaço.
+//
+// AUTORIZAR VEM ANTES DE BUSCAR, sempre. A autorização é o débito da página no
+// banco; negada, a chamada ao Prime não acontece. Foi assim que se fechou o
+// buraco de uma paginação longa passar por cima do teto do lote.
+export interface ResultadoPaginacao {
+  brutos: Record<string, unknown>[];
+  requisicoes: number;
+  httpStatus: number | null;
+  falha: string | null;
+  paginaIlegivel: boolean;
+  chegouAoFim: boolean;
+  /** por que a autorização negou, quando negou */
+  negou: string | null;
+}
+
+export async function paginarComAutorizacao(opts: {
+  take: number;
+  teto: number;
+  /** null quando não há piloto: sem lote, ninguém autoriza nada */
+  autorizar: (() => Promise<{ ok: boolean; motivo?: string }>) | null;
+  buscar: (skip: number) => Promise<
+    { http: number; ok: boolean; texto: string } | { erro: string }>;
+}): Promise<ResultadoPaginacao> {
+  const r: ResultadoPaginacao = {
+    brutos: [], requisicoes: 0, httpStatus: null,
+    falha: null, paginaIlegivel: false, chegouAoFim: false, negou: null,
+  };
+  let totalItems: number | null = null;
+
+  for (let skip = 0; ; skip += opts.take) {
+    if (opts.autorizar) {
+      const a = await opts.autorizar();
+      if (!a.ok) { r.negou = a.motivo ?? "negado"; break; }
+    }
+    // Conta ANTES de buscar: a requisição foi autorizada e debitada, e vai
+    // sair. Contar depois perderia a chamada se a rede morresse no meio.
+    r.requisicoes += 1;
+
+    const resp = await opts.buscar(skip);
+    if ("erro" in resp) { r.falha = resp.erro; break; }
+    r.httpStatus = resp.http;
+    if (!resp.ok) { r.falha = `HTTP ${resp.http}`; break; }
+
+    let dados: unknown = null;
+    try { dados = JSON.parse(resp.texto); } catch { r.paginaIlegivel = true; break; }
+    const pagina = lerPagina(dados);
+    if (pagina.items === null) { r.paginaIlegivel = true; break; }
+    if (pagina.totalItems !== null) totalItems = pagina.totalItems;
+
+    r.brutos.push(...pagina.items);
+    r.chegouAoFim = paginouAteOFim(r.brutos.length, pagina.items.length, opts.take, totalItems);
+    if (!devePedirMaisUma(r.brutos.length, pagina.items.length, opts.take, totalItems, opts.teto)) break;
+  }
+  return r;
+}

@@ -137,7 +137,7 @@ export default function PilotoAcademico({ ano, semestre }) {
         }
 
         const { data: r, error: e2 } = await supabase.functions.invoke("prime-academico", {
-          body: { aluno_id: prox.aluno_id, piloto_item_id: prox.item_id },
+          body: { aluno_id: prox.aluno_id, piloto_item_id: prox.item_id, piloto_execucao: execucao },
         });
 
         // A função responde erro de duas formas: `error` (HTTP fora de 2xx) e

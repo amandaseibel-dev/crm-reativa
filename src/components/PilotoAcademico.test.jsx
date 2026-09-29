@@ -69,8 +69,11 @@ describe("piloto — o laço", () => {
     // três alunos, um clique
     await waitFor(() => expect(invoke).toHaveBeenCalledTimes(3));
     expect(invoke.mock.calls.map((c) => c[1].body.aluno_id)).toEqual(["aluno-1", "aluno-2", "aluno-3"]);
-    // e cada chamada levou o item do piloto junto
-    for (const c of invoke.mock.calls) expect(c[1].body.piloto_item_id).toMatch(/^item-\d$/);
+    // cada chamada leva o item E a execucao: sem a execucao, o servidor recusa
+    for (const c of invoke.mock.calls) {
+      expect(c[1].body.piloto_item_id).toMatch(/^item-\d$/);
+      expect(c[1].body.piloto_execucao).toBe("exec-1");
+    }
   });
 
   it("nunca há duas consultas em voo ao mesmo tempo", async () => {
