@@ -34,7 +34,7 @@ const { default: SituacaoAcademicaPrime } = await import("./SituacaoAcademicaPri
 
 const ALUNO = { id: "11111111-1111-1111-1111-111111111111" };
 
-// A ESTRUTURA do caso documentado na matrícula 222007757 (ver
+// A ESTRUTURA do caso documentado na caso documentado em docs/integracoes/prime-mapa-identificadores.md (ver
 // docs/integracoes/prime-mapa-identificadores.md): três vínculos
 // indistinguíveis pelos campos disponíveis, com status diferentes.
 // Matrícula fictícia -- o que o teste precisa é da forma, não do identificador.
@@ -242,5 +242,59 @@ describe("limites", () => {
     expect(container.textContent).toBe("");
     expect(invoke).not.toHaveBeenCalled();
     for (const chamada of rpc.mock.calls) expect(chamada[0]).toBe("usuario_e_gestao");
+  });
+});
+
+describe("paginação incompleta e última consulta boa", () => {
+  it("PAGINAÇÃO INCOMPLETA mostra os vínculos com a ressalva, não como lista completa", async () => {
+    comBanco({ leitura: { ...TRES_IGUAIS, resultado: "PAGINACAO_INCOMPLETA",
+      detalhe_falha: "paginacao interrompida no teto de 500 linhas -- a lista pode estar incompleta" } });
+    render(<SituacaoAcademicaPrime aluno={ALUNO} />);
+
+    const aviso = await screen.findByText(/pode estar/i);
+    expect(aviso.textContent).toMatch(/incompleta/i);
+    expect(aviso.textContent).toMatch(/não há garantia de que sejam todos/i);
+    // e os vínculos aparecem assim mesmo -- é dado de verdade
+    expect(screen.getAllByText("COMÉRCIO EXTERIOR")).toHaveLength(3);
+    expect(screen.getByText("Reopção de Curso")).toBeTruthy();
+  });
+
+  it("falha recente mostra a ÚLTIMA CONSULTA BOA vinda do banco, com a data dela", async () => {
+    // Vem do banco (`ultima_boa`), não da memória da tela -- então sobrevive a
+    // recarregar a página e a fechar e reabrir a ficha.
+    comBanco({ leitura: {
+      resultado: "FALHA_COMUNICACAO", detalhe_falha: "HTTP 503",
+      consultado_em: "2026-09-29T10:00:00Z", vinculos: [],
+      ultima_boa: { ...TRES_IGUAIS, consultado_em: "2026-09-28T23:45:00Z" },
+    } });
+    render(<SituacaoAcademicaPrime aluno={ALUNO} />);
+
+    expect(await screen.findByText(/Não foi possível falar com o Prime/i)).toBeTruthy();
+    // o dado bom continua visível, identificado como a consulta anterior
+    const titulo = screen.getByText(/Última consulta que deu certo/i);
+    expect(titulo.textContent).toMatch(/28\/09\/2026/);
+    expect(screen.getAllByText("COMÉRCIO EXTERIOR")).toHaveLength(3);
+    expect(screen.getByText("Cancelado")).toBeTruthy();
+  });
+
+  it("só falhas: não inventa consulta boa", async () => {
+    comBanco({ leitura: {
+      resultado: "FALHA_COMUNICACAO", detalhe_falha: "HTTP 503",
+      consultado_em: "2026-09-29T10:00:00Z", vinculos: [], ultima_boa: null,
+    } });
+    render(<SituacaoAcademicaPrime aluno={ALUNO} />);
+    await screen.findByText(/Não foi possível falar com o Prime/i);
+    expect(screen.queryByText(/Última consulta que deu certo/i)).toBeNull();
+  });
+
+  it("última boa que era SEM_RESULTADO diz isso, em vez de tabela vazia", async () => {
+    comBanco({ leitura: {
+      resultado: "FALHA_COMUNICACAO", detalhe_falha: "HTTP 503",
+      consultado_em: "2026-09-29T10:00:00Z", vinculos: [],
+      ultima_boa: { resultado: "SEM_RESULTADO", consultado_em: "2026-09-28T23:45:00Z", vinculos: [] },
+    } });
+    render(<SituacaoAcademicaPrime aluno={ALUNO} />);
+    await screen.findByText(/Última consulta que deu certo/i);
+    expect(screen.getByText(/Naquela consulta o Prime respondeu e não retornou nenhum vínculo/i)).toBeTruthy();
   });
 });

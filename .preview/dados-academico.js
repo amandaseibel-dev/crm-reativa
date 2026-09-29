@@ -196,6 +196,43 @@ export const CASOS = [
     erroLeitura: "permission denied for function prime_academico_ultima",
   },
   {
+    rotulo: "Paginação incompleta (desfecho construído)",
+    alunoId: "aluno-paginacao-incompleta",
+    situacaoNoCrm: "Trancado",
+    nota: "A consulta bateu no teto de páginas sem provar que acabou. Há dado, e ele NÃO pode ser apresentado como lista completa — dizer “sucesso” afirmaria um total que ninguém mediu. Os vínculos aparecem, com a ressalva.",
+    leitura: {
+      consulta_id: "consulta-parcial", resultado: "PAGINACAO_INCOMPLETA",
+      detalhe_falha: "paginacao interrompida no teto de 500 linhas -- a lista pode estar incompleta",
+      http_status: 200, registration: "990100009", fonte: F,
+      consultado_em: "2026-09-29T09:10:00Z", consultado_por: "gestao@exemplo.test",
+      vinculos: [
+        { linha_id: "pi-1", ordem: 1, registration: "990100009", curso: "DIREITO", campus: CEULP, turno: "MANHA", status: "Trancado", graduated: false, admission_year: 2021 },
+        { linha_id: "pi-2", ordem: 2, registration: "990100009", curso: "DIREITO", campus: CEULP, turno: "MANHA", status: "Entrada via Reabertura", graduated: false, admission_year: null },
+      ],
+    },
+  },
+  {
+    rotulo: "Falhou agora, mas a consulta boa anterior continua na tela",
+    alunoId: "aluno-falha-com-boa",
+    situacaoNoCrm: "Cancelado",
+    nota: "A tentativa de agora falhou. A última consulta que deu certo vem DO BANCO junto com a falha — então o dado continua visível mesmo depois de recarregar a página ou fechar e reabrir a ficha. Sem isso, uma falha apagava de vez o que já se sabia.",
+    leitura: {
+      consulta_id: "consulta-falha-2", resultado: "FALHA_COMUNICACAO",
+      detalhe_falha: "HTTP 503", http_status: 503, registration: null, fonte: F,
+      consultado_em: "2026-09-29T09:20:00Z", consultado_por: "gestao@exemplo.test",
+      vinculos: [],
+      ultima_boa: {
+        consulta_id: "consulta-boa", resultado: "COM_VINCULOS",
+        registration: "990100010", consultado_em: "2026-09-28T23:45:00Z",
+        consultado_por: "gestao@exemplo.test",
+        vinculos: [
+          { linha_id: "ub-1", ordem: 1, registration: "990100010", curso: "ADMINISTRAÇÃO (EAD)", campus: POP, turno: AD, status: "Desvinculado", graduated: false, admission_year: 2022 },
+          { linha_id: "ub-2", ordem: 2, registration: "990100010", curso: "ADMINISTRAÇÃO (EAD)", campus: POP, turno: AD, status: null, graduated: false, admission_year: null },
+        ],
+      },
+    },
+  },
+  {
     rotulo: "Nunca consultado — a tela consulta a API sozinha",
     alunoId: "aluno-nunca-consultado",
     situacaoNoCrm: null,

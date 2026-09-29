@@ -30,6 +30,12 @@ const SQL = readFileSync(
 );
 
 const ALUNO = "00000000-0000-4000-8000-000000000001";
+// Segunda ficha: serve para provar que a leitura respeita o acesso À FICHA.
+const OUTRO_ALUNO = "00000000-0000-4000-8000-000000000002";
+
+// Assinatura da RPC de escrita. `has_function_privilege` exige a assinatura
+// exata -- errar aqui faz o teste estourar, e não passar em falso.
+const ASSIN = "uuid,text,text,text,text,integer,integer,jsonb,text";
 
 async function bancada() {
   const db = await PGlite.create();
@@ -37,13 +43,38 @@ async function bancada() {
     create role anon; create role authenticated; create role service_role;
     create schema if not exists auth;
     create table public.alunos (id uuid primary key, cpf text);
-    insert into public.alunos values ('${ALUNO}', '11111111111');
+    insert into public.alunos values ('${ALUNO}', '11111111111'),
+                                     ('${OUTRO_ALUNO}', '22222222222');
   `);
   // Reproduz produção: os papéis têm USAGE mas NÃO CREATE em public.
   await db.exec(`
     revoke create on schema public from public, anon, authenticated, service_role;
     grant usage on schema public to anon, authenticated, service_role;
     grant select, insert, update, delete on public.alunos to authenticated, service_role;
+  `);
+
+  // DEFAULT PRIVILEGES DE PRODUÇÃO, e é por isso que este bloco existe.
+  //
+  // O Supabase concede EXECUTE em funções novas DIRETAMENTE a anon,
+  // authenticated e service_role -- não via PUBLIC. Concessão direta NÃO
+  // some quando se revoga de PUBLIC. Sem reproduzir isto aqui, o teste
+  // aprovaria uma migration que na produção deixa qualquer usuário logado
+  // chamar a RPC de escrita.
+  await db.exec(`
+    alter default privileges in schema public
+      grant all on functions to anon, authenticated, service_role;
+    alter default privileges in schema public
+      grant all on tables to anon, authenticated, service_role;
+  `);
+
+  // RLS de `alunos` como em produção: quem é o painel de TV não lê ficha.
+  // `eh_painel()` é dublada por um GUC para o teste poder trocar de usuário.
+  await db.exec(`
+    create or replace function public.eh_painel() returns boolean
+      language sql stable as $$ select coalesce(current_setting('teste.painel', true) = 'on', false) $$;
+    alter table public.alunos enable row level security;
+    create policy alunos_select on public.alunos for select to authenticated
+      using (not public.eh_painel());
   `);
 
   // `auth.role()` do Supabase, dublada: devolve o papel efetivo. É ela que a
@@ -56,19 +87,14 @@ async function bancada() {
 
   await db.exec(SQL);
 
-  // As tabelas nascem depois dos grants padrão, então o GRANT de leitura vai
-  // aqui -- é o que o Supabase faz por default privileges em produção. O que o
-  // teste mede é se a RLS segura a escrita mesmo COM o grant de tabela.
-  await db.exec(`
-    grant select, insert, update, delete on public.prime_academico_consulta to authenticated, anon;
-    grant select, insert, update, delete on public.prime_academico_vinculo  to authenticated, anon;
-  `);
-  // O EXECUTE das funcoes NAO e concedido aqui de proposito: quem concede e a
-  // propria migration. Se ela parar de conceder, estes testes caem -- que e
-  // exatamente o aviso que se quer.
+  // NENHUM grant manual daqui para baixo, de propósito. As tabelas e funções
+  // nascem com o default privileges configurado acima -- exatamente como em
+  // produção. O que a migration revoga e concede é o que vale.
 
-  db.como = async (papel, sql, args = []) => {
+  db.como = async (papel, sql, args = [], { painel = false } = {}) => {
     try {
+      await db.exec(`set local_painel to default;`).catch(() => {});
+      await db.exec(`select set_config('teste.painel', '${painel ? "on" : "off"}', false);`);
       await db.exec(`set role ${papel};`);
       const r = await db.query(sql, args);
       return { ok: true, linhas: r.rows };
@@ -265,5 +291,142 @@ describe("a leitura distingue os estados", () => {
     const n = Number((await db.query(
       `select count(*) c from public.prime_academico_consulta where resultado='COM_VINCULOS'`)).rows[0].c);
     expect(n).toBeGreaterThanOrEqual(1);
+  });
+});
+
+describe("o EXECUTE em si, e não só o portão interno", () => {
+  let db;
+  beforeAll(async () => { db = await bancada(); }, 60000);
+
+  // POR QUE ESTES TESTES EXISTEM. O `auth.role()` dentro da RPC já recusa
+  // authenticated -- então um teste que só chama a função PASSA mesmo se o
+  // GRANT estiver errado, e não avisa nada. O que se mede aqui é o privilégio,
+  // que é a primeira tranca.
+  //
+  // E o privilégio importa porque o default privileges do Supabase concede
+  // EXECUTE DIRETAMENTE a anon e authenticated. Revogar só de PUBLIC não tira
+  // concessão direta -- essa foi a afirmação errada que este bloco derruba.
+  it.each(["anon", "authenticated", "public"])(
+    "%s NÃO tem EXECUTE na RPC de escrita", async (papel) => {
+      const r = await db.query(
+        `select has_function_privilege($1, 'public.prime_academico_registrar(${ASSIN})', 'EXECUTE') x`,
+        [papel]);
+      expect(r.rows[0].x, `${papel} ainda pode chamar a RPC de escrita`).toBe(false);
+    });
+
+  it("service_role TEM EXECUTE na RPC de escrita", async () => {
+    const r = await db.query(
+      `select has_function_privilege('service_role', 'public.prime_academico_registrar(${ASSIN})', 'EXECUTE') x`);
+    expect(r.rows[0].x).toBe(true);
+  });
+
+  it("authenticated TEM EXECUTE na leitura; anon não", async () => {
+    const a = await db.query(
+      `select has_function_privilege('authenticated','public.prime_academico_ultima(uuid)','EXECUTE') x`);
+    expect(a.rows[0].x).toBe(true);
+    const b = await db.query(
+      `select has_function_privilege('anon','public.prime_academico_ultima(uuid)','EXECUTE') x`);
+    expect(b.rows[0].x).toBe(false);
+  });
+});
+
+describe("a leitura respeita o acesso À FICHA", () => {
+  let db;
+  beforeAll(async () => {
+    db = await bancada();
+    await db.gravar([vinculo({ status: "Trancado" })]);
+  }, 60000);
+
+  it("usuário autorizado lê a consulta da ficha", async () => {
+    const r = await db.como("authenticated",
+      `select count(*) c from public.prime_academico_consulta`);
+    expect(r.ok, r.erro).toBe(true);
+    expect(Number(r.linhas[0].c)).toBe(1);
+  });
+
+  it("usuário SEM acesso àquela ficha não lê a consulta", async () => {
+    // Mesmo papel `authenticated`, mas sem poder ler `alunos` (é o painel de
+    // TV, barrado por `alunos_select`). A policy da consulta é encadeada à
+    // ficha, então ele não vê nada -- em vez de ver a situação acadêmica de
+    // todo mundo, que era o efeito do `using (true)` anterior.
+    const r = await db.como("authenticated",
+      `select count(*) c from public.prime_academico_consulta`, [], { painel: true });
+    expect(r.ok, r.erro).toBe(true);
+    expect(Number(r.linhas[0].c)).toBe(0);
+  });
+
+  it("o vínculo segue a consulta, que segue a ficha", async () => {
+    const autorizado = await db.como("authenticated",
+      `select count(*) c from public.prime_academico_vinculo`);
+    expect(Number(autorizado.linhas[0].c)).toBe(1);
+
+    const semAcesso = await db.como("authenticated",
+      `select count(*) c from public.prime_academico_vinculo`, [], { painel: true });
+    expect(Number(semAcesso.linhas[0].c)).toBe(0);
+  });
+
+  it("a RPC de leitura devolve NULL para quem não pode ver a ficha", async () => {
+    const r = await db.como("authenticated",
+      `select public.prime_academico_ultima($1) j`, [ALUNO], { painel: true });
+    expect(r.ok, r.erro).toBe(true);
+    // `security invoker`: a RLS vale dentro da função. Nada de vazar por ela.
+    expect(r.linhas[0].j).toBeNull();
+  });
+
+  it("consulta de OUTRA ficha não aparece junto", async () => {
+    const r = await db.como("authenticated",
+      `select public.prime_academico_ultima($1) j`, [OUTRO_ALUNO]);
+    expect(r.ok, r.erro).toBe(true);
+    expect(r.linhas[0].j).toBeNull();
+  });
+});
+
+describe("leitura devolve também a última consulta boa", () => {
+  let db;
+  beforeAll(async () => { db = await bancada(); }, 60000);
+
+  it("quando a última deu certo, não repete o mesmo bloco", async () => {
+    await db.gravar([vinculo({ status: "Trancado" })], "COM_VINCULOS");
+    const j = (await db.query(`select public.prime_academico_ultima($1) j`, [ALUNO])).rows[0].j;
+    expect(j.resultado).toBe("COM_VINCULOS");
+    expect(j.ultima_boa).toBeNull();
+  });
+
+  it("quando a última FALHOU, a boa anterior vem junto — com data e vínculos", async () => {
+    // É isto que faz o dado continuar visível depois de recarregar a página:
+    // vem do banco, não da memória da tela.
+    await db.gravar([], "FALHA_COMUNICACAO");
+    const j = (await db.query(`select public.prime_academico_ultima($1) j`, [ALUNO])).rows[0].j;
+    expect(j.resultado).toBe("FALHA_COMUNICACAO");
+    expect(j.ultima_boa).not.toBeNull();
+    expect(j.ultima_boa.resultado).toBe("COM_VINCULOS");
+    expect(j.ultima_boa.vinculos).toHaveLength(1);
+    expect(j.ultima_boa.vinculos[0].status).toBe("Trancado");
+    expect(j.ultima_boa.consultado_em).toBeTruthy();
+  });
+
+  it("paginação incompleta conta como boa — é dado de verdade, com ressalva", async () => {
+    await db.gravar([vinculo({ status: "Formado" })], "PAGINACAO_INCOMPLETA");
+    await db.gravar([], "FALHA_COMUNICACAO");
+    const j = (await db.query(`select public.prime_academico_ultima($1) j`, [ALUNO])).rows[0].j;
+    expect(j.ultima_boa.resultado).toBe("PAGINACAO_INCOMPLETA");
+    expect(j.ultima_boa.vinculos).toHaveLength(1);
+  });
+
+  it("só falhas: ultima_boa fica nulo, sem inventar dado", async () => {
+    const db2 = await bancada();
+    await db2.gravar([], "FALHA_COMUNICACAO");
+    const j = (await db2.query(`select public.prime_academico_ultima($1) j`, [ALUNO])).rows[0].j;
+    expect(j.resultado).toBe("FALHA_COMUNICACAO");
+    expect(j.ultima_boa).toBeNull();
+  });
+
+  it("PAGINACAO_INCOMPLETA grava os vínculos parciais, em vez de jogá-los fora", async () => {
+    const db2 = await bancada();
+    const r = await db2.gravar([vinculo(), vinculo({ status: "Formado" })], "PAGINACAO_INCOMPLETA");
+    expect(r.ok, r.erro).toBe(true);
+    const n = Number((await db2.query(
+      `select count(*) c from public.prime_academico_vinculo`)).rows[0].c);
+    expect(n).toBe(2);
   });
 });

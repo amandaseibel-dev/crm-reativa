@@ -10,9 +10,9 @@ import { supabase } from "../services/supabase";
 // por vínculo de curso, e os vínculos de uma mesma pessoa discordam entre si
 // (sondado em 28/09/2026, 6 alunos, 35 vínculos). Não foi encontrado
 // identificador estável do vínculo nos endpoints e na amostra consultados, e a
-// chave curso+campus+turno não os separa -- na matrícula 222007757 três vínculos
-// têm curso, campus e turno IDÊNTICOS com status "Reopção de Curso", "Cancelado"
-// e nulo. Então:
+// chave curso+campus+turno não os separa: há alunos com três vínculos de curso,
+// campus e turno IDÊNTICOS e status diferentes -- medido e registrado em
+// docs/integracoes/prime-mapa-identificadores.md. Então:
 //
 //   - nenhuma linha é escolhida como "a" situação;
 //   - o status de um curso nunca vira status da pessoa;
@@ -77,6 +77,45 @@ function Vinculo({ v, mostrarMatricula }) {
         {v.admission_year || <span style={S.nd}>—</span>}
       </td>
     </tr>
+  );
+}
+
+// A tabela de vínculos, usada duas vezes: para a consulta atual e para a última
+// que deu certo, quando a atual falhou.
+function TabelaVinculos({ vinculos }) {
+  const semStatusN = vinculos.filter((v) => v.status == null || v.status === "").length;
+  // Matrícula por linha só aparece quando a resposta trouxe mais de uma.
+  // Repetir a mesma em todas seria ruído; escondê-la quando DIFEREM apagaria
+  // de qual vínculo é qual.
+  const matriculas = new Set(vinculos.map((v) => v.registration ?? null));
+  const mostrarMatricula = matriculas.size > 1;
+  return (
+    <>
+      <table style={S.tabela}>
+        <thead>
+          <tr>
+            <th style={S.th}>Curso · campus · turno</th>
+            <th style={S.th}>Situação</th>
+            <th style={S.th}>Formado?</th>
+            <th style={S.th}>Ingresso</th>
+          </tr>
+        </thead>
+        <tbody>
+          {/* `linha_id` é identificador INTERNO nosso, usado só como chave de
+              render -- nunca apresentado como id do Prime. Duas linhas com
+              curso, campus e turno iguais são vínculos diferentes e ficam as
+              duas. */}
+          {vinculos.map((v) => (
+            <Vinculo key={v.linha_id || `ordem-${v.ordem}`} v={v} mostrarMatricula={mostrarMatricula} />
+          ))}
+        </tbody>
+      </table>
+      <p style={S.contagem}>
+        {vinculos.length} {vinculos.length === 1 ? "vínculo" : "vínculos"} de curso
+        {semStatusN ? ` · ${semStatusN} sem situação informada` : ""}
+        {mostrarMatricula ? ` · ${matriculas.size} matrículas diferentes` : ""}
+      </p>
+    </>
   );
 }
 
@@ -169,10 +208,8 @@ export default function SituacaoAcademicaPrime({ aluno }) {
 
   const vinculos = Array.isArray(leitura?.vinculos) ? leitura.vinculos : [];
   const quando = dataHora(leitura?.consultado_em);
-  const semStatusN = vinculos.filter((v) => v.status == null || v.status === "").length;
-  // Matrícula por linha só aparece quando a resposta trouxe mais de uma.
-  const matriculasDistintas = new Set(vinculos.map((v) => v.registration ?? null));
-  const mostrarMatricula = matriculasDistintas.size > 1;
+  // Só existe quando a consulta mais recente falhou e havia uma boa antes.
+  const boa = leitura?.ultima_boa || null;
   const nuncaConsultado = !leitura && !erroLeitura && !carregando;
 
   return (
@@ -234,38 +271,52 @@ export default function SituacaoAcademicaPrime({ aluno }) {
         </p>
       )}
 
-      {leitura?.resultado === "COM_VINCULOS" && (
+      {/* PAGINAÇÃO INCOMPLETA. Há dado, e ele NÃO pode ser apresentado como
+          lista completa: a consulta bateu no teto sem provar que acabou.
+          Chamar isto de sucesso afirmaria um total que ninguém mediu. */}
+      {leitura?.resultado === "PAGINACAO_INCOMPLETA" && (
+        <p style={S.parcial}>
+          Esta consulta pode estar <b>incompleta</b>
+          {leitura.detalhe_falha ? ` (${leitura.detalhe_falha})` : ""}. Os vínculos
+          abaixo vieram do Prime, mas não há garantia de que sejam todos.
+        </p>
+      )}
+
+      {(leitura?.resultado === "COM_VINCULOS" || leitura?.resultado === "PAGINACAO_INCOMPLETA") && (
         <>
           {/* A correspondência com o curso da dívida vem SEPARADA, e ANTES da
               tabela -- mas não no lugar dela. Os status ficam visíveis. */}
           <p style={S.naoConfirmada}>
             Correspondência com o curso desta dívida não confirmada.
           </p>
-          <table style={S.tabela}>
-            <thead>
-              <tr>
-                <th style={S.th}>Curso · campus · turno</th>
-                <th style={S.th}>Situação</th>
-                <th style={S.th}>Formado?</th>
-                <th style={S.th}>Ingresso</th>
-              </tr>
-            </thead>
-            <tbody>
-              {/* `linha_id` é identificador INTERNO nosso, usado só como chave
-                  de render -- nunca apresentado como id do Prime. Duas linhas
-                  com curso, campus e turno iguais são vínculos diferentes e
-                  ficam as duas. */}
-              {vinculos.map((v) => (
-                <Vinculo key={v.linha_id || `ordem-${v.ordem}`} v={v} mostrarMatricula={mostrarMatricula} />
-              ))}
-            </tbody>
-          </table>
-          <p style={S.contagem}>
-            {vinculos.length} {vinculos.length === 1 ? "vínculo" : "vínculos"} de curso
-            {semStatusN ? ` · ${semStatusN} sem situação informada` : ""}
-            {mostrarMatricula ? ` · ${matriculasDistintas.size} matrículas diferentes` : ""}
-          </p>
+          <TabelaVinculos vinculos={vinculos} />
         </>
+      )}
+
+      {/* A ÚLTIMA CONSULTA QUE DEU CERTO, quando a mais recente falhou. Vem do
+          banco, não da memória da tela -- então sobrevive a recarregar a página
+          e a fechar e reabrir a ficha. Sem isto, uma falha apagava de vez o que
+          já se sabia. */}
+      {boa && (
+        <div style={S.boa}>
+          <p style={S.boaTitulo}>
+            Última consulta que deu certo
+            {dataHora(boa.consultado_em) ? ` · ${dataHora(boa.consultado_em)}` : ""}
+          </p>
+          {Array.isArray(boa.vinculos) && boa.vinculos.length > 0 ? (
+            <>
+              <p style={S.naoConfirmada}>
+                Correspondência com o curso desta dívida não confirmada.
+              </p>
+              <TabelaVinculos vinculos={boa.vinculos} />
+            </>
+          ) : (
+            <p style={S.vazio}>
+              Naquela consulta o Prime respondeu e não retornou nenhum vínculo
+              para o CPF desta ficha.
+            </p>
+          )}
+        </div>
       )}
 
       {/* NUNCA CONSULTADO. Para a gestão isto quase não aparece (a consulta
@@ -323,6 +374,15 @@ const S = {
   nd: { fontStyle: "italic", color: "var(--rv-texto)" },
   contagem: { margin: "8px 0 0", fontSize: 11.5, color: "var(--rv-texto)" },
   fonte: { margin: "9px 0 0", paddingTop: 8, borderTop: "1px dashed var(--rv-borda)", fontSize: 11.5, color: "var(--rv-texto)" },
+  parcial: {
+    margin: "0 0 10px", padding: "8px 10px", borderRadius: 7, fontSize: 12.5,
+    background: "rgba(180,83,9,0.10)", color: "var(--rv-ambar-texto)", border: "1px solid rgba(180,83,9,0.30)",
+  },
+  boa: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--rv-borda)" },
+  boaTitulo: {
+    margin: "0 0 8px", fontSize: 11, fontWeight: 700, textTransform: "uppercase",
+    letterSpacing: "0.04em", color: "var(--rv-texto)",
+  },
   mudo: { margin: 0, fontSize: 12.5, color: "var(--rv-texto)" },
   vazio: { margin: 0, fontSize: 12.5, color: "var(--rv-texto)" },
   falha: {

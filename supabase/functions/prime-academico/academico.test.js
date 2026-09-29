@@ -10,7 +10,7 @@
 
 import { describe, it, expect } from "vitest";
 import {
-  desfecho, devePedirMaisUma, formatarCpf, lerPagina,
+  desfecho, devePedirMaisUma, formatarCpf, lerPagina, paginouAteOFim,
   registrationDoCabecalho, vinculosDaResposta,
 } from "./academico.ts";
 
@@ -59,9 +59,24 @@ describe("devePedirMaisUma — a paginação não pode perder linha", () => {
   it("para no teto, para não girar para sempre se a API repetir a página", () => {
     expect(devePedirMaisUma(500, 50, 50, 99999, 500)).toBe(false);
   });
+  it("mas o teto NÃO é prova de fim — é desistência", () => {
+    // A distinção existe porque parar no teto não pode virar COM_VINCULOS.
+    expect(paginouAteOFim(500, 50, 50, 99999)).toBe(false);
+  });
   it("continua quando a API não diz o total mas a página veio cheia", () => {
     // Sem `totalItems`, parar aqui perderia a página seguinte em silêncio.
     expect(devePedirMaisUma(50, 50, 50, null, 500)).toBe(true);
+  });
+});
+
+describe("paginouAteOFim — o que conta como prova de fim", () => {
+  it("página vazia, página curta e total atingido são prova", () => {
+    expect(paginouAteOFim(50, 0, 50, null)).toBe(true);
+    expect(paginouAteOFim(70, 20, 50, null)).toBe(true);
+    expect(paginouAteOFim(100, 50, 50, 100)).toBe(true);
+  });
+  it("página cheia sem total conhecido NÃO é prova", () => {
+    expect(paginouAteOFim(50, 50, 50, null)).toBe(false);
   });
 });
 
@@ -86,6 +101,17 @@ describe("desfecho — calculado DEPOIS do filtro por CPF", () => {
     expect(desfecho(null, true, [])).toBe("FALHA_COMUNICACAO");
   });
 
+  it("PAGINACAO_INCOMPLETA quando há linhas mas não houve prova de fim", () => {
+    // Bateu no teto: há dado, e ele não pode ser apresentado como lista
+    // completa. COM_VINCULOS aqui afirmaria um total que ninguém mediu.
+    expect(desfecho(null, false, [linha()], false)).toBe("PAGINACAO_INCOMPLETA");
+  });
+
+  it("sem linha nenhuma e sem prova de fim ainda é SEM_RESULTADO", () => {
+    // Não há o que apresentar como incompleto: nada chegou desta pessoa.
+    expect(desfecho(null, false, [], false)).toBe("SEM_RESULTADO");
+  });
+
   it("falha manda mesmo que tenham sobrado linhas de páginas anteriores", () => {
     // Página 1 veio, página 2 falhou: a lista está incompleta e não se sabe o
     // quanto. Gravar como COM_VINCULOS afirmaria uma lista completa.
@@ -95,8 +121,9 @@ describe("desfecho — calculado DEPOIS do filtro por CPF", () => {
 
 describe("vinculosDaResposta", () => {
   it("preserva a ORDEM e todas as linhas, inclusive semelhantes com status diferentes", () => {
-    // O caso real da matrícula 222007757: três vínculos com curso, campus e
-    // turno idênticos e status diferentes. Nenhum pode desaparecer.
+    // A estrutura medida e registrada em
+    // docs/integracoes/prime-mapa-identificadores.md: três vínculos com curso,
+    // campus e turno idênticos e status diferentes. Nenhum pode desaparecer.
     const itens = [
       linha({ course: "COMÉRCIO EXTERIOR", campus: "EAD", shift: "AD", status: "Reopção de Curso" }),
       linha({ course: "COMÉRCIO EXTERIOR", campus: "EAD", shift: "AD", status: "Cancelado" }),
@@ -136,7 +163,8 @@ describe("vinculosDaResposta", () => {
   });
 
   it("guarda graduated e admissionYear sem derivar um do status", () => {
-    // Caso real da 201008325: status 'Mudança de Campus' com graduated true.
+    // Medido: há linha com status 'Mudança de Campus' e graduated true --
+    // um não se deriva do outro. Ver docs/integracoes/prime-api.md.
     const v = vinculosDaResposta(
       [linha({ status: "Mudança de Campus", graduated: true, admissionYear: 2023 })], CPF);
     expect(v[0]).toMatchObject({ status: "Mudança de Campus", graduated: true, admissionYear: 2023 });

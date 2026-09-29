@@ -23,7 +23,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcesso } from "../prime-sonda/portao.ts";
 import {
-  desfecho, devePedirMaisUma, formatarCpf, lerPagina,
+  desfecho, devePedirMaisUma, formatarCpf, lerPagina, paginouAteOFim,
   registrationDoCabecalho, vinculosDaResposta,
 } from "./academico.ts";
 
@@ -114,6 +114,8 @@ Deno.serve(async (req) => {
   let falha: string | null = null;
   let paginaIlegivel = false;
   let totalItems: number | null = null;
+  // Começa falso: sem nenhuma página lida, não há prova de fim nenhuma.
+  let chegouAoFim = false;
   const brutos: Record<string, unknown>[] = [];
 
   for (let skip = 0; ; skip += TAKE) {
@@ -141,6 +143,7 @@ Deno.serve(async (req) => {
     if (pagina.items === null) { paginaIlegivel = true; break; }
     if (pagina.totalItems !== null) totalItems = pagina.totalItems;
     brutos.push(...pagina.items);
+    chegouAoFim = paginouAteOFim(brutos.length, pagina.items.length, TAKE, totalItems);
     if (!devePedirMaisUma(brutos.length, pagina.items.length, TAKE, totalItems, TETO)) break;
   }
 
@@ -149,9 +152,14 @@ Deno.serve(async (req) => {
   // chamar isso de COM_VINCULOS faria a tela dizer "consultei e encontrei" e
   // mostrar tabela vazia.
   const vinculos = falha || paginaIlegivel ? [] : vinculosDaResposta(brutos, aluno.cpf);
-  const resultado = desfecho(falha, paginaIlegivel, vinculos);
+  const resultado = desfecho(falha, paginaIlegivel, vinculos, chegouAoFim);
   const registration = registrationDoCabecalho(vinculos);
   if (paginaIlegivel && !falha) falha = "resposta ilegivel (corpo sem items)";
+  // O motivo fica escrito: a tela precisa dizer POR QUE a lista pode estar
+  // incompleta, e "bateu no teto" é diferente de "a API caiu".
+  if (resultado === "PAGINACAO_INCOMPLETA" && !falha) {
+    falha = `paginacao interrompida no teto de ${TETO} linhas -- a lista pode estar incompleta`;
+  }
 
   const { data: consultaId, error: erroGravar } = await supa.rpc("prime_academico_registrar", {
     p_aluno_id: alunoId,

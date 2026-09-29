@@ -15,7 +15,8 @@ export function formatarCpf(bruto: unknown): string | null {
   return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
 }
 
-export type Resultado = "COM_VINCULOS" | "SEM_RESULTADO" | "FALHA_COMUNICACAO";
+export type Resultado =
+  | "COM_VINCULOS" | "SEM_RESULTADO" | "PAGINACAO_INCOMPLETA" | "FALHA_COMUNICACAO";
 
 export interface Pagina {
   items: Record<string, unknown>[] | null; // null = corpo ilegível
@@ -38,15 +39,26 @@ export function lerPagina(dados: unknown): Pagina {
 // pior jeito de perder dado numa tela que decide cobrança.
 //
 // Para quando: a página veio vazia (acabou), veio menor que o tamanho pedido
-// (era a última), ou já se juntou `totalItems`. O teto existe só para não
-// girar para sempre se a API devolver sempre a mesma página.
+// (era a última), ou já se juntou `totalItems`. Essas três são PROVA de fim.
+//
+// O teto é outra coisa: é desistir, não terminar. Por isso `paginouAteOFim`
+// existe separado -- bater no teto não pode virar "COM_VINCULOS", que afirma
+// uma lista completa que ninguém mediu.
 export function devePedirMaisUma(
   juntadas: number, ultimaPagina: number, take: number, totalItems: number | null, teto: number,
 ): boolean {
-  if (ultimaPagina === 0) return false;
-  if (ultimaPagina < take) return false;
-  if (totalItems !== null && juntadas >= totalItems) return false;
+  if (paginouAteOFim(juntadas, ultimaPagina, take, totalItems)) return false;
   return juntadas < teto;
+}
+
+// Houve PROVA de que a lista acabou?
+export function paginouAteOFim(
+  juntadas: number, ultimaPagina: number, take: number, totalItems: number | null,
+): boolean {
+  if (ultimaPagina === 0) return true;
+  if (ultimaPagina < take) return true;
+  if (totalItems !== null && juntadas >= totalItems) return true;
+  return false;
 }
 
 // Devolve as linhas NA ORDEM, filtrando por CPF exato e removendo os campos
@@ -63,7 +75,8 @@ export function devePedirMaisUma(
 //
 // A ORDEM É PRESERVADA e vira a coluna `ordem` no banco: é o único
 // discriminador de vínculos com curso, campus e turno idênticos -- e eles
-// existem (três na matrícula 222007757, com status diferentes).
+// existem, medidos e registrados em
+// docs/integracoes/prime-mapa-identificadores.md.
 export function vinculosDaResposta(itens: Record<string, unknown>[], cpfDaFicha: unknown) {
   const alvo = digitos(cpfDaFicha);
   return itens
@@ -93,9 +106,13 @@ export function desfecho(
   falha: string | null,
   paginaIlegivel: boolean,
   vinculos: unknown[],
+  chegouAoFim = true,
 ): Resultado {
   if (falha || paginaIlegivel) return "FALHA_COMUNICACAO";
-  return vinculos.length === 0 ? "SEM_RESULTADO" : "COM_VINCULOS";
+  if (vinculos.length === 0) return "SEM_RESULTADO";
+  // Sem prova de fim, o que se tem é uma lista PARCIAL. Dizer COM_VINCULOS
+  // aqui seria afirmar um total que não foi medido.
+  return chegouAoFim ? "COM_VINCULOS" : "PAGINACAO_INCOMPLETA";
 }
 
 // Matrícula do CABEÇALHO: só quando todas as linhas concordam. Divergindo, fica
