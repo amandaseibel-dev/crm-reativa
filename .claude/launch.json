@@ -45,6 +45,16 @@
         "/Users/amandapradoseibel/Documents/crm-calibragem-wt/vite.calibragem.config.js"
       ],
       "port": 5201
+    },
+    {
+      "name": "academico-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.preview-academico.config.js"
+      ],
+      "port": 5198
     }
   ]
 }
