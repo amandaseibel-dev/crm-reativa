@@ -95,6 +95,25 @@ Deno.serve(async (req) => {
     email = data?.user?.email ?? null;
   }
 
+  // ORÇAMENTO E PAR ITEM↔ALUNO vêm do SERVIDOR, nunca do corpo do pedido:
+  // quem chama não pode escolher o próprio teto nem mandar consultar um aluno
+  // que não é o do item reservado.
+  let orcamento = Number.POSITIVE_INFINITY;
+  if (noPiloto) {
+    const { data: val, error: erroVal } = await supa.rpc("prime_academico_piloto_validar", {
+      p_item: pilotoItem, p_aluno_id: alunoId,
+    });
+    if (erroVal) return json({ erro: "PILOTO_VALIDACAO_FALHOU", detalhe: erroVal.message }, 502);
+    const v = val as { ok?: boolean; motivo?: string; orcamento?: number } | null;
+    if (!v?.ok) return json({ erro: "PILOTO_ITEM_INVALIDO", detalhe: v?.motivo ?? "?" }, 409);
+    orcamento = Number(v.orcamento ?? 0);
+    // Zero orçamento nem começa: gastar uma requisição para descobrir que não
+    // podia é exatamente o que o teto existe para evitar.
+    if (orcamento <= 0) {
+      return json({ erro: "PILOTO_SEM_ORCAMENTO", detalhe: "teto de requisicoes esgotado" }, 409);
+    }
+  }
+
   let chave = Deno.env.get("PRIME_API_KEY") ?? "";
   if (!chave) {
     const { data } = await supa.rpc("prime_chave_api");
@@ -126,7 +145,11 @@ Deno.serve(async (req) => {
   let chegouAoFim = false;
   const brutos: Record<string, unknown>[] = [];
 
+  let orcamentoEstourou = false;
   for (let skip = 0; ; skip += TAKE) {
+    // ANTES DE CADA PÁGINA, e não só antes do aluno. Uma paginação longa
+    // passava por cima do teto quando ele era conferido uma vez só.
+    if (requisicoes >= orcamento) { orcamentoEstourou = true; break; }
     let pagina;
     try {
       requisicoes += 1;
@@ -161,13 +184,16 @@ Deno.serve(async (req) => {
   // chamar isso de COM_VINCULOS faria a tela dizer "consultei e encontrei" e
   // mostrar tabela vazia.
   const vinculos = falha || paginaIlegivel ? [] : vinculosDaResposta(brutos, aluno.cpf);
-  const resultado = desfecho(falha, paginaIlegivel, vinculos, chegouAoFim);
+  const resultado = desfecho(falha, paginaIlegivel, vinculos,
+                             chegouAoFim && !orcamentoEstourou);
   const registration = registrationDoCabecalho(vinculos);
   if (paginaIlegivel && !falha) falha = "resposta ilegivel (corpo sem items)";
   // O motivo fica escrito: a tela precisa dizer POR QUE a lista pode estar
   // incompleta, e "bateu no teto" é diferente de "a API caiu".
   if (resultado === "PAGINACAO_INCOMPLETA" && !falha) {
-    falha = `paginacao interrompida no teto de ${TETO} linhas -- a lista pode estar incompleta`;
+    falha = orcamentoEstourou
+      ? `orcamento de requisicoes do lote esgotado (${requisicoes}) -- a lista pode estar incompleta`
+      : `paginacao interrompida no teto de ${TETO} linhas -- a lista pode estar incompleta`;
   }
 
   const { data: consultaId, error: erroGravar } = await supa.rpc("prime_academico_registrar", {
@@ -193,13 +219,29 @@ Deno.serve(async (req) => {
   let pararLote = false;
   let motivoLote: string | null = null;
   if (noPiloto) {
-    const { data: reg } = await supa.rpc("prime_academico_piloto_registrar", {
+    const { data: reg, error: erroReg } = await supa.rpc("prime_academico_piloto_registrar", {
       p_item: pilotoItem,
       p_consulta_id: consultaId,
       p_requisicoes: requisicoes,
       p_http: httpStatus,
       p_erro: falha,
+      p_aluno_id: alunoId,
     });
+    if (erroReg) {
+      // A CONSULTA JÁ FOI GRAVADA -- e já foi paga em requisições. Seguir o
+      // lote aqui faria o próximo item rodar sem que este tivesse sido
+      // contabilizado, e o teto viraria ficção. Para, e diz onde parou: a
+      // reconciliação fecha este item pela consulta que existe, sem chamar o
+      // Prime de novo.
+      return json({
+        erro: "PILOTO_REGISTRO_FALHOU",
+        detalhe: erroReg.message,
+        consulta_id: consultaId,
+        requisicoes,
+        recuperavel: true,
+        aviso: "a consulta FOI gravada; retomar o lote reconcilia este item sem consultar de novo",
+      }, 502);
+    }
     pararLote = (reg as { parar?: boolean } | null)?.parar === true;
     motivoLote = (reg as { motivo?: string } | null)?.motivo ?? null;
   }

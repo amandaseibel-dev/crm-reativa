@@ -39,7 +39,10 @@ function filaDe(n, motivoFinal = "fila vazia") {
     : { data: { parar: true, motivo: motivoFinal }, error: null });
 }
 
-beforeEach(() => { rpc.mockReset(); invoke.mockReset(); });
+beforeEach(() => {
+  rpc.mockReset(); invoke.mockReset();
+  invoke.mockResolvedValue({ data: { ok: true, resultado: "COM_VINCULOS", requisicoes: 1 }, error: null });
+});
 afterEach(() => cleanup());
 
 async function montarComFila(proximo, over = {}) {
@@ -151,5 +154,65 @@ describe("piloto — preparar e pausar", () => {
     expect(linhas).toMatch(/2 com falha/);
     expect(linhas).toMatch(/13 pulados/);     // 100 - 5 - 80 - 2
     expect(linhas).toMatch(/Requisições: 96 de 300/);
+  });
+});
+
+describe("piloto — o que a revisão pediu", () => {
+  it("registro do item falhou DEPOIS de gravar a consulta: para e explica que dá para reconciliar", async () => {
+    await montarComFila(filaDe(3));
+    invoke.mockResolvedValueOnce({
+      data: { erro: "PILOTO_REGISTRO_FALHOU", detalhe: "deadlock detected",
+              consulta_id: "c-1", requisicoes: 2, recuperavel: true },
+      error: null });
+
+    await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Iniciar lote/i })); });
+
+    const msg = await screen.findByText(/a consulta foi gravada/i);
+    expect(msg.textContent).toMatch(/deadlock detected/);
+    expect(msg.textContent).toMatch(/sem consultar o Prime de novo/i);
+    // e o laço parou: o segundo aluno nunca foi chamado
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("sem orçamento, a função recusa e o laço para sem gastar mais", async () => {
+    await montarComFila(filaDe(3));
+    invoke.mockResolvedValueOnce({
+      data: { erro: "PILOTO_SEM_ORCAMENTO", detalhe: "teto de requisicoes esgotado" }, error: null });
+    await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Iniciar lote/i })); });
+    expect(await screen.findByText(/PILOTO_SEM_ORCAMENTO/)).toBeTruthy();
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("item que não é do aluno informado para o laço", async () => {
+    await montarComFila(filaDe(3));
+    invoke.mockResolvedValueOnce({
+      data: { erro: "PILOTO_ITEM_INVALIDO", detalhe: "ITEM_NAO_E_DESTE_ALUNO" }, error: null });
+    await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Iniciar lote/i })); });
+    expect(await screen.findByText(/ITEM_NAO_E_DESTE_ALUNO/)).toBeTruthy();
+    expect(invoke).toHaveBeenCalledTimes(1);
+  });
+
+  it("a reconciliação aparece na tela, em vez de acontecer em silêncio", async () => {
+    let i = 0;
+    await montarComFila(async () => {
+      i += 1;
+      return i === 1
+        ? { data: { parar: false, item_id: "item-1", aluno_id: "aluno-1", ordem: 1,
+                    orcamento: 10, reconciliacao: { reconciliados: 2, devolvidos: 1 } }, error: null }
+        : { data: { parar: true, motivo: "fila vazia" }, error: null };
+    });
+    await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Iniciar lote/i })); });
+    await waitFor(() => expect(document.body.textContent).toMatch(/2 fechado\(s\) por consulta já gravada/));
+    expect(document.body.textContent).toMatch(/1 devolvido\(s\) à fila/);
+  });
+
+  it("outra aba segurando os itens: o laço para em vez de concluir o lote", async () => {
+    // O servidor responde "itens em processamento em outra aba". Concluir aqui
+    // perderia o resultado que a outra aba ainda vai gravar.
+    await montarComFila(async () => ({
+      data: { parar: true, motivo: "itens em processamento em outra aba" }, error: null }));
+    await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Iniciar lote/i })); });
+    expect(await screen.findByText(/itens em processamento em outra aba/i)).toBeTruthy();
+    expect(invoke).not.toHaveBeenCalled();
   });
 });

@@ -40,6 +40,7 @@ export default function PilotoAcademico({ ano, semestre }) {
   const [lote, setLote] = useState(null);       // lote em foco
   const [rodando, setRodando] = useState(false);
   const [ultimo, setUltimo] = useState(null);   // texto do último item processado
+  const [reconciliado, setReconciliado] = useState(null);
   const [erro, setErro] = useState(null);
   const [ocupado, setOcupado] = useState(false);
 
@@ -116,6 +117,11 @@ export default function PilotoAcademico({ ano, semestre }) {
         const { data: prox, error: e1 } = await supabase.rpc(
           "prime_academico_piloto_proximo", { p_lote: lote.lote_id });
         if (e1) { setErro(e1.message); break; }
+        const rec = prox?.reconciliacao;
+        if (rec && (rec.reconciliados > 0 || rec.devolvidos > 0)) {
+          setReconciliado(`Reconciliação: ${rec.reconciliados} fechado(s) por consulta já gravada, `
+                          + `${rec.devolvidos} devolvido(s) à fila.`);
+        }
         if (!prox || prox.parar) {
           setUltimo(prox?.motivo ? `Parou: ${prox.motivo}` : "Parou.");
           break;
@@ -124,11 +130,24 @@ export default function PilotoAcademico({ ano, semestre }) {
         const { data: r, error: e2 } = await supabase.functions.invoke("prime-academico", {
           body: { aluno_id: prox.aluno_id, piloto_item_id: prox.item_id },
         });
-        if (e2) {
-          // Falha ao FALAR com a nossa função: o item não foi registrado, então
-          // ele continua PENDENTE e a próxima retomada tenta de novo. Parar é o
-          // certo -- insistir em cima de um erro desconhecido gasta a API.
-          setErro(`Interrompido no aluno ${prox.ordem}: ${e2.message}`);
+
+        // A função responde erro de duas formas: `error` (HTTP fora de 2xx) e
+        // `data.erro` (quando ela escolhe devolver 200 com diagnóstico). As
+        // duas param o laço -- insistir em cima de um erro desconhecido gasta
+        // a API sem saber por quê.
+        const falhou = e2 || r?.erro;
+        if (falhou) {
+          const cod = r?.erro || e2?.message || "erro desconhecido";
+          setErro(
+            r?.erro === "PILOTO_REGISTRO_FALHOU"
+              // Caso delicado: a consulta FOI gravada e já foi paga. Retomar
+              // reconcilia esse item pela consulta que existe -- não repete a
+              // chamada ao Prime.
+              ? `Interrompido no aluno ${prox.ordem}: a consulta foi gravada, mas o registro do item falhou (${r.detalhe ?? "?"}). `
+                + "Retomar reconcilia este item sem consultar o Prime de novo."
+              : `Interrompido no aluno ${prox.ordem}: ${cod}${r?.detalhe ? " — " + r.detalhe : ""}`,
+          );
+          await carregarPainel(lote.lote_id);
           break;
         }
 
@@ -203,6 +222,7 @@ export default function PilotoAcademico({ ano, semestre }) {
             Lote criado em {dataHora(lote.criado_em)}
             {lote.criado_por ? ` por ${lote.criado_por}` : ""}
           </p>
+          {reconciliado && <p style={S.discreto}>{reconciliado}</p>}
           {ultimo && <p style={S.discreto}>{ultimo}</p>}
         </div>
       ) : (

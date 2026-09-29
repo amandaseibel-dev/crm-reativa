@@ -71,6 +71,7 @@ export default function CarteiraEfetividade() {
   // dois nunca podem virar um numero so.
   const [cargaPerfil, setCargaPerfil] = useState({ para: null, dados: null });
   const [ehGestao, setEhGestao] = useState(false);
+  const [detalhe, setDetalhe] = useState(null);
   const [vigente, setVigente] = useState(null);
   const [contexto, setContexto] = useState(null);
   const [historico, setHistorico] = useState(null);
@@ -122,7 +123,7 @@ export default function CarteiraEfetividade() {
     const alvo = ano === "2026" ? ano + "/" + sem : String(ano);
     supabase
       .rpc("carteira_academico_perfil", { p_ano: String(ano), p_semestre: ano === "2026" ? String(sem) : null })
-      .then(({ data }) => { if (vivo) setCargaPerfil({ para: alvo, dados: data || null }); })
+      .then(({ data }) => { if (vivo) { setCargaPerfil({ para: alvo, dados: data || null }); setDetalhe(null); } })
       .catch(() => { if (vivo) setCargaPerfil({ para: alvo, dados: null }); });
     return () => { vivo = false; };
   }, [ano, sem]);
@@ -249,6 +250,20 @@ export default function CarteiraEfetividade() {
 
   // perfil dos alunos: só existe para 2026/1 (a coleta acadêmica cobre a carteira em aberto dessa safra).
   // Em 2024/2025 o mesmo lugar mostra de que curso vem o saldo em aberto.
+  // Clicar num grupo abre a lista daquele grupo. Fecha se ja estava aberto --
+  // o mesmo clique serve de ida e volta.
+  function abrirDetalhe(grupo) {
+    if (detalhe?.grupo === grupo) { setDetalhe(null); return; }
+    setDetalhe({ grupo, carregando: true, alunos: [] });
+    supabase
+      .rpc("carteira_academico_detalhe", {
+        p_ano: String(ano), p_semestre: ano === "2026" ? String(sem) : null,
+        p_grupo: grupo, p_limite: 500,
+      })
+      .then(({ data: d }) => setDetalhe({ grupo, carregando: false, alunos: d?.alunos || [] }))
+      .catch(() => setDetalhe({ grupo, carregando: false, alunos: [] }));
+  }
+
   // So mostra o perfil que pertence ao recorte na tela.
   const perfilPrime = cargaPerfil.para === periodo ? cargaPerfil.dados : null;
   const cursos = hist ? (hist.cursos || []) : null;
@@ -375,9 +390,10 @@ export default function CarteiraEfetividade() {
           </section>
 
           {/* 3. PERFIL DOS ALUNOS (2026/1) ou, em 2024/2025, de que curso vem o saldo em aberto */}
+          {cursos ? (
           <section style={S.cartao}>
             <div style={S.cartaoCabecalho}>
-              <h2 style={S.h2}>{cursos ? "Saldo em aberto por curso" : "Perfil dos alunos"}</h2>
+              <h2 style={S.h2}>Saldo em aberto por curso</h2>
               {cursos && cursosTotal > 0 ? (
                 <span style={S.cartaoApoio}>% do saldo em aberto · {moeda(cursosTotal)}</span>
               ) : null}
@@ -417,10 +433,28 @@ export default function CarteiraEfetividade() {
               ) : (
                 <p style={{ ...S.discreto, marginTop: 8 }}>Sem saldo em aberto neste ano</p>
               )
-            ) : perfilPrime && (perfilPrime.grupos || []).length > 0 ? (
+            ) : null}
+          </section>
+          ) : null}
+
+          {/* 3b. PERFIL ACADÊMICO — cartão PRÓPRIO, e em TODOS os recortes.
+              Antes ele era excludente com o bloco de cursos, então 2024 e 2025
+              nunca o viam. São coisas diferentes e as unidades não se misturam:
+              o de cima conta dinheiro por curso, este conta ALUNO ÚNICO. */}
+          <section style={S.cartao}>
+            <div style={S.cartaoCabecalho}>
+              <h2 style={S.h2}>Perfil acadêmico dos alunos</h2>
+              {perfilPrime?.total_alunos ? (
+                <span style={S.cartaoApoio}>{num(perfilPrime.total_alunos)} alunos únicos</span>
+              ) : null}
+            </div>
+            {perfilPrime && (perfilPrime.grupos || []).length > 0 ? (
               <div>
                 {(perfilPrime.grupos || []).map((g) => (
-                  <div key={g.grupo} style={S.linha}>
+                  <button key={g.grupo} type="button" onClick={() => abrirDetalhe(g.grupo)}
+                          aria-expanded={detalhe?.grupo === g.grupo}
+                          style={{ ...S.linha, ...S.linhaBotao }}
+                          title={"Ver os alunos de " + g.grupo}>
                     <div style={S.linhaTopo}>
                       <span style={S.linhaRotulo}>
                         <span style={{ ...S.ponto, background: AZUL }} />{g.grupo}
@@ -434,8 +468,55 @@ export default function CarteiraEfetividade() {
                       <div style={{ ...S.barraPreenchida, width: Math.min(Number(g.pct), 100) + "%",
                                     minWidth: Number(g.alunos || 0) > 0 ? 4 : 0, background: AZUL }} />
                     </div>
-                  </div>
+                  </button>
                 ))}
+
+                {detalhe ? (
+                  <div style={S.detalhe}>
+                    <div style={S.cartaoCabecalho}>
+                      <h3 style={S.h3}>{detalhe.grupo}</h3>
+                      <button type="button" onClick={() => setDetalhe(null)} style={S.fechar}>Fechar</button>
+                    </div>
+                    {detalhe.carregando ? (
+                      <p style={S.discreto}>Carregando…</p>
+                    ) : (detalhe.alunos || []).length === 0 ? (
+                      <p style={S.discreto}>Nenhum aluno neste grupo.</p>
+                    ) : (
+                      <>
+                        {(detalhe.alunos || []).map((a) => (
+                          <div key={a.aluno_id} style={S.detalheLinha}>
+                            <div style={S.detalheTopo}>
+                              {/* ACESSO À FICHA: abre em aba nova, para não
+                                  perder o painel que a pessoa estava lendo. */}
+                              <a href={"/aluno?id=" + a.aluno_id} target="_blank" rel="noreferrer"
+                                 style={S.link}>{a.nome || "(sem nome)"}</a>
+                              <span style={S.discreto}>{a.cpf_mascarado}</span>
+                            </div>
+                            <span style={S.discreto}>
+                              {(a.situacoes || []).length === 0
+                                ? "sem vínculo retornado"
+                                : (a.situacoes || []).map((v2) =>
+                                    (v2.curso || "curso não informado") + " · "
+                                    + (v2.status || "não informado pelo Prime")).join(" | ")}
+                            </span>
+                            <span style={S.discreto}>
+                              {a.consultado_em
+                                ? "Fonte: " + (a.fonte || "prime") + " · consultado em " + data(a.consultado_em)
+                                : "Sem consulta ao Prime"}
+                              {a.situacao_importada
+                                ? " · de importação: " + a.situacao_importada
+                                  + (a.importado_em ? " (" + data(a.importado_em) + ")" : "")
+                                : ""}
+                            </span>
+                          </div>
+                        ))}
+                        {(detalhe.alunos || []).length >= 500 ? (
+                          <p style={S.discreto}>Mostrando os primeiros 500.</p>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                ) : null}
 
                 {/* RODAPE HONESTO. O anterior dizia "Situacao academica do Prime"
                     para um numero que vinha de IMPORTACAO -- por isso a fonte
@@ -633,6 +714,16 @@ const S = {
   cartaoCabecalho: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12,
                      flexWrap: "wrap", paddingBottom: 10, borderBottom: "1px solid var(--rv-borda-suave)",
                      marginBottom: 4 },
+  linhaBotao: { display: "block", width: "100%", textAlign: "left", background: "none",
+                border: 0, padding: 0, cursor: "pointer", font: "inherit", color: "inherit" },
+  detalhe: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--rv-borda)" },
+  detalheLinha: { padding: "7px 0", borderBottom: "1px solid var(--rv-borda)",
+                  display: "flex", flexDirection: "column", gap: 2 },
+  detalheTopo: { display: "flex", flexWrap: "wrap", gap: 8, alignItems: "baseline" },
+  link: { fontWeight: 600, color: "var(--rv-azul-texto, #2b5cd8)" },
+  h3: { margin: 0, fontSize: 13.5, fontWeight: 700, color: "var(--rv-tinta)" },
+  fechar: { fontSize: 12, padding: "3px 10px", borderRadius: 6, cursor: "pointer",
+            background: "var(--rv-fundo)", color: "var(--rv-tinta)", border: "1px solid var(--rv-borda)" },
   cartaoApoio: { fontSize: 12, color: "var(--rv-texto-fraco)", fontVariantNumeric: "tabular-nums" },
 
   // ---- linha com barra: rótulo | valor | percentual, sempre alinhados ----
