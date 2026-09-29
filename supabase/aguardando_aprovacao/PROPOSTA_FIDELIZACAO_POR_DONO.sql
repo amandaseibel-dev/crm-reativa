@@ -264,6 +264,36 @@ end;
 $$;
 
 -- ----------------------------------------------------------------------------
+-- 4b. O QUE JA EXISTE EM PRODUCAO NA TROCA DE DONO -- lido do catalogo em
+--     29/09/2026, e por que a coluna nova ainda e necessaria.
+--
+-- `public.casos` tem `trg_sync_alunos_apos_casos` AFTER UPDATE ... WHEN
+-- (new.operador_email IS DISTINCT FROM old.operador_email), que chama
+-- `internal.set_resp_aluno`. Essa funcao JA faz, na troca de dono:
+--     alunos.responsavel_atual_em      := now()
+--     alunos.data_ultimo_acionamento   := null   (quando o dono muda de fato)
+--     alunos.status_acionamento/proxima_acao/data_retorno := null
+-- e registra REDISTRIBUICAO_SINCRONIZACAO em aluno_movimentacoes.
+--
+-- ISTO CONFIRMA O DIAGNOSTICO PELO CODIGO, nao so pelos dados: o relogio JA
+-- reinicia na troca de dono -- mas SO em `alunos`. `casos.data_ultimo_acionamento`
+-- NAO e zerado por ninguem nessa cadeia, e e ele que a v1 usa para decidir
+-- liberacao. E exatamente a origem dos 122 casos medidos com relogio anterior
+-- a propria atribuicao.
+--
+-- Poderiamos entao usar `alunos.responsavel_atual_em` e dispensar a coluna? Nao:
+--   (a) ele e sobrescrito por QUALQUER troca de responsavel do ALUNO, inclusive
+--       as vindas de acordo, e nao guarda renovacao por acionamento;
+--   (b) a unidade da fidelizacao e o CASO, e um aluno pode ter mais de um caso;
+--   (c) `set_resp_aluno` so roda quando `NEW.aluno_id is not null`.
+-- A coluna em `casos` e o unico lugar onde "relogio do dono DESTE caso" cabe.
+--
+-- NOTA DE CADEIA DE GATILHOS: aquele insert de REDISTRIBUICAO_SINCRONIZACAO
+-- dispara `trg_atualizar_ultimo_acionamento`. O tipo nao esta em
+-- `eh_tipo_acionamento` nem em `eh_acionamento_fidelizacao`, entao a funcao
+-- retorna na primeira linha e nao ha reentrada. Verificado no catalogo.
+
+-- ----------------------------------------------------------------------------
 -- 5. TROCA DE DONO -- relogio nasce com quem recebeu
 --
 -- Trigger BEFORE UPDATE com clausula WHEN: so dispara quando operador_email
@@ -358,30 +388,65 @@ begin
    where a.id = v_uuid
      and (a.data_ultimo_acionamento is null
           or a.data_ultimo_acionamento < new.registrado_em);
+  end if;
 
+  -- UM UNICO UPDATE EM public.casos, PARA AS DUAS COLUNAS.
+  --
+  -- BUG PEGO NA ANALISE DE DEPENDENCIAS EM 29/09/2026, ANTES DE APLICAR: a
+  -- primeira versao desta proposta fazia DOIS `update public.casos` na mesma
+  -- funcao -- um para data_ultimo_acionamento, outro para fidelizacao_inicio.
+  -- `public.casos` tem `trigger_repor_caso_operador` AFTER UPDATE ... WHEN
+  -- (new.operador_email = old.operador_email), que ao encontrar caso fechado
+  -- LIBERA o caso (zera o operador), grava LIBERACAO_AUTOMATICA_CASO_FECHADO em
+  -- historico_operadores_alunos e enfileira em reposicao_carteira_fila. Dois
+  -- UPDATEs = esse gatilho avaliado DUAS vezes por acionamento, contra uma vez
+  -- hoje. Alem de dobrar trabalho, muda o estado observado pelo segundo UPDATE
+  -- (o primeiro pode ter zerado operador_email), o que torna o resultado
+  -- dependente de ordem -- exatamente o que nao se quer numa regra de posse.
+  --
+  -- Com um UPDATE so, a contagem de disparos fica IDENTICA a de hoje. Cada
+  -- coluna tem sua propria condicao no CASE, entao nenhuma passa a andar em
+  -- situacao onde nao andava. O WHERE final evita UPDATE no-op -- que tambem
+  -- dispararia os gatilhos sem necessidade.
   update public.casos c
-     set data_ultimo_acionamento = new.registrado_em::date
+     set data_ultimo_acionamento = case
+           when public.eh_tipo_acionamento(new.tipo)
+            and (c.data_ultimo_acionamento is null
+                 or c.data_ultimo_acionamento < new.registrado_em::date)
+           then new.registrado_em::date
+           else c.data_ultimo_acionamento end,
+         -- <<NOVO>> RENOVACAO DA FIDELIZACAO DO DONO.
+         -- Tres condicoes, todas obrigatorias:
+         --   tipo na lista aprovada dos 7 (nao a lista larga de eh_tipo_acionamento);
+         --   o autor da movimentacao E o responsavel atual do caso;
+         --   o acionamento e posterior ao inicio vigente (nunca anda para tras).
+         -- Gestao, rotina, Prime, acordo e dono anterior nao passam por aqui.
+         -- `fidelizacao_inicio is not null` mantem o freio: caso nao
+         -- inicializado pelo backfill nao entra na regra nova.
+         fidelizacao_inicio = case
+           when public.eh_acionamento_fidelizacao(new.tipo)
+            and new.registrado_por_email is not null
+            and c.encerrado_operacional = false
+            and c.fidelizacao_inicio is not null
+            and lower(c.operador_email) = lower(new.registrado_por_email)
+            and c.fidelizacao_inicio < new.registrado_em
+           then new.registrado_em
+           else c.fidelizacao_inicio end
    where c.aluno_id = v_uuid
-     and (c.data_ultimo_acionamento is null
-          or c.data_ultimo_acionamento < new.registrado_em::date);
-  end if;
-
-  -- <<NOVO>> RENOVACAO DA FIDELIZACAO DO DONO.
-  -- Tres condicoes, todas obrigatorias:
-  --   tipo esta na lista aprovada dos 7 (nao a lista larga de eh_tipo_acionamento);
-  --   o autor da movimentacao E o responsavel atual do caso;
-  --   o acionamento e posterior ao inicio vigente (nunca anda para tras).
-  -- Gestao, rotina, Prime, acordo e dono anterior nao passam por aqui.
-  if public.eh_acionamento_fidelizacao(new.tipo)
-     and new.registrado_por_email is not null then
-    update public.casos c
-       set fidelizacao_inicio = new.registrado_em
-     where c.aluno_id = v_uuid
-       and c.encerrado_operacional = false
-       and c.fidelizacao_inicio is not null
-       and lower(c.operador_email) = lower(new.registrado_por_email)
-       and c.fidelizacao_inicio < new.registrado_em;
-  end if;
+     and (
+       -- data_ultimo_acionamento avancaria
+       (public.eh_tipo_acionamento(new.tipo)
+        and (c.data_ultimo_acionamento is null
+             or c.data_ultimo_acionamento < new.registrado_em::date))
+       or
+       -- fidelizacao_inicio avancaria
+       (public.eh_acionamento_fidelizacao(new.tipo)
+        and new.registrado_por_email is not null
+        and c.encerrado_operacional = false
+        and c.fidelizacao_inicio is not null
+        and lower(c.operador_email) = lower(new.registrado_por_email)
+        and c.fidelizacao_inicio < new.registrado_em)
+     );
 
   -- recalcular situacao/criticidade apos o acionamento (dias_sem_acionamento zera).
   -- protegido: falha aqui nunca impede o registro do acionamento.
