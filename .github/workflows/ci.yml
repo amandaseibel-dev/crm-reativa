@@ -215,8 +215,6 @@ jobs:
           psql -v ON_ERROR_STOP=1 -f "$DIR/01_ambiente.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/02_baseline.sql"
           psql -v ON_ERROR_STOP=1 -f "$M/20260929114756_carteira_academico_universo_e_perfil.sql"
-          psql -v ON_ERROR_STOP=1 -f "$M/20260929150001_carteira_academico_cpf_ambiguo.sql"
-          psql -v ON_ERROR_STOP=1 -f "$M/20260929150002_carteira_academico_aluno_id_e_perfil_cte.sql"
           psql -v ON_ERROR_STOP=1 -f "$DIR/03_casos.sql"
 
   piloto-concorrencia:
