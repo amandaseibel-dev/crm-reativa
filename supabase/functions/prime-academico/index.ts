@@ -66,6 +66,11 @@ Deno.serve(async (req) => {
   const alunoId = String(corpo?.aluno_id ?? "").trim();
   if (!/^[0-9a-f-]{36}$/i.test(alunoId)) return json({ erro: "ALUNO_ID_INVALIDO" }, 400);
 
+  // Item do piloto, quando a chamada vem do lote. A ficha nao manda -- e por
+  // isso o mesmo endpoint serve aos dois sem a tela precisar saber do piloto.
+  const pilotoItem = String(corpo?.piloto_item_id ?? "").trim();
+  const noPiloto = /^[0-9a-f-]{36}$/i.test(pilotoItem);
+
   // O CPF vem DO BANCO, não do chamador. Quem manda o CPF na requisição
   // decide de quem é a consulta; quem manda o id do aluno pergunta sobre uma
   // ficha, e o CPF sai de lá. É a diferença entre consultar um aluno e
@@ -111,6 +116,9 @@ Deno.serve(async (req) => {
   const TETO = 500; // trava de segurança: nunca girar para sempre
 
   let httpStatus: number | null = null;
+  // PAGINACAO CONTA. Um aluno com 120 vinculos gasta 3 requisicoes, nao 1 --
+  // e o teto do piloto e de requisicoes, nao de alunos.
+  let requisicoes = 0;
   let falha: string | null = null;
   let paginaIlegivel = false;
   let totalItems: number | null = null;
@@ -121,6 +129,7 @@ Deno.serve(async (req) => {
   for (let skip = 0; ; skip += TAKE) {
     let pagina;
     try {
+      requisicoes += 1;
       const r = await fetch(
         `${BASE}/students?search=${encodeURIComponent(cpf)}&take=${TAKE}&skip=${skip}`,
         { method: "GET", headers: { "X-API-Key": chave } },
@@ -171,11 +180,36 @@ Deno.serve(async (req) => {
     p_total_items: totalItems,
     p_vinculos: vinculos,
     p_email: email,
+    p_requisicoes: requisicoes,
   });
   if (erroGravar) return json({ erro: "GRAVACAO_FALHOU", detalhe: erroGravar.message }, 502);
+
+  // REGISTRO NO PILOTO. Acontece aqui, e nao no navegador, porque a RPC de
+  // registro so atende service_role -- e porque so aqui se sabe quantas
+  // requisicoes a consulta gastou.
+  //
+  // 401/403/429 interrompem o LOTE inteiro: e a propria RPC que decide isso, a
+  // partir do `p_http` que vai daqui.
+  let pararLote = false;
+  let motivoLote: string | null = null;
+  if (noPiloto) {
+    const { data: reg } = await supa.rpc("prime_academico_piloto_registrar", {
+      p_item: pilotoItem,
+      p_consulta_id: consultaId,
+      p_requisicoes: requisicoes,
+      p_http: httpStatus,
+      p_erro: falha,
+    });
+    pararLote = (reg as { parar?: boolean } | null)?.parar === true;
+    motivoLote = (reg as { motivo?: string } | null)?.motivo ?? null;
+  }
 
   // Devolve o mesmo formato que a tela lê do banco, para ela não precisar de
   // dois caminhos de renderização.
   const { data: leitura } = await supa.rpc("prime_academico_ultima", { p_aluno_id: alunoId });
-  return json({ ok: true, consulta_id: consultaId, resultado, leitura });
+  return json({
+    ok: true, consulta_id: consultaId, resultado, leitura,
+    requisicoes,
+    ...(noPiloto ? { piloto: { parar: pararLote, motivo: motivoLote } } : {}),
+  });
 });

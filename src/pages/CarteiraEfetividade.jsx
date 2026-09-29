@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import EfetividadeCompetencias from "../components/EfetividadeCompetencias";
+import PilotoAcademico from "../components/PilotoAcademico";
 
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
 //
@@ -65,7 +66,11 @@ export default function CarteiraEfetividade() {
   // safras têm só o consolidado.
   const [vista, setVista] = useState("consolidado");
   const [consolidada, setConsolidada] = useState(null);
-  const [academico, setAcademico] = useState(null);
+  // Perfil vindo da CONSULTA ao Prime, por recorte. Separado do `academico`
+  // antigo de proposito: aquele mistura importacao com status de contrato, e os
+  // dois nunca podem virar um numero so.
+  const [cargaPerfil, setCargaPerfil] = useState({ para: null, dados: null });
+  const [ehGestao, setEhGestao] = useState(false);
   const [vigente, setVigente] = useState(null);
   const [contexto, setContexto] = useState(null);
   const [historico, setHistorico] = useState(null);
@@ -82,18 +87,20 @@ export default function CarteiraEfetividade() {
       const quem = sessao?.user?.email || "";
       if (!ativo) return;
       if (!podeVerIndicadores(quem)) { setEmail(quem); setCarregando(false); return; }
-      const [a, b, c, e, f] = await Promise.all([
+      // `carteira_2026_1_academico` saiu daqui: o perfil agora vem de
+      // `carteira_academico_perfil`, por recorte, e a antiga misturava
+      // importacao com status de contrato. A funcao continua no banco -- quem
+      // some e a chamada.
+      const [a, c, e, f] = await Promise.all([
         supabase.rpc("carteira_2026_1_indicadores"),
-        supabase.rpc("carteira_2026_1_academico"),
         supabase.rpc("carteira_2026_2_negociacoes"),
         supabase.rpc("carteira_2026_2_contexto"),
         supabase.rpc("carteira_saldo_historico_por_ano"),
       ]);
       if (!ativo) return;
-      const primeiro = [a, b, c, e, f].find((r) => r.error);
+      const primeiro = [a, c, e, f].find((r) => r.error);
       if (primeiro) setErro(primeiro.error.message);
       setConsolidada(a.data?.vazio ? null : a.data);
-      setAcademico(b.data || null);
       setVigente(c.data || null);
       setContexto(e.data || null);
       setHistorico(f.data || null);
@@ -101,6 +108,31 @@ export default function CarteiraEfetividade() {
       setCarregando(false);
     })();
     return () => { ativo = false; };
+  }, []);
+
+  // HOOKS FICAM TODOS ANTES DO PRIMEIRO `return`. Colocados depois, o React
+  // reclama com razao: numa renderizacao em que `carregando` e true eles nao
+  // rodariam, e a ordem dos hooks mudaria entre renders.
+  //
+  // `carga` guarda DE QUAL RECORTE o perfil e. Sem isso, trocar de ano mostraria
+  // por um instante o perfil do ano anterior -- e evita `setState` sincrono
+  // dentro do efeito, que gera renderizacao em cascata.
+  useEffect(() => {
+    let vivo = true;
+    const alvo = ano === "2026" ? ano + "/" + sem : String(ano);
+    supabase
+      .rpc("carteira_academico_perfil", { p_ano: String(ano), p_semestre: ano === "2026" ? String(sem) : null })
+      .then(({ data }) => { if (vivo) setCargaPerfil({ para: alvo, dados: data || null }); })
+      .catch(() => { if (vivo) setCargaPerfil({ para: alvo, dados: null }); });
+    return () => { vivo = false; };
+  }, [ano, sem]);
+
+  useEffect(() => {
+    let vivo = true;
+    supabase.rpc("usuario_e_gestao")
+      .then(({ data, error }) => { if (vivo) setEhGestao(!error && data === true); })
+      .catch(() => {});
+    return () => { vivo = false; };
   }, []);
 
   if (carregando) return <Carregando />;
@@ -217,8 +249,8 @@ export default function CarteiraEfetividade() {
 
   // perfil dos alunos: só existe para 2026/1 (a coleta acadêmica cobre a carteira em aberto dessa safra).
   // Em 2024/2025 o mesmo lugar mostra de que curso vem o saldo em aberto.
-  const perfil = safra === "2026/1" ? (academico?.categorias || []) : null;
-  const perfilTotal = Number(academico?.total?.cpfs || 0);
+  // So mostra o perfil que pertence ao recorte na tela.
+  const perfilPrime = cargaPerfil.para === periodo ? cargaPerfil.dados : null;
   const cursos = hist ? (hist.cursos || []) : null;
   const cursosTotal = Number(hist?.aberto?.valor || 0);
 
@@ -385,28 +417,58 @@ export default function CarteiraEfetividade() {
               ) : (
                 <p style={{ ...S.discreto, marginTop: 8 }}>Sem saldo em aberto neste ano</p>
               )
-            ) : perfil && perfil.length > 0 ? (
+            ) : perfilPrime && (perfilPrime.grupos || []).length > 0 ? (
               <div>
-                {perfil.map((c) => (
-                  <div key={c.categoria} style={S.linha}>
+                {(perfilPrime.grupos || []).map((g) => (
+                  <div key={g.grupo} style={S.linha}>
                     <div style={S.linhaTopo}>
                       <span style={S.linhaRotulo}>
-                        <span style={{ ...S.ponto, background: AZUL }} />{c.categoria}
+                        <span style={{ ...S.ponto, background: AZUL }} />{g.grupo}
                       </span>
-                      <strong style={S.linhaValor}>{num(c.cpfs)} alunos</strong>
+                      <strong style={S.linhaValor}>{num(g.alunos)} alunos</strong>
                       <span style={{ ...S.linhaPct, color: AZUL }}>
-                        {Number(c.pct_cpfs).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
+                        {Number(g.pct).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
                       </span>
                     </div>
                     <div style={S.trilho}>
-                      <div style={{ ...S.barraPreenchida, width: Math.min(Number(c.pct_cpfs), 100) + "%",
-                                    minWidth: Number(c.cpfs || 0) > 0 ? 4 : 0, background: AZUL }} />
+                      <div style={{ ...S.barraPreenchida, width: Math.min(Number(g.pct), 100) + "%",
+                                    minWidth: Number(g.alunos || 0) > 0 ? 4 : 0, background: AZUL }} />
                     </div>
                   </div>
                 ))}
+
+                {/* RODAPE HONESTO. O anterior dizia "Situacao academica do Prime"
+                    para um numero que vinha de IMPORTACAO -- por isso a fonte
+                    agora vem escrita, com a data de cada uma, e a contagem diz
+                    que e de aluno unico. */}
                 <p style={{ ...S.discreto, marginTop: 10 }}>
-                  {num(perfilTotal)} alunos com pendência nesta carteira. Situação acadêmica do Prime.
+                  {num(perfilPrime.total_alunos)} alunos únicos nesta carteira · fonte:
+                  Prime, consulta por aluno (<code>students_search</code>).
+                  {" "}Um aluno conta uma vez, mesmo com vários cursos.
+                  {ano !== "2026"
+                    ? " Lista reconstruída em " + data(perfilPrime.reconstruido_em)
+                      + "; o financeiro do ano vem do snapshot, que não é alterado aqui."
+                    : ""}
                 </p>
+                <p style={{ ...S.discreto, marginTop: 4 }}>
+                  A classificação resume os vínculos encontrados. Não afirma que a situação
+                  pertence ao curso desta dívida.
+                </p>
+
+                {/* IMPORTACAO, A PARTE. Nao entra na soma dos grupos e nao
+                    preenche quem ainda nao foi consultado. */}
+                {perfilPrime.importacao ? (
+                  <p style={{ ...S.discreto, marginTop: 10 }}>
+                    <strong>De importação, não do Prime:</strong>{" "}
+                    {perfilPrime.importacao.fonte}
+                    {perfilPrime.importacao.atualizado_em
+                      ? " · importado em " + data(perfilPrime.importacao.atualizado_em)
+                      : ""}
+                    . Esses rótulos ficam fora da contagem acima.
+                  </p>
+                ) : null}
+
+                {ehGestao ? <PilotoAcademico ano={ano} semestre={ano === "2026" ? sem : null} /> : null}
               </div>
             ) : (
               <p style={{ ...S.discreto, marginTop: 8 }}>Informação acadêmica não disponível para este período</p>
