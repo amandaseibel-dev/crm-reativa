@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
+import { carregarIndicadoresCarteira, TEXTO_APOIO } from "../utils/carteiraAcionada";
 import AlertasParcelaAcordo from "./AlertasParcelaAcordo";
 import { normalizarAlertas } from "../utils/alertasParcela";
 import {
@@ -2341,6 +2342,35 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
 
   const [saldoView, setSaldoView] = useState({});
   const [valorCarteira, setValorCarteira] = useState(0);
+
+  // CARTEIRA TOTAL x CARTEIRA ACIONADA (29/09/2026). Posse e trabalho estavam
+  // no mesmo numero: "Casos ativos" conta caso atribuido, e a base do CRM ainda
+  // soma o aluno que entra so pela posse de acordo. Regra e fontes em
+  // src/utils/carteiraAcionada.js. Somente leitura -- nao mexe em posse.
+  // O resultado carrega o e-mail que o gerou. Assim a troca de operador nao
+  // precisa de um setState de limpeza dentro do efeito (que dispara render em
+  // cascata -- react-hooks/set-state-in-effect): o numero do operador anterior
+  // simplesmente deixa de casar com `emailKpi` e o bloco volta a "…".
+  const [carteiraKpi, setCarteiraKpi] = useState(null);
+  const emailKpi = veTudo ? (operadorFiltro === "TODOS" ? "" : operadorFiltro) : email;
+  const kpiDoAlvo = carteiraKpi && carteiraKpi.email === emailKpi ? carteiraKpi : null;
+  useEffect(() => {
+    if (!emailKpi) return undefined;
+    let ativo = true;
+    (async () => {
+      try {
+        const r = await carregarIndicadoresCarteira(supabase, emailKpi);
+        if (ativo) setCarteiraKpi({ email: emailKpi, ...r });
+      } catch (e) {
+        // Indicador nao derruba a carteira: o painel segue sem ele.
+        console.error(e);
+        if (ativo) setCarteiraKpi({ email: emailKpi, erro: true });
+      }
+    })();
+    return () => {
+      ativo = false;
+    };
+  }, [emailKpi]);
   const normCpf = (c) => String(c || "").replace(/\D/g, "").padStart(11, "0");
   useEffect(() => {
     // KILL SWITCH: vw_carteira_operador enriquece a lista com saldo/qtd
@@ -2850,6 +2880,45 @@ export default function PainelCarteira({ embedded = false, mostrar360 = false })
                   <span style={S.desRot}>Dias úteis estimados</span>
                 </div>
               </div>
+            </div>
+          )}
+
+          {emailKpi && !kpiDoAlvo?.erro && (
+            <div style={S.acionadaWrap}>
+              <div style={S.acionadaGrid}>
+                <div style={S.acionadaItem}>
+                  <span style={S.acionadaRot}>Carteira total</span>
+                  <span style={S.acionadaNum}>
+                    {kpiDoAlvo ? `${kpiDoAlvo.total} casos` : "…"}
+                  </span>
+                </div>
+                <div style={S.acionadaItem}>
+                  <span style={S.acionadaRot}>Carteira acionada</span>
+                  <span style={{ ...S.acionadaNum, color: "var(--rv-verde-ok-texto)" }}>
+                    {kpiDoAlvo ? `${kpiDoAlvo.acionada} casos` : "…"}
+                  </span>
+                  <span style={S.acionadaPct}>
+                    {kpiDoAlvo ? `${kpiDoAlvo.pctAcionada}%` : ""}
+                  </span>
+                </div>
+                <div style={S.acionadaItem}>
+                  <span style={S.acionadaRot}>Sem acionamento</span>
+                  <span style={{ ...S.acionadaNum, color: "var(--rv-ambar-texto)" }}>
+                    {kpiDoAlvo ? `${kpiDoAlvo.semAcionamento} casos` : "…"}
+                  </span>
+                  <span style={S.acionadaPct}>
+                    {kpiDoAlvo ? `${kpiDoAlvo.pctSemAcionamento}%` : ""}
+                  </span>
+                </div>
+                <div style={S.acionadaItem}>
+                  <span style={S.acionadaRot}>Somente acordos</span>
+                  <span style={S.acionadaNum}>
+                    {kpiDoAlvo ? `${kpiDoAlvo.somenteAcordo} alunos` : "…"}
+                  </span>
+                  <span style={S.acionadaPct}>não conta como caso atribuído</span>
+                </div>
+              </div>
+              <p style={S.acionadaApoio}>{TEXTO_APOIO}</p>
             </div>
           )}
 
@@ -4110,6 +4179,15 @@ const S = {
   desItemInfo: { display: "flex", flexDirection: "column", alignItems: "flex-start", gap: 3, background: "transparent", borderRadius: 12, padding: "11px 16px", minWidth: 128 },
   desNum: { fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", lineHeight: 1, fontFamily: FONTE_TITULO },
   desRot: { fontSize: 11, color: "var(--rv-texto-fraco)", fontWeight: 600 },
+  // Carteira total x acionada: bloco de leitura, acima dos cards de trabalho.
+  acionadaWrap: { background: "var(--rv-superficie)", borderRadius: 18, padding: "18px 20px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD, marginBottom: 16 },
+  acionadaGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(172px, 1fr))", gap: 18 },
+  acionadaItem: { display: "flex", flexDirection: "column", gap: 3 },
+  acionadaRot: { fontSize: 11.5, color: "var(--rv-texto-fraco)", fontWeight: 600 },
+  acionadaNum: { fontSize: 23, fontWeight: 800, letterSpacing: "-0.02em", fontFamily: FONTE_TITULO, color: "var(--rv-texto-forte)" },
+  acionadaPct: { fontSize: 11.5, color: "var(--rv-texto-fraco)" },
+  acionadaApoio: { margin: "14px 0 0 0", fontSize: 11.5, lineHeight: 1.5, color: "var(--rv-texto-fraco)" },
+
   kpiGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(172px, 1fr))", gap: 14, marginBottom: 22 },
   kpiCard: { background: "var(--rv-superficie)", borderRadius: 16, padding: "16px 18px", border: `1px solid ${COR_BORDA_SUAVE}`, boxShadow: SOMBRA_CARD, cursor: "pointer" },
   kpiIconChip: { display: "inline-flex", alignItems: "center", justifyContent: "center", width: 32, height: 32, borderRadius: 10, fontSize: 15, marginBottom: 12 },
