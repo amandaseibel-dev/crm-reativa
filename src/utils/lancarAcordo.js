@@ -60,6 +60,33 @@ export function hojeISO() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
+// STATUS INICIAL DA PARCELA: quem manda e a DATA, nao a hora do lancamento.
+//
+// Antes toda parcela nascia 'A_VENCER'. Acordo antigo lancado hoje -- o caso
+// normal de acordo que so agora entra no sistema -- nascia inteiro "a vencer"
+// e so virava VENCIDA no cron das 03:05. Nessa janela a Saude da Carteira dava
+// o acordo como EM_DIA, a parcela vencida mais antiga vinha nula e as Acoes
+// Massivas nao enxergavam o acordo (elas filtram status = 'VENCIDA').
+//
+// Mesma semantica que o banco ja usa em desfazer_baixa_parcela:
+//   case when vencimento < current_date then 'VENCIDA' else 'A_VENCER' end
+//
+// A comparacao e por DATA, entre strings ISO: 'YYYY-MM-DD' ordena igual ao
+// calendario, entao nao existe Date, nem hora, nem fuso para virar o dia.
+// Vencimento HOJE e A_VENCER -- so o dia anterior esta vencido. hojeISO() ja
+// monta o dia LOCAL (getFullYear/getMonth/getDate), nunca o UTC.
+//
+// Data ausente ou ilegivel devolve A_VENCER: sem data nao da para afirmar que
+// venceu, e o cron corrige se um dia a data aparecer.
+export function statusInicialParcela(vencimento) {
+  const iso = paraDataISO(vencimento);
+  if (!iso) return "A_VENCER";
+  return iso < hojeISO() ? "VENCIDA" : "A_VENCER";
+}
+
+// Status que a data NAO decide mais: a parcela ja teve desfecho.
+const STATUS_PARCELA_TERMINAL = new Set(["PAGO", "CANCELADA", "RENEGOCIADA"]);
+
 export function somarMeses(dataISO, meses) {
   const [ano, mes, dia] = String(dataISO).split("-").map(Number);
   const totalMeses = mes - 1 + meses;
@@ -105,12 +132,13 @@ export function gerarParcelas({ valorTotal, qtdParcelas, temEntrada, entradaRs, 
     const hon = ultima ? honSaldo - acumuladoHon : Number(honCada.toFixed(2));
     acumulado += valor;
     acumuladoHon += hon;
+    const vencimento = somarMeses(base, i - 1);
     parcelas.push({
       numero: i,
-      vencimento: paraDataBR(somarMeses(base, i - 1)),
+      vencimento: paraDataBR(vencimento),
       valor: valor.toFixed(2),
       honorarios: hon.toFixed(2),
-      status: "A_VENCER",
+      status: statusInicialParcela(vencimento),
     });
   }
   return { erro: "", parcelas, honorariosEntrada: honEnt.toFixed(2) };
@@ -163,14 +191,27 @@ export async function lancarAcordo({ aluno, dados, usuarioEmail }) {
 
   if (error) return { ok: false, erro: error.message };
 
-  const parcelas = dados.parcelas.map((p) => ({
-    acordo_id: acordo.id,
-    numero: p.numero,
-    valor: paraNumero(p.valor),
-    honorarios: p.honorarios != null ? paraNumero(p.honorarios) : null,
-    vencimento: paraDataISO(p.vencimento) || p.vencimento,
-    status: p.status,
-  }));
+  // O STATUS E RECALCULADO AQUI, nao herdado de gerarParcelas.
+  //
+  // gerarParcelas roda quando o operador aperta "Gerar parcelas"; depois disso
+  // ele ainda pode editar o vencimento de cada linha na tela. Herdar o status
+  // daquele momento deixaria a parcela editada com o status da data ANTIGA.
+  // Este insert e o funil unico do parcelado, entao a decisao final mora aqui.
+  // Status terminal (parcela que ja chegou pronta como paga/cancelada) passa
+  // intacto -- nesses a data nao manda mais.
+  const parcelas = dados.parcelas.map((p) => {
+    const vencimento = paraDataISO(p.vencimento) || p.vencimento;
+    return {
+      acordo_id: acordo.id,
+      numero: p.numero,
+      valor: paraNumero(p.valor),
+      honorarios: p.honorarios != null ? paraNumero(p.honorarios) : null,
+      vencimento,
+      status: STATUS_PARCELA_TERMINAL.has(p.status)
+        ? p.status
+        : statusInicialParcela(vencimento),
+    };
+  });
 
   const { error: e2 } = await supabase.from("parcelas").insert(parcelas);
   if (e2) {
@@ -192,7 +233,9 @@ export async function lancarAcordo({ aluno, dados, usuarioEmail }) {
         valor: entrada,
         honorarios: honEntrada || 0,
         vencimento: dataEntrada,
-        status: paga ? "PAGO" : "A_VENCER",
+        // Entrada NAO paga tambem segue a data: entrada com vencimento
+        // retroativo nascia "a vencer" e some da cobranca ate o cron passar.
+        status: paga ? "PAGO" : statusInicialParcela(dataEntrada),
         pago_em: paga ? dataEntrada : null,
         confirmado_por_email: paga ? email : null,
         // A tela identifica a entrada por este campo. Sem ele, o rateio de
