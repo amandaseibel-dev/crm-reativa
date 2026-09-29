@@ -40,9 +40,12 @@ const CURIOSIDADES = [
 ];
 
 function comoDataLocal(valor) {
-  if (typeof valor === "string" && /^\\d{4}-\\d{2}-\\d{2}$/.test(valor)) {
-    const [ano, mes, dia] = valor.split("-").map(Number);
-    return new Date(ano, mes - 1, dia);
+  if (typeof valor === "string") {
+    const dataIso = valor.match(/^(\\d{4})-(\\d{2})-(\\d{2})/);
+    if (dataIso) {
+      const [, ano, mes, dia] = dataIso;
+      return new Date(Number(ano), Number(mes) - 1, Number(dia));
+    }
   }
   return new Date(valor);
 }
