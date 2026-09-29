@@ -202,7 +202,7 @@ jobs:
           for f in \
             "$M/20260929114756_carteira_academico_universo_e_perfil.sql" \
             "$M/20260929150001_carteira_academico_cpf_ambiguo.sql" \
-            "$M/20260929150002_carteira_academico_aluno_id_e_perfil_cte.sql" \\
+            "$M/20260929150002_carteira_academico_aluno_id_e_perfil_cte.sql" \
             "$M/20260929150003_carteira_academico_detalhe_mascara_cpf.sql"; do
             if [ ! -f "$f" ]; then echo "ERRO: $f nao existe." >&2; exit 1; fi
           done
