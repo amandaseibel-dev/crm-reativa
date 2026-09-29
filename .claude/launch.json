@@ -2,9 +2,58 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "preview-academico",
+      "name": "vite-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "run",
+        "dev"
+      ],
+      "port": 5173
+    },
+    {
+      "name": "central-preview",
       "runtimeExecutable": "npx",
-      "runtimeArgs": ["vite", "--config", "vite.preview-academico.config.js"],
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.preview.config.js"
+      ],
+      "port": 5199
+    },
+    {
+      "name": "calibragem-nova",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/amandapradoseibel/Documents/crm-calibragem-wt",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "5180",
+        "--mode",
+        "prod"
+      ],
+      "port": 5180
+    },
+    {
+      "name": "calibragem-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "/Users/amandapradoseibel/Documents/crm-calibragem-wt/vite.calibragem.config.js"
+      ],
+      "port": 5201
+    },
+    {
+      "name": "academico-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.preview-academico.config.js"
+      ],
       "port": 5198
     }
   ]
