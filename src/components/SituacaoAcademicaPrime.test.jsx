@@ -271,7 +271,7 @@ describe("paginação incompleta e última consulta boa", () => {
 
     expect(await screen.findByText(/Não foi possível falar com o Prime/i)).toBeTruthy();
     // o dado bom continua visível, identificado como a consulta anterior
-    const titulo = screen.getByText(/Última consulta que deu certo/i);
+    const titulo = screen.getByText(/Última consulta completa/i);
     expect(titulo.textContent).toMatch(/28\/09\/2026/);
     expect(screen.getAllByText("COMÉRCIO EXTERIOR")).toHaveLength(3);
     expect(screen.getByText("Cancelado")).toBeTruthy();
@@ -284,7 +284,7 @@ describe("paginação incompleta e última consulta boa", () => {
     } });
     render(<SituacaoAcademicaPrime aluno={ALUNO} />);
     await screen.findByText(/Não foi possível falar com o Prime/i);
-    expect(screen.queryByText(/Última consulta que deu certo/i)).toBeNull();
+    expect(screen.queryByText(/Última consulta completa/i)).toBeNull();
   });
 
   it("última boa que era SEM_RESULTADO diz isso, em vez de tabela vazia", async () => {
@@ -294,7 +294,34 @@ describe("paginação incompleta e última consulta boa", () => {
       ultima_boa: { resultado: "SEM_RESULTADO", consultado_em: "2026-09-28T23:45:00Z", vinculos: [] },
     } });
     render(<SituacaoAcademicaPrime aluno={ALUNO} />);
-    await screen.findByText(/Última consulta que deu certo/i);
+    await screen.findByText(/Última consulta completa/i);
     expect(screen.getByText(/Naquela consulta o Prime respondeu e não retornou nenhum vínculo/i)).toBeTruthy();
+  });
+
+  it("PARCIAL e COMPLETA aparecem SEPARADAS, sem misturar numa tabela só", async () => {
+    // Os vínculos parciais e os da consulta completa são de momentos
+    // diferentes. Juntá-los numa tabela faria parecer uma lista só.
+    comBanco({ leitura: {
+      resultado: "PAGINACAO_INCOMPLETA",
+      detalhe_falha: "paginacao interrompida no teto de 500 linhas",
+      consultado_em: "2026-09-29T10:00:00Z",
+      vinculos: [{ linha_id: "p1", ordem: 1, registration: "990100009", curso: "DIREITO", campus: "CEULP", turno: "MANHA", status: "Trancado", graduated: false, admission_year: 2021 }],
+      ultima_boa: { ...TRES_IGUAIS, consultado_em: "2026-09-28T23:45:00Z" },
+    } });
+    render(<SituacaoAcademicaPrime aluno={ALUNO} />);
+
+    const aviso = await screen.findByText(/pode estar/i);
+    expect(aviso.textContent).toMatch(/última consulta completa aparece separada/i);
+
+    // duas tabelas, cada uma com sua contagem
+    expect(screen.getAllByRole("table")).toHaveLength(2);
+    expect(screen.getByText(/^1 vínculo de curso$/)).toBeTruthy();   // a parcial
+    expect(screen.getByText(/3 vínculos de curso/)).toBeTruthy();    // a completa
+
+    // e a completa tem data própria, diferente da parcial
+    const titulo = screen.getByText(/^Última consulta completa/i);
+    expect(titulo.textContent).toMatch(/28\/09\/2026/);
+    expect(screen.getByText("DIREITO")).toBeTruthy();
+    expect(screen.getAllByText("COMÉRCIO EXTERIOR")).toHaveLength(3);
   });
 });

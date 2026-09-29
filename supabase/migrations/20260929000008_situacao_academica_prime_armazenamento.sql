@@ -180,9 +180,17 @@ $$;
 -- banco e encontra a falha de novo. O aviso da falha tem de conviver com o
 -- último dado bom, inclusive depois de fechar e reabrir a ficha.
 --
--- "Deu certo" aqui é `resultado <> 'FALHA_COMUNICACAO'`: uma paginação
--- incompleta trouxe dado de verdade e vale mostrar, com a ressalva dela.
--- `ultima_boa` vem `null` quando a única coisa que existe são falhas.
+-- "COMPLETA" É O CRITÉRIO, e ele é estrito: `resultado in ('COM_VINCULOS',
+-- 'SEM_RESULTADO')`. São os dois casos em que a API respondeu E se paginou até
+-- o fim -- ou seja, em que a lista devolvida é a lista inteira.
+--
+-- PAGINAÇÃO INCOMPLETA NÃO ENTRA AQUI. Ela trouxe dado de verdade, mas dado
+-- PARCIAL: promovê-la a "última boa" faria uma lista reconhecidamente truncada
+-- ocupar o lugar de uma lista completa mais antiga, e ninguém veria a troca. O
+-- parcial aparece à parte, rotulado como incompleto, sem se misturar com este
+-- bloco.
+--
+-- `ultima_boa` vem `null` quando nunca houve consulta completa.
 create or replace function public.prime_academico_ultima(p_aluno_id uuid)
 returns jsonb
 language sql
@@ -199,7 +207,7 @@ as $$
   boa as (
     select * from public.prime_academico_consulta
      where aluno_id = p_aluno_id
-       and resultado <> 'FALHA_COMUNICACAO'
+       and resultado in ('COM_VINCULOS','SEM_RESULTADO')
      order by consultado_em desc, id desc
      limit 1
   )
@@ -231,7 +239,7 @@ as $$
 $$;
 
 comment on function public.prime_academico_ultima(uuid) is
-  'Última consulta do aluno e, quando a última falhou, também a última que deu certo. NULL = nunca consultado (≠ consultado sem resultado). linha_id/consulta_id são identificadores INTERNOS, nunca do Prime.';
+  'Última consulta do aluno e, quando a última falhou ou veio incompleta, também a última COMPLETA (COM_VINCULOS ou SEM_RESULTADO). NULL = nunca consultado (≠ consultado sem resultado). linha_id/consulta_id são identificadores INTERNOS, nunca do Prime.';
 
 -- ---------------------------------------------------------------------------
 -- 5. ESCRITA -- só service_role, chamada pela Edge Function

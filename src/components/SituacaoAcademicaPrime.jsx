@@ -279,6 +279,7 @@ export default function SituacaoAcademicaPrime({ aluno }) {
           Esta consulta pode estar <b>incompleta</b>
           {leitura.detalhe_falha ? ` (${leitura.detalhe_falha})` : ""}. Os vínculos
           abaixo vieram do Prime, mas não há garantia de que sejam todos.
+          {boa ? " A última consulta completa aparece separada, mais abaixo." : ""}
         </p>
       )}
 
@@ -293,14 +294,18 @@ export default function SituacaoAcademicaPrime({ aluno }) {
         </>
       )}
 
-      {/* A ÚLTIMA CONSULTA QUE DEU CERTO, quando a mais recente falhou. Vem do
-          banco, não da memória da tela -- então sobrevive a recarregar a página
-          e a fechar e reabrir a ficha. Sem isto, uma falha apagava de vez o que
-          já se sabia. */}
+      {/* A ÚLTIMA CONSULTA COMPLETA, quando a mais recente falhou ou veio
+          incompleta. Vem do banco, não da memória da tela -- então sobrevive a
+          recarregar a página e a fechar e reabrir a ficha. Sem isto, uma falha
+          apagava de vez o que já se sabia.
+
+          Fica em bloco PRÓPRIO, com data própria: os vínculos parciais da
+          consulta de cima e os desta aqui são de momentos diferentes e não
+          podem se misturar numa tabela só. */}
       {boa && (
         <div style={S.boa}>
           <p style={S.boaTitulo}>
-            Última consulta que deu certo
+            Última consulta completa
             {dataHora(boa.consultado_em) ? ` · ${dataHora(boa.consultado_em)}` : ""}
           </p>
           {Array.isArray(boa.vinculos) && boa.vinculos.length > 0 ? (

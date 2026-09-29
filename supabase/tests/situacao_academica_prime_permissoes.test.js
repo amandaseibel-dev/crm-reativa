@@ -405,12 +405,62 @@ describe("leitura devolve também a última consulta boa", () => {
     expect(j.ultima_boa.consultado_em).toBeTruthy();
   });
 
-  it("paginação incompleta conta como boa — é dado de verdade, com ressalva", async () => {
+  it("paginação incompleta NÃO conta como boa — parcial não ocupa o lugar de completa", async () => {
+    // Promover uma lista reconhecidamente truncada a "última boa" faria ela
+    // tomar o lugar de uma lista completa mais antiga, e ninguém veria a troca.
     await db.gravar([vinculo({ status: "Formado" })], "PAGINACAO_INCOMPLETA");
     await db.gravar([], "FALHA_COMUNICACAO");
     const j = (await db.query(`select public.prime_academico_ultima($1) j`, [ALUNO])).rows[0].j;
-    expect(j.ultima_boa.resultado).toBe("PAGINACAO_INCOMPLETA");
-    expect(j.ultima_boa.vinculos).toHaveLength(1);
+    expect(j.ultima_boa.resultado).toBe("COM_VINCULOS");
+    expect(j.ultima_boa.vinculos[0].status).toBe("Trancado");
+  });
+
+  it("SEM_RESULTADO conta como completa — a API respondeu e paginou até o fim", async () => {
+    const db2 = await bancada();
+    await db2.gravar([], "SEM_RESULTADO");
+    await db2.gravar([], "FALHA_COMUNICACAO");
+    const j = (await db2.query(`select public.prime_academico_ultima($1) j`, [ALUNO])).rows[0].j;
+    expect(j.ultima_boa.resultado).toBe("SEM_RESULTADO");
+    expect(j.ultima_boa.vinculos).toEqual([]);
+  });
+
+  it("SEQUÊNCIA completa -> incompleta -> falha: a completa continua disponível", async () => {
+    // É o caso que a gestão descreveu, e o que ele protege é a recarga: a
+    // terceira leitura simula fechar e reabrir a ficha, e a consulta COMPLETA
+    // precisa continuar lá, com a data dela, sem se misturar com a parcial.
+    const db2 = await bancada();
+
+    await db2.gravar([vinculo({ status: "Trancado" }), vinculo({ status: "Formado", graduated: true })],
+      "COM_VINCULOS");
+    const completa = (await db2.query(
+      `select public.prime_academico_ultima($1) j`, [ALUNO])).rows[0].j;
+    expect(completa.resultado).toBe("COM_VINCULOS");
+    expect(completa.ultima_boa).toBeNull(); // a mais recente JÁ é a completa
+
+    await db2.gravar([vinculo({ status: "Trancado" })], "PAGINACAO_INCOMPLETA");
+    const parcial = (await db2.query(
+      `select public.prime_academico_ultima($1) j`, [ALUNO])).rows[0].j;
+    expect(parcial.resultado).toBe("PAGINACAO_INCOMPLETA");
+    expect(parcial.vinculos).toHaveLength(1);              // o parcial aparece
+    expect(parcial.ultima_boa.resultado).toBe("COM_VINCULOS");
+    expect(parcial.ultima_boa.vinculos).toHaveLength(2);   // e a completa também
+    expect(parcial.ultima_boa.consulta_id).toBe(completa.consulta_id);
+
+    await db2.gravar([], "FALHA_COMUNICACAO");
+    const falha = (await db2.query(
+      `select public.prime_academico_ultima($1) j`, [ALUNO])).rows[0].j;
+    expect(falha.resultado).toBe("FALHA_COMUNICACAO");
+    expect(falha.ultima_boa.resultado).toBe("COM_VINCULOS");
+    expect(falha.ultima_boa.vinculos).toHaveLength(2);
+
+    // RECARREGAR A FICHA = ler de novo. Nada de estado na tela: o banco tem de
+    // devolver a mesma coisa, com a mesma data.
+    const aoRecarregar = (await db2.query(
+      `select public.prime_academico_ultima($1) j`, [ALUNO])).rows[0].j;
+    expect(aoRecarregar.ultima_boa.consulta_id).toBe(completa.consulta_id);
+    expect(aoRecarregar.ultima_boa.consultado_em).toBe(falha.ultima_boa.consultado_em);
+    expect(aoRecarregar.ultima_boa.vinculos.map((v) => v.status))
+      .toEqual(["Trancado", "Formado"]);
   });
 
   it("só falhas: ultima_boa fica nulo, sem inventar dado", async () => {
