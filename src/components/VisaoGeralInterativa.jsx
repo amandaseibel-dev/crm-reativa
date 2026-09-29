@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
 
@@ -131,7 +131,7 @@ export default function VisaoGeralInterativa() {
 
   const podeGerir = podeVerTudo(usuario.email);
 
-  async function carregarDadosInternos() {
+  const carregarDadosInternos = useCallback(async () => {
     const hojeIso = new Date().toISOString();
     const [p, e, a] = await Promise.all([
       supabase.from("portal_playlist").select("id,titulo,artista,youtube_id,adicionado_por,adicionado_por_email,criado_em").eq("ativo", true).order("criado_em", { ascending: false }).limit(20),
@@ -147,7 +147,7 @@ export default function VisaoGeralInterativa() {
     setPlaylist(p.data || []);
     setEventos(e.data || []);
     setAniversarios(a.data || []);
-  }
+  }, []);
 
   useEffect(() => {
     let ativo = true;
@@ -186,7 +186,7 @@ export default function VisaoGeralInterativa() {
 
     carregarDadosInternos();
     return () => { ativo = false; };
-  }, []);
+  }, [carregarDadosInternos]);
 
   const aniversariosOrdenados = useMemo(() => {
     return (aniversarios || [])
@@ -422,7 +422,7 @@ const S = {
   eyebrow: { fontSize: 11, letterSpacing: ".1em", fontWeight: 900, color: "var(--rv-azul-texto)" },
   titulo: { margin: "5px 0 0", fontSize: 24, lineHeight: 1.15, color: "var(--rv-tinta)" },
   dataHoje: { color: "var(--rv-texto-suave)", fontSize: 13, textTransform: "capitalize" },
-  gridPrincipal: { display: "grid", gridTemplateColumns: "minmax(0, 1.2fr) minmax(320px, .8fr)", gap: 14 },
+  gridPrincipal: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 14 },
   gridSecundario: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginTop: 14 },
   card: { border: "1px solid var(--rv-borda)", borderRadius: 20, padding: 18, background: "var(--rv-superficie)", boxShadow: "0 8px 26px rgba(15,23,42,.05)", minWidth: 0 },
   climaCard: { overflow: "hidden" },
