@@ -80,6 +80,22 @@ create or replace function public.fidelizacao_corte()
   select nullif(public.fidelizacao_param() ->> 'corte','')::date;
 $$;
 
+-- O CORTE COMO INSTANTE, ANCORADO EM BRASILIA.
+--
+-- BUG PEGO PELO TESTE B01/B05 EM 29/09/2026, ANTES DE APLICAR: escrever
+-- `corte::timestamptz` num banco em UTC produz 2026-10-01 00:00+00, que e
+-- 30/09 as 21:00 EM BRASILIA. Como a fronteira le
+-- `(inicio at time zone 'America/Sao_Paulo')::date`, o inicio cairia no dia 30/09
+-- e o caso ficaria elegivel em 10/10 -- UM DIA ANTES do devido, para os ~3.500
+-- casos do backfill de uma vez.
+--
+-- `corte::timestamp at time zone 'America/Sao_Paulo'` le a meia-noite como hora
+-- LOCAL e devolve o instante certo (2026-10-01 03:00+00).
+create or replace function public.fidelizacao_corte_ts()
+ returns timestamptz language sql stable set search_path to 'public' as $$
+  select (public.fidelizacao_corte()::timestamp at time zone 'America/Sao_Paulo');
+$$;
+
 create or replace function public.fidelizacao_dias()
  returns int language sql stable set search_path to 'public' as $$
   select coalesce((public.fidelizacao_param() ->> 'dias')::int, 10);
@@ -96,6 +112,48 @@ create or replace function public.fidelizacao_modo()
 $$;
 
 -- ----------------------------------------------------------------------------
+-- 1b. A FRONTEIRA DOS 10 DIAS -- UMA funcao, UM lugar
+--
+-- REGRA DE NEGOCIO (decisao da gestao, 29/09/2026): "10 dias completos de
+-- fidelizacao; no primeiro dia seguinte o caso pode se tornar elegivel".
+-- Com inicio em 01/10, os 10 dias completos sao 01/10..10/10 e o primeiro dia
+-- elegivel e 11/10. Por isso `<=`, e nao `<`.
+--
+-- ISTO MUDA O COMPORTAMENTO VIGENTE, DE PROPOSITO. A v1
+-- (casos_elegiveis_liberacao_fidelizacao) usa `data_ultimo_acionamento + 10 <
+-- current_date`, que com inicio 01/10 so libera em 12/10 -- 11 dias completos,
+-- um dia a mais do que a regra escrita. A v1 NAO e alterada; a diferenca fica
+-- entre v1 e v2 e aparece na coluna `vigente_tambem` do modo sombra.
+--
+-- FUSO: data LOCAL DE BRASILIA nos dois lados, nunca `current_date`.
+-- O banco roda em UTC (medido: TimeZone=UTC). `current_date` vira o dia
+-- seguinte as 21:00 de Brasilia, entao uma execucao entre 21:00 e 23:59 BRT
+-- soltaria o caso um dia antes do devido. O cron de hoje roda 08:20 UTC
+-- (05:20 BRT) e nao esbarraria nisso -- mas a regra nao pode depender do
+-- horario em que alguem resolve rodar. Mesmo cuidado que o front ja toma com
+-- `hojeLocalBR()`.
+--
+-- STABLE, nao IMMUTABLE: depende de now().
+-- ----------------------------------------------------------------------------
+create or replace function public.hoje_brt()
+ returns date language sql stable set search_path to 'public' as $$
+  select (now() at time zone 'America/Sao_Paulo')::date;
+$$;
+
+create or replace function public.fidelizacao_vencida(p_inicio timestamptz)
+ returns boolean language sql stable set search_path to 'public' as $$
+  select p_inicio is not null
+     and ((p_inicio at time zone 'America/Sao_Paulo')::date + public.fidelizacao_dias())
+         <= public.hoje_brt();
+$$;
+
+-- Data em que o caso PODE virar elegivel -- so para exibir e auditar.
+create or replace function public.fidelizacao_elegivel_em(p_inicio timestamptz)
+ returns date language sql stable set search_path to 'public' as $$
+  select (p_inicio at time zone 'America/Sao_Paulo')::date + public.fidelizacao_dias();
+$$;
+
+-- ----------------------------------------------------------------------------
 -- 2. O QUE RENOVA -- predicado proprio, com os 7 tipos aprovados
 --
 -- POR QUE NAO REUSAR `eh_tipo_acionamento`: a lista dela e OUTRA. Ela tem
@@ -106,6 +164,23 @@ $$;
 -- regra aprovada em silencio, e mexer nela quebraria nivelamento e cobertura,
 -- que dependem da lista larga. Duas perguntas diferentes, dois predicados.
 -- ----------------------------------------------------------------------------
+-- OS TRES TIPOS AMPLIADOS -- EM_ATENDIMENTO, RETORNO_TERMO e BAIXA_REALIZADA
+-- NAO estao em `eh_tipo_acionamento`, logo hoje NAO atualizam
+-- `casos.data_ultimo_acionamento`. Na regra nova eles RENOVAM
+-- `fidelizacao_inicio`. Isto e intencional (decisao da gestao, 29/09/2026):
+-- sao trabalho individual do dono sobre o caso.
+--
+-- E a semantica antiga NAO muda por causa disso: o bloco que grava
+-- `data_ultimo_acionamento` em fn_atualizar_ultimo_acionamento continua atras
+-- do mesmo `if not public.eh_tipo_acionamento(new.tipo) then return new; end if;`
+-- de hoje, com a mesma lista. Um EM_ATENDIMENTO sequer entra na funcao, e
+-- portanto continua sem tocar data_ultimo_acionamento -- exatamente como antes.
+-- Ver o bloco <<NOVO>> na secao 6: ele e a UNICA escrita nova, e escreve so em
+-- fidelizacao_inicio.
+--
+-- E o caminho inverso tambem vale: a fidelizacao nova NAO LE
+-- data_ultimo_acionamento em lugar nenhum -- nem na v2, nem no backfill, nem na
+-- sombra. As duas grandezas passam a ser independentes.
 create or replace function public.eh_acionamento_fidelizacao(p_tipo text)
  returns boolean language sql immutable set search_path to 'public' as $$
   select coalesce(p_tipo,'') in (
@@ -150,7 +225,7 @@ create index if not exists idx_casos_fidelizacao_inicio
 -- ----------------------------------------------------------------------------
 create or replace function public.fidelizacao_backfill_corte()
  returns integer language plpgsql security definer set search_path to 'public' as $$
-declare v_corte date; v_n int;
+declare v_corte date; v_corte_ts timestamptz; v_n int;
 begin
   if not public.usuario_e_gestao_fila() then
     raise exception 'sem_permissao' using errcode='42501';
@@ -159,16 +234,30 @@ begin
   if v_corte is null then
     raise exception 'DATA_DE_CORTE nao configurada em parametros_operacao.fidelizacao_por_dono';
   end if;
+  -- meia-noite do corte NO FUSO DE BRASILIA -- ver fidelizacao_corte_ts()
+  v_corte_ts := public.fidelizacao_corte_ts();
 
+  -- greatest(atribuicao, corte) da exatamente as duas regras pedidas:
+  --   atribuido ANTES do corte  -> corte        (janela nova completa)
+  --   atribuido DEPOIS do corte -> atribuicao   (relogio real do dono)
+  -- E o `greatest` com o valor atual garante que o backfill NUNCA REDUZ um
+  -- fidelizacao_inicio ja existente -- se a renovacao do dono ja o empurrou
+  -- para frente, o backfill nao o joga de volta para o corte.
   update public.casos c
      set fidelizacao_inicio = greatest(
-           coalesce(a.responsavel_atual_em, v_corte::timestamptz),
-           v_corte::timestamptz)
+           c.fidelizacao_inicio,
+           coalesce(a.responsavel_atual_em, v_corte_ts),
+           v_corte_ts)
     from public.alunos a
    where a.id = c.aluno_id
      and c.operador_email is not null
      and c.encerrado_operacional = false
-     and c.fidelizacao_inicio is null;
+     -- IDEMPOTENTE: so escreve quando ha de fato o que mudar. Segunda execucao
+     -- no mesmo dia nao toca linha nenhuma e devolve 0.
+     and (c.fidelizacao_inicio is null
+          or c.fidelizacao_inicio < greatest(
+               coalesce(a.responsavel_atual_em, v_corte_ts),
+               v_corte_ts));
   get diagnostics v_n = row_count;
   return v_n;
 end;
@@ -237,7 +326,14 @@ create or replace function public.fn_atualizar_ultimo_acionamento()
  returns trigger language plpgsql security definer set search_path to 'public' as $$
 declare v_uuid uuid;
 begin
-  if not public.eh_tipo_acionamento(new.tipo) then
+  -- PORTAO DE ENTRADA. Precisa aceitar a UNIAO das duas listas: a antiga
+  -- (eh_tipo_acionamento, que manda em data_ultimo_acionamento) e a nova
+  -- (eh_acionamento_fidelizacao, que manda em fidelizacao_inicio). Sem a
+  -- segunda, EM_ATENDIMENTO / RETORNO_TERMO / BAIXA_REALIZADA sairiam aqui e
+  -- nunca renovariam a fidelizacao. Cada bloco abaixo continua com o seu
+  -- proprio filtro, entao nenhum tipo passa a fazer o que nao fazia.
+  if not public.eh_tipo_acionamento(new.tipo)
+     and not public.eh_acionamento_fidelizacao(new.tipo) then
     return new;
   end if;
 
@@ -254,6 +350,9 @@ begin
     return new;
   end;
 
+  -- SEMANTICA ANTIGA, INTACTA: so a lista antiga escreve em
+  -- data_ultimo_acionamento. Os tres tipos ampliados nao entram aqui.
+  if public.eh_tipo_acionamento(new.tipo) then
   update public.alunos a
      set data_ultimo_acionamento = new.registrado_em
    where a.id = v_uuid
@@ -265,6 +364,7 @@ begin
    where c.aluno_id = v_uuid
      and (c.data_ultimo_acionamento is null
           or c.data_ultimo_acionamento < new.registrado_em::date);
+  end if;
 
   -- <<NOVO>> RENOVACAO DA FIDELIZACAO DO DONO.
   -- Tres condicoes, todas obrigatorias:
@@ -301,16 +401,9 @@ $$;
 -- ----------------------------------------------------------------------------
 -- 7. ELEGIBILIDADE v2 -- funcao NOVA, a v1 nao e tocada
 --
--- FRONTEIRA DOS 10 DIAS: mantida EXATAMENTE a semantica de calendario da regra
--- vigente -- `inicio::date + dias < current_date`. Com inicio em 01/10 e
--- dias=10, o primeiro instante elegivel e 12/10 00:00, independente da hora da
--- atribuicao. Provado em 29/09/2026 contra as alternativas.
---
--- >>> DECISAO PENDENTE DA GESTAO <<<
--- A regra escrita ("10 dias completos, disponivel no primeiro dia seguinte")
--- descreve 11/10, nao 12/10 -- um dia de diferenca. Se a gestao quiser o
--- enunciado ao pe da letra, trocar `<` por `<=` NESTA LINHA e em nenhum outro
--- lugar. Enquanto nao houver decisao, vale o comportamento vigente (12/10).
+-- FRONTEIRA: uma unica funcao, public.fidelizacao_vencida (secao 1b). Regra
+-- literal da gestao -- 10 dias completos, elegivel no primeiro dia seguinte --
+-- em data local de Brasilia. Inicio 01/10 => elegivel em 11/10.
 --
 -- `fidelizacao_inicio is not null` e o freio de mao: caso nao inicializado
 -- nunca e elegivel, entao aplicar isto antes do backfill nao solta ninguem.
@@ -323,7 +416,7 @@ create or replace function public.casos_elegiveis_liberacao_fidelizacao_v2()
  language sql stable security definer set search_path to 'public' as $$
   with cand as (
     select c.id, c.aluno_id, c.operador_email, c.operador_nome, c.fidelizacao_inicio,
-           (c.fidelizacao_inicio::date + public.fidelizacao_dias()) as fidelizado_ate,
+           public.fidelizacao_elegivel_em(c.fidelizacao_inicio) as fidelizado_ate,
            public.saldo_titulos_aberto(c.cpf_limpo) as saldo,
            a.responsavel_atual_em,
            public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento,
@@ -335,7 +428,7 @@ create or replace function public.casos_elegiveis_liberacao_fidelizacao_v2()
        and lower(c.operador_email) <> internal.carteira_geral_email()
        and c.encerrado_operacional = false
        and c.fidelizacao_inicio is not null
-       and (c.fidelizacao_inicio::date + public.fidelizacao_dias()) < current_date
+       and public.fidelizacao_vencida(c.fidelizacao_inicio)
        and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual,
              c.status_acionamento, c.status_financeiro, c.status_jornada)
   )
@@ -361,6 +454,10 @@ create or replace function public.casos_elegiveis_liberacao_fidelizacao_v2()
                                      responsavel_atual_em asc nulls first,
                                      id asc)
       from cand
+     -- PROTEGIDO NAO CONSOME VAGA DO TETO: em SQL o WHERE e avaliado ANTES das
+     -- funcoes de janela, entao o row_number numera apenas os desprotegidos.
+     -- Com 25 vencidos e os 5 primeiros protegidos, as posicoes 1..20 saem dos
+     -- 20 desprotegidos -- o operador solta 20, nao 15.
      where not protegido;
 $$;
 
@@ -372,7 +469,10 @@ $$;
 -- nunca duplica. Comparacao com a regra vigente sai de `vigente_tambem`.
 -- ----------------------------------------------------------------------------
 create table if not exists public.fidelizacao_sombra (
-  dia                    date        not null default current_date,
+  -- DATA LOCAL DE BRASILIA, nunca current_date: com o banco em UTC, uma
+  -- execucao entre 21:00 e 23:59 BRT gravaria a sombra no dia seguinte e
+  -- estragaria a comparacao dia a dia.
+  dia                    date        not null default public.hoje_brt(),
   caso_id                uuid        not null,
   aluno_id               uuid,
   operador_email         text,
@@ -405,7 +505,7 @@ begin
   with vigente as (select f.caso_id from public.casos_elegiveis_liberacao_fidelizacao() f),
   candidatos as (
     select c.id caso_id, c.aluno_id, c.operador_email, c.operador_nome, c.fidelizacao_inicio,
-           (c.fidelizacao_inicio::date + public.fidelizacao_dias()) fidelizado_ate,
+           public.fidelizacao_elegivel_em(c.fidelizacao_inicio) fidelizado_ate,
            public.saldo_titulos_aberto(c.cpf_limpo) saldo,
            a.responsavel_atual_em,
            public.caso_protegido_redistribuicao(c.cpf_limpo, c.status_acionamento,
@@ -421,8 +521,13 @@ begin
        and lower(c.operador_email) <> internal.carteira_geral_email()
        and c.encerrado_operacional = false
        and c.fidelizacao_inicio is not null
-       and (c.fidelizacao_inicio::date + public.fidelizacao_dias()) < current_date
+       and public.fidelizacao_vencida(c.fidelizacao_inicio)
   ),
+  -- PROTEGIDO NAO CONSOME VAGA DO TETO. A numeracao roda SO sobre os
+  -- desprotegidos -- igual a v2, onde o `where not protegido` e avaliado antes
+  -- da funcao de janela. Se 5 dos 25 primeiros estao protegidos, o operador
+  -- ainda solta 20 desprotegidos, e nao 15. O caso protegido continua
+  -- registrado na sombra, com pos nula e a protecao nomeada.
   ordenado as (
     select k.*,
       case when k.protegido then null
@@ -431,12 +536,15 @@ begin
                                             k.responsavel_atual_em asc nulls first,
                                             k.caso_id asc) end pos
     from candidatos k
+    where not k.protegido
+    union all
+    select k.*, null::bigint pos from candidatos k where k.protegido
   )
   insert into public.fidelizacao_sombra as s (
     dia, caso_id, aluno_id, operador_email, operador_nome, fidelizacao_inicio,
     ultimo_acion_do_dono, fidelizado_ate, motivo, protecao_encontrada, saldo,
     ordem_na_fila, dentro_do_teto, vigente_tambem, simulado_em)
-  select current_date, o.caso_id, o.aluno_id, o.operador_email, o.operador_nome,
+  select public.hoje_brt(), o.caso_id, o.aluno_id, o.operador_email, o.operador_nome,
          o.fidelizacao_inicio, o.ultimo_acion_do_dono, o.fidelizado_ate,
          case when o.ultimo_acion_do_dono is null
                 then 'sem acionamento do dono desde ' || o.fidelizacao_inicio::date
@@ -466,14 +574,35 @@ end;
 $$;
 
 -- ----------------------------------------------------------------------------
+-- 8b. COMO O TETO E APLICADO
+--
+-- A v2 devolve `ordem_na_fila` JA PARTICIONADA POR OPERADOR
+-- (`partition by operador_email`). Quem for soltar filtra
+-- `ordem_na_fila <= public.fidelizacao_teto_diario()` -- valor que vem da
+-- configuracao, nunca literal. Por ser particionado, o teto e POR OPERADOR e
+-- nunca global: com 35 elegiveis no operador A e 8 no B, teto 20 solta 20 de A
+-- e 8 de B (28 no total) e os 15 restantes de A ficam para o dia seguinte.
+--
+-- A funcao de liberacao em si NAO faz parte desta proposta -- entra no passo 4
+-- da ativacao, depois da sombra aprovada.
+
+-- ----------------------------------------------------------------------------
 -- 9. PERMISSOES -- mesmo padrao das funcoes de fila: anon nunca executa
 -- ----------------------------------------------------------------------------
 revoke all on function public.fidelizacao_backfill_corte() from public, anon;
 revoke all on function public.fidelizacao_sombra_registrar() from public, anon;
 revoke all on function public.casos_elegiveis_liberacao_fidelizacao_v2() from public, anon;
+revoke all on function public.fidelizacao_vencida(timestamptz) from public, anon;
+revoke all on function public.fidelizacao_elegivel_em(timestamptz) from public, anon;
+revoke all on function public.hoje_brt() from public, anon;
+revoke all on function public.fidelizacao_corte_ts() from public, anon;
 grant execute on function public.fidelizacao_backfill_corte() to authenticated;
 grant execute on function public.fidelizacao_sombra_registrar() to authenticated;
 grant execute on function public.casos_elegiveis_liberacao_fidelizacao_v2() to authenticated;
+grant execute on function public.fidelizacao_vencida(timestamptz) to authenticated;
+grant execute on function public.fidelizacao_elegivel_em(timestamptz) to authenticated;
+grant execute on function public.hoje_brt() to authenticated;
+grant execute on function public.fidelizacao_corte_ts() to authenticated;
 
 alter table public.fidelizacao_sombra enable row level security;
 drop policy if exists fidelizacao_sombra_leitura_gestao on public.fidelizacao_sombra;
@@ -488,7 +617,7 @@ commit;
 --   1. aplicar este arquivo -> nada muda: fidelizacao_inicio nasce nulo e a v2
 --      ignora nulo. O cron continua na v1.
 --   2. no dia do corte:  select public.fidelizacao_backfill_corte();
---   3. por 2-3 dias uteis, uma vez por dia:
+--   3. por NO MINIMO 3 DIAS UTEIS COMPLETOS, uma vez por dia:
 --                        select public.fidelizacao_sombra_registrar();
 --      comparar:  select dia, count(*) filter (where protecao_encontrada is null) eleg_v2,
 --                        count(*) filter (where vigente_tambem) eleg_v1,
