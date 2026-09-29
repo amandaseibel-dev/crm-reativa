@@ -31,8 +31,7 @@ create table if not exists public.portal_aniversarios (
   mes smallint not null check (mes between 1 and 12),
   criado_por_email text,
   ativo boolean not null default true,
-  criado_em timestamptz not null default now(),
-  unique (lower(nome), dia, mes)
+  criado_em timestamptz not null default now()
 );
 
 alter table public.portal_playlist enable row level security;
@@ -117,3 +116,4 @@ with check (
 create index if not exists portal_playlist_criado_em_idx on public.portal_playlist (criado_em desc) where ativo;
 create index if not exists portal_eventos_inicio_idx on public.portal_eventos (inicio_em) where ativo;
 create index if not exists portal_aniversarios_mes_dia_idx on public.portal_aniversarios (mes, dia) where ativo;
+create unique index if not exists portal_aniversarios_unico_idx on public.portal_aniversarios (lower(nome), dia, mes);
