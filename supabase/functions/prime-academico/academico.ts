@@ -17,60 +17,59 @@ export function formatarCpf(bruto: unknown): string | null {
 
 export type Resultado = "COM_VINCULOS" | "SEM_RESULTADO" | "FALHA_COMUNICACAO";
 
-// TRÊS DESFECHOS DISTINTOS, e a distinção é o ponto desta função:
-//
-//   FALHA_COMUNICACAO  não se sabe nada (4xx/5xx/timeout/JSON ilegível)
-//   SEM_RESULTADO      a API respondeu, e não achou o CPF naquela busca
-//   COM_VINCULOS       a API respondeu e trouxe linhas
-//
-// "Sem resultado" NÃO é "não tem vínculo": o `search` é substring e pode não
-// achar. E falha de rede não é nenhum dos dois -- se virasse "sem resultado", a
-// tela diria que o aluno não tem vínculo por causa de um timeout.
-export function resultadoDaResposta(
-  dados: unknown,
-  falha: string | null,
-): { resultado: Resultado; totalItems: number | null; registration: string | null } {
-  if (falha) return { resultado: "FALHA_COMUNICACAO", totalItems: null, registration: null };
-
-  const d = dados as { items?: unknown; totalItems?: unknown } | null;
-  const itens = Array.isArray(d?.items) ? (d!.items as Record<string, unknown>[]) : null;
-
-  // 200 com corpo que não tem `items` array: não se sabe o que a API disse.
-  // Não é "vazio" -- é ilegível, e vai para falha.
-  if (itens === null) {
-    return { resultado: "FALHA_COMUNICACAO", totalItems: null, registration: null };
-  }
-
-  const total = typeof d?.totalItems === "number" ? (d!.totalItems as number) : itens.length;
-  if (itens.length === 0) return { resultado: "SEM_RESULTADO", totalItems: total, registration: null };
-
-  // `registration` é informação, não chave de vínculo. Guardado só se todas as
-  // linhas concordarem -- se divergirem, fica nulo em vez de escolher uma.
-  const regs = [...new Set(itens.map((i) => String(i?.registration ?? "")).filter(Boolean))];
-  return {
-    resultado: "COM_VINCULOS",
-    totalItems: total,
-    registration: regs.length === 1 ? regs[0] : null,
-  };
+export interface Pagina {
+  items: Record<string, unknown>[] | null; // null = corpo ilegível
+  totalItems: number | null;
 }
 
-// Devolve items[] NA ORDEM, filtrando por CPF exato e removendo os campos
-// pessoais que este registro não precisa guardar de novo.
+// Lê UMA página. `items` volta `null` quando o corpo não tem array -- e isso é
+// diferente de lista vazia: "não entendi a resposta" não é "não tem nada".
+export function lerPagina(dados: unknown): Pagina {
+  const d = dados as { items?: unknown; totalItems?: unknown } | null;
+  const items = Array.isArray(d?.items) ? (d!.items as Record<string, unknown>[]) : null;
+  const totalItems = typeof d?.totalItems === "number" ? (d!.totalItems as number) : null;
+  return { items, totalItems };
+}
+
+// QUANDO PARAR DE PAGINAR.
+//
+// A primeira versão desta função pedia `take=50` e ficava com o que viesse. Se
+// a pessoa tivesse 51 vínculos, o 51º sumia -- e sumia em silêncio, que é o
+// pior jeito de perder dado numa tela que decide cobrança.
+//
+// Para quando: a página veio vazia (acabou), veio menor que o tamanho pedido
+// (era a última), ou já se juntou `totalItems`. O teto existe só para não
+// girar para sempre se a API devolver sempre a mesma página.
+export function devePedirMaisUma(
+  juntadas: number, ultimaPagina: number, take: number, totalItems: number | null, teto: number,
+): boolean {
+  if (ultimaPagina === 0) return false;
+  if (ultimaPagina < take) return false;
+  if (totalItems !== null && juntadas >= totalItems) return false;
+  return juntadas < teto;
+}
+
+// Devolve as linhas NA ORDEM, filtrando por CPF exato e removendo os campos
+// pessoais que este registro não precisa guardar de novo (nome).
 //
 // POR QUE FILTRAR POR CPF: o `search` é substring, então pedir um CPF pode
 // trazer linhas de OUTRA pessoa cujo CPF contenha o trecho. Guardar essas linhas
 // colaria o vínculo de um terceiro na ficha.
 //
+// A MATRÍCULA FICA EM CADA LINHA. Na amostra de 28/09/2026 ela se repetiu
+// idêntica dentro de cada aluno, mas seis alunos não autorizam tratar isso como
+// regra -- e se um dia vierem matrículas diferentes na mesma resposta, guardar
+// uma só no cabeçalho perderia a informação de qual vínculo é de qual.
+//
 // A ORDEM É PRESERVADA e vira a coluna `ordem` no banco: é o único
 // discriminador de vínculos com curso, campus e turno idênticos -- e eles
 // existem (três na matrícula 222007757, com status diferentes).
-export function vinculosDaResposta(dados: unknown, cpfDaFicha: unknown): Record<string, unknown>[] {
-  const d = dados as { items?: unknown } | null;
-  const itens = Array.isArray(d?.items) ? (d!.items as Record<string, unknown>[]) : [];
+export function vinculosDaResposta(itens: Record<string, unknown>[], cpfDaFicha: unknown) {
   const alvo = digitos(cpfDaFicha);
   return itens
     .filter((i) => !alvo || digitos(i?.cpf) === alvo)
     .map((i) => ({
+      registration: i?.registration == null ? null : String(i.registration),
       course: i?.course ?? null,
       campus: i?.campus ?? null,
       shift: i?.shift ?? null,
@@ -78,4 +77,31 @@ export function vinculosDaResposta(dados: unknown, cpfDaFicha: unknown): Record<
       admissionYear: i?.admissionYear ?? null,
       graduated: i?.graduated ?? null,
     }));
+}
+
+// O DESFECHO É CALCULADO DEPOIS DO FILTRO POR CPF, e a ordem importa.
+//
+// A versão anterior olhava `items.length` antes de filtrar: uma busca que
+// trouxesse só linhas de OUTRA pessoa (o `search` é substring) virava
+// "COM_VINCULOS" com zero vínculos gravados -- a tela diria que consultou e
+// encontrou, e mostraria uma tabela vazia.
+//
+//   FALHA_COMUNICACAO  não se sabe nada (4xx/5xx/timeout/corpo ilegível)
+//   SEM_RESULTADO      respondeu, e não há linha DESTA pessoa
+//   COM_VINCULOS       respondeu, e há pelo menos uma linha desta pessoa
+export function desfecho(
+  falha: string | null,
+  paginaIlegivel: boolean,
+  vinculos: unknown[],
+): Resultado {
+  if (falha || paginaIlegivel) return "FALHA_COMUNICACAO";
+  return vinculos.length === 0 ? "SEM_RESULTADO" : "COM_VINCULOS";
+}
+
+// Matrícula do CABEÇALHO: só quando todas as linhas concordam. Divergindo, fica
+// nula -- a informação por linha é que manda, e escolher uma aqui daria a
+// impressão de que a pessoa "tem" aquela matrícula.
+export function registrationDoCabecalho(vinculos: { registration: string | null }[]): string | null {
+  const regs = [...new Set(vinculos.map((v) => v.registration).filter(Boolean))];
+  return regs.length === 1 ? (regs[0] as string) : null;
 }

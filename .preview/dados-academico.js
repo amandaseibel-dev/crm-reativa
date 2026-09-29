@@ -1,15 +1,24 @@
-// Respostas REAIS das seis consultas feitas ao Prime em 28/09/2026, mais os dois
-// desfechos que a amostra não produziu e que a tela precisa saber mostrar.
+// Casos do preview. **Nenhum dado real.**
 //
-// SÃO DADOS REAIS, e por isso o que está aqui é só matrícula, curso, campus,
-// turno e situação — informação institucional. **Nenhum nome e nenhum CPF.**
-// Quem quiser conferir a pessoa abre a ficha no CRM.
+// CORREÇÃO DE UMA AFIRMAÇÃO MINHA QUE ESTAVA ERRADA. A primeira versão deste
+// arquivo usava as matrículas reais dos seis alunos consultados e dizia que
+// eram "informação institucional, nenhum dado pessoal". Não é verdade: a
+// matrícula identifica uma pessoa, e matrícula + curso + campus + turno +
+// situação acadêmica de alguém que está sendo cobrado é dado pessoal, ainda que
+// sem nome e sem CPF. Colocar isso num arquivo versionado do repositório é
+// espalhar dado pessoal para um lugar onde ele não precisa estar.
 //
-// Por que dado real e não inventado: o que esta tela precisa provar é que ela
-// aguenta o formato que a API realmente devolve — três vínculos indistinguíveis
-// com status diferentes, acentuação dividindo o mesmo curso, metade das linhas
-// sem situação. Dado inventado sempre sai mais limpo do que a realidade, e um
-// preview limpo não prova nada.
+// As matrículas abaixo são FICTÍCIAS -- nove dígitos, mesmo formato das reais,
+// começando por 99 (que não corresponde a ano de ingresso nenhum, então não
+// colide com matrícula de verdade).
+//
+// O QUE FOI PRESERVADO, e é o que importa: a ESTRUTURA observada na consulta de
+// 28/09/2026. Os casos difíceis continuam todos aqui -- três vínculos com
+// curso, campus e turno idênticos e status diferentes; acentuação dividindo o
+// mesmo curso; o mesmo curso literal com duas situações; metade das linhas sem
+// situação; e as duas divergências contra o CRM. Dado inventado costuma sair
+// mais limpo do que a realidade, e preview limpo não prova nada -- por isso a
+// forma foi mantida fiel, mesmo trocando os identificadores.
 
 const F = "prime:students_search";
 
@@ -28,6 +37,10 @@ function consulta(registration, vinculos, quando = "2026-09-28T23:45:00Z") {
     vinculos: vinculos.map((v, i) => ({
       linha_id: `${registration}-${i + 1}`,
       ordem: i + 1,
+      // A matrícula vive EM CADA LINHA. Aqui ela se repete, como se repetiu na
+      // consulta real -- o caso de matrículas diferentes tem uma entrada só
+      // para ele, no fim do arquivo.
+      registration: v[6] ?? registration,
       curso: v[0], campus: v[1], turno: v[2],
       status: v[3], graduated: v[4], admission_year: v[5],
     })),
@@ -46,10 +59,10 @@ const AD = "ENSINO A DISTANCIA";
 export const CASOS = [
   {
     rotulo: "Formado no CRM — e formado em UM curso, entre cinco",
-    alunoId: "aluno-201008325",
+    alunoId: "aluno-990100001",
     situacaoNoCrm: "Formado",
     nota: "As duas linhas de bacharelado diferem só por acento e têm situações diferentes — uma delas com Formado? sim. Normalizar o acento fundiria as duas e apagaria um status.",
-    leitura: consulta("201008325", [
+    leitura: consulta("990100001", [
       ["EDUCACAO FISICA", null, null, "Reopção de Curso", false, 2020],
       ["EDUCACAO FISICA - BACHARELADO", GUAIBA, "NOITE", "Reopção de Curso", false, 2021],
       ["EDUCAÇÃO FÍSICA - BACHARELADO", CANOAS, "NOITE", "Mudança de Campus", true, 2023],
@@ -60,10 +73,10 @@ export const CASOS = [
   },
   {
     rotulo: "Formado no CRM — com Desistente e Desvinculado ao lado",
-    alunoId: "aluno-202007063",
+    alunoId: "aluno-990100002",
     situacaoNoCrm: "Formado",
     nota: "Duas linhas têm o curso “EDUCACAO FISICA” literalmente igual, com situações diferentes (Desistente e Desvinculado).",
-    leitura: consulta("202007063", [
+    leitura: consulta("990100002", [
       ["EDUCACAO FISICA", null, null, "Desistente", false, 2020],
       ["EDUCACAO FISICA - BACHARELADO", GRAVATAI, "NOITE", "Mudança de Campus", false, null],
       ["EDUCACAO FISICA", GRAVATAI, "NOITE", "Desvinculado", false, 2022],
@@ -73,10 +86,10 @@ export const CASOS = [
   },
   {
     rotulo: "Trancado no CRM — trancado em dois cursos, reaberto num deles",
-    alunoId: "aluno-221005273",
+    alunoId: "aluno-990100003",
     situacaoNoCrm: "Trancado",
     nota: "Três vínculos em ENFERMAGEM, com três situações diferentes. O turno de um vem sujo: “NOITE...”, com os pontos literais.",
-    leitura: consulta("221005273", [
+    leitura: consulta("990100003", [
       ["ENFERMAGEM", null, null, "TRANSFERENCIA DE CURRICULOS", false, 2022],
       ["ENFERMAGEM", CEULP, "NOITE", "Trancado", false, 2023],
       ["ENFERMAGEM", CEULP, "NOITE...", "Entrada via Reabertura", false, null],
@@ -87,10 +100,10 @@ export const CASOS = [
   },
   {
     rotulo: "Trancado no CRM — o caso que prova a ambiguidade",
-    alunoId: "aluno-222007757",
+    alunoId: "aluno-990100004",
     situacaoNoCrm: "Trancado",
     nota: "Três vínculos em COMÉRCIO EXTERIOR com curso, campus e turno IDÊNTICOS, e status Reopção de Curso, Cancelado e nulo. Nenhum campo disponível os distingue — é por isso que a correspondência não pode ser confirmada.",
-    leitura: consulta("222007757", [
+    leitura: consulta("990100004", [
       ["SUPERIOR DE TECNOLOGIA EM PROCESSOS GERENCIAIS", null, null, "Reopção de Curso", false, 2023],
       ["SUPERIOR DE TECNOLOGIA EM COMÉRCIO EXTERIOR", EAD, AD, "Reopção de Curso", false, 2025],
       ["SUPERIOR DE TECNOLOGIA EM COMÉRCIO EXTERIOR", POP, AD, "Cancelado", false, 2025],
@@ -103,10 +116,10 @@ export const CASOS = [
   },
   {
     rotulo: "Cancelado no CRM — e o Prime não tem nenhum “Cancelado”",
-    alunoId: "aluno-221016167",
+    alunoId: "aluno-990100005",
     situacaoNoCrm: "Cancelado",
     nota: "Divergência: nenhum vínculo do Prime tem status “Cancelado”. Os CONTRATOS desta pessoa têm — mas contrato não é situação acadêmica, e a tela não usa um no lugar do outro. 4 dos 7 vínculos vêm sem situação.",
-    leitura: consulta("221016167", [
+    leitura: consulta("990100005", [
       ["MEDICINA VETERINÁRIA", null, null, "TRANSFERENCIA DE CURRICULOS", false, 2022],
       ["DIREITO DIURNO", CEULP, "MANHA", "Reopção de Curso", false, 2023],
       ["PSICOLOGIA", CEULP, "MANHA", "Entrada via Reabertura", false, null],
@@ -118,10 +131,10 @@ export const CASOS = [
   },
   {
     rotulo: "Cancelado no CRM — e o Prime diz Matriculado Curso Normal",
-    alunoId: "aluno-232005998",
+    alunoId: "aluno-990100006",
     situacaoNoCrm: "Cancelado",
     nota: "Divergência no sentido contrário: o CRM diz que saiu, e a única situação que o Prime informa é “Matriculado Curso Normal”.",
-    leitura: consulta("232005998", [
+    leitura: consulta("990100006", [
       ["ALFABETIZAÇÃO E LETRAMENTO", EAD, AD, "Matriculado Curso Normal", false, 2023],
       ["GESTÃO PEDAGÓGICA E ADMINISTRATIVA EM AMBIENTES EDUCATIVOS", POP, AD, null, false, null],
       ["CURSO SUPERIOR DE TECNOLOGIA EM GESTÃO FINANCEIRA", EAD, AD, null, false, null],
@@ -158,10 +171,35 @@ export const CASOS = [
     },
   },
   {
+    rotulo: "Matrículas diferentes na mesma resposta (desfecho construído)",
+    alunoId: "aluno-matriculas-diferentes",
+    situacaoNoCrm: "Trancado",
+    nota: "A amostra de seis não produziu este caso — nela a matrícula se repetiu dentro de cada aluno. Entra porque seis alunos não provam regra: se um dia vierem matrículas diferentes, a matrícula precisa aparecer LINHA A LINHA, e o cabeçalho fica sem matrícula em vez de escolher uma.",
+    leitura: {
+      consulta_id: "consulta-matriculas-diferentes", resultado: "COM_VINCULOS",
+      detalhe_falha: null, http_status: 200,
+      registration: null, // divergem: o cabeçalho não escolhe uma
+      fonte: F, consultado_em: "2026-09-28T23:48:00Z", consultado_por: "gestao@exemplo.test",
+      vinculos: [
+        { linha_id: "md-1", ordem: 1, registration: "990100007", curso: "ENFERMAGEM", campus: CEULP, turno: "NOITE", status: "Trancado", graduated: false, admission_year: 2022 },
+        { linha_id: "md-2", ordem: 2, registration: "990100008", curso: "NUTRIÇÃO", campus: CEULP, turno: "NOITE", status: "Matriculado Curso Normal", graduated: false, admission_year: 2024 },
+        { linha_id: "md-3", ordem: 3, registration: "990100008", curso: "NUTRIÇÃO", campus: CEULP, turno: "NOITE", status: null, graduated: false, admission_year: null },
+      ],
+    },
+  },
+  {
+    rotulo: "Erro ao ler o que está gravado (desfecho construído)",
+    alunoId: "aluno-erro-leitura",
+    situacaoNoCrm: "Formado",
+    nota: "Não se conseguiu LER o registro local. Isto NÃO é “nunca consultado”: dizer isso mandaria consultar de novo um dado que talvez já exista. A tela diz que não conseguiu olhar, e não dispara consulta nova.",
+    leitura: null,
+    erroLeitura: "permission denied for function prime_academico_ultima",
+  },
+  {
     rotulo: "Nunca consultado — a tela consulta a API sozinha",
     alunoId: "aluno-nunca-consultado",
     situacaoNoCrm: null,
-    nota: "Não há dado local. O bloco chama a Edge Function por conta própria, sem ninguém clicar. Aqui a chamada é dublada e devolve o caso da 222007757 depois de um segundo, para dar para ver o “Consultando…”.",
+    nota: "Não há dado local. O bloco chama a Edge Function por conta própria, sem ninguém clicar. Aqui a chamada é dublada e devolve o caso da 990100004 depois de um segundo, para dar para ver o “Consultando…”.",
     leitura: null,
   },
 ];

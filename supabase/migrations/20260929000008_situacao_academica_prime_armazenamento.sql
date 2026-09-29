@@ -75,6 +75,11 @@ create table if not exists public.prime_academico_vinculo (
   -- POSIÇÃO NA RESPOSTA. É o único campo que distingue vínculos com curso,
   -- campus e turno idênticos -- e eles existem (222007757). Não reordenar.
   ordem         integer not null,
+  -- MATRÍCULA DESTA LINHA. Na amostra de 28/09/2026 ela se repetiu idêntica
+  -- dentro de cada aluno, mas seis alunos não autorizam tratar isso como regra.
+  -- Se um dia vierem matrículas diferentes na mesma resposta, guardar uma só no
+  -- cabeçalho perderia a informação de qual vínculo pertence a qual.
+  registration  text,
   curso         text,
   campus        text,
   turno         text,
@@ -93,6 +98,12 @@ comment on table public.prime_academico_vinculo is
 
 comment on column public.prime_academico_vinculo.ordem is
   'Posição na resposta da API. Único discriminador de vínculos com curso+campus+turno idênticos.';
+
+comment on column public.prime_academico_vinculo.registration is
+  'Matrícula desta linha, como a API devolveu. Preservada por linha justamente para o caso de a resposta trazer matrículas diferentes.';
+
+comment on column public.prime_academico_consulta.registration is
+  'Matrícula do cabeçalho: só preenchida quando TODAS as linhas concordam. Nula quando divergem — a informação por linha é que manda.';
 
 -- ---------------------------------------------------------------------------
 -- 3. RLS -- leitura para quem está logado; escrita só pelo backend
@@ -143,6 +154,7 @@ as $$
       select jsonb_agg(jsonb_build_object(
                'linha_id',       v.id,
                'ordem',          v.ordem,
+               'registration',   v.registration,
                'curso',          v.curso,
                'campus',         v.campus,
                'turno',          v.turno,
@@ -206,10 +218,11 @@ begin
 
   if p_resultado = 'COM_VINCULOS' and jsonb_typeof(p_vinculos) = 'array' then
     insert into public.prime_academico_vinculo
-      (consulta_id, ordem, curso, campus, turno, status, admission_year, graduated)
+      (consulta_id, ordem, registration, curso, campus, turno, status, admission_year, graduated)
     select
       v_id,
       (t.ord)::int,
+      nullif(t.item->>'registration',''),
       nullif(t.item->>'course',''),
       nullif(t.item->>'campus',''),
       nullif(t.item->>'shift',''),
@@ -229,4 +242,24 @@ $$;
 comment on function public.prime_academico_registrar is
   'Grava uma consulta acadêmica e seus vínculos. service_role apenas. Não escreve em alunos, não altera situacao_academica, saldo nem cobrança.';
 
+-- ---------------------------------------------------------------------------
+-- 6. PERMISSÕES, EXPLÍCITAS
+-- ---------------------------------------------------------------------------
+-- Escritas assim, e não deixadas ao default privileges do projeto: o default é
+-- conceder EXECUTE a todo mundo, e quem lê a migration depois não tem como
+-- saber quem podia chamar o quê. Aqui está no arquivo.
+--
+-- A ESCRITA é só do backend. `revoke ... from public` tira de anon e de
+-- authenticated junto (os dois herdam de PUBLIC), e o grant devolve só a
+-- service_role. O `auth.role()` lá dentro continua valendo como segunda
+-- tranca -- quem tiver a credencial ainda precisa estar com o papel certo.
 revoke all on function public.prime_academico_registrar(uuid,text,text,text,text,integer,integer,jsonb,text) from public;
+grant execute on function public.prime_academico_registrar(uuid,text,text,text,text,integer,integer,jsonb,text) to service_role;
+
+-- A LEITURA é do operador logado: é dado operacional, e escondê-lo produziria a
+-- cobrança errada. `security invoker` + policy de select mandam de verdade; este
+-- grant só abre a porta da função.
+--
+-- NENHUM `revoke` de authenticated aqui -- restringir é portão interno, nunca
+-- tirar EXECUTE de quem usa a tela (regra de 12/09/2026).
+grant execute on function public.prime_academico_ultima(uuid) to authenticated, service_role;

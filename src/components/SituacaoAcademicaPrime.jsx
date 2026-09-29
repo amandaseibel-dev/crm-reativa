@@ -9,10 +9,10 @@ import { supabase } from "../services/supabase";
 // POR QUE NÃO EXISTE AQUI UM CAMPO "SITUAÇÃO DO ALUNO". A API devolve a situação
 // por vínculo de curso, e os vínculos de uma mesma pessoa discordam entre si
 // (sondado em 28/09/2026, 6 alunos, 35 vínculos). Não foi encontrado
-// identificador estável do vínculo nos endpoints consultados, e a chave
-// curso+campus+turno não os separa -- na matrícula 222007757 três vínculos têm
-// curso, campus e turno IDÊNTICOS com status "Reopção de Curso", "Cancelado" e
-// nulo. Então:
+// identificador estável do vínculo nos endpoints e na amostra consultados, e a
+// chave curso+campus+turno não os separa -- na matrícula 222007757 três vínculos
+// têm curso, campus e turno IDÊNTICOS com status "Reopção de Curso", "Cancelado"
+// e nulo. Então:
 //
 //   - nenhuma linha é escolhida como "a" situação;
 //   - o status de um curso nunca vira status da pessoa;
@@ -21,12 +21,19 @@ import { supabase } from "../services/supabase";
 //     nunca escondidos atrás dela;
 //   - `alunos.situacao_academica` não é lida nem escrita por este bloco.
 //
-// TRÊS DESFECHOS DISTINTOS, nunca achatados em "sem informação":
-//   nunca consultado    -> consulta a API sozinho
-//   SEM_RESULTADO       -> a API respondeu e não achou o CPF naquela busca
-//   FALHA_COMUNICACAO   -> não se sabe nada; oferece tentar de novo
-// E, dentro de uma linha, `status` nulo é "Não informado pelo Prime" -- que não
-// é nenhum dos três acima.
+// QUEM PODE CONSULTAR. A Edge Function só atende gestão. O operador LÊ o que já
+// está gravado -- é dado operacional, e escondê-lo produziria a cobrança errada
+// -- mas não dispara consulta: o botão não aparece para ele, e a consulta
+// automática não roda. Sem esse cuidado, abrir uma ficha nunca consultada como
+// operador gerava uma chamada que só podia terminar em 403, e a tela mostraria
+// um erro que não é problema dele nem tem ação possível do lado dele.
+//
+// CINCO ESTADOS DISTINTOS, nunca achatados em "sem informação":
+//   erro ao LER o que está gravado -> é erro, e diz que é
+//   nunca consultado             -> gestão consulta sozinha; operador é orientado
+//   SEM_RESULTADO                -> respondeu e não há linha desta pessoa
+//   FALHA_COMUNICACAO            -> não se sabe nada
+// E, dentro de uma linha, `status` nulo é "Não informado pelo Prime".
 
 const ROTULO_NULO = "Não informado pelo Prime";
 
@@ -37,7 +44,7 @@ function dataHora(iso) {
   return d.toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" });
 }
 
-function Vinculo({ v }) {
+function Vinculo({ v, mostrarMatricula }) {
   const semStatus = v.status == null || v.status === "";
   return (
     <tr>
@@ -46,6 +53,14 @@ function Vinculo({ v }) {
         <span style={S.sub}>
           {[v.campus, v.turno].filter(Boolean).join(" · ") || "campus e turno não informados"}
         </span>
+        {/* A matrícula só ganha linha própria quando a resposta traz mais de
+            uma. Repetir a mesma em todas as linhas seria ruído; escondê-la
+            quando DIFEREM apagaria de qual vínculo é qual. */}
+        {mostrarMatricula && (
+          <span style={S.sub}>
+            matrícula {v.registration || <span style={S.nd}>não informada</span>}
+          </span>
+        )}
       </td>
       <td style={S.td}>
         {semStatus
@@ -66,83 +81,137 @@ function Vinculo({ v }) {
 }
 
 export default function SituacaoAcademicaPrime({ aluno }) {
-  // A leitura carrega DE QUAL ALUNO ela é. Sem isso, trocar de ficha mostraria
+  // A carga carrega DE QUAL ALUNO ela é. Sem isso, trocar de ficha mostraria
   // por um instante os vínculos do aluno anterior -- numa tela de cobrança, o
   // tipo de erro que faz alguém ligar para a pessoa errada.
   //
   // Guardar o dono junto do dado também evita `setState` síncrono dentro do
-  // efeito (que a regra react-hooks/set-state-in-effect proíbe, e com razão:
-  // gera renderização em cascata). "Carregando" passa a ser uma CONCLUSÃO --
-  // "o que tenho não é deste aluno" -- em vez de um estado que alguém precisa
-  // lembrar de ligar e desligar.
-  const [carga, setCarga] = useState({ paraAluno: null, dados: null });
+  // efeito. "Carregando" passa a ser uma CONCLUSÃO -- "o que tenho não é deste
+  // aluno" -- em vez de um estado que alguém precisa lembrar de ligar e
+  // desligar.
+  //
+  // `erroLeitura` é separado de `dados`: falhar ao LER o que está gravado NÃO é
+  // "nunca consultado". Tratar os dois como o mesmo `null` fazia a tela dizer
+  // que não havia consulta quando na verdade não se conseguiu olhar -- e, para
+  // a gestão, disparava uma consulta nova à API por cima de um dado que talvez
+  // já existisse.
+  const [carga, setCarga] = useState({ paraAluno: null, dados: null, erroLeitura: null });
   const [consultando, setConsultando] = useState(false);
-  const [erroTela, setErroTela] = useState(null);
+  const [erroConsulta, setErroConsulta] = useState(null);
+  const [podeConsultar, setPodeConsultar] = useState(null); // null = ainda não se sabe
 
   const alunoId = aluno?.id || null;
-  const leitura = carga.paraAluno === alunoId ? carga.dados : null;
-  const carregando = Boolean(alunoId) && carga.paraAluno !== alunoId;
+  const daFicha = carga.paraAluno === alunoId;
+  const leitura = daFicha ? carga.dados : null;
+  const erroLeitura = daFicha ? carga.erroLeitura : null;
+  const carregando = Boolean(alunoId) && !daFicha;
+
+  // Quem pode consultar é o banco que diz, pela mesma função que a Edge usa.
+  // Erro na pergunta vira `false`: na dúvida, não oferece um botão que vai
+  // falhar.
+  useEffect(() => {
+    let vivo = true;
+    supabase
+      .rpc("usuario_e_gestao")
+      .then(({ data, error }) => { if (vivo) setPodeConsultar(!error && data === true); })
+      .catch(() => { if (vivo) setPodeConsultar(false); });
+    return () => { vivo = false; };
+  }, []);
 
   const consultarApi = useCallback(async () => {
     if (!alunoId) return;
     setConsultando(true);
-    setErroTela(null);
+    setErroConsulta(null);
     try {
       const { data, error } = await supabase.functions.invoke("prime-academico", {
         body: { aluno_id: alunoId },
       });
       if (error) throw error;
-      if (data?.leitura) setCarga({ paraAluno: alunoId, dados: data.leitura });
-      else if (data?.erro) setErroTela(String(data.erro));
+      if (data?.leitura) setCarga({ paraAluno: alunoId, dados: data.leitura, erroLeitura: null });
+      else if (data?.erro) setErroConsulta(String(data.erro));
     } catch (e) {
-      // Falha ao FALAR com a nossa função é diferente de falha da API do Prime:
-      // esta nem chegou a registrar consulta. A tela diz isso.
-      setErroTela(e?.message ? `Não foi possível consultar: ${e.message}` : "Não foi possível consultar.");
+      // A CONSULTA FALHOU, MAS O QUE JÁ SE SABIA CONTINUA NA TELA. `carga` não
+      // é tocada: a última consulta bem-sucedida segue visível, com a data
+      // dela, e este aviso aparece por cima dizendo que a tentativa de agora
+      // não foi. Limpar a tela numa falha de atualização seria trocar
+      // informação boa por nenhuma.
+      setErroConsulta(e?.message ? `Não foi possível consultar agora: ${e.message}` : "Não foi possível consultar agora.");
     } finally {
       setConsultando(false);
     }
   }, [alunoId]);
 
-  // Lê o que já está gravado. `null` = nunca consultado, e aí consulta a API
-  // por conta própria -- é o caso "não houver dados locais".
+  // Lê o que já está gravado. Só depois de saber se pode consultar, para não
+  // disparar uma chamada que terminaria em 403.
   useEffect(() => {
-    if (!alunoId) return undefined;
+    if (!alunoId || podeConsultar === null) return undefined;
     let vivo = true;
     supabase
       .rpc("prime_academico_ultima", { p_aluno_id: alunoId })
-      .then(({ data }) => {
+      .then(({ data, error }) => {
         if (!vivo) return;
-        // `null` = NUNCA consultado. Diferente de consultado sem resultado, e
-        // por isso é aqui que a consulta à API acontece sozinha.
-        if (data) setCarga({ paraAluno: alunoId, dados: data });
-        else { setCarga({ paraAluno: alunoId, dados: null }); consultarApi(); }
+        if (error) {
+          // Não conseguir LER é erro, e não "nunca consultado".
+          setCarga({ paraAluno: alunoId, dados: null, erroLeitura: error.message || "erro ao ler" });
+          return;
+        }
+        setCarga({ paraAluno: alunoId, dados: data || null, erroLeitura: null });
+        // `null` = nunca consultado. Só a gestão dispara a consulta.
+        if (!data && podeConsultar) consultarApi();
       })
-      .catch(() => { if (vivo) setCarga({ paraAluno: alunoId, dados: null }); });
+      .catch((e) => {
+        if (vivo) setCarga({ paraAluno: alunoId, dados: null, erroLeitura: e?.message || "erro ao ler" });
+      });
     return () => { vivo = false; };
-  }, [alunoId, consultarApi]);
+  }, [alunoId, podeConsultar, consultarApi]);
 
   if (!alunoId) return null;
 
   const vinculos = Array.isArray(leitura?.vinculos) ? leitura.vinculos : [];
   const quando = dataHora(leitura?.consultado_em);
+  const semStatusN = vinculos.filter((v) => v.status == null || v.status === "").length;
+  // Matrícula por linha só aparece quando a resposta trouxe mais de uma.
+  const matriculasDistintas = new Set(vinculos.map((v) => v.registration ?? null));
+  const mostrarMatricula = matriculasDistintas.size > 1;
+  const nuncaConsultado = !leitura && !erroLeitura && !carregando;
 
   return (
     <div style={S.caixa}>
       <div style={S.cab}>
         <span style={S.titulo}>Situação acadêmica consultada no Prime</span>
-        <button
-          type="button"
-          onClick={consultarApi}
-          disabled={consultando}
-          style={{ ...S.botao, ...(consultando ? S.botaoOcupado : null) }}
-        >
-          {consultando ? "Consultando…" : "Atualizar consulta"}
-        </button>
+        {podeConsultar && (
+          <button
+            type="button"
+            onClick={consultarApi}
+            disabled={consultando}
+            style={{ ...S.botao, ...(consultando ? S.botaoOcupado : null) }}
+          >
+            {consultando ? "Consultando…" : "Atualizar consulta"}
+          </button>
+        )}
       </div>
 
       {carregando && <p style={S.mudo}>Carregando…</p>}
 
-      {erroTela && <p style={S.falha}>{erroTela}</p>}
+      {/* ERRO DE LEITURA -- não é ausência de consulta, é não ter conseguido
+          olhar. Dizer "nunca consultado" aqui mandaria alguém consultar de novo
+          um dado que talvez já exista. */}
+      {erroLeitura && (
+        <p style={S.falha}>
+          Não foi possível ler as consultas já gravadas ({erroLeitura}). Isto não
+          quer dizer que o aluno nunca tenha sido consultado — quer dizer que o
+          registro não pôde ser lido agora.
+        </p>
+      )}
+
+      {/* Falha da tentativa de AGORA. Aparece por cima, e o que já estava
+          gravado continua abaixo, com a data da consulta que deu certo. */}
+      {erroConsulta && (
+        <p style={S.falha}>
+          {erroConsulta}
+          {leitura ? " A consulta anterior, abaixo, continua valendo." : ""}
+        </p>
+      )}
 
       {/* FALHA DE COMUNICAÇÃO -- não se sabe nada. Nunca dizer "sem vínculo". */}
       {leitura?.resultado === "FALHA_COMUNICACAO" && (
@@ -150,12 +219,13 @@ export default function SituacaoAcademicaPrime({ aluno }) {
           Não foi possível falar com o Prime nesta consulta
           {leitura.detalhe_falha ? ` (${leitura.detalhe_falha})` : ""}. Isto não
           significa que o aluno não tenha vínculo — significa que a resposta não
-          chegou. Tente atualizar a consulta.
+          chegou.{podeConsultar ? " Tente atualizar a consulta." : ""}
         </p>
       )}
 
-      {/* CONSULTA SEM RESULTADO -- a API respondeu, e não achou. Também não é
-          "não tem vínculo": a busca é por CPF e pode não encontrar. */}
+      {/* CONSULTA SEM RESULTADO -- a API respondeu, e não há linha desta
+          pessoa. Também não é "não tem vínculo": a busca é por CPF e pode não
+          encontrar. */}
       {leitura?.resultado === "SEM_RESULTADO" && (
         <p style={S.vazio}>
           O Prime respondeu e não retornou nenhum vínculo para o CPF desta ficha.
@@ -185,16 +255,29 @@ export default function SituacaoAcademicaPrime({ aluno }) {
                   de render -- nunca apresentado como id do Prime. Duas linhas
                   com curso, campus e turno iguais são vínculos diferentes e
                   ficam as duas. */}
-              {vinculos.map((v) => <Vinculo key={v.linha_id || `ordem-${v.ordem}`} v={v} />)}
+              {vinculos.map((v) => (
+                <Vinculo key={v.linha_id || `ordem-${v.ordem}`} v={v} mostrarMatricula={mostrarMatricula} />
+              ))}
             </tbody>
           </table>
           <p style={S.contagem}>
             {vinculos.length} {vinculos.length === 1 ? "vínculo" : "vínculos"} de curso
-            {vinculos.some((v) => v.status == null || v.status === "")
-              ? ` · ${vinculos.filter((v) => v.status == null || v.status === "").length} sem situação informada`
-              : ""}
+            {semStatusN ? ` · ${semStatusN} sem situação informada` : ""}
+            {mostrarMatricula ? ` · ${matriculasDistintas.size} matrículas diferentes` : ""}
           </p>
         </>
+      )}
+
+      {/* NUNCA CONSULTADO. Para a gestão isto quase não aparece (a consulta
+          dispara sozinha). Para o operador é o estado normal, e ele precisa de
+          uma instrução que ele consiga seguir -- não de um botão que daria 403
+          nem de um erro que não é problema dele. */}
+      {nuncaConsultado && !erroConsulta && (
+        <p style={S.mudo}>
+          {podeConsultar
+            ? "Nenhuma consulta gravada para este aluno."
+            : "Nenhuma consulta ao Prime foi feita para este aluno ainda. A consulta é restrita à gestão — peça a ela para consultar, e o resultado aparece aqui para todos."}
+        </p>
       )}
 
       {leitura && (

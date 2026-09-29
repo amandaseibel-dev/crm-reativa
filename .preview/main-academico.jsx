@@ -1,6 +1,8 @@
+import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import SituacaoAcademicaPrime from "/src/components/SituacaoAcademicaPrime.jsx";
 import { CASOS } from "./dados-academico.js";
+import { cenario } from "./mock-supabase-academico.js";
 
 // Preview da seção "Situação acadêmica consultada no Prime".
 // O componente é o REAL; só a camada de serviço é dublada.
@@ -18,7 +20,10 @@ const s = {
   nota: { fontSize: 12.5, color: "var(--rv-texto)", margin: "0 0 4px", maxWidth: 780 },
 };
 
-function Caso({ c }) {
+// Exportados para satisfazer react-refresh/only-export-components -- a regra
+// reclama de arquivo que tem componente e nenhum export. Nao muda nada do que
+// roda; evita empurrar a catraca de lint para cima.
+export function Caso({ c }) {
   return (
     <section style={s.caso}>
       <h2 style={s.h2}>{c.rotulo}</h2>
@@ -33,21 +38,40 @@ function Caso({ c }) {
   );
 }
 
-createRoot(document.getElementById("raiz")).render(
-  <div style={s.pagina}>
-    <div style={s.barra}>
-      <strong>PREVIEW</strong>
-      <span style={{ color: "#94a3b8" }}>
-        componente real · camada de serviço dublada · nada é gravado
-      </span>
-    </div>
-    <div style={s.corpo}>
+// A barra troca o papel. Sem poder ver como OPERADOR, o cuidado mais
+// importante da revisao -- ele nao dispara consulta -- fica invisivel.
+export function Pagina() {
+  const [gestao, setGestao] = useState(cenario.gestao);
+  const [chave, setChave] = useState(0);
+  function trocar(v) { cenario.gestao = v; setGestao(v); setChave((k) => k + 1); }
+  const botao = (ligado) => ({
+    padding: "4px 12px", borderRadius: 999, border: 0, cursor: "pointer",
+    background: ligado ? "#22c55e" : "#334155", color: "#fff", fontWeight: 600, fontSize: 12,
+  });
+  return (
+    <div style={s.pagina}>
+      <div style={s.barra}>
+        <strong>PREVIEW</strong>
+        <span style={{ color: "#94a3b8" }}>
+          componente real · matrículas fictícias · nada é gravado
+        </span>
+        <span style={{ flex: 1 }} />
+        <span style={{ color: "#94a3b8" }}>ver como:</span>
+        <button onClick={() => trocar(false)} style={botao(!gestao)}>Operador</button>
+        <button onClick={() => trocar(true)} style={botao(gestao)}>Gestão</button>
+      </div>
+      <div style={s.corpo} key={chave}>
       <h1 style={s.h1}>Situação acadêmica consultada no Prime</h1>
       <p style={s.intro}>
-        Os seis alunos consultados em 28/09/2026, mais os três desfechos que a
-        tela precisa distinguir. Nenhum nome e nenhum CPF aparecem aqui.
+        Nove casos com a estrutura observada na consulta de 28/09/2026 — os seis
+        padrões encontrados nos alunos consultados, mais os três desfechos que a
+        tela precisa distinguir. <b>Matrículas fictícias</b>: nenhum dado real
+        de aluno aparece aqui.
       </p>
       {CASOS.map((c) => <Caso key={c.alunoId} c={c} />)}
+      </div>
     </div>
-  </div>,
-);
+  );
+}
+
+createRoot(document.getElementById("raiz")).render(<Pagina />);

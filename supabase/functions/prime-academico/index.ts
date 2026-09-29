@@ -22,7 +22,10 @@
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { decidirAcesso } from "../prime-sonda/portao.ts";
-import { formatarCpf, resultadoDaResposta, vinculosDaResposta } from "./academico.ts";
+import {
+  desfecho, devePedirMaisUma, formatarCpf, lerPagina,
+  registrationDoCabecalho, vinculosDaResposta,
+} from "./academico.ts";
 
 const BASE = "https://prime-api.ulbra.ai/api";
 
@@ -95,32 +98,60 @@ Deno.serve(async (req) => {
   if (!chave) return json({ erro: "CHAVE_INDISPONIVEL" }, 500);
 
   // ---------------------------------------------------------------------------
-  // A CHAMADA. Três desfechos, e os três são gravados como estados distintos.
-  // Achatar falha de rede em "sem informação" é exatamente o que não pode
-  // acontecer: viraria "o aluno não tem vínculo".
+  // A CHAMADA, PAGINADA.
+  //
+  // `take=50` sozinho era um teto silencioso: quem tivesse 51 vínculos perdia o
+  // 51º sem nenhum sinal. Numa tela que decide cobrança, perder linha em
+  // silêncio é pior do que não mostrar nada.
+  //
+  // Três desfechos, gravados como estados distintos. Achatar falha de rede em
+  // "sem informação" viraria "o aluno não tem vínculo".
   // ---------------------------------------------------------------------------
+  const TAKE = 50;
+  const TETO = 500; // trava de segurança: nunca girar para sempre
+
   let httpStatus: number | null = null;
-  let dados: unknown = null;
   let falha: string | null = null;
-  try {
-    const r = await fetch(
-      `${BASE}/students?search=${encodeURIComponent(cpf)}&take=50`,
-      { method: "GET", headers: { "X-API-Key": chave } },
-    );
-    httpStatus = r.status;
-    const texto = await r.text();
-    if (!r.ok) {
-      falha = `HTTP ${r.status}`;
-    } else {
-      try { dados = JSON.parse(texto); } catch { falha = "resposta ilegivel (JSON invalido)"; }
+  let paginaIlegivel = false;
+  let totalItems: number | null = null;
+  const brutos: Record<string, unknown>[] = [];
+
+  for (let skip = 0; ; skip += TAKE) {
+    let pagina;
+    try {
+      const r = await fetch(
+        `${BASE}/students?search=${encodeURIComponent(cpf)}&take=${TAKE}&skip=${skip}`,
+        { method: "GET", headers: { "X-API-Key": chave } },
+      );
+      httpStatus = r.status;
+      const texto = await r.text();
+      if (!r.ok) { falha = `HTTP ${r.status}`; break; }
+      let json: unknown = null;
+      try { json = JSON.parse(texto); } catch { paginaIlegivel = true; break; }
+      pagina = lerPagina(json);
+    } catch (e) {
+      // rede, DNS, timeout -- nunca vaza a chave: só a classe do erro.
+      falha = `falha de rede: ${(e as Error)?.name ?? "erro"}`;
+      break;
     }
-  } catch (e) {
-    // rede, DNS, timeout -- nunca vaza a chave: só a classe do erro.
-    falha = `falha de rede: ${(e as Error)?.name ?? "erro"}`;
+
+    // 200 com corpo sem `items` array: não se entendeu a resposta. Não é
+    // "acabaram as páginas" -- é falha, e parar como se tivesse acabado
+    // gravaria uma lista incompleta como se fosse completa.
+    if (pagina.items === null) { paginaIlegivel = true; break; }
+    if (pagina.totalItems !== null) totalItems = pagina.totalItems;
+    brutos.push(...pagina.items);
+    if (!devePedirMaisUma(brutos.length, pagina.items.length, TAKE, totalItems, TETO)) break;
   }
 
-  const { resultado, totalItems, registration } = resultadoDaResposta(dados, falha);
-  const vinculos = vinculosDaResposta(dados, aluno.cpf);
+  // O FILTRO VEM ANTES DO DESFECHO. Uma busca que traga só linhas de OUTRA
+  // pessoa (o `search` é substring) tem items > 0 e zero vínculos desta ficha:
+  // chamar isso de COM_VINCULOS faria a tela dizer "consultei e encontrei" e
+  // mostrar tabela vazia.
+  const vinculos = falha || paginaIlegivel ? [] : vinculosDaResposta(brutos, aluno.cpf);
+  const resultado = desfecho(falha, paginaIlegivel, vinculos);
+  const registration = registrationDoCabecalho(vinculos);
+  if (paginaIlegivel && !falha) falha = "resposta ilegivel (corpo sem items)";
 
   const { data: consultaId, error: erroGravar } = await supa.rpc("prime_academico_registrar", {
     p_aluno_id: alunoId,

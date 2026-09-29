@@ -11,23 +11,33 @@ está trocado é só a camada de serviço: o config aponta `services/supabase` p
 
 ## O que a página mostra
 
-Os **seis alunos consultados no Prime em 28/09/2026**, mais os três desfechos
-que a tela precisa distinguir e que a amostra não produziu:
+Os **seis padrões encontrados na consulta de 28/09/2026** (com matrículas
+fictícias), mais os três desfechos que a tela precisa distinguir e que a amostra
+não produziu:
 
 - consulta **sem resultado** (a API respondeu e não achou);
 - **falha de comunicação** (não se sabe nada);
 - **nunca consultado** (a tela chama a Edge Function sozinha).
 
-## Dado real, sem dado pessoal
+## Matrículas fictícias
 
-`dados-academico.js` tem matrícula, curso, campus, turno e situação — informação
-institucional. **Nenhum nome e nenhum CPF.**
+`dados-academico.js` usa **matrículas fictícias** — nove dígitos, mesmo formato
+das reais, começando por `99` (que não corresponde a ano de ingresso nenhum).
+Nenhum nome, nenhum CPF, nenhum dado real de aluno.
 
-É dado real de propósito. O que esta tela precisa provar é que aguenta o formato
-que a API realmente devolve: três vínculos indistinguíveis com status
-diferentes, acentuação dividindo o mesmo curso, metade das linhas sem situação.
-Dado inventado sempre sai mais limpo do que a realidade, e um preview limpo não
-prova nada.
+**Correção de uma afirmação anterior.** A primeira versão deste arquivo usava as
+matrículas reais dos seis alunos consultados e dizia que eram "informação
+institucional, nenhum dado pessoal". Estava errado: a matrícula identifica uma
+pessoa, e matrícula + curso + campus + turno + situação de alguém que está sendo
+cobrado é dado pessoal, mesmo sem nome e sem CPF. Num arquivo versionado, isso é
+espalhar dado pessoal para onde ele não precisa estar.
+
+O que foi **preservado** é a estrutura, que é o que a tela precisa aguentar:
+três vínculos com curso, campus e turno idênticos e status diferentes;
+acentuação dividindo o mesmo curso; o mesmo curso literal com duas situações;
+metade das linhas sem situação; e as duas divergências contra o CRM. Dado
+inventado costuma sair mais limpo do que a realidade, e preview limpo não prova
+nada — por isso a forma foi mantida fiel.
 
 ## Cuidado ao mexer no mock
 
