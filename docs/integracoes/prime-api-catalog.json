@@ -8,7 +8,7 @@
     "secret_location": "Supabase Vault, segredo 'prime_api_key' — lido só por service_role, via RPC prime_api_key_backend() ou prime_chave_api() (duas RPCs equivalentes, ver gaps)",
     "never": "a chave nunca chega ao navegador, nunca é logada, nunca aparece em resposta de Edge Function"
   },
-  "last_verified_at": "2026-09-22",
+  "last_verified_at": "2026-09-28",
   "resources": [
     {
       "resource": "carriers",
@@ -78,7 +78,7 @@
         }
       ],
       "response_fields": {
-        "items": "array de aluno resumido: registration, name, cpf, course, campus, shift, status",
+        "items": "array de VINCULO DE CURSO (nao de matricula): registration, name, cpf, course, status, admissionYear, graduated, campus, shift",
         "totalItems": "int"
       },
       "source_of_truth_for": [
@@ -94,7 +94,28 @@
         "o mesmo aluno pode repetir linha por curso/matrícula diferente",
         "CPF sem formatação = resultado vazio sem erro, não sem dado"
       ],
-      "last_verified_at": "2026-09-15"
+      "last_verified_at": "2026-09-28",
+      "status_escopo": "VINCULO DE CURSO. Em 2026-09-28, nos 6 alunos da amostra, `registration` repetiu-se identico em todas as linhas do mesmo aluno -- items[] nao e lista de matriculas, e `status` nao e atributo da pessoa. A amostra nao autoriza afirmar que toda pessoa tenha uma matricula so.",
+      "status_valores_observados": [
+        "Formado",
+        "Trancado",
+        "Cancelado",
+        "Desvinculado",
+        "Desistente",
+        "Reopção de Curso",
+        "Mudança de Campus",
+        "Matriculado Curso Normal",
+        "TRANSFERENCIA DE CURRICULOS",
+        "Entrada via Reabertura",
+        null
+      ],
+      "campos_nao_documentados_ate_2026_09_28": [
+        "admissionYear",
+        "graduated"
+      ],
+      "graduated_nota": "boolean INDEPENDENTE de status -- nao e sinonimo de status=='Formado'. Linha com status 'Mudança de Campus' veio graduated:true na matricula 201008325",
+      "nulos_observados": "status nulo em 14 de 35 vinculos; campus e shift nulos em 10 de 35; o vinculo 'Disciplinas Isoladas' veio com status nulo nos 6 alunos e admissionYear 2000",
+      "sem_identificador_estavel": "NAO FOI ENCONTRADO identificador estavel nos endpoints e na amostra consultados: nenhum campo de id/codigo/sequencia no item; a chave course+campus+shift NAO separa vinculos (3 linhas com chave identica e status Reopção de Curso / Cancelado / null na matricula 222007757). Ver prime-mapa-identificadores.md"
     },
     {
       "resource": "student_composite",
@@ -124,7 +145,14 @@
         "preferir este endpoint a /financial-statement isolado: evita a paginação padrão de 50 (medido: aluno com 61 parcelas trazia 50 pelo endpoint paginado e 61 por aqui)",
         "agreements[] vazio não é prova de que o acordo não existe — é ausência de exposição pela API (medido inclusive para acordo ATIVO confirmado na tela do Prime no mesmo instante)"
       ],
-      "last_verified_at": "2026-09-15"
+      "last_verified_at": "2026-09-28",
+      "chaves_de_topo_medidas": [
+        "registrationData",
+        "contracts",
+        "financialStatement",
+        "agreements"
+      ],
+      "nao_traz_situacao_academica": "medido nos 6 alunos em 2026-09-28: nenhuma chave de situacao academica no topo. Situacao academica vem SO de students_search.items[].status. Versoes anteriores deste catalogo diziam 'student_composite (topo)' -- estava errado"
     },
     {
       "resource": "student_contracts",
@@ -136,7 +164,8 @@
       ],
       "parameters": [],
       "response_fields": {
-        "...": "igual ao bloco contracts do student_composite"
+        "envelope": "{ items[], totalItems, totalPages } -- NAO array nu. O bloco contracts[] do composto, sim, e array",
+        "item": "number, status, type, establishment, course, shift, referenceSemester, validFrom, validTo, cancelledAt, cancellationReason"
       },
       "source_of_truth_for": [
         "contratos acadêmicos"
@@ -148,7 +177,16 @@
       "limitations": [
         "number (número de contrato) vem vazio — não serve para vincular acordo"
       ],
-      "last_verified_at": "2026-09-15"
+      "last_verified_at": "2026-09-28",
+      "cancellationReason_valores_observados": [
+        "Mudança de Curso",
+        "Cancelamento",
+        "Trancamento",
+        null
+      ],
+      "number_vazio": "string vazia em 111 de 111 contratos dos 6 alunos da amostra, sem excecao",
+      "status_e_de_contrato": "Confirmado/Anulado/Cancelado/Aberto e status de CONTRATO por semestre, vocabulario distinto da situacao academica. NUNCA usar como substituto",
+      "contrato_vigente_nao_e_estudando": "contrato vigente NAO equivale a 'aluno estudando': o contrato e o instrumento financeiro do periodo. Na amostra de 2026-09-28 ha contrato Confirmado vigente em vinculo com situacao 'Formado', e vinculo com situacao 'Matriculado Curso Normal' sem contrato vigente"
     },
     {
       "resource": "financial_statement",

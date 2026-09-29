@@ -9,8 +9,9 @@ de criar fallback, consultar este mapa").
 | CPF do aluno | Prime | `student_composite` → `registrationData.cpf` | `registration` | SIM |
 | Nome (como a pessoa é chamada) | Prime | `registrationData.socialName` (prioridade) ou `.fullName` | `registration` | SIM — `socialName` primeiro |
 | Telefone / endereço / e-mail | Prime | `registrationData.phones[]` / `.address` / `.email` | `registration` | SIM, só complementa (nunca sobrescreve o que já existe) |
-| Curso, campus, turno, situação acadêmica | Prime | `student_composite` (topo) e `contracts[]` | `registration` | SIM |
-| Contrato vigente (aluno estuda hoje?) | Prime | `contracts[]` sem `cancelledAt` e `validTo >= hoje` | `registration` | SIM |
+| Curso, campus, turno | Prime | `students_search` `items[]` e `contracts[]` do `student_composite` | `registration` | SIM |
+| **Situação acadêmica** (Formado/Trancado/Cancelado/…) | Prime | **`students_search` → `items[].status` — e SÓ aí.** O `student_composite` NÃO traz situação: suas chaves de topo são apenas `registrationData`, `contracts`, `financialStatement`, `agreements` (medido em 6 alunos, 28/09/2026). `contracts[].status` é status de CONTRATO, vocabulário distinto, **nunca substituto** | CPF formatado (o `search` é por CPF/nome) | **CONDICIONAL — o status é por VÍNCULO DE CURSO, não da pessoa. Ver a ressalva abaixo** |
+| Contrato vigente no período (NÃO "o aluno estuda hoje") | Prime | `contracts[]` sem `cancelledAt` e `validTo >= hoje` | `registration` | CONDICIONAL — diz que existe contrato válido no período, e **nada mais**. Não é prova de frequência, de matrícula ativa nem de vínculo acadêmico em curso |
 | Matrícula Prime a partir de CPF/nome | Prime | `students_search` | CPF formatado ou nome | CONDICIONAL — nome nunca decide, só CPF exato |
 | Filiação a um portador (166 ou 195) | Prime | `students_search?carrierId=N` (varredura) ou consulta pontual | CPF | SIM |
 | Título original (mensalidade) — existência | Prime | `financial_statement` (via `student_composite`) | `registration` | SIM |
@@ -27,6 +28,24 @@ de criar fallback, consultar este mapa").
 | Relatório "Títulos em Aberto" (Santander) | Prime, via exportação manual | fora da API JSON — arquivo | matrícula Santander = `registration` (13/13 confirmado) | NÃO é histórico — só traz quem ainda está em aberto no instante da extração; acordo pago desaparece dele para sempre |
 
 ## Como ler este mapa
+
+- **Contrato vigente não equivale a "aluno estudando".** São coisas distintas: o
+  contrato é o instrumento financeiro do período; a situação acadêmica é o
+  estado do vínculo de curso, e vem de outro campo, de outro endpoint. Na
+  amostra de 28/09/2026 os dois discordam com frequência — há contrato
+  `Confirmado` vigente em vínculo cuja situação é `Formado`, e vínculo com
+  situação `Matriculado Curso Normal` sem contrato vigente. Nenhum dos dois
+  sozinho autoriza dizer que a pessoa está ou não estudando.
+
+- **Situação acadêmica não é atributo da pessoa.** Na amostra de 6 alunos
+  sondada em 28/09/2026, cada linha de `items[]` do `students_search` é um
+  **vínculo de curso** (curso + campus + turno), com status próprio — e os
+  status de uma mesma pessoa divergem entre si. Reduzir os vínculos a um status
+  único por pessoa é perda de informação, não simplificação: escolher "a
+  primeira linha" ou "a mais recente" produz rótulo que a fonte não afirma.
+- **Não foi encontrado identificador estável do vínculo acadêmico nos endpoints
+  e na amostra consultados**, e a chave composta não separa os vínculos. Ver
+  [prime-mapa-identificadores.md](prime-mapa-identificadores.md#vínculo-acadêmico-curso--campus--turno).
 
 - **"NÃO LOCALIZADA"** (estrutura do acordo) é diferente de **"não existe"**.
   A tela do Prime comprova que o dado existe; o que falta é a rota
