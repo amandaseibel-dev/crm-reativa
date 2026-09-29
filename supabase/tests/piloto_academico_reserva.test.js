@@ -28,6 +28,7 @@ const ler = (f) => readFileSync(resolve(MIG, f), "utf8");
 // orçamento e reconciliação.
 const SQL_TABELAS = ler("20260929114757_prime_academico_piloto.sql");
 const SQL_RESERVA = ler("20260929130000_piloto_reserva_orcamento_reconciliacao.sql");
+const SQL_EXEC = ler("20260929140000_piloto_execucao_unica_e_gasto_preservado.sql");
 
 const LOTE = "10000000-0000-4000-8000-000000000001";
 const ALUNO = (n) => `20000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -42,7 +43,7 @@ async function bancada({ limiteReq = 300 } = {}) {
       id uuid primary key default gen_random_uuid(),
       aluno_id uuid not null references public.alunos(id) on delete cascade,
       cpf text, resultado text, consultado_em timestamptz not null default now(),
-      requisicoes integer);
+      requisicoes integer, http_status integer);
     create function auth.role() returns text language sql stable as $$ select current_setting('role', true) $$;
     create function public.usuario_e_gestao() returns boolean language sql stable
       as $$ select coalesce(current_setting('teste.gestao', true) <> 'off', true) $$;
@@ -57,6 +58,7 @@ async function bancada({ limiteReq = 300 } = {}) {
   }
   await db.exec(SQL_TABELAS);
   await db.exec(SQL_RESERVA);
+  await db.exec(SQL_EXEC);
 
   await db.query(
     `insert into public.prime_academico_piloto_lote (id, ano, semestre, limite_alunos, limite_requisicoes, estado)
@@ -67,7 +69,15 @@ async function bancada({ limiteReq = 300 } = {}) {
       [LOTE, i, ALUNO(i)]);
   }
 
-  db.proximo = async () => (await db.query(`select public.prime_academico_piloto_proximo($1) j`, [LOTE])).rows[0].j;
+  db.iniciar = async () => (await db.query(
+    `select public.prime_academico_piloto_iniciar($1) j`, [LOTE])).rows[0].j;
+  // A maioria dos testes nao quer pensar em execucao: a bancada toma uma e
+  // reusa. Os testes de concorrencia pedem a sua explicitamente.
+  const exec = (await db.query(`select public.prime_academico_piloto_iniciar($1) j`, [LOTE])).rows[0].j;
+  db.execucao = exec.execucao_id;
+  db.proximo = async (execucao) => (await db.query(
+    `select public.prime_academico_piloto_proximo($1,$2) j`,
+    [LOTE, execucao === undefined ? db.execucao : execucao])).rows[0].j;
   db.comoServico = async (sql, args = []) => {
     try {
       await db.exec(`set role service_role;`);
@@ -254,5 +264,138 @@ describe("3. orçamento", () => {
     const lote = (await db.query(`select estado, motivo from public.prime_academico_piloto_lote where id=$1`, [LOTE])).rows[0];
     expect(lote.estado).toBe("INTERROMPIDO");
     expect(lote.motivo).toMatch(/429/);
+  });
+});
+
+describe("4. execução única por lote (concorrência real)", () => {
+  it("a segunda aba NÃO consegue iniciar enquanto a primeira está ativa", async () => {
+    // A bancada já tomou uma execução; esta é a "segunda aba".
+    const segunda = await db.iniciar();
+    expect(segunda.ok).toBe(false);
+    expect(segunda.motivo).toMatch(/execucao ativa/i);
+  });
+
+  it("pedir item com execução de outra aba é recusado", async () => {
+    const r = await db.proximo("00000000-0000-4000-8000-0000000000ff");
+    expect(r.parar).toBe(true);
+    expect(r.motivo).toMatch(/outra execucao/i);
+  });
+
+  it("sem execução nenhuma, ninguém pede item", async () => {
+    await db.query(
+      `update public.prime_academico_piloto_lote set execucao_id=null, execucao_ate=null where id=$1`, [LOTE]);
+    const r = await db.proximo(null);
+    expect(r.parar).toBe(true);
+    expect(r.motivo).toMatch(/execucao expirada/i);
+  });
+
+  it("pausar devolve a execução e outra aba assume", async () => {
+    await db.query(`select public.prime_academico_piloto_pausar($1)`, [LOTE]);
+    const segunda = await db.iniciar();
+    expect(segunda.ok).toBe(true);
+  });
+
+  it("COM UMA REQUISIÇÃO RESTANTE, duas abas não gastam as duas", async () => {
+    // O cenário exato da revisão: sobra 1, e a segunda aba não pode começar.
+    const d2 = await bancada({ limiteReq: 3 });
+    const a = await d2.proximo();
+    await d2.registrar(a.item_id, await d2.gravarConsulta(a.aluno_id, 2), 2, 200, null, a.aluno_id);
+
+    const b = await d2.proximo();            // aba 1 reserva o próximo
+    expect(b.parar).toBe(false);
+    expect(b.orcamento).toBe(1);
+
+    // A aba 2 nem consegue a execução -- e, mesmo que conseguisse, o débito
+    // provisório da reserva da aba 1 já derrubou o saldo para zero.
+    expect((await d2.iniciar()).ok).toBe(false);
+    const gastas = Number((await d2.query(
+      `select public.prime_academico_piloto_gastas($1) g`, [LOTE])).rows[0].g);
+    expect(gastas).toBe(3);                  // 2 registradas + 1 provisória
+  });
+
+  it("o débito provisório aparece no orçamento ANTES da consulta acontecer", async () => {
+    const d2 = await bancada({ limiteReq: 10 });
+    const a = await d2.proximo();
+    // nada foi consultado ainda, e o saldo já caiu
+    expect(Number((await d2.query(
+      `select public.prime_academico_piloto_gastas($1) g`, [LOTE])).rows[0].g)).toBe(1);
+    expect(a.orcamento).toBe(10);
+    // e o registro TROCA o provisório pelo real, em vez de somar
+    await d2.registrar(a.item_id, await d2.gravarConsulta(a.aluno_id, 4), 4, 200, null, a.aluno_id);
+    expect(Number((await d2.query(
+      `select public.prime_academico_piloto_gastas($1) g`, [LOTE])).rows[0].g)).toBe(4);
+  });
+});
+
+describe("5. falha entre a resposta da API e a gravação", () => {
+  it("o gasto é preservado quando a gravação falha (item FALHOU com o real)", async () => {
+    const a = await db.proximo();
+    // a Edge gastou 3 requisições e o INSERT da consulta falhou: ela registra
+    // o item com o gasto REAL e sem consulta_id
+    await db.registrar(a.item_id, null, 3, 200, "gravacao da consulta falhou: deadlock", a.aluno_id);
+    const item = await db.estado(a.item_id);
+    expect(item.estado).toBe("FALHOU");
+    expect(Number(item.requisicoes)).toBe(3);
+    expect(Number((await db.query(
+      `select public.prime_academico_piloto_gastas($1) g`, [LOTE])).rows[0].g)).toBe(3);
+  });
+
+  it("item devolvido à fila NÃO zera o que já gastou", async () => {
+    const d2 = await bancada({ limiteReq: 50 });
+    const a = await d2.proximo();
+    // gastou 5 e morreu antes de registrar
+    await d2.query(
+      `update public.prime_academico_piloto_item
+          set requisicoes = 5, reservado_em = now() - interval '10 minutes' where id=$1`, [a.item_id]);
+
+    const rec = (await d2.query(`select public.prime_academico_piloto_reconciliar($1) j`, [LOTE])).rows[0].j;
+    expect(rec.devolvidos).toBe(1);
+
+    const item = (await d2.query(
+      `select estado, requisicoes, gasto_anterior from public.prime_academico_piloto_item where id=$1`,
+      [a.item_id])).rows[0];
+    expect(item.estado).toBe("PENDENTE");
+    expect(item.requisicoes).toBeNull();
+    // GASTO NÃO VOLTA: a API recebeu as 5 chamadas.
+    expect(Number(item.gasto_anterior)).toBe(5);
+    expect(Number((await d2.query(
+      `select public.prime_academico_piloto_gastas($1) g`, [LOTE])).rows[0].g)).toBe(5);
+  });
+
+  it("reconciliar por consulta de FALHA marca o item como FALHOU, não CONCLUIDO", async () => {
+    const a = await db.proximo();
+    await db.query(
+      `insert into public.prime_academico_consulta (aluno_id, cpf, resultado, requisicoes, http_status)
+       values ($1,'x','FALHA_COMUNICACAO',2,500)`, [a.aluno_id]);
+    await db.query(`select public.prime_academico_piloto_reconciliar($1)`, [LOTE]);
+    const item = await db.estado(a.item_id);
+    expect(item.estado).toBe("FALHOU");
+    expect(Number(item.requisicoes)).toBe(2);
+  });
+
+  it("LIMITACAO 429 encontrada na reconciliação interrompe o lote", async () => {
+    const a = await db.proximo();
+    await db.query(
+      `insert into public.prime_academico_consulta (aluno_id, cpf, resultado, requisicoes, http_status)
+       values ($1,'x','FALHA_COMUNICACAO',1,429)`, [a.aluno_id]);
+    const rec = (await db.query(`select public.prime_academico_piloto_reconciliar($1) j`, [LOTE])).rows[0].j;
+    expect(rec.limitacao).toBe(true);
+    const lote = (await db.query(
+      `select estado, motivo from public.prime_academico_piloto_lote where id=$1`, [LOTE])).rows[0];
+    expect(lote.estado).toBe("INTERROMPIDO");
+    expect(lote.motivo).toMatch(/limitacao da API/i);
+  });
+});
+
+describe("6. reconciliar tem portão", () => {
+  it("usuário que não é gestão nem service_role é recusado", async () => {
+    await db.exec(`select set_config('teste.gestao','off',false);`);
+    let erro = null;
+    try {
+      await db.exec(`set role authenticated;`);
+      await db.query(`select public.prime_academico_piloto_reconciliar($1)`, [LOTE]);
+    } catch (e) { erro = e.message; }
+    finally { await db.exec(`reset role;`); await db.exec(`select set_config('teste.gestao','on',false);`); }
+    expect(erro).toMatch(/Acesso negado/i);
   });
 });

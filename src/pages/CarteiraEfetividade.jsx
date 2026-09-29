@@ -488,7 +488,11 @@ export default function CarteiraEfetividade() {
                             <div style={S.detalheTopo}>
                               {/* ACESSO À FICHA: abre em aba nova, para não
                                   perder o painel que a pessoa estava lendo. */}
-                              <a href={"/aluno?id=" + a.aluno_id} target="_blank" rel="noreferrer"
+                              {/* `alunoId` e o parametro canonico da ficha
+                                  (Aluno.jsx o le primeiro). `id` tambem cai
+                                  num fallback, mas e generico demais para
+                                  depender dele. */}
+                              <a href={"/aluno?alunoId=" + a.aluno_id} target="_blank" rel="noreferrer"
                                  style={S.link}>{a.nome || "(sem nome)"}</a>
                               <span style={S.discreto}>{a.cpf_mascarado}</span>
                             </div>

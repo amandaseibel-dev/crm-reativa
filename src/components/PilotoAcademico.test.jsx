@@ -52,6 +52,7 @@ async function montarComFila(proximo, over = {}) {
     if (nome === "prime_academico_piloto_pausar") return { data: { ok: true }, error: null };
     if (nome === "prime_academico_piloto_retomar") return { data: { ok: true }, error: null };
     if (nome === "prime_academico_piloto_criar") return { data: { lote_id: LOTE, itens: 3 }, error: null };
+    if (nome === "prime_academico_piloto_iniciar") return { data: { ok: true, execucao_id: "exec-1" }, error: null };
     return { data: null, error: null };
   });
   render(<PilotoAcademico ano="2026" semestre="1" />);
@@ -213,6 +214,34 @@ describe("piloto — o que a revisão pediu", () => {
       data: { parar: true, motivo: "itens em processamento em outra aba" }, error: null }));
     await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Iniciar lote/i })); });
     expect(await screen.findByText(/itens em processamento em outra aba/i)).toBeTruthy();
+    expect(invoke).not.toHaveBeenCalled();
+  });
+});
+
+describe("piloto — execução única", () => {
+  it("toma a execução antes do laço e a repassa em cada pedido", async () => {
+    await montarComFila(filaDe(2));
+    await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Iniciar lote/i })); });
+    await waitFor(() => expect(invoke).toHaveBeenCalledTimes(2));
+
+    expect(rpc).toHaveBeenCalledWith("prime_academico_piloto_iniciar", { p_lote: LOTE });
+    const pedidos = rpc.mock.calls.filter((c) => c[0] === "prime_academico_piloto_proximo");
+    expect(pedidos.length).toBeGreaterThan(0);
+    for (const c of pedidos) expect(c[1]).toEqual({ p_lote: LOTE, p_execucao: "exec-1" });
+  });
+
+  it("outra aba já conduzindo: não começa e não consulta nada", async () => {
+    rpc.mockImplementation(async (nome) => {
+      if (nome === "prime_academico_piloto_painel") return { data: painel(), error: null };
+      if (nome === "prime_academico_piloto_iniciar")
+        return { data: { ok: false, motivo: "ja existe uma execucao ativa neste lote (outra aba). Aguarde 40s ou pause la." }, error: null };
+      return { data: null, error: null };
+    });
+    render(<PilotoAcademico ano="2026" semestre="1" />);
+    await screen.findByText(/Piloto da consulta acadêmica/i);
+
+    await act(async () => { fireEvent.click(await screen.findByRole("button", { name: /Iniciar lote/i })); });
+    expect(await screen.findByText(/execucao ativa neste lote/i)).toBeTruthy();
     expect(invoke).not.toHaveBeenCalled();
   });
 });

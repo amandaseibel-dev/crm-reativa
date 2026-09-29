@@ -208,7 +208,24 @@ Deno.serve(async (req) => {
     p_email: email,
     p_requisicoes: requisicoes,
   });
-  if (erroGravar) return json({ erro: "GRAVACAO_FALHOU", detalhe: erroGravar.message }, 502);
+  if (erroGravar) {
+    // AS REQUISIÇÕES JÁ FORAM GASTAS. A API recebeu as chamadas mesmo que o
+    // nosso INSERT tenha falhado -- e o teto do lote precisa lembrar disso,
+    // senão o orçamento passa a contar menos do que a Ulbra realmente recebeu.
+    // Por isso o item é fechado como FALHOU com o gasto REAL, antes de
+    // devolver o erro.
+    if (noPiloto) {
+      await supa.rpc("prime_academico_piloto_registrar", {
+        p_item: pilotoItem, p_consulta_id: null, p_requisicoes: requisicoes,
+        p_http: httpStatus, p_erro: "gravacao da consulta falhou: " + erroGravar.message,
+        p_aluno_id: alunoId,
+      });
+    }
+    return json({
+      erro: "GRAVACAO_FALHOU", detalhe: erroGravar.message, requisicoes,
+      aviso: "as requisicoes gastas foram contabilizadas no lote",
+    }, 502);
+  }
 
   // REGISTRO NO PILOTO. Acontece aqui, e nao no navegador, porque a RPC de
   // registro so atende service_role -- e porque so aqui se sabe quantas

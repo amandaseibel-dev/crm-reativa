@@ -111,11 +111,20 @@ export default function PilotoAcademico({ ano, semestre }) {
         if (data && data.ok === false) { setErro(data.motivo || "não foi possível retomar"); return; }
       }
 
+      // UMA EXECUÇÃO POR LOTE. Sem isto, duas abas alternavam pedidos no mesmo
+      // lote e cada uma achava que o orçamento inteiro era dela -- com 1
+      // requisição sobrando, as duas começavam.
+      const { data: ini, error: eIni } = await supabase.rpc(
+        "prime_academico_piloto_iniciar", { p_lote: lote.lote_id });
+      if (eIni) { setErro(eIni.message); return; }
+      if (!ini?.ok) { setErro(ini?.motivo || "não foi possível iniciar este lote"); return; }
+      const execucao = ini.execucao_id;
+
       for (;;) {
         if (pararRef.current || !vivoRef.current) { setUltimo("Pausado."); break; }
 
         const { data: prox, error: e1 } = await supabase.rpc(
-          "prime_academico_piloto_proximo", { p_lote: lote.lote_id });
+          "prime_academico_piloto_proximo", { p_lote: lote.lote_id, p_execucao: execucao });
         if (e1) { setErro(e1.message); break; }
         const rec = prox?.reconciliacao;
         if (rec && (rec.reconciliados > 0 || rec.devolvidos > 0)) {
