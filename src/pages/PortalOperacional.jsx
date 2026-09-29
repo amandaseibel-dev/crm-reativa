@@ -1,6 +1,6 @@
 import { useState, useEffect, Fragment } from "react";
 import { supabase } from "../services/supabase";
-import { Carregando } from "../ui/estados";
+import { Carregando } from "../ui/estados";\nimport VisaoGeralInterativa from "../components/VisaoGeralInterativa";
 import printOlinda from "../data/elogios/diego-olinda";
 import printRamon from "../data/elogios/suyanne";
 import printSuyanne from "../data/elogios/diego-suyanne";
@@ -310,6 +310,8 @@ function SecaoInicio({ ir }) {
           </div>
         </div>
       </div>
+
+      <VisaoGeralInterativa />
 
       <div style={S.statusGrid}>
         <Card style={{ ...S.statusCard, ...S.statusCardDestaque }}>
