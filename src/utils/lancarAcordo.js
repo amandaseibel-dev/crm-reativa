@@ -24,6 +24,17 @@
 
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "./operadores";
+// A regra de status da parcela e as primitivas de data moram em statusParcela:
+// modulo puro, sem dependencia nenhuma, para que qualquer tela que crie parcela
+// possa usar a MESMA regra sem arrastar o supabase junto.
+import {
+  paraDataISO,
+  hojeISO,
+  statusInicialParcela,
+  STATUS_PARCELA_TERMINAL,
+} from "./statusParcela";
+
+export { paraDataISO, hojeISO, statusInicialParcela };
 
 export function paraNumero(v) {
   let t = String(v || "").replace("R$", "").replace(/\s/g, "").trim();
@@ -34,58 +45,12 @@ export function paraNumero(v) {
   return Number(t) || 0;
 }
 
-export function paraDataISO(v) {
-  const t = String(v || "").trim();
-  if (!t) return "";
-  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  m = t.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
-  if (m) {
-    let d = m[1], mo = m[2], ano = m[3];
-    if (ano.length === 2) ano = "20" + ano;
-    return `${ano}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
-  }
-  return null;
-}
-
 export function paraDataBR(v) {
   const t = String(v || "").trim();
   const m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   return t;
 }
-
-export function hojeISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-
-// STATUS INICIAL DA PARCELA: quem manda e a DATA, nao a hora do lancamento.
-//
-// Antes toda parcela nascia 'A_VENCER'. Acordo antigo lancado hoje -- o caso
-// normal de acordo que so agora entra no sistema -- nascia inteiro "a vencer"
-// e so virava VENCIDA no cron das 03:05. Nessa janela a Saude da Carteira dava
-// o acordo como EM_DIA, a parcela vencida mais antiga vinha nula e as Acoes
-// Massivas nao enxergavam o acordo (elas filtram status = 'VENCIDA').
-//
-// Mesma semantica que o banco ja usa em desfazer_baixa_parcela:
-//   case when vencimento < current_date then 'VENCIDA' else 'A_VENCER' end
-//
-// A comparacao e por DATA, entre strings ISO: 'YYYY-MM-DD' ordena igual ao
-// calendario, entao nao existe Date, nem hora, nem fuso para virar o dia.
-// Vencimento HOJE e A_VENCER -- so o dia anterior esta vencido. hojeISO() ja
-// monta o dia LOCAL (getFullYear/getMonth/getDate), nunca o UTC.
-//
-// Data ausente ou ilegivel devolve A_VENCER: sem data nao da para afirmar que
-// venceu, e o cron corrige se um dia a data aparecer.
-export function statusInicialParcela(vencimento) {
-  const iso = paraDataISO(vencimento);
-  if (!iso) return "A_VENCER";
-  return iso < hojeISO() ? "VENCIDA" : "A_VENCER";
-}
-
-// Status que a data NAO decide mais: a parcela ja teve desfecho.
-const STATUS_PARCELA_TERMINAL = new Set(["PAGO", "CANCELADA", "RENEGOCIADA"]);
 
 export function somarMeses(dataISO, meses) {
   const [ano, mes, dia] = String(dataISO).split("-").map(Number);
