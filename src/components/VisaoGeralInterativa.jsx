@@ -39,25 +39,33 @@ const CURIOSIDADES = [
   "A qualidade do registro no CRM impacta diretamente a produtividade da equipe, porque evita reanálises do mesmo caso.",
 ];
 
+function comoDataLocal(valor) {
+  if (typeof valor === "string" && /^\\d{4}-\\d{2}-\\d{2}$/.test(valor)) {
+    const [ano, mes, dia] = valor.split("-").map(Number);
+    return new Date(ano, mes - 1, dia);
+  }
+  return new Date(valor);
+}
+
 function inicioDoDia(valor) {
-  const d = new Date(valor);
+  const d = comoDataLocal(valor);
   d.setHours(0, 0, 0, 0);
   return d;
 }
 
 function formatarDataCurta(valor) {
-  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(new Date(valor));
+  return new Intl.DateTimeFormat("pt-BR", { day: "2-digit", month: "2-digit" }).format(comoDataLocal(valor));
 }
 
 function formatarDataLonga(valor) {
   return new Intl.DateTimeFormat("pt-BR", {
     weekday: "long", day: "2-digit", month: "long"
-  }).format(new Date(valor));
+  }).format(comoDataLocal(valor));
 }
 
 function diaSemana(valor) {
   return new Intl.DateTimeFormat("pt-BR", { weekday: "short" })
-    .format(new Date(valor))
+    .format(comoDataLocal(valor))
     .replace(".", "")
     .replace(/^./, (c) => c.toUpperCase());
 }
