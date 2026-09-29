@@ -42,8 +42,12 @@ for i in 1 2 3 4 5; do
   psql -tA -c "select public.prime_academico_piloto_autorizar_pagina('$ITEM','$ALUNO','$EXEC_A')->>'ok'" &
 done > /tmp/autoriza.txt
 wait
-OKS=$(grep -c '^t$' /tmp/autoriza.txt || true)
+# `jsonb ->> 'ok'` devolve o TEXTO "true"/"false", nao o `t`/`f` do boolean
+# nativo do psql. Procurar '^t$' contava zero -- e o script mentia sobre um
+# controle que estava funcionando (o `gastas` batia em 3 ao mesmo tempo).
+OKS=$(grep -c '^true$' /tmp/autoriza.txt || true)
 GASTAS=$(q "select public.prime_academico_piloto_gastas('$LOTE')")
+if [ "$OKS" != "3" ]; then echo "  --- respostas das autorizacoes:"; sed 's/^/      /' /tmp/autoriza.txt; fi
 checar "so 3 autorizacoes passam (teto)" "$OKS" "3"
 checar "gasto contabilizado = teto"      "$GASTAS" "3"
 
