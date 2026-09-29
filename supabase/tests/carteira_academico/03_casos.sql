@@ -244,9 +244,15 @@ begin
   if v <> 's' then
     raise exception 'FALHOU [volatilidade]: carteira_academico_perfil deveria ser STABLE, esta "%"', v;
   end if;
-  if exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
-              where n.nspname='public' and p.proname like 'carteira_academico%'
-                and p.prosrc ilike '%create temp table%') then
+  -- OS COMENTARIOS SAO FILTRADOS ANTES DE PROIBIR. O corpo novo EXPLICA o
+  -- defeito e cita "create temp table" em comentario; sem tirar os comentarios
+  -- a assercao acusaria a propria explicacao. Foi o que aconteceu na primeira
+  -- execucao deste caso.
+  if exists (
+    select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+     where n.nspname = 'public' and p.proname like 'carteira_academico%'
+       and regexp_replace(p.prosrc, '--[^\n]*', '', 'g') ilike '%create temp table%'
+  ) then
     raise exception 'FALHOU [volatilidade]: voltou a criar tabela temporaria';
   end if;
 end $$;
