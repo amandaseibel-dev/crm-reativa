@@ -257,4 +257,24 @@ begin
   end if;
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- 9. O DETALHAMENTO MASCARA O CPF de verdade
+-- ---------------------------------------------------------------------------
+-- `alunos.cpf_mascarado` NAO mascara em producao (15.841 de 15.841 com o CPF
+-- inteiro). O baseline reproduz isso: ALUNO C1 tem '555.555.555-55' naquela
+-- coluna. Se a funcao voltar a confiar nela, este caso pega.
+do $$
+declare d jsonb; m text;
+begin
+  d := public.carteira_academico_detalhe('2025', null, 'Múltiplas situações');
+  m := d->'alunos'->0->>'cpf_mascarado';
+  if m is null then
+    raise exception 'FALHOU [mascara]: cpf_mascarado veio nulo';
+  end if;
+  if m not like '%*%' then
+    raise exception 'FALHOU [mascara]: CPF saiu INTEIRO no detalhamento: "%"', m;
+  end if;
+  perform public.t_igual(m, '555.***.555-**', 'mascara no formato da funcao irma');
+end $$;
+
 select 'TODOS OS CASOS PASSARAM' as resultado;
