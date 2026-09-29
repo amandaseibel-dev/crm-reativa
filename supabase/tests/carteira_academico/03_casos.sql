@@ -200,4 +200,55 @@ begin
   perform public.t_igual(n, 0, 'semestre inexistente nao vira painel cheio');
 end $$;
 
+-- ---------------------------------------------------------------------------
+-- 7. PERMISSÕES -- `anon` fora, gestão dentro
+-- ---------------------------------------------------------------------------
+-- Vale por si: as default privileges do Supabase concedem EXECUTE a `anon` em
+-- toda função nova, e `revoke ... from public` não desfaz isso -- a concessão
+-- é direta ao papel. O ambiente deste teste reproduz as default privileges,
+-- então este caso falharia se a migration revogasse só de PUBLIC.
+do $$
+declare r record;
+begin
+  for r in
+    select unnest(array[
+      'public.carteira_academico_universo(text,text)',
+      'public.carteira_academico_perfil(text,text)',
+      'public.carteira_academico_detalhe(text,text,text,integer)',
+      'public.carteira_academico_grupo(uuid)'
+    ]) f
+  loop
+    if has_function_privilege('anon', r.f, 'EXECUTE') then
+      raise exception 'FALHOU [permissao]: anon ainda executa %', r.f;
+    end if;
+    if not has_function_privilege('authenticated', r.f, 'EXECUTE') then
+      raise exception 'FALHOU [permissao]: authenticated PERDEU execute em %', r.f;
+    end if;
+    if not has_function_privilege('service_role', r.f, 'EXECUTE') then
+      raise exception 'FALHOU [permissao]: service_role perdeu execute em %', r.f;
+    end if;
+  end loop;
+end $$;
+
+-- ---------------------------------------------------------------------------
+-- 8. O PERFIL SEGUE STABLE e não cria tabela
+-- ---------------------------------------------------------------------------
+-- O defeito era `create temp table` numa função STABLE: ela nunca executava.
+-- Trocar para VOLATILE "resolveria" e mudaria a natureza da função, então a
+-- volatilidade é asserida junto com o resultado.
+do $$
+declare v char;
+begin
+  select provolatile into v from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+   where n.nspname='public' and p.proname='carteira_academico_perfil';
+  if v <> 's' then
+    raise exception 'FALHOU [volatilidade]: carteira_academico_perfil deveria ser STABLE, esta "%"', v;
+  end if;
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace
+              where n.nspname='public' and p.proname like 'carteira_academico%'
+                and p.prosrc ilike '%create temp table%') then
+    raise exception 'FALHOU [volatilidade]: voltou a criar tabela temporaria';
+  end if;
+end $$;
+
 select 'TODOS OS CASOS PASSARAM' as resultado;

@@ -8,6 +8,27 @@
 create schema if not exists public;
 
 -- ---------------------------------------------------------------------------
+-- OS PAPÉIS do Supabase. Sem eles o `revoke ... from public, anon` da migration
+-- morre em `role "anon" does not exist` -- foi assim que este job reprovou da
+-- primeira vez.
+--
+-- As DEFAULT PRIVILEGES também são reproduzidas de propósito: no Supabase elas
+-- concedem EXECUTE a `anon` em toda função nova do schema. É por isso que
+-- `revoke ... from public` NÃO basta -- a concessão é DIRETA ao papel, não via
+-- PUBLIC. Sem reproduzir isso aqui, a asserção de permissão passaria por um
+-- motivo falso: não haveria nada a revogar.
+-- ---------------------------------------------------------------------------
+do $$
+begin
+  if not exists (select 1 from pg_roles where rolname = 'anon') then create role anon; end if;
+  if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
+  if not exists (select 1 from pg_roles where rolname = 'service_role') then create role service_role; end if;
+end $$;
+
+grant usage on schema public to anon, authenticated, service_role;
+alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;
+
+-- ---------------------------------------------------------------------------
 -- Portão de leitura. Aberto no teste: o controle de acesso tem os seus
 -- próprios casos, e misturá-lo aqui esconderia falha de lógica atrás de 42501.
 -- ---------------------------------------------------------------------------
