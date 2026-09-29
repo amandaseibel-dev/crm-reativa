@@ -165,6 +165,9 @@ Deno.serve(async (req) => {
   const brutos = pag.brutos;
   const requisicoes = pag.requisicoes;
   const httpStatus = pag.httpStatus;
+  // O total DECLARADO pela Ulbra, quando ela declara. Não é a contagem das
+  // linhas que ficaram: serve justamente para comparar uma com a outra.
+  const totalItems = pag.totalItems;
   const paginaIlegivel = pag.paginaIlegivel;
   const chegouAoFim = pag.chegouAoFim;
   let falha = pag.falha;
@@ -183,7 +186,12 @@ Deno.serve(async (req) => {
   // incompleta, e "bateu no teto" é diferente de "a API caiu".
   if (resultado === "PAGINACAO_INCOMPLETA" && !falha) {
     falha = orcamentoEstourou
-      ? `paginacao interrompida: ${pag.negou} (${requisicoes} requisicao(oes)) -- a lista pode estar incompleta`
+      // Negada na PRIMEIRA página, nada foi perguntado à Ulbra: não há "lista
+      // incompleta", há lista nenhuma. Dizer a mesma frase nos dois casos
+      // faria parecer que houve resposta parcial.
+      ? (requisicoes === 0
+          ? `consulta nao realizada: ${pag.negou} -- nenhuma requisicao foi enviada`
+          : `paginacao interrompida: ${pag.negou} (${requisicoes} requisicao(oes)) -- a lista pode estar incompleta`)
       : `paginacao interrompida no teto de ${TETO} linhas -- a lista pode estar incompleta`;
   }
 

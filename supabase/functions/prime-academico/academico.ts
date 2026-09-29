@@ -99,9 +99,18 @@ export function vinculosDaResposta(itens: Record<string, unknown>[], cpfDaFicha:
 // "COM_VINCULOS" com zero vínculos gravados -- a tela diria que consultou e
 // encontrou, e mostraria uma tabela vazia.
 //
-//   FALHA_COMUNICACAO  não se sabe nada (4xx/5xx/timeout/corpo ilegível)
-//   SEM_RESULTADO      respondeu, e não há linha DESTA pessoa
-//   COM_VINCULOS       respondeu, e há pelo menos uma linha desta pessoa
+//   FALHA_COMUNICACAO    não se sabe nada (4xx/5xx/timeout/corpo ilegível)
+//   PAGINACAO_INCOMPLETA a busca não terminou (teto, ou autorização negada)
+//   SEM_RESULTADO        a busca TERMINOU, e não há linha DESTA pessoa
+//   COM_VINCULOS         a busca terminou, e há pelo menos uma linha dela
+//
+// A ORDEM DAS PERGUNTAS É O CUIDADO PRINCIPAL, e já esteve errada aqui.
+// Perguntar "a lista está vazia?" antes de "a busca terminou?" transformava
+// toda interrupção sem vínculos em SEM_RESULTADO -- inclusive a autorização
+// negada na PRIMEIRA página, que não chega a consultar a Ulbra. O registro
+// dizia "consultei e este aluno não tem vínculo" sobre uma consulta que nunca
+// aconteceu, e, por ser um desfecho completo, ainda substituía a última
+// consulta boa da ficha. Lista vazia só é resposta depois que a busca acabou.
 export function desfecho(
   falha: string | null,
   paginaIlegivel: boolean,
@@ -109,10 +118,10 @@ export function desfecho(
   chegouAoFim = true,
 ): Resultado {
   if (falha || paginaIlegivel) return "FALHA_COMUNICACAO";
+  // Sem prova de fim, o que se tem é um PEDAÇO -- tenha ele linhas ou não.
+  if (!chegouAoFim) return "PAGINACAO_INCOMPLETA";
   if (vinculos.length === 0) return "SEM_RESULTADO";
-  // Sem prova de fim, o que se tem é uma lista PARCIAL. Dizer COM_VINCULOS
-  // aqui seria afirmar um total que não foi medido.
-  return chegouAoFim ? "COM_VINCULOS" : "PAGINACAO_INCOMPLETA";
+  return "COM_VINCULOS";
 }
 
 // Matrícula do CABEÇALHO: só quando todas as linhas concordam. Divergindo, fica
@@ -142,6 +151,8 @@ export interface ResultadoPaginacao {
   chegouAoFim: boolean;
   /** por que a autorização negou, quando negou */
   negou: string | null;
+  /** `totalItems` da última página que o trouxe; null se a API nunca mandou */
+  totalItems: number | null;
 }
 
 export async function paginarComAutorizacao(opts: {
@@ -155,8 +166,8 @@ export async function paginarComAutorizacao(opts: {
   const r: ResultadoPaginacao = {
     brutos: [], requisicoes: 0, httpStatus: null,
     falha: null, paginaIlegivel: false, chegouAoFim: false, negou: null,
+    totalItems: null,
   };
-  let totalItems: number | null = null;
 
   for (let skip = 0; ; skip += opts.take) {
     if (opts.autorizar) {
@@ -176,11 +187,11 @@ export async function paginarComAutorizacao(opts: {
     try { dados = JSON.parse(resp.texto); } catch { r.paginaIlegivel = true; break; }
     const pagina = lerPagina(dados);
     if (pagina.items === null) { r.paginaIlegivel = true; break; }
-    if (pagina.totalItems !== null) totalItems = pagina.totalItems;
+    if (pagina.totalItems !== null) r.totalItems = pagina.totalItems;
 
     r.brutos.push(...pagina.items);
-    r.chegouAoFim = paginouAteOFim(r.brutos.length, pagina.items.length, opts.take, totalItems);
-    if (!devePedirMaisUma(r.brutos.length, pagina.items.length, opts.take, totalItems, opts.teto)) break;
+    r.chegouAoFim = paginouAteOFim(r.brutos.length, pagina.items.length, opts.take, r.totalItems);
+    if (!devePedirMaisUma(r.brutos.length, pagina.items.length, opts.take, r.totalItems, opts.teto)) break;
   }
   return r;
 }

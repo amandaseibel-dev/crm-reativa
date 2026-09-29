@@ -107,9 +107,18 @@ describe("desfecho — calculado DEPOIS do filtro por CPF", () => {
     expect(desfecho(null, false, [linha()], false)).toBe("PAGINACAO_INCOMPLETA");
   });
 
-  it("sem linha nenhuma e sem prova de fim ainda é SEM_RESULTADO", () => {
-    // Não há o que apresentar como incompleto: nada chegou desta pessoa.
-    expect(desfecho(null, false, [], false)).toBe("SEM_RESULTADO");
+  it("sem linha nenhuma e SEM prova de fim é INCOMPLETA, não SEM_RESULTADO", () => {
+    // ESTE TESTE AFIRMAVA O CONTRÁRIO, e estava errado -- ele fixava o defeito
+    // em vez de pegá-lo. "Nada chegou desta pessoa" e "a busca acabou sem achar
+    // nada dela" são coisas diferentes: a primeira não é resposta, é ausência
+    // de resposta. Tratá-las igual fazia uma autorização negada virar
+    // "consultado, sem vínculo" -- e, por ser desfecho completo, substituir a
+    // última consulta boa da ficha. Lista vazia só conclui depois do fim.
+    expect(desfecho(null, false, [], false)).toBe("PAGINACAO_INCOMPLETA");
+  });
+
+  it("SEM_RESULTADO exige a busca TERMINADA", () => {
+    expect(desfecho(null, false, [], true)).toBe("SEM_RESULTADO");
   });
 
   it("falha manda mesmo que tenham sobrado linhas de páginas anteriores", () => {
@@ -258,8 +267,10 @@ describe("paginarComAutorizacao — o caminho real", () => {
     expect(buscas).toEqual([]);
     expect(r.requisicoes).toBe(0);
     expect(r.brutos).toHaveLength(0);
-    // sem linha nenhuma e sem prova de fim: SEM_RESULTADO, nunca "completa"
-    expect(desfecho(null, false, r.brutos, r.chegouAoFim)).toBe("SEM_RESULTADO");
+    // Negada antes da primeira chamada: nada foi perguntado à Ulbra. O desfecho
+    // não pode afirmar nada sobre os vínculos dela.
+    expect(r.chegouAoFim).toBe(false);
+    expect(desfecho(null, false, r.brutos, r.chegouAoFim)).toBe("PAGINACAO_INCOMPLETA");
   });
 
   it("a requisição é contada mesmo quando a rede morre depois de autorizar", async () => {
