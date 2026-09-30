@@ -293,6 +293,13 @@ export default function VisaoGeralInterativa() {
         <span style={S.dataHoje}>{formatarDataLonga(new Date())}</span>
       </div>
 
+      <div style={S.mensagemDia}>
+        <span style={S.mensagemDiaRotulo}>MENSAGEM DO DIA</span>
+        <strong style={S.mensagemDiaTexto}>
+          Dia de fechamento: foco em converter negociações em acordos fechados. Vamos concluir o que está em andamento e aproveitar cada oportunidade.
+        </strong>
+      </div>
+
       <div style={S.gridPrincipal}>
         <Card style={S.climaCard}>
           <CabecalhoCard icone="🌤️" titulo="Clima em Canoas" />
@@ -436,6 +443,9 @@ const S = {
   eyebrow: { fontSize: 11, letterSpacing: ".1em", fontWeight: 900, color: "var(--rv-azul-texto)" },
   titulo: { margin: "5px 0 0", fontSize: 24, lineHeight: 1.15, color: "var(--rv-tinta)" },
   dataHoje: { color: "var(--rv-texto-suave)", fontSize: 13, textTransform: "capitalize" },
+  mensagemDia: { display: "grid", gap: 5, marginBottom: 14, padding: "14px 16px", borderRadius: 16, background: "linear-gradient(135deg, var(--rv-azul-fundo), var(--rv-superficie))", border: "1px solid var(--rv-borda-suave)" },
+  mensagemDiaRotulo: { fontSize: 10, letterSpacing: ".1em", fontWeight: 900, color: "var(--rv-azul-texto)" },
+  mensagemDiaTexto: { fontSize: 14, lineHeight: 1.45, color: "var(--rv-tinta)" },
   gridPrincipal: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 14 },
   gridSecundario: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginTop: 14 },
   card: { border: "1px solid var(--rv-borda)", borderRadius: 20, padding: 18, background: "var(--rv-superficie)", boxShadow: "0 8px 26px rgba(15,23,42,.05)", minWidth: 0 },
