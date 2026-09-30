@@ -1,7 +1,7 @@
 // A1 -- Playlist ReATIVA: ate 3 musicas ativas por pessoa.
 //
-// Roda a migration REAL (supabase/aguardando_aprovacao/20260930153000...) e o
-// rollback REAL num PostgreSQL real (PGlite), em cima do estado real de
+// Roda a migration REAL (supabase/migrations/20260930143806_...) e o rollback
+// REAL num PostgreSQL real (PGlite), em cima do estado real de
 // producao: a migration de criacao 20260929152500 mais as 3 linhas que existem
 // hoje em public.portal_playlist.
 //

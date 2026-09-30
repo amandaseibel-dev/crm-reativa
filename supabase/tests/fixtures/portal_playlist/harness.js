@@ -17,11 +17,10 @@ import { fileURLToPath } from "node:url";
 const AQUI = dirname(fileURLToPath(import.meta.url));
 export const lerRepo = (p) => readFileSync(resolve(AQUI, "..", "..", "..", "..", p), "utf8");
 export const MIG = (n) => lerRepo(`supabase/migrations/${n}.sql`);
-export const PENDENTE = (n) => lerRepo(`supabase/aguardando_aprovacao/${n}.sql`);
 export const ROLL = (n) => lerRepo(`supabase/rollbacks/${n}.rollback.sql`);
 
 export const CRIACAO = "20260929152500_portal_visao_geral_interativa";
-export const A1 = "20260930153000_portal_playlist_limite_tres_musicas";
+export const A1 = "20260930143806_portal_playlist_limite_tres_musicas";
 
 export const AMANDA = "amanda.seibel@aelbra.com.br";   // gestao
 export const FERNANDA = "cobranca04@aelbra.com.br";    // gestao
@@ -84,7 +83,7 @@ export async function montarAntesDoA1() {
 }
 
 export async function aplicarA1(db) {
-  await db.exec(PENDENTE(A1));
+  await db.exec(MIG(A1));
 }
 
 export const q1 = async (db, sql, p = []) => (await db.query(sql, p)).rows[0];
