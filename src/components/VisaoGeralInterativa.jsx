@@ -40,9 +40,12 @@ const CURIOSIDADES = [
 ];
 
 function comoDataLocal(valor) {
-  if (typeof valor === "string" && /^\\d{4}-\\d{2}-\\d{2}$/.test(valor)) {
-    const [ano, mes, dia] = valor.split("-").map(Number);
-    return new Date(ano, mes - 1, dia);
+  if (typeof valor === "string") {
+    const dataIso = valor.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (dataIso) {
+      const [, ano, mes, dia] = dataIso;
+      return new Date(Number(ano), Number(mes) - 1, Number(dia));
+    }
   }
   return new Date(valor);
 }
@@ -59,15 +62,26 @@ function formatarDataCurta(valor) {
 
 function formatarDataLonga(valor) {
   return new Intl.DateTimeFormat("pt-BR", {
-    weekday: "long", day: "2-digit", month: "long"
+    weekday: "long", day: "2-digit", month: "long", timeZone: "America/Sao_Paulo"
   }).format(comoDataLocal(valor));
 }
 
 function diaSemana(valor) {
-  return new Intl.DateTimeFormat("pt-BR", { weekday: "short" })
+  return new Intl.DateTimeFormat("pt-BR", { weekday: "short", timeZone: "America/Sao_Paulo" })
     .format(comoDataLocal(valor))
     .replace(".", "")
     .replace(/^./, (c) => c.toUpperCase());
+}
+
+function hojeCanoasIso() {
+  const partes = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/Sao_Paulo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date());
+  const mapa = Object.fromEntries(partes.map(({ type, value }) => [type, value]));
+  return `${mapa.year}-${mapa.month}-${mapa.day}`;
 }
 
 function extrairYoutubeId(link) {
@@ -294,7 +308,7 @@ export default function VisaoGeralInterativa() {
               <div style={S.previsao}>
                 {dias.map((data, idx) => (
                   <div key={data} style={S.diaClima}>
-                    <span style={S.diaSemana}>{idx === 0 ? "Hoje" : diaSemana(data)}</span>
+                    <span style={S.diaSemana}>{data === hojeCanoasIso() ? "Hoje" : diaSemana(data)}</span>
                     <span style={S.iconeDia}>{CLIMA[clima.daily.weather_code?.[idx]]?.[0] || "🌤️"}</span>
                     <strong>{Math.round(clima.daily.temperature_2m_max?.[idx])}°</strong>
                     <span style={S.minima}>{Math.round(clima.daily.temperature_2m_min?.[idx])}°</span>
