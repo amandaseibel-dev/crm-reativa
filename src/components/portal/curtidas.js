@@ -5,6 +5,16 @@
 // indexar o retorno da RPC e traduzir erro em mensagem.
 
 export const ALVO_PLAYLIST = "playlist";
+export const ALVO_ELOGIO = "elogio";
+
+// A musica da semana e uma disputa semanal; elogio e ideia sao reconhecimento que
+// acumula. Por isso dois modos de contagem, cada um com a sua RPC.
+export const MODO_SEMANA = "semana";
+export const MODO_TOTAL = "total";
+export const RPC_POR_MODO = {
+  [MODO_SEMANA]: "portal_curtidas_da_semana",
+  [MODO_TOTAL]: "portal_curtidas_totais",
+};
 
 // A migration do A2 pode ainda nao ter sido aplicada no banco onde a tela roda.
 // Nesse caso a Home NAO pode quebrar: o bloco de curtidas simplesmente nao
@@ -18,12 +28,13 @@ const AUSENTE = new Set([
 
 export const estruturaAusente = (erro) => !!erro && AUSENTE.has(erro.code);
 
-// Retorno de portal_curtidas_da_semana -> mapa por alvo_id.
+// Retorno de qualquer das duas RPCs -> mapa por alvo_id. A semanal devolve
+// `curtidas_semana`, a total devolve `curtidas`.
 export function indexarCurtidas(linhas) {
   const mapa = new Map();
   for (const l of linhas || []) {
     mapa.set(l.alvo_id, {
-      curtidas: Number(l.curtidas_semana ?? 0),
+      curtidas: Number(l.curtidas_semana ?? l.curtidas ?? 0),
       euCurti: l.eu_curti === true,
     });
   }
@@ -33,10 +44,11 @@ export function indexarCurtidas(linhas) {
 export const curtidasDe = (mapa, alvoId) =>
   mapa?.get(alvoId) ?? { curtidas: 0, euCurti: false };
 
-export function rotuloCurtidas(n) {
+export function rotuloCurtidas(n, modo = MODO_SEMANA) {
   const q = Number(n ?? 0);
-  if (q === 0) return "Nenhuma curtida esta semana";
-  return q === 1 ? "1 curtida esta semana" : `${q} curtidas esta semana`;
+  const quando = modo === MODO_TOTAL ? "" : " esta semana";
+  if (q === 0) return `Nenhuma curtida${quando}`;
+  return q === 1 ? `1 curtida${quando}` : `${q} curtidas${quando}`;
 }
 
 // Atualizacao otimista: a tela responde na hora e depois confirma com o banco.
@@ -52,7 +64,7 @@ export function alternarLocal(mapa, alvoId) {
 
 export function mensagemErroCurtida(erro, jaCurtida) {
   if (!erro) return null;
-  if (erro.code === "23505") return "Você já curtiu esta música.";
+  if (erro.code === "23505") return "Você já curtiu.";
   if (erro.code === "42501") return "Sua conta não tem permissão para curtir. Avise a gestão.";
   if (estruturaAusente(erro)) return "As curtidas ainda não estão ativadas no banco. Avise a gestão.";
   return `Não foi possível ${jaCurtida ? "retirar a curtida" : "curtir"}. Código: ${erro.code || "sem código"}.`;

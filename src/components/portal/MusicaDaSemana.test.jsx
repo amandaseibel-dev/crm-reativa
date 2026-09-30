@@ -58,7 +58,7 @@ describe("helpers de curtidas", () => {
   });
 
   it("mensagemErroCurtida traduz os codigos sem vazar SQL", () => {
-    expect(mensagemErroCurtida({ code: "23505" })).toBe("Você já curtiu esta música.");
+    expect(mensagemErroCurtida({ code: "23505" })).toBe("Você já curtiu.");
     expect(mensagemErroCurtida({ code: "42501" })).toContain("permissão");
     expect(mensagemErroCurtida({ code: "42P01" })).toContain("ainda não estão ativadas");
     expect(mensagemErroCurtida(null)).toBeNull();

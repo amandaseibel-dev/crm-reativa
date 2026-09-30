@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../services/supabase";
 import {
-  ALVO_PLAYLIST, indexarCurtidas, alternarLocal, estruturaAusente, mensagemErroCurtida,
+  ALVO_PLAYLIST, MODO_SEMANA, RPC_POR_MODO,
+  indexarCurtidas, alternarLocal, estruturaAusente, mensagemErroCurtida,
 } from "./curtidas";
 
 // Curtidas de um tipo de alvo, na semana corrente (a janela e calculada no banco,
@@ -9,25 +10,25 @@ import {
 //
 // `disponivel` fica falso quando a migration do A2 ainda nao foi aplicada no
 // banco: nesse caso a tela some com o bloco de curtidas em vez de quebrar.
-export default function useCurtidas(alvoTipo = ALVO_PLAYLIST) {
+export default function useCurtidas(alvoTipo = ALVO_PLAYLIST, modo = MODO_SEMANA) {
   const [mapa, setMapa] = useState(() => new Map());
   const [disponivel, setDisponivel] = useState(true);
   const [ocupado, setOcupado] = useState(null);
 
   const buscar = useCallback(
-    () => supabase.rpc("portal_curtidas_da_semana", { p_alvo_tipo: alvoTipo }),
-    [alvoTipo],
+    () => supabase.rpc(RPC_POR_MODO[modo], { p_alvo_tipo: alvoTipo }),
+    [alvoTipo, modo],
   );
 
   const aplicar = useCallback(({ data, error }) => {
     if (error) {
       if (estruturaAusente(error)) { setDisponivel(false); return; }
-      console.error("portal_curtidas_da_semana:", error);
+      console.error(`${RPC_POR_MODO[modo]}:`, error);
       return;
     }
     setDisponivel(true);
     setMapa(indexarCurtidas(data));
-  }, []);
+  }, [modo]);
 
   useEffect(() => {
     let vivo = true;
