@@ -1,6 +1,6 @@
 // C1 -- Desafio da semana (coletivo).
 //
-// Roda a migration REAL (supabase/aguardando_aprovacao/20260930180000_...) e o
+// Roda a migration REAL (supabase/migrations/20260930165120_...) e o
 // rollback REAL num PostgreSQL real (PGlite). O fixture reproduz as policies REAIS
 // de `elogios_atendimento` e `sugestoes`, para provar que contar o progresso nao
 // afrouxa a RLS delas nem devolve conteudo.

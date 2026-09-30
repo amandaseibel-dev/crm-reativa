@@ -1,6 +1,6 @@
 // B -- Mural de elogios da equipe.
 //
-// Roda a migration REAL (supabase/aguardando_aprovacao/20260930170000_...) e o
+// Roda a migration REAL (supabase/migrations/20260930164939_...) e o
 // rollback REAL num PostgreSQL real (PGlite). O fixture reproduz a estrutura e as
 // policies REAIS de producao para `elogios_atendimento`, inclusive a
 // `elogios_select` que restringe a leitura -- e o teste central e justamente
