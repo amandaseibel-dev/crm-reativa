@@ -147,11 +147,65 @@ create or replace function public.fidelizacao_vencida(p_inicio timestamptz)
          <= public.hoje_brt();
 $$;
 
+-- LIMITE SARGAVEL -- a MESMA fronteira, escrita de um jeito que o planner
+-- consegue usar como faixa sobre a coluna.
+--
+-- PROBLEMA MEDIDO (teste de performance, 29/09/2026, 3.500 casos): com o
+-- predicado escrito como `public.fidelizacao_vencida(c.fidelizacao_inicio)`, o
+-- plano era `Seq Scan on casos` com `Filter: fidelizacao_vencida(...)` --
+-- chamada de funcao por linha, e o indice parcial idx_casos_fidelizacao_inicio
+-- IGNORADO. Funcao sobre a coluna e opaca para o planner, por mais STABLE que
+-- seja. Em 3.500 linhas isso e irrelevante; nos 18.424 casos de producao, com
+-- so uma fracao vencida, deixa de ser.
+--
+-- EQUIVALENCIA ALGEBRICA (o teste de comportamento prova que os dois conjuntos
+-- sao identicos):
+--     (inicio AT TZ BRT)::date + dias <= hoje_brt()
+--  <=> (inicio AT TZ BRT)::date      <= hoje_brt() - dias
+--  <=>  inicio                        <  meia-noite BRT de (hoje_brt() - dias + 1)
+--
+-- `fidelizacao_vencida` continua existindo e continua sendo a definicao legivel
+-- da regra -- e o que se le para entender e auditar. A v2 usa o limite por
+-- performance, e o teste garante que nunca divergem.
+create or replace function public.fidelizacao_limite_vencido()
+ returns timestamptz language sql stable set search_path to 'public' as $$
+  select ((public.hoje_brt() - public.fidelizacao_dias() + 1)::timestamp
+          at time zone 'America/Sao_Paulo');
+$$;
+
 -- Data em que o caso PODE virar elegivel -- so para exibir e auditar.
 create or replace function public.fidelizacao_elegivel_em(p_inicio timestamptz)
  returns date language sql stable set search_path to 'public' as $$
   select (p_inicio at time zone 'America/Sao_Paulo')::date + public.fidelizacao_dias();
 $$;
+
+-- ----------------------------------------------------------------------------
+-- 1c. TRES DEFINICOES DE FIDELIZACAO CONVIVEM EM PRODUCAO HOJE.
+--     NAO SERAO HARMONIZADAS NESTE PR (decisao da gestao, 29/09/2026).
+--
+-- Levantado no catalogo de producao em 29/09/2026:
+--
+--   1. public.casos_elegiveis_liberacao_fidelizacao  (a v1, que o cron usa)
+--        casos.data_ultimo_acionamento + 10 < current_date
+--        relogio do CASO, data em UTC  ->  com inicio 01/10, libera em 12/10
+--
+--   2. public.caso_dentro_prazo_fidelizacao(date)
+--        p_data_ultimo_acionamento + 10 >= current_date
+--        relogio do CASO, data em UTC  ->  complemento coerente da v1
+--
+--   3. internal.matricula_em_fidelizacao(uuid, text)   <-- usada pelo
+--      trigger_impor_teto_operador
+--        alunos.responsavel_atual_em > now() - interval '10 days'
+--        relogio do DONO, por TIMESTAMP, sensivel a hora do dia
+--
+-- A terceira JA conta da atribuicao ao dono atual -- o mesmo conceito desta
+-- proposta -- e nenhuma das tres usa data local de Brasilia. Com a v2 entram
+-- QUATRO definicoes no banco.
+--
+-- ESTA PROPOSTA NAO TOCA EM 1, 2 NEM 3. Harmonizar mexeria no receptivo e no
+-- teto de 500, que estao fora de escopo. A divergencia fica registrada aqui, no
+-- PR e num teste de nao regressao que falha se alguem alterar 2 ou 3 sem
+-- decisao (supabase/tests/fidelizacao_por_dono_comportamento.test.js).
 
 -- ----------------------------------------------------------------------------
 -- 2. O QUE RENOVA -- predicado proprio, com os 7 tipos aprovados
@@ -202,11 +256,10 @@ $$;
 -- ----------------------------------------------------------------------------
 alter table public.casos add column if not exists fidelizacao_inicio timestamptz;
 
+-- `comment on ... is` aceita SO literal -- concatenacao com || e erro de
+-- sintaxe. Pego pelo teste de fixture em 29/09/2026, antes de aplicar.
 comment on column public.casos.fidelizacao_inicio is
-  'Inicio da fidelizacao DO RESPONSAVEL ATUAL. Nasce na troca de dono e so e '
-  || 'renovado por acionamento individual do proprio dono (eh_acionamento_'
-  || 'fidelizacao). null = nao inicializado; a regra v2 ignora. NAO derivar de '
-  || 'data_ultimo_acionamento, que e do caso e nao do dono.';
+  'Inicio da fidelizacao DO RESPONSAVEL ATUAL. Nasce na troca de dono e so e renovado por acionamento individual do proprio dono (eh_acionamento_fidelizacao). null = nao inicializado; a regra v2 ignora. NAO derivar de data_ultimo_acionamento, que e do caso e nao do dono.';
 
 -- Indice parcial: a v2 varre so o que tem relogio e nao esta encerrado.
 create index if not exists idx_casos_fidelizacao_inicio
@@ -493,7 +546,9 @@ create or replace function public.casos_elegiveis_liberacao_fidelizacao_v2()
        and lower(c.operador_email) <> internal.carteira_geral_email()
        and c.encerrado_operacional = false
        and c.fidelizacao_inicio is not null
-       and public.fidelizacao_vencida(c.fidelizacao_inicio)
+       -- fronteira em forma de FAIXA, para o indice parcial ser usado; e a mesma
+       -- regra de public.fidelizacao_vencida (ver a equivalencia na secao 1b)
+       and c.fidelizacao_inicio < public.fidelizacao_limite_vencido()
        and not public.caso_encerrado_operacional(c.cpf_limpo, c.status_atual,
              c.status_acionamento, c.status_financeiro, c.status_jornada)
   )
@@ -556,8 +611,7 @@ create table if not exists public.fidelizacao_sombra (
 );
 
 comment on table public.fidelizacao_sombra is
-  'Modo sombra da fidelizacao por dono: o que a v2 teria liberado. Uma linha '
-  || 'por caso por dia (PK dia+caso_id). Nao libera nada.';
+  'Modo sombra da fidelizacao por dono: o que a v2 teria liberado. Uma linha por caso por dia (PK dia+caso_id). Nao libera nada.';
 
 create or replace function public.fidelizacao_sombra_registrar()
  returns integer language plpgsql security definer set search_path to 'public' as $$
@@ -586,7 +640,7 @@ begin
        and lower(c.operador_email) <> internal.carteira_geral_email()
        and c.encerrado_operacional = false
        and c.fidelizacao_inicio is not null
-       and public.fidelizacao_vencida(c.fidelizacao_inicio)
+       and c.fidelizacao_inicio < public.fidelizacao_limite_vencido()
   ),
   -- PROTEGIDO NAO CONSOME VAGA DO TETO. A numeracao roda SO sobre os
   -- desprotegidos -- igual a v2, onde o `where not protegido` e avaliado antes
@@ -659,6 +713,7 @@ revoke all on function public.fidelizacao_sombra_registrar() from public, anon;
 revoke all on function public.casos_elegiveis_liberacao_fidelizacao_v2() from public, anon;
 revoke all on function public.fidelizacao_vencida(timestamptz) from public, anon;
 revoke all on function public.fidelizacao_elegivel_em(timestamptz) from public, anon;
+revoke all on function public.fidelizacao_limite_vencido() from public, anon;
 revoke all on function public.hoje_brt() from public, anon;
 revoke all on function public.fidelizacao_corte_ts() from public, anon;
 grant execute on function public.fidelizacao_backfill_corte() to authenticated;
@@ -666,6 +721,7 @@ grant execute on function public.fidelizacao_sombra_registrar() to authenticated
 grant execute on function public.casos_elegiveis_liberacao_fidelizacao_v2() to authenticated;
 grant execute on function public.fidelizacao_vencida(timestamptz) to authenticated;
 grant execute on function public.fidelizacao_elegivel_em(timestamptz) to authenticated;
+grant execute on function public.fidelizacao_limite_vencido() to authenticated;
 grant execute on function public.hoje_brt() to authenticated;
 grant execute on function public.fidelizacao_corte_ts() to authenticated;
 
@@ -699,11 +755,19 @@ commit;
 --   c) desligar a renovacao: restaurar fn_atualizar_ultimo_acionamento sem o
 --      bloco <<NOVO>> (o corpo original esta acima, palavra por palavra).
 --   d) drop trigger trg_fidelizacao_nasce_com_o_dono on public.casos;
---   e) drop function casos_elegiveis_liberacao_fidelizacao_v2,
---      fidelizacao_sombra_registrar, fidelizacao_backfill_corte,
---      fidelizacao_param, fidelizacao_corte, fidelizacao_dias,
---      fidelizacao_teto_diario, fidelizacao_modo, eh_acionamento_fidelizacao;
---      drop table fidelizacao_sombra;
+--   e) ORDEM IMPORTA -- a tabela da sombra usa hoje_brt() no default da coluna
+--      `dia`, entao ela sai ANTES da funcao (erro pego pelo teste X do arquivo
+--      supabase/tests/fidelizacao_por_dono_comportamento.test.js, em
+--      29/09/2026: "cannot drop function hoje_brt() because other objects
+--      depend on it"). Sequencia que funciona:
+--        drop table fidelizacao_sombra;
+--        drop function casos_elegiveis_liberacao_fidelizacao_v2,
+--          fidelizacao_sombra_registrar, fidelizacao_backfill_corte,
+--          fidelizacao_vencida, fidelizacao_elegivel_em, fidelizacao_corte_ts,
+--          fidelizacao_param, fidelizacao_corte, fidelizacao_dias,
+--          fidelizacao_teto_diario, fidelizacao_modo, fidelizacao_limite_vencido,
+--          hoje_brt,
+--          eh_acionamento_fidelizacao;
 --   f) alter table casos drop column fidelizacao_inicio;  -- ultimo recurso
 --
 -- Nada e sobrescrito: data_ultimo_acionamento, alunos.responsavel_atual_em e o
