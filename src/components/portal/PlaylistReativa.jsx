@@ -4,12 +4,13 @@ import { nomeOperadorPorEmail } from "../../utils/operadores";
 import {
   LIMITE_MUSICAS, ERRO_LIMITE, extrairYoutubeId, mesmaPessoa, contarAtivasDe, linkDoYoutube,
 } from "./playlist";
+import { curtidasDe } from "./curtidas";
 
 const VAZIO = { titulo: "", artista: "", link: "" };
 const VISIVEIS = 6;
 const CAMPOS = "id,titulo,artista,youtube_id,adicionado_por,adicionado_por_email,ativo,criado_em";
 
-export default function PlaylistReativa({ usuario, Card, CabecalhoCard, S }) {
+export default function PlaylistReativa({ usuario, curtidas, Card, CabecalhoCard, S }) {
   const [playlist, setPlaylist] = useState([]);
   const [erro, setErro] = useState("");
   const [aberto, setAberto] = useState(false);
@@ -113,6 +114,7 @@ export default function PlaylistReativa({ usuario, Card, CabecalhoCard, S }) {
 
     fechar();
     recarregar();
+    curtidas?.recarregar?.();
   }
 
   // Soft delete: a linha continua no banco com ativo = false, e a vaga volta.
@@ -129,6 +131,7 @@ export default function PlaylistReativa({ usuario, Card, CabecalhoCard, S }) {
       return;
     }
     recarregar();
+    curtidas?.recarregar?.();
   }
 
   const lista = mostrarTodas ? playlist : playlist.slice(0, VISIVEIS);
@@ -188,14 +191,28 @@ export default function PlaylistReativa({ usuario, Card, CabecalhoCard, S }) {
                   <span style={S.adicionadoPor}>Escolhida por {item.adicionado_por}</span>
                 </div>
               </a>
-              {minha ? (
-                <div style={S.musicaAcoes}>
-                  <button type="button" onClick={() => abrirEdicao(item)} style={S.botaoAcaoMusica}>Editar</button>
-                  <button type="button" onClick={() => remover(item)} disabled={removendo === item.id} style={S.botaoAcaoMusica}>
-                    {removendo === item.id ? "..." : "Remover"}
+              <div style={S.musicaAcoes}>
+                {curtidas?.disponivel && (
+                  <button
+                    type="button"
+                    onClick={() => curtidas.alternar(item.id, email)}
+                    disabled={curtidas.ocupado === item.id}
+                    aria-pressed={curtidasDe(curtidas.mapa, item.id).euCurti}
+                    title={curtidasDe(curtidas.mapa, item.id).euCurti ? "Retirar minha curtida" : "Curtir esta música"}
+                    style={{ ...S.botaoCurtir, ...(curtidasDe(curtidas.mapa, item.id).euCurti ? S.botaoCurtirAtivo : null) }}
+                  >
+                    {curtidasDe(curtidas.mapa, item.id).euCurti ? "❤️" : "🤍"} {curtidasDe(curtidas.mapa, item.id).curtidas}
                   </button>
-                </div>
-              ) : <span style={S.play}>▶</span>}
+                )}
+                {minha && (
+                  <>
+                    <button type="button" onClick={() => abrirEdicao(item)} style={S.botaoAcaoMusica}>Editar</button>
+                    <button type="button" onClick={() => remover(item)} disabled={removendo === item.id} style={S.botaoAcaoMusica}>
+                      {removendo === item.id ? "..." : "Remover"}
+                    </button>
+                  </>
+                )}
+              </div>
             </div>
           );
         }) : <p style={S.muted}>{erro || "A playlist começa com a primeira indicação da equipe."}</p>}

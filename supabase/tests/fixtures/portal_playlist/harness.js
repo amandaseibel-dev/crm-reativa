@@ -17,10 +17,12 @@ import { fileURLToPath } from "node:url";
 const AQUI = dirname(fileURLToPath(import.meta.url));
 export const lerRepo = (p) => readFileSync(resolve(AQUI, "..", "..", "..", "..", p), "utf8");
 export const MIG = (n) => lerRepo(`supabase/migrations/${n}.sql`);
+export const PENDENTE = (n) => lerRepo(`supabase/aguardando_aprovacao/${n}.sql`);
 export const ROLL = (n) => lerRepo(`supabase/rollbacks/${n}.rollback.sql`);
 
 export const CRIACAO = "20260929152500_portal_visao_geral_interativa";
 export const A1 = "20260930143806_portal_playlist_limite_tres_musicas";
+export const A2 = "20260930160000_portal_curtidas_e_musica_da_semana";
 
 export const AMANDA = "amanda.seibel@aelbra.com.br";   // gestao
 export const FERNANDA = "cobranca04@aelbra.com.br";    // gestao
@@ -107,6 +109,52 @@ export async function resetar(db) {
     await db.query("delete from public.portal_curtidas");
   }
 }
+
+// A2 ainda nao esta em producao: mora em supabase/aguardando_aprovacao/.
+export async function aplicarA2(db) {
+  await db.exec(PENDENTE(A2));
+  await db.exec("grant select, insert, delete on public.portal_curtidas to authenticated;");
+}
+
+// Curtir como a propria pessoa, com RLS ligada.
+export async function curtir(db, email, alvoId, quando = null, alvoTipo = "playlist") {
+  return comoUsuario(db, email, async () => {
+    try {
+      if (quando) {
+        await db.query(
+          `insert into public.portal_curtidas (alvo_tipo, alvo_id, usuario_email, criado_em) values ($1,$2,$3,$4)`,
+          [alvoTipo, alvoId, email, quando],
+        );
+      } else {
+        await db.query(
+          `insert into public.portal_curtidas (alvo_tipo, alvo_id, usuario_email) values ($1,$2,$3)`,
+          [alvoTipo, alvoId, email],
+        );
+      }
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, code: e.code ?? null, message: String(e.message ?? e) };
+    }
+  });
+}
+
+export async function descurtir(db, email, alvoId, alvoTipo = "playlist") {
+  return comoUsuario(db, email, async () => {
+    const r = await db.query(
+      `delete from public.portal_curtidas where alvo_tipo=$1 and alvo_id=$2 and lower(usuario_email)=lower($3)`,
+      [alvoTipo, alvoId, email],
+    );
+    return { ok: true, apagadas: r.affectedRows ?? 0 };
+  });
+}
+
+export const musicaDaSemana = async (db, email, semana = null) =>
+  comoUsuario(db, email, async () =>
+    (await db.query("select * from public.portal_musica_da_semana($1)", [semana])).rows[0] ?? null);
+
+export const curtidasDaSemana = async (db, email, semana = null) =>
+  comoUsuario(db, email, async () =>
+    (await db.query("select * from public.portal_curtidas_da_semana('playlist', $1) order by alvo_id", [semana])).rows);
 
 export const q1 = async (db, sql, p = []) => (await db.query(sql, p)).rows[0];
 export const qn = async (db, sql, p = []) => (await db.query(sql, p)).rows;

@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
 import PlaylistReativa from "./portal/PlaylistReativa";
+import MusicaDaSemana from "./portal/MusicaDaSemana";
+import useCurtidas from "./portal/useCurtidas";
 
 const CANOAS = { latitude: -29.9178, longitude: -51.1836 };
 
@@ -130,6 +132,7 @@ export default function VisaoGeralInterativa() {
   const [aniversario, setAniversario] = useState({ nome: "", dia: "", mes: "" });
 
   const podeGerir = podeVerTudo(usuario.email);
+  const curtidas = useCurtidas("playlist");
 
   const carregarDadosInternos = useCallback(async () => {
     const hojeIso = new Date().toISOString();
@@ -267,6 +270,8 @@ export default function VisaoGeralInterativa() {
         </strong>
       </div>
 
+      <MusicaDaSemana recarregarEm={curtidas.mapa} S={S} />
+
       <div style={S.gridPrincipal}>
         <Card style={S.climaCard}>
           <CabecalhoCard icone="🌤️" titulo="Clima em Canoas" />
@@ -294,7 +299,7 @@ export default function VisaoGeralInterativa() {
           ) : <p style={S.muted}>{erroClima || "Atualizando previsão..."}</p>}
         </Card>
 
-        <PlaylistReativa usuario={usuario} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />
+        <PlaylistReativa usuario={usuario} curtidas={curtidas} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />
       </div>
 
       <div style={S.gridSecundario}>
@@ -407,6 +412,23 @@ const S = {
   mutedPequeno: { color: "var(--rv-texto-suave)", fontSize: 11, marginTop: 2 },
   botaoMini: { border: "1px solid var(--rv-borda)", borderRadius: 10, background: "var(--rv-fundo-suave)", color: "var(--rv-tinta)", fontWeight: 800, padding: "7px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: 12 },
   botaoMiniDesligado: { opacity: .5, cursor: "not-allowed" },
+  botaoCurtir: { border: "1px solid var(--rv-borda)", borderRadius: 999, background: "var(--rv-superficie)", color: "var(--rv-tinta)", fontWeight: 800, padding: "4px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: 12, whiteSpace: "nowrap" },
+  botaoCurtirAtivo: { borderColor: "var(--rv-azul)", background: "var(--rv-azul-fundo)", color: "var(--rv-azul-texto)" },
+  semanaFaixa: { margin: "0 0 14px", padding: "16px 18px", borderRadius: 20, border: "1px solid var(--rv-borda)", background: "linear-gradient(135deg, var(--rv-azul-fundo), var(--rv-superficie))", boxShadow: "0 8px 26px rgba(15,23,42,.05)" },
+  semanaRotulo: { display: "flex", alignItems: "center", gap: 8, marginBottom: 12 },
+  semanaIcone: { fontSize: 18 },
+  semanaEyebrow: { fontSize: 11, letterSpacing: ".1em", fontWeight: 900, color: "var(--rv-azul-texto)" },
+  semanaAlvo: { display: "grid", gridTemplateColumns: "120px minmax(0,1fr) auto", gap: 14, alignItems: "center", textDecoration: "none", color: "inherit" },
+  semanaCapa: { width: 120, height: 80, objectFit: "cover", borderRadius: 12, background: "#ddd" },
+  semanaTexto: { minWidth: 0, display: "grid", gap: 3 },
+  semanaTitulo: { fontSize: 19, lineHeight: 1.2, color: "var(--rv-tinta)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  semanaArtista: { fontSize: 14, color: "var(--rv-texto-suave)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  semanaQuem: { fontSize: 12, color: "var(--rv-texto-fraco)" },
+  semanaContagem: { display: "grid", justifyItems: "end", gap: 2, textAlign: "right" },
+  semanaNumero: { fontSize: 22, lineHeight: 1, color: "var(--rv-tinta)", whiteSpace: "nowrap" },
+  semanaNumeroRotulo: { fontSize: 11, color: "var(--rv-texto-suave)" },
+  semanaVazio: { margin: 0, fontSize: 14, lineHeight: 1.5, color: "var(--rv-texto-suave)" },
+  semanaVazioDica: { color: "var(--rv-texto-fraco)" },
   form: { display: "grid", gap: 8, padding: 10, background: "var(--rv-fundo-suave)", borderRadius: 12, marginBottom: 12 },
   formLinha: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
   input: { width: "100%", boxSizing: "border-box", border: "1px solid var(--rv-borda)", borderRadius: 9, padding: "9px 10px", background: "var(--rv-superficie)", color: "var(--rv-tinta)", fontFamily: "inherit" },
