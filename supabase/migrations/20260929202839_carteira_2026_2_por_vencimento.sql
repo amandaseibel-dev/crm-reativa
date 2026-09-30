@@ -8,7 +8,10 @@
 -- As seis linhas do cartao, nos termos aprovados pela gestao em 29/09/2026:
 --
 --   Entrou     valor original de TODOS os titulos do mes
---   Pago       valor efetivamente recebido (campo `recuperado`)
+--   Pago       campo `recuperado`. NAO e, em todo mes, pagamento identificado
+--              titulo a titulo: onde o acordo cobre mais de um titulo o valor
+--              vem de rateio. `pago_composicao` separa "atribuido diretamente"
+--              de "por rateio", e a tela mostra os dois.
 --   Negociado  saldo ainda nao pago de ACORDO ATIVO (regular/atraso/quebrado --
 --              `acordos.status = 'ATIVO'`, conforme docs/REGRA-SALDO-COBRAVEL.md)
 --   Cancelado  titulo com a COBRANCA cancelada (faixa CANCELADO). Acordo
