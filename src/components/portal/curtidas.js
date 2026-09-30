@@ -6,6 +6,7 @@
 
 export const ALVO_PLAYLIST = "playlist";
 export const ALVO_ELOGIO = "elogio";
+export const ALVO_IDEIA = "ideia";
 
 // A musica da semana e uma disputa semanal; elogio e ideia sao reconhecimento que
 // acumula. Por isso dois modos de contagem, cada um com a sua RPC.
