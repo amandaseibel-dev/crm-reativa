@@ -1,6 +1,6 @@
 // Ideias da equipe: mural de ideias VIVAS, com envio pelo Portal.
 //
-// Roda a migration REAL (supabase/aguardando_aprovacao/20260930200000_...) e o
+// Roda a migration REAL (supabase/migrations/20260930195803_...) e o
 // rollback REAL num PostgreSQL real (PGlite), com as policies REAIS de
 // `sugestoes` reproduzidas -- inclusive sugestoes_insert, que e o caminho do
 // envio, e painel_negado como RESTRICTIVE.

@@ -17,7 +17,6 @@ import { fileURLToPath } from "node:url";
 const AQUI = dirname(fileURLToPath(import.meta.url));
 export const lerRepo = (p) => readFileSync(resolve(AQUI, "..", "..", "..", "..", p), "utf8");
 export const MIG = (n) => lerRepo(`supabase/migrations/${n}.sql`);
-export const PENDENTE = (n) => lerRepo(`supabase/aguardando_aprovacao/${n}.sql`);
 export const ROLL = (n) => lerRepo(`supabase/rollbacks/${n}.rollback.sql`);
 
 export const CRIACAO = "20260929152500_portal_visao_geral_interativa";
@@ -321,7 +320,7 @@ export const curtidasTotais = async (db, email, alvoTipo) =>
 // ---------------------------------------------------------------------------
 export const C1 = "20260930165120_portal_desafio_semana";
 export const C2 = "20260930165209_portal_ideias_equipe";
-export const C3 = "20260930200000_portal_ideias_em_avaliacao";
+export const C3 = "20260930195803_portal_ideias_em_avaliacao";
 
 const SUGESTOES_DDL = `
 create or replace function public.usuario_e_gestao() returns boolean
@@ -409,8 +408,8 @@ export async function aplicarC1(db) {
   await db.exec("grant select, insert, update, delete on public.portal_desafios to authenticated;");
 }
 export const aplicarC2 = (db) => db.exec(MIG(C2));
-// C3 ainda nao esta em producao: mora em supabase/aguardando_aprovacao/.
-export const aplicarC3 = (db) => db.exec(PENDENTE(C3));
+// C3 ja esta em producao: saiu de aguardando_aprovacao/ para migrations/.
+export const aplicarC3 = (db) => db.exec(MIG(C3));
 
 // Enviar ideia pelo Portal usa o MESMO caminho do Painel de Sugestoes: insert
 // direto em sugestoes pela policy sugestoes_insert, com autor_email proprio.
