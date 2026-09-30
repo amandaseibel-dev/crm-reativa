@@ -6,8 +6,10 @@
 //
 // As 3 musicas sao REAIS; as curtidas sao de teste, com horarios escolhidos para
 // exercitar a fronteira da semana em America/Sao_Paulo.
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import * as H from "./fixtures/portal_playlist/harness.js";
+
+vi.setConfig({ testTimeout: 120000, hookTimeout: 120000 });
 
 const [AMANDA_M, MAURICIO_M, FERNANDA_M] = H.REAIS.map((l) => l.id);
 
@@ -20,12 +22,21 @@ const DOM_2130 = "2026-10-05T00:30:00Z";        // domingo 21:30 em SP (ja e seg
 const SEG_SEG  = "2026-10-05T03:00:00Z";        // segunda seguinte 00:00 em SP
 const ANTERIOR = "2026-09-27T12:00:00Z";        // semana anterior
 
-async function base() {
-  const db = await H.montarAntesDoA1();
+// UM banco para o arquivo inteiro, com H.resetar() barato entre os testes (que
+// tambem limpa portal_curtidas). Instanciar um PGlite por teste seria ~3x mais
+// lento e a suite completa roda no CI com timeout de 15 minutos. Os testes que
+// precisam de outro estado -- antes do A2, ou depois do rollback -- abrem o seu.
+let db;
+
+beforeAll(async () => {
+  db = await H.montarAntesDoA1();
   await H.aplicarA1(db);
   await H.aplicarA2(db);
-  return db;
-}
+});
+beforeEach(async () => { await H.resetar(db); });
+afterAll(async () => { await db?.close(); });
+
+const base = async () => { await H.resetar(db); return db; };
 
 describe("estrutura", () => {
   it("cria a tabela, o unique por pessoa, o indice de data e 3 policies", async () => {
@@ -58,7 +69,6 @@ describe("estrutura", () => {
         { column_name: "usuario_email" }, { column_name: "criado_em" },
       ]);
 
-    await db.close();
   });
 
   it("nao mexe em portal_playlist nem nas 3 musicas reais", async () => {
@@ -83,7 +93,6 @@ describe("estrutura", () => {
     await H.curtir(db, H.LUANA, AMANDA_M);
     await H.aplicarA2(db);
     expect(Number((await H.q1(db, "select count(*) n from public.portal_curtidas")).n)).toBe(1);
-    await db.close();
   });
 });
 
@@ -99,7 +108,6 @@ describe("uma curtida por pessoa, garantida pelo banco", () => {
     expect(b.code).toBe("23505"); // unique_violation -- constraint, nao gatilho
     expect(Number((await H.q1(db, "select count(*) n from public.portal_curtidas")).n)).toBe(1);
 
-    await db.close();
   });
 
   it("e-mail com caixa diferente e a mesma pessoa", async () => {
@@ -108,7 +116,6 @@ describe("uma curtida por pessoa, garantida pelo banco", () => {
     const r = await H.curtir(db, H.LUANA.toUpperCase(), AMANDA_M);
     expect(r.ok).toBe(false);
     expect(r.code).toBe("23505");
-    await db.close();
   });
 
   it("pessoas diferentes curtem a mesma musica; a mesma pessoa curte musicas diferentes", async () => {
@@ -116,7 +123,6 @@ describe("uma curtida por pessoa, garantida pelo banco", () => {
     for (const e of [H.LUANA, H.MAURICIO, H.FERNANDA]) expect((await H.curtir(db, e, AMANDA_M)).ok).toBe(true);
     for (const m of [MAURICIO_M, FERNANDA_M]) expect((await H.curtir(db, H.LUANA, m)).ok).toBe(true);
     expect(Number((await H.q1(db, "select count(*) n from public.portal_curtidas")).n)).toBe(5);
-    await db.close();
   });
 
   it("ninguem curte no nome de outra pessoa", async () => {
@@ -130,7 +136,6 @@ describe("uma curtida por pessoa, garantida pelo banco", () => {
     });
     expect(r.ok).toBe(false);
     expect(r.code).toBe("42501"); // RLS
-    await db.close();
   });
 
   it("alvo_tipo so aceita 'playlist' nesta etapa", async () => {
@@ -138,7 +143,6 @@ describe("uma curtida por pessoa, garantida pelo banco", () => {
     const r = await H.curtir(db, H.LUANA, AMANDA_M, null, "elogio");
     expect(r.ok).toBe(false);
     expect(r.code).toBe("23514"); // check_violation
-    await db.close();
   });
 });
 
@@ -159,7 +163,6 @@ describe("retirar a propria curtida", () => {
     const depois = await H.q1(db, "select criado_em from public.portal_curtidas");
     expect(new Date(depois.criado_em).getTime()).toBeGreaterThan(new Date(antes.criado_em).getTime());
 
-    await db.close();
   });
 
   it("ninguem retira a curtida de outra pessoa", async () => {
@@ -171,7 +174,6 @@ describe("retirar a propria curtida", () => {
     expect(Number((await H.q1(db, "select count(*) n from public.portal_curtidas")).n)).toBe(1);
     expect((await H.q1(db, "select usuario_email e from public.portal_curtidas")).e).toBe(H.MAURICIO);
 
-    await db.close();
   });
 });
 
@@ -189,7 +191,6 @@ describe("janela da semana em America/Sao_Paulo", () => {
 
     // Nenhuma curtida foi apagada: as 4 continuam na tabela.
     expect(Number((await H.q1(db, "select count(*) n from public.portal_curtidas")).n)).toBe(4);
-    await db.close();
   });
 
   it("domingo 21:30 em SP ainda e desta semana, embora ja seja segunda em UTC", async () => {
@@ -204,7 +205,6 @@ describe("janela da semana em America/Sao_Paulo", () => {
       .toBe(SEMANA);
     expect((await H.q1(db, `select (date_trunc('week', ($1::timestamptz at time zone 'UTC')))::date::text s`, [DOM_2130])).s)
       .toBe("2026-10-05");
-    await db.close();
   });
 
   it("semana anterior continua consultavel -- o historico nao some", async () => {
@@ -216,7 +216,6 @@ describe("janela da semana em America/Sao_Paulo", () => {
       .toEqual([{ alvo_id: AMANDA_M, curtidas_semana: 1, eu_curti: true }]);
     expect(await H.musicaDaSemana(db, H.LUANA, "2026-09-21"))
       .toMatchObject({ id: AMANDA_M, curtidas: 1, semana: expect.anything() });
-    await db.close();
   });
 
   it("eu_curti olha todas as semanas, porque a unicidade e global", async () => {
@@ -227,7 +226,6 @@ describe("janela da semana em America/Sao_Paulo", () => {
     expect(await H.curtidasDaSemana(db, H.LUANA, SEMANA))
       .toEqual([{ alvo_id: AMANDA_M, curtidas_semana: 0, eu_curti: true }]);
     expect((await H.curtir(db, H.LUANA, AMANDA_M, QUA_1000)).code).toBe("23505");
-    await db.close();
   });
 });
 
@@ -242,7 +240,6 @@ describe("musica mais curtida da semana", () => {
       id: MAURICIO_M, titulo: "Vou pra Santa Catarina", artista: "Terceira Dimensão",
       adicionado_por: "Mauricio", curtidas: 2, semana: expect.anything(),
     });
-    await db.close();
   });
 
   it("empate no total -> vence a curtida mais antiga DA SEMANA", async () => {
@@ -251,7 +248,6 @@ describe("musica mais curtida da semana", () => {
     await H.curtir(db, H.MAURICIO, AMANDA_M,   "2026-09-30T12:00:00Z"); // quarta
 
     expect((await H.musicaDaSemana(db, H.LUANA, SEMANA)).id).toBe(FERNANDA_M);
-    await db.close();
   });
 
   it("empate no total e no horario -> vence a musica cadastrada primeiro", async () => {
@@ -261,7 +257,6 @@ describe("musica mais curtida da semana", () => {
     await H.curtir(db, H.MAURICIO, AMANDA_M,   QUA_1000);
 
     expect((await H.musicaDaSemana(db, H.LUANA, SEMANA)).id).toBe(AMANDA_M);
-    await db.close();
   });
 
   it("musica removida da playlist mantem as curtidas mas sai da disputa", async () => {
@@ -278,7 +273,6 @@ describe("musica mais curtida da semana", () => {
     // ...e as curtidas da removida continuam gravadas.
     expect(Number((await H.q1(db,
       "select count(*) n from public.portal_curtidas where alvo_id=$1", [MAURICIO_M])).n)).toBe(2);
-    await db.close();
   });
 
   it("sem curtidas na semana, nao ha vencedora", async () => {
@@ -288,7 +282,6 @@ describe("musica mais curtida da semana", () => {
     // Curtida fora da semana tambem nao elege ninguem nesta semana.
     await H.curtir(db, H.LUANA, AMANDA_M, ANTERIOR);
     expect(await H.musicaDaSemana(db, H.LUANA, SEMANA)).toBeNull();
-    await db.close();
   });
 
   it("descurtir muda o resultado na hora", async () => {
@@ -301,20 +294,27 @@ describe("musica mais curtida da semana", () => {
     await H.descurtir(db, H.FERNANDA, MAURICIO_M);
     // 1 x 1 -> desempata pela curtida mais antiga da semana (terca, da Amanda).
     expect((await H.musicaDaSemana(db, H.LUANA, SEMANA)).id).toBe(AMANDA_M);
-    await db.close();
   });
 
   it("sem p_semana, usa a semana corrente", async () => {
     const db = await base();
     await H.curtir(db, H.LUANA, FERNANDA_M); // criado_em = now()
     expect((await H.musicaDaSemana(db, H.LUANA)).id).toBe(FERNANDA_M);
-    await db.close();
   });
 });
 
 describe("rollback", () => {
+  // Estes testes DERRUBAM portal_curtidas, entao nao podem usar o banco
+  // compartilhado do arquivo: cada um monta e fecha o seu.
+  const proprio = async () => {
+    const d = await H.montarAntesDoA1();
+    await H.aplicarA1(d);
+    await H.aplicarA2(d);
+    return d;
+  };
+
   it("sem curtidas, desfaz tudo e a playlist fica intacta", async () => {
-    const db = await base();
+    const db = await proprio();
     const antes = await H.retrato(db);
 
     await db.exec(H.ROLL(H.A2));
@@ -332,7 +332,7 @@ describe("rollback", () => {
   });
 
   it("com curtidas, recusa apagar sem confirmacao explicita", async () => {
-    const db = await base();
+    const db = await proprio();
     await H.curtir(db, H.LUANA, AMANDA_M);
 
     let erro = null;
@@ -346,7 +346,7 @@ describe("rollback", () => {
   });
 
   it("com confirmacao explicita da gestao, desfaz", async () => {
-    const db = await base();
+    const db = await proprio();
     await H.curtir(db, H.LUANA, AMANDA_M);
 
     await db.query("select set_config('portal.rollback_curtidas_confirmado','sim',false)");
