@@ -3,7 +3,9 @@ import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
 import PlaylistReativa from "./portal/PlaylistReativa";
 import MusicaDaSemana from "./portal/MusicaDaSemana";
+import MuralElogios from "./portal/MuralElogios";
 import useCurtidas from "./portal/useCurtidas";
+import { ALVO_ELOGIO, ALVO_PLAYLIST, MODO_SEMANA, MODO_TOTAL } from "./portal/curtidas";
 
 const CANOAS = { latitude: -29.9178, longitude: -51.1836 };
 
@@ -132,7 +134,8 @@ export default function VisaoGeralInterativa() {
   const [aniversario, setAniversario] = useState({ nome: "", dia: "", mes: "" });
 
   const podeGerir = podeVerTudo(usuario.email);
-  const curtidas = useCurtidas("playlist");
+  const curtidas = useCurtidas(ALVO_PLAYLIST, MODO_SEMANA);
+  const curtidasElogio = useCurtidas(ALVO_ELOGIO, MODO_TOTAL);
 
   const carregarDadosInternos = useCallback(async () => {
     const hojeIso = new Date().toISOString();
@@ -271,6 +274,10 @@ export default function VisaoGeralInterativa() {
       </div>
 
       <MusicaDaSemana recarregarEm={curtidas.mapa} S={S} />
+
+      <div style={S.gridFaixa2}>
+        <MuralElogios usuario={usuario} curtidas={curtidasElogio} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />
+      </div>
 
       <div style={S.gridPrincipal}>
         <Card style={S.climaCard}>
@@ -429,6 +436,13 @@ const S = {
   semanaNumeroRotulo: { fontSize: 11, color: "var(--rv-texto-suave)" },
   semanaVazio: { margin: 0, fontSize: 14, lineHeight: 1.5, color: "var(--rv-texto-suave)" },
   semanaVazioDica: { color: "var(--rv-texto-fraco)" },
+  gridFaixa2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 14, marginBottom: 14 },
+  listaElogios: { display: "grid", gap: 10 },
+  elogio: { padding: "10px 12px", borderRadius: 12, background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda-suave)" },
+  elogioTexto: { margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--rv-tinta)", borderLeft: "3px solid var(--rv-azul)", paddingLeft: 10 },
+  elogioRodape: { display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" },
+  elogioQuem: { fontSize: 12, fontWeight: 800, color: "var(--rv-tinta)" },
+  elogioData: { fontSize: 11, color: "var(--rv-texto-suave)", marginRight: "auto" },
   form: { display: "grid", gap: 8, padding: 10, background: "var(--rv-fundo-suave)", borderRadius: 12, marginBottom: 12 },
   formLinha: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
   input: { width: "100%", boxSizing: "border-box", border: "1px solid var(--rv-borda)", borderRadius: 9, padding: "9px 10px", background: "var(--rv-superficie)", color: "var(--rv-tinta)", fontFamily: "inherit" },

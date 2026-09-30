@@ -194,3 +194,121 @@ export async function atualizar(db, email, id, sets, params) {
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// B -- Mural de elogios. O fixture reproduz a estrutura e as policies REAIS de
+// producao (colunas de `elogios_atendimento` conforme information_schema, e as
+// funcoes app_usuario_ativo / pode_gerir_elogios_tv conforme pg_get_functiondef),
+// para que o teste possa provar que o mural NAO vaza print, observacao interna,
+// motivo de rejeicao nem e-mail. Os elogios em si sao FICTICIOS.
+// ---------------------------------------------------------------------------
+export const B = "20260930170000_portal_mural_elogios";
+
+const ELOGIOS_DDL = `
+create table if not exists public.usuarios (
+  id uuid primary key default gen_random_uuid(),
+  nome text, email text not null, perfil text, ativo boolean not null default true
+);
+
+create or replace function public.app_usuario_ativo() returns boolean
+language sql stable security definer as $fn$
+  select exists (
+    select 1 from public.usuarios u
+    where lower(u.email) = lower(coalesce((auth.jwt() ->> 'email'), ''))
+      and u.ativo is true
+  );
+$fn$;
+
+create or replace function public.pode_gerir_elogios_tv() returns boolean
+language sql stable security definer as $fn$
+  SELECT lower(coalesce(auth.email(), '')) IN (
+    'amanda.seibel@aelbra.com.br',
+    'cobranca04@aelbra.com.br'
+  );
+$fn$;
+
+create table if not exists public.elogios_atendimento (
+  id uuid primary key default gen_random_uuid(),
+  aluno_id uuid,
+  movimentacao_id bigint,
+  operador_email text not null,
+  operador_nome text not null,
+  print_path text,
+  print_nome_arquivo text,
+  observacao_operador text,
+  texto_final_tv text,
+  status text not null default 'PENDENTE_ANALISE',
+  motivo_rejeicao text,
+  analisado_por_email text,
+  analisado_por_nome text,
+  analisado_em timestamptz,
+  exibir_de date,
+  exibir_ate date,
+  publicado_por_email text,
+  publicado_em timestamptz,
+  arquivado_por_email text,
+  arquivado_em timestamptz,
+  registrado_por_email text not null,
+  registrado_por_nome text,
+  registrado_em timestamptz not null default now(),
+  atualizado_em timestamptz not null default now()
+);
+
+alter table public.elogios_atendimento enable row level security;
+
+-- Policy REAL de producao: a equipe NAO le elogio de terceiro.
+drop policy if exists elogios_select on public.elogios_atendimento;
+create policy elogios_select on public.elogios_atendimento
+for select to authenticated using (
+  pode_gerir_elogios_tv()
+  or lower(registrado_por_email) = lower(coalesce((select auth.email()), ''))
+  or lower(operador_email) = lower(coalesce((select auth.email()), ''))
+);
+
+grant select on public.elogios_atendimento to authenticated;
+grant select on public.usuarios to authenticated;
+`;
+
+// Usuarios do app: todos ativos, menos DESATIVADA.
+export const DESATIVADA = "cobranca09@aelbra.com.br";
+
+export async function prepararElogios(db) {
+  await db.exec(ELOGIOS_DDL);
+  await db.query(
+    `insert into public.usuarios (nome, email, perfil, ativo) values
+       ('Amanda', $1, 'gestao', true), ('Fernanda', $2, 'gestao', true),
+       ('Mauricio', $3, 'operador', true), ('Luana', $4, 'operador', true),
+       ('Desativada', $5, 'operador', false)
+     on conflict do nothing`,
+    [AMANDA, FERNANDA, MAURICIO, LUANA, DESATIVADA],
+  );
+}
+
+export async function aplicarB(db) {
+  await db.exec(PENDENTE(B));
+}
+
+// Elogio de teste. `publicado` controla status/publicado_em.
+export async function criarElogio(db, {
+  operador = "Mauricio", operadorEmail = MAURICIO, texto = null,
+  status = "PUBLICADO_TV", publicadoEm = "2026-09-20T12:00:00Z",
+  print = "prints/elogio-teste.png", observacao = "observacao interna do operador",
+  motivoRejeicao = null, registradoPor = LUANA,
+} = {}) {
+  const r = await db.query(
+    `insert into public.elogios_atendimento
+       (operador_email, operador_nome, print_path, observacao_operador, texto_final_tv,
+        status, motivo_rejeicao, publicado_em, registrado_por_email)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id::text`,
+    [operadorEmail, operador, print, observacao, texto, status, motivoRejeicao, publicadoEm, registradoPor],
+  );
+  return r.rows[0].id;
+}
+
+export const mural = async (db, email, limite = null) =>
+  comoUsuario(db, email, async () =>
+    (await db.query("select * from public.portal_mural_elogios($1)", [limite])).rows);
+
+export const curtidasTotais = async (db, email, alvoTipo) =>
+  comoUsuario(db, email, async () =>
+    (await db.query("select * from public.portal_curtidas_totais($1) order by alvo_id", [alvoTipo])).rows);
