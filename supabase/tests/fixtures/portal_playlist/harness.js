@@ -312,3 +312,139 @@ export const mural = async (db, email, limite = null) =>
 export const curtidasTotais = async (db, email, alvoTipo) =>
   comoUsuario(db, email, async () =>
     (await db.query("select * from public.portal_curtidas_totais($1) order by alvo_id", [alvoTipo])).rows);
+
+// ---------------------------------------------------------------------------
+// C1 / C2 -- desafio da semana e ideias da equipe. O fixture reproduz a estrutura
+// e as policies REAIS de producao para `sugestoes` e a funcao usuario_e_gestao()
+// conforme pg_get_functiondef. As sugestoes em si sao FICTICIAS.
+// ---------------------------------------------------------------------------
+export const C1 = "20260930180000_portal_desafio_semana";
+export const C2 = "20260930190000_portal_ideias_equipe";
+
+const SUGESTOES_DDL = `
+create or replace function public.usuario_e_gestao() returns boolean
+language sql stable security definer as $fn$
+  select lower(coalesce(auth.jwt()->>'email','')) in (
+    'amanda.seibel@aelbra.com.br',
+    'cobranca04@aelbra.com.br',
+    'cobranca07@aelbra.com.br'
+  );
+$fn$;
+
+create or replace function public.usuario_e_gestao_fila() returns boolean
+language sql stable security definer as $fn$
+  SELECT public.usuario_e_gestao()
+  OR EXISTS (
+    SELECT 1 FROM public.usuarios u
+    WHERE lower(u.email) = lower(coalesce(auth.jwt()->>'email',''))
+      AND u.perfil IN ('gerencia','supervisor','administrativo')
+  );
+$fn$;
+
+create or replace function public.app_email() returns text
+language sql stable as $fn$ select lower(coalesce((auth.jwt() ->> 'email'), '')) $fn$;
+
+create or replace function public.eh_painel() returns boolean
+language sql stable security definer as $fn$ select false $fn$;
+
+create table if not exists public.sugestoes (
+  id uuid primary key default gen_random_uuid(),
+  nome text,
+  autor_email text,
+  area text not null,
+  tipo text not null,
+  prioridade text,
+  tela text,
+  descricao text not null,
+  status text default 'NOVA',
+  criado_em timestamptz default now(),
+  motivo_impacto text,
+  anexo_path text,
+  anexo_nome text,
+  status_em timestamptz,
+  status_por text,
+  observacao_tratativa text,
+  visivel_equipe boolean not null default false,
+  retorno_operador text,
+  validado_em timestamptz
+);
+
+alter table public.sugestoes enable row level security;
+
+-- Policies REAIS de producao: a equipe NAO le sugestao (nem a propria).
+drop policy if exists sugestoes_select on public.sugestoes;
+create policy sugestoes_select on public.sugestoes
+for select to authenticated using (usuario_e_gestao_fila());
+
+drop policy if exists sugestoes_insert on public.sugestoes;
+create policy sugestoes_insert on public.sugestoes
+for insert to authenticated
+with check (app_usuario_ativo() and (usuario_e_gestao() or lower(coalesce(autor_email,'')) = app_email()));
+
+drop policy if exists sugestoes_update on public.sugestoes;
+create policy sugestoes_update on public.sugestoes
+for update to authenticated
+using (usuario_e_gestao_fila()) with check (usuario_e_gestao_fila());
+
+drop policy if exists painel_negado on public.sugestoes;
+create policy painel_negado on public.sugestoes
+for all to authenticated using (not eh_painel());
+
+grant select, insert, update on public.sugestoes to authenticated;
+`;
+
+export async function prepararSugestoes(db) {
+  await db.exec(SUGESTOES_DDL);
+}
+
+// O grant de tabela para `authenticated` o Supabase concede por padrao no projeto;
+// no PGlite e explicito, como nas outras tabelas deste harness.
+export async function aplicarC1(db) {
+  await db.exec(PENDENTE(C1));
+  await db.exec("grant select, insert, update, delete on public.portal_desafios to authenticated;");
+}
+export const aplicarC2 = (db) => db.exec(PENDENTE(C2));
+
+export async function criarSugestao(db, {
+  descricao = "Ideia de teste", autor = "Luana", autorEmail = LUANA,
+  area = "CRM", tipo = "MELHORIA", status = "NOVA", visivel = true,
+  criadoEm = "2026-09-25T12:00:00Z", tratativa = "tratativa interna da gestao",
+  prioridade = "ALTA", tela = "Painel", anexo = "anexos/print.png",
+} = {}) {
+  const r = await db.query(
+    `insert into public.sugestoes
+       (descricao, nome, autor_email, area, tipo, status, visivel_equipe, criado_em,
+        observacao_tratativa, prioridade, tela, anexo_path)
+     values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) returning id::text`,
+    [descricao, autor, autorEmail, area, tipo, status, visivel, criadoEm, tratativa, prioridade, tela, anexo],
+  );
+  return r.rows[0].id;
+}
+
+export async function criarDesafio(db, {
+  titulo = "Desafio de teste", descricao = "Descricao", objetivo = "Objetivo",
+  indicador = "INFORMATIVO", meta = null,
+  inicioEm = "2026-09-28", fimEm = "2026-10-04", ativo = true, email = AMANDA,
+} = {}) {
+  return comoUsuario(db, email, async () => {
+    try {
+      const r = await db.query(
+        `insert into public.portal_desafios
+           (titulo, descricao, objetivo, indicador, meta, inicio_em, fim_em, ativo, criado_por_email)
+         values ($1,$2,$3,$4,$5,$6,$7,$8,$9) returning id::text`,
+        [titulo, descricao, objetivo, indicador, meta, inicioEm, fimEm, ativo, email],
+      );
+      return { ok: true, id: r.rows[0].id };
+    } catch (e) {
+      return { ok: false, code: e.code ?? null, message: String(e.message ?? e) };
+    }
+  });
+}
+
+export const desafioVigente = async (db, email) =>
+  comoUsuario(db, email, async () =>
+    (await db.query("select * from public.portal_desafio_vigente()")).rows[0] ?? null);
+
+export const ideias = async (db, email, ordem = null, limite = null) =>
+  comoUsuario(db, email, async () =>
+    (await db.query("select * from public.portal_ideias_equipe($1, $2)", [ordem, limite])).rows);

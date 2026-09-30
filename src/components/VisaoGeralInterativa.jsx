@@ -4,6 +4,7 @@ import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
 import PlaylistReativa from "./portal/PlaylistReativa";
 import MusicaDaSemana from "./portal/MusicaDaSemana";
 import MuralElogios from "./portal/MuralElogios";
+import DesafioSemana from "./portal/DesafioSemana";
 import useCurtidas from "./portal/useCurtidas";
 import { ALVO_ELOGIO, ALVO_PLAYLIST, MODO_SEMANA, MODO_TOTAL } from "./portal/curtidas";
 
@@ -277,6 +278,7 @@ export default function VisaoGeralInterativa() {
 
       <div style={S.gridFaixa2}>
         <MuralElogios usuario={usuario} curtidas={curtidasElogio} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />
+        <DesafioSemana usuario={usuario} podeGerir={podeGerir} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />
       </div>
 
       <div style={S.gridPrincipal}>
@@ -443,6 +445,18 @@ const S = {
   elogioRodape: { display: "flex", alignItems: "center", gap: 10, marginTop: 8, flexWrap: "wrap" },
   elogioQuem: { fontSize: 12, fontWeight: 800, color: "var(--rv-tinta)" },
   elogioData: { fontSize: 11, color: "var(--rv-texto-suave)", marginRight: "auto" },
+  desafio: { display: "grid", gap: 6 },
+  desafioTitulo: { fontSize: 15, color: "var(--rv-tinta)", lineHeight: 1.25 },
+  desafioTexto: { margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--rv-texto-suave)" },
+  desafioObjetivo: { margin: 0, fontSize: 13, lineHeight: 1.45, color: "var(--rv-tinta)" },
+  desafioMedida: { display: "grid", gap: 6, marginTop: 4 },
+  desafioNumeros: { display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" },
+  desafioProgresso: { fontSize: 22, lineHeight: 1, color: "var(--rv-tinta)", letterSpacing: "-.02em" },
+  barra: { height: 9, borderRadius: 999, background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda-suave)", overflow: "hidden" },
+  barraCheia: { height: "100%", background: "var(--rv-azul)", borderRadius: 999, transition: "width .3s ease" },
+  barraCumprida: { background: "var(--rv-verde, #16a34a)" },
+  desafioCumprido: { fontSize: 12, fontWeight: 800, color: "var(--rv-verde, #16a34a)" },
+  desafioPeriodo: { fontSize: 11, color: "var(--rv-texto-fraco)", marginTop: 2 },
   form: { display: "grid", gap: 8, padding: 10, background: "var(--rv-fundo-suave)", borderRadius: 12, marginBottom: 12 },
   formLinha: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
   input: { width: "100%", boxSizing: "border-box", border: "1px solid var(--rv-borda)", borderRadius: 9, padding: "9px 10px", background: "var(--rv-superficie)", color: "var(--rv-tinta)", fontFamily: "inherit" },
