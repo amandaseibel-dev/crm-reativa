@@ -2,7 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "../../services/supabase";
 import { ALVO_IDEIA, estruturaAusente, mensagemErroCurtida } from "./curtidas";
 import { gravarCurtida } from "./useCurtidas";
-import { ORDENS, SEM_IDEIAS, rotuloStatus } from "./ideias";
+import {
+  ORDENS, SEM_IDEIAS, AREAS, TIPO_IDEIA, TELA_IDEIA, LIMITE_DESCRICAO,
+  rotuloStatus, validarIdeia,
+} from "./ideias";
 
 function dataCurta(valor) {
   if (!valor) return "";
@@ -11,15 +14,24 @@ function dataCurta(valor) {
   }).format(new Date(valor));
 }
 
-// Mural de ideias. A contagem de curtidas vem na propria RPC porque "mais
-// curtidas" precisa ordenar no banco -- por isso este componente nao usa
-// useCurtidas para ler, so para gravar.
+const VAZIO = { descricao: "", area: "Atendimento" };
+
+// Mural de ideias VIVAS: o que a gestao liberou, mais as da propria pessoa, para
+// ela acompanhar a avaliacao. Ideia ja implementada ou descartada nao aparece --
+// isto e mural de ideia em avaliacao, nao historico de chamado do CRM.
+//
+// A contagem de curtidas vem na propria RPC porque "mais curtidas" precisa
+// ordenar no banco -- por isso este componente nao usa useCurtidas para ler, so
+// para gravar.
 export default function IdeiasEquipe({ usuario, Card, CabecalhoCard, S }) {
   const [ideias, setIdeias] = useState([]);
   const [ordem, setOrdem] = useState("curtidas");
   const [carregando, setCarregando] = useState(true);
   const [disponivel, setDisponivel] = useState(true);
   const [ocupado, setOcupado] = useState(null);
+  const [aberto, setAberto] = useState(false);
+  const [form, setForm] = useState(VAZIO);
+  const [enviando, setEnviando] = useState(false);
 
   const email = usuario?.email || "";
 
@@ -48,6 +60,47 @@ export default function IdeiasEquipe({ usuario, Card, CabecalhoCard, S }) {
 
   const recarregar = useCallback(async () => { aplicar(await buscar()); }, [buscar, aplicar]);
 
+  // O envio entra no MESMO fluxo do Painel de Sugestoes: insert em `sugestoes`
+  // pela policy sugestoes_insert, com autor_email proprio. A ideia nasce NOVA e
+  // invisivel para a equipe -- quem decide publicar continua sendo a gestao.
+  //
+  // Sem `.select()` de proposito: RETURNING dispara a policy de SELECT de
+  // sugestoes, que e so da gestao, e um operador comum levaria 42501 mesmo tendo
+  // direito de inserir. A ideia reaparece pela RPC, que e SECURITY DEFINER.
+  async function enviar(e) {
+    e.preventDefault();
+    if (!email) {
+      alert("Sua sessão ainda não foi identificada. Atualize a página e tente novamente.");
+      return;
+    }
+    const problema = validarIdeia(form);
+    if (problema) { alert(problema); return; }
+
+    setEnviando(true);
+    const { error } = await supabase.from("sugestoes").insert({
+      descricao: form.descricao.trim(),
+      nome: usuario?.nome || null,
+      autor_email: email,
+      area: form.area,
+      tipo: TIPO_IDEIA,
+      tela: TELA_IDEIA,
+      visivel_equipe: false,
+    });
+    setEnviando(false);
+
+    if (error) {
+      console.error("Erro ao enviar ideia:", error);
+      if (error.code === "42501") alert("Sua conta não tem permissão para enviar ideia. Avise a gestão.");
+      else if (estruturaAusente(error)) alert("O envio de ideias ainda não está ativado. Avise a gestão.");
+      else alert(`Não foi possível enviar a ideia. Código: ${error.code || "sem código"}.`);
+      return;
+    }
+
+    setForm(VAZIO);
+    setAberto(false);
+    await recarregar();
+  }
+
   async function alternar(ideia) {
     if (!email) {
       alert("Sua sessão ainda não foi identificada. Atualize a página e tente novamente.");
@@ -75,16 +128,43 @@ export default function IdeiasEquipe({ usuario, Card, CabecalhoCard, S }) {
         icone="💡"
         titulo="Ideias da equipe"
         acao={
-          <select
-            value={ordem}
-            onChange={(e) => setOrdem(e.target.value)}
-            aria-label="Ordenar ideias"
-            style={S.seletorOrdem}
-          >
-            {ORDENS.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
-          </select>
+          <div style={S.ideiasAcoes}>
+            <select
+              value={ordem}
+              onChange={(e) => setOrdem(e.target.value)}
+              aria-label="Ordenar ideias"
+              style={S.seletorOrdem}
+            >
+              {ORDENS.map((o) => <option key={o.valor} value={o.valor}>{o.rotulo}</option>)}
+            </select>
+            <button type="button" onClick={() => setAberto((v) => !v)} style={S.botaoMini}>
+              {aberto ? "Fechar" : "+ Minha ideia"}
+            </button>
+          </div>
         }
       />
+
+      {aberto && (
+        <form onSubmit={enviar} style={S.form}>
+          <textarea
+            value={form.descricao}
+            onChange={(e) => setForm({ ...form, descricao: e.target.value })}
+            placeholder="Qual é a sua ideia? Pode ser sobre atendimento, processos, operação ou ambiente de trabalho."
+            maxLength={LIMITE_DESCRICAO}
+            style={{ ...S.input, minHeight: 80, resize: "vertical" }}
+          />
+          <select value={form.area} onChange={(e) => setForm({ ...form, area: e.target.value })} aria-label="Área da ideia" style={S.input}>
+            {AREAS.map((a) => <option key={a} value={a}>{a}</option>)}
+          </select>
+          <span style={S.mutedPequeno}>
+            A ideia vai para a gestão avaliar. Você acompanha a sua aqui; a equipe vê depois que a gestão publicar.
+          </span>
+          <div style={S.formLinha}>
+            <button disabled={enviando} style={S.botaoPrimario}>{enviando ? "Enviando..." : "Enviar ideia"}</button>
+            <button type="button" onClick={() => { setAberto(false); setForm(VAZIO); }} style={S.botaoMini}>Cancelar</button>
+          </div>
+        </form>
+      )}
 
       {ideias.length ? (
         <div style={S.listaIdeias}>
@@ -95,6 +175,8 @@ export default function IdeiasEquipe({ usuario, Card, CabecalhoCard, S }) {
                 <span style={S.ideiaAutor}>{i.autor || "Equipe"}</span>
                 <span style={S.ideiaData}>{dataCurta(i.criado_em)}</span>
                 <span style={S.ideiaStatus}>{rotuloStatus(i.status)}</span>
+                {i.minha && <span style={S.ideiaMinha}>Sua ideia</span>}
+                <span style={S.ideiaEspaco} />
                 <button
                   type="button"
                   onClick={() => alternar(i)}
