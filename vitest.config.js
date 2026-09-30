@@ -7,6 +7,17 @@ import { defineConfig } from "vitest/config";
 // `// @vitest-environment jsdom` no topo.
 export default defineConfig({
   esbuild: { jsx: "automatic", jsxImportSource: "react" },
+  // O import REMOTO da Edge Function apontado para um dublê local. Sem isto
+  // `index.ts` e intestavel: o vitest nao busca URL, e o bug do `totalItems`
+  // (identificador nunca declarado) so aparece EXECUTANDO o modulo. A Edge em
+  // producao segue importando o pacote real -- este alias vale so no teste.
+  resolve: {
+    alias: {
+      "https://esm.sh/@supabase/supabase-js@2":
+        new URL("./supabase/functions/prime-academico/_duble-supabase-js.js",
+                import.meta.url).pathname,
+    },
+  },
   test: {
     environment: "node",
     // O gateway do WhatsApp tem testes proprios, escritos para `node --test`

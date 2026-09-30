@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import EfetividadeCompetencias from "../components/EfetividadeCompetencias";
+import PilotoAcademico from "../components/PilotoAcademico";
 
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
 //
@@ -65,7 +66,12 @@ export default function CarteiraEfetividade() {
   // safras têm só o consolidado.
   const [vista, setVista] = useState("consolidado");
   const [consolidada, setConsolidada] = useState(null);
-  const [academico, setAcademico] = useState(null);
+  // Perfil vindo da CONSULTA ao Prime, por recorte. Separado do `academico`
+  // antigo de proposito: aquele mistura importacao com status de contrato, e os
+  // dois nunca podem virar um numero so.
+  const [cargaPerfil, setCargaPerfil] = useState({ para: null, dados: null });
+  const [ehGestao, setEhGestao] = useState(false);
+  const [detalhe, setDetalhe] = useState(null);
   const [vigente, setVigente] = useState(null);
   const [contexto, setContexto] = useState(null);
   const [historico, setHistorico] = useState(null);
@@ -82,18 +88,20 @@ export default function CarteiraEfetividade() {
       const quem = sessao?.user?.email || "";
       if (!ativo) return;
       if (!podeVerIndicadores(quem)) { setEmail(quem); setCarregando(false); return; }
-      const [a, b, c, e, f] = await Promise.all([
+      // `carteira_2026_1_academico` saiu daqui: o perfil agora vem de
+      // `carteira_academico_perfil`, por recorte, e a antiga misturava
+      // importacao com status de contrato. A funcao continua no banco -- quem
+      // some e a chamada.
+      const [a, c, e, f] = await Promise.all([
         supabase.rpc("carteira_2026_1_indicadores"),
-        supabase.rpc("carteira_2026_1_academico"),
         supabase.rpc("carteira_2026_2_negociacoes"),
         supabase.rpc("carteira_2026_2_contexto"),
         supabase.rpc("carteira_saldo_historico_por_ano"),
       ]);
       if (!ativo) return;
-      const primeiro = [a, b, c, e, f].find((r) => r.error);
+      const primeiro = [a, c, e, f].find((r) => r.error);
       if (primeiro) setErro(primeiro.error.message);
       setConsolidada(a.data?.vazio ? null : a.data);
-      setAcademico(b.data || null);
       setVigente(c.data || null);
       setContexto(e.data || null);
       setHistorico(f.data || null);
@@ -101,6 +109,31 @@ export default function CarteiraEfetividade() {
       setCarregando(false);
     })();
     return () => { ativo = false; };
+  }, []);
+
+  // HOOKS FICAM TODOS ANTES DO PRIMEIRO `return`. Colocados depois, o React
+  // reclama com razao: numa renderizacao em que `carregando` e true eles nao
+  // rodariam, e a ordem dos hooks mudaria entre renders.
+  //
+  // `carga` guarda DE QUAL RECORTE o perfil e. Sem isso, trocar de ano mostraria
+  // por um instante o perfil do ano anterior -- e evita `setState` sincrono
+  // dentro do efeito, que gera renderizacao em cascata.
+  useEffect(() => {
+    let vivo = true;
+    const alvo = ano === "2026" ? ano + "/" + sem : String(ano);
+    supabase
+      .rpc("carteira_academico_perfil", { p_ano: String(ano), p_semestre: ano === "2026" ? String(sem) : null })
+      .then(({ data }) => { if (vivo) { setCargaPerfil({ para: alvo, dados: data || null }); setDetalhe(null); } })
+      .catch(() => { if (vivo) setCargaPerfil({ para: alvo, dados: null }); });
+    return () => { vivo = false; };
+  }, [ano, sem]);
+
+  useEffect(() => {
+    let vivo = true;
+    supabase.rpc("usuario_e_gestao")
+      .then(({ data, error }) => { if (vivo) setEhGestao(!error && data === true); })
+      .catch(() => {});
+    return () => { vivo = false; };
   }, []);
 
   if (carregando) return <Carregando />;
@@ -217,8 +250,22 @@ export default function CarteiraEfetividade() {
 
   // perfil dos alunos: só existe para 2026/1 (a coleta acadêmica cobre a carteira em aberto dessa safra).
   // Em 2024/2025 o mesmo lugar mostra de que curso vem o saldo em aberto.
-  const perfil = safra === "2026/1" ? (academico?.categorias || []) : null;
-  const perfilTotal = Number(academico?.total?.cpfs || 0);
+  // Clicar num grupo abre a lista daquele grupo. Fecha se ja estava aberto --
+  // o mesmo clique serve de ida e volta.
+  function abrirDetalhe(grupo) {
+    if (detalhe?.grupo === grupo) { setDetalhe(null); return; }
+    setDetalhe({ grupo, carregando: true, alunos: [] });
+    supabase
+      .rpc("carteira_academico_detalhe", {
+        p_ano: String(ano), p_semestre: ano === "2026" ? String(sem) : null,
+        p_grupo: grupo, p_limite: 500,
+      })
+      .then(({ data: d }) => setDetalhe({ grupo, carregando: false, alunos: d?.alunos || [] }))
+      .catch(() => setDetalhe({ grupo, carregando: false, alunos: [] }));
+  }
+
+  // So mostra o perfil que pertence ao recorte na tela.
+  const perfilPrime = cargaPerfil.para === periodo ? cargaPerfil.dados : null;
   const cursos = hist ? (hist.cursos || []) : null;
   const cursosTotal = Number(hist?.aberto?.valor || 0);
 
@@ -343,9 +390,10 @@ export default function CarteiraEfetividade() {
           </section>
 
           {/* 3. PERFIL DOS ALUNOS (2026/1) ou, em 2024/2025, de que curso vem o saldo em aberto */}
+          {cursos ? (
           <section style={S.cartao}>
             <div style={S.cartaoCabecalho}>
-              <h2 style={S.h2}>{cursos ? "Saldo em aberto por curso" : "Perfil dos alunos"}</h2>
+              <h2 style={S.h2}>Saldo em aberto por curso</h2>
               {cursos && cursosTotal > 0 ? (
                 <span style={S.cartaoApoio}>% do saldo em aberto · {moeda(cursosTotal)}</span>
               ) : null}
@@ -385,28 +433,127 @@ export default function CarteiraEfetividade() {
               ) : (
                 <p style={{ ...S.discreto, marginTop: 8 }}>Sem saldo em aberto neste ano</p>
               )
-            ) : perfil && perfil.length > 0 ? (
+            ) : null}
+          </section>
+          ) : null}
+
+          {/* 3b. PERFIL ACADÊMICO — cartão PRÓPRIO, e em TODOS os recortes.
+              Antes ele era excludente com o bloco de cursos, então 2024 e 2025
+              nunca o viam. São coisas diferentes e as unidades não se misturam:
+              o de cima conta dinheiro por curso, este conta ALUNO ÚNICO. */}
+          <section style={S.cartao}>
+            <div style={S.cartaoCabecalho}>
+              <h2 style={S.h2}>Perfil acadêmico dos alunos</h2>
+              {perfilPrime?.total_alunos ? (
+                <span style={S.cartaoApoio}>{num(perfilPrime.total_alunos)} alunos únicos</span>
+              ) : null}
+            </div>
+            {perfilPrime && (perfilPrime.grupos || []).length > 0 ? (
               <div>
-                {perfil.map((c) => (
-                  <div key={c.categoria} style={S.linha}>
+                {(perfilPrime.grupos || []).map((g) => (
+                  <button key={g.grupo} type="button" onClick={() => abrirDetalhe(g.grupo)}
+                          aria-expanded={detalhe?.grupo === g.grupo}
+                          style={{ ...S.linha, ...S.linhaBotao }}
+                          title={"Ver os alunos de " + g.grupo}>
                     <div style={S.linhaTopo}>
                       <span style={S.linhaRotulo}>
-                        <span style={{ ...S.ponto, background: AZUL }} />{c.categoria}
+                        <span style={{ ...S.ponto, background: AZUL }} />{g.grupo}
                       </span>
-                      <strong style={S.linhaValor}>{num(c.cpfs)} alunos</strong>
+                      <strong style={S.linhaValor}>{num(g.alunos)} alunos</strong>
                       <span style={{ ...S.linhaPct, color: AZUL }}>
-                        {Number(c.pct_cpfs).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
+                        {Number(g.pct).toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%
                       </span>
                     </div>
                     <div style={S.trilho}>
-                      <div style={{ ...S.barraPreenchida, width: Math.min(Number(c.pct_cpfs), 100) + "%",
-                                    minWidth: Number(c.cpfs || 0) > 0 ? 4 : 0, background: AZUL }} />
+                      <div style={{ ...S.barraPreenchida, width: Math.min(Number(g.pct), 100) + "%",
+                                    minWidth: Number(g.alunos || 0) > 0 ? 4 : 0, background: AZUL }} />
                     </div>
-                  </div>
+                  </button>
                 ))}
+
+                {detalhe ? (
+                  <div style={S.detalhe}>
+                    <div style={S.cartaoCabecalho}>
+                      <h3 style={S.h3}>{detalhe.grupo}</h3>
+                      <button type="button" onClick={() => setDetalhe(null)} style={S.fechar}>Fechar</button>
+                    </div>
+                    {detalhe.carregando ? (
+                      <p style={S.discreto}>Carregando…</p>
+                    ) : (detalhe.alunos || []).length === 0 ? (
+                      <p style={S.discreto}>Nenhum aluno neste grupo.</p>
+                    ) : (
+                      <>
+                        {(detalhe.alunos || []).map((a) => (
+                          <div key={a.aluno_id} style={S.detalheLinha}>
+                            <div style={S.detalheTopo}>
+                              {/* ACESSO À FICHA: abre em aba nova, para não
+                                  perder o painel que a pessoa estava lendo. */}
+                              {/* `alunoId` e o parametro canonico da ficha
+                                  (Aluno.jsx o le primeiro). `id` tambem cai
+                                  num fallback, mas e generico demais para
+                                  depender dele. */}
+                              <a href={"/aluno?alunoId=" + a.aluno_id} target="_blank" rel="noreferrer"
+                                 style={S.link}>{a.nome || "(sem nome)"}</a>
+                              <span style={S.discreto}>{a.cpf_mascarado}</span>
+                            </div>
+                            <span style={S.discreto}>
+                              {(a.situacoes || []).length === 0
+                                ? "sem vínculo retornado"
+                                : (a.situacoes || []).map((v2) =>
+                                    (v2.curso || "curso não informado") + " · "
+                                    + (v2.status || "não informado pelo Prime")).join(" | ")}
+                            </span>
+                            <span style={S.discreto}>
+                              {a.consultado_em
+                                ? "Fonte: " + (a.fonte || "prime") + " · consultado em " + data(a.consultado_em)
+                                : "Sem consulta ao Prime"}
+                              {a.situacao_importada
+                                ? " · de importação: " + a.situacao_importada
+                                  + (a.importado_em ? " (" + data(a.importado_em) + ")" : "")
+                                : ""}
+                            </span>
+                          </div>
+                        ))}
+                        {(detalhe.alunos || []).length >= 500 ? (
+                          <p style={S.discreto}>Mostrando os primeiros 500.</p>
+                        ) : null}
+                      </>
+                    )}
+                  </div>
+                ) : null}
+
+                {/* RODAPE HONESTO. O anterior dizia "Situacao academica do Prime"
+                    para um numero que vinha de IMPORTACAO -- por isso a fonte
+                    agora vem escrita, com a data de cada uma, e a contagem diz
+                    que e de aluno unico. */}
                 <p style={{ ...S.discreto, marginTop: 10 }}>
-                  {num(perfilTotal)} alunos com pendência nesta carteira. Situação acadêmica do Prime.
+                  {num(perfilPrime.total_alunos)} alunos únicos nesta carteira · fonte:
+                  Prime, consulta por aluno (<code>students_search</code>).
+                  {" "}Um aluno conta uma vez, mesmo com vários cursos.
+                  {ano !== "2026"
+                    ? " Lista reconstruída em " + data(perfilPrime.reconstruido_em)
+                      + "; o financeiro do ano vem do snapshot, que não é alterado aqui."
+                    : ""}
                 </p>
+                <p style={{ ...S.discreto, marginTop: 4 }}>
+                  A classificação resume os vínculos encontrados. Não afirma que a situação
+                  pertence ao curso desta dívida.
+                </p>
+
+                {/* IMPORTACAO, A PARTE. Nao entra na soma dos grupos e nao
+                    preenche quem ainda nao foi consultado. */}
+                {perfilPrime.importacao ? (
+                  <p style={{ ...S.discreto, marginTop: 10 }}>
+                    <strong>De importação, não do Prime:</strong>{" "}
+                    {perfilPrime.importacao.fonte}
+                    {perfilPrime.importacao.atualizado_em
+                      ? " · importado em " + data(perfilPrime.importacao.atualizado_em)
+                      : ""}
+                    . Esses rótulos ficam fora da contagem acima.
+                  </p>
+                ) : null}
+
+                {ehGestao ? <PilotoAcademico ano={ano} semestre={ano === "2026" ? sem : null} /> : null}
               </div>
             ) : (
               <p style={{ ...S.discreto, marginTop: 8 }}>Informação acadêmica não disponível para este período</p>
@@ -571,6 +718,16 @@ const S = {
   cartaoCabecalho: { display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12,
                      flexWrap: "wrap", paddingBottom: 10, borderBottom: "1px solid var(--rv-borda-suave)",
                      marginBottom: 4 },
+  linhaBotao: { display: "block", width: "100%", textAlign: "left", background: "none",
+                border: 0, padding: 0, cursor: "pointer", font: "inherit", color: "inherit" },
+  detalhe: { marginTop: 12, paddingTop: 10, borderTop: "1px solid var(--rv-borda)" },
+  detalheLinha: { padding: "7px 0", borderBottom: "1px solid var(--rv-borda)",
+                  display: "flex", flexDirection: "column", gap: 2 },
+  detalheTopo: { display: "flex", flexWrap: "wrap", gap: 8, alignItems: "baseline" },
+  link: { fontWeight: 600, color: "var(--rv-azul-texto, #2b5cd8)" },
+  h3: { margin: 0, fontSize: 13.5, fontWeight: 700, color: "var(--rv-tinta)" },
+  fechar: { fontSize: 12, padding: "3px 10px", borderRadius: 6, cursor: "pointer",
+            background: "var(--rv-fundo)", color: "var(--rv-tinta)", border: "1px solid var(--rv-borda)" },
   cartaoApoio: { fontSize: 12, color: "var(--rv-texto-fraco)", fontVariantNumeric: "tabular-nums" },
 
   // ---- linha com barra: rótulo | valor | percentual, sempre alinhados ----

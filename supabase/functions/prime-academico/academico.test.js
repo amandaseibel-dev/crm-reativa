@@ -107,9 +107,18 @@ describe("desfecho — calculado DEPOIS do filtro por CPF", () => {
     expect(desfecho(null, false, [linha()], false)).toBe("PAGINACAO_INCOMPLETA");
   });
 
-  it("sem linha nenhuma e sem prova de fim ainda é SEM_RESULTADO", () => {
-    // Não há o que apresentar como incompleto: nada chegou desta pessoa.
-    expect(desfecho(null, false, [], false)).toBe("SEM_RESULTADO");
+  it("sem linha nenhuma e SEM prova de fim é INCOMPLETA, não SEM_RESULTADO", () => {
+    // ESTE TESTE AFIRMAVA O CONTRÁRIO, e estava errado -- ele fixava o defeito
+    // em vez de pegá-lo. "Nada chegou desta pessoa" e "a busca acabou sem achar
+    // nada dela" são coisas diferentes: a primeira não é resposta, é ausência
+    // de resposta. Tratá-las igual fazia uma autorização negada virar
+    // "consultado, sem vínculo" -- e, por ser desfecho completo, substituir a
+    // última consulta boa da ficha. Lista vazia só conclui depois do fim.
+    expect(desfecho(null, false, [], false)).toBe("PAGINACAO_INCOMPLETA");
+  });
+
+  it("SEM_RESULTADO exige a busca TERMINADA", () => {
+    expect(desfecho(null, false, [], true)).toBe("SEM_RESULTADO");
   });
 
   it("falha manda mesmo que tenham sobrado linhas de páginas anteriores", () => {
@@ -186,5 +195,125 @@ describe("registrationDoCabecalho", () => {
   });
   it("fica nulo quando não há matrícula nenhuma", () => {
     expect(registrationDoCabecalho([{ registration: null }])).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O LAÇO REAL, com Prime simulado
+// ---------------------------------------------------------------------------
+// Aqui roda `paginarComAutorizacao`, que é o mesmo código do `index.ts` -- não
+// uma reimplementação. O Prime é dublado, e a autorização também, porque o que
+// se mede é a COREOGRAFIA: autorizar antes de buscar, parar na negativa, e não
+// afirmar lista completa quando foi interrompida.
+import { paginarComAutorizacao } from "./academico.ts";
+
+const pagina = (n, total) => ({
+  http: 200, ok: true,
+  texto: JSON.stringify({ items: Array.from({ length: n }, () => ({ cpf: "111.111.111-11" })), totalItems: total }),
+});
+
+describe("paginarComAutorizacao — o caminho real", () => {
+  it("autoriza ANTES de buscar, em toda página", async () => {
+    const ordem = [];
+    const r = await paginarComAutorizacao({
+      take: 2, teto: 100,
+      autorizar: async () => { ordem.push("autoriza"); return { ok: true }; },
+      buscar: async (skip) => { ordem.push("busca:" + skip); return pagina(skip < 4 ? 2 : 1, 5); },
+    });
+    expect(r.brutos).toHaveLength(5);
+    expect(r.chegouAoFim).toBe(true);
+    expect(r.negou).toBeNull();
+    // nunca uma busca sem autorização imediatamente antes
+    expect(ordem).toEqual(["autoriza","busca:0","autoriza","busca:2","autoriza","busca:4"]);
+  });
+
+  it("INTERRUPÇÃO APÓS VÁRIAS PÁGINAS: para na negativa e não busca de novo", async () => {
+    let n = 0;
+    const buscas = [];
+    const r = await paginarComAutorizacao({
+      take: 2, teto: 100,
+      autorizar: async () => (++n <= 3 ? { ok: true } : { ok: false, motivo: "SEM_ORCAMENTO" }),
+      buscar: async (skip) => { buscas.push(skip); return pagina(2, 999); },
+    });
+    expect(buscas).toEqual([0, 2, 4]);     // três páginas, e parou
+    expect(r.requisicoes).toBe(3);
+    expect(r.negou).toBe("SEM_ORCAMENTO");
+    // TEM dado, mas não é lista completa -- é o que vira PAGINACAO_INCOMPLETA
+    expect(r.brutos).toHaveLength(6);
+    expect(r.chegouAoFim).toBe(false);
+    expect(desfecho(null, false, r.brutos, r.chegouAoFim)).toBe("PAGINACAO_INCOMPLETA");
+  });
+
+  it("EXPIRAÇÃO DA EXECUÇÃO no meio da consulta para sem chamar o Prime", async () => {
+    let n = 0;
+    const buscas = [];
+    const r = await paginarComAutorizacao({
+      take: 2, teto: 100,
+      autorizar: async () => (++n === 1 ? { ok: true } : { ok: false, motivo: "EXECUCAO_SUPERADA" }),
+      buscar: async (skip) => { buscas.push(skip); return pagina(2, 999); },
+    });
+    expect(buscas).toEqual([0]);
+    expect(r.negou).toBe("EXECUCAO_SUPERADA");
+    expect(r.requisicoes).toBe(1);
+  });
+
+  it("negada a PRIMEIRA página, o Prime não é chamado nenhuma vez", async () => {
+    const buscas = [];
+    const r = await paginarComAutorizacao({
+      take: 2, teto: 100,
+      autorizar: async () => ({ ok: false, motivo: "LOTE_INTERROMPIDO" }),
+      buscar: async (skip) => { buscas.push(skip); return pagina(2, 9); },
+    });
+    expect(buscas).toEqual([]);
+    expect(r.requisicoes).toBe(0);
+    expect(r.brutos).toHaveLength(0);
+    // Negada antes da primeira chamada: nada foi perguntado à Ulbra. O desfecho
+    // não pode afirmar nada sobre os vínculos dela.
+    expect(r.chegouAoFim).toBe(false);
+    expect(desfecho(null, false, r.brutos, r.chegouAoFim)).toBe("PAGINACAO_INCOMPLETA");
+  });
+
+  it("a requisição é contada mesmo quando a rede morre depois de autorizar", async () => {
+    // Autorizada e debitada no banco: a chamada saiu. Não contar aqui faria o
+    // teto divergir do que a API recebeu.
+    const r = await paginarComAutorizacao({
+      take: 2, teto: 100,
+      autorizar: async () => ({ ok: true }),
+      buscar: async () => ({ erro: "falha de rede: TypeError" }),
+    });
+    expect(r.requisicoes).toBe(1);
+    expect(r.falha).toMatch(/falha de rede/);
+  });
+
+  it("sem piloto (ficha), não há autorização e a paginação corre normal", async () => {
+    const r = await paginarComAutorizacao({
+      take: 2, teto: 100, autorizar: null,
+      buscar: async (skip) => pagina(skip < 2 ? 2 : 1, 3),
+    });
+    expect(r.brutos).toHaveLength(3);
+    expect(r.chegouAoFim).toBe(true);
+    expect(r.negou).toBeNull();
+  });
+
+  it("HTTP 429 para na hora, com o status preservado para interromper o lote", async () => {
+    const r = await paginarComAutorizacao({
+      take: 2, teto: 100,
+      autorizar: async () => ({ ok: true }),
+      buscar: async () => ({ http: 429, ok: false, texto: "" }),
+    });
+    expect(r.httpStatus).toBe(429);
+    expect(r.falha).toBe("HTTP 429");
+    expect(r.requisicoes).toBe(1);
+  });
+
+  it("corpo ilegível no meio é FALHA, e não 'acabou'", async () => {
+    let n = 0;
+    const r = await paginarComAutorizacao({
+      take: 2, teto: 100,
+      autorizar: async () => ({ ok: true }),
+      buscar: async () => (++n === 1 ? pagina(2, 99) : { http: 200, ok: true, texto: "isto nao e json" }),
+    });
+    expect(r.paginaIlegivel).toBe(true);
+    expect(desfecho(null, true, r.brutos, r.chegouAoFim)).toBe("FALHA_COMUNICACAO");
   });
 });
