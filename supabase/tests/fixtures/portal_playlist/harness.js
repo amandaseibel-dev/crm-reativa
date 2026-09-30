@@ -386,9 +386,12 @@ create policy sugestoes_update on public.sugestoes
 for update to authenticated
 using (usuario_e_gestao_fila()) with check (usuario_e_gestao_fila());
 
+-- RESTRICTIVE, como em producao (conferido em pg_policies.permissive). Se fosse
+-- PERMISSIVE ela seria OR com sugestoes_select e liberaria leitura para todos --
+-- o oposto do que o nome diz.
 drop policy if exists painel_negado on public.sugestoes;
 create policy painel_negado on public.sugestoes
-for all to authenticated using (not eh_painel());
+as restrictive for all to authenticated using (not eh_painel());
 
 grant select, insert, update on public.sugestoes to authenticated;
 `;

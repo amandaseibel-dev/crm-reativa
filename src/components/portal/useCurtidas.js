@@ -10,6 +10,18 @@ import {
 //
 // `disponivel` fica falso quando a migration do A2 ainda nao foi aplicada no
 // banco: nesse caso a tela some com o bloco de curtidas em vez de quebrar.
+// A gravacao da curtida, isolada para ter UMA implementacao: o hook usa, e quem
+// recebe a contagem por outra via (o mural de ideias, que precisa ordenar por
+// curtidas no banco) usa a mesma coisa.
+export async function gravarCurtida({ alvoTipo, alvoId, email, jaCurtida }) {
+  if (jaCurtida) {
+    return supabase.from("portal_curtidas").delete()
+      .eq("alvo_tipo", alvoTipo).eq("alvo_id", alvoId).ilike("usuario_email", email);
+  }
+  return supabase.from("portal_curtidas")
+    .insert({ alvo_tipo: alvoTipo, alvo_id: alvoId, usuario_email: email });
+}
+
 export default function useCurtidas(alvoTipo = ALVO_PLAYLIST, modo = MODO_SEMANA) {
   const [mapa, setMapa] = useState(() => new Map());
   const [disponivel, setDisponivel] = useState(true);
@@ -50,11 +62,7 @@ export default function useCurtidas(alvoTipo = ALVO_PLAYLIST, modo = MODO_SEMANA
     setOcupado(alvoId);
     setMapa((m) => alternarLocal(m, alvoId)); // resposta imediata na tela
 
-    const { error } = jaCurtida
-      ? await supabase.from("portal_curtidas").delete()
-          .eq("alvo_tipo", alvoTipo).eq("alvo_id", alvoId).ilike("usuario_email", email)
-      : await supabase.from("portal_curtidas")
-          .insert({ alvo_tipo: alvoTipo, alvo_id: alvoId, usuario_email: email });
+    const { error } = await gravarCurtida({ alvoTipo, alvoId, email, jaCurtida });
 
     setOcupado(null);
 

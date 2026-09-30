@@ -5,6 +5,7 @@ import PlaylistReativa from "./portal/PlaylistReativa";
 import MusicaDaSemana from "./portal/MusicaDaSemana";
 import MuralElogios from "./portal/MuralElogios";
 import DesafioSemana from "./portal/DesafioSemana";
+import IdeiasEquipe from "./portal/IdeiasEquipe";
 import useCurtidas from "./portal/useCurtidas";
 import { ALVO_ELOGIO, ALVO_PLAYLIST, MODO_SEMANA, MODO_TOTAL } from "./portal/curtidas";
 
@@ -281,7 +282,12 @@ export default function VisaoGeralInterativa() {
         <DesafioSemana usuario={usuario} podeGerir={podeGerir} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />
       </div>
 
-      <div style={S.gridPrincipal}>
+      <div style={S.gridFaixa3}>
+        <PlaylistReativa usuario={usuario} curtidas={curtidas} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />
+        <IdeiasEquipe usuario={usuario} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />
+      </div>
+
+      <div style={S.gridSecundario}>
         <Card style={S.climaCard}>
           <CabecalhoCard icone="🌤️" titulo="Clima em Canoas" />
           {clima ? (
@@ -308,10 +314,6 @@ export default function VisaoGeralInterativa() {
           ) : <p style={S.muted}>{erroClima || "Atualizando previsão..."}</p>}
         </Card>
 
-        <PlaylistReativa usuario={usuario} curtidas={curtidas} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />
-      </div>
-
-      <div style={S.gridSecundario}>
         <Card>
           <CabecalhoCard
             icone="📅"
@@ -399,9 +401,9 @@ const S = {
   mensagemDiaRotulo: { fontSize: 10, letterSpacing: ".1em", fontWeight: 900, color: "var(--rv-azul-texto)" },
   mensagemDiaTexto: { fontSize: 14, lineHeight: 1.45, color: "var(--rv-tinta)" },
   gridPrincipal: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 14 },
-  gridSecundario: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14, marginTop: 14 },
+  gridSecundario: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))", gap: 14 },
   card: { border: "1px solid var(--rv-borda)", borderRadius: 20, padding: 18, background: "var(--rv-superficie)", boxShadow: "0 8px 26px rgba(15,23,42,.05)", minWidth: 0 },
-  climaCard: { overflow: "hidden" },
+  climaCard: { overflow: "hidden", gridColumn: "1 / -1" },
   playlistCard: { minHeight: 300 },
   cardHeader: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, marginBottom: 12 },
   cardTitleWrap: { display: "flex", alignItems: "center", gap: 9 },
@@ -427,17 +429,31 @@ const S = {
   semanaRotulo: { display: "flex", alignItems: "center", gap: 8, marginBottom: 12 },
   semanaIcone: { fontSize: 18 },
   semanaEyebrow: { fontSize: 11, letterSpacing: ".1em", fontWeight: 900, color: "var(--rv-azul-texto)" },
-  semanaAlvo: { display: "grid", gridTemplateColumns: "120px minmax(0,1fr) auto", gap: 14, alignItems: "center", textDecoration: "none", color: "inherit" },
+  // Flex com wrap em vez de 3 colunas fixas: a 375px as colunas colidiam e o
+  // "Escolhida por" passava por cima da contagem. Assim a contagem desce para a
+  // linha de baixo no celular e fica a direita no desktop, sem media query.
+  semanaAlvo: { display: "flex", alignItems: "center", gap: 14, flexWrap: "wrap", textDecoration: "none", color: "inherit" },
   semanaCapa: { width: 120, height: 80, objectFit: "cover", borderRadius: 12, background: "#ddd" },
-  semanaTexto: { minWidth: 0, display: "grid", gap: 3 },
-  semanaTitulo: { fontSize: 19, lineHeight: 1.2, color: "var(--rv-tinta)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
-  semanaArtista: { fontSize: 14, color: "var(--rv-texto-suave)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  semanaTexto: { display: "grid", gap: 3, flex: "1 1 200px", minWidth: 0 },
+  // Titulo de destaque quebra em vez de virar reticencias: e o elemento principal
+  // da faixa, e "Vou pra Santa Ca..." nao serve como destaque.
+  semanaTitulo: { fontSize: 19, lineHeight: 1.2, color: "var(--rv-tinta)" },
+  semanaArtista: { fontSize: 14, color: "var(--rv-texto-suave)" },
   semanaQuem: { fontSize: 12, color: "var(--rv-texto-fraco)" },
-  semanaContagem: { display: "grid", justifyItems: "end", gap: 2, textAlign: "right" },
+  semanaContagem: { display: "grid", justifyItems: "end", gap: 2, textAlign: "right", marginLeft: "auto" },
   semanaNumero: { fontSize: 22, lineHeight: 1, color: "var(--rv-tinta)", whiteSpace: "nowrap" },
   semanaNumeroRotulo: { fontSize: 11, color: "var(--rv-texto-suave)" },
   semanaVazio: { margin: 0, fontSize: 14, lineHeight: 1.5, color: "var(--rv-texto-suave)" },
   semanaVazioDica: { color: "var(--rv-texto-fraco)" },
+  gridFaixa3: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 14, marginBottom: 14 },
+  seletorOrdem: { border: "1px solid var(--rv-borda)", borderRadius: 10, background: "var(--rv-fundo-suave)", color: "var(--rv-tinta)", fontWeight: 800, padding: "6px 8px", fontFamily: "inherit", fontSize: 12 },
+  listaIdeias: { display: "grid", gap: 10 },
+  ideia: { padding: "10px 12px", borderRadius: 12, background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda-suave)" },
+  ideiaTexto: { margin: 0, fontSize: 13, lineHeight: 1.5, color: "var(--rv-tinta)" },
+  ideiaRodape: { display: "flex", alignItems: "center", gap: 8, marginTop: 8, flexWrap: "wrap" },
+  ideiaAutor: { fontSize: 12, fontWeight: 800, color: "var(--rv-tinta)" },
+  ideiaData: { fontSize: 11, color: "var(--rv-texto-suave)" },
+  ideiaStatus: { fontSize: 10, fontWeight: 900, letterSpacing: ".04em", color: "var(--rv-azul-texto)", background: "var(--rv-azul-fundo)", border: "1px solid var(--rv-borda-suave)", borderRadius: 999, padding: "3px 8px", marginRight: "auto" },
   gridFaixa2: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(340px, 1fr))", gap: 14, marginBottom: 14 },
   listaElogios: { display: "grid", gap: 10 },
   elogio: { padding: "10px 12px", borderRadius: 12, background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda-suave)" },
@@ -454,8 +470,8 @@ const S = {
   desafioProgresso: { fontSize: 22, lineHeight: 1, color: "var(--rv-tinta)", letterSpacing: "-.02em" },
   barra: { height: 9, borderRadius: 999, background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda-suave)", overflow: "hidden" },
   barraCheia: { height: "100%", background: "var(--rv-azul)", borderRadius: 999, transition: "width .3s ease" },
-  barraCumprida: { background: "var(--rv-verde, #16a34a)" },
-  desafioCumprido: { fontSize: 12, fontWeight: 800, color: "var(--rv-verde, #16a34a)" },
+  barraCumprida: { background: "var(--rv-verde-ok)" },
+  desafioCumprido: { fontSize: 12, fontWeight: 800, color: "var(--rv-verde-ok)" },
   desafioPeriodo: { fontSize: 11, color: "var(--rv-texto-fraco)", marginTop: 2 },
   form: { display: "grid", gap: 8, padding: 10, background: "var(--rv-fundo-suave)", borderRadius: 12, marginBottom: 12 },
   formLinha: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
