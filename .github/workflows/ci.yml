@@ -26,7 +26,14 @@ jobs:
   verificar:
     name: testes, build e catracas
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 25 e não 15: com 15 a suíte morria por timeout e o run aparecia como
+    # "cancelled", que se confunde com cancelamento humano. Medido em 30/09/2026:
+    # a suíte levava 11m49s num run e 14m20s em outro — a variação do runner
+    # decidia se passava. Dois runs morreram em ~15m15s, inclusive o da própria
+    # main. O repositório é público, então o minuto de Actions custa US$ 0,00 e a
+    # folga não tem preço a pagar. Isto compra margem; não resolve crescimento —
+    # se voltar a apertar, o caminho é separar os testes de banco em outro job.
+    timeout-minutes: 25
 
     steps:
       # fetch-depth: 0 porque a catraca das migrations compara este ramo com o

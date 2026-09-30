@@ -17,11 +17,10 @@ import { fileURLToPath } from "node:url";
 const AQUI = dirname(fileURLToPath(import.meta.url));
 export const lerRepo = (p) => readFileSync(resolve(AQUI, "..", "..", "..", "..", p), "utf8");
 export const MIG = (n) => lerRepo(`supabase/migrations/${n}.sql`);
-export const PENDENTE = (n) => lerRepo(`supabase/aguardando_aprovacao/${n}.sql`);
 export const ROLL = (n) => lerRepo(`supabase/rollbacks/${n}.rollback.sql`);
 
 export const CRIACAO = "20260929152500_portal_visao_geral_interativa";
-export const A1 = "20260930153000_portal_playlist_limite_tres_musicas";
+export const A1 = "20260930143806_portal_playlist_limite_tres_musicas";
 
 export const AMANDA = "amanda.seibel@aelbra.com.br";   // gestao
 export const FERNANDA = "cobranca04@aelbra.com.br";    // gestao
@@ -84,7 +83,29 @@ export async function montarAntesDoA1() {
 }
 
 export async function aplicarA1(db) {
-  await db.exec(PENDENTE(A1));
+  await db.exec(MIG(A1));
+}
+
+// Devolve o banco ao estado logo apos a migration: as 3 linhas reais como sao em
+// producao e nada mais. Roda como postgres (sem RLS) e custa um delete e um
+// update numa tabela minuscula -- muito mais barato que instanciar outro PGlite.
+// A suite completa roda no CI com timeout de 15 minutos, entao o numero de
+// instancias de banco importa.
+export async function resetar(db) {
+  await db.query("delete from public.portal_playlist where id <> all($1::uuid[])",
+    [REAIS.map((l) => l.id)]);
+  for (const l of REAIS) {
+    await db.query(
+      `update public.portal_playlist
+          set titulo=$2, artista=$3, youtube_id=$4, adicionado_por=$5,
+              adicionado_por_email=$6, semana_chave=$7, ativo=true
+        where id=$1`,
+      [l.id, l.titulo, l.artista, l.youtube_id, l.adicionado_por, l.adicionado_por_email, l.semana_chave],
+    );
+  }
+  if ((await db.query("select to_regclass('public.portal_curtidas') t")).rows[0].t) {
+    await db.query("delete from public.portal_curtidas");
+  }
 }
 
 export const q1 = async (db, sql, p = []) => (await db.query(sql, p)).rows[0];

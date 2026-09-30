@@ -1,23 +1,33 @@
 // A1 -- Playlist ReATIVA: ate 3 musicas ativas por pessoa.
 //
-// Roda a migration REAL (supabase/aguardando_aprovacao/20260930153000...) e o
-// rollback REAL num PostgreSQL real (PGlite), em cima do estado real de
+// Roda a migration REAL (supabase/migrations/20260930143806_...) e o rollback
+// REAL num PostgreSQL real (PGlite), em cima do estado real de
 // producao: a migration de criacao 20260929152500 mais as 3 linhas que existem
 // hoje em public.portal_playlist.
 //
 // As 3 linhas sao dados REAIS (equipe interna). As musicas de teste sao
 // ficticias e sempre de pessoas que nao tem musica real, para nao confundir
 // evidencia com invencao.
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
 import * as H from "./fixtures/portal_playlist/harness.js";
 
+vi.setConfig({ testTimeout: 120000, hookTimeout: 120000 });
+
+// UM banco para o arquivo inteiro, com reset barato entre os testes. Cada teste
+// instanciar o proprio PGlite custava ~98s de parede para este arquivo dentro da
+// suite completa -- perto o bastante do timeout de 15 min do CI para derrubar a
+// execucao. Os testes que precisam de OUTRO estado (antes do A1, ou depois do
+// rollback) continuam abrindo e fechando o seu.
 let db;
 
-async function base() {
-  const d = await H.montarAntesDoA1();
-  await H.aplicarA1(d);
-  return d;
-}
+beforeAll(async () => {
+  db = await H.montarAntesDoA1();
+  await H.aplicarA1(db);
+});
+beforeEach(async () => { await H.resetar(db); });
+afterAll(async () => { await db?.close(); });
+
+const base = async () => { await H.resetar(db); return db; };
 
 describe("estado ANTES do A1 (producao de hoje)", () => {
   it("tem as 3 musicas reais, o unique semanal e nenhum gatilho de limite", async () => {
@@ -71,13 +81,10 @@ describe("a migration nao perde nem altera as 3 musicas reais", () => {
     expect(await H.retrato(d)).toEqual(antes);
     expect((await H.qn(d, `select tgname from pg_trigger
       where tgrelid = 'public.portal_playlist'::regclass and not tgisinternal`))).toHaveLength(1);
-    await d.close();
   });
 });
 
 describe("estrutura depois do A1", () => {
-  beforeAll(async () => { db = await base(); });
-
   it("o unique semanal saiu e o gatilho do limite entrou", async () => {
     expect(await H.qn(db, `select conname from pg_constraint
       where conrelid = 'public.portal_playlist'::regclass and contype = 'u'`)).toEqual([]);
@@ -122,7 +129,6 @@ describe("semana_chave passa a ser America/Sao_Paulo (item 10)", () => {
     const def = await H.q1(d, `select column_default from information_schema.columns
       where table_schema='public' and table_name='portal_playlist' and column_name='semana_chave'`);
     expect(def.column_default).toContain("America/Sao_Paulo");
-    await d.close();
   });
 
   it("o fuso muda a semana no domingo a noite -- era isso que estava errado", async () => {
@@ -134,7 +140,6 @@ describe("semana_chave passa a ser America/Sao_Paulo (item 10)", () => {
     expect(r.sao_paulo).toBe("2026-09-28"); // domingo ainda pertence a semana que comecou em 28/09
     expect(r.utc).toBe("2026-10-05");       // UTC ja jogou para a semana seguinte
     expect(r.sao_paulo).not.toBe(r.utc);
-    await d.close();
   });
 
   it("linha nova cai numa segunda-feira", async () => {
@@ -145,7 +150,6 @@ describe("semana_chave passa a ser America/Sao_Paulo (item 10)", () => {
       from public.portal_playlist where id = $1`, [r.id]);
     expect(l.dow).toBe(1); // 1 = segunda
     expect(l.s).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-    await d.close();
   });
 });
 
@@ -167,7 +171,6 @@ describe("limite de 3: 1a, 2a, 3a passam e a 4a e barrada", () => {
     ]);
 
     console.log("EVIDENCIA 1a/2a/3a/4a:", JSON.stringify(evid));
-    await d.close();
   });
 
   it("conta a musica real que a pessoa ja tem: Amanda chega a 3 e para", async () => {
@@ -185,7 +188,6 @@ describe("limite de 3: 1a, 2a, 3a passam e a 4a e barrada", () => {
     // A musica real continua la, intacta.
     expect(await H.q1(d, `select titulo from public.portal_playlist where id = $1`, [H.REAIS[0].id]))
       .toEqual({ titulo: "Bellyache" });
-    await d.close();
   });
 
   it("o limite e por pessoa: uma no limite nao impede as outras", async () => {
@@ -196,7 +198,6 @@ describe("limite de 3: 1a, 2a, 3a passam e a 4a e barrada", () => {
     // Mauricio tem 1 real; segue podendo incluir.
     expect((await H.inserir(d, H.MAURICIO, "M2")).ok).toBe(true);
     expect(await H.ativasDe(d, H.MAURICIO)).toBe(2);
-    await d.close();
   });
 
   it("duas musicas na MESMA semana agora sao permitidas (limite semanal removido)", async () => {
@@ -208,7 +209,6 @@ describe("limite de 3: 1a, 2a, 3a passam e a 4a e barrada", () => {
     const semanas = await H.qn(d, `select distinct semana_chave::text s from public.portal_playlist
       where adicionado_por_email = $1`, [H.LUANA]);
     expect(semanas).toHaveLength(1); // as duas na mesma semana
-    await d.close();
   });
 });
 
@@ -229,7 +229,6 @@ describe("editar nao consome vaga", () => {
       .toEqual({ titulo: "E1 editada", artista: "Outro Artista", youtube_id: "bbbbbbbbbbb" });
 
     console.log("EVIDENCIA editar: ativas antes=3 depois=" + (await H.ativasDe(d, H.LUANA)));
-    await d.close();
   });
 
   it("editar uma das 3 musicas reais tambem nao consome vaga", async () => {
@@ -237,7 +236,6 @@ describe("editar nao consome vaga", () => {
     const r = await H.atualizar(d, H.FERNANDA, H.REAIS[2].id, "titulo = $2", ["Oceans (ao vivo)"]);
     expect(r.ok).toBe(true);
     expect(await H.ativasDe(d, H.FERNANDA)).toBe(1);
-    await d.close();
   });
 });
 
@@ -269,7 +267,6 @@ describe("remover com soft delete libera a vaga imediatamente", () => {
     expect(Number((await H.q1(d, `select count(*) n from public.portal_playlist where adicionado_por_email = $1`, [H.LUANA])).n)).toBe(4);
 
     console.log("EVIDENCIA remover/liberar:", JSON.stringify(passos));
-    await d.close();
   });
 
   it("reativar uma musica removida NAO fura o limite", async () => {
@@ -283,7 +280,6 @@ describe("remover com soft delete libera a vaga imediatamente", () => {
     expect(revive.ok).toBe(false);
     expect(revive.code).toBe("PL003");
     expect(await H.ativasDe(d, H.LUANA)).toBe(3);
-    await d.close();
   });
 
   it("reativar quando ha vaga funciona", async () => {
@@ -293,7 +289,6 @@ describe("remover com soft delete libera a vaga imediatamente", () => {
     expect(await H.ativasDe(d, H.LUANA)).toBe(0);
     expect((await H.atualizar(d, H.LUANA, id, "ativo = true", [])).ok).toBe(true);
     expect(await H.ativasDe(d, H.LUANA)).toBe(1);
-    await d.close();
   });
 });
 
@@ -322,7 +317,6 @@ describe("concorrencia: o advisory lock por pessoa", () => {
     expect(await H.qn(d, `select 1 from pg_locks where locktype = 'advisory'`)).toEqual([]);
 
     console.log("EVIDENCIA lock: 1 pessoa =", umaPessoa.length, "locks; 2 pessoas =", duasPessoas.length, "locks distintos");
-    await d.close();
   });
 
   it("duas inclusoes da mesma pessoa na mesma transacao respeitam o limite", async () => {
@@ -348,7 +342,6 @@ describe("concorrencia: o advisory lock por pessoa", () => {
       { t: "C1", ok: true }, { t: "C2", ok: true }, { t: "C3", ok: true },
       { t: "C4", ok: false, code: "PL003" },
     ]);
-    await d.close();
   });
 });
 
@@ -358,7 +351,6 @@ describe("policies existentes continuam valendo (nao foram alteradas pelo A1)", 
     const r = await H.inserir(d, H.LUANA, "Tentando como Mauricio", { comoEmail: H.MAURICIO });
     expect(r.ok).toBe(false);
     expect(r.code).toBe("42501"); // insufficient_privilege (RLS)
-    await d.close();
   });
 
   it("um operador nao remove a musica de outro", async () => {
@@ -368,7 +360,6 @@ describe("policies existentes continuam valendo (nao foram alteradas pelo A1)", 
     expect(r.ok).toBe(true);
     expect(await H.q1(d, `select ativo from public.portal_playlist where id = $1`, [H.REAIS[1].id]))
       .toEqual({ ativo: true }); // segue ativa
-    await d.close();
   });
 
   it("a gestao pode remover a musica de outra pessoa (policy portal_playlist_remover)", async () => {
@@ -377,7 +368,6 @@ describe("policies existentes continuam valendo (nao foram alteradas pelo A1)", 
     expect(r.ok).toBe(true);
     expect(await H.q1(d, `select ativo from public.portal_playlist where id = $1`, [H.REAIS[1].id]))
       .toEqual({ ativo: false });
-    await d.close();
   });
 });
 
@@ -425,6 +415,5 @@ describe("rollback", () => {
     expect(await H.qn(d, `select conname from pg_constraint
       where conrelid = 'public.portal_playlist'::regclass and contype = 'u'`)).toEqual([]);
 
-    await d.close();
   });
 });
