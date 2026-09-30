@@ -17,12 +17,11 @@ import { fileURLToPath } from "node:url";
 const AQUI = dirname(fileURLToPath(import.meta.url));
 export const lerRepo = (p) => readFileSync(resolve(AQUI, "..", "..", "..", "..", p), "utf8");
 export const MIG = (n) => lerRepo(`supabase/migrations/${n}.sql`);
-export const PENDENTE = (n) => lerRepo(`supabase/aguardando_aprovacao/${n}.sql`);
 export const ROLL = (n) => lerRepo(`supabase/rollbacks/${n}.rollback.sql`);
 
 export const CRIACAO = "20260929152500_portal_visao_geral_interativa";
 export const A1 = "20260930143806_portal_playlist_limite_tres_musicas";
-export const A2 = "20260930160000_portal_curtidas_e_musica_da_semana";
+export const A2 = "20260930164843_portal_curtidas_e_musica_da_semana";
 
 export const AMANDA = "amanda.seibel@aelbra.com.br";   // gestao
 export const FERNANDA = "cobranca04@aelbra.com.br";    // gestao
@@ -110,9 +109,10 @@ export async function resetar(db) {
   }
 }
 
-// A2 ainda nao esta em producao: mora em supabase/aguardando_aprovacao/.
+// A2 em diante ja estao em producao: as quatro sairam de aguardando_aprovacao/
+// para migrations/ com a versao que producao registrou.
 export async function aplicarA2(db) {
-  await db.exec(PENDENTE(A2));
+  await db.exec(MIG(A2));
   await db.exec("grant select, insert, delete on public.portal_curtidas to authenticated;");
 }
 
@@ -202,7 +202,7 @@ export async function atualizar(db, email, id, sets, params) {
 // para que o teste possa provar que o mural NAO vaza print, observacao interna,
 // motivo de rejeicao nem e-mail. Os elogios em si sao FICTICIOS.
 // ---------------------------------------------------------------------------
-export const B = "20260930170000_portal_mural_elogios";
+export const B = "20260930164939_portal_mural_elogios";
 
 const ELOGIOS_DDL = `
 create table if not exists public.usuarios (
@@ -285,7 +285,7 @@ export async function prepararElogios(db) {
 }
 
 export async function aplicarB(db) {
-  await db.exec(PENDENTE(B));
+  await db.exec(MIG(B));
 }
 
 // Elogio de teste. `publicado` controla status/publicado_em.
@@ -318,8 +318,8 @@ export const curtidasTotais = async (db, email, alvoTipo) =>
 // e as policies REAIS de producao para `sugestoes` e a funcao usuario_e_gestao()
 // conforme pg_get_functiondef. As sugestoes em si sao FICTICIAS.
 // ---------------------------------------------------------------------------
-export const C1 = "20260930180000_portal_desafio_semana";
-export const C2 = "20260930190000_portal_ideias_equipe";
+export const C1 = "20260930165120_portal_desafio_semana";
+export const C2 = "20260930165209_portal_ideias_equipe";
 
 const SUGESTOES_DDL = `
 create or replace function public.usuario_e_gestao() returns boolean
@@ -403,10 +403,10 @@ export async function prepararSugestoes(db) {
 // O grant de tabela para `authenticated` o Supabase concede por padrao no projeto;
 // no PGlite e explicito, como nas outras tabelas deste harness.
 export async function aplicarC1(db) {
-  await db.exec(PENDENTE(C1));
+  await db.exec(MIG(C1));
   await db.exec("grant select, insert, update, delete on public.portal_desafios to authenticated;");
 }
-export const aplicarC2 = (db) => db.exec(PENDENTE(C2));
+export const aplicarC2 = (db) => db.exec(MIG(C2));
 
 export async function criarSugestao(db, {
   descricao = "Ideia de teste", autor = "Luana", autorEmail = LUANA,

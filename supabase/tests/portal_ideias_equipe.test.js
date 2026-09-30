@@ -1,6 +1,6 @@
 // C2 -- Ideias da equipe.
 //
-// Roda a migration REAL (supabase/aguardando_aprovacao/20260930190000_...) e o
+// Roda a migration REAL (supabase/migrations/20260930165209_...) e o
 // rollback REAL num PostgreSQL real (PGlite). O fixture reproduz as policies REAIS
 // de `sugestoes` -- inclusive `sugestoes_select`, que hoje so deixa a gestao ler --
 // e o teste central e provar que o mural nao afrouxa nada disso e nao vaza campo

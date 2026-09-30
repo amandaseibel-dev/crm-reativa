@@ -1,6 +1,6 @@
 // A2 -- curtidas do Portal e musica mais curtida da semana.
 //
-// Roda a migration REAL (supabase/aguardando_aprovacao/20260930160000_...) e o
+// Roda a migration REAL (supabase/migrations/20260930164843_...) e o
 // rollback REAL num PostgreSQL real (PGlite), em cima do estado real de
 // producao: criacao das tabelas + A1 + as 3 musicas que existem hoje.
 //
