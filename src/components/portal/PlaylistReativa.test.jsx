@@ -42,8 +42,19 @@ function montarSupabase(linhas, { erroInsert = null, erroUpdate = null } = {}) {
   return { insert, update, select };
 }
 
-const desenhar = (email = EU) =>
-  act(async () => { render(<PlaylistReativa usuario={{ email, nome: "Luana" }} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />); });
+const desenhar = (email = EU, curtidas = undefined) =>
+  act(async () => { render(<PlaylistReativa usuario={{ email, nome: "Luana" }} curtidas={curtidas} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />); });
+
+// Dublê do hook useCurtidas. Recebe pares [idDaMusica, {curtidas, euCurti}] --
+// e Map de verdade, porque a chave é o id da música como ele vem do banco.
+const comCurtidas = (pares = [], extra = {}) => ({
+  disponivel: true,
+  ocupado: null,
+  mapa: new Map(pares),
+  alternar: vi.fn(),
+  recarregar: vi.fn(),
+  ...extra,
+});
 
 describe("helpers", () => {
   it("extrairYoutubeId cobre watch, youtu.be, shorts e embed; recusa lixo", () => {
@@ -254,5 +265,63 @@ describe("estados de borda", () => {
     await desenhar();
     expect(screen.getByText(/Playlist temporariamente indisponível/)).toBeTruthy();
     erro.mockRestore();
+  });
+});
+
+describe("coração de curtidas (A2)", () => {
+  beforeEach(() => fromMock.mockReset());
+
+  it("mostra a contagem da semana e o coração vazio quando ainda não curti", async () => {
+    montarSupabase([musica(1, OUTRA, "De outra pessoa")]);
+    await desenhar(EU, comCurtidas([[1, { curtidas: 3, euCurti: false }]]));
+    expect(screen.getByRole("button", { name: /🤍 3/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /🤍 3/ }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("coração cheio e aria-pressed quando já curti", async () => {
+    montarSupabase([musica(1, OUTRA, "De outra pessoa")]);
+    await desenhar(EU, comCurtidas([[1, { curtidas: 5, euCurti: true }]]));
+    const b = screen.getByRole("button", { name: /❤️ 5/ });
+    expect(b.getAttribute("aria-pressed")).toBe("true");
+    expect(b.title).toBe("Retirar minha curtida");
+  });
+
+  it("clicar chama alternar com a música e o e-mail de quem está logado", async () => {
+    montarSupabase([musica(1, OUTRA, "De outra")]);
+    const c = comCurtidas([[1, { curtidas: 0, euCurti: false }]]);
+    await desenhar(EU, c);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: /🤍 0/ })); });
+    expect(c.alternar).toHaveBeenCalledWith(1, EU);
+  });
+
+  it("dá para curtir a própria música, e as ações de dono continuam lá", async () => {
+    montarSupabase([musica(1, EU, "Minha")]);
+    await desenhar(EU, comCurtidas([[1, { curtidas: 1, euCurti: true }]]));
+    expect(screen.getByRole("button", { name: /❤️ 1/ })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Editar" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Remover" })).toBeTruthy();
+  });
+
+  it("sem curtidas disponíveis (migration não aplicada), nenhum coração aparece", async () => {
+    montarSupabase([musica(1, OUTRA, "De outra")]);
+    await desenhar(EU, comCurtidas([], { disponivel: false }));
+    expect(screen.queryByRole("button", { name: /🤍|❤️/ })).toBeNull();
+  });
+
+  it("sem o hook (playlist usada sozinha), a lista continua funcionando", async () => {
+    montarSupabase([musica(1, OUTRA, "De outra")]);
+    await desenhar(EU, undefined);
+    expect(screen.getByText("De outra")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /🤍|❤️/ })).toBeNull();
+  });
+
+  it("remover uma música manda reapurar as curtidas (o destaque pode mudar)", async () => {
+    const confirmar = vi.spyOn(window, "confirm").mockReturnValue(true);
+    montarSupabase([musica(1, EU, "Minha")]);
+    const c = comCurtidas([[1, { curtidas: 2, euCurti: false }]]);
+    await desenhar(EU, c);
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Remover" })); });
+    expect(c.recarregar).toHaveBeenCalled();
+    confirmar.mockRestore();
   });
 });
