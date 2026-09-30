@@ -134,7 +134,9 @@ export default function VisaoGeralInterativa() {
   const [eventos, setEventos] = useState([]);
   const [aniversarios, setAniversarios] = useState([]);
   const [feriados, setFeriados] = useState([]);
-  const [erroDados, setErroDados] = useState("");
+  const [erroPlaylist, setErroPlaylist] = useState("");
+  const [erroEventos, setErroEventos] = useState("");
+  const [erroAniversarios, setErroAniversarios] = useState("");
   const [abrirMusica, setAbrirMusica] = useState(false);
   const [abrirEvento, setAbrirEvento] = useState(false);
   const [abrirAniversario, setAbrirAniversario] = useState(false);
@@ -152,15 +154,29 @@ export default function VisaoGeralInterativa() {
       supabase.from("portal_eventos").select("id,titulo,inicio_em,categoria").eq("ativo", true).gte("inicio_em", hojeIso).order("inicio_em", { ascending: true }).limit(8),
       supabase.from("portal_aniversarios").select("id,nome,dia,mes").eq("ativo", true).order("mes", { ascending: true }).order("dia", { ascending: true }),
     ]);
-    const erro = p.error || e.error || a.error;
-    if (erro) {
-      setErroDados("Os cards participativos ainda estão sendo ativados.");
-      return;
+    if (p.error) {
+      console.error("portal_playlist:", p.error);
+      setErroPlaylist("Playlist temporariamente indisponível. A gestão já pode identificar o motivo pelo código do erro.");
+    } else {
+      setErroPlaylist("");
+      setPlaylist(p.data || []);
     }
-    setErroDados("");
-    setPlaylist(p.data || []);
-    setEventos(e.data || []);
-    setAniversarios(a.data || []);
+
+    if (e.error) {
+      console.error("portal_eventos:", e.error);
+      setErroEventos("Eventos temporariamente indisponíveis.");
+    } else {
+      setErroEventos("");
+      setEventos(e.data || []);
+    }
+
+    if (a.error) {
+      console.error("portal_aniversarios:", a.error);
+      setErroAniversarios("Aniversários temporariamente indisponíveis.");
+    } else {
+      setErroAniversarios("");
+      setAniversarios(a.data || []);
+    }
   }, []);
 
   useEffect(() => {
@@ -218,6 +234,12 @@ export default function VisaoGeralInterativa() {
 
   async function adicionarMusica(e) {
     e.preventDefault();
+
+    if (!usuario.email) {
+      alert("Sua sessão ainda não foi identificada. Atualize a página e tente novamente.");
+      return;
+    }
+
     const youtubeId = extrairYoutubeId(musica.link);
     if (!musica.titulo.trim() || !musica.artista.trim() || !youtubeId) {
       alert("Informe música, artista e um link válido do YouTube.");
@@ -233,7 +255,17 @@ export default function VisaoGeralInterativa() {
     });
     setSalvando(false);
     if (error) {
-      alert(error.code === "23505" ? "Você já adicionou sua música nesta semana." : "Não foi possível adicionar a música.");
+      console.error("Erro ao adicionar música:", error);
+
+      if (error.code === "23505") {
+        alert("Você já adicionou sua música nesta semana.");
+      } else if (error.code === "42501") {
+        alert("Sua conta não tem permissão para adicionar música. Avise a gestão.");
+      } else if (error.code === "42P01" || error.code === "PGRST205") {
+        alert("A Playlist ReATIVA ainda não está ativada no banco de produção. Avise a gestão.");
+      } else {
+        alert(`Não foi possível adicionar a música. Código: ${error.code || "sem código"}.`);
+      }
       return;
     }
     setMusica({ titulo: "", artista: "", link: "" });
@@ -354,7 +386,7 @@ export default function VisaoGeralInterativa() {
                 </div>
                 <span style={S.play}>▶</span>
               </a>
-            )) : <p style={S.muted}>{erroDados || "A playlist começa com a primeira indicação da equipe."}</p>}
+            )) : <p style={S.muted}>{erroPlaylist || "A playlist começa com a primeira indicação da equipe."}</p>}
           </div>
         </Card>
       </div>
@@ -382,7 +414,7 @@ export default function VisaoGeralInterativa() {
                 <div style={S.dataQuadrado}>{formatarDataCurta(item.inicio_em)}</div>
                 <div><strong>{item.titulo}</strong><div style={S.mutedPequeno}>{item.categoria || "Evento"}</div></div>
               </div>
-            )) : <p style={S.muted}>{erroDados || "Nenhum evento cadastrado para os próximos dias."}</p>}
+            )) : <p style={S.muted}>{erroEventos || "Nenhum evento cadastrado para os próximos dias."}</p>}
           </div>
         </Card>
 
@@ -411,7 +443,7 @@ export default function VisaoGeralInterativa() {
                   <div><strong>{item.nome}</strong><div style={S.mutedPequeno}>{faltam === 0 ? "É hoje" : `Faltam ${faltam} dia${faltam === 1 ? "" : "s"}`}</div></div>
                 </div>
               );
-            }) : <p style={S.muted}>{erroDados || "Cadastre os aniversários da equipe para acompanhar aqui."}</p>}
+            }) : <p style={S.muted}>{erroAniversarios || "Cadastre os aniversários da equipe para acompanhar aqui."}</p>}
           </div>
         </Card>
 
