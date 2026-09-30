@@ -11,7 +11,7 @@ vi.mock("../../services/supabase", () => ({
 }));
 
 import IdeiasEquipe from "./IdeiasEquipe";
-import { SEM_IDEIAS, ORDENS, ROTULO_STATUS, rotuloStatus } from "./ideias";
+import { SEM_IDEIAS, ORDENS, ROTULO_STATUS, rotuloStatus, AREAS, validarIdeia, TIPO_IDEIA, TELA_IDEIA } from "./ideias";
 
 afterEach(cleanup);
 
@@ -22,7 +22,7 @@ const CabecalhoCard = ({ titulo, acao }) => <div><strong>{titulo}</strong>{acao}
 
 const ideia = (id, descricao, extra = {}) => ({
   id, descricao, autor: "Luana", criado_em: "2026-09-25T12:00:00Z",
-  status: "NOVA", curtidas: 0, eu_curti: false, ...extra,
+  status: "NOVA", curtidas: 0, eu_curti: false, minha: false, ...extra,
 });
 
 // insert/delete devolvem {error}; delete tem a cadeia .eq().eq().ilike()
@@ -157,5 +157,116 @@ describe("mural de ideias", () => {
 
     expect(alerta).toHaveBeenCalledWith("Você já curtiu.");
     alerta.mockRestore(); erro.mockRestore();
+  });
+});
+
+describe("enviar ideia para avaliação", () => {
+  beforeEach(() => { rpcMock.mockReset(); fromMock.mockReset(); });
+
+  it("as áreas cobrem os temas pedidos, além do vocabulário do Painel", () => {
+    for (const tema of ["Atendimento", "Processos", "Operação", "Ambiente de trabalho"]) {
+      expect(AREAS).toContain(tema);
+    }
+    expect(AREAS).toContain("Sistema ReATIVA");
+    expect(TIPO_IDEIA).toBe("Nova ideia");
+    expect(TELA_IDEIA).toBe("Portal — Ideias da equipe");
+  });
+
+  it("validarIdeia exige texto com substância e área conhecida", () => {
+    expect(validarIdeia({ descricao: "Ideia boa o bastante", area: "Atendimento" })).toBeNull();
+    expect(validarIdeia({ descricao: "curta", area: "Atendimento" })).toContain("10 caracteres");
+    expect(validarIdeia({ descricao: "x".repeat(501), area: "Atendimento" })).toContain("máximo");
+    expect(validarIdeia({ descricao: "Ideia boa o bastante", area: "Inventada" })).toContain("área");
+  });
+
+  it("envia para sugestoes no mesmo fluxo do Painel, invisível para a equipe", async () => {
+    rpcMock.mockResolvedValue({ data: [], error: null });
+    const { insert } = montarEscrita();
+    await desenhar();
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "+ Minha ideia" })); });
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText(/Qual é a sua ideia/), { target: { value: "  Avisar quando o aluno já pagou no Prime  " } });
+      fireEvent.change(screen.getByLabelText("Área da ideia"), { target: { value: "Processos" } });
+    });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Enviar ideia" })); });
+
+    expect(insert).toHaveBeenCalledWith({
+      descricao: "Avisar quando o aluno já pagou no Prime",
+      nome: null,
+      autor_email: EU,
+      area: "Processos",
+      tipo: "Nova ideia",
+      tela: "Portal — Ideias da equipe",
+      visivel_equipe: false,
+    });
+  });
+
+  it("recarrega o mural depois de enviar, para a própria ideia aparecer", async () => {
+    rpcMock.mockResolvedValue({ data: [], error: null });
+    montarEscrita();
+    await desenhar();
+    const antes = rpcMock.mock.calls.length;
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "+ Minha ideia" })); });
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText(/Qual é a sua ideia/), { target: { value: "Uma ideia com tamanho suficiente" } });
+    });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Enviar ideia" })); });
+
+    expect(rpcMock.mock.calls.length).toBe(antes + 1);
+  });
+
+  it("validação da tela barra antes de chamar o banco", async () => {
+    const alerta = vi.spyOn(window, "alert").mockImplementation(() => {});
+    rpcMock.mockResolvedValue({ data: [], error: null });
+    const { insert } = montarEscrita();
+    await desenhar();
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "+ Minha ideia" })); });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Enviar ideia" })); });
+
+    expect(insert).not.toHaveBeenCalled();
+    expect(alerta).toHaveBeenCalled();
+    alerta.mockRestore();
+  });
+
+  it("recusa do banco vira mensagem amigável, sem SQL cru", async () => {
+    const alerta = vi.spyOn(window, "alert").mockImplementation(() => {});
+    const erro = vi.spyOn(console, "error").mockImplementation(() => {});
+    rpcMock.mockResolvedValue({ data: [], error: null });
+    montarEscrita({ error: { code: "42501" } });
+    await desenhar();
+
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "+ Minha ideia" })); });
+    await act(async () => {
+      fireEvent.change(screen.getByPlaceholderText(/Qual é a sua ideia/), { target: { value: "Uma ideia com tamanho suficiente" } });
+    });
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Enviar ideia" })); });
+
+    expect(alerta).toHaveBeenCalledWith("Sua conta não tem permissão para enviar ideia. Avise a gestão.");
+    alerta.mockRestore(); erro.mockRestore();
+  });
+
+  it("a própria ideia aparece marcada como 'Sua ideia'", async () => {
+    rpcMock.mockResolvedValue({
+      data: [ideia("i1", "Minha ideia em avaliação", { minha: true, status: "NOVA" })], error: null,
+    });
+    await desenhar();
+    expect(screen.getByText("Sua ideia")).toBeTruthy();
+    expect(screen.getByText("Nova")).toBeTruthy();
+  });
+
+  it("ideia de outra pessoa não recebe o selo", async () => {
+    rpcMock.mockResolvedValue({ data: [ideia("i1", "De outra pessoa", { minha: false })], error: null });
+    await desenhar();
+    expect(screen.queryByText("Sua ideia")).toBeNull();
+  });
+
+  it("estado vazio convida a enviar", async () => {
+    rpcMock.mockResolvedValue({ data: [], error: null });
+    await desenhar();
+    expect(screen.getByText("Nenhuma ideia em avaliação no momento. Envie a sua.")).toBeTruthy();
+    expect(SEM_IDEIAS).toContain("Envie a sua");
   });
 });

@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 const AQUI = dirname(fileURLToPath(import.meta.url));
 export const lerRepo = (p) => readFileSync(resolve(AQUI, "..", "..", "..", "..", p), "utf8");
 export const MIG = (n) => lerRepo(`supabase/migrations/${n}.sql`);
+export const PENDENTE = (n) => lerRepo(`supabase/aguardando_aprovacao/${n}.sql`);
 export const ROLL = (n) => lerRepo(`supabase/rollbacks/${n}.rollback.sql`);
 
 export const CRIACAO = "20260929152500_portal_visao_geral_interativa";
@@ -320,6 +321,7 @@ export const curtidasTotais = async (db, email, alvoTipo) =>
 // ---------------------------------------------------------------------------
 export const C1 = "20260930165120_portal_desafio_semana";
 export const C2 = "20260930165209_portal_ideias_equipe";
+export const C3 = "20260930200000_portal_ideias_em_avaliacao";
 
 const SUGESTOES_DDL = `
 create or replace function public.usuario_e_gestao() returns boolean
@@ -407,6 +409,34 @@ export async function aplicarC1(db) {
   await db.exec("grant select, insert, update, delete on public.portal_desafios to authenticated;");
 }
 export const aplicarC2 = (db) => db.exec(MIG(C2));
+// C3 ainda nao esta em producao: mora em supabase/aguardando_aprovacao/.
+export const aplicarC3 = (db) => db.exec(PENDENTE(C3));
+
+// Enviar ideia pelo Portal usa o MESMO caminho do Painel de Sugestoes: insert
+// direto em sugestoes pela policy sugestoes_insert, com autor_email proprio.
+export async function enviarIdeia(db, email, { descricao = "Ideia nova", nome = "Pessoa", area = "Atendimento" } = {}) {
+  const r = await comoUsuario(db, email, async () => {
+    try {
+      // SEM `returning`: RETURNING dispara a policy de SELECT de sugestoes, que e
+      // so da gestao -- um operador comum leva 42501 mesmo tendo direito de
+      // inserir. O Portal grava e depois le pela RPC, que e SECURITY DEFINER.
+      await db.query(
+        `insert into public.sugestoes (descricao, nome, autor_email, area, tipo, tela, visivel_equipe)
+         values ($1,$2,$3,$4,'Nova ideia','Portal — Ideias da equipe', false)`,
+        [descricao, nome, email, area],
+      );
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, code: e.code ?? null, message: String(e.message ?? e) };
+    }
+  });
+  if (!r.ok) return r;
+  // Como postgres (sem RLS), so para o teste ter o id.
+  const id = (await db.query(
+    "select id::text from public.sugestoes where autor_email = $1 and descricao = $2 order by criado_em desc limit 1",
+    [email, descricao])).rows[0]?.id;
+  return { ok: true, id };
+}
 
 export async function criarSugestao(db, {
   descricao = "Ideia de teste", autor = "Luana", autorEmail = LUANA,
