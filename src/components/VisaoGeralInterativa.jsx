@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
+import PlaylistReativa from "./portal/PlaylistReativa";
 
 const CANOAS = { latitude: -29.9178, longitude: -51.1836 };
 
@@ -84,19 +85,6 @@ function hojeCanoasIso() {
   return `${mapa.year}-${mapa.month}-${mapa.day}`;
 }
 
-function extrairYoutubeId(link) {
-  try {
-    const url = new URL(String(link || "").trim());
-    if (url.hostname.includes("youtu.be")) return url.pathname.split("/").filter(Boolean)[0] || null;
-    if (url.hostname.includes("youtube.com")) {
-      if (url.pathname.startsWith("/shorts/")) return url.pathname.split("/")[2] || null;
-      if (url.pathname.startsWith("/embed/")) return url.pathname.split("/")[2] || null;
-      return url.searchParams.get("v");
-    }
-  } catch {}
-  return null;
-}
-
 function proximaOcorrenciaAniversario(mes, dia) {
   const hoje = inicioDoDia(new Date());
   let data = new Date(hoje.getFullYear(), Number(mes) - 1, Number(dia));
@@ -130,18 +118,14 @@ export default function VisaoGeralInterativa() {
   const [usuario, setUsuario] = useState({ email: "", nome: "" });
   const [clima, setClima] = useState(null);
   const [erroClima, setErroClima] = useState("");
-  const [playlist, setPlaylist] = useState([]);
   const [eventos, setEventos] = useState([]);
   const [aniversarios, setAniversarios] = useState([]);
   const [feriados, setFeriados] = useState([]);
-  const [erroPlaylist, setErroPlaylist] = useState("");
   const [erroEventos, setErroEventos] = useState("");
   const [erroAniversarios, setErroAniversarios] = useState("");
-  const [abrirMusica, setAbrirMusica] = useState(false);
   const [abrirEvento, setAbrirEvento] = useState(false);
   const [abrirAniversario, setAbrirAniversario] = useState(false);
   const [salvando, setSalvando] = useState(false);
-  const [musica, setMusica] = useState({ titulo: "", artista: "", link: "" });
   const [evento, setEvento] = useState({ titulo: "", data: "", categoria: "Operação" });
   const [aniversario, setAniversario] = useState({ nome: "", dia: "", mes: "" });
 
@@ -149,18 +133,10 @@ export default function VisaoGeralInterativa() {
 
   const carregarDadosInternos = useCallback(async () => {
     const hojeIso = new Date().toISOString();
-    const [p, e, a] = await Promise.all([
-      supabase.from("portal_playlist").select("id,titulo,artista,youtube_id,adicionado_por,adicionado_por_email,criado_em").eq("ativo", true).order("criado_em", { ascending: false }).limit(20),
+    const [e, a] = await Promise.all([
       supabase.from("portal_eventos").select("id,titulo,inicio_em,categoria").eq("ativo", true).gte("inicio_em", hojeIso).order("inicio_em", { ascending: true }).limit(8),
       supabase.from("portal_aniversarios").select("id,nome,dia,mes").eq("ativo", true).order("mes", { ascending: true }).order("dia", { ascending: true }),
     ]);
-    if (p.error) {
-      console.error("portal_playlist:", p.error);
-      setErroPlaylist("Playlist temporariamente indisponível. A gestão já pode identificar o motivo pelo código do erro.");
-    } else {
-      setErroPlaylist("");
-      setPlaylist(p.data || []);
-    }
 
     if (e.error) {
       console.error("portal_eventos:", e.error);
@@ -231,47 +207,6 @@ export default function VisaoGeralInterativa() {
     const dia = Math.floor((agora - inicioAno) / 86400000);
     return CURIOSIDADES[dia % CURIOSIDADES.length];
   }, []);
-
-  async function adicionarMusica(e) {
-    e.preventDefault();
-
-    if (!usuario.email) {
-      alert("Sua sessão ainda não foi identificada. Atualize a página e tente novamente.");
-      return;
-    }
-
-    const youtubeId = extrairYoutubeId(musica.link);
-    if (!musica.titulo.trim() || !musica.artista.trim() || !youtubeId) {
-      alert("Informe música, artista e um link válido do YouTube.");
-      return;
-    }
-    setSalvando(true);
-    const { error } = await supabase.from("portal_playlist").insert({
-      titulo: musica.titulo.trim(),
-      artista: musica.artista.trim(),
-      youtube_id: youtubeId,
-      adicionado_por: usuario.nome || nomeOperadorPorEmail(usuario.email),
-      adicionado_por_email: usuario.email,
-    });
-    setSalvando(false);
-    if (error) {
-      console.error("Erro ao adicionar música:", error);
-
-      if (error.code === "23505") {
-        alert("Você já adicionou sua música nesta semana.");
-      } else if (error.code === "42501") {
-        alert("Sua conta não tem permissão para adicionar música. Avise a gestão.");
-      } else if (error.code === "42P01" || error.code === "PGRST205") {
-        alert("A Playlist ReATIVA ainda não está ativada no banco de produção. Avise a gestão.");
-      } else {
-        alert(`Não foi possível adicionar a música. Código: ${error.code || "sem código"}.`);
-      }
-      return;
-    }
-    setMusica({ titulo: "", artista: "", link: "" });
-    setAbrirMusica(false);
-    carregarDadosInternos();
-  }
 
   async function adicionarEvento(e) {
     e.preventDefault();
@@ -359,36 +294,7 @@ export default function VisaoGeralInterativa() {
           ) : <p style={S.muted}>{erroClima || "Atualizando previsão..."}</p>}
         </Card>
 
-        <Card style={S.playlistCard}>
-          <CabecalhoCard
-            icone="🎧"
-            titulo="Playlist ReATIVA"
-            acao={<button type="button" onClick={() => setAbrirMusica((v) => !v)} style={S.botaoMini}>+ Minha música</button>}
-          />
-          <p style={S.muted}>Cada pessoa pode indicar 1 música por semana. O nome de quem adicionou fica registrado.</p>
-          {abrirMusica && (
-            <form onSubmit={adicionarMusica} style={S.form}>
-              <input value={musica.titulo} onChange={(e) => setMusica({ ...musica, titulo: e.target.value })} placeholder="Música" style={S.input} />
-              <input value={musica.artista} onChange={(e) => setMusica({ ...musica, artista: e.target.value })} placeholder="Artista" style={S.input} />
-              <input value={musica.link} onChange={(e) => setMusica({ ...musica, link: e.target.value })} placeholder="Link do YouTube" style={S.input} />
-              <button disabled={salvando} style={S.botaoPrimario}>{salvando ? "Salvando..." : "Adicionar"}</button>
-            </form>
-          )}
-          <div style={S.listaMusicas}>
-            {playlist.length ? playlist.slice(0, 5).map((item, idx) => (
-              <a key={item.id} href={`https://www.youtube.com/watch?v=${item.youtube_id}`} target="_blank" rel="noreferrer" style={S.musicaLinha}>
-                <img src={`https://i.ytimg.com/vi/${item.youtube_id}/mqdefault.jpg`} alt="" style={S.thumb} />
-                <div style={S.musicaTexto}>
-                  <span style={S.badge}>{idx === 0 ? "MÚSICA DA VEZ" : "PLAYLIST"}</span>
-                  <strong style={S.musicaTitulo}>{item.titulo}</strong>
-                  <span style={S.musicaArtista}>{item.artista}</span>
-                  <span style={S.adicionadoPor}>Escolhida por {item.adicionado_por}</span>
-                </div>
-                <span style={S.play}>▶</span>
-              </a>
-            )) : <p style={S.muted}>{erroPlaylist || "A playlist começa com a primeira indicação da equipe."}</p>}
-          </div>
-        </Card>
+        <PlaylistReativa usuario={usuario} Card={Card} CabecalhoCard={CabecalhoCard} S={S} />
       </div>
 
       <div style={S.gridSecundario}>
@@ -500,19 +406,26 @@ const S = {
   muted: { color: "var(--rv-texto-suave)", fontSize: 13, lineHeight: 1.5, margin: "8px 0" },
   mutedPequeno: { color: "var(--rv-texto-suave)", fontSize: 11, marginTop: 2 },
   botaoMini: { border: "1px solid var(--rv-borda)", borderRadius: 10, background: "var(--rv-fundo-suave)", color: "var(--rv-tinta)", fontWeight: 800, padding: "7px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: 12 },
+  botaoMiniDesligado: { opacity: .5, cursor: "not-allowed" },
   form: { display: "grid", gap: 8, padding: 10, background: "var(--rv-fundo-suave)", borderRadius: 12, marginBottom: 12 },
   formLinha: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 },
   input: { width: "100%", boxSizing: "border-box", border: "1px solid var(--rv-borda)", borderRadius: 9, padding: "9px 10px", background: "var(--rv-superficie)", color: "var(--rv-tinta)", fontFamily: "inherit" },
   botaoPrimario: { border: 0, borderRadius: 9, background: "var(--rv-azul)", color: "#fff", fontWeight: 800, padding: "9px 12px", cursor: "pointer", fontFamily: "inherit" },
+  playlistContador: { display: "grid", gap: 2, marginBottom: 10 },
+  playlistContadorForte: { fontSize: 13, color: "var(--rv-tinta)" },
+  playlistVerTodas: { marginTop: 10, border: "1px solid var(--rv-borda)", borderRadius: 10, background: "transparent", color: "var(--rv-azul-texto)", fontWeight: 800, padding: "7px 10px", cursor: "pointer", fontFamily: "inherit", fontSize: 12, width: "100%" },
   listaMusicas: { display: "grid", gap: 8 },
-  musicaLinha: { display: "grid", gridTemplateColumns: "72px minmax(0,1fr) auto", gap: 10, alignItems: "center", textDecoration: "none", color: "inherit", border: "1px solid var(--rv-borda-suave)", borderRadius: 12, padding: 7, background: "var(--rv-fundo-suave)" },
+  musicaLinha: { display: "grid", gridTemplateColumns: "minmax(0,1fr) auto", gap: 8, alignItems: "center", border: "1px solid var(--rv-borda-suave)", borderRadius: 12, padding: 7, background: "var(--rv-fundo-suave)" },
+  musicaAlvo: { display: "grid", gridTemplateColumns: "72px minmax(0,1fr)", gap: 10, alignItems: "center", textDecoration: "none", color: "inherit", minWidth: 0 },
+  musicaAcoes: { display: "grid", gap: 4 },
+  botaoAcaoMusica: { border: "1px solid var(--rv-borda)", borderRadius: 8, background: "var(--rv-superficie)", color: "var(--rv-tinta)", fontWeight: 800, padding: "4px 8px", cursor: "pointer", fontFamily: "inherit", fontSize: 11 },
   thumb: { width: 72, height: 48, objectFit: "cover", borderRadius: 8, background: "#ddd" },
   musicaTexto: { minWidth: 0, display: "grid", gap: 1 },
   badge: { fontSize: 9, letterSpacing: ".08em", fontWeight: 900, color: "var(--rv-azul-texto)" },
   musicaTitulo: { fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   musicaArtista: { fontSize: 12, color: "var(--rv-texto-suave)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
   adicionadoPor: { fontSize: 10, color: "var(--rv-texto-fraco)", marginTop: 2 },
-  play: { fontSize: 18, color: "var(--rv-azul-texto)" },
+  play: { fontSize: 18, color: "var(--rv-azul-texto)", paddingRight: 6 },
   listaSimples: { display: "grid", gap: 9 },
   linhaSimples: { display: "grid", gridTemplateColumns: "52px minmax(0,1fr)", gap: 10, alignItems: "center" },
   dataQuadrado: { width: 52, height: 42, borderRadius: 10, background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-borda-suave)", display: "grid", placeItems: "center", fontSize: 11, fontWeight: 900, color: "var(--rv-azul-texto)" },
