@@ -339,10 +339,21 @@ export async function acordoVencido(db, alunoId, donoAcordo) {
 }
 
 /** Movimentacao "de verdade" (sem passar por lote): tipo, dias atras. */
+// `extra.dentroDoMes` prende o registro ao mes corrente. Sem isso, "N dias
+// atras" cai no mes ANTERIOR quando o CI roda no comeco do mes, e um teste que
+// mede acionamento DO MES passa a medir outra coisa -- falha que so aparece em
+// alguns dias do ano. Com a trava, "N dias atras" vira, no limite, o primeiro
+// instante do mes: a intencao ("recente, neste mes") sobrevive a virada.
+// Quem QUER um registro antigo (60, 400 dias) simplesmente nao usa a trava.
+const ATRAS = "now() - ($4::numeric || ' days')::interval";
+const INICIO_DO_MES =
+  "(date_trunc('month', now() at time zone 'America/Sao_Paulo') at time zone 'America/Sao_Paulo')";
+
 export async function mov(db, alunoId, tipo, diasAtras = 0, extra = {}) {
+  const quando = extra.dentroDoMes ? `greatest(${INICIO_DO_MES}, ${ATRAS})` : ATRAS;
   await db.query(
     `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em)
-     values ($1, $2, 'x', 'x', $3, now() - ($4::numeric || ' days')::interval)`,
+     values ($1, $2, 'x', 'x', $3, ${quando})`,
     [String(alunoId), tipo, extra.por ?? OP_A, diasAtras]);
 }
 
