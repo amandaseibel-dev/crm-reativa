@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
 import { emailPorNomeOperador, nomeOperadorPorEmail, podeVerTudo } from "../utils/operadores";
+import { classificarVinculo, ROTULO_VINCULO } from "../utils/carteiraAcionada";
 import { Carregando, Erro } from "../ui/estados";
 import ConfirmarPagamento from "../components/ConfirmarPagamento";
 
@@ -596,7 +597,14 @@ export default function CRM() {
       const meuPorMensalidade =
         String(c.operador_email || "").toLowerCase().trim() === alvoEmailLc;
       const meuPorAcordo = c.aluno_id ? idsAcordoSet.has(String(c.aluno_id)) : false;
-      return { ...normalizar(c), meuPorMensalidade, meuPorAcordo };
+      // CASO ATIVO x SO ACORDO (29/09/2026). A uniao continua igual -- ninguem
+      // sai da base. O rotulo existe porque o operador nao tinha como saber que
+      // um aluno estava ali pela posse do ACORDO, sem caso atribuido a ele: em
+      // 29/09/2026 eram 940 alunos assim. Caso ENCERRADO nao vale como caso
+      // atribuido, senao o rotulo diria "Caso" para quem nao ocupa carteira.
+      const casoAtivoMeu = meuPorMensalidade && c.encerrado_operacional === false;
+      const vinculo = classificarVinculo({ casoAtivo: casoAtivoMeu, acordoAtivo: meuPorAcordo });
+      return { ...normalizar(c), meuPorMensalidade, meuPorAcordo, casoAtivoMeu, vinculo };
     });
     const enriquecidos = await enriquecerValorAberto(resultadoNormalizado);
     setCarregando(false);
@@ -1245,6 +1253,32 @@ export default function CRM() {
               >
                 {c.criticidade || "SEM CRITICIDADE"}
               </span>
+
+              {c.vinculo && (
+                <span
+                  title={
+                    c.vinculo === "ACORDO"
+                      ? "Aluno vinculado a você apenas pela posse do acordo ativo. Não é caso atribuído da sua carteira."
+                      : c.vinculo === "CASO_ACORDO"
+                      ? "Caso atribuído a você e também acordo ativo seu."
+                      : "Caso atribuído a você."
+                  }
+                  style={{
+                    background: "transparent",
+                    color: c.vinculo === "ACORDO" ? "#fcd34d" : "#c4b5fd",
+                    border: `1px solid ${c.vinculo === "ACORDO" ? "#a16207" : "#7e22ce"}`,
+                    fontSize: 10.5,
+                    fontWeight: 700,
+                    padding: "3px 8px",
+                    borderRadius: 999,
+                    display: "inline-block",
+                    marginBottom: 8,
+                    marginLeft: 8,
+                  }}
+                >
+                  {ROTULO_VINCULO[c.vinculo]}
+                </span>
+              )}
 
               <h3 style={{ margin: 0, fontSize: 19, color: "#ffffff" }}>
                 {c.nome}

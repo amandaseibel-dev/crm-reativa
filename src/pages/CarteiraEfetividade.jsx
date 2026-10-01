@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
+import EfetividadePorVencimento from "../components/EfetividadePorVencimento";
+import EfetividadeCompetencias from "../components/EfetividadeCompetencias";
 
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
 //
@@ -59,6 +61,10 @@ const AZUL = "var(--rv-azul)", VERDE = "var(--rv-verde-ok)", VERMELHO = "var(--r
 export default function CarteiraEfetividade() {
   const [ano, setAno] = useState("2026");
   const [sem, setSem] = useState("1");
+  // 2026/2 tem duas leituras do MESMO dado: o consolidado do semestre e o
+  // recorte por competência (mês de vencimento da mensalidade). As outras
+  // safras têm só o consolidado.
+  const [vista, setVista] = useState("consolidado");
   const [consolidada, setConsolidada] = useState(null);
   const [academico, setAcademico] = useState(null);
   const [vigente, setVigente] = useState(null);
@@ -154,7 +160,23 @@ export default function CarteiraEfetividade() {
     const t = vigente.total || {};
     referencia = Number(t.negociado || 0);
     indicadores = [
-      { rotulo: "Valor negociado", valor: moedaCurta(t.negociado), apoio: num(t.titulos) + " títulos negociados", cor: AZUL },
+      // "268 títulos negociados" era verdade e ainda assim confundia: a outra
+      // visão da MESMA tela conta 2.522 mensalidades, e ninguém sabia que uma é
+      // recorte da outra. Medido em 29/09: as duas consultas usam o MESMO
+      // recorte de 2026/2 -- mesma série do Prime, mesmo fallback por
+      // vencimento, mesmas exclusões -- e diferem numa linha só, o INNER JOIN
+      // em acordo aqui. O Consolidado é subconjunto perfeito: zero títulos só
+      // nele. Declarar a base resolve a leitura sem tocar em conta nenhuma.
+      //
+      // Os dois números vêm das consultas, nunca escritos à mão: se a carteira
+      // crescer, o texto acompanha. Sem o contexto carregado, some a segunda
+      // metade em vez de mostrar "de 0".
+      { rotulo: "Valor negociado", valor: moedaCurta(t.negociado),
+        apoio: "Mensalidades com acordo: " + num(t.titulos)
+             + (Number(contexto?.carteira_titulos) > 0
+                  ? " de " + num(contexto.carteira_titulos) + " da carteira"
+                  : ""),
+        cor: AZUL },
       { rotulo: "Valor recebido", valor: moedaCurta(t.recebido), apoio: pctTexto(t.recebido, t.negociado, 1) + " do negociado", cor: VERDE },
       { rotulo: "Alunos negociados", valor: num(t.cpfs) + " alunos", apoio: num(t.acordos) + " acordos", cor: "var(--rv-tinta)" },
       { rotulo: "Saldo negociado", valor: moedaCurta(t.saldo), apoio: "ainda a receber", cor: AMBAR },
@@ -166,7 +188,10 @@ export default function CarteiraEfetividade() {
     }));
     referenciaRotulo = "do valor negociado";
     rodape = "Carteira recebida: " + moedaCurta(contexto?.carteira_valor) + " · "
-           + num(contexto?.carteira_titulos) + " títulos · " + num(contexto?.carteira_cpfs) + " alunos · "
+           // "CPFs", não "alunos": este número conta CPF e os cartões por
+           // vencimento contam ficha do CRM. Dizer qual é qual custa uma
+           // palavra; deixar os dois como "alunos" custa a confiança no painel.
+           + num(contexto?.carteira_titulos) + " títulos · " + num(contexto?.carteira_cpfs) + " CPFs · "
            + num(contexto?.remessas) + " remessas (" + data(contexto?.primeira_remessa) + " a "
            + data(contexto?.ultima_remessa) + ")";
   }
@@ -246,6 +271,26 @@ export default function CarteiraEfetividade() {
           ) : (
             <span style={S.chip}>Ano inteiro: em 2024 e 2025 os dois semestres são lidos juntos.</span>
           )}
+          {/* Só 2026/2 tem recorte por competência: é a safra em curso, em que
+              as mensalidades do mês ainda estão entrando em cobrança. */}
+          {ano === "2026" && sem === "2" ? (
+            <div style={S.navBloco}>
+              <span style={S.navRotulo}>Visão</span>
+              <div style={S.grupo} role="group" aria-label="Visão de 2026/2">
+                {/* Três leituras de 2026/2, nunca duas ao mesmo tempo na tela.
+                    "Por competência" e "Resumo por vencimento" quebram o mesmo
+                    universo pelo mesmo mês, mas respondem a perguntas
+                    diferentes: uma decompõe em Convertido/Conferência/
+                    Acadêmico/Sem negociação, a outra em Entrou/Pago/Negociado/
+                    Cancelado/Em aberto. Nenhuma recalcula a outra. */}
+                {[["consolidado", "Consolidado"], ["competencia", "Por competência"],
+                  ["vencimento", "Resumo por vencimento"]].map(([k, r]) => (
+                  <button key={k} onClick={() => setVista(k)} aria-pressed={vista === k}
+                          style={{ ...S.opcao, ...(vista === k ? S.opcaoAtiva : null) }}>{r}</button>
+                ))}
+              </div>
+            </div>
+          ) : null}
         </div>
         <div style={S.periodo}>
           <strong style={S.periodoValor}>{periodo}</strong>
@@ -255,7 +300,15 @@ export default function CarteiraEfetividade() {
 
       {erro ? <p style={S.erro}>{erro}</p> : null}
 
-      {indicadores.length === 0 ? (
+      {safra === "2026/2" && vista === "competencia" ? (
+        <div style={{ marginTop: 18 }}>
+          <EfetividadeCompetencias />
+        </div>
+      ) : safra === "2026/2" && vista === "vencimento" ? (
+        <div style={{ marginTop: 18 }}>
+          <EfetividadePorVencimento />
+        </div>
+      ) : indicadores.length === 0 ? (
         <p style={{ ...S.discreto, marginTop: 24 }}>Sem dados para {periodo}.</p>
       ) : (
         <>
@@ -375,7 +428,11 @@ export default function CarteiraEfetividade() {
             )}
           </section>
 
-          {/* 4. METODOLOGIA — tudo o que é técnico mora aqui */}
+        </>
+      )}
+
+      {/* 4. METODOLOGIA — tudo o que é técnico mora aqui, e vale para as duas
+          visões de 2026/2: consolidado e por competência. */}
           <div style={{ marginTop: 20 }}>
             <button onClick={() => setMetodologia((v) => !v)} aria-expanded={metodologia}
                     style={S.linkMetodologia}>
@@ -449,11 +506,26 @@ export default function CarteiraEfetividade() {
                   que ainda têm pendência na carteira. Matrícula confirmada com dívida aberta aparece como exceção — o
                   aluno só efetiva matrícula com a ficha regularizada — e o painel não afirma a razão da exceção.
                 </p>
+                <p style={S.texto}>
+                  <strong>2026/2 por competência.</strong> Mesmo dado do consolidado, quebrado pelo mês de
+                  competência da mensalidade — o mês do vencimento. Não é o borderô, que é artefato interno de
+                  importação e não identifica nada para quem lê: quatro borderôs caem em agosto de 2026 e quatro em
+                  julho, e o que os separa é a modalidade, que só existe dentro do nome do arquivo. Também não é a
+                  coluna de competência do título, que está nula em toda a safra. O título pertence ao semestre pela
+                  série de cobrança do Prime e, só onde a série não existe, pelo vencimento — nunca pela data em que o
+                  arquivo foi importado nem pelo semestre do cadastro do aluno, que rotula o aluno inteiro e não serve
+                  como dimensão de carteira.
+                  <em>Entradas</em> é entrada na carteira, não entrada financeira de acordo. <em>Recuperado</em> é a
+                  mesma recuperação financeira do consolidado: o valor original rateado pelo percentual de parcelas
+                  pagas do acordo, ou o valor original menos o saldo quando o próprio título está pago — nunca acima do
+                  valor original. <em>Cancelados</em> conta o título cuja cobrança saiu da base; acordo cancelado é
+                  outro conceito, fica em campo próprio e não retira o que já havia sido convertido, porque a conversão
+                  é histórica. Recuperação e conversão têm a mesma base declarada em cada card: o valor original que
+                  entrou naquela competência.
+                </p>
               </div>
             ) : null}
           </div>
-        </>
-      )}
     </div>
   );
 }

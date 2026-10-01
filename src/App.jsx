@@ -89,6 +89,7 @@ const CentralAvisos = lazy(() => import("./pages/CentralAvisos"));
 const TaxaConversao = lazy(() => import("./pages/TaxaConversao"));
 const Calibragem = lazy(() => import("./pages/Calibragem"));
 const CalibragemNivelamento = lazy(() => import("./pages/CalibragemNivelamento"));
+const CarteiraGeral = lazy(() => import("./pages/CarteiraGeral"));
 const Efetividade = lazy(() => import("./pages/Efetividade"));
 const PainelGeral = lazy(() => import("./pages/PainelGeral"));
 const CentralWhatsApp = lazy(() => import("./pages/CentralWhatsApp"));
@@ -160,6 +161,9 @@ function podeAcessar(perfil, rota) {
     return DIRETORIA_ROTAS.includes(rota);
   }
   if (rota === "/calibragem") return perfil !== "operador";
+  // Carteira Geral: destino de gestao. Operador nunca entra -- ele so pode
+  // assumir o que a gestao mandou para a FILA LIVRE, pela tela dele.
+  if (rota === "/carteira-geral") return perfil !== "operador";
   if (rota === "/efetividade") return true; // operador vê o próprio; gestão vê todos
   // Central WhatsApp: central ÚNICA e compartilhada — todo perfil ativo atende
   // por ela. Ainda não há distribuição/fidelização (fase 1 é só receber e
@@ -309,6 +313,16 @@ function RotaProtegida({ usuario, rota, children }) {
   // Amanda ADM). A RPC confere de novo por calibragem_e_gestao() -- isto aqui é
   // só para não abrir uma tela que voltaria vazia.
   if (rota === "/acordos-operador") {
+    const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+    if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
+      return <Navigate to="/" replace />;
+    }
+  }
+  // Carteira Geral: os mesmos três logins individuais da Calibragem
+  // (Amanda gestora, Fernanda, Amanda ADM). Não existe login "Carteira Geral":
+  // ela é um destino, não uma pessoa. O portão definitivo é do banco
+  // (public.calibragem_e_gestao, checado em toda RPC da tela).
+  if (rota === "/carteira-geral") {
     const email = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
     if (!["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(email)) {
       return <Navigate to="/" replace />;
@@ -657,6 +671,7 @@ export default function App() {
     { rota: "/portal-operacional", label: "Portal Operacional", icone: "FileStack", secao: "Gestão" }, { rota: "/tv", label: "📺 TV ReATIVA", icone: "LayoutPanelTop", secao: "Gestão", externo: true },
     { rota: "/tv-mensagem", label: "📝 Mensagem da TV", icone: "MessageSquare", secao: "Gestão" },
     { rota: "/acoes-massivas", label: "Ações Massivas", icone: "Zap", secao: "Gestão" },
+    { rota: "/carteira-geral", label: "Carteira Geral", icone: "Folder", secao: "Gestão" },
     { rota: "/envio-gmail", label: "Envio pelo meu Gmail", icone: "Contact", secao: "Gestão" },
     { rota: "/historico-recuperacao", label: "Histórico da Recuperação", icone: "TrendingUp", secao: "Gestão" },
     { rota: "/saude-da-base", label: "Saúde da Base", icone: "CheckCircle2", secao: "Gestão" },
@@ -666,7 +681,6 @@ export default function App() {
     // preenche mais aluno_id sozinho, então o que não tem identificador
     // financeiro cai aqui e PRECISA de decisão humana. Sem item de menu a fila
     // só acumularia -- a rota existia desde agosto e ninguém a alcançava.
-    { rota: "/pagamentos-sem-aluno", label: "Pagamentos sem vínculo", icone: "Link2", secao: "Gestão" },
     { rota: "/acordos-operador", label: "Acordos por Operador", icone: "TrendingUp", secao: "Operação" },
     
     { rota: "/taxa-conversao", label: "Taxa de Conversão", icone: "TrendingUp", secao: "Gestão" },
@@ -683,10 +697,6 @@ export default function App() {
     if (perfil === "operador" && item.esconderParaOperador) return false; if (["/exportar-contatos","/log-nivelamento","/vincular-operadores","/importar-acordos","/importar-recuperacao","/importacoes","/sugestoes-recebidas"].includes(item.rota)) return false;
     // DRE: Amanda + diretoria. O Fechamento de Remuneração continua SÓ Amanda
     // -- por isso os dois deixaram de dividir a mesma regra.
-    if (item.rota === "/pagamentos-sem-aluno") {
-      const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
-      return ["amanda.seibel@aelbra.com.br", "cobranca04@aelbra.com.br", "cobranca07@aelbra.com.br"].includes(em);
-    }
     if (item.rota === "/dre") {
       const em = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return (em === "amanda.seibel@aelbra.com.br" || perfil === "diretoria") && perfil !== "operador";
@@ -708,6 +718,10 @@ export default function App() {
     if (item.rota === "/executivo") {
       const em3 = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
       return (["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(em3) || perfil === "diretoria") && perfil !== "operador";
+    }
+    if (item.rota === "/carteira-geral") {
+      const emCG = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
+      return ["amanda.seibel@aelbra.com.br","cobranca04@aelbra.com.br","cobranca07@aelbra.com.br"].includes(emCG) && perfil !== "operador";
     }
     if (item.rota === "/calibragem") {
       const emC = String(usuario?.perfil?.email || usuario?.auth?.email || "").toLowerCase().trim();
@@ -866,12 +880,12 @@ export default function App() {
                   >
                     <IconeComponente size={17} strokeWidth={2} style={{ flexShrink: 0 }} />
                     {!sidebarRecolhida && <span>{item.label}</span>}
-                {item.rota === "/financeiro-hub" && (linksAguardando + baixasAguardando) > 0 && (
+                {item.rota === "/financeiro-hub" && (linksAguardando + baixasAguardando + semVinculo) > 0 && (
                   <span
                     className="badge-pendente"
-                    title={`${linksAguardando} link(s) aguardando resposta · ${baixasAguardando} baixa(s) aguardando`}
+                    title={`${linksAguardando} link(s) aguardando resposta · ${baixasAguardando} baixa(s) aguardando${semVinculo > 0 ? ` · ${semVinculo} pagamento(s) sem vínculo` : ""}`}
                   >
-                    {linksAguardando + baixasAguardando}
+                    {linksAguardando + baixasAguardando + semVinculo}
                   </span>
                 )}
                 {item.rota === "/termos-adm" && termosAguardandoValidacao > 0 && (
@@ -896,14 +910,6 @@ export default function App() {
                     title="Comprovantes aguardando baixa"
                   >
                     {baixasAguardando}
-                  </span>
-                )}
-                {item.rota === "/pagamentos-sem-aluno" && semVinculo > 0 && (
-                  <span
-                    className="badge-pendente"
-                    title={`${semVinculo} pagamento(s) sem vínculo aguardando decisão da gestão`}
-                  >
-                    {semVinculo}
                   </span>
                 )}
                 {item.rota === "/elogios-atendimento" && elogiosPendentes > 0 && (
@@ -1037,6 +1043,14 @@ export default function App() {
               }
             />
             <Route
+              path="/carteira-geral"
+              element={
+                <RotaProtegida usuario={usuario} rota="/carteira-geral">
+                  <CarteiraGeral />
+                </RotaProtegida>
+              }
+            />
+            <Route
               path="/calibragem"
               element={
                 <RotaProtegida usuario={usuario} rota="/calibragem">
@@ -1117,7 +1131,7 @@ export default function App() {
               />
               <Route path="/painel-adm" element={<PainelAdm />} />
               <Route path="/painel-geral" element={<PainelGeral />} />
-              <Route path="/financeiro-hub" element={<FinanceiroHub />} />
+              <Route path="/financeiro-hub" element={<FinanceiroHub usuario={usuario} />} />
         <Route path="/central-pagamentos" element={<CentralPagamentos />} />
               <Route path="/meu-perfil" element={<MeuPerfil />} />
             <Route
