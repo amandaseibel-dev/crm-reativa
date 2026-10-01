@@ -1,11 +1,21 @@
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
+// IMPLEMENTACAO UNICA, compartilhada com Borderos.jsx. Hash diferente para o
+// mesmo arquivo quebraria a idempotencia entre os dois fluxos em silencio --
+// por isso nao ha copia local. Coberto por src/utils/hashArquivo.test.js.
+import { hashArquivo } from "../utils/hashArquivo";
 
 // Importacao do "Relatorio de Titulos em Aberto" (somente acordos).
 // Le o arquivo no navegador, mostra previa e grava via RPC importar_acordos,
 // que cria alunos faltantes (match por CPF), insere titulos vinculados e
 // popula a fila de confirmacao de acordos para a operacao acompanhar.
+//
+// J3/I1: alem do fluxo financeiro (inalterado), registra a PRESENCA de TODAS as
+// linhas do arquivo -- inclusive as mensalidades, que antes eram descartadas no
+// `continue` abaixo. A presenca e o unico registro de que o titulo ESTAVA no
+// relatorio naquela extracao. Nao e usada para nenhuma inferencia: ausencia
+// entre extracoes NAO prova incorporacao a acordo (ver docs/J3-*).
 
 function soDigitos(v) { return String(v == null ? "" : v).replace(/\D/g, ""); }
 
@@ -49,6 +59,15 @@ export default function ImportacaoAcordos() {
   const [resultado, setResultado] = useState(null);
   const [nomeArquivo, setNomeArquivo] = useState("");
   const [historico, setHistorico] = useState(null);
+  // J3/I1 — declaracao de escopo. OBRIGATORIA: sem ela nao da para comparar
+  // duas extracoes. "" forca a escolha explicita (nao tem default silencioso).
+  const [completude, setCompletude] = useState("");
+  const [confirmouTotal, setConfirmouTotal] = useState(false);
+  const [snapshotAt, setSnapshotAt] = useState("");
+  // presenca do arquivo BRUTO + metadados do arquivo
+  const [presenca, setPresenca] = useState(null);
+  const [arquivoHash, setArquivoHash] = useState("");
+  const [linhasArquivo, setLinhasArquivo] = useState(0);
 
   async function carregarHistorico() {
     const { data, error } = await supabase.rpc("listar_importacoes_acordos");
@@ -59,21 +78,41 @@ export default function ImportacaoAcordos() {
 
   function analisar(e) {
     setErro(""); setResultado(null); setResumo(null); setLinhas(null);
+    setPresenca(null); setArquivoHash(""); setLinhasArquivo(0);
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     setNomeArquivo(file.name);
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       try {
+        setArquivoHash(await hashArquivo(ev.target.result));
         const wb = XLSX.read(new Uint8Array(ev.target.result), { type: "array", cellDates: true });
         const sh = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sh, { defval: "" });
+        setLinhasArquivo(rows.length);   // TOTAL de linhas, nao o subconjunto
         const out = [];
+        const todas = [];                // J3/I1: presenca, ANTES de filtrar
         for (const r of rows) {
           const tipo = String(r["Tipo de Boleto"] || "").trim();
           const doc = soDigitos(r["Documento"]);
-          if (tipo.toLowerCase() !== "acordo") continue;   // so acordos
           if (!/^\d{6,}$/.test(doc)) continue;               // ignora linha de total
+          // ===== CONTRATO (nao mover) =====================================
+          // A captura de presenca deve permanecer ANTES de qualquer filtro
+          // operacional do importador. Mover esta linha para depois do
+          // `continue` abaixo faz as mensalidades sumirem do registro, e a
+          // ausencia delas vira artefato do CRM -- nao do relatorio da ULBRA.
+          // ================================================================
+          // PRESENCA: toda linha com documento valido entra, qualquer tipo.
+          todas.push({
+            documento: doc,
+            cpf: soDigitos(r["CPF Aluno"]),
+            tipo_boleto: tipo,
+            situacao: String(r["Situação do Aluno"] || "").trim(),
+            valor: parseValor(r["A Receber Bruto"]),
+            venc: parseData(r["Vcto"]),
+          });
+          // FLUXO FINANCEIRO: daqui para baixo, identico ao de hoje.
+          if (tipo.toLowerCase() !== "acordo") continue;   // so acordos
           out.push({
             documento: doc,
             cpf: soDigitos(r["CPF Aluno"]),
@@ -84,6 +123,7 @@ export default function ImportacaoAcordos() {
             situacao: String(r["Situação do Aluno"] || "").trim(),
           });
         }
+        setPresenca(todas);
         if (out.length === 0) { setErro("Nenhuma parcela de Acordo encontrada no arquivo. Confira se e o Relatorio de Titulos em Aberto."); return; }
         const cpfs = new Set(), bases = new Set();
         let total = 0;
@@ -103,6 +143,16 @@ export default function ImportacaoAcordos() {
 
   async function importar() {
     if (!linhas) return;
+    // Trava: escopo tem de ser declarado ANTES de gravar. Nao ha default.
+    if (completude !== "TOTAL" && completude !== "PARCIAL") {
+      setErro("Declare se este arquivo e a extracao TOTAL do portador 195 ou um recorte PARCIAL.");
+      return;
+    }
+    // TOTAL exige a confirmacao explicita do que TOTAL significa.
+    if (completude === "TOTAL" && !confirmouTotal) {
+      setErro("Confirme que a extracao foi feita sem filtro adicional, ou marque PARCIAL.");
+      return;
+    }
     setImportando(true); setErro(""); setResultado(null);
     const importacaoId = crypto.randomUUID();
     const BATCH = 1200;
@@ -125,6 +175,36 @@ export default function ImportacaoAcordos() {
       }
       setResultado({ ...acc, importacaoId });
       setProgresso("");
+
+      // ---------------------------------------------------------------------
+      // J3/I1 — PRESENCA. Depois do fluxo financeiro, em chamada separada e
+      // transacao propria. Se falhar, a importacao financeira acima JA esta
+      // concluida e intacta: a presenca e registro paralelo de auditoria, nunca
+      // uma etapa da importacao. Por isso o try/catch que so avisa.
+      // ---------------------------------------------------------------------
+      try {
+        const { data: pres, error: errPres } = await supabase.rpc("registrar_presenca_extracao", {
+          p_importacao_id: importacaoId,
+          p_source_type: "RELATORIO_TITULOS_ABERTO",
+          // escopo institucional. Hoje o unico recorte conhecido do relatorio e
+          // o portador 195 (carteira Reativa). Se a ULBRA passar a entregar
+          // outro recorte, ele entra aqui -- e so entao duas extracoes deixam
+          // de ser comparaveis entre si.
+          p_scope_key: "PORTADOR=195|BORDERO=TODOS|TIPO=TODOS",
+          p_completude: completude,
+          p_snapshot_at: snapshotAt ? new Date(snapshotAt).toISOString() : new Date().toISOString(),
+          p_arquivo_nome: nomeArquivo || null,
+          p_arquivo_hash: arquivoHash,
+          p_linhas_arquivo: linhasArquivo,
+          p_linhas: presenca || [],
+        });
+        if (errPres) setProgresso("Importado. A presenca nao foi registrada: " + errPres.message);
+        else if (pres) setProgresso(
+          pres.reaproveitado
+            ? "Importado. Este arquivo ja havia sido registrado (mesmo hash) -- presenca nao duplicada."
+            : "Importado. Presenca registrada: " + pres.linhas_gravadas + " linhas, estado " + pres.estado + ".");
+      } catch (e2) { setProgresso("Importado. Falha ao registrar presenca: " + (e2.message || e2)); }
+
       try {
         await supabase.rpc("registrar_importacao_acordo", {
           p_importacao_id: importacaoId,
@@ -155,6 +235,62 @@ export default function ImportacaoAcordos() {
         {nomeArquivo && <span style={S.arq}>{nomeArquivo}</span>}
       </div>
 
+      {/* J3/I1 — DECLARACAO OPERACIONAL DE ESCOPO.
+          O sistema NAO tenta deduzir se o arquivo e TOTAL pelo nome nem pela
+          quantidade de linhas: quem sabe o filtro aplicado na tela da ULBRA e
+          quem extraiu. A contagem aparece so como apoio a conferencia -- nunca
+          como critério automatico. */}
+      {resumo && !resultado && (
+        <div style={S.card}>
+          <h2 style={S.h2}>Escopo desta extracao</h2>
+          <p style={S.obs}>
+            O arquivo tem <strong>{linhasArquivo.toLocaleString("pt-BR")}</strong> linhas.
+            Esta contagem e so para a sua conferencia: o sistema nao decide o
+            escopo por ela.
+          </p>
+
+          <label style={S.rot}>
+            <input type="radio" name="compl" value="TOTAL"
+              checked={completude === "TOTAL"} onChange={() => { setCompletude("TOTAL"); setConfirmouTotal(false); }} />
+            {" "}<strong>TOTAL</strong> — extracao completa do portador 195
+          </label>
+          <label style={{ ...S.rot, marginLeft: 16 }}>
+            <input type="radio" name="compl" value="PARCIAL"
+              checked={completude === "PARCIAL"} onChange={() => { setCompletude("PARCIAL"); setConfirmouTotal(false); }} />
+            {" "}<strong>PARCIAL</strong> — qualquer recorte
+          </label>
+
+          {completude === "TOTAL" && (
+            <div style={{ ...S.card, marginTop: 12, borderColor: "var(--rv-ambar-texto)" }}>
+              <strong>Confirme o que TOTAL significa</strong>
+              <p style={S.obs}>
+                Este arquivo contem <strong>todos os titulos do portador 195</strong>,
+                sem nenhum filtro adicional de bordero, tipo de boleto, situacao,
+                aluno, unidade, vencimento ou qualquer outro recorte.
+              </p>
+              <label style={S.rot}>
+                <input type="checkbox" checked={confirmouTotal}
+                  onChange={(ev) => setConfirmouTotal(ev.target.checked)} />
+                {" "}Confirmo que extrai sem filtro adicional.
+              </label>
+              <p style={S.obs}>
+                Se nao puder afirmar isso, volte e marque <strong>PARCIAL</strong>.
+                Um PARCIAL nunca e usado para comparar ausencia — declarar errado
+                como TOTAL e que estraga a serie.
+              </p>
+            </div>
+          )}
+
+          <div style={{ marginTop: 10 }}>
+            <label style={S.rot}>Instante da extracao na ULBRA{" "}
+              <input type="datetime-local" value={snapshotAt}
+                onChange={(ev) => setSnapshotAt(ev.target.value)} />
+            </label>
+            <div style={S.obs}>Em branco = agora. Informe quando o arquivo for de antes.</div>
+          </div>
+        </div>
+      )}
+
       {erro && <div style={S.erro}>{erro}</div>}
 
       {resumo && !resultado && (
@@ -166,7 +302,8 @@ export default function ImportacaoAcordos() {
             <div style={S.box}><div style={S.num}>{resumo.cpfs.toLocaleString("pt-BR")}</div><div style={S.rot}>CPFs (alunos)</div></div>
             <div style={S.box}><div style={S.num}>{moeda(resumo.total)}</div><div style={S.rot}>Total em aberto</div></div>
           </div>
-          <button style={S.btn} disabled={importando} onClick={importar}>
+          <button style={S.btn} onClick={importar}
+            disabled={importando || !completude || (completude === "TOTAL" && !confirmouTotal)}>
             {importando ? (progresso || "Importando...") : "Confirmar e importar"}
           </button>
           <div style={S.obs}>Titulos ja existentes (mesmo documento) sao ignorados automaticamente. A importacao e etiquetada para ser reversivel.</div>
