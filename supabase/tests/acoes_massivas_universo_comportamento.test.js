@@ -115,10 +115,16 @@ describe("cobertura: so acionamento valido; administrativo, previa e exportacao 
 
 // ---------------------------------------------------------------------------
 describe("finalizacao DESFEITA nao conta como acionamento; so o par deterministico invalida", () => {
+  // Tudo neste bloco mede acionamento DO MES, entao o registro tem de cair no
+  // mes corrente. "N dias atras" nao garante isso: no dia 1 cai no mes anterior
+  // e a assercao passa a medir a virada do calendario em vez da regra. O
+  // greatest prende no primeiro instante do mes.
   async function inserirMov(db, alunoId, tipo, diasAtras = 0) {
     return (await db.query(
       `insert into public.aluno_movimentacoes (aluno_id, tipo, registrado_em)
-       values ($1, $2, now() - ($3::numeric || ' days')::interval) returning id`, [String(alunoId), tipo, diasAtras])).rows[0].id;
+       values ($1, $2, greatest(
+         (date_trunc('month', now() at time zone 'America/Sao_Paulo') at time zone 'America/Sao_Paulo'),
+         now() - ($3::numeric || ' days')::interval)) returning id`, [String(alunoId), tipo, diasAtras])).rows[0].id;
   }
   const desfeita = (db, movId, quando = "now()") =>
     db.query(`insert into public.acoes_desfazer (tipo, movimentacao_id, desfeito_em, desfeito_por) values ('TABULACAO', $1, ${quando}, 'x')`, [movId]);
@@ -217,7 +223,11 @@ describe("RECONCILIACAO matematica: base, acionados, sem acionamento, disponivei
     S.acionados = [...S.livres2024.slice(0, 5), ...S.livres2025.slice(0, 6), ...S.livres2026.slice(0, 9),
                    ...S.outro.slice(0, 2), ...S.retorno.slice(0, 2)];
     for (const id of S.acionados) await mov(db, id, "FINALIZACAO_ATENDIMENTO", 0);
-    for (const id of S.recente) await mov(db, id, "ACAO_MASSIVA_EXTERNA", 5);
+    // dentroDoMes: estes 4 precisam contar como ACIONADOS no mes (por isso nao
+    // entram na quebra dos "sem acionamento") E estar dentro da recencia. Sem a
+    // trava, no comeco do mes os 5 dias caem no mes anterior, eles deixam de ser
+    // acionados e "acao_massiva_recente" aparece na lista de motivos.
+    for (const id of S.recente) await mov(db, id, "ACAO_MASSIVA_EXTERNA", 5, { dentroDoMes: true });
     // alunos em 2 anos (total por aluno unico nao pode somar as linhas)
     await tituloExtra(db, [...S.livres2026.slice(0, 8), ...S.livres2025.slice(6, 10)], 2024);
     await tituloExtra(db, S.livres2026.slice(10, 14), 2025);
@@ -471,7 +481,11 @@ describe("filtros de acionamento", () => {
     }
     const f = async (a) => setDe(ids(await previa(db, { p_limite: 100, p_acionamento: a })));
     expect(await f("TODOS")).toEqual(setDe([hoje, mesNaoHoje, antigo, nunca]));
-    expect(await f("NUNCA")).toEqual(setDe([mesNaoHoje, nunca].filter((x) => x === nunca || !temDiaAnterior ? x === nunca : false)));
+    // No dia 1 nao existe "dia anterior DENTRO do mes", entao `mesNaoHoje` fica
+    // sem movimentacao nenhuma -- e ai ele e, legitimamente, NUNCA acionado.
+    // (A expressao anterior tentava dizer isso, mas o `||` amarrava antes do
+    // ternario e o resultado era sempre so `nunca`.)
+    expect(await f("NUNCA")).toEqual(setDe(temDiaAnterior ? [nunca] : [mesNaoHoje, nunca]));
     expect(await f("HOJE")).toEqual(setDe([hoje]));
     expect(await f("NAO_HOJE")).toEqual(setDe([mesNaoHoje, antigo, nunca]));
     expect(await f("JA")).toEqual(setDe(temDiaAnterior ? [hoje, mesNaoHoje, antigo] : [hoje, antigo]));
