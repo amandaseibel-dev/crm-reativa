@@ -339,6 +339,26 @@ export async function acordoVencido(db, alunoId, donoAcordo) {
 }
 
 /** Movimentacao "de verdade" (sem passar por lote): tipo, dias atras. */
+// "N dias atras, mas NUNCA antes do inicio do mes corrente" (America/Sao_Paulo).
+//
+// Existe porque varios cenarios precisam da movimentacao DENTRO do mes -- e
+// `acionado_mes` e exatamente isso. "N dias atras" cruza a virada de mes: no
+// dia 1, 1 dia atras ja e o mes passado, e o cenario deixa de representar o que
+// queria provar. O clamp ancora o instante no mes corrente sem depender de que
+// dia e hoje.
+//
+// `mov` acima NAO muda: ela e usada tambem por
+// acoes_massivas_registro_fidelizacao_comportamento.test.js, onde "N dias
+// atras" e literal de proposito.
+export async function movNoMes(db, alunoId, tipo, diasAtras = 0, extra = {}) {
+  await db.query(
+    `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em)
+     values ($1, $2, 'x', 'x', $3,
+       greatest(now() - ($4::numeric || ' days')::interval,
+                (date_trunc('month', now() at time zone 'America/Sao_Paulo') at time zone 'America/Sao_Paulo')))`,
+    [String(alunoId), tipo, extra.por ?? OP_A, diasAtras]);
+}
+
 export async function mov(db, alunoId, tipo, diasAtras = 0, extra = {}) {
   await db.query(
     `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em)
