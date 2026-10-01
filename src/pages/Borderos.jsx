@@ -2,6 +2,7 @@ import { useState } from "react";
 import { naoReabreNoBordero } from "../utils/bordero";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
+import { hashArquivo } from "../utils/hashArquivo";   // MESMA implementacao
 import Dobra from "../ui/blocos";
 
 function limparCpf(valor) {
@@ -292,6 +293,53 @@ export default function Borderos() {
       let ignorados = 0;
       const nomesNaoEncontrados = [];
       const nomesCriados = [];
+
+      // ---------------------------------------------------------------------
+      // ===== CONTRATO (nao mover) ==========================================
+      // A captura de presenca deve permanecer ANTES de qualquer filtro
+      // operacional do importador -- aqui, especificamente, antes de
+      // `naoReabreNoBordero`. Nao ha teste automatizado que proteja esta
+      // ordem: a garantia e a posicao no codigo. Mover e silencioso.
+      // =====================================================================
+      // J3/I1 — PRESENCA DO ARQUIVO BRUTO.
+      // Capturada AQUI, antes do laco abaixo, de proposito: o laco pula linhas
+      // via `naoReabreNoBordero(linha.situacaoAtual)` (PAGO, EM_CONFIRMACAO,
+      // CANCELADA) e tambem quando o aluno nao resolve. Se a presenca fosse
+      // registrada depois, esses titulos "desapareceriam" do registro e a
+      // ausencia viraria artefato do proprio importador -- nao do relatorio.
+      // A tabela tem de representar O ARQUIVO RECEBIDO, nao o subconjunto
+      // que o CRM decidiu processar.
+      try {
+        await supabase.rpc("registrar_presenca_extracao", {
+          p_importacao_id: importacao.id,
+          p_source_type: "BORDERO",
+          // o bordero E o escopo: comparar bordero 545 com 617 nao faz sentido,
+          // sao populacoes diferentes por construcao.
+          p_scope_key: "BORDERO=" + String(preview.numeroBordero || "DESCONHECIDO"),
+          // CONTRATO DO BORDERO (aprovado em 01/10):
+          //   · serve para AUDITORIA DE PRESENCA;
+          //   · normalmente NAO tera snapshot comparavel seguinte (cada bordero
+          //     e importado ~1 vez: 93 referencias em 97 importacoes);
+          //   · portanto NAO gera inferencia de ausencia;
+          //   · NAO participa da sequencia TOTAL do portador 195;
+          //   · NAO e comparado com BORDERO=TODOS -- scope_key diferente, e o
+          //     CHECK ck_extracao_scope_key_coerente garante a separacao.
+          // TOTAL aqui significa "o lote inteiro DESTA remessa", nao a carteira.
+          p_completude: "TOTAL",
+          p_snapshot_at: new Date().toISOString(),
+          p_arquivo_nome: arquivo?.name || null,
+          p_arquivo_hash: await hashArquivo(await arquivo.arrayBuffer()),
+          p_linhas_arquivo: preview.linhas.length,
+          p_linhas: preview.linhas.map((l) => ({
+            documento: l.numTitulo,
+            cpf: l.cpfLimpo,
+            tipo_boleto: l.curso,
+            situacao: l.situacaoAtual || "ABERTO",
+            valor: l.valor,
+            venc: l.vencimento,
+          })),
+        });
+      } catch { /* presenca e auditoria paralela; nao derruba a importacao */ }
 
       // 1) Cria em lote (uma chamada só) os alunos que não bateram nem por
       // CPF nem por nome, em vez de um insert por linha.
