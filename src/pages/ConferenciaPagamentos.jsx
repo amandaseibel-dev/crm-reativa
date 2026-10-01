@@ -25,11 +25,12 @@
 //
 // Estado ao ligar: 2.679 linhas (1.365 com aluno + 1.314 so com nome),
 // 5.572 pagamentos, R$ 9.026.477,20 que entraram, R$ 6.323.939,30 em aberto.
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
 import { S } from "../ui/estilosFila";
 import { listarMeses } from "../utils/mesesConferencia";
 import Aluno from "./Aluno";
+import ResolverEmConfirmacao from "../components/ResolverEmConfirmacao";
 
 const moeda = (v) => Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 const curta = (d) => (d ? String(d).slice(0, 10).split("-").reverse().join("/") : "-");
@@ -48,8 +49,14 @@ const TIPOS = [
   { chave: null,          rotulo: "A fazer",        dica: "Esconde quem nao tem mensalidade, esta com as parcelas em dia e ja tem operador — nao ha o que decidir." },
   { chave: "MENSALIDADE", rotulo: "Com mensalidade", dica: "So quem tem mensalidade em aberto: e onde o vinculo mensalidade x acordo precisa ser feito." },
   { chave: "ACORDO",      rotulo: "Só acordo",       dica: "So quem nao tem mensalidade em aberto — o dinheiro so precisa ser registrado." },
+  // A pendencia represada da Conferencia Prime. Fica FORA do corte de periodo
+  // de proposito: 316 dos 388 alunos nao tem pagamento recente -- eles nunca
+  // entrariam pela porta do extrato, e e justamente onde o trabalho estava
+  // parado (0 decisoes desde 19/09 com 668 titulos esperando).
+  { chave: "EM_CONFIRMACAO", rotulo: "Em confirmação", dica: "Mensalidade que a Conferência Prime tirou da cobrança e ainda espera decisão. Traz o acumulado inteiro, sem filtro de mês." },
   { chave: "TUDO",        rotulo: "Tudo",            dica: "Inclui tambem quem ja esta resolvido, para conferir o conjunto." },
 ];
+
 
 const FAIXAS = [
   { min: 0, rotulo: "Qualquer valor" },
@@ -84,6 +91,9 @@ export default function ConferenciaPagamentos() {
   const [desfazer, setDesfazer] = useState(null);
   const [placar, setPlacar] = useState({ n: 0, valor: 0 });
   const [fichaId, setFichaId] = useState(null);
+  // So qual linha esta aberta. Carregar, decidir e recarregar sao do
+  // componente ResolverEmConfirmacao -- o mesmo que a ficha do aluno usa.
+  const [emConfAberto, setEmConfAberto] = useState(null);
   const buscaRef = useRef(null);
 
   const carregar = useCallback(async () => {
@@ -334,6 +344,19 @@ export default function ConferenciaPagamentos() {
     return () => window.removeEventListener("keydown", onKey);
   }, [visiveis, alvo, fichaId, desfazer, desfazerAgora]);
 
+  // Abrir/fechar o caso na linha; a decisao em si e do componente.
+  const abrirEmConf = useCallback((l) => {
+    const chave = chaveDe(l);
+    setEmConfAberto((atual) => (atual === chave ? null : chave));
+  }, []);
+
+  // Quando o componente resolve, a linha acompanha sem F5.
+  const aoResolverEmConf = useCallback((alunoId, restantes) => {
+    const v = restantes.reduce((soma, x) => soma + Number(x.valor || 0), 0);
+    setLinhas((ls) => ls.map((x) => (x.aluno_id === alunoId
+      ? { ...x, qtd_em_confirmacao: restantes.length, em_confirmacao: v } : x)));
+  }, []);
+
   const rotuloFaixa = FAIXAS.find((f) => f.min === faixa)?.rotulo || "Tudo";
 
   return (
@@ -455,8 +478,10 @@ export default function ConferenciaPagamentos() {
               const conf = confirmando?.chave === chave ? confirmando.acao : null;
               const vinc = vinculando?.chave === chave ? vinculando : null;
               const semDono = l.tipo === "SEM_VINCULO";
+              const abertoEmConf = emConfAberto === chave && !semDono;
               return (
-                <tr key={chave} onMouseEnter={() => setCursor(i)}
+                <Fragment key={chave}>
+                <tr onMouseEnter={() => setCursor(i)}
                     style={destacada ? { background: "var(--rv-azul-fundo)", outline: "2px solid var(--rv-azul-borda)" } : undefined}>
                   <td style={S.td}>
                     {semDono ? (
@@ -482,6 +507,15 @@ export default function ConferenciaPagamentos() {
                         <span style={seloDepoisDeQuitar} title={`Quitado em ${curta(l.quitado_em)} e o pagamento entrou depois. Pode ser duplicidade, estorno a fazer ou dívida nova.`}>
                           pagou depois de quitar
                         </span>
+                      ) : null}
+                      {/* A pendencia que estava invisivel: o titulo em confirmacao zera o
+                          saldo do aluno, e saldo zerado excluia a linha inteira da fila.
+                          Agora ela aparece aqui e abre no lugar. */}
+                      {!semDono && Number(l.em_confirmacao) > 0.005 ? (
+                        <button type="button" style={seloEmConf} onClick={() => abrirEmConf(l)}
+                          title="Mensalidade que a Conferência Prime tirou da cobrança e ainda espera decisão. Clique para resolver aqui mesmo.">
+                          {abertoEmConf ? "▾" : "▸"} {l.qtd_em_confirmacao} em confirmação · {moeda(l.em_confirmacao)}
+                        </button>
                       ) : null}
                       {" · "}{l.qtd_pagamentos} pagamento{l.qtd_pagamentos === 1 ? "" : "s"}
                       {" · "}{l.primeiro_pagamento === l.ultimo_pagamento
@@ -616,6 +650,17 @@ export default function ConferenciaPagamentos() {
                     )}
                   </td>
                 </tr>
+                {abertoEmConf ? (
+                  <tr>
+                    <td colSpan={8} style={celulaEmConf}>
+                      <ResolverEmConfirmacao
+                        alunoId={l.aluno_id}
+                        onResolvido={(restantes) => aoResolverEmConf(l.aluno_id, restantes)}
+                      />
+                    </td>
+                  </tr>
+                ) : null}
+                </Fragment>
               );
             })}
           </tbody>
@@ -702,6 +747,17 @@ const seloDepoisDeQuitar = {
 const seloSemAcordo = {
   fontSize: 10.5, fontWeight: 800, color: "var(--rv-roxo-texto)", background: "var(--rv-roxo-fundo)",
   border: "1px solid var(--rv-roxo-borda)", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
+};
+// A pendencia da Conferencia Prime na linha. Roxo de proposito: nao e dinheiro
+// que entrou (verde) nem atraso (vermelho) -- e decisao parada.
+const seloEmConf = {
+  fontSize: 10.5, fontWeight: 800, color: "var(--rv-roxo-texto)", background: "var(--rv-roxo-fundo)",
+  border: "1px solid var(--rv-roxo-borda)", borderRadius: 999, padding: "1px 8px", marginLeft: 6,
+  cursor: "pointer",
+};
+const celulaEmConf = {
+  padding: "8px 14px 10px", background: "var(--rv-fundo-suave)",
+  borderTop: "1px solid var(--rv-borda-forte)",
 };
 const btnVincular = {
   background: "#9a3412", color: "#fff", border: "none", borderRadius: 8,

@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { supabase } from "../services/supabase";
+import ResolverEmConfirmacao from "./ResolverEmConfirmacao";
+import { pedirMotivo } from "../utils/emConfirmacao";
+import { ESTADO, estadoDoTitulo, rotuloDoTitulo, contaComoAberta } from "../utils/estadoTitulo";
 import { origemDoAcordo } from "../utils/origemDoAcordo";
 import { podeGerirFinanceiro, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from "../utils/operadores";
 // A regra de lancar acordo mora em um lugar so -- a ficha e a tela de
@@ -251,6 +254,14 @@ export default function FinanceiroAluno({ aluno }) {
   const [formMensalidadeAberto, setFormMensalidadeAberto] = useState(false);
   const [novaMensalidade, setNovaMensalidade] = useState(mensalidadeManualInicial());
   const [salvandoMensalidade, setSalvandoMensalidade] = useState(false);
+  // Mesma trava do lancamento de mensalidade, agora na BAIXA: o botao ficava
+  // sem `disabled` e o formulario fechava ANTES da resposta, entao a operadora
+  // nao via sinal nenhum durante os segundos da RPC e clicava de novo. Foram
+  // 11 parcelas com duas baixas vivas (R$ 17.069,30 em dobro), com 3 a 8
+  // segundos entre uma e outra. O banco tambem trava (20260922290000); isto
+  // aqui e para o erro nao chegar a acontecer.
+  const [baixandoParcela, setBaixandoParcela] = useState(null);
+  const baixandoParcelaRef = useRef(false);
   const [erroMensalidade, setErroMensalidade] = useState("");
   // Trava de execução única: garante que um duplo-clique (ou clique enquanto
   // o insert ainda está em voo) não crie dois títulos. O disabled do botão
@@ -332,11 +343,21 @@ export default function FinanceiroAluno({ aluno }) {
         setParcelasPorAcordo({});
       }
 
+      // MENSALIDADE NAO VINCULADA E MENSALIDADE DISPONIVEL.
+      //
+      // Amanda, 24/09/2026: "as parcelas, se nao foram vinculadas, elas
+      // precisam ficar disponiveis para que eu valide e faca o vinculo".
+      //
+      // `em_confirmacao` entra aqui junto com `em_aberto` porque a mensalidade
+      // que a Conferencia Prime marcou NAO esta vinculada a acordo nenhum --
+      // `acordo_id` e nulo e nao ha linha em `acordo_titulo_vinculo`. Some-la
+      // da lista era esconder da gestao a decisao que e dela; o backend
+      // (`vincular_titulos_acordo_gestao`) aceita as duas.
       const { data: titulosData } = await supabase
         .from("acordos_titulos")
-        .select("id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, status")
+        .select("id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, status, situacao")
         .eq("aluno_id", String(aluno.id))
-        .eq("status", "em_aberto")
+        .in("status", ["em_aberto", "em_confirmacao"])
         .order("vencimento", { ascending: true });
       setTitulosSelecionaveis(titulosData || []);
     }
@@ -475,8 +496,8 @@ export default function FinanceiroAluno({ aluno }) {
     // Baixa/confirmação/estorno de pagamento: SOMENTE gestão financeira
     // (Amanda, Fernanda/supervisão, Amanda ADM). O operador envia o comprovante
     // para a Fila de Confirmação; não efetiva baixa direta em baixas_pagamento.
-    if (!podeBaixar) { alert("Baixa de pagamento é exclusiva da gestão financeira. Envie o comprovante para a Fila de Confirmação."); return; }
-    if (!acordoPermiteAcaoFinanceira(acordo)) { alert("Este acordo está " + (String(acordo.status).toUpperCase() === "CANCELADO" ? "cancelado" : "quitado") + " — não é possível registrar baixa."); return; }
+    if (!podeBaixar) { alert("Baixa de pagamento é exclusiva da gestão financeira. Envie o comprovante para a Fila de Confirmação."); return false; }
+    if (!acordoPermiteAcaoFinanceira(acordo)) { alert("Este acordo está " + (String(acordo.status).toUpperCase() === "CANCELADO" ? "cancelado" : "quitado") + " — não é possível registrar baixa."); return false; }
     // A baixa é feita no banco, em uma transação só (parcela PAGO + registro
     // em baixas_pagamento), pela RPC baixar_parcela_acordo. Antes era um PATCH
     // solto em `parcelas`: quando a parcela era a última do acordo, os
@@ -487,26 +508,41 @@ export default function FinanceiroAluno({ aluno }) {
     // pago_em usa a data real informada no formulário (não a data em que a
     // baixa foi processada no sistema) -- isso importa pra lançamentos
     // retroativos não entrarem na visão "deste mês" do operador.
-    const { error: erroBaixa } = await supabase.rpc("baixar_parcela_acordo", {
-      p_parcela_id: parcela.id,
-      p_data: dados.data || null,
-      p_valor: dados.valor,
-      p_honorarios: dados.honorarios,
-    });
+    // Trava de execucao unica: o `disabled` do botao cobre o caso normal; o ref
+    // cobre a corrida antes do setState propagar. Retorna false quando nao
+    // executou, para a tela saber que NAO deve fechar o formulario.
+    if (baixandoParcelaRef.current) return false;
+    baixandoParcelaRef.current = true;
+    setBaixandoParcela(parcela.id);
 
-    if (erroBaixa) {
-      alert("Erro ao dar baixa na parcela: " + erroBaixa.message);
-      return;
+    try {
+      const { error: erroBaixa } = await supabase.rpc("baixar_parcela_acordo", {
+        p_parcela_id: parcela.id,
+        p_data: dados.data || null,
+        p_valor: dados.valor,
+        p_honorarios: dados.honorarios,
+      });
+
+      if (erroBaixa) {
+        alert("Erro ao dar baixa na parcela: " + erroBaixa.message);
+        return false;
+      }
+
+      const res = await checarQuitacao(acordo.id);
+      setRecarga((r) => r + 1);
+      alert(
+        res && res.quitou_aluno === false
+          ? "Baixa registrada. O aluno continua na carteira: ainda ha saldo em aberto de " +
+            moeda(Number(res.detalhe?.total || 0)) + "."
+          : "Baixa registrada."
+      );
+      return true;
+    } finally {
+      // Sempre libera, inclusive no erro: senao a parcela ficaria travada ate
+      // recarregar a pagina.
+      baixandoParcelaRef.current = false;
+      setBaixandoParcela(null);
     }
-
-    const res = await checarQuitacao(acordo.id);
-    setRecarga((r) => r + 1);
-    alert(
-      res && res.quitou_aluno === false
-        ? "Baixa registrada. O aluno continua na carteira: ainda ha saldo em aberto de " +
-          moeda(Number(res.detalhe?.total || 0)) + "."
-        : "Baixa registrada."
-    );
   }
 
   async function quitarCartao(acordo, parcelasAbertas, dados) {
@@ -752,16 +788,20 @@ export default function FinanceiroAluno({ aluno }) {
     }
 
     const confirmado = window.confirm(
-      `Cancelar esse acordo de ${moeda(acordo.valor_total)} em ${acordo.qtd_parcelas}x? Os títulos vinculados a ele voltam a ficar em aberto, pra poderem entrar num acordo novo.`
+      `Cancelar esse acordo de ${moeda(acordo.valor_total)} em ${acordo.qtd_parcelas}x? Como ele não tem pagamento, as mensalidades vinculadas voltam para em aberto e ficam disponíveis para uma nova negociação. Exceção: mensalidade que veio de um acordo anterior que já recebeu pagamento continua negociada, e a renegociação segue pelo saldo residual.`
     );
     if (!confirmado) return;
 
-    // Tudo no banco, em uma transação (RPC cancelar_acordo_ficha): títulos
-    // voltam a "em_aberto", vínculos saem, parcelas viram CANCELADA, o acordo
-    // vira CANCELADO (acordos e parcelas não têm DELETE -- cancela em vez de
-    // apagar, o que também preserva o histórico) e o caso é liberado da
-    // carteira ativa. As duas travas de cima (parcela paga / baixa viva) são
-    // conferidas de novo no banco, no momento da gravação.
+    // Tudo no banco, em uma transação (RPC cancelar_acordo_ficha): as
+    // mensalidades voltam para ABERTO (acordo cancelado sem pagamento não
+    // negociou nada -- regra de 25/09/2026, versão 20260925123852); só
+    // continuam NEGOCIADAS se outro acordo da cadeia delas recebeu dinheiro,
+    // e aí vale o saldo residual (re-acordo, 22/09/2026). Os vínculos só
+    // ficam inativos (nunca apagados, preserva o histórico), parcelas viram
+    // CANCELADA, o acordo vira CANCELADO (acordos e parcelas não têm DELETE --
+    // cancela em vez de apagar) e o caso é liberado da carteira ativa. As
+    // duas travas de cima (parcela paga / baixa viva) são conferidas de novo
+    // no banco, no momento da gravação.
     const { error: erroCancelar } = await supabase.rpc("cancelar_acordo_ficha", {
       p_acordo_id: acordo.id,
     });
@@ -837,6 +877,21 @@ export default function FinanceiroAluno({ aluno }) {
     });
   }
 
+  // TIRAR DE DUPLICADA. `titulo_desfazer_duplicada` existe no banco desde a
+  // marcacao de duplicidade e nunca teve botao em tela nenhuma -- o titulo
+  // entrava em "Fora da conta" e nao havia, em lugar algum do sistema, como
+  // tirar. Ela exige gestao, so age em titulo DUPLICADA, escreve o motivo no
+  // historico do titulo e registra a movimentacao.
+  async function desfazerDuplicada(titulo) {
+    const motivo = pedirMotivo(
+      `Tirar o boleto ${titulo.documento} de duplicada?\n\nEle volta a contar como dívida e pode entrar em acordo.\n\nPor que ele não é duplicado?`);
+    if (!motivo) return;
+    const { error } = await supabase.rpc("titulo_desfazer_duplicada",
+      { p_titulo_id: titulo.id, p_motivo: motivo });
+    if (error) { alert("Não foi possível tirar de duplicada: " + error.message); return; }
+    setRecarga((r) => r + 1);
+  }
+
   function gerarParcelasNovo() {
     const r = gerarParcelasAcordo(novo);
     if (r.erro) { alert(r.erro); return; }
@@ -858,7 +913,11 @@ export default function FinanceiroAluno({ aluno }) {
     // RPC unica: marca a mensalidade como NEGOCIADO (sai do "a cobrar"), liga ao
     // acordo e registra auditoria. Funciona mesmo com o acordo JA PAGO/QUITADO
     // (vincular mensalidades a parcelas ja pagas). Nao altera pagamento.
-    const { data, error } = await supabase.rpc("vincular_titulos_acordo", {
+    // `_gestao`: mesma funcao, com a porta da Conferencia Prime aberta na
+    // propria transacao para que a mensalidade em confirmacao -- que nao esta
+    // vinculada a acordo nenhum -- tambem possa ser vinculada, fechando a
+    // decisao pendente junto. A regra de elegibilidade nao mudou de lugar.
+    const { data, error } = await supabase.rpc("vincular_titulos_acordo_gestao", {
       p_titulo_ids: novo.titulosSel,
       p_acordo_id: acordoAlvoId,
     });
@@ -924,7 +983,7 @@ export default function FinanceiroAluno({ aluno }) {
     // problema.
     let avisoVinculo = "";
     if (novo.titulosSel.length && r.acordo?.id) {
-      const { data: vinc, error: erroVinc } = await supabase.rpc("vincular_titulos_acordo", {
+      const { data: vinc, error: erroVinc } = await supabase.rpc("vincular_titulos_acordo_gestao", {
         p_titulo_ids: novo.titulosSel,
         p_acordo_id: r.acordo.id,
       });
@@ -1130,15 +1189,13 @@ export default function FinanceiroAluno({ aluno }) {
   // sinal do vinculo.
   // Titulo EM_CONFIRMACAO (Conferencia Prime) tambem fica fora: saiu da
   // cobranca enquanto a gestao decide se a liquidacao da Prime vale.
-  const emAberto = titulos.filter(
-    (t) =>
-      t.situacao !== "PAGO" &&
-      t.situacao !== "NEGOCIADO" &&
-      t.situacao !== "EM_CONFIRMACAO" &&
-      t.status !== "vinculada" &&
-      t.status !== "quitada" &&
-      !t.acordo_id
-  );
+  // UMA REGRA SO, em src/utils/estadoTitulo.js, espelhando a fonte canonica
+  // (`aluno_saldo_pendente_detalhe` conta como divida apenas ABERTO e
+  // NEGOCIADO). Esta lista somava CANCELADA (349 titulos) e DUPLICADA (135) --
+  // a duplicada exibindo "Fora da conta" e entrando na contagem na mesma linha.
+  // O VALOR exibido ao lado sempre veio do RPC; o que estava errado aqui era a
+  // CONTAGEM (183 alunos) e o aviso "somente parcelas de acordo".
+  const emAberto = titulos.filter(contaComoAberta);
   // Valor operacional: o ajuste cobravel quando existir, senao a regra de
   // sempre. O total do bordero continua no `valor_original` de cada titulo.
   const valorMensalidades = emAberto.reduce(
@@ -1359,6 +1416,21 @@ export default function FinanceiroAluno({ aluno }) {
                         />
                         <span style={{ flex: 1 }}>
                           Título {t.documento || "-"} — venc. {formatarDataSimples(t.vencimento)}
+                          {/* Continua selecionável: não está vinculada a acordo
+                              nenhum. A etiqueta é só para a conferência saber
+                              que a Prime marcou este boleto como liquidado. */}
+                          {String(t.situacao || "").toUpperCase() === "EM_CONFIRMACAO" && (
+                            <span
+                              style={{
+                                marginLeft: 6, fontSize: 10, fontWeight: 800,
+                                padding: "1px 6px", borderRadius: 6,
+                                background: "var(--rv-borda)", color: "var(--rv-texto)",
+                              }}
+                              title="A Prime marcou este boleto como liquidado e a conferência ainda não decidiu. Vincular aqui resolve a pendência junto."
+                            >
+                              em confirmação
+                            </span>
+                          )}
                         </span>
                         <span style={{ fontWeight: 700 }}>{moeda(valorTitulo(t))}</span>
                       </label>
@@ -1585,17 +1657,18 @@ export default function FinanceiroAluno({ aluno }) {
 
           <div style={{ marginTop: 10 }}>
             {titulos.map((titulo) => {
-              const pago = titulo.situacao === "PAGO" || titulo.status === "quitada";
-              const duplicada = String(titulo.situacao || "").toUpperCase() === "DUPLICADA";
-              const emConfirmacao = String(titulo.situacao || "").toUpperCase() === "EM_CONFIRMACAO";
+              // Um estado so, calculado num lugar so. Antes eram cinco
+              // ternarios encadeados, e CANCELADA nao tinha ramo nenhum: caia
+              // no fim da cadeia e aparecia como "Em aberto".
+              const estado = estadoDoTitulo(titulo);
+              const pago = estado === ESTADO.PAGO;
+              const duplicada = estado === ESTADO.DUPLICADA;
+              const cancelada = estado === ESTADO.CANCELADA;
+              const emConfirmacao = estado === ESTADO.EM_CONFIRMACAO;
               // Reconhece o vinculo por qualquer um dos tres sinais: o
               // gatilho grava situacao=NEGOCIADO + status=vinculada, mas ha
               // uma janela em que so o acordo_id esta preenchido.
-              const negociada =
-                !pago &&
-                (titulo.status === "vinculada" ||
-                  titulo.situacao === "NEGOCIADO" ||
-                  !!titulo.acordo_id);
+              const negociada = estado === ESTADO.NEGOCIADO;
               const acordoDoTitulo = titulo.acordo_id
                 ? acordos.find((a) => String(a.id) === String(titulo.acordo_id))
                 : null;
@@ -1615,10 +1688,35 @@ export default function FinanceiroAluno({ aluno }) {
                       Vencimento: {formatarData(titulo.vencimento)}
                       {vencida ? <span style={estilos.marcaVencida}>• vencida</span> : null}
                     </div>
+                    {/* A SAIDA, NA PROPRIA LINHA (23/09/2026). Antes havia so
+                        um aviso dizendo que OUTRA tela ia decidir -- sem dizer
+                        qual, sem link e sem botao. Amanda: "nao conseguir
+                        movimentar os titulos do aluno preso em algo que nao sei
+                        onde corrigir e preciso andar em circulos". As acoes sao
+                        as mesmas RPCs da Conferencia Prime, com as mesmas
+                        travas: nada decide por aqui. */}
                     {emConfirmacao && (
                       <div style={estilos.subLinha}>
-                        Fora da cobrança: a Prime registra liquidação e a Conferência Prime
-                        ainda vai decidir — não somada no total
+                        <div>Fora da cobrança enquanto a liquidação da Prime não for decidida — não somada no total.</div>
+                        <ResolverEmConfirmacao
+                          alunoId={aluno?.id}
+                          tituloId={titulo.id}
+                          podeDecidir={podeBaixar}
+                          compacto
+                          onResolvido={() => setRecarga((r) => r + 1)}
+                        />
+                      </div>
+                    )}
+                    {duplicada && (
+                      <div style={estilos.subLinha}>
+                        <div>Marcada como duplicada: fora da conta e fora de qualquer acordo.</div>
+                        {podeBaixar && (
+                          <button type="button" style={{ ...estilos.botaoPequeno, padding: "4px 10px", marginTop: 4 }}
+                            onClick={() => desfazerDuplicada(titulo)}
+                            title="Volta a contar como dívida e passa a poder entrar em acordo. Pede o motivo, que fica no histórico.">
+                            Tirar de duplicada
+                          </button>
+                        )}
                       </div>
                     )}
                     {negociada && (
@@ -1649,11 +1747,9 @@ export default function FinanceiroAluno({ aluno }) {
                         {moeda(titulo.saldo_corrigido ?? titulo.valor_original)}
                       </div>
                     )}
-                    <span style={{ ...estilos.tagBase, background: duplicada || emConfirmacao ? "var(--rv-borda)" : cor.bg,
-                                   color: duplicada || emConfirmacao ? "var(--rv-texto)" : cor.texto }}>
-                      {duplicada ? "Fora da conta"
-                        : emConfirmacao ? "Em confirmação"
-                        : pago ? "Quitada" : negociada ? "Negociado" : "Em aberto"}
+                    <span style={{ ...estilos.tagBase, background: duplicada || emConfirmacao || cancelada ? "var(--rv-borda)" : cor.bg,
+                                   color: duplicada || emConfirmacao || cancelada ? "var(--rv-texto)" : cor.texto }}>
+                      {rotuloDoTitulo(titulo)}
                     </span>
 
                     {/* Ajuste de valor cobravel. Todo mundo VE o motivo e quem
@@ -1766,6 +1862,7 @@ export default function FinanceiroAluno({ aluno }) {
         parcelasPorAcordo={parcelasPorAcordo}
         titulos={titulos}
         podeBaixar={podeBaixar}
+        baixandoParcela={baixandoParcela}
         onBaixarParcela={baixarParcela}
         onQuitarCartao={quitarCartao}
         onExcluirAcordo={excluirAcordo}
@@ -2089,7 +2186,7 @@ function SeletorResponsavelAcordo({ acordo, operadoresAtivos, onAplicar }) {
   );
 }
 
-function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios, onDefinirHonorarioParcela, onReplicarHonorarioParcela }) {
+function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, baixandoParcela, onBaixarParcela, onQuitarCartao, onExcluirAcordo, onDesfazerBaixa, onAlterarResponsavel, onDefinirHonorarios, onDefinirHonorarioParcela, onReplicarHonorarioParcela }) {
   const [formParcela, setFormParcela] = useState(null);
   const [formHonParcela, setFormHonParcela] = useState(null);
   const [formCartao, setFormCartao] = useState(null);
@@ -2524,11 +2621,15 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, on
                         </div>
                         <div style={{ marginTop: 8, display: "flex", gap: 8 }}>
                           <button style={estilos.botaoConfirmar}
-                            onClick={() => {
-                              onBaixarParcela(acordo, p, { data: campos.data, valor: Number(campos.valor) || 0, honorarios: Number(campos.honorarios) || 0 });
-                              setFormParcela(null);
+                            disabled={baixandoParcela === p.id}
+                            onClick={async () => {
+                              // Fecha SO depois da resposta: fechar antes era o
+                              // que deixava a operadora sem sinal nenhum e
+                              // levava ao segundo clique.
+                              const ok = await onBaixarParcela(acordo, p, { data: campos.data, valor: Number(campos.valor) || 0, honorarios: Number(campos.honorarios) || 0 });
+                              if (ok) setFormParcela(null);
                             }}>
-                            Confirmar baixa
+                            {baixandoParcela === p.id ? "Registrando..." : "Confirmar baixa"}
                           </button>
                           <button style={estilos.botaoCancelar} onClick={() => setFormParcela(null)}>Cancelar</button>
                         </div>

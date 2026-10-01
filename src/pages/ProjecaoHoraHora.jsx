@@ -14,6 +14,7 @@ import CentralRelatorios from "../components/projecao/CentralRelatorios";
 import BoundaryLocal from "../components/projecao/BoundaryLocal";
 import ComparativoAnoAno from "../components/projecao/ComparativoAnoAno";
 import PainelAnaliseEvolucao from "../components/projecao/PainelAnaliseEvolucao";
+import NaoBaixadosRejeitados from "../components/projecao/NaoBaixadosRejeitados";
 
 function moeda(valor) {
   const n = Number(valor);
@@ -1028,6 +1029,11 @@ function ProjecaoHoraHoraInner() {
             💰 Honorários
           </button>
         )}
+        {usuario?.podeGerir && (
+          <button style={aba === "NAO_BAIXADOS" ? estilos.abaAtiva : estilos.aba} onClick={() => setAba("NAO_BAIXADOS")}>
+            🚧 Não baixados / Rejeitados
+          </button>
+        )}
       </div>
 
       {erro && <p style={{ color: "#f87171" }}>{erro}</p>}
@@ -1971,6 +1977,17 @@ function ProjecaoHoraHoraInner() {
           Fernanda -- a propria RPC recusa os demais. */}
       {aba === "HONORARIOS" && usuario?.podeGerir && (
         <AjusteHonorarios />
+      )}
+
+      {/* O dinheiro da Projecao nao depende de baixa -- a projecao le
+          `pagamentos` direto. Mas a gestao precisava sair da tela para
+          descobrir o que aconteceu com o pagamento DEPOIS que ele entrou.
+          Esta aba traz essa resposta para ca: consulta e exportacao, somente
+          leitura. FEITO e REJEITAR continuam em "Pagamentos sem vinculo". */}
+      {aba === "NAO_BAIXADOS" && usuario?.podeGerir && (
+        <BoundaryLocal label="Não baixados / Rejeitados">
+          <NaoBaixadosRejeitados />
+        </BoundaryLocal>
       )}
 
     </div>

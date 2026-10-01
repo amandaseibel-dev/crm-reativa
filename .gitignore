@@ -31,3 +31,8 @@ dist-ssr
 
 # Exportacoes de trabalho: tem nome e CPF de aluno, nao vao para o repositorio.
 *.csv
+
+# Fotografia de producao para conferir a tela sem login. Tem valor, contagem de
+# aluno e de titulo reais -- nunca vai para o repositorio. A fixture versionada
+# (.preview/dados-efetividade.js) e 100% sintetica.
+.preview/*.local.js

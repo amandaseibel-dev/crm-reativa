@@ -124,3 +124,105 @@ describe("Efetividade — 2024 e 2025 por ano", () => {
     expect(screen.getByText("2026/1")).toBeTruthy();
   });
 });
+
+// O alternador de visão existe SÓ em 2026/2: é a safra em curso. O conteúdo da
+// visão por competência tem teste próprio em
+// src/components/EfetividadeCompetencias.test.jsx.
+describe("Efetividade — alternador de visão de 2026/2", () => {
+  async function ir2026_2() {
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "2º semestre" })); });
+  }
+
+  it("2026/1 não oferece a visão por borderô", async () => {
+    await abrir();
+    expect(screen.queryByRole("button", { name: "Por competência" })).toBeNull();
+  });
+
+  it("2026/2 oferece Consolidado e Por competência, começando no consolidado", async () => {
+    await abrir();
+    await ir2026_2();
+    const consolidado = screen.getByRole("button", { name: "Consolidado" });
+    expect(consolidado.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByRole("button", { name: "Por competência" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("2024 esconde o alternador junto com o semestre", async () => {
+    await abrir();
+    await ir2026_2();
+    await irPara("2024");
+    expect(screen.queryByRole("button", { name: "Por competência" })).toBeNull();
+  });
+
+  it("a metodologia continua acessível na visão por competência", async () => {
+    await abrir();
+    await ir2026_2();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Por competência" })); });
+    expect(screen.getByRole("button", { name: /Ver metodologia/ })).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NOMENCLATURA DO CONSOLIDADO
+//
+// "268 títulos negociados" era verdade e ainda assim confundia: a outra visão
+// da mesma tela conta 2.522 mensalidades, e nada dizia que uma é recorte da
+// outra (o Consolidado tem um INNER JOIN em acordo; é subconjunto perfeito).
+// O que estes testes travam é que a base apareça, e que ela venha da CONSULTA
+// -- numero fixo aqui passaria despercebido para sempre.
+// ---------------------------------------------------------------------------
+const NEGOCIACOES = {
+  gerado_em: "2026-09-29",
+  total: { negociado: 453987.04, recebido: 120000, saldo: 333987.04,
+           titulos: 268, cpfs: 246, acordos: 250 },
+  estados: [{ estado: "Regular", negociado: 300000 }],
+};
+const CONTEXTO = {
+  carteira_valor: 5127980.01, carteira_titulos: 2522, carteira_cpfs: 1900,
+  remessas: 7, primeira_remessa: "2026-07-02", ultima_remessa: "2026-08-14",
+};
+
+describe("Efetividade — nomenclatura do Consolidado em 2026/2", () => {
+  function comConsolidado(contexto = CONTEXTO) {
+    rpcMock.mockImplementation((nome) => {
+      if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: CONSOLIDADA });
+      if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
+      if (nome === "carteira_2026_2_negociacoes") return Promise.resolve({ data: NEGOCIACOES });
+      if (nome === "carteira_2026_2_contexto") return Promise.resolve({ data: contexto });
+      return Promise.resolve({ data: null });
+    });
+  }
+  async function ir2026_2() {
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "2º semestre" })); });
+  }
+
+  it("declara a base: mensalidades com acordo, de quantas da carteira", async () => {
+    comConsolidado();
+    await abrir();
+    await ir2026_2();
+    expect(screen.getByText("Mensalidades com acordo: 268 de 2.522 da carteira")).toBeTruthy();
+    // e o texto antigo, que não dizia de quantas, não volta
+    expect(screen.queryByText("268 títulos negociados")).toBeNull();
+  });
+
+  it("os dois números vêm das consultas, não do código", async () => {
+    comConsolidado({ ...CONTEXTO, carteira_titulos: 3111 });
+    rpcMock.mockImplementation(((anterior) => (nome) => {
+      if (nome === "carteira_2026_2_negociacoes") {
+        return Promise.resolve({ data: { ...NEGOCIACOES, total: { ...NEGOCIACOES.total, titulos: 401 } } });
+      }
+      return anterior(nome);
+    })(rpcMock.getMockImplementation()));
+    await abrir();
+    await ir2026_2();
+    expect(screen.getByText("Mensalidades com acordo: 401 de 3.111 da carteira")).toBeTruthy();
+  });
+
+  it("sem o contexto carregado, some a base em vez de mostrar 'de 0'", async () => {
+    comConsolidado(null);
+    await abrir();
+    await ir2026_2();
+    expect(screen.getByText("Mensalidades com acordo: 268")).toBeTruthy();
+    expect(screen.queryByText(/de 0 da carteira/)).toBeNull();
+  });
+});
+

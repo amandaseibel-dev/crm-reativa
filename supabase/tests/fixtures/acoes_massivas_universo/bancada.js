@@ -19,6 +19,27 @@ const ler = (p) => readFileSync(resolve(RAIZ, p), "utf8");
 export const MIG1 = ler("supabase/migrations/20260920100000_acoes_massivas_cobertura_estrutura.sql");
 export const MIG2 = ler("supabase/migrations/20260920110000_acoes_massivas_universo.sql");
 export const MIG3 = ler("supabase/migrations/20260920120000_acoes_massivas_registro_sem_fidelizacao.sql");
+export const MIG4 = ler("supabase/migrations/20260927143351_acoes_massivas_responsavel_caso_e_acordo.sql");
+export const MIG5 = ler("supabase/migrations/20260927154422_acoes_massivas_exigir_dono_acordo.sql");
+export const MIG6 = ler("supabase/migrations/20260927164511_acoes_massivas_previa_caso_divergente.sql");
+
+// O schema `internal` e as duas pecas que a MIG4 usa, tiradas dos ARQUIVOS DE
+// MIGRATION reais -- nao sao dubles. patch_funcao_ancorada e o mesmo patcher de
+// producao (exige a ancora no numero exato de ocorrencias e falha alto), e
+// carteira_geral_email e a mesma constante.
+const trecho = (sql, nome) => {
+  const m = sql.match(
+    new RegExp("create or replace function " + nome + "\\([\\s\\S]*?\\$fn\\$[\\s\\S]*?\\$fn\\$;")
+  );
+  if (!m) throw new Error("nao achei " + nome + " no arquivo de migration");
+  return m[0];
+};
+export const INTERNAL =
+  "create schema if not exists internal;\n" +
+  trecho(ler("supabase/migrations/20260925180744_carteira_geral_destino.sql"),
+         "internal\\.carteira_geral_email") + "\n" +
+  trecho(ler("supabase/migrations/20260925181823_carteira_geral_blindar_automacoes.sql"),
+         "internal\\.patch_funcao_ancorada");
 export const RB1 = ler("supabase/rollbacks/20260920100000_acoes_massivas_cobertura_estrutura.rollback.sql");
 export const RB2 = ler("supabase/rollbacks/20260920110000_acoes_massivas_universo.rollback.sql");
 export const RB3 = ler("supabase/rollbacks/20260920120000_acoes_massivas_registro_sem_fidelizacao.rollback.sql");
@@ -28,6 +49,10 @@ export const GESTAO = "gestao@teste.local";
 export const OP_A = "op.a@teste.local";
 export const OP_B = "op.b@teste.local";
 export const OP_C = "op.c@teste.local";
+// operadora DESLIGADA que ainda responde por caso e acordo (o caso da Olga)
+export const OP_INATIVA = "op.inativa@teste.local";
+// o destino de gestao: perfil "carteira", ativo=false de proposito
+export const CG = "carteira.geral@reativa.local";
 
 export const U = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 
@@ -51,11 +76,17 @@ const ESQUEMA = `
     id uuid primary key default gen_random_uuid(), aluno_id uuid, operador_email text, operador_nome text,
     total_em_aberto numeric, data_ultimo_acionamento date, cpf_limpo text, status_acionamento text,
     nao_acionar boolean, status_financeiro text, valor_pago numeric, quitado_em date, valor_quitado numeric,
-    status_atual text, status_jornada text);
+    status_atual text, status_jornada text,
+    -- espelha producao: caso encerrado nao conta na lista de responsaveis
+    encerrado_operacional boolean default false);
   create table public.solicitacoes_confirmacao_pagamento (aluno_id text, status text);
   create table public.prime_contratos (cpf text, valid_from date, status text);
   create table public.prime_extrato (coletado_em timestamptz);
-  create table public.acordos (aluno_id uuid, status text, id uuid primary key default gen_random_uuid());
+  -- operador_responsavel_email espelha producao: e o DONO DO ACORDO, que
+  -- nao e o dono do caso nem o da ficha. Sem ele a dimensao de acordo do
+  -- filtro nao teria o que recortar.
+  create table public.acordos (aluno_id uuid, status text, operador_responsavel_email text,
+    id uuid primary key default gen_random_uuid());
   create table public.acordos_titulos (
     aluno_id uuid, situacao text, vencimento date, importacao_id uuid,
     id uuid primary key default gen_random_uuid(), status text default 'em_aberto', tipo_boleto text,
@@ -222,10 +253,17 @@ export async function novoBanco({ fase = "depois" } = {}) {
     await db.exec(MIG1);
     await db.exec(MIG2);
     await db.exec(MIG3);
+    await db.exec(INTERNAL);
+    await db.exec(MIG4);
+    await db.exec(MIG5);
+    await db.exec(MIG6);
   }
   await db.exec(`insert into public.prime_extrato values ('2026-09-05 10:00:00+00');
                  insert into public.usuarios values ('${GESTAO}','Gestao','gerencia',true),
-                   ('${OP_A}','Ana','operador',true), ('${OP_B}','Bruno','operador',true)`);
+                   ('${OP_A}','Ana','operador',true), ('${OP_B}','Bruno','operador',true),
+                   -- as classes que o filtro antigo escondia
+                   ('${OP_INATIVA}','Olga','operador',false),
+                   ('${CG}','Carteira Geral','carteira',false)`);
   await comoGestao(db);
   return db;
 }
@@ -286,7 +324,41 @@ export async function alunos(db, n, o = {}) {
   return ids;
 }
 
+/**
+ * Acordo ATIVO com parcela VENCIDA, com DONO DO ACORDO proprio.
+ * E a forma do problema real: o caso e de um, o acordo e de outro.
+ */
+export async function acordoVencido(db, alunoId, donoAcordo) {
+  const r = await db.query(
+    `insert into public.acordos (aluno_id, status, operador_responsavel_email)
+     values ($1, 'ATIVO', $2) returning id`, [alunoId, donoAcordo]);
+  await db.query(
+    `insert into public.parcelas (acordo_id, status, vencimento)
+     values ($1, 'VENCIDA', current_date - 30)`, [r.rows[0].id]);
+  return r.rows[0].id;
+}
+
 /** Movimentacao "de verdade" (sem passar por lote): tipo, dias atras. */
+// "N dias atras, mas NUNCA antes do inicio do mes corrente" (America/Sao_Paulo).
+//
+// Existe porque varios cenarios precisam da movimentacao DENTRO do mes -- e
+// `acionado_mes` e exatamente isso. "N dias atras" cruza a virada de mes: no
+// dia 1, 1 dia atras ja e o mes passado, e o cenario deixa de representar o que
+// queria provar. O clamp ancora o instante no mes corrente sem depender de que
+// dia e hoje.
+//
+// `mov` acima NAO muda: ela e usada tambem por
+// acoes_massivas_registro_fidelizacao_comportamento.test.js, onde "N dias
+// atras" e literal de proposito.
+export async function movNoMes(db, alunoId, tipo, diasAtras = 0, extra = {}) {
+  await db.query(
+    `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em)
+     values ($1, $2, 'x', 'x', $3,
+       greatest(now() - ($4::numeric || ' days')::interval,
+                (date_trunc('month', now() at time zone 'America/Sao_Paulo') at time zone 'America/Sao_Paulo')))`,
+    [String(alunoId), tipo, extra.por ?? OP_A, diasAtras]);
+}
+
 export async function mov(db, alunoId, tipo, diasAtras = 0, extra = {}) {
   await db.query(
     `insert into public.aluno_movimentacoes (aluno_id, tipo, descricao, registrado_por_nome, registrado_por_email, registrado_em)
@@ -307,7 +379,17 @@ const TIPOS_PREVIA = {
   p_valor_min: "numeric", p_valor_max: "numeric", p_operador_email: "text", p_tipo_cobranca: "text",
   p_acionamento: "text", p_recencia_dias: "integer", p_sem_telefone: "boolean",
 };
+// A partir de 20260927190000, as modalidades que olham ACORDO exigem pelo menos
+// um "Responsável pelo acordo". Os testes desta bancada são sobre o UNIVERSO e a
+// confirmação -- eles caíam em MENSALIDADES_E_ACORDOS por acidente, não por
+// assunto, e seus dados semeiam título (mensalidade). Então o default aqui é
+// MENSALIDADES. Quem testa modalidade de acordo passa `p_tipo_cobranca` E o
+// dono do acordo, explicitamente.
+const PRECISA_DONO_ACORDO = (t) =>
+  ["ACORDOS_VENCIDOS", "MENSALIDADES_E_ACORDOS"].includes(String(t ?? "").toUpperCase());
+
 export async function previa(db, args = {}) {
+  if (args.p_tipo_cobranca === undefined) args = { ...args, p_tipo_cobranca: "MENSALIDADES" };
   const ch = Object.keys(args);
   const sql = `select public.acoes_massivas_previa(${ch.map((k, i) => `${k} => $${i + 1}::${TIPOS_PREVIA[k]}`).join(", ")}) as r`;
   return (await db.query(sql, ch.map((k) => (Array.isArray(args[k]) ? `{${args[k].join(",")}}` : args[k])))).rows[0].r;
@@ -321,6 +403,7 @@ export async function drill(db, f, ano, indicador, motivo = null, limit = 2000, 
     [JSON.stringify(f ?? {}), ano, indicador, motivo, limit, offset])).rows[0].r;
 }
 export async function exportar(db, ids, { canal = "WHATSAPP", operador = null, tipo = null, previa_id = null } = {}) {
+  if (tipo === null) tipo = "MENSALIDADES";
   return (await db.query(
     `select public.acoes_massivas_exportar(p_aluno_ids => $1::text[], p_canal => $2, p_arquivo => 'x.xlsx',
        p_operador_email => $3, p_tipo_cobranca => $4, p_previa_id => $5::uuid) r`,
@@ -334,7 +417,10 @@ export async function executar(db, args, { canal = "WHATSAPP" } = {}) {
   const p = await previa(db, { p_canal: canal, ...args });
   const ids = p.elegiveis.map((e) => e.id);
   const ex = await exportar(db, ids, {
-    canal, operador: args.p_operador_email ?? null, tipo: args.p_tipo_cobranca ?? null, previa_id: p.previa_id });
+    canal, operador: args.p_operador_email ?? null,
+    // o exportar tem de repetir o MESMO tipo da previa, senao a exigencia de
+    // dono de acordo pega um e nao o outro
+    tipo: args.p_tipo_cobranca ?? "MENSALIDADES", previa_id: p.previa_id });
   const cf = ex.lote_id ? await concluir(db, ex.lote_id) : null;
   return { previa: p, exportacao: ex, confirmacao: cf, ids };
 }

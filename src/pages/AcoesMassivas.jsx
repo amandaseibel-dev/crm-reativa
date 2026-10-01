@@ -1,6 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
+import {
+  detalheSelecao,
+  responsaveisDaSelecao,
+  sufixoArquivoResponsavel,
+} from "../utils/acoesMassivasResponsavel";
 import BotaoAtualizar from "../components/BotaoAtualizar";
 import PenetracaoPorAno from "../components/PenetracaoPorAno";
 import { rotuloMotivo } from "../utils/motivosAcaoMassiva";
@@ -109,6 +114,63 @@ function normalizarTelefone(bruto) {
   return "55" + core;
 }
 
+// Lista de responsáveis com caixa de marcação. NÃO tem "todos": marcar todo
+// mundo é possível, mas é uma escolha explícita, e a prévia mostra um a um.
+// A classe aparece porque o filtro antigo só listava `ativo and
+// perfil='operador'` — a Olga desligada, a gestão, a supervisão, a ADM e a
+// Carteira Geral não apareciam, embora tenham caso e acordo.
+function rotuloSelecao(filtro, nomeDoOperador) {
+  const { caso } = responsaveisDaSelecao(filtro);
+  if (caso.length === 0) {
+    return String(filtro).includes("@")
+      ? `caso(s) da carteira de ${nomeDoOperador(filtro)}`
+      : `caso(s) — ${nomeDoOperador(filtro).toLowerCase()}`;
+  }
+  if (caso.length === 1 && caso[0] === "SEM_RESPONSAVEL") return "caso(s) — sem responsável / livres";
+  return `caso(s) de ${detalheSelecao(filtro, nomeDoOperador).caso}`;
+}
+
+
+// As modalidades que olham ACORDO. Em "Somente mensalidades" o controle fica
+// desabilitado e a exigência não vale.
+const PRECISA_DONO_ACORDO = ["ACORDOS_VENCIDOS", "MENSALIDADES_E_ACORDOS"];
+
+const CLASSE_ROTULO = {
+  SEM_RESPONSAVEL: "fila livre",
+  CARTEIRA_GERAL: "gestão",
+  INATIVO: "desligado",
+  NAO_OPERADOR: "não é da fila",
+  FORA_DE_USUARIOS: "fora do cadastro",
+  OPERADOR_ATIVO: "",
+};
+
+function ListaResponsaveis({ idPrefixo, itens, marcados, onAlternar, desabilitado, contar }) {
+  if (!itens.length) return <span style={estilos.ajudaCampo}>Carregando responsáveis…</span>;
+  return (
+    <div style={estilos.caixaResponsaveis} data-testid={idPrefixo}>
+      {itens.map((o) => {
+        const n = contar(o);
+        const classe = CLASSE_ROTULO[o.classe] ?? "";
+        return (
+          <label key={o.email} style={estilos.linhaResponsavel}>
+            <input
+              type="checkbox"
+              id={`${idPrefixo}-${o.email}`}
+              checked={marcados.has(o.email)}
+              disabled={desabilitado}
+              onChange={() => onAlternar(o.email)}
+            />
+            <span>
+              {o.nome} <span style={{ opacity: 0.7 }}>({n})</span>
+              {classe && <span style={estilos.marcaClasse}> — {classe}</span>}
+            </span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function AcoesMassivas() {
   const [canal, setCanal] = useState("WHATSAPP"); // WHATSAPP | EMAIL
   const [valorMin, setValorMin] = useState("0");
@@ -136,7 +198,14 @@ export default function AcoesMassivas() {
   // prévia e o registro recortam SÓ a carteira atual daquele operador. A chave
   // é o e-mail (vem do cadastro via acoes_massivas_filtros), nunca o nome.
   // "TODOS" | "LIVRES" | e-mail. Nunca vazio/null: o banco recebe sempre um valor.
-  const [operadorEmail, setOperadorEmail] = useState("LIVRES");
+  // DUAS titularidades, independentes. O recorte de responsável sempre foi pelo
+  // dono da FICHA (alunos.responsavel_atual_email) e NUNCA olhou o dono do
+  // ACORDO — por isso "Acordos vencidos" filtrado por um operador acionava
+  // acordo de outra pessoa (medido em 27/09/2026: ~902 acordos).
+  const [respCaso, setRespCaso] = useState(() => new Set());
+  const [respAcordo, setRespAcordo] = useState(() => new Set());
+  const [responsaveis, setResponsaveis] = useState([]);
+  const [porResponsavel, setPorResponsavel] = useState([]);
   const [opcoesOperador, setOpcoesOperador] = useState([]);
   // Recorte que o BANCO confirmou na última prévia. É ele que vai para o
   // registro: planilha e prévia saem sempre da mesma carteira.
@@ -218,6 +287,12 @@ export default function AcoesMassivas() {
       setOpcoesCurso(data?.cursos || []);
       setOpcoesSituacaoAcad(data?.situacoes_academicas || []);
       setOpcoesOperador(data?.operadores || []);
+      // Quem TEM caso ou acordo — inclui operador desligado, gestão, supervisão,
+      // ADM e a Carteira Geral, que `acoes_massivas_filtros` não trazia porque
+      // só lista `ativo and perfil='operador'`.
+      supabase.rpc("acoes_massivas_responsaveis").then(({ data: r }) => {
+        if (Array.isArray(r)) setResponsaveis(r);
+      });
       const { data: bords } = await supabase.rpc("acoes_massivas_borderos");
       setOpcoesBordero(bords || []);
       const { data: lotes } = await supabase.rpc("acoes_massivas_lotes_pendentes");
@@ -265,7 +340,16 @@ export default function AcoesMassivas() {
   function nomeDoOperador(email) {
     if (String(email).toUpperCase() === "TODOS") return "Todos os operadores";
     if (String(email).toUpperCase() === "LIVRES") return "Sem responsável / livres";
-    return opcoesOperador.find((o) => o.email === email)?.nome || email;
+    if (String(email).toUpperCase() === "SEM_RESPONSAVEL") return "sem responsável / livres";
+    // `opcoesOperador` vem de acoes_massivas_filtros, que só lista operador
+    // ATIVO — a gestão, a supervisão, a ADM, a Carteira Geral e quem foi
+    // desligado não estão lá. `responsaveis` tem todo mundo que tem caso ou
+    // acordo, e é de onde o nome tem de sair.
+    return (
+      opcoesOperador.find((o) => o.email === email)?.nome ||
+      responsaveis.find((o) => o.email === email)?.nome ||
+      email
+    );
   }
 
   async function buscar(over = {}) {
@@ -305,7 +389,28 @@ export default function AcoesMassivas() {
       // TODOS os filtros (canal, valor, contato, acionamento, recência, operador)
       // vão ao BANCO, que aplica o limite exato só depois deles. A tela não corta,
       // não reordena e não filtra a lista devolvida.
-      const operadorPedido = over.operador ?? operadorEmail;
+      // SELEÇÃO EXPLÍCITA tem precedência. A sintaxe estrita
+      // 'CASO:a|b;ACORDO:c' é a única via: acoes_massivas_previa tem 18
+      // parâmetros escalares e monta o jsonb internamente, e mudar a assinatura
+      // de quem dispara mensagem em massa custaria mais do que ganha.
+      const selCaso = [...(over.respCaso ?? respCaso)];
+      if (selCaso.length === 0) {
+        throw new Error(
+          "Escolha ao menos um responsável pelo caso. Ação em massa não dispara sem recorte explícito."
+        );
+      }
+      const selAcordo = [...(over.respAcordo ?? respAcordo)];
+      // Campo de acordo VAZIO não é "de qualquer pessoa". Nas modalidades que
+      // olham acordo, escolher de quem é o acordo é obrigatório — o banco
+      // recusa igual, esta guarda só evita a ida à toa.
+      if (PRECISA_DONO_ACORDO.includes(tipoCobranca) && selAcordo.length === 0) {
+        throw new Error(
+          `A modalidade “${rotuloTipoCobranca(tipoCobranca)}” exige escolher ao menos um ` +
+          "“Responsável pelo acordo”. Campo vazio não significa acordo de qualquer pessoa."
+        );
+      }
+      const operadorPedido =
+        `CASO:${selCaso.join("|")}` + (selAcordo.length ? `;ACORDO:${selAcordo.join("|")}` : "");
       const argsPrevia = {
         p_ano_vencimento: (over.ano ?? anoVencimento) || null,
         p_limite: qtd,
@@ -342,6 +447,7 @@ export default function AcoesMassivas() {
       setTipoDaPrevia(tipoCobranca);
       setContagemTipo(previa?.contagem_tipo || null);
       setResumoPrevia(previa?.resumo || null);
+      setPorResponsavel(previa?.por_responsavel || []);
       setPreviaId(previa?.previa_id || null);
 
       setExcluidosConfirmacao(previa?.excluidos_confirmacao || []);
@@ -399,7 +505,9 @@ export default function AcoesMassivas() {
     setExcluidosNoEnvio(0);
 
     try {
-      const sufixoOperador = operadorDaPrevia && operadorDaPrevia.includes("@") ? `-${operadorDaPrevia.split("@")[0]}` : "";
+      const sufixoOperador = /^CASO:/i.test(String(operadorDaPrevia ?? ""))
+        ? sufixoArquivoResponsavel(operadorDaPrevia)
+        : (operadorDaPrevia && operadorDaPrevia.includes("@") ? `-${operadorDaPrevia.split("@")[0]}` : "");
       const tipoLote = tipoDaPrevia;
       const sufixoTipo = tipoLote ? `-${tipoLote.toLowerCase().replace(/_/g, "-")}` : "";
       const nomeArquivo = `acao-massiva-${canal.toLowerCase()}${sufixoOperador}${sufixoTipo}-${new Date().toISOString().slice(0, 10)}.xlsx`;
@@ -527,7 +635,9 @@ export default function AcoesMassivas() {
     situacao_academica: situacoesAcadSel.join("|") || null,
     matricula: matricula || null,
     importacao_ids: borderosSel.length ? borderosSel : null,
-    operador: operadorEmail,
+    // o painel de cobertura lê as mesmas chaves do universo
+    responsaveis_caso: respCaso.size ? [...respCaso] : null,
+    responsaveis_acordo: respAcordo.size ? [...respAcordo] : null,
     tipo_cobranca: tipoCobranca || null,
     canal,
     sem_telefone: canal === "EMAIL" && soSemTelefone,
@@ -681,32 +791,58 @@ export default function AcoesMassivas() {
       <div style={estilos.card}>
         <div style={estilos.linhaFiltros}>
           <div style={{ ...estilos.campo, minWidth: 240 }}>
-            <label style={estilos.label} htmlFor="filtro-operador-responsavel">Operador responsável</label>
-            <select
-              id="filtro-operador-responsavel"
-              style={estilos.input}
-              value={operadorEmail}
-              // Trocar no meio da busca ou da geração deixaria a lista de um
-              // operador à mostra com outro escolhido.
-              disabled={carregando || gerando}
-              onChange={(e) => {
-                setOperadorEmail(e.target.value);
+            <label style={estilos.label}>Responsável pela ficha do aluno</label>
+            <ListaResponsaveis
+              idPrefixo="resp-caso"
+              itens={responsaveis}
+              marcados={respCaso}
+              desabilitado={carregando || gerando}
+              onAlternar={(email) => {
+                setRespCaso((a) => {
+                  const n = new Set(a);
+                  if (n.has(email)) n.delete(email); else n.add(email);
+                  return n;
+                });
                 limparPrevia();
               }}
-            >
-              <option value="LIVRES">Sem responsável / livres</option>
-              <option value="TODOS">Todos os operadores</option>
-              {opcoesOperador.map((o) => (
-                <option key={o.email} value={o.email}>{o.nome} ({o.email})</option>
-              ))}
-            </select>
-            {operadorEmail.includes("@") && (
-              <span style={estilos.ajudaCampo}>
-                Só alunos da carteira atual de {nomeDoOperador(operadorEmail)}. O filtro “Sem acionamento há”
-                continua opcional e não é aplicado sozinho. Exportar a planilha não muda nada no aluno.
-              </span>
-            )}
+              contar={(o) => o.casos}
+            />
+            <span style={estilos.ajudaCampo}>
+              Recorta por <strong>alunos.responsavel_atual_email</strong> — o dono da{" "}
+              <strong>ficha</strong>, que <strong>não</strong> é o mesmo campo que o dono do{" "}
+              <strong>caso</strong>. Na Carteira Geral o filtro é pelo caso; aqui é pela ficha.
+              Medido em 27/09/2026: elas divergem em <strong>20</strong> alunos de 13.041 — todos
+              com ficha atribuída e caso sem dono. A prévia mostra quantos, por responsável.
+              Vale para as três modalidades. Marque um ou mais;{" "}
+              <strong>sem nenhum marcado não gera prévia</strong>.
+            </span>
           </div>
+          <div style={{ ...estilos.campo, minWidth: 260 }}>
+            <label style={estilos.label}>Responsável pelo acordo</label>
+            <ListaResponsaveis
+              idPrefixo="resp-acordo"
+              itens={responsaveis.filter((o) => o.acordos > 0)}
+              marcados={respAcordo}
+              desabilitado={carregando || gerando || tipoCobranca === "MENSALIDADES"}
+              onAlternar={(email) => {
+                setRespAcordo((a) => {
+                  const n = new Set(a);
+                  if (n.has(email)) n.delete(email); else n.add(email);
+                  return n;
+                });
+                limparPrevia();
+              }}
+              contar={(o) => o.acordos}
+            />
+            <span style={estilos.ajudaCampo}>
+              {tipoCobranca === "MENSALIDADES"
+                ? "Não se aplica: “Somente mensalidades” não olha acordo."
+                : respAcordo.size === 0
+                  ? "Obrigatório nesta modalidade: escolha de quem são os acordos. Campo vazio NÃO significa acordo de qualquer pessoa."
+                  : "Só entra acordo vencido de quem está marcado aqui. O caso continua sendo recortado acima."}
+            </span>
+          </div>
+
           <div style={{ ...estilos.campo, minWidth: 220 }}>
             <label style={estilos.label} htmlFor="filtro-tipo-cobranca">Tipo de cobrança</label>
             <select
@@ -1133,6 +1269,55 @@ export default function AcoesMassivas() {
             “{nomeDispPrevia}” considera todos os filtros atuais, inclusive o canal: quem não tem contato válido para {rotuloCanalPrevia} aparece
             como indisponível (“Sem contato válido para o canal”). Trocar o canal muda estes números; a base não muda.
           </p>
+          {/* QUEBRA POR RESPONSÁVEL — o que a gestão lê antes de confirmar.
+              "Acordos de outro dono" é o número que faltava: acordo do aluno
+              cujo responsável NÃO é o responsável da linha. */}
+          {porResponsavel.length > 0 && (
+            <div style={{ marginTop: 12 }} data-testid="previa-por-responsavel">
+              <div style={estilos.subtitulo}>Por responsável, entre os que serão selecionados</div>
+              <table style={estilos.tabela}>
+                <thead>
+                  <tr>
+                    <th style={estilos.th}>Responsável (ficha)</th>
+                    <th style={estilos.thNum}>Alunos</th>
+                    <th style={estilos.thNum}>Casos</th>
+                    <th style={estilos.thNum}>Acordos</th>
+                    <th style={estilos.thNum}>Acordos de outro dono</th>
+                    <th style={estilos.thNum} title="O filtro recorta pela FICHA; aqui estão os alunos cujo CASO está com outra pessoa, ou sem dono">
+                      Caso em outra mão
+                    </th>
+                    <th style={estilos.thNum}>Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {porResponsavel.map((r) => (
+                    <tr key={r.responsavel}>
+                      <td style={estilos.td}>
+                        {r.responsavel === "SEM_RESPONSAVEL" ? "Sem responsável / livres" : r.responsavel}
+                      </td>
+                      <td style={estilos.tdNum}>{Number(r.alunos || 0).toLocaleString("pt-BR")}</td>
+                      <td style={estilos.tdNum}>{Number(r.casos || 0).toLocaleString("pt-BR")}</td>
+                      <td style={estilos.tdNum}>{Number(r.acordos || 0).toLocaleString("pt-BR")}</td>
+                      <td style={{ ...estilos.tdNum,
+                                   color: Number(r.acordos_de_outro_dono || 0) > 0 ? "var(--rv-ambar-texto)" : undefined,
+                                   fontWeight: Number(r.acordos_de_outro_dono || 0) > 0 ? 700 : undefined }}>
+                        {Number(r.acordos_de_outro_dono || 0).toLocaleString("pt-BR")}
+                      </td>
+                      <td style={{ ...estilos.tdNum,
+                                   color: Number(r.casos_em_outra_mao || 0) > 0 ? "var(--rv-ambar-texto)" : undefined,
+                                   fontWeight: Number(r.casos_em_outra_mao || 0) > 0 ? 700 : undefined }}>
+                        {Number(r.casos_em_outra_mao || 0).toLocaleString("pt-BR")}
+                      </td>
+                      <td style={estilos.tdNum}>
+                        {Number(r.valor || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
           {resumoPrevia.menos_que_solicitado && (
             <p style={{ margin: "0 0 10px", fontSize: 13, fontWeight: 700, color: "var(--rv-ambar-texto)" }} data-testid="menos-que-solicitado">
               Somente {Number(resumoPrevia.selecionado || 0)} disponíveis dentro dos filtros atuais (solicitado {Number(resumoPrevia.solicitado || 0)})
@@ -1176,17 +1361,18 @@ export default function AcoesMassivas() {
             <div>
               <strong style={{ fontFamily: FONTE_TITULO, fontSize: 18 }}>{resultados.length}</strong>{" "}
               <span style={{ color: "var(--rv-texto-fraco)" }}>
-                {operadorDaPrevia.includes("@")
-                  ? `caso(s) da carteira de ${nomeDoOperador(operadorDaPrevia)}`
-                  : `caso(s) — ${nomeDoOperador(operadorDaPrevia).toLowerCase()}`}{" "}
+                {rotuloSelecao(operadorDaPrevia, nomeDoOperador)}{" "}
                 com {canal === "WHATSAPP" ? "telefone" : "e-mail"}, prontos pra ação
               </span>
               {resultados.length > 0 && (
                 <span style={{ color: "var(--rv-texto-fraco)" }}> · Total em aberto: {formatarMoeda(valorTotal)}</span>
               )}
               <div style={{ ...estilos.ajudaCampo, maxWidth: "none", fontSize: 12.5 }}>
-                Operador filtrado: <strong>{nomeDoOperador(operadorDaPrevia)}</strong>
-                {operadorDaPrevia.includes("@") ? <> ({operadorDaPrevia}) — só alunos com esse responsável atual.</> : null}
+                Responsável filtrado (da <strong>ficha</strong>): <strong>{detalheSelecao(operadorDaPrevia, nomeDoOperador).caso}</strong>
+                {detalheSelecao(operadorDaPrevia, nomeDoOperador).acordo
+                  ? <> · Acordos <strong>só de {detalheSelecao(operadorDaPrevia, nomeDoOperador).acordo}</strong>
+                      {" "}— qualquer acordo fora dessa lista foi recusado.</>
+                  : <> · <strong>Sem acordo</strong> nesta modalidade.</>}
                 {" "}· Tipo de cobrança: <strong>{rotuloTipoCobranca(tipoDaPrevia)}</strong>
               </div>
               {contagemTipo && (
@@ -1428,6 +1614,16 @@ const estilos = {
     fontSize: 13,
     cursor: "pointer",
   },
+  // a lista de responsáveis: rola, para caber quinze nomes sem empurrar a tela
+  caixaResponsaveis: {
+    maxHeight: 176, overflowY: "auto", border: "1px solid var(--rv-borda-suave)",
+    borderRadius: 8, padding: "6px 8px", display: "flex", flexDirection: "column", gap: 2,
+  },
+  linhaResponsavel: {
+    display: "flex", alignItems: "center", gap: 7, fontSize: 13,
+    color: "var(--rv-texto-forte)", cursor: "pointer", padding: "2px 0",
+  },
+  marcaClasse: { color: "var(--rv-ambar-texto)", fontSize: 11.5 },
   tabela: { width: "100%", borderCollapse: "collapse", fontSize: 13 },
   th: {
     textAlign: "left",
