@@ -97,9 +97,40 @@ export default function SaudeCompletaCarteira() {
   const [detOrd, setDetOrd] = useState({ ordenar_por: "saldo_vencido", ordem_dir: "desc" });
   const [detLoading, setDetLoading] = useState(false);
   const [avisoRefresh, setAvisoRefresh] = useState("");
+  // O recalculo da matview leva ~30s e e feito FORA do hook, logo o `carregando`
+  // dele nao cobre esse tempo: sem este estado o botao fica vivo e sem resposta
+  // durante o recalculo -- parece que o clique nao fez nada.
+  const [recalculando, setRecalculando] = useState(false);
+  // QUEM PODE RECALCULAR, PERGUNTADO DIRETO.
+  //
+  // `usuario_e_gestao()` no banco e uma allowlist de e-mail (3 enderecos), nao
+  // o perfil da rota: a rota libera gerencia E supervisor, e supervisor fora da
+  // allowlist NAO e gestao. Logo nao da para deduzir pelo perfil da tela.
+  //
+  // Perguntar a propria funcao -- padrao que Honorarios a Entrar, Acordos
+  // Duplicados e o WhatsApp ja usam -- torna a decisao deterministica ANTES do
+  // clique: nao chamamos a RPC pesada de quem nao pode, e qualquer erro que ela
+  // devolver passa a ser erro de verdade, nao "talvez seja falta de permissao".
+  const [ehGestao, setEhGestao] = useState(null); // null = ainda nao sei
 
   const totais = resumo?.totais || {};
   const isGestao = resumo?.escopo?.is_gestao;
+
+  // Panorama e Por curso precisam ser recarregaveis pelo botao, nao so na
+  // abertura -- dai existirem como funcao. Os efeitos de abertura/troca de
+  // filtro seguem com a propria chamada guardada por `vivo` (a regra de lint
+  // do projeto nao aceita setState chamado do corpo do efeito).
+  const carregarPorCurso = useCallback(async () => {
+    const { data, error } = await supabase.rpc("saude_carteira_por_curso", { p_filtros: filtros });
+    if (error) { setErroCurso(error.message || String(error)); setPorCurso(null); }
+    else { setErroCurso(""); setPorCurso(data || null); }
+  }, [filtros]);
+
+  const carregarPanorama = useCallback(async () => {
+    const { data, error } = await supabase.rpc("saude_carteira_panorama");
+    if (error) { setErroPanorama(error.message || String(error)); setPanorama(null); }
+    else { setErroPanorama(""); setPanorama(data || null); }
+  }, []);
 
   // "ATUALIZAR" PRECISA RECALCULAR, NAO SO RELER.
   //
@@ -108,24 +139,55 @@ export default function SaudeCompletaCarteira() {
   // acao e clicasse em seguida via o numero velho -- "faco acao e nao aparece"
   // (Amanda, 09/09). O caso classico e o contador de nunca acionados.
   //
-  // Agora o botao recalcula primeiro. Leva ~6,7s, medido em producao, e por
-  // isso continua sendo acao explicita: ninguem paga esse custo sem pedir.
+  // Agora o botao recalcula primeiro. Leva ~30s: medido em producao em
+  // 01/10/2026 nas 24 execucoes do cron das ultimas 24h (28,5s a 34,9s; a
+  // marca antiga de ~6,7s ficou obsoleta). Por isso continua sendo acao
+  // explicita, e por isso o botao precisa dizer que esta trabalhando.
   //
   // So gestao pode recalcular (a propria RPC recusa os demais), entao para
   // operador seguimos direto para a leitura -- sem erro na cara de quem nao
   // tem permissao para uma coisa que ele nem pediu.
+  //
+  // O BUG DO PRIMEIRO CLIQUE: a condicao era `if (isGestao)`, e `isGestao` vem
+  // de `resumo.escopo.is_gestao` -- ou seja, so existe DEPOIS da primeira
+  // leitura. No primeiro clique ele era `undefined`, a tela pulava o recalculo
+  // e lia a foto da matview (atualizada de hora em hora pelo cron). Quem fazia
+  // uma acao e clicava em seguida via o numero velho. Agora quem decide e
+  // `ehGestao`, que vem de `usuario_e_gestao()` e ja esta resolvido na abertura.
   const carregar = useCallback(async () => {
-    if (isGestao) {
-      const { error } = await supabase.rpc("saude_carteira_atualizar");
-      // Erro aqui NAO impede a leitura: sob carga a RPC adia o refresh de
-      // proposito, e nesse caso a foto anterior e melhor que tela vazia.
-      if (error) setAvisoRefresh("Não foi possível recalcular agora — os números abaixo são do último cálculo.");
-      else setAvisoRefresh("");
+    let recalculou = false;
+    if (ehGestao) {
+      setRecalculando(true);
+      try {
+        const { data: r, error } = await supabase.rpc("saude_carteira_atualizar");
+        // Erro aqui NAO impede a leitura: sob carga a RPC adia o refresh de
+        // proposito, e nesse caso a foto anterior e melhor que tela vazia.
+        //
+        // ADIAMENTO NAO E ERRO: sob carga (>=2 consultas acima de 5s, ou >=25
+        // ativas) a RPC devolve {skipped:true} COM SUCESSO. Tratar isso como
+        // recalculo feito era mentir para quem clicou -- os numeros continuavam
+        // os mesmos e a tela nao dizia por que. Agora o adiamento esta escrito.
+        if (error) setAvisoRefresh("Não foi possível recalcular agora — os números abaixo são do último cálculo.");
+        else if (r?.skipped) setAvisoRefresh("Recálculo adiado: o sistema está sob carga. Os números abaixo são do último cálculo — tente de novo em alguns minutos.");
+        else { recalculou = true; setAvisoRefresh(""); }
+      } finally {
+        setRecalculando(false);
+      }
     }
-    await atualizar();
+    // Se recalculou, a releitura e obrigatoria. Com os ~30s de hoje o cooldown
+    // de 15s quase nunca chega a morder -- o recalculo sozinho ja passa do
+    // intervalo. Mas "quase nunca" nao e garantia: um refresh rapido (pouca
+    // coisa para reescrever, ou um ganho de desempenho amanha) cairia dentro
+    // da janela, e o resultado seria o pior caso possivel -- pagar o recalculo
+    // inteiro e mostrar o numero velho. A leitura que segue um recalculo pago
+    // nao pode depender de quanto ele demorou.
+    await atualizar({ ignorarCooldown: recalculou });
     const { data } = await supabase.rpc("saude_carteira_qualidade", { p_filtros: filtros });
     setQualidade(data?.qualidade || null);
-  }, [atualizar, filtros, isGestao]);
+    // Panorama e Por curso tambem sao parte da tela: ficavam congelados na
+    // foto da abertura porque so carregavam no mount.
+    await Promise.all([carregarPanorama(), carregarPorCurso()]);
+  }, [atualizar, filtros, ehGestao, carregarPanorama, carregarPorCurso]);
 
   // POR CURSO. Carrega junto do panorama, pelo mesmo motivo: e leitura de
   // composicao, nao indicador de trabalho. Erro aparece, nao some.
@@ -145,6 +207,14 @@ export default function SaudeCompletaCarteira() {
   // E o erro NAO e engolido: se a funcao falhar, a tela diz. Antes eu
   // silenciava, e o resultado era o painel simplesmente nao existir sem
   // ninguem saber por que (Amanda: "saude da carteira nao esta por semestre").
+  useEffect(() => {
+    let vivo = true;
+    supabase.rpc("usuario_e_gestao").then(({ data }) => {
+      if (vivo) setEhGestao(data === true);
+    }, () => { if (vivo) setEhGestao(false); });
+    return () => { vivo = false; };
+  }, []);
+
   useEffect(() => {
     let vivo = true;
     supabase.rpc("saude_carteira_panorama").then(({ data, error }) => {
@@ -228,7 +298,13 @@ export default function SaudeCompletaCarteira() {
           </p>
         </div>
         <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <BotaoAtualizar carregando={carregando} ultimaEm={ultimaEm} onClick={carregar} rotulo={isGestao ? "Recalcular indicadores" : "Atualizar indicadores"} />
+          <BotaoAtualizar
+            carregando={carregando || recalculando}
+            textoCarregando={recalculando ? "Recalculando a base… (~30s)" : "Atualizando…"}
+            ultimaEm={ultimaEm}
+            onClick={carregar}
+            rotulo={ehGestao ? "Recalcular indicadores" : "Atualizar indicadores"}
+          />
           <button onClick={exportar} disabled={exportando || !resumo} style={btnSec}>
             {exportando ? "Gerando…" : "⬇ Exportar Excel"}
           </button>
