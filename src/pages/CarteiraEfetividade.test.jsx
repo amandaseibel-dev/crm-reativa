@@ -53,11 +53,28 @@ const CONSOLIDADA = {
   gerado_em: "2026-09-17",
 };
 
+// 2026/2 precisa responder para a Situação da carteira existir na tela: sem
+// estes dois a tela cai em "Sem dados para 2026/2" e não dá para provar qual é
+// a visão padrão. Números inventados — o que se prova aqui é enquadramento.
+const VIGENTE = {
+  total: { negociado: 16000, recebido: 9000, saldo: 7000, cpfs: 10, acordos: 11, titulos: 12 },
+  estados: [
+    { estado: "Quitado", negociado: 6000, recebido: 6000, saldo: 0, cpfs: 4, acordos: 4, titulos: 4 },
+    { estado: "Regular", negociado: 5000, recebido: 2000, saldo: 3000, cpfs: 3, acordos: 3, titulos: 4 },
+  ],
+};
+const CONTEXTO_2026_2 = {
+  remessas: 4, carteira_cpfs: 118, carteira_titulos: 150, carteira_valor: 161000,
+  primeira_remessa: "2026-07-06", ultima_remessa: "2026-09-09",
+};
+
 beforeEach(() => {
   rpcMock.mockReset();
   rpcMock.mockImplementation((nome) => {
     if (nome === "carteira_2026_1_indicadores") return Promise.resolve({ data: CONSOLIDADA });
     if (nome === "carteira_saldo_historico_por_ano") return Promise.resolve({ data: POR_ANO });
+    if (nome === "carteira_2026_2_negociacoes") return Promise.resolve({ data: VIGENTE });
+    if (nome === "carteira_2026_2_contexto") return Promise.resolve({ data: CONTEXTO_2026_2 });
     return Promise.resolve({ data: null });
   });
 });
@@ -138,12 +155,47 @@ describe("Efetividade — alternador de visão de 2026/2", () => {
     expect(screen.queryByRole("button", { name: "Por competência" })).toBeNull();
   });
 
-  it("2026/2 oferece Consolidado e Por competência, começando no consolidado", async () => {
+  it("2026/2 oferece as três visões, começando na Situação da carteira", async () => {
     await abrir();
     await ir2026_2();
-    const consolidado = screen.getByRole("button", { name: "Consolidado" });
+    const consolidado = screen.getByRole("button", { name: "Situação da carteira" });
     expect(consolidado.getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByRole("button", { name: "Por competência" }).getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByRole("button", { name: "Resumo por vencimento" }).getAttribute("aria-pressed")).toBe("false");
+  });
+
+  // Quem abre a Efetividade tem que cair na Situação da carteira, sempre. Esta
+  // é a visão que a diretoria lê primeiro, e trocar o padrão sem querer (um
+  // useState novo, um parâmetro de URL, uma preferência salva) é o tipo de
+  // mudança que passa despercebida na revisão. O teste trava o padrão pelo que
+  // aparece NA TELA, não pelo nome do estado interno.
+  it("ao abrir, a visão é a Situação da carteira — não as mensais", async () => {
+    await abrir();
+    await ir2026_2();
+    // De propósito pelo HEADING, não pelo texto solto: depois do renome o
+    // rótulo "Situação da carteira" também existe como BOTÃO do seletor, e um
+    // getByText passaria mesmo com a visão errada aberta.
+    expect(screen.getByRole("heading", { name: /Situação da carteira/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Situação da carteira" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByText("POR MÊS DE VENCIMENTO")).toBeNull();
+    expect(screen.queryByRole("heading", { name: /Por competência/i })).toBeNull();
+  });
+
+  it("o padrão da Situação da carteira vale em 2026/1 também, sem seletor de visão", async () => {
+    await abrir();
+    expect(screen.getByRole("heading", { name: /Situação da carteira/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Resumo por vencimento" })).toBeNull();
+  });
+
+  it("trocar de visão pelo seletor continua funcionando nos dois sentidos", async () => {
+    await abrir();
+    await ir2026_2();
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Resumo por vencimento" })); });
+    expect(screen.getByRole("button", { name: "Resumo por vencimento" }).getAttribute("aria-pressed")).toBe("true");
+    expect(screen.queryByRole("heading", { name: /Situação da carteira/i })).toBeNull();
+    // e volta
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Situação da carteira" })); });
+    expect(screen.getByRole("heading", { name: /Situação da carteira/i })).toBeTruthy();
   });
 
   it("2024 esconde o alternador junto com o semestre", async () => {
