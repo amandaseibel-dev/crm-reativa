@@ -1,5 +1,5 @@
 -- ============================================================================
--- ROLLBACK de 20261001183100 -- os dois gatilhos voltam a decidir sozinhos.
+-- ROLLBACK de 20261001193932 -- os dois gatilhos voltam a decidir sozinhos.
 -- ============================================================================
 -- ATENCAO: isto RESTAURA A CAUSA RAIZ DO G2. titulos_por_status_acordo volta a
 -- quitar mensalidade em bloco SEM conferir parcela viva. Use somente se a

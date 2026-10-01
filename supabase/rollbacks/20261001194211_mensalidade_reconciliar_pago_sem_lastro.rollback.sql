@@ -1,5 +1,5 @@
 -- ============================================================================
--- ROLLBACK de 20261001183300 -- remove a rotina de saneamento do lote G2.
+-- ROLLBACK de 20261001194211 -- remove a rotina de saneamento do lote G2.
 -- ============================================================================
 -- Remover a rotina NAO desfaz nenhuma execucao dela. Para reverter um lote JA
 -- EXECUTADO use o backup logico, nunca este arquivo:

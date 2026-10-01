@@ -19,11 +19,11 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const ler = (p) => readFileSync(resolve(AQUI, "..", "..", p), "utf8");
 
 const PRODUCAO = ler("supabase/audits/g2_quitacao_por_acordo_producao_20261001.sql");
-const M1 = "supabase/migrations/20261001183000_origem_liquidacao_acordo_quitado.sql";
-const M2 = "supabase/migrations/20261001183100_quitacao_por_acordo_delega_ao_motor.sql";
-const M3 = "supabase/migrations/20261001183200_titulo_reabrir_quitacao_por_acordo.sql";
-const M4 = "supabase/migrations/20261001183300_mensalidade_reconciliar_pago_sem_lastro.sql";
-const R1 = "supabase/rollbacks/20261001183000_origem_liquidacao_acordo_quitado.rollback.sql";
+const M1 = "supabase/migrations/20261001193805_origem_liquidacao_acordo_quitado.sql";
+const M2 = "supabase/migrations/20261001193932_quitacao_por_acordo_delega_ao_motor.sql";
+const M3 = "supabase/migrations/20261001194037_titulo_reabrir_quitacao_por_acordo.sql";
+const M4 = "supabase/migrations/20261001194211_mensalidade_reconciliar_pago_sem_lastro.sql";
+const R1 = "supabase/rollbacks/20261001193805_origem_liquidacao_acordo_quitado.rollback.sql";
 
 // md5(prosrc) lidos de producao em 01/10/2026. A bancada tem de ser ESTE corpo.
 const MD5_PRODUCAO = {

@@ -1,5 +1,5 @@
 -- ============================================================================
--- ROLLBACK de 20261001183200 -- remove a porta explicita.
+-- ROLLBACK de 20261001194037 -- remove a porta explicita.
 -- ============================================================================
 -- Sem ela nao existe caminho nenhum para tirar um titulo de PAGO/quitada: o
 -- motor trata PAGO como terminal. Nada do que ela ja fez e desfeito -- o

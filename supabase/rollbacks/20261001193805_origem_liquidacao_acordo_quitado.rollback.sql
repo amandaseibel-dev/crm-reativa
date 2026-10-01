@@ -1,5 +1,5 @@
 -- ============================================================================
--- ROLLBACK de 20261001183000 -- proveniencia da quitacao por acordo.
+-- ROLLBACK de 20261001193805 -- proveniencia da quitacao por acordo.
 -- ============================================================================
 -- Desfaz o patch ancorado em titulo_reavaliar (para de gravar a trinca) e
 -- devolve o constraint ao vocabulario antigo.
