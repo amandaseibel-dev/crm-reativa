@@ -45,6 +45,48 @@ aparece em linha de extrato financeiro**, só na filiação (`students_search
 ?carrierId=166`). Por isso "está no 166" se confirma pela **listagem**, nunca
 pelo extrato.
 
+## Vínculo acadêmico (curso + campus + turno)
+
+**NÃO FOI ENCONTRADO IDENTIFICADOR ESTÁVEL nos endpoints e na amostra
+consultados.** Medido em 28/09/2026 numa amostra de 6
+alunos devedores (35 vínculos, 111 contratos):
+
+| candidato | resultado |
+|---|---|
+| campo de id no item de `students_search` | **nenhum** — as chaves são `registration`, `name`, `cpf`, `course`, `status`, `admissionYear`, `graduated`, `campus`, `shift` |
+| `contracts[].number` | **string vazia em 111 de 111 contratos**, sem exceção |
+| chave composta `course` + `campus` + `shift` | **não separa os vínculos** |
+
+**Por que a chave composta não serve** — três defeitos medidos, cada um
+suficiente para invalidá-la:
+
+1. **Vínculos distintos com a chave idêntica.** Na matrícula `222007757`, três
+   linhas têm `course` "SUPERIOR DE TECNOLOGIA EM COMÉRCIO EXTERIOR", o mesmo
+   campus e o mesmo turno "ENSINO A DISTANCIA", com status
+   `Reopção de Curso`, `Cancelado` e `null`. Nenhuma combinação dos campos
+   disponíveis as distingue.
+2. **Acentuação divide o mesmo curso, e normalizar funde vínculos diferentes.**
+   Na `201008325` convivem "EDUCACAO FISICA - BACHARELADO"
+   (`status: Reopção de Curso`, `graduated: false`) e
+   "EDUCAÇÃO FÍSICA - BACHARELADO" (`status: Mudança de Campus`,
+   `graduated: true`). Sem normalizar, não casam com o contrato; normalizando,
+   **as duas colapsam numa só** e um dos status desaparece.
+3. **Chave incompleta e dado sujo.** `campus` e `shift` vieram nulos em 10 dos
+   35 vínculos, e `shift` aparece como "NOITE..." (com os pontos literais) ao
+   lado de "NOITE" na mesma matrícula `221005273`.
+
+**Consequência para matching contra contrato:** casando por curso normalizado,
+**21 dos 35 vínculos casam com mais de um contrato** (um deles com 34) e **8 não
+casam com nenhum**. Não há, na superfície atual da API, caminho para dizer
+"este vínculo é o do contrato que gerou esta dívida".
+
+**Portanto:** com os endpoints e a amostra consultados, associar situação
+acadêmica ao curso de uma dívida **não é possível com prova**. Não é afirmação
+sobre a API inteira: é o alcance do que foi medido, e um endpoint ou campo ainda
+não sondado pode mudar a conclusão. Quem precisar do dado exibe os vínculos encontrados e
+declara a não identificação — nunca escolhe uma linha, nunca promove o status de
+um curso a status da pessoa, e nunca usa `contracts[].status` como substituto.
+
 ## Regras de matching, por ordem de confiabilidade
 
 1. **CPF exato** (formatado na busca, comparado em dígitos puros no retorno)
@@ -58,6 +100,10 @@ pelo extrato.
    `docs/PREMISSAS.md`) ou como sugestão para revisão humana
 6. **Nome** — nunca vincula nada financeiro; serve só como pista secundária
    com aviso explícito na tela ("nome não é prova")
+7. **Vínculo acadêmico (curso/campus/turno)** — **não é chave**: não separa
+   vínculos distintos (ver a seção acima). Não serve para matching, nem como
+   pista, porque o erro é silencioso: dois vínculos com status diferentes
+   respondem à mesma chave
 
 Ver também [prime-mapa-fontes-verdade.md](prime-mapa-fontes-verdade.md) para
 qual identificador vale como fonte de verdade de cada informação.

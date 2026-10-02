@@ -169,6 +169,14 @@ function montarCards(t) {
                conta(t?.acordos_cancelados, "acordo cancelado", "acordos cancelados")
                  + " (conceito separado)"],
       nota: "cobrança cancelada sai da base; acordo cancelado não",
+      // Medido em 29/09: 103 mensalidades de 2026/2 são de alunos tabulados
+      // como cancelamento ou suspensão de cobrança, e NENHUMA delas entra aqui
+      // por causa disso -- elas seguem em sem negociação, em conferência ou
+      // convertido. Duas aparecem neste card, mas pela SITUAÇÃO do título, não
+      // pela tabulação. Sem esta frase o card é lido como se já cobrisse as
+      // tabulações, e ele não cobre.
+      aviso: "Considera somente títulos com situação CANCELADA. Não inclui, por si só, "
+           + "tabulações de cancelamento ou suspensão do aluno.",
     },
     {
       chave: "saldo", indicador: "saldo", papel: "saldo",
@@ -522,6 +530,44 @@ function PainelDetalhe({ detalhe, onFechar }) {
   // aplicada a coluna simplesmente não aparece, em vez de a tela mostrar vazio
   // e passar a impressão de que ninguém tem origem.
   const temOrigem = (d?.linhas || []).some((l) => "origem_importacao" in l);
+  // CONFERIR EM ABERTO -- só aparece na faixa "Em conferência", e só quando o
+  // banco já devolve `titulo_id`. Sem a migration a coluna não existe, em vez
+  // de render um botão que erraria ao salvar.
+  const podeConferir = ind === "em_conferencia" && (d?.linhas || []).some((l) => l.titulo_id);
+  // `conferidos` guarda o que foi salvo NESTA sessão: a lista do painel é uma
+  // fotografia e não se recarrega sozinha, então sem isso a linha continuaria
+  // parecendo pendente depois de conferida.
+  const [conferidos, setConferidos] = useState(() => new Map());
+  const [aberto, setAberto] = useState(null);       // titulo_id com o formulário aberto
+  const [justificativa, setJustificativa] = useState("");
+  const [evidencia, setEvidencia] = useState("");
+  const [salvando, setSalvando] = useState(false);
+  const [erroConf, setErroConf] = useState("");
+
+  function abrirFormulario(l) {
+    setAberto(l.titulo_id); setJustificativa(""); setEvidencia(""); setErroConf("");
+  }
+
+  async function salvarConferencia(l) {
+    setSalvando(true); setErroConf("");
+    // Manda de volta o que a tela EXIBIU. Se o título mudou desde a carga, o
+    // banco recusa com ESTADO_MUDOU -- o que mudou pode ser justamente um
+    // pagamento, e confirmar "em aberto" por cima disso seria registrar uma
+    // informação falsa.
+    const { data, error } = await supabase.rpc("carteira_conferir_em_aberto", {
+      p_titulo_id: l.titulo_id,
+      p_justificativa: justificativa,
+      p_evidencia: evidencia,
+      p_valor_visto: l.valor_original,
+      p_situacao_vista: l.situacao_crm,
+      p_liquidado_visto: l.prime_liquidado ?? null,
+    });
+    setSalvando(false);
+    if (error) { setErroConf(error.message || String(error)); return; }
+    setConferidos((atual) => new Map(atual).set(l.titulo_id, data?.conferido_por || "você"));
+    setAberto(null);
+  }
+
   // Documento longo escondia a coluna de valor. Truncar sozinho nao serve: o
   // identificador tem de continuar consultavel E copiavel, tambem no celular,
   // onde nao existe hover para ler um `title`. Entao cada linha longa ganha um
@@ -555,6 +601,50 @@ function PainelDetalhe({ detalhe, onFechar }) {
                 ? " · mostrando os " + num(d?.linhas?.length) + " de maior valor original"
                 : ""}
             </p>
+            {aberto ? (() => {
+              const l = (d?.linhas || []).find((x) => x.titulo_id === aberto);
+              if (!l) return null;
+              const podeSalvar = justificativa.trim().length >= 15 && evidencia.trim().length >= 3;
+              return (
+                <div style={S.formConferir}>
+                  <strong style={S.formTitulo}>
+                    Conferido no Prime: dívida devida, em aberto, sem pagamento ou negociação
+                  </strong>
+                  <span style={S.formLinha}>
+                    Título <strong>{l.documento}</strong> · {l.aluno} · {moeda(l.valor_original)}
+                  </span>
+                  <span style={S.formAviso}>
+                    Isto <strong>não</strong> baixa, cancela nem quita nada. O título continua exigível pelo
+                    mesmo valor: ele apenas deixa de aparecer como pendente de conferência e passa a contar em
+                    “Sem negociação”. Se depois surgir acordo, pagamento ou liquidação nova no Prime, ele volta
+                    sozinho para esta faixa.
+                  </span>
+                  <label style={S.formRotulo} htmlFor="conf-just">
+                    O que você conferiu (mínimo 15 caracteres)
+                  </label>
+                  <textarea id="conf-just" style={S.formCampo} rows={3} value={justificativa}
+                            onChange={(e) => setJustificativa(e.target.value)}
+                            placeholder="Ex.: consultado na tela do Prime; boleto consta em aberto, sem baixa, sem acordo e sem pagamento." />
+                  <label style={S.formRotulo} htmlFor="conf-evid">
+                    Referência da evidência consultada
+                  </label>
+                  <input id="conf-evid" style={S.formCampo} value={evidencia}
+                         onChange={(e) => setEvidencia(e.target.value)}
+                         placeholder="Ex.: Prime → Títulos em aberto, consulta de 28/09/2026" />
+                  {erroConf ? <span style={S.formErro}>{erroConf}</span> : null}
+                  <div style={S.formBotoes}>
+                    <button type="button" style={S.btnSalvarConf} disabled={!podeSalvar || salvando}
+                            onClick={() => salvarConferencia(l)}>
+                      {salvando ? "Registrando…" : "Registrar conferência"}
+                    </button>
+                    <button type="button" style={S.btnCancelarConf} disabled={salvando}
+                            onClick={() => setAberto(null)}>
+                      Cancelar
+                    </button>
+                  </div>
+                </div>
+              );
+            })() : null}
             {(d?.linhas || []).length ? (
               <div style={S.tabelaRolagem}>
                 <table style={S.tabela}>
@@ -568,6 +658,7 @@ function PainelDetalhe({ detalhe, onFechar }) {
                       {temOrigem ? <th style={S.th}>Origem</th> : null}
                       <th style={S.th}>Situação</th>
                       <th style={{ ...S.th, textAlign: "right" }}>{rotuloValor}</th>
+                      {podeConferir ? <th style={S.th}>Conferência</th> : null}
                     </tr>
                   </thead>
                   <tbody>
@@ -608,6 +699,24 @@ function PainelDetalhe({ detalhe, onFechar }) {
                         <td style={{ ...S.td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                           {moeda(l[colunaValor])}
                         </td>
+                        {podeConferir ? (
+                          <td style={S.td}>
+                            {conferidos.has(l.titulo_id) || l.conferido_por ? (
+                              <span style={S.conferidoSelo}>
+                                Conferido em aberto
+                                <span style={S.conferidoQuem}>
+                                  {conferidos.get(l.titulo_id) || l.conferido_por}
+                                </span>
+                              </span>
+                            ) : l.titulo_id ? (
+                              <button type="button" style={S.btnConferir}
+                                      onClick={() => abrirFormulario(l)}
+                                      title="Registrar que a dívida é devida e está em aberto no Prime">
+                                Conferir em aberto
+                              </button>
+                            ) : <span style={S.discreto}>—</span>}
+                          </td>
+                        ) : null}
                       </tr>
                     ))}
                   </tbody>
@@ -630,6 +739,34 @@ function PainelDetalhe({ detalhe, onFechar }) {
 }
 
 const S = {
+  // Conferir em aberto: o formulário fica em destaque porque registra uma
+  // decisão de gestão, não uma preferência de visualização.
+  formConferir: { background: "var(--rv-fundo-suave)", border: "1px solid var(--rv-azul-borda)",
+                  borderRadius: 12, padding: "12px 14px", marginBottom: 10,
+                  display: "flex", flexDirection: "column", gap: 6 },
+  formTitulo: { fontSize: 13, color: "var(--rv-azul-texto)" },
+  formLinha: { fontSize: 12, color: "var(--rv-texto-suave)" },
+  formAviso: { fontSize: 11.5, color: "var(--rv-ambar-texto)", lineHeight: 1.5,
+               borderTop: "1px dashed var(--rv-borda-suave)", paddingTop: 6, marginTop: 2 },
+  formRotulo: { fontSize: 11.5, fontWeight: 700, marginTop: 4 },
+  formCampo: { fontFamily: "inherit", fontSize: 12.5, padding: "7px 9px", borderRadius: 8,
+               border: "1px solid var(--rv-borda-suave)", background: "var(--rv-superficie)",
+               color: "var(--rv-texto)", width: "100%", boxSizing: "border-box" },
+  formErro: { fontSize: 12, color: "var(--rv-vermelho-texto)", lineHeight: 1.5, marginTop: 4 },
+  formBotoes: { display: "flex", gap: 8, marginTop: 6 },
+  btnSalvarConf: { background: "var(--rv-azul)", color: "#fff", border: 0, borderRadius: 8,
+                   padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                   fontFamily: "inherit" },
+  btnCancelarConf: { background: "none", color: "var(--rv-texto-suave)",
+                     border: "1px solid var(--rv-borda-suave)", borderRadius: 8,
+                     padding: "7px 14px", fontSize: 12.5, fontWeight: 700, cursor: "pointer",
+                     fontFamily: "inherit" },
+  btnConferir: { background: "none", border: "1px solid var(--rv-azul-borda)", borderRadius: 8,
+                 padding: "4px 9px", fontSize: 11.5, fontWeight: 700, color: "var(--rv-azul-texto)",
+                 cursor: "pointer", fontFamily: "inherit", whiteSpace: "nowrap" },
+  conferidoSelo: { display: "flex", flexDirection: "column", gap: 1, fontSize: 11.5,
+                   fontWeight: 700, color: "var(--rv-verde-ok-texto)" },
+  conferidoQuem: { fontSize: 10.5, fontWeight: 400, color: "var(--rv-texto-suave)" },
   h2: { margin: 0, fontSize: 12.5, fontWeight: 700, letterSpacing: "0.05em", textTransform: "uppercase",
         color: "var(--rv-texto-fraco)" },
   erro: { color: "var(--rv-vermelho)", fontSize: 14, margin: 0 },

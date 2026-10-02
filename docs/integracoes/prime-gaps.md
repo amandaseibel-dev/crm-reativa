@@ -14,7 +14,9 @@ outra via" (VERMELHO com evidência). Ver a formulação completa em
 |---|---|---|---|---|---|
 | Cadastro (telefone, e-mail, endereço) | 🟢 VERDE | Sim | `student_composite` | Sim | nenhum |
 | CPF confiável | 🟢 VERDE | Sim | `student_composite` | Sim | nenhum |
-| Curso, campus, turno, situação acadêmica | 🟢 VERDE | Sim | `student_composite`/`contracts` | Sim | nenhum |
+| Curso, campus, turno | 🟢 VERDE | Sim | `students_search`/`contracts` | Sim | nenhum |
+| Situação acadêmica, por vínculo de curso | 🟡 AMARELO | Sim, em `students_search` → `items[].status` | `students_search` | Parcial | **status nulo em 14 de 35 vínculos** na amostra de 6 alunos (28/09/2026); **sem identificador estável do vínculo nos endpoints consultados**, e a chave composta não o separa — 21 de 35 linhas casam com mais de um contrato e 3 vínculos do mesmo aluno compartilham curso+campus+turno com status diferentes |
+| Situação acadêmica da PESSOA (um rótulo só) | 🔴 VERMELHO | Não | — | Não | a fonte só expressa por vínculo de curso; um rótulo por pessoa não existe na API e não pode ser derivado sem escolher arbitrariamente entre vínculos que discordam |
 | Contrato vigente | 🟢 VERDE | Sim | `contracts[]` | Sim | nenhum |
 | Filiação a portador (166/195) | 🟢 VERDE | Sim | `students_search?carrierId=` | Sim | nenhum |
 | Título a vencer e atraso inicial (0–31 dias) — existência, vencimento, valor | 🟢 VERDE | Sim | `financial_statement`, `carrier.id = 95` | Sim | nenhum — medido 28/09/2026: 19.795 a vencer, 7.182 em 1–31 dias |

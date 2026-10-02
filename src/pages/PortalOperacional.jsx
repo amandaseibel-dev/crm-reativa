@@ -1,6 +1,7 @@
 import { useState, useEffect, Fragment } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
+import VisaoGeralInterativa from "../components/VisaoGeralInterativa";
 import printOlinda from "../data/elogios/diego-olinda";
 import printRamon from "../data/elogios/suyanne";
 import printSuyanne from "../data/elogios/diego-suyanne";
@@ -31,7 +32,7 @@ const SECOES = [
     itens: [
       { id: "rotina", label: "📌 Pontos do Dia a Dia", keywords: "registro crm proposta objeção contato prioridade acordo cobrança regras rotina" },
       { id: "script", label: "🧭 Script do Atendimento", keywords: "aluno respondeu template roteiro atendimento início apresentação dívida fechar sem interesse sem condições falta interação negociação" },
-      { id: "duvidas", label: "❓ Dúvidas Frequentes", keywords: "taxa parcelamento processo template acordo mensalidade cartão boleto dúvida recorrente" },
+      { id: "duvidas", label: "❓ Dúvidas Frequentes", keywords: "taxa parcelamento processo template acordo mensalidade cartão boleto dúvida recorrente link taxa parcela sem taxa juros bancária" },
       { id: "mensagens", label: "💬 Mensagens Prontas", keywords: "frase pronta texto whatsapp email resposta aluno copiar mensagem" },
       { id: "objecoes", label: "🔥 Quebras de Objeção", keywords: "argumentação argumento não tenho dinheiro cartão pensar desconto objeção resposta" },
     ],
@@ -39,17 +40,17 @@ const SECOES = [
   {
     grupo: "Negociação",
     itens: [
-      { id: "politica", label: "📄 Política de Negociação", keywords: "à vista cartão boleto acordo parcelamento entrada condição negociação regra" },
-      { id: "termo", label: "✍️ Termo de Acordo", keywords: "termo assinatura gov.br adm validação validar prime acordo parcelado documento legível" },
+      { id: "politica", label: "📄 Política de Negociação", keywords: "à vista cartão boleto acordo parcelamento entrada condição negociação regra 30% 6x sem desconto rematrícula" },
+      { id: "termo", label: "✍️ Termo de Acordo", keywords: "termo assinatura gov.br adm validação validar prime acordo parcelado documento legível obrigatório assinatura digital" },
       { id: "excecao", label: "📝 Proposta de Exceção", keywords: "proposta exceção desconto aprovação condição especial" },
-      { id: "honorarios", label: "💰 Honorários e Taxas", keywords: "8% juros multa igpm taxa honorário encargos" },
+      { id: "honorarios", label: "💰 Honorários e Taxas", keywords: "8% juros multa igpm taxa honorário honorários encargos 1% 2% cálculo principal" },
       { id: "beneficios", label: "🎟️ Bolsas e Financiamentos", keywords: "bolsa fies prouni udebank educred quero bolsa credies financiamento" },
     ],
   },
   {
     grupo: "Vida Acadêmica",
     itens: [
-      { id: "academico", label: "🎓 Matrícula e Rematrícula", keywords: "matrícula rematrícula webaluno trancamento antecipação consultor" },
+      { id: "academico", label: "🎓 Matrícula e Rematrícula", keywords: "matrícula rematrícula webaluno web aluno trancamento antecipação consultor entrada acordo benefício" },
       { id: "documentos", label: "📑 Documentos e Protocolos", keywords: "irpf imposto renda declaração contrato educacional comprovante protocolo webaluno parecer solicitação" },
       { id: "cursos", label: "📚 Cursos Ulbra", keywords: "curso graduação medicina ead presencial semipresencial faculdade" },
     ],
@@ -57,11 +58,11 @@ const SECOES = [
   {
     grupo: "Operação",
     itens: [
-      { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria gmail prime folya nota fiscal prestação serviços comissão pix conta planilha sistema acesso link ferramenta" },
+      { id: "sistemas", label: "🚀 Sistemas e Planilhas", keywords: "reativa one crm mensageria whatsapp gmail prime folya nota fiscal prestação serviços comissão pix conta planilha sistema acesso link ferramenta cobrafix robbu callsys proesc assertiva" },
       { id: "manualprime", label: "📘 Manual do Prime", keywords: "prime manual painel atendimento títulos receber acordos condições especiais desconto atalho financeiro" },
       { id: "manualmensageria", label: "💬 Manual do CRM Mensageria", keywords: "crm mensageria manual whatsapp mensagens atendimento template resposta aluno comprovante baixa acordo" },
       { id: "ddds", label: "📞 DDDs das Unidades", keywords: "ddd código área telefone unidade cidade cachoeira canoas carazinho gravataí guaíba itumbiara manaus palmas porto alegre santa maria santarém são jerônimo torres ead" },
-      { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico giovana bruno unidade adm financeiro contato" },
+      { id: "contatos", label: "☎️ Contatos Úteis", keywords: "telefone email ramal jurídico juridico giovana bruno unidade adm financeiro contato campus canoas" },
       { id: "meta", label: "🎯 Meta do Mês", keywords: "meta comissão honorário projeção resultado mês" },
     ],
   },
@@ -103,6 +104,12 @@ export default function PortalOperacional() {
             .includes(termoBusca)
         ),
       })).filter((grupo) => grupo.itens.length);
+
+  const resultadosBusca = termoBusca
+    ? secoesFiltradas.flatMap((grupo) =>
+        grupo.itens.map((item) => ({ ...item, grupo: grupo.grupo }))
+      ).slice(0, 8)
+    : [];
 
   function navegar(id) {
     setSecao(id);
@@ -165,6 +172,34 @@ export default function PortalOperacional() {
         </aside>
 
         <main style={S.conteudo}>
+          <div style={S.buscaTopoBox}>
+            <span style={S.buscaTopoIcone}>⌕</span>
+            <input
+              value={busca}
+              onChange={(e) => setBusca(e.target.value)}
+              placeholder="Buscar no Portal: 8%, gov.br, WebAluno, boleto, DDD..."
+              style={S.buscaTopoInput}
+              aria-label="Buscar conteúdo no Portal ReATIVA"
+            />
+            {termoBusca && (
+              <div style={S.buscaResultados}>
+                {resultadosBusca.length ? resultadosBusca.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => navegar(item.id)}
+                    style={S.buscaResultadoItem}
+                  >
+                    <strong>{item.label}</strong>
+                    <span>{item.grupo}</span>
+                  </button>
+                )) : (
+                  <div style={S.buscaSemResultado}>Nenhum conteúdo encontrado para “{busca}”.</div>
+                )}
+              </div>
+            )}
+          </div>
+
           {secao === "inicio" && <SecaoInicio ir={navegar} />}
           {secao === "rotina" && <SecaoRotina />}
           {secao === "script" && <SecaoScript ir={navegar} />}
@@ -310,6 +345,8 @@ function SecaoInicio({ ir }) {
           </div>
         </div>
       </div>
+
+      <VisaoGeralInterativa />
 
       <div style={S.statusGrid}>
         <Card style={{ ...S.statusCard, ...S.statusCardDestaque }}>
@@ -3684,4 +3721,11 @@ const S = {
     cursor: "pointer",
   },
 
+
+  buscaTopoBox: { position: "relative", marginBottom: 18, maxWidth: 760 },
+  buscaTopoIcone: { position: "absolute", left: 14, top: 13, color: "var(--rv-texto-suave)", fontSize: 18, zIndex: 2 },
+  buscaTopoInput: { width: "100%", boxSizing: "border-box", border: "1px solid var(--rv-borda)", borderRadius: 14, padding: "12px 14px 12px 42px", background: "var(--rv-superficie)", color: "var(--rv-tinta)", fontFamily: "inherit", fontSize: 14, boxShadow: "0 6px 20px rgba(15,23,42,.04)" },
+  buscaResultados: { position: "absolute", left: 0, right: 0, top: "calc(100% + 6px)", zIndex: 20, display: "grid", gap: 4, padding: 8, border: "1px solid var(--rv-borda)", borderRadius: 14, background: "var(--rv-superficie)", boxShadow: "0 14px 34px rgba(15,23,42,.14)" },
+  buscaResultadoItem: { border: 0, borderRadius: 10, background: "transparent", padding: "9px 10px", textAlign: "left", cursor: "pointer", color: "var(--rv-tinta)", display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, fontFamily: "inherit" },
+  buscaSemResultado: { padding: "10px", color: "var(--rv-texto-suave)", fontSize: 13 },
 };

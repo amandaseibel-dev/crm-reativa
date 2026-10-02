@@ -406,3 +406,209 @@ describe("Efetividade 2026/2 por competência", () => {
     expect(screen.queryByRole("group", { name: "Indicadores do recorte" })).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// CONFERIR EM ABERTO
+//
+// O que estes testes protegem nao e o visual: e que a tela nao invente e nao
+// esconda. A confirmacao so pode ser oferecida na faixa certa, so pode ser
+// salva com justificativa e evidencia, e tem de mandar de volta o estado que
+// FOI EXIBIDO -- sem isso, alguem confirma "em aberto, sem pagamento" sobre um
+// titulo que acabou de ser pago enquanto a tela estava aberta.
+// ---------------------------------------------------------------------------
+const LINHA_CONF = {
+  aluno: "ALUNO EM CONFERENCIA", cpf: "123.***.789-**", documento: "0009998888",
+  vencimento: "2026-08-10", competencia: "2026-08-01", valor_original: 1571.55,
+  acordo: "(sem número)", acordo_estado: "sem_acordo",
+  situacao: "Liquidado no Prime, origem não comprovada",
+  recuperado: 0, saldo: 1571.55, motivo_cancelamento: null,
+  fonte_semestre: "série do Prime",
+  // campos que so existem depois da migration desta proposta
+  titulo_id: "11111111-1111-4111-8111-111111111111",
+  situacao_crm: "ABERTO", prime_liquidado: "2026-09-09",
+  conferido_por: null, conferido_em: null,
+};
+const DETALHE_CONF = {
+  indicador: "em_conferencia", competencia: null, total_titulos: 1, total_valor: 1571.55,
+  limite: 200, offset: 0, linhas: [LINHA_CONF],
+};
+
+async function abrirConferencia(linha = LINHA_CONF) {
+  rpcMock.mockImplementation((nome) => {
+    if (nome === "carteira_2026_2_competencias") return Promise.resolve({ data: PAINEL });
+    if (nome === "carteira_2026_2_competencia_detalhe")
+      return Promise.resolve({ data: { ...DETALHE_CONF, linhas: [linha] } });
+    return Promise.resolve({ data: { ok: true, conferido_por: "gestao@teste" } });
+  });
+  await abrir();
+  await act(async () => {
+    fireEvent.click(topo().getByText("Em conferência").closest("button"));
+  });
+}
+
+describe("Conferir em aberto", () => {
+  it("a coluna só existe na faixa Em conferência", async () => {
+    await abrirConferencia();
+    expect(screen.getByRole("columnheader", { name: "Conferência" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Conferir em aberto" })).toBeTruthy();
+  });
+
+  it("sem a migration (linha sem titulo_id) a coluna não aparece, em vez de um botão que erraria", async () => {
+    const semId = { ...LINHA_CONF };
+    delete semId.titulo_id;
+    await abrirConferencia(semId);
+    expect(screen.queryByRole("columnheader", { name: "Conferência" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Conferir em aberto" })).toBeNull();
+  });
+
+  it("em outra faixa a coluna não aparece, mesmo com titulo_id na linha", async () => {
+    rpcMock.mockImplementation((nome) => {
+      if (nome === "carteira_2026_2_competencias") return Promise.resolve({ data: PAINEL });
+      return Promise.resolve({ data: { ...DETALHE_CONF, indicador: "sem_negociacao" } });
+    });
+    await abrir();
+    await act(async () => {
+      fireEvent.click(topo().getByText("Saldo residual da carteira").closest("button"));
+    });
+    expect(screen.queryByRole("columnheader", { name: "Conferência" })).toBeNull();
+  });
+
+  it("o formulário diz que nada é baixado, cancelado ou quitado", async () => {
+    await abrirConferencia();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Conferir em aberto" }));
+    });
+    expect(screen.getByText(/dívida devida, em aberto, sem pagamento ou negociação/i)).toBeTruthy();
+    // O "não" está dentro de <strong>, então o texto vem quebrado em nós: casar
+    // o trecho depois dele é o que funciona sem depender da marcação.
+    expect(screen.getByText(/baixa, cancela nem quita nada/i)).toBeTruthy();
+    expect(screen.getByText(/volta sozinho para esta faixa/i)).toBeTruthy();
+  });
+
+  it("não deixa registrar sem justificativa e sem evidência", async () => {
+    await abrirConferencia();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Conferir em aberto" }));
+    });
+    const salvar = screen.getByRole("button", { name: "Registrar conferência" });
+    expect(salvar.disabled).toBe(true);
+
+    // justificativa curta demais: continua travado
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/O que você conferiu/i), { target: { value: "curto" } });
+      fireEvent.change(screen.getByLabelText(/Referência da evidência/i), { target: { value: "Prime" } });
+    });
+    expect(screen.getByRole("button", { name: "Registrar conferência" }).disabled).toBe(true);
+
+    // com os dois preenchidos, libera
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/O que você conferiu/i),
+        { target: { value: "conferido na tela do Prime, boleto em aberto sem baixa" } });
+    });
+    expect(screen.getByRole("button", { name: "Registrar conferência" }).disabled).toBe(false);
+  });
+
+  it("manda ao banco o ESTADO QUE EXIBIU, não só o id — é o que impede confirmar o que mudou", async () => {
+    await abrirConferencia();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Conferir em aberto" }));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/O que você conferiu/i),
+        { target: { value: "conferido na tela do Prime, boleto em aberto sem baixa" } });
+      fireEvent.change(screen.getByLabelText(/Referência da evidência/i),
+        { target: { value: "Prime, consulta de 28/09/2026" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Registrar conferência" }));
+    });
+    const chamada = rpcMock.mock.calls.find((c) => c[0] === "carteira_conferir_em_aberto");
+    expect(chamada).toBeTruthy();
+    expect(chamada[1]).toEqual({
+      p_titulo_id: LINHA_CONF.titulo_id,
+      p_justificativa: "conferido na tela do Prime, boleto em aberto sem baixa",
+      p_evidencia: "Prime, consulta de 28/09/2026",
+      p_valor_visto: 1571.55,
+      p_situacao_vista: "ABERTO",
+      p_liquidado_visto: "2026-09-09",
+    });
+  });
+
+  it("depois de registrar, a linha mostra o selo — a lista é uma fotografia e não se recarrega sozinha", async () => {
+    await abrirConferencia();
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Conferir em aberto" }));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/O que você conferiu/i),
+        { target: { value: "conferido na tela do Prime, boleto em aberto sem baixa" } });
+      fireEvent.change(screen.getByLabelText(/Referência da evidência/i),
+        { target: { value: "Prime, consulta de 28/09/2026" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Registrar conferência" }));
+    });
+    expect(screen.getByText("Conferido em aberto")).toBeTruthy();
+    expect(screen.getByText("gestao@teste")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Conferir em aberto" })).toBeNull();
+  });
+
+  it("erro do banco aparece na tela e não some o formulário — ESTADO_MUDOU precisa ser lido", async () => {
+    await abrirConferencia();
+    rpcMock.mockImplementation((nome) => {
+      if (nome === "carteira_2026_2_competencias") return Promise.resolve({ data: PAINEL });
+      if (nome === "carteira_2026_2_competencia_detalhe") return Promise.resolve({ data: DETALHE_CONF });
+      return Promise.resolve({ data: null, error: { message: "ESTADO_MUDOU: recarregue e confira de novo." } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Conferir em aberto" }));
+    });
+    await act(async () => {
+      fireEvent.change(screen.getByLabelText(/O que você conferiu/i),
+        { target: { value: "conferido na tela do Prime, boleto em aberto sem baixa" } });
+      fireEvent.change(screen.getByLabelText(/Referência da evidência/i),
+        { target: { value: "Prime, consulta de 28/09/2026" } });
+    });
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Registrar conferência" }));
+    });
+    expect(screen.getByText(/ESTADO_MUDOU/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Registrar conferência" })).toBeTruthy();
+    expect(screen.queryByText("Conferido em aberto")).toBeNull();
+  });
+
+  it("título já conferido no banco mostra quem conferiu, sem oferecer o botão de novo", async () => {
+    await abrirConferencia({ ...LINHA_CONF, conferido_por: "outra.pessoa@teste",
+                             conferido_em: "2026-09-28T12:00:00Z" });
+    expect(screen.getByText("Conferido em aberto")).toBeTruthy();
+    expect(screen.getByText("outra.pessoa@teste")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Conferir em aberto" })).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// O QUE O CARD "CANCELADOS" NAO COBRE
+//
+// Medido em 29/09: 103 mensalidades de 2026/2 sao de alunos tabulados como
+// cancelamento ou suspensao de cobranca, e NENHUMA entra neste card por causa
+// disso -- seguem em sem negociacao, em conferencia ou convertido. Duas
+// aparecem aqui, mas pela SITUACAO do titulo. Sem a frase, o card e lido como
+// se ja cobrisse as tabulacoes.
+// ---------------------------------------------------------------------------
+describe("Card Cancelados: diz o que NÃO considera", () => {
+  it("avisa que conta só situação CANCELADA e não as tabulações do aluno", async () => {
+    await abrir();
+    const card = topo().getByText("Cancelados").closest("button");
+    expect(card).toBeTruthy();
+    expect(within(card).getByText(/Considera somente títulos com situação CANCELADA/)).toBeTruthy();
+    expect(within(card).getByText(/Não inclui, por si só, tabulações de cancelamento ou suspensão do aluno/))
+      .toBeTruthy();
+  });
+
+  it("o aviso é do card de cancelados, não de outro", async () => {
+    await abrir();
+    const recuperado = topo().getByText("Recuperado por rateio").closest("button");
+    expect(within(recuperado).queryByText(/situação CANCELADA/)).toBeNull();
+  });
+});
+
