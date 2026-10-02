@@ -272,13 +272,12 @@ describe("Preventivo — janela de 31 dias em America/Sao_Paulo", () => {
 });
 
 describe("Preventivo — sincronização com o Prime", () => {
-  let db, carteira, titulo;
+  let db, carteira;
 
   beforeEach(async () => {
     db = await novoBanco();
     const c = await carteiraCom(db, [linha()]);
     carteira = c.id;
-    titulo = await um(db, `select id from public.prev_titulo`);
   });
 
   const ciclo = async (linhas) => {

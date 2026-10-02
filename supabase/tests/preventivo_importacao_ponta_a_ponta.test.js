@@ -181,6 +181,7 @@ describe("matrícula 2026003068: mesmo Dt Vcto, quatro Vcto Origem", () => {
   it("a mutação prova o defeito: sem vencimento_origem, três títulos somem", async () => {
     // Reproduz exatamente o que acontecia antes da correção.
     const { mapa, registros } = doCsvAoPayload(CSV);
+    // eslint-disable-next-line no-unused-vars -- o descarte das duas colunas É o objeto do teste
     const comoEraAntes = registros.map(({ vencimento_origem, saldo_atualizado, ...resto }) => resto);
     const resumo = await um(db,
       `select public.preventivo_lote_confirmar($1::uuid, 'Como era antes', 'x', $2::jsonb, null, $3::jsonb)`,
