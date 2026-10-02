@@ -75,6 +75,92 @@ const QUALIDADE_LABEL = {
   critico_sem_saldo_vencido: "Crítico sem saldo vencido",
 };
 
+// ───────────────────────────────────────────────────────────────────────────
+// ONDE AJUSTAR O SEMÁFORO — ponto único.
+//
+// Todo corte de cor desta tela sai daqui. Nenhum limiar aparece solto dentro
+// dos componentes, de propósito: quando a gestão quiser mudar o que é
+// "atenção", a mudança é nesta constante e em nenhum outro lugar.
+//
+// ATENÇÃO: os valores abaixo são DEFAULT TÉCNICO, não regra de negócio
+// fechada. Servem para a tela sair do cinza e precisam ser calibrados com a
+// gestão antes de virarem referência.
+// ───────────────────────────────────────────────────────────────────────────
+const LIMIARES = {
+  // % de casos sem acionamento dentro do grupo (estabelecimento / operador).
+  pct_sem_acionamento: { ok: 15, atencao: 30 },
+  // nº de registros com defeito em "Qualidade da carteira".
+  qualidade: { ok: 0, atencao: 50 },
+  // quantas linhas de concentração mostrar em "Onde está o dinheiro".
+  concentracao_top: 5,
+  // fatia de valor que define o núcleo da carteira (leitura de Pareto).
+  pareto_pct: 80,
+};
+
+const SEM = {
+  ok: { cor: "var(--rv-verde-ok-texto)", bg: "var(--rv-verde-ok-fundo)", borda: "var(--rv-verde-ok-borda)", rotulo: "ok" },
+  atencao: { cor: "var(--rv-ambar-texto)", bg: "var(--rv-ambar-fundo)", borda: "var(--rv-ambar-borda)", rotulo: "atenção" },
+  risco: { cor: "var(--rv-vermelho-texto)", bg: "var(--rv-vermelho-fundo)", borda: "var(--rv-vermelho-borda)", rotulo: "risco" },
+};
+const nivelPct = (v) => {
+  const n = Number(v || 0);
+  if (n <= LIMIARES.pct_sem_acionamento.ok) return "ok";
+  if (n <= LIMIARES.pct_sem_acionamento.atencao) return "atencao";
+  return "risco";
+};
+const nivelQualidade = (v) => {
+  const n = Number(v || 0);
+  if (n <= LIMIARES.qualidade.ok) return "ok";
+  if (n <= LIMIARES.qualidade.atencao) return "atencao";
+  return "risco";
+};
+// Participação no total. NÃO é cálculo novo de negócio: é o mesmo número que a
+// tela já mostra, dividido pelo total que a tela já mostra. Denominador zero
+// devolve 0 em vez de NaN -- carteira vazia não é erro de tela.
+const participacao = (parte, total) => {
+  const t = Number(total || 0);
+  if (!t) return 0;
+  return (Number(parte || 0) / t) * 100;
+};
+
+// Chip de semáforo. Só cor + rótulo; o número continua sendo o da tabela.
+function Semaforo({ nivel, children, titulo }) {
+  const s = SEM[nivel] || SEM.ok;
+  return (
+    <span title={titulo} style={{
+      display: "inline-block", padding: "1px 7px", borderRadius: 999, fontSize: 11.5,
+      fontWeight: 700, color: s.cor, background: s.bg, border: `1px solid ${s.borda}`,
+    }}>{children}</span>
+  );
+}
+
+// PRIORIDADES DE GESTÃO — o que a tela já sabe, em ordem de quem cobra primeiro.
+//
+// A tela tinha 16 cards do mesmo tamanho e da mesma cor: "casos ativos" ao lado
+// de "nunca acionados". Lado a lado, sem hierarquia, nenhum deles é prioridade
+// -- o gestor lê os 16 e decide no olho.
+//
+// `gravidade` é o que ordena ANTES da contagem, e é a única coisa aqui que é
+// julgamento, não dado: 3 = dinheiro saindo ou prazo estourando; 2 = trabalho
+// parado; 1 = cadastro. Sem isso, "sem telefone" (milhares) enterraria
+// "expira hoje" (dezenas), que é justamente o que não pode esperar.
+//
+// Cada linha reaproveita o MESMO `indicador` do drill-down que já existe: a
+// lista que abre é a mesma de sempre, vinda da mesma RPC, com os filtros atuais.
+const PRIORIDADES = [
+  ["fidelizacao_expira_hoje", "Fidelização expira hoje", 3, "perde a exclusividade do caso se ninguém acionar hoje"],
+  ["retornos_vencidos", "Retornos vencidos", 3, "o operador prometeu voltar e não voltou — é quebra de combinado com o aluno"],
+  ["acordos_vencidos", "Acordos vencidos", 3, "acordo fechado que parou de ser pago; cada dia reduz a chance de retomada"],
+  ["nunca_acionados", "Nunca acionados", 3, "dívida em carteira que ninguém tocou nenhuma vez"],
+  ["sem_acionamento_limite", "Sem acionamento (acima do limite)", 2, "passou do limite de dias escolhido no filtro acima"],
+  ["acordos_em_dia_sem_acompanhamento", "Acordos em dia sem acompanhamento", 2, "está pagando, mas sem ninguém acompanhando — é o que vira acordo vencido"],
+  ["criticos", "Críticos", 2, "classificados como críticos pela base"],
+  ["casos_revisao", "Casos para revisão", 2, "a base encontrou inconsistência e pediu conferência humana"],
+  ["casos_livres", "Casos livres", 2, "sem operador dono — ninguém é responsável por cobrar"],
+  ["sem_responsavel", "Sem responsável", 1, "cadastro sem responsável definido"],
+  ["sem_telefone", "Sem telefone", 1, "não há como ligar; só carta, e-mail ou atualização de cadastro"],
+];
+
 export default function SaudeCompletaCarteira() {
   const [filtros, setFiltros] = useState({ min_dias_sem_acionamento: 5 });
   const { data: resumo, carregando, ultimaEm, atualizar } =
@@ -88,6 +174,10 @@ export default function SaudeCompletaCarteira() {
   const [erroCurso, setErroCurso] = useState("");
   const [metricaFaixa, setMetricaFaixa] = useState("casos");
   const [ordEstab, setOrdEstab] = useState({ col: "sem_acionamento_limite", dir: "desc" });
+  // A tabela de operador vinha sem ordenação: a ordem era a que a RPC devolvia.
+  // Para comparar operadores (que é o motivo da tabela existir) é preciso
+  // ordenar. Abre pelo saldo vencido, que é a conversa que a gestão tem.
+  const [ordOper, setOrdOper] = useState({ col: "saldo_vencido", dir: "desc" });
   const [exportando, setExportando] = useState(false);
 
   // detalhamento (drill-down)
@@ -275,15 +365,36 @@ export default function SaudeCompletaCarteira() {
     }
   };
 
-  const estabs = [...(resumo?.estabelecimentos || [])].sort((a, b) => {
-    const s = (ordEstab.dir === "asc" ? 1 : -1);
-    const va = a[ordEstab.col], vb = b[ordEstab.col];
-    if (typeof va === "string") return s * String(va).localeCompare(String(vb));
-    return s * ((va || 0) - (vb || 0));
-  });
+  // PARTICIPAÇÃO NO SALDO VENCIDO, por estabelecimento e por operador.
+  //
+  // A tabela já trazia o saldo vencido de cada linha, mas não dizia se aquilo
+  // era muito. "R$ 1,2 mi" só vira informação ao lado de "27% do vencido da
+  // carteira". É divisão do número que já está na tela pelo total que já está
+  // na tela -- entra como coluna nova, e por isso é ordenável como as outras.
+  const estabs = [...(resumo?.estabelecimentos || [])]
+    .map((e) => ({ ...e, part_saldo_vencido: participacao(e.saldo_vencido, totais.saldo_vencido) }))
+    .sort((a, b) => {
+      const s = (ordEstab.dir === "asc" ? 1 : -1);
+      const va = a[ordEstab.col], vb = b[ordEstab.col];
+      if (typeof va === "string") return s * String(va).localeCompare(String(vb));
+      return s * ((va || 0) - (vb || 0));
+    });
+  // Mesma participação para operador, e aqui o ganho é maior: a tabela de
+  // operador não tinha ordenação nenhuma -- vinha na ordem da RPC.
+  //
+  // (SEM RESPONSAVEL) continua sendo uma linha como as outras, inclusive na
+  // ordenação: tirá-la ou fixá-la no fim esconderia justamente a carteira que
+  // não tem dono, que é o que mais interessa ver no topo.
+  const operadores = [...(resumo?.operadores || [])]
+    .map((o) => ({ ...o, part_saldo_vencido: participacao(o.saldo_vencido, totais.saldo_vencido) }))
+    .sort((a, b) => {
+      const s = (ordOper.dir === "asc" ? 1 : -1);
+      const va = a[ordOper.col], vb = b[ordOper.col];
+      if (typeof va === "string") return s * String(va).localeCompare(String(vb));
+      return s * ((va || 0) - (vb || 0));
+    });
   const mtxFaixa = resumo?.matriz_faixa_atraso || [];
   const mtxTempo = resumo?.matriz_tempo_sem_acionamento || [];
-  const operadores = resumo?.operadores || [];
 
   const totalGeral = (lista, col) => lista.reduce((s, x) => s + Number(x[col] || 0), 0);
 
@@ -323,6 +434,25 @@ export default function SaudeCompletaCarteira() {
       <SeloDataDeCorte variante="bloco" />
 
       <Filtros filtros={filtros} setFiltros={setFiltros} estabs={resumo?.estabelecimentos || []} operadores={operadores} isGestao={isGestao} />
+
+      {/* CAMADA ESTRATÉGICA, ANTES DO DETALHE.
+          A tela abria direto no detalhe operacional. Quem abre para decidir
+          precisa primeiro da leitura (o que está acontecendo), depois da
+          alocação (onde está o valor) e só então da fila (o que cobrar). O
+          detalhe que alimenta os três continua logo abaixo, intacto. */}
+      {resumo && (
+        <ResumoExecutivo
+          totais={totais}
+          origem={resumo?.saldo_por_origem}
+          porCurso={porCurso}
+          qualidade={qualidade}
+          onDrill={abrirDrill}
+        />
+      )}
+
+      <OndeEstaODinheiro porCurso={porCurso} panorama={panorama} origem={resumo?.saldo_por_origem} />
+
+      {resumo && <PrioridadesDeGestao totais={totais} onDrill={abrirDrill} />}
 
       <Panorama dados={panorama} erro={erroPanorama} />
 
@@ -368,7 +498,8 @@ export default function SaudeCompletaCarteira() {
               <table style={tabela}>
                 <thead><tr>
                   {[["estabelecimento", "Estabelecimento"], ["casos_ativos", "Casos"], ["cpfs_unicos", "CPFs"],
-                    ["saldo_vencido", "Saldo vencido"], ["saldo_total", "Saldo total"], ["nunca_acionados", "Nunca acion."],
+                    ["saldo_vencido", "Saldo vencido"], ["part_saldo_vencido", "% do vencido"],
+                    ["saldo_total", "Saldo total"], ["nunca_acionados", "Nunca acion."],
                     ["sem_acionamento_limite", "Sem acion. (lim.)"], ["pct_sem_acionamento", "%"], ["sem_ac_7", ">7d"],
                     ["sem_ac_15", ">15d"], ["sem_ac_30", ">30d"], ["retornos_vencidos", "Ret. venc."],
                     ["sem_telefone", "S/ tel."], ["sem_responsavel", "S/ resp."], ["criticos", "Crít."],
@@ -383,9 +514,21 @@ export default function SaudeCompletaCarteira() {
                     <tr key={e.estabelecimento} style={{ borderTop: "1px solid var(--rv-borda-suave)" }}>
                       <td style={{ ...td, fontWeight: 600, cursor: "pointer" }} onClick={() => abrirDrill(`Estab.: ${e.estabelecimento}`, { estabelecimento: e.estabelecimento })}>{e.estabelecimento}</td>
                       <td style={td}>{num(e.casos_ativos)}</td><td style={td}>{num(e.cpfs_unicos)}</td>
-                      <td style={td}>{moeda(e.saldo_vencido)}</td><td style={td}>{moeda(e.saldo_total)}</td>
+                      <td style={td}>{moeda(e.saldo_vencido)}</td>
+                      {/* Barra de participação: mesma leitura do número ao lado, só
+                          mais rápida de varrer numa tabela de 20 colunas. */}
+                      <td style={td}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+                          <span style={{ width: 44, height: 5, background: "var(--rv-fundo-suave)", borderRadius: 3, overflow: "hidden", display: "inline-block" }}>
+                            <span style={{ display: "block", width: `${Math.min(100, e.part_saldo_vencido)}%`, height: "100%", background: "var(--rv-azul-texto)" }} />
+                          </span>
+                          <span>{pct(e.part_saldo_vencido)}</span>
+                        </div>
+                      </td>
+                      <td style={td}>{moeda(e.saldo_total)}</td>
                       <td style={td}>{num(e.nunca_acionados)}</td><td style={td}>{num(e.sem_acionamento_limite)}</td>
-                      <td style={td}>{Number(e.pct_sem_acionamento || 0).toFixed(0)}%</td><td style={td}>{num(e.sem_ac_7)}</td>
+                      <td style={td}><Semaforo nivel={nivelPct(e.pct_sem_acionamento)}>{Number(e.pct_sem_acionamento || 0).toFixed(0)}%</Semaforo></td>
+                      <td style={td}>{num(e.sem_ac_7)}</td>
                       <td style={td}>{num(e.sem_ac_15)}</td><td style={td}>{num(e.sem_ac_30)}</td><td style={td}>{num(e.retornos_vencidos)}</td>
                       <td style={td}>{num(e.sem_telefone)}</td><td style={td}>{num(e.sem_responsavel)}</td><td style={td}>{num(e.criticos)}</td>
                       <td style={td}>{num(e.urgentes)}</td><td style={td}>{num(e.acordos_em_dia)}</td><td style={td}>{num(e.acordos_vencidos)}</td>
@@ -394,9 +537,11 @@ export default function SaudeCompletaCarteira() {
                   ))}
                   <tr style={{ borderTop: "2px solid var(--rv-borda-forte)", fontWeight: 800, background: "var(--rv-fundo-cartao)" }}>
                     <td style={td}>TOTAL DA CARTEIRA</td><td style={td}>{num(totais.casos_ativos)}</td><td style={td}>{num(totais.cpfs_unicos)}</td>
-                    <td style={td}>{moeda(totais.saldo_vencido)}</td><td style={td}>{moeda(totais.saldo_total)}</td>
+                    <td style={td}>{moeda(totais.saldo_vencido)}</td>
+                    <td style={td}>{pct(100)}</td>
+                    <td style={td}>{moeda(totais.saldo_total)}</td>
                     <td style={td}>{num(totais.nunca_acionados)}</td><td style={td}>{num(totais.sem_acionamento_limite)}</td>
-                    <td style={td}>{Number(totais.pct_sem_acionamento || 0).toFixed(0)}%</td>
+                    <td style={td}><Semaforo nivel={nivelPct(totais.pct_sem_acionamento)}>{Number(totais.pct_sem_acionamento || 0).toFixed(0)}%</Semaforo></td>
                     <td style={td} colSpan={3}></td>
                     <td style={td}>{num(totais.retornos_vencidos)}</td><td style={td}>{num(totais.sem_telefone)}</td>
                     <td style={td}>{num(totais.sem_responsavel)}</td><td style={td}>{num(totais.criticos)}</td><td style={td}>{num(totais.urgentes)}</td>
@@ -422,35 +567,56 @@ export default function SaudeCompletaCarteira() {
           <Secao titulo="Por operador">
             <div style={{ overflowX: "auto" }}>
               <table style={tabela}>
-                <thead><tr>{["Operador", "Casos", "CPFs", "Saldo vencido", "Saldo total", "Nunca acion.", "Sem acion.", "%", "Ret. venc.", "S/ tel.", "Crít.", "Urg.", "Ac. dia", "Ac. venc."].map((h) => <th key={h} style={th}>{h}</th>)}</tr></thead>
+                <thead><tr>
+                  {[["operador_email", "Operador"], ["casos_ativos", "Casos"], ["cpfs_unicos", "CPFs"],
+                    ["saldo_vencido", "Saldo vencido"], ["part_saldo_vencido", "% do vencido"],
+                    ["saldo_total", "Saldo total"], ["nunca_acionados", "Nunca acion."],
+                    ["sem_acionamento_limite", "Sem acion."], ["pct_sem_acionamento", "%"],
+                    ["retornos_vencidos", "Ret. venc."], ["sem_telefone", "S/ tel."], ["criticos", "Crít."],
+                    ["urgentes", "Urg."], ["acordos_em_dia", "Ac. dia"], ["acordos_vencidos", "Ac. venc."]].map(([col, lbl]) => (
+                    <th key={col} onClick={() => setOrdOper((o) => ({ col, dir: o.col === col && o.dir === "desc" ? "asc" : "desc" }))}
+                      style={{ ...th, cursor: "pointer" }}>{lbl}{ordOper.col === col ? (ordOper.dir === "desc" ? " ▼" : " ▲") : ""}</th>
+                  ))}
+                </tr></thead>
                 <tbody>
                   {operadores.map((o) => (
                     <tr key={o.operador_email} style={{ borderTop: "1px solid var(--rv-borda-suave)", ...(o.operador_email === "(SEM RESPONSAVEL)" ? { background: "var(--rv-ambar-fundo)" } : {}) }}>
                       <td style={{ ...td, fontWeight: 600, cursor: "pointer" }} onClick={() => o.operador_email !== "(SEM RESPONSAVEL)" && abrirDrill(`Operador: ${o.operador_email}`, { operador_email: o.operador_email })}>{o.operador_email}</td>
                       <td style={td}>{num(o.casos_ativos)}</td><td style={td}>{num(o.cpfs_unicos)}</td><td style={td}>{moeda(o.saldo_vencido)}</td>
+                      <td style={td}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 6, justifyContent: "flex-end" }}>
+                          <span style={{ width: 44, height: 5, background: "var(--rv-fundo-suave)", borderRadius: 3, overflow: "hidden", display: "inline-block" }}>
+                            <span style={{ display: "block", width: `${Math.min(100, o.part_saldo_vencido)}%`, height: "100%", background: "var(--rv-azul-texto)" }} />
+                          </span>
+                          <span>{pct(o.part_saldo_vencido)}</span>
+                        </div>
+                      </td>
                       <td style={td}>{moeda(o.saldo_total)}</td><td style={td}>{num(o.nunca_acionados)}</td><td style={td}>{num(o.sem_acionamento_limite)}</td>
-                      <td style={td}>{Number(o.pct_sem_acionamento || 0).toFixed(0)}%</td><td style={td}>{num(o.retornos_vencidos)}</td>
+                      <td style={td}><Semaforo nivel={nivelPct(o.pct_sem_acionamento)}>{Number(o.pct_sem_acionamento || 0).toFixed(0)}%</Semaforo></td>
+                      <td style={td}>{num(o.retornos_vencidos)}</td>
                       <td style={td}>{num(o.sem_telefone)}</td><td style={td}>{num(o.criticos)}</td><td style={td}>{num(o.urgentes)}</td>
                       <td style={td}>{num(o.acordos_em_dia)}</td><td style={td}>{num(o.acordos_vencidos)}</td>
                     </tr>
                   ))}
+                  {/* TOTAL DA CARTEIRA, igual ao da tabela de estabelecimento: são os
+                      totais que a RPC já devolve, NÃO a soma das linhas acima. Somar as
+                      linhas daria outro número se a RPC filtrar ou agrupar diferente, e
+                      a tela não pode ter duas versões do total da carteira. */}
+                  <tr style={{ borderTop: "2px solid var(--rv-borda-forte)", fontWeight: 800, background: "var(--rv-fundo-cartao)" }}>
+                    <td style={td}>TOTAL DA CARTEIRA</td><td style={td}>{num(totais.casos_ativos)}</td><td style={td}>{num(totais.cpfs_unicos)}</td>
+                    <td style={td}>{moeda(totais.saldo_vencido)}</td><td style={td}>{pct(100)}</td><td style={td}>{moeda(totais.saldo_total)}</td>
+                    <td style={td}>{num(totais.nunca_acionados)}</td><td style={td}>{num(totais.sem_acionamento_limite)}</td>
+                    <td style={td}><Semaforo nivel={nivelPct(totais.pct_sem_acionamento)}>{Number(totais.pct_sem_acionamento || 0).toFixed(0)}%</Semaforo></td>
+                    <td style={td}>{num(totais.retornos_vencidos)}</td><td style={td}>{num(totais.sem_telefone)}</td>
+                    <td style={td}>{num(totais.criticos)}</td><td style={td}>{num(totais.urgentes)}</td>
+                    <td style={td}>{num(totais.acordos_em_dia)}</td><td style={td}>{num(totais.acordos_vencidos)}</td>
+                  </tr>
                 </tbody>
               </table>
             </div>
           </Secao>
 
-          {qualidade && (
-            <Secao titulo="Qualidade da carteira">
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(200px,1fr))", gap: 10 }}>
-                {Object.entries(qualidade).map(([k, v]) => (
-                  <div key={k} style={{ ...card, background: v > 0 ? "var(--rv-vermelho-fundo)" : "var(--rv-verde-ok-fundo)" }}>
-                    <div style={{ fontSize: 12, color: "var(--rv-texto)" }}>{QUALIDADE_LABEL[k] || k}</div>
-                    <div style={{ fontSize: 18, fontWeight: 800, color: v > 0 ? "var(--rv-vermelho-texto)" : "var(--rv-verde-ok-texto)" }}>{num(v)}</div>
-                  </div>
-                ))}
-              </div>
-            </Secao>
-          )}
+          {qualidade && <QualidadeSemaforo qualidade={qualidade} />}
         </>
       )}
 
@@ -459,6 +625,323 @@ export default function SaudeCompletaCarteira() {
           pag={detPag} setPag={setDetPag} ord={detOrd} setOrd={setDetOrd} onClose={() => { setDrill(null); setDet(null); }} />
       )}
     </div>
+  );
+}
+
+// RESUMO EXECUTIVO — as cinco frases que a tela já podia dizer e não dizia.
+//
+// A tela entregava 16 cards, 4 tabelas e 2 matrizes, todos do mesmo peso. Quem
+// abre para decidir -- não para trabalhar a fila -- tinha que montar a leitura
+// na cabeça toda vez. Este bloco faz essa leitura uma vez, em cima dos MESMOS
+// números: nada aqui vem de RPC nova, e nenhum valor é recalculado. O que é
+// novo é só a divisão de um número da tela pelo total da tela (participação),
+// e a frase ao lado dizendo o que ele significa.
+function ResumoExecutivo({ totais, origem, porCurso, qualidade, onDrill }) {
+  const temAlgo = totais && Object.keys(totais).length > 0;
+  if (!temAlgo) return null;
+
+  const pctVencido = participacao(totais.saldo_vencido, totais.saldo_total);
+  // Quanto da dívida já passou por negociação. Vem de `saldo_por_origem`, que é
+  // a posição lida das tabelas de origem -- por isso a frase diz "em acordo",
+  // não "do saldo total" dos cards, que é de outro momento.
+  const pctEmAcordo = origem ? participacao(origem.acordo_total, origem.total) : null;
+
+  const cursos = porCurso?.por_curso || [];
+  const maiorCurso = cursos.reduce((a, b) => (Number(b?.pct_valor || 0) > Number(a?.pct_valor || 0) ? b : a), cursos[0] || null);
+
+  const defeitos = Object.values(qualidade || {}).reduce((s, v) => s + Number(v || 0), 0);
+  const nivelAcion = nivelPct(totais.pct_sem_acionamento);
+  const nivelDef = qualidade ? nivelQualidade(defeitos) : null;
+
+  const leituras = [
+    {
+      k: "tamanho",
+      rotulo: "Tamanho da carteira",
+      valor: moeda(totais.saldo_total),
+      frase: `${num(totais.casos_ativos)} casos · ${num(totais.cpfs_unicos)} alunos · ${moeda(totais.saldo_vencido)} já vencido (${pct(pctVencido)} do total)`,
+    },
+    {
+      k: "cobertura",
+      rotulo: "Cobertura da operação",
+      valor: pct(totais.pct_sem_acionamento),
+      nivel: nivelAcion,
+      frase: `dos casos está sem acionamento acima do limite do filtro · ${num(totais.nunca_acionados)} nunca foram acionados`,
+      indicador: "nunca_acionados",
+      indicadorRotulo: "Nunca acionados",
+    },
+    {
+      k: "negociacao",
+      rotulo: "Dívida negociada",
+      valor: pctEmAcordo == null ? "—" : pct(pctEmAcordo),
+      frase: pctEmAcordo == null
+        ? "posição por origem indisponível nesta leitura"
+        : `do saldo em aberto já está dentro de acordo · ${num(totais.acordos_vencidos)} acordos vencidos e ${num(totais.acordos_em_dia_sem_acompanhamento)} em dia sem acompanhamento`,
+      indicador: "acordos_vencidos",
+      indicadorRotulo: "Acordos vencidos",
+    },
+    {
+      k: "concentracao",
+      rotulo: "Concentração",
+      valor: maiorCurso ? pct(maiorCurso.pct_valor) : "—",
+      frase: maiorCurso
+        ? `do valor está em ${maiorCurso.curso}, com ${num(maiorCurso.casos)} alunos e ticket médio de ${moeda(maiorCurso.ticket_medio)}`
+        : "carteira por curso indisponível nesta leitura",
+    },
+    {
+      k: "qualidade",
+      rotulo: "Confiança no dado",
+      valor: qualidade ? num(defeitos) : "—",
+      nivel: nivelDef,
+      frase: qualidade
+        ? "registros com defeito de cadastro ou de consistência — todo número acima carrega esse erro"
+        : "qualidade da carteira indisponível nesta leitura",
+    },
+  ];
+
+  return (
+    <div style={{ marginTop: 18 }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
+        <span style={{ fontSize: 13, fontWeight: 800, color: "var(--rv-tinta)" }}>Resumo executivo</span>
+        <span style={{ fontSize: 12.5, color: "var(--rv-texto-suave)" }}>
+          a leitura da carteira em cinco frases · mesmos números do detalhe abaixo
+        </span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(260px,1fr))", gap: 12 }}>
+        {leituras.map((l) => (
+          <div key={l.k} style={{ ...card, borderLeft: `3px solid ${l.nivel ? SEM[l.nivel].cor : "var(--rv-borda-forte)"}` }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <span style={{ fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 700 }}>{l.rotulo}</span>
+              {l.nivel ? <Semaforo nivel={l.nivel} titulo={`limiar em LIMIARES (ver topo do arquivo)`}>{SEM[l.nivel].rotulo}</Semaforo> : null}
+            </div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", margin: "6px 0 4px" }}>{l.valor}</div>
+            <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>{l.frase}</div>
+            {l.indicador && onDrill ? (
+              <button onClick={() => onDrill(l.indicadorRotulo, { indicador: l.indicador })}
+                style={{ ...btnSec, marginTop: 8, padding: "4px 10px", fontSize: 12 }}>
+                ver lista →
+              </button>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ONDE ESTÁ O DINHEIRO — a síntese que faltava entre "De que é feita a carteira"
+// e "Por curso", que já existem logo abaixo.
+//
+// Os dois blocos de baixo mostram a composição LINHA POR LINHA. Nenhum dos dois
+// responde "quantos cursos eu preciso resolver para endereçar a maior parte do
+// valor" -- e essa é a pergunta de alocação de time. Aqui entra o acumulado
+// (Pareto), que é a mesma lista ordenada com a soma corrida ao lado.
+//
+// Tudo sai de `saude_carteira_por_curso` e `saude_carteira_panorama`, já
+// carregadas. Nada de novo é consultado.
+function OndeEstaODinheiro({ porCurso, panorama, origem }) {
+  const cursos = [...(porCurso?.por_curso || [])].sort((a, b) => Number(b.saldo || 0) - Number(a.saldo || 0));
+  const totalCursos = Number(porCurso?.total || 0);
+  if (!cursos.length && !panorama && !origem) return null;
+
+  // Acumulado: quantos cursos somam a fatia de LIMIARES.pareto_pct do valor.
+  // Acumulado por `reduce` e não por variável externa: a regra de imutabilidade
+  // do projeto proíbe reatribuir no corpo do render, e aqui o acumulador vive
+  // dentro da própria lista que está sendo construída.
+  const comAcumulado = cursos.reduce((acc, c) => {
+    const corrido = (acc.length ? acc[acc.length - 1].corrido : 0) + Number(c.saldo || 0);
+    acc.push({ ...c, corrido, acumulado: participacao(corrido, totalCursos) });
+    return acc;
+  }, []);
+  const nucleo = comAcumulado.findIndex((c) => c.acumulado >= LIMIARES.pareto_pct);
+  const cursosNoNucleo = nucleo === -1 ? comAcumulado.length : nucleo + 1;
+  const topo = comAcumulado.slice(0, LIMIARES.concentracao_top);
+
+  const faixas = [...(panorama?.por_faixa || [])].sort((a, b) => Number(b.pct_valor || 0) - Number(a.pct_valor || 0));
+  const maiorFaixa = faixas[0];
+  const pctEmAcordo = origem ? participacao(origem.acordo_total, origem.total) : null;
+
+  return (
+    <Secao titulo="Onde está o dinheiro">
+      <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-suave)", lineHeight: 1.6 }}>
+        Síntese de alocação, montada sobre a composição detalhada que aparece logo abaixo —
+        nenhum número novo, só a soma corrida que a lista simples não mostra.
+      </p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 12, marginBottom: 14 }}>
+        {comAcumulado.length ? (
+          <div style={card}>
+            <div style={{ fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 700 }}>Núcleo da carteira</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", margin: "6px 0 4px" }}>
+              {num(cursosNoNucleo)} {cursosNoNucleo === 1 ? "curso" : "cursos"}
+            </div>
+            <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+              concentram {pct(LIMIARES.pareto_pct)} do valor, de {num(comAcumulado.length)} cursos na carteira
+            </div>
+          </div>
+        ) : null}
+
+        {maiorFaixa ? (
+          <div style={card}>
+            <div style={{ fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 700 }}>Maior faixa de dívida</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", margin: "6px 0 4px" }}>{maiorFaixa.faixa}</div>
+            <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+              {pct(maiorFaixa.pct_valor)} do valor em {num(maiorFaixa.cpfs)} alunos ({pct(maiorFaixa.pct_cpfs)} da base)
+            </div>
+          </div>
+        ) : null}
+
+        {pctEmAcordo != null ? (
+          <div style={card}>
+            <div style={{ fontSize: 12, color: "var(--rv-texto-suave)", fontWeight: 700 }}>Negociado x não negociado</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color: "var(--rv-tinta)", margin: "6px 0 4px" }}>{pct(pctEmAcordo)}</div>
+            <div style={{ fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+              em acordo ({moeda(origem.acordo_total)}) · {moeda(origem.mensalidade_total)} ainda sem negociação
+            </div>
+          </div>
+        ) : null}
+      </div>
+
+      {topo.length ? (
+        <div style={{ overflowX: "auto" }}>
+          <table style={tabela}>
+            <thead>
+              <tr>
+                <th style={{ ...th, textAlign: "left" }}>Curso</th>
+                <th style={th}>Alunos</th>
+                <th style={th}>Saldo</th>
+                <th style={th}>% do valor</th>
+                <th style={th}>Acumulado</th>
+                <th style={th}>Ticket médio</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topo.map((c) => (
+                <tr key={c.curso} style={{ borderTop: "1px solid var(--rv-borda-suave)" }}>
+                  <td style={{ ...td, textAlign: "left", fontWeight: 600 }}>{c.curso}</td>
+                  <td style={td}>{num(c.casos)}</td>
+                  <td style={{ ...td, fontWeight: 700 }}>{moeda(c.saldo)}</td>
+                  <td style={td}>{pct(c.pct_valor)}</td>
+                  <td style={{ ...td, color: "var(--rv-azul-texto)", fontWeight: 700 }}>{pct(c.acumulado)}</td>
+                  <td style={td}>{moeda(c.ticket_medio)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+            Os {num(topo.length)} maiores de {num(comAcumulado.length)} cursos. A lista completa fica em <b>Por curso</b>, abaixo.
+            <b> Acumulado</b> é a soma corrida do % de valor na ordem de saldo — é por ele que se lê quanto da carteira
+            cabe num recorte pequeno.
+          </p>
+        </div>
+      ) : null}
+    </Secao>
+  );
+}
+
+// PRIORIDADES DE GESTÃO — a fila de cobrança do gestor, não do operador.
+//
+// Ver a lista de gravidade e o motivo de ela existir em PRIORIDADES, no topo.
+// Aqui só se ordena (gravidade desc, depois contagem desc) e se esconde o que
+// está zerado: indicador em zero não é prioridade, é ruído.
+function PrioridadesDeGestao({ totais, onDrill }) {
+  const linhas = PRIORIDADES
+    .map(([k, rotulo, gravidade, porque]) => ({ k, rotulo, gravidade, porque, valor: Number(totais?.[k] || 0) }))
+    .filter((l) => l.valor > 0)
+    .sort((a, b) => (b.gravidade - a.gravidade) || (b.valor - a.valor));
+
+  if (!linhas.length) {
+    return (
+      <Secao titulo="Prioridades de gestão">
+        <div style={{ ...vazio, marginTop: 0, color: "var(--rv-verde-ok-texto)", background: "var(--rv-verde-ok-fundo)" }}>
+          Nenhum indicador de atenção acima de zero nos filtros atuais.
+        </div>
+      </Secao>
+    );
+  }
+
+  // O chip aqui diz URGÊNCIA, não estado. Reaproveitar o rótulo "ok" do
+  // semáforo colocaria um selo verde escrito "ok" ao lado de 400 casos sem
+  // telefone -- a cor certa, a palavra errada. A cor é a mesma do semáforo
+  // para a tela ter um só vocabulário visual; o texto é o da fila.
+  const nivelDe = (g) => (g >= 3 ? "risco" : g === 2 ? "atencao" : "ok");
+  const urgenciaDe = (g) => (g >= 3 ? "alta" : g === 2 ? "média" : "baixa");
+
+  return (
+    <Secao titulo="Prioridades de gestão">
+      <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-suave)", lineHeight: 1.6 }}>
+        Os mesmos indicadores dos cards acima, em ordem de urgência em vez de ordem de cadastro.
+        Cada linha abre a mesma lista do card correspondente, com os filtros atuais.
+      </p>
+      <div style={{ display: "grid", gap: 8 }}>
+        {linhas.map((l) => (
+          <button key={l.k} onClick={() => onDrill(l.rotulo, { indicador: l.k })}
+            style={{
+              ...card, display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 12,
+              alignItems: "center", cursor: "pointer", borderLeft: `3px solid ${SEM[nivelDe(l.gravidade)].cor}`,
+            }}>
+            <Semaforo nivel={nivelDe(l.gravidade)} titulo="urgência, não contagem — ver PRIORIDADES no topo do arquivo">
+              {urgenciaDe(l.gravidade)}
+            </Semaforo>
+            <span style={{ textAlign: "left" }}>
+              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--rv-tinta)" }}>{l.rotulo}</span>
+              <span style={{ display: "block", fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 2, lineHeight: 1.45 }}>
+                {l.porque}
+              </span>
+            </span>
+            <span style={{ fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", whiteSpace: "nowrap" }}>{num(l.valor)}</span>
+            <span style={{ fontSize: 11.5, color: "var(--rv-azul-texto)", fontWeight: 700, whiteSpace: "nowrap" }}>ver lista →</span>
+          </button>
+        ))}
+      </div>
+    </Secao>
+  );
+}
+
+// QUALIDADE DA CARTEIRA EM SEMÁFORO.
+//
+// Antes eram dez cards em ordem alfabética do nome do campo, e a cor era binária:
+// qualquer valor acima de zero virava vermelho. Com isso "1 caso sem e-mail"
+// ficava do mesmo vermelho que "3.400 sem telefone" -- e, com meia tela
+// vermelha, o vermelho deixa de significar algo.
+//
+// Agora a cor é a faixa de LIMIARES.qualidade e a ordem é risco → atenção → ok,
+// com o total no cabeçalho. Nenhuma contagem muda: só o agrupamento e a cor.
+function QualidadeSemaforo({ qualidade }) {
+  const itens = Object.entries(qualidade)
+    .map(([k, v]) => ({ k, rotulo: QUALIDADE_LABEL[k] || k, valor: Number(v || 0), nivel: nivelQualidade(v) }));
+
+  const ordem = { risco: 0, atencao: 1, ok: 2 };
+  const ordenados = [...itens].sort((a, b) => (ordem[a.nivel] - ordem[b.nivel]) || (b.valor - a.valor));
+
+  const total = itens.reduce((s, i) => s + i.valor, 0);
+  const porNivel = (n) => itens.filter((i) => i.nivel === n).length;
+
+  return (
+    <Secao
+      titulo="Qualidade da carteira"
+      extra={
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <span style={{ fontSize: 11.5, color: "var(--rv-texto-suave)" }}>{num(total)} registros com defeito ·</span>
+          <Semaforo nivel="risco">{num(porNivel("risco"))} risco</Semaforo>
+          <Semaforo nivel="atencao">{num(porNivel("atencao"))} atenção</Semaforo>
+          <Semaforo nivel="ok">{num(porNivel("ok"))} ok</Semaforo>
+        </div>
+      }
+    >
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(210px,1fr))", gap: 10 }}>
+        {ordenados.map((i) => (
+          <div key={i.k} style={{ ...card, background: SEM[i.nivel].bg, borderColor: SEM[i.nivel].borda }}>
+            <div style={{ fontSize: 12, color: "var(--rv-texto)" }}>{i.rotulo}</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: SEM[i.nivel].cor }}>{num(i.valor)}</div>
+          </div>
+        ))}
+      </div>
+      <p style={{ margin: "8px 0 0", fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+        Faixas de cor definidas em <b>LIMIARES.qualidade</b>, no topo deste arquivo —
+        hoje: verde até {num(LIMIARES.qualidade.ok)}, âmbar até {num(LIMIARES.qualidade.atencao)},
+        vermelho acima disso. São valores provisórios, a calibrar com a gestão.
+      </p>
+    </Secao>
   );
 }
 
