@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -311,6 +311,8 @@ function ProjecaoHoraHoraInner() {
     m4_percentual: "",
   });
   const [salvandoMeta, setSalvandoMeta] = useState(false);
+  const [carregandoMetaConfig, setCarregandoMetaConfig] = useState(false);
+  const metaConfigRequestSeq = useRef(0);
 
   // Linhas onde o valor pago veio zerado mas o honorário veio preenchido --
   // sinal forte de que a celula de valor pago veio vazia so nessa linha na
@@ -365,6 +367,15 @@ function ProjecaoHoraHoraInner() {
     if (aba === "HISTORICO") carregarHistorico();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [aba]);
+
+  // Configuração é fonte viva em metas_projecao. Snapshot nunca preenche
+  // formulário editável: ele pode estar defasado e transformar dado antigo
+  // em nova gravação quando o usuário salva.
+  useEffect(() => {
+    if (!usuario?.podeGerir || subAbaDashboard !== "CONFIGURACOES") return;
+    carregarConfiguracaoMeta();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [subAbaDashboard, mesReferencia, usuario]);
 
   // Recarrega os pagamentos do dia já aberto (usado depois de alterar
   // operador, pra lista e somatória refletirem a troca na hora).
@@ -508,23 +519,57 @@ function ProjecaoHoraHoraInner() {
 
   function aplicarDadosDashboard(data) {
     setDashboard(data);
-    {
-      const cfg = data?.config_metas || {};
-      setFormMeta({
-        meta_operacional: cfg?.meta_operacional ?? data?.meta_recuperacao ?? "",
-        meta_unidades: cfg?.meta_unidades || "",
-        meta_honorario: cfg?.meta_honorario ?? data?.meta_honorario ?? "",
-        m1_valor: cfg?.m1_valor || "",
-        m1_percentual: cfg?.m1_percentual || "",
-        m2_valor: cfg?.m2_valor || "",
-        m2_percentual: cfg?.m2_percentual || "",
-        m3_valor: cfg?.m3_valor || "",
-        m3_percentual: cfg?.m3_percentual || "",
-        m4_valor: cfg?.m4_valor || "",
-        m4_percentual: cfg?.m4_percentual || "",
-      });
-    }
     setCarregandoDashboard(false);
+  }
+
+  const CAMPOS_META = [
+    ["meta_operacional", "Meta Operacional"],
+    ["meta_unidades", "Meta prevista das Unidades"],
+    ["meta_honorario", "Meta de honorário"],
+    ["m1_valor", "M1 Valor"],
+    ["m1_percentual", "M1 Percentual"],
+    ["m2_valor", "M2 Valor"],
+    ["m2_percentual", "M2 Percentual"],
+    ["m3_valor", "M3 Valor"],
+    ["m3_percentual", "M3 Percentual"],
+    ["m4_valor", "M4 Valor"],
+    ["m4_percentual", "M4 Percentual"],
+  ];
+
+  function formMetaVazio() {
+    return Object.fromEntries(CAMPOS_META.map(([campo]) => [campo, ""]));
+  }
+
+  function linhaMetaParaForm(linha) {
+    if (!linha) return formMetaVazio();
+    return Object.fromEntries(
+      CAMPOS_META.map(([campo]) => [campo, linha[campo] ?? ""])
+    );
+  }
+
+  async function carregarConfiguracaoMeta() {
+    const requestSeq = ++metaConfigRequestSeq.current;
+    const mesConsultado = mesReferencia;
+    setCarregandoMetaConfig(true);
+    const { data, error } = await supabase
+      .from("metas_projecao")
+      .select("mes_referencia, meta_operacional, meta_unidades, meta_honorario, m1_valor, m1_percentual, m2_valor, m2_percentual, m3_valor, m3_percentual, m4_valor, m4_percentual")
+      .eq("mes_referencia", mesConsultado)
+      .maybeSingle();
+
+    // Se outra leitura começou enquanto esta estava em voo (troca rápida de
+    // competência/aba), descarta a resposta antiga.
+    if (requestSeq !== metaConfigRequestSeq.current) return null;
+
+    if (error) {
+      setErro("Erro ao carregar configuração de metas: " + error.message);
+      setCarregandoMetaConfig(false);
+      return null;
+    }
+
+    setFormMeta(linhaMetaParaForm(data));
+    setCarregandoMetaConfig(false);
+    return data;
   }
 
   async function carregarLancamentosHoje() {
@@ -736,27 +781,55 @@ function ProjecaoHoraHoraInner() {
   }
 
   async function salvarMeta() {
-    setSalvandoMeta(true);
-    const { error } = await supabase.rpc("projecao_definir_meta", {
-      p_mes_referencia: mesReferencia,
-      p_meta_operacional: Number(formMeta.meta_operacional) || 0,
-      p_meta_unidades: Number(formMeta.meta_unidades) || 0,
-      p_meta_honorario: Number(formMeta.meta_honorario) || 0,
-      p_m1_valor: Number(formMeta.m1_valor) || 0,
-      p_m1_percentual: Number(formMeta.m1_percentual) || 0,
-      p_m2_valor: Number(formMeta.m2_valor) || 0,
-      p_m2_percentual: Number(formMeta.m2_percentual) || 0,
-      p_m3_valor: Number(formMeta.m3_valor) || 0,
-      p_m3_percentual: Number(formMeta.m3_percentual) || 0,
-      p_m4_valor: Number(formMeta.m4_valor) || 0,
-      p_m4_percentual: Number(formMeta.m4_percentual) || 0,
-    });
-    if (error) {
-      alert("Erro ao salvar meta: " + error.message);
-    } else {
-      carregarSnapshot();
+    if (salvandoMeta || atualizandoProjecao) return;
+
+    for (const [campo, label] of CAMPOS_META) {
+      const bruto = formMeta[campo];
+      if (bruto === "" || bruto === null || bruto === undefined || String(bruto).trim() === "") {
+        alert(`Preencha o campo "${label}" antes de salvar. Zero só será gravado quando for informado explicitamente.`);
+        return;
+      }
+      if (!Number.isFinite(Number(bruto))) {
+        alert(`O campo "${label}" precisa conter um número válido.`);
+        return;
+      }
     }
-    setSalvandoMeta(false);
+
+    setSalvandoMeta(true);
+    setErro("");
+    try {
+      const { error } = await supabase.rpc("projecao_definir_meta", {
+        p_mes_referencia: mesReferencia,
+        p_meta_operacional: Number(formMeta.meta_operacional),
+        p_meta_unidades: Number(formMeta.meta_unidades),
+        p_meta_honorario: Number(formMeta.meta_honorario),
+        p_m1_valor: Number(formMeta.m1_valor),
+        p_m1_percentual: Number(formMeta.m1_percentual),
+        p_m2_valor: Number(formMeta.m2_valor),
+        p_m2_percentual: Number(formMeta.m2_percentual),
+        p_m3_valor: Number(formMeta.m3_valor),
+        p_m3_percentual: Number(formMeta.m3_percentual),
+        p_m4_valor: Number(formMeta.m4_valor),
+        p_m4_percentual: Number(formMeta.m4_percentual),
+      });
+      if (error) {
+        alert("Erro ao salvar meta: " + error.message);
+        return;
+      }
+
+      // Confirma a persistência pela fonte real antes de recalcular o snapshot.
+      const persistido = await carregarConfiguracaoMeta();
+      if (!persistido) {
+        setErro("A meta foi enviada, mas não foi possível confirmar a leitura em metas_projecao. A projeção não foi atualizada automaticamente.");
+        return;
+      }
+
+      // Só após confirmar a configuração viva, regenera o snapshot e então
+      // recarrega Dashboard/Hora a Hora. O formulário não depende desse snapshot.
+      await atualizarProjecao();
+    } finally {
+      setSalvandoMeta(false);
+    }
   }
 
   async function buscarPagamentoMes(evento) {
@@ -1455,8 +1528,16 @@ function ProjecaoHoraHoraInner() {
                     ))}
                   </div>
 
-                  <button style={estilos.botaoPrimario} onClick={salvarMeta} disabled={salvandoMeta}>
-                    {salvandoMeta ? "Salvando..." : "Salvar configuração de metas"}
+                  <button
+                    style={estilos.botaoPrimario}
+                    onClick={salvarMeta}
+                    disabled={salvandoMeta || atualizandoProjecao || carregandoMetaConfig}
+                  >
+                    {salvandoMeta
+                      ? "Salvando e atualizando projeção..."
+                      : carregandoMetaConfig
+                      ? "Carregando configuração..."
+                      : "Salvar configuração de metas"}
                   </button>
                 </div>
               )}
