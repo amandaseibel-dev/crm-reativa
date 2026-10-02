@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -312,6 +312,7 @@ function ProjecaoHoraHoraInner() {
   });
   const [salvandoMeta, setSalvandoMeta] = useState(false);
   const [carregandoMetaConfig, setCarregandoMetaConfig] = useState(false);
+  const metaConfigRequestSeq = useRef(0);
 
   // Linhas onde o valor pago veio zerado mas o honorário veio preenchido --
   // sinal forte de que a celula de valor pago veio vazia so nessa linha na
@@ -547,20 +548,17 @@ function ProjecaoHoraHoraInner() {
   }
 
   async function carregarConfiguracaoMeta() {
+    const requestSeq = ++metaConfigRequestSeq.current;
     setCarregandoMetaConfig(true);
-    const mesConsultado = mesReferencia;
     const { data, error } = await supabase
       .from("metas_projecao")
       .select("mes_referencia, meta_operacional, meta_unidades, meta_honorario, m1_valor, m1_percentual, m2_valor, m2_percentual, m3_valor, m3_percentual, m4_valor, m4_percentual")
       .eq("mes_referencia", mesConsultado)
       .maybeSingle();
 
-    // Se a competência mudou enquanto a consulta estava em voo, descarta a
-    // resposta antiga para ela não preencher o formulário do mês novo.
-    if (mesConsultado !== mesReferencia) {
-      setCarregandoMetaConfig(false);
-      return null;
-    }
+    // Se outra leitura começou enquanto esta estava em voo (troca rápida de
+    // competência/aba), descarta a resposta antiga.
+    if (requestSeq !== metaConfigRequestSeq.current) return null;
 
     if (error) {
       setErro("Erro ao carregar configuração de metas: " + error.message);
