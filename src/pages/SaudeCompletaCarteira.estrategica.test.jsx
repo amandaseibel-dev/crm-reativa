@@ -12,7 +12,8 @@
 //  1) nenhuma RPC fora da lista que a tela já chamava;
 //  2) os totais do Resumo executivo são os MESMOS dos cards;
 //  3) o acumulado (Pareto) fecha em 100% e o núcleo é contado pelo limiar;
-//  4) Prioridades ordena por gravidade e depois por contagem, e esconde zeros;
+//  4) Prioridades respeita a ordem de negocio, mostra as 8 linhas e traz
+//     valor financeiro so onde a base ja o fornece;
 //  5) a participação por estabelecimento/operador soma 100% na linha de total,
 //     e o TOTAL DA CARTEIRA vem de `totais`, não da soma das linhas;
 //  6) o semáforo respeita LIMIARES e não é mais binário;
@@ -33,18 +34,21 @@ const TOTAIS = {
   nunca_acionados: 120,
   sem_acionamento_limite: 300,
   pct_sem_acionamento: 40,  // > 30 => risco
-  retornos_vencidos: 0,     // zerado: NÃO deve virar prioridade
-  sem_telefone: 400,
-  sem_responsavel: 0,       // zerado
+  retornos_vencidos: 0,
+  sem_telefone: 400,        // NÃO é prioridade: vive em Qualidade da carteira
+  sem_responsavel: 12,
   criticos: 10,
   urgentes: 7,
   acordos_em_dia: 90,
   acordos_vencidos: 30,
   acordos_quebrados: 4,
   acordos_em_dia_sem_acompanhamento: 5,
-  casos_revisao: 0,         // zerado
+  casos_revisao: 0,
   fidelizacao_expira_hoje: 2,
-  casos_livres: 0,          // zerado
+  fidelizacao_vence_amanha: 3,
+  casos_livres: 9,
+  // ÚNICO valor financeiro por indicador que a RPC devolve hoje.
+  saldo_livres: 150000,
 };
 
 // 750.000 + 250.000 = 1.000.000 = totais.saldo_vencido  => 75% e 25%
@@ -229,38 +233,81 @@ describe("Saúde Completa da Carteira — camada estratégica", () => {
   });
 
   // ── 4. PRIORIDADES DE GESTÃO ────────────────────────────────────────────
-  it("ordena por gravidade e depois por contagem, e esconde o que está zerado", async () => {
+  // A ORDEM É DECISÃO DE NEGÓCIO (Amanda, 02/10/2026), não consequência de um
+  // sort. Este teste é o contrato dela: se alguém reordenar PRIORIDADES para
+  // "ficar melhor", quebra aqui, que é exatamente o que se quer.
+  it("respeita a ordem de cobrança definida pela gestão, posição por posição", async () => {
     await abrirEEsperar();
-    const linhas = [...secao("Prioridades de gestão").querySelectorAll("button")]
-      .map((b) => b.textContent);
+    const linhas = [...secao("Prioridades de gestão").querySelectorAll("[data-prioridade]")];
 
-    // gravidade 3 primeiro (por contagem desc), depois 2, depois 1.
-    const titulos = linhas.map((l) => {
-      const m = l.match(/(Nunca acionados|Acordos vencidos|Fidelização expira hoje|Sem acionamento \(acima do limite\)|Críticos|Acordos em dia sem acompanhamento|Sem telefone|Retornos vencidos|Casos para revisão|Casos livres|Sem responsável)/);
-      return m ? m[1] : l;
-    });
-    expect(titulos).toEqual([
-      "Nunca acionados",                      // g3, 120
-      "Acordos vencidos",                     // g3, 30
-      "Fidelização expira hoje",              // g3, 2
-      "Sem acionamento (acima do limite)",    // g2, 300
-      "Críticos",                             // g2, 10
-      "Acordos em dia sem acompanhamento",    // g2, 5
-      "Sem telefone",                         // g1, 400
+    expect(linhas.map((e) => e.dataset.prioridade)).toEqual([
+      "sem_dono",                          // 1. sem responsável / casos livres
+      "sem_acionamento_limite",            // 2.
+      "acordos_vencidos",                  // 3.
+      "criticos",                          // 4.
+      "urgentes",                          // 5.
+      "nunca_acionados",                   // 6.
+      "acordos_em_dia_sem_acompanhamento", // 7.
+      "fidelizacao_hoje_amanha",           // 8.
     ]);
+    // O selo mostra a posição na fila, não um ranking recalculado.
+    expect(linhas.map((e) => e.dataset.posicao)).toEqual(["1", "2", "3", "4", "5", "6", "7", "8"]);
+  });
 
-    // Zerados ficam fora: não são prioridade, são ruído.
-    const s = secao("Prioridades de gestão").textContent;
-    expect(s).not.toContain("Retornos vencidos");
-    expect(s).not.toContain("Casos para revisão");
-    expect(s).not.toContain("Casos livres");
-    expect(s).not.toContain("Sem responsável");
+  it("as oito linhas aparecem mesmo zeradas — a posição na fila é fixa", async () => {
+    await abrirEEsperar();
+    const linhas = [...secao("Prioridades de gestão").querySelectorAll("[data-prioridade]")];
+    expect(linhas).toHaveLength(8);
+    // `retornos_vencidos` é 0 na fixture e nem sequer é prioridade; já
+    // `criticos` tem 10. Nenhuma linha some por contagem.
+    const semAcion = linhas.find((e) => e.dataset.prioridade === "sem_acionamento_limite");
+    expect(semAcion.textContent).toContain("300");
+  });
+
+  it("Sem telefone NÃO é prioridade operacional — fica em Qualidade da carteira", async () => {
+    await abrirEEsperar();
+    // Nas LINHAS da fila, não na prosa: o rodapé da seção cita "Sem telefone"
+    // justamente para explicar por que ele não está na fila.
+    const linhas = [...secao("Prioridades de gestão").querySelectorAll("[data-prioridade]")];
+    expect(linhas.map((e) => e.dataset.prioridade)).not.toContain("sem_telefone");
+    for (const l of linhas) expect(l.textContent).not.toContain("Sem telefone");
+    // E continua existindo, com a mesma contagem, onde é lugar dele.
+    expect(secao("Qualidade da carteira").textContent).toContain("Sem telefone");
+    expect(corpo()).toContain("400");
+  });
+
+  it("mostra quantidade + valor financeiro onde a base já tem o valor, e só aí", async () => {
+    await abrirEEsperar();
+    const linhas = [...secao("Prioridades de gestão").querySelectorAll("[data-prioridade]")];
+    const semDono = linhas.find((e) => e.dataset.prioridade === "sem_dono");
+    const t = semDono.textContent.replace(/\u00a0/g, " ");
+
+    // Duas métricas na mesma linha: 12 sem responsável, 9 livres.
+    expect(t).toContain("12");
+    expect(t).toContain("9");
+    // `saldo_livres` é o único dinheiro por indicador que a RPC devolve.
+    expect(t).toContain("R$ 150.000,00");
+
+    // Onde não há valor na base, NÃO se inventa um "R$ 0,00" para simetria.
+    const criticos = linhas.find((e) => e.dataset.prioridade === "criticos");
+    expect(criticos.textContent).toContain("10");
+    expect(criticos.textContent).not.toContain("R$");
+  });
+
+  it("fidelização hoje/amanhã traz os dois indicadores na mesma linha", async () => {
+    await abrirEEsperar();
+    const fid = [...secao("Prioridades de gestão").querySelectorAll("[data-prioridade]")]
+      .find((e) => e.dataset.prioridade === "fidelizacao_hoje_amanha");
+    expect(fid.textContent).toContain("expira hoje");
+    expect(fid.textContent).toContain("vence amanhã");
+    expect(fid.textContent).toContain("2");
+    expect(fid.textContent).toContain("3");
   });
 
   it("cada prioridade abre a MESMA lista do card, pelo mesmo indicador", async () => {
     await abrirEEsperar();
     const alvo = [...secao("Prioridades de gestão").querySelectorAll("button")]
-      .find((b) => b.textContent.includes("Nunca acionados"));
+      .find((b) => b.textContent.includes("ver lista"));
     fireEvent.click(alvo);
     // O drawer abre com o título da prioridade -- é o drill-down que já existia.
     await waitFor(() => expect(screen.getByRole("button", { name: /Fechar/ })).toBeTruthy());

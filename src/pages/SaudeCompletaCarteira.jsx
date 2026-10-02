@@ -134,31 +134,61 @@ function Semaforo({ nivel, children, titulo }) {
   );
 }
 
-// PRIORIDADES DE GESTÃO — o que a tela já sabe, em ordem de quem cobra primeiro.
+// PRIORIDADES DE GESTÃO — o que a tela já sabe, na ordem que a gestão definiu.
 //
 // A tela tinha 16 cards do mesmo tamanho e da mesma cor: "casos ativos" ao lado
 // de "nunca acionados". Lado a lado, sem hierarquia, nenhum deles é prioridade
 // -- o gestor lê os 16 e decide no olho.
 //
-// `gravidade` é o que ordena ANTES da contagem, e é a única coisa aqui que é
-// julgamento, não dado: 3 = dinheiro saindo ou prazo estourando; 2 = trabalho
-// parado; 1 = cadastro. Sem isso, "sem telefone" (milhares) enterraria
-// "expira hoje" (dezenas), que é justamente o que não pode esperar.
+// A ORDEM ABAIXO É FIXA E É DECISÃO DE NEGÓCIO (Amanda, 02/10/2026). Não é
+// ordenada por contagem nem por gravidade calculada: é a sequência de cobrança
+// acordada, e a posição de cada linha é o número no selo à esquerda. Mexer na
+// ordem aqui muda o que a gestão cobra primeiro -- não é refactor.
 //
-// Cada linha reaproveita o MESMO `indicador` do drill-down que já existe: a
-// lista que abre é a mesma de sempre, vinda da mesma RPC, com os filtros atuais.
+// "Sem telefone" NÃO entra: é defeito de cadastro, e já aparece em Qualidade da
+// carteira. Prioridade operacional é o que se cobra, não o que falta preencher.
+//
+// DUAS LINHAS CARREGAM DOIS INDICADORES, porque a gestão as trata como um
+// assunto só: "sem responsável / casos livres" (carteira sem dono) e
+// "fidelização expirando hoje/amanhã" (prazo estourando). Cada indicador
+// mantém o próprio drill-down -- a lista que abre é a mesma de sempre, da mesma
+// RPC, com os filtros atuais.
+//
+// `valor` só existe onde a RPC JÁ devolve dinheiro. Hoje isso é um caso só:
+// `saldo_livres`, ao lado de `casos_livres`. Para acordos vencidos, críticos,
+// urgentes, nunca acionados e fidelização a RPC devolve apenas contagem -- e
+// somar saldo por aqui seria cálculo novo, que esta tela não faz.
 const PRIORIDADES = [
-  ["fidelizacao_expira_hoje", "Fidelização expira hoje", 3, "perde a exclusividade do caso se ninguém acionar hoje"],
-  ["retornos_vencidos", "Retornos vencidos", 3, "o operador prometeu voltar e não voltou — é quebra de combinado com o aluno"],
-  ["acordos_vencidos", "Acordos vencidos", 3, "acordo fechado que parou de ser pago; cada dia reduz a chance de retomada"],
-  ["nunca_acionados", "Nunca acionados", 3, "dívida em carteira que ninguém tocou nenhuma vez"],
-  ["sem_acionamento_limite", "Sem acionamento (acima do limite)", 2, "passou do limite de dias escolhido no filtro acima"],
-  ["acordos_em_dia_sem_acompanhamento", "Acordos em dia sem acompanhamento", 2, "está pagando, mas sem ninguém acompanhando — é o que vira acordo vencido"],
-  ["criticos", "Críticos", 2, "classificados como críticos pela base"],
-  ["casos_revisao", "Casos para revisão", 2, "a base encontrou inconsistência e pediu conferência humana"],
-  ["casos_livres", "Casos livres", 2, "sem operador dono — ninguém é responsável por cobrar"],
-  ["sem_responsavel", "Sem responsável", 1, "cadastro sem responsável definido"],
-  ["sem_telefone", "Sem telefone", 1, "não há como ligar; só carta, e-mail ou atualização de cadastro"],
+  { k: "sem_dono", rotulo: "Sem responsável / casos livres",
+    porque: "carteira sem dono: ninguém é responsável por cobrar",
+    metricas: [
+      { k: "sem_responsavel", rotulo: "sem responsável" },
+      { k: "casos_livres", rotulo: "livres", valor: "saldo_livres" },
+    ] },
+  { k: "sem_acionamento_limite", rotulo: "Sem acionamento no limite",
+    porque: "passou do limite de dias escolhido no filtro acima",
+    metricas: [{ k: "sem_acionamento_limite" }] },
+  { k: "acordos_vencidos", rotulo: "Acordos vencidos",
+    porque: "acordo fechado que parou de ser pago; cada dia reduz a chance de retomada",
+    metricas: [{ k: "acordos_vencidos" }] },
+  { k: "criticos", rotulo: "Críticos",
+    porque: "classificados como críticos pela base",
+    metricas: [{ k: "criticos" }] },
+  { k: "urgentes", rotulo: "Urgentes",
+    porque: "classificados como urgentes pela base",
+    metricas: [{ k: "urgentes" }] },
+  { k: "nunca_acionados", rotulo: "Nunca acionados",
+    porque: "dívida em carteira que ninguém tocou nenhuma vez",
+    metricas: [{ k: "nunca_acionados" }] },
+  { k: "acordos_em_dia_sem_acompanhamento", rotulo: "Acordos em dia sem acompanhamento",
+    porque: "está pagando, mas sem ninguém acompanhando — é o que vira acordo vencido",
+    metricas: [{ k: "acordos_em_dia_sem_acompanhamento" }] },
+  { k: "fidelizacao_hoje_amanha", rotulo: "Fidelização expirando hoje/amanhã",
+    porque: "perde a exclusividade do caso se ninguém acionar dentro do prazo",
+    metricas: [
+      { k: "fidelizacao_expira_hoje", rotulo: "expira hoje" },
+      { k: "fidelizacao_vence_amanha", rotulo: "vence amanhã" },
+    ] },
 ];
 
 export default function SaudeCompletaCarteira() {
@@ -840,59 +870,95 @@ function OndeEstaODinheiro({ porCurso, panorama, origem }) {
 
 // PRIORIDADES DE GESTÃO — a fila de cobrança do gestor, não do operador.
 //
-// Ver a lista de gravidade e o motivo de ela existir em PRIORIDADES, no topo.
-// Aqui só se ordena (gravidade desc, depois contagem desc) e se esconde o que
-// está zerado: indicador em zero não é prioridade, é ruído.
+// A ordem é a de PRIORIDADES, no topo, e é decisão de negócio: aqui não se
+// ordena nada. O selo à esquerda é a POSIÇÃO nessa fila, não um semáforo --
+// ordenar por contagem ou por gravidade calculada contrariaria a sequência
+// acordada.
+//
+// As oito linhas aparecem SEMPRE, inclusive zeradas. Esta seção é uma lista de
+// conferência: "nunca acionados = 0" é informação (a frente está limpa), e uma
+// linha que some muda a posição das outras, que é justamente o que a ordem fixa
+// existe para impedir.
 function PrioridadesDeGestao({ totais, onDrill }) {
-  const linhas = PRIORIDADES
-    .map(([k, rotulo, gravidade, porque]) => ({ k, rotulo, gravidade, porque, valor: Number(totais?.[k] || 0) }))
-    .filter((l) => l.valor > 0)
-    .sort((a, b) => (b.gravidade - a.gravidade) || (b.valor - a.valor));
+  const linhas = PRIORIDADES.map((p, i) => ({
+    ...p,
+    posicao: i + 1,
+    metricas: p.metricas.map((m) => ({
+      ...m,
+      quantidade: Number(totais?.[m.k] || 0),
+      // Dinheiro só quando a RPC já manda. Sem chave `valor`, a linha mostra
+      // contagem e mais nada -- é o caso de quase todos os indicadores.
+      dinheiro: m.valor != null && totais?.[m.valor] != null ? Number(totais[m.valor]) : null,
+    })),
+  }));
 
-  if (!linhas.length) {
-    return (
-      <Secao titulo="Prioridades de gestão">
-        <div style={{ ...vazio, marginTop: 0, color: "var(--rv-verde-ok-texto)", background: "var(--rv-verde-ok-fundo)" }}>
-          Nenhum indicador de atenção acima de zero nos filtros atuais.
-        </div>
-      </Secao>
-    );
-  }
-
-  // O chip aqui diz URGÊNCIA, não estado. Reaproveitar o rótulo "ok" do
-  // semáforo colocaria um selo verde escrito "ok" ao lado de 400 casos sem
-  // telefone -- a cor certa, a palavra errada. A cor é a mesma do semáforo
-  // para a tela ter um só vocabulário visual; o texto é o da fila.
-  const nivelDe = (g) => (g >= 3 ? "risco" : g === 2 ? "atencao" : "ok");
-  const urgenciaDe = (g) => (g >= 3 ? "alta" : g === 2 ? "média" : "baixa");
+  const linhaAtiva = (l) => l.metricas.some((m) => m.quantidade > 0);
 
   return (
     <Secao titulo="Prioridades de gestão">
       <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-suave)", lineHeight: 1.6 }}>
-        Os mesmos indicadores dos cards acima, em ordem de urgência em vez de ordem de cadastro.
-        Cada linha abre a mesma lista do card correspondente, com os filtros atuais.
+        Os mesmos indicadores dos cards acima, na ordem de cobrança definida pela gestão — não por
+        tamanho do número. Cada métrica abre a mesma lista do card correspondente, com os filtros atuais.
+        Linhas zeradas continuam visíveis: a posição na fila é fixa.
       </p>
       <div style={{ display: "grid", gap: 8 }}>
-        {linhas.map((l) => (
-          <button key={l.k} onClick={() => onDrill(l.rotulo, { indicador: l.k })}
-            style={{
-              ...card, display: "grid", gridTemplateColumns: "auto 1fr auto auto", gap: 12,
-              alignItems: "center", cursor: "pointer", borderLeft: `3px solid ${SEM[nivelDe(l.gravidade)].cor}`,
+        {linhas.map((l) => {
+          const ativa = linhaAtiva(l);
+          return (
+            // `data-prioridade` é ponto de ancoragem de teste: a ordem desta
+            // seção é decisão de negócio e precisa ser verificável sem depender
+            // de texto ou de posição no DOM.
+            <div key={l.k} data-prioridade={l.k} data-posicao={l.posicao} style={{
+              ...card, display: "grid", gridTemplateColumns: "auto 1fr auto", gap: 12, alignItems: "center",
+              borderLeft: `3px solid ${ativa ? "var(--rv-azul-texto)" : "var(--rv-borda-forte)"}`,
+              opacity: ativa ? 1 : 0.65,
             }}>
-            <Semaforo nivel={nivelDe(l.gravidade)} titulo="urgência, não contagem — ver PRIORIDADES no topo do arquivo">
-              {urgenciaDe(l.gravidade)}
-            </Semaforo>
-            <span style={{ textAlign: "left" }}>
-              <span style={{ fontSize: 13, fontWeight: 700, color: "var(--rv-tinta)" }}>{l.rotulo}</span>
-              <span style={{ display: "block", fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 2, lineHeight: 1.45 }}>
-                {l.porque}
+              <span title={`posição ${l.posicao} na fila de cobrança`} style={{
+                display: "inline-flex", alignItems: "center", justifyContent: "center", width: 24, height: 24,
+                borderRadius: 999, fontSize: 12, fontWeight: 800,
+                color: ativa ? "var(--rv-azul-texto)" : "var(--rv-texto-fraco)",
+                background: ativa ? "var(--rv-azul-fundo)" : "var(--rv-fundo-suave)",
+                border: `1px solid ${ativa ? "var(--rv-azul-borda)" : "var(--rv-borda)"}`,
+              }}>{l.posicao}</span>
+
+              <span style={{ textAlign: "left" }}>
+                <span style={{ fontSize: 13, fontWeight: 700, color: "var(--rv-tinta)" }}>{l.rotulo}</span>
+                <span style={{ display: "block", fontSize: 11.5, color: "var(--rv-texto-suave)", marginTop: 2, lineHeight: 1.45 }}>
+                  {l.porque}
+                </span>
               </span>
-            </span>
-            <span style={{ fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", whiteSpace: "nowrap" }}>{num(l.valor)}</span>
-            <span style={{ fontSize: 11.5, color: "var(--rv-azul-texto)", fontWeight: 700, whiteSpace: "nowrap" }}>ver lista →</span>
-          </button>
-        ))}
+
+              <span style={{ display: "flex", gap: 18, alignItems: "flex-start", flexWrap: "wrap", justifyContent: "flex-end" }}>
+                {l.metricas.map((m) => (
+                  <button key={m.k} onClick={() => onDrill(m.rotulo ? `${l.rotulo} · ${m.rotulo}` : l.rotulo, { indicador: m.k })}
+                    style={{ background: "none", border: "none", padding: 0, cursor: "pointer", textAlign: "right" }}>
+                    <span style={{ display: "block", fontSize: 20, fontWeight: 800, whiteSpace: "nowrap",
+                                   color: m.quantidade > 0 ? "var(--rv-tinta)" : "var(--rv-texto-fraco)" }}>
+                      {num(m.quantidade)}
+                    </span>
+                    {/* O valor só aparece quando existe na base. Linha sem dinheiro
+                        não ganha um "R$ 0,00" inventado para parecer simétrica. */}
+                    {m.dinheiro != null && (
+                      <span style={{ display: "block", fontSize: 12, fontWeight: 700, color: "var(--rv-texto-forte)", whiteSpace: "nowrap" }}>
+                        {moeda(m.dinheiro)}
+                      </span>
+                    )}
+                    <span style={{ display: "block", fontSize: 11, color: "var(--rv-texto-suave)", marginTop: 1, whiteSpace: "nowrap" }}>
+                      {m.rotulo ? `${m.rotulo} · ` : ""}<span style={{ color: "var(--rv-azul-texto)", fontWeight: 700 }}>ver lista →</span>
+                    </span>
+                  </button>
+                ))}
+              </span>
+            </div>
+          );
+        })}
       </div>
+      <p style={{ margin: "10px 0 0", fontSize: 11.5, color: "var(--rv-texto-suave)", lineHeight: 1.5 }}>
+        <b>Valor financeiro aparece onde a base já o fornece.</b> Hoje isso é um indicador só — casos livres,
+        via <code>saldo_livres</code>. Para os demais a RPC devolve apenas contagem, e somar saldo nesta tela
+        seria cálculo novo. <b>Sem telefone</b> não está aqui de propósito: é defeito de cadastro e vive em
+        <b> Qualidade da carteira</b>, abaixo.
+      </p>
     </Secao>
   );
 }
