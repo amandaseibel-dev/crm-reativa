@@ -549,6 +549,7 @@ function ProjecaoHoraHoraInner() {
 
   async function carregarConfiguracaoMeta() {
     const requestSeq = ++metaConfigRequestSeq.current;
+    const mesConsultado = mesReferencia;
     setCarregandoMetaConfig(true);
     const { data, error } = await supabase
       .from("metas_projecao")
