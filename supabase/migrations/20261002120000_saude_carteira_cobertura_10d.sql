@@ -229,6 +229,24 @@ create index ix_mv_sc_cobertura on public.mv_saude_carteira using btree (dias_se
 
 grant select on public.mv_saude_carteira to service_role;
 
+-- FECHA A ACL DA MATVIEW RECRIADA.
+--
+-- `public` tem um ALTER DEFAULT PRIVILEGES que concede TUDO a `authenticated`
+-- em relacoes novas. A matview antiga nao tinha esse grant; a recriada por esta
+-- migration herdou -- medido em producao em 02/10/2026, logo apos a aplicacao:
+-- a ACL voltou como `postgres | authenticated | service_role` em vez de
+-- `postgres | service_role`.
+--
+-- Nao e cosmetico. A tela le a carteira pelas RPCs SECURITY DEFINER, que
+-- aplicam `saude_carteira_escopo` -- operador so enxerga a propria carteira.
+-- Com SELECT direto na matview, qualquer usuario autenticado le a carteira
+-- INTEIRA, de todos os operadores, contornando o escopo.
+--
+-- Em producao isso foi revogado a mao no dia. Esta linha existe para que um
+-- replay em outro ambiente -- ou o rollback, que tambem recria a matview --
+-- nao reabra o buraco.
+revoke all on public.mv_saude_carteira from authenticated;
+
 -- ------------------------------------------------------------------ a RPC
 -- A definicao abaixo e a de PRODUCAO (md5 8422578045ac92a66b9d45829bdd31bb,
 -- capturada por pg_get_functiondef em 02/10/2026) com UMA insercao: as oito
