@@ -89,6 +89,9 @@ const QUALIDADE_LABEL = {
 const LIMIARES = {
   // % de casos sem acionamento dentro do grupo (estabelecimento / operador).
   pct_sem_acionamento: { ok: 15, atencao: 30 },
+  // % da carteira ACIONADA na janela de giro. Lê-se ao contrário dos demais:
+  // aqui número alto é bom, por isso `ok` é o piso e não o teto.
+  pct_cobertura: { ok: 60, atencao: 35 },
   // nº de registros com defeito em "Qualidade da carteira".
   qualidade: { ok: 0, atencao: 50 },
   // quantas linhas de concentração mostrar em "Onde está o dinheiro".
@@ -106,6 +109,25 @@ const nivelPct = (v) => {
   const n = Number(v || 0);
   if (n <= LIMIARES.pct_sem_acionamento.ok) return "ok";
   if (n <= LIMIARES.pct_sem_acionamento.atencao) return "atencao";
+  return "risco";
+};
+// A CARTEIRA DEVE GIRAR EM 10 DIAS (regra operacional, 02/10/2026).
+//
+// Este valor é a leitura ESTRATÉGICA e é fixo de propósito: se cada pessoa
+// lesse a cobertura com um corte diferente, a conversa de gestão não fecharia.
+// O filtro "Sem acionamento há ≥ N dias" continua existindo e continua
+// governando as TABELAS DE DETALHE -- são perguntas diferentes.
+//
+// A RPC devolve `cobertura_dias` no payload; esta constante é só o fallback
+// para quando a migration ainda não rodou.
+const COBERTURA_DIAS = 10;
+
+// Cobertura inverte a leitura: alto é bom. Por isso a comparação é >=, ao
+// contrário de nivelPct.
+const nivelCob = (v) => {
+  const n = Number(v || 0);
+  if (n >= LIMIARES.pct_cobertura.ok) return "ok";
+  if (n >= LIMIARES.pct_cobertura.atencao) return "atencao";
   return "risco";
 };
 const nivelQualidade = (v) => {
@@ -166,8 +188,10 @@ const PRIORIDADES = [
       { k: "casos_livres", rotulo: "livres", valor: "saldo_livres" },
     ] },
   { k: "sem_acionamento_limite", rotulo: "Sem acionamento no limite",
-    porque: "passou do limite de dias escolhido no filtro acima",
-    metricas: [{ k: "sem_acionamento_limite" }] },
+    porque: `há mais de ${COBERTURA_DIAS} dias sem acionamento válido — a carteira deve girar em ${COBERTURA_DIAS} dias`,
+    // `cobertura` é o par novo do indicador; quando a RPC o manda, ele substitui
+    // o antigo. O antigo fica como fallback para o payload de antes da migration.
+    metricas: [{ k: "sem_acionamento_limite", cobertura: { k: "fora_cobertura", valor: "saldo_fora_cobertura" } }] },
   { k: "acordos_vencidos", rotulo: "Acordos vencidos",
     porque: "acordo fechado que parou de ser pago; cada dia reduz a chance de retomada",
     metricas: [{ k: "acordos_vencidos" }] },
@@ -178,8 +202,8 @@ const PRIORIDADES = [
     porque: "classificados como urgentes pela base",
     metricas: [{ k: "urgentes" }] },
   { k: "nunca_acionados", rotulo: "Nunca acionados",
-    porque: "dívida em carteira que ninguém tocou nenhuma vez",
-    metricas: [{ k: "nunca_acionados" }] },
+    porque: "sem nenhum acionamento válido no histórico, de nenhuma fonte",
+    metricas: [{ k: "nunca_acionados", cobertura: { k: "nunca_coberto", valor: "saldo_nunca_coberto" } }] },
   { k: "acordos_em_dia_sem_acompanhamento", rotulo: "Acordos em dia sem acompanhamento",
     porque: "está pagando, mas sem ninguém acompanhando — é o que vira acordo vencido",
     metricas: [{ k: "acordos_em_dia_sem_acompanhamento" }] },
@@ -680,7 +704,11 @@ function ResumoExecutivo({ totais, origem, porCurso, qualidade, onDrill }) {
   const maiorCurso = cursos.reduce((a, b) => (Number(b?.pct_valor || 0) > Number(a?.pct_valor || 0) ? b : a), cursos[0] || null);
 
   const defeitos = Object.values(qualidade || {}).reduce((s, v) => s + Number(v || 0), 0);
-  const nivelAcion = nivelPct(totais.pct_sem_acionamento);
+  // A RPC só passa a mandar cobertura depois da migration 20261002120000. Até
+  // lá (e se alguém rodar o rollback) a tela cai para a leitura operacional em
+  // vez de mostrar "—" ou quebrar: o payload antigo continua renderizando.
+  const temCobertura = totais.pct_cobertura != null;
+  const nivelCobertura = temCobertura ? nivelCob(totais.pct_cobertura) : nivelPct(totais.pct_sem_acionamento);
   const nivelDef = qualidade ? nivelQualidade(defeitos) : null;
 
   const leituras = [
@@ -693,9 +721,20 @@ function ResumoExecutivo({ totais, origem, porCurso, qualidade, onDrill }) {
     {
       k: "cobertura",
       rotulo: "Cobertura da operação",
-      valor: pct(totais.pct_sem_acionamento),
-      nivel: nivelAcion,
-      frase: `dos casos está sem acionamento acima do limite do filtro · ${num(totais.nunca_acionados)} nunca foram acionados`,
+      // COBERTURA É % ACIONADO, NÃO % DESCOBERTO.
+      //
+      // O card dizia `pct_sem_acionamento` sob o rótulo "Cobertura": o número
+      // era o complemento do que o rótulo prometia. E a base era
+      // `data_ultimo_acionamento`, que por decisão de 20/09 NÃO registra ação
+      // massiva -- 1.751 casos acionados em massa apareciam como descobertos.
+      //
+      // Agora vem de `pct_cobertura`, calculado na RPC sobre a mesma definição
+      // de acionamento válido da tela de Ações Massivas, com giro de 10 dias.
+      valor: temCobertura ? pct(totais.pct_cobertura) : pct(100 - Number(totais.pct_sem_acionamento || 0)),
+      nivel: nivelCobertura,
+      frase: temCobertura
+        ? `da carteira foi acionada nos últimos ${num(totais.cobertura_dias ?? COBERTURA_DIAS)} dias, contando ação massiva · ${num(totais.fora_cobertura)} fora da cobertura e ${num(totais.nunca_coberto)} nunca acionados`
+        : `da carteira foi acionada dentro do limite do filtro · ${num(totais.nunca_acionados)} nunca foram acionados`,
       indicador: "nunca_acionados",
       indicadorRotulo: "Nunca acionados",
     },
@@ -880,16 +919,23 @@ function OndeEstaODinheiro({ porCurso, panorama, origem }) {
 // linha que some muda a posição das outras, que é justamente o que a ordem fixa
 // existe para impedir.
 function PrioridadesDeGestao({ totais, onDrill }) {
+  // Quando a RPC manda cobertura (migration 20261002120000), os indicadores que
+  // têm par passam a ler a definição de 10 dias -- que inclui ação massiva.
+  // Sem ela, a tela continua na leitura antiga em vez de mostrar zero.
+  const temCobertura = totais?.pct_cobertura != null;
   const linhas = PRIORIDADES.map((p, i) => ({
     ...p,
     posicao: i + 1,
-    metricas: p.metricas.map((m) => ({
-      ...m,
-      quantidade: Number(totais?.[m.k] || 0),
-      // Dinheiro só quando a RPC já manda. Sem chave `valor`, a linha mostra
-      // contagem e mais nada -- é o caso de quase todos os indicadores.
-      dinheiro: m.valor != null && totais?.[m.valor] != null ? Number(totais[m.valor]) : null,
-    })),
+    metricas: p.metricas.map((m) => {
+      const ef = temCobertura && m.cobertura ? { ...m, ...m.cobertura } : m;
+      return {
+        ...ef,
+        quantidade: Number(totais?.[ef.k] || 0),
+        // Dinheiro só quando a RPC já manda. Sem chave `valor`, a linha mostra
+        // contagem e mais nada -- é o caso de quase todos os indicadores.
+        dinheiro: ef.valor != null && totais?.[ef.valor] != null ? Number(totais[ef.valor]) : null,
+      };
+    }),
   }));
 
   const linhaAtiva = (l) => l.metricas.some((m) => m.quantidade > 0);
