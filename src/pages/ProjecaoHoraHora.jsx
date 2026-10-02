@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import * as XLSX from "xlsx";
 import jsPDF from "jspdf";
@@ -311,6 +311,43 @@ function ProjecaoHoraHoraInner() {
     m4_percentual: "",
   });
   const [salvandoMeta, setSalvandoMeta] = useState(false);
+  // A meta vem de `metas_projecao`, NUNCA do snapshot. O snapshot é uma foto
+  // dos números calculados: ele é gerado antes do salvamento e carregava os
+  // valores antigos de volta para o formulário, fazendo a meta recém-salva
+  // "sumir" na tela (medido em produção em 02/10: tabela 112.400, snapshot 0).
+  const [erroMeta, setErroMeta] = useState("");
+  const [carregandoMeta, setCarregandoMeta] = useState(false);
+  // Corrida: trocar de mês durante a leitura não pode deixar a resposta antiga
+  // chegar depois e pintar o formulário com o mês errado.
+  const metaPedidoRef = useRef(0);
+
+  const CAMPOS_META = [
+    "meta_operacional", "meta_unidades", "meta_honorario",
+    "m1_valor", "m1_percentual", "m2_valor", "m2_percentual",
+    "m3_valor", "m3_percentual", "m4_valor", "m4_percentual",
+  ];
+
+  async function carregarMeta(mes = mesReferencia) {
+    const pedido = ++metaPedidoRef.current;
+    setCarregandoMeta(true);
+    setErroMeta("");
+    const { data, error } = await supabase
+      .from("metas_projecao")
+      .select(CAMPOS_META.join(", ") + ", mes_referencia, atualizado_em, atualizado_por")
+      .eq("mes_referencia", mes)
+      .maybeSingle();
+    // Resposta de um mês que não é mais o selecionado: descarta sem tocar na tela.
+    if (pedido !== metaPedidoRef.current) return;
+    setCarregandoMeta(false);
+    if (error) {
+      // Falha de leitura NÃO sobrescreve o formulário: o que estava em tela fica.
+      setErroMeta("Não foi possível ler a meta de " + mes + ": " + error.message);
+      return;
+    }
+    // Mês sem linha em metas_projecao: formulário zerado, sem erro.
+    const linha = data || {};
+    setFormMeta(Object.fromEntries(CAMPOS_META.map((c) => [c, linha[c] ?? ""])));
+  }
 
   // Linhas onde o valor pago veio zerado mas o honorário veio preenchido --
   // sinal forte de que a celula de valor pago veio vazia so nessa linha na
@@ -424,6 +461,12 @@ function ProjecaoHoraHoraInner() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [subAbaDashboard, mesReferencia, usuario]);
 
+  // Meta do mês selecionado, direto da tabela. Trocar de mês recarrega.
+  useEffect(() => {
+    carregarMeta(mesReferencia);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mesReferencia]);
+
   // LEITURA LEVE: lê o último snapshot salvo (1 SELECT por PK no backend).
   // Não dispara a RPC pesada nem cálculo. Mantém os dados anteriores em tela
   // em caso de falha de rede (sem loading infinito).
@@ -508,22 +551,10 @@ function ProjecaoHoraHoraInner() {
 
   function aplicarDadosDashboard(data) {
     setDashboard(data);
-    {
-      const cfg = data?.config_metas || {};
-      setFormMeta({
-        meta_operacional: cfg?.meta_operacional ?? data?.meta_recuperacao ?? "",
-        meta_unidades: cfg?.meta_unidades || "",
-        meta_honorario: cfg?.meta_honorario ?? data?.meta_honorario ?? "",
-        m1_valor: cfg?.m1_valor || "",
-        m1_percentual: cfg?.m1_percentual || "",
-        m2_valor: cfg?.m2_valor || "",
-        m2_percentual: cfg?.m2_percentual || "",
-        m3_valor: cfg?.m3_valor || "",
-        m3_percentual: cfg?.m3_percentual || "",
-        m4_valor: cfg?.m4_valor || "",
-        m4_percentual: cfg?.m4_percentual || "",
-      });
-    }
+    // O formulário de meta NÃO é preenchido aqui. `data.config_metas` vem do
+    // snapshot, que é anterior ao último salvamento e devolvia o valor velho
+    // por cima do recém-gravado. A meta é lida por carregarMeta(), direto de
+    // metas_projecao. O snapshot segue alimentando os números calculados.
     setCarregandoDashboard(false);
   }
 
@@ -754,7 +785,9 @@ function ProjecaoHoraHoraInner() {
     if (error) {
       alert("Erro ao salvar meta: " + error.message);
     } else {
-      carregarSnapshot();
+      // Relê metas_projecao: o que fica na tela é o que está gravado.
+      // O snapshot NÃO é regenerado aqui (recalcular a filial leva ~20 s).
+      await carregarMeta(mesReferencia);
     }
     setSalvandoMeta(false);
   }
@@ -1455,7 +1488,13 @@ function ProjecaoHoraHoraInner() {
                     ))}
                   </div>
 
-                  <button style={estilos.botaoPrimario} onClick={salvarMeta} disabled={salvandoMeta}>
+                  {erroMeta && (
+                    <p style={{ margin: "0 0 10px", fontSize: 12.5, fontWeight: 700, color: "#b91c1c" }}>
+                      {erroMeta} — os valores abaixo são os que estavam em tela, não os do banco. Recarregue antes de salvar.
+                    </p>
+                  )}
+
+                  <button style={estilos.botaoPrimario} onClick={salvarMeta} disabled={salvandoMeta || carregandoMeta}>
                     {salvandoMeta ? "Salvando..." : "Salvar configuração de metas"}
                   </button>
                 </div>
