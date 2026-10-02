@@ -1,0 +1,38 @@
+-- A MATVIEW DA SAUDE DA CARTEIRA NAO PODE SER LEGIVEL POR `authenticated`.
+--
+-- O QUE ACONTECEU (producao, 02/10/2026). A migration 20261002120000 recria
+-- `mv_saude_carteira` -- `create or replace` nao adiciona coluna a materialized
+-- view. O schema `public` tem um ALTER DEFAULT PRIVILEGES que concede TUDO a
+-- `authenticated` em relacoes novas. A matview antiga nao tinha esse grant; a
+-- recriada herdou. Medido logo apos a aplicacao, a ACL voltou como
+--
+--   postgres | authenticated | service_role     em vez de
+--   postgres | service_role
+--
+-- POR QUE IMPORTA. A tela le a carteira pelas RPCs SECURITY DEFINER, que
+-- aplicam `saude_carteira_escopo`: operador enxerga so a propria carteira. Com
+-- SELECT direto na matview, qualquer usuario autenticado le a carteira INTEIRA,
+-- de todos os operadores -- o escopo deixa de existir.
+--
+-- POR QUE ESTA MIGRATION E SEPARADA, e nao uma linha dentro da 20261002120000:
+-- aquela versao JA FOI APLICADA em producao. Editar o arquivo de uma versao
+-- aplicada quebra a correspondencia entre o que esta no repositorio e o que
+-- entrou no banco -- o ledger passa a descrever algo que nunca rodou daquele
+-- jeito. A correcao vira versao propria, que e replayavel e auditavel.
+--
+-- EM PRODUCAO o revoke ja foi feito a mao no dia da aplicacao. Esta migration
+-- existe para (a) registrar isso como versao, (b) garantir o mesmo estado em
+-- qualquer replay noutro ambiente.
+--
+-- ATENCAO AO ROLLBACK DA 20261002120000: ele DERRUBA E RECRIA a matview, e a
+-- recriada herda o default privilege outra vez. Se aquele rollback for rodado,
+-- ESTA migration tem de ser reaplicada depois. O arquivo dele nao foi tocado
+-- justamente porque pertence a uma versao ja aplicada; o teste
+-- `supabase/tests/saude_carteira_matview_acl.test.js` prende esse risco.
+--
+-- NAO MEXE EM NADA ALEM DA ACL: nenhum calculo, view, RPC, indice ou regra de
+-- cobertura. Uma linha de privilegio.
+--
+-- Rollback: supabase/rollbacks/20261002121000_mv_saude_carteira_acl_sem_authenticated.rollback.sql
+
+revoke all on public.mv_saude_carteira from authenticated;

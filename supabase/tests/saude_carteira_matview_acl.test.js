@@ -16,10 +16,10 @@
 // SELECT direto na matview, qualquer usuario autenticado le a carteira INTEIRA,
 // de todos os operadores -- o escopo deixa de existir.
 //
-// Este arquivo prova as tres coisas, num PostgreSQL de verdade:
-//   1. o perigo e REAL: sem o revoke, criar a matview ja entrega o privilegio;
-//   2. a migration fecha;
-//   3. o rollback tambem fecha -- ele recria a matview e herdaria o mesmo grant.
+// A CORRECAO E UMA VERSAO PROPRIA, nao uma linha dentro da 20261002120000:
+// aquela versao JA FOI APLICADA em producao, e editar o arquivo de uma versao
+// aplicada quebra a correspondencia entre repositorio e banco. Este arquivo
+// tambem prende isso (ver "o ledger fica intacto").
 //
 // Nao testa calculo, view, RPC nem regra de cobertura: nada disso muda aqui.
 import { describe, it, expect, vi } from "vitest";
@@ -28,15 +28,17 @@ import { PGlite } from "@electric-sql/pglite";
 
 vi.setConfig({ testTimeout: 60000, hookTimeout: 60000 });
 
-const MIGRATION = "supabase/migrations/20261002120000_saude_carteira_cobertura_10d.sql";
-const ROLLBACK = "supabase/rollbacks/20261002120000_saude_carteira_cobertura_10d.rollback.sql";
+const APLICADA = "supabase/migrations/20261002120000_saude_carteira_cobertura_10d.sql";
+const APLICADA_RB = "supabase/rollbacks/20261002120000_saude_carteira_cobertura_10d.rollback.sql";
+const MIGRATION = "supabase/migrations/20261002121000_mv_saude_carteira_acl_sem_authenticated.sql";
+const ROLLBACK = "supabase/rollbacks/20261002121000_mv_saude_carteira_acl_sem_authenticated.rollback.sql";
 const REVOKE = "revoke all on public.mv_saude_carteira from authenticated;";
 
 const ler = (p) => readFileSync(p, "utf-8");
 
-// Reproduz a situacao de producao: o papel `authenticated` e um default
-// privilege em `public` que o contempla. E exatamente isso que faz um objeto
-// novo nascer legivel sem ninguem ter escrito um grant.
+// Reproduz a situacao de producao: o papel `authenticated` e contemplado por um
+// default privilege em `public`. E exatamente isso que faz um objeto novo nascer
+// legivel sem ninguem ter escrito um grant.
 async function bancoComoProducao() {
   const db = await PGlite.create();
   await db.exec(`
@@ -55,8 +57,8 @@ const CRIA_BASE = `
   insert into base values (1, 10);
 `;
 
-// Criar a matview e um passo proprio porque o rollback faz isso DE NOVO: a
-// tabela de apoio sobrevive, a matview nao.
+// Criar a matview e um passo proprio porque o rollback da cobertura faz isso DE
+// NOVO: a tabela de apoio sobrevive, a matview nao.
 const CRIA_MATVIEW = `
   create materialized view public.mv_saude_carteira as select * from base;
   create unique index ux_mv on public.mv_saude_carteira (id);
@@ -74,7 +76,7 @@ const acl = async (db) =>
      where n.nspname = 'public' and c.relname = 'mv_saude_carteira'`)).rows[0].acl;
 
 describe("ACL da matview da Saúde da Carteira", () => {
-  it("o perigo é real: sem o revoke, a matview recriada já nasce legível por authenticated", async () => {
+  it("o default privilege concede: sem o revoke, a matview recriada já nasce legível por authenticated", async () => {
     const db = await bancoComoProducao();
     await db.exec(CRIA_BASE);
     await db.exec(CRIA_MATVIEW);
@@ -85,57 +87,89 @@ describe("ACL da matview da Saúde da Carteira", () => {
     await db.close();
   });
 
-  it("depois da migration, authenticated NÃO tem privilégio direto na matview", async () => {
+  it("a migration nova remove: authenticated deixa de ter privilégio direto", async () => {
     const db = await bancoComoProducao();
     await db.exec(CRIA_BASE);
     await db.exec(CRIA_MATVIEW);
-    await db.exec(REVOKE);
+    await db.exec(ler(MIGRATION));
 
     expect(await podeLer(db, "authenticated")).toBe(false);
-    // service_role continua lendo: as RPCs SECURITY DEFINER dependem disso.
-    expect(await podeLer(db, "service_role")).toBe(true);
     expect(await acl(db)).not.toContain("authenticated=");
     await db.close();
   });
 
-  it("depois do rollback, que também recria a matview, authenticated continua sem privilégio", async () => {
+  it("service_role continua acessando — as RPCs SECURITY DEFINER dependem disso", async () => {
     const db = await bancoComoProducao();
     await db.exec(CRIA_BASE);
-    // migration
     await db.exec(CRIA_MATVIEW);
-    await db.exec(REVOKE);
-    // rollback: derruba e recria -- e aqui que o grant voltaria
-    await db.exec(`drop materialized view public.mv_saude_carteira;`);
-    await db.exec(CRIA_MATVIEW);
-    expect(await podeLer(db, "authenticated")).toBe(true); // voltou, como esperado
-    await db.exec(REVOKE);
+    await db.exec(ler(MIGRATION));
 
+    expect(await podeLer(db, "service_role")).toBe(true);
+    expect(await acl(db)).toContain("service_role");
+    await db.close();
+  });
+
+  it("o rollback desta migration não reabre o buraco, e acusa se alguém reabriu", async () => {
+    const db = await bancoComoProducao();
+    await db.exec(CRIA_BASE);
+    await db.exec(CRIA_MATVIEW);
+    await db.exec(ler(MIGRATION));
+
+    // estado seguro: o rollback passa e nao muda nada
+    await db.exec(ler(ROLLBACK));
     expect(await podeLer(db, "authenticated")).toBe(false);
     expect(await podeLer(db, "service_role")).toBe(true);
+
+    // estado inseguro: alguem reconcedeu por fora -> o rollback falha alto
+    await db.exec(`grant select on public.mv_saude_carteira to authenticated;`);
+    await expect(db.exec(ler(ROLLBACK))).rejects.toThrow(/legivel por authenticated/);
+    await db.close();
+  });
+
+  it("o rollback da COBERTURA reabre o buraco — por isso a migration nova tem de ser reaplicada depois dele", async () => {
+    const db = await bancoComoProducao();
+    await db.exec(CRIA_BASE);
+    await db.exec(CRIA_MATVIEW);
+    await db.exec(ler(MIGRATION));
+    expect(await podeLer(db, "authenticated")).toBe(false);
+
+    // o rollback da 20261002120000 derruba e recria a matview
+    await db.exec(`drop materialized view public.mv_saude_carteira;`);
+    await db.exec(CRIA_MATVIEW);
+    expect(await podeLer(db, "authenticated")).toBe(true); // o grant voltou
+
+    // reaplicar a migration nova fecha de novo
+    await db.exec(ler(MIGRATION));
+    expect(await podeLer(db, "authenticated")).toBe(false);
     await db.close();
   });
 
   // Os testes acima provam o MECANISMO. Estes amarram o mecanismo aos arquivos
   // reais: sem isso, alguem removeria a linha e os testes de cima seguiriam
-  // verdes, porque eles executam a constante, nao o arquivo.
-  it("a migration contém o revoke, depois de criar a matview", async () => {
+  // verdes, porque eles executariam outro texto.
+  it("a migration nova contém exatamente o revoke, e nada mais", async () => {
     const sql = ler(MIGRATION);
     expect(sql).toContain(REVOKE);
-    expect(sql.indexOf("create materialized view public.mv_saude_carteira"))
-      .toBeLessThan(sql.indexOf(REVOKE));
+    // nenhum comando alem do revoke: so comentarios e a linha
+    const comandos = sql
+      .split("\n")
+      .filter((l) => !l.trim().startsWith("--") && l.trim() !== "")
+      .join(" ")
+      .trim();
+    expect(comandos).toBe(REVOKE);
   });
 
-  it("o rollback contém o revoke, depois de recriar a matview", async () => {
-    const sql = ler(ROLLBACK);
-    expect(sql).toContain(REVOKE);
-    expect(sql.indexOf("create materialized view public.mv_saude_carteira"))
-      .toBeLessThan(sql.indexOf(REVOKE));
+  it("o ledger fica intacto: a versão JÁ APLICADA não foi editada", async () => {
+    // A 20261002120000 esta em producao. O revoke NAO pode ter sido injetado
+    // nela nem no rollback dela -- a correcao e versao propria.
+    for (const p of [APLICADA, APLICADA_RB]) {
+      expect(ler(p)).not.toContain(REVOKE);
+    }
   });
 
-  it("nenhum dos dois arquivos concede nada a authenticated", async () => {
+  it("nenhum dos arquivos desta correção concede algo a authenticated", async () => {
     for (const p of [MIGRATION, ROLLBACK]) {
-      const sql = ler(p);
-      expect(sql).not.toMatch(/grant[^;]*\bto\b[^;]*authenticated/i);
+      expect(ler(p)).not.toMatch(/^\s*grant[^;]*\bto\b[^;]*authenticated/im);
     }
   });
 });

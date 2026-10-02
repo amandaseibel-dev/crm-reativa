@@ -139,12 +139,6 @@ create index ix_mv_sc_fidel     on public.mv_saude_carteira using btree (fideliz
 
 grant select on public.mv_saude_carteira to service_role;
 
--- O rollback recria a matview, entao herda o mesmo ALTER DEFAULT PRIVILEGES que
--- concede tudo a `authenticated`. Sem esta linha, desfazer a cobertura abriria a
--- carteira inteira para qualquer usuario autenticado, contornando o escopo por
--- operador das RPCs SECURITY DEFINER. Ver a nota na migration correspondente.
-revoke all on public.mv_saude_carteira from authenticated;
-
 CREATE OR REPLACE FUNCTION public.saude_carteira_resumo_impl(p_filtros jsonb DEFAULT '{}'::jsonb)
  RETURNS jsonb
  LANGUAGE plpgsql
