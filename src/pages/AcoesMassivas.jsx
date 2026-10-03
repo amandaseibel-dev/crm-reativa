@@ -252,6 +252,10 @@ export default function AcoesMassivas() {
   // Planilhas exportadas que ainda não foram confirmadas nem descartadas. Ficam
   // no banco: o disparo externo pode levar horas e a página pode recarregar.
   const [lotesPendentes, setLotesPendentes] = useState([]);
+  // Resultado do último lote, com os números SEPARADOS. "Selecionados" nunca é
+  // sinônimo de "enviados": o disparo é externo e não devolve confirmação de
+  // entrega, então Enviados e Falhas ficam explicitamente indisponíveis.
+  const [resumoLote, setResumoLote] = useState(null);
   // Lote + ação ("CONFIRMAR" | "DESCARTAR") aguardando o "sim" explícito.
   const [acaoLote, setAcaoLote] = useState(null);
   const [concluindoLote, setConcluindoLote] = useState(false);
@@ -567,11 +571,22 @@ export default function AcoesMassivas() {
         ? ` ${excluidosTipo} caso(s) ficaram fora por não corresponderem mais ao tipo de cobrança.`
         : "");
 
+      // Registro automático (migration 20261002094233, já em produção): a
+      // própria exportação grava as movimentações individuais do lote.
+      const selecionados = Number(exp?.selecionados ?? exp?.exportados ?? contatos.length);
+      const registrados = Number(exp?.registrados || 0);
+      setResumoLote({
+        selecionados,
+        registrados,
+        excluidos: excluidosEnvio + excluidosPrime + excluidosOutroOperador + excluidosJaAcionados + excluidosTipo,
+        automatico: !!exp?.registro_automatico,
+      });
+
       if (contatos.length === 0) {
         setSucesso(`Nenhum aluno na planilha.${sufixoExcluidos}`);
       } else {
         setSucesso(
-          `Planilha exportada com ${contatos.length} aluno(s). Nada foi registrado nos alunos: tabulação, retorno, fidelização e acionamento só mudam quando você confirmar a ação realizada, depois que o disparo na ferramenta externa terminar. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
+          `Planilha exportada com ${selecionados} aluno(s) selecionados e ${registrados} registrado(s) no CRM como ação massiva, com data, hora e canal no histórico de cada aluno. Esses registros contam como último acionamento. Se o download não abriu, use o botão “Baixar planilha novamente” abaixo.${sufixoExcluidos}`
         );
       }
       carregarLotesPendentes();
@@ -1131,6 +1146,23 @@ export default function AcoesMassivas() {
         {erro && <p style={estilos.erro}>{erro}</p>}
         {sucesso && <p style={estilos.sucesso}>{sucesso}</p>}
 
+        {resumoLote && (
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10, marginTop: 12 }}>
+            {[
+              ["Selecionados", resumoLote.selecionados.toLocaleString("pt-BR"), "Saíram na planilha.", false],
+              ["Registrados no CRM", resumoLote.registrados.toLocaleString("pt-BR"), "No histórico do aluno, com data, hora e canal.", false],
+              ["Excluídos na revalidação", resumoLote.excluidos.toLocaleString("pt-BR"), "Saíram do universo entre a prévia e o registro.", false],
+              ["Enviados", "não disponível", "A ferramenta de disparo é externa e não devolve confirmação de entrega.", true],
+              ["Falhas de envio", "não disponível", "Sem retorno técnico da mensageria, não há como medir.", true],
+            ].map(([rot, val, ajuda, indisp]) => (
+              <div key={rot} style={estilos.miniCard} title={ajuda}>
+                <div style={{ ...estilos.miniVal, fontSize: indisp ? 13 : undefined, color: indisp ? "var(--rv-texto-fraco)" : undefined }}>{val}</div>
+                <div style={estilos.miniRot}>{rot}</div>
+              </div>
+            ))}
+          </div>
+        )}
+
         <button style={estilos.botaoBuscar} onClick={buscar} disabled={carregando}>
           {carregando ? "Buscando..." : "Buscar prévia"}
         </button>
@@ -1139,11 +1171,12 @@ export default function AcoesMassivas() {
       {lotesPendentes.length > 0 && (
         <div style={estilos.card}>
           <h3 style={{ margin: "0 0 4px", fontFamily: FONTE_TITULO, fontSize: 15, fontWeight: 800 }}>
-            Planilhas exportadas aguardando confirmação
+            Planilhas pendentes de registro
           </h3>
           <p style={{ margin: "0 0 12px", fontSize: 12.5, color: "var(--rv-texto-fraco)" }}>
-            Exportar não registra contato. Depois que o disparo na ferramenta externa terminar, confirme a
-            ação realizada — só então os alunos contam como acionados. Se a planilha não foi enviada, descarte.
+            Lotes do fluxo antigo, exportados antes do registro automático: saíram na planilha mas ainda não
+            foram registrados no histórico dos alunos. Pendente de <strong>registro</strong>, não de envio — o
+            CRM não sabe se o disparo aconteceu. Registre se a ação foi realizada; descarte se não foi.
           </p>
           <div style={{ overflowX: "auto" }}>
             <table style={estilos.tabela}>
