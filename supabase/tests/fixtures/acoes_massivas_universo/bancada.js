@@ -26,6 +26,10 @@ export const MIG6 = ler("supabase/migrations/20260927164511_acoes_massivas_previ
 // Ja aplicada em producao (20261002094233).
 export const MIG7 = ler("supabase/migrations/20261002094233_acoes_massivas_registro_automatico.sql");
 export const RB7 = ler("supabase/rollbacks/20261002094233_acoes_massivas_registro_automatico.rollback.sql");
+// Correcao de 03/10: acao massiva conta como acionamento mas nao passa pela
+// recalculadora (que grava data_retorno e status_acionamento).
+export const MIG8 = ler("supabase/migrations/20261003083400_acao_massiva_sem_retorno_automatico.sql");
+export const RB8 = ler("supabase/rollbacks/20261003083400_acao_massiva_sem_retorno_automatico.rollback.sql");
 
 // O schema `internal` e as duas pecas que a MIG4 usa, tiradas dos ARQUIVOS DE
 // MIGRATION reais -- nao sao dubles. patch_funcao_ancorada e o mesmo patcher de
@@ -247,7 +251,7 @@ function estadoProducao() {
 }
 
 /** fase: 'antes' = producao hoje; 'depois' = producao + migrations novas. */
-export async function novoBanco({ fase = "depois", registroAutomatico = false } = {}) {
+export async function novoBanco({ fase = "depois", registroAutomatico = false, semRetornoAutomatico = false } = {}) {
   const db = await PGlite.create();
   await db.exec(ESQUEMA);
   // funcoes vivas de producao (gatilho, registrar, exportar, concluir)
@@ -261,7 +265,10 @@ export async function novoBanco({ fase = "depois", registroAutomatico = false } 
     await db.exec(MIG4);
     await db.exec(MIG5);
     await db.exec(MIG6);
-    if (registroAutomatico) await db.exec(MIG7);
+    if (registroAutomatico) {
+      await db.exec(MIG7);
+      if (semRetornoAutomatico) await db.exec(MIG8);
+    }
   }
   await db.exec(`insert into public.prime_extrato values ('2026-09-05 10:00:00+00');
                  insert into public.usuarios values ('${GESTAO}','Gestao','gerencia',true),
