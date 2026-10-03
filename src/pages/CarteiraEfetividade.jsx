@@ -283,7 +283,11 @@ export default function CarteiraEfetividade() {
                     diferentes: uma decompõe em Convertido/Conferência/
                     Acadêmico/Sem negociação, a outra em Entrou/Pago/Negociado/
                     Cancelado/Em aberto. Nenhuma recalcula a outra. */}
-                {[["consolidado", "Consolidado"], ["competencia", "Por competência"],
+                {/* O rótulo é "Situação da carteira", que é como a gestão chama
+                    esta visão e o nome da seção principal dentro dela. O valor
+                    interno segue "consolidado": renomear a chave não mudaria
+                    nada na tela e só quebraria quem já a referencia. */}
+                {[["consolidado", "Situação da carteira"], ["competencia", "Por competência"],
                   ["vencimento", "Resumo por vencimento"]].map(([k, r]) => (
                   <button key={k} onClick={() => setVista(k)} aria-pressed={vista === k}
                           style={{ ...S.opcao, ...(vista === k ? S.opcaoAtiva : null) }}>{r}</button>

@@ -22,7 +22,12 @@ function AbrirNoSegundoSemestre() {
         return Boolean(b);
       };
       clicar("2º semestre");
-      if (clicar("Resumo por vencimento")) clearInterval(t);
+      // O preview NÃO escolhe visão: quem escolhe é a tela. Assim dá para
+      // conferir qual é o padrão de verdade ao abrir. Para cair direto numa
+      // visão específica, use ?vista=Resumo por vencimento na URL.
+      const pedida = new URLSearchParams(window.location.search).get("vista");
+      if (!pedida) { clearInterval(t); return; }
+      if (clicar(pedida)) clearInterval(t);
       else if (Date.now() > fim) clearInterval(t);
     }, 100);
     return () => clearInterval(t);
@@ -46,7 +51,7 @@ createRoot(document.getElementById("raiz")).render(
         · sem login · nada foi publicado
       </span>
       <span style={{ flex: 1 }} />
-      <span style={{ color: "#94a3b8" }}>abre em 2026 · Resumo por vencimento</span>
+      <span style={{ color: "#94a3b8" }}>abre em 2026/2 na visão padrão da tela</span>
     </div>
     <CarteiraEfetividade />
   </>
