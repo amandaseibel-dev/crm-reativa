@@ -181,6 +181,47 @@ function valorTitulo(t) {
   return Number(t.valor_em_aberto || t.saldo_corrigido || t.valor_original || 0);
 }
 
+// SOMA DA SELECAO. Mensalidade comum entra pelo proprio valor.
+//
+// Mensalidade de re-acordo, nao: o saldo residual e do ACORDO cancelado
+// inteiro (a soma das parcelas que foram canceladas, ver
+// `acordo_saldo_residual`), nao de cada mensalidade de origem. Somar linha a
+// linha contaria o mesmo dinheiro tantas vezes quantas forem as mensalidades
+// daquele acordo. Entra uma vez por acordo anterior.
+export function somarSelecao(titulos, ids) {
+  const marcados = titulos.filter((t) => ids.includes(t.id));
+  const comuns = marcados
+    .filter((t) => !t.reacordo)
+    .reduce((acc, t) => acc + valorTitulo(t), 0);
+  const residuais = new Map();
+  marcados.filter((t) => t.reacordo).forEach((t) => residuais.set(t.reacordo.acordoId, t.reacordo.residual));
+  return comuns + [...residuais.values()].reduce((acc, v) => acc + v, 0);
+}
+
+// O QUE O BACKEND RECUSOU, EM PORTUGUES. Codigo cru na tela vira "deu erro" e
+// a gestao nao sabe o que fazer a seguir -- cada um destes tem uma saida.
+function mensagemErroVinculo(cod, dados) {
+  if (cod === "REACORDO_PARCIAL") {
+    return "O acordo cancelado de origem tem mensalidade que ficou de fora. O re-acordo leva a cadeia inteira, "
+      + "senao sobra dívida órfã do mesmo saldo residual — marque todas as mensalidades daquele acordo.";
+  }
+  if (cod === "PARCELAS_INELEGIVEIS") {
+    const n = Array.isArray(dados?.bloqueados) ? dados.bloqueados.length : 0;
+    return (n ? n + " mensalidade(s) deixaram" : "Alguma mensalidade deixou")
+      + " de ser elegível (mudou de estado desde que a tela carregou). Nada foi gravado — recarregue a ficha e confira.";
+  }
+  if (cod === "TITULO_COM_VINCULO_ATIVO_EM_OUTRO_ACORDO") {
+    return "Alguma mensalidade já está vinculada a outro acordo. Nada foi gravado — desvincule lá antes, ou escolha o acordo certo.";
+  }
+  if (cod === "acordo_cancelado_operacao_nao_permitida") {
+    return "Esse acordo está cancelado — ele devolveu a dívida para cobrança, então não recebe mensalidade.";
+  }
+  if (cod === "ACORDO_NAO_ATIVO") {
+    return "Esse acordo não está em condição de receber mensalidade (só acordo ativo ou pago recebe).";
+  }
+  return "Erro ao vincular: " + cod;
+}
+
 function novoAcordoInicial() {
   return {
     valorTotal: "",
@@ -353,13 +394,80 @@ export default function FinanceiroAluno({ aluno }) {
       // `acordo_id` e nulo e nao ha linha em `acordo_titulo_vinculo`. Some-la
       // da lista era esconder da gestao a decisao que e dela; o backend
       // (`vincular_titulos_acordo_gestao`) aceita as duas.
-      const { data: titulosData } = await supabase
-        .from("acordos_titulos")
-        .select("id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, status, situacao")
-        .eq("aluno_id", String(aluno.id))
-        .in("status", ["em_aberto", "em_confirmacao"])
-        .order("vencimento", { ascending: true });
-      setTitulosSelecionaveis(titulosData || []);
+      //
+      // A MENSALIDADE PRESA EM ACORDO CANCELADO tambem e disponivel
+      // (24/09/2026). Desde 22/09 cancelar o acordo nao devolve mais a
+      // mensalidade para `em_aberto`: ela continua NEGOCIADO/`vinculada`
+      // apontando para o acordo cancelado, e a renegociacao passou a ser feita
+      // pelo saldo residual (`acordo_saldo_residual`). O backend ja aceita esse
+      // caso -- o ramo de re-acordo de `vincular_titulos_acordo` --, mas esta
+      // consulta so olhava `status`, entao a mensalidade nunca chegava na tela:
+      // a gestao via o acordo novo e nao tinha o que marcar (Thomas Henrique
+      // Campos Todeschini, 2 mensalidades / R$ 568,41 presas no acordo 4567).
+      //
+      // Duas buscas, nao um `.or()` com `and(...)` dentro: filtro composto em
+      // string ja mordeu esta base antes (ver CasosSemTelefone). Se a segunda
+      // falhar, a primeira continua de pe -- a tela perde o re-acordo, nunca a
+      // lista inteira.
+      const COLUNAS_TITULO =
+        "id, acordo_id, documento, vencimento, valor_original, saldo_corrigido, valor_em_aberto, status, situacao";
+      const [{ data: titulosSoltos }, { data: titulosNegociados }] = await Promise.all([
+        supabase
+          .from("acordos_titulos")
+          .select(COLUNAS_TITULO)
+          .eq("aluno_id", String(aluno.id))
+          .in("status", ["em_aberto", "em_confirmacao"])
+          .order("vencimento", { ascending: true }),
+        supabase
+          .from("acordos_titulos")
+          .select(COLUNAS_TITULO)
+          .eq("aluno_id", String(aluno.id))
+          .eq("status", "vinculada")
+          .eq("situacao", "NEGOCIADO")
+          .order("vencimento", { ascending: true }),
+      ]);
+
+      const soltos = (titulosSoltos || []).filter((t) => !t.acordo_id);
+      const listaTitulos = titulosNegociados || [];
+
+      // So acordo CANCELADO gera candidata a re-acordo. Mensalidade presa em
+      // acordo ATIVO/QUITADO continua fora da lista: ela ja esta no lugar dela.
+      const cancelados = new Map(
+        (acordosData || [])
+          .filter((a) => ["CANCELADO", "CANCELADA"].includes(String(a.status || "").toUpperCase()))
+          .map((a) => [String(a.id), a])
+      );
+      const presas = listaTitulos.filter((t) => t.acordo_id && cancelados.has(String(t.acordo_id)));
+      const idsAnteriores = [...new Set(presas.map((t) => String(t.acordo_id)))];
+
+      // `acordo_saldo_residual` e a MESMA fonte que a RPC consulta para aceitar
+      // ou recusar. Residual nao confiavel nao vira opcao na tela -- a tela
+      // nunca aproxima valor nem deixa a operadora decidir o numero.
+      const residuais = Object.fromEntries(
+        await Promise.all(
+          idsAnteriores.map(async (id) => {
+            const { data: r } = await supabase.rpc("acordo_saldo_residual", { p_acordo_id: id });
+            return [id, r];
+          })
+        )
+      );
+      const deReacordo = presas
+        .filter((t) => residuais[String(t.acordo_id)] && residuais[String(t.acordo_id)].confiavel)
+        .map((t) => ({
+          ...t,
+          reacordo: {
+            acordoId: String(t.acordo_id),
+            numero: cancelados.get(String(t.acordo_id))?.numero_acordo ?? null,
+            residual: Number(residuais[String(t.acordo_id)].residual || 0),
+            titulos: Number(residuais[String(t.acordo_id)].titulos || 0),
+          },
+        }));
+
+      setTitulosSelecionaveis(
+        [...soltos, ...deReacordo].sort((a, b) =>
+          String(a.vencimento || "").localeCompare(String(b.vencimento || ""))
+        )
+      );
     }
 
     carregarAcordos();
@@ -855,18 +963,27 @@ export default function FinanceiroAluno({ aluno }) {
   }
 
   function alternarTitulo(id) {
+    // RE-ACORDO E TUDO-OU-NADA (regra do backend, 22/09/2026): levar parte das
+    // mensalidades do acordo cancelado deixaria o resto orfa do mesmo saldo
+    // residual, e a RPC recusa a operacao inteira (REACORDO_PARCIAL). Entao a
+    // marcacao anda em bloco -- marcar uma marca as irmas do mesmo acordo
+    // anterior, desmarcar uma desmarca o bloco.
+    const alvo = titulosSelecionaveis.find((t) => t.id === id);
+    const grupo = alvo?.reacordo
+      ? titulosSelecionaveis.filter((t) => t.reacordo?.acordoId === alvo.reacordo.acordoId).map((t) => t.id)
+      : [id];
     setNovo((atual) => {
       const jaTem = atual.titulosSel.includes(id);
-      const titulosSel = jaTem ? atual.titulosSel.filter((x) => x !== id) : [...atual.titulosSel, id];
+      const titulosSel = jaTem
+        ? atual.titulosSel.filter((x) => !grupo.includes(x))
+        : [...atual.titulosSel, ...grupo.filter((x) => !atual.titulosSel.includes(x))];
       return { ...atual, titulosSel };
     });
   }
 
   function usarSomaTitulos() {
     setNovo((atual) => {
-      const soma = titulosSelecionaveis
-        .filter((t) => atual.titulosSel.includes(t.id))
-        .reduce((acc, t) => acc + valorTitulo(t), 0);
+      const soma = somarSelecao(titulosSelecionaveis, atual.titulosSel);
 
       if (!atual.temEntrada || !atual.entradaPct) {
         return { ...atual, valorTotal: soma.toFixed(2) };
@@ -932,7 +1049,7 @@ export default function FinanceiroAluno({ aluno }) {
         setRecarga((r) => r + 1);
         return;
       }
-      alert("Erro ao vincular: " + cod);
+      alert(mensagemErroVinculo(cod, data));
       return;
     }
     setNovo(novoAcordoInicial());
@@ -1311,9 +1428,15 @@ export default function FinanceiroAluno({ aluno }) {
   const difValorNovo = Math.abs(somaConferida - paraNumero(novo.valorTotal));
   const difHonorariosNovo = Math.abs(somaHonorariosNovo - paraNumero(novo.honorarios));
 
-  const somaTitulosMarcados = titulosSelecionaveis
-    .filter((t) => novo.titulosSel.includes(t.id))
-    .reduce((acc, t) => acc + valorTitulo(t), 0);
+  const somaTitulosMarcados = somarSelecao(titulosSelecionaveis, novo.titulosSel);
+
+  // Um bloco por acordo cancelado de origem: o residual e dele, nao das
+  // mensalidades, entao a tela explica o numero uma vez so.
+  const gruposReacordo = [
+    ...new Map(
+      titulosSelecionaveis.filter((t) => t.reacordo).map((t) => [t.reacordo.acordoId, t.reacordo])
+    ).values(),
+  ];
 
   return (
     <>
@@ -1378,7 +1501,7 @@ export default function FinanceiroAluno({ aluno }) {
               <div style={estilos.blocoTitulos}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6, gap: 8, flexWrap: "wrap" }}>
                   <span style={{ fontSize: 12, fontWeight: 700 }}>
-                    Títulos em aberto — marque os que entram neste acordo
+                    Mensalidades disponíveis — marque as que entram neste acordo
                   </span>
                   {titulosSelecionaveis.length > 0 && (
                     <div style={{ display: "flex", gap: 8 }}>
@@ -1403,7 +1526,7 @@ export default function FinanceiroAluno({ aluno }) {
                 </div>
                 {titulosSelecionaveis.length === 0 ? (
                   <div style={{ fontSize: 12, opacity: 0.7 }}>
-                    Nenhum título em aberto para este aluno. Você pode montar o acordo mesmo assim.
+                    Nenhuma mensalidade disponível para este aluno. Você pode montar o acordo mesmo assim.
                   </div>
                 ) : (
                   <>
@@ -1431,9 +1554,36 @@ export default function FinanceiroAluno({ aluno }) {
                               em confirmação
                             </span>
                           )}
+                          {/* Veio de acordo cancelado: continua NEGOCIADA, mas
+                              pode entrar num acordo novo pelo saldo residual
+                              (ramo de re-acordo de vincular_titulos_acordo). */}
+                          {t.reacordo && (
+                            <span
+                              style={{
+                                marginLeft: 6, fontSize: 10, fontWeight: 800,
+                                padding: "1px 6px", borderRadius: 6,
+                                background: "var(--rv-borda)", color: "var(--rv-texto)",
+                              }}
+                              title={
+                                "Negociada no acordo " + (t.reacordo.numero ? "#" + t.reacordo.numero : "anterior")
+                                + ", que foi cancelado. O que entra no acordo novo é o saldo residual daquele acordo: "
+                                + moeda(t.reacordo.residual)
+                                + " (" + t.reacordo.titulos + " mensalidade(s) de origem, que andam juntas)."
+                              }
+                            >
+                              saldo residual
+                            </span>
+                          )}
                         </span>
                         <span style={{ fontWeight: 700 }}>{moeda(valorTitulo(t))}</span>
                       </label>
+                    ))}
+                    {gruposReacordo.map((g) => (
+                      <div key={g.acordoId} style={{ fontSize: 11.5, opacity: 0.85, marginTop: 6 }}>
+                        Acordo {g.numero ? "#" + g.numero : "anterior"} cancelado: o que entra no acordo novo é o
+                        saldo residual dele, <strong>{moeda(g.residual)}</strong> — {g.titulos} mensalidade(s) de
+                        origem, que andam juntas (marcar uma marca todas). Não é a soma dos valores originais.
+                      </div>
                     ))}
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 8 }}>
                       <span style={{ fontSize: 12 }}>Soma marcados: <strong>{moeda(somaTitulosMarcados)}</strong></span>
