@@ -4,6 +4,7 @@ import { supabase } from "../services/supabase";
 import { buscarTudo } from "../utils/paginado";
 import { Carregando } from "../ui/estados";
 import { podeBaixarPagamento, podeVerFilaDeBaixas } from "../utils/operadores";
+import { montarParcelasDaFila } from "../utils/parcelasDaFila";
 import ComprovantePagamento from "../components/ComprovantePagamento";
 import Alunos from "./Aluno";
 import Dobra from "../ui/blocos";
@@ -290,15 +291,12 @@ export default function MinhaFilaPagamentos() {
       if (erroAcordo) {
         console.error("Erro ao registrar acordo:", erroAcordo);
       } else if (acordoCriado) {
-        const linhasParcelas = parcelasDigitadas.map((p, i) => ({
-          acordo_id: acordoCriado.id,
-          numero: i + 1,
-          valor: Number(p.valor) || 0,
-          vencimento: p.vencimento || null,
-          status: i === 0 ? "PAGO" : "A_VENCER",
-          pago_em: i === 0 ? new Date().toISOString() : null,
-          confirmado_por_email: i === 0 ? usuario?.email || "" : null,
-        }));
+        const linhasParcelas = montarParcelasDaFila({
+          acordoId: acordoCriado.id,
+          parcelas: parcelasDigitadas,
+          email: usuario?.email || "",
+          agoraISO: new Date().toISOString(),
+        });
 
         const { error: erroParcelas } = await supabase.from("parcelas").insert(linhasParcelas);
 

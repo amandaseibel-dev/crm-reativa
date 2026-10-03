@@ -9,6 +9,7 @@ import { podeGerirFinanceiro, nomeOperadorPorEmail, OPERADORES_POR_EMAIL } from 
 // lancamento chamam a MESMA funcao. Ver o comentario de src/utils/lancarAcordo.js:
 // caminho proprio foi como nasceram 88 acordos duplicados na mao.
 import { lancarAcordo, gerarParcelas as gerarParcelasAcordo } from "../utils/lancarAcordo";
+import { STATUS_PARCELA_LABEL, rotuloParcela } from "../utils/statusParcela";
 // Valor cobravel ajustado: a formula e a permissao moram em um lugar so.
 // Ver src/utils/ajusteValor.js -- o backend continua sendo quem recusa.
 import {
@@ -86,12 +87,6 @@ function paraDataBR(v) {
   return t;
 }
 
-const STATUS_PARCELA_LABEL = {
-  A_VENCER: "A vencer",
-  VENCIDA: "Vencida",
-  PAGO: "Paga",
-  CANCELADA: "Cancelada",
-};
 
 // Selos de status: fundo SOLIDO claro com texto escuro.
 //
@@ -2517,12 +2512,17 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, ba
               {parcelas.map((p) => {
                 const pago = p.status === "PAGO";
                 const cancelada = p.status === "CANCELADA";
+                // Parcela substituida por re-acordo: encerrada como a cancelada.
+                // Sem isto ela levava "• vencida" e fundo vermelho pela data,
+                // embora nao haja mais nada a cobrar nela.
+                const renegociada = p.status === "RENEGOCIADA";
+                const encerrada = pago || cancelada || renegociada;
                 const diasP = diasAtraso(p.vencimento);
-                const vencida = !pago && !cancelada && diasP > 0;
-                const venceAmanha = !pago && !cancelada && diasP === -1;
+                const vencida = !encerrada && diasP > 0;
+                const venceAmanha = !encerrada && diasP === -1;
                 const corP = pago
                   ? CORES_STATUS.quitado
-                  : cancelada
+                  : cancelada || renegociada
                   ? CORES_STATUS.cancelado
                   : vencida
                   ? CORES_STATUS.vencida
@@ -2558,7 +2558,7 @@ function SecaoAcordos({ acordos, parcelasPorAcordo, titulos = [], podeBaixar, ba
                               : "Honorário não informado"}
                           </div>
                           <span style={{ ...estilos.tagBase, background: corP.bg, color: corP.texto }}>
-                            {pago ? "Paga" : STATUS_PARCELA_LABEL[p.status] || "A vencer"}
+                            {rotuloParcela(p.status, vencida)}
                           </span>
                         </div>
                         {podeBaixar && onDefinirHonorarioParcela && !cancelada && acordoPermiteAcaoFinanceira(acordo) && (

@@ -24,6 +24,17 @@
 
 import { supabase } from "../services/supabase";
 import { nomeOperadorPorEmail } from "./operadores";
+// A regra de status da parcela e as primitivas de data moram em statusParcela:
+// modulo puro, sem dependencia nenhuma, para que qualquer tela que crie parcela
+// possa usar a MESMA regra sem arrastar o supabase junto.
+import {
+  paraDataISO,
+  hojeISO,
+  statusInicialParcela,
+  STATUS_PARCELA_TERMINAL,
+} from "./statusParcela";
+
+export { paraDataISO, hojeISO, statusInicialParcela };
 
 export function paraNumero(v) {
   let t = String(v || "").replace("R$", "").replace(/\s/g, "").trim();
@@ -34,30 +45,11 @@ export function paraNumero(v) {
   return Number(t) || 0;
 }
 
-export function paraDataISO(v) {
-  const t = String(v || "").trim();
-  if (!t) return "";
-  let m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
-  m = t.match(/^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{2,4})$/);
-  if (m) {
-    let d = m[1], mo = m[2], ano = m[3];
-    if (ano.length === 2) ano = "20" + ano;
-    return `${ano}-${mo.padStart(2, "0")}-${d.padStart(2, "0")}`;
-  }
-  return null;
-}
-
 export function paraDataBR(v) {
   const t = String(v || "").trim();
   const m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if (m) return `${m[3]}/${m[2]}/${m[1]}`;
   return t;
-}
-
-export function hojeISO() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
 export function somarMeses(dataISO, meses) {
@@ -105,12 +97,13 @@ export function gerarParcelas({ valorTotal, qtdParcelas, temEntrada, entradaRs, 
     const hon = ultima ? honSaldo - acumuladoHon : Number(honCada.toFixed(2));
     acumulado += valor;
     acumuladoHon += hon;
+    const vencimento = somarMeses(base, i - 1);
     parcelas.push({
       numero: i,
-      vencimento: paraDataBR(somarMeses(base, i - 1)),
+      vencimento: paraDataBR(vencimento),
       valor: valor.toFixed(2),
       honorarios: hon.toFixed(2),
-      status: "A_VENCER",
+      status: statusInicialParcela(vencimento),
     });
   }
   return { erro: "", parcelas, honorariosEntrada: honEnt.toFixed(2) };
@@ -163,14 +156,27 @@ export async function lancarAcordo({ aluno, dados, usuarioEmail }) {
 
   if (error) return { ok: false, erro: error.message };
 
-  const parcelas = dados.parcelas.map((p) => ({
-    acordo_id: acordo.id,
-    numero: p.numero,
-    valor: paraNumero(p.valor),
-    honorarios: p.honorarios != null ? paraNumero(p.honorarios) : null,
-    vencimento: paraDataISO(p.vencimento) || p.vencimento,
-    status: p.status,
-  }));
+  // O STATUS E RECALCULADO AQUI, nao herdado de gerarParcelas.
+  //
+  // gerarParcelas roda quando o operador aperta "Gerar parcelas"; depois disso
+  // ele ainda pode editar o vencimento de cada linha na tela. Herdar o status
+  // daquele momento deixaria a parcela editada com o status da data ANTIGA.
+  // Este insert e o funil unico do parcelado, entao a decisao final mora aqui.
+  // Status terminal (parcela que ja chegou pronta como paga/cancelada) passa
+  // intacto -- nesses a data nao manda mais.
+  const parcelas = dados.parcelas.map((p) => {
+    const vencimento = paraDataISO(p.vencimento) || p.vencimento;
+    return {
+      acordo_id: acordo.id,
+      numero: p.numero,
+      valor: paraNumero(p.valor),
+      honorarios: p.honorarios != null ? paraNumero(p.honorarios) : null,
+      vencimento,
+      status: STATUS_PARCELA_TERMINAL.has(p.status)
+        ? p.status
+        : statusInicialParcela(vencimento),
+    };
+  });
 
   const { error: e2 } = await supabase.from("parcelas").insert(parcelas);
   if (e2) {
@@ -192,7 +198,9 @@ export async function lancarAcordo({ aluno, dados, usuarioEmail }) {
         valor: entrada,
         honorarios: honEntrada || 0,
         vencimento: dataEntrada,
-        status: paga ? "PAGO" : "A_VENCER",
+        // Entrada NAO paga tambem segue a data: entrada com vencimento
+        // retroativo nascia "a vencer" e some da cobranca ate o cron passar.
+        status: paga ? "PAGO" : statusInicialParcela(dataEntrada),
         pago_em: paga ? dataEntrada : null,
         confirmado_por_email: paga ? email : null,
         // A tela identifica a entrada por este campo. Sem ele, o rateio de
