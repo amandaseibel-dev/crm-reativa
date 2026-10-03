@@ -301,45 +301,6 @@ export default function Borderos() {
       // `naoReabreNoBordero`. Nao ha teste automatizado que proteja esta
       // ordem: a garantia e a posicao no codigo. Mover e silencioso.
       // =====================================================================
-      // J3/I1 — PRESENCA DO ARQUIVO BRUTO.
-      // Capturada AQUI, antes do laco abaixo, de proposito: o laco pula linhas
-      // via `naoReabreNoBordero(linha.situacaoAtual)` (PAGO, EM_CONFIRMACAO,
-      // CANCELADA) e tambem quando o aluno nao resolve. Se a presenca fosse
-      // registrada depois, esses titulos "desapareceriam" do registro e a
-      // ausencia viraria artefato do proprio importador -- nao do relatorio.
-      // A tabela tem de representar O ARQUIVO RECEBIDO, nao o subconjunto
-      // que o CRM decidiu processar.
-      try {
-        await supabase.rpc("registrar_presenca_extracao", {
-          p_importacao_id: importacao.id,
-          p_source_type: "BORDERO",
-          // o bordero E o escopo: comparar bordero 545 com 617 nao faz sentido,
-          // sao populacoes diferentes por construcao.
-          p_scope_key: "BORDERO=" + String(preview.numeroBordero || "DESCONHECIDO"),
-          // CONTRATO DO BORDERO (aprovado em 01/10):
-          //   · serve para AUDITORIA DE PRESENCA;
-          //   · normalmente NAO tera snapshot comparavel seguinte (cada bordero
-          //     e importado ~1 vez: 93 referencias em 97 importacoes);
-          //   · portanto NAO gera inferencia de ausencia;
-          //   · NAO participa da sequencia TOTAL do portador 195;
-          //   · NAO e comparado com BORDERO=TODOS -- scope_key diferente, e o
-          //     CHECK ck_extracao_scope_key_coerente garante a separacao.
-          // TOTAL aqui significa "o lote inteiro DESTA remessa", nao a carteira.
-          p_completude: "TOTAL",
-          p_snapshot_at: new Date().toISOString(),
-          p_arquivo_nome: arquivo?.name || null,
-          p_arquivo_hash: await hashArquivo(await arquivo.arrayBuffer()),
-          p_linhas_arquivo: preview.linhas.length,
-          p_linhas: preview.linhas.map((l) => ({
-            documento: l.numTitulo,
-            cpf: l.cpfLimpo,
-            tipo_boleto: l.curso,
-            situacao: l.situacaoAtual || "ABERTO",
-            valor: l.valor,
-            venc: l.vencimento,
-          })),
-        });
-      } catch { /* presenca e auditoria paralela; nao derruba a importacao */ }
 
       // 1) Cria em lote (uma chamada só) os alunos que não bateram nem por
       // CPF nem por nome, em vez de um insert por linha.
@@ -552,6 +513,70 @@ export default function Borderos() {
         .from("importacoes")
         .update({ status: "CONCLUIDO" })
         .eq("id", importacao.id);
+
+      // =====================================================================
+      // J3/I2 — PRESENCA DO ARQUIVO BRUTO.
+      //
+      // ORDEM (corrigida em 01/10): a captura vem DEPOIS de a importacao
+      // financeira CONCLUIR. Antes ela rodava no inicio de
+      // `confirmarImportacao`, e o motivo documentado era outro -- garantir que
+      // as linhas puladas pelo laco entrassem no registro. Esse motivo nao
+      // exige rodar antes: `preview.linhas` e o arquivo inteiro e continua
+      // disponivel aqui. Capturando antes, uma importacao que estourasse no
+      // meio deixava a trilha afirmando que uma extracao foi recebida enquanto
+      // a `importacoes` ficava em PROCESSANDO -- uma extracao registrada sem
+      // importacao concluida.
+      //
+      // O QUE A CAPTURA PRECISA MANTER, e mantem: TODAS as linhas do arquivo,
+      // inclusive as que o laco acima pula via
+      // `naoReabreNoBordero(linha.situacaoAtual)` (PAGO, EM_CONFIRMACAO,
+      // CANCELADA) e as sem aluno resolvido. Se a trilha repetisse o filtro do
+      // importador, a ausencia medida seria artefato nosso, nao do arquivo.
+      // =====================================================================
+      try {
+        await supabase.rpc("registrar_presenca_extracao", {
+          p_importacao_id: importacao.id,
+          p_source_type: "BORDERO",
+          // o bordero E o escopo: comparar bordero 545 com 617 nao faz sentido,
+          // sao populacoes diferentes por construcao.
+          p_scope_key: "BORDERO=" + String(preview.numeroBordero || "DESCONHECIDO"),
+          // CONTRATO DO BORDERO (aprovado em 01/10):
+          //   · serve para AUDITORIA DE PRESENCA;
+          //   · normalmente NAO tera snapshot comparavel seguinte (cada bordero
+          //     e importado ~1 vez: 93 referencias em 97 importacoes);
+          //   · portanto NAO gera inferencia de ausencia;
+          //   · NAO participa da sequencia TOTAL do portador 195;
+          //   · NAO e comparado com BORDERO=TODOS -- scope_key diferente, e o
+          //     CHECK ck_extracao_scope_key_coerente garante a separacao.
+          // TOTAL aqui significa "o lote inteiro DESTA remessa", nao a carteira.
+          p_completude: "TOTAL",
+          // instante do upload, nao da geracao do bordero: o arquivo nao traz
+          // data de geracao. Inofensivo aqui porque cada bordero tem scope_key
+          // propria -- existe no maximo UMA extracao por escopo, logo nao ha
+          // ordem a inverter. No relatorio, onde todas as extracoes dividem a
+          // mesma scope_key, a data E declarada pela gestao.
+          p_snapshot_at: new Date().toISOString(),
+          p_arquivo_nome: arquivo?.name || null,
+          p_arquivo_hash: await hashArquivo(await arquivo.arrayBuffer()),
+          p_linhas_arquivo: preview.linhas.length,
+          p_linhas: preview.linhas.map((l) => ({
+            documento: l.numTitulo,
+            cpf: l.cpfLimpo,
+            tipo_boleto: l.curso,
+            // CORRIGIDO em 01/10: antes ia `l.situacaoAtual || "ABERTO"`.
+            // `situacaoAtual` e a situacao QUE O CRM TEM para o titulo
+            // (`mapaTitulos[numTitulo].situacao`), nao algo que o arquivo diga
+            // -- o bordero nao tem coluna de situacao. Gravar aquilo era
+            // guardar estado nosso como se fosse conteudo do arquivo, e o
+            // fallback literal "ABERTO" inventava uma situacao para todo
+            // titulo que o CRM ainda nao conhecia. A trilha representa O
+            // ARQUIVO RECEBIDO: sem coluna no arquivo, sem valor aqui.
+            situacao: null,
+            valor: l.valor,
+            venc: l.vencimento,
+          })),
+        });
+      } catch { /* presenca e auditoria paralela; nao derruba a importacao */ }
 
       setResultado({ inseridos, atualizados, ignorados, alunosCriados, nomesCriados, nomesNaoEncontrados });
       setPreview(null);
