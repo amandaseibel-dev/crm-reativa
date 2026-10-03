@@ -107,3 +107,20 @@ um curso a status da pessoa, e nunca usa `contracts[].status` como substituto.
 
 Ver também [prime-mapa-fontes-verdade.md](prime-mapa-fontes-verdade.md) para
 qual identificador vale como fonte de verdade de cada informação.
+
+## Preventivo (frente criada em 28/09/2026)
+
+O Preventivo **não cria identificador novo**. A identidade de um título
+preventivo é `(carteira, registration, documento)`, onde `documento` é o mesmo
+`financial_statement[].boleto` (7 dígitos) ou `documentNumber` (13 dígitos)
+que a Prime devolve — a sincronização casa pelos dois, por igualdade exata.
+
+**Nome do aluno nunca entra na chave**, nem no Preventivo nem em lugar nenhum:
+o nome do extrato é o do PAGADOR e já causou 10 baixas erradas na cobrança em
+08/09/2026 (`regra-baixa-so-pelo-numero-do-titulo-nunca-por-nome`).
+
+A matrícula usada é a `registration` do Prime, que **não** é necessariamente a
+matrícula do CRM — ver a seção de `students_search` em
+[prime-api.md](prime-api.md). Por isso o relatório importado precisa trazer a
+matrícula do Prime (ou a do arquivo Santander, que bateu 13 de 13 com
+`registration` nos casos conferidos), nunca a do CRM.
