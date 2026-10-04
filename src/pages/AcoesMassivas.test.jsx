@@ -102,7 +102,9 @@ beforeEach(() => {
     if (nome === "acoes_massivas_exportar") {
       return {
         data: {
-          lote_id: "lote-novo", exportados: 1, ids_exportados: [args.p_aluno_ids[0]], excluidos_confirmacao: 0,
+          lote_id: "lote-novo", exportados: 1, selecionados: 1, registrados: 1, registro_automatico: true,
+          enviados: null, falhas_envio: null,
+          ids_exportados: [args.p_aluno_ids[0]], excluidos_confirmacao: 0,
           operador_email: args.p_operador_email ?? null,
           tipo_cobranca: args.p_tipo_cobranca ?? "REGRA_ANTERIOR",
           contatos: [{ aluno_id: "a1", nome: "Ana", telefone: "51999999999", email: "a@x.com" }],
@@ -386,23 +388,36 @@ describe("Ações Massivas — filtro por operador responsável", () => {
   });
 });
 
-describe("Ações Massivas — exportar não é contato; confirmar é uma etapa à parte", () => {
+describe("Ações Massivas — exportar já registra (02/10); lotes antigos ficam pendentes de registro", () => {
   const LOTE = {
     id: "lote-1", canal: "WHATSAPP", operador_email: "cobranca03@teste.local", operador_nome: "Olga",
     arquivo: "acao-massiva-whatsapp-cobranca03-2026-09-16.xlsx", total: 3,
     exportado_por_email: "gestao@reativa", exportado_em: "2026-09-16T14:00:00Z",
   };
 
-  it("exportar só chama a exportação: nenhum registro, nenhuma confirmação", async () => {
+  it("exportar é a única chamada: o próprio banco registra, sem segunda etapa", async () => {
     await montar();
     await buscar();
     await gerar();
     expect(nomesChamados()).toContain("acoes_massivas_exportar");
     expect(nomesChamados()).not.toContain("registrar_acao_massiva");
     expect(nomesChamados()).not.toContain("acoes_massivas_concluir_lote");
-    expect(screen.getByText(/Nada foi registrado nos alunos/)).toBeTruthy();
+    expect(screen.getByText(/registrado\(s\) no CRM como ação massiva/)).toBeTruthy();
     // a lista de lotes abertos é recarregada para mostrar o que falta confirmar
     expect(nomesChamados().filter((n) => n === "acoes_massivas_lotes_pendentes").length).toBe(2);
+  });
+
+  it("o resultado separa Selecionados, Registrados e Excluídos, e marca Enviados/Falhas como indisponíveis", async () => {
+    await montar();
+    await buscar();
+    await gerar();
+    expect(screen.getByText("Selecionados")).toBeTruthy();
+    expect(screen.getByText("Registrados no CRM")).toBeTruthy();
+    expect(screen.getByText("Excluídos na revalidação")).toBeTruthy();
+    expect(screen.getByText("Enviados")).toBeTruthy();
+    expect(screen.getByText("Falhas de envio")).toBeTruthy();
+    // "não disponível" aparece nos dois que não são mensuráveis, e em nenhum outro
+    expect(screen.getAllByText("não disponível").length).toBe(2);
   });
 
   it("nenhum caminho da tela chama o registro direto", async () => {
@@ -419,7 +434,7 @@ describe("Ações Massivas — exportar não é contato; confirmar é uma etapa 
     lotes = [LOTE];
     concluirExtra = { excluidos_acionados_apos_exportacao: 1 };
     await montar();
-    expect(await screen.findByText("Planilhas exportadas aguardando confirmação")).toBeTruthy();
+    expect(await screen.findByText("Planilhas pendentes de registro")).toBeTruthy();
     expect(within(screen.getByTestId("resp-caso")).getByText(/Olga/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Confirmar ação realizada/ }));
     expect(nomesChamados()).not.toContain("acoes_massivas_concluir_lote");
@@ -444,12 +459,12 @@ describe("Ações Massivas — exportar não é contato; confirmar é uma etapa 
     expect(screen.getByText(/descartado. Nada foi registrado/)).toBeTruthy();
   });
 
-  it("trocar de operador não esconde os lotes aguardando confirmação", async () => {
+  it("trocar de operador não esconde os lotes pendentes de registro", async () => {
     lotes = [LOTE];
     await montar();
-    await screen.findByText("Planilhas exportadas aguardando confirmação");
+    await screen.findByText("Planilhas pendentes de registro");
     escolherOperador("cobranca05@teste.local");
-    expect(screen.getByText("Planilhas exportadas aguardando confirmação")).toBeTruthy();
+    expect(screen.getByText("Planilhas pendentes de registro")).toBeTruthy();
   });
 
   it("escolher operador NÃO aplica “Sem acionamento há” sozinho; o filtro segue opcional", async () => {
@@ -572,7 +587,7 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     expect(screen.queryByRole("button", { name: /Exportar planilha/ })).toBeNull();
   });
 
-  it("o lote aguardando confirmação mostra o tipo; a confirmação conta quem saiu do tipo", async () => {
+  it("o lote pendente de registro mostra o tipo; a confirmação conta quem saiu do tipo", async () => {
     lotes = [
       {
         id: "lote-9", canal: "WHATSAPP", operador_email: null, operador_nome: null, tipo_cobranca: "ACORDOS_VENCIDOS",
@@ -587,7 +602,7 @@ describe("Ações Massivas — filtro Tipo de cobrança", () => {
     ];
     concluirExtra = { excluidos_tipo_cobranca: 2, tipo_cobranca: "ACORDOS_VENCIDOS" };
     await montar();
-    await screen.findByText("Planilhas exportadas aguardando confirmação");
+    await screen.findByText("Planilhas pendentes de registro");
     expect(screen.getByRole("columnheader", { name: "Tipo de cobrança" })).toBeTruthy();
     expect(screen.getByRole("cell", { name: "Somente acordos vencidos" })).toBeTruthy();
     expect(screen.getByRole("cell", { name: "Sem tipo (tela anterior)" })).toBeTruthy();

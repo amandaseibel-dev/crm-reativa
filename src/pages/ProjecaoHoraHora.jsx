@@ -313,7 +313,9 @@ function ProjecaoHoraHoraInner() {
   const [salvandoMeta, setSalvandoMeta] = useState(false);
   const [carregandoMetaConfig, setCarregandoMetaConfig] = useState(false);
   const metaConfigRequestSeq = useRef(0);
-
+  // Falha de leitura NAO sobrescreve o formulario: o que estava em tela fica,
+  // e o aviso diz que aqueles valores nao sao os do banco.
+  const [erroMeta, setErroMeta] = useState("");
   // Linhas onde o valor pago veio zerado mas o honorário veio preenchido --
   // sinal forte de que a celula de valor pago veio vazia so nessa linha na
   // planilha original (nao e mudanca de layout do arquivo inteiro).
@@ -519,6 +521,10 @@ function ProjecaoHoraHoraInner() {
 
   function aplicarDadosDashboard(data) {
     setDashboard(data);
+    // O formulário de meta NÃO é preenchido aqui. `data.config_metas` vem do
+    // snapshot, que é anterior ao último salvamento e devolvia o valor velho
+    // por cima do recém-gravado. A meta é lida por carregarConfiguracaoMeta(),
+    // direto de metas_projecao. O snapshot segue alimentando os calculados.
     setCarregandoDashboard(false);
   }
 
@@ -551,6 +557,7 @@ function ProjecaoHoraHoraInner() {
     const requestSeq = ++metaConfigRequestSeq.current;
     const mesConsultado = mesReferencia;
     setCarregandoMetaConfig(true);
+    setErroMeta("");
     const { data, error } = await supabase
       .from("metas_projecao")
       .select("mes_referencia, meta_operacional, meta_unidades, meta_honorario, m1_valor, m1_percentual, m2_valor, m2_percentual, m3_valor, m3_percentual, m4_valor, m4_percentual")
@@ -562,7 +569,7 @@ function ProjecaoHoraHoraInner() {
     if (requestSeq !== metaConfigRequestSeq.current) return null;
 
     if (error) {
-      setErro("Erro ao carregar configuração de metas: " + error.message);
+      setErroMeta("Não foi possível ler a meta de " + mesConsultado + ": " + error.message);
       setCarregandoMetaConfig(false);
       return null;
     }
@@ -817,16 +824,17 @@ function ProjecaoHoraHoraInner() {
         return;
       }
 
-      // Confirma a persistência pela fonte real antes de recalcular o snapshot.
+      // Confirma a persistência pela fonte real: o que fica na tela é o que
+      // está gravado em metas_projecao, nunca o que o formulário tinha.
       const persistido = await carregarConfiguracaoMeta();
       if (!persistido) {
-        setErro("A meta foi enviada, mas não foi possível confirmar a leitura em metas_projecao. A projeção não foi atualizada automaticamente.");
+        setErro("A meta foi enviada, mas não foi possível confirmar a leitura em metas_projecao. Recarregue antes de salvar de novo.");
         return;
       }
 
-      // Só após confirmar a configuração viva, regenera o snapshot e então
-      // recarrega Dashboard/Hora a Hora. O formulário não depende desse snapshot.
-      await atualizarProjecao();
+      // O snapshot NÃO é regenerado aqui: recalcular a filial leva ~20 s e a
+      // meta gravada já está em tela. A projeção é atualizada pelo botão
+      // "Atualizar projeção", como em qualquer outra alteração.
     } finally {
       setSalvandoMeta(false);
     }
@@ -1528,13 +1536,19 @@ function ProjecaoHoraHoraInner() {
                     ))}
                   </div>
 
+                  {erroMeta && (
+                    <p style={{ margin: "0 0 10px", fontSize: 12.5, fontWeight: 700, color: "#b91c1c" }}>
+                      {erroMeta} — os valores abaixo são os que estavam em tela, não os do banco. Recarregue antes de salvar.
+                    </p>
+                  )}
+
                   <button
                     style={estilos.botaoPrimario}
                     onClick={salvarMeta}
                     disabled={salvandoMeta || atualizandoProjecao || carregandoMetaConfig}
                   >
                     {salvandoMeta
-                      ? "Salvando e atualizando projeção..."
+                      ? "Salvando..."
                       : carregandoMetaConfig
                       ? "Carregando configuração..."
                       : "Salvar configuração de metas"}
