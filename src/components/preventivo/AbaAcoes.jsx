@@ -34,6 +34,13 @@ const ROTULO_VINCULO = {
   PENDENTE: "ainda não consultado no Prime",
 };
 
+// A etapa da jornada que a ação endereça. Eixo SEPARADO do canal: qualquer
+// combinação é válida. Rótulo livre não entra aqui — o campo é tipado no banco.
+const CONTEXTOS = {
+  PROXIMO_VENCIMENTO: "Próximo ao vencimento",
+  BOLETO_VENCIDO: "Boleto vencido",
+};
+
 const ESTADOS = {
   PREPARADA: "Preparada",
   EXPORTADA: "Exportada",
@@ -52,7 +59,7 @@ export default function AbaAcoes({ carteira }) {
   const [acoes, setAcoes] = useState(null);
   const [situacao, setSituacao] = useState(null);
   const [erro, setErro] = useState("");
-  const [nova, setNova] = useState({ nome: "", canal: "WHATSAPP", venc_de: "", venc_ate: "", usarPrimeiroEmail: false });
+  const [nova, setNova] = useState({ nome: "", canal: "WHATSAPP", contexto: "", venc_de: "", venc_ate: "", usarPrimeiroEmail: false });
   const [ocupado, setOcupado] = useState("");
   const [aberta, setAberta] = useState(null);
 
@@ -85,14 +92,18 @@ export default function AbaAcoes({ carteira }) {
   async function preparar(e) {
     e.preventDefault();
     if (!nova.nome.trim()) { setErro("Dê um nome à ação."); return; }
+    // Contexto é campo tipado e obrigatório: é o que permite medir resultado
+    // por etapa da jornada. Nada é deduzido do nome da ação.
+    if (!nova.contexto) { setErro("Escolha o contexto da ação."); return; }
     setOcupado("preparar"); setErro("");
     const filtros = {};
     if (nova.venc_de) filtros.venc_de = nova.venc_de;
     if (nova.venc_ate) filtros.venc_ate = nova.venc_ate;
     // A escolha fica registrada na própria ação — não é um padrão escondido.
     if (nova.canal === "EMAIL" && nova.usarPrimeiroEmail) filtros.usar_primeiro_email = true;
-    const { data, error } = await supabase.rpc("preventivo_acao_preparar", {
+    const { data, error } = await supabase.rpc("preventivo_acao_preparar_v2", {
       p_carteira_id: carteira.id, p_nome: nova.nome.trim(), p_canal: nova.canal, p_filtros: filtros,
+      p_contexto: nova.contexto,
     });
     setOcupado("");
     if (error) { setErro(error.message); return; }
@@ -155,6 +166,14 @@ export default function AbaAcoes({ carteira }) {
             </select>
           </div>
           <div>
+            <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Contexto *</label>
+            <select style={S.select} value={nova.contexto}
+                    onChange={(e) => setNova({ ...nova, contexto: e.target.value })}>
+              <option value="">— escolha —</option>
+              {Object.entries(CONTEXTOS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+          <div>
             <label style={{ ...S.muted, display: "block", fontSize: 12, fontWeight: 700 }}>Vencimento de</label>
             <input type="date" style={{ ...S.input, minWidth: 0 }} value={nova.venc_de}
                    onChange={(e) => setNova({ ...nova, venc_de: e.target.value })} />
@@ -171,7 +190,8 @@ export default function AbaAcoes({ carteira }) {
               usar o primeiro e-mail quando a linha trouxer mais de um
             </label>
           )}
-          <button type="submit" disabled={ocupado === "preparar"} style={S.btnGhost}>
+          <button type="submit" disabled={ocupado === "preparar" || !nova.contexto}
+                  style={{ ...S.btnGhost, opacity: nova.contexto ? 1 : 0.5 }}>
             {ocupado === "preparar" ? "Montando…" : "Revisar elegibilidade"}
           </button>
         </form>
@@ -189,6 +209,7 @@ export default function AbaAcoes({ carteira }) {
                 <div style={S.cardHeadInfo}>
                   <span style={S.cardNome}>{a.nome}</span>
                   <span style={S.cardCpf}>{a.canal === "WHATSAPP" ? "WhatsApp" : "E-mail"}</span>
+                  <span style={S.cardCpf}>{CONTEXTOS[a.contexto] || "Sem contexto"}</span>
                   <span style={S.contadorValor}>{ESTADOS[a.estado]}</span>
                 </div>
                 <div style={S.cardHeadDir}>
@@ -219,6 +240,17 @@ export default function AbaAcoes({ carteira }) {
                 {a.exportada_em ? <span>Exportada em {dataHora(a.exportada_em)}</span> : null}
                 {a.envio_confirmado_em ? <span>Envio confirmado em {dataHora(a.envio_confirmado_em)}</span> : null}
               </div>
+
+              {a.conferencia_contexto?.divergentes > 0 && (
+                <div style={{ padding: "0 16px 12px" }}>
+                  <div style={{ ...S.erroBox, marginBottom: 0 }}>
+                    Conferência: {a.conferencia_contexto.divergentes} de{" "}
+                    {a.conferencia_contexto.titulos_incluidos}{" "}
+                    {a.conferencia_contexto.rotulo_divergencia}. Isto não impede nada —
+                    é só para o rótulo da ação não contradizer a lista.
+                  </div>
+                </div>
+              )}
 
               {a.resultado && <ResultadoDaAcao r={a.resultado} />}
 

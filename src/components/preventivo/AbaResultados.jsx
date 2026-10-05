@@ -45,20 +45,30 @@ function baixar(nome, conteudo) {
   URL.revokeObjectURL(url);
 }
 
+// A etapa da jornada. Mesmos rótulos da aba Ações — o eixo é o mesmo.
+const CONTEXTOS = {
+  PROXIMO_VENCIMENTO: "Próximo ao vencimento",
+  BOLETO_VENCIDO: "Boleto vencido",
+  SEM_CONTEXTO: "Sem contexto (antes do campo existir)",
+};
+
 export default function AbaResultados({ carteira }) {
   const [res, setRes] = useState(null);
   const [situacao, setSituacao] = useState(null);
+  const [porContexto, setPorContexto] = useState(null);
   const [erro, setErro] = useState("");
 
   const buscar = useCallback(() => Promise.all([
     supabase.rpc("preventivo_resultados", { p_carteira_id: carteira.id }),
     supabase.rpc("preventivo_sinc_situacao", { p_carteira_id: carteira.id }),
+    supabase.rpc("preventivo_resultados_por_contexto", { p_carteira_id: carteira.id }),
   ]), [carteira.id]);
 
-  const aplicar = useCallback(([r, s]) => {
+  const aplicar = useCallback(([r, s, c]) => {
     if (r.error) { setErro(r.error.message); return; }
     setErro(""); setRes(r.data);
     if (!s.error) setSituacao(s.data);
+    if (!c.error) setPorContexto(c.data);
   }, []);
 
   useEffect(() => {
@@ -107,6 +117,8 @@ export default function AbaResultados({ carteira }) {
         <Cartao rotulo="Fora da janela (histórico)" valor={t.fora_da_janela} />
         <Cartao rotulo="Nunca consultados no Prime" valor={t.sem_sinc} />
       </div>
+
+      <PorContexto dados={porContexto} />
 
       {/* O número que a gestão mais quer é o que a fonte não dá. Está escrito. */}
       <div style={{ ...S.card, padding: 20, marginTop: 18, borderLeft: "4px solid var(--rv-ambar-borda)" }}>
@@ -245,6 +257,57 @@ function Cartao({ rotulo, valor }) {
     <div style={{ background: "var(--rv-superficie)", border: "1px solid var(--rv-borda)", borderRadius: 12, padding: "14px 16px" }}>
       <div style={{ fontSize: 11, fontWeight: 700, color: "var(--rv-texto-fraco)", textTransform: "uppercase", letterSpacing: "0.04em" }}>{rotulo}</div>
       <div style={{ fontSize: 20, fontWeight: 800, color: "var(--rv-tinta)", marginTop: 4 }}>{valor ?? 0}</div>
+    </div>
+  );
+}
+
+// Resultado por etapa da jornada. A palavra é REGULARIZADO: nunca "pago",
+// nunca "recuperado". A definição viaja junto, vinda do banco.
+function PorContexto({ dados }) {
+  if (!dados) return null;
+  const chaves = Object.keys(dados);
+  if (chaves.length === 0) return null;
+  const definicao = dados[chaves[0]]?.definicao;
+
+  return (
+    <div style={{ ...S.card, padding: 20, marginTop: 18 }}>
+      <h2 style={{ ...S.cardNome, fontSize: 16, margin: 0 }}>Resultado por contexto</h2>
+      <p style={{ ...S.muted, marginTop: 6, fontSize: 12.5 }}>{definicao}</p>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 12, marginTop: 14 }}>
+        {chaves.map((k) => {
+          const d = dados[k];
+          return (
+            <div key={k} style={{ ...S.card, padding: 16 }}>
+              <div style={{ ...S.cardNome, fontSize: 14 }}>{CONTEXTOS[k] || k}</div>
+              <Linha rotulo="Ações" valor={d.acoes} />
+              <Linha rotulo="Com envio confirmado" valor={d.acoes_com_envio_confirmado} />
+              <Linha rotulo="Alunos acionados" valor={d.alunos_acionados} />
+              <Linha rotulo="Títulos acionados" valor={d.titulos_acionados} />
+              <Linha rotulo="Valor acionado" valor={moeda(d.valor_acionado)} />
+              <Linha rotulo="Continuam em aberto" valor={d.continuam_em_aberto} />
+              <Linha rotulo="Regularizados entre remessas" valor={d.regularizados_entre_remessas} />
+              <Linha rotulo="Valor regularizado" valor={moeda(d.valor_regularizado)} />
+              <Linha rotulo="Taxa de regularização"
+                     valor={d.taxa_regularizacao === null ? "—" : `${d.taxa_regularizacao}%`} />
+              {d.aguardando_proxima_remessa > 0 && (
+                <p style={{ ...S.muted, marginTop: 8, fontSize: 11.5 }}>
+                  {d.aguardando_proxima_remessa} ação(ões) ainda sem remessa seguinte para comparar.
+                </p>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function Linha({ rotulo, valor }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "space-between", gap: 8, marginTop: 6, fontSize: 12.5 }}>
+      <span style={S.muted}>{rotulo}</span>
+      <strong>{valor ?? "—"}</strong>
     </div>
   );
 }
