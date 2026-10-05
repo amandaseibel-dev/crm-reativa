@@ -55,6 +55,16 @@
         "vite.preview-academico.config.js"
       ],
       "port": 5198
+    },
+    {
+      "name": "efetividade-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "vite",
+        "--config",
+        "vite.efetividade.config.js"
+      ],
+      "port": 5202
     }
   ]
 }

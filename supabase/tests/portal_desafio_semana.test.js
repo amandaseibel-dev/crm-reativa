@@ -19,6 +19,12 @@ const HOJE = new Date();
 const iso = (d) => d.toISOString().slice(0, 10);
 const DE = iso(new Date(HOJE.getTime() - 3 * 86400000));
 const ATE = iso(new Date(HOJE.getTime() + 3 * 86400000));
+// `iso` devolve a data em UTC; `portal_desafio_vigente` compara com a data em
+// Sao Paulo (UTC-3). Entre 00h e 03h UTC as duas diferem em um dia, e um
+// desafio que comece "hoje em UTC" ainda nao esta vigente para o banco. ONTEM
+// (UTC-1d) e <= a data de Sao Paulo nas duas situacoes, entao serve de inicio
+// vigente sem depender da hora em que o CI roda.
+const ONTEM = iso(new Date(HOJE.getTime() - 86400000));
 const AGORA = new Date().toISOString();
 
 beforeAll(async () => {
@@ -209,7 +215,7 @@ describe("qual desafio e o vigente", () => {
 
   it("com dois vigentes, vence o de inicio mais recente", async () => {
     await H.criarDesafio(db, { titulo: "Antigo", inicioEm: DE, fimEm: ATE });
-    await H.criarDesafio(db, { titulo: "Novo", inicioEm: iso(new Date()), fimEm: ATE });
+    await H.criarDesafio(db, { titulo: "Novo", inicioEm: ONTEM, fimEm: ATE });
     expect((await H.desafioVigente(db, H.MAURICIO)).titulo).toBe("Novo");
   });
 

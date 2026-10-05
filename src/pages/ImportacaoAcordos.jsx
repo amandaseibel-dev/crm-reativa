@@ -1,11 +1,23 @@
 import { useState, useEffect } from "react";
 import * as XLSX from "xlsx";
 import { supabase } from "../services/supabase";
+// IMPLEMENTACAO UNICA, compartilhada com Borderos.jsx. Hash diferente para o
+// mesmo arquivo quebraria a idempotencia entre os dois fluxos em silencio --
+// por isso nao ha copia local. Coberto por src/utils/hashArquivo.test.js.
+import { hashArquivo } from "../utils/hashArquivo";
+import { TIPOS_DE_ESCOPO, escopoTipoPermitido, motivoDoBloqueio, scopeKeyRelatorio }
+  from "../utils/escopoExtracao";
 
 // Importacao do "Relatorio de Titulos em Aberto" (somente acordos).
 // Le o arquivo no navegador, mostra previa e grava via RPC importar_acordos,
 // que cria alunos faltantes (match por CPF), insere titulos vinculados e
 // popula a fila de confirmacao de acordos para a operacao acompanhar.
+//
+// J3/I1: alem do fluxo financeiro (inalterado), registra a PRESENCA de TODAS as
+// linhas do arquivo -- inclusive as mensalidades, que antes eram descartadas no
+// `continue` abaixo. A presenca e o unico registro de que o titulo ESTAVA no
+// relatorio naquela extracao. Nao e usada para nenhuma inferencia: ausencia
+// entre extracoes NAO prova incorporacao a acordo (ver docs/J3-*).
 
 function soDigitos(v) { return String(v == null ? "" : v).replace(/\D/g, ""); }
 
@@ -49,6 +61,23 @@ export default function ImportacaoAcordos() {
   const [resultado, setResultado] = useState(null);
   const [nomeArquivo, setNomeArquivo] = useState("");
   const [historico, setHistorico] = useState(null);
+  // J3/I1 — declaracao de escopo. OBRIGATORIA: sem ela nao da para comparar
+  // duas extracoes. "" forca a escolha explicita (nao tem default silencioso).
+  const [completude, setCompletude] = useState("");
+  const [confirmouTotal, setConfirmouTotal] = useState(false);
+  const [snapshotAt, setSnapshotAt] = useState("");
+  // presenca do arquivo BRUTO + metadados do arquivo
+  // ---- escopo declarado (I2, 01/10): a scope_key era fixa no codigo como
+  // "PORTADOR=195|BORDERO=TODOS|TIPO=TODOS". Qualquer extracao filtrada entrava
+  // na mesma sequencia da extracao completa. Agora e declarada -- e o conteudo
+  // do arquivo restringe o que pode ser declarado.
+  const [portador, setPortador] = useState("195");
+  const [escopoBordero, setEscopoBordero] = useState("TODOS");
+  const [escopoTipo, setEscopoTipo] = useState("");
+  const [tiposNoArquivo, setTiposNoArquivo] = useState([]);
+  const [presenca, setPresenca] = useState(null);
+  const [arquivoHash, setArquivoHash] = useState("");
+  const [linhasArquivo, setLinhasArquivo] = useState(0);
 
   async function carregarHistorico() {
     const { data, error } = await supabase.rpc("listar_importacoes_acordos");
@@ -59,21 +88,41 @@ export default function ImportacaoAcordos() {
 
   function analisar(e) {
     setErro(""); setResultado(null); setResumo(null); setLinhas(null);
+    setPresenca(null); setArquivoHash(""); setLinhasArquivo(0);
     const file = e.target.files && e.target.files[0];
     if (!file) return;
     setNomeArquivo(file.name);
     const reader = new FileReader();
-    reader.onload = (ev) => {
+    reader.onload = async (ev) => {
       try {
+        setArquivoHash(await hashArquivo(ev.target.result));
         const wb = XLSX.read(new Uint8Array(ev.target.result), { type: "array", cellDates: true });
         const sh = wb.Sheets[wb.SheetNames[0]];
         const rows = XLSX.utils.sheet_to_json(sh, { defval: "" });
+        setLinhasArquivo(rows.length);   // TOTAL de linhas, nao o subconjunto
         const out = [];
+        const todas = [];                // J3/I1: presenca, ANTES de filtrar
         for (const r of rows) {
           const tipo = String(r["Tipo de Boleto"] || "").trim();
           const doc = soDigitos(r["Documento"]);
-          if (tipo.toLowerCase() !== "acordo") continue;   // so acordos
           if (!/^\d{6,}$/.test(doc)) continue;               // ignora linha de total
+          // ===== CONTRATO (nao mover) =====================================
+          // A captura de presenca deve permanecer ANTES de qualquer filtro
+          // operacional do importador. Mover esta linha para depois do
+          // `continue` abaixo faz as mensalidades sumirem do registro, e a
+          // ausencia delas vira artefato do CRM -- nao do relatorio da ULBRA.
+          // ================================================================
+          // PRESENCA: toda linha com documento valido entra, qualquer tipo.
+          todas.push({
+            documento: doc,
+            cpf: soDigitos(r["CPF Aluno"]),
+            tipo_boleto: tipo,
+            situacao: String(r["Situação do Aluno"] || "").trim(),
+            valor: parseValor(r["A Receber Bruto"]),
+            venc: parseData(r["Vcto"]),
+          });
+          // FLUXO FINANCEIRO: daqui para baixo, identico ao de hoje.
+          if (tipo.toLowerCase() !== "acordo") continue;   // so acordos
           out.push({
             documento: doc,
             cpf: soDigitos(r["CPF Aluno"]),
@@ -84,6 +133,15 @@ export default function ImportacaoAcordos() {
             situacao: String(r["Situação do Aluno"] || "").trim(),
           });
         }
+        setPresenca(todas);
+        // TIPOS PRESENTES NO ARQUIVO. Base da restricao da declaracao: a
+        // escolha manual deixa de ser a unica fonte do escopo.
+        const tipos = [...new Set(todas.map((l) => l.tipo_boleto).filter(Boolean))];
+        setTiposNoArquivo(tipos);
+        // pre-seleciona a UNICA declaracao compativel com o conteudo, quando ha
+        // uma. Nunca pre-seleciona TODOS por comodidade.
+        const soAcordo = tipos.length > 0 && tipos.every((t) => t.toLowerCase() === "acordo");
+        setEscopoTipo(soAcordo ? "ACORDO" : tipos.length >= 2 ? "" : "RECORTE");
         if (out.length === 0) { setErro("Nenhuma parcela de Acordo encontrada no arquivo. Confira se e o Relatorio de Titulos em Aberto."); return; }
         const cpfs = new Set(), bases = new Set();
         let total = 0;
@@ -103,6 +161,26 @@ export default function ImportacaoAcordos() {
 
   async function importar() {
     if (!linhas) return;
+    // Trava: escopo tem de ser declarado ANTES de gravar. Nao ha default.
+    if (completude !== "TOTAL" && completude !== "PARCIAL") {
+      setErro("Declare se este arquivo e a extracao TOTAL do portador 195 ou um recorte PARCIAL.");
+      return;
+    }
+    // TOTAL exige a confirmacao explicita do que TOTAL significa.
+    if (completude === "TOTAL" && !confirmouTotal) {
+      setErro("Confirme que a extracao foi feita sem filtro adicional, ou marque PARCIAL.");
+      return;
+    }
+    if (!escopoTipoPermitido(escopoTipo, tiposNoArquivo)) {
+      setErro("Declare o recorte de tipo de boleto compativel com o arquivo. " +
+        "O arquivo tem " + tiposNoArquivo.length + " tipo(s) distinto(s): " +
+        (tiposNoArquivo.join(", ") || "nenhum") + ".");
+      return;
+    }
+    if (!/^[0-9]+$/.test(String(portador))) {
+      setErro("Declare o portador da extracao.");
+      return;
+    }
     setImportando(true); setErro(""); setResultado(null);
     const importacaoId = crypto.randomUUID();
     const BATCH = 1200;
@@ -125,6 +203,91 @@ export default function ImportacaoAcordos() {
       }
       setResultado({ ...acc, importacaoId });
       setProgresso("");
+
+      // ---------------------------------------------------------------------
+      // J3/I1 — PRESENCA. Depois do fluxo financeiro, em chamada separada e
+      // transacao propria. Se falhar, a importacao financeira acima JA esta
+      // concluida e intacta: a presenca e registro paralelo de auditoria, nunca
+      // uma etapa da importacao. Por isso o try/catch que so avisa.
+      // ---------------------------------------------------------------------
+      try {
+        // ---------------------------------------------------------------------
+        // J3/I2 — CAPTURA EM LOTES.
+        //
+        // POR QUE (medido em producao em 01/10/2026):
+        //   · uma extracao TOTAL real da carteira tem 47.949 linhas e 7 MB de
+        //     payload;
+        //   · `registrar_presenca_extracao` com as 47.949 de uma vez: 6.340 ms;
+        //   · `authenticated` tem `statement_timeout = 8s`.
+        // Sobravam 1.660 ms num dia bom -- ou seja, a chamada unica falha
+        // justamente no unico caso que a trilha existe para registrar: o
+        // snapshot TOTAL. Em lotes de 1.200 cada chamada custou 132 ms.
+        //
+        // O 1o lote continua indo por `registrar_presenca_extracao`: e ela que
+        // cria o escopo e resolve a idempotencia por hash (funcao congelada do
+        // I1, nao alterada). Os lotes seguintes vao por `extracao_lote_anexar`
+        // e o `extracao_lote_fechar` recalcula as metricas e avalia.
+        //
+        // INTERRUPCAO NO MEIO E INERTE: entre o 1o lote e o fechamento o escopo
+        // fica em TOTAL_PENDENTE_VALIDACAO, e `vw_titulo_presenca_historico` le
+        // SOMENTE `TOTAL_VALIDADO`. Uma captura pela metade nao produz ausencia,
+        // nao vira baseline e nao entra em comparacao.
+        // ---------------------------------------------------------------------
+        const LOTE_PRESENCA = 1200;
+        const todas = presenca || [];
+        const { data: pres, error: errPres } = await supabase.rpc("registrar_presenca_extracao", {
+          p_importacao_id: importacaoId,
+          p_source_type: "RELATORIO_TITULOS_ABERTO",
+          // ESCOPO DECLARADO (I2, 01/10). Era fixo em
+          // "PORTADOR=195|BORDERO=TODOS|TIPO=TODOS", o que punha extracao
+          // filtrada e extracao completa na MESMA sequencia comparavel.
+          // Agora cada dimensao que muda a populacao esperada entra na chave, e
+          // `extracao_lote_fechar` confronta a declaracao com o conteudo antes
+          // de deixar a extracao virar referencia.
+          p_scope_key: scopeKeyRelatorio(portador, escopoBordero, escopoTipo),
+          p_completude: completude,
+          p_snapshot_at: snapshotAt ? new Date(snapshotAt).toISOString() : new Date().toISOString(),
+          p_arquivo_nome: nomeArquivo || null,
+          p_arquivo_hash: arquivoHash,
+          p_linhas_arquivo: linhasArquivo,
+          p_linhas: todas.slice(0, LOTE_PRESENCA),
+        });
+        if (errPres) {
+          setProgresso("Importado. A presenca nao foi registrada: " + errPres.message);
+        } else if (pres && pres.reaproveitado) {
+          // Mesmo arquivo ja capturado: NAO anexa nem fecha. Sem esta saida, os
+          // lotes seguintes cairiam no escopo ANTIGO e inflariam um snapshot
+          // que ja estava encerrado.
+          setProgresso("Importado. Este arquivo ja havia sido registrado (mesmo hash) -- presenca nao duplicada.");
+        } else if (pres) {
+          let fechado = null;
+          for (let k = LOTE_PRESENCA; k < todas.length; k += LOTE_PRESENCA) {
+            setProgresso("Importado. Registrando presenca: " +
+              Math.min(k + LOTE_PRESENCA, todas.length) + " de " + todas.length + "...");
+            const { error: errLote } = await supabase.rpc("extracao_lote_anexar", {
+              p_escopo_id: pres.escopo_id,
+              p_linhas: todas.slice(k, k + LOTE_PRESENCA),
+            });
+            if (errLote) {
+              setProgresso("Importado. A presenca ficou incompleta (" + errLote.message +
+                ") e por isso NAO sera usada como referencia.");
+              fechado = "erro";
+              break;
+            }
+          }
+          if (fechado !== "erro") {
+            const { data: fim, error: errFechar } = await supabase.rpc("extracao_lote_fechar", {
+              p_escopo_id: pres.escopo_id,
+            });
+            setProgresso(errFechar
+              ? "Importado. A presenca ficou incompleta (" + errFechar.message +
+                ") e por isso NAO sera usada como referencia."
+              : "Importado. Presenca registrada: " + (fim ? fim.linhas_capturadas : 0) +
+                " linhas, estado " + (fim ? fim.estado : "-") + ".");
+          }
+        }
+      } catch (e2) { setProgresso("Importado. Falha ao registrar presenca: " + (e2.message || e2)); }
+
       try {
         await supabase.rpc("registrar_importacao_acordo", {
           p_importacao_id: importacaoId,
@@ -155,6 +318,105 @@ export default function ImportacaoAcordos() {
         {nomeArquivo && <span style={S.arq}>{nomeArquivo}</span>}
       </div>
 
+      {/* J3/I1 — DECLARACAO OPERACIONAL DE ESCOPO.
+          O sistema NAO tenta deduzir se o arquivo e TOTAL pelo nome nem pela
+          quantidade de linhas: quem sabe o filtro aplicado na tela da ULBRA e
+          quem extraiu. A contagem aparece so como apoio a conferencia -- nunca
+          como critério automatico. */}
+      {resumo && !resultado && (
+        <div style={S.card}>
+          <h2 style={S.h2}>Escopo desta extracao</h2>
+          <p style={S.obs}>
+            O arquivo tem <strong>{linhasArquivo.toLocaleString("pt-BR")}</strong> linhas.
+            Esta contagem e so para a sua conferencia: o sistema nao decide o
+            escopo por ela.
+          </p>
+
+          {/* ===== ESCOPO DECLARADO (I2) =====================================
+               A `scope_key` sai daqui. As opcoes de tipo que o conteudo do
+               arquivo nao sustenta ficam desabilitadas, com o motivo a vista --
+               e `extracao_lote_fechar` reconfere no banco. */}
+          <div style={S.boxEscopo}>
+            <div style={S.linhaEscopo}>
+              <label style={S.lblE}>Portador
+                <select value={portador} onChange={(e) => setPortador(e.target.value)} style={S.inpE}>
+                  <option value="195">195 — Reativa Cobranca</option>
+                  <option value="202">202 — Reativa Cobranca Judicial</option>
+                </select>
+              </label>
+              <label style={S.lblE}>Bordero no filtro
+                <input value={escopoBordero} onChange={(e) => setEscopoBordero(e.target.value)}
+                       style={S.inpE} placeholder="TODOS" />
+              </label>
+            </div>
+            <div style={S.lblE}>Tipo de boleto no filtro</div>
+            <div style={S.linhaEscopo}>
+              {TIPOS_DE_ESCOPO.map((v) => {
+                const permitido = escopoTipoPermitido(v, tiposNoArquivo);
+                const motivo = motivoDoBloqueio(v, tiposNoArquivo);
+                return (
+                  <label key={v} style={{ ...S.rot, opacity: permitido ? 1 : 0.45 }}
+                         title={motivo || ""}>
+                    <input type="radio" name="escTipo" value={v} disabled={!permitido}
+                      checked={escopoTipo === v} onChange={() => setEscopoTipo(v)} />
+                    {" "}<strong>{v === "TODOS" ? "Sem filtro de tipo"
+                        : v === "ACORDO" ? "Somente Acordo" : "Outro recorte"}</strong>
+                    {!permitido && motivo ? <span style={S.obs}> — {motivo}</span> : null}
+                  </label>
+                );
+              })}
+            </div>
+            <div style={S.obs}>
+              Tipos de boleto encontrados no arquivo ({tiposNoArquivo.length}):{" "}
+              {tiposNoArquivo.join(", ") || "nenhum"}.
+            </div>
+            <div style={S.obs}>
+              Sequencia comparavel: <code>{scopeKeyRelatorio(portador, escopoBordero, escopoTipo || "?")}</code>
+            </div>
+          </div>
+
+          <label style={S.rot}>
+            <input type="radio" name="compl" value="TOTAL"
+              checked={completude === "TOTAL"} onChange={() => { setCompletude("TOTAL"); setConfirmouTotal(false); }} />
+            {" "}<strong>TOTAL</strong> — extracao completa do portador 195
+          </label>
+          <label style={{ ...S.rot, marginLeft: 16 }}>
+            <input type="radio" name="compl" value="PARCIAL"
+              checked={completude === "PARCIAL"} onChange={() => { setCompletude("PARCIAL"); setConfirmouTotal(false); }} />
+            {" "}<strong>PARCIAL</strong> — qualquer recorte
+          </label>
+
+          {completude === "TOTAL" && (
+            <div style={{ ...S.card, marginTop: 12, borderColor: "var(--rv-ambar-texto)" }}>
+              <strong>Confirme o que TOTAL significa</strong>
+              <p style={S.obs}>
+                Este arquivo contem <strong>todos os titulos do portador 195</strong>,
+                sem nenhum filtro adicional de bordero, tipo de boleto, situacao,
+                aluno, unidade, vencimento ou qualquer outro recorte.
+              </p>
+              <label style={S.rot}>
+                <input type="checkbox" checked={confirmouTotal}
+                  onChange={(ev) => setConfirmouTotal(ev.target.checked)} />
+                {" "}Confirmo que extrai sem filtro adicional.
+              </label>
+              <p style={S.obs}>
+                Se nao puder afirmar isso, volte e marque <strong>PARCIAL</strong>.
+                Um PARCIAL nunca e usado para comparar ausencia — declarar errado
+                como TOTAL e que estraga a serie.
+              </p>
+            </div>
+          )}
+
+          <div style={{ marginTop: 10 }}>
+            <label style={S.rot}>Instante da extracao na ULBRA{" "}
+              <input type="datetime-local" value={snapshotAt}
+                onChange={(ev) => setSnapshotAt(ev.target.value)} />
+            </label>
+            <div style={S.obs}>Em branco = agora. Informe quando o arquivo for de antes.</div>
+          </div>
+        </div>
+      )}
+
       {erro && <div style={S.erro}>{erro}</div>}
 
       {resumo && !resultado && (
@@ -166,7 +428,8 @@ export default function ImportacaoAcordos() {
             <div style={S.box}><div style={S.num}>{resumo.cpfs.toLocaleString("pt-BR")}</div><div style={S.rot}>CPFs (alunos)</div></div>
             <div style={S.box}><div style={S.num}>{moeda(resumo.total)}</div><div style={S.rot}>Total em aberto</div></div>
           </div>
-          <button style={S.btn} disabled={importando} onClick={importar}>
+          <button style={S.btn} onClick={importar}
+            disabled={importando || !completude || (completude === "TOTAL" && !confirmouTotal)}>
             {importando ? (progresso || "Importando...") : "Confirmar e importar"}
           </button>
           <div style={S.obs}>Titulos ja existentes (mesmo documento) sao ignorados automaticamente. A importacao e etiquetada para ser reversivel.</div>
@@ -258,6 +521,11 @@ const S = {
   rot: { fontSize: 12, color: "var(--rv-texto-fraco)", fontWeight: 600, marginTop: 3 },
   btn: { alignSelf: "flex-start", background: "#1e40af", color: "#fff", border: "none", borderRadius: 10, padding: "12px 22px", fontWeight: 800, fontSize: 14, cursor: "pointer" },
   obs: { fontSize: 12, color: "var(--rv-texto-fraco)" },
+  // I2 - escopo declarado
+  boxEscopo: { background: "var(--rv-fundo-cartao)", border: "1px dashed var(--rv-borda)", borderRadius: 12, padding: "12px 14px", display: "flex", flexDirection: "column", gap: 8, marginBottom: 12 },
+  linhaEscopo: { display: "flex", flexWrap: "wrap", gap: 14, alignItems: "flex-end" },
+  lblE: { display: "flex", flexDirection: "column", gap: 4, fontSize: 12, fontWeight: 700, color: "var(--rv-texto-suave)" },
+  inpE: { border: "1px solid var(--rv-borda)", borderRadius: 8, padding: "7px 9px", fontSize: 13, background: "var(--rv-superficie)", color: "var(--rv-tinta)", minWidth: 150 },
   avisoPulado: {
     background: "var(--rv-verde-ok-fundo)", border: "1px solid var(--rv-verde-ok-borda)", color: "var(--rv-verde-ok-texto)",
     borderRadius: 10, padding: "12px 14px", fontSize: 13, lineHeight: 1.55, margin: "10px 0",

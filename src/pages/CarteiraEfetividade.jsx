@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
+import EfetividadePorVencimento from "../components/EfetividadePorVencimento";
 import EfetividadeCompetencias from "../components/EfetividadeCompetencias";
 
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
@@ -187,7 +188,10 @@ export default function CarteiraEfetividade() {
     }));
     referenciaRotulo = "do valor negociado";
     rodape = "Carteira recebida: " + moedaCurta(contexto?.carteira_valor) + " · "
-           + num(contexto?.carteira_titulos) + " títulos · " + num(contexto?.carteira_cpfs) + " alunos · "
+           // "CPFs", não "alunos": este número conta CPF e os cartões por
+           // vencimento contam ficha do CRM. Dizer qual é qual custa uma
+           // palavra; deixar os dois como "alunos" custa a confiança no painel.
+           + num(contexto?.carteira_titulos) + " títulos · " + num(contexto?.carteira_cpfs) + " CPFs · "
            + num(contexto?.remessas) + " remessas (" + data(contexto?.primeira_remessa) + " a "
            + data(contexto?.ultima_remessa) + ")";
   }
@@ -273,7 +277,14 @@ export default function CarteiraEfetividade() {
             <div style={S.navBloco}>
               <span style={S.navRotulo}>Visão</span>
               <div style={S.grupo} role="group" aria-label="Visão de 2026/2">
-                {[["consolidado", "Consolidado"], ["competencia", "Por competência"]].map(([k, r]) => (
+                {/* Três leituras de 2026/2, nunca duas ao mesmo tempo na tela.
+                    "Por competência" e "Resumo por vencimento" quebram o mesmo
+                    universo pelo mesmo mês, mas respondem a perguntas
+                    diferentes: uma decompõe em Convertido/Conferência/
+                    Acadêmico/Sem negociação, a outra em Entrou/Pago/Negociado/
+                    Cancelado/Em aberto. Nenhuma recalcula a outra. */}
+                {[["consolidado", "Consolidado"], ["competencia", "Por competência"],
+                  ["vencimento", "Resumo por vencimento"]].map(([k, r]) => (
                   <button key={k} onClick={() => setVista(k)} aria-pressed={vista === k}
                           style={{ ...S.opcao, ...(vista === k ? S.opcaoAtiva : null) }}>{r}</button>
                 ))}
@@ -292,6 +303,10 @@ export default function CarteiraEfetividade() {
       {safra === "2026/2" && vista === "competencia" ? (
         <div style={{ marginTop: 18 }}>
           <EfetividadeCompetencias />
+        </div>
+      ) : safra === "2026/2" && vista === "vencimento" ? (
+        <div style={{ marginTop: 18 }}>
+          <EfetividadePorVencimento />
         </div>
       ) : indicadores.length === 0 ? (
         <p style={{ ...S.discreto, marginTop: 24 }}>Sem dados para {periodo}.</p>
