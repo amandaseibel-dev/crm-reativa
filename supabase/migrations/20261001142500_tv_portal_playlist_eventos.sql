@@ -2,7 +2,7 @@
 -- TV ReATIVA — aproveita dados da Visão Geral do Portal
 -- -----------------------------------------------------------------------------
 -- Acrescenta ao snapshot leve da TV:
---   • playlist_reativa: últimas músicas ativas;
+--   • playlist_reativa: últimas músicas ativas, com música da vez no primeiro item;
 --   • eventos_portal: próximos eventos ativos cadastrados no Portal.
 --
 -- Não altera cálculos financeiros, rankings ou remuneração. Em especial,
