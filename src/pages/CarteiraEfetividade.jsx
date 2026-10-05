@@ -3,6 +3,7 @@ import { supabase } from "../services/supabase";
 import { Carregando } from "../ui/estados";
 import EfetividadePorVencimento from "../components/EfetividadePorVencimento";
 import EfetividadeCompetencias from "../components/EfetividadeCompetencias";
+import SeisLinhasDaSafra from "../components/SeisLinhasDaSafra";
 
 // EFETIVIDADE DA COBRANÇA — visão executiva, um layout só para toda safra.
 //
@@ -324,6 +325,12 @@ export default function CarteiraEfetividade() {
             ))}
           </div>
           {rodape ? <p style={S.rodapeDiscreto}>{rodape}</p> : null}
+
+          {/* 1b. AS SEIS LINHAS — Entrou, Pago, Negociado, Cancelado, Em aberto
+              e Pendente, no mesmo desenho de 2026/2. Pedido da gestão em
+              05/10/2026: a Diretoria encontra as mesmas seis linhas em toda
+              safra, em vez de um recorte conceitual diferente por período. */}
+          <SeisLinhasDaSafra ano={ano} semestre={ano === "2026" ? sem : null} />
 
           {/* 2. SITUAÇÃO DA CARTEIRA — sempre barras simples, nunca tabela */}
           <section style={S.cartao}>
